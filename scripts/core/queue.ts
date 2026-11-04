@@ -1,6 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { RerunMode } from '../cli/check-catalog.js'
 import type { OverlapCatch } from '../nodes/launch/launch-candidates.js'
+import type { MutationParking } from '../policy/round-limit-decision.js'
 import type { BusEvent } from './db.js'
 import type { Queue, TaskIdentity } from './identifiers.js'
 import type { Fold, StoredEvent } from './stored.js'
@@ -9,13 +10,13 @@ import { PRIORITIES, WINDOW_WHO } from '../../src/card/parking.js'
 import { AMEND_SOURCE, witnessesOf } from '../../src/commands/intake/admit.js'
 import { launchCandidates } from '../nodes/launch/launch-candidates.js'
 import { cleanUpdatesOf } from '../nodes/update/update-done.js'
-import { CONTINUE_FIXES, continueFixesDecisionOf, observedHeadsOf, pushedAfterContinueFixes, roundLimitDecisionOf } from '../policy/round-limit-decision.js'
-import { decisionsInForceAt, unspentShardsOf, WINDOW_SHARDS_LIVE_AT } from '../policy/shards.js'
+import { CONTINUE_FIXES, continueFixesDecisionOf, mutationsParkedGrantOf, observedHeadsOf, pushedAfterContinueFixes, roundLimitDecisionOf } from '../policy/round-limit-decision.js'
+import { activeDecisionsShard, decisionsInForceAt, unspentShardsOf, WINDOW_SHARDS_LIVE_AT } from '../policy/shards.js'
 import { MAIN_BRANCH } from '../ports/snapshot.js'
 import { BACKFILL_SOURCE, NOT_A_BACKFILL } from './backfill-source.js'
 import { CARD_BODIES } from './card-bodies.js'
 import { appendEvent, inTransaction, OPEN_WAIT, openOwnerWait, OWNER_WAITS } from './db.js'
-import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, INTAKE_EVENT, INTAKE_MOVE_EVENT, MERGE_DONE, OWNER_WAIT_OPENED, POLICY_DENIED, PR_CLOSED, PR_OPENED, QUESTION_AGENT, QUESTION_OWNER, REVIEW_RECORDED, REVIEW_ROUNDS_SPENT, SESSION_HEARTBEAT, TASK_COMPLETED, TASK_ENQUEUED, TASK_EXPIRED, TASK_FAILED, TASK_LEASED, TASK_RELEASED, TASK_RENEWED, TASK_REQUEUED, TASK_SUPERSEDED, TASK_WITHDRAWN, WITNESS_RECORDED } from './events.js'
+import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, INTAKE_EVENT, INTAKE_MOVE_EVENT, MERGE_DONE, OWNER_WAIT_OPENED, POLICY_DENIED, PR_CLOSED, PR_OPENED, QUESTION_AGENT, QUESTION_OWNER, REVIEW_RECORDED, REVIEW_ROUNDS_SPENT, ROUND_EXTENDED, ROUND_MUTATIONS_PARKED, SESSION_HEARTBEAT, TASK_COMPLETED, TASK_ENQUEUED, TASK_EXPIRED, TASK_FAILED, TASK_LEASED, TASK_RELEASED, TASK_RENEWED, TASK_REQUEUED, TASK_SUPERSEDED, TASK_WITHDRAWN, WITNESS_RECORDED } from './events.js'
 import { generationOfKey, isFullSha, QUEUES, reviewInputOf, reviewInputOfKey, taskKey } from './identifiers.js'
 import { ownerQuestionAnswered } from './inbox.js'
 import { payloadOf, reject } from './stored.js'
@@ -420,6 +421,7 @@ const ROUND_LIMITS_WITH_NO_OUTCOME = `
   WHERE spent.type = '${REVIEW_ROUNDS_SPENT}' AND spent.legacy = 0 AND spent.ts <= ? AND prs.state = 'open'
     AND NOT EXISTS (SELECT 1 FROM events AS opened WHERE opened.type = '${OWNER_WAIT_OPENED}' AND opened.pr = spent.pr AND opened.id > spent.id)
     AND NOT EXISTS (SELECT 1 FROM events AS recut WHERE recut.type = '${PR_OPENED}' AND json_extract(recut.payload, '$.recut_of') = spent.pr)
+    AND NOT EXISTS (SELECT 1 FROM events AS parked WHERE parked.type = '${ROUND_MUTATIONS_PARKED}' AND parked.legacy = 0 AND parked.pr = spent.pr)
   ORDER BY spent.pr
 `
 
@@ -534,11 +536,21 @@ function reentryRoundsOf(db: DatabaseSync, pr: number, reviews: readonly RoundRe
   return (db.prepare(REENTRY_HEADS_OF_A_PR).all(pr) as { head: string | null }[]).filter(row => !reviewedForChanges.has(row.head)).length
 }
 
+export function decisionsShardActive(db: DatabaseSync, now: Date): boolean {
+  return activeDecisionsShard(db, now) !== null
+}
+
+const EXTENSIONS_OF_A_PR = `SELECT count(*) AS extensions FROM events WHERE type = '${ROUND_EXTENDED}' AND legacy = 0 AND pr = ?`
+
+function extensionsOf(db: DatabaseSync, pr: number): number {
+  return (db.prepare(EXTENSIONS_OF_A_PR).get(pr) as { extensions: number }).extensions
+}
+
 export function changesRoundsOf(db: DatabaseSync, pr: number, next?: RoundReview): number {
   const reviews = db.prepare(REVIEWS_OF_A_PR).all(pr) as unknown as RoundReview[]
   const ownerAmended = new Set((db.prepare(BODIES_OWNER_AMENDED_FOR_A_PR).all(pr) as { body: string }[]).map(row => row.body))
   const counted = next === undefined ? reviews : [...reviews, next]
-  return roundsOf(counted, ownerAmended) + reentryRoundsOf(db, pr, counted)
+  return roundsOf(counted, ownerAmended) + reentryRoundsOf(db, pr, counted) - extensionsOf(db, pr)
 }
 
 const ROUND_LIMITED: readonly Queue[] = ['review', 'answer', 'merge']
@@ -547,10 +559,17 @@ function outOfRounds(db: DatabaseSync, queue: Queue, pr: number | null): boolean
   return ROUND_LIMITED.includes(queue) && pr !== null && changesRoundsOf(db, pr) >= REVIEW_ROUNDS
 }
 
+const MUTATION_PARKINGS_OF_A_PR = `SELECT id, head FROM events WHERE type = '${ROUND_MUTATIONS_PARKED}' AND legacy = 0 AND pr = ? AND head IS NOT NULL ORDER BY id`
+
+function mutationParkingsOf(db: DatabaseSync, pr: number): MutationParking[] {
+  return db.prepare(MUTATION_PARKINGS_OF_A_PR).all(pr) as unknown as MutationParking[]
+}
+
 export function mergeDecidedPastRoundLimit(db: DatabaseSync, ts: string, pr: number | null, head: string | null): number | null {
   if (pr === null || head === null || !outOfRounds(db, 'merge', pr))
     return null
-  return roundLimitDecisionOf(decisionsInForceAt(db, new Date(ts)), pr, head, cleanUpdatesOf(db, pr))
+  const cleanUpdates = cleanUpdatesOf(db, pr)
+  return roundLimitDecisionOf(decisionsInForceAt(db, new Date(ts)), pr, head, cleanUpdates) ?? mutationsParkedGrantOf(mutationParkingsOf(db, pr), head, cleanUpdates)
 }
 
 const CHANGES_HEADS_OF_A_PR = `SELECT DISTINCT head FROM events WHERE type = '${REVIEW_RECORDED}' AND legacy = 0 AND pr = ? AND head IS NOT NULL AND json_extract(payload, '$.verdict') = 'changes'`

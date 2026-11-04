@@ -1,6 +1,7 @@
 import type { BusCardStates } from '../../card/closed.js'
 import type { Card, Decision } from '../../card/grammar.js'
 import type { ParkedTask } from '../../card/parking.js'
+import type { WitnessExpectation, WitnessField } from '../../card/witness-fields.js'
 import type { Ui } from '../../ui/console.js'
 import type { Lore } from '../../ui/lore.js'
 import type { CheckedCard } from './check.js'
@@ -12,15 +13,16 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import path from 'node:path'
 import process from 'node:process'
 import { decisionsFileOf, defaultBusPath } from '../../../scripts/core/bus-path.js'
-import { CARD_WAITING, WITNESS_DOWNGRADE } from '../../../scripts/core/events.js'
+import { CARD_ADMITTED, CARD_WAITING, WITNESS_DOWNGRADE } from '../../../scripts/core/events.js'
 import { inForce, OWNER_SOURCE, parseDecisions } from '../../../scripts/policy/decisions/decisions.js'
 import { endedCards } from '../../card/closed.js'
 import { pathsIn, pathsOutside } from '../../card/covering-tests.js'
 import { cardLine, parseCard } from '../../card/grammar.js'
 import { createdPaths, parseParkingFile } from '../../card/parking.js'
 import { PREFIX_SUFFIX } from '../../card/task-file.js'
+import { fieldCommand, isAcceptanceField, judgedCommand, renderedWitness, runsFieldOf, statesAnExit, witnessFieldsOf, witnessText } from '../../card/witness-fields.js'
 import { readMilestones } from '../../manifest.js'
-import { CARD_REFERENCE, checkDraft, correctionText, invalidTestPatterns, isChangeWitness, OWNER_MERGES, ownerPathsOf, PACKAGE_MANIFEST, publishedRootsOf } from './check.js'
+import { CARD_REFERENCE, checkDraft, correctionText, invalidTestPatterns, isChangeWitness, nonPathTouchRefusals, OWNER_MERGES, ownerPathsOf, PACKAGE_MANIFEST, publishedRootsOf } from './check.js'
 import { TEST_NAME_ARGUMENT } from './command-word.js'
 import { admitCorrectionsNeedPerson, bodySha, bodyShaWithoutTouches, confirmationOf, confirmationToken, TOUCHES_HEADER } from './confirm.js'
 import { withoutWitnessKind } from './draft.js'
@@ -162,7 +164,7 @@ export type AdmitResult
   = | { status: 'refused', why: string }
     | { status: 'invalidTestPattern', reasons: string[] }
     | { status: 'sharedCodeMask', reasons: string[] }
-    | { status: 'admitted' | 'alreadyAdmitted' | 'dryRun', file: string, card: SlicedCard, autoConfirm: boolean, source: AdmitSource, inBus: boolean }
+    | { status: 'admitted' | 'alreadyAdmitted' | 'dryRun', file: string, card: SlicedCard, autoConfirm: boolean, source: AdmitSource, inBus: boolean, event: number | null }
     | { status: 'awaiting', file: string, card: SlicedCard, token: string, stale: boolean }
     | { status: 'waiting', file: string, card: SlicedCard, waitingOn: number[], inBus: boolean, dryRun: boolean }
     | { status: 'ownerWait', file: string, card: SlicedCard, downgrades: string[], inBus: boolean, dryRun: boolean }
@@ -177,30 +179,52 @@ const DECISION_LINE = /^- D-[1-9]\d* · /
 const DECISION_CARDS = / · card (#[1-9]\d*(?: #[1-9]\d*)*)/
 const SUPERSEDED_BY = ' · superseded-by D-'
 const DROPPED_CARD = 'dropped'
+const WORD_CONTINUES = /^\w/
 
 export function defaultDecisions(): string {
   return decisionsFileOf(defaultBusPath())
 }
 
+function fieldAllowance(cardId: number, witnessId: string): string {
+  return `${DOWNGRADE_ALLOWANCE} #${cardId} ${witnessId}`
+}
+
 export function downgradeAction(cardId: number, witness: string): string {
-  return `${DOWNGRADE_ALLOWANCE} ${witness} у #${cardId}`
+  const field = renderedWitness(witness)
+  return field === null ? `${DOWNGRADE_ALLOWANCE} ${witness} у #${cardId}` : fieldAllowance(cardId, field.id)
 }
 
 function witnessCore(witness: string): string {
   return withoutWitnessKind(witness).replace(ANY_FORM_OF_FAILING_ON_MAIN, '').trim()
 }
 
-type Outcome = 'pass' | 'fail' | 'any'
+type Outcome = WitnessExpectation | 'any'
 
-interface WitnessFact { command: string, head: Outcome, base: Outcome }
+interface WitnessFact { command: string, head: Outcome, base: Outcome, fromField?: boolean }
 
 const BACKTICKED_COMMAND = /`([^`]+)`/g
 const NEGATED_COMMAND = /^!\s+/
 const FAILS_ON_HEAD = /\bexits 1\b(?! on (?:the )?(?:base|main)\b)|\b(?:fails|red) on (?:the )?head\b/i
 const PASSES_ON_BASE = /\b(?:exits )?0 on (?:the )?(?:base|main)\b/i
-const INVERTED: Record<Outcome, Outcome> = { pass: 'fail', fail: 'pass', any: 'any' }
+
+function inverted(outcome: Outcome): Outcome {
+  return outcome === 'pass' ? 'fail' : outcome === 'fail' ? 'pass' : outcome
+}
+
+function fieldFact(witness: string): WitnessFact | null {
+  const field = renderedWitness(witness)
+  if (field === null)
+    return null
+  const command = field.command.replace(NEGATED_COMMAND, '')
+  return command === field.command
+    ? { command, head: field.head, base: field.base, fromField: true }
+    : { command, head: inverted(field.head), base: inverted(field.base), fromField: true }
+}
 
 function witnessFact(witness: string): WitnessFact | null {
+  const field = fieldFact(witness)
+  if (field !== null)
+    return field
   const commands = [...witness.matchAll(BACKTICKED_COMMAND)].map(match => match[1]!.trim())
   if (commands.length !== 1)
     return null
@@ -208,7 +232,7 @@ function witnessFact(witness: string): WitnessFact | null {
   const head: Outcome = FAILS_ON_HEAD.test(wording) ? 'fail' : 'pass'
   const base: Outcome = isChangeWitness(witness) ? 'fail' : PASSES_ON_BASE.test(wording) ? 'pass' : 'any'
   const command = commands[0]!.replace(NEGATED_COMMAND, '')
-  return command === commands[0] ? { command, head, base } : { command, head: INVERTED[head], base: INVERTED[base] }
+  return command === commands[0] ? { command, head, base } : { command, head: inverted(head), base: inverted(base) }
 }
 
 function sameFact(left: WitnessFact, right: WitnessFact): boolean {
@@ -234,13 +258,69 @@ function equivalentReplacement(original: WitnessFact, replacement: WitnessFact):
     && (original.command === replacement.command || sameTestMoved(original.command, replacement.command))
 }
 
-export function unreplacedDowngrades(downgrades: readonly string[], previous: readonly string[], next: readonly string[]): string[] {
+function testNamesOf(command: string): string[] {
+  return [...command.matchAll(TEST_NAME_ARGUMENT)].map(match => match[1] ?? match[2] ?? match[3]!)
+}
+
+function filterMatches(filter: string, name: string): boolean {
+  try {
+    return new RegExp(filter).test(name)
+  }
+  catch {
+    return false
+  }
+}
+
+function narrowsTheFilter(original: string, replacement: string): boolean {
+  const name = testNameOf(replacement)
+  if (name === null || original.replace(TEST_NAME_ARGUMENT, '') !== replacement.replace(TEST_NAME_ARGUMENT, ''))
+    return false
+  const filters = testNamesOf(original)
+  return filters.length === 0 || (filters.length === 1 && filterMatches(filters[0]!, name))
+}
+
+function equivalentFieldReplacement(original: WitnessFact, replacement: WitnessFact): boolean {
+  if (original.fromField !== true || replacement.fromField !== true || original.head !== replacement.head)
+    return false
+  const baseKept = original.base === replacement.base || (original.base === 'pass' && replacement.base === 'fail')
+  return baseKept && (original.command === replacement.command || sameTestMoved(original.command, replacement.command) || narrowsTheFilter(original.command, replacement.command))
+}
+
+type Equivalence = (original: WitnessFact, replacement: WitnessFact) => boolean
+
+function withoutReplaced(downgrades: readonly string[], previous: readonly string[], next: readonly string[], equivalent: Equivalence): string[] {
   const previousCores = new Set(previous.map(witnessCore))
   const replacements = next.filter(witness => !previousCores.has(witnessCore(witness))).flatMap(witness => witnessFact(witness) ?? [])
   return downgrades.filter((witness) => {
     const fact = witnessFact(witness)
-    return fact === null || !replacements.some(replacement => equivalentReplacement(fact, replacement))
+    return fact === null || !replacements.some(replacement => equivalent(fact, replacement))
   })
+}
+
+export interface JudgedWitness {
+  criterion: string
+  command: string
+  onBase?: { command: string, stated: string }
+}
+
+export function judgedFieldWitnessesOf(body: string): { acceptance: JudgedWitness[], invariants: JudgedWitness[] } | null {
+  const fields = witnessFieldsOf(body)
+  if (fields === null)
+    return null
+  const judged = (field: WitnessField): JudgedWitness => ({ criterion: witnessText(field), command: judgedCommand(field) })
+  const acceptance = (field: WitnessField): JudgedWitness => statesAnExit(field) ? { ...judged(field), onBase: { command: fieldCommand(field), stated: field.base } } : judged(field)
+  return {
+    acceptance: fields.filter(isAcceptanceField).map(acceptance),
+    invariants: fields.filter(field => !isAcceptanceField(field)).map(judged),
+  }
+}
+
+export function unreplacedDowngrades(downgrades: readonly string[], previous: readonly string[], next: readonly string[]): string[] {
+  return withoutReplaced(downgrades, previous, next, equivalentReplacement)
+}
+
+export function unreplacedFieldDowngrades(downgrades: readonly string[], previous: readonly string[], next: readonly string[]): string[] {
+  return withoutReplaced(downgrades, previous, next, equivalentFieldReplacement)
 }
 
 export function witnessDowngrades(previous: readonly string[], next: readonly string[]): string[] {
@@ -256,6 +336,9 @@ export function witnessDowngrades(previous: readonly string[], next: readonly st
 }
 
 export function witnessesOf(body: string): string[] {
+  const fields = witnessFieldsOf(body)
+  if (fields !== null)
+    return fields.map(witnessText)
   const lines = body.split('\n')
   const at = lines.findIndex(line => line.trim() === WITNESSES_HEADING)
   if (at === -1)
@@ -285,6 +368,7 @@ function draftOf(parked: ParkedTask): DraftCard {
     creates: parked.creates,
     task: body,
     witnesses: witnessesOf(body),
+    runs: runsFieldOf(body),
     unclear: [],
   }
 }
@@ -325,7 +409,14 @@ function ownerAllowed(decisionsFile: string, cardId: number, downgrades: readonl
   if (!existsSync(decisionsFile))
     return false
   const allowing = readFileSync(decisionsFile, 'utf8').split('\n').filter(line => DECISION_LINE.test(line) && !line.includes(SUPERSEDED_BY) && (DECISION_CARDS.exec(line)?.[1]?.split(' ').includes(`#${cardId}`) ?? false))
-  return downgrades.every(witness => allowing.some(line => phraseNamesCard(line, `${DOWNGRADE_ALLOWANCE} ${witness} у `, cardId) || phraseNamesCard(line, GENERAL_DOWNGRADE_ALLOWANCE, cardId)))
+  return downgrades.every(witness => allowing.some(line => namesTheWitness(line, witness, cardId) || phraseNamesCard(line, GENERAL_DOWNGRADE_ALLOWANCE, cardId)))
+}
+
+function namesTheWitness(line: string, witness: string, cardId: number): boolean {
+  const field = renderedWitness(witness)
+  if (field === null)
+    return phraseNamesCard(line, `${DOWNGRADE_ALLOWANCE} ${witness} у `, cardId)
+  return line.split(fieldAllowance(cardId, field.id)).slice(1).some(rest => !WORD_CONTINUES.test(rest))
 }
 
 function standingReplacementAllowed(decisionsFile: string, now: Date): boolean {
@@ -423,6 +514,19 @@ export function admittedCardFile(cardId: number, parkingRoot?: string): string {
   return path.join(parkingRoot ?? defaultParking(), `${cardId}.md`)
 }
 
+export interface JournalledIntake extends RecordedIntake {
+  event?: unknown
+}
+
+function journalledEvent(admissions: CardAdmissionsPort, card: SlicedCard): number | null {
+  const latest: JournalledIntake | null = admissions(card.id)
+  return latest !== null && sameCardLine(latest.card, card.line) && sameBody(latest.bodySha, card.text) && typeof latest.event === 'number' ? latest.event : null
+}
+
+function lostWrite(cardId: number): string {
+  return `#${cardId} is not admitted: after the write the journal holds no ${CARD_ADMITTED} with this card and text; read the journal and run --admit again`
+}
+
 function busBodyOf(options: AdmitOptions): string | null {
   if (options.body !== undefined)
     return options.body
@@ -458,6 +562,10 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
   const invalidPatterns = invalidTestPatterns([draft])
   if (invalidPatterns.length > 0)
     return { status: 'invalidTestPattern', reasons: invalidPatterns }
+  const repository = new DirectoryFacts(options.dir, process.env.PATH ?? '')
+  const nonPaths = nonPathTouchRefusals([draft], repository)
+  if (nonPaths.length > 0)
+    return { status: 'refused', why: nonPaths.join('; ') }
   const cards = options.cardStates?.()
   const parked = new Set(parkedNumbers(parkedAcrossLanes(options.file, options.parkingRoot ?? defaultParking())))
   const ended = endedCards(cards)
@@ -466,7 +574,7 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
     parked: knownCards(parked, cards),
     done: ended,
     merged: ended,
-    repository: new DirectoryFacts(options.dir, process.env.PATH ?? ''),
+    repository,
     ...(ownerMerges === null ? {} : { ownerMerges: ownerPathsOf(ownerMerges) }),
     ...(published === undefined ? {} : { published }),
   }) as [CheckedCard]
@@ -491,12 +599,18 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
   }
   const recorded = latestIntake(card, options.admissions)
   const source: AdmitSource = recorded === null ? ADMIT_SOURCE : AMEND_SOURCE
-  const base = { file: options.file, card: admitted, autoConfirm: options.autoConfirm, source, inBus: options.events !== undefined }
+  const base = { file: options.file, card: admitted, autoConfirm: options.autoConfirm, source, inBus: options.events !== undefined, event: null }
+  const inJournal = (status: 'admitted' | 'alreadyAdmitted'): AdmitResult => {
+    if (options.events === undefined || options.admissions === undefined)
+      return { ...base, status }
+    const event = journalledEvent(options.admissions, admitted)
+    return event === null ? { status: 'refused', why: lostWrite(card.id) } : { ...base, status, event }
+  }
   const lane = laneOf(options.parkingRoot ?? defaultParking(), path.dirname(options.file))
   if (recorded !== null && sameCardLine(recorded.card, line) && sameBody(recorded.bodySha, admitted.text)) {
     if (!options.dryRun)
       options.events?.(admittedRecord(admitted, recordedConfirmation(recorded, admitted, options.autoConfirm), admittedAt(recorded, now), lane, recordedSource(recorded)))
-    return { ...base, status: 'alreadyAdmitted' }
+    return inJournal('alreadyAdmitted')
   }
   const reparsed = parseParkingFile(file, admitted.text)
   if (reparsed.kind === 'refused')
@@ -509,7 +623,7 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
   }
   const decisionsFile = options.decisions ?? defaultDecisions()
   const previous = recorded?.text === undefined ? [] : witnessesOf(recorded.text)
-  const lowered = recorded?.text === undefined ? [] : witnessDowngrades(previous, witnessesOf(admitted.text))
+  const lowered = recorded?.text === undefined ? [] : unreplacedFieldDowngrades(witnessDowngrades(previous, witnessesOf(admitted.text)), previous, witnessesOf(admitted.text))
   const downgrades = lowered.length > 0 && standingReplacementAllowed(decisionsFile, now()) ? unreplacedDowngrades(lowered, previous, witnessesOf(admitted.text)) : lowered
   if (downgrades.length > 0 && !ownerAllowed(decisionsFile, card.id, downgrades)) {
     if (!options.dryRun)
@@ -524,9 +638,15 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
   if (busBody === null && options.events === undefined && admitted.text !== text)
     writeFileSync(options.file, admitted.text)
   recordIntake([admittedRecord(admitted, admitConfirmation(admitted, options.autoConfirm), now(), lane, source)], options.events)
-  if (waitingOn.length > 0)
+  const result = inJournal('admitted')
+  if (result.status === 'admitted' && waitingOn.length > 0)
     options.events?.(waitingEvent(card.id, waitingOn, now()))
-  return { ...base, status: 'admitted' }
+  return result
+}
+
+function printJournalledEvent(ui: Ui, event: number | null): void {
+  if (event !== null)
+    ui.line(ui.theme.dim(`  ${ui.lore.intakeAdmittedEvent(event)}`))
 }
 
 export function printAdmit(ui: Ui, result: AdmitResult): number {
@@ -554,6 +674,7 @@ export function printAdmit(ui: Ui, result: AdmitResult): number {
   }
   if (result.status === 'alreadyAdmitted') {
     ui.ok(ui.lore.intakeAlreadyAdmitted(result.file, card.line, result.inBus))
+    printJournalledEvent(ui, result.event)
     return INTAKE_EXIT.alreadyAdmitted
   }
   if (result.status === 'awaiting' && result.stale)
@@ -566,6 +687,8 @@ export function printAdmit(ui: Ui, result: AdmitResult): number {
     ui.ok(ui.lore.intakeAmended(result.file, card.line, result.inBus))
   else
     ui.ok(ui.lore.intakeAdmitted(result.file, card.line, result.inBus))
+  if (result.status === 'admitted')
+    printJournalledEvent(ui, result.event)
   if (result.status !== 'dryRun') {
     for (const correction of card.corrections)
       ui.line(ui.theme.dim(`  ${ui.lore.intakeCorrected(correctionText(correction))}`))

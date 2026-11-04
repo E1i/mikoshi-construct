@@ -58,6 +58,10 @@ export interface Lore extends Omit<ExpectLore, 'expectRoleForecast'> {
   doctorAttached: string
   doctorAttachedHarness: (command: string, state: string) => string
   doctorAttachedNoHarness: string
+  doctorAttachedVersions: (attached: string | null, installed: string) => string
+  doctorCarriersStale: (attached: string, installed: string) => string
+  doctorCarriersUnknown: string
+  doctorCarriersAhead: (attached: string, installed: string) => string
   discoveryIncomplete: string
   provenance: string
   stillConstructAuthored: (count: number) => string
@@ -185,6 +189,7 @@ export interface Lore extends Omit<ExpectLore, 'expectRoleForecast'> {
   intakeDryRun: (parking: string) => string
   intakeAdmitted: (file: string, card: string, inBus: boolean) => string
   intakeAlreadyAdmitted: (file: string, card: string, inBus: boolean) => string
+  intakeAdmittedEvent: (event: number) => string
   intakeMoved: (from: string, to: string, event: string) => string
   intakeMoveRecordedInPlace: (file: string, event: string) => string
   intakeMoveNotFound: (id: number) => string
@@ -245,6 +250,20 @@ export interface Lore extends Omit<ExpectLore, 'expectRoleForecast'> {
   attachDetach: string
   attachGuard: string
   attachLedgerExcluded: string
+  attachUpgradeRefusedFlags: (flags: string[]) => string
+  attachUpgradeRefusedNotAttached: string
+  attachUpgradeRefusedAhead: (attached: string, installed: string) => string
+  attachUpgradeRefusedIndex: string
+  attachUpgradeRefusedChanged: (count: number) => string
+  attachUpgradeRefusedCollision: (count: number) => string
+  attachUpgradeNeedsTerminal: string
+  attachUpgradeConfirm: (version: string) => string
+  attachUpgradeCurrent: (version: string) => string
+  attachUpgraded: (version: string) => string
+  attachUpgradeKept: string
+  attachUpgradeAdopted: (paths: string[]) => string
+  attachUpgradeRetired: (paths: string[]) => string
+  attachUpgradeHooksOlder: string
   initSettingsSkippedNoExclusion: string
   detachNothingAttached: string
   detachRefusedOrphanBlock: string
@@ -432,6 +451,10 @@ export const LORE: Lore = {
   doctorAttached: 'ATTACHED // NO CONSTRUCT, NETRUN ONLY',
   doctorAttachedHarness: (command: string, state: string) => `Harness \`${command}\` reads ${state}.`,
   doctorAttachedNoHarness: 'Harness: none \u2014 NOT COVERED. No gate verifies a change here; to name one, run construct detach, then construct attach --harness "<command>".',
+  doctorAttachedVersions: (attached: string | null, installed: string) => `Jacked in at ${attached ?? 'unknown'}; this deck runs ${installed}.`,
+  doctorCarriersStale: (attached: string, installed: string) => `STALE CARRIERS: written by ${attached}, this deck writes ${installed}. construct attach --upgrade rewrites them and nothing else.`,
+  doctorCarriersUnknown: 'CARRIER VERSION UNKNOWN: this record predates the attached version. construct attach --upgrade rewrites the carriers and records it.',
+  doctorCarriersAhead: (attached: string, installed: string) => `DECK BEHIND THE CARRIERS: ${attached} wrote them, this deck is ${installed}. Update the CLI, not the carriers: npm i -g mikoshi-construct@latest.`,
   discoveryIncomplete: 'Discovery incomplete.',
   provenance: 'AUTHORSHIP TRACE',
   stillConstructAuthored: (count: number) => `Still the construct's own words: ${count} marker${count === 1 ? '' : 's'} nobody has stood behind yet.`,
@@ -591,6 +614,7 @@ export const LORE: Lore = {
   intakeAlreadyAdmitted: (file: string, card: string, inBus: boolean) => inBus
     ? `ALREADY ADMITTED // ${file}: ${card}; its card.admitted is in the bus`
     : `ALREADY ADMITTED // ${file}: ${card}; the journal holds its intake line. NO BUS // nothing written`,
+  intakeAdmittedEvent: (event: number) => `CARD.ADMITTED // event ${event}`,
   intakeMoved: (from: string, to: string, event: string) => `MOVED // ${from} -> ${to}; the bus holds it as ${event}, the card is unchanged`,
   intakeMoveRecordedInPlace: (file: string, event: string) => `MOVE RECORDED // ${file} is already there; the bus holds it as ${event}, the file stays put`,
   intakeMoveNotFound: (id: number) => `INTAKE REFUSED // NO CARD: #${id} is in no parking directory under the root`,
@@ -627,7 +651,21 @@ export const LORE: Lore = {
   attachConfirm: 'Jack in?',
   attachRefusedNoGit: 'BREACH FAILED // NO NET: not a git repository',
   attachRefusedLinkedGit: 'BREACH FAILED // LINKED NET: .git is a file',
-  attachRefusedAttached: 'BREACH FAILED // ALREADY ATTACHED: .construct/attach.json is here; run construct detach first',
+  attachRefusedAttached: 'BREACH FAILED // ALREADY ATTACHED: .construct/attach.json is here; run construct attach --upgrade to rewrite its carriers, or construct detach first',
+  attachUpgradeRefusedFlags: (flags: string[]) => `UPGRADE REFUSED // THE RECORD HOLDS THESE: ${flags.join(', ')} ${flags.length === 1 ? 'is' : 'are'} kept from the attach record; to change ${flags.length === 1 ? 'it' : 'them'}, run construct detach, then construct attach. Nothing was written.`,
+  attachUpgradeRefusedNotAttached: 'UPGRADE REFUSED // NO NETRUN OPEN: no .construct/attach.json here; run construct attach first. Nothing was written.',
+  attachUpgradeRefusedAhead: (attached: string, installed: string) => `UPGRADE REFUSED // DECK BEHIND THE CARRIERS: ${attached} wrote them, this deck is ${installed}; update the CLI (npm i -g mikoshi-construct@latest). Nothing was written.`,
+  attachUpgradeRefusedIndex: 'UPGRADE REFUSED // INDEX UNREADABLE: the git index cannot be read, so which carriers git has adopted cannot be told. Nothing was written.',
+  attachUpgradeRefusedChanged: (count: number) => `UPGRADE REFUSED // CARRIER REWRITTEN: ${count} attached file${count === 1 ? '' : 's'} no longer match${count === 1 ? 'es' : ''} the record, and the edit is yours. Move ${count === 1 ? 'it' : 'them'} aside or restore ${count === 1 ? 'it' : 'them'}, then run this again. Nothing was written:`,
+  attachUpgradeRefusedCollision: (count: number) => `UPGRADE REFUSED // COLLISION: ${count} new carrier path${count === 1 ? '' : 's'} already exist${count === 1 ? 's' : ''} and the record does not name ${count === 1 ? 'it' : 'them'}; the net never writes over ${count === 1 ? 'it' : 'them'}. Move ${count === 1 ? 'it' : 'them'} aside, then run this again. No carrier was rewritten:`,
+  attachUpgradeNeedsTerminal: 'No terminal for the interactive flow; pass --yes to upgrade non-interactively.',
+  attachUpgradeConfirm: (version: string) => `Rewrite these carriers to ${version}?`,
+  attachUpgradeCurrent: (version: string) => `CARRIERS CURRENT // ${version}: nothing to rewrite`,
+  attachUpgraded: (version: string) => `CARRIERS UPGRADED // ${version}`,
+  attachUpgradeKept: 'Kept: .construct data, the handoff, the bus, .claude/settings.local.json.',
+  attachUpgradeAdopted: (paths: string[]) => `Git tracks these, so they stay as they are: ${paths.join(', ')}.`,
+  attachUpgradeRetired: (paths: string[]) => `No longer carriers, left in place and recorded; construct detach removes them: ${paths.join(', ')}.`,
+  attachUpgradeHooksOlder: 'This record predates the window hooks, and upgrade leaves .claude/settings.local.json alone, so they are written and not wired; construct detach, then construct attach wires them.',
   attachRefusedNothingToAttach: 'BREACH FAILED // NO TARGET: nothing here to jack into',
   attachRefusedCollision: (paths: string[]) => `BREACH FAILED // COLLISION: ${paths.length} path${paths.length === 1 ? '' : 's'} already exist${paths.length === 1 ? 's' : ''}`,
   attachCollisionExplained: (recognised: number, total: number, remove: string | null, rerun: string) => ({
@@ -863,6 +901,10 @@ export const PLAIN_LORE: Lore = {
   doctorAttached: 'Attached (no construct.json).',
   doctorAttachedHarness: (command: string, state: string) => `Harness \`${command}\` reads ${state}.`,
   doctorAttachedNoHarness: 'Harness: none \u2014 not covered. No command verifies a change here; to name one, run construct detach, then construct attach --harness "<command>".',
+  doctorAttachedVersions: (attached: string | null, installed: string) => `Attached version ${attached ?? 'unknown'}; installed version ${installed}.`,
+  doctorCarriersStale: (attached: string, installed: string) => `The carriers are stale: ${attached} wrote them, ${installed} is installed. Run construct attach --upgrade; it rewrites them and nothing else.`,
+  doctorCarriersUnknown: 'The version of the carriers is unknown: this record predates the attached version. Run construct attach --upgrade; it rewrites the carriers and records it.',
+  doctorCarriersAhead: (attached: string, installed: string) => `The carriers are newer than this CLI: ${attached} wrote them, ${installed} is installed. Update the CLI, not the carriers: npm i -g mikoshi-construct@latest.`,
   discoveryIncomplete: 'Discovery incomplete.',
   provenance: 'Discovery provenance',
   stillConstructAuthored: (count: number) => `Unchanged since discovery wrote them: ${count} marker${count === 1 ? '' : 's'} nobody has stood behind yet.`,
@@ -1022,6 +1064,7 @@ export const PLAIN_LORE: Lore = {
   intakeAlreadyAdmitted: (file: string, card: string, inBus: boolean) => inBus
     ? `Already admitted ${file}: ${card}. Its card.admitted is in the bus, so task:start and the shift take it.`
     : `Already admitted ${file}: ${card}. The journal holds its intake line; no bus is wired to this run, so nothing was written.`,
+  intakeAdmittedEvent: (event: number) => `card.admitted event ${event}`,
   intakeMoved: (from: string, to: string, event: string) => `Moved ${from} to ${to}. The bus holds the move as ${event}; the card is unchanged.`,
   intakeMoveRecordedInPlace: (file: string, event: string) => `${file} is already in that directory. The bus holds the move as ${event}; the file was not moved.`,
   intakeMoveNotFound: (id: number) => `Refused: #${id} is in no parking directory under the root. Nothing was written.`,
@@ -1060,7 +1103,21 @@ export const PLAIN_LORE: Lore = {
   attachConfirm: 'Attach these files?',
   attachRefusedNoGit: 'Refused: not a git repository.',
   attachRefusedLinkedGit: 'Refused: .git is a file (worktree or submodule); attach needs the .git directory.',
-  attachRefusedAttached: 'Refused: this repository is already attached (.construct/attach.json is here); run `construct detach` first.',
+  attachRefusedAttached: 'Refused: this repository is already attached (.construct/attach.json is here); run `construct attach --upgrade` to rewrite its carriers, or `construct detach` first.',
+  attachUpgradeRefusedFlags: (flags: string[]) => `Refused: ${flags.join(', ')} ${flags.length === 1 ? 'is' : 'are'} kept from the attach record by --upgrade; to change ${flags.length === 1 ? 'it' : 'them'}, run construct detach, then construct attach. Nothing was written.`,
+  attachUpgradeRefusedNotAttached: 'Refused: nothing is attached here (no .construct/attach.json); run construct attach first. Nothing was written.',
+  attachUpgradeRefusedAhead: (attached: string, installed: string) => `Refused: ${attached} wrote the carriers and ${installed} is installed; update the CLI (npm i -g mikoshi-construct@latest). Nothing was written.`,
+  attachUpgradeRefusedIndex: 'Refused: the git index cannot be read, so which carriers git has adopted cannot be told. Nothing was written.',
+  attachUpgradeRefusedChanged: (count: number) => `Refused: ${count} attached file${count === 1 ? '' : 's'} no longer match${count === 1 ? 'es' : ''} the record, and the edit is yours. Move ${count === 1 ? 'it' : 'them'} aside or restore ${count === 1 ? 'it' : 'them'}, then run this again. Nothing was written:`,
+  attachUpgradeRefusedCollision: (count: number) => `Refused: ${count} new carrier path${count === 1 ? '' : 's'} already exist${count === 1 ? 's' : ''} and the record does not name ${count === 1 ? 'it' : 'them'}; attach never writes over ${count === 1 ? 'it' : 'them'}. Move ${count === 1 ? 'it' : 'them'} aside, then run this again. No carrier was rewritten:`,
+  attachUpgradeNeedsTerminal: 'No terminal for the interactive flow; pass --yes to upgrade non-interactively.',
+  attachUpgradeConfirm: (version: string) => `Rewrite these carriers to ${version}?`,
+  attachUpgradeCurrent: (version: string) => `The carriers are current at ${version}; nothing to rewrite.`,
+  attachUpgraded: (version: string) => `Carriers upgraded to ${version}.`,
+  attachUpgradeKept: 'Kept: .construct data, the handoff, the bus, .claude/settings.local.json.',
+  attachUpgradeAdopted: (paths: string[]) => `Git tracks these, so they stay as they are: ${paths.join(', ')}.`,
+  attachUpgradeRetired: (paths: string[]) => `No longer carriers, left in place and recorded; construct detach removes them: ${paths.join(', ')}.`,
+  attachUpgradeHooksOlder: 'This record predates the window hooks, and upgrade leaves .claude/settings.local.json alone, so they are written and not wired; construct detach, then construct attach wires them.',
   attachRefusedNothingToAttach: 'Refused: this repository holds nothing to attach to.',
   attachRefusedCollision: (paths: string[]) => `Refused: ${paths.length} path${paths.length === 1 ? '' : 's'} attach would create already exist${paths.length === 1 ? 's' : ''}:`,
   attachCollisionExplained: (recognised: number, total: number, remove: string | null, rerun: string) => ({

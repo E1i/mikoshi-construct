@@ -4,7 +4,7 @@ import type { InForceDecision } from './decisions.js'
 import { readBodyCard } from '../../src/card/grammar.js'
 import { createdPaths } from '../../src/card/parking.js'
 import { RISK_LEVELS, riskOf } from '../../src/card/risk.js'
-import { witnessesOf } from '../../src/commands/intake/admit.js'
+import { judgedFieldWitnessesOf, witnessesOf } from '../../src/commands/intake/admit.js'
 import { isChangeWitness, ownerPathsOf } from '../../src/commands/intake/check.js'
 import { CARD_ADMITTED, MERGE_DONE, PR_CLOSED, WITNESS_RECORDED } from '../core/events.js'
 import { matchGlob } from './shredder/glob.js'
@@ -305,6 +305,9 @@ function negated(commands: readonly string[]): string {
 }
 
 export function cardWitnessesOf(body: string): CardWitnesses {
+  const judged = judgedFieldWitnessesOf(body)
+  if (judged !== null)
+    return judged
   const items = witnessesOf(body).filter(item => commandsOf(item).length > 0)
   const byExit = items.filter(failsOnHeadPassesOnBase)
   const rest = items.filter(item => !byExit.includes(item))

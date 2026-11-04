@@ -47,6 +47,9 @@
         "requiredCheck": {
           "type": "string"
         },
+        "upgrade": {
+          "type": "boolean"
+        },
         "yes": {
           "alias": "y",
           "type": "boolean"
@@ -630,9 +633,12 @@
     "doctor": {
       "attached": {
         "keys": [
+          "attachedVersion",
+          "carriers",
           "harness",
           "harness.command",
           "harness.state",
+          "installedVersion",
           "schemaVersion",
           "state"
         ],

@@ -2,11 +2,11 @@ import type { BusFacts } from '../../../src/commands/board/bus.js'
 import type { BusSeed, SeedBeat, SeedEvent } from '../../../tests/board/bus-fixture.js'
 import type { BoardData, BoardFiles } from '../../cli/board-page.js'
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import os, { tmpdir } from 'node:os'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import vm from 'node:vm'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { busFacts, busReaderAt, CARD_STAGES } from '../../../src/commands/board/bus.js'
 import { planLine, RELEASE_STAGES } from '../../../src/commands/board/goal.js'
 import { printBoard as printConstructBoard, readBoard } from '../../../src/commands/board/index.js'
@@ -26,6 +26,7 @@ import { BOARD_FILE, FRESH_MS } from '../../window/board.js'
 const roots: string[] = []
 
 afterEach(() => {
+  vi.restoreAllMocks()
   for (const root of roots.splice(0))
     rmSync(root, { recursive: true, force: true })
 })
@@ -400,7 +401,11 @@ describe('board.html', () => {
     expect(html).toContain('<tr data-card="864" data-stage="merged" data-open="card-864" tabindex="0" aria-haspopup="dialog"><td class="id">#864</td><td class="slug">old-lease</td><td>implement</td><td>netwatch</td><td>M</td><td>cheap</td><td>owner</td><td>#860</td><td>—</td>')
   })
 
-  it('every number on the page is in the bus or in eddies.json', () => {
+  it('every number on the page is in the bus, in eddies.json or in the machine load', () => {
+    const load = 4.5
+    const cores = 16
+    vi.spyOn(os, 'loadavg').mockReturnValue([load, 0, 0])
+    vi.spyOn(os, 'availableParallelism').mockReturnValue(cores)
     const busPath = seededBus([
       { ts: minutesAgo(3), type: SESSION_HEARTBEAT, card: 861, payload: JSON.stringify({ step: 'launch', session: 's861', context: 182_345, spent: 1_412_000 }) },
     ])
@@ -408,7 +413,7 @@ describe('board.html', () => {
     const limits = readEddiesLimits()
     const version = JSON.parse(readFileSync(path.resolve(import.meta.dirname, '../../../package.json'), 'utf8')) as { version: string }
     const warnLine = limits.warnRatio === null ? [] : [Math.round(limits.warnRatio * 100)]
-    const allowed = [...busNumbers(busPath), ...Object.values(limits).filter(value => value !== null), ...warnLine, readModelVersion() ?? 0, ...version.version.split('.').map(Number), ...NOW.toISOString().split(/\D+/).filter(Boolean).map(Number)]
+    const allowed = [load, cores, ...busNumbers(busPath), ...Object.values(limits).filter(value => value !== null), ...warnLine, readModelVersion() ?? 0, ...version.version.split('.').map(Number), ...NOW.toISOString().split(/\D+/).filter(Boolean).map(Number)]
     const counts = Array.from({ length: 6 }, (_, at) => at)
     const tokens = [...visibleText(html).matchAll(/(?<![\w.#-])\d+(?:\.\d+)?[kM]?(?![\w.])/g)].map(match => match[0])
     expect(tokens).toEqual(expect.arrayContaining(['182k', '250k', '1.4M', '3M']))

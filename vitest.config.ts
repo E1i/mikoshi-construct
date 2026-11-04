@@ -6,6 +6,7 @@ import { defineConfig } from 'vitest/config'
 import { BaseSequencer } from 'vitest/node'
 import { witnessGuard } from './scripts/ci/no-match-reporter.js'
 import { balanceShards } from './scripts/ci/shard.js'
+import { sessionWorkers } from './scripts/quality/lock.js'
 
 const weights = JSON.parse(readFileSync(path.join(import.meta.dirname, 'scripts/ci/test-weights.json'), 'utf8')) as TestWeights
 
@@ -27,6 +28,7 @@ export default defineConfig({
     globalSetup: [path.join(import.meta.dirname, 'scripts/scratch/vitest-setup.ts')],
     setupFiles: [path.join(import.meta.dirname, 'scripts/scratch/vitest-bus.ts')],
     testTimeout: 30_000,
+    maxWorkers: sessionWorkers(import.meta.dirname),
     sequence: { sequencer: WeightedShardSequencer },
   },
 })

@@ -1,6 +1,6 @@
 import type { TaskStartDeps } from '../scripts/ports/task-start.js'
-import type { AdmitOptions, AdmitResult } from '../src/commands/intake/admit.js'
-import type { RecordedIntake } from '../src/commands/intake/index.js'
+import type { WitnessField } from '../src/card/witness-fields.js'
+import type { AdmitOptions, AdmitResult, JournalledIntake } from '../src/commands/intake/admit.js'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -9,10 +9,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cardBodyText, WINDOW_LANE } from '../scripts/core/card-bodies.js'
 import { appendEvent, BUS_DB_VARIABLE, openBus } from '../scripts/core/db.js'
 import { reduce } from '../scripts/core/reducer.js'
-import { busCardAdmissions, busCardEvents } from '../scripts/intake/intake.js'
+import { busCardAdmissions, busCardEvents, runBusIntake } from '../scripts/intake/intake.js'
 import { launchCandidates } from '../scripts/nodes/launch/launch-candidates.js'
 import { recordDecision } from '../scripts/policy/decisions.js'
+import { cardWitnessesOf } from '../scripts/policy/policy.js'
 import { runTaskStart } from '../scripts/ports/task-start.js'
+import { witnessFieldsLine } from '../src/card/witness-fields.js'
 import { downgradeAction, EQUIVALENT_REPLACEMENT_ALLOWANCE, printAdmit, runAdmit, witnessDowngrades } from '../src/commands/intake/admit.js'
 import { bodySha, bodyShaWithoutTouches } from '../src/commands/intake/confirm.js'
 import { INTAKE_EXIT, runIntake } from '../src/commands/intake/index.js'
@@ -55,8 +57,8 @@ function mergedInBus(w: World, ...ids: string[]): void {
     w.cards.set(id, 'merged')
 }
 
-function recorded(card: string, fields: Partial<RecordedIntake> = {}): () => RecordedIntake {
-  return () => ({ card, bodySha: undefined, confirmation: 'none', source: 'admit', ts: NOW.toISOString(), ...fields })
+function recorded(card: string, fields: Partial<JournalledIntake> = {}): () => JournalledIntake {
+  return () => ({ card, bodySha: undefined, confirmation: 'none', source: 'admit', ts: NOW.toISOString(), event: 1, ...fields })
 }
 
 function busOf(w: World): string {
@@ -553,7 +555,14 @@ describe('construct intake --admit takes a card parked before the intake door', 
   it('amends a card whose intake line recorded no body digest, since the text it admitted is unknown', () => {
     const w = world()
     const file = park(w, 80, CLEAN)
-    expect(admit(w, file, { admissions: recorded(CLEAN) })).toMatchObject({ status: 'admitted', source: 'amend' })
+    const db = openBus(busOf(w))
+    try {
+      appendEvent(db, { ts: NOW.toISOString(), type: 'card.admitted', actor: 'worker:intake:s1', cardId: 80, pr: null, head: null, dedupeKey: 'card.admitted:80:no-digest', payload: { card: CLEAN, bodySha: null, source: 'admit' }, legacy: false })
+    }
+    finally {
+      db.close()
+    }
+    expect(admit(w, file)).toMatchObject({ status: 'admitted', source: 'amend' })
     expect(admittedPayloads(w).at(-1)).toMatchObject({ source: 'amend', bodySha: bodySha(readFileSync(file, 'utf8')) })
   })
 
@@ -781,6 +790,93 @@ describe('construct intake --admit takes an equivalent witness replacement under
   })
 })
 
+describe('construct intake --admit reads the witness fields', () => {
+  const run = 'pnpm exec vitest run src/board/run.ts'
+  const field = (change: Partial<WitnessField> = {}): WitnessField => ({ id: 'W1', run, test: 'the thing', head: 'pass', base: 'fail', proves: 'the thing is done', ...change })
+  const bodyWith = (...fields: WitnessField[]): string => `Do the thing.\n\n${witnessFieldsLine(fields)}`
+
+  function decisionsOf(w: World): string {
+    return path.join(w.root, 'owner-decisions.md')
+  }
+
+  function amended(w: World, before: WitnessField[], after: WitnessField[]): AdmitResult {
+    const file = park(w, 80, CLEAN, 'src/board/**', bodyWith(...before))
+    expect(admitThroughBus(w, file, { decisions: decisionsOf(w) })).toMatchObject({ status: 'admitted', source: 'admit' })
+    park(w, 80, CLEAN, 'src/board/**', bodyWith(...after))
+    return admitThroughBus(w, file, { decisions: decisionsOf(w) })
+  }
+
+  it('narrowing -t of a witness field is admitted with no decision', () => {
+    expect(amended(world(), [field()], [field({ test: 'the thing exactly' })])).toMatchObject({ status: 'admitted', source: 'amend' })
+    expect(amended(world(), [field({ test: null })], [field()])).toMatchObject({ status: 'admitted', source: 'amend' })
+    expect(amended(world(), [field({ test: 'the.thing' })], [field({ test: 'the thing' })])).toMatchObject({ status: 'admitted', source: 'amend' })
+    expect(amended(world(), [field({ test: null, base: 'pass' })], [field()])).toMatchObject({ status: 'admitted', source: 'amend' })
+  })
+
+  it('a moved field and a negated field with the opposite expectation are admitted with no decision', () => {
+    expect(amended(world(), [field({ run: 'pnpm exec vitest run tests/old.test.ts' })], [field({ run: 'pnpm exec vitest run tests/moved.test.ts' })])).toMatchObject({ status: 'admitted', source: 'amend' })
+    const negatedBefore = field({ test: null, run: 'test -f src/board/run.ts', head: 'fail', base: 'pass' })
+    expect(amended(world(), [negatedBefore], [field({ test: null, run: '! test -f src/board/run.ts' })])).toMatchObject({ status: 'admitted', source: 'amend' })
+  })
+
+  it('a field that proves less still waits for the owner', () => {
+    expect(amended(world(), [field()], [field({ test: 'another thing' })])).toMatchObject({ status: 'ownerWait' })
+    expect(amended(world(), [field({ test: 'the thing exactly' })], [field()])).toMatchObject({ status: 'ownerWait' })
+    expect(amended(world(), [field()], [field({ base: 'pass' })])).toMatchObject({ status: 'ownerWait' })
+    expect(amended(world(), [field()], [field({ test: 'the thing exactly', head: 'exit:1' })])).toMatchObject({ status: 'ownerWait' })
+    expect(amended(world(), [field({ test: 'the thing', id: 'W1' }), field({ test: 'the thing exactly', id: 'W2' })], [field({ test: 'the thing exactly', id: 'W2' })])).toMatchObject({ status: 'ownerWait' })
+  })
+
+  it('a decision naming the card and W1 lifts the downgrade wait', () => {
+    const w = world()
+    const file = park(w, 80, CLEAN, 'src/board/**', bodyWith(field()))
+    admitThroughBus(w, file, { decisions: decisionsOf(w) })
+    park(w, 80, CLEAN, 'src/board/**', bodyWith(field({ test: 'another thing' })))
+    const held = admitThroughBus(w, file, { decisions: decisionsOf(w) })
+    expect(held).toMatchObject({ status: 'ownerWait' })
+    const text = '[owner] разрешить понижение свидетеля #80 W1'
+    expect(printed(held).lines.join('\n')).toContain('разрешить понижение свидетеля #80 W1')
+    writeFileSync(decisionsOf(w), `# Owner decisions\n\n- D-7 · 2026-10-13 — ${text} · card #80 · decisions:add\n`)
+    const db = openBus(busOf(w))
+    try {
+      recordDecision(db, { ts: AFTER_THE_CUTOFF.toISOString(), decisionId: 7, text, cards: [80] })
+      reduce(db)
+      expect(db.prepare('SELECT state, answer FROM owner_waits').all()).toMatchObject([{ state: 'closed', answer: 'D-7' }])
+    }
+    finally {
+      db.close()
+    }
+    expect(admitThroughBus(w, file, { decisions: decisionsOf(w) })).toMatchObject({ status: 'admitted', source: 'amend' })
+  })
+
+  it('a decision naming W1 of another card, or W11 of this one, lifts nothing', () => {
+    for (const named of ['#81 W1', '#80 W11']) {
+      const w = world()
+      const file = park(w, 80, CLEAN, 'src/board/**', bodyWith(field()))
+      admitThroughBus(w, file, { decisions: decisionsOf(w) })
+      writeFileSync(decisionsOf(w), `# Owner decisions\n\n- D-7 · 2026-10-13 — [owner] разрешить понижение свидетеля ${named} · card #80 · decisions:add\n`)
+      park(w, 80, CLEAN, 'src/board/**', bodyWith(field({ test: 'another thing' })))
+      expect(admitThroughBus(w, file, { decisions: decisionsOf(w) })).toMatchObject({ status: 'ownerWait' })
+    }
+  })
+
+  it('a field witness with no run is refused at admission', () => {
+    const w = world()
+    const { run: _run, ...withoutRun } = field()
+    const file = park(w, 80, CLEAN, 'src/board/**', `Do the thing.\n\n${witnessFieldsLine([withoutRun])}`)
+    expect(admitThroughBus(w, file, { decisions: decisionsOf(w) })).toMatchObject({ status: 'refused', why: expect.stringContaining('has no run') })
+  })
+
+  it('a card in the old prose format still passes beside a card with fields', () => {
+    const w = world()
+    const prose = 'Do the thing.\n\nWitnesses:\n- `pnpm exec vitest run src/board/run.ts` exits 0; red on main'
+    expect(admitThroughBus(w, park(w, 80, CLEAN, 'src/board/**', prose), { decisions: decisionsOf(w) })).toMatchObject({ status: 'admitted', source: 'admit' })
+    expect(admitThroughBus(w, park(w, 81, CLEAN.replace('#80', '#81'), 'src/board/**', bodyWith(field())), { decisions: decisionsOf(w) })).toMatchObject({ status: 'admitted', source: 'admit' })
+    expect(cardWitnessesOf(prose).acceptance).toEqual([{ criterion: '`pnpm exec vitest run src/board/run.ts` exits 0; red on main', command: 'pnpm exec vitest run src/board/run.ts' }])
+    expect(witnessDowngrades(['`a` exits 0; red on main'], ['`a` exits 0'])).toEqual(['`a` exits 0; red on main'])
+  })
+})
+
 describe('witnessDowngrades', () => {
   it('names a removed witness and one that lost red on main, and not one that gained it or kept it', () => {
     expect(witnessDowngrades(['a; red on main', 'b', 'c; red on main', 'd'], ['a', 'b; red on main', 'c; red on main'])).toEqual(['a; red on main', 'd'])
@@ -865,6 +961,91 @@ describe('construct intake --admit says whether task:start will take the card', 
     admit(w, file, { events: undefined })
     admit(w, file, { dryRun: true })
     expect(admittedEvents(w)).toBe(0)
+  })
+})
+
+describe('construct intake --admit reports ok only once its card.admitted is in the journal', () => {
+  const LOST_WRITE = (): void => undefined
+
+  function journalledId(w: World, cardId: number): number {
+    const db = openBus(busOf(w))
+    try {
+      return Number((db.prepare(`SELECT max(id) AS id FROM events WHERE type = 'card.admitted' AND card_id = ?`).get(cardId) as { id: number }).id)
+    }
+    finally {
+      db.close()
+    }
+  }
+
+  it('a lost bus write leaves no card.admitted: admit exits non-zero, prints no ok and names the card', () => {
+    const w = world()
+    const file = park(w, 80, CLEAN)
+    const result = admit(w, file, { events: LOST_WRITE })
+    expect(result.status).toBe('refused')
+    const { lines, exit } = printed(result)
+    expect(exit).toBe(INTAKE_EXIT.refused)
+    expect(exit).not.toBe(0)
+    expect(lines.join('')).not.toContain('[ok]')
+    expect(lines.join('')).toContain('#80 is not admitted')
+    expect(admittedEvents(w)).toBe(0)
+  })
+
+  it('a lost amend leaves no card.admitted with the new text, although an earlier admission is there, and exits non-zero', () => {
+    const w = world()
+    const file = park(w, 80, CLEAN)
+    expect(admit(w, file).status).toBe('admitted')
+    park(w, 80, CLEAN, 'src/board/**', 'Do the corrected thing.')
+    const result = admit(w, file, { events: LOST_WRITE })
+    expect(result.status).toBe('refused')
+    expect(printed(result).exit).not.toBe(0)
+    expect(admittedEvents(w)).toBe(1)
+  })
+
+  it('a lost admission writes no card.waiting beside it', () => {
+    const w = world()
+    park(w, 80, CLEAN)
+    const written: string[] = []
+    const result = admit(w, park(w, 82, WAITING), { events: event => written.push(event.type), autoConfirm: true })
+    expect(result.status).toBe('refused')
+    expect(written).toEqual(['card.admitted'])
+  })
+
+  it('the ok of an admission names the id of its card.admitted, and a repeated admit names the same id', () => {
+    const w = world()
+    const file = park(w, 80, CLEAN)
+    const first = admit(w, file)
+    const id = journalledId(w, 80)
+    expect(first).toMatchObject({ status: 'admitted', event: id })
+    expect(printed(first).lines[1]).toBe(`  card.admitted event ${id}\n`)
+    const again = admit(w, file)
+    expect(again).toMatchObject({ status: 'alreadyAdmitted', event: id })
+    expect(printed(again).lines[1]).toBe(`  card.admitted event ${id}\n`)
+  })
+
+  it('a decisions:add just before the first admit of a card leaves its card.admitted in the journal', async () => {
+    const w = world()
+    const file = park(w, 80, CLEAN)
+    const db = openBus(busOf(w))
+    const written: string[] = []
+    const write = vi.spyOn(process.stdout, 'write').mockImplementation((chunk: string | Uint8Array) => {
+      written.push(String(chunk))
+      return true
+    })
+    const previousExit = process.exitCode
+    try {
+      recordDecision(db, { ts: NOW.toISOString(), decisionId: 7, text: '[owner] admit the card', cards: [80] })
+      reduce(db)
+      await runBusIntake(db, ['--plain', '--admit', file, '--dir', w.repo, '--parking', w.parking], 's1')
+      expect(process.exitCode ?? 0).toBe(0)
+    }
+    finally {
+      write.mockRestore()
+      process.exitCode = previousExit
+      db.close()
+    }
+    const id = journalledId(w, 80)
+    expect(id).toBeGreaterThan(0)
+    expect(written.join('')).toContain(`card.admitted event ${id}`)
   })
 })
 

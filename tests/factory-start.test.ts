@@ -158,7 +158,7 @@ describe('a factory process is launched as the package it runs from', () => {
   })
 
   it('refuses a script the package names no factory entry for, rather than starting something else', () => {
-    expect(() => launchArgv({ ...BUS_RUN_LAUNCH, script: 'lint' }, REPOSITORY)).toThrow(/names no factory entry for lint/)
+    expect(() => launchArgv({ ...BUS_RUN_LAUNCH, script: 'lint:fix' }, REPOSITORY)).toThrow(/names no factory entry for lint:fix/)
   })
 
   it('knows a running instance by its built file as well as by its source file', () => {

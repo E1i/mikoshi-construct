@@ -7,6 +7,7 @@ import { spawnSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
+import { heavyStep } from '../quality/lock.js'
 import { selectRun } from './layers.js'
 import { SANDBOX_FAILING } from './sandbox-failing.js'
 import { listedFiles, livenessApplies, runTraced, staleInSandbox, staleLines } from './sandbox-liveness.js'
@@ -99,6 +100,16 @@ function git(args: readonly string[]): string {
   return run.stdout
 }
 
+export function cleanTreeGate(read: Git): Gate | null {
+  const dirty = read(['status', '--porcelain']).trim() !== ''
+  const allPushed = read(['rev-list', '--count', 'HEAD', '--not', '--remotes=origin']).trim() === '0'
+  return dirty || !allPushed ? null : { lines: ['prepush: clean — the tree holds no change and no unpushed commit; no check started.'], code: 0 }
+}
+
+export function throughQueue(run: Run, step: () => Promise<number>, queue: (step: () => Promise<number>) => Promise<number> = heavyStep): Promise<number> {
+  return run.kind === 'full' ? queue(step) : step()
+}
+
 export function roundOf(argv: readonly string[]): string | null {
   const at = argv.indexOf(ROUND_FLAG)
   if (at === -1)
@@ -147,12 +158,17 @@ function sandboxLiveness(): Stale[] | null {
   return traced === null ? null : staleInSandbox(SANDBOX_FAILING, traced.outcomes, traced.traced)
 }
 
-function main(): number {
+async function main(): Promise<number> {
   let changed: string[]
   let run: Run
   let round: string | null
   try {
     round = roundOf(process.argv.slice(2))
+    const clean = cleanTreeGate(git)
+    if (clean !== null) {
+      console.log(clean.lines.join('\n'))
+      return clean.code
+    }
     changed = changesSince(git, round)
     run = reportedRun(changed.length === 0 ? selectRun([], new Map(), () => '') : selectRun(changed, cruise(), readTest))
   }
@@ -169,11 +185,13 @@ function main(): number {
     }
   }
   console.log(runSummary(run))
-  const started = Date.now()
-  const gate = prepushGate(changed, () => testsVerdict(runVitest(sessionArgs(run, SANDBOX_FAILING))), sandboxLiveness)
-  console.log([...gate.lines, `prepush: ${Math.round((Date.now() - started) / 1000)} s of local tests`].join('\n'))
-  return gate.code
+  return throughQueue(run, async () => {
+    const started = Date.now()
+    const gate = prepushGate(changed, () => testsVerdict(runVitest(sessionArgs(run, SANDBOX_FAILING))), sandboxLiveness)
+    console.log([...gate.lines, `prepush: ${Math.round((Date.now() - started) / 1000)} s of local tests`].join('\n'))
+    return gate.code
+  })
 }
 
 if (process.argv[1] === import.meta.filename)
-  process.exitCode = main()
+  process.exitCode = await main()

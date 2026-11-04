@@ -32,8 +32,9 @@ shift is over; where a decision is the owner's, stop, write it into the report a
   `git -C {{worktree}} commit --no-edit` and repeat your checks; that merge commit is the one commit you
   make. A conflict you cannot resolve without the owner is a `question:` line, not a fault.
 - Before you end the session, run each as its own command and read its result: the task's witnesses
-  and the pre-push checks this repository declares, {{prepush}}. A red pre-push run is fixed in this
-  session before you end it. A broken one prints a `finding:` and a `question:` line: copy both into the
+  and the pre-push checks this repository declares, {{prepush}}. A session that leaves a clean tree and no
+  unpushed commit runs none of them. A heavy step waits for its turn in the foreground, so give each a
+  Bash timeout of 600000. A red pre-push run is fixed in this session before you end it. A broken one prints a `finding:` and a `question:` line: copy both into the
   report and exit; the bus pushes nothing.
 - On an Eddies warn: finish the step you are in, write the handoff and the report, exit; the bus then
   commits, pushes and opens the pull request from the tree before it records the stop.

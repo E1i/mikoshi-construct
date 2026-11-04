@@ -5,7 +5,8 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { BUS_DB_VARIABLE } from '../core/bus-path.js'
 import { FACTORY_RUNTIME } from '../core/factory-paths.js'
-import { STAMP_ENV } from './stamp.js'
+import { REVIEW_MODEL_VARIABLE } from '../ports/session.js'
+import { agentEnvStamp, STAMP_ENV } from './stamp.js'
 
 export const PREFIX = '[bus:bg] '
 export const SHADOW_LOG = 'shadow.log'
@@ -70,8 +71,11 @@ export function builtEntryOf(root: string, script: string): string {
   return path.join(root, BUILD_DIR, `${source}${BUILT_MODULE}`)
 }
 
-export function launchArgv(launch: DetachedLaunch = BUS_RUN_LAUNCH, installed: string | null = installedPackage(), bus?: string): string[] {
-  const args = bus === undefined ? launch.args : [...launch.args, BUS_FLAG, path.resolve(bus)]
+export const AGENT_ENV = ['BUS_RERUN', REVIEW_MODEL_VARIABLE] as const
+
+export function launchArgv(launch: DetachedLaunch = BUS_RUN_LAUNCH, installed: string | null = installedPackage(), bus?: string, env: NodeJS.ProcessEnv = {}): string[] {
+  const stamped = [...launch.args, ...agentEnvStamp(AGENT_ENV, env)]
+  const args = bus === undefined ? stamped : [...stamped, BUS_FLAG, path.resolve(bus)]
   if (installed === null)
     return ['nohup', 'pnpm', '--silent', launch.script, ...args]
   return ['nohup', process.execPath, builtEntryOf(installed, launch.script), ...args]
@@ -102,6 +106,11 @@ export function argsBeforeBus(args: string): string {
 
 export function flagsInArgs(args: string): string[] {
   return argsBeforeBus(args).split(/\s+/).filter(token => token !== '')
+}
+
+export function stampedOtherwise(candidate: RunningProcess, env: NodeJS.ProcessEnv): boolean {
+  const flags = flagsInArgs(candidate.args)
+  return agentEnvStamp(AGENT_ENV, env).some(stamp => !flags.includes(stamp))
 }
 
 export function busInArgs(args: string): string | undefined {
@@ -213,7 +222,7 @@ export function startDetached(launch: DetachedLaunch, busDir: string, env: NodeJ
     const problems = launch.preflight?.() ?? []
     if (problems.length > 0)
       return { stdout: [], stderr: [`${prefix}refused to start ${script}:`, ...problems.map(problem => `  ${problem}`)], exitCode: 1 }
-    const [command, ...args] = launchArgv(launch, installedPackage(), thisBus(env))
+    const [command, ...args] = launchArgv(launch, installedPackage(), thisBus(env), env)
     const fd = openSync(log, 'a')
     try {
       const child = spawn(command!, args, { detached: true, stdio: ['ignore', fd, fd], env: { ...env, [STAMP_ENV]: '1' } })

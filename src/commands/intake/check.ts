@@ -3,11 +3,12 @@ import type { DraftCard, DraftPlan, UnclearField } from './draft.js'
 import type { RepositoryFacts } from './facts.js'
 import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
-import { runsLine, runsOf } from '../../card/covering-tests.js'
+import { isTestScope, runsLine, runsOf } from '../../card/covering-tests.js'
 import { CONTOURS, decisionsOf, KINDS } from '../../card/grammar.js'
 import { createdPaths, parseCreatesEntry, parseParkingFile } from '../../card/parking.js'
 import { CHANGESET_COMPANION, RISK_LEVELS, riskOf, touchedOrCreated } from '../../card/risk.js'
 import { PREFIX_SUFFIX, touchError } from '../../card/task-file.js'
+import { commandInsideJudgedWrap } from '../../card/witness-fields.js'
 import { globToRegExp } from '../../model/glob.js'
 import { bashSyntaxProblem } from './bash-syntax.js'
 import { commandArguments, commandWord, HOME_REFERENCE, namesATest, pathsNamedBy, TEST_NAME_ARGUMENT } from './command-word.js'
@@ -344,6 +345,30 @@ interface Touched {
   unclear: UnclearField[]
 }
 
+const ROUTE_TOUCH = /^\//
+const PACKAGE_TOUCH = /^@/
+const HOST_TOUCH = /^(?:localhost|(?:[a-z0-9-]+\.)+(?:ai|app|cloud|co|com|dev|edu|gov|info|io|net|org|ru))(?::\d+)?(?:\/|$)/
+
+function nonPathShape(entry: string, repository: RepositoryFacts, created: readonly string[]): string | null {
+  if (ROUTE_TOUCH.test(entry))
+    return 'a route'
+  if (created.includes(entry) || repository.exists(scopeOf(entry)))
+    return null
+  if (PACKAGE_TOUCH.test(entry))
+    return 'a package name'
+  return HOST_TOUCH.test(entry) ? 'a host' : null
+}
+
+export function nonPathTouchRefusals(cards: readonly DraftCard[], repository: RepositoryFacts): string[] {
+  return cards.flatMap((card) => {
+    const created = createdPaths(card.creates)
+    return card.touches.flatMap((entry) => {
+      const shape = nonPathShape(entry, repository, created)
+      return shape === null ? [] : [`${card.name}: touches entry '${entry}' reads as ${shape}, not a repository path; touches hold only paths from the repository root, and a path the change makes is listed under creates`]
+    })
+  })
+}
+
 function touchesChecked(card: DraftCard, repository: RepositoryFacts): Touched {
   const touched: Touched = { touches: [], corrections: [], unclear: [] }
   const creates = createdPaths(card.creates)
@@ -499,6 +524,10 @@ function headIndependentUnclear(commands: readonly string[], witness: string, re
   return commands.some(command => readsTheTree(command, reach)) ? [] : [{ field: 'witnesses', reason: `witness "${witness.trim()}" reads nothing the tree under test can change; its result does not depend on the head` }]
 }
 
+export function unjudgedCommand(command: string): string {
+  return commandInsideJudgedWrap(command) ?? command
+}
+
 export function isChangeWitness(witness: string): boolean {
   return (witnessKindField(witness) ?? (CHANGE_WITNESS_WORDING.test(witness) ? CHANGE_WITNESS_KIND : undefined)) === CHANGE_WITNESS_KIND
 }
@@ -544,6 +573,10 @@ export function invalidTestPatterns(cards: readonly DraftCard[]): string[] {
   })))
 }
 
+function runsUnclear(card: DraftCard): UnclearField[] {
+  return (card.runs ?? []).filter(entry => !isTestScope(entry)).map(entry => ({ field: 'runs', reason: `'${entry}' is not a test or a tree of tests, so nothing runs it; name a test path or drop it` }))
+}
+
 function byFieldOrder(corrections: Correction[]): Correction[] {
   return [...corrections].sort((a, b) => FIELD_ORDER.indexOf(a.field) - FIELD_ORDER.indexOf(b.field))
 }
@@ -551,7 +584,7 @@ function byFieldOrder(corrections: Correction[]): Correction[] {
 function checkCard(card: DraftCard, assigned: number, facts: CheckFacts): CheckedCard {
   const checked = touchesChecked(card, facts.repository)
   const covering = coveringRuns(checked.touches, facts.repository)
-  const touched = withCompanions(checked, covering, facts.repository, facts.published ?? [])
+  const touched = withCompanions(checked, [...covering, ...(card.runs ?? [])], facts.repository, facts.published ?? [])
   const runs = covering.filter(test => !touched.touches.some(touch => covers(touch, test)))
   const depends = referencesChecked('depends', card.depends, facts)
   const blocks = referencesChecked('blocks', card.blocks, facts)
@@ -573,6 +606,7 @@ function checkCard(card: DraftCard, assigned: number, facts: CheckFacts): Checke
       ...depends.unclear,
       ...blocks.unclear,
       ...witnessesUnclear(card, facts.repository),
+      ...runsUnclear(card),
     ],
     corrections: byFieldOrder([
       ...numberCorrection(card, assigned, facts),

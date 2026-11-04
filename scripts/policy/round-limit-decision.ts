@@ -63,9 +63,12 @@ export function dryRunHoldsAt(dryRunHead: string, head: string, observedHeads: r
 export const NARROWED_FINDINGS_AT_MOST = 2
 export const NARROWED_PREFIX = 'narrowed: '
 export const SLICED_PREFIX = 'sliced: '
+export const PARKED_MUTATION_PREFIX = 'surviving mutation to kill: '
 const CARD_HEADER = 'card: '
 const FINDINGS_SUFFIX = '-findings'
 const FINDINGS_SIZE = 'S'
+const MUTATIONS_SUFFIX = '-mutations'
+const MUTATIONS_SIZE = 'XS'
 const ROUND_LIMIT = 'the review round limit (D-104)'
 const PLACE = /([\w./-]+\.[a-z]+):([\w$]+)/g
 const COMPLEXITY_SEAMS = ['complexity', 'volume']
@@ -87,10 +90,18 @@ export type RecutPlan
   = | { kind: 'owner_wait', why: string }
     | { kind: 'narrow', parked: ParkedTask, places: Place[] }
     | { kind: 'slice', parked: ParkedTask, slices: ProposedSlice[] }
+    | ParkPlan
 
 export interface RecutCard {
   id: number
   text: string
+}
+
+export interface ParkPlan {
+  kind: 'park'
+  parked: ParkedTask
+  mutations: readonly string[]
+  continuation: RecutCard | null
 }
 
 export interface Recut {
@@ -168,6 +179,8 @@ export function recutPlanOf(cardId: number, text: string, findings: readonly str
 }
 
 export function recutCardCount(plan: Exclude<RecutPlan, { kind: 'owner_wait' }>): number {
+  if (plan.kind === 'park')
+    return plan.continuation === null ? 1 : 0
   return plan.kind === 'narrow' ? 1 : plan.slices.length
 }
 
@@ -219,8 +232,93 @@ function sliced(plan: Extract<RecutPlan, { kind: 'slice' }>, pr: number, firstId
   return { admitted: cards, added: cards.map(each => each.id), carrier: cards[0]!, dropsTheCard: true }
 }
 
+function mutationWitness(mutation: string): string {
+  return `${PARKED_MUTATION_PREFIX}${mutation.replace(/`/g, '\'').replace(/\s+/g, ' ').trim()}`
+}
+
+function withWitnesses(text: string, added: readonly string[]): string {
+  const lines = text.trimEnd().split('\n')
+  const items = added.map(witness => `- ${witness}`)
+  const at = lines.findIndex(line => line.trim() === WITNESSES_HEADING)
+  if (at === -1)
+    return `${[...lines, '', WITNESSES_HEADING, ...items].join('\n')}\n`
+  const end = at + 1 + witnessesOf(text).length
+  return `${[...lines.slice(0, end), ...items, ...lines.slice(end)].join('\n')}\n`
+}
+
+function parkedInto(plan: ParkPlan, pr: number, newId: number): Recut {
+  const { task, who } = plan.parked
+  const { card } = task
+  const witnesses = plan.mutations.map(mutationWitness)
+  if (plan.continuation !== null) {
+    const carrier = { id: plan.continuation.id, text: withWitnesses(plan.continuation.text, witnesses) }
+    return { admitted: [carrier], added: [], carrier, dropsTheCard: false }
+  }
+  const carrier = {
+    id: newId,
+    text: parkingFileText({
+      card: cardLine({ ...card, id: newId, name: `${card.name}${MUTATIONS_SUFFIX}`, size: MUTATIONS_SIZE, depends: [card.id], blocks: [] }),
+      branch: `${task.branch}${MUTATIONS_SUFFIX}`,
+      touches: task.touches,
+      continue: task.continue,
+      who,
+      body: withWitnesses(`Surviving mutations parked from card #${card.id} at ${ROUND_LIMIT} on PR #${pr}: each needs a test that kills it.`, witnesses),
+    }),
+  }
+  return { admitted: [carrier], added: [newId], carrier, dropsTheCard: false }
+}
+
 export function recutOf(plan: Exclude<RecutPlan, { kind: 'owner_wait' }>, text: string, pr: number, firstId: number): Recut {
+  if (plan.kind === 'park')
+    return parkedInto(plan, pr, firstId)
   return plan.kind === 'narrow' ? narrowed(plan, text, pr, firstId) : sliced(plan, pr, firstId)
+}
+
+function coversTheTouches(candidate: RecutCard, touches: readonly string[]): boolean {
+  const parsed = parseParkingFile(`${candidate.id}.md`, candidate.text)
+  return parsed.kind === 'parked' && touches.every(touch => parsed.parked.task.touches.includes(touch))
+}
+
+export function parkPlanOf(cardId: number, text: string, mutations: readonly string[], dependents: readonly RecutCard[]): ParkPlan | Extract<RecutPlan, { kind: 'owner_wait' }> {
+  const parsed = parseParkingFile(`${cardId}.md`, text)
+  if (parsed.kind === 'refused')
+    return { kind: 'owner_wait', why: `the body of card #${cardId} does not parse: ${parsed.reason}` }
+  const continuation = dependents.find(dependent => coversTheTouches(dependent, parsed.parked.task.touches)) ?? null
+  return { kind: 'park', parked: parsed.parked, mutations, continuation }
+}
+
+export type LimitRule
+  = | { kind: 'park', mutations: string[] }
+    | { kind: 'extend', findings: string[], previous: string[] }
+    | { kind: 'owner' }
+
+export interface LimitReading {
+  decisionsShard: boolean
+  findings: readonly string[]
+  survivingMutations: readonly string[]
+  previous: readonly string[]
+  extendedBefore: boolean
+}
+
+function trimmedSet(list: readonly string[]): Set<string> {
+  return new Set(list.map(each => each.trim()))
+}
+
+export function sameFindings(left: readonly string[], right: readonly string[]): boolean {
+  const [one, other] = [trimmedSet(left), trimmedSet(right)]
+  return one.size === other.size && [...one].every(finding => other.has(finding))
+}
+
+export function limitRuleOf(reading: LimitReading): LimitRule {
+  if (!reading.decisionsShard)
+    return { kind: 'owner' }
+  const findings = [...trimmedSet(reading.findings)]
+  const marked = trimmedSet(reading.survivingMutations)
+  if (findings.length > 0 && findings.every(finding => marked.has(finding)))
+    return { kind: 'park', mutations: findings }
+  if (reading.extendedBefore || sameFindings(reading.findings, reading.previous))
+    return { kind: 'owner' }
+  return { kind: 'extend', findings, previous: [...trimmedSet(reading.previous)] }
 }
 
 function decisionUnder(marker: string, decisions: readonly InForceDecision[], pr: number, head: string, cleanUpdates: readonly CleanUpdate[]): number | null {
@@ -232,6 +330,18 @@ function decisionUnder(marker: string, decisions: readonly InForceDecision[], pr
 
 export function roundLimitDecisionOf(decisions: readonly InForceDecision[], pr: number, head: string, cleanUpdates: readonly CleanUpdate[]): number | null {
   return decisionUnder(ALLOW_MERGE, decisions, pr, head, cleanUpdates)
+}
+
+export interface MutationParking {
+  id: number
+  head: string
+}
+
+export function mutationsParkedGrantOf(parkings: readonly MutationParking[], head: string, cleanUpdates: readonly CleanUpdate[]): number | null {
+  if (!isFullSha(head))
+    return null
+  const heads = headsWithTheSameDiff(head, cleanUpdates)
+  return parkings.find(parking => heads.includes(parking.head))?.id ?? null
 }
 
 export function continueFixesDecisionOf(decisions: readonly InForceDecision[], pr: number, head: string, cleanUpdates: readonly CleanUpdate[]): number | null {
