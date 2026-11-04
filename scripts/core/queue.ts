@@ -178,7 +178,7 @@ const GREEN_BEHIND_BY_CARD_PRIORITY = `
 export const AN_UPDATED_PR_HOLDS_MS = LEASE_MS
 
 const UPDATED_AND_ON_ITS_WAY_TO_MERGE = `
-  SELECT DISTINCT prs.pr, prs.card_id, prs.head, prs.verdict_on_head FROM prs
+  SELECT DISTINCT prs.pr, prs.card_id, prs.head, prs.verdict_on_head, updated.ts AS updated_at FROM prs
   JOIN events AS updated ON updated.type = '${UPDATE_DONE}' AND updated.legacy = 0 AND updated.pr = prs.pr
     AND prs.head IN (json_extract(updated.payload, '$.from'), json_extract(updated.payload, '$.to'))
     AND json_extract(updated.payload, '$.carried') = 'pass' AND json_type(updated.payload, '$.task_key') = 'text'
@@ -856,15 +856,25 @@ export function reviewCandidates(db: DatabaseSync, ts: string): QueuedTask[] {
   return openCandidates(db, ts, 'review', candidateRows(db, REVIEW_CANDIDATES, everyRow))
 }
 
-function prsHoldingTheUpdateTurn(db: DatabaseSync, ts: string): Set<number | null> {
+function holdsOfTheUpdateTurn(db: DatabaseSync, ts: string): (Candidate & { updated_at: string })[] {
   const since = new Date(Date.parse(ts) - AN_UPDATED_PR_HOLDS_MS).toISOString()
-  const rows = db.prepare(UPDATED_AND_ON_ITS_WAY_TO_MERGE).all(since) as unknown as Candidate[]
-  return new Set(rows.filter(aMergeCandidate(db, ts)).map(row => row.pr))
+  const rows = db.prepare(UPDATED_AND_ON_ITS_WAY_TO_MERGE).all(since) as unknown as (Candidate & { updated_at: string })[]
+  return rows.filter(aMergeCandidate(db, ts))
+}
+
+function prsHoldingTheUpdateTurn(db: DatabaseSync, ts: string): Set<number | null> {
+  return new Set(holdsOfTheUpdateTurn(db, ts).map(row => row.pr))
+}
+
+export function updateTurnHeldUntil(db: DatabaseSync, ts: string, pr: number): string | null {
+  const holds = holdsOfTheUpdateTurn(db, ts)
+  if (holds.length === 0 || holds.some(row => row.pr === pr))
+    return null
+  return new Date(Math.max(...holds.map(row => Date.parse(row.updated_at))) + AN_UPDATED_PR_HOLDS_MS).toISOString()
 }
 
 export function updateTurnHeldFrom(db: DatabaseSync, ts: string, pr: number): boolean {
-  const holders = prsHoldingTheUpdateTurn(db, ts)
-  return holders.size > 0 && !holders.has(pr)
+  return updateTurnHeldUntil(db, ts, pr) !== null
 }
 
 export function updateCandidates(db: DatabaseSync, ts: string, rerun: RerunMode = 'as-now'): QueuedTask[] {
