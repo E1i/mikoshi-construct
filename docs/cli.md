@@ -2047,6 +2047,37 @@ of any other form is refused, and `--admit` marks it `unclear:`), `number` and `
 another card of the draft by its `name` or an existing card as `#<id>`; a card another one depends on
 gets the matching `blocks` entry.
 
+**Witness fields and runs.** Beside text, `witnesses` takes a list of fields, and a draft holds either
+fields or text in one card, never both. The card then carries each list as one line of JSON, with no
+`Witnesses:` heading: `runs: ["tests/card/**"]` and
+`witnesses: [{"id":"W1","run":"pnpm exec vitest run tests/a.test.ts","test":"the thing","head":"pass","base":"fail","proves":"the thing is done"}]`.
+A card that keeps a `Witnesses:` list beside the fields is read by its fields, and a card with no field
+line works as before. A field takes these keys and no other:
+
+| Key | What it holds |
+|---|---|
+| `id` | `W1`, `W2`, …; no two fields of a card share one. |
+| `run` | The command, on one line with no backtick; `$(…)` is the way to a substitution. A field with no `run` is refused. |
+| `test` | The test name, given to the run as `-t '<test>'`, on one line with no single quote and no backtick; `null` or left out when there is none. It needs a `vitest` run that names no test of its own. |
+| `head` | What the run does on the head: `pass`, `fail` or `exit:N`, with `N` from 1 to 255. A run that starts with `!` takes no `exit:N`. |
+| `base` | What the run does on the base, in the same form. A `head` that differs from `base` makes an acceptance witness, and the same value makes an invariant. |
+| `proves` | What the witness proves, in words. |
+
+`runs`, optional, lists the test paths and trailing `/**` globs the card runs; the older
+`Runs: <path>, <path>` line is read the same way. A `touches` entry that `runs` also names does not
+count towards launch overlap between two cards, and a changed test that `runs` covers is not outside
+the card. An entry that is no test or tree of tests is marked `unclear:`, and a `runs:` line in a card
+that is not a JSON list of paths and globs is refused, like a malformed field.
+
+A later admission or `--amend` admits a changed field with no decision in four cases: `test` narrows to
+a name the old `test` matches or gains a name where it had none, a named test moves to another file, the
+run gains or loses a `!` with the opposite expectation, or `base` goes from `pass` to `fail`. Any other
+change that leaves no field stating the old result is held as an owner wait: a changed `head`, a `base`
+that goes from `fail` to `pass`, a `test` the old one does not match, a removed field. The wait names the
+witness by card and id, and the decision that lifts it says `разрешить понижение свидетеля #N W1`;
+`#N W11` or another card's `W1` lifts nothing. On a card with fields, `--witness` takes
+`<id>=<the witness field as JSON>`.
+
 **Numbers.** Card numbers are shared with pull requests and issues, so the cards take the next numbers
 after every number taken in the parking directory and in `--taken`. Without `--taken` the command
 refuses: a card that reuses a pull request's number is worse than no card.
