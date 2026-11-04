@@ -11,6 +11,7 @@ import { parseParkingFile } from '../../src/card/parking.js'
 import { textSha } from '../../src/card/text-sha.js'
 import { isLaneName } from '../../src/commands/intake/admit.js'
 import { PLAN_FIELD } from '../../src/commands/intake/check.js'
+import { WINDOW_SHARD_VARIABLE } from '../../src/commands/intake/confirm.js'
 import { printExport, runExport } from '../../src/commands/intake/export.js'
 import { createMain } from '../../src/program.js'
 import { createUi } from '../../src/ui/console.js'
@@ -22,6 +23,9 @@ import { CARD_ADMITTED, CARD_MOVED, CARD_PLANNED, PLAN_CLOSED, PLAN_OPENED } fro
 import { OWNER } from '../core/inbox.js'
 import { openDatabase } from '../core/sqlite.js'
 import { assignMovedLane, layLanes, repositoryLanes } from '../nodes/launch/lane-assign.js'
+import { activeWindowShards } from '../policy/shards.js'
+import { tabWindowOf } from '../window/tab.js'
+import { windowSessionOf } from '../window/window-heartbeat.js'
 import { INTAKE_ACTOR_PREFIX } from './admissions.js'
 
 const INTAKE_SUBCOMMAND = 'intake'
@@ -228,12 +232,21 @@ function intakeBusPath(): string | null {
   }
 }
 
+export function windowShardOfRun(db: DatabaseSync, env: NodeJS.ProcessEnv, now: Date): string | null {
+  if (windowSessionOf(env) === null && tabWindowOf(env) === null)
+    return null
+  return activeWindowShards(db, now)[0]?.id ?? null
+}
+
 async function main(): Promise<void> {
   const busPath = intakeBusPath()
   if (busPath === null)
     return
   const db = openBus(busPath)
   try {
+    const shard = windowShardOfRun(db, process.env, new Date())
+    if (shard !== null)
+      process.env[WINDOW_SHARD_VARIABLE] = shard
     await runBusIntake(db, process.argv.slice(2), process.env[SESSION_VARIABLE] || undefined)
   }
   finally {
