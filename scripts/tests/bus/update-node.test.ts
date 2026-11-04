@@ -4,12 +4,13 @@ import type { UpdateNodeParts } from '../../nodes/update/update-worker.js'
 import type { MergeBench } from './merge-bench.js'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { textSha } from '../../../src/card/text-sha.js'
+import { RERUN_VARIABLE } from '../../cli/check-catalog.js'
 import { DROPPED_LANE } from '../../core/card-automaton.js'
 import { appendEvent } from '../../core/db.js'
-import { CARD_ADMITTED, CARD_CLOSED, CARD_MOVED, COMMAND_EXECUTED, MERGE_DONE, NODE_DETECTED, NODE_EQUIVALENCE, POLICY_ALLOWED, POLICY_DENIED, REVIEW_RECORDED, TASK_ENQUEUED } from '../../core/events.js'
+import { CARD_ADMITTED, CARD_CLOSED, CARD_MOVED, CARD_STOPPED, COMMAND_EXECUTED, MERGE_DONE, NODE_DETECTED, NODE_EQUIVALENCE, POLICY_ALLOWED, POLICY_DENIED, REVIEW_RECORDED, TASK_ENQUEUED } from '../../core/events.js'
 import { leaseNext } from '../../core/lease.js'
 import { NODE_CURSORS } from '../../core/node.js'
-import { keyOf, updateCandidates } from '../../core/queue.js'
+import { FAILURES_TO_STOP, keyOf, NEEDS_UPDATE, updateCandidates } from '../../core/queue.js'
 import { UpdateExecutor } from '../../nodes/update/update-executor.js'
 import { UpdateNode } from '../../nodes/update/update-worker.js'
 import { MAIN_2, sha } from './github-fake.js'
@@ -56,8 +57,8 @@ function bench(): MergeBench {
   return made
 }
 
-function nodeOf(made: MergeBench, mode: DetectionMode = 'shadow'): ProbedUpdateNode {
-  const parts: UpdateNodeParts = { db: made.db, gitHub: made.gitHub.client, put: made.gitHub.put, publish: made.gitHub.publish, clock: made.clock.now, settle: () => {}, session: 'node-1', mode, env: {} }
+function nodeOf(made: MergeBench, mode: DetectionMode = 'shadow', env: NodeJS.ProcessEnv = {}): ProbedUpdateNode {
+  const parts: UpdateNodeParts = { db: made.db, gitHub: made.gitHub.client, put: made.gitHub.put, publish: made.gitHub.publish, clock: made.clock.now, settle: () => {}, session: 'node-1', mode, env }
   return new ProbedUpdateNode(parts)
 }
 
@@ -349,6 +350,27 @@ describe('the update node', () => {
       [COMMAND_EXECUTED, 'publish', false, 'gh api: HTTP 502'],
       [UPDATE_DONE, undefined, undefined, undefined],
     ])
+  })
+
+  it('three not_behind answers to update_branch write no card.stopped and end the update task as done', async () => {
+    const made = bench()
+    made.gitHub.upToDateRequired = true
+    made.gitHub.open({ number: 970, review: 'success', mergeable_state: 'clean' })
+    made.tick()
+    appendEvent(made.db, { ts: made.clock.now().toISOString(), type: POLICY_DENIED, actor: 'policy', cardId: 1070, pr: 970, head: sha('a'), dedupeKey: `${POLICY_DENIED}:sent-to-update`, payload: { command: 'merge', kind: 'technical', reason: NEEDS_UPDATE, detail: 'updated before it merges' }, legacy: false })
+    const node = nodeOf(made, 'live', { [RERUN_VARIABLE]: 'by-layers' })
+
+    for (let answer = 0; answer < FAILURES_TO_STOP; answer += 1)
+      await once(node)
+    made.tick()
+    const asked = made.gitHub.calls.length
+    await once(node)
+
+    expect(eventsOf(made.db, CARD_STOPPED)).toEqual([])
+    expect(taskState(made.db, updateKey(970))).toMatchObject({ state: 'completed', failures: 0 })
+    expect(eventsOf(made.db, POLICY_DENIED).filter(each => each.reason === 'not_behind')).toHaveLength(1)
+    expect(made.gitHub.calls.slice(asked)).toEqual([])
+    expect(made.gitHub.puts).toEqual([])
   })
 
   it('update skips a candidate cardContract reads as not mine', async () => {
