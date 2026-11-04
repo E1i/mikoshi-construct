@@ -7,12 +7,13 @@ import path from 'node:path'
 import process from 'node:process'
 import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
+import { RERUN_VARIABLE } from '../../cli/check-catalog.js'
 import { busDirOf, machineBusPath } from '../../core/bus-path.js'
 import { appendEvent, openBus } from '../../core/db.js'
-import { alive, BUS_FLAG, BUS_RUN_LAUNCH, BUS_RUN_MARKERS, busInArgs, carriesMarker, flagsInArgs, instancesOf, launchArgv, launchName, PREFIX, psList, RUN_SCRIPT, runBusBg, runningBus, runningInstance, servesBus, SHADOW_LOG, START_LOCK, START_LOCK_LIMIT_MS, startDetached, withBuses } from '../../supervisor/bg.js'
+import { AGENT_ENV, alive, BUS_FLAG, BUS_RUN_LAUNCH, BUS_RUN_MARKERS, busInArgs, carriesMarker, flagsInArgs, instancesOf, launchArgv, launchName, PREFIX, psList, RUN_SCRIPT, runBusBg, runningBus, runningInstance, servesBus, SHADOW_LOG, START_LOCK, START_LOCK_LIMIT_MS, startDetached, withBuses } from '../../supervisor/bg.js'
 import { startReviewWorker } from '../../supervisor/review-bg.js'
 import { factoryBusOf } from '../../supervisor/start.js'
-import { bgCommand, BusSupervisor, entryOf, gitCode, lastMainAdvance, mainAdvancedSince, stopInstance, SUPERVISOR_LAUNCH, switchCommand } from '../../supervisor/supervisor.js'
+import { bgCommand, BusSupervisor, entryOf, gitCode, lastMainAdvance, mainAdvancedSince, startUnderAgentEnv, stopInstance, SUPERVISOR_LAUNCH, switchCommand } from '../../supervisor/supervisor.js'
 import { busLaunches, switchDetection, switchedOn, switchWorker, wantedLaunches, WORKERS_FILE } from '../../supervisor/workers.js'
 import { settled } from '../shift/fixtures/settled.js'
 import { waitFor } from '../wait-for.js'
@@ -127,7 +128,134 @@ function supervisorServing(bus: string | undefined): RunningProcess {
   return { pid: 16780, args: `node /x/node_modules/mikoshi-construct/dist/${SUPERVISOR_LAUNCH.markers[0]!.replace('.ts', '.js')}`, ...bus === undefined ? {} : { bus } }
 }
 
+const MERGE_WORKER_LINE = 'node /x/node_modules/tsx/dist/cli.mjs scripts/nodes/merge/merge-worker.ts --on'
+const SUPERVISOR_LINE = 'node /x/node_modules/tsx/dist/cli.mjs scripts/supervisor/supervisor.ts --supervise'
+const OWN_PACKAGE = '/own/package'
+
+function mergeLaunch(): DetachedLaunch {
+  return busLaunches(NO_PREFLIGHT).find(launch => launch.script === 'bus:merge')!
+}
+
+interface Hand {
+  stops: number[]
+  freed: string[][]
+  run: (launches: DetachedLaunch[], env: NodeJS.ProcessEnv) => Promise<BgResult>
+}
+
+function handOver(w: World, running: RunningProcess[]): Hand {
+  let live = [...running]
+  const stops: number[] = []
+  const freed: string[][] = []
+  return {
+    stops,
+    freed,
+    run: async (launches, env) => {
+      const result = await startUnderAgentEnv(w.busDir, launches, {
+        env,
+        processes: () => live,
+        ownPackage: OWN_PACKAGE,
+        stop: async (instance) => {
+          stops.push(instance.pid)
+          live = live.filter(candidate => candidate.pid !== instance.pid)
+        },
+        freeLeases: (stopped) => {
+          freed.push(stopped.map(launchName))
+          return []
+        },
+      })
+      started.push(...pidsOf(result))
+      return result
+    },
+  }
+}
+
 describe('pnpm bus:bg', () => {
+  it('bus:bg restarts a live worker stamped with another BUS_RERUN than the agent hands it', async () => {
+    const w = world()
+    const bus = ownBus(w)
+    const env = { ...w.env, CONSTRUCT_BUS_DB: bus, BUS_RERUN: 'by-layers' }
+    const hand = handOver(w, withBuses([{ pid: 4242, args: `${MERGE_WORKER_LINE} --agent-env.BUS_RERUN.as-now ${BUS_FLAG} ${bus}` }]))
+    const result = await hand.run([mergeLaunch()], env)
+    expect(result.exitCode).toBe(0)
+    expect(hand.stops).toEqual([4242])
+    expect(hand.freed).toEqual([['bus:merge --on']])
+    expect(pidsOf(result)).toHaveLength(1)
+    expect(await argvLines(w, 1)).toEqual([`--silent bus:merge --on --agent-env.BUS_RERUN.by-layers ${BUS_FLAG} ${bus}`])
+  })
+
+  it('a live worker stamped with the handed env is left alone and frees nothing', async () => {
+    const w = world()
+    const bus = ownBus(w)
+    const env = { ...w.env, CONSTRUCT_BUS_DB: bus, BUS_RERUN: 'by-layers', CONSTRUCT_REVIEW_MODEL: 'sonnet' }
+    const hand = handOver(w, withBuses([{ pid: 4242, args: `${MERGE_WORKER_LINE} --agent-env.BUS_RERUN.by-layers --agent-env.CONSTRUCT_REVIEW_MODEL.sonnet ${BUS_FLAG} ${bus}` }]))
+    const result = await hand.run([mergeLaunch()], env)
+    expect(hand.stops).toEqual([])
+    expect(hand.freed).toEqual([])
+    expect(result.stdout).toEqual([`${PREFIX}bus:merge --on is already running as pid 4242; left alone`])
+  })
+
+  it('a start handed no BUS_RERUN leaves a stamped worker in its mode: only a named value restarts it', async () => {
+    const w = world()
+    const bus = ownBus(w)
+    const hand = handOver(w, withBuses([{ pid: 4242, args: `${MERGE_WORKER_LINE} --agent-env.BUS_RERUN.by-layers ${BUS_FLAG} ${bus}` }]))
+    await hand.run([mergeLaunch()], { ...w.env, CONSTRUCT_BUS_DB: bus })
+    expect(hand.stops).toEqual([])
+    expect(readArgv(w)).toEqual([])
+  })
+
+  it('a worker with no stamp, started before the stamp existed, is restarted once onto the handed env', async () => {
+    const w = world()
+    const bus = ownBus(w)
+    const hand = handOver(w, withBuses([{ pid: 4242, args: `${MERGE_WORKER_LINE} ${BUS_FLAG} ${bus}` }]))
+    await hand.run([mergeLaunch()], { ...w.env, CONSTRUCT_BUS_DB: bus, BUS_RERUN: 'by-layers' })
+    expect(hand.stops).toEqual([4242])
+  })
+
+  it('the supervisor stops before the workers, so it cannot start one on the old env, and starts after them', async () => {
+    const w = world()
+    const bus = ownBus(w)
+    const hand = handOver(w, withBuses([
+      { pid: 4242, args: `${MERGE_WORKER_LINE} --agent-env.BUS_RERUN.as-now ${BUS_FLAG} ${bus}` },
+      { pid: 4243, args: `${SUPERVISOR_LINE} --agent-env.BUS_RERUN.as-now ${BUS_FLAG} ${bus}` },
+    ]))
+    await hand.run([mergeLaunch(), SUPERVISOR_LAUNCH], { ...w.env, CONSTRUCT_BUS_DB: bus, BUS_RERUN: 'by-layers' })
+    expect(hand.stops).toEqual([4243, 4242])
+    const lines = await argvLines(w, 2)
+    expect(lines.sort()).toEqual([
+      `--silent bus:bg --supervise --agent-env.BUS_RERUN.by-layers ${BUS_FLAG} ${bus}`,
+      `--silent bus:merge --on --agent-env.BUS_RERUN.by-layers ${BUS_FLAG} ${bus}`,
+    ])
+  })
+
+  it('a worker whose bus cannot be proven, or of another package, is not stopped for a stamp', async () => {
+    const w = world()
+    const bus = ownBus(w)
+    const env = { ...w.env, CONSTRUCT_BUS_DB: bus, BUS_RERUN: 'by-layers' }
+    const unproven = handOver(w, [{ pid: 4242, args: MERGE_WORKER_LINE }])
+    await unproven.run([mergeLaunch()], env)
+    expect(unproven.stops).toEqual([])
+    const foreign = handOver(w, withBuses([{ pid: 4243, args: `node /other/package/dist/scripts/nodes/merge/merge-worker.js --on ${BUS_FLAG} ${bus}` }]))
+    await foreign.run([mergeLaunch()], env)
+    expect(foreign.stops).toEqual([])
+  })
+
+  it('the stamp holds no value of the environment other than the agent env, and is read before --bus', () => {
+    const stamped = launchArgv(mergeLaunch(), null, '/x/bus.db', { BUS_RERUN: 'by-layers', GH_TOKEN: 'secret', CONSTRUCT_REVIEW_MODEL: 'a b' })
+    expect(stamped).toEqual(['nohup', 'pnpm', '--silent', 'bus:merge', '--on', '--agent-env.BUS_RERUN.by-layers', '--agent-env.CONSTRUCT_REVIEW_MODEL.a%20b', BUS_FLAG, '/x/bus.db'])
+    expect(busInArgs(stamped.slice(1).join(' '))).toBe('/x/bus.db')
+  })
+
+  it('the agent env names the variable the merge and update nodes read their rerun mode from', () => {
+    expect(AGENT_ENV).toContain(RERUN_VARIABLE)
+  })
+
+  it('a stamp holds only characters shell quoting leaves as they are, so a wrapper line reads the same and never restarts in a loop', () => {
+    const stamps = launchArgv(mergeLaunch(), null, undefined, { BUS_RERUN: 'by-layers', CONSTRUCT_REVIEW_MODEL: 'a=b c' }).filter(token => token.startsWith('--agent-env'))
+    expect(stamps).toHaveLength(2)
+    for (const stamp of stamps)
+      expect(stamp).toMatch(/^[\w%./+-]+$/)
+  })
+
   it('bus:bg returns at once with the pid and the log path', async () => {
     const w = world()
     const result = runBusBg(w.busDir, [BUS_RUN_LAUNCH], w.env, w.processes)

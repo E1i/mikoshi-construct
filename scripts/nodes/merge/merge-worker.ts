@@ -90,6 +90,7 @@ export class MergeNode extends Node<MergeStep> {
   protected override before(): void {
     if (firstLiveVerdict(this.db) === null)
       throw new NoLiveVerdict()
+    this.log(`the merge node starts in rerun mode ${this.rerun}`)
   }
 
   protected candidates(scope: Scope = {}): QueuedTask[] {

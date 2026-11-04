@@ -2,6 +2,14 @@ import { Buffer } from 'node:buffer'
 import process from 'node:process'
 
 export const STAMP_ENV = 'BUS_LOG_STAMP'
+export const AGENT_ENV_FLAG = '--agent-env'
+
+export function agentEnvStamp(names: readonly string[], env: NodeJS.ProcessEnv): string[] {
+  return names.flatMap((name) => {
+    const value = env[name]
+    return value === undefined || value === '' ? [] : [`${AGENT_ENV_FLAG}.${name}.${encodeURIComponent(value)}`]
+  })
+}
 
 export class LineStamper {
   private atLineStart = true

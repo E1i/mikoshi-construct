@@ -110,6 +110,24 @@ async function once(node: MergeNode | UpdateNode): Promise<void> {
   await node.run({ pause: async () => controller.abort(), signal: controller.signal })
 }
 
+describe('the rerun mode at a node start', () => {
+  const startLines = (): string[] => vi.mocked(console.log).mock.calls.map(call => String(call[0])).filter(line => line.includes('rerun mode'))
+
+  it('the merge and update nodes each name by-layers in their start line', async () => {
+    const made = bench()
+    await once(nodeOf(made, 'shadow', BY_LAYERS))
+    await once(updateNodeOf(made, BY_LAYERS))
+    expect(startLines()).toEqual([expect.stringContaining('the merge node starts in rerun mode by-layers'), expect.stringContaining('the update node starts in rerun mode by-layers')])
+  })
+
+  it('with no BUS_RERUN the merge and update nodes each name as-now in their start line', async () => {
+    const made = bench()
+    await once(nodeOf(made))
+    await once(updateNodeOf(made, {}))
+    expect(startLines()).toEqual([expect.stringContaining('the merge node starts in rerun mode as-now'), expect.stringContaining('the update node starts in rerun mode as-now')])
+  })
+})
+
 function lawOf(made: MergeBench): Record<string, unknown>[] {
   return made.db.prepare(`SELECT type, payload FROM events WHERE type IN (?, ?, ?) ORDER BY id`).all(POLICY_ALLOWED, COMMAND_EXECUTED, MERGE_DONE).map(row => ({ type: row.type, ...(JSON.parse(String(row.payload)) as Record<string, unknown>) }))
 }
