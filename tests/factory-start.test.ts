@@ -36,7 +36,9 @@ const SYSTEM_BIN_DIRS = ['/usr/bin', '/bin']
 const UID = 501
 const USER_PATH = '/opt/user/bin:/usr/bin:/bin'
 const SECURITY_INVARIANTS = path.join(REPOSITORY, 'architecture', 'security-invariants.md')
-const FACTORY_SPAWNS = ['launchctl', 'nohup', 'ps']
+const FACTORY_SPAWNS = ['launchctl', 'nohup', 'ps', 'gh']
+const FACTORY_GH_ARGUMENTS = ['api user', 'api repos/<slug>']
+const PACKED_REPOSITORY_SLUG = 'acme/shop'
 const LAUNCHCTL_SUBCOMMANDS = ['print', 'bootout', 'bootstrap']
 const SPAWN_BOUNDARY_TEST = 'construct-factory spawns only launchctl and the supervisor the package ships'
 const SPAWN_BOUNDARY_SANDBOX_LEVEL = 'none'
@@ -112,6 +114,14 @@ function ran(stdout: string): GhCall {
   return { kind: 'ran', stdout: `${stdout}\n`, attempts: 1 }
 }
 
+function loginIs(login: string): GhCall {
+  return ran(JSON.stringify({ login, id: 1 }))
+}
+
+function pushIs(push: boolean): GhCall {
+  return ran(JSON.stringify({ full_name: PACKED_REPOSITORY_SLUG, permissions: { pull: true, push } }))
+}
+
 function refused(stderr: string, cause: 'failed' | 'transient' = 'failed'): GhCall {
   return { kind: 'failed', cause, reason: stderr, stdout: '', stderr, attempts: 1 }
 }
@@ -159,6 +169,7 @@ describe('the construct-factory spawn boundary', () => {
     expect(row, 'a row starting | `construct-factory` inside the discovery block').toBeDefined()
     const [invariant, enforcedBy] = row!.split(' | ')
     expect(listAfter(invariant!, 'Spawns only: ')).toEqual(FACTORY_SPAWNS)
+    expect(listAfter(invariant!, '`gh` arguments only: ')).toEqual(FACTORY_GH_ARGUMENTS)
     expect(listAfter(invariant!, '`launchctl` subcommands only: ')).toEqual(LAUNCHCTL_SUBCOMMANDS)
     expect(listAfter(invariant!, 'Never spawned: ')).toEqual(NEVER_SPAWNED)
     for (const entry of NOHUP_ENTRIES)
@@ -299,9 +310,9 @@ describe('the keep-alive of the start command', () => {
 const fresh = async () => ({ stdout: [], stderr: [], exitCode: 0 })
 
 describe('the github account of the keep-alive', () => {
-  const ACTIVE = 'api user --jq .login'
-  const ACCESS = 'api repos/acme/shop --jq .permissions.push'
-  const ORIGIN = 'git@github.com:acme/shop.git'
+  const [ACTIVE, ACCESS_TEMPLATE] = FACTORY_GH_ARGUMENTS as [string, string]
+  const ACCESS = ACCESS_TEMPLATE.replace('<slug>', PACKED_REPOSITORY_SLUG)
+  const ORIGIN = `git@github.com:${PACKED_REPOSITORY_SLUG}.git`
 
   async function startedWith(repository: string, answers: Record<string, GhCall>, env: NodeJS.ProcessEnv = {}, home = tempRoot('factory-home-')) {
     const { calls, gh } = answeringGh(answers)
@@ -316,22 +327,23 @@ describe('the github account of the keep-alive', () => {
   }
 
   it('the keep-alive carries the github account that started it when that account can push, and the nodes it starts read the same value', async () => {
-    const { text, seenByStart, result } = await startedWith(userRepository(ORIGIN), { [ACTIVE]: ran('worker'), [ACCESS]: ran('true') })
+    const { text, seenByStart, result, calls } = await startedWith(userRepository(ORIGIN), { [ACTIVE]: loginIs('worker'), [ACCESS]: pushIs(true) })
     expect(plistValue(text, GH_ACCOUNT_VARIABLE)).toBe('worker')
     expect(seenByStart).toEqual(['worker'])
+    expect(calls.map(call => call.join(' '))).toEqual([ACTIVE, ACCESS])
     expect(result.stdout.join('\n')).toContain('can push to acme/shop')
   })
 
   it('the keep-alive carries the github account of the remote owner when the starter has no access', async () => {
-    for (const noAccess of [ran('false'), refused('gh: Not Found (HTTP 404)'), refused('gh: Forbidden (HTTP 403)', 'transient')]) {
-      const { text, result } = await startedWith(userRepository(ORIGIN), { [ACTIVE]: ran('work-account'), [ACCESS]: noAccess })
+    for (const noAccess of [pushIs(false), ran('{}'), refused('gh: Not Found (HTTP 404)'), refused('gh: Forbidden (HTTP 403)', 'transient')]) {
+      const { text, result } = await startedWith(userRepository(ORIGIN), { [ACTIVE]: loginIs('work-account'), [ACCESS]: noAccess })
       expect(plistValue(text, GH_ACCOUNT_VARIABLE)).toBe('acme')
       expect(result.stdout.join('\n')).toContain('work-account, cannot push to acme/shop, so its owner wins')
     }
   })
 
   it('the keep-alive carries the github account that owns the remote without asking about its access', async () => {
-    const { text, calls } = await startedWith(userRepository(ORIGIN), { [ACTIVE]: ran('ACME') })
+    const { text, calls } = await startedWith(userRepository(ORIGIN), { [ACTIVE]: loginIs('ACME') })
     expect(plistValue(text, GH_ACCOUNT_VARIABLE)).toBe('ACME')
     expect(calls).toEqual([ACTIVE.split(' ')])
   })
@@ -344,17 +356,25 @@ describe('the github account of the keep-alive', () => {
 
   it('a gh that does not answer keeps the account the keep-alive already records, and says so', async () => {
     const repository = userRepository(ORIGIN)
-    const first = await startedWith(repository, { [ACTIVE]: ran('acme') })
+    const first = await startedWith(repository, { [ACTIVE]: loginIs('acme') })
     const second = await startedWith(repository, { [ACTIVE]: refused('dial tcp: i/o timeout', 'transient') }, {}, first.home)
     expect(plistValue(second.text, GH_ACCOUNT_VARIABLE)).toBe('acme')
     expect(second.result.stdout.join('\n')).toContain('keeps the GitHub account acme')
   })
 
   it('a gh that does not answer on a first start records nothing and says the factory follows the active account', async () => {
-    const { text, result, seenByStart } = await startedWith(userRepository(ORIGIN), { [ACTIVE]: ran('worker'), [ACCESS]: refused('HTTP 502', 'transient') })
+    const { text, result, seenByStart } = await startedWith(userRepository(ORIGIN), { [ACTIVE]: loginIs('worker'), [ACCESS]: refused('HTTP 502', 'transient') })
     expect(text).not.toContain(GH_ACCOUNT_VARIABLE)
     expect(seenByStart).toEqual([undefined])
     expect(result.stdout.join('\n')).toContain('follows the active gh account')
+  })
+
+  it('an answer of gh it cannot read records no account rather than a wrong one', async () => {
+    for (const answers of [{ [ACTIVE]: ran('not json') }, { [ACTIVE]: ran('{}') }, { [ACTIVE]: loginIs('worker'), [ACCESS]: ran('not json') }]) {
+      const { text, result } = await startedWith(userRepository(ORIGIN), answers)
+      expect(text).not.toContain(GH_ACCOUNT_VARIABLE)
+      expect(result.stdout.join('\n')).toContain('follows the active gh account')
+    }
   })
 
   it('a repository whose origin is not on github records no account and asks gh nothing', async () => {
@@ -733,8 +753,10 @@ describe('the start command in the published package', () => {
     out = path.join(packed.root, 'stub-out')
     home = path.join(packed.root, 'home')
     user = path.join(packed.root, 'user-repo')
-    for (const directory of [bin, out, home, user])
+    for (const directory of [bin, out, home, path.join(user, '.git')])
       mkdirSync(directory, { recursive: true })
+    writeFileSync(path.join(user, '.git', 'config'), `[remote "origin"]\n\turl = git@github.com:${PACKED_REPOSITORY_SLUG}.git\n`)
+    stub(bin, 'gh', `[ "$*" = "api user" ] && { printf '{"login":"worker"}'; exit 0; }\n[ "$*" = "api repos/${PACKED_REPOSITORY_SLUG}" ] && { printf '{"permissions":{"push":true}}'; exit 0; }\nexit 1`)
     stub(bin, 'ps', 'exit 0')
     stub(bin, 'nohup', 'printf \'%s\\n\' "$*" >> "$STUB_OUT/nohup.argv"')
     stub(bin, 'launchctl', 'printf \'%s\\n\' "$*" >> "$STUB_OUT/launchctl.argv"\n[ "$1" = print ] && exit 1\nexit 0')
@@ -789,6 +811,8 @@ describe('the start command in the published package', () => {
     const ps = spawns.filter(spawn => spawn.command === 'ps')
     expect(ps.length > 0).toBe(true)
     expect(ps.filter(spawn => !spawn.args[0]?.startsWith('-'))).toEqual([])
+    const gh = spawns.filter(spawn => spawn.command === 'gh').map(spawn => spawn.args.join(' '))
+    expect(gh).toEqual(FACTORY_GH_ARGUMENTS.map(argument => argument.replace('<slug>', PACKED_REPOSITORY_SLUG)))
   })
 
   it.runIf(process.platform === KEEP_ALIVE_PLATFORM)('the published command loads a keep-alive that reruns the installed starter in the user repository', () => {
@@ -799,6 +823,7 @@ describe('the start command in the published package', () => {
     expect(text).not.toContain(process.execPath)
     expect(plistValue(text, 'WorkingDirectory')).toBe(user)
     expect(plistValue(text, BUS_DB_VARIABLE)).toBe(path.join(packed.root, 'bus.db'))
+    expect(plistValue(text, GH_ACCOUNT_VARIABLE)).toBe('worker')
     expect(readFileSync(path.join(out, 'launchctl.argv'), 'utf8')).toContain(`bootstrap gui/${process.getuid!()} ${plist}`)
   })
 })

@@ -17,7 +17,7 @@ import { consumeOwnerWord, ownerChannelOfBus, USED_WORD } from '../owner/channel
 import { inForce, OWNER_SOURCE, parseDecisions } from '../policy/decisions/decisions.js'
 import { allowLiveText, namesQueueLive } from '../policy/live-decision.js'
 import { activeWindowShards, DECISIONS_SCOPE, WINDOW_SHARD_HOURS, windowShardEnded } from '../policy/shards.js'
-import { ghPort, recordedAccount } from '../ports/gh.js'
+import { ghPort, readGhJson, recordedAccount } from '../ports/gh.js'
 import { decisionsAdder } from '../window/window-request-tools.js'
 import { installedPackage, printBg } from './bg.js'
 import { startBus } from './supervisor.js'
@@ -163,16 +163,18 @@ function sameLogin(one: string, other: string): boolean {
 
 export function accountOfRepository(slug: string, gh: GhCaller): { account: string | null, because: string } {
   const owner = slug.split('/')[0]!
-  const active = gh(['api', 'user', '--jq', '.login'])
+  const active = readGhJson<{ login?: string }>(gh, ['api', 'user'])
   if (active.kind === 'failed')
     return { account: null, because: `the active gh account could not be read: ${active.reason}` }
-  const login = active.stdout.trim()
+  const login = active.value.login
+  if (login === undefined || login === '')
+    return { account: null, because: 'the active gh account could not be read: gh api user named no login' }
   if (sameLogin(login, owner))
     return { account: login, because: `the gh account that started it owns ${slug}` }
-  const access = gh(['api', `repos/${slug}`, '--jq', '.permissions.push'])
-  if (access.kind === 'ran' && access.stdout.trim() === 'true')
+  const access = readGhJson<{ permissions?: { push?: boolean } }>(gh, ['api', `repos/${slug}`])
+  if (access.kind === 'read' && access.value.permissions?.push === true)
     return { account: login, because: `the gh account that started it can push to ${slug}` }
-  if (access.kind === 'ran' || NO_ACCESS.test(access.stderr))
+  if (access.kind === 'read' || NO_ACCESS.test(access.reason))
     return { account: owner, because: `the gh account that started it, ${login}, cannot push to ${slug}, so its owner wins` }
   return { account: null, because: `the access of ${login} to ${slug} could not be read: ${access.reason}` }
 }
@@ -182,7 +184,7 @@ function installedAccount(repository: string, home: string): string | null {
   return plist === null ? null : new RegExp(`<key>${GH_ACCOUNT_VARIABLE}</key>\\s*<string>([^<]+)</string>`).exec(plist)?.[1] ?? null
 }
 
-export function recordAccount(repository: string, parts: Pick<KeepAliveParts, 'env' | 'gh' | 'home'>): string[] {
+export function recordAccount(repository: string, parts: KeepAliveParts): string[] {
   if (isOwnerCheckout(repository) || recordedAccount(parts.env) !== null)
     return []
   const url = remoteUrlOf(repository)
