@@ -1,6 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { PushPolicy } from '../../../src/commands/attach/record.js'
-import type { CardEvent } from '../../../src/commands/intake/index.js'
+import type { CardEvent, CardStatesPort } from '../../../src/commands/intake/index.js'
 import type { BusEvent } from '../../core/db.js'
 import type { CloseRule, CloseVerdict } from '../../policy/policy.js'
 import type { Recut, RecutCard, RecutPlan } from '../../policy/round-limit-decision.js'
@@ -8,7 +8,7 @@ import type { CommandResult, GhResponse, GitHub, GitHubPut } from '../../ports/g
 import { parseParkingFile } from '../../../src/card/parking.js'
 import { textSha } from '../../../src/card/text-sha.js'
 import { bodySha } from '../../../src/commands/intake/confirm.js'
-import { nextFreeNumbers } from '../../../src/commands/intake/numbers.js'
+import { nextCardNumbers } from '../../../src/commands/intake/numbers.js'
 import { DROPPED_CARD, QUEUED_CARD } from '../../core/card-automaton.js'
 import { appendCardEvent, CARD_BODIES, cardBodyText, laid } from '../../core/card-bodies.js'
 import { appendEvent, inTransaction, openBusWait } from '../../core/db.js'
@@ -64,7 +64,7 @@ export interface RecutParts {
   post: GitHubPut
   patch: GitHubPut
   clock: () => Date
-  parked: () => number[]
+  cardStates: CardStatesPort
   admit?: CardAdmit
   pushPolicy?: () => PushPolicy
 }
@@ -85,7 +85,7 @@ interface Branch {
 const SUPERSEDED_LANE = 'superseded'
 const CREATED = 201
 
-const NUMBERS_TAKEN = 'SELECT max(card_id) AS card, max(pr) AS pr FROM events'
+const LATEST_PR_IN_THE_BUS = 'SELECT max(pr) AS pr FROM events'
 const LATEST_ISSUE_OR_PULL = `${REPO}/issues?state=all&sort=created&direction=desc&per_page=1`
 
 const OPEN_RELEASE_OF_CARD = `
@@ -286,7 +286,7 @@ export class RoundLimitRecutter implements RoundLimitRecut {
   }
 
   private admitted(at: RoundLimitAt, plan: Exclude<RecutPlan, { kind: 'owner_wait' }>, text: string, onGitHub: number): Recut {
-    const [firstId] = nextFreeNumbers([...this.numbersInTheBus(), ...this.parts.parked(), onGitHub], recutCardCount(plan))
+    const [firstId] = nextCardNumbers(this.parts.cardStates(), [this.latestPrInTheBus(), onGitHub], recutCardCount(plan))
     const recut = recutOf(plan, text, at.pr, firstId!)
     const ts = this.parts.clock()
     for (const card of recut.admitted) {
@@ -302,9 +302,9 @@ export class RoundLimitRecutter implements RoundLimitRecut {
     return recut
   }
 
-  private numbersInTheBus(): number[] {
-    const row = this.parts.db.prepare(NUMBERS_TAKEN).get() as { card: number | null, pr: number | null }
-    return [row.card ?? 0, row.pr ?? 0]
+  private latestPrInTheBus(): number {
+    const row = this.parts.db.prepare(LATEST_PR_IN_THE_BUS).get() as { pr: number | null }
+    return row.pr ?? 0
   }
 
   private planIntoTheRelease(at: RoundLimitAt, added: readonly number[]): void {
