@@ -22,7 +22,7 @@ import { activeWindowShards } from '../scripts/policy/shards.js'
 import { BUS_FLAG, BUS_RUN_LAUNCH, carriesMarker, installedPackage, launchArgv, runBusBg } from '../scripts/supervisor/bg.js'
 import { agentEnvStamp } from '../scripts/supervisor/stamp.js'
 import { AGENT_LOG, agentLabel, factoryBusOf, ghostProtocolWord, installKeepAlive, KEEP_ALIVE_PLATFORM, KEEP_ALIVE_PROGRAM, LAUNCH_AGENTS, runMode, runStart, sayCommand, START_BIN, startCommandOf, USAGE } from '../scripts/supervisor/start.js'
-import { SUPERVISE_FLAG, SUPERVISOR_LAUNCH } from '../scripts/supervisor/supervisor.js'
+import { startUnderAgentEnv, SUPERVISE_FLAG, SUPERVISOR_LAUNCH } from '../scripts/supervisor/supervisor.js'
 import { liveWorkers, MODE_WORKERS, modeOf, returnToWindowAtTermEnd, switchDetection, switchedOn, switchWorker, termEndOf, wantedLaunches, WORKERS, WORKERS_FILE } from '../scripts/supervisor/workers.js'
 import { waitFor } from '../scripts/tests/wait-for.js'
 import { copyFactoryAssets, factoryBuild, factoryEntries, OUT_DIR, productBuild } from '../tsup.config.js'
@@ -193,6 +193,32 @@ describe('a factory process is launched as the package it runs from', () => {
   it('carries the absolute path of its bus as --bus after its own args, so ps reads the bus from the command line', () => {
     expect(launchArgv(BUS_RUN_LAUNCH, null, 'bus.db')).toEqual(['nohup', 'pnpm', '--silent', BUS_RUN_LAUNCH.script, BUS_FLAG, path.resolve('bus.db')])
     expect(launchArgv(SUPERVISOR_LAUNCH, `${REPOSITORY}/`, '/x/bus.db')).toEqual(['nohup', process.execPath, path.join(REPOSITORY, OUT_DIR, 'scripts', 'supervisor', 'supervisor.js'), SUPERVISE_FLAG, BUS_FLAG, '/x/bus.db'])
+  })
+
+  it('stamps the recorded github account before --bus, and no token', () => {
+    const env = { [GH_ACCOUNT_VARIABLE]: 'worker', GH_TOKEN: 'secret' }
+    expect(launchArgv(SUPERVISOR_LAUNCH, `${REPOSITORY}/`, '/x/bus.db', env)).toEqual(['nohup', process.execPath, path.join(REPOSITORY, OUT_DIR, 'scripts', 'supervisor', 'supervisor.js'), SUPERVISE_FLAG, `--agent-env.${GH_ACCOUNT_VARIABLE}.worker`, BUS_FLAG, '/x/bus.db'])
+  })
+
+  it('a start stops a running supervisor not stamped with the recorded github account and leaves one that is', async () => {
+    const supervisorOf = (stamp: string): { pid: number, args: string, bus: string } => ({ pid: 4244, args: `node ${path.join(REPOSITORY, OUT_DIR, 'scripts', 'supervisor', 'supervisor.js')} ${SUPERVISE_FLAG}${stamp} ${BUS_FLAG} /x/bus.db`, bus: '/x/bus.db' })
+    const stoppedFrom = async (running: { pid: number, args: string, bus: string }): Promise<number[]> => {
+      const stopped: number[] = []
+      await startUnderAgentEnv('/x', [SUPERVISOR_LAUNCH], {
+        env: { [BUS_DB_VARIABLE]: '/x/bus.db', [GH_ACCOUNT_VARIABLE]: 'worker' },
+        processes: () => [running],
+        ownPackage: REPOSITORY,
+        stop: async ({ pid }) => {
+          stopped.push(pid)
+        },
+        freeLeases: () => [],
+        start: () => ({ stdout: [], stderr: [], exitCode: 0 }),
+      })
+      return stopped
+    }
+    expect(await stoppedFrom(supervisorOf(''))).toEqual([4244])
+    expect(await stoppedFrom(supervisorOf(` --agent-env.${GH_ACCOUNT_VARIABLE}.other`))).toEqual([4244])
+    expect(await stoppedFrom(supervisorOf(` --agent-env.${GH_ACCOUNT_VARIABLE}.worker`))).toEqual([])
   })
 
   it('refuses a script the package names no factory entry for, rather than starting something else', () => {
