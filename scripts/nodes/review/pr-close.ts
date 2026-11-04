@@ -9,14 +9,14 @@ import { parseParkingFile } from '../../../src/card/parking.js'
 import { textSha } from '../../../src/card/text-sha.js'
 import { bodySha } from '../../../src/commands/intake/confirm.js'
 import { nextFreeNumbers } from '../../../src/commands/intake/numbers.js'
-import { DROPPED_CARD } from '../../core/card-automaton.js'
-import { appendCardEvent, cardBodyText, laid } from '../../core/card-bodies.js'
+import { DROPPED_CARD, QUEUED_CARD } from '../../core/card-automaton.js'
+import { appendCardEvent, CARD_BODIES, cardBodyText, laid } from '../../core/card-bodies.js'
 import { appendEvent, inTransaction, openBusWait } from '../../core/db.js'
 import { messageOf } from '../../core/errors.js'
-import { CARD_ADMITTED, CARD_DROPPED, CARD_PLANNED, COMMAND_EXECUTED, OPEN_PLAN, POLICY_ALLOWED, POLICY_DENIED, PR_CLOSED, PR_OPENED } from '../../core/events.js'
+import { CARD_ADMITTED, CARD_DROPPED, CARD_PLANNED, COMMAND_EXECUTED, OPEN_PLAN, POLICY_ALLOWED, POLICY_DENIED, PR_CLOSED, PR_OPENED, ROUND_MUTATIONS_PARKED } from '../../core/events.js'
 import { leasedOn } from '../../core/lease.js'
 import { CLOSE_RULES, closePolicy, RETRIED_CLOSE_RULES } from '../../policy/policy.js'
-import { RECUT_ACTOR, RECUT_SOURCE, recutCardCount, recutOf, recutPlanOf } from '../../policy/round-limit-decision.js'
+import { parkPlanOf, RECUT_ACTOR, RECUT_SOURCE, recutCardCount, recutOf, recutPlanOf } from '../../policy/round-limit-decision.js'
 
 export const CLOSE_COMMAND = 'close'
 export const CLOSE_ACTOR = 'worker:close-pr:bus'
@@ -44,10 +44,12 @@ export interface RoundLimitAt {
   pr: number
   head: string | null
   findings: readonly string[]
+  mutations?: readonly string[]
 }
 
 export type RecutOutcome
   = | { kind: 'recut', pr: number, cards: number[], carrier: number }
+    | { kind: 'parked', pr: number, card: number }
     | { kind: 'owner_wait', pr: number, wait: string, why: string }
 
 export interface RoundLimitRecut {
@@ -92,6 +94,12 @@ const OPEN_RELEASE_OF_CARD = `
 `
 
 const ADMITTED_TEXT = `SELECT 1 FROM events WHERE type = '${CARD_ADMITTED}' AND legacy = 0 AND card_id = ? AND json_extract(payload, '$.textSha') = ? LIMIT 1`
+
+const QUEUED_DEPENDENTS_OF_CARD = `
+  SELECT body.card_id AS id, body.text FROM ${CARD_BODIES} AS body JOIN cards ON cards.card_id = body.card_id
+  WHERE cards.state = '${QUEUED_CARD}' AND EXISTS (SELECT 1 FROM json_each(body.depends) WHERE value = ?)
+  ORDER BY body.card_id
+`
 
 const OPEN_PRS_OF_DROPPED_CARDS = `
   SELECT prs.pr, prs.card_id, cards.event_id AS dropped FROM prs JOIN cards ON cards.card_id = prs.card_id
@@ -234,6 +242,8 @@ export class RoundLimitRecutter implements RoundLimitRecut {
     const text = cardBodyText(this.parts.db, at.cardId)
     if (text === null)
       return this.waited(at, `card #${at.cardId} has no admitted body in the bus`)
+    if (at.mutations !== undefined)
+      return this.parkOrWait(at, text, at.mutations)
     const plan = recutPlanOf(at.cardId, text, at.findings)
     if (plan.kind === 'owner_wait')
       return this.waited(at, plan.why)
@@ -255,6 +265,20 @@ export class RoundLimitRecutter implements RoundLimitRecut {
     if (typeof opened === 'string')
       return this.waited(at, `PR #${at.pr} is closed and its branch ${branch.head} kept, but no pull request was opened for card #${recut.carrier.id}: ${opened}`)
     return { kind: 'recut', pr: opened, cards: recut.admitted.map(card => card.id), carrier: recut.carrier.id }
+  }
+
+  private parkOrWait(at: RoundLimitAt, text: string, mutations: readonly string[]): RecutOutcome {
+    const dependents = this.parts.db.prepare(QUEUED_DEPENDENTS_OF_CARD).all(at.cardId) as unknown as RecutCard[]
+    const plan = parkPlanOf(at.cardId, text, mutations, dependents)
+    if (plan.kind === 'owner_wait')
+      return this.waited(at, plan.why)
+    const onGitHub = plan.continuation === null ? latestGitHubNumber(this.parts.gitHub) : 0
+    const recut = inTransaction(this.parts.db, () => {
+      const admitted = this.admitted(at, plan, text, onGitHub)
+      appendEvent(this.parts.db, { ts: this.now(), type: ROUND_MUTATIONS_PARKED, actor: RECUT_ACTOR, cardId: at.cardId, pr: at.pr, head: at.head, dedupeKey: `${ROUND_MUTATIONS_PARKED}:${at.pr}:${at.head}`, payload: { pr: at.pr, head: at.head, mutations, card: admitted.carrier.id }, legacy: false })
+      return admitted
+    })
+    return { kind: 'parked', pr: at.pr, card: recut.carrier.id }
   }
 
   private now(): string {

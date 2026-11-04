@@ -1,6 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { BusEvent } from '../../core/db.js'
 import type { AfterFailure, Lease, SUPERSEDED_LEASE } from '../../core/lease.js'
+import type { LimitRule } from '../../policy/round-limit-decision.js'
 import type { StatusPublisher } from '../../ports/github-status.js'
 import type { GitHub } from '../../ports/github.js'
 import type { Isolation, IsolationReader } from '../../ports/isolation.js'
@@ -11,10 +12,11 @@ import type { EarlierVerdict, ReviewDepth, ReviewPlan, ReviewPlanner } from './r
 import type { HeldTree, LeftoverTree, Review, Reviewer } from './reviewer.js'
 import { cardBodyText } from '../../core/card-bodies.js'
 import { appendEvent } from '../../core/db.js'
-import { ARTIFACT_REMOVED, BOARD_ALARM, POLICY_DENIED, REVIEW_RECORDED, REVIEW_ROUNDS_SPENT, REVIEW_TREE_ORPHANED } from '../../core/events.js'
+import { ARTIFACT_REMOVED, BOARD_ALARM, POLICY_DENIED, REVIEW_RECORDED, REVIEW_ROUNDS_SPENT, REVIEW_TREE_ORPHANED, ROUND_EXTENDED } from '../../core/events.js'
 import { reviewInputOfKey } from '../../core/identifiers.js'
 import { completeTask, failTask, releaseTask, StaleLease, supersedeLease } from '../../core/lease.js'
-import { changesRoundsOf, REVIEW_ROUNDS } from '../../core/queue.js'
+import { changesRoundsOf, decisionsShardActive, REVIEW_ROUNDS } from '../../core/queue.js'
+import { limitRuleOf } from '../../policy/round-limit-decision.js'
 import { NO_ISOLATION } from '../../ports/isolation.js'
 import { storedInput } from '../../ports/prompt-store.js'
 import { freshDenial, recordVerdict } from './record-verdict.js'
@@ -142,6 +144,20 @@ function notReopened(db: DatabaseSync, lease: Lease, review: Review): Review {
   return findings.length === 0 ? { ...review, verdict: 'pass', findings } : { ...review, findings }
 }
 
+interface RoundLimit {
+  rule: LimitRule
+  event: BusEvent
+}
+
+const EXTENSION_OF_A_CARD = `SELECT 1 FROM events WHERE type = '${ROUND_EXTENDED}' AND legacy = 0 AND card_id = ? LIMIT 1`
+
+const FINDINGS_OF_THE_PREVIOUS_ROUND = `SELECT json_extract(payload, '$.findings') AS findings FROM events WHERE type = '${REVIEW_RECORDED}' AND legacy = 0 AND pr = ? AND head IS NOT ? AND json_extract(payload, '$.verdict') = 'changes' ORDER BY id DESC LIMIT 1`
+
+function previousRoundFindings(db: DatabaseSync, lease: Lease): string[] {
+  const row = db.prepare(FINDINGS_OF_THE_PREVIOUS_ROUND).get(lease.pr, lease.head) as { findings: string | null } | undefined
+  return row === undefined || row.findings === null ? [] : strings(JSON.parse(row.findings))
+}
+
 export function roundLimitLine(pr: number, rounds: number): string {
   return `Review round limit reached (D-104): ${rounds} rounds of changes on PR #${pr}; the bus queues no further review or answer for it and does not merge it. The remaining findings are in the bus event ${REVIEW_ROUNDS_SPENT}.`
 }
@@ -222,22 +238,53 @@ export class ReviewExecutor {
     const outcome = recordVerdict(db, gitHub, publish, { lease, verdict: review.verdict, reviewerSession: review.session }, () => clock().getTime())
     if (outcome.kind === 'denied')
       return this.denied(lease, outcome.denial)
-    const spent = this.roundsSpent(lease, review)
-    completeTask(db, this.ts(), lease, [this.recorded(lease, { ...reviewed, review }), ...(spent === null ? [] : [spent])])
-    if (spent !== null && lease.pr !== null) {
-      this.noted(lease.pr, roundLimitLine(lease.pr, REVIEW_ROUNDS))
-      this.recutAtTheLimit({ cardId: lease.cardId, pr: lease.pr, head: lease.head, findings: review.findings })
+    const limit = this.roundLimit(lease, review)
+    completeTask(db, this.ts(), lease, [this.recorded(lease, { ...reviewed, review }), ...(limit === null ? [] : [limit.event])])
+    if (limit !== null && limit.rule.kind !== 'extend' && lease.pr !== null) {
+      if (limit.rule.kind !== 'park')
+        this.noted(lease.pr, roundLimitLine(lease.pr, REVIEW_ROUNDS))
+      this.recutAtTheLimit({ cardId: lease.cardId, pr: lease.pr, head: lease.head, findings: review.findings, ...(limit.rule.kind === 'park' ? { mutations: limit.rule.mutations } : {}) })
     }
     return { kind: 'recorded', taskKey: lease.taskKey, verdict: review.verdict, depth: plan.depth, model: review.model }
   }
 
-  private roundsSpent(lease: Lease, review: Review): BusEvent | null {
+  private roundLimit(lease: Lease, review: Review): RoundLimit | null {
     if (lease.pr === null)
       return null
     const before = changesRoundsOf(this.parts.db, lease.pr)
     const rounds = changesRoundsOf(this.parts.db, lease.pr, { head: lease.head, verdict: review.verdict, card_body: reviewInputOfKey(lease.taskKey)?.cardBody ?? null })
     if (before >= REVIEW_ROUNDS || rounds < REVIEW_ROUNDS)
       return null
+    const rule = this.limitRule(lease, review)
+    return { rule, event: rule.kind === 'extend' ? this.extended(lease, rule) : this.spent(lease, review, rounds) }
+  }
+
+  private limitRule(lease: Lease, review: Review): LimitRule {
+    const { db, clock } = this.parts
+    return limitRuleOf({
+      decisionsShard: decisionsShardActive(db, clock()),
+      findings: review.findings,
+      survivingMutations: review.survivingMutations ?? [],
+      previous: previousRoundFindings(db, lease),
+      extendedBefore: db.prepare(EXTENSION_OF_A_CARD).get(lease.cardId) !== undefined,
+    })
+  }
+
+  private extended(lease: Lease, { findings, previous }: Extract<LimitRule, { kind: 'extend' }>): BusEvent {
+    return {
+      ts: this.ts(),
+      type: ROUND_EXTENDED,
+      actor: lease.actor,
+      cardId: lease.cardId,
+      pr: lease.pr,
+      head: lease.head,
+      dedupeKey: `${ROUND_EXTENDED}:${lease.cardId}`,
+      payload: { pr: lease.pr, findings, previous },
+      legacy: false,
+    }
+  }
+
+  private spent(lease: Lease, review: Review, rounds: number): BusEvent {
     return {
       ts: this.ts(),
       type: REVIEW_ROUNDS_SPENT,
