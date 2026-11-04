@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { droppedLine, GATE_DUE, GATE_OPEN, goalOf, planLine } from '../../../src/commands/board/goal.js'
 import { PLAIN_LORE } from '../../../src/ui/lore.js'
 import { exportedPlan, printBoard, printPlan, runBoardCli } from '../../cli/board-page.js'
@@ -19,6 +19,10 @@ const SESSION = 'planboard-test'
 const NOW = new Date('2026-11-03T12:00:00.000Z')
 const roots: string[] = []
 const exitCodes: (typeof process.exitCode)[] = []
+
+beforeEach(() => {
+  vi.stubEnv('BUS_RERUN', '')
+})
 
 afterEach(() => {
   for (const root of roots.splice(0))
