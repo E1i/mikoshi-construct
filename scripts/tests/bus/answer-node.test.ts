@@ -18,9 +18,9 @@ import { textSha } from '../../../src/card/text-sha.js'
 import { readShiftGate } from '../../../src/manifest.js'
 import { PREPUSH_COMMAND } from '../../ci/prepush.js'
 import { DROPPED_LANE } from '../../core/card-automaton.js'
-import { appendEvent } from '../../core/db.js'
-import { CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_MOVED, CARD_STARTED, CARD_STOPPED, MERGE_DONE, NODE_DETECTED, NODE_EQUIVALENCE, OWNER_WAIT_OPENED, POLICY_DENIED, SHARD_DECIDED, SHARD_ISSUED, TASK_ENQUEUED } from '../../core/events.js'
-import { failTask, leaseNext } from '../../core/lease.js'
+import { appendEvent, openOwnerWait } from '../../core/db.js'
+import { CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_MOVED, CARD_STARTED, CARD_STOPPED, MERGE_DONE, NODE_DETECTED, NODE_EQUIVALENCE, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, POLICY_DENIED, SHARD_DECIDED, SHARD_ISSUED, TASK_ENQUEUED } from '../../core/events.js'
+import { assertHeld, failTask, leaseNext, StaleLease } from '../../core/lease.js'
 import { NODE_CURSORS } from '../../core/node.js'
 import { answerCandidates, FAILURES_TO_STOP, keyOf, queueTask } from '../../core/queue.js'
 import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
@@ -212,6 +212,141 @@ function closedAfterAnEarlierMerge(made: MergeBench, cardId: number): void {
 }
 
 const NOT_MINE: Record<string, (made: MergeBench, cardId: number) => void> = { dropped, closed: closedAfterAnEarlierMerge }
+
+describe('an answer on an amended card body', () => {
+  const CARD = 905
+  const OLD_BODY = 'aaaa1111'
+  const NEW_BODY = 'bbbb2222'
+  const decisionsOf = (requests: Parameters<Answerer>[0][]): string[][] => requests.map(request => request.source.kind === 'question' ? request.source.decisions : [])
+
+  function admitBody(made: MergeBench, bodySha: string): void {
+    appendEvent(made.db, { ts: made.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'policy', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${CARD}:${bodySha}`, payload: { lane: 'lane-a', decision: 'auto', contour: 'cheap', depends: [], admission: `admission-${bodySha}`, bodySha }, legacy: false })
+  }
+
+  function questionOnTheOldBody(made: MergeBench): { key: (body: string) => string, lease: () => Lease, trees: CardTreeTools } {
+    const home = mkdtempSync(path.join(tmpdir(), 'bus-answer-amend-'))
+    roots.push(home)
+    const worktree = path.join(home, `mc-${CARD}`)
+    mkdirSync(worktree)
+    const ts = made.clock.now().toISOString()
+    appendEvent(made.db, { ts, type: CARD_STARTED, actor: 'worker:launch:launch-1', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_STARTED}:${CARD}`, payload: { session: 'card-session-1', worktree, branch: `feat/card-${CARD}`, base: sha('1') }, legacy: false })
+    admitBody(made, OLD_BODY)
+    const stop = stopped(made, CARD)
+    const key = (body: string): string => keyOf({ queue: 'answer', cardId: CARD, stop, cardBody: body })
+    queueTask(made.db, ts, { queue: 'answer', cardId: CARD, stop, cardBody: OLD_BODY })
+    const lease = (): Lease => leaseNext(made.db, made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1')!
+    return { key, lease, trees: { home, exists: existsSync, branchOf: pr => `feat/card-${pr}`, recreate: () => {}, bringTo: () => {} } }
+  }
+
+  function executorOf(made: MergeBench, trees: CardTreeTools, answerer: Answerer, liveSession: () => string | null = () => null): AnswerExecutor {
+    return new AnswerExecutor({ db: made.db, answerer, ownerMerges: () => '', clock: made.clock.now, trees, dirty: () => false, liveSession })
+  }
+
+  it('a card.admitted amend supersedes a leased answer task keyed on the old card body', () => {
+    const made = bench()
+    const { key, lease } = questionOnTheOldBody(made)
+    const held = lease()
+    expect(held.taskKey).toBe(key(OLD_BODY))
+
+    made.tick()
+    expect(taskState(made.db, key(OLD_BODY)).state).toBe('leased')
+
+    admitBody(made, NEW_BODY)
+    made.tick()
+
+    expect(taskState(made.db, key(OLD_BODY)).state).toBe('superseded')
+    expect(taskState(made.db, key(NEW_BODY)).state).toBe('queued')
+    expect(() => assertHeld(made.db, held)).toThrow(StaleLease)
+  })
+
+  it('a lease taken on the old body after the amend runs no session and leaves the new body to answer', async () => {
+    const made = bench()
+    const { key, lease, trees } = questionOnTheOldBody(made)
+    admitBody(made, NEW_BODY)
+    const answerer = vi.fn<Answerer>()
+
+    const outcome = await executorOf(made, trees, answerer).answer(lease())
+
+    expect(outcome).toMatchObject({ kind: 'denied', denial: { reason: 'old_card_body' }, next: 'superseded' })
+    expect(answerer).not.toHaveBeenCalled()
+    expect(eventsOf(made.db, POLICY_DENIED)).toMatchObject([{ reason: 'old_card_body' }])
+    made.tick()
+    expect(taskState(made.db, key(NEW_BODY)).state).toBe('queued')
+  })
+
+  it('an amend while the session runs writes no owner question from the old body', async () => {
+    const made = bench()
+    const { key, lease, trees } = questionOnTheOldBody(made)
+    const answerer: Answerer = async () => {
+      admitBody(made, NEW_BODY)
+      return { session: 'card-session-1', resumed: true, before: sha('a'), after: sha('a'), owner: 'may the card go on?' }
+    }
+
+    const outcome = await executorOf(made, trees, answerer).answer(lease())
+
+    expect(outcome).toMatchObject({ kind: 'denied', denial: { reason: 'old_card_body', detail: expect.stringContaining('may the card go on?') as unknown }, next: 'superseded' })
+    expect(eventsOf(made.db, CARD_STOPPED)).toHaveLength(1)
+    expect(eventsOf(made.db, OWNER_WAIT_OPENED)).toEqual([])
+    made.tick()
+    expect(taskState(made.db, key(NEW_BODY)).state).toBe('queued')
+  })
+
+  it('the task on the new body waits out the superseded session instead of withdrawing', async () => {
+    const made = bench()
+    const { key, lease, trees } = questionOnTheOldBody(made)
+    const held = lease()
+    admitBody(made, NEW_BODY)
+    made.tick()
+    expect(() => assertHeld(made.db, held)).toThrow(StaleLease)
+    const answerer = vi.fn<Answerer>()
+
+    const outcome = await executorOf(made, trees, answerer, () => 'a live session runs in the tree').answer(lease())
+
+    expect(outcome).toMatchObject({ kind: 'waiting', taskKey: key(NEW_BODY), reason: 'superseded_session_ending' })
+    expect(answerer).not.toHaveBeenCalled()
+    expect(taskState(made.db, key(NEW_BODY))).toMatchObject({ state: 'queued', failures: 0 })
+  })
+
+  it('a live session with no superseded answer inside its lease still holds the card for the owner', async () => {
+    const made = bench()
+    const { key, lease, trees } = questionOnTheOldBody(made)
+
+    const outcome = await executorOf(made, trees, vi.fn<Answerer>(), () => 'a live session runs in the tree').answer(lease())
+
+    expect(outcome).toMatchObject({ kind: 'denied', denial: { reason: 'held_for_owner' } })
+    expect(taskState(made.db, key(OLD_BODY)).state).toBe('withdrawn')
+  })
+
+  it('a question naming a closed wait is not written, and the next prompt carries the closed wait', async () => {
+    const made = bench()
+    const { lease, trees } = questionOnTheOldBody(made)
+    const ts = made.clock.now().toISOString()
+    const wait = openOwnerWait(made.db, ts, 'policy', { need: 'decision', text: 'may the card go on?', card: CARD, pr: 1005 })
+    appendEvent(made.db, { ts, type: OWNER_WAIT_CLOSED, actor: 'owner', cardId: null, pr: null, head: null, dedupeKey: `${OWNER_WAIT_CLOSED}:${wait}:1`, payload: { id: wait, answer: 'go on', request: 1 }, legacy: false })
+    made.tick()
+    const requests: Parameters<Answerer>[0][] = []
+    const answerer: Answerer = async (request) => {
+      requests.push(request)
+      return { session: 'card-session-1', resumed: true, before: sha('a'), after: sha('a'), owner: `allow ${wait}?` }
+    }
+
+    const outcome = await executorOf(made, trees, answerer).answer(lease())
+
+    expect(outcome).toMatchObject({ kind: 'denied', denial: { reason: 'closed_wait', detail: expect.stringContaining(wait) as unknown }, next: 'queued' })
+    expect(decisionsOf(requests)).toEqual([[`${wait} is closed: go on`]])
+    expect(eventsOf(made.db, OWNER_WAIT_OPENED)).toHaveLength(1)
+    expect(eventsOf(made.db, CARD_STOPPED)).toHaveLength(1)
+  })
+
+  it('a question naming a wait still open is written', async () => {
+    const made = bench()
+    const { lease, trees } = questionOnTheOldBody(made)
+    const wait = openOwnerWait(made.db, made.clock.now().toISOString(), 'policy', { need: 'decision', text: 'may the card go on?', card: CARD, pr: 1005 })
+    const answerer: Answerer = async () => ({ session: 'card-session-1', resumed: true, before: sha('a'), after: sha('a'), owner: `allow ${wait}?` })
+
+    expect(await executorOf(made, trees, answerer).answer(lease())).toMatchObject({ kind: 'stopped', detail: `allow ${wait}?` })
+  })
+})
 
 describe('the answer node', () => {
   it('a question stop, a changes verdict, a red CI and a dirty pull request are each detected by their event and by a tick', async () => {
