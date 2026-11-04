@@ -12,7 +12,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import path from 'node:path'
 import process from 'node:process'
 import { decisionsFileOf, defaultBusPath } from '../../../scripts/core/bus-path.js'
-import { CARD_WAITING, WITNESS_DOWNGRADE } from '../../../scripts/core/events.js'
+import { CARD_ADMITTED, CARD_WAITING, WITNESS_DOWNGRADE } from '../../../scripts/core/events.js'
 import { inForce, OWNER_SOURCE, parseDecisions } from '../../../scripts/policy/decisions/decisions.js'
 import { endedCards } from '../../card/closed.js'
 import { pathsIn, pathsOutside } from '../../card/covering-tests.js'
@@ -162,7 +162,7 @@ export type AdmitResult
   = | { status: 'refused', why: string }
     | { status: 'invalidTestPattern', reasons: string[] }
     | { status: 'sharedCodeMask', reasons: string[] }
-    | { status: 'admitted' | 'alreadyAdmitted' | 'dryRun', file: string, card: SlicedCard, autoConfirm: boolean, source: AdmitSource, inBus: boolean }
+    | { status: 'admitted' | 'alreadyAdmitted' | 'dryRun', file: string, card: SlicedCard, autoConfirm: boolean, source: AdmitSource, inBus: boolean, event: number | null }
     | { status: 'awaiting', file: string, card: SlicedCard, token: string, stale: boolean }
     | { status: 'waiting', file: string, card: SlicedCard, waitingOn: number[], inBus: boolean, dryRun: boolean }
     | { status: 'ownerWait', file: string, card: SlicedCard, downgrades: string[], inBus: boolean, dryRun: boolean }
@@ -423,6 +423,19 @@ export function admittedCardFile(cardId: number, parkingRoot?: string): string {
   return path.join(parkingRoot ?? defaultParking(), `${cardId}.md`)
 }
 
+export interface JournalledIntake extends RecordedIntake {
+  event?: unknown
+}
+
+function journalledEvent(admissions: CardAdmissionsPort, card: SlicedCard): number | null {
+  const latest: JournalledIntake | null = admissions(card.id)
+  return latest !== null && sameCardLine(latest.card, card.line) && sameBody(latest.bodySha, card.text) && typeof latest.event === 'number' ? latest.event : null
+}
+
+function lostWrite(cardId: number): string {
+  return `#${cardId} is not admitted: after the write the journal holds no ${CARD_ADMITTED} with this card and text; read the journal and run --admit again`
+}
+
 function busBodyOf(options: AdmitOptions): string | null {
   if (options.body !== undefined)
     return options.body
@@ -491,12 +504,18 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
   }
   const recorded = latestIntake(card, options.admissions)
   const source: AdmitSource = recorded === null ? ADMIT_SOURCE : AMEND_SOURCE
-  const base = { file: options.file, card: admitted, autoConfirm: options.autoConfirm, source, inBus: options.events !== undefined }
+  const base = { file: options.file, card: admitted, autoConfirm: options.autoConfirm, source, inBus: options.events !== undefined, event: null }
+  const inJournal = (status: 'admitted' | 'alreadyAdmitted'): AdmitResult => {
+    if (options.events === undefined || options.admissions === undefined)
+      return { ...base, status }
+    const event = journalledEvent(options.admissions, admitted)
+    return event === null ? { status: 'refused', why: lostWrite(card.id) } : { ...base, status, event }
+  }
   const lane = laneOf(options.parkingRoot ?? defaultParking(), path.dirname(options.file))
   if (recorded !== null && sameCardLine(recorded.card, line) && sameBody(recorded.bodySha, admitted.text)) {
     if (!options.dryRun)
       options.events?.(admittedRecord(admitted, recordedConfirmation(recorded, admitted, options.autoConfirm), admittedAt(recorded, now), lane, recordedSource(recorded)))
-    return { ...base, status: 'alreadyAdmitted' }
+    return inJournal('alreadyAdmitted')
   }
   const reparsed = parseParkingFile(file, admitted.text)
   if (reparsed.kind === 'refused')
@@ -524,9 +543,15 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
   if (busBody === null && options.events === undefined && admitted.text !== text)
     writeFileSync(options.file, admitted.text)
   recordIntake([admittedRecord(admitted, admitConfirmation(admitted, options.autoConfirm), now(), lane, source)], options.events)
-  if (waitingOn.length > 0)
+  const result = inJournal('admitted')
+  if (result.status === 'admitted' && waitingOn.length > 0)
     options.events?.(waitingEvent(card.id, waitingOn, now()))
-  return { ...base, status: 'admitted' }
+  return result
+}
+
+function printJournalledEvent(ui: Ui, event: number | null): void {
+  if (event !== null)
+    ui.line(ui.theme.dim(`  ${CARD_ADMITTED} event ${event}`))
 }
 
 export function printAdmit(ui: Ui, result: AdmitResult): number {
@@ -554,6 +579,7 @@ export function printAdmit(ui: Ui, result: AdmitResult): number {
   }
   if (result.status === 'alreadyAdmitted') {
     ui.ok(ui.lore.intakeAlreadyAdmitted(result.file, card.line, result.inBus))
+    printJournalledEvent(ui, result.event)
     return INTAKE_EXIT.alreadyAdmitted
   }
   if (result.status === 'awaiting' && result.stale)
@@ -566,6 +592,8 @@ export function printAdmit(ui: Ui, result: AdmitResult): number {
     ui.ok(ui.lore.intakeAmended(result.file, card.line, result.inBus))
   else
     ui.ok(ui.lore.intakeAdmitted(result.file, card.line, result.inBus))
+  if (result.status === 'admitted')
+    printJournalledEvent(ui, result.event)
   if (result.status !== 'dryRun') {
     for (const correction of card.corrections)
       ui.line(ui.theme.dim(`  ${ui.lore.intakeCorrected(correctionText(correction))}`))
