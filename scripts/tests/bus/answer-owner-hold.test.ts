@@ -11,9 +11,10 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { textSha } from '../../../src/card/text-sha.js'
 import { appendEvent } from '../../core/db.js'
-import { CARD_ADMITTED, CARD_HELD, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, OWNER_WAIT_OPENED, POLICY_DENIED, QUESTION_OWNER } from '../../core/events.js'
+import { CARD_ADMITTED, CARD_HELD, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, CARD_WAITING, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, POLICY_DENIED, QUESTION_AGENT, QUESTION_OWNER, WITNESS_DOWNGRADE } from '../../core/events.js'
 import { leaseNext } from '../../core/lease.js'
-import { queueTask } from '../../core/queue.js'
+import { answerCandidates, DOWNGRADE_WAIT_OPEN, queueTask } from '../../core/queue.js'
+import { reduce } from '../../core/reducer.js'
 import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
 import { claudeAnswerer, liveSessionIn, pendingPathsOf } from '../../nodes/answer/answerer.js'
 import { requestFromWindow, requestOf, WindowRequests } from '../../window/window-requests.js'
@@ -205,6 +206,139 @@ describe('the answer node and a card held for the owner', () => {
 
     expect(run.outcome).toMatchObject({ kind: 'answered' })
     expect(run.published).toEqual([`feat/card-${CARD}`])
+  })
+})
+
+function openDowngradeWait(made: MergeBench): string {
+  appendEvent(made.db, { ts: made.clock.now().toISOString(), type: CARD_WAITING, actor: 'worker:intake:s1', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_WAITING}:${WITNESS_DOWNGRADE}:${CARD}`, payload: { reason: WITNESS_DOWNGRADE, witnesses: ['w'], actions: [`allow the downgrade of witness w on #${CARD}`] }, legacy: false })
+  reduce(made.db)
+  return (made.db.prepare(`SELECT id FROM owner_waits WHERE card_id = ? AND state = 'open'`).get(CARD) as { id: string }).id
+}
+
+function closeWait(made: MergeBench, wait: string): void {
+  appendEvent(made.db, { ts: made.clock.now().toISOString(), type: OWNER_WAIT_CLOSED, actor: 'owner', cardId: CARD, pr: null, head: null, dedupeKey: `${OWNER_WAIT_CLOSED}:${wait}`, payload: { id: wait, answer: 'allowed' }, legacy: false })
+  reduce(made.db)
+}
+
+function stopAgain(made: MergeBench): void {
+  appendEvent(made.db, { ts: made.clock.now().toISOString(), type: CARD_STOPPED, actor: 'worker:answer:s1', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:${CARD}:again`, payload: { reason: QUESTION_AGENT, detail: `the same question on card #${CARD}` }, legacy: false })
+}
+
+function nextAnswer(made: MergeBench): Lease | null {
+  return leaseNext(made.db, made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1')
+}
+
+function answerTasks(made: MergeBench): { state: string }[] {
+  return made.db.prepare(`SELECT state FROM tasks WHERE queue = 'answer' AND card_id = ? ORDER BY id`).all(CARD) as unknown as { state: string }[]
+}
+
+function trackedBench(): MergeBench {
+  const made = mergeBench()
+  benches.push(made)
+  return made
+}
+
+const A_PLAIN_QUESTION = 'shall I go on with the red witness?'
+
+async function askedDuringTheSession(card: Card, duringTheSession: () => void = () => {}): Promise<AnswerOutcome> {
+  const cardTrees: CardTreeTools = { home: card.trees, exists: existsSync, branchOf: pr => `feat/card-${pr}`, recreate: () => {}, bringTo: () => {} }
+  const answerer = async () => {
+    duringTheSession()
+    return { session: 'card-session-1', resumed: true, before: sha('a'), after: sha('a'), owner: A_PLAIN_QUESTION }
+  }
+  const executor = new AnswerExecutor({ db: card.made.db, answerer, ownerMerges: () => '', clock: card.made.clock.now, trees: cardTrees, dirty: () => false, liveSession: () => null })
+  return executor.answer(card.lease())
+}
+
+describe('a card with an open witness.downgrade wait', () => {
+  it('no answer task is leased for a card with an open witness.downgrade wait', () => {
+    const { made } = stoppedCard()
+    openDowngradeWait(made)
+    stopAgain(made)
+    made.tick()
+
+    expect(nextAnswer(made)).toBeNull()
+    expect(answerTasks(made)).toEqual([{ state: 'withdrawn' }])
+  })
+
+  it('a stop under the wait is no answer candidate until the wait closes, so no task appears after the derive withdrew the queued ones', () => {
+    const { made } = stoppedCard()
+    const wait = openDowngradeWait(made)
+    stopAgain(made)
+    const candidatesNow = (): number[] => answerCandidates(made.db, made.clock.now().toISOString()).map(task => task.cardId)
+
+    expect(candidatesNow()).toEqual([])
+
+    closeWait(made, wait)
+
+    expect(candidatesNow()).toEqual([CARD])
+  })
+
+  it('a pull request with failed checks gets no answer task under the wait', () => {
+    const made = trackedBench()
+    openDowngradeWait(made)
+    made.gitHub.open({ number: PR_OF_THE_CARD, review: 'failure' })
+    made.tick()
+    made.tick()
+
+    expect(answerTasks(made)).toEqual([])
+    expect(nextAnswer(made)).toBeNull()
+  })
+
+  it('an answer parked by the wait goes on once the wait closes', () => {
+    const { made } = stoppedCard()
+    const wait = openDowngradeWait(made)
+    made.tick()
+    expect(nextAnswer(made)).toBeNull()
+
+    closeWait(made, wait)
+    made.tick()
+
+    expect(answerTasks(made)).toEqual([{ state: 'queued' }])
+    expect(nextAnswer(made)).toMatchObject({ cardId: CARD })
+  })
+
+  it('a stop asked under the wait gets its round once the wait closes', () => {
+    const { made } = stoppedCard()
+    const wait = openDowngradeWait(made)
+    stopAgain(made)
+    made.tick()
+
+    closeWait(made, wait)
+    made.tick()
+
+    expect(answerTasks(made).map(each => each.state)).toContain('queued')
+  })
+
+  it('a lease taken before the wait opened runs no session and returns when the wait closes', async () => {
+    const card = stoppedCard()
+    const held = card.lease()
+    const wait = openDowngradeWait(card.made)
+
+    const run = await answered({ ...card, lease: () => held })
+
+    expect(run.outcome).toMatchObject({ kind: 'denied', denial: { reason: DOWNGRADE_WAIT_OPEN } })
+    expect(run.spawned).toBe(0)
+    expect(answerTasks(card.made)).toEqual([{ state: 'withdrawn' }])
+
+    closeWait(card.made, wait)
+    card.made.tick()
+
+    expect(answerTasks(card.made)).toEqual([{ state: 'queued' }])
+  })
+
+  it('a question asked while the wait opened stops the card for the owner', async () => {
+    const card = stoppedCard()
+
+    expect(await askedDuringTheSession(card, () => openDowngradeWait(card.made))).toMatchObject({ kind: 'stopped', reason: QUESTION_OWNER })
+  })
+
+  it('a wait the owner answered leaves the question with the agent', async () => {
+    const card = stoppedCard()
+    closeWait(card.made, openDowngradeWait(card.made))
+    card.made.tick()
+
+    expect(await askedDuringTheSession(card)).toMatchObject({ kind: 'stopped', reason: QUESTION_AGENT })
   })
 })
 
