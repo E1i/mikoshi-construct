@@ -8,7 +8,7 @@ import type { StatusPublisher } from '../../ports/github-status.js'
 import type { CommandResult, GitHub, GitHubPut } from '../../ports/github.js'
 import type { TechnicalReason } from '../review/record-verdict.js'
 import { Buffer } from 'node:buffer'
-import { changedFiles, rerunOf, upToDateRequired } from '../../cli/check-catalog.js'
+import { changedFiles, REFUSED_NOT_UP_TO_DATE, rerunOf, upToDateRequired } from '../../cli/check-catalog.js'
 import { appendEvent, openBusWait } from '../../core/db.js'
 import { messageOf } from '../../core/errors.js'
 import { BOARD_ALARM, COMMAND_EXECUTED, MERGE_DONE, POLICY_ALLOWED, POLICY_DENIED, SHARD_USED } from '../../core/events.js'
@@ -27,6 +27,8 @@ import { ciOf, MAIN_BRANCH, MERGEABLE_OF_STATE, OPEN_PULLS_PAGE, requiredCheckOf
 export const MERGE_METHOD = 'squash'
 export const MERGE_QUEUE = 'merge'
 export const STALE_HEAD_STATUS = 409
+export const NOT_ALLOWED_STATUS = 405
+const NOT_UP_TO_DATE = /not up.to.date/i
 const WAIT_REASONS: ReadonlySet<MergeTechnicalReason> = new Set(['version_pr_open', 'not_mergeable', 'not_a_candidate', NEEDS_UPDATE])
 const OPEN_QUESTIONS_OF_CARD = `${openDecisionWaitsOf('?')} ORDER BY opened_at, id`
 const REVIEWS_IN_FLIGHT = `SELECT task_key FROM tasks WHERE queue = 'review' AND pr = ? AND head = ? AND state IN ('queued', 'leased') ORDER BY id`
@@ -41,7 +43,7 @@ export type MergeTechnicalReason = TechnicalReason | 'not_mergeable' | 'no_pass_
 export type ParkedUntil = 'new_head' | 'wait_closed'
 
 export type MergeDenial
-  = | { kind: 'technical', reason: MergeTechnicalReason, detail: string, base?: string, parkedUntil?: ParkedUntil }
+  = | { kind: 'technical', reason: MergeTechnicalReason, detail: string, base?: string, parkedUntil?: ParkedUntil, refusal?: typeof REFUSED_NOT_UP_TO_DATE }
     | { kind: 'authority', rule: AuthorityRule, detail: string }
 
 export type MergeCommand = 'merge' | 'publish'
@@ -102,6 +104,13 @@ function approvedRunsOn(meter: Meter, head: string | undefined): boolean {
     return false
   const runs = (meter.get(`${REPO}/actions/runs?head_sha=${head}&per_page=${RUNS_PAGE}`) as { workflow_runs?: { conclusion?: string | null }[] }).workflow_runs ?? []
   return runs.some(run => run.conclusion !== AWAITING_APPROVAL)
+}
+
+function textOf(body: unknown): string {
+  if (typeof body === 'string')
+    return body
+  const message = (body as { message?: unknown } | null)?.message
+  return typeof message === 'string' ? message : JSON.stringify(body)
 }
 
 export class MergeExecutor {
@@ -335,7 +344,12 @@ export class MergeExecutor {
       return this.denied(lease, { kind: 'technical', reason: 'github_error', detail: messageOf(error) })
     }
     const commit = (response.body as { sha?: unknown } | null)?.sha
-    this.executed(lease, 'merge', { ok: response.status === 200 && isFullSha(commit), status: response.status })
+    const refusedWith = response.status === NOT_ALLOWED_STATUS ? textOf(response.body) : null
+    this.executed(lease, 'merge', { ok: response.status === 200 && isFullSha(commit), status: response.status, ...(refusedWith === null ? {} : { text: refusedWith }) })
+    if (refusedWith !== null && NOT_UP_TO_DATE.test(refusedWith))
+      return this.denied(lease, { kind: 'technical', reason: NEEDS_UPDATE, refusal: REFUSED_NOT_UP_TO_DATE, detail: `GitHub answered ${response.status} to the merge of #${lease.pr}, so it is updated onto ${MAIN_BRANCH} first: ${refusedWith}` })
+    if (refusedWith !== null)
+      return this.denied(lease, { kind: 'technical', reason: 'github_error', detail: `GitHub answered ${response.status} to the merge of #${lease.pr}: ${refusedWith}` })
     if (response.status === STALE_HEAD_STATUS)
       return this.denied(lease, { kind: 'technical', reason: 'stale_head', detail: `GitHub answered ${response.status}: the head of #${lease.pr} is no longer ${lease.head}` })
     if (response.status !== 200 || !isFullSha(commit))
@@ -351,7 +365,7 @@ export class MergeExecutor {
     appendEvent(this.parts.db, { ts: this.ts(), type: POLICY_ALLOWED, actor: 'policy', cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${POLICY_ALLOWED}:${lease.taskKey}:${lease.leaseGen}`, payload: { command: 'merge', rule, task_key: lease.taskKey, lease_gen: lease.leaseGen }, legacy: false })
   }
 
-  private executed(lease: Lease, command: MergeCommand, result: CommandResult): void {
+  private executed(lease: Lease, command: MergeCommand, result: CommandResult & { text?: string }): void {
     appendEvent(this.parts.db, { ts: this.ts(), type: COMMAND_EXECUTED, actor: lease.actor, cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${COMMAND_EXECUTED}:${lease.taskKey}:${lease.leaseGen}:${command}`, payload: { command, task_key: lease.taskKey, lease_gen: lease.leaseGen, ...result }, legacy: false })
   }
 
