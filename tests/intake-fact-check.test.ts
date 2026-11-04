@@ -1,4 +1,4 @@
-import type { CheckFacts } from '../src/commands/intake/check.js'
+import type { CheckFacts, CompanionRow } from '../src/commands/intake/check.js'
 import type { DraftCard } from '../src/commands/intake/draft.js'
 import type { RepositoryFacts } from '../src/commands/intake/facts.js'
 import type { IntakeOptions, IntakeResult } from '../src/commands/intake/index.js'
@@ -11,9 +11,10 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { CONTOURS, decisionsOf, KINDS } from '../src/card/grammar.js'
 import { runAttach } from '../src/commands/attach/index.js'
 import { runAdmit } from '../src/commands/intake/admit.js'
-import { checkDraft, COMPANION_REASON, COMPANION_TABLE, correctionText, DEFAULT_CONTOUR, invalidTestPatterns, nonPathTouchRefusals, publishedRootsOf } from '../src/commands/intake/check.js'
+import { checkDraft, COMPANION_REASON, COMPANION_TABLE, correctionText, DEFAULT_CONTOUR, followsTouches, invalidTestPatterns, nonPathTouchRefusals, publishedRootsOf } from '../src/commands/intake/check.js'
 import { DirectoryFacts } from '../src/commands/intake/facts.js'
 import { printIntake, runIntake } from '../src/commands/intake/index.js'
+import { FACTORY_MANIFEST } from '../src/materialize/factory-manifest.js'
 import { createUi, silentWriter } from '../src/ui/console.js'
 import { resolveTheme } from '../src/ui/theme.js'
 import { listing } from './repository-listing.js'
@@ -429,7 +430,24 @@ describe('intake fact check', () => {
   }
 
   it('has one case for every row of the companion table, and no case without a row', () => {
-    expect(Object.keys(companionCases).sort()).toEqual(COMPANION_TABLE.map(row => row.kind).sort())
+    expect(Object.keys(companionCases).sort()).toEqual(COMPANION_TABLE.filter(row => 'companions' in row).map(row => row.kind).sort())
+  })
+
+  it('the factory manifest follows a card whose touches reach a path it lists', () => {
+    const followsWith = (touches: string[]): boolean => followsTouches('src/materialize/factory-manifest.ts', { touches, added: new Set() })
+    expect(FACTORY_MANIFEST.every(listed => followsWith([listed]))).toBe(true)
+    expect(followsWith(['scripts/construct/**'])).toBe(true)
+    expect(followsWith(['scripts/construct/other.mjs'])).toBe(false)
+    expect(followsWith(['src/commands/intake/check.ts'])).toBe(false)
+  })
+
+  it('the fence and intake read one table: a following row adds nothing to a card at intake', () => {
+    const touches = ['templates/base/a.md']
+    const dir = repository([...touches, 'contract/surface.json'])
+    const [checked] = checkDraft([draftCard({ touches })], [2], facts({ repository: new DirectoryFacts(dir, '') }))
+    expect(followsTouches('contract/surface.json', { touches, added: new Set() })).toBe(true)
+    expect(checked!.touches).toEqual(touches)
+    expect(COMPANION_TABLE.map(row => row.kind)).toEqual(expect.arrayContaining(['source code', 'the factory manifest']))
   })
 
   for (const [kind, { repository: files, touches, added }] of Object.entries(companionCases)) {
@@ -440,7 +458,7 @@ describe('intake fact check', () => {
       expect(checked!.touches).toEqual([...touches, ...added])
       expect(checked!.corrections).toEqual(added.map(now => ({ field: 'touches', was: '(absent)', now, reason: COMPANION_REASON })))
       expect(checkDraft([draftCard({ touches: checked!.touches })], [2], kept)[0]!.corrections).toEqual([])
-      const row = COMPANION_TABLE.find(entry => entry.kind === kind)!
+      const row = COMPANION_TABLE.find(entry => entry.kind === kind) as CompanionRow
       rmSync(path.join(dir, row.keptBy), { recursive: true, force: true })
       expect(checkDraft([draftCard({ touches })], [2], kept)[0]!.touches).toEqual(touches)
     })
