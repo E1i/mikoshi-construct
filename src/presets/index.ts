@@ -34,6 +34,12 @@ export interface TemplateMount {
 
 export type TemplateGroup = string | TemplateMount
 
+export interface ServeRecord {
+  command: string
+  url: string
+  readyTimeoutMs: number
+}
+
 export interface Preset {
   id: PresetId
   label: string
@@ -42,6 +48,7 @@ export interface Preset {
   contracts: boolean
   available: boolean
   stack: 'node'
+  serve?: ServeRecord
   vars: (report: DetectReport, projectName: string, policy: WorkspaceImports | null) => Partial<TemplateVars>
   policy?: (report: DetectReport, projectName: string, recorded: WorkspaceImports | null) => WorkspaceImports
 }
@@ -49,6 +56,9 @@ export interface Preset {
 const EXPRESS_APP = 'stacks/express-api/app'
 const EXPRESS_REPO = 'stacks/express-api/repo'
 const HTTP_CONTRACT = 'stacks/http-contract'
+const SERVE_READY_TIMEOUT_MS = 30_000
+const API_SERVE: ServeRecord = { command: 'pnpm dev', url: 'http://localhost:3000/', readyTimeoutMs: SERVE_READY_TIMEOUT_MS }
+const VITE_SERVE: ServeRecord = { command: 'pnpm dev', url: 'http://localhost:5173/', readyTimeoutMs: SERVE_READY_TIMEOUT_MS }
 
 interface WorkspacePackage {
   dir: string
@@ -114,6 +124,7 @@ const PRESETS: Record<PresetId, Preset> = {
     contracts: true,
     available: true,
     stack: 'node',
+    serve: API_SERVE,
     vars: () => ({
       contractPath: 'contracts/api/openapi.yaml',
       contractTypesOutput: 'src/contracts/openapi.ts',
@@ -135,6 +146,7 @@ const PRESETS: Record<PresetId, Preset> = {
     contracts: false,
     available: true,
     stack: 'node',
+    serve: VITE_SERVE,
     vars: () => ({
       contractPath: '',
       contractTypesOutput: '',
@@ -169,6 +181,7 @@ const PRESETS: Record<PresetId, Preset> = {
     contracts: true,
     available: true,
     stack: 'node',
+    serve: API_SERVE,
     policy: (report, projectName, recorded) => resolveWorkspaceImports(workspacePackagesFor(report, projectName), recorded),
     vars: (report, projectName, policy) => {
       const packages = workspacePackagesFor(report, projectName)
