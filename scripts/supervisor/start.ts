@@ -1,30 +1,32 @@
 import type { BusEvent } from '../core/db.js'
 import type { WindowShard } from '../policy/shards.js'
+import type { GhCaller } from '../ports/gh.js'
 import type { BgResult } from './bg.js'
 import type { BusWorker, FactoryMode } from './workers.js'
 import { spawnSync } from 'node:child_process'
-import { createHash, randomUUID } from 'node:crypto'
+import { randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { BUS_DB_VARIABLE, busDirOf, decisionsFileOf, isOwnerCheckout, OWNER_AGENT, OWNER_AGENT_FILE, pinBus } from '../core/bus-path.js'
+import { agentLabel, BUS_DB_VARIABLE, busDirOf, decisionsFileOf, GH_ACCOUNT_VARIABLE, isOwnerCheckout, LAUNCH_AGENTS, OWNER_AGENT, OWNER_AGENT_FILE, pinBus, remoteUrlOf, repoSlugOfUrl } from '../core/bus-path.js'
 import { appendEvent, openBus } from '../core/db.js'
 import { SHARD_ISSUED, SHARD_REVOKED } from '../core/events.js'
 import { consumeOwnerWord, ownerChannelOfBus, USED_WORD } from '../owner/channel.js'
 import { inForce, OWNER_SOURCE, parseDecisions } from '../policy/decisions/decisions.js'
 import { allowLiveText, namesQueueLive } from '../policy/live-decision.js'
 import { activeWindowShards, DECISIONS_SCOPE, WINDOW_SHARD_HOURS, windowShardEnded } from '../policy/shards.js'
+import { ghPort, readGhJson, recordedAccount } from '../ports/gh.js'
 import { decisionsAdder } from '../window/window-request-tools.js'
 import { installedPackage, printBg } from './bg.js'
 import { startBus } from './supervisor.js'
 import { DEFAULT_MODE, FACTORY_MODES, isBusWorker, isFactoryMode, MODE_LIVE, MODE_WORKERS, startingMode, switchDetection, switchMode } from './workers.js'
 
+export { AGENT_PREFIX, agentLabel, LAUNCH_AGENTS } from '../core/bus-path.js'
+
 export const START_PREFIX = '[factory:start] '
-export const AGENT_PREFIX = 'dev.mikoshi.factory.'
 export const KEEP_ALIVE_PLATFORM = 'darwin'
-export const LAUNCH_AGENTS = path.join('Library', 'LaunchAgents')
 export const AGENT_LOG = 'launchd.log'
 export const RAISED_WITHIN_S = 20
 export const START_BIN = 'construct-factory'
@@ -38,11 +40,12 @@ export const MODE_SHARD_SCOPE = DECISIONS_SCOPE
 export const SHARD_DECIDES_LIVE: readonly BusWorker[] = ['merge', 'update']
 export const USAGE = `usage: ${START_BIN} — starts the factory for the git repository in the current directory and installs its keep-alive; ${START_BIN} ${MODE_FLAG} ${FACTORY_MODES[0]} | ${MODE_FLAG} ${FACTORY_MODES[1]} [${HOURS_FLAG} <n>] | ${LIVE_SWITCH} <worker> | ${SHADOW_SWITCH} <worker> — switches its mode or a worker's queue and writes bus/workers.json`
 
-const REPOSITORY_HASH_LENGTH = 12
 const HOUR_MS = 3_600_000
 const DECISION_TERM_LENGTH = 19
 const MODE_SHARD_ACTOR = 'owner'
 const MODE_ACTOR = 'policy'
+const GITHUB_REMOTE = /github\.com[:/]/
+const NO_ACCESS = /HTTP 40[34]/
 
 export interface LaunchctlRun {
   status: number
@@ -57,6 +60,8 @@ export interface KeepAliveParts {
   busDb: string
   busDir: string
   launchctl: (args: string[]) => LaunchctlRun
+  env: NodeJS.ProcessEnv
+  gh: GhCaller
 }
 
 export interface KeepAliveAgent {
@@ -65,15 +70,11 @@ export interface KeepAliveAgent {
   path: string
   busDb: string
   log: string
+  account: string | null
 }
 
 export function factoryBusOf(env: NodeJS.ProcessEnv, home: string, repository: string): string {
   return pinBus(env, home, repository, isOwnerCheckout(repository))
-}
-
-export function agentLabel(repository: string): string {
-  const name = path.basename(repository).toLowerCase().replaceAll(/[^a-z0-9-]+/g, '-')
-  return `${AGENT_PREFIX}${name}-${createHash('sha256').update(repository).digest('hex').slice(0, REPOSITORY_HASH_LENGTH)}`
 }
 
 function escaped(value: string): string {
@@ -104,6 +105,7 @@ export function keepAlivePlist(agent: KeepAliveAgent): string {
     `\t\t${plistString(agent.path)}`,
     `\t\t<key>${BUS_DB_VARIABLE}</key>`,
     `\t\t${plistString(agent.busDb)}`,
+    ...(agent.account === null ? [] : [`\t\t<key>${GH_ACCOUNT_VARIABLE}</key>`, `\t\t${plistString(agent.account)}`]),
     '\t</dict>',
     '\t<key>StandardOutPath</key>',
     `\t${plistString(agent.log)}`,
@@ -142,7 +144,7 @@ export function installKeepAlive(repository: string, installed: string | null, p
   const label = agentLabel(repository)
   const plist = path.join(parts.home, LAUNCH_AGENTS, `${label}.plist`)
   const domain = `gui/${parts.uid}`
-  const text = keepAlivePlist({ label, repository, path: parts.path, busDb: parts.busDb, log: path.join(parts.busDir, AGENT_LOG) })
+  const text = keepAlivePlist({ label, repository, path: parts.path, busDb: parts.busDb, log: path.join(parts.busDir, AGENT_LOG), account: recordedAccount(parts.env) })
   if (readOrNull(plist) === text && parts.launchctl(['print', `${domain}/${label}`]).status === 0)
     return { stdout: [`${START_PREFIX}the keep-alive ${label} for ${repository} is already installed and loaded (${plist})`], stderr: [], exitCode: 0 }
   mkdirSync(path.dirname(plist), { recursive: true })
@@ -155,12 +157,58 @@ export function installKeepAlive(repository: string, installed: string | null, p
   return { stdout: [`${START_PREFIX}installed the keep-alive ${label} for ${repository}: launchd reruns the factory starter within ${RAISED_WITHIN_S} s whenever it is not running, also after a restart of the machine (${plist})`], stderr: [], exitCode: 0 }
 }
 
+function sameLogin(one: string, other: string): boolean {
+  return one.toLowerCase() === other.toLowerCase()
+}
+
+export function accountOfRepository(slug: string, gh: GhCaller): { account: string | null, because: string } {
+  const owner = slug.split('/')[0]!
+  const active = readGhJson<{ login?: string }>(gh, ['api', 'user'])
+  if (active.kind === 'failed')
+    return { account: null, because: `the active gh account could not be read: ${active.reason}` }
+  const login = active.value.login
+  if (login === undefined || login === '')
+    return { account: null, because: 'the active gh account could not be read: gh api user named no login' }
+  if (sameLogin(login, owner))
+    return { account: login, because: `the gh account that started it owns ${slug}` }
+  const access = readGhJson<{ permissions?: { push?: boolean } }>(gh, ['api', `repos/${slug}`])
+  if (access.kind === 'read' && access.value.permissions?.push === true)
+    return { account: login, because: `the gh account that started it can push to ${slug}` }
+  if (access.kind === 'read' || NO_ACCESS.test(access.reason))
+    return { account: owner, because: `the gh account that started it, ${login}, cannot push to ${slug}, so its owner wins` }
+  return { account: null, because: `the access of ${login} to ${slug} could not be read: ${access.reason}` }
+}
+
+function installedAccount(repository: string, home: string): string | null {
+  const plist = readOrNull(path.join(home, LAUNCH_AGENTS, `${agentLabel(repository)}.plist`))
+  return plist === null ? null : new RegExp(`<key>${GH_ACCOUNT_VARIABLE}</key>\\s*<string>([^<]+)</string>`).exec(plist)?.[1] ?? null
+}
+
+export function recordAccount(repository: string, parts: KeepAliveParts): string[] {
+  if (isOwnerCheckout(repository) || recordedAccount(parts.env) !== null)
+    return []
+  const url = remoteUrlOf(repository)
+  const slug = url === null || !GITHUB_REMOTE.test(url) ? null : repoSlugOfUrl(url)
+  if (slug === null)
+    return []
+  const found = accountOfRepository(slug, parts.gh)
+  const account = found.account ?? installedAccount(repository, parts.home)
+  if (account !== null)
+    parts.env[GH_ACCOUNT_VARIABLE] = account
+  if (found.account !== null)
+    return [`${START_PREFIX}the factory runs as the GitHub account ${account}: ${found.because}`]
+  return [account === null
+    ? `${START_PREFIX}no GitHub account is recorded, so the factory follows the active gh account: ${found.because}; run ${START_BIN} again once gh answers`
+    : `${START_PREFIX}the factory keeps the GitHub account ${account} its keep-alive records: ${found.because}`]
+}
+
 export async function runStart(repository: string, installed: string | null, parts: KeepAliveParts, start: () => Promise<BgResult> = () => startBus(parts.busDir)): Promise<BgResult> {
+  const account = recordAccount(repository, parts)
   const mode = startingMode(parts.busDir)
   const fresh = mode === null ? [] : [`${START_PREFIX}a fresh factory starts in mode ${mode}: ${MODE_WORKERS[mode].join(', ')} switched on, merge off, a human merges; ${START_BIN} ${MODE_FLAG} ${FACTORY_MODES[1]} switches to ${FACTORY_MODES[1]} on the owner's word`]
   const started = await start()
   const kept = installKeepAlive(repository, installed, parts)
-  return { stdout: [...fresh, ...started.stdout, ...kept.stdout], stderr: [...started.stderr, ...kept.stderr], exitCode: Math.max(started.exitCode, kept.exitCode) }
+  return { stdout: [...account, ...fresh, ...started.stdout, ...kept.stdout], stderr: [...started.stderr, ...kept.stderr], exitCode: Math.max(started.exitCode, kept.exitCode) }
 }
 
 export type StartCommand
@@ -411,6 +459,8 @@ async function main(): Promise<void> {
     busDb,
     busDir: busDirOf(busDb),
     launchctl: systemLaunchctl,
+    env: process.env,
+    gh: args => ghPort({ attempts: 1 }).call(args),
   }))
 }
 

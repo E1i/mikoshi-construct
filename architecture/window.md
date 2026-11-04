@@ -142,6 +142,8 @@ accepted takeover appends `card.held` and `card.takeover`, both by the window an
 denies the card as held. The window makes the minimal change in the tree by hand, and `pnpm bus:request release --card <N>`
 ends the takeover and queues again each answer task the hold withdrew.
 
+`pnpm bus:request drop --card <N> --reason <text>` appends `card.dropped` by the window, with the reason, for a card the bus knows that has no admitted body and has not ended; a card with a body keeps the `pnpm intake --move` route.
+
 `pnpm doctor:factory`
 compares the permissions the factory needs, `contract/factory-permissions.json`, with `.claude/settings.local.json`
 and names each missing rule, the deny of `gh pr merge` on every open version pull request (head `changeset-release/*`)

@@ -15,9 +15,10 @@ import { CARD_ADMITTED, CARD_STARTED, CARD_STOPPED } from '../../core/events.js'
 import { exitCodePath, reportPath, treeReportPath } from '../../core/places.js'
 import { launchArgv } from '../../nodes/launch/launch-starter.js'
 import { LaunchNode, reportCollector, reportSince } from '../../nodes/launch/launch-worker.js'
-import { collectReport, REPORT_MISSING, restoreReport } from '../../nodes/launch/report-collect.js'
+import { collectReport, REPORT_MISSING } from '../../nodes/launch/report-collect.js'
 import { busCardReturned, busCardStopped, busCardWaited, busLastRefusal, busPrOpened, runTreePr } from '../../nodes/launch/tree-pr-cli.js'
 import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
+import { restoreReport } from '../../ports/tree-publish.js'
 import { eventsOf, mergeBench } from '../bus/merge-bench.js'
 
 const CARD = 951

@@ -1,6 +1,8 @@
-import { readFileSync } from 'node:fs'
-import os from 'node:os'
+import { spawnSync } from 'node:child_process'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import os, { tmpdir } from 'node:os'
 import path from 'node:path'
+import process from 'node:process'
 import { pathToFileURL } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
@@ -70,10 +72,42 @@ describe('hands', () => {
 
   it.each([
     [['hands', '--extension', 'ext', '--profile', 'dir']],
-    [['hands', '--profile', 'dir', '--', 'open']],
     [['hands', '--extension', 'ext', '--', 'open']],
+    [['hands', '--', 'open']],
   ])('refuses %j', (argv) => {
     expect(() => parseArguments(argv)).toThrow(UsageError)
+  })
+
+  it('hands works for a plain site without an extension', () => {
+    const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'browser-lab-plain-hands-')))
+    try {
+      const bin = path.join(root, 'bin')
+      const recorded = path.join(root, 'config-seen.json')
+      mkdirSync(bin)
+      writeFileSync(path.join(bin, 'npx'), '#!/bin/sh\necho "$(dirname "$0")/playwright-cli"\n', { mode: 0o755 })
+      writeFileSync(path.join(bin, 'playwright-cli'), [
+        '#!/usr/bin/env node',
+        'const fs = require(\'node:fs\')',
+        'const args = process.argv.slice(2)',
+        `if (args[0] === '--config') fs.copyFileSync(args[1], ${JSON.stringify(recorded)})`,
+        'console.log(args.join(\' \'))',
+        '',
+      ].join('\n'), { mode: 0o755 })
+      const ran = spawnSync(process.execPath, [SCRIPT, 'hands', '--profile', path.join(root, 'profile'), '--', 'open', 'http://plain.invalid/'], { cwd: root, encoding: 'utf8', env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ''}` } })
+      expect(ran.stderr).not.toContain('could not observe')
+      expect(ran.status).toBe(0)
+      const result = JSON.parse(ran.stdout) as Record<string, unknown>
+      expect(result).not.toHaveProperty('id')
+      expect(result.args).toEqual(['open', 'http://plain.invalid/'])
+      expect(result.output).toContain('open http://plain.invalid/')
+      const config = JSON.parse(readFileSync(recorded, 'utf8')) as HandsConfig
+      expect(config.browser.userDataDir).toBe(path.join(root, 'profile'))
+      expect(config.browser.launchOptions.args).toEqual([])
+      expect(existsSync(path.join(root, 'profile', 'extension'))).toBe(false)
+    }
+    finally {
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 
   it('the generated config loads the lab copy of the extension and the profile directory', () => {

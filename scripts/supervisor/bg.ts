@@ -3,7 +3,7 @@ import { closeSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeFi
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { BUS_DB_VARIABLE } from '../core/bus-path.js'
+import { BUS_DB_VARIABLE, GH_ACCOUNT_VARIABLE } from '../core/bus-path.js'
 import { FACTORY_RUNTIME } from '../core/factory-paths.js'
 import { REVIEW_MODEL_VARIABLE } from '../ports/session.js'
 import { agentEnvStamp, STAMP_ENV } from './stamp.js'
@@ -71,7 +71,7 @@ export function builtEntryOf(root: string, script: string): string {
   return path.join(root, BUILD_DIR, `${source}${BUILT_MODULE}`)
 }
 
-export const AGENT_ENV = ['BUS_RERUN', REVIEW_MODEL_VARIABLE] as const
+export const AGENT_ENV = ['BUS_RERUN', REVIEW_MODEL_VARIABLE, GH_ACCOUNT_VARIABLE] as const
 
 export function launchArgv(launch: DetachedLaunch = BUS_RUN_LAUNCH, installed: string | null = installedPackage(), bus?: string, env: NodeJS.ProcessEnv = {}): string[] {
   const stamped = [...launch.args, ...agentEnvStamp(AGENT_ENV, env)]

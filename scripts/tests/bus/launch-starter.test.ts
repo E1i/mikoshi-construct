@@ -2,16 +2,17 @@ import type { CardStart, StartedCard } from '../../nodes/launch/launch-executor.
 import type { StarterPorts } from '../../nodes/launch/launch-starter.js'
 import type { TreeFile } from '../../nodes/launch/session-journal.js'
 import { execFileSync, spawnSync } from 'node:child_process'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { devNull, tmpdir } from 'node:os'
 import path from 'node:path'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { parkingFileText } from '../../../src/card/parking.js'
-import { BUS_DB_VARIABLE } from '../../core/bus-path.js'
+import { BUS_DB_VARIABLE, GH_ACCOUNT_VARIABLE } from '../../core/bus-path.js'
 import { appendEvent, openBus } from '../../core/db.js'
 import { CARD_ANSWERED, CARD_STARTED, CARD_STOPPED } from '../../core/events.js'
-import { HTTPS_ORIGIN_ENV, launchArgv, launchEnv, ShiftCardStarter } from '../../nodes/launch/launch-starter.js'
+import { launchArgv, launchEnv, ShiftCardStarter } from '../../nodes/launch/launch-starter.js'
 import { busCardSessions } from '../../nodes/launch/launch-worker.js'
+import { HTTPS_ORIGIN_ENV } from '../../ports/tree-publish.js'
 
 const NO_FILE_CONFIG_ENV = { GIT_CONFIG_GLOBAL: devNull, GIT_CONFIG_NOSYSTEM: '1' }
 
@@ -163,6 +164,54 @@ describe('the bus of a launch', () => {
     } })
     expect(held.startQueued()).toMatchObject({ kind: 'started' })
     expect(envs.map(env => env[BUS_DB_VARIABLE])).toEqual([LAUNCHING_BUS])
+  })
+})
+
+describe('the github account of a card session', () => {
+  const ACTIVE_TOKEN = 'token-of-the-active-account'
+  const REPO_TOKEN = 'token-of-repo-account'
+  let bin: string
+
+  beforeEach(() => {
+    bin = mkdtempSync(path.join(tmpdir(), 'launch-gh-'))
+    const gh = path.join(bin, 'gh')
+    writeFileSync(gh, `#!/bin/sh\nif [ "$*" = "auth token" ]; then echo ${ACTIVE_TOKEN}; exit 0; fi\nif [ "$*" = "auth token --user repo-account" ]; then echo ${REPO_TOKEN}; exit 0; fi\necho "no oauth token found" >&2\nexit 1\n`)
+    chmodSync(gh, 0o755)
+    vi.stubEnv('PATH', `${bin}${path.delimiter}${process.env.PATH}`)
+  })
+
+  afterEach(() => {
+    vi.unstubAllEnvs()
+    rmSync(bin, { recursive: true, force: true })
+  })
+
+  function startedEnvs(): { outcome: CardStart, envs: NodeJS.ProcessEnv[] } {
+    const envs: NodeJS.ProcessEnv[] = []
+    const held = heldTree(['notes.md'], { spawnDetached: (run) => {
+      envs.push(run.env)
+      return 4242
+    } })
+    return { outcome: held.startQueued(), envs }
+  }
+
+  it('card session runs as the repo account while gh\'s active account is another one', () => {
+    vi.stubEnv(GH_ACCOUNT_VARIABLE, 'repo-account')
+    const { outcome, envs } = startedEnvs()
+    expect(outcome).toMatchObject({ kind: 'started' })
+    expect(envs.map(env => env.GH_TOKEN)).toEqual([REPO_TOKEN])
+  })
+
+  it('a card session whose account gh holds no token of is refused, naming the account, and never runs as the active one', () => {
+    vi.stubEnv(GH_ACCOUNT_VARIABLE, 'gone-account')
+    const { outcome, envs } = startedEnvs()
+    expect(outcome).toMatchObject({ kind: 'refused', denial: { detail: expect.stringContaining('gone-account') } })
+    expect(envs).toEqual([])
+  })
+
+  it('a factory with no recorded account adds no token to the session', () => {
+    vi.stubEnv(GH_ACCOUNT_VARIABLE, '')
+    expect(launchEnv({ PATH: '/bin' }, {})).toEqual({ PATH: '/bin' })
+    expect(startedEnvs().envs.map(env => env.GH_TOKEN)).toEqual([undefined])
   })
 })
 
