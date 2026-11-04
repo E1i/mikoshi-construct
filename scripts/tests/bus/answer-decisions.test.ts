@@ -183,6 +183,33 @@ describe('an owner decision bound to a card reaches its answer session', () => {
     expect(again.prompt).toContain(`D-901: ${BOUND_TEXT}`)
   })
 
+  it('a repeat of a question.agent stop under a decision opens no wait', async () => {
+    const bench = startedCard()
+    changesAsked(bench)
+    appendEvent(bench.made.db, { ts: bench.ts(), type: CARD_STOPPED, actor: 'worker:launch:launch-1', cardId: CARD, pr: PR, head: sha('a'), dedupeKey: `${CARD_STOPPED}:${CARD}:agent-on-the-pr`, payload: { reason: QUESTION_AGENT, detail: QUESTION }, legacy: false })
+    decided(bench, 901, BOUND_TEXT, [CARD])
+    const stops = eventsOf(bench.made.db, CARD_STOPPED).length
+
+    const { outcome } = await bench.asks(QUESTION)
+
+    expect(outcome).toMatchObject({ kind: 'denied', denial: { reason: 'repeated_stop' } })
+    expect(eventsOf(bench.made.db, CARD_STOPPED)).toHaveLength(stops)
+    expect(eventsOf(bench.made.db, OWNER_WAIT_OPENED)).toEqual([])
+  })
+
+  it('a lapsed decision recorded after the stop does not deny the repeat', async () => {
+    const bench = startedCard()
+    await stoppedOnTheOwner(bench)
+    decided(bench, 902, LAPSED_TEXT, [CARD])
+    const waits = eventsOf(bench.made.db, OWNER_WAIT_OPENED).length
+
+    const { outcome, prompt } = await bench.asks(QUESTION)
+
+    expect(prompt).not.toContain(LAPSED_TEXT)
+    expect(outcome).toMatchObject({ kind: 'stopped', reason: QUESTION_OWNER })
+    expect(eventsOf(bench.made.db, OWNER_WAIT_OPENED)).toHaveLength(waits + 1)
+  })
+
   it('a different question under a decision still opens a wait', async () => {
     const bench = startedCard()
     await stoppedOnTheOwner(bench)
