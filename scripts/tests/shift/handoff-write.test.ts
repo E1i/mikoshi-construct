@@ -13,6 +13,7 @@ import { appendEvent, openBus } from '../../core/db.js'
 import { NODE_DETECTED } from '../../core/events.js'
 import { HANDOFF_FIELDS } from '../../core/handoff-fields.js'
 import { keyOf, queueTask } from '../../core/queue.js'
+import { OWNERS_OF_A_STOP } from '../../policy/shards.js'
 import { archiveOfDay, DAY_FILE_LIMIT, QUESTIONS_HEADING } from '../../window/day-archive.js'
 import { UNREAD } from '../../window/eddies-measure.js'
 import { stopReasonOf } from '../../window/exit.js'
@@ -22,6 +23,7 @@ import { statusOf } from '../../window/loop.js'
 import { COMPLETION_OF } from '../../window/window.js'
 
 const roots: string[] = []
+const BOUNDARIES_THE_BUS_DOES_NOT_KEEP = ['owner-merged-kind', 'missing-right', 'owner-question']
 const UNBOUNDED_OWNER_STATUSES = [
   'STATUS: OWNER',
   'STATUS: OWNER — review changes',
@@ -268,7 +270,7 @@ describe('handoff:write', () => {
 
   it('handoff:write refuses STATUS: OWNER under an active decisions shard', () => {
     decisionsShard = { id: 'ws-1', by: 'Eli', scope: 'merge+decisions', until: '2026-10-17T16:00:00.000Z' }
-    for (const boundary of OWNER_BOUNDARIES.slice(1)) {
+    for (const boundary of BOUNDARIES_THE_BUS_DOES_NOT_KEEP) {
       const { handoff, draft: file } = world()
       writeFileSync(file, draft().replace('STATUS: CONTINUE', `STATUS: OWNER — boundary: ${boundary}`))
       const result = write([handoff, file])
@@ -281,6 +283,32 @@ describe('handoff:write', () => {
       writeFileSync(file, draft().replace('STATUS: CONTINUE', status))
       expect(write([handoff, file]).code).toBe(0)
     }
+  })
+
+  it('writes STATUS: OWNER under a decisions shard at every boundary the bus keeps', () => {
+    decisionsShard = { id: 'ws-1', by: 'Eli', scope: 'merge+decisions', until: '2026-10-17T16:00:00.000Z' }
+    const kept = Object.keys(OWNERS_OF_A_STOP)
+    expect(kept.length).toBeGreaterThan(0)
+    for (const boundary of kept) {
+      const { handoff, draft: file } = world()
+      writeFileSync(file, draft().replace('STATUS: CONTINUE', `STATUS: OWNER — boundary: ${boundary}`))
+      const result = write([handoff, file])
+      expect(result.err).toEqual([])
+      expect(result.code).toBe(0)
+      expect(statusOf(readFileSync(handoff, 'utf8'))).toBe('OWNER')
+    }
+  })
+
+  it.each(BOUNDARIES_THE_BUS_DOES_NOT_KEEP)('under a decisions shard still refuses STATUS: OWNER at %s, naming what the bus keeps and writing nothing', (boundary) => {
+    decisionsShard = { id: 'ws-1', by: 'Eli', scope: 'merge+decisions', until: '2026-10-17T16:00:00.000Z' }
+    const { dir, handoff, draft: file } = world()
+    writeFileSync(handoff, 'old\n')
+    writeFileSync(file, draft().replace('STATUS: CONTINUE', `STATUS: OWNER — boundary: ${boundary}`))
+    const result = write([handoff, file])
+    expect(result.code).toBe(1)
+    expect(result.err.join('\n')).toContain(Object.keys(OWNERS_OF_A_STOP).join(', '))
+    expect(readFileSync(handoff, 'utf8')).toBe('old\n')
+    expect(existsSync(path.join(dir, 'archive'))).toBe(false)
   })
 
   it('writes STATUS: OWNER when no card can be taken without the owner', () => {
