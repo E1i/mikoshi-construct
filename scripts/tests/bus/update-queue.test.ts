@@ -257,7 +257,7 @@ describe('the update queue', () => {
     const lease = bench.leaseUpdate()!
     bench.gitHub.pulls.get(992)!.mergeable_state = 'dirty'
 
-    expect(bench.update(lease)).toMatchObject({ kind: 'denied', denial: { reason: 'not_behind' }, next: 'queued' })
+    expect(bench.update(lease)).toMatchObject({ kind: 'denied', denial: { reason: 'not_behind' }, next: 'completed' })
     expect(bench.gitHub.puts).toEqual([])
     bench.close()
   })

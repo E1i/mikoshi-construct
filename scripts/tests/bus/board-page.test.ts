@@ -1,5 +1,5 @@
 import type { BusFacts } from '../../../src/commands/board/bus.js'
-import type { BusSeed, SeedEvent } from '../../../tests/board/bus-fixture.js'
+import type { BusSeed, SeedBeat, SeedEvent } from '../../../tests/board/bus-fixture.js'
 import type { BoardData, BoardFiles } from '../../cli/board-page.js'
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -303,7 +303,7 @@ describe('board.html', () => {
     return file
   }
 
-  function seededBus(heartbeats: SeedEvent[] = []): string {
+  function seededBus(heartbeats: SeedEvent[] = [], beats: SeedBeat[] = []): string {
     const root = mkdtempSync(path.join(tmpdir(), 'bus-board-screens-'))
     roots.push(root)
     return busWithRecords(path.join(root, 'bus.db'), {
@@ -325,6 +325,7 @@ describe('board.html', () => {
         { ts: minutesAgo(1), type: REVIEW_RECORDED, card: 861, payload: JSON.stringify({ verdict: 'changes' }) },
         ...heartbeats,
       ],
+      beats,
     })
   }
 
@@ -810,7 +811,7 @@ describe('board.html', () => {
 
   it('a node under CONSTRUCT_BUS_SLOTS_ANSWER=5 shows answer used/5 from the heartbeat', () => {
     const slots = slotsOfKind('answer', { [slotsVariable('answer')]: '5' })
-    const html = pageText(seededBus([{ ts: minutesAgo(1), type: PROCESS_HEARTBEAT, card: null, payload: JSON.stringify({ process: nodeProcess('answer'), queue: 'answer', slots }) }]))
+    const html = pageText(seededBus([], [{ process: nodeProcess('answer'), type: PROCESS_HEARTBEAT, ts: minutesAgo(1), payload: JSON.stringify({ process: nodeProcess('answer'), queue: 'answer', slots }) }]))
     expect(html).toContain('slots in use: answer 0/5, review 1')
     expect(sectionOf(html, '<h2 id="h-services">', '<div class="svc-grid">')).toContain('slots <b>answer 0/5, review 1</b></span>')
     expect(html).not.toContain('records no capacity')

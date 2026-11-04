@@ -163,7 +163,31 @@ CREATE TABLE IF NOT EXISTS node_cursors (
   kind TEXT PRIMARY KEY,
   event_id INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS heartbeats (
+  process TEXT NOT NULL,
+  type TEXT NOT NULL,
+  ts TEXT NOT NULL,
+  payload TEXT NOT NULL,
+  PRIMARY KEY (process, type)
+);
 `
+
+export const HEARTBEATS = 'heartbeats'
+
+export interface Beat {
+  process: string
+  type: string
+  ts: string
+  payload: unknown
+}
+
+export function recordBeat(db: DatabaseSync, beat: Beat): boolean {
+  const result = db.prepare(`
+    INSERT INTO ${HEARTBEATS} (process, type, ts, payload) VALUES (?, ?, ?, ?)
+    ON CONFLICT (process, type) DO UPDATE SET ts = excluded.ts, payload = excluded.payload WHERE excluded.ts >= ${HEARTBEATS}.ts
+  `).run(beat.process, beat.type, beat.ts, JSON.stringify(beat.payload))
+  return Number(result.changes) === 1
+}
 
 const ADDED_COLUMNS: readonly (readonly [string, string, string])[] = [['prs', 'body_sha', 'TEXT'], ['plans', 'gate', 'TEXT']]
 

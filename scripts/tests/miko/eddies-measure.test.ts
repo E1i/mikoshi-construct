@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { appendEvent, openBus } from '../../core/db.js'
-import { appendExitLine, exitLineOf, GAUGES_UNREAD, NO_TRANSCRIPT, projectRoot, realExitReadings, sessionGauges, UNKNOWN, UNREAD } from '../../window/eddies-measure.js'
+import { appendExitLine, exitLineOf, GAUGES_UNREAD, LOADED_CORE_VARIABLE, NO_TRANSCRIPT, projectRoot, realExitReadings, sessionGauges, UNKNOWN, UNREAD } from '../../window/eddies-measure.js'
 
 const SESSION = 'session-972'
 const LIMITS = { contextLimit: 250000, sessionSpend: 3000000, agentSpend: 2000000, runSpend: 3000000, warnRatio: 0.8 }
@@ -54,7 +54,22 @@ describe('realExitReadings reads the session the way Eddies reads it', () => {
       spendWarn: LIMITS.sessionSpend * LIMITS.warnRatio,
       cards: UNKNOWN,
       busEvents: UNKNOWN,
+      coreLoaded: UNKNOWN,
+      coreOnMain: UNKNOWN,
     })
+  })
+
+  it('takes the loaded core from the loop variable and the core on main from the version line under the title of window-core.md', () => {
+    const dir = scratch()
+    mkdirSync(path.join(dir, 'architecture'))
+    writeFileSync(path.join(dir, 'architecture', 'window-core.md'), '# Window core\n\nwindow-core v7\n\nwindow-core v9\n')
+    const readings = (variable: string | undefined) => realExitReadings({ [LOADED_CORE_VARIABLE]: variable }, dir, dir, path.join(dir, 'bus.db'))
+    expect(readings('6')).toMatchObject({ coreLoaded: 6, coreOnMain: 7 })
+    expect(readings(undefined)).toMatchObject({ coreLoaded: UNKNOWN, coreOnMain: 7 })
+    expect(readings('')).toMatchObject({ coreLoaded: UNKNOWN })
+    expect(readings('v6')).toMatchObject({ coreLoaded: UNKNOWN })
+    writeFileSync(path.join(dir, 'architecture', 'window-core.md'), '# Window core\n')
+    expect(readings('6')).toMatchObject({ coreLoaded: 6, coreOnMain: UNKNOWN })
   })
 
   it('counts the bus events and their distinct cards from the first line of the session on', () => {
