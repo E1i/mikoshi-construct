@@ -16,6 +16,7 @@ import { roundGate } from '../../ci/prepush.js'
 import { appendEvent, defaultBusPath, openBus } from '../../core/db.js'
 import { TOUCHES_FOLLOWED } from '../../core/events.js'
 import { assertHeld, StaleLease } from '../../core/lease.js'
+import { treeReportPath } from '../../core/places.js'
 import { pushPolicyOf } from '../../core/push-policy.js'
 import { busCardBodies } from '../../intake/parking-reads.js'
 import { PROCESS_GH_PORT } from '../../ports/gh.js'
@@ -327,6 +328,16 @@ export function answerPrompt(request: AnswerRequest, ownerQuestion: string, card
     ...source.events.map(event => JSON.stringify(event)),
     `Run the window gate of D-194 in ${card.worktree}, each as its own command: ${gateLine(gate)}. A session that leaves a clean tree and no unpushed commit runs none of them. A heavy step waits for its turn in the foreground, so give it a Bash timeout of 600000. End the session when they are green. A red pre-push run is fixed in this session; a broken one prints its finding and question, and that question goes to the owner as below. Do not commit and do not push: once the session ends the bus commits the tree and pushes it to ${card.branch}. A refused git command is not a question. If the card cannot go on without the owner, write the question for the owner, one line, to ${ownerQuestion}; the bus then pushes nothing.`,
   ].join('\n')
+}
+
+export function answerHandoffPath(worktree: string): string {
+  return path.join(path.dirname(treeReportPath(worktree)), 'answer-handoff.md')
+}
+
+function handoffLines(handoff: string, fresh: boolean): string[] {
+  const stop = `On the context warn (the Eddies warn on the session's context): finish the step you are in, write what is done and what is not to ${handoff}, leave the tree as it is and end the session; the bus pushes nothing and continues in a fresh session from that handoff and the tree.`
+  const left = fresh && existsSync(handoff) ? readFileSync(handoff, 'utf8').trim() : ''
+  return left === '' ? [stop] : ['The session before this one stopped at the context warn and left this handoff; continue from it:', left, stop]
 }
 
 function localHead(card: CardSession): string | null {
@@ -665,7 +676,10 @@ export function claudeAnswerer(dir: string, tools: AnswererTools): Answerer {
     const gate = roundGateOf(readShiftGate(card.worktree), tools.localHead?.(card) ?? null)
     const timer = new RoundTimer(tools.now ?? Date.now, gate.prepush)
     const ciLog = failedChecksOf(request.source) !== null && request.lease.head !== null ? tools.ciLog?.(card, request.lease.head) : undefined
-    const prompt = answerPrompt(request, ownerQuestion, cardBody, gate, resumed ? undefined : tools.diff?.(card), ciLog)
+    const handoff = answerHandoffPath(card.worktree)
+    if (request.fresh !== true)
+      rmSync(handoff, { force: true })
+    const prompt = [answerPrompt(request, ownerQuestion, cardBody, gate, resumed ? undefined : tools.diff?.(card), ciLog), ...handoffLines(handoff, request.fresh === true)].join('\n')
     const settings = settingsFlag(shiftSettings(card.worktree, gate, [ownerQuestion]))
     mkdirSync(dir, { recursive: true })
     rmSync(ownerQuestion, { force: true })
@@ -746,9 +760,10 @@ export function claudeAnswerer(dir: string, tools: AnswererTools): Answerer {
       if (code !== 0)
         throw new Error(`the answer session ${session} exited ${code}`)
       const kept = tools.pushPolicy?.(card) === 'none'
-      const owner = ownerAfter('') ?? (kept ? null : await publish())
+      const atLine = atContextWarn(tools, session)
+      const owner = ownerAfter('') ?? (kept || atLine ? null : await publish())
       const measured = measuredOf(steps.map(stdoutOf))
-      return { session, resumed, atContextWarn: atContextWarn(tools, session), before, after: tools.remoteHead(card), owner, ...measured, input: { prompt, cardBody }, steps: timer.steps() }
+      return { session, resumed, atContextWarn: atLine, before, after: tools.remoteHead(card), owner, ...measured, input: { prompt, cardBody }, steps: timer.steps() }
     }
     finally {
       request.stepped?.(timer.steps())

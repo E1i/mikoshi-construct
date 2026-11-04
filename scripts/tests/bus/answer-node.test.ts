@@ -26,6 +26,7 @@ import { answerCandidates, FAILURES_TO_STOP, keyOf, queueTask } from '../../core
 import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
 import { AnswerNode, answerNodeOf } from '../../nodes/answer/answer-worker.js'
 import { answerPrompt, claudeAnswerer, tokensOf } from '../../nodes/answer/answerer.js'
+import { MAX_RESTARTS } from '../../nodes/launch/continuation.js'
 import { cardDecisionCommand, DECISIONS_SCOPE, OWNERS_UNDER_ANY_SHARD, VERSION_PR_RESERVATION } from '../../policy/shards.js'
 import { busSessionPulse, lastHeartbeat } from '../../supervisor/heartbeat.js'
 import { sha } from './github-fake.js'
@@ -622,7 +623,7 @@ describe('the answer node', () => {
     expect(eventsOf(made.db, CARD_ANSWERED)).toMatchObject([{ session: 'new-session-1', resumed: false }])
   })
 
-  it('a retried session that exits on the context threshold again sets the answer again', async () => {
+  it('a session at the context threshold gets fresh sessions up to the restart limit, then the card stops and says so', async () => {
     const made = bench()
     const { trees, lease } = questionUnderShard(made, made.clock.now(), null)
     const cardTrees: CardTreeTools = { home: trees, exists: existsSync, branchOf: pr => `feat/card-${pr}`, recreate: () => {}, bringTo: () => {} }
@@ -633,8 +634,8 @@ describe('the answer node', () => {
     }
     const executor = new AnswerExecutor({ db: made.db, answerer, ownerMerges: () => OWNER_MERGES, clock: made.clock.now, trees: cardTrees })
 
-    expect(await executor.answer(lease())).toMatchObject({ kind: 'denied', denial: { reason: 'left_nothing' } })
-    expect(requests.map(request => request.fresh)).toEqual([false, true])
+    expect(await executor.answer(lease())).toMatchObject({ kind: 'stopped', reason: 'fault', detail: expect.stringContaining('continuation-limit') })
+    expect(requests.map(request => request.fresh)).toEqual([false, ...Array.from({ length: MAX_RESTARTS }).fill(true)])
   })
 
   it('the session input is rebuilt from card.answered alone with no handoff directory', async () => {

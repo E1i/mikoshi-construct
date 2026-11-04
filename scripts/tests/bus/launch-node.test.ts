@@ -754,7 +754,7 @@ describe('the launch node', () => {
     return (made.db.prepare(`SELECT type FROM events WHERE card_id = ? AND type IN ('${PR_OPENED}', '${CARD_SESSION_ENDED}', '${CARD_STOPPED}') ORDER BY id`).all(cardId) as { type: string }[]).map(row => row.type)
   }
 
-  it('at the Eddies warning a working card commits, pushes and opens its pull request before the stop', async () => {
+  it('at the spend warning a working card commits, pushes and opens its pull request before the stop', async () => {
     const { made, node, published } = await endedAtEddiesWarn(1234, true, (bus) => {
       appendEvent(bus.db, { ts: bus.clock.now().toISOString(), type: PR_OPENED, actor: 'worker:shift:1', cardId: 1234, pr: 934, head: null, dedupeKey: `${PR_OPENED}:1234:934`, payload: { pr: 934 }, legacy: false })
     })
@@ -765,7 +765,7 @@ describe('the launch node', () => {
     expect(eventsOf(made.db, CARD_SESSION_ENDED)).toMatchObject([{ session: 's-1234', stopped: false }])
   })
 
-  it('at the Eddies warning without a commit and a pull request the card is not done', async () => {
+  it('at the spend warning without a commit and a pull request the card is not done', async () => {
     const { made, node, published } = await endedAtEddiesWarn(1235, true, () => {})
 
     expect(node.stopOverdue()).toEqual([1235])
@@ -774,7 +774,7 @@ describe('the launch node', () => {
     expect(eventsOf(made.db, CARD_STOPPED)).toEqual([{ reason: 'fault', detail: noPullRequestDetail(1235, 's-1235', null) }])
   })
 
-  it('a session that ended without the Eddies warning is not published by the launch node', async () => {
+  it('a session that ended without the spend warning is not published by the launch node', async () => {
     const { made, node, published } = await endedAtEddiesWarn(1236, false, () => {})
 
     expect(node.stopOverdue()).toEqual([1236])

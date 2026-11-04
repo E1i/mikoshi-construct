@@ -120,6 +120,8 @@ const REENTRY_SOURCES: ReadonlySet<AnswerSource['kind']> = new Set(['ci'])
 
 const WITHDRAWN_REASONS: ReadonlySet<AnswerTechnicalReason> = new Set(['nothing_to_answer', 'card_tree_gone', 'held_for_owner'])
 
+export const ANSWER_RESTARTS = 3
+
 const MS_PER_MINUTE = 60_000
 
 function minutesSince(start: number, end: number): number {
@@ -142,7 +144,7 @@ function leftNoNewHead(answered: Answered): boolean {
   return answered.after === null || answered.after === answered.before
 }
 
-function endedOnContextWarn(answered: Answered | AnswerDenial): answered is Answered {
+function endedOnContextWarn(answered: Answered | AnswerDenial): boolean {
   return !('kind' in answered) && answered.atContextWarn === true && answered.owner === null && leftNoNewHead(answered)
 }
 
@@ -209,10 +211,13 @@ export class AnswerExecutor {
         return this.waiting(lease, card, merge.why)
       const answering = source ?? this.conflict(lease, card, merge)
       const sessionStart = this.parts.clock().getTime()
-      const first = await this.session(lease, answering, widened, card, false, leased)
-      const answered = endedOnContextWarn(first) ? await this.session(lease, answering, widened, card, true, this.parts.clock().getTime()) : first
+      let answered = await this.session(lease, answering, widened, card, false, leased)
+      for (let restarts = 0; endedOnContextWarn(answered) && restarts < ANSWER_RESTARTS; restarts += 1)
+        answered = await this.session(lease, answering, widened, card, true, this.parts.clock().getTime())
       if ('kind' in answered)
         return this.refusedOrDenied(lease, answered, widened)
+      if (endedOnContextWarn(answered))
+        return this.stopped(lease, 'fault', `continuation-limit: card #${lease.cardId} answer session ${answered.session} stopped at the context warn; ${ANSWER_RESTARTS} of ${ANSWER_RESTARTS} continuations used (D-104), the card is not continued again and the bus pushed nothing from it`, { code: 'continuation-limit' }, widened === null ? [] : [widened.event])
       return await this.settled(lease, answering, widened, card, answered, minutesSince(sessionStart, this.parts.clock().getTime()))
     }
     catch (error) {
