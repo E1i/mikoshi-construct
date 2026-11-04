@@ -34,8 +34,10 @@ const TEST_INFRASTRUCTURE = [
   /^vitest(?:\.[\w-]+)*\.config\.[cm]?[jt]s$/,
   /^package\.json$/,
   /^pnpm-lock\.yaml$/,
-  /^\.changeset\//,
+  /^\.changeset\/config\.json$/,
+  /^tests\/changesets-[\w-]+\.test\.ts$/,
 ]
+const CARD_NOTE = /^\.changeset\/[^/]+\.md$/
 
 export const RERUN_VARIABLE = 'BUS_RERUN'
 export const RERUN_MODES = ['as-now', 'by-layers'] as const
@@ -295,7 +297,13 @@ export function isTestInfrastructure(file: string): boolean {
   return TEST_INFRASTRUCTURE.some(pattern => pattern.test(file))
 }
 
-export function overlapWithMain(db: DatabaseSync, pr: readonly string[], main: readonly string[]): string | null {
+function withoutCardNotes(files: readonly string[]): string[] {
+  return files.filter(file => !CARD_NOTE.test(file))
+}
+
+export function overlapWithMain(db: DatabaseSync, prFiles: readonly string[], mainFiles: readonly string[]): string | null {
+  const pr = withoutCardNotes(prFiles)
+  const main = withoutCardNotes(mainFiles)
   if (main.length === 0)
     return null
   const infrastructure = [...pr, ...main].find(isTestInfrastructure)
