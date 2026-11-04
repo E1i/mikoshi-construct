@@ -16,9 +16,9 @@ import { leaseNext } from '../../core/lease.js'
 import { reportPath, treeReportPath } from '../../core/places.js'
 import { queueTask } from '../../core/queue.js'
 import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
-import { answerLaunchDir, answerTreePr, TREE_PR_PUSH_ENV, treePublishing } from '../../nodes/answer/answer-worker.js'
-import { HTTPS_ORIGIN_ENV } from '../../nodes/launch/launch-starter.js'
-import { launchDirOf, publishedTreePr } from '../../nodes/launch/launch-worker.js'
+import { treePublishing } from '../../nodes/answer/answer-worker.js'
+import { publishedTreePr } from '../../nodes/launch/launch-worker.js'
+import { launchDirOf, treePrOfThisBuild } from '../../ports/tree-publish.js'
 import { sha } from './github-fake.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
 
@@ -219,33 +219,33 @@ describe('the tree publishing the answer worker wires', () => {
     expect(committed({ session: SESSION, worktree: path.join(tempDir(), 'not-a-repository'), branch: 'main' })).toBe(false)
   })
 
-  it('a tree-pr that fails leaves the worker standing', () => {
+  it('a tree-pr that fails leaves the worker standing and names the card in its log', () => {
     const root = tempDir()
     const worktree = path.join(root, 'tree')
     mkdirSync(worktree)
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {})
 
     expect(() => treePublishing('false', root, process.env).publish({ session: SESSION, worktree, branch: 'feat/x' }, CARD)).not.toThrow()
+    expect(log).toHaveBeenCalledWith(expect.stringContaining(`card #${CARD}: tree-pr failed`))
+    log.mockRestore()
   })
 })
 
-describe('the tree-pr step the answer worker repeats, because the layer rule keeps one node from importing another, stays the launch node\'s', () => {
-  it('pushes with the same origin and credential settings', () => {
-    expect(TREE_PR_PUSH_ENV).toEqual(HTTPS_ORIGIN_ENV)
-  })
-
-  it('runs the same command from a source checkout, a path with a quote in it included', () => {
+describe('the tree-publish port both workers import', () => {
+  it('from a source checkout runs the launch node\'s command, a path with a quote in it included', () => {
     const repo = '/work/o\'brien/repo'
 
-    expect(answerTreePr(repo, 'file:///work/scripts/nodes/answer/answer-worker.ts')).toBe(publishedTreePr(repo, null))
+    expect(treePrOfThisBuild(repo, 'file:///work/scripts/ports/tree-publish.ts')).toBe(publishedTreePr(repo, null))
   })
 
-  it('runs the same built entry from an installed package', () => {
+  it('from an installed package runs the launch node\'s built entry', () => {
     const installed = '/opt/pkg/'
 
-    expect(answerTreePr('/unused', `file://${installed}dist/scripts/nodes/answer/answer-worker.js`)).toBe(publishedTreePr('/unused', installed))
+    expect(treePrOfThisBuild('/unused', `file://${installed}dist/scripts/ports/tree-publish.js`)).toBe(publishedTreePr('/unused', installed))
   })
 
-  it.each([['the machine bus', machineBusPath('/home/me')], ['another bus', '/elsewhere/bus/bus.db']])('finds the saved reports where the launch node keeps them, on %s', (_name, busPath) => {
-    expect(answerLaunchDir('/home/me', busPath)).toBe(launchDirOf('/home/me', busPath))
+  it('finds the saved reports beside the shift on the machine bus and beside the bus elsewhere', () => {
+    expect(launchDirOf('/home/me', machineBusPath('/home/me'))).toBe(path.join(path.dirname(machineBusPath('/home/me')), 'shift', 'launch'))
+    expect(launchDirOf('/home/me', '/elsewhere/bus/bus.db')).toBe('/elsewhere/bus/bus/launch')
   })
 })
