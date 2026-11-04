@@ -669,6 +669,25 @@ describe('the launch node', () => {
     expect(answerTasksOf(made, 1484)).toBe(0)
   })
 
+  it('a launch stop with a question naming no path is question.agent and closing the question admits the card again', async () => {
+    const { made, node, starter } = await stoppedOnAQuestion(1534, 'which port does the service answer on?', [])
+
+    expect(eventsOf(made.db, CARD_STOPPED)).toEqual([{ reason: 'question.agent', detail: expect.stringContaining('asks: which port does the service answer on?') as unknown, widen: [] }])
+    expect(eventsOf(made.db, BOARD_ALARM)).toEqual([])
+    const waits = eventsOf(made.db, OWNER_WAIT_OPENED) as { id: string }[]
+    expect(waits).toHaveLength(1)
+    await once(node)
+    expect(starter.starts).toHaveLength(1)
+
+    ownerCloses(made, waits[0]!.id)
+    made.tick()
+    made.tick()
+    await once(node)
+
+    expect(starter.starts).toHaveLength(2)
+    expect(answerTasksOf(made, 1534)).toBe(0)
+  })
+
   it('a question.agent no-PR stop whose widen names a real path outside touches stays stopped until an amend, and the amend starts it again', async () => {
     const { made, node, starter } = await stoppedOnAQuestion(1485, 'the fix needs src/b.ts and @types/express, outside the touches', ['src/b.ts'])
 
@@ -708,11 +727,11 @@ describe('the launch node', () => {
     expect(eventsOf(made.db, CARD_STOPPED)).toEqual([expect.objectContaining({ reason: 'question.agent', widen: [], dropped: ['@types/express'] })])
   })
 
-  it('a session that ends with no question line opens no owner wait', async () => {
+  it('a session that ends with no question line is a fault and opens no owner wait', async () => {
     const { made, node } = await endedWithReport(1226, '#1226 a-card\nresult: stopped before PR\nno PR\nverification: run\n')
 
     expect(node.stopOverdue()).toEqual([1226])
-    expect(eventsOf(made.db, CARD_STOPPED)).toHaveLength(1)
+    expect(eventsOf(made.db, CARD_STOPPED)).toEqual([expect.objectContaining({ reason: 'fault' })])
     expect(eventsOf(made.db, OWNER_WAIT_OPENED)).toEqual([])
   })
 
