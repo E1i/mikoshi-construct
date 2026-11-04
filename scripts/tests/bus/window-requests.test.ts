@@ -11,10 +11,10 @@ import process from 'node:process'
 import { promisify } from 'node:util'
 import { afterEach, describe, expect, it } from 'vitest'
 import { textSha } from '../../../src/card/text-sha.js'
-import { busDirOf } from '../../core/bus-path.js'
+import { BUS_DB_VARIABLE, busDirOf } from '../../core/bus-path.js'
 import { factoryMode } from '../../core/card-bodies.js'
-import { appendEvent } from '../../core/db.js'
-import { BOARD_ALARM, CARD_ADMITTED, CARD_STOPPED, PR_CLOSED, REQUEST_DONE, REQUEST_REFUSED, WINDOW_REQUEST } from '../../core/events.js'
+import { appendEvent, openBus } from '../../core/db.js'
+import { BOARD_ALARM, CARD_ADMITTED, CARD_STOPPED, OWNER_WAIT_OPENED, PR_CLOSED, REQUEST_DONE, REQUEST_REFUSED, SHARD_ISSUED, WINDOW_REQUEST } from '../../core/events.js'
 import { prBodySha, taskKey } from '../../core/identifiers.js'
 import { ownerInbox } from '../../core/inbox.js'
 import { failTask, leaseNext } from '../../core/lease.js'
@@ -33,7 +33,7 @@ import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
 import { NetWatch } from '../../ports/netwatch.js'
 import { BusTick } from '../../supervisor/run.js'
 import { countLineAppender, decisionsAdder, realRequestTools, worktreesHolding } from '../../window/window-request-tools.js'
-import { ALLOW_MERGE_RECORD, ANSWER_SOURCE, REQUEST_KINDS, REQUEST_RULE, requestFromWindow, runRequest, WindowRequests } from '../../window/window-requests.js'
+import { ALLOW_MERGE_RECORD, ANSWER_SOURCE, pendingRequests, PREFIX, REQUEST_KINDS, REQUEST_RULE, requestFromWindow, runRequest, USAGE, WindowRequests } from '../../window/window-requests.js'
 import { cardBody, sha } from './github-fake.js'
 import { eventsOf, liveBench, mergeBench, spendReviewRounds, taskState } from './merge-bench.js'
 
@@ -83,7 +83,7 @@ function room(bench: MergeBench = mergeBench()): Room {
       closePr: request => new PrCloser(bench.db, bench.gitHub.client, bench.gitHub.patch, bench.clock.now).close(request),
       closeDropped: () => new PrCloser(bench.db, bench.gitHub.client, bench.gitHub.patch, bench.clock.now).closeDropped(),
       ...tools,
-    }, channelOf(made), () => made.releaseVersion, root),
+    }, channelOf(made), () => made.releaseVersion, root, bench.gitHub.client),
   }
   rooms.push(made)
   return made
@@ -501,12 +501,90 @@ describe('requests from the sandboxed window, executed by the bus outside it', (
     expect(made.requests().run()).toEqual([{ kind: 'refused', request: unknown, detail: 'Q9 is not an owner wait the bus has reduced' }])
   })
 
+  describe('an owner wait for a merge', () => {
+    const WAIT = { kind: 'owner.wait', need: 'merge', text: 'merge it', pr: PR, card: CARD }
+
+    function openPr(made: Room, files: string[], body = cardBody(PR)): void {
+      made.bench.gitHub.open({ number: PR, head: HEAD, review: 'failure', files, body })
+      made.bench.tick()
+    }
+
+    function withLiveShard(made: Room, untilMs = 3_600_000): void {
+      const now = made.bench.clock.now()
+      appendEvent(made.bench.db, { ts: now.toISOString(), type: SHARD_ISSUED, actor: 'owner', cardId: null, pr: null, head: null, dedupeKey: `${SHARD_ISSUED}:ws-1`, payload: { id: 'ws-1', by: 'Eli', run: null, scope: 'merge', until: new Date(now.getTime() + untilMs).toISOString(), window: 1 }, legacy: false })
+    }
+
+    it('an owner wait for a merge the live shard leaves to the bus is refused', () => {
+      const made = room()
+      openPr(made, ['scripts/core/queue.ts'])
+      withLiveShard(made)
+      const request = ask(made, WAIT)
+      const [outcome] = made.requests().run()
+      expect(outcome).toMatchObject({ kind: 'refused', request, detail: expect.stringContaining(`the merge policy under the live shard ws-1 leaves PR #${PR} to the bus`) as unknown })
+      expect(eventsOf(made.bench.db, OWNER_WAIT_OPENED)).toEqual([])
+    })
+
+    it('a pull request the shard does not cover still opens the wait', () => {
+      const made = room()
+      openPr(made, ['.github/workflows/release.yml'])
+      withLiveShard(made)
+      ask(made, WAIT)
+      expect(made.requests().run()).toMatchObject([{ kind: 'done', detail: 'opened Q1' }])
+    })
+
+    it.each([
+      ['no shard is issued', (): void => {}],
+      ['the shard has lapsed', (made: Room): void => withLiveShard(made, -1)],
+    ])('with no live shard the wait opens: %s', (_, shard) => {
+      const made = room()
+      openPr(made, ['scripts/core/queue.ts'])
+      shard(made)
+      ask(made, WAIT)
+      expect(made.requests().run()).toMatchObject([{ kind: 'done', detail: 'opened Q1' }])
+    })
+
+    it('a policy that cannot be read leaves the wait open', () => {
+      const made = room()
+      openPr(made, ['scripts/core/queue.ts'])
+      withLiveShard(made)
+      made.bench.gitHub.ownerMerges = ''
+      made.bench.gitHub.pulls.delete(PR)
+      ask(made, WAIT)
+      expect(made.requests().run()).toMatchObject([{ kind: 'done', detail: 'opened Q1' }])
+    })
+
+    it('a decision wait on the same pull request is not judged by the merge policy', () => {
+      const made = room()
+      openPr(made, ['scripts/core/queue.ts'])
+      withLiveShard(made)
+      ask(made, { ...WAIT, need: 'decision' })
+      expect(made.requests().run()).toMatchObject([{ kind: 'done', detail: 'opened Q1' }])
+    })
+  })
+
   it('a request with a known kind and missing fields is not written', () => {
     const made = room()
     const lines: string[] = []
     expect(runRequest(['allow-merge', '--pr', String(PR)], made.bench.db, made.bench.clock.now(), SESSION, line => lines.push(line))).toBe(2)
     expect(made.requests().run()).toEqual([])
   })
+
+  it('a --help on a kind prints the usage and writes no request', async () => {
+    const made = room()
+    const busPath = path.join(made.root, 'cli-bus.db')
+    const script = path.join(import.meta.dirname, '..', '..', 'window', 'window-requests.ts')
+    const command = (...argv: string[]): Promise<{ stdout: string }> => promisify(execFile)(process.execPath, ['--import', 'tsx', script, ...argv], { env: { ...process.env, [BUS_DB_VARIABLE]: busPath } })
+
+    const runs = await Promise.all([command('plan', '--help'), command('hold', '--card', '5', '-h'), command('--help'), command('-h')])
+    for (const run of runs)
+      expect(run.stdout).toContain(`${PREFIX}${USAGE}`)
+    expect(existsSync(busPath)).toBe(false)
+
+    await command('mode', '--set', 'window')
+    const bus = openBus(busPath)
+    expect(pendingRequests(bus).map(request => JSON.parse(request.payload) as unknown)).toEqual([{ kind: 'mode', mode: 'window' }])
+    bus.close()
+  }, 30_000)
 
   it('a mode request switches the factory mode once the bus answers it, and window is the mode before any', () => {
     const made = room()
