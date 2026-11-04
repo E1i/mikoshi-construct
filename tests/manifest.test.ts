@@ -109,6 +109,47 @@ describe('the milestone list is the project\'s', () => {
   })
 })
 
+describe('the serve record is what the repository declares', () => {
+  const DECLARED = { command: 'pnpm start', url: 'http://localhost:8080/', readyTimeoutMs: 5000 }
+  const PRESET_DEFAULT = { command: 'pnpm dev', url: 'http://localhost:3000/', readyTimeoutMs: 30000 }
+
+  function repeatedInit(previous: ReturnType<typeof currentManifest>, serve?: typeof DECLARED) {
+    return buildManifest({ version: VARS.constructVersion, preset: 'node-backend', ai: 'claude', review: 'none', vars: VARS, written: [], ownedShas: {}, contracts: false, previous, policy: null, serve })
+  }
+
+  it('buildManifest keeps the declared serve of the previous record', () => {
+    const previous = { ...currentManifest(), serve: DECLARED }
+    expect(repeatedInit(previous, PRESET_DEFAULT).serve).toEqual(DECLARED)
+    expect(repeatedInit(previous).serve).toEqual(DECLARED)
+  })
+
+  it('buildManifest writes the default where the previous record declares no serve', () => {
+    expect(repeatedInit(currentManifest(), PRESET_DEFAULT).serve).toEqual(PRESET_DEFAULT)
+  })
+
+  it('upgradeManifest keeps a well-formed serve through a write', () => {
+    const root = scratch()
+    writeManifest(root, { ...currentManifest(), serve: DECLARED })
+    writeManifest(root, readManifest(root)!)
+    expect(readManifest(root)?.serve).toEqual(DECLARED)
+    expect(readManifest(root)?.manifestVersion).toBe(MANIFEST_VERSION)
+  })
+
+  it.each([
+    ['not an object', 'pnpm dev'],
+    ['no command', { url: DECLARED.url, readyTimeoutMs: 5000 }],
+    ['a blank command', { ...DECLARED, command: ' ' }],
+    ['no url', { command: DECLARED.command, readyTimeoutMs: 5000 }],
+    ['a url that does not parse', { ...DECLARED, url: 'localhost 3000' }],
+    ['a timeout as text', { ...DECLARED, readyTimeoutMs: '5000' }],
+    ['a zero timeout', { ...DECLARED, readyTimeoutMs: 0 }],
+    ['a fractional timeout', { ...DECLARED, readyTimeoutMs: 0.5 }],
+  ])('upgradeManifest drops a malformed serve: %s', (_case, serve) => {
+    const raw: unknown = { ...currentManifest(), serve }
+    expect(upgradeManifest(raw).serve).toBeUndefined()
+  })
+})
+
 describe('the shift gate is what the repository declares', () => {
   it('falls back to the harness command and names no handoff or matrix where construct.json declares no shift record', () => {
     const root = scratch()
