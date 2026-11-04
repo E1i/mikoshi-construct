@@ -2,6 +2,7 @@ import type { SpawnSyncReturns } from 'node:child_process'
 import type { DatabaseSync } from 'node:sqlite'
 import type { BusEvent } from '../scripts/core/db.js'
 import type { WindowShard } from '../scripts/policy/shards.js'
+import type { GhCall, GhCaller } from '../scripts/ports/gh.js'
 import type { LaunchctlRun, ModeParts } from '../scripts/supervisor/start.js'
 import { execFileSync, spawnSync } from 'node:child_process'
 import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
@@ -11,7 +12,7 @@ import process from 'node:process'
 import { pathToFileURL } from 'node:url'
 import { build } from 'tsup'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
-import { BUS_DB_VARIABLE, busDirOf, OWNER_AGENT, OWNER_AGENT_FILE, repoIdOf } from '../scripts/core/bus-path.js'
+import { BUS_DB_VARIABLE, busDirOf, GH_ACCOUNT_VARIABLE, OWNER_AGENT, OWNER_AGENT_FILE, repoIdOf } from '../scripts/core/bus-path.js'
 import { appendEvent, openBus } from '../scripts/core/db.js'
 import { SHARD_ISSUED, SHARD_REVOKED } from '../scripts/core/events.js'
 import { FACTORY_WORKERS } from '../scripts/core/factory-paths.js'
@@ -19,8 +20,9 @@ import { LIVE_FLAG } from '../scripts/core/node.js'
 import { sayToOwnerChannel, USED_WORD } from '../scripts/owner/channel.js'
 import { activeWindowShards } from '../scripts/policy/shards.js'
 import { BUS_FLAG, BUS_RUN_LAUNCH, carriesMarker, installedPackage, launchArgv, runBusBg } from '../scripts/supervisor/bg.js'
+import { agentEnvStamp } from '../scripts/supervisor/stamp.js'
 import { AGENT_LOG, agentLabel, factoryBusOf, ghostProtocolWord, installKeepAlive, KEEP_ALIVE_PLATFORM, KEEP_ALIVE_PROGRAM, LAUNCH_AGENTS, runMode, runStart, sayCommand, START_BIN, startCommandOf, USAGE } from '../scripts/supervisor/start.js'
-import { SUPERVISE_FLAG, SUPERVISOR_LAUNCH } from '../scripts/supervisor/supervisor.js'
+import { startUnderAgentEnv, SUPERVISE_FLAG, SUPERVISOR_LAUNCH } from '../scripts/supervisor/supervisor.js'
 import { liveWorkers, MODE_WORKERS, modeOf, returnToWindowAtTermEnd, switchDetection, switchedOn, switchWorker, termEndOf, wantedLaunches, WORKERS, WORKERS_FILE } from '../scripts/supervisor/workers.js'
 import { waitFor } from '../scripts/tests/wait-for.js'
 import { copyFactoryAssets, factoryBuild, factoryEntries, OUT_DIR, productBuild } from '../tsup.config.js'
@@ -35,7 +37,9 @@ const SYSTEM_BIN_DIRS = ['/usr/bin', '/bin']
 const UID = 501
 const USER_PATH = '/opt/user/bin:/usr/bin:/bin'
 const SECURITY_INVARIANTS = path.join(REPOSITORY, 'architecture', 'security-invariants.md')
-const FACTORY_SPAWNS = ['launchctl', 'nohup', 'ps']
+const FACTORY_SPAWNS = ['launchctl', 'nohup', 'ps', 'gh']
+const FACTORY_GH_ARGUMENTS = ['api user', 'api repos/<slug>']
+const PACKED_REPOSITORY_SLUG = 'acme/shop'
 const LAUNCHCTL_SUBCOMMANDS = ['print', 'bootout', 'bootstrap']
 const SPAWN_BOUNDARY_TEST = 'construct-factory spawns only launchctl and the supervisor the package ships'
 const SPAWN_BOUNDARY_SANDBOX_LEVEL = 'none'
@@ -87,7 +91,40 @@ function recordingLaunchctl(status = 0): { calls: string[][], run: (args: string
 
 function keepAliveParts(home: string, launchctl: (args: string[]) => LaunchctlRun, platform: NodeJS.Platform = KEEP_ALIVE_PLATFORM) {
   const busDb = path.join(home, '.construct', 'bus.db')
-  return { platform, home, uid: UID, path: USER_PATH, busDb, busDir: busDirOf(busDb), launchctl }
+  const env: NodeJS.ProcessEnv = {}
+  const gh: GhCaller = args => ({ kind: 'failed', cause: 'failed', reason: `no gh in this test: ${args.join(' ')}`, stdout: '', stderr: '', attempts: 1 })
+  return { platform, home, uid: UID, path: USER_PATH, busDb, busDir: busDirOf(busDb), launchctl, env, gh }
+}
+
+function userRepository(origin: string): string {
+  const user = tempRoot('factory-user-')
+  mkdirSync(path.join(user, '.git'))
+  writeFileSync(path.join(user, '.git', 'config'), `[remote "origin"]\n\turl = ${origin}\n`)
+  return user
+}
+
+function answeringGh(answers: Record<string, GhCall>): { calls: string[][], gh: GhCaller } {
+  const calls: string[][] = []
+  return { calls, gh: (args) => {
+    calls.push(args)
+    return answers[args.join(' ')] ?? { kind: 'failed', cause: 'failed', reason: `unexpected gh ${args.join(' ')}`, stdout: '', stderr: '', attempts: 1 }
+  } }
+}
+
+function ran(stdout: string): GhCall {
+  return { kind: 'ran', stdout: `${stdout}\n`, attempts: 1 }
+}
+
+function loginIs(login: string): GhCall {
+  return ran(JSON.stringify({ login, id: 1 }))
+}
+
+function pushIs(push: boolean): GhCall {
+  return ran(JSON.stringify({ full_name: PACKED_REPOSITORY_SLUG, permissions: { pull: true, push } }))
+}
+
+function refused(stderr: string, cause: 'failed' | 'transient' = 'failed'): GhCall {
+  return { kind: 'failed', cause, reason: stderr, stdout: '', stderr, attempts: 1 }
 }
 
 function plistValue(text: string, key: string): string | undefined {
@@ -133,6 +170,7 @@ describe('the construct-factory spawn boundary', () => {
     expect(row, 'a row starting | `construct-factory` inside the discovery block').toBeDefined()
     const [invariant, enforcedBy] = row!.split(' | ')
     expect(listAfter(invariant!, 'Spawns only: ')).toEqual(FACTORY_SPAWNS)
+    expect(listAfter(invariant!, '`gh` arguments only: ')).toEqual(FACTORY_GH_ARGUMENTS)
     expect(listAfter(invariant!, '`launchctl` subcommands only: ')).toEqual(LAUNCHCTL_SUBCOMMANDS)
     expect(listAfter(invariant!, 'Never spawned: ')).toEqual(NEVER_SPAWNED)
     for (const entry of NOHUP_ENTRIES)
@@ -155,6 +193,32 @@ describe('a factory process is launched as the package it runs from', () => {
   it('carries the absolute path of its bus as --bus after its own args, so ps reads the bus from the command line', () => {
     expect(launchArgv(BUS_RUN_LAUNCH, null, 'bus.db')).toEqual(['nohup', 'pnpm', '--silent', BUS_RUN_LAUNCH.script, BUS_FLAG, path.resolve('bus.db')])
     expect(launchArgv(SUPERVISOR_LAUNCH, `${REPOSITORY}/`, '/x/bus.db')).toEqual(['nohup', process.execPath, path.join(REPOSITORY, OUT_DIR, 'scripts', 'supervisor', 'supervisor.js'), SUPERVISE_FLAG, BUS_FLAG, '/x/bus.db'])
+  })
+
+  it('stamps the recorded github account before --bus, and no token', () => {
+    const env = { [GH_ACCOUNT_VARIABLE]: 'worker', GH_TOKEN: 'secret' }
+    expect(launchArgv(SUPERVISOR_LAUNCH, `${REPOSITORY}/`, '/x/bus.db', env)).toEqual(['nohup', process.execPath, path.join(REPOSITORY, OUT_DIR, 'scripts', 'supervisor', 'supervisor.js'), SUPERVISE_FLAG, `--agent-env.${GH_ACCOUNT_VARIABLE}.worker`, BUS_FLAG, '/x/bus.db'])
+  })
+
+  it('a start stops a running supervisor not stamped with the recorded github account and leaves one that is', async () => {
+    const supervisorOf = (stamp: string): { pid: number, args: string, bus: string } => ({ pid: 4244, args: `node ${path.join(REPOSITORY, OUT_DIR, 'scripts', 'supervisor', 'supervisor.js')} ${SUPERVISE_FLAG}${stamp} ${BUS_FLAG} /x/bus.db`, bus: '/x/bus.db' })
+    const stoppedFrom = async (running: { pid: number, args: string, bus: string }): Promise<number[]> => {
+      const stopped: number[] = []
+      await startUnderAgentEnv('/x', [SUPERVISOR_LAUNCH], {
+        env: { [BUS_DB_VARIABLE]: '/x/bus.db', [GH_ACCOUNT_VARIABLE]: 'worker' },
+        processes: () => [running],
+        ownPackage: REPOSITORY,
+        stop: async ({ pid }) => {
+          stopped.push(pid)
+        },
+        freeLeases: () => [],
+        start: () => ({ stdout: [], stderr: [], exitCode: 0 }),
+      })
+      return stopped
+    }
+    expect(await stoppedFrom(supervisorOf(''))).toEqual([4244])
+    expect(await stoppedFrom(supervisorOf(` --agent-env.${GH_ACCOUNT_VARIABLE}.other`))).toEqual([4244])
+    expect(await stoppedFrom(supervisorOf(` --agent-env.${GH_ACCOUNT_VARIABLE}.worker`))).toEqual([])
   })
 
   it('refuses a script the package names no factory entry for, rather than starting something else', () => {
@@ -270,6 +334,93 @@ describe('the keep-alive of the start command', () => {
   })
 })
 
+const fresh = async () => ({ stdout: [], stderr: [], exitCode: 0 })
+
+describe('the github account of the keep-alive', () => {
+  const [ACTIVE, ACCESS_TEMPLATE] = FACTORY_GH_ARGUMENTS as [string, string]
+  const ACCESS = ACCESS_TEMPLATE.replace('<slug>', PACKED_REPOSITORY_SLUG)
+  const ORIGIN = `git@github.com:${PACKED_REPOSITORY_SLUG}.git`
+
+  async function startedWith(repository: string, answers: Record<string, GhCall>, env: NodeJS.ProcessEnv = {}, home = tempRoot('factory-home-')) {
+    const { calls, gh } = answeringGh(answers)
+    const parts = { ...keepAliveParts(home, recordingLaunchctl().run), env, gh }
+    const seenByStart: (string | undefined)[] = []
+    const result = await runStart(repository, REPOSITORY, parts, async () => {
+      seenByStart.push(env[GH_ACCOUNT_VARIABLE])
+      return { stdout: [], stderr: [], exitCode: 0 }
+    })
+    const text = readFileSync(path.join(home, LAUNCH_AGENTS, `${agentLabel(repository)}.plist`), 'utf8')
+    return { result, text, calls, seenByStart, home }
+  }
+
+  it('the keep-alive carries the github account that started it when that account can push, and the nodes it starts read the same value', async () => {
+    const { text, seenByStart, result, calls } = await startedWith(userRepository(ORIGIN), { [ACTIVE]: loginIs('worker'), [ACCESS]: pushIs(true) })
+    expect(plistValue(text, GH_ACCOUNT_VARIABLE)).toBe('worker')
+    expect(seenByStart).toEqual(['worker'])
+    expect(calls.map(call => call.join(' '))).toEqual([ACTIVE, ACCESS])
+    expect(result.stdout.join('\n')).toContain('can push to acme/shop')
+  })
+
+  it('the keep-alive carries the github account of the remote owner when the starter has no access', async () => {
+    for (const noAccess of [pushIs(false), ran('{}'), refused('gh: Not Found (HTTP 404)'), refused('gh: Forbidden (HTTP 403)', 'transient')]) {
+      const { text, result } = await startedWith(userRepository(ORIGIN), { [ACTIVE]: loginIs('work-account'), [ACCESS]: noAccess })
+      expect(plistValue(text, GH_ACCOUNT_VARIABLE)).toBe('acme')
+      expect(result.stdout.join('\n')).toContain('work-account, cannot push to acme/shop, so its owner wins')
+    }
+  })
+
+  it('the keep-alive carries the github account that owns the remote without asking about its access', async () => {
+    const { text, calls } = await startedWith(userRepository(ORIGIN), { [ACTIVE]: loginIs('ACME') })
+    expect(plistValue(text, GH_ACCOUNT_VARIABLE)).toBe('ACME')
+    expect(calls).toEqual([ACTIVE.split(' ')])
+  })
+
+  it('a rerun under launchd keeps the account its plist hands it and asks gh nothing, so a gh switch does not move it', async () => {
+    const { text, calls } = await startedWith(userRepository(ORIGIN), {}, { [GH_ACCOUNT_VARIABLE]: 'recorded' })
+    expect(plistValue(text, GH_ACCOUNT_VARIABLE)).toBe('recorded')
+    expect(calls).toEqual([])
+  })
+
+  it('a gh that does not answer keeps the account the keep-alive already records, and says so', async () => {
+    const repository = userRepository(ORIGIN)
+    const first = await startedWith(repository, { [ACTIVE]: loginIs('acme') })
+    const second = await startedWith(repository, { [ACTIVE]: refused('dial tcp: i/o timeout', 'transient') }, {}, first.home)
+    expect(plistValue(second.text, GH_ACCOUNT_VARIABLE)).toBe('acme')
+    expect(second.result.stdout.join('\n')).toContain('keeps the GitHub account acme')
+  })
+
+  it('a gh that does not answer on a first start records nothing and says the factory follows the active account', async () => {
+    const { text, result, seenByStart } = await startedWith(userRepository(ORIGIN), { [ACTIVE]: loginIs('worker'), [ACCESS]: refused('HTTP 502', 'transient') })
+    expect(text).not.toContain(GH_ACCOUNT_VARIABLE)
+    expect(seenByStart).toEqual([undefined])
+    expect(result.stdout.join('\n')).toContain('follows the active gh account')
+  })
+
+  it('an answer of gh it cannot read records no account rather than a wrong one', async () => {
+    for (const answers of [{ [ACTIVE]: ran('not json') }, { [ACTIVE]: ran('{}') }, { [ACTIVE]: loginIs('worker'), [ACCESS]: ran('not json') }]) {
+      const { text, result } = await startedWith(userRepository(ORIGIN), answers)
+      expect(text).not.toContain(GH_ACCOUNT_VARIABLE)
+      expect(result.stdout.join('\n')).toContain('follows the active gh account')
+    }
+  })
+
+  it('a repository whose origin is not on github records no account and asks gh nothing', async () => {
+    for (const repository of [userRepository('git@gitlab.com:acme/shop.git'), tempRoot('factory-user-')]) {
+      const { text, calls } = await startedWith(repository, {})
+      expect(text).not.toContain(GH_ACCOUNT_VARIABLE)
+      expect(calls).toEqual([])
+    }
+  })
+
+  it('the owner checkout records no account, since its own agent carries its token', async () => {
+    const env: NodeJS.ProcessEnv = {}
+    const { calls, gh } = answeringGh({})
+    await runStart(REPOSITORY, null, { ...keepAliveParts(tempRoot('factory-home-'), recordingLaunchctl().run), env, gh }, fresh)
+    expect(env[GH_ACCOUNT_VARIABLE]).toBeUndefined()
+    expect(calls).toEqual([])
+  })
+})
+
 describe('the bus the start command runs over', () => {
   it('the owner checkout keeps the machine bus and a clone gets its own, even before it exists', () => {
     const home = tempRoot('factory-home-')
@@ -351,8 +502,6 @@ function modeCommand(...argv: string[]) {
     throw new Error(`${argv.join(' ')} is not a mode command`)
   return command
 }
-
-const fresh = async () => ({ stdout: [], stderr: [], exitCode: 0 })
 
 describe('the modes of the factory', () => {
   it('a fresh factory starts in WINDOW with merge off', async () => {
@@ -631,8 +780,10 @@ describe('the start command in the published package', () => {
     out = path.join(packed.root, 'stub-out')
     home = path.join(packed.root, 'home')
     user = path.join(packed.root, 'user-repo')
-    for (const directory of [bin, out, home, user])
+    for (const directory of [bin, out, home, path.join(user, '.git')])
       mkdirSync(directory, { recursive: true })
+    writeFileSync(path.join(user, '.git', 'config'), `[remote "origin"]\n\turl = git@github.com:${PACKED_REPOSITORY_SLUG}.git\n`)
+    stub(bin, 'gh', `[ "$*" = "api user" ] && { printf '{"login":"worker"}'; exit 0; }\n[ "$*" = "api repos/${PACKED_REPOSITORY_SLUG}" ] && { printf '{"permissions":{"push":true}}'; exit 0; }\nexit 1`)
     stub(bin, 'ps', 'exit 0')
     stub(bin, 'nohup', 'printf \'%s\\n\' "$*" >> "$STUB_OUT/nohup.argv"')
     stub(bin, 'launchctl', 'printf \'%s\\n\' "$*" >> "$STUB_OUT/launchctl.argv"\n[ "$1" = print ] && exit 1\nexit 0')
@@ -657,9 +808,10 @@ describe('the start command in the published package', () => {
     expect(launched).toHaveLength(FRESH_LAUNCHES.length)
     expect(launched.filter(line => line.includes('pnpm'))).toEqual([])
     const built = (source: string): string => path.join(packed.installed, OUT_DIR, 'scripts', 'supervisor', source)
-    const busArgument = ` ${BUS_FLAG} ${path.join(packed.root, 'bus.db')}`
-    expect(launched.filter(line => !line.endsWith(busArgument))).toEqual([])
-    const targets = launched.map(line => line.slice(line.indexOf(' ') + 1, -busArgument.length))
+    const [accountStamp] = agentEnvStamp([GH_ACCOUNT_VARIABLE], { [GH_ACCOUNT_VARIABLE]: 'worker' })
+    const launchTail = ` ${accountStamp} ${BUS_FLAG} ${path.join(packed.root, 'bus.db')}`
+    expect(launched.filter(line => !line.endsWith(launchTail))).toEqual([])
+    const targets = launched.map(line => line.slice(line.indexOf(' ') + 1, -launchTail.length))
     expect(targets).toContain(built('run.js'))
     expect(targets).toContain(`${built('supervisor.js')} ${SUPERVISE_FLAG}`)
     expect(targets.map(target => path.basename(target.split(' ')[0]!)).sort()).toEqual([...FRESH_LAUNCHES].sort())
@@ -687,6 +839,8 @@ describe('the start command in the published package', () => {
     const ps = spawns.filter(spawn => spawn.command === 'ps')
     expect(ps.length > 0).toBe(true)
     expect(ps.filter(spawn => !spawn.args[0]?.startsWith('-'))).toEqual([])
+    const gh = spawns.filter(spawn => spawn.command === 'gh').map(spawn => spawn.args.join(' '))
+    expect(gh).toEqual(FACTORY_GH_ARGUMENTS.map(argument => argument.replace('<slug>', PACKED_REPOSITORY_SLUG)))
   })
 
   it.runIf(process.platform === KEEP_ALIVE_PLATFORM)('the published command loads a keep-alive that reruns the installed starter in the user repository', () => {
@@ -697,6 +851,7 @@ describe('the start command in the published package', () => {
     expect(text).not.toContain(process.execPath)
     expect(plistValue(text, 'WorkingDirectory')).toBe(user)
     expect(plistValue(text, BUS_DB_VARIABLE)).toBe(path.join(packed.root, 'bus.db'))
+    expect(plistValue(text, GH_ACCOUNT_VARIABLE)).toBe('worker')
     expect(readFileSync(path.join(out, 'launchctl.argv'), 'utf8')).toContain(`bootstrap gui/${process.getuid!()} ${plist}`)
   })
 })

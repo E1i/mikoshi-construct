@@ -29,8 +29,12 @@ const CONSOLE_LOG = /^console-.*\.log$/
 const CONSOLE_LOGS_BEFORE_OPEN = 'hands.console-before.json'
 const HANDS_COPY_PREFIX = 'browser-lab-hands-'
 const STALE_HANDS_COPY_MS = 6 * 60 * 60 * 1000
-const WITHOUT_EXTENSION = new Set(['page'])
-const VALUES_OF = { '--extension': 1, '--headed': 0, '--eval': 1, '--for': 1, '--wait': 1, '--page': 1, '--profile': 1, '--route': 2, '--prefix': 1, '--shot': 1, '--profile-from': 1, '--evidence': 1, '--proxy': 1 }
+const WITHOUT_EXTENSION = new Set(['page', 'hands'])
+const VALUES_OF = { '--extension': 1, '--headed': 0, '--eval': 1, '--for': 1, '--wait': 1, '--page': 1, '--profile': 1, '--route': 2, '--prefix': 1, '--shot': 1, '--profile-from': 1, '--evidence': 1, '--proxy': 1, '--viewport': 1, '--color-scheme': 1, '--press': 1 }
+const PAGE_ONLY = ['prefix', 'shot', 'viewport', 'colorScheme', 'press']
+const COLOR_SCHEMES = ['light', 'dark']
+const VIEWPORT = /^(\d+)(?:x(\d+))?$/
+const DEFAULT_VIEWPORT_HEIGHT = 800
 const PROXY_ENVIRONMENT = 'CONSTRUCT_LAB_PROXY'
 const SANDBOX_SIGNAL = 'SANDBOX_RUNTIME'
 const CHROMIUM_FAILURE_IN_SANDBOX = /ProcessSingleton/
@@ -46,8 +50,11 @@ const USAGE = [
   '  page <url> [--wait <sel>] open a page; with --extension, whether a content script of the extension ran in it',
   '        [--prefix <text>]   console of every level, from the page and from the content-script world, whose text starts with <text>',
   '        [--shot <file>]     screenshot of the page',
+  '        [--viewport <w[xh]>]  the page at that size in pixels; height 800 when only the width is given',
+  '        [--color-scheme <light|dark>]  the page with prefers-color-scheme set to it',
+  '        [--press <keys>]    after load and --wait, press each space-separated key or chord in turn (Tab Enter Control+K); --for gives the page time to answer',
   '        [--for <ms>]        stay on the page that long after load before reading it, and print every console line heard meanwhile, each with its time in at; default 15000 with --route, otherwise none',
-  '  hands <args…>             run @playwright/cli with the lab copy of the extension and the --profile <dir> given; its own arguments go after --; end with: hands … -- close',
+  '  hands <args…>             run @playwright/cli on the --profile <dir> given, with the lab copy of the extension when --extension is given; its own arguments go after --; end with: hands … -- close',
   '        [--evidence <dir>]  hands runs with <dir> as its working directory; hands … -- close writes the console of the session since its open to <dir>/console.json, and nothing when close fails, which keeps the session for another close',
   '  --profile-from <dir>      run on a fresh copy of a base profile, deleted at the end, so runs can go in parallel; an extension whose manifest has no key gets another id in the copy',
   '                            a hands copy whose session never closed is swept by the next hands run once it has been idle for six hours',
@@ -79,6 +86,26 @@ function positive(text, flag) {
   return number
 }
 
+function parseViewport(text) {
+  const [, width, height = DEFAULT_VIEWPORT_HEIGHT] = VIEWPORT.exec(text) ?? []
+  if (!(Number(width) > 0 && Number(height) > 0))
+    throw new UsageError(`--viewport needs <width> or <width>x<height> in pixels, got ${text}`)
+  return { width: Number(width), height: Number(height) }
+}
+
+function parseColorScheme(text) {
+  if (!COLOR_SCHEMES.includes(text))
+    throw new UsageError(`--color-scheme must be one of ${COLOR_SCHEMES.join(', ')}, got ${text}`)
+  return text
+}
+
+function parsePress(text) {
+  const keys = text.split(/\s+/).filter(key => key !== '')
+  if (keys.length === 0)
+    throw new UsageError('--press needs at least one key')
+  return keys
+}
+
 function defaultListenMs({ command, route }) {
   if (command !== 'page')
     return DEFAULT_LISTEN_MS
@@ -89,7 +116,7 @@ export function parseArguments(argv, env = process.env) {
   const [command, ...rest] = argv
   if (!COMMANDS.includes(command))
     throw new UsageError(command === undefined ? 'a command is required' : `unknown command ${command}`)
-  const options = { command, positionals: [], extension: undefined, headed: false, evaluate: undefined, listenMs: undefined, wait: undefined, page: undefined, profile: undefined, route: [], prefix: undefined, shot: undefined, profileFrom: undefined, evidence: undefined, proxy: env[PROXY_ENVIRONMENT] || undefined }
+  const options = { command, positionals: [], extension: undefined, headed: false, evaluate: undefined, listenMs: undefined, wait: undefined, page: undefined, profile: undefined, route: [], prefix: undefined, shot: undefined, profileFrom: undefined, evidence: undefined, proxy: env[PROXY_ENVIRONMENT] || undefined, viewport: undefined, colorScheme: undefined, press: undefined }
   let index = 0
   while (index < rest.length) {
     const argument = rest[index]
@@ -146,6 +173,15 @@ export function parseArguments(argv, env = process.env) {
       case '--shot':
         options.shot = value
         break
+      case '--viewport':
+        options.viewport = parseViewport(value)
+        break
+      case '--color-scheme':
+        options.colorScheme = parseColorScheme(value)
+        break
+      case '--press':
+        options.press = parsePress(value)
+        break
       default:
         options.wait = value
     }
@@ -157,8 +193,8 @@ export function parseArguments(argv, env = process.env) {
     throw new UsageError(`${command} needs --extension <dir>`)
   if (command === 'storage' && options.positionals.length === 1 && !STORAGE_AREAS.includes(options.positionals[0]))
     throw new UsageError(`storage area must be one of ${STORAGE_AREAS.join(', ')}`)
-  if (command !== 'page' && (options.prefix !== undefined || options.shot !== undefined))
-    throw new UsageError('--prefix and --shot belong to page')
+  if (command !== 'page' && PAGE_ONLY.some(name => options[name] !== undefined))
+    throw new UsageError('--prefix, --shot, --viewport, --color-scheme and --press belong to page')
   if (command === 'hands' && options.route.length > 0)
     throw new UsageError('--route does not reach hands, the browser of hands is opened by @playwright/cli')
   if (options.profile !== undefined && options.profileFrom !== undefined)
@@ -237,6 +273,10 @@ function installChromium() {
   runNpx(['--yes', PLAYWRIGHT_CORE, 'install', 'chromium'], { stdio: ['ignore', 2, 2] })
 }
 
+function extensionLoading(directory) {
+  return directory === undefined ? [] : [`--disable-extensions-except=${directory}`, `--load-extension=${directory}`]
+}
+
 function throughProxy(proxy) {
   return proxy === undefined ? {} : { proxy: { server: proxy } }
 }
@@ -249,7 +289,7 @@ export function handsConfig(extensionDirectory, profile, headed, proxy) {
       launchOptions: {
         channel: 'chromium',
         headless: !headed,
-        args: [`--disable-extensions-except=${extensionDirectory}`, `--load-extension=${extensionDirectory}`],
+        args: extensionLoading(extensionDirectory),
         ...throughProxy(proxy),
       },
     },
@@ -349,7 +389,7 @@ function writeConsole(evidence, session, before) {
 function runHands({ extension, options, profile }) {
   const binary = npxBinary(PLAYWRIGHT_CLI, 'playwright-cli')
   const config = path.join(profile, 'hands.config.json')
-  writeFileSync(config, `${JSON.stringify(handsConfig(extension.directory, profile, options.headed, options.proxy), null, 2)}\n`)
+  writeFileSync(config, `${JSON.stringify(handsConfig(extension?.directory, profile, options.headed, options.proxy), null, 2)}\n`)
   spawnSync(binary, ['install-browser', 'chromium'], { stdio: ['ignore', 2, 2], env: npxEnvironment() })
   const evidence = options.evidence === undefined ? undefined : path.resolve(options.evidence)
   const { command, session } = handsCommandAndSession(options.positionals)
@@ -371,7 +411,7 @@ function runHands({ extension, options, profile }) {
     writeConsole(evidence, session, before)
     rmSync(path.join(profile, CONSOLE_LOGS_BEFORE_OPEN), { force: true })
   }
-  return { id: extension.id, args: options.positionals, output: ran.stdout.trim() }
+  return { id: extension?.id, args: options.positionals, output: ran.stdout.trim() }
 }
 
 function sayOnStderr(line) {
@@ -393,12 +433,13 @@ export function routeServiceWorkers(env, contextOptions) {
 }
 
 export function persistentContextOptions(options, extension) {
-  const loading = extension === undefined ? [] : [`--disable-extensions-except=${extension.directory}`, `--load-extension=${extension.directory}`]
   return {
     channel: 'chromium',
     headless: !options.headed,
-    args: [...loading, '--remote-debugging-port=0'],
+    args: [...extensionLoading(extension?.directory), '--remote-debugging-port=0'],
     ...throughProxy(options.proxy),
+    ...(options.viewport === undefined ? {} : { viewport: options.viewport }),
+    ...(options.colorScheme === undefined ? {} : { colorScheme: options.colorScheme }),
   }
 }
 
@@ -555,7 +596,7 @@ function consoleWorld(worlds, id) {
   return world?.origin.startsWith('chrome-extension://') ? 'content-script' : 'page'
 }
 
-export async function visit(context, url, { wait, shot, settleMs = 0 } = {}) {
+export async function visit(context, url, { wait, shot, settleMs = 0, press = [] } = {}) {
   const page = await context.newPage()
   const messages = []
   const errors = []
@@ -576,6 +617,8 @@ export async function visit(context, url, { wait, shot, settleMs = 0 } = {}) {
     response = await page.goto(url, { waitUntil: 'load' })
     if (wait !== undefined)
       await page.waitForSelector(wait, { timeout: WAIT_TIMEOUT_MS })
+    for (const key of press)
+      await page.keyboard.press(key)
   }
   catch (error) {
     throw new Unobserved(`${url} could not be observed: ${firstLine(error)}`)
@@ -647,12 +690,16 @@ const RUNS = {
   },
   'page': async function ({ context, extension, options }) {
     const [url] = options.positionals
-    const { worlds, messages, ...seen } = await visit(context, url, { wait: options.wait, shot: options.shot === undefined ? undefined : path.resolve(options.shot), settleMs: options.listenMs })
+    const { worlds, messages, ...seen } = await visit(context, url, { wait: options.wait, shot: options.shot === undefined ? undefined : path.resolve(options.shot), settleMs: options.listenMs, press: options.press })
     const heard = messages.filter(message => message.text.startsWith(options.prefix ?? ''))
     seen.console = heard
     seen.listenedMs = options.listenMs
     if (options.shot !== undefined)
       seen.shot = path.resolve(options.shot)
+    for (const asked of ['viewport', 'colorScheme', 'press']) {
+      if (options[asked] !== undefined)
+        seen[asked] = options[asked]
+    }
     if (extension === undefined)
       return { url, ...seen }
     const origin = `chrome-extension://${extension.id}`
