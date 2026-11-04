@@ -53,6 +53,7 @@ function mergeFacts(ownerMergesText: string, files: string[]): MergeFacts {
     headRef: 'feat/demo',
     title: 'demo',
     files,
+    patched: [],
     ownerMergesText,
     shardActive: true,
     shardUnder: null,
