@@ -99,9 +99,15 @@ const REVIEWS_OF_AN_OLD_INPUT = `
 `
 
 const LIVE_ANSWERS_WITH_THE_CARD_BODY = `
-  SELECT task_key, queue, card_id, pr, head, ${cardBodyShaOf('tasks.card_id')} AS card_body FROM tasks
-  WHERE queue = 'answer' AND state = '${QUEUED}'
+  SELECT task_key, queue, card_id, pr, head, state, ${cardBodyShaOf('tasks.card_id')} AS card_body FROM tasks
+  WHERE queue = 'answer' AND state IN ('${QUEUED}', '${LEASED}')
   ORDER BY task_key
+`
+
+const A_SUPERSEDED_ANSWER_WITHIN_ITS_LEASE = `
+  SELECT 1 FROM tasks
+  WHERE queue = 'answer' AND state = '${SUPERSEDED}' AND card_id = ? AND lease_until > ?
+  LIMIT 1
 `
 
 const LATEST_ADMISSION_DEPENDS = `
@@ -1141,11 +1147,26 @@ function reviewsOfAnOldInput(db: DatabaseSync): ReviewRow[] {
   return (db.prepare(REVIEWS_OF_AN_OLD_INPUT).all() as unknown as ReviewRow[]).filter(row => !underCurrentInput(row))
 }
 
+function keyedOnAnOldCardBody(key: string, row: Pick<Candidate, 'card_body'>): boolean {
+  const current = answerCardBodyOf(row)
+  return current !== undefined && cardBodyIn(key) !== current
+}
+
+function leaseOnAnOldCardBody(key: string, row: Pick<Candidate, 'card_body'>): boolean {
+  return cardBodyIn(key) !== undefined && keyedOnAnOldCardBody(key, row)
+}
+
 function answersOfAnOldCardBody(db: DatabaseSync): TaskRow[] {
-  return (db.prepare(LIVE_ANSWERS_WITH_THE_CARD_BODY).all() as unknown as (TaskRow & { card_body: unknown })[]).filter((row) => {
-    const current = answerCardBodyOf(row)
-    return current !== undefined && cardBodyIn(row.task_key) !== current
-  })
+  return (db.prepare(LIVE_ANSWERS_WITH_THE_CARD_BODY).all() as unknown as (TaskRow & Pick<Candidate, 'card_body'> & { state: string })[])
+    .filter(row => row.state === QUEUED ? keyedOnAnOldCardBody(row.task_key, row) : leaseOnAnOldCardBody(row.task_key, row))
+}
+
+export function answerOnAnOldCardBody(db: DatabaseSync, task: { taskKey: string, cardId: number }): boolean {
+  return leaseOnAnOldCardBody(task.taskKey, { card_body: cardBodyShaOfCard(db, task.cardId) })
+}
+
+export function supersededAnswerWithinItsLease(db: DatabaseSync, cardId: number, ts: string): boolean {
+  return db.prepare(A_SUPERSEDED_ANSWER_WITHIN_ITS_LEASE).get(cardId, ts) !== undefined
 }
 
 export function reviewKeysOfAnOldInput(db: DatabaseSync): string[] {
