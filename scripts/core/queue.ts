@@ -174,7 +174,7 @@ export const AN_UPDATED_PR_HOLDS_MS = LEASE_MS
 const UPDATED_AND_ON_ITS_WAY_TO_MERGE = `
   SELECT DISTINCT prs.pr, prs.card_id, prs.head, prs.verdict_on_head FROM prs
   JOIN events AS updated ON updated.type = '${UPDATE_DONE}' AND updated.legacy = 0 AND updated.pr = prs.pr
-    AND json_extract(updated.payload, '$.to') = prs.head
+    AND prs.head IN (json_extract(updated.payload, '$.from'), json_extract(updated.payload, '$.to'))
     AND json_extract(updated.payload, '$.carried') = 'pass' AND json_type(updated.payload, '$.task_key') = 'text'
     AND updated.ts > ?
   WHERE prs.state = 'open' AND prs.base = '${MAIN_BRANCH}' AND prs.draft = 0 AND prs.card_id IS NOT NULL AND prs.head IS NOT NULL
@@ -850,7 +850,7 @@ export function reviewCandidates(db: DatabaseSync, ts: string): QueuedTask[] {
   return openCandidates(db, ts, 'review', candidateRows(db, REVIEW_CANDIDATES, everyRow))
 }
 
-function prsHoldingTheUpdateTurn(db: DatabaseSync, ts: string): Set<number> {
+function prsHoldingTheUpdateTurn(db: DatabaseSync, ts: string): Set<number | null> {
   const since = new Date(Date.parse(ts) - AN_UPDATED_PR_HOLDS_MS).toISOString()
   const rows = db.prepare(UPDATED_AND_ON_ITS_WAY_TO_MERGE).all(since) as unknown as Candidate[]
   return new Set(rows.filter(aMergeCandidate(db, ts)).map(row => row.pr))

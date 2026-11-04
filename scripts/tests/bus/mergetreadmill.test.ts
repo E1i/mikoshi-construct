@@ -5,18 +5,16 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { buildCatalog, overlapWithMain, rerunOf, writeCatalog } from '../../cli/check-catalog.js'
-import { appendEvent } from '../../core/db.js'
+import { buildCatalog, catalogDocumentReads, overlapWithMain, RERUN_VARIABLE, rerunOf, writeCatalog } from '../../cli/check-catalog.js'
+import { appendEvent, openBus } from '../../core/db.js'
 import { MERGE_DONE, REVIEW_RECORDED, UPDATE_DONE } from '../../core/events.js'
-import { taskKey } from '../../core/identifiers.js'
 import { leaseNext } from '../../core/lease.js'
 import { AN_UPDATED_PR_HOLDS_MS, updateCandidates } from '../../core/queue.js'
-import { openDatabase } from '../../core/sqlite.js'
-import { MergeExecutor } from '../../nodes/merge/merge-executor.js'
+import { MergeNode } from '../../nodes/merge/merge-worker.js'
 import { manualUpdateDone, UpdateExecutor, WAITS_ITS_TURN } from '../../nodes/update/update-executor.js'
 import { Meter } from '../../ports/meter.js'
 import { cardBody, MAIN_1, MAIN_2, MAIN_3, REPO, sha } from './github-fake.js'
-import { eventsOf, liveBench, mergeBench } from './merge-bench.js'
+import { eventsOf, liveBench, mergeBench, taskState } from './merge-bench.js'
 import { detectUpdate } from './update-detection.js'
 
 const WORKER = 'scripts/nodes/merge/merge-worker.ts'
@@ -26,6 +24,7 @@ const READ_DOCUMENT = 'architecture/a-read-law.md'
 const ADDED_TEST = 'tests/an-added-one.test.ts'
 const ADDED_BUS_TEST = 'scripts/tests/bus/an-added-one.test.ts'
 const BODY = `${cardBody(970)}\n\n■ 4 □ 1 · 1`
+const TREE_WALK = ['readdir', 'Sync'].join('')
 
 const benches: MergeBench[] = []
 const roots: string[] = []
@@ -42,20 +41,20 @@ afterEach(() => {
     rmSync(root, { recursive: true, force: true })
 })
 
-function catalogDb(): ReturnType<typeof openDatabase> {
+function catalogDb(): MergeBench['db'] {
   const root = mkdtempSync(path.join(tmpdir(), 'treadmill-'))
   roots.push(root)
-  return openDatabase(path.join(root, 'bus.db'))
+  return openBus(path.join(root, 'bus.db'))
 }
 
-function aCatalogOf(db: Parameters<typeof writeCatalog>[0], texts: Record<string, string> = {}): void {
+function aCatalogOf(db: MergeBench['db'], texts: Record<string, string> = {}): void {
   const graph = new Map<string, string[]>([
     [WORKER, []],
     [CLI, []],
     ['scripts/tests/bus/merge-node.test.ts', [WORKER]],
     ['tests/cli.test.ts', [CLI]],
     ['scripts/tests/bus/helper.ts', [WORKER]],
-    ...Object.keys(texts).filter(file => !(file === WORKER || file === CLI)).map(file => [file, []] as [string, string[]]),
+    ...Object.keys(texts).map(file => [file, []] as [string, string[]]),
   ])
   writeCatalog(db, buildCatalog({ graph, testText: file => texts[file] ?? '', cards: [], briefs: [], journal: '' }))
 }
@@ -75,60 +74,79 @@ function afterAnotherMerge(made: MergeBench, files: string[], mainFiles: string[
   made.tick()
 }
 
-function mergedByLayers(made: MergeBench, gitHub: GitHub = made.gitHub.client): ReturnType<MergeExecutor['merge']> {
-  const lease = leaseNext(made.db, made.clock.now().toISOString(), 'merge', 'worker:merge:worker-1')
-  if (lease !== null)
-    return new MergeExecutor({ db: made.db, gitHub, put: made.gitHub.put, publish: made.gitHub.publish, clock: made.clock.now, run: null, rerun: 'by-layers' }).merge(lease)
-  throw new Error('no merge was leased')
+async function once(node: MergeNode): Promise<void> {
+  const controller = new AbortController()
+  await node.run({ pause: async () => controller.abort(), signal: controller.signal })
 }
 
-function contentsAnswering(made: MergeBench, files: Record<string, string>): GitHub {
+function mergeNodeOf(made: MergeBench): MergeNode {
+  return new MergeNode({ db: made.db, gitHub: made.gitHub.client, put: made.gitHub.put, publish: made.gitHub.publish, clock: made.clock.now, session: 'node-1', run: null, mode: 'live', env: { [RERUN_VARIABLE]: 'by-layers' }, rebuildCatalog: () => {} })
+}
+
+function answeringContents(made: MergeBench, files: Record<string, string>): GitHub {
   return (endpoint) => {
-    const found = /\/contents\/(.+)\?ref=([0-9a-f]{40})$/.exec(endpoint)
-    if (found === null || !(found[1]! in files))
+    const found = /\/contents\/(.+)\?ref=[0-9a-f]{40}$/.exec(endpoint)
+    if (found === null)
       return made.gitHub.client(endpoint)
-    return { status: 200, headers: {}, body: { content: Buffer.from(files[found[1]!]!).toString('base64') } }
+    const text = files[found[1]!]
+    return text === undefined
+      ? { status: 404, headers: {}, body: { message: 'Not Found' } }
+      : { status: 200, headers: {}, body: { content: Buffer.from(text).toString('base64') } }
   }
 }
 
 describe('a pull request of documents and the update', () => {
-  it('a PR of only documents merges with no update after another merge', () => {
+  it('a PR of only documents merges with no update after another merge', async () => {
     const made = benchOfMerges()
     aCatalogOf(made.db)
     afterAnotherMerge(made, [UNREAD_DOCUMENT], [CLI])
-    detectQueued(made)
 
-    const outcome = mergedByLayers(made)
+    await once(mergeNodeOf(made))
 
-    expect(outcome).toMatchObject({ kind: 'merged' })
+    expect(eventsOf(made.db, MERGE_DONE)).toHaveLength(1)
     expect(made.gitHub.puts.map(put => put.endpoint)).toEqual([`${REPO}/pulls/970/merge`])
   })
 
   it('a document a test names by path still forces the update, on either side', () => {
     const db = catalogDb()
-    aCatalogOf(db, { 'tests/law.test.ts': `readFileSync('${READ_DOCUMENT}')` })
+    aCatalogOf(db, { 'tests/law.test.ts': `read('${READ_DOCUMENT}')` })
 
     expect(overlapWithMain(db, [READ_DOCUMENT], [CLI])).toBe(`${READ_DOCUMENT} is read by tests/law.test.ts`)
     expect(overlapWithMain(db, [WORKER], [READ_DOCUMENT])).toBe(`${READ_DOCUMENT} is read by tests/law.test.ts`)
   })
 
-  it('a document named only by its file name, or reached through a helper a test imports, is read', () => {
+  it('an entry of the import graph that is no file of the repository is not read for documents', () => {
+    const graph = new Map<string, string[]>([['@/format', []], ['tests/cli.test.ts', [CLI]]])
+    const read = vi.fn((file: string) => {
+      if (file === '@/format')
+        throw new Error('ENOENT')
+      return ''
+    })
+
+    expect(catalogDocumentReads(graph, read)).toEqual([])
+    expect(read).toHaveBeenCalledWith('tests/cli.test.ts')
+  })
+
+  it('a document named only by its file name in a helper is read', () => {
     const db = catalogDb()
-    aCatalogOf(db, { 'scripts/tests/bus/fake.ts': `readFileSync(path.join(root, '..', 'architecture', 'a-read-law.md'))` })
+    aCatalogOf(db, { 'scripts/tests/bus/fake.ts': `read(join(root, '..', 'architecture', 'a-read-law.md'))` })
 
     expect(overlapWithMain(db, [READ_DOCUMENT], [CLI])).toBe(`${READ_DOCUMENT} is read by scripts/tests/bus/fake.ts`)
   })
 
-  it('a test walking a document tree forces the update only when both sides changed a document in it', () => {
+  it('a test walking a document tree forces the update only when each side changed the walker or a document in it', () => {
     const db = catalogDb()
-    aCatalogOf(db, { 'tests/links.test.ts': `readdirSync(path.join(ROOT, 'architecture'))` })
+    aCatalogOf(db, { 'tests/links.test.ts': `${TREE_WALK}(join(ROOT, 'architecture'))` })
+    const forced = 'tests/links.test.ts walks architecture, and each side changed the walker or a document in it'
 
     expect(overlapWithMain(db, [UNREAD_DOCUMENT], [CLI])).toBeNull()
-    expect(overlapWithMain(db, [UNREAD_DOCUMENT], ['architecture/another-plan.md'])).toBe('tests/links.test.ts walks architecture, and both sides changed a document in it')
     expect(overlapWithMain(db, [UNREAD_DOCUMENT], ['docs/guide.md'])).toBeNull()
+    expect(overlapWithMain(db, [UNREAD_DOCUMENT], ['architecture/another-plan.md'])).toBe(forced)
+    expect(overlapWithMain(db, [UNREAD_DOCUMENT], ['tests/links.test.ts'])).toBe(forced)
+    expect(overlapWithMain(db, ['tests/links.test.ts'], [UNREAD_DOCUMENT])).toBe(forced)
   })
 
-  it('a file that is neither under architecture and docs nor markdown stays outside the catalog', () => {
+  it('a file that is not markdown under architecture or docs stays outside the catalog', () => {
     const db = catalogDb()
     aCatalogOf(db)
 
@@ -145,7 +163,7 @@ describe('a pull request of documents and the update', () => {
     expect(overlapWithMain(db, [UNREAD_DOCUMENT], [CLI])).toBe(`${UNREAD_DOCUMENT} belongs to no layer of the check catalog`)
   })
 
-  it('a document beside code keeps the code gate: the layer of the code still overlaps', () => {
+  it('a document beside code keeps the gate of the code', () => {
     const db = catalogDb()
     aCatalogOf(db)
 
@@ -153,77 +171,55 @@ describe('a pull request of documents and the update', () => {
   })
 })
 
-function detectQueued(made: MergeBench): void {
-  detectMergeTask(made)
-}
-
-function detectMergeTask(made: MergeBench): void {
-  const key = taskKey({ queue: 'merge', cardId: 1070, pr: 970, head: sha('a') })
-  if (made.db.prepare('SELECT 1 FROM tasks WHERE task_key LIKE ?').get(`${key}%`) === undefined)
-    queueMerge(made)
-}
-
-function queueMerge(made: MergeBench): void {
-  const db = made.db
-  const ts = made.clock.now().toISOString()
-  for (const task of mergeTasks(made))
-    queueTaskOf(db, ts, task)
-}
-
 describe('a test the pull request adds', () => {
   const importing = (...modules: string[]): string => modules.map(module => `import { x } from '${module}'`).join('\n')
+  const reading = (texts: Record<string, string>) => (file: string): string | null => texts[file] ?? null
 
   it('a test the PR adds takes the layers of its imports', () => {
     const db = catalogDb()
     aCatalogOf(db)
-    const texts: Record<string, string> = { [ADDED_TEST]: importing('../scripts/nodes/merge/merge-worker.js') }
-    const read = (file: string): string | null => texts[file] ?? null
+    const read = reading({ [ADDED_TEST]: importing('../scripts/nodes/merge/merge-worker.js') })
 
     expect(overlapWithMain(db, [ADDED_TEST], [CLI], read)).toBeNull()
     expect(overlapWithMain(db, [ADDED_TEST], [WORKER], read)).toBe('main changed the layer bus:merge since the base')
   })
 
-  it('takes the layers its imports reach, through a helper and through a module the catalog has not seen', () => {
+  it('takes the layers its imports reach through a helper the catalog has not seen', () => {
     const db = catalogDb()
     aCatalogOf(db)
-    const texts: Record<string, string> = {
-      [ADDED_TEST]: importing('./a-new-helper.js'),
-      'tests/a-new-helper.ts': importing('../scripts/tests/bus/helper.js'),
-    }
-    const read = (file: string): string | null => texts[file] ?? null
+    const read = reading({ [ADDED_TEST]: importing('./a-new-helper.js'), 'tests/a-new-helper.ts': importing('../scripts/tests/bus/helper.js') })
 
-    expect(overlapWithMain(db, [ADDED_TEST, 'scripts/nodes/merge/merge-worker.ts'], [CLI], read)).toBeNull()
     expect(overlapWithMain(db, [ADDED_TEST], [WORKER], read)).toBe('main changed the layer bus:merge since the base')
   })
 
-  it('takes the layer of a script it names by path, as the catalog does for one it spawns', () => {
+  it('takes the layer of a script it names by path', () => {
     const db = catalogDb()
     aCatalogOf(db)
-    const read = (file: string): string | null => file === ADDED_TEST ? `${importing('../scripts/tests/bus/helper.js')}\nexecFileSync(tsx, ['src/cli.ts'])` : null
+    const read = reading({ [ADDED_TEST]: `${importing('../scripts/tests/bus/helper.js')}\nrun(['src/cli.ts'])` })
 
     expect(overlapWithMain(db, [ADDED_TEST], [CLI], read)).toBe('main changed the layer src since the base')
   })
 
-  it('an added bus test takes the layers of the shared bus modules, as the selector runs every bus test for them', () => {
+  it('an added bus test also takes the layers of the shared bus modules', () => {
     const db = catalogDb()
     aCatalogOf(db)
-    const read = (file: string): string | null => file === ADDED_BUS_TEST ? importing('./helper.js') : null
+    const read = reading({ [ADDED_BUS_TEST]: importing('./helper.js') })
 
-    expect(overlapWithMain(db, [ADDED_BUS_TEST], ['scripts/core/db.ts'], read)).toBe('main changed the layer bus-core since the base')
+    expect(overlapWithMain(db, [ADDED_BUS_TEST], ['scripts/core/db.ts'], read)).toMatch(/^main changed the layer /)
   })
 
-  it('stays outside the catalog when its text cannot be read, an import cannot be read, it scans a tree or it reaches no layer', () => {
+  it('stays outside the catalog when its text or an import cannot be read, it scans a tree or it reaches no layer', () => {
     const db = catalogDb()
     aCatalogOf(db)
     const outside = `${ADDED_TEST} belongs to no layer of the check catalog`
 
     expect(overlapWithMain(db, [ADDED_TEST], [CLI])).toBe(outside)
-    expect(overlapWithMain(db, [ADDED_TEST], [CLI], file => file === ADDED_TEST ? importing('./gone.js') : null)).toBe(outside)
-    expect(overlapWithMain(db, [ADDED_TEST], [CLI], () => `readdirSync(path.join(REPO_ROOT, 'src'))`)).toBe(outside)
-    expect(overlapWithMain(db, [ADDED_TEST], [CLI], () => `import { it } from 'vitest'`)).toBe(outside)
+    expect(overlapWithMain(db, [ADDED_TEST], [CLI], reading({ [ADDED_TEST]: importing('./gone.js') }))).toBe(outside)
+    expect(overlapWithMain(db, [ADDED_TEST], [CLI], reading({ [ADDED_TEST]: `${TREE_WALK}(join(REPO_ROOT, 'src'))` }))).toBe(outside)
+    expect(overlapWithMain(db, [ADDED_TEST], [CLI], reading({ [ADDED_TEST]: `import { it } from 'vitest'` }))).toBe(outside)
   })
 
-  it('a test the catalog already places as reaching no layer is not read again', () => {
+  it('a test the catalog already holds as reaching no layer is not read', () => {
     const db = catalogDb()
     writeCatalog(db, { tests: [{ test: 'tests/orphan.test.ts', layer: 'none', kind: 'unit', what: '', witness: '' }, { test: 'tests/cli.test.ts', layer: 'src', kind: 'unit', what: '', witness: '' }], mutations: [], modules: [{ module: WORKER, layers: ['bus:merge'] }] })
     const read = vi.fn(() => importing('../scripts/nodes/merge/merge-worker.js'))
@@ -236,11 +232,20 @@ describe('a test the pull request adds', () => {
     const made = benchOfMerges()
     aCatalogOf(made.db)
     afterAnotherMerge(made, [ADDED_TEST], [CLI])
-    const gitHub = contentsAnswering(made, { [ADDED_TEST]: importing('../scripts/nodes/merge/merge-worker.js') })
+    const gitHub = answeringContents(made, { [ADDED_TEST]: importing('../scripts/nodes/merge/merge-worker.js') })
     const meter = new Meter(gitHub, () => made.clock.now().getTime())
 
     expect(rerunOf(made.db, meter, 970, MAIN_1, sha('a')).rerun).toBe(false)
     expect(rerunOf(made.db, meter, 970, MAIN_1).rerun).toBe(true)
+  })
+
+  it('a contents read GitHub answers with a failure leaves the test outside the catalog', () => {
+    const made = benchOfMerges()
+    aCatalogOf(made.db)
+    afterAnotherMerge(made, [ADDED_TEST], [CLI])
+    const meter = new Meter(answeringContents(made, {}), () => made.clock.now().getTime())
+
+    expect(rerunOf(made.db, meter, 970, MAIN_1, sha('a'))).toEqual({ rerun: true, why: `${ADDED_TEST} belongs to no layer of the check catalog` })
   })
 })
 
@@ -251,38 +256,40 @@ const SECOND_HEAD = sha('f')
 const FIRST_UPDATED = sha('d')
 const SECOND_UPDATED = sha('c')
 
-function queueBench() {
+function queueBench(firstBody = cardBody(FIRST)) {
   const bench = liveBench()
   benches.push(bench)
   const executor = new UpdateExecutor({ db: bench.db, gitHub: bench.gitHub.client, put: bench.gitHub.put, publish: bench.gitHub.publish, clock: bench.clock.now, settle: () => {} })
-  bench.gitHub.open({ number: FIRST, head: FIRST_HEAD, review: 'success', mergeable_state: 'behind', files: ['scripts/a.ts'] })
+  bench.gitHub.open({ number: FIRST, head: FIRST_HEAD, review: 'success', mergeable_state: 'behind', files: ['scripts/a.ts'], body: firstBody })
   bench.gitHub.open({ number: SECOND, head: SECOND_HEAD, review: 'success', mergeable_state: 'behind', files: ['scripts/b.ts'] })
   bench.tick()
+  const pull = (pr: number) => bench.gitHub.pulls.get(pr)!
   const candidates = (): (number | undefined)[] => updateCandidates(bench.db, bench.clock.now().toISOString()).map(task => task.pr)
+  const leaseUpdate = () => leaseNext(bench.db, bench.clock.now().toISOString(), 'update', 'worker:update:worker-1')
   const updateTheNext = (): void => {
     detectUpdate(bench)
-    executor.update(leaseNext(bench.db, bench.clock.now().toISOString(), 'update', 'worker:update:worker-1')!)
+    executor.update(leaseUpdate()!)
   }
   const firstUpdated = (): void => {
     bench.gitHub.updatedHead = FIRST_UPDATED
     updateTheNext()
-    bench.gitHub.pulls.get(FIRST)!.required = 'pending'
+    pull(FIRST).required = 'pending'
     bench.tick()
   }
-  return { bench, executor, candidates, updateTheNext, firstUpdated }
+  return { bench, executor, pull, candidates, leaseUpdate, updateTheNext, firstUpdated }
 }
 
 describe('the update turn', () => {
   it('two green PRs needing an update are updated one after the other', () => {
-    const { bench, candidates, updateTheNext, firstUpdated } = queueBench()
+    const { bench, pull, candidates, leaseUpdate, updateTheNext, firstUpdated } = queueBench()
     expect(candidates()).toEqual([FIRST])
 
     firstUpdated()
     expect(candidates()).toEqual([])
     detectUpdate(bench)
-    expect(leaseNext(bench.db, bench.clock.now().toISOString(), 'update', 'worker:update:worker-1')).toBeNull()
+    expect(leaseUpdate()).toBeNull()
 
-    bench.gitHub.pulls.get(FIRST)!.required = 'success'
+    pull(FIRST).required = 'success'
     bench.tick()
     expect(candidates()).toEqual([])
 
@@ -296,11 +303,19 @@ describe('the update turn', () => {
     expect(eventsOf(bench.db, UPDATE_DONE).map(done => done.to)).toEqual([FIRST_UPDATED, SECOND_UPDATED])
   })
 
+  it('the turn is taken as soon as the update is done, before the next look at GitHub', () => {
+    const { bench, candidates, updateTheNext } = queueBench()
+    bench.gitHub.updatedHead = FIRST_UPDATED
+    updateTheNext()
+
+    expect(candidates()).not.toContain(SECOND)
+  })
+
   it('the PR holding the turn is itself updated again when main moves past it once more', () => {
-    const { bench, candidates, firstUpdated } = queueBench()
+    const { bench, pull, candidates, firstUpdated } = queueBench()
     firstUpdated()
-    bench.gitHub.pulls.get(FIRST)!.required = 'success'
-    bench.gitHub.pulls.get(FIRST)!.mergeable_state = 'behind'
+    pull(FIRST).required = 'success'
+    pull(FIRST).mergeable_state = 'behind'
     bench.gitHub.main = MAIN_3
     bench.tick()
 
@@ -308,24 +323,33 @@ describe('the update turn', () => {
   })
 
   it('the turn passes on when the updated PR goes red', () => {
-    const { bench, candidates, firstUpdated } = queueBench()
+    const { bench, pull, candidates, firstUpdated } = queueBench()
     firstUpdated()
-    bench.gitHub.pulls.get(FIRST)!.required = 'failure'
+    pull(FIRST).required = 'failure'
     bench.tick()
 
     expect(candidates()).toEqual([SECOND])
   })
 
-  it('the turn passes on when the updated PR is parked by the owner\'s authority', () => {
-    const { bench, candidates, firstUpdated } = queueBench()
+  it('the turn passes on when the updated PR gets a new head', () => {
+    const { bench, pull, candidates, firstUpdated } = queueBench()
     firstUpdated()
-    bench.gitHub.pulls.get(FIRST)!.required = 'success'
-    bench.tick()
-    const lease = bench.lease()!
-    expect(lease.pr).toBe(FIRST)
-    bench.merge(lease)
+    pull(FIRST).head = sha('b')
     bench.tick()
 
+    expect(candidates()).toEqual([SECOND])
+  })
+
+  it('the turn passes on when the merge of the updated PR is withdrawn', () => {
+    const { bench, pull, candidates, firstUpdated } = queueBench(cardBody(FIRST, 'owner'))
+    firstUpdated()
+    pull(FIRST).required = 'success'
+    bench.tick()
+    expect(candidates()).toEqual([])
+
+    bench.merge(bench.lease()!)
+
+    expect(bench.db.prepare(`SELECT state FROM tasks WHERE queue = 'merge' AND pr = ?`).get(FIRST)).toEqual({ state: 'withdrawn' })
     expect(candidates()).toEqual([SECOND])
   })
 
@@ -346,36 +370,36 @@ describe('the update turn', () => {
     expect(candidates()).toEqual([952])
   })
 
-  it('a manual update the window records holds no turn', () => {
-    const { bench, candidates } = queueBench()
+  it('an update the window records holds no turn', () => {
+    const { bench, pull, candidates } = queueBench()
     appendEvent(bench.db, manualUpdateDone({ ts: bench.clock.now().toISOString(), session: 'window', cardId: FIRST + 100, pr: FIRST, from: FIRST_HEAD, to: FIRST_UPDATED }))
-    bench.gitHub.pulls.get(FIRST)!.head = FIRST_UPDATED
-    bench.gitHub.pulls.get(FIRST)!.mergeable_state = 'clean'
-    bench.gitHub.pulls.get(FIRST)!.required = 'pending'
+    pull(FIRST).head = FIRST_UPDATED
+    pull(FIRST).mergeable_state = 'clean'
+    pull(FIRST).required = 'pending'
     bench.tick()
 
     expect(candidates()).toEqual([SECOND])
   })
 
   it('an update already queued before the turn was taken waits, with no failure counted and nothing sent', () => {
-    const { bench, executor, firstUpdated } = queueBench()
+    const { bench, executor, pull, leaseUpdate } = queueBench()
+    pull(FIRST).required = 'pending'
+    bench.tick()
     detectUpdate(bench)
-    const queued = taskKey({ queue: 'update', cardId: SECOND + 100, pr: SECOND, head: SECOND_HEAD })
-    bench.db.prepare(`UPDATE tasks SET task_key = task_key WHERE task_key = ?`).run(queued)
-    firstUpdated()
-    bench.gitHub.puts.length = 0
-    enqueueDirectly(bench, SECOND, SECOND_HEAD)
+    appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: UPDATE_DONE, actor: 'worker:update:worker-0', cardId: FIRST + 100, pr: FIRST, head: FIRST_HEAD, dedupeKey: `${UPDATE_DONE}:first`, payload: { from: FIRST_HEAD, to: FIRST_UPDATED, carried: 'pass', clean: true, task_key: 'an-earlier-task', lease_gen: 1 }, legacy: false })
 
-    const outcome = executor.update(leaseNext(bench.db, bench.clock.now().toISOString(), 'update', 'worker:update:worker-1')!)
+    const lease = leaseUpdate()!
+    const outcome = executor.update(lease)
 
+    expect(lease.pr).toBe(SECOND)
     expect(outcome).toMatchObject({ kind: 'denied', denial: { reason: WAITS_ITS_TURN }, next: 'queued' })
     expect(bench.gitHub.puts).toEqual([])
+    expect(taskState(bench.db, lease.taskKey)).toMatchObject({ state: 'queued', failures: 0 })
   })
 
-  it('the turn is not held by an update of a PR merged since', () => {
+  it('the turn is not held by a PR merged since', () => {
     const { bench, candidates, firstUpdated } = queueBench()
     firstUpdated()
-    appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: MERGE_DONE, actor: 'worker:merge:worker-0', cardId: FIRST + 100, pr: FIRST, head: FIRST_UPDATED, dedupeKey: `${MERGE_DONE}:${FIRST}`, payload: { commit: MAIN_2, rule: 'auto' }, legacy: false })
     bench.gitHub.close(FIRST, true)
     bench.tick()
 

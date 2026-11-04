@@ -45,10 +45,11 @@ const TEST_INFRASTRUCTURE = [
 ]
 const CARD_NOTE = /^\.changeset\/[^/]+\.md$/
 const DOCUMENT = /^(?:architecture|docs)\/.+\.md$/
+const DOCUMENT_READER = /^(?:scripts|src|tests)\/.+\.[cm]?[jt]s$/
 const DOCUMENT_NAME = /(?<![\w./-])(?:[\w.-]+\/)*[\w.-]+\.md\b/g
 const DOCUMENT_TREE = /['"`]((?:\.{1,2}\/)*(?:architecture|docs)(?:\/[\w-]+)*)\/?['"`]/g
 const LEADING_DOTS = /^(?:\.{1,2}\/)+/
-const IMPORT_SPECIFIER = /\bfrom\s*['"](\.{1,2}\/[^'"]+)['"]|\bimport\s*\(?\s*['"](\.{1,2}\/[^'"]+)['"]/g
+const IMPORT_SPECIFIER = /\bfrom\s*['"](\.{1,2}\/[^'"]+)['"]|\bimport\s*(?:\(\s*)?['"](\.{1,2}\/[^'"]+)['"]/g
 const NAMED_MODULE = /\b(?:scripts|src)\/[\w./-]+\.ts\b/g
 const COMPILED_MODULE = /\.js$/
 
@@ -303,7 +304,7 @@ function documentTreesWalkedIn(text: string): string[] {
 }
 
 export function catalogDocumentReads(graph: Graph, text: (file: string) => string): DocumentRead[] {
-  return [...graph.keys()].sort().flatMap(reader => [
+  return [...graph.keys()].filter(file => DOCUMENT_READER.test(file)).sort().flatMap(reader => [
     ...documentsNamedIn(text(reader)).map(document => ({ document, reader, walked: false })),
     ...documentTreesWalkedIn(text(reader)).map(document => ({ document, reader, walked: true })),
   ])
@@ -435,8 +436,12 @@ function documentRead(pr: readonly string[], main: readonly string[], reads: rea
       return `${document} is read by ${reader}`
   }
   const inTree = (tree: string) => (file: string): boolean => file.startsWith(`${tree}/`)
-  const walker = reads.find(read => read.walked && prDocuments.some(inTree(read.document)) && mainDocuments.some(inTree(read.document)))
-  return walker === undefined ? null : `${walker.reader} walks ${walker.document}, and both sides changed a document in it`
+  const walker = reads.find((read) => {
+    const inPr = prDocuments.some(inTree(read.document))
+    const inMain = mainDocuments.some(inTree(read.document))
+    return read.walked && ((inPr && (inMain || main.includes(read.reader))) || (inMain && pr.includes(read.reader)))
+  })
+  return walker === undefined ? null : `${walker.reader} walks ${walker.document}, and each side changed the walker or a document in it`
 }
 
 function modulesNamedIn(file: string, text: string): { imported: string[], named: string[] } {

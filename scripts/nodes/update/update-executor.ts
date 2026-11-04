@@ -15,7 +15,7 @@ import { messageOf } from '../../core/errors.js'
 import { CARD_STOPPED, COMMAND_EXECUTED, POLICY_ALLOWED, POLICY_DENIED, QUESTION_OWNER, UPDATE_DONE } from '../../core/events.js'
 import { assertHeld, completeTask, failTask, releaseTask, StaleLease } from '../../core/lease.js'
 import { KEPT_BY_PUSH_POLICY } from '../../core/push-policy.js'
-import { COMPLETED, MERGE_REFUSED } from '../../core/queue.js'
+import { COMPLETED, MERGE_REFUSED, updateTurnHeldFrom } from '../../core/queue.js'
 import { cardContract, NOT_MINE, notMine } from '../../intake/card-contract.js'
 import { cardDecisionCommand } from '../../policy/shards.js'
 import { REVIEW_STATUS_CONTEXT } from '../../ports/github-status.js'
@@ -31,13 +31,14 @@ const REPO = 'repos/{owner}/{repo}'
 const STATE_OF_VERDICT: Record<VerdictOnHead, ReviewStatus['state']> = { pass: 'success', changes: 'failure' }
 
 export const MERGES_WITHOUT_UPDATE = 'merges_without_update'
+export const WAITS_ITS_TURN = 'waits_its_turn'
 const UPDATE_COMMAND = 'update_branch'
 const MERGE_MAIN_COMMAND = 'merge_main'
 const MAIN_REF = `origin/${MAIN_BRANCH}`
 
 export type UpdateCommand = typeof UPDATE_COMMAND | typeof MERGE_MAIN_COMMAND | 'publish'
 
-export type UpdateTechnicalReason = TechnicalReason | 'not_mergeable' | 'not_behind' | 'wrong_base' | typeof MERGE_REFUSED | typeof NOT_MINE | typeof MERGES_WITHOUT_UPDATE | typeof KEPT_BY_PUSH_POLICY
+export type UpdateTechnicalReason = TechnicalReason | 'not_mergeable' | 'not_behind' | 'wrong_base' | typeof MERGE_REFUSED | typeof NOT_MINE | typeof MERGES_WITHOUT_UPDATE | typeof WAITS_ITS_TURN | typeof KEPT_BY_PUSH_POLICY
 
 export interface UpdateDenial {
   kind: 'technical'
@@ -125,7 +126,7 @@ interface Before {
 
 type Checked = { kind: 'ready', before: Before } | { kind: 'conflicting' } | { kind: 'denied', denial: UpdateDenial }
 
-const WAIT_REASONS: ReadonlySet<UpdateTechnicalReason> = new Set(['not_mergeable', MERGES_WITHOUT_UPDATE])
+const WAIT_REASONS: ReadonlySet<UpdateTechnicalReason> = new Set(['not_mergeable', MERGES_WITHOUT_UPDATE, WAITS_ITS_TURN])
 const WITHDRAWN_REASONS: ReadonlySet<UpdateTechnicalReason> = new Set([NOT_MINE, KEPT_BY_PUSH_POLICY, MERGE_REFUSED])
 
 function technical(reason: UpdateTechnicalReason, detail: string): UpdateDenial {
@@ -271,6 +272,8 @@ export class UpdateExecutor {
         return this.denied(lease, checked.denial)
       if (checked.kind === 'conflicting')
         return this.conflicting(lease, card)
+      if (updateTurnHeldFrom(this.parts.db, this.ts(), lease.pr!))
+        return this.denied(lease, technical(WAITS_ITS_TURN, `#${lease.pr} waits: an updated pull request is still on its way to merging`))
       this.allowed(lease)
       const refused = this.requested(lease)
       if (refused !== null)
