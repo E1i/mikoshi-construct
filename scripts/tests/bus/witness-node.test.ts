@@ -10,12 +10,13 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { parkingFileText } from '../../../src/card/parking.js'
 import { textSha } from '../../../src/card/text-sha.js'
+import { witnessFieldsLine } from '../../../src/card/witness-fields.js'
 import { appendEvent, openBus } from '../../core/db.js'
 import { CARD_ADMITTED, PR_OBSERVED, WITNESS_RECORDED } from '../../core/events.js'
 import { reduce } from '../../core/reducer.js'
 import { gitWitnessTrees, realTimedShell } from '../../nodes/witness/witness-executor.js'
 import { WitnessNode } from '../../nodes/witness/witness-worker.js'
-import { RED, witnessDenial, witnessRecordOf, witnessSubjectOf } from '../../policy/policy.js'
+import { GREEN, RED, witnessDenial, witnessRecordOf, witnessSubjectOf } from '../../policy/policy.js'
 import { gitInAsync, SetupTurns, withWorktreeAsync } from '../../ports/worktree.js'
 
 const CARD = 1301
@@ -57,7 +58,9 @@ interface World {
   head: string
 }
 
-function world(baseFiles: string[], headFile: string, alsoOnHead: string[] = []): World {
+const PROSE_BODY = 'Write done.txt.\n\nWitnesses:\n- `test -f done.txt` exits 0; red on main\n- `test -f README.md` exits 0'
+
+function world(baseFiles: string[], headFile: string, alsoOnHead: string[] = [], body: string = PROSE_BODY): World {
   const root = mkdtempSync(path.join(tmpdir(), 'witness-node-'))
   roots.push(root)
   const repo = path.join(root, 'repo')
@@ -70,7 +73,7 @@ function world(baseFiles: string[], headFile: string, alsoOnHead: string[] = [])
   const head = commit(repo, headFile, `head ${headFile}`)
   const db = openBus(path.join(root, 'bus.db'))
   dbs.push(db)
-  const text = parkingFileText({ card: `#${CARD} witnessed [implement/netwatch/S/cheap/auto] · depends — · blocks —`, branch: 'feat/witnessed', touches: ['done.txt'], continue: 'stop', who: 'shift', body: 'Write done.txt.\n\nWitnesses:\n- `test -f done.txt` exits 0; red on main\n- `test -f README.md` exits 0' })
+  const text = parkingFileText({ card: `#${CARD} witnessed [implement/netwatch/S/cheap/auto] · depends — · blocks —`, branch: 'feat/witnessed', touches: ['done.txt'], continue: 'stop', who: 'shift', body })
   appendEvent(db, { ts: '2026-10-21T10:00:00.000Z', type: CARD_ADMITTED, actor: 'worker:intake:by-hand', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${CARD}`, payload: { card: `#${CARD}`, lane: 'lane-1', text, textSha: textSha(text), bodySha: textSha(text).slice(0, 12) }, legacy: false })
   appendEvent(db, { ts: '2026-10-21T10:01:00.000Z', type: PR_OBSERVED, actor: 'netwatch', cardId: CARD, pr: PR, head, dedupeKey: `${PR_OBSERVED}:${PR}:${head}`, payload: { card_id: CARD, base: 'main', head, mergeable: 'clean', ci: 'green', auto_merge: false, draft: false, body_sha: 'a'.repeat(64) }, legacy: false })
   reduce(db)
@@ -189,6 +192,45 @@ describe('the witness node', () => {
     appendEvent(w.db, { ts: '2026-10-21T10:01:30.000Z', type: CARD_ADMITTED, actor: 'worker:intake:by-hand', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${CARD}:amended`, payload: { card: `#${CARD}`, lane: 'lane-1', text: amended, textSha: textSha(amended), bodySha: amendedSha }, legacy: false })
 
     expect(witnessSubjectOf(w.db, CARD)).toEqual({ cardId: CARD, cardBody: amendedSha, acceptance: [{ criterion: '`test -f amended.txt` exits 0; red on main', command: 'test -f amended.txt' }], invariants: [], creates: ['amended.txt'] })
+  })
+
+  describe('a card with witness fields', () => {
+    const field = (id: string, run: string, head: string, base: string): object => ({ id, run, test: null, head, base, proves: 'what it says' })
+    const fieldsBody = (...fields: object[]): string => `Write done.txt.\n\n${witnessFieldsLine(fields)}`
+
+    function recordOf(w: World): ReturnType<typeof witnessRecordOf> {
+      return witnessRecordOf(w.db, CARD, w.head, w.base, witnessSubjectOf(w.db, CARD)!.cardBody)
+    }
+
+    it('a card with fields and no prose is judged by the head and base of its fields', async () => {
+      const w = world([], 'done.txt', [], fieldsBody(
+        field('W1', 'test -f done.txt', 'pass', 'fail'),
+        field('W2', 'test -f README.md', 'pass', 'pass'),
+        field('W3', 'test -f absent.txt', 'fail', 'fail'),
+        field('W4', 'test -f done.txt || exit 3', 'pass', 'exit:3'),
+        field('W5', 'test ! -f done.txt || exit 3', 'exit:3', 'pass'),
+      ))
+      await witnessRun(w)
+
+      expect(recordOf(w)).toEqual(expect.objectContaining({ verdict: GREEN }))
+      expect(witnessDenial(w.db, CARD, w.head, w.base)).toBeNull()
+    })
+
+    it('a head that misses the exit a field states is red', async () => {
+      const w = world([], 'other.txt', [], fieldsBody(field('W1', 'test ! -f done.txt || exit 3', 'exit:3', 'pass')))
+      await witnessRun(w)
+
+      expect(recordOf(w)).toEqual(expect.objectContaining({ verdict: RED }))
+      expect(recordOf(w)!.detail).toMatch(/^P8: positive control "W1: /)
+    })
+
+    it('a field whose base is the head it states, on a base already at that head, is refused as green before any change', async () => {
+      const w = world(['done.txt'], 'other.txt', [], fieldsBody(field('W1', 'test -f done.txt', 'pass', 'fail')))
+      await witnessRun(w)
+
+      expect(recordOf(w)).toEqual(expect.objectContaining({ verdict: RED }))
+      expect(recordOf(w)!.detail).toMatch(/^P7: witness "W1: .* exits 0 on the clean base/)
+    })
   })
 
   it('a card with no admitted witnesses is not held by the gate', () => {

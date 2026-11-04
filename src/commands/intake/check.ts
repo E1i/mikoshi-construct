@@ -3,11 +3,12 @@ import type { DraftCard, DraftPlan, UnclearField } from './draft.js'
 import type { RepositoryFacts } from './facts.js'
 import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
-import { runsLine, runsOf } from '../../card/covering-tests.js'
+import { isTestScope, runsLine, runsOf } from '../../card/covering-tests.js'
 import { CONTOURS, decisionsOf, KINDS } from '../../card/grammar.js'
 import { createdPaths, parseCreatesEntry, parseParkingFile } from '../../card/parking.js'
 import { CHANGESET_COMPANION, RISK_LEVELS, riskOf, touchedOrCreated } from '../../card/risk.js'
 import { PREFIX_SUFFIX, touchError } from '../../card/task-file.js'
+import { exitJudgedCommand } from '../../card/witness-fields.js'
 import { globToRegExp } from '../../model/glob.js'
 import { bashSyntaxProblem } from './bash-syntax.js'
 import { commandArguments, commandWord, HOME_REFERENCE, namesATest, pathsNamedBy, TEST_NAME_ARGUMENT } from './command-word.js'
@@ -523,6 +524,10 @@ function headIndependentUnclear(commands: readonly string[], witness: string, re
   return commands.some(command => readsTheTree(command, reach)) ? [] : [{ field: 'witnesses', reason: `witness "${witness.trim()}" reads nothing the tree under test can change; its result does not depend on the head` }]
 }
 
+export function unjudgedCommand(command: string): string {
+  return exitJudgedCommand(command) ?? command
+}
+
 export function isChangeWitness(witness: string): boolean {
   return (witnessKindField(witness) ?? (CHANGE_WITNESS_WORDING.test(witness) ? CHANGE_WITNESS_KIND : undefined)) === CHANGE_WITNESS_KIND
 }
@@ -568,6 +573,10 @@ export function invalidTestPatterns(cards: readonly DraftCard[]): string[] {
   })))
 }
 
+function runsUnclear(card: DraftCard): UnclearField[] {
+  return (card.runs ?? []).filter(entry => !isTestScope(entry)).map(entry => ({ field: 'runs', reason: `'${entry}' is not a test or a tree of tests, so nothing runs it; name a test path or drop it` }))
+}
+
 function byFieldOrder(corrections: Correction[]): Correction[] {
   return [...corrections].sort((a, b) => FIELD_ORDER.indexOf(a.field) - FIELD_ORDER.indexOf(b.field))
 }
@@ -575,7 +584,7 @@ function byFieldOrder(corrections: Correction[]): Correction[] {
 function checkCard(card: DraftCard, assigned: number, facts: CheckFacts): CheckedCard {
   const checked = touchesChecked(card, facts.repository)
   const covering = coveringRuns(checked.touches, facts.repository)
-  const touched = withCompanions(checked, covering, facts.repository, facts.published ?? [])
+  const touched = withCompanions(checked, [...covering, ...(card.runs ?? [])], facts.repository, facts.published ?? [])
   const runs = covering.filter(test => !touched.touches.some(touch => covers(touch, test)))
   const depends = referencesChecked('depends', card.depends, facts)
   const blocks = referencesChecked('blocks', card.blocks, facts)
@@ -597,6 +606,7 @@ function checkCard(card: DraftCard, assigned: number, facts: CheckFacts): Checke
       ...depends.unclear,
       ...blocks.unclear,
       ...witnessesUnclear(card, facts.repository),
+      ...runsUnclear(card),
     ],
     corrections: byFieldOrder([
       ...numberCorrection(card, assigned, facts),

@@ -1,7 +1,7 @@
 import type { Shell, ShellResult } from './worktree.js'
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
-import { isChangeWitness } from '../../src/commands/intake/check.js'
+import { isChangeWitness, unjudgedCommand } from '../../src/commands/intake/check.js'
 import { pathsNamedBy } from '../../src/commands/intake/command-word.js'
 import { gitIn, lastLine, stageSketch, tailLines } from './worktree.js'
 
@@ -72,7 +72,7 @@ const TRAILING_SLASHES = /\/+$/
 interface GrepWitness { witness: Witness, probe: string }
 
 export function grepMatchProbe(command: string): string | null {
-  const piped = PIPED_GREP.exec(command.trim().replace(NEGATION, '').trim())
+  const piped = PIPED_GREP.exec(unjudgedCommand(command).trim().replace(NEGATION, '').trim())
   if (piped === null)
     return null
   const args = piped[2]
@@ -105,7 +105,7 @@ export function testTargetOf(command: string): TestTarget | null {
 }
 
 function isNegated(witness: Witness): boolean {
-  return NEGATION.test(witness.command.trim())
+  return NEGATION.test(witness.command.trim()) || unjudgedCommand(witness.command) !== witness.command
 }
 
 function absentOnBase(tree: string, witness: Witness): boolean {
