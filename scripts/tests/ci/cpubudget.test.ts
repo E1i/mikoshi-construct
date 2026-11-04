@@ -1,6 +1,6 @@
 import type { Run } from '../../ci/layers.js'
 import type { BudgetDeps } from '../../quality/lock.js'
-import { execFileSync, spawnSync } from 'node:child_process'
+import { execFileSync, spawn, spawnSync } from 'node:child_process'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import os, { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -8,7 +8,7 @@ import process from 'node:process'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanTreeGate, throughQueue } from '../../ci/prepush.js'
 import { printBoard } from '../../cli/board-page.js'
-import { heavyStep, HELD_VARIABLE, joinSession, LOCK_DIR_VARIABLE, LOG_FILE, queueDir, SESSION_QUIET_MS, workerBudget } from '../../quality/lock.js'
+import { heavyStep, HELD_VARIABLE, joinSession, LOCK_DIR_VARIABLE, LOG_FILE, queueDir, workerBudget } from '../../quality/lock.js'
 import { busWithCardStarted } from '../ghosts/card-started-bus.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')
@@ -34,7 +34,17 @@ afterEach(() => {
 })
 
 function session(dir: string, tree: string, over: Partial<BudgetDeps> = {}): BudgetDeps {
-  return { dir, tree, pid: 101, cores: CORES, now: () => NOW, isAlive: () => true, ...over }
+  return { dir, tree, pid: 101, cores: CORES, isAlive: () => true, ...over }
+}
+
+function logEvents(dir: string): string[] {
+  return readFileSync(path.join(dir, LOG_FILE), 'utf8').trim().split('\n').map(line => (JSON.parse(line) as { event: string }).event)
+}
+
+function lockCli(dir: string, script: string, env: NodeJS.ProcessEnv = {}): Promise<number | null> {
+  const { [HELD_VARIABLE]: _held, ...outsideARun } = process.env
+  const child = spawn(process.execPath, ['--import', 'tsx', path.join(REPO_ROOT, 'scripts/quality/lock.ts'), process.execPath, '-e', script], { cwd: REPO_ROOT, env: { ...outsideARun, [LOCK_DIR_VARIABLE]: dir, ...env }, stdio: 'ignore' })
+  return new Promise(resolve => child.on('exit', resolve))
 }
 
 function gitIn(tree: string, ...args: string[]): void {
@@ -67,7 +77,7 @@ describe('one worker budget for the machine', () => {
     const dir = scratch()
     vi.stubEnv(LOCK_DIR_VARIABLE, dir)
     const cores = os.availableParallelism()
-    joinSession(session(dir, '/tree/other', { cores }))
+    joinSession(session(dir, '/tree/other', { cores, pid: process.pid }))
     const { default: config } = await import('../../../vitest.config.js')
     expect(config.test?.maxWorkers).toBe(workerBudget(cores, 2))
   })
@@ -78,14 +88,17 @@ describe('one worker budget for the machine', () => {
     expect(joinSession(session(dir, '/tree/a', { pid: 102 }))).toBe(alone)
   })
 
-  it('a session whose process is gone and whose run has gone quiet stops counting', () => {
+  it('a session stops counting as soon as its process is gone', () => {
     const dir = scratch()
-    const alone = workerBudget(CORES, 1)
-    joinSession(session(dir, '/tree/gone', { isAlive: () => false }))
-    const recent = new Date(NOW.getTime() + SESSION_QUIET_MS - 1)
-    const quiet = new Date(NOW.getTime() + SESSION_QUIET_MS)
-    expect(joinSession(session(dir, '/tree/a', { now: () => recent, isAlive: pid => pid !== 101 }))).toBeLessThan(alone)
-    expect(joinSession(session(dir, '/tree/a', { pid: 102, now: () => quiet, isAlive: pid => pid === 102 }))).toBe(alone)
+    joinSession(session(dir, '/tree/gone', { pid: 101 }))
+    expect(joinSession(session(dir, '/tree/a', { pid: 102, isAlive: pid => pid === 102 }))).toBe(workerBudget(CORES, 1))
+  })
+
+  it('a run that ended in a tree does not hide another run still alive there', () => {
+    const dir = scratch()
+    joinSession(session(dir, '/tree/a', { pid: 101 }))
+    joinSession(session(dir, '/tree/a', { pid: 102 }))
+    expect(joinSession(session(dir, '/tree/b', { pid: 103, isAlive: pid => pid !== 102 }))).toBe(workerBudget(CORES, 2))
   })
 
   it('the floor is one worker, so a budget never stops a run', () => {
@@ -116,8 +129,20 @@ describe('heavy steps', () => {
     }
     expect(await Promise.all([heavyStep(step, dir), heavyStep(step, dir)])).toEqual([0, 0])
     expect(most).toBe(1)
-    const events = readFileSync(path.join(dir, LOG_FILE), 'utf8').trim().split('\n').map(line => (JSON.parse(line) as { event: string }).event)
-    expect(events.filter(event => event !== 'wait')).toEqual(['start', 'end', 'start', 'end'])
+    expect(logEvents(dir).filter(event => event !== 'wait')).toEqual(['start', 'end', 'start', 'end'])
+  })
+
+  it('two runs of the lock command line take turns and each returns its exit code', async () => {
+    const dir = scratch()
+    const codes = await Promise.all([lockCli(dir, 'setTimeout(() => process.exit(3), 500)'), lockCli(dir, 'setTimeout(() => process.exit(3), 500)')])
+    expect(codes).toEqual([3, 3])
+    expect(logEvents(dir).filter(event => event !== 'wait')).toEqual(['start', 'end', 'start', 'end'])
+  })
+
+  it('the lock command line inside a held run does not take the lock', async () => {
+    const dir = scratch()
+    expect(await lockCli(dir, 'process.exit(4)', { [HELD_VARIABLE]: '1' })).toBe(4)
+    expect(() => readFileSync(path.join(dir, LOG_FILE))).toThrow()
   })
 
   it('a step inside a held queue does not wait on the lock its parent holds', async () => {
@@ -135,9 +160,16 @@ describe('heavy steps', () => {
     expect(queue).toHaveBeenCalledTimes(1)
   })
 
-  it('the queue lives where every sandboxed session can write it', () => {
-    expect(queueDir({})).toBe(path.join('/tmp', `claude-${os.userInfo().uid}`, 'construct-quality'))
-    expect(queueDir({ [LOCK_DIR_VARIABLE]: '/moved' })).toBe('/moved')
+  it('the queue stays in the documented home directory while that can be written', () => {
+    const home = scratch()
+    expect(queueDir({}, home)).toBe(path.join(home, '.construct', 'quality'))
+    expect(queueDir({ [LOCK_DIR_VARIABLE]: '/moved' }, home)).toBe('/moved')
+  })
+
+  it('a sandboxed session that cannot write the home directory queues in the shared temp directory', () => {
+    const home = scratch()
+    writeFileSync(path.join(home, '.construct'), '')
+    expect(queueDir({}, home)).toBe(path.join('/tmp', `claude-${os.userInfo().uid}`, 'construct-quality'))
   })
 })
 
@@ -148,6 +180,12 @@ describe('a clean tree', () => {
     const run = spawnSync(process.execPath, ['--import', 'tsx', path.join(REPO_ROOT, 'scripts/ci/prepush.ts')], { cwd: REPO_ROOT, env: { ...env, GIT_DIR: path.join(tree, '.git'), GIT_WORK_TREE: tree }, encoding: 'utf8' })
     expect(run.stdout).toBe('prepush: clean — the tree holds no change and no unpushed commit; no check started.\n')
     expect(run.status).toBe(0)
+  })
+
+  it('a malformed answer from git starts them instead of reading as clean', () => {
+    for (const answer of ['', 'junk'])
+      expect(cleanTreeGate(args => args[0] === 'status' ? '' : answer)).toBeNull()
+    expect(cleanTreeGate(args => args[0] === 'status' ? '' : '0\n')).not.toBeNull()
   })
 
   it('an edited or an untracked file starts them', () => {

@@ -102,8 +102,8 @@ function git(args: readonly string[]): string {
 
 export function cleanTreeGate(read: Git): Gate | null {
   const dirty = read(['status', '--porcelain']).trim() !== ''
-  const unpushed = Number(read(['rev-list', '--count', 'HEAD', '--not', '--remotes=origin']).trim()) > 0
-  return dirty || unpushed ? null : { lines: ['prepush: clean — the tree holds no change and no unpushed commit; no check started.'], code: 0 }
+  const allPushed = read(['rev-list', '--count', 'HEAD', '--not', '--remotes=origin']).trim() === '0'
+  return dirty || !allPushed ? null : { lines: ['prepush: clean — the tree holds no change and no unpushed commit; no check started.'], code: 0 }
 }
 
 export function throughQueue(run: Run, step: () => Promise<number>, queue: (step: () => Promise<number>) => Promise<number> = heavyStep): Promise<number> {

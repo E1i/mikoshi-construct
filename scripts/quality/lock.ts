@@ -17,18 +17,16 @@ const PREFIX = '[quality-lock] '
 const SESSIONS_DIR = 'sessions'
 const SESSION_FILE_SUFFIX = '.json'
 const SESSION_NAME_LENGTH = 16
-export const SESSION_QUIET_MS = 10 * 60_000
 
 export interface Holder { pid: number, cwd: string, at: string }
 
-export interface SessionRecord { tree: string, pid: number, at: string }
+interface SessionRecord { tree: string, pid: number }
 
 export interface BudgetDeps {
   dir: string
   tree: string
   pid: number
   cores: number
-  now: () => Date
   isAlive: (pid: number) => boolean
 }
 
@@ -129,16 +127,28 @@ function isAlive(pid: number): boolean {
   }
 }
 
-export function queueDir(env: NodeJS.ProcessEnv = process.env): string {
-  return env[LOCK_DIR_VARIABLE] ?? path.join('/tmp', `claude-${os.userInfo().uid}`, 'construct-quality')
+function canWrite(dir: string): boolean {
+  try {
+    mkdirSync(dir, { recursive: true })
+    rmSync(mkdtempSync(path.join(dir, 'probe-')), { recursive: true, force: true })
+    return true
+  }
+  catch {
+    return false
+  }
+}
+
+export function queueDir(env: NodeJS.ProcessEnv = process.env, home: string = os.homedir()): string {
+  const documented = path.join(home, '.construct', 'quality')
+  return env[LOCK_DIR_VARIABLE] ?? (canWrite(documented) ? documented : path.join('/tmp', `claude-${os.userInfo().uid}`, 'construct-quality'))
 }
 
 export function workerBudget(cores: number, sessions: number): number {
   return Math.max(1, Math.floor((cores - 1) / Math.max(1, sessions)))
 }
 
-function sessionFile(sessions: string, tree: string): string {
-  return path.join(sessions, `${createHash('sha256').update(tree).digest('hex').slice(0, SESSION_NAME_LENGTH)}${SESSION_FILE_SUFFIX}`)
+function sessionFile(sessions: string, tree: string, pid: number): string {
+  return path.join(sessions, `${createHash('sha256').update(tree).digest('hex').slice(0, SESSION_NAME_LENGTH)}-${pid}${SESSION_FILE_SUFFIX}`)
 }
 
 function readSession(file: string): SessionRecord | null {
@@ -151,25 +161,27 @@ function readSession(file: string): SessionRecord | null {
 }
 
 function liveSessions(sessions: string, deps: BudgetDeps): number {
-  const files = readdirSync(sessions).filter(name => name.endsWith(SESSION_FILE_SUFFIX)).map(name => path.join(sessions, name))
-  return files.filter((file) => {
+  const trees = new Set<string>()
+  for (const name of readdirSync(sessions).filter(entry => entry.endsWith(SESSION_FILE_SUFFIX))) {
+    const file = path.join(sessions, name)
     const session = readSession(file)
     if (session === null)
-      return false
-    if (deps.isAlive(session.pid) || deps.now().getTime() - Date.parse(session.at) < SESSION_QUIET_MS)
-      return true
-    rmSync(file, { force: true })
-    return false
-  }).length
+      continue
+    if (deps.isAlive(session.pid))
+      trees.add(session.tree)
+    else
+      rmSync(file, { force: true })
+  }
+  return trees.size
 }
 
 export function joinSession(deps: BudgetDeps): number {
   try {
     const sessions = path.join(deps.dir, SESSIONS_DIR)
     mkdirSync(sessions, { recursive: true })
-    const file = sessionFile(sessions, deps.tree)
-    const staged = `${file}.${deps.pid}.tmp`
-    writeFileSync(staged, JSON.stringify({ tree: deps.tree, pid: deps.pid, at: deps.now().toISOString() } satisfies SessionRecord))
+    const file = sessionFile(sessions, deps.tree, deps.pid)
+    const staged = `${file}.tmp`
+    writeFileSync(staged, JSON.stringify({ tree: deps.tree, pid: deps.pid } satisfies SessionRecord))
     renameSync(staged, file)
     return workerBudget(deps.cores, liveSessions(sessions, deps))
   }
@@ -179,7 +191,7 @@ export function joinSession(deps: BudgetDeps): number {
 }
 
 export function sessionWorkers(tree: string): number {
-  return joinSession({ dir: queueDir(), tree, pid: process.pid, cores: os.availableParallelism(), now: () => new Date(), isAlive })
+  return joinSession({ dir: queueDir(), tree, pid: process.pid, cores: os.availableParallelism(), isAlive })
 }
 
 export function heavyStep(run: () => Promise<number>, dir: string = queueDir()): Promise<number> {
