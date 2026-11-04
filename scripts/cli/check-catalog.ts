@@ -2,20 +2,23 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { Graph } from '../ci/layers.js'
 import type { CardBody } from '../intake/parking-reads.js'
 import type { Meter } from '../ports/meter.js'
+import { Buffer } from 'node:buffer'
 import { execFileSync } from 'node:child_process'
 import { existsSync, readdirSync, readFileSync, symlinkSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { parseMutationFile } from '../../src/commands/mutate/lines.js'
-import { isTest, layerOf, selectRun } from '../ci/layers.js'
+import { BUS_SHARED, BUS_TESTS, isTest, layerOf, selectRun } from '../ci/layers.js'
 import { cruise } from '../ci/select.js'
+import { scansATree, walksATree } from '../ci/tree-scanners.js'
 import { BUS_DB_VARIABLE, BUSY_TIMEOUT_MS, defaultBusPath } from '../core/db.js'
 import { GHOST_LINE, POLICY_DENIED } from '../core/events.js'
 import { LAYER_MAP } from '../core/layer-map.js'
 import { legacyHistory } from '../core/legacy-history.js'
 import { openDatabase } from '../core/sqlite.js'
 import { cardBodies } from '../intake/parking-reads.js'
+import { RateLimited } from '../ports/meter.js'
 import { MAIN_BRANCH } from '../ports/snapshot.js'
 import { gitIn, withWorktree } from '../ports/worktree.js'
 
@@ -41,6 +44,14 @@ const TEST_INFRASTRUCTURE = [
   /^tests\/changesets-[\w-]+\.test\.ts$/,
 ]
 const CARD_NOTE = /^\.changeset\/[^/]+\.md$/
+const DOCUMENT = /^(?:architecture|docs)\/.+\.md$/
+const DOCUMENT_READER = /^(?:scripts|src|tests)\/.+\.[cm]?[jt]s$/
+const DOCUMENT_NAME = /(?<![\w./-])(?:[\w.-]+\/)*[\w.-]+\.md\b/g
+const DOCUMENT_TREE = /['"`]((?:\.{1,2}\/)*(?:architecture|docs)(?:\/[\w-]+)*)\/?['"`]/g
+const LEADING_DOTS = /^(?:\.{1,2}\/)+/
+const IMPORT_SPECIFIER = /\bfrom\s*['"](\.{1,2}\/[^'"]+)['"]|\bimport\s*(?:\(\s*)?['"](\.{1,2}\/[^'"]+)['"]/g
+const NAMED_MODULE = /\b(?:scripts|src)\/[\w./-]+\.ts\b/g
+const COMPILED_MODULE = /\.js$/
 
 export const RERUN_VARIABLE = 'BUS_RERUN'
 export const RERUN_MODES = ['as-now', 'by-layers'] as const
@@ -84,6 +95,16 @@ const SCHEMA = `
     replacement TEXT,
     PRIMARY KEY (card, id)
   );
+  CREATE TABLE IF NOT EXISTS check_modules (
+    module TEXT PRIMARY KEY,
+    layers TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS check_document_reads (
+    document TEXT NOT NULL,
+    reader TEXT NOT NULL,
+    walked INTEGER NOT NULL,
+    PRIMARY KEY (document, reader, walked)
+  );
 `
 const MUTATION_COLUMNS_ADDED_LATER = ['find', 'replacement']
 
@@ -91,7 +112,13 @@ export interface CheckTest { test: string, layer: string, kind: string, what: st
 
 export interface CheckMutation { card: number, id: string, operator: string, file: string, layer: string, killedBy: string | null, judged: string | null, find: string | null, replacement: string | null }
 
-export interface Catalog { tests: CheckTest[], mutations: CheckMutation[] }
+export interface CheckModule { module: string, layers: string[] }
+
+export interface DocumentRead { document: string, reader: string, walked: boolean }
+
+export interface Catalog { tests: CheckTest[], mutations: CheckMutation[], modules?: CheckModule[], documentReads?: DocumentRead[] }
+
+export type ReadFile = (file: string) => string | null
 
 export interface Brief { card: number, text: string }
 
@@ -246,8 +273,50 @@ export function catalogMutations(sources: Pick<CatalogSources, 'briefs' | 'journ
   }))
 }
 
+function layersReachedFrom(start: string, graph: Graph): string[] {
+  const seen = new Set([start])
+  const queue = [start]
+  for (let file = queue.shift(); file !== undefined; file = queue.shift()) {
+    for (const target of graph.get(file) ?? []) {
+      if (!seen.has(target)) {
+        seen.add(target)
+        queue.push(target)
+      }
+    }
+  }
+  return [...new Set([...seen].map(layerOf).filter(layer => layer !== null))].sort()
+}
+
+export function catalogModules(graph: Graph): CheckModule[] {
+  return [...graph.keys()].filter(file => !isTest(file)).sort().map(module => ({ module, layers: layersReachedFrom(module, graph) }))
+}
+
+function withoutLeadingDots(name: string): string {
+  return name.replace(LEADING_DOTS, '')
+}
+
+function documentsNamedIn(text: string): string[] {
+  return [...new Set([...text.matchAll(DOCUMENT_NAME)].map(match => withoutLeadingDots(match[0])))]
+}
+
+function documentTreesWalkedIn(text: string): string[] {
+  return walksATree(text) ? [...new Set([...text.matchAll(DOCUMENT_TREE)].map(match => withoutLeadingDots(match[1]!)))] : []
+}
+
+export function catalogDocumentReads(graph: Graph, text: (file: string) => string): DocumentRead[] {
+  return [...graph.keys()].filter(file => DOCUMENT_READER.test(file)).sort().flatMap(reader => [
+    ...documentsNamedIn(text(reader)).map(document => ({ document, reader, walked: false })),
+    ...documentTreesWalkedIn(text(reader)).map(document => ({ document, reader, walked: true })),
+  ])
+}
+
 export function buildCatalog(sources: CatalogSources): Catalog {
-  return { tests: catalogTests(sources), mutations: catalogMutations(sources) }
+  return {
+    tests: catalogTests(sources),
+    mutations: catalogMutations(sources),
+    modules: catalogModules(sources.graph),
+    documentReads: catalogDocumentReads(sources.graph, sources.testText),
+  }
 }
 
 export function missingMutationColumns(db: DatabaseSync): string[] {
@@ -265,13 +334,19 @@ export function writeCatalog(db: DatabaseSync, catalog: Catalog): void {
   addMissingMutationColumns(db)
   db.exec('BEGIN')
   try {
-    db.exec('DELETE FROM check_tests; DELETE FROM check_mutations;')
+    db.exec('DELETE FROM check_tests; DELETE FROM check_mutations; DELETE FROM check_modules; DELETE FROM check_document_reads;')
     const insertTest = db.prepare('INSERT INTO check_tests (test, layer, kind, what, witness) VALUES (?, ?, ?, ?, ?)')
     for (const row of catalog.tests)
       insertTest.run(row.test, row.layer, row.kind, row.what, row.witness)
     const insertMutation = db.prepare('INSERT OR REPLACE INTO check_mutations (card, id, operator, file, layer, killed_by, judged, find, replacement) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
     for (const row of catalog.mutations)
       insertMutation.run(row.card, row.id, row.operator, row.file, row.layer, row.killedBy, row.judged, row.find, row.replacement)
+    const insertModule = db.prepare('INSERT INTO check_modules (module, layers) VALUES (?, ?)')
+    for (const row of catalog.modules ?? [])
+      insertModule.run(row.module, row.layers.join(','))
+    const insertRead = db.prepare('INSERT OR IGNORE INTO check_document_reads (document, reader, walked) VALUES (?, ?, ?)')
+    for (const row of catalog.documentReads ?? [])
+      insertRead.run(row.document, row.reader, row.walked ? 1 : 0)
     db.exec('COMMIT')
   }
   catch (error) {
@@ -290,8 +365,26 @@ export function rerunModeOf(env: NodeJS.ProcessEnv): RerunMode {
   return mode
 }
 
+function hasTable(db: DatabaseSync, name: string): boolean {
+  return db.prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?`).get(name) !== undefined
+}
+
+function catalogModuleLayers(db: DatabaseSync): Map<string, string[]> {
+  if (!hasTable(db, 'check_modules'))
+    return new Map()
+  const rows = db.prepare('SELECT module, layers FROM check_modules').all() as unknown as { module: string, layers: string }[]
+  return new Map(rows.map(row => [row.module, row.layers.split(',').filter(layer => layer !== '')]))
+}
+
+function catalogReadsOfDocuments(db: DatabaseSync): DocumentRead[] | null {
+  if (!hasTable(db, 'check_document_reads'))
+    return null
+  const rows = db.prepare('SELECT document, reader, walked FROM check_document_reads ORDER BY document, reader').all() as unknown as { document: string, reader: string, walked: number }[]
+  return rows.map(row => ({ document: row.document, reader: row.reader, walked: row.walked === 1 }))
+}
+
 function catalogLayersByTest(db: DatabaseSync): Map<string, string[]> {
-  if (db.prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'check_tests'`).get() === undefined)
+  if (!hasTable(db, 'check_tests'))
     return new Map()
   const rows = db.prepare('SELECT test, layer FROM check_tests').all() as unknown as { test: string, layer: string }[]
   return new Map(rows.map(row => [row.test, row.layer.split(',').filter(layer => layer !== NO_LAYER)]))
@@ -330,7 +423,72 @@ function withoutCardNotes(files: readonly string[]): string[] {
   return files.filter(file => !CARD_NOTE.test(file))
 }
 
-export function overlapWithMain(db: DatabaseSync, prFiles: readonly string[], mainFiles: readonly string[]): string | null {
+function readerNaming(file: string, reads: readonly DocumentRead[]): string | undefined {
+  return reads.find(read => !read.walked && (file === read.document || file.endsWith(`/${read.document}`)))?.reader
+}
+
+function documentRead(pr: readonly string[], main: readonly string[], reads: readonly DocumentRead[]): string | null {
+  const prDocuments = pr.filter(file => DOCUMENT.test(file))
+  const mainDocuments = main.filter(file => DOCUMENT.test(file))
+  for (const document of [...prDocuments, ...mainDocuments]) {
+    const reader = readerNaming(document, reads)
+    if (reader !== undefined)
+      return `${document} is read by ${reader}`
+  }
+  const inTree = (tree: string) => (file: string): boolean => file.startsWith(`${tree}/`)
+  const walker = reads.find((read) => {
+    const inPr = prDocuments.some(inTree(read.document))
+    const inMain = mainDocuments.some(inTree(read.document))
+    return read.walked && ((inPr && (inMain || main.includes(read.reader))) || (inMain && pr.includes(read.reader)))
+  })
+  return walker === undefined ? null : `${walker.reader} walks ${walker.document}, and each side changed the walker or a document in it`
+}
+
+function modulesNamedIn(file: string, text: string): { imported: string[], named: string[] } {
+  const imported = [...text.matchAll(IMPORT_SPECIFIER)].map(match => path.posix.normalize(path.posix.join(path.posix.dirname(file), match[1] ?? match[2]!)).replace(COMPILED_MODULE, '.ts'))
+  return { imported, named: [...text.matchAll(NAMED_MODULE)].map(match => match[0]) }
+}
+
+function layersReachedByText(test: string, modules: ReadonlyMap<string, readonly string[]>, read: ReadFile): string[] | null {
+  const layers = new Set<string>()
+  const seen = new Set([test])
+  const queue = [test]
+  const place = (module: string): boolean => {
+    const known = modules.get(module)
+    for (const layer of known ?? [layerOf(module)]) {
+      if (layer !== null)
+        layers.add(layer)
+    }
+    return known !== undefined
+  }
+  for (let file = queue.shift(); file !== undefined; file = queue.shift()) {
+    const text = read(file)
+    if (text === null)
+      return null
+    const { imported, named } = modulesNamedIn(file, text)
+    for (const module of named)
+      place(module)
+    for (const module of imported.filter(each => !seen.has(each))) {
+      seen.add(module)
+      if (!place(module))
+        queue.push(module)
+    }
+  }
+  return [...layers]
+}
+
+function layersOfAnAddedTest(test: string, modules: ReadonlyMap<string, readonly string[]>, read: ReadFile): string[] | null {
+  const text = read(test)
+  if (modules.size === 0 || text === null || scansATree(text))
+    return null
+  const reached = layersReachedByText(test, modules, read)
+  if (reached === null || reached.length === 0)
+    return null
+  const busWide = test.startsWith(BUS_TESTS) ? BUS_SHARED.map(layerOf).filter(layer => layer !== null) : []
+  return [...new Set([...reached, ...busWide])]
+}
+
+export function overlapWithMain(db: DatabaseSync, prFiles: readonly string[], mainFiles: readonly string[], readAtHead: ReadFile = () => null): string | null {
   const pr = withoutCardNotes(prFiles)
   const main = withoutCardNotes(mainFiles)
   if (main.length === 0)
@@ -341,11 +499,19 @@ export function overlapWithMain(db: DatabaseSync, prFiles: readonly string[], ma
   const byTest = catalogLayersByTest(db)
   if (byTest.size === 0)
     return 'the check catalog is empty, so no layer can be told apart'
-  const unplaced = [...pr, ...main].find(file => layersOfFile(file, byTest) === null)
+  const reads = catalogReadsOfDocuments(db)
+  const read = reads === null ? null : documentRead(pr, main, reads)
+  if (read !== null)
+    return read
+  const unread = (file: string): boolean => reads === null || !DOCUMENT.test(file)
+  const modules = catalogModuleLayers(db)
+  const placedPr = pr.filter(unread).map(file => [file, layersOfFile(file, byTest) ?? (isTest(file) && !byTest.has(file) ? layersOfAnAddedTest(file, modules, readAtHead) : null)] as const)
+  const placedMain = main.filter(unread).map(file => [file, layersOfFile(file, byTest)] as const)
+  const unplaced = [...placedPr, ...placedMain].find(([, layers]) => layers === null)
   if (unplaced !== undefined)
-    return `${unplaced} belongs to no layer of the check catalog`
-  const prLayers = new Set(pr.flatMap(file => layersOfFile(file, byTest)!))
-  const mainLayers = new Set(main.flatMap(file => layersOfFile(file, byTest)!))
+    return `${unplaced[0]} belongs to no layer of the check catalog`
+  const prLayers = new Set(placedPr.flatMap(([, layers]) => layers!))
+  const mainLayers = new Set(placedMain.flatMap(([, layers]) => layers!))
   const shared = [...prLayers].sort().find(layer => mainLayers.has(layer))
   if (shared !== undefined)
     return `main changed the layer ${shared} since the base`
@@ -409,7 +575,21 @@ function mainFilesSince(meter: Meter, base: string): MainSince {
   return { kind: 'files', files: pathsOf(files) }
 }
 
-export function rerunOf(db: DatabaseSync, meter: Meter, pr: number, base: string | undefined): Rerun {
+function fileAt(meter: Meter, head: string): ReadFile {
+  return (file) => {
+    try {
+      const found = meter.get(`${REPO}/contents/${file}?ref=${head}`) as { content?: unknown }
+      return typeof found.content === 'string' ? Buffer.from(found.content, 'base64').toString('utf8') : null
+    }
+    catch (error) {
+      if (error instanceof RateLimited)
+        throw error
+      return null
+    }
+  }
+}
+
+export function rerunOf(db: DatabaseSync, meter: Meter, pr: number, base: string | undefined, head?: string): Rerun {
   if (upToDateRequired(meter))
     return { rerun: true, why: `${MAIN_BRANCH} requires an up-to-date branch on this host` }
   if (db.prepare(REFUSED_ON_THE_HEAD).get(pr) !== undefined)
@@ -419,7 +599,7 @@ export function rerunOf(db: DatabaseSync, meter: Meter, pr: number, base: string
   const main = mainFilesSince(meter, base)
   if (main.kind === 'truncated')
     return { rerun: true, why: main.why }
-  const overlap = overlapWithMain(db, pathsOf(listedFiles(meter, pr)), main.files)
+  const overlap = overlapWithMain(db, pathsOf(listedFiles(meter, pr)), main.files, head === undefined ? undefined : fileAt(meter, head))
   return overlap === null ? { rerun: false, why: `nothing ${MAIN_BRANCH} changed since ${base} reaches a layer of #${pr}` } : { rerun: true, why: overlap }
 }
 
