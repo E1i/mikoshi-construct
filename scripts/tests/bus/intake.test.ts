@@ -1,7 +1,8 @@
+import type { SpawnSyncReturns } from 'node:child_process'
 import type { CardEvent } from '../../../src/commands/intake/index.js'
-import { spawnSync } from 'node:child_process'
+import { execFileSync, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -12,7 +13,7 @@ import { runAdmit } from '../../../src/commands/intake/admit.js'
 import { bodySha } from '../../../src/commands/intake/confirm.js'
 import { runMove } from '../../../src/commands/intake/move.js'
 import { createMain } from '../../../src/program.js'
-import { busPathOf, ForeignBusRefused, machineBusPath, repoHome, repoIdOf } from '../../core/bus-path.js'
+import { busPathOf, ForeignBusRefused, machineBusPath, OWNER_AGENT_FILE, repoHome, repoIdOf } from '../../core/bus-path.js'
 import { appendCardEvent, laid, WINDOW_LANE } from '../../core/card-bodies.js'
 import { appendEvent, BUS_DB_VARIABLE, openBus } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_DROPPED, CARD_MOVED, CARD_WAITING, FACTORY_MODE, LANE_ASSIGNED } from '../../core/events.js'
@@ -501,6 +502,72 @@ describe('the bus the built intake opens', () => {
     expect(run.status).toBe(1)
     expect(run.stderr).toContain(`Refused: ${BUS_DB_VARIABLE} names ${foreign}, the bus of another repository`)
     expect(existsSync(foreign)).toBe(false)
+  })
+
+  function worktreeWorld(): World & { worktree: string, home: string, draft: string } {
+    const w = world()
+    const git = (...args: string[]): string => execFileSync('git', ['-C', w.repo, '-c', 'user.name=t', '-c', 'user.email=t@example.invalid', ...args], { encoding: 'utf8' })
+    git('init', '-q', '-b', 'main')
+    git('add', '-A')
+    git('commit', '-qm', 'first')
+    const worktree = path.join(w.root, 'worktree')
+    git('worktree', 'add', '-q', '-b', 'feat/tree', worktree)
+    const draft = path.join(w.root, 'draft.json')
+    writeFileSync(draft, JSON.stringify({ cards: [{ name: 'a-card', kind: 'implement', milestone: 'netwatch', size: 'S', contour: 'cheap', decision: 'auto', who: 'shift', touches: ['src/a.ts'], task: 'Do the thing.', witnesses: ['`true` exits 0'] }] }))
+    writeFileSync(path.join(w.root, 'taken.txt'), '')
+    return { ...w, worktree: realpathSync(worktree), home: path.join(w.root, 'home'), draft }
+  }
+
+  function intakeFrom(w: ReturnType<typeof worktreeWorld>, named = ''): SpawnSyncReturns<string> {
+    return spawnSync(process.execPath, ['--import', import.meta.resolve('tsx'), INTAKE, '--draft', w.draft, '--taken', path.join(w.root, 'taken.txt'), '--auto-confirm', '--plain'], { cwd: w.worktree, encoding: 'utf8', env: { ...process.env, HOME: w.home, [BUS_DB_VARIABLE]: named } })
+  }
+
+  function admittedIn(bus: string): number {
+    const db = openBus(bus)
+    try {
+      return (db.prepare(`SELECT count(*) AS n FROM events WHERE type = '${CARD_ADMITTED}'`).get() as { n: number }).n
+    }
+    finally {
+      db.close()
+    }
+  }
+
+  it('a dev intake from a worktree with no bus of its own is refused and assigns no number', () => {
+    const w = worktreeWorld()
+    const run = intakeFrom(w)
+    expect(run.status).toBe(1)
+    expect(run.stderr).toContain(`Refused: no bus at ${path.join(repoHome(w.home, repoIdOf(w.worktree)), 'bus.db')}`)
+    expect(run.stdout).toBe('')
+    expect(existsSync(w.home)).toBe(false)
+  })
+
+  it('a worktree whose repository has its own bus takes the number from it', () => {
+    const w = worktreeWorld()
+    const own = path.join(repoHome(w.home, repoIdOf(w.worktree)), 'bus.db')
+    mkdirSync(path.dirname(own), { recursive: true })
+    openBus(own).close()
+    const run = intakeFrom(w)
+    expect(run.status, run.stderr).toBe(0)
+    expect(admittedIn(own)).toBe(1)
+  })
+
+  it('a worktree of the owner checkout with no bus of its own resolves the machine bus', () => {
+    const w = worktreeWorld()
+    mkdirSync(path.dirname(path.join(w.worktree, OWNER_AGENT_FILE)), { recursive: true })
+    writeFileSync(path.join(w.worktree, OWNER_AGENT_FILE), '')
+    const machine = machineBusPath(w.home)
+    mkdirSync(path.dirname(machine), { recursive: true })
+    openBus(machine).close()
+    const run = intakeFrom(w)
+    expect(run.status, run.stderr).toBe(0)
+    expect(admittedIn(machine)).toBe(1)
+  })
+
+  it('a bus named in the variable is still created, as the published factory path does', () => {
+    const w = worktreeWorld()
+    const run = intakeFrom(w, w.bus)
+    expect(run.status, run.stderr).toBe(0)
+    expect(admittedIn(w.bus)).toBe(1)
   })
 
   it('takes a named bus outside the construct home, the machine bus and the repository\'s own bus', () => {
