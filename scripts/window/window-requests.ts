@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url'
 import { CLOSED_CARD, DROPPED_CARD, MERGED_CARD } from '../core/card-automaton.js'
 import { FACTORY_MODES, isFactoryMode } from '../core/card-bodies.js'
 import { appendEvent, closeOwnerWait, defaultBusPath, inTransaction, isOwnerWaitNeed, OPEN_WAIT, openBus, openOwnerWait, OWNER_WAIT_NEEDS, OWNER_WAITS } from '../core/db.js'
-import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_HELD, CARD_PLANNED, CARD_RELEASED, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, CARD_TAKEOVER, CARD_UNPLANNED, FACTORY_MODE, PLAN_BACKFILLED, PLAN_CLOSED, PLAN_OPENED, POLICY_DENIED, PR_OBSERVED, REQUEST_DONE, REQUEST_REFUSED, SHARD_DECIDED, TASK_REQUEUED, WINDOW_REQUEST, WITNESS_RECORDED } from '../core/events.js'
+import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_HELD, CARD_PLANNED, CARD_RELEASED, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, CARD_TAKEOVER, CARD_UNPLANNED, FACTORY_MODE, PLAN_BACKFILLED, PLAN_CLOSED, PLAN_OPENED, POLICY_DENIED, PR_OBSERVED, REQUEST_DONE, REQUEST_REFUSED, SHARD_DECIDED, TASK_FAILED, TASK_REQUEUED, WINDOW_REQUEST, WITNESS_RECORDED } from '../core/events.js'
 import { cardIdOf, generationOfKey, isFullSha, prOf } from '../core/identifiers.js'
 import { OPEN_OWNER_STOP_OF_CARD, OWNER } from '../core/inbox.js'
 import { legacyHistory } from '../core/legacy-history.js'
@@ -123,14 +123,16 @@ const LATEST_WITNESS_OF_CARD = `SELECT head, json_extract(payload, '$.verdict') 
 
 const OPEN_PR_ANSWER_NEEDED = `SELECT pr FROM prs WHERE card_id = ? AND state = 'open' AND (ci = 'red' OR verdict_on_head = 'changes') ORDER BY pr DESC LIMIT 1`
 
-const ANSWERS_WITHDRAWN_BY_A_HOLD = `
-  SELECT task_key, queue, card_id, pr, head, state FROM tasks
-  WHERE card_id = ? AND queue = 'answer' AND state = '${WITHDRAWN}'
-    AND EXISTS (
-      SELECT 1 FROM events AS denied WHERE denied.type = '${POLICY_DENIED}' AND denied.legacy = 0 AND denied.card_id = tasks.card_id AND denied.id <= tasks.event_id
-        AND json_extract(denied.payload, '$.reason') = 'held_for_owner'
-    )
-  ORDER BY task_key
+const ANSWERS_WITHDRAWN_BY_AN_OPEN_TAKEOVER = `
+  SELECT tasks.task_key, tasks.queue, tasks.card_id, tasks.pr, tasks.head, tasks.state FROM tasks
+  JOIN events AS withdrawal ON withdrawal.id = tasks.event_id
+  JOIN events AS opened ON opened.id = (
+    SELECT max(id) FROM events WHERE card_id = tasks.card_id AND legacy = 0 AND type IN ('${CARD_TAKEOVER}', '${CARD_RELEASED}')
+  )
+  WHERE tasks.card_id = ? AND tasks.queue = 'answer' AND tasks.state = '${WITHDRAWN}'
+    AND opened.type = '${CARD_TAKEOVER}' AND withdrawal.id > opened.id
+    AND withdrawal.type = '${TASK_FAILED}' AND json_extract(withdrawal.payload, '$.reason') = 'held_for_owner'
+  ORDER BY tasks.task_key
 `
 
 const LAST_MOVE_OF_CARD = `
@@ -399,11 +401,11 @@ export class WindowRequests {
       return { done: false, why: type === CARD_HELD ? 'hold needs a card and the reason the owner holds it' : 'release names no card' }
     const ts = this.clock().toISOString()
     const requeued = inTransaction(this.db, () => {
+      const withdrawn = type === CARD_RELEASED ? this.db.prepare(ANSWERS_WITHDRAWN_BY_AN_OPEN_TAKEOVER).all(cardId) as unknown as TaskRow[] : []
       appendEvent(this.db, { ts, type, actor: QUEUE_ACTOR, cardId, pr: null, head: null, dedupeKey: `${type}:request-${request}`, payload: { request, ...(reason === null ? {} : { reason }) }, legacy: false })
-      const denied = type === CARD_RELEASED ? this.db.prepare(ANSWERS_WITHDRAWN_BY_A_HOLD).all(cardId) as unknown as TaskRow[] : []
-      for (const task of denied)
+      for (const task of withdrawn)
         this.appendRequeue(ts, request, task)
-      return denied.map(task => task.task_key)
+      return withdrawn.map(task => task.task_key)
     })
     return { done: true, why: `${type} #${cardId}${reason === null ? '' : `: ${reason}`}${requeued.length === 0 ? '' : `; queued again: ${requeued.join(', ')}`}` }
   }

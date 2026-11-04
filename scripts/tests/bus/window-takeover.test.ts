@@ -10,7 +10,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { textSha } from '../../../src/card/text-sha.js'
 import { appendEvent } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_HELD, CARD_RELEASED, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, CARD_TAKEOVER, QUESTION_AGENT, QUESTION_OWNER, WITNESS_RECORDED } from '../../core/events.js'
-import { leaseNext } from '../../core/lease.js'
+import { failTask, leaseNext } from '../../core/lease.js'
 import { queueTask } from '../../core/queue.js'
 import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
 import { ownerHoldOf } from '../../nodes/answer/answer-source.js'
@@ -97,6 +97,18 @@ function leaseAnswer(made: MergeBench): Lease {
   return leaseNext(made.db, made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1')!
 }
 
+function answerStatesOf(made: MergeBench): string[] {
+  const rows = made.db.prepare(`SELECT state FROM tasks WHERE card_id = ? AND queue = 'answer'`).all(CARD) as { state: string }[]
+  return rows.map(row => row.state)
+}
+
+function agentStoppedCard(): Card {
+  const card = startedCard()
+  stopped(card.made, QUESTION_AGENT)
+  sessionEnded(card.made)
+  return card
+}
+
 function answerExecutor({ made, trees }: Card): AnswerExecutor {
   const cardTrees: CardTreeTools = { home: trees, exists: existsSync, branchOf: pr => `feat/card-${pr}`, recreate: () => {}, bringTo: () => {} }
   let head = sha('a')
@@ -171,6 +183,63 @@ describe('a window takeover of a card the bus has no route for', () => {
     expect(eventsOf(made.db, CARD_RELEASED)).toHaveLength(1)
     expect(ownerHoldOf(made.db, CARD)).toBeNull()
     await expect(answerExecutor(card).answer(leaseAnswer(made))).resolves.toMatchObject({ kind: 'answered' })
+  })
+
+  it('the release of an owner hold queues no withdrawn answer again', async () => {
+    const card = agentStoppedCard()
+    const { made } = card
+    made.tick()
+    request(made, ['hold', '--card', String(CARD), '--reason', 'the owner finishes it'])
+    await answerExecutor(card).answer(leaseAnswer(made))
+    expect(answerStatesOf(made)).toEqual(['withdrawn'])
+
+    expect(request(made, ['release', '--card', String(CARD)]).detail).not.toContain('queued again')
+
+    expect(answerStatesOf(made)).toEqual(['withdrawn'])
+  })
+
+  it('a takeover release leaves an answer withdrawn by an earlier hold withdrawn', async () => {
+    const card = agentStoppedCard()
+    const { made } = card
+    made.tick()
+    request(made, ['hold', '--card', String(CARD), '--reason', 'the owner finishes it'])
+    await answerExecutor(card).answer(leaseAnswer(made))
+    request(made, ['release', '--card', String(CARD)])
+    made.clock.advance(TAKEOVER_AFTER_MINUTES * MINUTE)
+    expect(takeover(made)).toMatchObject({ kind: 'done' })
+
+    expect(request(made, ['release', '--card', String(CARD)]).detail).not.toContain('queued again')
+
+    expect(answerStatesOf(made)).toEqual(['withdrawn'])
+  })
+
+  it('a takeover release leaves an answer withdrawn for another reason withdrawn', () => {
+    const { made } = agentStoppedCard()
+    made.clock.advance(TAKEOVER_AFTER_MINUTES * MINUTE)
+    expect(takeover(made)).toMatchObject({ kind: 'done' })
+    made.tick()
+    failTask(made.db, made.clock.now().toISOString(), leaseAnswer(made), { reason: 'nothing_to_answer', withdraw: true })
+
+    expect(request(made, ['release', '--card', String(CARD)]).detail).not.toContain('queued again')
+
+    expect(answerStatesOf(made)).toEqual(['withdrawn'])
+  })
+
+  it('a second release after a takeover queues nothing again', async () => {
+    const card = agentStoppedCard()
+    const { made } = card
+    made.clock.advance(TAKEOVER_AFTER_MINUTES * MINUTE)
+    expect(takeover(made)).toMatchObject({ kind: 'done' })
+    made.tick()
+    await answerExecutor(card).answer(leaseAnswer(made))
+    request(made, ['release', '--card', String(CARD)])
+    request(made, ['hold', '--card', String(CARD), '--reason', 'the owner finishes it'])
+    await answerExecutor(card).answer(leaseAnswer(made))
+    expect(answerStatesOf(made)).toEqual(['withdrawn'])
+
+    expect(request(made, ['release', '--card', String(CARD)]).detail).not.toContain('queued again')
+
+    expect(answerStatesOf(made)).toEqual(['withdrawn'])
   })
 
   it('a stop that needs a task waits the named minutes, measured from the last move of the card', () => {
