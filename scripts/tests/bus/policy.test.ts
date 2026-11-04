@@ -265,6 +265,16 @@ describe('the merge policy', () => {
     expect(mergePolicy(facts({ patched: [{ filename: 'templates/ai/settings.json', patch }] }))).toMatchObject({ kind: 'denied', rule: 'unsandboxed_command' })
   })
 
+  it('excludedCommands counts only in a hunk that also has an added line', () => {
+    const keyWithNoAddedLine = '@@ -3,2 +3,1 @@\n   "excludedCommands": [],\n-  "removed": 1'
+    const addedLineWithNoKey = '@@ -40 +39,2 @@\n x\n+const unrelated = 1'
+    const keyWithAddedLine = '@@ -3 +3,2 @@\n   "excludedCommands": [\n+    "pnpm install *",'
+    for (const patch of [`${keyWithNoAddedLine}\n${addedLineWithNoKey}`, `${addedLineWithNoKey}\n${keyWithNoAddedLine}`])
+      expect(mergePolicy(facts({ patched: [{ filename: ORDINARY, patch }] })), patch).toMatchObject({ kind: 'allowed', rule: 'auto' })
+    for (const patch of [`${addedLineWithNoKey}\n${keyWithAddedLine}`, `${keyWithAddedLine}\n${addedLineWithNoKey}`])
+      expect(mergePolicy(facts({ patched: [{ filename: ORDINARY, patch }] })), patch).toMatchObject({ kind: 'denied', rule: 'unsandboxed_command' })
+  })
+
   it('each named form of a command outside the sandbox added by a diff is the owner\'s', () => {
     for (const line of ['allowUnsandboxedCommands: true', '"allowUnsandboxedCommands": true', 'dangerouslyDisableSandbox: true', 'import { execFileSync } from \'node:child_process\'', 'execFileSync(\'pnpm\', [\'install\'])', 'const out = execSync(command)', 'spawnSync(\'sh\', [\'-c\', line])', 'return spawn(file, args)', 'exec(command)', 'execFile(file)', 'fork(entry)'])
       expect(mergePolicy(facts({ patched: [{ filename: ORDINARY, patch: `@@ -1 +1,2 @@\n x\n+${line}` }] })), line).toMatchObject({ kind: 'denied', rule: 'unsandboxed_command' })
