@@ -11,9 +11,9 @@ import process from 'node:process'
 import { promisify } from 'node:util'
 import { afterEach, describe, expect, it } from 'vitest'
 import { textSha } from '../../../src/card/text-sha.js'
-import { busDirOf } from '../../core/bus-path.js'
+import { BUS_DB_VARIABLE, busDirOf } from '../../core/bus-path.js'
 import { factoryMode } from '../../core/card-bodies.js'
-import { appendEvent } from '../../core/db.js'
+import { appendEvent, openBus } from '../../core/db.js'
 import { BOARD_ALARM, CARD_ADMITTED, CARD_STOPPED, OWNER_WAIT_OPENED, PR_CLOSED, REQUEST_DONE, REQUEST_REFUSED, SHARD_ISSUED, WINDOW_REQUEST } from '../../core/events.js'
 import { prBodySha, taskKey } from '../../core/identifiers.js'
 import { ownerInbox } from '../../core/inbox.js'
@@ -33,7 +33,7 @@ import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
 import { NetWatch } from '../../ports/netwatch.js'
 import { BusTick } from '../../supervisor/run.js'
 import { countLineAppender, decisionsAdder, realRequestTools, worktreesHolding } from '../../window/window-request-tools.js'
-import { ALLOW_MERGE_RECORD, ANSWER_SOURCE, REQUEST_KINDS, REQUEST_RULE, requestFromWindow, runRequest, WindowRequests } from '../../window/window-requests.js'
+import { ALLOW_MERGE_RECORD, ANSWER_SOURCE, pendingRequests, PREFIX, REQUEST_KINDS, REQUEST_RULE, requestFromWindow, runRequest, USAGE, WindowRequests } from '../../window/window-requests.js'
 import { cardBody, sha } from './github-fake.js'
 import { eventsOf, liveBench, mergeBench, spendReviewRounds, taskState } from './merge-bench.js'
 
@@ -568,6 +568,23 @@ describe('requests from the sandboxed window, executed by the bus outside it', (
     expect(runRequest(['allow-merge', '--pr', String(PR)], made.bench.db, made.bench.clock.now(), SESSION, line => lines.push(line))).toBe(2)
     expect(made.requests().run()).toEqual([])
   })
+
+  it('a --help on a kind prints the usage and writes no request', async () => {
+    const made = room()
+    const busPath = path.join(made.root, 'cli-bus.db')
+    const script = path.join(import.meta.dirname, '..', '..', 'window', 'window-requests.ts')
+    const command = (...argv: string[]): Promise<{ stdout: string }> => promisify(execFile)(process.execPath, ['--import', 'tsx', script, ...argv], { env: { ...process.env, [BUS_DB_VARIABLE]: busPath } })
+
+    const runs = await Promise.all([command('plan', '--help'), command('hold', '--card', '5', '-h'), command('--help'), command('-h')])
+    for (const run of runs)
+      expect(run.stdout).toContain(`${PREFIX}${USAGE}`)
+    expect(existsSync(busPath)).toBe(false)
+
+    await command('mode', '--set', 'window')
+    const bus = openBus(busPath)
+    expect(pendingRequests(bus).map(request => JSON.parse(request.payload) as unknown)).toEqual([{ kind: 'mode', mode: 'window' }])
+    bus.close()
+  }, 30_000)
 
   it('a mode request switches the factory mode once the bus answers it, and window is the mode before any', () => {
     const made = room()
