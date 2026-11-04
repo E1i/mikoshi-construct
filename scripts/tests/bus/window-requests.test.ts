@@ -1,4 +1,6 @@
+import type { PushPolicy } from '../../../src/commands/attach/record.js'
 import type { CardStarter, LaunchOutcome } from '../../nodes/launch/launch-executor.js'
+import type { GitHubPut } from '../../ports/github.js'
 import type { RequestTools } from '../../window/window-requests.js'
 import type { MergeBench } from './merge-bench.js'
 import { execFile } from 'node:child_process'
@@ -9,10 +11,11 @@ import process from 'node:process'
 import { promisify } from 'node:util'
 import { afterEach, describe, expect, it } from 'vitest'
 import { textSha } from '../../../src/card/text-sha.js'
+import { busDirOf } from '../../core/bus-path.js'
 import { factoryMode } from '../../core/card-bodies.js'
 import { appendEvent } from '../../core/db.js'
 import { BOARD_ALARM, CARD_ADMITTED, CARD_STOPPED, PR_CLOSED, REQUEST_DONE, REQUEST_REFUSED, WINDOW_REQUEST } from '../../core/events.js'
-import { taskKey } from '../../core/identifiers.js'
+import { prBodySha, taskKey } from '../../core/identifiers.js'
 import { ownerInbox } from '../../core/inbox.js'
 import { failTask, leaseNext } from '../../core/lease.js'
 import { FAILURES_TO_STOP, queueTask } from '../../core/queue.js'
@@ -29,9 +32,9 @@ import { decisionsInForceAt } from '../../policy/shards.js'
 import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
 import { NetWatch } from '../../ports/netwatch.js'
 import { BusTick } from '../../supervisor/run.js'
-import { decisionsAdder, worktreesHolding } from '../../window/window-request-tools.js'
+import { countLineAppender, decisionsAdder, realRequestTools, worktreesHolding } from '../../window/window-request-tools.js'
 import { ALLOW_MERGE_RECORD, ANSWER_SOURCE, REQUEST_KINDS, REQUEST_RULE, requestFromWindow, runRequest, WindowRequests } from '../../window/window-requests.js'
-import { sha } from './github-fake.js'
+import { cardBody, sha } from './github-fake.js'
 import { eventsOf, liveBench, mergeBench, spendReviewRounds, taskState } from './merge-bench.js'
 
 const PR = 970
@@ -101,6 +104,39 @@ function ask(made: Room, request: Record<string, unknown>): number {
 function answerOf(made: Room, request: number): { type: string, detail: string } {
   const row = made.bench.db.prepare('SELECT type, payload FROM events WHERE dedupe_key = ?').get(`${WINDOW_REQUEST}:${request}:answered`) as { type: string, payload: string }
   return { type: row.type, detail: String((JSON.parse(row.payload) as { detail: unknown }).detail) }
+}
+
+const COUNT_LINE = '■ 2 □ 0 · 1'
+const REPORT_WITH_THE_LINE = `contract: x\n\n| | M1 |\n| M1 | ■ |\n\n${COUNT_LINE}\n\nverification: run\n`
+const REPORT_WITHOUT_A_LINE = 'contract: x\nverification: review\n'
+
+function launchDirIn(made: Room): string {
+  return path.join(made.root, 'launch')
+}
+
+function reportOfCard(made: Room): string {
+  return path.join(launchDirIn(made), `report-${CARD}.md`)
+}
+
+function writeReport(made: Room, text: string): void {
+  mkdirSync(launchDirIn(made), { recursive: true })
+  writeFileSync(reportOfCard(made), text)
+}
+
+function bodyWritingPatch(made: Room): GitHubPut {
+  return (endpoint, fields) => {
+    made.bench.gitHub.pulls.get(PR)!.body = fields.body
+    return made.bench.gitHub.patch(endpoint, fields)
+  }
+}
+
+function countLineTools(made: Room, patch: GitHubPut = bodyWritingPatch(made), policy: PushPolicy = 'bus'): Partial<RequestTools> {
+  return { appendCountLine: countLineAppender(made.bench.gitHub.client, patch, launchDirIn(made), () => policy) }
+}
+
+function openPrWithoutCountLine(made: Room, body = cardBody(PR)): void {
+  made.bench.gitHub.open({ number: PR, head: HEAD, review: 'success', files: ['src/cli.ts'], body })
+  made.bench.tick()
 }
 
 function admitBody(made: Room, cardId: number, cardLine: string, branch: string): void {
@@ -363,6 +399,86 @@ describe('requests from the sandboxed window, executed by the bus outside it', (
     expect(JSON.parse(inbox[0]!.payload)).toMatchObject({ kind: 'authority', rule: REQUEST_RULE })
     expect(made.cut).toEqual([])
     expect(made.requests().run()).toEqual([])
+  })
+
+  it('a pr.body request appends the count line of the card report to the pull request body and the merge is queued again under the new body', () => {
+    const made = room(liveBench())
+    const { bench } = made
+    openPrWithoutCountLine(made)
+    expect(bench.merge(bench.lease()!)).toMatchObject({ kind: 'denied', denial: { rule: 'no_matrix_count_line' }, next: 'withdrawn' })
+    bench.tick()
+    expect(bench.lease()).toBeNull()
+    writeReport(made, REPORT_WITH_THE_LINE)
+
+    const request = ask(made, { kind: 'pr.body', pr: PR })
+    expect(made.requests(countLineTools(made)).run()).toEqual([{ kind: 'done', request, detail: `appended ${COUNT_LINE} from ${reportOfCard(made)} to PR #${PR}` }])
+    const body = `${cardBody(PR)}\n\n${COUNT_LINE}`
+    expect(bench.gitHub.pulls.get(PR)!.body).toBe(body)
+    expect(bench.gitHub.closes).toEqual([{ pr: PR, fields: { body } }])
+
+    bench.tick()
+    const key = `merge:${CARD}:${PR}:${HEAD}:pr-body-${prBodySha(body)}`
+    expect(bench.merge(bench.lease()!)).toMatchObject({ kind: 'merged', taskKey: key })
+  })
+
+  it('a pr.body request is refused by name and writes nothing where no count line can be appended', () => {
+    const cases: { name: string, report?: string, body?: string, policy?: 'none', refusal: (made: Room) => string }[] = [
+      { name: 'a report with no count line, as report-1488.md', report: REPORT_WITHOUT_A_LINE, refusal: made => `${reportOfCard(made)} holds no count line ■ n □ n · n, so nothing is appended to PR #${PR}` },
+      { name: 'no report', refusal: made => `card #${CARD} has no report at ${reportOfCard(made)}, so no count line to append to PR #${PR}` },
+      { name: 'a body that holds a line', report: REPORT_WITH_THE_LINE, body: `${cardBody(PR)}\n\n■ 9 □ 9 · 9`, refusal: () => `PR #${PR} already holds the count line ■ 9 □ 9 · 9` },
+      { name: 'push policy none', report: REPORT_WITH_THE_LINE, policy: 'none', refusal: () => `push policy none: the bus does not change the body of PR #${PR}` },
+    ]
+    for (const each of cases) {
+      const made = room()
+      openPrWithoutCountLine(made, each.body)
+      if (each.report !== undefined)
+        writeReport(made, each.report)
+      const request = ask(made, { kind: 'pr.body', pr: PR })
+      expect(made.requests(countLineTools(made, bodyWritingPatch(made), each.policy)).run(), each.name).toEqual([{ kind: 'refused', request, detail: each.refusal(made) }])
+      expect(made.bench.gitHub.closes, each.name).toEqual([])
+    }
+  })
+
+  it('a pr.body request that GitHub does not take is refused with its status', () => {
+    const made = room()
+    openPrWithoutCountLine(made)
+    writeReport(made, REPORT_WITH_THE_LINE)
+    const unwritten: GitHubPut = () => ({ status: 403, headers: {}, body: null })
+    const request = ask(made, { kind: 'pr.body', pr: PR })
+    expect(made.requests(countLineTools(made, unwritten)).run()).toEqual([{ kind: 'refused', request, detail: `GitHub answered 403 to the write of the body of PR #${PR}` }])
+    const limited = ask(made, { kind: 'pr.body', pr: PR })
+    made.bench.gitHub.limited = { status: 429, headers: {}, body: null }
+    expect(made.requests(countLineTools(made)).run()).toEqual([{ kind: 'refused', request: limited, detail: `GitHub answered 429 to the read of PR #${PR}` }])
+  })
+
+  it('a pr.body request needs an open pull request of a card and a bus with the tool', () => {
+    const made = room()
+    const unnamed = ask(made, { kind: 'pr.body' })
+    const unknown = ask(made, { kind: 'pr.body', pr: PR })
+    expect(made.requests(countLineTools(made)).run()).toEqual([
+      { kind: 'refused', request: unnamed, detail: 'pr.body names no pr' },
+      { kind: 'refused', request: unknown, detail: `PR #${PR} is not open` },
+    ])
+    openPrWithoutCountLine(made)
+    const toolless = ask(made, { kind: 'pr.body', pr: PR })
+    expect(made.requests().run()).toEqual([{ kind: 'refused', request: toolless, detail: 'this bus was built with no tool to change a pull request body' }])
+    made.bench.gitHub.open({ number: PR + 1, head: sha('b'), review: 'success', body: 'chore: version packages' })
+    made.bench.tick()
+    const cardless = ask(made, { kind: 'pr.body', pr: PR + 1 })
+    expect(made.requests(countLineTools(made)).run()).toEqual([{ kind: 'refused', request: cardless, detail: `PR #${PR + 1} names no card, so no report holds its count line` }])
+  })
+
+  it('the real tools read the count line from the report in the launch directory of the bus', () => {
+    const made = room()
+    const report = path.join(busDirOf(made.bench.busPath), 'launch', `report-${CARD}.md`)
+    expect(realRequestTools(made.bench.db, made.bench.busPath, process.cwd(), {}).appendCountLine!(PR, CARD)).toEqual({ done: false, why: `card #${CARD} has no report at ${report}, so no count line to append to PR #${PR}` })
+  })
+
+  it('pnpm bus:request pr.body takes a --pr', () => {
+    const made = room()
+    expect(runRequest(['pr.body'], made.bench.db, made.bench.clock.now(), SESSION, () => {})).toBe(2)
+    expect(runRequest(['pr.body', '--pr', String(PR)], made.bench.db, made.bench.clock.now(), SESSION, () => {})).toBe(0)
+    expect(made.requests().run()).toMatchObject([{ kind: 'refused', detail: `PR #${PR} is not open` }])
   })
 
   it('an owner.wait request opens a wait, and closing it twice is refused the second time', () => {

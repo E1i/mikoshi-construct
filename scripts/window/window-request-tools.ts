@@ -1,10 +1,16 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { PushPolicy } from '../../src/commands/attach/record.js'
+import type { GitHub, GitHubPut } from '../ports/github.js'
 import type { CardTask, RequestTools } from './window-requests.js'
 import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
+import os from 'node:os'
 import { busDirOf, decisionsFileOf } from '../core/bus-path.js'
+import { reportPath } from '../core/places.js'
 import { pushPolicyAt } from '../core/push-policy.js'
 import { cardSessionOf } from '../nodes/answer/answer-source.js'
+import { launchDirOf } from '../nodes/launch/launch-worker.js'
+import { matrixCountLineOf } from '../nodes/launch/tree-pr.js'
 import { dryRunIn, dryRunReviewsDir } from '../nodes/review/dry-run-record.js'
 import { PrCloser } from '../nodes/review/pr-close.js'
 import { recordDecision } from '../policy/decisions.js'
@@ -44,7 +50,10 @@ function causeHoldsIn(db: DatabaseSync, repo: string): (task: CardTask) => strin
 }
 
 export function realRequestTools(db: DatabaseSync, busPath: string, repo: string, env: NodeJS.ProcessEnv): RequestTools {
-  const closer = new PrCloser(db, ghApi(repo), ghApiPatch(repo), () => new Date(), () => pushPolicyAt(repo))
+  const gitHub = ghApi(repo)
+  const patch = ghApiPatch(repo)
+  const pushPolicy = (): PushPolicy => pushPolicyAt(repo)
+  const closer = new PrCloser(db, gitHub, patch, () => new Date(), pushPolicy)
   return {
     treeOf: cardId => cardTree(env, busPath, String(cardId)),
     exists: existsSync,
@@ -56,6 +65,32 @@ export function realRequestTools(db: DatabaseSync, busPath: string, repo: string
     causeHolds: causeHoldsIn(db, repo),
     closePr: request => closer.close(request),
     closeDropped: () => closer.closeDropped(),
+    appendCountLine: countLineAppender(gitHub, patch, launchDirOf(os.homedir(), busPath), pushPolicy),
+  }
+}
+
+export function countLineAppender(gitHub: GitHub, patch: GitHubPut, launchDir: string, pushPolicy: () => PushPolicy): NonNullable<RequestTools['appendCountLine']> {
+  return (pr, cardId) => {
+    if (pushPolicy() === 'none')
+      return { done: false, why: `push policy none: the bus does not change the body of PR #${pr}` }
+    const report = reportPath(launchDir, String(cardId))
+    if (!existsSync(report))
+      return { done: false, why: `card #${cardId} has no report at ${report}, so no count line to append to PR #${pr}` }
+    const countLine = matrixCountLineOf(readFileSync(report, 'utf8'))
+    if (countLine === undefined)
+      return { done: false, why: `${report} holds no count line ■ n □ n · n, so nothing is appended to PR #${pr}` }
+    const endpoint = `repos/{owner}/{repo}/pulls/${pr}`
+    const read = gitHub(endpoint)
+    if (read.status !== 200)
+      return { done: false, why: `GitHub answered ${read.status} to the read of PR #${pr}` }
+    const body = String((read.body as { body?: unknown } | null)?.body ?? '')
+    const held = matrixCountLineOf(body)
+    if (held !== undefined)
+      return { done: false, why: `PR #${pr} already holds the count line ${held}` }
+    const written = patch(endpoint, { body: `${body}\n\n${countLine}` })
+    return written.status === 200
+      ? { done: true, why: `appended ${countLine} from ${report} to PR #${pr}` }
+      : { done: false, why: `GitHub answered ${written.status} to the write of the body of PR #${pr}` }
   }
 }
 
