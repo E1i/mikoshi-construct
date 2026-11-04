@@ -40,6 +40,10 @@ export const TAKEOVER_AFTER_MINUTES = 30
 export const PLAN_OPS: ReadonlyMap<string, string> = new Map([['open', PLAN_OPENED], ['add', CARD_PLANNED], ['remove', CARD_UNPLANNED], ['backfill', PLAN_BACKFILLED], ['close', PLAN_CLOSED]])
 const PLAN_FLAGS = ['op', 'plan', 'title', 'goal', 'file', 'gate', 'card'] as const
 const LINKED_CARDS = 'SELECT cards FROM plan_items WHERE plan_id = ? ORDER BY item_id'
+const RELEASE_OPEN_IN_THE_LOG = `
+  SELECT 1 FROM events AS opened
+  WHERE opened.id = (SELECT min(id) FROM events WHERE type = '${PLAN_OPENED}' AND actor = '${OWNER}' AND json_extract(payload, '$.id') = ?1)
+    AND NOT EXISTS (SELECT 1 FROM events AS closed WHERE closed.type = '${PLAN_CLOSED}' AND closed.actor = '${OWNER}' AND closed.id > opened.id AND json_extract(closed.payload, '$.plan') = ?1)`
 export { ANSWER_SOURCE }
 const DECISION_FLAGS: ReadonlyMap<string, string> = new Map([['--card', 'cards'], ['--supersedes', 'supersedes'], ['--until', 'until'], ['--from', 'from']])
 export const WINDOW_ACTOR = 'worker:window:'
@@ -640,7 +644,11 @@ export class WindowRequests {
     const card = cardIdOf(payload.card)
     if (card === null)
       return `${type} needs a --card`
-    return type === CARD_PLANNED ? { release: plan, card } : { card }
+    if (type === CARD_UNPLANNED)
+      return { card }
+    if (this.db.prepare(RELEASE_OPEN_IN_THE_LOG).get(plan) === undefined)
+      return `${type}: release ${plan} is not open`
+    return { release: plan, card }
   }
 
   private appendRequeue(ts: string, request: number, task: TaskRow): void {
