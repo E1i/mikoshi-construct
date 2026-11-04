@@ -10,7 +10,7 @@ import { defineCommand, showUsage } from 'citty'
 import { busExpected, busPathOf } from '../scripts/core/bus-path.js'
 import { ownerChannelOfBus, sayToOwnerChannel } from '../scripts/owner/channel.js'
 import { printAtlas, runAtlas } from './atlas/index.js'
-import { attachExitOf, printEntryProtocol, readAttachRecord, runAttach } from './commands/attach/index.js'
+import { attachExitOf, printEntryProtocol, readAttachRecord, runAttach, runAttachUpgrade } from './commands/attach/index.js'
 import { busReaderAt } from './commands/board/bus.js'
 import { BOARD_EXIT, boardJson, printBoard, PRS_FROM_STDIN, rawSectionsAsked, readBoard, STALE_HOURS } from './commands/board/index.js'
 import { COST_EXIT, costExpect, costJson, costReport, expectLines, expectRefusal, printCost } from './commands/cost/index.js'
@@ -113,6 +113,7 @@ const attach = withKnownFlags(defineCommand({
     lanes: { type: 'string', description: 'How many parallel lanes the bus runs, recorded in .construct/attach.json' },
     yes: { type: 'boolean', alias: 'y', description: 'Non-interactive: skip the confirmation; needs --harness', default: false },
     entry: { type: 'boolean', description: 'Print the entry protocol the agent follows to propose one harness; reads and writes nothing', default: false },
+    upgrade: { type: 'boolean', description: 'Rewrite only the carriers to this version; data, handoff, bus and local settings stay', default: false },
   },
   async run({ args }) {
     const console = ui(args)
@@ -123,7 +124,8 @@ const attach = withKnownFlags(defineCommand({
         return
       }
       const prompter = isTTY(process.stdout) && process.stdin.isTTY === true ? createClackPrompter(console.lore) : undefined
-      const result = await runAttach(console, { dir: args.dir, harness: args.harness, requiredCheck: args.requiredCheck, ai: args.ai, lanes: args.lanes, yes: args.yes }, prompter)
+      const options = { dir: args.dir, harness: args.harness, requiredCheck: args.requiredCheck, ai: args.ai, lanes: args.lanes, yes: args.yes }
+      const result = args.upgrade ? await runAttachUpgrade(console, options, prompter) : await runAttach(console, options, prompter)
       process.exitCode = attachExitOf(result)
     }
     catch (error) {
