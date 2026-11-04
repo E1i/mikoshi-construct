@@ -13,24 +13,29 @@ import { realpathSync } from 'node:fs'
 import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
-import { rerunModeOf } from '../../cli/check-catalog.js'
-import { defaultBusPath } from '../../core/db.js'
-import { CARD_ADMITTED, DECISION_RECORDED, DECISIONS_IMPORTED, MERGE_DONE, PR_CLOSED, PR_OBSERVED, PR_OPENED, REDUCED, REVIEW_RECORDED } from '../../core/events.js'
+import { catalogIsEmpty, changedPaths, changesTheCatalog, MAIN_TIP, rebuildCatalogAt, rerunModeOf } from '../../cli/check-catalog.js'
+import { appendEvent, defaultBusPath } from '../../core/db.js'
+import { messageOf } from '../../core/errors.js'
+import { BOARD_ALARM, CARD_ADMITTED, DECISION_RECORDED, DECISIONS_IMPORTED, MERGE_DONE, PR_CLOSED, PR_OBSERVED, PR_OPENED, REDUCED, REVIEW_RECORDED } from '../../core/events.js'
 import { Node, NodeRefused, runNode } from '../../core/node.js'
 import { pushPolicyAt } from '../../core/push-policy.js'
 import { closedByRounds, MERGE_CANDIDATES, MERGE_CANDIDATES_BEHIND, MERGE_CANDIDATES_WITHOUT_PASS, mergeCandidates, mergeDecidedPastRoundLimit } from '../../core/queue.js'
 import { ghStatusPublisher } from '../../ports/github-status.js'
 import { ghApi, ghApiPut } from '../../ports/github.js'
+import { Meter } from '../../ports/meter.js'
 import { stampLogOutput } from '../../supervisor/stamp.js'
 import { DRY_RUN_ACTOR } from '../review/review-worker.js'
 import { MergeExecutor } from './merge-executor.js'
 
 export const LIVE_REVIEWER = 'worker:review:'
+export const CATALOG_REBUILD_FAILED = 'catalog_rebuild_failed'
 export const MERGE_ON = [REDUCED, PR_OBSERVED, PR_CLOSED, PR_OPENED, CARD_ADMITTED, MERGE_DONE, REVIEW_RECORDED, DECISION_RECORDED, DECISIONS_IMPORTED] as const
 
 const WHOLE_QUEUE_ON: ReadonlySet<string> = new Set([REDUCED, MERGE_DONE, DECISION_RECORDED, DECISIONS_IMPORTED])
 
 export type MergeStep = MergeOutcome
+
+export type CatalogRebuild = (ref: string) => void
 
 export interface MergeWorkerParts {
   db: DatabaseSync
@@ -41,6 +46,7 @@ export interface MergeWorkerParts {
   session: string
   run: string | null
   pushPolicy?: () => PushPolicy
+  rebuildCatalog?: CatalogRebuild
 }
 
 export interface MergeNodeParts extends MergeWorkerParts {
@@ -79,10 +85,14 @@ function scopeOf(event: StoredEvent): Scope | undefined {
 export class MergeNode extends Node<MergeStep> {
   private readonly executor: MergeExecutor
   private readonly rerun: RerunMode
+  private readonly gitHub: GitHub
+  private readonly rebuildCatalog: CatalogRebuild | undefined
 
   constructor(parts: MergeNodeParts) {
     super('merge', { db: parts.db, clock: parts.clock, session: parts.session, mode: parts.mode, env: parts.env })
     this.rerun = rerunModeOf(parts.env)
+    this.gitHub = parts.gitHub
+    this.rebuildCatalog = parts.rebuildCatalog
     this.executor = new MergeExecutor({ db: parts.db, gitHub: parts.gitHub, put: parts.put, publish: parts.publish, clock: parts.clock, run: parts.run, rerun: this.rerun, pushPolicy: parts.pushPolicy })
     this.subscribe(MERGE_ON, scopeOf)
   }
@@ -91,6 +101,8 @@ export class MergeNode extends Node<MergeStep> {
     if (firstLiveVerdict(this.db) === null)
       throw new NoLiveVerdict()
     this.log(`the merge node starts in rerun mode ${this.rerun}`)
+    if (catalogIsEmpty(this.db))
+      this.rebuildAt(MAIN_TIP)
   }
 
   protected candidates(scope: Scope = {}): QueuedTask[] {
@@ -109,7 +121,38 @@ export class MergeNode extends Node<MergeStep> {
   }
 
   protected handle(lease: Lease): MergeStep {
-    return this.executor.merge(lease)
+    const step = this.executor.merge(lease)
+    if (step.kind === 'merged')
+      this.refreshCatalog(step.commit, lease)
+    return step
+  }
+
+  private refreshCatalog(commit: string, lease: Lease): void {
+    if (this.rebuildCatalog === undefined)
+      return
+    try {
+      const meter = new Meter(this.gitHub, () => this.parts.clock().getTime())
+      if (catalogIsEmpty(this.db) || changesTheCatalog(changedPaths(meter, lease.pr!)))
+        this.rebuildAt(commit)
+    }
+    catch (error) {
+      this.catalogNotRebuilt(commit, error)
+    }
+  }
+
+  private rebuildAt(ref: string): void {
+    try {
+      this.rebuildCatalog?.(ref)
+    }
+    catch (error) {
+      this.catalogNotRebuilt(ref, error)
+    }
+  }
+
+  private catalogNotRebuilt(ref: string, error: unknown): void {
+    const ts = this.ts()
+    appendEvent(this.db, { ts, type: BOARD_ALARM, actor: this.actor, cardId: null, pr: null, head: null, dedupeKey: `${BOARD_ALARM}:${CATALOG_REBUILD_FAILED}:${ref}:${ts}`, payload: { reason: CATALOG_REBUILD_FAILED, ref, detail: messageOf(error) }, legacy: false })
+    this.log(`the check catalog stays as it was: the rebuild at ${ref} failed`)
   }
 
   protected override stepLine(step: MergeStep): string | null {
@@ -126,16 +169,18 @@ export interface MergeRun {
   publish: StatusPublisher
   session: string
   pushPolicy?: () => PushPolicy
+  rebuildCatalog?: CatalogRebuild
   pause: (ms: number) => Promise<unknown>
 }
 
 export async function runMergeWorker(argv: string[], run: MergeRun): Promise<number> {
-  return runNode(argv, 'merge', run.busPath, (db, mode) => new MergeNode({ db, gitHub: run.gitHub, put: run.put, publish: run.publish, clock: () => new Date(), session: run.session, run: null, pushPolicy: run.pushPolicy, mode, env: process.env }), { pause: run.pause })
+  return runNode(argv, 'merge', run.busPath, (db, mode) => new MergeNode({ db, gitHub: run.gitHub, put: run.put, publish: run.publish, clock: () => new Date(), session: run.session, run: null, pushPolicy: run.pushPolicy, rebuildCatalog: run.rebuildCatalog, mode, env: process.env }), { pause: run.pause })
 }
 
 async function main(): Promise<number> {
   const cwd = process.cwd()
-  return runMergeWorker(process.argv.slice(2), { busPath: defaultBusPath(), gitHub: ghApi(cwd), put: ghApiPut(cwd), publish: ghStatusPublisher(cwd), session: randomUUID(), pause: sleep, pushPolicy: () => pushPolicyAt(cwd) })
+  const busPath = defaultBusPath()
+  return runMergeWorker(process.argv.slice(2), { busPath, rebuildCatalog: ref => rebuildCatalogAt(ref, busPath), gitHub: ghApi(cwd), put: ghApiPut(cwd), publish: ghStatusPublisher(cwd), session: randomUUID(), pause: sleep, pushPolicy: () => pushPolicyAt(cwd) })
 }
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
