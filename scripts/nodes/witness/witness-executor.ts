@@ -1,15 +1,19 @@
+import type { ChildProcess } from 'node:child_process'
 import type { DatabaseSync } from 'node:sqlite'
+import type { ServeRecord } from '../../../src/presets/index.js'
 import type { BusEvent } from '../../core/db.js'
 import type { AfterFailure, Lease } from '../../core/lease.js'
 import type { VERIFICATION_WORDS } from '../../core/verification.js'
 import type { WitnessSubject, WitnessVerdict } from '../../policy/policy.js'
 import type { GitAsync, ShellResult } from '../../ports/worktree.js'
-import { execFile } from 'node:child_process'
+import { execFile, spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
+import { setTimeout as sleep } from 'node:timers/promises'
 import { stripVTControlCharacters } from 'node:util'
-import { CARD_CLOSED, CARD_CONTINUED, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, WITNESS_RECORDED } from '../../core/events.js'
+import { MANIFEST_FILE, upgradeManifest } from '../../../src/manifest.js'
+import { CARD_CLOSED, CARD_CONTINUED, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, POLICY_DENIED, WITNESS_RECORDED } from '../../core/events.js'
 import { isFullSha } from '../../core/identifiers.js'
 import { assertHeld, completeTask, failTask, RENEW_MS, StaleLease } from '../../core/lease.js'
 import { baseOfKey, LEASE_MS } from '../../core/queue.js'
@@ -17,9 +21,10 @@ import { GREEN, RED, witnessSubjectOf } from '../../policy/policy.js'
 import { execGh, stdoutOrThrow } from '../../ports/gh.js'
 import { witnessEnv } from '../../ports/session.js'
 import { runOnTreeAsync } from '../../ports/witnesses.js'
-import { gitInAsync, SetupTurns, withWorktreeAsync } from '../../ports/worktree.js'
+import { gitIn, gitInAsync, SetupTurns, withWorktreeAsync } from '../../ports/worktree.js'
 
 export const WITNESS_UNRUN = 'witness_unrun'
+export const WITNESS_NO_SERVE = 'witness_no_serve'
 export const WITNESS_BUDGET_MS = LEASE_MS - RENEW_MS
 const SHELL_BUFFER = 1 << 28
 const LOCKFILE = 'pnpm-lock.yaml'
@@ -87,10 +92,110 @@ class WitnessRed extends Error {
   }
 }
 
-class WitnessTimedOut extends Error {
+class WitnessNotRun extends Error {}
+
+class WitnessTimedOut extends WitnessNotRun {
   constructor(command: string) {
     super(`a witness command ran past the budget of ${WITNESS_BUDGET_MS} ms: ${command}`)
   }
+}
+
+class ServeAddressTaken extends WitnessNotRun {
+  constructor(url: string) {
+    super(`${url} already answers before the serve command starts, so a witness would read a server this node did not start`)
+  }
+}
+
+class NoServeDeclared extends Error {
+  constructor(command: string, head: string) {
+    super(`a browser witness on a URL needs the repository's server, and there is no serve in construct.json at ${head}: declare serve: { command, url, readyTimeoutMs } there; nothing ran: ${command}`)
+  }
+}
+
+const BROWSER_COMMAND = /(?:^|[\s/])browser-(?:lab|witness)\.mjs\s/
+const URL_IN_COMMAND = /https?:\/\/[^\s'"`]+/g
+const LOOPBACK_HOSTS: ReadonlySet<string> = new Set(['localhost', '127.0.0.1', '[::1]'])
+const SERVE_POLL_MS = 100
+const SERVE_ATTEMPT_MS = 1_000
+const SERVE_STOP_GRACE_MS = 2_000
+const SERVE_STDERR_TAIL = 400
+
+function needsServer(command: string, serve: ServeRecord | null): boolean {
+  const urls = (command.match(URL_IN_COMMAND) ?? []).filter(url => URL.canParse(url)).map(url => new URL(url))
+  return urls.some(url => LOOPBACK_HOSTS.has(url.hostname) || (serve !== null && url.origin === new URL(serve.url).origin))
+}
+
+function serveDeclaredAt(tree: string, head: string): ServeRecord | null {
+  try {
+    return upgradeManifest(JSON.parse(gitIn(tree, ['show', `${head}:${MANIFEST_FILE}`]))).serve ?? null
+  }
+  catch {
+    return null
+  }
+}
+
+async function answers(url: string): Promise<boolean> {
+  try {
+    const response = await fetch(url, { signal: AbortSignal.timeout(SERVE_ATTEMPT_MS), redirect: 'manual' })
+    await response.body?.cancel()
+    return true
+  }
+  catch {
+    return false
+  }
+}
+
+interface RunningServer {
+  child: ChildProcess
+  stopped: Promise<void>
+  exited: () => boolean
+  stderr: () => string
+}
+
+function startServer(command: string, cwd: string): RunningServer {
+  const child = spawn('bash', ['-c', command], { cwd, env: witnessEnv(), detached: true, stdio: ['ignore', 'ignore', 'pipe'] })
+  let exited = false
+  let stderr = ''
+  child.stderr?.on('data', (chunk) => {
+    stderr = `${stderr}${String(chunk)}`.slice(-SERVE_STDERR_TAIL)
+  })
+  const stopped = new Promise<void>((resolve) => {
+    const settle = (): void => {
+      exited = true
+      resolve()
+    }
+    child.once('error', settle)
+    child.once('exit', settle)
+  })
+  return { child, stopped, exited: () => exited, stderr: () => stderr.trim() }
+}
+
+async function notAnswering(server: RunningServer, serve: ServeRecord, patienceMs: number): Promise<string | null> {
+  const deadline = Date.now() + patienceMs
+  while (Date.now() < deadline) {
+    if (server.exited())
+      return `the serve command "${serve.command}" exited before ${serve.url} answered: ${server.stderr() || 'no output'}`
+    if (await answers(serve.url))
+      return null
+    await sleep(SERVE_POLL_MS)
+  }
+  return `${serve.url} did not answer within ${patienceMs} ms of the serve command "${serve.command}" starting`
+}
+
+function signalGroup(child: ChildProcess, signal: NodeJS.Signals): void {
+  if (child.pid === undefined)
+    return
+  try {
+    process.kill(-child.pid, signal)
+  }
+  catch {}
+}
+
+async function stopServer(server: RunningServer): Promise<void> {
+  signalGroup(server.child, 'SIGTERM')
+  await Promise.race([server.stopped, sleep(SERVE_STOP_GRACE_MS)])
+  signalGroup(server.child, 'SIGKILL')
+  server.child.stderr?.destroy()
 }
 
 export const EXCERPT_LINES = 20
@@ -151,6 +256,8 @@ function closableOnMain(db: DatabaseSync, cardId: number): boolean {
 }
 
 export class WitnessExecutor {
+  private readonly serveTurns = new SetupTurns()
+
   constructor(private readonly parts: WitnessParts) {}
 
   private ts(): string {
@@ -180,9 +287,7 @@ export class WitnessExecutor {
         red = await this.redOf(subject, base, lease.head)
       }
       catch (error) {
-        if (error instanceof WitnessTimedOut)
-          return this.unrun(lease, error.message)
-        throw error
+        return this.notJudged(lease, error)
       }
       const verdict = red === null ? GREEN : RED
       const detail = red ?? `every card witness red on the base ${base} and green on ${lease.head}`
@@ -202,9 +307,7 @@ export class WitnessExecutor {
       red = await this.redOnMain(subject, main)
     }
     catch (error) {
-      if (error instanceof WitnessTimedOut)
-        return this.unrun(lease, error.message)
-      throw error
+      return this.notJudged(lease, error)
     }
     const verdict = red === null ? GREEN : RED
     const detail = red ?? `every card witness green on main at ${main}`
@@ -215,7 +318,7 @@ export class WitnessExecutor {
 
   private async redOnMain(subject: WitnessSubject, main: string): Promise<string | null> {
     const last: { result: ShellResult | null } = { result: null }
-    const shell = this.budgeted(this.parts.clock().getTime() + WITNESS_BUDGET_MS, last)
+    const shell = this.budgeted(this.parts.clock().getTime() + WITNESS_BUDGET_MS, last, main)
     return this.parts.trees.withTree(main, async (tree) => {
       if (existsSync(path.join(tree, LOCKFILE)) && (await shell(INSTALL, tree)).status !== 0)
         return withFailureExcerpt(`${INSTALL} failed on main at ${main}`, last.result)
@@ -236,16 +339,60 @@ export class WitnessExecutor {
     return { kind: 'denied', taskKey: lease.taskKey, denial: { kind: 'technical', reason: WITNESS_UNRUN, detail }, next }
   }
 
-  private budgeted(deadline: number, last: { result: ShellResult | null }): (command: string, cwd: string) => Promise<ShellResult> {
-    return async (command, cwd) => {
+  private refusedForNoServe(lease: Lease, detail: string): WitnessOutcome {
+    const denied: BusEvent = { ts: this.ts(), type: POLICY_DENIED, actor: 'policy', cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${POLICY_DENIED}:${lease.taskKey}:${lease.leaseGen}`, payload: { command: 'witness', reason: WITNESS_NO_SERVE, detail }, legacy: false }
+    completeTask(this.parts.db, this.ts(), lease, [denied])
+    return { kind: 'skipped', taskKey: lease.taskKey, why: detail }
+  }
+
+  private notJudged(lease: Lease, error: unknown): WitnessOutcome {
+    if (error instanceof NoServeDeclared)
+      return this.refusedForNoServe(lease, error.message)
+    if (error instanceof WitnessNotRun)
+      return this.unrun(lease, error.message)
+    throw error
+  }
+
+  private budgeted(deadline: number, last: { result: ShellResult | null }, head: string): (command: string, cwd: string) => Promise<ShellResult> {
+    const leftOf = (command: string): number => {
       const left = deadline - this.parts.clock().getTime()
       if (left <= 0)
         throw new WitnessTimedOut(command)
-      const result = await this.parts.shell(command, cwd, left)
+      return left
+    }
+    const run = async (command: string, cwd: string): Promise<ShellResult> => {
+      const result = await this.parts.shell(command, cwd, leftOf(command))
       if (result.timedOut)
         throw new WitnessTimedOut(command)
       last.result = result
       return result
+    }
+    return async (command, cwd) => {
+      if (!BROWSER_COMMAND.test(command))
+        return run(command, cwd)
+      const serve = serveDeclaredAt(cwd, head)
+      if (!needsServer(command, serve))
+        return run(command, cwd)
+      if (serve === null)
+        throw new NoServeDeclared(command, head)
+      return this.serveTurns.take(() => this.servedRun(command, cwd, serve, leftOf, run, last))
+    }
+  }
+
+  private async servedRun(command: string, cwd: string, serve: ServeRecord, leftOf: (command: string) => number, run: (command: string, cwd: string) => Promise<ShellResult>, last: { result: ShellResult | null }): Promise<ShellResult> {
+    const patienceMs = Math.min(serve.readyTimeoutMs, leftOf(command))
+    if (await answers(serve.url))
+      throw new ServeAddressTaken(serve.url)
+    const server = startServer(serve.command, cwd)
+    try {
+      const notReady = await notAnswering(server, serve, patienceMs)
+      if (notReady === null)
+        return await run(command, cwd)
+      last.result = { status: 1, output: `Error: ${notReady}` }
+      return last.result
+    }
+    finally {
+      await stopServer(server)
     }
   }
 
@@ -255,7 +402,7 @@ export class WitnessExecutor {
     return this.parts.trees.withTree(base, async (tree) => {
       try {
         await runOnTreeAsync(
-          { tree, base, shell: this.budgeted(deadline, last), log: this.parts.log, refuse: (step, problem) => {
+          { tree, base, shell: this.budgeted(deadline, last, head), log: this.parts.log, refuse: (step, problem) => {
             if (problem !== null)
               throw new WitnessRed(step, problem)
           } },
