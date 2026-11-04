@@ -20,6 +20,7 @@ import { LIVE_FLAG } from '../scripts/core/node.js'
 import { sayToOwnerChannel, USED_WORD } from '../scripts/owner/channel.js'
 import { activeWindowShards } from '../scripts/policy/shards.js'
 import { BUS_FLAG, BUS_RUN_LAUNCH, carriesMarker, installedPackage, launchArgv, runBusBg } from '../scripts/supervisor/bg.js'
+import { agentEnvStamp } from '../scripts/supervisor/stamp.js'
 import { AGENT_LOG, agentLabel, factoryBusOf, ghostProtocolWord, installKeepAlive, KEEP_ALIVE_PLATFORM, KEEP_ALIVE_PROGRAM, LAUNCH_AGENTS, runMode, runStart, sayCommand, START_BIN, startCommandOf, USAGE } from '../scripts/supervisor/start.js'
 import { SUPERVISE_FLAG, SUPERVISOR_LAUNCH } from '../scripts/supervisor/supervisor.js'
 import { liveWorkers, MODE_WORKERS, modeOf, returnToWindowAtTermEnd, switchDetection, switchedOn, switchWorker, termEndOf, wantedLaunches, WORKERS, WORKERS_FILE } from '../scripts/supervisor/workers.js'
@@ -781,9 +782,10 @@ describe('the start command in the published package', () => {
     expect(launched).toHaveLength(FRESH_LAUNCHES.length)
     expect(launched.filter(line => line.includes('pnpm'))).toEqual([])
     const built = (source: string): string => path.join(packed.installed, OUT_DIR, 'scripts', 'supervisor', source)
-    const busArgument = ` ${BUS_FLAG} ${path.join(packed.root, 'bus.db')}`
-    expect(launched.filter(line => !line.endsWith(busArgument))).toEqual([])
-    const targets = launched.map(line => line.slice(line.indexOf(' ') + 1, -busArgument.length))
+    const [accountStamp] = agentEnvStamp([GH_ACCOUNT_VARIABLE], { [GH_ACCOUNT_VARIABLE]: 'worker' })
+    const launchTail = ` ${accountStamp} ${BUS_FLAG} ${path.join(packed.root, 'bus.db')}`
+    expect(launched.filter(line => !line.endsWith(launchTail))).toEqual([])
+    const targets = launched.map(line => line.slice(line.indexOf(' ') + 1, -launchTail.length))
     expect(targets).toContain(built('run.js'))
     expect(targets).toContain(`${built('supervisor.js')} ${SUPERVISE_FLAG}`)
     expect(targets.map(target => path.basename(target.split(' ')[0]!)).sort()).toEqual([...FRESH_LAUNCHES].sort())
