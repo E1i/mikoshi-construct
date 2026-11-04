@@ -46,7 +46,7 @@ describe('git depth sources', () => {
 
     expect(sources.base(second)).toBe(main)
     expect(sources.changed(first, second)).toEqual(['docs/cli.md'])
-    expect(sources.predict('review:1971:971:x', main, second)).toEqual({ prediction: { task: 'review:1971:971:x', base: main, head: second, verdict: 'cheap', rule: 'docs-only', why: ['docs/cli.md', 'docs/guide.md'] }, files: ['docs/cli.md', 'docs/guide.md'] })
+    expect(sources.predict('review:1971:971:x', main, second)).toEqual({ prediction: { task: 'review:1971:971:x', base: main, head: second, verdict: 'cheap', rule: 'docs-only', why: ['docs/cli.md', 'docs/guide.md'] }, files: ['docs/cli.md', 'docs/guide.md'], added: ['docs/cli.md'] })
     expect(readFileSync(journal, 'utf8').trim().split('\n').map(line => JSON.parse(line) as unknown)).toEqual([{ task: 'review:1971:971:x', base: main, head: second, verdict: 'cheap', rule: 'docs-only', why: ['docs/cli.md', 'docs/guide.md'] }])
     expect(sources.scope(1971)).toEqual({ touches: ['docs/**'], runs: [] })
     expect(sources.scope(1972)).toBeNull()
