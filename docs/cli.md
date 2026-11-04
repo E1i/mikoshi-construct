@@ -1131,9 +1131,11 @@ did in `.construct/attach.json`. No `construct.json`, no
 | `--required-check <name>` | the job read from the workflow | The name of the CI check run the bus waits for, recorded as `harness.job` in `.construct/attach.json`. With `--harness` and no `--required-check`, attach takes the job whose step runs the same command. Needed when no job runs it, or the job is a matrix, has a GitHub Actions expression in its name or calls a reusable workflow: its check name is not in the file, and attach refuses without this flag. The flag needs a harness: without one (for example `--yes` with no `--harness`, which records the harness as none) it is ignored. |
 | `--ai <target>` | `claude` | Only `claude` is supported; `cursor` and `both` are refused, because a Cursor rule with `alwaysApply` would govern the whole tree. |
 | `--lanes <count>` | asked, `3` | How many parallel lanes the bus runs, a whole number from 1 up. Recorded as `lanes` in `.construct/attach.json`, never in a `construct.json`; under `--yes` without it, `3`. |
+| `--serve <command>` | none | The command that brings the repository's server up for a browser witness. Recorded as `serve.command` in `.construct/attach.json`, never in a `construct.json`. One of `--serve` and `--serve-url` without the other fails before anything is written, and so does an empty command. |
+| `--serve-url <url>` | none | The `http` or `https` URL that answers once the server is up, recorded as `serve.url`. The witness node waits for it up to the default `readyTimeoutMs` of `30000`; attach takes no timeout flag. |
 | `--yes`, `-y` | `false` | Skip the confirmation. Without `--harness`, nothing is proposed and the harness is recorded as `none`. |
 | `--entry` | `false` | Print the entry protocol and exit `0`; nothing else runs, whatever other flags are given. |
-| `--upgrade` | `false` | Rewrite only the carriers of a repository already attached to the installed version. See [Upgrading the carriers](#upgrading-the-carriers). `--harness`, `--required-check`, `--ai` and `--lanes` are refused with it: the record holds them. |
+| `--upgrade` | `false` | Rewrite only the carriers of a repository already attached to the installed version. See [Upgrading the carriers](#upgrading-the-carriers). `--harness`, `--required-check`, `--ai`, `--lanes`, `--serve` and `--serve-url` are refused with it: the record holds them. |
 
 ```bash
 npx mikoshi-construct attach --harness "npm test"
@@ -1392,6 +1394,7 @@ lists.
 | `harness` | `{ "command": "<command>", "job": "<check name>" }`, the command passed or chosen, never a default, and `job`, the name of the CI job the chosen candidate was taken from or the one `--required-check` named (absent when neither is known); or the string `"none"` when the owner chose none or nothing was proposed. |
 | `files` | Every carrier path, `.construct/commit-guard.mjs`, `.construct/shell-parser.mjs`, `.construct/window-hooks.mjs` and `.construct/window-rules.md` with the sha256 of the bytes written. The record itself is not in it. |
 | `push` | `none` by default, or `bus` only by an explicit policy of the repository. Under `none` no bus process commits, pushes or opens a pull request in the repository: `tree-pr` leaves the tree and the report as they are. A record without the field reads as `none`. |
+| `serve` | Present only when attach was given `--serve` and `--serve-url`: `command`, `url` and `readyTimeoutMs`, always `30000`. A browser witness on a URL reads it when `construct.json` at the head declares no `serve`, and a repository with neither is refused. |
 | `directories` | The directories that did not exist before and were created, parents first. `.construct/` is not in it. |
 | `excludeCreated` | Whether `.git/info/exclude` was created by this run or already existed. |
 | `ledgerCreated` | Whether `.construct/` was created by this run (`true`) or already existed (`false`). `detach` removes `.construct/` only when this is `true`; a record without the field (written before it existed) does not say, so `.construct/` stays. |
@@ -2183,6 +2186,13 @@ never admitted too. A move to the directory the card already sits in leaves the 
 and writes the same event all the same. A card with no file under the root that the bus holds admitted
 text for is moved in the bus alone: the event is written and no file appears. A move to a launch lane admits the
 card again with the text the bus holds, and the file's text only when the bus holds none. While the text the bus folded is older than the card's latest `card.admitted`, a move to a launch lane refuses with exit `1` and writes nothing, so it never re-admits the older text; run it again once the admission is folded. `--dry-run` prints the move and its event, exits `0`, and writes nothing to the bus or the parking. The printed line names the event the bus holds. With `--draft`, `--taken` or `--admit` the move refuses.
+
+**A card that names its release.** A card header may carry `release: <id>` beside `who` and `priority`.
+A bus-wired `--admit` or `--amend` reads the line and puts the card in that release, with no `--release` flag and no
+plan request. An id that names no open release, or a `--release` flag naming a different one, is refused with exit `1`
+and nothing is admitted; a card already in the release it names is left there, so amending it is not refused after the
+release closes. An empty `release:` line is refused by the parking grammar. A draft has no `release` field: the line
+goes in through the parked file or the exported text. The published CLI has no bus, so it keeps the line and acts on nothing.
 
 **Exporting an admitted card.** `pnpm intake --export <#N>`, this repository's bus-wired entry, prints
 the text of the latest `card.admitted` for card `N` that the bus holds, byte for byte, and writes

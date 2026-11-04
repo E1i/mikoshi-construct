@@ -14,6 +14,7 @@ export { SESSION_HELD_QUEUES as HEARTBEAT_QUEUES, LEASE_FOLDS, LEASE_MS } from '
 
 export const RENEW_MS = 10 * 60_000
 export const LEASE_EXPIRED = 'lease_expired'
+export const WORKER_RETIRING = 'worker.retiring'
 
 const REQUEUED_TO_THE_BACK: Queue = 'review'
 
@@ -118,7 +119,16 @@ const LAPSED = `SELECT * FROM tasks WHERE state = '${LEASED}' AND lease_until < 
 
 const HELD_BY_KIND = `
   SELECT tasks.* FROM tasks JOIN events ON events.dedupe_key = '${TASK_LEASED}:' || tasks.task_key || ':' || tasks.lease_gen
-  WHERE tasks.state = '${LEASED}' AND events.actor LIKE ? ORDER BY tasks.id
+  WHERE tasks.state = '${LEASED}' AND events.actor LIKE ?
+    AND NOT EXISTS (SELECT 1 FROM events AS retiring WHERE retiring.dedupe_key = '${WORKER_RETIRING}:' || events.actor)
+  ORDER BY tasks.id
+`
+
+const HELD_BY_RETIRING = `
+  SELECT tasks.queue, retiring.payload FROM tasks
+  JOIN events AS leased ON leased.dedupe_key = '${TASK_LEASED}:' || tasks.task_key || ':' || tasks.lease_gen
+  JOIN events AS retiring ON retiring.dedupe_key = '${WORKER_RETIRING}:' || leased.actor
+  WHERE tasks.state = '${LEASED}'
 `
 
 const LAST_DRAIN_SINCE_RESTART = `
@@ -438,6 +448,38 @@ export function judgeHolders(db: DatabaseSync, ts: string, startOf: ProcessStart
       reading.unproven.push(row.task_key)
   }
   return reading
+}
+
+export interface Retirement {
+  node: string
+  pids: readonly number[]
+  sha: string
+  from: string
+}
+
+export function retireHolders(db: DatabaseSync, ts: string, retirement: Retirement): string[] {
+  return inTransaction(db, () => {
+    const held = (db.prepare(LEASES_WITH_THEIR_HOLDER).all() as unknown as HeldWithHolder[]).filter(row => row.holder.startsWith(`worker:${retirement.node}:`) && retirement.pids.includes(recordedStart(row.start)?.pid ?? 0))
+    for (const holder of new Set(held.map(row => row.holder)))
+      appendEvent(db, { ts, type: WORKER_RETIRING, actor: QUEUE_ACTOR, cardId: null, pr: null, head: null, dedupeKey: `${WORKER_RETIRING}:${holder}`, payload: { worker: holder, ...retirement }, legacy: false })
+    return held.map(row => row.task_key)
+  })
+}
+
+export function workerRetiring(db: DatabaseSync, actor: string): boolean {
+  return db.prepare('SELECT 1 FROM events WHERE dedupe_key = ?').get(`${WORKER_RETIRING}:${actor}`) !== undefined
+}
+
+function heldByRetiring(db: DatabaseSync): { queue: Queue, payload: string }[] {
+  return db.prepare(HELD_BY_RETIRING).all() as unknown as { queue: Queue, payload: string }[]
+}
+
+export function retiringPids(db: DatabaseSync): Set<number> {
+  return new Set(heldByRetiring(db).flatMap(row => (JSON.parse(row.payload) as Retirement).pids))
+}
+
+export function leasedByRetiring(db: DatabaseSync, queue: Queue): number {
+  return heldByRetiring(db).filter(row => row.queue === queue).length
 }
 
 export function openDrain(db: DatabaseSync, ts: string, sha: string, until: string, node: string, from: string | null = null): void {

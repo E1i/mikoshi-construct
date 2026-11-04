@@ -47,6 +47,12 @@
         "requiredCheck": {
           "type": "string"
         },
+        "serve": {
+          "type": "string"
+        },
+        "serveUrl": {
+          "type": "string"
+        },
         "upgrade": {
           "type": "boolean"
         },

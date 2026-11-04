@@ -1,6 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { BusEvent } from '../../core/db.js'
 import type { AfterFailure, Lease } from '../../core/lease.js'
+import type { WaitStep } from '../../core/node.js'
 import type { CardTreeTools } from '../../ports/card-tree.js'
 import type { Isolation, IsolationReader } from '../../ports/isolation.js'
 import type { TreePreparer } from '../../ports/prepare-tree.js'
@@ -9,23 +10,25 @@ import type { AdmittedScope, AnswerSource, CardSession } from './answer-source.j
 import type { Answered, Answerer, StepSeconds, TreeMerge } from './answerer.js'
 import { pathsIn, pathsOutside } from '../../../src/card/covering-tests.js'
 import { riskOf } from '../../../src/card/risk.js'
+import { CLOSED_WAIT, OWNER_WAITS } from '../../core/bus-readings.js'
 import { appendEvent, openBusWait } from '../../core/db.js'
 import { messageOf } from '../../core/errors.js'
-import { CARD_ANSWERED, CARD_STOPPED, POLICY_DENIED, PR_OBSERVED, PR_OPENED, QUESTION_AGENT, QUESTION_OWNER, SCOPE_WIDENED, SHARD_DECIDED, WITNESS_RECORDED } from '../../core/events.js'
-import { assertHeld, completeTask, failTask, StaleLease } from '../../core/lease.js'
-import { FAILURES_TO_STOP, REVIEW_ROUNDS } from '../../core/queue.js'
+import { ANSWER_STEP, CARD_ANSWERED, CARD_STOPPED, POLICY_DENIED, PR_OBSERVED, PR_OPENED, QUESTION_AGENT, QUESTION_OWNER, SCOPE_WIDENED, SHARD_DECIDED, WITNESS_RECORDED } from '../../core/events.js'
+import { assertHeld, completeTask, failTask, StaleLease, supersedeLease, waitTask } from '../../core/lease.js'
+import { answerOnAnOldCardBody, FAILURES_TO_STOP, REVIEW_ROUNDS, supersededAnswerWithinItsLease } from '../../core/queue.js'
 import { OWNER_EVEN_UNDER_THE_DECISION, reservationOf } from '../../policy/policy.js'
 import { activeDecisionsShard, cardDecisionCommand, DECISIONS_SCOPE, decisionsInForceAt, ownersUnderAnyShard, unspentShard } from '../../policy/shards.js'
 import { matchGlob } from '../../policy/shredder/glob.js'
 import { ownerGlobs } from '../../policy/widening.js'
 import { cardTreeOf, CardTreeRefused, realCardTrees } from '../../ports/card-tree.js'
+import { TICK_MS } from '../../ports/netwatch.js'
 import { prepareBeforeSession, prepareTree } from '../../ports/prepare-tree.js'
 import { sha256, storedInput } from '../../ports/prompt-store.js'
 import { MAIN_BRANCH } from '../../ports/snapshot.js'
 import { admittedScopeOf, answerSourceOf, boundDecisionLines, decisionAnsweringRepeat, ownerHoldOf } from './answer-source.js'
 import { AnswerOutsideTouches, CardTreeGone, liveSessionIn, PREFIX, secondsOf, treeDirtyOf, treeMergeOf } from './answerer.js'
 
-export type AnswerTechnicalReason = 'nothing_to_answer' | 'no_card_tree' | 'card_tree_gone' | 'answer_failed' | 'left_nothing' | 'held_for_owner' | 'outside_touches' | 'repeated_stop'
+export type AnswerTechnicalReason = 'nothing_to_answer' | 'no_card_tree' | 'card_tree_gone' | 'answer_failed' | 'left_nothing' | 'held_for_owner' | 'outside_touches' | 'repeated_stop' | 'old_card_body' | 'closed_wait'
 
 export interface AnswerDenial {
   kind: 'technical'
@@ -41,6 +44,7 @@ export type AnswerOutcome
     | { kind: 'denied', taskKey: string, denial: AnswerDenial, next: AfterFailure }
     | { kind: 'fenced', taskKey: string }
     | { kind: 'waiting', taskKey: string, wait: string, detail: string }
+    | WaitStep
 
 export interface TreePublishing {
   committed: (card: CardSession) => boolean
@@ -73,6 +77,14 @@ interface Widened {
 const DECISION_OPTIONS = [`${QUESTION_OWNER}: stop the card for the owner`, `${SHARD_DECIDED}: the window decides and the card goes on`]
 
 const ASKS_ABOUT_THE_SCOPE = /\b(?:touches|creates|scope)\b/i
+
+const NAMES_A_WAIT = /\b[QW]\d+\b/g
+
+const IS_A_CLOSED_WAIT = `SELECT 1 FROM ${OWNER_WAITS} WHERE id = ? AND state = '${CLOSED_WAIT}'`
+
+const CLOSED_WAITS_OF_THE_CARD = `SELECT id, answer FROM ${OWNER_WAITS} WHERE card_id = ? AND state = '${CLOSED_WAIT}' ORDER BY event_id`
+
+const SUPERSEDED_SESSION_ENDING = 'superseded_session_ending'
 
 function ownersEvenUnderTheDecision(paths: readonly string[]): string | undefined {
   return paths.find(file => riskOf(file).level === OWNER_EVEN_UNDER_THE_DECISION)
@@ -165,6 +177,8 @@ export class AnswerExecutor {
     const leased = this.parts.clock().getTime()
     try {
       assertHeld(this.parts.db, lease)
+      if (answerOnAnOldCardBody(this.parts.db, lease))
+        return this.superseded(lease, `the body of card #${lease.cardId} was amended before this lease was taken; no session runs on the old body`)
       const source = this.sourceOf(lease)
       if (source === null && !this.dirtyOnHead(lease))
         return this.denied(lease, { kind: 'technical', reason: 'nothing_to_answer', detail: `card #${lease.cardId} has no open question.agent stop, no changes verdict, no red CI, no red witness and no conflict with ${MAIN_BRANCH} on ${lease.head ?? 'its head'}` })
@@ -191,7 +205,7 @@ export class AnswerExecutor {
         return this.denied(lease, card)
       const live = (this.parts.liveSession ?? liveSessionIn)(card)
       if (live !== null)
-        return this.heldForTheOwner(lease, live)
+        return this.waitingForTheSupersededSession(lease) ?? this.heldForTheOwner(lease, live)
       const merge = source === null ? (this.parts.treeMerge ?? treeMergeOf)(card) : null
       if (merge?.kind === 'unreadable')
         return this.waiting(lease, card, merge.why)
@@ -215,6 +229,8 @@ export class AnswerExecutor {
 
   private sourceOf(lease: Lease): Answering | null {
     const source = answerSourceOf(this.parts.db, lease, this.parts.clock())
+    if (source?.kind === 'question')
+      return { ...source, decisions: [...source.decisions, ...this.closedWaitLines(lease)] }
     if (source !== null && source.kind !== 'ci')
       return source
     const witness = this.redWitness(lease)
@@ -235,6 +251,11 @@ export class AnswerExecutor {
 
   private boundDecisions(lease: Lease): string[] {
     return boundDecisionLines(this.parts.db, lease.cardId, this.parts.clock())
+  }
+
+  private closedWaitLines(lease: Lease): string[] {
+    const closed = this.parts.db.prepare(CLOSED_WAITS_OF_THE_CARD).all(lease.cardId) as { id: string, answer: string | null }[]
+    return closed.map(wait => `${wait.id} is closed: ${wait.answer ?? 'no answer recorded'}`)
   }
 
   private dirtyOnHead(lease: Lease): boolean {
@@ -274,12 +295,25 @@ export class AnswerExecutor {
     if (unprepared !== null)
       console.error(`${PREFIX}card #${lease.cardId}: ${unprepared}`)
     const prepared = this.parts.clock().getTime()
+    const beforeTheSession = { lease: secondsOf(preparing - leased), tree: secondsOf(prepared - preparing) }
+    this.recordSteps(lease, preparing, beforeTheSession)
     try {
-      const answered = await this.parts.answerer({ lease, source, widened: widened?.reason ?? null, card, fresh, outsideTouches: this.outsideTouchesOf(lease, widened) })
-      return answered.steps === undefined ? answered : { ...answered, steps: { lease: secondsOf(preparing - leased), tree: secondsOf(prepared - preparing), ...answered.steps } }
+      const answered = await this.parts.answerer({ lease, source, widened: widened?.reason ?? null, card, fresh, outsideTouches: this.outsideTouchesOf(lease, widened), stepped: steps => this.recordSteps(lease, preparing, steps) })
+      return answered.steps === undefined ? answered : { ...answered, steps: { ...beforeTheSession, ...answered.steps } }
     }
     catch (error) {
       return { kind: 'technical', reason: reasonOfFailure(error), detail: messageOf(error) }
+    }
+  }
+
+  private recordSteps(lease: Lease, sessionStart: number, steps: Partial<StepSeconds>): void {
+    try {
+      assertHeld(this.parts.db, lease)
+      for (const [step, seconds] of Object.entries(steps))
+        appendEvent(this.parts.db, { ...this.event(lease, ANSWER_STEP, { step, seconds }), dedupeKey: `${ANSWER_STEP}:${lease.taskKey}:${lease.leaseGen}:${sessionStart}:${step}` })
+    }
+    catch (error) {
+      console.error(`${PREFIX}card #${lease.cardId}: the steps of the round were not recorded: ${messageOf(error)}`)
     }
   }
 
@@ -365,7 +399,19 @@ export class AnswerExecutor {
     return row?.failures ?? 0
   }
 
+  private staleQuestion(lease: Lease, question: string): AnswerOutcome | null {
+    if (answerOnAnOldCardBody(this.parts.db, lease))
+      return this.superseded(lease, `the body of card #${lease.cardId} was amended while the answer session ran; no owner question is written, and the answer goes again on the new body. The question was: ${question}`)
+    const closed = [...new Set(question.match(NAMES_A_WAIT) ?? [])].filter(id => this.parts.db.prepare(IS_A_CLOSED_WAIT).get(id) !== undefined)
+    if (closed.length === 0)
+      return null
+    return this.denied(lease, { kind: 'technical', reason: 'closed_wait', detail: `the answer session named ${closed.join(', ')}, already closed; no owner question is written, and the answer goes again with the closed waits of the card in its prompt. The question was: ${question}` })
+  }
+
   private async asked(lease: Lease, question: string, widened: Widened | null, card: CardSession): Promise<AnswerOutcome> {
+    const stale = this.staleQuestion(lease, question)
+    if (stale !== null)
+      return stale
     const answeredBy = decisionAnsweringRepeat(this.parts.db, lease.cardId, question, this.parts.clock())
     if (answeredBy !== null)
       return this.denied(lease, { kind: 'technical', reason: 'repeated_stop', detail: `the answer session asked again what card #${lease.cardId} already stopped on, and D-${answeredBy} was recorded for the card after that stop; no new owner wait, the answer goes again with the decision in its prompt. The question was: ${question}` })
@@ -394,7 +440,7 @@ export class AnswerExecutor {
     if (!leftNoNewHead(decided))
       return this.settled(lease, decidedSource, widened, card, decided, 0)
     if (decided.owner !== null)
-      return this.ownersStop(lease, `${decided.owner} (asked again after the ${DECISIONS_SCOPE} shard ${shard.id} decided: ${question})`, scope)
+      return this.staleQuestion(lease, decided.owner) ?? this.ownersStop(lease, `${decided.owner} (asked again after the ${DECISIONS_SCOPE} shard ${shard.id} decided: ${question})`, scope)
     if ((this.parts.dirty ?? treeDirtyOf)(card))
       return this.leftDirty(lease, card, decided.session)
     completeTask(this.parts.db, this.ts(), lease, scope)
@@ -432,9 +478,25 @@ export class AnswerExecutor {
     return scopeWideningAsked(question, admittedScopeOf(this.parts.db, lease.cardId), shard !== null)
   }
 
+  private denialEvent(lease: Lease, denial: AnswerDenial): BusEvent {
+    return { ...this.event(lease, POLICY_DENIED, { command: 'answer', ...denial }), actor: 'policy' }
+  }
+
   private denied(lease: Lease, denial: AnswerDenial): AnswerOutcome {
-    const event: BusEvent = { ...this.event(lease, POLICY_DENIED, { command: 'answer', ...denial }), actor: 'policy' }
-    const next = failTask(this.parts.db, this.ts(), lease, { reason: denial.reason, withdraw: WITHDRAWN_REASONS.has(denial.reason) }, [event])
+    const next = failTask(this.parts.db, this.ts(), lease, { reason: denial.reason, withdraw: WITHDRAWN_REASONS.has(denial.reason) }, [this.denialEvent(lease, denial)])
     return { kind: 'denied', taskKey: lease.taskKey, denial, next }
+  }
+
+  private superseded(lease: Lease, detail: string): AnswerOutcome {
+    const denial: AnswerDenial = { kind: 'technical', reason: 'old_card_body', detail }
+    return { kind: 'denied', taskKey: lease.taskKey, denial, next: supersedeLease(this.parts.db, this.ts(), lease, [this.denialEvent(lease, denial)]) }
+  }
+
+  private waitingForTheSupersededSession(lease: Lease): AnswerOutcome | null {
+    if (!supersededAnswerWithinItsLease(this.parts.db, lease.cardId, this.ts()))
+      return null
+    const until = new Date(this.parts.clock().getTime() + TICK_MS).toISOString()
+    waitTask(this.parts.db, this.ts(), lease, { reason: SUPERSEDED_SESSION_ENDING, until })
+    return { kind: 'waiting', taskKey: lease.taskKey, reason: SUPERSEDED_SESSION_ENDING, until }
   }
 }

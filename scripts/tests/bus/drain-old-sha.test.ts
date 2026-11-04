@@ -28,16 +28,16 @@ function bench() {
   const db = openBus(path.join(root, 'bus.db'))
   const clock = { now: 0 }
   const ts = (): string => new Date(MERGED_AT + clock.now).toISOString()
-  const inFlight = leaseWhileFree(db, ts(), { queue: 'answer', cardId: 1438, pr: 1243, head: OLD_MAIN }, 'worker:answer:old', 1)!
+  const inFlight = leaseWhileFree(db, ts(), { queue: 'close', cardId: 1438, pr: 1243, head: OLD_MAIN }, 'worker:close:old', 1)!
   queueTaskWithin(db, ts(), { queue: 'launch', cardId: 1462 })
-  const { answer, launch } = workerLaunches(() => [])
+  const { close, launch } = workerLaunches(() => [])
   let pid = 700
-  let alive: RunningProcess[] = [{ pid: 600, args: `node pnpm.cjs --silent ${launchName(answer)} --on` }, { pid: 601, args: `node pnpm.cjs --silent ${launchName(launch)} --on` }]
+  let alive: RunningProcess[] = [{ pid: 600, args: `node pnpm.cjs --silent ${launchName(close)} --on` }, { pid: 601, args: `node pnpm.cjs --silent ${launchName(launch)} --on` }]
   const started: string[] = []
   let head = OLD_MAIN
   const supervisor = new BusSupervisor({
-    known: [answer, launch],
-    wanted: () => [answer, launch],
+    known: [close, launch],
+    wanted: () => [close, launch],
     start: (each: DetachedLaunch): BgResult => {
       started.push(launchName(each))
       alive = [...alive, { pid: ++pid, args: `node pnpm.cjs --silent ${launchName(each)} --on` }]
@@ -62,7 +62,7 @@ function bench() {
     journal: () => {},
     now: () => MERGED_AT + clock.now,
   }, 0)
-  return { db, clock, ts, inFlight, answer, launch, started, alive: () => alive, supervisor }
+  return { db, clock, ts, inFlight, close, launch, started, alive: () => alive, supervisor }
 }
 
 function drains(db: ReturnType<typeof openBus>): unknown[] {
@@ -86,17 +86,17 @@ describe('a drain refuses new leases only to the processes on the old sha', () =
   it('a worker on the old sha takes no new lease while the drain is open', async () => {
     const { db, ts, supervisor } = bench()
 
-    expect((await supervisor.step()).join('\n')).toContain('bus:answer take no new one')
+    expect((await supervisor.step()).join('\n')).toContain('bus:close take no new one')
 
-    expect(drains(db)).toEqual([expect.objectContaining({ node: 'answer', sha: NEW_MAIN, from: OLD_MAIN })])
-    expect(drainOpen(db, ts(), 'answer', OLD_MAIN)).toBe(true)
-    expect(drainOpen(db, ts(), 'answer', NEW_MAIN)).toBe(false)
-    expect(drainOpen(db, ts(), 'answer')).toBe(true)
+    expect(drains(db)).toEqual([expect.objectContaining({ node: 'close', sha: NEW_MAIN, from: OLD_MAIN })])
+    expect(drainOpen(db, ts(), 'close', OLD_MAIN)).toBe(true)
+    expect(drainOpen(db, ts(), 'close', NEW_MAIN)).toBe(false)
+    expect(drainOpen(db, ts(), 'close')).toBe(true)
     db.close()
   })
 
   it('once the old leases finish only the drained worker restarts, and the launch restarted early keeps running', async () => {
-    const { db, clock, ts, inFlight, answer, launch, started, alive, supervisor } = bench()
+    const { db, clock, ts, inFlight, close, launch, started, alive, supervisor } = bench()
 
     await supervisor.step()
     clock.now = 60_000
@@ -107,7 +107,7 @@ describe('a drain refuses new leases only to the processes on the old sha', () =
     clock.now = 120_000
     expect((await supervisor.step()).join('\n')).toContain(`main advanced to ${NEW_MAIN}`)
 
-    expect(started).toEqual([launchName(launch), launchName(answer)])
+    expect(started).toEqual([launchName(launch), launchName(close)])
     expect(alive()).toContainEqual(early)
     db.close()
   })

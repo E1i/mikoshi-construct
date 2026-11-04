@@ -1,14 +1,15 @@
 import type { Contour } from '../../../src/card/grammar.js'
 import type { ShiftTask } from '../../../src/card/task-file.js'
 import type { PushPolicy } from '../../../src/commands/attach/record.js'
-import type { CompanionRow, FollowingReach } from '../../../src/commands/intake/check.js'
+import type { CompanionRow, CompositionRecord, FollowingReach } from '../../../src/commands/intake/check.js'
 import type { ChangedFile, Prediction } from '../../policy/morse/rules.js'
 import type { GhRunner } from '../../ports/gh.js'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { COVERING_REASON, runsCover, runsOf, TestCoverage, withinTouches } from '../../../src/card/covering-tests.js'
-import { admittedReachOf, COMPANION_TABLE, FOLLOWING_REASON, followsTouches, neverFollows, PACKAGE_MANIFEST, publishedRootsOf } from '../../../src/commands/intake/check.js'
+import { admittedReachOf, COMPANION_TABLE, COMPOSITION_ROOT, FOLLOWING_REASON, followsTouches, neverFollows, PACKAGE_MANIFEST, publishedRootsOf } from '../../../src/commands/intake/check.js'
 import { readShiftGate } from '../../../src/manifest.js'
+import { parseCompositionModel } from '../../composition/model.js'
 import { VERIFICATION_WORDS } from '../../core/verification.js'
 import { classify, MorseRefusal } from '../../policy/morse/rules.js'
 import { MATRIX_COUNT_LINE, pathWithoutMatrix } from '../../policy/policy.js'
@@ -102,6 +103,7 @@ const PR_BASE = 'origin/main'
 const SHIFTED_RANGE = `${PR_BASE}...HEAD`
 const PUBLISHED_CODE = COMPANION_TABLE.find(row => row.kind === 'published code') as CompanionRow
 const CHANGESET_FILE = /^\.changeset\/(?!readme\.md$)[^/]+\.md$/i
+const COMPOSITION_MODEL_SUFFIX = '.yaml'
 const CHEAP_DEFAULT_REASON = 'cheap holds as the default path of D-224'
 const REMOVED_LINE = /^-(?!--)(.*)$/gm
 const IMPORT_OR_BLANK = /^\s*(?:import\s.*)?$/
@@ -201,11 +203,26 @@ export function addedSinceBase(git: TreePrPorts['git'], worktree: string, files:
   return new Set(atBase.size === 0 ? [] : files.filter(file => !atBase.has(file)))
 }
 
+function recordAtBase(git: TreePrPorts['git'], worktree: string, file: string): CompositionRecord[] {
+  try {
+    return [parseCompositionModel(git(worktree, ['show', `${PR_BASE}:${file}`]), file)]
+  }
+  catch {
+    return []
+  }
+}
+
+export function compositionRecordsAtBase(git: TreePrPorts['git'], worktree: string): CompositionRecord[] {
+  return listedOrNone(() => git(worktree, ['ls-tree', '-r', '--name-only', PR_BASE, `${COMPOSITION_ROOT}/`]))
+    .filter(file => file.endsWith(COMPOSITION_MODEL_SUFFIX))
+    .flatMap(file => recordAtBase(git, worktree, file))
+}
+
 export function touchesFollowed(outside: readonly string[], reach: FollowingReach, coverage: TestCoverage): TouchesFollowed {
   if (outside.length === 0)
     return { followed: [], outside: [] }
   const covering = new Set(coverage.of(reach.touches))
-  const follows = (file: string): boolean => !neverFollows(file) && (covering.has(file) || followsTouches(file, reach))
+  const follows = (file: string): boolean => !neverFollows(file, reach) && (covering.has(file) || followsTouches(file, reach))
   return { followed: outside.filter(follows), outside: outside.filter(file => !follows(file)) }
 }
 
@@ -214,7 +231,7 @@ export function answerFollowed(git: TreePrPorts['git'], worktree: string, outsid
   const unrun = outside.filter(file => !runsCover(file, reach.runs))
   if (unrun.length === 0)
     return { followed: [], outside: [] }
-  return touchesFollowed(unrun, { touches: reach.touches, added: addedSinceBase(git, worktree, unrun) }, coverage)
+  return touchesFollowed(unrun, { touches: reach.touches, added: addedSinceBase(git, worktree, unrun), compositionRecords: compositionRecordsAtBase(git, worktree) }, coverage)
 }
 
 export function followedLine(followed: readonly string[]): string {
@@ -224,7 +241,8 @@ export function followedLine(followed: readonly string[]): string {
 function changedOutsideTouches(git: TreePrPorts['git'], worktree: string, files: readonly ChangedFile[], touches: readonly string[], runs: readonly string[]): TouchesFollowed {
   const outside = files.map(file => file.path).filter(file => !withinTouches(file, touches) && !runsCover(file, runs))
   const added = new Set(files.filter(file => file.status === 'A').map(file => file.path))
-  return touchesFollowed(outside, { touches, added }, worktreeCoverage(git, worktree))
+  const compositionRecords = outside.length === 0 ? [] : compositionRecordsAtBase(git, worktree)
+  return touchesFollowed(outside, { touches, added, compositionRecords }, worktreeCoverage(git, worktree))
 }
 
 interface FormatGap extends Gap {
@@ -242,7 +260,7 @@ function formatGaps(body: string, shifted: ShiftedPath, publishedRoots: readonly
   if (published !== undefined && !changeset)
     gaps.push({ reason: 'no-changeset', lacks: `the changeset its change to the published ${published} requires`, task: `add a .changeset/*.md file for the change to ${published}`, paths: [] })
   if (outsideTouches.length > 0)
-    gaps.push({ reason: 'outside-touches', lacks: `the card's touches for ${outsideTouches.join(', ')}, which it changes outside them (only a test that covers a touched file, a generated twin or the changeset of a touched file, or one of the card's runs, may change outside the touches, and never a .claude, owner-merges, security or R1 path)`, task: '', paths: [...outsideTouches] })
+    gaps.push({ reason: 'outside-touches', lacks: `the card's touches for ${outsideTouches.join(', ')}, which it changes outside them (only a test that covers a touched file, a generated twin or the changeset of a touched file, a composition record or its document whose node the touches reach at the base, or one of the card's runs, may change outside the touches, and never a .claude, owner-merges, security or other R1 path)`, task: '', paths: [...outsideTouches] })
   return gaps
 }
 

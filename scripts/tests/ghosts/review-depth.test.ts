@@ -1,8 +1,13 @@
 import type { Card } from '../../../src/card/grammar.js'
 import type { DepthSources } from '../../nodes/review/review-depth.js'
-import { describe, expect, it } from 'vitest'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
+import process from 'node:process'
+import { describe, expect, it, vi } from 'vitest'
 import { parseCard } from '../../../src/card/grammar.js'
 import { RISK_LEVELS } from '../../../src/card/risk.js'
+import { COMPOSITION_ROOT } from '../../../src/commands/intake/check.js'
 import { isLadder, reviewBody } from '../../ladder/ladder.js'
 import { REVIEW_DEPTHS, reviewDepth, reviewOf } from '../../ladder/verdict.js'
 import { REVIEW_DEPTHS as BUS_REVIEW_DEPTHS, FULL_DEPTH_RULE, planReview } from '../../nodes/review/review-depth.js'
@@ -75,6 +80,8 @@ describe('bus review depth follows the MORSE instructions rule', () => {
     { file: 'contract/surface.json', touches: [TOUCHED_MODULE], added: [] },
     { file: CARD_CHANGESET, touches: [TOUCHED_MODULE], added: [CARD_CHANGESET] },
     { file: 'src/materialize/factory-manifest.ts', touches: ['architecture/decisions/window-allow-merge.md'], added: [] },
+    { file: 'architecture/composition/intake.yaml', touches: [TOUCHED_MODULE], added: [] },
+    { file: 'architecture/intake.md', touches: [TOUCHED_MODULE], added: [] },
   ])('a file that follows the touches is no finding of the first review: $file', ({ file, touches, added }) => {
     const plan = planReview(lease, null, sourcesOf([...touches, file], touches, added))
     expect(plan).toMatchObject({ depth: 'diff', round: 'first', touchFindings: [] })
@@ -83,9 +90,27 @@ describe('bus review depth follows the MORSE instructions rule', () => {
   it.each([
     { file: 'README.md', added: [] },
     { file: CARD_CHANGESET, added: [] },
+    { file: 'architecture/composition/doctor.yaml', added: [] },
+    { file: 'architecture/doctor.md', added: [] },
   ])('a file that does not follow the touches stays a finding of the first review: $file', ({ file, added }) => {
     const plan = planReview(lease, null, sourcesOf([TOUCHED_MODULE, file], [TOUCHED_MODULE], added))
     expect(plan).toMatchObject({ depth: 'diff', round: 'first', touchFindings: [`${file} is outside the touches of card #1974 (${TOUCHED_MODULE})`] })
+  })
+
+  it('a review reads the composition records of the repository it runs in, not those beside the installed code', () => {
+    const foreignRecord = 'architecture/composition/foreign.yaml'
+    const repository = mkdtempSync(path.join(tmpdir(), 'review-depth-'))
+    mkdirSync(path.join(repository, COMPOSITION_ROOT), { recursive: true })
+    writeFileSync(path.join(repository, foreignRecord), `id: foreign\ntitle: foreign\ndoc: docs/foreign.md\nnodes:\n  - id: entry\n    label: entry\n    path: ${TOUCHED_MODULE}\n`)
+    const cwd = vi.spyOn(process, 'cwd').mockReturnValue(repository)
+    try {
+      const plan = planReview(lease, null, sourcesOf([TOUCHED_MODULE, foreignRecord, 'docs/foreign.md'], [TOUCHED_MODULE]))
+      expect(plan).toMatchObject({ depth: 'diff', round: 'first', touchFindings: [] })
+    }
+    finally {
+      cwd.mockRestore()
+      rmSync(repository, { recursive: true, force: true })
+    }
   })
 
   it.each([

@@ -16,7 +16,7 @@ import { appendEvent, defaultBusPath, openBus } from '../core/db.js'
 import { CARD_CONTINUED, CARD_STARTED, PROCESS_JUDGED, RESTARTED, TASK_EXPIRED, WORKER_DOWN } from '../core/events.js'
 import { FACTORY_NAMED, FACTORY_RUNTIME, FACTORY_WORKERS } from '../core/factory-paths.js'
 import { RESTART_MISSED } from '../core/inbox.js'
-import { closeDrain, expireLeasesHeldBy, HOLDER_DEAD, HOLDER_UNPROVEN, judgeHolders, LEASE_MS, leasesHeldBy, openDrain, WORKER_HUNG } from '../core/lease.js'
+import { closeDrain, expireLeasesHeldBy, HOLDER_DEAD, HOLDER_UNPROVEN, judgeHolders, LEASE_MS, leasesHeldBy, openDrain, retireHolders, retiringPids, WORKER_HUNG } from '../core/lease.js'
 import { LIVE_FLAG } from '../core/node.js'
 import { inForceDecisions } from '../policy/decisions.js'
 import { allowLiveCommand, liveDecisionOf } from '../policy/live-decision.js'
@@ -28,7 +28,7 @@ import { CARD_PROCESS, lastProcessBeats, recordProcessHeartbeat } from './heartb
 import { beatsLive, SILENT_MS } from './liveness-sites.js'
 import { busShadowProblems, startReviewWorker } from './review-bg.js'
 import { stampLogOutput } from './stamp.js'
-import { busLaunches, isBusWorker, switchDetection, switchWorker, wantedLaunches, WORKERS } from './workers.js'
+import { busLaunches, isBusWorker, ROUND_WORKERS, switchDetection, switchWorker, wantedLaunches, WORKERS } from './workers.js'
 
 export const SUPERVISE_FLAG = '--supervise'
 export const ON_FLAG = '--on'
@@ -205,6 +205,7 @@ export interface SupervisorParts {
 
 export interface Drain {
   held: (running: DetachedLaunch[]) => string[]
+  retire: (launch: DetachedLaunch, pids: readonly number[], sha: string, from: string) => string[]
   open: (sha: string, untilMs: number, draining: DetachedLaunch[], from: string) => void
   close: (sha: string, drained: DetachedLaunch[]) => void
 }
@@ -360,6 +361,7 @@ export class BusSupervisor {
       this.settle(head)
       return [...lines, `${PREFIX}main advanced to ${sha} with no change to the code a bus process runs; nothing restarted`]
     }
+    lines.push(...this.retireRounds(scope, head))
     const drained = this.drain(head, scope)
     if (drained.waits)
       return [...lines, ...drained.lines, ...await this.restartEarly(drained.free, head)]
@@ -411,6 +413,18 @@ export class BusSupervisor {
     const relaunched = await this.relaunch(free, head, () => {})
     const notBack = relaunched.down.length === 0 ? '' : `; not brought back: ${relaunched.down.join(', ')}`
     return [`${PREFIX}${free.map(launchName).join(', ')} hold no lease in flight; restarted on ${head} at once, and they lease new tasks while the drain waits${notBack}`, ...relaunched.lines]
+  }
+
+  private retireRounds(scope: RestartScope, head: string): string[] {
+    const drain = this.parts.drain
+    if (drain === undefined)
+      return []
+    const processes = this.parts.processes()
+    return scope.launches.filter(runsRounds).flatMap((launch) => {
+      const pids = instancesOf(processes, launch.markers).map(each => each.pid)
+      const rounds = drain.retire(launch, pids, head, this.codeSha)
+      return rounds.length === 0 ? [] : [`${PREFIX}${launchName(launch)} (pid ${pids.join(', ')}) finishes the rounds it holds on ${this.codeSha} and exits, and new leases go to the worker on ${head}: ${rounds.join(', ')}`]
+    })
   }
 
   private drain(head: string, scope: RestartScope): Drained {
@@ -529,6 +543,20 @@ function workerKindsOf(launches: DetachedLaunch[]): string[] {
   return launches.map(launch => launch.script.replace(/^bus:/, '')).filter(isBusWorker)
 }
 
+function runsRounds(launch: DetachedLaunch): boolean {
+  return workerKindsOf([launch]).some(kind => ROUND_WORKERS.includes(kind))
+}
+
+export function withoutRetiring(processes: ProcessList, db: DatabaseSync, holding: () => boolean = () => false): ProcessList {
+  return () => {
+    const listed = processes()
+    if (holding())
+      return listed
+    const retiring = retiringPids(db)
+    return listed.filter(each => !retiring.has(each.pid))
+  }
+}
+
 export function lstartToIso(line: string): string | null {
   const ms = Date.parse(line.trim())
   return Number.isNaN(ms) ? null : new Date(ms).toISOString()
@@ -569,6 +597,7 @@ export function busDrain(db: DatabaseSync, ts: () => string, startOf?: ProcessSt
         judgeHolders(db, ts(), startOf)
       return leasesHeldBy(db, workerKindsOf(running))
     },
+    retire: (launch, pids, sha, from) => workerKindsOf([launch]).flatMap(node => retireHolders(db, ts(), { node, pids, sha, from })),
     open: (sha, untilMs, draining, from) => {
       const at = ts()
       for (const node of workerKindsOf(draining))
@@ -998,7 +1027,7 @@ export interface SwitchControl {
 async function supervise(busDir: string, cwd: string, reviewPreflight: () => string[]): Promise<number> {
   const busPath = defaultBusPath()
   const db = openBus(busPath)
-  const processes = psList()
+  const everyProcess = psList()
   const journal = (entry: Record<string, unknown>): void => {
     appendFileSync(path.join(busDir, SUPERVISOR_JOURNAL), `${JSON.stringify(entry)}\n`)
   }
@@ -1007,14 +1036,15 @@ async function supervise(busDir: string, cwd: string, reviewPreflight: () => str
   const nodes = new RecordedNodes(busPath, {
     signal,
     alive,
-    runsNodeOfThisBus: (pid, script) => known.some(launch => launch.script === script && instancesOf(processes(), launch.markers).some(each => each.pid === pid && provenOnBus(each, thisBus()))),
-    runningOnThisBus: () => known.flatMap(launch => instancesOf(processes(), launch.markers).map(each => `${launch.script} (pid ${each.pid})`)),
+    runsNodeOfThisBus: (pid, script) => known.some(launch => launch.script === script && instancesOf(everyProcess(), launch.markers).some(each => each.pid === pid && provenOnBus(each, thisBus()))),
+    runningOnThisBus: () => known.flatMap(launch => instancesOf(everyProcess(), launch.markers).map(each => `${launch.script} (pid ${each.pid})`)),
     pause: sleep,
     now: () => new Date(),
   })
+  const processes = withoutRetiring(everyProcess, db, () => nodes.held())
   const start = (launch: DetachedLaunch): BgResult => nodes.started(launch, startReviewWorker(launch, busDir, process.env, processes))
   const wanted = (): DetachedLaunch[] => nodes.held() ? [] : wantedLaunches(busDir, reviewPreflight, inForceDecisions(db))
-  foreignBusLines(processes(), ownPackage()).forEach(line => console.log(line))
+  foreignBusLines(everyProcess(), ownPackage()).forEach(line => console.log(line))
   recordStarted(db, new Date().toISOString(), code, line => console.log(line))
   const supervisor = new BusSupervisor({
     known: busLaunches(reviewPreflight),
@@ -1120,8 +1150,21 @@ function freeLeasesOnBus(stopped: DetachedLaunch[]): string[] {
   }
 }
 
-export async function startBus(busDir: string = pinnedBusDir(), processes: ProcessList = psList()): Promise<BgResult> {
-  const judged = await restartSilentSupervisorOnBus(busDir, processes)
+function withoutRetiringOnBus(processes: ProcessList): ProcessList {
+  return () => {
+    const db = openBus(defaultBusPath())
+    try {
+      return withoutRetiring(processes, db)()
+    }
+    finally {
+      db.close()
+    }
+  }
+}
+
+export async function startBus(busDir: string = pinnedBusDir(), everyProcess: ProcessList = psList()): Promise<BgResult> {
+  const processes = withoutRetiringOnBus(everyProcess)
+  const judged = await restartSilentSupervisorOnBus(busDir, everyProcess)
   const started = await startUnderAgentEnv(busDir, [...wantedLaunches(busDir, reviewPreflight, decisionsInForce()), SUPERVISOR_LAUNCH], {
     env: process.env,
     processes,
