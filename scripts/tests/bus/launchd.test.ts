@@ -67,4 +67,11 @@ describe('the bus agent keeps the supervisor alive', () => {
     expect(keys.has('WorkingDirectory')).toBe(false)
     expect(keys.has('StandardOutPath')).toBe(false)
   })
+
+  it('asks for the owner\'s two values through placeholders and names neither', () => {
+    expect([...plist.matchAll(/\{\{(\w+)\}\}/g)].map(match => match[1]).sort()).toEqual(['factoryDir', 'tokenSource'])
+    expect(shellLine).toContain('cd {{factoryDir}} &&')
+    expect(shellLine).toContain('GH_TOKEN="$({{tokenSource}})" &&')
+    expect(shellLine).not.toMatch(/gh auth token|launchctl setenv/)
+  })
 })

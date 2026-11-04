@@ -12,6 +12,7 @@ import { CARD_ADMITTED } from '../scripts/core/events.js'
 import { ghInRepositoryOf, noGitRemoteReason } from '../scripts/core/places.js'
 import { keepDryRun } from '../scripts/nodes/review/dry-run-record.js'
 import { reviewsDir } from '../scripts/nodes/review/review-worker.js'
+import { renderAgent } from '../scripts/supervisor/launchd/install.js'
 import { gitCode, recordStarted, switchCommand } from '../scripts/supervisor/supervisor.js'
 import { switchedOn } from '../scripts/supervisor/workers.js'
 import { BOARD_FILE } from '../scripts/window/board.js'
@@ -243,26 +244,26 @@ describe('per-repository bus home', () => {
 })
 
 describe('the gh token stays with gh', () => {
-  it('the launchd job starts the bus in the factory checkout with no token, and names the variable it lacks', () => {
-    const shellLine = [...readFileSync(PLIST, 'utf8').matchAll(/<string>([^<]*)<\/string>/g)].map(match => match[1]!).at(-1)!.replaceAll('&gt;', '>').replaceAll('&lt;', '<').replaceAll('&amp;', '&')
+  it('the rendered launchd job starts the bus in the factory checkout with what the token source prints, and does not start when the source fails', () => {
     const factory = path.join(scratch, 'factory')
+    const shellLineWith = (tokenSource: string): string => [...renderAgent(readFileSync(PLIST, 'utf8'), { factoryDir: factory, tokenSource }).matchAll(/<string>([^<]*)<\/string>/g)].map(match => match[1]!).at(-1)!.replaceAll('&gt;', '>').replaceAll('&lt;', '<').replaceAll('&apos;', '\'').replaceAll('&amp;', '&')
     const bin = path.join(home, '.local', 'bin')
     mkdirSync(factory)
     mkdirSync(bin, { recursive: true })
     const calls = path.join(scratch, 'calls')
     writeFileSync(path.join(bin, 'pnpm'), `#!/bin/sh\necho "$(pwd) $* token=\${GH_TOKEN:-none}" >> "${calls}"\n`, { mode: 0o755 })
-    const started = spawnSync('/bin/sh', ['-c', shellLine], { env: { HOME: home, CONSTRUCT_FACTORY_DIR: factory }, encoding: 'utf8' })
+    const started = spawnSync('/bin/sh', ['-c', shellLineWith(`echo ${FAKE_TOKEN}`)], { env: { HOME: home }, encoding: 'utf8' })
     expect(started.status).toBe(0)
-    expect(readFileSync(calls, 'utf8')).toBe(`${factory} --silent bus:bg token=none\n`)
+    expect(readFileSync(calls, 'utf8')).toBe(`${factory} --silent bus:bg token=${FAKE_TOKEN}\n`)
 
-    const unset = spawnSync('/bin/sh', ['-c', shellLine], { env: { HOME: home }, encoding: 'utf8' })
-    expect(unset.status).not.toBe(0)
-    expect(readFileSync(path.join(home, '.construct', 'dev.mikoshi.bus.log'), 'utf8')).toContain('CONSTRUCT_FACTORY_DIR')
+    const failing = spawnSync('/bin/sh', ['-c', shellLineWith('false')], { env: { HOME: home }, encoding: 'utf8' })
+    expect(failing.status).not.toBe(0)
+    expect(readFileSync(calls, 'utf8')).toBe(`${factory} --silent bus:bg token=${FAKE_TOKEN}\n`)
   })
 
   it('the token of the current gh appears in no file under the construct home and in no bus event', () => {
     const plist = readFileSync(PLIST, 'utf8')
-    expect(plist).not.toMatch(/GH_TOKEN|gh auth token/)
+    expect(plist).not.toMatch(/gh auth token/)
 
     process.env.GH_TOKEN = FAKE_TOKEN
     const repo = foreignRepo(scratch, 'git@github.com:acme/widgets.git')
