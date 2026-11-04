@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url'
 import { parseParkingFile } from '../../../src/card/parking.js'
 import { readShiftGate } from '../../../src/manifest.js'
 import { appendEvent, BUSY_TIMEOUT_MS, defaultBusPath, openBus } from '../../core/db.js'
-import { CARD_STARTED, CARD_STOPPED, CARD_WAITING, PR_OPENED, QUESTION_AGENT, TOUCHES_FOLLOWED } from '../../core/events.js'
+import { CARD_CONTINUED, CARD_STARTED, CARD_STOPPED, CARD_WAITING, PR_OPENED, QUESTION_AGENT, TOUCHES_FOLLOWED } from '../../core/events.js'
 import { treeReportPath } from '../../core/places.js'
 import { pushPolicyOf } from '../../core/push-policy.js'
 import { openDatabase } from '../../core/sqlite.js'
@@ -17,6 +17,7 @@ import { execGh, stdoutOrThrow } from '../../ports/gh.js'
 import { sessionEnv } from '../../ports/session.js'
 import { settingsFlag, shiftSettings } from '../../ports/shift-settings.js'
 import { cardSessionOf } from '../answer/answer-source.js'
+import { reachedContextLine } from './continuation.js'
 import { CARD_MCP_FLAGS, CARD_PERMISSION_MODE } from './launch-starter.js'
 import { collectReport, missingReportDetail, REPORT_MISSING } from './report-collect.js'
 import { followedLine, refusalOf, shiftTreeCard, treePr } from './tree-pr.js'
@@ -44,6 +45,7 @@ export interface TreePrCliPorts extends TreePrPorts {
   returned: (cardId: number, code: string, why: string) => void
   resume: (cardId: number, worktree: string, prompt: string) => boolean
   collect?: (worktree: string, saved: string) => ReportCollection
+  atContextLine?: (cardId: number, worktree: string) => boolean
 }
 
 export interface PrOpenedBus {
@@ -167,6 +169,23 @@ export function claudeResume(busPath: string, claude = 'claude', ceilingMs = RET
   }
 }
 
+const LATEST_TURN_OF_THE_CARD = `SELECT type, json_extract(payload, '$.session') AS session FROM events WHERE card_id = ? AND legacy = 0 AND type IN ('${CARD_STARTED}', '${CARD_CONTINUED}', '${CARD_STOPPED}') ORDER BY id DESC LIMIT 1`
+
+export function busAtContextLine(busPath: string): NonNullable<TreePrCliPorts['atContextLine']> {
+  return (cardId, worktree) => {
+    if (!existsSync(busPath))
+      return false
+    const db = openDatabase(busPath, { readOnly: true, timeout: BUSY_TIMEOUT_MS })
+    try {
+      const turn = db.prepare(LATEST_TURN_OF_THE_CARD).get(cardId) as { type: string, session: unknown } | undefined
+      return turn !== undefined && turn.type !== CARD_STOPPED && typeof turn.session === 'string' && reachedContextLine(worktree, turn.session)
+    }
+    finally {
+      db.close()
+    }
+  }
+}
+
 export function busCardText(busPath: string): TreePrCliPorts['card'] {
   return (cardId) => {
     if (!existsSync(busPath))
@@ -198,6 +217,7 @@ const REAL_PORTS: TreePrCliPorts = {
   returned: busCardReturned(REAL_BUS),
   resume: claudeResume(REAL_BUS.busPath),
   collect: collectReport,
+  atContextLine: busAtContextLine(REAL_BUS.busPath),
 }
 
 function cardIdOf(word: string): number | null {
@@ -218,6 +238,10 @@ export function runTreePr(argv: string[], ports: TreePrCliPorts = REAL_PORTS, ou
   if (cardId === null || worktree === undefined) {
     out(`${PREFIX}usage: tree-pr <card id> <worktree> [<session report>]`)
     return 2
+  }
+  if (ports.atContextLine?.(cardId, worktree) === true) {
+    out(`${PREFIX}card #${cardId}: the session stopped at the context warn, so the tree is left as it is and nothing is pushed; the bus continues the card from its handoff`)
+    return 0
   }
   const refuse = (why: string, reason: RefusalReason): number => {
     ports.stopped(cardId, why, refusalOf([{ reason, task: '', paths: [] }]).code)

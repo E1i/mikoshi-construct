@@ -67,8 +67,8 @@ describe('eddiesEvidence', () => {
       { event: 'unread', hook: 'eddies-prompt', session_id: 'a' },
       { event: 'unread', hook: 'eddies-guard', session_id: 'b' },
     ].map(line => JSON.stringify(line)).join('\n')
-    expect(eddiesEvidence(`${journal}\nnot json`, 'a')).toEqual({ warned: true, stopped: false, refused: false })
-    expect(eddiesEvidence(journal, 'b')).toEqual({ warned: false, stopped: true, refused: true })
+    expect(eddiesEvidence(`${journal}\nnot json`, 'a')).toEqual({ warned: true, atContextLine: false, stopped: false, refused: false })
+    expect(eddiesEvidence(journal, 'b')).toEqual({ warned: false, atContextLine: false, stopped: true, refused: true })
   })
 
   it.each([
