@@ -20,7 +20,7 @@ import { cardLine, parseCard } from '../../card/grammar.js'
 import { createdPaths, parseParkingFile } from '../../card/parking.js'
 import { PREFIX_SUFFIX } from '../../card/task-file.js'
 import { readMilestones } from '../../manifest.js'
-import { CARD_REFERENCE, checkDraft, correctionText, invalidTestPatterns, isChangeWitness, OWNER_MERGES, ownerPathsOf, PACKAGE_MANIFEST, publishedRootsOf } from './check.js'
+import { CARD_REFERENCE, checkDraft, correctionText, invalidTestPatterns, isChangeWitness, nonPathTouchRefusals, OWNER_MERGES, ownerPathsOf, PACKAGE_MANIFEST, publishedRootsOf } from './check.js'
 import { TEST_NAME_ARGUMENT } from './command-word.js'
 import { admitCorrectionsNeedPerson, bodySha, bodyShaWithoutTouches, confirmationOf, confirmationToken, TOUCHES_HEADER } from './confirm.js'
 import { withoutWitnessKind } from './draft.js'
@@ -471,6 +471,10 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
   const invalidPatterns = invalidTestPatterns([draft])
   if (invalidPatterns.length > 0)
     return { status: 'invalidTestPattern', reasons: invalidPatterns }
+  const repository = new DirectoryFacts(options.dir, process.env.PATH ?? '')
+  const nonPaths = nonPathTouchRefusals([draft], repository)
+  if (nonPaths.length > 0)
+    return { status: 'refused', why: nonPaths.join('; ') }
   const cards = options.cardStates?.()
   const parked = new Set(parkedNumbers(parkedAcrossLanes(options.file, options.parkingRoot ?? defaultParking())))
   const ended = endedCards(cards)
@@ -479,7 +483,7 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
     parked: knownCards(parked, cards),
     done: ended,
     merged: ended,
-    repository: new DirectoryFacts(options.dir, process.env.PATH ?? ''),
+    repository,
     ...(ownerMerges === null ? {} : { ownerMerges: ownerPathsOf(ownerMerges) }),
     ...(published === undefined ? {} : { published }),
   }) as [CheckedCard]
