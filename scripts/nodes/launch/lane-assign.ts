@@ -412,27 +412,47 @@ function touchHolders(cards: readonly ReflowCard[], rows: readonly AdmittedRow[]
   return cards.filter(card => running.has(card.cardId) || openPrs.has(card.cardId))
 }
 
-function chainIn(card: ReflowCard, cards: readonly ReflowCard[], shared: readonly string[]): ReflowCard[] {
-  const lane = cards.filter(other => other.lane === card.lane)
-  const chain = [card]
-  for (let index = 0; index < chain.length; index += 1) {
-    for (const other of lane) {
-      if (!chain.includes(other) && chainedTo(chain[index]!, other, shared))
-        chain.push(other)
+function closure(seed: readonly ReflowCard[], candidates: readonly ReflowCard[], joins: (candidate: ReflowCard, member: ReflowCard) => boolean): ReflowCard[] {
+  const closed = [...seed]
+  for (let index = 0; index < closed.length; index += 1) {
+    for (const candidate of candidates) {
+      if (!closed.includes(candidate) && joins(candidate, closed[index]!))
+        closed.push(candidate)
     }
   }
-  return chain
+  return closed
 }
 
-function movable(db: DatabaseSync, chain: readonly ReflowCard[], cards: readonly ReflowCard[], holders: readonly ReflowCard[], shared: readonly string[]): boolean {
+function chainIn(card: ReflowCard, cards: readonly ReflowCard[], shared: readonly string[]): ReflowCard[] {
+  return closure([card], cards.filter(other => other.lane === card.lane), (other, member) => chainedTo(member, other, shared))
+}
+
+function notReadyIn(chain: readonly ReflowCard[], cards: readonly ReflowCard[], holders: readonly ReflowCard[], shared: readonly string[]): ReflowCard[] {
   const members = new Set(chain.map(card => card.cardId))
   const live = new Set(cards.map(card => card.cardId))
-  return cards.some(other => other.lane === chain[0]!.lane && !members.has(other.cardId))
-    && chain.every(card => card.waiting
-      && card.task !== null
-      && !holders.some(holder => holder.cardId === card.cardId || overlaps(card.task, holder.task, shared))
-      && card.depends.every(parent => members.has(parent) || !live.has(parent))
-      && latestAssignment(db, card.cardId)?.reason !== 'moved')
+  const waitsOutside = chain.filter(card => !card.waiting
+    || card.task === null
+    || holders.some(holder => holder.cardId === card.cardId || overlaps(card.task, holder.task, shared))
+    || card.depends.some(parent => !members.has(parent) && live.has(parent)))
+  return closure(waitsOutside, chain, (other, member) => other.depends.includes(member.cardId))
+}
+
+function staysWith(db: DatabaseSync, ready: readonly ReflowCard[], notReady: readonly ReflowCard[], shared: readonly string[]): ReflowCard[] {
+  const anchored = ready.filter(card => latestAssignment(db, card.cardId)?.reason === 'moved' || notReady.some(other => other.depends.includes(card.cardId)))
+  return closure(anchored, ready, (other, member) => chainedTo(member, other, shared))
+}
+
+function movableParts(db: DatabaseSync, chain: readonly ReflowCard[], cards: readonly ReflowCard[], holders: readonly ReflowCard[], shared: readonly string[]): ReflowCard[][] {
+  const notReady = notReadyIn(chain, cards, holders, shared)
+  const ready = chain.filter(card => !notReady.includes(card))
+  const staying = staysWith(db, ready, notReady, shared)
+  const parts: ReflowCard[][] = []
+  const moving = ready.filter(card => !staying.includes(card))
+  for (const card of [...moving].sort(startOrder(cards))) {
+    if (!parts.some(part => part.includes(card)))
+      parts.push(chainIn(card, moving, shared))
+  }
+  return parts.filter(part => cards.some(other => other.lane === part[0]!.lane && !part.includes(other)))
 }
 
 function reflowLanes(db: DatabaseSync, count: number, ts: string, actor: string, shared: readonly string[]): number {
@@ -448,13 +468,15 @@ function reflowLanes(db: DatabaseSync, count: number, ts: string, actor: string,
       continue
     const chain = chainIn(card, cards, shared)
     chain.forEach(member => seen.add(member.cardId))
-    if (!movable(db, chain, cards, holders, shared))
-      continue
-    const lane = empty.shift()!
-    for (const member of chain) {
-      member.lane = lane
-      if (assign(db, member.cardId, member.admission, { lane, reason: 'reflowed', after: [] }, count, ts, actor))
-        moved += 1
+    for (const part of movableParts(db, chain, cards, holders, shared)) {
+      const lane = empty.shift()
+      if (lane === undefined)
+        break
+      for (const member of part) {
+        member.lane = lane
+        if (assign(db, member.cardId, member.admission, { lane, reason: 'reflowed', after: [] }, count, ts, actor))
+          moved += 1
+      }
     }
   }
   return moved
