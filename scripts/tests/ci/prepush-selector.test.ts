@@ -178,6 +178,14 @@ describe('the session pre-push runs the CI selector over the session diff', () =
       expect(existsSync(path.join(REPO_ROOT, entry.file)), entry.file).toBe(true)
   })
 
+  it('a listed test reached through an import is not run in the session', () => {
+    const run: Run = { kind: 'layers', layers: ['witness'], tests: ['scripts/tests/witness/imports-print.test.ts'] }
+    const args = sessionArgs(run, LISTED)
+    expect(args).toEqual([...ciArgs(run), '-t', '^(?!(?:print > spawns ps)$)'])
+    expect(new RegExp(args.at(-1)!).test('print > spawns ps')).toBe(false)
+    expect(new RegExp(args.at(-1)!).test('print > prints')).toBe(true)
+  })
+
   it('a new red test outside the sandbox list blocks the push', () => {
     const run: Run = { kind: 'layers', layers: ['notes'], tests: ['scripts/tests/notes/print.test.ts'] }
     expect(sessionArgs(run, LISTED)).not.toContain('scripts/tests/notes/parse.test.ts')

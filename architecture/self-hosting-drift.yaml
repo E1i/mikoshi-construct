@@ -151,6 +151,12 @@ differences:
       This repository's probe skill links window.md and AGENTS.md and closes through pnpm task:close; the
       template keeps the boundaries, the evidence classes and the close without them. The repository
       copy is owner-merged.
+  - path: .claude/skills/window-recipes/SKILL.md
+    kind: skipped-at-init
+    reason: >-
+      This repository's table names its own pnpm scripts; the template names the commands a generated
+      repository has, which tests/window-recipes-template.test.ts asks for their --help. The manifest
+      does not record this copy, and its description is the same as the template's.
   - path: architecture/owner-merges.md
     kind: skipped-at-init
     reason: >-
