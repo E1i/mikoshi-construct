@@ -14,7 +14,7 @@ import { textSha } from '../../../src/card/text-sha.js'
 import { BUS_DB_VARIABLE, busDirOf } from '../../core/bus-path.js'
 import { factoryMode } from '../../core/card-bodies.js'
 import { appendEvent, openBus } from '../../core/db.js'
-import { BOARD_ALARM, CARD_ADMITTED, CARD_STOPPED, OWNER_WAIT_OPENED, PR_CLOSED, REQUEST_DONE, REQUEST_REFUSED, SHARD_ISSUED, WINDOW_REQUEST } from '../../core/events.js'
+import { BOARD_ALARM, BUS_PULSE, CARD_ADMITTED, CARD_DROPPED, CARD_STOPPED, OWNER_WAIT_OPENED, PR_CLOSED, PR_OPENED, REQUEST_DONE, REQUEST_REFUSED, SHARD_ISSUED, WINDOW_REQUEST } from '../../core/events.js'
 import { prBodySha, taskKey } from '../../core/identifiers.js'
 import { ownerInbox } from '../../core/inbox.js'
 import { failTask, leaseNext } from '../../core/lease.js'
@@ -32,6 +32,7 @@ import { decisionsInForceAt } from '../../policy/shards.js'
 import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
 import { NetWatch } from '../../ports/netwatch.js'
 import { BusTick } from '../../supervisor/run.js'
+import { productionDeps, STALL_MS } from '../../window/watch.js'
 import { countLineAppender, decisionsAdder, realRequestTools, worktreesHolding } from '../../window/window-request-tools.js'
 import { ALLOW_MERGE_RECORD, ANSWER_SOURCE, pendingRequests, PREFIX, REQUEST_KINDS, REQUEST_RULE, requestFromWindow, runRequest, USAGE, WindowRequests } from '../../window/window-requests.js'
 import { cardBody, sha } from './github-fake.js'
@@ -559,6 +560,79 @@ describe('requests from the sandboxed window, executed by the bus outside it', (
       withLiveShard(made)
       ask(made, { ...WAIT, need: 'decision' })
       expect(made.requests().run()).toMatchObject([{ kind: 'done', detail: 'opened Q1' }])
+    })
+  })
+
+  describe('a drop request', () => {
+    const REASON = 'a wrong link to a docs pull request'
+    const STALE_MS = STALL_MS + 60_000
+
+    function inReviewWithNoBody(made: Room): void {
+      const { db } = made.bench
+      appendEvent(db, { ts: new Date(Date.now() - STALE_MS).toISOString(), type: PR_OPENED, actor: 'worker:shift:1', cardId: CARD, pr: PR, head: null, dedupeKey: `${PR_OPENED}:${PR}`, payload: { pr: PR, lease_gen: 0 }, legacy: false })
+      appendEvent(db, { ts: new Date().toISOString(), type: BUS_PULSE, actor: 'worker:netwatch:bus', cardId: null, pr: null, head: null, dedupeKey: `${BUS_PULSE}:drop`, payload: {}, legacy: false })
+      reduce(db)
+    }
+
+    function stateOfCard(made: Room): unknown {
+      return (made.bench.db.prepare('SELECT state FROM cards WHERE card_id = ?').get(CARD) as { state: unknown } | undefined)?.state
+    }
+
+    it('a card with no body in review is dropped with its reason and its stall warning goes', () => {
+      const made = room()
+      inReviewWithNoBody(made)
+      const stalls = (): number[] => productionDeps(made.root, made.bench.busPath).stalls().map(stall => stall.cardId)
+      expect(stateOfCard(made)).toBe('in_review')
+      expect(stalls()).toEqual([CARD])
+
+      expect(runRequest(['drop', '--card', String(CARD), '--reason', REASON], made.bench.db, made.bench.clock.now(), SESSION, () => {})).toBe(0)
+      expect(made.requests().run()).toMatchObject([{ kind: 'done', detail: `${CARD_DROPPED} #${CARD}: ${REASON}` }])
+      reduce(made.bench.db)
+
+      expect(stateOfCard(made)).toBe('dropped')
+      expect(stalls()).toEqual([])
+      const dropped = made.bench.db.prepare('SELECT actor, card_id, payload FROM events WHERE type = ?').all(CARD_DROPPED) as { actor: string, card_id: number, payload: string }[]
+      expect(dropped).toHaveLength(1)
+      expect(dropped[0]).toMatchObject({ actor: `worker:window:${SESSION}`, card_id: CARD })
+      expect(JSON.parse(dropped[0]!.payload)).toMatchObject({ reason: REASON })
+    })
+
+    it('a drop request is refused for a card with a body and names the intake route', () => {
+      const made = room()
+      inReviewWithNoBody(made)
+      admitBody(made, CARD, 'a card line', 'feat/card')
+      const request = ask(made, { kind: 'drop', card: CARD, reason: REASON })
+      expect(made.requests().run()).toEqual([{ kind: 'refused', request, detail: `card #${CARD} has an admitted body; it drops with pnpm intake --move '#${CARD}' --to dropped` }])
+      expect(eventsOf(made.bench.db, CARD_DROPPED)).toEqual([])
+      expect(stateOfCard(made)).toBe('in_review')
+    })
+
+    it('a drop request is refused for a card that has ended, naming its state', () => {
+      const made = room()
+      inReviewWithNoBody(made)
+      ask(made, { kind: 'drop', card: CARD, reason: REASON })
+      made.requests().run()
+      reduce(made.bench.db)
+      const again = ask(made, { kind: 'drop', card: CARD, reason: REASON })
+      expect(made.requests().run()).toEqual([{ kind: 'refused', request: again, detail: `card #${CARD} is dropped; there is nothing to drop` }])
+      expect(eventsOf(made.bench.db, CARD_DROPPED)).toHaveLength(1)
+    })
+
+    it('a drop request is refused for a number the bus holds no card under', () => {
+      const made = room()
+      const request = ask(made, { kind: 'drop', card: CARD, reason: REASON })
+      expect(made.requests().run()).toEqual([{ kind: 'refused', request, detail: `the bus holds no card #${CARD}` }])
+      expect(eventsOf(made.bench.db, CARD_DROPPED)).toEqual([])
+    })
+
+    it('a drop request with no reason is refused by the bus and not written by the command', () => {
+      const made = room()
+      inReviewWithNoBody(made)
+      const request = ask(made, { kind: 'drop', card: CARD, reason: '  ' })
+      expect(made.requests().run()).toEqual([{ kind: 'refused', request, detail: 'drop needs a card and the reason it is dropped' }])
+      expect(eventsOf(made.bench.db, CARD_DROPPED)).toEqual([])
+      expect(runRequest(['drop', '--card', String(CARD)], made.bench.db, made.bench.clock.now(), SESSION, () => {})).toBe(2)
+      expect(made.requests().run()).toEqual([])
     })
   })
 

@@ -24,7 +24,7 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { parseParkingFile } from '../../../src/card/parking.js'
 import { NOT_A_BACKFILL } from '../../core/backfill-source.js'
-import { busDirOf, busPathOf, machineBusPath } from '../../core/bus-path.js'
+import { busPathOf, machineBusPath } from '../../core/bus-path.js'
 import { DROPPED_CARD, RUNNING_CARD } from '../../core/card-automaton.js'
 import { bodyNotFoldedYet, CARD_BODIES, cardBodyText, pathsOutsideTheBody } from '../../core/card-bodies.js'
 import { appendEvent, BUSY_TIMEOUT_MS, defaultBusPath, inTransaction, openBus, openOwnerWait } from '../../core/db.js'
@@ -50,6 +50,7 @@ import { prepareBeforeSession, prepareTree } from '../../ports/prepare-tree.js'
 import { promptsDirOf, storedInput } from '../../ports/prompt-store.js'
 import { sessionEnv } from '../../ports/session.js'
 import { CARD_SESSION_SANDBOX } from '../../ports/shift-settings.js'
+import { builtTreePr, HTTPS_ORIGIN_ENV, launchDirOf, TREE_PR_ENTRY, treeHoldsACommit, treePrCommand, treePrPublisher } from '../../ports/tree-publish.js'
 import { cardTree } from '../../ports/worktree-home.js'
 import { BUILD_DIR, BUILT_MODULE, builtEntryOf, installedPackage } from '../../supervisor/bg.js'
 import { heartbeatEnv, lastHeartbeat } from '../../supervisor/heartbeat.js'
@@ -58,7 +59,7 @@ import { launchProcess, REAL_PROCESSES } from '../restart/chain-process.js'
 import { continuationRefusal, CONTINUE_PROMPT, eddiesEvidence, MAX_RESTARTS } from './continuation.js'
 import { laneOverlapRecorder, layLanes, repositoryLanes } from './lane-assign.js'
 import { LaunchExecutor } from './launch-executor.js'
-import { cardCommand, gitChangedPaths, HTTPS_ORIGIN_ENV, killQuietly, psPgid, shellWord, ShiftCardStarter, spawnDetached, treePrCommand } from './launch-starter.js'
+import { cardCommand, gitChangedPaths, killQuietly, psPgid, ShiftCardStarter, spawnDetached } from './launch-starter.js'
 import { LEGACY_REASON, WITHDRAW_LEGACY_FLAG, withdrawLegacyLaunchTasks } from './launch-withdraw.js'
 import { renderPrompt } from './prompt.js'
 import { collectReport, missingReportDetail, recordedExitCode, REPORT_MISSING } from './report-collect.js'
@@ -66,27 +67,22 @@ import { transcriptFile } from './session-journal.js'
 import { reportClosingOf } from './tree-pr.js'
 
 export const PREFIX = prefixOf('launch')
-export const LAUNCH_DIR = 'launch'
 
 const TASK_START_SCRIPT = 'task:start'
-export const TREE_PR_ENTRY = FACTORY_RUNTIME.shiftTreePr.replace(/\.ts$/, '')
 export const HEADER_FILE = path.join(import.meta.dirname, '..', '..', '..', FACTORY_RUNTIME.shiftHeader)
+
+export { launchDirOf }
 
 export function publishedTreePr(repo: string, installed: string | null): string {
   if (installed === null)
     return treePrCommand(repo)
-  return `${shellWord(process.execPath)} ${shellWord(path.join(installed, BUILD_DIR, `${TREE_PR_ENTRY}${BUILT_MODULE}`))}`
+  return builtTreePr(path.join(installed, BUILD_DIR, `${TREE_PR_ENTRY}${BUILT_MODULE}`))
 }
 
 export function taskStartCommand(installed: string | null): { file: string, args: string[] } {
   if (installed === null)
     return { file: 'pnpm', args: ['--silent', TASK_START_SCRIPT] }
   return { file: process.execPath, args: [builtEntryOf(installed, TASK_START_SCRIPT)] }
-}
-
-export function launchDirOf(home: string, busPath: string): string {
-  const resolved = path.resolve(busPath)
-  return resolved === machineBusPath(home) ? path.join(path.dirname(resolved), 'shift', LAUNCH_DIR) : path.join(busDirOf(resolved), LAUNCH_DIR)
 }
 
 export function launchPlaces(home: string, repo: string, busPath: string = machineBusPath(home), installed: string | null = installedPackage()): StarterPlaces {
@@ -703,22 +699,9 @@ export function eddiesWarned(card: StartedCard): boolean {
   return existsSync(journal) && eddiesEvidence(readFileSync(journal, 'utf8'), card.session).warned
 }
 
-export function treePrPublisher(treePr: string, launchDir: string, env: NodeJS.ProcessEnv): (card: StartedCard, start: SessionStart) => void {
-  return (card, start) => {
-    try {
-      execFileSync('sh', ['-c', `${treePr} ${start.cardId} ${shellWord(card.worktree)} ${shellWord(reportPath(launchDir, String(start.cardId)))}`], { env: { ...env, ...HTTPS_ORIGIN_ENV }, stdio: 'ignore' })
-    }
-    catch {}
-  }
-}
-
-export function treeHoldsACommit(card: StartedCard): boolean {
-  try {
-    return Number(execFileSync('git', ['-C', card.worktree, 'rev-list', '--count', `${card.base}..HEAD`], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim()) > 0
-  }
-  catch {
-    return false
-  }
+function startedCardPublisher(treePr: string, launchDir: string, env: NodeJS.ProcessEnv): (card: StartedCard, start: SessionStart) => void {
+  const publish = treePrPublisher(treePr, launchDir, env)
+  return (card, start) => publish(card.worktree, start.cardId)
 }
 
 export function reportResultLine(launchDir: string): (start: SessionStart) => string | null {
@@ -735,7 +718,7 @@ export async function runLaunchWorker(argv: string[], run: LaunchRun): Promise<n
     return runWithdrawLegacy(run.busPath, () => new Date())
   let node: LaunchNode | undefined
   const build = (db: DatabaseSync, mode: DetectionMode): LaunchNode => {
-    node = new LaunchNode({ db, starter: run.starter, ladder: run.ladder, clock: () => new Date(), session: run.session, mode, env: process.env, isolation: run.isolation, resulted: sessionLeftAResult(run.launchDir), endedWith: reportResultLine(run.launchDir), handedOff: handoffWrittenSince(run.launchDir), reportOf: reportSince(run.launchDir), collected: reportCollector(run.launchDir), warned: eddiesWarned, ...(run.treePr === undefined ? {} : { publish: treePrPublisher(run.treePr, run.launchDir, process.env), committed: treeHoldsACommit }), continuer: run.continuer, prompts: promptsDirOf(run.busPath) })
+    node = new LaunchNode({ db, starter: run.starter, ladder: run.ladder, clock: () => new Date(), session: run.session, mode, env: process.env, isolation: run.isolation, resulted: sessionLeftAResult(run.launchDir), endedWith: reportResultLine(run.launchDir), handedOff: handoffWrittenSince(run.launchDir), reportOf: reportSince(run.launchDir), collected: reportCollector(run.launchDir), warned: eddiesWarned, ...(run.treePr === undefined ? {} : { publish: startedCardPublisher(run.treePr, run.launchDir, process.env), committed: (card: StartedCard) => treeHoldsACommit(card.worktree, card.base) }), continuer: run.continuer, prompts: promptsDirOf(run.busPath) })
     return node
   }
   const pause = async (ms: number): Promise<unknown> => {

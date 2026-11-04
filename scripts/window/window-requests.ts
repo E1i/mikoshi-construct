@@ -14,9 +14,9 @@ import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { CLOSED_CARD, DROPPED_CARD, MERGED_CARD } from '../core/card-automaton.js'
-import { FACTORY_MODES, isFactoryMode } from '../core/card-bodies.js'
+import { cardBodyText, FACTORY_MODES, isFactoryMode } from '../core/card-bodies.js'
 import { appendEvent, CLOSED_WAIT, closeOwnerWait, defaultBusPath, inTransaction, isOwnerWaitNeed, OPEN_WAIT, openBus, openOwnerWait, OWNER_WAIT_NEEDS, OWNER_WAITS } from '../core/db.js'
-import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_HELD, CARD_PLANNED, CARD_RELEASED, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, CARD_TAKEOVER, CARD_UNPLANNED, FACTORY_MODE, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PLAN_BACKFILLED, PLAN_CLOSED, PLAN_OPENED, POLICY_DENIED, PR_OBSERVED, REQUEST_DONE, REQUEST_REFUSED, SHARD_DECIDED, TASK_FAILED, TASK_REQUEUED, WINDOW_REQUEST, WITNESS_RECORDED } from '../core/events.js'
+import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_DROPPED, CARD_HELD, CARD_PLANNED, CARD_RELEASED, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, CARD_TAKEOVER, CARD_UNPLANNED, FACTORY_MODE, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PLAN_BACKFILLED, PLAN_CLOSED, PLAN_OPENED, POLICY_DENIED, PR_OBSERVED, REQUEST_DONE, REQUEST_REFUSED, SHARD_DECIDED, TASK_FAILED, TASK_REQUEUED, WINDOW_REQUEST, WITNESS_RECORDED } from '../core/events.js'
 import { cardIdOf, generationOfKey, isFullSha, prOf } from '../core/identifiers.js'
 import { ANSWER_SOURCE, OPEN_OWNER_STOP_OF_CARD, OWNER } from '../core/inbox.js'
 import { legacyHistory } from '../core/legacy-history.js'
@@ -35,7 +35,7 @@ import { Meter } from '../ports/meter.js'
 import { MAIN_BRANCH } from '../ports/snapshot.js'
 import { MAIN_REF, readReleaseVersion, VERSION_PR_REF } from '../release/changesets.js'
 
-export const REQUEST_KINDS = ['tree.cut', 'allow-merge', 'close-pr', 'pr.body', 'requeue', 'mode', 'plan', 'owner.wait', 'owner.wait.close', 'decisions:add', 'hold', 'release', 'takeover'] as const
+export const REQUEST_KINDS = ['tree.cut', 'allow-merge', 'close-pr', 'pr.body', 'requeue', 'mode', 'plan', 'owner.wait', 'owner.wait.close', 'decisions:add', 'hold', 'release', 'takeover', 'drop'] as const
 export const TAKEOVER_AFTER_MINUTES = 30
 export const PLAN_OPS: ReadonlyMap<string, string> = new Map([['open', PLAN_OPENED], ['add', CARD_PLANNED], ['remove', CARD_UNPLANNED], ['backfill', PLAN_BACKFILLED], ['close', PLAN_CLOSED]])
 const PLAN_FLAGS = ['op', 'plan', 'title', 'goal', 'file', 'gate', 'card'] as const
@@ -51,7 +51,7 @@ export const ALLOW_MERGE_RECORD = 'architecture/decisions/window-allow-merge.md'
 const RULE_ACCEPTED = /^Status: accepted\b/m
 export const REQUEST_RULE = 'window_request'
 export const PREFIX = '[bus:request] '
-export const USAGE = `usage: pnpm bus:request tree.cut --card <N> | allow-merge --pr <N> --head <sha> --dry-run <reviewer session> | close-pr --pr <N> --card <N> --reason <text> | pr.body --pr <N> | requeue --task <task_key> | mode --set ${FACTORY_MODES.join('|')} | plan --op ${[...PLAN_OPS.keys()].join('|')} [--plan <id>] [--title <text>] [--goal <text>] [--file <absolute plan file>] [--gate <word>] [--card <N>] | owner.wait --need ${OWNER_WAIT_NEEDS.join('|')} --text <what the owner decides> [--command <line>] [--card <N>] [--pr <N>] | owner.wait.close --id Q<N> --answer <answer> | decisions:add --from ${ANSWER_SOURCE} [--supersedes D-M]... [--card #N]... [--until <YYYY-MM-DDTHH:MMZ>] "[owner] <decision>" | hold --card <N> --reason <why the owner holds it> | release --card <N> | takeover --card <N> --reason <why the bus has no route for it>`
+export const USAGE = `usage: pnpm bus:request tree.cut --card <N> | allow-merge --pr <N> --head <sha> --dry-run <reviewer session> | close-pr --pr <N> --card <N> --reason <text> | pr.body --pr <N> | requeue --task <task_key> | mode --set ${FACTORY_MODES.join('|')} | plan --op ${[...PLAN_OPS.keys()].join('|')} [--plan <id>] [--title <text>] [--goal <text>] [--file <absolute plan file>] [--gate <word>] [--card <N>] | owner.wait --need ${OWNER_WAIT_NEEDS.join('|')} --text <what the owner decides> [--command <line>] [--card <N>] [--pr <N>] | owner.wait.close --id Q<N> --answer <answer> | decisions:add --from ${ANSWER_SOURCE} [--supersedes D-M]... [--card #N]... [--until <YYYY-MM-DDTHH:MMZ>] "[owner] <decision>" | hold --card <N> --reason <why the owner holds it> | release --card <N> | takeover --card <N> --reason <why the bus has no route for it> | drop --card <N> --reason <why a card with no body is dropped>`
 
 export const SESSION_VARIABLE = 'CLAUDE_CODE_SESSION_ID'
 const BY_HAND = 'by-hand'
@@ -259,6 +259,7 @@ export class WindowRequests {
       'hold': (request, payload) => this.holdFor(request, payload, CARD_HELD),
       'release': (request, payload) => this.holdFor(request, payload, CARD_RELEASED),
       'takeover': (request, payload) => this.takeover(request, payload),
+      'drop': (request, payload) => this.drop(request, payload),
     }
     return executors[kind]
   }
@@ -551,12 +552,32 @@ export class WindowRequests {
     if (typeof ground !== 'object')
       return { done: false, why: ground }
     const ts = this.clock().toISOString()
-    const { actor } = this.db.prepare('SELECT actor FROM events WHERE id = ?').get(request) as { actor: string }
+    const actor = this.actorOf(request)
     inTransaction(this.db, () => {
       appendEvent(this.db, { ts, type: CARD_HELD, actor, cardId, pr: null, head: null, dedupeKey: `${CARD_HELD}:request-${request}`, payload: { request, reason, takeover: true }, legacy: false })
       appendEvent(this.db, { ts, type: CARD_TAKEOVER, actor, cardId, pr: null, head: null, dedupeKey: `${CARD_TAKEOVER}:request-${request}`, payload: { request, reason, ground: ground.named }, legacy: false })
     })
     return { done: true, why: `${CARD_TAKEOVER} #${cardId} (${ground.named}): ${reason}` }
+  }
+
+  private actorOf(request: number): string {
+    return (this.db.prepare('SELECT actor FROM events WHERE id = ?').get(request) as { actor: string }).actor
+  }
+
+  private drop(request: number, payload: Record<string, unknown>): Executed {
+    const cardId = cardIdOf(payload.card)
+    const reason = text(payload.reason)
+    if (cardId === null || reason === null)
+      return { done: false, why: 'drop needs a card and the reason it is dropped' }
+    const card = this.db.prepare('SELECT state FROM cards WHERE card_id = ?').get(cardId) as { state: string | null } | undefined
+    if (card === undefined)
+      return { done: false, why: `the bus holds no card #${cardId}` }
+    if (ENDED_CARDS.has(card.state))
+      return { done: false, why: `card #${cardId} is ${card.state}; there is nothing to drop` }
+    if (cardBodyText(this.db, cardId) !== null)
+      return { done: false, why: `card #${cardId} has an admitted body; it drops with pnpm intake --move '#${cardId}' --to ${DROPPED_CARD}` }
+    appendEvent(this.db, { ts: this.clock().toISOString(), type: CARD_DROPPED, actor: this.actorOf(request), cardId, pr: null, head: null, dedupeKey: `${CARD_DROPPED}:request-${request}`, payload: { request, reason }, legacy: false })
+    return { done: true, why: `${CARD_DROPPED} #${cardId}: ${reason}` }
   }
 
   private routeOf(cardId: number): string | null {
@@ -767,7 +788,7 @@ export function requestOf(argv: readonly string[]): Record<string, unknown> | nu
       return null
     return { kind, card, ...(reason === undefined ? {} : { reason }) }
   }
-  if (kind === 'takeover') {
+  if (kind === 'takeover' || kind === 'drop') {
     const card = cardIdOf(flag(argv, '--card'))
     const reason = flag(argv, '--reason')
     return card === null || reason === undefined ? null : { kind, card, reason }

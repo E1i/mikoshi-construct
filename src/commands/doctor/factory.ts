@@ -1,7 +1,7 @@
 import { homedir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
-import { busPathOf, DECISIONS_FILE, decisionsFileOf, isOwnerCheckout } from '../../../scripts/core/bus-path.js'
+import { agentLabel, busPathOf, DECISIONS_FILE, decisionsFileOf, GH_ACCOUNT_VARIABLE, isOwnerCheckout, LAUNCH_AGENTS } from '../../../scripts/core/bus-path.js'
 import { handoffDirOf } from '../../../scripts/core/handoff-dir.js'
 import { inForce, parseDecisions } from '../../../scripts/policy/decisions/decisions.js'
 import { namesQueueLive } from '../../../scripts/policy/live-decision.js'
@@ -20,6 +20,7 @@ export const FACTORY_ITEMS = {
   'pnpm-floor': 'PARITY',
   'pnpm-store-ignored': 'PARITY',
   'card-permissions': 'PARITY',
+  'gh-account': 'PARITY',
   'window-live': 'PARITY',
   'window-continue': 'ONEWORD',
   'live-merge': 'ONEWORD',
@@ -32,6 +33,7 @@ export const RESTORE_FROM_GIT = 'git restore --'
 export const PIN_PNPM_FLOOR = `corepack use pnpm@${MIKOSHI_PNPM}`
 export const IGNORE_PNPM_STORE = `printf '.pnpm-store/\\n' >> .gitignore`
 export const OPEN_A_WINDOW = 'claude'
+export const SWITCH_GH_ACCOUNT = 'gh auth switch --user'
 export const EDIT_LOCAL_SETTINGS = '$EDITOR .claude/settings.local.json'
 export const GHOST_PROTOCOL_HOURS = 6
 export const OWNER_WORD = `ghost-protocol ${GHOST_PROTOCOL_HOURS}h`
@@ -46,6 +48,10 @@ const STATUS_LINE = /^STATUS:\s*(CONTINUE|OWNER|DONE|STOP)\b/
 const CONTINUE = 'CONTINUE'
 const PNPM_STORE_LINE = '.pnpm-store/'
 const PNPM_PIN = /^pnpm@(\d+\.\d+\.\d+)/
+const GH_HOSTS = 'hosts.yml'
+const GH_HOST_LINE = 'github.com:'
+const GH_ACTIVE_USER = /^(\s+)user:\s*(\S+)\s*$/
+const INDENTED = /^(\s+)\S/
 
 const FACTORY_HOOKS = [
   { event: 'PreToolUse', command: 'scripts/construct/eddies.mjs guard' },
@@ -150,6 +156,35 @@ function factoryFilesCommand(root: string, missing: readonly string[]): string {
   return lost.length === missing.length ? restore : `${restore} && ${SYNC_APPLY}`
 }
 
+function recordedGhAccount(situation: FactorySituation, root: string): string | null {
+  const plist = new FileReadings(path.join(situation.home, LAUNCH_AGENTS)).read(`${agentLabel(root)}.plist`) ?? ''
+  return new RegExp(`<key>${GH_ACCOUNT_VARIABLE}</key>\\s*<string>([^<]+)</string>`).exec(plist)?.[1] ?? null
+}
+
+function ghConfigDir(situation: FactorySituation): string {
+  const xdg = named(situation.env, 'XDG_CONFIG_HOME')
+  return named(situation.env, 'GH_CONFIG_DIR') ?? path.join(xdg ?? path.join(situation.home, '.config'), 'gh')
+}
+
+function activeGhAccount(situation: FactorySituation): string | null {
+  const lines = (new FileReadings(ghConfigDir(situation)).read(GH_HOSTS) ?? '').split(/\r?\n/)
+  const host = lines.indexOf(GH_HOST_LINE)
+  if (host === -1)
+    return null
+  const end = lines.findIndex((line, at) => at > host && !INDENTED.test(line))
+  const body = lines.slice(host + 1, end === -1 ? lines.length : end)
+  const indent = INDENTED.exec(body[0] ?? '')?.[1]
+  const active = body.map(line => GH_ACTIVE_USER.exec(line)).find(match => match !== null && match[1] === indent)
+  return active?.[2] ?? null
+}
+
+function ghAccountItem(situation: FactorySituation, root: string): FactoryItem {
+  const recorded = recordedGhAccount(situation, root)
+  const active = activeGhAccount(situation)
+  const differs = recorded !== null && active !== null && recorded.toLowerCase() !== active.toLowerCase()
+  return { item: 'gh-account', slice: FACTORY_ITEMS['gh-account'], goes: true, command: differs ? `${SWITCH_GH_ACCOUNT} ${recorded}` : null }
+}
+
 function item(name: FactoryItemName, goes: boolean, command: string): FactoryItem {
   return { item: name, slice: FACTORY_ITEMS[name], goes, command: goes ? null : command }
 }
@@ -166,6 +201,7 @@ export function factoryChecklist(root: string, situation: FactorySituation = { e
     item('pnpm-floor', pnpmAtTheFloor(readings), PIN_PNPM_FLOOR),
     item('pnpm-store-ignored', ignoresPnpmStore(readings), IGNORE_PNPM_STORE),
     item('card-permissions', !widensCardSessions(readings), EDIT_LOCAL_SETTINGS),
+    ghAccountItem(situation, root),
     item('window-live', factoryLiveness(bus, situation.now.getTime()).state === 'live', OPEN_A_WINDOW),
     item('window-continue', lastStatus(handoff) === CONTINUE, writeContinueCommand(root, handoff)),
     item('live-merge', live('merge'), SWITCH_TO_GHOST_PROTOCOL),

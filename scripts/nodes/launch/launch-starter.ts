@@ -10,12 +10,12 @@ import { parseParkingFile } from '../../../src/card/parking.js'
 import { readShiftGate } from '../../../src/manifest.js'
 import { BUS_DB_VARIABLE } from '../../core/bus-path.js'
 import { messageOf } from '../../core/errors.js'
-import { FACTORY_RUNTIME } from '../../core/factory-paths.js'
 import { exitCodePath, treeReportPath } from '../../core/places.js'
+import { accountToken, recordedAccount } from '../../ports/gh.js'
 import { settingsFlag, shiftSettings } from '../../ports/shift-settings.js'
+import { restoreReport, shellWord } from '../../ports/tree-publish.js'
 import { HELD_TREE_CHANGED, technical } from './launch-executor.js'
 import { continuationBody } from './prompt.js'
-import { restoreReport } from './report-collect.js'
 import { journalDoubt, parseSessionJournal } from './session-journal.js'
 
 export interface DetachedSpawn {
@@ -54,28 +54,10 @@ export const CARD_PERMISSION_MODE = 'dontAsk'
 
 export const CARD_MCP_FLAGS = ['--strict-mcp-config'] as const
 
-export const HTTPS_ORIGIN_ENV: Record<string, string> = {
-  GIT_CONFIG_COUNT: '4',
-  GIT_CONFIG_KEY_0: 'url.https://github.com/.insteadOf',
-  GIT_CONFIG_VALUE_0: 'git@github.com:',
-  GIT_CONFIG_KEY_1: 'url.https://github.com/.insteadOf',
-  GIT_CONFIG_VALUE_1: 'ssh://git@github.com/',
-  GIT_CONFIG_KEY_2: 'credential.https://github.com.helper',
-  GIT_CONFIG_VALUE_2: '',
-  GIT_CONFIG_KEY_3: 'credential.https://github.com.helper',
-  GIT_CONFIG_VALUE_3: '!gh auth git-credential',
-}
+export { shellWord }
 
 export function cardCommand(claude: string): string {
   return `${claude} --permission-mode ${CARD_PERMISSION_MODE}`
-}
-
-export function shellWord(text: string): string {
-  return `'${text.replaceAll('\'', `'\\''`)}'`
-}
-
-export function treePrCommand(repo: string): string {
-  return `pnpm --dir ${shellWord(repo)} --silent exec tsx ${FACTORY_RUNTIME.shiftTreePr}`
 }
 
 export function launchArgv(session: { command: string, treePr: string, cardId: number, worktree: string, report: string, exit: string, id: string }): string[] {
@@ -84,7 +66,14 @@ export function launchArgv(session: { command: string, treePr: string, cardId: n
 
 export function launchEnv(session: NodeJS.ProcessEnv, launching: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
   const bus = launching[BUS_DB_VARIABLE]
-  return bus === undefined || bus === '' ? session : { ...session, [BUS_DB_VARIABLE]: bus }
+  const onBus = bus === undefined || bus === '' ? session : { ...session, [BUS_DB_VARIABLE]: bus }
+  const account = recordedAccount(launching)
+  if (account === null)
+    return onBus
+  const token = accountToken(account)
+  if (token.kind === 'failed')
+    throw new Error(token.reason)
+  return { ...onBus, GH_TOKEN: token.token }
 }
 
 export function unreadableCard(cardId: number): string {

@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { messageOf } from '../../core/errors.js'
 import { exitCodePath, treeReportPath } from '../../core/places.js'
@@ -34,14 +34,6 @@ export function collectReport(worktree: string, saved: string): ReportCollection
   writeFileSync(saved, text)
   removeFromTree(tree)
   return { kind: 'collected', tree, saved }
-}
-
-export function restoreReport(saved: string, worktree: string): void {
-  if (!existsSync(saved))
-    return
-  const tree = treeReportPath(worktree)
-  mkdirSync(path.dirname(tree), { recursive: true })
-  copyFileSync(saved, tree)
 }
 
 export function recordedExitCode(launchDir: string, cardId: number, sinceMs: number): string | null {
