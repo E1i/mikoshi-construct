@@ -5,7 +5,7 @@ import type { HarnessCandidate } from './harness.js'
 import type { AttachHarness } from './record.js'
 import type { AttachRefusal, AttachRefusalReason } from './refusals.js'
 import type { Rollback } from './rollback.js'
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -14,19 +14,20 @@ import { DEFAULT_LANES, sha256 } from '../../manifest.js'
 import { AI_TARGETS } from '../../presets/index.js'
 import { parseLaneCount } from '../../ui/prompts.js'
 import { VERSION } from '../../version.js'
+import { readTrackedPaths } from '../detach/index-reader.js'
 import { deployFactoryBeside, factoryHomeFor } from './beside.js'
 import { browserEntriesHeldAtAttach, directoriesToCreate, planCarriers, runtimeHeldAtAttach } from './carriers.js'
 import { carriersItsConstructTracks } from './constructed.js'
-import { writeExcludeBlock } from './exclude.js'
+import { LEDGER_DIR, readExcludeBlockPaths, writeExcludeBlock } from './exclude.js'
 import { hostWithoutFactory } from './forge.js'
 import { fileEditingMarks, harnessCandidates, jobRunning, throughPackageRunners } from './harness.js'
 import { dropOriginal, keepOriginal } from './original.js'
-import { ATTACH_LEDGER_DIR, ATTACH_RECORD_VERSION, DEFAULT_PUSH_POLICY, NO_HARNESS, writeAttachRecord } from './record.js'
+import { ATTACH_LEDGER_DIR, ATTACH_RECORD_FILE, ATTACH_RECORD_VERSION, attachedVersionOf, carriersReading, DEFAULT_PUSH_POLICY, NO_HARNESS, readAttachRecord, writeAttachRecord } from './record.js'
 import { harnessRefusal, refusalFor, unresolvableCheckRefusal } from './refusals.js'
 import { rollbackAttach } from './rollback.js'
 import { installHookEntries, readSettings, SETTINGS_FILE } from './settings.js'
 import { shellWord } from './shell-word.js'
-import { planWindowHooks, writeCarriersExclusively } from './write.js'
+import { planCarrierUpgrade, planWindowHooks, rewriteCarrier, writeCarriersExclusively } from './write.js'
 
 export { planCarriers } from './carriers.js'
 export { printEntryProtocol } from './earlier.js'
@@ -49,10 +50,13 @@ export interface AttachOptions {
   env?: NodeJS.ProcessEnv
 }
 
+export type AttachUpgradeRefusalReason = 'upgrade-flags' | 'not-attached' | 'record-version' | 'record-ahead' | 'carriers-ahead' | 'index-unreadable' | 'carrier-changed' | 'carrier-collision'
+
 export interface AttachResult {
   status: 'done' | 'refused' | 'aborted'
-  refusal?: AttachRefusalReason
+  refusal?: AttachRefusalReason | AttachUpgradeRefusalReason
   created: string[]
+  rewritten?: string[]
   rolledBack: string[]
 }
 
@@ -265,6 +269,7 @@ export async function runAttach(ui: Ui, options: AttachOptions, prompter?: Promp
   writeAttachRecord(root, {
     recordVersion: ATTACH_RECORD_VERSION,
     construct: VERSION,
+    attachedVersion: VERSION,
     attachedAt: new Date().toISOString(),
     harness,
     files: Object.fromEntries(written.map(op => [op.target, sha256(op.content)])),
@@ -291,4 +296,95 @@ export async function runAttach(ui: Ui, options: AttachOptions, prompter?: Promp
   ])
   ui.line(ui.theme.dim(`  ${ui.lore.attachLedgerExcluded}`))
   return { status: 'done', created: written.map(op => op.target), rolledBack: [] }
+}
+
+function refusedUpgrade(ui: Ui, reason: AttachUpgradeRefusalReason, line: string, paths: string[] = []): AttachResult {
+  ui.flatline(line)
+  for (const target of paths)
+    ui.line(`    ${ui.theme.dim(target)}`)
+  return { status: 'refused', refusal: reason, created: [], rolledBack: [] }
+}
+
+function flagsTheRecordHolds(options: AttachOptions): string[] {
+  const given: Array<[string, string | undefined]> = [['--harness', options.harness], ['--required-check', options.requiredCheck], ['--ai', options.ai], ['--lanes', options.lanes]]
+  return given.filter(([, value]) => value != null).map(([flag]) => flag)
+}
+
+export async function runAttachUpgrade(ui: Ui, options: AttachOptions, prompter?: Prompter): Promise<AttachResult> {
+  const root = path.resolve(options.dir)
+  const held = flagsTheRecordHolds(options)
+  if (held.length > 0)
+    return refusedUpgrade(ui, 'upgrade-flags', ui.lore.attachUpgradeRefusedFlags(held))
+  const record = readAttachRecord(root)
+  if (record == null)
+    return refusedUpgrade(ui, 'not-attached', ui.lore.attachUpgradeRefusedNotAttached)
+  const recordVersion: unknown = record.recordVersion
+  if (typeof recordVersion !== 'number' || !Number.isInteger(recordVersion) || recordVersion < 1)
+    return refusedUpgrade(ui, 'record-version', ui.lore.detachRefusedRecordVersion, [String(recordVersion)])
+  if (recordVersion > ATTACH_RECORD_VERSION)
+    return refusedUpgrade(ui, 'record-ahead', ui.lore.recordAhead(ATTACH_RECORD_FILE, 'recordVersion', recordVersion, ATTACH_RECORD_VERSION))
+  const attachedVersion = attachedVersionOf(record)
+  if (attachedVersion != null && carriersReading(attachedVersion, VERSION) === 'ahead')
+    return refusedUpgrade(ui, 'carriers-ahead', ui.lore.attachUpgradeRefusedAhead(attachedVersion, VERSION))
+  const index = readTrackedPaths(root)
+  if ('unreadable' in index)
+    return refusedUpgrade(ui, 'index-unreadable', ui.lore.attachUpgradeRefusedIndex)
+
+  const ops = [...planCarriers(root, record.harness, carriersItsConstructTracks(root)), ...planWindowHooks()]
+  const upgrade = planCarrierUpgrade(root, ops, record.files, index.tracked)
+  if (upgrade.changed.length > 0)
+    return refusedUpgrade(ui, 'carrier-changed', ui.lore.attachUpgradeRefusedChanged(upgrade.changed.length), upgrade.changed)
+  if (upgrade.collided.length > 0)
+    return refusedUpgrade(ui, 'carrier-collision', ui.lore.attachUpgradeRefusedCollision(upgrade.collided.length), upgrade.collided)
+
+  const written = [...upgrade.rewrite, ...upgrade.create]
+  if (written.length === 0 && attachedVersion === VERSION) {
+    ui.ok(ui.lore.attachUpgradeCurrent(VERSION))
+    return { status: 'done', created: [], rewritten: [], rolledBack: [] }
+  }
+
+  if (!options.yes && prompter == null) {
+    ui.glitch(ui.lore.attachUpgradeNeedsTerminal)
+    return aborted()
+  }
+  for (const { target } of upgrade.rewrite)
+    ui.line(`  ${ui.theme.ok('~')} ${target}`)
+  for (const { target } of upgrade.create)
+    ui.line(`  ${ui.theme.ok('+')} ${target}`)
+  ui.line()
+  if (!options.yes && (await prompter?.confirm(ui.lore.attachUpgradeConfirm(VERSION))) !== true)
+    return aborted()
+
+  const created = upgrade.create.map(op => op.target)
+  const directories = directoriesToCreate(root, written.map(op => op.target)).filter(directory => !record.directories.includes(directory))
+  const blockHeld = readExcludeBlockPaths(root).filter(target => target !== LEDGER_DIR)
+  const exclude = created.length === 0 ? null : writeExcludeBlock(root, [...new Set([...blockHeld, ...created])])
+  const creation = writeCarriersExclusively(root, upgrade.create)
+  if (creation.collided != null) {
+    for (const op of creation.written)
+      rmSync(path.join(root, op.target))
+    return refusedUpgrade(ui, 'carrier-collision', ui.lore.attachUpgradeRefusedCollision(1), [creation.collided])
+  }
+  for (const op of upgrade.rewrite)
+    rewriteCarrier(root, op)
+  writeAttachRecord(root, {
+    ...record,
+    attachedVersion: VERSION,
+    files: { ...record.files, ...Object.fromEntries(written.map(op => [op.target, sha256(op.content)])) },
+    directories: [...record.directories, ...directories],
+    excludeCreated: record.excludeCreated || exclude?.created === true,
+    excludeSeparator: exclude != null && blockHeld.length === 0 ? exclude.separator : record.excludeSeparator,
+  })
+
+  ui.ok(ui.lore.attachUpgraded(VERSION))
+  ui.line(ui.theme.dim(`  ${ui.lore.attachUpgradeKept}`))
+  if (upgrade.adopted.length > 0)
+    ui.line(ui.theme.dim(`  ${ui.lore.attachUpgradeAdopted(upgrade.adopted)}`))
+  const current = new Set(ops.map(op => op.target))
+  const retired = Object.keys(record.files).filter(target => !current.has(target) && !index.tracked.has(target))
+  if (retired.length > 0)
+    ui.line(ui.theme.dim(`  ${ui.lore.attachUpgradeRetired(retired)}`))
+  if (record.settingsHook?.window == null)
+    ui.glitch(ui.lore.attachUpgradeHooksOlder)
+  return { status: 'done', created, rewritten: upgrade.rewrite.map(op => op.target), rolledBack: [] }
 }
