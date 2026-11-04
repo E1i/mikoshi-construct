@@ -19,6 +19,7 @@ function underShard(overrides: Partial<MergeFacts>): MergeFacts {
     headRef: 'feat/securitypath',
     title: 'securitypath',
     files: ['scripts/core/queue.ts'],
+    patched: [],
     ownerMergesText: TABLE,
     shardActive: true,
     shardUnder: null,
