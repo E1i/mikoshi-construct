@@ -283,7 +283,8 @@ describe('the you-are-here line names the fact that stopped matching', () => {
 })
 
 describe('an attached repository whose record names no harness', () => {
-  const none: AttachedReport = { state: 'attached', harness: NO_HARNESS_READING }
+  const versions = { attachedVersion: null, installedVersion: '1.0.0', carriers: 'unknown' } as const
+  const none: AttachedReport = { state: 'attached', harness: NO_HARNESS_READING, ...versions }
 
   for (const theme of ['plain', 'arasaka', 'johnny'] as const) {
     it(`says plainly in the ${theme} theme that the harness is not covered, and names no command`, () => {
@@ -300,7 +301,7 @@ describe('an attached repository whose record names no harness', () => {
   })
 
   it('still reads a named harness by its command', () => {
-    const { output } = render({ state: 'attached', harness: { command: 'pnpm test', state: 'unknown' } })
+    const { output } = render({ state: 'attached', harness: { command: 'pnpm test', state: 'unknown' }, ...versions })
     expect(output).toContain(PLAIN_LORE.doctorAttachedHarness('pnpm test', 'unknown'))
     expect(output).not.toContain(PLAIN_LORE.doctorAttachedNoHarness)
   })

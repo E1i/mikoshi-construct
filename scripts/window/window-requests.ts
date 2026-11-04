@@ -10,14 +10,16 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import { CLOSED_CARD, DROPPED_CARD, MERGED_CARD } from '../core/card-automaton.js'
 import { FACTORY_MODES, isFactoryMode } from '../core/card-bodies.js'
 import { appendEvent, closeOwnerWait, defaultBusPath, inTransaction, isOwnerWaitNeed, OPEN_WAIT, openBus, openOwnerWait, OWNER_WAIT_NEEDS, OWNER_WAITS } from '../core/db.js'
-import { BOARD_ALARM, CARD_HELD, CARD_PLANNED, CARD_RELEASED, CARD_UNPLANNED, FACTORY_MODE, PLAN_BACKFILLED, PLAN_CLOSED, PLAN_OPENED, POLICY_DENIED, PR_OBSERVED, REQUEST_DONE, REQUEST_REFUSED, SHARD_DECIDED, TASK_REQUEUED, WINDOW_REQUEST } from '../core/events.js'
+import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_HELD, CARD_PLANNED, CARD_RELEASED, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, CARD_TAKEOVER, CARD_UNPLANNED, FACTORY_MODE, PLAN_BACKFILLED, PLAN_CLOSED, PLAN_OPENED, POLICY_DENIED, PR_OBSERVED, REQUEST_DONE, REQUEST_REFUSED, SHARD_DECIDED, TASK_FAILED, TASK_REQUEUED, WINDOW_REQUEST, WITNESS_RECORDED } from '../core/events.js'
 import { cardIdOf, generationOfKey, isFullSha, prOf } from '../core/identifiers.js'
 import { OPEN_OWNER_STOP_OF_CARD, OWNER } from '../core/inbox.js'
 import { legacyHistory } from '../core/legacy-history.js'
-import { changesRoundsOf, closedByRounds, FAILURES_TO_STOP, LEASED, QUEUE_ACTOR, QUEUED, REVIEW_ROUNDS, TASK_FOLDS } from '../core/queue.js'
+import { changesRoundsOf, closedByRounds, FAILURES_TO_STOP, latestTurnOf, LEASED, QUEUE_ACTOR, QUEUED, REVIEW_ROUNDS, TASK_FOLDS, WITHDRAWN } from '../core/queue.js'
 import { storedByKey } from '../core/stored.js'
+import { openPrOfCard, ownerHoldOf } from '../nodes/answer/answer-source.js'
 import { cleanUpdatesOf } from '../nodes/update/update-done.js'
 import { consumeOwnerWord, OWNER_WORD_NOT_FOUND, ownerChannelOf, USED_WORD } from '../owner/channel.js'
 import { OWNER_SOURCE } from '../policy/decisions/decisions.js'
@@ -26,7 +28,8 @@ import { dryRunHoldsAt, observedHeadsOf, roundLimitDecisionOf } from '../policy/
 import { activeDecisionsShard, decisionsInForceAt, ownersOfAStop } from '../policy/shards.js'
 import { MAIN_REF, readReleaseVersion, VERSION_PR_REF } from '../release/changesets.js'
 
-export const REQUEST_KINDS = ['tree.cut', 'allow-merge', 'close-pr', 'requeue', 'mode', 'plan', 'owner.wait', 'owner.wait.close', 'decisions:add', 'hold', 'release'] as const
+export const REQUEST_KINDS = ['tree.cut', 'allow-merge', 'close-pr', 'pr.body', 'requeue', 'mode', 'plan', 'owner.wait', 'owner.wait.close', 'decisions:add', 'hold', 'release', 'takeover'] as const
+export const TAKEOVER_AFTER_MINUTES = 30
 export const PLAN_OPS: ReadonlyMap<string, string> = new Map([['open', PLAN_OPENED], ['add', CARD_PLANNED], ['remove', CARD_UNPLANNED], ['backfill', PLAN_BACKFILLED], ['close', PLAN_CLOSED]])
 const PLAN_FLAGS = ['op', 'plan', 'title', 'goal', 'file', 'gate', 'card'] as const
 const LINKED_CARDS = 'SELECT cards FROM plan_items WHERE plan_id = ? ORDER BY item_id'
@@ -37,7 +40,7 @@ export const ALLOW_MERGE_RECORD = 'architecture/decisions/window-allow-merge.md'
 const RULE_ACCEPTED = /^Status: accepted\b/m
 export const REQUEST_RULE = 'window_request'
 export const PREFIX = '[bus:request] '
-export const USAGE = `usage: pnpm bus:request tree.cut --card <N> | allow-merge --pr <N> --head <sha> --dry-run <reviewer session> | close-pr --pr <N> --card <N> --reason <text> | requeue --task <task_key> | mode --set ${FACTORY_MODES.join('|')} | plan --op ${[...PLAN_OPS.keys()].join('|')} [--plan <id>] [--title <text>] [--goal <text>] [--file <absolute plan file>] [--gate <word>] [--card <N>] | owner.wait --need ${OWNER_WAIT_NEEDS.join('|')} --text <what the owner decides> [--command <line>] [--card <N>] [--pr <N>] | owner.wait.close --id Q<N> --answer <answer> | decisions:add --from ${ANSWER_SOURCE} [--supersedes D-M]... [--card #N]... [--until <YYYY-MM-DDTHH:MMZ>] "[owner] <decision>" | hold --card <N> --reason <why the owner holds it> | release --card <N>`
+export const USAGE = `usage: pnpm bus:request tree.cut --card <N> | allow-merge --pr <N> --head <sha> --dry-run <reviewer session> | close-pr --pr <N> --card <N> --reason <text> | pr.body --pr <N> | requeue --task <task_key> | mode --set ${FACTORY_MODES.join('|')} | plan --op ${[...PLAN_OPS.keys()].join('|')} [--plan <id>] [--title <text>] [--goal <text>] [--file <absolute plan file>] [--gate <word>] [--card <N>] | owner.wait --need ${OWNER_WAIT_NEEDS.join('|')} --text <what the owner decides> [--command <line>] [--card <N>] [--pr <N>] | owner.wait.close --id Q<N> --answer <answer> | decisions:add --from ${ANSWER_SOURCE} [--supersedes D-M]... [--card #N]... [--until <YYYY-MM-DDTHH:MMZ>] "[owner] <decision>" | hold --card <N> --reason <why the owner holds it> | release --card <N> | takeover --card <N> --reason <why the bus has no route for it>`
 
 export const SESSION_VARIABLE = 'CLAUDE_CODE_SESSION_ID'
 const BY_HAND = 'by-hand'
@@ -58,6 +61,7 @@ export interface RequestTools {
   causeHolds: (task: CardTask) => string | null
   closePr: (request: CloseRequest) => CloseOutcome
   closeDropped: () => CloseOutcome[]
+  appendCountLine?: (pr: number, cardId: number) => Executed
 }
 
 export type RequestOutcome
@@ -65,7 +69,7 @@ export type RequestOutcome
     | { kind: 'refused', request: number, detail: string }
     | { kind: 'owner', request: number, detail: string }
 
-interface Executed {
+export interface Executed {
   done: boolean
   why: string
 }
@@ -104,6 +108,42 @@ const LAST_ALARM = `SELECT id FROM events WHERE type = '${BOARD_ALARM}' AND json
 const REQUEUES_SINCE = `
   SELECT count(*) AS n FROM events
   WHERE type = '${TASK_REQUEUED}' AND id > ? AND json_extract(payload, '$.task_key') = ? AND json_type(payload, '$.request') = 'integer'
+`
+
+const MS_PER_MINUTE = 60_000
+
+const ENDED_CARDS: ReadonlySet<string | null | undefined> = new Set([MERGED_CARD, CLOSED_CARD, DROPPED_CARD])
+
+const LATEST_TURN = `SELECT id, type FROM events WHERE id = ${latestTurnOf('?')}`
+
+const LIVE_TASK_OF_CARD = `SELECT task_key, queue, state FROM tasks WHERE card_id = ? AND state IN ('${QUEUED}', '${LEASED}') ORDER BY id DESC LIMIT 1`
+
+const SESSION_ENDED_AFTER = `SELECT 1 FROM events WHERE card_id = ? AND legacy = 0 AND type = '${CARD_SESSION_ENDED}' AND id > ? LIMIT 1`
+
+const LATEST_WITNESS_OF_CARD = `SELECT head, json_extract(payload, '$.verdict') AS verdict FROM events WHERE card_id = ? AND legacy = 0 AND type = '${WITNESS_RECORDED}' ORDER BY id DESC LIMIT 1`
+
+const OPEN_PR_ANSWER_NEEDED = `SELECT pr FROM prs WHERE card_id = ? AND state = 'open' AND (ci = 'red' OR verdict_on_head = 'changes') ORDER BY pr DESC LIMIT 1`
+
+const ANSWERS_WITHDRAWN_BY_AN_OPEN_TAKEOVER = `
+  SELECT tasks.task_key, tasks.queue, tasks.card_id, tasks.pr, tasks.head, tasks.state FROM tasks
+  JOIN events AS withdrawal ON withdrawal.id = tasks.event_id
+  JOIN events AS opened ON opened.id = (
+    SELECT max(id) FROM events WHERE card_id = tasks.card_id AND legacy = 0 AND type IN ('${CARD_TAKEOVER}', '${CARD_RELEASED}')
+  )
+  WHERE tasks.card_id = ? AND tasks.queue = 'answer' AND tasks.state = '${WITHDRAWN}'
+    AND opened.type = '${CARD_TAKEOVER}' AND withdrawal.id > opened.id
+    AND withdrawal.type = '${TASK_FAILED}' AND json_extract(withdrawal.payload, '$.reason') = 'held_for_owner'
+  ORDER BY tasks.task_key
+`
+
+const LAST_MOVE_OF_CARD = `
+  SELECT ts FROM events WHERE id = (
+    SELECT max(moved) FROM (
+      SELECT event_id AS moved FROM tasks WHERE card_id = ? AND queue IN ('answer', 'launch')
+      UNION ALL
+      SELECT id AS moved FROM events WHERE card_id = ? AND legacy = 0 AND type IN ('${CARD_ADMITTED}', '${CARD_ANSWERED}', '${CARD_STARTED}', '${CARD_STOPPED}')
+    )
+  )
 `
 
 export function isRequestKind(kind: unknown): kind is RequestKind {
@@ -162,6 +202,7 @@ export class WindowRequests {
       'tree.cut': (_, payload) => this.treeCut(payload),
       'allow-merge': (_, payload) => this.allowMerge(payload),
       'close-pr': (request, payload) => this.closePr(request, payload),
+      'pr.body': (_, payload) => this.prBody(payload),
       'mode': (request, payload) => this.setMode(request, payload),
       'requeue': (request, payload) => this.requeue(request, payload),
       'plan': (request, payload) => this.plan(request, payload),
@@ -170,6 +211,7 @@ export class WindowRequests {
       'decisions:add': (_, payload) => this.addDecision(payload),
       'hold': (request, payload) => this.holdFor(request, payload, CARD_HELD),
       'release': (request, payload) => this.holdFor(request, payload, CARD_RELEASED),
+      'takeover': (request, payload) => this.takeover(request, payload),
     }
     return executors[kind]
   }
@@ -308,6 +350,20 @@ export class WindowRequests {
     return { done: outcome.kind === 'closed', why: outcome.detail }
   }
 
+  private prBody(payload: Record<string, unknown>): Executed {
+    const pr = prOf(payload.pr)
+    if (pr === null)
+      return { done: false, why: 'pr.body names no pr' }
+    const row = this.observed(pr)
+    if (row?.state !== 'open')
+      return { done: false, why: `PR #${pr} is not open` }
+    if (row.card_id === null)
+      return { done: false, why: `PR #${pr} names no card, so no report holds its count line` }
+    if (this.tools.appendCountLine === undefined)
+      return { done: false, why: 'this bus was built with no tool to change a pull request body' }
+    return this.tools.appendCountLine(pr, row.card_id)
+  }
+
   private observed(pr: number): PrAsObserved | undefined {
     const row = this.db.prepare('SELECT card_id, head, state, event_id FROM prs WHERE pr = ?').get(pr) as PrAsObserved | undefined
     const fresh = this.db.prepare(LATEST_OBSERVATION).get(pr) as { id: number, head: string, state: unknown } | undefined
@@ -359,8 +415,75 @@ export class WindowRequests {
     const reason = text(payload.reason)
     if (cardId === null || (type === CARD_HELD && reason === null))
       return { done: false, why: type === CARD_HELD ? 'hold needs a card and the reason the owner holds it' : 'release names no card' }
-    appendEvent(this.db, { ts: this.clock().toISOString(), type, actor: QUEUE_ACTOR, cardId, pr: null, head: null, dedupeKey: `${type}:request-${request}`, payload: { request, ...(reason === null ? {} : { reason }) }, legacy: false })
-    return { done: true, why: `${type} #${cardId}${reason === null ? '' : `: ${reason}`}` }
+    const ts = this.clock().toISOString()
+    const requeued = inTransaction(this.db, () => {
+      const withdrawn = type === CARD_RELEASED ? this.db.prepare(ANSWERS_WITHDRAWN_BY_AN_OPEN_TAKEOVER).all(cardId) as unknown as TaskRow[] : []
+      appendEvent(this.db, { ts, type, actor: QUEUE_ACTOR, cardId, pr: null, head: null, dedupeKey: `${type}:request-${request}`, payload: { request, ...(reason === null ? {} : { reason }) }, legacy: false })
+      for (const task of withdrawn)
+        this.appendRequeue(ts, request, task)
+      return withdrawn.map(task => task.task_key)
+    })
+    return { done: true, why: `${type} #${cardId}${reason === null ? '' : `: ${reason}`}${requeued.length === 0 ? '' : `; queued again: ${requeued.join(', ')}`}` }
+  }
+
+  private takeover(request: number, payload: Record<string, unknown>): Executed {
+    const cardId = cardIdOf(payload.card)
+    const reason = text(payload.reason)
+    if (cardId === null || reason === null)
+      return { done: false, why: 'takeover needs a card and the reason the bus has no route for it' }
+    const route = this.routeOf(cardId)
+    if (route !== null)
+      return { done: false, why: route }
+    const ground = this.noRouteGround(cardId)
+    if (typeof ground !== 'object')
+      return { done: false, why: ground }
+    const ts = this.clock().toISOString()
+    const { actor } = this.db.prepare('SELECT actor FROM events WHERE id = ?').get(request) as { actor: string }
+    inTransaction(this.db, () => {
+      appendEvent(this.db, { ts, type: CARD_HELD, actor, cardId, pr: null, head: null, dedupeKey: `${CARD_HELD}:request-${request}`, payload: { request, reason, takeover: true }, legacy: false })
+      appendEvent(this.db, { ts, type: CARD_TAKEOVER, actor, cardId, pr: null, head: null, dedupeKey: `${CARD_TAKEOVER}:request-${request}`, payload: { request, reason, ground: ground.named }, legacy: false })
+    })
+    return { done: true, why: `${CARD_TAKEOVER} #${cardId} (${ground.named}): ${reason}` }
+  }
+
+  private routeOf(cardId: number): string | null {
+    const card = this.db.prepare('SELECT state FROM cards WHERE card_id = ?').get(cardId) as { state: string | null } | undefined
+    if (ENDED_CARDS.has(card?.state))
+      return `card #${cardId} is ${card!.state}; there is nothing to take over`
+    const hold = ownerHoldOf(this.db, cardId)
+    if (hold !== null)
+      return `${hold}; release it before a takeover`
+    const task = this.db.prepare(LIVE_TASK_OF_CARD).get(cardId) as { task_key: string, queue: string, state: string } | undefined
+    if (task !== undefined)
+      return `card #${cardId} has a bus route: the ${task.queue} task ${task.task_key} is ${task.state}`
+    const turn = this.latestTurn(cardId)
+    if (turn?.type === CARD_STARTED && this.db.prepare(SESSION_ENDED_AFTER).get(cardId, turn.id) === undefined)
+      return `card #${cardId} has a bus route: its session started at event ${turn.id} has not ended`
+    return null
+  }
+
+  private latestTurn(cardId: number): { id: number, type: string } | undefined {
+    return this.db.prepare(LATEST_TURN).get(cardId) as { id: number, type: string } | undefined
+  }
+
+  private noRouteGround(cardId: number): { named: string } | string {
+    const turn = this.latestTurn(cardId)
+    const stop = this.db.prepare(OPEN_OWNER_STOP_OF_CARD).get(cardId) as { id: number } | undefined
+    if (stop !== undefined && stop.id === turn?.id)
+      return { named: `the owner stop ${stop.id} is its latest turn and has no lift` }
+    const witness = this.db.prepare(LATEST_WITNESS_OF_CARD).get(cardId) as { head: string | null, verdict: unknown } | undefined
+    if (witness?.verdict === 'green' && openPrOfCard(this.db, cardId) === null)
+      return { named: `its witnesses are green at ${witness.head ?? 'its head'} and it has no open pull request` }
+    const answerNeeded = this.db.prepare(OPEN_PR_ANSWER_NEEDED).get(cardId) as { pr: number } | undefined
+    if (turn?.type !== CARD_STOPPED && answerNeeded === undefined)
+      return `card #${cardId} is in no state that needs an answer or launch task, and no stop without a lift or green witness without a pull request names it; the bus has its route`
+    const moved = this.db.prepare(LAST_MOVE_OF_CARD).get(cardId, cardId) as { ts: string } | undefined
+    if (moved === undefined)
+      return `card #${cardId} has no recorded turn or task to measure the ${TAKEOVER_AFTER_MINUTES} minutes from; the bus has not taken it yet`
+    const minutes = Math.floor((this.clock().getTime() - Date.parse(moved.ts)) / MS_PER_MINUTE)
+    return minutes >= TAKEOVER_AFTER_MINUTES
+      ? { named: `no answer or launch task ran for ${minutes} minutes` }
+      : `card #${cardId} last moved ${minutes} minutes ago, under the ${TAKEOVER_AFTER_MINUTES} a takeover waits for an answer or launch task`
   }
 
   private setMode(request: number, payload: Record<string, unknown>): Executed {
@@ -490,6 +613,10 @@ export function requestOf(argv: readonly string[]): Record<string, unknown> | nu
     const reason = flag(argv, '--reason')
     return pr === null || card === null || reason === undefined ? null : { kind, pr, card, reason }
   }
+  if (kind === 'pr.body') {
+    const pr = prOf(Number(flag(argv, '--pr')))
+    return pr === null ? null : { kind, pr }
+  }
   if (kind === 'requeue') {
     const task = flag(argv, '--task')
     return task === undefined ? null : { kind, task_key: task }
@@ -517,6 +644,11 @@ export function requestOf(argv: readonly string[]): Record<string, unknown> | nu
     if (card === null || (kind === 'hold' && reason === undefined))
       return null
     return { kind, card, ...(reason === undefined ? {} : { reason }) }
+  }
+  if (kind === 'takeover') {
+    const card = cardIdOf(flag(argv, '--card'))
+    const reason = flag(argv, '--reason')
+    return card === null || reason === undefined ? null : { kind, card, reason }
   }
   if (kind === 'plan') {
     const given = PLAN_FLAGS.flatMap(name => flag(argv, `--${name}`) === undefined ? [] : [[name, flag(argv, `--${name}`)] as const])

@@ -344,6 +344,30 @@ interface Touched {
   unclear: UnclearField[]
 }
 
+const ROUTE_TOUCH = /^\//
+const PACKAGE_TOUCH = /^@/
+const HOST_TOUCH = /^(?:localhost|(?:[a-z0-9-]+\.)+(?:ai|app|cloud|co|com|dev|edu|gov|info|io|net|org|ru))(?::\d+)?(?:\/|$)/
+
+function nonPathShape(entry: string, repository: RepositoryFacts, created: readonly string[]): string | null {
+  if (ROUTE_TOUCH.test(entry))
+    return 'a route'
+  if (created.includes(entry) || repository.exists(scopeOf(entry)))
+    return null
+  if (PACKAGE_TOUCH.test(entry))
+    return 'a package name'
+  return HOST_TOUCH.test(entry) ? 'a host' : null
+}
+
+export function nonPathTouchRefusals(cards: readonly DraftCard[], repository: RepositoryFacts): string[] {
+  return cards.flatMap((card) => {
+    const created = createdPaths(card.creates)
+    return card.touches.flatMap((entry) => {
+      const shape = nonPathShape(entry, repository, created)
+      return shape === null ? [] : [`${card.name}: touches entry '${entry}' reads as ${shape}, not a repository path; touches hold only paths from the repository root, and a path the change makes is listed under creates`]
+    })
+  })
+}
+
 function touchesChecked(card: DraftCard, repository: RepositoryFacts): Touched {
   const touched: Touched = { touches: [], corrections: [], unclear: [] }
   const creates = createdPaths(card.creates)

@@ -1,4 +1,6 @@
 import type { DiscoveryMarker } from '../../manifest.js'
+import type { Ui } from '../../ui/console.js'
+import type { CarriersReading } from '../attach/record.js'
 import type { ProvenanceEvidence } from './families.js'
 import type { HarnessReading, NoHarnessReading } from './harness.js'
 import type { ClaimNotCarried } from './not-carried.js'
@@ -10,7 +12,7 @@ import { readManifest, recordedShas } from '../../manifest.js'
 import { authoredByOwner } from '../../model/ownership.js'
 import { readModel } from '../../model/write.js'
 import { VERSION } from '../../version.js'
-import { NO_HARNESS, readAttachRecord } from '../attach/record.js'
+import { attachedVersionOf, carriersReading, NO_HARNESS, readAttachRecord } from '../attach/record.js'
 import { baselineVerdict } from './baseline.js'
 import { missingDiscovery } from './discovery.js'
 import { isIntact } from './families.js'
@@ -19,6 +21,7 @@ import { claimsNotCarried } from './not-carried.js'
 import { projectKnowledge } from './projection.js'
 import { discoveryProvenance } from './provenance.js'
 import { FileReadings } from './readings.js'
+import { printDoctor as printDoctorReport } from './report.js'
 import { typecheckWarnings } from './typecheck.js'
 import { uncollectedTests } from './uncollected-tests.js'
 import { versionGap } from './version-gap.js'
@@ -45,6 +48,9 @@ export interface DoctorResult {
 export interface AttachedReport {
   state: 'attached'
   harness: HarnessReading | NoHarnessReading
+  attachedVersion: string | null
+  installedVersion: string
+  carriers: CarriersReading
 }
 
 export function runDoctor(root: string, version: string = VERSION): DoctorResult | AttachedReport | null {
@@ -53,10 +59,12 @@ export function runDoctor(root: string, version: string = VERSION): DoctorResult
     const record = readAttachRecord(root)
     if (record == null)
       return null
+    const attachedVersion = attachedVersionOf(record)
+    const versions = { attachedVersion, installedVersion: version, carriers: carriersReading(attachedVersion, version) }
     if (record.harness === NO_HARNESS)
-      return { state: 'attached', harness: NO_HARNESS_READING }
+      return { state: 'attached', harness: NO_HARNESS_READING, ...versions }
     const knowledge = projectKnowledge(readModel(root), root, authoredByOwner, { reports: 'read', constructPaths: [] })
-    return { state: 'attached', harness: harnessReading(record.harness.command, knowledge.stages[HARNESS_COVERAGE_CLAIM]?.verification) }
+    return { state: 'attached', harness: harnessReading(record.harness.command, knowledge.stages[HARNESS_COVERAGE_CLAIM]?.verification), ...versions }
   }
 
   const readings = new FileReadings(root)
@@ -104,6 +112,30 @@ export function runDoctor(root: string, version: string = VERSION): DoctorResult
   }
 }
 
+function carriersLine(ui: Ui, report: AttachedReport): string | null {
+  switch (report.carriers) {
+    case 'current':
+      return null
+    case 'unknown':
+      return ui.lore.doctorCarriersUnknown
+    case 'stale':
+      return ui.lore.doctorCarriersStale(report.attachedVersion ?? '', report.installedVersion)
+    case 'ahead':
+      return ui.lore.doctorCarriersAhead(report.attachedVersion ?? '', report.installedVersion)
+  }
+}
+
+export function printDoctor(ui: Ui, result: DoctorResult | AttachedReport | null): number {
+  const exit = printDoctorReport(ui, result)
+  if (result != null && 'state' in result) {
+    ui.line(ui.theme.dim(`  ${ui.lore.doctorAttachedVersions(result.attachedVersion, result.installedVersion)}`))
+    const carriers = carriersLine(ui, result)
+    if (carriers != null)
+      ui.line(`  ${carriers}`)
+  }
+  return exit
+}
+
 export { DISCOVERY_PLACEHOLDER, isMarkerFilled, markerClose, markerOpen } from './discovery.js'
 export type { FactoryChecklist, FactoryItem, FactoryItemName, FactorySituation } from './factory.js'
 export { FACTORY_ITEMS, factoryChecklist } from './factory.js'
@@ -116,7 +148,7 @@ export { CLAIM_PLACEMENTS, projectKnowledge } from './projection.js'
 export type { MarkerAuthorship, MarkerReading } from './provenance.js'
 export { discoveryProvenance, MARKER_AUTHORSHIP, markerAuthorship, readingsBy } from './provenance.js'
 export { FileReadings } from './readings.js'
-export { DOCTOR_EXIT, DOCTOR_JSON_SCHEMA_VERSION, doctorJson, factoryChecklistExit, factoryChecklistJson, printDoctor, printFactoryChecklist } from './report.js'
+export { DOCTOR_EXIT, DOCTOR_JSON_SCHEMA_VERSION, doctorJson, factoryChecklistExit, factoryChecklistJson, printFactoryChecklist } from './report.js'
 export type { CheckState, CheckVerdict, Level } from './verdict.js'
 export { LEVELS } from './verdict.js'
 export type { VersionGap } from './version-gap.js'
