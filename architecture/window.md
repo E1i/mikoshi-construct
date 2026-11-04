@@ -131,6 +131,16 @@ which the auto-mode classifier refuses as an unsafe agent (it refused an inline 
 for the owner): the bus launch node starts the `who: shift` cards from their admission, in their lane's order once
 their `depends` are merged, and the bus answer node answers a stopped or reviewed card.
 
+The window does not write a card's tree: the card's session and the answer node do, and a third writer collides with
+them. The one exit is `pnpm bus:request takeover --card <N> --reason <text>`, for a card the bus has no route for. The bus
+accepts it when the card's latest turn is a `question.owner` stop with no lift, when its latest witnesses are green and it
+has no open pull request, or when it needs an answer or launch task (its latest turn is a stop, or its open pull request
+has red CI or a `changes` verdict) and none has moved for `TAKEOVER_AFTER_MINUTES`. It refuses, naming the reason, a card
+that has ended, is held, has a queued or leased task of any node (a review included), or has a session still running. An
+accepted takeover appends `card.held` and `card.takeover`, both by the window and with the reason, so the answer node
+denies the card as held. The window makes the minimal change in the tree by hand, and `pnpm bus:request release --card <N>`
+ends the takeover and queues again each answer task the hold withdrew.
+
 `pnpm doctor:factory`
 compares the permissions the factory needs, `contract/factory-permissions.json`, with `.claude/settings.local.json`
 and names each missing rule, the deny of `gh pr merge` on every open version pull request (head `changeset-release/*`)
