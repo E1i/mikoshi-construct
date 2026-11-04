@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, uti
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { openBus } from '../../core/db.js'
 import { PROCESS_ENDED, PROCESS_REFUSED, ROLE_RETURNED } from '../../core/events.js'
 import { HANDOFF_FIELDS } from '../../core/handoff-fields.js'
@@ -13,6 +13,7 @@ import { observeRoleStop, roleToOwner } from '../../nodes/restart/role.js'
 import { WINDOW_MARK, WINDOW_VARIABLE } from '../../ports/session.js'
 import { lastProcessBeats, recordProcessHeartbeat } from '../../supervisor/heartbeat.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
+import { LOADED_CORE_VARIABLE, PROJECT_VARIABLE } from '../../window/eddies-measure.js'
 import { parsePs } from '../../window/exit.js'
 import { STATE_LABELS } from '../../window/handoff-check.js'
 import { claimLoop, CLAUDE_VARIABLE, claudeCommand, compoundCommandRefusal, CONTINUE_PROMPT, DEFAULT_CLAUDE, DOUBLE_CTRL_C_WINDOW_MS, doubleCtrlCWatcher, exitRequestFile, HANGUPS, liveLoop, loopProcess, MIKO_HANDOFF_NAME, mikoHandoff, once, PAUSE_MS, pauseUntilCtrlC, PREFIX, recordLoopEnded, requestEndsSession, requesterOf, runMikoLoop, runSession, sessionAndPauseSharingCtrlCs, sessionCtrlCsStillInFlight, sessionScript, takeExitRequest } from '../../window/loop.js'
@@ -277,7 +278,7 @@ describe('pnpm miko restarts Miko in its own terminal while miko.md says STATUS:
     expect(exitLines(dir)).toEqual([expect.objectContaining({ reason: 'done' })])
   }, 20_000)
 
-  it('the CONTINUE_PROMPT and window.md name no exit after a handoff outside the three stop reasons', () => {
+  it('the CONTINUE_PROMPT and window.md name no exit after a handoff outside the stop reasons', () => {
     const mikoshi = readFileSync(WINDOW_DOC, 'utf8').split('\n\n').find(paragraph => paragraph.startsWith('Mikoshi, the interactive window'))
     expect(mikoshi).toContain('not at a stop condition: wait with pnpm miko:watch --once --card <N> or take the next card')
     expect(mikoshi).toContain('without `pnpm miko:exit`')
@@ -308,6 +309,7 @@ describe('pnpm miko restarts Miko in its own terminal while miko.md says STATUS:
     expect(CONTINUE_PROMPT).not.toContain('STATUS: OWNER либо DONE')
     expect(CONTINUE_PROMPT).toMatch(/pnpm miko:exit — только при .* или STATUS: DONE$/)
     expect(CONTINUE_PROMPT).toContain('pnpm miko:exit — только при контексте или тратах сессии не ниже порога предупреждения Eddies')
+    expect(CONTINUE_PROMPT).toContain('при версии window-core на main выше загруженной')
   })
 
   it('the loop starts claude in dontAsk mode unless MIKO_CLAUDE overrides it', () => {
@@ -672,6 +674,30 @@ describe('the loop owns the end of a session: a request file asks it to end the 
     const seen = `${file}.seen`
     expect(await runSession(`sh -c 'echo "$MIKO_LOOP_PID $MIKO_EXIT_REQUEST" > ${seen}'`, undefined, file, POLL_MS)).toEqual({ code: 0, signal: null })
     expect(readFileSync(seen, 'utf8').trim()).toBe(`${process.pid} ${file}`)
+  }, 10_000)
+
+  it('passes the core version it reads at each launch into the session environment, and none it could not read, whatever it inherited', async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'miko-core-'))
+    roots.push(dir)
+    const file = request()
+    const seen = `${file}.core`
+    const launch = async (): Promise<string> => {
+      expect(await runSession(`sh -c 'echo "[$${LOADED_CORE_VARIABLE}]" > ${seen}'`, undefined, file, POLL_MS)).toEqual({ code: 0, signal: null })
+      return readFileSync(seen, 'utf8').trim()
+    }
+    vi.stubEnv(PROJECT_VARIABLE, dir)
+    vi.stubEnv(LOADED_CORE_VARIABLE, '3')
+    try {
+      expect(await launch()).toBe('[]')
+      mkdirSync(path.join(dir, 'architecture'))
+      writeFileSync(path.join(dir, 'architecture', 'window-core.md'), '# Window core\n\nwindow-core v5\n')
+      expect(await launch()).toBe('[5]')
+      writeFileSync(path.join(dir, 'architecture', 'window-core.md'), '# Window core\n\nwindow-core v6\n')
+      expect(await launch()).toBe('[6]')
+    }
+    finally {
+      vi.unstubAllEnvs()
+    }
   }, 10_000)
 
   it('the loop marks the claude it spawns as the window', async () => {
