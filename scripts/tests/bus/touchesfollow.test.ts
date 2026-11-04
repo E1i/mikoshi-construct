@@ -7,6 +7,7 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { pathsOutside, runsLine, TestCoverage } from '../../../src/card/covering-tests.js'
 import { parkingFileText } from '../../../src/card/parking.js'
+import { riskOf } from '../../../src/card/risk.js'
 import { followsTouches, neverFollows, rootCopyOf } from '../../../src/commands/intake/check.js'
 import { TOUCHES_FOLLOWED } from '../../core/events.js'
 import { AnswerOutsideTouches, claudeAnswerer, followedEvent } from '../../nodes/answer/answerer.js'
@@ -22,6 +23,13 @@ const LINT_CONFIG = 'eslint.config.mjs'
 const CLAUDE_FILE = '.claude/rules/widget.md'
 const TEMPLATE_RULE = 'templates/ai/shared/_claude/rules/widget.md'
 const TEMPLATE_LINT = 'templates/harness/eslint.config.mjs'
+const INTAKE_CODE = 'src/commands/intake/check.ts'
+const INTAKE_RECORD = 'architecture/composition/intake.yaml'
+const INTAKE_DOC = 'architecture/intake.md'
+
+function modelText(id: string, doc: string, nodePath: string): string {
+  return `id: ${id}\ntitle: ${id}\ndoc: ${doc}\nnodes:\n  - id: entry\n    label: entry\n    path: ${nodePath}\n`
+}
 
 const roots: string[] = []
 
@@ -63,6 +71,9 @@ const REPOSITORY: Record<string, string> = {
   [TEMPLATE_RULE]: 'rule\n',
   [TEMPLATE_LINT]: 'export default []\n',
   [ANOTHER_CARDS_CHANGESET]: '---\n---\n\nanother card\n',
+  [INTAKE_CODE]: 'export const intake = 1\n',
+  [INTAKE_RECORD]: modelText('intake', INTAKE_DOC, INTAKE_CODE),
+  [INTAKE_DOC]: 'the intake flow\n',
 }
 
 const CARD_LINE = `#${CARD_ID} widget [implement/construct/S/ladder/auto] · depends — · blocks —`
@@ -244,6 +255,57 @@ describe('a card session follows the touches the same way and the shift records 
   })
 })
 
+describe('a composition record follows the code it describes', () => {
+  const CHANGED_RECORD = `${REPOSITORY[INTAKE_RECORD]}description: changed\n`
+  const GUARDED_RECORD = 'architecture/composition/guarded.yaml'
+  const INTAKE_REACH = { touches: [INTAKE_CODE], added: new Set<string>(), compositionRecords: [{ id: 'intake', doc: INTAKE_DOC, nodes: [{ path: INTAKE_CODE }] }] }
+
+  it('a change to intake code with its composition record passes the fence', () => {
+    const bodies: string[] = []
+    const worktree = shiftTree({ [INTAKE_CODE]: 'export const intake = 2\n', [INTAKE_RECORD]: CHANGED_RECORD, [INTAKE_DOC]: 'the changed flow\n' })
+
+    expect(treePr(shiftPorts(bodies), { ...SHIFT_CARD, touches: [TOUCHED_MODULE, INTAKE_CODE] }, worktree, null)).toEqual({ kind: 'pr', number: String(OPENED_PR), followed: [INTAKE_RECORD, INTAKE_DOC] })
+    expect(bodies[0]).toContain(`Touches followed: ${INTAKE_RECORD}, ${INTAKE_DOC}`)
+    expect(riskOf(INTAKE_RECORD).level).toBe('R1')
+  })
+
+  it('an answer that changes the record of its touched code pushes and records the widening', async () => {
+    const run = answerChanging([INTAKE_RECORD, INTAKE_DOC], [TOUCHED_MODULE, INTAKE_CODE])
+
+    await expect(run.answer()).resolves.toMatchObject({ owner: null })
+    expect(run.followed).toEqual([[INTAKE_RECORD, INTAKE_DOC]])
+  })
+
+  it('a composition record and its document follow only through a node the touches reach', () => {
+    const bodies: string[] = []
+    const worktree = shiftTree({ [INTAKE_RECORD]: CHANGED_RECORD, [INTAKE_DOC]: 'the changed flow\n' })
+
+    expect(treePr(shiftPorts(bodies), SHIFT_CARD, worktree, null)).toMatchObject({ kind: 'problem', gaps: [{ reason: 'outside-touches', paths: [INTAKE_RECORD, INTAKE_DOC] }] })
+    expect(bodies).toEqual([])
+    expect(followsTouches(INTAKE_RECORD, INTAKE_REACH)).toBe(true)
+    expect(followsTouches(INTAKE_DOC, INTAKE_REACH)).toBe(true)
+    expect(followsTouches(INTAKE_DOC, { ...INTAKE_REACH, touches: [TOUCHED_MODULE] })).toBe(false)
+    expect(followsTouches(INTAKE_RECORD, { ...INTAKE_REACH, touches: ['src/commands/**'] })).toBe(true)
+    expect(followsTouches('architecture/composition/doctor.yaml', INTAKE_REACH)).toBe(false)
+    expect(neverFollows(INTAKE_RECORD, INTAKE_REACH)).toBe(false)
+    expect(neverFollows(INTAKE_RECORD, { ...INTAKE_REACH, touches: [TOUCHED_MODULE] })).toBe(true)
+  })
+
+  it('a node a session adds to the record on its own branch reaches nothing: the fence reads the base', () => {
+    const bodies: string[] = []
+    const widened = `${REPOSITORY[INTAKE_RECORD]}  - id: widget\n    label: widget\n    path: ${TOUCHED_MODULE}\n`
+
+    expect(treePr(shiftPorts(bodies), SHIFT_CARD, shiftTree({ [INTAKE_RECORD]: widened }), null)).toMatchObject({ kind: 'problem', gaps: [{ reason: 'outside-touches', paths: [INTAKE_RECORD] }] })
+    expect(bodies).toEqual([])
+  })
+
+  it.each([CLAUDE_FILE, 'architecture/owner-merges.md', 'architecture/security-invariants.md', '.github/workflows/ci.yml', LINT_CONFIG])('a record whose document is the guarded %s lets the record through and holds the document', (doc) => {
+    const reach = { touches: [INTAKE_CODE], added: new Set<string>(), compositionRecords: [{ id: 'guarded', doc, nodes: [{ path: INTAKE_CODE }] }] }
+
+    expect(touchesFollowed([doc, GUARDED_RECORD], reach, new TestCoverage(() => [], () => null))).toEqual({ followed: [GUARDED_RECORD], outside: [doc] })
+  })
+})
+
 describe('a registry test in an application layout follows the touches only by import', () => {
   const SCHEMA = 'apps/api/src/storage/schema.ts'
   const REGISTRY_TEST = 'apps/api/tests/storage/migrations.test.ts'
@@ -290,7 +352,7 @@ describe('the following table', () => {
     [ANOTHER_CARDS_CHANGESET, [TOUCHED_MODULE], false],
     ['README.md', [TOUCHED_MODULE], false],
   ])('%s follows the touches %j: %s', (file, touches, follows) => {
-    expect(followsTouches(file, { touches, added: new Set([CARD_CHANGESET]) })).toBe(follows)
+    expect(followsTouches(file, { touches, added: new Set([CARD_CHANGESET]), compositionRecords: [] })).toBe(follows)
   })
 
   it.each([
@@ -300,16 +362,17 @@ describe('the following table', () => {
     ['architecture/security-invariants.md', true],
     ['.github/workflows/ci.yml', true],
     ['.changeset/config.json', true],
+    [INTAKE_RECORD, true],
     ['src/materialize/factory-manifest.ts', true],
     [SURFACE, false],
     [COVERING_TEST, false],
   ])('%s never follows the touches: %s', (file, never) => {
-    expect(neverFollows(file)).toBe(never)
+    expect(neverFollows(file, { touches: [TOUCHED_MODULE], added: new Set(), compositionRecords: [] })).toBe(never)
   })
 
   it('the shift fence lets a covering test and a twin through and holds a guarded twin and an unrelated test', () => {
     const coverage = new TestCoverage(() => Object.keys(REPOSITORY), file => REPOSITORY[file] ?? null)
 
-    expect(touchesFollowed([COVERING_TEST, SURFACE, UNRELATED_TEST, LINT_CONFIG], { touches: [TOUCHED_MODULE, TEMPLATE_LINT], added: new Set() }, coverage)).toEqual({ followed: [COVERING_TEST, SURFACE], outside: [UNRELATED_TEST, LINT_CONFIG] })
+    expect(touchesFollowed([COVERING_TEST, SURFACE, UNRELATED_TEST, LINT_CONFIG], { touches: [TOUCHED_MODULE, TEMPLATE_LINT], added: new Set(), compositionRecords: [] }, coverage)).toEqual({ followed: [COVERING_TEST, SURFACE], outside: [UNRELATED_TEST, LINT_CONFIG] })
   })
 })
