@@ -2,6 +2,7 @@ import type { SpawnSyncReturns } from 'node:child_process'
 import type { DatabaseSync } from 'node:sqlite'
 import type { BusEvent } from '../scripts/core/db.js'
 import type { WindowShard } from '../scripts/policy/shards.js'
+import type { GhCall, GhCaller } from '../scripts/ports/gh.js'
 import type { LaunchctlRun, ModeParts } from '../scripts/supervisor/start.js'
 import { execFileSync, spawnSync } from 'node:child_process'
 import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
@@ -11,7 +12,7 @@ import process from 'node:process'
 import { pathToFileURL } from 'node:url'
 import { build } from 'tsup'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
-import { BUS_DB_VARIABLE, busDirOf, OWNER_AGENT, OWNER_AGENT_FILE, repoIdOf } from '../scripts/core/bus-path.js'
+import { BUS_DB_VARIABLE, busDirOf, GH_ACCOUNT_VARIABLE, OWNER_AGENT, OWNER_AGENT_FILE, repoIdOf } from '../scripts/core/bus-path.js'
 import { appendEvent, openBus } from '../scripts/core/db.js'
 import { SHARD_ISSUED, SHARD_REVOKED } from '../scripts/core/events.js'
 import { FACTORY_WORKERS } from '../scripts/core/factory-paths.js'
@@ -87,7 +88,32 @@ function recordingLaunchctl(status = 0): { calls: string[][], run: (args: string
 
 function keepAliveParts(home: string, launchctl: (args: string[]) => LaunchctlRun, platform: NodeJS.Platform = KEEP_ALIVE_PLATFORM) {
   const busDb = path.join(home, '.construct', 'bus.db')
-  return { platform, home, uid: UID, path: USER_PATH, busDb, busDir: busDirOf(busDb), launchctl }
+  const env: NodeJS.ProcessEnv = {}
+  const gh: GhCaller = args => ({ kind: 'failed', cause: 'failed', reason: `no gh in this test: ${args.join(' ')}`, stdout: '', stderr: '', attempts: 1 })
+  return { platform, home, uid: UID, path: USER_PATH, busDb, busDir: busDirOf(busDb), launchctl, env, gh }
+}
+
+function userRepository(origin: string): string {
+  const user = tempRoot('factory-user-')
+  mkdirSync(path.join(user, '.git'))
+  writeFileSync(path.join(user, '.git', 'config'), `[remote "origin"]\n\turl = ${origin}\n`)
+  return user
+}
+
+function answeringGh(answers: Record<string, GhCall>): { calls: string[][], gh: GhCaller } {
+  const calls: string[][] = []
+  return { calls, gh: (args) => {
+    calls.push(args)
+    return answers[args.join(' ')] ?? { kind: 'failed', cause: 'failed', reason: `unexpected gh ${args.join(' ')}`, stdout: '', stderr: '', attempts: 1 }
+  } }
+}
+
+function ran(stdout: string): GhCall {
+  return { kind: 'ran', stdout: `${stdout}\n`, attempts: 1 }
+}
+
+function refused(stderr: string, cause: 'failed' | 'transient' = 'failed'): GhCall {
+  return { kind: 'failed', cause, reason: stderr, stdout: '', stderr, attempts: 1 }
 }
 
 function plistValue(text: string, key: string): string | undefined {
@@ -270,6 +296,84 @@ describe('the keep-alive of the start command', () => {
   })
 })
 
+const fresh = async () => ({ stdout: [], stderr: [], exitCode: 0 })
+
+describe('the github account of the keep-alive', () => {
+  const ACTIVE = 'api user --jq .login'
+  const ACCESS = 'api repos/acme/shop --jq .permissions.push'
+  const ORIGIN = 'git@github.com:acme/shop.git'
+
+  async function startedWith(repository: string, answers: Record<string, GhCall>, env: NodeJS.ProcessEnv = {}, home = tempRoot('factory-home-')) {
+    const { calls, gh } = answeringGh(answers)
+    const parts = { ...keepAliveParts(home, recordingLaunchctl().run), env, gh }
+    const seenByStart: (string | undefined)[] = []
+    const result = await runStart(repository, REPOSITORY, parts, async () => {
+      seenByStart.push(env[GH_ACCOUNT_VARIABLE])
+      return { stdout: [], stderr: [], exitCode: 0 }
+    })
+    const text = readFileSync(path.join(home, LAUNCH_AGENTS, `${agentLabel(repository)}.plist`), 'utf8')
+    return { result, text, calls, seenByStart, home }
+  }
+
+  it('the keep-alive carries the github account that started it when that account can push, and the nodes it starts read the same value', async () => {
+    const { text, seenByStart, result } = await startedWith(userRepository(ORIGIN), { [ACTIVE]: ran('worker'), [ACCESS]: ran('true') })
+    expect(plistValue(text, GH_ACCOUNT_VARIABLE)).toBe('worker')
+    expect(seenByStart).toEqual(['worker'])
+    expect(result.stdout.join('\n')).toContain('can push to acme/shop')
+  })
+
+  it('the keep-alive carries the github account of the remote owner when the starter has no access', async () => {
+    for (const noAccess of [ran('false'), refused('gh: Not Found (HTTP 404)'), refused('gh: Forbidden (HTTP 403)', 'transient')]) {
+      const { text, result } = await startedWith(userRepository(ORIGIN), { [ACTIVE]: ran('work-account'), [ACCESS]: noAccess })
+      expect(plistValue(text, GH_ACCOUNT_VARIABLE)).toBe('acme')
+      expect(result.stdout.join('\n')).toContain('work-account, cannot push to acme/shop, so its owner wins')
+    }
+  })
+
+  it('the keep-alive carries the github account that owns the remote without asking about its access', async () => {
+    const { text, calls } = await startedWith(userRepository(ORIGIN), { [ACTIVE]: ran('ACME') })
+    expect(plistValue(text, GH_ACCOUNT_VARIABLE)).toBe('ACME')
+    expect(calls).toEqual([ACTIVE.split(' ')])
+  })
+
+  it('a rerun under launchd keeps the account its plist hands it and asks gh nothing, so a gh switch does not move it', async () => {
+    const { text, calls } = await startedWith(userRepository(ORIGIN), {}, { [GH_ACCOUNT_VARIABLE]: 'recorded' })
+    expect(plistValue(text, GH_ACCOUNT_VARIABLE)).toBe('recorded')
+    expect(calls).toEqual([])
+  })
+
+  it('a gh that does not answer keeps the account the keep-alive already records, and says so', async () => {
+    const repository = userRepository(ORIGIN)
+    const first = await startedWith(repository, { [ACTIVE]: ran('acme') })
+    const second = await startedWith(repository, { [ACTIVE]: refused('dial tcp: i/o timeout', 'transient') }, {}, first.home)
+    expect(plistValue(second.text, GH_ACCOUNT_VARIABLE)).toBe('acme')
+    expect(second.result.stdout.join('\n')).toContain('keeps the GitHub account acme')
+  })
+
+  it('a gh that does not answer on a first start records nothing and says the factory follows the active account', async () => {
+    const { text, result, seenByStart } = await startedWith(userRepository(ORIGIN), { [ACTIVE]: ran('worker'), [ACCESS]: refused('HTTP 502', 'transient') })
+    expect(text).not.toContain(GH_ACCOUNT_VARIABLE)
+    expect(seenByStart).toEqual([undefined])
+    expect(result.stdout.join('\n')).toContain('follows the active gh account')
+  })
+
+  it('a repository whose origin is not on github records no account and asks gh nothing', async () => {
+    for (const repository of [userRepository('git@gitlab.com:acme/shop.git'), tempRoot('factory-user-')]) {
+      const { text, calls } = await startedWith(repository, {})
+      expect(text).not.toContain(GH_ACCOUNT_VARIABLE)
+      expect(calls).toEqual([])
+    }
+  })
+
+  it('the owner checkout records no account, since its own agent carries its token', async () => {
+    const env: NodeJS.ProcessEnv = {}
+    const { calls, gh } = answeringGh({})
+    await runStart(REPOSITORY, null, { ...keepAliveParts(tempRoot('factory-home-'), recordingLaunchctl().run), env, gh }, fresh)
+    expect(env[GH_ACCOUNT_VARIABLE]).toBeUndefined()
+    expect(calls).toEqual([])
+  })
+})
+
 describe('the bus the start command runs over', () => {
   it('the owner checkout keeps the machine bus and a clone gets its own, even before it exists', () => {
     const home = tempRoot('factory-home-')
@@ -351,8 +455,6 @@ function modeCommand(...argv: string[]) {
     throw new Error(`${argv.join(' ')} is not a mode command`)
   return command
 }
-
-const fresh = async () => ({ stdout: [], stderr: [], exitCode: 0 })
 
 describe('the modes of the factory', () => {
   it('a fresh factory starts in WINDOW with merge off', async () => {

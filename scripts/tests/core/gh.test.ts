@@ -2,6 +2,7 @@ import type { GhPortOptions, GhSpawned } from '../../ports/gh.js'
 import { readdirSync } from 'node:fs'
 import process from 'node:process'
 import { describe, expect, it } from 'vitest'
+import { GH_ACCOUNT_VARIABLE } from '../../core/bus-path.js'
 import { execGh, GH_TIMEOUT_SECONDS, GhBudgetWindow, GhFailed, ghPort, ghRunner, GhTimedOut, readGhJson, stdoutOrThrow } from '../../ports/gh.js'
 
 const ok = (stdout: string): GhSpawned => ({ status: 0, stdout, stderr: '' })
@@ -60,6 +61,37 @@ describe('the gh port', () => {
     expect(second.port.call(['b']).kind).toBe('ran')
     expect(first.port.call(['c'])).toMatchObject({ kind: 'failed', cause: 'budget' })
     expect(second.port.call(['d'])).toMatchObject({ kind: 'failed', cause: 'budget' })
+  })
+
+  it('gh calls run as the repo account', () => {
+    const runs: { args: string[], env: NodeJS.ProcessEnv | undefined }[] = []
+    const port = ghPort({ environment: { [GH_ACCOUNT_VARIABLE]: 'repo-account', PATH: '/bin', GH_TOKEN: 'token-of-the-active-account' }, budget: new GhBudgetWindow({ calls: 1, windowMs: 1000 }, () => 0), spawn: (_command, args, options) => {
+      runs.push({ args, env: options.env })
+      return ok(args[0] === 'auth' ? 'token-of-repo-account\n' : 'out')
+    } })
+    expect(port.call(['pr', 'list'])).toEqual({ kind: 'ran', stdout: 'out', attempts: 1 })
+    expect(runs.map(run => run.args)).toEqual([['auth', 'token', '--user', 'repo-account'], ['pr', 'list']])
+    expect(runs[1]!.env).toEqual({ [GH_ACCOUNT_VARIABLE]: 'repo-account', PATH: '/bin', GH_TOKEN: 'token-of-repo-account' })
+  })
+
+  it('gh calls run as the repo account or not at all when gh holds no token of it, and the reason names the account', () => {
+    const runs: string[][] = []
+    const port = ghPort({ environment: { [GH_ACCOUNT_VARIABLE]: 'repo-account' }, spawn: (_command, args) => {
+      runs.push(args)
+      return { status: 1, stdout: '', stderr: 'no oauth token found for github.com account repo-account' }
+    } })
+    expect(port.call(['pr', 'list'])).toMatchObject({ kind: 'failed', cause: 'failed', attempts: 0, reason: expect.stringContaining('repo-account') })
+    expect(runs).toEqual([['auth', 'token', '--user', 'repo-account']])
+  })
+
+  it('a port with no recorded account hands gh the call as it came', () => {
+    const envs: (NodeJS.ProcessEnv | undefined)[] = []
+    const port = ghPort({ environment: {}, budget: new GhBudgetWindow({ calls: 1, windowMs: 1000 }, () => 0), spawn: (_command, _args, options) => {
+      envs.push(options.env)
+      return ok('')
+    } })
+    expect(port.call(['pr', 'list']).kind).toBe('ran')
+    expect(envs).toEqual([undefined])
   })
 
   it('a gh api call from a test fails at once without credentials', () => {
