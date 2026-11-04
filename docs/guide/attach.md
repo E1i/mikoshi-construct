@@ -56,6 +56,11 @@ without `--harness`, attach records the harness as `none`. `/implement` reads it
 With `--harness`, attach also takes the CI job whose step runs the same command as the check the bus
 waits for; when no job runs it, pass `--required-check "<job name>"` or attach refuses with exit 2.
 
+**The server is declared, not guessed.** A browser witness on a URL needs the repository's server. Pass
+both `--serve "<command>"` and `--serve-url <url>`, and attach records them in `.construct/attach.json`,
+still writing no `construct.json`. The witness node starts that command and waits up to 30 seconds for
+the URL to answer. One flag without the other fails before anything is written.
+
 **Authorship is not hidden.** Nothing attach writes is committed, so the report ends with a trailer to
 copy into commits made during the work, `Attached-Construct: mikoshi-construct@<version>`, and one
 sentence for the pull request.
