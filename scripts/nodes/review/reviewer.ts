@@ -32,6 +32,7 @@ export interface ReviewedTree extends HeldTree {
 export interface Review {
   verdict: VerdictWord
   findings: string[]
+  survivingMutations?: string[]
   session: string
   model?: string
   cache?: CacheTokens
@@ -90,12 +91,15 @@ export const HEAD_MOVED = 'HEAD'
 export const PREPARED_TREE_LINE = 'The worker prepared this tree before the session: its dependencies are in place, so run the harness there as it is. Read and run; leave the tree as the worker left it, because the worker compares it before and after the review and a moved HEAD or a changed or new file git does not ignore makes the verdict changes.'
 
 export function reviewOf(text: string, session: string): Review {
-  const parsed = JSON.parse(text) as { verdict?: unknown, findings?: unknown }
+  const parsed = JSON.parse(text) as { verdict?: unknown, findings?: unknown, survivingMutations?: unknown }
   if (typeof parsed.verdict !== 'string' || !VERDICTS.has(parsed.verdict))
     throw new Error(`the review of session ${session} names no verdict pass | changes`)
   if (!Array.isArray(parsed.findings) || !parsed.findings.every(finding => typeof finding === 'string'))
     throw new Error(`the review of session ${session} has no findings list of strings`)
-  return { verdict: parsed.verdict as VerdictWord, findings: parsed.findings as string[], session }
+  const marked = parsed.survivingMutations
+  if (marked !== undefined && !(Array.isArray(marked) && marked.every(finding => typeof finding === 'string')))
+    throw new Error(`the review of session ${session} has a survivingMutations that is no list of strings`)
+  return { verdict: parsed.verdict as VerdictWord, findings: parsed.findings as string[], ...(marked === undefined ? {} : { survivingMutations: marked as string[] }), session }
 }
 
 const ONE_PASS = 'Walk every mutation over the changed lines and report every finding of this pass in one verdict, not in portions.'
@@ -130,6 +134,8 @@ function depthLines(lease: Lease, plan: ReviewPlan): string[] {
   return [depth, `Review the whole pull request and walk every module it touches.`, ...ladder, ONE_PASS]
 }
 
+const SURVIVING_MUTATIONS_LINE = 'survivingMutations is optional: list only the findings that are a surviving mutation with no behaviour defect. A finding outside it counts as a defect.'
+
 const HANDS_OFF = 'Change nothing, commit nothing, push nothing, and post nothing to GitHub.'
 
 function cardLines(card: string | null): string[] {
@@ -162,7 +168,8 @@ export function reviewPrompt(lease: Lease, plan: ReviewPlan, tree: string, verdi
     ...cardLines(card),
     ...prBodyLines(prBody),
     ...depthLines(lease, plan),
-    `Finish by writing ${verdictPath} as JSON: {"verdict": "pass" | "changes", "findings": ["one finding per string"]}.`,
+    `Finish by writing ${verdictPath} as JSON: {"verdict": "pass" | "changes", "findings": ["one finding per string"], "survivingMutations": ["a finding string, repeated exactly"]}.`,
+    SURVIVING_MUTATIONS_LINE,
   ].join('\n')
 }
 
