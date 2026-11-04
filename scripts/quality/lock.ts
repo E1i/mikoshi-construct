@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process'
-import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { appendFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -13,8 +14,23 @@ const HELD = 'held'
 const HOLDER_FILE = 'holder.json'
 const POLL_MS = 1000
 const PREFIX = '[quality-lock] '
+const SESSIONS_DIR = 'sessions'
+const SESSION_FILE_SUFFIX = '.json'
+const SESSION_NAME_LENGTH = 16
+export const SESSION_QUIET_MS = 10 * 60_000
 
 export interface Holder { pid: number, cwd: string, at: string }
+
+export interface SessionRecord { tree: string, pid: number, at: string }
+
+export interface BudgetDeps {
+  dir: string
+  tree: string
+  pid: number
+  cores: number
+  now: () => Date
+  isAlive: (pid: number) => boolean
+}
 
 export type LockEvent
   = | { event: 'wait', pid: number, cwd: string, at: string, holder: Holder }
@@ -113,6 +129,74 @@ function isAlive(pid: number): boolean {
   }
 }
 
+export function queueDir(env: NodeJS.ProcessEnv = process.env): string {
+  return env[LOCK_DIR_VARIABLE] ?? path.join('/tmp', `claude-${os.userInfo().uid}`, 'construct-quality')
+}
+
+export function workerBudget(cores: number, sessions: number): number {
+  return Math.max(1, Math.floor((cores - 1) / Math.max(1, sessions)))
+}
+
+function sessionFile(sessions: string, tree: string): string {
+  return path.join(sessions, `${createHash('sha256').update(tree).digest('hex').slice(0, SESSION_NAME_LENGTH)}${SESSION_FILE_SUFFIX}`)
+}
+
+function readSession(file: string): SessionRecord | null {
+  try {
+    return JSON.parse(readFileSync(file, 'utf8')) as SessionRecord
+  }
+  catch {
+    return null
+  }
+}
+
+function liveSessions(sessions: string, deps: BudgetDeps): number {
+  const files = readdirSync(sessions).filter(name => name.endsWith(SESSION_FILE_SUFFIX)).map(name => path.join(sessions, name))
+  return files.filter((file) => {
+    const session = readSession(file)
+    if (session === null)
+      return false
+    if (deps.isAlive(session.pid) || deps.now().getTime() - Date.parse(session.at) < SESSION_QUIET_MS)
+      return true
+    rmSync(file, { force: true })
+    return false
+  }).length
+}
+
+export function joinSession(deps: BudgetDeps): number {
+  try {
+    const sessions = path.join(deps.dir, SESSIONS_DIR)
+    mkdirSync(sessions, { recursive: true })
+    const file = sessionFile(sessions, deps.tree)
+    const staged = `${file}.${deps.pid}.tmp`
+    writeFileSync(staged, JSON.stringify({ tree: deps.tree, pid: deps.pid, at: deps.now().toISOString() } satisfies SessionRecord))
+    renameSync(staged, file)
+    return workerBudget(deps.cores, liveSessions(sessions, deps))
+  }
+  catch {
+    return workerBudget(deps.cores, 1)
+  }
+}
+
+export function sessionWorkers(tree: string): number {
+  return joinSession({ dir: queueDir(), tree, pid: process.pid, cores: os.availableParallelism(), now: () => new Date(), isAlive })
+}
+
+export function heavyStep(run: () => Promise<number>, dir: string = queueDir()): Promise<number> {
+  if (process.env[HELD_VARIABLE] !== undefined)
+    return run()
+  return withQualityLock({
+    dir,
+    pid: process.pid,
+    cwd: process.cwd(),
+    now: () => new Date(),
+    isAlive,
+    sleep,
+    say: line => process.stderr.write(`${line}\n`),
+    run,
+  })
+}
+
 function runCommand(argv: string[]): Promise<number> {
   return new Promise((resolve) => {
     const child = spawn(argv[0]!, argv.slice(1), { stdio: 'inherit', env: { ...process.env, [HELD_VARIABLE]: '1' } })
@@ -126,16 +210,5 @@ function runCommand(argv: string[]): Promise<number> {
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const argv = process.argv.slice(2)
-  process.exitCode = process.env[HELD_VARIABLE] === undefined
-    ? await withQualityLock({
-        dir: process.env[LOCK_DIR_VARIABLE] ?? path.join(os.homedir(), '.construct', 'quality'),
-        pid: process.pid,
-        cwd: process.cwd(),
-        now: () => new Date(),
-        isAlive,
-        sleep,
-        say: line => process.stderr.write(`${line}\n`),
-        run: () => runCommand(argv),
-      })
-    : await runCommand(argv)
+  process.exitCode = await heavyStep(() => runCommand(argv))
 }

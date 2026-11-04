@@ -1,0 +1,180 @@
+import type { Run } from '../../ci/layers.js'
+import type { BudgetDeps } from '../../quality/lock.js'
+import { execFileSync, spawnSync } from 'node:child_process'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import os, { tmpdir } from 'node:os'
+import path from 'node:path'
+import process from 'node:process'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { cleanTreeGate, throughQueue } from '../../ci/prepush.js'
+import { printBoard } from '../../cli/board-page.js'
+import { heavyStep, HELD_VARIABLE, joinSession, LOCK_DIR_VARIABLE, LOG_FILE, queueDir, SESSION_QUIET_MS, workerBudget } from '../../quality/lock.js'
+import { busWithCardStarted } from '../ghosts/card-started-bus.js'
+
+const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')
+const HEADER = readFileSync(path.join(REPO_ROOT, 'scripts/nodes/launch/header.md'), 'utf8')
+const NOW = new Date('2026-11-04T12:00:00Z')
+const CORES = 16
+const FULL_RUN: Run = { kind: 'full', why: 'fixture' }
+const LAYER_RUN: Run = { kind: 'layers', layers: [], tests: [] }
+
+const dirs: string[] = []
+
+function scratch(): string {
+  const dir = mkdtempSync(path.join(tmpdir(), 'cpubudget-'))
+  dirs.push(dir)
+  return dir
+}
+
+afterEach(() => {
+  vi.unstubAllEnvs()
+  vi.restoreAllMocks()
+  for (const dir of dirs.splice(0))
+    rmSync(dir, { recursive: true, force: true })
+})
+
+function session(dir: string, tree: string, over: Partial<BudgetDeps> = {}): BudgetDeps {
+  return { dir, tree, pid: 101, cores: CORES, now: () => NOW, isAlive: () => true, ...over }
+}
+
+function gitIn(tree: string, ...args: string[]): void {
+  execFileSync('git', ['-c', 'user.name=fixture', '-c', 'user.email=fixture@example.invalid', '-C', tree, ...args], { stdio: 'ignore' })
+}
+
+function pushedTree(): string {
+  const tree = scratch()
+  gitIn(tree, 'init', '--quiet')
+  writeFileSync(path.join(tree, 'a.txt'), 'a\n')
+  gitIn(tree, 'add', '.')
+  gitIn(tree, 'commit', '--quiet', '-m', 'first')
+  gitIn(tree, 'update-ref', 'refs/remotes/origin/main', 'HEAD')
+  return tree
+}
+
+function readerOf(tree: string): (args: readonly string[]) => string {
+  return args => execFileSync('git', ['-C', tree, ...args], { encoding: 'utf8' })
+}
+
+describe('one worker budget for the machine', () => {
+  it('two live sessions each get at most half of the cores', () => {
+    const dir = scratch()
+    joinSession(session(dir, '/tree/a'))
+    expect(joinSession(session(dir, '/tree/b'))).toBeLessThanOrEqual(CORES / 2)
+    expect(joinSession(session(dir, '/tree/a'))).toBeLessThanOrEqual(CORES / 2)
+  })
+
+  it('the worker limit vitest runs with comes from the session budget of this tree', async () => {
+    const dir = scratch()
+    vi.stubEnv(LOCK_DIR_VARIABLE, dir)
+    const cores = os.availableParallelism()
+    joinSession(session(dir, '/tree/other', { cores }))
+    const { default: config } = await import('../../../vitest.config.js')
+    expect(config.test?.maxWorkers).toBe(workerBudget(cores, 2))
+  })
+
+  it('a second run in one tree is one session', () => {
+    const dir = scratch()
+    const alone = joinSession(session(dir, '/tree/a'))
+    expect(joinSession(session(dir, '/tree/a', { pid: 102 }))).toBe(alone)
+  })
+
+  it('a session whose process is gone and whose run has gone quiet stops counting', () => {
+    const dir = scratch()
+    const alone = workerBudget(CORES, 1)
+    joinSession(session(dir, '/tree/gone', { isAlive: () => false }))
+    const recent = new Date(NOW.getTime() + SESSION_QUIET_MS - 1)
+    const quiet = new Date(NOW.getTime() + SESSION_QUIET_MS)
+    expect(joinSession(session(dir, '/tree/a', { now: () => recent, isAlive: pid => pid !== 101 }))).toBeLessThan(alone)
+    expect(joinSession(session(dir, '/tree/a', { pid: 102, now: () => quiet, isAlive: pid => pid === 102 }))).toBe(alone)
+  })
+
+  it('the floor is one worker, so a budget never stops a run', () => {
+    expect(workerBudget(1, 1)).toBe(1)
+    expect(workerBudget(4, 50)).toBe(1)
+    expect(workerBudget(4, 0)).toBe(3)
+  })
+
+  it('a registry that cannot be written leaves the run its budget', () => {
+    const blocked = path.join(scratch(), 'a-file')
+    writeFileSync(blocked, '')
+    expect(joinSession(session(path.join(blocked, 'below'), '/tree/a'))).toBe(workerBudget(CORES, 1))
+  })
+})
+
+describe('heavy steps', () => {
+  it('two heavy steps wait in one queue', async () => {
+    vi.stubEnv(HELD_VARIABLE, undefined)
+    const dir = scratch()
+    let running = 0
+    let most = 0
+    const step = async (): Promise<number> => {
+      running += 1
+      most = Math.max(most, running)
+      await new Promise(resolve => setTimeout(resolve, 50))
+      running -= 1
+      return 0
+    }
+    expect(await Promise.all([heavyStep(step, dir), heavyStep(step, dir)])).toEqual([0, 0])
+    expect(most).toBe(1)
+    const events = readFileSync(path.join(dir, LOG_FILE), 'utf8').trim().split('\n').map(line => (JSON.parse(line) as { event: string }).event)
+    expect(events.filter(event => event !== 'wait')).toEqual(['start', 'end', 'start', 'end'])
+  })
+
+  it('a step inside a held queue does not wait on the lock its parent holds', async () => {
+    vi.stubEnv(HELD_VARIABLE, '1')
+    const dir = scratch()
+    expect(await heavyStep(async () => 7, dir)).toBe(7)
+    expect(() => readFileSync(path.join(dir, LOG_FILE))).toThrow()
+  })
+
+  it('the pre-push full suite goes through the queue and a layered run does not', async () => {
+    const queue = vi.fn(async (step: () => Promise<number>) => step())
+    expect(await throughQueue(FULL_RUN, async () => 3, queue)).toBe(3)
+    expect(queue).toHaveBeenCalledTimes(1)
+    expect(await throughQueue(LAYER_RUN, async () => 4, queue)).toBe(4)
+    expect(queue).toHaveBeenCalledTimes(1)
+  })
+
+  it('the queue lives where every sandboxed session can write it', () => {
+    expect(queueDir({})).toBe(path.join('/tmp', `claude-${os.userInfo().uid}`, 'construct-quality'))
+    expect(queueDir({ [LOCK_DIR_VARIABLE]: '/moved' })).toBe('/moved')
+  })
+})
+
+describe('a clean tree', () => {
+  it('a clean tree does not start the pre-push checks', () => {
+    const tree = pushedTree()
+    const { GIT_DIR: _dir, GIT_WORK_TREE: _work, ...env } = process.env
+    const run = spawnSync(process.execPath, ['--import', 'tsx', path.join(REPO_ROOT, 'scripts/ci/prepush.ts')], { cwd: REPO_ROOT, env: { ...env, GIT_DIR: path.join(tree, '.git'), GIT_WORK_TREE: tree }, encoding: 'utf8' })
+    expect(run.stdout).toBe('prepush: clean — the tree holds no change and no unpushed commit; no check started.\n')
+    expect(run.status).toBe(0)
+  })
+
+  it('an edited or an untracked file starts them', () => {
+    const tree = pushedTree()
+    writeFileSync(path.join(tree, 'b.txt'), 'b\n')
+    expect(cleanTreeGate(readerOf(tree))).toBeNull()
+  })
+
+  it('a commit no remote holds starts them, so a concluded merge is checked', () => {
+    const tree = pushedTree()
+    gitIn(tree, 'commit', '--quiet', '--allow-empty', '-m', 'merge')
+    expect(cleanTreeGate(readerOf(tree))).toBeNull()
+  })
+
+  it('the launch prompt and the answer prompt say a clean session runs none of the checks', () => {
+    const answerer = readFileSync(path.join(REPO_ROOT, 'scripts/nodes/answer/answerer.ts'), 'utf8')
+    expect(HEADER.replaceAll(/\s+/g, ' ')).toContain('A session that leaves a clean tree and no unpushed commit runs none of them.')
+    expect(answerer).toContain('A session that leaves a clean tree and no unpushed commit runs none of them.')
+  })
+})
+
+describe('the board', () => {
+  it('the board shows the machine load', () => {
+    vi.spyOn(os, 'loadavg').mockReturnValue([92.04, 80, 70])
+    vi.spyOn(os, 'availableParallelism').mockReturnValue(CORES)
+    const pages: string[] = []
+    expect(printBoard(busWithCardStarted([]).file, NOW, text => pages.push(text), path.join(scratch(), 'no-handoff.md'))).toBe(0)
+    expect(pages.join('')).toContain('<span>load <b>92.0 / 16 cores</b></span>')
+  })
+})
