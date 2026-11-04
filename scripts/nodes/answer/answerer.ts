@@ -41,6 +41,7 @@ export interface AnswerRequest {
   card: CardSession
   fresh?: boolean
   outsideTouches?: (paths: readonly string[]) => string[]
+  stepped?: (steps: StepSeconds) => void
 }
 
 export interface Answered {
@@ -535,6 +536,12 @@ function blocksOf(line: string): { type: unknown, blocks: StreamBlock[] } | null
   }
 }
 
+const PNPM_IN_A_TREE = /^pnpm (?:--dir \S+ )?(?:run )?/
+
+function inAnyTree(command: string): string {
+  return command.trim().replace(PNPM_IN_A_TREE, 'pnpm ')
+}
+
 export class RoundTimer {
   private spawned: number | null = null
   private firstLine: number | null = null
@@ -590,7 +597,7 @@ export class RoundTimer {
   }
 
   private runsTheGate(command: unknown): boolean {
-    return typeof command === 'string' && this.gate.some(each => command.trim().startsWith(each))
+    return typeof command === 'string' && this.gate.some(each => inAnyTree(command).startsWith(inAnyTree(each)))
   }
 }
 
@@ -704,9 +711,6 @@ export function claudeAnswerer(dir: string, tools: AnswererTools): Answerer {
         throw new AnswerWithdrawn(request.lease, session)
       return code
     }
-    const code = await run([...settings, ...(resumed ? resumeArgv(session, prompt, [dir]) : sessionArgv(session, prompt, [dir]))], '')
-    if (code !== 0)
-      throw new Error(`the answer session ${session} exited ${code}`)
     const steps = ['']
     const ownerAfter = (step: string): string | null => ownerQuestionIn(ownerQuestion) ?? refusedOwnerQuestionIn(stdoutOf(step), ownerQuestion)
     const followedOrRefused = (): string[] => {
@@ -737,9 +741,17 @@ export function claudeAnswerer(dir: string, tools: AnswererTools): Answerer {
       const left = merged === 0 ? pushTree() : gap
       return left === null ? null : unmergedQuestion(card, left)
     }
-    const kept = tools.pushPolicy?.(card) === 'none'
-    const owner = ownerAfter('') ?? (kept ? null : await publish())
-    const measured = measuredOf(steps.map(stdoutOf))
-    return { session, resumed, atContextWarn: atContextWarn(tools, session), before, after: tools.remoteHead(card), owner, ...measured, input: { prompt, cardBody }, steps: timer.steps() }
+    try {
+      const code = await run([...settings, ...(resumed ? resumeArgv(session, prompt, [dir]) : sessionArgv(session, prompt, [dir]))], '')
+      if (code !== 0)
+        throw new Error(`the answer session ${session} exited ${code}`)
+      const kept = tools.pushPolicy?.(card) === 'none'
+      const owner = ownerAfter('') ?? (kept ? null : await publish())
+      const measured = measuredOf(steps.map(stdoutOf))
+      return { session, resumed, atContextWarn: atContextWarn(tools, session), before, after: tools.remoteHead(card), owner, ...measured, input: { prompt, cardBody }, steps: timer.steps() }
+    }
+    finally {
+      request.stepped?.(timer.steps())
+    }
   }
 }
