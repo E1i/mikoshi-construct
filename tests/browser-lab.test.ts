@@ -387,19 +387,29 @@ describe.runIf(BROWSER_LAB_RUNS)('the browser lab against an unpacked extension'
 
   it('page sees a console.log of the content script and of the page, of every level, filtered by a prefix', async () => {
     const all = await lab('page', `${origin}/covered/`, '--wait', 'html[data-lab="on"]')
-    expect(all.json.console).toContainEqual({ level: 'log', text: 'lab-cs content script', world: 'content-script' })
-    expect(all.json.console).toContainEqual({ level: 'log', text: 'lab-page says', world: 'page' })
-    expect(all.json.console).toContainEqual({ level: 'warning', text: 'lab-page warns', world: 'page' })
+    expect(all.json.console).toContainEqual(expect.objectContaining({ level: 'log', text: 'lab-cs content script', world: 'content-script' }))
+    expect(all.json.console).toContainEqual(expect.objectContaining({ level: 'log', text: 'lab-page says', world: 'page' }))
+    expect(all.json.console).toContainEqual(expect.objectContaining({ level: 'warning', text: 'lab-page warns', world: 'page' }))
     const prefixed = await lab('page', `${origin}/covered/`, '--wait', 'html[data-lab="on"]', '--prefix', 'lab-cs')
-    expect(prefixed.json.console).toEqual([{ level: 'log', text: 'lab-cs content script', world: 'content-script' }])
+    expect(prefixed.json.console).toEqual([expect.objectContaining({ level: 'log', text: 'lab-cs content script', world: 'content-script' })])
   }, BROWSER_RUN_MS)
 
   it('a route file replaces the page response', async () => {
     const routed = path.join(workspace, 'routed.html')
     writeFileSync(routed, '<title>Routed</title><p>routed body</p>')
-    const run = await lab('page', `${origin}/covered/`, '--route', '**/covered/', routed)
+    const run = await lab('page', `${origin}/covered/`, '--route', '**/covered/', routed, '--for', '1')
     expect(run.status).toBe(0)
     expect(run.json).toMatchObject({ title: 'Routed', text: 'routed body' })
+  }, BROWSER_RUN_MS)
+
+  it('a routed page is read after the settle window, with the late console line and its time', async () => {
+    const routed = path.join(workspace, 'settling.html')
+    writeFileSync(routed, '<title>Settling</title><script>console.log(\'check first\'); setTimeout(() => { console.log(\'check second\'); document.title = \'Settled\' }, 500)</script>')
+    const run = await lab('page', `${origin}/covered/`, '--route', '**/covered/', routed, '--prefix', 'check', '--for', '2000')
+    const heard = run.json.console as { text: string, at: string }[]
+    expect(heard.map(line => line.text)).toEqual(['check first', 'check second'])
+    expect(Date.parse(heard[1]!.at) - Date.parse(heard[0]!.at)).toBeGreaterThanOrEqual(400)
+    expect(run.json).toMatchObject({ title: 'Settled', listenedMs: 2000 })
   }, BROWSER_RUN_MS)
 
   it('a route file answers a request of the service worker', async () => {

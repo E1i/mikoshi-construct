@@ -36,7 +36,7 @@ export function ciArgs(run: Run): string[] {
 }
 
 export function leftOut(run: Run, list: readonly SandboxFailing[]): SandboxFailing[] {
-  return list.filter(entry => run.kind === 'full' || run.tests.includes(entry.file))
+  return list.filter(entry => entry.test !== '' || run.kind === 'full' || run.tests.includes(entry.file))
 }
 
 function literal(name: string): string {
