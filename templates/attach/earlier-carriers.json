@@ -773,5 +773,10 @@
     "target": ".claude/skills/browser-lab/SKILL.md",
     "sha256": "2d0c00c53c0a5f3cab7573b48066abc14712d21f54e48505d1d9214784cf0ede",
     "date": "2026-11-04"
+  },
+  {
+    "target": "scripts/construct/browser-lab.mjs",
+    "sha256": "ba1347385368293062e60a4a4e8f67df26d569d8de24451a34e3b6b5edae386c",
+    "date": "2026-11-04"
   }
 ]
