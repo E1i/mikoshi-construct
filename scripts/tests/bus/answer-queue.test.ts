@@ -12,7 +12,7 @@ import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { textSha } from '../../../src/card/text-sha.js'
 import { appendEvent } from '../../core/db.js'
-import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, DECISION_RECORDED, OWNER_WAIT_OPENED, POLICY_DENIED, QUESTION_OWNER, REJECTED, REVIEW_RECORDED, SCOPE_WIDENED, SHARD_ISSUED, TASK_ENQUEUED, TASK_RELEASED, TASK_REQUEUED } from '../../core/events.js'
+import { ANSWER_STEP, BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, DECISION_RECORDED, OWNER_WAIT_OPENED, POLICY_DENIED, QUESTION_OWNER, REJECTED, REVIEW_RECORDED, SCOPE_WIDENED, SHARD_ISSUED, TASK_ENQUEUED, TASK_RELEASED, TASK_REQUEUED } from '../../core/events.js'
 import { taskKey } from '../../core/identifiers.js'
 import { inboxText, ownerInbox } from '../../core/inbox.js'
 import { completeTask, expireLeases, failTask, LEASE_MS, leaseNext } from '../../core/lease.js'
@@ -952,7 +952,9 @@ describe('the answer queue', () => {
     const during = eventCount(bench.db)
     expect(await bench.answer(current)).toEqual({ kind: 'fenced', taskKey: answer(1096, 996, sha('a')) })
     expect(eventsOf(bench.db, CARD_ANSWERED)).toEqual([])
-    expect(eventCount(bench.db) - during).toBe(2)
+    const stepsWrittenWhileTheLeaseWasHeld = ['lease', 'tree']
+    expect(eventsOf(bench.db, ANSWER_STEP).map(event => event.step)).toEqual(stepsWrittenWhileTheLeaseWasHeld)
+    expect(eventCount(bench.db) - during).toBe(2 + stepsWrittenWhileTheLeaseWasHeld.length)
     bench.close()
   })
 })

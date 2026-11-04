@@ -1,12 +1,21 @@
 import type { AnswerRequest, AnswerRun } from '../../nodes/answer/answerer.js'
+import type { CardTreeTools } from '../../ports/card-tree.js'
+import type { MergeBench } from './merge-bench.js'
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
-import { afterEach, describe, expect, it } from 'vitest'
-import { claudeAnswerer, FreshBaseConflict, ownerQuestionPath, realAnswererTools } from '../../nodes/answer/answerer.js'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { appendEvent } from '../../core/db.js'
+import { ANSWER_STEP, CARD_STARTED, CARD_STOPPED, QUESTION_AGENT } from '../../core/events.js'
+import { leaseNext } from '../../core/lease.js'
+import { queueTask } from '../../core/queue.js'
+import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
+import { claudeAnswerer, FreshBaseConflict, ownerQuestionPath, realAnswererTools, RoundTimer } from '../../nodes/answer/answerer.js'
 import { TSX_PIPE_DIRECTORY } from '../../ports/shift-settings.js'
+import { sha } from './github-fake.js'
+import { eventsOf, mergeBench } from './merge-bench.js'
 
 const CARD_SESSION = 'card-session-1207'
 const NEW_SESSION = 'new-session-1'
@@ -215,5 +224,128 @@ describe('the answer path publishes on a fresh base', () => {
     const answered = await answerer(requestIn(root))
 
     expect({ owner: answered.owner, tokens: answered.tokens, publishes: published.length }).toEqual({ owner: question, tokens: 130, publishes: 1 })
+  })
+})
+
+describe('the steps of an answer round on the bus', () => {
+  const benches: MergeBench[] = []
+  const SESSION_THAT_REACHED_THE_GATE = [
+    { step: 'lease', seconds: 2 },
+    { step: 'tree', seconds: 48 },
+    { step: 'spawn', seconds: 4 },
+    { step: 'first_turn', seconds: 11 },
+    { step: 'gate', seconds: 25 },
+    { step: 'push', seconds: null },
+  ]
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    for (const made of benches.splice(0))
+      made.close()
+  })
+
+  function round(ending: (dir: string, leaseGen: number) => number) {
+    const made = mergeBench()
+    benches.push(made)
+    const trees = mkdtempSync(path.join(tmpdir(), 'bus-answerer-'))
+    roots.push(trees)
+    const worktree = path.join(trees, 'mc-905')
+    mkdirSync(worktree)
+    writeFileSync(path.join(worktree, 'pnpm-lock.yaml'), '')
+    writeFileSync(path.join(worktree, 'construct.json'), `${JSON.stringify({ harness: { command: 'pnpm run quality' }, shift: { prepush: [TREE_GATE] } })}\n`)
+    const ts = made.clock.now().toISOString()
+    appendEvent(made.db, { ts, type: CARD_STARTED, actor: 'worker:launch:launch-1', cardId: 905, pr: null, head: null, dedupeKey: `${CARD_STARTED}:905`, payload: { session: CARD_SESSION, worktree, branch: 'feat/card-905', base: sha('1') }, legacy: false })
+    appendEvent(made.db, { ts, type: CARD_STOPPED, actor: 'worker:launch:launch-1', cardId: 905, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:905`, payload: { reason: QUESTION_AGENT, detail: 'a question on card #905' }, legacy: false })
+    const stop = Number((made.db.prepare(`SELECT max(id) AS id FROM events WHERE type = '${CARD_STOPPED}'`).get() as { id: number }).id)
+    queueTask(made.db, ts, { queue: 'answer', cardId: 905, stop })
+    const lease = leaseNext(made.db, ts, 'answer', 'worker:answer:worker-1')!
+    const seconds = (count: number): void => made.clock.advance(count * 1_000)
+    const dir = path.join(trees, 'answers')
+    const answerer = claudeAnswerer(dir, {
+      cardText: () => null,
+      available: () => true,
+      remoteHead: () => sha('a'),
+      now: () => made.clock.now().getTime(),
+      spawn: async (run) => {
+        const lines: [number, object][] = [
+          [4, { type: 'system', subtype: 'init' }],
+          [11, { type: 'assistant', message: { content: [{ type: 'tool_use', id: 't1', name: 'Bash', input: { command: TREE_GATE } }] } }],
+          [25, { type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 't1', content: 'ok' }] } }],
+        ]
+        for (const [after, line] of lines) {
+          seconds(after)
+          run.onLine?.(JSON.stringify(line))
+        }
+        writeFileSync(run.stdoutPath, '')
+        return ending(dir, lease.leaseGen)
+      },
+      newSession: () => NEW_SESSION,
+      publish: () => {},
+    })
+    const cardTrees: CardTreeTools = { home: trees, exists: existsSync, branchOf: pr => `feat/card-${pr}`, recreate: () => {}, bringTo: () => {} }
+    const parts = { db: made.db, ownerMerges: () => '', clock: made.clock.now, trees: cardTrees }
+    const executor = new AnswerExecutor({ ...parts, answerer, liveSession: () => {
+      seconds(2)
+      return null
+    }, prepare: () => seconds(48) })
+    return { made, lease, executor, parts }
+  }
+
+  const asksTheOwner = (dir: string, leaseGen: number): number => {
+    writeFileSync(ownerQuestionPath(dir, CARD_SESSION, leaseGen), 'which of the two does the card mean?\n')
+    return 0
+  }
+
+  it('an answer round that stops leaves one bus event per step with its seconds', async () => {
+    const { made, lease, executor } = round(asksTheOwner)
+
+    expect(await executor.answer(lease)).toMatchObject({ kind: 'stopped', reason: QUESTION_AGENT })
+    expect(eventsOf(made.db, ANSWER_STEP)).toEqual(SESSION_THAT_REACHED_THE_GATE)
+  })
+
+  it('an answer round whose session fails is denied and keeps its steps', async () => {
+    const { made, lease, executor } = round(() => 1)
+
+    expect(await executor.answer(lease)).toMatchObject({ kind: 'denied', denial: { reason: 'answer_failed' } })
+    expect(eventsOf(made.db, ANSWER_STEP)).toEqual(SESSION_THAT_REACHED_THE_GATE)
+  })
+
+  it('a step the bus refuses to record does not change how the round ends', async () => {
+    const { made, lease, executor } = round(asksTheOwner)
+    const missed = vi.spyOn(console, 'error').mockImplementation(() => {})
+    made.db.exec(`CREATE TRIGGER refuse_steps BEFORE INSERT ON events WHEN NEW.type = '${ANSWER_STEP}' BEGIN SELECT RAISE(ABORT, 'the bus is busy'); END`)
+
+    expect(await executor.answer(lease)).toMatchObject({ kind: 'stopped', reason: QUESTION_AGENT })
+    expect(missed).toHaveBeenCalledWith(expect.stringContaining('the steps of the round were not recorded: the bus is busy'))
+  })
+
+  it.each([
+    ['pnpm typecheck', 'pnpm typecheck', 7],
+    ['pnpm typecheck', 'pnpm --dir /trees/mc-905 typecheck', 7],
+    ['pnpm typecheck', 'pnpm --dir /trees/mc-905 run typecheck', 7],
+    ['pnpm exec node --import tsx scripts/ci/prepush.ts --round abc', 'pnpm --dir /trees/mc-905 exec node --import tsx scripts/ci/prepush.ts --round abc', 7],
+    ['pnpm run quality', 'pnpm --dir /trees/mc-905 run quality', 7],
+    ['pnpm typecheck', 'pnpm --dir /trees/mc-905 exec vitest run', null],
+  ])('the gate %s counts the session command %s as %s seconds', (gate, command, seconds) => {
+    let now = 0
+    const timer = new RoundTimer(() => now, [gate])
+    timer.line(JSON.stringify({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 't1', name: 'Bash', input: { command } }] } }))
+    now = 7_000
+    timer.line(JSON.stringify({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 't1' }] } }))
+
+    expect(timer.steps().gate).toBe(seconds)
+  })
+
+  it('a second session in one lease writes its steps beside those of the first', async () => {
+    const { made, lease, parts } = round(() => 0)
+    const sessions: boolean[] = []
+    const executor = new AnswerExecutor({ ...parts, dirty: () => false, liveSession: () => null, prepare: () => made.clock.advance(1_000), answerer: async (request) => {
+      sessions.push(request.fresh === true)
+      return { session: NEW_SESSION, resumed: false, atContextWarn: sessions.length === 1, before: sha('a'), after: sessions.length === 1 ? sha('a') : sha('e'), owner: null }
+    } })
+
+    expect(await executor.answer(lease)).toMatchObject({ kind: 'answered' })
+    expect(sessions).toEqual([false, true])
+    expect(eventsOf(made.db, ANSWER_STEP).map(event => event.step)).toEqual(['lease', 'tree', 'lease', 'tree'])
   })
 })
