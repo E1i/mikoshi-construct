@@ -26,6 +26,7 @@ import { ARCHIVE_DIR } from '../../intake/card-archive.js'
 import { importJournal, importJournalFile, legacyEventOf } from '../../intake/import.js'
 import { busCardAdmissions, busCardEvents, busHeldCards } from '../../intake/intake.js'
 import { busCardBodies } from '../../intake/parking-reads.js'
+import { currentLane, layLanes } from '../../nodes/launch/lane-assign.js'
 import { launchableCard, launchCandidates } from '../../nodes/launch/launch-candidates.js'
 import { LaunchExecutor } from '../../nodes/launch/launch-executor.js'
 import { cardCommand, killQuietly, pathTokens, psPgid, ShiftCardStarter, spawnDetached } from '../../nodes/launch/launch-starter.js'
@@ -307,6 +308,27 @@ describe('the launch queue', () => {
     bench.started(1190)
     bench.tick()
     expect(taskState(bench.db, launch(1191))).toBeUndefined()
+    bench.close()
+  })
+
+  it('launches cards that share only a declared append file', () => {
+    const root = tempRoot()
+    writeFileSync(path.join(root, 'construct.json'), JSON.stringify({ sharedAppendFiles: ['apps/api/src/app.ts', 'apps/api/src/storage/schema.ts'] }))
+    vi.spyOn(process, 'cwd').mockReturnValue(root)
+    const bench = launchBench()
+    const shared = ['apps/api/src/app.ts', 'apps/api/src/storage/schema.ts', '.changeset/**']
+    bench.admitTouching(1501, 'lane-1', ['apps/api/src/users/**', ...shared])
+    bench.admitTouching(1502, 'lane-1', ['apps/api/src/orders/**', ...shared])
+    bench.admitTouching(1503, 'lane-1', ['apps/api/src/billing/**', ...shared])
+    bench.admitTouching(1504, 'lane-1', ['apps/api/src/billing/invoice.ts', 'apps/api/src/app.ts'])
+    layLanes(bench.db, 3, bench.clock.now().toISOString(), 'policy')
+    bench.tick()
+
+    const cards = [1501, 1502, 1503]
+    expect(new Set(cards.map(cardId => currentLane(bench.db, cardId))).size).toBe(3)
+    for (const cardId of cards)
+      expect(taskState(bench.db, launch(cardId))).toMatchObject({ state: 'queued' })
+    expect(taskState(bench.db, launch(1504))).toBeUndefined()
     bench.close()
   })
 
