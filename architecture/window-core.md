@@ -1,6 +1,6 @@
 # Window core
 
-window-core v5
+window-core v6
 
 If your context holds two versions of window-core, the higher version applies; stop and ask for a new session.
 
@@ -42,6 +42,7 @@ The window's first line to the person, while it reads the handoff, names where t
 
 ## Procedures
 
+- тупик карты — сначала навык window-recipes
 - Before a question about the state of work, or while any Ghost is running, read [window.md § Status and the board](window.md#status-and-the-board).
 - Before committing, opening or merging a pull request, cutting a branch or writing a changeset, read [window.md § Pull requests and branches](window.md#pull-requests-and-branches).
 - Before a merge to `main` while a version pull request is open, read [window.md § The version pull request lock](window.md#the-version-pull-request-lock).
