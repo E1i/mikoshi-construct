@@ -244,6 +244,37 @@ describe('construct init --preset node-frontend', () => {
   })
 })
 
+describe('construct init records the serve of its preset', () => {
+  it.each([
+    ['node-backend', 'http://localhost:3000/'],
+    ['monorepo', 'http://localhost:3000/'],
+    ['node-frontend', 'http://localhost:5173/'],
+  ] as const)('init writes the serve of its preset into construct.json: %s', async (preset, url) => {
+    const dir = scratch()
+    await runInit(ui, { dir, preset, yes: true, dryRun: false })
+    const written = JSON.parse(readFileSync(path.join(dir, 'construct.json'), 'utf8')) as { serve?: unknown }
+    expect(written.serve).toEqual({ command: 'pnpm dev', url, readyTimeoutMs: 30000 })
+  })
+
+  it('a preset with no server writes no serve', async () => {
+    const dir = scratch()
+    await runInit(ui, { dir, preset: 'node-library', yes: true, dryRun: false })
+    const written = JSON.parse(readFileSync(path.join(dir, 'construct.json'), 'utf8')) as Record<string, unknown>
+    expect(written.preset).toBe('node-library')
+    expect(written).not.toHaveProperty('serve')
+  })
+
+  it('a repeated init keeps the serve the repository declared', async () => {
+    const dir = scratch()
+    await runInit(ui, { dir, preset: 'node-backend', yes: true, dryRun: false })
+    const file = path.join(dir, 'construct.json')
+    const declared = { command: 'pnpm start', url: 'http://localhost:8080/', readyTimeoutMs: 5000 }
+    writeFileSync(file, JSON.stringify({ ...JSON.parse(readFileSync(file, 'utf8')) as object, serve: declared }))
+    await runInit(ui, { dir, preset: 'node-backend', yes: true, dryRun: false })
+    expect(readManifest(dir)?.serve).toEqual(declared)
+  })
+})
+
 describe('construct init on a directory that is not empty', () => {
   it('keeps the baseline and the contract but omits the sample sources', async () => {
     const dir = scratch()
