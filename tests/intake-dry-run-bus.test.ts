@@ -1,13 +1,19 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import type { DatabaseSync } from 'node:sqlite'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { runCommand } from 'citty'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { BUS_DB_VARIABLE } from '../scripts/core/bus-path.js'
 import { openBus } from '../scripts/core/db.js'
+import { busIntakePorts } from '../scripts/intake/intake.js'
+import { runAdmit } from '../src/commands/intake/admit.js'
 import { INTAKE_EXIT } from '../src/commands/intake/index.js'
+import { printMove, runMove } from '../src/commands/intake/move.js'
 import { createMain } from '../src/program.js'
+import { createUi } from '../src/ui/console.js'
 import { PLAIN_LORE } from '../src/ui/lore.js'
+import { resolveTheme } from '../src/ui/theme.js'
 
 const roots: string[] = []
 
@@ -50,7 +56,18 @@ function parked(w: World): string {
   return file
 }
 
-async function throughEntry(w: World, flags: string[]): Promise<{ exit: typeof process.exitCode, output: string }> {
+function admittedInTheBus(w: World, db: DatabaseSync): { file: string, ports: ReturnType<typeof busIntakePorts> } {
+  const ports = busIntakePorts(db, 'by-hand', () => 1)
+  const file = parked(w)
+  expect(runAdmit({ file, dir: w.repo, dryRun: false, autoConfirm: true, parkingRoot: w.parking, events: ports.cardEvents, cardStates: ports.cardStates, admissions: ports.cardAdmissions }).status).toBe('admitted')
+  return { file, ports }
+}
+
+function allEvents(db: DatabaseSync): unknown {
+  return db.prepare('SELECT id, type FROM events ORDER BY id').all()
+}
+
+async function throughEntry(w: World, flags: string[], bus?: ReturnType<typeof busIntakePorts>): Promise<{ exit: typeof process.exitCode, output: string }> {
   const written: string[] = []
   const write = vi.spyOn(process.stdout, 'write').mockImplementation((chunk: string | Uint8Array) => {
     written.push(String(chunk))
@@ -58,7 +75,7 @@ async function throughEntry(w: World, flags: string[]): Promise<{ exit: typeof p
   })
   const previousExit = process.exitCode
   try {
-    await runCommand(createMain(), { rawArgs: ['intake', '--plain', '--dir', w.repo, '--parking', w.parking, '--dry-run', ...flags] })
+    await runCommand(createMain(bus), { rawArgs: ['intake', '--plain', '--dir', w.repo, '--parking', w.parking, '--dry-run', ...flags] })
     return { exit: process.exitCode, output: written.join('') }
   }
   finally {
@@ -91,5 +108,40 @@ describe('construct intake --dry-run sees the cards the write would see', () => 
     expect(exit).not.toBe(INTAKE_EXIT.refused)
     expect(output).not.toContain(PLAIN_LORE.intakeDraftNeedsBus)
     expect(output).toContain('card: #')
+  })
+
+  it('runMove with dryRun: a move --dry-run leaves the journal and the file unchanged and prints the move', () => {
+    const w = world()
+    const db = openBus(w.bus)
+    try {
+      const { file, ports } = admittedInTheBus(w, db)
+      const before = allEvents(db)
+      const result = runMove({ move: '#80', to: 'lane-3', draft: undefined, taken: undefined, admit: undefined, parking: w.parking, dryRun: true, events: ports.cardEvents, admissions: ports.cardAdmissions })
+      expect(result).toMatchObject({ status: 'dryRun', from: file })
+      const lines: string[] = []
+      expect(printMove(createUi(resolveTheme({ plain: true }), line => lines.push(line)), result)).toBe(INTAKE_EXIT.dryRun)
+      expect(lines.join('\n')).toContain(path.join(w.parking, 'lane-3', '80.md'))
+      expect(lines.join('\n')).toContain(PLAIN_LORE.intakeDryRun(w.parking))
+      expect(allEvents(db)).toEqual(before)
+      expect(existsSync(file)).toBe(true)
+      expect(existsSync(path.join(w.parking, 'lane-3'))).toBe(false)
+    }
+    finally {
+      db.close()
+    }
+  })
+
+  it.fails('known gap, src/program.ts passes no dryRun to runMove: through the entry a move --dry-run still writes to the journal', async () => {
+    const w = world()
+    const db = openBus(w.bus)
+    try {
+      const { ports } = admittedInTheBus(w, db)
+      const before = allEvents(db)
+      await throughEntry(w, ['--move', '#80', '--to', 'lane-3'], ports)
+      expect(allEvents(db)).toEqual(before)
+    }
+    finally {
+      db.close()
+    }
   })
 })
