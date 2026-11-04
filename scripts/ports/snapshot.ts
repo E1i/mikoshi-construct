@@ -20,6 +20,7 @@ export interface OpenPr {
   cardId: number | null
   base: string
   head: string
+  branch: string | null
   mergeable: Mergeable
   ci: CiReading
   failedChecks: string[]
@@ -32,6 +33,7 @@ export interface OpenPr {
 export interface ClosedPr {
   pr: number
   cardId: number | null
+  branch?: string | null
   merged: boolean
   commit: string | null
   mergedBy: string | null
@@ -74,7 +76,7 @@ interface Pull {
   mergeable_state?: string
   auto_merge?: unknown
   base: { ref: string }
-  head: { sha: string }
+  head: { sha: string, ref?: string }
 }
 
 interface CheckRun {
@@ -144,6 +146,7 @@ function openPrOf(meter: Meter, pull: Pull, requiredCheck: string): OpenPr | nul
     cardId: cardIdOfDescription(pull.body),
     base: pull.base.ref,
     head: pull.head.sha,
+    branch: pull.head.ref ?? null,
     mergeable,
     ci,
     failedChecks: ci === 'red' ? failedChecksOf(runs, requiredCheck) : [],
@@ -159,6 +162,7 @@ function closedPrOf(pull: Pull): ClosedPr {
   return {
     pr: pull.number,
     cardId: cardIdOfDescription(pull.body),
+    branch: pull.head.ref ?? null,
     merged,
     commit: merged && isFullSha(pull.merge_commit_sha) ? pull.merge_commit_sha : null,
     mergedBy: merged ? pull.merged_by?.login ?? null : null,
