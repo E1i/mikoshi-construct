@@ -620,11 +620,15 @@ function witnessRow(field: WitnessField, record: WitnessRecordOnHead | null, pag
   return `<tr><th scope="row">${escaped(field.id)}</th><td><code>${escaped(field.run)}</code></td><td>${escaped(field.test ?? NONE)}</td><td>${expected}</td><td>${linked(field.proves, page)}</td></tr>`
 }
 
+function runsHtml(runs: readonly string[]): string {
+  const entries = runs.length === 0 ? NONE : runs.map(entry => `<code>${escaped(entry)}</code>`).join(' ')
+  return `<p>runs: ${entries}</p>`
+}
+
 function witnessTableHtml(table: WitnessTable, page: BoardPage): string {
   const head = WITNESS_COLUMNS.map(column => `<th scope="col">${column}</th>`).join('')
   const rows = table.witnesses.map(field => witnessRow(field, table.record, page)).join('')
-  const runs = table.runs.length === 0 ? NONE : table.runs.map(entry => `<code>${escaped(entry)}</code>`).join(' ')
-  return `<h3>Witnesses</h3><div class="mx-wrap"><table class="mx" data-witnesses><thead><tr><th scope="col">${WITNESS_ID_COLUMN}</th>${head}</tr></thead><tbody>${rows}</tbody></table></div><p>runs: ${runs}</p>`
+  return `<h3>Witnesses</h3><div class="mx-wrap"><table class="mx" data-witnesses><thead><tr><th scope="col">${WITNESS_ID_COLUMN}</th>${head}</tr></thead><tbody>${rows}</tbody></table></div>${runsHtml(table.runs)}`
 }
 
 function withoutRunsLine(prose: string): string {
@@ -636,9 +640,9 @@ function cardProse(detail: CardDetail, page: BoardPage): string {
   if (contract === null)
     return note('The bus holds no admitted card text for this card.')
   const table = detail.witnessTable
-  const prose = table === null ? contract.prose : withoutRunsLine(contract.prose)
-  const witnesses = table === null ? listed('Witnesses', contract.witnesses, page) : witnessTableHtml(table, page)
-  return `<div class="prose">${paragraphs(prose, page)}${witnesses}${listed('Unclear', contract.unclear, page)}</div>`
+  const runs = contract.runs.length === 0 ? '' : runsHtml(contract.runs)
+  const witnesses = table === null ? `${listed('Witnesses', contract.witnesses, page)}${runs}` : witnessTableHtml(table, page)
+  return `<div class="prose">${paragraphs(withoutRunsLine(contract.prose), page)}${witnesses}${listed('Unclear', contract.unclear, page)}</div>`
 }
 
 function matrixRows(rows: [string, string][]): string {

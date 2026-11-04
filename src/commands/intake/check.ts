@@ -3,7 +3,7 @@ import type { DraftCard, DraftPlan, UnclearField } from './draft.js'
 import type { RepositoryFacts } from './facts.js'
 import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
-import { isTestScope, runsLine, runsOf, withinTouches } from '../../card/covering-tests.js'
+import { isTestScope, runsOf, withinTouches } from '../../card/covering-tests.js'
 import { CONTOURS, decisionsOf, KINDS } from '../../card/grammar.js'
 import { createdPaths, parseCreatesEntry, parseParkingFile } from '../../card/parking.js'
 import { CHANGESET_COMPANION, RISK_LEVELS, riskOf, touchedOrCreated } from '../../card/risk.js'
@@ -459,10 +459,6 @@ function coveringRuns(touches: readonly string[], repository: RepositoryFacts): 
   return listedCovering(repository.testsCovering(touches).filter(test => !touches.some(touch => covers(touch, test))))
 }
 
-function withRuns(task: string, runs: readonly string[]): string {
-  return runs.length === 0 ? task : `${task.trimEnd()}\n\n${runsLine(runs)}`
-}
-
 interface Linked {
   kept: string[]
   corrections: Correction[]
@@ -611,7 +607,7 @@ function checkCard(card: DraftCard, assigned: number, facts: CheckFacts): Checke
     ...card,
     contour: contour[0]?.now ?? card.contour,
     decision: decision[0]?.now ?? card.decision ?? unstatedDecision(card, decided, facts.ownerMerges),
-    task: withRuns(card.task, runs),
+    ...(runs.length === 0 ? {} : { runs: [...new Set([...(card.runs ?? []), ...runs])] }),
     touches: touched.touches,
     covering: runs,
     depends: depends.kept,
