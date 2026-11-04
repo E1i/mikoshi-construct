@@ -167,11 +167,13 @@ export type AdmitResult
     | { status: 'admitted' | 'alreadyAdmitted' | 'dryRun', file: string, card: SlicedCard, autoConfirm: boolean, source: AdmitSource, inBus: boolean, event: number | null, windowShard: string | null }
     | { status: 'awaiting', file: string, card: SlicedCard, token: string, stale: boolean }
     | { status: 'waiting', file: string, card: SlicedCard, waitingOn: number[], inBus: boolean, dryRun: boolean }
-    | { status: 'ownerWait', file: string, card: SlicedCard, downgrades: string[], inBus: boolean, dryRun: boolean }
+    | { status: 'ownerWait', file: string, card: SlicedCard, downgrades: string[], actions: string[], inBus: boolean, dryRun: boolean }
 
 const ANY_FORM_OF_FAILING_ON_MAIN = /(?:\s*[;,—–-])?\s*(?:red|non-zero) on main/i
 const DOWNGRADE_ALLOWANCE = 'разрешить понижение свидетеля'
 const GENERAL_DOWNGRADE_ALLOWANCE = 'разрешить понижение свидетелей у '
+const LISTED_DOWNGRADE_ALLOWANCE = 'разрешить понижение свидетелей'
+const LISTED_WITNESS_IDS = /^(?: W[1-9]\d*\b)+/
 export const EQUIVALENT_REPLACEMENT_ALLOWANCE = 'разрешить равноценную замену свидетеля:'
 const CARD_SEPARATOR = /,\s*|\s+и\s+/
 const ALLOWED_CARDS = new RegExp(`^#[1-9]\\d*(?:(?:${CARD_SEPARATOR.source})#[1-9]\\d*)*`)
@@ -185,13 +187,16 @@ export function defaultDecisions(): string {
   return decisionsFileOf(defaultBusPath())
 }
 
-function fieldAllowance(cardId: number, witnessId: string): string {
+function allowanceById(cardId: number, witnessId: string): string {
   return `${DOWNGRADE_ALLOWANCE} #${cardId} ${witnessId}`
 }
 
-export function downgradeAction(cardId: number, witness: string): string {
-  const field = renderedWitness(witness)
-  return field === null ? `${DOWNGRADE_ALLOWANCE} ${witness} у #${cardId}` : fieldAllowance(cardId, field.id)
+function witnessIdIn(admitted: readonly string[], witness: string): string {
+  return renderedWitness(witness)?.id ?? `W${admitted.indexOf(witness) + 1}`
+}
+
+export function downgradeAction(cardId: number, witness: string, admitted: readonly string[]): string {
+  return allowanceById(cardId, witnessIdIn(admitted, witness))
 }
 
 function witnessCore(witness: string): string {
@@ -401,22 +406,25 @@ function waitingEvent(cardId: number, waitingOn: readonly number[], at: Date): C
   return { type: CARD_WAITING, cardId, ts: at.toISOString(), dedupeKey: `${CARD_WAITING}:${cardId}:${waitingOn.join(',')}`, payload: { depends: waitingOn } }
 }
 
-function downgradeEvent(cardId: number, downgrades: readonly string[], sha: string, at: Date): CardEvent {
-  return { type: CARD_WAITING, cardId, ts: at.toISOString(), dedupeKey: `${CARD_WAITING}:${WITNESS_DOWNGRADE}:${cardId}:${sha}`, payload: { reason: WITNESS_DOWNGRADE, witnesses: downgrades, actions: downgrades.map(witness => downgradeAction(cardId, witness)), bodySha: sha } }
+function downgradeEvent(cardId: number, downgrades: readonly string[], actions: readonly string[], sha: string, at: Date): CardEvent {
+  return { type: CARD_WAITING, cardId, ts: at.toISOString(), dedupeKey: `${CARD_WAITING}:${WITNESS_DOWNGRADE}:${cardId}:${sha}`, payload: { reason: WITNESS_DOWNGRADE, witnesses: downgrades, actions, bodySha: sha } }
 }
 
-function ownerAllowed(decisionsFile: string, cardId: number, downgrades: readonly string[]): boolean {
+function ownerAllowed(decisionsFile: string, cardId: number, downgrades: readonly string[], admitted: readonly string[]): boolean {
   if (!existsSync(decisionsFile))
     return false
   const allowing = readFileSync(decisionsFile, 'utf8').split('\n').filter(line => DECISION_LINE.test(line) && !line.includes(SUPERSEDED_BY) && (DECISION_CARDS.exec(line)?.[1]?.split(' ').includes(`#${cardId}`) ?? false))
-  return downgrades.every(witness => allowing.some(line => namesTheWitness(line, witness, cardId) || phraseNamesCard(line, GENERAL_DOWNGRADE_ALLOWANCE, cardId)))
+  return downgrades.every(witness => allowing.some(line => namesTheWitness(line, witness, cardId, admitted) || phraseNamesCard(line, GENERAL_DOWNGRADE_ALLOWANCE, cardId)))
 }
 
-function namesTheWitness(line: string, witness: string, cardId: number): boolean {
-  const field = renderedWitness(witness)
-  if (field === null)
-    return phraseNamesCard(line, `${DOWNGRADE_ALLOWANCE} ${witness} у `, cardId)
-  return line.split(fieldAllowance(cardId, field.id)).slice(1).some(rest => !WORD_CONTINUES.test(rest))
+function namesTheWitness(line: string, witness: string, cardId: number, admitted: readonly string[]): boolean {
+  const proseNamed = renderedWitness(witness) === null && phraseNamesCard(line, `${DOWNGRADE_ALLOWANCE} ${witness} у `, cardId)
+  return proseNamed || namesTheId(line, cardId, witnessIdIn(admitted, witness))
+}
+
+function namesTheId(line: string, cardId: number, witnessId: string): boolean {
+  return line.split(allowanceById(cardId, witnessId)).slice(1).some(rest => !WORD_CONTINUES.test(rest))
+    || line.split(`${LISTED_DOWNGRADE_ALLOWANCE} #${cardId}`).slice(1).some(rest => LISTED_WITNESS_IDS.exec(rest)?.[0].trim().split(' ').includes(witnessId) ?? false)
 }
 
 function standingReplacementAllowed(decisionsFile: string, now: Date): boolean {
@@ -623,10 +631,11 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
   const previous = recorded?.text === undefined ? [] : witnessesOf(recorded.text)
   const lowered = recorded?.text === undefined ? [] : unreplacedFieldDowngrades(witnessDowngrades(previous, witnessesOf(admitted.text)), previous, witnessesOf(admitted.text))
   const downgrades = lowered.length > 0 && standingReplacementAllowed(decisionsFile, now()) ? unreplacedDowngrades(lowered, previous, witnessesOf(admitted.text)) : lowered
-  if (downgrades.length > 0 && !ownerAllowed(decisionsFile, card.id, downgrades)) {
+  if (downgrades.length > 0 && !ownerAllowed(decisionsFile, card.id, downgrades, previous)) {
+    const actions = downgrades.map(witness => downgradeAction(card.id, witness, previous))
     if (!options.dryRun)
-      options.events?.(downgradeEvent(card.id, downgrades, bodySha(admitted.text), now()))
-    return { status: 'ownerWait', file: options.file, card: admitted, downgrades, inBus: base.inBus, dryRun: options.dryRun }
+      options.events?.(downgradeEvent(card.id, downgrades, actions, bodySha(admitted.text), now()))
+    return { status: 'ownerWait', file: options.file, card: admitted, downgrades, actions, inBus: base.inBus, dryRun: options.dryRun }
   }
   if (options.dryRun)
     return { ...base, status: 'dryRun' }
@@ -666,8 +675,8 @@ export function printAdmit(ui: Ui, result: AdmitResult): number {
   }
   if (result.status === 'ownerWait') {
     ui.line(result.dryRun ? ui.lore.intakeAdmitDowngradeDryRun(result.file, card.line, result.downgrades.length) : ui.lore.intakeAdmitDowngrade(result.file, card.line, result.downgrades.length, result.inBus))
-    for (const witness of result.downgrades)
-      ui.line(`  - ${ui.lore.intakeAdmitDowngradeAction(card.id, downgradeAction(card.id, witness))}`)
+    for (const action of result.actions)
+      ui.line(`  - ${ui.lore.intakeAdmitDowngradeAction(card.id, action)}`)
     return INTAKE_EXIT.waiting
   }
   if (result.status === 'alreadyAdmitted') {
