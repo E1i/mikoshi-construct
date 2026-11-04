@@ -1,4 +1,6 @@
 import type { ContinueMode } from '../../../src/card/task-file.js'
+import { existsSync, readFileSync } from 'node:fs'
+import { eddiesJournalPath } from '../../core/places.js'
 import { reportRefusals } from '../../window/handoff-check.js'
 
 export const MAX_RESTARTS = 3
@@ -59,8 +61,15 @@ export function continuationRefusal(handoff: string): string | null {
 interface EddiesEntry {
   event?: unknown
   hook?: unknown
+  level?: unknown
   session_id?: unknown
 }
+
+export interface EddiesEvidence extends Pick<SessionEvidence, 'warned' | 'stopped' | 'refused'> {
+  atContextLine: boolean
+}
+
+const CONTEXT_LEVEL = 'session-context'
 
 function entriesOf(text: string): EddiesEntry[] {
   return text.split('\n').flatMap((line) => {
@@ -74,11 +83,17 @@ function entriesOf(text: string): EddiesEntry[] {
   })
 }
 
-export function eddiesEvidence(journal: string, session: string): Pick<SessionEvidence, 'warned' | 'stopped' | 'refused'> {
+export function eddiesEvidence(journal: string, session: string): EddiesEvidence {
   const own = entriesOf(journal).filter(entry => entry.session_id === session)
   return {
     warned: own.some(entry => entry.event === 'budget-warn'),
+    atContextLine: own.some(entry => entry.event === 'budget-warn' && entry.level === CONTEXT_LEVEL),
     stopped: own.some(entry => entry.event === 'budget-stop'),
     refused: own.some(entry => entry.event === 'unread' && entry.hook === 'eddies-guard'),
   }
+}
+
+export function reachedContextLine(worktree: string, session: string): boolean {
+  const journal = eddiesJournalPath(worktree)
+  return existsSync(journal) && eddiesEvidence(readFileSync(journal, 'utf8'), session).atContextLine
 }

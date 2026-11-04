@@ -56,7 +56,7 @@ import { BUILD_DIR, BUILT_MODULE, builtEntryOf, installedPackage } from '../../s
 import { heartbeatEnv, lastHeartbeat } from '../../supervisor/heartbeat.js'
 import { stampLogOutput } from '../../supervisor/stamp.js'
 import { launchProcess, REAL_PROCESSES } from '../restart/chain-process.js'
-import { continuationRefusal, CONTINUE_PROMPT, eddiesEvidence, MAX_RESTARTS } from './continuation.js'
+import { continuationRefusal, CONTINUE_PROMPT, eddiesEvidence, MAX_RESTARTS, reachedContextLine } from './continuation.js'
 import { laneOverlapRecorder, layLanes, repositoryLanes } from './lane-assign.js'
 import { LaunchExecutor } from './launch-executor.js'
 import { cardCommand, gitChangedPaths, killQuietly, psPgid, ShiftCardStarter, spawnDetached } from './launch-starter.js'
@@ -126,6 +126,7 @@ export interface LaunchNodeParts {
   reportOf?: (start: SessionStart) => string | null
   collected?: (card: StartedCard, start: SessionStart) => string | null
   warned?: (card: StartedCard) => boolean
+  atContextLine?: (card: StartedCard) => boolean
   publish?: (card: StartedCard, start: SessionStart) => void
   committed?: (card: StartedCard) => boolean
   continuer?: SessionContinuer
@@ -399,8 +400,10 @@ export class LaunchNode extends Node<LaunchStep> {
     const missing = card.contour === 'cheap' ? this.launchParts.collected?.(card, session) ?? null : null
     if (missing !== null)
       return this.faultStop(this.ts(), start, `${CARD_STOPPED}:${REPORT_MISSING}:${start.dedupe_key}`, missing, REPORT_MISSING)
-    const amend = this.amendSince(start)
     const handedOff = this.launchParts.handedOff?.(session) ?? false
+    if (card.contour === 'cheap' && (this.launchParts.atContextLine?.(card) ?? false))
+      return this.continueAtContextLine(start, card, handedOff)
+    const amend = this.amendSince(start)
     if (card.contour === 'cheap' && this.launchParts.continuer !== undefined && amend !== null && (handedOff || (this.launchParts.resulted?.(card, session) ?? false)))
       return this.continueSession(start, card, this.launchParts.continuer, `card #${start.card_id} session ${card.session} ended on body ${shortSha(amend.started)}, amended since to ${shortSha(amend.amended)}`)
     if (card.contour === 'cheap' && this.launchParts.continuer !== undefined && handedOff)
@@ -415,6 +418,14 @@ export class LaunchNode extends Node<LaunchStep> {
     if (published === true)
       return false
     return this.stopWithoutPullRequest(start, card, session, published === false ? null : published)
+  }
+
+  private continueAtContextLine(start: RunningStart, card: StartedCard, handedOff: boolean): boolean {
+    const exited = `card #${start.card_id} session ${card.session} stopped at the context warn and the bus pushed nothing from it`
+    const { continuer } = this.launchParts
+    if (continuer === undefined || !handedOff)
+      return this.stopContinuation(start, 'continuation-refused', `${exited}; its report holds no valid handoff, so no session continues from it`)
+    return this.continueSession(start, card, continuer, exited)
   }
 
   private kindOf(cardId: number): string | null {
@@ -718,7 +729,7 @@ export async function runLaunchWorker(argv: string[], run: LaunchRun): Promise<n
     return runWithdrawLegacy(run.busPath, () => new Date())
   let node: LaunchNode | undefined
   const build = (db: DatabaseSync, mode: DetectionMode): LaunchNode => {
-    node = new LaunchNode({ db, starter: run.starter, ladder: run.ladder, clock: () => new Date(), session: run.session, mode, env: process.env, isolation: run.isolation, resulted: sessionLeftAResult(run.launchDir), endedWith: reportResultLine(run.launchDir), handedOff: handoffWrittenSince(run.launchDir), reportOf: reportSince(run.launchDir), collected: reportCollector(run.launchDir), warned: eddiesWarned, ...(run.treePr === undefined ? {} : { publish: startedCardPublisher(run.treePr, run.launchDir, process.env), committed: (card: StartedCard) => treeHoldsACommit(card.worktree, card.base) }), continuer: run.continuer, prompts: promptsDirOf(run.busPath) })
+    node = new LaunchNode({ db, starter: run.starter, ladder: run.ladder, clock: () => new Date(), session: run.session, mode, env: process.env, isolation: run.isolation, resulted: sessionLeftAResult(run.launchDir), endedWith: reportResultLine(run.launchDir), handedOff: handoffWrittenSince(run.launchDir), reportOf: reportSince(run.launchDir), collected: reportCollector(run.launchDir), warned: eddiesWarned, atContextLine: card => reachedContextLine(card.worktree, card.session), ...(run.treePr === undefined ? {} : { publish: startedCardPublisher(run.treePr, run.launchDir, process.env), committed: (card: StartedCard) => treeHoldsACommit(card.worktree, card.base) }), continuer: run.continuer, prompts: promptsDirOf(run.busPath) })
     return node
   }
   const pause = async (ms: number): Promise<unknown> => {
