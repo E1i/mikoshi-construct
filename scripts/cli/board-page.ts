@@ -1,8 +1,10 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { WitnessField } from '../../src/card/witness-fields.js'
 import type { BusCard, BusFacts, BusMatrix, BusService, CardsAtStage, CardStage, OwnerWait } from '../../src/commands/board/bus.js'
 import type { CardMark, PlanProgress, ReleaseStage } from '../../src/commands/board/goal.js'
 import type { FactoryState } from '../../src/commands/liveness.js'
 import type { CardFields } from '../intake/card-contract.js'
+import type { WitnessRecordOnHead, WitnessTable } from '../intake/witness-fields-backfill.js'
 import type { InForceDecision } from '../policy/decisions.js'
 import type { CardChain } from './card-chain.js'
 import { createHash } from 'node:crypto'
@@ -11,6 +13,8 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import { RUNS_PREFIX } from '../../src/card/covering-tests.js'
+import { fieldCommand } from '../../src/card/witness-fields.js'
 import { busFacts, CARD_STAGES, latestCardEvents, openTasks } from '../../src/commands/board/bus.js'
 import { DROPPED, droppedLine, goalOf, MARK_WORDS, planLine } from '../../src/commands/board/goal.js'
 import { backlogCards, isLive, laneColumns, matrixLines, pulseLines, slotsReading, waitAction, waitTarget } from '../../src/commands/board/screens.js'
@@ -21,7 +25,9 @@ import { BUSY_TIMEOUT_MS, defaultBusPath } from '../core/db.js'
 import { defaultHandoffDir } from '../core/handoff-dir.js'
 import { openDatabase } from '../core/sqlite.js'
 import { cardContract } from '../intake/card-contract.js'
+import { recordedWitnessFieldsBackfill, witnessTableOf } from '../intake/witness-fields-backfill.js'
 import { inForceDecisions } from '../policy/decisions.js'
+import { GREEN, RED } from '../policy/policy.js'
 import { BOARD_FILE, cardGauges, FRESH_MS, windowGauges } from '../window/board.js'
 import { mikoHandoff } from '../window/loop.js'
 import { planMarkdown } from '../window/plan-export.js'
@@ -65,6 +71,7 @@ export interface CardDetail {
   contract: CardFields | null
   chain: CardChain | null
   pr: number | null
+  witnessTable: WitnessTable | null
 }
 
 export interface Handoff {
@@ -144,6 +151,11 @@ const SETTLED_STAGES: readonly CardStage[] = ['merged', 'dropped']
 export const PROGRESS_ORDER: readonly CardStage[] = ['merged', 'ready', 'answer/changes', 'review', 'in work', 'planned', 'stopped', 'dropped']
 export const RELEASE_PROGRESS_ORDER: readonly ReleaseStage[] = ['delivered', 'review', 'in_progress', 'queued']
 const WAIT_NEEDS: Record<OwnerWait['need'], string> = { decision: 'D', merge: 'M', command: 'C' }
+const NOT_RUN_ON_HEAD = 'not run'
+const NOT_REACHED_ON_HEAD = 'not reached'
+const NEGATED_RUN = /^!\s+/
+const WITNESS_ID_COLUMN = 'id'
+const WITNESS_COLUMNS = ['run', 'test', 'head/base', 'proves']
 
 function positive(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null
@@ -195,7 +207,12 @@ function cardPrs(db: DatabaseSync): Map<number, number> {
 
 function cardDetails(db: DatabaseSync, facts: BusFacts): Map<number, CardDetail> {
   const prs = cardPrs(db)
-  return new Map(facts.cards.map(card => [card.id, { contract: cardContract(db, card.id), chain: cardChain(db, card.id), pr: prs.get(card.id) ?? null }]))
+  const backfill = recordedWitnessFieldsBackfill(db)
+  return new Map(facts.cards.map((card) => {
+    const contract = cardContract(db, card.id)
+    const pr = prs.get(card.id) ?? null
+    return [card.id, { contract, chain: cardChain(db, card.id), pr, witnessTable: witnessTableOf(db, contract, pr, backfill) }]
+  }))
 }
 
 function projectedGauges(db: DatabaseSync): Map<string, Gauges> {
@@ -566,11 +583,39 @@ function cardPunch(card: BusCard, detail: CardDetail, page: BoardPage): string {
   return punch(`card · ${slug === NONE ? `#${card.id}` : slug}`, contract?.textSha ?? card.id.toString(16).padStart(PUNCH_DIGITS, '0'), fields)
 }
 
+function lastWitnessResult(field: WitnessField, record: WitnessRecordOnHead | null): string {
+  if (record === null)
+    return NOT_RUN_ON_HEAD
+  if (record.verdict === GREEN)
+    return GREEN
+  const command = fieldCommand(field).replace(NEGATED_RUN, '')
+  return [command, `! ${command}`].some(named => record.detail.includes(`\`${named}\``)) ? RED : NOT_REACHED_ON_HEAD
+}
+
+function witnessRow(field: WitnessField, record: WitnessRecordOnHead | null, page: BoardPage): string {
+  const expected = `${escaped(field.head)}/${escaped(field.base)} · last ${lastWitnessResult(field, record)}`
+  return `<tr><th scope="row">${escaped(field.id)}</th><td><code>${escaped(field.run)}</code></td><td>${escaped(field.test ?? NONE)}</td><td>${expected}</td><td>${linked(field.proves, page)}</td></tr>`
+}
+
+function witnessTableHtml(table: WitnessTable, page: BoardPage): string {
+  const head = WITNESS_COLUMNS.map(column => `<th scope="col">${column}</th>`).join('')
+  const rows = table.witnesses.map(field => witnessRow(field, table.record, page)).join('')
+  const runs = table.runs.length === 0 ? NONE : table.runs.map(entry => `<code>${escaped(entry)}</code>`).join(' ')
+  return `<h3>Witnesses</h3><div class="mx-wrap"><table class="mx" data-witnesses><thead><tr><th scope="col">${WITNESS_ID_COLUMN}</th>${head}</tr></thead><tbody>${rows}</tbody></table></div><p>runs: ${runs}</p>`
+}
+
+function withoutRunsLine(prose: string): string {
+  return prose.split('\n').filter(line => !line.trim().startsWith(RUNS_PREFIX)).join('\n')
+}
+
 function cardProse(detail: CardDetail, page: BoardPage): string {
   const contract = detail.contract
   if (contract === null)
     return note('The bus holds no admitted card text for this card.')
-  return `<div class="prose">${paragraphs(contract.prose, page)}${listed('Witnesses', contract.witnesses, page)}${listed('Unclear', contract.unclear, page)}</div>`
+  const table = detail.witnessTable
+  const prose = table === null ? contract.prose : withoutRunsLine(contract.prose)
+  const witnesses = table === null ? listed('Witnesses', contract.witnesses, page) : witnessTableHtml(table, page)
+  return `<div class="prose">${paragraphs(prose, page)}${witnesses}${listed('Unclear', contract.unclear, page)}</div>`
 }
 
 function matrixRows(rows: [string, string][]): string {
@@ -907,7 +952,7 @@ header.panel {
   & b { color: var(--_fg); }
   &[data-none] { --_fg: var(--dim); }
 }
-.svc-grid { display: grid; gap: 1px; background: var(--line); grid-template-columns: repeat(auto-fill, minmax(min(100%, 15rem), 1fr)); }
+.svc-grid { display: grid; gap: 1px; background: var(--line); grid-template-columns: repeat(auto-fill, minmax(min(100%, 16rem), 1fr)); }
 .svc {
   --_accent: var(--wire);
   display: grid;
@@ -1211,6 +1256,7 @@ code { padding: 0 0.25rem; background: var(--panel-raised); color: var(--text); 
   font-size: 0.75rem;
   & th { inline-size: 10rem; padding: 0.3rem 0.625rem; background: var(--panel-raised); color: var(--dim); font-weight: 600; text-align: start; }
   & td { padding: 0.3rem 0.625rem; border-block-end: 1px solid var(--line); }
+  &[data-witnesses] th { inline-size: auto; }
 }
 .chain {
   margin: 0;

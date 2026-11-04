@@ -14,9 +14,10 @@ import { launchCandidates } from '../scripts/nodes/launch/launch-candidates.js'
 import { recordDecision } from '../scripts/policy/decisions.js'
 import { cardWitnessesOf } from '../scripts/policy/policy.js'
 import { runTaskStart } from '../scripts/ports/task-start.js'
-import { witnessFieldsLine } from '../src/card/witness-fields.js'
+import { runsFieldLine, runsFieldOf, witnessFieldsLine, witnessFieldsOf } from '../src/card/witness-fields.js'
 import { downgradeAction, EQUIVALENT_REPLACEMENT_ALLOWANCE, printAdmit, runAdmit, witnessDowngrades } from '../src/commands/intake/admit.js'
 import { bodySha, bodyShaWithoutTouches } from '../src/commands/intake/confirm.js'
+import { runExport } from '../src/commands/intake/export.js'
 import { INTAKE_EXIT, runIntake } from '../src/commands/intake/index.js'
 import { isWithin, parkingTree } from '../src/commands/intake/parking-tree.js'
 import { createMain } from '../src/program.js'
@@ -858,6 +859,27 @@ describe('construct intake --admit reads the witness fields', () => {
       park(w, 80, CLEAN, 'src/board/**', bodyWith(field({ test: 'another thing' })))
       expect(admitThroughBus(w, file, { decisions: decisionsOf(w) })).toMatchObject({ status: 'ownerWait' })
     }
+  })
+
+  it('export then admit keeps the witness fields', () => {
+    const w = world()
+    const fields = [field(), field({ id: 'W2', run: 'test -f src/board/run.ts', test: null, head: 'pass', base: 'pass', proves: 'the file stays' })]
+    const runs = ['tests/board/**', 'scripts/tests/bus/card.test.ts']
+    const file = park(w, 80, CLEAN, 'src/board/**', `Do the thing.\n\n${runsFieldLine(runs)}\n${witnessFieldsLine(fields)}`)
+    expect(admitThroughBus(w, file, { decisions: decisionsOf(w) })).toMatchObject({ status: 'admitted', source: 'admit' })
+    const db = openBus(busOf(w))
+    const exported = runExport({ card: '#80', admissions: busCardAdmissions(db) })
+    db.close()
+    expect(exported.status).toBe('exported')
+    const { text } = exported as Extract<typeof exported, { status: 'exported' }>
+    expect(witnessFieldsOf(text)).toEqual(fields)
+    expect(runsFieldOf(text)).toEqual(runs)
+    const body = text.replace('Do the thing.', 'Do the thing better.')
+    expect(admitThroughBus(w, file, { decisions: decisionsOf(w), body })).toMatchObject({ status: 'admitted', source: 'amend' })
+    const readmitted = latestText(w, file)
+    expect(readmitted).toContain('Do the thing better.')
+    expect(witnessFieldsOf(readmitted)).toEqual(fields)
+    expect(runsFieldOf(readmitted)).toEqual(runs)
   })
 
   it('a field witness with no run is refused at admission', () => {
