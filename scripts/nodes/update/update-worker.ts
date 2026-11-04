@@ -75,6 +75,7 @@ export class UpdateNode extends Node<UpdateStep> {
   protected override before(): void {
     if (firstLiveVerdict(this.db) === null)
       throw new NoLiveVerdict('update')
+    this.log(`the update node starts in rerun mode ${this.rerun}`)
   }
 
   protected candidates(scope: Scope = {}): QueuedTask[] {

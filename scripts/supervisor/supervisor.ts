@@ -21,7 +21,7 @@ import { LIVE_FLAG } from '../core/node.js'
 import { inForceDecisions } from '../policy/decisions.js'
 import { allowLiveCommand, liveDecisionOf } from '../policy/live-decision.js'
 import { CHECK_MS } from '../ports/netwatch.js'
-import { alive, BUILD_DIR, BUILT_MODULE, flagsInArgs, installedPackage, instancesOf, launchName, PREFIX, printBg, provenOnBus, psList, runBusBg, runningInstance, startDetached, thisBus, withBuses } from './bg.js'
+import { alive, BUILD_DIR, BUILT_MODULE, flagsInArgs, installedPackage, instancesOf, launchName, PREFIX, printBg, provenOnBus, psList, runBusBg, runningInstance, stampedOtherwise, startDetached, thisBus, withBuses } from './bg.js'
 import { BusHealer, CorruptionWatch, RecordedNodes } from './bus-heal.js'
 import { BusSnapshot } from './bus-snapshot.js'
 import { CARD_PROCESS, lastProcessBeats, recordProcessHeartbeat } from './heartbeat.js'
@@ -1078,9 +1078,58 @@ export function pinnedBusDir(): string {
 
 const reviewPreflight = (): string[] => busShadowProblems(defaultBusPath())
 
+export interface AgentHand {
+  env: NodeJS.ProcessEnv
+  processes: ProcessList
+  ownPackage: string
+  stop: (running: RunningProcess, launch: DetachedLaunch) => Promise<void>
+  freeLeases: (stopped: DetachedLaunch[]) => string[]
+  start?: Parameters<typeof runBusBg>[4]
+}
+
+function restampable(instance: RunningProcess, hand: AgentHand): boolean {
+  const root = packageOfBusProcess(instance.args)
+  return provenOnBus(instance, thisBus(hand.env))
+    && (root === null || path.resolve(root) === path.resolve(hand.ownPackage))
+    && stampedOtherwise(instance, hand.env)
+}
+
+export async function startUnderAgentEnv(busDir: string, launches: DetachedLaunch[], hand: AgentHand): Promise<BgResult> {
+  const processes = hand.processes()
+  const stale = [...launches].reverse().flatMap((launch) => {
+    const instance = runningInstance(processes, launch.markers, thisBus(hand.env))
+    return instance !== undefined && restampable(instance, hand) ? [{ launch, instance }] : []
+  })
+  const lines: string[] = []
+  for (const { launch, instance } of stale) {
+    await hand.stop(instance, launch)
+    lines.push(`${PREFIX}${launchName(launch)} ran as pid ${instance.pid} on another agent env than this start was handed; stopped it to start it again on the handed env`)
+  }
+  const freed = stale.length === 0 ? [] : hand.freeLeases(stale.map(({ launch }) => launch))
+  const started = runBusBg(busDir, launches, hand.env, hand.processes, hand.start)
+  return { ...started, stdout: [...lines, ...freed, ...started.stdout] }
+}
+
+function freeLeasesOnBus(stopped: DetachedLaunch[]): string[] {
+  const db = openBus(defaultBusPath())
+  try {
+    return freeLeasesOf(db, new Date().toISOString(), stopped)
+  }
+  finally {
+    db.close()
+  }
+}
+
 export async function startBus(busDir: string = pinnedBusDir(), processes: ProcessList = psList()): Promise<BgResult> {
   const judged = await restartSilentSupervisorOnBus(busDir, processes)
-  const started = runBusBg(busDir, [...wantedLaunches(busDir, reviewPreflight, decisionsInForce()), SUPERVISOR_LAUNCH], process.env, processes, startReviewWorker)
+  const started = await startUnderAgentEnv(busDir, [...wantedLaunches(busDir, reviewPreflight, decisionsInForce()), SUPERVISOR_LAUNCH], {
+    env: process.env,
+    processes,
+    ownPackage: ownPackage(),
+    stop: (running, launch) => stopInstance(running, launch.markers, processes),
+    freeLeases: freeLeasesOnBus,
+    start: startReviewWorker,
+  })
   return { ...started, stdout: [...foreignBusLines(processes(), ownPackage()), ...judged, ...started.stdout] }
 }
 
