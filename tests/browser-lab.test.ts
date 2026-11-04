@@ -461,7 +461,7 @@ describe.runIf(BROWSER_LAB_RUNS)('the browser lab against an unpacked extension'
 
   it('hands open a plain site with no extension', async () => {
     const profile = path.join(workspace, 'plain-hands-profile')
-    const plainHands = (...cliArguments: string[]): Promise<LabRun> => spawnLab({}, ['hands', '--profile', profile, '--', ...cliArguments], HANDS_RUN_MS - 5000)
+    const plainHands = (...cliArguments: string[]): Promise<LabRun> => spawnLab({}, ['hands', '--profile', profile, '--', '-s', 'plain-site', ...cliArguments], HANDS_RUN_MS - 5000)
     try {
       const opened = await plainHands('open', `${origin}/elsewhere/`)
       expect(opened.stderr).not.toContain('could not observe')
