@@ -145,6 +145,7 @@ describe('the update node', () => {
     await once(node)
     expect(eventsOf(made.db, NODE_DETECTED)).toEqual([{ key: updateKey(980), via: 'tick', event_id: expect.any(Number) as unknown, outcome: 'queued' }])
 
+    made.gitHub.close(980, true)
     made.gitHub.open({ number: 981, review: 'success', mergeable_state: 'behind' })
     made.tick()
     await once(node)
