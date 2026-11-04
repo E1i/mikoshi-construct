@@ -4,10 +4,16 @@ import process from 'node:process'
 export const STAMP_ENV = 'BUS_LOG_STAMP'
 export const AGENT_ENV_FLAG = '--agent-env'
 
+const LEFT_BARE_BY_URI_ENCODING = /[!'()*~]/g
+
+function encodedForAnyShellQuoting(value: string): string {
+  return encodeURIComponent(value).replace(LEFT_BARE_BY_URI_ENCODING, char => `%${char.charCodeAt(0).toString(16).toUpperCase()}`)
+}
+
 export function agentEnvStamp(names: readonly string[], env: NodeJS.ProcessEnv): string[] {
   return names.flatMap((name) => {
     const value = env[name]
-    return value === undefined || value === '' ? [] : [`${AGENT_ENV_FLAG}.${name}.${encodeURIComponent(value)}`]
+    return value === undefined || value === '' ? [] : [`${AGENT_ENV_FLAG}.${name}.${encodedForAnyShellQuoting(value)}`]
   })
 }
 

@@ -1,15 +1,19 @@
 import type { BgResult, DetachedLaunch, ProcessList, RunningProcess } from '../../supervisor/bg.js'
 import type { BusCode } from '../../supervisor/supervisor.js'
+import type { MergeBench } from './merge-bench.js'
 import { execFileSync, spawn, spawnSync } from 'node:child_process'
 import { appendFileSync, chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { pathToFileURL } from 'node:url'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { RERUN_VARIABLE } from '../../cli/check-catalog.js'
 import { busDirOf, machineBusPath } from '../../core/bus-path.js'
 import { appendEvent, openBus } from '../../core/db.js'
+import { REVIEW_RECORDED } from '../../core/events.js'
+import { MergeNode } from '../../nodes/merge/merge-worker.js'
+import { UpdateNode } from '../../nodes/update/update-worker.js'
 import { AGENT_ENV, alive, BUS_FLAG, BUS_RUN_LAUNCH, BUS_RUN_MARKERS, busInArgs, carriesMarker, flagsInArgs, instancesOf, launchArgv, launchName, PREFIX, psList, RUN_SCRIPT, runBusBg, runningBus, runningInstance, servesBus, SHADOW_LOG, START_LOCK, START_LOCK_LIMIT_MS, startDetached, withBuses } from '../../supervisor/bg.js'
 import { startReviewWorker } from '../../supervisor/review-bg.js'
 import { factoryBusOf } from '../../supervisor/start.js'
@@ -17,6 +21,8 @@ import { bgCommand, BusSupervisor, entryOf, gitCode, lastMainAdvance, mainAdvanc
 import { busLaunches, switchDetection, switchedOn, switchWorker, wantedLaunches, WORKERS_FILE } from '../../supervisor/workers.js'
 import { settled } from '../shift/fixtures/settled.js'
 import { waitFor } from '../wait-for.js'
+import { sha } from './github-fake.js'
+import { mergeBench } from './merge-bench.js'
 
 const roots: string[] = []
 const started: number[] = []
@@ -169,6 +175,46 @@ function handOver(w: World, running: RunningProcess[]): Hand {
   }
 }
 
+describe('the rerun mode at a node start', () => {
+  const benches: MergeBench[] = []
+
+  beforeEach(() => {
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    for (const bench of benches.splice(0))
+      bench.close()
+  })
+
+  function benchWithLiveVerdict(): MergeBench {
+    const made = mergeBench()
+    benches.push(made)
+    appendEvent(made.db, { ts: made.clock.now().toISOString(), type: REVIEW_RECORDED, actor: 'worker:review:reviewer-1', cardId: 1070, pr: 970, head: sha('a'), dedupeKey: `${REVIEW_RECORDED}:live`, payload: { head: sha('a'), verdict: 'pass', reviewer_session: 'reviewer-1', findings: [] }, legacy: false })
+    return made
+  }
+
+  async function startLinesOfBothNodes(env: NodeJS.ProcessEnv): Promise<string[]> {
+    const made = benchWithLiveVerdict()
+    const merge = new MergeNode({ db: made.db, gitHub: made.gitHub.client, put: made.gitHub.put, publish: made.gitHub.publish, clock: made.clock.now, session: 'node-1', run: null, mode: 'shadow', env })
+    const update = new UpdateNode({ db: made.db, gitHub: made.gitHub.client, put: made.gitHub.put, publish: made.gitHub.publish, clock: made.clock.now, settle: () => {}, session: 'node-2', mode: 'live', env })
+    for (const node of [merge, update]) {
+      const controller = new AbortController()
+      await node.run({ pause: async () => controller.abort(), signal: controller.signal })
+    }
+    return vi.mocked(console.log).mock.calls.map(call => String(call[0])).filter(line => line.includes('rerun mode'))
+  }
+
+  it('the merge and update nodes each name by-layers in their start line', async () => {
+    expect(await startLinesOfBothNodes({ [RERUN_VARIABLE]: 'by-layers' })).toEqual([expect.stringContaining('the merge node starts in rerun mode by-layers'), expect.stringContaining('the update node starts in rerun mode by-layers')])
+  })
+
+  it('with no BUS_RERUN the merge and update nodes each name as-now in their start line', async () => {
+    expect(await startLinesOfBothNodes({})).toEqual([expect.stringContaining('the merge node starts in rerun mode as-now'), expect.stringContaining('the update node starts in rerun mode as-now')])
+  })
+})
+
 describe('pnpm bus:bg', () => {
   it('bus:bg restarts a live worker stamped with another BUS_RERUN than the agent hands it', async () => {
     const w = world()
@@ -250,7 +296,7 @@ describe('pnpm bus:bg', () => {
   })
 
   it('a stamp holds only characters shell quoting leaves as they are, so a wrapper line reads the same and never restarts in a loop', () => {
-    const stamps = launchArgv(mergeLaunch(), null, undefined, { BUS_RERUN: 'by-layers', CONSTRUCT_REVIEW_MODEL: 'a=b c' }).filter(token => token.startsWith('--agent-env'))
+    const stamps = launchArgv(mergeLaunch(), null, undefined, { BUS_RERUN: 'by-layers', CONSTRUCT_REVIEW_MODEL: 'a=b c!\'()*~' }).filter(token => token.startsWith('--agent-env'))
     expect(stamps).toHaveLength(2)
     for (const stamp of stamps)
       expect(stamp).toMatch(/^[\w%./+-]+$/)
