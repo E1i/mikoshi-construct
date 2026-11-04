@@ -17,7 +17,10 @@ A release is an entity in the bus — an id, a goal, and a gate as its exit crit
 card carries the field `release` (none is the backlog). The window moves a card in with `pnpm bus:request plan --op add
 --plan <release> --card <N>` and out with `pnpm bus:request plan --op remove --card <N>`, one `card.planned` or
 `card.unplanned` event each; `pnpm intake --release <release>` puts every card it admits into an open release with no
-other step. `plan --op open` takes the gate as `--gate <word>`; `plan --op backfill --plan <release> --gate <word>`
+other step, and so does a line `release: <release>` in the card's header, beside `who` and `priority`, read at
+admission; a line naming no open release, or another release than the flag, admits nothing. Taking the card out stays
+`plan --op remove`, and the line goes with it, or the next amendment puts the card back. A gate stays a word on the
+release. `plan --op open` takes the gate as `--gate <word>`; `plan --op backfill --plan <release> --gate <word>`
 gives each card the release's plan items link its release, and the release its gate, in one `plan.backfilled` event.
 
 A pull request of an owner-merged kind is ready when CI on its current head is green, and that is the whole

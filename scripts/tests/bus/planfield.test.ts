@@ -14,6 +14,7 @@ import { runRequest, WindowRequests } from '../../window/window-requests.js'
 const RELEASE = 'factory-0.45.2'
 const GATE = 'VEDETIRUN'
 const SESSION = 'planfield-test'
+const BODY_CARD = 7701
 const NOW = new Date('2026-11-03T12:00:00.000Z')
 const roots: string[] = []
 const exitCodes: (typeof process.exitCode)[] = []
@@ -69,6 +70,31 @@ function draftIn(root: string): string[] {
   return ['--draft', path.join(root, 'draft.json'), '--taken', path.join(root, 'taken.txt'), '--dir', repo, '--parking', path.join(root, 'parking'), '--auto-confirm', '--plain']
 }
 
+function writeCard(root: string, releaseLine: string, task: string): string {
+  const file = path.join(root, `${BODY_CARD}.md`)
+  writeFileSync(file, [
+    `card: #${BODY_CARD} bodyrelease [implement/runner/S/cheap/auto] · depends — · blocks —`,
+    'branch: feat/bodyrelease',
+    'touches: src/a.ts',
+    'who: shift',
+    releaseLine,
+    '',
+    task,
+    '',
+    'Witnesses:',
+    '- `pnpm exec vitest run` exits 0',
+    '',
+  ].join('\n'))
+  return file
+}
+
+function admitting(root: string, releaseLine: string): string[] {
+  const repo = path.join(root, 'repo')
+  mkdirSync(path.join(repo, 'src'), { recursive: true })
+  writeFileSync(path.join(repo, 'src', 'a.ts'), 'export const a = 1\n')
+  return ['--admit', writeCard(root, releaseLine, 'Change a.'), '--dir', repo, '--auto-confirm', '--plain']
+}
+
 describe('the release is a field of the card', () => {
   it('a card admitted with --release X carries release X in the bus with no other step', async () => {
     const root = scratch()
@@ -88,6 +114,87 @@ describe('the release is a field of the card', () => {
     expect(count(empty, CARD_ADMITTED)).toBe(0)
     db.close()
     empty.close()
+  })
+
+  it('a card whose body names a release lands in it with no flag and no plan request', async () => {
+    const root = scratch()
+    const db = openBus(path.join(root, 'bus.db'))
+    openRelease(db)
+    await runBusIntake(db, admitting(root, `release: ${RELEASE}`), SESSION)
+    expect(count(db, CARD_ADMITTED)).toBe(1)
+    expect(reduce(db).rejected).toBe(0)
+    expect(releases(db)).toEqual([{ card_id: BODY_CARD, release: RELEASE }])
+    expect(count(db, CARD_PLANNED)).toBe(1)
+    db.close()
+  })
+
+  it('a body naming a release that is not open admits nothing and plans nothing', async () => {
+    const never = scratch()
+    const empty = openBus(path.join(never, 'bus.db'))
+    await runBusIntake(empty, admitting(never, 'release: no-such-release'), SESSION)
+    expect(process.exitCode).toBe(1)
+    expect(count(empty, CARD_ADMITTED)).toBe(0)
+    expect(count(empty, CARD_PLANNED)).toBe(0)
+    empty.close()
+
+    const root = scratch()
+    const db = openBus(path.join(root, 'bus.db'))
+    openRelease(db)
+    reduce(db)
+    owner(db, PLAN_CLOSED, null, { plan: RELEASE })
+    process.exitCode = 0
+    await runBusIntake(db, admitting(root, `release: ${RELEASE}`), SESSION)
+    expect(process.exitCode).toBe(1)
+    expect(count(db, CARD_ADMITTED)).toBe(0)
+    expect(count(db, CARD_PLANNED)).toBe(0)
+    db.close()
+  })
+
+  it('a body and a --release that name different releases admit nothing', async () => {
+    const root = scratch()
+    const db = openBus(path.join(root, 'bus.db'))
+    openRelease(db)
+    owner(db, PLAN_OPENED, null, { id: 'factory-other', title: 'Other', goal: 'another release', plan_file: '/plans/other.md' })
+    await runBusIntake(db, [...admitting(root, `release: ${RELEASE}`), '--release', 'factory-other'], SESSION)
+    expect(process.exitCode).toBe(1)
+    expect(count(db, CARD_ADMITTED)).toBe(0)
+    expect(count(db, CARD_PLANNED)).toBe(0)
+    db.close()
+  })
+
+  it('an amended body still naming its release plans nothing more, though the release has closed', async () => {
+    const root = scratch()
+    const db = openBus(path.join(root, 'bus.db'))
+    openRelease(db)
+    const argv = admitting(root, `release: ${RELEASE}`)
+    await runBusIntake(db, argv, SESSION)
+    reduce(db)
+    owner(db, PLAN_CLOSED, null, { plan: RELEASE })
+    reduce(db)
+    process.exitCode = 0
+    writeCard(root, `release: ${RELEASE}`, 'Change a, amended.')
+    await runBusIntake(db, argv, SESSION)
+    expect(process.exitCode).toBe(0)
+    expect(count(db, CARD_ADMITTED)).toBe(2)
+    expect(count(db, CARD_PLANNED)).toBe(1)
+    expect(reduce(db).rejected).toBe(0)
+    db.close()
+  })
+
+  it('a card moved out by plan remove stays out when its unchanged body is admitted again', async () => {
+    const root = scratch()
+    const db = openBus(path.join(root, 'bus.db'))
+    openRelease(db)
+    const argv = admitting(root, `release: ${RELEASE}`)
+    await runBusIntake(db, argv, SESSION)
+    reduce(db)
+    expect(asked(db, '--op', 'remove', '--card', `#${BODY_CARD}`)).toEqual([`done: ${CARD_UNPLANNED} #${BODY_CARD}`])
+    reduce(db)
+    await runBusIntake(db, argv, SESSION)
+    expect(reduce(db).rejected).toBe(0)
+    expect(releases(db)).toEqual([])
+    expect(count(db, CARD_PLANNED)).toBe(1)
+    db.close()
   })
 
   it('plan remove #N returns the card to the backlog with one card.unplanned event', () => {
