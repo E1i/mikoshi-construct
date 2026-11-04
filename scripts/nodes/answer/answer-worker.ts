@@ -9,19 +9,21 @@ import type { CardTreeTools } from '../../ports/card-tree.js'
 import type { IsolationReader } from '../../ports/isolation.js'
 import type { AnswerOutcome, TreePublishing } from './answer-executor.js'
 import type { Answerer, CardText } from './answerer.js'
+import { execFileSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { existsSync, readFileSync, realpathSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, readFileSync, realpathSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { parseParkingFile } from '../../../src/card/parking.js'
-import { defaultBusDir } from '../../core/bus-path.js'
+import { busDirOf, defaultBusDir, machineBusPath } from '../../core/bus-path.js'
 import { bodyNotFoldedYet } from '../../core/card-bodies.js'
 import { defaultBusPath } from '../../core/db.js'
 import { messageOf } from '../../core/errors.js'
 import { CARD_ADMITTED, CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, DECISION_RECORDED, DECISIONS_IMPORTED, MERGE_DONE, POLICY_DENIED, PR_CLOSED, PR_OBSERVED, PR_OPENED, REDUCED, REVIEW_RECORDED } from '../../core/events.js'
+import { FACTORY_RUNTIME } from '../../core/factory-paths.js'
 import { assertHeld, failTask, queuedCards, StaleLease } from '../../core/lease.js'
 import { Node, runNode } from '../../core/node.js'
 import { reportPath, treeReportPath } from '../../core/places.js'
@@ -36,8 +38,6 @@ import { HEADLESS_FLAGS } from '../../ports/session.js'
 import { CARD_SESSION_SANDBOX } from '../../ports/shift-settings.js'
 import { MAIN_BRANCH } from '../../ports/snapshot.js'
 import { stampLogOutput } from '../../supervisor/stamp.js'
-import { launchPlaces, treeHoldsACommit, treePrPublisher } from '../launch/launch-worker.js'
-import { restoreReport } from '../launch/report-collect.js'
 import { AnswerExecutor } from './answer-executor.js'
 import { answerSourceOf } from './answer-source.js'
 import { claudeAnswerer, PREFIX, realAnswererTools } from './answerer.js'
@@ -89,14 +89,61 @@ export interface AnswerNodeParts {
   publishing?: TreePublishing
 }
 
+export const TREE_PR_PUSH_ENV: Record<string, string> = {
+  GIT_CONFIG_COUNT: '4',
+  GIT_CONFIG_KEY_0: 'url.https://github.com/.insteadOf',
+  GIT_CONFIG_VALUE_0: 'git@github.com:',
+  GIT_CONFIG_KEY_1: 'url.https://github.com/.insteadOf',
+  GIT_CONFIG_VALUE_1: 'ssh://git@github.com/',
+  GIT_CONFIG_KEY_2: 'credential.https://github.com.helper',
+  GIT_CONFIG_VALUE_2: '',
+  GIT_CONFIG_KEY_3: 'credential.https://github.com.helper',
+  GIT_CONFIG_VALUE_3: '!gh auth git-credential',
+}
+
+function quotedForShell(text: string): string {
+  return `'${text.replaceAll('\'', `'\\''`)}'`
+}
+
+export function answerTreePr(repo: string, moduleUrl: string = import.meta.url): string {
+  if (!moduleUrl.endsWith('.js'))
+    return `pnpm --dir ${quotedForShell(repo)} --silent exec tsx ${FACTORY_RUNTIME.shiftTreePr}`
+  const installed = fileURLToPath(new URL('../../../../', moduleUrl))
+  return `${quotedForShell(process.execPath)} ${quotedForShell(path.join(installed, 'dist', FACTORY_RUNTIME.shiftTreePr.replace(/\.ts$/, '.js')))}`
+}
+
+export function answerLaunchDir(home: string, busPath: string): string {
+  const resolved = path.resolve(busPath)
+  return resolved === machineBusPath(home) ? path.join(path.dirname(resolved), 'shift', 'launch') : path.join(busDirOf(resolved), 'launch')
+}
+
+function commitsAheadOfMain(worktree: string): boolean {
+  try {
+    return Number(execFileSync('git', ['-C', worktree, 'rev-list', '--count', `origin/${MAIN_BRANCH}..HEAD`], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim()) > 0
+  }
+  catch {
+    return false
+  }
+}
+
+function restoreSavedReport(saved: string, worktree: string): void {
+  const tree = treeReportPath(worktree)
+  if (existsSync(tree) || !existsSync(saved))
+    return
+  mkdirSync(path.dirname(tree), { recursive: true })
+  copyFileSync(saved, tree)
+}
+
 export function treePublishing(treePr: string, launchDir: string, env: NodeJS.ProcessEnv): TreePublishing {
-  const publish = treePrPublisher(treePr, launchDir, env)
   return {
-    committed: card => treeHoldsACommit({ worktree: card.worktree, base: `origin/${MAIN_BRANCH}` }),
+    committed: card => commitsAheadOfMain(card.worktree),
     publish: (card, cardId) => {
-      if (!existsSync(treeReportPath(card.worktree)))
-        restoreReport(reportPath(launchDir, String(cardId)), card.worktree)
-      publish(card, { cardId })
+      const saved = reportPath(launchDir, String(cardId))
+      restoreSavedReport(saved, card.worktree)
+      try {
+        execFileSync('sh', ['-c', `${treePr} ${cardId} ${quotedForShell(card.worktree)} ${quotedForShell(saved)}`], { env: { ...env, ...TREE_PR_PUSH_ENV }, stdio: 'ignore' })
+      }
+      catch {}
     },
   }
 }
@@ -219,7 +266,6 @@ export function answerIsolationCommand(): string[] {
 async function main(): Promise<number> {
   const cwd = process.cwd()
   const busPath = defaultBusPath()
-  const places = launchPlaces(os.homedir(), cwd, busPath)
   return runAnswerWorker(process.argv.slice(2), {
     busPath,
     answerer: claudeAnswerer(ANSWERS_DIR, realAnswererTools(busPath)),
@@ -228,7 +274,7 @@ async function main(): Promise<number> {
     session: randomUUID(),
     pause: sleep,
     isolation: realIsolationReader(process.env, cwd, answerIsolationCommand(), { sandbox: CARD_SESSION_SANDBOX }),
-    publishing: treePublishing(places.treePr, places.launchDir, process.env),
+    publishing: treePublishing(answerTreePr(cwd), answerLaunchDir(os.homedir(), busPath), process.env),
   })
 }
 

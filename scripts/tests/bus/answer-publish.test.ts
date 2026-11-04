@@ -9,14 +9,16 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { textSha } from '../../../src/card/text-sha.js'
+import { machineBusPath } from '../../core/bus-path.js'
 import { appendEvent } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, POLICY_DENIED, PR_OBSERVED, PR_OPENED } from '../../core/events.js'
 import { leaseNext } from '../../core/lease.js'
 import { reportPath, treeReportPath } from '../../core/places.js'
 import { queueTask } from '../../core/queue.js'
 import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
-import { treePublishing } from '../../nodes/answer/answer-worker.js'
-import { treeHoldsACommit } from '../../nodes/launch/launch-worker.js'
+import { answerLaunchDir, answerTreePr, TREE_PR_PUSH_ENV, treePublishing } from '../../nodes/answer/answer-worker.js'
+import { HTTPS_ORIGIN_ENV } from '../../nodes/launch/launch-starter.js'
+import { launchDirOf, publishedTreePr } from '../../nodes/launch/launch-worker.js'
 import { sha } from './github-fake.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
 
@@ -209,6 +211,41 @@ describe('the tree publishing the answer worker wires', () => {
     expect(committed(card)).toBe(false)
     git(repo, 'commit', '-q', '--allow-empty', '-m', 'ahead')
     expect(committed(card)).toBe(true)
-    expect(treeHoldsACommit({ worktree: repo, base: 'HEAD' })).toBe(false)
+  })
+
+  it('a tree whose commits cannot be counted is not published', () => {
+    const { committed } = treePublishing('true', tempDir(), process.env)
+
+    expect(committed({ session: SESSION, worktree: path.join(tempDir(), 'not-a-repository'), branch: 'main' })).toBe(false)
+  })
+
+  it('a tree-pr that fails leaves the worker standing', () => {
+    const root = tempDir()
+    const worktree = path.join(root, 'tree')
+    mkdirSync(worktree)
+
+    expect(() => treePublishing('false', root, process.env).publish({ session: SESSION, worktree, branch: 'feat/x' }, CARD)).not.toThrow()
+  })
+})
+
+describe('the tree-pr step the answer worker repeats, because the layer rule keeps one node from importing another, stays the launch node\'s', () => {
+  it('pushes with the same origin and credential settings', () => {
+    expect(TREE_PR_PUSH_ENV).toEqual(HTTPS_ORIGIN_ENV)
+  })
+
+  it('runs the same command from a source checkout, a path with a quote in it included', () => {
+    const repo = '/work/o\'brien/repo'
+
+    expect(answerTreePr(repo, 'file:///work/scripts/nodes/answer/answer-worker.ts')).toBe(publishedTreePr(repo, null))
+  })
+
+  it('runs the same built entry from an installed package', () => {
+    const installed = '/opt/pkg/'
+
+    expect(answerTreePr('/unused', `file://${installed}dist/scripts/nodes/answer/answer-worker.js`)).toBe(publishedTreePr('/unused', installed))
+  })
+
+  it.each([['the machine bus', machineBusPath('/home/me')], ['another bus', '/elsewhere/bus/bus.db']])('finds the saved reports where the launch node keeps them, on %s', (_name, busPath) => {
+    expect(answerLaunchDir('/home/me', busPath)).toBe(launchDirOf('/home/me', busPath))
   })
 })

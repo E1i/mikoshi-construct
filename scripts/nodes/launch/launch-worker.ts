@@ -703,7 +703,7 @@ export function eddiesWarned(card: StartedCard): boolean {
   return existsSync(journal) && eddiesEvidence(readFileSync(journal, 'utf8'), card.session).warned
 }
 
-export function treePrPublisher(treePr: string, launchDir: string, env: NodeJS.ProcessEnv): (card: Pick<StartedCard, 'worktree'>, start: Pick<SessionStart, 'cardId'>) => void {
+export function treePrPublisher(treePr: string, launchDir: string, env: NodeJS.ProcessEnv): (card: StartedCard, start: SessionStart) => void {
   return (card, start) => {
     try {
       execFileSync('sh', ['-c', `${treePr} ${start.cardId} ${shellWord(card.worktree)} ${shellWord(reportPath(launchDir, String(start.cardId)))}`], { env: { ...env, ...HTTPS_ORIGIN_ENV }, stdio: 'ignore' })
@@ -712,7 +712,7 @@ export function treePrPublisher(treePr: string, launchDir: string, env: NodeJS.P
   }
 }
 
-export function treeHoldsACommit(card: Pick<StartedCard, 'worktree' | 'base'>): boolean {
+export function treeHoldsACommit(card: StartedCard): boolean {
   try {
     return Number(execFileSync('git', ['-C', card.worktree, 'rev-list', '--count', `${card.base}..HEAD`], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim()) > 0
   }
