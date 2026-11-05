@@ -128,8 +128,8 @@ export interface BoardPage {
   warnings: BoardWarning[]
 }
 
-const LORE_NAMES: Record<string, string> = { window: 'Мико', review: 'ICE', matrix: 'ICE', bus: 'Subnet' }
 const NO_LIMITS: EddiesLimits = { contextLimit: null, cardContextLine: null, sessionSpend: null, agentSpend: null, warnRatio: null, modelWindows: new Map() }
+const LORE_NAMES: Record<string, string> = { window: LORE.boardWindowName, review: 'ICE', matrix: 'ICE', bus: 'Subnet' }
 const RUNNER = 'Runner'
 const WINDOW_ROLE = 'window'
 const CARD_PREFIX = /^card:\s*/
@@ -365,6 +365,10 @@ function agentsLine(service: BusService, page: BoardPage): string {
   ].join('')
 }
 
+function tileKind(role: string): string {
+  return role === WINDOW_ROLE ? LORE.boardWindowRole : role
+}
+
 function serviceTile(service: BusService, page: BoardPage): string {
   const gauges = gaugesOf(service, page)
   const bars = gauges == null
@@ -372,8 +376,8 @@ function serviceTile(service: BusService, page: BoardPage): string {
     : contextBar(service, gauges, page.limits) + eddiesBar('spent', gauges.spent, page.limits.sessionSpend, page.limits.sessionSpend, page.limits.warnRatio)
   const dialog = tileDialog(service, page)
   return [
-    `<div class="svc" data-role="${escaped(service.role)}"${dialog === null ? '' : `${opener(dialog)} role="button"`}>`,
-    `<div class="svc-top"><span class="svc-kind">${escaped(service.role)}</span><span class="lore">${LORE_NAMES[service.role] ?? RUNNER}</span><span class="svc-target">${escaped(service.task)}</span>${dialog === null ? '' : OPEN_HINT}</div>`,
+    `<div class="svc bevel" data-role="${escaped(service.role)}"${dialog === null ? '' : `${opener(dialog)} role="button"`}>`,
+    `<div class="svc-top"><span class="svc-kind">${escaped(tileKind(service.role))}</span><span class="lore">${LORE_NAMES[service.role] ?? RUNNER}</span><span class="svc-target">${escaped(service.task)}</span>${dialog === null ? '' : OPEN_HINT}</div>`,
     `<div class="svc-line">${escaped(PLAIN_LORE.boardServiceLine(service.role, service.task, service.tree ?? undefined, service.step))}</div>`,
     bars,
     agentsLine(service, page),
@@ -382,7 +386,7 @@ function serviceTile(service: BusService, page: BoardPage): string {
 }
 
 function lineTile(role: string, line: string): string {
-  return `<div class="svc" data-role="${role}"><div class="svc-top"><span class="svc-kind">${role}</span><span class="lore">${LORE_NAMES[role] ?? RUNNER}</span></div><div class="svc-line">${escaped(line)}</div></div>`
+  return `<div class="svc bevel" data-role="${role}"><div class="svc-top"><span class="svc-kind">${tileKind(role)}</span><span class="lore">${LORE_NAMES[role] ?? RUNNER}</span></div><div class="svc-line">${escaped(line)}</div></div>`
 }
 
 function pulseAgeMs(facts: BusFacts): number | null {
@@ -475,12 +479,12 @@ function waitItem(wait: OwnerWait, page: BoardPage): string {
 
 function waitsSlot(page: BoardPage): string {
   const { waits } = page.facts
-  return waits.length === 0 ? '' : `<section class="owner-strip" aria-label="Waits for you"><span class="lbl">waits for you</span>${waits.map(wait => waitItem(wait, page)).join('')}</section>`
+  return waits.length === 0 ? '' : `<section class="owner-strip bevel" aria-label="Waits for you"><span class="lbl">waits for you</span>${waits.map(wait => waitItem(wait, page)).join('')}</section>`
 }
 
 function warningsSlot(warnings: readonly BoardWarning[]): string {
   const items = warnings.map(warning => `<span class="warning" data-level="${warning.level}">${escaped(warning.text)}</span>`)
-  return items.length === 0 ? '' : `<section class="warning-strip" aria-label="Warnings"><span class="lbl">warnings</span>${items.join('')}</section>`
+  return items.length === 0 ? '' : `<section class="warning-strip bevel" aria-label="Warnings"><span class="lbl">warnings</span>${items.join('')}</section>`
 }
 
 function flowSlot(page: BoardPage): string {
@@ -564,7 +568,7 @@ function rowsSlot(facts: BusFacts): string {
 
 function backlogPanel(facts: BusFacts, slots: BoardSlots): string {
   return [
-    `<section class="panel backlog" id="${BACKLOG}" aria-labelledby="h-backlog">`,
+    `<section class="panel backlog bevel" id="${BACKLOG}" aria-labelledby="h-backlog">`,
     ...filterTargetIds(facts).map(id => `<span class="filter-target" id="${id}"></span>`),
     `<div id="${SLOT_PREFIX}backlog">${slots.backlog}</div>`,
     `<div class="scroll" id="${BACKLOG_SCROLL}"><table id="${SLOT_PREFIX}rows">`,
@@ -575,7 +579,7 @@ function backlogPanel(facts: BusFacts, slots: BoardSlots): string {
 
 function headerPanel(page: BoardPage, slots: BoardSlots): string {
   return [
-    '<header class="panel">',
+    '<header class="panel bevel">',
     `<div class="banner-wrap"><pre class="banner" aria-label="MIKOSHI">${escaped(BANNER.replace(/^\n/, ''))}</pre>`,
     `<p class="subtitle">${escaped(LORE.subtitle(page.version))}</p></div>`,
     `<div class="head-side"><p class="board-title">construct <span>board</span></p><p class="kv" id="${SLOT_PREFIX}kv">${slots.kv}</p></div>`,
@@ -944,11 +948,14 @@ const SCRIPT = `
   function readable(board) {
     return board !== null && typeof board === 'object' && typeof board.written === 'string' && board.slots !== null && typeof board.slots === 'object' && Array.isArray(board.filters)
   }
+  var shown = {}
   function apply(board) {
     document.title = '${TITLE_PREFIX}' + board.written
     for (var name in board.slots) {
       var slot = document.getElementById('${SLOT_PREFIX}' + name)
-      if (slot && typeof board.slots[name] === 'string') slot.innerHTML = board.slots[name]
+      if (!slot || typeof board.slots[name] !== 'string' || shown[name] === board.slots[name]) continue
+      slot.innerHTML = board.slots[name]
+      shown[name] = board.slots[name]
     }
     var backlog = document.getElementById('${BACKLOG}')
     board.filters.forEach(function (id) {
@@ -1006,13 +1013,15 @@ function dialogsSlot(page: BoardPage): string {
 
 function dialogs(slots: BoardSlots): string {
   return [
-    `<dialog class="drill" id="${DRILL}" aria-labelledby="drill-title"><div class="drill-wrap" id="${DRILL_CONTENT}"></div></dialog>`,
+    `<dialog class="drill bevel" id="${DRILL}" aria-labelledby="drill-title"><div class="drill-wrap" id="${DRILL_CONTENT}"></div></dialog>`,
     `<div id="${SLOT_PREFIX}dialogs" hidden>${slots.dialogs}</div>`,
     `<script>${SCRIPT}</script>`,
   ].join('\n')
 }
 
 const STYLE = `
+@property --a { syntax: "<angle>"; inherits: false; initial-value: 0deg; }
+@property --_sweep { syntax: "<color>"; inherits: true; initial-value: transparent; }
 :root {
   color-scheme: dark;
   --void: #07080d;
@@ -1035,6 +1044,7 @@ const STYLE = `
   --space-m: 0.875rem;
   --space-l: 1.25rem;
   --cut: 0.875rem;
+  --edge: 1px;
   --head-block-size: 1.875rem;
   --font-size-gauge: 0.65rem;
 }
@@ -1054,13 +1064,30 @@ body {
   &::after { content: ""; position: fixed; inset: 0; pointer-events: none; background: repeating-linear-gradient(0deg, #ffffff06 0 1px, transparent 1px 3px); }
 }
 p { margin: 0; }
+.bevel {
+  --_frame: var(--line);
+  --_surface: var(--panel);
+  --_surface-cut: calc(var(--cut) - var(--edge) * 0.41);
+  padding: var(--edge);
+  isolation: isolate;
+  &:not(dialog) { position: relative; }
+  &::before, &::after { content: ""; position: absolute; z-index: -1; pointer-events: none; }
+  &::before {
+    inset: 0;
+    background: conic-gradient(from var(--a), transparent 72%, var(--_sweep) 86%, transparent), var(--_frame);
+    clip-path: polygon(0 0, calc(100% - var(--cut)) 0, 100% var(--cut), 100% 100%, var(--cut) 100%, 0 calc(100% - var(--cut)));
+  }
+  &::after {
+    inset: var(--edge);
+    background: var(--_surface);
+    clip-path: polygon(0 0, calc(100% - var(--_surface-cut)) 0, 100% var(--_surface-cut), 100% 100%, var(--_surface-cut) 100%, 0 calc(100% - var(--_surface-cut)));
+  }
+}
+:is(.scroll, .drill-wrap) { clip-path: polygon(0 0, 100% 0, 100% 100%, var(--_surface-cut) 100%, 0 calc(100% - var(--_surface-cut))); }
 .panel {
   min-inline-size: 0;
   display: flex;
   flex-direction: column;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  clip-path: polygon(0 0, calc(100% - var(--cut)) 0, 100% var(--cut), 100% 100%, var(--cut) 100%, 0 calc(100% - var(--cut)));
 }
 .panel-head {
   display: flex;
@@ -1082,9 +1109,10 @@ header.panel {
   align-items: end;
   gap: var(--space-s) 1.75rem;
   padding: var(--space-l) var(--space-l) var(--space-m);
-  border-color: var(--signal);
-  background: radial-gradient(120% 140% at 0% 0%, var(--signal-soft), transparent 55%), var(--panel);
+  --_frame: var(--signal);
+  --_surface: radial-gradient(120% 140% at 0% 0%, var(--signal-soft), transparent 55%), var(--panel);
 }
+header.panel::before { --_sweep: oklch(from var(--wire) l c h / 0.5); animation: --animation-bevel-sweep 14s linear infinite; }
 .banner-wrap { overflow-x: auto; min-inline-size: 0; }
 .banner {
   margin: 0;
@@ -1116,14 +1144,19 @@ header.panel {
   & b { color: var(--_fg); }
   &[data-none] { --_fg: var(--dim); }
 }
-.svc-grid { display: grid; gap: 1px; background: var(--line); grid-template-columns: repeat(auto-fill, minmax(min(100%, 16rem), 1fr)); }
+.svc-grid { display: grid; gap: var(--space-xs); padding: var(--space-xs); grid-template-columns: repeat(auto-fill, minmax(min(100%, 16rem), 1fr)); }
 .svc {
   --_accent: var(--wire);
+  --_accent-size: 3px;
+  --_surface: linear-gradient(90deg, var(--_accent) var(--_accent-size), transparent var(--_accent-size)), var(--panel);
   display: grid;
   gap: var(--space-xs);
-  padding: 0.625rem var(--space-m);
-  background: var(--panel);
-  border-inline-start: 3px solid var(--_accent);
+  padding: 0.625rem var(--space-m) 0.625rem calc(var(--space-m) + var(--_accent-size));
+  &[data-open]:hover {
+    --_surface: linear-gradient(90deg, var(--_accent) var(--_accent-size), var(--wire-soft) var(--_accent-size)), var(--panel);
+    background: transparent;
+    box-shadow: none;
+  }
   &[data-role="window"] { --_accent: var(--signal); }
   &[data-role="bus"] { --_accent: var(--ok); }
   &:has([data-hot]) { --_accent: var(--amber); }
@@ -1228,12 +1261,15 @@ header.panel {
 .goal-dropped { color: var(--dim); font: 400 0.6875rem var(--font-mono); }
 .waits:empty { display: none; }
 .warnings:empty { display: none; }
+:is(.warning-strip, .owner-strip) .lbl { clip-path: polygon(0 0, calc(100% - var(--_surface-cut)) 0, 100% var(--_surface-cut), 100% 100%, var(--_surface-cut) 100%, 0 calc(100% - var(--_surface-cut))); }
+.warning-strip::before { --_sweep: var(--text); animation: --animation-bevel-sweep 6s linear infinite reverse; }
 .warning-strip {
+  --cut: 0.6rem;
+  --_frame: var(--signal);
+  --_surface: linear-gradient(90deg, var(--signal-soft), transparent 70%), var(--panel);
   display: flex;
   flex-wrap: wrap;
   align-items: stretch;
-  border: 1px solid var(--signal);
-  background: linear-gradient(90deg, var(--signal-soft), transparent 70%), var(--panel);
   & .lbl { display: flex; align-items: center; padding: var(--space-s) var(--space-m); background: var(--signal); color: var(--void); font: 700 0.75rem var(--font-display); letter-spacing: 0.18em; text-transform: uppercase; }
 }
 .warning {
@@ -1246,12 +1282,14 @@ header.panel {
   &[data-level="red"] { --_fg: var(--signal); }
 }
 .down { display: grid; gap: var(--space-xs); padding: var(--space-s) var(--space-m); }
+.owner-strip::before { --_sweep: var(--text); animation: --animation-bevel-sweep 6s linear infinite; }
 .owner-strip {
+  --cut: 0.6rem;
+  --_frame: var(--amber);
+  --_surface: linear-gradient(90deg, oklch(from var(--amber) l c h / 0.12), transparent 70%), var(--panel);
   display: flex;
   flex-wrap: wrap;
   align-items: stretch;
-  border: 1px solid var(--amber);
-  background: linear-gradient(90deg, oklch(from var(--amber) l c h / 0.12), transparent 70%), var(--panel);
   & .lbl { display: flex; align-items: center; padding: var(--space-s) var(--space-m); background: var(--amber); color: var(--void); font: 700 0.75rem var(--font-display); letter-spacing: 0.18em; text-transform: uppercase; }
 }
 .ask {
@@ -1381,15 +1419,16 @@ tr[data-open] td:last-child { text-align: end; }
 .open-hint { color: var(--wire); font-size: var(--font-size-gauge); letter-spacing: 0.1em; text-transform: uppercase; white-space: nowrap; }
 .cid { padding-inline: 0.2em; }
 kbd { padding: 0 0.25rem; border: 1px solid var(--wire); color: var(--wire); font: 700 0.625rem var(--font-mono); }
+dialog.drill[open]::before { animation: --animation-bevel-pass 1.2s linear 1; }
 dialog.drill {
   --cut: 1.375rem;
+  --_frame: var(--signal);
   inline-size: min(56rem, calc(100vi - 2rem));
   max-block-size: calc(100dvh - 3rem);
-  padding: 0;
-  border: 1px solid var(--signal);
-  background: var(--panel);
+  padding: var(--edge);
+  border: 0;
+  background: transparent;
   color: var(--text);
-  clip-path: polygon(0 0, calc(100% - var(--cut)) 0, 100% var(--cut), 100% 100%, var(--cut) 100%, 0 calc(100% - var(--cut)));
   overflow: hidden;
   &[open] { display: flex; flex-direction: column; }
   &::backdrop { background: oklch(from var(--void) l c h / 0.7); backdrop-filter: blur(2px); }
@@ -1516,8 +1555,11 @@ code { padding: 0 0.25rem; background: var(--panel-raised); color: var(--text); 
 }
 @keyframes --animation-board-banner-flicker { 0%, 96%, 100% { transform: none; } 97% { transform: translateX(2px); } 98% { transform: translateX(-1px); } }
 @keyframes --animation-blink { 50% { opacity: 0.2; } }
+@keyframes --animation-bevel-sweep { to { --a: 360deg; } }
+@keyframes --animation-bevel-pass { from { --a: 0deg; --_sweep: var(--wire); } 80% { --_sweep: var(--wire); } to { --a: 360deg; --_sweep: transparent; } }
 @media (prefers-reduced-motion: reduce) {
   .banner, .live::before, .statusline .cursor::after { animation: none; }
+  header.panel::before, .warning-strip::before, .owner-strip::before, dialog.drill[open]::before { --_sweep: transparent; animation: none; }
 }
 `
 
@@ -1637,7 +1679,7 @@ function busDownWaits(down: BusDown): string {
   ]
   return items.length === 0
     ? note('No open owner wait in the last snapshot or the handoff.')
-    : `<section class="owner-strip" aria-label="Waits for you"><span class="lbl">waits for you</span>${items.join('')}</section>`
+    : `<section class="owner-strip bevel" aria-label="Waits for you"><span class="lbl">waits for you</span>${items.join('')}</section>`
 }
 
 export function renderBusDown(down: BusDown): string {
@@ -1647,7 +1689,7 @@ export function renderBusDown(down: BusDown): string {
     '<meta name="viewport" content="width=device-width, initial-scale=1">',
     `<title>${TITLE_PREFIX}bus stopped</title>`,
     `<style>${STYLE}</style></head><body>`,
-    `<section class="panel" role="alert" aria-labelledby="h-bus-down"><div class="panel-head"><h2 id="h-bus-down">bus stopped</h2></div>`,
+    `<section class="panel bevel" role="alert" aria-labelledby="h-bus-down"><div class="panel-head"><h2 id="h-bus-down">bus stopped</h2></div>`,
     `<div class="down"><p class="fail">${escaped(busDownLine(down))}</p><p><span class="live" data-snapshot${snapshotStale(down) ? ' data-stale' : ''}>${escaped(snapshotLine(down))}</span></p></div></section>`,
     busDownWaits(down),
     '</body></html>',
@@ -1683,9 +1725,9 @@ export function renderBoard(page: BoardPage): string {
     `<style>${STYLE}</style></head><body data-written="${escaped(page.facts.at)}" data-tick-ms="${page.tickMs ?? ''}">`,
     headerPanel(page, slots),
     `<div class="warnings" id="${SLOT_PREFIX}warnings">${slots.warnings}</div>`,
-    `<section class="panel" id="${SLOT_PREFIX}services" aria-labelledby="h-services">\n${slots.services}\n</section>`,
+    `<section class="panel bevel" id="${SLOT_PREFIX}services" aria-labelledby="h-services">\n${slots.services}\n</section>`,
     '<div class="split">',
-    `<section class="panel" id="${SLOT_PREFIX}flow" aria-labelledby="h-flow">\n${slots.flow}\n</section>`,
+    `<section class="panel bevel" id="${SLOT_PREFIX}flow" aria-labelledby="h-flow">\n${slots.flow}\n</section>`,
     backlogPanel(page.facts, slots),
     '</div>',
     `<footer class="statusline" id="${SLOT_PREFIX}status">${slots.status}</footer>`,
