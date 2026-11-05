@@ -206,13 +206,13 @@ export class ShiftCardStarter implements CardStarter, SessionContinuer {
     const parsed = parseParkingFile(`${card.cardId}.md`, text)
     if (parsed.kind === 'refused')
       return { kind: 'refused', denial: technical('card_unreadable', parsed.reason) }
-    const { task } = parsed.parked
+    const { task, tools } = parsed.parked
     try {
       const { worktree, base, body } = treeOf(task)
       const session = this.ports.uuid()
       const places = { worktree, report: treeReportPath(worktree), gate: readShiftGate(worktree) }
       const prompt = this.ports.prompt({ ...task, body: body(task, places) }, places)
-      const client = chainedClient({ kind: 'start', role: 'launch', session, cwd: worktree, prompt, addDirs: [], pick: { model: null }, policy: { profile: 'sandboxed', gateCommands: places.gate.prepush, writePaths: [], mcpOff: true } }, LAUNCH_POSITIONAL_WORDS, this.places.claude)
+      const client = chainedClient({ kind: 'start', role: 'launch', session, cwd: worktree, prompt, addDirs: [], pick: { model: null }, policy: { profile: 'sandboxed', gateCommands: places.gate.prepush, writePaths: [], mcpOff: true, tools } }, LAUNCH_POSITIONAL_WORDS, this.places.claude)
       const pid = this.ports.spawnDetached({
         command: 'sh',
         args: launchArgv({ command: client.command, treePr: this.places.treePr, cardId: card.cardId, worktree, report: this.reportOf(card.cardId), exit: exitCodePath(this.places.launchDir, String(card.cardId)), id: session }, client.positional),

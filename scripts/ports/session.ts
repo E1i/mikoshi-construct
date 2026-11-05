@@ -1,4 +1,4 @@
-import type { Invocation, SessionPolicy, SessionSpec } from './client/contract.js'
+import type { Invocation, Role, SessionPolicy, SessionSpec } from './client/contract.js'
 import { spawn } from 'node:child_process'
 import { closeSync, openSync } from 'node:fs'
 import process from 'node:process'
@@ -14,30 +14,14 @@ export function clientInvocation(spec: SessionSpec): Invocation {
 
 const HEADLESS_POLICY: SessionPolicy = { profile: 'client-default', gateCommands: [], writePaths: [], mcpOff: true }
 
-const ANY_HEADLESS_SESSION: SessionSpec = { kind: 'start', role: 'review', session: '', cwd: '', prompt: '', addDirs: [], pick: { model: null }, policy: HEADLESS_POLICY }
+const ANY_HEADLESS_SESSION: SessionSpec = { kind: 'start', role: 'ghost', session: '', cwd: '', prompt: '', addDirs: [], pick: { model: null }, policy: HEADLESS_POLICY }
 
 export function clientCommand(): string {
   return clientInvocation(ANY_HEADLESS_SESSION).command
 }
 
-export const REVIEW_PERMISSION_MODE = 'auto'
-
-export const HEADLESS_FLAGS = [
-  '-p',
-  '--output-format',
-  'stream-json',
-  '--verbose',
-  '--permission-mode',
-  REVIEW_PERMISSION_MODE,
-  '--permission-prompts',
-  'none',
-  '--strict-mcp-config',
-  '--session-id',
-] as const
-
-export function sessionArgv(sessionId: string, prompt: string, addDirs: string[] = [], model?: string): string[] {
-  const modelFlag = model === undefined ? [] : ['--model', model]
-  return [...addDirs.flatMap(dir => ['--add-dir', dir]), ...modelFlag, ...HEADLESS_FLAGS, sessionId, prompt]
+export function clientIsolationCommand(): string[] {
+  return clientAdapter().processes.isolationCommand()
 }
 
 export const REVIEW_MODEL_VARIABLE = 'CONSTRUCT_REVIEW_MODEL'
@@ -112,6 +96,7 @@ export interface SpawnSessionParams {
   addDirs?: string[]
   model?: string
   ceilingMs?: number
+  role?: Extract<Role, 'review' | 'ghost'>
 }
 
 export class SessionCeilingReached extends Error {
@@ -121,7 +106,7 @@ export class SessionCeilingReached extends Error {
 }
 
 export function spawnSession(params: SpawnSessionParams): Promise<number> {
-  const invocation = clientInvocation({ ...ANY_HEADLESS_SESSION, session: params.sessionId, cwd: params.cwd, prompt: params.prompt, addDirs: params.addDirs ?? [], pick: { model: params.model ?? null } })
+  const invocation = clientInvocation({ ...ANY_HEADLESS_SESSION, role: params.role ?? ANY_HEADLESS_SESSION.role, session: params.sessionId, cwd: params.cwd, prompt: params.prompt, addDirs: params.addDirs ?? [], pick: { model: params.model ?? null } })
   const outFd = openSync(params.stdoutPath, 'w')
   const errFd = openSync(params.stderrPath, 'w')
   let closed = false
@@ -159,4 +144,8 @@ export function spawnSession(params: SpawnSessionParams): Promise<number> {
       resolve(code ?? 1)
     })
   })
+}
+
+export function spawnReviewSession(params: SpawnSessionParams): Promise<number> {
+  return spawnSession({ ...params, role: 'review' })
 }

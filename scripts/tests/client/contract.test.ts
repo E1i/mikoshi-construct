@@ -3,20 +3,19 @@ import type { DetachedSpawn, StarterPorts } from '../../nodes/launch/launch-star
 import type { Invocation, Refusal, Role, SessionJournal, SessionPolicy, SessionSpec } from '../../ports/client/contract.js'
 import { spawnSync } from 'node:child_process'
 import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { afterEach, expect, it } from 'vitest'
 import { parkingFileText } from '../../../src/card/parking.js'
 import { appendEvent, openBus } from '../../core/db.js'
 import { LadderCardStarter } from '../../ladder/ladder-starter.js'
-import { resumeArgv } from '../../nodes/answer/answerer.js'
 import { cardCommand, launchArgv, shellWord } from '../../nodes/launch/launch-starter.js'
 import { parseSessionJournal } from '../../nodes/launch/session-journal.js'
 import { claudeResume } from '../../nodes/launch/tree-pr-cli.js'
 import { ClientOperationPending, WINDOW_RESUME_REFUSAL } from '../../ports/client/claude/adapter.js'
 import { clientAdapter } from '../../ports/client/index.js'
-import { sessionArgv, sessionEnv, witnessEnv } from '../../ports/session.js'
+import { sessionEnv, witnessEnv } from '../../ports/session.js'
 import { settingsFlag, shiftSettings } from '../../ports/shift-settings.js'
 import { claudeArgv, DEFAULT_CLAUDE } from '../../window/loop.js'
 
@@ -29,6 +28,9 @@ const QUESTION = '/owner/question.md'
 const CARD = 1573
 const CARD_FLAGS = ['--permission-mode', 'dontAsk']
 const HEADLESS_FLAGS = ['-p', '--output-format', 'stream-json', '--verbose', '--permission-mode', 'auto', '--permission-prompts', 'none', '--strict-mcp-config']
+const CARD_TOOLS = ['--tools', 'Read,Edit,Write,Bash,Grep,Glob', '--disable-slash-commands']
+const USER_INSTRUCTIONS_OFF = { autoMemoryEnabled: false, claudeMdExcludes: [path.join(homedir(), '.claude', 'CLAUDE.md')] }
+const REVIEW_SETTINGS = ['--settings', JSON.stringify(USER_INSTRUCTIONS_OFF)]
 
 const CLIENT_DEFAULT: SessionPolicy = { profile: 'client-default', gateCommands: [], writePaths: [], mcpOff: false }
 const HEADLESS: SessionPolicy = { ...CLIENT_DEFAULT, mcpOff: true }
@@ -79,8 +81,12 @@ function gatedSettings(spot: Spot, writable: string[] = []): string[] {
   return settingsFlag(shiftSettings(spot.root, { prepush: [GATE], handoffWrite: null, codeMatrix: null }, writable))
 }
 
+function cardSettings(spot: Spot, writable: string[] = []): string[] {
+  return settingsFlag({ ...shiftSettings(spot.root, { prepush: [GATE], handoffWrite: null, codeMatrix: null }, writable), ...USER_INSTRUCTIONS_OFF })
+}
+
 function launchStartToday(spot: Spot): Captured {
-  const command = [cardCommand('claude'), ...gatedSettings(spot).map(shellWord)].join(' ')
+  const command = [cardCommand('claude'), ...cardSettings(spot).map(shellWord), ...CARD_TOOLS].join(' ')
   const args = launchArgv({ command, treePr: 'true', cardId: CARD, worktree: spot.root, report: path.join(spot.root, 'report'), exit: path.join(spot.root, 'exit'), id: SESSION })
   return throughShell(spot, args, PROMPT)
 }
@@ -143,8 +149,8 @@ const GOLDENS: Golden[] = [
     role: 'review',
     kind: 'start',
     spec: () => ({ addDirs: [ADD_DIR], policy: HEADLESS }),
-    today: () => ({ args: sessionArgv(SESSION, PROMPT, [ADD_DIR]), stdin: '' }),
-    literal: () => ['--add-dir', ADD_DIR, ...HEADLESS_FLAGS, '--session-id', SESSION, PROMPT],
+    today: () => ({ args: [...REVIEW_SETTINGS, '--add-dir', ADD_DIR, ...CARD_TOOLS, ...HEADLESS_FLAGS, '--session-id', SESSION, PROMPT], stdin: '' }),
+    literal: () => [...REVIEW_SETTINGS, '--add-dir', ADD_DIR, ...CARD_TOOLS, ...HEADLESS_FLAGS, '--session-id', SESSION, PROMPT],
     stdin: null,
   },
   {
@@ -152,8 +158,8 @@ const GOLDENS: Golden[] = [
     role: 'review',
     kind: 'start',
     spec: () => ({ addDirs: [ADD_DIR], pick: { model: MODEL }, policy: HEADLESS }),
-    today: () => ({ args: sessionArgv(SESSION, PROMPT, [ADD_DIR], MODEL), stdin: '' }),
-    literal: () => ['--add-dir', ADD_DIR, '--model', MODEL, ...HEADLESS_FLAGS, '--session-id', SESSION, PROMPT],
+    today: () => ({ args: [...REVIEW_SETTINGS, '--add-dir', ADD_DIR, '--model', MODEL, ...CARD_TOOLS, ...HEADLESS_FLAGS, '--session-id', SESSION, PROMPT], stdin: '' }),
+    literal: () => [...REVIEW_SETTINGS, '--add-dir', ADD_DIR, '--model', MODEL, ...CARD_TOOLS, ...HEADLESS_FLAGS, '--session-id', SESSION, PROMPT],
     stdin: null,
   },
   {
@@ -161,8 +167,8 @@ const GOLDENS: Golden[] = [
     role: 'review',
     kind: 'resume',
     spec: () => ({ addDirs: [ADD_DIR], policy: HEADLESS }),
-    today: () => ({ args: resumeArgv(SESSION, PROMPT, [ADD_DIR]), stdin: '' }),
-    literal: () => ['--add-dir', ADD_DIR, ...HEADLESS_FLAGS, '--resume', SESSION, PROMPT],
+    today: () => ({ args: [...REVIEW_SETTINGS, '--add-dir', ADD_DIR, ...CARD_TOOLS, ...HEADLESS_FLAGS, '--resume', SESSION, PROMPT], stdin: '' }),
+    literal: () => [...REVIEW_SETTINGS, '--add-dir', ADD_DIR, ...CARD_TOOLS, ...HEADLESS_FLAGS, '--resume', SESSION, PROMPT],
     stdin: null,
   },
   {
@@ -170,8 +176,8 @@ const GOLDENS: Golden[] = [
     role: 'answer',
     kind: 'start',
     spec: ANSWERING,
-    today: spot => ({ args: [...gatedSettings(spot, [QUESTION]), ...sessionArgv(SESSION, PROMPT, [ADD_DIR])], stdin: '' }),
-    literal: spot => [...gatedSettings(spot, [QUESTION]), '--add-dir', ADD_DIR, ...HEADLESS_FLAGS, '--session-id', SESSION, PROMPT],
+    today: spot => ({ args: [...cardSettings(spot, [QUESTION]), '--add-dir', ADD_DIR, ...CARD_TOOLS, ...HEADLESS_FLAGS, '--session-id', SESSION, PROMPT], stdin: '' }),
+    literal: spot => [...cardSettings(spot, [QUESTION]), '--add-dir', ADD_DIR, ...CARD_TOOLS, ...HEADLESS_FLAGS, '--session-id', SESSION, PROMPT],
     stdin: null,
   },
   {
@@ -179,8 +185,8 @@ const GOLDENS: Golden[] = [
     role: 'answer',
     kind: 'resume',
     spec: ANSWERING,
-    today: spot => ({ args: [...gatedSettings(spot, [QUESTION]), ...resumeArgv(SESSION, PROMPT, [ADD_DIR])], stdin: '' }),
-    literal: spot => [...gatedSettings(spot, [QUESTION]), '--add-dir', ADD_DIR, ...HEADLESS_FLAGS, '--resume', SESSION, PROMPT],
+    today: spot => ({ args: [...cardSettings(spot, [QUESTION]), '--add-dir', ADD_DIR, ...CARD_TOOLS, ...HEADLESS_FLAGS, '--resume', SESSION, PROMPT], stdin: '' }),
+    literal: spot => [...cardSettings(spot, [QUESTION]), '--add-dir', ADD_DIR, ...CARD_TOOLS, ...HEADLESS_FLAGS, '--resume', SESSION, PROMPT],
     stdin: null,
   },
   {
@@ -189,7 +195,7 @@ const GOLDENS: Golden[] = [
     kind: 'start',
     spec: GATED,
     today: launchStartToday,
-    literal: spot => [...CARD_FLAGS, ...gatedSettings(spot), '--strict-mcp-config', '-p', '--session-id', SESSION],
+    literal: spot => [...CARD_FLAGS, ...cardSettings(spot), ...CARD_TOOLS, '--strict-mcp-config', '-p', '--session-id', SESSION],
     stdin: PROMPT,
   },
   {
@@ -198,7 +204,7 @@ const GOLDENS: Golden[] = [
     kind: 'resume',
     spec: GATED,
     today: cardResumeToday,
-    literal: spot => [...CARD_FLAGS, ...gatedSettings(spot), '--strict-mcp-config', '-p', '--resume', SESSION, PROMPT],
+    literal: spot => [...CARD_FLAGS, ...cardSettings(spot), ...CARD_TOOLS, '--strict-mcp-config', '-p', '--resume', SESSION, PROMPT],
     stdin: null,
   },
   {
@@ -215,7 +221,7 @@ const GOLDENS: Golden[] = [
     role: 'ladder',
     kind: 'resume',
     spec: GATED,
-    today: cardResumeToday,
+    today: spot => ({ args: [...CARD_FLAGS, ...gatedSettings(spot), '--strict-mcp-config', '-p', '--resume', SESSION, PROMPT], stdin: '' }),
     literal: spot => [...CARD_FLAGS, ...gatedSettings(spot), '--strict-mcp-config', '-p', '--resume', SESSION, PROMPT],
     stdin: null,
   },
@@ -303,7 +309,6 @@ it('an operation a later card fills throws a named error that names that card', 
     [() => adapter.processes.isClient('claude'), 'clientprocess'],
     [() => adapter.processes.sessionMarker(SESSION), 'clientprocess'],
     [() => adapter.processes.liveCwds(), 'clientprocess'],
-    [() => adapter.processes.isolationCommand(), 'clientprocess'],
   ]
   for (const [operation, card] of operations) {
     expect(operation).toThrow(ClientOperationPending)

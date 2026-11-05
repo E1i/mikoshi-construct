@@ -16,7 +16,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
-import { parseParkingFile } from '../../../src/card/parking.js'
+import { cardToolsOf, parseParkingFile } from '../../../src/card/parking.js'
 import { defaultBusDir } from '../../core/bus-path.js'
 import { bodyNotFoldedYet } from '../../core/card-bodies.js'
 import { defaultBusPath } from '../../core/db.js'
@@ -32,7 +32,7 @@ import { OWNER_MERGES } from '../../policy/policy.js'
 import { realIsolationReader } from '../../ports/isolation.js'
 import { TICK_MS } from '../../ports/netwatch.js'
 import { promptsDirOf } from '../../ports/prompt-store.js'
-import { HEADLESS_FLAGS } from '../../ports/session.js'
+import { clientIsolationCommand } from '../../ports/session.js'
 import { CARD_SESSION_SANDBOX } from '../../ports/shift-settings.js'
 import { MAIN_BRANCH } from '../../ports/snapshot.js'
 import { launchDirOf, restoreReport, savedReportOf, treeHoldsACommit, treePrOfThisBuild, treePrPublisher } from '../../ports/tree-publish.js'
@@ -211,21 +211,17 @@ export async function runAnswerWorker(argv: string[], run: AnswerRun): Promise<n
   return runNode(argv, 'answer', run.busPath, (db, mode) => answerNodeOf(run, db, mode), { pause: run.pause })
 }
 
-export function answerIsolationCommand(): string[] {
-  return ['claude', ...HEADLESS_FLAGS]
-}
-
 async function main(): Promise<number> {
   const cwd = process.cwd()
   const busPath = defaultBusPath()
   return runAnswerWorker(process.argv.slice(2), {
     busPath,
-    answerer: claudeAnswerer(ANSWERS_DIR, realAnswererTools(busPath)),
+    answerer: claudeAnswerer(ANSWERS_DIR, { ...realAnswererTools(busPath), cardTools: (cardId, cardBody) => cardToolsOf(`${cardId}.md`, cardBody) }),
     ownerMerges: () => readFileSync(path.join(cwd, OWNER_MERGES), 'utf8'),
     cardText: busCardBodies(busPath),
     session: randomUUID(),
     pause: sleep,
-    isolation: realIsolationReader(process.env, cwd, answerIsolationCommand(), { sandbox: CARD_SESSION_SANDBOX }),
+    isolation: realIsolationReader(process.env, cwd, clientIsolationCommand(), { sandbox: CARD_SESSION_SANDBOX }),
     publishing: treePublishing(treePrOfThisBuild(cwd), launchDirOf(os.homedir(), busPath), process.env),
   })
 }

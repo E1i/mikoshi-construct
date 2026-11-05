@@ -40,8 +40,8 @@ import { ghApi, ghApiPatch, ghApiPost } from '../../ports/github.js'
 import { realIsolationReader } from '../../ports/isolation.js'
 import { CHECK_MS, TICK_MS } from '../../ports/netwatch.js'
 import { promptsDirOf } from '../../ports/prompt-store.js'
-import { HEADLESS_FLAGS, spawnSession } from '../../ports/session.js'
-import { busSessionPulse, measureSession } from '../../supervisor/heartbeat.js'
+import { clientIsolationCommand, spawnReviewSession } from '../../ports/session.js'
+import { busSessionPulse, measureCardSession } from '../../supervisor/heartbeat.js'
 import { slotsOf, slotsVariable } from '../../supervisor/scheduler.js'
 import { stampLogOutput } from '../../supervisor/stamp.js'
 import { gitReviewPlanner } from './depth-sources.js'
@@ -427,13 +427,9 @@ export function reviewBeatLine(lease: Lease, session: string, ts: string): strin
   return `${PREFIX}${lease.taskKey}: reviewer session ${session} is working, heartbeat at ${ts}`
 }
 
-export function busReviewPulse(busPath: string, clock: () => Date, say: (line: string) => void = console.log, measure: SessionMeasure = measureSession): SessionPulse {
+export function busReviewPulse(busPath: string, clock: () => Date, say: (line: string) => void = console.log, measure: SessionMeasure = measureCardSession): SessionPulse {
   const pulse = busSessionPulse(busPath, clock, measure)
   return (lease, session) => say(reviewBeatLine(lease, session, pulse(lease, session)))
-}
-
-export function reviewIsolationCommand(): string[] {
-  return ['claude', ...HEADLESS_FLAGS]
 }
 
 async function main(): Promise<number> {
@@ -445,14 +441,14 @@ async function main(): Promise<number> {
     busPath,
     gitHub: ghApi(cwd),
     publish: ghStatusPublisher(cwd),
-    reviewer: claudeReviewer(trees, spawnSession, busReviewPulse(busPath, () => new Date()), REVIEW_BEAT_MS, gitHubPrBody(ghApi(cwd))),
+    reviewer: claudeReviewer(trees, spawnReviewSession, busReviewPulse(busPath, () => new Date()), REVIEW_BEAT_MS, gitHubPrBody(ghApi(cwd))),
     plan: gitReviewPlanner(cwd, MORSE_JOURNAL, busCardBodies(busPath)),
     session: randomUUID(),
     slots: slotsOf('review', process.env),
     pause: sleep,
     clearLeftovers: () => trees.clearLeftovers(),
     notePr: ghNotePr(cwd, PROCESS_GH_PORT, () => pushPolicyAt(cwd)),
-    isolation: realIsolationReader(process.env, cwd, reviewIsolationCommand()),
+    isolation: realIsolationReader(process.env, cwd, clientIsolationCommand()),
     keepDryRun: keepDryRun(trees.dir),
     recut: db => new RoundLimitRecutter({ db, gitHub: ghApi(cwd), post: ghApiPost(cwd), patch: ghApiPatch(cwd), clock: () => new Date(), cardStates: () => busHeldCards(db), pushPolicy: () => pushPolicyAt(cwd) }),
   })

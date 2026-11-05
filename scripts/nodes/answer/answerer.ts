@@ -2,7 +2,7 @@ import type { PushPolicy } from '../../../src/commands/attach/record.js'
 import type { ShiftGate } from '../../../src/manifest.js'
 import type { BusEvent } from '../../core/db.js'
 import type { Lease } from '../../core/lease.js'
-import type { Invocation } from '../../ports/client/contract.js'
+import type { Invocation, SessionTool } from '../../ports/client/contract.js'
 import type { AnswerInput } from '../../ports/prompt-store.js'
 import type { FreshBaseGap } from '../launch/tree-pr.js'
 import type { AnswerSource, CardSession } from './answer-source.js'
@@ -22,15 +22,13 @@ import { pushPolicyOf } from '../../core/push-policy.js'
 import { busCardBodies } from '../../intake/parking-reads.js'
 import { PROCESS_GH_PORT } from '../../ports/gh.js'
 import { readResultFields } from '../../ports/result.js'
-import { CARD_VARIABLE, clientInvocation, HEADLESS_FLAGS, sessionEnv } from '../../ports/session.js'
+import { CARD_VARIABLE, clientInvocation, sessionEnv } from '../../ports/session.js'
 import { MAIN_BRANCH } from '../../ports/snapshot.js'
 import { busSessionPulse } from '../../supervisor/heartbeat.js'
 import { projectRoot, realExitReadings, sessionGauges, UNKNOWN } from '../../window/eddies-measure.js'
 import { answerFollowed, commitAndPush, followedLine, freshBaseProblem, freshBaseTask, worktreeCoverage } from '../launch/tree-pr.js'
 
 export const PREFIX = '[bus:answer] '
-const SESSION_ID_FLAG = '--session-id'
-const RESUME_FLAG = '--resume'
 const CLAUDE_PROJECTS = path.join(os.homedir(), '.claude', 'projects')
 export const ANSWER_BEAT_MS = 60_000
 export const DIFF_PROMPT_LIMIT = 100_000
@@ -83,6 +81,7 @@ export type CardText = (cardId: number) => string | null
 
 export interface AnswererTools {
   cardText: CardText
+  cardTools?: (cardId: number, cardBody: string | null) => readonly SessionTool[]
   available: (card: CardSession) => boolean
   remoteHead: (card: CardSession) => string | null
   spawn: (run: AnswerRun) => Promise<number>
@@ -201,10 +200,6 @@ function measuredOf(stdoutPaths: readonly string[]): { tokens?: number | null } 
     return {}
   const counts = results.map(result => tokensOf(result.usage)).filter((count): count is number => count !== null)
   return { tokens: counts.length === 0 ? null : counts.reduce((sum, count) => sum + count, 0) }
-}
-
-export function resumeArgv(sessionId: string, prompt: string, addDirs: string[] = []): string[] {
-  return [...addDirs.flatMap(dir => ['--add-dir', dir]), ...HEADLESS_FLAGS.filter(flag => flag !== SESSION_ID_FLAG), RESUME_FLAG, sessionId, prompt]
 }
 
 export function projectDirOf(worktree: string): string {
@@ -681,7 +676,7 @@ export function claudeAnswerer(dir: string, tools: AnswererTools): Answerer {
     if (request.fresh !== true)
       rmSync(handoff, { force: true })
     const prompt = [answerPrompt(request, ownerQuestion, cardBody, gate, resumed ? undefined : tools.diff?.(card), ciLog), ...handoffLines(handoff, request.fresh === true)].join('\n')
-    const invocationOf = (kind: 'start' | 'resume', text: string): Invocation => clientInvocation({ kind, role: 'answer', session, cwd: card.worktree, prompt: text, addDirs: [dir], pick: { model: null }, policy: { profile: 'sandboxed', gateCommands: gate.prepush, writePaths: [ownerQuestion], mcpOff: true } })
+    const invocationOf = (kind: 'start' | 'resume', text: string): Invocation => clientInvocation({ kind, role: 'answer', session, cwd: card.worktree, prompt: text, addDirs: [dir], pick: { model: null }, policy: { profile: 'sandboxed', gateCommands: gate.prepush, writePaths: [ownerQuestion], mcpOff: true, tools: tools.cardTools?.(request.lease.cardId, cardBody) } })
     mkdirSync(dir, { recursive: true })
     rmSync(ownerQuestion, { force: true })
     const before = tools.remoteHead(card)

@@ -9,6 +9,8 @@ shift is over; where a decision is the owner's, stop, write it into the report a
 - Change only the paths this task declares: {{touches}}, and a test that imports one of them, directly
   or through other modules. Another task of this shift owns everything else; any other file outside
   these paths is not yours to edit, even to fix it.
+- Open the paths this task declares first, and read only those, the tests importing them and the files
+  the task names. Do no survey of the repository.
 - Never approve a workflow run and never run `gh pr merge` yourself. The first line of the pull request's
   description is the task's card:
   `{{card}}`

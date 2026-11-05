@@ -3,7 +3,13 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { describe, expect, it } from 'vitest'
-import { HEADLESS_FLAGS, reviewModelOf, sessionArgv, SessionCeilingReached, sessionEnv, sessionModelOf, spawnSession, WINDOW_MARK, WINDOW_VARIABLE, withoutCard } from '../../ports/session.js'
+import { clientInvocation, reviewModelOf, SessionCeilingReached, sessionEnv, sessionModelOf, spawnSession, WINDOW_MARK, WINDOW_VARIABLE, withoutCard } from '../../ports/session.js'
+
+const HEADLESS_FLAGS = ['-p', '--output-format', 'stream-json', '--verbose', '--permission-mode', 'auto', '--permission-prompts', 'none', '--strict-mcp-config', '--session-id']
+
+function sessionArgv(sessionId: string, prompt: string, addDirs: string[] = [], model?: string): string[] {
+  return clientInvocation({ kind: 'start', role: 'ghost', session: sessionId, cwd: '/tree', prompt, addDirs, pick: { model: model ?? null }, policy: { profile: 'client-default', gateCommands: [], writePaths: [], mcpOff: true } }).args
+}
 
 function stubBinDir(script: string): string {
   const dir = mkdtempSync(path.join(tmpdir(), 'ghosts-session-bin-'))

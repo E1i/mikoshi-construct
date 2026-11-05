@@ -243,7 +243,7 @@ describe('a session holds its lease by the heartbeat its hook writes on every tu
     const { home, root } = sessionTree('session-1', [usageLine('r1', { input: 1_000, cacheWrite: 20_000 }), usageLine('r2', { input: 500, cacheRead: 21_000 })])
     expect(runHeartbeat(BEAT_ENV, 'session-1', file, () => new Date(START), home, root)).toBe(0)
     const payload = heartbeatPayloads(file)[0]!
-    expect(payload).toEqual({ step: 'implement', session: 'session-1', context: 21_500, spent: 1_000 + 20_000 * 1.25 + 500 + 21_000 * 0.1 })
+    expect(payload).toEqual({ step: 'implement', session: 'session-1', start_context: 21_000, read_before_edit: null, context: 21_500, spent: 1_000 + 20_000 * 1.25 + 500 + 21_000 * 0.1 })
     const limits = JSON.parse(readFileSync(path.join(REPO_ROOT, '.claude', 'eddies.json'), 'utf8')) as { contextLimit: number, sessionSpend: number, warnRatio: number }
     expect(payload.context).toBeLessThan(limits.contextLimit * limits.warnRatio)
     expect(payload.spent).toBeLessThan(limits.sessionSpend * limits.warnRatio)
@@ -263,7 +263,7 @@ describe('a session holds its lease by the heartbeat its hook writes on every tu
     roots.push(hookRoot)
     const parent = measure.readTranscript(hookRoot, transcript)
     const spend = measure.addTokens({ ...parent.tokens }, measure.sumTranscripts(hookRoot, measure.agentTranscriptsUnder(subagents)))
-    expect(heartbeatPayloads(file)[0]).toEqual({ step: 'implement', session: 'session-1', context: measure.contextOf(parent.last), spent: measure.spentOf(spend) })
+    expect(heartbeatPayloads(file)[0]).toEqual({ step: 'implement', session: 'session-1', start_context: 43_000, read_before_edit: null, context: measure.contextOf(parent.last), spent: measure.spentOf(spend) })
     expect(measure.contextOf(parent.last)).toBe(44_200)
   })
 
@@ -279,7 +279,7 @@ describe('a session holds its lease by the heartbeat its hook writes on every tu
     const rows = reopened.prepare(`SELECT type, payload FROM events ORDER BY id`).all() as { type: string, payload: string }[]
     reopened.close()
     expect(rows.map(row => row.type)).toEqual([SESSION_HEARTBEAT, SESSION_HEARTBEAT])
-    expect(rows.map(row => JSON.parse(row.payload))).toEqual([{ step: 'implement', session: 'session-1', reason: NO_TRANSCRIPT }, { step: 'implement', session: 'session-1', reason: NO_TRANSCRIPT }])
+    expect(rows.map(row => JSON.parse(row.payload))).toEqual([{ step: 'implement', session: 'session-1', start_context: null, read_before_edit: null, reason: NO_TRANSCRIPT }, { step: 'implement', session: 'session-1', start_context: null, read_before_edit: null, reason: NO_TRANSCRIPT }])
   })
 
   it('a session heartbeat holds the write lock no longer than 100 ms', () => {

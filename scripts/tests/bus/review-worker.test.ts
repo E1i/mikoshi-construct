@@ -23,12 +23,12 @@ import { projectionDump, reduce } from '../../core/reducer.js'
 import { importJournal } from '../../intake/import.js'
 import { authorSessions } from '../../nodes/review/record-verdict.js'
 import { fullReview, planReview, withinTouches } from '../../nodes/review/review-depth.js'
-import { busCardBody, DRY_RUN_ACTOR, dryRun, earlierVerdict, ghNotePr, gitHubPrBody, reviewIsolationCommand, reviewMode, ReviewNode, reviewsDir, ReviewWorker, runReview, ShadowNotClean, sparingLiveLeases, startReviewWorkers, stepLine, TREE_LEFT } from '../../nodes/review/review-worker.js'
+import { busCardBody, DRY_RUN_ACTOR, dryRun, earlierVerdict, ghNotePr, gitHubPrBody, reviewMode, ReviewNode, reviewsDir, ReviewWorker, runReview, ShadowNotClean, sparingLiveLeases, startReviewWorkers, stepLine, TREE_LEFT } from '../../nodes/review/review-worker.js'
 import { claudeReviewer, GIT_TREE_TOOLS, reviewPrompt, ReviewTrees } from '../../nodes/review/reviewer.js'
 import { classify } from '../../policy/morse/rules.js'
 import { GhBudgetWindow, GhFailed, ghPort } from '../../ports/gh.js'
 import { NetWatch, TICK_MS } from '../../ports/netwatch.js'
-import { HEADLESS_FLAGS, REVIEW_PERMISSION_MODE, sessionArgv } from '../../ports/session.js'
+import { clientInvocation, clientIsolationCommand } from '../../ports/session.js'
 import { recordHeartbeat } from '../../supervisor/heartbeat.js'
 import { BusTick } from '../../supervisor/run.js'
 import { cardBody, Clock, FakeGitHub, sha } from './github-fake.js'
@@ -1127,10 +1127,9 @@ describe('review worker', () => {
     })
 
     await expect(reviewer({ taskKey: review(960), queue: 'review', cardId: 1060, pr: 960, head: sha('a'), leaseGen: 1, actor: 'worker:review:w' }, fullReview('a fixed plan'))).rejects.toThrow('stop after the spawn')
-    const argv = sessionArgv(spawned[0]!.sessionId, spawned[0]!.prompt)
-    expect(REVIEW_PERMISSION_MODE).toBe('auto')
-    expect(argv[argv.indexOf('--permission-mode') + 1]).toBe(REVIEW_PERMISSION_MODE)
-    expect(argv.join(' ')).not.toContain('bypassPermissions')
+    const { args } = clientInvocation({ kind: 'start', role: 'review', session: spawned[0]!.sessionId, cwd: '/tree', prompt: spawned[0]!.prompt, addDirs: [], pick: { model: null }, policy: { profile: 'client-default', gateCommands: [], writePaths: [], mcpOff: true } })
+    expect(args[args.indexOf('--permission-mode') + 1]).toBe('auto')
+    expect(args.join(' ')).not.toContain('bypassPermissions')
     vi.unstubAllEnvs()
   })
 
@@ -1450,6 +1449,6 @@ describe('review depth by MORSE', () => {
 
 describe('the review isolation command', () => {
   it('is claude with the headless flags the reviewer is spawned with', () => {
-    expect(reviewIsolationCommand()).toEqual(['claude', ...HEADLESS_FLAGS])
+    expect(clientIsolationCommand()).toEqual(['claude', '-p', '--output-format', 'stream-json', '--verbose', '--permission-mode', 'auto', '--permission-prompts', 'none', '--strict-mcp-config'])
   })
 })

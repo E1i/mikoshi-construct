@@ -5,7 +5,7 @@ import { execFileSync, spawnSync } from 'node:child_process'
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { parseParkingFile } from '../../../src/card/parking.js'
+import { cardToolsOf, parseParkingFile } from '../../../src/card/parking.js'
 import { readShiftGate } from '../../../src/manifest.js'
 import { appendEvent, BUSY_TIMEOUT_MS, defaultBusPath, openBus } from '../../core/db.js'
 import { CARD_CONTINUED, CARD_STARTED, CARD_STOPPED, CARD_WAITING, PR_OPENED, QUESTION_AGENT, TOUCHES_FOLLOWED } from '../../core/events.js'
@@ -154,15 +154,17 @@ export function claudeResume(busPath: string, binary?: string, ceilingMs = RETUR
       return false
     const db = openDatabase(busPath, { readOnly: true, timeout: BUSY_TIMEOUT_MS })
     let session: string | undefined
+    let cardText: string | null = null
     try {
       session = cardSessionOf(db, cardId)?.session
+      cardText = cardContract(db, cardId)?.text ?? null
     }
     finally {
       db.close()
     }
     if (session === undefined)
       return false
-    const invocation = clientInvocation({ kind: 'resume', role: 'launch', session, cwd: worktree, prompt, addDirs: [], pick: { model: null }, policy: { profile: 'sandboxed', gateCommands: readShiftGate(worktree).prepush, writePaths: [], mcpOff: true } })
+    const invocation = clientInvocation({ kind: 'resume', role: 'launch', session, cwd: worktree, prompt, addDirs: [], pick: { model: null }, policy: { profile: 'sandboxed', gateCommands: readShiftGate(worktree).prepush, writePaths: [], mcpOff: true, tools: cardToolsOf(`${cardId}.md`, cardText) } })
     const run = spawnSync(binary ?? invocation.command, invocation.args, { cwd: worktree, env: { ...sessionEnv(process.env, cardId), ...invocation.env }, stdio: ['ignore', 'inherit', 'inherit'], timeout: ceilingMs, killSignal: 'SIGKILL' })
     return run.error === undefined && run.status === 0
   }

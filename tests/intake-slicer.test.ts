@@ -295,7 +295,7 @@ describe('intake refuses what it cannot number or check', () => {
   it('refuses a value outside the card grammar with the grammar\'s own reason', () => {
     const root = scratch()
     const draft = { cards: [{ ...SLICED.cards[0], kind: 'fix' }] }
-    expect(detail(intake(draft, '1', path.join(root, 'parking')))).toEqual(['board-parking: 2.md: card refused: kind \'fix\' is not one of implement, probe; a parked card also takes who, priority, release'])
+    expect(detail(intake(draft, '1', path.join(root, 'parking')))).toEqual(['board-parking: 2.md: card refused: kind \'fix\' is not one of implement, probe; a parked card also takes who, priority, release, tools'])
   })
 
   it('refuses a depends entry that names no card of the draft and is not #<id>', () => {

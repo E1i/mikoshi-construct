@@ -4,7 +4,7 @@ import type { DetachedSpawn, StarterPorts } from '../../nodes/launch/launch-star
 import type { ClientAdapter, SessionSpec } from '../../ports/client/contract.js'
 import { spawnSync } from 'node:child_process'
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
@@ -16,7 +16,7 @@ import { claudeAnswerer, ownerQuestionPath, realAnswererTools } from '../../node
 import { cardCommand, launchArgv, shellWord, ShiftCardStarter } from '../../nodes/launch/launch-starter.js'
 import { claudeResume } from '../../nodes/launch/tree-pr-cli.js'
 import { WINDOW_RESUME_REFUSAL } from '../../ports/client/claude/adapter.js'
-import { clientInvocation, sessionEnv, spawnSession } from '../../ports/session.js'
+import { clientInvocation, sessionEnv, spawnReviewSession } from '../../ports/session.js'
 import { settingsFlag, shiftSettings } from '../../ports/shift-settings.js'
 
 const client = vi.hoisted(() => ({ binary: '', specs: [] as SessionSpec[] }))
@@ -43,6 +43,8 @@ const GATE = 'pnpm run gate'
 const CARD = 1574
 const CARD_FLAGS = ['--permission-mode', 'dontAsk']
 const HEADLESS_FLAGS = ['-p', '--output-format', 'stream-json', '--verbose', '--permission-mode', 'auto', '--permission-prompts', 'none', '--strict-mcp-config']
+const CARD_TOOLS = ['--tools', 'Read,Edit,Write,Bash,Grep,Glob', '--disable-slash-commands']
+const USER_INSTRUCTIONS_OFF = { autoMemoryEnabled: false, claudeMdExcludes: [path.join(homedir(), '.claude', 'CLAUDE.md')] }
 const CARD_LINE = `#${CARD} a-card [implement/construct/S/ladder/auto] · depends — · blocks —`
 
 interface Spot {
@@ -99,8 +101,8 @@ function aSpot(): Spot {
   }
 }
 
-function gatedSettings(spot: Spot, writable: string[] = []): string[] {
-  return settingsFlag(shiftSettings(spot.root, { prepush: [GATE], handoffWrite: null, codeMatrix: null }, writable))
+function cardSettings(spot: Spot, writable: string[] = []): string[] {
+  return settingsFlag({ ...shiftSettings(spot.root, { prepush: [GATE], handoffWrite: null, codeMatrix: null }, writable), ...USER_INSTRUCTIONS_OFF })
 }
 
 function startedSpecs(): string[] {
@@ -130,9 +132,9 @@ function starterPorts(spot: Spot, spawned: DetachedSpawn[]): StarterPorts {
 }
 
 async function review(spot: Spot): Promise<Spawned> {
-  const code = await spawnSession({ cwd: spot.root, sessionId: SESSION, prompt: PROMPT, stdoutPath: path.join(spot.root, 'out'), stderrPath: path.join(spot.root, 'err'), addDirs: [ADD_DIR], model: MODEL })
+  const code = await spawnReviewSession({ cwd: spot.root, sessionId: SESSION, prompt: PROMPT, stdoutPath: path.join(spot.root, 'out'), stderrPath: path.join(spot.root, 'err'), addDirs: [ADD_DIR], model: MODEL })
   expect(code).toBe(0)
-  return { specs: startedSpecs(), args: ['--add-dir', ADD_DIR, '--model', MODEL, ...HEADLESS_FLAGS, '--session-id', SESSION, PROMPT], stdin: '' }
+  return { specs: startedSpecs(), args: ['--settings', JSON.stringify(USER_INSTRUCTIONS_OFF), '--add-dir', ADD_DIR, '--model', MODEL, ...CARD_TOOLS, ...HEADLESS_FLAGS, '--session-id', SESSION, PROMPT], stdin: '' }
 }
 
 function answerOf(kind: 'start' | 'resume'): (spot: Spot) => Promise<Spawned> {
@@ -156,7 +158,7 @@ function answerOf(kind: 'start' | 'resume'): (spot: Spot) => Promise<Spawned> {
     const question = ownerQuestionPath(dir, SESSION, lease.leaseGen)
     const identity = kind === 'start' ? '--session-id' : '--resume'
     expect(runs[0]!.command).toBe(spot.stub)
-    return { specs: startedSpecs(), args: [...gatedSettings(spot, [question]), '--add-dir', dir, ...HEADLESS_FLAGS, identity, SESSION, runs[0]!.argv.at(-1)!], stdin: '' }
+    return { specs: startedSpecs(), args: [...cardSettings(spot, [question]), '--add-dir', dir, ...CARD_TOOLS, ...HEADLESS_FLAGS, identity, SESSION, runs[0]!.argv.at(-1)!], stdin: '' }
   }
 }
 
@@ -165,9 +167,9 @@ async function launch(spot: Spot): Promise<Spawned> {
   const launchDir = path.join(spot.root, 'launch')
   mkdirSync(launchDir)
   expect(new ShiftCardStarter({ launchDir, treePr: 'true' }, starterPorts(spot, spawned)).start({ cardId: CARD, lane: 'lane-x' }).kind).toBe('started')
-  expect(spawned[0]!.args).toEqual(launchArgv({ command: [cardCommand(spot.stub), ...gatedSettings(spot).map(shellWord)].join(' '), treePr: 'true', cardId: CARD, worktree: spot.root, report: path.join(launchDir, `report-${CARD}.md`), exit: exitCodePath(launchDir, String(CARD)), id: SESSION }))
+  expect(spawned[0]!.args).toEqual(launchArgv({ command: [cardCommand(spot.stub), ...[...cardSettings(spot), ...CARD_TOOLS].map(shellWord)].join(' '), treePr: 'true', cardId: CARD, worktree: spot.root, report: path.join(launchDir, `report-${CARD}.md`), exit: exitCodePath(launchDir, String(CARD)), id: SESSION }))
   throughShell(spot, spawned[0]!)
-  return { specs: startedSpecs(), args: [...CARD_FLAGS, ...gatedSettings(spot), '--strict-mcp-config', '-p', '--session-id', SESSION], stdin: PROMPT }
+  return { specs: startedSpecs(), args: [...CARD_FLAGS, ...cardSettings(spot), ...CARD_TOOLS, '--strict-mcp-config', '-p', '--session-id', SESSION], stdin: PROMPT }
 }
 
 async function ladder(spot: Spot): Promise<Spawned> {
@@ -192,7 +194,7 @@ async function resume(spot: Spot): Promise<Spawned> {
   appendEvent(db, { ts: '2026-11-05T00:00:00.000Z', type: 'card.started', actor: 'worker:launch:1', cardId: CARD, pr: null, head: null, dedupeKey: `start:${CARD}`, payload: { session: SESSION, worktree: spot.root, branch: 'feat/a-card' }, legacy: false })
   db.close()
   expect(claudeResume(busPath)(CARD, spot.root, PROMPT)).toBe(true)
-  return { specs: startedSpecs(), args: [...CARD_FLAGS, ...gatedSettings(spot), '--strict-mcp-config', '-p', '--resume', SESSION, PROMPT], stdin: '' }
+  return { specs: startedSpecs(), args: [...CARD_FLAGS, ...cardSettings(spot), ...CARD_TOOLS, '--strict-mcp-config', '-p', '--resume', SESSION, PROMPT], stdin: '' }
 }
 
 const SPAWN_POINTS: { label: string, spec: string, run: (spot: Spot) => Promise<Spawned> }[] = [
