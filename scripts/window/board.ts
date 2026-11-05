@@ -159,6 +159,11 @@ interface ChainLane {
   waiting_on: string | null
 }
 
+function mergedSinceItsLastStart(card: string): string {
+  return `EXISTS (SELECT 1 FROM prs AS merged WHERE merged.card_id = ${card} AND merged.state = 'merged'
+    AND merged.event_id > (SELECT coalesce(max(last_start.id), 0) FROM events AS last_start WHERE last_start.type = '${CARD_STARTED}' AND last_start.legacy = 0 AND last_start.card_id = ${card}))`
+}
+
 const CHAINS = `
   SELECT chains.dir, chains.parking, chains.card_id, chains.state,
     (SELECT min(seen.ts) FROM events AS seen WHERE seen.type = '${CHAIN_OBSERVED}' AND seen.card_id = chains.card_id AND json_extract(seen.payload, '$.dir') = chains.dir) AS since,
@@ -177,6 +182,7 @@ const CARDS_IN_WORK = `
       AND NOT EXISTS (SELECT 1 FROM events AS closed WHERE closed.type = '${CARD_CLOSED}' AND closed.card_id = started.card_id AND closed.id > started.id)
   ) AS work
   WHERE NOT EXISTS (SELECT 1 FROM cards WHERE cards.card_id = work.card_id AND cards.state IN ('${DROPPED_CARD}', '${MERGED_CARD}'))
+    AND NOT ${mergedSinceItsLastStart('work.card_id')}
 `
 
 const OPEN_PRS = `
@@ -210,6 +216,7 @@ const PROJECTED_QUEUE = `
   FROM card_bodies AS body LEFT JOIN cards ON cards.card_id = body.card_id
   WHERE body.who = 'shift' AND (cards.state IS NULL OR cards.state IN ('${QUEUED_CARD}', '${FALLEN_CARD}', '${STOPPED_CARD}'))
     AND NOT EXISTS (SELECT 1 FROM chains WHERE chains.card_id = body.card_id AND chains.state != 'stopped')
+    AND NOT ${mergedSinceItsLastStart('body.card_id')}
   ORDER BY body.priority IS NOT 'p0', body.lane, body.card_id
 `
 
