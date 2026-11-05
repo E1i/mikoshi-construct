@@ -87,7 +87,9 @@ Every parked card is recorded in the bus as one `card.admitted`, with its confir
 `auto`) and its corrections. A confirmed card keeps the `who` of the draft: confirmation, not `who: window`, is
 what holds a corrected card back. Only an unclear field sets `who: window`.
 
-To amend an admitted card where the bus is wired, take its body with `pnpm intake --export '#N'`, edit it in a draft
+To amend an admitted card where the bus is wired, use `construct-intake --amend <#N>` or `pnpm bus:request amend --card <N>`:
+`docs/cli.md`, "Amending an admitted card" and "Amending by request", says what each edits. For an edit they do not cover,
+take its body with `pnpm intake --export '#N'`, edit it in a draft
 outside the repository and hand it in with `pnpm intake --admit <draft>`; the draft is always taken from the bus with `pnpm intake --export '#N'`, never looked for in a parking directory.
 
 ## 4. Report
