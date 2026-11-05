@@ -47,7 +47,7 @@ const SURVIVED = 'nothing-red'
 const LADDER_CONTOUR = 'ladder'
 const MS_PER_MINUTE = 60_000
 const OPEN_ISSUE_LIMIT = 1000
-const OUTCOME_OF_KIND: Record<Card['kind'], typeof FLAGS[number]> = { implement: '--pr', probe: '--report' }
+const PULL_REQUEST_OF_CARD = 'SELECT pr FROM prs WHERE card_id = ? ORDER BY pr DESC LIMIT 1'
 
 type Flag = typeof FLAGS[number]
 
@@ -110,7 +110,33 @@ function reportRootRefusal(deps: TaskCloseDeps, report: string): string | null {
     const relative = path.relative(deps.realpath(root), real)
     return relative !== '' && !relative.startsWith('..') && !path.isAbsolute(relative)
   })
-  return inside ? null : `--report ${report} is outside ${roots.join(' and ')}; a probe's report lives under one of them; nothing written`
+  return inside ? null : `--report ${report} is outside ${roots.join(' and ')}; a report lives under one of them; nothing written`
+}
+
+function pullRequestOfCard(busPath: string, id: string): number | null {
+  if (!existsSync(busPath))
+    return null
+  const db = openDatabase(busPath, { readOnly: true, timeout: BUSY_TIMEOUT_MS })
+  try {
+    const row = db.prepare(PULL_REQUEST_OF_CARD).get(Number(id)) as { pr: number } | undefined
+    return row?.pr ?? null
+  }
+  finally {
+    db.close()
+  }
+}
+
+function outcomeRefusal(busPath: string, id: string, kind: Card['kind'], flags: Map<Flag, string>): string | null {
+  if (flags.has('--pr') && flags.has('--report'))
+    return `--pr and --report together: #${id} closes with one of them; nothing written`
+  if (kind === 'probe')
+    return flags.has('--report') ? null : `#${id} is kind probe, which closes with --report only; nothing written`
+  if (flags.has('--pr'))
+    return null
+  if (!flags.has('--report'))
+    return `#${id} is kind implement, which closes with --pr, or with --report while it has no pull request in the bus; nothing written`
+  const pr = pullRequestOfCard(busPath, id)
+  return pr === null ? null : `#${id} has PR #${pr} in the bus, so it closes with --pr only: a report does not stand in for a review and a merge; nothing written`
 }
 
 function refuse(message: string): TaskCloseResult {
@@ -503,10 +529,10 @@ export function runTaskClose(argv: string[], deps: TaskCloseDeps): TaskCloseResu
   const contradicted = override === undefined ? reportRefusal(deps, lines, id, verification) : null
   if (contradicted !== null)
     return refuse(contradicted)
-  const outcome = OUTCOME_OF_KIND[start.card.kind]
-  const other = outcome === '--pr' ? '--report' : '--pr'
-  if (flags.has(other) || !flags.has(outcome))
-    return refuse(`#${id} is kind ${start.card.kind}, which closes with ${outcome} only; nothing written`)
+  const wrongOutcome = outcomeRefusal(deps.busPath, id, start.card.kind, flags)
+  if (wrongOutcome !== null)
+    return refuse(wrongOutcome)
+  const outcome = flags.has('--report') ? '--report' : '--pr'
   const value = flags.get(outcome)!
   if (outcome === '--pr' && !PR_NUMBER.test(value))
     return refuse(`--pr '${value}' is not a pull request number; nothing written`)
