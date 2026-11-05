@@ -1,11 +1,11 @@
 import { execFileSync } from 'node:child_process'
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { runAttach, SETTINGS_FILE } from '../src/commands/attach/index.js'
 import { ATTACH_RECORD_FILE } from '../src/commands/attach/record.js'
-import { BROWSER_LAB_EXCLUDED_COMMAND, isSettingsHook, readSettings } from '../src/commands/attach/settings.js'
+import { browserLabExcludedCommand, isSettingsHook, readSettings } from '../src/commands/attach/settings.js'
 import { askDetach } from '../src/commands/detach/index.js'
 import { runInit } from '../src/commands/init.js'
 import { createUi, silentWriter } from '../src/ui/console.js'
@@ -39,8 +39,8 @@ describe('attach excludes the browser-lab command from the sandbox', () => {
   it('writes exactly one excludedCommands entry, for browser-lab.mjs', async () => {
     const dir = fixture()
     await attach(dir)
-    expect(excludedOf(dir)).toEqual([BROWSER_LAB_EXCLUDED_COMMAND])
-    expect(BROWSER_LAB_EXCLUDED_COMMAND).toContain('scripts/construct/browser-lab.mjs')
+    expect(excludedOf(dir)).toEqual([browserLabExcludedCommand()])
+    expect(browserLabExcludedCommand()).toContain('/.construct/browser-lab/bin/browser-lab.mjs')
   })
 
   it('returns a settings.local.json that did not exist to not existing', async () => {
@@ -56,7 +56,7 @@ describe('attach excludes the browser-lab command from the sandbox', () => {
     mkdirSync(path.join(dir, '.claude'), { recursive: true })
     writeFileSync(path.join(dir, SETTINGS_FILE), original)
     await attach(dir)
-    expect(excludedOf(dir)).toEqual([BROWSER_LAB_EXCLUDED_COMMAND])
+    expect(excludedOf(dir)).toEqual([browserLabExcludedCommand()])
     expect((await askDetach(ui, { dir, yes: true })).status).toBe('done')
     expect(readFileSync(path.join(dir, SETTINGS_FILE), 'utf8')).toBe(original)
   })
@@ -67,29 +67,20 @@ describe('attach excludes the browser-lab command from the sandbox', () => {
     mkdirSync(path.join(dir, '.claude'), { recursive: true })
     writeFileSync(path.join(dir, SETTINGS_FILE), JSON.stringify(held))
     await attach(dir)
-    expect(excludedOf(dir)).toEqual(['docker *', BROWSER_LAB_EXCLUDED_COMMAND])
+    expect(excludedOf(dir)).toEqual(['docker *', browserLabExcludedCommand()])
     expect((await askDetach(ui, { dir, yes: true })).status).toBe('done')
     expect(JSON.parse(readFileSync(path.join(dir, SETTINGS_FILE), 'utf8'))).toEqual(held)
   })
 
   it('neither adds nor removes the browser-lab entry the repository already held', async () => {
     const dir = fixture()
-    const held = { sandbox: { excludedCommands: [BROWSER_LAB_EXCLUDED_COMMAND] } }
+    const held = { sandbox: { excludedCommands: [browserLabExcludedCommand()] } }
     mkdirSync(path.join(dir, '.claude'), { recursive: true })
     writeFileSync(path.join(dir, SETTINGS_FILE), JSON.stringify(held))
     await attach(dir)
-    expect(excludedOf(dir)).toEqual([BROWSER_LAB_EXCLUDED_COMMAND])
+    expect(excludedOf(dir)).toEqual([browserLabExcludedCommand()])
     expect((await askDetach(ui, { dir, yes: true })).status).toBe('done')
     expect(JSON.parse(readFileSync(path.join(dir, SETTINGS_FILE), 'utf8'))).toEqual(held)
-  })
-})
-
-describe('init carries the same exclusion', () => {
-  it('writes the entry into .claude/settings.json of an empty directory', async () => {
-    const dir = mkdtempSync(path.join(tmpdir(), 'construct-init-sandbox-'))
-    await runInit(ui, { dir, preset: 'node-backend', yes: true, dryRun: false })
-    const settings = JSON.parse(readFileSync(path.join(dir, '.claude/settings.json'), 'utf8')) as { sandbox: { excludedCommands: string[] } }
-    expect(settings.sandbox.excludedCommands).toEqual([BROWSER_LAB_EXCLUDED_COMMAND])
   })
 })
 
@@ -98,36 +89,69 @@ function capturedUi(): { lines: string[], ui: ReturnType<typeof createUi> } {
   return { lines, ui: createUi(resolveTheme({ plain: true }), line => lines.push(line)) }
 }
 
-function existingRepositoryWithSettings(settings: string): string {
-  const dir = mkdtempSync(path.join(tmpdir(), 'construct-init-existing-'))
-  mkdirSync(path.join(dir, '.claude'))
-  writeFileSync(path.join(dir, '.claude/settings.json'), settings)
-  return dir
+function settingsOf(dir: string, file: string): { sandbox?: unknown } {
+  return JSON.parse(readFileSync(path.join(dir, file), 'utf8')) as { sandbox?: unknown }
 }
 
-describe('init names that the organ runs without the exclusion', () => {
-  it('prints the line when .claude/settings.json is skipped', async () => {
-    const dir = existingRepositoryWithSettings('{ "hooks": [] }\n')
-    const captured = capturedUi()
-    const result = await runInit(captured.ui, { dir, preset: 'node-backend', yes: true, dryRun: false })
-    expect(result.skipped).toContain('.claude/settings.json')
-    expect(captured.lines.join('\n')).toContain('runs inside the sandbox without its exclusion')
-  })
-
-  it('merges the exclusion into an existing .claude/settings.json and prints nothing about it', async () => {
-    const dir = existingRepositoryWithSettings(`${JSON.stringify({ hooks: {} })}\n`)
-    const captured = capturedUi()
-    const result = await runInit(captured.ui, { dir, preset: 'node-backend', yes: true, dryRun: false })
-    expect(result.written).toContain('.claude/settings.json')
-    expect(JSON.parse(readFileSync(path.join(dir, '.claude/settings.json'), 'utf8'))).toMatchObject({ sandbox: { excludedCommands: ['node scripts/construct/browser-lab.mjs *'] } })
-    expect(captured.lines.join('\n')).not.toContain('without its exclusion')
-  })
-
-  it('prints nothing about it when init writes the entry', async () => {
+describe('init writes the exclusion where a home path stays on this machine', () => {
+  it('writes the absolute entry into .claude/settings.local.json and none into .claude/settings.json', async () => {
     const dir = mkdtempSync(path.join(tmpdir(), 'construct-init-sandbox-'))
     const captured = capturedUi()
     await runInit(captured.ui, { dir, preset: 'node-backend', yes: true, dryRun: false })
+    expect(excludedOf(dir)).toEqual([browserLabExcludedCommand()])
+    expect(settingsOf(dir, '.claude/settings.json').sandbox).toBeUndefined()
     expect(captured.lines.join('\n')).not.toContain('without its exclusion')
+  })
+
+  it('writes the entry under the home it is given', async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'construct-init-sandbox-'))
+    const home = mkdtempSync(path.join(tmpdir(), 'construct-init-home-'))
+    await runInit(ui, { dir, preset: 'node-backend', yes: true, dryRun: false, home })
+    expect(excludedOf(dir)).toEqual([browserLabExcludedCommand(home)])
+  })
+
+  it('keeps what an existing .claude/settings.local.json holds', async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'construct-init-existing-'))
+    mkdirSync(path.join(dir, '.claude'))
+    writeFileSync(path.join(dir, SETTINGS_FILE), JSON.stringify({ model: 'opus', sandbox: { excludedCommands: ['docker *'] } }))
+    await runInit(ui, { dir, preset: 'node-backend', yes: true, dryRun: false })
+    expect(JSON.parse(readFileSync(path.join(dir, SETTINGS_FILE), 'utf8'))).toEqual({ model: 'opus', sandbox: { excludedCommands: ['docker *', browserLabExcludedCommand()] } })
+  })
+
+  it('a dry run writes no settings.local.json', async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'construct-init-sandbox-'))
+    await runInit(ui, { dir, preset: 'node-backend', yes: true, dryRun: true })
+    expect(existsSync(path.join(dir, SETTINGS_FILE))).toBe(false)
+  })
+
+  it('leaves a tracked settings.local.json as it is and prints that the organ runs without the exclusion', async () => {
+    const dir = fixture()
+    const held = `${JSON.stringify({ model: 'opus' })}\n`
+    mkdirSync(path.join(dir, '.claude'), { recursive: true })
+    writeFileSync(path.join(dir, SETTINGS_FILE), held)
+    execFileSync('git', ['add', '-f', SETTINGS_FILE], { cwd: dir })
+    const captured = capturedUi()
+    await runInit(captured.ui, { dir, preset: 'node-backend', yes: true, dryRun: false })
+    expect(readFileSync(path.join(dir, SETTINGS_FILE), 'utf8')).toBe(held)
+    expect(captured.lines.join('\n')).toContain('runs inside the sandbox without its exclusion')
+    expect(captured.lines.join('\n')).toContain(browserLabExcludedCommand())
+  })
+
+  it('leaves an unreadable settings.local.json as it is and prints the same line', async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'construct-init-existing-'))
+    mkdirSync(path.join(dir, '.claude'))
+    writeFileSync(path.join(dir, SETTINGS_FILE), '{ not json')
+    const captured = capturedUi()
+    await runInit(captured.ui, { dir, preset: 'node-backend', yes: true, dryRun: false })
+    expect(readFileSync(path.join(dir, SETTINGS_FILE), 'utf8')).toBe('{ not json')
+    expect(captured.lines.join('\n')).toContain('runs inside the sandbox without its exclusion')
+  })
+
+  it('a fresh repository ignores the file, so git add never commits the home path', async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'construct-init-sandbox-'))
+    await runInit(ui, { dir, preset: 'node-backend', yes: true, dryRun: false })
+    execFileSync('git', ['init', '-q'], { cwd: dir })
+    expect(execFileSync('git', ['check-ignore', SETTINGS_FILE], { cwd: dir, encoding: 'utf8' }).trim()).toBe(SETTINGS_FILE)
   })
 })
 
@@ -167,6 +191,11 @@ describe('a hand-edited sandbox record in the attach record', () => {
   it('is rejected when it names a command other than browser-lab', async () => {
     const hook = await recordedHook()
     expect(isSettingsHook({ ...hook, sandbox: { added: ['rm -rf *'], createdSandbox: true, createdExcluded: true } })).toBe(false)
+  })
+
+  it('is accepted when an earlier attach recorded the relative entry, so detach still removes it', async () => {
+    const hook = await recordedHook()
+    expect(isSettingsHook({ ...hook, sandbox: { added: ['node scripts/construct/browser-lab.mjs *'], createdSandbox: true, createdExcluded: true } })).toBe(true)
   })
 
   it('is rejected when a flag is not a boolean', async () => {

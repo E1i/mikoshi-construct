@@ -264,7 +264,8 @@ export interface Lore extends Omit<ExpectLore, 'expectRoleForecast'> {
   attachUpgradeAdopted: (paths: string[]) => string
   attachUpgradeRetired: (paths: string[]) => string
   attachUpgradeHooksOlder: string
-  initSettingsSkippedNoExclusion: string
+  initSettingsSkippedNoExclusion: (command: string) => string
+  initBrowserLabExcluded: (command: string) => string
   detachNothingAttached: string
   detachRefusedOrphanBlock: string
   detachRefusedRecordVersion: string
@@ -568,7 +569,7 @@ export const LORE: Lore = {
     'factory-hooks': 'settings.json carries the eddies guard, prompt and window heartbeat hooks',
     'pnpm-floor': 'packageManager pins pnpm at or above the mikoshi floor',
     'pnpm-store-ignored': '.gitignore ignores .pnpm-store/',
-    'card-permissions': 'settings.local.json widens no card session: no permissions.allow, additionalDirectories, defaultMode or sandbox there; keep them in ~/.claude/settings.json, which card sessions never read',
+    'card-permissions': 'settings.local.json widens no card session: no permissions.allow, additionalDirectories, defaultMode or sandbox beyond the one exclusion of the browser organ there; keep them in ~/.claude/settings.json, which card sessions never read',
     'gh-account': 'gh calls of the nodes and launched card sessions jack in as the GitHub account the factory recorded; a RUN line here warns that gh is switched to another one, and ladder and answer sessions and the pushes of the nodes still follow it: run it to put them and your own gh commands back on this repository',
     'window-live': 'a window heartbeat is fresh on the bus',
     'window-continue': 'the last STATUS: line of the window handoff is CONTINUE; write it with STATUS: CONTINUE through the handoff writer once the window may go on without the owner',
@@ -745,7 +746,8 @@ export const LORE: Lore = {
   attachDetach: 'construct detach',
   attachGuard: 'the agent is refused git commit, push, merge, rebase and tag here; construct detach removes the guard',
   attachLedgerExcluded: '.construct/ is excluded through .git/info/exclude and will hold the ledger /implement writes.',
-  initSettingsSkippedNoExclusion: '.claude/settings.json carries no sandbox exclusion, so the browser organ (scripts/construct/browser-lab.mjs) runs inside the sandbox without its exclusion; add "node scripts/construct/browser-lab.mjs *" to sandbox.excludedCommands by hand.',
+  initSettingsSkippedNoExclusion: (command: string) => `.claude/settings.local.json could not be edited (unreadable, or tracked by git, where a home path must not be committed), so the browser organ runs inside the sandbox without its exclusion; to give it the exclusion, add "${command}" to sandbox.excludedCommands of an untracked .claude/settings.local.json by hand.`,
+  initBrowserLabExcluded: (command: string) => `.claude/settings.local.json excludes "${command}" from the sandbox on this machine only; a clone without that line runs the browser organ inside the sandbox.`,
   detachNothingAttached: 'NO NETRUN OPEN: nothing is attached here.',
   detachRefusedRecordVersion: 'BREACH FAILED // RECORD UNDATED: recordVersion in .construct/attach.json is missing or not a known integer, so which build wrote it cannot be told',
   detachRefusedSeparator: 'BREACH FAILED // RECORD UNREADABLE: excludeSeparator in .construct/attach.json is not 0, 1 or 2, so the block cannot be cut out to the byte',
@@ -1019,7 +1021,7 @@ export const PLAIN_LORE: Lore = {
     'factory-hooks': 'settings.json carries the eddies guard, prompt and window heartbeat hooks',
     'pnpm-floor': 'packageManager pins pnpm at or above the mikoshi floor',
     'pnpm-store-ignored': '.gitignore ignores .pnpm-store/',
-    'card-permissions': '.claude/settings.local.json widens no card-session permission: it carries no permissions.allow, permissions.additionalDirectories, permissions.defaultMode or sandbox; move them to ~/.claude/settings.json, which card sessions do not read',
+    'card-permissions': '.claude/settings.local.json widens no card-session permission: it carries no permissions.allow, permissions.additionalDirectories, permissions.defaultMode or sandbox beyond the one exclusion of the browser lab; move them to ~/.claude/settings.json, which card sessions do not read',
     'gh-account': 'gh calls of the nodes and launched card sessions run as the GitHub account the factory recorded; a Run line here warns that gh is switched to another one, and ladder and answer sessions and the pushes of the nodes still follow it: run it to put them and your own gh commands back on this repository',
     'window-live': 'a window heartbeat is fresh on the bus',
     'window-continue': 'the last STATUS: line of the window handoff is CONTINUE; write the handoff with STATUS: CONTINUE once the window may go on without the owner',
@@ -1198,7 +1200,8 @@ export const PLAIN_LORE: Lore = {
   attachDetach: 'construct detach',
   attachGuard: 'the agent is refused git commit, push, merge, rebase and tag here; construct detach removes the guard.',
   attachLedgerExcluded: '.construct/ is excluded through .git/info/exclude and will hold the ledger /implement writes.',
-  initSettingsSkippedNoExclusion: '.claude/settings.json carries no sandbox exclusion, so the browser organ (scripts/construct/browser-lab.mjs) runs inside the sandbox without its exclusion; add "node scripts/construct/browser-lab.mjs *" to sandbox.excludedCommands by hand.',
+  initSettingsSkippedNoExclusion: (command: string) => `.claude/settings.local.json could not be edited (unreadable, or tracked by git, where a home path must not be committed), so the browser organ runs inside the sandbox without its exclusion; to give it the exclusion, add "${command}" to sandbox.excludedCommands of an untracked .claude/settings.local.json by hand.`,
+  initBrowserLabExcluded: (command: string) => `.claude/settings.local.json excludes "${command}" from the sandbox on this machine only; a clone without that line runs the browser organ inside the sandbox.`,
   detachNothingAttached: 'Nothing is attached here.',
   detachRefusedRecordVersion: 'Refused: recordVersion in .construct/attach.json is missing or not a positive integer, so which build wrote the record cannot be told; nothing was removed. Found:',
   detachRefusedSeparator: 'Refused: excludeSeparator in .construct/attach.json is not 0, 1 or 2, so .git/info/exclude cannot be restored byte for byte; nothing was removed. Found:',

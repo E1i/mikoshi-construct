@@ -114,6 +114,7 @@ async function factoryJsonThroughProgram(factory: Factory): Promise<{ exit: type
   vi.stubEnv(BUS_DB_VARIABLE, factory.bus)
   vi.stubEnv(HANDOFF_DIR_VARIABLE, factory.handoffs)
   vi.stubEnv('CONSTRUCT_HANDOFF', '')
+  vi.stubEnv('HOME', factory.home)
   try {
     process.exitCode = undefined
     await runCommand(main, { rawArgs: ['doctor', '--factory', '--json', '--plain', '--dir', factory.dir] })

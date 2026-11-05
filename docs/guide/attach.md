@@ -41,9 +41,11 @@ It is a guard against the direct form, not a sandbox, and it has no bypass for t
 removes it. attach refuses instead of editing that file when it is tracked, unreadable or already
 carries a guard entry. The details are in the [CLI reference](/cli#the-commit-guard).
 
-The same file gets one `sandbox.excludedCommands` entry, `node scripts/construct/browser-lab.mjs *`, so the
-browser organ can start inside the Claude Code sandbox; everything else stays sandboxed. `detach` removes
-the entry attach added and keeps one you already had.
+The same file gets one `sandbox.excludedCommands` entry, `node ~/.construct/browser-lab/bin/browser-lab.mjs *`
+with your home directory written out absolute, so the browser organ can start inside the Claude Code sandbox;
+everything else stays sandboxed, a copy of the script in the repository included. Call the lab the same way: the
+absolute path, with no `~` or `$HOME`, because the entry matches the text of the call. `detach` removes the entry
+attach added and keeps one you already had.
 
 It leaves alone every tracked file, `CLAUDE.md` and `AGENTS.md`, your lint, test and workspace
 configuration, and CI. It writes no `construct.json`, no model and no discovery markers. `.git/info/`

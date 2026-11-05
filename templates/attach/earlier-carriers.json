@@ -793,5 +793,25 @@
     "target": ".claude/skills/intake/SKILL.md",
     "sha256": "89d16039d61c597b3ab6fd356533dd4f58763192039cc15077ec0d4a2c94dec7",
     "date": "2026-11-05"
+  },
+  {
+    "target": "scripts/construct/browser-lab.mjs",
+    "sha256": "2ef05dffa6f546435c23a1a6dfce66c4d900fc70153649e612d5f7bdddf46d54",
+    "date": "2026-11-05"
+  },
+  {
+    "target": ".claude/skills/browser-lab/SKILL.md",
+    "sha256": "0fc7fee8b0b9c2d0929bbf39623351da625d53c4adc9f1d36e45c44332798768",
+    "date": "2026-11-05"
+  },
+  {
+    "target": "scripts/construct/browser-lab.mjs",
+    "sha256": "88d203980b3a7806ff4d20bcb4f0cc8356174ec89f5b825da410ab3aa3c0a271",
+    "date": "2026-11-05"
+  },
+  {
+    "target": "scripts/construct/daemon.workflow",
+    "sha256": "5efa432f824e717c531124f6a4dcfc8b12ee82739a57797f449a03ddb093cab3",
+    "date": "2026-11-05"
   }
 ]

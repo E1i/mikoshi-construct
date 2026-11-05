@@ -6,9 +6,13 @@ argument-hint: <command> [extension directory or page url]
 ---
 
 Use this when the result of a task lives in a browser: an extension, a page whose behaviour must be seen, a UI.
-Run the bare command from the repository root, with no `cd`, `env` prefix or `&&`: `sandbox.excludedCommands` matches
-only the bare command line, and any prefix silently puts Chromium into the sandbox, where it cannot start. It writes
-nothing in the repository and nothing in `package.json`; `playwright-core` comes through `npx`, pinned.
+The script runs from `~/.construct/browser-lab/bin/browser-lab.mjs`, outside the repository, where the bus installs it
+when it prepares a card tree. Run the bare command from the repository root, with no `cd`, `env` prefix or `&&`, and
+write the path out absolute where the commands below say `<home>`, with no `~` or `$HOME`:
+`sandbox.excludedCommands` matches only the bare command line, and anything else silently puts Chromium into the
+sandbox, where it cannot start. The copy at `scripts/construct/browser-lab.mjs` in a repository, or any other copy
+in it, is not excluded and stays in the sandbox. The lab writes nothing in the repository and nothing in
+`package.json`; `playwright-core` comes from the lab's own cache, pinned.
 
 Every command prints one JSON object. Optional permissions are granted in a copy of the manifest in a temporary
 directory, so no permission prompt appears.
@@ -16,21 +20,21 @@ directory, so no permission prompt appears.
 ## Commands
 
 ```bash
-node scripts/construct/browser-lab.mjs info --extension <dir>
-node scripts/construct/browser-lab.mjs sw-eval <expression> --extension <dir>
-node scripts/construct/browser-lab.mjs storage [area] --extension <dir>
-node scripts/construct/browser-lab.mjs logs --extension <dir> --eval <expr> --for <ms>
-node scripts/construct/browser-lab.mjs network --extension <dir> --page <url> --for <ms>
-node scripts/construct/browser-lab.mjs popup --extension <dir>
-node scripts/construct/browser-lab.mjs options --extension <dir>
-node scripts/construct/browser-lab.mjs page <url> --extension <dir> --wait <selector>
-node scripts/construct/browser-lab.mjs info --extension <dir> --profile <dir>
-node scripts/construct/browser-lab.mjs page <url> --extension <dir> --prefix <text> --route <url-glob> <file> --shot <file>
-node scripts/construct/browser-lab.mjs page <url> --extension <dir> --profile-from <dir>
-node scripts/construct/browser-lab.mjs hands --extension <dir> --profile <dir> -- open <url>
-node scripts/construct/browser-lab.mjs hands --extension <dir> --profile <dir> -- close
-node scripts/construct/browser-lab.mjs page <url> --viewport <w[xh]> --color-scheme <light|dark> --press <keys>
-node scripts/construct/browser-lab.mjs hands --profile <dir> -- open <url>
+node <home>/.construct/browser-lab/bin/browser-lab.mjs info --extension <dir>
+node <home>/.construct/browser-lab/bin/browser-lab.mjs sw-eval <expression> --extension <dir>
+node <home>/.construct/browser-lab/bin/browser-lab.mjs storage [area] --extension <dir>
+node <home>/.construct/browser-lab/bin/browser-lab.mjs logs --extension <dir> --eval <expr> --for <ms>
+node <home>/.construct/browser-lab/bin/browser-lab.mjs network --extension <dir> --page <url> --for <ms>
+node <home>/.construct/browser-lab/bin/browser-lab.mjs popup --extension <dir>
+node <home>/.construct/browser-lab/bin/browser-lab.mjs options --extension <dir>
+node <home>/.construct/browser-lab/bin/browser-lab.mjs page <url> --extension <dir> --wait <selector>
+node <home>/.construct/browser-lab/bin/browser-lab.mjs info --extension <dir> --profile <dir>
+node <home>/.construct/browser-lab/bin/browser-lab.mjs page <url> --extension <dir> --prefix <text> --route <url-glob> <file> --shot <file>
+node <home>/.construct/browser-lab/bin/browser-lab.mjs page <url> --extension <dir> --profile-from <dir>
+node <home>/.construct/browser-lab/bin/browser-lab.mjs hands --extension <dir> --profile <dir> -- open <url>
+node <home>/.construct/browser-lab/bin/browser-lab.mjs hands --extension <dir> --profile <dir> -- close
+node <home>/.construct/browser-lab/bin/browser-lab.mjs page <url> --viewport <w[xh]> --color-scheme <light|dark> --press <keys>
+node <home>/.construct/browser-lab/bin/browser-lab.mjs hands --profile <dir> -- open <url>
 ```
 
 `page` prints `console`: every message of every level from the page and from the content-script world of the
@@ -52,8 +56,9 @@ arguments go after `--`, and `snapshot` with element refs, `click` and `fill` co
 Playwright, so a second Chromium build is installed beside the lab's. The session stays open between calls: end it
 with `hands … -- close` before any other command uses the same profile.
 
-Every `npx` of the lab installs from the public registry whatever the repository's `.npmrc` says, with its own npm
-cache under the construct directory in the home directory.
+The lab takes both tools only from its own npm cache under the construct directory in the home directory, filled from
+the public registry whatever the repository's `.npmrc` says; never from the repository, `npx` or `PATH`. A tool
+missing there ends in 127, and the line names the command that fills it.
 
 Add `--headed` to any of them to watch the browser. `page` also runs without `--extension`; with it, the output says
 whether a content script of the extension ran in the page.
@@ -74,8 +79,7 @@ one path inside the profile, so its id does not change. The login is done by han
 - 127 — could not observe, with the reason on stderr.
 
 At start the lab checks that the Chromium build its pinned `playwright-core` needs is in the playwright cache and,
-when it is missing, installs it itself with `npx playwright-core@<pinned version> install chromium`, saying so in one
-line on stderr. A 127 that names the sandbox means the command was not bare: run it bare. If the bare command gets the
+when it is missing, installs it itself with the cached `playwright-core`, saying so in one line on stderr. A 127 that names the sandbox means the command was not bare or not the absolute path: run it as above. If the bare command gets the
 same 127, `sandbox.excludedCommands` has no entry for it in this session; stop and tell the person. On any other 127,
 stop and tell the person the command that failed.
 
