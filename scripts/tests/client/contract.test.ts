@@ -10,13 +10,12 @@ import { afterEach, expect, it } from 'vitest'
 import { parkingFileText } from '../../../src/card/parking.js'
 import { appendEvent, openBus } from '../../core/db.js'
 import { LadderCardStarter } from '../../ladder/ladder-starter.js'
-import { resumeArgv } from '../../nodes/answer/answerer.js'
 import { cardCommand, launchArgv, shellWord } from '../../nodes/launch/launch-starter.js'
 import { parseSessionJournal } from '../../nodes/launch/session-journal.js'
 import { claudeResume } from '../../nodes/launch/tree-pr-cli.js'
 import { ClientOperationPending, WINDOW_RESUME_REFUSAL } from '../../ports/client/claude/adapter.js'
 import { clientAdapter } from '../../ports/client/index.js'
-import { sessionArgv, sessionEnv, witnessEnv } from '../../ports/session.js'
+import { headlessInvocation, sessionEnv, witnessEnv } from '../../ports/session.js'
 import { settingsFlag, shiftSettings } from '../../ports/shift-settings.js'
 import { claudeArgv, DEFAULT_CLAUDE } from '../../window/loop.js'
 
@@ -73,6 +72,14 @@ function throughShell(spot: Spot, args: readonly string[], input: string): Captu
   const run = spawnSync('sh', args, { cwd: spot.root, input, env: { ...process.env, PATH: spot.stubPath } })
   expect(run.status, String(run.stderr)).toBe(0)
   return spot.seen()
+}
+
+function sessionArgv(session: string, prompt: string, addDirs: string[], model: string | null = null): string[] {
+  return headlessInvocation({ session, prompt, addDirs, pick: { model } }).args
+}
+
+function resumeArgv(session: string, prompt: string, addDirs: string[]): string[] {
+  return headlessInvocation({ kind: 'resume', session, prompt, addDirs }).args
 }
 
 function gatedSettings(spot: Spot, writable: string[] = []): string[] {
@@ -297,7 +304,6 @@ it('clientAdapter returns Claude and its capabilities', () => {
 it('an operation a later card fills throws a named error that names that card', () => {
   const adapter = clientAdapter()
   const operations: [() => unknown, string][] = [
-    [() => adapter.reading({ session: SESSION, cwd: '/tree', stdoutPath: null }), 'clientreading'],
     [() => adapter.models(), 'clientmodels'],
     [() => adapter.modelFor('review', null, 'auto'), 'clientmodels'],
   ]
