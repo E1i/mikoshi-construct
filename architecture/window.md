@@ -113,7 +113,7 @@ Nothing is deleted, and a number already given stays given. A decision with no c
 its term or by a superseding decision. `pnpm decisions:add` writes a request into the bus, whichever shell runs it, and
 what is in force has no limit in bytes.
 
-`~/.construct/owner-decisions.md` and its archive are a projection the bus rebuilds on every tick; a hand edit is
+`pnpm decisions` reads what is in force. `~/.construct/owner-decisions.md` and its archive are a projection the bus rebuilds on every tick; a hand edit is
 undone by the next rebuild, and it never reaches a merge, which reads the table. The first rebuild imports the file once,
 so a factory that kept its decisions there loses none and keeps its numbers. The projection is a numbered record: one line
 per decision in the shape `DECISION_FORMAT` states, `- D-N · <date> — <decision> [· superseded-by D-M]`. Headings and
