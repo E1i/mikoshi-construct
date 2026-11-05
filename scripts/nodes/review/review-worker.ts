@@ -34,13 +34,14 @@ import { shadowReading } from '../../core/report.js'
 import { openDatabase } from '../../core/sqlite.js'
 import { busHeldCards } from '../../intake/intake.js'
 import { busCardBodies } from '../../intake/parking-reads.js'
+import { clientAdapter } from '../../ports/client/index.js'
 import { GhFailed, PROCESS_GH_PORT } from '../../ports/gh.js'
 import { ghStatusPublisher } from '../../ports/github-status.js'
 import { ghApi, ghApiPatch, ghApiPost } from '../../ports/github.js'
 import { realIsolationReader } from '../../ports/isolation.js'
 import { CHECK_MS, TICK_MS } from '../../ports/netwatch.js'
 import { promptsDirOf } from '../../ports/prompt-store.js'
-import { HEADLESS_FLAGS, spawnSession } from '../../ports/session.js'
+import { spawnSession } from '../../ports/session.js'
 import { busSessionPulse, measureSession } from '../../supervisor/heartbeat.js'
 import { slotsOf, slotsVariable } from '../../supervisor/scheduler.js'
 import { stampLogOutput } from '../../supervisor/stamp.js'
@@ -433,7 +434,7 @@ export function busReviewPulse(busPath: string, clock: () => Date, say: (line: s
 }
 
 export function reviewIsolationCommand(): string[] {
-  return ['claude', ...HEADLESS_FLAGS]
+  return clientAdapter().processes.isolationCommand()
 }
 
 async function main(): Promise<number> {

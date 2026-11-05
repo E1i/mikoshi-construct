@@ -3,11 +3,15 @@ import { existsSync, readdirSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import os from 'node:os'
 import path from 'node:path'
+import { commandWords } from '../../isolation.js'
 import { settingsFlag, shiftSettings } from '../../shift-settings.js'
+import { claudeProcessCwds } from '../../worktree.js'
 
 const CLAUDE_COMMAND = 'claude'
 const MCP_OFF_FLAG = '--strict-mcp-config'
 const CARD_PERMISSION = ['--permission-mode', 'dontAsk'] as const
+const SESSION_ID_FLAG = '--session-id'
+const ARGV_HEAD_NAMING_THE_PROGRAM = 2
 const HEADLESS_OUTPUT = ['-p', '--output-format', 'stream-json', '--verbose', '--permission-mode', 'auto', '--permission-prompts', 'none'] as const
 export const SESSION_VARIABLE = 'CLAUDE_CODE_SESSION_ID'
 export const USER_SETTINGS = '~/.claude/settings.json'
@@ -50,7 +54,7 @@ function mcpOf(policy: SessionPolicy): string[] {
 }
 
 function identityOf(spec: SessionSpec): string[] {
-  return [spec.kind === 'start' ? '--session-id' : '--resume', spec.session]
+  return [spec.kind === 'start' ? SESSION_ID_FLAG : '--resume', spec.session]
 }
 
 function invocationOf(args: string[], stdin: string | null = null, env: NodeJS.ProcessEnv = SESSION_ENV): Invocation {
@@ -80,6 +84,14 @@ const SESSION_OF_ROLE: Record<Role, (spec: SessionSpec) => Invocation | Refusal>
   window: windowSession,
 }
 
+function isClaudeArgv(argv: string): boolean {
+  return argv.split(/\s+/).slice(0, ARGV_HEAD_NAMING_THE_PROGRAM).some(word => path.basename(word) === CLAUDE_COMMAND)
+}
+
+export function cardIsolationCommand(client: string): string[] {
+  return [...commandWords(client), ...CARD_PERMISSION]
+}
+
 export const claudeAdapter: ClientAdapter = {
   id: 'claude',
   capabilities: {
@@ -92,10 +104,10 @@ export const claudeAdapter: ClientAdapter = {
   models: pending('models', 'clientmodels'),
   modelFor: pending('modelFor', 'clientmodels'),
   processes: {
-    isClient: pending('processes.isClient', 'clientprocess'),
-    sessionMarker: pending('processes.sessionMarker', 'clientprocess'),
-    liveCwds: pending('processes.liveCwds', 'clientprocess'),
-    isolationCommand: pending('processes.isolationCommand', 'clientprocess'),
+    isClient: isClaudeArgv,
+    sessionMarker: session => `${SESSION_ID_FLAG} ${session}`,
+    liveCwds: () => claudeProcessCwds(),
+    isolationCommand: () => [CLAUDE_COMMAND, ...HEADLESS_OUTPUT, MCP_OFF_FLAG, SESSION_ID_FLAG],
   },
   ownSession: env => env[SESSION_VARIABLE] || null,
 }
