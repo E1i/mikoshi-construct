@@ -28,6 +28,7 @@ import { busPathOf, machineBusPath } from '../../core/bus-path.js'
 import { DROPPED_CARD, RUNNING_CARD } from '../../core/card-automaton.js'
 import { bodyNotFoldedYet, CARD_BODIES, cardBodyText, pathsOutsideTheBody } from '../../core/card-bodies.js'
 import { appendEvent, BUSY_TIMEOUT_MS, defaultBusPath, inTransaction, openBus, openOwnerWait } from '../../core/db.js'
+import { messageOf } from '../../core/errors.js'
 import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_CONTINUED, CARD_PULSE, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, CARD_WAITING, GHOST_ROW, LADDER_APPROVAL, MERGE_DONE, PR_CLOSED, PR_OBSERVED, PR_OPENED, QUESTION_AGENT, REDUCED, TASK_COMPLETED, TASK_ENQUEUED, TASK_EXPIRED, TASK_FAILED, TASK_LEASED, TASK_RELEASED, TASK_REQUEUED, TASK_SUPERSEDED } from '../../core/events.js'
 import { FACTORY_RUNTIME } from '../../core/factory-paths.js'
 import { HANDOFF_DIR_VARIABLE, handoffDirOf } from '../../core/handoff-dir.js'
@@ -56,7 +57,7 @@ import { BUILD_DIR, BUILT_MODULE, builtEntryOf, installedPackage } from '../../s
 import { heartbeatEnv, lastHeartbeat } from '../../supervisor/heartbeat.js'
 import { stampLogOutput } from '../../supervisor/stamp.js'
 import { launchProcess, REAL_PROCESSES } from '../restart/chain-process.js'
-import { continuationRefusal, CONTINUE_PROMPT, eddiesEvidence, MAX_RESTARTS, reachedContextLine } from './continuation.js'
+import { builtHandoff, continuationRefusal, CONTINUE_PROMPT, eddiesEvidence, lastStepsOf, MAX_RESTARTS, reachedContextLine, sessionWrittenPart, stoppedOnSpend } from './continuation.js'
 import { laneOverlapRecorder, layLanes, repositoryLanes } from './lane-assign.js'
 import { LaunchExecutor } from './launch-executor.js'
 import { cardCommand, gitChangedPaths, killQuietly, psPgid, ShiftCardStarter, spawnDetached } from './launch-starter.js'
@@ -127,6 +128,8 @@ export interface LaunchNodeParts {
   collected?: (card: StartedCard, start: SessionStart) => string | null
   warned?: (card: StartedCard) => boolean
   atContextLine?: (card: StartedCard) => boolean
+  spendStopped?: (card: StartedCard) => boolean
+  buildHandoff?: (card: StartedCard, start: SessionStart, body: string | null) => void
   publish?: (card: StartedCard, start: SessionStart) => void
   committed?: (card: StartedCard) => boolean
   continuer?: SessionContinuer
@@ -398,11 +401,12 @@ export class LaunchNode extends Node<LaunchStep> {
   private stopEnded(start: RunningStart, card: StartedCard): boolean {
     const session: SessionStart = { cardId: start.card_id, ts: start.ts }
     const missing = card.contour === 'cheap' ? this.launchParts.collected?.(card, session) ?? null : null
-    if (missing !== null)
+    const atLine = card.contour === 'cheap' && (this.launchParts.atContextLine?.(card) ?? false)
+    if (missing !== null && !atLine)
       return this.faultStop(this.ts(), start, `${CARD_STOPPED}:${REPORT_MISSING}:${start.dedupe_key}`, missing, REPORT_MISSING)
     const handedOff = this.launchParts.handedOff?.(session) ?? false
-    if (card.contour === 'cheap' && (this.launchParts.atContextLine?.(card) ?? false))
-      return this.continueAtContextLine(start, card, handedOff)
+    if (atLine)
+      return this.continueAtContextLine(start, card, session, handedOff)
     const amend = this.amendSince(start)
     if (card.contour === 'cheap' && this.launchParts.continuer !== undefined && amend !== null && (handedOff || (this.launchParts.resulted?.(card, session) ?? false)))
       return this.continueSession(start, card, this.launchParts.continuer, `card #${start.card_id} session ${card.session} ended on body ${shortSha(amend.started)}, amended since to ${shortSha(amend.amended)}`)
@@ -420,12 +424,24 @@ export class LaunchNode extends Node<LaunchStep> {
     return this.stopWithoutPullRequest(start, card, session, published === false ? null : published)
   }
 
-  private continueAtContextLine(start: RunningStart, card: StartedCard, handedOff: boolean): boolean {
+  private continueAtContextLine(start: RunningStart, card: StartedCard, session: SessionStart, handedOff: boolean): boolean {
     const exited = `card #${start.card_id} session ${card.session} stopped at the context warn and the bus pushed nothing from it`
     const { continuer } = this.launchParts
-    if (continuer === undefined || !handedOff)
-      return this.stopContinuation(start, 'continuation-refused', `${exited}; its report holds no valid handoff, so no session continues from it`)
+    if (continuer === undefined)
+      return this.stopContinuation(start, 'continuation-refused', `${exited}; no continuer is wired, so no session continues from it`)
+    if (handedOff)
+      return this.continueSession(start, card, continuer, exited)
+    if (reportQuestions(this.launchParts.reportOf?.(session) ?? null).length > 0)
+      return this.stopWithoutPullRequest(start, card, session, null)
+    if (this.launchParts.spendStopped?.(card) ?? false)
+      return this.stopContinuation(start, 'eddies-stop', `${exited}; it also hit the session spend stop and left no valid handoff, so no fresh session spends past that stop`)
+    if (this.continuationsUsed(start) < MAX_RESTARTS)
+      this.launchParts.buildHandoff?.(card, session, cardBodyText(this.db, start.card_id))
     return this.continueSession(start, card, continuer, exited)
+  }
+
+  private continuationsUsed(start: RunningStart): number {
+    return Number((this.db.prepare(CONTINUATIONS).get(start.card_id, start.card_id) as { n: number }).n)
   }
 
   private kindOf(cardId: number): string | null {
@@ -516,7 +532,7 @@ export class LaunchNode extends Node<LaunchStep> {
   }
 
   private continueSession(start: RunningStart, card: StartedCard, continuer: SessionContinuer, exited: string): boolean {
-    const used = Number((this.db.prepare(CONTINUATIONS).get(start.card_id, start.card_id) as { n: number }).n)
+    const used = this.continuationsUsed(start)
     if (used >= MAX_RESTARTS)
       return this.stopContinuation(start, 'continuation-limit', `${exited}; ${used} of ${MAX_RESTARTS} continuations used (D-104), the card is not continued again`)
     const admitted = this.db.prepare(LATEST_ADMISSION).get(start.card_id) as { payload: string } | undefined
@@ -689,6 +705,33 @@ export function handoffWrittenSince(launchDir: string): (start: SessionStart) =>
   }
 }
 
+const TREE_DIFF_MAX_BUFFER = 64 * 1024 * 1024
+
+function treeDiffOf(card: StartedCard): string {
+  try {
+    const changed = gitChangedPaths(card.worktree).join('\n')
+    const diff = execFileSync('git', ['-C', card.worktree, 'diff', card.base], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: TREE_DIFF_MAX_BUFFER })
+    return `${changed}\n\n${diff}`
+  }
+  catch (error) {
+    return `the tree diff cannot be read: ${messageOf(error)}`
+  }
+}
+
+function sessionSteps(claudeHome: string, card: StartedCard): string[] | null {
+  const file = transcriptFile(claudeHome, card.worktree, card.session)
+  return file !== null && existsSync(file) ? lastStepsOf(readFileSync(file, 'utf8')) : null
+}
+
+export function handoffBuilder(launchDir: string, claudeHome: string): (card: StartedCard, start: SessionStart, body: string | null) => void {
+  return (card, start, body) => {
+    const saved = reportPath(launchDir, String(start.cardId))
+    const report = existsSync(saved) ? readFileSync(saved, 'utf8') : null
+    mkdirSync(path.dirname(saved), { recursive: true })
+    writeFileSync(saved, builtHandoff({ cardId: start.cardId, session: card.session, report, diff: treeDiffOf(card), body, steps: sessionSteps(claudeHome, card) }))
+  }
+}
+
 export function reportSince(launchDir: string): (start: SessionStart) => string | null {
   return (start) => {
     const report = reportPath(launchDir, String(start.cardId))
@@ -729,7 +772,7 @@ export async function runLaunchWorker(argv: string[], run: LaunchRun): Promise<n
     return runWithdrawLegacy(run.busPath, () => new Date())
   let node: LaunchNode | undefined
   const build = (db: DatabaseSync, mode: DetectionMode): LaunchNode => {
-    node = new LaunchNode({ db, starter: run.starter, ladder: run.ladder, clock: () => new Date(), session: run.session, mode, env: process.env, isolation: run.isolation, resulted: sessionLeftAResult(run.launchDir), endedWith: reportResultLine(run.launchDir), handedOff: handoffWrittenSince(run.launchDir), reportOf: reportSince(run.launchDir), collected: reportCollector(run.launchDir), warned: eddiesWarned, atContextLine: card => reachedContextLine(card.worktree, card.session), ...(run.treePr === undefined ? {} : { publish: startedCardPublisher(run.treePr, run.launchDir, process.env), committed: (card: StartedCard) => treeHoldsACommit(card.worktree, card.base) }), continuer: run.continuer, prompts: promptsDirOf(run.busPath) })
+    node = new LaunchNode({ db, starter: run.starter, ladder: run.ladder, clock: () => new Date(), session: run.session, mode, env: process.env, isolation: run.isolation, resulted: sessionLeftAResult(run.launchDir), endedWith: reportResultLine(run.launchDir), handedOff: handoffWrittenSince(run.launchDir), reportOf: reportSince(run.launchDir), collected: reportCollector(run.launchDir), warned: eddiesWarned, atContextLine: card => reachedContextLine(card.worktree, card.session), spendStopped: card => stoppedOnSpend(card.worktree, card.session), buildHandoff: handoffBuilder(run.launchDir, claudeHomeOf(process.env)), ...(run.treePr === undefined ? {} : { publish: startedCardPublisher(run.treePr, run.launchDir, process.env), committed: (card: StartedCard) => treeHoldsACommit(card.worktree, card.base) }), continuer: run.continuer, prompts: promptsDirOf(run.busPath) })
     return node
   }
   const pause = async (ms: number): Promise<unknown> => {
@@ -749,6 +792,10 @@ export function continuedOnCardText(task: ShiftTask, bodyOf: CardBodyReader): Sh
   if (parsed?.kind !== 'parked')
     return task
   return { ...task, body: `${task.body}\n\n${CARD_TEXT_HEADING}\n\n${parsed.parked.task.body}` }
+}
+
+function claudeHomeOf(env: NodeJS.ProcessEnv): string {
+  return env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude')
 }
 
 export function realStarterPorts(repo: string, env: NodeJS.ProcessEnv, header: string, uuid: () => string, bodyOf: CardBodyReader = () => null, cardSessions: (cardId: number) => string[] = () => [], installed: string | null = installedPackage(), busPath: string = busPathOf(env, os.homedir(), repo), prepare: TreePreparer = prepareTree): StarterPorts {
@@ -772,10 +819,10 @@ export function realStarterPorts(repo: string, env: NodeJS.ProcessEnv, header: s
     envOf: cardId => ({ ...sessionEnv(env, cardId), ...heartbeatEnv({ cardId, pr: null, head: null, queue: 'launch' }), ...HTTPS_ORIGIN_ENV }),
     prompt: (task, places) => renderPrompt(header, continuedOnCardText(task, bodyOf), places),
     changedPaths: gitChangedPaths,
-    readReport: file => existsSync(file) ? readFileSync(file, 'utf8') : null,
+    readReport: file => existsSync(file) ? sessionWrittenPart(readFileSync(file, 'utf8')) : null,
     cardSessions,
     readTranscript: (worktree, session) => {
-      const file = transcriptFile(env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude'), worktree, session)
+      const file = transcriptFile(claudeHomeOf(env), worktree, session)
       return file !== null && existsSync(file) ? readFileSync(file, 'utf8') : null
     },
     treeFile: readTreeFile,

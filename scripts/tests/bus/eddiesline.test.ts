@@ -75,7 +75,7 @@ interface LaunchedAtLine {
   published: string[]
 }
 
-async function launchedAtLine(made: MergeBench, cardId: number, handedOff = true): Promise<LaunchedAtLine> {
+async function launchedAtLine(made: MergeBench, cardId: number, wired = true): Promise<LaunchedAtLine> {
   appendEvent(made.db, { ts: made.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'policy', cardId, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${cardId}`, payload: { lane: 'lane-a', decision: 'auto', contour: 'cheap', depends: [], admission: `admission-${cardId}` }, legacy: false })
   made.tick()
   const starter = new ContinuingStarter()
@@ -84,14 +84,14 @@ async function launchedAtLine(made: MergeBench, cardId: number, handedOff = true
   const node = new LaunchNode({
     db: made.db,
     starter,
-    continuer: starter,
+    ...(wired ? { continuer: starter } : {}),
     clock: made.clock.now,
     session: 'node-1',
     mode: 'live',
     env: {},
     processes: exited,
     resulted: () => true,
-    handedOff: () => handedOff,
+    handedOff: () => true,
     warned: () => true,
     atContextLine: () => true,
     committed: () => true,
@@ -137,7 +137,7 @@ describe('the launch session at the context warn', () => {
     expect(eventsOf(made.db, CARD_CONTINUED)).toMatchObject([{ session: 's-1701-c1', continuation: 1, from: 's-1701' }])
   })
 
-  it('a report with no valid handoff stops the card with continuation-refused and no push', async () => {
+  it('a missing continuer stops the card with continuation-refused and no push', async () => {
     const made = bench()
     const { node, starter, published } = await launchedAtLine(made, 1702, false)
 
