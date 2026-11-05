@@ -10,6 +10,7 @@ import { defaultBusPath } from '../core/db.js'
 import { FACTORY_RUNTIME } from '../core/factory-paths.js'
 import { defaultHandoffDir } from '../core/handoff-dir.js'
 import { RAISED_STATUS, raisedByTheBus } from '../nodes/restart/role.js'
+import { ownerMessagesOf } from '../ports/client/claude/adapter.js'
 import { EXIT_REQUEST_VARIABLE, LOOP_PID_VARIABLE } from '../ports/session.js'
 import { appendExitLine, exitLineOf, PROJECT_VARIABLE, projectRoot, realExitReadings, SESSION_EXIT_EVENT, UNKNOWN } from './eddies-measure.js'
 import { MIKO_HANDOFF_NAME, mikoHandoff, PREFIX, statusOf } from './loop.js'
@@ -18,6 +19,8 @@ import { windowEndObserver } from './role-end.js'
 import { tabWindowOf } from './tab.js'
 import { dirtyOpenCardTrees, liveAgentsOf, sessionTranscriptOf, stoppedTasksIn } from './window-agents.js'
 import { SESSION_VARIABLE } from './window-requests.js'
+
+export { ownerMessagesOf }
 
 export const FRESH_MS = 2 * 60 * 1000
 export const LOOP_SCRIPT = path.normalize(FACTORY_RUNTIME.mikoLoopEntry)
@@ -57,32 +60,6 @@ export interface MikoExitDeps {
   liveAgents?: () => string[]
   dirtyTrees?: () => string[]
   ownerMessages?: () => number | null
-}
-
-interface TranscriptEntry {
-  type?: unknown
-  isMeta?: unknown
-  isSidechain?: unknown
-  message?: { content?: unknown }
-}
-
-function isOwnerText(content: unknown): boolean {
-  if (typeof content === 'string')
-    return !content.startsWith('<')
-  const parts = Array.isArray(content) ? content as { type?: unknown }[] : []
-  return parts.some(part => part?.type === 'text') && !parts.some(part => part?.type === 'tool_result')
-}
-
-export function ownerMessagesOf(transcript: string): number {
-  return transcript.split('\n').filter((line) => {
-    try {
-      const entry = JSON.parse(line) as TranscriptEntry | null
-      return entry?.type === 'user' && entry.isMeta !== true && entry.isSidechain !== true && isOwnerText(entry.message?.content)
-    }
-    catch {
-      return false
-    }
-  }).length
 }
 
 function ownerMessagesIn(transcript: string | null): number | null {
