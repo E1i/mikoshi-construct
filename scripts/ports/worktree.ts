@@ -28,6 +28,7 @@ export const FREE_TREE_CAPACITY = 8
 
 const LSOF_PATH_FIELD = 'n'
 const LSOF_FOUND_NONE = 1
+export const LSOF_CLIENT_NAMES = ['-c', 'claude', '-c', '/^[0-9]+[.][0-9]+[.][0-9]+$/']
 
 export type GitRun = (cwd: string, args: string[]) => string
 
@@ -133,7 +134,7 @@ function realOrAsWritten(where: string): string {
 
 export function claudeProcessCwds(): ProcessCwds {
   try {
-    return { kind: 'listed', listing: execFileSync('lsof', ['-a', '-c', 'claude', '-d', 'cwd', '-F', LSOF_PATH_FIELD], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }) }
+    return { kind: 'listed', listing: execFileSync('lsof', ['-a', ...LSOF_CLIENT_NAMES, '-d', 'cwd', '-F', LSOF_PATH_FIELD], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }) }
   }
   catch (error) {
     const failed = error as { status?: unknown, stdout?: unknown }
@@ -143,12 +144,16 @@ export function claudeProcessCwds(): ProcessCwds {
   }
 }
 
+export function listedCwds(listing: string): string[] {
+  return listing.split('\n').filter(line => line.startsWith(LSOF_PATH_FIELD)).map(line => line.slice(LSOF_PATH_FIELD.length))
+}
+
 export function liveSessionHolds(tree: string, cwds: () => ProcessCwds = claudeProcessCwds): boolean {
   const read = cwds()
   if (read.kind === 'unreadable')
     return true
   const real = realOrAsWritten(tree)
-  return read.listing.split('\n').filter(line => line.startsWith(LSOF_PATH_FIELD)).map(line => line.slice(LSOF_PATH_FIELD.length)).some(cwd => cwd === real || cwd.startsWith(`${real}${path.sep}`))
+  return listedCwds(read.listing).some(cwd => cwd === real || cwd.startsWith(`${real}${path.sep}`))
 }
 
 function freeTreesIn(git: GitRun, repo: string, home: string): string[] {

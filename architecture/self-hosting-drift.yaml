@@ -116,6 +116,17 @@ differences:
     reason: >-
       This repository measures spend from .claude/hooks/eddies-measure.mjs; the carrier init writes is
       byte-identical to it, which tests/parity-settings.test.ts holds, not a copy at the root.
+  - path: scripts/construct/environment-print.mjs
+    kind: absent-at-root
+    reason: >-
+      This repository refuses an environment print from .claude/hooks/environment-print.mjs; the carrier
+      init writes is byte-identical to it, which tests/parity-settings.test.ts holds, not a copy at the root.
+  - path: scripts/construct/shell-parser.mjs
+    kind: absent-at-root
+    reason: >-
+      This repository parses a command for the environment-print refusal with .claude/hooks/shell-parser.mjs;
+      the carrier init writes is byte-identical to it, which tests/parity-settings.test.ts holds, not a copy
+      at the root.
   - path: scripts/construct/window-heartbeat.mjs
     kind: absent-at-root
     reason: >-
