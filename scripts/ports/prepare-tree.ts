@@ -1,9 +1,10 @@
 import { Buffer } from 'node:buffer'
 import { execFileSync } from 'node:child_process'
-import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, realpathSync, rmSync, symlinkSync } from 'node:fs'
+import { copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, realpathSync, renameSync, rmSync, symlinkSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
+import { browserLabInstalledScript } from '../../src/commands/attach/settings.js'
 
 export type TreePreparer = (tree: string) => void
 
@@ -17,6 +18,7 @@ export const PREPARE_ENV_KEYS = ['PATH', 'HOME', 'TMPDIR', 'LANG', 'PNPM_HOME', 
 
 const LOCKFILE = 'pnpm-lock.yaml'
 const BROWSER_LAB = 'scripts/construct/browser-lab.mjs'
+const FACTORY_LAB = path.join(import.meta.dirname, '..', '..', BROWSER_LAB)
 const PUBLIC_REGISTRY = 'https://registry.npmjs.org/'
 const NODE_MODULES = 'node_modules'
 
@@ -35,8 +37,22 @@ export function prepareTree(tree: string): void {
   execFileSync(PREPARE_TREE[0]!, PREPARE_TREE.slice(1), { cwd: tree, env: prepareEnv(process.env), timeout: PREPARE_MS, stdio: ['ignore', 'pipe', 'pipe'] })
 }
 
-function labCache(env: NodeJS.ProcessEnv): string {
-  return path.join(env.HOME ?? os.homedir(), '.construct', 'browser-lab', 'npm-cache')
+function labHome(env: NodeJS.ProcessEnv): string {
+  return path.join(env.HOME ?? os.homedir(), '.construct', 'browser-lab')
+}
+
+function installLabScript(factoryLab: string, env: NodeJS.ProcessEnv): void {
+  const installed = browserLabInstalledScript(env.HOME ?? os.homedir())
+  const temporary = `${installed}.${process.pid}.tmp`
+  mkdirSync(path.dirname(installed), { recursive: true })
+  try {
+    copyFileSync(factoryLab, temporary)
+    renameSync(temporary, installed)
+  }
+  catch (error) {
+    rmSync(temporary, { force: true })
+    throw error
+  }
 }
 
 function installedBinary(cache: string, spec: string, tool: LabTool, env: NodeJS.ProcessEnv): string {
@@ -63,14 +79,13 @@ function linkUnlessTheRepositorysOwn(link: string, target: string, cache: string
   symlinkSync(target, link)
 }
 
-export function preinstallBrowser(tree: string, env: NodeJS.ProcessEnv = process.env): void {
-  const lab = path.join(tree, BROWSER_LAB)
-  if (!existsSync(lab))
+export function preinstallBrowser(tree: string, env: NodeJS.ProcessEnv = process.env, factoryLab: string = FACTORY_LAB): void {
+  if (!existsSync(path.join(tree, BROWSER_LAB)))
     return
   const prepared = prepareEnv(env)
   execFileSync('git', ['-C', tree, 'check-ignore', '-q', `${NODE_MODULES}/`], { env: prepared, stdio: ['ignore', 'pipe', 'pipe'] })
-  const text = readFileSync(lab, 'utf8')
-  const npxEnv = { ...prepared, npm_config_registry: PUBLIC_REGISTRY, npm_config_cache: labCache(env), npm_config_ignore_scripts: 'true' }
+  const text = readFileSync(factoryLab, 'utf8')
+  const npxEnv = { ...prepared, npm_config_registry: PUBLIC_REGISTRY, npm_config_cache: path.join(labHome(env), 'npm-cache'), npm_config_ignore_scripts: 'true' }
   for (const tool of LAB_TOOLS) {
     const spec = tool.declared.exec(text)?.[1]
     if (spec === undefined)
@@ -83,6 +98,7 @@ export function preinstallBrowser(tree: string, env: NodeJS.ProcessEnv = process
     linkUnlessTheRepositorysOwn(path.join(tree, NODE_MODULES, tool.name), packageRoot(binary, tool), cache)
     linkUnlessTheRepositorysOwn(path.join(tree, NODE_MODULES, '.bin', tool.bin), binary, cache)
   }
+  installLabScript(factoryLab, env)
 }
 
 function failureOf(error: unknown): string {
@@ -96,7 +112,7 @@ export function notPreparedLine(tree: string, why: string): string {
 }
 
 export function browserNotPreinstalledLine(tree: string, why: string): string {
-  return `the bus could not preinstall the browser lab in ${tree} before the session, so a browser-lab run in that session asks the registry: ${why}`
+  return `the bus could not preinstall the browser lab in ${tree} before the session, so a browser-lab run in that session ends as unobserved when a tool is missing from the lab cache: ${why}`
 }
 
 function failureLine(step: TreePreparer, tree: string, lineOf: (tree: string, why: string) => string): string | null {

@@ -11,6 +11,7 @@ export const PLAYWRIGHT_CORE = 'playwright-core@1.62.1'
 export const PLAYWRIGHT_CLI = '@playwright/cli@0.1.17'
 const PUBLIC_REGISTRY = 'https://registry.npmjs.org/'
 const NPX_CACHE = path.join(os.homedir(), '.construct', 'browser-lab', 'npm-cache')
+const INSTALLED_LAB = path.join(os.homedir(), '.construct', 'browser-lab', 'bin', 'browser-lab.mjs')
 const PROFILE_RUNTIME_FILES = new Set(['SingletonLock', 'SingletonSocket', 'SingletonCookie', 'DevToolsActivePort'])
 const EXIT_HOLDS = 0
 const EXIT_FALSE = 1
@@ -76,7 +77,7 @@ function firstLine(error) {
 function sandboxRefusal(failure, env) {
   if (!env[SANDBOX_SIGNAL] || !CHROMIUM_FAILURE_IN_SANDBOX.test(failure))
     return undefined
-  return `Chromium cannot start inside the sandbox this command ran in (${SANDBOX_SIGNAL} is set). Run the bare command from the repository root, with no cd, env prefix or &&, because sandbox.excludedCommands matches only the bare command line: node scripts/construct/browser-lab.mjs <command> … If the bare command lands here too, sandbox.excludedCommands has no entry for it in this session, and adding one is the person's decision.`
+  return `Chromium cannot start inside the sandbox this command ran in (${SANDBOX_SIGNAL} is set). Run the bare command from the repository root, with no cd, env prefix or &&, because sandbox.excludedCommands matches only the bare command line, and with the installed script written out absolute, because a copy in the repository is not excluded: node ${INSTALLED_LAB} <command> … If the bare command lands here too, sandbox.excludedCommands has no entry for it in this session, and adding one is the person's decision.`
 }
 
 function positive(text, flag) {

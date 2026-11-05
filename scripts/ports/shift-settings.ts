@@ -1,8 +1,8 @@
 import type { ShiftGate } from '../../src/manifest.js'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { BROWSER_LAB_EXCLUDED_COMMAND, SETTINGS_FILE } from '../../src/commands/attach/settings.js'
+import { browserLabExcludedCommand, browserLabInstalledScript, SETTINGS_FILE } from '../../src/commands/attach/settings.js'
 import { isJsonObject } from '../../src/materialize/strategies.js'
 
 const SANDBOX_UID = os.userInfo().uid
@@ -20,28 +20,30 @@ export interface ShiftSettings {
   permissions: { allow: string[], deny?: string[] }
 }
 
-function excludesBrowserLab(file: string): boolean {
+function excludes(file: string, entry: string): boolean {
   try {
     const settings: unknown = JSON.parse(readFileSync(file, 'utf8'))
-    return isJsonObject(settings) && isJsonObject(settings.sandbox) && Array.isArray(settings.sandbox.excludedCommands) && settings.sandbox.excludedCommands.includes(BROWSER_LAB_EXCLUDED_COMMAND)
+    return isJsonObject(settings) && isJsonObject(settings.sandbox) && Array.isArray(settings.sandbox.excludedCommands) && settings.sandbox.excludedCommands.includes(entry)
   }
   catch {
     return false
   }
 }
 
-export function shiftSettings(tree: string, gate: ShiftGate, writable: string[] = []): ShiftSettings {
+export function shiftSettings(tree: string, gate: ShiftGate, writable: string[] = [], home: string = os.homedir()): ShiftSettings {
   const allow = [
     ...gate.prepush.map(command => `Bash(${command})`),
     `Edit(/${tree}/**)`,
     ...writable.map(file => `Edit(/${file})`),
   ]
-  if (!REPOSITORY_SETTINGS_FILES.some(file => excludesBrowserLab(path.join(tree, file))))
+  const entry = browserLabExcludedCommand(home)
+  const excluded = existsSync(browserLabInstalledScript(home)) && REPOSITORY_SETTINGS_FILES.some(file => excludes(path.join(tree, file), entry))
+  if (!excluded)
     return { sandbox: CARD_SESSION_SANDBOX, permissions: { allow } }
   const lab = path.join(tree, BROWSER_LAB_SCRIPT)
-  const labHome = path.join(os.homedir(), '.construct', 'browser-lab')
+  const labHome = path.join(home, '.construct', 'browser-lab')
   return {
-    sandbox: { ...CARD_SESSION_SANDBOX, excludedCommands: [BROWSER_LAB_EXCLUDED_COMMAND], filesystem: { denyWrite: [lab, labHome] } },
+    sandbox: { ...CARD_SESSION_SANDBOX, excludedCommands: [entry], filesystem: { denyWrite: [lab, labHome] } },
     permissions: { allow, deny: [`Edit(/${lab})`, `Edit(/${labHome}/**)`] },
   }
 }
