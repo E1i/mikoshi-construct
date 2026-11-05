@@ -68,6 +68,7 @@ const SESSION_JOURNAL = transcript(
   toolCall(4, 'Edit', { file_path: `${TREE}/src/late.ts`, old_string: 'old', new_string: 'late line', replace_all: false }),
   toolCall(5, 'Edit', { file_path: `${TREE}/src/shelled.ts`, old_string: 'old', new_string: 'shelled line', replace_all: false }),
   toolCall(6, 'Bash', { command: 'python3 rewrite.py src/shelled.ts' }),
+  toolCall(7, 'Edit', { file_path: `${TREE}/src/moved.ts`, old_string: 'old', new_string: 'moved line', replace_all: false }),
 )
 
 const TREE_FILES: Record<string, TreeFile> = {
@@ -75,6 +76,7 @@ const TREE_FILES: Record<string, TreeFile> = {
   'src/edited.ts': { content: 'head\nthe session line\ntail\n', mtimeMs: at(3) },
   'src/late.ts': { content: 'late line\n', mtimeMs: at(45) },
   'src/shelled.ts': { content: 'shelled line\nand more\n', mtimeMs: at(6) },
+  'src/moved.ts': { content: 'moved line\n', mtimeMs: at(8) },
   'src/foreign.ts': { content: 'nobody here wrote this\n', mtimeMs: at(2) },
   'src/earlier.ts': { content: 'earlier\n', mtimeMs: at(1) },
 }
@@ -291,14 +293,21 @@ describe('the held tree guard reads the session journal', () => {
     expect(held.spawned).toEqual([])
   })
 
-  it('a file changed after the session ended or by a Bash command is refused by name', () => {
-    const held = heldTree(['src/edited.ts', 'src/late.ts', 'src/shelled.ts'])
+  it('a file changed by a command of the session continues in the held tree', () => {
+    const held = heldTree(['src/edited.ts', 'src/shelled.ts'])
+
+    expect(held.start()).toMatchObject({ kind: 'started', card: { worktree: TREE } })
+    expect(held.spawned).toEqual([TREE])
+  })
+
+  it('a file changed after the session ended or outside every command of it is refused by name', () => {
+    const held = heldTree(['src/edited.ts', 'src/late.ts', 'src/moved.ts'])
 
     const outcome = held.start()
 
-    expect(refusedPaths(outcome)).toEqual(['src/late.ts', 'src/shelled.ts'])
+    expect(refusedPaths(outcome)).toEqual(['src/late.ts', 'src/moved.ts'])
     expect(outcome.kind === 'refused' && outcome.denial.detail).toContain('src/late.ts (it changed after the session ended)')
-    expect(outcome.kind === 'refused' && outcome.denial.detail).toContain('src/shelled.ts (it changed after the session\'s last Edit of it, by a Bash command or another writer)')
+    expect(outcome.kind === 'refused' && outcome.denial.detail).toContain('src/moved.ts (it changed after the session\'s last Edit of it, outside every command of the session)')
     expect(held.spawned).toEqual([])
   })
 

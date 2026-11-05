@@ -125,7 +125,7 @@ function questionUnderShard(made: ReturnType<typeof mergeBench>, answerer: Answe
   const stop = Number((made.db.prepare(`SELECT max(id) AS id FROM events WHERE type = ?`).get(CARD_STOPPED) as { id: number }).id)
   queueTask(made.db, ts, { queue: 'answer', cardId: 905, stop })
   const cardTrees: CardTreeTools = { home: trees, exists: existsSync, branchOf: pr => `feat/card-${pr}`, recreate: () => {}, bringTo: () => {} }
-  const executor = new AnswerExecutor({ db: made.db, answerer, ownerMerges: () => OWNER_MERGES, clock: made.clock.now, trees: cardTrees, isolation: () => ({ level: 'partial', mechanism: 'claude-code-sandbox', gaps: [] }), dirty })
+  const executor = new AnswerExecutor({ db: made.db, answerer, ownerMerges: () => OWNER_MERGES, clock: made.clock.now, trees: cardTrees, isolation: () => ({ level: 'partial', mechanism: 'claude-code-sandbox', gaps: [] }), dirty, shardDecider: () => ({ answer: 'finish inside the touches' }) })
   return async () => executor.answer(leaseNext(made.db, ts, 'answer', 'worker:answer:worker-1')!)
 }
 
@@ -263,7 +263,7 @@ describe('the review loop', () => {
     const lease: Lease = { taskKey: answerTasksOf(made.db, 1161)[0]!.task_key, queue: 'answer', cardId: 1161, pr: 1061, head: sha('a'), leaseGen: 1, actor: 'worker:answer:worker-1' }
     const request: AnswerRequest = { lease, source: { kind: 'ci', failedChecks: ['vitest 2/4'], events: [], decisions: [] }, widened: null, card: { session: 's', worktree: '/tree', branch: 'feat/card-1161' } }
     const log = 'FAIL scripts/tests/bus/queue.test.ts > the queue > expected 1 to be 2'
-    const prompt = answerPrompt(request, '/answers/s.1.owner.txt', null, GATE, undefined, log)
+    const prompt = answerPrompt(request, '/answers/s.1.owner.txt', null, GATE, undefined, { log, jobLink: null })
     expect(prompt).toContain(log)
     expect(prompt).not.toContain('gh run view --log-failed')
     made.close()
@@ -287,7 +287,7 @@ describe('the review loop', () => {
       publish: () => {},
       ciLog: (_card, head) => {
         logsRead.push(head)
-        return 'FAIL scripts/tests/bus/queue.test.ts > the queue > expected 1 to be 2'
+        return { log: 'FAIL scripts/tests/bus/queue.test.ts > the queue > expected 1 to be 2', jobLink: null }
       },
     })
     const cardTrees: CardTreeTools = { home: worktree, exists: existsSync, branchOf: () => `feat/card-${cardId}`, recreate: () => {}, bringTo: () => {} }
@@ -374,7 +374,7 @@ describe('the review loop', () => {
     made.close()
   })
 
-  it('a question asked again after a shard decision goes to the owner', async () => {
+  it('a question asked again after a shard decision holds for the window', async () => {
     const made = mergeBench()
     const again = 'may the card also touch .claude/agents/review.md?'
     const asked = questionUnderShard(made, async () => ({ session: 'card-session-1', resumed: true, before: sha('a'), after: sha('a'), owner: again }), () => false)

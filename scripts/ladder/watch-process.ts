@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process'
+import { clientAdapter } from '../ports/client/index.js'
 
 export interface ProcessRow {
   pid: number
@@ -36,8 +37,8 @@ export function listProcesses(): ProcessListing {
 }
 
 export function isSessionAlive(sessionId: string, processes: ProcessRow[]): boolean {
-  const marker = `--session-id ${sessionId}`
-  return processes.some(process => process.args.includes(marker))
+  const marker = clientAdapter().processes.sessionMarker(sessionId)
+  return marker !== null && processes.some(process => process.args.includes(marker))
 }
 
 export function processField(sessionId: string | undefined, listing: ProcessListing): string {

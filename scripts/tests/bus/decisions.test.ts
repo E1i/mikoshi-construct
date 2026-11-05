@@ -93,7 +93,7 @@ describe('owner decisions on the bus', () => {
     }])
     expect(rows(db, 'SELECT * FROM decisions')).toEqual([])
     expect(reduce(db)).toEqual({ applied: 1, rejected: 0 })
-    expect(rows(db, 'SELECT * FROM decisions')).toEqual([{ decision_id: 2, text: '#807 stays owner-merged.', scope: '[807]', source: 'owner', event_id: 1 }])
+    expect(rows(db, 'SELECT * FROM decisions')).toEqual([{ decision_id: 2, text: '#807 stays owner-merged.', scope: '[807]', source: 'owner', event_id: 1, until: null, supersedes: '[]', state: 'in-force' }])
     expect(reduce(db)).toEqual({ applied: 0, rejected: 0 })
     expect(rows(db, 'SELECT decision_id FROM decisions')).toEqual([{ decision_id: 2 }])
   })
@@ -146,7 +146,7 @@ describe('owner decisions on the bus', () => {
     expect(projectionDump(db)).toBe(projection)
   })
 
-  it('while pnpm decisions refuses the file, a decision with an until is out of the decisions table until an import of a file it reads', () => {
+  it('while pnpm decisions refuses the file, a decision with an until is out of force until an import of a file it reads', () => {
     const db = newBus()
     const file = path.join(mkdtempSync(path.join(tmpdir(), 'bus-owner-decisions-')), 'owner-decisions.md')
     roots.push(path.dirname(file))
@@ -155,7 +155,7 @@ describe('owner decisions on the bus', () => {
     const held = (): unknown[] => {
       intake()
       reduce(db)
-      return rows(db, 'SELECT decision_id FROM decisions ORDER BY decision_id').map(row => row.decision_id)
+      return rows(db, `SELECT decision_id FROM decisions WHERE state = 'in-force' ORDER BY decision_id`).map(row => row.decision_id)
     }
     writeFileSync(file, clean)
     expect(held()).toEqual([1, 2])
@@ -187,7 +187,7 @@ describe('owner decisions on the bus', () => {
     intake()
     expect(rows(db, `SELECT count(*) AS n FROM events WHERE type = 'decisions.imported'`)).toEqual([{ n: 2 }])
     expect(reduce(db)).toEqual({ applied: 1, rejected: 0 })
-    expect(rows(db, 'SELECT decision_id, scope FROM decisions ORDER BY decision_id')).toEqual([{ decision_id: 77, scope: '[]' }, { decision_id: 78, scope: '[809]' }])
+    expect(rows(db, `SELECT decision_id, scope FROM decisions WHERE state = 'in-force' ORDER BY decision_id`)).toEqual([{ decision_id: 77, scope: '[]' }, { decision_id: 78, scope: '[809]' }])
     expect(rows(db, 'SELECT event_id FROM decisions WHERE decision_id = 77')).toEqual([{ event_id: firstImport!.id }])
     expect(rows(db, 'SELECT card_id, state FROM cards')).toEqual([{ card_id: 809, state: 'queued' }])
     expect(readFileSync(file, 'utf8')).toBe(changed)

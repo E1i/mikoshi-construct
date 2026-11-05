@@ -1,5 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { CardRunsSource } from '../ci/card-runs.js'
 import type { Graph } from '../ci/layers.js'
+import type { LayerMap } from '../core/layer-map.js'
 import type { CardBody } from '../intake/parking-reads.js'
 import type { Meter } from '../ports/meter.js'
 import { Buffer } from 'node:buffer'
@@ -9,12 +11,13 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { parseMutationFile } from '../../src/commands/mutate/lines.js'
-import { BUS_SHARED, BUS_TESTS, isTest, layerOf, selectRun } from '../ci/layers.js'
+import { cardRunsOf, catalogLayersByTest, catalogModuleLayers, hasTable, NO_LAYER, runsSourceOfPr } from '../ci/card-runs.js'
+import { BUS_SHARED, BUS_TESTS, isTest, layerOf, layersInOf, layersOf, selectRun } from '../ci/layers.js'
 import { cruise } from '../ci/select.js'
 import { scansATree, walksATree } from '../ci/tree-scanners.js'
 import { BUS_DB_VARIABLE, BUSY_TIMEOUT_MS, defaultBusPath } from '../core/db.js'
 import { GHOST_LINE, POLICY_DENIED } from '../core/events.js'
-import { LAYER_MAP } from '../core/layer-map.js'
+import { LAYER_MAP, readLayerMap } from '../core/layer-map.js'
 import { legacyHistory } from '../core/legacy-history.js'
 import { openDatabase } from '../core/sqlite.js'
 import { cardBodies } from '../intake/parking-reads.js'
@@ -33,7 +36,6 @@ const EACH_TOKEN = /(%%)|%[sdifjo#]|\$[a-z_][\w.]*/gi
 const RENDERED_PERCENT = '%'
 const SHELL_QUOTED_APOSTROPHE = /'\\''/g
 const WITNESSES_HEADING = /^Witnesses:/
-const NO_LAYER = 'none'
 const TEST_INFRASTRUCTURE = [
   /^scripts\/ci\/(?:layers|select|prepush|test-command)\.ts$/,
   /^scripts\/tests\/ci\/(?:select-layers|prepush-selector)\.test\.ts$/,
@@ -139,8 +141,7 @@ export function kindOf(test: string): string {
 function layersByTest(graph: Graph, testText: (test: string) => string): Map<string, string[]> {
   const modulesByLayer = new Map<string, string[]>()
   for (const file of graph.keys()) {
-    const layer = layerOf(file)
-    if (layer !== null)
+    for (const layer of layersOf(file))
       modulesByLayer.set(layer, [...(modulesByLayer.get(layer) ?? []), file])
   }
   const byTest = new Map<string, string[]>()
@@ -284,7 +285,7 @@ function layersReachedFrom(start: string, graph: Graph): string[] {
       }
     }
   }
-  return [...new Set([...seen].map(layerOf).filter(layer => layer !== null))].sort()
+  return [...new Set([...seen].flatMap(layersOf))].sort()
 }
 
 export function catalogModules(graph: Graph): CheckModule[] {
@@ -365,29 +366,13 @@ export function rerunModeOf(env: NodeJS.ProcessEnv): RerunMode {
   return mode
 }
 
-function hasTable(db: DatabaseSync, name: string): boolean {
-  return db.prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?`).get(name) !== undefined
-}
-
-function catalogModuleLayers(db: DatabaseSync): Map<string, string[]> {
-  if (!hasTable(db, 'check_modules'))
-    return new Map()
-  const rows = db.prepare('SELECT module, layers FROM check_modules').all() as unknown as { module: string, layers: string }[]
-  return new Map(rows.map(row => [row.module, row.layers.split(',').filter(layer => layer !== '')]))
-}
+export { catalogLayersByTest, catalogModuleLayers }
 
 function catalogReadsOfDocuments(db: DatabaseSync): DocumentRead[] | null {
   if (!hasTable(db, 'check_document_reads'))
     return null
   const rows = db.prepare('SELECT document, reader, walked FROM check_document_reads ORDER BY document, reader').all() as unknown as { document: string, reader: string, walked: number }[]
   return rows.map(row => ({ document: row.document, reader: row.reader, walked: row.walked === 1 }))
-}
-
-function catalogLayersByTest(db: DatabaseSync): Map<string, string[]> {
-  if (!hasTable(db, 'check_tests'))
-    return new Map()
-  const rows = db.prepare('SELECT test, layer FROM check_tests').all() as unknown as { test: string, layer: string }[]
-  return new Map(rows.map(row => [row.test, row.layer.split(',').filter(layer => layer !== NO_LAYER)]))
 }
 
 export function catalogIsEmpty(db: DatabaseSync): boolean {
@@ -406,13 +391,9 @@ export function rebuildCatalogAt(ref: string, busPath: string, repo: string = RE
   })
 }
 
-function layersOfFile(file: string, byTest: ReadonlyMap<string, readonly string[]>): readonly string[] | null {
-  if (isTest(file)) {
-    const layers = byTest.get(file)
-    return layers === undefined || layers.length === 0 ? null : layers
-  }
-  const layer = layerOf(file)
-  return layer === null ? null : [layer]
+function layersOfFile(file: string, byTest: ReadonlyMap<string, readonly string[]>, map: LayerMap): readonly string[] | null {
+  const layers = isTest(file) ? byTest.get(file) ?? [] : layersInOf(map, file)
+  return layers.length === 0 ? null : layers
 }
 
 export function isTestInfrastructure(file: string): boolean {
@@ -455,10 +436,8 @@ function layersReachedByText(test: string, modules: ReadonlyMap<string, readonly
   const queue = [test]
   const place = (module: string): boolean => {
     const known = modules.get(module)
-    for (const layer of known ?? [layerOf(module)]) {
-      if (layer !== null)
-        layers.add(layer)
-    }
+    for (const layer of known ?? layersOf(module))
+      layers.add(layer)
     return known !== undefined
   }
   for (let file = queue.shift(); file !== undefined; file = queue.shift()) {
@@ -484,11 +463,16 @@ function layersOfAnAddedTest(test: string, modules: ReadonlyMap<string, readonly
   const reached = layersReachedByText(test, modules, read)
   if (reached === null || reached.length === 0)
     return null
-  const busWide = test.startsWith(BUS_TESTS) ? BUS_SHARED.map(layerOf).filter(layer => layer !== null) : []
+  const busWide = test.startsWith(BUS_TESTS) ? BUS_SHARED.flatMap(layersOf) : []
   return [...new Set([...reached, ...busWide])]
 }
 
-export function overlapWithMain(db: DatabaseSync, prFiles: readonly string[], mainFiles: readonly string[], readAtHead: ReadFile = () => null): string | null {
+export interface OverlapCard {
+  card?: CardRunsSource | null
+  map?: LayerMap
+}
+
+export function overlapWithMain(db: DatabaseSync, prFiles: readonly string[], mainFiles: readonly string[], readAtHead: ReadFile = () => null, { card = null, map = readLayerMap() }: OverlapCard = {}): string | null {
   const pr = withoutCardNotes(prFiles)
   const main = withoutCardNotes(mainFiles)
   if (main.length === 0)
@@ -505,12 +489,15 @@ export function overlapWithMain(db: DatabaseSync, prFiles: readonly string[], ma
     return read
   const unread = (file: string): boolean => reads === null || !DOCUMENT.test(file)
   const modules = catalogModuleLayers(db)
-  const placedPr = pr.filter(unread).map(file => [file, layersOfFile(file, byTest) ?? (isTest(file) && !byTest.has(file) ? layersOfAnAddedTest(file, modules, readAtHead) : null)] as const)
-  const placedMain = main.filter(unread).map(file => [file, layersOfFile(file, byTest)] as const)
+  const placedPr = pr.filter(unread).map(file => [file, layersOfFile(file, byTest, map) ?? (isTest(file) && !byTest.has(file) ? layersOfAnAddedTest(file, modules, readAtHead) : null)] as const)
+  const placedMain = main.filter(unread).map(file => [file, layersOfFile(file, byTest, map)] as const)
   const unplaced = [...placedPr, ...placedMain].find(([, layers]) => layers === null)
   if (unplaced !== undefined)
     return `${unplaced[0]} belongs to no layer of the check catalog`
-  const prLayers = new Set(placedPr.flatMap(([, layers]) => layers!))
+  const reading = card === null ? null : cardRunsOf(card, { testLayers: byTest, moduleLayers: modules }, map)
+  if (reading !== null && 'full' in reading)
+    return reading.why
+  const prLayers = new Set([...placedPr.flatMap(([, layers]) => layers!), ...(reading?.layers ?? [])])
   const mainLayers = new Set(placedMain.flatMap(([, layers]) => layers!))
   const shared = [...prLayers].sort().find(layer => mainLayers.has(layer))
   if (shared !== undefined)
@@ -599,7 +586,7 @@ export function rerunOf(db: DatabaseSync, meter: Meter, pr: number, base: string
   const main = mainFilesSince(meter, base)
   if (main.kind === 'truncated')
     return { rerun: true, why: main.why }
-  const overlap = overlapWithMain(db, pathsOf(listedFiles(meter, pr)), main.files, head === undefined ? undefined : fileAt(meter, head))
+  const overlap = overlapWithMain(db, pathsOf(listedFiles(meter, pr)), main.files, head === undefined ? undefined : fileAt(meter, head), { card: runsSourceOfPr(db, pr) })
   return overlap === null ? { rerun: false, why: `nothing ${MAIN_BRANCH} changed since ${base} reaches a layer of #${pr}` } : { rerun: true, why: overlap }
 }
 

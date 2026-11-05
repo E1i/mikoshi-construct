@@ -1,9 +1,11 @@
-import type { Invocation, Role, SessionPolicy, SessionSpec } from './client/contract.js'
+import type { Invocation, Role, SessionPolicy, SessionReading, SessionSpec } from './client/contract.js'
 import { spawn } from 'node:child_process'
 import { closeSync, openSync } from 'node:fs'
 import process from 'node:process'
 import { BUS_DB_VARIABLE } from '../core/bus-path.js'
+import { CLIENT_ENV_PREFIXES } from './client/claude/adapter.js'
 import { clientAdapter } from './client/index.js'
+import { PREPARE_ENV_KEYS } from './prepare-tree.js'
 
 export function clientInvocation(spec: SessionSpec): Invocation {
   const invocation = clientAdapter().invocation(spec)
@@ -16,12 +18,16 @@ const HEADLESS_POLICY: SessionPolicy = { profile: 'client-default', gateCommands
 
 const ANY_HEADLESS_SESSION: SessionSpec = { kind: 'start', role: 'ghost', session: '', cwd: '', prompt: '', addDirs: [], pick: { model: null }, policy: HEADLESS_POLICY }
 
-export function clientCommand(): string {
-  return clientInvocation(ANY_HEADLESS_SESSION).command
+export function headlessInvocation(parts: Partial<SessionSpec> = {}): Invocation {
+  return clientInvocation({ ...ANY_HEADLESS_SESSION, ...parts })
 }
 
-export function clientIsolationCommand(): string[] {
-  return clientAdapter().processes.isolationCommand()
+export function clientCommand(): string {
+  return headlessInvocation().command
+}
+
+export function streamReading(stdoutPath: string): SessionReading {
+  return clientAdapter().reading({ session: '', cwd: '', stdoutPath })
 }
 
 export const REVIEW_MODEL_VARIABLE = 'CONSTRUCT_REVIEW_MODEL'
@@ -29,25 +35,6 @@ export const REVIEW_MODEL_VARIABLE = 'CONSTRUCT_REVIEW_MODEL'
 export function reviewModelOf(env: NodeJS.ProcessEnv = process.env): string | undefined {
   const model = env[REVIEW_MODEL_VARIABLE]?.trim()
   return model === undefined || model === '' ? undefined : model
-}
-
-function initModelOf(line: string): string | undefined {
-  try {
-    const event = JSON.parse(line) as { type?: unknown, subtype?: unknown, model?: unknown }
-    return event.type === 'system' && event.subtype === 'init' && typeof event.model === 'string' ? event.model : undefined
-  }
-  catch {
-    return undefined
-  }
-}
-
-export function sessionModelOf(streamJson: string): string | undefined {
-  for (const line of streamJson.split('\n')) {
-    const model = initModelOf(line)
-    if (model !== undefined)
-      return model
-  }
-  return undefined
 }
 
 export const CARD_VARIABLE = 'CONSTRUCT_CARD'
@@ -78,8 +65,19 @@ export function withoutCard(base: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   return rest
 }
 
+const SESSION_ENV_NAMES: ReadonlySet<string> = new Set([...PREPARE_ENV_KEYS, 'USER', 'LOGNAME', 'SHELL', 'TERM', 'GH_TOKEN', 'NODE_EXTRA_CA_CERTS'])
+const OWN_ENV_PREFIXES = ['CONSTRUCT_', 'LC_']
+
+function isSessionVariable(name: string): boolean {
+  return SESSION_ENV_NAMES.has(name) || [...OWN_ENV_PREFIXES, ...CLIENT_ENV_PREFIXES].some(prefix => name.startsWith(prefix))
+}
+
+function listedVariables(base: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return Object.fromEntries(Object.entries(base).filter(([name]) => isSessionVariable(name)))
+}
+
 export function sessionEnv(base: NodeJS.ProcessEnv = process.env, card?: number): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = { ...witnessEnv(base), ...clientInvocation(ANY_HEADLESS_SESSION).env }
+  const env: NodeJS.ProcessEnv = { ...witnessEnv(listedVariables(base)), ...headlessInvocation().env }
   if (card === undefined)
     return env
   const { [BUS_DB_VARIABLE]: _ownersBus, ...cardEnv } = env
@@ -106,7 +104,7 @@ export class SessionCeilingReached extends Error {
 }
 
 export function spawnSession(params: SpawnSessionParams): Promise<number> {
-  const invocation = clientInvocation({ ...ANY_HEADLESS_SESSION, role: params.role ?? ANY_HEADLESS_SESSION.role, session: params.sessionId, cwd: params.cwd, prompt: params.prompt, addDirs: params.addDirs ?? [], pick: { model: params.model ?? null } })
+  const invocation = headlessInvocation({ role: params.role ?? ANY_HEADLESS_SESSION.role, session: params.sessionId, cwd: params.cwd, prompt: params.prompt, addDirs: params.addDirs ?? [], pick: { model: params.model ?? null } })
   const outFd = openSync(params.stdoutPath, 'w')
   const errFd = openSync(params.stderrPath, 'w')
   let closed = false

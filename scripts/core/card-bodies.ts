@@ -4,7 +4,7 @@ import type { CardEvent } from '../../src/commands/intake/index.js'
 import type { StoredEvent } from './stored.js'
 import { parseParkingFile } from '../../src/card/parking.js'
 import { textSha } from '../../src/card/text-sha.js'
-import { isLaneName, laneName, laneNumber, pathsNamedOutside } from '../../src/commands/intake/admit.js'
+import { AMEND_SOURCE, isLaneName, laneName, laneNumber, pathsNamedOutside } from '../../src/commands/intake/admit.js'
 import { NOT_A_BACKFILL } from './backfill-source.js'
 import { appendEvent } from './db.js'
 import { CARD_ADMITTED, FACTORY_MODE } from './events.js'
@@ -109,7 +109,10 @@ function versioned(db: DatabaseSync, event: CardEvent): CardEvent {
 }
 
 export function laid(db: DatabaseSync, event: CardEvent): CardEvent {
-  return event.type === CARD_ADMITTED ? { ...event, payload: { ...event.payload, lane: admittedLane(db, event.cardId, event.payload.depends) } } : event
+  if (event.type !== CARD_ADMITTED)
+    return event
+  const kept = event.payload.source === AMEND_SOURCE ? laneOfCard(db, event.cardId) : null
+  return { ...event, payload: { ...event.payload, lane: kept ?? admittedLane(db, event.cardId, event.payload.depends) } }
 }
 
 export function appendCardEvent(db: DatabaseSync, actor: string, unversioned: CardEvent): boolean {

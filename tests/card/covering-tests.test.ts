@@ -1,7 +1,7 @@
 import type { RepositoryFacts } from '../../src/commands/intake/facts.js'
 import { describe, expect, it } from 'vitest'
 import { isTest as layersIsTest } from '../../scripts/ci/layers.js'
-import { COVERING_REASON, coveringTests, importersOf, isTest, PACKAGE_SCRIPT_READERS, pathsIn, pathsOutside, RISK_RULE, RISK_RULE_READERS, runsCover, runsLine, runsOf, SCANNED_TREES, TestCoverage, touchesWithoutRuns, withinTouches } from '../../src/card/covering-tests.js'
+import { COVERING_REASON, coveringTests, importersOf, isTest, layerMasksOf, PACKAGE_SCRIPT_READERS, pathsIn, pathsOutside, RISK_RULE, RISK_RULE_READERS, runsCover, runsLine, runsOf, SCANNED_TREES, TestCoverage, touchesWithoutRuns, withinTouches } from '../../src/card/covering-tests.js'
 import { checkDraft } from '../../src/commands/intake/check.js'
 
 const FILES: Record<string, string> = {
@@ -184,6 +184,14 @@ describe('the tests that reach a touched file other than by a static import', ()
 
   it('the CI layer selection reads what a test is from this rule, not from a copy of its own', () => {
     expect(layersIsTest).toBe(isTest)
+  })
+})
+
+describe('the layer masks of a card', () => {
+  it('reads layer entries from the older Runs line as well, and runsOf keeps them out', () => {
+    const body = `${runsLine(['layer:core', 'tests/a.test.ts'])}\nruns: ["layer:bus:answer","layer:core"]`
+    expect(layerMasksOf(body)).toEqual(['bus:answer', 'core'])
+    expect(runsOf(body)).toEqual(['tests/a.test.ts'])
   })
 })
 

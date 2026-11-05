@@ -81,11 +81,12 @@ describe('hands', () => {
   it('hands works for a plain site without an extension', () => {
     const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'browser-lab-plain-hands-')))
     try {
-      const bin = path.join(root, 'bin')
+      const modules = path.join(root, '.construct/browser-lab/npm-cache/_npx/cached/node_modules')
       const recorded = path.join(root, 'config-seen.json')
-      mkdirSync(bin)
-      writeFileSync(path.join(bin, 'npx'), '#!/bin/sh\necho "$(dirname "$0")/playwright-cli"\n', { mode: 0o755 })
-      writeFileSync(path.join(bin, 'playwright-cli'), [
+      mkdirSync(path.join(modules, '@playwright/cli'), { recursive: true })
+      mkdirSync(path.join(modules, '.bin'))
+      writeFileSync(path.join(modules, '@playwright/cli/package.json'), JSON.stringify({ version: PLAYWRIGHT_CLI.split('@').at(-1) }))
+      writeFileSync(path.join(modules, '.bin/playwright-cli'), [
         '#!/usr/bin/env node',
         'const fs = require(\'node:fs\')',
         'const args = process.argv.slice(2)',
@@ -93,7 +94,7 @@ describe('hands', () => {
         'console.log(args.join(\' \'))',
         '',
       ].join('\n'), { mode: 0o755 })
-      const ran = spawnSync(process.execPath, [SCRIPT, 'hands', '--profile', path.join(root, 'profile'), '--', 'open', 'http://plain.invalid/'], { cwd: root, encoding: 'utf8', env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ''}` } })
+      const ran = spawnSync(process.execPath, [SCRIPT, 'hands', '--profile', path.join(root, 'profile'), '--', 'open', 'http://plain.invalid/'], { cwd: root, encoding: 'utf8', env: { ...process.env, HOME: root } })
       expect(ran.stderr).not.toContain('could not observe')
       expect(ran.status).toBe(0)
       const result = JSON.parse(ran.stdout) as Record<string, unknown>
@@ -140,9 +141,9 @@ describe('the npx registry', () => {
     expect(npxEnvironment({ npm_config_registry: 'https://private.example/' }).npm_config_registry).toBe(PUBLIC_REGISTRY)
   })
 
-  it('the script spawns npx in one place, with that environment', () => {
-    expect(source.match(/spawnSync\('npx'/g)).toHaveLength(1)
-    expect(source).toMatch(/function runNpx\(args, options\) \{\s+return spawnSync\('npx', args, \{ \.\.\.options, env: npxEnvironment\(\) \}\)/)
+  it('the script spawns no npx, and its tools run in one place, with that environment', () => {
+    expect(source).not.toMatch(/spawnSync\('npx'/)
+    expect(source).toMatch(/function runTool\(binary, args, options\) \{\s+return spawnSync\(process\.execPath, \[binary, \.\.\.args\], \{ \.\.\.options, env: npxEnvironment\(\) \}\)/)
   })
 })
 

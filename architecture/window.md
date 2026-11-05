@@ -67,7 +67,7 @@ the limit Mikoshi writes its own handoff, `~/.construct/handoff/miko.md`, throug
 `miko handoff write`, `miko watch --once` and `miko exit` for the three `pnpm` scripts, its handoff in
 `~/.construct/<owner>--<repo>/handoff` and its bus that repository's own), under the same contract as the
 Operator's handoff (the fields, one STOP section, `HANDOFF_LIMIT`, `prev:` to the archive), and then ends its own
-process. A session ends at exactly one of four stop reasons, decided by `stopReasonOf` in `scripts/window/exit.ts`: the context of its last answer is at or above `contextLimit` × `warnRatio` (a session with `CONSTRUCT_CARD`: `cardContextLine`), its spend is at or above the spend warn, `sessionSpend` × `warnRatio` (all three in `.claude/eddies.json`, both readings taken from the session's own transcript the way Eddies takes them), the last `STATUS:` of `miko.md` is `DONE`, or the session's loaded core is below the core on main: the `window-core vN` the loop read from `architecture/window-core.md` at launch and passed in `MIKO_LOADED_CORE` is lower than the one that file carries now. A session without that variable has no loaded core and is not stopped by this reason. A closed card, a wait for `merge.done`, `review.recorded` or `card.verified`, a wait for an answer, or a last `STATUS:` of `OWNER` is none of them: at `OWNER` the window writes its question as a `question:` line of the draft, one line each, and `pnpm handoff:write` opens the owner wait from it unless one with that text is open, with no `pnpm bus:request`, and records `Q<N> open` in the owner waits field; a draft with no `question:` line opens a wait naming the handoff, unless its owner waits field already names an open one; a bus it cannot reach leaves the handoff written and says the question stands only there. The window keeps settling every other card with `pnpm miko:watch --once` in the same session until the answer comes, closes the wait with `pnpm bus:request owner.wait.close`, then writes `STATUS: CONTINUE` with `pnpm handoff:write`; the window does not ask the owner about what the shard already allows it, and two checks hold that: `STATUS: OWNER` under a decisions shard is refused outside the boundaries the bus keeps, and `owner.wait --need merge` is refused for a pull request `mergePolicy` allows under the live window shard. A decision in free text cannot be judged mechanically, so no check reads it; the window waits with `pnpm miko:watch --once` in the same session and takes the next card in the same session, and `pnpm miko:exit` refuses with `not at a stop condition: wait with pnpm miko:watch --once --card <N> or take the next card`. `pnpm handoff:write` at every boundary stays as insurance, without `pnpm miko:exit`. At the context warn, the spend warn or a core change the window runs `pnpm handoff:write`, then `pnpm miko:exit`. A context `miko:exit` cannot read (no session id, no transcript) counts as at the warn, as it does for `operator-boundary`: the session ends with reason `context` and its counters journalled as `unknown`. `pnpm handoff:write` never runs `pnpm miko:exit`, whatever status it writes. Each exit appends one `session-exit` line to `.construct/eddies.jsonl` in the project directory: the session id, the counters of its first and last answer, its spend by the Eddies calculation, the reason, and the cards and bus events since the session started, each `unknown` when it could not be read; a refusal writes none. A session writes one handoff, named by `CONSTRUCT_HANDOFF` (unset or empty it is `miko.md` in `$CONSTRUCT_HANDOFF_DIR`, else in `~/.construct/handoff` in this checkout and in `~/.construct/<owner>--<repo>/handoff` in any other repository, an empty variable read as unset): the Eddies warn of a session without `CONSTRUCT_CARD` names that file, and `pnpm handoff:write` refuses a new handoff file that is not it. A session with `CONSTRUCT_CARD` writes its task handoff, whatever `CONSTRUCT_HANDOFF` it inherited, and `pnpm handoff:write` does not hold it to `miko.md`. `pnpm miko:exit`
+process. A session ends at exactly one of four stop reasons, decided by `stopReasonOf` in `scripts/window/exit.ts`: the context of its last answer is at or above `contextLimit` × `warnRatio` (a session with `CONSTRUCT_CARD`: `cardContextLine`) or this session already crossed that line by the hook's record, a `budget-warn` line of level `session-context` with its `session_id` in `.construct/eddies.jsonl`, whatever compaction has done to the context since, its spend is at or above the spend warn, `sessionSpend` × `warnRatio` (all three in `.claude/eddies.json`, both readings taken from the session's own transcript the way Eddies takes them), the last `STATUS:` of `miko.md` is `DONE`, or the session's loaded core is below the core on main: the `window-core vN` the loop read from `architecture/window-core.md` at launch and passed in `MIKO_LOADED_CORE` is lower than the one that file carries now. A session without that variable has no loaded core and is not stopped by this reason. A closed card, a wait for `merge.done`, `review.recorded` or `card.verified`, a wait for an answer, or a last `STATUS:` of `OWNER` is none of them: at `OWNER` the window writes its question as a `question:` line of the draft, one line each, and `pnpm handoff:write` opens the owner wait from it unless one with that text is open, with no `pnpm bus:request`, and records `Q<N> open` in the owner waits field; a draft with no `question:` line opens a wait naming the handoff, unless its owner waits field already names an open one; a bus it cannot reach leaves the handoff written and says the question stands only there. The window keeps settling every other card with `pnpm miko:watch --once` in the same session until the answer comes, closes the wait with `pnpm bus:request owner.wait.close`, then writes `STATUS: CONTINUE` with `pnpm handoff:write`; the window does not ask the owner about what the shard already allows it, and two checks hold that: `STATUS: OWNER` under a decisions shard is refused outside the boundaries the bus keeps, and `owner.wait --need merge` is refused for a pull request `mergePolicy` allows under the live window shard. A decision in free text cannot be judged mechanically, so no check reads it; the window waits with `pnpm miko:watch --once` in the same session and takes the next card in the same session, and `pnpm miko:exit` refuses with `not at a stop condition: wait with pnpm miko:watch --once --card <N> or take the next card`, followed by what it read: the context, the line, the source of each and whether a `budget-warn` of this session was found, an unread value as `unknown`. `pnpm handoff:write` at every boundary stays as insurance, without `pnpm miko:exit`. At the context warn, the spend warn or a core change the window runs `pnpm handoff:write`, then `pnpm miko:exit`. A context `miko:exit` cannot read (no session id, no transcript) counts as at the warn, as it does for `operator-boundary`: the session ends with reason `context` and its counters journalled as `unknown`. `pnpm handoff:write` never runs `pnpm miko:exit`, whatever status it writes. Each exit appends one `session-exit` line to `.construct/eddies.jsonl` in the project directory: the session id, the counters of its first and last answer, its spend by the Eddies calculation, the reason, and the cards and bus events since the session started, each `unknown` when it could not be read; a refusal writes none. A session writes one handoff, named by `CONSTRUCT_HANDOFF` (unset or empty it is `miko.md` in `$CONSTRUCT_HANDOFF_DIR`, else in `~/.construct/handoff` in this checkout and in `~/.construct/<owner>--<repo>/handoff` in any other repository, an empty variable read as unset): the Eddies warn of a session without `CONSTRUCT_CARD` names that file, and `pnpm handoff:write` refuses a new handoff file that is not it. A session with `CONSTRUCT_CARD` writes its task handoff, whatever `CONSTRUCT_HANDOFF` it inherited, and `pnpm handoff:write` does not hold it to `miko.md`. `pnpm miko:exit`
 (`scripts/window/exit.ts`) ends the nearest `claude` among its ancestors at `STATUS: DONE` unconditionally; at
 the context, spend or core reason, only when a `scripts/window/loop.ts` process stands above that claude and `miko.md` was
 written in the last two minutes (`FRESH_MS`), which proves the handoff exists for the next session and permits nothing
@@ -106,17 +106,26 @@ in the IDE extensions as in the CLI.
 
 Mikoshi, as foreman, does not poll: it waits on events, a stall, a repeated refusal and a dead session with `pnpm miko:watch --once` (#1081).
 
-Owner decisions are not in the handoff: a session reads them with `pnpm decisions`, which takes the file the handoff's `decisions:` field names (`~/.construct/owner-decisions.md` by default).
-It is a numbered record: one line per decision in the shape `DECISION_FORMAT` states, `- D-N · <date> — <decision>
-[· superseded-by D-M]`, appended; a decision that replaces an earlier one gets its own, later number, and the earlier line
-gains the trailing `· superseded-by D-M` and nothing else. Headings and prose before the first list item are the
-preamble. A session reads the decisions through `pnpm decisions`, which prints only the decisions in force, and refuses
+Owner decisions are not in the handoff, and the record of them is the bus: the `decisions` table holds each decision's
+number, cards, term, what it supersedes and its state, in force or archived. Archived is a state the bus sets itself: on
+`merge.done` or the close of the last card a decision names, when its term ends, and when a later decision supersedes it.
+Nothing is deleted, and a number already given stays given. A decision with no card is general and leaves force only by
+its term or by a superseding decision. `pnpm decisions:add` writes a request into the bus, whichever shell runs it, and
+what is in force has no limit in bytes.
+
+`pnpm decisions` reads what is in force. `~/.construct/owner-decisions.md` and its archive are a projection the bus rebuilds on every tick; a hand edit is
+undone by the next rebuild, and it never reaches a merge, which reads the table. The first rebuild imports the file once,
+so a factory that kept its decisions there loses none and keeps its numbers. The projection is a numbered record: one line
+per decision in the shape `DECISION_FORMAT` states, `- D-N · <date> — <decision> [· superseded-by D-M]`. Headings and
+prose before the first list item are the preamble.
+
+A session reads the decisions with `pnpm decisions`, which takes the file the handoff's `decisions:` field names and prints
+only the decisions in force; under a card it prints the decisions of that card and the general ones. It refuses
 the whole file for any of these: after the first list item, a non-blank line that is not a decision line in that shape
 (a number other than `D-` and `[1-9][0-9]*`, no date, an empty decision, a line without the bullet, an ordered item, a
 heading); a `superseded-by` anywhere but as the exact trailing `· superseded-by D-M`; a `D-N` twice; numbers that do not
-run 1..n in file order; a `superseded-by` naming the decision itself, an earlier number or no decision in the file; two
-identical decisions in force; or decisions in force over `DECISIONS_IN_FORCE_LIMIT` bytes — so the record cannot grow
-into prose that a session has to reconcile, and no cycle of `superseded-by` can empty it.
+run 1..n in file order; a `superseded-by` naming the decision itself, an earlier number or no decision in the file; or two
+identical decisions in force — so no prose reaches a session to reconcile, and no cycle of `superseded-by` can empty it.
 
 Across a boundary between contours goes a numbered record, not prose. Mikoshi's messages to the Operator (the
 foreman's to the brain) carry only references — a decision `D-N`, a card `#N`, a journal line — and one line of
@@ -149,7 +158,7 @@ has red CI or a `changes` verdict) and none has moved for `TAKEOVER_AFTER_MINUTE
 that has ended, is held, has a queued or leased task of any node (a review included), or has a session still running. An
 accepted takeover appends `card.held` and `card.takeover`, both by the window and with the reason, so the answer node
 denies the card as held. The window makes the minimal change in the tree by hand, and `pnpm bus:request release --card <N>`
-ends the takeover and queues again each answer task the hold withdrew.
+ends the takeover and queues again each answer task the hold withdrew. A hold, a takeover included, keeps launch, answer, merge, continuations and restarts until its `card.released`.
 
 `pnpm bus:request drop --card <N> --reason <text>` appends `card.dropped` by the window, with the reason, for a card the bus knows that has no admitted body and has not ended; a card with a body keeps the `pnpm intake --move` route.
 
@@ -224,15 +233,15 @@ owner's text verbatim. The handoff's local decisions field points here and does 
 ## The day file
 
 The owner's day list, `~/.construct/handoff/day-<date>.md`, holds only what a session needs now: its title line, the
-open owner questions and the owner texts of the current session, at most `DAY_FILE_LIMIT` bytes, the one constant it
-shares with the decisions in force (`scripts/window/day-archive.ts`).
+open owner questions and the owner texts of the current session, at most `DAY_FILE_LIMIT` bytes
+(`scripts/window/day-archive.ts`).
 
 - Owner texts, verbatim, each under an `## Owner …` heading naming its session (`session <N>`); the window never edits
   one after writing it. An owner order that holds longer than a day goes into the decisions, not into the day file,
   and an order file, the day file or a handoff is no source for one: the window writes them itself. The source is the
   owner channel, `~/.construct-owner/answers/`, outside every sandbox's `allowWrite`: the owner runs
   `pnpm owner:say "<words>"`, which puts the words and the time there as one file, and the window asks
-  `pnpm bus:request decisions:add --from answer "[owner] <words>"`. `bus:run` writes the decision only when the words
+  `pnpm bus:request decisions:add --from answer "[owner] <words>"`. `bus:run` records the decision only when the words
   are a whole line of a file of the channel not used yet, and marks that file used in the same step; with none it
   answers `window.request.refused` «слово владельца не найдено в канале владельца».
 - Owner questions, one list under `## Owner questions`, one item each, `- Q<N> open — …` or `- Q<N> answered — …`; the
@@ -355,8 +364,9 @@ from `<dir>/<id>.md` under `--parking <dir>`; a missing file is named in it (`to
 parking file for #<id>`), and a file whose card line is not the `--card` given is refused with nothing written. That
 entry line carries `"schema":2`; the entry line `ghosts:launch` writes carries no `schema` and stays version 1. The
 shift starts its tasks through the same `task:start`, so the door holds there too. It closes with `pnpm task:close <id> (--pr <N> | --report
-<path>) --verification <word>`: an implement task by its `pr`, a probe by its `report`, and nothing closes a task
-whose start line carries no card. An implement task closes only on its own pull request: `task:close`, and the shift through it,
+<path>) --verification <word>`: a probe by its `report`, an implement task by its `pr`, or by its `report` while the bus
+holds no pull request of the card, so a report never stands in for a review and a merge; `--pr` and `--report` together are
+refused, and nothing closes a task whose start line carries no card. An implement task closes by a pull request only on its own: `task:close`, and the shift through it,
 refuse with nothing written when the first line of the body names another card or the body cannot be read. A pull
 request an owner decision shares closes with `--shared-by D-<N>`, a recorded owner decision, in force or archived,
 that names both cards, and the line records it as `sharedBy`. That `event:path` line carries `verification`, and a closing line without that word

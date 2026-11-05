@@ -7,7 +7,7 @@ import { cardToolsOf, parseParkingFile } from '../../../src/card/parking.js'
 import { openBus } from '../../core/db.js'
 import { clientAdapter } from '../../ports/client/index.js'
 import { runtimeIsolation } from '../../ports/isolation.js'
-import { clientInvocation, clientIsolationCommand } from '../../ports/session.js'
+import { clientInvocation } from '../../ports/session.js'
 import { CARD_SESSION_SANDBOX } from '../../ports/shift-settings.js'
 import { recordHeartbeat, runHeartbeat } from '../../supervisor/heartbeat.js'
 
@@ -125,7 +125,7 @@ describe('the invocation of a card session', () => {
   })
 
   it('the isolation command of the review and answer workers names no settings flag, so the reader does not refuse them', () => {
-    const command = clientIsolationCommand()
+    const command = clientAdapter().processes.isolationCommand()
     expect(command.join(' ')).not.toContain('--settings')
     const facts = { managed: null, flag: null, local: null, project: null, user: { sandbox: { enabled: true } }, platform: 'darwin', sandboxExec: true, bwrap: false, socat: false, command }
     expect(runtimeIsolation(facts).level).not.toBe('none')

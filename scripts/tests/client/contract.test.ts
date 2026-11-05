@@ -303,12 +303,8 @@ it('clientAdapter returns Claude and its capabilities', () => {
 it('an operation a later card fills throws a named error that names that card', () => {
   const adapter = clientAdapter()
   const operations: [() => unknown, string][] = [
-    [() => adapter.reading({ session: SESSION, cwd: '/tree', stdoutPath: null }), 'clientreading'],
     [() => adapter.models(), 'clientmodels'],
     [() => adapter.modelFor('review', null, 'auto'), 'clientmodels'],
-    [() => adapter.processes.isClient('claude'), 'clientprocess'],
-    [() => adapter.processes.sessionMarker(SESSION), 'clientprocess'],
-    [() => adapter.processes.liveCwds(), 'clientprocess'],
   ]
   for (const [operation, card] of operations) {
     expect(operation).toThrow(ClientOperationPending)

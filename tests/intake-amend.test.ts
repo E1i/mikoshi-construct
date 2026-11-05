@@ -1,11 +1,11 @@
 import type { AdmitResult } from '../src/commands/intake/admit.js'
 import type { AmendFlags } from '../src/commands/intake/amend.js'
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { BUS_DB_VARIABLE, openBus } from '../scripts/core/db.js'
-import { CARD_ADMITTED } from '../scripts/core/events.js'
+import { CARD_ADMITTED, CARD_MOVED } from '../scripts/core/events.js'
 import { reduce } from '../scripts/core/reducer.js'
 import { busCardAdmissions, busCardEvents, runBusIntake } from '../scripts/intake/intake.js'
 import { runAdmit } from '../src/commands/intake/admit.js'
@@ -16,6 +16,7 @@ const NOW = new Date('2026-10-13T09:00:00.000Z')
 const CARD = '#80 amend-card [implement/runner/S/cheap/owner] · depends — · blocks —'
 const ACCEPTANCE = '`pnpm exec vitest run tests/a.test.ts` exits 0; red on main'
 const INVARIANT = '`pnpm exec vitest run tests/a.test.ts` exits 0'
+const LANE = 'lane-3'
 const roots: string[] = []
 
 afterEach(() => {
@@ -70,6 +71,16 @@ function admissions(w: World): { text: string, source: string | null }[] {
   const db = openBus(w.bus)
   try {
     return db.prepare(`SELECT json_extract(payload, '$.text') AS text, json_extract(payload, '$.source') AS source FROM events WHERE type = ? AND card_id = 80 ORDER BY id`).all(CARD_ADMITTED) as { text: string, source: string | null }[]
+  }
+  finally {
+    db.close()
+  }
+}
+
+function latestLane(w: World): string | null {
+  const db = openBus(w.bus)
+  try {
+    return (db.prepare(`SELECT json_extract(payload, '$.lane') AS lane FROM events WHERE type = ? AND card_id = 80 ORDER BY id DESC LIMIT 1`).get(CARD_ADMITTED) as { lane: string | null }).lane
   }
   finally {
     db.close()
@@ -154,6 +165,23 @@ describe('construct intake --amend edits an admitted card straight in the bus', 
     expect(removed).toEqual({ kind: 'edited', text: cardText(ACCEPTANCE) })
   })
 
+  it('an amend of a card in lane-N leaves it in lane-N', () => {
+    const w = world()
+    admitFromFile(w, cardText(ACCEPTANCE))
+    withBus(w, ({ events }) => events({ type: CARD_MOVED, cardId: 80, ts: NOW.toISOString(), dedupeKey: `${CARD_MOVED}:80:${LANE}`, payload: { lane: LANE, to: path.join(w.parking, LANE) } }))
+    expect(latestLane(w)).toBe(LANE)
+
+    expect(amend(w, { touches: '+src/board/tail.ts' }).status).toBe('admitted')
+    expect(latestLane(w)).toBe(LANE)
+
+    const draft = path.join(w.root, 'drafts', '80.md')
+    mkdirSync(path.dirname(draft), { recursive: true })
+    writeFileSync(draft, `${cardText(ACCEPTANCE, 'src/board/run.ts, src/board/tail.ts')}\nA draft outside the parking.\n`)
+    const admitted = withBus(w, ({ events, admissions }) => runAdmit({ file: draft, dir: w.repo, dryRun: false, autoConfirm: true, parkingRoot: w.parking, decisions: w.decisions, events, admissions, cardStates: () => new Map() }, () => NOW))
+    expect(admitted.status).toBe('admitted')
+    expect(latestLane(w)).toBe(LANE)
+  })
+
   it('the bus entry takes --amend with its flags and writes card.admitted with source amend', async () => {
     const w = world()
     admitFromFile(w, cardText(ACCEPTANCE))
@@ -174,5 +202,34 @@ describe('construct intake --amend edits an admitted card straight in the bus', 
     }
     expect(admissions(w).at(-1)).toMatchObject({ source: 'amend', text: expect.stringContaining('src/board/tail.ts') })
     expect(existsSync(path.join(w.root, '.construct', 'parking', '80.md'))).toBe(false)
+  })
+})
+
+describe('the intake skill on amending', () => {
+  const readRepoFile = (relative: string): string => readFileSync(new URL(`../${relative}`, import.meta.url), 'utf8')
+
+  function amendParagraph(): string {
+    const skill = readRepoFile('.claude/skills/intake/SKILL.md')
+    return skill.split('\n\n').find(block => block.startsWith('To amend an admitted card')) ?? ''
+  }
+
+  it('the intake skill names both amend entries and keeps export for what they do not cover', () => {
+    const paragraph = amendParagraph()
+    expect(paragraph).toContain('construct-intake --amend <#N>')
+    expect(paragraph).toContain('pnpm bus:request amend --card <N>')
+    expect(paragraph).toContain('For an edit they do not cover')
+    expect(paragraph).toContain('pnpm intake --export \'#N\'')
+    expect(paragraph).toContain('pnpm intake --admit <draft>')
+  })
+
+  it.each(['Amending an admitted card', 'Amending by request'])('the skill points at the docs/cli.md section %s, which exists', (section) => {
+    expect(amendParagraph()).toContain(`"${section}"`)
+    expect(readRepoFile('docs/cli.md')).toContain(`**${section}.**`)
+  })
+
+  it('the skill leaves the flags of the two entries to docs/cli.md', () => {
+    const paragraph = amendParagraph()
+    for (const flag of ['--touches', '--witness', '--add-witness', '--owner-words', '--depends'])
+      expect(paragraph).not.toContain(flag)
   })
 })

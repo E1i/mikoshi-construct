@@ -2,8 +2,10 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { Lease } from '../../core/lease.js'
 import type { InForceDecision } from '../../policy/decisions.js'
 import { CARD_BODIES } from '../../core/card-bodies.js'
-import { CARD_HELD, CARD_RELEASED, CARD_STARTED, CARD_STOPPED, QUESTION_AGENT, QUESTION_OWNER, REVIEW_RECORDED } from '../../core/events.js'
+import { cardHoldOf } from '../../core/card-hold.js'
+import { CARD_STARTED, CARD_STOPPED, QUESTION_AGENT, QUESTION_OWNER, REVIEW_RECORDED } from '../../core/events.js'
 import { latestTurnOf } from '../../core/queue.js'
+import { visibleToCard } from '../../policy/decisions/decisions.js'
 import { decisionsInForceAt } from '../../policy/shards.js'
 
 export const LATEST_EVENTS = 20
@@ -75,7 +77,9 @@ function decisionsBoundTo(db: DatabaseSync, cardId: number, now: Date): InForceD
 }
 
 export function boundDecisionLines(db: DatabaseSync, cardId: number, now: Date): string[] {
-  return decisionsBoundTo(db, cardId, now).map(decision => `D-${decision.decisionId}: ${decision.text}`)
+  return decisionsInForceAt(db, now)
+    .filter(decision => visibleToCard(decision, cardId))
+    .map(decision => `D-${decision.decisionId}: ${decision.text}`)
 }
 
 const QUESTION_REASONS: readonly unknown[] = [QUESTION_AGENT, QUESTION_OWNER]
@@ -177,14 +181,12 @@ export function cardSessionOf(db: DatabaseSync, cardId: number): CardSession | n
   return startedOf(db, cardId) ?? startLineOf(db, cardId)
 }
 
-const LATEST_HOLD = `SELECT type, json_extract(payload, '$.reason') AS reason, json_extract(payload, '$.takeover') AS takeover FROM events WHERE card_id = ? AND legacy = 0 AND type IN ('${CARD_HELD}', '${CARD_RELEASED}') ORDER BY id DESC LIMIT 1`
-
 const DRAFT_PR = `SELECT pr FROM prs WHERE card_id = ? AND state = 'open' AND draft = 1 ORDER BY pr DESC LIMIT 1`
 
 export function ownerHoldOf(db: DatabaseSync, cardId: number): string | null {
-  const hold = db.prepare(LATEST_HOLD).get(cardId) as { type: string, reason: unknown, takeover: unknown } | undefined
-  if (hold?.type === CARD_HELD)
-    return `card #${cardId} is ${hold.takeover === null ? 'held for the owner' : 'taken over by the window'}: ${text(hold.reason) ?? 'the hold names no reason'}`
+  const hold = cardHoldOf(db, cardId)
+  if (hold !== null)
+    return hold
   const draft = db.prepare(DRAFT_PR).get(cardId) as { pr: number } | undefined
   return draft === undefined ? null : `card #${cardId} has the draft pull request #${Number(draft.pr)}, which is the owner's until it is marked ready`
 }

@@ -115,8 +115,13 @@ describe('init carries the settings layer the factory runs on', () => {
     expect(settingsOf(dir).permissions?.allow).toEqual(expect.arrayContaining(['WebFetch', 'WebSearch', 'mcp__context7']))
   })
 
+  it('the template commits no sandbox entry, so no home path reaches a clone', () => {
+    const template = JSON.parse(readFileSync(path.join(REPO_ROOT, 'templates/ai/claude/_claude/settings.json'), 'utf8')) as Settings
+    expect(template.sandbox).toBeUndefined()
+  })
+
   it('merging hooks into an existing settings.json keeps its sandbox key', () => {
-    const template = readFileSync(path.join(REPO_ROOT, 'templates/ai/claude/_claude/settings.json'), 'utf8')
+    const template = JSON.stringify({ hooks: {}, sandbox: { excludedCommands: [BROWSER_LAB_EXCLUSION] } })
     const without = JSON.parse(mergeHookSettings(JSON.stringify({ model: 'x' }), template)!) as Settings
     expect(without.sandbox).toEqual({ excludedCommands: [BROWSER_LAB_EXCLUSION] })
     const own = { sandbox: { enabled: true, excludedCommands: ['docker *'] } }
@@ -189,6 +194,11 @@ describe('init carries the settings layer the factory runs on', () => {
 describe('the budget layer ships as the factory runs it', () => {
   it('keeps the measuring hook byte-identical to this repository\'s own', () => {
     expect(readFileSync(path.join(REPO_ROOT, 'templates/ai/claude', EDDIES_MEASURE)).equals(readFileSync(path.join(REPO_ROOT, '.claude/hooks/eddies-measure.mjs')))).toBe(true)
+  })
+
+  it('keeps the environment-print module and its parser byte-identical to this repository\'s own', () => {
+    for (const module of ['environment-print.mjs', 'shell-parser.mjs'])
+      expect(readFileSync(path.join(REPO_ROOT, 'templates/ai/claude/scripts/construct', module)).equals(readFileSync(path.join(REPO_ROOT, '.claude/hooks', module))), module).toBe(true)
   })
 
   it('keeps eddies.json identical to this repository\'s own limits', () => {

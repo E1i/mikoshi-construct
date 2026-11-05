@@ -29,10 +29,10 @@ import { answerCandidates } from '../../core/queue.js'
 import { cardContract, NOT_MINE, notMine } from '../../intake/card-contract.js'
 import { busCardBodies } from '../../intake/parking-reads.js'
 import { OWNER_MERGES } from '../../policy/policy.js'
+import { clientAdapter } from '../../ports/client/index.js'
 import { realIsolationReader } from '../../ports/isolation.js'
 import { TICK_MS } from '../../ports/netwatch.js'
 import { promptsDirOf } from '../../ports/prompt-store.js'
-import { clientIsolationCommand } from '../../ports/session.js'
 import { CARD_SESSION_SANDBOX } from '../../ports/shift-settings.js'
 import { MAIN_BRANCH } from '../../ports/snapshot.js'
 import { launchDirOf, restoreReport, savedReportOf, treeHoldsACommit, treePrOfThisBuild, treePrPublisher } from '../../ports/tree-publish.js'
@@ -221,7 +221,7 @@ async function main(): Promise<number> {
     cardText: busCardBodies(busPath),
     session: randomUUID(),
     pause: sleep,
-    isolation: realIsolationReader(process.env, cwd, clientIsolationCommand(), { sandbox: CARD_SESSION_SANDBOX }),
+    isolation: realIsolationReader(process.env, cwd, clientAdapter().processes.isolationCommand(), { sandbox: CARD_SESSION_SANDBOX }),
     publishing: treePublishing(treePrOfThisBuild(cwd), launchDirOf(os.homedir(), busPath), process.env),
   })
 }

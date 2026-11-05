@@ -2,10 +2,12 @@ import type { PushPolicy } from '../../../src/commands/attach/record.js'
 import type { ShiftGate } from '../../../src/manifest.js'
 import type { BusEvent } from '../../core/db.js'
 import type { Lease } from '../../core/lease.js'
-import type { Invocation, SessionTool } from '../../ports/client/contract.js'
+import type { Denial, Invocation, ProcessCwds, SessionTool, Usage } from '../../ports/client/contract.js'
+import type { GhPort } from '../../ports/gh.js'
 import type { AnswerInput } from '../../ports/prompt-store.js'
 import type { FreshBaseGap } from '../launch/tree-pr.js'
 import type { AnswerSource, CardSession } from './answer-source.js'
+import type { FailedJobLog } from './ci-log.js'
 import { execFileSync, spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, realpathSync, rmSync, writeSync } from 'node:fs'
@@ -20,16 +22,17 @@ import { assertHeld, StaleLease } from '../../core/lease.js'
 import { treeReportPath } from '../../core/places.js'
 import { pushPolicyOf } from '../../core/push-policy.js'
 import { busCardBodies } from '../../intake/parking-reads.js'
+import { hasClientTranscript } from '../../ports/client/claude/adapter.js'
 import { PROCESS_GH_PORT } from '../../ports/gh.js'
-import { readResultFields } from '../../ports/result.js'
-import { CARD_VARIABLE, clientInvocation, sessionEnv } from '../../ports/session.js'
+import { CARD_VARIABLE, clientInvocation, sessionEnv, streamReading } from '../../ports/session.js'
 import { MAIN_BRANCH } from '../../ports/snapshot.js'
+import { claudeProcessCwds, listedCwds } from '../../ports/worktree.js'
 import { busSessionPulse } from '../../supervisor/heartbeat.js'
 import { projectRoot, realExitReadings, sessionGauges, UNKNOWN } from '../../window/eddies-measure.js'
 import { answerFollowed, commitAndPush, followedLine, freshBaseProblem, freshBaseTask, worktreeCoverage } from '../launch/tree-pr.js'
+import { ciLogForPrompt, failedJobLinkIn } from './ci-log.js'
 
 export const PREFIX = '[bus:answer] '
-const CLAUDE_PROJECTS = path.join(os.homedir(), '.claude', 'projects')
 export const ANSWER_BEAT_MS = 60_000
 export const DIFF_PROMPT_LIMIT = 100_000
 
@@ -55,12 +58,10 @@ export interface Answered {
   steps?: StepSeconds
 }
 
-const USAGE_TOKEN_FIELDS = ['input_tokens', 'output_tokens', 'cache_creation_input_tokens', 'cache_read_input_tokens']
-
-export function tokensOf(usage: unknown): number | null {
-  if (usage === null || typeof usage !== 'object')
+export function tokensOf(usage: Usage | null): number | null {
+  if (usage === null)
     return null
-  const counts = USAGE_TOKEN_FIELDS.map(field => (usage as Record<string, unknown>)[field]).filter(value => typeof value === 'number')
+  const counts = [usage.input, usage.output, usage.cacheWrite, usage.cached].filter(value => typeof value === 'number')
   return counts.length === 0 ? null : counts.reduce((sum, count) => sum + count, 0)
 }
 
@@ -92,7 +93,7 @@ export interface AnswererTools {
   context?: (session: string) => number | null
   contextWarn?: () => number | null
   diff?: (card: CardSession) => string | null
-  ciLog?: (card: CardSession, head: string) => string | null
+  ciLog?: (card: CardSession, head: string) => FailedJobLog | null
   held?: (lease: Lease) => boolean
   pending?: (card: CardSession) => string[]
   coverage?: (card: CardSession) => ReturnType<typeof worktreeCoverage>
@@ -183,7 +184,7 @@ export function mergePrompt(lease: Lease, card: CardSession, gap: FreshBaseGap, 
   return [
     `[answer:${lease.taskKey}]`,
     `The bus merges a fresh origin/${MAIN_BRANCH} into ${card.branch} before it pushes, and that merge ${freshBaseProblem(gap)}; nothing was pushed.`,
-    `Do it yourself: ${freshBaseTask(card.worktree, gap)}.`,
+    `Your part: ${freshBaseTask(card.worktree, gap)}.`,
     `Then repeat the window gate of D-194 in ${card.worktree} and end the session; the bus merges again and pushes. If the merge cannot be settled without the owner, write the question for the owner, one line, to ${ownerQuestion}; the bus then pushes nothing.`,
   ].join('\n')
 }
@@ -195,27 +196,22 @@ export function unmergedQuestion(card: CardSession, gap: FreshBaseGap): string {
 export const MERGE_STEP = '.merge'
 
 function measuredOf(stdoutPaths: readonly string[]): { tokens?: number | null } {
-  const results = stdoutPaths.map(readResultFields).filter(result => result.resultLine === 'present')
+  const results = stdoutPaths.map(streamReading).filter(result => result.end !== 'missing')
   if (results.length === 0)
     return {}
   const counts = results.map(result => tokensOf(result.usage)).filter((count): count is number => count !== null)
   return { tokens: counts.length === 0 ? null : counts.reduce((sum, count) => sum + count, 0) }
 }
 
-export function projectDirOf(worktree: string): string {
-  return worktree.replace(/[^a-z0-9]/gi, '-')
-}
-
-function ciLogLines(ciLog: string | null | undefined): string[] {
+function ciLogLines(ciLog: FailedJobLog | null | undefined): string[] {
   if (ciLog === undefined)
     return ['Read their logs (gh pr checks, gh run view --log-failed) and fix every one.']
   if (ciLog === null)
     return ['The bus could not read the failed-job log; fix every failed check from what the tree shows.']
-  const cut = ciLog.length > DIFF_PROMPT_LIMIT ? `, cut at ${DIFF_PROMPT_LIMIT} characters` : ''
-  return [`The failed-job log the bus read${cut}:`, ciLog.slice(0, DIFF_PROMPT_LIMIT), 'Fix every failure it shows.']
+  return ['The failures and the tail of the failed-job log the bus read:', ciLogForPrompt(ciLog), 'Fix every failure it shows.']
 }
 
-function redCiLines(failedChecks: string[], ciLog: string | null | undefined): string[] {
+function redCiLines(failedChecks: string[], ciLog: FailedJobLog | null | undefined): string[] {
   return [
     failedChecks.length === 0 ? 'CI is red on this head and the bus recorded no failed check by name.' : `CI is red on this head. The failed checks: ${failedChecks.join(', ')}.`,
     ...ciLogLines(ciLog),
@@ -228,7 +224,7 @@ function failedChecksOf(source: AnswerSource): string[] | null {
   return source.kind === 'changes' ? source.failedChecks ?? null : null
 }
 
-function sourceLines(source: AnswerSource, ciLog?: string | null): string[] {
+function sourceLines(source: AnswerSource, ciLog?: FailedJobLog | null): string[] {
   if (source.kind === 'changes') {
     return [
       source.findings.length === 0 ? 'The review asked for changes and recorded no findings on the bus; read the review on the pull request.' : 'The review asked for changes. Its findings:',
@@ -253,37 +249,13 @@ function ownerQuestionIn(file: string): string | null {
   return reason === '' ? null : reason
 }
 
-function resultEntryOf(stdoutPath: string): Record<string, unknown> | null {
-  if (!existsSync(stdoutPath))
-    return null
-  let found: Record<string, unknown> | null = null
-  for (const line of readFileSync(stdoutPath, 'utf8').split('\n')) {
-    try {
-      const parsed: unknown = JSON.parse(line)
-      if (parsed !== null && typeof parsed === 'object' && (parsed as Record<string, unknown>).type === 'result')
-        found = parsed as Record<string, unknown>
-    }
-    catch {}
-  }
-  return found
-}
-
-function inputAimsAt(input: Record<string, unknown>, file: string): boolean {
-  return input.file_path === file || (typeof input.command === 'string' && input.command.includes(file))
-}
-
-function nonEmpty(text: unknown): string | null {
-  return typeof text === 'string' && text.trim() !== '' ? text.trim() : null
+function denialAimsAt(denial: Denial, file: string): boolean {
+  return denial.path === file || denial.command?.includes(file) === true
 }
 
 export function refusedOwnerQuestionIn(stdoutPath: string, file: string): string | null {
-  const result = resultEntryOf(stdoutPath)
-  const denials = Array.isArray(result?.permission_denials) ? result.permission_denials as unknown[] : []
-  const inputs = denials.map(denial => (denial !== null && typeof denial === 'object' ? (denial as Record<string, unknown>).tool_input : null)).filter((input): input is Record<string, unknown> => input !== null && typeof input === 'object')
-  const refused = inputs.find(input => inputAimsAt(input, file))
-  if (refused === undefined)
-    return null
-  return nonEmpty(refused.content) ?? nonEmpty(result?.result)
+  const refused = streamReading(stdoutPath).denials.find(denial => denialAimsAt(denial, file))
+  return refused === undefined || refused.text === '' ? null : refused.text
 }
 
 function cardLines(cardId: number, cardText: string | null): string[] {
@@ -310,7 +282,7 @@ function gateLine(gate: ShiftGate): string {
   return gate.prepush.length === 0 ? `the card's witnesses` : `the card's witnesses and the pre-push checks this repository declares, ${gate.prepush.join(', ')}`
 }
 
-export function answerPrompt(request: AnswerRequest, ownerQuestion: string, cardText: string | null, gate: ShiftGate, diff?: string | null, ciLog?: string | null): string {
+export function answerPrompt(request: AnswerRequest, ownerQuestion: string, cardText: string | null, gate: ShiftGate, diff?: string | null, ciLog?: FailedJobLog | null): string {
   const { lease, source, widened, card } = request
   return [
     `[answer:${lease.taskKey}]`,
@@ -363,16 +335,19 @@ function git(cwd: string, args: string[]): string {
   return execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 64 * 1024 * 1024 })
 }
 
-function failedJobLog(card: CardSession, head: string): string | null {
-  const runs = PROCESS_GH_PORT.call(['run', 'list', '--commit', head, '--status', 'failure', '--json', 'databaseId', '--limit', '1'], { cwd: card.worktree })
+export function failedJobLog(card: CardSession, head: string, gh: GhPort = PROCESS_GH_PORT): FailedJobLog | null {
+  const runs = gh.call(['run', 'list', '--commit', head, '--status', 'failure', '--json', 'databaseId', '--limit', '1'], { cwd: card.worktree })
   if (runs.kind !== 'ran')
     return null
   try {
     const [run] = JSON.parse(runs.stdout) as { databaseId: number }[]
     if (run === undefined)
       return null
-    const log = PROCESS_GH_PORT.call(['run', 'view', String(run.databaseId), '--log-failed'], { cwd: card.worktree })
-    return log.kind === 'ran' ? log.stdout : null
+    const log = gh.call(['run', 'view', String(run.databaseId), '--log-failed'], { cwd: card.worktree })
+    if (log.kind !== 'ran')
+      return null
+    const jobs = gh.call(['run', 'view', String(run.databaseId), '--json', 'jobs'], { cwd: card.worktree })
+    return { log: log.stdout, jobLink: jobs.kind === 'ran' ? failedJobLinkIn(jobs.stdout) : null }
   }
   catch {
     return null
@@ -438,29 +413,12 @@ export function pendingPathsOf(card: CardSession): string[] {
   return [...new Set([...committedOnTheBranch(card), ...uncommitted(card)])]
 }
 
-const LSOF_PATH_FIELD = 'n'
-const LSOF_FOUND_NONE = 1
-
-export type ProcessCwds = { kind: 'listed', listing: string } | { kind: 'unreadable', why: string }
-
-export function claudeCwds(): ProcessCwds {
-  try {
-    return { kind: 'listed', listing: execFileSync('lsof', ['-a', '-c', 'claude', '-d', 'cwd', '-F', LSOF_PATH_FIELD], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }) }
-  }
-  catch (error) {
-    const failed = error as { status?: unknown, stdout?: unknown }
-    if (failed.status === LSOF_FOUND_NONE)
-      return { kind: 'listed', listing: typeof failed.stdout === 'string' ? failed.stdout : '' }
-    return { kind: 'unreadable', why: error instanceof Error ? error.message.trim() : String(error) }
-  }
-}
-
-export function liveSessionIn(card: CardSession, cwds: () => ProcessCwds = claudeCwds): string | null {
+export function liveSessionIn(card: CardSession, cwds: () => ProcessCwds = claudeProcessCwds): string | null {
   const read = cwds()
   if (read.kind === 'unreadable')
     return `the sessions running in the tree ${card.worktree} cannot be read (${read.why}), so the card counts as held`
   const tree = existsSync(card.worktree) ? realpathSync(card.worktree) : card.worktree
-  const inside = read.listing.split('\n').filter(line => line.startsWith(LSOF_PATH_FIELD)).map(line => line.slice(LSOF_PATH_FIELD.length)).find(cwd => cwd === tree || cwd.startsWith(`${tree}${path.sep}`))
+  const inside = listedCwds(read.listing).find(cwd => cwd === tree || cwd.startsWith(`${tree}${path.sep}`))
   return inside === undefined ? null : `a live session runs in ${inside}, inside the tree ${card.worktree}`
 }
 
@@ -637,7 +595,7 @@ export function realAnswererTools(busPath: string = defaultBusPath()): AnswererT
     held: busLeaseHeld(busPath),
     pulse: busSessionPulse(busPath, () => new Date()),
     cardText: busCardBodies(busPath),
-    available: card => existsSync(path.join(CLAUDE_PROJECTS, projectDirOf(card.worktree), `${card.session}.jsonl`)),
+    available: card => hasClientTranscript(process.env, card.worktree, card.session),
     remoteHead,
     localHead,
     spawn: spawnClient,
@@ -650,7 +608,7 @@ export function realAnswererTools(busPath: string = defaultBusPath()): AnswererT
     context: session => sessionGauges(os.homedir(), projectRoot(process.env), session).context ?? null,
     contextWarn: contextWarnOfEddies,
     diff: diffAgainstBase,
-    ciLog: failedJobLog,
+    ciLog: (card, head) => failedJobLog(card, head),
   }
 }
 

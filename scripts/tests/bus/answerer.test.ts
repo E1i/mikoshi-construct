@@ -2,7 +2,7 @@ import type { AnswererTools, AnswerRequest, AnswerRun } from '../../nodes/answer
 import type { CardTreeTools } from '../../ports/card-tree.js'
 import type { MergeBench } from './merge-bench.js'
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import path from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
@@ -172,6 +172,46 @@ describe('the answer path publishes on a fresh base', () => {
 
     const fresh = git(upstream, ['rev-parse', 'main']).trim()
     expect({ onFreshBase: git(worktree, ['merge-base', fresh, 'origin/feat/card-1207']).trim() === fresh, merges: git(worktree, ['rev-list', '--merges', '--count', `${fresh}..origin/feat/card-1207`]).trim() }).toEqual({ onFreshBase: true, merges: '1' })
+  })
+
+  it('the answer path takes an owner path from main and leaves only the card file in the merge it hands over', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'bus-answerer-'))
+    roots.push(root)
+    const origin = path.join(root, 'origin.git')
+    const worktree = path.join(root, 'mc-1207')
+    const upstream = path.join(root, 'upstream')
+    execFileSync('git', ['init', '-q', '--bare', '-b', 'main', origin])
+    execFileSync('git', ['init', '-q', '-b', 'main', worktree])
+    committer(worktree)
+    writeFileSync(path.join(worktree, 'a.md'), 'base\n')
+    git(worktree, ['add', '-A'])
+    git(worktree, ['commit', '-q', '-m', 'base'])
+    git(worktree, ['remote', 'add', 'origin', origin])
+    git(worktree, ['push', '-q', 'origin', 'main'])
+    git(worktree, ['checkout', '-q', '-b', 'feat/card-1207'])
+    execFileSync('git', ['clone', '-q', origin, upstream])
+    committer(upstream)
+    mkdirSync(path.join(upstream, 'architecture'))
+    mkdirSync(path.join(upstream, '.claude'))
+    writeFileSync(path.join(upstream, 'architecture/owner-merges.md'), readFileSync('architecture/owner-merges.md', 'utf8'))
+    writeFileSync(path.join(upstream, '.claude/guard.mjs'), 'hook on main\n')
+    writeFileSync(path.join(upstream, 'a.md'), 'main moved\n')
+    git(upstream, ['add', '-A'])
+    git(upstream, ['commit', '-q', '-m', 'main moved'])
+    git(upstream, ['push', '-q', 'origin', 'main'])
+    writeFileSync(path.join(worktree, 'a.md'), 'the answer\n')
+
+    const publish = (): unknown => {
+      try {
+        realAnswererTools(path.join(root, 'bus.db')).publish({ session: CARD_SESSION, worktree, branch: 'feat/card-1207' }, 'answer for #1207')
+        return null
+      }
+      catch (error) {
+        return error instanceof FreshBaseConflict ? error.gap : error
+      }
+    }
+
+    expect({ gap: publish(), hook: readFileSync(path.join(worktree, '.claude/guard.mjs'), 'utf8'), mergeInProgress: existsSync(git(worktree, ['rev-parse', '--path-format=absolute', '--git-path', 'MERGE_HEAD']).trim()) }).toEqual({ gap: { kind: 'conflict', files: ['a.md'], failure: null }, hook: 'hook on main\n', mergeInProgress: true })
   })
 
   it('a conflict on the fresh base resumes the session to merge, then publishes; one it leaves is a question', async () => {

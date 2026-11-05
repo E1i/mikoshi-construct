@@ -3,6 +3,8 @@ import type { WitnessField } from '../../src/card/witness-fields.js'
 import type { BusCard, BusFacts, BusMatrix, BusService, CardsAtStage, CardStage, OwnerWait } from '../../src/commands/board/bus.js'
 import type { CardMark, PlanProgress, ReleaseStage } from '../../src/commands/board/goal.js'
 import type { FactoryState } from '../../src/commands/liveness.js'
+import type { CheckCatalog } from '../ci/card-runs.js'
+import type { LayerMap } from '../core/layer-map.js'
 import type { CardFields } from '../intake/card-contract.js'
 import type { WitnessRecordOnHead, WitnessTable } from '../intake/witness-fields-backfill.js'
 import type { InForceDecision } from '../policy/decisions.js'
@@ -22,15 +24,17 @@ import { backlogCards, isLive, laneColumns, matrixLines, pulseLines, slotsReadin
 import { factoryLiveness } from '../../src/commands/liveness.js'
 import { BANNER, LORE, PLAIN_LORE } from '../../src/ui/lore.js'
 import { currentVersion } from '../../src/version.js'
+import { cardRunsOf, catalogLayersByTest, catalogModuleLayers } from '../ci/card-runs.js'
 import { BUSY_TIMEOUT_MS, defaultBusPath } from '../core/db.js'
 import { defaultHandoffDir } from '../core/handoff-dir.js'
+import { readLayerMap } from '../core/layer-map.js'
 import { openDatabase } from '../core/sqlite.js'
 import { cardContract } from '../intake/card-contract.js'
 import { recordedWitnessFieldsBackfill, witnessTableOf } from '../intake/witness-fields-backfill.js'
 import { inForceDecisions } from '../policy/decisions.js'
 import { GREEN, RED } from '../policy/policy.js'
 import { ghApi } from '../ports/github.js'
-import { BOARD_FILE, cardGauges, FRESH_MS, windowGauges } from '../window/board.js'
+import { BOARD_FILE, FRESH_MS, windowGauges } from '../window/board.js'
 import { mikoHandoff } from '../window/loop.js'
 import { planMarkdown } from '../window/plan-export.js'
 import { boardWarnings, MainUpToDate, openPrCountOf, openPrLimitOf, plannedStallLines, savingOff, stallLines } from './board-warnings.js'
@@ -78,6 +82,19 @@ export interface CardDetail {
   chain: CardChain | null
   pr: number | null
   witnessTable: WitnessTable | null
+  runs: RunsReading | null
+}
+
+export interface RunsGroup {
+  name: string
+  files: string[]
+  derived: boolean
+}
+
+export interface RunsReading {
+  full: string | null
+  groups: RunsGroup[]
+  paths: string[]
 }
 
 export interface Handoff {
@@ -100,7 +117,6 @@ export interface BoardPage {
   liveness: FactoryState
   modelVersion: number | null
   facts: BusFacts
-  gauges: Map<string, Gauges>
   windowGauges: Gauges | null
   limits: EddiesLimits
   details: Map<number, CardDetail>
@@ -115,7 +131,6 @@ const NO_LIMITS: EddiesLimits = { contextLimit: null, cardContextLine: null, ses
 const LORE_NAMES: Record<string, string> = { window: 'Мико', review: 'ICE', matrix: 'ICE', bus: 'Subnet' }
 const RUNNER = 'Runner'
 const WINDOW_ROLE = 'window'
-const SESSION_STEP = / · pulse \d+ min ago$/
 const CARD_PREFIX = /^card:\s*/
 const FIELD_COUNT = 5
 const NONE = '—'
@@ -164,6 +179,8 @@ const NOT_REACHED_ON_HEAD = 'not reached'
 const NEGATED_RUN = /^!\s+/
 const WITNESS_ID_COLUMN = 'id'
 const WITNESS_COLUMNS = ['run', 'test', 'head/base', 'proves']
+const LAYER_ENTRY = 'layer:'
+const TOUCHED_TESTS = 'touched tests'
 
 function positive(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null
@@ -222,18 +239,41 @@ function cardPrs(db: DatabaseSync): Map<number, number> {
   return new Map(rows.map(row => [Number(row.card_id), Number(row.pr)]))
 }
 
+function writtenEntries(named: readonly string[], masks: readonly string[]): string[] {
+  return [...named, ...masks.map(mask => `${LAYER_ENTRY}${mask}`)]
+}
+
+function groupsOf(layers: readonly string[], tests: readonly string[], masks: readonly string[], catalog: CheckCatalog): RunsGroup[] {
+  return layers.map(layer => ({ name: layer, files: tests.filter(test => catalog.testLayers.get(test)?.includes(layer)), derived: !masks.includes(layer) }))
+}
+
+export function runsReadingOf(touches: readonly string[], named: readonly string[], masks: readonly string[], catalog: CheckCatalog, map: LayerMap): RunsReading {
+  const reading = cardRunsOf({ touches, runs: named, masks }, catalog, map)
+  if ('full' in reading)
+    return { full: reading.why, groups: [], paths: writtenEntries(named, masks) }
+  const groups = groupsOf(reading.layers, reading.tests, masks, catalog)
+  const shown = new Set([...groups.flatMap(group => group.files), ...reading.paths])
+  const touched = reading.tests.filter(test => !shown.has(test))
+  return { full: null, groups: touched.length === 0 ? groups : [...groups, { name: TOUCHED_TESTS, files: touched, derived: true }], paths: reading.paths }
+}
+
 function cardDetails(db: DatabaseSync, facts: BusFacts): Map<number, CardDetail> {
   const prs = cardPrs(db)
   const backfill = recordedWitnessFieldsBackfill(db)
+  const catalog: CheckCatalog = { testLayers: catalogLayersByTest(db), moduleLayers: catalogModuleLayers(db) }
+  const map = readLayerMap()
   return new Map(facts.cards.map((card) => {
     const contract = cardContract(db, card.id)
     const pr = prs.get(card.id) ?? null
-    return [card.id, { contract, chain: cardChain(db, card.id), pr, witnessTable: witnessTableOf(db, contract, pr, backfill) }]
+    const witnessTable = witnessTableOf(db, contract, pr, backfill)
+    const named = witnessTable?.runs ?? contract?.runs ?? []
+    const runs = contract === null
+      ? null
+      : SETTLED_STAGES.includes(card.stage)
+        ? { full: null, groups: [], paths: writtenEntries(named, contract.masks) }
+        : runsReadingOf(contract.touches, named, contract.masks, catalog, map)
+    return [card.id, { contract, chain: cardChain(db, card.id), pr, witnessTable, runs }]
   }))
-}
-
-function projectedGauges(db: DatabaseSync): Map<string, Gauges> {
-  return new Map(cardGauges(db).map(row => [`#${row.card}`, { context: positive(row.context), spent: positive(row.spent), model: row.model }]))
 }
 
 function projectedWindowGauges(db: DatabaseSync): Gauges | null {
@@ -274,12 +314,12 @@ function contextBar(service: BusService, gauges: Gauges, limits: EddiesLimits): 
   return eddiesBar('ctx', gauges.context, denominator, line.contextLimit, line.warnRatio)
 }
 
-type GaugeSources = Pick<BoardPage, 'gauges' | 'windowGauges'>
+type GaugeSources = Pick<BoardPage, 'windowGauges'>
 
 function gaugesOf(service: BusService, sources: GaugeSources): Gauges | null | undefined {
   if (service.role === WINDOW_ROLE)
     return sources.windowGauges
-  return SESSION_STEP.test(service.step) ? sources.gauges.get(service.task) : undefined
+  return service.gauges
 }
 
 function sessionContexts(services: readonly BusService[], sources: GaugeSources, liveness: FactoryState): SessionContext[] {
@@ -287,8 +327,10 @@ function sessionContexts(services: readonly BusService[], sources: GaugeSources,
   for (const service of services) {
     const context = gaugesOf(service, sources)?.context
     const windowGone = service.role === WINDOW_ROLE && liveness !== FACTORY_LIVE
-    if (context != null && !windowGone)
-      contexts.set(service.role === WINDOW_ROLE ? WINDOW_ROLE : service.task, context)
+    if (context != null && !windowGone) {
+      const who = service.role === WINDOW_ROLE ? WINDOW_ROLE : service.task
+      contexts.set(who, Math.max(contexts.get(who) ?? 0, context))
+    }
   }
   return [...contexts].map(([who, context]) => ({ who, context }))
 }
@@ -647,16 +689,30 @@ function witnessRow(field: WitnessField, record: WitnessRecordOnHead | null, pag
 }
 
 const GLOB_SUFFIX = '/**'
+const DERIVED_READING = 'derived from touches'
 
-function runsHtml(runs: readonly string[]): string {
-  const entries = runs.length === 0 ? NONE : runs.map(entry => `<span class="tag"${entry.endsWith(GLOB_SUFFIX) ? ' data-glob' : ''}>${escaped(entry)}</span>`).join(' ')
-  return `<p>runs: ${entries}</p>`
+function runsTags(entries: readonly string[]): string {
+  return entries.map(entry => `<span class="tag"${entry.endsWith(GLOB_SUFFIX) ? ' data-glob' : ''}>${escaped(entry)}</span>`).join(' ')
+}
+
+function runsGroupHtml(group: RunsGroup): string {
+  const name = group.name === TOUCHED_TESTS ? TOUCHED_TESTS : `layer ${group.name}`
+  return `<div class="runs-group" data-group="${escaped(group.name)}"${group.derived ? ' data-derived' : ''}><p class="runs-name">${escaped(name)}${group.derived ? ` · ${DERIVED_READING}` : ''}</p><p>${runsTags(group.files)}</p></div>`
+}
+
+function runsHtml(reading: RunsReading | null, marksNone: boolean): string {
+  if (reading === null)
+    return ''
+  const full = reading.full === null ? '' : `<p class="runs-full">full run: ${escaped(reading.full)}</p>`
+  const none = marksNone && reading.groups.length === 0 ? `<p>runs: ${NONE}</p>` : ''
+  const paths = reading.paths.length === 0 ? none : `<p>runs: ${runsTags(reading.paths)}</p>`
+  return `${full}${reading.groups.map(runsGroupHtml).join('')}${paths}`
 }
 
 function witnessTableHtml(table: WitnessTable, page: BoardPage): string {
   const head = WITNESS_COLUMNS.map(column => `<th scope="col">${column}</th>`).join('')
   const rows = table.witnesses.map(field => witnessRow(field, table.record, page)).join('')
-  return `<h3>Witnesses</h3><div class="mx-wrap"><table class="mx" data-witnesses><thead><tr><th scope="col">${WITNESS_ID_COLUMN}</th>${head}</tr></thead><tbody>${rows}</tbody></table></div>${runsHtml(table.runs)}`
+  return `<h3>Witnesses</h3><div class="mx-wrap"><table class="mx" data-witnesses><thead><tr><th scope="col">${WITNESS_ID_COLUMN}</th>${head}</tr></thead><tbody>${rows}</tbody></table></div>`
 }
 
 function withoutRunsLine(prose: string): string {
@@ -668,8 +724,7 @@ function cardProse(detail: CardDetail, page: BoardPage): string {
   if (contract === null)
     return note('The bus holds no admitted card text for this card.')
   const table = detail.witnessTable
-  const runs = contract.runs.length === 0 ? '' : runsHtml(contract.runs)
-  const witnesses = table === null ? `${listed('Witnesses', contract.witnesses, page)}${runs}` : witnessTableHtml(table, page)
+  const witnesses = `${table === null ? listed('Witnesses', contract.witnesses, page) : witnessTableHtml(table, page)}${runsHtml(detail.runs, table !== null)}`
   return `<div class="prose">${paragraphs(withoutRunsLine(contract.prose), page)}${witnesses}${listed('Unclear', contract.unclear, page)}</div>`
 }
 
@@ -1271,9 +1326,11 @@ dialog.drill {
   background: var(--panel);
   color: var(--text);
   clip-path: polygon(0 0, calc(100% - var(--cut)) 0, 100% var(--cut), 100% 100%, var(--cut) 100%, 0 calc(100% - var(--cut)));
+  overflow: hidden;
+  &[open] { display: flex; flex-direction: column; }
   &::backdrop { background: oklch(from var(--void) l c h / 0.7); backdrop-filter: blur(2px); }
 }
-.drill-wrap { display: flex; flex-direction: column; max-block-size: calc(100dvh - 3rem); }
+.drill-wrap { display: flex; flex-direction: column; min-block-size: 0; }
 .drill-head {
   display: flex;
   flex-wrap: wrap;
@@ -1321,6 +1378,16 @@ dialog.drill {
 
   &[data-glob] { --_bd: var(--wire); --_bd-style: dashed; }
 }
+.runs-group {
+  --_accent: var(--wire);
+
+  padding-inline-start: var(--space-s);
+  border-inline-start: 2px solid var(--_accent);
+
+  &[data-derived] { --_accent: var(--amber); }
+}
+.runs-name { color: var(--dim); }
+.runs-full { color: var(--amber); }
 .divider {
   display: flex;
   align-items: center;
@@ -1577,7 +1644,7 @@ function contextWarnings(contexts: readonly SessionContext[], limits: EddiesLimi
 function boardPageOf(db: DatabaseSync, busPath: string, now: Date, handoffFile: string, tickMs: number | null, main: MainUpToDate, eddiesFile: string = EDDIES_FILE): BoardPage {
   const facts = busFacts(db, now)
   const liveness = factoryLiveness(busPath, now.getTime()).state
-  const sources: GaugeSources = { gauges: projectedGauges(db), windowGauges: projectedWindowGauges(db) }
+  const sources: GaugeSources = { windowGauges: projectedWindowGauges(db) }
   const limits = readEddiesLimits(eddiesFile)
   return {
     version: currentVersion(),

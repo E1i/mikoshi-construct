@@ -3,7 +3,7 @@ import type { AddressInfo } from 'node:net'
 import { spawn } from 'node:child_process'
 import { cpSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { pathToFileURL } from 'node:url'
@@ -183,7 +183,7 @@ describe('a Chromium launch that fails', () => {
     expect(message).toContain('inside the sandbox')
     expect(message).toContain('SANDBOX_RUNTIME')
     expect(message).toContain('bare command')
-    expect(message).toContain('node scripts/construct/browser-lab.mjs')
+    expect(message).toContain(`node ${path.join(homedir(), '.construct/browser-lab/bin/browser-lab.mjs')}`)
     expect(message).not.toContain('ProcessSingleton')
   })
 

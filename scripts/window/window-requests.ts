@@ -1,4 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { AdmitResult } from '../../src/commands/intake/admit.js'
+import type { AmendFlags } from '../../src/commands/intake/amend.js'
+import type { CardAdmissionsPort, CardEventPort } from '../../src/commands/intake/index.js'
 import type { BusEvent } from '../core/db.js'
 import type { Queue } from '../core/identifiers.js'
 import type { StoredEvent } from '../core/stored.js'
@@ -13,16 +16,21 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import { listFlagOf, runAmend } from '../../src/commands/intake/amend.js'
+import { correctionText } from '../../src/commands/intake/check.js'
+import { parseTaken } from '../../src/commands/intake/numbers.js'
 import { CLOSED_CARD, DROPPED_CARD, MERGED_CARD } from '../core/card-automaton.js'
-import { cardBodyText, FACTORY_MODES, isFactoryMode } from '../core/card-bodies.js'
+import { appendCardEvent, bodyNotFoldedYet, CARD_BODIES, cardBodyText, FACTORY_MODES, isFactoryMode, laid } from '../core/card-bodies.js'
 import { appendEvent, CLOSED_WAIT, closeOwnerWait, defaultBusPath, inTransaction, isOwnerWaitNeed, OPEN_WAIT, openBus, openOwnerWait, OWNER_WAIT_NEEDS, OWNER_WAITS } from '../core/db.js'
-import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_DROPPED, CARD_HELD, CARD_PLANNED, CARD_RELEASED, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, CARD_TAKEOVER, CARD_UNPLANNED, FACTORY_MODE, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PLAN_BACKFILLED, PLAN_CLOSED, PLAN_OPENED, POLICY_DENIED, PR_OBSERVED, REQUEST_DONE, REQUEST_REFUSED, SHARD_DECIDED, TASK_FAILED, TASK_REQUEUED, WINDOW_REQUEST, WITNESS_RECORDED } from '../core/events.js'
+import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_DROPPED, CARD_HELD, CARD_PLANNED, CARD_RELEASED, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, CARD_TAKEOVER, CARD_UNPLANNED, FACTORY_MODE, NUMBERS_FOREIGN, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PLAN_BACKFILLED, PLAN_CLOSED, PLAN_OPENED, POLICY_DENIED, PR_OBSERVED, REQUEST_DONE, REQUEST_REFUSED, SHARD_DECIDED, TASK_FAILED, TASK_REQUEUED, WINDOW_REQUEST, WITNESS_RECORDED } from '../core/events.js'
 import { cardIdOf, generationOfKey, isFullSha, prOf } from '../core/identifiers.js'
 import { ANSWER_SOURCE, OPEN_OWNER_STOP_OF_CARD, OWNER } from '../core/inbox.js'
 import { legacyHistory } from '../core/legacy-history.js'
 import { changesRoundsOf, closedByRounds, FAILURES_TO_STOP, latestTurnOf, LEASED, QUEUE_ACTOR, QUEUED, REVIEW_ROUNDS, TASK_FOLDS, WITHDRAWN } from '../core/queue.js'
 import { storedByKey } from '../core/stored.js'
+import { INTAKE_ACTOR_PREFIX } from '../intake/admissions.js'
 import { openPrOfCard, ownerHoldOf } from '../nodes/answer/answer-source.js'
+import { layLanes, repositoryLanes } from '../nodes/launch/lane-assign.js'
 import { cleanUpdatesOf } from '../nodes/update/update-done.js'
 import { consumeOwnerWord, OWNER_WORD_NOT_FOUND, ownerChannelOf, USED_WORD } from '../owner/channel.js'
 import { OWNER_SOURCE } from '../policy/decisions/decisions.js'
@@ -38,7 +46,15 @@ import { MAIN_REF, readReleaseVersion, VERSION_PR_REF } from '../release/changes
 
 export { SESSION_VARIABLE } from '../ports/client/claude/adapter.js'
 
-export const REQUEST_KINDS = ['tree.cut', 'allow-merge', 'close-pr', 'pr.body', 'requeue', 'mode', 'plan', 'owner.wait', 'owner.wait.close', 'decisions:add', 'hold', 'release', 'takeover', 'drop'] as const
+const AMEND_WITNESS_SEPARATOR = '\n'
+const HELD_WITHOUT_STATE = 'held'
+const CARD_STATES = `
+  SELECT card_id, state FROM cards WHERE state IS NOT NULL
+  UNION ALL
+  SELECT DISTINCT card_id, NULL FROM events WHERE card_id IS NOT NULL AND card_id NOT IN (SELECT card_id FROM cards WHERE state IS NOT NULL)
+`
+const LATEST_INTAKE_ADMISSION = `SELECT id, ts, payload FROM events WHERE legacy = 0 AND type = '${CARD_ADMITTED}' AND actor LIKE '${INTAKE_ACTOR_PREFIX}%' AND card_id = ? AND json_type(payload, '$.card') = 'text' AND json_extract(payload, '$.bodySha') IS NOT NULL ORDER BY id DESC LIMIT 1`
+export const REQUEST_KINDS = ['tree.cut', 'amend', 'allow-merge', 'close-pr', 'pr.body', 'requeue', 'mode', 'plan', 'owner.wait', 'owner.wait.close', 'decisions:add', 'hold', 'release', 'takeover', 'drop', 'numbers.foreign'] as const
 export const TAKEOVER_AFTER_MINUTES = 30
 export const PLAN_OPS: ReadonlyMap<string, string> = new Map([['open', PLAN_OPENED], ['add', CARD_PLANNED], ['remove', CARD_UNPLANNED], ['backfill', PLAN_BACKFILLED], ['close', PLAN_CLOSED]])
 const PLAN_FLAGS = ['op', 'plan', 'title', 'goal', 'file', 'gate', 'card'] as const
@@ -54,7 +70,7 @@ export const ALLOW_MERGE_RECORD = 'architecture/decisions/window-allow-merge.md'
 const RULE_ACCEPTED = /^Status: accepted\b/m
 export const REQUEST_RULE = 'window_request'
 export const PREFIX = '[bus:request] '
-export const USAGE = `usage: pnpm bus:request tree.cut --card <N> | allow-merge --pr <N> --head <sha> --dry-run <reviewer session> | close-pr --pr <N> --card <N> --reason <text> | pr.body --pr <N> | requeue --task <task_key> | mode --set ${FACTORY_MODES.join('|')} | plan --op ${[...PLAN_OPS.keys()].join('|')} [--plan <id>] [--title <text>] [--goal <text>] [--file <absolute plan file>] [--gate <word>] [--card <N>] | owner.wait --need ${OWNER_WAIT_NEEDS.join('|')} --text <what the owner decides> [--command <line>] [--card <N>] [--pr <N>] | owner.wait.close --id Q<N> --answer <answer> | decisions:add --from ${ANSWER_SOURCE} [--supersedes D-M]... [--card #N]... [--until <YYYY-MM-DDTHH:MMZ>] "[owner] <decision>" | hold --card <N> --reason <why the owner holds it> | release --card <N> | takeover --card <N> --reason <why the bus has no route for it> | drop --card <N> --reason <why a card with no body is dropped>`
+export const USAGE = `usage: pnpm bus:request tree.cut --card <N> | amend --card <N> [--touches +<path>,-<path>] [--add-witness <witness>]... [--remove-witness <witness>]... [--owner-words <the owner's words>] [--depends +#<N>,-#<N>] [--auto-confirm] | allow-merge --pr <N> --head <sha> --dry-run <reviewer session> | close-pr --pr <N> --card <N> --reason <text> | pr.body --pr <N> | requeue --task <task_key> | mode --set ${FACTORY_MODES.join('|')} | plan --op ${[...PLAN_OPS.keys()].join('|')} [--plan <id>] [--title <text>] [--goal <text>] [--file <absolute plan file>] [--gate <word>] [--card <N>] | owner.wait --need ${OWNER_WAIT_NEEDS.join('|')} --text <what the owner decides> [--command <line>] [--card <N>] [--pr <N>] | owner.wait.close --id Q<N> --answer <answer> | decisions:add --from ${ANSWER_SOURCE} [--supersedes D-M]... [--card #N]... [--until <YYYY-MM-DDTHH:MMZ>] "[owner] <decision>" | hold --card <N> --reason <why the owner holds it> | release --card <N> | takeover --card <N> --reason <why the bus has no route for it> | drop --card <N> --reason <why a card with no body is dropped> | numbers.foreign --ids <card ids of another factory's row, comma separated>`
 
 const BY_HAND = 'by-hand'
 const OWNER_ANSWER_USAGE = `an owner's word from the channel closes a wait with: pnpm bus:request owner.wait.close --id Q<N> --answer <the owner's word> --from ${ANSWER_SOURCE}`
@@ -77,6 +93,7 @@ export interface RequestTools {
   closePr: (request: CloseRequest) => CloseOutcome
   closeDropped: () => CloseOutcome[]
   appendCountLine?: (pr: number, cardId: number) => Executed
+  settleDecisions?: () => void
 }
 
 export type RequestOutcome
@@ -222,6 +239,7 @@ export class WindowRequests {
   run(): RequestOutcome[] {
     const answered = pendingRequests(this.db).map(request => this.answer(request))
     this.tools.closeDropped()
+    this.tools.settleDecisions?.()
     return answered
   }
 
@@ -249,6 +267,7 @@ export class WindowRequests {
   private executorOf(kind: RequestKind): (request: number, payload: Record<string, unknown>) => Executed {
     const executors: Record<RequestKind, (request: number, payload: Record<string, unknown>) => Executed> = {
       'tree.cut': (_, payload) => this.treeCut(payload),
+      'amend': (request, payload) => this.amend(request, payload),
       'allow-merge': (_, payload) => this.allowMerge(payload),
       'close-pr': (request, payload) => this.closePr(request, payload),
       'pr.body': (_, payload) => this.prBody(payload),
@@ -262,8 +281,41 @@ export class WindowRequests {
       'release': (request, payload) => this.holdFor(request, payload, CARD_RELEASED),
       'takeover': (request, payload) => this.takeover(request, payload),
       'drop': (request, payload) => this.drop(request, payload),
+      'numbers.foreign': (request, payload) => this.recordForeignNumbers(request, payload),
     }
     return executors[kind]
+  }
+
+  private amend(request: number, payload: Record<string, unknown>): Executed {
+    const cardId = cardIdOf(payload.card)
+    if (cardId === null)
+      return { done: false, why: 'amend names no card' }
+    if (bodyNotFoldedYet(this.db, cardId))
+      return { done: false, why: `#${cardId}: the bus has not folded its latest body yet; ask again on the next tick` }
+    const lane = (this.db.prepare(`SELECT lane FROM ${CARD_BODIES} WHERE card_id = ?`).get(cardId) as { lane: string | null } | undefined)?.lane ?? null
+    const result = runAmend({
+      card: `#${cardId}`,
+      flags: amendFlagsOf(payload),
+      dir: this.repository,
+      dryRun: false,
+      autoConfirm: payload.auto_confirm === true,
+      events: this.amendEvents(request),
+      admissions: latestAdmissionOf(this.db),
+      cardStates: () => new Map((this.db.prepare(CARD_STATES).all() as unknown as { card_id: number, state: string | null }[]).map(row => [String(row.card_id), row.state ?? HELD_WITHOUT_STATE])),
+    }, this.clock)
+    return amendAnswer(cardId, result, lane)
+  }
+
+  private amendEvents(request: number): CardEventPort {
+    const actor = `${INTAKE_ACTOR_PREFIX}request-${request}`
+    return event => inTransaction(this.db, () => {
+      if (event.type !== CARD_ADMITTED) {
+        appendCardEvent(this.db, actor, event)
+        return
+      }
+      appendCardEvent(this.db, actor, laid(this.db, event))
+      layLanes(this.db, repositoryLanes(this.repository)(), event.ts, actor, event.cardId)
+    })
   }
 
   private addDecision(payload: Record<string, unknown>): Executed {
@@ -582,6 +634,14 @@ export class WindowRequests {
     return { done: true, why: `${CARD_DROPPED} #${cardId}: ${reason}` }
   }
 
+  private recordForeignNumbers(request: number, payload: Record<string, unknown>): Executed {
+    const ids = foreignIdsOf(payload.ids)
+    if (ids === null)
+      return { done: false, why: 'numbers.foreign needs --ids, a list of positive card numbers' }
+    appendEvent(this.db, { ts: this.clock().toISOString(), type: NUMBERS_FOREIGN, actor: this.actorOf(request), cardId: null, pr: null, head: null, dedupeKey: `${NUMBERS_FOREIGN}:request-${request}`, payload: { request, ids }, legacy: false })
+    return { done: true, why: `${NUMBERS_FOREIGN} ${ids.map(id => `#${id}`).join(', ')}: the next card number no longer follows them` }
+  }
+
   private routeOf(cardId: number): string | null {
     const card = this.db.prepare('SELECT state FROM cards WHERE card_id = ?').get(cardId) as { state: string | null } | undefined
     if (ENDED_CARDS.has(card?.state))
@@ -693,6 +753,13 @@ function cardStatesOf(db: DatabaseSync): Map<string, string> {
   return new Map(rows.map(row => [String(row.card_id), row.state]))
 }
 
+function foreignIdsOf(value: unknown): number[] | null {
+  if (!Array.isArray(value) || value.length === 0)
+    return null
+  const ids = value.map(prOf)
+  return ids.includes(null) ? null : ids as number[]
+}
+
 function flagsOf(name: string, values: unknown): string[] {
   return (Array.isArray(values) ? values : values === undefined ? [] : [values]).flatMap(value => [name, String(value)])
 }
@@ -737,6 +804,51 @@ function flag(argv: readonly string[], name: string): string | undefined {
   return at === -1 ? undefined : argv[at + 1]
 }
 
+function latestAdmissionOf(db: DatabaseSync): CardAdmissionsPort {
+  return (cardId) => {
+    const row = db.prepare(LATEST_INTAKE_ADMISSION).get(cardId) as { id: number, ts: string | null, payload: string } | undefined
+    if (row === undefined)
+      return null
+    const { card, bodySha, confirmation, source } = JSON.parse(row.payload) as { card: string, bodySha: unknown, confirmation: unknown, source: unknown }
+    const body = cardBodyText(db, cardId)
+    const admission = { card, bodySha, ts: row.ts, confirmation, source, event: row.id }
+    return body === null ? admission : { ...admission, text: body }
+  }
+}
+
+function amendRequestOf(argv: readonly string[]): Record<string, unknown> | null {
+  const card = cardIdOf(flag(argv, '--card'))
+  if (card === null)
+    return null
+  const addWitnesses = listFlagOf(argv, 'add-witness', AMEND_WITNESS_SEPARATOR)?.split(AMEND_WITNESS_SEPARATOR)
+  const removeWitnesses = listFlagOf(argv, 'remove-witness', AMEND_WITNESS_SEPARATOR)?.split(AMEND_WITNESS_SEPARATOR)
+  const fields = { touches: listFlagOf(argv, 'touches'), depends: listFlagOf(argv, 'depends'), add_witness: addWitnesses, remove_witness: removeWitnesses, owner_words: flag(argv, '--owner-words') }
+  return { kind: 'amend', card, ...Object.fromEntries(Object.entries(fields).filter(([, value]) => value !== undefined)), ...(argv.includes('--auto-confirm') ? { auto_confirm: true } : {}) }
+}
+
+function textList(value: unknown): string[] | undefined {
+  return Array.isArray(value) ? value.filter(entry => typeof entry === 'string') : undefined
+}
+
+function amendFlagsOf(payload: Record<string, unknown>): AmendFlags {
+  const flags = { touches: text(payload.touches), depends: text(payload.depends), ownerWords: typeof payload.owner_words === 'string' ? payload.owner_words : null, addWitnesses: textList(payload.add_witness), removeWitnesses: textList(payload.remove_witness) }
+  return Object.fromEntries(Object.entries(flags).filter(([, value]) => value !== null && value !== undefined))
+}
+
+function amendAnswer(cardId: number, result: AdmitResult, lane: string | null): Executed {
+  if (result.status === 'admitted' || result.status === 'alreadyAdmitted')
+    return { done: true, why: `#${cardId} ${result.status === 'admitted' ? 'amended' : 'already holds this body'}, in ${lane ?? 'the lane the mode lays'}` }
+  if (result.status === 'refused')
+    return { done: false, why: result.why }
+  if (result.status === 'invalidTestPattern' || result.status === 'sharedCodeMask')
+    return { done: false, why: `#${cardId}: ${result.reasons.join('; ')}` }
+  if (result.status === 'ownerWait')
+    return { done: false, why: `#${cardId}: a weaker witness waits for the owner: ${result.actions.join('; ')}` }
+  if (result.status === 'awaiting')
+    return { done: false, why: `#${cardId}: the amend changes what intake corrects, and nothing was admitted: ${result.card.corrections.map(correctionText).join('; ')}; ask again with --auto-confirm once they are read` }
+  return { done: false, why: `#${cardId}: the amend ended ${result.status}; nothing was admitted` }
+}
+
 export function requestOf(argv: readonly string[]): Record<string, unknown> | null {
   const kind = argv[0]
   if (kind === undefined || kind.startsWith('--'))
@@ -745,6 +857,8 @@ export function requestOf(argv: readonly string[]): Record<string, unknown> | nu
     const card = cardIdOf(flag(argv, '--card'))
     return card === null ? null : { kind, card }
   }
+  if (kind === 'amend')
+    return amendRequestOf(argv)
   if (kind === 'allow-merge') {
     const pr = prOf(Number(flag(argv, '--pr')))
     const head = flag(argv, '--head')
@@ -794,6 +908,11 @@ export function requestOf(argv: readonly string[]): Record<string, unknown> | nu
     const card = cardIdOf(flag(argv, '--card'))
     const reason = flag(argv, '--reason')
     return card === null || reason === undefined ? null : { kind, card, reason }
+  }
+  if (kind === 'numbers.foreign') {
+    const listed = parseTaken(flag(argv, '--ids') ?? '')
+    const ids = listed.kind === 'taken' ? foreignIdsOf(listed.numbers) : null
+    return ids === null ? null : { kind, ids }
   }
   if (kind === 'plan') {
     const given = PLAN_FLAGS.flatMap(name => flag(argv, `--${name}`) === undefined ? [] : [[name, flag(argv, `--${name}`)] as const])

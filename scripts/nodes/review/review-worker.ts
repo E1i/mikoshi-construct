@@ -34,13 +34,14 @@ import { shadowReading } from '../../core/report.js'
 import { openDatabase } from '../../core/sqlite.js'
 import { busHeldCards } from '../../intake/intake.js'
 import { busCardBodies } from '../../intake/parking-reads.js'
+import { clientAdapter } from '../../ports/client/index.js'
 import { GhFailed, PROCESS_GH_PORT } from '../../ports/gh.js'
 import { ghStatusPublisher } from '../../ports/github-status.js'
 import { ghApi, ghApiPatch, ghApiPost } from '../../ports/github.js'
 import { realIsolationReader } from '../../ports/isolation.js'
 import { CHECK_MS, TICK_MS } from '../../ports/netwatch.js'
 import { promptsDirOf } from '../../ports/prompt-store.js'
-import { clientIsolationCommand, spawnReviewSession } from '../../ports/session.js'
+import { spawnReviewSession } from '../../ports/session.js'
 import { busSessionPulse, measureCardSession } from '../../supervisor/heartbeat.js'
 import { slotsOf, slotsVariable } from '../../supervisor/scheduler.js'
 import { stampLogOutput } from '../../supervisor/stamp.js'
@@ -432,6 +433,10 @@ export function busReviewPulse(busPath: string, clock: () => Date, say: (line: s
   return (lease, session) => say(reviewBeatLine(lease, session, pulse(lease, session)))
 }
 
+export function reviewIsolationCommand(): string[] {
+  return clientAdapter().processes.isolationCommand()
+}
+
 async function main(): Promise<number> {
   const cwd = process.cwd()
   const argv = process.argv.slice(2)
@@ -448,7 +453,7 @@ async function main(): Promise<number> {
     pause: sleep,
     clearLeftovers: () => trees.clearLeftovers(),
     notePr: ghNotePr(cwd, PROCESS_GH_PORT, () => pushPolicyAt(cwd)),
-    isolation: realIsolationReader(process.env, cwd, clientIsolationCommand()),
+    isolation: realIsolationReader(process.env, cwd, reviewIsolationCommand()),
     keepDryRun: keepDryRun(trees.dir),
     recut: db => new RoundLimitRecutter({ db, gitHub: ghApi(cwd), post: ghApiPost(cwd), patch: ghApiPatch(cwd), clock: () => new Date(), cardStates: () => busHeldCards(db), pushPolicy: () => pushPolicyAt(cwd) }),
   })

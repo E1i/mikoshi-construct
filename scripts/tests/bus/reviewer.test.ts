@@ -10,7 +10,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { fullReview } from '../../nodes/review/review-depth.js'
 import { claudeReviewer, commandMayWrite, GIT_TREE_TOOLS, HEAD_MOVED, missedBeatLine, mutatedPaths, PREPARED_TREE_LINE, REVIEW_CEILING_MS, ReviewFailed, reviewOf, reviewPrompt, reviewSession, ReviewTrees } from '../../nodes/review/reviewer.js'
 import { PREPARE_TREE, prepareEnv } from '../../ports/prepare-tree.js'
-import { clientInvocation, SessionCeilingReached } from '../../ports/session.js'
+import { headlessInvocation, SessionCeilingReached } from '../../ports/session.js'
 import { sha } from './github-fake.js'
 
 const lease = { taskKey: `review:1050:950:${sha('a')}`, queue: 'review' as const, cardId: 1050, pr: 950, head: sha('a'), leaseGen: 1, actor: 'worker:review:w' }
@@ -440,7 +440,7 @@ describe('reviewer', () => {
   })
 
   it('an added directory goes before the headless flags, so it cannot take the prompt as a second directory', () => {
-    const argvOf = (addDirs: string[]): string[] => clientInvocation({ kind: 'start', role: 'review', session: 's-1', cwd: '/tree', prompt: 'the prompt', addDirs, pick: { model: null }, policy: { profile: 'client-default', gateCommands: [], writePaths: [], mcpOff: true } }).args
+    const argvOf = (addDirs: string[]): string[] => headlessInvocation({ role: 'review', session: 's-1', prompt: 'the prompt', addDirs }).args
     const argv = argvOf(['/reviews'])
     expect(argv.slice(argv.indexOf('--add-dir'), argv.indexOf('--add-dir') + 3)).toEqual(['--add-dir', '/reviews', '--tools'])
     expect(argv.indexOf('--add-dir')).toBeLessThan(argv.indexOf('-p'))

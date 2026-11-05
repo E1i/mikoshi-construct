@@ -1,110 +1,12 @@
-import path from 'node:path'
+import type { CommandJournal as SessionJournal } from '../../ports/client/claude/adapter.js'
+import type { JournalChange } from '../../ports/client/contract.js'
+
+export { parseSessionJournal, transcriptFile } from '../../ports/client/claude/adapter.js'
+export type { SessionJournal }
 
 export interface TreeFile {
   content: string
   mtimeMs: number
-}
-
-type JournalChange = { kind: 'write', content: string, at: number } | { kind: 'edit', oldString: string, newString: string, replaceAll: boolean, at: number }
-
-interface FormatterRun {
-  startedAt: number
-  endedAt: number
-}
-
-export interface SessionJournal {
-  end: number
-  changes: ReadonlyMap<string, JournalChange[]>
-  formatterRuns: readonly FormatterRun[]
-}
-
-interface ToolUse {
-  id: string
-  name: string
-  input: Record<string, unknown>
-  at: number
-}
-
-interface ToolResult {
-  failed: boolean
-  at: number
-}
-
-const JOURNALED_TOOLS: ReadonlySet<string> = new Set(['Write', 'Edit', 'Bash'])
-
-const FORMATTER_COMMAND = /^pnpm(?: --dir (\S+))?(?: run)? lint:fix$/
-
-const PLAIN_SESSION = /^[\w-]+$/
-
-export function transcriptFile(claudeHome: string, worktree: string, session: string): string | null {
-  return PLAIN_SESSION.test(session) ? path.join(claudeHome, 'projects', worktree.replace(/[^a-z0-9]/gi, '-'), `${session}.jsonl`) : null
-}
-
-function blocksOf(entry: Record<string, unknown>): Record<string, unknown>[] {
-  const message = entry.message as { content?: unknown } | undefined
-  return Array.isArray(message?.content) ? message.content.filter(block => block !== null && typeof block === 'object') : []
-}
-
-function changeOf(use: ToolUse, at: number): JournalChange | null {
-  const { input } = use
-  if (use.name === 'Write')
-    return typeof input.content === 'string' ? { kind: 'write', content: input.content, at } : null
-  if (typeof input.old_string !== 'string' || typeof input.new_string !== 'string')
-    return null
-  return { kind: 'edit', oldString: input.old_string, newString: input.new_string, replaceAll: input.replace_all === true, at }
-}
-
-function isFormatterRun(input: Record<string, unknown>, worktree: string): boolean {
-  if (typeof input.command !== 'string' || input.run_in_background === true)
-    return false
-  const form = FORMATTER_COMMAND.exec(input.command)
-  if (form === null)
-    return false
-  const tree = form[1]
-  return tree === undefined || path.resolve(worktree, tree) === path.resolve(worktree)
-}
-
-export function parseSessionJournal(text: string, worktree: string): SessionJournal {
-  const uses: ToolUse[] = []
-  const results = new Map<string, ToolResult>()
-  let end = Number.NEGATIVE_INFINITY
-  for (const line of text.split('\n')) {
-    if (line.trim() === '')
-      continue
-    const entry = JSON.parse(line) as Record<string, unknown>
-    const at = typeof entry.timestamp === 'string' ? Date.parse(entry.timestamp) : Number.NaN
-    if (!Number.isNaN(at))
-      end = Math.max(end, at)
-    for (const block of blocksOf(entry)) {
-      if (entry.type === 'assistant' && block.type === 'tool_use' && typeof block.id === 'string' && typeof block.name === 'string' && JOURNALED_TOOLS.has(block.name))
-        uses.push({ id: block.id, name: block.name, input: (block.input ?? {}) as Record<string, unknown>, at })
-      if (entry.type === 'user' && block.type === 'tool_result' && typeof block.tool_use_id === 'string' && !Number.isNaN(at))
-        results.set(block.tool_use_id, { failed: block.is_error === true, at })
-    }
-  }
-  if (end === Number.NEGATIVE_INFINITY)
-    throw new Error('the session journal holds no timestamped entry')
-  const changes = new Map<string, JournalChange[]>()
-  const formatterRuns: FormatterRun[] = []
-  for (const use of uses) {
-    const result = results.get(use.id)
-    if (result === undefined || result.failed)
-      continue
-    if (use.name === 'Bash') {
-      if (isFormatterRun(use.input, worktree))
-        formatterRuns.push({ startedAt: use.at, endedAt: result.at })
-      continue
-    }
-    const file = use.input.file_path
-    if (typeof file !== 'string')
-      continue
-    const change = changeOf(use, result.at)
-    if (change === null)
-      continue
-    const relative = path.relative(worktree, path.resolve(worktree, file))
-    changes.set(relative, [...(changes.get(relative) ?? []), change])
-  }
-  return { end, changes, formatterRuns }
 }
 
 function replayed(content: string, edits: JournalChange[]): string | null {
@@ -117,17 +19,21 @@ function replayed(content: string, edits: JournalChange[]): string | null {
   return text
 }
 
+function changedInACommandRun(journal: SessionJournal, mtimeMs: number): boolean {
+  return journal.commandRuns.some(run => run.startedAt <= mtimeMs && mtimeMs <= run.endedAt)
+}
+
 export function journalDoubt(journal: SessionJournal, relative: string, file: TreeFile | null): string | null {
   const changes = journal.changes.get(relative) ?? []
   const last = changes.at(-1)
+  if (file !== null && file.mtimeMs > (last?.at ?? Number.NEGATIVE_INFINITY) && changedInACommandRun(journal, file.mtimeMs))
+    return null
   if (last === undefined)
     return 'the session journal holds no Write or Edit of it'
   if (file === null)
     return 'it is gone or unreadable, and the session journal holds no deletion of it'
   if (file.mtimeMs > journal.end)
     return 'it changed after the session ended'
-  if (journal.formatterRuns.some(run => run.startedAt > last.at && run.startedAt <= file.mtimeMs && file.mtimeMs <= run.endedAt))
-    return null
   const lastWrite = changes.map(change => change.kind).lastIndexOf('write')
   const written = changes[lastWrite]
   if (written?.kind === 'write')
@@ -135,6 +41,6 @@ export function journalDoubt(journal: SessionJournal, relative: string, file: Tr
   if (last.kind !== 'edit' || !file.content.includes(last.newString))
     return 'its content lacks the session\'s last Edit of it'
   if (file.mtimeMs > last.at)
-    return 'it changed after the session\'s last Edit of it, by a Bash command or another writer'
+    return 'it changed after the session\'s last Edit of it, outside every command of the session'
   return null
 }

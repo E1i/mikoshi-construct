@@ -8,6 +8,7 @@ import { namesQueueLive } from '../../../scripts/policy/live-decision.js'
 import { readManifest, recordedShas } from '../../manifest.js'
 import { FACTORY_MANIFEST } from '../../materialize/factory-manifest.js'
 import { MIKOSHI_PNPM, pinnedPnpm } from '../../presets/index.js'
+import { browserLabExcludedCommand } from '../attach/settings.js'
 import { factoryLiveness } from '../liveness.js'
 import { FileReadings } from './readings.js'
 
@@ -111,7 +112,11 @@ function plainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-function widensCardSessions(readings: FileReadings): boolean {
+function sandboxOnlyExcludesTheLab(sandbox: unknown, home: string): boolean {
+  return plainObject(sandbox) && Object.keys(sandbox).length === 1 && Array.isArray(sandbox.excludedCommands) && sandbox.excludedCommands.length === 1 && sandbox.excludedCommands[0] === browserLabExcludedCommand(home)
+}
+
+function widensCardSessions(readings: FileReadings, home: string): boolean {
   if (readings.read(LOCAL_SETTINGS) === null)
     return readings.unreadable(LOCAL_SETTINGS)
   const local: unknown = readings.readJson(LOCAL_SETTINGS)
@@ -120,7 +125,8 @@ function widensCardSessions(readings: FileReadings): boolean {
   const permissions = local.permissions ?? {}
   if (!plainObject(permissions))
     return true
-  return local.sandbox !== undefined || WIDENING_PERMISSIONS.some(key => present(permissions[key]))
+  const widensSandbox = local.sandbox !== undefined && !sandboxOnlyExcludesTheLab(local.sandbox, home)
+  return widensSandbox || WIDENING_PERMISSIONS.some(key => present(permissions[key]))
 }
 
 function named(env: NodeJS.ProcessEnv, variable: string): string | null {
@@ -200,7 +206,7 @@ export function factoryChecklist(root: string, situation: FactorySituation = { e
     item('factory-hooks', carriesFactoryHooks(readings), SYNC_APPLY),
     item('pnpm-floor', pnpmAtTheFloor(readings), PIN_PNPM_FLOOR),
     item('pnpm-store-ignored', ignoresPnpmStore(readings), IGNORE_PNPM_STORE),
-    item('card-permissions', !widensCardSessions(readings), EDIT_LOCAL_SETTINGS),
+    item('card-permissions', !widensCardSessions(readings, situation.home), EDIT_LOCAL_SETTINGS),
     ghAccountItem(situation, root),
     item('window-live', factoryLiveness(bus, situation.now.getTime()).state === 'live', OPEN_A_WINDOW),
     item('window-continue', lastStatus(handoff) === CONTINUE, writeContinueCommand(root, handoff)),

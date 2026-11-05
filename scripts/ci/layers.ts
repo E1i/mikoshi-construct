@@ -19,10 +19,15 @@ export const BUS_SHARED: readonly string[] = [
   FACTORY_NAMED.busStored,
 ]
 export const BUS_TESTS = `${FACTORY_FOLDERS.busTests[0]}/`
-const LAYERS = readLayerMap()
+const theLayerMap = ((): (() => LayerMap) => {
+  let read: LayerMap | undefined
+  return () => read ??= readLayerMap()
+})()
 const SCRIPT_DIR = /^scripts\/([^/]+)\//
 const SOURCE_FILE = /\.ts$/
 const CHANGESET_NOTE = /^\.changeset\/[^/]+\.md$/
+const CHANGESET_TOUCH = '.changeset/**'
+const LAYERS_SEPARATOR = ','
 export const CHANGESET_READERS: readonly string[] = ['tests/changesets-one-line.test.ts']
 const TEST_INFRASTRUCTURE = /^(?:vitest\.config\.ts|vitest-[^/]+\.ts|scripts\/scratch\/vitest-[^/]+|scripts\/ci\/.+)$/
 
@@ -36,17 +41,33 @@ function underTestRoot(file: string): boolean {
   return TEST_ROOTS.some(root => file.startsWith(`${root}/`))
 }
 
-export function layerIn(map: LayerMap, file: string): string | null {
+export function isChangesetNote(entry: string): boolean {
+  return entry === CHANGESET_TOUCH || CHANGESET_NOTE.test(entry)
+}
+
+export function declaredLayersIn(map: LayerMap, file: string): string[] {
+  return underTestRoot(file) || !SOURCE_FILE.test(file) ? [] : [...new Set(layersIn(map, file))].sort()
+}
+
+export function layersInOf(map: LayerMap, file: string): string[] {
   if (underTestRoot(file) || !SOURCE_FILE.test(file))
-    return null
-  const layers = layersIn(map, file)
-  if (layers.length === 0)
-    return SCRIPT_DIR.exec(file)?.[1] ?? null
-  return layers.length === 1 ? layers[0]! : null
+    return []
+  const declared = declaredLayersIn(map, file)
+  const folder = SCRIPT_DIR.exec(file)?.[1]
+  return declared.length === 0 && folder !== undefined ? [folder] : declared
+}
+
+export function layerIn(map: LayerMap, file: string): string | null {
+  const layers = layersInOf(map, file)
+  return layers.length === 0 ? null : layers.join(LAYERS_SEPARATOR)
 }
 
 export function layerOf(file: string): string | null {
-  return layerIn(LAYERS, file)
+  return layerIn(theLayerMap(), file)
+}
+
+export function layersOf(file: string): string[] {
+  return layersInOf(theLayerMap(), file)
 }
 
 export function reverseGraph(graph: Graph): Map<string, string[]> {
@@ -83,7 +104,23 @@ function scanning(file: string, tests: readonly string[]): string[] {
     .flatMap(([, scanners]) => scanners.filter(test => tests.includes(test)))
 }
 
-export function selectRun(given: readonly string[], graph: Graph, testText: (test: string) => string): Run {
+function modulesOfLayers(layers: readonly string[], graph: Graph, map: LayerMap): string[] {
+  return [...graph.keys()].filter(file => !isTest(file) && layersInOf(map, file).some(layer => layers.includes(layer)))
+}
+
+function resolvedByLayers(file: string, graph: Graph, map: LayerMap): boolean {
+  const layers = layersInOf(map, file)
+  if (layers.length === 0)
+    return false
+  return graph.has(file) || (declaredLayersIn(map, file).length > 0 && modulesOfLayers(layers, graph, map).length > 0)
+}
+
+function seedsOfLayers(file: string, graph: Graph, map: LayerMap): string[] {
+  const layers = layersInOf(map, file)
+  return !isTest(file) && (!graph.has(file) || layers.length > 1) ? modulesOfLayers(layers, graph, map) : []
+}
+
+export function selectRun(given: readonly string[], graph: Graph, testText: (test: string) => string, map: LayerMap = theLayerMap()): Run {
   if (given.length === 0)
     return { kind: 'full', why: 'no changed path was given' }
   const changed = given.filter(file => !CHANGESET_NOTE.test(file))
@@ -93,19 +130,19 @@ export function selectRun(given: readonly string[], graph: Graph, testText: (tes
   const infrastructure = changed.find(file => TEST_INFRASTRUCTURE.test(file))
   if (infrastructure !== undefined)
     return { kind: 'full', why: `${infrastructure} is test infrastructure every test runs under` }
-  const unmapped = changed.find(file => !isTest(file) && (layerOf(file) === null || !graph.has(file)))
+  const unmapped = changed.find(file => !isTest(file) && !resolvedByLayers(file, graph, map))
   if (unmapped !== undefined)
     return { kind: 'full', why: `${unmapped} belongs to no layer of the dependency graph` }
   const allTests = [...graph.keys()].filter(isTest)
   const reverse = reverseGraph(graph)
-  const reached = dependents(changed, reverse)
+  const reached = dependents([...changed, ...changed.flatMap(file => seedsOfLayers(file, graph, map))], reverse)
   const readers = [...graph.keys()].filter(underTestRoot)
   const treeScanners = allTests.filter(test => scansATree(testText(test)))
   const busWide = changed.some(file => BUS_SHARED.includes(file)) ? allTests.filter(test => test.startsWith(BUS_TESTS)) : []
   const named = changed.flatMap(file => NAMED_READERS[file] ?? []).filter(test => graph.has(test))
   const spawning = [...spawnedBy(reached, readers, testText), ...changed.flatMap(file => scanning(file, allTests)), ...treeScanners, ...busWide, ...named, ...changesetReaders]
   const closure = dependents([...reached, ...spawning], reverse)
-  const layers = [...new Set([...closure].map(layerOf).filter(layer => layer !== null))].sort()
+  const layers = [...new Set([...closure].flatMap(file => layersInOf(map, file)))].sort()
   const tests = [...closure].filter(isTest).sort()
   return { kind: 'layers', layers, tests }
 }

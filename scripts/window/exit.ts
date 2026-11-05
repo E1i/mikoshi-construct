@@ -10,14 +10,18 @@ import { defaultBusPath } from '../core/db.js'
 import { FACTORY_RUNTIME } from '../core/factory-paths.js'
 import { defaultHandoffDir } from '../core/handoff-dir.js'
 import { RAISED_STATUS, raisedByTheBus } from '../nodes/restart/role.js'
+import { ownerMessagesOf } from '../ports/client/claude/adapter.js'
+import { clientAdapter } from '../ports/client/index.js'
 import { EXIT_REQUEST_VARIABLE, LOOP_PID_VARIABLE } from '../ports/session.js'
-import { appendExitLine, exitLineOf, PROJECT_VARIABLE, projectRoot, realExitReadings, SESSION_EXIT_EVENT, UNKNOWN } from './eddies-measure.js'
+import { appendExitLine, EDDIES_JOURNAL_FILE, exitLineOf, PROJECT_VARIABLE, projectRoot, realExitReadings, SESSION_EXIT_EVENT, UNKNOWN } from './eddies-measure.js'
 import { MIKO_HANDOFF_NAME, mikoHandoff, PREFIX, statusOf } from './loop.js'
 import { realRoleStopObserver } from './role-bus.js'
 import { windowEndObserver } from './role-end.js'
 import { tabWindowOf } from './tab.js'
 import { dirtyOpenCardTrees, liveAgentsOf, sessionTranscriptOf, stoppedTasksIn } from './window-agents.js'
 import { SESSION_VARIABLE } from './window-requests.js'
+
+export { ownerMessagesOf }
 
 export const FRESH_MS = 2 * 60 * 1000
 export const LOOP_SCRIPT = path.normalize(FACTORY_RUNTIME.mikoLoopEntry)
@@ -26,8 +30,6 @@ export const NOT_AT_A_STOP_CONDITION = 'not at a stop condition: wait with pnpm 
 export const TAB_THRESHOLD = 'in a tab window a threshold ends no session: continue in this session; compaction carries it on from the handoff (PreCompact insures it, SessionStart compact returns the continue prompt); nothing ended'
 export const SANDBOX_REFUSAL = 'outside the pnpm miko loop the sandbox lets this command neither find nor signal any process: nothing ended; run the session under pnpm miko'
 const MESSAGES_BEFORE_THE_OWNER_SPOKE = 1
-const CLAUDE = 'claude'
-const ARGV_HEAD_NAMING_THE_PROGRAM = 2
 
 export type StopReason = typeof THRESHOLDS[number] | 'done' | 'core'
 
@@ -57,32 +59,6 @@ export interface MikoExitDeps {
   liveAgents?: () => string[]
   dirtyTrees?: () => string[]
   ownerMessages?: () => number | null
-}
-
-interface TranscriptEntry {
-  type?: unknown
-  isMeta?: unknown
-  isSidechain?: unknown
-  message?: { content?: unknown }
-}
-
-function isOwnerText(content: unknown): boolean {
-  if (typeof content === 'string')
-    return !content.startsWith('<')
-  const parts = Array.isArray(content) ? content as { type?: unknown }[] : []
-  return parts.some(part => part?.type === 'text') && !parts.some(part => part?.type === 'tool_result')
-}
-
-export function ownerMessagesOf(transcript: string): number {
-  return transcript.split('\n').filter((line) => {
-    try {
-      const entry = JSON.parse(line) as TranscriptEntry | null
-      return entry?.type === 'user' && entry.isMeta !== true && entry.isSidechain !== true && isOwnerText(entry.message?.content)
-    }
-    catch {
-      return false
-    }
-  }).length
 }
 
 function ownerMessagesIn(transcript: string | null): number | null {
@@ -129,8 +105,8 @@ export function ancestors(table: ProcessRow[], pid: number): ProcessRow[] {
   return chain.slice(1)
 }
 
-export function isClaude(row: ProcessRow): boolean {
-  return row.args.split(/\s+/).slice(0, ARGV_HEAD_NAMING_THE_PROGRAM).some(word => path.basename(word) === CLAUDE)
+function isClaude(row: ProcessRow): boolean {
+  return clientAdapter().processes.isClient(row.args)
 }
 
 export function sessionClaudeOf(table: () => ProcessRow[], pid: number): number | undefined {
@@ -157,13 +133,23 @@ function loadedCoreBelowMain(readings: ExitReadings): boolean {
 export function stopReasonOf(status: string | null, readings: ExitReadings): StopReason | null {
   if (status === 'DONE')
     return 'done'
-  if (readings.context === UNKNOWN || atOrAbove(readings.context, readings.contextWarn))
+  if (readings.context === UNKNOWN || atOrAbove(readings.context, readings.contextWarn) || readings.budgetWarned === true)
     return 'context'
   if (atOrAbove(readings.spent, readings.spendWarn))
     return 'spend'
   if (loadedCoreBelowMain(readings))
     return 'core'
   return null
+}
+
+function budgetWarnFinding(budgetWarned: Reading<boolean>): string {
+  if (budgetWarned === UNKNOWN)
+    return UNKNOWN
+  return budgetWarned ? 'found' : 'not found'
+}
+
+export function notAtAStopRefusal(readings: ExitReadings): string {
+  return `${NOT_AT_A_STOP_CONDITION}; read context ${readings.context} (${readings.contextSource}), line ${readings.contextWarn} (${readings.contextWarnSource}), budget-warn of this session ${budgetWarnFinding(readings.budgetWarned)} (${EDDIES_JOURNAL_FILE}); nothing ended`
 }
 
 export type ExitDecision = { kill: number | null, line: string, reason: StopReason, stopped?: true } | { refuse: string }
@@ -190,7 +176,7 @@ function staleHandoffRefusal(handoffMtime: number | undefined, now: number): str
 export function loopExitDecision(handoffMtime: number | undefined, now: number, status: string | null, readings: ExitReadings): ExitDecision {
   const reason = stopReasonOf(status, readings)
   if (reason === null)
-    return { refuse: `${NOT_AT_A_STOP_CONDITION}; nothing ended` }
+    return { refuse: notAtAStopRefusal(readings) }
   if (reason === 'done')
     return { kill: null, reason, line: `the loop ends the session: ${MIKO_HANDOFF_NAME} says STATUS: ${status}` }
   const stale = staleHandoffRefusal(handoffMtime, now)
@@ -241,7 +227,7 @@ export function exitDecision(chain: ProcessRow[], handoffMtime: number | undefin
   const claude = chain[at]!
   const reason = stopReasonOf(status, readings)
   if (reason === null)
-    return { refuse: `${NOT_AT_A_STOP_CONDITION}; nothing ended` }
+    return { refuse: notAtAStopRefusal(readings) }
   if (reason === 'done')
     return { kill: claude.pid, reason, line: `ending claude ${claude.pid}: ${MIKO_HANDOFF_NAME} says STATUS: ${status}` }
   const above = chain.slice(at + 1)

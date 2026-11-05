@@ -1,18 +1,22 @@
 import type { Contour } from '../../../src/card/grammar.js'
 import type { ShiftTask } from '../../../src/card/task-file.js'
 import type { PushPolicy } from '../../../src/commands/attach/record.js'
-import type { CompanionRow, CompositionRecord, FollowingReach } from '../../../src/commands/intake/check.js'
+import type { AdmittedReach, CompanionRow, CompositionRecord, FollowingReach } from '../../../src/commands/intake/check.js'
+import type { BusCatalog } from '../../ci/card-runs.js'
 import type { ChangedFile, Prediction } from '../../policy/morse/rules.js'
 import type { GhRunner } from '../../ports/gh.js'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
-import { COVERING_REASON, runsCover, runsOf, TestCoverage, withinTouches } from '../../../src/card/covering-tests.js'
-import { admittedReachOf, COMPANION_TABLE, COMPOSITION_ROOT, FOLLOWING_REASON, followsTouches, neverFollows, PACKAGE_MANIFEST, publishedRootsOf } from '../../../src/commands/intake/check.js'
+import { COVERING_REASON, layerMasksOf, runsCover, runsOf, TestCoverage, withinTouches } from '../../../src/card/covering-tests.js'
+import { admittedReachOf, COMPANION_TABLE, COMPOSITION_ROOT, FOLLOWING_REASON, followsTouches, neverFollows, OWNER_MERGES, PACKAGE_MANIFEST, publishedRootsOf } from '../../../src/commands/intake/check.js'
 import { readShiftGate } from '../../../src/manifest.js'
+import { busCheckCatalog, cardReadingOf } from '../../ci/card-runs.js'
 import { parseCompositionModel } from '../../composition/model.js'
 import { VERIFICATION_WORDS } from '../../core/verification.js'
 import { classify, MorseRefusal } from '../../policy/morse/rules.js'
 import { MATRIX_COUNT_LINE, pathWithoutMatrix } from '../../policy/policy.js'
+import { matchGlob } from '../../policy/shredder/glob.js'
+import { ownerGlobs } from '../../policy/widening.js'
 import { changedFilesFrom } from '../../ports/diff.js'
 
 export const REFUSAL_REASONS = {
@@ -82,11 +86,13 @@ export interface TreeCard {
   touches: string[]
   runs: string[]
   namedPathReason: string | null
+  fullReading?: string
 }
 
 export const CARD_PATH_REASON = /^Path \(D-76\):\s*(\S.*)$/m
 
-export function shiftTreeCard(task: ShiftTask): TreeCard {
+export function shiftTreeCard(task: ShiftTask, catalog: BusCatalog = busCheckCatalog()): TreeCard {
+  const { runs, fullReading } = cardReadingOf(task.touches, runsOf(task.body), layerMasksOf(task.body), catalog)
   return {
     branch: task.branch,
     title: `${task.card.name} (#${task.id})`,
@@ -94,12 +100,14 @@ export function shiftTreeCard(task: ShiftTask): TreeCard {
     cardLine: task.card.line,
     contour: task.card.contour,
     touches: task.touches,
-    runs: runsOf(task.body),
+    runs,
     namedPathReason: CARD_PATH_REASON.exec(task.body)?.[1]?.trim() ?? null,
+    ...(fullReading === undefined ? {} : { fullReading }),
   }
 }
 
 const PR_BASE = 'origin/main'
+const MERGE_HEAD = 'MERGE_HEAD'
 const SHIFTED_RANGE = `${PR_BASE}...HEAD`
 const PUBLISHED_CODE = COMPANION_TABLE.find(row => row.kind === 'published code') as CompanionRow
 const CHANGESET_FILE = /^\.changeset\/(?!readme\.md$)[^/]+\.md$/i
@@ -226,9 +234,14 @@ export function touchesFollowed(outside: readonly string[], reach: FollowingReac
   return { followed: outside.filter(follows), outside: outside.filter(file => !follows(file)) }
 }
 
-export function answerFollowed(git: TreePrPorts['git'], worktree: string, outside: readonly string[], cardId: number, cardBody: string | null, coverage: TestCoverage): TouchesFollowed {
+function admittedMasksOf(cardBody: string | null, reach: AdmittedReach): string[] {
+  return reach.touches.length === 0 && reach.runs.length === 0 ? [] : layerMasksOf(cardBody ?? '')
+}
+
+export function answerFollowed(git: TreePrPorts['git'], worktree: string, outside: readonly string[], cardId: number, cardBody: string | null, coverage: TestCoverage, catalog: BusCatalog = busCheckCatalog()): TouchesFollowed {
   const reach = admittedReachOf(cardId, cardBody)
-  const unrun = outside.filter(file => !runsCover(file, reach.runs))
+  const { runs } = cardReadingOf(reach.touches, reach.runs, admittedMasksOf(cardBody, reach), catalog)
+  const unrun = outside.filter(file => !runsCover(file, runs))
   if (unrun.length === 0)
     return { followed: [], outside: [] }
   return touchesFollowed(unrun, { touches: reach.touches, added: addedSinceBase(git, worktree, unrun), compositionRecords: compositionRecordsAtBase(git, worktree) }, coverage)
@@ -249,7 +262,11 @@ interface FormatGap extends Gap {
   lacks: string
 }
 
-function formatGaps(body: string, shifted: ShiftedPath, publishedRoots: readonly string[], outsideTouches: readonly string[], codeMatrix: string | null): FormatGap[] {
+function fullReadingNote(why: string | undefined): string {
+  return why === undefined ? '' : `; Runs read in full: ${why}, so only the paths the card names count as its runs`
+}
+
+function formatGaps(body: string, shifted: ShiftedPath, publishedRoots: readonly string[], outsideTouches: readonly string[], codeMatrix: string | null, fullReading: string | undefined): FormatGap[] {
   const paths = shifted.files.map(file => file.path)
   const unmatrixed = codeMatrix === null ? undefined : pathWithoutMatrix(body, paths)
   const published = paths.find(file => PUBLISHED_CODE.touched(file, publishedRoots))
@@ -260,7 +277,7 @@ function formatGaps(body: string, shifted: ShiftedPath, publishedRoots: readonly
   if (published !== undefined && !changeset)
     gaps.push({ reason: 'no-changeset', lacks: `the changeset its change to the published ${published} requires`, task: `add a .changeset/*.md file for the change to ${published}`, paths: [] })
   if (outsideTouches.length > 0)
-    gaps.push({ reason: 'outside-touches', lacks: `the card's touches for ${outsideTouches.join(', ')}, which it changes outside them (only a test that covers a touched file, a generated twin or the changeset of a touched file, a composition record or its document whose node the touches reach at the base, or one of the card's runs, may change outside the touches, and never a .claude, owner-merges, security or other R1 path)`, task: '', paths: [...outsideTouches] })
+    gaps.push({ reason: 'outside-touches', lacks: `the card's touches for ${outsideTouches.join(', ')}, which it changes outside them (only a test that covers a touched file, a generated twin or the changeset of a touched file, a composition record or its document whose node the touches reach at the base, or one of the card's runs, may change outside the touches, and never a .claude, owner-merges, security or other R1 path)${fullReadingNote(fullReading)}`, task: '', paths: [...outsideTouches] })
   return gaps
 }
 
@@ -308,7 +325,7 @@ function conflictedFiles(git: TreePrPorts['git'], worktree: string): string[] {
 
 function mergeInProgress(git: TreePrPorts['git'], worktree: string): boolean {
   try {
-    git(worktree, ['rev-parse', '-q', '--verify', 'MERGE_HEAD'])
+    git(worktree, ['rev-parse', '-q', '--verify', MERGE_HEAD])
     return true
   }
   catch {
@@ -316,21 +333,67 @@ function mergeInProgress(git: TreePrPorts['git'], worktree: string): boolean {
   }
 }
 
-function mergeFreshBase(git: TreePrPorts['git'], worktree: string): FreshBaseGap | null {
+function ownerGlobsOfMain(git: TreePrPorts['git'], worktree: string): string[] {
   try {
-    git(worktree, ['merge', '-q', '--no-edit', PR_BASE])
+    return ownerGlobs(git(worktree, ['show', `${PR_BASE}:${OWNER_MERGES}`]))
+  }
+  catch {
+    return []
+  }
+}
+
+function namesIn(listing: string): string[] {
+  return listing.split('\0').filter(file => file !== '')
+}
+
+function takeOwnerPathsFromMain(git: TreePrPorts['git'], worktree: string): string[] {
+  const globs = ownerGlobsOfMain(git, worktree)
+  const base = git(worktree, ['merge-base', 'HEAD', MERGE_HEAD]).trim()
+  const movedOnMain = namesIn(git(worktree, ['diff', '--no-renames', '--name-only', '-z', base, MERGE_HEAD]))
+  const taken = [...new Set([...movedOnMain, ...conflictedFiles(git, worktree)])].filter(file => globs.some(glob => matchGlob(glob, file)))
+  if (taken.length === 0)
+    return []
+  const onMain = new Set(namesIn(git(worktree, ['ls-tree', '-r', '--name-only', '-z', MERGE_HEAD, '--', ...taken])))
+  const kept = taken.filter(file => onMain.has(file))
+  const removed = taken.filter(file => !onMain.has(file))
+  const changedOnBranch = new Set(namesIn(git(worktree, ['diff', '--no-renames', '--name-only', '-z', base, 'HEAD'])))
+  if (kept.length > 0)
+    git(worktree, ['checkout', MERGE_HEAD, '--', ...kept])
+  if (removed.length > 0)
+    git(worktree, ['rm', '-q', '-f', '--ignore-unmatch', '--', ...removed])
+  return taken.filter(file => changedOnBranch.has(file))
+}
+
+function startFreshMerge(git: TreePrPorts['git'], worktree: string): FreshBaseGap | null {
+  try {
+    git(worktree, ['merge', '-q', '--no-edit', '--no-commit', PR_BASE])
     return null
   }
   catch (error) {
-    const files = conflictedFiles(git, worktree)
+    if (conflictedFiles(git, worktree).length > 0)
+      return null
     if (mergeInProgress(git, worktree))
       git(worktree, ['merge', '--abort'])
-    return { files, failure: files.length === 0 ? failureOf(error) : null }
+    return { files: [], failure: failureOf(error) }
   }
+}
+
+function mergeFreshBase(git: TreePrPorts['git'], worktree: string): FreshBaseGap | null {
+  const refused = startFreshMerge(git, worktree)
+  if (refused !== null || !mergeInProgress(git, worktree))
+    return refused
+  const replaced = takeOwnerPathsFromMain(git, worktree)
+  const left = conflictedFiles(git, worktree)
+  if (left.length > 0)
+    return { files: left, failure: null }
+  git(worktree, ['commit', '-q', '--no-edit', ...(replaced.length === 0 ? [] : ['-m', `Merge ${PR_BASE}: owner paths at main's version over the branch's ${replaced.join(', ')}`])])
+  return null
 }
 
 export function commitAndPush(git: TreePrPorts['git'], worktree: string, branch: string, commitMessage: string): Pushed {
   git(worktree, ['fetch', '-q', 'origin', 'main'])
+  if (mergeInProgress(git, worktree))
+    takeOwnerPathsFromMain(git, worktree)
   const leftUnmerged = conflictedFiles(git, worktree)
   if (leftUnmerged.length > 0)
     return { kind: 'conflict', files: leftUnmerged, failure: null }
@@ -354,8 +417,9 @@ export function freshBaseProblem(gap: FreshBaseGap): string {
 }
 
 export function freshBaseTask(worktree: string, gap: FreshBaseGap): string {
-  const settle = gap.failure === null ? `resolve every conflict in ${gap.files.join(', ')} keeping what the card asks for` : `clear what stopped it (${gap.failure}) without dropping the card's work`
-  return `merge a fresh ${PR_BASE} into the branch (git -C ${worktree} fetch origin main, then git -C ${worktree} merge ${PR_BASE}; merge, not rebase), ${settle}, and conclude the merge with git -C ${worktree} commit --no-edit`
+  if (gap.failure !== null)
+    return `clear what stopped the merge of a fresh ${PR_BASE} (${gap.failure}) without dropping the card's work, and leave the merge itself to the bus, which merges again when the session ends`
+  return `the bus started merging a fresh ${PR_BASE} into the branch and that merge stands in progress in ${worktree}, with every owner path of ${OWNER_MERGES} already at main's version: resolve every conflict in ${gap.files.join(', ')} keeping what the card asks for, stage each with git -C ${worktree} add, and conclude the merge with git -C ${worktree} commit --no-edit; start no new merge, abort nothing and write no owner path`
 }
 
 function staleBase(branch: string, worktree: string, gap: FreshBaseGap): TreePr {
@@ -377,7 +441,7 @@ export function treePr(ports: TreePrPorts, card: TreeCard, worktree: string, rep
     const shifted = shiftedPath(ports.git, worktree, card, report)
     const touched = changedOutsideTouches(ports.git, worktree, shifted.files, card.touches, card.runs)
     const body = prBodyOf(card, shifted.line, touched.followed, matrixCountLineOf(report))
-    const gaps = formatGaps(body, shifted, publishedRootsAt(ports.git, worktree), touched.outside, readShiftGate(worktree).codeMatrix)
+    const gaps = formatGaps(body, shifted, publishedRootsAt(ports.git, worktree), touched.outside, readShiftGate(worktree).codeMatrix, card.fullReading)
     if (gaps.length > 0)
       return { kind: 'problem', why: `the shift opened no pull request for ${card.branch}: it lacks ${gaps.map(gap => gap.lacks).join('; ')}`, gaps: gaps.map(({ reason, task, paths }) => ({ reason, task, paths })) }
     const created = ports.gh(['pr', 'create', '--head', card.branch, '--base', 'main', '--title', card.title, '--body', body])

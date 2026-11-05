@@ -1,12 +1,18 @@
 import type { WitnessField } from '../../card/witness-fields.js'
 import type { AdmitOptions, AdmitResult } from './admit.js'
 import type { CardAdmissionsPort } from './index.js'
+import process from 'node:process'
+import { cardLine, parseCard } from '../../card/grammar.js'
 import { SHIFT_WHO, WINDOW_WHO } from '../../card/parking.js'
-import { replaceWitnessFieldsLine, witnessFieldsOf } from '../../card/witness-fields.js'
-import { admittedCardFile, runAdmit, witnessesOf } from './admit.js'
+import { RISK_PREFIX, riskLines, riskReading } from '../../card/risk.js'
+import { parseWitnessList, replaceWitnessFieldsLine, runsFieldOf, witnessFieldsOf } from '../../card/witness-fields.js'
+import { admittedCardFile, blocksTail, CARD_HEADER, runAdmit, withRunsLine, witnessesOf } from './admit.js'
+import { CARD_REFERENCE } from './check.js'
 import { TOUCHES_HEADER } from './confirm.js'
 import { exportRefusalReason, runExport } from './export.js'
+import { DirectoryFacts } from './facts.js'
 import { CARD_NUMBER } from './move.js'
+import { WITNESSES_HEADING } from './slice.js'
 
 export interface AmendFlags {
   touches?: string
@@ -14,6 +20,10 @@ export interface AmendFlags {
   note?: string
   witness?: string
   who?: string
+  addWitnesses?: readonly string[]
+  removeWitnesses?: readonly string[]
+  ownerWords?: string
+  depends?: string
 }
 
 export interface AmendOptions extends Omit<AdmitOptions, 'file' | 'body' | 'admissions'> {
@@ -27,6 +37,9 @@ type Edited = { kind: 'edited', text: string } | { kind: 'refused', why: string 
 const CREATES_HEADER = 'creates: '
 const WHO_HEADER = 'who: '
 const LIST_SEPARATOR = ','
+const LIST_ENTRY_SEPARATOR = /,|\s+(?=[+-])/
+const PROSE_WITNESS_ID = /^W([1-9]\d*)$/
+const OWNER_WORDS_PREFIX = 'Owner, verbatim: '
 const ADD = '+'
 const REMOVE = '-'
 const WITNESS_ITEM_PREFIX = '- '
@@ -51,7 +64,7 @@ function listOf(line: string | undefined, header: string): string[] {
 
 function editedList(current: readonly string[], change: string, flag: string): string[] | string {
   let next = [...current]
-  for (const entry of change.split(LIST_SEPARATOR).map(item => item.trim()).filter(item => item !== '')) {
+  for (const entry of change.split(LIST_ENTRY_SEPARATOR).map(item => item.trim()).filter(item => item !== '')) {
     const sign = entry[0]
     const value = entry.slice(1).trim()
     if ((sign !== ADD && sign !== REMOVE) || value === '')
@@ -129,6 +142,75 @@ function withWitness(lines: string[], change: string): string[] | string {
   return lines.map((entry, index) => (index === at ? `${WITNESS_ITEM_PREFIX}${next}` : entry))
 }
 
+function withAddedWitnessField(lines: string[], fields: readonly WitnessField[], witness: string): string[] | string {
+  let next: unknown
+  try {
+    next = JSON.parse(witness)
+  }
+  catch (error) {
+    return `--add-witness ${witness}: the card's witnesses are fields and this is not JSON: ${error instanceof Error ? error.message : String(error)}`
+  }
+  const parsed = parseWitnessList([next])
+  if (parsed.kind === 'refused')
+    return `--add-witness ${witness}: ${parsed.reasons.join('; ')}`
+  const id = parsed.fields[0]!.id
+  return fields.some(field => field.id === id) ? `--add-witness ${witness}: the card already holds a witness ${id}` : replaceWitnessFieldsLine(lines, [...fields, next])
+}
+
+function witnessesAt(lines: readonly string[]): number {
+  return lines.findIndex(line => line.trim() === WITNESSES_HEADING) + 1
+}
+
+function withAddedWitness(lines: string[], witness: string): string[] | string {
+  const text = lines.join('\n')
+  const fields = witnessFieldsOf(text)
+  if (fields !== null)
+    return withAddedWitnessField(lines, fields, witness)
+  const first = witnessesAt(lines)
+  if (first === 0)
+    return `--add-witness ${witness}: the card has no ${WITNESSES_HEADING} list`
+  const held = witnessesOf(text)
+  if (held.includes(witness))
+    return `--add-witness ${witness}: the card already holds this witness`
+  const insertAt = first + held.length
+  return [...lines.slice(0, insertAt), `${WITNESS_ITEM_PREFIX}${witness}`, ...lines.slice(insertAt)]
+}
+
+function proseWitnessIndex(witnesses: readonly string[], named: string): number {
+  const numbered = PROSE_WITNESS_ID.exec(named)?.[1]
+  return numbered === undefined ? witnesses.indexOf(named) : Number(numbered) - 1
+}
+
+function withRemovedWitness(lines: string[], named: string): string[] | string {
+  const text = lines.join('\n')
+  const fields = witnessFieldsOf(text)
+  const held = fields === null ? witnessesOf(text) : fields.map(field => field.id)
+  const index = fields === null ? proseWitnessIndex(held, named) : held.indexOf(named)
+  if (held[index] === undefined)
+    return `--remove-witness ${named}: the card holds no such witness`
+  if (held.length === 1)
+    return `--remove-witness ${named} leaves the card no witness`
+  if (fields !== null)
+    return replaceWitnessFieldsLine(lines, fields.filter(field => field.id !== named))
+  const at = witnessesAt(lines) + index
+  return lines.filter((_, line) => line !== at)
+}
+
+function withDepends(lines: string[], change: string): string[] | string {
+  const at = headerIndex(lines, CARD_HEADER)
+  const parsed = parseCard(lines[at]?.slice(CARD_HEADER.length) ?? '')
+  if (parsed.kind === 'refused')
+    return `--depends ${change}: ${parsed.reason}`
+  const next = editedList(parsed.card.depends.map(id => `#${id}`), change, 'depends')
+  if (typeof next === 'string')
+    return next
+  const malformed = next.find(reference => !CARD_REFERENCE.test(reference))
+  if (malformed !== undefined)
+    return `--depends ${change}: ${malformed} is not a card, #<id>`
+  const depends = next.map(reference => Number(CARD_REFERENCE.exec(reference)![1]))
+  return lines.map((entry, index) => (index === at ? `${CARD_HEADER}${cardLine({ ...parsed.card, depends })}${blocksTail(parsed.card.line)}` : entry))
+}
+
 function withNote(lines: string[], note: string): string[] {
   const body = [...lines]
   while (body.length > 0 && body.at(-1)!.trim() === '')
@@ -136,9 +218,18 @@ function withNote(lines: string[], note: string): string[] {
   return [...body, '', note.trim(), '']
 }
 
+function withRecomputedRisk(lines: string[]): string[] {
+  const at = lines.map(line => line.startsWith(RISK_PREFIX)).lastIndexOf(true)
+  if (at === -1)
+    return lines
+  const reading = riskReading(listOf(lines[headerIndex(lines, TOUCHES_HEADER)], TOUCHES_HEADER), false)
+  const [line] = riskLines({ ...reading, slices: [], capabilityDelivery: false })
+  return lines.map((entry, index) => (index === at ? line! : entry))
+}
+
 type Edit = (lines: string[]) => string[] | string
 
-function editsOf(flags: AmendFlags): Edit[] {
+function fieldEditsOf(flags: AmendFlags): Edit[] {
   const edits: Edit[] = []
   if (flags.touches !== undefined)
     edits.push(lines => withList(lines, TOUCHES_HEADER, flags.touches!, 'touches', true))
@@ -148,15 +239,52 @@ function editsOf(flags: AmendFlags): Edit[] {
     edits.push(lines => withWho(lines, flags.who!))
   if (flags.witness !== undefined)
     edits.push(lines => withWitness(lines, flags.witness!))
+  for (const witness of flags.addWitnesses ?? [])
+    edits.push(lines => withAddedWitness(lines, witness))
+  for (const named of flags.removeWitnesses ?? [])
+    edits.push(lines => withRemovedWitness(lines, named))
+  if (flags.depends !== undefined)
+    edits.push(lines => withDepends(lines, flags.depends!))
+  return edits
+}
+
+function noteEditsOf(flags: AmendFlags): Edit[] {
+  const edits: Edit[] = []
   if (flags.note !== undefined && flags.note.trim() !== '')
     edits.push(lines => withNote(lines, flags.note!))
+  if (flags.ownerWords !== undefined && flags.ownerWords.trim() !== '')
+    edits.push(lines => withNote(lines, `${OWNER_WORDS_PREFIX}"${flags.ownerWords!}"`))
   return edits
+}
+
+function editsOf(flags: AmendFlags): Edit[] {
+  const fields = fieldEditsOf(flags)
+  const notes = noteEditsOf(flags)
+  return fields.length + notes.length === 0 ? [] : [...fields, withRecomputedRisk, ...notes]
+}
+
+export function listFlagOf(rawArgs: readonly string[], flag: string, separator: string = LIST_SEPARATOR): string | undefined {
+  const values: string[] = []
+  let found = false
+  rawArgs.forEach((argument, at) => {
+    if (argument.startsWith(`--${flag}=`)) {
+      found = true
+      values.push(argument.slice(flag.length + 3))
+    }
+    if (argument !== `--${flag}`)
+      return
+    found = true
+    const next = rawArgs.slice(at + 1)
+    const end = next.findIndex(value => value.startsWith('--'))
+    values.push(...(end === -1 ? next : next.slice(0, end)))
+  })
+  return found ? values.join(separator) : undefined
 }
 
 export function amendedText(text: string, flags: AmendFlags): Edited {
   const edits = editsOf(flags)
   if (edits.length === 0)
-    return refused('--amend takes at least one of --touches, --creates, --note, --witness, --who')
+    return refused('an amend takes at least one of --touches, --creates, --note, --witness, --who, --add-witness, --remove-witness, --owner-words, --depends')
   let lines = text.split('\n')
   for (const edit of edits) {
     const next = edit(lines)
@@ -165,6 +293,18 @@ export function amendedText(text: string, flags: AmendFlags): Edited {
     lines = next
   }
   return { kind: 'edited', text: lines.join('\n') }
+}
+
+function touchesIn(text: string): string[] {
+  const lines = text.split('\n')
+  return listOf(lines[headerIndex(lines, TOUCHES_HEADER)], TOUCHES_HEADER)
+}
+
+function withoutStaleRuns(before: string, after: string, dir: string): string {
+  const repository = new DirectoryFacts(dir, process.env.PATH ?? '')
+  const covering = repository.testsCovering(touchesIn(after))
+  const stale = repository.testsCovering(touchesIn(before)).filter(test => !covering.includes(test))
+  return withRunsLine(after, runsFieldOf(after).filter(entry => !stale.includes(entry)))
 }
 
 export function runAmend(options: AmendOptions, now: () => Date = () => new Date()): AdmitResult {
@@ -176,6 +316,7 @@ export function runAmend(options: AmendOptions, now: () => Date = () => new Date
   const edited = amendedText(exported.text, flags)
   if (edited.kind === 'refused')
     return { status: 'refused', why: `#${id}: ${edited.why}` }
-  const result = runAdmit({ ...admit, file: admittedCardFile(id, admit.parkingRoot), body: edited.text, admissions }, now)
+  const body = flags.touches === undefined ? edited.text : withoutStaleRuns(exported.text, edited.text, admit.dir)
+  const result = runAdmit({ ...admit, file: admittedCardFile(id, admit.parkingRoot), body, writeRuns: flags.touches !== undefined, admissions }, now)
   return 'file' in result ? { ...result, file: `#${id}` } : result
 }

@@ -1,11 +1,9 @@
-import { Buffer } from 'node:buffer'
-
 export const PREFIX = '[decisions] '
-export const DECISIONS_IN_FORCE_LIMIT = 8000
 export const WRITER_MARKER = 'decisions:add'
 export const OWNER_SOURCE = '[owner]'
 export const DECISION_FORMAT = `- D-N · <date> — <decision> [· supersedes D-K D-L] [· card #A #B] [· until <YYYY-MM-DDTHH:MMZ>] [· ${WRITER_MARKER}] [· superseded-by D-M]`
-export const SPENDING_DECISION = 54
+export const SPENT_MARK_OF_THE_OLD_FILES = 54
+export const NEW_FILE_HEADER = `# Owner decisions\n\nA projection of the decisions table in the bus, rebuilt by the bus. Add a decision with pnpm ${WRITER_MARKER}.\n`
 
 const TERM = '\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(?::\\d{2})?Z'
 const FIELD_PATTERNS: Record<string, string> = {
@@ -132,19 +130,12 @@ export function inForce(decisions: readonly Decision[], now: Date = new Date()):
   return decisions.filter(decision => decision.supersededBy === null && !retired.has(decision.number) && !lapsed(decision.term, now))
 }
 
-export function inForceBytes(decisions: readonly Decision[]): number {
-  return inForce(decisions).reduce((bytes, decision) => bytes + Buffer.byteLength(`${decision.text}\n`, 'utf8'), 0)
-}
-
-function spentByCards(decisions: readonly Decision[], settled: (card: number) => boolean): Decision[] {
-  if (!decisions.some(decision => decision.number === SPENDING_DECISION))
-    return []
+export function spentByCards(decisions: readonly Decision[], settled: (card: number) => boolean): Decision[] {
   return inForce(decisions).filter(decision => decision.cards.length > 0 && decision.cards.every(settled))
 }
 
-export function spendDecisions(text: string, settled: (card: number) => boolean): string {
-  const spent = spentByCards(parseDecisions(text).decisions, settled)
-  return markSuperseded(text, new Map(spent.map(decision => [decision.line, SPENDING_DECISION])))
+export function visibleToCard(decision: { cards: readonly number[] }, card: number | null): boolean {
+  return card === null || decision.cards.length === 0 || decision.cards.includes(card)
 }
 
 export function outOfForceLines(decisions: readonly Decision[], now: Date, settled: (card: number) => boolean): Set<number> {
@@ -233,7 +224,7 @@ function supersedingRefusals(decisions: readonly Decision[], archived: ReadonlyS
       return []
     if (decision.supersededBy === decision.number)
       return [`${PREFIX}D-${decision.number}: superseded-by itself`]
-    if (decision.supersededBy < decision.number && decision.supersededBy !== SPENDING_DECISION)
+    if (decision.supersededBy < decision.number && decision.supersededBy !== SPENT_MARK_OF_THE_OLD_FILES)
       return [`${PREFIX}D-${decision.number}: superseded-by D-${decision.supersededBy}, an earlier number; the replacement takes a new, later number`]
     return numbers.has(decision.supersededBy) ? [] : [`${PREFIX}D-${decision.number}: superseded-by D-${decision.supersededBy}, which is not in the file`]
   })
@@ -270,11 +261,6 @@ function untilRefusals(decisions: readonly Decision[]): string[] {
     .map(decision => `${PREFIX}D-${decision.number} on line ${decision.line}: an until that does not read as · until <YYYY-MM-DDTHH:MMZ> at the end of the decision; it is not in force`)
 }
 
-function sizeRefusals(decisions: readonly Decision[]): string[] {
-  const bytes = inForceBytes(decisions)
-  return bytes <= DECISIONS_IN_FORCE_LIMIT ? [] : [`${PREFIX}decisions in force: ${bytes} bytes over the limit of ${DECISIONS_IN_FORCE_LIMIT}; mark the replaced ones superseded-by D-M`]
-}
-
 export function decisionsRefusals(text: string, archive = ''): string[] {
   const { decisions, offFormat } = parseDecisions(text)
   const archived = new Set(parseDecisions(archive).decisions.map(decision => decision.number))
@@ -287,8 +273,89 @@ export function decisionsRefusals(text: string, archive = ''): string[] {
     ...supersedesRefusals(decisions, archived),
     ...duplicateInForceRefusals(decisions),
     ...untilRefusals(decisions),
-    ...sizeRefusals(decisions),
   ]
+}
+
+export function stampOf(now: Date): string {
+  const iso = now.toISOString()
+  return `${iso.slice(0, 10)} ~${iso.slice(11, 16)}Z`
+}
+
+export function cardTail(cards: readonly number[]): string {
+  return cards.length === 0 ? '' : ` · card ${[...new Set(cards)].map(card => `#${card}`).join(' ')}`
+}
+
+export function untilTail(until: string | null): string {
+  return until === null ? '' : ` · until ${until}`
+}
+
+export interface DecisionRow {
+  number: number
+  text: string
+  cards: number[]
+  until: string | null
+  inForce: boolean
+  written: boolean
+  recordedAt: string
+  supersededBy: number | null
+}
+
+export interface ProjectedDecisions {
+  file: string
+  archive: string
+}
+
+function withoutSource(text: string): string {
+  return text.startsWith(`${OWNER_SOURCE} `) ? text.slice(OWNER_SOURCE.length + 1) : text
+}
+
+function heldLineSays(held: Decision | undefined, row: DecisionRow): held is Decision {
+  return held !== undefined
+    && held.supersededBy === null
+    && withoutSource(boundText(held)) === withoutSource(row.text)
+    && JSON.stringify(held.cards) === JSON.stringify(row.cards)
+}
+
+function renderedLine(row: DecisionRow): string {
+  const words = row.text.replace(TRAILING_UNTIL, '')
+  const body = row.written ? `${OWNER_SOURCE} ${withoutSource(words)}` : words
+  return `- D-${row.number} · ${stampOf(new Date(row.recordedAt))} — ${body}${cardTail(row.cards)}${untilTail(row.until)}${row.written ? ` · ${WRITER_MARKER}` : ''}`
+}
+
+function archivedLine(line: string, row: DecisionRow | undefined, marked: boolean): string {
+  return marked || row === undefined || row.supersededBy === null ? line : `${line} · superseded-by D-${row.supersededBy}`
+}
+
+function preambleOf(text: string): string {
+  const lines = text.split(/\r?\n/)
+  const first = lines.findIndex(line => LIST_START.test(line))
+  const preamble = (first === -1 ? lines : lines.slice(0, first)).join('\n').trimEnd()
+  return preamble === '' ? NEW_FILE_HEADER : `${preamble}\n`
+}
+
+export function projectDecisions(rows: readonly DecisionRow[], file: string, archive: string, archiveHeader: string): ProjectedDecisions {
+  const { decisions: lines, offFormat } = parseDecisions(file)
+  const fileLines = file.split(/\r?\n/)
+  const held = new Map(lines.map(decision => [decision.number, decision]))
+  const byNumber = new Map(rows.map(row => [row.number, row]))
+  const inArchive = new Set(parseDecisions(archive).decisions.map(decision => decision.number))
+  const archiveLines = new Set(archive.split('\n'))
+  const inForceLines = rows.filter(row => row.inForce).sort((a, b) => a.number - b.number).map((row) => {
+    const line = held.get(row.number)
+    return heldLineSays(line, row) ? line.text : renderedLine(row)
+  })
+  const leavingTheFile = lines
+    .filter(decision => byNumber.get(decision.number)?.inForce !== true && !inArchive.has(decision.number))
+    .map(decision => archivedLine(decision.text, byNumber.get(decision.number), decision.supersededBy !== null))
+  const neverInTheFile = rows
+    .filter(row => !row.inForce && !held.has(row.number) && !inArchive.has(row.number))
+    .map(row => archivedLine(renderedLine(row), row, false))
+  const offFormatLines = offFormat.map(({ line }) => fileLines[line - 1]!.trim()).filter(line => !archiveLines.has(line))
+  const moved = [...leavingTheFile, ...neverInTheFile, ...offFormatLines]
+  return {
+    file: `${preambleOf(file)}${inForceLines.length === 0 ? '' : `\n${inForceLines.join('\n')}\n`}`,
+    archive: moved.length === 0 ? archive : `${archive === '' ? archiveHeader : archive.replace(/\n*$/, '\n')}${moved.join('\n')}\n`,
+  }
 }
 
 export function decisionsFindings(text: string): string[] {

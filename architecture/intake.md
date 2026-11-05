@@ -65,6 +65,16 @@ into the `CONTRACT` of its entry line, with or without `--without-intake`: a mis
 there as `touches not recorded on the card: no parking file for #<id>`, and a file whose card line is
 not the `--card` given is refused with nothing written.
 
+A card id that came from another factory's row is a record, not a gap against the pull requests,
+because a factory's own cards may legitimately stand above its pull request numbers:
+`pnpm bus:request numbers.foreign --ids <list>` appends one `numbers.foreign` event, and
+`nextCardNumbers`, the one code intake and the round-limit recut share, then takes the max of the bus
+ids not so recorded and of the numbers outside the bus (`--taken`, or the pull request numbers for the
+recut), plus one. The cards stay as they are, merged ones included, and their ids stay occupied: the
+numbers it gives are one contiguous run that holds no id of the bus, moved past a recorded card when
+the row reaches one, because a recut numbers its cards from the first of the run. A bus with no such
+event computes what it always did.
+
 ## Unclear is written down, not guessed
 
 Only `contour` and `decision` have a default, and each default is written into the card as an

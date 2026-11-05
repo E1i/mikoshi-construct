@@ -1049,8 +1049,10 @@ machine bus `~/.construct/bus.db`, `~/.construct-owner/answers/<repo-id>/` for a
 the owner runs the command from their own shell (in Claude Code, behind `!`). The bus accepts an
 owner decision only when its words are a whole line of a file in its own channel not used yet, and
 marks the file used in the same step, so one file grants one decision, and a word said for one
-repository never confirms a decision or a start word in another. The decision is written into
-`owner-decisions.md` beside that bus's `bus.db`, and a bus imports decisions from that file only.
+repository never confirms a decision or a start word in another. The decision is recorded in the
+`decisions` table of that bus, and `owner-decisions.md` beside its `bus.db` is a projection the bus
+rebuilds from the table. The bus imports that file once, on the first rebuild, and never after, so a
+hand edit is undone and grants nothing.
 
 ```bash
 construct say "Q14: the second path."
@@ -2066,11 +2068,14 @@ line works as before. A field takes these keys and no other:
 | `base` | What the run does on the base, in the same form. A `head` that differs from `base` makes an acceptance witness, and the same value makes an invariant. |
 | `proves` | What the witness proves, in words. |
 
-`runs`, optional, lists the test paths and trailing `/**` globs the card runs; the older
-`Runs: <path>, <path>` line is read the same way. A `touches` entry that `runs` also names does not
-count towards launch overlap between two cards, and a changed test that `runs` covers is not outside
-the card. An entry that is no test or tree of tests is marked `unclear:`, and a `runs:` line in a card
-that is not a JSON list of paths and globs is refused, like a malformed field.
+`runs`, optional, lists what the card runs: test paths, trailing `/**` globs, and `layer:<id>` entries,
+each naming a layer of `scripts/core/layer-map.json` and standing for the tests of that layer. A card
+with no `runs` field runs the tests of the layers of its touches. The older `Runs: <path>, <path>` line
+is read the same way. A `touches` entry that `runs` also names does not count towards launch overlap
+between two cards, and a changed test that `runs` covers is not outside the card. An entry that is no
+test, tree of tests or layer is marked `unclear:`, and a `runs:` line in a card that is not a JSON list
+of paths, globs and layers, or that names an id the layer map does not hold, is refused, like a
+malformed field.
 
 A later admission or `--amend` admits a changed field with no decision in four cases: `test` narrows to
 a name the old `test` matches or gains a name where it had none, a named test moves to another file, the
@@ -2209,12 +2214,23 @@ not a card number, is refused with exit `1`. The published CLI has no bus and so
 **Amending an admitted card.** `construct-intake --amend <#N>` edits the card in the bus with no file:
 it takes the body `--export` would print, applies the edits, and admits the result through the same
 checks as `--admit`, as a new `card.admitted` with source `amend`. `--touches` and `--creates` take
-`+<path>` to add and `-<path>` to remove, several comma-separated; `--note <line>` appends a line to the
-body; `--witness <old>=<new>` replaces one witness, and a weaker one is held as an owner wait exactly as
-under `--admit`; `--who shift|window` sets who takes the card. `--dry-run` prints the amended body and
-writes no event. The card number is the one `--amend` names; a card the bus never admitted, a removal of
-a path the card does not name, a witness the card does not hold, or an `--amend` with no edit is refused
-with exit `1`.
+`+<path>` to add and `-<path>` to remove, several as `+a,+b`, as `+a +b` or by repeating the flag; a
+removal that starts an argument is written `--touches=-<path>`, because a bare `-<path>` reads as a flag
+and is refused; `--note <line>` appends a line to the body; `--witness <old>=<new>` replaces one witness, and a weaker one
+is held as an owner wait exactly as under `--admit`; `--who shift|window` sets who takes the card. An edit
+recomputes the body's `risk:` line when it has one, and a change of touches recomputes its `runs:` line.
+`--dry-run` prints the amended body and writes no event. The card number is the one `--amend` names; a
+card the bus never admitted, a removal of a path the card does not name, a witness the card does not hold,
+or an `--amend` with no edit is refused with exit `1`.
+
+**Amending by request.** `pnpm bus:request amend --card <N>` makes the same edit in the bus, this
+repository's bus-wired entry: `--touches`, `--add-witness <witness>` and `--remove-witness <witness>` (the
+witness JSON and its id on a card with witness fields, the text or `W<n>` on a card with a list; each
+repeatable), `--owner-words <text>`, appended verbatim as `Owner, verbatim: "<text>"`, and
+`--depends +#<N>,-#<N>`. The bus runs the checks of `--admit`, recomputes `risk:` and `runs:`, keeps the
+card in its lane and then runs the lane check; no file is written, and `--export` stays a read. A
+correction the checks would make waits for `--auto-confirm`; a refused edit or a witness downgrade
+admits nothing and is answered with `request.refused` and its reason.
 
 **Unclear is written down.** A missing `contour` becomes `ladder` and a missing `decision` of an
 `implement` card becomes `owner`, and each default is written into the card as an `unclear:` line under

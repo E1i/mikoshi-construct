@@ -1,10 +1,11 @@
 import type { Lease } from '../../core/lease.js'
 import type { DetectionMode, Scope } from '../../core/node.js'
 import type { QueuedTask } from '../../core/queue.js'
-import type { AnswerOutcome } from '../../nodes/answer/answer-executor.js'
+import type { AnswerOutcome, ShardDecider, ShardDecision } from '../../nodes/answer/answer-executor.js'
 import type { AnswerNodeParts, AnswerRun, AnswerStep } from '../../nodes/answer/answer-worker.js'
 import type { Answered, Answerer } from '../../nodes/answer/answerer.js'
 import type { CardTreeTools } from '../../ports/card-tree.js'
+import type { Usage } from '../../ports/client/contract.js'
 import type { Isolation, IsolationReader } from '../../ports/isolation.js'
 import type { AnswerInput } from '../../ports/prompt-store.js'
 import type { LastHeartbeat } from '../../supervisor/heartbeat.js'
@@ -157,6 +158,7 @@ interface ShardIssue {
 
 const LIVE_DECISIONS: ShardIssue = { scope: DECISIONS_SCOPE, untilMs: 3_600_000 }
 const PARTIAL: IsolationReader = () => ({ level: 'partial', mechanism: 'claude-code-sandbox', gaps: [] })
+const WINDOW_DECISION: ShardDecision = { answer: 'leave the settings alone and finish inside the touches' }
 
 function questionUnderShard(made: MergeBench, now: Date, shard: ShardIssue | null): { trees: string, lease: () => Lease } {
   const trees = mkdtempSync(path.join(tmpdir(), 'bus-answer-shard-'))
@@ -181,10 +183,10 @@ function askingAnswerer(question: string): Answerer {
   }
 }
 
-async function askedUnderShard(made: MergeBench, question: string, isolation?: IsolationReader, shard: ShardIssue | null = LIVE_DECISIONS): Promise<AnswerOutcome> {
+async function askedUnderShard(made: MergeBench, question: string, isolation?: IsolationReader, shard: ShardIssue | null = LIVE_DECISIONS, shardDecider: ShardDecider = () => WINDOW_DECISION, answerer: Answerer = askingAnswerer(question)): Promise<AnswerOutcome> {
   const { trees, lease } = questionUnderShard(made, made.clock.now(), shard)
   const cardTrees: CardTreeTools = { home: trees, exists: existsSync, branchOf: pr => `feat/card-${pr}`, recreate: () => {}, bringTo: () => {} }
-  const executor = new AnswerExecutor({ db: made.db, answerer: askingAnswerer(question), ownerMerges: () => OWNER_MERGES, clock: made.clock.now, trees: cardTrees, isolation })
+  const executor = new AnswerExecutor({ db: made.db, answerer, ownerMerges: () => OWNER_MERGES, clock: made.clock.now, trees: cardTrees, isolation, shardDecider })
   return executor.answer(lease())
 }
 
@@ -467,8 +469,49 @@ describe('the answer node', () => {
     const made = bench()
     const outcome = await askedUnderShard(made, OWNER_QUESTION, PARTIAL)
     expect(outcome).toEqual({ kind: 'decided', taskKey: expect.any(String) as unknown, shard: 'ws-1', question: OWNER_QUESTION })
-    expect(eventsOf(made.db, SHARD_DECIDED)).toEqual([{ shard: 'ws-1', question: OWNER_QUESTION, ground: expect.stringContaining('partial isolation') as unknown, options: expect.any(Array) as unknown }])
+    expect(eventsOf(made.db, SHARD_DECIDED)).toEqual([{ shard: 'ws-1', question: OWNER_QUESTION, ground: expect.stringContaining('partial isolation') as unknown, options: expect.any(Array) as unknown, answer: WINDOW_DECISION.answer }])
     expect(eventsOf(made.db, CARD_STOPPED).map(each => each.reason)).toEqual(['question.agent'])
+  })
+
+  it('a shard decision with no decision text is refused and the card holds for the window', async () => {
+    for (const shardDecider of [() => null, () => ({ answer: '  ' })]) {
+      const made = bench()
+      let rounds = 0
+      const asking = askingAnswerer(OWNER_QUESTION)
+      const outcome = await askedUnderShard(made, OWNER_QUESTION, PARTIAL, LIVE_DECISIONS, shardDecider, async (request) => {
+        rounds += 1
+        return asking(request)
+      })
+      const detail = expect.stringContaining('held for the window under the merge+decisions shard ws-1') as unknown
+      expect(outcome).toMatchObject({ kind: 'stopped', reason: 'question.owner', detail })
+      expect(rounds).toBe(1)
+      expect(eventsOf(made.db, SHARD_DECIDED)).toEqual([])
+      expect(eventsOf(made.db, OWNER_WAIT_OPENED)).toHaveLength(1)
+    }
+  })
+
+  it('the session receives the decision text of shard.decided', async () => {
+    const made = bench()
+    const details: string[] = []
+    const asking = askingAnswerer(OWNER_QUESTION)
+    const decider: ShardDecider = () => ({ answer: WINDOW_DECISION.answer, doneBy: 'the window' })
+    await askedUnderShard(made, OWNER_QUESTION, PARTIAL, LIVE_DECISIONS, decider, async (request) => {
+      if (request.source.kind === 'question')
+        details.push(request.source.detail)
+      return asking(request)
+    })
+    const [decided] = eventsOf(made.db, SHARD_DECIDED)
+    expect(decided).toMatchObject({ answer: WINDOW_DECISION.answer, doneBy: 'the window' })
+    expect(details.at(-1)).toContain(String(decided!.answer))
+    expect(details.at(-1)).toContain('the window does it, not this session')
+  })
+
+  it('a question the session asks again after a decision it could not act on holds for the window', async () => {
+    const made = bench()
+    const outcome = await askedUnderShard(made, OWNER_QUESTION, PARTIAL, LIVE_DECISIONS, () => WINDOW_DECISION, async () => ({ session: 'card-session-1', resumed: true, before: sha('a'), after: sha('a'), owner: OWNER_QUESTION }))
+    expect(outcome).toMatchObject({ kind: 'stopped', reason: 'question.owner', detail: expect.stringContaining('held for the window') as unknown })
+    expect(eventsOf(made.db, SHARD_DECIDED)).toHaveLength(1)
+    expect(eventsOf(made.db, OWNER_WAIT_OPENED)).toHaveLength(1)
   })
 
   it('a refused owner question stops the card as a question', async () => {
@@ -702,9 +745,10 @@ describe('the answer node', () => {
   })
 
   it('tokensOf sums the input, output and cache counts of a result usage and is null without one', () => {
-    expect(tokensOf({ input_tokens: 10, output_tokens: 200, cache_creation_input_tokens: 3_000, cache_read_input_tokens: 45_000 })).toBe(48_210)
-    expect(tokensOf({ output_tokens: 5 })).toBe(5)
-    expect(tokensOf({})).toBeNull()
+    const reported = (counts: Partial<Usage>): Usage => ({ input: null, cached: null, cacheWrite: null, output: null, reasoning: null, ...counts }) as unknown as Usage
+    expect(tokensOf(reported({ input: 10, output: 200, cacheWrite: 3_000, cached: 45_000 }))).toBe(48_210)
+    expect(tokensOf(reported({ output: 5 }))).toBe(5)
+    expect(tokensOf(reported({}))).toBeNull()
     expect(tokensOf(null)).toBeNull()
   })
 
@@ -765,7 +809,7 @@ describe('the answer node', () => {
     expect(eventsOf(made.db, OWNER_WAIT_OPENED)).toEqual([])
   })
 
-  it('the answer worker hands its isolation reader to the node and logs the question it decided under the shard', async () => {
+  it('the answer worker hands its isolation reader to the node, has no decision text of its own and logs the hold for the window', async () => {
     const made = bench()
     vi.useFakeTimers({ toFake: ['Date'], now: made.clock.now() })
     const log = vi.spyOn(console, 'log').mockImplementation(() => {})
@@ -774,8 +818,8 @@ describe('the answer node', () => {
     const run: AnswerRun = { busPath: ':memory:', answerer: askingAnswerer(OWNER_QUESTION), ownerMerges: () => OWNER_MERGES, cardText: () => null, session: 'worker-1', pause: async () => {}, isolation }
     await once(answerNodeOf(run, made.db, 'shadow'))
     expect(isolation).toHaveBeenCalled()
-    expect(eventsOf(made.db, SHARD_DECIDED)).toHaveLength(1)
-    expect(log).toHaveBeenCalledWith(expect.stringContaining(`decided under shard ws-1, the card goes on: ${OWNER_QUESTION}`))
+    expect(eventsOf(made.db, SHARD_DECIDED)).toEqual([])
+    expect(log).toHaveBeenCalledWith(expect.stringContaining(`${OWNER_QUESTION} (held for the window under the ${DECISIONS_SCOPE} shard ws-1`))
   })
 
   it('an answer stopped on no card tree is requeued and a leased answer of an old head keeps its lease and its card gets no second answer task', async () => {

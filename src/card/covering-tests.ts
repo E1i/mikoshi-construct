@@ -2,7 +2,7 @@ import path from 'node:path'
 import { FACTORY_FOLDERS, FACTORY_FORMER_FOLDERS, FACTORY_NAMED, FACTORY_ROOT, scopeOf } from '../../scripts/core/factory-paths.js'
 import { createdPaths } from './parking.js'
 import { PREFIX_SUFFIX } from './task-file.js'
-import { runsFieldOf } from './witness-fields.js'
+import { isLayerEntry, layerIdOf, runsFieldOf } from './witness-fields.js'
 
 function scannedBy(groups: readonly (readonly [readonly string[], readonly string[]])[]): Record<string, readonly string[]> {
   const trees: Record<string, string[]> = {}
@@ -23,8 +23,9 @@ export const NAMED_READERS: Readonly<Record<string, readonly string[]>> = {
   [RISK_RULE]: RISK_RULE_READERS,
 }
 export const SCANNED_TREES: Readonly<Record<string, readonly string[]>> = {
-  'src/': ['tests/dependency-policy.test.ts', 'tests/graph-command.test.ts', 'tests/every-source-has-a-reader.test.ts', 'tests/intake-command-word.test.ts', 'tests/delivery-boundary.test.ts', FACTORY_NAMED.eventsTest, FACTORY_NAMED.noParkingReadsTest, FACTORY_NAMED.journalGuardTest, FACTORY_NAMED.factoryPathsTest],
-  [`${FACTORY_ROOT}/`]: ['tests/graph-command.test.ts', FACTORY_NAMED.sqliteTest, FACTORY_NAMED.factoryPathsTest, FACTORY_NAMED.eventsTest, FACTORY_NAMED.noParkingReadsTest, FACTORY_NAMED.journalGuardTest],
+  'src/': ['tests/dependency-policy.test.ts', 'tests/graph-command.test.ts', 'tests/every-source-has-a-reader.test.ts', 'tests/intake-command-word.test.ts', 'tests/delivery-boundary.test.ts', FACTORY_NAMED.eventsTest, FACTORY_NAMED.noParkingReadsTest, FACTORY_NAMED.journalGuardTest, FACTORY_NAMED.factoryPathsTest, FACTORY_NAMED.clientSealTest],
+  [`${FACTORY_ROOT}/`]: ['tests/graph-command.test.ts', FACTORY_NAMED.sqliteTest, FACTORY_NAMED.factoryPathsTest, FACTORY_NAMED.eventsTest, FACTORY_NAMED.noParkingReadsTest, FACTORY_NAMED.journalGuardTest, FACTORY_NAMED.clientSealTest],
+  'templates/ai/claude/': [FACTORY_NAMED.clientSealTest],
   ...scannedBy([
     [FACTORY_FOLDERS.sharedCode, [FACTORY_NAMED.layersTest]],
     [FACTORY_FORMER_FOLDERS.ghosts, [FACTORY_NAMED.ownerMergesTest]],
@@ -56,6 +57,8 @@ function coversByImport(file: string): boolean {
 }
 
 export function isTestScope(entry: string): boolean {
+  if (isLayerEntry(entry))
+    return true
   if (!entry.endsWith(PREFIX_SUFFIX))
     return coversByImport(entry)
   const scope = `${entry.slice(0, -PREFIX_SUFFIX.length)}/`
@@ -78,8 +81,16 @@ function runsOfLine(line: string): string[] {
   return line.slice(RUNS_PREFIX.length).split(',').map(entry => entry.trim()).filter(entry => entry !== '')
 }
 
+function runsEntriesOf(body: string): string[] {
+  return [...new Set([...runsFieldOf(body), ...body.split('\n').flatMap(line => runsOfLine(line.trim()))])]
+}
+
 export function runsOf(body: string): string[] {
-  return [...new Set([...runsFieldOf(body), ...body.split('\n').flatMap(line => runsOfLine(line.trim()))])].filter(isTestScope)
+  return runsEntriesOf(body).filter(entry => !isLayerEntry(entry) && isTestScope(entry))
+}
+
+export function layerMasksOf(body: string): string[] {
+  return runsEntriesOf(body).filter(isLayerEntry).map(layerIdOf)
 }
 
 export function runsCover(file: string, runs: readonly string[]): boolean {

@@ -3,7 +3,7 @@ import type { PrOpenedBus, TreePrCliPorts } from '../../nodes/launch/tree-pr-cli
 import type { TreeCard, TreePrPorts } from '../../nodes/launch/tree-pr.js'
 import type { ProcessTable } from '../../nodes/restart/chain-process.js'
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -324,7 +324,7 @@ describe('a stale base is not a stop', () => {
 
     const code = runTreePr(['951', tree.worktree], { ...busPorts(bus, cardText('cheap', ['docs/x.md'])), git, gh: openingGh(), resume: (_cardId, _worktree, prompt) => prompts.push(prompt) > 0 }, () => {})
 
-    expect({ code, events: refusalsOf(bus.busPath, 951), returns: prompts.length, task: prompts[0]?.includes(`merge origin/main; merge, not rebase), resolve every conflict in docs/x.md`), midMerge: git(tree.worktree, ['status', '--porcelain']) }).toEqual({ code: 1, events: [RETURNED('a:stale-base'), WAITED('a:stale-base')], returns: 1, task: true, midMerge: '' })
+    expect({ code, events: refusalsOf(bus.busPath, 951), returns: prompts.length, task: prompts[0]?.includes(`that merge stands in progress in ${tree.worktree}, with every owner path of architecture/owner-merges.md already at main's version: resolve every conflict in docs/x.md`), midMerge: git(tree.worktree, ['status', '--porcelain', '--', 'docs/x.md']) }).toEqual({ code: 1, events: [RETURNED('a:stale-base'), WAITED('a:stale-base')], returns: 1, task: true, midMerge: 'UU docs/x.md\n' })
   })
 
   it('the base moved twice in a row: no second return, a wait instead', () => {
@@ -349,6 +349,111 @@ describe('a stale base is not a stop', () => {
     const code = runTreePr(['951', tree.worktree], { ...busPorts(bus, cardText('cheap', ['docs/x.md'])), git, gh: openingGh(), resume: mergeAsTheSession }, () => {})
 
     expect({ code, events: refusalsOf(bus.busPath, 951), returns }).toEqual({ code: 1, events: [RETURNED('a:stale-base'), WAITED('a:stale-base')], returns: 1 })
+  })
+})
+
+describe('the bus takes owner paths from main in the fresh base merge', () => {
+  const OWNER_TABLE = readFileSync('architecture/owner-merges.md', 'utf8')
+  const HOOK = '.claude/hooks/guard.mjs'
+  const HOOKS_DIR = '.claude/hooks'
+  const HOOK_ON_MAIN = 'hook on main\n'
+
+  function commitOnCard(tree: CardTree, cardCommits: Record<string, string>): void {
+    write(tree.worktree, cardCommits)
+    git(tree.worktree, ['add', '-A'])
+    git(tree.worktree, ['commit', '-q', '-m', 'card'])
+  }
+
+  it('main changed an owner path and conflicts on a card file: the bus merges and leaves only the card file to the session', () => {
+    const tree = cardTree()
+    write(tree.worktree, { 'docs/x.md': 'mine\n' })
+    tree.moveMain({ 'architecture/owner-merges.md': OWNER_TABLE, [HOOK]: HOOK_ON_MAIN, 'docs/x.md': 'theirs\n' })
+    const bus = launchedBus(tree.root, [951])
+    const seen: { prompt: string, unmerged: string, hook: string }[] = []
+    const finishWithoutWritingTheOwnerPath = (_cardId: number, _worktree: string, prompt: string): boolean => {
+      seen.push({ prompt, unmerged: git(tree.worktree, ['diff', '--name-only', '--diff-filter=U']), hook: readFileSync(path.join(tree.worktree, HOOK), 'utf8') })
+      const hooks = path.join(tree.worktree, HOOKS_DIR)
+      chmodSync(hooks, 0o555)
+      try {
+        write(tree.worktree, { 'docs/x.md': 'mine and theirs\n' })
+        git(tree.worktree, ['add', 'docs/x.md'])
+        git(tree.worktree, ['commit', '-q', '--no-edit'])
+      }
+      finally {
+        chmodSync(hooks, 0o755)
+      }
+      return true
+    }
+
+    const code = runTreePr(['951', tree.worktree], { ...busPorts(bus, cardText('cheap', ['docs/x.md'])), git, gh: openingGh(), resume: finishWithoutWritingTheOwnerPath }, () => {})
+
+    expect({
+      code,
+      events: refusalsOf(bus.busPath, 951),
+      unmerged: seen[0]?.unmerged,
+      hookInTheSession: seen[0]?.hook,
+      promptNamesTheHook: seen[0]?.prompt.includes(HOOK),
+      hookPushed: git(tree.worktree, ['show', `origin/feat/x:${HOOK}`]),
+      cardFilePushed: git(tree.worktree, ['show', 'origin/feat/x:docs/x.md']),
+    }).toEqual({ code: 0, events: [RETURNED('a:stale-base'), PR], unmerged: 'docs/x.md\n', hookInTheSession: HOOK_ON_MAIN, promptNamesTheHook: false, hookPushed: HOOK_ON_MAIN, cardFilePushed: 'mine and theirs\n' })
+  })
+
+  it('a branch that changed an owner path gets the version of main from the bus merge', () => {
+    const tree = cardTree()
+    write(tree.worktree, { 'docs/x.md': 'mine\n', [HOOK]: 'hook on the branch\n' })
+    tree.moveMain({ 'architecture/owner-merges.md': OWNER_TABLE, [HOOK]: HOOK_ON_MAIN })
+    const bus = launchedBus(tree.root, [951])
+
+    const code = runTreePr(['951', tree.worktree], { ...busPorts(bus, cardText('cheap', ['docs/x.md'])), git, gh: openingGh(), resume: untouchable }, () => {})
+
+    expect({
+      code,
+      events: refusalsOf(bus.busPath, 951),
+      hookPushed: git(tree.worktree, ['show', `origin/feat/x:${HOOK}`]),
+      diffFromMain: git(tree.worktree, ['diff', '--name-only', 'origin/main', 'origin/feat/x']),
+      mergeSubject: git(tree.worktree, ['log', '-1', '--format=%s', 'origin/feat/x']),
+    }).toEqual({ code: 0, events: [PR], hookPushed: HOOK_ON_MAIN, diffFromMain: 'docs/x.md\n', mergeSubject: `Merge origin/main: owner paths at main's version over the branch's ${HOOK}\n` })
+  })
+
+  it('an owner path main removed is removed from the branch that changed it', () => {
+    const tree = cardTree()
+    tree.moveMain({ 'architecture/owner-merges.md': OWNER_TABLE, [HOOK]: HOOK_ON_MAIN })
+    git(tree.worktree, ['fetch', '-q', 'origin'])
+    git(tree.worktree, ['merge', '-q', '--no-edit', 'origin/main'])
+    write(tree.worktree, { 'docs/x.md': 'mine\n', [HOOK]: 'hook on the branch\n' })
+    const upstream = path.join(tree.root, 'upstream')
+    git(upstream, ['rm', '-q', HOOK])
+    tree.moveMain({ 'docs/y.md': 'theirs\n' })
+    const bus = launchedBus(tree.root, [951])
+
+    const code = runTreePr(['951', tree.worktree], { ...busPorts(bus, cardText('cheap', ['docs/x.md'])), git, gh: openingGh(), resume: untouchable }, () => {})
+
+    expect({ code, events: refusalsOf(bus.busPath, 951), hookPushed: git(tree.worktree, ['ls-tree', '--name-only', 'origin/feat/x', HOOK]) }).toEqual({ code: 0, events: [PR], hookPushed: '' })
+  })
+
+  it('an owner path only the branch changed stays for a card that declares it', () => {
+    const tree = cardTree()
+    write(tree.worktree, { [HOOK]: 'hook of the card\n' })
+    tree.moveMain({ 'architecture/owner-merges.md': OWNER_TABLE, 'docs/y.md': 'theirs\n' })
+    const bus = launchedBus(tree.root, [951])
+
+    const code = runTreePr(['951', tree.worktree], { ...busPorts(bus, cardText('cheap', [HOOK])), git, gh: openingGh(), resume: untouchable }, () => {})
+
+    expect({ code, events: refusalsOf(bus.busPath, 951), hookPushed: git(tree.worktree, ['show', `origin/feat/x:${HOOK}`]) }).toEqual({ code: 0, events: [PR], hookPushed: 'hook of the card\n' })
+  })
+
+  it('a merge a session started itself never returns an owner path to it', () => {
+    const tree = cardTree()
+    commitOnCard(tree, { 'docs/x.md': 'mine\n', [HOOK]: 'hook on the branch\n' })
+    tree.moveMain({ 'architecture/owner-merges.md': OWNER_TABLE, [HOOK]: HOOK_ON_MAIN, 'docs/x.md': 'theirs\n' })
+    git(tree.worktree, ['fetch', '-q', 'origin'])
+    expect(() => git(tree.worktree, ['merge', '-q', '--no-edit', 'origin/main'])).toThrow()
+    const bus = launchedBus(tree.root, [951])
+    const prompts: string[] = []
+
+    runTreePr(['951', tree.worktree], { ...busPorts(bus, cardText('cheap', ['docs/x.md'])), git, gh: openingGh(), resume: (_cardId, _worktree, prompt) => prompts.push(prompt) > 0 }, () => {})
+
+    expect({ promptNamesTheHook: prompts[0]?.includes(HOOK), cardFile: prompts[0]?.includes('resolve every conflict in docs/x.md'), hook: readFileSync(path.join(tree.worktree, HOOK), 'utf8') }).toEqual({ promptNamesTheHook: false, cardFile: true, hook: HOOK_ON_MAIN })
   })
 })
 

@@ -187,7 +187,8 @@ describe('the board tells the truth and hints', () => {
     const edd = /\n\.edd \{([\s\S]*?)\n\}/.exec(style)![1]!
     expect(edd).toMatch(/grid-template-columns: \S+ minmax\(0, 1fr\) max-content;/)
     expect(style).toMatch(/\.edd-v \{[^}]*white-space: nowrap/)
-    expect(style).not.toMatch(/text-overflow|overflow: hidden/)
+    const outsideTheCardDialog = style.replace(/\ndialog\.drill \{[\s\S]*?\n\}/, '')
+    expect(outsideTheCardDialog).not.toMatch(/text-overflow|overflow: hidden/)
   })
 
   it('the header version is the version of the running construct', () => {

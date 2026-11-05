@@ -8,7 +8,7 @@ CREATE TABLE card_bodies (card_id INTEGER PRIMARY KEY, lane TEXT, card_line TEXT
 CREATE TABLE prs (pr INTEGER PRIMARY KEY, card_id INTEGER, state TEXT, verdict_on_head TEXT);
 CREATE TABLE tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, queue TEXT NOT NULL, card_id INTEGER NOT NULL, pr INTEGER, head TEXT, state TEXT NOT NULL);
 CREATE TABLE roles (role TEXT PRIMARY KEY, status TEXT NOT NULL, state TEXT NOT NULL);
-CREATE TABLE decisions (decision_id INTEGER PRIMARY KEY, text TEXT NOT NULL, scope TEXT, event_id INTEGER);
+CREATE TABLE decisions (decision_id INTEGER PRIMARY KEY, text TEXT NOT NULL, scope TEXT, event_id INTEGER, until TEXT, supersedes TEXT, state TEXT NOT NULL DEFAULT 'in-force');
 CREATE TABLE heartbeats (process TEXT NOT NULL, type TEXT NOT NULL, ts TEXT NOT NULL, payload TEXT NOT NULL, PRIMARY KEY (process, type));
 CREATE TABLE owner_waits (id TEXT PRIMARY KEY, need TEXT NOT NULL, text TEXT NOT NULL, command TEXT, card_id INTEGER, pr INTEGER, state TEXT NOT NULL, answer TEXT, opened_at TEXT NOT NULL, event_id INTEGER NOT NULL);
 `
