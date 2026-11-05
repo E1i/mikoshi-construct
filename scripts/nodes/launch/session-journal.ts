@@ -7,7 +7,7 @@ export interface TreeFile {
 
 type JournalChange = { kind: 'write', content: string, at: number } | { kind: 'edit', oldString: string, newString: string, replaceAll: boolean, at: number }
 
-interface FormatterRun {
+interface CommandRun {
   startedAt: number
   endedAt: number
 }
@@ -15,7 +15,7 @@ interface FormatterRun {
 export interface SessionJournal {
   end: number
   changes: ReadonlyMap<string, JournalChange[]>
-  formatterRuns: readonly FormatterRun[]
+  commandRuns: readonly CommandRun[]
 }
 
 interface ToolUse {
@@ -31,8 +31,6 @@ interface ToolResult {
 }
 
 const JOURNALED_TOOLS: ReadonlySet<string> = new Set(['Write', 'Edit', 'Bash'])
-
-const FORMATTER_COMMAND = /^pnpm(?: --dir (\S+))?(?: run)? lint:fix$/
 
 const PLAIN_SESSION = /^[\w-]+$/
 
@@ -52,16 +50,6 @@ function changeOf(use: ToolUse, at: number): JournalChange | null {
   if (typeof input.old_string !== 'string' || typeof input.new_string !== 'string')
     return null
   return { kind: 'edit', oldString: input.old_string, newString: input.new_string, replaceAll: input.replace_all === true, at }
-}
-
-function isFormatterRun(input: Record<string, unknown>, worktree: string): boolean {
-  if (typeof input.command !== 'string' || input.run_in_background === true)
-    return false
-  const form = FORMATTER_COMMAND.exec(input.command)
-  if (form === null)
-    return false
-  const tree = form[1]
-  return tree === undefined || path.resolve(worktree, tree) === path.resolve(worktree)
 }
 
 export function parseSessionJournal(text: string, worktree: string): SessionJournal {
@@ -85,16 +73,18 @@ export function parseSessionJournal(text: string, worktree: string): SessionJour
   if (end === Number.NEGATIVE_INFINITY)
     throw new Error('the session journal holds no timestamped entry')
   const changes = new Map<string, JournalChange[]>()
-  const formatterRuns: FormatterRun[] = []
+  const commandRuns: CommandRun[] = []
   for (const use of uses) {
     const result = results.get(use.id)
-    if (result === undefined || result.failed)
+    if (result === undefined)
       continue
     if (use.name === 'Bash') {
-      if (isFormatterRun(use.input, worktree))
-        formatterRuns.push({ startedAt: use.at, endedAt: result.at })
+      if (use.input.run_in_background !== true)
+        commandRuns.push({ startedAt: use.at, endedAt: result.at })
       continue
     }
+    if (result.failed)
+      continue
     const file = use.input.file_path
     if (typeof file !== 'string')
       continue
@@ -104,7 +94,7 @@ export function parseSessionJournal(text: string, worktree: string): SessionJour
     const relative = path.relative(worktree, path.resolve(worktree, file))
     changes.set(relative, [...(changes.get(relative) ?? []), change])
   }
-  return { end, changes, formatterRuns }
+  return { end, changes, commandRuns }
 }
 
 function replayed(content: string, edits: JournalChange[]): string | null {
@@ -117,17 +107,21 @@ function replayed(content: string, edits: JournalChange[]): string | null {
   return text
 }
 
+function changedInACommandRun(journal: SessionJournal, mtimeMs: number): boolean {
+  return journal.commandRuns.some(run => run.startedAt <= mtimeMs && mtimeMs <= run.endedAt)
+}
+
 export function journalDoubt(journal: SessionJournal, relative: string, file: TreeFile | null): string | null {
   const changes = journal.changes.get(relative) ?? []
   const last = changes.at(-1)
+  if (file !== null && file.mtimeMs > (last?.at ?? Number.NEGATIVE_INFINITY) && changedInACommandRun(journal, file.mtimeMs))
+    return null
   if (last === undefined)
     return 'the session journal holds no Write or Edit of it'
   if (file === null)
     return 'it is gone or unreadable, and the session journal holds no deletion of it'
   if (file.mtimeMs > journal.end)
     return 'it changed after the session ended'
-  if (journal.formatterRuns.some(run => run.startedAt > last.at && run.startedAt <= file.mtimeMs && file.mtimeMs <= run.endedAt))
-    return null
   const lastWrite = changes.map(change => change.kind).lastIndexOf('write')
   const written = changes[lastWrite]
   if (written?.kind === 'write')
@@ -135,6 +129,6 @@ export function journalDoubt(journal: SessionJournal, relative: string, file: Tr
   if (last.kind !== 'edit' || !file.content.includes(last.newString))
     return 'its content lacks the session\'s last Edit of it'
   if (file.mtimeMs > last.at)
-    return 'it changed after the session\'s last Edit of it, by a Bash command or another writer'
+    return 'it changed after the session\'s last Edit of it, outside every command of the session'
   return null
 }
