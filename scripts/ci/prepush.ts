@@ -1,5 +1,6 @@
 import type { SpawnSyncReturns } from 'node:child_process'
-import type { Run } from './layers.js'
+import type { CardRuns } from './card-runs.js'
+import type { Graph, Run } from './layers.js'
 import type { SandboxFailing } from './sandbox-failing.js'
 import type { Stale } from './sandbox-liveness.js'
 import type { VitestRun } from './test-command.js'
@@ -7,8 +8,10 @@ import { spawnSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
+import { withinTouches } from '../../src/card/covering-tests.js'
 import { heavyStep } from '../quality/lock.js'
-import { selectRun } from './layers.js'
+import { branchCardRuns } from './card-runs.js'
+import { isTest, selectRun } from './layers.js'
 import { SANDBOX_FAILING } from './sandbox-failing.js'
 import { listedFiles, livenessApplies, runTraced, staleInSandbox, staleLines } from './sandbox-liveness.js'
 import { cruise, readTest, reportedRun, runSummary } from './select.js'
@@ -30,6 +33,22 @@ export type Verdict
 export interface Gate { lines: string[], code: number }
 
 const RAN = new Set(['passed', 'failed'])
+
+export function withCardRuns(run: Run, reading: CardRuns | null, graph: Graph): Run {
+  if (reading === null || run.kind === 'full')
+    return run
+  if ('full' in reading)
+    return { kind: 'full', why: `the card of the branch reads in full: ${reading.why}` }
+  const added = [...graph.keys()].filter(test => isTest(test) && withinTouches(test, reading.tests))
+  return { kind: 'layers', layers: [...new Set([...run.layers, ...reading.layers])].sort(), tests: [...new Set([...run.tests, ...added])].sort() }
+}
+
+function readingOfBranch(read: Git): CardRuns | null {
+  const found = branchCardRuns(read(['rev-parse', '--abbrev-ref', 'HEAD']).trim())
+  if (found.kind === 'unreadable')
+    console.log(`prepush: the card of the branch could not be read, the selection stays the changed paths': ${found.why}`)
+  return found.kind === 'card' ? found.reading : null
+}
 
 export function ciArgs(run: Run): string[] {
   return run.kind === 'layers' ? [...run.tests, PASS_WITH_NO_TESTS, RETRY] : [RETRY]
@@ -170,7 +189,8 @@ async function main(): Promise<number> {
       return clean.code
     }
     changed = changesSince(git, round)
-    run = reportedRun(changed.length === 0 ? selectRun([], new Map(), () => '') : selectRun(changed, cruise(), readTest))
+    const graph = changed.length === 0 ? new Map() : cruise()
+    run = reportedRun(withCardRuns(selectRun(changed, graph, readTest), readingOfBranch(git), graph))
   }
   catch (error) {
     console.log(brokenGate(`the CI selector did not run: ${error instanceof Error ? error.message : String(error)}`).lines.join('\n'))

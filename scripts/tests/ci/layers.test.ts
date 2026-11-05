@@ -248,8 +248,8 @@ describe('the CI selector reads its layers from the one layer map', () => {
       expect([file, layerOf(file)]).toEqual([file, layer])
   })
 
-  it('a file two folders of the map claim belongs to no layer', () => {
-    expect(layerIn({ files: {}, folders: { 'scripts/': 'scripts', 'scripts/core/': 'core' } }, 'scripts/core/db.ts')).toBeNull()
+  it('a file two folders of the map claim belongs to both layers', () => {
+    expect(layerIn({ files: {}, folders: { 'scripts/': 'scripts', 'scripts/core/': 'core' } }, 'scripts/core/db.ts')).toBe('core,scripts')
   })
 })
 
