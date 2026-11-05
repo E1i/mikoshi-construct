@@ -360,7 +360,7 @@ describe('the line this session crossed is the stop, by the record of the hook',
     expect(notAtAStopRefusal(readings)).toContain('budget-warn of this session unknown (.construct/eddies.jsonl)')
   })
 
-  it('in a tab window the crossed line still ends nothing', () => {
+  it('a tab window the hook warned on context ends nothing and prints TAB_THRESHOLD', () => {
     const outcome = exit({ tab: true, table: () => outsideLoop, readings: () => compactedSession([journalLine({})]) })
     expect(outcome).toMatchObject({ code: 1, kills: [], recorded: [] })
     expect(outcome.lines).toEqual([`[miko] ${TAB_THRESHOLD}`])
