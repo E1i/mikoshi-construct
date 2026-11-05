@@ -22,9 +22,15 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cache/ms-playwright
+            ~/.construct/browser-lab/npm-cache
+          key: browser-${{ runner.os }}-playwright-core@1.62.1-@playwright/cli@0.1.17
       - run: |
           export npm_config_cache="$HOME/.construct/browser-lab/npm-cache"
-          npx --yes --package playwright-core@1.62.1 -c 'playwright-core install --with-deps chromium'
+          npx --yes --package playwright-core@1.62.1 -c 'playwright-core install chromium'
           npx --yes --package @playwright/cli@0.1.17 -c 'playwright-cli install-browser chromium'
         env:
           npm_config_registry: https://registry.npmjs.org/
