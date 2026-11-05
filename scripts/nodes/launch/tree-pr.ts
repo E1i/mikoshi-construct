@@ -8,13 +8,15 @@ import type { GhRunner } from '../../ports/gh.js'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { COVERING_REASON, layerMasksOf, runsCover, runsOf, TestCoverage, withinTouches } from '../../../src/card/covering-tests.js'
-import { admittedReachOf, COMPANION_TABLE, COMPOSITION_ROOT, FOLLOWING_REASON, followsTouches, neverFollows, PACKAGE_MANIFEST, publishedRootsOf } from '../../../src/commands/intake/check.js'
+import { admittedReachOf, COMPANION_TABLE, COMPOSITION_ROOT, FOLLOWING_REASON, followsTouches, neverFollows, OWNER_MERGES, PACKAGE_MANIFEST, publishedRootsOf } from '../../../src/commands/intake/check.js'
 import { readShiftGate } from '../../../src/manifest.js'
 import { busCheckCatalog, cardReadingOf } from '../../ci/card-runs.js'
 import { parseCompositionModel } from '../../composition/model.js'
 import { VERIFICATION_WORDS } from '../../core/verification.js'
 import { classify, MorseRefusal } from '../../policy/morse/rules.js'
 import { MATRIX_COUNT_LINE, pathWithoutMatrix } from '../../policy/policy.js'
+import { matchGlob } from '../../policy/shredder/glob.js'
+import { ownerGlobs } from '../../policy/widening.js'
 import { changedFilesFrom } from '../../ports/diff.js'
 
 export const REFUSAL_REASONS = {
@@ -105,6 +107,7 @@ export function shiftTreeCard(task: ShiftTask, catalog: BusCatalog = busCheckCat
 }
 
 const PR_BASE = 'origin/main'
+const MERGE_HEAD = 'MERGE_HEAD'
 const SHIFTED_RANGE = `${PR_BASE}...HEAD`
 const PUBLISHED_CODE = COMPANION_TABLE.find(row => row.kind === 'published code') as CompanionRow
 const CHANGESET_FILE = /^\.changeset\/(?!readme\.md$)[^/]+\.md$/i
@@ -322,7 +325,7 @@ function conflictedFiles(git: TreePrPorts['git'], worktree: string): string[] {
 
 function mergeInProgress(git: TreePrPorts['git'], worktree: string): boolean {
   try {
-    git(worktree, ['rev-parse', '-q', '--verify', 'MERGE_HEAD'])
+    git(worktree, ['rev-parse', '-q', '--verify', MERGE_HEAD])
     return true
   }
   catch {
@@ -330,21 +333,67 @@ function mergeInProgress(git: TreePrPorts['git'], worktree: string): boolean {
   }
 }
 
-function mergeFreshBase(git: TreePrPorts['git'], worktree: string): FreshBaseGap | null {
+function ownerGlobsOfMain(git: TreePrPorts['git'], worktree: string): string[] {
   try {
-    git(worktree, ['merge', '-q', '--no-edit', PR_BASE])
+    return ownerGlobs(git(worktree, ['show', `${PR_BASE}:${OWNER_MERGES}`]))
+  }
+  catch {
+    return []
+  }
+}
+
+function namesIn(listing: string): string[] {
+  return listing.split('\0').filter(file => file !== '')
+}
+
+function takeOwnerPathsFromMain(git: TreePrPorts['git'], worktree: string): string[] {
+  const globs = ownerGlobsOfMain(git, worktree)
+  const base = git(worktree, ['merge-base', 'HEAD', MERGE_HEAD]).trim()
+  const movedOnMain = namesIn(git(worktree, ['diff', '--no-renames', '--name-only', '-z', base, MERGE_HEAD]))
+  const taken = [...new Set([...movedOnMain, ...conflictedFiles(git, worktree)])].filter(file => globs.some(glob => matchGlob(glob, file)))
+  if (taken.length === 0)
+    return []
+  const onMain = new Set(namesIn(git(worktree, ['ls-tree', '-r', '--name-only', '-z', MERGE_HEAD, '--', ...taken])))
+  const kept = taken.filter(file => onMain.has(file))
+  const removed = taken.filter(file => !onMain.has(file))
+  const changedOnBranch = new Set(namesIn(git(worktree, ['diff', '--no-renames', '--name-only', '-z', base, 'HEAD'])))
+  if (kept.length > 0)
+    git(worktree, ['checkout', MERGE_HEAD, '--', ...kept])
+  if (removed.length > 0)
+    git(worktree, ['rm', '-q', '-f', '--ignore-unmatch', '--', ...removed])
+  return taken.filter(file => changedOnBranch.has(file))
+}
+
+function startFreshMerge(git: TreePrPorts['git'], worktree: string): FreshBaseGap | null {
+  try {
+    git(worktree, ['merge', '-q', '--no-edit', '--no-commit', PR_BASE])
     return null
   }
   catch (error) {
-    const files = conflictedFiles(git, worktree)
+    if (conflictedFiles(git, worktree).length > 0)
+      return null
     if (mergeInProgress(git, worktree))
       git(worktree, ['merge', '--abort'])
-    return { files, failure: files.length === 0 ? failureOf(error) : null }
+    return { files: [], failure: failureOf(error) }
   }
+}
+
+function mergeFreshBase(git: TreePrPorts['git'], worktree: string): FreshBaseGap | null {
+  const refused = startFreshMerge(git, worktree)
+  if (refused !== null || !mergeInProgress(git, worktree))
+    return refused
+  const replaced = takeOwnerPathsFromMain(git, worktree)
+  const left = conflictedFiles(git, worktree)
+  if (left.length > 0)
+    return { files: left, failure: null }
+  git(worktree, ['commit', '-q', '--no-edit', ...(replaced.length === 0 ? [] : ['-m', `Merge ${PR_BASE}: owner paths at main's version over the branch's ${replaced.join(', ')}`])])
+  return null
 }
 
 export function commitAndPush(git: TreePrPorts['git'], worktree: string, branch: string, commitMessage: string): Pushed {
   git(worktree, ['fetch', '-q', 'origin', 'main'])
+  if (mergeInProgress(git, worktree))
+    takeOwnerPathsFromMain(git, worktree)
   const leftUnmerged = conflictedFiles(git, worktree)
   if (leftUnmerged.length > 0)
     return { kind: 'conflict', files: leftUnmerged, failure: null }
@@ -368,8 +417,9 @@ export function freshBaseProblem(gap: FreshBaseGap): string {
 }
 
 export function freshBaseTask(worktree: string, gap: FreshBaseGap): string {
-  const settle = gap.failure === null ? `resolve every conflict in ${gap.files.join(', ')} keeping what the card asks for` : `clear what stopped it (${gap.failure}) without dropping the card's work`
-  return `merge a fresh ${PR_BASE} into the branch (git -C ${worktree} fetch origin main, then git -C ${worktree} merge ${PR_BASE}; merge, not rebase), ${settle}, and conclude the merge with git -C ${worktree} commit --no-edit`
+  if (gap.failure !== null)
+    return `clear what stopped the merge of a fresh ${PR_BASE} (${gap.failure}) without dropping the card's work, and leave the merge itself to the bus, which merges again when the session ends`
+  return `the bus started merging a fresh ${PR_BASE} into the branch and that merge stands in progress in ${worktree}, with every owner path of ${OWNER_MERGES} already at main's version: resolve every conflict in ${gap.files.join(', ')} keeping what the card asks for, stage each with git -C ${worktree} add, and conclude the merge with git -C ${worktree} commit --no-edit; start no new merge, abort nothing and write no owner path`
 }
 
 function staleBase(branch: string, worktree: string, gap: FreshBaseGap): TreePr {

@@ -6,6 +6,7 @@ import { parseParkingFile, WINDOW_WHO } from '../../../src/card/parking.js'
 import { NOT_A_BACKFILL } from '../../core/backfill-source.js'
 import { DEFERRED_CARD, unsatisfiedDependencies } from '../../core/card-automaton.js'
 import { bodyNotFoldedYet } from '../../core/card-bodies.js'
+import { cardHoldOf } from '../../core/card-hold.js'
 import { CARD_ADMITTED, CARD_CLOSED, CARD_DROPPED, CARD_FELL, CARD_STARTED, CARD_STOPPED, GHOST_ROW, PR_CLOSED, PR_OBSERVED, PR_OPENED, SESSION_HEARTBEAT, TASK_REQUEUED } from '../../core/events.js'
 import { prOf } from '../../core/identifiers.js'
 import { namesQueueLive } from '../../policy/live-decision.js'
@@ -378,7 +379,7 @@ export function startableCards(db: DatabaseSync, treeLive: TreeReader = existsSy
   const holds = holdsOf(db, lives, merged, openPrs)
   const prNumbers = openPrNumbers(db)
   return [...lives.values()]
-    .filter(life => !noLongerCandidates.has(life.cardId) && !life.windowsToWork && (falls.get(life.cardId) ?? 0) < FALLS_BEFORE_CUT && isQueued(life, settled) && unsatisfied(life.depends).length === 0 && !heldOutside(life, openPrs, trees, beating))
+    .filter(life => !noLongerCandidates.has(life.cardId) && !life.windowsToWork && (falls.get(life.cardId) ?? 0) < FALLS_BEFORE_CUT && isQueued(life, settled) && unsatisfied(life.depends).length === 0 && !heldOutside(life, openPrs, trees, beating) && cardHoldOf(db, life.cardId) === null)
     .map(life => ({ cardId: life.cardId, admittedTs: life.admittedTs, hold: holdOf(life, holds, prNumbers, shared) }))
 }
 
@@ -416,7 +417,7 @@ export function launchCandidates(db: DatabaseSync, treeLive: TreeReader = exists
   const chosen: LaunchCandidate[] = []
   const open = [...lives.values()].filter(life => !noLongerCandidates.has(life.cardId))
   for (const life of open.sort(startOrder(open))) {
-    if (life.windowsToWork || (falls.get(life.cardId) ?? 0) >= FALLS_BEFORE_CUT)
+    if (life.windowsToWork || (falls.get(life.cardId) ?? 0) >= FALLS_BEFORE_CUT || cardHoldOf(db, life.cardId) !== null)
       continue
     if (reviewDue(life, settled)) {
       if (!launching.has(life.cardId))
