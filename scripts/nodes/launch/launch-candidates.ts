@@ -4,7 +4,7 @@ import type { ShiftTask } from '../../../src/card/task-file.js'
 import { existsSync } from 'node:fs'
 import { parseParkingFile, WINDOW_WHO } from '../../../src/card/parking.js'
 import { NOT_A_BACKFILL } from '../../core/backfill-source.js'
-import { unsatisfiedDependencies } from '../../core/card-automaton.js'
+import { DEFERRED_CARD, unsatisfiedDependencies } from '../../core/card-automaton.js'
 import { bodyNotFoldedYet } from '../../core/card-bodies.js'
 import { CARD_ADMITTED, CARD_CLOSED, CARD_DROPPED, CARD_FELL, CARD_STARTED, CARD_STOPPED, GHOST_ROW, PR_CLOSED, PR_OBSERVED, PR_OPENED, SESSION_HEARTBEAT, TASK_REQUEUED } from '../../core/events.js'
 import { prOf } from '../../core/identifiers.js'
@@ -15,6 +15,8 @@ import { taskConflicts } from './overlap.js'
 import { sharedAppendFiles } from './shared-files.js'
 
 export const FALLS_BEFORE_CUT = 2
+export const PLANNED_STALL_MINUTES = 15
+const MINUTE_MS = 60_000
 
 export type Contour = 'cheap' | 'ladder'
 
@@ -53,9 +55,11 @@ const OPEN_LAUNCHES = `SELECT card_id FROM tasks WHERE queue = 'launch' AND stat
 
 const OPEN_PR_CARDS = `SELECT DISTINCT card_id FROM prs WHERE state = 'open' AND card_id IS NOT NULL`
 
+const OPEN_PR_NUMBERS = `SELECT card_id, pr FROM prs WHERE state = 'open' AND card_id IS NOT NULL ORDER BY pr DESC`
+
 const ENDED_CARDS = `SELECT card_id FROM cards WHERE state IN ('dropped', 'closed', 'merged', 'stopped')`
 
-const NO_LONGER_CANDIDATES = `SELECT card_id FROM cards WHERE state IN ('dropped', 'closed', 'merged')`
+const NO_LONGER_CANDIDATES = `SELECT card_id FROM cards WHERE state IN ('dropped', 'closed', 'merged', '${DEFERRED_CARD}')`
 
 const STARTED_TREES = `
   SELECT card_id, json_extract(payload, '$.worktree') AS worktree FROM events
@@ -148,6 +152,10 @@ function parkedOf(row: LifeRow, payload: Record<string, unknown>): ParkedTask | 
 
 function conflicting(task: ShiftTask | null, other: ShiftTask | null, shared: readonly string[]): boolean {
   return task !== null && other !== null && taskConflicts([other, task], shared).length > 0
+}
+
+function overlappingPath(task: ShiftTask, other: ShiftTask | null, shared: readonly string[]): string {
+  return task.touches.find(touch => conflicting({ ...task, touches: [touch] }, other, shared)) ?? task.touches[0]!
 }
 
 function overlapsAny(task: ShiftTask | null, taken: readonly ShiftTask[], shared: readonly string[]): boolean {
@@ -279,6 +287,11 @@ function continuedTree(life: CardLife, trees: Map<number, string>): { continueIn
 
 export type OverlapCatch = (cardId: number, generation: string) => void
 
+export interface LaunchCatch {
+  (cardId: number, generation: string): void
+  skipped: (cardId: number, reason: string) => void
+}
+
 function withAssignedLanes(db: DatabaseSync, lives: Map<number, CardLife>): Map<number, CardLife> {
   for (const life of lives.values())
     life.lane = currentLane(db, life.cardId) ?? life.lane
@@ -310,9 +323,23 @@ function holdsOf(db: DatabaseSync, lives: ReadonlyMap<number, CardLife>, merged:
 }
 
 export type StartableHold
-  = { kind: 'open-pr' | 'session', cardId: number }
+  = { kind: 'open-pr', pr: number, path: string }
+    | { kind: 'session', cardId: number, path: string }
     | { kind: 'lane', cardId: number, lane: string }
-    | { kind: 'nothing' }
+    | { kind: 'slots' }
+
+export function holdReason(hold: StartableHold): string {
+  switch (hold.kind) {
+    case 'open-pr':
+      return `overlap with open PR #${hold.pr} on ${hold.path}`
+    case 'session':
+      return `overlap with the session of #${hold.cardId} on ${hold.path}`
+    case 'lane':
+      return `#${hold.cardId} at the head of ${hold.lane}`
+    case 'slots':
+      return 'occupied slots'
+  }
+}
 
 export interface StartableCard {
   cardId: number
@@ -320,15 +347,22 @@ export interface StartableCard {
   hold: StartableHold
 }
 
-function holdOf(life: CardLife, holds: Holds, openPrs: ReadonlySet<number>, shared: readonly string[]): StartableHold {
+function openPrNumbers(db: DatabaseSync): Map<number, number> {
+  return new Map((db.prepare(OPEN_PR_NUMBERS).all() as { card_id: number, pr: number }[]).map(row => [row.card_id, row.pr]))
+}
+
+function holdOf(life: CardLife, holds: Holds, openPrs: ReadonlyMap<number, number>, shared: readonly string[]): StartableHold {
   const overlapping = holds.holding.find(holder => holder.cardId !== life.cardId && conflicting(life.task, holder.task, shared))
-  if (overlapping !== undefined)
-    return { kind: openPrs.has(overlapping.cardId) ? 'open-pr' : 'session', cardId: overlapping.cardId }
+  if (overlapping !== undefined) {
+    const path = overlappingPath(life.task!, overlapping.task, shared)
+    const pr = openPrs.get(overlapping.cardId)
+    return pr === undefined ? { kind: 'session', cardId: overlapping.cardId, path } : { kind: 'open-pr', pr, path }
+  }
   if (life.lane === null)
-    return { kind: 'nothing' }
+    return { kind: 'slots' }
   const stalling = (holds.heldByStalls.get(life.lane) ?? []).find(holder => heldByStall(life, [holder], shared))
   const keeping = stalling ?? holds.busy.find(holder => holder.lane === life.lane && holder.cardId !== life.cardId)
-  return keeping === undefined ? { kind: 'nothing' } : { kind: 'lane', cardId: keeping.cardId, lane: life.lane }
+  return keeping === undefined ? { kind: 'slots' } : { kind: 'lane', cardId: keeping.cardId, lane: life.lane }
 }
 
 export function startableCards(db: DatabaseSync, treeLive: TreeReader = existsSync, now: () => number = Date.now, shared: readonly string[] = sharedAppendFiles()): StartableCard[] {
@@ -342,12 +376,30 @@ export function startableCards(db: DatabaseSync, treeLive: TreeReader = existsSy
   const noLongerCandidates = cardSet(db, NO_LONGER_CANDIDATES)
   const falls = fallCounts(db)
   const holds = holdsOf(db, lives, merged, openPrs)
+  const prNumbers = openPrNumbers(db)
   return [...lives.values()]
     .filter(life => !noLongerCandidates.has(life.cardId) && !life.windowsToWork && (falls.get(life.cardId) ?? 0) < FALLS_BEFORE_CUT && isQueued(life, settled) && unsatisfied(life.depends).length === 0 && !heldOutside(life, openPrs, trees, beating))
-    .map(life => ({ cardId: life.cardId, admittedTs: life.admittedTs, hold: holdOf(life, holds, openPrs, shared) }))
+    .map(life => ({ cardId: life.cardId, admittedTs: life.admittedTs, hold: holdOf(life, holds, prNumbers, shared) }))
 }
 
-export function launchCandidates(db: DatabaseSync, treeLive: TreeReader = existsSync, now: () => number = Date.now, onOverlap: OverlapCatch = () => {}, shared: readonly string[] = sharedAppendFiles()): LaunchCandidate[] {
+export interface PlannedStall extends StartableCard {
+  minutes: number
+}
+
+export function plannedStalls(db: DatabaseSync, nowMs: number, treeLive: TreeReader = existsSync, shared: readonly string[] = sharedAppendFiles()): PlannedStall[] {
+  return startableCards(db, treeLive, () => nowMs, shared)
+    .map(card => ({ ...card, minutes: Math.floor((nowMs - Date.parse(card.admittedTs)) / MINUTE_MS) }))
+    .filter(card => card.minutes >= PLANNED_STALL_MINUTES)
+}
+
+function logSkips(db: DatabaseSync, onSkip: LaunchCatch['skipped'], launching: ReadonlySet<number>, nowMs: number, treeLive: TreeReader, shared: readonly string[]): void {
+  for (const card of plannedStalls(db, nowMs, treeLive, shared)) {
+    if (card.hold.kind !== 'slots' || launching.has(card.cardId))
+      onSkip(card.cardId, holdReason(card.hold))
+  }
+}
+
+export function launchCandidates(db: DatabaseSync, treeLive: TreeReader = existsSync, now: () => number = Date.now, onOverlap: OverlapCatch | LaunchCatch = () => {}, shared: readonly string[] = sharedAppendFiles()): LaunchCandidate[] {
   const lives = withAssignedLanes(db, cardLives(db))
   const merged = cardSet(db, MERGED_CARDS)
   const settled = settledCards(db, merged)
@@ -384,5 +436,7 @@ export function launchCandidates(db: DatabaseSync, treeLive: TreeReader = exists
       taken.push(life.task)
     chosen.push({ cardId: life.cardId, generation: life.generation, ...continuedTree(life, trees) })
   }
+  if ('skipped' in onOverlap)
+    logSkips(db, onOverlap.skipped, launching, now(), treeLive, shared)
   return chosen
 }

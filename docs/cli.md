@@ -2178,7 +2178,9 @@ nothing and names `pnpm intake --move`, so the published CLI, which has no bus, 
 a bus, the file is moved unchanged, so it is the same record with no new number, and the bus gets one
 event with no journal line. A move into a launch lane — `lane-*`, `night-*`, or a dated lane with a
 one-letter suffix such as `2026-10-30-a` — writes `card.moved`; a card the bus holds no `card.admitted` for
-is refused and the file goes back. A move into any other directory is a drop: `archive`, `dropped`,
+is refused and the file goes back. A move to `later` writes `card.deferred`: the card keeps its number and
+its depends, takes no lane position, does not start, and a card that depends on it keeps waiting; a later
+move to a launch lane returns it to the queue with no new intake. A move into any other directory is a drop: `archive`, `dropped`,
 `superseded`, a plain subdirectory such as `notes`, a dated directory with a word suffix such as
 `2026-10-30-folded`, and the root `.` all write `card.dropped` instead, which takes the card off the queue
 and ends it as `dropped` unless it is already merged, closed or dropped, and it is taken for a card the bus
