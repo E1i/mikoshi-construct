@@ -839,7 +839,7 @@ export function readTreeFile(file: string): TreeFile | null {
 
 const CARD_SESSIONS = `
   SELECT json_extract(payload, '$.session') AS session FROM events
-  WHERE legacy = 0 AND type IN ('${CARD_STARTED}', '${CARD_ANSWERED}') AND card_id = ? AND json_valid(payload) AND json_type(payload, '$.session') = 'text'
+  WHERE legacy = 0 AND type IN ('${CARD_STARTED}', '${CARD_CONTINUED}', '${CARD_ANSWERED}') AND card_id = ? AND json_valid(payload) AND json_type(payload, '$.session') = 'text'
   ORDER BY id
 `
 
