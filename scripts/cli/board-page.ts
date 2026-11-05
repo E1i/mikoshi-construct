@@ -1,6 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { WitnessField } from '../../src/card/witness-fields.js'
-import type { BusCard, BusFacts, BusMatrix, BusService, CardsAtStage, CardStage, OwnerWait } from '../../src/commands/board/bus.js'
+import type { BusCard, BusFacts, BusMatrix, BusService, CardsAtStage, CardStage, OwnerWait, SubagentReading } from '../../src/commands/board/bus.js'
 import type { CardMark, PlanProgress, ReleaseStage } from '../../src/commands/board/goal.js'
 import type { FactoryState } from '../../src/commands/liveness.js'
 import type { CheckCatalog } from '../ci/card-runs.js'
@@ -73,6 +73,7 @@ export interface EddiesLimits {
   contextLimit: number | null
   cardContextLine: number | null
   sessionSpend: number | null
+  agentSpend: number | null
   warnRatio: number | null
   modelWindows: ReadonlyMap<string, number>
 }
@@ -127,8 +128,8 @@ export interface BoardPage {
   warnings: BoardWarning[]
 }
 
-const NO_LIMITS: EddiesLimits = { contextLimit: null, cardContextLine: null, sessionSpend: null, warnRatio: null, modelWindows: new Map() }
 const LORE_NAMES: Record<string, string> = { window: 'Мико', review: 'ICE', matrix: 'ICE', bus: 'Subnet' }
+const NO_LIMITS: EddiesLimits = { contextLimit: null, cardContextLine: null, sessionSpend: null, agentSpend: null, warnRatio: null, modelWindows: new Map() }
 const RUNNER = 'Runner'
 const WINDOW_ROLE = 'window'
 const CARD_PREFIX = /^card:\s*/
@@ -198,7 +199,7 @@ function modelWindowsOf(value: unknown): ReadonlyMap<string, number> {
 export function readEddiesLimits(file: string = EDDIES_FILE): EddiesLimits {
   try {
     const config = JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown> | null
-    return config === null || typeof config !== 'object' ? NO_LIMITS : { contextLimit: positive(config.contextLimit), cardContextLine: positive(config.cardContextLine), sessionSpend: positive(config.sessionSpend), warnRatio: positive(config.warnRatio), modelWindows: modelWindowsOf(config.modelWindows) }
+    return config === null || typeof config !== 'object' ? NO_LIMITS : { contextLimit: positive(config.contextLimit), cardContextLine: positive(config.cardContextLine), sessionSpend: positive(config.sessionSpend), agentSpend: positive(config.agentSpend), warnRatio: positive(config.warnRatio), modelWindows: modelWindowsOf(config.modelWindows) }
   }
   catch {
     return NO_LIMITS
@@ -342,6 +343,28 @@ function tileDialog(service: BusService, page: BoardPage): string | null {
   return card !== undefined && page.details.has(Number(card)) ? cardDialog(Number(card)) : null
 }
 
+function compactOrNone(value: number | null): string {
+  return value === null ? NONE : compact(value)
+}
+
+function agentRow(agent: SubagentReading, at: string): string {
+  const pulse = agent.at === null ? NONE : PLAIN_LORE.boardAgentPulse(Math.max(0, Math.round((Date.parse(at) - Date.parse(agent.at)) / MINUTE_MS)))
+  return `<li><span class="svc-agent-name">${escaped(agent.name)}</span><span>CTX ${compactOrNone(agent.context)}</span><span>SPENT ${compactOrNone(agent.spent)}</span><span>${escaped(pulse)}</span></li>`
+}
+
+function agentsLine(service: BusService, page: BoardPage): string {
+  const agents = service.subagents ?? []
+  if (agents.length === 0)
+    return ''
+  const { agentSpend, warnRatio } = page.limits
+  const largest = Math.max(...agents.map(agent => agent.spent ?? 0))
+  const over = agentSpend !== null && warnRatio !== null && largest >= agentSpend * warnRatio
+  return [
+    `<button type="button" class="svc-agents" data-agents="${escaped(service.session ?? service.task)}" aria-expanded="false"${over ? ' data-over' : ''}>${escaped(PLAIN_LORE.boardAgentsLine(agents.length, compact(largest), compactOrNone(agentSpend)))}</button>`,
+    `<ul class="svc-agent-list" data-agents-list>${agents.map(agent => agentRow(agent, page.facts.at)).join('')}</ul>`,
+  ].join('')
+}
+
 function serviceTile(service: BusService, page: BoardPage): string {
   const gauges = gaugesOf(service, page)
   const bars = gauges == null
@@ -353,6 +376,7 @@ function serviceTile(service: BusService, page: BoardPage): string {
     `<div class="svc-top"><span class="svc-kind">${escaped(service.role)}</span><span class="lore">${LORE_NAMES[service.role] ?? RUNNER}</span><span class="svc-target">${escaped(service.task)}</span>${dialog === null ? '' : OPEN_HINT}</div>`,
     `<div class="svc-line">${escaped(PLAIN_LORE.boardServiceLine(service.role, service.task, service.tree ?? undefined, service.step))}</div>`,
     bars,
+    agentsLine(service, page),
     '</div>',
   ].join('')
 }
@@ -850,7 +874,7 @@ const SCRIPT = `
   var dialog = document.getElementById('${DRILL}')
   var content = document.getElementById('${DRILL_CONTENT}')
   var scroller = document.getElementById('${BACKLOG_SCROLL}')
-  var view = { filter: '', scroll: 0, open: null }
+  var view = { filter: '', scroll: 0, open: null, agents: {} }
   function save() {
     try { localStorage.setItem('${VIEW_KEY}', JSON.stringify(view)) }
     catch (error) {}
@@ -860,8 +884,23 @@ const SCRIPT = `
     if (typeof stored.filter === 'string') view.filter = stored.filter
     if (typeof stored.scroll === 'number') view.scroll = stored.scroll
     if (typeof stored.open === 'string') view.open = stored.open
+    if (stored.agents !== null && typeof stored.agents === 'object') view.agents = stored.agents
   }
   catch (error) {}
+  function stampAgents() {
+    var shown = {}
+    document.querySelectorAll('[data-agents]').forEach(function (line) {
+      shown[line.dataset.agents] = true
+      line.setAttribute('aria-expanded', view.agents[line.dataset.agents] ? 'true' : 'false')
+    })
+    Object.keys(view.agents).forEach(function (session) { if (!shown[session]) delete view.agents[session] })
+    save()
+  }
+  function toggleAgents(line) {
+    if (view.agents[line.dataset.agents]) delete view.agents[line.dataset.agents]
+    else view.agents[line.dataset.agents] = true
+    stampAgents()
+  }
   function open(name) {
     var template = document.getElementById('${DIALOG_PREFIX}' + name)
     if (!template) { view.open = dialog.open ? view.open : null; return }
@@ -873,12 +912,17 @@ const SCRIPT = `
   dialog.addEventListener('close', function () { view.open = null; save() })
   dialog.addEventListener('click', function (event) { if (event.target === dialog) dialog.close() })
   document.addEventListener('click', function (event) {
+    var line = event.target.closest && event.target.closest('[data-agents]')
+    if (line) { toggleAgents(line); return }
+    if (event.target.closest && event.target.closest('[data-agents-list]')) return
     var hit = event.target.closest && event.target.closest('[data-open]')
     if (hit) open(hit.dataset.open)
   })
   document.addEventListener('keydown', function (event) {
     if (event.key === 'Escape') { if (dialog.open) dialog.close(); return }
     if (event.metaKey || event.ctrlKey || event.altKey) return
+    var agents = event.target.closest && event.target.closest('[data-agents]')
+    if (agents && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); toggleAgents(agents); return }
     var hit = event.target.closest && event.target.closest('[data-open]')
     if (hit && hit.tagName !== 'BUTTON' && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); open(hit.dataset.open); return }
     if (event.key === 'h' || event.key === 'H') open('${HANDOFF_DIALOG}')
@@ -890,7 +934,7 @@ const SCRIPT = `
   else if (view.filter && document.getElementById(view.filter.slice(1))) location.hash = view.filter
   if (scroller) scroller.scrollTop = view.scroll
   if (view.open) open(view.open)
-  save()
+  stampAgents()
   function stale() {
     var live = document.getElementById('${BUS_LIVE}')
     if (live) { live.setAttribute('data-stale', ''); live.textContent = '${OFFLINE_READING}' }
@@ -914,6 +958,7 @@ const SCRIPT = `
       target.id = id
       backlog.prepend(target)
     })
+    stampAgents()
   }
   var written = document.body.dataset.written
   var period = Number(document.body.dataset.tickMs)
@@ -1105,6 +1150,25 @@ header.panel {
   &[data-hot] { --_bar: var(--amber); --_value: var(--amber); }
   &[data-over] { --_bar: var(--signal); --_value: var(--signal); }
 }
+.svc .svc-agents {
+  --_fg: var(--dim);
+  color: var(--_fg);
+  font-size: 0.72rem;
+  text-align: start;
+  &[data-over] { --_fg: var(--signal); }
+  &[aria-expanded="false"] + .svc-agent-list { display: none; }
+}
+.svc-agent-list {
+  display: grid;
+  gap: var(--space-xs);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--dim);
+  font-size: 0.72rem;
+  & li { display: flex; flex-wrap: wrap; gap: var(--space-s); }
+}
+.svc-agent-name { font-weight: 700; }
 .edd-k { text-transform: uppercase; letter-spacing: 0.08em; }
 .edd-v { margin: 0; justify-self: end; text-align: end; white-space: nowrap; color: var(--_value); }
 .edd-bar {
@@ -1306,7 +1370,7 @@ td.slug { color: var(--text); white-space: normal; min-inline-size: 16rem; }
   & .cursor::after { content: "\\2588"; color: var(--wire); margin-inline-start: 0.3em; animation: --animation-blink 1s steps(1) infinite; }
 }
 button { margin: 0; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; }
-[data-open], [data-link], .drill-close {
+[data-open], [data-link], [data-agents], .drill-close {
   cursor: pointer;
   color: var(--wire);
   text-decoration: none;
