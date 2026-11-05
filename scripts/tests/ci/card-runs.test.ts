@@ -30,8 +30,8 @@ describe('the runs of a card, read from the check catalog', () => {
     expect(cardRunsOf({ touches: ['src/a.ts', 'scripts/tests/bus/d.test.ts'], runs: [], masks: [] }, CATALOG)).toEqual({ layers: ['src'], paths: [], tests: ['scripts/tests/bus/d.test.ts', 'tests/a.test.ts', 'tests/b.test.ts'] })
   })
 
-  it('a layer entry expands to the files of that layer by the catalog', () => {
-    expect(cardRunsOf({ touches: ['scripts/core/c.ts'], runs: [], masks: ['bus'] }, CATALOG)).toEqual({ layers: ['bus'], paths: [], tests: ['scripts/tests/bus/d.test.ts'] })
+  it('a layer entry expands to the files of that layer by the catalog, and does not hide a touch outside it', () => {
+    expect(cardRunsOf({ touches: ['scripts/core/c.ts'], runs: [], masks: ['bus'] }, CATALOG)).toEqual({ layers: ['bus', 'core'], paths: [], tests: ['scripts/tests/bus/d.test.ts', 'scripts/tests/core/c.test.ts', 'tests/b.test.ts'] })
   })
 
   it('an explicit path the layers cover is folded in, and one they do not cover is kept apart', () => {
@@ -44,8 +44,9 @@ describe('the runs of a card, read from the check catalog', () => {
     expect(cardRunsOf({ touches: [], runs: ['tests/none/**'], masks: ['core'] }, CATALOG)).toMatchObject({ paths: ['tests/none/**'] })
   })
 
-  it('a card with a runs field ignores its touches, known or not', () => {
-    expect(cardRunsOf({ touches: ['docs/cli.md'], runs: ['tests/a.test.ts'], masks: [] }, CATALOG)).toEqual({ layers: [], paths: ['tests/a.test.ts'], tests: ['tests/a.test.ts'] })
+  it('a card with a runs field keeps a touch one run covers from adding its layers, and reads full for a touch no layer holds', () => {
+    expect(cardRunsOf({ touches: ['src/a.ts'], runs: ['tests/a.test.ts'], masks: [] }, CATALOG)).toEqual({ layers: [], paths: ['tests/a.test.ts'], tests: ['tests/a.test.ts'] })
+    expect(cardRunsOf({ touches: ['docs/cli.md'], runs: ['tests/a.test.ts'], masks: [] }, CATALOG)).toEqual({ full: true, why: expect.stringContaining('docs/cli.md') })
   })
 
   it('an unknown layer is refused and an empty catalog reads full rather than nothing', () => {
