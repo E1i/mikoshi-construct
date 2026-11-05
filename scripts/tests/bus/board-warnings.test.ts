@@ -221,7 +221,7 @@ function pageWritten(at: string, tickMs: number | null, warnings: BoardPage['war
     modelVersion: null,
     facts: factsAt(at),
     windowGauges: null,
-    limits: { contextLimit: null, cardContextLine: null, sessionSpend: null, warnRatio: null, modelWindows: new Map() },
+    limits: { contextLimit: null, cardContextLine: null, sessionSpend: null, agentSpend: null, warnRatio: null, modelWindows: new Map() },
     details: new Map(),
     decisions: [],
     handoff: { file: 'miko.md', text: null },
@@ -252,6 +252,7 @@ function openedAt(html: string, nowMs: number): { live: FakeLive, tick: (board: 
   const context: Record<string, unknown> = {
     document: {
       getElementById: (id: string) => id === 'bus-live' ? live : id === 'drill' || id === 'drill-content' ? quiet : null,
+      querySelectorAll: () => [],
       addEventListener: () => {},
       createElement: () => ({ remove: () => {}, onload: () => {}, src: '' }),
       head: { appendChild: (script: { onload: () => void, remove: () => void, src: string }) => appended.push(script) },
@@ -317,7 +318,7 @@ describe('the warnings strip', () => {
   it('with nothing to warn about the strip renders nothing and its slot collapses', () => {
     const html = renderBoard(pageWritten(WRITTEN, 60_000))
     expect(html).toContain('<div class="warnings" id="slot-warnings"></div>')
-    expect(html).not.toContain('class="warning-strip"')
+    expect(html).not.toContain('class="warning-strip bevel"')
     expect(html).toContain('.warnings:empty { display: none; }')
   })
 
@@ -325,6 +326,6 @@ describe('the warnings strip', () => {
     const html = renderBoard(pageWritten(WRITTEN, 60_000, [{ level: 'red', text: 'ctx <285k>' }, { level: 'amber', text: 'other' }]))
     expect(html).toContain('<span class="warning" data-level="red">ctx &lt;285k&gt;</span>')
     expect(html).toContain('<span class="warning" data-level="amber">other</span>')
-    expect(html.indexOf('class="warning-strip"')).toBeLessThan(html.indexOf('id="slot-services"'))
+    expect(html.indexOf('class="warning-strip bevel"')).toBeLessThan(html.indexOf('id="slot-services"'))
   })
 })

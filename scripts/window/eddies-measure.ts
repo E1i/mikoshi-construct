@@ -1,9 +1,9 @@
-import type { TranscriptCounters as Counters } from '../ports/client/claude/adapter.js'
+import type { TranscriptCounters as Counters, MeasuredSubagent } from '../ports/client/claude/adapter.js'
 import type { StopReason } from './exit.js'
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { openDatabase } from '../core/sqlite.js'
-import { findTranscript, measuredSession, measuredSpent, spendBasis, transcriptContext, transcriptCounters, transcriptModel } from '../ports/client/claude/adapter.js'
+import { findTranscript, measuredSession, measuredSpent, measuredSubagents, spendBasis, transcriptContext, transcriptCounters, transcriptModel } from '../ports/client/claude/adapter.js'
 import { clientAdapter } from '../ports/client/index.js'
 import { CARD_VARIABLE } from '../ports/session.js'
 
@@ -31,6 +31,7 @@ export interface SessionGauges {
   context?: number
   spent?: number
   model?: string
+  subagents?: MeasuredSubagent[]
   reason?: typeof GAUGES_UNREAD | typeof NO_TRANSCRIPT
   error?: string
 }
@@ -126,7 +127,8 @@ export function sessionGauges(home: string, root: string, session: string): Sess
       return { reason: NO_TRANSCRIPT }
     const measured = measuredSession(root, transcript)
     const model = transcriptModel(readFileSync(transcript, 'utf8'))
-    return { ...measured, ...(model === null ? {} : { model }) }
+    const subagents = measuredSubagents(root, transcript)
+    return { ...measured, ...(model === null ? {} : { model }), ...(subagents.length === 0 ? {} : { subagents }) }
   }
   catch (error) {
     return { reason: GAUGES_UNREAD, error: error instanceof Error ? error.message.split('\n')[0]! : String(error) }

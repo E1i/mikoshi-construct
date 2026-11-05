@@ -118,9 +118,20 @@ describe('sessionGauges measures a session from its transcript by the hook funct
     mkdirSync(path.dirname(agent), { recursive: true })
     writeFileSync(agent, `${usageLine('2026-10-15T00:00:30.000Z', 'a1', { input: 50 })}\n`)
     const gauges = sessionGauges(dir, dir, SESSION)
-    expect(gauges).toEqual({ context: 1310, spent: 100 + 10 + 50 + (1000 + 200) * 1.25 + 1100 * 0.1 })
+    expect(gauges).toEqual({ context: 1310, spent: 100 + 10 + 50 + (1000 + 200) * 1.25 + 1100 * 0.1, subagents: [{ name: 'agent-a1', context: 50, spent: 50, at: expect.any(String) as string }] })
     const exit = realExitReadings({ CLAUDE_CODE_SESSION_ID: SESSION }, dir, dir, path.join(dir, 'bus.db'))
-    expect(gauges).toEqual({ context: exit.context, spent: exit.spent })
+    expect(gauges).toMatchObject({ context: exit.context, spent: exit.spent })
+  })
+
+  it('names a subagent by the agentType of its meta file and carries no list without subagents', () => {
+    const dir = scratch()
+    const file = transcript(dir, [usageLine('2026-10-15T00:00:00.000Z', 'r1', { input: 100 })])
+    expect(sessionGauges(dir, dir, SESSION)).not.toHaveProperty('subagents')
+    const agent = path.join(file.replace(/\.jsonl$/, ''), 'subagents', 'agent-a1.jsonl')
+    mkdirSync(path.dirname(agent), { recursive: true })
+    writeFileSync(agent, `${usageLine('2026-10-15T00:00:30.000Z', 'a1', { input: 50 })}\n`)
+    writeFileSync(agent.replace(/\.jsonl$/, '.meta.json'), JSON.stringify({ agentType: 'implementer' }))
+    expect(sessionGauges(dir, dir, SESSION).subagents?.map(each => each.name)).toEqual(['implementer'])
   })
 
   it.each([

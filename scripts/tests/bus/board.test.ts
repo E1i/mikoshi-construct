@@ -470,7 +470,7 @@ describe('the factory board', () => {
     busSessionPulse(busPath, bench.clock.now, () => measured)(answer, 'answer-881')
     const written: string[] = []
     expect(printBoard(busPath, bench.clock.now(), text => written.push(text))).toBe(0)
-    const tiles = written.join('').split('<div class="svc" ').slice(1)
+    const tiles = written.join('').split('<div class="svc bevel" ').slice(1)
     for (const [role, task] of [['review', '#880'], ['answer', '#881']]) {
       const sessionTile = tiles.find(each => each.startsWith(`data-role="${role}"`) && each.includes(`>${task}<`) && each.includes(' · pulse '))
       expect(sessionTile, role).toContain('<span class="edd-k">ctx</span>')

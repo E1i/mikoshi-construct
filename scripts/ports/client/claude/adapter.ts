@@ -1,5 +1,5 @@
 import type { ClientAdapter, Denial, Invocation, JournalChange, ReadBudget, Refusal, Role, SessionJournal, SessionPlace, SessionPolicy, SessionReading, SessionSpec, SessionTool, ToolUse, Usage } from '../contract.js'
-import { existsSync, readdirSync, readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import os from 'node:os'
 import path from 'node:path'
@@ -285,9 +285,39 @@ export function spendBasis(): string {
   return hookMeasure().SPEND_BASIS
 }
 
+function subagentsDirOf(transcript: string): string {
+  return path.join(transcript.replace(/\.jsonl$/, ''), 'subagents')
+}
+
+function subagentNameOf(file: string): string {
+  const id = path.basename(file, '.jsonl')
+  try {
+    const meta = JSON.parse(readFileSync(file.replace(/\.jsonl$/, '.meta.json'), 'utf8')) as { agentType?: unknown } | null
+    return typeof meta?.agentType === 'string' && meta.agentType !== '' ? meta.agentType : id
+  }
+  catch {
+    return id
+  }
+}
+
+export interface MeasuredSubagent {
+  name: string
+  context: number
+  spent: number
+  at: string
+}
+
+export function measuredSubagents(root: string, transcript: string): MeasuredSubagent[] {
+  const measure = hookMeasure()
+  return measure.agentTranscriptsUnder(subagentsDirOf(transcript)).map((file) => {
+    const { tokens, last } = measure.readTranscript(root, file)
+    return { name: subagentNameOf(file), context: measure.contextOf(last), spent: measure.spentOf(tokens), at: statSync(file).mtime.toISOString() }
+  })
+}
+
 function spentWithAgents(root: string, transcript: string, parent: HookTokens): number {
   const measure = hookMeasure()
-  const agents = measure.sumTranscripts(root, measure.agentTranscriptsUnder(path.join(transcript.replace(/\.jsonl$/, ''), 'subagents')))
+  const agents = measure.sumTranscripts(root, measure.agentTranscriptsUnder(subagentsDirOf(transcript)))
   return measure.spentOf(measure.addTokens({ ...parent }, agents))
 }
 

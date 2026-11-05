@@ -174,7 +174,7 @@ const SLOT_ENDS: Record<string, string> = {
   kv: '</p></div>\n<div class="goal"',
   goal: '</div>\n</header>',
   waits: '</div>\n<div class="warnings"',
-  warnings: '</div>\n<section class="panel" id="slot-services"',
+  warnings: '</div>\n<section class="panel bevel" id="slot-services"',
   services: '\n</section>',
   flow: '\n</section>',
   backlog: '</div>\n<div class="scroll"',
@@ -226,6 +226,7 @@ function boardWindow(html: string, storage: MemoryStorage | typeof THROWING_STOR
     document: Object.assign(document, {
       getElementById: (id: string) => known(id) ? elements.get('backlog')?.prepended.find(child => child.id === id) ?? element(id) : null,
       createElement: (tag: string) => new FakeElement(tag.toUpperCase()),
+      querySelectorAll: () => [],
       head: { appendChild: (child: FakeElement) => appended.push(child) },
     }),
     location,
@@ -546,7 +547,7 @@ describe('board.html', () => {
       { ts: minutesAgo(3), type: SESSION_HEARTBEAT, card: 861, payload: JSON.stringify({ step: 'implement', session: 's861', context: 31_000, spent: 52_000 }) },
       { ts: minutesAgo(2), type: WINDOW_HEARTBEAT, card: null, payload: JSON.stringify({ session: 'w1', context: 64_000, spent: 97_000 }) },
     ]))
-    const tileOf = (role: string, task: string): string | undefined => html.split('<div class="svc" ').find(tile => tile.startsWith(`data-role="${role}"`) && tile.includes(`<span class="svc-target">${task}</span>`))
+    const tileOf = (role: string, task: string): string | undefined => html.split('<div class="svc bevel" ').find(tile => tile.startsWith(`data-role="${role}"`) && tile.includes(`<span class="svc-target">${task}</span>`))
     const card = tileOf('implement', '#861')
     expect(card).toContain('<span class="edd-v">31k')
     expect(card).toContain('<span class="edd-v">52k')
@@ -568,7 +569,7 @@ describe('board.html', () => {
     const style = /<style>([\s\S]*?)<\/style>/.exec(html)![1]!
     expect(style).toMatch(/\.filter-target \{[^}]*position: absolute/)
     expect(style).toMatch(/\.backlog \{[^}]*position: relative/)
-    const backlog = html.slice(html.indexOf('<section class="panel backlog"'))
+    const backlog = html.slice(html.indexOf('<section class="panel backlog bevel"'))
     expect(backlog.slice(0, backlog.indexOf('</section>'))).toContain('<span class="filter-target" id="show-all"></span>')
   })
 
@@ -741,7 +742,7 @@ describe('board.html', () => {
       events: [{ ts: minutesAgo(1), type: SESSION_HEARTBEAT, card: 872, payload: JSON.stringify({ step: 'answer', session: 's872', context: 169_000 }) }],
     })
     const html = pageText(busPath)
-    const tiles = html.split('<div class="svc" ').filter(tile => tile.includes('<span class="svc-target">#872</span>'))
+    const tiles = html.split('<div class="svc bevel" ').filter(tile => tile.includes('<span class="svc-target">#872</span>'))
     expect(tiles).toHaveLength(1)
     expect(tiles[0]).toContain('answer · pulse 1 min ago')
     expect(tiles[0]).toContain('<span class="edd-v">169k')
@@ -799,7 +800,7 @@ describe('board.html', () => {
     expect(liveFacts(busPath).waits).toEqual([])
     const html = pageText(busPath)
     expect(slotsOf(html).get('waits')).toBe('')
-    expect(html).not.toContain('<section class="owner-strip"')
+    expect(html).not.toContain('<section class="owner-strip bevel"')
     expect(visibleText(html)).not.toContain('waits for you')
     const style = /<style>([\s\S]*?)<\/style>/.exec(html)![1]!
     expect(style).toContain('.waits:empty { display: none; }')
@@ -834,7 +835,7 @@ describe('board.html', () => {
     expect(html.indexOf('id="slot-goal"')).toBeLessThan(html.indexOf('id="slot-waits"'))
     expect(html.indexOf('id="slot-waits"')).toBeLessThan(html.indexOf('id="slot-services"'))
     expect(slotsOf(html).get('waits')).toBe([
-      '<section class="owner-strip" aria-label="Waits for you"><span class="lbl">waits for you</span>',
+      '<section class="owner-strip bevel" aria-label="Waits for you"><span class="lbl">waits for you</span>',
       '<button type="button" class="ask" data-open="card-870" tabindex="0" aria-haspopup="dialog"><span class="kind">D</span><span class="what">Q1 #870 — which path? · owner runs: pnpm decisions:add --card #870 &quot;[owner] &lt;decision&gt;&quot;</span><span class="open-hint">open ›</span></button>',
       '<span class="ask" data-static><span class="kind">M</span><span class="what">Q2 PR #669 — changes architecture/security-invariants.md · owner runs: gh pr merge 669</span></span>',
       '<span class="ask" data-static><span class="kind">C</span><span class="what">Q3 — the merge queue merges with no owner decision in force naming it live · owner runs: pnpm decisions:add &quot;[owner] allow-live merge&quot;</span></span>',
@@ -923,8 +924,8 @@ describe('board.html', () => {
     for (const row of rows)
       expect(row[0]).toContain(`data-open="card-${row[1]}"`)
     expect(sectionOf(html, '<div class="flow">', '</section>')).toContain('data-open="card-861"')
-    expect(html).toMatch(/<div class="svc" data-role="launch" data-open="card-861"/)
-    expect(html).toMatch(/<div class="svc" data-role="window" data-open="handoff"/)
+    expect(html).toMatch(/<div class="svc bevel" data-role="launch" data-open="card-861"/)
+    expect(html).toMatch(/<div class="svc bevel" data-role="window" data-open="handoff"/)
     const statusline = sectionOf(html, '<footer class="statusline"', '</footer>')
     expect(statusline).toContain('data-open="handoff"')
     expect(statusline).toContain('data-open="decisions"')
@@ -945,7 +946,7 @@ describe('board.html', () => {
     expect(board.content.innerHTML).toBe(board.templates.get('dialog-card-860'))
     const style = /<style>([\s\S]*?)<\/style>/.exec(html)![1]!
     expect([...style.matchAll(/cursor: pointer/g)]).toHaveLength(1)
-    expect(style).toMatch(/\[data-open\], \[data-link\], \.drill-close \{\n {2}cursor: pointer;\n {2}color: var\(--wire\);[\s\S]*?&:focus-visible \{ outline: 2px solid var\(--amber\)/)
+    expect(style).toMatch(/\[data-open\], \[data-link\], \[data-agents\], \.drill-close \{\n {2}cursor: pointer;\n {2}color: var\(--wire\);[\s\S]*?&:focus-visible \{ outline: 2px solid var\(--amber\)/)
     expect(style).not.toMatch(/\.svc-target \{[^}]*color/)
   })
 
@@ -1105,7 +1106,7 @@ describe('board.html', () => {
 
     it('the services grid column is 16rem in the rendered css', () => {
       const style = /<style>([\s\S]*?)<\/style>/.exec(pageText(seededBus()))![1]!
-      expect(style).toContain('.svc-grid { display: grid; gap: 1px; background: var(--line); grid-template-columns: repeat(auto-fill, minmax(min(100%, 16rem), 1fr)); }')
+      expect(style).toContain('.svc-grid { display: grid; gap: var(--space-xs); padding: var(--space-xs); grid-template-columns: repeat(auto-fill, minmax(min(100%, 16rem), 1fr)); }')
     })
   })
 
@@ -1129,7 +1130,7 @@ describe('board.html', () => {
     before.scroller.scrollTop = 120
     before.scroller.dispatch('scroll')
     before.click('TR', 'card-862')
-    expect(JSON.parse(storage.getItem(VIEW_KEY)!)).toEqual({ filter: '#show-planned', scroll: 120, open: 'card-862' })
+    expect(JSON.parse(storage.getItem(VIEW_KEY)!)).toEqual({ filter: '#show-planned', scroll: 120, open: 'card-862', agents: {} })
     const after = boardWindow(html, storage)
     expect(after.location.hash).toBe('#show-planned')
     expect(after.scroller.scrollTop).toBe(120)
