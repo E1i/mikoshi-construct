@@ -222,7 +222,7 @@ function pageWritten(at: string, tickMs: number | null, warnings: BoardPage['war
     facts: factsAt(at),
     gauges: new Map(),
     windowGauges: null,
-    limits: { contextLimit: null, sessionSpend: null, warnRatio: null },
+    limits: { contextLimit: null, cardContextLine: null, sessionSpend: null, warnRatio: null, modelWindows: new Map() },
     details: new Map(),
     decisions: [],
     handoff: { file: 'miko.md', text: null },

@@ -23,6 +23,9 @@ const HANDOFF_VARIABLE = 'CONSTRUCT_HANDOFF'
 const GHOST_JOURNAL = 'ghosts.jsonl'
 const JOURNAL_VERSION = 1
 const THRESHOLDS = ['contextLimit', 'sessionSpend', 'agentSpend', 'runSpend', 'warnRatio']
+const CARD_LINE = 'cardContextLine'
+const CONTEXT_LINE_EVENT = 'context-line'
+const CARD_LINE_ACTION = 'write the handoff and stop — the bus continues this card in a fresh session from it and pushes nothing'
 const NEW_WORK_TOOLS = ['Agent', 'Workflow']
 const NESTED_SESSION = /\bclaude\b[^\n;&|]*\s(?:-p|--print)(?=\s|$)/
 const GHOST_LAUNCH = /\bghosts:launch\b/
@@ -71,6 +74,10 @@ function projectRoot() {
   return root != null && root !== '' && existsSync(root) && statSync(root).isDirectory() ? root : null
 }
 
+function positiveNumber(value) {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0
+}
+
 function readConfig(root) {
   let text
   try {
@@ -83,10 +90,11 @@ function readConfig(root) {
   if (config == null)
     throw new Unread('config-not-an-object')
   for (const key of THRESHOLDS) {
-    const value = config[key]
-    if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0)
+    if (!positiveNumber(config[key]))
       throw new Unread(`config-${key}-invalid`)
   }
+  if (config[CARD_LINE] !== undefined && !positiveNumber(config[CARD_LINE]))
+    throw new Unread(`config-${CARD_LINE}-invalid`)
   if (config.warnRatio > 1)
     throw new Unread('config-warnRatio-invalid')
   return config
@@ -190,7 +198,9 @@ function compactionPointOf(root) {
 }
 
 function contextThresholdOf(root, config, caller) {
-  const { isTabWindowIn, worktreeHomesOf } = tabWindow
+  const { isCardSession, isTabWindowIn, worktreeHomesOf } = tabWindow
+  if (isCardSession(process.env) && config[CARD_LINE] !== undefined)
+    return { limit: config[CARD_LINE], limitName: CARD_LINE, absolute: true }
   const point = caller.session_id != null && isTabWindowIn(process.env, root, worktreeHomesOf(process.env)) ? compactionPointOf(root) : null
   return point == null ? { limit: config.contextLimit, limitName: 'contextLimit' } : { ...point, compacts: true }
 }
@@ -233,7 +243,7 @@ function agentGauges({ agentTranscriptsUnder, readTranscript, SPEND_BASIS, spent
 }
 
 function crossesWarning(gauge, config) {
-  return gauge.value >= gauge.limit * config.warnRatio
+  return gauge.value >= (gauge.absolute ? gauge.limit : gauge.limit * config.warnRatio)
 }
 
 function measurementOf(gauge, caller) {
@@ -262,6 +272,10 @@ function warnOnce(root, gauge, caller, config) {
     if (error.code === 'EEXIST')
       return null
     throw error
+  }
+  if (gauge.absolute) {
+    journal(root, { event: CONTEXT_LINE_EVENT, ...measurementOf(gauge, caller) })
+    return `eddies: ${gauge.level} line — ${gauge.name} ${Math.round(gauge.value)} / line ${gauge.limit} (${gauge.limitName} in ${CONFIG_FILE}); ${CARD_LINE_ACTION}\n`
   }
   journal(root, { event: 'budget-warn', ...measurementOf(gauge, caller), warn_ratio: config.warnRatio })
   const warning = warningOf(gauge, config)

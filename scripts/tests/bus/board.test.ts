@@ -441,8 +441,8 @@ describe('the factory board', () => {
     recordHeartbeat(bench.db, bench.ts(), { card: 870, pr: null, head: null, step: 'implement', session: 's-870', lease: null }, () => ({ context: 120_000, spent: 1_000_000 }))
     recordHeartbeat(bench.db, bench.ts(), { card: 871, pr: null, head: null, step: 'implement', session: 's-871', lease: null }, () => ({ spent: 50 }))
     expect(cardGauges(bench.db)).toEqual([
-      { card: 870, ts: bench.ts(), context: 120_000, spent: 1_000_000 },
-      { card: 871, ts: bench.ts(), context: null, spent: 50 },
+      { card: 870, ts: bench.ts(), context: 120_000, spent: 1_000_000, model: null },
+      { card: 871, ts: bench.ts(), context: null, spent: 50, model: null },
     ])
     expect(bench.tick().gauges).toEqual(cardGauges(bench.db))
   })
@@ -453,7 +453,7 @@ describe('the factory board', () => {
     recordWindowHeartbeat(bench.db, bench.ts(), 'w-1', { context: 50_000, spent: 70_000 })
     bench.clock.advance(1000)
     recordWindowHeartbeat(bench.db, bench.ts(), 'w-2', { spent: 90_000 })
-    expect(windowGauges(bench.db)).toEqual({ session: 'w-2', ts: bench.ts(), context: null, spent: 90_000 })
+    expect(windowGauges(bench.db)).toEqual({ session: 'w-2', ts: bench.ts(), context: null, spent: 90_000, model: null })
     expect(bench.tick().windowGauges).toEqual(windowGauges(bench.db))
     bench.clock.advance(1000)
     recordWindowHeartbeat(bench.db, bench.ts(), 'w-1')

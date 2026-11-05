@@ -21,7 +21,7 @@ import { pushPolicyOf } from '../../core/push-policy.js'
 import { busCardBodies } from '../../intake/parking-reads.js'
 import { PROCESS_GH_PORT } from '../../ports/gh.js'
 import { readResultFields } from '../../ports/result.js'
-import { HEADLESS_FLAGS, sessionArgv, sessionEnv } from '../../ports/session.js'
+import { CARD_VARIABLE, HEADLESS_FLAGS, sessionArgv, sessionEnv } from '../../ports/session.js'
 import { settingsFlag, shiftSettings } from '../../ports/shift-settings.js'
 import { MAIN_BRANCH } from '../../ports/snapshot.js'
 import { busSessionPulse } from '../../supervisor/heartbeat.js'
@@ -477,8 +477,8 @@ export function treeDirtyOf(card: CardSession): boolean {
   }
 }
 
-function contextWarnOfEddies(): number | null {
-  const warn = realExitReadings({}, os.homedir(), projectRoot(process.env), defaultBusPath()).contextWarn
+export function contextWarnOfEddies(): number | null {
+  const warn = realExitReadings({ [CARD_VARIABLE]: 'answer' }, os.homedir(), projectRoot(process.env), defaultBusPath()).contextWarn
   return warn === UNKNOWN ? null : warn
 }
 

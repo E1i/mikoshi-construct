@@ -15,6 +15,9 @@ const CARD_VARIABLE = 'CONSTRUCT_CARD'
 const GHOST_JOURNAL = 'ghosts.jsonl'
 const JOURNAL_VERSION = 1
 const THRESHOLDS = ['contextLimit', 'sessionSpend', 'agentSpend', 'runSpend', 'warnRatio']
+const CARD_LINE = 'cardContextLine'
+const CONTEXT_LINE_EVENT = 'context-line'
+const CARD_LINE_ACTION = 'write the handoff and stop — the bus continues this card in a fresh session from it and pushes nothing'
 const NEW_WORK_TOOLS = ['Agent', 'Workflow']
 const NESTED_SESSION = /\bclaude\b[^\n;&|]*\s(?:-p|--print)(?=\s|$)/
 const GHOST_LAUNCH = /\bghosts:launch\b/
@@ -56,6 +59,10 @@ function projectRoot() {
   return root != null && root !== '' && existsSync(root) && statSync(root).isDirectory() ? root : null
 }
 
+function positiveNumber(value) {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0
+}
+
 function readConfig(root) {
   let text
   try {
@@ -68,10 +75,11 @@ function readConfig(root) {
   if (config == null)
     throw new Unread('config-not-an-object')
   for (const key of THRESHOLDS) {
-    const value = config[key]
-    if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0)
+    if (!positiveNumber(config[key]))
       throw new Unread(`config-${key}-invalid`)
   }
+  if (config[CARD_LINE] !== undefined && !positiveNumber(config[CARD_LINE]))
+    throw new Unread(`config-${CARD_LINE}-invalid`)
   if (config.warnRatio > 1)
     throw new Unread('config-warnRatio-invalid')
   return config
@@ -147,13 +155,19 @@ function subagentsDirOf(transcript) {
   return path.join(transcript.replace(/\.jsonl$/, ''), 'subagents')
 }
 
+function contextThresholdOf(config) {
+  if (isCardSession() && config[CARD_LINE] !== undefined)
+    return { limit: config[CARD_LINE], limitName: CARD_LINE, absolute: true }
+  return { limit: config.contextLimit, limitName: 'contextLimit' }
+}
+
 function sessionGauges({ addTokens, agentTranscriptsUnder, CONTEXT_BASIS, contextOf, readTranscript, SPEND_BASIS, spentOf, sumTranscripts }, root, transcript, config, caller) {
   const parent = readTranscript(root, transcript)
   const others = sumTranscripts(root, agentTranscriptsUnder(subagentsDirOf(transcript)))
   const spend = addTokens({ ...parent.tokens }, others)
   const recipient = `${caller.session_id}.${caller.agent_id ?? WINDOW}`
   return [
-    { level: 'session-context', key: recipient, name: 'context', value: contextOf(parent.last), limitName: 'contextLimit', limit: config.contextLimit, tokens: parent.last, basis: CONTEXT_BASIS, action: SESSION_ACTION },
+    { level: 'session-context', key: recipient, name: 'context', value: contextOf(parent.last), ...contextThresholdOf(config), tokens: parent.last, basis: CONTEXT_BASIS, action: SESSION_ACTION },
     { level: 'session-spend', key: recipient, name: 'spent', value: spentOf(spend), limitName: 'sessionSpend', limit: config.sessionSpend, tokens: spend, basis: SPEND_BASIS, action: SESSION_ACTION },
   ]
 }
@@ -185,7 +199,7 @@ function agentGauges({ agentTranscriptsUnder, readTranscript, SPEND_BASIS, spent
 }
 
 function crossesWarning(gauge, config) {
-  return gauge.value >= gauge.limit * config.warnRatio
+  return gauge.value >= (gauge.absolute ? gauge.limit : gauge.limit * config.warnRatio)
 }
 
 function measurementOf(gauge, caller) {
@@ -214,6 +228,10 @@ function warnOnce(root, gauge, caller, config) {
     if (error.code === 'EEXIST')
       return null
     throw error
+  }
+  if (gauge.absolute) {
+    journal(root, { event: CONTEXT_LINE_EVENT, ...measurementOf(gauge, caller) })
+    return `eddies: ${gauge.level} line — ${gauge.name} ${Math.round(gauge.value)} / line ${gauge.limit} (${gauge.limitName} in ${CONFIG_FILE}); ${CARD_LINE_ACTION}\n`
   }
   journal(root, { event: 'budget-warn', ...measurementOf(gauge, caller), warn_ratio: config.warnRatio })
   const warning = warningOf(gauge, config)
