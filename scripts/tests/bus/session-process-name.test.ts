@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { afterEach, expect, it } from 'vitest'
+import { liveSessionIn } from '../../nodes/answer/answerer.js'
 import { claudeProcessCwds, liveSessionHolds } from '../../ports/worktree.js'
 
 const SMALL_SYSTEM_BINARY = '/bin/sleep'
@@ -69,10 +70,17 @@ it.skipIf(lsofAbsent)('a live process named by a version holds the tree it stand
   expect(stillRunning(running)).toBe(true)
 })
 
+it.skipIf(lsofAbsent)('the answerer sees a live process named by a version in the card tree', async () => {
+  const tree = await processNamedIn(VERSION_NAME)
+  expect(liveSessionIn({ session: 'a-session', worktree: tree, branch: 'feat/a-card' })).toContain(tree)
+  expect(stillRunning(running)).toBe(true)
+})
+
 it.skipIf(lsofAbsent)('a live process with another name does not hold the tree it stands in', async () => {
   const tree = await processNamedIn(ANOTHER_NAME)
   expect(listedByItsOwnName(ANOTHER_NAME, tree)).toBe(true)
   expect(clientListingNames(tree)).toBe(false)
   expect(liveSessionHolds(tree)).toBe(false)
+  expect(liveSessionIn({ session: 'a-session', worktree: tree, branch: 'feat/a-card' })).toBeNull()
   expect(stillRunning(running)).toBe(true)
 })

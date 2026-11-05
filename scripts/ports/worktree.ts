@@ -144,12 +144,16 @@ export function claudeProcessCwds(): ProcessCwds {
   }
 }
 
+export function listedCwds(listing: string): string[] {
+  return listing.split('\n').filter(line => line.startsWith(LSOF_PATH_FIELD)).map(line => line.slice(LSOF_PATH_FIELD.length))
+}
+
 export function liveSessionHolds(tree: string, cwds: () => ProcessCwds = claudeProcessCwds): boolean {
   const read = cwds()
   if (read.kind === 'unreadable')
     return true
   const real = realOrAsWritten(tree)
-  return read.listing.split('\n').filter(line => line.startsWith(LSOF_PATH_FIELD)).map(line => line.slice(LSOF_PATH_FIELD.length)).some(cwd => cwd === real || cwd.startsWith(`${real}${path.sep}`))
+  return listedCwds(read.listing).some(cwd => cwd === real || cwd.startsWith(`${real}${path.sep}`))
 }
 
 function freeTreesIn(git: GitRun, repo: string, home: string): string[] {
