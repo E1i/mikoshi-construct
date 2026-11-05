@@ -45,7 +45,8 @@ import { LadderCardStarter } from '../../ladder/ladder-starter.js'
 import { briefBody, briefPathOf, ladderStep, reviewBody, tasksFilePathOf, tasksFileText } from '../../ladder/ladder.js'
 import { reviewOf } from '../../ladder/verdict.js'
 import { cardDecisionCommand } from '../../policy/shards.js'
-import { commandWords, realIsolationReader } from '../../ports/isolation.js'
+import { cardIsolationCommand } from '../../ports/client/claude/adapter.js'
+import { realIsolationReader } from '../../ports/isolation.js'
 import { TICK_MS } from '../../ports/netwatch.js'
 import { prepareBeforeSession, prepareTree } from '../../ports/prepare-tree.js'
 import { promptsDirOf, storedInput } from '../../ports/prompt-store.js'
@@ -60,7 +61,7 @@ import { launchProcess, REAL_PROCESSES } from '../restart/chain-process.js'
 import { builtHandoff, continuationRefusal, CONTINUE_PROMPT, eddiesEvidence, lastStepsOf, MAX_RESTARTS, reachedContextLine, sessionWrittenPart, stoppedOnSpend } from './continuation.js'
 import { laneOverlapRecorder, layLanes, repositoryLanes } from './lane-assign.js'
 import { LaunchExecutor } from './launch-executor.js'
-import { cardCommand, gitChangedPaths, killQuietly, psPgid, ShiftCardStarter, spawnDetached } from './launch-starter.js'
+import { gitChangedPaths, killQuietly, psPgid, ShiftCardStarter, spawnDetached } from './launch-starter.js'
 import { LEGACY_REASON, WITHDRAW_LEGACY_FLAG, withdrawLegacyLaunchTasks } from './launch-withdraw.js'
 import { renderPrompt } from './prompt.js'
 import { collectReport, missingReportDetail, recordedExitCode, REPORT_MISSING } from './report-collect.js'
@@ -899,7 +900,7 @@ export function handoffLadderSteps(handoffDir: string, repo: string, env: NodeJS
 }
 
 export function launchIsolationCommand(claude: string): string[] {
-  return commandWords(cardCommand(claude))
+  return cardIsolationCommand(claude)
 }
 
 async function main(): Promise<number> {

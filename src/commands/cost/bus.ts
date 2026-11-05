@@ -39,7 +39,7 @@ SELECT c.card_id, b.card_line, e.ts AS ended, e.type AS end_type, e.payload AS e
 FROM cards c
 JOIN card_bodies b ON b.card_id = c.card_id
 JOIN events e ON e.id = coalesce(
-  (SELECT max(m.id) FROM events m WHERE m.card_id = c.card_id AND m.type = '${PR_CLOSED}' AND m.legacy = 0 AND json_extract(m.payload, '$.merged') = 1),
+  (SELECT max(m.id) FROM events m WHERE (m.card_id = c.card_id OR m.pr IN (SELECT p.pr FROM prs p WHERE p.card_id = c.card_id)) AND m.type = '${PR_CLOSED}' AND m.legacy = 0 AND json_extract(m.payload, '$.merged') = 1),
   (SELECT max(k.id) FROM events k WHERE k.card_id = c.card_id AND k.type = '${CARD_CLOSED}')
 )
 WHERE e.ts IS NOT NULL

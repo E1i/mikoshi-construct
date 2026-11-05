@@ -90,10 +90,13 @@ function isObject(value) {
   return typeof value === 'object' && value != null && !Array.isArray(value)
 }
 
-function decide(input, parser) {
+function decide(input, parser, environmentPrintRefusal) {
   const command = isObject(input.tool_input) ? input.tool_input.command : undefined
   if (input.tool_name !== 'Bash' || typeof command !== 'string')
     return null
+  const printRefusal = environmentPrintRefusal(command)
+  if (printRefusal != null)
+    return printRefusal
   const start = typeof input.cwd === 'string' && input.cwd !== '' ? path.resolve(input.cwd) : process.cwd()
   return parser.walkCommands(parser.scanCommand(command), start, guardWith(parser))
 }
@@ -146,7 +149,8 @@ async function main() {
     return
   }
   const parser = await import('./shell-parser.mjs')
-  const refusal = decide(input, parser)
+  const { environmentPrintRefusal } = await import('./environment-print.mjs')
+  const refusal = decide(input, parser, environmentPrintRefusal)
   if (refusal != null)
     refuse(refusal)
   else
