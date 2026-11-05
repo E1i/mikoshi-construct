@@ -25,7 +25,7 @@ const FAULT = 'fault'
 const REQUEUED_BY_REQUEST = `(type = '${TASK_REQUEUED}' AND json_extract(payload, '$.queue') = 'launch' AND json_type(payload, '$.request') = 'integer')`
 
 const CARD_LIFE = `
-  SELECT id, type, card_id, pr, dedupe_key, payload FROM events
+  SELECT id, ts, type, card_id, pr, dedupe_key, payload FROM events
   WHERE legacy = 0 AND card_id IS NOT NULL AND (type IN ('${CARD_ADMITTED}', '${CARD_STARTED}', '${CARD_CLOSED}', '${CARD_STOPPED}', '${CARD_DROPPED}', '${GHOST_ROW}', '${PR_OPENED}', '${PR_OBSERVED}', '${PR_CLOSED}') OR ${REQUEUED_BY_REQUEST})
     AND ${NOT_A_BACKFILL}
   ORDER BY id
@@ -73,6 +73,7 @@ export type TreeReader = (worktree: string) => boolean
 
 interface LifeRow {
   id: number
+  ts: string
   type: string
   card_id: number
   pr: number | null
@@ -95,6 +96,7 @@ interface CardLife {
   cardId: number
   generation: string
   admittedAt: number
+  admittedTs: string
   lane: string | null
   task: ShiftTask | null
   windowsToWork: boolean
@@ -144,8 +146,12 @@ function parkedOf(row: LifeRow, payload: Record<string, unknown>): ParkedTask | 
   return parsed.kind === 'parked' ? parsed.parked : null
 }
 
+function conflicting(task: ShiftTask | null, other: ShiftTask | null, shared: readonly string[]): boolean {
+  return task !== null && other !== null && taskConflicts([other, task], shared).length > 0
+}
+
 function overlapsAny(task: ShiftTask | null, taken: readonly ShiftTask[], shared: readonly string[]): boolean {
-  return task !== null && taken.some(other => taskConflicts([other, task], shared).length > 0)
+  return taken.some(other => conflicting(task, other, shared))
 }
 
 function generationOf(row: LifeRow, payload: Record<string, unknown>): string {
@@ -185,7 +191,7 @@ function cardLives(db: DatabaseSync): Map<number, CardLife> {
       const admitted = admittedAtOf(db, row, payload)
       const beforeLive = admitted.legacyLine && cutoff !== null && admitted.at < cutoff
       const parked = parkedOf(row, payload)
-      lives.set(row.card_id, { cardId: row.card_id, generation: generationOf(row, payload), admittedAt: admitted.at, lane: laneOf(payload), task: parked?.task ?? null, windowsToWork: parked?.who === WINDOW_WHO, depends: dependsOf(payload), priority: parked?.priority ?? null, contour: contourOf(payload), started: running, startedAt: null, freeRow: null, closed: beforeLive, stoppedByFault: false, closedUnmergedByPr: running ? life.closedUnmergedByPr : new Map() })
+      lives.set(row.card_id, { cardId: row.card_id, generation: generationOf(row, payload), admittedAt: admitted.at, admittedTs: row.ts, lane: laneOf(payload), task: parked?.task ?? null, windowsToWork: parked?.who === WINDOW_WHO, depends: dependsOf(payload), priority: parked?.priority ?? null, contour: contourOf(payload), started: running, startedAt: null, freeRow: null, closed: beforeLive, stoppedByFault: false, closedUnmergedByPr: running ? life.closedUnmergedByPr : new Map() })
       continue
     }
     if (life !== undefined && PULL_REQUEST_ROWS.has(row.type)) {
@@ -279,6 +285,68 @@ function withAssignedLanes(db: DatabaseSync, lives: Map<number, CardLife>): Map<
   return lives
 }
 
+interface Holds {
+  holding: CardLife[]
+  busy: CardLife[]
+  heldByStalls: Map<string, CardLife[]>
+}
+
+function holdsOf(db: DatabaseSync, lives: ReadonlyMap<number, CardLife>, merged: ReadonlySet<number>, openPrs: ReadonlySet<number>): Holds {
+  const launching = cardSet(db, OPEN_LAUNCHES)
+  const ended = cardSet(db, ENDED_CARDS)
+  const stalled = new Set(stalledCards(db).map(stall => stall.cardId))
+  const holds: Holds = { holding: [], busy: [], heldByStalls: new Map() }
+  for (const life of lives.values()) {
+    const running = runs(life) && !merged.has(life.cardId) && !ended.has(life.cardId)
+    const holding = running || launching.has(life.cardId) || openPrs.has(life.cardId)
+    if (life.lane !== null && stalled.has(life.cardId))
+      holds.heldByStalls.set(life.lane, [...(holds.heldByStalls.get(life.lane) ?? []), life])
+    else if (life.lane !== null && holding)
+      holds.busy.push(life)
+    if (holding)
+      holds.holding.push(life)
+  }
+  return holds
+}
+
+export type StartableHold
+  = { kind: 'open-pr' | 'session', cardId: number }
+    | { kind: 'lane', cardId: number, lane: string }
+    | { kind: 'nothing' }
+
+export interface StartableCard {
+  cardId: number
+  admittedTs: string
+  hold: StartableHold
+}
+
+function holdOf(life: CardLife, holds: Holds, openPrs: ReadonlySet<number>, shared: readonly string[]): StartableHold {
+  const overlapping = holds.holding.find(holder => holder.cardId !== life.cardId && conflicting(life.task, holder.task, shared))
+  if (overlapping !== undefined)
+    return { kind: openPrs.has(overlapping.cardId) ? 'open-pr' : 'session', cardId: overlapping.cardId }
+  if (life.lane === null)
+    return { kind: 'nothing' }
+  const stalling = (holds.heldByStalls.get(life.lane) ?? []).find(holder => heldByStall(life, [holder], shared))
+  const keeping = stalling ?? holds.busy.find(holder => holder.lane === life.lane && holder.cardId !== life.cardId)
+  return keeping === undefined ? { kind: 'nothing' } : { kind: 'lane', cardId: keeping.cardId, lane: life.lane }
+}
+
+export function startableCards(db: DatabaseSync, treeLive: TreeReader = existsSync, now: () => number = Date.now, shared: readonly string[] = sharedAppendFiles()): StartableCard[] {
+  const lives = withAssignedLanes(db, cardLives(db))
+  const merged = cardSet(db, MERGED_CARDS)
+  const settled = settledCards(db, merged)
+  const unsatisfied = unsatisfiedDependencies(db)
+  const openPrs = cardSet(db, OPEN_PR_CARDS)
+  const trees = standingTrees(db, treeLive)
+  const beating = cardsBeatingLive(db, now())
+  const noLongerCandidates = cardSet(db, NO_LONGER_CANDIDATES)
+  const falls = fallCounts(db)
+  const holds = holdsOf(db, lives, merged, openPrs)
+  return [...lives.values()]
+    .filter(life => !noLongerCandidates.has(life.cardId) && !life.windowsToWork && (falls.get(life.cardId) ?? 0) < FALLS_BEFORE_CUT && isQueued(life, settled) && unsatisfied(life.depends).length === 0 && !heldOutside(life, openPrs, trees, beating))
+    .map(life => ({ cardId: life.cardId, admittedTs: life.admittedTs, hold: holdOf(life, holds, openPrs, shared) }))
+}
+
 export function launchCandidates(db: DatabaseSync, treeLive: TreeReader = existsSync, now: () => number = Date.now, onOverlap: OverlapCatch = () => {}, shared: readonly string[] = sharedAppendFiles()): LaunchCandidate[] {
   const lives = withAssignedLanes(db, cardLives(db))
   const merged = cardSet(db, MERGED_CARDS)
@@ -288,23 +356,11 @@ export function launchCandidates(db: DatabaseSync, treeLive: TreeReader = exists
   const openPrs = cardSet(db, OPEN_PR_CARDS)
   const trees = standingTrees(db, treeLive)
   const beating = cardsBeatingLive(db, now())
-  const ended = cardSet(db, ENDED_CARDS)
   const noLongerCandidates = cardSet(db, NO_LONGER_CANDIDATES)
   const falls = fallCounts(db)
-  const stalled = new Set(stalledCards(db).map(stall => stall.cardId))
-  const busy = new Set<string>()
-  const heldByStalls = new Map<string, CardLife[]>()
-  const taken: ShiftTask[] = []
-  for (const life of lives.values()) {
-    const running = runs(life) && !merged.has(life.cardId) && !ended.has(life.cardId)
-    const holds = running || launching.has(life.cardId) || openPrs.has(life.cardId)
-    if (life.lane !== null && stalled.has(life.cardId))
-      heldByStalls.set(life.lane, [...(heldByStalls.get(life.lane) ?? []), life])
-    else if (life.lane !== null && holds)
-      busy.add(life.lane)
-    if (holds && life.task !== null)
-      taken.push(life.task)
-  }
+  const { holding, busy: busyCards, heldByStalls } = holdsOf(db, lives, merged, openPrs)
+  const busy = new Set(busyCards.map(life => life.lane))
+  const taken = holding.flatMap(life => life.task ?? [])
   const chosen: LaunchCandidate[] = []
   const open = [...lives.values()].filter(life => !noLongerCandidates.has(life.cardId))
   for (const life of open.sort(startOrder(open))) {
