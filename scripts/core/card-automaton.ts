@@ -4,7 +4,7 @@ import type { Fold, StoredEvent } from './stored.js'
 import type { IncrementalProjection } from './watermark.js'
 import { isBackfill } from './backfill-source.js'
 import { appendEvent } from './db.js'
-import { CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_DROPPED, CARD_FELL, CARD_MOVED, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, DROPPED_LANE, MERGE_DONE, PR_OPENED, QUESTION_OWNER, REVIEW_RECORDED, TERMINAL_LANES, WITNESS_RECORDED } from './events.js'
+import { CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_DEFERRED, CARD_DROPPED, CARD_FELL, CARD_MOVED, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, DROPPED_LANE, MERGE_DONE, PR_OPENED, QUESTION_OWNER, REVIEW_RECORDED, TERMINAL_LANES, WITNESS_RECORDED } from './events.js'
 import { legacyHistory } from './legacy-history.js'
 import { payloadOf, reject, STORED_COLUMNS } from './stored.js'
 import { markReduced, reduceProjection, watermarkOf } from './watermark.js'
@@ -19,19 +19,21 @@ export const CLOSED_CARD = 'closed'
 export const FALLEN_CARD = 'fallen'
 export const STOPPED_CARD = 'stopped'
 export const DROPPED_CARD = 'dropped'
+export const DEFERRED_CARD = 'deferred'
 
 export { DROPPED_LANE }
 
 type CardState = string | null
 
 const STOP_REASONS = new Set(['question.agent', QUESTION_OWNER, 'review', 'conflict', 'fault', 'ci'])
-const LINKED_INTO_REVIEW = new Set<CardState>([null, QUEUED_CARD, RUNNING_CARD, FALLEN_CARD])
-const OPENS_A_PULL_REQUEST = new Set<CardState>([null, QUEUED_CARD, RUNNING_CARD])
+const LINKED_INTO_REVIEW = new Set<CardState>([null, QUEUED_CARD, RUNNING_CARD, FALLEN_CARD, DEFERRED_CARD])
+const OPENS_A_PULL_REQUEST = new Set<CardState>([null, QUEUED_CARD, RUNNING_CARD, DEFERRED_CARD])
 const REVIEWED = new Set<CardState>([IN_REVIEW_CARD, CHANGES_CARD, READY_CARD])
 const ADMITTED_AGAIN = new Set<CardState>([null, QUEUED_CARD, FALLEN_CARD, STOPPED_CARD, CLOSED_CARD, DROPPED_CARD])
 const ANSWERED = new Set<CardState>([STOPPED_CARD, CHANGES_CARD, IN_REVIEW_CARD])
 const FALLS = new Set<CardState>([RUNNING_CARD, IN_REVIEW_CARD, CHANGES_CARD])
 const ENDED = new Set<CardState>([MERGED_CARD, CLOSED_CARD, DROPPED_CARD])
+const NOT_IN_WORK = new Set<CardState>([DROPPED_CARD, DEFERRED_CARD])
 const FAULT = 'fault'
 const LEASED_TASK = 'leased'
 
@@ -240,7 +242,7 @@ function foldClosed(db: DatabaseSync, event: StoredEvent): void {
 }
 
 function foldFell(db: DatabaseSync, event: StoredEvent): void {
-  if (event.card_id !== null && stateOf(db, event.card_id) === DROPPED_CARD)
+  if (event.card_id !== null && NOT_IN_WORK.has(stateOf(db, event.card_id)))
     return
   claimed(db, event, FALLS, FALLEN_CARD)
 }
@@ -250,6 +252,14 @@ function foldMoved(db: DatabaseSync, event: StoredEvent): void {
   const lane = payloadOf(event).lane
   if (typeof lane === 'string' && TERMINAL_LANES.has(lane) && !ENDED.has(stateOf(db, cardId)))
     moveCard(db, cardId, DROPPED_CARD, event.id)
+  else if (stateOf(db, cardId) === DEFERRED_CARD)
+    moveCard(db, cardId, backInWork(db, cardId), event.id)
+}
+
+function foldDeferred(db: DatabaseSync, event: StoredEvent): void {
+  const cardId = event.card_id ?? reject(`${CARD_DEFERRED} needs a card_id`)
+  if (!ENDED.has(stateOf(db, cardId)))
+    moveCard(db, cardId, DEFERRED_CARD, event.id)
 }
 
 function foldDropped(db: DatabaseSync, event: StoredEvent): void {
@@ -286,6 +296,7 @@ export const CARD_FOLDS: Record<string, Fold> = {
   [CARD_CLOSED]: foldClosed,
   [CARD_FELL]: foldFell,
   [CARD_MOVED]: foldMoved,
+  [CARD_DEFERRED]: foldDeferred,
   [CARD_DROPPED]: foldDropped,
 }
 

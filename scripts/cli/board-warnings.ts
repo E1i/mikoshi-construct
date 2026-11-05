@@ -1,8 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
-import type { StartableHold } from '../nodes/launch/launch-candidates.js'
 import type { GitHub } from '../ports/github.js'
 import type { SlotKind } from '../supervisor/scheduler.js'
-import { startableCards } from '../nodes/launch/launch-candidates.js'
+import { holdReason, plannedStalls } from '../nodes/launch/launch-candidates.js'
 import { Meter } from '../ports/meter.js'
 import { MAIN_BRANCH } from '../ports/snapshot.js'
 import { slotsOf, slotsVariable } from '../supervisor/scheduler.js'
@@ -36,8 +35,6 @@ export interface WarningReadings {
 export const SAVING_OFF_WARNING = 'BUS_RERUN=by-layers, но на main strict: true (или ruleset требует up-to-date) — экономия выключена'
 export const LAUNCH_GATE_SLOTS: SlotKind = 'review'
 export const UP_TO_DATE_READ_MS = 10 * 60_000
-export const PLANNED_STALL_MINUTES = 15
-const MINUTE_MS = 60_000
 const REPO = 'repos/{owner}/{repo}'
 export const MAIN_PROTECTION_ENDPOINT = `${REPO}/branches/${MAIN_BRANCH}/protection`
 export const MAIN_RULES_ENDPOINT = `${REPO}/rules/branches/${MAIN_BRANCH}`
@@ -119,25 +116,8 @@ export function stallLines(db: DatabaseSync, pulse: string | null, now: Date): s
   return stalledOf(cards, pulse ?? undefined, now.getTime()).map(stall => stallLine(stall, now.getTime()))
 }
 
-function holdReading(hold: StartableHold): string {
-  switch (hold.kind) {
-    case 'open-pr':
-      return `held by #${hold.cardId}: its open PR overlaps the touches`
-    case 'session':
-      return `held by #${hold.cardId}: its session overlaps the touches`
-    case 'lane':
-      return `held by #${hold.cardId}: it keeps ${hold.lane} busy`
-    case 'nothing':
-      return 'no holder found'
-  }
-}
-
 export function plannedStallLines(db: DatabaseSync, now: Date): string[] {
-  const nowMs = now.getTime()
-  return readOr(() => startableCards(db, undefined, () => nowMs), []).flatMap((card) => {
-    const minutes = Math.floor((nowMs - Date.parse(card.admittedTs)) / MINUTE_MS)
-    return minutes >= PLANNED_STALL_MINUTES ? [`#${card.cardId} planned and startable, not started for ${minutes} minutes: ${holdReading(card.hold)}`] : []
-  })
+  return readOr(() => plannedStalls(db, now.getTime()), []).map(card => `#${card.cardId} planned and startable, not started for ${card.minutes} minutes: ${holdReason(card.hold)}`)
 }
 
 function protectionStrict(meter: Meter): boolean {

@@ -45,6 +45,8 @@ async function readStdin() {
 }
 
 async function main() {
+  if (isCardSession(process.env))
+    return
   const root = process.env.CLAUDE_PROJECT_DIR
   let text
   try {

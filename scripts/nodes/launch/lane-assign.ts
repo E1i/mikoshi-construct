@@ -2,7 +2,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { ParkedTask, Priority } from '../../../src/card/parking.js'
 import type { ShiftTask } from '../../../src/card/task-file.js'
 import type { Assignment } from '../../core/bus-readings.js'
-import type { OverlapCatch } from './launch-candidates.js'
+import type { LaunchCatch } from './launch-candidates.js'
 import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
@@ -10,7 +10,7 @@ import { parseParkingFile, WINDOW_WHO } from '../../../src/card/parking.js'
 import { ATTACH_RECORD_FILE } from '../../../src/commands/attach/record.js'
 import { DEFAULT_LANES, isLaneCount, MANIFEST_FILE } from '../../../src/manifest.js'
 import { currentLane, latestAssignment, OPEN_WAIT, OWNER_WAITS } from '../../core/bus-readings.js'
-import { RUNNING_CARD } from '../../core/card-automaton.js'
+import { DEFERRED_CARD, RUNNING_CARD } from '../../core/card-automaton.js'
 import { appendEvent } from '../../core/db.js'
 import { BOARD_ALARM, CARD_ADMITTED, CARD_DROPPED, LANE_ASSIGNED, LANE_OVERLAP, POLICY_DENIED } from '../../core/events.js'
 import { prOf } from '../../core/identifiers.js'
@@ -345,7 +345,7 @@ function deferredRow(db: DatabaseSync, row: AdmittedRow): boolean {
 
 export function liveLanes(db: DatabaseSync): LiveLane[] {
   return liveRows(db).flatMap((row) => {
-    const lane = currentLane(db, row.card_id)
+    const lane = row.state === DEFERRED_CARD ? null : currentLane(db, row.card_id)
     return lane === null ? [] : [{ ...laneCardOf(db, row.card_id), lane, deferred: deferredRow(db, row) }]
   })
 }
@@ -391,7 +391,7 @@ export function assignMovedLane(db: DatabaseSync, cardId: number, lane: string, 
 export function layOutLanes(db: DatabaseSync, count: number, ts: string, actor: string, shared: readonly string[]): number {
   let assigned = 0
   const rows = liveRows(db)
-  for (const row of rows) {
+  for (const row of rows.filter(each => each.state !== DEFERRED_CARD)) {
     const current = currentLane(db, row.card_id)
     const released = current !== null && chainedOnlyThroughEnded(db, row, rows)
     if (keptWhere(db, row.card_id, current, count) && !released)
@@ -497,10 +497,27 @@ function cardIds(db: DatabaseSync, query: string): Set<number> {
   return new Set((db.prepare(query).all() as { card_id: number }[]).map(row => row.card_id))
 }
 
-export function laneOverlapRecorder(db: DatabaseSync, ts: string, actor: string): OverlapCatch {
-  return (cardId, generation) => {
+export class SkipLog {
+  private readonly lastReason = new Map<number, string>()
+
+  constructor(private readonly write: (line: string) => void) {}
+
+  skipped(cardId: number, reason: string): void {
+    if (this.lastReason.get(cardId) === reason)
+      return
+    this.lastReason.set(cardId, reason)
+    this.write(`skip #${cardId}: ${reason}`)
+  }
+}
+
+export const LAUNCH_LOG_PREFIX = '[bus:launch] '
+const LAUNCH_SKIPS = new SkipLog(line => console.log(`${LAUNCH_LOG_PREFIX}${line}`))
+
+export function laneOverlapRecorder(db: DatabaseSync, ts: string, actor: string): LaunchCatch {
+  const recorder = (cardId: number, generation: string): void => {
     appendEvent(db, { ts, type: LANE_OVERLAP, actor, cardId, pr: null, head: null, dedupeKey: `${LANE_OVERLAP}:${generation}`, payload: { lane: currentLane(db, cardId), generation }, legacy: false })
   }
+  return Object.assign(recorder, { skipped: (cardId: number, reason: string) => LAUNCH_SKIPS.skipped(cardId, reason) })
 }
 
 function touchesOf(row: AdmissionRow | undefined, cardId: number): string[] | null {

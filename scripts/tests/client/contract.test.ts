@@ -304,7 +304,6 @@ it('an operation a later card fills throws a named error that names that card', 
     [() => adapter.processes.sessionMarker(SESSION), 'clientprocess'],
     [() => adapter.processes.liveCwds(), 'clientprocess'],
     [() => adapter.processes.isolationCommand(), 'clientprocess'],
-    [() => adapter.ownSession({}), 'clientidentity'],
   ]
   for (const [operation, card] of operations) {
     expect(operation).toThrow(ClientOperationPending)

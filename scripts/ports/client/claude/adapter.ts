@@ -5,6 +5,8 @@ const CLAUDE_COMMAND = 'claude'
 const MCP_OFF_FLAG = '--strict-mcp-config'
 const CARD_PERMISSION = ['--permission-mode', 'dontAsk'] as const
 const HEADLESS_OUTPUT = ['-p', '--output-format', 'stream-json', '--verbose', '--permission-mode', 'auto', '--permission-prompts', 'none'] as const
+export const SESSION_VARIABLE = 'CLAUDE_CODE_SESSION_ID'
+export const USER_SETTINGS = '~/.claude/settings.json'
 const SESSION_ENV: NodeJS.ProcessEnv = { CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS: '0' }
 const WINDOW_ENV: NodeJS.ProcessEnv = {}
 
@@ -85,5 +87,5 @@ export const claudeAdapter: ClientAdapter = {
     liveCwds: pending('processes.liveCwds', 'clientprocess'),
     isolationCommand: pending('processes.isolationCommand', 'clientprocess'),
   },
-  ownSession: pending('ownSession', 'clientidentity'),
+  ownSession: env => env[SESSION_VARIABLE] || null,
 }
