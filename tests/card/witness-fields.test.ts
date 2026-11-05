@@ -2,15 +2,17 @@ import type { WitnessField } from '../../src/card/witness-fields.js'
 import { spawnSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { describe, expect, it } from 'vitest'
+import { LAYER_MAP, readLayerMap } from '../../scripts/core/layer-map.js'
 import { cardWitnessesOf } from '../../scripts/policy/policy.js'
-import { runsOf } from '../../src/card/covering-tests.js'
+import { layerMasksOf, runsOf } from '../../src/card/covering-tests.js'
 import { parseParkingFile } from '../../src/card/parking.js'
-import { fieldCommand, judgedCommand, renderedWitness, witnessFieldsLine, witnessFieldsOf, witnessText } from '../../src/card/witness-fields.js'
+import { fieldCommand, judgedCommand, layerEntryRefusals, renderedWitness, witnessFieldsLine, witnessFieldsOf, witnessText } from '../../src/card/witness-fields.js'
 import { witnessesOf } from '../../src/commands/intake/admit.js'
 import { amendedText } from '../../src/commands/intake/amend.js'
 import { checkDraft, isChangeWitness, unjudgedCommand } from '../../src/commands/intake/check.js'
 import { parseDraft } from '../../src/commands/intake/draft.js'
 import { sliceCards } from '../../src/commands/intake/slice.js'
+import { factoryAssets } from '../../tsup.config.js'
 
 const RUN = 'pnpm exec vitest run tests/a.test.ts'
 const FIELD: WitnessField = { id: 'W1', run: RUN, test: 'the thing', head: 'pass', base: 'fail', proves: 'the thing is done' }
@@ -129,6 +131,35 @@ describe('the witness fields of a card', () => {
     const wholeTree = { ...FIELD, run: 'pnpm run quality', test: null }
     expect(unclearOf(wholeTree)).toEqual([expect.stringContaining('to be red on the base')])
     expect(unclearOf({ ...wholeTree, base: 'pass' })).toEqual([])
+  })
+
+  it('a layer entry parks beside paths, passes intake with nothing unclear and stays out of the paths', () => {
+    const text = slicedText(draftOf([FIELD], { runs: ['layer:core', 'tests/card/**'] }))
+    expect(text).toContain('runs: ["layer:core","tests/card/**"]')
+    expect(parseParkingFile('80.md', text).kind).toBe('parked')
+    expect(runsOf(text)).toEqual(['tests/card/**'])
+    expect(layerMasksOf(text)).toEqual(['core'])
+  })
+
+  it('a layer entry whose id the layer map does not hold is refused, and a card with none reads no masks', () => {
+    expect(parseParkingFile('80.md', cardText('Do it.\n\nruns: ["layer:no-such-layer"]'))).toMatchObject({ kind: 'refused', reason: expect.stringContaining('names no layer') })
+    expect(parseParkingFile('80.md', cardText('Do it.\n\nruns: ["layer:"]'))).toMatchObject({ kind: 'refused', reason: expect.stringContaining('names no layer') })
+    expect(layerMasksOf(cardText('Do it.\n\nruns: ["tests/card/**"]'))).toEqual([])
+  })
+
+  it('the layer ids a card may name are exactly the ids readLayerMap reads, because src/card may not import it', () => {
+    const { files, folders } = readLayerMap()
+    const ids = [...Object.values(files), ...Object.values(folders)]
+    expect(ids.length).toBeGreaterThan(0)
+    expect(layerEntryRefusals(ids.map(id => `layer:${id}`))).toEqual([])
+    expect(factoryAssets()).toContain(LAYER_MAP)
+  })
+
+  it('a missing layer map refuses a layer entry by that cause, not as an unknown layer', () => {
+    const refusals = layerEntryRefusals(['layer:core'], [tmpdir()])
+    expect(refusals).toEqual([expect.stringContaining('cannot be checked')])
+    expect(refusals[0]).not.toContain('names no layer')
+    expect(layerEntryRefusals([], [tmpdir()])).toEqual([])
   })
 
   it('a runs field outside the test trees is unclear', () => {
