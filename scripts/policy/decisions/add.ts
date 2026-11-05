@@ -1,25 +1,25 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { OwnerDecision } from '../decisions.js'
-import { existsSync, readFileSync, realpathSync, unlinkSync, writeFileSync } from 'node:fs'
+import { realpathSync } from 'node:fs'
+import os from 'node:os'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { decisionsFileOf } from '../../core/bus-path.js'
 import { defaultBusPath, openBus } from '../../core/db.js'
 import { REQUEST_DONE, REQUEST_REFUSED } from '../../core/events.js'
-import { busHistory } from '../../core/journal.js'
-import { busCardStates } from '../../core/tasks.js'
+import { ownerChannelOfBus, sayToOwnerChannel } from '../../owner/channel.js'
 import { runRequest, SESSION_VARIABLE } from '../../window/window-requests.js'
-import { recordDecision } from '../decisions.js'
-import { calendarTerm, DECISIONS_IN_FORCE_LIMIT, decisionsRefusals, inForceBytes, outOfForceLines, OWNER_SOURCE, parseDecisions, PREFIX, settleSupersedes, WRITER_MARKER } from './decisions.js'
-import { archiveOf, settledCards } from './read.js'
+import { boundText, calendarTerm, cardTail, decisionsRefusals, outOfForceLines, OWNER_SOURCE, parseDecisions, PREFIX, settleSupersedes, stampOf, untilTail, WRITER_MARKER } from './decisions.js'
+import { archiveOf } from './read.js'
 
 export const USAGE = 'usage: pnpm decisions:add [--file <owner-decisions.md>] [--supersedes D-M]... [--card #N]... [--until <YYYY-MM-DDTHH:MMZ>] [--settled #N]... "[owner] <decision>"'
+export const OWNER_SHELL_USAGE = 'usage: pnpm decisions:add [--supersedes D-M]... [--card #N]... [--until <YYYY-MM-DDTHH:MMZ>] "[owner] <decision>"'
 export const ARCHIVE_HEADER = '# Owner decisions archive\n\nSuperseded decisions, moved here from the decisions file by pnpm decisions:add.\n\n'
 
 const SOURCE_TAG = /^\[[^\]]*\]/
 const DECISION_REFERENCE = /^D-([1-9]\d*)$/
 const CARD_REFERENCE = /^#?([1-9]\d*)$/
 const UNTIL_VALUE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?Z$/
+const OWNER_SHELL_SESSION = 'owner-shell'
 
 export interface DecisionsAddDeps {
   decisions: string
@@ -29,6 +29,7 @@ export interface DecisionsAddDeps {
   write: (file: string, text: string) => void
   remove: (file: string) => void
   record: (decision: OwnerDecision) => void
+  held?: () => readonly number[]
   settled: (card: number) => boolean
   out: (line: string) => void
   err: (line: string) => void
@@ -98,25 +99,12 @@ export function sourceRefusal(text: string): string | null {
   return `${PREFIX}${source}: decisions:add writes only the owner's own words, a record that starts with ${OWNER_SOURCE}; nothing written`
 }
 
-export function stampOf(now: Date): string {
-  const iso = now.toISOString()
-  return `${iso.slice(0, 10)} ~${iso.slice(11, 16)}Z`
-}
-
-function cardTail(cards: readonly number[]): string {
-  return cards.length === 0 ? '' : ` · card ${[...new Set(cards)].map(card => `#${card}`).join(' ')}`
-}
-
-function untilTail(until: string | null): string {
-  return until === null ? '' : ` · until ${until}`
-}
-
-export function planAdd(read: string, archive: string, { text: record, supersedes, cards, until }: AddArgs, now: Date, settled: (card: number) => boolean = () => false): AddPlan | string {
+export function planAdd(read: string, archive: string, { text: record, supersedes, cards, until }: AddArgs, now: Date, settled: (card: number) => boolean = () => false, held: readonly number[] = []): AddPlan | string {
   const text = settleSupersedes(read, archive)
   const { decisions } = parseDecisions(text)
   const outOfForce = outOfForceLines(decisions, now, settled)
   const archivedNumbers = parseDecisions(archive).decisions.map(decision => decision.number)
-  const number = Math.max(0, ...decisions.map(decision => decision.number), ...archivedNumbers) + 1
+  const number = Math.max(0, ...decisions.map(decision => decision.number), ...archivedNumbers, ...held) + 1
   const lines = text.split('\n')
   for (const target of supersedes) {
     const decision = decisions.find(candidate => candidate.number === target)
@@ -164,14 +152,9 @@ export function runDecisionsAdd(args: string[], deps: DecisionsAddDeps): number 
   const archiveExisted = deps.exists(archiveFile)
   const originalArchive = archiveExisted ? deps.read(archiveFile) : ''
   const now = deps.now()
-  const plan = planAdd(original, originalArchive, parsed, now, card => parsed.settled.includes(card) || deps.settled(card))
+  const plan = planAdd(original, originalArchive, parsed, now, card => parsed.settled.includes(card) || deps.settled(card), deps.held?.() ?? [])
   if (typeof plan === 'string') {
     deps.err(plan)
-    return 1
-  }
-  const bytes = inForceBytes(parseDecisions(plan.file).decisions)
-  if (bytes > DECISIONS_IN_FORCE_LIMIT) {
-    deps.err(`${PREFIX}decisions in force would be ${bytes} bytes, over the limit of ${DECISIONS_IN_FORCE_LIMIT} after the superseded, spent and lapsed ones go to the archive; decisions in force are never moved, so this is a question for the owner; nothing written`)
     return 1
   }
   const restore = (): void => {
@@ -199,8 +182,10 @@ export function runDecisionsAdd(args: string[], deps: DecisionsAddDeps): number 
     deps.err(`${PREFIX}D-${plan.number} refused: ${refusals.length} refusals, ${file} restored as it was`)
     return 1
   }
+  const written = parseDecisions(plan.line).decisions[0]!
+  const supersedes = [...new Set([...parsed.supersedes, ...written.supersedes])]
   try {
-    deps.record({ ts: now.toISOString(), decisionId: plan.number, text: `${parsed.text.slice(OWNER_SOURCE.length).trim()}${untilTail(parsed.until)}`, cards: [...new Set(parsed.cards)] })
+    deps.record({ ts: now.toISOString(), decisionId: plan.number, text: boundText(written).slice(OWNER_SOURCE.length).trim(), cards: written.cards, ...(supersedes.length === 0 ? {} : { supersedes }) })
   }
   catch (error) {
     restore()
@@ -213,28 +198,13 @@ export function runDecisionsAdd(args: string[], deps: DecisionsAddDeps): number 
   return 0
 }
 
-function recordInBus(decision: OwnerDecision): void {
-  const db = openBus(defaultBusPath())
-  try {
-    recordDecision(db, decision)
-  }
-  finally {
-    db.close()
-  }
-}
-
-function settledCardsOnThisMachine(): (card: number) => boolean {
-  const cards = settledCards(busHistory(defaultBusPath()), busCardStates(defaultBusPath()))
-  return card => cards.has(card)
-}
-
 export function requestDecision(args: readonly string[], db: DatabaseSync, now: Date, session: string, out: (line: string) => void): number {
   const lines: string[] = []
   const code = runRequest(['decisions:add', ...args], db, now, session, line => lines.push(line))
   for (const line of lines)
     out(line)
   if (code === 0)
-    out(`${PREFIX}not written yet: ${lines[0]?.match(/window\.request \d+/)?.[0] ?? 'the request'} waits for bus:run, which writes it into owner-decisions.md outside the sandbox and answers ${REQUEST_DONE} or ${REQUEST_REFUSED}; while bus:run is down nothing is written`)
+    out(`${PREFIX}not written yet: ${lines[0]?.match(/window\.request \d+/)?.[0] ?? 'the request'} waits for bus:run, which records it in the bus, rebuilds owner-decisions.md from the bus and answers ${REQUEST_DONE} or ${REQUEST_REFUSED}; while bus:run is down nothing is written`)
   return code
 }
 
@@ -248,22 +218,33 @@ function requestFromThisWindow(session: string, args: string[]): number {
   }
 }
 
-function writeOnThisMachine(args: string[]): number {
-  return runDecisionsAdd(args, {
-    decisions: decisionsFileOf(defaultBusPath()),
-    now: () => new Date(),
-    exists: existsSync,
-    read: file => readFileSync(file, 'utf8'),
-    write: (file, text) => writeFileSync(file, text),
-    remove: unlinkSync,
-    record: recordInBus,
-    settled: settledCardsOnThisMachine(),
-    out: line => console.log(line),
-    err: line => console.error(line),
-  })
+export function requestFromOwnerShell(args: string[], channel: string, db: DatabaseSync, now: Date, out: (line: string) => void, err: (line: string) => void): number {
+  const parsed = parseArgs(args)
+  if (parsed === null || parsed.file !== null || parsed.settled.length > 0) {
+    err(`${PREFIX}${OWNER_SHELL_USAGE}`)
+    return 2
+  }
+  const source = sourceRefusal(parsed.text)
+  if (source !== null) {
+    err(source)
+    return 1
+  }
+  sayToOwnerChannel(channel, parsed.text.slice(OWNER_SOURCE.length), now)
+  return requestDecision(['--from', 'answer', ...args], db, now, OWNER_SHELL_SESSION, out)
+}
+
+function requestFromThisShell(args: string[]): number {
+  const busPath = defaultBusPath()
+  const db = openBus(busPath)
+  try {
+    return requestFromOwnerShell(args, ownerChannelOfBus(os.homedir(), busPath), db, new Date(), line => console.log(line), line => console.error(line))
+  }
+  finally {
+    db.close()
+  }
 }
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const windowSession = process.env[SESSION_VARIABLE]?.trim()
-  process.exitCode = windowSession ? requestFromThisWindow(windowSession, process.argv.slice(2)) : writeOnThisMachine(process.argv.slice(2))
+  process.exitCode = windowSession ? requestFromThisWindow(windowSession, process.argv.slice(2)) : requestFromThisShell(process.argv.slice(2))
 }
