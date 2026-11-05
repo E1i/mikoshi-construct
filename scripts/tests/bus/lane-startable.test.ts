@@ -113,19 +113,21 @@ describe('a fault-stopped head of a lane', () => {
     expect(bench.candidates()).toEqual([])
   })
 
-  it('a card sharing a touch with the stopped head is reflowed to an empty lane and starts', () => {
+  it('a shared touch binds the lane assignment and not the start: with every lane occupied the card chains behind the stopped head, and the launch starts it', () => {
+    const bench = new Bench().admit(1, { touches: 'src/shared.ts' }).start(1).stop(1).admit(10).start(10).admit(11).start(11).admit(2, { touches: 'src/shared.ts' })
+    expect(latestAssignment(bench.db, 2)?.reason).toBe('chain')
+    expect(currentLane(bench.db, 2)).toBe(currentLane(bench.db, 1))
+    expect(bench.candidates()).toEqual([2])
+  })
+
+  it('a shared touch binds the lane assignment and not the start: with an empty lane the reflow takes the card off the stopped head, and the launch starts it', () => {
     const bench = new Bench().admit(1, { touches: 'src/shared.ts' }).start(1).stop(1).admit(2, { touches: 'src/shared.ts' })
     expect(latestAssignment(bench.db, 2)?.reason).toBe('reflowed')
     expect(currentLane(bench.db, 2)).not.toBe(currentLane(bench.db, 1))
     expect(bench.candidates()).toEqual([2])
   })
 
-  it('a card sharing a touch with the stopped head in its own lane also starts', () => {
-    const bench = new Bench().admit(1, { touches: 'src/shared.ts' }).start(1).stop(1).admit(2, { touches: 'src/shared.ts' }).moveTo(1, 'lane-1').moveTo(2, 'lane-1')
-    expect(bench.candidates()).toEqual([2])
-  })
-
-  it('a fault-stopped head with an open pull request keeps its lane', () => {
+  it('the open pull request and not the stop is what held #1596 behind #1586: a fault-stopped head with an open pull request keeps its lane', () => {
     const bench = new Bench().admit(1).openPr(1).stop(1).admit(2).moveTo(1, 'lane-1').moveTo(2, 'lane-1')
     expect(bench.candidates()).toEqual([])
     expect(bench.linesAfter(20)).toEqual(['#2 planned and startable, not started for 20 minutes: #1 at the head of lane-1'])
