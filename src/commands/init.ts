@@ -5,6 +5,7 @@ import type { AiTarget, Preset, PresetId, ReviewProvider, TemplateVars } from '.
 import type { Ui } from '../ui/console.js'
 import type { Prompter } from '../ui/prompts.js'
 import { existsSync, mkdirSync, readFileSync } from 'node:fs'
+import { homedir } from 'node:os'
 import path from 'node:path'
 import { DEFAULT_COMPOSITION_DIR, detect } from '../detect/index.js'
 import { buildManifest, DEFAULT_LANES, isLaneCount, readManifest, recordedShas, recordedVariants, writeManifest } from '../manifest.js'
@@ -19,7 +20,8 @@ import { isValidProjectName, parseLaneCount } from '../ui/prompts.js'
 import { VERSION } from '../version.js'
 import { writeOwnerDecisionsBeside } from './attach/index.js'
 import { ATTACH_RECORD_FILE } from './attach/record.js'
-import { BROWSER_LAB_EXCLUDED_COMMAND } from './attach/settings.js'
+import { browserLabExcludedCommand, excludeBrowserLabInLocalSettings, SETTINGS_FILE as LOCAL_SETTINGS_FILE } from './attach/settings.js'
+import { readTrackedPaths } from './detach/index-reader.js'
 import { printDetectReport } from './soulkill.js'
 
 function ownedShasOfBlocks(written: FileOp[]): Record<string, string> {
@@ -270,11 +272,10 @@ async function askChoices(ui: Ui, options: InitOptions, report: DetectReport, ro
 
 const SETTINGS_FILE = '.claude/settings.json'
 
-function settingsExcludeBrowserLab(root: string): boolean {
+function excludedBrowserLabLocally(root: string, home: string): boolean {
   try {
-    const parsed = JSON.parse(readFileSync(path.join(root, SETTINGS_FILE), 'utf8')) as { sandbox?: { excludedCommands?: unknown } } | null
-    const excluded = parsed?.sandbox?.excludedCommands
-    return Array.isArray(excluded) && excluded.includes(BROWSER_LAB_EXCLUDED_COMMAND)
+    const index = readTrackedPaths(root)
+    return 'tracked' in index && !index.tracked.has(LOCAL_SETTINGS_FILE) && excludeBrowserLabInLocalSettings(root, home)
   }
   catch {
     return false
@@ -413,8 +414,14 @@ export async function runInit(ui: Ui, options: InitOptions, prompter?: Prompter)
   const changing = applied.filter(op => changesTheTree(root, op))
   const next = nextStepAfter(changing, vars)
   const written = applyPlan(root, plan.ops)
-  if (plan.ops.some(op => op.target === SETTINGS_FILE) && !settingsExcludeBrowserLab(root))
-    ui.glitch(ui.lore.initSettingsSkippedNoExclusion)
+  if (plan.ops.some(op => op.target === SETTINGS_FILE)) {
+    const home = options.home ?? homedir()
+    const command = browserLabExcludedCommand(home)
+    if (excludedBrowserLabLocally(root, home))
+      ui.line(ui.theme.dim(`  ${ui.lore.initBrowserLabExcluded(command)}`))
+    else
+      ui.glitch(ui.lore.initSettingsSkippedNoExclusion(command))
+  }
   const manifest = buildManifest({ version: VERSION, preset: presetId, ai, review, vars, written, ownedShas: ownedShasOfBlocks(written), contracts: preset.contracts, previous, policy, lanes, serve: preset.serve })
   writeManifest(root, manifest)
   const sample = sampleIsHere({ preset, vars, ai, review, omittedGroups: plan.omittedGroups, previous })

@@ -25,6 +25,8 @@ import { cardBodyAdmissionOf, LEASED } from '../core/queue.js'
 import { busCardBodies } from '../intake/parking-reads.js'
 import { slotsOf, slotsVariable } from '../supervisor/scheduler.js'
 import { STARTER_ACTOR, windowOpenPrs } from '../window/window-prs.js'
+import { SESSION_VARIABLE } from './client/claude/adapter.js'
+import { clientAdapter } from './client/index.js'
 import { cardTree } from './worktree-home.js'
 import { adoptTree, cutTree, pnpmInstall } from './worktree.js'
 
@@ -34,7 +36,6 @@ const CARD_FLAG = '--card'
 const ADOPT_FLAG = '--adopt'
 export const ADOPT_USAGE = 'usage: pnpm task:start <branch> --card "<card>" --adopt <tree> [--without-intake "<reason>"]'
 const WITHOUT_INTAKE_FLAG = '--without-intake'
-const SESSION_VARIABLE = 'CLAUDE_CODE_SESSION_ID'
 const SAFE_BRANCH = /^[^\s-]\S*$/
 
 export interface TaskStartDeps {
@@ -386,7 +387,7 @@ export function realDeps(): TaskStartDeps {
     exists: existsSync,
     bus: defaultBusPath(),
     now: () => new Date(),
-    session: process.env[SESSION_VARIABLE] === '' ? undefined : process.env[SESSION_VARIABLE],
+    session: clientAdapter().ownSession(process.env) ?? undefined,
     treeOf: id => cardTree(process.env, defaultBusPath(), id),
     cardBody: busCardBodies(defaultBusPath()),
     style: terminalStyle(process.stdout.isTTY, process.env.NO_COLOR),

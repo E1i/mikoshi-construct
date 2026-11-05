@@ -3,6 +3,7 @@ import { appendFileSync, mkdirSync, realpathSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import { isCardSession } from './tab-window.mjs'
 
 export const AGENTS_FILE = '.construct/window-agents.jsonl'
 const EVENTS = { SubagentStart: 'start', SubagentStop: 'stop' }
@@ -31,7 +32,7 @@ async function readStdin() {
 
 async function main() {
   const root = process.env.CLAUDE_PROJECT_DIR
-  if (root === undefined)
+  if (root === undefined || isCardSession(process.env))
     return
   try {
     const line = agentLineOf(await readStdin(), new Date().toISOString())

@@ -1,11 +1,12 @@
 import type { DatabaseSync } from 'node:sqlite'
 import { CARD_BODIES } from '../core/card-bodies.js'
-import { CARD_VERIFIED, REVIEW_RECORDED } from '../core/events.js'
+import { CARD_VERIFIED, PR_CLOSED, REVIEW_RECORDED } from '../core/events.js'
 
 const DECISION = /\bD-[1-9]\d*\b/g
 
 const ADMISSION = `SELECT json_extract(payload, '$.prevAdmissionId') AS previous FROM events WHERE id = ?`
 const LATEST_OF_TYPE = `SELECT id, payload FROM events WHERE legacy = 0 AND type = ? AND card_id = ? ORDER BY id DESC LIMIT 1`
+const LATEST_MERGE = `SELECT id FROM events WHERE legacy = 0 AND type = '${PR_CLOSED}' AND card_id = ? AND json_extract(payload, '$.merged') = 1 ORDER BY id DESC LIMIT 1`
 
 export interface CardChain {
   card: number
@@ -40,6 +41,6 @@ export function cardChain(db: DatabaseSync, card: number): CardChain | null {
     versions: versionsFrom(db, body.admission_event_id),
     decisions: [...new Set(body.text.match(DECISION) ?? [])],
     verdict: review === undefined ? null : { event: review.id, verdict: (JSON.parse(review.payload) as Record<string, unknown>).verdict },
-    proof: latestOf(db, CARD_VERIFIED, card)?.id ?? null,
+    proof: (db.prepare(LATEST_MERGE).get(card) as { id: number } | undefined)?.id ?? latestOf(db, CARD_VERIFIED, card)?.id ?? null,
   }
 }

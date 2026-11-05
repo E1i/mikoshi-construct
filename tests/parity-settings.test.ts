@@ -115,8 +115,13 @@ describe('init carries the settings layer the factory runs on', () => {
     expect(settingsOf(dir).permissions?.allow).toEqual(expect.arrayContaining(['WebFetch', 'WebSearch', 'mcp__context7']))
   })
 
+  it('the template commits no sandbox entry, so no home path reaches a clone', () => {
+    const template = JSON.parse(readFileSync(path.join(REPO_ROOT, 'templates/ai/claude/_claude/settings.json'), 'utf8')) as Settings
+    expect(template.sandbox).toBeUndefined()
+  })
+
   it('merging hooks into an existing settings.json keeps its sandbox key', () => {
-    const template = readFileSync(path.join(REPO_ROOT, 'templates/ai/claude/_claude/settings.json'), 'utf8')
+    const template = JSON.stringify({ hooks: {}, sandbox: { excludedCommands: [BROWSER_LAB_EXCLUSION] } })
     const without = JSON.parse(mergeHookSettings(JSON.stringify({ model: 'x' }), template)!) as Settings
     expect(without.sandbox).toEqual({ excludedCommands: [BROWSER_LAB_EXCLUSION] })
     const own = { sandbox: { enabled: true, excludedCommands: ['docker *'] } }

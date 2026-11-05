@@ -66,7 +66,15 @@ export interface SandboxExclusion {
   createdExcluded: boolean
 }
 
-export const BROWSER_LAB_EXCLUDED_COMMAND = 'node scripts/construct/browser-lab.mjs *'
+const RECORDED_BY_AN_EARLIER_ATTACH = 'node scripts/construct/browser-lab.mjs *'
+
+export function browserLabInstalledScript(home: string = homedir()): string {
+  return path.join(home, '.construct', 'browser-lab', 'bin', 'browser-lab.mjs')
+}
+
+export function browserLabExcludedCommand(home: string = homedir()): string {
+  return `node ${browserLabInstalledScript(home)} *`
+}
 
 const ENGRAM_TOOLS = ['Read', 'Edit'] as const
 
@@ -219,12 +227,12 @@ function revokeEngram(settings: JsonObject, engram: EngramPermissions): void {
     delete settings.permissions
 }
 
-function excludeBrowserLab(settings: JsonObject): SandboxExclusion {
+function excludeBrowserLab(settings: JsonObject, entry: string): SandboxExclusion {
   const createdSandbox = !('sandbox' in settings)
   const sandbox: JsonObject = isJsonObject(settings.sandbox) ? settings.sandbox : {}
   const createdExcluded = !('excludedCommands' in sandbox)
   const excluded: unknown[] = Array.isArray(sandbox.excludedCommands) ? sandbox.excludedCommands : []
-  const added = excluded.includes(BROWSER_LAB_EXCLUDED_COMMAND) ? [] : [BROWSER_LAB_EXCLUDED_COMMAND]
+  const added = excluded.includes(entry) ? [] : [entry]
   excluded.push(...added)
   sandbox.excludedCommands = excluded
   settings.sandbox = sandbox
@@ -243,8 +251,18 @@ function restoreSandbox(settings: JsonObject, exclusion: SandboxExclusion): void
     delete settings.sandbox
 }
 
+export function excludeBrowserLabInLocalSettings(root: string, home: string = homedir()): boolean {
+  const reading = readSettings(root)
+  if (reading.kind === 'unreadable')
+    return false
+  const settings: JsonObject = reading.kind === 'read' ? reading.settings : {}
+  excludeBrowserLab(settings, browserLabExcludedCommand(home))
+  writeSettings(root, settings)
+  return true
+}
+
 function isSandboxRecord(value: unknown): boolean {
-  return value === undefined || (isJsonObject(value) && Array.isArray(value.added) && value.added.every(command => command === BROWSER_LAB_EXCLUDED_COMMAND) && typeof value.createdSandbox === 'boolean' && typeof value.createdExcluded === 'boolean')
+  return value === undefined || (isJsonObject(value) && Array.isArray(value.added) && value.added.every(command => command === RECORDED_BY_AN_EARLIER_ATTACH || command === browserLabExcludedCommand()) && typeof value.createdSandbox === 'boolean' && typeof value.createdExcluded === 'boolean')
 }
 
 function isEngramRecord(value: unknown): boolean {
@@ -272,7 +290,7 @@ export function installHookEntries(root: string, reading: SettingsReading): Sett
   })
   settings.hooks = hooks
   const engram = allowEngram(settings, engramRules(root))
-  const sandbox = excludeBrowserLab(settings)
+  const sandbox = excludeBrowserLab(settings, browserLabExcludedCommand())
   const afterSha256 = sha256OfBytes(writeSettings(root, settings))
   return { kind: 'installed', hook: { file: SETTINGS_FILE, created, entry, window, engram, sandbox }, afterSha256 }
 }

@@ -4,11 +4,11 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { openDatabase } from '../core/sqlite.js'
 import { findTranscript, measuredSession, measuredSpent, spendBasis, transcriptContext, transcriptCounters, transcriptModel } from '../ports/client/claude/adapter.js'
+import { clientAdapter } from '../ports/client/index.js'
 import { CARD_VARIABLE } from '../ports/session.js'
 
 export const UNKNOWN = 'unknown'
 export const SESSION_EXIT_EVENT = 'session-exit'
-const SESSION_VARIABLE = 'CLAUDE_CODE_SESSION_ID'
 export const PROJECT_VARIABLE = 'CLAUDE_PROJECT_DIR'
 export const LOADED_CORE_VARIABLE = 'MIKO_LOADED_CORE'
 const CORE_FILE = path.join('architecture', 'window-core.md')
@@ -152,8 +152,8 @@ function busSince(busPath: string, startedAt: string): { cards: number, busEvent
 
 export function realExitReadings(env: NodeJS.ProcessEnv, home: string, root: string, busPath: string): ExitReadings {
   const limits = { ...limitsOf(root, env), ...coreReadings(env, root) }
-  const session = env[SESSION_VARIABLE]
-  if (session === undefined || !PLAIN_ID.test(session))
+  const session = clientAdapter().ownSession(env)
+  if (session === null || !PLAIN_ID.test(session))
     return { ...UNREAD, ...limits }
   const transcript = attempt(() => findTranscript(home, session))
   if (transcript === UNKNOWN)

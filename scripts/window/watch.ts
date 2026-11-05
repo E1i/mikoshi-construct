@@ -11,12 +11,15 @@ import { BUS_PULSE, CARD_CLOSED, CARD_STOPPED, CARD_WAITING, GHOST_LINE, MERGE_D
 import { defaultHandoffDir } from '../core/handoff-dir.js'
 import { HEARTBEAT_QUEUES, LEASE_EXPIRED } from '../core/lease.js'
 import { REVIEW_ROUNDS_SPENT } from '../nodes/review/review-executor.js'
+import { USER_SETTINGS } from '../ports/client/claude/adapter.js'
 import { CARD_PROCESS } from '../supervisor/heartbeat.js'
 import { WatchRefusal } from './watch-refusal.js'
 import { ONCE_STORE, OnceStore, parentGone } from './watch-store.js'
 import { windowBeat, windowOf } from './window-heartbeat.js'
 import { windowOpenPrs } from './window-prs.js'
 import { requestActor } from './window-requests.js'
+
+export { USER_SETTINGS }
 
 export const STOP_EVENT = 'relaunch-stop'
 export const WAKING_EVENTS = ['merge', 'fall', 'relaunch-stop', 'stop']
@@ -27,7 +30,6 @@ export const PASSED_CI = 'green'
 export const RED_WITNESS = 'red'
 export const GREEN_WITNESS = 'green'
 export const DENIALS_IN_A_ROW = 2
-export const USER_SETTINGS = '~/.claude/settings.json'
 export const STALL_MS = 20 * 60_000
 export const BUS_ALIVE_MS = 2 * 60_000
 export const IN_FLIGHT_CARDS = [RUNNING_CARD, IN_REVIEW_CARD]

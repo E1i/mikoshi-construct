@@ -24,12 +24,12 @@ import { OWNER } from '../core/inbox.js'
 import { openDatabase } from '../core/sqlite.js'
 import { assignMovedLane, layLanes, repositoryLanes } from '../nodes/launch/lane-assign.js'
 import { activeWindowShards } from '../policy/shards.js'
+import { clientAdapter } from '../ports/client/index.js'
 import { tabWindowOf } from '../window/tab.js'
 import { windowSessionOf } from '../window/window-heartbeat.js'
 import { INTAKE_ACTOR_PREFIX } from './admissions.js'
 
 const INTAKE_SUBCOMMAND = 'intake'
-const SESSION_VARIABLE = 'CLAUDE_CODE_SESSION_ID'
 const SESSION_BY_HAND = 'by-hand'
 const EXPORT_FLAG = '--export'
 const PLAIN_FLAG = '--plain'
@@ -275,7 +275,7 @@ async function main(): Promise<void> {
     const shard = windowShardOfRun(db, process.env, new Date())
     if (shard !== null)
       process.env[WINDOW_SHARD_VARIABLE] = shard
-    await runBusIntake(db, process.argv.slice(2), process.env[SESSION_VARIABLE] || undefined)
+    await runBusIntake(db, process.argv.slice(2), clientAdapter().ownSession(process.env) ?? undefined)
   }
   finally {
     db.close()
