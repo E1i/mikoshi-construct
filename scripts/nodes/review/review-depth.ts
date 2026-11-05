@@ -41,6 +41,11 @@ export interface DepthSources {
 export interface CardScope {
   touches: string[]
   runs: string[]
+  fullReading?: string
+}
+
+function fullReadingLine(why: string): string {
+  return `Runs read in full: ${why}, so only the paths the card names count as its runs`
 }
 
 export type ReviewPlanner = (lease: Lease, earlier: EarlierVerdict | null) => ReviewPlan
@@ -81,9 +86,10 @@ function touchFindings(cardId: number, { files, added }: Predicted, sources: Dep
   const scope = sources.scope(cardId)
   if (scope === null)
     return [`the touches of card #${cardId} could not be read, so no changed file is shown inside them`]
-  const { touches, runs } = scope
+  const { touches, runs, fullReading } = scope
   const reach = { touches, added: new Set(added), compositionRecords: compositionRecords() }
-  return files.filter(file => !withinTouches(file, touches) && !runsCover(file, runs) && !followsTouches(file, reach)).map(file => `${file} is outside the touches of card #${cardId} (${touches.join(', ')})`)
+  const readingNote = fullReading === undefined ? '' : `; ${fullReadingLine(fullReading)}`
+  return files.filter(file => !withinTouches(file, touches) && !runsCover(file, runs) && !followsTouches(file, reach)).map(file => `${file} is outside the touches of card #${cardId} (${touches.join(', ')})${readingNote}`)
 }
 
 function firstReview(lease: Lease, head: string, sources: DepthSources): ReviewPlan {

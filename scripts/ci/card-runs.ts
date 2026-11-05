@@ -1,4 +1,11 @@
+import type { DatabaseSync } from 'node:sqlite'
+import { existsSync } from 'node:fs'
 import { withinTouches } from '../../src/card/covering-tests.js'
+import { BUSY_TIMEOUT_MS, defaultBusPath } from '../core/db.js'
+import { messageOf } from '../core/errors.js'
+import { openDatabase } from '../core/sqlite.js'
+
+export const NO_LAYER = 'none'
 
 type LayersByFile = ReadonlyMap<string, readonly string[]>
 
@@ -53,4 +60,56 @@ export function cardRunsOf({ touches, runs, masks }: CardRunsSource, { testLayer
   if (tests.length === 0)
     return { full: true, why: 'the card names no touch and no run' }
   return { layers, paths, tests }
+}
+
+export function hasTable(db: DatabaseSync, name: string): boolean {
+  return db.prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?`).get(name) !== undefined
+}
+
+export function catalogModuleLayers(db: DatabaseSync): Map<string, string[]> {
+  if (!hasTable(db, 'check_modules'))
+    return new Map()
+  const rows = db.prepare('SELECT module, layers FROM check_modules').all() as unknown as { module: string, layers: string }[]
+  return new Map(rows.map(row => [row.module, row.layers.split(',').filter(layer => layer !== '')]))
+}
+
+export function catalogLayersByTest(db: DatabaseSync): Map<string, string[]> {
+  if (!hasTable(db, 'check_tests'))
+    return new Map()
+  const rows = db.prepare('SELECT test, layer FROM check_tests').all() as unknown as { test: string, layer: string }[]
+  return new Map(rows.map(row => [row.test, row.layer.split(',').filter(layer => layer !== NO_LAYER)]))
+}
+
+export interface BusCatalog extends CheckCatalog {
+  unreadable?: string
+}
+
+export function busCheckCatalog(busPath: string = defaultBusPath()): BusCatalog {
+  if (!existsSync(busPath))
+    return { testLayers: new Map(), moduleLayers: new Map() }
+  let db: DatabaseSync | undefined
+  try {
+    db = openDatabase(busPath, { readOnly: true, timeout: BUSY_TIMEOUT_MS })
+    return { testLayers: catalogLayersByTest(db), moduleLayers: catalogModuleLayers(db) }
+  }
+  catch (error) {
+    return { testLayers: new Map(), moduleLayers: new Map(), unreadable: `the check catalog could not be read: ${messageOf(error)}` }
+  }
+  finally {
+    db?.close()
+  }
+}
+
+export interface CardReading {
+  runs: string[]
+  fullReading?: string
+}
+
+export function cardReadingOf(touches: readonly string[], named: string[], masks: readonly string[], catalog: BusCatalog): CardReading {
+  if (catalog.unreadable !== undefined)
+    return { runs: named, fullReading: catalog.unreadable }
+  const reading = cardRunsOf({ touches, runs: named, masks }, catalog)
+  return 'full' in reading
+    ? { runs: named, fullReading: reading.why }
+    : { runs: [...new Set([...named, ...reading.tests])] }
 }

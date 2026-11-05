@@ -6,7 +6,7 @@ const DECISION = /\bD-[1-9]\d*\b/g
 
 const ADMISSION = `SELECT json_extract(payload, '$.prevAdmissionId') AS previous FROM events WHERE id = ?`
 const LATEST_OF_TYPE = `SELECT id, payload FROM events WHERE legacy = 0 AND type = ? AND card_id = ? ORDER BY id DESC LIMIT 1`
-const LATEST_MERGE = `SELECT id FROM events WHERE legacy = 0 AND type = '${PR_CLOSED}' AND card_id = ? AND json_extract(payload, '$.merged') = 1 ORDER BY id DESC LIMIT 1`
+const LATEST_MERGE = `SELECT id FROM events WHERE legacy = 0 AND type = '${PR_CLOSED}' AND (card_id = ?1 OR pr IN (SELECT pr FROM prs WHERE card_id = ?1)) AND json_extract(payload, '$.merged') = 1 ORDER BY id DESC LIMIT 1`
 
 export interface CardChain {
   card: number
