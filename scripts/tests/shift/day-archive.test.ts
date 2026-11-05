@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest'
-import { DECISIONS_IN_FORCE_LIMIT } from '../../policy/decisions/decisions.js'
 import { appended, archiveOfDay, DAY_FILE_LIMIT, dayFileNamedIn, QUESTIONS_HEADING, splitDay } from '../../window/day-archive.js'
 
 const OPEN = '- Q21 open — R4 design: which limit?\n  options (a) and (b)'
@@ -34,8 +33,7 @@ describe('the day file keeps the open questions and the session owner texts', ()
     expect(kept).toBe('# Day\n')
   })
 
-  it('the day file and the decisions share one limit', () => {
-    expect(DAY_FILE_LIMIT).toBe(DECISIONS_IN_FORCE_LIMIT)
+  it('the day file keeps its limit of 8000 bytes', () => {
     expect(DAY_FILE_LIMIT).toBe(8000)
   })
 

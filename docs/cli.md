@@ -1049,8 +1049,10 @@ machine bus `~/.construct/bus.db`, `~/.construct-owner/answers/<repo-id>/` for a
 the owner runs the command from their own shell (in Claude Code, behind `!`). The bus accepts an
 owner decision only when its words are a whole line of a file in its own channel not used yet, and
 marks the file used in the same step, so one file grants one decision, and a word said for one
-repository never confirms a decision or a start word in another. The decision is written into
-`owner-decisions.md` beside that bus's `bus.db`, and a bus imports decisions from that file only.
+repository never confirms a decision or a start word in another. The decision is recorded in the
+`decisions` table of that bus, and `owner-decisions.md` beside its `bus.db` is a projection the bus
+rebuilds from the table. The bus imports that file once, on the first rebuild, and never after, so a
+hand edit is undone and grants nothing.
 
 ```bash
 construct say "Q14: the second path."

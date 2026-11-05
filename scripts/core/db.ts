@@ -12,6 +12,8 @@ import { openDatabase } from './sqlite.js'
 export { BUS_DB_VARIABLE, defaultBusPath } from './bus-path.js'
 export const BUSY_TIMEOUT_MS = 30_000
 export const CARD_BLOCKS = 'card_blocks'
+export const DECISION_IN_FORCE = 'in-force'
+export const DECISION_ARCHIVED = 'archived'
 
 const IN_MEMORY = ':memory:'
 export const CACHE_KIB = 262_144
@@ -103,7 +105,10 @@ CREATE TABLE IF NOT EXISTS decisions (
   text TEXT NOT NULL,
   scope TEXT,
   source TEXT NOT NULL,
-  event_id INTEGER NOT NULL REFERENCES events(id)
+  event_id INTEGER NOT NULL REFERENCES events(id),
+  until TEXT,
+  supersedes TEXT,
+  state TEXT NOT NULL DEFAULT '${DECISION_IN_FORCE}'
 );
 CREATE TABLE IF NOT EXISTS owner_waits (
   id TEXT PRIMARY KEY,
@@ -189,7 +194,7 @@ export function recordBeat(db: DatabaseSync, beat: Beat): boolean {
   return Number(result.changes) === 1
 }
 
-const ADDED_COLUMNS: readonly (readonly [string, string, string])[] = [['prs', 'body_sha', 'TEXT'], ['plans', 'gate', 'TEXT']]
+const ADDED_COLUMNS: readonly (readonly [string, string, string])[] = [['prs', 'body_sha', 'TEXT'], ['plans', 'gate', 'TEXT'], ['decisions', 'until', 'TEXT'], ['decisions', 'supersedes', 'TEXT'], ['decisions', 'state', `TEXT NOT NULL DEFAULT '${DECISION_IN_FORCE}'`]]
 
 function addMissingColumns(db: DatabaseSync): void {
   for (const [table, column, type] of ADDED_COLUMNS) {
