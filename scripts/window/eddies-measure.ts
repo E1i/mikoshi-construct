@@ -3,6 +3,7 @@ import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync } from
 import { createRequire } from 'node:module'
 import path from 'node:path'
 import { openDatabase } from '../core/sqlite.js'
+import { CARD_VARIABLE } from '../ports/session.js'
 import { transcriptContext } from './operator-boundary.js'
 
 export const UNKNOWN = 'unknown'
@@ -52,6 +53,7 @@ export const NO_TRANSCRIPT = 'no-transcript'
 export interface SessionGauges {
   context?: number
   spent?: number
+  model?: string
   reason?: typeof GAUGES_UNREAD | typeof NO_TRANSCRIPT
   error?: string
 }
@@ -121,7 +123,7 @@ function count(value: unknown): number {
 
 interface TranscriptEntry {
   timestamp?: unknown
-  message?: { role?: unknown, usage?: { input_tokens?: unknown, cache_creation_input_tokens?: unknown, cache_read_input_tokens?: unknown } | null }
+  message?: { role?: unknown, model?: unknown, usage?: { input_tokens?: unknown, cache_creation_input_tokens?: unknown, cache_read_input_tokens?: unknown } | null }
 }
 
 function entriesOf(text: string): TranscriptEntry[] {
@@ -168,13 +170,20 @@ function sessionSpent(root: string, transcript: string): number {
   return spentWithAgents(root, transcript, hookMeasure.readTranscript(root, transcript).tokens)
 }
 
+function modelOf(text: string): string | null {
+  const models = entriesOf(text).map(entry => entry.message?.role === 'assistant' ? entry.message.model : undefined)
+  const model = models.filter(each => typeof each === 'string').at(-1)
+  return typeof model === 'string' ? model : null
+}
+
 export function sessionGauges(home: string, root: string, session: string): SessionGauges {
   try {
     const transcript = foundTranscriptOf(home, session)
     if (transcript === null)
       return { reason: NO_TRANSCRIPT }
     const parent = hookMeasure.readTranscript(root, transcript)
-    return { context: hookMeasure.contextOf(parent.last), spent: spentWithAgents(root, transcript, parent.tokens) }
+    const model = modelOf(readFileSync(transcript, 'utf8'))
+    return { context: hookMeasure.contextOf(parent.last), spent: spentWithAgents(root, transcript, parent.tokens), ...(model === null ? {} : { model }) }
   }
   catch (error) {
     return { reason: GAUGES_UNREAD, error: error instanceof Error ? error.message.split('\n')[0]! : String(error) }
@@ -185,13 +194,17 @@ function warnOf(limit: number | null, warnRatio: number | null): Reading<number>
   return limit === null || warnRatio === null || warnRatio > 1 ? UNKNOWN : limit * warnRatio
 }
 
-function limitsOf(root: string): { contextWarn: Reading<number>, spendWarn: Reading<number> } {
+function cardLineOf(config: Record<string, unknown>, env: NodeJS.ProcessEnv): number | null {
+  return env[CARD_VARIABLE] ? positive(config.cardContextLine) : null
+}
+
+function limitsOf(root: string, env: NodeJS.ProcessEnv): { contextWarn: Reading<number>, spendWarn: Reading<number> } {
   const config = attempt(() => JSON.parse(readFileSync(path.join(root, CONFIG_FILE), 'utf8')) as Record<string, unknown> | null)
   if (config === UNKNOWN || typeof config !== 'object')
     return { contextWarn: UNKNOWN, spendWarn: UNKNOWN }
   const warnRatio = positive(config.warnRatio)
   return {
-    contextWarn: warnOf(positive(config.contextLimit), warnRatio),
+    contextWarn: cardLineOf(config, env) ?? warnOf(positive(config.contextLimit), warnRatio),
     spendWarn: warnOf(positive(config.sessionSpend), warnRatio),
   }
 }
@@ -218,7 +231,7 @@ function busSince(busPath: string, startedAt: string): { cards: number, busEvent
 }
 
 export function realExitReadings(env: NodeJS.ProcessEnv, home: string, root: string, busPath: string): ExitReadings {
-  const limits = { ...limitsOf(root), ...coreReadings(env, root) }
+  const limits = { ...limitsOf(root, env), ...coreReadings(env, root) }
   const session = env[SESSION_VARIABLE]
   if (session === undefined || !PLAIN_ID.test(session))
     return { ...UNREAD, ...limits }

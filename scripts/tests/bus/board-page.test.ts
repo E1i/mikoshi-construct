@@ -423,10 +423,10 @@ describe('board.html', () => {
     const limits = readEddiesLimits()
     const version = JSON.parse(readFileSync(path.resolve(import.meta.dirname, '../../../package.json'), 'utf8')) as { version: string }
     const warnLine = limits.warnRatio === null ? [] : [Math.round(limits.warnRatio * 100)]
-    const allowed = [load, cores, ...busNumbers(busPath), ...Object.values(limits).filter(value => value !== null), ...warnLine, readModelVersion() ?? 0, ...version.version.split('.').map(Number), ...NOW.toISOString().split(/\D+/).filter(Boolean).map(Number)]
+    const allowed = [load, cores, ...busNumbers(busPath), ...Object.values(limits).filter(value => typeof value === 'number'), ...limits.modelWindows.values(), ...warnLine, readModelVersion() ?? 0, ...version.version.split('.').map(Number), ...NOW.toISOString().split(/\D+/).filter(Boolean).map(Number)]
     const counts = Array.from({ length: 6 }, (_, at) => at)
     const tokens = [...visibleText(html).matchAll(/(?<![\w.#-])\d+(?:\.\d+)?[kM]?(?![\w.])/g)].map(match => match[0])
-    expect(tokens).toEqual(expect.arrayContaining(['182k', '250k', '1.4M', '3M']))
+    expect(tokens).toEqual(expect.arrayContaining(['182k', '1.4M', '3M']))
     for (const token of tokens) {
       const reading = readingOf(token)
       const tolerance = token.endsWith('M') ? 50_000 : token.endsWith('k') ? 500 : 0
@@ -472,12 +472,12 @@ describe('board.html', () => {
   })
 
   it('the warnings strip stands above SERVICES and reads the gauge the tile reads', () => {
-    const { contextLimit } = readEddiesLimits()
+    const { contextLimit, cardContextLine } = readEddiesLimits()
     const html = pageText(seededBus([
       { ts: minutesAgo(3), type: SESSION_HEARTBEAT, card: 861, payload: JSON.stringify({ step: 'launch', session: 's861', context: contextLimit! + 35_000 }) },
     ]))
     const strip = slotsOf(html).get('warnings')!
-    expect(strip).toContain(`<span class="warning" data-level="red">#861: ctx ${(contextLimit! + 35_000) / 1000}k of ${contextLimit! / 1000}k, over the limit</span>`)
+    expect(strip).toContain(`<span class="warning" data-level="red">#861: ctx ${(contextLimit! + 35_000) / 1000}k of ${(cardContextLine ?? contextLimit!) / 1000}k, over the limit</span>`)
     expect(html.indexOf('id="slot-warnings"')).toBeLessThan(html.indexOf('id="slot-services"'))
     expect(html.indexOf('id="slot-warnings"')).toBeGreaterThan(html.indexOf('id="slot-waits"'))
   })
@@ -594,7 +594,8 @@ describe('board.html', () => {
     expect(header).toMatch(/<span class="live" id="bus-live"( data-stale)?>bus (live|offline)<\/span>/)
     const services = sectionOf(html, '<h2 id="h-services">', '<div class="svc-grid">')
     expect(services).toMatch(/<span class="meta">quickhacks on the subnet · agents at work <b>\d+<\/b> · slots <b>[^<]+<\/b><\/span>/)
-    expect(services).toContain(`<span class="meta right edd-note">eddies: warn line <b>${Math.round(limits.warnRatio! * 100)}%</b></span>`)
+    const cardLine = limits.cardContextLine === null ? '' : ` · card line <b>${limits.cardContextLine / 1000}k</b>`
+    expect(services).toContain(`<span class="meta right edd-note">eddies: warn line <b>${Math.round(limits.warnRatio! * 100)}%</b>${cardLine}</span>`)
     const flowNote = sectionOf(html, '<div class="flow-note">', '</div>')
     expect(flowNote).toMatch(/<span class="fail"( data-none)?>last failure <b>[^<]+<\/b><\/span>/)
     const statusline = sectionOf(html, '<footer class="statusline"', '</footer>')
@@ -726,19 +727,19 @@ describe('board.html', () => {
     const html = pageText(seededBus([
       { ts: minutesAgo(3), type: SESSION_HEARTBEAT, card: 861, payload: JSON.stringify({ step: 'launch', session: 's861', context: 182_345, spent: 2_950_000 }) },
     ]))
-    const { contextLimit, sessionSpend } = readEddiesLimits()
+    const { sessionSpend } = readEddiesLimits()
     const style = /<style>([\s\S]*?)<\/style>/.exec(html)![1]!
     const edd = /\n\.edd \{([\s\S]*?)\n\}/.exec(style)![1]!
     expect(edd).toContain('max-content')
     expect(style).toMatch(/\.edd-v \{[^}]*white-space: nowrap/)
-    expect(html).toMatch(new RegExp(`<span class="edd-v">182k${contextLimit === null ? '' : '/\\d+(?:\\.\\d)?[kM]'}</span>`))
+    expect(html).toContain('<span class="edd-v">182k</span>')
     expect(html).toMatch(new RegExp(`<span class="edd-v">3M${sessionSpend === null ? '' : '/\\d+(?:\\.\\d)?[kM]'}</span>`))
   })
 
   it('the board page lays out each eddies gauge as a three-column grid with a filled bar', () => {
-    const { contextLimit } = readEddiesLimits()
+    const { sessionSpend } = readEddiesLimits()
     const html = pageText(seededBus([
-      { ts: minutesAgo(3), type: SESSION_HEARTBEAT, card: 861, payload: JSON.stringify({ step: 'launch', session: 's861', context: 120_000 }) },
+      { ts: minutesAgo(3), type: SESSION_HEARTBEAT, card: 861, payload: JSON.stringify({ step: 'launch', session: 's861', context: 120_000, spent: 120_000 }) },
     ]))
     const style = /<style>([\s\S]*?)<\/style>/.exec(html)![1]!
     const edd = /\n\.edd \{([\s\S]*?)\n\}/.exec(style)![1]!
@@ -754,8 +755,8 @@ describe('board.html', () => {
     const gaugeRules = [edd, bar, /\.edd-k \{[^}]*\}/.exec(style)![0], /\.edd-v \{[^}]*\}/.exec(style)![0]]
     for (const rule of gaugeRules)
       expect(rule.replace(/^\s*--[\w-]+:.*$/gm, '')).not.toMatch(/\d(?:\.\d+)?rem/)
-    if (contextLimit !== null)
-      expect(html).toMatch(/<div class="edd"[^>]*><span class="edd-k">ctx<\/span><span class="edd-bar" style="--_fill: \d+%/)
+    if (sessionSpend !== null)
+      expect(html).toMatch(/<div class="edd"[^>]*><span class="edd-k">spent<\/span><span class="edd-bar" style="--_fill: \d+%/)
   })
 
   it('a pull request number in prose stays text and only a card number opens its card', () => {

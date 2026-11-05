@@ -106,6 +106,7 @@ export interface CardGauges {
   ts: string
   context: number | null
   spent: number | null
+  model: string | null
 }
 
 export interface WindowGauges {
@@ -113,6 +114,7 @@ export interface WindowGauges {
   ts: string
   context: number | null
   spent: number | null
+  model: string | null
 }
 
 export interface ActiveShard extends WindowShard {
@@ -226,14 +228,14 @@ const WINDOW_SHARD_DECISIONS = `
 `
 
 const LAST_GAUGES = `
-  SELECT card_id, ts, json_extract(payload, '$.context') AS context, json_extract(payload, '$.spent') AS spent FROM events
+  SELECT card_id, ts, json_extract(payload, '$.context') AS context, json_extract(payload, '$.spent') AS spent, json_extract(payload, '$.model') AS model FROM events
   WHERE id IN (SELECT max(id) FROM events WHERE type = '${SESSION_HEARTBEAT}' AND legacy = 0 AND card_id IS NOT NULL GROUP BY card_id)
     AND json_valid(payload)
   ORDER BY card_id
 `
 
 const LAST_WINDOW_GAUGES = `
-  SELECT ts, json_extract(payload, '$.session') AS session, json_extract(payload, '$.context') AS context, json_extract(payload, '$.spent') AS spent FROM events
+  SELECT ts, json_extract(payload, '$.session') AS session, json_extract(payload, '$.context') AS context, json_extract(payload, '$.spent') AS spent, json_extract(payload, '$.model') AS model FROM events
   WHERE type = '${WINDOW_HEARTBEAT}' AND legacy = 0 AND json_valid(payload)
   ORDER BY id DESC LIMIT 1
 `
@@ -457,17 +459,21 @@ function numberOrNull(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null
 }
 
+function textOrNull(value: unknown): string | null {
+  return typeof value === 'string' ? value : null
+}
+
 export function cardGauges(db: DatabaseSync): CardGauges[] {
-  return (db.prepare(LAST_GAUGES).all() as { card_id: number, ts: string, context: unknown, spent: unknown }[])
-    .map(row => ({ card: row.card_id, ts: row.ts, context: numberOrNull(row.context), spent: numberOrNull(row.spent) }))
+  return (db.prepare(LAST_GAUGES).all() as { card_id: number, ts: string, context: unknown, spent: unknown, model: unknown }[])
+    .map(row => ({ card: row.card_id, ts: row.ts, context: numberOrNull(row.context), spent: numberOrNull(row.spent), model: textOrNull(row.model) }))
     .filter(row => row.context !== null || row.spent !== null)
 }
 
 export function windowGauges(db: DatabaseSync): WindowGauges | null {
-  const row = db.prepare(LAST_WINDOW_GAUGES).get() as { ts: string, session: unknown, context: unknown, spent: unknown } | undefined
+  const row = db.prepare(LAST_WINDOW_GAUGES).get() as { ts: string, session: unknown, context: unknown, spent: unknown, model: unknown } | undefined
   if (row === undefined)
     return null
-  const gauges = { session: typeof row.session === 'string' ? row.session : null, ts: row.ts, context: numberOrNull(row.context), spent: numberOrNull(row.spent) }
+  const gauges = { session: textOrNull(row.session), ts: row.ts, context: numberOrNull(row.context), spent: numberOrNull(row.spent), model: textOrNull(row.model) }
   return gauges.context === null && gauges.spent === null ? null : gauges
 }
 

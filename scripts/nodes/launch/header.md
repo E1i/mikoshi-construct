@@ -36,7 +36,7 @@ shift is over; where a decision is the owner's, stop, write it into the report a
   unpushed commit runs none of them. A heavy step waits for its turn in the foreground, so give each a
   Bash timeout of 600000. A red pre-push run is fixed in this session before you end it. A broken one prints a `finding:` and a `question:` line: copy both into the
   report and exit; the bus pushes nothing.
-- On the context warn (the Eddies warn on the session's context): finish the step you are in, write the
+- On the context warn (the Eddies line on the session's context, `cardContextLine`): finish the step you are in, write the
   handoff and the report, exit. The bus pushes nothing and continues the card in a fresh session from that
   handoff, whatever the card's `continue` field says; a report without a valid handoff stops the card, and
   past the restart limit the card stops, with no push either way.
@@ -44,7 +44,7 @@ shift is over; where a decision is the owner's, stop, write it into the report a
   and the report, exit; the bus then commits, pushes and opens the pull request from the tree before it
   records the stop.
 - On an Eddies stop: write the report and exit.
-- At a boundary — the session's context reached `contextLimit`, or an owner-merged pull request just
+- At a boundary — the session's context reached `cardContextLine`, or an owner-merged pull request just
   merged — finish the step you are in, write the handoff and the report with a
   `boundary: <which boundary>` line in it, and exit.
 - At an Eddies warn or a boundary, the shift report also carries the handoff contract: each of the

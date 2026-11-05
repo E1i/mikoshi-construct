@@ -62,12 +62,15 @@ export function escaped(text: string): string {
 export interface Gauges {
   context: number | null
   spent: number | null
+  model: string | null
 }
 
 export interface EddiesLimits {
   contextLimit: number | null
+  cardContextLine: number | null
   sessionSpend: number | null
   warnRatio: number | null
+  modelWindows: ReadonlyMap<string, number>
 }
 
 export interface CardDetail {
@@ -108,7 +111,7 @@ export interface BoardPage {
   warnings: BoardWarning[]
 }
 
-const NO_LIMITS: EddiesLimits = { contextLimit: null, sessionSpend: null, warnRatio: null }
+const NO_LIMITS: EddiesLimits = { contextLimit: null, cardContextLine: null, sessionSpend: null, warnRatio: null, modelWindows: new Map() }
 const LORE_NAMES: Record<string, string> = { window: 'Мико', review: 'ICE', matrix: 'ICE', bus: 'Subnet' }
 const RUNNER = 'Runner'
 const WINDOW_ROLE = 'window'
@@ -166,10 +169,19 @@ function positive(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null
 }
 
+function modelWindowsOf(value: unknown): ReadonlyMap<string, number> {
+  if (value === null || typeof value !== 'object')
+    return new Map()
+  return new Map(Object.entries(value).flatMap(([model, size]): [string, number][] => {
+    const window = positive(size)
+    return window === null ? [] : [[model, window]]
+  }))
+}
+
 export function readEddiesLimits(file: string = EDDIES_FILE): EddiesLimits {
   try {
     const config = JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown> | null
-    return config === null || typeof config !== 'object' ? NO_LIMITS : { contextLimit: positive(config.contextLimit), sessionSpend: positive(config.sessionSpend), warnRatio: positive(config.warnRatio) }
+    return config === null || typeof config !== 'object' ? NO_LIMITS : { contextLimit: positive(config.contextLimit), cardContextLine: positive(config.cardContextLine), sessionSpend: positive(config.sessionSpend), warnRatio: positive(config.warnRatio), modelWindows: modelWindowsOf(config.modelWindows) }
   }
   catch {
     return NO_LIMITS
@@ -221,12 +233,12 @@ function cardDetails(db: DatabaseSync, facts: BusFacts): Map<number, CardDetail>
 }
 
 function projectedGauges(db: DatabaseSync): Map<string, Gauges> {
-  return new Map(cardGauges(db).map(row => [`#${row.card}`, { context: positive(row.context), spent: positive(row.spent) }]))
+  return new Map(cardGauges(db).map(row => [`#${row.card}`, { context: positive(row.context), spent: positive(row.spent), model: row.model }]))
 }
 
 function projectedWindowGauges(db: DatabaseSync): Gauges | null {
   const row = windowGauges(db)
-  return row === null ? null : { context: positive(row.context), spent: positive(row.spent) }
+  return row === null ? null : { context: positive(row.context), spent: positive(row.spent), model: row.model }
 }
 
 function compact(value: number): string {
@@ -239,14 +251,27 @@ function percent(ratio: number): string {
   return `${Math.min(100, Math.round(ratio * 100))}%`
 }
 
-function eddiesBar(name: string, value: number | null, limit: number | null, warnRatio: number | null): string {
+function eddiesBar(name: string, value: number | null, denominator: number | null, limit: number | null, warnRatio: number | null): string {
   if (value === null)
     return ''
-  const reading = limit === null ? compact(value) : `${compact(value)}/${compact(limit)}`
+  const reading = denominator === null ? compact(value) : `${compact(value)}/${compact(denominator)}`
   const over = limit !== null && value > limit
-  const hot = !over && limit !== null && warnRatio !== null && value >= limit * warnRatio
-  const bar = limit === null ? '<span></span>' : `<span class="edd-bar" style="--_fill: ${percent(value / limit)}${warnRatio === null ? '' : `; --_warn: ${percent(warnRatio)}`}"></span>`
+  const warnAt = limit === null || warnRatio === null ? null : limit * warnRatio
+  const hot = !over && warnAt !== null && value >= warnAt
+  const bar = denominator === null ? '<span></span>' : `<span class="edd-bar" style="--_fill: ${percent(value / denominator)}${warnAt === null ? '' : `; --_warn: ${percent(warnAt / denominator)}`}"></span>`
   return `<div class="edd"${over ? ' data-over' : hot ? ' data-hot' : ''}><span class="edd-k">${name}</span>${bar}<span class="edd-v">${reading}</span></div>`
+}
+
+type ContextLine = Pick<EddiesLimits, 'contextLimit' | 'warnRatio'>
+
+function cardLineOf(limits: EddiesLimits): ContextLine {
+  return limits.cardContextLine === null ? limits : { contextLimit: limits.cardContextLine, warnRatio: 1 }
+}
+
+function contextBar(service: BusService, gauges: Gauges, limits: EddiesLimits): string {
+  const line = service.role === WINDOW_ROLE ? limits : cardLineOf(limits)
+  const denominator = gauges.model === null ? null : limits.modelWindows.get(gauges.model) ?? null
+  return eddiesBar('ctx', gauges.context, denominator, line.contextLimit, line.warnRatio)
 }
 
 type GaugeSources = Pick<BoardPage, 'gauges' | 'windowGauges'>
@@ -279,7 +304,7 @@ function serviceTile(service: BusService, page: BoardPage): string {
   const gauges = gaugesOf(service, page)
   const bars = gauges == null
     ? ''
-    : eddiesBar('ctx', gauges.context, page.limits.contextLimit, page.limits.warnRatio) + eddiesBar('spent', gauges.spent, page.limits.sessionSpend, page.limits.warnRatio)
+    : contextBar(service, gauges, page.limits) + eddiesBar('spent', gauges.spent, page.limits.sessionSpend, page.limits.sessionSpend, page.limits.warnRatio)
   const dialog = tileDialog(service, page)
   return [
     `<div class="svc" data-role="${escaped(service.role)}"${dialog === null ? '' : `${opener(dialog)} role="button"`}>`,
@@ -310,9 +335,10 @@ function liveAttribute(facts: BusFacts): string {
 function servicesMeta(page: BoardPage): string {
   const { facts, limits } = page
   const warn = limits.warnRatio === null ? 'eddies: no warn line' : `eddies: warn line <b>${percent(limits.warnRatio)}</b>`
+  const cardLine = limits.cardContextLine === null ? '' : ` · card line <b>${compact(limits.cardContextLine)}</b>`
   return [
     `<span class="meta">quickhacks on the subnet · agents at work <b>${facts.services.length}</b> · slots <b>${escaped(slotsReading(facts))}</b></span>`,
-    `<span class="meta right edd-note">${warn}</span>`,
+    `<span class="meta right edd-note">${warn}${cardLine}</span>`,
   ].join('')
 }
 
@@ -1508,11 +1534,21 @@ export function renderBoard(page: BoardPage): string {
   ].join('\n')
 }
 
-function boardPageOf(db: DatabaseSync, busPath: string, now: Date, handoffFile: string, tickMs: number | null, main: MainUpToDate): BoardPage {
+function contextWarnings(contexts: readonly SessionContext[], limits: EddiesLimits): BoardWarning[] {
+  const quiet = { openPrs: 0, openPrLimit: null, ownerWaits: 0, stalls: [], savingOff: false }
+  const ofWindow = (session: SessionContext): boolean => session.who === WINDOW_ROLE
+  const { contextLimit, warnRatio } = limits
+  return [
+    ...boardWarnings({ ...quiet, ...cardLineOf(limits), contexts: contexts.filter(session => !ofWindow(session)) }),
+    ...boardWarnings({ ...quiet, contextLimit, warnRatio, contexts: contexts.filter(ofWindow) }),
+  ]
+}
+
+function boardPageOf(db: DatabaseSync, busPath: string, now: Date, handoffFile: string, tickMs: number | null, main: MainUpToDate, eddiesFile: string = EDDIES_FILE): BoardPage {
   const facts = busFacts(db, now)
   const liveness = factoryLiveness(busPath, now.getTime()).state
   const sources: GaugeSources = { gauges: projectedGauges(db), windowGauges: projectedWindowGauges(db) }
-  const limits = readEddiesLimits()
+  const limits = readEddiesLimits(eddiesFile)
   return {
     version: currentVersion(),
     machine: machineLoad(),
@@ -1521,16 +1557,19 @@ function boardPageOf(db: DatabaseSync, busPath: string, now: Date, handoffFile: 
     facts,
     ...sources,
     limits,
-    warnings: boardWarnings({
-      contexts: sessionContexts(facts.services, sources, liveness),
-      contextLimit: limits.contextLimit,
-      warnRatio: limits.warnRatio,
-      openPrs: openPrCountOf(db),
-      openPrLimit: openPrLimitOf(process.env),
-      ownerWaits: facts.waits.length,
-      stalls: stallLines(db, facts.pulse, now),
-      savingOff: savingOff(process.env, main),
-    }),
+    warnings: [
+      ...contextWarnings(sessionContexts(facts.services, sources, liveness), limits),
+      ...boardWarnings({
+        contexts: [],
+        contextLimit: limits.contextLimit,
+        warnRatio: limits.warnRatio,
+        openPrs: openPrCountOf(db),
+        openPrLimit: openPrLimitOf(process.env),
+        ownerWaits: facts.waits.length,
+        stalls: stallLines(db, facts.pulse, now),
+        savingOff: savingOff(process.env, main),
+      }),
+    ],
     details: cardDetails(db, facts),
     decisions: inForceDecisions(db),
     handoff: readHandoff(handoffFile),
@@ -1551,20 +1590,20 @@ function mainUpToDateOfThisRepository(): MainUpToDate {
   return new MainUpToDate(ghApi(process.cwd()), Date.now)
 }
 
-function boardText(busPath: string, now: Date, handoffFile: string, format: BoardFormat): string {
+function boardText(busPath: string, now: Date, handoffFile: string, format: BoardFormat, eddiesFile: string): string {
   const db = openDatabase(busPath, { readOnly: true, timeout: BUSY_TIMEOUT_MS })
   try {
-    return format === 'json' ? busJson(db, now) : renderBoard(boardPageOf(db, busPath, now, handoffFile, null, mainUpToDateOfThisRepository()))
+    return format === 'json' ? busJson(db, now) : renderBoard(boardPageOf(db, busPath, now, handoffFile, null, mainUpToDateOfThisRepository(), eddiesFile))
   }
   finally {
     db.close()
   }
 }
 
-export function printBoard(busPath: string, now: Date, write: (text: string) => void, handoffFile: string = HANDOFF_FILE, format: BoardFormat = 'html'): number {
+export function printBoard(busPath: string, now: Date, write: (text: string) => void, handoffFile: string = HANDOFF_FILE, format: BoardFormat = 'html', eddiesFile: string = EDDIES_FILE): number {
   let text: string
   try {
-    text = boardText(busPath, now, handoffFile, format)
+    text = boardText(busPath, now, handoffFile, format, eddiesFile)
   }
   catch (error) {
     const down = busDownOf(now, error instanceof Error ? error.message.split('\n')[0]! : String(error), path.join(path.dirname(busPath), BOARD_DATA_FILE), readHandoff(handoffFile))

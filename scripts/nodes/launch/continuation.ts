@@ -70,6 +70,7 @@ export interface EddiesEvidence extends Pick<SessionEvidence, 'warned' | 'stoppe
 }
 
 const CONTEXT_LEVEL = 'session-context'
+const CONTEXT_LINE_EVENT = 'context-line'
 
 function entriesOf(text: string): EddiesEntry[] {
   return text.split('\n').flatMap((line) => {
@@ -87,7 +88,7 @@ export function eddiesEvidence(journal: string, session: string): EddiesEvidence
   const own = entriesOf(journal).filter(entry => entry.session_id === session)
   return {
     warned: own.some(entry => entry.event === 'budget-warn'),
-    atContextLine: own.some(entry => entry.event === 'budget-warn' && entry.level === CONTEXT_LEVEL),
+    atContextLine: own.some(entry => entry.event === CONTEXT_LINE_EVENT || (entry.event === 'budget-warn' && entry.level === CONTEXT_LEVEL)),
     stopped: own.some(entry => entry.event === 'budget-stop'),
     refused: own.some(entry => entry.event === 'unread' && entry.hook === 'eddies-guard'),
   }

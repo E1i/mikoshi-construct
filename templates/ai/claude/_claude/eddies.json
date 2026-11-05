@@ -1,7 +1,14 @@
 {
   "contextLimit": 250000,
+  "cardContextLine": 150000,
   "sessionSpend": 3000000,
   "agentSpend": 2000000,
   "runSpend": 3000000,
-  "warnRatio": 0.8
+  "warnRatio": 0.8,
+  "modelWindows": {
+    "claude-fable-5-1": 1000000,
+    "claude-opus-5-5": 1000000,
+    "claude-sonnet-5-5": 1000000,
+    "claude-haiku-5-5": 1000000
+  }
 }
