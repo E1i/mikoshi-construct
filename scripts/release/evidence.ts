@@ -8,10 +8,10 @@ import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { writtenBeforeHistoryEnds } from '../../src/card/closed.js'
+import { JOURNAL_HISTORY_ENDS, writtenBeforeHistoryEnds } from '../../src/card/closed.js'
 import { parseCard } from '../../src/card/grammar.js'
 import { BUSY_TIMEOUT_MS, defaultBusPath } from '../core/db.js'
-import { INTAKE_EVENT, WITNESS_RECORDED } from '../core/events.js'
+import { INTAKE_EVENT, PR_CLOSED, WITNESS_RECORDED } from '../core/events.js'
 import { busHistory } from '../core/journal.js'
 import { SHIFT_JOURNAL } from '../core/places.js'
 import { openDatabase } from '../core/sqlite.js'
@@ -35,6 +35,14 @@ const GREEN_WITNESSES_ON_THE_LAST_HEAD = `
   WHERE witness.id IN (SELECT max(id) FROM events WHERE type = '${WITNESS_RECORDED}' AND legacy = 0 AND card_id IS NOT NULL AND pr IS NOT NULL GROUP BY card_id, pr)
     AND json_extract(witness.payload, '$.verdict') = '${GREEN}'
   ORDER BY witness.id
+`
+
+const MERGES_LINKED_ONLY_THROUGH_THE_PR = `
+  SELECT closed.id, prs.card_id, closed.pr, json_extract(closed.payload, '$.merged_by') AS by, json_extract(closed.payload, '$.commit') AS commit_sha, json_extract(closed.payload, '$.merged_at') AS merged
+  FROM events AS closed
+  JOIN prs ON prs.pr = closed.pr
+  WHERE closed.type = '${PR_CLOSED}' AND closed.legacy = 0 AND json_extract(closed.payload, '$.merged') = 1 AND closed.card_id IS NULL AND prs.card_id IS NOT NULL AND closed.ts >= ?
+  ORDER BY closed.id
 `
 
 export interface Line {
@@ -153,6 +161,19 @@ export function greenWitnesses(busPath: string): GreenWitness[] {
   }
 }
 
+export function mergesLinkedOnlyThroughThePr(busPath: string): BusMerge[] {
+  if (!existsSync(busPath))
+    return []
+  const db = openDatabase(busPath, { readOnly: true, timeout: BUSY_TIMEOUT_MS })
+  try {
+    const rows = db.prepare(MERGES_LINKED_ONLY_THROUGH_THE_PR).all(JOURNAL_HISTORY_ENDS) as unknown as { id: number, card_id: number, pr: number, by: string | null, commit_sha: string | null, merged: string | null }[]
+    return rows.map(row => ({ task: String(row.card_id), pr: row.pr, by: row.by, commit: row.commit_sha, merged: row.merged, event: row.id }))
+  }
+  finally {
+    db.close()
+  }
+}
+
 function witnessedClosingOf(deps: EvidenceDeps, witnessed: readonly GreenWitness[], merge: Line): Line | undefined {
   const witness = witnessed.find(green => green.task === String(merge.entry.task) && green.pr === merge.entry.pr)
   return witness === undefined ? undefined : { entry: { verification: VERIFIED_BY_RUNNING_WITNESSES }, source: `${deps.bus} event ${witness.event}` }
@@ -245,7 +266,7 @@ function realDeps(): EvidenceDeps {
   return {
     bus,
     history: () => busHistory(bus),
-    busMerges: () => busMerges(bus),
+    busMerges: () => [...busMerges(bus), ...mergesLinkedOnlyThroughThePr(bus)].sort((left, right) => left.event - right.event),
     verified: () => cardVerifiedClosings(bus),
     witnessed: () => greenWitnesses(bus),
     admissions: () => busIntakeAdmissions(bus),
