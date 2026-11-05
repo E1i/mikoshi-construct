@@ -369,7 +369,7 @@ function hasTable(db: DatabaseSync, name: string): boolean {
   return db.prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?`).get(name) !== undefined
 }
 
-function catalogModuleLayers(db: DatabaseSync): Map<string, string[]> {
+export function catalogModuleLayers(db: DatabaseSync): Map<string, string[]> {
   if (!hasTable(db, 'check_modules'))
     return new Map()
   const rows = db.prepare('SELECT module, layers FROM check_modules').all() as unknown as { module: string, layers: string }[]
@@ -383,7 +383,7 @@ function catalogReadsOfDocuments(db: DatabaseSync): DocumentRead[] | null {
   return rows.map(row => ({ document: row.document, reader: row.reader, walked: row.walked === 1 }))
 }
 
-function catalogLayersByTest(db: DatabaseSync): Map<string, string[]> {
+export function catalogLayersByTest(db: DatabaseSync): Map<string, string[]> {
   if (!hasTable(db, 'check_tests'))
     return new Map()
   const rows = db.prepare('SELECT test, layer FROM check_tests').all() as unknown as { test: string, layer: string }[]

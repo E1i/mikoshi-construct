@@ -1,12 +1,17 @@
+import type { DatabaseSync } from 'node:sqlite'
+import type { CheckCatalog } from '../../ci/card-runs.js'
 import type { CardBodyReader } from '../../intake/parking-reads.js'
 import type { CardScope, DepthSources, ReviewPlanner } from './review-depth.js'
 import { execFileSync } from 'node:child_process'
-import { runsOf } from '../../../src/card/covering-tests.js'
+import { layerMasksOf, runsOf } from '../../../src/card/covering-tests.js'
 import { parseParkingFile } from '../../../src/card/parking.js'
+import { BUSY_TIMEOUT_MS, defaultBusPath } from '../../core/db.js'
+import { openDatabase } from '../../core/sqlite.js'
 import { predict } from '../../policy/morse/predict.js'
-import { planReview } from './review-depth.js'
+import { cardScopeOf, planReview } from './review-depth.js'
 
 const MAIN = 'origin/main'
+const NO_LAYER = 'none'
 
 const CONCURRENT_REF_UPDATE = 'cannot lock ref'
 
@@ -34,15 +39,37 @@ function fetchPr(run: GitRun, repo: string, pr: number): void {
   }
 }
 
-function cardScope(bodyOf: CardBodyReader, cardId: number): CardScope | null {
+export function busCheckCatalog(busPath: string = defaultBusPath()): CheckCatalog {
+  let db: DatabaseSync | undefined
+  try {
+    db = openDatabase(busPath, { readOnly: true, timeout: BUSY_TIMEOUT_MS })
+    const tests = db.prepare('SELECT test, layer FROM check_tests').all() as unknown as { test: string, layer: string }[]
+    const modules = db.prepare('SELECT module, layers FROM check_modules').all() as unknown as { module: string, layers: string }[]
+    return {
+      testLayers: new Map(tests.map(row => [row.test, row.layer.split(',').filter(layer => layer !== NO_LAYER)])),
+      moduleLayers: new Map(modules.map(row => [row.module, row.layers.split(',').filter(layer => layer !== '')])),
+    }
+  }
+  catch {
+    return { testLayers: new Map(), moduleLayers: new Map() }
+  }
+  finally {
+    db?.close()
+  }
+}
+
+function cardScope(bodyOf: CardBodyReader, cardId: number, catalog: () => CheckCatalog): CardScope | null {
   const text = bodyOf(cardId)
   if (text === null)
     return null
   const parsed = parseParkingFile(`${cardId}.md`, text)
-  return parsed.kind === 'parked' ? { touches: parsed.parked.task.touches, runs: runsOf(parsed.parked.task.body) } : null
+  if (parsed.kind !== 'parked')
+    return null
+  const { touches, body } = parsed.parked.task
+  return cardScopeOf(touches, runsOf(body), layerMasksOf(body), catalog())
 }
 
-export function gitDepthSources(repo: string, journal: string, bodyOf: CardBodyReader, run: GitRun = git): DepthSources {
+export function gitDepthSources(repo: string, journal: string, bodyOf: CardBodyReader, run: GitRun = git, catalog: () => CheckCatalog = busCheckCatalog): DepthSources {
   return {
     base: head => run(repo, ['merge-base', MAIN, head]).trim(),
     changed: (from, to) => run(repo, ['diff', '--no-renames', '--name-only', '-z', from, to]).split('\0').filter(file => file !== ''),
@@ -50,7 +77,7 @@ export function gitDepthSources(repo: string, journal: string, bodyOf: CardBodyR
       const { line, files } = predict({ task, base, head, journal, repo })
       return { prediction: line, files: files.map(file => file.path), added: files.filter(file => file.status === 'A').map(file => file.path) }
     },
-    scope: cardId => cardScope(bodyOf, cardId),
+    scope: cardId => cardScope(bodyOf, cardId, catalog),
   }
 }
 
