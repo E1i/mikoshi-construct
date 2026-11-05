@@ -527,7 +527,7 @@ describe('board.html', () => {
     expect(slotsOf(live).get('warnings')!.match(/window: ctx/g)).toHaveLength(1)
   })
 
-  it('the page takes its bars from the projection beside pulse and runs no heartbeat query of its own', () => {
+  it('the page takes its bars from the session facts of the bus and runs no heartbeat query of its own', () => {
     const html = pageText(seededBus([
       { ts: minutesAgo(4), type: SESSION_HEARTBEAT, card: 861, payload: JSON.stringify({ step: 'launch', session: 's861', context: 120_000 }) },
       { ts: minutesAgo(3), type: SESSION_HEARTBEAT, card: 861, payload: JSON.stringify({ step: 'launch', session: 's861', context: 240_000 }), legacy: true },
@@ -536,7 +536,7 @@ describe('board.html', () => {
     expect(html).toContain('<span class="edd-v">120k')
     expect(html).not.toContain('240k')
     const source = readFileSync(path.resolve(import.meta.dirname, '../../cli/board-page.ts'), 'utf8')
-    expect(source).toContain('cardGauges(db)')
+    expect(source).toContain('service.gauges')
     expect(source).not.toContain('SESSION_HEARTBEAT')
     expect(source).not.toMatch(/FROM events/)
   })
@@ -909,7 +909,7 @@ describe('board.html', () => {
   ].join('\n')
 
   function pageWithHandoff(): { busPath: string, html: string } {
-    const busPath = seededBus()
+    const busPath = seededBus([{ ts: minutesAgo(3), type: SESSION_HEARTBEAT, card: 861, payload: JSON.stringify({ step: 'launch', session: 's861' }) }])
     writeFileSync(handoffBeside(busPath), HANDOFF_TEXT)
     return { busPath, html: pageText(busPath) }
   }
@@ -923,7 +923,7 @@ describe('board.html', () => {
     for (const row of rows)
       expect(row[0]).toContain(`data-open="card-${row[1]}"`)
     expect(sectionOf(html, '<div class="flow">', '</section>')).toContain('data-open="card-861"')
-    expect(html).toMatch(/<div class="svc" data-role="implementer" data-open="card-861"/)
+    expect(html).toMatch(/<div class="svc" data-role="launch" data-open="card-861"/)
     expect(html).toMatch(/<div class="svc" data-role="window" data-open="handoff"/)
     const statusline = sectionOf(html, '<footer class="statusline"', '</footer>')
     expect(statusline).toContain('data-open="handoff"')

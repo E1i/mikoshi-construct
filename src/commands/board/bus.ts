@@ -3,7 +3,8 @@ import type { BusDb } from '../cost/bus.js'
 import type { Goal } from './goal.js'
 import { existsSync } from 'node:fs'
 import { currentLane, openOwnerWaits } from '../../../scripts/core/bus-readings.js'
-import { BUS_PULSE, CARD_FELL, CARD_STOPPED, CARD_VERIFIED, CHECKS_MATRIX_EVENT, PROCESS_HEARTBEAT, SESSION_HEARTBEAT, TERMINAL_LANES, WINDOW_SUBAGENT_EVENT } from '../../../scripts/core/events.js'
+import { BUS_PULSE, CARD_FELL, CARD_STOPPED, CARD_VERIFIED, CHECKS_MATRIX_EVENT, PROCESS_HEARTBEAT, SESSION_HEARTBEAT, TERMINAL_LANES, WINDOW_HEARTBEAT, WINDOW_SUBAGENT_EVENT } from '../../../scripts/core/events.js'
+import { PLAIN_LORE } from '../../ui/lore.js'
 import { withReadOnlyBus } from '../cost/bus.js'
 import { goalOf } from './goal.js'
 
@@ -59,11 +60,27 @@ export interface CardsAtStage {
 
 export type { OwnerWait, OwnerWaitNeed } from '../../../scripts/core/bus-readings.js'
 
+export interface ServiceGauges {
+  context: number | null
+  spent: number | null
+  model: string | null
+}
+
+export interface SubagentReading {
+  name: string
+  context: number | null
+  spent: number | null
+  at: string | null
+}
+
 export interface BusService {
   role: string
   task: string
   tree: string | null
   step: string
+  session?: string
+  gauges?: ServiceGauges
+  subagents?: SubagentReading[]
 }
 
 export interface BusMatrix {
@@ -189,19 +206,55 @@ function boardEvents(db: BusDb): BoardEvents {
   return { of: type => rows.filter(row => row.type === type) }
 }
 
-function windowServices(events: BoardEvents, now: Date): BusService[] {
-  const running = new Map<string, BusService>()
+function runningWindowAgents(events: BoardEvents, now: Date): SubagentReading[] {
+  const running = new Map<string, SubagentReading>()
   for (const row of events.of(WINDOW_SUBAGENT_EVENT)) {
     const payload = payloadOf(row.payload)
     const role = text(payload.role) ?? 'agent'
-    const task = text(payload.task) ?? '—'
-    const session = text(payload.session) ?? `${role}:${task}`
+    const session = text(payload.session) ?? `${role}:${text(payload.task) ?? '—'}`
     if (payload.phase === 'ended' || isSilent(row, now))
       running.delete(session)
     else
-      running.set(session, { role, task, tree: text(payload.tree), step: text(payload.step) ?? 'started' })
+      running.set(session, { name: role, context: null, spent: null, at: row.ts })
   }
   return [...running.values()]
+}
+
+function positiveOrNull(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null
+}
+
+function subagentReadings(value: unknown): SubagentReading[] {
+  return (Array.isArray(value) ? value as unknown[] : []).flatMap((entry) => {
+    if (entry === null || typeof entry !== 'object')
+      return []
+    const reading = entry as Record<string, unknown>
+    const name = text(reading.name)
+    return name === null ? [] : [{ name, context: positiveOrNull(reading.context), spent: positiveOrNull(reading.spent), at: text(reading.at) }]
+  })
+}
+
+function lastWindowBeat(db: BusDb, now: Date): { session: string | null, subagents: SubagentReading[] } {
+  const row = db.prepare('SELECT id, ts, type, card_id, pr, dedupe_key, legacy, payload FROM events WHERE type = ? AND legacy = 0 ORDER BY id DESC LIMIT 1').get(WINDOW_HEARTBEAT) as unknown as EventRow | undefined
+  if (row === undefined || isSilent(row, now))
+    return { session: null, subagents: [] }
+  const payload = payloadOf(row.payload)
+  return { session: text(payload.session), subagents: subagentReadings(payload.subagents) }
+}
+
+const WINDOW_TILE_ROLE = 'window'
+const WINDOW_TILE_TASK = 'miko'
+
+function windowTiles(db: BusDb, events: BoardEvents, now: Date): BusService[] {
+  const tiles = windowRoles(db)
+  const beat = lastWindowBeat(db, now)
+  const measured = new Set(beat.subagents.map(reading => reading.name))
+  const subagents = [...beat.subagents, ...runningWindowAgents(events, now).filter(agent => !measured.has(agent.name))]
+  if (subagents.length === 0)
+    return tiles
+  const held = tiles.find(tile => tile.task === WINDOW_TILE_TASK) ?? tiles[0] ?? { role: WINDOW_TILE_ROLE, task: WINDOW_TILE_TASK, tree: null, step: PLAIN_LORE.boardWindowAgentsStep }
+  const withAgents: BusService = { ...held, ...(beat.session === null ? {} : { session: beat.session }), subagents }
+  return tiles.includes(held) ? tiles.map(tile => tile === held ? withAgents : tile) : [withAgents]
 }
 
 interface MatrixRow {
@@ -242,18 +295,34 @@ function stepMatchesStage(step: string, card: BusCard | undefined): boolean {
   return named === undefined || card === undefined || named === card.stage
 }
 
+function gaugesOfBeat(payload: Record<string, unknown>): ServiceGauges {
+  return { context: positiveOrNull(payload.context), spent: positiveOrNull(payload.spent), model: text(payload.model) }
+}
+
 function sessionServices(events: BoardEvents, cards: BusCard[], now: Date): BusService[] {
   const byId = new Map(cards.map(card => [card.id, card] as const))
   const latest = new Map<string, SessionBeat>()
+  const measured = new Map<string, Record<string, unknown>>()
   for (const row of events.of(SESSION_HEARTBEAT)) {
     const payload = payloadOf(row.payload)
-    latest.set(text(payload.session) ?? `#${row.card_id ?? '?'}`, { row, step: text(payload.step) ?? 'session' })
+    const session = text(payload.session) ?? `#${row.card_id ?? '?'}`
+    latest.set(session, { row, step: text(payload.step) ?? 'session' })
+    if (row.legacy === 0)
+      measured.set(session, payload)
   }
-  return [...latest.values()].flatMap(({ row, step }) => {
-    const card = row.card_id === null ? undefined : byId.get(row.card_id)
-    if (!isFresh(row.ts, now) || (card !== undefined && isFinished(card)) || !stepMatchesStage(step, card))
-      return []
-    return [{ role: step.split(' ')[0]!, task: `#${row.card_id ?? '?'}`, tree: null, step: `${step} · pulse ${minutesAgo(row.ts, now)} min ago` }]
+  const shown = new Map<string, SessionBeat & { session: string }>()
+  for (const [session, beat] of latest) {
+    const card = beat.row.card_id === null ? undefined : byId.get(beat.row.card_id)
+    if (!isFresh(beat.row.ts, now) || (card !== undefined && isFinished(card)) || !stepMatchesStage(beat.step, card))
+      continue
+    const key = `${beat.step.split(' ')[0]!} #${beat.row.card_id ?? '?'}`
+    if ((shown.get(key)?.row.id ?? -1) < beat.row.id)
+      shown.set(key, { ...beat, session })
+  }
+  return [...shown.values()].map(({ row, step, session }) => {
+    const payload = measured.get(session)
+    const subagents = subagentReadings(payload?.subagents)
+    return { role: step.split(' ')[0]!, task: `#${row.card_id ?? '?'}`, tree: null, step: `${step} · pulse ${minutesAgo(row.ts!, now)} min ago`, session, ...(payload === undefined ? {} : { gauges: gaugesOfBeat(payload) }), ...(subagents.length === 0 ? {} : { subagents }) }
   })
 }
 
@@ -393,7 +462,7 @@ export function busFacts(db: BusDb, now: Date): BusFacts {
     pulse: lastPulse(db),
     slots: slotsOf(db),
     cards,
-    services: [...windowRoles(db), ...oneTilePerProcess(taskServices(db), sessions), ...windowServices(events, now), ...sessions],
+    services: [...windowTiles(db, events, now), ...oneTilePerProcess(taskServices(db), sessions), ...sessions],
     matrices: checkMatrices(db),
     failure: lastFailure(events),
     reviewQueue: Number(queue.n),

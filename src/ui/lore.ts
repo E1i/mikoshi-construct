@@ -373,6 +373,7 @@ export interface Lore extends Omit<ExpectLore, 'expectRoleForecast'> {
   boardBacklogRow: (card: string, state: string) => string
   boardServiceLine: (role: string, task: string, tree: string | undefined, step: string) => string
   boardNoServices: string
+  boardWindowAgentsStep: string
   boardHint: (who: string, command: string) => string
   boardNoPlan: (hint: string) => string
   boardReleaseDropped: (cards: string[]) => string
@@ -418,6 +419,7 @@ function andMore(rest: readonly string[]): string {
 
 export const LORE: Lore = {
   ...EXPECT_LORE,
+  boardWindowAgentsStep: 'subagents at work',
   expectNoneRaisedBy,
   expectRoleForecast,
   expectRoleMinutes,
@@ -870,6 +872,7 @@ export const LORE: Lore = {
 
 export const PLAIN_LORE: Lore = {
   ...EXPECT_LORE,
+  boardWindowAgentsStep: 'subagents at work',
   expectNoneRaisedBy,
   expectRoleForecast,
   expectRoleMinutes,
