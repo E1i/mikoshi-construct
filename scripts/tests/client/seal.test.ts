@@ -22,9 +22,67 @@ interface Carrier {
   literal?: RegExp
 }
 
+const GOLDEN_PIN_TESTS = [
+  'bus/answer-node',
+  'bus/answer-queue',
+  'bus/answerer',
+  'bus/chain-process',
+  'bus/continuationhandoff',
+  'bus/eddiesline',
+  'bus/eddiesline150',
+  'bus/heartbeat',
+  'bus/ladder-starter',
+  'bus/launch-ladder-handoff',
+  'bus/launch-node',
+  'bus/launch-queue',
+  'bus/launch-starter',
+  'bus/policy',
+  'bus/review-worker',
+  'bus/reviewer',
+  'bus/reviewloop',
+  'bus/shardlabel',
+  'bus/window-heartbeat',
+  'client/contract',
+  'client/identity',
+  'client/process',
+  'client/reading',
+  'client/seal',
+  'client/spawn',
+  'client/startcost-hooks',
+  'client/window',
+  'core/factory-paths',
+  'ghosts/task-start-entry',
+  'ghosts/task-start',
+  'ghosts/watch-process',
+  'miko/compact-start',
+  'miko/eddies-measure',
+  'miko/exit',
+  'miko/loop',
+  'miko/miko-repo',
+  'miko/pre-compact',
+  'miko/pull',
+  'miko/sandbox-law',
+  'miko/stop-hook',
+  'miko/turn-watch',
+  'miko/watch',
+  'miko/windowloop',
+  'owner/channel',
+  'ports/isolation',
+  'ports/session',
+  'shift/handoff-write',
+  'shift/runner-removed',
+  'shift/setting-sources',
+  'shift/shard',
+  'shift/shift-settings',
+  'shift/tree-pr-cli',
+  'shredder/owner-merges',
+]
+
 const CARRIERS: readonly Carrier[] = [
   { path: '.claude/**', reason: 'the configuration of the client itself, which only this client reads' },
-  { path: 'scripts/tests/**', reason: 'golden pins: a test states the argv and the variables the adapter must produce' },
+  ...GOLDEN_PIN_TESTS.map(test => ({ path: `scripts/tests/${test}.test.ts`, reason: 'golden pin: the test states the argv and the variables the adapter must produce' })),
+  { path: 'scripts/tests/ghosts/fixtures/world.sh', reason: 'the fake client a ghost fixture runs in place of the binary' },
+  { path: 'scripts/tests/ghosts/watch-fixtures/world.sh', reason: 'the fake client a watch fixture runs in place of the binary' },
   { path: 'scripts/ports/shift-settings.ts', reason: 'the settings a card session runs under, with their flags; called by the adapter' },
   { path: 'scripts/ports/isolation.ts', reason: 'reads which settings the client would load, to refuse a card session without isolation' },
   { path: 'scripts/ports/worktree.ts', reason: 'the lsof process names behind the adapter\'s liveCwds' },
@@ -85,6 +143,7 @@ describe('the client seal', () => {
     for (const line of planted) {
       const tree = new Map([['scripts/nodes/planted.ts', line], ['scripts/ports/client/claude/adapter.ts', line], ['scripts/ports/carried.ts', line], ['templates/outside.ts', line]])
       expect(sealOf(tree, [{ path: 'scripts/ports/carried.ts', reason: 'a sample' }]).outside, line).toEqual(['scripts/nodes/planted.ts'])
+      expect(sealOf(new Map([['scripts/tests/bus/planted.test.ts', line]]), CARRIERS).outside, line).toEqual(['scripts/tests/bus/planted.test.ts'])
     }
     expect(sealOf(realTree(), CARRIERS).outside).toEqual([])
   })

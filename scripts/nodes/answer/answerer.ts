@@ -2,7 +2,7 @@ import type { PushPolicy } from '../../../src/commands/attach/record.js'
 import type { ShiftGate } from '../../../src/manifest.js'
 import type { BusEvent } from '../../core/db.js'
 import type { Lease } from '../../core/lease.js'
-import type { Invocation, ProcessCwds, Usage } from '../../ports/client/contract.js'
+import type { Denial, Invocation, ProcessCwds, Usage } from '../../ports/client/contract.js'
 import type { GhPort } from '../../ports/gh.js'
 import type { AnswerInput } from '../../ports/prompt-store.js'
 import type { FreshBaseGap } from '../launch/tree-pr.js'
@@ -22,7 +22,7 @@ import { assertHeld, StaleLease } from '../../core/lease.js'
 import { treeReportPath } from '../../core/places.js'
 import { pushPolicyOf } from '../../core/push-policy.js'
 import { busCardBodies } from '../../intake/parking-reads.js'
-import { clientTranscript } from '../../ports/client/claude/adapter.js'
+import { hasClientTranscript } from '../../ports/client/claude/adapter.js'
 import { PROCESS_GH_PORT } from '../../ports/gh.js'
 import { CARD_VARIABLE, clientInvocation, sessionEnv, streamReading } from '../../ports/session.js'
 import { MAIN_BRANCH } from '../../ports/snapshot.js'
@@ -248,8 +248,12 @@ function ownerQuestionIn(file: string): string | null {
   return reason === '' ? null : reason
 }
 
+function denialAimsAt(denial: Denial, file: string): boolean {
+  return denial.path === file || denial.command?.includes(file) === true
+}
+
 export function refusedOwnerQuestionIn(stdoutPath: string, file: string): string | null {
-  const refused = streamReading(stdoutPath).denials.find(denial => denial.target.includes(file))
+  const refused = streamReading(stdoutPath).denials.find(denial => denialAimsAt(denial, file))
   return refused === undefined || refused.text === '' ? null : refused.text
 }
 
@@ -590,7 +594,7 @@ export function realAnswererTools(busPath: string = defaultBusPath()): AnswererT
     held: busLeaseHeld(busPath),
     pulse: busSessionPulse(busPath, () => new Date()),
     cardText: busCardBodies(busPath),
-    available: card => clientTranscript(process.env, card.worktree, card.session) !== null,
+    available: card => hasClientTranscript(process.env, card.worktree, card.session),
     remoteHead,
     localHead,
     spawn: spawnClient,

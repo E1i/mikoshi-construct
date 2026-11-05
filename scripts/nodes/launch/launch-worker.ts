@@ -46,8 +46,7 @@ import { LadderCardStarter } from '../../ladder/ladder-starter.js'
 import { briefBody, briefPathOf, ladderStep, reviewBody, tasksFilePathOf, tasksFileText } from '../../ladder/ladder.js'
 import { reviewOf } from '../../ladder/verdict.js'
 import { cardDecisionCommand } from '../../policy/shards.js'
-import { cardIsolationCommand, clientTranscript } from '../../ports/client/claude/adapter.js'
-import { clientAdapter } from '../../ports/client/index.js'
+import { cardIsolationCommand, clientLastSteps, clientTranscript } from '../../ports/client/claude/adapter.js'
 import { realIsolationReader } from '../../ports/isolation.js'
 import { TICK_MS } from '../../ports/netwatch.js'
 import { prepareBeforeSession, prepareTree } from '../../ports/prepare-tree.js'
@@ -723,16 +722,12 @@ function treeDiffOf(card: StartedCard): string {
   }
 }
 
-function sessionSteps(card: StartedCard): string[] | null {
-  return clientAdapter().reading({ session: card.session, cwd: card.worktree, stdoutPath: null }).lastSteps
-}
-
 export function handoffBuilder(launchDir: string): (card: StartedCard, start: SessionStart, body: string | null) => void {
   return (card, start, body) => {
     const saved = reportPath(launchDir, String(start.cardId))
     const report = existsSync(saved) ? readFileSync(saved, 'utf8') : null
     mkdirSync(path.dirname(saved), { recursive: true })
-    writeFileSync(saved, builtHandoff({ cardId: start.cardId, session: card.session, report, diff: treeDiffOf(card), body, steps: sessionSteps(card) }))
+    writeFileSync(saved, builtHandoff({ cardId: start.cardId, session: card.session, report, diff: treeDiffOf(card), body, steps: clientLastSteps(process.env, card.worktree, card.session) }))
   }
 }
 

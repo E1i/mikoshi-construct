@@ -273,6 +273,16 @@ export function clientTranscript(env: NodeJS.ProcessEnv, worktree: string, sessi
   return textOf(transcriptFile(clientHome(env), worktree, session))
 }
 
+export function hasClientTranscript(env: NodeJS.ProcessEnv, worktree: string, session: string): boolean {
+  const file = transcriptFile(clientHome(env), worktree, session)
+  return file !== null && existsSync(file)
+}
+
+export function clientLastSteps(env: NodeJS.ProcessEnv, worktree: string, session: string): string[] | null {
+  const transcript = clientTranscript(env, worktree, session)
+  return transcript === null ? null : lastSteps(transcript)
+}
+
 interface CommandRun {
   startedAt: number
   endedAt: number
@@ -389,6 +399,10 @@ function numberOrNull(value: unknown): number | null {
   return typeof value === 'number' ? value : null
 }
 
+function stringOrNull(value: unknown): string | null {
+  return typeof value === 'string' ? value : null
+}
+
 function nonEmpty(text: unknown): string | null {
   return typeof text === 'string' && text.trim() !== '' ? text.trim() : null
 }
@@ -431,17 +445,14 @@ function denialsOf(result: RawEntry | null): Denial[] {
     if (input === null || typeof input !== 'object')
       return []
     const aimed = input as RawEntry
-    const target = [aimed.file_path, aimed.command].find(value => typeof value === 'string') as string | undefined
-    return [{ tool: String(fields?.tool_name ?? ''), target: target ?? '', text: nonEmpty(aimed.content) ?? nonEmpty(result?.result) ?? '' }]
+    return [{ tool: String(fields?.tool_name ?? ''), path: stringOrNull(aimed.file_path), command: stringOrNull(aimed.command), text: nonEmpty(aimed.content) ?? nonEmpty(result?.result) ?? '' }]
   })
 }
 
 function toolUseOf(block: { name?: unknown, input?: unknown }): ToolUse {
   const input = (block.input ?? {}) as RawEntry
-  const command = typeof input.command === 'string' ? input.command : null
-  const file = typeof input.file_path === 'string' ? input.file_path : null
   const name = String(block.name)
-  return { kind: WRITING_TOOLS.has(name) ? 'write' : name === EXEC_TOOL ? 'exec' : 'other', command, path: file }
+  return { kind: WRITING_TOOLS.has(name) ? 'write' : name === EXEC_TOOL ? 'exec' : 'other', command: stringOrNull(input.command), path: stringOrNull(input.file_path) }
 }
 
 function toolUsesOf(entries: RawEntry[]): ToolUse[] {

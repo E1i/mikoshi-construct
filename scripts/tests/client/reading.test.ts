@@ -1,10 +1,10 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import process from 'node:process'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { refusedOwnerQuestionIn } from '../../nodes/answer/answerer.js'
-import { lastStepsOf } from '../../nodes/launch/continuation.js'
-import { transcriptFile } from '../../ports/client/claude/adapter.js'
+import { clientLastSteps, hasClientTranscript, transcriptFile } from '../../ports/client/claude/adapter.js'
 import { clientAdapter } from '../../ports/client/index.js'
 import { readResultFields } from '../../ports/result.js'
 import { streamReading } from '../../ports/session.js'
@@ -71,12 +71,20 @@ describe('a stream reading', () => {
     expect(readResultFields(stream)).toMatchObject({ resultLine: 'present', total_cost_usd: 1.2936034, num_turns: 26, duration_ms: null, usage: { input_tokens: 52, cache_read_input_tokens: 1831537 } })
 
     const refused = aStream(RECORDED_INIT, RECORDED_DENIAL)
-    expect(streamReading(refused).denials).toEqual([{ tool: 'Edit', target: '/tree/.claude/settings.json', text: 'The owner must allow this edit.' }])
+    expect(streamReading(refused).denials).toEqual([{ tool: 'Edit', path: '/tree/.claude/settings.json', command: null, text: 'The owner must allow this edit.' }])
     expect(refusedOwnerQuestionIn(refused, '/tree/.claude/settings.json')).toBe('The owner must allow this edit.')
     expect(refusedOwnerQuestionIn(refused, '/tree/other.json')).toBeNull()
 
     const byCommand = aStream('{"type":"result","result":"Ask the owner.","permission_denials":[{"tool_input":{"command":"tee /tree/q.md"}}]}')
     expect(refusedOwnerQuestionIn(byCommand, '/tree/q.md')).toBe('Ask the owner.')
+  })
+
+  it('a denied file aims at the owner question only by its whole path, and a command by holding it', () => {
+    const denied = (input: object): string => aStream(JSON.stringify({ type: 'result', result: 'Ask the owner.', permission_denials: [{ tool_name: 'Edit', tool_input: input }] }))
+
+    expect(refusedOwnerQuestionIn(denied({ file_path: '/tree/q.md.bak', content: 'not the question' }), '/tree/q.md')).toBeNull()
+    expect(refusedOwnerQuestionIn(denied({ file_path: '/tree/q.md', content: 'the question' }), '/tree/q.md')).toBe('the question')
+    expect(refusedOwnerQuestionIn(denied({ file_path: '/tree/other.md', command: 'tee /tree/q.md' }), '/tree/q.md')).toBe('Ask the owner.')
   })
 
   it('what a stream does not report reads null and never zero', () => {
@@ -123,7 +131,21 @@ describe('a transcript reading', () => {
     expect(reading.journal).toMatchObject({ end: Date.parse('2026-11-05T00:00:01.000Z') })
     expect(reading.journal === 'unreadable' ? null : [...reading.journal.changes.keys()]).toEqual(['src/a.ts'])
     expect(reading.lastSteps).toEqual(['said something', 'Edit /tree/src/a.ts'])
-    expect(reading.lastSteps).toEqual(lastStepsOf(`${edit}\n${done}\n`))
+    expect(clientLastSteps(process.env, TREE, SESSION)).toEqual(['said something', 'Edit /tree/src/a.ts'])
+  })
+
+  it('the last steps of a session with no transcript read null', () => {
+    vi.stubEnv('CLAUDE_CONFIG_DIR', aRoot())
+    expect(clientLastSteps(process.env, TREE, SESSION)).toBeNull()
+  })
+
+  it('whether a transcript exists is answered without reading it', () => {
+    const home = aRoot()
+    vi.stubEnv('CLAUDE_CONFIG_DIR', home)
+    expect(hasClientTranscript(process.env, TREE, SESSION)).toBe(false)
+    mkdirSync(transcriptFile(home, TREE, SESSION)!, { recursive: true })
+    expect(hasClientTranscript(process.env, TREE, SESSION)).toBe(true)
+    expect(hasClientTranscript(process.env, TREE, 'not/plain')).toBe(false)
   })
 
   it('a transcript that does not parse reads an unreadable journal', () => {
