@@ -3,9 +3,11 @@ import type { ShiftGate } from '../../../src/manifest.js'
 import type { BusEvent } from '../../core/db.js'
 import type { Lease } from '../../core/lease.js'
 import type { Invocation, ProcessCwds } from '../../ports/client/contract.js'
+import type { GhPort } from '../../ports/gh.js'
 import type { AnswerInput } from '../../ports/prompt-store.js'
 import type { FreshBaseGap } from '../launch/tree-pr.js'
 import type { AnswerSource, CardSession } from './answer-source.js'
+import type { FailedJobLog } from './ci-log.js'
 import { execFileSync, spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, realpathSync, rmSync, writeSync } from 'node:fs'
@@ -28,6 +30,7 @@ import { claudeProcessCwds, listedCwds } from '../../ports/worktree.js'
 import { busSessionPulse } from '../../supervisor/heartbeat.js'
 import { projectRoot, realExitReadings, sessionGauges, UNKNOWN } from '../../window/eddies-measure.js'
 import { answerFollowed, commitAndPush, followedLine, freshBaseProblem, freshBaseTask, worktreeCoverage } from '../launch/tree-pr.js'
+import { ciLogForPrompt, failedJobLinkIn } from './ci-log.js'
 
 export const PREFIX = '[bus:answer] '
 const SESSION_ID_FLAG = '--session-id'
@@ -94,7 +97,7 @@ export interface AnswererTools {
   context?: (session: string) => number | null
   contextWarn?: () => number | null
   diff?: (card: CardSession) => string | null
-  ciLog?: (card: CardSession, head: string) => string | null
+  ciLog?: (card: CardSession, head: string) => FailedJobLog | null
   held?: (lease: Lease) => boolean
   pending?: (card: CardSession) => string[]
   coverage?: (card: CardSession) => ReturnType<typeof worktreeCoverage>
@@ -212,16 +215,15 @@ export function projectDirOf(worktree: string): string {
   return worktree.replace(/[^a-z0-9]/gi, '-')
 }
 
-function ciLogLines(ciLog: string | null | undefined): string[] {
+function ciLogLines(ciLog: FailedJobLog | null | undefined): string[] {
   if (ciLog === undefined)
     return ['Read their logs (gh pr checks, gh run view --log-failed) and fix every one.']
   if (ciLog === null)
     return ['The bus could not read the failed-job log; fix every failed check from what the tree shows.']
-  const cut = ciLog.length > DIFF_PROMPT_LIMIT ? `, cut at ${DIFF_PROMPT_LIMIT} characters` : ''
-  return [`The failed-job log the bus read${cut}:`, ciLog.slice(0, DIFF_PROMPT_LIMIT), 'Fix every failure it shows.']
+  return ['The failures and the tail of the failed-job log the bus read:', ciLogForPrompt(ciLog), 'Fix every failure it shows.']
 }
 
-function redCiLines(failedChecks: string[], ciLog: string | null | undefined): string[] {
+function redCiLines(failedChecks: string[], ciLog: FailedJobLog | null | undefined): string[] {
   return [
     failedChecks.length === 0 ? 'CI is red on this head and the bus recorded no failed check by name.' : `CI is red on this head. The failed checks: ${failedChecks.join(', ')}.`,
     ...ciLogLines(ciLog),
@@ -234,7 +236,7 @@ function failedChecksOf(source: AnswerSource): string[] | null {
   return source.kind === 'changes' ? source.failedChecks ?? null : null
 }
 
-function sourceLines(source: AnswerSource, ciLog?: string | null): string[] {
+function sourceLines(source: AnswerSource, ciLog?: FailedJobLog | null): string[] {
   if (source.kind === 'changes') {
     return [
       source.findings.length === 0 ? 'The review asked for changes and recorded no findings on the bus; read the review on the pull request.' : 'The review asked for changes. Its findings:',
@@ -316,7 +318,7 @@ function gateLine(gate: ShiftGate): string {
   return gate.prepush.length === 0 ? `the card's witnesses` : `the card's witnesses and the pre-push checks this repository declares, ${gate.prepush.join(', ')}`
 }
 
-export function answerPrompt(request: AnswerRequest, ownerQuestion: string, cardText: string | null, gate: ShiftGate, diff?: string | null, ciLog?: string | null): string {
+export function answerPrompt(request: AnswerRequest, ownerQuestion: string, cardText: string | null, gate: ShiftGate, diff?: string | null, ciLog?: FailedJobLog | null): string {
   const { lease, source, widened, card } = request
   return [
     `[answer:${lease.taskKey}]`,
@@ -369,16 +371,19 @@ function git(cwd: string, args: string[]): string {
   return execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 64 * 1024 * 1024 })
 }
 
-function failedJobLog(card: CardSession, head: string): string | null {
-  const runs = PROCESS_GH_PORT.call(['run', 'list', '--commit', head, '--status', 'failure', '--json', 'databaseId', '--limit', '1'], { cwd: card.worktree })
+export function failedJobLog(card: CardSession, head: string, gh: GhPort = PROCESS_GH_PORT): FailedJobLog | null {
+  const runs = gh.call(['run', 'list', '--commit', head, '--status', 'failure', '--json', 'databaseId', '--limit', '1'], { cwd: card.worktree })
   if (runs.kind !== 'ran')
     return null
   try {
     const [run] = JSON.parse(runs.stdout) as { databaseId: number }[]
     if (run === undefined)
       return null
-    const log = PROCESS_GH_PORT.call(['run', 'view', String(run.databaseId), '--log-failed'], { cwd: card.worktree })
-    return log.kind === 'ran' ? log.stdout : null
+    const log = gh.call(['run', 'view', String(run.databaseId), '--log-failed'], { cwd: card.worktree })
+    if (log.kind !== 'ran')
+      return null
+    const jobs = gh.call(['run', 'view', String(run.databaseId), '--json', 'jobs'], { cwd: card.worktree })
+    return { log: log.stdout, jobLink: jobs.kind === 'ran' ? failedJobLinkIn(jobs.stdout) : null }
   }
   catch {
     return null
@@ -639,7 +644,7 @@ export function realAnswererTools(busPath: string = defaultBusPath()): AnswererT
     context: session => sessionGauges(os.homedir(), projectRoot(process.env), session).context ?? null,
     contextWarn: contextWarnOfEddies,
     diff: diffAgainstBase,
-    ciLog: failedJobLog,
+    ciLog: (card, head) => failedJobLog(card, head),
   }
 }
 
