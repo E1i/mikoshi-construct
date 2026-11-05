@@ -10,18 +10,16 @@ import process from 'node:process'
 import { defaultBusPath } from '../../../scripts/core/bus-path.js'
 import { VERSION } from '../../version.js'
 import { defaultShiftRoot, readCheapClasses } from './cheap.js'
-import { ClaudeCodeCostSource, claudeProjectsDir } from './claude-code.js'
 import { readDaemonObjects } from './daemon.js'
 import { expectFor } from './expect.js'
 import { hasLedgerFindings, LEDGER_FILE, parseLedgerLine, readLedger, reconcile, summarizeLedger, withoutTokenTotals } from './ledger.js'
 import { resolveRuntime } from './runtime.js'
+import { claudeProjectsDir, costSourceFor, recordingSource } from './source.js'
 import { knownRunSteps, readStepCache, recordRunSteps } from './step-cache.js'
 import { readTurnJournal } from './turns.js'
 
 export { cheapClass, cheapForecast, cheapForecastOf, cheapRows, defaultShiftRoot, readCheapClasses, readCheapTasks, sessionTokens, SHIFT_JOURNAL_FILE } from './cheap.js'
 export type { CheapClassReading, CheapForecast, CheapNote, CheapReading, CheapRow, CheapSample, CheapSession, CheapTask } from './cheap.js'
-export { ClaudeCodeCostSource, claudeProjectsDir, collectWorkflowRuns, labelledAgentTokens, projectKey, readAgentRecord } from './claude-code.js'
-export type { AgentRecord } from './claude-code.js'
 export { EFFORTS, expectFor, expectLines, expectRefusal, formatContour, formatRoleExpect, formatStepExpect, formatTokens, readLedgerEntries, stepExpects } from './expect.js'
 export type { ExpectHead, ExpectInput, ExpectResult, ImplementSubsample, RoleBand, RoleMinutes, SampleRow, SampleSource, StepExpect, Subsample } from './expect.js'
 export { CAUSES, LEDGER_FILE, readLedger, reconcile, summarizeLedger, TOKEN_SOURCES } from './ledger.js'
@@ -29,6 +27,7 @@ export type { Cause, LedgerEntry, LedgerSummary, MalformedLedgerLine, Reconcilia
 export { COST_EXIT, COST_JSON_SCHEMA_VERSION, costJson, printCost } from './report.js'
 export { resolveRuntime } from './runtime.js'
 export { median, MINIMUM_SAMPLE } from './sample.js'
+export { ClaudeCodeCostSource, collectWorkflowRuns, costSourceFor, projectKey, recordingSource } from './source.js'
 export type { CostReport, CostSource, CostStatus, Runtime } from './source.js'
 export { readStepCache, STEP_CACHE_FILE } from './step-cache.js'
 export type { StepCache } from './step-cache.js'
@@ -56,7 +55,7 @@ export function costReport(cwd: string, options: { projectsDir?: string, shiftRo
   const turns = readTurnJournal(cwd)
   const projectsDir = options.projectsDir ?? claudeProjectsDir()
   const cheap = readCheapClasses(options.shiftRoot ?? defaultShiftRoot(), projectsDir, options.busPath ?? defaultBusPath())
-  const source: CostSource | null = runtime === 'claude-code' ? new ClaudeCodeCostSource(projectsDir) : null
+  const source = costSourceFor(runtime, projectsDir)
   if (source == null || !source.readable())
     return { status: 'unsupported', runtime, version, turns, cheap, ...(reported ? { ledger: withoutTokenTotals(ledger) } : {}) }
   const ledgerRuns = reading.entries.map(entry => entry.run).filter(run => run != null)
@@ -104,6 +103,6 @@ export function stepsOfRepository(root: string, runs: string[], warnings: string
 
 export function costExpect(cwd: string, options: { effort?: string, lore: Lore, warnings: string[] }): ExpectResult {
   const lines = ledgerLines(cwd)
-  const runSteps = options.effort === undefined ? undefined : stepsOfRepository(cwd, runsOf(lines ?? []), options.warnings, options.lore, new ClaudeCodeCostSource())
+  const runSteps = options.effort === undefined ? undefined : stepsOfRepository(cwd, runsOf(lines ?? []), options.warnings, options.lore, recordingSource())
   return expectFor({ ledgers: [{ source: LEDGER_FILE, lines }], effort: options.effort, runSteps }, options.lore)
 }

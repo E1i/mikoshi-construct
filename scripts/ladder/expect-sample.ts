@@ -7,7 +7,7 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
 import { countsTowardSteps } from '../../src/commands/cost/expect.js'
-import { ClaudeCodeCostSource, expectFor, formatContour as formatContourIn, formatRoleExpect, formatStepExpect as formatStepExpectIn, formatTokens, readLedgerEntries as readLedgerEntriesIn, stepExpects, stepsOfRepository as stepsOfRepositoryIn } from '../../src/commands/cost/index.js'
+import { expectFor, formatContour as formatContourIn, formatRoleExpect, formatStepExpect as formatStepExpectIn, formatTokens, readLedgerEntries as readLedgerEntriesIn, recordingSource, stepExpects, stepsOfRepository as stepsOfRepositoryIn } from '../../src/commands/cost/index.js'
 import { LEDGER_FILE, parseLedgerLine } from '../../src/commands/cost/ledger.js'
 import { readSubagentRecords } from '../../src/commands/cost/turns.js'
 import { PLAIN_LORE } from '../../src/ui/lore.js'
@@ -143,7 +143,7 @@ function ledgerRuns(ledgers: SampleSource[]): string[] {
   return ledgers.flatMap(ledger => (ledger.lines ?? []).map(parseLedgerLine)).flatMap(entry => typeof entry === 'string' || entry.run === null ? [] : [entry.run])
 }
 
-export function stepsOfRepository(root: string, runs: string[], warnings: string[], source: CostSource = new ClaudeCodeCostSource()): Map<string, RunStep[]> {
+export function stepsOfRepository(root: string, runs: string[], warnings: string[], source: CostSource = recordingSource()): Map<string, RunStep[]> {
   return stepsOfRepositoryIn(root, runs, warnings, PLAIN_LORE, source)
 }
 
