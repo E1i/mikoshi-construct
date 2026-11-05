@@ -30,6 +30,7 @@ function logPartOf(prompt: string): string {
 describe('the failed-job log the answer prompt carries', () => {
   it('a long log with the failure at the end reaches the prompt under the ceiling', () => {
     const log = logged(...Array.from<string>({ length: 20_000 }).fill(FILLER), FAILURE, 'AssertionError: expected 1 to be 2')
+    expect(CI_LOG_CEILING).toBe(20_000)
     expect(log.length).toBeGreaterThan(5 * CI_LOG_CEILING)
 
     const prompt = answerPrompt(request, '/answers/owner.txt', null, { prepush: [], handoffWrite: null, codeMatrix: null }, undefined, { log, jobLink: JOB_LINK })
@@ -97,6 +98,127 @@ describe('the failed-job log the answer prompt carries', () => {
 
   it('a job link the bus could not read is named as unread in the line', () => {
     expect(ciLogForPrompt({ log: FAILURE, jobLink: null })).toBe(`${FAILURE}\ncut: 0 characters, full log: the job link is unread`)
+  })
+
+  it('a failure block holds two lines before the marker and twenty after it, and no more', () => {
+    const numbered = (name: string, count: number): string[] => Array.from({ length: count }, (_, at) => `${name} ${at + 1}.`)
+    const log = logged(...numbered('before', 3).reverse(), FAILURE, ...numbered('after', 21), ...Array.from<string>({ length: 5_000 }).fill(FILLER))
+
+    const text = ciLogForPrompt({ log, jobLink: JOB_LINK })
+
+    expect(text).toContain('before 2.')
+    expect(text).not.toContain('before 3.')
+    expect(text).toContain('after 20.')
+    expect(text).not.toContain('after 21.')
+  })
+
+  it.each([
+    ['✓ scripts/tests/one.test.ts (4 tests) 12ms'],
+    ['✔ scripts/tests/two.test.ts (4 tests) 12ms'],
+    ['√ scripts/tests/three.test.ts (4 tests) 12ms'],
+    ['PASS scripts/tests/four.test.ts'],
+    ['   ✓ an indented passing test 3ms'],
+    ['✓ a passing test that names FAIL and Error 3ms'],
+  ])('the green line %s is dropped from the block and the tail', (line) => {
+    const text = ciLogForPrompt({ log: logged(FAILURE, line), jobLink: JOB_LINK })
+
+    expect(text).toContain(FAILURE)
+    expect(text).not.toContain(line)
+  })
+
+  it.each([
+    ['##[group]Runner Image'],
+    ['##[endgroup]'],
+    ['[command]/usr/bin/git version'],
+    ['Current runner version: \'2.320.0\''],
+    ['Runner name: \'GitHub Actions 7\''],
+    ['Runner group name: \'GitHub Actions\''],
+    ['Runner Image Provisioner'],
+    ['Machine name: \'runnervm\''],
+    ['Hosted Compute Agent'],
+    ['Operating System'],
+    ['Image: ubuntu-24.04'],
+    ['Image Release: https://example.test/release'],
+    ['Version: 20261101.1'],
+    ['Included Software: https://example.test/software'],
+    ['GITHUB_TOKEN Permissions'],
+    ['Secret source: Actions'],
+    ['Prepare workflow directory'],
+    ['Prepare all required actions'],
+    ['Getting action download info'],
+    ['Download action repository \'actions/checkout@v4\' (SHA:abc)'],
+    ['Download immutable action package \'actions/checkout@v4\''],
+    ['Complete job name: vitest 2/4'],
+    ['Syncing repository: owner/repo'],
+    ['Getting Git version info'],
+    ['Temporarily overriding HOME=\'/home/runner/work/_temp/x\''],
+    ['Adding repository directory to the temporary git global config as a safe directory'],
+    ['Deleting the contents of \'/home/runner/work/repo\''],
+    ['Initializing the repository'],
+    ['Disabling automatic garbage collection'],
+    ['Setting up auth'],
+    ['Fetching the repository'],
+    ['Determining the checkout info'],
+    ['Checking out the ref'],
+  ])('the runner setup line %s is dropped from the block and the tail', (line) => {
+    const text = ciLogForPrompt({ log: logged(FAILURE, line), jobLink: JOB_LINK })
+
+    expect(text).toContain(FAILURE)
+    expect(text).not.toContain(line)
+  })
+
+  it.each([
+    ['FAIL scripts/tests/one.test.ts'],
+    ['FAILED scripts/tests/two.test.ts'],
+    ['ERROR the build broke'],
+    ['Error: the build broke'],
+    ['TypeError: x is not a function'],
+    ['##[error]Process completed with exit code 1.'],
+  ])('the marker in %s keeps its line far before the tail', (line) => {
+    const log = logged(line, ...Array.from<string>({ length: 5_000 }).fill(FILLER))
+
+    expect(ciLogForPrompt({ log, jobLink: JOB_LINK })).toContain(line)
+  })
+
+  it.each([
+    ['a failure of the network is not named here'],
+    ['two errors were expected and handled'],
+    ['Errors are counted below'],
+  ])('%s is no marker and stays out far before the tail', (line) => {
+    const log = logged(line, ...Array.from<string>({ length: 5_000 }).fill(FILLER))
+
+    expect(ciLogForPrompt({ log, jobLink: JOB_LINK })).not.toContain(line)
+  })
+
+  it('a log with no marker carries its tail up to the tail ceiling and not the whole ceiling', () => {
+    const log = logged(...Array.from<string>({ length: 5_000 }).fill(FILLER), 'the last line')
+
+    const carried = ciLogForPrompt({ log, jobLink: JOB_LINK }).split('\n').slice(0, -1).join('\n')
+
+    expect(carried.endsWith('the last line')).toBe(true)
+    expect(carried.length).toBeGreaterThan(4_900)
+    expect(carried.length).toBeLessThanOrEqual(5_000)
+  })
+
+  it('one line far over the ceiling keeps its end', () => {
+    const log = `${'x'.repeat(100_000)} FAIL at the end`
+
+    const text = ciLogForPrompt({ log, jobLink: JOB_LINK })
+
+    expect(text).toContain('FAIL at the end')
+    expect(text.length).toBeLessThanOrEqual(CI_LOG_CEILING)
+  })
+
+  it('a log full of failures fills the ceiling and the count is what it left out', () => {
+    const log = logged(...Array.from<string>({ length: 5_000 }).fill(FAILURE))
+
+    const text = ciLogForPrompt({ log, jobLink: JOB_LINK })
+    const lines = text.split('\n')
+    const carried = lines.slice(0, -1).join('\n')
+
+    expect(text.length).toBeGreaterThan(CI_LOG_CEILING - 3)
+    expect(text.length).toBeLessThanOrEqual(CI_LOG_CEILING)
+    expect(lines.at(-1)).toBe(`cut: ${log.length - carried.length} characters, full log: ${JOB_LINK}`)
   })
 })
 
