@@ -1,6 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
-import type { BusCardStates } from '../../src/card/closed.js'
 import type { CardAdmissionsPort, CardEvent, CardEventPort, RecordedIntake } from '../../src/commands/intake/index.js'
+import type { CardsOfTheBus } from '../../src/commands/intake/numbers.js'
 import type { BusPorts } from '../../src/program.js'
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import path from 'node:path'
@@ -19,7 +19,7 @@ import { resolveTheme } from '../../src/ui/theme.js'
 import { BUS_DB_VARIABLE, ForeignBusRefused } from '../core/bus-path.js'
 import { appendCardEvent, cardBodyText, laid } from '../core/card-bodies.js'
 import { appendEvent, BUSY_TIMEOUT_MS, defaultBusPath, inTransaction, openBus } from '../core/db.js'
-import { CARD_ADMITTED, CARD_MOVED, CARD_PLANNED, CARD_UNPLANNED, PLAN_CLOSED, PLAN_OPENED } from '../core/events.js'
+import { CARD_ADMITTED, CARD_MOVED, CARD_PLANNED, CARD_UNPLANNED, NUMBERS_FOREIGN, PLAN_CLOSED, PLAN_OPENED } from '../core/events.js'
 import { OWNER } from '../core/inbox.js'
 import { openDatabase } from '../core/sqlite.js'
 import { assignMovedLane, layLanes, repositoryLanes } from '../nodes/launch/lane-assign.js'
@@ -51,6 +51,8 @@ const HELD_CARDS = `
 `
 
 const HELD_WITHOUT_STATE = 'held'
+
+const FOREIGN_NUMBERS = `SELECT DISTINCT listed.value AS id FROM events, json_each(events.payload, '$.ids') AS listed WHERE events.legacy = 0 AND events.type = '${NUMBERS_FOREIGN}'`
 
 const LATEST_ADMITTED_TEXT = `SELECT json_extract(payload, '$.text') AS text, json_extract(payload, '$.textSha') AS sha FROM events WHERE legacy = 0 AND type = '${CARD_ADMITTED}' AND card_id = ? AND json_type(payload, '$.text') = 'text' ORDER BY id DESC`
 
@@ -209,9 +211,11 @@ export function busCardEvents(db: DatabaseSync, session: string = SESSION_BY_HAN
   })
 }
 
-export function busHeldCards(db: DatabaseSync): BusCardStates {
+export function busHeldCards(db: DatabaseSync): CardsOfTheBus {
   const rows = db.prepare(HELD_CARDS).all() as unknown as { card_id: number, state: string | null }[]
-  return new Map(rows.map(row => [String(row.card_id), row.state ?? HELD_WITHOUT_STATE]))
+  const held = new Map(rows.map(row => [String(row.card_id), row.state ?? HELD_WITHOUT_STATE]))
+  const foreign = db.prepare(FOREIGN_NUMBERS).all() as unknown as { id: number }[]
+  return foreign.length === 0 ? held : Object.assign(held, { foreign: new Set(foreign.map(row => row.id)) })
 }
 
 export function busIntakePorts(db: DatabaseSync, session?: string, lanes?: () => number, release?: string): BusPorts {

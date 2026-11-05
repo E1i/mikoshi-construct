@@ -4,6 +4,7 @@ import type { Ui } from '../../ui/console.js'
 import type { Lore } from '../../ui/lore.js'
 import type { PlanLink } from './check.js'
 import type { Confirmation } from './confirm.js'
+import type { CardsOfTheBus } from './numbers.js'
 import type { SlicedCard } from './slice.js'
 import { Buffer } from 'node:buffer'
 import { existsSync, mkdirSync, readdirSync, readFileSync, readSync, writeFileSync } from 'node:fs'
@@ -85,7 +86,7 @@ export interface CardEvent {
 
 export type CardEventPort = (event: CardEvent) => void
 
-export type CardStatesPort = () => BusCardStates
+export type CardStatesPort = () => CardsOfTheBus
 
 export interface RecordedIntake { card: string, bodySha: unknown, ts: unknown, confirmation: unknown, source: unknown, text?: string }
 
