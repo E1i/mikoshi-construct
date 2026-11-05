@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs'
 import { DatabaseSync } from 'node:sqlite'
-import { CARD_STARTED } from '../../../scripts/core/events.js'
+import { CARD_CLOSED, CARD_STARTED, PR_CLOSED } from '../../../scripts/core/events.js'
 import { parseCard } from '../../card/grammar.js'
 import { projectKey } from './source.js'
 
@@ -19,11 +19,12 @@ interface BusTask {
   minutes: number
 }
 
-interface ClosedCardRow {
+interface EndedCardRow {
   card_id: number
   card_line: string | null
   ended: string
-  close_payload: string
+  end_type: string
+  end_payload: string
 }
 
 interface SpendRow {
@@ -33,12 +34,15 @@ interface SpendRow {
   payload: string
 }
 
-const CLOSED_CARDS = `
-SELECT c.card_id, b.card_line, k.ts AS ended, k.payload AS close_payload
+const ENDED_CARDS = `
+SELECT c.card_id, b.card_line, e.ts AS ended, e.type AS end_type, e.payload AS end_payload
 FROM cards c
 JOIN card_bodies b ON b.card_id = c.card_id
-JOIN events k ON k.card_id = c.card_id AND k.type = 'card.closed'
-WHERE k.ts IS NOT NULL
+JOIN events e ON e.id = coalesce(
+  (SELECT max(m.id) FROM events m WHERE m.card_id = c.card_id AND m.type = '${PR_CLOSED}' AND m.legacy = 0 AND json_extract(m.payload, '$.merged') = 1),
+  (SELECT max(k.id) FROM events k WHERE k.card_id = c.card_id AND k.type = '${CARD_CLOSED}')
+)
+WHERE e.ts IS NOT NULL
 ORDER BY c.card_id
 `
 
@@ -79,13 +83,13 @@ function sessionsOf(spend: readonly SpendRow[]): BusSession[] {
   return [...sessions.values()]
 }
 
-function taskOf(row: ClosedCardRow, spend: readonly SpendRow[]): BusTask | null {
+function taskOf(row: EndedCardRow, spend: readonly SpendRow[]): BusTask | null {
   if (row.card_line === null)
     return null
   const parsed = parseCard(row.card_line)
   if (parsed.kind !== 'card' || parsed.card.contour !== CHEAP_CONTOUR)
     return null
-  if (typeof payloadOf(row.close_payload).verification !== 'string')
+  if (row.end_type !== PR_CLOSED && typeof payloadOf(row.end_payload).verification !== 'string')
     return null
   const started = spend.find(event => event.type === CARD_STARTED)
   const sessions = sessionsOf(spend)
@@ -115,7 +119,7 @@ export function readBusTasks(busPath: string): BusTask[] {
   try {
     return withReadOnlyBus(busPath, (db) => {
       const spend = spendByCard(db.prepare(SPEND_EVENTS).all() as unknown as SpendRow[])
-      return (db.prepare(CLOSED_CARDS).all() as unknown as ClosedCardRow[]).flatMap((row) => {
+      return (db.prepare(ENDED_CARDS).all() as unknown as EndedCardRow[]).flatMap((row) => {
         const task = taskOf(row, spend.get(row.card_id) ?? [])
         return task === null ? [] : [task]
       })
