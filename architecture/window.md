@@ -364,8 +364,9 @@ from `<dir>/<id>.md` under `--parking <dir>`; a missing file is named in it (`to
 parking file for #<id>`), and a file whose card line is not the `--card` given is refused with nothing written. That
 entry line carries `"schema":2`; the entry line `ghosts:launch` writes carries no `schema` and stays version 1. The
 shift starts its tasks through the same `task:start`, so the door holds there too. It closes with `pnpm task:close <id> (--pr <N> | --report
-<path>) --verification <word>`: an implement task by its `pr`, a probe by its `report`, and nothing closes a task
-whose start line carries no card. An implement task closes only on its own pull request: `task:close`, and the shift through it,
+<path>) --verification <word>`: a probe by its `report`, an implement task by its `pr`, or by its `report` while the bus
+holds no pull request of the card, so a report never stands in for a review and a merge; `--pr` and `--report` together are
+refused, and nothing closes a task whose start line carries no card. An implement task closes by a pull request only on its own: `task:close`, and the shift through it,
 refuse with nothing written when the first line of the body names another card or the body cannot be read. A pull
 request an owner decision shares closes with `--shared-by D-<N>`, a recorded owner decision, in force or archived,
 that names both cards, and the line records it as `sharedBy`. That `event:path` line carries `verification`, and a closing line without that word
