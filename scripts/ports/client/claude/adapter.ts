@@ -1,4 +1,4 @@
-import type { ClientAdapter, Denial, Invocation, JournalChange, Refusal, Role, SessionJournal, SessionPlace, SessionPolicy, SessionReading, SessionSpec, ToolUse, Usage } from '../contract.js'
+import type { ClientAdapter, Denial, Invocation, JournalChange, ReadBudget, Refusal, Role, SessionJournal, SessionPlace, SessionPolicy, SessionReading, SessionSpec, SessionTool, ToolUse, Usage } from '../contract.js'
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import os from 'node:os'
@@ -18,6 +18,11 @@ export const SESSION_VARIABLE = 'CLAUDE_CODE_SESSION_ID'
 export const USER_SETTINGS = '~/.claude/settings.json'
 const SESSION_ENV: NodeJS.ProcessEnv = { CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS: '0' }
 const WINDOW_ENV: NodeJS.ProcessEnv = {}
+const CARD_SESSION_ROLES: ReadonlySet<Role> = new Set(['launch', 'answer', 'review'])
+const CARD_SESSION_TOOLS = ['Read', 'Edit', 'Write', 'Bash', 'Grep', 'Glob']
+const TOOLS_OF_WORD: Record<SessionTool, string[]> = { web: ['WebFetch', 'WebSearch'], skills: ['Skill'], agents: ['Agent'] }
+const SLASH_COMMANDS_OFF_FLAG = '--disable-slash-commands'
+const EDITING_TOOLS: ReadonlySet<unknown> = new Set(['Edit', 'Write'])
 const CONFIG_DIR_VARIABLE = 'CLAUDE_CONFIG_DIR'
 export const CLIENT_ENV_PREFIXES = ['CLAUDE_', 'ANTHROPIC_']
 
@@ -52,10 +57,24 @@ function pending(operation: string, card: string): () => never {
   }
 }
 
-function settingsOf(cwd: string, policy: SessionPolicy): string[] {
+function userInstructionsOff(): { autoMemoryEnabled: false, claudeMdExcludes: string[] } {
+  return { autoMemoryEnabled: false, claudeMdExcludes: [path.join(os.homedir(), '.claude', 'CLAUDE.md')] }
+}
+
+function settingsOf({ role, cwd, policy }: SessionSpec): string[] {
+  const narrowed = CARD_SESSION_ROLES.has(role)
   if (policy.profile !== 'sandboxed')
+    return narrowed ? ['--settings', JSON.stringify(userInstructionsOff())] : []
+  const settings = shiftSettings(cwd, { prepush: policy.gateCommands, handoffWrite: null, codeMatrix: null }, policy.writePaths)
+  return settingsFlag(narrowed ? { ...settings, ...userInstructionsOff() } : settings)
+}
+
+function toolsOf({ role, policy }: SessionSpec): string[] {
+  if (!CARD_SESSION_ROLES.has(role))
     return []
-  return settingsFlag(shiftSettings(cwd, { prepush: policy.gateCommands, handoffWrite: null, codeMatrix: null }, policy.writePaths))
+  const words = policy.tools ?? []
+  const names = [...CARD_SESSION_TOOLS, ...words.flatMap(word => TOOLS_OF_WORD[word])]
+  return ['--tools', names.join(','), ...(words.includes('skills') ? [] : [SLASH_COMMANDS_OFF_FLAG])]
 }
 
 function selectionOf(spec: SessionSpec): string[] {
@@ -75,11 +94,11 @@ function invocationOf(args: string[], stdin: string | null = null, env: NodeJS.P
 }
 
 function headlessSession(spec: SessionSpec): Invocation {
-  return invocationOf([...settingsOf(spec.cwd, spec.policy), ...selectionOf(spec), ...HEADLESS_OUTPUT, ...mcpOf(spec.policy), ...identityOf(spec), spec.prompt])
+  return invocationOf([...settingsOf(spec), ...selectionOf(spec), ...toolsOf(spec), ...HEADLESS_OUTPUT, ...mcpOf(spec.policy), ...identityOf(spec), spec.prompt])
 }
 
 function cardSession(spec: SessionSpec): Invocation {
-  const flags = [...CARD_PERMISSION, ...settingsOf(spec.cwd, spec.policy), ...selectionOf(spec), ...mcpOf(spec.policy), '-p', ...identityOf(spec)]
+  const flags = [...CARD_PERMISSION, ...settingsOf(spec), ...selectionOf(spec), ...toolsOf(spec), ...mcpOf(spec.policy), '-p', ...identityOf(spec)]
   return spec.kind === 'start' ? invocationOf(flags, spec.prompt) : invocationOf([...flags, spec.prompt])
 }
 
@@ -92,9 +111,33 @@ function windowSession(spec: SessionSpec): Invocation | Refusal {
 const SESSION_OF_ROLE: Record<Role, (spec: SessionSpec) => Invocation | Refusal> = {
   review: headlessSession,
   answer: headlessSession,
+  ghost: headlessSession,
   launch: cardSession,
   ladder: cardSession,
   window: windowSession,
+}
+
+function reportedContextOf(usage: Record<string, unknown>): number | null {
+  const parts = [usage.input_tokens, usage.cache_creation_input_tokens, usage.cache_read_input_tokens]
+  return parts.every(part => typeof part === 'number') ? (parts as number[]).reduce((sum, part) => sum + part, 0) : null
+}
+
+function editsAFile(content: unknown): boolean {
+  return Array.isArray(content) && (content as { type?: unknown, name?: unknown }[]).some(block => block?.type === 'tool_use' && EDITING_TOOLS.has(block.name))
+}
+
+function budgetOf(transcript: string): ReadBudget {
+  const reported = entriesOf(transcript).filter(entry => entry.message?.usage != null)
+  const contextAt = (entry: TranscriptEntry | undefined): number | null => entry === undefined ? null : reportedContextOf(entry.message!.usage!)
+  const startContext = contextAt(reported.at(0))
+  const editContext = contextAt(reported.find(entry => editsAFile(entry.message!.content)))
+  return { startContext, readBeforeEdit: startContext === null || editContext === null ? null : editContext - startContext }
+}
+
+function readBudget(home: string, session: string): ReadBudget {
+  const projects = path.join(home, '.claude', 'projects')
+  const transcript = existsSync(projects) ? findTranscript(home, session) : null
+  return budgetOf(textOf(transcript) ?? '')
 }
 
 function isClaudeArgv(argv: string): boolean {
@@ -114,6 +157,7 @@ export const claudeAdapter: ClientAdapter = {
   },
   invocation: spec => SESSION_OF_ROLE[spec.role](spec),
   reading: place => readingOf(place),
+  readBudget,
   models: pending('models', 'clientmodels'),
   modelFor: pending('modelFor', 'clientmodels'),
   processes: {

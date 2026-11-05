@@ -440,9 +440,11 @@ describe('reviewer', () => {
   })
 
   it('an added directory goes before the headless flags, so it cannot take the prompt as a second directory', () => {
-    const { args } = headlessInvocation({ session: 's-1', prompt: 'the prompt', addDirs: ['/reviews'] })
-    expect(args.slice(0, 3)).toEqual(['--add-dir', '/reviews', '-p'])
-    expect(args.at(-1)).toBe('the prompt')
-    expect(headlessInvocation({ session: 's-1', prompt: 'the prompt' }).args[0]).toBe('-p')
+    const argvOf = (addDirs: string[]): string[] => headlessInvocation({ role: 'review', session: 's-1', prompt: 'the prompt', addDirs }).args
+    const argv = argvOf(['/reviews'])
+    expect(argv.slice(argv.indexOf('--add-dir'), argv.indexOf('--add-dir') + 3)).toEqual(['--add-dir', '/reviews', '--tools'])
+    expect(argv.indexOf('--add-dir')).toBeLessThan(argv.indexOf('-p'))
+    expect(argv.at(-1)).toBe('the prompt')
+    expect(argvOf([])).not.toContain('--add-dir')
   })
 })

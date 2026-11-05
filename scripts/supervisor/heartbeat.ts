@@ -11,6 +11,7 @@ import { PROCESS_HEARTBEAT, SESSION_HEARTBEAT, WINDOW_HEARTBEAT } from '../core/
 import { isFullSha, prOf } from '../core/identifiers.js'
 import { LEASE_FOLDS } from '../core/lease.js'
 import { storedByKey } from '../core/stored.js'
+import { clientAdapter } from '../ports/client/index.js'
 import { CARD_VARIABLE } from '../ports/session.js'
 import { projectRoot, sessionGauges } from '../window/eddies-measure.js'
 
@@ -80,10 +81,31 @@ export interface Heartbeat {
   lease: HeldLease | null
 }
 
-export type SessionMeasure = (session: string) => SessionGauges
+export type BeatReading = SessionGauges & { start_context?: number | null, read_before_edit?: number | null }
 
-export function measureSession(session: string): SessionGauges {
+export type SessionMeasure = (session: string) => BeatReading
+
+function budgetReading(home: string, session: string): BeatReading {
+  try {
+    const budget = clientAdapter().readBudget(home, session)
+    return { start_context: budget.startContext, read_before_edit: budget.readBeforeEdit }
+  }
+  catch {
+    return {}
+  }
+}
+
+function beatReading(home: string, root: string, session: string): BeatReading {
+  const gauges = sessionGauges(home, root, session)
+  return gauges.reason === undefined ? { ...gauges, ...budgetReading(home, session) } : gauges
+}
+
+export function measureSession(session: string): BeatReading {
   return sessionGauges(os.homedir(), projectRoot(process.env), session)
+}
+
+export function measureCardSession(session: string): BeatReading {
+  return beatReading(os.homedir(), projectRoot(process.env), session)
 }
 
 export interface LastHeartbeat {
@@ -130,10 +152,10 @@ export function leaseHeartbeat(lease: Lease, session: string): Heartbeat {
   return { card: lease.cardId, pr: lease.pr, head: lease.head, step: lease.queue, session, lease: lease.leaseGen > 0 ? { taskKey: lease.taskKey, leaseGen: lease.leaseGen } : null }
 }
 
-export function recordHeartbeat(db: DatabaseSync, ts: string, beat: Heartbeat, measure: SessionMeasure = measureSession): void {
+export function recordHeartbeat(db: DatabaseSync, ts: string, beat: Heartbeat, measure: SessionMeasure = measureCardSession): void {
   const gauges = measure(beat.session)
   const dedupeKey = `${SESSION_HEARTBEAT}:${beat.card}:${beat.session}:${ts}`
-  const event: BusEvent = { ts, type: SESSION_HEARTBEAT, actor: `worker:session:${beat.session}`, cardId: beat.card, pr: beat.pr, head: beat.head, dedupeKey, payload: JSON.stringify({ step: beat.step, session: beat.session, ...(beat.lease === null ? {} : { task_key: beat.lease.taskKey, lease_gen: beat.lease.leaseGen }), ...gauges }), legacy: false }
+  const event: BusEvent = { ts, type: SESSION_HEARTBEAT, actor: `worker:session:${beat.session}`, cardId: beat.card, pr: beat.pr, head: beat.head, dedupeKey, payload: JSON.stringify({ step: beat.step, session: beat.session, ...(beat.lease === null ? {} : { task_key: beat.lease.taskKey, lease_gen: beat.lease.leaseGen }), start_context: null, read_before_edit: null, ...gauges }), legacy: false }
   inTransaction(db, () => {
     if (appendEvent(db, event))
       LEASE_FOLDS[SESSION_HEARTBEAT]!(db, storedByKey(db, dedupeKey))
@@ -153,7 +175,7 @@ export function lastHeartbeat(db: DatabaseSync, card: number): LastHeartbeat | n
   return { ts: row.ts, pr: row.pr, head: row.head, step: textField(payload, 'step'), session: textField(payload, 'session') }
 }
 
-export function busSessionPulse(busPath: string, clock: () => Date, measure: SessionMeasure = measureSession): (lease: Lease, session: string) => string {
+export function busSessionPulse(busPath: string, clock: () => Date, measure: SessionMeasure = measureCardSession): (lease: Lease, session: string) => string {
   return (lease, session) => {
     const ts = clock().toISOString()
     const db = openBus(busPath)
@@ -173,7 +195,7 @@ export function runHeartbeat(env: NodeJS.ProcessEnv, session: string | undefined
     return 0
   const db = openBus(bus)
   try {
-    recordHeartbeat(db, now().toISOString(), beat, session => sessionGauges(home, root, session))
+    recordHeartbeat(db, now().toISOString(), beat, session => beatReading(home, root, session))
   }
   finally {
     db.close()

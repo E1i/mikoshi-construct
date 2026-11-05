@@ -1127,7 +1127,7 @@ describe('review worker', () => {
     })
 
     await expect(reviewer({ taskKey: review(960), queue: 'review', cardId: 1060, pr: 960, head: sha('a'), leaseGen: 1, actor: 'worker:review:w' }, fullReview('a fixed plan'))).rejects.toThrow('stop after the spawn')
-    const argv = headlessInvocation({ session: spawned[0]!.sessionId, prompt: spawned[0]!.prompt }).args
+    const argv = headlessInvocation({ role: 'review', session: spawned[0]!.sessionId, prompt: spawned[0]!.prompt }).args
     expect(argv[argv.indexOf('--permission-mode') + 1]).toBe('auto')
     expect(argv.join(' ')).not.toContain('bypassPermissions')
     vi.unstubAllEnvs()

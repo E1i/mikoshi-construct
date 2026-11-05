@@ -1,4 +1,4 @@
-import type { Invocation, SessionPolicy, SessionReading, SessionSpec } from './client/contract.js'
+import type { Invocation, Role, SessionPolicy, SessionReading, SessionSpec } from './client/contract.js'
 import { spawn } from 'node:child_process'
 import { closeSync, openSync } from 'node:fs'
 import process from 'node:process'
@@ -16,7 +16,7 @@ export function clientInvocation(spec: SessionSpec): Invocation {
 
 const HEADLESS_POLICY: SessionPolicy = { profile: 'client-default', gateCommands: [], writePaths: [], mcpOff: true }
 
-const ANY_HEADLESS_SESSION: SessionSpec = { kind: 'start', role: 'review', session: '', cwd: '', prompt: '', addDirs: [], pick: { model: null }, policy: HEADLESS_POLICY }
+const ANY_HEADLESS_SESSION: SessionSpec = { kind: 'start', role: 'ghost', session: '', cwd: '', prompt: '', addDirs: [], pick: { model: null }, policy: HEADLESS_POLICY }
 
 export function headlessInvocation(parts: Partial<SessionSpec> = {}): Invocation {
   return clientInvocation({ ...ANY_HEADLESS_SESSION, ...parts })
@@ -94,6 +94,7 @@ export interface SpawnSessionParams {
   addDirs?: string[]
   model?: string
   ceilingMs?: number
+  role?: Extract<Role, 'review' | 'ghost'>
 }
 
 export class SessionCeilingReached extends Error {
@@ -103,7 +104,7 @@ export class SessionCeilingReached extends Error {
 }
 
 export function spawnSession(params: SpawnSessionParams): Promise<number> {
-  const invocation = headlessInvocation({ session: params.sessionId, cwd: params.cwd, prompt: params.prompt, addDirs: params.addDirs ?? [], pick: { model: params.model ?? null } })
+  const invocation = headlessInvocation({ role: params.role ?? ANY_HEADLESS_SESSION.role, session: params.sessionId, cwd: params.cwd, prompt: params.prompt, addDirs: params.addDirs ?? [], pick: { model: params.model ?? null } })
   const outFd = openSync(params.stdoutPath, 'w')
   const errFd = openSync(params.stderrPath, 'w')
   let closed = false
@@ -141,4 +142,8 @@ export function spawnSession(params: SpawnSessionParams): Promise<number> {
       resolve(code ?? 1)
     })
   })
+}
+
+export function spawnReviewSession(params: SpawnSessionParams): Promise<number> {
+  return spawnSession({ ...params, role: 'review' })
 }

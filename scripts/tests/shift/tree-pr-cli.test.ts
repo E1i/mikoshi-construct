@@ -1,6 +1,6 @@
 import type { PrOpenedBus, TreePrCliPorts } from '../../nodes/launch/tree-pr-cli.js'
 import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { appendEvent, openBus } from '../../core/db.js'
@@ -389,7 +389,7 @@ describe('the session a refusal returns the card to', () => {
     const { ran, seen } = resumed(`printf '%s\\n' "$PWD" "$${CARD_VARIABLE}" "$NO_COLOR" "$@" > SEEN`, 10_000)
 
     const [cwd, card, noColor, ...argv] = readFileSync(seen, 'utf8').trim().split('\n')
-    expect({ ran, cwd: cwd?.endsWith(path.basename(path.dirname(seen))), card, noColor, argv: argv.filter((_, at) => argv[at - 1] !== '--settings') }).toEqual({ ran: true, cwd: true, card: '951', noColor: '1', argv: ['--permission-mode', CARD_PERMISSION_MODE, '--setting-sources', 'project,local', '--settings', '--strict-mcp-config', '-p', '--resume', SESSION, 'merge a fresh origin/main'] })
+    expect({ ran, cwd: cwd?.endsWith(path.basename(path.dirname(seen))), card, noColor, argv: argv.filter((_, at) => argv[at - 1] !== '--settings') }).toEqual({ ran: true, cwd: true, card: '951', noColor: '1', argv: ['--permission-mode', CARD_PERMISSION_MODE, '--setting-sources', 'project,local', '--settings', '--tools', 'Read,Edit,Write,Bash,Grep,Glob', '--disable-slash-commands', '--strict-mcp-config', '-p', '--resume', SESSION, 'merge a fresh origin/main'] })
   })
 
   it('resumes the card session with settings that allow only the tree\'s own gate commands and edits inside the tree', () => {
@@ -400,6 +400,8 @@ describe('the session a refusal returns the card to', () => {
     expect(JSON.parse(argv[argv.indexOf('--settings') + 1]!)).toEqual({
       sandbox: { enabled: true, failIfUnavailable: true, allowUnsandboxedCommands: false, network: { allowLocalBinding: true, allowUnixSockets: [TSX_PIPE_DIRECTORY] } },
       permissions: { allow: [`Bash(${TREE_GATE})`, `Edit(/${tree}/**)`] },
+      autoMemoryEnabled: false,
+      claudeMdExcludes: [path.join(homedir(), '.claude', 'CLAUDE.md')],
     })
   })
 

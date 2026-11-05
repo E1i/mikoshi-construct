@@ -1,4 +1,6 @@
-export type Role = 'launch' | 'answer' | 'review' | 'ladder' | 'window'
+export type Role = 'launch' | 'answer' | 'review' | 'ladder' | 'ghost' | 'window'
+
+export type SessionTool = 'web' | 'skills' | 'agents'
 
 export type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 
@@ -18,6 +20,7 @@ export interface ClientAdapter {
   readonly capabilities: Capabilities
   invocation: (spec: SessionSpec) => Invocation | Refusal
   reading: (place: SessionPlace) => SessionReading
+  readBudget: (home: string, session: string) => ReadBudget
   models: () => ModelOffer[]
   modelFor: (role: Role, effort: Effort | null, wanted: ModelChoice) => ModelPick | Refusal
   processes: ClientProcesses
@@ -29,6 +32,7 @@ export interface SessionPolicy {
   gateCommands: string[]
   writePaths: string[]
   mcpOff: boolean
+  tools?: readonly SessionTool[]
 }
 
 export interface SessionSpec {
@@ -96,6 +100,11 @@ export interface SessionReading {
   journal: SessionJournal | 'unreadable'
   lastSteps: string[] | null
   contextTokens: number | null
+}
+
+export interface ReadBudget {
+  startContext: number | null
+  readBeforeEdit: number | null
 }
 
 export interface ModelOffer {

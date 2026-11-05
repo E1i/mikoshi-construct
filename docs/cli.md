@@ -2201,6 +2201,11 @@ and nothing is admitted; a card already in the release it names is left there, s
 release closes. An empty `release:` line is refused by the parking grammar. A draft has no `release` field: the line
 goes in through the parked file or the exported text. The published CLI has no bus, so it keeps the line and acts on nothing.
 
+**A card that needs more tools.** A card header may carry `tools: <words>` beside `who` and `priority`, any of `web`,
+`skills` and `agents`, separated by commas or spaces. A launch or answer session of that card then also gets those
+tools, and `skills` also leaves its slash commands on. With no such line a card session has only the file and shell
+tools. An empty line or another word is refused by the parking grammar. The published CLI keeps the line and acts on nothing.
+
 **Exporting an admitted card.** `pnpm intake --export <#N>`, this repository's bus-wired entry, prints
 the text of the latest `card.admitted` for card `N` that the bus holds, byte for byte, and writes
 nothing; redirect it to get a parking file. A card the bus holds no admitted text for, or a value that is

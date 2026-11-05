@@ -5,13 +5,16 @@ import { witnessFieldRefusals } from './witness-fields.js'
 export const SHIFT_WHO = 'shift'
 export const WINDOW_WHO = 'window'
 export const PRIORITIES = ['p0', 'p1', 'p2'] as const
-const PARKING_KEYS = ['who', 'priority', 'release'] as const
-const PARKING_LINE = /^(who|priority|release|creates):(.*)$/
+export const CARD_TOOLS = ['web', 'skills', 'agents'] as const
+const PARKING_KEYS = ['who', 'priority', 'release', 'tools'] as const
+const PARKING_LINE = /^(who|priority|release|creates|tools):(.*)$/
+const TOOLS_SEPARATOR = /[\s,]+/
 export const CREATES_KINDS = ['ghosts', 'plain'] as const
 const CREATES_ENTRY = /^(\S+)(?: \((\S+)\))?$/
 
 export type Priority = typeof PRIORITIES[number]
 export type CreatesKind = typeof CREATES_KINDS[number]
+export type CardTool = typeof CARD_TOOLS[number]
 
 export type ParsedCreatesEntry = { kind: 'created', path: string, fileKind: CreatesKind | null } | { kind: 'refused', reason: string }
 
@@ -38,6 +41,7 @@ export interface ParkedTask {
   priority: Priority | null
   release: string | null
   creates: string[]
+  tools: CardTool[]
 }
 
 export interface ParkingFileFields {
@@ -82,6 +86,13 @@ export function parseParkingFile(file: string, text: string): ParsedParkingFile 
   const release = parking.get('release') ?? null
   if (release === '')
     return refused(file, `'release:' names no release; name an open release or take the line out`)
+  const toolsLine = parking.get('tools') ?? null
+  const tools = (toolsLine ?? '').split(TOOLS_SEPARATOR).filter(word => word !== '')
+  if (toolsLine !== null && tools.length === 0)
+    return refused(file, `'tools:' names no tool; name any of ${CARD_TOOLS.join(', ')} or take the line out`)
+  const unknownTool = tools.find(word => !(CARD_TOOLS as readonly string[]).includes(word))
+  if (unknownTool !== undefined)
+    return refused(file, `tools '${unknownTool}' is not one of ${CARD_TOOLS.join(', ')}`)
   const parsed = parseTaskFile(file, rest.join('\n'))
   if (parsed.kind === 'refused')
     return { kind: 'refused', reason: `${parsed.reason}; a parked card also takes ${PARKING_KEYS.join(', ')}` }
@@ -91,7 +102,14 @@ export function parseParkingFile(file: string, text: string): ParsedParkingFile 
   if (fieldRefusals.length > 0)
     return refused(file, fieldRefusals.join('; '))
   const creates = (parking.get('creates') ?? '').split(',').map(entry => entry.trim()).filter(entry => entry !== '')
-  return { kind: 'parked', parked: { task: parsed.task, who, priority: priority as Priority | null, release, creates } }
+  return { kind: 'parked', parked: { task: parsed.task, who, priority: priority as Priority | null, release, creates, tools: tools as CardTool[] } }
+}
+
+export function cardToolsOf(file: string, text: string | null): CardTool[] {
+  if (text === null)
+    return []
+  const parsed = parseParkingFile(file, text)
+  return parsed.kind === 'parked' ? parsed.parked.tools : []
 }
 
 export function parkingFileText(fields: ParkingFileFields): string {

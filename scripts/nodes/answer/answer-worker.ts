@@ -16,7 +16,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
-import { parseParkingFile } from '../../../src/card/parking.js'
+import { cardToolsOf, parseParkingFile } from '../../../src/card/parking.js'
 import { defaultBusDir } from '../../core/bus-path.js'
 import { bodyNotFoldedYet } from '../../core/card-bodies.js'
 import { defaultBusPath } from '../../core/db.js'
@@ -216,7 +216,7 @@ async function main(): Promise<number> {
   const busPath = defaultBusPath()
   return runAnswerWorker(process.argv.slice(2), {
     busPath,
-    answerer: claudeAnswerer(ANSWERS_DIR, realAnswererTools(busPath)),
+    answerer: claudeAnswerer(ANSWERS_DIR, { ...realAnswererTools(busPath), cardTools: (cardId, cardBody) => cardToolsOf(`${cardId}.md`, cardBody) }),
     ownerMerges: () => readFileSync(path.join(cwd, OWNER_MERGES), 'utf8'),
     cardText: busCardBodies(busPath),
     session: randomUUID(),

@@ -2,7 +2,7 @@ import type { PushPolicy } from '../../../src/commands/attach/record.js'
 import type { ShiftGate } from '../../../src/manifest.js'
 import type { BusEvent } from '../../core/db.js'
 import type { Lease } from '../../core/lease.js'
-import type { Denial, Invocation, ProcessCwds, Usage } from '../../ports/client/contract.js'
+import type { Denial, Invocation, ProcessCwds, SessionTool, Usage } from '../../ports/client/contract.js'
 import type { GhPort } from '../../ports/gh.js'
 import type { AnswerInput } from '../../ports/prompt-store.js'
 import type { FreshBaseGap } from '../launch/tree-pr.js'
@@ -82,6 +82,7 @@ export type CardText = (cardId: number) => string | null
 
 export interface AnswererTools {
   cardText: CardText
+  cardTools?: (cardId: number, cardBody: string | null) => readonly SessionTool[]
   available: (card: CardSession) => boolean
   remoteHead: (card: CardSession) => string | null
   spawn: (run: AnswerRun) => Promise<number>
@@ -633,7 +634,7 @@ export function claudeAnswerer(dir: string, tools: AnswererTools): Answerer {
     if (request.fresh !== true)
       rmSync(handoff, { force: true })
     const prompt = [answerPrompt(request, ownerQuestion, cardBody, gate, resumed ? undefined : tools.diff?.(card), ciLog), ...handoffLines(handoff, request.fresh === true)].join('\n')
-    const invocationOf = (kind: 'start' | 'resume', text: string): Invocation => clientInvocation({ kind, role: 'answer', session, cwd: card.worktree, prompt: text, addDirs: [dir], pick: { model: null }, policy: { profile: 'sandboxed', gateCommands: gate.prepush, writePaths: [ownerQuestion], mcpOff: true } })
+    const invocationOf = (kind: 'start' | 'resume', text: string): Invocation => clientInvocation({ kind, role: 'answer', session, cwd: card.worktree, prompt: text, addDirs: [dir], pick: { model: null }, policy: { profile: 'sandboxed', gateCommands: gate.prepush, writePaths: [ownerQuestion], mcpOff: true, tools: tools.cardTools?.(request.lease.cardId, cardBody) } })
     mkdirSync(dir, { recursive: true })
     rmSync(ownerQuestion, { force: true })
     const before = tools.remoteHead(card)

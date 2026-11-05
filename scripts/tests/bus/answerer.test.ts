@@ -1,9 +1,9 @@
-import type { AnswerRequest, AnswerRun } from '../../nodes/answer/answerer.js'
+import type { AnswererTools, AnswerRequest, AnswerRun } from '../../nodes/answer/answerer.js'
 import type { CardTreeTools } from '../../ports/card-tree.js'
 import type { MergeBench } from './merge-bench.js'
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import path from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -53,10 +53,12 @@ function treeSettings(worktree: string, ownerQuestion: string): unknown {
   return {
     sandbox: { enabled: true, failIfUnavailable: true, allowUnsandboxedCommands: false, network: { allowLocalBinding: true, allowUnixSockets: [TSX_PIPE_DIRECTORY] } },
     permissions: { allow: [`Bash(${TREE_GATE})`, `Edit(/${worktree}/**)`, `Edit(/${ownerQuestion})`] },
+    autoMemoryEnabled: false,
+    claudeMdExcludes: [path.join(homedir(), '.claude', 'CLAUDE.md')],
   }
 }
 
-async function answerAt(context: number) {
+async function answerAt(context: number, cardTools?: AnswererTools['cardTools']) {
   const root = mkdtempSync(path.join(tmpdir(), 'bus-answerer-'))
   roots.push(root)
   const runs: AnswerRun[] = []
@@ -65,6 +67,7 @@ async function answerAt(context: number) {
   const request = requestIn(root)
   const answerer = claudeAnswerer(path.join(root, 'answers'), {
     cardText: () => CARD_BODY,
+    ...(cardTools === undefined ? {} : { cardTools }),
     available: () => true,
     remoteHead: () => heads.shift() ?? null,
     spawn: async (run) => {
@@ -117,6 +120,17 @@ describe('the answerer', () => {
     const ownerQuestion = ownerQuestionPath(path.join(path.dirname(worktree), 'answers'), answered.session, 1)
 
     expect(runs.map(settingsOf)).toEqual([treeSettings(worktree, ownerQuestion)])
+  })
+
+  it('hands the card body to cardTools and widens the session by the words it returns', async () => {
+    const bodies: (string | null)[] = []
+    const { runs } = await answerAt(120_000, (_cardId, cardBody) => {
+      bodies.push(cardBody)
+      return ['web']
+    })
+
+    expect(bodies).toEqual([CARD_BODY])
+    expect(runs[0]!.argv).toEqual(expect.arrayContaining(['--tools', 'Read,Edit,Write,Bash,Grep,Glob,WebFetch,WebSearch']))
   })
 })
 

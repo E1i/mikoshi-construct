@@ -6,7 +6,7 @@ import type { ProcessTable } from '../../nodes/restart/chain-process.js'
 import type { DiskReader } from '../../ports/disk.js'
 import type { IsolationReader } from '../../ports/isolation.js'
 import { appendFileSync, chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -899,10 +899,12 @@ describe('the launch queue', () => {
 
     expect(bench.launch(bench.leaseLaunch()!).kind).toBe('started')
     const [args, card] = (await written(stub.argsFile)).trim().split('\n')
-    const settings = /^--permission-mode dontAsk --setting-sources project,local --settings (\{.*\}) --strict-mcp-config -p --session-id session-934$/.exec(args!)?.[1]
+    const settings = /^--permission-mode dontAsk --setting-sources project,local --settings (\{.*\}) --tools Read,Edit,Write,Bash,Grep,Glob --disable-slash-commands --strict-mcp-config -p --session-id session-934$/.exec(args!)?.[1]
     expect(JSON.parse(settings ?? 'null')).toEqual({
       sandbox: { enabled: true, failIfUnavailable: true, allowUnsandboxedCommands: false, network: { allowLocalBinding: true, allowUnixSockets: [TSX_PIPE_DIRECTORY] } },
       permissions: { allow: [`Bash(${TREE_GATE})`, `Edit(/${tree}/**)`] },
+      autoMemoryEnabled: false,
+      claudeMdExcludes: [path.join(homedir(), '.claude', 'CLAUDE.md')],
     })
     expect(card).toBe('card=934')
     bench.close()
