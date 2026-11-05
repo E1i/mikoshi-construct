@@ -2,10 +2,13 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { BusEvent } from '../../core/db.js'
 import type { AfterFailure, Lease } from '../../core/lease.js'
 import type { CardFileStep } from '../../intake/card-archive.js'
+import type { ProcessCwds } from '../../ports/client/contract.js'
+import type { CardSession } from '../answer/answer-source.js'
 import { Buffer } from 'node:buffer'
 import { execFileSync } from 'node:child_process'
 import { existsSync, realpathSync } from 'node:fs'
 import process from 'node:process'
+import { STOPPED_CARD } from '../../core/card-automaton.js'
 import { appendEvent } from '../../core/db.js'
 import { ARTIFACT_KEPT, ARTIFACT_REMOVED, CARD_CLOSED, CARD_VERIFIED, POLICY_DENIED } from '../../core/events.js'
 import { assertHeld, completeTask, failTask, StaleLease } from '../../core/lease.js'
@@ -13,6 +16,7 @@ import { VERIFICATION_WORDS } from '../../core/verification.js'
 import { archiveCardFile } from '../../intake/card-archive.js'
 import { cardContract, NOT_MINE, notMine } from '../../intake/card-contract.js'
 import { closeWitnessDenial, MERGE_RECORD, WITNESS_REASON } from '../../policy/policy.js'
+import { FREE_TREE_CAPACITY, liveSessionHolds, parkTree } from '../../ports/worktree.js'
 import { cardSessionOf } from '../answer/answer-source.js'
 
 export type CloseTechnicalReason = 'card_closed' | 'no_verification' | 'no_merge_commit' | typeof WITNESS_REASON | typeof NOT_MINE
@@ -45,10 +49,11 @@ export interface RemovedTree {
   path: string
   dirty: number
   kept: boolean
+  parked?: string
 }
 
 export interface CardTreeRemover {
-  remove: (worktree: string) => RemovedTree | null
+  remove: (worktree: string, reusable?: boolean) => RemovedTree | null
 }
 
 export interface CloseParts {
@@ -57,6 +62,7 @@ export interface CloseParts {
   clock: () => Date
   parking: string
   trees?: CardTreeRemover
+  cwds?: () => ProcessCwds
 }
 
 function git(repo: string, args: string[]): string {
@@ -81,9 +87,23 @@ function dirtyCount(worktree: string): number {
   return existsSync(worktree) ? git(worktree, ['status', '--porcelain']).split('\n').filter(line => line !== '').length : 0
 }
 
-export function gitTreeRemover(repo: string): CardTreeRemover {
+export function treeMayBeReused(db: DatabaseSync, cardId: number, card: CardSession, cwds?: () => ProcessCwds): boolean {
+  const row = db.prepare('SELECT state FROM cards WHERE card_id = ?').get(cardId) as { state: string | null } | undefined
+  return row?.state !== STOPPED_CARD && !liveSessionHolds(card.worktree, cwds)
+}
+
+export function parkedOrNull(repo: string, tree: string, capacity: number): string | null {
+  try {
+    return parkTree(git, repo, tree, capacity)
+  }
+  catch {
+    return null
+  }
+}
+
+export function gitTreeRemover(repo: string, capacity = 0): CardTreeRemover {
   return {
-    remove: (worktree) => {
+    remove: (worktree, reusable = false) => {
       const [, ...linked] = listedWorktrees(repo)
       const listed = linked.find(entry => canonical(entry) === canonical(worktree))
       if (listed === undefined)
@@ -91,6 +111,9 @@ export function gitTreeRemover(repo: string): CardTreeRemover {
       const dirty = dirtyCount(listed)
       if (dirty > 0)
         return { path: listed, dirty, kept: true }
+      const parked = reusable ? parkedOrNull(repo, listed, capacity) : null
+      if (parked !== null)
+        return { path: listed, dirty, kept: false, parked }
       git(repo, ['worktree', 'remove', '--force', listed])
       git(repo, ['worktree', 'prune'])
       return { path: listed, dirty, kept: false }
@@ -145,7 +168,7 @@ export class CloseExecutor {
   private readonly trees: CardTreeRemover
 
   constructor(private readonly parts: CloseParts) {
-    this.trees = parts.trees ?? gitTreeRemover(process.cwd())
+    this.trees = parts.trees ?? gitTreeRemover(process.cwd(), FREE_TREE_CAPACITY)
   }
 
   private ts(): string {
@@ -206,7 +229,7 @@ export class CloseExecutor {
       return null
     let removed: RemovedTree | null
     try {
-      removed = this.trees.remove(session.worktree)
+      removed = this.trees.remove(session.worktree, treeMayBeReused(this.parts.db, lease.cardId, session, this.parts.cwds))
     }
     catch (error) {
       return { path: session.worktree, left: failureOf(error) }
@@ -214,7 +237,7 @@ export class CloseExecutor {
     if (removed === null)
       return null
     const type = removed.kept ? ARTIFACT_KEPT : ARTIFACT_REMOVED
-    appendEvent(this.parts.db, { ts: this.ts(), type, actor: lease.actor, cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${type}:${lease.cardId}:${removed.path}`, payload: { path: removed.path, by: lease.actor, dirty: removed.dirty }, legacy: false })
+    appendEvent(this.parts.db, { ts: this.ts(), type, actor: lease.actor, cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${type}:${lease.cardId}:${removed.path}`, payload: { path: removed.path, by: lease.actor, dirty: removed.dirty, ...(removed.parked === undefined ? {} : { parked: removed.parked }) }, legacy: false })
     return null
   }
 

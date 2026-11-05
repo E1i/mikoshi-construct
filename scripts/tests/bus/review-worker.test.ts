@@ -998,10 +998,10 @@ describe('review worker', () => {
     const { repo, head } = oneCommitRepo(roots.at(-1)!)
     const dir = path.join(roots.at(-1)!, 'reviews')
     const recordedAtRemoval: number[] = []
-    const reviewer = claudeReviewer(new ReviewTrees(repo, dir, localTrees((args) => {
+    const reviewer = claudeReviewer(new ReviewTrees(repo, dir, { ...localTrees((args) => {
       if (args[0] === 'worktree' && args[1] === 'remove')
         recordedAtRemoval.push(events(db, 'review.recorded').length)
-    })), async (params) => {
+    }), freeTrees: 0 }), async (params) => {
       writeFileSync(path.join(dir, `${params.sessionId}.verdict.json`), '{"verdict":"pass","findings":[]}')
       return 0
     })
