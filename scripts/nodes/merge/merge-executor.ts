@@ -9,6 +9,7 @@ import type { CommandResult, GitHub, GitHubPut } from '../../ports/github.js'
 import type { TechnicalReason } from '../review/record-verdict.js'
 import { Buffer } from 'node:buffer'
 import { changedFiles, REFUSED_NOT_UP_TO_DATE, rerunOf, upToDateRequired } from '../../cli/check-catalog.js'
+import { cardHoldOf, HOLD_RECHECK_MS } from '../../core/card-hold.js'
 import { appendEvent, openBusWait } from '../../core/db.js'
 import { messageOf } from '../../core/errors.js'
 import { BOARD_ALARM, COMMAND_EXECUTED, MERGE_DONE, POLICY_ALLOWED, POLICY_DENIED, SHARD_USED } from '../../core/events.js'
@@ -29,7 +30,8 @@ export const MERGE_QUEUE = 'merge'
 export const STALE_HEAD_STATUS = 409
 export const NOT_ALLOWED_STATUS = 405
 const NOT_UP_TO_DATE = /not up.to.date/i
-const WAIT_REASONS: ReadonlySet<MergeTechnicalReason> = new Set(['version_pr_open', 'not_mergeable', 'not_a_candidate', NEEDS_UPDATE])
+export const HELD_FOR_OWNER = 'held_for_owner'
+const WAIT_REASONS: ReadonlySet<MergeTechnicalReason> = new Set(['version_pr_open', 'not_mergeable', 'not_a_candidate', NEEDS_UPDATE, HELD_FOR_OWNER])
 const OPEN_QUESTIONS_OF_CARD = `${openDecisionWaitsOf('?')} ORDER BY opened_at, id`
 const REVIEWS_IN_FLIGHT = `SELECT task_key FROM tasks WHERE queue = 'review' AND pr = ? AND head = ? AND state IN ('queued', 'leased') ORDER BY id`
 const WITHDRAWN_ON_THE_BODY: ReadonlySet<AuthorityRule> = new Set(['decision_unread', 'no_matrix_count_line'])
@@ -38,7 +40,7 @@ const FILES_PAGE = 100
 const AWAITING_APPROVAL = 'action_required'
 const REPO = 'repos/{owner}/{repo}'
 
-export type MergeTechnicalReason = TechnicalReason | 'not_mergeable' | 'no_pass_on_head' | 'version_pr_open' | 'wrong_base' | 'not_a_candidate' | 'not_mine' | typeof QUESTION_OPEN | typeof WITNESS_REASON | typeof NEEDS_UPDATE | typeof KEPT_BY_PUSH_POLICY
+export type MergeTechnicalReason = TechnicalReason | 'not_mergeable' | 'no_pass_on_head' | 'version_pr_open' | 'wrong_base' | 'not_a_candidate' | 'not_mine' | typeof HELD_FOR_OWNER | typeof QUESTION_OPEN | typeof WITNESS_REASON | typeof NEEDS_UPDATE | typeof KEPT_BY_PUSH_POLICY
 
 export type ParkedUntil = 'new_head' | 'wait_closed'
 
@@ -134,6 +136,9 @@ export class MergeExecutor {
       const checked = this.fresh(lease)
       if (checked.kind === 'denied')
         return this.denied(lease, checked.denial)
+      const hold = checked.mergedCommit === null ? cardHoldOf(this.parts.db, lease.cardId) : null
+      if (hold !== null)
+        return this.denied(lease, { kind: 'technical', reason: HELD_FOR_OWNER, detail: hold })
       const asked = checked.mergedCommit === null ? this.heldByAnOpenQuestion(lease) : null
       if (asked !== null)
         return this.denied(lease, asked)
@@ -382,11 +387,11 @@ export class MergeExecutor {
     if (parked)
       return { kind: 'denied', taskKey: lease.taskKey, denial, next: failTask(this.parts.db, ts, lease, { reason, withdraw: true }, [event]) }
     if (waits) {
-      const turnHeldUntil = reason === NEEDS_UPDATE ? updateTurnHeldUntil(this.parts.db, ts, lease.pr!) : null
-      if (turnHeldUntil === null)
+      const until = reason === HELD_FOR_OWNER ? new Date(this.parts.clock().getTime() + HOLD_RECHECK_MS).toISOString() : reason === NEEDS_UPDATE ? updateTurnHeldUntil(this.parts.db, ts, lease.pr!) : null
+      if (until === null)
         releaseTask(this.parts.db, ts, lease, reason, [event])
       else
-        waitTask(this.parts.db, ts, lease, { reason, until: turnHeldUntil }, [event])
+        waitTask(this.parts.db, ts, lease, { reason, until }, [event])
       return { kind: 'denied', taskKey: lease.taskKey, denial, next: 'queued' }
     }
     const next = failTask(this.parts.db, ts, lease, { reason, withdraw: denial.kind === 'authority' || reason === 'not_mine' || reason === WITNESS_REASON || reason === KEPT_BY_PUSH_POLICY }, [event])

@@ -149,7 +149,7 @@ has red CI or a `changes` verdict) and none has moved for `TAKEOVER_AFTER_MINUTE
 that has ended, is held, has a queued or leased task of any node (a review included), or has a session still running. An
 accepted takeover appends `card.held` and `card.takeover`, both by the window and with the reason, so the answer node
 denies the card as held. The window makes the minimal change in the tree by hand, and `pnpm bus:request release --card <N>`
-ends the takeover and queues again each answer task the hold withdrew.
+ends the takeover and queues again each answer task the hold withdrew. A hold, a takeover included, keeps launch, answer, merge, continuations and restarts until its `card.released`.
 
 `pnpm bus:request drop --card <N> --reason <text>` appends `card.dropped` by the window, with the reason, for a card the bus knows that has no admitted body and has not ended; a card with a body keeps the `pnpm intake --move` route.
 
