@@ -220,7 +220,6 @@ function pageWritten(at: string, tickMs: number | null, warnings: BoardPage['war
     liveness: 'live',
     modelVersion: null,
     facts: factsAt(at),
-    gauges: new Map(),
     windowGauges: null,
     limits: { contextLimit: null, cardContextLine: null, sessionSpend: null, warnRatio: null, modelWindows: new Map() },
     details: new Map(),

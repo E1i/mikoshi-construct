@@ -238,8 +238,8 @@ describe('construct board', () => {
       '  #2 beta · in work',
       '  #4 delta · ready',
       'Services',
+      'window · miko · — · subagents at work',
       'review · #3 · — · review approve',
-      'implementer · #1071 · /t · started',
       'bus · pulse · — · no pulse recorded · slots in use: review 1',
       'agents at work: 2 · last failure: none · review queue: 1 · geek mode: --geek',
     ])
