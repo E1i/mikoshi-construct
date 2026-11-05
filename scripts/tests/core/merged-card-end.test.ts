@@ -101,6 +101,12 @@ describe('a card with a merged pull request has ended, for all four readers', ()
     expect(readBusTasks(bench.busPath).map(task => [task.task, task.minutes])).toEqual([[String(CARD), MINUTES_TO_MERGE]])
   })
 
+  it('cost counts a card from a merge whose pr.closed names no card', () => {
+    const bench = mergedThroughThePr()
+
+    expect(readBusTasks(bench.busPath).map(task => [task.task, task.minutes])).toEqual([[String(CARD), MINUTES_TO_MERGE]])
+  })
+
   it('the chain proves a card from a merge whose pr.closed names no card', () => {
     const bench = mergedThroughThePr()
 
