@@ -14,11 +14,9 @@ import { pushPolicyOf } from '../../core/push-policy.js'
 import { openDatabase } from '../../core/sqlite.js'
 import { cardContract } from '../../intake/card-contract.js'
 import { execGh, stdoutOrThrow } from '../../ports/gh.js'
-import { sessionEnv } from '../../ports/session.js'
-import { settingsFlag, shiftSettings } from '../../ports/shift-settings.js'
+import { clientInvocation, sessionEnv } from '../../ports/session.js'
 import { cardSessionOf } from '../answer/answer-source.js'
 import { reachedContextLine } from './continuation.js'
-import { CARD_MCP_FLAGS, CARD_PERMISSION_MODE } from './launch-starter.js'
 import { collectReport, missingReportDetail, REPORT_MISSING } from './report-collect.js'
 import { followedLine, refusalOf, shiftTreeCard, treePr } from './tree-pr.js'
 
@@ -150,7 +148,7 @@ export function busLastRefusal(busPath: string): TreePrCliPorts['lastRefusal'] {
   }
 }
 
-export function claudeResume(busPath: string, claude = 'claude', ceilingMs = RETURN_CEILING_MINUTES * 60_000): TreePrCliPorts['resume'] {
+export function claudeResume(busPath: string, binary?: string, ceilingMs = RETURN_CEILING_MINUTES * 60_000): TreePrCliPorts['resume'] {
   return (cardId, worktree, prompt) => {
     if (!existsSync(busPath))
       return false
@@ -164,7 +162,8 @@ export function claudeResume(busPath: string, claude = 'claude', ceilingMs = RET
     }
     if (session === undefined)
       return false
-    const run = spawnSync(claude, ['--permission-mode', CARD_PERMISSION_MODE, ...settingsFlag(shiftSettings(worktree, readShiftGate(worktree))), ...CARD_MCP_FLAGS, '-p', '--resume', session, prompt], { cwd: worktree, env: sessionEnv(process.env, cardId), stdio: ['ignore', 'inherit', 'inherit'], timeout: ceilingMs, killSignal: 'SIGKILL' })
+    const invocation = clientInvocation({ kind: 'resume', role: 'launch', session, cwd: worktree, prompt, addDirs: [], pick: { model: null }, policy: { profile: 'sandboxed', gateCommands: readShiftGate(worktree).prepush, writePaths: [], mcpOff: true } })
+    const run = spawnSync(binary ?? invocation.command, invocation.args, { cwd: worktree, env: { ...sessionEnv(process.env, cardId), ...invocation.env }, stdio: ['ignore', 'inherit', 'inherit'], timeout: ceilingMs, killSignal: 'SIGKILL' })
     return run.error === undefined && run.status === 0
   }
 }

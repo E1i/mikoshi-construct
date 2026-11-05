@@ -2,6 +2,7 @@ import type { PushPolicy } from '../../../src/commands/attach/record.js'
 import type { ShiftGate } from '../../../src/manifest.js'
 import type { BusEvent } from '../../core/db.js'
 import type { Lease } from '../../core/lease.js'
+import type { Invocation } from '../../ports/client/contract.js'
 import type { AnswerInput } from '../../ports/prompt-store.js'
 import type { FreshBaseGap } from '../launch/tree-pr.js'
 import type { AnswerSource, CardSession } from './answer-source.js'
@@ -21,8 +22,7 @@ import { pushPolicyOf } from '../../core/push-policy.js'
 import { busCardBodies } from '../../intake/parking-reads.js'
 import { PROCESS_GH_PORT } from '../../ports/gh.js'
 import { readResultFields } from '../../ports/result.js'
-import { CARD_VARIABLE, HEADLESS_FLAGS, sessionArgv, sessionEnv } from '../../ports/session.js'
-import { settingsFlag, shiftSettings } from '../../ports/shift-settings.js'
+import { CARD_VARIABLE, clientInvocation, HEADLESS_FLAGS, sessionEnv } from '../../ports/session.js'
 import { MAIN_BRANCH } from '../../ports/snapshot.js'
 import { busSessionPulse } from '../../supervisor/heartbeat.js'
 import { projectRoot, realExitReadings, sessionGauges, UNKNOWN } from '../../window/eddies-measure.js'
@@ -70,6 +70,7 @@ export type Answerer = (request: AnswerRequest) => Promise<Answered>
 
 export interface AnswerRun {
   cwd: string
+  command: string
   argv: string[]
   stdoutPath: string
   stderrPath: string
@@ -482,7 +483,7 @@ export function contextWarnOfEddies(): number | null {
   return warn === UNKNOWN ? null : warn
 }
 
-function spawnClaude(run: AnswerRun): Promise<number> {
+function spawnClient(run: AnswerRun): Promise<number> {
   const outFd = openSync(run.stdoutPath, 'w')
   const errFd = openSync(run.stderrPath, 'w')
   let closed = false
@@ -497,7 +498,7 @@ function spawnClaude(run: AnswerRun): Promise<number> {
     }
   }
   return new Promise((resolve, reject) => {
-    const child = spawn('claude', run.argv, { cwd: run.cwd, env: run.env, stdio: ['ignore', 'pipe', errFd], signal: run.signal })
+    const child = spawn(run.command, run.argv, { cwd: run.cwd, env: run.env, stdio: ['ignore', 'pipe', errFd], signal: run.signal })
     child.stdout?.setEncoding('utf8')
     child.stdout?.on('data', (chunk: string) => {
       writeSync(outFd, chunk)
@@ -644,7 +645,7 @@ export function realAnswererTools(busPath: string = defaultBusPath()): AnswererT
     available: card => existsSync(path.join(CLAUDE_PROJECTS, projectDirOf(card.worktree), `${card.session}.jsonl`)),
     remoteHead,
     localHead,
-    spawn: spawnClaude,
+    spawn: spawnClient,
     newSession: randomUUID,
     publish: publishTree,
     pushPolicy: pushPolicyOfTree,
@@ -680,7 +681,7 @@ export function claudeAnswerer(dir: string, tools: AnswererTools): Answerer {
     if (request.fresh !== true)
       rmSync(handoff, { force: true })
     const prompt = [answerPrompt(request, ownerQuestion, cardBody, gate, resumed ? undefined : tools.diff?.(card), ciLog), ...handoffLines(handoff, request.fresh === true)].join('\n')
-    const settings = settingsFlag(shiftSettings(card.worktree, gate, [ownerQuestion]))
+    const invocationOf = (kind: 'start' | 'resume', text: string): Invocation => clientInvocation({ kind, role: 'answer', session, cwd: card.worktree, prompt: text, addDirs: [dir], pick: { model: null }, policy: { profile: 'sandboxed', gateCommands: gate.prepush, writePaths: [ownerQuestion], mcpOff: true } })
     mkdirSync(dir, { recursive: true })
     rmSync(ownerQuestion, { force: true })
     const before = tools.remoteHead(card)
@@ -698,17 +699,18 @@ export function claudeAnswerer(dir: string, tools: AnswererTools): Answerer {
         console.error(missedAnswerBeatLine(session, error))
       }
     }
-    const spawnUnlessWithdrawn = async (argv: string[], step: string): Promise<number> => {
+    const spawnUnlessWithdrawn = async (invocation: Invocation, step: string): Promise<number> => {
       if (withdrawn.signal.aborted)
         return 1
       timer.spawning()
       try {
         return await tools.spawn({
           cwd: card.worktree,
-          argv,
+          command: invocation.command,
+          argv: invocation.args,
           stdoutPath: stdoutOf(step),
           stderrPath: path.join(dir, `${session}.${request.lease.leaseGen}${step}.err.log`),
-          env: sessionEnv(process.env, request.lease.cardId),
+          env: { ...sessionEnv(process.env, request.lease.cardId), ...invocation.env },
           signal: withdrawn.signal,
           onLine: line => timer.line(line),
         })
@@ -719,8 +721,8 @@ export function claudeAnswerer(dir: string, tools: AnswererTools): Answerer {
         throw error
       }
     }
-    const run = async (argv: string[], step: string): Promise<number> => {
-      const code = await beatingWhileRunning(async () => spawnUnlessWithdrawn(argv, step), beat, ANSWER_BEAT_MS)
+    const run = async (invocation: Invocation, step: string): Promise<number> => {
+      const code = await beatingWhileRunning(async () => spawnUnlessWithdrawn(invocation, step), beat, ANSWER_BEAT_MS)
       if (withdrawn.signal.aborted)
         throw new AnswerWithdrawn(request.lease, session)
       return code
@@ -748,7 +750,7 @@ export function claudeAnswerer(dir: string, tools: AnswererTools): Answerer {
       if (gap === null)
         return null
       steps.push(MERGE_STEP)
-      const merged = await run([...settings, ...resumeArgv(session, mergePrompt(request.lease, card, gap, ownerQuestion), [dir])], MERGE_STEP)
+      const merged = await run(invocationOf('resume', mergePrompt(request.lease, card, gap, ownerQuestion)), MERGE_STEP)
       const owner = ownerAfter(MERGE_STEP)
       if (owner !== null)
         return owner
@@ -756,7 +758,7 @@ export function claudeAnswerer(dir: string, tools: AnswererTools): Answerer {
       return left === null ? null : unmergedQuestion(card, left)
     }
     try {
-      const code = await run([...settings, ...(resumed ? resumeArgv(session, prompt, [dir]) : sessionArgv(session, prompt, [dir]))], '')
+      const code = await run(invocationOf(resumed ? 'resume' : 'start', prompt), '')
       if (code !== 0)
         throw new Error(`the answer session ${session} exited ${code}`)
       const kept = tools.pushPolicy?.(card) === 'none'

@@ -1,4 +1,5 @@
 import type { ShiftTask } from '../../../src/card/task-file.js'
+import type { SessionSpec } from '../../ports/client/contract.js'
 import type { CardStart, CardStarter, HeldTree, QueuedCard, StartedCard } from './launch-executor.js'
 import type { PromptPlaces } from './prompt.js'
 import type { SessionJournal, TreeFile } from './session-journal.js'
@@ -12,7 +13,7 @@ import { BUS_DB_VARIABLE } from '../../core/bus-path.js'
 import { messageOf } from '../../core/errors.js'
 import { exitCodePath, treeReportPath } from '../../core/places.js'
 import { accountToken, recordedAccount } from '../../ports/gh.js'
-import { settingsFlag, shiftSettings } from '../../ports/shift-settings.js'
+import { clientInvocation } from '../../ports/session.js'
 import { restoreReport, shellWord } from '../../ports/tree-publish.js'
 import { HELD_TREE_CHANGED, technical } from './launch-executor.js'
 import { continuationBody } from './prompt.js'
@@ -46,13 +47,13 @@ export interface StarterPorts {
 
 export interface StarterPlaces {
   launchDir: string
-  claude: string
+  claude?: string
   treePr: string
 }
 
 export const CARD_PERMISSION_MODE = 'dontAsk'
 
-export const CARD_MCP_FLAGS = ['--strict-mcp-config'] as const
+const CARD_MCP_FLAGS = ['--strict-mcp-config'] as const
 
 export { shellWord }
 
@@ -60,8 +61,27 @@ export function cardCommand(claude: string): string {
   return `${claude} --permission-mode ${CARD_PERMISSION_MODE}`
 }
 
-export function launchArgv(session: { command: string, treePr: string, cardId: number, worktree: string, report: string, exit: string, id: string }): string[] {
-  return ['-c', `env -u ${BUS_DB_VARIABLE} ${session.command} "$@"; code=$?; printf '%s\\n' "$code" > ${shellWord(session.exit)}; [ "$code" -eq 0 ] || exit "$code"; ${session.treePr} ${session.cardId} ${shellWord(session.worktree)} ${shellWord(session.report)}`, 'shift', ...CARD_MCP_FLAGS, '-p', '--session-id', session.id]
+export interface ChainedClient {
+  command: string
+  positional: string[]
+  env: NodeJS.ProcessEnv
+  input: string
+}
+
+const UNQUOTED_LEADING_WORDS = 2
+
+const LAUNCH_POSITIONAL_WORDS = 4
+
+export function chainedClient(spec: SessionSpec, positionalWords: number, binary?: string): ChainedClient {
+  const invocation = clientInvocation(spec)
+  const split = invocation.args.length - positionalWords
+  const unquoted = invocation.args.slice(0, UNQUOTED_LEADING_WORDS)
+  const quoted = invocation.args.slice(UNQUOTED_LEADING_WORDS, split).map(shellWord)
+  return { command: [binary ?? invocation.command, ...unquoted, ...quoted].join(' '), positional: invocation.args.slice(split), env: invocation.env, input: invocation.stdin ?? '' }
+}
+
+export function launchArgv(session: { command: string, treePr: string, cardId: number, worktree: string, report: string, exit: string, id: string }, positional: readonly string[] = [...CARD_MCP_FLAGS, '-p', '--session-id', session.id]): string[] {
+  return ['-c', `env -u ${BUS_DB_VARIABLE} ${session.command} "$@"; code=$?; printf '%s\\n' "$code" > ${shellWord(session.exit)}; [ "$code" -eq 0 ] || exit "$code"; ${session.treePr} ${session.cardId} ${shellWord(session.worktree)} ${shellWord(session.report)}`, 'shift', ...positional]
 }
 
 export function launchEnv(session: NodeJS.ProcessEnv, launching: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
@@ -192,12 +212,13 @@ export class ShiftCardStarter implements CardStarter, SessionContinuer {
       const session = this.ports.uuid()
       const places = { worktree, report: treeReportPath(worktree), gate: readShiftGate(worktree) }
       const prompt = this.ports.prompt({ ...task, body: body(task, places) }, places)
+      const client = chainedClient({ kind: 'start', role: 'launch', session, cwd: worktree, prompt, addDirs: [], pick: { model: null }, policy: { profile: 'sandboxed', gateCommands: places.gate.prepush, writePaths: [], mcpOff: true } }, LAUNCH_POSITIONAL_WORDS, this.places.claude)
       const pid = this.ports.spawnDetached({
         command: 'sh',
-        args: launchArgv({ command: [cardCommand(this.places.claude), ...settingsFlag(shiftSettings(worktree, places.gate)).map(shellWord)].join(' '), treePr: this.places.treePr, cardId: card.cardId, worktree, report: this.reportOf(card.cardId), exit: exitCodePath(this.places.launchDir, String(card.cardId)), id: session }),
+        args: launchArgv({ command: client.command, treePr: this.places.treePr, cardId: card.cardId, worktree, report: this.reportOf(card.cardId), exit: exitCodePath(this.places.launchDir, String(card.cardId)), id: session }, client.positional),
         cwd: worktree,
-        env: launchEnv(this.ports.envOf(card.cardId)),
-        input: prompt,
+        env: { ...launchEnv(this.ports.envOf(card.cardId)), ...client.env },
+        input: client.input,
         log: path.join(this.places.launchDir, `log-${card.cardId}.txt`),
       })
       return { kind: 'started', card: { session, worktree, branch: task.branch, base, pid, pgid: this.groupOrKill(pid), input: { prompt } } }

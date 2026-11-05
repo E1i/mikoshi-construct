@@ -7,7 +7,7 @@ import { readShiftGate } from '../../src/manifest.js'
 import { messageOf } from '../core/errors.js'
 import { FACTORY_RUNTIME } from '../core/factory-paths.js'
 import { technical } from '../nodes/launch/launch-executor.js'
-import { cardCommand, shellWord, unreadableCard } from '../nodes/launch/launch-starter.js'
+import { chainedClient, shellWord, unreadableCard } from '../nodes/launch/launch-starter.js'
 
 export type LadderStep
   = | { kind: 'brief' }
@@ -32,12 +32,13 @@ export interface LadderPlaces extends StarterPlaces {
 
 interface ChainContext {
   places: LadderPlaces
+  client: string
   task: ShiftTask
   worktree: string
   report: string
   brief: string
   tasksFile: string
-  prompt: string
+  input: string
 }
 
 interface Chain {
@@ -69,15 +70,17 @@ function treePrScript(context: ChainContext): string {
   return [context.places.treePr, String(context.task.card.id), shellWord(context.worktree), shellWord(context.report)].join(' ')
 }
 
-function claudeScript(context: ChainContext): string {
-  return `env ${cardCommand(context.places.claude)} "$@"`
+function clientScript(context: ChainContext): string {
+  return `env ${context.client} "$@"`
 }
 
 const CHAINS: Record<ChainStep, (context: ChainContext) => Chain> = {
-  brief: context => ({ script: `${claudeScript(context)} && ${finishScript(context)} && ${hashScript(context)} && ${launchScript(context)}`, input: context.prompt }),
+  brief: context => ({ script: `${clientScript(context)} && ${finishScript(context)} && ${hashScript(context)} && ${launchScript(context)}`, input: context.input }),
   launch: context => ({ script: launchScript(context), input: '' }),
-  review: context => ({ script: `${claudeScript(context)} && ${treePrScript(context)}`, input: context.prompt }),
+  review: context => ({ script: `${clientScript(context)} && ${treePrScript(context)}`, input: context.input }),
 }
+
+const LADDER_POSITIONAL_WORDS = 3
 
 function refused(reason: LaunchTechnicalReason, detail: string): CardStart {
   return { kind: 'refused', denial: technical(reason, detail) }
@@ -115,12 +118,13 @@ export class LadderCardStarter implements CardStarter {
     const session = this.ports.uuid()
     const report = path.join(this.places.launchDir, step === 'brief' ? `report-${card.cardId}-brief.md` : `report-${card.cardId}.md`)
     const prompt = step === 'launch' ? '' : this.ports.prompt({ ...task, body: `${this.steps.body(task, step)}\n\n${task.body}` }, { worktree, report, gate: readShiftGate(worktree) })
-    const chain = CHAINS[step]({ places: this.places, task, worktree, report, brief: this.steps.brief(task), tasksFile: step === 'review' ? '' : this.steps.tasksFile(task), prompt })
+    const client = chainedClient({ kind: 'start', role: 'ladder', session, cwd: worktree, prompt, addDirs: [], pick: { model: null }, policy: { profile: 'client-default', gateCommands: [], writePaths: [], mcpOff: false } }, LADDER_POSITIONAL_WORDS, this.places.claude)
+    const chain = CHAINS[step]({ places: this.places, client: client.command, task, worktree, report, brief: this.steps.brief(task), tasksFile: step === 'review' ? '' : this.steps.tasksFile(task), input: client.input })
     const pid = this.ports.spawnDetached({
       command: 'sh',
-      args: ['-c', chain.script, 'shift', '-p', '--session-id', session],
+      args: ['-c', chain.script, 'shift', ...client.positional],
       cwd: worktree,
-      env: this.ports.envOf(card.cardId),
+      env: { ...this.ports.envOf(card.cardId), ...client.env },
       input: chain.input,
       log: path.join(this.places.launchDir, `log-${card.cardId}.txt`),
     })
