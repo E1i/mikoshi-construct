@@ -12,6 +12,7 @@ const NOW = new Date('2026-10-20T08:00:00.000Z')
 const CARD = 861
 const AGENT_SPEND = 1_000_000
 const WARN_RATIO = 0.8
+const PLAIN_TITLE = 'title="window · Miko"'
 const CARD_TEXT = [
   `card: #${CARD} second [implement/netwatch/S/cheap/owner] · depends — · blocks —`,
   'branch: feat/second',
@@ -58,10 +59,21 @@ function tilesOf(html: string, role: string): string[] {
 describe('the window tile', () => {
   it('the window tile and handoff dialog read FIXER MIKO in lore and window Miko in plain', () => {
     const html = pageOf([], [{ role: 'miko', status: 'idle', state: 'awake' }])
+    const handoff = /<template id="[^"]*handoff">([\s\S]*?)<\/template>/.exec(html)![1]
     expect(tilesOf(html, 'window')[0]).toContain('<span class="svc-kind">FIXER</span><span class="lore">MIKO</span>')
-    expect(/<template id="[^"]*handoff">([\s\S]*?)<\/template>/.exec(html)![1]).toContain('MIKO')
+    expect(handoff).toContain('MIKO')
+    expect(tilesOf(html, 'window')[0]).toContain(PLAIN_TITLE)
+    expect(handoff).toContain(PLAIN_TITLE)
     expect(html).not.toContain('Мико')
     expect([LORE.boardWindowRole, LORE.boardWindowName]).toEqual(['FIXER', 'MIKO'])
     expect([PLAIN_LORE.boardWindowRole, PLAIN_LORE.boardWindowName]).toEqual(['window', 'Miko'])
+  })
+
+  it('the plain projection stays off the tile of any other role', () => {
+    const html = pageOf([{ ts: minutesAgo(1), type: 'session.heartbeat', card: CARD, payload: JSON.stringify({ step: 'implement', session: 's861', context: 31_000, spent: 52_000 }) }], [{ role: 'miko', status: 'idle', state: 'awake' }])
+    const tiles = tilesOf(html, 'implement')
+    expect(tiles.length).toBeGreaterThan(0)
+    for (const tile of tiles)
+      expect(tile).not.toContain(PLAIN_TITLE)
   })
 })

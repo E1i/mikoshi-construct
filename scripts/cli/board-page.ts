@@ -130,6 +130,7 @@ export interface BoardPage {
 
 const NO_LIMITS: EddiesLimits = { contextLimit: null, cardContextLine: null, sessionSpend: null, agentSpend: null, warnRatio: null, modelWindows: new Map() }
 const LORE_NAMES: Record<string, string> = { window: LORE.boardWindowName, review: 'ICE', matrix: 'ICE', bus: 'Subnet' }
+const WINDOW_PLAIN_TITLE = ` title="${PLAIN_LORE.boardWindowRole} · ${PLAIN_LORE.boardWindowName}"`
 const RUNNER = 'Runner'
 const WINDOW_ROLE = 'window'
 const CARD_PREFIX = /^card:\s*/
@@ -369,6 +370,10 @@ function tileKind(role: string): string {
   return role === WINDOW_ROLE ? LORE.boardWindowRole : role
 }
 
+function tilePlainTitle(role: string): string {
+  return role === WINDOW_ROLE ? WINDOW_PLAIN_TITLE : ''
+}
+
 function serviceTile(service: BusService, page: BoardPage): string {
   const gauges = gaugesOf(service, page)
   const bars = gauges == null
@@ -377,7 +382,7 @@ function serviceTile(service: BusService, page: BoardPage): string {
   const dialog = tileDialog(service, page)
   return [
     `<div class="svc bevel" data-role="${escaped(service.role)}"${dialog === null ? '' : `${opener(dialog)} role="button"`}>`,
-    `<div class="svc-top"><span class="svc-kind">${escaped(tileKind(service.role))}</span><span class="lore">${LORE_NAMES[service.role] ?? RUNNER}</span><span class="svc-target">${escaped(service.task)}</span>${dialog === null ? '' : OPEN_HINT}</div>`,
+    `<div class="svc-top"${tilePlainTitle(service.role)}><span class="svc-kind">${escaped(tileKind(service.role))}</span><span class="lore">${LORE_NAMES[service.role] ?? RUNNER}</span><span class="svc-target">${escaped(service.task)}</span>${dialog === null ? '' : OPEN_HINT}</div>`,
     `<div class="svc-line">${escaped(PLAIN_LORE.boardServiceLine(service.role, service.task, service.tree ?? undefined, service.step))}</div>`,
     bars,
     agentsLine(service, page),
@@ -386,7 +391,7 @@ function serviceTile(service: BusService, page: BoardPage): string {
 }
 
 function lineTile(role: string, line: string): string {
-  return `<div class="svc bevel" data-role="${role}"><div class="svc-top"><span class="svc-kind">${tileKind(role)}</span><span class="lore">${LORE_NAMES[role] ?? RUNNER}</span></div><div class="svc-line">${escaped(line)}</div></div>`
+  return `<div class="svc bevel" data-role="${role}"><div class="svc-top"${tilePlainTitle(role)}><span class="svc-kind">${tileKind(role)}</span><span class="lore">${LORE_NAMES[role] ?? RUNNER}</span></div><div class="svc-line">${escaped(line)}</div></div>`
 }
 
 function pulseAgeMs(facts: BusFacts): number | null {
@@ -667,8 +672,8 @@ function listed(heading: string, items: readonly string[], page: BoardPage): str
   return items.length === 0 ? '' : `<h3>${heading}</h3><ul>${items.map(item => `<li>${linked(item, page)}</li>`).join('')}</ul>`
 }
 
-function dialogHead(kind: string, id: string, name: string, state: string): string {
-  return `<div class="drill-head"><span class="drill-kind">${kind}</span><span class="drill-id" id="drill-title">${escaped(id)}</span><span class="drill-name">${escaped(name)}</span>${state}<form method="dialog"><button class="drill-close" value="close">esc · close</button></form></div>`
+function dialogHead(kind: string, id: string, name: string, state: string, idTitle = ''): string {
+  return `<div class="drill-head"><span class="drill-kind">${kind}</span><span class="drill-id" id="drill-title"${idTitle}>${escaped(id)}</span><span class="drill-name">${escaped(name)}</span>${state}<form method="dialog"><button class="drill-close" value="close">esc · close</button></form></div>`
 }
 
 function cardPunch(card: BusCard, detail: CardDetail, page: BoardPage): string {
@@ -840,15 +845,19 @@ function handoffParts(text: string): HandoffParts {
   return parts
 }
 
+function handoffHead(name: string, state: string): string {
+  return dialogHead('handoff', LORE_NAMES.window!, name, state, WINDOW_PLAIN_TITLE)
+}
+
 function handoffDialogHtml(page: BoardPage): string {
   const name = path.basename(page.handoff.file)
   if (page.handoff.text === null)
-    return `${dialogHead('handoff', LORE_NAMES.window!, name, '')}<div class="drill-body">${note(`No ${escaped(name)} to read.`)}</div>`
+    return `${handoffHead(name, '')}<div class="drill-body">${note(`No ${escaped(name)} to read.`)}</div>`
   const { fields, prose } = handoffParts(page.handoff.text)
   const status = fields.find(([label]) => label === HANDOFF_STATUS)?.[1][0]
   const punchFields = fields.map(([label, values]) => punchField(label, values.length === 1 ? values[0] : values, page, values.length > 1))
   return [
-    dialogHead('handoff', LORE_NAMES.window!, name, status === undefined ? '' : `<span class="st">${escaped(status)}</span>`),
+    handoffHead(name, status === undefined ? '' : `<span class="st">${escaped(status)}</span>`),
     '<div class="drill-body">',
     punch(`handoff · ${name}`, createHash('sha256').update(page.handoff.text).digest('hex'), punchFields),
     divider('prose'),
@@ -948,14 +957,11 @@ const SCRIPT = `
   function readable(board) {
     return board !== null && typeof board === 'object' && typeof board.written === 'string' && board.slots !== null && typeof board.slots === 'object' && Array.isArray(board.filters)
   }
-  var shown = {}
   function apply(board) {
     document.title = '${TITLE_PREFIX}' + board.written
     for (var name in board.slots) {
       var slot = document.getElementById('${SLOT_PREFIX}' + name)
-      if (!slot || typeof board.slots[name] !== 'string' || shown[name] === board.slots[name]) continue
-      slot.innerHTML = board.slots[name]
-      shown[name] = board.slots[name]
+      if (slot && typeof board.slots[name] === 'string') slot.innerHTML = board.slots[name]
     }
     var backlog = document.getElementById('${BACKLOG}')
     board.filters.forEach(function (id) {
