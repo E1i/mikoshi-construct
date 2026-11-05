@@ -20,7 +20,7 @@ import { pathsIn, pathsOutside } from '../../card/covering-tests.js'
 import { cardLine, parseCard } from '../../card/grammar.js'
 import { createdPaths, parseParkingFile } from '../../card/parking.js'
 import { PREFIX_SUFFIX } from '../../card/task-file.js'
-import { fieldCommand, isAcceptanceField, judgedCommand, renderedWitness, runsFieldOf, statesAnExit, witnessFieldsOf, witnessText } from '../../card/witness-fields.js'
+import { fieldCommand, isAcceptanceField, isWitnessFieldLine, judgedCommand, renderedWitness, runsFieldLine, runsFieldOf, statesAnExit, witnessFieldsOf, witnessText } from '../../card/witness-fields.js'
 import { readMilestones } from '../../manifest.js'
 import { CARD_REFERENCE, checkDraft, correctionText, invalidTestPatterns, isChangeWitness, nonPathTouchRefusals, OWNER_MERGES, ownerPathsOf, PACKAGE_MANIFEST, publishedRootsOf } from './check.js'
 import { TEST_NAME_ARGUMENT } from './command-word.js'
@@ -36,7 +36,8 @@ import { CORRECTED_PREFIX, UNCLEAR_PREFIX, WITNESSES_HEADING } from './slice.js'
 const WITNESS_ITEM = /^- (.+)$/
 const BLOCKS_SEPARATOR = ' · blocks '
 const LEADING_BLOCKS = /^(?:—|#\d+(?:,? #\d+)*)/
-const CARD_HEADER = 'card: '
+export const CARD_HEADER = 'card: '
+const RUNS_HEADER = 'runs: ['
 export const ADMIT_SOURCE = 'admit'
 const LANE_NAME = /^(?:(?:lane|night)(?:-[\w.-]+)?|\d{4}-\d{2}-\d{2}-[a-z]+)$/
 
@@ -151,6 +152,7 @@ export interface AdmitOptions {
   cardStates?: CardStatesPort
   admissions?: CardAdmissionsPort
   decisions?: string
+  writeRuns?: boolean
 }
 
 type RefusedWithReasons = 'invalidTestPattern' | 'sharedCodeMask'
@@ -438,7 +440,18 @@ function phraseNamesCard(line: string, phrase: string, cardId: number): boolean 
   return line.split(phrase).slice(1).some(rest => ALLOWED_CARDS.exec(rest)?.[0].split(CARD_SEPARATOR).includes(`#${cardId}`) ?? false)
 }
 
-function blocksTail(line: string): string {
+export function withRunsLine(text: string, runs: readonly string[]): string {
+  const lines = text.split('\n')
+  const at = lines.findIndex(line => line.startsWith(RUNS_HEADER))
+  if (runs.length === 0)
+    return at === -1 ? text : lines.filter((_, index) => index !== at).join('\n')
+  if (at !== -1)
+    return lines.map((line, index) => (index === at ? runsFieldLine(runs) : line)).join('\n')
+  const before = lines.findIndex(line => isWitnessFieldLine(line) || line.trim() === WITNESSES_HEADING)
+  return before === -1 ? text : [...lines.slice(0, before), runsFieldLine(runs), ...lines.slice(before)].join('\n')
+}
+
+export function blocksTail(line: string): string {
   const blocks = line.split(BLOCKS_SEPARATOR)[1] ?? ''
   return blocks.replace(LEADING_BLOCKS, '')
 }
@@ -601,7 +614,7 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
     slices: [],
     unclear: checked.unclear,
     corrections: checked.corrections,
-    text: admittedText(text, line, checked),
+    text: admittedText(options.writeRuns === true ? withRunsLine(text, checked.runs ?? []) : text, line, checked),
   }
   const recorded = latestIntake(card, options.admissions)
   const source: AdmitSource = recorded === null ? ADMIT_SOURCE : AMEND_SOURCE

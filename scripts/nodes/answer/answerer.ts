@@ -185,7 +185,7 @@ export function mergePrompt(lease: Lease, card: CardSession, gap: FreshBaseGap, 
   return [
     `[answer:${lease.taskKey}]`,
     `The bus merges a fresh origin/${MAIN_BRANCH} into ${card.branch} before it pushes, and that merge ${freshBaseProblem(gap)}; nothing was pushed.`,
-    `Do it yourself: ${freshBaseTask(card.worktree, gap)}.`,
+    `Your part: ${freshBaseTask(card.worktree, gap)}.`,
     `Then repeat the window gate of D-194 in ${card.worktree} and end the session; the bus merges again and pushes. If the merge cannot be settled without the owner, write the question for the owner, one line, to ${ownerQuestion}; the bus then pushes nothing.`,
   ].join('\n')
 }
