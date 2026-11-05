@@ -33,7 +33,7 @@ import { ghApi } from '../ports/github.js'
 import { BOARD_FILE, cardGauges, FRESH_MS, windowGauges } from '../window/board.js'
 import { mikoHandoff } from '../window/loop.js'
 import { planMarkdown } from '../window/plan-export.js'
-import { boardWarnings, MainUpToDate, openPrCountOf, openPrLimitOf, savingOff, stallLines } from './board-warnings.js'
+import { boardWarnings, MainUpToDate, openPrCountOf, openPrLimitOf, plannedStallLines, savingOff, stallLines } from './board-warnings.js'
 import { cardChain } from './card-chain.js'
 
 export const PREFIX = '[bus:board] '
@@ -1596,7 +1596,7 @@ function boardPageOf(db: DatabaseSync, busPath: string, now: Date, handoffFile: 
         openPrs: openPrCountOf(db),
         openPrLimit: openPrLimitOf(process.env),
         ownerWaits: facts.waits.length,
-        stalls: stallLines(db, facts.pulse, now),
+        stalls: [...stallLines(db, facts.pulse, now), ...plannedStallLines(db, now)],
         savingOff: savingOff(process.env, main),
       }),
     ],

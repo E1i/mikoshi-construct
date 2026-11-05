@@ -6,7 +6,7 @@ import type { OverlapCatch } from './launch-candidates.js'
 import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
-import { parseParkingFile } from '../../../src/card/parking.js'
+import { parseParkingFile, WINDOW_WHO } from '../../../src/card/parking.js'
 import { ATTACH_RECORD_FILE } from '../../../src/commands/attach/record.js'
 import { DEFAULT_LANES, isLaneCount, MANIFEST_FILE } from '../../../src/manifest.js'
 import { currentLane, latestAssignment, OPEN_WAIT, OWNER_WAITS } from '../../core/bus-readings.js'
@@ -78,6 +78,7 @@ export interface LaneCard {
   cardId: number
   depends: readonly number[]
   task: ShiftTask | null
+  deferred?: boolean
 }
 
 export interface LiveLane extends LaneCard {
@@ -178,7 +179,13 @@ function overlaps(a: ShiftTask | null, b: ShiftTask | null, shared: readonly str
   return a !== null && b !== null && taskConflicts([laneTouches(a), laneTouches(b)], shared).length > 0
 }
 
+function dependsOnDeferred(card: LaneCard, other: LaneCard): boolean {
+  return other.deferred === true && card.depends.includes(other.cardId)
+}
+
 function chainedTo(card: LaneCard, other: LaneCard, shared: readonly string[]): boolean {
+  if (card.deferred === true || other.deferred === true)
+    return dependsOnDeferred(card, other) || dependsOnDeferred(other, card)
   return card.depends.includes(other.cardId) || other.depends.includes(card.cardId) || overlaps(card.task, other.task, shared)
 }
 
@@ -222,8 +229,8 @@ export function ownerMergeHolders(db: DatabaseSync): Set<number> {
 }
 
 export function chooseLane(card: LaneCard, live: readonly LiveLane[], count: number, current: string | null = null, occupying: readonly LiveLane[] = live, waitingOnOwner: ReadonlySet<number> = new Set(), shared: readonly string[] = []): LaneChoice {
-  const others = live.filter(other => other.cardId !== card.cardId)
-  const occupants = occupying.filter(other => other.cardId !== card.cardId)
+  const others = live.filter(other => other.cardId !== card.cardId && (other.deferred !== true || dependsOnDeferred(card, other)))
+  const occupants = occupying.filter(other => other.cardId !== card.cardId && other.deferred !== true)
   const chained = others.filter(other => withinCount(other.lane, count) && chainedTo(card, other, shared))
   const bound = binding(card, chained, others, shared)
   if (bound.length > 0)
@@ -332,10 +339,14 @@ function liveRows(db: DatabaseSync): AdmittedRow[] {
   return (db.prepare(ADMITTED_CARDS).all() as unknown as AdmittedRow[]).filter(row => row.state === null || !ENDED_STATES.includes(row.state))
 }
 
+function deferredRow(db: DatabaseSync, row: AdmittedRow): boolean {
+  return notStarted(row) && parkedOf(row.card_id, latestPayload(db, row.card_id))?.who === WINDOW_WHO
+}
+
 export function liveLanes(db: DatabaseSync): LiveLane[] {
   return liveRows(db).flatMap((row) => {
     const lane = currentLane(db, row.card_id)
-    return lane === null ? [] : [{ ...laneCardOf(db, row.card_id), lane }]
+    return lane === null ? [] : [{ ...laneCardOf(db, row.card_id), lane, deferred: deferredRow(db, row) }]
   })
 }
 
@@ -452,13 +463,13 @@ function movableParts(db: DatabaseSync, chain: readonly ReflowCard[], cards: rea
     if (!parts.some(part => part.includes(card)))
       parts.push(chainIn(card, moving, shared))
   }
-  return parts.filter(part => cards.some(other => other.lane === part[0]!.lane && !part.includes(other)))
+  return parts.filter(part => part.some(member => member.deferred !== true) && cards.some(other => other.lane === part[0]!.lane && !part.includes(other) && other.deferred !== true))
 }
 
 function reflowLanes(db: DatabaseSync, count: number, ts: string, actor: string, shared: readonly string[]): number {
   const rows = liveRows(db)
   const cards = reflowCards(db, rows)
-  const occupied = new Set(cards.map(card => card.lane))
+  const occupied = new Set(cards.filter(card => card.deferred !== true).map(card => card.lane))
   const empty = laneNumbers(count).map(chainLaneName).filter(lane => !occupied.has(lane))
   const holders = touchHolders(cards, rows, cardIds(db, OPEN_PR_CARDS))
   const seen = new Set<number>()
