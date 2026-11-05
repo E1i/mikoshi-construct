@@ -150,8 +150,8 @@ function printedSites(): string[] {
   return execFileSync(process.execPath, ['--import', 'tsx', script], { cwd: REPO_ROOT, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 }).trim().split('\n')
 }
 
-describe('contract/factory.json records the factory the generator observes', () => {
-  it('matches the generated file byte for byte; the test compares and never writes', () => {
+describe('contract/factory.json', () => {
+  it('contract/factory.json matches the generated file byte for byte; the test compares and never writes', () => {
     expect(renderFactory(generated()), 'contract/factory.json is stale: run `pnpm contract:update` and put its diff in the pull request').toBe(readFileSync(RECORDED, 'utf8'))
   }, GENERATION_TIMEOUT)
 
