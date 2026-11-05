@@ -69,6 +69,7 @@
     "ci:select": "node --import tsx scripts/ci/select.ts",
     "ci": "pnpm run quality",
     "contract:bump": "node --import tsx scripts/contract/bump.ts",
+    "contract:overlaps": "node --import tsx scripts/contract/overlaps.ts",
     "contract:update": "node --import tsx scripts/contract/update.ts",
     "composition:check": "node --import tsx scripts/composition/check.ts",
     "composition:render": "node --import tsx scripts/composition/sync-docs.ts",

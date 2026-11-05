@@ -1,0 +1,267 @@
+import type { Factory } from '../../scripts/contract/factory.js'
+import { execFileSync } from 'node:child_process'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
+import process from 'node:process'
+import { afterAll, describe, expect, it } from 'vitest'
+import { selectRun } from '../../scripts/ci/layers.js'
+import { scansATree } from '../../scripts/ci/tree-scanners.js'
+import { generateFactory, renderFactory } from '../../scripts/contract/factory.js'
+import { AXES, CONCEPTS } from '../../scripts/contract/factory/concepts.js'
+import { findSites, overlapsSection } from '../../scripts/contract/factory/overlaps.js'
+import { parsedFiles } from '../../scripts/contract/factory/walk.js'
+import { BUS_VERSION } from '../../scripts/core/bus-version.js'
+import { FACTORY_PATH_EXCLUSIONS } from '../../scripts/core/factory-paths.js'
+import { pathTriggeredCapabilities } from '../../scripts/policy/shredder/vocabulary.js'
+import { SCANNED_TREES } from '../../src/card/covering-tests.js'
+import { GENERATED_WITH } from '../../src/card/risk.js'
+import { COMPANION_TABLE } from '../../src/commands/intake/check.js'
+
+const REPO_ROOT = path.resolve(import.meta.dirname, '../..')
+const RECORDED = path.join(REPO_ROOT, 'contract', 'factory.json')
+const THIS_TEST = 'tests/contract/factory.test.ts'
+const GENERATION_TIMEOUT = 180_000
+const FACTORY_RECORD = 'contract/factory.json'
+const CODE_MODULE = /\.(?:ts|mts|mjs|js)$/
+const LINE_NUMBER = /:\d+/
+const SITE_LINE = /^(\S+):(\d+) (\S+) /
+
+const CONCEPT_IDS = [
+  'process-table',
+  'pid-liveness',
+  'live-session',
+  'layers',
+  'owner-decisions',
+  'handoff-status',
+  'ci-reading',
+  'generated-files',
+  'owner-commands',
+  'git',
+  'window-requests',
+  'answer-duties',
+]
+
+const SITES_OF_THE_RECONNAISSANCE: Record<string, readonly string[]> = {
+  'process-table': [
+    'scripts/nodes/launch/launch-starter.ts',
+    'scripts/nodes/restart/chain-process.ts',
+    'scripts/ladder/watch-process.ts',
+    'scripts/window/exit.ts',
+    'scripts/window/loop.ts',
+    'scripts/supervisor/supervisor.ts',
+    'scripts/supervisor/bg.ts',
+    'scripts/ports/worktree.ts',
+  ],
+  'pid-liveness': [
+    'scripts/quality/lock.ts',
+    'scripts/ladder/cleanup.ts',
+    'scripts/scratch/run-root.ts',
+    'scripts/supervisor/bg.ts',
+    'scripts/supervisor/supervisor.ts',
+  ],
+  'live-session': ['scripts/nodes/answer/answerer.ts', 'scripts/ports/worktree.ts', 'scripts/window/session-load.ts'],
+  'layers': ['scripts/ci/layers.ts', 'scripts/ci/card-runs.ts', 'scripts/cli/check-catalog.ts', 'src/card/witness-fields.ts'],
+  'owner-decisions': [
+    'scripts/nodes/launch/launch-candidates.ts',
+    'scripts/core/inbox.ts',
+    'scripts/core/reducer.ts',
+    'scripts/nodes/answer/answer-source.ts',
+    'src/commands/intake/admit.ts',
+    'scripts/supervisor/start.ts',
+    'src/commands/doctor/factory.ts',
+    'scripts/nodes/close/task-close.ts',
+    'scripts/policy/decisions/read.ts',
+    'scripts/core/bus-path.ts',
+  ],
+  'handoff-status': ['scripts/window/loop.ts', 'src/commands/doctor/factory.ts', 'scripts/cli/board-page.ts', 'scripts/window/tab.ts', 'scripts/window/exit.ts'],
+  'ci-reading': [
+    'scripts/nodes/answer/answerer.ts',
+    'scripts/nodes/merge/merge-executor.ts',
+    'scripts/ports/snapshot.ts',
+    'scripts/ports/gh.ts',
+    'src/commands/board/items.ts',
+    'src/commands/board/prs.ts',
+    'scripts/core/observations.ts',
+    'scripts/release/cancel-run.ts',
+    'scripts/nodes/answer/ci-log.ts',
+  ],
+  'generated-files': [
+    'scripts/core/factory-paths.ts',
+    'scripts/ladder/preflight-static.ts',
+    'scripts/ladder/regenerated.ts',
+    'src/card/risk.ts',
+    'src/commands/intake/check.ts',
+  ],
+  'owner-commands': [
+    'scripts/core/reducer.ts',
+    'scripts/core/queue.ts',
+    'scripts/ports/task-start.ts',
+    'src/commands/board/screens.ts',
+    'scripts/cli/card.ts',
+    'scripts/window/window-requests.ts',
+    'scripts/intake/intake.ts',
+    'scripts/window/loop.ts',
+    'src/commands/doctor/factory.ts',
+    'scripts/window/compact-start.ts',
+    'scripts/window/exit.ts',
+    'scripts/ladder/launch.ts',
+    'src/ui/lore.ts',
+  ],
+  'window-requests': ['scripts/window/window-requests.ts'],
+  'answer-duties': ['scripts/nodes/answer/answer-executor.ts', 'scripts/nodes/answer/answerer.ts'],
+}
+
+let generatedFactory: Factory | undefined
+
+function generated(): Factory {
+  generatedFactory ??= generateFactory()
+  return generatedFactory
+}
+
+const scratchRoots: string[] = []
+
+function fixtureTree(files: Record<string, string>): string {
+  const root = mkdtempSync(path.join(tmpdir(), 'factory-fixture-'))
+  scratchRoots.push(root)
+  mkdirSync(path.join(root, 'scripts'))
+  mkdirSync(path.join(root, 'src'))
+  for (const [file, text] of Object.entries(files)) {
+    mkdirSync(path.dirname(path.join(root, file)), { recursive: true })
+    writeFileSync(path.join(root, file), text)
+  }
+  return root
+}
+
+afterAll(() => {
+  scratchRoots.forEach(root => rmSync(root, { recursive: true, force: true }))
+})
+
+function modulesUnderPorts(): string[] {
+  const ports = path.join(REPO_ROOT, 'scripts', 'ports')
+  return readdirSync(ports, { recursive: true, withFileTypes: true })
+    .filter(entry => entry.isFile() && CODE_MODULE.test(entry.name))
+    .map(entry => path.relative(REPO_ROOT, path.join(entry.parentPath, entry.name)).split(path.sep).join('/'))
+    .sort()
+}
+
+function printedSites(): string[] {
+  const script = path.join(REPO_ROOT, 'scripts', 'contract', 'overlaps.ts')
+  return execFileSync(process.execPath, ['--import', 'tsx', script], { cwd: REPO_ROOT, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 }).trim().split('\n')
+}
+
+describe('contract/factory.json records the factory the generator observes', () => {
+  it('matches the generated file byte for byte; the test compares and never writes', () => {
+    expect(renderFactory(generated()), 'contract/factory.json is stale: run `pnpm contract:update` and put its diff in the pull request').toBe(readFileSync(RECORDED, 'utf8'))
+  }, GENERATION_TIMEOUT)
+
+  it('every module under scripts/ports has its exported functions and types with signatures', () => {
+    const { ports } = generated()
+
+    expect(Object.keys(ports)).toEqual(modulesUnderPorts())
+    for (const [file, module] of Object.entries(ports))
+      expect(Object.keys(module.functions).length + Object.keys(module.types).length + module.constants.length + module.reexports.length, `${file} records no export`).toBeGreaterThan(0)
+    expect(ports['scripts/ports/git.ts']!.functions.parseWorktrees).toBe('(porcelain: string): WorktreeEntry[]')
+    expect(ports['scripts/ports/git.ts']!.types.WorktreeEntry).toContain('branch: string | undefined')
+  }, GENERATION_TIMEOUT)
+
+  it('the bus section holds event types, payload keys, tables, columns and BUS_VERSION', () => {
+    const { bus } = generated()
+
+    expect(bus.busVersion).toBe(BUS_VERSION)
+    expect(bus.events['session.heartbeat']!.keys).toEqual(expect.arrayContaining(['session', 'step']))
+    expect(Object.keys(bus.events)).toEqual(expect.arrayContaining(['card.admitted', 'merge.done', 'task.completed', 'window.request']))
+    expect(bus.tables.events).toEqual(expect.arrayContaining(['id', 'type', 'payload', 'dedupe_key']))
+    expect(bus.tables.cards!.length).toBeGreaterThan(0)
+  }, GENERATION_TIMEOUT)
+
+  it('every concept of the order names one owner module and one of the five axes', () => {
+    const { concepts } = generated()
+
+    expect(Object.keys(concepts).sort()).toEqual([...CONCEPT_IDS].sort())
+    for (const [id, concept] of Object.entries(concepts)) {
+      expect(AXES, id).toContain(concept.axis)
+      expect(existsSync(path.join(REPO_ROOT, concept.owner)), `${id}: ownerExists is ${concept.ownerExists} for ${concept.owner}`).toBe(concept.ownerExists)
+    }
+  }, GENERATION_TIMEOUT)
+
+  it('overlaps lists a site for each duplicate A to F of the reconnaissance', () => {
+    const { overlaps } = generated()
+
+    for (const [concept, files] of Object.entries(SITES_OF_THE_RECONNAISSANCE))
+      expect(Object.keys(overlaps[concept]!), concept).toEqual(expect.arrayContaining([...files]))
+    expect(overlaps['window-requests']!['scripts/window/window-requests.ts']).toBeGreaterThan(1)
+  }, GENERATION_TIMEOUT)
+
+  it('a change to any scripts module selects the freshness test in the per-layer CI run', () => {
+    const text = readFileSync(path.join(REPO_ROOT, THIS_TEST), 'utf8')
+    const modules = parsedFiles(REPO_ROOT, ['scripts']).map(({ file }) => file)
+    const graph = new Map<string, readonly string[]>([...modules.map(file => [file, []] as const), [THIS_TEST, []]])
+
+    expect(scansATree(text)).toBe(true)
+    expect(modules.length).toBeGreaterThan(100)
+    for (const module of modules) {
+      const run = selectRun([module], graph, () => text)
+
+      expect(run.kind === 'full' || run.tests.includes(THIS_TEST), module).toBe(true)
+    }
+    expect(SCANNED_TREES['scripts/']).toContain(THIS_TEST)
+    expect(SCANNED_TREES['src/']).toContain(THIS_TEST)
+    const unlistedTest = 'tests/contract/unlisted.test.ts'
+    const unlistedGraph = new Map<string, readonly string[]>([['scripts/ports/git.ts', []], [unlistedTest, []]])
+    const scanning = selectRun(['scripts/ports/git.ts'], unlistedGraph, () => text)
+    const notScanning = selectRun(['scripts/ports/git.ts'], unlistedGraph, () => '')
+
+    expect(scanning.kind === 'layers' && scanning.tests).toEqual([unlistedTest])
+    expect(notScanning.kind === 'layers' && notScanning.tests).toEqual([])
+  }, GENERATION_TIMEOUT)
+
+  it('a duplicate seeded outside its owner in a fixture tree is reported with file and line, and a mention in a comment is not', () => {
+    const root = fixtureTree({
+      'scripts/seeded/process.ts': `import { execFileSync } from 'node:child_process'\n\nexport const table = execFileSync('ps', ['-A'])\n`,
+      'scripts/seeded/mention.ts': `// execFileSync('ps', ['-A']) and process.kill(pid, 0)\nexport const words = "execFileSync('ps')"\n`,
+      'scripts/tests/seeded.test.ts': `import { execFileSync } from 'node:child_process'\n\nexport const table = execFileSync('ps', ['-A'])\n`,
+      'scripts/tests/helper.ts': `import { execFileSync } from 'node:child_process'\n\nexport const table = execFileSync('ps', ['-A'])\n`,
+      'scripts/ports/process-table.ts': `import { execFileSync } from 'node:child_process'\n\nexport const table = execFileSync('ps', ['-A'])\n`,
+    })
+
+    const sites = findSites(root)
+
+    expect(sites).toEqual([{ concept: 'process-table', file: 'scripts/seeded/process.ts', line: 3, form: `execFileSync('ps')` }])
+    expect(overlapsSection(sites)['process-table']).toEqual({ 'scripts/seeded/process.ts': 1 })
+  })
+
+  it('reads the client process name from the adapter, so the literal stays in the adapter', () => {
+    const concepts = readFileSync(path.join(REPO_ROOT, 'scripts', 'contract', 'factory', 'concepts.ts'), 'utf8')
+
+    expect(concepts).toContain('clientAdapter().processes')
+    expect(CONCEPTS.find(concept => concept.id === 'live-session')!.detectors.length).toBeGreaterThan(0)
+  })
+
+  it('the committed overlaps hold each file with a count and no line number, and contract:overlaps prints as many file:line sites as that count', () => {
+    const committed = JSON.parse(readFileSync(RECORDED, 'utf8')) as Factory
+    const printed = printedSites().map(line => SITE_LINE.exec(line))
+    const counted: Record<string, Record<string, number>> = Object.fromEntries(Object.keys(committed.overlaps).map(concept => [concept, {}]))
+
+    for (const match of printed) {
+      expect(match).not.toBeNull()
+      const [, file, , concept] = match!
+      counted[concept!]![file!] = (counted[concept!]![file!] ?? 0) + 1
+    }
+
+    expect(LINE_NUMBER.test(JSON.stringify(Object.values(committed.overlaps).flatMap(files => Object.keys(files))))).toBe(false)
+    for (const files of Object.values(committed.overlaps)) {
+      for (const count of Object.values(files))
+        expect(Number.isInteger(count) && count > 0).toBe(true)
+    }
+    expect(counted).toEqual(committed.overlaps)
+  }, GENERATION_TIMEOUT)
+
+  it('takes its row in the generated-file lists its neighbour contract/surface.json sits in', () => {
+    expect(FACTORY_PATH_EXCLUSIONS.generated).toContain(FACTORY_RECORD)
+    expect(GENERATED_WITH[FACTORY_RECORD]).toEqual(['scripts', 'src'])
+    expect(pathTriggeredCapabilities([FACTORY_RECORD])).toContain('need generated artifact')
+    expect(COMPANION_TABLE.map(row => row.kind)).toContain('the factory contract')
+    expect(generated().overlaps['generated-files']!['scripts/ladder/preflight-static.ts']).toBeGreaterThan(0)
+  }, GENERATION_TIMEOUT)
+})

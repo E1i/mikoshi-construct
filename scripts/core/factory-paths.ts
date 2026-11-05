@@ -117,5 +117,5 @@ export const FACTORY_PATH_EXCLUSIONS = {
   fixtures: ['tests/**', 'scripts/tests/**'],
   history: ['docs/release-notes/**', 'architecture/decisions/**'],
   productTwins: ['scripts/construct/**', 'templates/**'],
-  generated: ['contract/surface.json'],
+  generated: ['contract/surface.json', 'contract/factory.json'],
 } as const satisfies Record<string, readonly string[]>

@@ -129,6 +129,7 @@ export const COMPANION_TABLE: readonly (CompanionRow | FollowingRow)[] = [
   { kind: 'source code', keptBy: TESTS_ROOT, touched: entry => under(entry, 'src'), companions: testBeside },
   { kind: 'the card\'s changeset', follows: (file, reach) => CHANGESET_FILE.test(file) && reach.added.has(file) },
   { kind: 'the command surface', follows: generatedFrom('contract/surface.json', ['src', 'templates', 'scripts/contract']) },
+  { kind: 'the factory contract', follows: generatedFrom('contract/factory.json', ['scripts', 'src']) },
   { kind: 'the add population', follows: generatedFrom('architecture/add-population.md', ['templates', 'src/presets', 'src/materialize']) },
   { kind: 'the self-hosting drift list', follows: generatedFrom('architecture/self-hosting-drift.yaml', ['templates']) },
   { kind: 'the factory manifest', follows: generatedFrom('src/materialize/factory-manifest.ts', FACTORY_MANIFEST) },
