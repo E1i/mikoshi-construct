@@ -1,6 +1,6 @@
 import type { AdmitResult } from '../src/commands/intake/admit.js'
 import type { AmendFlags } from '../src/commands/intake/amend.js'
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -202,5 +202,34 @@ describe('construct intake --amend edits an admitted card straight in the bus', 
     }
     expect(admissions(w).at(-1)).toMatchObject({ source: 'amend', text: expect.stringContaining('src/board/tail.ts') })
     expect(existsSync(path.join(w.root, '.construct', 'parking', '80.md'))).toBe(false)
+  })
+})
+
+describe('the intake skill on amending', () => {
+  const readRepoFile = (relative: string): string => readFileSync(new URL(`../${relative}`, import.meta.url), 'utf8')
+
+  function amendParagraph(): string {
+    const skill = readRepoFile('.claude/skills/intake/SKILL.md')
+    return skill.split('\n\n').find(block => block.startsWith('To amend an admitted card')) ?? ''
+  }
+
+  it('the intake skill names both amend entries and keeps export for what they do not cover', () => {
+    const paragraph = amendParagraph()
+    expect(paragraph).toContain('construct-intake --amend <#N>')
+    expect(paragraph).toContain('pnpm bus:request amend --card <N>')
+    expect(paragraph).toContain('For an edit they do not cover')
+    expect(paragraph).toContain('pnpm intake --export \'#N\'')
+    expect(paragraph).toContain('pnpm intake --admit <draft>')
+  })
+
+  it.each(['Amending an admitted card', 'Amending by request'])('the skill points at the docs/cli.md section %s, which exists', (section) => {
+    expect(amendParagraph()).toContain(`"${section}"`)
+    expect(readRepoFile('docs/cli.md')).toContain(`**${section}.**`)
+  })
+
+  it('the skill leaves the flags of the two entries to docs/cli.md', () => {
+    const paragraph = amendParagraph()
+    for (const flag of ['--touches', '--witness', '--add-witness', '--owner-words', '--depends'])
+      expect(paragraph).not.toContain(flag)
   })
 })

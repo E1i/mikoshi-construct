@@ -813,5 +813,10 @@
     "target": "scripts/construct/daemon.workflow",
     "sha256": "5efa432f824e717c531124f6a4dcfc8b12ee82739a57797f449a03ddb093cab3",
     "date": "2026-11-05"
+  },
+  {
+    "target": ".claude/skills/intake/SKILL.md",
+    "sha256": "a13995b83db7f19280ebbb513c7b5def8d2b3ee84e27db3d7b79d78102fd07e6",
+    "date": "2026-11-05"
   }
 ]
