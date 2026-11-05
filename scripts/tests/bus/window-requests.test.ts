@@ -26,7 +26,7 @@ import { dryRunIn, keepDryRun } from '../../nodes/review/dry-run-record.js'
 import { PrCloser } from '../../nodes/review/pr-close.js'
 import { OWNER_WORD_NOT_FOUND, sayToOwnerChannel, USED_WORD } from '../../owner/channel.js'
 import { inForceDecisions, recordDecision } from '../../policy/decisions.js'
-import { stampOf } from '../../policy/decisions/add.js'
+import { stampOf } from '../../policy/decisions/decisions.js'
 import { roundLimitDecisionOf } from '../../policy/round-limit-decision.js'
 import { decisionsInForceAt } from '../../policy/shards.js'
 import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
@@ -851,21 +851,18 @@ describe('requests from the sandboxed window, executed by the bus outside it', (
     expect(answerOf(made, request).type).toBe(REQUEST_REFUSED)
   })
 
-  it('a decisions:add request over the byte limit is refused with its reason and leaves the file untouched', () => {
+  it('a decisions:add request past 8000 bytes in force is written', () => {
     const made = room()
     const file = withDecisionsFile(made, ...Array.from({ length: 7 }, (_, at) => `- D-${at + 1} · 2026-10-08 — ${`decision ${at + 1} `.repeat(100).trim()} · decisions:add`))
-    const before = readFileSync(file, 'utf8')
     ownerSays(made, 'over '.repeat(300).trim())
     const request = windowAsks(made, '--from', ANSWER_SOURCE, `[owner] ${'over '.repeat(300).trim()}`)
 
-    const [outcome] = made.requests().run()
-    expect(outcome).toMatchObject({ kind: 'refused', request })
-    expect(outcome!.detail).toMatch(/^\[decisions\] decisions in force would be \d+ bytes, over the limit of 8000 .*nothing written; owner word .* left unused$/)
-    expect(answerOf(made, request)).toEqual({ type: REQUEST_REFUSED, detail: outcome!.detail })
-    expect(readFileSync(file, 'utf8')).toBe(before)
-    expect(readdirSync(channelOf(made)).some(name => name.endsWith(USED_WORD))).toBe(false)
+    expect(made.requests().run()).toMatchObject([{ kind: 'done', request }])
+    expect(answerOf(made, request).type).toBe(REQUEST_DONE)
+    expect(readFileSync(file, 'utf8')).toContain('- D-8 · ')
+    expect(readdirSync(channelOf(made)).some(name => name.endsWith(USED_WORD))).toBe(true)
     reduce(made.bench.db)
-    expect(inForceDecisions(made.bench.db)).toEqual([])
+    expect(inForceDecisions(made.bench.db).map(decision => decision.decisionId)).toEqual([8])
   })
 
   it('a decisions:add request is refused for an empty body and for a part of an owner line', () => {
@@ -884,11 +881,10 @@ describe('requests from the sandboxed window, executed by the bus outside it', (
     expect(readFileSync(file, 'utf8')).toBe(`${before}- D-2 · ${stampOf(made.bench.clock.now())} — [owner] allow-live witness for Q13. · decisions:add\n`)
   })
 
-  it('a decisions:add request archives the decisions whose card the bus holds merged, so spent ones never fill the limit', () => {
+  it('a decisions:add request archives the decisions whose card the bus holds merged, with no D-54 in the file', () => {
     const made = room()
-    const filler = Array.from({ length: 53 }, (_, at) => `- D-${at + 1} · 2026-10-08 — decision ${at + 1}.`)
-    const spent = `- D-55 · 2026-10-09 — ${'spent '.repeat(1200).trim()} · card #${CARD}`
-    const file = withDecisionsFile(made, ...filler, '- D-54 · 2026-10-09 — A decision bound to a card is spent once that card is merged or closed.', spent)
+    const spent = `- D-1 · 2026-10-09 — ${'spent '.repeat(1200).trim()} · card #${CARD}`
+    const file = withDecisionsFile(made, spent)
     appendEvent(made.bench.db, { ts: made.bench.clock.now().toISOString(), type: 'fixture.merged', actor: 'owner', cardId: CARD, pr: null, head: null, dedupeKey: `fixture.merged:${CARD}`, payload: {}, legacy: false })
     const event = (made.bench.db.prepare('SELECT id FROM events WHERE dedupe_key = ?').get(`fixture.merged:${CARD}`) as { id: number }).id
     made.bench.db.prepare('INSERT INTO cards (card_id, state, pr, event_id) VALUES (?, \'merged\', NULL, ?)').run(CARD, event)
@@ -897,7 +893,7 @@ describe('requests from the sandboxed window, executed by the bus outside it', (
     const request = windowAsks(made, '--from', ANSWER_SOURCE, `[owner] ${'kept '.repeat(300).trim()}`)
     expect(made.requests().run()).toMatchObject([{ kind: 'done', request }])
     expect(readFileSync(file, 'utf8')).not.toContain(spent)
-    expect(readFileSync(file, 'utf8')).toContain('- D-56 · ')
+    expect(readFileSync(file, 'utf8')).toContain('- D-2 · ')
     expect(readFileSync(path.join(made.root, '.construct', 'owner-decisions.archive.md'), 'utf8')).toContain(`${spent}\n`)
   })
 
