@@ -40,7 +40,7 @@ describe('the failed-job log the answer prompt carries', () => {
     expect(logPartOf(prompt).length).toBeLessThan(CI_LOG_CEILING + 100)
   })
 
-  it('aNSI, green lines and runner setup are dropped and the cut line names the count and the job link', () => {
+  it('the text is clean: ANSI, green lines and runner setup are dropped and the cut line names the count and the job link', () => {
     const log = logged(`##[group]Runner Image`, SETUP, GREEN, `\u001B[31m${FAILURE}\u001B[39m`, 'the last line')
 
     const text = ciLogForPrompt({ log, jobLink: JOB_LINK })
