@@ -9,6 +9,7 @@ import { CARD_VERIFIED } from '../../core/events.js'
 import { prCardOf } from '../../core/tasks.js'
 import { VERIFICATION_WORDS } from '../../core/verification.js'
 import { legacyEventOf } from '../../intake/import.js'
+import { probeClosingCardIds } from '../../nodes/close/close-executor.js'
 import { cardVerifiedClosings, closingHistoryLines, runTaskClose } from '../../nodes/close/task-close.js'
 import { failed, ran, read, unread } from '../core/gh-fake.js'
 import { busWithCardStarted, journalInBus } from './card-started-bus.js'
@@ -78,6 +79,17 @@ function world(journal: string[], sessionFiles: string[] = [], files: Record<str
   }
 }
 
+function pullRequestInBus(busPath: string, pr: number, card: number): void {
+  const db = openBus(busPath)
+  try {
+    appendEvent(db, { ts: NOW.toISOString(), type: 'pr.observed', actor: 'netwatch', cardId: card, pr, head: null, dedupeKey: `pr:${pr}`, payload: {}, legacy: false })
+    db.prepare('INSERT INTO prs (pr, card_id, event_id) VALUES (?, ?, (SELECT MAX(id) FROM events))').run(pr, card)
+  }
+  finally {
+    db.close()
+  }
+}
+
 function sessionFile(key: string, id: string): string {
   return path.join(PROJECTS, key, `${id}.jsonl`)
 }
@@ -124,6 +136,36 @@ describe('w3: task:close writes the closing line the board reads', () => {
     expect(runTaskClose(['7', '--report', 'probe-7.md', '--verification', 'measurement'], { ...deps, cwd: REPORTS }).exitCode).toBe(0)
     expect(JSON.parse(written[0]!)).toMatchObject({ task: '7', report: `${REPORTS}/probe-7.md`, verification: 'measurement' })
     expect(JSON.parse(written[0]!)).not.toHaveProperty('pr')
+  })
+
+  it('an implement card with no pull request closes with its report as done', () => {
+    const { deps, written } = world([startLine('123', 'implement')])
+    const report = `${REPORTS}/report-123.md`
+    const result = runTaskClose(['123', '--report', report, '--verification', 'run'], deps)
+    expect(result.stderr).toEqual([])
+    expect(result.exitCode).toBe(0)
+    expect(JSON.parse(written[0]!)).toMatchObject({ task: '123', report, verification: 'run' })
+    expect(JSON.parse(written[0]!)).not.toHaveProperty('pr')
+    const db = openBus(deps.busPath)
+    try {
+      expect(probeClosingCardIds(db)).toEqual([123])
+    }
+    finally {
+      db.close()
+    }
+  })
+
+  it('a pull request of another card does not take the report from an implement card', () => {
+    const { deps, written } = world([startLine('123', 'implement')])
+    pullRequestInBus(deps.busPath, 460, 855)
+    expect(runTaskClose(['123', '--report', `${REPORTS}/r.md`, '--verification', 'run'], deps).exitCode).toBe(0)
+    expect(written).toHaveLength(1)
+  })
+
+  it('holds the report of an implement card to the report directories', () => {
+    const { deps, written } = world([startLine('123', 'implement')])
+    expect(runTaskClose(['123', '--report', '/elsewhere/r.md', '--verification', 'run'], deps).stderr[0]).toContain(`is outside ${REPORTS}`)
+    expect(written).toEqual([])
   })
 
   it('w3: reads the last start line with a card for the id, past unreadable lines and lines without a card', () => {
@@ -431,8 +473,8 @@ describe('w3: task:close refuses and writes nothing', () => {
   it.each([
     ['no verification', ['123', '--pr', '460'], `--verification is required: one of ${VERIFICATION_WORDS.join(', ')}`],
     ['a word outside VERIFICATION_WORDS', ['123', '--pr', '460', '--verification', 'vibes'], `verification 'vibes' is not one of`],
-    ['implement closed with a report', ['123', '--report', 'r.md', '--verification', 'run'], '#123 is kind implement, which closes with --pr only'],
-    ['implement with both', ['123', '--pr', '460', '--report', 'r.md', '--verification', 'run'], '#123 is kind implement, which closes with --pr only'],
+    ['implement with both', ['123', '--pr', '460', '--report', 'r.md', '--verification', 'run'], '--pr and --report together: #123 closes with one of them'],
+    ['implement with neither', ['123', '--verification', 'run'], '#123 is kind implement, which closes with --pr, or with --report while it has no pull request in the bus'],
     ['a PR that is not a number', ['123', '--pr', 'PR#460', '--verification', 'run'], `--pr 'PR#460' is not a pull request number`],
     ['no start line with a card', ['55', '--pr', '460', '--verification', 'run'], 'have no task:start line with a card for #55'],
     ['an unknown flag', ['123', '--sha', 'abc', '--verification', 'run'], 'unknown flag --sha'],
@@ -442,6 +484,23 @@ describe('w3: task:close refuses and writes nothing', () => {
     const result = runTaskClose(argv, deps)
     expect(result.exitCode).toBe(1)
     expect(result.stderr[0]).toContain(reason)
+    expect(written).toEqual([])
+  })
+
+  it('an implement card with a pull request refuses to close with a report', () => {
+    const { deps, written } = world([startLine('123', 'implement')])
+    pullRequestInBus(deps.busPath, 460, 123)
+    const result = runTaskClose(['123', '--report', `${REPORTS}/r.md`, '--verification', 'run'], deps)
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toEqual(['[task:close] #123 has PR #460 in the bus, so it closes with --pr only: a report does not stand in for a review and a merge; nothing written'])
+    expect(written).toEqual([])
+    expect(runTaskClose(['123', '--pr', '460', '--verification', 'run'], deps).exitCode).toBe(0)
+    expect(JSON.parse(written[0]!)).toMatchObject({ task: '123', pr: 460 })
+  })
+
+  it('refuses a probe with both --pr and --report', () => {
+    const { deps, written } = world([startLine('7', 'probe')])
+    expect(runTaskClose(['7', '--pr', '460', '--report', `${REPORTS}/r.md`, '--verification', 'run'], deps).stderr[0]).toContain('--pr and --report together: #7 closes with one of them')
     expect(written).toEqual([])
   })
 

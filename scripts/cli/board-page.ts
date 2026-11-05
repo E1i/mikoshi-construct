@@ -34,7 +34,7 @@ import { recordedWitnessFieldsBackfill, witnessTableOf } from '../intake/witness
 import { inForceDecisions } from '../policy/decisions.js'
 import { GREEN, RED } from '../policy/policy.js'
 import { ghApi } from '../ports/github.js'
-import { BOARD_FILE, cardGauges, FRESH_MS, windowGauges } from '../window/board.js'
+import { BOARD_FILE, FRESH_MS, windowGauges } from '../window/board.js'
 import { mikoHandoff } from '../window/loop.js'
 import { planMarkdown } from '../window/plan-export.js'
 import { boardWarnings, MainUpToDate, openPrCountOf, openPrLimitOf, plannedStallLines, savingOff, stallLines } from './board-warnings.js'
@@ -117,7 +117,6 @@ export interface BoardPage {
   liveness: FactoryState
   modelVersion: number | null
   facts: BusFacts
-  gauges: Map<string, Gauges>
   windowGauges: Gauges | null
   limits: EddiesLimits
   details: Map<number, CardDetail>
@@ -132,7 +131,6 @@ const NO_LIMITS: EddiesLimits = { contextLimit: null, cardContextLine: null, ses
 const LORE_NAMES: Record<string, string> = { window: 'Мико', review: 'ICE', matrix: 'ICE', bus: 'Subnet' }
 const RUNNER = 'Runner'
 const WINDOW_ROLE = 'window'
-const SESSION_STEP = / · pulse \d+ min ago$/
 const CARD_PREFIX = /^card:\s*/
 const FIELD_COUNT = 5
 const NONE = '—'
@@ -278,10 +276,6 @@ function cardDetails(db: DatabaseSync, facts: BusFacts): Map<number, CardDetail>
   }))
 }
 
-function projectedGauges(db: DatabaseSync): Map<string, Gauges> {
-  return new Map(cardGauges(db).map(row => [`#${row.card}`, { context: positive(row.context), spent: positive(row.spent), model: row.model }]))
-}
-
 function projectedWindowGauges(db: DatabaseSync): Gauges | null {
   const row = windowGauges(db)
   return row === null ? null : { context: positive(row.context), spent: positive(row.spent), model: row.model }
@@ -320,12 +314,12 @@ function contextBar(service: BusService, gauges: Gauges, limits: EddiesLimits): 
   return eddiesBar('ctx', gauges.context, denominator, line.contextLimit, line.warnRatio)
 }
 
-type GaugeSources = Pick<BoardPage, 'gauges' | 'windowGauges'>
+type GaugeSources = Pick<BoardPage, 'windowGauges'>
 
 function gaugesOf(service: BusService, sources: GaugeSources): Gauges | null | undefined {
   if (service.role === WINDOW_ROLE)
     return sources.windowGauges
-  return SESSION_STEP.test(service.step) ? sources.gauges.get(service.task) : undefined
+  return service.gauges
 }
 
 function sessionContexts(services: readonly BusService[], sources: GaugeSources, liveness: FactoryState): SessionContext[] {
@@ -333,8 +327,10 @@ function sessionContexts(services: readonly BusService[], sources: GaugeSources,
   for (const service of services) {
     const context = gaugesOf(service, sources)?.context
     const windowGone = service.role === WINDOW_ROLE && liveness !== FACTORY_LIVE
-    if (context != null && !windowGone)
-      contexts.set(service.role === WINDOW_ROLE ? WINDOW_ROLE : service.task, context)
+    if (context != null && !windowGone) {
+      const who = service.role === WINDOW_ROLE ? WINDOW_ROLE : service.task
+      contexts.set(who, Math.max(contexts.get(who) ?? 0, context))
+    }
   }
   return [...contexts].map(([who, context]) => ({ who, context }))
 }
@@ -1330,9 +1326,11 @@ dialog.drill {
   background: var(--panel);
   color: var(--text);
   clip-path: polygon(0 0, calc(100% - var(--cut)) 0, 100% var(--cut), 100% 100%, var(--cut) 100%, 0 calc(100% - var(--cut)));
+  overflow: hidden;
+  &[open] { display: flex; flex-direction: column; }
   &::backdrop { background: oklch(from var(--void) l c h / 0.7); backdrop-filter: blur(2px); }
 }
-.drill-wrap { display: flex; flex-direction: column; max-block-size: calc(100dvh - 3rem); }
+.drill-wrap { display: flex; flex-direction: column; min-block-size: 0; }
 .drill-head {
   display: flex;
   flex-wrap: wrap;
@@ -1646,7 +1644,7 @@ function contextWarnings(contexts: readonly SessionContext[], limits: EddiesLimi
 function boardPageOf(db: DatabaseSync, busPath: string, now: Date, handoffFile: string, tickMs: number | null, main: MainUpToDate, eddiesFile: string = EDDIES_FILE): BoardPage {
   const facts = busFacts(db, now)
   const liveness = factoryLiveness(busPath, now.getTime()).state
-  const sources: GaugeSources = { gauges: projectedGauges(db), windowGauges: projectedWindowGauges(db) }
+  const sources: GaugeSources = { windowGauges: projectedWindowGauges(db) }
   const limits = readEddiesLimits(eddiesFile)
   return {
     version: currentVersion(),

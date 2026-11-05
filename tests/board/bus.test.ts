@@ -240,7 +240,7 @@ describe('the board bus reader', () => {
       subagent(ago(HOUR), { session: 's9', role: 'brief', task: '#1', phase: 'ended' }),
       subagent(ago(HOUR / 2), { session: 's2', role: 'review', task: '#1072', phase: 'ended' }),
     ] }).services
-    expect(services).toEqual([{ role: 'implementer', task: '#1071', tree: '/t', step: 'implement 1/3 @ high' }])
+    expect(services).toEqual([{ role: 'window', task: 'miko', tree: null, step: 'subagents at work', subagents: [{ name: 'implementer', context: null, spent: null, at: ago(HOUR) }] }])
   })
 
   it('a window subagent with no session, role or task falls back to role:task, agent and —, and a corrupt payload reads as an empty one', () => {
@@ -250,10 +250,7 @@ describe('the board bus reader', () => {
       subagent(ago(HOUR), 'not json'),
       subagent(ago(HOUR), '[1, 2]'),
     ] }).services
-    expect(services).toEqual([
-      { role: 'scan', task: '#5', tree: null, step: 'again' },
-      { role: 'agent', task: '—', tree: null, step: 'started' },
-    ])
+    expect(services.flatMap(service => service.subagents ?? []).map(agent => agent.name)).toEqual(['scan', 'agent'])
   })
 
   it(`a window subagent whose start is older than ${SUBAGENT_SHOWN_HOURS} hours, or carries no time, has dropped out`, () => {
@@ -262,7 +259,7 @@ describe('the board bus reader', () => {
       subagent(null, { session: 'timeless', role: 'implementer', task: '#2', phase: 'started' }),
       subagent(ago(SUBAGENT_SHOWN_HOURS * HOUR), { session: 'edge', role: 'implementer', task: '#3', phase: 'started' }),
     ] }).services
-    expect(services.map(service => service.task)).toEqual(['#3'])
+    expect(services.flatMap(service => service.subagents ?? []).map(agent => agent.at)).toEqual([ago(SUBAGENT_SHOWN_HOURS * HOUR)])
   })
 
   it('the board shows the check matrix of a PR', () => {
