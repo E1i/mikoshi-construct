@@ -5,7 +5,7 @@ import { realpathSync } from 'node:fs'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { ROLE_FOLDS, ROLES_PROJECTION } from '../nodes/restart/role.js'
-import { DECISION_FOLDS } from '../policy/decisions.js'
+import { archiveSpentDecisions, DECISION_FOLDS } from '../policy/decisions.js'
 import { allowLiveCommand, namesQueueLive } from '../policy/live-decision.js'
 import { RECUT_ACTOR } from '../policy/round-limit-decision.js'
 import { CARD_FOLDS, cardLinkObserved, cardPrMerged, cardPrOpened, CARDS_PROJECTION, CLOSED_CARD, DROPPED_CARD, MERGED_CARD } from './card-automaton.js'
@@ -158,6 +158,7 @@ function prClosed(db: DatabaseSync, event: StoredEvent): void {
   db.prepare(`UPDATE owner_waits SET state = '${CLOSED_WAIT}', answer = ?, event_id = ? WHERE state = '${OPEN_WAIT}' AND need = 'merge' AND pr = ?`)
     .run(`PR #${pr} ${merged ? 'merged' : 'closed'}`, event.id, pr)
   closeWaitsOfAnEndedCard(db, known.card_id, event.id)
+  archiveSpentDecisions(db)
 }
 
 const ENDED_CARD_STATES: ReadonlySet<string | null> = new Set([MERGED_CARD, CLOSED_CARD, DROPPED_CARD])
@@ -192,6 +193,7 @@ export function closeWaitsOfEndedCards(db: DatabaseSync, ts: string): string[] {
 function foldEndingTheWaitsOfAnEndedCard(db: DatabaseSync, event: StoredEvent): void {
   CARD_FOLDS[event.type]!(db, event)
   closeWaitsOfAnEndedCard(db, event.card_id, event.id)
+  archiveSpentDecisions(db)
 }
 
 function checkTheChildrenADropNames(event: StoredEvent): void {

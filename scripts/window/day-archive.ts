@@ -1,8 +1,7 @@
 import { Buffer } from 'node:buffer'
 import path from 'node:path'
-import { DECISIONS_IN_FORCE_LIMIT } from '../policy/decisions/decisions.js'
 
-export const DAY_FILE_LIMIT = DECISIONS_IN_FORCE_LIMIT
+export const DAY_FILE_LIMIT = 8000
 export const QUESTIONS_HEADING = '## Owner questions'
 
 const DAY_FILE_NAME = /(?:~\/|\/)?[\w./-]*?day-\d{4}-\d{2}-\d{2}\.md\b/

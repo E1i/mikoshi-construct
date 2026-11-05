@@ -106,17 +106,26 @@ in the IDE extensions as in the CLI.
 
 Mikoshi, as foreman, does not poll: it waits on events, a stall, a repeated refusal and a dead session with `pnpm miko:watch --once` (#1081).
 
-Owner decisions are not in the handoff: a session reads them with `pnpm decisions`, which takes the file the handoff's `decisions:` field names (`~/.construct/owner-decisions.md` by default).
-It is a numbered record: one line per decision in the shape `DECISION_FORMAT` states, `- D-N · <date> — <decision>
-[· superseded-by D-M]`, appended; a decision that replaces an earlier one gets its own, later number, and the earlier line
-gains the trailing `· superseded-by D-M` and nothing else. Headings and prose before the first list item are the
-preamble. A session reads the decisions through `pnpm decisions`, which prints only the decisions in force, and refuses
+Owner decisions are not in the handoff, and the record of them is the bus: the `decisions` table holds each decision's
+number, cards, term, what it supersedes and its state, in force or archived. Archived is a state the bus sets itself: on
+`merge.done` or the close of the last card a decision names, when its term ends, and when a later decision supersedes it.
+Nothing is deleted, and a number already given stays given. A decision with no card is general and leaves force only by
+its term or by a superseding decision. `pnpm decisions:add` writes a request into the bus, whichever shell runs it, and
+what is in force has no limit in bytes.
+
+`pnpm decisions` reads what is in force. `~/.construct/owner-decisions.md` and its archive are a projection the bus rebuilds on every tick; a hand edit is
+undone by the next rebuild, and it never reaches a merge, which reads the table. The first rebuild imports the file once,
+so a factory that kept its decisions there loses none and keeps its numbers. The projection is a numbered record: one line
+per decision in the shape `DECISION_FORMAT` states, `- D-N · <date> — <decision> [· superseded-by D-M]`. Headings and
+prose before the first list item are the preamble.
+
+A session reads the decisions with `pnpm decisions`, which takes the file the handoff's `decisions:` field names and prints
+only the decisions in force; under a card it prints the decisions of that card and the general ones. It refuses
 the whole file for any of these: after the first list item, a non-blank line that is not a decision line in that shape
 (a number other than `D-` and `[1-9][0-9]*`, no date, an empty decision, a line without the bullet, an ordered item, a
 heading); a `superseded-by` anywhere but as the exact trailing `· superseded-by D-M`; a `D-N` twice; numbers that do not
-run 1..n in file order; a `superseded-by` naming the decision itself, an earlier number or no decision in the file; two
-identical decisions in force; or decisions in force over `DECISIONS_IN_FORCE_LIMIT` bytes — so the record cannot grow
-into prose that a session has to reconcile, and no cycle of `superseded-by` can empty it.
+run 1..n in file order; a `superseded-by` naming the decision itself, an earlier number or no decision in the file; or two
+identical decisions in force — so no prose reaches a session to reconcile, and no cycle of `superseded-by` can empty it.
 
 Across a boundary between contours goes a numbered record, not prose. Mikoshi's messages to the Operator (the
 foreman's to the brain) carry only references — a decision `D-N`, a card `#N`, a journal line — and one line of
@@ -224,15 +233,15 @@ owner's text verbatim. The handoff's local decisions field points here and does 
 ## The day file
 
 The owner's day list, `~/.construct/handoff/day-<date>.md`, holds only what a session needs now: its title line, the
-open owner questions and the owner texts of the current session, at most `DAY_FILE_LIMIT` bytes, the one constant it
-shares with the decisions in force (`scripts/window/day-archive.ts`).
+open owner questions and the owner texts of the current session, at most `DAY_FILE_LIMIT` bytes
+(`scripts/window/day-archive.ts`).
 
 - Owner texts, verbatim, each under an `## Owner …` heading naming its session (`session <N>`); the window never edits
   one after writing it. An owner order that holds longer than a day goes into the decisions, not into the day file,
   and an order file, the day file or a handoff is no source for one: the window writes them itself. The source is the
   owner channel, `~/.construct-owner/answers/`, outside every sandbox's `allowWrite`: the owner runs
   `pnpm owner:say "<words>"`, which puts the words and the time there as one file, and the window asks
-  `pnpm bus:request decisions:add --from answer "[owner] <words>"`. `bus:run` writes the decision only when the words
+  `pnpm bus:request decisions:add --from answer "[owner] <words>"`. `bus:run` records the decision only when the words
   are a whole line of a file of the channel not used yet, and marks that file used in the same step; with none it
   answers `window.request.refused` «слово владельца не найдено в канале владельца».
 - Owner questions, one list under `## Owner questions`, one item each, `- Q<N> open — …` or `- Q<N> answered — …`; the

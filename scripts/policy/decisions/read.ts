@@ -7,7 +7,8 @@ import { decisionsFileOf } from '../../core/bus-path.js'
 import { defaultBusPath } from '../../core/db.js'
 import { busHistory } from '../../core/journal.js'
 import { busCardStates } from '../../core/tasks.js'
-import { decisionsFindings, decisionsRefusals, inForce, parseDecisions, PREFIX, settleSupersedes, spendDecisions } from './decisions.js'
+import { CARD_VARIABLE } from '../../ports/session.js'
+import { decisionsFindings, decisionsRefusals, inForce, parseDecisions, PREFIX, settleSupersedes, spentByCards, visibleToCard } from './decisions.js'
 
 export const USAGE = 'usage: pnpm decisions [<owner-decisions.md>]'
 
@@ -20,6 +21,12 @@ export interface DecisionsReadDeps {
   out: (line: string) => void
   err: (line: string) => void
   finding?: (line: string) => void
+  card?: number | null
+}
+
+export function sessionCardOf(env: NodeJS.ProcessEnv): number | null {
+  const card = env[CARD_VARIABLE]?.trim() ?? ''
+  return /^[1-9]\d*$/.test(card) ? Number(card) : null
 }
 
 export function archiveOf(file: string): string {
@@ -45,7 +52,7 @@ export function runDecisionsRead(args: string[], deps: DecisionsReadDeps): numbe
   const settled = settledCards(deps.history, deps.bus)
   const archiveFile = archiveOf(file)
   const archive = deps.exists(archiveFile) ? deps.read(archiveFile) : ''
-  const text = settleSupersedes(spendDecisions(read, card => settled.has(card)), archive)
+  const text = settleSupersedes(read, archive)
   const refusals = decisionsRefusals(text, archive)
   if (refusals.length > 0) {
     for (const line of refusals)
@@ -53,7 +60,9 @@ export function runDecisionsRead(args: string[], deps: DecisionsReadDeps): numbe
     deps.err(`${PREFIX}${file} refused: ${refusals.length} refusals, no decision read`)
     return 1
   }
-  for (const decision of inForce(parseDecisions(text).decisions))
+  const { decisions } = parseDecisions(text)
+  const spent = new Set(spentByCards(decisions, card => settled.has(card)).map(decision => decision.number))
+  for (const decision of inForce(decisions).filter(each => !spent.has(each.number) && visibleToCard(each, deps.card ?? null)))
     deps.out(decision.text)
   for (const line of decisionsFindings(text))
     deps.finding?.(line)
@@ -70,5 +79,6 @@ if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLTo
     out: line => console.log(line),
     err: line => console.error(line),
     finding: line => console.error(line),
+    card: sessionCardOf(process.env),
   })
 }

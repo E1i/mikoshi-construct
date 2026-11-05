@@ -93,6 +93,7 @@ export interface RequestTools {
   closePr: (request: CloseRequest) => CloseOutcome
   closeDropped: () => CloseOutcome[]
   appendCountLine?: (pr: number, cardId: number) => Executed
+  settleDecisions?: () => void
 }
 
 export type RequestOutcome
@@ -238,6 +239,7 @@ export class WindowRequests {
   run(): RequestOutcome[] {
     const answered = pendingRequests(this.db).map(request => this.answer(request))
     this.tools.closeDropped()
+    this.tools.settleDecisions?.()
     return answered
   }
 
