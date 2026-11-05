@@ -26,6 +26,7 @@ import { sha } from './github-fake.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
 
 const HOOK = path.resolve(import.meta.dirname, '../../../templates/ai/claude/scripts/construct/eddies.mjs')
+const LIVE_HOOK = path.resolve(import.meta.dirname, '../../../.claude/hooks/eddies.mjs')
 const AT_THE_LINE = 151_000
 const BELOW_THE_LINE = 149_000
 const CARD_LINE = 150_000
@@ -82,13 +83,13 @@ function transcriptAt(root: string, session: string, context: number, model: str
   return file
 }
 
-function guardRun(root: string, session: string, transcript: string, card: string): { status: number | null, stderr: string } {
+function guardRun(root: string, session: string, transcript: string, card: string, hook = HOOK): { status: number | null, stderr: string } {
   const input = JSON.stringify({ session_id: session, transcript_path: transcript, tool_name: 'Bash', tool_input: { command: 'ls' } })
-  return spawnSync(process.execPath, [HOOK, 'guard'], { input, encoding: 'utf8', env: { ...process.env, CLAUDE_PROJECT_DIR: root, CONSTRUCT_CARD: card, CONSTRUCT_HANDOFF_DIR: root } })
+  return spawnSync(process.execPath, [hook, 'guard'], { input, encoding: 'utf8', env: { ...process.env, CLAUDE_PROJECT_DIR: root, CONSTRUCT_CARD: card, CONSTRUCT_HANDOFF_DIR: root } })
 }
 
-function hookOn(root: string, session: string, transcript: string, card: string): void {
-  const run = guardRun(root, session, transcript, card)
+function hookOn(root: string, session: string, transcript: string, card: string, hook = HOOK): void {
+  const run = guardRun(root, session, transcript, card, hook)
   expect(run.status, run.stderr).toBe(0)
 }
 
@@ -176,6 +177,14 @@ describe('the 150k line of a launch session', () => {
     expect(published).toEqual([])
     expect(eventsOf(made.db, CARD_STOPPED)).toEqual([])
     expect(eventsOf(made.db, CARD_CONTINUED)).toMatchObject([{ session: 's-1810-c1', continuation: 1, from: 's-1810' }])
+  })
+
+  it('a session at exactly the 150k line crosses it', () => {
+    for (const hook of [HOOK, LIVE_HOOK]) {
+      const tree = treeWithLimits()
+      hookOn(tree, 's-exact', transcriptAt(tree, 's-exact', CARD_LINE), '1814', hook)
+      expect(reachedContextLine(tree, 's-exact'), hook).toBe(true)
+    }
   })
 
   it('a launch session at 149k is below the line, and warnRatio does not move it to 120k', () => {

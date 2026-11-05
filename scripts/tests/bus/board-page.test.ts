@@ -353,12 +353,21 @@ describe('board.html', () => {
     return out.trimEnd().split('\n')
   }
 
-  function pageText(busPath: string): string {
+  function pageText(busPath: string, eddiesFile?: string): string {
     let html = ''
     expect(printBoard(busPath, NOW, (text) => {
       html += text
-    }, handoffBeside(busPath))).toBe(0)
+    }, handoffBeside(busPath), 'html', eddiesFile)).toBe(0)
     return html
+  }
+
+  function pageUnderLimits(limits: object, beat: object): string {
+    const busPath = seededBus([
+      { ts: minutesAgo(3), type: SESSION_HEARTBEAT, card: 861, payload: JSON.stringify({ step: 'launch', session: 's861', ...beat }) },
+    ])
+    const eddiesFile = path.join(path.dirname(busPath), 'eddies.json')
+    writeFileSync(eddiesFile, JSON.stringify(limits))
+    return pageText(busPath, eddiesFile)
   }
 
   function visibleText(html: string): string {
@@ -469,6 +478,23 @@ describe('board.html', () => {
     const style = /<style>([\s\S]*?)<\/style>/.exec(html)![1]!
     expect(style).toContain('&[data-over] { --_bar: var(--signal); --_value: var(--signal); }')
     expect(style.indexOf('&[data-over]')).toBeGreaterThan(style.indexOf('&[data-hot]'))
+  })
+
+  it('a value equal to the card line is hot and not over', () => {
+    const html = pageUnderLimits({ contextLimit: 250_000, cardContextLine: 150_000, warnRatio: 1 }, { context: 150_000 })
+    expect(html).toContain('<div class="edd" data-hot><span class="edd-k">ctx</span>')
+    expect(html).not.toContain('<div class="edd" data-over><span class="edd-k">ctx</span>')
+  })
+
+  it('a zero or negative model window is dropped and shows no denominator', () => {
+    const modelWindows = { 'claude-zero': 0, 'claude-negative': -1_000_000, 'claude-sized': 1_000_000 }
+    const pageOf = (model: string): string => pageUnderLimits({ contextLimit: 250_000, warnRatio: 0.8, modelWindows }, { context: 151_000, model })
+    for (const model of ['claude-zero', 'claude-negative']) {
+      const html = pageOf(model)
+      expect(html, model).toContain('<span class="edd-v">151k</span>')
+      expect(html, model).not.toContain('151k/')
+    }
+    expect(pageOf('claude-sized')).toContain('<span class="edd-v">151k/1M</span>')
   })
 
   it('the warnings strip stands above SERVICES and reads the gauge the tile reads', () => {
