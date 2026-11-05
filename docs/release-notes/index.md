@@ -4,6 +4,12 @@ Every released version, generated from [CHANGELOG.md](https://github.com/E1i/mik
 Edit the changesets, then run `pnpm release-notes:render`; the test suite fails when this page and the
 changelog drift apart. A release with a hand-written note links to it rather than repeating it here.
 
+## 0.45.4
+
+### Patch Changes
+
+- [#1351](https://github.com/E1i/mikoshi-construct/pull/1351) [`0c3f1a5`](https://github.com/E1i/mikoshi-construct/commit/0c3f1a5e8119a0164c4a81285dfcf1a7b44295ae) Thanks [@E1i](https://github.com/E1i)! - A launch session that reaches its context line with no valid handoff no longer stops the card. The bus builds a minimal handoff from the tree diff, the card body and the session's last steps, and continues in a fresh session with no push. The restart limit still bounds it, a `question:` in the report still goes to the owner, and a session that also hit its spend stop still stops. The shift header now states the exact handoff form the bus reads.
+
 ## 0.45.3
 
 ### Patch Changes
