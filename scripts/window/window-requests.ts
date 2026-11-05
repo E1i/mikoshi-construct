@@ -297,21 +297,21 @@ export class WindowRequests {
       dir: this.repository,
       dryRun: false,
       autoConfirm: payload.auto_confirm === true,
-      events: this.eventsKeepingLane(request, lane),
+      events: this.amendEvents(request),
       admissions: latestAdmissionOf(this.db),
       cardStates: () => new Map((this.db.prepare(CARD_STATES).all() as unknown as { card_id: number, state: string | null }[]).map(row => [String(row.card_id), row.state ?? HELD_WITHOUT_STATE])),
     }, this.clock)
     return amendAnswer(cardId, result, lane)
   }
 
-  private eventsKeepingLane(request: number, lane: string | null): CardEventPort {
+  private amendEvents(request: number): CardEventPort {
     const actor = `${INTAKE_ACTOR_PREFIX}request-${request}`
     return event => inTransaction(this.db, () => {
       if (event.type !== CARD_ADMITTED) {
         appendCardEvent(this.db, actor, event)
         return
       }
-      appendCardEvent(this.db, actor, lane === null ? laid(this.db, event) : { ...event, payload: { ...event.payload, lane } })
+      appendCardEvent(this.db, actor, laid(this.db, event))
       layLanes(this.db, repositoryLanes(this.repository)(), event.ts, actor, event.cardId)
     })
   }

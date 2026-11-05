@@ -6,7 +6,7 @@ import { BUS_DB_VARIABLE, openBus } from '../scripts/core/db.js'
 import { reduce } from '../scripts/core/reducer.js'
 import { busCardAdmissions, busCardEvents, runBusIntake } from '../scripts/intake/intake.js'
 import { runAdmit } from '../src/commands/intake/admit.js'
-import { listFlagOf } from '../src/commands/intake/amend.js'
+import { amendedText, listFlagOf } from '../src/commands/intake/amend.js'
 
 const CARD = '#80 touches-forms [implement/runner/S/cheap/owner] · depends — · blocks —'
 const TEXT = `card: ${CARD}\nbranch: feat/card-80\ntouches: src/board/run.ts\ncontinue: stop\nwho: shift\n\nDo the thing.\n\nWitnesses:\n- \`pnpm exec vitest run tests/a.test.ts\` exits 0; red on main\n`
@@ -70,6 +70,11 @@ describe('--touches takes a list in every form', () => {
     expect(await dryRun(['--touches', '+src/board/a.ts,-src/board/run.ts'])).toContain(amended)
     expect(await dryRun(['--touches', '+src/board/a.ts', '--touches=-src/board/run.ts'])).toContain(amended)
     expect(await dryRun(['--touches', '+src/board/a.ts', '-src/board/run.ts'])).not.toContain(amended)
+  })
+
+  it('a path with a space stays one entry', () => {
+    expect(amendedText(TEXT, { touches: '+src/board/my file.ts' })).toMatchObject({ text: expect.stringContaining('touches: src/board/run.ts, src/board/my file.ts\n') })
+    expect(amendedText(TEXT, { touches: '+src/board/my file.ts +src/board/a.ts' })).toMatchObject({ text: expect.stringContaining('touches: src/board/run.ts, src/board/my file.ts, src/board/a.ts\n') })
   })
 
   it('a flag absent stays absent, and a value stops at the next flag', () => {

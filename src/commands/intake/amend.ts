@@ -37,7 +37,7 @@ type Edited = { kind: 'edited', text: string } | { kind: 'refused', why: string 
 const CREATES_HEADER = 'creates: '
 const WHO_HEADER = 'who: '
 const LIST_SEPARATOR = ','
-const LIST_ENTRY_SEPARATOR = /[\s,]+/
+const LIST_ENTRY_SEPARATOR = /,|\s+(?=[+-])/
 const PROSE_WITNESS_ID = /^W([1-9]\d*)$/
 const OWNER_WORDS_PREFIX = 'Owner, verbatim: '
 const ADD = '+'
@@ -64,7 +64,7 @@ function listOf(line: string | undefined, header: string): string[] {
 
 function editedList(current: readonly string[], change: string, flag: string): string[] | string {
   let next = [...current]
-  for (const entry of change.split(LIST_ENTRY_SEPARATOR).filter(item => item !== '')) {
+  for (const entry of change.split(LIST_ENTRY_SEPARATOR).map(item => item.trim()).filter(item => item !== '')) {
     const sign = entry[0]
     const value = entry.slice(1).trim()
     if ((sign !== ADD && sign !== REMOVE) || value === '')
