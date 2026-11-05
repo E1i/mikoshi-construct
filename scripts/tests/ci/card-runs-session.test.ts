@@ -1,4 +1,4 @@
-import type { CheckCatalog } from '../../ci/card-runs.js'
+import type { BusCatalog, CheckCatalog } from '../../ci/card-runs.js'
 import type { TreePr, TreePrPorts } from '../../nodes/launch/tree-pr.js'
 import { execFileSync } from 'node:child_process'
 import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
@@ -7,10 +7,11 @@ import path from 'node:path'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { runsLine } from '../../../src/card/covering-tests.js'
 import { parkingFileText, parseParkingFile } from '../../../src/card/parking.js'
+import { busCheckCatalog } from '../../ci/card-runs.js'
 import { catalogLayersByTest, catalogModuleLayers, writeCatalog } from '../../cli/check-catalog.js'
 import { openDatabase } from '../../core/sqlite.js'
-import { answerFollowed, busCheckCatalog as shiftGateCatalog, shiftTreeCard, treePr, worktreeCoverage } from '../../nodes/launch/tree-pr.js'
-import { gitDepthSources, busCheckCatalog as reviewCatalog } from '../../nodes/review/depth-sources.js'
+import { answerFollowed, shiftTreeCard, treePr, worktreeCoverage } from '../../nodes/launch/tree-pr.js'
+import { gitDepthSources } from '../../nodes/review/depth-sources.js'
 import { planReview } from '../../nodes/review/review-depth.js'
 
 const TREE_TIMEOUT_MS = 120_000
@@ -106,7 +107,7 @@ function taskOf(text: string) {
   return parsed.parked.task
 }
 
-function pullRequest(body: string, catalog: CheckCatalog, edit: Record<string, string>): { pr: TreePr, prBody: string } {
+function pullRequest(body: string, catalog: BusCatalog, edit: Record<string, string>): { pr: TreePr, prBody: string } {
   const worktree = cardTree()
   write(worktree, edit)
   let prBody = ''
@@ -122,7 +123,7 @@ function pullRequest(body: string, catalog: CheckCatalog, edit: Record<string, s
   return { pr: treePr(ports, shiftTreeCard(taskOf(cardText(body)), catalog), worktree, null), prBody }
 }
 
-function reviewFindings(body: string, catalog: CheckCatalog, files: string[], touches: string[] = [TOUCHED]): string[] {
+function reviewFindings(body: string, catalog: BusCatalog, files: string[], touches: string[] = [TOUCHED]): string[] {
   const text = cardText(body, touches)
   const sources = {
     ...gitDepthSources('/nowhere', '/nowhere/morse.jsonl', () => text, () => '', () => catalog),
@@ -196,23 +197,18 @@ describe('the card session and the review read the runs of a card from one sourc
   }, TREE_TIMEOUT_MS)
 })
 
-describe.each([
-  ['the shift gate', shiftGateCatalog],
-  ['the review', reviewCatalog],
-])('the check catalog of the bus, as %s reads it', (_reader, readCatalog) => {
+describe('the check catalog of the bus', () => {
   it('reads as empty from a bus that is not there, so the card falls to a full reading', () => {
-    const missing = readCatalog(path.join(freshRoot(), 'no-bus.db'))
-    expect(missing.testLayers.size).toBe(0)
-    expect(missing.moduleLayers.size).toBe(0)
+    expect(busCheckCatalog(path.join(freshRoot(), 'no-bus.db'))).toEqual(EMPTY)
   })
 
   it('reads as empty from a bus with no catalog tables', () => {
     const bus = path.join(freshRoot(), 'bus.db')
     openDatabase(bus).close()
-    expect(readCatalog(bus)).toEqual(EMPTY)
+    expect(busCheckCatalog(bus)).toEqual(EMPTY)
   })
 
-  it('reads what the readings of the check catalog read, from the rows it wrote', () => {
+  it('reads the rows the check catalog wrote', () => {
     const bus = path.join(freshRoot(), 'bus.db')
     const db = openDatabase(bus)
     writeCatalog(db, {
@@ -220,11 +216,35 @@ describe.each([
       mutations: [],
       modules: [{ module: TOUCHED, layers: ['bus'] }],
     })
-    const owner = { testLayers: catalogLayersByTest(db), moduleLayers: catalogModuleLayers(db) }
+    const exported = { testLayers: catalogLayersByTest(db), moduleLayers: catalogModuleLayers(db) }
     db.close()
-    const catalog = readCatalog(bus)
-    expect(catalog).toEqual(owner)
-    expect(catalog.testLayers).toEqual(new Map([[MASKED_TEST, ['bus', 'core']], [OTHER_TEST, []]]))
-    expect(catalog.moduleLayers).toEqual(new Map([[TOUCHED, ['bus']]]))
+    const catalog = busCheckCatalog(bus)
+    expect(catalog).toEqual(exported)
+    expect(catalog).toEqual({
+      testLayers: new Map([[MASKED_TEST, ['bus', 'core']], [OTHER_TEST, []]]),
+      moduleLayers: new Map([[TOUCHED, ['bus']]]),
+    })
+  })
+
+  it('names an unreadable bus as unreadable, not as an empty catalog, in the refusal and in the review', () => {
+    const bus = path.join(freshRoot(), 'bus.db')
+    writeFileSync(bus, 'not a database, and long enough to be read as a broken header')
+    const unreadable = busCheckCatalog(bus)
+    expect(unreadable.unreadable).toContain('the check catalog could not be read: ')
+
+    const refused = pullRequest(MASK_ON_BUS, unreadable, EDIT_OF_MASKED_TEST).pr
+    expect(refused.kind === 'problem' && refused.why).toContain(`${FULL_READING}${unreadable.unreadable}`)
+    expect(refused.kind === 'problem' && refused.why).not.toContain('the check catalog is empty')
+
+    const [finding] = reviewFindings(MASK_ON_BUS, unreadable, [MASKED_TEST])
+    expect(finding).toContain(`${FULL_READING}${unreadable.unreadable}`)
+    expect(finding).not.toContain('the check catalog is empty')
+  }, TREE_TIMEOUT_MS)
+
+  it('an unreadable bus keeps the paths the card names and adds nothing to them', () => {
+    const unreadable = { ...EMPTY, unreadable: 'the check catalog could not be read: database is locked' }
+    const card = shiftTreeCard(taskOf(cardText(`Do it.\n\n${runsLine([MASKED_TEST, 'layer:bus'])}`)), unreadable)
+    expect(card.runs).toEqual([MASKED_TEST])
+    expect(card.fullReading).toBe(unreadable.unreadable)
   })
 })

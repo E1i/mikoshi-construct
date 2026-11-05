@@ -9,6 +9,7 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { parseMutationFile } from '../../src/commands/mutate/lines.js'
+import { catalogLayersByTest, catalogModuleLayers, hasTable, NO_LAYER } from '../ci/card-runs.js'
 import { BUS_SHARED, BUS_TESTS, isTest, layerOf, selectRun } from '../ci/layers.js'
 import { cruise } from '../ci/select.js'
 import { scansATree, walksATree } from '../ci/tree-scanners.js'
@@ -33,7 +34,6 @@ const EACH_TOKEN = /(%%)|%[sdifjo#]|\$[a-z_][\w.]*/gi
 const RENDERED_PERCENT = '%'
 const SHELL_QUOTED_APOSTROPHE = /'\\''/g
 const WITNESSES_HEADING = /^Witnesses:/
-const NO_LAYER = 'none'
 const TEST_INFRASTRUCTURE = [
   /^scripts\/ci\/(?:layers|select|prepush|test-command)\.ts$/,
   /^scripts\/tests\/ci\/(?:select-layers|prepush-selector)\.test\.ts$/,
@@ -365,29 +365,13 @@ export function rerunModeOf(env: NodeJS.ProcessEnv): RerunMode {
   return mode
 }
 
-function hasTable(db: DatabaseSync, name: string): boolean {
-  return db.prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?`).get(name) !== undefined
-}
-
-export function catalogModuleLayers(db: DatabaseSync): Map<string, string[]> {
-  if (!hasTable(db, 'check_modules'))
-    return new Map()
-  const rows = db.prepare('SELECT module, layers FROM check_modules').all() as unknown as { module: string, layers: string }[]
-  return new Map(rows.map(row => [row.module, row.layers.split(',').filter(layer => layer !== '')]))
-}
+export { catalogLayersByTest, catalogModuleLayers }
 
 function catalogReadsOfDocuments(db: DatabaseSync): DocumentRead[] | null {
   if (!hasTable(db, 'check_document_reads'))
     return null
   const rows = db.prepare('SELECT document, reader, walked FROM check_document_reads ORDER BY document, reader').all() as unknown as { document: string, reader: string, walked: number }[]
   return rows.map(row => ({ document: row.document, reader: row.reader, walked: row.walked === 1 }))
-}
-
-export function catalogLayersByTest(db: DatabaseSync): Map<string, string[]> {
-  if (!hasTable(db, 'check_tests'))
-    return new Map()
-  const rows = db.prepare('SELECT test, layer FROM check_tests').all() as unknown as { test: string, layer: string }[]
-  return new Map(rows.map(row => [row.test, row.layer.split(',').filter(layer => layer !== NO_LAYER)]))
 }
 
 export function catalogIsEmpty(db: DatabaseSync): boolean {

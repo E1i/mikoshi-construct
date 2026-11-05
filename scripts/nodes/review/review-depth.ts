@@ -1,5 +1,4 @@
 import type { CompositionRecord } from '../../../src/commands/intake/check.js'
-import type { CheckCatalog } from '../../ci/card-runs.js'
 import type { Lease } from '../../core/lease.js'
 import type { Prediction, RuleId } from '../../policy/morse/rules.js'
 import path from 'node:path'
@@ -7,7 +6,6 @@ import process from 'node:process'
 import { runsCover } from '../../../src/card/covering-tests.js'
 import { PREFIX_SUFFIX } from '../../../src/card/task-file.js'
 import { COMPOSITION_ROOT, followsTouches } from '../../../src/commands/intake/check.js'
-import { cardRunsOf } from '../../ci/card-runs.js'
 import { loadCompositionModels } from '../../composition/files.js'
 
 export const REVIEW_DEPTHS = ['full', 'diff'] as const
@@ -44,13 +42,6 @@ export interface CardScope {
   touches: string[]
   runs: string[]
   fullReading?: string
-}
-
-export function cardScopeOf(touches: string[], named: string[], masks: string[], catalog: CheckCatalog): CardScope {
-  const reading = cardRunsOf({ touches, runs: named, masks }, catalog)
-  return 'full' in reading
-    ? { touches, runs: named, fullReading: reading.why }
-    : { touches, runs: [...new Set([...named, ...reading.tests])] }
 }
 
 function fullReadingLine(why: string): string {

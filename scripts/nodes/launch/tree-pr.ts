@@ -1,9 +1,8 @@
-import type { DatabaseSync } from 'node:sqlite'
 import type { Contour } from '../../../src/card/grammar.js'
 import type { ShiftTask } from '../../../src/card/task-file.js'
 import type { PushPolicy } from '../../../src/commands/attach/record.js'
 import type { AdmittedReach, CompanionRow, CompositionRecord, FollowingReach } from '../../../src/commands/intake/check.js'
-import type { CheckCatalog } from '../../ci/card-runs.js'
+import type { BusCatalog } from '../../ci/card-runs.js'
 import type { ChangedFile, Prediction } from '../../policy/morse/rules.js'
 import type { GhRunner } from '../../ports/gh.js'
 import { readFileSync } from 'node:fs'
@@ -11,16 +10,12 @@ import path from 'node:path'
 import { COVERING_REASON, layerMasksOf, runsCover, runsOf, TestCoverage, withinTouches } from '../../../src/card/covering-tests.js'
 import { admittedReachOf, COMPANION_TABLE, COMPOSITION_ROOT, FOLLOWING_REASON, followsTouches, neverFollows, PACKAGE_MANIFEST, publishedRootsOf } from '../../../src/commands/intake/check.js'
 import { readShiftGate } from '../../../src/manifest.js'
-import { cardRunsOf } from '../../ci/card-runs.js'
+import { busCheckCatalog, cardReadingOf } from '../../ci/card-runs.js'
 import { parseCompositionModel } from '../../composition/model.js'
-import { BUSY_TIMEOUT_MS, defaultBusPath } from '../../core/db.js'
-import { openDatabase } from '../../core/sqlite.js'
 import { VERIFICATION_WORDS } from '../../core/verification.js'
 import { classify, MorseRefusal } from '../../policy/morse/rules.js'
 import { MATRIX_COUNT_LINE, pathWithoutMatrix } from '../../policy/policy.js'
 import { changedFilesFrom } from '../../ports/diff.js'
-
-const NO_LAYER = 'none'
 
 export const REFUSAL_REASONS = {
   'stale-base': 'a',
@@ -94,38 +89,7 @@ export interface TreeCard {
 
 export const CARD_PATH_REASON = /^Path \(D-76\):\s*(\S.*)$/m
 
-export function busCheckCatalog(busPath: string = defaultBusPath()): CheckCatalog {
-  let db: DatabaseSync | undefined
-  try {
-    db = openDatabase(busPath, { readOnly: true, timeout: BUSY_TIMEOUT_MS })
-    const tests = db.prepare('SELECT test, layer FROM check_tests').all() as unknown as { test: string, layer: string }[]
-    const modules = db.prepare('SELECT module, layers FROM check_modules').all() as unknown as { module: string, layers: string }[]
-    return {
-      testLayers: new Map(tests.map(row => [row.test, row.layer.split(',').filter(layer => layer !== NO_LAYER)])),
-      moduleLayers: new Map(modules.map(row => [row.module, row.layers.split(',').filter(layer => layer !== '')])),
-    }
-  }
-  catch {
-    return { testLayers: new Map(), moduleLayers: new Map() }
-  }
-  finally {
-    db?.close()
-  }
-}
-
-interface CardReading {
-  runs: string[]
-  fullReading?: string
-}
-
-function cardReadingOf(touches: readonly string[], named: string[], masks: readonly string[], catalog: CheckCatalog): CardReading {
-  const reading = cardRunsOf({ touches, runs: named, masks }, catalog)
-  return 'full' in reading
-    ? { runs: named, fullReading: reading.why }
-    : { runs: [...new Set([...named, ...reading.tests])] }
-}
-
-export function shiftTreeCard(task: ShiftTask, catalog: CheckCatalog = busCheckCatalog()): TreeCard {
+export function shiftTreeCard(task: ShiftTask, catalog: BusCatalog = busCheckCatalog()): TreeCard {
   const { runs, fullReading } = cardReadingOf(task.touches, runsOf(task.body), layerMasksOf(task.body), catalog)
   return {
     branch: task.branch,
@@ -271,7 +235,7 @@ function admittedMasksOf(cardBody: string | null, reach: AdmittedReach): string[
   return reach.touches.length === 0 && reach.runs.length === 0 ? [] : layerMasksOf(cardBody ?? '')
 }
 
-export function answerFollowed(git: TreePrPorts['git'], worktree: string, outside: readonly string[], cardId: number, cardBody: string | null, coverage: TestCoverage, catalog: CheckCatalog = busCheckCatalog()): TouchesFollowed {
+export function answerFollowed(git: TreePrPorts['git'], worktree: string, outside: readonly string[], cardId: number, cardBody: string | null, coverage: TestCoverage, catalog: BusCatalog = busCheckCatalog()): TouchesFollowed {
   const reach = admittedReachOf(cardId, cardBody)
   const { runs } = cardReadingOf(reach.touches, reach.runs, admittedMasksOf(cardBody, reach), catalog)
   const unrun = outside.filter(file => !runsCover(file, runs))
