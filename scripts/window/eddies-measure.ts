@@ -14,7 +14,9 @@ export const LOADED_CORE_VARIABLE = 'MIKO_LOADED_CORE'
 const CORE_FILE = path.join('architecture', 'window-core.md')
 const CORE_VERSION_LINE = /^window-core v(\d+)$/m
 const CONFIG_FILE = path.join('.claude', 'eddies.json')
-const EDDIES_JOURNAL_FILE = path.join('.construct', 'eddies.jsonl')
+export const EDDIES_JOURNAL_FILE = path.join('.construct', 'eddies.jsonl')
+const BUDGET_WARN_EVENT = 'budget-warn'
+const SESSION_CONTEXT_LEVEL = 'session-context'
 const JOURNAL_VERSION = 1
 const PLAIN_ID = /^[\w-]{1,128}$/
 const REPO_ROOT = path.join(import.meta.dirname, '..', '..')
@@ -63,7 +65,10 @@ export interface ExitReadings {
   start: Reading<Counters>
   end: Reading<Counters>
   context: Reading<number>
+  contextSource: Reading<string>
   contextWarn: Reading<number>
+  contextWarnSource: Reading<string>
+  budgetWarned: Reading<boolean>
   spent: Reading<number>
   spendWarn: Reading<number>
   cards: Reading<number>
@@ -86,7 +91,7 @@ export interface ExitLine {
   at: string
 }
 
-export const UNREAD: ExitReadings = { sessionId: UNKNOWN, start: UNKNOWN, end: UNKNOWN, context: UNKNOWN, contextWarn: UNKNOWN, spent: UNKNOWN, spendWarn: UNKNOWN, cards: UNKNOWN, busEvents: UNKNOWN, coreLoaded: UNKNOWN, coreOnMain: UNKNOWN }
+export const UNREAD: ExitReadings = { sessionId: UNKNOWN, start: UNKNOWN, end: UNKNOWN, context: UNKNOWN, contextSource: UNKNOWN, contextWarn: UNKNOWN, contextWarnSource: UNKNOWN, budgetWarned: UNKNOWN, spent: UNKNOWN, spendWarn: UNKNOWN, cards: UNKNOWN, busEvents: UNKNOWN, coreLoaded: UNKNOWN, coreOnMain: UNKNOWN }
 
 export function exitLineOf(readings: ExitReadings, reason: StopReason, at: string): ExitLine {
   return {
@@ -121,16 +126,22 @@ function count(value: unknown): number {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : 0
 }
 
+interface JournalLine {
+  event?: unknown
+  level?: unknown
+  session_id?: unknown
+}
+
 interface TranscriptEntry {
   timestamp?: unknown
   message?: { role?: unknown, model?: unknown, usage?: { input_tokens?: unknown, cache_creation_input_tokens?: unknown, cache_read_input_tokens?: unknown } | null }
 }
 
-function entriesOf(text: string): TranscriptEntry[] {
+function entriesOf<Entry>(text: string): Entry[] {
   return text.split('\n').flatMap((line) => {
     try {
       const entry = JSON.parse(line) as unknown
-      return entry !== null && typeof entry === 'object' ? [entry as TranscriptEntry] : []
+      return entry !== null && typeof entry === 'object' ? [entry as Entry] : []
     }
     catch {
       return []
@@ -146,7 +157,7 @@ function countersOf(entry: TranscriptEntry): Counters | null {
 }
 
 export function sessionCounters(text: string): { start: Counters | null, end: Counters | null, startedAt: string | null } {
-  const entries = entriesOf(text)
+  const entries = entriesOf<TranscriptEntry>(text)
   const counters = entries.map(countersOf).filter(counter => counter !== null)
   const startedAt = entries.map(entry => entry.timestamp).find(stamp => typeof stamp === 'string') as string | undefined
   return { start: counters.at(0) ?? null, end: counters.at(-1) ?? null, startedAt: startedAt ?? null }
@@ -171,7 +182,7 @@ function sessionSpent(root: string, transcript: string): number {
 }
 
 function modelOf(text: string): string | null {
-  const models = entriesOf(text).map(entry => entry.message?.role === 'assistant' ? entry.message.model : undefined)
+  const models = entriesOf<TranscriptEntry>(text).map(entry => entry.message?.role === 'assistant' ? entry.message.model : undefined)
   const model = models.filter(each => typeof each === 'string').at(-1)
   return typeof model === 'string' ? model : null
 }
@@ -198,13 +209,16 @@ function cardLineOf(config: Record<string, unknown>, env: NodeJS.ProcessEnv): nu
   return env[CARD_VARIABLE] ? positive(config.cardContextLine) : null
 }
 
-function limitsOf(root: string, env: NodeJS.ProcessEnv): { contextWarn: Reading<number>, spendWarn: Reading<number> } {
+function limitsOf(root: string, env: NodeJS.ProcessEnv): { contextWarn: Reading<number>, contextWarnSource: Reading<string>, spendWarn: Reading<number> } {
   const config = attempt(() => JSON.parse(readFileSync(path.join(root, CONFIG_FILE), 'utf8')) as Record<string, unknown> | null)
   if (config === UNKNOWN || typeof config !== 'object')
-    return { contextWarn: UNKNOWN, spendWarn: UNKNOWN }
+    return { contextWarn: UNKNOWN, contextWarnSource: UNKNOWN, spendWarn: UNKNOWN }
   const warnRatio = positive(config.warnRatio)
+  const cardLine = cardLineOf(config, env)
+  const contextWarn = cardLine ?? warnOf(positive(config.contextLimit), warnRatio)
   return {
-    contextWarn: cardLineOf(config, env) ?? warnOf(positive(config.contextLimit), warnRatio),
+    contextWarn,
+    contextWarnSource: contextWarn === UNKNOWN ? UNKNOWN : `${CONFIG_FILE} ${cardLine === null ? 'contextLimit × warnRatio' : 'cardContextLine'}`,
     spendWarn: warnOf(positive(config.sessionSpend), warnRatio),
   }
 }
@@ -230,23 +244,32 @@ function busSince(busPath: string, startedAt: string): { cards: number, busEvent
   }
 }
 
+function budgetWarnedOf(root: string, session: string): Reading<boolean> {
+  const journal = path.join(root, EDDIES_JOURNAL_FILE)
+  return attempt(() => existsSync(journal) && entriesOf<JournalLine>(readFileSync(journal, 'utf8')).some(line => line.event === BUDGET_WARN_EVENT && line.level === SESSION_CONTEXT_LEVEL && line.session_id === session))
+}
+
 export function realExitReadings(env: NodeJS.ProcessEnv, home: string, root: string, busPath: string): ExitReadings {
   const limits = { ...limitsOf(root, env), ...coreReadings(env, root) }
   const session = clientAdapter().ownSession(env)
   if (session === null || !PLAIN_ID.test(session))
     return { ...UNREAD, ...limits }
+  const budgetWarned = budgetWarnedOf(root, session)
   const transcript = attempt(() => transcriptOf(home, session))
   if (transcript === UNKNOWN)
-    return { ...UNREAD, ...limits, sessionId: session }
+    return { ...UNREAD, ...limits, sessionId: session, budgetWarned }
   const text = attempt(() => readFileSync(transcript, 'utf8'))
   const counters = text === UNKNOWN ? { start: null, end: null, startedAt: null } : sessionCounters(text)
   const startedAt = counters.startedAt
   const bus = startedAt === null ? UNKNOWN : attempt(() => busSince(busPath, startedAt))
+  const context = text === UNKNOWN ? UNKNOWN : transcriptContext(text) ?? UNKNOWN
   return {
     sessionId: session,
     start: counters.start ?? UNKNOWN,
     end: counters.end ?? UNKNOWN,
-    context: text === UNKNOWN ? UNKNOWN : transcriptContext(text) ?? UNKNOWN,
+    context,
+    contextSource: context === UNKNOWN ? UNKNOWN : transcript,
+    budgetWarned,
     spent: attempt(() => sessionSpent(root, transcript)),
     ...limits,
     cards: bus === UNKNOWN ? UNKNOWN : bus.cards,

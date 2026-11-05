@@ -11,7 +11,7 @@ import { FACTORY_RUNTIME } from '../core/factory-paths.js'
 import { defaultHandoffDir } from '../core/handoff-dir.js'
 import { RAISED_STATUS, raisedByTheBus } from '../nodes/restart/role.js'
 import { EXIT_REQUEST_VARIABLE, LOOP_PID_VARIABLE } from '../ports/session.js'
-import { appendExitLine, exitLineOf, PROJECT_VARIABLE, projectRoot, realExitReadings, SESSION_EXIT_EVENT, UNKNOWN } from './eddies-measure.js'
+import { appendExitLine, EDDIES_JOURNAL_FILE, exitLineOf, PROJECT_VARIABLE, projectRoot, realExitReadings, SESSION_EXIT_EVENT, UNKNOWN } from './eddies-measure.js'
 import { MIKO_HANDOFF_NAME, mikoHandoff, PREFIX, statusOf } from './loop.js'
 import { realRoleStopObserver } from './role-bus.js'
 import { windowEndObserver } from './role-end.js'
@@ -157,13 +157,23 @@ function loadedCoreBelowMain(readings: ExitReadings): boolean {
 export function stopReasonOf(status: string | null, readings: ExitReadings): StopReason | null {
   if (status === 'DONE')
     return 'done'
-  if (readings.context === UNKNOWN || atOrAbove(readings.context, readings.contextWarn))
+  if (readings.context === UNKNOWN || atOrAbove(readings.context, readings.contextWarn) || readings.budgetWarned === true)
     return 'context'
   if (atOrAbove(readings.spent, readings.spendWarn))
     return 'spend'
   if (loadedCoreBelowMain(readings))
     return 'core'
   return null
+}
+
+function budgetWarnFinding(budgetWarned: Reading<boolean>): string {
+  if (budgetWarned === UNKNOWN)
+    return UNKNOWN
+  return budgetWarned ? 'found' : 'not found'
+}
+
+export function notAtAStopRefusal(readings: ExitReadings): string {
+  return `${NOT_AT_A_STOP_CONDITION}; read context ${readings.context} (${readings.contextSource}), line ${readings.contextWarn} (${readings.contextWarnSource}), budget-warn of this session ${budgetWarnFinding(readings.budgetWarned)} (${EDDIES_JOURNAL_FILE}); nothing ended`
 }
 
 export type ExitDecision = { kill: number | null, line: string, reason: StopReason, stopped?: true } | { refuse: string }
@@ -190,7 +200,7 @@ function staleHandoffRefusal(handoffMtime: number | undefined, now: number): str
 export function loopExitDecision(handoffMtime: number | undefined, now: number, status: string | null, readings: ExitReadings): ExitDecision {
   const reason = stopReasonOf(status, readings)
   if (reason === null)
-    return { refuse: `${NOT_AT_A_STOP_CONDITION}; nothing ended` }
+    return { refuse: notAtAStopRefusal(readings) }
   if (reason === 'done')
     return { kill: null, reason, line: `the loop ends the session: ${MIKO_HANDOFF_NAME} says STATUS: ${status}` }
   const stale = staleHandoffRefusal(handoffMtime, now)
@@ -241,7 +251,7 @@ export function exitDecision(chain: ProcessRow[], handoffMtime: number | undefin
   const claude = chain[at]!
   const reason = stopReasonOf(status, readings)
   if (reason === null)
-    return { refuse: `${NOT_AT_A_STOP_CONDITION}; nothing ended` }
+    return { refuse: notAtAStopRefusal(readings) }
   if (reason === 'done')
     return { kill: claude.pid, reason, line: `ending claude ${claude.pid}: ${MIKO_HANDOFF_NAME} says STATUS: ${status}` }
   const above = chain.slice(at + 1)
