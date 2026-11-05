@@ -1,19 +1,17 @@
-import type { ClientAdapter, Invocation, ProcessCwds, Refusal, Role, SessionPolicy, SessionSpec } from '../contract.js'
-import { execFileSync } from 'node:child_process'
+import type { ClientAdapter, Invocation, Refusal, Role, SessionPolicy, SessionSpec } from '../contract.js'
 import { existsSync, readdirSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import os from 'node:os'
 import path from 'node:path'
 import { commandWords } from '../../isolation.js'
 import { settingsFlag, shiftSettings } from '../../shift-settings.js'
+import { claudeProcessCwds } from '../../worktree.js'
 
 const CLAUDE_COMMAND = 'claude'
 const MCP_OFF_FLAG = '--strict-mcp-config'
 const CARD_PERMISSION = ['--permission-mode', 'dontAsk'] as const
 const SESSION_ID_FLAG = '--session-id'
 const ARGV_HEAD_NAMING_THE_PROGRAM = 2
-const LSOF_FOUND_NONE = 1
-export const CWD_LISTING_FIELD = 'n'
 const HEADLESS_OUTPUT = ['-p', '--output-format', 'stream-json', '--verbose', '--permission-mode', 'auto', '--permission-prompts', 'none'] as const
 export const SESSION_VARIABLE = 'CLAUDE_CODE_SESSION_ID'
 export const USER_SETTINGS = '~/.claude/settings.json'
@@ -90,18 +88,6 @@ function isClaudeArgv(argv: string): boolean {
   return argv.split(/\s+/).slice(0, ARGV_HEAD_NAMING_THE_PROGRAM).some(word => path.basename(word) === CLAUDE_COMMAND)
 }
 
-function claudeCwds(): ProcessCwds {
-  try {
-    return { kind: 'listed', listing: execFileSync('lsof', ['-a', '-c', CLAUDE_COMMAND, '-d', 'cwd', '-F', CWD_LISTING_FIELD], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }) }
-  }
-  catch (error) {
-    const failed = error as { status?: unknown, stdout?: unknown }
-    if (failed.status === LSOF_FOUND_NONE)
-      return { kind: 'listed', listing: typeof failed.stdout === 'string' ? failed.stdout : '' }
-    return { kind: 'unreadable', why: error instanceof Error ? error.message.trim() : String(error) }
-  }
-}
-
 export function cardIsolationCommand(client: string): string[] {
   return [...commandWords(client), ...CARD_PERMISSION]
 }
@@ -120,7 +106,7 @@ export const claudeAdapter: ClientAdapter = {
   processes: {
     isClient: isClaudeArgv,
     sessionMarker: session => `${SESSION_ID_FLAG} ${session}`,
-    liveCwds: claudeCwds,
+    liveCwds: () => claudeProcessCwds(),
     isolationCommand: () => [CLAUDE_COMMAND, ...HEADLESS_OUTPUT, MCP_OFF_FLAG, SESSION_ID_FLAG],
   },
   ownSession: env => env[SESSION_VARIABLE] || null,

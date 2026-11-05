@@ -218,14 +218,19 @@ it('every spawn point takes the golden argv from the adapter', async () => {
   }
 })
 
+const NOT_A_SPAWN = `'-c', 'claude'`
 const SPAWN_FILES = ['ports/session.ts', 'nodes/answer/answerer.ts', 'nodes/launch/launch-worker.ts', 'nodes/launch/tree-pr-cli.ts']
 
 it('the client binary literal is gone from the spawn files', () => {
   for (const file of SPAWN_FILES) {
-    const source = readFileSync(new URL(`../../${file}`, import.meta.url), 'utf8')
+    const source = readFileSync(new URL(`../../${file}`, import.meta.url), 'utf8').replace(NOT_A_SPAWN, '')
     expect(source, file).not.toContain(`'claude'`)
     expect(source, file).not.toContain('CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS')
   }
+})
+
+it('the process search of the answerer keeps its client name until clientprocess takes it', () => {
+  expect(readFileSync(new URL('../../nodes/answer/answerer.ts', import.meta.url), 'utf8')).toContain(NOT_A_SPAWN)
 })
 
 it('the env of a session carries what the adapter asks for', () => {

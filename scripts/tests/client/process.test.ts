@@ -1,8 +1,4 @@
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import path from 'node:path'
-import process from 'node:process'
-import { afterEach, describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { isSessionAlive } from '../../ladder/watch-process.js'
 import { launchIsolationCommand } from '../../nodes/launch/launch-worker.js'
 import { reviewIsolationCommand } from '../../nodes/review/review-worker.js'
@@ -10,24 +6,11 @@ import { clientAdapter } from '../../ports/client/index.js'
 import { HEADLESS_FLAGS } from '../../ports/session.js'
 
 const SESSION = 'session-1578'
-const LISTING = 'p42\nfcwd\nn/tree\n'
-const PATH_ON_ENTRY = process.env.PATH
 
-const stubs: string[] = []
-
-afterEach(() => {
-  process.env.PATH = PATH_ON_ENTRY
-  for (const dir of stubs.splice(0))
-    rmSync(dir, { recursive: true, force: true })
-})
-
-function lsofStub(script: string): void {
-  const dir = mkdtempSync(path.join(tmpdir(), 'client-process-'))
-  stubs.push(dir)
-  writeFileSync(path.join(dir, 'lsof'), `#!/bin/sh\n${script}\n`)
-  chmodSync(path.join(dir, 'lsof'), 0o755)
-  process.env.PATH = `${dir}${path.delimiter}${PATH_ON_ENTRY}`
-}
+vi.mock('../../ports/worktree.js', async importOriginal => ({
+  ...await importOriginal<typeof import('../../ports/worktree.js')>(),
+  claudeProcessCwds: () => ({ kind: 'listed', listing: 'from the worktree port' }),
+}))
 
 describe('the client process', () => {
   it('the adapter recognises the client process and its session marker', () => {
@@ -48,24 +31,8 @@ describe('the client process', () => {
 })
 
 describe('the live working directories of the client', () => {
-  it('asks lsof for the working directory of the client processes', () => {
-    lsofStub('printf \'%s \' "$@"')
-    expect(clientAdapter().processes.liveCwds()).toEqual({ kind: 'listed', listing: '-a -c claude -d cwd -F n ' })
-  })
-
-  it('lists what lsof printed', () => {
-    lsofStub(`printf '${LISTING}'`)
-    expect(clientAdapter().processes.liveCwds()).toEqual({ kind: 'listed', listing: LISTING })
-  })
-
-  it('reads the lsof exit status of one as no process found, not as a failure', () => {
-    lsofStub(`printf '${LISTING}'; exit 1`)
-    expect(clientAdapter().processes.liveCwds()).toEqual({ kind: 'listed', listing: LISTING })
-  })
-
-  it('reports any other lsof failure as unreadable', () => {
-    lsofStub('exit 2')
-    expect(clientAdapter().processes.liveCwds().kind).toBe('unreadable')
+  it('come from the one lsof search of the worktree port', () => {
+    expect(clientAdapter().processes.liveCwds()).toEqual({ kind: 'listed', listing: 'from the worktree port' })
   })
 })
 

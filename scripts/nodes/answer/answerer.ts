@@ -2,7 +2,7 @@ import type { PushPolicy } from '../../../src/commands/attach/record.js'
 import type { ShiftGate } from '../../../src/manifest.js'
 import type { BusEvent } from '../../core/db.js'
 import type { Lease } from '../../core/lease.js'
-import type { Invocation, ProcessCwds } from '../../ports/client/contract.js'
+import type { Invocation } from '../../ports/client/contract.js'
 import type { AnswerInput } from '../../ports/prompt-store.js'
 import type { FreshBaseGap } from '../launch/tree-pr.js'
 import type { AnswerSource, CardSession } from './answer-source.js'
@@ -20,8 +20,6 @@ import { assertHeld, StaleLease } from '../../core/lease.js'
 import { treeReportPath } from '../../core/places.js'
 import { pushPolicyOf } from '../../core/push-policy.js'
 import { busCardBodies } from '../../intake/parking-reads.js'
-import { CWD_LISTING_FIELD } from '../../ports/client/claude/adapter.js'
-import { clientAdapter } from '../../ports/client/index.js'
 import { PROCESS_GH_PORT } from '../../ports/gh.js'
 import { readResultFields } from '../../ports/result.js'
 import { CARD_VARIABLE, clientInvocation, HEADLESS_FLAGS, sessionEnv } from '../../ports/session.js'
@@ -445,12 +443,29 @@ export function pendingPathsOf(card: CardSession): string[] {
   return [...new Set([...committedOnTheBranch(card), ...uncommitted(card)])]
 }
 
-export function liveSessionIn(card: CardSession, cwds: () => ProcessCwds = clientAdapter().processes.liveCwds): string | null {
+const LSOF_PATH_FIELD = 'n'
+const LSOF_FOUND_NONE = 1
+
+export type ProcessCwds = { kind: 'listed', listing: string } | { kind: 'unreadable', why: string }
+
+export function claudeCwds(): ProcessCwds {
+  try {
+    return { kind: 'listed', listing: execFileSync('lsof', ['-a', '-c', 'claude', '-d', 'cwd', '-F', LSOF_PATH_FIELD], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }) }
+  }
+  catch (error) {
+    const failed = error as { status?: unknown, stdout?: unknown }
+    if (failed.status === LSOF_FOUND_NONE)
+      return { kind: 'listed', listing: typeof failed.stdout === 'string' ? failed.stdout : '' }
+    return { kind: 'unreadable', why: error instanceof Error ? error.message.trim() : String(error) }
+  }
+}
+
+export function liveSessionIn(card: CardSession, cwds: () => ProcessCwds = claudeCwds): string | null {
   const read = cwds()
   if (read.kind === 'unreadable')
     return `the sessions running in the tree ${card.worktree} cannot be read (${read.why}), so the card counts as held`
   const tree = existsSync(card.worktree) ? realpathSync(card.worktree) : card.worktree
-  const inside = read.listing.split('\n').filter(line => line.startsWith(CWD_LISTING_FIELD)).map(line => line.slice(CWD_LISTING_FIELD.length)).find(cwd => cwd === tree || cwd.startsWith(`${tree}${path.sep}`))
+  const inside = read.listing.split('\n').filter(line => line.startsWith(LSOF_PATH_FIELD)).map(line => line.slice(LSOF_PATH_FIELD.length)).find(cwd => cwd === tree || cwd.startsWith(`${tree}${path.sep}`))
   return inside === undefined ? null : `a live session runs in ${inside}, inside the tree ${card.worktree}`
 }
 
