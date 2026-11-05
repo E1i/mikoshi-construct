@@ -1,11 +1,11 @@
+import type { TranscriptCounters as Counters } from '../ports/client/claude/adapter.js'
 import type { StopReason } from './exit.js'
-import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs'
-import { createRequire } from 'node:module'
+import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { openDatabase } from '../core/sqlite.js'
+import { findTranscript, measuredSession, measuredSpent, spendBasis, transcriptContext, transcriptCounters, transcriptModel } from '../ports/client/claude/adapter.js'
 import { clientAdapter } from '../ports/client/index.js'
 import { CARD_VARIABLE } from '../ports/session.js'
-import { transcriptContext } from './operator-boundary.js'
 
 export const UNKNOWN = 'unknown'
 export const SESSION_EXIT_EVENT = 'session-exit'
@@ -14,38 +14,15 @@ export const LOADED_CORE_VARIABLE = 'MIKO_LOADED_CORE'
 const CORE_FILE = path.join('architecture', 'window-core.md')
 const CORE_VERSION_LINE = /^window-core v(\d+)$/m
 const CONFIG_FILE = path.join('.claude', 'eddies.json')
-const EDDIES_JOURNAL_FILE = path.join('.construct', 'eddies.jsonl')
+export const EDDIES_JOURNAL_FILE = path.join('.construct', 'eddies.jsonl')
+const BUDGET_WARN_EVENT = 'budget-warn'
+const SESSION_CONTEXT_LEVEL = 'session-context'
 const JOURNAL_VERSION = 1
 const PLAIN_ID = /^[\w-]{1,128}$/
 const REPO_ROOT = path.join(import.meta.dirname, '..', '..')
-const HOOK_MEASURE_MODULE = path.join(REPO_ROOT, '.claude', 'hooks', 'eddies-measure.mjs')
-
-interface Tokens {
-  input: number
-  cacheWrite: number
-  cacheRead: number
-}
-
-interface HookMeasure {
-  SPEND_BASIS: string
-  addTokens: (into: Tokens, tokens: Tokens) => Tokens
-  spentOf: (tokens: Tokens) => number
-  contextOf: (tokens: Tokens) => number
-  readTranscript: (root: string, transcript: string) => { tokens: Tokens, last: Tokens }
-  sumTranscripts: (root: string, files: string[]) => Tokens
-  agentTranscriptsUnder: (dir: string) => string[]
-}
-
-const hookMeasure = createRequire(import.meta.url)(HOOK_MEASURE_MODULE) as HookMeasure
 
 type Unknown = typeof UNKNOWN
 export type Reading<T> = T | Unknown
-
-export interface Counters {
-  input: number
-  cache_write: number
-  cache_read: number
-}
 
 export const GAUGES_UNREAD = 'unread'
 export const NO_TRANSCRIPT = 'no-transcript'
@@ -63,7 +40,10 @@ export interface ExitReadings {
   start: Reading<Counters>
   end: Reading<Counters>
   context: Reading<number>
+  contextSource: Reading<string>
   contextWarn: Reading<number>
+  contextWarnSource: Reading<string>
+  budgetWarned: Reading<boolean>
   spent: Reading<number>
   spendWarn: Reading<number>
   cards: Reading<number>
@@ -86,7 +66,7 @@ export interface ExitLine {
   at: string
 }
 
-export const UNREAD: ExitReadings = { sessionId: UNKNOWN, start: UNKNOWN, end: UNKNOWN, context: UNKNOWN, contextWarn: UNKNOWN, spent: UNKNOWN, spendWarn: UNKNOWN, cards: UNKNOWN, busEvents: UNKNOWN, coreLoaded: UNKNOWN, coreOnMain: UNKNOWN }
+export const UNREAD: ExitReadings = { sessionId: UNKNOWN, start: UNKNOWN, end: UNKNOWN, context: UNKNOWN, contextSource: UNKNOWN, contextWarn: UNKNOWN, contextWarnSource: UNKNOWN, budgetWarned: UNKNOWN, spent: UNKNOWN, spendWarn: UNKNOWN, cards: UNKNOWN, busEvents: UNKNOWN, coreLoaded: UNKNOWN, coreOnMain: UNKNOWN }
 
 export function exitLineOf(readings: ExitReadings, reason: StopReason, at: string): ExitLine {
   return {
@@ -96,7 +76,7 @@ export function exitLineOf(readings: ExitReadings, reason: StopReason, at: strin
     start: readings.start,
     end: readings.end,
     spent: readings.spent,
-    measurement_basis: hookMeasure.SPEND_BASIS,
+    measurement_basis: spendBasis(),
     reason,
     cards: readings.cards,
     bus_events: readings.busEvents,
@@ -117,20 +97,17 @@ function positive(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null
 }
 
-function count(value: unknown): number {
-  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : 0
+interface JournalLine {
+  event?: unknown
+  level?: unknown
+  session_id?: unknown
 }
 
-interface TranscriptEntry {
-  timestamp?: unknown
-  message?: { role?: unknown, model?: unknown, usage?: { input_tokens?: unknown, cache_creation_input_tokens?: unknown, cache_read_input_tokens?: unknown } | null }
-}
-
-function entriesOf(text: string): TranscriptEntry[] {
+function journalLinesOf(text: string): JournalLine[] {
   return text.split('\n').flatMap((line) => {
     try {
       const entry = JSON.parse(line) as unknown
-      return entry !== null && typeof entry === 'object' ? [entry as TranscriptEntry] : []
+      return entry !== null && typeof entry === 'object' ? [entry as JournalLine] : []
     }
     catch {
       return []
@@ -138,42 +115,8 @@ function entriesOf(text: string): TranscriptEntry[] {
   })
 }
 
-function countersOf(entry: TranscriptEntry): Counters | null {
-  const usage = entry.message?.role === 'assistant' ? entry.message.usage : null
-  if (usage == null || typeof usage !== 'object')
-    return null
-  return { input: count(usage.input_tokens), cache_write: count(usage.cache_creation_input_tokens), cache_read: count(usage.cache_read_input_tokens) }
-}
-
-export function sessionCounters(text: string): { start: Counters | null, end: Counters | null, startedAt: string | null } {
-  const entries = entriesOf(text)
-  const counters = entries.map(countersOf).filter(counter => counter !== null)
-  const startedAt = entries.map(entry => entry.timestamp).find(stamp => typeof stamp === 'string') as string | undefined
-  return { start: counters.at(0) ?? null, end: counters.at(-1) ?? null, startedAt: startedAt ?? null }
-}
-
-function transcriptOf(home: string, session: string): string | null {
-  const projects = path.join(home, '.claude', 'projects')
-  return readdirSync(projects).map(project => path.join(projects, project, `${session}.jsonl`)).find(existsSync) ?? null
-}
-
 function foundTranscriptOf(home: string, session: string): string | null {
-  return PLAIN_ID.test(session) && existsSync(path.join(home, '.claude', 'projects')) ? transcriptOf(home, session) : null
-}
-
-function spentWithAgents(root: string, transcript: string, parent: Tokens): number {
-  const agents = hookMeasure.sumTranscripts(root, hookMeasure.agentTranscriptsUnder(path.join(transcript.replace(/\.jsonl$/, ''), 'subagents')))
-  return hookMeasure.spentOf(hookMeasure.addTokens({ ...parent }, agents))
-}
-
-function sessionSpent(root: string, transcript: string): number {
-  return spentWithAgents(root, transcript, hookMeasure.readTranscript(root, transcript).tokens)
-}
-
-function modelOf(text: string): string | null {
-  const models = entriesOf(text).map(entry => entry.message?.role === 'assistant' ? entry.message.model : undefined)
-  const model = models.filter(each => typeof each === 'string').at(-1)
-  return typeof model === 'string' ? model : null
+  return PLAIN_ID.test(session) && existsSync(path.join(home, '.claude', 'projects')) ? findTranscript(home, session) : null
 }
 
 export function sessionGauges(home: string, root: string, session: string): SessionGauges {
@@ -181,9 +124,9 @@ export function sessionGauges(home: string, root: string, session: string): Sess
     const transcript = foundTranscriptOf(home, session)
     if (transcript === null)
       return { reason: NO_TRANSCRIPT }
-    const parent = hookMeasure.readTranscript(root, transcript)
-    const model = modelOf(readFileSync(transcript, 'utf8'))
-    return { context: hookMeasure.contextOf(parent.last), spent: spentWithAgents(root, transcript, parent.tokens), ...(model === null ? {} : { model }) }
+    const measured = measuredSession(root, transcript)
+    const model = transcriptModel(readFileSync(transcript, 'utf8'))
+    return { ...measured, ...(model === null ? {} : { model }) }
   }
   catch (error) {
     return { reason: GAUGES_UNREAD, error: error instanceof Error ? error.message.split('\n')[0]! : String(error) }
@@ -198,13 +141,16 @@ function cardLineOf(config: Record<string, unknown>, env: NodeJS.ProcessEnv): nu
   return env[CARD_VARIABLE] ? positive(config.cardContextLine) : null
 }
 
-function limitsOf(root: string, env: NodeJS.ProcessEnv): { contextWarn: Reading<number>, spendWarn: Reading<number> } {
+function limitsOf(root: string, env: NodeJS.ProcessEnv): { contextWarn: Reading<number>, contextWarnSource: Reading<string>, spendWarn: Reading<number> } {
   const config = attempt(() => JSON.parse(readFileSync(path.join(root, CONFIG_FILE), 'utf8')) as Record<string, unknown> | null)
   if (config === UNKNOWN || typeof config !== 'object')
-    return { contextWarn: UNKNOWN, spendWarn: UNKNOWN }
+    return { contextWarn: UNKNOWN, contextWarnSource: UNKNOWN, spendWarn: UNKNOWN }
   const warnRatio = positive(config.warnRatio)
+  const cardLine = cardLineOf(config, env)
+  const contextWarn = cardLine ?? warnOf(positive(config.contextLimit), warnRatio)
   return {
-    contextWarn: cardLineOf(config, env) ?? warnOf(positive(config.contextLimit), warnRatio),
+    contextWarn,
+    contextWarnSource: contextWarn === UNKNOWN ? UNKNOWN : `${CONFIG_FILE} ${cardLine === null ? 'contextLimit × warnRatio' : 'cardContextLine'}`,
     spendWarn: warnOf(positive(config.sessionSpend), warnRatio),
   }
 }
@@ -230,24 +176,33 @@ function busSince(busPath: string, startedAt: string): { cards: number, busEvent
   }
 }
 
+function budgetWarnedOf(root: string, session: string): Reading<boolean> {
+  const journal = path.join(root, EDDIES_JOURNAL_FILE)
+  return attempt(() => existsSync(journal) && journalLinesOf(readFileSync(journal, 'utf8')).some(line => line.event === BUDGET_WARN_EVENT && line.level === SESSION_CONTEXT_LEVEL && line.session_id === session))
+}
+
 export function realExitReadings(env: NodeJS.ProcessEnv, home: string, root: string, busPath: string): ExitReadings {
   const limits = { ...limitsOf(root, env), ...coreReadings(env, root) }
   const session = clientAdapter().ownSession(env)
   if (session === null || !PLAIN_ID.test(session))
     return { ...UNREAD, ...limits }
-  const transcript = attempt(() => transcriptOf(home, session))
+  const budgetWarned = budgetWarnedOf(root, session)
+  const transcript = attempt(() => findTranscript(home, session))
   if (transcript === UNKNOWN)
-    return { ...UNREAD, ...limits, sessionId: session }
+    return { ...UNREAD, ...limits, sessionId: session, budgetWarned }
   const text = attempt(() => readFileSync(transcript, 'utf8'))
-  const counters = text === UNKNOWN ? { start: null, end: null, startedAt: null } : sessionCounters(text)
+  const counters = text === UNKNOWN ? { start: null, end: null, startedAt: null } : transcriptCounters(text)
   const startedAt = counters.startedAt
   const bus = startedAt === null ? UNKNOWN : attempt(() => busSince(busPath, startedAt))
+  const context = text === UNKNOWN ? UNKNOWN : transcriptContext(text) ?? UNKNOWN
   return {
     sessionId: session,
     start: counters.start ?? UNKNOWN,
     end: counters.end ?? UNKNOWN,
-    context: text === UNKNOWN ? UNKNOWN : transcriptContext(text) ?? UNKNOWN,
-    spent: attempt(() => sessionSpent(root, transcript)),
+    context,
+    contextSource: context === UNKNOWN ? UNKNOWN : transcript,
+    budgetWarned,
+    spent: attempt(() => measuredSpent(root, transcript)),
     ...limits,
     cards: bus === UNKNOWN ? UNKNOWN : bus.cards,
     busEvents: bus === UNKNOWN ? UNKNOWN : bus.busEvents,
