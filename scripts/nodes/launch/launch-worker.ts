@@ -27,9 +27,10 @@ import { NOT_A_BACKFILL } from '../../core/backfill-source.js'
 import { busPathOf, machineBusPath } from '../../core/bus-path.js'
 import { DROPPED_CARD, RUNNING_CARD } from '../../core/card-automaton.js'
 import { bodyNotFoldedYet, CARD_BODIES, cardBodyText, pathsOutsideTheBody } from '../../core/card-bodies.js'
+import { cardHoldOf, HOLD_RECHECK_MS } from '../../core/card-hold.js'
 import { appendEvent, BUSY_TIMEOUT_MS, defaultBusPath, inTransaction, openBus, openOwnerWait } from '../../core/db.js'
 import { messageOf } from '../../core/errors.js'
-import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_CONTINUED, CARD_PULSE, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, CARD_WAITING, GHOST_ROW, LADDER_APPROVAL, MERGE_DONE, PR_CLOSED, PR_OBSERVED, PR_OPENED, QUESTION_AGENT, REDUCED, TASK_COMPLETED, TASK_ENQUEUED, TASK_EXPIRED, TASK_FAILED, TASK_LEASED, TASK_RELEASED, TASK_REQUEUED, TASK_SUPERSEDED } from '../../core/events.js'
+import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_CONTINUED, CARD_HELD, CARD_PULSE, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, CARD_WAITING, GHOST_ROW, LADDER_APPROVAL, MERGE_DONE, PR_CLOSED, PR_OBSERVED, PR_OPENED, QUESTION_AGENT, REDUCED, TASK_COMPLETED, TASK_ENQUEUED, TASK_EXPIRED, TASK_FAILED, TASK_LEASED, TASK_RELEASED, TASK_REQUEUED, TASK_SUPERSEDED } from '../../core/events.js'
 import { FACTORY_RUNTIME } from '../../core/factory-paths.js'
 import { HANDOFF_DIR_VARIABLE, handoffDirOf } from '../../core/handoff-dir.js'
 import { generationOfKey } from '../../core/identifiers.js'
@@ -532,6 +533,8 @@ export class LaunchNode extends Node<LaunchStep> {
   }
 
   private continueSession(start: RunningStart, card: StartedCard, continuer: SessionContinuer, exited: string): boolean {
+    if (cardHoldOf(this.db, start.card_id) !== null || bodyNotFoldedYet(this.db, start.card_id))
+      return false
     const used = this.continuationsUsed(start)
     if (used >= MAX_RESTARTS)
       return this.stopContinuation(start, 'continuation-limit', `${exited}; ${used} of ${MAX_RESTARTS} continuations used (D-104), the card is not continued again`)
@@ -639,6 +642,8 @@ export class LaunchNode extends Node<LaunchStep> {
   protected handle(lease: Lease): LaunchStep {
     if (bodyNotFoldedYet(this.db, lease.cardId))
       return this.waitOn(lease, BODY_NOT_FOLDED, new Date(this.parts.clock().getTime() + TICK_MS).toISOString())
+    if (cardHoldOf(this.db, lease.cardId) !== null)
+      return this.waitOn(lease, CARD_HELD, new Date(this.parts.clock().getTime() + HOLD_RECHECK_MS).toISOString())
     return this.executor.launch(lease)
   }
 
