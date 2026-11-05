@@ -1,5 +1,6 @@
+import type { ProcessCwds } from './client/contract.js'
 import { execFile, execFileSync, spawnSync } from 'node:child_process'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
@@ -18,6 +19,17 @@ const LOCKLESS_INSTALL_ARGS = ['install', '--prefer-offline']
 const LOCKFILE = 'pnpm-lock.yaml'
 const FETCH_MAIN_OVER_HTTPS = ['-c', 'url.https://github.com/.insteadOf=git@github.com:', '-c', 'url.https://github.com/.insteadOf=ssh://git@github.com/', 'fetch', 'origin', 'main']
 const UNABLE_TO_CREATE = /unable to create file (.+?): /g
+export const FREE_TREES = '.free'
+const CLEAN_ALL_BUT_INSTALLED = ['clean', '-fdxq', '-e', 'node_modules']
+const LINK_FROM_THE_SHARED_STORE = '--config.packageImportMethod=hardlink'
+const NEVER_INDEX_MARKER = '.metadata_never_index'
+
+export const FREE_TREE_CAPACITY = 8
+
+const LSOF_PATH_FIELD = 'n'
+const LSOF_FOUND_NONE = 1
+
+export type GitRun = (cwd: string, args: string[]) => string
 
 export function realShell(command: string, cwd: string): ShellResult {
   const result = spawnSync('bash', ['-c', command], { cwd, env: witnessEnv(), encoding: 'utf8', maxBuffer: SHELL_BUFFER })
@@ -108,7 +120,100 @@ export function stageSketch(tree: string, base: string, sketchSha: string): void
 }
 
 export function pnpmInstall(cwd: string, args: string[]): void {
-  execFileSync('pnpm', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+  execFileSync('pnpm', [...args, LINK_FROM_THE_SHARED_STORE], { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+}
+
+export function freeTreeHome(tree: string): string {
+  return path.join(path.dirname(tree), FREE_TREES)
+}
+
+function realOrAsWritten(where: string): string {
+  return existsSync(where) ? realpathSync(where) : where
+}
+
+export function claudeProcessCwds(): ProcessCwds {
+  try {
+    return { kind: 'listed', listing: execFileSync('lsof', ['-a', '-c', 'claude', '-d', 'cwd', '-F', LSOF_PATH_FIELD], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }) }
+  }
+  catch (error) {
+    const failed = error as { status?: unknown, stdout?: unknown }
+    if (failed.status === LSOF_FOUND_NONE)
+      return { kind: 'listed', listing: typeof failed.stdout === 'string' ? failed.stdout : '' }
+    return { kind: 'unreadable', why: error instanceof Error ? error.message.trim() : String(error) }
+  }
+}
+
+export function liveSessionHolds(tree: string, cwds: () => ProcessCwds = claudeProcessCwds): boolean {
+  const read = cwds()
+  if (read.kind === 'unreadable')
+    return true
+  const real = realOrAsWritten(tree)
+  return read.listing.split('\n').filter(line => line.startsWith(LSOF_PATH_FIELD)).map(line => line.slice(LSOF_PATH_FIELD.length)).some(cwd => cwd === real || cwd.startsWith(`${real}${path.sep}`))
+}
+
+function freeTreesIn(git: GitRun, repo: string, home: string): string[] {
+  const inside = realOrAsWritten(home)
+  return git(repo, ['worktree', 'list', '--porcelain'])
+    .split('\n')
+    .filter(line => line.startsWith('worktree '))
+    .map(line => line.slice('worktree '.length))
+    .filter(tree => existsSync(tree) && path.dirname(realpathSync(tree)) === inside)
+}
+
+export function parkTree(git: GitRun, repo: string, tree: string, capacity: number): string | null {
+  const home = freeTreeHome(tree)
+  if (freeTreesIn(git, repo, home).length >= capacity)
+    return null
+  mkdirSync(home, { recursive: true })
+  const parked = path.join(home, path.basename(tree))
+  git(tree, ['reset', '--hard', '-q'])
+  git(tree, ['checkout', '-q', '--detach'])
+  git(tree, CLEAN_ALL_BUT_INSTALLED)
+  git(repo, ['worktree', 'move', tree, parked])
+  return parked
+}
+
+function settled(git: GitRun, tree: string, settle: (tree: string) => void): boolean {
+  try {
+    settle(tree)
+    git(tree, CLEAN_ALL_BUT_INSTALLED)
+    return git(tree, ['status', '--porcelain']).trim() === ''
+  }
+  catch {
+    return false
+  }
+}
+
+function moved(git: GitRun, repo: string, from: string, to: string): boolean {
+  try {
+    git(repo, ['worktree', 'move', from, to])
+    return true
+  }
+  catch {
+    return false
+  }
+}
+
+export function takeFreeTree(git: GitRun, repo: string, target: string, settle: (tree: string) => void): boolean {
+  for (const free of freeTreesIn(git, repo, freeTreeHome(target))) {
+    if (!moved(git, repo, free, target))
+      continue
+    if (settled(git, target, settle))
+      return true
+    git(repo, ['worktree', 'remove', '--force', target])
+  }
+  return false
+}
+
+function excludedFromIndexing(home: string): boolean {
+  try {
+    mkdirSync(home, { recursive: true })
+    writeFileSync(path.join(home, NEVER_INDEX_MARKER), '')
+    return true
+  }
+  catch {
+    return false
+  }
 }
 
 export interface TreeDeps {
@@ -209,6 +314,19 @@ export function adoptTree(deps: TreeDeps, tree: string, branch: string): ReadyTr
   return { worktree, how: `adopts ${worktree}`, failedAppend: `${worktree} was adopted on ${branch}` }
 }
 
+function reuseFreeTree(deps: TreeDeps, repo: string, worktree: string, branch: string): boolean | string {
+  try {
+    if (takeFreeTree(deps.git, repo, worktree, tree => deps.git(tree, ['checkout', '-q', '-f', '--no-track', '-B', branch, 'origin/main'])))
+      return true
+    if (branchExists(deps, repo, branch))
+      deps.git(repo, ['branch', '-D', branch])
+    return false
+  }
+  catch (error) {
+    return gitMessage(error)
+  }
+}
+
 export function cutTree(deps: TreeDeps, id: string, branch: string): ReadyTree | RefusedTree {
   let repo: string
   try {
@@ -229,16 +347,22 @@ export function cutTree(deps: TreeDeps, id: string, branch: string): ReadyTree |
   catch (error) {
     return { refused: `could not cut ${worktree}: ${firstLine(error)}; nothing written` }
   }
-  try {
-    deps.git(repo, ['worktree', 'add', '-b', branch, worktree, 'origin/main'])
-  }
-  catch (error) {
-    const recovered = recoverCheckout(deps, worktree, error)
-    if (recovered === null)
-      return { refused: `could not cut ${worktree}: ${gitMessage(error)}; nothing written` }
-    if (!Array.isArray(recovered))
-      return { refused: `could not cut ${worktree}: ${recovered.failed}; ${removeTree(deps, repo, worktree, branch)}; nothing written` }
-    absent = recovered
+  const unindexed = deps.treeOf === undefined || excludedFromIndexing(path.dirname(worktree))
+  const reused = reuseFreeTree(deps, repo, worktree, branch)
+  if (typeof reused === 'string')
+    return { refused: `could not cut ${worktree}: ${reused}; nothing written` }
+  if (!reused) {
+    try {
+      deps.git(repo, ['worktree', 'add', '-b', branch, worktree, 'origin/main'])
+    }
+    catch (error) {
+      const recovered = recoverCheckout(deps, worktree, error)
+      if (recovered === null)
+        return { refused: `could not cut ${worktree}: ${gitMessage(error)}; nothing written` }
+      if (!Array.isArray(recovered))
+        return { refused: `could not cut ${worktree}: ${recovered.failed}; ${removeTree(deps, repo, worktree, branch)}; nothing written` }
+      absent = recovered
+    }
   }
   const installArgs = deps.exists(path.join(worktree, LOCKFILE)) ? FROZEN_INSTALL_ARGS : LOCKLESS_INSTALL_ARGS
   try {
@@ -247,6 +371,6 @@ export function cutTree(deps: TreeDeps, id: string, branch: string): ReadyTree |
   catch (error) {
     return { refused: `pnpm ${installArgs.join(' ')} failed in ${worktree}: ${firstLine(error)}; ${removeTree(deps, repo, worktree, branch)}; nothing written` }
   }
-  const left = absent.length === 0 ? '' : `; absent from the tree, kept out of git status with skip-worktree because the sandbox refused the write: ${absent.join(', ')}`
-  return { worktree, how: `cut ${worktree} from origin/main${left}`, failedAppend: `${worktree} was cut on ${branch}${left}` }
+  const left = `${absent.length === 0 ? '' : `; absent from the tree, kept out of git status with skip-worktree because the sandbox refused the write: ${absent.join(', ')}`}${unindexed ? '' : `; the Spotlight marker could not be written in ${path.dirname(worktree)}`}`
+  return { worktree, how: `${reused ? 'reused a free tree as' : 'cut'} ${worktree} from origin/main${left}`, failedAppend: `${worktree} was cut on ${branch}${left}` }
 }
