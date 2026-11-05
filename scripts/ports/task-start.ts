@@ -28,7 +28,7 @@ import { STARTER_ACTOR, windowOpenPrs } from '../window/window-prs.js'
 import { SESSION_VARIABLE } from './client/claude/adapter.js'
 import { clientAdapter } from './client/index.js'
 import { cardTree } from './worktree-home.js'
-import { adoptTree, cutTree, pnpmInstall } from './worktree.js'
+import { adoptTree, cutTree, pnpmInstall, treeOriginLine } from './worktree.js'
 
 export const PREFIX = '[task:start] '
 export const USAGE = 'usage: pnpm task:start <branch> --card "<card>" [--without-intake "<reason>"]'
@@ -351,7 +351,7 @@ export function runTaskStart(argv: string[], deps: TaskStartDeps, handed?: Hande
     return refuse(ready.refused)
   const { worktree } = ready
   const at = deps.now().toISOString()
-  const start = { path: card.contour, started: at, ...(deps.session === undefined ? {} : { session: deps.session }), ...(deps.shift === undefined ? {} : { shift: deps.shift }), worktree, ...(args.adopt === undefined ? {} : { adopts: worktree }), branch, card, ...whoAndRisk(cardFile), ...(handed?.forecast === undefined ? {} : { forecast: recordedForecast(handed.forecast) }), admission: admissionRecord(admitted) }
+  const start = { path: card.contour, started: at, ...(deps.session === undefined ? {} : { session: deps.session }), ...(deps.shift === undefined ? {} : { shift: deps.shift }), worktree, ...(ready.origin === undefined ? {} : { tree_origin: ready.origin }), ...(args.adopt === undefined ? {} : { adopts: worktree }), branch, card, ...whoAndRisk(cardFile), ...(handed?.forecast === undefined ? {} : { forecast: recordedForecast(handed.forecast) }), admission: admissionRecord(admitted) }
   const unsessioned = deps.session === undefined ? `; ${SESSION_VARIABLE} is not set, the board will show WINDOW UNKNOWN (no session)` : ''
   const entry = { ...contract, ACTION: `task:start ${branch} #${id}: ${ready.how}; ${CARD_STARTED} written to ${deps.bus}${unsessioned}`, RESULT: ENTRY_RESULT }
   const event: BusEvent = { ts: at, type: CARD_STARTED, actor: `${STARTER_ACTOR}${deps.session ?? STARTER_SESSION_BY_HAND}`, cardId: card.id, pr: null, head: null, dedupeKey: `${CARD_STARTED}:${id}:${branch}:${at}`, payload: { ...start, entry: { schema: ENTRY_SCHEMA, ...entry } }, legacy: false }
@@ -365,7 +365,7 @@ export function runTaskStart(argv: string[], deps: TaskStartDeps, handed?: Hande
   const signal = written.kind === 'written'
     ? entry
     : { ...entry, ACTION: `task:start ${branch} #${id}: ${ready.how}; ${CARD_STARTED} is the launch worker's, which holds the launch of #${id}${unsessioned}` }
-  const stdout = renderSignal(`task:start #${id} ${card.name}`, signal, deps.style ?? PLAIN_STYLE)
+  const stdout = [...renderSignal(`task:start #${id} ${card.name}`, signal, deps.style ?? PLAIN_STYLE), ...(ready.origin === undefined ? [] : [treeOriginLine(ready.origin)])]
   return { stdout, stderr: [], exitCode: 0, worktree }
 }
 

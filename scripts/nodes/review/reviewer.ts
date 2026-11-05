@@ -2,6 +2,7 @@ import type { Lease } from '../../core/lease.js'
 import type { SessionReading } from '../../ports/client/contract.js'
 import type { SessionInput } from '../../ports/prompt-store.js'
 import type { SpawnSessionParams } from '../../ports/session.js'
+import type { TreeOrigin } from '../../ports/worktree.js'
 import type { VerdictWord } from './record-verdict.js'
 import type { ReviewPlan } from './review-depth.js'
 import { Buffer } from 'node:buffer'
@@ -25,6 +26,7 @@ export interface HeldTree {
 }
 
 export interface ReviewedTree extends HeldTree {
+  origin: TreeOrigin
   before: TreeState
   after: TreeState
   mutated: string[]
@@ -228,11 +230,13 @@ export class ReviewTrees {
 
   constructor(readonly repo: string, readonly dir: string, private readonly tools: TreeTools = GIT_TREE_TOOLS) {}
 
-  add(tree: string, head: string): void {
-    if (!this.reuses() || !takeFreeTree(gitIn, this.repo, tree, taken => gitIn(taken, ['checkout', '-q', '-f', '--detach', head])))
+  add(tree: string, head: string): TreeOrigin {
+    const reused = this.reuses() && takeFreeTree(gitIn, this.repo, tree, taken => gitIn(taken, ['checkout', '-q', '-f', '--detach', head]))
+    if (!reused)
       this.tools.git(this.repo, ['worktree', 'add', '--detach', tree, head])
     this.held.add(canonical(tree))
     this.tools.prepare(tree)
+    return reused ? 'reused' : 'cut'
   }
 
   state(tree: string): TreeState {
@@ -359,7 +363,7 @@ export function claudeReviewer(trees: ReviewTrees, spawn: (params: SpawnSessionP
     trees.fetch(`pull/${lease.pr}/head`)
     const held: HeldTree = { path: tree, release: () => trees.release(tree) }
     try {
-      trees.add(tree, lease.head!)
+      const origin = trees.add(tree, lease.head!)
       const before = trees.state(tree)
       if (before.status.length > 0)
         throw new Error(`the review tree ${tree} is not clean before the review: ${before.status.join('; ')}`)
@@ -374,7 +378,7 @@ export function claudeReviewer(trees: ReviewTrees, spawn: (params: SpawnSessionP
         throw new Error(`the review tree ${tree} changed outside the review session ${session}, whose transcript has no command that writes: ${mutated.slice(0, 5).join(', ')}${mutated.length > 5 ? `, and ${mutated.length - 5} more` : ''}; a node fault, not a changes verdict`)
       const model = reading.model ?? undefined
       const cache: CacheTokens = { cache_w: reading.usage?.cacheWrite ?? null, cache_r: reading.usage?.cached ?? null }
-      return { ...review, ...withoutPassOnMutation(review, mutated), model, cache, tree: { ...held, before, after, mutated }, input: { prompt: params.prompt } }
+      return { ...review, ...withoutPassOnMutation(review, mutated), model, cache, tree: { ...held, origin, before, after, mutated }, input: { prompt: params.prompt } }
     }
     catch (error) {
       if (!trees.holds(tree))
