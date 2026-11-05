@@ -56,7 +56,7 @@ function dialogOf(text: string): string {
 describe('the board draws a card\'s runs from the parsed field', () => {
   it('a card with a prose Runs line and no witness fields shows its runs as a list and no prose Runs line', () => {
     const dialog = dialogOf(cardText('Runs: tests/board/**, tests/a.test.ts', '', ...WITNESSES))
-    expect(dialog).toContain('<p>runs: <code>tests/board/**</code> <code>tests/a.test.ts</code></p>')
+    expect(dialog).toContain('<p>runs: <span class="tag" data-glob>tests/board/**</span> <span class="tag">tests/a.test.ts</span></p>')
     expect(dialog).not.toContain('Runs:')
     expect(dialog).toContain('<h3>Witnesses</h3><ul><li>')
     expect(dialog).not.toContain('data-witnesses')
@@ -64,7 +64,7 @@ describe('the board draws a card\'s runs from the parsed field', () => {
 
   it('a card with a runs field and text witnesses shows the same list', () => {
     const dialog = dialogOf(cardText(runsFieldLine(['tests/board/**', 'tests/a.test.ts']), ...WITNESSES))
-    expect(dialog).toContain('<p>runs: <code>tests/board/**</code> <code>tests/a.test.ts</code></p>')
+    expect(dialog).toContain('<p>runs: <span class="tag" data-glob>tests/board/**</span> <span class="tag">tests/a.test.ts</span></p>')
     expect(dialog).not.toContain('runs: [')
   })
 

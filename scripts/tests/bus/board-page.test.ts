@@ -17,7 +17,7 @@ import { createUi } from '../../../src/ui/console.js'
 import { BANNER, LORE } from '../../../src/ui/lore.js'
 import { resolveTheme } from '../../../src/ui/theme.js'
 import { checkMatrix, subagent, writeBus } from '../../../tests/board/bus-fixture.js'
-import { BOARD_DATA_FILE, boardProjection, DISK_FILES, escaped, filterRule, FLOW_META, printBoard, PROGRESS_ORDER, readEddiesLimits, readModelVersion, readRepositoryUrl, RELEASE_PROGRESS_ORDER, VIEW_KEY, writeBoardPage } from '../../cli/board-page.js'
+import { BOARD_DATA_FILE, boardProjection, DISK_FILES, escaped, filterRule, FLOW_META, printBoard, PROGRESS_ORDER, readEddiesLimits, readModelVersion, RELEASE_PROGRESS_ORDER, VIEW_KEY, writeBoardPage } from '../../cli/board-page.js'
 import { defaultBusPath } from '../../core/db.js'
 import { PROCESS_HEARTBEAT, REVIEW_RECORDED, SESSION_HEARTBEAT, WINDOW_HEARTBEAT, WITNESS_FIELDS_BACKFILLED, WITNESS_RECORDED } from '../../core/events.js'
 import { nodeProcess } from '../../core/node.js'
@@ -954,13 +954,12 @@ describe('board.html', () => {
     const templates = templatesOf(html)
     const second = templates.get('dialog-card-861')!
     expect(second.indexOf('class="punch"')).toBeLessThan(second.indexOf('>prose<'))
-    expect(second.indexOf('>prose<')).toBeLessThan(second.indexOf('>matrix<'))
-    expect(second.indexOf('>matrix<')).toBeLessThan(second.indexOf('>chain<'))
+    expect(second.indexOf('>prose<')).toBeLessThan(second.indexOf('>chain<'))
     expect(second).toContain('<span class="pf-k">branch</span><span class="pf-v">feat/second</span>')
     expect(second).toContain(`<span class="pf-k">text_sha</span><span class="pf-v">${SECOND_CARD_SHA}</span>`)
     expect(second).toContain('<p>The second card follows <button type="button" class="cid" data-open="card-860" tabindex="0" aria-haspopup="dialog">#860 ›</button> and runs <code>pnpm card</code> once.</p>')
     expect(second).toContain('<h3>Witnesses</h3><ul><li><code>pnpm exec vitest run scripts/tests/bus/board-page.test.ts</code> exits 0</li></ul>')
-    expect(second).toContain('No pull request for this card in the bus yet.')
+    expect(second).not.toContain('>matrix<')
     const db = new DatabaseSync(busPath, { readOnly: true })
     const ids = db.prepare('SELECT id, type FROM events WHERE card_id = 861 ORDER BY id').all() as { id: number, type: string }[]
     db.close()
@@ -971,9 +970,20 @@ describe('board.html', () => {
     const reviewedCard = templates.get('dialog-card-862')!
     expect(reviewedCard).toContain('<tr><th scope="row">killed</th><td>3</td></tr><tr><th scope="row">survived</th><td>1</td></tr>')
     expect(reviewedCard).toContain('risk matrix')
+    expect(reviewedCard.indexOf('>prose<')).toBeLessThan(reviewedCard.indexOf('>matrix<'))
+    expect(reviewedCard.indexOf('>matrix<')).toBeLessThan(reviewedCard.indexOf('>chain<'))
     const first = templates.get('dialog-card-860')!
-    expect(first).toContain(`The bus holds no check matrix for <a data-link href="${readRepositoryUrl()}/pull/13">PR #13 ›</a>.`)
+    expect(first).not.toContain('>matrix<')
     expect(first).not.toContain('risk matrix')
+  })
+
+  it('a card with no pull request has no matrix block', () => {
+    const { html } = pageWithHandoff()
+    const second = templatesOf(html).get('dialog-card-861')!
+    expect(second).not.toContain('>matrix<')
+    expect(second).not.toContain('class="note">No pull request')
+    expect(html).not.toContain('No pull request for this card in the bus yet.')
+    expect(html).not.toContain('The bus holds no check matrix')
   })
 
   describe('the witnesses of a card', () => {
@@ -1021,8 +1031,47 @@ describe('board.html', () => {
       expect(dialog).toContain('<table class="mx" data-witnesses><thead><tr><th scope="col">id</th><th scope="col">run</th><th scope="col">test</th><th scope="col">head/base</th><th scope="col">proves</th></tr></thead>')
       expect(dialog).toContain('<tr><th scope="row">W1</th><td><code>pnpm exec vitest run tests/a.test.ts</code></td><td>the &lt;thing&gt;</td><td>pass/fail · last green</td><td>follows <button')
       expect(dialog).toContain('<tr><th scope="row">W2</th><td><code>test -f a.txt</code></td><td>—</td><td>pass/pass · last green</td><td>a stays</td></tr>')
-      expect(dialog).toContain('<p>runs: <code>tests/board/**</code> <code>tests/a.test.ts</code></p>')
+      expect(dialog).toContain('<p>runs: <span class="tag" data-glob>tests/board/**</span> <span class="tag">tests/a.test.ts</span></p>')
       expect(dialog).not.toContain('witnesses: [')
+    })
+
+    it('a card with three paths in runs renders three separate elements', () => {
+      const text = fieldCard(870, runsFieldLine(['tests/a.test.ts', 'tests/b.test.ts', 'tests/other/**']), witnessFieldsLine(FIELDS))
+      const dialog = templatesOf(pageText(busOfFields(870, text, []))).get('dialog-card-870')!
+      expect(dialog).toContain('<p>runs: <span class="tag">tests/a.test.ts</span> <span class="tag">tests/b.test.ts</span> <span class="tag" data-glob>tests/other/**</span></p>')
+      const style = /<style>([\s\S]*?)<\/style>/.exec(pageText(seededBus()))![1]!
+      expect(style).toContain('&[data-glob] { --_bd: var(--wire); --_bd-style: dashed; }')
+    })
+
+    it('a witness table with an empty runs still shows the none mark', () => {
+      const dialog = templatesOf(pageText(busOfFields(870, fieldCard(870, witnessFieldsLine(FIELDS)), []))).get('dialog-card-870')!
+      expect(dialog).toContain('<p>runs: —</p>')
+    })
+
+    it('the witness table fits the dialog with no inline scrolling', () => {
+      const style = /<style>([\s\S]*?)<\/style>/.exec(pageText(seededBus()))![1]!
+      const rule = /&\[data-witnesses\] \{\n([\s\S]*?)\n {2}\}/.exec(style)![1]!
+      expect(rule).toContain('inline-size: 100%;')
+      expect(rule).toContain('table-layout: fixed;')
+      expect(rule).toContain('& th, & td { overflow-wrap: anywhere; }')
+      expect(rule).toContain('& thead th:nth-child(1) { inline-size: 3.5rem; }')
+      expect(rule).toContain('& thead th:nth-child(4) { inline-size: 8rem; }')
+      expect(rule).toContain('& td:nth-child(2) { font-family: var(--font-mono); }')
+      expect(rule).not.toContain('overflow-x')
+      expect(style).toContain('&:has(> [data-witnesses]) { --_inline-overflow: visible; }')
+      expect(style).toContain('--_inline-overflow: auto;')
+      expect(style).toContain('.drill-body { overflow: auto; padding: var(--space-l); display: grid; gap: var(--space-l); & > * { min-inline-size: 0; } }')
+      expect(style).toContain('& > :not(.mx-wrap) { max-inline-size: 78ch; }')
+    })
+
+    it('a pull request with no matrix or an empty one has no matrix block, and a full run alone keeps it', () => {
+      const dialogOf = (events: SeedEvent[]): string => templatesOf(pageText(busOfFields(870, FIELD_CARD, events))).get('dialog-card-870')!
+      const absent = dialogOf([])
+      expect(absent).not.toContain('>matrix<')
+      expect(absent).not.toContain('The bus holds no check matrix')
+      expect(dialogOf([checkMatrix(40, HEAD, { killed: 0, survived: 0, notRun: 0 })])).not.toContain('>matrix<')
+      expect(dialogOf([checkMatrix(40, HEAD, { killed: 0, survived: 0, notRun: 1 })])).toContain('>matrix<')
+      expect(dialogOf([checkMatrix(40, HEAD, { full: 'interrupted', killed: 0, survived: 0, notRun: 0 })])).toContain('>matrix<')
     })
 
     it('the last result of a witness is the record on the current head, by witness', () => {
@@ -1042,7 +1091,7 @@ describe('board.html', () => {
       const event: SeedEvent = { ts: minutesAgo(1), type: WITNESS_FIELDS_BACKFILLED, card: null, payload: JSON.stringify(backfill) }
       const dialog = templatesOf(pageText(busOfFields(870, text, [event]))).get('dialog-card-870')!
       expect(dialog).toContain('<tr><th scope="row">W1</th><td><code>pnpm exec vitest run tests/a.test.ts</code></td><td>the thing</td><td>pass/fail · last not run</td>')
-      expect(dialog).toContain('<p>runs: <code>tests/board/**</code></p>')
+      expect(dialog).toContain('<p>runs: <span class="tag" data-glob>tests/board/**</span></p>')
       expect(dialog).not.toContain('Runs: tests/board/**')
       expect(dialog).not.toContain('<ul><li>')
     })
