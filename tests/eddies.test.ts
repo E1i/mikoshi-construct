@@ -66,6 +66,8 @@ function hookBeside(s: Scratch, measure: 'intact' | 'throwing'): string {
   mkdirSync(dir, { recursive: true })
   copyFileSync(HOOK, path.join(dir, 'eddies.mjs'))
   copyFileSync(path.join(path.dirname(HOOK), 'tab-window.mjs'), path.join(dir, 'tab-window.mjs'))
+  copyFileSync(path.join(path.dirname(HOOK), 'environment-print.mjs'), path.join(dir, 'environment-print.mjs'))
+  copyFileSync(path.join(path.dirname(HOOK), 'shell-parser.mjs'), path.join(dir, 'shell-parser.mjs'))
   if (measure === 'intact')
     copyFileSync(path.join(path.dirname(HOOK), 'eddies-measure.mjs'), path.join(dir, 'eddies-measure.mjs'))
   else
