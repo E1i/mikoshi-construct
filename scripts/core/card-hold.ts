@@ -1,6 +1,8 @@
 import type { DatabaseSync } from 'node:sqlite'
 import { CARD_HELD, CARD_RELEASED } from './events.js'
 
+export const HOLD_RECHECK_MS = 5 * 60_000
+
 const LATEST_HOLD = `SELECT type, json_extract(payload, '$.reason') AS reason, json_extract(payload, '$.takeover') AS takeover FROM events WHERE card_id = ? AND legacy = 0 AND type IN ('${CARD_HELD}', '${CARD_RELEASED}') ORDER BY id DESC LIMIT 1`
 
 export function cardHoldOf(db: DatabaseSync, cardId: number): string | null {

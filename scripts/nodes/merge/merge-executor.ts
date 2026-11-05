@@ -9,7 +9,7 @@ import type { CommandResult, GitHub, GitHubPut } from '../../ports/github.js'
 import type { TechnicalReason } from '../review/record-verdict.js'
 import { Buffer } from 'node:buffer'
 import { changedFiles, REFUSED_NOT_UP_TO_DATE, rerunOf, upToDateRequired } from '../../cli/check-catalog.js'
-import { cardHoldOf } from '../../core/card-hold.js'
+import { cardHoldOf, HOLD_RECHECK_MS } from '../../core/card-hold.js'
 import { appendEvent, openBusWait } from '../../core/db.js'
 import { messageOf } from '../../core/errors.js'
 import { BOARD_ALARM, COMMAND_EXECUTED, MERGE_DONE, POLICY_ALLOWED, POLICY_DENIED, SHARD_USED } from '../../core/events.js'
@@ -31,7 +31,6 @@ export const STALE_HEAD_STATUS = 409
 export const NOT_ALLOWED_STATUS = 405
 const NOT_UP_TO_DATE = /not up.to.date/i
 export const HELD_FOR_OWNER = 'held_for_owner'
-export const HOLD_RECHECK_MS = 5 * 60_000
 const WAIT_REASONS: ReadonlySet<MergeTechnicalReason> = new Set(['version_pr_open', 'not_mergeable', 'not_a_candidate', NEEDS_UPDATE, HELD_FOR_OWNER])
 const OPEN_QUESTIONS_OF_CARD = `${openDecisionWaitsOf('?')} ORDER BY opened_at, id`
 const REVIEWS_IN_FLIGHT = `SELECT task_key FROM tasks WHERE queue = 'review' AND pr = ? AND head = ? AND state IN ('queued', 'leased') ORDER BY id`
