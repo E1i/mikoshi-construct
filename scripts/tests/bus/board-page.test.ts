@@ -1021,8 +1021,43 @@ describe('board.html', () => {
       expect(dialog).toContain('<table class="mx" data-witnesses><thead><tr><th scope="col">id</th><th scope="col">run</th><th scope="col">test</th><th scope="col">head/base</th><th scope="col">proves</th></tr></thead>')
       expect(dialog).toContain('<tr><th scope="row">W1</th><td><code>pnpm exec vitest run tests/a.test.ts</code></td><td>the &lt;thing&gt;</td><td>pass/fail · last green</td><td>follows <button')
       expect(dialog).toContain('<tr><th scope="row">W2</th><td><code>test -f a.txt</code></td><td>—</td><td>pass/pass · last green</td><td>a stays</td></tr>')
-      expect(dialog).toContain('<p>runs: <code>tests/board/**</code> <code>tests/a.test.ts</code></p>')
+      expect(dialog).toContain('<p>runs: <span class="tag" data-glob>tests/board/**</span> <span class="tag" data-witnessed>tests/a.test.ts</span></p>')
       expect(dialog).not.toContain('witnesses: [')
+    })
+
+    it('a card with three paths in runs renders three separate elements', () => {
+      const text = fieldCard(870, runsFieldLine(['tests/a.test.ts', 'tests/b.test.ts', 'tests/c.test.ts']), witnessFieldsLine(FIELDS))
+      const dialog = templatesOf(pageText(busOfFields(870, text, []))).get('dialog-card-870')!
+      expect(dialog).toContain('<p>runs: <span class="tag" data-witnessed>tests/a.test.ts</span> <span class="tag">tests/b.test.ts</span> <span class="tag">tests/c.test.ts</span></p>')
+    })
+
+    it('runs stand above the witness table and mark a glob and a witnessed path', () => {
+      const fields = [{ id: 'W1', run: 'pnpm exec vitest run ./tests/a.test.ts \'scripts/tests/board/x.test.ts\'', test: null, head: 'pass', base: 'fail', proves: 'a holds' }]
+      const entries = ['scripts/tests/board/**', 'tests/board/**', 'tests/other/**', 'tests/a.test.ts', 'scripts/tests/a.test.ts', 'tests/z.test.ts']
+      const dialog = templatesOf(pageText(busOfFields(870, fieldCard(870, runsFieldLine(entries), witnessFieldsLine(fields)), []))).get('dialog-card-870')!
+      expect(dialog.indexOf('<p>runs: ')).toBeGreaterThan(-1)
+      expect(dialog.indexOf('<p>runs: ')).toBeLessThan(dialog.indexOf('<table class="mx" data-witnesses>'))
+      expect(dialog).toContain('<span class="tag" data-glob data-witnessed>scripts/tests/board/**</span>')
+      expect(dialog).toContain('<span class="tag" data-glob>tests/board/**</span>')
+      expect(dialog).toContain('<span class="tag" data-glob>tests/other/**</span>')
+      expect(dialog).toContain('<span class="tag" data-witnessed>tests/a.test.ts</span>')
+      expect(dialog).toContain('<span class="tag">scripts/tests/a.test.ts</span>')
+      expect(dialog).toContain('<span class="tag">tests/z.test.ts</span>')
+      const style = /<style>([\s\S]*?)<\/style>/.exec(pageText(seededBus()))![1]!
+      expect(style).toContain('&[data-glob] { --_bd: var(--wire); --_bd-style: dashed; }')
+      expect(style).toContain('&[data-witnessed] { --_bd: var(--ok); --_bg: oklch(from var(--ok) l c h / 0.15); }')
+    })
+
+    it('a card with no witness table shows runs above its prose witnesses and highlights none', () => {
+      const text = fieldCard(870, runsFieldLine(['tests/a.test.ts']), 'Witnesses:', '- `pnpm exec vitest run tests/a.test.ts` exits 0')
+      const dialog = templatesOf(pageText(busOfFields(870, text, []))).get('dialog-card-870')!
+      expect(dialog).toContain('<p>runs: <span class="tag">tests/a.test.ts</span></p><h3>Witnesses</h3><ul><li>')
+      expect(dialog).not.toContain('data-witnessed')
+    })
+
+    it('a witness table with an empty runs still shows the none mark', () => {
+      const dialog = templatesOf(pageText(busOfFields(870, fieldCard(870, witnessFieldsLine(FIELDS)), []))).get('dialog-card-870')!
+      expect(dialog).toContain('<p>runs: —</p><h3>Witnesses</h3>')
     })
 
     it('the last result of a witness is the record on the current head, by witness', () => {
@@ -1042,7 +1077,7 @@ describe('board.html', () => {
       const event: SeedEvent = { ts: minutesAgo(1), type: WITNESS_FIELDS_BACKFILLED, card: null, payload: JSON.stringify(backfill) }
       const dialog = templatesOf(pageText(busOfFields(870, text, [event]))).get('dialog-card-870')!
       expect(dialog).toContain('<tr><th scope="row">W1</th><td><code>pnpm exec vitest run tests/a.test.ts</code></td><td>the thing</td><td>pass/fail · last not run</td>')
-      expect(dialog).toContain('<p>runs: <code>tests/board/**</code></p>')
+      expect(dialog).toContain('<p>runs: <span class="tag" data-glob>tests/board/**</span></p>')
       expect(dialog).not.toContain('Runs: tests/board/**')
       expect(dialog).not.toContain('<ul><li>')
     })

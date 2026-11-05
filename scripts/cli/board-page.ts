@@ -646,15 +646,39 @@ function witnessRow(field: WitnessField, record: WitnessRecordOnHead | null, pag
   return `<tr><th scope="row">${escaped(field.id)}</th><td><code>${escaped(field.run)}</code></td><td>${escaped(field.test ?? NONE)}</td><td>${expected}</td><td>${linked(field.proves, page)}</td></tr>`
 }
 
-function runsHtml(runs: readonly string[]): string {
-  const entries = runs.length === 0 ? NONE : runs.map(entry => `<code>${escaped(entry)}</code>`).join(' ')
+const GLOB_SUFFIX = '/**'
+const RUN_WORD = /[^\s'"`=;|&()<>]+/g
+const CURRENT_DIRECTORY = /^\.\//
+
+function runWords(witnesses: readonly WitnessField[]): string[] {
+  return witnesses.flatMap(field => field.run.match(RUN_WORD) ?? []).map(word => word.replace(CURRENT_DIRECTORY, ''))
+}
+
+function isGlob(entry: string): boolean {
+  return entry.endsWith(GLOB_SUFFIX)
+}
+
+function isWitnessed(entry: string, words: readonly string[]): boolean {
+  if (!isGlob(entry))
+    return words.includes(entry)
+  const directory = entry.slice(0, -GLOB_SUFFIX.length + 1)
+  return words.some(word => word.startsWith(directory) && word.length > directory.length)
+}
+
+function runsTag(entry: string, words: readonly string[]): string {
+  return `<span class="tag"${isGlob(entry) ? ' data-glob' : ''}${isWitnessed(entry, words) ? ' data-witnessed' : ''}>${escaped(entry)}</span>`
+}
+
+function runsHtml(runs: readonly string[], witnesses: readonly WitnessField[]): string {
+  const words = runWords(witnesses)
+  const entries = runs.length === 0 ? NONE : runs.map(entry => runsTag(entry, words)).join(' ')
   return `<p>runs: ${entries}</p>`
 }
 
 function witnessTableHtml(table: WitnessTable, page: BoardPage): string {
   const head = WITNESS_COLUMNS.map(column => `<th scope="col">${column}</th>`).join('')
   const rows = table.witnesses.map(field => witnessRow(field, table.record, page)).join('')
-  return `<h3>Witnesses</h3><div class="mx-wrap"><table class="mx" data-witnesses><thead><tr><th scope="col">${WITNESS_ID_COLUMN}</th>${head}</tr></thead><tbody>${rows}</tbody></table></div>${runsHtml(table.runs)}`
+  return `${runsHtml(table.runs, table.witnesses)}<h3>Witnesses</h3><div class="mx-wrap"><table class="mx" data-witnesses><thead><tr><th scope="col">${WITNESS_ID_COLUMN}</th>${head}</tr></thead><tbody>${rows}</tbody></table></div>`
 }
 
 function withoutRunsLine(prose: string): string {
@@ -666,8 +690,8 @@ function cardProse(detail: CardDetail, page: BoardPage): string {
   if (contract === null)
     return note('The bus holds no admitted card text for this card.')
   const table = detail.witnessTable
-  const runs = contract.runs.length === 0 ? '' : runsHtml(contract.runs)
-  const witnesses = table === null ? `${listed('Witnesses', contract.witnesses, page)}${runs}` : witnessTableHtml(table, page)
+  const runs = contract.runs.length === 0 ? '' : runsHtml(contract.runs, [])
+  const witnesses = table === null ? `${runs}${listed('Witnesses', contract.witnesses, page)}` : witnessTableHtml(table, page)
   return `<div class="prose">${paragraphs(withoutRunsLine(contract.prose), page)}${witnesses}${listed('Unclear', contract.unclear, page)}</div>`
 }
 
@@ -1307,7 +1331,20 @@ dialog.drill {
 }
 .pf-k { display: block; color: var(--dim); font-size: 0.6rem; letter-spacing: 0.12em; text-transform: uppercase; }
 .pf-v { display: block; overflow-wrap: anywhere; &[data-none] { color: var(--off); } }
-.tag { display: inline-block; margin: 2px 4px 0 0; padding: 0 0.375rem; border: 1px solid var(--line); }
+.tag {
+  --_bd: var(--line);
+  --_bd-style: solid;
+  --_bg: transparent;
+
+  display: inline-block;
+  margin: 2px 4px 0 0;
+  padding: 0 0.375rem;
+  border: 1px var(--_bd-style) var(--_bd);
+  background: var(--_bg);
+
+  &[data-glob] { --_bd: var(--wire); --_bd-style: dashed; }
+  &[data-witnessed] { --_bd: var(--ok); --_bg: oklch(from var(--ok) l c h / 0.15); }
+}
 .divider {
   display: flex;
   align-items: center;
