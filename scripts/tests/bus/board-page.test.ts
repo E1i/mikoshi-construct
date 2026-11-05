@@ -226,6 +226,7 @@ function boardWindow(html: string, storage: MemoryStorage | typeof THROWING_STOR
     document: Object.assign(document, {
       getElementById: (id: string) => known(id) ? elements.get('backlog')?.prepended.find(child => child.id === id) ?? element(id) : null,
       createElement: (tag: string) => new FakeElement(tag.toUpperCase()),
+      querySelectorAll: () => [],
       head: { appendChild: (child: FakeElement) => appended.push(child) },
     }),
     location,
@@ -945,7 +946,7 @@ describe('board.html', () => {
     expect(board.content.innerHTML).toBe(board.templates.get('dialog-card-860'))
     const style = /<style>([\s\S]*?)<\/style>/.exec(html)![1]!
     expect([...style.matchAll(/cursor: pointer/g)]).toHaveLength(1)
-    expect(style).toMatch(/\[data-open\], \[data-link\], \.drill-close \{\n {2}cursor: pointer;\n {2}color: var\(--wire\);[\s\S]*?&:focus-visible \{ outline: 2px solid var\(--amber\)/)
+    expect(style).toMatch(/\[data-open\], \[data-link\], \[data-agents\], \.drill-close \{\n {2}cursor: pointer;\n {2}color: var\(--wire\);[\s\S]*?&:focus-visible \{ outline: 2px solid var\(--amber\)/)
     expect(style).not.toMatch(/\.svc-target \{[^}]*color/)
   })
 
@@ -1129,7 +1130,7 @@ describe('board.html', () => {
     before.scroller.scrollTop = 120
     before.scroller.dispatch('scroll')
     before.click('TR', 'card-862')
-    expect(JSON.parse(storage.getItem(VIEW_KEY)!)).toEqual({ filter: '#show-planned', scroll: 120, open: 'card-862' })
+    expect(JSON.parse(storage.getItem(VIEW_KEY)!)).toEqual({ filter: '#show-planned', scroll: 120, open: 'card-862', agents: {} })
     const after = boardWindow(html, storage)
     expect(after.location.hash).toBe('#show-planned')
     expect(after.scroller.scrollTop).toBe(120)

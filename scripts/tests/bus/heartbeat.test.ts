@@ -263,7 +263,7 @@ describe('a session holds its lease by the heartbeat its hook writes on every tu
     roots.push(hookRoot)
     const parent = measure.readTranscript(hookRoot, transcript)
     const spend = measure.addTokens({ ...parent.tokens }, measure.sumTranscripts(hookRoot, measure.agentTranscriptsUnder(subagents)))
-    expect(heartbeatPayloads(file)[0]).toEqual({ step: 'implement', session: 'session-1', start_context: 43_000, read_before_edit: null, context: measure.contextOf(parent.last), spent: measure.spentOf(spend) })
+    expect(heartbeatPayloads(file)[0]).toEqual({ step: 'implement', session: 'session-1', start_context: 43_000, read_before_edit: null, context: measure.contextOf(parent.last), spent: measure.spentOf(spend), subagents: [{ name: 'agent-a1', context: 16_000, spent: 18_250, at: expect.any(String) as string }] })
     expect(measure.contextOf(parent.last)).toBe(44_200)
   })
 
