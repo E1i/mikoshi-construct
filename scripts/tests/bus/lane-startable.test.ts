@@ -7,7 +7,7 @@ import { textSha } from '../../../src/card/text-sha.js'
 import { boardWarnings, plannedStallLines } from '../../cli/board-warnings.js'
 import { latestAssignment } from '../../core/bus-readings.js'
 import { appendEvent, openBus } from '../../core/db.js'
-import { CARD_ADMITTED, CARD_STARTED, PR_OBSERVED } from '../../core/events.js'
+import { CARD_ADMITTED, CARD_STARTED, CARD_STOPPED, PR_OBSERVED } from '../../core/events.js'
 import { reduce } from '../../core/reducer.js'
 import { busCardEvents } from '../../intake/intake.js'
 import { assignMovedLane, currentLane, layLanes } from '../../nodes/launch/lane-assign.js'
@@ -69,6 +69,11 @@ class Bench {
     return this
   }
 
+  stop(id: number): this {
+    this.append(CARD_STOPPED, id, null, `${CARD_STOPPED}:${id}`, { reason: 'fault' })
+    return this
+  }
+
   candidates(): number[] {
     return launchCandidates(this.db, () => false, () => Date.parse(TS), () => {}, []).map(candidate => candidate.cardId)
   }
@@ -93,6 +98,37 @@ describe('launch takes the first startable card of a lane', () => {
       .moveTo(2, 'lane-1')
       .moveTo(3, 'lane-1')
     expect(bench.candidates()).toEqual([3])
+  })
+})
+
+describe('a fault-stopped head of a lane', () => {
+  it('a lane with a fault-stopped head with no session and no pull request starts the independent card behind it', () => {
+    const bench = new Bench().admit(1).start(1).stop(1).admit(2).moveTo(1, 'lane-1').moveTo(2, 'lane-1')
+    expect(bench.candidates()).toEqual([2])
+    expect(bench.linesAfter(20)).toEqual(['#2 planned and startable, not started for 20 minutes: occupied slots'])
+  })
+
+  it('a card that depends on the stopped head does not start', () => {
+    const bench = new Bench().admit(1).start(1).stop(1).admit(2, { depends: [1] }).moveTo(2, 'lane-1')
+    expect(bench.candidates()).toEqual([])
+  })
+
+  it('a card sharing a touch with the stopped head is reflowed to an empty lane and starts', () => {
+    const bench = new Bench().admit(1, { touches: 'src/shared.ts' }).start(1).stop(1).admit(2, { touches: 'src/shared.ts' })
+    expect(latestAssignment(bench.db, 2)?.reason).toBe('reflowed')
+    expect(currentLane(bench.db, 2)).not.toBe(currentLane(bench.db, 1))
+    expect(bench.candidates()).toEqual([2])
+  })
+
+  it('a card sharing a touch with the stopped head in its own lane also starts', () => {
+    const bench = new Bench().admit(1, { touches: 'src/shared.ts' }).start(1).stop(1).admit(2, { touches: 'src/shared.ts' }).moveTo(1, 'lane-1').moveTo(2, 'lane-1')
+    expect(bench.candidates()).toEqual([2])
+  })
+
+  it('a fault-stopped head with an open pull request keeps its lane', () => {
+    const bench = new Bench().admit(1).openPr(1).stop(1).admit(2).moveTo(1, 'lane-1').moveTo(2, 'lane-1')
+    expect(bench.candidates()).toEqual([])
+    expect(bench.linesAfter(20)).toEqual(['#2 planned and startable, not started for 20 minutes: #1 at the head of lane-1'])
   })
 })
 
