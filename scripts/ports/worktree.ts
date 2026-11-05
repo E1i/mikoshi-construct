@@ -230,8 +230,22 @@ export interface TreeDeps {
   treeOf?: (id: string) => string
 }
 
+export type TreeOrigin = 'reused' | 'cut'
+
+const TREE_ORIGIN_LABEL = 'tree_origin'
+
+export function treeOriginLine(origin: TreeOrigin): string {
+  return `${TREE_ORIGIN_LABEL}: ${origin}`
+}
+
+export function treeOriginIn(output: string): TreeOrigin | null {
+  const found = new RegExp(`^${TREE_ORIGIN_LABEL}: (reused|cut)$`, 'm').exec(output)
+  return found === null ? null : found[1] as TreeOrigin
+}
+
 export interface ReadyTree {
   worktree: string
+  origin?: TreeOrigin
   how: string
   failedAppend: string
 }
@@ -377,5 +391,5 @@ export function cutTree(deps: TreeDeps, id: string, branch: string): ReadyTree |
     return { refused: `pnpm ${installArgs.join(' ')} failed in ${worktree}: ${firstLine(error)}; ${removeTree(deps, repo, worktree, branch)}; nothing written` }
   }
   const left = `${absent.length === 0 ? '' : `; absent from the tree, kept out of git status with skip-worktree because the sandbox refused the write: ${absent.join(', ')}`}${unindexed ? '' : `; the Spotlight marker could not be written in ${path.dirname(worktree)}`}`
-  return { worktree, how: `${reused ? 'reused a free tree as' : 'cut'} ${worktree} from origin/main${left}`, failedAppend: `${worktree} was cut on ${branch}${left}` }
+  return { worktree, origin: reused ? 'reused' : 'cut', how: `${reused ? 'reused a free tree as' : 'cut'} ${worktree} from origin/main${left}`, failedAppend: `${worktree} was cut on ${branch}${left}` }
 }

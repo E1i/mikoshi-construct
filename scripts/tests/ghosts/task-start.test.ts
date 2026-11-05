@@ -311,6 +311,7 @@ describe('w1: task:start cuts the tree and writes the start', () => {
       started: NOW.toISOString(),
       session: SESSION,
       worktree,
+      tree_origin: 'cut',
       branch: 'feat/t1',
       card: { id: 101, name: 'task-card', kind: 'implement', milestone: 'ghosts', size: 'M', contour: 'cheap', decision: 'owner', depends: [86], blocks: [124], line },
       admission: { by: 'bus', event: `${CARD_ADMITTED}:intake:101`, admitted: ADMITTED_TS },
@@ -393,6 +394,7 @@ describe('w1: task:start cuts the tree and writes the start', () => {
       'EXPECT   | expect not recorded on the start line: its session is the window\'s CLAUDE_CODE_SESSION_ID, shared by every task the window runs, so no session is this task\'s alone',
       `ACTION   | task:start feat/t8 #8: cut ${worktree} from origin/main; card.started written to ${world.bus}`,
       'RESULT   | accepted · not started',
+      'tree_origin: cut',
     ])
   })
 
@@ -408,7 +410,7 @@ describe('w1: task:start cuts the tree and writes the start', () => {
       ACTION: `task:start feat/t9 #9: cut ${worktree} from origin/main; card.started written to ${world.bus}`,
       RESULT: 'accepted · not started',
     })
-    expect(result.stdout.slice(1).map(row => row.replace(/^\w+\s+\| /, ''))).toEqual(['CONTRACT', 'EXPECT', 'ACTION', 'RESULT'].map(field => entry[field]))
+    expect(result.stdout.slice(1, -1).map(row => row.replace(/^\w+\s+\| /, ''))).toEqual(['CONTRACT', 'EXPECT', 'ACTION', 'RESULT'].map(field => entry[field]))
   })
 
   it('w8: a field with no data is named in the entry card: no session names it in ACTION', () => {

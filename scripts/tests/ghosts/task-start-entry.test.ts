@@ -34,7 +34,7 @@ function world(session: string | undefined): { deps: TaskStartDeps, starts: () =
 describe('task:start prints the entry card and writes it into the start', () => {
   it('prints the four fields with RESULT accepted · not started', () => {
     const { deps } = world('s1')
-    const rows = runTaskStart(['feat/entry', '--card', CARD], deps).stdout.slice(1)
+    const rows = runTaskStart(['feat/entry', '--card', CARD], deps).stdout.slice(1, -1)
     expect(rows.map(row => row.split(' ')[0])).toEqual(['CONTRACT', 'EXPECT', 'ACTION', 'RESULT'])
     expect(rows[3]).toBe('RESULT   | accepted · not started')
   })
@@ -47,7 +47,7 @@ describe('task:start prints the entry card and writes it into the start', () => 
     const entry = start.entry as Record<string, string>
     expect(start).toMatchObject({ task: '41', started: NOW.toISOString() })
     expect(entry).toMatchObject({ RESULT: 'accepted · not started' })
-    expect(result.stdout.slice(1)).toEqual((['CONTRACT', 'EXPECT', 'ACTION', 'RESULT'] as const).map(field => `${field.padEnd(8)} | ${entry[field]}`))
+    expect(result.stdout.slice(1, -1)).toEqual((['CONTRACT', 'EXPECT', 'ACTION', 'RESULT'] as const).map(field => `${field.padEnd(8)} | ${entry[field]}`))
   })
 
   it('names a forecast no source holds, and a missing session, in the card', () => {

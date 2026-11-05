@@ -4,6 +4,7 @@ import type { AfterFailure, Lease } from '../../core/lease.js'
 import type { DiskReader } from '../../ports/disk.js'
 import type { Isolation, IsolationReader } from '../../ports/isolation.js'
 import type { SessionInput } from '../../ports/prompt-store.js'
+import type { TreeOrigin } from '../../ports/worktree.js'
 import type { Contour, TreeReader } from './launch-candidates.js'
 import { existsSync } from 'node:fs'
 import { CARD_STARTED, CARD_STOPPED, POLICY_DENIED } from '../../core/events.js'
@@ -71,6 +72,7 @@ export interface LaunchParts {
   isolation: IsolationReader
   prompts?: string
   treeLive?: TreeReader
+  treeOrigin?: (worktree: string) => TreeOrigin | null
 }
 
 const WITHDRAW_REASONS: ReadonlySet<LaunchTechnicalReason> = new Set(['card_not_queued', HELD_TREE_CHANGED])
@@ -145,7 +147,8 @@ export class LaunchExecutor {
 
   private started(lease: Lease, card: StartedCard, starter: CardStarter, isolation: Exclude<Isolation, { level: 'none' }>): LaunchOutcome {
     const { input, ...started } = card
-    const payload = { ...started, isolation: isolation.level, isolationGaps: isolation.gaps, ...storedInput(this.parts.prompts, input) }
+    const treeOrigin = this.parts.treeOrigin?.(card.worktree) ?? null
+    const payload = { ...started, ...(treeOrigin === null ? {} : { tree_origin: treeOrigin }), isolation: isolation.level, isolationGaps: isolation.gaps, ...storedInput(this.parts.prompts, input) }
     const event: BusEvent = { ts: this.ts(), type: CARD_STARTED, actor: lease.actor, cardId: lease.cardId, pr: null, head: null, dedupeKey: `${CARD_STARTED}:${lease.taskKey}`, payload, legacy: false }
     try {
       completeTask(this.parts.db, this.ts(), lease, [event], (db) => {

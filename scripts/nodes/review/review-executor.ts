@@ -163,7 +163,7 @@ export function roundLimitLine(pr: number, rounds: number): string {
 }
 
 function treeFields({ tree }: Review): Record<string, unknown> {
-  return tree === undefined ? {} : { treeBefore: tree.before, treeAfter: tree.after, treeMutated: tree.mutated }
+  return tree === undefined ? {} : { tree_origin: tree.origin, treeBefore: tree.before, treeAfter: tree.after, treeMutated: tree.mutated }
 }
 
 function inputFields(prompts: string | undefined, plan: ReviewPlan, input: SessionInput | undefined): Record<string, unknown> {
