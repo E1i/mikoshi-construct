@@ -49,7 +49,10 @@ describe('realExitReadings reads the session the way Eddies reads it', () => {
       start: { input: 100, cache_write: 1000, cache_read: 0 },
       end: { input: 10, cache_write: 200, cache_read: 1100 },
       context: 1310,
+      contextSource: file,
       contextWarn: LIMITS.contextLimit * LIMITS.warnRatio,
+      contextWarnSource: '.claude/eddies.json contextLimit × warnRatio',
+      budgetWarned: false,
       spent: 100 + 10 + 50 + (1000 + 200) * 1.25 + 1100 * 0.1,
       spendWarn: LIMITS.sessionSpend * LIMITS.warnRatio,
       cards: UNKNOWN,
@@ -92,12 +95,12 @@ describe('realExitReadings reads the session the way Eddies reads it', () => {
     { name: 'a session id that is not a plain id', env: { CLAUDE_CODE_SESSION_ID: '../x' } },
   ])('with $name reads nothing of the session and keeps the limits', ({ env }) => {
     const dir = scratch()
-    expect(realExitReadings(env, dir, dir, path.join(dir, 'bus.db'))).toEqual({ ...UNREAD, contextWarn: LIMITS.contextLimit * LIMITS.warnRatio, spendWarn: LIMITS.sessionSpend * LIMITS.warnRatio })
+    expect(realExitReadings(env, dir, dir, path.join(dir, 'bus.db'))).toEqual({ ...UNREAD, contextWarn: LIMITS.contextLimit * LIMITS.warnRatio, contextWarnSource: '.claude/eddies.json contextLimit × warnRatio', spendWarn: LIMITS.sessionSpend * LIMITS.warnRatio })
   })
 
   it.each([
     { name: 'a warn ratio above one', limits: { ...LIMITS, warnRatio: 2 }, read: UNREAD },
-    { name: 'a session spend of zero', limits: { ...LIMITS, sessionSpend: 0 }, read: { ...UNREAD, contextWarn: LIMITS.contextLimit * LIMITS.warnRatio } },
+    { name: 'a session spend of zero', limits: { ...LIMITS, sessionSpend: 0 }, read: { ...UNREAD, contextWarn: LIMITS.contextLimit * LIMITS.warnRatio, contextWarnSource: '.claude/eddies.json contextLimit × warnRatio' } },
   ])('reads limits it cannot validate as unknown, never as zero: $name', ({ limits, read }) => {
     const dir = scratch(limits)
     expect(realExitReadings({}, dir, dir, path.join(dir, 'bus.db'))).toEqual(read)

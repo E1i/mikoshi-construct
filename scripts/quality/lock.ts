@@ -6,6 +6,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { sleep } from '../core/every.js'
+import { CLIENT_SANDBOX_DIRECTORY } from '../ports/client/claude/adapter.js'
 
 export const LOCK_DIR_VARIABLE = 'CONSTRUCT_QUALITY_LOCK_DIR'
 export const HELD_VARIABLE = 'CONSTRUCT_QUALITY_LOCK_HELD'
@@ -140,7 +141,7 @@ function canWrite(dir: string): boolean {
 
 export function queueDir(env: NodeJS.ProcessEnv = process.env, home: string = os.homedir()): string {
   const documented = path.join(home, '.construct', 'quality')
-  return env[LOCK_DIR_VARIABLE] ?? (canWrite(documented) ? documented : path.join('/tmp', `claude-${os.userInfo().uid}`, 'construct-quality'))
+  return env[LOCK_DIR_VARIABLE] ?? (canWrite(documented) ? documented : path.join(CLIENT_SANDBOX_DIRECTORY, 'construct-quality'))
 }
 
 export function workerBudget(cores: number, sessions: number): number {
