@@ -2,7 +2,7 @@ import type { PushPolicy } from '../../../src/commands/attach/record.js'
 import type { ShiftGate } from '../../../src/manifest.js'
 import type { BusEvent } from '../../core/db.js'
 import type { Lease } from '../../core/lease.js'
-import type { Invocation, ProcessCwds } from '../../ports/client/contract.js'
+import type { Invocation, ProcessCwds, Usage } from '../../ports/client/contract.js'
 import type { GhPort } from '../../ports/gh.js'
 import type { AnswerInput } from '../../ports/prompt-store.js'
 import type { FreshBaseGap } from '../launch/tree-pr.js'
@@ -22,9 +22,9 @@ import { assertHeld, StaleLease } from '../../core/lease.js'
 import { treeReportPath } from '../../core/places.js'
 import { pushPolicyOf } from '../../core/push-policy.js'
 import { busCardBodies } from '../../intake/parking-reads.js'
+import { clientTranscript } from '../../ports/client/claude/adapter.js'
 import { PROCESS_GH_PORT } from '../../ports/gh.js'
-import { readResultFields } from '../../ports/result.js'
-import { CARD_VARIABLE, clientInvocation, HEADLESS_FLAGS, sessionEnv } from '../../ports/session.js'
+import { CARD_VARIABLE, clientInvocation, sessionEnv, streamReading } from '../../ports/session.js'
 import { MAIN_BRANCH } from '../../ports/snapshot.js'
 import { claudeProcessCwds, listedCwds } from '../../ports/worktree.js'
 import { busSessionPulse } from '../../supervisor/heartbeat.js'
@@ -33,9 +33,6 @@ import { answerFollowed, commitAndPush, followedLine, freshBaseProblem, freshBas
 import { ciLogForPrompt, failedJobLinkIn } from './ci-log.js'
 
 export const PREFIX = '[bus:answer] '
-const SESSION_ID_FLAG = '--session-id'
-const RESUME_FLAG = '--resume'
-const CLAUDE_PROJECTS = path.join(os.homedir(), '.claude', 'projects')
 export const ANSWER_BEAT_MS = 60_000
 export const DIFF_PROMPT_LIMIT = 100_000
 
@@ -61,12 +58,10 @@ export interface Answered {
   steps?: StepSeconds
 }
 
-const USAGE_TOKEN_FIELDS = ['input_tokens', 'output_tokens', 'cache_creation_input_tokens', 'cache_read_input_tokens']
-
-export function tokensOf(usage: unknown): number | null {
-  if (usage === null || typeof usage !== 'object')
+export function tokensOf(usage: Usage | null): number | null {
+  if (usage === null)
     return null
-  const counts = USAGE_TOKEN_FIELDS.map(field => (usage as Record<string, unknown>)[field]).filter(value => typeof value === 'number')
+  const counts = [usage.input, usage.output, usage.cacheWrite, usage.cached].filter(value => typeof value === 'number')
   return counts.length === 0 ? null : counts.reduce((sum, count) => sum + count, 0)
 }
 
@@ -200,19 +195,11 @@ export function unmergedQuestion(card: CardSession, gap: FreshBaseGap): string {
 export const MERGE_STEP = '.merge'
 
 function measuredOf(stdoutPaths: readonly string[]): { tokens?: number | null } {
-  const results = stdoutPaths.map(readResultFields).filter(result => result.resultLine === 'present')
+  const results = stdoutPaths.map(streamReading).filter(result => result.end !== 'missing')
   if (results.length === 0)
     return {}
   const counts = results.map(result => tokensOf(result.usage)).filter((count): count is number => count !== null)
   return { tokens: counts.length === 0 ? null : counts.reduce((sum, count) => sum + count, 0) }
-}
-
-export function resumeArgv(sessionId: string, prompt: string, addDirs: string[] = []): string[] {
-  return [...addDirs.flatMap(dir => ['--add-dir', dir]), ...HEADLESS_FLAGS.filter(flag => flag !== SESSION_ID_FLAG), RESUME_FLAG, sessionId, prompt]
-}
-
-export function projectDirOf(worktree: string): string {
-  return worktree.replace(/[^a-z0-9]/gi, '-')
 }
 
 function ciLogLines(ciLog: FailedJobLog | null | undefined): string[] {
@@ -261,37 +248,9 @@ function ownerQuestionIn(file: string): string | null {
   return reason === '' ? null : reason
 }
 
-function resultEntryOf(stdoutPath: string): Record<string, unknown> | null {
-  if (!existsSync(stdoutPath))
-    return null
-  let found: Record<string, unknown> | null = null
-  for (const line of readFileSync(stdoutPath, 'utf8').split('\n')) {
-    try {
-      const parsed: unknown = JSON.parse(line)
-      if (parsed !== null && typeof parsed === 'object' && (parsed as Record<string, unknown>).type === 'result')
-        found = parsed as Record<string, unknown>
-    }
-    catch {}
-  }
-  return found
-}
-
-function inputAimsAt(input: Record<string, unknown>, file: string): boolean {
-  return input.file_path === file || (typeof input.command === 'string' && input.command.includes(file))
-}
-
-function nonEmpty(text: unknown): string | null {
-  return typeof text === 'string' && text.trim() !== '' ? text.trim() : null
-}
-
 export function refusedOwnerQuestionIn(stdoutPath: string, file: string): string | null {
-  const result = resultEntryOf(stdoutPath)
-  const denials = Array.isArray(result?.permission_denials) ? result.permission_denials as unknown[] : []
-  const inputs = denials.map(denial => (denial !== null && typeof denial === 'object' ? (denial as Record<string, unknown>).tool_input : null)).filter((input): input is Record<string, unknown> => input !== null && typeof input === 'object')
-  const refused = inputs.find(input => inputAimsAt(input, file))
-  if (refused === undefined)
-    return null
-  return nonEmpty(refused.content) ?? nonEmpty(result?.result)
+  const refused = streamReading(stdoutPath).denials.find(denial => denial.target.includes(file))
+  return refused === undefined || refused.text === '' ? null : refused.text
 }
 
 function cardLines(cardId: number, cardText: string | null): string[] {
@@ -631,7 +590,7 @@ export function realAnswererTools(busPath: string = defaultBusPath()): AnswererT
     held: busLeaseHeld(busPath),
     pulse: busSessionPulse(busPath, () => new Date()),
     cardText: busCardBodies(busPath),
-    available: card => existsSync(path.join(CLAUDE_PROJECTS, projectDirOf(card.worktree), `${card.session}.jsonl`)),
+    available: card => clientTranscript(process.env, card.worktree, card.session) !== null,
     remoteHead,
     localHead,
     spawn: spawnClient,

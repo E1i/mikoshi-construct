@@ -5,6 +5,7 @@ import type { AnswerOutcome, ShardDecider, ShardDecision } from '../../nodes/ans
 import type { AnswerNodeParts, AnswerRun, AnswerStep } from '../../nodes/answer/answer-worker.js'
 import type { Answered, Answerer } from '../../nodes/answer/answerer.js'
 import type { CardTreeTools } from '../../ports/card-tree.js'
+import type { Usage } from '../../ports/client/contract.js'
 import type { Isolation, IsolationReader } from '../../ports/isolation.js'
 import type { AnswerInput } from '../../ports/prompt-store.js'
 import type { LastHeartbeat } from '../../supervisor/heartbeat.js'
@@ -744,9 +745,10 @@ describe('the answer node', () => {
   })
 
   it('tokensOf sums the input, output and cache counts of a result usage and is null without one', () => {
-    expect(tokensOf({ input_tokens: 10, output_tokens: 200, cache_creation_input_tokens: 3_000, cache_read_input_tokens: 45_000 })).toBe(48_210)
-    expect(tokensOf({ output_tokens: 5 })).toBe(5)
-    expect(tokensOf({})).toBeNull()
+    const reported = (counts: Partial<Usage>): Usage => ({ input: null, cached: null, cacheWrite: null, output: null, reasoning: null, ...counts }) as unknown as Usage
+    expect(tokensOf(reported({ input: 10, output: 200, cacheWrite: 3_000, cached: 45_000 }))).toBe(48_210)
+    expect(tokensOf(reported({ output: 5 }))).toBe(5)
+    expect(tokensOf(reported({}))).toBeNull()
     expect(tokensOf(null)).toBeNull()
   })
 

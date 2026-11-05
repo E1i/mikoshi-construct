@@ -187,7 +187,9 @@ describe('the handoff the bus builds', () => {
     const launchDir = path.join(root, 'launch')
     const start: SessionStart = { cardId: 1806, ts: '2026-11-05T05:00:00.000Z' }
 
-    handoffBuilder(launchDir, claudeHome)(card, start, 'the body of the card')
+    vi.stubEnv('CLAUDE_CONFIG_DIR', claudeHome)
+    handoffBuilder(launchDir)(card, start, 'the body of the card')
+    vi.unstubAllEnvs()
 
     const built = readFileSync(reportPath(launchDir, '1806'), 'utf8')
     expect(built).toContain('+after the session')
@@ -202,7 +204,9 @@ describe('the handoff the bus builds', () => {
     const launchDir = path.join(root, 'launch')
     const card: StartedCard = { session: 'session-2', worktree: path.join(root, 'gone'), branch: 'feat/x', base: 'f'.repeat(40), pid: 1, pgid: 1, contour: 'cheap' }
 
-    handoffBuilder(launchDir, path.join(root, 'claude'))(card, { cardId: 1807, ts: '2026-11-05T05:00:00.000Z' }, null)
+    vi.stubEnv('CLAUDE_CONFIG_DIR', path.join(root, 'claude'))
+    handoffBuilder(launchDir)(card, { cardId: 1807, ts: '2026-11-05T05:00:00.000Z' }, null)
+    vi.unstubAllEnvs()
 
     const built = readFileSync(reportPath(launchDir, '1807'), 'utf8')
     expect(built).toContain('the tree diff cannot be read')

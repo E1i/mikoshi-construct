@@ -4,7 +4,13 @@ import path from 'node:path'
 import process from 'node:process'
 import { describe, expect, it } from 'vitest'
 import { PREPARE_ENV_KEYS } from '../../ports/prepare-tree.js'
-import { HEADLESS_FLAGS, reviewModelOf, sessionArgv, SessionCeilingReached, sessionEnv, sessionModelOf, spawnSession, WINDOW_MARK, WINDOW_VARIABLE, withoutCard } from '../../ports/session.js'
+import { headlessInvocation, reviewModelOf, SessionCeilingReached, sessionEnv, spawnSession, WINDOW_MARK, WINDOW_VARIABLE, withoutCard } from '../../ports/session.js'
+
+const HEADLESS_FLAGS = ['-p', '--output-format', 'stream-json', '--verbose', '--permission-mode', 'auto', '--permission-prompts', 'none', '--strict-mcp-config', '--session-id']
+
+function headlessArgv(session: string, prompt: string, addDirs: string[] = [], model: string | undefined = undefined): string[] {
+  return headlessInvocation({ session, prompt, addDirs, pick: { model: model ?? null } }).args
+}
 
 function stubBinDir(script: string): string {
   const dir = mkdtempSync(path.join(tmpdir(), 'ghosts-session-bin-'))
@@ -14,44 +20,28 @@ function stubBinDir(script: string): string {
   return dir
 }
 
-describe('sessionArgv', () => {
+describe('the headless argv', () => {
   it('is the documented headless flags, the session id, then the prompt', () => {
-    const argv = sessionArgv('sess-1', '/implement do it')
+    const argv = headlessArgv('sess-1', '/implement do it')
     expect(argv).toEqual([...HEADLESS_FLAGS, 'sess-1', '/implement do it'])
     expect(argv).toHaveLength(12)
   })
 
   it('loads no MCP server from the user\'s configuration, since none is passed with --mcp-config', () => {
-    expect(sessionArgv('sess-1', '/implement do it')).toContain('--strict-mcp-config')
-    expect(sessionArgv('sess-1', '/implement do it')).not.toContain('--mcp-config')
+    expect(headlessArgv('sess-1', '/implement do it')).toContain('--strict-mcp-config')
+    expect(headlessArgv('sess-1', '/implement do it')).not.toContain('--mcp-config')
   })
 })
 
 describe('the review model of CONSTRUCT_REVIEW_MODEL', () => {
   it('with CONSTRUCT_REVIEW_MODEL set, argv holds --model <value> before the headless flags', () => {
-    const argv = sessionArgv('sess-1', 'review it', ['/reviews'], reviewModelOf({ CONSTRUCT_REVIEW_MODEL: 'claude-sonnet-5-5' }))
+    const argv = headlessArgv('sess-1', 'review it', ['/reviews'], reviewModelOf({ CONSTRUCT_REVIEW_MODEL: 'claude-sonnet-5-5' }))
     expect(argv).toEqual(['--add-dir', '/reviews', '--model', 'claude-sonnet-5-5', ...HEADLESS_FLAGS, 'sess-1', 'review it'])
   })
 
   it('with CONSTRUCT_REVIEW_MODEL unset or empty, argv holds no --model', () => {
-    expect(sessionArgv('sess-1', 'review it', [], reviewModelOf({}))).not.toContain('--model')
-    expect(sessionArgv('sess-1', 'review it', [], reviewModelOf({ CONSTRUCT_REVIEW_MODEL: ' ' }))).not.toContain('--model')
-  })
-})
-
-describe('sessionModelOf', () => {
-  it('the model the session ran is the model of its stream-json system/init event', () => {
-    const stream = [
-      '{"type":"system","subtype":"hook_started","model":"not-this-one"}',
-      'not json',
-      '{"type":"system","subtype":"init","model":"claude-opus-5-5"}',
-      '{"type":"result","subtype":"success"}',
-    ].join('\n')
-    expect(sessionModelOf(stream)).toBe('claude-opus-5-5')
-  })
-
-  it('a stream with no init event names no model', () => {
-    expect(sessionModelOf('{"type":"result"}\n')).toBeUndefined()
+    expect(headlessArgv('sess-1', 'review it', [], reviewModelOf({}))).not.toContain('--model')
+    expect(headlessArgv('sess-1', 'review it', [], reviewModelOf({ CONSTRUCT_REVIEW_MODEL: ' ' }))).not.toContain('--model')
   })
 })
 
@@ -156,7 +146,7 @@ describe('spawnSession', () => {
     })
 
     expect(code).toBe(0)
-    expect(readFileSync(argvFile, 'utf8').split('\0').filter(Boolean)).toEqual(sessionArgv('sess-1', '/implement do it'))
+    expect(readFileSync(argvFile, 'utf8').split('\0').filter(Boolean)).toEqual(headlessArgv('sess-1', '/implement do it'))
     expect(readFileSync(cwdFile, 'utf8').trim()).toBe(realpathSync(work))
     expect(readFileSync(ceilingFile, 'utf8')).toBe('0')
     expect(readFileSync(stdoutFile, 'utf8')).toBe('line-one\nline-two\n')

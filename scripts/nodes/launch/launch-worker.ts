@@ -46,7 +46,8 @@ import { LadderCardStarter } from '../../ladder/ladder-starter.js'
 import { briefBody, briefPathOf, ladderStep, reviewBody, tasksFilePathOf, tasksFileText } from '../../ladder/ladder.js'
 import { reviewOf } from '../../ladder/verdict.js'
 import { cardDecisionCommand } from '../../policy/shards.js'
-import { cardIsolationCommand } from '../../ports/client/claude/adapter.js'
+import { cardIsolationCommand, clientTranscript } from '../../ports/client/claude/adapter.js'
+import { clientAdapter } from '../../ports/client/index.js'
 import { realIsolationReader } from '../../ports/isolation.js'
 import { TICK_MS } from '../../ports/netwatch.js'
 import { prepareBeforeSession, prepareTree } from '../../ports/prepare-tree.js'
@@ -59,14 +60,13 @@ import { BUILD_DIR, BUILT_MODULE, builtEntryOf, installedPackage } from '../../s
 import { heartbeatEnv, lastHeartbeat } from '../../supervisor/heartbeat.js'
 import { stampLogOutput } from '../../supervisor/stamp.js'
 import { launchProcess, REAL_PROCESSES } from '../restart/chain-process.js'
-import { builtHandoff, continuationRefusal, CONTINUE_PROMPT, eddiesEvidence, lastStepsOf, MAX_RESTARTS, reachedContextLine, sessionWrittenPart, stoppedOnSpend } from './continuation.js'
+import { builtHandoff, continuationRefusal, CONTINUE_PROMPT, eddiesEvidence, MAX_RESTARTS, reachedContextLine, sessionWrittenPart, stoppedOnSpend } from './continuation.js'
 import { laneOverlapRecorder, layLanes, repositoryLanes } from './lane-assign.js'
 import { LaunchExecutor } from './launch-executor.js'
 import { gitChangedPaths, killQuietly, psPgid, ShiftCardStarter, spawnDetached } from './launch-starter.js'
 import { LEGACY_REASON, WITHDRAW_LEGACY_FLAG, withdrawLegacyLaunchTasks } from './launch-withdraw.js'
 import { renderPrompt } from './prompt.js'
 import { collectReport, missingReportDetail, recordedExitCode, REPORT_MISSING } from './report-collect.js'
-import { transcriptFile } from './session-journal.js'
 import { reportClosingOf } from './tree-pr.js'
 
 export const PREFIX = prefixOf('launch')
@@ -723,17 +723,16 @@ function treeDiffOf(card: StartedCard): string {
   }
 }
 
-function sessionSteps(claudeHome: string, card: StartedCard): string[] | null {
-  const file = transcriptFile(claudeHome, card.worktree, card.session)
-  return file !== null && existsSync(file) ? lastStepsOf(readFileSync(file, 'utf8')) : null
+function sessionSteps(card: StartedCard): string[] | null {
+  return clientAdapter().reading({ session: card.session, cwd: card.worktree, stdoutPath: null }).lastSteps
 }
 
-export function handoffBuilder(launchDir: string, claudeHome: string): (card: StartedCard, start: SessionStart, body: string | null) => void {
+export function handoffBuilder(launchDir: string): (card: StartedCard, start: SessionStart, body: string | null) => void {
   return (card, start, body) => {
     const saved = reportPath(launchDir, String(start.cardId))
     const report = existsSync(saved) ? readFileSync(saved, 'utf8') : null
     mkdirSync(path.dirname(saved), { recursive: true })
-    writeFileSync(saved, builtHandoff({ cardId: start.cardId, session: card.session, report, diff: treeDiffOf(card), body, steps: sessionSteps(claudeHome, card) }))
+    writeFileSync(saved, builtHandoff({ cardId: start.cardId, session: card.session, report, diff: treeDiffOf(card), body, steps: sessionSteps(card) }))
   }
 }
 
@@ -777,7 +776,7 @@ export async function runLaunchWorker(argv: string[], run: LaunchRun): Promise<n
     return runWithdrawLegacy(run.busPath, () => new Date())
   let node: LaunchNode | undefined
   const build = (db: DatabaseSync, mode: DetectionMode): LaunchNode => {
-    node = new LaunchNode({ db, starter: run.starter, ladder: run.ladder, clock: () => new Date(), session: run.session, mode, env: process.env, isolation: run.isolation, resulted: sessionLeftAResult(run.launchDir), endedWith: reportResultLine(run.launchDir), handedOff: handoffWrittenSince(run.launchDir), reportOf: reportSince(run.launchDir), collected: reportCollector(run.launchDir), warned: eddiesWarned, atContextLine: card => reachedContextLine(card.worktree, card.session), spendStopped: card => stoppedOnSpend(card.worktree, card.session), buildHandoff: handoffBuilder(run.launchDir, claudeHomeOf(process.env)), ...(run.treePr === undefined ? {} : { publish: startedCardPublisher(run.treePr, run.launchDir, process.env), committed: (card: StartedCard) => treeHoldsACommit(card.worktree, card.base) }), continuer: run.continuer, prompts: promptsDirOf(run.busPath) })
+    node = new LaunchNode({ db, starter: run.starter, ladder: run.ladder, clock: () => new Date(), session: run.session, mode, env: process.env, isolation: run.isolation, resulted: sessionLeftAResult(run.launchDir), endedWith: reportResultLine(run.launchDir), handedOff: handoffWrittenSince(run.launchDir), reportOf: reportSince(run.launchDir), collected: reportCollector(run.launchDir), warned: eddiesWarned, atContextLine: card => reachedContextLine(card.worktree, card.session), spendStopped: card => stoppedOnSpend(card.worktree, card.session), buildHandoff: handoffBuilder(run.launchDir), ...(run.treePr === undefined ? {} : { publish: startedCardPublisher(run.treePr, run.launchDir, process.env), committed: (card: StartedCard) => treeHoldsACommit(card.worktree, card.base) }), continuer: run.continuer, prompts: promptsDirOf(run.busPath) })
     return node
   }
   const pause = async (ms: number): Promise<unknown> => {
@@ -797,10 +796,6 @@ export function continuedOnCardText(task: ShiftTask, bodyOf: CardBodyReader): Sh
   if (parsed?.kind !== 'parked')
     return task
   return { ...task, body: `${task.body}\n\n${CARD_TEXT_HEADING}\n\n${parsed.parked.task.body}` }
-}
-
-function claudeHomeOf(env: NodeJS.ProcessEnv): string {
-  return env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude')
 }
 
 export function realStarterPorts(repo: string, env: NodeJS.ProcessEnv, header: string, uuid: () => string, bodyOf: CardBodyReader = () => null, cardSessions: (cardId: number) => string[] = () => [], installed: string | null = installedPackage(), busPath: string = busPathOf(env, os.homedir(), repo), prepare: TreePreparer = prepareTree): StarterPorts {
@@ -826,10 +821,7 @@ export function realStarterPorts(repo: string, env: NodeJS.ProcessEnv, header: s
     changedPaths: gitChangedPaths,
     readReport: file => existsSync(file) ? sessionWrittenPart(readFileSync(file, 'utf8')) : null,
     cardSessions,
-    readTranscript: (worktree, session) => {
-      const file = transcriptFile(claudeHomeOf(env), worktree, session)
-      return file !== null && existsSync(file) ? readFileSync(file, 'utf8') : null
-    },
+    readTranscript: (worktree, session) => clientTranscript(env, worktree, session),
     treeFile: readTreeFile,
   }
 }
