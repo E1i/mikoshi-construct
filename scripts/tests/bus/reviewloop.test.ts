@@ -125,7 +125,7 @@ function questionUnderShard(made: ReturnType<typeof mergeBench>, answerer: Answe
   const stop = Number((made.db.prepare(`SELECT max(id) AS id FROM events WHERE type = ?`).get(CARD_STOPPED) as { id: number }).id)
   queueTask(made.db, ts, { queue: 'answer', cardId: 905, stop })
   const cardTrees: CardTreeTools = { home: trees, exists: existsSync, branchOf: pr => `feat/card-${pr}`, recreate: () => {}, bringTo: () => {} }
-  const executor = new AnswerExecutor({ db: made.db, answerer, ownerMerges: () => OWNER_MERGES, clock: made.clock.now, trees: cardTrees, isolation: () => ({ level: 'partial', mechanism: 'claude-code-sandbox', gaps: [] }), dirty })
+  const executor = new AnswerExecutor({ db: made.db, answerer, ownerMerges: () => OWNER_MERGES, clock: made.clock.now, trees: cardTrees, isolation: () => ({ level: 'partial', mechanism: 'claude-code-sandbox', gaps: [] }), dirty, shardDecider: () => ({ answer: 'finish inside the touches' }) })
   return async () => executor.answer(leaseNext(made.db, ts, 'answer', 'worker:answer:worker-1')!)
 }
 
@@ -374,7 +374,7 @@ describe('the review loop', () => {
     made.close()
   })
 
-  it('a question asked again after a shard decision goes to the owner', async () => {
+  it('a question asked again after a shard decision holds for the window', async () => {
     const made = mergeBench()
     const again = 'may the card also touch .claude/agents/review.md?'
     const asked = questionUnderShard(made, async () => ({ session: 'card-session-1', resumed: true, before: sha('a'), after: sha('a'), owner: again }), () => false)
