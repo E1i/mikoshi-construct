@@ -300,10 +300,6 @@ it('an operation a later card fills throws a named error that names that card', 
     [() => adapter.reading({ session: SESSION, cwd: '/tree', stdoutPath: null }), 'clientreading'],
     [() => adapter.models(), 'clientmodels'],
     [() => adapter.modelFor('review', null, 'auto'), 'clientmodels'],
-    [() => adapter.processes.isClient('claude'), 'clientprocess'],
-    [() => adapter.processes.sessionMarker(SESSION), 'clientprocess'],
-    [() => adapter.processes.liveCwds(), 'clientprocess'],
-    [() => adapter.processes.isolationCommand(), 'clientprocess'],
   ]
   for (const [operation, card] of operations) {
     expect(operation).toThrow(ClientOperationPending)
