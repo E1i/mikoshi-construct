@@ -2207,12 +2207,23 @@ not a card number, is refused with exit `1`. The published CLI has no bus and so
 **Amending an admitted card.** `construct-intake --amend <#N>` edits the card in the bus with no file:
 it takes the body `--export` would print, applies the edits, and admits the result through the same
 checks as `--admit`, as a new `card.admitted` with source `amend`. `--touches` and `--creates` take
-`+<path>` to add and `-<path>` to remove, several comma-separated; `--note <line>` appends a line to the
-body; `--witness <old>=<new>` replaces one witness, and a weaker one is held as an owner wait exactly as
-under `--admit`; `--who shift|window` sets who takes the card. `--dry-run` prints the amended body and
-writes no event. The card number is the one `--amend` names; a card the bus never admitted, a removal of
-a path the card does not name, a witness the card does not hold, or an `--amend` with no edit is refused
-with exit `1`.
+`+<path>` to add and `-<path>` to remove, several as `+a,+b`, as `+a +b` or by repeating the flag; a
+removal that starts an argument is written `--touches=-<path>`, because a bare `-<path>` reads as a flag
+and is refused; `--note <line>` appends a line to the body; `--witness <old>=<new>` replaces one witness, and a weaker one
+is held as an owner wait exactly as under `--admit`; `--who shift|window` sets who takes the card. An edit
+recomputes the body's `risk:` line when it has one, and a change of touches recomputes its `runs:` line.
+`--dry-run` prints the amended body and writes no event. The card number is the one `--amend` names; a
+card the bus never admitted, a removal of a path the card does not name, a witness the card does not hold,
+or an `--amend` with no edit is refused with exit `1`.
+
+**Amending by request.** `pnpm bus:request amend --card <N>` makes the same edit in the bus, this
+repository's bus-wired entry: `--touches`, `--add-witness <witness>` and `--remove-witness <witness>` (the
+witness JSON and its id on a card with witness fields, the text or `W<n>` on a card with a list; each
+repeatable), `--owner-words <text>`, appended verbatim as `Owner, verbatim: "<text>"`, and
+`--depends +#<N>,-#<N>`. The bus runs the checks of `--admit`, recomputes `risk:` and `runs:`, keeps the
+card in its lane and then runs the lane check; no file is written, and `--export` stays a read. A
+correction the checks would make waits for `--auto-confirm`; a refused edit or a witness downgrade
+admits nothing and is answered with `request.refused` and its reason.
 
 **Unclear is written down.** A missing `contour` becomes `ladder` and a missing `decision` of an
 `implement` card becomes `owner`, and each default is written into the card as an `unclear:` line under
