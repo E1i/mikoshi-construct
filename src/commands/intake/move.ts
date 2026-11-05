@@ -1,8 +1,8 @@
 import type { Ui } from '../../ui/console.js'
-import type { CardAdmissionsPort, CardEventPort, RecordedIntake } from './index.js'
+import type { CardAdmissionsPort, CardEvent, CardEventPort, RecordedIntake } from './index.js'
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmdirSync } from 'node:fs'
 import path from 'node:path'
-import { CARD_DROPPED, CARD_MOVED } from '../../../scripts/core/events.js'
+import { CARD_DEFERRED, CARD_DROPPED, CARD_MOVED, DEFERRED_TARGET } from '../../../scripts/core/events.js'
 import { parseParkingFile } from '../../card/parking.js'
 import { laneOf } from './admit.js'
 import { bodySha, bodyShaWithoutTouches } from './confirm.js'
@@ -62,14 +62,22 @@ function isLaunchLane(parking: string, targetDir: string): boolean {
   return lane !== null && !DATED_PARKING.test(lane)
 }
 
-function moveType(parking: string, targetDir: string, slicing: Slicing | null): typeof CARD_MOVED | typeof CARD_DROPPED {
-  return slicing === null && isLaunchLane(parking, targetDir) ? CARD_MOVED : CARD_DROPPED
+function isDeferredTarget(parking: string, targetDir: string): boolean {
+  return path.relative(parking, targetDir) === DEFERRED_TARGET
+}
+
+function moveType(parking: string, targetDir: string, slicing: Slicing | null): typeof CARD_MOVED | typeof CARD_DEFERRED | typeof CARD_DROPPED {
+  if (slicing !== null)
+    return CARD_DROPPED
+  if (isDeferredTarget(parking, targetDir))
+    return CARD_DEFERRED
+  return isLaunchLane(parking, targetDir) ? CARD_MOVED : CARD_DROPPED
 }
 
 function recordMove(options: MoveOptions, number: number, moved: Moved, slicing: Slicing | null, ts: string): void {
   const type = moveType(options.parking, moved.to, slicing)
   const lane = path.basename(moved.to)
-  recordIntake([{ type, cardId: number, ts, dedupeKey: `${type}:${number}:${lane}:${ts}`, payload: { ...moved, lane, ...slicing } }], options.events)
+  recordIntake([{ type, cardId: number, ts, dedupeKey: `${type}:${number}:${lane}:${ts}`, payload: { ...moved, lane, ...slicing } } as CardEvent], options.events)
 }
 
 function projectionLagsTheJournal(admission: RecordedIntake | null | undefined): boolean {
