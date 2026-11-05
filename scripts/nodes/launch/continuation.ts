@@ -112,9 +112,6 @@ const SESSION_REPORT_BYTES = 800
 const TREE_DIFF_BYTES = 2000
 const CARD_BODY_BYTES = 1400
 const LAST_STEPS_BYTES = 800
-const LAST_STEP_COUNT = 12
-const STEP_TEXT_CHARS = 120
-const STEP_INPUT_KEYS = ['file_path', 'description', 'command', 'pattern', 'prompt'] as const
 const ANY_LINE_BREAK = /\r\n?|[\n\p{Zl}\p{Zp}]/u
 
 export interface SessionLeftovers {
@@ -171,25 +168,4 @@ export function builtHandoff(left: SessionLeftovers): string {
     quoted(steps, LAST_STEPS_BYTES),
     '',
   ].join('\n')
-}
-
-function oneLine(text: string): string {
-  return text.split(ANY_LINE_BREAK).join(' ').trim().slice(0, STEP_TEXT_CHARS)
-}
-
-function stepOf(block: Record<string, unknown>): string[] {
-  if (block.type === 'text' && typeof block.text === 'string')
-    return [oneLine(block.text)]
-  if (block.type !== 'tool_use' || typeof block.name !== 'string')
-    return []
-  const input = (block.input ?? {}) as Record<string, unknown>
-  const detail = STEP_INPUT_KEYS.map(key => input[key]).find(value => typeof value === 'string') as string | undefined
-  return [detail === undefined ? block.name : `${block.name} ${oneLine(detail)}`]
-}
-
-export function lastStepsOf(transcript: string): string[] {
-  return (entriesOf(transcript) as { type?: unknown, message?: { content?: unknown } }[]).flatMap((entry) => {
-    const content = entry.type === 'assistant' ? entry.message?.content : undefined
-    return Array.isArray(content) ? (content as (Record<string, unknown> | null)[]).flatMap(block => block === null ? [] : stepOf(block)) : []
-  }).filter(step => step !== '').slice(-LAST_STEP_COUNT)
 }

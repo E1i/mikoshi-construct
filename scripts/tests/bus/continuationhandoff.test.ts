@@ -12,11 +12,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { appendEvent } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_CONTINUED, CARD_STOPPED } from '../../core/events.js'
 import { eddiesJournalPath, reportPath } from '../../core/places.js'
-import { BUILT_HANDOFF_HEADING, builtHandoff, continuationRefusal, lastStepsOf, MAX_RESTARTS, QUESTION_LINE, sessionWrittenPart, stoppedOnSpend } from '../../nodes/launch/continuation.js'
+import { BUILT_HANDOFF_HEADING, builtHandoff, continuationRefusal, MAX_RESTARTS, QUESTION_LINE, sessionWrittenPart, stoppedOnSpend } from '../../nodes/launch/continuation.js'
 import { pathTokens } from '../../nodes/launch/launch-starter.js'
 import { handoffBuilder, HEADER_FILE, LaunchNode, realStarterPorts } from '../../nodes/launch/launch-worker.js'
 import { transcriptFile } from '../../nodes/launch/session-journal.js'
 import { reportClosingOf } from '../../nodes/launch/tree-pr.js'
+import { clientAdapter } from '../../ports/client/index.js'
 import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
 import { HANDOFF_LIMIT } from '../../window/handoff-check.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
@@ -187,7 +188,9 @@ describe('the handoff the bus builds', () => {
     const launchDir = path.join(root, 'launch')
     const start: SessionStart = { cardId: 1806, ts: '2026-11-05T05:00:00.000Z' }
 
-    handoffBuilder(launchDir, claudeHome)(card, start, 'the body of the card')
+    vi.stubEnv('CLAUDE_CONFIG_DIR', claudeHome)
+    handoffBuilder(launchDir)(card, start, 'the body of the card')
+    vi.unstubAllEnvs()
 
     const built = readFileSync(reportPath(launchDir, '1806'), 'utf8')
     expect(built).toContain('+after the session')
@@ -202,7 +205,9 @@ describe('the handoff the bus builds', () => {
     const launchDir = path.join(root, 'launch')
     const card: StartedCard = { session: 'session-2', worktree: path.join(root, 'gone'), branch: 'feat/x', base: 'f'.repeat(40), pid: 1, pgid: 1, contour: 'cheap' }
 
-    handoffBuilder(launchDir, path.join(root, 'claude'))(card, { cardId: 1807, ts: '2026-11-05T05:00:00.000Z' }, null)
+    vi.stubEnv('CLAUDE_CONFIG_DIR', path.join(root, 'claude'))
+    handoffBuilder(launchDir)(card, { cardId: 1807, ts: '2026-11-05T05:00:00.000Z' }, null)
+    vi.unstubAllEnvs()
 
     const built = readFileSync(reportPath(launchDir, '1807'), 'utf8')
     expect(built).toContain('the tree diff cannot be read')
@@ -260,6 +265,17 @@ describe('the handoff the bus builds', () => {
   })
 })
 
+function stepsRead(transcript: string): string[] | null {
+  const home = tempRoot()
+  const file = transcriptFile(home, '/tree', 'stepped-session')!
+  mkdirSync(path.dirname(file), { recursive: true })
+  writeFileSync(file, transcript)
+  vi.stubEnv('CLAUDE_CONFIG_DIR', home)
+  const { lastSteps } = clientAdapter().reading({ session: 'stepped-session', cwd: '/tree', stdoutPath: null })
+  vi.unstubAllEnvs()
+  return lastSteps
+}
+
 describe('the last steps of a session', () => {
   it('reads tool uses and text of the assistant only, the latest last, and survives a broken line', () => {
     const transcript = [
@@ -269,16 +285,16 @@ describe('the last steps of a session', () => {
       assistantLine([{ type: 'tool_use', name: 'Bash', input: { command: 'pnpm lint', description: 'Run lint' } }, { type: 'tool_use', name: 'ToolSearch', input: {} }]),
     ].join('\n')
 
-    expect(lastStepsOf(transcript)).toEqual(['first said', 'Bash Run lint', 'ToolSearch'])
+    expect(stepsRead(transcript)).toEqual(['first said', 'Bash Run lint', 'ToolSearch'])
   })
 
   it('keeps only the latest twelve', () => {
     const transcript = Array.from({ length: 20 }, (_, at) => assistantLine([{ type: 'text', text: `step ${at}` }])).join('\n')
 
-    const steps = lastStepsOf(transcript)
+    const steps = stepsRead(transcript)
 
     expect(steps).toHaveLength(12)
-    expect(steps.at(-1)).toBe('step 19')
+    expect(steps?.at(-1)).toBe('step 19')
   })
 })
 

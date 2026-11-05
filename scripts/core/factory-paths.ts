@@ -58,6 +58,7 @@ export const FACTORY_NAMED = {
   sqliteTest: 'scripts/tests/bus/sqlite.test.ts',
   layersTest: 'scripts/tests/ci/layers.test.ts',
   ownerMergesTest: 'scripts/tests/shredder/owner-merges.test.ts',
+  clientSealTest: 'scripts/tests/client/seal.test.ts',
 } as const
 
 export const FACTORY_FORMER_FOLDERS = {
