@@ -139,18 +139,14 @@ export function layerIdOf(entry: string): string {
   return entry.slice(LAYER_ENTRY_PREFIX.length)
 }
 
-function layerIds(): ReadonlySet<string> {
-  const root = LAYER_MAP_ROOTS.find(candidate => existsSync(path.join(candidate, LAYER_MAP)))
-  if (root === undefined)
-    return new Set()
-  const { files, folders } = JSON.parse(readFileSync(path.join(root, LAYER_MAP), 'utf8')) as Record<'files' | 'folders', Record<string, string>>
-  return new Set([...Object.values(files), ...Object.values(folders)])
-}
-
-function layerEntryRefusals(entries: readonly string[]): string[] {
+export function layerEntryRefusals(entries: readonly string[], roots: readonly string[] = LAYER_MAP_ROOTS): string[] {
   if (entries.length === 0)
     return []
-  const known = layerIds()
+  const root = roots.find(candidate => existsSync(path.join(candidate, LAYER_MAP)))
+  if (root === undefined)
+    return [`runs entries ${entries.join(', ')} cannot be checked: this build holds no ${LAYER_MAP}`]
+  const { files, folders } = JSON.parse(readFileSync(path.join(root, LAYER_MAP), 'utf8')) as Record<'files' | 'folders', Record<string, string>>
+  const known = new Set([...Object.values(files), ...Object.values(folders)])
   return entries.filter(entry => !known.has(layerIdOf(entry))).map(entry => `runs entry '${entry}' names no layer of ${LAYER_MAP}`)
 }
 
