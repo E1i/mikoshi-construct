@@ -9,6 +9,7 @@ import type { LadderSteps } from '../../ladder/ladder-starter.js'
 import type { DiskReader } from '../../ports/disk.js'
 import type { IsolationReader } from '../../ports/isolation.js'
 import type { TreePreparer } from '../../ports/prepare-tree.js'
+import type { TreeOrigin } from '../../ports/worktree.js'
 import type { ProcessTable } from '../restart/chain-process.js'
 import type { Contour } from './launch-candidates.js'
 import type { CardStarter, LaunchOutcome, StartedCard } from './launch-executor.js'
@@ -55,6 +56,7 @@ import { clientCommand, sessionEnv } from '../../ports/session.js'
 import { CARD_SESSION_SANDBOX } from '../../ports/shift-settings.js'
 import { builtTreePr, HTTPS_ORIGIN_ENV, launchDirOf, TREE_PR_ENTRY, treeHoldsACommit, treePrCommand, treePrPublisher } from '../../ports/tree-publish.js'
 import { cardTree } from '../../ports/worktree-home.js'
+import { treeOriginIn } from '../../ports/worktree.js'
 import { BUILD_DIR, BUILT_MODULE, builtEntryOf, installedPackage } from '../../supervisor/bg.js'
 import { heartbeatEnv, lastHeartbeat } from '../../supervisor/heartbeat.js'
 import { stampLogOutput } from '../../supervisor/stamp.js'
@@ -665,6 +667,7 @@ export interface LaunchRun {
   isolation: IsolationReader
   launchDir: string
   treePr?: string
+  treeOrigin?: (worktree: string) => TreeOrigin | null
 }
 
 export function runWithdrawLegacy(busPath: string, clock: () => Date): number {
@@ -771,7 +774,7 @@ export async function runLaunchWorker(argv: string[], run: LaunchRun): Promise<n
     return runWithdrawLegacy(run.busPath, () => new Date())
   let node: LaunchNode | undefined
   const build = (db: DatabaseSync, mode: DetectionMode): LaunchNode => {
-    node = new LaunchNode({ db, starter: run.starter, ladder: run.ladder, clock: () => new Date(), session: run.session, mode, env: process.env, isolation: run.isolation, resulted: sessionLeftAResult(run.launchDir), endedWith: reportResultLine(run.launchDir), handedOff: handoffWrittenSince(run.launchDir), reportOf: reportSince(run.launchDir), collected: reportCollector(run.launchDir), warned: eddiesWarned, atContextLine: card => reachedContextLine(card.worktree, card.session), spendStopped: card => stoppedOnSpend(card.worktree, card.session), buildHandoff: handoffBuilder(run.launchDir), ...(run.treePr === undefined ? {} : { publish: startedCardPublisher(run.treePr, run.launchDir, process.env), committed: (card: StartedCard) => treeHoldsACommit(card.worktree, card.base) }), continuer: run.continuer, prompts: promptsDirOf(run.busPath) })
+    node = new LaunchNode({ db, starter: run.starter, ladder: run.ladder, clock: () => new Date(), session: run.session, mode, env: process.env, isolation: run.isolation, resulted: sessionLeftAResult(run.launchDir), endedWith: reportResultLine(run.launchDir), handedOff: handoffWrittenSince(run.launchDir), reportOf: reportSince(run.launchDir), collected: reportCollector(run.launchDir), warned: eddiesWarned, atContextLine: card => reachedContextLine(card.worktree, card.session), spendStopped: card => stoppedOnSpend(card.worktree, card.session), buildHandoff: handoffBuilder(run.launchDir), ...(run.treePr === undefined ? {} : { publish: startedCardPublisher(run.treePr, run.launchDir, process.env), committed: (card: StartedCard) => treeHoldsACommit(card.worktree, card.base) }), continuer: run.continuer, prompts: promptsDirOf(run.busPath), ...(run.treeOrigin === undefined ? {} : { treeOrigin: run.treeOrigin }) })
     return node
   }
   const pause = async (ms: number): Promise<unknown> => {
@@ -793,13 +796,31 @@ export function continuedOnCardText(task: ShiftTask, bodyOf: CardBodyReader): Sh
   return { ...task, body: `${task.body}\n\n${CARD_TEXT_HEADING}\n\n${parsed.parked.task.body}` }
 }
 
-export function realStarterPorts(repo: string, env: NodeJS.ProcessEnv, header: string, uuid: () => string, bodyOf: CardBodyReader = () => null, cardSessions: (cardId: number) => string[] = () => [], installed: string | null = installedPackage(), busPath: string = busPathOf(env, os.homedir(), repo), prepare: TreePreparer = prepareTree): StarterPorts {
+export class CutTreeOrigins {
+  private readonly byTree = new Map<string, TreeOrigin>()
+
+  note(worktree: string, taskStartOutput: string): void {
+    const origin = treeOriginIn(taskStartOutput)
+    if (origin !== null)
+      this.byTree.set(worktree, origin)
+  }
+
+  readonly take = (worktree: string): TreeOrigin | null => {
+    const origin = this.byTree.get(worktree) ?? null
+    this.byTree.delete(worktree)
+    return origin
+  }
+}
+
+export function realStarterPorts(repo: string, env: NodeJS.ProcessEnv, header: string, uuid: () => string, bodyOf: CardBodyReader = () => null, cardSessions: (cardId: number) => string[] = () => [], installed: string | null = installedPackage(), busPath: string = busPathOf(env, os.homedir(), repo), prepare: TreePreparer = prepareTree, origins: CutTreeOrigins = new CutTreeOrigins()): StarterPorts {
   const taskStart = taskStartCommand(installed)
   return {
     read: bodyOf,
     cut: (task) => {
-      execFileSync(taskStart.file, [...taskStart.args, task.branch, '--card', task.card.line], { cwd: repo, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
-      return cardTree(env, busPath, String(task.card.id))
+      const output = execFileSync(taskStart.file, [...taskStart.args, task.branch, '--card', task.card.line], { cwd: repo, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+      const worktree = cardTree(env, busPath, String(task.card.id))
+      origins.note(worktree, output)
+      return worktree
     },
     base: worktree => execFileSync('git', ['-C', worktree, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
     spawnDetached: (detached) => {
@@ -851,8 +872,8 @@ export function busCardSessions(busPath: string): (cardId: number) => string[] {
   }
 }
 
-export function busStarterPorts(busPath: string, repo: string, env: NodeJS.ProcessEnv, header: string, uuid: () => string): StarterPorts {
-  return realStarterPorts(repo, env, header, uuid, busCardBodies(busPath), busCardSessions(busPath), installedPackage(), busPath)
+export function busStarterPorts(busPath: string, repo: string, env: NodeJS.ProcessEnv, header: string, uuid: () => string, origins?: CutTreeOrigins): StarterPorts {
+  return realStarterPorts(repo, env, header, uuid, busCardBodies(busPath), busCardSessions(busPath), installedPackage(), busPath, prepareTree, origins)
 }
 
 export function repoHandoffEnv(env: NodeJS.ProcessEnv, repo: string, home: string = os.homedir()): NodeJS.ProcessEnv {
@@ -900,10 +921,11 @@ async function main(): Promise<number> {
   const env = repoHandoffEnv(process.env, process.cwd())
   const places = launchPlaces(os.homedir(), process.cwd(), busPath)
   const header = readFileSync(HEADER_FILE, 'utf8')
-  const ports = busStarterPorts(busPath, process.cwd(), env, header, randomUUID)
+  const origins = new CutTreeOrigins()
+  const ports = busStarterPorts(busPath, process.cwd(), env, header, randomUUID, origins)
   const starter = new ShiftCardStarter(places, ports)
   const ladder = new LadderCardStarter({ ...places, repo: process.cwd() }, ports, repoLadderSteps(process.cwd(), env, busPath))
-  return runLaunchWorker(process.argv.slice(2), { busPath, starter, ladder, continuer: starter, session: randomUUID(), pause: sleep, launchDir: places.launchDir, treePr: places.treePr, isolation: realIsolationReader(env, process.cwd(), launchIsolationCommand(clientCommand()), { sandbox: CARD_SESSION_SANDBOX }) })
+  return runLaunchWorker(process.argv.slice(2), { busPath, starter, ladder, continuer: starter, session: randomUUID(), pause: sleep, launchDir: places.launchDir, treePr: places.treePr, treeOrigin: origins.take, isolation: realIsolationReader(env, process.cwd(), launchIsolationCommand(clientCommand()), { sandbox: CARD_SESSION_SANDBOX }) })
 }
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
