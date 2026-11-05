@@ -51,11 +51,19 @@ export interface TreePublishing {
   publish: (card: CardSession, cardId: number) => void
 }
 
+export interface ShardDecision {
+  answer: string
+  doneBy?: string
+}
+
+export type ShardDecider = (lease: Lease, question: string) => ShardDecision | null
+
 export interface AnswerParts {
   db: DatabaseSync
   answerer: Answerer
   ownerMerges: () => string
   clock: () => Date
+  shardDecider?: ShardDecider
   trees?: CardTreeTools
   treeMerge?: (card: CardSession) => TreeMerge
   isolation?: IsolationReader
@@ -152,8 +160,13 @@ export function scopeWideningAsked(question: string, scope: AdmittedScope | null
   return !underAShard || scope === null || !ASKS_ABOUT_THE_SCOPE.test(question) ? [] : pathsOutside(scope.touches, scope.creates, pathsIn(question))
 }
 
-function decisionSource(question: string, ground: string, decisions: string[]): AnswerSource {
-  return { kind: 'question', detail: `your question went to the window, and the window decided it under ${ground}: the card goes on without the owner. The question was: ${question}`, widen: null, events: [], decisions }
+function decisionSource(question: string, ground: string, decision: ShardDecision, decisions: string[]): AnswerSource {
+  const whoActs = decision.doneBy === undefined ? '' : ` ${decision.doneBy} does it, not this session.`
+  return { kind: 'question', detail: `your question went to the window, and the window decided it under ${ground}: ${decision.answer}.${whoActs} The card goes on without the owner. The question was: ${question}`, widen: null, events: [], decisions }
+}
+
+function heldForTheWindow(question: string, shard: string, why: string): string {
+  return `${question} (held for the window under the ${DECISIONS_SCOPE} shard ${shard}: ${why}; the window closes the wait with its answer)`
 }
 
 function reasonOfFailure(error: unknown): AnswerTechnicalReason {
@@ -435,16 +448,19 @@ export class AnswerExecutor {
     if (isolation.level === 'none')
       return this.ownersStop(lease, `${question} (the ${DECISIONS_SCOPE} shard ${shard.id} is refused without isolation: ${isolation.why})`, scope)
     const ground = `window shard ${shard.id} (${shard.scope}, by ${shard.by}, until ${shard.until}) under ${isolation.level} isolation`
+    const decision = this.parts.shardDecider?.(lease, question) ?? null
+    if (decision === null || decision.answer.trim() === '')
+      return this.ownersStop(lease, heldForTheWindow(question, shard.id, 'the bus has no decision text for it, and a shard decision without one is refused'), scope)
     assertHeld(this.parts.db, lease)
-    appendEvent(this.parts.db, this.event(lease, SHARD_DECIDED, { shard: shard.id, question, ground, options: DECISION_OPTIONS }))
-    const decidedSource = decisionSource(question, ground, this.boundDecisions(lease))
+    appendEvent(this.parts.db, this.event(lease, SHARD_DECIDED, { shard: shard.id, question, ground, options: DECISION_OPTIONS, answer: decision.answer, ...(decision.doneBy === undefined ? {} : { doneBy: decision.doneBy }) }))
+    const decidedSource = decisionSource(question, ground, decision, this.boundDecisions(lease))
     const decided = await this.session(lease, decidedSource, widened, card, false, this.parts.clock().getTime())
     if ('kind' in decided)
       return this.refusedOrDenied(lease, decided, widened)
     if (!leftNoNewHead(decided))
       return this.settled(lease, decidedSource, widened, card, decided, 0)
     if (decided.owner !== null)
-      return this.staleQuestion(lease, decided.owner) ?? this.ownersStop(lease, `${decided.owner} (asked again after the ${DECISIONS_SCOPE} shard ${shard.id} decided: ${question})`, scope)
+      return this.staleQuestion(lease, decided.owner) ?? this.ownersStop(lease, heldForTheWindow(decided.owner, shard.id, `the session could not act on the decision of: ${question}`), scope)
     if ((this.parts.dirty ?? treeDirtyOf)(card))
       return this.leftDirty(lease, card, decided.session)
     completeTask(this.parts.db, this.ts(), lease, scope)

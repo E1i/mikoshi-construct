@@ -77,7 +77,7 @@ async function askedUnderADecisionsShard(question: string): Promise<Asked> {
     return { session: 'card-session-1', resumed: true, before: 'a'.repeat(40), after: 'a'.repeat(40), owner }
   }
   const trees: CardTreeTools = { home: world.handoff, exists: existsSync, branchOf: pr => `feat/card-${pr}`, recreate: () => {}, bringTo: () => {} }
-  const executor = new AnswerExecutor({ db, answerer, ownerMerges: () => readFileSync('architecture/owner-merges.md', 'utf8'), clock: () => now, trees, isolation: () => ({ level: 'partial', mechanism: 'claude-code-sandbox', gaps: [] }) })
+  const executor = new AnswerExecutor({ db, answerer, ownerMerges: () => readFileSync('architecture/owner-merges.md', 'utf8'), clock: () => now, trees, isolation: () => ({ level: 'partial', mechanism: 'claude-code-sandbox', gaps: [] }), shardDecider: () => ({ answer: 'finish inside the touches' }) })
   const outcome = await executor.answer(leaseNext(db, ts, 'answer', 'worker:answer:worker-1')!)
   reduce(db)
   const decided = Number((db.prepare('SELECT count(*) AS n FROM events WHERE type = ?').get(SHARD_DECIDED) as { n: number }).n)
