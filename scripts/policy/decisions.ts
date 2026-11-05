@@ -136,6 +136,14 @@ function theBusProjectsTheFileSince(db: DatabaseSync, eventId: number): boolean 
   return db.prepare(`SELECT 1 FROM events WHERE type = '${DECISIONS_PROJECTED}' AND id < ? LIMIT 1`).get(eventId) !== undefined
 }
 
+function retiredByTheBus(db: DatabaseSync): Set<number> {
+  const rows = db.prepare(`
+    SELECT named.value AS decision_id FROM decisions, json_each(coalesce(decisions.supersedes, '[]')) AS named
+    UNION SELECT json_extract(payload, '$.decision_id') FROM events WHERE type = '${DECISION_EXPIRED}'
+  `).all() as { decision_id: number }[]
+  return new Set(rows.map(row => Number(row.decision_id)))
+}
+
 function foldDecisionsImported(db: DatabaseSync, event: StoredEvent): void {
   const actor = actorOf(db, event)
   if (actor !== NETWATCH)
@@ -148,11 +156,12 @@ function foldDecisionsImported(db: DatabaseSync, event: StoredEvent): void {
     reject('a decision_id is listed twice')
   const held = new Map(inForceDecisions(db).map(decision => [decision.decisionId, decision]))
   const kept = new Set(imported.filter(decision => sameDecision(held.get(decision.decisionId), decision)).map(decision => decision.decisionId))
+  const retired = retiredByTheBus(db)
   for (const decisionId of held.keys()) {
     if (!kept.has(decisionId))
       archive(db, decisionId)
   }
-  for (const decision of imported.filter(entry => !kept.has(entry.decisionId))) {
+  for (const decision of imported.filter(entry => !kept.has(entry.decisionId) && !retired.has(entry.decisionId))) {
     db.prepare(`
       INSERT INTO decisions (decision_id, text, scope, source, event_id, until, state) VALUES (?, ?, ?, ?, ?, ?, '${DECISION_IN_FORCE}')
       ON CONFLICT (decision_id) DO UPDATE SET text = excluded.text, scope = excluded.scope, source = excluded.source, event_id = excluded.event_id, until = excluded.until, state = excluded.state

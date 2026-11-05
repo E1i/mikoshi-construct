@@ -6,9 +6,12 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { appendEvent, openBus } from '../../core/db.js'
 import { reduce } from '../../core/reducer.js'
 import { boundDecisionLines } from '../../nodes/answer/answer-source.js'
-import { inForceDecisions, recordDecision } from '../../policy/decisions.js'
+import { expireDecisions, inForceDecisions, recordDecision } from '../../policy/decisions.js'
 import { requestDecision, requestFromOwnerShell } from '../../policy/decisions/add.js'
 import { archiveOf, runDecisionsRead, sessionCardOf } from '../../policy/decisions/read.js'
+import { liveDecisionOf } from '../../policy/live-decision.js'
+import { reservationOf } from '../../policy/policy.js'
+import { decisionsInForceAt, unspentShard } from '../../policy/shards.js'
 import { decisionsAdder, decisionsSettler } from '../../window/window-request-tools.js'
 import { pendingRequests } from '../../window/window-requests.js'
 
@@ -259,6 +262,42 @@ describe('owner decisions live in the bus', () => {
     expect(requestFromOwnerShell(['--settled', '#730', '[owner] x.'], channel, made.db, NOW, () => {}, () => {})).toBe(2)
     expect(readdirSync(channel)).toEqual([])
     expect(pendingRequests(made.db)).toEqual([])
+  })
+
+  it('a file import before the first rebuild keeps a superseded and an expired decision archived', () => {
+    const made = bench()
+    record(made, 1, 'first.')
+    record(made, 2, 'second, replacing the first.', [], [1])
+    const termed = `delegated. · until ${TERM}`
+    record(made, 3, termed)
+    expireDecisions(made.db, LATER)
+    reduce(made.db)
+    const imported = [{ decision_id: 1, text: 'first.', scope: [] }, { decision_id: 2, text: 'second, replacing the first.', scope: [] }, { decision_id: 3, text: termed, scope: [] }]
+    appendEvent(made.db, { ts: NOW.toISOString(), type: 'decisions.imported', actor: 'netwatch', cardId: null, pr: null, head: null, dedupeKey: 'decisions.imported:test', payload: { decisions: imported }, legacy: false })
+    reduce(made.db)
+    expect(inForceNumbers(made.db)).toEqual([2])
+    expect(stateOf(made.db, 1)).toBe('archived')
+    expect(stateOf(made.db, 3)).toBe('archived')
+  })
+
+  it('a decision leaving force on its own card takes away what it granted and keeps a reservation until that card merges', () => {
+    const made = bench()
+    record(made, 1, '[owner] allow-live merge', [CARD])
+    record(made, 2, 'delegation for a shard.', [CARD])
+    record(made, 3, `#${OTHER_CARD} reserved for the owner.`, [OTHER_CARD])
+    appendEvent(made.db, { ts: NOW.toISOString(), type: 'shard.issued', actor: 'owner', cardId: CARD, pr: null, head: null, dedupeKey: 'shard.issued:under-2', payload: { id: 'under-2', under: 2 }, legacy: false })
+    reduce(made.db)
+    const inForce = (): ReturnType<typeof decisionsInForceAt> => decisionsInForceAt(made.db, NOW)
+    expect(liveDecisionOf(inForce(), 'merge')).toBe(1)
+    expect(unspentShard(made.db, CARD, null, inForce())?.under).toBe(2)
+
+    mergeDone(made, CARD)
+    expect(liveDecisionOf(inForce(), 'merge')).toBeNull()
+    expect(unspentShard(made.db, CARD, null, inForce())).toBeNull()
+    expect(inForce().some(decision => reservationOf(OTHER_CARD, decision.text))).toBe(true)
+
+    mergeDone(made, OTHER_CARD)
+    expect(inForce().some(decision => reservationOf(OTHER_CARD, decision.text))).toBe(false)
   })
 
   it('a rebuild with nothing changed writes nothing and records one marker', () => {
