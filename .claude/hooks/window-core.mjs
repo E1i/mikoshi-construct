@@ -3,6 +3,7 @@ import { spawnSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
+import { isCardSession } from './tab-window.mjs'
 
 const CORE_FILE = 'architecture/window-core.md'
 const MISSING_WARNING = 'WINDOW-CORE MISSING: DO NOT COMMIT. DO NOT MERGE. STOP.'
@@ -39,6 +40,8 @@ function startContext(root, input) {
 }
 
 async function main() {
+  if (isCardSession(process.env))
+    return
   const root = process.env.CLAUDE_PROJECT_DIR
   if (root == null || root === '') {
     refuse(`CLAUDE_PROJECT_DIR is not set, so ${CORE_FILE} cannot be read; the coordinating window starts without its laws`)
