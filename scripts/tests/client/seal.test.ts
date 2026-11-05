@@ -48,6 +48,7 @@ const GOLDEN_PIN_TESTS = [
   'client/reading',
   'client/seal',
   'client/spawn',
+  'client/startcost',
   'client/startcost-hooks',
   'client/window',
   'core/factory-paths',
