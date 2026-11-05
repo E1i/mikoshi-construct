@@ -88,7 +88,7 @@ function removedLines(output: string): string[] {
 }
 
 describe('a4: attach then detach is the identity on a clean repository', () => {
-  it('restores ls-files, status, the exclude bytes and the listing, and reports the 34 recorded paths', async () => {
+  it('restores ls-files, status, the exclude bytes and the listing, and reports the 35 recorded paths', async () => {
     const dir = fixture()
     const before = snapshot(dir)
     const record = await attached(dir)
@@ -103,9 +103,9 @@ describe('a4: attach then detach is the identity on a clean repository', () => {
     expect(existsSync(path.join(dir, '.construct'))).toBe(false)
     const removed = removedLines(output())
     expect(removed.sort()).toEqual([...record.files, ...record.directories].sort())
-    expect(removed).toHaveLength(34)
-    expect(result.removed).toHaveLength(34)
-    expect(output()).toContain(PLAIN_LORE.detached(34))
+    expect(removed).toHaveLength(35)
+    expect(result.removed).toHaveLength(35)
+    expect(output()).toContain(PLAIN_LORE.detached(35))
     expect(output()).not.toContain('JACKED')
   })
 })
@@ -168,7 +168,7 @@ describe('a5: without a record', () => {
 })
 
 describe('a6: what attach did not write is never removed', () => {
-  it('leaves the ledger and a local settings file, names both, shows them as untracked once the block is gone, and counts 33', async () => {
+  it('leaves the ledger and a local settings file, names both, shows them as untracked once the block is gone, and counts 34', async () => {
     const dir = fixture()
     const before = snapshot(dir)
     await attached(dir)
@@ -189,13 +189,13 @@ describe('a6: what attach did not write is never removed', () => {
     expect(output()).toContain(PLAIN_LORE.detachLeftBehind('.claude/settings.local.json'))
     expect(output()).not.toContain(PLAIN_LORE.detachLeftBehind('.construct/runs.jsonl'))
     expect(output()).toContain(PLAIN_LORE.detachLeftBehind('.construct/notes.txt'))
-    expect(result.removed).toHaveLength(33)
-    expect(output()).toContain(PLAIN_LORE.detached(33))
+    expect(result.removed).toHaveLength(34)
+    expect(output()).toContain(PLAIN_LORE.detached(34))
   })
 })
 
 describe('a carrier that is not what attach wrote', () => {
-  it('already absent: named, not counted, its emptied directory removed, count 33', async () => {
+  it('already absent: named, not counted, its emptied directory removed, count 34', async () => {
     const dir = fixture()
     const before = snapshot(dir)
     await attached(dir)
@@ -206,8 +206,8 @@ describe('a carrier that is not what attach wrote', () => {
 
     expect(result.status).toBe('done')
     expect(output()).toContain(PLAIN_LORE.detachAlreadyAbsent('.claude/commands/plan.md'))
-    expect(result.removed).toHaveLength(33)
-    expect(output()).toContain(PLAIN_LORE.detached(33))
+    expect(result.removed).toHaveLength(34)
+    expect(output()).toContain(PLAIN_LORE.detached(34))
     expectSameSnapshot(snapshot(dir), before)
   })
 
@@ -229,7 +229,7 @@ describe('a carrier that is not what attach wrote', () => {
     expect(readFileSync(path.join(dir, EXCLUDE_FILE), 'utf8')).toContain('# construct:begin')
   })
 
-  it('adopted: a carrier committed with git add -f stays with its directory, count 32', async () => {
+  it('adopted: a carrier committed with git add -f stays with its directory, count 33', async () => {
     const dir = fixture()
     const before = snapshot(dir)
     await attached(dir)
@@ -243,8 +243,8 @@ describe('a carrier that is not what attach wrote', () => {
     expect(existsSync(path.join(dir, ADOPTED))).toBe(true)
     expect(() => git(dir, 'ls-files', '--error-unmatch', ADOPTED)).not.toThrow()
     expect(output()).toContain(PLAIN_LORE.detachAdopted(ADOPTED))
-    expect(result.removed).toHaveLength(32)
-    expect(output()).toContain(PLAIN_LORE.detached(32))
+    expect(result.removed).toHaveLength(33)
+    expect(output()).toContain(PLAIN_LORE.detached(33))
     const after = snapshot(dir)
     expect(after.status).toBe(before.status)
     if (before.exclude != null)
@@ -272,7 +272,7 @@ describe('a4 over an exclude file git did not shape: the separator in the record
 
       expectSameSnapshot(snapshot(dir), before)
       expect(readFileSync(path.join(dir, EXCLUDE_FILE), 'utf8')).toBe(prior.content)
-      expect(record.files).toHaveLength(24)
+      expect(record.files).toHaveLength(25)
     })
   }
 })

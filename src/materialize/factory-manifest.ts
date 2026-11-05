@@ -13,6 +13,8 @@ export const FACTORY_MANIFEST: readonly string[] = [
   'scripts/construct/check-acceptance.mjs',
   'scripts/construct/eddies.mjs',
   'scripts/construct/eddies-measure.mjs',
+  'scripts/construct/environment-print.mjs',
+  'scripts/construct/shell-parser.mjs',
   'scripts/construct/window-heartbeat.mjs',
   'scripts/construct/window-hooks.mjs',
 ]

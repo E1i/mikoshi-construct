@@ -26,7 +26,7 @@ function carrierVars(root: string, harness: AttachHarness): TemplateVars {
   }
 }
 
-export const ATTACH_WRITES: readonly string[] = [...ATTACH_CARRIERS.targets, ATTACH_GUARD.target, ATTACH_GUARD.parser]
+export const ATTACH_WRITES: readonly string[] = [...ATTACH_CARRIERS.targets, ATTACH_GUARD.target, ATTACH_GUARD.parser, ATTACH_GUARD.environmentPrint]
 
 export const ATTACH_RUNTIME_FILES: readonly string[] = [
   '.construct/runs.jsonl',
