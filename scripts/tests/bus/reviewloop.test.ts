@@ -263,7 +263,7 @@ describe('the review loop', () => {
     const lease: Lease = { taskKey: answerTasksOf(made.db, 1161)[0]!.task_key, queue: 'answer', cardId: 1161, pr: 1061, head: sha('a'), leaseGen: 1, actor: 'worker:answer:worker-1' }
     const request: AnswerRequest = { lease, source: { kind: 'ci', failedChecks: ['vitest 2/4'], events: [], decisions: [] }, widened: null, card: { session: 's', worktree: '/tree', branch: 'feat/card-1161' } }
     const log = 'FAIL scripts/tests/bus/queue.test.ts > the queue > expected 1 to be 2'
-    const prompt = answerPrompt(request, '/answers/s.1.owner.txt', null, GATE, undefined, log)
+    const prompt = answerPrompt(request, '/answers/s.1.owner.txt', null, GATE, undefined, { log, jobLink: null })
     expect(prompt).toContain(log)
     expect(prompt).not.toContain('gh run view --log-failed')
     made.close()
@@ -287,7 +287,7 @@ describe('the review loop', () => {
       publish: () => {},
       ciLog: (_card, head) => {
         logsRead.push(head)
-        return 'FAIL scripts/tests/bus/queue.test.ts > the queue > expected 1 to be 2'
+        return { log: 'FAIL scripts/tests/bus/queue.test.ts > the queue > expected 1 to be 2', jobLink: null }
       },
     })
     const cardTrees: CardTreeTools = { home: worktree, exists: existsSync, branchOf: () => `feat/card-${cardId}`, recreate: () => {}, bringTo: () => {} }

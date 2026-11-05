@@ -2,7 +2,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { ParkedTask } from '../../src/card/parking.js'
 import type { WitnessField } from '../../src/card/witness-fields.js'
 import type { LastHeartbeat } from '../supervisor/heartbeat.js'
-import { runsOf } from '../../src/card/covering-tests.js'
+import { layerMasksOf, runsOf } from '../../src/card/covering-tests.js'
 import { parseParkingFile } from '../../src/card/parking.js'
 import { RISK_PREFIX, SEAM_PREFIX, SLICE_PREFIX } from '../../src/card/risk.js'
 import { isWitnessFieldLine, witnessFieldsOf } from '../../src/card/witness-fields.js'
@@ -59,6 +59,7 @@ export interface CardFields {
   witnesses: string[]
   witnessFields: WitnessField[]
   runs: string[]
+  masks: string[]
   unclear: string[]
   risk: string | null
   seam: string[]
@@ -72,12 +73,12 @@ export interface CardFields {
   lastHeartbeat: LastHeartbeat | null
 }
 
-const CARD_FIELDS = ['id', 'name', 'kind', 'milestone', 'size', 'contour', 'decision', 'depends', 'blocks', 'cardLine', 'branch', 'touches', 'continue', 'who', 'priority', 'release', 'creates', 'prose', 'witnesses', 'witnessFields', 'runs', 'unclear', 'risk', 'seam', 'slice', 'path', 'lane'] as const satisfies readonly (keyof CardFields)[]
+const CARD_FIELDS = ['id', 'name', 'kind', 'milestone', 'size', 'contour', 'decision', 'depends', 'blocks', 'cardLine', 'branch', 'touches', 'continue', 'who', 'priority', 'release', 'creates', 'prose', 'witnesses', 'witnessFields', 'runs', 'masks', 'unclear', 'risk', 'seam', 'slice', 'path', 'lane'] as const satisfies readonly (keyof CardFields)[]
 
 export const CONTRACT_FIELDS: Record<Contract, readonly (keyof CardFields)[]> = {
   intake: [...CARD_FIELDS, 'text'],
   start: ['id', 'name', 'cardLine', 'branch', 'contour', 'path', 'touches', 'who', 'risk', 'lane', 'textSha', 'lastHeartbeat'],
-  review: ['id', 'cardLine', 'branch', 'continue', 'touches', 'risk', 'prose', 'witnesses', 'witnessFields', 'runs', 'unclear', 'text', 'lastHeartbeat'],
+  review: ['id', 'cardLine', 'branch', 'continue', 'touches', 'risk', 'prose', 'witnesses', 'witnessFields', 'runs', 'masks', 'unclear', 'text', 'lastHeartbeat'],
   close: ['id', 'cardLine', 'text'],
   board: ['id', 'name', 'contour', 'priority', 'who', 'depends', 'touches', 'creates', 'lane', 'state'],
 }
@@ -121,6 +122,7 @@ export function cardFields(parked: ParkedTask, body: CardBody): CardFields {
     witnesses: witnessesOf(task.body),
     witnessFields: witnessFieldsOf(task.body) ?? [],
     runs: runsOf(task.body),
+    masks: layerMasksOf(task.body),
     unclear: prefixed(task.body, UNCLEAR_PREFIX),
     risk: prefixed(task.body, RISK_PREFIX)[0] ?? null,
     seam: prefixed(task.body, SEAM_PREFIX),
