@@ -4,13 +4,17 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { planAdd } from '../../policy/decisions/add.js'
-import { DECISION_FORMAT, DECISIONS_IN_FORCE_LIMIT, decisionsRefusals, inForce, parseDecisions, spendDecisions } from '../../policy/decisions/decisions.js'
+import { DECISION_FORMAT, decisionsRefusals, inForce, parseDecisions } from '../../policy/decisions/decisions.js'
 import { runDecisionsRead } from '../../policy/decisions/read.js'
 
 const HEADER = '# Owner decisions\n\nOne line per decision, numbered D-N; a replaced one is marked superseded-by D-M.\n\n'
 
 function file(...lines: string[]): string {
   return `${HEADER}${lines.join('\n')}\n`
+}
+
+function after54(...lines: string[]): string {
+  return file(...Array.from({ length: 54 }, (_, index) => `- D-${index + 1} · 2026-10-08 — decision ${index + 1}.`), ...lines)
 }
 
 const ARCHIVE = '/d/owner-decisions.archive.md'
@@ -34,11 +38,6 @@ function read(text: string, args: string[] = ['/d/owner-decisions.md'], journal:
 
 function journal(...entries: object[]): JournalEntry[] {
   return entries as JournalEntry[]
-}
-
-function upToSpending(...lines: string[]): string {
-  const filler = Array.from({ length: 53 }, (_, index) => `- D-${index + 1} · 2026-10-08 — decision ${index + 1}.`)
-  return file(...filler, '- D-54 · 2026-10-09 — A decision bound to a card is spent once that card is merged or closed.', ...lines)
 }
 
 describe('owner decisions are a numbered record', () => {
@@ -116,14 +115,11 @@ describe('owner decisions are a numbered record', () => {
     expect(decisionsRefusals(file('- D-1 · 2026-10-08 — #686 stays whole. · superseded-by D-2', '- D-2 · 2026-10-08 — #686 stays whole.'))).toEqual([])
   })
 
-  it('refuses decisions in force over the size limit, and counts no superseded one toward it', () => {
-    const long = (number: number, superseded = ''): string => `- D-${number} · 2026-10-08 — ${`decision ${number} `.repeat(300)}${superseded}`
-    const over = file(long(1), long(2), long(3))
-    const refusals = decisionsRefusals(over)
-    expect(refusals).toHaveLength(1)
-    expect(refusals[0]).toMatch(new RegExp(`^\\[decisions\\] decisions in force: \\d+ bytes over the limit of ${DECISIONS_IN_FORCE_LIMIT}; mark the replaced ones superseded-by D-M$`))
-    expect(read(over).code).toBe(1)
-    expect(decisionsRefusals(file(long(1, ' · superseded-by D-3'), long(2), long(3)))).toEqual([])
+  it('refuses no decisions in force for their size', () => {
+    const long = (number: number): string => `- D-${number} · 2026-10-08 — ${`decision ${number} `.repeat(300)}`
+    const large = file(long(1), long(2), long(3))
+    expect(decisionsRefusals(large)).toEqual([])
+    expect(read(large).code).toBe(0)
   })
 
   it('refuses a malformed number: D-01, D-0, D-1.5 and D-1-2 are no D-N', () => {
@@ -229,12 +225,6 @@ describe('owner decisions are a numbered record', () => {
     expect(decisionsRefusals(unread.file, unread.archive)).toEqual([])
   })
 
-  it('counts no decision another one supersedes toward the size limit', () => {
-    const long = (number: number, tail = ''): string => `- D-${number} · 2026-10-08 — ${`decision ${number} `.repeat(300)}${tail}`
-    expect(decisionsRefusals(file(long(1), long(2), long(3)))).toHaveLength(1)
-    expect(decisionsRefusals(file(long(1), long(2), long(3, ' · supersedes D-1')))).toEqual([])
-  })
-
   it('refuses a supersedes that names itself, a later decision or none in the file', () => {
     expect(decisionsRefusals(file('- D-1 · 2026-10-08 — one. · supersedes D-1'))).toEqual(['[decisions] D-1: supersedes itself'])
     expect(decisionsRefusals(file('- D-1 · 2026-10-08 — one. · supersedes D-2', '- D-2 · 2026-10-08 — two.'))).toEqual(['[decisions] D-1: supersedes D-2, a later number; a decision retires only an earlier one'])
@@ -300,13 +290,18 @@ describe('a decision bound to a card is spent once the card is merged or closed'
     expect(parseDecisions(text).decisions.map(decision => [decision.body, decision.cards, decision.supersededBy])).toEqual([['one.', [686, 687], null], ['two.', [5], 3], ['three.', [], null]])
   })
 
-  it('marks a decision whose card has a merge line superseded-by D-54, and reads it out of force', () => {
-    const text = upToSpending('- D-55 · 2026-10-09 — #730 runs on lane-1. · card #730')
+  it('reads a decision whose card has a merge line out of force, in a file with no D-54', () => {
+    const text = file('- D-1 · 2026-10-09 — #730 runs on lane-1. · card #730')
     const result = read(text, undefined, journal({ event: 'merge', task: '730', pr: 674, by: 'E1i', commit: 'abc', ts: '2026-10-09T06:00:00Z' }))
     expect(result.code).toBe(0)
-    expect(result.out).not.toContain('- D-55 · 2026-10-09 — #730 runs on lane-1. · card #730')
-    expect(spendDecisions(text, card => card === 730)).toBe(text.replace('· card #730', '· card #730 · superseded-by D-54'))
-    expect(decisionsRefusals(spendDecisions(text, card => card === 730))).toEqual([])
+    expect(result.out).not.toContain('- D-1 · 2026-10-09 — #730 runs on lane-1. · card #730')
+  })
+
+  it('still reads a file whose lines an older build marked superseded-by D-54', () => {
+    const line = '- D-55 · 2026-10-09 — #730 runs on lane-1. · card #730 · superseded-by D-54'
+    const text = after54(line)
+    expect(read(text).code).toBe(0)
+    expect(read(text).out).not.toContain(line)
   })
 
   it('reading the decisions writes no file', () => {
@@ -314,7 +309,7 @@ describe('a decision bound to a card is spent once the card is merged or closed'
     try {
       const decisions = path.join(root, 'owner-decisions.md')
       const archive = path.join(root, 'owner-decisions.archive.md')
-      writeFileSync(decisions, upToSpending('- D-55 · 2026-10-09 — #730 runs on lane-1. · card #730', '- D-56 · 2026-10-09 — old. · decisions:add', '- D-57 · 2026-10-09 — new. · supersedes D-56 · decisions:add'))
+      writeFileSync(decisions, after54('- D-55 · 2026-10-09 — #730 runs on lane-1. · card #730', '- D-56 · 2026-10-09 — old. · decisions:add', '- D-57 · 2026-10-09 — new. · supersedes D-56 · decisions:add'))
       writeFileSync(archive, '')
       const snapshot = (): Array<[string, string, number]> => readdirSync(root).sort().map(name => [name, readFileSync(path.join(root, name), 'utf8'), statSync(path.join(root, name)).mtimeMs])
       const before = snapshot()
@@ -338,7 +333,7 @@ describe('a decision bound to a card is spent once the card is merged or closed'
   })
 
   it('marks a decision whose card is closed by a path line with a report or a verification', () => {
-    const text = upToSpending('- D-55 · 2026-10-09 — probe one. · card #728', '- D-56 · 2026-10-09 — fix two. · card #729')
+    const text = after54('- D-55 · 2026-10-09 — probe one. · card #728', '- D-56 · 2026-10-09 — fix two. · card #729')
     const result = read(text, undefined, journal(
       { event: 'path', task: '728', path: 'cheap', report: '/r/report.md', verification: 'run', ts: '2026-10-09T06:00:00Z' },
       { event: 'path', task: '729', path: 'ladder', pr: 1, verification: 'review', ts: '2026-10-09T06:00:00Z' },
@@ -347,7 +342,7 @@ describe('a decision bound to a card is spent once the card is merged or closed'
   })
 
   it('keeps in force a line with no card tail that names a merged card, and one whose tail holds an unmerged card', () => {
-    const text = upToSpending('- D-55 · 2026-10-09 — #730 runs on lane-1.', '- D-56 · 2026-10-09 — two cards. · card #730 #731')
+    const text = after54('- D-55 · 2026-10-09 — #730 runs on lane-1.', '- D-56 · 2026-10-09 — two cards. · card #730 #731')
     const result = read(text, undefined, journal(
       { event: 'merge', task: '730', pr: 674, by: 'E1i', commit: 'abc', ts: '2026-10-09T06:00:00Z' },
       { event: 'path', task: '731', path: 'cheap', started: '2026-10-09T05:00:00Z', ts: '2026-10-09T05:00:00Z' },
@@ -358,7 +353,7 @@ describe('a decision bound to a card is spent once the card is merged or closed'
   })
 
   it('keeps a decision on card #889 in force while the bus holds #889 running, though the journal closes it after the journal half of history ended', () => {
-    const text = upToSpending('- D-55 · 2026-10-13 — #889 stays a witness. · card #889')
+    const text = after54('- D-55 · 2026-10-13 — #889 stays a witness. · card #889')
     const result = read(text, undefined, journal(
       { event: 'path', task: '889', path: 'ladder', pr: 786, verification: 'run', ts: '2026-10-12T17:07:15.949Z' },
     ), null, new Map([['889', 'running']]))
@@ -367,25 +362,13 @@ describe('a decision bound to a card is spent once the card is merged or closed'
   })
 
   it('spends a decision whose card the bus holds merged or closed, with no journal line for it', () => {
-    const text = upToSpending('- D-55 · 2026-10-13 — one. · card #855', '- D-56 · 2026-10-13 — two. · card #928')
+    const text = after54('- D-55 · 2026-10-13 — one. · card #855', '- D-56 · 2026-10-13 — two. · card #928')
     const result = read(text, undefined, [], null, new Map([['855', 'closed'], ['928', 'merged']]))
     expect(result.code).toBe(0)
     expect(result.out.filter(line => line.startsWith('- D-55') || line.startsWith('- D-56'))).toEqual([])
   })
 
-  it('a decision bound to a merged card does not count toward the size limit', () => {
-    const long = 'decision '.repeat(Math.ceil(DECISIONS_IN_FORCE_LIMIT / 'decision '.length))
-    const text = upToSpending(`- D-55 · 2026-10-09 — first ${long} · card #730`, `- D-56 · 2026-10-09 — second ${long} · card #731`)
-    expect(decisionsRefusals(text)).toEqual([expect.stringContaining(`over the limit of ${DECISIONS_IN_FORCE_LIMIT}`)])
-    const merged = journal({ event: 'merge', task: '730', by: 'E1i', commit: 'abc', ts: '2026-10-09T06:00:00Z' })
-    expect(read(text, undefined, merged, null, new Map([['731', 'closed']]))).toMatchObject({ code: 0, err: [] })
-    expect(read(text, undefined, journal(), null, new Map([['730', 'merged'], ['731', 'closed']]))).toMatchObject({ code: 0, err: [] })
-    expect(read(text, undefined, merged).code).toBe(1)
-    expect(read(text, undefined, merged, null, new Map([['731', 'running']])).code).toBe(1)
-  })
-
-  it('touches nothing without a journal or without D-54 in the file', () => {
-    expect(read(upToSpending('- D-55 · 2026-10-09 — x. · card #730')).out).toContain('- D-55 · 2026-10-09 — x. · card #730')
-    expect(spendDecisions(file('- D-1 · 2026-10-08 — x. · card #730'), () => true)).toBe(file('- D-1 · 2026-10-08 — x. · card #730'))
+  it('touches nothing without a journal', () => {
+    expect(read(after54('- D-55 · 2026-10-09 — x. · card #730')).out).toContain('- D-55 · 2026-10-09 — x. · card #730')
   })
 })

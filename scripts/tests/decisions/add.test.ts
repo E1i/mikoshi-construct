@@ -5,7 +5,6 @@ import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { openBus } from '../../core/db.js'
 import { ARCHIVE_HEADER, requestDecision, runDecisionsAdd } from '../../policy/decisions/add.js'
-import { DECISIONS_IN_FORCE_LIMIT, decisionsRefusals } from '../../policy/decisions/decisions.js'
 import { runDecisionsRead } from '../../policy/decisions/read.js'
 import { pendingRequests } from '../../window/window-requests.js'
 
@@ -143,25 +142,12 @@ describe('pnpm decisions:add appends one owner decision', () => {
     expect(missing).toMatchObject({ code: 1, writes: 0, err: ['[decisions] --supersedes D-9: not a decision in the file; nothing written'] })
   })
 
-  it('an overflow the archive removes is written', () => {
-    const before = decisionsFile(long(1), long(2), long(3))
-    expect(decisionsRefusals(`${before}${long(4)}\n`)).toHaveLength(1)
-    const result = add({ [FILE]: before }, ['--supersedes', 'D-1', `[owner] ${'four '.repeat(400)}`])
-    expect(result.code).toBe(0)
-    expect(result.files[ARCHIVE]).toBe(`${ARCHIVE_HEADER}${long(1).trimEnd()} · superseded-by D-4\n`)
-    expect(result.files[FILE]).not.toContain('- D-1 ')
-    expect(decisionsRead(result.files).code).toBe(0)
-  })
-
-  it('decisions in force over the limit stop as a question for the owner', () => {
+  it('decisions in force of any size are written', () => {
     const before = decisionsFile(long(1), long(2, ' · superseded-by D-3'), long(3))
-    const result = add({ [FILE]: before }, [`[owner] ${'four '.repeat(1000)}`])
-    expect(result.code).toBe(1)
-    expect(result.writes).toBe(0)
-    expect(result.recorded).toEqual([])
-    expect(result.err).toHaveLength(1)
-    expect(result.err[0]).toMatch(new RegExp(`^\\[decisions\\] decisions in force would be \\d+ bytes, over the limit of ${DECISIONS_IN_FORCE_LIMIT} after the superseded, spent and lapsed ones go to the archive; decisions in force are never moved, so this is a question for the owner; nothing written$`))
-    expect(result.files).toEqual({ [FILE]: before })
+    const result = add({ [FILE]: before }, [`[owner] ${'four '.repeat(1000).trim()}`])
+    expect(result).toMatchObject({ code: 0, err: [] })
+    expect(result.recorded.map(decision => decision.decisionId)).toEqual([4])
+    expect(decisionsRead(result.files).code).toBe(0)
   })
 
   it('after decisions:add a lapsed decision line is gone from the decisions file and present in the archive', () => {
@@ -184,9 +170,9 @@ describe('pnpm decisions:add appends one owner decision', () => {
   })
 
   it('after decisions:add a card-spent decision line is gone from the decisions file and present in the archive', () => {
-    const archived = Array.from({ length: 53 }, (_, index) => `- D-${index + 1} · 2026-10-08 — archived ${index + 1}.\n`).join('')
+    const archived = Array.from({ length: 54 }, (_, index) => `- D-${index + 1} · 2026-10-08 — archived ${index + 1}.\n`).join('')
     const spent = '- D-55 · 2026-10-08 — five. · card #753'
-    const before = decisionsFile('- D-54 · 2026-10-08 — a decision bound to a card is spent when the card closes.', spent, '- D-56 · 2026-10-08 — six. · card #754')
+    const before = decisionsFile(spent, '- D-56 · 2026-10-08 — six. · card #754')
     const result = add({ [FILE]: before, [ARCHIVE]: `${ARCHIVE_HEADER}${archived}` }, ['[owner] seven.'], 0, card => card === 753)
     expect(result.code).toBe(0)
     expect(result.files[ARCHIVE]).toBe(`${ARCHIVE_HEADER}${archived}${spent}\n`)
@@ -219,7 +205,7 @@ describe('pnpm decisions:add in a window session asks the bus', () => {
       expect(requestDecision(['--from', 'answer', '--card', '#5', '[owner] x.'], db, NOW, 'window-1', line => asked.push(line))).toBe(0)
       const [request] = pendingRequests(db)
       expect(JSON.parse(request!.payload)).toEqual({ kind: 'decisions:add', text: '[owner] x.', from: 'answer', cards: ['#5'], supersedes: [] })
-      expect(asked.at(-1)).toBe(`[decisions] not written yet: window.request ${request!.id} waits for bus:run, which writes it into owner-decisions.md outside the sandbox and answers window.request.done or window.request.refused; while bus:run is down nothing is written`)
+      expect(asked.at(-1)).toBe(`[decisions] not written yet: window.request ${request!.id} waits for bus:run, which records it in the bus, rebuilds owner-decisions.md from the bus and answers window.request.done or window.request.refused; while bus:run is down nothing is written`)
     }
     finally {
       db.close()

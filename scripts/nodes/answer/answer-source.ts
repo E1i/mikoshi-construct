@@ -5,6 +5,7 @@ import { CARD_BODIES } from '../../core/card-bodies.js'
 import { cardHoldOf } from '../../core/card-hold.js'
 import { CARD_STARTED, CARD_STOPPED, QUESTION_AGENT, QUESTION_OWNER, REVIEW_RECORDED } from '../../core/events.js'
 import { latestTurnOf } from '../../core/queue.js'
+import { visibleToCard } from '../../policy/decisions/decisions.js'
 import { decisionsInForceAt } from '../../policy/shards.js'
 
 export const LATEST_EVENTS = 20
@@ -76,7 +77,9 @@ function decisionsBoundTo(db: DatabaseSync, cardId: number, now: Date): InForceD
 }
 
 export function boundDecisionLines(db: DatabaseSync, cardId: number, now: Date): string[] {
-  return decisionsBoundTo(db, cardId, now).map(decision => `D-${decision.decisionId}: ${decision.text}`)
+  return decisionsInForceAt(db, now)
+    .filter(decision => visibleToCard(decision, cardId))
+    .map(decision => `D-${decision.decisionId}: ${decision.text}`)
 }
 
 const QUESTION_REASONS: readonly unknown[] = [QUESTION_AGENT, QUESTION_OWNER]
