@@ -318,7 +318,7 @@ describe('the warnings strip', () => {
   it('with nothing to warn about the strip renders nothing and its slot collapses', () => {
     const html = renderBoard(pageWritten(WRITTEN, 60_000))
     expect(html).toContain('<div class="warnings" id="slot-warnings"></div>')
-    expect(html).not.toContain('class="warning-strip"')
+    expect(html).not.toContain('class="warning-strip bevel"')
     expect(html).toContain('.warnings:empty { display: none; }')
   })
 
@@ -326,6 +326,6 @@ describe('the warnings strip', () => {
     const html = renderBoard(pageWritten(WRITTEN, 60_000, [{ level: 'red', text: 'ctx <285k>' }, { level: 'amber', text: 'other' }]))
     expect(html).toContain('<span class="warning" data-level="red">ctx &lt;285k&gt;</span>')
     expect(html).toContain('<span class="warning" data-level="amber">other</span>')
-    expect(html.indexOf('class="warning-strip"')).toBeLessThan(html.indexOf('id="slot-services"'))
+    expect(html.indexOf('class="warning-strip bevel"')).toBeLessThan(html.indexOf('id="slot-services"'))
   })
 })
