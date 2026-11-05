@@ -5,7 +5,7 @@ import { homedir, tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { BOARD_EXIT } from '../../src/commands/board/index.js'
-import { COST_EXIT } from '../../src/commands/cost/index.js'
+import { COST_EXIT, projectKey } from '../../src/commands/cost/index.js'
 import { DOCTOR_EXIT } from '../../src/commands/doctor/index.js'
 import { MUTATE_APPLY_EXIT, MUTATE_JUDGE_EXIT } from '../../src/commands/mutate/index.js'
 import { SOULKILL_EXIT } from '../../src/commands/soulkill.js'
@@ -111,10 +111,6 @@ function projectsDir(world: World): string {
   const dir = path.join(world.home, '.claude/projects')
   mkdirSync(dir, { recursive: true })
   return dir
-}
-
-function projectKey(dir: string): string {
-  return dir.replace(/[/.]/g, '-')
 }
 
 function withRecordedRun(world: World): World {

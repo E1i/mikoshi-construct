@@ -11,8 +11,7 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { writtenBeforeHistoryEnds } from '../../../src/card/closed.js'
 import { parseCard, readBodyCard } from '../../../src/card/grammar.js'
-import { cheapClass, cheapForecastOf, defaultShiftRoot, sessionTokens } from '../../../src/commands/cost/cheap.js'
-import { claudeProjectsDir, projectKey } from '../../../src/commands/cost/claude-code.js'
+import { cheapClass, cheapForecastOf, claudeProjectsDir, defaultShiftRoot, projectKey, sessionTokens } from '../../../src/commands/cost/cheap.js'
 import { formatTokens } from '../../../src/commands/cost/expect.js'
 import { MUTATION_JUDGED_EVENT } from '../../../src/commands/mutate/journal.js'
 import { PLAIN_STYLE, renderSignal, terminalStyle } from '../../../src/ui/signal.js'
@@ -30,6 +29,8 @@ import { VERIFICATION_WORDS } from '../../core/verification.js'
 import { parseDecisions } from '../../policy/decisions/decisions.js'
 import { archiveOf } from '../../policy/decisions/read.js'
 import { closeWitnessDenial } from '../../policy/policy.js'
+import { SESSION_VARIABLE } from '../../ports/client/claude/adapter.js'
+import { clientAdapter } from '../../ports/client/index.js'
 import { execGh, readGhJson } from '../../ports/gh.js'
 
 export const PREFIX = '[task:close] '
@@ -38,7 +39,6 @@ const FLAGS = ['--pr', '--report', '--verification', '--override-report', '--sha
 const PR_NUMBER = /^[1-9]\d*$/
 const DECISION_REFERENCE = /^D-[1-9]\d*$/
 const CARD_MENTION = /(?<!PR )#([1-9]\d*)/g
-const SESSION_VARIABLE = 'CLAUDE_CODE_SESSION_ID'
 const CLOSER_SESSION_BY_HAND = 'by-hand'
 const CARD_VERIFIED_ROWS = `SELECT id, ts, card_id, pr, payload FROM events WHERE type = '${CARD_VERIFIED}' AND legacy = 0 AND card_id IS NOT NULL ORDER BY id`
 const REPORT_ROOTS = ['reports', 'probes'] as const
@@ -588,7 +588,7 @@ function realDeps(): TaskCloseDeps {
     busPath: defaultBusPath(),
     prCard: pr => prCardOf(defaultBusPath(), pr),
     exists: existsSync,
-    session: process.env[SESSION_VARIABLE] === '' ? undefined : process.env[SESSION_VARIABLE],
+    session: clientAdapter().ownSession(process.env) ?? undefined,
     projectsDir: claudeProjectsDir(),
     forecast: taskClass => cheapForecastOf(defaultShiftRoot(), taskClass, claudeProjectsDir(), defaultBusPath()),
     style: terminalStyle(process.stdout.isTTY, process.env.NO_COLOR),

@@ -1,6 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { GitHub } from '../ports/github.js'
 import type { SlotKind } from '../supervisor/scheduler.js'
+import { holdReason, plannedStalls } from '../nodes/launch/launch-candidates.js'
 import { Meter } from '../ports/meter.js'
 import { MAIN_BRANCH } from '../ports/snapshot.js'
 import { slotsOf, slotsVariable } from '../supervisor/scheduler.js'
@@ -113,6 +114,10 @@ export function stallLines(db: DatabaseSync, pulse: string | null, now: Date): s
   const rows = readOr(() => lastEventsOfCardsInFlight(db), [])
   const cards = rows.map(row => ({ cardId: Number(row.card_id), lastEventId: Number(row.id), lastType: row.type, lastTs: row.ts }))
   return stalledOf(cards, pulse ?? undefined, now.getTime()).map(stall => stallLine(stall, now.getTime()))
+}
+
+export function plannedStallLines(db: DatabaseSync, now: Date): string[] {
+  return readOr(() => plannedStalls(db, now.getTime()), []).map(card => `#${card.cardId} planned and startable, not started for ${card.minutes} minutes: ${holdReason(card.hold)}`)
 }
 
 function protectionStrict(meter: Meter): boolean {

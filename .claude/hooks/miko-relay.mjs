@@ -4,6 +4,7 @@ import { realpathSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import { isCardSession } from './tab-window.mjs'
 
 export const RELAYED_SCRIPTS = ['pre-compact']
 const RELAY_TIMEOUT_MS = 25_000
@@ -22,6 +23,8 @@ async function readStdin() {
 }
 
 async function main() {
+  if (isCardSession(process.env))
+    return
   const script = process.argv[2]
   const root = process.env.CLAUDE_PROJECT_DIR
   if (!RELAYED_SCRIPTS.includes(script) || root === undefined) {

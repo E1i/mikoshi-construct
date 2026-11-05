@@ -4,9 +4,11 @@ import path from 'node:path'
 import { JOURNAL_HISTORY_ENDS, writtenBeforeHistoryEnds } from '../../card/closed.js'
 import { parseCard } from '../../card/grammar.js'
 import { readBusTasks, readLegacyLines } from './bus.js'
-import { projectKey, readAgentRecord } from './claude-code.js'
 import { median, MINIMUM_SAMPLE } from './sample.js'
+import { projectKey, readAgentRecord } from './source.js'
 import { tokensWithoutCacheReads } from './usage.js'
+
+export { claudeProjectsDir, projectKey } from './source.js'
 
 export const SHIFT_JOURNAL_FILE = 'shift.jsonl'
 

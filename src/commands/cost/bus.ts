@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs'
 import { DatabaseSync } from 'node:sqlite'
 import { CARD_STARTED } from '../../../scripts/core/events.js'
 import { parseCard } from '../../card/grammar.js'
-import { projectKey } from './claude-code.js'
+import { projectKey } from './source.js'
 
 const CHEAP_CONTOUR = 'cheap'
 const MS_PER_MINUTE = 60_000

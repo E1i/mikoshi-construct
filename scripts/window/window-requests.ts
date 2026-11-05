@@ -30,10 +30,13 @@ import { settledCards } from '../policy/decisions/read.js'
 import { mergePolicy, OWNER_MERGES } from '../policy/policy.js'
 import { dryRunHoldsAt, observedHeadsOf, roundLimitDecisionOf } from '../policy/round-limit-decision.js'
 import { activeDecisionsShard, activeWindowShards, decisionsInForceAt, ownersOfAStop } from '../policy/shards.js'
+import { clientAdapter } from '../ports/client/index.js'
 import { ghApi } from '../ports/github.js'
 import { Meter } from '../ports/meter.js'
 import { MAIN_BRANCH } from '../ports/snapshot.js'
 import { MAIN_REF, readReleaseVersion, VERSION_PR_REF } from '../release/changesets.js'
+
+export { SESSION_VARIABLE } from '../ports/client/claude/adapter.js'
 
 export const REQUEST_KINDS = ['tree.cut', 'allow-merge', 'close-pr', 'pr.body', 'requeue', 'mode', 'plan', 'owner.wait', 'owner.wait.close', 'decisions:add', 'hold', 'release', 'takeover', 'drop'] as const
 export const TAKEOVER_AFTER_MINUTES = 30
@@ -53,7 +56,6 @@ export const REQUEST_RULE = 'window_request'
 export const PREFIX = '[bus:request] '
 export const USAGE = `usage: pnpm bus:request tree.cut --card <N> | allow-merge --pr <N> --head <sha> --dry-run <reviewer session> | close-pr --pr <N> --card <N> --reason <text> | pr.body --pr <N> | requeue --task <task_key> | mode --set ${FACTORY_MODES.join('|')} | plan --op ${[...PLAN_OPS.keys()].join('|')} [--plan <id>] [--title <text>] [--goal <text>] [--file <absolute plan file>] [--gate <word>] [--card <N>] | owner.wait --need ${OWNER_WAIT_NEEDS.join('|')} --text <what the owner decides> [--command <line>] [--card <N>] [--pr <N>] | owner.wait.close --id Q<N> --answer <answer> | decisions:add --from ${ANSWER_SOURCE} [--supersedes D-M]... [--card #N]... [--until <YYYY-MM-DDTHH:MMZ>] "[owner] <decision>" | hold --card <N> --reason <why the owner holds it> | release --card <N> | takeover --card <N> --reason <why the bus has no route for it> | drop --card <N> --reason <why a card with no body is dropped>`
 
-export const SESSION_VARIABLE = 'CLAUDE_CODE_SESSION_ID'
 const BY_HAND = 'by-hand'
 const OWNER_ANSWER_USAGE = `an owner's word from the channel closes a wait with: pnpm bus:request owner.wait.close --id Q<N> --answer <the owner's word> --from ${ANSWER_SOURCE}`
 const HELP_FLAGS = ['--help', '-h']
@@ -817,7 +819,7 @@ export function runRequest(argv: readonly string[], db: DatabaseSync, now: Date,
 }
 
 export function requestSession(env: NodeJS.ProcessEnv): string {
-  return text(env[SESSION_VARIABLE]) ?? BY_HAND
+  return text(clientAdapter().ownSession(env)) ?? BY_HAND
 }
 
 export function requestActor(env: NodeJS.ProcessEnv): string {

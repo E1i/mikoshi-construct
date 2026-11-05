@@ -7,15 +7,22 @@ export interface TreeFile {
 
 type JournalChange = { kind: 'write', content: string, at: number } | { kind: 'edit', oldString: string, newString: string, replaceAll: boolean, at: number }
 
+interface FormatterRun {
+  startedAt: number
+  endedAt: number
+}
+
 export interface SessionJournal {
   end: number
   changes: ReadonlyMap<string, JournalChange[]>
+  formatterRuns: readonly FormatterRun[]
 }
 
 interface ToolUse {
   id: string
   name: string
   input: Record<string, unknown>
+  at: number
 }
 
 interface ToolResult {
@@ -23,7 +30,9 @@ interface ToolResult {
   at: number
 }
 
-const JOURNALED_TOOLS: ReadonlySet<string> = new Set(['Write', 'Edit'])
+const JOURNALED_TOOLS: ReadonlySet<string> = new Set(['Write', 'Edit', 'Bash'])
+
+const FORMATTER_COMMAND = /^pnpm(?: --dir (\S+))?(?: run)? lint:fix$/
 
 const PLAIN_SESSION = /^[\w-]+$/
 
@@ -45,6 +54,16 @@ function changeOf(use: ToolUse, at: number): JournalChange | null {
   return { kind: 'edit', oldString: input.old_string, newString: input.new_string, replaceAll: input.replace_all === true, at }
 }
 
+function isFormatterRun(input: Record<string, unknown>, worktree: string): boolean {
+  if (typeof input.command !== 'string' || input.run_in_background === true)
+    return false
+  const form = FORMATTER_COMMAND.exec(input.command)
+  if (form === null)
+    return false
+  const tree = form[1]
+  return tree === undefined || path.resolve(worktree, tree) === path.resolve(worktree)
+}
+
 export function parseSessionJournal(text: string, worktree: string): SessionJournal {
   const uses: ToolUse[] = []
   const results = new Map<string, ToolResult>()
@@ -58,7 +77,7 @@ export function parseSessionJournal(text: string, worktree: string): SessionJour
       end = Math.max(end, at)
     for (const block of blocksOf(entry)) {
       if (entry.type === 'assistant' && block.type === 'tool_use' && typeof block.id === 'string' && typeof block.name === 'string' && JOURNALED_TOOLS.has(block.name))
-        uses.push({ id: block.id, name: block.name, input: (block.input ?? {}) as Record<string, unknown> })
+        uses.push({ id: block.id, name: block.name, input: (block.input ?? {}) as Record<string, unknown>, at })
       if (entry.type === 'user' && block.type === 'tool_result' && typeof block.tool_use_id === 'string' && !Number.isNaN(at))
         results.set(block.tool_use_id, { failed: block.is_error === true, at })
     }
@@ -66,10 +85,18 @@ export function parseSessionJournal(text: string, worktree: string): SessionJour
   if (end === Number.NEGATIVE_INFINITY)
     throw new Error('the session journal holds no timestamped entry')
   const changes = new Map<string, JournalChange[]>()
+  const formatterRuns: FormatterRun[] = []
   for (const use of uses) {
     const result = results.get(use.id)
+    if (result === undefined || result.failed)
+      continue
+    if (use.name === 'Bash') {
+      if (isFormatterRun(use.input, worktree))
+        formatterRuns.push({ startedAt: use.at, endedAt: result.at })
+      continue
+    }
     const file = use.input.file_path
-    if (result === undefined || result.failed || typeof file !== 'string')
+    if (typeof file !== 'string')
       continue
     const change = changeOf(use, result.at)
     if (change === null)
@@ -77,7 +104,7 @@ export function parseSessionJournal(text: string, worktree: string): SessionJour
     const relative = path.relative(worktree, path.resolve(worktree, file))
     changes.set(relative, [...(changes.get(relative) ?? []), change])
   }
-  return { end, changes }
+  return { end, changes, formatterRuns }
 }
 
 function replayed(content: string, edits: JournalChange[]): string | null {
@@ -99,6 +126,8 @@ export function journalDoubt(journal: SessionJournal, relative: string, file: Tr
     return 'it is gone or unreadable, and the session journal holds no deletion of it'
   if (file.mtimeMs > journal.end)
     return 'it changed after the session ended'
+  if (journal.formatterRuns.some(run => run.startedAt > last.at && run.startedAt <= file.mtimeMs && file.mtimeMs <= run.endedAt))
+    return null
   const lastWrite = changes.map(change => change.kind).lastIndexOf('write')
   const written = changes[lastWrite]
   if (written?.kind === 'write')

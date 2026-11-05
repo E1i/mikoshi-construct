@@ -3,6 +3,9 @@ import type { LedgerSummary, Reconciliation } from './ledger.js'
 import type { RunDecomposition } from './steps.js'
 import type { TurnSummary } from './turns.js'
 import type { WorkflowRun } from './usage.js'
+import { ClaudeCodeCostSource } from './claude-code.js'
+
+export { ClaudeCodeCostSource, claudeProjectsDir, collectWorkflowRuns, labelledAgentTokens, labelledTranscripts, projectKey, readAgentRecord } from './claude-code.js'
 
 export type Runtime = 'claude-code' | 'cursor'
 
@@ -22,6 +25,18 @@ export interface CostSource {
   readable: () => boolean
   read: (cwd: string, ledgerRuns: string[]) => CostReading
   steps: (run: string) => RunDecomposition | null
+}
+
+export function recordingSource(projectsDir?: string): CostSource {
+  return new ClaudeCodeCostSource(projectsDir)
+}
+
+const COST_SOURCES: Partial<Record<Runtime, (projectsDir?: string) => CostSource>> = {
+  'claude-code': recordingSource,
+}
+
+export function costSourceFor(runtime: Runtime, projectsDir?: string): CostSource | null {
+  return COST_SOURCES[runtime]?.(projectsDir) ?? null
 }
 
 export interface CostReport {
