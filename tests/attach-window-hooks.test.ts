@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest'
 import { openBus } from '../scripts/core/db.js'
 import { WINDOW_HEARTBEAT } from '../scripts/core/events.js'
 import { readAttachRecord, runAttach, SETTINGS_FILE } from '../src/commands/attach/index.js'
-import { engramRules, WINDOW_ENTRIES, WINDOW_EVENTS } from '../src/commands/attach/settings.js'
+import { browserLabExcludedCommand, engramRules, WINDOW_ENTRIES, WINDOW_EVENTS } from '../src/commands/attach/settings.js'
 import { askDetach } from '../src/commands/detach/index.js'
 import { ATTACH_GUARD, ATTACH_WINDOW_HOOKS } from '../src/presets/index.js'
 import { createUi, silentWriter } from '../src/ui/console.js'
@@ -65,7 +65,7 @@ describe('attach puts the tab-window hooks into the working repository', () => {
 
     expect((await runAttach(ui, { dir, harness: HARNESS, requiredCheck: 'gate', yes: true })).status).toBe('done')
 
-    expect(readSettings(dir)).toEqual({ sandbox: { excludedCommands: ['node scripts/construct/browser-lab.mjs *'] }, hooks: { PreToolUse: [GUARD_ENTRY, HANDOFF_GUARD_ENTRY], Stop: [STOP_ENTRY], PreCompact: [PRE_COMPACT_ENTRY], SessionStart: [COMPACT_START_ENTRY], PostToolUse: [HEARTBEAT_ENTRY] }, permissions: { allow: engramRules(dir, home()) } })
+    expect(readSettings(dir)).toEqual({ sandbox: { excludedCommands: [browserLabExcludedCommand()] }, hooks: { PreToolUse: [GUARD_ENTRY, HANDOFF_GUARD_ENTRY], Stop: [STOP_ENTRY], PreCompact: [PRE_COMPACT_ENTRY], SessionStart: [COMPACT_START_ENTRY], PostToolUse: [HEARTBEAT_ENTRY] }, permissions: { allow: engramRules(dir, home()) } })
     expect(readFileSync(path.join(dir, ATTACH_WINDOW_HOOKS.target)).equals(readFileSync(TEMPLATE))).toBe(true)
     const record = readAttachRecord(dir)
     expect(Object.keys(record?.files ?? {})).toContain(ATTACH_WINDOW_HOOKS.target)
@@ -82,7 +82,7 @@ describe('attach puts the tab-window hooks into the working repository', () => {
     expect((await runAttach(ui, { dir, harness: HARNESS, requiredCheck: 'gate', yes: true })).status).toBe('done')
 
     expect(readSettings(dir)).toEqual({
-      sandbox: { excludedCommands: ['node scripts/construct/browser-lab.mjs *'] },
+      sandbox: { excludedCommands: [browserLabExcludedCommand()] },
       permissions: { allow: [...existing.permissions.allow, ...engramRules(dir, home())] },
       hooks: { Stop: [own, STOP_ENTRY], SessionStart: [{ matcher: 'startup', ...own }, COMPACT_START_ENTRY], PreToolUse: [GUARD_ENTRY, HANDOFF_GUARD_ENTRY], PreCompact: [PRE_COMPACT_ENTRY], PostToolUse: [HEARTBEAT_ENTRY] },
     })

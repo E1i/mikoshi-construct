@@ -9,6 +9,7 @@ import { WINDOW_HEARTBEAT } from '../scripts/core/events.js'
 import { HANDOFF_DIR_VARIABLE } from '../scripts/core/handoff-dir.js'
 import { sessionHandoffOf } from '../scripts/window/handoff-write.js'
 import { HANDOFF_VARIABLE, OWNER_COMMANDS, PACKAGE_COMMANDS, statusOf } from '../scripts/window/loop.js'
+import { browserLabExcludedCommand } from '../src/commands/attach/settings.js'
 import { DOCTOR_EXIT, factoryChecklist, printFactoryChecklist } from '../src/commands/doctor/index.js'
 import { runInit } from '../src/commands/init.js'
 import { createUi, silentWriter } from '../src/ui/console.js'
@@ -101,7 +102,11 @@ describe('doctor --factory checks that the factory can start without the owner',
     const factory = await readyFactory()
     localSettings(factory, JSON.stringify({ enabledPlugins: {}, permissions: { allow: [], deny: ['Bash(rm:*)'] } }))
     expect(red(check(factory))).toEqual({})
+    localSettings(factory, JSON.stringify({ sandbox: { excludedCommands: [browserLabExcludedCommand(factory.home)] } }))
+    expect(red(check(factory))).toEqual({})
     const widening = [
+      { sandbox: { excludedCommands: [browserLabExcludedCommand(factory.home), 'git'] } },
+      { sandbox: { excludedCommands: [browserLabExcludedCommand(factory.home)], enabled: false } },
       { permissions: { allow: ['Bash(gh pr merge:*)'] } },
       { permissions: { additionalDirectories: ['/elsewhere'] } },
       { permissions: { defaultMode: 'bypassPermissions' } },

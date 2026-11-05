@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { preinstallBrowser, prepareBeforeSession } from '../../ports/prepare-tree.js'
 
 const LAB = 'scripts/construct/browser-lab.mjs'
+const INSTALLED_LAB = '.construct/browser-lab/bin/browser-lab.mjs'
 const DEAD_PROXY = 'http://127.0.0.1:9'
 const roots: string[] = []
 
@@ -121,7 +122,7 @@ describe('the browser preinstall', () => {
     const f = fixture()
     const run = sessionRunsLab(f)
     expect(run.status).toBe(127)
-    expect(run.stderr).toContain('npx could not provide')
+    expect(run.stderr).toContain('is not in the lab cache')
   })
 
   it('fills both lab tools through the public registry into the cache the lab reads', () => {
@@ -140,6 +141,22 @@ describe('the browser preinstall', () => {
     expect(execFileSync('git', ['-C', f.tree, 'status', '--short', '--untracked-files=all'], { encoding: 'utf8' })).not.toContain('node_modules')
   })
 
+  it('links only the playwright-core browser-witness reaches through the tree, and no playwright cli', () => {
+    const f = fixture()
+    preinstallBrowser(f.tree, f.env)
+    expect(lstatSync(path.join(f.tree, 'node_modules/playwright-core')).isSymbolicLink()).toBe(true)
+    expect(existsSync(path.join(f.tree, 'node_modules/@playwright/cli'))).toBe(false)
+    expect(existsSync(path.join(f.tree, 'node_modules/.bin/playwright-cli'))).toBe(false)
+  })
+
+  it('fills the cache from outside the tree, so a package the tree holds never answers the preinstall', () => {
+    const f = fixture()
+    const seen = path.join(f.tree, '..', 'npx-cwd')
+    writeFileSync(path.join(f.bin, 'npx'), `#!/bin/bash\npwd > '${seen}'\n${fillingNpx(path.dirname(f.tree), f.log).split('\n').slice(1).join('\n')}`, { mode: 0o755 })
+    preinstallBrowser(f.tree, f.env)
+    expect(readFileSync(seen, 'utf8').trim()).toBe(path.join(f.home, '.construct/browser-lab/npm-cache'))
+  })
+
   it('does nothing in a tree with no lab', () => {
     const f = fixture()
     rmSync(path.join(f.tree, LAB))
@@ -147,10 +164,34 @@ describe('the browser preinstall', () => {
     expect(npxCalls(f)).toEqual([])
   })
 
-  it('never hands npx a spec from the tree that is not one exact version', () => {
-    const f = fixture(`export const PLAYWRIGHT_CORE = 'playwright-core@latest'\nexport const PLAYWRIGHT_CLI = '@playwright/cli@0.1.17 && touch owned'\n`)
-    preinstallBrowser(f.tree, f.env)
+  it('never hands npx a spec from the factory that is not one exact version', () => {
+    const f = fixture()
+    const factory = path.join(f.home, 'factory-lab.mjs')
+    writeFileSync(factory, `export const PLAYWRIGHT_CORE = 'playwright-core@latest'\nexport const PLAYWRIGHT_CLI = '@playwright/cli@0.1.17 && touch owned'\n`)
+    preinstallBrowser(f.tree, f.env, factory)
     expect(npxCalls(f)).toEqual([])
+  })
+
+  it('never hands npx a pin the tree declares', () => {
+    const f = fixture(`export const PLAYWRIGHT_CORE = 'playwright-core@9.9.9'\nexport const PLAYWRIGHT_CLI = '@playwright/cli@9.9.9'\n`)
+    preinstallBrowser(f.tree, f.env)
+    expect(npxCalls(f).map(call => call.split(' ')[2])).toEqual(['playwright-core@1.62.1', '@playwright/cli@0.1.17'])
+  })
+
+  it('preinstall installs the lab script from the factory and never from the tree', () => {
+    const planted = `${readFileSync(path.join(process.cwd(), LAB), 'utf8')}\nconsole.log('planted in the tree')\n`
+    const f = fixture(planted)
+    preinstallBrowser(f.tree, f.env)
+    const installed = readFileSync(path.join(f.home, INSTALLED_LAB), 'utf8')
+    expect(installed).toBe(readFileSync(path.join(process.cwd(), LAB), 'utf8'))
+    expect(installed).not.toContain('planted in the tree')
+  })
+
+  it('installs no script when the tools did not reach the cache, so a failed preinstall opens nothing', () => {
+    const f = fixture()
+    writeFileSync(path.join(f.bin, 'npx'), '#!/bin/sh\nexit 1\n', { mode: 0o755 })
+    expect(() => preinstallBrowser(f.tree, f.env)).toThrow()
+    expect(existsSync(path.join(f.home, INSTALLED_LAB))).toBe(false)
   })
 
   it('leaves alone an entry the repository installed itself', () => {
@@ -177,6 +218,7 @@ describe('the browser preinstall', () => {
     })
     expect(line).toContain('could not preinstall the browser lab')
     expect(line).toContain('no registry here')
+    expect(line).toContain('ends as unobserved')
   })
 
   it('preinstalls in a tree with a lab and no lockfile, and installs only where the lockfile is', () => {

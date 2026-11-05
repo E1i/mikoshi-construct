@@ -9,4 +9,5 @@ coverage/
 .env.*
 !.env.example
 .construct/
+.claude/settings.local.json
 .pnpm-store/

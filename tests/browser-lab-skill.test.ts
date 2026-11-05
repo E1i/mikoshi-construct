@@ -15,7 +15,8 @@ const SKILL_COPY = '.claude/skills/browser-lab/SKILL.md'
 const UNOBSERVED_EXIT = 127
 const FLAG = /--[a-z]+/g
 const FENCE = /```(\w*)\n([\s\S]*?)```/g
-const SCRIPT_CALL = /^node scripts\/construct\/browser-lab\.mjs (\S+)/gm
+const INSTALLED_LAB = '~/.construct/browser-lab/bin/browser-lab.mjs'
+const SCRIPT_CALL = /^node <home>\/\.construct\/browser-lab\/bin\/browser-lab\.mjs (\S+)/gm
 const USAGE_ENTRY = /^ {2}([a-z][a-z-]*)(?: \| ([a-z][a-z-]*))?(?= [<[]| {2})/
 
 const CARRIED = [SCRIPT_PATH, SKILL_COPY]
@@ -59,8 +60,14 @@ function commandsOfTheSkill(skill: string): string[] {
 describe('the browser-lab skill states the script it carries', () => {
   const skill = read(SKILL_TEMPLATE)
 
-  it('names the script by its full path', () => {
-    expect(skill).toContain(SCRIPT_PATH)
+  it('names the installed script, and says the copy in the repository is not excluded', () => {
+    const flowing = skill.replace(/\s+/g, ' ')
+    expect(flowing).toContain(INSTALLED_LAB)
+    expect(flowing).toContain(`The copy at \`${SCRIPT_PATH}\` in a repository, or any other copy in it, is not excluded`)
+  })
+
+  it('tells the agent to write the path out absolute, with no ~ or $HOME', () => {
+    expect(skill.replace(/\s+/g, ' ')).toContain('write the path out absolute where the commands below say `<home>`, with no `~` or `$HOME`')
   })
 
   it('shows exactly the commands the script prints in its usage, no more and no fewer', () => {
@@ -84,10 +91,10 @@ describe('the browser-lab skill states the script it carries', () => {
     expect(frontmatter).toMatch(/^description: \S.*$/m)
   })
 
-  it('fences only bash, writes no home path and leaves to a person the Web Store, the permission prompts and the sign-in', () => {
+  it('fences only bash, writes no home path but the installed script\'s and leaves to a person the Web Store, the permission prompts and the sign-in', () => {
     for (const fence of fencesOf(skill))
       expect(fence.language).toBe('bash')
-    expect(skill).not.toContain('~/')
+    expect(skill.replaceAll(INSTALLED_LAB, '')).not.toContain('~/')
     expect(skill).toContain('Web Store')
     expect(skill).toMatch(/permission prompts/)
     expect(skill).toMatch(/signing in/)
