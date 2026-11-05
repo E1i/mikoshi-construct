@@ -72,7 +72,7 @@ describe('the session journal', () => {
 
     expect(journalDoubt(journal, 'g.ts', { content: 'session text', mtimeMs: edited })).toBeNull()
     expect(journalDoubt(journal, 'g.ts', { content: 'other text', mtimeMs: edited })).toBe('its content lacks the session\'s last Edit of it')
-    expect(journalDoubt(journal, 'g.ts', { content: 'session text', mtimeMs: edited + 1 })).toBe('it changed after the session\'s last Edit of it, by a Bash command or another writer')
+    expect(journalDoubt(journal, 'g.ts', { content: 'session text', mtimeMs: edited + 1 })).toBe('it changed after the session\'s last Edit of it, outside every command of the session')
     expect(journalDoubt(journal, 'g.ts', { content: 'session text', mtimeMs: T0 + 10 * 60_000 })).toBe('it changed after the session ended')
     expect(journalDoubt(journal, 'h.ts', { content: 'session text', mtimeMs: edited })).toBe('the session journal holds no Write or Edit of it')
   })
@@ -94,14 +94,46 @@ describe('the session journal', () => {
     expect(journalDoubt(written, 'f.ts', REWRITTEN)).toBeNull()
   })
 
-  it('a change outside every formatter run or after any other Bash command keeps its doubt', () => {
-    const lastEditMoved = 'it changed after the session\'s last Edit of it, by a Bash command or another writer'
+  it('a path changed by a command of the session itself is owned by the session', () => {
+    for (const command of ['sed -i s/x/y/ g.ts', 'pnpm lint:fix && sed -i s/x/y/ g.ts', 'cp templates/g.ts g.ts', `pnpm --dir ${TREE} run generate`, 'npx eslint --fix g.ts']) {
+      const journal = editThenRun({ command })
+      expect(journalDoubt(journal, 'g.ts', REWRITTEN), command).toBeNull()
+      expect(journalDoubt(journal, 'g.ts', { content: 'session text', mtimeMs: T0 + 5 * 60_000 }), command).toBeNull()
+      expect(journalDoubt(journal, 'copied.ts', REWRITTEN), command).toBeNull()
+    }
+
+    const startedAmidTheEdit = parseSessionJournal([
+      use(1, 'b', 'Bash', { command: 'pnpm lint:fix' }),
+      use(2, 'e', 'Edit', { file_path: `${TREE}/g.ts`, old_string: 'a', new_string: 'session text' }),
+      result(3, 'e'),
+      result(5, 'b'),
+    ].join('\n'), TREE)
+    expect(journalDoubt(startedAmidTheEdit, 'g.ts', { content: 'rewritten', mtimeMs: T0 + 4 * 60_000 })).toBeNull()
+  })
+
+  it('a path changed outside every command of the session is still a doubt', () => {
+    const journal = editThenRun({ command: 'cp templates/g.ts g.ts' })
+    const beforeTheRun = T0 + 4 * 60_000 - 1
+    const afterTheEnd = T0 + 6 * 60_000 + 1
+
+    for (const mtimeMs of [beforeTheRun, afterTheEnd]) {
+      expect(journalDoubt(journal, 'g.ts', { content: 'session text', mtimeMs }), String(mtimeMs)).not.toBeNull()
+      expect(journalDoubt(journal, 'g.ts', { content: 'other text', mtimeMs }), String(mtimeMs)).not.toBeNull()
+      expect(journalDoubt(journal, 'copied.ts', { content: 'other text', mtimeMs }), String(mtimeMs)).not.toBeNull()
+    }
+    expect(journalDoubt(journal, 'copied.ts', null)).not.toBeNull()
+    expect(journalDoubt(journal, 'g.ts', null)).not.toBeNull()
+  })
+
+  it('a change outside every command run names what it holds against the file', () => {
+    const lastEditMoved = 'it changed after the session\'s last Edit of it, outside every command of the session'
     const lastEditLost = 'its content lacks the session\'s last Edit of it'
     const journal = editThenRun({ command: 'pnpm lint:fix' })
 
     expect(journalDoubt(journal, 'g.ts', { content: 'session text', mtimeMs: T0 + 4 * 60_000 - 1 })).toBe(lastEditMoved)
     expect(journalDoubt(journal, 'g.ts', { content: 'session text', mtimeMs: T0 + 6 * 60_000 + 1 })).toBe('it changed after the session ended')
-    expect(journalDoubt(journal, 'other.ts', REWRITTEN)).toBe('the session journal holds no Write or Edit of it')
+    expect(journalDoubt(journal, 'other.ts', { content: 'other text', mtimeMs: T0 + 2 * 60_000 })).toBe('the session journal holds no Write or Edit of it')
+    expect(journalDoubt(journal, 'other.ts', { content: 'other text', mtimeMs: T0 + 6 * 60_000 + 1 })).toBe('the session journal holds no Write or Edit of it')
     expect(journalDoubt(journal, 'g.ts', null)).toBe('it is gone or unreadable, and the session journal holds no deletion of it')
 
     const laterEntry = parseSessionJournal([
@@ -122,29 +154,16 @@ describe('the session journal', () => {
       result(8, 'b2'),
     ].join('\n'), TREE)
     expect(journalDoubt(formatterFirst, 'g.ts', { content: 'other text', mtimeMs: T0 + 3 * 60_000 })).toBe(lastEditLost)
-
-    const startedAmidTheEdit = parseSessionJournal([
-      use(1, 'b', 'Bash', { command: 'pnpm lint:fix' }),
-      use(2, 'e', 'Edit', { file_path: `${TREE}/g.ts`, old_string: 'a', new_string: 'session text' }),
-      result(3, 'e'),
-      result(5, 'b'),
-    ].join('\n'), TREE)
-    expect(journalDoubt(startedAmidTheEdit, 'g.ts', { content: 'session text', mtimeMs: T0 + 4 * 60_000 })).toBe(lastEditMoved)
-
-    for (const command of ['pnpm lint', 'sed -i s/x/y/ g.ts', 'pnpm lint:fix && sed -i s/x/y/ g.ts', 'sed -i s/x/y/ g.ts; pnpm lint:fix', 'pnpm lint:fix\nsed -i s/x/y/ g.ts', 'pnpm lint:fix g.ts', 'npx eslint --fix g.ts']) {
-      const other = editThenRun({ command })
-      expect(journalDoubt(other, 'g.ts', REWRITTEN), command).toBe(lastEditLost)
-      expect(journalDoubt(other, 'g.ts', { content: 'session text', mtimeMs: T0 + 5 * 60_000 }), command).toBe(lastEditMoved)
-    }
   })
 
-  it('a failed lint:fix or one naming another tree owns nothing', () => {
+  it('a command that exited with an error still ran, so what it changed is the session\'s', () => {
+    expect(journalDoubt(editThenRun({ command: 'pnpm lint:fix' }, true), 'g.ts', REWRITTEN)).toBeNull()
+  })
+
+  it('a command run in the background or never answered has no known run window and owns nothing', () => {
     const lastEditLost = 'its content lacks the session\'s last Edit of it'
 
-    expect(journalDoubt(editThenRun({ command: 'pnpm lint:fix' }, true), 'g.ts', REWRITTEN)).toBe(lastEditLost)
     expect(journalDoubt(editThenRun({ command: 'pnpm lint:fix', run_in_background: true }), 'g.ts', REWRITTEN)).toBe(lastEditLost)
-    for (const dir of ['/trees/mc-8', '..', `${TREE}/sub`])
-      expect(journalDoubt(editThenRun({ command: `pnpm --dir ${dir} lint:fix` }), 'g.ts', REWRITTEN), dir).toBe(lastEditLost)
 
     const unanswered = parseSessionJournal([
       use(1, 'e', 'Edit', { file_path: `${TREE}/g.ts`, old_string: 'a', new_string: 'session text' }),
