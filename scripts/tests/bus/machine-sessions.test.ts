@@ -1,15 +1,17 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { MachineClaimant, MachineRecord } from '../../core/machine-sessions.js'
 import type { AnswerRun } from '../../nodes/answer/answerer.js'
-import type { CardStart, CardStarter, QueuedCard, StartedCard } from '../../nodes/launch/launch-executor.js'
+import type { CardStart, CardStarter, LaunchDenial, QueuedCard, StartedCard } from '../../nodes/launch/launch-executor.js'
+import type { SessionContinuer } from '../../nodes/launch/launch-starter.js'
 import type { SpawnSessionParams } from '../../ports/session.js'
+import type { MergeBench } from './merge-bench.js'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { appendEvent, openBus } from '../../core/db.js'
-import { CARD_ADMITTED } from '../../core/events.js'
+import { CARD_ADMITTED, CARD_CONTINUED, CARD_STOPPED } from '../../core/events.js'
 import { MACHINE_DIR_VARIABLE, MACHINE_LIMIT_FILE, MACHINE_POLL_MS, machineDir, machineGate, machineHoldLine, MachineSessions, sessionLiveness } from '../../core/machine-sessions.js'
 import { reduce } from '../../core/reducer.js'
 import { AnswerWithdrawn, claudeAnswerer } from '../../nodes/answer/answerer.js'
@@ -18,7 +20,7 @@ import { LaunchNode } from '../../nodes/launch/launch-worker.js'
 import { fullReview } from '../../nodes/review/review-depth.js'
 import { claudeReviewer, ReviewTrees } from '../../nodes/review/reviewer.js'
 import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
-import { mergeBench } from './merge-bench.js'
+import { eventsOf, mergeBench } from './merge-bench.js'
 
 const TS = '2026-11-06T10:00:00.000Z'
 const HEAD = 'a'.repeat(40)
@@ -27,10 +29,15 @@ const BUS_B = '/home/.construct/owner--repo/bus.db'
 const FIRST_PID = 1001
 const LIMIT = 3
 const LANES = 3
+const ENDED_PID = 4242
+const CONTINUED_PID = 4243
 const roots: string[] = []
+const benches: MergeBench[] = []
 
 afterEach(() => {
   vi.restoreAllMocks()
+  for (const made of benches.splice(0))
+    made.close()
   for (const root of roots.splice(0))
     rmSync(root, { recursive: true, force: true })
 })
@@ -123,6 +130,56 @@ async function runLaunchNode(machine: MachineSessions, cardId: number): Promise<
       await again()
     },
   }
+}
+
+class ContinuingStarter implements CardStarter, SessionContinuer {
+  continued = 0
+
+  constructor(private readonly refusal: LaunchDenial | null = null) {}
+
+  start(card: QueuedCard): CardStart {
+    return { kind: 'started', card: { session: `s-${card.cardId}`, worktree: `/trees/mc-${card.cardId}`, branch: `feat/card-${card.cardId}`, base: 'f'.repeat(40), pid: ENDED_PID, pgid: ENDED_PID } }
+  }
+
+  stop(_card: StartedCard): void {}
+
+  continueFrom(_card: QueuedCard, from: StartedCard): CardStart {
+    this.continued += 1
+    if (this.refusal !== null)
+      return { kind: 'refused', denial: this.refusal }
+    return { kind: 'started', card: { ...from, session: `${from.session}-c${this.continued}`, pid: CONTINUED_PID, pgid: CONTINUED_PID } }
+  }
+}
+
+async function endedAtTheContextLine(machine: MachineSessions, cardId: number, starter: ContinuingStarter): Promise<{ node: LaunchNode, made: MergeBench }> {
+  const made = mergeBench()
+  benches.push(made)
+  appendEvent(made.db, { ts: made.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'policy', cardId, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${cardId}`, payload: { lane: 'lane-1', decision: 'auto', contour: 'cheap', depends: [], admission: `admission-${cardId}` }, legacy: false })
+  made.tick()
+  const node = new LaunchNode({
+    db: made.db,
+    starter,
+    continuer: starter,
+    clock: made.clock.now,
+    session: 'node-1',
+    mode: 'live',
+    env: {},
+    processes: { commandLine: () => null, signalGroup: () => {} },
+    resulted: () => true,
+    handedOff: () => true,
+    warned: () => true,
+    atContextLine: () => true,
+    committed: () => true,
+    publish: () => {},
+    disk: () => ({ bavail: 1, bsize: DISK_FLOOR_BYTES }),
+    isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }),
+    lanes: () => LANES,
+    machine,
+  })
+  const controller = new AbortController()
+  await node.run({ pause: async () => controller.abort(), signal: controller.signal })
+  made.tick()
+  return { node, made }
 }
 
 function answerRequest(root: string) {
@@ -332,5 +389,45 @@ describe('the machine limit', () => {
   it('every bus on the machine reads one directory, and the variable moves it', () => {
     expect(machineDir({}, '/home/x')).toBe('/home/x/.construct/machine')
     expect(machineDir({ [MACHINE_DIR_VARIABLE]: '/moved' }, '/home/x')).toBe('/moved')
+  })
+})
+
+describe('a session that continues from one that ended', () => {
+  it('at the machine limit it waits unstopped, and continues under its own process when a place frees', async () => {
+    const bench = new MachineBench()
+    const starter = new ContinuingStarter()
+    const { node, made } = await endedAtTheContextLine(bench.machine, 1701, starter)
+    bench.full()
+
+    expect(node.stopOverdue()).toEqual([])
+    expect(starter.continued).toBe(0)
+    expect(eventsOf(made.db, CARD_CONTINUED)).toEqual([])
+    expect(eventsOf(made.db, CARD_STOPPED)).toEqual([])
+
+    bench.live.delete(FIRST_PID)
+    bench.live.add(CONTINUED_PID)
+    expect(node.stopOverdue()).toEqual([])
+    expect(starter.continued).toBe(1)
+    expect(eventsOf(made.db, CARD_CONTINUED)).toMatchObject([{ session: 's-1701-c1', continuation: 1, from: 's-1701' }])
+    expect(eventsOf(made.db, CARD_STOPPED)).toEqual([])
+
+    expect(bench.machine.live()).toBe(LIMIT)
+    bench.live.delete(CONTINUED_PID)
+    expect(bench.machine.live()).toBe(LIMIT - 1)
+  })
+
+  it('a continuation that is refused stops the card and gives its machine place back', async () => {
+    const bench = new MachineBench()
+    const starter = new ContinuingStarter({ kind: 'technical', reason: 'start_failed', detail: 'the tree holds changes no session named' })
+    const { node, made } = await endedAtTheContextLine(bench.machine, 1702, starter)
+    bench.limitedTo(LIMIT).occupied({ bus: BUS_A, role: 'launch', cardId: 1 }, { bus: BUS_B, role: 'answer', cardId: 2 })
+
+    expect(node.stopOverdue()).toEqual([1702])
+
+    expect(starter.continued).toBe(1)
+    expect(eventsOf(made.db, CARD_STOPPED)).toEqual([expect.objectContaining({ reason: 'fault', detail: expect.stringContaining('continuation-refused') })])
+    expect(eventsOf(made.db, CARD_CONTINUED)).toEqual([])
+    expect(bench.machine.live()).toBe(LIMIT - 1)
+    expect(bench.machine.held()).toBeNull()
   })
 })
