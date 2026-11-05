@@ -28,6 +28,7 @@ export const FREE_TREE_CAPACITY = 8
 
 const LSOF_PATH_FIELD = 'n'
 const LSOF_FOUND_NONE = 1
+export const LSOF_CLIENT_NAMES = ['-c', 'claude', '-c', '/^[0-9]+[.][0-9]+[.][0-9]+$/']
 
 export type GitRun = (cwd: string, args: string[]) => string
 
@@ -133,7 +134,7 @@ function realOrAsWritten(where: string): string {
 
 export function claudeProcessCwds(): ProcessCwds {
   try {
-    return { kind: 'listed', listing: execFileSync('lsof', ['-a', '-c', 'claude', '-d', 'cwd', '-F', LSOF_PATH_FIELD], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }) }
+    return { kind: 'listed', listing: execFileSync('lsof', ['-a', ...LSOF_CLIENT_NAMES, '-d', 'cwd', '-F', LSOF_PATH_FIELD], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }) }
   }
   catch (error) {
     const failed = error as { status?: unknown, stdout?: unknown }
