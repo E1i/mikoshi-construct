@@ -12,6 +12,7 @@ import process from 'node:process'
 import { prepareTree } from '../../ports/prepare-tree.js'
 import { readResultFields } from '../../ports/result.js'
 import { reviewModelOf, sessionModelOf, spawnSession, withoutCard } from '../../ports/session.js'
+import { FREE_TREE_CAPACITY, FREE_TREES, gitIn, parkTree, takeFreeTree } from '../../ports/worktree.js'
 
 export interface TreeState {
   head: string
@@ -67,6 +68,7 @@ export interface TreeTools {
   worktrees: (repo: string) => string[]
   prepare: (tree: string) => void
   state: (tree: string) => TreeState
+  freeTrees?: number
 }
 
 export interface LeftoverTree {
@@ -206,7 +208,7 @@ function state(tree: string): TreeState {
   return { head: read(['rev-parse', 'HEAD']).trim(), status: statusLines(read(['status', '--porcelain', '-z'])) }
 }
 
-export const GIT_TREE_TOOLS: TreeTools = { git, worktrees, prepare: prepareTree, state }
+export const GIT_TREE_TOOLS: TreeTools = { git, worktrees, prepare: prepareTree, state, freeTrees: FREE_TREE_CAPACITY }
 
 function pathOfStatus(line: string): string {
   return line.slice(3)
@@ -236,7 +238,8 @@ export class ReviewTrees {
   constructor(readonly repo: string, readonly dir: string, private readonly tools: TreeTools = GIT_TREE_TOOLS) {}
 
   add(tree: string, head: string): void {
-    this.tools.git(this.repo, ['worktree', 'add', '--detach', tree, head])
+    if (!this.reuses() || !takeFreeTree(gitIn, this.repo, tree, taken => gitIn(taken, ['checkout', '-q', '-f', '--detach', head])))
+      this.tools.git(this.repo, ['worktree', 'add', '--detach', tree, head])
     this.held.add(canonical(tree))
     this.tools.prepare(tree)
   }
@@ -255,15 +258,33 @@ export class ReviewTrees {
 
   release(tree: string): string | null {
     this.held.delete(canonical(tree))
+    if (this.parked(tree))
+      return null
     return this.remove(tree) ?? this.prune()
   }
 
   clearLeftovers(): LeftoverTree[] {
     const inside = canonical(this.dir) + path.sep
-    const leftovers = this.tools.worktrees(this.repo).filter(tree => canonical(tree).startsWith(inside) && !this.held.has(canonical(tree)))
+    const free = canonical(path.join(this.dir, FREE_TREES)) + path.sep
+    const leftovers = this.tools.worktrees(this.repo).filter(tree => canonical(tree).startsWith(inside) && !canonical(tree).startsWith(free) && !this.held.has(canonical(tree)))
     const cleared = leftovers.map(tree => ({ path: tree, left: this.remove(tree) }))
     this.tools.git(this.repo, ['worktree', 'prune'])
     return cleared
+  }
+
+  private reuses(): boolean {
+    return (this.tools.freeTrees ?? 0) > 0
+  }
+
+  private parked(tree: string): boolean {
+    if (!this.reuses())
+      return false
+    try {
+      return parkTree(gitIn, this.repo, tree, this.tools.freeTrees!) !== null
+    }
+    catch {
+      return false
+    }
   }
 
   private prune(): string | null {

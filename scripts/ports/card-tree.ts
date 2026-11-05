@@ -9,7 +9,7 @@ import { cardSessionOf, NO_RECORDED_SESSION, openPrOfCard } from '../nodes/answe
 import { ghApi } from './github.js'
 import { Meter } from './meter.js'
 import { cardTree, taskWorktree, worktreeHome } from './worktree-home.js'
-import { pnpmInstall } from './worktree.js'
+import { pnpmInstall, takeFreeTree } from './worktree.js'
 
 const INSTALL_ARGS = ['install', '--frozen-lockfile', '--prefer-offline']
 
@@ -42,7 +42,8 @@ export function gitCardTrees(repo: string, home: string, install: (cwd: string) 
     recreate: (worktree, branch) => {
       git(repo, ['worktree', 'prune'])
       git(repo, ['fetch', '-q', 'origin', `+refs/heads/${branch}:refs/remotes/origin/${branch}`])
-      git(repo, ['worktree', 'add', '-q', '-B', branch, worktree, `origin/${branch}`])
+      if (!takeFreeTree(git, repo, worktree, tree => git(tree, ['checkout', '-q', '-f', '--no-track', '-B', branch, `origin/${branch}`])))
+        git(repo, ['worktree', 'add', '-q', '-B', branch, worktree, `origin/${branch}`])
       install(worktree)
     },
     bringTo: (worktree, branch, head) => bringToHead(worktree, branch, head),

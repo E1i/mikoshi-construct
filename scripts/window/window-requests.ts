@@ -13,10 +13,11 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import { parseTaken } from '../../src/commands/intake/numbers.js'
 import { CLOSED_CARD, DROPPED_CARD, MERGED_CARD } from '../core/card-automaton.js'
 import { cardBodyText, FACTORY_MODES, isFactoryMode } from '../core/card-bodies.js'
 import { appendEvent, CLOSED_WAIT, closeOwnerWait, defaultBusPath, inTransaction, isOwnerWaitNeed, OPEN_WAIT, openBus, openOwnerWait, OWNER_WAIT_NEEDS, OWNER_WAITS } from '../core/db.js'
-import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_DROPPED, CARD_HELD, CARD_PLANNED, CARD_RELEASED, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, CARD_TAKEOVER, CARD_UNPLANNED, FACTORY_MODE, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PLAN_BACKFILLED, PLAN_CLOSED, PLAN_OPENED, POLICY_DENIED, PR_OBSERVED, REQUEST_DONE, REQUEST_REFUSED, SHARD_DECIDED, TASK_FAILED, TASK_REQUEUED, WINDOW_REQUEST, WITNESS_RECORDED } from '../core/events.js'
+import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_DROPPED, CARD_HELD, CARD_PLANNED, CARD_RELEASED, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, CARD_TAKEOVER, CARD_UNPLANNED, FACTORY_MODE, NUMBERS_FOREIGN, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PLAN_BACKFILLED, PLAN_CLOSED, PLAN_OPENED, POLICY_DENIED, PR_OBSERVED, REQUEST_DONE, REQUEST_REFUSED, SHARD_DECIDED, TASK_FAILED, TASK_REQUEUED, WINDOW_REQUEST, WITNESS_RECORDED } from '../core/events.js'
 import { cardIdOf, generationOfKey, isFullSha, prOf } from '../core/identifiers.js'
 import { ANSWER_SOURCE, OPEN_OWNER_STOP_OF_CARD, OWNER } from '../core/inbox.js'
 import { legacyHistory } from '../core/legacy-history.js'
@@ -38,7 +39,7 @@ import { MAIN_REF, readReleaseVersion, VERSION_PR_REF } from '../release/changes
 
 export { SESSION_VARIABLE } from '../ports/client/claude/adapter.js'
 
-export const REQUEST_KINDS = ['tree.cut', 'allow-merge', 'close-pr', 'pr.body', 'requeue', 'mode', 'plan', 'owner.wait', 'owner.wait.close', 'decisions:add', 'hold', 'release', 'takeover', 'drop'] as const
+export const REQUEST_KINDS = ['tree.cut', 'allow-merge', 'close-pr', 'pr.body', 'requeue', 'mode', 'plan', 'owner.wait', 'owner.wait.close', 'decisions:add', 'hold', 'release', 'takeover', 'drop', 'numbers.foreign'] as const
 export const TAKEOVER_AFTER_MINUTES = 30
 export const PLAN_OPS: ReadonlyMap<string, string> = new Map([['open', PLAN_OPENED], ['add', CARD_PLANNED], ['remove', CARD_UNPLANNED], ['backfill', PLAN_BACKFILLED], ['close', PLAN_CLOSED]])
 const PLAN_FLAGS = ['op', 'plan', 'title', 'goal', 'file', 'gate', 'card'] as const
@@ -54,7 +55,7 @@ export const ALLOW_MERGE_RECORD = 'architecture/decisions/window-allow-merge.md'
 const RULE_ACCEPTED = /^Status: accepted\b/m
 export const REQUEST_RULE = 'window_request'
 export const PREFIX = '[bus:request] '
-export const USAGE = `usage: pnpm bus:request tree.cut --card <N> | allow-merge --pr <N> --head <sha> --dry-run <reviewer session> | close-pr --pr <N> --card <N> --reason <text> | pr.body --pr <N> | requeue --task <task_key> | mode --set ${FACTORY_MODES.join('|')} | plan --op ${[...PLAN_OPS.keys()].join('|')} [--plan <id>] [--title <text>] [--goal <text>] [--file <absolute plan file>] [--gate <word>] [--card <N>] | owner.wait --need ${OWNER_WAIT_NEEDS.join('|')} --text <what the owner decides> [--command <line>] [--card <N>] [--pr <N>] | owner.wait.close --id Q<N> --answer <answer> | decisions:add --from ${ANSWER_SOURCE} [--supersedes D-M]... [--card #N]... [--until <YYYY-MM-DDTHH:MMZ>] "[owner] <decision>" | hold --card <N> --reason <why the owner holds it> | release --card <N> | takeover --card <N> --reason <why the bus has no route for it> | drop --card <N> --reason <why a card with no body is dropped>`
+export const USAGE = `usage: pnpm bus:request tree.cut --card <N> | allow-merge --pr <N> --head <sha> --dry-run <reviewer session> | close-pr --pr <N> --card <N> --reason <text> | pr.body --pr <N> | requeue --task <task_key> | mode --set ${FACTORY_MODES.join('|')} | plan --op ${[...PLAN_OPS.keys()].join('|')} [--plan <id>] [--title <text>] [--goal <text>] [--file <absolute plan file>] [--gate <word>] [--card <N>] | owner.wait --need ${OWNER_WAIT_NEEDS.join('|')} --text <what the owner decides> [--command <line>] [--card <N>] [--pr <N>] | owner.wait.close --id Q<N> --answer <answer> | decisions:add --from ${ANSWER_SOURCE} [--supersedes D-M]... [--card #N]... [--until <YYYY-MM-DDTHH:MMZ>] "[owner] <decision>" | hold --card <N> --reason <why the owner holds it> | release --card <N> | takeover --card <N> --reason <why the bus has no route for it> | drop --card <N> --reason <why a card with no body is dropped> | numbers.foreign --ids <card ids of another factory's row, comma separated>`
 
 const BY_HAND = 'by-hand'
 const OWNER_ANSWER_USAGE = `an owner's word from the channel closes a wait with: pnpm bus:request owner.wait.close --id Q<N> --answer <the owner's word> --from ${ANSWER_SOURCE}`
@@ -262,6 +263,7 @@ export class WindowRequests {
       'release': (request, payload) => this.holdFor(request, payload, CARD_RELEASED),
       'takeover': (request, payload) => this.takeover(request, payload),
       'drop': (request, payload) => this.drop(request, payload),
+      'numbers.foreign': (request, payload) => this.recordForeignNumbers(request, payload),
     }
     return executors[kind]
   }
@@ -582,6 +584,14 @@ export class WindowRequests {
     return { done: true, why: `${CARD_DROPPED} #${cardId}: ${reason}` }
   }
 
+  private recordForeignNumbers(request: number, payload: Record<string, unknown>): Executed {
+    const ids = foreignIdsOf(payload.ids)
+    if (ids === null)
+      return { done: false, why: 'numbers.foreign needs --ids, a list of positive card numbers' }
+    appendEvent(this.db, { ts: this.clock().toISOString(), type: NUMBERS_FOREIGN, actor: this.actorOf(request), cardId: null, pr: null, head: null, dedupeKey: `${NUMBERS_FOREIGN}:request-${request}`, payload: { request, ids }, legacy: false })
+    return { done: true, why: `${NUMBERS_FOREIGN} ${ids.map(id => `#${id}`).join(', ')}: the next card number no longer follows them` }
+  }
+
   private routeOf(cardId: number): string | null {
     const card = this.db.prepare('SELECT state FROM cards WHERE card_id = ?').get(cardId) as { state: string | null } | undefined
     if (ENDED_CARDS.has(card?.state))
@@ -693,6 +703,13 @@ function cardStatesOf(db: DatabaseSync): Map<string, string> {
   return new Map(rows.map(row => [String(row.card_id), row.state]))
 }
 
+function foreignIdsOf(value: unknown): number[] | null {
+  if (!Array.isArray(value) || value.length === 0)
+    return null
+  const ids = value.map(prOf)
+  return ids.includes(null) ? null : ids as number[]
+}
+
 function flagsOf(name: string, values: unknown): string[] {
   return (Array.isArray(values) ? values : values === undefined ? [] : [values]).flatMap(value => [name, String(value)])
 }
@@ -794,6 +811,11 @@ export function requestOf(argv: readonly string[]): Record<string, unknown> | nu
     const card = cardIdOf(flag(argv, '--card'))
     const reason = flag(argv, '--reason')
     return card === null || reason === undefined ? null : { kind, card, reason }
+  }
+  if (kind === 'numbers.foreign') {
+    const listed = parseTaken(flag(argv, '--ids') ?? '')
+    const ids = listed.kind === 'taken' ? foreignIdsOf(listed.numbers) : null
+    return ids === null ? null : { kind, ids }
   }
   if (kind === 'plan') {
     const given = PLAN_FLAGS.flatMap(name => flag(argv, `--${name}`) === undefined ? [] : [[name, flag(argv, `--${name}`)] as const])
