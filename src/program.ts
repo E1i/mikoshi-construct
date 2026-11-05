@@ -19,7 +19,7 @@ import { DOCTOR_EXIT, doctorJson, factoryChecklist, factoryChecklistExit, factor
 import { modelPicture, printGraph } from './commands/graph.js'
 import { INIT_EXIT, runInit } from './commands/init.js'
 import { printAdmit, runAdmit } from './commands/intake/admit.js'
-import { runAmend } from './commands/intake/amend.js'
+import { listFlagOf, runAmend } from './commands/intake/amend.js'
 import { defaultParking, INTAKE_EXIT, printIntake, readStdinToEnd, runIntake } from './commands/intake/index.js'
 import { printMove, runMove } from './commands/intake/move.js'
 import { applyExit, applyJson, applyMutation, judgeExit, judgeJson, printApply, printJudge, REPORT_FORMATS, runJudge } from './commands/mutate/index.js'
@@ -426,7 +426,7 @@ function intakeCommand(bus: BusPorts | undefined) {
       confirm: { type: 'string', description: 'Park cards whose corrections a person has seen: the token the run that held them printed' },
       autoConfirm: { type: 'boolean', description: 'Accept corrections in advance: park at once and record each card and its corrections in the bus a caller wires in', default: false },
     },
-    run({ args }) {
+    run({ args, rawArgs }) {
       const console = ui(args)
       const failed = reported(console, () => {
         const dir = path.resolve(args.dir)
@@ -435,7 +435,7 @@ function intakeCommand(bus: BusPorts | undefined) {
           return
         }
         if (args.amend !== undefined) {
-          const flags = { touches: args.touches, creates: args.creates, note: args.note, witness: args.witness, who: args.who }
+          const flags = { touches: listFlagOf(rawArgs, 'touches'), creates: listFlagOf(rawArgs, 'creates'), note: args.note, witness: args.witness, who: args.who }
           process.exitCode = printAdmit(console, runAmend({ card: args.amend, flags, dir, dryRun: args.dryRun, confirm: args.confirm, autoConfirm: args.autoConfirm, events, cardStates, admissions }))
           return
         }
