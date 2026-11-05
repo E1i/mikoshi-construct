@@ -9,7 +9,7 @@ import process from 'node:process'
 import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { appendExitLine, LOADED_CORE_VARIABLE, realExitReadings, UNKNOWN, UNREAD } from '../../window/eddies-measure.js'
-import { ancestors, exitDecision, FRESH_MS, loopExitDecision, loopRequestOf, NOT_AT_A_STOP_CONDITION, parsePs, runMikoExit, SANDBOX_REFUSAL, sessionClaudeOf, stopReasonOf, TAB_THRESHOLD } from '../../window/exit.js'
+import { ancestors, exitDecision, FRESH_MS, loopExitDecision, loopRequestOf, NOT_AT_A_STOP_CONDITION, notAtAStopRefusal, parsePs, runMikoExit, SANDBOX_REFUSAL, sessionClaudeOf, stopReasonOf, TAB_THRESHOLD } from '../../window/exit.js'
 import { MIKO_HANDOFF_NAME, mikoHandoff } from '../../window/loop.js'
 import { ENTRYPOINT_VARIABLE, HEADLESS_ENTRYPOINT } from '../../window/tab.js'
 
@@ -235,7 +235,7 @@ describe('miko:exit ends a session only at a stop reason', () => {
   it('a fresh handoff with STATUS CONTINUE below the context warn and the spend warn is refused with the not-at-a-stop-condition text', () => {
     const outcome = exit({ readings: () => BELOW })
     expect(outcome).toMatchObject({ code: 1, kills: [], stops: [], recorded: [] })
-    expect(outcome.lines).toEqual([`[miko] ${NOT_AT_A_STOP_CONDITION}; nothing ended`])
+    expect(outcome.lines).toEqual([`[miko] ${notAtAStopRefusal(BELOW)}`])
   })
 
   it('a context at or above the warn ratio kills the session with STATUS CONTINUE', () => {
@@ -266,7 +266,7 @@ describe('miko:exit ends a session only at a stop reason', () => {
     expect(stopReasonOf('OWNER', BELOW)).toBeNull()
     const outcome = exit({ status: () => 'OWNER', readings: () => BELOW })
     expect(outcome).toMatchObject({ code: 1, kills: [], stops: [], recorded: [] })
-    expect(outcome.lines).toEqual([`[miko] ${NOT_AT_A_STOP_CONDITION}; nothing ended`])
+    expect(outcome.lines).toEqual([`[miko] ${notAtAStopRefusal(BELOW)}`])
     expect(exit({ status: () => 'OWNER', readings: () => AT_CONTEXT })).toMatchObject({ code: 0, kills: [12], recorded: [expect.objectContaining({ reason: 'context' })] })
   })
 
@@ -292,7 +292,7 @@ describe('miko:exit ends a session only at a stop reason', () => {
   it('without the session file the counters are unknown and a DONE exit still happens', () => {
     const dir = scratch()
     const readings = realExitReadings({ CLAUDE_CODE_SESSION_ID: SESSION }, dir, dir, path.join(dir, 'bus.db'))
-    expect(readings).toEqual({ ...UNREAD, sessionId: SESSION, contextWarn: CONTEXT_WARN, spendWarn: SPEND_WARN })
+    expect(readings).toEqual({ ...UNREAD, sessionId: SESSION, contextWarn: CONTEXT_WARN, contextWarnSource: '.claude/eddies.json contextLimit × warnRatio', budgetWarned: false, spendWarn: SPEND_WARN })
     const outcome = exit({ status: () => 'DONE', readings: () => readings, handoffMtime: () => undefined })
     expect(outcome.kills).toEqual([12])
     expect(outcome.recorded).toEqual([expect.objectContaining({ start: UNKNOWN, end: UNKNOWN, spent: UNKNOWN, cards: UNKNOWN, bus_events: UNKNOWN })])
@@ -316,6 +316,71 @@ describe('miko:exit ends a session only at a stop reason', () => {
     } })
     expect(outcome).toMatchObject({ code: 0, kills: [12] })
     expect(outcome.lines[0]).toContain('session-exit line was not written (disk full)')
+  })
+})
+
+describe('the line this session crossed is the stop, by the record of the hook', () => {
+  const COMPACTED = CONTEXT_WARN - 1
+
+  function journalLine(line: Record<string, unknown>): string {
+    return JSON.stringify({ v: 1, event: 'budget-warn', level: 'session-context', session_id: SESSION, agent_id: null, spent: CONTEXT_WARN, limit: LIMITS.contextLimit, warn_ratio: LIMITS.warnRatio, ...line })
+  }
+
+  function compactedSession(journalLines: string[]): ExitReadings {
+    const dir = scratch()
+    const file = transcript(dir, [usageLine('2026-11-05T00:00:00.000Z', 'r1', { input: CONTEXT_WARN }), usageLine('2026-11-05T00:10:00.000Z', 'r2', { input: COMPACTED })])
+    writeFileSync(path.join(dir, '.construct', 'eddies.jsonl'), `${journalLines.join('\n')}\n`)
+    const readings = realExitReadings({ CLAUDE_CODE_SESSION_ID: SESSION }, dir, dir, path.join(dir, 'bus.db'))
+    expect(readings).toMatchObject({ context: COMPACTED, contextSource: file })
+    return readings
+  }
+
+  it('a session the hook warned on context and compaction then shrank is ended by miko:exit', () => {
+    const warned = compactedSession([journalLine({})])
+    expect(exit({ readings: () => warned })).toMatchObject({ code: 0, kills: [12], recorded: [expect.objectContaining({ reason: 'context' })] })
+
+    const anotherSession = compactedSession([journalLine({ session_id: 'session-other' })])
+    expect(anotherSession.budgetWarned).toBe(false)
+    expect(exit({ readings: () => anotherSession })).toMatchObject({ code: 1, kills: [], recorded: [] })
+  })
+
+  it('a spend warn of this session, a line of another event and a broken line are no context crossing', () => {
+    const readings = compactedSession([journalLine({ level: 'session-spend' }), journalLine({ event: 'budget-stop' }), '{"event":"budget-warn"', 'null'])
+    expect(readings.budgetWarned).toBe(false)
+    expect(stopReasonOf('CONTINUE', readings)).toBeNull()
+  })
+
+  it('an unreadable journal counts as no line and its finding prints as unknown', () => {
+    const dir = scratch()
+    transcript(dir, [usageLine('2026-11-05T00:00:00.000Z', 'r1', { input: COMPACTED })])
+    mkdirSync(path.join(dir, '.construct', 'eddies.jsonl'))
+    const readings = realExitReadings({ CLAUDE_CODE_SESSION_ID: SESSION }, dir, dir, path.join(dir, 'bus.db'))
+    expect(readings.budgetWarned).toBe(UNKNOWN)
+    expect(stopReasonOf('CONTINUE', readings)).toBeNull()
+    expect(notAtAStopRefusal(readings)).toContain('budget-warn of this session unknown (.construct/eddies.jsonl)')
+  })
+
+  it('a tab window the hook warned on context ends nothing and prints TAB_THRESHOLD', () => {
+    const outcome = exit({ tab: true, table: () => outsideLoop, readings: () => compactedSession([journalLine({})]) })
+    expect(outcome).toMatchObject({ code: 1, kills: [], recorded: [] })
+    expect(outcome.lines).toEqual([`[miko] ${TAB_THRESHOLD}`])
+  })
+
+  it('a miko:exit refusal prints the context, the line and their source', () => {
+    const readings = compactedSession([journalLine({ session_id: 'session-other' })])
+    const refusal = `${NOT_AT_A_STOP_CONDITION}; read context ${COMPACTED} (${String(readings.contextSource)}), line ${CONTEXT_WARN} (.claude/eddies.json contextLimit × warnRatio), budget-warn of this session not found (.construct/eddies.jsonl); nothing ended`
+    expect(loopExitDecision(0, 0, 'CONTINUE', readings)).toEqual({ refuse: refusal })
+    expect(exit({ readings: () => readings }).lines).toEqual([`[miko] ${refusal}`])
+
+    const unread = exit({ readings: () => ({ ...readings, contextWarn: UNKNOWN, contextWarnSource: UNKNOWN }) })
+    expect(unread.code).toBe(1)
+    expect(unread.lines[0]).toContain('line unknown (unknown)')
+  })
+
+  it('the line of a card session names cardContextLine as its source', () => {
+    const dir = scratch()
+    writeFileSync(path.join(dir, '.claude', 'eddies.json'), JSON.stringify({ ...LIMITS, cardContextLine: 90000 }))
+    expect(realExitReadings({ CONSTRUCT_CARD: '7' }, dir, dir, path.join(dir, 'bus.db'))).toMatchObject({ contextWarn: 90000, contextWarnSource: '.claude/eddies.json cardContextLine', budgetWarned: UNKNOWN })
   })
 })
 
@@ -480,7 +545,7 @@ describe('a core version change on main is a stop reason of a session the loop s
     { name: 'not read, as in a session without the variable', readings: { ...BELOW, coreLoaded: UNKNOWN, coreOnMain: 5 } },
     { name: 'read while main is not', readings: { ...BELOW, coreLoaded: 4, coreOnMain: UNKNOWN } },
   ])('a core version equal to main or unread refuses as not at a stop condition: $name', ({ readings }) => {
-    expect(loopExitDecision(NOW, NOW, 'CONTINUE', readings)).toEqual({ refuse: `${NOT_AT_A_STOP_CONDITION}; nothing ended` })
+    expect(loopExitDecision(NOW, NOW, 'CONTINUE', readings)).toEqual({ refuse: notAtAStopRefusal(readings) })
   })
 
   it('a core version equal to main is no stop, and one below it still needs a fresh handoff: a stale one refuses with the handoff:write line', () => {
@@ -556,6 +621,6 @@ describe('in a tab window a threshold continues the session instead of ending it
 
   it('a tab session with STATUS DONE still ends, and below every threshold is still refused', () => {
     expect(exit({ tab: true, table: () => outsideLoop, readings: () => UNREAD, status: () => 'DONE' })).toMatchObject({ code: 0, kills: [12] })
-    expect(exit({ tab: true, table: () => outsideLoop, readings: () => BELOW }).lines).toEqual([`[miko] ${NOT_AT_A_STOP_CONDITION}; nothing ended`])
+    expect(exit({ tab: true, table: () => outsideLoop, readings: () => BELOW }).lines).toEqual([`[miko] ${notAtAStopRefusal(BELOW)}`])
   })
 })
