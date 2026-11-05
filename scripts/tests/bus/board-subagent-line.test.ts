@@ -63,7 +63,7 @@ function pageOf(events: SeedEvent[], roles: { role: string, status: string, stat
 }
 
 function tilesOf(html: string, role: string): string[] {
-  return [...html.matchAll(new RegExp(`<div class="svc" data-role="${role}"[\\s\\S]*?(?=<div class="svc" |</section>)`, 'g'))].map(match => match[0])
+  return [...html.matchAll(new RegExp(`<div class="svc bevel" data-role="${role}"[\\s\\S]*?(?=<div class="svc bevel" |</section>)`, 'g'))].map(match => match[0])
 }
 
 function agentsCount(html: string): number {
