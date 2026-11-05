@@ -509,12 +509,12 @@ interface HandsLab {
 
 function handsLab({ failClose = false } = {}): HandsLab {
   const root = realpathSync(scratch('construct-hands-root-'))
-  const bin = path.join(root, 'bin')
+  const cachedModules = '.construct/browser-lab/npm-cache/_npx/cached/node_modules'
   const record = path.join(root, 'calls.jsonl')
   write(root, 'extension/manifest.json', '{"manifest_version":3,"name":"sample","version":"1.0.0"}\n')
   write(root, 'base-profile/Default/Preferences', '{}\n')
-  write(root, 'bin/npx', '#!/bin/sh\necho "$(dirname "$0")/playwright-cli"\n')
-  write(root, 'bin/playwright-cli', [
+  write(root, `${cachedModules}/@playwright/cli/package.json`, '{"version":"0.1.17"}\n')
+  write(root, `${cachedModules}/.bin/playwright-cli`, [
     '#!/usr/bin/env node',
     'const fs = require(\'node:fs\')',
     'const args = process.argv.slice(2)',
@@ -529,9 +529,7 @@ function handsLab({ failClose = false } = {}): HandsLab {
   ].join('\n'))
   if (failClose)
     write(root, 'fail-close', '')
-  chmodSync(path.join(bin, 'npx'), 0o755)
-  chmodSync(path.join(bin, 'playwright-cli'), 0o755)
-  const env = { ...process.env, PATH: `${bin}:${process.env.PATH ?? ''}` }
+  const env = { ...process.env, HOME: root }
   return {
     root,
     base: path.join(root, 'base-profile'),

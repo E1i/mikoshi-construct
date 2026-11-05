@@ -1,6 +1,6 @@
 import type { ShiftGate } from '../../../src/manifest.js'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir, userInfo } from 'node:os'
+import { homedir, tmpdir, userInfo } from 'node:os'
 import path from 'node:path'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { BROWSER_LAB_EXCLUDED_COMMAND } from '../../../src/commands/attach/settings.js'
@@ -39,7 +39,7 @@ describe('the settings a card session is started with in a repository after cons
 
   it('allow exactly the gate commands of the tree\'s construct config and edits inside the card tree, and no other rule, and deny only the edit of the lab init excludes', () => {
     const command = readManifest(tree)!.harness.command
-    expect(shiftSettings(tree, readShiftGate(tree)).permissions).toEqual({ allow: [`Bash(${command})`, `Edit(/${tree}/**)`], deny: [`Edit(/${path.join(tree, 'scripts', 'construct', 'browser-lab.mjs')})`] })
+    expect(shiftSettings(tree, readShiftGate(tree)).permissions).toEqual({ allow: [`Bash(${command})`, `Edit(/${tree}/**)`], deny: [`Edit(/${path.join(tree, 'scripts', 'construct', 'browser-lab.mjs')})`, `Edit(/${path.join(homedir(), '.construct', 'browser-lab')}/**)`] })
   })
 
   it('cover the tree report and a file inside the tree, and nothing beside the tree', () => {
@@ -101,8 +101,19 @@ describe('the browser lab exclusion a card session takes from the settings of it
     const without = shiftSettings(tree, GATE)
     holdSettings('settings.local.json', [BROWSER_LAB_EXCLUDED_COMMAND])
     const excluded = shiftSettings(tree, GATE)
-    expect({ deny: excluded.permissions.deny, denyWrite: excluded.sandbox.filesystem?.denyWrite }).toEqual({ deny: [`Edit(/${lab})`], denyWrite: [lab] })
+    expect(excluded.permissions.deny).toContain(`Edit(/${lab})`)
+    expect(excluded.sandbox.filesystem?.denyWrite).toContain(lab)
     expect({ deny: without.permissions.deny, filesystem: without.sandbox.filesystem }).toEqual({ deny: undefined, filesystem: undefined })
+  })
+
+  it('a session excluded for the lab may not write the lab cache', () => {
+    const labHome = path.join(homedir(), '.construct', 'browser-lab')
+    const without = shiftSettings(tree, GATE)
+    holdSettings('settings.json', [BROWSER_LAB_EXCLUDED_COMMAND])
+    const excluded = shiftSettings(tree, GATE)
+    expect(excluded.permissions.deny).toContain(`Edit(/${labHome}/**)`)
+    expect(excluded.sandbox.filesystem?.denyWrite).toContain(labHome)
+    expect(JSON.stringify(without)).not.toContain(labHome)
   })
 
   it('a missing file, an unparsable file or a malformed excludedCommands excludes nothing and leaves the settings as they are without the entry', () => {

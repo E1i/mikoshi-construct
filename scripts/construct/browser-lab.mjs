@@ -249,28 +249,51 @@ export function npxEnvironment(base = process.env) {
   return { ...base, npm_config_registry: PUBLIC_REGISTRY, npm_config_cache: NPX_CACHE }
 }
 
-function runNpx(args, options) {
-  return spawnSync('npx', args, { ...options, env: npxEnvironment() })
+function runTool(binary, args, options) {
+  return spawnSync(process.execPath, [binary, ...args], { ...options, env: npxEnvironment() })
 }
 
-function npxBinary(spec, name) {
-  const found = runNpx(['--yes', '--package', spec, '-c', `command -v ${name}`], { encoding: 'utf8' })
-  const binary = (found.stdout ?? '').trim().split('\n').at(-1)
-  if (found.status !== 0 || binary === '' || binary === undefined) {
-    const stderrTail = (found.stderr ?? '').trim().split('\n').slice(-5).join(' | ')
-    throw new Unobserved(`npx could not provide ${spec}${found.error === undefined ? '' : ` (${found.error.message})`}${stderrTail === '' ? '' : `: ${stderrTail}`}`)
+function holdsVersion(modules, name, version) {
+  try {
+    return JSON.parse(readFileSync(path.join(modules, name, 'package.json'), 'utf8')).version === version
   }
+  catch {
+    return false
+  }
+}
+
+function binaryInsideCache(modules, name) {
+  try {
+    const binary = realpathSync(path.join(modules, '.bin', name))
+    return binary.startsWith(`${realpathSync(NPX_CACHE)}${path.sep}`) ? binary : undefined
+  }
+  catch {
+    return undefined
+  }
+}
+
+function cachedInstalls() {
+  const installs = path.join(NPX_CACHE, '_npx')
+  return existsSync(installs) ? readdirSync(installs).sort().map(install => path.join(installs, install, 'node_modules')) : []
+}
+
+function cachedBinary(spec, name) {
+  const at = spec.lastIndexOf('@')
+  const pinned = cachedInstalls().filter(modules => holdsVersion(modules, spec.slice(0, at), spec.slice(at + 1)))
+  const binary = pinned.map(modules => binaryInsideCache(modules, name)).find(found => found !== undefined)
+  if (binary === undefined)
+    throw new Unobserved(`${spec} is not in the lab cache ${NPX_CACHE}, and the lab takes it from nowhere else, neither the repository nor PATH. Fill the cache from outside the repository: npm_config_cache=${NPX_CACHE} npx --yes --package ${spec} -c 'command -v ${name}'`)
   return binary
 }
 
 async function loadChromium() {
-  const binary = npxBinary(PLAYWRIGHT_CORE, 'playwright-core')
-  const library = await import(pathToFileURL(path.join(path.dirname(realpathSync(binary)), 'index.mjs')))
+  const binary = cachedBinary(PLAYWRIGHT_CORE, 'playwright-core')
+  const library = await import(pathToFileURL(path.join(path.dirname(binary), 'index.mjs')))
   return library.chromium
 }
 
 function installChromium() {
-  runNpx(['--yes', PLAYWRIGHT_CORE, 'install', 'chromium'], { stdio: ['ignore', 2, 2] })
+  runTool(cachedBinary(PLAYWRIGHT_CORE, 'playwright-core'), ['install', 'chromium'], { stdio: ['ignore', 2, 2] })
 }
 
 function extensionLoading(directory) {
@@ -387,10 +410,10 @@ function writeConsole(evidence, session, before) {
 }
 
 function runHands({ extension, options, profile }) {
-  const binary = npxBinary(PLAYWRIGHT_CLI, 'playwright-cli')
+  const binary = cachedBinary(PLAYWRIGHT_CLI, 'playwright-cli')
   const config = path.join(profile, 'hands.config.json')
   writeFileSync(config, `${JSON.stringify(handsConfig(extension?.directory, profile, options.headed, options.proxy), null, 2)}\n`)
-  spawnSync(binary, ['install-browser', 'chromium'], { stdio: ['ignore', 2, 2], env: npxEnvironment() })
+  runTool(binary, ['install-browser', 'chromium'], { stdio: ['ignore', 2, 2] })
   const evidence = options.evidence === undefined ? undefined : path.resolve(options.evidence)
   const { command, session } = handsCommandAndSession(options.positionals)
   if (evidence !== undefined) {
@@ -401,7 +424,7 @@ function runHands({ extension, options, profile }) {
   const closing = evidence !== undefined && command === 'close'
   if (closing)
     rmSync(path.join(evidence, 'console.json'), { force: true })
-  const ran = spawnSync(binary, handsArguments(config, options.positionals), { cwd: evidence, encoding: 'utf8', env: npxEnvironment() })
+  const ran = runTool(binary, handsArguments(config, options.positionals), { cwd: evidence, encoding: 'utf8' })
   if (ran.error !== undefined || ran.status !== 0)
     throw new Unobserved(handsRefusal(ran))
   if (closing) {

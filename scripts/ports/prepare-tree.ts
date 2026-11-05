@@ -21,8 +21,8 @@ const PUBLIC_REGISTRY = 'https://registry.npmjs.org/'
 const NODE_MODULES = 'node_modules'
 
 const LAB_TOOLS = [
-  { declared: /\bPLAYWRIGHT_CORE = '(playwright-core@\d+\.\d+\.\d+)'/, name: 'playwright-core', bin: 'playwright-core', install: 'playwright-core install chromium' },
-  { declared: /\bPLAYWRIGHT_CLI = '(@playwright\/cli@\d+\.\d+\.\d+)'/, name: '@playwright/cli', bin: 'playwright-cli', install: 'playwright-cli install-browser chromium' },
+  { declared: /\bPLAYWRIGHT_CORE = '(playwright-core@\d+\.\d+\.\d+)'/, name: 'playwright-core', bin: 'playwright-core', install: 'playwright-core install chromium', readByBrowserWitnessThroughTree: true },
+  { declared: /\bPLAYWRIGHT_CLI = '(@playwright\/cli@\d+\.\d+\.\d+)'/, name: '@playwright/cli', bin: 'playwright-cli', install: 'playwright-cli install-browser chromium', readByBrowserWitnessThroughTree: false },
 ] as const
 
 type LabTool = typeof LAB_TOOLS[number]
@@ -39,8 +39,8 @@ function labCache(env: NodeJS.ProcessEnv): string {
   return path.join(env.HOME ?? os.homedir(), '.construct', 'browser-lab', 'npm-cache')
 }
 
-function installedBinary(tree: string, spec: string, tool: LabTool, env: NodeJS.ProcessEnv): string {
-  const said = execFileSync('npx', ['--yes', '--package', spec, '-c', `${tool.install} && command -v ${tool.bin}`], { cwd: tree, env, encoding: 'utf8', timeout: PREPARE_MS, stdio: ['ignore', 'pipe', 'pipe'] })
+function installedBinary(cache: string, spec: string, tool: LabTool, env: NodeJS.ProcessEnv): string {
+  const said = execFileSync('npx', ['--yes', '--package', spec, '-c', `${tool.install} && command -v ${tool.bin}`], { cwd: cache, env, encoding: 'utf8', timeout: PREPARE_MS, stdio: ['ignore', 'pipe', 'pipe'] })
   return realpathSync(said.trim().split('\n').at(-1)!)
 }
 
@@ -75,8 +75,11 @@ export function preinstallBrowser(tree: string, env: NodeJS.ProcessEnv = process
     const spec = tool.declared.exec(text)?.[1]
     if (spec === undefined)
       continue
-    const binary = installedBinary(tree, spec, tool, npxEnv)
+    mkdirSync(npxEnv.npm_config_cache, { recursive: true })
     const cache = realpathSync(npxEnv.npm_config_cache)
+    const binary = installedBinary(cache, spec, tool, npxEnv)
+    if (!tool.readByBrowserWitnessThroughTree)
+      continue
     linkUnlessTheRepositorysOwn(path.join(tree, NODE_MODULES, tool.name), packageRoot(binary, tool), cache)
     linkUnlessTheRepositorysOwn(path.join(tree, NODE_MODULES, '.bin', tool.bin), binary, cache)
   }

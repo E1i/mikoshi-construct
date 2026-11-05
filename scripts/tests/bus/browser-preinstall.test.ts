@@ -121,7 +121,7 @@ describe('the browser preinstall', () => {
     const f = fixture()
     const run = sessionRunsLab(f)
     expect(run.status).toBe(127)
-    expect(run.stderr).toContain('npx could not provide')
+    expect(run.stderr).toContain('is not in the lab cache')
   })
 
   it('fills both lab tools through the public registry into the cache the lab reads', () => {
@@ -138,6 +138,22 @@ describe('the browser preinstall', () => {
     preinstallBrowser(f.tree, f.env)
     expect(execFileSync('git', ['-C', f.tree, 'diff', '--cached', '--name-only', '--diff-filter=D'], { encoding: 'utf8' })).toBe('')
     expect(execFileSync('git', ['-C', f.tree, 'status', '--short', '--untracked-files=all'], { encoding: 'utf8' })).not.toContain('node_modules')
+  })
+
+  it('links only the playwright-core browser-witness reaches through the tree, and no playwright cli', () => {
+    const f = fixture()
+    preinstallBrowser(f.tree, f.env)
+    expect(lstatSync(path.join(f.tree, 'node_modules/playwright-core')).isSymbolicLink()).toBe(true)
+    expect(existsSync(path.join(f.tree, 'node_modules/@playwright/cli'))).toBe(false)
+    expect(existsSync(path.join(f.tree, 'node_modules/.bin/playwright-cli'))).toBe(false)
+  })
+
+  it('fills the cache from outside the tree, so a package the tree holds never answers the preinstall', () => {
+    const f = fixture()
+    const seen = path.join(f.tree, '..', 'npx-cwd')
+    writeFileSync(path.join(f.bin, 'npx'), `#!/bin/bash\npwd > '${seen}'\n${fillingNpx(path.dirname(f.tree), f.log).split('\n').slice(1).join('\n')}`, { mode: 0o755 })
+    preinstallBrowser(f.tree, f.env)
+    expect(readFileSync(seen, 'utf8').trim()).toBe(path.join(f.home, '.construct/browser-lab/npm-cache'))
   })
 
   it('does nothing in a tree with no lab', () => {

@@ -39,9 +39,10 @@ export function shiftSettings(tree: string, gate: ShiftGate, writable: string[] 
   if (!REPOSITORY_SETTINGS_FILES.some(file => excludesBrowserLab(path.join(tree, file))))
     return { sandbox: CARD_SESSION_SANDBOX, permissions: { allow } }
   const lab = path.join(tree, BROWSER_LAB_SCRIPT)
+  const labHome = path.join(os.homedir(), '.construct', 'browser-lab')
   return {
-    sandbox: { ...CARD_SESSION_SANDBOX, excludedCommands: [BROWSER_LAB_EXCLUDED_COMMAND], filesystem: { denyWrite: [lab] } },
-    permissions: { allow, deny: [`Edit(/${lab})`] },
+    sandbox: { ...CARD_SESSION_SANDBOX, excludedCommands: [BROWSER_LAB_EXCLUDED_COMMAND], filesystem: { denyWrite: [lab, labHome] } },
+    permissions: { allow, deny: [`Edit(/${lab})`, `Edit(/${labHome}/**)`] },
   }
 }
 
