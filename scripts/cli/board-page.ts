@@ -647,38 +647,16 @@ function witnessRow(field: WitnessField, record: WitnessRecordOnHead | null, pag
 }
 
 const GLOB_SUFFIX = '/**'
-const RUN_WORD = /[^\s'"`=;|&()<>]+/g
-const CURRENT_DIRECTORY = /^\.\//
 
-function runWords(witnesses: readonly WitnessField[]): string[] {
-  return witnesses.flatMap(field => field.run.match(RUN_WORD) ?? []).map(word => word.replace(CURRENT_DIRECTORY, ''))
-}
-
-function isGlob(entry: string): boolean {
-  return entry.endsWith(GLOB_SUFFIX)
-}
-
-function isWitnessed(entry: string, words: readonly string[]): boolean {
-  if (!isGlob(entry))
-    return words.includes(entry)
-  const directory = entry.slice(0, -GLOB_SUFFIX.length + 1)
-  return words.some(word => word.startsWith(directory) && word.length > directory.length)
-}
-
-function runsTag(entry: string, words: readonly string[]): string {
-  return `<span class="tag"${isGlob(entry) ? ' data-glob' : ''}${isWitnessed(entry, words) ? ' data-witnessed' : ''}>${escaped(entry)}</span>`
-}
-
-function runsHtml(runs: readonly string[], witnesses: readonly WitnessField[]): string {
-  const words = runWords(witnesses)
-  const entries = runs.length === 0 ? NONE : runs.map(entry => runsTag(entry, words)).join(' ')
+function runsHtml(runs: readonly string[]): string {
+  const entries = runs.length === 0 ? NONE : runs.map(entry => `<span class="tag"${entry.endsWith(GLOB_SUFFIX) ? ' data-glob' : ''}>${escaped(entry)}</span>`).join(' ')
   return `<p>runs: ${entries}</p>`
 }
 
 function witnessTableHtml(table: WitnessTable, page: BoardPage): string {
   const head = WITNESS_COLUMNS.map(column => `<th scope="col">${column}</th>`).join('')
   const rows = table.witnesses.map(field => witnessRow(field, table.record, page)).join('')
-  return `${runsHtml(table.runs, table.witnesses)}<h3>Witnesses</h3><div class="mx-wrap"><table class="mx" data-witnesses><thead><tr><th scope="col">${WITNESS_ID_COLUMN}</th>${head}</tr></thead><tbody>${rows}</tbody></table></div>`
+  return `<h3>Witnesses</h3><div class="mx-wrap"><table class="mx" data-witnesses><thead><tr><th scope="col">${WITNESS_ID_COLUMN}</th>${head}</tr></thead><tbody>${rows}</tbody></table></div>${runsHtml(table.runs)}`
 }
 
 function withoutRunsLine(prose: string): string {
@@ -690,8 +668,8 @@ function cardProse(detail: CardDetail, page: BoardPage): string {
   if (contract === null)
     return note('The bus holds no admitted card text for this card.')
   const table = detail.witnessTable
-  const runs = contract.runs.length === 0 ? '' : runsHtml(contract.runs, [])
-  const witnesses = table === null ? `${runs}${listed('Witnesses', contract.witnesses, page)}` : witnessTableHtml(table, page)
+  const runs = contract.runs.length === 0 ? '' : runsHtml(contract.runs)
+  const witnesses = table === null ? `${listed('Witnesses', contract.witnesses, page)}${runs}` : witnessTableHtml(table, page)
   return `<div class="prose">${paragraphs(withoutRunsLine(contract.prose), page)}${witnesses}${listed('Unclear', contract.unclear, page)}</div>`
 }
 
@@ -703,16 +681,18 @@ function pullLink(pr: number, page: BoardPage): string {
   return page.repository === null ? `PR #${pr}` : `<a data-link href="${escaped(`${page.repository}/pull/${pr}`)}">PR #${pr} ›</a>`
 }
 
+function matrixHasData(matrix: BusMatrix): boolean {
+  return matrix.killed + matrix.survived + matrix.notRun > 0 || matrix.full !== null
+}
+
 function cardMatrix(detail: CardDetail, page: BoardPage): string {
-  if (detail.pr === null)
-    return note('No pull request for this card in the bus yet.')
   const matrix: BusMatrix | undefined = page.facts.matrices.find(entry => entry.pr === detail.pr)
-  if (matrix === undefined)
-    return note(`The bus holds no check matrix for ${pullLink(detail.pr, page)}.`)
+  if (matrix === undefined || !matrixHasData(matrix))
+    return ''
   const contract = detail.contract
   const check = matrixRows([['pull request', `PR #${matrix.pr}`], ['head', matrix.head ?? NONE], ['killed', String(matrix.killed)], ['survived', String(matrix.survived)], ['not run', String(matrix.notRun)], ['full run', matrix.full ?? NONE]])
   const risk = matrixRows([['risk', contract?.risk ?? NONE], ['seam', contract?.seam.join(', ') || NONE], ['slice', contract?.slice.join(', ') || NONE]])
-  return `<div><p class="mx-title">check matrix · ${pullLink(matrix.pr, page)}</p>${check}</div><div><p class="mx-title">risk matrix</p>${risk}</div>`
+  return `${divider('matrix')}<div><p class="mx-title">check matrix · ${pullLink(matrix.pr, page)}</p>${check}</div><div><p class="mx-title">risk matrix</p>${risk}</div>`
 }
 
 function verdictText(verdict: unknown): string {
@@ -745,7 +725,6 @@ function cardDialogHtml(card: BusCard, detail: CardDetail, page: BoardPage): str
     cardPunch(card, detail, page),
     divider('prose'),
     cardProse(detail, page),
-    divider('matrix'),
     cardMatrix(detail, page),
     divider('chain'),
     cardChainHtml(card, detail),
@@ -1309,7 +1288,7 @@ dialog.drill {
 .drill-id { font: 700 1.375rem var(--font-display); letter-spacing: 0.06em; }
 .drill-name { flex: 1; min-inline-size: 0; font-weight: 700; overflow-wrap: anywhere; }
 .drill-close { padding: var(--space-xs) 0.625rem; border: 1px solid var(--wire); font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; }
-.drill-body { overflow: auto; padding: var(--space-l); display: grid; gap: var(--space-l); }
+.drill-body { overflow: auto; padding: var(--space-l); display: grid; gap: var(--space-l); & > * { min-inline-size: 0; } }
 .punch { position: relative; border: 1px solid var(--line); background: var(--panel-raised); }
 .punch-holes {
   display: flex;
@@ -1334,16 +1313,13 @@ dialog.drill {
 .tag {
   --_bd: var(--line);
   --_bd-style: solid;
-  --_bg: transparent;
 
   display: inline-block;
   margin: 2px 4px 0 0;
   padding: 0 0.375rem;
   border: 1px var(--_bd-style) var(--_bd);
-  background: var(--_bg);
 
   &[data-glob] { --_bd: var(--wire); --_bd-style: dashed; }
-  &[data-witnessed] { --_bd: var(--ok); --_bg: oklch(from var(--ok) l c h / 0.15); }
 }
 .divider {
   display: flex;
@@ -1358,21 +1334,38 @@ dialog.drill {
 .prose {
   display: grid;
   gap: 0.625rem;
-  max-inline-size: 78ch;
   line-height: 1.65;
+  & > * { min-inline-size: 0; }
+  & > :not(.mx-wrap) { max-inline-size: 78ch; }
   & h3 { margin: 0; color: var(--amber); font: 700 0.6875rem var(--font-display); letter-spacing: 0.16em; text-transform: uppercase; }
   & ul { margin: 0; padding-inline-start: 1.2em; display: grid; gap: 3px; }
 }
 code { padding: 0 0.25rem; background: var(--panel-raised); color: var(--text); }
 .note { padding-inline-start: var(--space-s); border-inline-start: 2px solid var(--amber); color: var(--dim); font-size: 0.6875rem; }
 .mx-title { margin-block-end: 0.375rem; color: var(--amber); font: 700 0.6875rem var(--font-display); letter-spacing: 0.16em; text-transform: uppercase; }
-.mx-wrap { overflow-x: auto; border: 1px solid var(--line); }
+.mx-wrap {
+  --_inline-overflow: auto;
+
+  overflow-x: var(--_inline-overflow);
+  border: 1px solid var(--line);
+
+  &:has(> [data-witnesses]) { --_inline-overflow: visible; }
+}
 .mx {
   min-inline-size: 0;
   font-size: 0.75rem;
   & th { inline-size: 10rem; padding: 0.3rem 0.625rem; background: var(--panel-raised); color: var(--dim); font-weight: 600; text-align: start; }
   & td { padding: 0.3rem 0.625rem; border-block-end: 1px solid var(--line); }
-  &[data-witnesses] th { inline-size: auto; }
+  &[data-witnesses] {
+    inline-size: 100%;
+    table-layout: fixed;
+    & th { inline-size: auto; }
+    & th, & td { overflow-wrap: anywhere; }
+    & thead th:nth-child(1) { inline-size: 3.5rem; }
+    & thead th:nth-child(2) { inline-size: 30%; }
+    & thead th:nth-child(4) { inline-size: 8rem; }
+    & td:nth-child(2) { font-family: var(--font-mono); }
+  }
 }
 .chain {
   margin: 0;
