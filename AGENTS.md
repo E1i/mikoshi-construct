@@ -258,6 +258,8 @@ commit message. A decision taken under uncertainty also records what would rever
 
 ## Conventions
 
+A client's literal lives in its adapter; `scripts/tests/client/seal.test.ts` lists the rest.
+
 **One list, two readers.** A set of values that code uses and a document explains — the doctor's
 enforcement levels, the in-universe vocabulary, the discovery markers — lives once in `src/`, and a
 test reads it from there and asserts the document explains every member. The document is the second

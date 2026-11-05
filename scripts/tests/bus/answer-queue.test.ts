@@ -23,9 +23,10 @@ import { importJournal } from '../../intake/import.js'
 import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
 import { answerSourceOf, NO_RECORDED_SESSION } from '../../nodes/answer/answer-source.js'
 import { AnswerNode, runAnswerWorker, VERDICT_NOT_RECORDED } from '../../nodes/answer/answer-worker.js'
-import { claudeAnswerer, ownerQuestionPath, projectDirOf, treeMergeOf } from '../../nodes/answer/answerer.js'
+import { claudeAnswerer, ownerQuestionPath, treeMergeOf } from '../../nodes/answer/answerer.js'
 import { recordDecision } from '../../policy/decisions.js'
 import { cardDecisionCommand } from '../../policy/shards.js'
+import { transcriptFile } from '../../ports/client/claude/adapter.js'
 import { readBoard } from '../../window/board.js'
 import { sha } from './github-fake.js'
 import { eventCount, eventsOf, mergeBench, taskState } from './merge-bench.js'
@@ -221,7 +222,7 @@ describe('the answer queue', () => {
 
     expect(await bench.answer(bench.leaseAnswer()!)).toMatchObject({ kind: 'answered', session: 'new-session-1', resumed: false })
     expect(bench.tools.runs[0]!.argv.slice(-3, -1)).toEqual(['--session-id', 'new-session-1'])
-    expect(projectDirOf('/Users/eli/projects/mc-810')).toBe('-Users-eli-projects-mc-810')
+    expect(transcriptFile('/client-home', '/Users/eli/projects/mc-810', 'new-session-1')).toBe('/client-home/projects/-Users-eli-projects-mc-810/new-session-1.jsonl')
     bench.close()
   })
 

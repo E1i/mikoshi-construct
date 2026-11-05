@@ -1,8 +1,9 @@
-import type { ClientAdapter, Invocation, Refusal, Role, SessionPolicy, SessionSpec } from '../contract.js'
-import { existsSync, readdirSync } from 'node:fs'
+import type { ClientAdapter, Denial, Invocation, JournalChange, Refusal, Role, SessionJournal, SessionPlace, SessionPolicy, SessionReading, SessionSpec, ToolUse, Usage } from '../contract.js'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import os from 'node:os'
 import path from 'node:path'
+import process from 'node:process'
 import { commandWords } from '../../isolation.js'
 import { settingsFlag, shiftSettings } from '../../shift-settings.js'
 import { claudeProcessCwds } from '../../worktree.js'
@@ -17,6 +18,18 @@ export const SESSION_VARIABLE = 'CLAUDE_CODE_SESSION_ID'
 export const USER_SETTINGS = '~/.claude/settings.json'
 const SESSION_ENV: NodeJS.ProcessEnv = { CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS: '0' }
 const WINDOW_ENV: NodeJS.ProcessEnv = {}
+const CONFIG_DIR_VARIABLE = 'CLAUDE_CONFIG_DIR'
+export const CLIENT_ENV_PREFIXES = ['CLAUDE_', 'ANTHROPIC_']
+
+const WRITE_TOOL = 'Write'
+const EXEC_TOOL = 'Bash'
+const WRITING_TOOLS: ReadonlySet<string> = new Set(['Edit', 'MultiEdit', WRITE_TOOL, 'NotebookEdit'])
+const JOURNALED_TOOLS: ReadonlySet<string> = new Set([WRITE_TOOL, 'Edit', EXEC_TOOL])
+const PLAIN_SESSION = /^[\w-]+$/
+const LAST_STEP_COUNT = 12
+const STEP_TEXT_CHARS = 120
+const STEP_INPUT_KEYS = ['file_path', 'description', 'command', 'pattern', 'prompt'] as const
+const ANY_LINE_BREAK = /\r\n?|[\n\p{Zl}\p{Zp}]/u
 
 const REPO_ROOT = path.join(import.meta.dirname, '..', '..', '..', '..')
 const HOOK_MEASURE_MODULE = path.join(REPO_ROOT, '.claude', 'hooks', 'eddies-measure.mjs')
@@ -100,7 +113,7 @@ export const claudeAdapter: ClientAdapter = {
     reports: { cost: true, turns: true, model: true, denials: true, journal: true },
   },
   invocation: spec => SESSION_OF_ROLE[spec.role](spec),
-  reading: pending('reading', 'clientreading'),
+  reading: place => readingOf(place),
   models: pending('models', 'clientmodels'),
   modelFor: pending('modelFor', 'clientmodels'),
   processes: {
@@ -242,4 +255,253 @@ export function measuredSession(root: string, transcript: string): { context: nu
   const measure = hookMeasure()
   const parent = measure.readTranscript(root, transcript)
   return { context: measure.contextOf(parent.last), spent: spentWithAgents(root, transcript, parent.tokens) }
+}
+
+export function clientHome(env: NodeJS.ProcessEnv): string {
+  return env[CONFIG_DIR_VARIABLE] || path.join(os.homedir(), '.claude')
+}
+
+export function transcriptFile(claudeHome: string, worktree: string, session: string): string | null {
+  return PLAIN_SESSION.test(session) ? path.join(claudeHome, 'projects', worktree.replace(/[^a-z0-9]/gi, '-'), `${session}.jsonl`) : null
+}
+
+function textOf(file: string | null): string | null {
+  return file !== null && existsSync(file) ? readFileSync(file, 'utf8') : null
+}
+
+export function clientTranscript(env: NodeJS.ProcessEnv, worktree: string, session: string): string | null {
+  return textOf(transcriptFile(clientHome(env), worktree, session))
+}
+
+export function hasClientTranscript(env: NodeJS.ProcessEnv, worktree: string, session: string): boolean {
+  const file = transcriptFile(clientHome(env), worktree, session)
+  return file !== null && existsSync(file)
+}
+
+export function clientLastSteps(env: NodeJS.ProcessEnv, worktree: string, session: string): string[] | null {
+  const transcript = clientTranscript(env, worktree, session)
+  return transcript === null ? null : lastSteps(transcript)
+}
+
+interface CommandRun {
+  startedAt: number
+  endedAt: number
+}
+
+export interface CommandJournal extends SessionJournal {
+  commandRuns: readonly CommandRun[]
+}
+
+interface JournaledUse {
+  id: string
+  name: string
+  input: Record<string, unknown>
+  at: number
+}
+
+interface JournaledResult {
+  failed: boolean
+  at: number
+}
+
+function blocksOf(entry: Record<string, unknown>): Record<string, unknown>[] {
+  const message = entry.message as { content?: unknown } | undefined
+  return Array.isArray(message?.content) ? message.content.filter(block => block !== null && typeof block === 'object') : []
+}
+
+function changeOf(use: JournaledUse, at: number): JournalChange | null {
+  const { input } = use
+  if (use.name === WRITE_TOOL)
+    return typeof input.content === 'string' ? { kind: 'write', content: input.content, at } : null
+  if (typeof input.old_string !== 'string' || typeof input.new_string !== 'string')
+    return null
+  return { kind: 'edit', oldString: input.old_string, newString: input.new_string, replaceAll: input.replace_all === true, at }
+}
+
+export function parseSessionJournal(text: string, worktree: string): CommandJournal {
+  const uses: JournaledUse[] = []
+  const results = new Map<string, JournaledResult>()
+  let end = Number.NEGATIVE_INFINITY
+  for (const line of text.split('\n')) {
+    if (line.trim() === '')
+      continue
+    const entry = JSON.parse(line) as Record<string, unknown>
+    const at = typeof entry.timestamp === 'string' ? Date.parse(entry.timestamp) : Number.NaN
+    if (!Number.isNaN(at))
+      end = Math.max(end, at)
+    for (const block of blocksOf(entry)) {
+      if (entry.type === 'assistant' && block.type === 'tool_use' && typeof block.id === 'string' && typeof block.name === 'string' && JOURNALED_TOOLS.has(block.name))
+        uses.push({ id: block.id, name: block.name, input: (block.input ?? {}) as Record<string, unknown>, at })
+      if (entry.type === 'user' && block.type === 'tool_result' && typeof block.tool_use_id === 'string' && !Number.isNaN(at))
+        results.set(block.tool_use_id, { failed: block.is_error === true, at })
+    }
+  }
+  if (end === Number.NEGATIVE_INFINITY)
+    throw new Error('the session journal holds no timestamped entry')
+  const changes = new Map<string, JournalChange[]>()
+  const commandRuns: CommandRun[] = []
+  for (const use of uses) {
+    const result = results.get(use.id)
+    if (result === undefined)
+      continue
+    if (use.name === EXEC_TOOL) {
+      if (use.input.run_in_background !== true)
+        commandRuns.push({ startedAt: use.at, endedAt: result.at })
+      continue
+    }
+    if (result.failed)
+      continue
+    const file = use.input.file_path
+    if (typeof file !== 'string')
+      continue
+    const change = changeOf(use, result.at)
+    if (change === null)
+      continue
+    const relative = path.relative(worktree, path.resolve(worktree, file))
+    changes.set(relative, [...(changes.get(relative) ?? []), change])
+  }
+  return { end, changes, commandRuns }
+}
+
+function journalOf(transcript: string | null, cwd: string): CommandJournal | 'unreadable' {
+  if (transcript === null)
+    return 'unreadable'
+  try {
+    return parseSessionJournal(transcript, cwd)
+  }
+  catch {
+    return 'unreadable'
+  }
+}
+
+function oneLine(text: string): string {
+  return text.split(ANY_LINE_BREAK).join(' ').trim().slice(0, STEP_TEXT_CHARS)
+}
+
+function stepOf(block: Record<string, unknown>): string[] {
+  if (block.type === 'text' && typeof block.text === 'string')
+    return [oneLine(block.text)]
+  if (block.type !== 'tool_use' || typeof block.name !== 'string')
+    return []
+  const input = (block.input ?? {}) as Record<string, unknown>
+  const detail = STEP_INPUT_KEYS.map(key => input[key]).find(value => typeof value === 'string') as string | undefined
+  return [detail === undefined ? block.name : `${block.name} ${oneLine(detail)}`]
+}
+
+function lastSteps(transcript: string): string[] {
+  return entriesOf(transcript).flatMap((entry) => {
+    const content = entry.type === 'assistant' ? entry.message?.content : undefined
+    return Array.isArray(content) ? (content as (Record<string, unknown> | null)[]).flatMap(block => block === null ? [] : stepOf(block)) : []
+  }).filter(step => step !== '').slice(-LAST_STEP_COUNT)
+}
+
+function numberOrNull(value: unknown): number | null {
+  return typeof value === 'number' ? value : null
+}
+
+function stringOrNull(value: unknown): string | null {
+  return typeof value === 'string' ? value : null
+}
+
+function nonEmpty(text: unknown): string | null {
+  return typeof text === 'string' && text.trim() !== '' ? text.trim() : null
+}
+
+type RawEntry = Record<string, unknown>
+
+function rawEntriesOf(text: string): RawEntry[] {
+  return entriesOf(text) as RawEntry[]
+}
+
+function resultLineOf(entries: RawEntry[]): RawEntry | null {
+  return entries.filter(entry => entry.type === 'result').at(-1) ?? null
+}
+
+function initModelOf(entries: RawEntry[]): string | null {
+  const init = entries.find(entry => entry.type === 'system' && entry.subtype === 'init' && typeof entry.model === 'string')
+  return init === undefined ? null : init.model as string
+}
+
+function usageOf(raw: unknown): Usage | null {
+  if (raw === null || typeof raw !== 'object')
+    return null
+  const fields = raw as RawEntry
+  const details = fields.output_tokens_details as RawEntry | null | undefined
+  const reported = {
+    input: numberOrNull(fields.input_tokens),
+    cached: numberOrNull(fields.cache_read_input_tokens),
+    cacheWrite: numberOrNull(fields.cache_creation_input_tokens),
+    output: numberOrNull(fields.output_tokens),
+    reasoning: numberOrNull(details?.thinking_tokens),
+  }
+  return reported as Usage
+}
+
+function denialsOf(result: RawEntry | null): Denial[] {
+  const denials = Array.isArray(result?.permission_denials) ? result.permission_denials as unknown[] : []
+  return denials.flatMap((denial) => {
+    const fields = denial !== null && typeof denial === 'object' ? denial as RawEntry : null
+    const input = fields?.tool_input
+    if (input === null || typeof input !== 'object')
+      return []
+    const aimed = input as RawEntry
+    return [{ tool: String(fields?.tool_name ?? ''), path: stringOrNull(aimed.file_path), command: stringOrNull(aimed.command), text: nonEmpty(aimed.content) ?? nonEmpty(result?.result) ?? '' }]
+  })
+}
+
+function toolUseOf(block: { name?: unknown, input?: unknown }): ToolUse {
+  const input = (block.input ?? {}) as RawEntry
+  const name = String(block.name)
+  return { kind: WRITING_TOOLS.has(name) ? 'write' : name === EXEC_TOOL ? 'exec' : 'other', command: stringOrNull(input.command), path: stringOrNull(input.file_path) }
+}
+
+function toolUsesOf(entries: RawEntry[]): ToolUse[] {
+  return entries.flatMap((entry) => {
+    const content = (entry.message as { content?: unknown } | null | undefined)?.content
+    return Array.isArray(content) ? content.filter(item => item?.type === 'tool_use').map(toolUseOf) : []
+  })
+}
+
+function timestampSpan(entries: RawEntry[]): number | null {
+  const marks = entries.map(entry => typeof entry.timestamp === 'string' ? Date.parse(entry.timestamp) : Number.NaN).filter(mark => !Number.isNaN(mark))
+  return marks.length < 2 ? null : Math.max(...marks) - Math.min(...marks)
+}
+
+function endOf(result: RawEntry | null): Pick<SessionReading, 'end' | 'failure'> {
+  if (result === null)
+    return { end: 'missing', failure: null }
+  if (result.is_error !== true)
+    return { end: 'completed', failure: null }
+  return { end: 'failed', failure: nonEmpty(result.result) ?? nonEmpty(result.subtype) ?? 'the client reported an error and no text' }
+}
+
+function reportedContext(transcript: string): number | null {
+  const usages = entriesOf(transcript).map(entry => entry.message?.role === 'assistant' ? entry.message.usage : null).filter(usage => usage != null && typeof usage === 'object')
+  const last = usages.at(-1)
+  const reports = [last?.input_tokens, last?.cache_creation_input_tokens, last?.cache_read_input_tokens].some(count => typeof count === 'number')
+  return reports ? transcriptContext(transcript) : null
+}
+
+function readingOf(place: SessionPlace): SessionReading {
+  const transcript = clientTranscript(process.env, place.cwd, place.session)
+  const source = place.stdoutPath === null ? transcript : textOf(place.stdoutPath)
+  const entries = rawEntriesOf(source ?? '')
+  const result = resultLineOf(entries)
+  return {
+    ...endOf(result),
+    usage: usageOf(result?.usage),
+    costUsd: numberOrNull(result?.total_cost_usd),
+    turns: numberOrNull(result?.num_turns),
+    durationMs: timestampSpan(entries),
+    model: place.stdoutPath === null ? (transcript === null ? null : transcriptModel(transcript)) : initModelOf(entries),
+    denials: denialsOf(result),
+    toolUses: toolUsesOf(entries),
+    journal: journalOf(transcript, place.cwd),
+    lastSteps: transcript === null ? null : lastSteps(transcript),
+    contextTokens: transcript === null ? null : reportedContext(transcript),
+  }
+}
+
+export function rawUsageIn(stdoutPath: string): unknown | null {
+  return resultLineOf(rawEntriesOf(textOf(stdoutPath) ?? ''))?.usage ?? null
 }

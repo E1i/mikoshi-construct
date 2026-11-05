@@ -10,7 +10,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { fullReview } from '../../nodes/review/review-depth.js'
 import { claudeReviewer, commandMayWrite, GIT_TREE_TOOLS, HEAD_MOVED, missedBeatLine, mutatedPaths, PREPARED_TREE_LINE, REVIEW_CEILING_MS, ReviewFailed, reviewOf, reviewPrompt, reviewSession, ReviewTrees } from '../../nodes/review/reviewer.js'
 import { PREPARE_TREE, prepareEnv } from '../../ports/prepare-tree.js'
-import { sessionArgv, SessionCeilingReached } from '../../ports/session.js'
+import { headlessInvocation, SessionCeilingReached } from '../../ports/session.js'
 import { sha } from './github-fake.js'
 
 const lease = { taskKey: `review:1050:950:${sha('a')}`, queue: 'review' as const, cardId: 1050, pr: 950, head: sha('a'), leaseGen: 1, actor: 'worker:review:w' }
@@ -440,9 +440,9 @@ describe('reviewer', () => {
   })
 
   it('an added directory goes before the headless flags, so it cannot take the prompt as a second directory', () => {
-    const argv = sessionArgv('s-1', 'the prompt', ['/reviews'])
-    expect(argv.slice(0, 3)).toEqual(['--add-dir', '/reviews', '-p'])
-    expect(argv.at(-1)).toBe('the prompt')
-    expect(sessionArgv('s-1', 'the prompt')[0]).toBe('-p')
+    const { args } = headlessInvocation({ session: 's-1', prompt: 'the prompt', addDirs: ['/reviews'] })
+    expect(args.slice(0, 3)).toEqual(['--add-dir', '/reviews', '-p'])
+    expect(args.at(-1)).toBe('the prompt')
+    expect(headlessInvocation({ session: 's-1', prompt: 'the prompt' }).args[0]).toBe('-p')
   })
 })
