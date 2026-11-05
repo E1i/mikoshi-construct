@@ -1032,16 +1032,16 @@ describe('board.html', () => {
       expect(dialog).toContain('<table class="mx" data-witnesses><thead><tr><th scope="col">id</th><th scope="col">run</th><th scope="col">test</th><th scope="col">head/base</th><th scope="col">proves</th></tr></thead>')
       expect(dialog).toContain('<tr><th scope="row">W1</th><td><code>pnpm exec vitest run tests/a.test.ts</code></td><td>the &lt;thing&gt;</td><td>pass/fail · last green</td><td>follows <button')
       expect(dialog).toContain('<tr><th scope="row">W2</th><td><code>test -f a.txt</code></td><td>—</td><td>pass/pass · last green</td><td>a stays</td></tr>')
-      expect(dialog).toContain('<p>runs: <span class="tag" data-glob>tests/board/**</span> <span class="tag">tests/a.test.ts</span></p>')
+      expect(dialog).toContain('<p>runs:</p><div class="runs-group" data-lane="tests/board/**" data-glob><p class="runs-name">tests/board/** · вся папка</p></div><div class="runs-group" data-lane="tests"><p class="runs-name">tests</p><p><span class="tag">a.test.ts</span></p></div>')
       expect(dialog).not.toContain('witnesses: [')
     })
 
     it('a card with three paths in runs renders three separate elements', () => {
       const text = fieldCard(870, runsFieldLine(['tests/a.test.ts', 'tests/b.test.ts', 'tests/other/**']), witnessFieldsLine(FIELDS))
       const dialog = templatesOf(pageText(busOfFields(870, text, []))).get('dialog-card-870')!
-      expect(dialog).toContain('<p>runs: <span class="tag">tests/a.test.ts</span> <span class="tag">tests/b.test.ts</span> <span class="tag" data-glob>tests/other/**</span></p>')
+      expect(dialog).toContain('<p>runs:</p><div class="runs-group" data-lane="tests"><p class="runs-name">tests</p><p><span class="tag">a.test.ts</span> <span class="tag">b.test.ts</span></p></div><div class="runs-group" data-lane="tests/other/**" data-glob><p class="runs-name">tests/other/** · вся папка</p></div>')
       const style = /<style>([\s\S]*?)<\/style>/.exec(pageText(seededBus()))![1]!
-      expect(style).toContain('&[data-glob] { --_bd: var(--wire); --_bd-style: dashed; }')
+      expect(style).toContain('&[data-glob] { --_accent-style: dashed; }')
     })
 
     it('a witness table with an empty runs still shows the none mark', () => {
@@ -1092,7 +1092,7 @@ describe('board.html', () => {
       const event: SeedEvent = { ts: minutesAgo(1), type: WITNESS_FIELDS_BACKFILLED, card: null, payload: JSON.stringify(backfill) }
       const dialog = templatesOf(pageText(busOfFields(870, text, [event]))).get('dialog-card-870')!
       expect(dialog).toContain('<tr><th scope="row">W1</th><td><code>pnpm exec vitest run tests/a.test.ts</code></td><td>the thing</td><td>pass/fail · last not run</td>')
-      expect(dialog).toContain('<p>runs: <span class="tag" data-glob>tests/board/**</span></p>')
+      expect(dialog).toContain('<p>runs:</p><div class="runs-group" data-lane="tests/board/**" data-glob><p class="runs-name">tests/board/** · вся папка</p></div>')
       expect(dialog).not.toContain('Runs: tests/board/**')
       expect(dialog).not.toContain('<ul><li>')
     })
