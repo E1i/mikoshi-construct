@@ -134,7 +134,7 @@ describe('pnpm miko:exit waits for the window\'s subagents and card trees', () =
 
   it('a SubagentStart input written through the hook is read back as live', async () => {
     const root = journal([])
-    execFileSync(process.execPath, [HOOK], { input: hookInput('SubagentStart', 'a1'), env: { ...process.env, CLAUDE_PROJECT_DIR: root } })
+    execFileSync(process.execPath, [HOOK], { input: hookInput('SubagentStart', 'a1'), env: { ...process.env, CLAUDE_PROJECT_DIR: root, CONSTRUCT_CARD: '' } })
     expect(liveAgentsOf(root, THIS_SESSION)).toEqual(['implementer'])
   })
 

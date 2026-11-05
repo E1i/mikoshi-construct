@@ -26,6 +26,7 @@ function project(withCore: boolean): string {
 function run(root: string | null) {
   const env = { ...process.env }
   delete env.CLAUDE_PROJECT_DIR
+  delete env[CARD_VARIABLE]
   if (root != null)
     env.CLAUDE_PROJECT_DIR = root
   return spawnSync('node', [HOOK], { input: '{}', env, encoding: 'utf8' })
