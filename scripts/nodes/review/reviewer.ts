@@ -1,4 +1,5 @@
 import type { Lease } from '../../core/lease.js'
+import type { SessionReading } from '../../ports/client/contract.js'
 import type { SessionInput } from '../../ports/prompt-store.js'
 import type { SpawnSessionParams } from '../../ports/session.js'
 import type { VerdictWord } from './record-verdict.js'
@@ -10,8 +11,7 @@ import { existsSync, mkdirSync, readFileSync, realpathSync, statSync } from 'nod
 import path from 'node:path'
 import process from 'node:process'
 import { prepareTree } from '../../ports/prepare-tree.js'
-import { readResultFields } from '../../ports/result.js'
-import { reviewModelOf, sessionModelOf, spawnSession, withoutCard } from '../../ports/session.js'
+import { reviewModelOf, spawnSession, streamReading, withoutCard } from '../../ports/session.js'
 import { FREE_TREE_CAPACITY, FREE_TREES, gitIn, parkTree, takeFreeTree } from '../../ports/worktree.js'
 
 export interface TreeState {
@@ -44,15 +44,6 @@ export interface Review {
 export interface CacheTokens {
   cache_w: number | null
   cache_r: number | null
-}
-
-function tokenCount(value: unknown): number | null {
-  return typeof value === 'number' ? value : null
-}
-
-export function cacheTokensOf(usage: unknown): CacheTokens {
-  const fields = usage !== null && typeof usage === 'object' ? usage as Record<string, unknown> : {}
-  return { cache_w: tokenCount(fields.cache_creation_input_tokens), cache_r: tokenCount(fields.cache_read_input_tokens) }
 }
 
 export class ReviewFailed extends Error {
@@ -378,10 +369,11 @@ export function claudeReviewer(trees: ReviewTrees, spawn: (params: SpawnSessionP
       const review = reviewOf(readFileSync(verdictPath, 'utf8'), session)
       const after = trees.state(tree)
       const mutated = mutatedPaths(before, after)
-      if (mutated.length > 0 && !transcriptExplainsMutation(params.stdoutPath))
+      const reading = streamReading(params.stdoutPath)
+      if (mutated.length > 0 && !readingExplainsMutation(reading))
         throw new Error(`the review tree ${tree} changed outside the review session ${session}, whose transcript has no command that writes: ${mutated.slice(0, 5).join(', ')}${mutated.length > 5 ? `, and ${mutated.length - 5} more` : ''}; a node fault, not a changes verdict`)
-      const model = existsSync(params.stdoutPath) ? sessionModelOf(readFileSync(params.stdoutPath, 'utf8')) : undefined
-      const cache = cacheTokensOf(readResultFields(params.stdoutPath).usage)
+      const model = reading.model ?? undefined
+      const cache: CacheTokens = { cache_w: reading.usage?.cacheWrite ?? null, cache_r: reading.usage?.cached ?? null }
       return { ...review, ...withoutPassOnMutation(review, mutated), model, cache, tree: { ...held, before, after, mutated }, input: { prompt: params.prompt } }
     }
     catch (error) {
@@ -392,7 +384,6 @@ export function claudeReviewer(trees: ReviewTrees, spawn: (params: SpawnSessionP
   }
 }
 
-const WRITING_TOOLS = ['Edit', 'MultiEdit', 'Write', 'NotebookEdit']
 const WRITING_PROGRAM = /(?:^|[\s;&|(])(?:rm|mv|cp|touch|mkdir|rmdir|tee|truncate|chmod|ln|patch|git\s+(?:checkout|reset|clean|restore|stash|apply|commit|add|rm|mv|switch|merge|rebase|cherry-pick|pull)|sed\s+-i|(?:pnpm|npm|yarn)\s+(?:i|install|add|remove)|(?:construct|miko|mikoshi-construct)\s+mutate|(?:pnpm|npm|yarn)\s+(?:run\s+)?[\w:-]*(?:render|fix|format)|(?:node|tsx|python3?)\s+-[ec]|perl\s+-[pi]?i)\b|\s--(?:fix|write)\b/
 const REDIRECTION_TO_A_FILE = /(?:^|[^=!<>-])[&\d]?>{1,2}\|?\s*(?![>&]|\/dev\/null(?:$|[\s;&|)]))\S/
 
@@ -400,23 +391,8 @@ export function commandMayWrite(command: string): boolean {
   return WRITING_PROGRAM.test(command) || REDIRECTION_TO_A_FILE.test(command)
 }
 
-function toolUsesOf(transcript: string): Array<{ name?: unknown, input?: { command?: unknown } }> {
-  return transcript.split('\n').flatMap((line) => {
-    try {
-      const content = (JSON.parse(line) as { message?: { content?: unknown } }).message?.content
-      return Array.isArray(content) ? content.filter(item => item?.type === 'tool_use') : []
-    }
-    catch {
-      return []
-    }
-  })
-}
-
-function transcriptExplainsMutation(stdoutPath: string): boolean {
-  if (!existsSync(stdoutPath))
-    return false
-  return toolUsesOf(readFileSync(stdoutPath, 'utf8')).some(use =>
-    WRITING_TOOLS.includes(String(use.name)) || (use.name === 'Bash' && commandMayWrite(String(use.input?.command ?? ''))))
+function readingExplainsMutation(reading: SessionReading): boolean {
+  return reading.toolUses.some(use => use.kind === 'write' || (use.kind === 'exec' && commandMayWrite(use.command ?? '')))
 }
 
 function withoutPassOnMutation(review: Review, mutated: string[]): Pick<Review, 'verdict' | 'findings'> {

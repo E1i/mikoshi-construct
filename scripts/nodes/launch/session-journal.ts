@@ -1,100 +1,12 @@
-import path from 'node:path'
+import type { CommandJournal as SessionJournal } from '../../ports/client/claude/adapter.js'
+import type { JournalChange } from '../../ports/client/contract.js'
+
+export { parseSessionJournal, transcriptFile } from '../../ports/client/claude/adapter.js'
+export type { SessionJournal }
 
 export interface TreeFile {
   content: string
   mtimeMs: number
-}
-
-type JournalChange = { kind: 'write', content: string, at: number } | { kind: 'edit', oldString: string, newString: string, replaceAll: boolean, at: number }
-
-interface CommandRun {
-  startedAt: number
-  endedAt: number
-}
-
-export interface SessionJournal {
-  end: number
-  changes: ReadonlyMap<string, JournalChange[]>
-  commandRuns: readonly CommandRun[]
-}
-
-interface ToolUse {
-  id: string
-  name: string
-  input: Record<string, unknown>
-  at: number
-}
-
-interface ToolResult {
-  failed: boolean
-  at: number
-}
-
-const JOURNALED_TOOLS: ReadonlySet<string> = new Set(['Write', 'Edit', 'Bash'])
-
-const PLAIN_SESSION = /^[\w-]+$/
-
-export function transcriptFile(claudeHome: string, worktree: string, session: string): string | null {
-  return PLAIN_SESSION.test(session) ? path.join(claudeHome, 'projects', worktree.replace(/[^a-z0-9]/gi, '-'), `${session}.jsonl`) : null
-}
-
-function blocksOf(entry: Record<string, unknown>): Record<string, unknown>[] {
-  const message = entry.message as { content?: unknown } | undefined
-  return Array.isArray(message?.content) ? message.content.filter(block => block !== null && typeof block === 'object') : []
-}
-
-function changeOf(use: ToolUse, at: number): JournalChange | null {
-  const { input } = use
-  if (use.name === 'Write')
-    return typeof input.content === 'string' ? { kind: 'write', content: input.content, at } : null
-  if (typeof input.old_string !== 'string' || typeof input.new_string !== 'string')
-    return null
-  return { kind: 'edit', oldString: input.old_string, newString: input.new_string, replaceAll: input.replace_all === true, at }
-}
-
-export function parseSessionJournal(text: string, worktree: string): SessionJournal {
-  const uses: ToolUse[] = []
-  const results = new Map<string, ToolResult>()
-  let end = Number.NEGATIVE_INFINITY
-  for (const line of text.split('\n')) {
-    if (line.trim() === '')
-      continue
-    const entry = JSON.parse(line) as Record<string, unknown>
-    const at = typeof entry.timestamp === 'string' ? Date.parse(entry.timestamp) : Number.NaN
-    if (!Number.isNaN(at))
-      end = Math.max(end, at)
-    for (const block of blocksOf(entry)) {
-      if (entry.type === 'assistant' && block.type === 'tool_use' && typeof block.id === 'string' && typeof block.name === 'string' && JOURNALED_TOOLS.has(block.name))
-        uses.push({ id: block.id, name: block.name, input: (block.input ?? {}) as Record<string, unknown>, at })
-      if (entry.type === 'user' && block.type === 'tool_result' && typeof block.tool_use_id === 'string' && !Number.isNaN(at))
-        results.set(block.tool_use_id, { failed: block.is_error === true, at })
-    }
-  }
-  if (end === Number.NEGATIVE_INFINITY)
-    throw new Error('the session journal holds no timestamped entry')
-  const changes = new Map<string, JournalChange[]>()
-  const commandRuns: CommandRun[] = []
-  for (const use of uses) {
-    const result = results.get(use.id)
-    if (result === undefined)
-      continue
-    if (use.name === 'Bash') {
-      if (use.input.run_in_background !== true)
-        commandRuns.push({ startedAt: use.at, endedAt: result.at })
-      continue
-    }
-    if (result.failed)
-      continue
-    const file = use.input.file_path
-    if (typeof file !== 'string')
-      continue
-    const change = changeOf(use, result.at)
-    if (change === null)
-      continue
-    const relative = path.relative(worktree, path.resolve(worktree, file))
-    changes.set(relative, [...(changes.get(relative) ?? []), change])
-  }
-  return { end, changes, commandRuns }
 }
 
 function replayed(content: string, edits: JournalChange[]): string | null {

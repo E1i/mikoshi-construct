@@ -3,9 +3,9 @@ import { isSessionAlive } from '../../ladder/watch-process.js'
 import { launchIsolationCommand } from '../../nodes/launch/launch-worker.js'
 import { reviewIsolationCommand } from '../../nodes/review/review-worker.js'
 import { clientAdapter } from '../../ports/client/index.js'
-import { HEADLESS_FLAGS } from '../../ports/session.js'
 
 const SESSION = 'session-1578'
+const HEADLESS_FLAGS = ['-p', '--output-format', 'stream-json', '--verbose', '--permission-mode', 'auto', '--permission-prompts', 'none', '--strict-mcp-config', '--session-id']
 
 vi.mock('../../ports/worktree.js', async importOriginal => ({
   ...await importOriginal<typeof import('../../ports/worktree.js')>(),

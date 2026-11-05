@@ -65,7 +65,8 @@ export interface Usage {
 
 export interface Denial {
   tool: string
-  target: string
+  path: string | null
+  command: string | null
   text: string
 }
 
