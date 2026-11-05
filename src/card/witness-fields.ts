@@ -1,3 +1,6 @@
+import { existsSync, readFileSync } from 'node:fs'
+import path from 'node:path'
+import { FACTORY_RUNTIME } from '../../scripts/core/factory-paths.js'
 import { touchError } from './task-file.js'
 
 export const WITNESS_KINDS = ['acceptance', 'invariant'] as const
@@ -25,6 +28,9 @@ export type ParsedWitnessList = { kind: 'fields', fields: WitnessField[] } | { k
 
 const WITNESSES_FIELD = 'witnesses: '
 const RUNS_FIELD = 'runs: '
+const LAYER_ENTRY_PREFIX = 'layer:'
+const LAYER_MAP = FACTORY_RUNTIME.layerMap
+const LAYER_MAP_ROOTS = [import.meta.dirname, path.resolve(import.meta.dirname, '..', '..')]
 const LIST_OPENING = '['
 const FIELD_KEYS = ['id', 'run', 'test', 'head', 'base', 'proves']
 const WITNESS_ID = /^W[1-9]\d*$/
@@ -125,12 +131,35 @@ function listOfJson(json: string): unknown {
   }
 }
 
+export function isLayerEntry(entry: string): boolean {
+  return entry.startsWith(LAYER_ENTRY_PREFIX)
+}
+
+export function layerIdOf(entry: string): string {
+  return entry.slice(LAYER_ENTRY_PREFIX.length)
+}
+
+function layerIds(): ReadonlySet<string> {
+  const root = LAYER_MAP_ROOTS.find(candidate => existsSync(path.join(candidate, LAYER_MAP)))
+  if (root === undefined)
+    return new Set()
+  const { files, folders } = JSON.parse(readFileSync(path.join(root, LAYER_MAP), 'utf8')) as Record<'files' | 'folders', Record<string, string>>
+  return new Set([...Object.values(files), ...Object.values(folders)])
+}
+
+function layerEntryRefusals(entries: readonly string[]): string[] {
+  if (entries.length === 0)
+    return []
+  const known = layerIds()
+  return entries.filter(entry => !known.has(layerIdOf(entry))).map(entry => `runs entry '${entry}' names no layer of ${LAYER_MAP}`)
+}
+
 function runsRefusals(text: string): string[] {
   return fieldLines(text, RUNS_FIELD).flatMap((json) => {
     const runs = listOfJson(json)
     if (!Array.isArray(runs) || !runs.every(isText))
-      return [`'${RUNS_FIELD.trim()}' is a JSON list of paths and trailing /** globs`]
-    return runs.flatMap(entry => touchError(entry) ?? [])
+      return [`'${RUNS_FIELD.trim()}' is a JSON list of paths, trailing /** globs and ${LAYER_ENTRY_PREFIX}<id> entries`]
+    return [...runs.filter(entry => !isLayerEntry(entry)).flatMap(entry => touchError(entry) ?? []), ...layerEntryRefusals(runs.filter(isLayerEntry))]
   })
 }
 

@@ -2066,11 +2066,14 @@ line works as before. A field takes these keys and no other:
 | `base` | What the run does on the base, in the same form. A `head` that differs from `base` makes an acceptance witness, and the same value makes an invariant. |
 | `proves` | What the witness proves, in words. |
 
-`runs`, optional, lists the test paths and trailing `/**` globs the card runs; the older
-`Runs: <path>, <path>` line is read the same way. A `touches` entry that `runs` also names does not
-count towards launch overlap between two cards, and a changed test that `runs` covers is not outside
-the card. An entry that is no test or tree of tests is marked `unclear:`, and a `runs:` line in a card
-that is not a JSON list of paths and globs is refused, like a malformed field.
+`runs`, optional, lists what the card runs: test paths, trailing `/**` globs, and `layer:<id>` entries,
+each naming a layer of `scripts/core/layer-map.json` and standing for the tests of that layer. A card
+with no `runs` field runs the tests of the layers of its touches. The older `Runs: <path>, <path>` line
+is read the same way. A `touches` entry that `runs` also names does not count towards launch overlap
+between two cards, and a changed test that `runs` covers is not outside the card. An entry that is no
+test, tree of tests or layer is marked `unclear:`, and a `runs:` line in a card that is not a JSON list
+of paths, globs and layers, or that names an id the layer map does not hold, is refused, like a
+malformed field.
 
 A later admission or `--amend` admits a changed field with no decision in four cases: `test` narrows to
 a name the old `test` matches or gains a name where it had none, a named test moves to another file, the
