@@ -1,8 +1,10 @@
+import type { BusCatalog } from '../../ci/card-runs.js'
 import type { CardBodyReader } from '../../intake/parking-reads.js'
 import type { CardScope, DepthSources, ReviewPlanner } from './review-depth.js'
 import { execFileSync } from 'node:child_process'
-import { runsOf } from '../../../src/card/covering-tests.js'
+import { layerMasksOf, runsOf } from '../../../src/card/covering-tests.js'
 import { parseParkingFile } from '../../../src/card/parking.js'
+import { busCheckCatalog, cardReadingOf } from '../../ci/card-runs.js'
 import { predict } from '../../policy/morse/predict.js'
 import { planReview } from './review-depth.js'
 
@@ -34,15 +36,18 @@ function fetchPr(run: GitRun, repo: string, pr: number): void {
   }
 }
 
-function cardScope(bodyOf: CardBodyReader, cardId: number): CardScope | null {
+function cardScope(bodyOf: CardBodyReader, cardId: number, catalog: () => BusCatalog): CardScope | null {
   const text = bodyOf(cardId)
   if (text === null)
     return null
   const parsed = parseParkingFile(`${cardId}.md`, text)
-  return parsed.kind === 'parked' ? { touches: parsed.parked.task.touches, runs: runsOf(parsed.parked.task.body) } : null
+  if (parsed.kind !== 'parked')
+    return null
+  const { touches, body } = parsed.parked.task
+  return { touches, ...cardReadingOf(touches, runsOf(body), layerMasksOf(body), catalog()) }
 }
 
-export function gitDepthSources(repo: string, journal: string, bodyOf: CardBodyReader, run: GitRun = git): DepthSources {
+export function gitDepthSources(repo: string, journal: string, bodyOf: CardBodyReader, run: GitRun = git, catalog: () => BusCatalog = busCheckCatalog): DepthSources {
   return {
     base: head => run(repo, ['merge-base', MAIN, head]).trim(),
     changed: (from, to) => run(repo, ['diff', '--no-renames', '--name-only', '-z', from, to]).split('\0').filter(file => file !== ''),
@@ -50,7 +55,7 @@ export function gitDepthSources(repo: string, journal: string, bodyOf: CardBodyR
       const { line, files } = predict({ task, base, head, journal, repo })
       return { prediction: line, files: files.map(file => file.path), added: files.filter(file => file.status === 'A').map(file => file.path) }
     },
-    scope: cardId => cardScope(bodyOf, cardId),
+    scope: cardId => cardScope(bodyOf, cardId, catalog),
   }
 }
 
