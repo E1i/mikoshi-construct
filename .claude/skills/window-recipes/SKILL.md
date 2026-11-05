@@ -18,4 +18,6 @@ description: A card's dead end, looked up before it is reasoned about — a card
 | A PR with no card | the PR's record has `card_id` null: review, answer, CI and merge never reach the card, and the card looks PR-less | `gh pr edit <N> --body-file <file>` | window |
 | A conflict | the PR is observed `dirty`, and the card stops on a question naming the conflicted file: the answer says which side stays | `pnpm bus:request owner.wait.close --id Q<N> --answer <which side stays>` | window |
 
+Check a variable with `test -n "$VAR"`, never print the environment.
+
 A draft that amends or cuts a card carries witnesses and runs as fields, `witnesses` a list of `id`, `run`, `test`, `head`, `base`, `proves` and `runs` a list of test paths and trailing `/**` globs. Prose is explanation only: a `Witnesses:` heading or a `Runs:` line is not a field.

@@ -249,7 +249,7 @@ export const ATTACH_CARRIERS = {
   ],
 } as const
 
-export const ATTACH_GUARD = { group: 'attach', target: '.construct/commit-guard.mjs', parser: '.construct/shell-parser.mjs' } as const
+export const ATTACH_GUARD = { group: 'attach', target: '.construct/commit-guard.mjs', parser: '.construct/shell-parser.mjs', environmentPrint: '.construct/environment-print.mjs' } as const
 
 export const ATTACH_WINDOW_HOOKS = { group: 'attach', target: '.construct/window-hooks.mjs', rules: '.construct/window-rules.md' } as const
 

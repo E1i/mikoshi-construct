@@ -23,6 +23,8 @@ const READ_BY: Record<string, string> = {
   'scripts/construct/check-acceptance.mjs': 'scripts/ladder/hash.ts',
   'scripts/construct/eddies.mjs': '.claude/settings.json',
   'scripts/construct/eddies-measure.mjs': 'scripts/construct/eddies.mjs',
+  'scripts/construct/environment-print.mjs': 'scripts/construct/eddies.mjs',
+  'scripts/construct/shell-parser.mjs': 'scripts/construct/environment-print.mjs',
   'scripts/construct/window-heartbeat.mjs': '.claude/settings.json',
   'scripts/construct/window-hooks.mjs': '.claude/settings.json',
 }

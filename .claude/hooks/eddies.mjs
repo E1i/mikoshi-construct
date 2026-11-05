@@ -7,6 +7,7 @@ import process from 'node:process'
 export const EDDIES_JOURNAL_FILE = '.construct/eddies.jsonl'
 
 const MEASURE_MODULE = './eddies-measure.mjs'
+const ENVIRONMENT_PRINT_MODULE = './environment-print.mjs'
 const TAB_WINDOW_MODULE = './tab-window.mjs'
 const CONFIG_FILE = '.claude/eddies.json'
 const SETTINGS_FILE = '.claude/settings.json'
@@ -415,6 +416,28 @@ function refuse(line) {
   process.exitCode = 2
 }
 
+async function loadEnvironmentPrint() {
+  try {
+    return await import(ENVIRONMENT_PRINT_MODULE)
+  }
+  catch {
+    throw new Unread('environment-print-unloadable')
+  }
+}
+
+async function refusesEnvironmentPrint(input) {
+  const command = input.tool_name === 'Bash' ? input.tool_input?.command : null
+  if (typeof command !== 'string')
+    return false
+  const { environmentPrintRefusal } = await loadEnvironmentPrint()
+  const refusal = environmentPrintRefusal(command)
+  if (refusal == null)
+    return false
+  process.stderr.write(`${refusal.join('\n')}\n`)
+  process.exitCode = 2
+  return true
+}
+
 async function run(hook, { act, failClosed, measured }) {
   const input = await hookInput()
   if (input == null) {
@@ -433,6 +456,8 @@ async function run(hook, { act, failClosed, measured }) {
         process.stderr.write('eddies: CLAUDE_PROJECT_DIR is not a directory; nothing measured\n')
       return
     }
+    if (failClosed && await refusesEnvironmentPrint(input))
+      return
     act(measured ? await import(MEASURE_MODULE) : null, root, input, measured ? readConfig(root) : null)
   }
   catch (error) {
