@@ -16,7 +16,7 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { RUNS_PREFIX } from '../../src/card/covering-tests.js'
+import { RUNS_PREFIX, withinTouches } from '../../src/card/covering-tests.js'
 import { fieldCommand } from '../../src/card/witness-fields.js'
 import { busFacts, CARD_STAGES, latestCardEvents, openTasks } from '../../src/commands/board/bus.js'
 import { DROPPED, droppedLine, goalOf, MARK_WORDS, planLine } from '../../src/commands/board/goal.js'
@@ -723,14 +723,62 @@ function witnessRow(field: WitnessField, record: WitnessRecordOnHead | null, pag
 
 const GLOB_SUFFIX = '/**'
 const DERIVED_READING = 'derived from touches'
+const WHOLE_FOLDER = 'вся папка'
+const ROOT_FOLDER = '.'
 
-function runsTags(entries: readonly string[]): string {
-  return entries.map(entry => `<span class="tag"${entry.endsWith(GLOB_SUFFIX) ? ' data-glob' : ''}>${escaped(entry)}</span>`).join(' ')
+interface RunsLane {
+  head: string
+  names: string[]
+}
+
+function isMask(entry: string): boolean {
+  return entry.endsWith(GLOB_SUFFIX)
+}
+
+function headsItsLane(entry: string): boolean {
+  return isMask(entry) || entry.startsWith(LAYER_ENTRY)
+}
+
+function folderOf(file: string): string {
+  const slash = file.lastIndexOf('/')
+  return slash === -1 ? ROOT_FOLDER : file.slice(0, slash)
+}
+
+function narrowestMask(file: string, masks: readonly string[]): string | undefined {
+  return masks.filter(mask => withinTouches(file, [mask])).sort((a, b) => b.length - a.length)[0]
+}
+
+function runsLanesOf(entries: readonly string[]): RunsLane[] {
+  const masks = entries.filter(isMask)
+  const lanes = new Map<string, Set<string>>()
+  for (const entry of entries) {
+    const head = headsItsLane(entry) ? entry : narrowestMask(entry, masks) ?? folderOf(entry)
+    const names = lanes.get(head) ?? new Set<string>()
+    lanes.set(head, names)
+    if (!headsItsLane(entry))
+      names.add(entry.slice(entry.lastIndexOf('/') + 1))
+  }
+  return [...lanes].map(([head, names]) => ({ head, names: [...names] }))
+}
+
+function runsTags(names: readonly string[]): string {
+  return names.map(name => `<span class="tag">${escaped(name)}</span>`).join(' ')
+}
+
+function runsLaneHtml({ head, names }: RunsLane): string {
+  const mask = isMask(head)
+  const name = mask && names.length === 0 ? `${head} · ${WHOLE_FOLDER}` : head
+  const files = names.length === 0 ? '' : `<p>${runsTags(names)}</p>`
+  return `<div class="runs-group" data-lane="${escaped(head)}"${mask ? ' data-glob' : ''}><p class="runs-name">${escaped(name)}</p>${files}</div>`
+}
+
+function runsLanesHtml(entries: readonly string[]): string {
+  return runsLanesOf(entries).map(runsLaneHtml).join('')
 }
 
 function runsGroupHtml(group: RunsGroup): string {
   const name = group.name === TOUCHED_TESTS ? TOUCHED_TESTS : `layer ${group.name}`
-  return `<div class="runs-group" data-group="${escaped(group.name)}"${group.derived ? ' data-derived' : ''}><p class="runs-name">${escaped(name)}${group.derived ? ` · ${DERIVED_READING}` : ''}</p><p>${runsTags(group.files)}</p></div>`
+  return `<div class="runs-group" data-group="${escaped(group.name)}"${group.derived ? ' data-derived' : ''}><p class="runs-name">${escaped(name)}${group.derived ? ` · ${DERIVED_READING}` : ''}</p>${runsLanesHtml(group.files)}</div>`
 }
 
 function runsHtml(reading: RunsReading | null, marksNone: boolean): string {
@@ -738,7 +786,7 @@ function runsHtml(reading: RunsReading | null, marksNone: boolean): string {
     return ''
   const full = reading.full === null ? '' : `<p class="runs-full">full run: ${escaped(reading.full)}</p>`
   const none = marksNone && reading.groups.length === 0 ? `<p>runs: ${NONE}</p>` : ''
-  const paths = reading.paths.length === 0 ? none : `<p>runs: ${runsTags(reading.paths)}</p>`
+  const paths = reading.paths.length === 0 ? none : `<p>runs:</p>${runsLanesHtml(reading.paths)}`
   return `${full}${reading.groups.map(runsGroupHtml).join('')}${paths}`
 }
 
@@ -1484,16 +1532,16 @@ dialog.drill {
   margin: 2px 4px 0 0;
   padding: 0 0.375rem;
   border: 1px var(--_bd-style) var(--_bd);
-
-  &[data-glob] { --_bd: var(--wire); --_bd-style: dashed; }
 }
 .runs-group {
   --_accent: var(--wire);
+  --_accent-style: solid;
 
   padding-inline-start: var(--space-s);
-  border-inline-start: 2px solid var(--_accent);
+  border-inline-start: 2px var(--_accent-style) var(--_accent);
 
   &[data-derived] { --_accent: var(--amber); }
+  &[data-glob] { --_accent-style: dashed; }
 }
 .runs-name { color: var(--dim); }
 .runs-full { color: var(--amber); }
