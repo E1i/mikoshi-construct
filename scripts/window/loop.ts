@@ -11,6 +11,7 @@ import { isOwnerCheckout } from '../core/bus-path.js'
 import { appendEvent, defaultBusPath, inTransaction, openBus } from '../core/db.js'
 import { PROCESS_ENDED, PROCESS_HEARTBEAT, PROCESS_REFUSED } from '../core/events.js'
 import { defaultHandoffDir } from '../core/handoff-dir.js'
+import { WINDOW_COMMAND_VARIABLE, windowCommand } from '../ports/client/claude/adapter.js'
 import { EXIT_REQUEST_VARIABLE, LOOP_PID_VARIABLE, WINDOW_MARK, WINDOW_VARIABLE } from '../ports/session.js'
 import { recordProcessHeartbeat } from '../supervisor/heartbeat.js'
 import { beatsLive, SILENT_MS } from '../supervisor/liveness-sites.js'
@@ -21,8 +22,8 @@ import { lastLoopBeats, LOOP_PROCESS } from './window-heartbeat.js'
 
 export const PREFIX = '[miko] '
 export const HANDOFF_VARIABLE = 'CONSTRUCT_HANDOFF'
-export const CLAUDE_VARIABLE = 'MIKO_CLAUDE'
-export const DEFAULT_CLAUDE = 'claude --permission-mode dontAsk'
+export const CLAUDE_VARIABLE = WINDOW_COMMAND_VARIABLE
+export const DEFAULT_CLAUDE = windowCommand({})
 export const MIKO_HANDOFF_NAME = 'miko.md'
 export interface WindowCommands {
   write: string
@@ -363,12 +364,10 @@ export function endOnHangup(ended: () => void, exit: (code: number) => void): vo
   }
 }
 
-export function claudeCommand(env: NodeJS.ProcessEnv): string {
-  return env[CLAUDE_VARIABLE] ?? DEFAULT_CLAUDE
-}
+export { windowCommand as claudeCommand }
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const command = claudeCommand(process.env)
+  const command = windowCommand(process.env)
   const refusal = compoundCommandRefusal(command)
   if (refusal !== null) {
     console.error(refusal)
