@@ -185,7 +185,15 @@ What stays the same from one session to the next lives here, under version contr
   `cat` and `cp` over `~/.construct` (Read), a shell for-loop, `kill`, `gh api` with a query string (`gh pr` /
   `gh issue list`), `sqlite3` with a `~` path (the full path and `SELECT` only), `grep` with a pipe or a `\|`
   alternation, `grep --include` with a glob, `ls` with a glob, `find` with `2>/dev/null`, `pnpm --dir <mc-N> dev mutate`
-  (the global `construct mutate`), a command followed by `; echo`, and a gate chained with what it guards (`git stash`,
+  (the global `construct mutate`), a command followed by `; echo`, `jq`, `awk` and Read over session transcripts
+  (`construct cost`), `sqlite3 -readonly` on `bus.snapshot.db` (the live `bus.db`, `-readonly`, full path, `SELECT`
+  only), a redirect of `pnpm board --json` (bare `pnpm board --json`), an Edit under a scratch path with `.claude/` or
+  `hooks/` in it (a scratch path without those names), a compound Bash with `cd` into a card tree (`git -C`,
+  `pnpm --dir`), `gh` with a `GH_TOKEN` env prefix (bare `gh`), a brace group with a redirect around `gh` (each `gh` as
+  its own command), `gh api` on a commit's statuses with `--jq` (`gh pr checks`), `npm view`, which fails on the npm
+  cache in the sandbox (`curl` to `registry.npmjs.org`), `gh run download`, whose artifact host the sandbox keeps closed
+  (`gh run view`, or the owner reads the run summary on its page), a browser-lab page in the sandbox (no route: it is a
+  form for the owner to run), and a gate chained with what it guards (`git stash`,
   vitest and `git stash pop` run as three commands). A new denial is written into the day file the session it happens
   and lands here through a card; the allowlist is never touched to get past one.
 
