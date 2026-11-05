@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process'
 import { realpathSync } from 'node:fs'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { claudeProcessCwds } from '../ports/worktree.js'
+import { claudeProcessCwds, LSOF_CLIENT_NAMES } from '../ports/worktree.js'
 
 export interface SessionLoad {
   sysPercent: number
@@ -21,7 +21,7 @@ const TABLE_HEADER = 'COMMAND'
 const LSOF_PROCESS_LINE = /^p\d/
 const MAX_BUFFER = 1 << 26
 
-export const PRODUCED_BY = `top ${TOP_ARGS.join(' ')} (sys and per-process percents, its second sample) and lsof -c claude (a session is a process lsof names claude)`
+export const PRODUCED_BY = `top ${TOP_ARGS.join(' ')} (sys and per-process percents, its second sample) and lsof ${LSOF_CLIENT_NAMES.join(' ')} (a session is a process lsof names claude or a version number, the name the client runs under)`
 
 interface ProcessRow {
   percent: number

@@ -196,6 +196,11 @@ describe('the budget layer ships as the factory runs it', () => {
     expect(readFileSync(path.join(REPO_ROOT, 'templates/ai/claude', EDDIES_MEASURE)).equals(readFileSync(path.join(REPO_ROOT, '.claude/hooks/eddies-measure.mjs')))).toBe(true)
   })
 
+  it('keeps the environment-print module and its parser byte-identical to this repository\'s own', () => {
+    for (const module of ['environment-print.mjs', 'shell-parser.mjs'])
+      expect(readFileSync(path.join(REPO_ROOT, 'templates/ai/claude/scripts/construct', module)).equals(readFileSync(path.join(REPO_ROOT, '.claude/hooks', module))), module).toBe(true)
+  })
+
   it('keeps eddies.json identical to this repository\'s own limits', () => {
     expect(readFileSync(path.join(REPO_ROOT, 'templates/ai/claude/_claude/eddies.json'), 'utf8')).toBe(readFileSync(path.join(REPO_ROOT, EDDIES_CONFIG), 'utf8'))
   })
