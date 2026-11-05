@@ -8,6 +8,8 @@ import { median, MINIMUM_SAMPLE } from './sample.js'
 import { projectKey, readAgentRecord } from './source.js'
 import { tokensWithoutCacheReads } from './usage.js'
 
+export { claudeProjectsDir, projectKey } from './source.js'
+
 export const SHIFT_JOURNAL_FILE = 'shift.jsonl'
 
 const CHEAP_CONTOUR = 'cheap'
