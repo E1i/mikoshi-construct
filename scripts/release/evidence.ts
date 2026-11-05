@@ -10,13 +10,15 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { writtenBeforeHistoryEnds } from '../../src/card/closed.js'
 import { parseCard } from '../../src/card/grammar.js'
-import { defaultBusPath } from '../core/db.js'
-import { INTAKE_EVENT } from '../core/events.js'
+import { BUSY_TIMEOUT_MS, defaultBusPath } from '../core/db.js'
+import { INTAKE_EVENT, WITNESS_RECORDED } from '../core/events.js'
 import { busHistory } from '../core/journal.js'
 import { SHIFT_JOURNAL } from '../core/places.js'
+import { openDatabase } from '../core/sqlite.js'
 import { busIntakeAdmissions } from '../intake/intake.js'
 import { cardVerifiedClosings } from '../nodes/close/task-close.js'
 import { busMerges } from '../nodes/close/task-merged.js'
+import { GREEN } from '../policy/policy.js'
 
 export const PREFIX = '[release:evidence] '
 export const USAGE = 'usage: pnpm release:evidence <from> <to>'
@@ -24,6 +26,16 @@ export const UNKNOWN = 'unknown'
 export const GAP = 'gap'
 const BUDGET_SOURCE = 'no budget is recorded apart from the forecast'
 const SHIFT_MERGE_LINE_PREFIX = '[shift:merge] '
+const VERIFIED_BY_RUNNING_WITNESSES = 'run'
+
+const GREEN_WITNESSES_ON_THE_LAST_HEAD = `
+  SELECT witness.id, witness.card_id, witness.pr
+  FROM events AS witness
+  JOIN prs ON prs.pr = witness.pr AND prs.head = witness.head
+  WHERE witness.id IN (SELECT max(id) FROM events WHERE type = '${WITNESS_RECORDED}' AND legacy = 0 AND card_id IS NOT NULL AND pr IS NOT NULL GROUP BY card_id, pr)
+    AND json_extract(witness.payload, '$.verdict') = '${GREEN}'
+  ORDER BY witness.id
+`
 
 export interface Line {
   entry: Record<string, unknown>
@@ -37,7 +49,14 @@ export interface EvidenceDeps {
   commits: (from: string, to: string) => Set<string>
   busMerges: () => BusMerge[]
   verified: () => VerifiedClosing[]
+  witnessed: () => GreenWitness[]
   admissions: () => IntakeAdmission[]
+}
+
+export interface GreenWitness {
+  task: string
+  pr: number
+  event: number
 }
 
 export interface EvidenceResult {
@@ -121,11 +140,30 @@ function shiftMergeField(deps: EvidenceDeps, task: string, shift: unknown): Fiel
     : { name, value: merges.join(' | '), source: line!.source }
 }
 
-function closingOf(deps: EvidenceDeps, lines: Line[], verified: readonly VerifiedClosing[], task: string): Line | undefined {
+export function greenWitnesses(busPath: string): GreenWitness[] {
+  if (!existsSync(busPath))
+    return []
+  const db = openDatabase(busPath, { readOnly: true, timeout: BUSY_TIMEOUT_MS })
+  try {
+    const rows = db.prepare(GREEN_WITNESSES_ON_THE_LAST_HEAD).all() as unknown as { id: number, card_id: number, pr: number }[]
+    return rows.map(row => ({ task: String(row.card_id), pr: row.pr, event: row.id }))
+  }
+  finally {
+    db.close()
+  }
+}
+
+function witnessedClosingOf(deps: EvidenceDeps, witnessed: readonly GreenWitness[], merge: Line): Line | undefined {
+  const witness = witnessed.find(green => green.task === String(merge.entry.task) && green.pr === merge.entry.pr)
+  return witness === undefined ? undefined : { entry: { verification: VERIFIED_BY_RUNNING_WITNESSES }, source: `${deps.bus} event ${witness.event}` }
+}
+
+function closingOf(deps: EvidenceDeps, lines: Line[], verified: readonly VerifiedClosing[], witnessed: readonly GreenWitness[], merge: Line): Line | undefined {
+  const task = String(merge.entry.task)
   const fromBus = verified.filter(closing => closing.task === task && typeof closing.verification === 'string').at(-1)
   if (fromBus !== undefined)
     return { entry: { verification: fromBus.verification, actual: fromBus.actual }, source: `${deps.bus} event ${fromBus.event}` }
-  return lastOf(lines, task, entry => entry.event === 'path' && typeof entry.verification === 'string' && writtenBeforeHistoryEnds(entry))
+  return lastOf(lines, task, entry => entry.event === 'path' && typeof entry.verification === 'string' && writtenBeforeHistoryEnds(entry)) ?? witnessedClosingOf(deps, witnessed, merge)
 }
 
 function intakeOf(deps: EvidenceDeps, lines: Line[], admissions: readonly IntakeAdmission[], task: string): Line | undefined {
@@ -135,11 +173,11 @@ function intakeOf(deps: EvidenceDeps, lines: Line[], admissions: readonly Intake
   return lastOf(lines, task, entry => entry.event === INTAKE_EVENT && writtenBeforeHistoryEnds(entry))
 }
 
-function profile(deps: EvidenceDeps, lines: Line[], verified: readonly VerifiedClosing[], admissions: readonly IntakeAdmission[], merge: Line): Field[] {
+function profile(deps: EvidenceDeps, lines: Line[], verified: readonly VerifiedClosing[], witnessed: readonly GreenWitness[], admissions: readonly IntakeAdmission[], merge: Line): Field[] {
   const task = String(merge.entry.task)
   const missing = (what: string): string => `no ${what} for #${task} in ${deps.bus}`
   const start = lastOf(lines, task, entry => entry.event === 'path' && typeof entry.card === 'object' && entry.card !== null)
-  const close = closingOf(deps, lines, verified, task)
+  const close = closingOf(deps, lines, verified, witnessed, merge)
   const intake = intakeOf(deps, lines, admissions, task)
   const stop = lastOf(lines, task, entry => entry.event === 'stop')
   const review = lastOf(lines, task, entry => entry.event === 'review')
@@ -156,7 +194,7 @@ function profile(deps: EvidenceDeps, lines: Line[], verified: readonly VerifiedC
     known('forecast', forecastText(start?.entry.forecast), start, missing('forecast on a start line')),
     { name: 'budget', value: GAP, source: BUDGET_SOURCE },
     known('actual', actualText(close?.entry.actual), close, missing('actual on an end line')),
-    known('result.verification', close?.entry.verification, close, missing('end line')),
+    known('result.verification', close?.entry.verification, close, missing('card.verified, end line or green witness on the last head')),
     known('result.stop', stop?.entry.at, stop, missing('stop line')),
     known('result.review', review?.entry.verdict, review, missing('review line')),
     known('result.merge', `PR #${String(merge.entry.pr)} by ${String(merge.entry.by)} at ${String(merge.entry.merged)}`, merge, missing('merge line')),
@@ -196,8 +234,9 @@ export function runEvidence(argv: string[], deps: EvidenceDeps): EvidenceResult 
   const lines = historyLines(deps)
   const merges = busMergeSet(deps, commits)
   const verified = deps.verified()
+  const witnessed = deps.witnessed()
   const admissions = deps.admissions()
-  const stdout = merges.flatMap(merge => [header(merge), ...profile(deps, lines, verified, admissions, merge).map(field => `  ${field.name}: ${field.value} — ${field.source}`)])
+  const stdout = merges.flatMap(merge => [header(merge), ...profile(deps, lines, verified, witnessed, admissions, merge).map(field => `  ${field.name}: ${field.value} — ${field.source}`)])
   return { stdout: stdout.length === 0 ? [`no merge line in ${deps.bus} legacy history and no merged pr.closed in ${deps.bus} has a commit in ${from}..${to}`] : stdout, stderr: [], exitCode: 0 }
 }
 
@@ -208,6 +247,7 @@ function realDeps(): EvidenceDeps {
     history: () => busHistory(bus),
     busMerges: () => busMerges(bus),
     verified: () => cardVerifiedClosings(bus),
+    witnessed: () => greenWitnesses(bus),
     admissions: () => busIntakeAdmissions(bus),
     read: file => existsSync(file) ? readFileSync(file, 'utf8') : null,
     commits: (from, to) => new Set(execFileSync('git', ['rev-list', `${from}..${to}`], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).split('\n').filter(sha => sha !== '')),

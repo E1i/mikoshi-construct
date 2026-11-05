@@ -176,7 +176,7 @@ const CARDS_IN_WORK = `
     WHERE started.type = '${CARD_STARTED}' AND started.legacy = 0 AND started.card_id IS NOT NULL
       AND NOT EXISTS (SELECT 1 FROM events AS closed WHERE closed.type = '${CARD_CLOSED}' AND closed.card_id = started.card_id AND closed.id > started.id)
   ) AS work
-  WHERE NOT EXISTS (SELECT 1 FROM cards WHERE cards.card_id = work.card_id AND cards.state = '${DROPPED_CARD}')
+  WHERE NOT EXISTS (SELECT 1 FROM cards WHERE cards.card_id = work.card_id AND cards.state IN ('${DROPPED_CARD}', '${MERGED_CARD}'))
 `
 
 const OPEN_PRS = `

@@ -30,7 +30,7 @@ const intake = { event: 'intake', task: '7', card: CARD.line, confirmation: 'non
 const merge = { event: 'merge', task: '7', pr: 70, by: 'E1i', commit: COMMIT, merged: '2026-10-07T00:00:00Z', ts: 't9' }
 
 function world(journal: object[], files: Record<string, string> = {}, inBus: BusMerge[] = [], verified: VerifiedClosing[] = [], admissions: IntakeAdmission[] = []): EvidenceDeps {
-  return { bus: BUS, read: file => files[file] ?? null, history: () => journal.filter(writtenBeforeHistoryEnds) as JournalEvent[], commits: () => new Set([COMMIT]), busMerges: () => inBus, verified: () => verified, admissions: () => admissions }
+  return { bus: BUS, read: file => files[file] ?? null, history: () => journal.filter(writtenBeforeHistoryEnds) as JournalEvent[], commits: () => new Set([COMMIT]), busMerges: () => inBus, verified: () => verified, witnessed: () => [], admissions: () => admissions }
 }
 
 function field(stdout: string[], name: string): string {
