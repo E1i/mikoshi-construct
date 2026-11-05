@@ -1,7 +1,24 @@
+import type { Invocation, SessionPolicy, SessionSpec } from './client/contract.js'
 import { spawn } from 'node:child_process'
 import { closeSync, openSync } from 'node:fs'
 import process from 'node:process'
 import { BUS_DB_VARIABLE } from '../core/bus-path.js'
+import { clientAdapter } from './client/index.js'
+
+export function clientInvocation(spec: SessionSpec): Invocation {
+  const invocation = clientAdapter().invocation(spec)
+  if ('kind' in invocation)
+    throw new Error(invocation.reason)
+  return invocation
+}
+
+const HEADLESS_POLICY: SessionPolicy = { profile: 'client-default', gateCommands: [], writePaths: [], mcpOff: true }
+
+const ANY_HEADLESS_SESSION: SessionSpec = { kind: 'start', role: 'review', session: '', cwd: '', prompt: '', addDirs: [], pick: { model: null }, policy: HEADLESS_POLICY }
+
+export function clientCommand(): string {
+  return clientInvocation(ANY_HEADLESS_SESSION).command
+}
 
 export const REVIEW_PERMISSION_MODE = 'auto'
 
@@ -78,7 +95,7 @@ export function withoutCard(base: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
 }
 
 export function sessionEnv(base: NodeJS.ProcessEnv = process.env, card?: number): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = { ...witnessEnv(base), CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS: '0' }
+  const env: NodeJS.ProcessEnv = { ...witnessEnv(base), ...clientInvocation(ANY_HEADLESS_SESSION).env }
   if (card === undefined)
     return env
   const { [BUS_DB_VARIABLE]: _ownersBus, ...cardEnv } = env
@@ -104,6 +121,7 @@ export class SessionCeilingReached extends Error {
 }
 
 export function spawnSession(params: SpawnSessionParams): Promise<number> {
+  const invocation = clientInvocation({ ...ANY_HEADLESS_SESSION, session: params.sessionId, cwd: params.cwd, prompt: params.prompt, addDirs: params.addDirs ?? [], pick: { model: params.model ?? null } })
   const outFd = openSync(params.stdoutPath, 'w')
   const errFd = openSync(params.stderrPath, 'w')
   let closed = false
@@ -116,9 +134,9 @@ export function spawnSession(params: SpawnSessionParams): Promise<number> {
   }
 
   return new Promise((resolve, reject) => {
-    const child = spawn('claude', sessionArgv(params.sessionId, params.prompt, params.addDirs, params.model), {
+    const child = spawn(invocation.command, invocation.args, {
       cwd: params.cwd,
-      env: sessionEnv(params.env),
+      env: { ...sessionEnv(params.env), ...invocation.env },
       stdio: ['ignore', outFd, errFd],
       ...(params.ceilingMs === undefined ? {} : { timeout: params.ceilingMs, killSignal: 'SIGKILL' as const }),
     })
