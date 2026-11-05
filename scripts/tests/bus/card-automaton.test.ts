@@ -26,7 +26,7 @@ function stateOf(made: MergeBench, cardId: number): string | null {
 
 function stoppedByFault(made: MergeBench, cardId: number): number {
   const ts = (): string => made.clock.now().toISOString()
-  appendEvent(made.db, { ts: ts(), type: CARD_ADMITTED, actor: 'policy', cardId, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${cardId}`, payload: { lane: `lane-${cardId}`, decision: 'auto', contour: 'cheap', depends: [], admission: `admission-${cardId}` }, legacy: false })
+  appendEvent(made.db, { ts: ts(), type: CARD_ADMITTED, actor: 'policy', cardId, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${cardId}`, payload: { lane: `lane-card-${cardId}`, decision: 'auto', contour: 'cheap', depends: [], admission: `admission-${cardId}` }, legacy: false })
   made.tick()
   let leaseGen = 0
   for (let failure = 0; failure < FAILURES_TO_STOP; failure += 1) {
