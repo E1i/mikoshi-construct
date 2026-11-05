@@ -1523,20 +1523,6 @@
   {
     "type": "dependency",
     "from": "scripts/nodes/close/task-close.ts",
-    "to": "src/commands/cost/claude-code.ts",
-    "unresolvedTo": "../../../src/commands/cost/claude-code.js",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "nodes-imports-nothing-to-its-right"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "scripts/nodes/close/task-close.ts",
     "to": "src/commands/cost/expect.ts",
     "unresolvedTo": "../../../src/commands/cost/expect.js",
     "dependencyTypes": [
