@@ -11,6 +11,7 @@ import { FACTORY_RUNTIME } from '../core/factory-paths.js'
 import { defaultHandoffDir } from '../core/handoff-dir.js'
 import { RAISED_STATUS, raisedByTheBus } from '../nodes/restart/role.js'
 import { ownerMessagesOf } from '../ports/client/claude/adapter.js'
+import { clientAdapter } from '../ports/client/index.js'
 import { EXIT_REQUEST_VARIABLE, LOOP_PID_VARIABLE } from '../ports/session.js'
 import { appendExitLine, EDDIES_JOURNAL_FILE, exitLineOf, PROJECT_VARIABLE, projectRoot, realExitReadings, SESSION_EXIT_EVENT, UNKNOWN } from './eddies-measure.js'
 import { MIKO_HANDOFF_NAME, mikoHandoff, PREFIX, statusOf } from './loop.js'
@@ -29,8 +30,6 @@ export const NOT_AT_A_STOP_CONDITION = 'not at a stop condition: wait with pnpm 
 export const TAB_THRESHOLD = 'in a tab window a threshold ends no session: continue in this session; compaction carries it on from the handoff (PreCompact insures it, SessionStart compact returns the continue prompt); nothing ended'
 export const SANDBOX_REFUSAL = 'outside the pnpm miko loop the sandbox lets this command neither find nor signal any process: nothing ended; run the session under pnpm miko'
 const MESSAGES_BEFORE_THE_OWNER_SPOKE = 1
-const CLAUDE = 'claude'
-const ARGV_HEAD_NAMING_THE_PROGRAM = 2
 
 export type StopReason = typeof THRESHOLDS[number] | 'done' | 'core'
 
@@ -106,8 +105,8 @@ export function ancestors(table: ProcessRow[], pid: number): ProcessRow[] {
   return chain.slice(1)
 }
 
-export function isClaude(row: ProcessRow): boolean {
-  return row.args.split(/\s+/).slice(0, ARGV_HEAD_NAMING_THE_PROGRAM).some(word => path.basename(word) === CLAUDE)
+function isClaude(row: ProcessRow): boolean {
+  return clientAdapter().processes.isClient(row.args)
 }
 
 export function sessionClaudeOf(table: () => ProcessRow[], pid: number): number | undefined {
