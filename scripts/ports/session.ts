@@ -4,6 +4,7 @@ import { closeSync, openSync } from 'node:fs'
 import process from 'node:process'
 import { BUS_DB_VARIABLE } from '../core/bus-path.js'
 import { clientAdapter } from './client/index.js'
+import { PREPARE_ENV_KEYS } from './prepare-tree.js'
 
 export function clientInvocation(spec: SessionSpec): Invocation {
   const invocation = clientAdapter().invocation(spec)
@@ -94,8 +95,19 @@ export function withoutCard(base: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   return rest
 }
 
+const SESSION_ENV_NAMES: ReadonlySet<string> = new Set([...PREPARE_ENV_KEYS, 'USER', 'LOGNAME', 'SHELL', 'TERM', 'GH_TOKEN', 'NODE_EXTRA_CA_CERTS'])
+const SESSION_ENV_PREFIXES = ['CONSTRUCT_', 'CLAUDE_', 'ANTHROPIC_', 'LC_']
+
+function isSessionVariable(name: string): boolean {
+  return SESSION_ENV_NAMES.has(name) || SESSION_ENV_PREFIXES.some(prefix => name.startsWith(prefix))
+}
+
+function listedVariables(base: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return Object.fromEntries(Object.entries(base).filter(([name]) => isSessionVariable(name)))
+}
+
 export function sessionEnv(base: NodeJS.ProcessEnv = process.env, card?: number): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = { ...witnessEnv(base), ...clientInvocation(ANY_HEADLESS_SESSION).env }
+  const env: NodeJS.ProcessEnv = { ...witnessEnv(listedVariables(base)), ...clientInvocation(ANY_HEADLESS_SESSION).env }
   if (card === undefined)
     return env
   const { [BUS_DB_VARIABLE]: _ownersBus, ...cardEnv } = env
