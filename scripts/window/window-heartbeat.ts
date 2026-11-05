@@ -4,6 +4,7 @@ import type { SessionMeasure } from '../supervisor/heartbeat.js'
 import type { SessionGauges } from './eddies-measure.js'
 import { appendEvent, HEARTBEATS, openBus } from '../core/db.js'
 import { PROCESS_ENDED, PROCESS_HEARTBEAT, WINDOW_HEARTBEAT } from '../core/events.js'
+import { clientAdapter } from '../ports/client/index.js'
 import { windowModeOf } from '../ports/session.js'
 import { measureSession } from '../supervisor/heartbeat.js'
 import { beatsLive } from '../supervisor/liveness-sites.js'
@@ -12,7 +13,6 @@ import { WINDOW_ACTOR } from './window-requests.js'
 export const WINDOW_BEAT_MS = 5 * 60_000
 export const LOOP_PROCESS = 'miko:'
 
-const SESSION_VARIABLE = 'CLAUDE_CODE_SESSION_ID'
 const PROJECT_VARIABLE = 'CLAUDE_PROJECT_DIR'
 const SESSION_ID = /^[^:\s]+$/
 const SQLITE_BUSY = 5
@@ -46,7 +46,7 @@ export interface WindowSession {
 }
 
 export function windowOf(env: NodeJS.ProcessEnv): WindowSession | null {
-  const session = env[SESSION_VARIABLE]?.trim()
+  const session = clientAdapter().ownSession(env)?.trim()
   const mode = windowModeOf(env)
   const root = env[PROJECT_VARIABLE]?.trim()
   if (mode === null || session === undefined || !SESSION_ID.test(session))
