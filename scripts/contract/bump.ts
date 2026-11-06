@@ -7,13 +7,14 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { parseArgs } from 'node:util'
+import { GENERATED_FILES } from '../core/generated-files.js'
 import { BUMP_LEVELS, declaredLevel, headVersion } from './declared.js'
 import { cliArgs, cliEnv, failureLine, tagCli } from './json-samples.js'
 import { requiredChange, SECTIONS, unbaselined } from './semantic-diff.js'
 import { SURFACE_VERSION, tagSurfaceReading } from './surface.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../..')
-const SURFACE_FILE = 'contract/surface.json'
+const SURFACE_FILE = GENERATED_FILES.surface.path
 const UNVERSIONED_SURFACE = 1
 
 export interface RefReading {
