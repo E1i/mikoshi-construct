@@ -3,7 +3,7 @@ import type { CardBodyReader } from '../../intake/parking-reads.js'
 import type { CardScope, DepthSources, ReviewPlanner } from './review-depth.js'
 import { execFileSync } from 'node:child_process'
 import { layerMasksOf, runsOf } from '../../../src/card/covering-tests.js'
-import { parseParkingFile } from '../../../src/card/parking.js'
+import { createdPaths, parseParkingFile } from '../../../src/card/parking.js'
 import { busCheckCatalog, cardReadingOf } from '../../ci/card-runs.js'
 import { predict } from '../../policy/morse/predict.js'
 import { planReview } from './review-depth.js'
@@ -44,7 +44,7 @@ function cardScope(bodyOf: CardBodyReader, cardId: number, catalog: () => BusCat
   if (parsed.kind !== 'parked')
     return null
   const { touches, body } = parsed.parked.task
-  return { touches, ...cardReadingOf(touches, runsOf(body), layerMasksOf(body), catalog()) }
+  return { touches, creates: createdPaths(parsed.parked.creates), ...cardReadingOf(touches, runsOf(body), layerMasksOf(body), catalog()) }
 }
 
 export function gitDepthSources(repo: string, journal: string, bodyOf: CardBodyReader, run: GitRun = git, catalog: () => BusCatalog = busCheckCatalog): DepthSources {
