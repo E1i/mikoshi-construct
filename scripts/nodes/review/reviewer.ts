@@ -117,7 +117,7 @@ function reReviewLines(since: string, head: string | null, findings: readonly st
 
 function firstDiffLines(since: string, head: string | null, touchFindings: readonly string[]): string[] {
   return [
-    `Read only the diff ${since}..${head} against the card, its witnesses, its touches and its runs (the tests the card's Runs: line names); do not walk the modules it touches.`,
+    `Read only the diff ${since}..${head} against the card, its witnesses, its touches, its creates and its runs (the tests the card's Runs: line names); do not walk the modules it touches.`,
     ...touchFindings.map(finding => `Report as a finding of this review: ${finding}`),
   ]
 }
