@@ -6,7 +6,9 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { openBus } from '../../core/db.js'
 import { WINDOW_HEARTBEAT } from '../../core/events.js'
+import { WINDOW_VARIABLE } from '../../ports/session.js'
 import { doneWaitsForTheOwner, ownerMessagesOf, runMikoExit } from '../../window/exit.js'
+import { TAB_MODE } from '../../window/loop.js'
 import { AGENTS_FILE, liveAgentsOf, sessionTranscriptOf, stoppedTasksIn, stoppedTasksOf } from '../../window/window-agents.js'
 import { WINDOW_BEAT_MS, windowBeat, windowOf } from '../../window/window-heartbeat.js'
 import { SESSION_VARIABLE } from '../../window/window-requests.js'
@@ -92,7 +94,7 @@ describe('the window loop on DONE, a stopped subagent and a second window', () =
   it('a second window names the first before writing its own beat', () => {
     const bus = path.join(scratch(), 'bus.db')
     openBus(bus).close()
-    const first = windowOf({ CLAUDE_CODE_SESSION_ID: 'first', CLAUDE_PROJECT_DIR: '/repo' })
+    const first = windowOf({ CLAUDE_CODE_SESSION_ID: 'first', CLAUDE_PROJECT_DIR: '/repo', [WINDOW_VARIABLE]: TAB_MODE })
     expect(first).toMatchObject({ session: 'first', root: '/repo' })
     const lines: string[] = []
     const say = (line: string): void => {
