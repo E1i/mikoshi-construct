@@ -1,6 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { BusEvent } from '../../core/db.js'
 import type { AfterFailure, Lease, SUPERSEDED_LEASE } from '../../core/lease.js'
+import type { RoundReview } from '../../core/queue.js'
 import type { LimitRule } from '../../policy/round-limit-decision.js'
 import type { StatusPublisher } from '../../ports/github-status.js'
 import type { GitHub } from '../../ports/github.js'
@@ -15,7 +16,8 @@ import { appendEvent } from '../../core/db.js'
 import { ARTIFACT_REMOVED, BOARD_ALARM, POLICY_DENIED, REVIEW_RECORDED, REVIEW_ROUNDS_SPENT, REVIEW_TREE_ORPHANED, ROUND_EXTENDED } from '../../core/events.js'
 import { reviewInputOfKey } from '../../core/identifiers.js'
 import { completeTask, failTask, releaseTask, StaleLease, supersedeLease } from '../../core/lease.js'
-import { changesRoundsOf, decisionsShardActive, REVIEW_ROUNDS } from '../../core/queue.js'
+import { activeDecisionsShard, BODIES_OWNER_AMENDED_FOR_A_PR, changesRoundsOf, ownerAmendedSinceThePreviousReview, REPEAT_FINDINGS, REVIEW_ROUNDS, REVIEWS_OF_A_PR } from '../../core/queue.js'
+import { allFindingsRepeat } from '../../policy/repeat-finding.js'
 import { limitRuleOf } from '../../policy/round-limit-decision.js'
 import { NO_ISOLATION } from '../../ports/isolation.js'
 import { storedInput } from '../../ports/prompt-store.js'
@@ -151,15 +153,19 @@ interface RoundLimit {
 
 const EXTENSION_OF_A_CARD = `SELECT 1 FROM events WHERE type = '${ROUND_EXTENDED}' AND legacy = 0 AND card_id = ? LIMIT 1`
 
-const FINDINGS_OF_THE_PREVIOUS_ROUND = `SELECT json_extract(payload, '$.findings') AS findings FROM events WHERE type = '${REVIEW_RECORDED}' AND legacy = 0 AND pr = ? AND head IS NOT ? AND json_extract(payload, '$.verdict') = 'changes' ORDER BY id DESC LIMIT 1`
+const FINDINGS_OF_THE_EARLIER_ROUNDS = `SELECT json_extract(payload, '$.findings') AS findings FROM events WHERE type = '${REVIEW_RECORDED}' AND legacy = 0 AND pr = ? AND head IS NOT ? AND json_extract(payload, '$.verdict') = 'changes' ORDER BY id DESC`
 
-function previousRoundFindings(db: DatabaseSync, lease: Lease): string[] {
-  const row = db.prepare(FINDINGS_OF_THE_PREVIOUS_ROUND).get(lease.pr, lease.head) as { findings: string | null } | undefined
-  return row === undefined || row.findings === null ? [] : strings(JSON.parse(row.findings))
+function earlierRoundsFindings(db: DatabaseSync, lease: Lease): string[][] {
+  const rows = db.prepare(FINDINGS_OF_THE_EARLIER_ROUNDS).all(lease.pr, lease.head) as { findings: string | null }[]
+  return rows.map(row => row.findings === null ? [] : strings(JSON.parse(row.findings)))
 }
 
 export function roundLimitLine(pr: number, rounds: number): string {
   return `Review round limit reached (D-104): ${rounds} rounds of changes on PR #${pr}; the bus queues no further review or answer for it and does not merge it. The remaining findings are in the bus event ${REVIEW_ROUNDS_SPENT}.`
+}
+
+export function repeatStopLine(pr: number): string {
+  return `Review stopped on a repeat: every finding of this round on PR #${pr} repeats an earlier round, so another answer would spend its tokens on what answers already did not close. The bus queues no further review or answer for it and does not merge it; it goes the way of the round limit (D-104), a re-cut or an owner decision. The findings are in the bus event ${REVIEW_ROUNDS_SPENT}.`
 }
 
 function treeFields({ tree }: Review): Record<string, unknown> {
@@ -238,36 +244,57 @@ export class ReviewExecutor {
     const outcome = recordVerdict(db, gitHub, publish, { lease, verdict: review.verdict, reviewerSession: review.session }, () => clock().getTime())
     if (outcome.kind === 'denied')
       return this.denied(lease, outcome.denial)
-    const limit = this.roundLimit(lease, review)
+    const repeats = this.repeatsAnEarlierRound(lease, review)
+    const limit = this.roundLimit(lease, review, repeats)
     completeTask(db, this.ts(), lease, [this.recorded(lease, { ...reviewed, review }), ...(limit === null ? [] : [limit.event])])
     if (limit !== null && limit.rule.kind !== 'extend' && lease.pr !== null) {
       if (limit.rule.kind !== 'park')
-        this.noted(lease.pr, roundLimitLine(lease.pr, REVIEW_ROUNDS))
+        this.noted(lease.pr, repeats ? repeatStopLine(lease.pr) : roundLimitLine(lease.pr, REVIEW_ROUNDS))
       this.recutAtTheLimit({ cardId: lease.cardId, pr: lease.pr, head: lease.head, findings: review.findings, ...(limit.rule.kind === 'park' ? { mutations: limit.rule.mutations } : {}) })
     }
     return { kind: 'recorded', taskKey: lease.taskKey, verdict: review.verdict, depth: plan.depth, model: review.model }
   }
 
-  private roundLimit(lease: Lease, review: Review): RoundLimit | null {
+  private repeatsAnEarlierRound(lease: Lease, review: Review): boolean {
+    if (review.verdict !== 'changes' || lease.pr === null)
+      return false
+    return allFindingsRepeat(review.findings.filter(finding => finding !== AMEND_KEEPS_CHANGES), earlierRoundsFindings(this.parts.db, lease)) && !this.followsAnOwnerAmend(lease, review)
+  }
+
+  private followsAnOwnerAmend(lease: Lease, review: Review): boolean {
+    const { db } = this.parts
+    const reviews = db.prepare(REVIEWS_OF_A_PR).all(lease.pr) as unknown as RoundReview[]
+    const amended = new Set((db.prepare(BODIES_OWNER_AMENDED_FOR_A_PR).all(lease.pr) as { body: string }[]).map(row => row.body))
+    return ownerAmendedSinceThePreviousReview([...reviews, this.roundReview(lease, review)], reviews.length, amended)
+  }
+
+  private roundReview(lease: Lease, review: Review): RoundReview {
+    return { head: lease.head, verdict: review.verdict, card_body: reviewInputOfKey(lease.taskKey)?.cardBody ?? null }
+  }
+
+  private roundLimit(lease: Lease, review: Review, repeats: boolean): RoundLimit | null {
     if (lease.pr === null)
       return null
     const before = changesRoundsOf(this.parts.db, lease.pr)
-    const rounds = changesRoundsOf(this.parts.db, lease.pr, { head: lease.head, verdict: review.verdict, card_body: reviewInputOfKey(lease.taskKey)?.cardBody ?? null })
-    if (before >= REVIEW_ROUNDS || rounds < REVIEW_ROUNDS)
+    const rounds = changesRoundsOf(this.parts.db, lease.pr, this.roundReview(lease, review))
+    if (before >= REVIEW_ROUNDS || (rounds < REVIEW_ROUNDS && !repeats))
       return null
-    const rule = this.limitRule(lease, review)
-    return { rule, event: rule.kind === 'extend' ? this.extended(lease, rule) : this.spent(lease, review, rounds) }
+    const rule = this.limitRule(lease, review, repeats)
+    if (rule.kind === 'extend')
+      return { rule, event: this.extended(lease, rule) }
+    return { rule, event: repeats ? this.spentOnARepeat(lease, review, rounds) : this.spent(lease, review, rounds) }
   }
 
-  private limitRule(lease: Lease, review: Review): LimitRule {
+  private limitRule(lease: Lease, review: Review, repeats: boolean): LimitRule {
     const { db, clock } = this.parts
-    return limitRuleOf({
-      decisionsShard: decisionsShardActive(db, clock()),
+    const rule = limitRuleOf({
+      decisionsShard: activeDecisionsShard(db, clock()) !== null,
       findings: review.findings,
       survivingMutations: review.survivingMutations ?? [],
-      previous: previousRoundFindings(db, lease),
+      previous: earlierRoundsFindings(db, lease)[0] ?? [],
       extendedBefore: db.prepare(EXTENSION_OF_A_CARD).get(lease.cardId) !== undefined,
     })
+    return repeats && rule.kind === 'extend' ? { kind: 'owner' } : rule
   }
 
   private extended(lease: Lease, { findings, previous }: Extract<LimitRule, { kind: 'extend' }>): BusEvent {
@@ -296,6 +323,11 @@ export class ReviewExecutor {
       payload: { state: ROUND_LIMIT_REACHED, pr: lease.pr, rounds, findings: review.findings },
       legacy: false,
     }
+  }
+
+  private spentOnARepeat(lease: Lease, review: Review, rounds: number): BusEvent {
+    const spent = this.spent(lease, review, rounds)
+    return { ...spent, dedupeKey: `${spent.dedupeKey}:${REPEAT_FINDINGS}:${lease.head}`, payload: { state: REPEAT_FINDINGS, pr: lease.pr, rounds, findings: review.findings } }
   }
 
   private noted(pr: number, line: string): void {
