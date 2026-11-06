@@ -52,6 +52,18 @@ describe('git depth sources', () => {
     expect(sources.scope(1972)).toBeNull()
   })
 
+  it('the card scope reads creates from the body without the kind of an entry', () => {
+    const fields = { card: '#1971 a-card [implement/netwatch/M/cheap/auto] · depends — · blocks —', branch: 'feat/a-card', touches: ['docs/**'], continue: 'stop', who: 'shift', body: 'Do the card.' }
+    const bodies: Record<number, string> = {
+      1971: parkingFileText({ ...fields, creates: ['scripts/created.ts (plain)', 'docs/created.md'] }),
+      1973: parkingFileText({ ...fields, card: '#1973 a-card [implement/netwatch/M/cheap/auto] · depends — · blocks —' }),
+    }
+    const sources = gitDepthSources('/nowhere', '/nowhere/morse.jsonl', cardId => bodies[cardId] ?? null)
+
+    expect(sources.scope(1971)).toMatchObject({ touches: ['docs/**'], creates: ['scripts/created.ts', 'docs/created.md'] })
+    expect(sources.scope(1973)).toMatchObject({ creates: [] })
+  })
+
   it('plans the depth when the first fetch loses the origin/main ref to a concurrent fetch with cannot lock ref', () => {
     const root = mkdtempSync(path.join(tmpdir(), 'bus-depth-sources-'))
     roots.push(root)

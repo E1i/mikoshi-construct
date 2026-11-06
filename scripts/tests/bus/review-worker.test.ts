@@ -1229,7 +1229,7 @@ class DepthWorld {
     },
     scope: (cardId) => {
       const touches = this.touches.get(cardId)
-      return touches === undefined ? null : { touches, runs: this.runs.get(cardId) ?? [] }
+      return touches === undefined ? null : { touches, creates: [], runs: this.runs.get(cardId) ?? [] }
     },
   }
 
@@ -1288,7 +1288,7 @@ describe('review depth by MORSE', () => {
 
     expect(diff.world.predictions).toEqual([{ task: review(961), verdict: 'cheap', rule: 'docs-only' }])
     expect(diff.seen.map(each => each.plan)).toEqual([{ depth: 'diff', round: 'first', why: 'MORSE predicts cheap by rule docs-only, and only the instructions rule takes the full review', since: MERGE_BASE, touchFindings: [] }])
-    expect(reviewPrompt(diff.seen[0]!.lease, diff.seen[0]!.plan, '/t', '/v.json')).toContain(`Read only the diff ${MERGE_BASE}..${sha('a')} against the card, its witnesses, its touches and its runs (the tests the card's Runs: line names); do not walk the modules it touches.`)
+    expect(reviewPrompt(diff.seen[0]!.lease, diff.seen[0]!.plan, '/t', '/v.json')).toContain(`Read only the diff ${MERGE_BASE}..${sha('a')} against the card, its witnesses, its touches, its creates and its runs (the tests the card's Runs: line names); do not walk the modules it touches.`)
     expect(today.seen.map(each => each.plan.depth)).toEqual(['full'])
     const [diffMs] = recordedMs(diff.bench.db)
     const [fullMs] = recordedMs(today.bench.db)
