@@ -9,8 +9,9 @@ import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
 import { TURN_JOURNAL_FILE } from '../../../src/commands/cost/turns.js'
+import { CLOSED_CARD, MERGED_CARD } from '../../core/card-automaton.js'
 import { appendEvent } from '../../core/db.js'
-import { CARD_DROPPED, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, CARD_TAKEOVER, QUESTION_OWNER, WINDOW_HEARTBEAT } from '../../core/events.js'
+import { CARD_CLOSED, CARD_DROPPED, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, CARD_TAKEOVER, QUESTION_OWNER, WINDOW_HEARTBEAT } from '../../core/events.js'
 import { superviseUntilReplaced } from '../../supervisor/supervisor.js'
 import { STARTER_ACTOR } from '../../window/window-prs.js'
 import { requestFromWindow, requestOf, WindowRequests } from '../../window/window-requests.js'
@@ -93,6 +94,34 @@ function endsOf(made: MergeBench, card = CARD): unknown[] {
   return (made.db.prepare(`SELECT actor, payload FROM events WHERE card_id = ? AND type = '${CARD_SESSION_ENDED}'`).all(card) as { actor: string, payload: string }[]).map(row => ({ actor: row.actor, ...JSON.parse(row.payload) as object }))
 }
 
+function heartbeat(made: MergeBench, ts: string, root?: string): void {
+  appendEvent(made.db, { ts, type: WINDOW_HEARTBEAT, actor: `worker:window:${SESSION}`, cardId: null, pr: null, head: null, dedupeKey: `${WINDOW_HEARTBEAT}:${ts}`, payload: { session: SESSION, ...(root === undefined ? {} : { root }) }, legacy: false })
+}
+
+function endedLine(at: string): string {
+  return `${CARD_SESSION_ENDED} #${CARD}: its window session ${SESSION} ended at ${at}`
+}
+
+function stateOfCard(made: MergeBench): unknown {
+  return (made.db.prepare('SELECT state FROM cards WHERE card_id = ?').get(CARD) as { state: unknown } | undefined)?.state
+}
+
+function mergedPullRequest(made: MergeBench): number {
+  const pr = CARD - 100
+  made.gitHub.open({ number: pr })
+  made.tick()
+  made.gitHub.close(pr, true)
+  made.tick()
+  return pr
+}
+
+function treeWithJournal(): string {
+  const tree = mkdtempSync(path.join(tmpdir(), 'window-session-tree-'))
+  roots.push(tree)
+  mkdirSync(path.join(tree, '.construct'))
+  return tree
+}
+
 function takeover(made: MergeBench): RequestOutcome {
   requestFromWindow(made.db, made.clock.now().toISOString(), 'window-1', requestOf(['takeover', '--card', String(CARD), '--reason', REASON])!)
   return new WindowRequests(made.db, made.clock.now, UNUSED_REQUEST_TOOLS).run()[0]!
@@ -153,9 +182,25 @@ describe('what does not prove a window session ended', () => {
     const { made, root, later, sweep } = bench()
     started(made)
     sessionEnd(root, later())
-    const beat = later()
-    appendEvent(made.db, { ts: beat, type: WINDOW_HEARTBEAT, actor: `worker:window:${SESSION}`, cardId: null, pr: null, head: null, dedupeKey: `${WINDOW_HEARTBEAT}:${beat}`, payload: { session: SESSION }, legacy: false })
+    heartbeat(made, later())
     expect(sweep()).toEqual([])
+  })
+
+  it('an end at the very moment of the start proves the end: the older-than check is strict', () => {
+    const { made, root, sweep } = bench()
+    started(made)
+    const at = made.clock.now().toISOString()
+    sessionEnd(root, at)
+    expect(sweep()).toEqual([endedLine(at)])
+  })
+
+  it('a heartbeat at the very moment of the end proves the end: only a later one is a resume', () => {
+    const { made, root, later, sweep } = bench()
+    started(made)
+    const at = later()
+    heartbeat(made, at)
+    sessionEnd(root, at)
+    expect(sweep()).toEqual([endedLine(at)])
   })
 
   it('a missing journal and a torn line write nothing and fail nothing', () => {
@@ -211,6 +256,26 @@ describe('the cards the sweep leaves to their own writers', () => {
     expect(sweep()).toEqual([])
   })
 
+  it('a merged card gets no end of its session', () => {
+    const { made, root, later, sweep } = bench()
+    started(made)
+    mergedPullRequest(made)
+    expect(stateOfCard(made)).toBe(MERGED_CARD)
+    sessionEnd(root, later())
+    expect(sweep()).toEqual([])
+  })
+
+  it('a closed card gets no end of its session', () => {
+    const { made, root, later, sweep } = bench()
+    started(made)
+    const pr = mergedPullRequest(made)
+    appendEvent(made.db, { ts: later(), type: CARD_CLOSED, actor: 'worker:task-close:window', cardId: CARD, pr, head: null, dedupeKey: `${CARD_CLOSED}:${CARD}`, payload: {}, legacy: false })
+    made.tick()
+    expect(stateOfCard(made)).toBe(CLOSED_CARD)
+    sessionEnd(root, later())
+    expect(sweep()).toEqual([])
+  })
+
   it('a card started again in a later session is judged by that session', () => {
     const { made, root, later, sweep } = bench()
     started(made)
@@ -239,22 +304,37 @@ describe('where the end of a session is read', () => {
 
   it('reads the journal in the tree the card was started on', () => {
     const { made, later, sweep } = bench()
-    const tree = mkdtempSync(path.join(tmpdir(), 'window-session-tree-'))
-    roots.push(tree)
-    mkdirSync(path.join(tree, '.construct'))
+    const tree = treeWithJournal()
     started(made, { worktree: tree })
     sessionEnd(tree, later())
     expect(sweep()).toHaveLength(1)
   })
 
+  it('takes the latest end when the bus root holds the later of two', () => {
+    const { made, root, later, sweep } = bench()
+    const tree = treeWithJournal()
+    started(made, { worktree: tree })
+    sessionEnd(tree, later())
+    const latest = later()
+    sessionEnd(root, latest)
+    expect(sweep()).toEqual([endedLine(latest)])
+  })
+
+  it('takes the latest end when the tree of the card holds the later of two', () => {
+    const { made, root, later, sweep } = bench()
+    const tree = treeWithJournal()
+    started(made, { worktree: tree })
+    sessionEnd(root, later())
+    const latest = later()
+    sessionEnd(tree, latest)
+    expect(sweep()).toEqual([endedLine(latest)])
+  })
+
   it('reads the journal in the project root the heartbeats of the session name', () => {
     const { made, later, sweep } = bench()
-    const project = mkdtempSync(path.join(tmpdir(), 'window-session-project-'))
-    roots.push(project)
-    mkdirSync(path.join(project, '.construct'))
+    const project = treeWithJournal()
     started(made)
-    const beat = later()
-    appendEvent(made.db, { ts: beat, type: WINDOW_HEARTBEAT, actor: `worker:window:${SESSION}`, cardId: null, pr: null, head: null, dedupeKey: `${WINDOW_HEARTBEAT}:${beat}`, payload: { session: SESSION, root: project }, legacy: false })
+    heartbeat(made, later(), project)
     sessionEnd(project, later())
     expect(sweep()).toHaveLength(1)
   })
