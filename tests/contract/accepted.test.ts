@@ -2,8 +2,6 @@ import { readdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { mergePolicy } from '../../scripts/policy/policy.js'
-import { ownerMerges } from '../../scripts/policy/shredder/authority.js'
-import { readOwnerMergeKinds } from '../../scripts/policy/shredder/reader.js'
 import { cardBody } from '../../scripts/tests/bus/github-fake.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../..')
@@ -33,8 +31,7 @@ describe('the accepted model', () => {
   })
 
   it('the accepted model is an owner-merged path', () => {
-    expect(ownerMerges([ACCEPTED], readOwnerMergeKinds(ownerMergesText)).ownerMerged).toBe(true)
-    for (const lifted of [{ shardActive: true }, { windowShard: 'shard-1' }]) {
+    for (const lifted of [{}, { shardActive: true }, { windowShard: 'shard-1' }]) {
       const verdict = mergePolicy({
         cardId: 1042,
         description: cardBody(942),

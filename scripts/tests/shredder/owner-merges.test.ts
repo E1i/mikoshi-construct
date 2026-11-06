@@ -2,7 +2,7 @@ import { readdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { FACTORY_FORMER_FOLDERS, FACTORY_ROOT, inScopes } from '../../core/factory-paths.js'
-import { ownerMerges } from '../../policy/shredder/authority.js'
+import { mergePolicy, OWNER_MERGES_RULES } from '../../policy/policy.js'
 import { GHOSTS_FILES, readGhostsFiles, readOwnerMergeKinds } from '../../policy/shredder/reader.js'
 
 const root = path.resolve(import.meta.dirname, '../../..')
@@ -15,6 +15,23 @@ const ghostFiles = readdirSync(path.join(root, FACTORY_ROOT), { recursive: true,
   .map(entry => path.relative(root, path.join(entry.parentPath, entry.name)).split(path.sep).join('/'))
   .filter(file => inScopes(file, FACTORY_FORMER_FOLDERS.ghosts))
   .sort()
+
+function ownerMergedByThePolicy(files: string[]): boolean {
+  const verdict = mergePolicy({
+    cardId: 1668,
+    description: '#1668 owner-merges [implement/construct/S/cheap/auto] · depends — · blocks —\n\n■ 0 □ 0 · 0',
+    headRef: 'feat/owner-merges',
+    title: 'owner-merges',
+    files,
+    patched: [],
+    ownerMergesText,
+    shardActive: false,
+    shardUnder: null,
+    windowShard: null,
+    decisions: [],
+  })
+  return verdict.kind === 'denied' && OWNER_MERGES_RULES.has(verdict.rule)
+}
 
 function classificationErrors(files: string[]): string[] {
   return files.flatMap((file) => {
@@ -59,10 +76,9 @@ describe('architecture/owner-merges.md as the window reads it', () => {
     { files: ['scripts/nodes/launch/header.md'], ownerMerged: false },
     { files: ['scripts/window/handoff-write.ts'], ownerMerged: false },
     { files: ['scripts/policy/shredder/reader.ts'], ownerMerged: false },
-    { files: ['scripts/policy/shredder/authority.ts'], ownerMerged: false },
     { files: ['scripts/policy/shredder/glob.ts'], ownerMerged: false },
   ])('$files → ownerMerged $ownerMerged', ({ files, ownerMerged }) => {
-    expect(ownerMerges(files, kinds).ownerMerged).toBe(ownerMerged)
+    expect(ownerMergedByThePolicy(files)).toBe(ownerMerged)
   })
 
   it('owner-merged kinds are release, release-workflow, workflows, security-invariants, accepted-model, agent-permissions, new-write-path and own-instructions', () => {
