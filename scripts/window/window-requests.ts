@@ -22,7 +22,7 @@ import { parseTaken } from '../../src/commands/intake/numbers.js'
 import { CLOSED_CARD, DROPPED_CARD, MERGED_CARD } from '../core/card-automaton.js'
 import { appendCardEvent, bodyNotFoldedYet, CARD_BODIES, cardBodyText, FACTORY_MODES, isFactoryMode, laid } from '../core/card-bodies.js'
 import { appendEvent, CLOSED_WAIT, closeOwnerWait, defaultBusPath, inTransaction, isOwnerWaitNeed, OPEN_WAIT, openBus, openOwnerWait, OWNER_WAIT_NEEDS, OWNER_WAITS } from '../core/db.js'
-import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_DROPPED, CARD_HELD, CARD_PLANNED, CARD_RELEASED, CARD_STARTED, CARD_STOPPED, CARD_TAKEOVER, CARD_UNPLANNED, FACTORY_MODE, NUMBERS_FOREIGN, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PLAN_BACKFILLED, PLAN_CLOSED, PLAN_OPENED, POLICY_DENIED, PR_OBSERVED, REQUEST_DONE, REQUEST_REFUSED, SHARD_DECIDED, TASK_FAILED, TASK_REQUEUED, WINDOW_REQUEST, WITNESS_RECORDED } from '../core/events.js'
+import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_DROPPED, CARD_HELD, CARD_PLANNED, CARD_RELEASED, CARD_STARTED, CARD_STOPPED, CARD_TAKEOVER, CARD_UNPLANNED, FACTORY_MODE, NUMBERS_FOREIGN, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PLAN_BACKFILLED, PLAN_CLOSED, PLAN_OPENED, POLICY_DENIED, PR_OBSERVED, PR_OPENED, REQUEST_DONE, REQUEST_REFUSED, SHARD_DECIDED, TASK_FAILED, TASK_REQUEUED, WINDOW_REQUEST, WITNESS_RECORDED } from '../core/events.js'
 import { cardIdOf, generationOfKey, isFullSha, prOf } from '../core/identifiers.js'
 import { ANSWER_SOURCE, OPEN_OWNER_STOP_OF_CARD, OWNER } from '../core/inbox.js'
 import { legacyHistory } from '../core/legacy-history.js'
@@ -125,9 +125,7 @@ const PENDING = `
 `
 
 const LATEST_OBSERVATION = `
-  SELECT id, head, json_extract(payload, '$.state') AS state FROM events
-  WHERE type = '${PR_OBSERVED}' AND legacy = 0 AND pr = ? AND head IS NOT NULL
-  ORDER BY id DESC LIMIT 1
+  SELECT id, head, json_extract(payload, '$.state') AS state FROM events WHERE type = '${PR_OBSERVED}' AND legacy = 0 AND pr = ? AND head IS NOT NULL ORDER BY id DESC LIMIT 1
 `
 
 interface PrAsObserved {
@@ -161,6 +159,8 @@ const UNCLOSED_QUESTION = `
 const ENDED_CARDS: ReadonlySet<string | null | undefined> = new Set([MERGED_CARD, CLOSED_CARD, DROPPED_CARD])
 
 const LATEST_TURN = `SELECT id, type FROM events WHERE id = ${latestTurnOf('?')}`
+
+const PR_OPENED_AFTER = `SELECT 1 FROM events WHERE card_id = ? AND legacy = 0 AND type = '${PR_OPENED}' AND id > ? LIMIT 1`
 
 const LIVE_TASK_OF_CARD = `SELECT task_key, queue, state FROM tasks WHERE card_id = ? AND state IN ('${QUEUED}', '${LEASED}') ORDER BY id DESC LIMIT 1`
 
@@ -653,7 +653,7 @@ export class WindowRequests {
     if (task !== undefined)
       return `card #${cardId} has a bus route: the ${task.queue} task ${task.task_key} is ${task.state}`
     const turn = this.latestTurn(cardId)
-    if (turn?.type === CARD_STARTED && this.db.prepare(SESSION_ENDED_AFTER).get(cardId, turn.id) === undefined)
+    if (turn?.type === CARD_STARTED && [SESSION_ENDED_AFTER, PR_OPENED_AFTER].every(ended => this.db.prepare(ended).get(cardId, turn.id) === undefined))
       return `card #${cardId} has a bus route: its session started at event ${turn.id} has not ended`
     return null
   }

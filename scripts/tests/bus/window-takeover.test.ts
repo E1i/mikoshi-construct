@@ -9,7 +9,7 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { textSha } from '../../../src/card/text-sha.js'
 import { appendEvent } from '../../core/db.js'
-import { CARD_ADMITTED, CARD_HELD, CARD_RELEASED, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, CARD_TAKEOVER, QUESTION_AGENT, QUESTION_OWNER, WITNESS_RECORDED } from '../../core/events.js'
+import { CARD_ADMITTED, CARD_HELD, CARD_RELEASED, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, CARD_TAKEOVER, PR_OPENED, QUESTION_AGENT, QUESTION_OWNER, WITNESS_RECORDED } from '../../core/events.js'
 import { failTask, leaseNext } from '../../core/lease.js'
 import { queueTask } from '../../core/queue.js'
 import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
@@ -71,6 +71,10 @@ function stopped(made: MergeBench, reason: string, dedupe = 'first'): void {
 
 function sessionEnded(made: MergeBench): void {
   appendEvent(made.db, { ts: made.clock.now().toISOString(), type: CARD_SESSION_ENDED, actor: 'worker:launch:launch-1', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_SESSION_ENDED}:${CARD}`, payload: { session: 'card-session-1', pgid: 1, stopped: false, detail: 'ended' }, legacy: false })
+}
+
+function prOpened(made: MergeBench): void {
+  appendEvent(made.db, { ts: made.clock.now().toISOString(), type: PR_OPENED, actor: 'worker:shift:shift-1', cardId: CARD, pr: PR_OF_THE_CARD, head: null, dedupeKey: `${PR_OPENED}:${CARD}:${PR_OF_THE_CARD}`, payload: { pr: PR_OF_THE_CARD }, legacy: false })
 }
 
 function ownerStoppedCard(): Card {
@@ -160,11 +164,36 @@ describe('a window takeover of a card the bus has no route for', () => {
     expect(heldOrTakenOver(made)).toEqual([])
   })
 
-  it('takeover refused while the bus has a route: its session has not ended', () => {
+  it('a started card with no pull request and no session end is still refused', () => {
     const { made } = startedCard()
 
     expect(takeover(made)).toMatchObject({ kind: 'refused', detail: expect.stringContaining('has not ended') as unknown })
 
+    expect(heldOrTakenOver(made)).toEqual([])
+  })
+
+  it('a started card whose pull request is open and red with its answer task withdrawn is taken over after the wait', () => {
+    const { made } = startedCard()
+    prOpened(made)
+    made.gitHub.open({ number: PR_OF_THE_CARD, required: 'failure', failed: ['required'] })
+    made.tick()
+    failTask(made.db, made.clock.now().toISOString(), leaseAnswer(made), { reason: 'held_for_owner', withdraw: true })
+    expect(answerStatesOf(made)).toEqual(['withdrawn'])
+
+    expect(takeover(made)).toMatchObject({ kind: 'refused', detail: expect.stringContaining(`under the ${TAKEOVER_AFTER_MINUTES}`) as unknown })
+    expect(heldOrTakenOver(made)).toEqual([])
+
+    made.clock.advance(TAKEOVER_AFTER_MINUTES * MINUTE)
+    expect(takeover(made)).toMatchObject({ kind: 'done' })
+    expect(eventsOf(made.db, CARD_TAKEOVER)).toEqual([expect.objectContaining({ reason: REASON, ground: expect.stringContaining('no answer or launch task ran') as unknown })])
+  })
+
+  it('a pull request opened before the latest start does not end that session', () => {
+    const { made } = startedCard()
+    prOpened(made)
+    appendEvent(made.db, { ts: made.clock.now().toISOString(), type: CARD_STARTED, actor: 'worker:launch:launch-1', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_STARTED}:${CARD}:again`, payload: { session: 'card-session-2', worktree: 'unused', branch: `feat/card-${CARD}`, base: sha('1') }, legacy: false })
+
+    expect(takeover(made)).toMatchObject({ kind: 'refused', detail: expect.stringContaining('has not ended') as unknown })
     expect(heldOrTakenOver(made)).toEqual([])
   })
 
