@@ -8,6 +8,7 @@ const REPO_ROOT = path.resolve(import.meta.dirname, '../..')
 const GENERATION_TIMEOUT = 180_000
 const SITE_KEY = 'overlaps:ci-reading:scripts/ports/gh.ts'
 const BIG_FILE_KEY = 'lines:scripts/big.ts'
+const LINE_SCOPE_KEY = 'lines-scope:non-test-code-in-scripts-and-src'
 const roots: string[] = []
 
 afterAll(() => {
@@ -18,10 +19,14 @@ afterAll(() => {
 function treeWithFile(lines: number): string {
   const root = mkdtempSync(path.join(tmpdir(), 'ratchet-'))
   roots.push(root)
-  mkdirSync(path.join(root, 'scripts'))
-  mkdirSync(path.join(root, 'src'))
-  writeFileSync(path.join(root, 'scripts', 'big.ts'), Array.from({ length: lines }).fill('export {}').join('\n'))
+  for (const tree of ['scripts', 'src', 'templates', 'tests'])
+    mkdirSync(path.join(root, tree))
+  writeFileSync(path.join(root, 'scripts', 'big.ts'), linesOf(lines))
   return root
+}
+
+function linesOf(count: number): string {
+  return Array.from({ length: count }).fill('export {}').join('\n')
 }
 
 describe('the ratchet', () => {
@@ -38,6 +43,28 @@ describe('the ratchet', () => {
     const grown = bigFileNumbers(treeWithFile(801), 800)
     expect(grown).toEqual({ [BIG_FILE_KEY]: 801 })
     expect(ratchetBreaks(atTheLine, grown)).toEqual([expect.stringContaining(`${BIG_FILE_KEY} grew from 0 to 801`)])
+  })
+
+  it('only non-test code in scripts and src counts: a big test, a tests file, a fixture and a template do not', () => {
+    const root = treeWithFile(1)
+    for (const folder of [['scripts', 'tests'], ['scripts', 'fixtures'], ['tests', 'fixtures']])
+      mkdirSync(path.join(root, ...folder))
+    writeFileSync(path.join(root, 'scripts', 'big.test.ts'), linesOf(801))
+    writeFileSync(path.join(root, 'scripts', 'tests', 'big.ts'), linesOf(801))
+    writeFileSync(path.join(root, 'scripts', 'fixtures', 'big.ts'), linesOf(801))
+    writeFileSync(path.join(root, 'tests', 'big.ts'), linesOf(801))
+    writeFileSync(path.join(root, 'tests', 'fixtures', 'big.mjs'), linesOf(801))
+    writeFileSync(path.join(root, 'templates', 'big.ts'), linesOf(801))
+    writeFileSync(path.join(root, 'templates', 'big.ts.eta'), linesOf(801))
+    writeFileSync(path.join(root, 'src', 'big.ts'), linesOf(801))
+    expect(Object.keys(bigFileNumbers(root, 800))).toEqual(['lines:src/big.ts'])
+  })
+
+  it('the record holds the line scope: dropping the key is red, and the generated numbers carry it', () => {
+    const generated = generateNumbers(treeWithFile(1), 800)
+    expect(generated[LINE_SCOPE_KEY]).toBe(1)
+    expect(readRatchet(REPO_ROOT)[LINE_SCOPE_KEY]).toBe(1)
+    expect(ratchetBreaks({ threshold: 800 }, generated)).toEqual([expect.stringContaining(`${LINE_SCOPE_KEY} grew from 0 to 1`)])
   })
 
   it('a number below the baseline is red until the baseline is lowered', () => {

@@ -7,6 +7,7 @@ import { parsedFiles } from './factory/walk.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../..')
 const THRESHOLD_KEY = 'threshold'
+const LINE_SCOPE_KEY = 'lines-scope:non-test-code-in-scripts-and-src'
 
 export const RATCHET_RECORD = 'contract/ratchet.json'
 
@@ -25,7 +26,7 @@ export function bigFileNumbers(root: string, threshold: number): RatchetNumbers 
 }
 
 export function generateNumbers(root: string, threshold: number): RatchetNumbers {
-  return { [THRESHOLD_KEY]: threshold, ...overlapNumbers(overlapsSection(findSites(root))), ...bigFileNumbers(root, threshold) }
+  return { [THRESHOLD_KEY]: threshold, [LINE_SCOPE_KEY]: 1, ...overlapNumbers(overlapsSection(findSites(root))), ...bigFileNumbers(root, threshold) }
 }
 
 export function ratchetBreaks(recorded: RatchetNumbers, generated: RatchetNumbers): string[] {

@@ -1,4 +1,5 @@
 {
+  "lines-scope:non-test-code-in-scripts-and-src": 1,
   "lines:scripts/cli/board-page.ts": 1941,
   "lines:scripts/construct/browser-lab.mjs": 809,
   "lines:scripts/core/queue.ts": 1317,

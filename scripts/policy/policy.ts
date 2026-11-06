@@ -181,7 +181,6 @@ function unsandboxedCommand(facts: MergeFacts): MergeVerdict | null {
 
 const RATCHET_RECORD = 'contract/ratchet.json'
 const RATCHET_NUMBER = /^[+-]\s*"(?<key>[^"]+)":\s*(?<value>\d+),?\s*$/
-const RATCHET_BRACE = /^[+-]\s*[{}]\s*$/
 
 function ratchetGrowthIn(patch: string): string | undefined {
   const lines = patch.split('\n')
@@ -189,7 +188,7 @@ function ratchetGrowthIn(patch: string): string | undefined {
     const groups = RATCHET_NUMBER.exec(line)?.groups
     return groups === undefined ? [] : [[groups.key!, Number(groups.value)] as const]
   }))
-  for (const line of lines.filter(candidate => candidate.startsWith('+') && !RATCHET_BRACE.test(candidate))) {
+  for (const line of lines.filter(candidate => candidate.startsWith('+'))) {
     const groups = RATCHET_NUMBER.exec(line)?.groups
     if (groups === undefined)
       return `adds the line ${line}, which is not one key and one number`
