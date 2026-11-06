@@ -1,7 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { Fold, StoredEvent } from '../core/stored.js'
 import type { DecisionRow } from './decisions/decisions.js'
-import { cardReleased, CLOSED_CARD, MERGED_CARD, STOPPED_CARD } from '../core/card-automaton.js'
+import { cardReleased, CLOSED_CARD, DROPPED_CARD, MERGED_CARD, STOPPED_CARD } from '../core/card-automaton.js'
 import { appendEvent, DECISION_ARCHIVED, DECISION_IN_FORCE, OPEN_WAIT } from '../core/db.js'
 import { CARD_STOPPED, DECISION_RECORDED, DECISIONS_IMPORTED, QUESTION_OWNER } from '../core/events.js'
 import { OWNER } from '../core/inbox.js'
@@ -109,15 +109,31 @@ function archive(db: DatabaseSync, decisionId: number): void {
   db.prepare(`UPDATE decisions SET state = '${DECISION_ARCHIVED}' WHERE decision_id = ?`).run(decisionId)
 }
 
+const ENDED_CARD_STATES = `'${MERGED_CARD}', '${CLOSED_CARD}', '${DROPPED_CARD}'`
+const CARD_NUMBER_IN_TEXT = /#(\d+)\b/g
+
+function aCardTheTextNamesHasNotEnded(db: DatabaseSync, text: string): boolean {
+  const named = [...text.matchAll(CARD_NUMBER_IN_TEXT)].map(match => Number(match[1]))
+  return db.prepare(`
+    SELECT 1 FROM cards
+    WHERE card_id IN (SELECT value FROM json_each(?)) AND coalesce(state, '') NOT IN (${ENDED_CARD_STATES})
+    LIMIT 1
+  `).get(JSON.stringify(named)) !== undefined
+}
+
 export function archiveSpentDecisions(db: DatabaseSync): void {
-  db.exec(`
-    UPDATE decisions SET state = '${DECISION_ARCHIVED}'
+  const scopeEnded = db.prepare(`
+    SELECT decision_id, text FROM decisions
     WHERE state = '${DECISION_IN_FORCE}' AND json_array_length(coalesce(scope, '[]')) > 0
       AND NOT EXISTS (
         SELECT 1 FROM json_each(decisions.scope) AS named
-        WHERE named.value NOT IN (SELECT card_id FROM cards WHERE state IN ('${MERGED_CARD}', '${CLOSED_CARD}'))
+        WHERE named.value NOT IN (SELECT card_id FROM cards WHERE state IN (${ENDED_CARD_STATES}))
       )
-  `)
+  `).all() as { decision_id: number, text: string }[]
+  for (const decision of scopeEnded) {
+    if (!aCardTheTextNamesHasNotEnded(db, decision.text))
+      archive(db, Number(decision.decision_id))
+  }
 }
 
 function recordedWordsOf(payload: Record<string, unknown>): RecordedWords {
