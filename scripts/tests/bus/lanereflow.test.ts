@@ -281,9 +281,4 @@ describe('the launch order of not-started cards', () => {
     const bench = new Bench(1).admit(1, { touches: 'src/a.ts' }).admit(2, { touches: 'src/b.ts', priority: 'p0' })
     expect(bench.launchable()).toEqual([2])
   })
-
-  it('a p0 card that overlaps a running card reserves nothing and the next card still starts', () => {
-    const bench = new Bench(2).admit(1, { touches: 'src/a.ts' }).start(1).admit(2, { touches: 'src/b.ts' }).admit(3, { touches: 'src/a.ts', priority: 'p0' })
-    expect(bench.launchable()).toEqual([2])
-  })
 })

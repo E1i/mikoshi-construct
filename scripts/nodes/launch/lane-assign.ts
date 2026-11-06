@@ -330,9 +330,7 @@ export function startOrder(cards: readonly OrderedCard[]): (a: OrderedCard, b: O
   const ownRanks = new Map(cards.map(card => [card.cardId, priorityRank(card.priority)]))
   const blocked = new Map(cards.map(card => [card.cardId, [...blockedBy(card.cardId, dependents)]]))
   const ranks = new Map(cards.map(card => [card.cardId, Math.min(ownRanks.get(card.cardId)!, ...blocked.get(card.cardId)!.map(each => ownRanks.get(each)!))]))
-  const rank = (card: OrderedCard): number => ranks.get(card.cardId) ?? priorityRank(card.priority)
-  const blocks = (card: OrderedCard): number => blocked.get(card.cardId)?.length ?? 0
-  return (a, b) => rank(a) - rank(b) || blocks(b) - blocks(a) || a.cardId - b.cardId
+  return (a, b) => ranks.get(a.cardId)! - ranks.get(b.cardId)! || blocked.get(b.cardId)!.length - blocked.get(a.cardId)!.length || a.cardId - b.cardId
 }
 
 export { currentLane }
