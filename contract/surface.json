@@ -1463,6 +1463,7 @@
     "bus:witness",
     "bus:witness-backfill",
     "card",
+    "card:measure",
     "changeset",
     "checks:catalog",
     "checks:matrix",
