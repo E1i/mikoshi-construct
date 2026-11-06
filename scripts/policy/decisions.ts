@@ -245,9 +245,19 @@ function recordedDecisionOf(event: StoredEvent): RecordedDecision[] {
   }
 }
 
+function firstEventOfEachDecision(decisions: RecordedDecision[]): RecordedDecision[] {
+  const given = new Set<number>()
+  return decisions.filter((decision) => {
+    if (given.has(decision.decisionId))
+      return false
+    given.add(decision.decisionId)
+    return true
+  })
+}
+
 export function decisionHistory(db: DatabaseSync): RecordedDecision[] {
   const events = db.prepare(`SELECT ${STORED_COLUMNS} FROM events WHERE type = '${DECISION_RECORDED}' AND legacy = 0 AND actor = '${OWNER}' ORDER BY id`).all() as unknown as StoredEvent[]
-  return events.flatMap(recordedDecisionOf)
+  return firstEventOfEachDecision(events.flatMap(recordedDecisionOf))
 }
 
 export function recordedNumbers(db: DatabaseSync): number[] {

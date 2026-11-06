@@ -141,10 +141,33 @@ describe('the history of decisions reads the events', () => {
     expect(recordedNumbers(db).sort((a, b) => a - b)).toEqual([54, 84, 90])
   })
 
+  it('a second event with a number already given is refused by the fold and moves neither the history nor the date', () => {
+    const db = bus()
+    recordDecision(db, { ts: RECORDED_AT, decisionId: 84, text: 'first.', cards: [] })
+    appendEvent(db, { ts: SECOND_AT, type: 'decision.recorded', actor: 'owner', cardId: null, pr: null, head: null, dedupeKey: 'decision.recorded:84:again', payload: { decision_id: 84, text: 'again.', scope: [], source: 'owner' }, legacy: false })
+    reduce(db)
+
+    expect(decisionHistory(db)).toEqual([
+      { decisionId: 84, text: 'first.', cards: [], supersedes: [], eventId: eventIdOf(db, 84), recordedAt: RECORDED_AT },
+    ])
+    expect(decisionRows(db).map(row => [row.number, row.text, row.recordedAt])).toEqual([[84, 'first.', RECORDED_AT]])
+    expect(db.prepare(`SELECT count(*) AS n FROM events WHERE type = 'reducer.rejected'`).get()).toEqual({ n: 1 })
+  })
+
+  it('a malformed event between two recorded decisions leaves both of them in the history', () => {
+    const db = bus()
+    recordDecision(db, { ts: RECORDED_AT, decisionId: 84, text: 'first.', cards: [] })
+    appendEvent(db, { ts: RECORDED_AT, type: 'decision.recorded', actor: 'owner', cardId: null, pr: null, head: null, dedupeKey: 'decision.recorded:malformed', payload: { decision_id: 'D-7', text: 'no number.', scope: [], source: 'owner' }, legacy: false })
+    recordDecision(db, { ts: SECOND_AT, decisionId: 90, text: 'second.', cards: [] })
+
+    expect(decisionHistory(db).map(decision => decision.decisionId)).toEqual([84, 90])
+  })
+
   it.each([
     ['a word of someone other than the owner', 'netwatch', { decision_id: 7, text: 'forged.', scope: [], source: 'owner' }],
     ['a source other than the owner', 'owner', { decision_id: 7, text: 'forged.', scope: [], source: 'owner-decisions.md' }],
     ['an empty text', 'owner', { decision_id: 7, text: ' ', scope: [], source: 'owner' }],
+    ['a decision number that is not a positive integer', 'owner', { decision_id: -7, text: 'no number.', scope: [], source: 'owner' }],
     ['a payload that is not an object', 'owner', 'not json'],
   ])('%s is no decision in the history', (_name, actor, payload) => {
     const db = bus()
