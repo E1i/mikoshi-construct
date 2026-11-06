@@ -9,7 +9,7 @@ import { HANDOFF_DIR_VARIABLE } from '../../core/handoff-dir.js'
 import { HANDOFF_FIELDS } from '../../core/handoff-fields.js'
 import { CARD_VARIABLE, EXIT_REQUEST_VARIABLE, LOOP_PID_VARIABLE, WINDOW_VARIABLE } from '../../ports/session.js'
 import { FRESH_MS } from '../../window/exit.js'
-import { MIKO_HANDOFF_NAME } from '../../window/loop.js'
+import { MIKO_HANDOFF_NAME, TAB_MODE } from '../../window/loop.js'
 import { FRESH, HANDOFF_WRITE_SCRIPT, insuranceDraftOf, INSURED, NOT_A_TAB } from '../../window/pre-compact.js'
 import { ENTRYPOINT_VARIABLE } from '../../window/tab.js'
 
@@ -37,7 +37,7 @@ function world(env: NodeJS.ProcessEnv = {}): World {
   return {
     dir,
     handoff: path.join(dir, MIKO_HANDOFF_NAME),
-    env: { ...process.env, HOME: dir, [HANDOFF_DIR_VARIABLE]: dir, CONSTRUCT_HANDOFF: '', CONSTRUCT_BUS_DB: path.join(dir, 'no-bus.db'), CONSTRUCT_BUS_RAISED: '', CLAUDE_CODE_SESSION_ID: 's-tab', [ENTRYPOINT_VARIABLE]: 'cli', [CARD_VARIABLE]: '', [WINDOW_VARIABLE]: '', [LOOP_PID_VARIABLE]: '', [EXIT_REQUEST_VARIABLE]: '', ...env },
+    env: { ...process.env, HOME: dir, [HANDOFF_DIR_VARIABLE]: dir, CONSTRUCT_HANDOFF: '', CONSTRUCT_BUS_DB: path.join(dir, 'no-bus.db'), CONSTRUCT_BUS_RAISED: '', CLAUDE_CODE_SESSION_ID: 's-tab', [ENTRYPOINT_VARIABLE]: 'cli', [CARD_VARIABLE]: '', [WINDOW_VARIABLE]: TAB_MODE, [LOOP_PID_VARIABLE]: '', [EXIT_REQUEST_VARIABLE]: '', ...env },
   }
 }
 
