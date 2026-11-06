@@ -22,7 +22,7 @@ import { parseTaken } from '../../src/commands/intake/numbers.js'
 import { CLOSED_CARD, DROPPED_CARD, MERGED_CARD } from '../core/card-automaton.js'
 import { appendCardEvent, bodyNotFoldedYet, CARD_BODIES, cardBodyText, FACTORY_MODES, isFactoryMode, laid } from '../core/card-bodies.js'
 import { appendEvent, CLOSED_WAIT, closeOwnerWait, defaultBusPath, inTransaction, isOwnerWaitNeed, OPEN_WAIT, openBus, openOwnerWait, OWNER_WAIT_NEEDS, OWNER_WAITS } from '../core/db.js'
-import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_DROPPED, CARD_HELD, CARD_PLANNED, CARD_RELEASED, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, CARD_TAKEOVER, CARD_UNPLANNED, FACTORY_MODE, NUMBERS_FOREIGN, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PLAN_BACKFILLED, PLAN_CLOSED, PLAN_OPENED, POLICY_DENIED, PR_OBSERVED, REQUEST_DONE, REQUEST_REFUSED, SHARD_DECIDED, TASK_FAILED, TASK_REQUEUED, WINDOW_REQUEST, WITNESS_RECORDED } from '../core/events.js'
+import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_DROPPED, CARD_HELD, CARD_PLANNED, CARD_RELEASED, CARD_STARTED, CARD_STOPPED, CARD_TAKEOVER, CARD_UNPLANNED, FACTORY_MODE, NUMBERS_FOREIGN, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PLAN_BACKFILLED, PLAN_CLOSED, PLAN_OPENED, POLICY_DENIED, PR_OBSERVED, REQUEST_DONE, REQUEST_REFUSED, SHARD_DECIDED, TASK_FAILED, TASK_REQUEUED, WINDOW_REQUEST, WITNESS_RECORDED } from '../core/events.js'
 import { cardIdOf, generationOfKey, isFullSha, prOf } from '../core/identifiers.js'
 import { ANSWER_SOURCE, OPEN_OWNER_STOP_OF_CARD, OWNER } from '../core/inbox.js'
 import { legacyHistory } from '../core/legacy-history.js'
@@ -43,6 +43,7 @@ import { ghApi } from '../ports/github.js'
 import { Meter } from '../ports/meter.js'
 import { MAIN_BRANCH } from '../ports/snapshot.js'
 import { MAIN_REF, readReleaseVersion, VERSION_PR_REF } from '../release/changesets.js'
+import { SESSION_ENDED_AFTER, windowSessionEndGround } from './window-session-end.js'
 
 export { SESSION_VARIABLE } from '../ports/client/claude/adapter.js'
 
@@ -161,8 +162,6 @@ const ENDED_CARDS: ReadonlySet<string | null | undefined> = new Set([MERGED_CARD
 const LATEST_TURN = `SELECT id, type FROM events WHERE id = ${latestTurnOf('?')}`
 
 const LIVE_TASK_OF_CARD = `SELECT task_key, queue, state FROM tasks WHERE card_id = ? AND state IN ('${QUEUED}', '${LEASED}') ORDER BY id DESC LIMIT 1`
-
-const SESSION_ENDED_AFTER = `SELECT 1 FROM events WHERE card_id = ? AND legacy = 0 AND type = '${CARD_SESSION_ENDED}' AND id > ? LIMIT 1`
 
 const LATEST_WITNESS_OF_CARD = `SELECT head, json_extract(payload, '$.verdict') AS verdict FROM events WHERE card_id = ? AND legacy = 0 AND type = '${WITNESS_RECORDED}' ORDER BY id DESC LIMIT 1`
 
@@ -602,7 +601,8 @@ export class WindowRequests {
     const route = this.routeOf(cardId)
     if (route !== null)
       return { done: false, why: route }
-    const ground = this.noRouteGround(cardId)
+    const sessionEnded = windowSessionEndGround(this.db, cardId)
+    const ground = sessionEnded ?? this.noRouteGround(cardId)
     if (typeof ground !== 'object')
       return { done: false, why: ground }
     const ts = this.clock().toISOString()
