@@ -11,10 +11,11 @@ const ACCEPTED = 'contract/accepted.json'
 const MODULE_ROOTS = ['src', 'scripts']
 const NOT_MODULES = /^scripts\/tests\//
 const SOURCE_FILE = /\.(?:ts|mts|mjs|js)$/
-const WRITE_OF_THE_ACCEPTED_MODEL = /(?:writeFile|appendFile|rename|copyFile|cp|createWriteStream|writeJson|writeAtomic)\w*\([^)\n]*accepted/i
+const NAMES_THE_ACCEPTED_MODEL = /accepted\.json/
+const ANY_WRITE_CALL = /\b(?:writeFile|appendFile|rename|copyFile|cp|createWriteStream|writeJson|writeAtomic)\w*\(/
 
 function writesTheAcceptedModel(source: string): boolean {
-  return WRITE_OF_THE_ACCEPTED_MODEL.test(source)
+  return NAMES_THE_ACCEPTED_MODEL.test(source) && ANY_WRITE_CALL.test(source)
 }
 
 function modulesUnder(root: string): string[] {
@@ -58,9 +59,14 @@ describe('the accepted model', () => {
     expect(writers).toEqual([])
   })
 
-  it('the write detector sees a write and lets a read through', () => {
+  it('a module that names the accepted model and writes anything is a writer, whatever the variable and however the call is split', () => {
     expect(writesTheAcceptedModel(`writeFileSync('${ACCEPTED}', text)`)).toBe(true)
-    expect(writesTheAcceptedModel('renameSync(temporary, acceptedPath)')).toBe(true)
+    expect(writesTheAcceptedModel(`const target = '${ACCEPTED}'\nwriteFileSync(target, text)`)).toBe(true)
+    expect(writesTheAcceptedModel(`renameSync(\n  temporary,\n  '${ACCEPTED}',\n)`)).toBe(true)
+  })
+
+  it('a module that only reads the accepted model, and a writer that never names it, are not writers', () => {
     expect(writesTheAcceptedModel(`readFileSync('${ACCEPTED}', 'utf8')`)).toBe(false)
+    expect(writesTheAcceptedModel(`writeFileSync('contract/factory.json', text)`)).toBe(false)
   })
 })
