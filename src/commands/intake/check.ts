@@ -3,6 +3,7 @@ import type { DraftCard, DraftPlan, UnclearField } from './draft.js'
 import type { RepositoryFacts } from './facts.js'
 import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
+import { GENERATED_FILES } from '../../../scripts/core/factory-paths.js'
 import { isTestScope, runsOf, withinTouches } from '../../card/covering-tests.js'
 import { CONTOURS, decisionsOf, KINDS } from '../../card/grammar.js'
 import { createdPaths, parseCreatesEntry, parseParkingFile } from '../../card/parking.js'
@@ -128,11 +129,11 @@ export const COMPANION_TABLE: readonly (CompanionRow | FollowingRow)[] = [
   { kind: 'published code', keptBy: '.changeset/config.json', touched: (entry, published) => published.some(root => under(entry, SOURCE_OF_BUILT_ROOT[root] ?? root)), companions: () => [CHANGESET_COMPANION] },
   { kind: 'source code', keptBy: TESTS_ROOT, touched: entry => under(entry, 'src'), companions: testBeside },
   { kind: 'the card\'s changeset', follows: (file, reach) => CHANGESET_FILE.test(file) && reach.added.has(file) },
-  { kind: 'the command surface', follows: generatedFrom('contract/surface.json', ['src', 'templates', 'scripts/contract']) },
-  { kind: 'the factory contract', follows: generatedFrom('contract/factory.json', ['scripts', 'src']) },
-  { kind: 'the add population', follows: generatedFrom('architecture/add-population.md', ['templates', 'src/presets', 'src/materialize']) },
-  { kind: 'the self-hosting drift list', follows: generatedFrom('architecture/self-hosting-drift.yaml', ['templates']) },
-  { kind: 'the factory manifest', follows: generatedFrom('src/materialize/factory-manifest.ts', FACTORY_MANIFEST) },
+  { kind: 'the command surface', follows: generatedFrom(GENERATED_FILES.surface.path, GENERATED_FILES.surface.followSources) },
+  { kind: 'the factory contract', follows: generatedFrom(GENERATED_FILES.factory.path, GENERATED_FILES.factory.followSources) },
+  { kind: 'the add population', follows: generatedFrom(GENERATED_FILES.addPopulation.path, GENERATED_FILES.addPopulation.followSources) },
+  { kind: 'the self-hosting drift list', follows: generatedFrom(GENERATED_FILES.selfHostingDrift.path, GENERATED_FILES.selfHostingDrift.followSources) },
+  { kind: 'the factory manifest', follows: generatedFrom(GENERATED_FILES.factoryManifest.path, FACTORY_MANIFEST) },
   { kind: 'a root self-hosting copy', follows: (file, reach) => reach.touches.some((touch) => {
     const copy = rootCopyOf(touch)
     return copy !== null && covers(copy, file)

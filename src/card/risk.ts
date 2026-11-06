@@ -1,4 +1,4 @@
-import { FACTORY_FOLDERS, FACTORY_FORMER_FOLDERS, FACTORY_NAMED, FACTORY_ROOT } from '../../scripts/core/factory-paths.js'
+import { FACTORY_FOLDERS, FACTORY_FORMER_FOLDERS, FACTORY_NAMED, FACTORY_ROOT, SEAM_SOURCES } from '../../scripts/core/factory-paths.js'
 import { PREFIX_SUFFIX } from './task-file.js'
 
 export const RISK_LEVELS = ['R1', 'R2', 'R3', 'R4'] as const
@@ -74,11 +74,7 @@ const HIGH: readonly (readonly [string, string])[] = [
 const LOW_ROOTS = ['docs', 'architecture', 'tests', '.changeset', '.construct', 'scripts']
 const GATE_SCRIPTS = ['scripts/composition', 'scripts/model', 'scripts/privacy', 'scripts/docs']
 
-export const GENERATED_WITH: Record<string, readonly string[]> = {
-  'contract/surface.json': ['src/program.ts', 'scripts/contract'],
-  'contract/factory.json': ['scripts', 'src'],
-  'templates/attach/earlier-carriers.json': ['templates/ai', 'scripts/attach/earlier-carriers.ts'],
-}
+export const GENERATED_WITH: Readonly<Record<string, readonly string[]>> = SEAM_SOURCES
 const TWINS: readonly (readonly [string, string])[] = [
   ['.claude', 'templates/ai/claude/_claude'],
   ['.claude', 'templates/ai/shared/_claude'],

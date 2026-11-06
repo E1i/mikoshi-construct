@@ -1,4 +1,9 @@
 {
   "acceptedVersion": 1,
-  "concepts": {}
+  "concepts": {
+    "generated-files": {
+      "owner": "scripts/core/generated-files.ts",
+      "decision": "D-335"
+    }
+  }
 }

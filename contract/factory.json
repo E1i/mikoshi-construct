@@ -797,6 +797,7 @@
           "clean",
           "from",
           "lease_gen",
+          "rebuilt",
           "task_key",
           "to",
           "tookMain",
@@ -1068,8 +1069,8 @@
     "generated-files": {
       "axis": "architecture",
       "owner": "scripts/core/generated-files.ts",
-      "ownerExists": false,
-      "status": "proposed",
+      "ownerExists": true,
+      "status": "accepted",
       "title": "the list of generated files"
     },
     "git": {
@@ -1156,19 +1157,7 @@
       "src/commands/board/items.ts": 1,
       "src/commands/board/prs.ts": 6
     },
-    "generated-files": {
-      "scripts/attach/earlier-carriers.ts": 1,
-      "scripts/contract/bump.ts": 1,
-      "scripts/contract/update.ts": 2,
-      "scripts/core/factory-paths.ts": 2,
-      "scripts/ladder/preflight-static.ts": 5,
-      "scripts/ladder/regenerated.ts": 1,
-      "scripts/model/render.ts": 1,
-      "scripts/policy/shredder/vocabulary.ts": 2,
-      "scripts/ports/witnesses.ts": 1,
-      "src/card/risk.ts": 3,
-      "src/commands/intake/check.ts": 5
-    },
+    "generated-files": {},
     "git": {
       "scripts/atlas/build.ts": 1,
       "scripts/attach/earlier-carriers.ts": 1,
@@ -1230,8 +1219,8 @@
       "src/card/witness-fields.ts": 1
     },
     "live-session": {
-      "scripts/nodes/answer/answerer.ts": 3,
-      "scripts/ports/worktree.ts": 4,
+      "scripts/nodes/answer/answerer.ts": 2,
+      "scripts/ports/worktree.ts": 3,
       "scripts/window/session-load.ts": 1
     },
     "owner-commands": {
@@ -1255,7 +1244,6 @@
       "scripts/ladder/ladder.ts": 4,
       "scripts/ladder/launch.ts": 2,
       "scripts/ladder/morse-approve.ts": 1,
-      "scripts/ladder/preflight-static.ts": 5,
       "scripts/ladder/role.ts": 1,
       "scripts/model/render.ts": 1,
       "scripts/nodes/close/task-close.ts": 2,
@@ -1270,7 +1258,7 @@
       "scripts/policy/shard.ts": 2,
       "scripts/policy/shards.ts": 1,
       "scripts/ports/task-start.ts": 3,
-      "scripts/ports/witnesses.ts": 3,
+      "scripts/ports/witnesses.ts": 2,
       "scripts/release-notes/render.ts": 1,
       "scripts/release/evidence.ts": 1,
       "scripts/supervisor/launchd/install.ts": 1,
@@ -1388,7 +1376,6 @@
       },
       "reexports": [],
       "types": {
-        "ClientOperationPending": "class ClientOperationPending extends Error { constructor(readonly operation: string, readonly card: string) }",
         "CommandJournal": "interface CommandJournal extends SessionJournal { commandRuns: readonly CommandRun[]; }",
         "MeasuredSubagent": "interface MeasuredSubagent { name: string; context: number; spent: number; at: string; }",
         "TranscriptCounters": "interface TranscriptCounters { input: number; cache_write: number; cache_read: number; }"
@@ -1399,8 +1386,8 @@
       "functions": {},
       "reexports": [],
       "types": {
-        "Capabilities": "interface Capabilities { identity: 'assigned' | 'reported'; ladder: boolean; reports: { cost: boolean; turns: boolean; model: boolean; denials: boolean; journal: boolean; }; }",
-        "ClientAdapter": "interface ClientAdapter { readonly id: string; readonly capabilities: Capabilities; invocation: (spec: SessionSpec) => Invocation | Refusal; reading: (place: SessionPlace) => SessionReading; readBudget: (home: string, session: string) => ReadBudget; models: () => ModelOffer[]; modelFor: (role: Role, effort: Effort | null, wanted: ModelChoice) => ModelPick | Refusal; processes: ClientProcesses; ownSession: (env: NodeJS.ProcessEnv) => string | null; }",
+        "Capabilities": "interface Capabilities { identity: 'assigned' | 'reported'; ladder: boolean; reports: { cost: boolean; turns: boolean; model: boolean; denials: boolean; journal: boolean; }; guarantees: { allowlist: boolean; writeConfinement: boolean; mcpOff: boolean; toolNarrowing: boolean; guardFailsClosed: boolean; }; }",
+        "ClientAdapter": "interface ClientAdapter { readonly id: string; readonly capabilities: Capabilities; invocation: (spec: SessionSpec) => Invocation | Refusal; reading: (place: SessionPlace) => SessionReading; readBudget: (place: SessionPlace) => ReadBudget; models: () => ModelOffer[] | null; modelFor: (role: Role, effort: Effort | null, wanted: ModelChoice) => ModelPick | Refusal; processes: ClientProcesses; ownSession: (env: NodeJS.ProcessEnv) => string | null; }",
         "ClientProcesses": "interface ClientProcesses { isClient: (argv: string) => boolean; sessionMarker: (session: string) => string | null; liveCwds: () => ProcessCwds; isolationCommand: () => string[]; }",
         "Denial": "interface Denial { tool: string; path: string | null; command: string | null; text: string; }",
         "Effort": "type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max'",
@@ -1408,8 +1395,8 @@
         "JournalChange": "type JournalChange = { kind: 'write'; content: string; at: number; } | { kind: 'edit'; oldString: string; newString: string; replaceAll: boolean; at: number; }",
         "ModelChoice": "type ModelChoice = 'auto' | string",
         "ModelOffer": "interface ModelOffer { id: string; efforts: Effort[]; contextWindow: number | null; recommendedFor: Role[]; }",
-        "ModelPick": "interface ModelPick { model: string | null; }",
-        "ProcessCwds": "type ProcessCwds = { kind: 'listed'; listing: string; } | { kind: 'unreadable'; why: string; }",
+        "ModelPick": "interface ModelPick { model: string | null; effort: Effort | null; }",
+        "ProcessCwds": "type ProcessCwds = { kind: 'listed'; cwds: string[]; } | { kind: 'unreadable'; why: string; }",
         "ReadBudget": "interface ReadBudget { startContext: number | null; readBeforeEdit: number | null; }",
         "Refusal": "interface Refusal { kind: 'refused'; reason: string; }",
         "Role": "type Role = 'launch' | 'answer' | 'review' | 'ladder' | 'ghost' | 'window'",
@@ -1417,7 +1404,7 @@
         "SessionPlace": "interface SessionPlace { session: string; cwd: string; stdoutPath: string | null; }",
         "SessionPolicy": "interface SessionPolicy { profile: 'sandboxed' | 'client-default'; gateCommands: string[]; writePaths: string[]; mcpOff: boolean; tools?: readonly SessionTool[]; }",
         "SessionReading": "interface SessionReading { end: 'completed' | 'failed' | 'missing'; failure: string | null; usage: Usage | null; costUsd: number | null; turns: number | null; durationMs: number | null; model: string | null; denials: Denial[]; toolUses: ToolUse[]; journal: SessionJournal | 'unreadable'; lastSteps: string[] | null; contextTokens: number | null; }",
-        "SessionSpec": "interface SessionSpec { kind: 'start' | 'resume'; role: Role; session: string; cwd: string; prompt: string; addDirs: string[]; pick: ModelPick; policy: SessionPolicy; }",
+        "SessionSpec": "interface SessionSpec { kind: 'start' | 'resume'; role: Role; session: string; cwd: string; prompt: string; addDirs: string[]; pick: Pick<ModelPick, 'model'> & Partial<Pick<ModelPick, 'effort'>>; policy: SessionPolicy; }",
         "SessionTool": "type SessionTool = 'web' | 'skills' | 'agents'",
         "ToolUse": "interface ToolUse { kind: 'write' | 'exec' | 'other'; command: string | null; path: string | null; }",
         "Usage": "interface Usage { input: number; cached: number; cacheWrite: number; output: number; reasoning: number; }"
@@ -1852,7 +1839,6 @@
         "gitIn": "(cwd: string, args: string[]): string",
         "gitInAsync": "(cwd, args)",
         "lastLine": "(output: string): string",
-        "listedCwds": "(listing: string): string[]",
         "liveSessionHolds": "(tree: string, cwds: () => ProcessCwds = claudeProcessCwds): boolean",
         "parkTree": "(git: GitRun, repo: string, tree: string, capacity: number): string | null",
         "pnpmInstall": "(cwd: string, args: string[]): void",

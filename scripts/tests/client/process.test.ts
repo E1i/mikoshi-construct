@@ -9,7 +9,7 @@ const HEADLESS_FLAGS = ['-p', '--output-format', 'stream-json', '--verbose', '--
 
 vi.mock('../../ports/worktree.js', async importOriginal => ({
   ...await importOriginal<typeof import('../../ports/worktree.js')>(),
-  claudeProcessCwds: () => ({ kind: 'listed', listing: 'from the worktree port' }),
+  claudeProcessCwds: () => ({ kind: 'listed', cwds: ['from the worktree port'] }),
 }))
 
 describe('the client process', () => {
@@ -32,7 +32,7 @@ describe('the client process', () => {
 
 describe('the live working directories of the client', () => {
   it('come from the one lsof search of the worktree port', () => {
-    expect(clientAdapter().processes.liveCwds()).toEqual({ kind: 'listed', listing: 'from the worktree port' })
+    expect(clientAdapter().processes.liveCwds()).toEqual({ kind: 'listed', cwds: ['from the worktree port'] })
   })
 })
 

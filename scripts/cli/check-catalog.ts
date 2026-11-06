@@ -12,7 +12,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { parseMutationFile } from '../../src/commands/mutate/lines.js'
 import { cardRunsOf, catalogLayersByTest, catalogModuleLayers, hasTable, NO_LAYER, runsSourceOfPr } from '../ci/card-runs.js'
-import { BUS_SHARED, BUS_TESTS, isTest, layerOf, layersInOf, layersOf, selectRun } from '../ci/layers.js'
+import { BUS_SHARED, BUS_TESTS, isTest, layerOf, layersInOf, layersOf, recordsOf, selectRun } from '../ci/layers.js'
 import { cruise } from '../ci/select.js'
 import { scansATree, walksATree } from '../ci/tree-scanners.js'
 import { BUS_DB_VARIABLE, BUSY_TIMEOUT_MS, defaultBusPath } from '../core/db.js'
@@ -140,7 +140,7 @@ export function kindOf(test: string): string {
 
 function layersByTest(graph: Graph, testText: (test: string) => string): Map<string, string[]> {
   const modulesByLayer = new Map<string, string[]>()
-  for (const file of graph.keys()) {
+  for (const file of [...graph.keys(), ...recordsOf(readLayerMap())]) {
     for (const layer of layersOf(file))
       modulesByLayer.set(layer, [...(modulesByLayer.get(layer) ?? []), file])
   }
@@ -497,12 +497,18 @@ export function overlapWithMain(db: DatabaseSync, prFiles: readonly string[], ma
   const reading = card === null ? null : cardRunsOf(card, { testLayers: byTest, moduleLayers: modules }, map)
   if (reading !== null && 'full' in reading)
     return reading.why
-  const prLayers = new Set([...placedPr.flatMap(([, layers]) => layers!), ...(reading?.layers ?? [])])
+  const records = recordsOf(map)
+  const recordLayers = new Set(records.flatMap(record => layersInOf(map, record)))
+  const cardLayers = (reading?.layers ?? []).filter(layer => !recordLayers.has(layer))
+  const prLayers = new Set([...placedPr.flatMap(([, layers]) => layers!), ...cardLayers])
   const mainLayers = new Set(placedMain.flatMap(([, layers]) => layers!))
   const shared = [...prLayers].sort().find(layer => mainLayers.has(layer))
   if (shared !== undefined)
     return `main changed the layer ${shared} since the base`
-  const both = [...byTest].sort(([a], [b]) => a.localeCompare(b)).find(([, layers]) => layers.some(layer => prLayers.has(layer)) && layers.some(layer => mainLayers.has(layer)))
+  const layersOfCode = (placed: typeof placedMain): Set<string> => new Set(placed.filter(([file]) => !records.includes(file)).flatMap(([, layers]) => layers!))
+  const prCode = new Set([...layersOfCode(placedPr), ...cardLayers])
+  const mainCode = layersOfCode(placedMain)
+  const both = [...byTest].sort(([a], [b]) => a.localeCompare(b)).find(([, layers]) => layers.some(layer => prCode.has(layer)) && layers.some(layer => mainCode.has(layer)))
   return both === undefined ? null : `${both[0]} runs for a layer of the pull request and a layer main changed`
 }
 
