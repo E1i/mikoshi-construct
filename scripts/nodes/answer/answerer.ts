@@ -28,7 +28,7 @@ import { hasClientTranscript } from '../../ports/client/claude/adapter.js'
 import { PROCESS_GH_PORT } from '../../ports/gh.js'
 import { CARD_VARIABLE, clientInvocation, sessionEnv, streamReading } from '../../ports/session.js'
 import { MAIN_BRANCH } from '../../ports/snapshot.js'
-import { claudeProcessCwds, listedCwds } from '../../ports/worktree.js'
+import { claudeProcessCwds } from '../../ports/worktree.js'
 import { isAlive } from '../../quality/lock.js'
 import { busSessionPulse } from '../../supervisor/heartbeat.js'
 import { projectRoot, realExitReadings, sessionGauges, UNKNOWN } from '../../window/eddies-measure.js'
@@ -422,7 +422,7 @@ export function liveSessionIn(card: CardSession, cwds: () => ProcessCwds = claud
   if (read.kind === 'unreadable')
     return `the sessions running in the tree ${card.worktree} cannot be read (${read.why}), so the card counts as held`
   const tree = existsSync(card.worktree) ? realpathSync(card.worktree) : card.worktree
-  const inside = listedCwds(read.listing).find(cwd => cwd === tree || cwd.startsWith(`${tree}${path.sep}`))
+  const inside = read.cwds.find(cwd => cwd === tree || cwd.startsWith(`${tree}${path.sep}`))
   return inside === undefined ? null : `a live session runs in ${inside}, inside the tree ${card.worktree}`
 }
 
