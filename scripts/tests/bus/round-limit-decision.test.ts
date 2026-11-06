@@ -65,7 +65,7 @@ describe('a merge past the review round limit by an owner decision', () => {
       publish: (status) => {
         bench.gitHub.pulls.get(PR)!.review = status.state
       },
-      reviewer: async () => ({ verdict: 'changes', findings: ['a.ts:1 the finding'], session: 'reviewer-1' }),
+      reviewer: async lease => ({ verdict: 'changes', findings: [lease.head === HEAD ? 'a.ts:1 the finding' : 'b.ts:9 an older matter'], session: 'reviewer-1' }),
       plan: () => fullReview('a fixed plan'),
       clock: bench.clock.now,
       session: 'worker-1',

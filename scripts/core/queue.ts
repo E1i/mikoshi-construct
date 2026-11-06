@@ -11,7 +11,7 @@ import { AMEND_SOURCE, witnessesOf } from '../../src/commands/intake/admit.js'
 import { launchCandidates } from '../nodes/launch/launch-candidates.js'
 import { cleanUpdatesOf } from '../nodes/update/update-done.js'
 import { CONTINUE_FIXES, continueFixesDecisionOf, mutationsParkedGrantOf, observedHeadsOf, pushedAfterContinueFixes, roundLimitDecisionOf } from '../policy/round-limit-decision.js'
-import { activeDecisionsShard, decisionsInForceAt, unspentShardsOf, WINDOW_SHARDS_LIVE_AT } from '../policy/shards.js'
+import { decisionsInForceAt, unspentShardsOf, WINDOW_SHARDS_LIVE_AT } from '../policy/shards.js'
 import { MAIN_BRANCH } from '../ports/snapshot.js'
 import { BACKFILL_SOURCE, NOT_A_BACKFILL } from './backfill-source.js'
 import { CARD_BODIES } from './card-bodies.js'
@@ -545,7 +545,7 @@ interface Candidate {
   text?: unknown
 }
 
-const REVIEWS_OF_A_PR = `
+export const REVIEWS_OF_A_PR = `
   SELECT head, json_extract(payload, '$.verdict') AS verdict, json_extract(payload, '$.card_body') AS card_body FROM events
   WHERE type = '${REVIEW_RECORDED}' AND legacy = 0 AND pr = ? ORDER BY id
 `
@@ -556,7 +556,7 @@ export interface RoundReview {
   card_body: unknown
 }
 
-const BODIES_OWNER_AMENDED_FOR_A_PR = `
+export const BODIES_OWNER_AMENDED_FOR_A_PR = `
   SELECT DISTINCT json_extract(payload, '$.bodySha') AS body FROM events
   WHERE type = '${CARD_ADMITTED}' AND legacy = 0 AND json_extract(payload, '$.source') = '${AMEND_SOURCE}' AND json_type(payload, '$.bodySha') = 'text'
     AND card_id IN (SELECT card_id FROM events WHERE type = '${REVIEW_RECORDED}' AND legacy = 0 AND pr = ? AND card_id IS NOT NULL)
@@ -568,7 +568,7 @@ function bodyThePreviousHeadWasFirstReviewedUnder(reviews: readonly RoundReview[
   return previous === undefined ? null : earlier.find(review => review.head === previous.head)!.card_body
 }
 
-function ownerAmendedSinceThePreviousReview(reviews: readonly RoundReview[], at: number, ownerAmended: ReadonlySet<string>): boolean {
+export function ownerAmendedSinceThePreviousReview(reviews: readonly RoundReview[], at: number, ownerAmended: ReadonlySet<string>): boolean {
   const before = bodyThePreviousHeadWasFirstReviewedUnder(reviews, at)
   const now = reviews[at]!.card_body
   return typeof before === 'string' && typeof now === 'string' && before !== now && ownerAmended.has(now)
@@ -592,9 +592,9 @@ function reentryRoundsOf(db: DatabaseSync, pr: number, reviews: readonly RoundRe
   return (db.prepare(REENTRY_HEADS_OF_A_PR).all(pr) as { head: string | null }[]).filter(row => !reviewedForChanges.has(row.head)).length
 }
 
-export function decisionsShardActive(db: DatabaseSync, now: Date): boolean {
-  return activeDecisionsShard(db, now) !== null
-}
+export { activeDecisionsShard } from '../policy/shards.js'
+export const REPEAT_FINDINGS = 'repeat_findings'
+const REPEAT_STOP_ON_A_HEAD = `SELECT 1 FROM events WHERE type = '${REVIEW_ROUNDS_SPENT}' AND legacy = 0 AND pr = ? AND head IS ? AND json_extract(payload, '$.state') = '${REPEAT_FINDINGS}' LIMIT 1`
 
 const EXTENSIONS_OF_A_PR = `SELECT count(*) AS extensions FROM events WHERE type = '${ROUND_EXTENDED}' AND legacy = 0 AND pr = ?`
 
@@ -603,10 +603,10 @@ function extensionsOf(db: DatabaseSync, pr: number): number {
 }
 
 export function changesRoundsOf(db: DatabaseSync, pr: number, next?: RoundReview): number {
-  const reviews = db.prepare(REVIEWS_OF_A_PR).all(pr) as unknown as RoundReview[]
   const ownerAmended = new Set((db.prepare(BODIES_OWNER_AMENDED_FOR_A_PR).all(pr) as { body: string }[]).map(row => row.body))
-  const counted = next === undefined ? reviews : [...reviews, next]
-  return roundsOf(counted, ownerAmended) + reentryRoundsOf(db, pr, counted) - extensionsOf(db, pr)
+  const counted = [...db.prepare(REVIEWS_OF_A_PR).all(pr) as unknown as RoundReview[], ...(next === undefined ? [] : [next])]
+  const rounds = roundsOf(counted, ownerAmended) + reentryRoundsOf(db, pr, counted) - extensionsOf(db, pr)
+  return db.prepare(REPEAT_STOP_ON_A_HEAD).get(pr, counted.at(-1)?.head ?? null) === undefined ? rounds : Math.max(rounds, REVIEW_ROUNDS)
 }
 
 const ROUND_LIMITED: readonly Queue[] = ['review', 'answer', 'merge']

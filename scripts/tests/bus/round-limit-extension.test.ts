@@ -8,7 +8,7 @@ import { admittedRecord } from '../../../src/commands/intake/index.js'
 import { appendCardEvent, cardBodyText, WINDOW_LANE } from '../../core/card-bodies.js'
 import { appendEvent } from '../../core/db.js'
 import { CARD_ADMITTED, OWNER_WAIT_OPENED, ROUND_EXTENDED, ROUND_MUTATIONS_PARKED, SHARD_ISSUED } from '../../core/events.js'
-import { changesRoundsOf, closedByRounds, mergeDecidedPastRoundLimit, RECUT_GRACE_MS, REVIEW_ROUNDS } from '../../core/queue.js'
+import { changesRoundsOf, closedByRounds, mergeDecidedPastRoundLimit, RECUT_GRACE_MS, REPEAT_FINDINGS, REVIEW_ROUNDS } from '../../core/queue.js'
 import { busHeldCards } from '../../intake/intake.js'
 import { RoundLimitRecutter } from '../../nodes/review/pr-close.js'
 import { fullReview } from '../../nodes/review/review-depth.js'
@@ -103,9 +103,11 @@ async function reviewHead(fixed: Fixture, head: string, findings: string[], surv
   expect(await fixed.worker.step()).toMatchObject({ kind: 'recorded' })
 }
 
-async function toTheLimit(fixed: Fixture, last: string[], survivingMutations?: string[], before = 'an earlier finding'): Promise<void> {
-  for (const head of HEADS.slice(0, -1))
-    await reviewHead(fixed, head, [before])
+const EARLIER_ROUNDS = ['something else came up', 'an earlier finding']
+
+async function toTheLimit(fixed: Fixture, last: string[], survivingMutations?: string[], before = EARLIER_ROUNDS): Promise<void> {
+  for (const [at, head] of HEADS.slice(0, -1).entries())
+    await reviewHead(fixed, head, [before[at]!])
   await reviewHead(fixed, HEADS.at(-1)!, last, survivingMutations)
 }
 
@@ -159,7 +161,7 @@ describe('changing findings at the round limit under a decisions shard', () => {
 
   it('repeat second extension and no shard go to the owner', async () => {
     const repeated = fixture(true, cardText(CARD, '—', [FILE, OTHER_FILE], 'owner'))
-    await toTheLimit(repeated, [` ${DEFECT} `], undefined, DEFECT)
+    await toTheLimit(repeated, [` ${DEFECT} `], undefined, [EARLIER_ROUNDS[0]!, DEFECT])
     const unshared = fixture(false, cardText(CARD, '—', [FILE, OTHER_FILE], 'owner'))
     await toTheLimit(unshared, [DEFECT])
     const twice = fixture(true, cardText(CARD, '—', [FILE, OTHER_FILE], 'owner'))
@@ -176,6 +178,16 @@ describe('changing findings at the round limit under a decisions shard', () => {
     expect(eventsOf(twice.bench.db, REVIEW_ROUNDS_SPENT)).toHaveLength(1)
     expect(twice.outcomes).toEqual([expect.objectContaining({ kind: 'owner_wait', pr: PR })])
     expect(limited(twice, NEXT_HEAD)).toEqual([true, true])
+  })
+
+  it('a reworded repeat at the limit spends no extension and goes to the owner', async () => {
+    const fixed = fixture(true, cardText(CARD, '—', [FILE, OTHER_FILE], 'owner'))
+    await toTheLimit(fixed, ['Still open: an earlier finding'])
+
+    expect(eventsOf(fixed.bench.db, ROUND_EXTENDED)).toEqual([])
+    expect(eventsOf(fixed.bench.db, REVIEW_ROUNDS_SPENT)).toEqual([expect.objectContaining({ state: REPEAT_FINDINGS, rounds: REVIEW_ROUNDS })])
+    expect(fixed.outcomes).toEqual([expect.objectContaining({ kind: 'owner_wait', pr: PR })])
+    expect(limited(fixed, HEADS.at(-1)!)).toEqual([true, true])
   })
 
   it('compares findings as trimmed sets, so a reworded finding is new', () => {
@@ -239,7 +251,7 @@ describe('surviving mutations at the round limit under a decisions shard', () =>
 
   it('a real defect at the limit goes to the owner', async () => {
     const fixed = fixture(true, cardText(CARD, '—', [FILE, OTHER_FILE], 'owner'))
-    await toTheLimit(fixed, [MUTATION, DEFECT], [MUTATION], `${MUTATION}, ${DEFECT}`)
+    await toTheLimit(fixed, [MUTATION, DEFECT], [MUTATION])
     await reviewHead(fixed, NEXT_HEAD, [MUTATION, DEFECT], [MUTATION])
     const head = NEXT_HEAD
 
