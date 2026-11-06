@@ -951,6 +951,7 @@
       },
       "refused": {
         "keys": [
+          "browserLabExclusion",
           "counts",
           "counts.add",
           "counts.block-edited",
@@ -984,6 +985,7 @@
       },
       "written": {
         "keys": [
+          "browserLabExclusion",
           "counts",
           "counts.add",
           "counts.block-edited",

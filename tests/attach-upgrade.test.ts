@@ -9,6 +9,7 @@ import { BUS_DB_VARIABLE, BUS_FILE } from '../scripts/core/bus-path.js'
 import { factoryHomeFor } from '../src/commands/attach/beside.js'
 import { ATTACH_RECORD_FILE, EXCLUDE_FILE, planCarriers, readAttachRecord, readExcludeBlockPaths, runAttach, runAttachUpgrade, SETTINGS_FILE } from '../src/commands/attach/index.js'
 import { attachedVersionOf, carriersReading, writeAttachRecord } from '../src/commands/attach/record.js'
+import { browserLabExcludedCommand } from '../src/commands/attach/settings.js'
 import { askDetach } from '../src/commands/detach/index.js'
 import { printDoctor, runDoctor } from '../src/commands/doctor/index.js'
 import { sha256 } from '../src/manifest.js'
@@ -264,6 +265,146 @@ describe('construct attach --upgrade', () => {
 
     expect((await runAttachUpgrade(ui, { dir, yes: false })).status).toBe('aborted')
     expect(readFileSync(path.join(dir, STALE_CARRIER), 'utf8')).toBe(OLDER_BYTES)
+  })
+
+  function withoutInstalledEntry(dir: string): void {
+    const settings = JSON.parse(readFileSync(path.join(dir, SETTINGS_FILE), 'utf8')) as Record<string, unknown>
+    delete settings.sandbox
+    writeFileSync(path.join(dir, SETTINGS_FILE), `${JSON.stringify(settings, null, 2)}\n`)
+    const record = recordOf(dir)
+    delete record.settingsHook!.sandbox
+    delete record.settingsHook!.original
+    writeAttachRecord(dir, record)
+  }
+
+  function excludedOf(dir: string): unknown {
+    return (JSON.parse(readFileSync(path.join(dir, SETTINGS_FILE), 'utf8')) as { sandbox?: { excludedCommands?: unknown } }).sandbox?.excludedCommands
+  }
+
+  it('attach upgrade at the current version writes the installed lab exclusion and detach removes it', async () => {
+    const dir = await attached()
+    withoutInstalledEntry(dir)
+    const { ui: seen, output } = capturingUi()
+
+    expect(await runAttachUpgrade(seen, { dir, yes: true })).toEqual({ status: 'done', created: [], rewritten: [], rolledBack: [] })
+
+    expect(excludedOf(dir)).toEqual([browserLabExcludedCommand()])
+    expect(recordOf(dir).settingsHook?.sandbox).toEqual({ added: [browserLabExcludedCommand()], createdSandbox: true, createdExcluded: true })
+    expect(output()).toContain(browserLabExcludedCommand())
+
+    expect((await askDetach(ui, { dir, yes: true })).status).toBe('done')
+    expect(existsSync(path.join(dir, SETTINGS_FILE))).toBe(false)
+  })
+
+  it('an upgrade that rewrites carriers writes and records the entry as well', async () => {
+    const dir = await attached()
+    withoutInstalledEntry(dir)
+    olderBuild(dir)
+
+    expect((await runAttachUpgrade(ui, { dir, yes: true })).rewritten).toContain(STALE_CARRIER)
+
+    expect(excludedOf(dir)).toEqual([browserLabExcludedCommand()])
+    expect(recordOf(dir).settingsHook?.sandbox?.added).toEqual([browserLabExcludedCommand()])
+    expect(recordOf(dir).attachedVersion).toBe(VERSION)
+  })
+
+  it('a second upgrade adds nothing and leaves the file and the record byte for byte', async () => {
+    const dir = await attached()
+    withoutInstalledEntry(dir)
+    await runAttachUpgrade(ui, { dir, yes: true })
+    const settings = readFileSync(path.join(dir, SETTINGS_FILE), 'utf8')
+    const record = readFileSync(path.join(dir, ATTACH_RECORD_FILE), 'utf8')
+
+    await runAttachUpgrade(ui, { dir, yes: true })
+
+    expect(readFileSync(path.join(dir, SETTINGS_FILE), 'utf8')).toBe(settings)
+    expect(readFileSync(path.join(dir, ATTACH_RECORD_FILE), 'utf8')).toBe(record)
+  })
+
+  it('an entry the repository held before the upgrade stays through detach', async () => {
+    const dir = await attached()
+    withoutInstalledEntry(dir)
+    const settings = JSON.parse(readFileSync(path.join(dir, SETTINGS_FILE), 'utf8')) as Record<string, unknown>
+    settings.sandbox = { excludedCommands: ['docker *', browserLabExcludedCommand()] }
+    writeFileSync(path.join(dir, SETTINGS_FILE), JSON.stringify(settings))
+    const before = readFileSync(path.join(dir, ATTACH_RECORD_FILE), 'utf8')
+
+    await runAttachUpgrade(ui, { dir, yes: true })
+    expect(readFileSync(path.join(dir, ATTACH_RECORD_FILE), 'utf8')).toBe(before)
+
+    expect((await askDetach(ui, { dir, yes: true })).status).toBe('done')
+    expect(excludedOf(dir)).toEqual(['docker *', browserLabExcludedCommand()])
+  })
+
+  it('a repository attached by an earlier build keeps its relative entry until detach, which removes both', async () => {
+    const RELATIVE = 'node scripts/construct/browser-lab.mjs *'
+    const dir = await attached()
+    withoutInstalledEntry(dir)
+    const settings = JSON.parse(readFileSync(path.join(dir, SETTINGS_FILE), 'utf8')) as Record<string, unknown>
+    settings.sandbox = { excludedCommands: [RELATIVE] }
+    writeFileSync(path.join(dir, SETTINGS_FILE), JSON.stringify(settings))
+    const record = recordOf(dir)
+    record.settingsHook!.sandbox = { added: [RELATIVE], createdSandbox: true, createdExcluded: true }
+    writeAttachRecord(dir, record)
+
+    await runAttachUpgrade(ui, { dir, yes: true })
+
+    expect(excludedOf(dir)).toEqual([RELATIVE, browserLabExcludedCommand()])
+    expect(recordOf(dir).settingsHook?.sandbox).toEqual({ added: [RELATIVE, browserLabExcludedCommand()], createdSandbox: true, createdExcluded: true })
+    expect((await askDetach(ui, { dir, yes: true })).status).toBe('done')
+    expect(existsSync(path.join(dir, SETTINGS_FILE))).toBe(false)
+  })
+
+  it('a pre-image kept by attach comes back byte for byte after an upgrade added the entry', async () => {
+    const held = '{ "model":   "opus" }\n'
+    const dir = await attached(held)
+    const settings = JSON.parse(readFileSync(path.join(dir, SETTINGS_FILE), 'utf8')) as Record<string, unknown>
+    delete settings.sandbox
+    writeFileSync(path.join(dir, SETTINGS_FILE), `${JSON.stringify(settings, null, 2)}\n`)
+    const record = recordOf(dir)
+    delete record.settingsHook!.sandbox
+    record.settingsHook!.original!.afterSha256 = sha256(readFileSync(path.join(dir, SETTINGS_FILE), 'utf8'))
+    writeAttachRecord(dir, record)
+
+    await runAttachUpgrade(ui, { dir, yes: true })
+    expect(recordOf(dir).settingsHook?.original?.afterSha256).toBe(sha256(readFileSync(path.join(dir, SETTINGS_FILE), 'utf8')))
+
+    expect((await askDetach(ui, { dir, yes: true })).status).toBe('done')
+    expect(readFileSync(path.join(dir, SETTINGS_FILE), 'utf8')).toBe(held)
+  })
+
+  it('a file the owner deleted after attach holds only the entry after an upgrade, and detach removes the file', async () => {
+    const dir = await attached()
+    rmSync(path.join(dir, SETTINGS_FILE))
+    const record = recordOf(dir)
+    delete record.settingsHook!.sandbox
+    record.settingsHook!.created.file = false
+    writeAttachRecord(dir, record)
+
+    await runAttachUpgrade(ui, { dir, yes: true })
+    expect(JSON.parse(readFileSync(path.join(dir, SETTINGS_FILE), 'utf8'))).toEqual({ sandbox: { excludedCommands: [browserLabExcludedCommand()] } })
+
+    expect((await askDetach(ui, { dir, yes: true })).status).toBe('done')
+    expect(existsSync(path.join(dir, SETTINGS_FILE))).toBe(false)
+  })
+
+  it('leaves a tracked or unreadable settings file alone, records nothing and prints why', async () => {
+    const tracked = await attached()
+    withoutInstalledEntry(tracked)
+    git(tracked, 'add', '-f', SETTINGS_FILE)
+    const unreadable = await attached()
+    writeFileSync(path.join(unreadable, SETTINGS_FILE), '{ not json')
+    for (const dir of [tracked, unreadable]) {
+      const settings = readFileSync(path.join(dir, SETTINGS_FILE), 'utf8')
+      const record = readFileSync(path.join(dir, ATTACH_RECORD_FILE), 'utf8')
+      const { ui: seen, output } = capturingUi()
+
+      expect((await runAttachUpgrade(seen, { dir, yes: true })).status).toBe('done')
+
+      expect(readFileSync(path.join(dir, SETTINGS_FILE), 'utf8')).toBe(settings)
+      expect(readFileSync(path.join(dir, ATTACH_RECORD_FILE), 'utf8')).toBe(record)
+      expect(output()).toContain(PLAIN_LORE.initSettingsSkippedNoExclusion(browserLabExcludedCommand()))
+    }
   })
 
   it('at the installed version rewrites nothing; on an older record with current carriers it only records the version', async () => {

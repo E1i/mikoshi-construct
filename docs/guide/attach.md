@@ -89,8 +89,9 @@ An attached repository stays on the version that attached it until you upgrade i
 prints the attached version and the installed one and says when the carriers are stale; a record from
 before the attached version was recorded reads as unknown.
 
-`construct attach --upgrade` rewrites only the carriers. Your `.construct` data, the handoff, the bus and
-`.claude/settings.local.json` stay, which `detach` followed by `attach` would not keep. It refuses a
+`construct attach --upgrade` rewrites the carriers and, when it is missing, adds the browser lab exclusion to
+`.claude/settings.local.json`, which `detach` removes again. Your `.construct` data, the handoff, the bus and
+everything else in that file stay, which `detach` followed by `attach` would not keep. It refuses a
 carrier you edited, and never writes over a file it did not record. See the
 [CLI reference](/cli#upgrading-the-carriers).
 
