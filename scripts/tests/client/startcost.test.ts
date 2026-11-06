@@ -1,8 +1,8 @@
-import type { Invocation, SessionPolicy, SessionSpec } from '../../ports/client/contract.js'
+import type { Invocation, ReadBudget, SessionPolicy, SessionSpec } from '../../ports/client/contract.js'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import os, { tmpdir } from 'node:os'
 import path from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cardToolsOf, parseParkingFile } from '../../../src/card/parking.js'
 import { openBus } from '../../core/db.js'
 import { clientAdapter } from '../../ports/client/index.js'
@@ -22,6 +22,7 @@ const CLIENT_DEFAULT: SessionPolicy = { profile: 'client-default', gateCommands:
 const roots: string[] = []
 
 afterEach(() => {
+  vi.unstubAllEnvs()
   for (const root of roots.splice(0))
     rmSync(root, { recursive: true, force: true })
 })
@@ -151,7 +152,13 @@ describe('the tools line of a card header', () => {
 describe('the heartbeat of a card session', () => {
   const ENV = { CONSTRUCT_CARD: '5', CONSTRUCT_STEP: 'launch' }
 
+  function budgetIn(home: string): ReadBudget {
+    vi.stubEnv('HOME', home)
+    return clientAdapter().readBudget({ session: SESSION, cwd: '/tree', stdoutPath: null })
+  }
+
   function payloadOf(home: string): Record<string, unknown> {
+    vi.stubEnv('HOME', home)
     const file = path.join(aRoot(), 'bus.db')
     expect(runHeartbeat(ENV, SESSION, file, () => new Date('2026-11-05T00:00:00.000Z'), home, home)).toBe(0)
     const db = openBus(file)
@@ -175,10 +182,16 @@ describe('the heartbeat of a card session', () => {
     expect(payloadOf(written)).toMatchObject({ start_context: 10, read_before_edit: 40 })
   })
 
+  it('the budget and the gauges read one place when the client config variable names another', () => {
+    const home = transcriptIn([assistant(contextUsage(100, 20_000, 0)), assistant(contextUsage(100, 500, 20_000), 'Edit')])
+    vi.stubEnv('CLAUDE_CONFIG_DIR', aRoot())
+    expect(payloadOf(home)).toMatchObject({ context: 20_600, start_context: 20_100, read_before_edit: 500 })
+  })
+
   it('a value the client did not report is null, never zero', () => {
     const missing = transcriptIn([assistant({ output_tokens: 1 }), assistant(contextUsage(1, 1, 1), 'Edit')])
-    expect(clientAdapter().readBudget(missing, SESSION)).toEqual({ startContext: null, readBeforeEdit: null })
-    expect(clientAdapter().readBudget(aRoot(), SESSION)).toEqual({ startContext: null, readBeforeEdit: null })
+    expect(budgetIn(missing)).toEqual({ startContext: null, readBeforeEdit: null })
+    expect(budgetIn(aRoot())).toEqual({ startContext: null, readBeforeEdit: null })
 
     const file = path.join(aRoot(), 'bus.db')
     const db = openBus(file)

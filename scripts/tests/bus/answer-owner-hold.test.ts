@@ -447,7 +447,7 @@ describe('a live session in the card tree', () => {
     const tree = path.join(dir, 'mc-905')
     mkdirSync(path.join(tree, 'scripts'), { recursive: true })
     const real = realpathSync(tree)
-    const listed = (...cwds: string[]) => () => ({ kind: 'listed' as const, listing: cwds.flatMap(cwd => ['p1', 'fcwd', `n${cwd}`]).join('\n') })
+    const listed = (...cwds: string[]) => () => ({ kind: 'listed' as const, cwds })
 
     expect(liveSessionIn(treeAt(tree), listed(real))).toContain(real)
     expect(liveSessionIn(treeAt(tree), listed(path.join(real, 'scripts')))).toContain(path.join(real, 'scripts'))

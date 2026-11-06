@@ -132,20 +132,20 @@ function realOrAsWritten(where: string): string {
   return existsSync(where) ? realpathSync(where) : where
 }
 
+function cwdsInLsofOutput(output: string): string[] {
+  return output.split('\n').filter(line => line.startsWith(LSOF_PATH_FIELD)).map(line => line.slice(LSOF_PATH_FIELD.length))
+}
+
 export function claudeProcessCwds(): ProcessCwds {
   try {
-    return { kind: 'listed', listing: execFileSync('lsof', ['-a', ...LSOF_CLIENT_NAMES, '-d', 'cwd', '-F', LSOF_PATH_FIELD], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }) }
+    return { kind: 'listed', cwds: cwdsInLsofOutput(execFileSync('lsof', ['-a', ...LSOF_CLIENT_NAMES, '-d', 'cwd', '-F', LSOF_PATH_FIELD], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })) }
   }
   catch (error) {
     const failed = error as { status?: unknown, stdout?: unknown }
     if (failed.status === LSOF_FOUND_NONE)
-      return { kind: 'listed', listing: typeof failed.stdout === 'string' ? failed.stdout : '' }
+      return { kind: 'listed', cwds: cwdsInLsofOutput(typeof failed.stdout === 'string' ? failed.stdout : '') }
     return { kind: 'unreadable', why: error instanceof Error ? error.message.trim() : String(error) }
   }
-}
-
-export function listedCwds(listing: string): string[] {
-  return listing.split('\n').filter(line => line.startsWith(LSOF_PATH_FIELD)).map(line => line.slice(LSOF_PATH_FIELD.length))
 }
 
 export function liveSessionHolds(tree: string, cwds: () => ProcessCwds = claudeProcessCwds): boolean {
@@ -153,7 +153,7 @@ export function liveSessionHolds(tree: string, cwds: () => ProcessCwds = claudeP
   if (read.kind === 'unreadable')
     return true
   const real = realOrAsWritten(tree)
-  return listedCwds(read.listing).some(cwd => cwd === real || cwd.startsWith(`${real}${path.sep}`))
+  return read.cwds.some(cwd => cwd === real || cwd.startsWith(`${real}${path.sep}`))
 }
 
 function freeTreesIn(git: GitRun, repo: string, home: string): string[] {

@@ -1,3 +1,4 @@
+import type { ProcessCwds } from '../../ports/client/contract.js'
 import type { TreeDeps } from '../../ports/worktree.js'
 import { execFileSync } from 'node:child_process'
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
@@ -17,7 +18,7 @@ import { cutTree, FREE_TREE_CAPACITY, FREE_TREES, pnpmInstall } from '../../port
 import { detectClose } from './close-detection.js'
 import { cardVerified, eventsOf, mergeBench } from './merge-bench.js'
 
-const NO_SESSION = () => ({ kind: 'listed', listing: '' }) as const
+const NO_SESSION = (): ProcessCwds => ({ kind: 'listed', cwds: [] })
 const FIRST = 1701
 const SECOND = 1702
 const PR = 1601
@@ -87,7 +88,7 @@ function closedEvent(cardId: number): void {
   appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_CLOSED, actor: 'worker:close:earlier', cardId, pr: null, head: null, dedupeKey: `${CARD_CLOSED}:${cardId}`, payload: { verification: 'run' }, legacy: false })
 }
 
-function sweep(cwds: () => { kind: 'listed', listing: string } = NO_SESSION): void {
+function sweep(cwds: () => ProcessCwds = NO_SESSION): void {
   const ended = new EndedCardTrees(bench.db, [home], gitWorktrees(repo), bench.clock.now, [home], cwds).free()
   recordEndedTrees(bench.db, 'worker:close:pass', bench.clock.now().toISOString(), ended)
 }
@@ -205,7 +206,7 @@ describe('what never enters the pool', () => {
     const card = { session: 's', worktree: first.worktree, branch: `feat/card-${FIRST}` }
     started(FIRST, first.worktree)
     expect(treeMayBeReused(bench.db, FIRST, card, NO_SESSION)).toBe(true)
-    expect(treeMayBeReused(bench.db, FIRST, card, () => ({ kind: 'listed', listing: `p1\nn${first.worktree}/scripts\n` }))).toBe(false)
+    expect(treeMayBeReused(bench.db, FIRST, card, () => ({ kind: 'listed', cwds: [`${first.worktree}/scripts`] }))).toBe(false)
     expect(treeMayBeReused(bench.db, FIRST, card, () => ({ kind: 'unreadable', why: 'lsof refused' }))).toBe(false)
     appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'worker:intake:window', cardId: FIRST, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${FIRST}`, payload: { card: `#${FIRST} part [implement/netwatch/S/cheap/auto] · depends — · blocks —`, lane: null, decision: 'auto', contour: 'cheap', depends: [] }, legacy: false })
     reduce(bench.db)
@@ -221,7 +222,7 @@ describe('what never enters the pool', () => {
     closedEvent(FIRST)
     closedEvent(SECOND)
 
-    sweep(() => ({ kind: 'listed', listing: `n${live.worktree}\n` }))
+    sweep(() => ({ kind: 'listed', cwds: [live.worktree] }))
 
     expect(freeNames()).toEqual([String(FIRST)])
     expect(existsSync(parked.worktree)).toBe(false)

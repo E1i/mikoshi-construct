@@ -54,14 +54,14 @@ function models(): ModelOffer[] {
 }
 
 function autoPick(role: Role): ModelPick {
-  return { model: role === 'review' ? reviewModelOf() ?? null : null }
+  return { model: role === 'review' ? reviewModelOf() ?? null : null, effort: null }
 }
 
 function modelFor(role: Role, _effort: Effort | null, wanted: ModelChoice): ModelPick | Refusal {
   if (wanted === AUTO_MODEL)
     return autoPick(role)
   const offers = models().map(offer => offer.id)
-  return offers.includes(wanted) ? { model: wanted } : { kind: 'refused', reason: `the model ${wanted} is not offered: the offers are ${offers.join(', ')}` }
+  return offers.includes(wanted) ? { model: wanted, effort: null } : { kind: 'refused', reason: `the model ${wanted} is not offered: the offers are ${offers.join(', ')}` }
 }
 
 function userInstructionsOff(): { autoMemoryEnabled: false, claudeMdExcludes: string[] } {
@@ -141,9 +141,10 @@ function budgetOf(transcript: string): ReadBudget {
   return { startContext, readBeforeEdit: startContext === null || editContext === null ? null : editContext - startContext }
 }
 
-function readBudget(home: string, session: string): ReadBudget {
+function readBudget(place: SessionPlace): ReadBudget {
+  const home = os.homedir()
   const projects = path.join(home, '.claude', 'projects')
-  const transcript = existsSync(projects) ? findTranscript(home, session) : null
+  const transcript = existsSync(projects) ? findTranscript(home, place.session) : null
   return budgetOf(textOf(transcript) ?? '')
 }
 
@@ -161,6 +162,7 @@ export const claudeAdapter: ClientAdapter = {
     identity: 'assigned',
     ladder: true,
     reports: { cost: true, turns: true, model: true, denials: true, journal: true },
+    guarantees: { allowlist: true, writeConfinement: true, mcpOff: true, toolNarrowing: true, guardFailsClosed: true },
   },
   invocation: spec => SESSION_OF_ROLE[spec.role](spec),
   reading: place => readingOf(place),

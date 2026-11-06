@@ -18,7 +18,6 @@ export interface SessionLoad {
 const TOP_ARGS = ['-l', '2', '-s', '1', '-n', '1000', '-stats', 'command,cpu']
 const SYS_PERCENT = /([\d.]+)% sys/g
 const TABLE_HEADER = 'COMMAND'
-const LSOF_PROCESS_LINE = /^p\d/
 const MAX_BUFFER = 1 << 26
 
 export const PRODUCED_BY = `top ${TOP_ARGS.join(' ')} (sys and per-process percents, its second sample) and lsof ${LSOF_CLIENT_NAMES.join(' ')} (a session is a process lsof names claude or a version number, the name the client runs under)`
@@ -56,7 +55,7 @@ function sysPercentOf(top: string): number {
 function sessionsIn(cwds: ProcessCwds): number {
   if (cwds.kind === 'unreadable')
     throw new Error(`lsof could not list the claude processes: ${cwds.why}`)
-  return cwds.listing.split('\n').filter(line => LSOF_PROCESS_LINE.test(line)).length
+  return cwds.cwds.length
 }
 
 export function readingOf(top: string, cwds: ProcessCwds): SessionLoad {

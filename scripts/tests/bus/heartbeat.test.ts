@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { pathToFileURL } from 'node:url'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { HEARTBEATS, openBus, watchLocks } from '../../core/db.js'
 import { PROCESS_HEARTBEAT, SESSION_HEARTBEAT, TASK_EXPIRED } from '../../core/events.js'
 import { expireLeases, LEASE_MS, leaseWhileFree, RENEW_MS, renewLease } from '../../core/lease.js'
@@ -37,6 +37,7 @@ const HEARTBEAT_HOLD_MS = 100
 const roots: string[] = []
 
 afterEach(() => {
+  vi.unstubAllEnvs()
   for (const root of roots.splice(0))
     rmSync(root, { recursive: true, force: true })
 })
@@ -94,6 +95,7 @@ function sessionTree(session: string, lines: string[]): { home: string, root: st
   const transcript = path.join(home, '.claude', 'projects', '-repo', `${session}.jsonl`)
   mkdirSync(path.dirname(transcript), { recursive: true })
   writeFileSync(transcript, `${lines.join('\n')}\n`)
+  vi.stubEnv('HOME', home)
   return { home, root, transcript }
 }
 
