@@ -8,6 +8,7 @@ import { appendEvent, openBus } from '../../core/db.js'
 import { CARD_ADMITTED, MERGE_DONE, REVIEW_RECORDED, SESSION_HEARTBEAT } from '../../core/events.js'
 import { cardMeasure, categoryOf, findingsOf, measureLines, runCardMeasure } from '../../window/card-measure.js'
 
+const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')
 const CUT = '2026-11-07T00:00:00.000Z'
 const WINDOW = { before: CUT, after: CUT }
 const EARLY = '2026-11-01T00:00:00.000Z'
@@ -151,6 +152,15 @@ describe('sessions and tokens per merged card', () => {
     expect(runCardMeasure(['--before', CUT], file, line => lines.push(line))).toBe(2)
     expect(runCardMeasure(['--before', CUT, '--after', CUT, '--list', 'nonsense'], file, line => lines.push(line))).toBe(2)
     expect(lines[1]).toContain('unclassified')
+  })
+
+  it('the usage names no pnpm command, so the generated contract/factory.json holds no overlap row for the measure and the owner-commands ratchet does not grow', () => {
+    const { file } = bus()
+    const lines: string[] = []
+    runCardMeasure([], file, line => lines.push(line))
+    expect(lines[0]).toMatch(/^usage: card:measure /)
+    const { overlaps } = JSON.parse(readFileSync(path.join(REPO_ROOT, 'contract', 'factory.json'), 'utf8')) as { overlaps: Record<string, Record<string, number>> }
+    expect(Object.values(overlaps).flatMap(files => Object.keys(files))).not.toContain('scripts/window/card-measure.ts')
   })
 })
 
