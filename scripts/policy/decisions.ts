@@ -187,10 +187,13 @@ export function inForceDecisions(db: DatabaseSync): InForceDecision[] {
 }
 
 export function expireDecisions(db: DatabaseSync, now: Date): void {
-  const running = db.prepare(`SELECT decision_id, until FROM decisions WHERE state = '${DECISION_IN_FORCE}' AND until IS NOT NULL`).all() as { decision_id: number, until: string }[]
-  for (const row of running.filter(decision => Date.parse(decision.until) <= now.getTime())) {
-    const decisionId = Number(row.decision_id)
-    appendEvent(db, { ts: now.toISOString(), type: DECISION_EXPIRED, actor: NETWATCH, cardId: null, pr: null, head: null, dedupeKey: `${DECISION_EXPIRED}:${decisionId}:${row.until}`, payload: { decision_id: decisionId, until: row.until }, legacy: false })
+  const inForce = db.prepare(`SELECT decision_id, text, until FROM decisions WHERE state = '${DECISION_IN_FORCE}'`).all() as { decision_id: number, text: string, until: string | null }[]
+  for (const row of inForce) {
+    const until = row.until ?? termOf(row.text).until
+    if (until !== null && Date.parse(until) <= now.getTime()) {
+      const decisionId = Number(row.decision_id)
+      appendEvent(db, { ts: now.toISOString(), type: DECISION_EXPIRED, actor: NETWATCH, cardId: null, pr: null, head: null, dedupeKey: `${DECISION_EXPIRED}:${decisionId}:${until}`, payload: { decision_id: decisionId, until }, legacy: false })
+    }
   }
 }
 
