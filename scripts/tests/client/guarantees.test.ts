@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { claudeAdapter } from '../../ports/client/claude/adapter.js'
+import { claudeAdapter, clientHome } from '../../ports/client/claude/adapter.js'
 
 const lsof = vi.hoisted(() => ({ run: (): string => '' }))
 
@@ -53,11 +53,11 @@ function argvOf(pick: SessionSpec['pick']): string[] {
   return invocation.args
 }
 
-function homeHolding(lines: string[], project = 'a-project-of-another-tree'): string {
-  const home = aRoot()
-  mkdirSync(path.join(home, '.claude', 'projects', project), { recursive: true })
-  writeFileSync(path.join(home, '.claude', 'projects', project, `${SESSION}.jsonl`), `${lines.join('\n')}\n`)
-  return home
+function stubHomeHolding(lines: string[], project = 'a-project-of-another-tree'): void {
+  vi.stubEnv('HOME', aRoot())
+  const holder = path.join(clientHome({}), 'projects', project)
+  mkdirSync(holder, { recursive: true })
+  writeFileSync(path.join(holder, `${SESSION}.jsonl`), `${lines.join('\n')}\n`)
 }
 
 function assistantWith(input: number, tool: string): string {
@@ -96,12 +96,12 @@ describe('the pick of the client', () => {
 
 describe('readBudget of a session place', () => {
   it('reads the session by its place from the client home, whichever project holds it', () => {
-    vi.stubEnv('HOME', homeHolding([assistantWith(100, 'Read'), assistantWith(140, 'Edit')]))
+    stubHomeHolding([assistantWith(100, 'Read'), assistantWith(140, 'Edit')])
     expect(claudeAdapter.readBudget({ session: SESSION, cwd: '/tree', stdoutPath: null })).toEqual({ startContext: 100, readBeforeEdit: 40 })
   })
 
   it('reports null for a session the client home does not hold', () => {
-    vi.stubEnv('HOME', homeHolding([assistantWith(100, 'Read')]))
+    stubHomeHolding([assistantWith(100, 'Read')])
     expect(claudeAdapter.readBudget({ session: 'another-session', cwd: '/tree', stdoutPath: null })).toEqual({ startContext: null, readBeforeEdit: null })
     vi.stubEnv('HOME', path.join(aRoot(), 'no-such-home'))
     expect(claudeAdapter.readBudget({ session: SESSION, cwd: '/tree', stdoutPath: null })).toEqual({ startContext: null, readBeforeEdit: null })
