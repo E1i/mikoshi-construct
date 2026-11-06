@@ -58,6 +58,7 @@ and `scripts/ports/isolation.ts` to `security-invariants`: a change to the sandb
 itself, whether or not the pull request touches `architecture/security-invariants.md`. The bus treats a pull request that changes this file as Eli's under every shard whatever
 this table says, on the base or on the head, so a pull request is never judged by the row it replaces; an owner «I merge
 it» on a pull request is recorded as the decision `#N reserved`, which reserves card #N under every shard.
+On 2026-11-06, at Eli's instruction (Q167, card #1624), `contract/ratchet.json` became Eli's only when it grows: the rule `ratchet_grows` of `mergePolicy` reads its diff, so a raised number, a new key or a missing patch is Eli's under every shard and every decision, and a decrease merges as an ordinary card. A glob holds both directions, so this is a rule and not a row of the table.
 
 | kind | paths (globs) | what it covers | example | merges under a shard |
 |---|---|---|---|---|
@@ -66,6 +67,7 @@ it» on a pull request is recorded as the decision `#N reserved`, which reserves
 | release-workflow | `.github/workflows/release*.yml` | `.github/workflows/release.yml` and what it runs for publishing | — | no |
 | workflows | `.github/workflows/**` | every GitHub Actions workflow: what CI runs, with which permissions and secrets | — | no |
 | security-invariants | `architecture/security-invariants.md`, `templates/**/security-invariants.md`, `scripts/ports/shift-settings.ts`, `scripts/ports/isolation.ts` | `architecture/security-invariants.md` and the template copies, and the sandbox settings of the sessions the bus launches: what a session may read, write, reach and bind | PR #1223 | no |
+| accepted-model | `contract/accepted.json` | the accepted model, D-331 item 3: which owner of a concept Eli ratified, one decision per concept | — | no |
 | agent-permissions | `contract/factory-permissions.json` | the agents' permissions | — | yes |
 | new-write-path | — (not checked by paths: decided by the owner) | a new path that `init`, `attach`, `sync` or `detach` writes into another repository: a new carrier, a new baseline file, anything that grows `ATTACH_CARRIERS`, `paths.attach.writes` or `paths.init.*` | PR #218 | yes |
 
