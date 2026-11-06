@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { StartableHold } from '../../nodes/launch/launch-candidates.js'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -8,10 +9,11 @@ import { boardWarnings, plannedStallLines } from '../../cli/board-warnings.js'
 import { latestAssignment } from '../../core/bus-readings.js'
 import { appendEvent, openBus } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_STARTED, CARD_STOPPED, PR_OBSERVED } from '../../core/events.js'
+import { MachineSessions } from '../../core/machine-sessions.js'
 import { reduce } from '../../core/reducer.js'
 import { busCardEvents } from '../../intake/intake.js'
 import { assignMovedLane, currentLane, layLanes } from '../../nodes/launch/lane-assign.js'
-import { launchCandidates, PLANNED_STALL_MINUTES } from '../../nodes/launch/launch-candidates.js'
+import { holdReason, launchCandidates, PLANNED_STALL_MINUTES, plannedStalls } from '../../nodes/launch/launch-candidates.js'
 
 const TS = '2026-11-05T10:00:00.000Z'
 const HEAD = 'b'.repeat(40)
@@ -34,6 +36,10 @@ interface AdmitOptions {
 function cardText(id: number, touches: string, who: string, depends: readonly number[]): string {
   const dependsOn = depends.length === 0 ? '—' : depends.map(parent => `#${parent}`).join(', ')
   return `card: #${id} card-${id} [implement/netwatch/S/cheap/auto] · depends ${dependsOn} · blocks —\nbranch: feat/card-${id}\ntouches: ${touches}\ncontinue: stop\nwho: ${who}\n\nDo the thing.\n`
+}
+
+function eventsOfStop(db: DatabaseSync): number {
+  return Number((db.prepare('SELECT count(*) AS stops FROM events WHERE type = ?').get(CARD_STOPPED) as { stops: number }).stops)
 }
 
 class Bench {
@@ -75,7 +81,11 @@ class Bench {
   }
 
   candidates(): number[] {
-    return launchCandidates(this.db, () => false, () => Date.parse(TS), () => {}, []).map(candidate => candidate.cardId)
+    return launchCandidates(this.db, () => false, () => Date.parse(TS), () => {}, [], () => LANES, new MachineSessions(path.join(this.root, 'machine'), () => false)).map(candidate => candidate.cardId)
+  }
+
+  holds(): StartableHold[] {
+    return plannedStalls(this.db, Date.parse(TS), () => false, [], () => LANES, new MachineSessions(path.join(this.root, 'machine'), () => false)).map(card => card.hold)
   }
 
   linesAfter(minutes: number): string[] {
@@ -98,6 +108,39 @@ describe('launch takes the first startable card of a lane', () => {
       .moveTo(2, 'lane-1')
       .moveTo(3, 'lane-1')
     expect(bench.candidates()).toEqual([3])
+  })
+})
+
+describe('a lane outside the lanes count', () => {
+  it('a card moved into a lane numbered above lanes does not start', () => {
+    const outside = new Bench().admit(1).moveTo(1, `lane-${LANES + 1}`)
+    expect(outside.candidates()).toEqual([])
+    const within = new Bench().admit(1).moveTo(1, `lane-${LANES}`)
+    expect(within.candidates()).toEqual([1])
+  })
+
+  it('the board names the lane and the count that hold the card, at once', () => {
+    const bench = new Bench().admit(1).moveTo(1, `lane-${LANES + 1}`)
+    expect(bench.holds()).toEqual([{ kind: 'lane-outside', lane: `lane-${LANES + 1}`, lanes: LANES }])
+    expect(holdReason(bench.holds()[0]!)).toBe(`lane-${LANES + 1} is outside the ${LANES} lanes this repository runs; the card starts once it is moved into a lane within that count or the count grows`)
+  })
+
+  it('a held card starts when it is moved back within the count', () => {
+    const bench = new Bench().admit(1).moveTo(1, `lane-${LANES + 1}`)
+    expect(bench.candidates()).toEqual([])
+    bench.moveTo(1, 'lane-1')
+    expect(bench.candidates()).toEqual([1])
+  })
+
+  it('a named lane that is not numbered is not touched by the rule', () => {
+    const bench = new Bench().admit(1).moveTo(1, 'lane-window')
+    expect(bench.holds().filter(hold => hold.kind === 'lane-outside')).toEqual([])
+  })
+
+  it('a card already running in a lane outside the count is never stopped by the rule', () => {
+    const bench = new Bench().admit(1).moveTo(1, `lane-${LANES + 1}`).start(1)
+    expect(eventsOfStop(bench.db)).toBe(0)
+    expect(bench.holds()).toEqual([])
   })
 })
 

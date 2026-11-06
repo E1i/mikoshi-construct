@@ -2,6 +2,7 @@ import type { PushPolicy } from '../../../src/commands/attach/record.js'
 import type { ShiftGate } from '../../../src/manifest.js'
 import type { BusEvent } from '../../core/db.js'
 import type { Lease } from '../../core/lease.js'
+import type { MachineGate } from '../../core/machine-sessions.js'
 import type { Denial, Invocation, ProcessCwds, SessionTool, Usage } from '../../ports/client/contract.js'
 import type { GhPort } from '../../ports/gh.js'
 import type { AnswerInput } from '../../ports/prompt-store.js'
@@ -19,6 +20,7 @@ import { roundGate } from '../../ci/prepush.js'
 import { appendEvent, defaultBusPath, openBus } from '../../core/db.js'
 import { TOUCHES_FOLLOWED } from '../../core/events.js'
 import { assertHeld, StaleLease } from '../../core/lease.js'
+import { busNameOf, machineGate, machineSessions } from '../../core/machine-sessions.js'
 import { treeReportPath } from '../../core/places.js'
 import { pushPolicyOf } from '../../core/push-policy.js'
 import { busCardBodies } from '../../intake/parking-reads.js'
@@ -27,6 +29,7 @@ import { PROCESS_GH_PORT } from '../../ports/gh.js'
 import { CARD_VARIABLE, clientInvocation, sessionEnv, streamReading } from '../../ports/session.js'
 import { MAIN_BRANCH } from '../../ports/snapshot.js'
 import { claudeProcessCwds, listedCwds } from '../../ports/worktree.js'
+import { isAlive } from '../../quality/lock.js'
 import { busSessionPulse } from '../../supervisor/heartbeat.js'
 import { projectRoot, realExitReadings, sessionGauges, UNKNOWN } from '../../window/eddies-measure.js'
 import { answerFollowed, commitAndPush, followedLine, freshBaseProblem, freshBaseTask, worktreeCoverage } from '../launch/tree-pr.js'
@@ -100,6 +103,7 @@ export interface AnswererTools {
   followed?: (lease: Lease, paths: readonly string[]) => void
   localHead?: (card: CardSession) => string | null
   now?: () => number
+  machine?: MachineGate
 }
 
 export type AnswerPulse = (lease: Lease, session: string) => void
@@ -592,6 +596,7 @@ function busLeaseHeld(busPath: string): (lease: Lease) => boolean {
 
 export function realAnswererTools(busPath: string = defaultBusPath()): AnswererTools {
   return {
+    machine: machineGate(busNameOf(busPath), 'answer', { machine: machineSessions(isAlive) }),
     held: busLeaseHeld(busPath),
     pulse: busSessionPulse(busPath, () => new Date()),
     cardText: busCardBodies(busPath),
@@ -619,10 +624,27 @@ function atContextWarn(tools: AnswererTools, session: string): boolean {
 }
 
 export function claudeAnswerer(dir: string, tools: AnswererTools): Answerer {
+  const answer = sessionAnswerer(dir, tools)
   return async (request) => {
-    const { card } = request
+    const { card, lease } = request
     if (!existsSync(card.worktree))
       throw new CardTreeGone(card)
+    if (tools.machine === undefined)
+      return answer(request)
+    if (!await tools.machine.start(lease.cardId, () => tools.held?.(lease) !== false))
+      throw new AnswerWithdrawn(lease, card.session)
+    try {
+      return await answer(request)
+    }
+    finally {
+      tools.machine.release(lease.cardId)
+    }
+  }
+}
+
+function sessionAnswerer(dir: string, tools: AnswererTools): Answerer {
+  return async (request) => {
+    const { card } = request
     const resumed = request.fresh !== true && tools.available(card) && !atContextWarn(tools, card.session)
     const session = resumed ? card.session : tools.newSession()
     const ownerQuestion = ownerQuestionPath(dir, session, request.lease.leaseGen)

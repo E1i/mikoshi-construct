@@ -2,6 +2,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { ShiftTask } from '../../../src/card/task-file.js'
 import type { BusEvent } from '../../core/db.js'
 import type { Lease } from '../../core/lease.js'
+import type { MachineClaimant, MachineSessions } from '../../core/machine-sessions.js'
 import type { DetectionMode, WaitStep } from '../../core/node.js'
 import type { QueuedTask } from '../../core/queue.js'
 import type { CardBodyReader } from '../../intake/parking-reads.js'
@@ -37,6 +38,7 @@ import { HANDOFF_DIR_VARIABLE, handoffDirOf } from '../../core/handoff-dir.js'
 import { generationOfKey } from '../../core/identifiers.js'
 import { ghostLinesText } from '../../core/journal.js'
 import { failTask } from '../../core/lease.js'
+import { busNameOfDb, MACHINE_POLL_MS, machineSessions } from '../../core/machine-sessions.js'
 import { Node, prefixOf, runNode } from '../../core/node.js'
 import { eddiesJournalPath, reportPath } from '../../core/places.js'
 import { COMPLETED, generationField, LAUNCH_STOP_WITH_NO_PULL_REQUEST, launchTasks, LEASED, TASK_FOLDS } from '../../core/queue.js'
@@ -57,12 +59,14 @@ import { CARD_SESSION_SANDBOX } from '../../ports/shift-settings.js'
 import { builtTreePr, HTTPS_ORIGIN_ENV, launchDirOf, TREE_PR_ENTRY, treeHoldsACommit, treePrCommand, treePrPublisher } from '../../ports/tree-publish.js'
 import { cardTree } from '../../ports/worktree-home.js'
 import { treeOriginIn } from '../../ports/worktree.js'
+import { isAlive } from '../../quality/lock.js'
 import { BUILD_DIR, BUILT_MODULE, builtEntryOf, installedPackage } from '../../supervisor/bg.js'
 import { heartbeatEnv, lastHeartbeat } from '../../supervisor/heartbeat.js'
 import { stampLogOutput } from '../../supervisor/stamp.js'
 import { launchProcess, REAL_PROCESSES } from '../restart/chain-process.js'
 import { builtHandoff, continuationRefusal, CONTINUE_PROMPT, eddiesEvidence, MAX_RESTARTS, reachedContextLine, sessionWrittenPart, stoppedOnSpend } from './continuation.js'
 import { laneOverlapRecorder, layLanes, repositoryLanes } from './lane-assign.js'
+import { holdReason, startHold } from './launch-candidates.js'
 import { LaunchExecutor } from './launch-executor.js'
 import { gitChangedPaths, killQuietly, psPgid, ShiftCardStarter, spawnDetached } from './launch-starter.js'
 import { LEGACY_REASON, WITHDRAW_LEGACY_FLAG, withdrawLegacyLaunchTasks } from './launch-withdraw.js'
@@ -138,6 +142,7 @@ export interface LaunchNodeParts {
   isolation: IsolationReader
   prompts?: string
   lanes?: () => number
+  machine?: MachineSessions
 }
 
 export interface SessionStart {
@@ -291,6 +296,7 @@ export class LaunchNode extends Node<LaunchStep> {
   private readonly starters: Partial<Record<Contour, CardStarter>>
   private readonly processes: ProcessTable
   private readonly lanes: () => number
+  private readonly machine: MachineSessions
 
   constructor(private readonly launchParts: LaunchNodeParts) {
     super('launch', { db: launchParts.db, clock: launchParts.clock, session: launchParts.session, mode: launchParts.mode, env: launchParts.env })
@@ -298,7 +304,12 @@ export class LaunchNode extends Node<LaunchStep> {
     this.starters = { cheap: launchParts.starter, ladder: launchParts.ladder }
     this.processes = launchParts.processes ?? REAL_PROCESSES
     this.lanes = launchParts.lanes ?? repositoryLanes(process.cwd())
+    this.machine = launchParts.machine ?? machineSessions(isAlive)
     this.subscribe(LAUNCH_ON)
+  }
+
+  private machineClaimant(cardId: number): MachineClaimant {
+    return { bus: busNameOfDb(this.db), role: 'launch', cardId }
   }
 
   stopOverdue(): number[] {
@@ -543,11 +554,17 @@ export class LaunchNode extends Node<LaunchStep> {
     const lane = admitted === undefined ? null : (JSON.parse(admitted.payload) as Record<string, unknown>).lane
     if (typeof lane !== 'string')
       return this.stopContinuation(start, 'continuation-refused', `${exited}; its admission names no lane, so no session continues from it`)
+    const claimant = this.machineClaimant(start.card_id)
+    if (this.machine.claim(claimant).kind === 'refused')
+      return false
     const begun = continuer.continueFrom({ cardId: start.card_id, lane }, card)
-    if (begun.kind === 'refused')
+    if (begun.kind === 'refused') {
+      this.machine.release(claimant)
       return this.stopContinuation(start, 'continuation-refused', `${exited}; the continuation was refused: ${begun.denial.detail}`)
+    }
     const { input, ...launched } = begun.card
     const next: StartedCard = { ...launched, contour: card.contour }
+    this.machine.started(claimant, next)
     const payload = { ...next, continuation: used + 1, from: card.session, ...storedInput(this.launchParts.prompts, input) }
     if (!appendEvent(this.db, { ts: this.ts(), type: CARD_CONTINUED, actor: this.actor, cardId: start.card_id, pr: null, head: null, dedupeKey: `${CARD_CONTINUED}:${start.dedupe_key}`, payload, legacy: false }))
       this.starters[card.contour]?.stop(next)
@@ -645,7 +662,29 @@ export class LaunchNode extends Node<LaunchStep> {
       return this.waitOn(lease, BODY_NOT_FOLDED, new Date(this.parts.clock().getTime() + TICK_MS).toISOString())
     if (cardHoldOf(this.db, lease.cardId) !== null)
       return this.waitOn(lease, CARD_HELD, new Date(this.parts.clock().getTime() + HOLD_RECHECK_MS).toISOString())
-    return this.executor.launch(lease)
+    const hold = startHold(this.db, lease.cardId, this.lanes(), this.machine)
+    if (hold !== null)
+      return this.waitOn(lease, holdReason(hold), new Date(this.parts.clock().getTime() + MACHINE_POLL_MS).toISOString())
+    const claimant = this.machineClaimant(lease.cardId)
+    const claim = this.machine.claim(claimant)
+    if (claim.kind === 'refused')
+      return this.waitOn(lease, holdReason({ kind: 'machine', ...claim.hold }), new Date(this.parts.clock().getTime() + MACHINE_POLL_MS).toISOString())
+    return this.launchClaimed(lease, claimant)
+  }
+
+  private launchClaimed(lease: Lease, claimant: MachineClaimant): LaunchStep {
+    try {
+      const step = this.executor.launch(lease)
+      if (step.kind === 'started')
+        this.machine.started(claimant, step.card)
+      else
+        this.machine.release(claimant)
+      return step
+    }
+    catch (error) {
+      this.machine.release(claimant)
+      throw error
+    }
   }
 
   protected override stepLine(step: LaunchStep): string | null {

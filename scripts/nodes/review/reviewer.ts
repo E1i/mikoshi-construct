@@ -1,4 +1,5 @@
 import type { Lease } from '../../core/lease.js'
+import type { MachineGate } from '../../core/machine-sessions.js'
 import type { SessionReading } from '../../ports/client/contract.js'
 import type { SessionInput } from '../../ports/prompt-store.js'
 import type { SpawnSessionParams } from '../../ports/session.js'
@@ -11,9 +12,13 @@ import { randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, realpathSync, statSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
+import { defaultBusPath, openBus } from '../../core/db.js'
+import { RENEW_MS, renewLease, StaleLease } from '../../core/lease.js'
+import { busNameOf, machineGate, machineSessions } from '../../core/machine-sessions.js'
 import { prepareTree } from '../../ports/prepare-tree.js'
 import { reviewModelOf, spawnSession, streamReading, withoutCard } from '../../ports/session.js'
 import { FREE_TREE_CAPACITY, FREE_TREES, gitIn, parkTree, takeFreeTree } from '../../ports/worktree.js'
+import { isAlive, joinReviewTree, leaveReviewTree, WORKER_LIMIT_VARIABLE } from '../../quality/lock.js'
 
 export interface TreeState {
   head: string
@@ -355,19 +360,77 @@ export type PrBodyOf = (pr: number) => string | null
 
 const NO_PR_BODY: PrBodyOf = () => null
 
-export function claudeReviewer(trees: ReviewTrees, spawn: (params: SpawnSessionParams) => Promise<number> = spawnSession, pulse: SessionPulse = () => {}, beatMs = REVIEW_BEAT_MS, prBodyOf: PrBodyOf = NO_PR_BODY): Reviewer {
+export interface ReviewStart {
+  gate: MachineGate
+  keep: (lease: Lease) => boolean
+  joinWorkers: (tree: string) => number
+  leaveWorkers: (tree: string) => void
+}
+
+function renewedWhileHeld(busPath: string, now: () => number = Date.now): (lease: Lease) => boolean {
+  const renewedAt = new Map<string, number>()
+  return (lease) => {
+    const at = now()
+    const key = `${lease.taskKey}:${lease.leaseGen}`
+    if (at - (renewedAt.get(key) ?? 0) < RENEW_MS)
+      return true
+    renewedAt.set(key, at)
+    const db = openBus(busPath)
+    try {
+      renewLease(db, new Date(at).toISOString(), lease)
+      return true
+    }
+    catch (error) {
+      if (error instanceof StaleLease)
+        return false
+      throw error
+    }
+    finally {
+      db.close()
+    }
+  }
+}
+
+export function realReviewStart(busPath: string = defaultBusPath()): ReviewStart {
+  return { gate: machineGate(busNameOf(busPath), 'review', { machine: machineSessions(isAlive) }), keep: renewedWhileHeld(busPath), joinWorkers: joinReviewTree, leaveWorkers: leaveReviewTree }
+}
+
+export function claudeReviewer(trees: ReviewTrees, spawn: (params: SpawnSessionParams) => Promise<number> = spawnSession, pulse: SessionPulse = () => {}, beatMs = REVIEW_BEAT_MS, prBodyOf: PrBodyOf = NO_PR_BODY, start: ReviewStart = realReviewStart()): Reviewer {
+  const review = reviewerOfTree(trees, spawn, pulse, beatMs, prBodyOf, start)
+  return async (lease, plan, card = null) => {
+    if (!await start.gate.start(lease.cardId, () => start.keep(lease)))
+      throw new Error(`the review task ${lease.taskKey} was superseded or withdrawn while it waited for a session on this machine`)
+    try {
+      return await review(lease, plan, card)
+    }
+    finally {
+      start.gate.release(lease.cardId)
+    }
+  }
+}
+
+function reviewerOfTree(trees: ReviewTrees, spawn: (params: SpawnSessionParams) => Promise<number>, pulse: SessionPulse, beatMs: number, prBodyOf: PrBodyOf, start: ReviewStart): Reviewer {
   return async (lease, plan, card = null) => {
     const session = randomUUID()
     const { tree, verdictPath, ...params } = reviewSession(trees.repo, trees.dir, session, lease, plan, process.env, card, lease.pr === null ? null : prBodyOf(lease.pr))
     mkdirSync(trees.dir, { recursive: true })
     trees.fetch(`pull/${lease.pr}/head`)
     const held: HeldTree = { path: tree, release: () => trees.release(tree) }
+    const underTheBudget = async (): Promise<number> => {
+      const workers = start.joinWorkers(tree)
+      try {
+        return await spawn({ ...params, env: { ...params.env, [WORKER_LIMIT_VARIABLE]: String(workers) } })
+      }
+      finally {
+        start.leaveWorkers(tree)
+      }
+    }
     try {
       const origin = trees.add(tree, lease.head!)
       const before = trees.state(tree)
       if (before.status.length > 0)
         throw new Error(`the review tree ${tree} is not clean before the review: ${before.status.join('; ')}`)
-      const code = await beatingWhileGrowing(spawn(params), params.stdoutPath, () => pulse(lease, session), beatMs, error => console.error(missedBeatLine(session, error)))
+      const code = await beatingWhileGrowing(underTheBudget(), params.stdoutPath, () => pulse(lease, session), beatMs, error => console.error(missedBeatLine(session, error)))
       if (code !== 0)
         throw new Error(`the review session ${session} exited ${code}`)
       const review = reviewOf(readFileSync(verdictPath, 'utf8'), session)
