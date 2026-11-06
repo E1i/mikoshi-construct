@@ -58,6 +58,7 @@ and `scripts/ports/isolation.ts` to `security-invariants`: a change to the sandb
 itself, whether or not the pull request touches `architecture/security-invariants.md`. The bus treats a pull request that changes this file as Eli's under every shard whatever
 this table says, on the base or on the head, so a pull request is never judged by the row it replaces; an owner «I merge
 it» on a pull request is recorded as the decision `#N reserved`, which reserves card #N under every shard.
+On 2026-11-06, at Eli's instruction (Q167, card #1624), `contract/ratchet.json` became Eli's only when it grows: the rule `ratchet_grows` of `mergePolicy` reads its diff, so a raised number, a new key or a missing patch is Eli's under every shard and every decision, and a decrease merges as an ordinary card. A glob holds both directions, so this is a rule and not a row of the table.
 
 | kind | paths (globs) | what it covers | example | merges under a shard |
 |---|---|---|---|---|
