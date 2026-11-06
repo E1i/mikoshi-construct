@@ -168,14 +168,14 @@ const LATEST_WITNESS_OF_CARD = `SELECT head, json_extract(payload, '$.verdict') 
 
 const OPEN_PR_ANSWER_NEEDED = `SELECT pr FROM prs WHERE card_id = ? AND state = 'open' AND (ci = 'red' OR verdict_on_head = 'changes') ORDER BY pr DESC LIMIT 1`
 
-const ANSWERS_WITHDRAWN_BY_AN_OPEN_TAKEOVER = `
+const ANSWERS_WITHDRAWN_BY_THE_OPEN_HOLD = `
   SELECT tasks.task_key, tasks.queue, tasks.card_id, tasks.pr, tasks.head, tasks.state FROM tasks
   JOIN events AS withdrawal ON withdrawal.id = tasks.event_id
   JOIN events AS opened ON opened.id = (
-    SELECT max(id) FROM events WHERE card_id = tasks.card_id AND legacy = 0 AND type IN ('${CARD_TAKEOVER}', '${CARD_RELEASED}')
+    SELECT min(id) FROM events WHERE card_id = tasks.card_id AND legacy = 0 AND type = '${CARD_HELD}' AND id > coalesce((SELECT max(id) FROM events WHERE card_id = tasks.card_id AND legacy = 0 AND type = '${CARD_RELEASED}'), 0)
   )
   WHERE tasks.card_id = ? AND tasks.queue = 'answer' AND tasks.state = '${WITHDRAWN}'
-    AND opened.type = '${CARD_TAKEOVER}' AND withdrawal.id > opened.id
+    AND withdrawal.id > opened.id
     AND withdrawal.type = '${TASK_FAILED}' AND json_extract(withdrawal.payload, '$.reason') = 'held_for_owner'
   ORDER BY tasks.task_key
 `
@@ -584,7 +584,7 @@ export class WindowRequests {
       return { done: false, why: type === CARD_HELD ? 'hold needs a card and the reason the owner holds it' : 'release names no card' }
     const ts = this.clock().toISOString()
     const requeued = inTransaction(this.db, () => {
-      const withdrawn = type === CARD_RELEASED ? this.db.prepare(ANSWERS_WITHDRAWN_BY_AN_OPEN_TAKEOVER).all(cardId) as unknown as TaskRow[] : []
+      const withdrawn = type === CARD_RELEASED ? this.db.prepare(ANSWERS_WITHDRAWN_BY_THE_OPEN_HOLD).all(cardId) as unknown as TaskRow[] : []
       appendEvent(this.db, { ts, type, actor: QUEUE_ACTOR, cardId, pr: null, head: null, dedupeKey: `${type}:request-${request}`, payload: { request, ...(reason === null ? {} : { reason }) }, legacy: false })
       for (const task of withdrawn)
         this.appendRequeue(ts, request, task)

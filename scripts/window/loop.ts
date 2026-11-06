@@ -1,6 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { WindowMode } from '../ports/session.js'
 import type { ProcessRow } from './exit.js'
-import { execFileSync, spawn } from 'node:child_process'
+import { execFileSync, spawn, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -49,6 +50,8 @@ export const DOUBLE_CTRL_C_WINDOW_MS = 1500
 export const EXIT_REQUEST_PREFIX = 'miko-exit'
 export const EXIT_POLL_MS = 200
 export const LOOP_BEAT_MS = 5 * 60_000
+export const TAB_WORD = '--tab'
+export const TAB_MODE: WindowMode = 'tab'
 
 export type Status = 'CONTINUE' | 'OWNER' | 'DONE' | 'STOP'
 
@@ -343,6 +346,11 @@ export function runSession(command: string, prompt: string | undefined, request:
   })
 }
 
+export function runTabSession(command: string, args: readonly string[]): number {
+  const run = spawnSync('sh', ['-c', sessionScript(command), 'miko', ...args], { stdio: 'inherit', env: { ...process.env, [LOOP_PID_VARIABLE]: '', [EXIT_REQUEST_VARIABLE]: '', [WINDOW_VARIABLE]: TAB_MODE } })
+  return run.status ?? 1
+}
+
 export const HANGUPS = ['SIGHUP', 'SIGTERM'] as const
 
 export function once(work: () => void): () => void {
@@ -368,6 +376,10 @@ export { windowCommand as claudeCommand }
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const command = windowCommand(process.env)
+  if (process.argv[2] === TAB_WORD) {
+    process.on('SIGINT', () => {})
+    process.exit(runTabSession(command, process.argv.slice(3)))
+  }
   const refusal = compoundCommandRefusal(command)
   if (refusal !== null) {
     console.error(refusal)
