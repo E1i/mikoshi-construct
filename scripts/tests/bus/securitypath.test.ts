@@ -2,7 +2,6 @@ import type { MergeFacts } from '../../policy/policy.js'
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { mergePolicy, OWNER_MERGES } from '../../policy/policy.js'
-import { ownerMerges } from '../../policy/shredder/authority.js'
 import { readOwnerMergeKinds } from '../../policy/shredder/reader.js'
 
 const TABLE = readFileSync(OWNER_MERGES, 'utf8')
@@ -35,7 +34,7 @@ describe('the security path of the merge policy', () => {
       for (const ownerMergesText of [TABLE, TEMPLATE_TABLE])
         expect(mergePolicy(underShard({ files: ['scripts/core/queue.ts', file], ownerMergesText })), file).toMatchObject({ kind: 'denied', rule: 'no_shard_merge', detail: expect.stringContaining(`${file} (security-invariants)`) as unknown })
       expect(mergePolicy(underShard({ files: [file], windowShard: 'w1', shardActive: false }))).toMatchObject({ kind: 'denied', rule: 'no_shard_merge' })
-      expect(ownerMerges([file], readOwnerMergeKinds(TABLE)).ownerMerged).toBe(true)
+      expect(mergePolicy(underShard({ files: [file], shardActive: false }))).toMatchObject({ kind: 'denied', rule: 'no_shard_merge' })
     }
     expect(mergePolicy(underShard({}))).toMatchObject({ kind: 'allowed', rule: 'auto' })
   })
@@ -44,7 +43,7 @@ describe('the security path of the merge policy', () => {
     for (const ownerMergesText of [TABLE, TABLE_WITHOUT_ITS_OWN_ROW, TABLE_MARKING_ITSELF_YES, TEMPLATE_TABLE]) {
       expect(mergePolicy(underShard({ files: [OWNER_MERGES], ownerMergesText })), ownerMergesText.slice(-200)).toMatchObject({ kind: 'denied', rule: 'no_shard_merge', detail: expect.stringContaining('whatever either table says') as unknown })
       expect(mergePolicy(underShard({ files: [OWNER_MERGES], ownerMergesText, shardActive: false, windowShard: 'w1' }))).toMatchObject({ kind: 'denied', rule: 'no_shard_merge' })
-      expect(ownerMerges([OWNER_MERGES], readOwnerMergeKinds(ownerMergesText)).ownerMerged).toBe(true)
+      expect(mergePolicy(underShard({ files: [OWNER_MERGES], ownerMergesText, shardActive: false }))).toMatchObject({ kind: 'denied', rule: 'no_shard_merge' })
     }
     expect(TABLE_WITHOUT_ITS_OWN_ROW).not.toBe(TABLE)
     expect(TABLE_MARKING_ITSELF_YES).not.toBe(TABLE)
