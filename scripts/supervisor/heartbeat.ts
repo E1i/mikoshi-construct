@@ -85,9 +85,9 @@ export type BeatReading = SessionGauges & { start_context?: number | null, read_
 
 export type SessionMeasure = (session: string) => BeatReading
 
-function budgetReading(home: string, session: string): BeatReading {
+function budgetReading(root: string, session: string): BeatReading {
   try {
-    const budget = clientAdapter().readBudget(home, session)
+    const budget = clientAdapter().readBudget({ session, cwd: root, stdoutPath: null })
     return { start_context: budget.startContext, read_before_edit: budget.readBeforeEdit }
   }
   catch {
@@ -97,7 +97,7 @@ function budgetReading(home: string, session: string): BeatReading {
 
 function beatReading(home: string, root: string, session: string): BeatReading {
   const gauges = sessionGauges(home, root, session)
-  return gauges.reason === undefined ? { ...gauges, ...budgetReading(home, session) } : gauges
+  return gauges.reason === undefined ? { ...gauges, ...budgetReading(root, session) } : gauges
 }
 
 export function measureSession(session: string): BeatReading {

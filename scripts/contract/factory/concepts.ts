@@ -1,6 +1,7 @@
 import type { Detector } from './detectors.js'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
+import { GENERATED_FILES, GENERATED_PATHS } from '../../core/generated-files.js'
 import { clientAdapter } from '../../ports/client/index.js'
 import {
   adjacentLiterals,
@@ -40,20 +41,11 @@ const ANSWER_EXECUTOR = 'scripts/nodes/answer/answer-executor.ts'
 const ANSWERER = 'scripts/nodes/answer/answerer.ts'
 const WINDOW_REQUESTS = 'scripts/window/window-requests.ts'
 const LEADING_PARENTS = /^(?:\.\.\/)+/
-const GENERATED_PATHS = new Set([
-  'contract/factory.json',
-  'contract/surface.json',
-  'templates/attach/earlier-carriers.json',
-  'architecture/composition/',
-  'architecture/model.md',
-  'architecture/add-population.md',
-  'architecture/self-hosting-drift.yaml',
-  'src/materialize/factory-manifest.ts',
-])
+const GENERATED_PATH_SET = new Set(GENERATED_PATHS)
 const HANDOFF_STATUS_LINE = /\^STATUS:/
 const PNPM_COMMAND = /\bpnpm (?!(?:at|in|is|monorepo|on)\b)(?:--[\w-]+ )*(?:run |exec )?[a-z][\w:-]*/
 const COMMANDS_A_GENERATED_REPOSITORY_RUNS = new Set(['scripts/harness-command/render.ts', 'src/model/write.ts', 'src/presets/index.ts'])
-const SURFACE_FILE = path.resolve(import.meta.dirname, '../../../contract/surface.json')
+const SURFACE_FILE = path.resolve(import.meta.dirname, '../../..', GENERATED_FILES.surface.path)
 const GH_RUN_VERBS = new Set(['view', 'list', 'cancel', 'download', 'watch', 'rerun'])
 
 let constructCommand: RegExp | undefined
@@ -93,7 +85,6 @@ export const CONCEPTS: readonly Concept[] = [
     detectors: [
       declaredFunction(/^liveSession(?!s$)/),
       referenced('claudeProcessCwds'),
-      called(['listedCwds']),
       adjacentLiterals('-c', name => clientAdapter().processes.isClient(name), 'the client process name in lsof arguments'),
     ],
   },
@@ -150,9 +141,9 @@ export const CONCEPTS: readonly Concept[] = [
     id: 'generated-files',
     title: 'the list of generated files',
     owner: 'scripts/core/generated-files.ts',
-    ownerExists: false,
+    ownerExists: true,
     axis: 'architecture',
-    detectors: [literal(text => GENERATED_PATHS.has(text.replace(LEADING_PARENTS, '')), 'a generated path by its literal')],
+    detectors: [literal(text => GENERATED_PATH_SET.has(text.replace(LEADING_PARENTS, '')), 'a generated path by its literal')],
   },
   {
     id: 'owner-commands',
