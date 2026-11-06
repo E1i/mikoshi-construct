@@ -30,6 +30,14 @@ function eventIdOf(db: DatabaseSync, decisionId: number): number {
   return Number((db.prepare('SELECT id FROM events WHERE dedupe_key = ?').get(`decision.recorded:${decisionId}`) as { id: number }).id)
 }
 
+function removeAsTheFoldBefore1604Did(db: DatabaseSync, decisionId: number): void {
+  db.prepare('DELETE FROM decisions WHERE decision_id = ?').run(decisionId)
+}
+
+function tableRows(db: DatabaseSync): Record<string, unknown>[] {
+  return db.prepare('SELECT * FROM decisions ORDER BY decision_id').all().map(row => ({ ...row }))
+}
+
 function recordTwo(db: DatabaseSync): void {
   recordDecision(db, { ts: RECORDED_AT, decisionId: 84, text: 'first.', cards: [] })
   recordDecision(db, { ts: SECOND_AT, decisionId: 90, text: 'second.', cards: [841], supersedes: [84] })
@@ -40,7 +48,7 @@ describe('the history of decisions reads the events', () => {
   it('every recorded decision reads in the history from its own event', () => {
     const db = bus()
     recordTwo(db)
-    db.exec('DELETE FROM decisions WHERE decision_id = 84')
+    removeAsTheFoldBefore1604Did(db, 84)
 
     expect(decisionHistory(db)).toEqual([
       { decisionId: 84, text: 'first.', cards: [], supersedes: [], eventId: eventIdOf(db, 84), recordedAt: RECORDED_AT },
@@ -77,17 +85,29 @@ describe('the history of decisions reads the events', () => {
     ])
   })
 
-  it('a rebuild gives the table back every row an older fold deleted and leaves the in-force set as it was', () => {
+  it('an import that leaves a decision out removes no row, and a rebuild folds the same table', () => {
+    const db = bus()
+    recordTwo(db)
+    imported(db, 'without-both', [{ decision_id: 54, text: 'only in the file.', scope: [] }])
+    const table = tableRows(db)
+
+    reduce(db, 'rebuild')
+
+    expect(table.map(row => row.decision_id)).toEqual([54, 84, 90])
+    expect(tableRows(db)).toEqual(table)
+  })
+
+  it('a rebuild gives back a row the fold before #1604 removed and leaves the in-force set as it was', () => {
     const db = bus()
     recordTwo(db)
     imported(db, 'lists-second', [{ decision_id: 90, text: 'second.', scope: [841] }])
     const inForce = inForceDecisions(db)
-    db.exec('DELETE FROM decisions WHERE decision_id = 84')
+    removeAsTheFoldBefore1604Did(db, 84)
 
     reduce(db, 'rebuild')
 
     expect(inForceDecisions(db)).toEqual(inForce)
-    expect(db.prepare('SELECT decision_id FROM decisions ORDER BY 1').all().map(row => Number(row.decision_id))).toEqual([84, 90])
+    expect(tableRows(db).map(row => row.decision_id)).toEqual([84, 90])
   })
 
   it('the in-force set reads the table, not the history', () => {
@@ -116,7 +136,7 @@ describe('the history of decisions reads the events', () => {
     const db = bus()
     recordTwo(db)
     imported(db, 'file-number', [{ decision_id: 54, text: 'only in the file.', scope: [] }])
-    db.exec('DELETE FROM decisions WHERE decision_id = 84')
+    removeAsTheFoldBefore1604Did(db, 84)
 
     expect(recordedNumbers(db).sort((a, b) => a - b)).toEqual([54, 84, 90])
   })
