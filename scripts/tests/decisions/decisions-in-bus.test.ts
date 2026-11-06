@@ -123,6 +123,28 @@ describe('owner decisions live in the bus', () => {
     expect(readFileSync(archiveOf(made.file), 'utf8')).toContain('delegated.')
   })
 
+  it('a term only in the text of a row with no until column value leaves force at its end', () => {
+    const made = bench()
+    record(made, 1, `delegated. · until ${TERM}`)
+    record(made, 2, 'general.')
+    made.settle(NOW)
+    made.db.prepare('UPDATE decisions SET until = NULL WHERE decision_id = 1').run()
+    made.settle(NOW)
+    expect(inForceNumbers(made.db)).toEqual([1, 2])
+    const lineInTheFile = readFileSync(made.file, 'utf8').split('\n').find(line => line.includes('delegated.'))!
+    expect(lineInTheFile).toContain('- D-1 · ')
+    writeFileSync(archiveOf(made.file), `# Archive\n\n${lineInTheFile}\n`)
+
+    made.settle(LATER)
+    expect(inForceNumbers(made.db)).toEqual([2])
+    expect(stateOf(made.db, 1)).toBe('archived')
+    expect(readFileSync(made.file, 'utf8')).not.toContain('delegated.')
+    expect(readFileSync(archiveOf(made.file), 'utf8').match(/- D-1 · /g)).toHaveLength(1)
+
+    const expired = made.db.prepare(`SELECT json_extract(payload, '$.until') AS until FROM events WHERE type = 'decision.expired'`).all() as { until: unknown }[]
+    expect(expired.map(event => event.until)).toEqual([TERM])
+  })
+
   it('a session sees only the decisions of its own card and the general ones', () => {
     const made = bench()
     record(made, 1, 'general.')

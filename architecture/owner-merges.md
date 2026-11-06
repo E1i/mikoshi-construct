@@ -67,6 +67,7 @@ On 2026-11-06, at Eli's instruction (Q167, card #1624), `contract/ratchet.json` 
 | release-workflow | `.github/workflows/release*.yml` | `.github/workflows/release.yml` and what it runs for publishing | — | no |
 | workflows | `.github/workflows/**` | every GitHub Actions workflow: what CI runs, with which permissions and secrets | — | no |
 | security-invariants | `architecture/security-invariants.md`, `templates/**/security-invariants.md`, `scripts/ports/shift-settings.ts`, `scripts/ports/isolation.ts` | `architecture/security-invariants.md` and the template copies, and the sandbox settings of the sessions the bus launches: what a session may read, write, reach and bind | PR #1223 | no |
+| accepted-model | `contract/accepted.json` | the accepted model, D-331 item 3: which owner of a concept Eli ratified, one decision per concept | — | no |
 | agent-permissions | `contract/factory-permissions.json` | the agents' permissions | — | yes |
 | new-write-path | — (not checked by paths: decided by the owner) | a new path that `init`, `attach`, `sync` or `detach` writes into another repository: a new carrier, a new baseline file, anything that grows `ATTACH_CARRIERS`, `paths.attach.writes` or `paths.init.*` | PR #218 | yes |
 
