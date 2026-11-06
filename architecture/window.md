@@ -79,10 +79,15 @@ STATUS means to the window: a `miko.md` whose last `STATUS:` line is `CONTINUE` 
 question to the owner; one whose last `STATUS:` line is `OWNER` has its question asked in the window and the answer waited
 for in the same session, then `pnpm handoff:write` with `STATUS: CONTINUE`, with no `pnpm miko:exit`.
 
-Mikoshi runs in one of two modes, decided by `windowModeOf` in `scripts/ports/session.ts` (#1265): loop mode under
-`pnpm miko` (`MIKO_WINDOW=1`, `MIKO_LOOP_PID` or `MIKO_EXIT_REQUEST` set), and tab mode, a session with none of those
-marks and no `CONSTRUCT_CARD` (an IDE tab or a bare `claude`). Loop mode keeps the rules above. A tab window is that
-session when it is interactive and not raised by the bus (`tabWindowOf` in `scripts/window/tab.ts`: a
+A window is what miko started, not what a hook read: a hook gives no rights the launcher did not give. Mikoshi runs in
+one of two modes, decided by `windowModeOf` in `scripts/ports/session.ts` (#1265): loop mode under `pnpm miko`
+(`MIKO_WINDOW=1`, `MIKO_LOOP_PID` or `MIKO_EXIT_REQUEST` set), and tab mode under `pnpm miko --tab`, one session the
+launcher marks `MIKO_WINDOW=tab`, with no loop above it. A session with neither, or with a `CONSTRUCT_CARD`, is no
+window: a bare `claude` or an IDE tab writes no window heartbeat, `pnpm handoff:write` and `pnpm miko:watch` refuse it
+and tell it to start a window (`noWindowRefusal` in `scripts/window/tab.ts`), and the SessionStart hook says the same.
+A prompt whose first line names the `handoff/miko.md` of another factory is refused before the session reads it, naming
+the window it belongs to (`misaddressedPromptRefusal`). Loop mode keeps the rules above. A tab window is a marked session
+when it is interactive and not raised by the bus (`tabWindowOf` in `scripts/window/tab.ts`: a
 `CLAUDE_CODE_ENTRYPOINT` of `sdk-cli`, the headless one a bus reviewer runs under, or `CONSTRUCT_BUS_RAISED=1` is no
 tab window). A tab window continues by itself with nobody at a terminal. At Stop, `scripts/window/turn-watch.ts` reads
 the last `STATUS:` of the session's handoff: `CONTINUE` blocks the stop with a reason telling the window to run

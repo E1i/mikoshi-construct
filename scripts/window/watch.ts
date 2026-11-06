@@ -13,6 +13,7 @@ import { HEARTBEAT_QUEUES, LEASE_EXPIRED } from '../core/lease.js'
 import { REVIEW_ROUNDS_SPENT } from '../nodes/review/review-executor.js'
 import { USER_SETTINGS } from '../ports/client/claude/adapter.js'
 import { CARD_PROCESS } from '../supervisor/heartbeat.js'
+import { noWindowRefusal } from './tab.js'
 import { WatchRefusal } from './watch-refusal.js'
 import { ONCE_STORE, OnceStore, parentGone } from './watch-store.js'
 import { windowBeat, windowOf } from './window-heartbeat.js'
@@ -751,6 +752,11 @@ if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLTo
   if (args === undefined) {
     console.error(USAGE)
     process.exit(2)
+  }
+  const refusal = noWindowRefusal(process.env)
+  if (refusal !== null) {
+    console.error(`miko:watch: ${refusal}`)
+    process.exit(1)
   }
   const handoff = defaultHandoffDir()
   mkdirSync(handoff, { recursive: true })

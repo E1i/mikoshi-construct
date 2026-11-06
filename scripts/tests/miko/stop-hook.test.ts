@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { openBus } from '../../core/db.js'
 import { HANDOFF_DIR_VARIABLE } from '../../core/handoff-dir.js'
 import { EXIT_REQUEST_VARIABLE, LOOP_PID_VARIABLE, WINDOW_MARK, WINDOW_VARIABLE, withoutCard } from '../../ports/session.js'
-import { MIKO_HANDOFF_NAME } from '../../window/loop.js'
+import { MIKO_HANDOFF_NAME, TAB_MODE } from '../../window/loop.js'
 import { ENTRYPOINT_VARIABLE, HEADLESS_ENTRYPOINT, tabWindowOf } from '../../window/tab.js'
 import { LIVE_WATCH, NO_LIVE_WATCH, OWNER_QUESTION_WAITS, TAB_CONTINUE } from '../../window/turn-watch.js'
 import { recordWindowHeartbeat, windowSessionOf } from '../../window/window-heartbeat.js'
@@ -51,7 +51,7 @@ function handoffEnv(status: string | null): NodeJS.ProcessEnv {
   roots.push(dir)
   if (status !== null)
     writeFileSync(path.join(dir, MIKO_HANDOFF_NAME), `# Handoff\n\nSTATUS: ${status}\n`)
-  return { [HANDOFF_DIR_VARIABLE]: dir }
+  return { [HANDOFF_DIR_VARIABLE]: dir, [WINDOW_VARIABLE]: TAB_MODE }
 }
 
 const HEADLESS = { [ENTRYPOINT_VARIABLE]: HEADLESS_ENTRYPOINT }
@@ -69,7 +69,7 @@ function stopRun(bus: string, input: object, env: NodeJS.ProcessEnv = {}): { sta
   const run = spawnSync(process.execPath, [HOOK], {
     cwd: project,
     input: JSON.stringify({ hook_event_name: 'Stop', ...input }),
-    env: { ...process.env, CLAUDE_PROJECT_DIR: project, CONSTRUCT_BUS_DB: bus, CONSTRUCT_CARD: '', [WINDOW_VARIABLE]: '', [ENTRYPOINT_VARIABLE]: 'cli', CONSTRUCT_BUS_RAISED: '', CONSTRUCT_HANDOFF: '', [LOOP_PID_VARIABLE]: '', [EXIT_REQUEST_VARIABLE]: '', ...handoffEnv(null), ...env },
+    env: { ...process.env, CLAUDE_PROJECT_DIR: project, CONSTRUCT_BUS_DB: bus, CONSTRUCT_CARD: '', [ENTRYPOINT_VARIABLE]: 'cli', CONSTRUCT_BUS_RAISED: '', CONSTRUCT_HANDOFF: '', [LOOP_PID_VARIABLE]: '', [EXIT_REQUEST_VARIABLE]: '', ...handoffEnv(null), ...env },
     encoding: 'utf8',
   })
   return { status: run.status, stdout: run.stdout, stderr: run.stderr }
@@ -126,6 +126,10 @@ describe('the Stop hook asks turn-watch whether a window turn may end', () => {
   it('the Stop hook starts no turn-watch child for a session that is not a window', () => {
     for (const env of [HEADLESS, { CONSTRUCT_BUS_RAISED: '1' }, { ...WINDOW_ENV, CONSTRUCT_CARD: '1183' }])
       expect(stopRun(busFile(), { session_id: SESSION, stop_hook_active: false }, { ...env, CLAUDE_PROJECT_DIR: emptyRoot() })).toEqual({ status: 0, stdout: '', stderr: '' })
+  }, 20_000)
+
+  it('the Stop hook lets a session miko did not start end, whatever its handoff says', () => {
+    expect(stop(busFile(), { session_id: SESSION, stop_hook_active: false }, { ...handoffEnv('CONTINUE'), [WINDOW_VARIABLE]: '' })).toEqual({ status: 0, stdout: '' })
   }, 20_000)
 
   it('the hook marks a window exactly when windowSessionOf or tabWindowOf names one', async () => {
