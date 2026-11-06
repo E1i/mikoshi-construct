@@ -6,7 +6,7 @@ import { bigFileNumbers, generateNumbers, overlapNumbers, ratchetBreaks, readRat
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../..')
 const GENERATION_TIMEOUT = 180_000
-const SITE_KEY = 'overlaps:ci-reading:scripts/ports/gh.ts'
+const SITE_KEY = 'overlaps:ci-reading'
 const BIG_FILE_KEY = 'lines:scripts/big.ts'
 const LINE_SCOPE_KEY = 'lines-scope:non-test-code-in-scripts-and-src'
 const roots: string[] = []
@@ -33,8 +33,30 @@ describe('the ratchet', () => {
   it('a concept site that grows above the baseline is red', () => {
     const recorded = overlapNumbers({ 'ci-reading': { 'scripts/ports/gh.ts': 3 } })
     expect(ratchetBreaks(recorded, { [SITE_KEY]: 4 })).toEqual([expect.stringContaining(`${SITE_KEY} grew from 3 to 4`)])
-    expect(ratchetBreaks(recorded, { ...recorded, 'overlaps:ci-reading:scripts/new.ts': 1 })).toEqual([expect.stringContaining('scripts/new.ts grew from 0 to 1')])
     expect(ratchetBreaks(recorded, recorded)).toEqual([])
+  })
+
+  it('a site added in another file raises the concept sum and is red', () => {
+    const recorded = overlapNumbers({ 'ci-reading': { 'scripts/ports/gh.ts': 3 } })
+    const added = overlapNumbers({ 'ci-reading': { 'scripts/ports/gh.ts': 3, 'scripts/new.ts': 1 } })
+    expect(ratchetBreaks(recorded, added)).toEqual([expect.stringContaining(`${SITE_KEY} grew from 3 to 4`)])
+  })
+
+  it('a site moved between files with the concept sum unchanged is not growth', () => {
+    const recorded = overlapNumbers({ 'ci-reading': { 'scripts/ports/gh.ts': 3, 'scripts/ports/snapshot.ts': 1 } })
+    const movedBetween = overlapNumbers({ 'ci-reading': { 'scripts/ports/gh.ts': 2, 'scripts/ports/snapshot.ts': 2 } })
+    const movedToNewFile = overlapNumbers({ 'ci-reading': { 'scripts/ports/gh.ts': 2, 'scripts/ports/snapshot.ts': 1, 'scripts/new.ts': 1 } })
+    expect(movedBetween).toEqual(recorded)
+    expect(ratchetBreaks(recorded, movedBetween)).toEqual([])
+    expect(ratchetBreaks(recorded, movedToNewFile)).toEqual([])
+  })
+
+  it('the record holds one key per concept and no key per file', () => {
+    const section = { 'ci-reading': { 'scripts/ports/gh.ts': 3, 'scripts/ports/snapshot.ts': 1 }, 'git': { 'src/detect/git.ts': 2 } }
+    expect(overlapNumbers(section)).toEqual({ [SITE_KEY]: 4, 'overlaps:git': 2 })
+    const overlapKeys = Object.keys(readRatchet(REPO_ROOT)).filter(key => key.startsWith('overlaps:'))
+    expect(overlapKeys).toContain(SITE_KEY)
+    expect(overlapKeys.filter(key => !/^overlaps:[^:/]+$/.test(key))).toEqual([])
   })
 
   it('a big file that grows above the baseline is red', () => {
