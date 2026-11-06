@@ -1,4 +1,5 @@
 import { Buffer } from 'node:buffer'
+import { spawnSync } from 'node:child_process'
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -44,6 +45,9 @@ const PLAIN_ID = /^[\w-]{1,128}$/
 const PLAIN_REASON = /^[\w.:-]{1,64}$/
 const WINDOW = 'window'
 const AGENT_TRANSCRIPT_MISSING = 'agent-transcript-missing'
+const ADDRESSED_HANDOFF = 'handoff/miko.md'
+const PROMPT_REFUSED_EXIT = 2
+const ADDRESS_CHECK_TIMEOUT_MS = 8_000
 
 class Unread extends Error {}
 
@@ -297,6 +301,8 @@ function sessionHandoffOf() {
 }
 
 function continueLineOf(root, gauge) {
+  if (!tabWindow.startedByMiko(process.env) && !tabWindow.isCardSession(process.env))
+    return ''
   if (!tabWindow.isCardSession(process.env)) {
     const handoff = sessionHandoffOf()
     const writeLine = `eddies: write ${handoff} only through pnpm handoff:write ${handoff} <draft> — update it in place, never a new handoff file\n`
@@ -438,7 +444,7 @@ async function refusesEnvironmentPrint(input) {
   return true
 }
 
-async function run(hook, { act, failClosed, measured }) {
+async function run(hook, { act, addressed, failClosed, measured }) {
   const input = await hookInput()
   if (input == null) {
     process.stderr.write('eddies: the hook input could not be read as a JSON object; refused\n')
@@ -457,6 +463,8 @@ async function run(hook, { act, failClosed, measured }) {
       return
     }
     if (failClosed && await refusesEnvironmentPrint(input))
+      return
+    if (addressed && misaddressedPrompt(root, input))
       return
     act(measured ? await import(MEASURE_MODULE) : null, root, input, measured ? readConfig(root) : null)
   }
@@ -485,13 +493,25 @@ function guard(measure, root, input, config) {
   journal(root, stopLine(stop, input.tool_name))
 }
 
+function misaddressedPrompt(root, input) {
+  const text = typeof input.prompt === 'string' ? input.prompt : ''
+  if (!text.split(/\r?\n/, 1)[0].includes(ADDRESSED_HANDOFF))
+    return false
+  const check = spawnSync(process.execPath, ['--import', 'tsx', path.join(root, 'scripts', 'window', 'tab.ts')], { cwd: root, input: text, encoding: 'utf8', timeout: ADDRESS_CHECK_TIMEOUT_MS })
+  if (check.status !== PROMPT_REFUSED_EXIT)
+    return false
+  process.stderr.write(check.stderr)
+  process.exitCode = PROMPT_REFUSED_EXIT
+  return true
+}
+
 function prompt(measure, root, input, config) {
   process.stdout.write(sessionWarnings(measure, root, input, config).join(''))
 }
 
 const MODES = {
   guard: { act: guard, failClosed: true, measured: true },
-  prompt: { act: prompt, failClosed: false, measured: true },
+  prompt: { act: prompt, addressed: true, failClosed: false, measured: true },
   compact: { act: forgetContextWarnings, failClosed: false, measured: false },
 }
 

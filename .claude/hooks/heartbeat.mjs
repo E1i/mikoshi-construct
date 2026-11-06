@@ -4,6 +4,7 @@ import { realpathSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import { isCardSession } from './tab-window.mjs'
 
 export const CARD_VARIABLE = 'CONSTRUCT_CARD'
 const SESSION_ID = /^[\w-]{1,128}$/
@@ -31,7 +32,7 @@ async function readStdin() {
 
 async function main() {
   const root = process.env.CLAUDE_PROJECT_DIR
-  if (process.env[CARD_VARIABLE] === undefined || root === undefined)
+  if (!isCardSession(process.env) || root === undefined)
     return
   let text
   try {
