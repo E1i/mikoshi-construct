@@ -297,7 +297,7 @@ it('the journal of the contract is the shape the session journal parser returns'
 it('clientAdapter returns Claude and its capabilities', () => {
   const adapter = clientAdapter()
   expect(adapter.id).toBe('claude')
-  expect(adapter.capabilities).toEqual({ identity: 'assigned', ladder: true, reports: { cost: true, turns: true, model: true, denials: true, journal: true } })
+  expect(adapter.capabilities).toEqual({ identity: 'assigned', ladder: true, reports: { cost: true, turns: true, model: true, denials: true, journal: true }, guarantees: { allowlist: true, writeConfinement: true, mcpOff: true, toolNarrowing: true, guardFailsClosed: true } })
 })
 
 it('an operation a later card fills throws a named error that names that card', () => {

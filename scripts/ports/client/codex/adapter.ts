@@ -1,4 +1,4 @@
-import type { ClientAdapter, Invocation, ModelPick, ReadBudget, Refusal, SessionPlace, SessionReading, SessionSpec, ToolUse, Usage } from '../contract.js'
+import type { ClientAdapter, ClientGuarantees, Invocation, ModelPick, ReadBudget, Refusal, SessionPlace, SessionPolicy, SessionReading, SessionSpec, ToolUse, Usage } from '../contract.js'
 import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 
@@ -13,18 +13,44 @@ const ONLY_READ_ONLY_REVIEW = 'this client runs only a read-only review session 
 const NO_RESUME_OF_REVIEW = 'this client starts a read-only review session and never resumes one: resume takes neither the tree nor the sandbox flag (Q167)'
 const NO_PROCESS_READING = 'this client has no reading of the working directories of its processes'
 const NO_BUDGET_READING: ReadBudget = { startContext: null, readBeforeEdit: null }
+const NO_WRITE_PATHS = 'a read-only review writes nowhere, and the policy names paths to write'
+const NO_ADD_DIRS = 'a read-only review reads only its tree: a further directory under it was never witnessed, so addDirs is refused and not dropped'
+
+const GUARANTEES: ClientGuarantees = { allowlist: false, writeConfinement: true, mcpOff: false, toolNarrowing: false, guardFailsClosed: false }
+
+const WHAT_A_POLICY_ASKS: readonly { guarantee: keyof ClientGuarantees, asks: (policy: SessionPolicy) => boolean }[] = [
+  { guarantee: 'allowlist', asks: policy => policy.gateCommands.length > 0 },
+  { guarantee: 'writeConfinement', asks: policy => policy.profile === 'sandboxed' },
+  { guarantee: 'mcpOff', asks: policy => policy.mcpOff },
+  { guarantee: 'toolNarrowing', asks: policy => (policy.tools ?? []).length > 0 },
+]
 
 type RawEntry = Record<string, unknown>
 
-function reviewInvocation(spec: SessionSpec): Invocation {
+function refused(reason: string): Refusal {
+  return { kind: 'refused', reason }
+}
+
+function missingGuarantees(policy: SessionPolicy): string[] {
+  return WHAT_A_POLICY_ASKS.filter(({ guarantee, asks }) => asks(policy) && !GUARANTEES[guarantee]).map(({ guarantee }) => guarantee)
+}
+
+function reviewInvocation(spec: SessionSpec): Invocation | Refusal {
+  const missing = missingGuarantees(spec.policy)
+  if (missing.length > 0)
+    return refused(`the policy asks for what this client does not guarantee: ${missing.join(', ')}`)
+  if (spec.policy.writePaths.length > 0)
+    return refused(NO_WRITE_PATHS)
+  if (spec.addDirs.length > 0)
+    return refused(NO_ADD_DIRS)
   const model = spec.pick.model === null ? [] : [MODEL_FLAG, spec.pick.model]
   return { command: CODEX_COMMAND, args: [...READ_ONLY_HEADLESS, TREE_FLAG, spec.cwd, ...model, spec.prompt], env: {}, stdin: null }
 }
 
 function invocationOf(spec: SessionSpec): Invocation | Refusal {
   if (spec.role !== 'review')
-    return { kind: 'refused', reason: `${ONLY_READ_ONLY_REVIEW}: the role ${spec.role} is not one` }
-  return spec.kind === 'start' ? reviewInvocation(spec) : { kind: 'refused', reason: NO_RESUME_OF_REVIEW }
+    return refused(`${ONLY_READ_ONLY_REVIEW}: the role ${spec.role} is not one`)
+  return spec.kind === 'start' ? reviewInvocation(spec) : refused(NO_RESUME_OF_REVIEW)
 }
 
 function isObject(value: unknown): value is RawEntry {
@@ -43,8 +69,12 @@ function entriesOf(text: string): RawEntry[] {
   })
 }
 
+function textOf(file: string | null): string | null {
+  return file !== null && existsSync(file) ? readFileSync(file, 'utf8') : null
+}
+
 function streamOf(stdoutPath: string | null): RawEntry[] {
-  return stdoutPath !== null && existsSync(stdoutPath) ? entriesOf(readFileSync(stdoutPath, 'utf8')) : []
+  return entriesOf(textOf(stdoutPath) ?? '')
 }
 
 function usageOf(raw: unknown): Usage | null {
@@ -61,11 +91,23 @@ function failureOf(failed: RawEntry): string {
   return typeof message === 'string' && message.trim() !== '' ? message.trim() : FAILED_WITH_NO_TEXT
 }
 
-function endOf(entries: RawEntry[]): Pick<SessionReading, 'end' | 'failure'> {
+function failedStart(place: SessionPlace): string {
+  const text = textOf(place.stderrPath)?.trim()
+  return text === undefined || text === '' ? `the client exited ${place.exitCode} with no stream and no error text` : text
+}
+
+function endOf(entries: RawEntry[], place: SessionPlace): Pick<SessionReading, 'end' | 'failure'> {
+  if (entries.length === 0 && place.exitCode !== null && place.exitCode !== 0)
+    return { end: 'failed', failure: failedStart(place) }
   const last = entries.filter(entry => entry.type === 'turn.completed' || entry.type === 'turn.failed').at(-1)
   if (last === undefined)
     return { end: 'missing', failure: null }
   return last.type === 'turn.failed' ? { end: 'failed', failure: failureOf(last) } : { end: 'completed', failure: null }
+}
+
+function threadOf(entries: RawEntry[]): string | null {
+  const thread = entries.find(entry => entry.type === 'thread.started')?.thread_id
+  return typeof thread === 'string' ? thread : null
 }
 
 function toolUsesOf(entries: RawEntry[]): ToolUse[] {
@@ -80,17 +122,18 @@ function toolUsesOf(entries: RawEntry[]): ToolUse[] {
 function readingOf(place: SessionPlace): SessionReading {
   const entries = streamOf(place.stdoutPath)
   return {
-    ...endOf(entries),
+    ...endOf(entries, place),
     usage: usageOf(entries.filter(entry => entry.type === 'turn.completed').at(-1)?.usage),
     costUsd: null,
     turns: null,
     durationMs: null,
     model: null,
-    denials: [],
+    denials: null,
     toolUses: toolUsesOf(entries),
     journal: 'unreadable',
     lastSteps: null,
     contextTokens: null,
+    clientSession: threadOf(entries),
   }
 }
 
@@ -108,11 +151,12 @@ export const codexAdapter: ClientAdapter = {
     identity: 'reported',
     ladder: false,
     reports: { cost: false, turns: false, model: false, denials: false, journal: false },
+    guarantees: { ...GUARANTEES },
   },
   invocation: invocationOf,
   reading: readingOf,
   readBudget: () => ({ ...NO_BUDGET_READING }),
-  models: () => [],
+  models: () => null,
   modelFor: (_role, _effort, wanted) => modelOf(wanted),
   processes: {
     isClient: isCodexArgv,

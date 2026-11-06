@@ -48,7 +48,7 @@ function aTranscript(...lines: string[]): void {
 }
 
 function transcriptReading(): ReturnType<typeof streamReading> {
-  return clientAdapter().reading({ session: SESSION, cwd: TREE, stdoutPath: null })
+  return clientAdapter().reading({ session: SESSION, cwd: TREE, stdoutPath: null, stderrPath: null, exitCode: null })
 }
 
 describe('a stream reading', () => {
@@ -105,6 +105,26 @@ describe('a stream reading', () => {
     expect(streamReading(aStream('{"type":"result","is_error":true,"subtype":"error_during_execution","result":"the turn broke"}'))).toMatchObject({ end: 'failed', failure: 'the turn broke' })
     expect(streamReading(aStream('{"type":"result","is_error":true,"subtype":"error_max_turns"}'))).toMatchObject({ end: 'failed', failure: 'error_max_turns' })
     expect(streamReading(aStream(RECORDED_INIT, 'not json'))).toMatchObject({ end: 'missing', model: 'claude-opus-5-5' })
+  })
+
+  it('a nonzero exit with no stream line reads failed with stderr, and an exit with a stream reads by the stream', () => {
+    const place = (stdoutPath: string, stderrPath: string | null, exitCode: number | null): ReturnType<typeof streamReading> => clientAdapter().reading({ session: '', cwd: '', stdoutPath, stderrPath, exitCode })
+    const stderr = path.join(aRoot(), 'err')
+    writeFileSync(stderr, 'the binary would not start\n')
+
+    expect(place(aStream(''), stderr, 1)).toMatchObject({ end: 'failed', failure: 'the binary would not start' })
+    expect(place(aStream(''), null, 1)).toMatchObject({ end: 'failed', failure: expect.stringContaining('exited 1') })
+    expect(place(aStream(''), stderr, 0)).toMatchObject({ end: 'missing', failure: null })
+    expect(place(aStream(''), stderr, null)).toMatchObject({ end: 'missing', failure: null })
+    expect(place(aStream(RECORDED_INIT, RECORDED_RESULT), stderr, 1)).toMatchObject({ end: 'completed', failure: null })
+  })
+
+  it('the session of the client is the one the place names, else the one its stream reports, else null', () => {
+    const stream = aStream(RECORDED_INIT, RECORDED_RESULT)
+
+    expect(clientAdapter().reading({ session: SESSION, cwd: TREE, stdoutPath: aStream('{"type":"result"}'), stderrPath: null, exitCode: null }).clientSession).toBe(SESSION)
+    expect(streamReading(stream).clientSession).toBe('recorded-session')
+    expect(streamReading(aStream('{"type":"result"}')).clientSession).toBeNull()
   })
 
   it('the model is the model of the init event, whatever a hook line before it names', () => {

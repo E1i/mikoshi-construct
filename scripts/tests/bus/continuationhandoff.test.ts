@@ -271,7 +271,7 @@ function stepsRead(transcript: string): string[] | null {
   mkdirSync(path.dirname(file), { recursive: true })
   writeFileSync(file, transcript)
   vi.stubEnv('CLAUDE_CONFIG_DIR', home)
-  const { lastSteps } = clientAdapter().reading({ session: 'stepped-session', cwd: '/tree', stdoutPath: null })
+  const { lastSteps } = clientAdapter().reading({ session: 'stepped-session', cwd: '/tree', stdoutPath: null, stderrPath: null, exitCode: null })
   vi.unstubAllEnvs()
   return lastSteps
 }

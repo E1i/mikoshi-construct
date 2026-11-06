@@ -8,7 +8,7 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { textSha } from '../../../src/card/text-sha.js'
 import { appendEvent } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_HELD, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, CARD_WAITING, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, POLICY_DENIED, QUESTION_AGENT, QUESTION_OWNER, WITNESS_DOWNGRADE } from '../../core/events.js'
@@ -16,7 +16,9 @@ import { leaseNext } from '../../core/lease.js'
 import { answerCandidates, DOWNGRADE_WAIT_OPEN, queueTask } from '../../core/queue.js'
 import { reduce } from '../../core/reducer.js'
 import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
-import { claudeAnswerer, liveSessionIn, pendingPathsOf } from '../../nodes/answer/answerer.js'
+import { claudeAnswerer, liveSessionIn, pendingPathsOf, refusedOwnerQuestionIn } from '../../nodes/answer/answerer.js'
+import { codexAdapter } from '../../ports/client/codex/adapter.js'
+import { clientAdapter } from '../../ports/client/index.js'
 import { requestFromWindow, requestOf, WindowRequests } from '../../window/window-requests.js'
 import { sha } from './github-fake.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
@@ -30,6 +32,7 @@ const benches: MergeBench[] = []
 const roots: string[] = []
 
 afterEach(() => {
+  vi.restoreAllMocks()
   for (const made of benches.splice(0))
     made.close()
   for (const root of roots.splice(0))
@@ -437,6 +440,20 @@ describe('the paths an answer commit would push', () => {
     gitIn(dir, 'commit', '-q', '-m', 'answer')
 
     expect(pendingPathsOf(treeAt(dir)).sort()).toEqual(['answered.ts', 'kept.ts'])
+  })
+})
+
+describe('a client that does not report its denials', () => {
+  it('reads as nothing known, so no refused owner question is found and nothing throws', () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'bus-answer-denials-'))
+    roots.push(dir)
+    const stream = path.join(dir, 'out.jsonl')
+    const question = path.join(dir, 'q.owner.txt')
+    writeFileSync(stream, `${JSON.stringify({ type: 'turn.failed', error: { message: `refused ${question}` } })}\n`)
+    const reading = vi.spyOn(clientAdapter(), 'reading').mockImplementation(codexAdapter.reading)
+
+    expect(refusedOwnerQuestionIn(stream, question)).toBeNull()
+    expect(reading).toHaveLastReturnedWith(expect.objectContaining({ denials: null }))
   })
 })
 

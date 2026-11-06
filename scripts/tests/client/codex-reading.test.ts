@@ -9,7 +9,7 @@ import { clientAdapter } from '../../ports/client/index.js'
 const TREE = '/tree'
 const W1 = path.join(import.meta.dirname, 'fixtures', 'codex-w1.jsonl')
 const W6 = path.join(import.meta.dirname, 'fixtures', 'codex-w6.jsonl')
-const NOT_REPORTED = { costUsd: null, turns: null, durationMs: null, model: null, denials: [], journal: 'unreadable', lastSteps: null, contextTokens: null }
+const NOT_REPORTED = { costUsd: null, turns: null, durationMs: null, model: null, denials: null, journal: 'unreadable', lastSteps: null, contextTokens: null }
 const UNAVAILABLE = 'The model is not supported when using Codex with a ChatGPT account.'
 
 const roots: string[] = []
@@ -28,7 +28,7 @@ function aStream(...lines: string[]): string {
 }
 
 function read(stdoutPath: string | null): ReturnType<typeof codexAdapter.reading> {
-  return codexAdapter.reading({ session: 'core-session', cwd: TREE, stdoutPath })
+  return codexAdapter.reading({ session: 'core-session', cwd: TREE, stdoutPath, stderrPath: null, exitCode: null })
 }
 
 function linesOf(fixture: string): string[] {
@@ -44,7 +44,7 @@ function aSpec(overrides: Partial<SessionSpec> = {}): SessionSpec {
     prompt: 'Review this change.',
     addDirs: [],
     pick: { model: null },
-    policy: { profile: 'client-default', gateCommands: [], writePaths: [], mcpOff: true },
+    policy: { profile: 'client-default', gateCommands: [], writePaths: [], mcpOff: false },
     ...overrides,
   }
 }
@@ -52,7 +52,7 @@ function aSpec(overrides: Partial<SessionSpec> = {}): SessionSpec {
 describe('the capabilities of the second adapter', () => {
   it('reports nothing it cannot read and is selected by nothing yet', () => {
     expect(codexAdapter.id).toBe('codex')
-    expect(codexAdapter.capabilities).toEqual({ identity: 'reported', ladder: false, reports: { cost: false, turns: false, model: false, denials: false, journal: false } })
+    expect(codexAdapter.capabilities).toMatchObject({ identity: 'reported', ladder: false, reports: { cost: false, turns: false, model: false, denials: false, journal: false } })
     expect(clientAdapter().id).toBe('claude')
   })
 })
@@ -64,6 +64,7 @@ describe('a recorded stream', () => {
       failure: null,
       usage: { input: 15506, cached: 21760, cacheWrite: 0, output: 100, reasoning: 0 },
       toolUses: [{ kind: 'exec', command: '/bin/zsh -lc \'git rev-parse --short HEAD\'', path: null }],
+      clientSession: '01a1aa9f-0000-4000-8000-000000000001',
       ...NOT_REPORTED,
     })
   })
@@ -74,6 +75,7 @@ describe('a recorded stream', () => {
       failure: null,
       usage: { input: 15688, cached: 21760, cacheWrite: 0, output: 176, reasoning: 12 },
       toolUses: [{ kind: 'exec', command: '/bin/zsh -lc \'touch w6-allowed.txt\'', path: null }],
+      clientSession: '01a1aa9f-0000-4000-8000-000000000006',
       ...NOT_REPORTED,
     })
   })
@@ -144,8 +146,8 @@ describe('the invocation', () => {
 })
 
 describe('the models', () => {
-  it('lists none, because the list is not what is available', () => {
-    expect(codexAdapter.models()).toEqual([])
+  it('holds no list, because the list is not what is available', () => {
+    expect(codexAdapter.models()).toBeNull()
   })
 
   it('passes a named model through and leaves auto to the client', () => {
