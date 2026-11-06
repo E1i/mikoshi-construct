@@ -294,6 +294,91 @@ describe('task:start refuses while the window holds its limit of open pull reque
     db.close()
     expect(runTaskStart(['feat/wip', '--card', card(42)], { ...depsOf(world), windowLimit: () => 3 }).exitCode).toBe(0)
   })
+
+  function withBody(world: World, line: string, who: string): TaskStartDeps {
+    const dir = path.join(world.root, 'limit-bodies')
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(path.join(dir, '42.md'), `card: ${line}\nbranch: feat/wip\ntouches: a.ts\ncontinue: stop\nwho: ${who}\n\ndo it\n`)
+    return { ...depsOf(world), cardBody: bodiesIn(dir) }
+  }
+
+  function atItsLimit(world: World): void {
+    openPr(world, 901, 2)
+    openPr(world, 902, 3)
+    openPr(world, 903, 4)
+  }
+
+  const LIMIT_LINE = '[task:start] the window holds 3 open pull requests (PR #901, PR #902, PR #903), at its limit of 3 from CONSTRUCT_BUS_SLOTS_REVIEW: move one to its merge or close before starting #42; nothing written'
+
+  it('a who: shift card starts while the window holds its limit of open pull requests', () => {
+    const world = newWorld()
+    atItsLimit(world)
+    const before = starts(world).length
+    const result = runTaskStart(['feat/wip', '--card', card(42)], { ...withBody(world, card(42), 'shift'), windowLimit: () => 3 })
+    expect(result.stderr).toEqual([])
+    expect(result.exitCode).toBe(0)
+    expect(existsSync(path.join(world.root, 'mc-42'))).toBe(true)
+    expect(starts(world)).toHaveLength(before + 1)
+    expect(starts(world).at(-1)).toMatchObject({ who: 'shift', branch: 'feat/wip' })
+  })
+
+  it('a who: shift card does not read the slot count, so an unreadable one does not refuse it', () => {
+    const world = newWorld()
+    const result = runTaskStart(['feat/wip', '--card', card(42)], { ...withBody(world, card(42), 'shift'), windowLimit: () => slotsOf('review', { CONSTRUCT_BUS_SLOTS_REVIEW: 'three' }) })
+    expect(result.stderr).toEqual([])
+    expect(result.exitCode).toBe(0)
+  })
+
+  it('a who: window card at the limit is refused naming the pull requests and cuts no branch', () => {
+    const world = newWorld()
+    atItsLimit(world)
+    const before = starts(world).length
+    const result = runTaskStart(['feat/wip', '--card', card(42)], { ...withBody(world, card(42), 'window'), windowLimit: () => 3 })
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toEqual([LIMIT_LINE])
+    expect(git(world.repo, ['branch', '--list', 'feat/wip'])).toBe('')
+    expect(existsSync(path.join(world.root, 'mc-42'))).toBe(false)
+    expect(starts(world)).toHaveLength(before)
+  })
+
+  it('a who: window card with an unreadable slot count is refused and cuts no branch', () => {
+    const world = newWorld()
+    const result = runTaskStart(['feat/wip', '--card', card(42)], { ...withBody(world, card(42), 'window'), windowLimit: () => slotsOf('review', { CONSTRUCT_BUS_SLOTS_REVIEW: 'three' }) })
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toEqual(['[task:start] the window limit cannot be read: CONSTRUCT_BUS_SLOTS_REVIEW is not a positive integer: three; nothing written'])
+    expect(git(world.repo, ['branch', '--list', 'feat/wip'])).toBe('')
+  })
+
+  it('a body that says who: shift for another card does not lift the limit', () => {
+    const world = newWorld()
+    atItsLimit(world)
+    const result = runTaskStart(['feat/wip', '--card', card(42)], { ...withBody(world, card(42, 'implement/ghosts/M/cheap/owner'), 'shift'), windowLimit: () => 3 })
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toEqual([LIMIT_LINE])
+  })
+
+  it('a card body that cannot be read leaves the limit in force', () => {
+    const world = newWorld()
+    atItsLimit(world)
+    const result = runTaskStart(['feat/wip', '--card', card(42)], { ...depsOf(world), windowLimit: () => 3, cardBody: () => {
+      throw new Error('database is locked')
+    } })
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toEqual([LIMIT_LINE])
+  })
+
+  it('a who: shift card edited past its admission is still refused at the limit, by the edit', () => {
+    const world = newWorld()
+    atItsLimit(world)
+    const deps = { ...withBody(world, card(42), 'shift'), windowLimit: () => 3 }
+    const db = openBus(world.bus)
+    appendEvent(db, { ts: ADMITTED_TS, type: CARD_ADMITTED, actor: 'worker:intake:by-hand', cardId: 42, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:42:body`, payload: { card: card(42), lane: null, depends: [], decision: 'auto', contour: 'cheap', bodySha: 'f'.repeat(12) }, legacy: false })
+    db.close()
+    const result = runTaskStart(['feat/wip', '--card', card(42)], deps)
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr.join('\n')).toContain('it was edited past intake')
+    expect(git(world.repo, ['branch', '--list', 'feat/wip'])).toBe('')
+  })
 })
 
 describe('w1: task:start cuts the tree and writes the start', () => {
