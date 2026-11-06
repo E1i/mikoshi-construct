@@ -32,8 +32,9 @@ export type AuthorityRule
     | 'r1'
     | 'no_matrix_count_line'
     | 'unsandboxed_command'
+    | 'ratchet_grows'
 
-export const OWNER_MERGES_RULES: ReadonlySet<AuthorityRule> = new Set(['version_pr', 'no_shard_merge', 'owner_merges_unread', 'owner_by_risk', 'reserved', 'owner_without_shard', 'r1', 'unsandboxed_command'])
+export const OWNER_MERGES_RULES: ReadonlySet<AuthorityRule> = new Set(['version_pr', 'no_shard_merge', 'owner_merges_unread', 'owner_by_risk', 'reserved', 'owner_without_shard', 'r1', 'unsandboxed_command', 'ratchet_grows'])
 
 export type AllowedRule = 'auto' | 'owner_under_shard' | 'owner_by_decision' | 'owner_after_round_limit'
 
@@ -178,12 +179,45 @@ function unsandboxedCommand(facts: MergeFacts): MergeVerdict | null {
   return null
 }
 
+const RATCHET_RECORD = 'contract/ratchet.json'
+const RATCHET_NUMBER = /^[+-]\s*"(?<key>[^"]+)":\s*(?<value>\d+),?\s*$/
+const RATCHET_BRACE = /^[+-]\s*[{}]\s*$/
+
+function ratchetGrowthIn(patch: string): string | undefined {
+  const lines = patch.split('\n')
+  const lowered = new Map(lines.filter(line => line.startsWith('-')).flatMap((line) => {
+    const groups = RATCHET_NUMBER.exec(line)?.groups
+    return groups === undefined ? [] : [[groups.key!, Number(groups.value)] as const]
+  }))
+  for (const line of lines.filter(candidate => candidate.startsWith('+') && !RATCHET_BRACE.test(candidate))) {
+    const groups = RATCHET_NUMBER.exec(line)?.groups
+    if (groups === undefined)
+      return `adds the line ${line}, which is not one key and one number`
+    const held = lowered.get(groups.key!)
+    if (held === undefined)
+      return `adds ${groups.key}`
+    if (Number(groups.value) > held)
+      return `raises ${groups.key} from ${held} to ${groups.value}`
+  }
+  return undefined
+}
+
+function ratchetGrows(facts: MergeFacts): MergeVerdict | null {
+  if (!facts.files.includes(RATCHET_RECORD))
+    return null
+  const patch = facts.patched.find(({ filename }) => filename === RATCHET_RECORD)?.patch
+  if (patch === undefined)
+    return denied('ratchet_grows', `GitHub gives no patch for ${RATCHET_RECORD}, so whether it grows is unknown, and it stays the owner's`)
+  const growth = ratchetGrowthIn(patch)
+  return growth === undefined ? null : denied('ratchet_grows', `the diff of ${RATCHET_RECORD} ${growth}: its growth stays the owner's under every shard and every decision`)
+}
+
 function reserved(facts: MergeFacts): MergeVerdict | null {
   const kinds = readOwnerMergeKinds(facts.ownerMergesText)
   const releaseTitle = kinds.find(kind => kind.kind === RELEASE_KIND)?.title ?? null
   if (VERSION_BRANCH.test(facts.headRef) || (releaseTitle !== null && facts.title === releaseTitle))
     return denied('version_pr', `${facts.headRef} is a version pull request and stays the owner's`)
-  const ownersUnderEveryShard = reservedCardOf(facts) ?? changesOwnerMerges(facts) ?? noShardMerge(facts) ?? unsandboxedCommand(facts)
+  const ownersUnderEveryShard = reservedCardOf(facts) ?? changesOwnerMerges(facts) ?? noShardMerge(facts) ?? ratchetGrows(facts) ?? unsandboxedCommand(facts)
   if (ownersUnderEveryShard !== null || delegatedByShard(facts) !== null)
     return ownersUnderEveryShard
   if (facts.windowShard !== null)
