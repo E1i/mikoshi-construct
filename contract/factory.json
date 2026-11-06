@@ -1376,7 +1376,6 @@
       },
       "reexports": [],
       "types": {
-        "ClientOperationPending": "class ClientOperationPending extends Error { constructor(readonly operation: string, readonly card: string) }",
         "CommandJournal": "interface CommandJournal extends SessionJournal { commandRuns: readonly CommandRun[]; }",
         "MeasuredSubagent": "interface MeasuredSubagent { name: string; context: number; spent: number; at: string; }",
         "TranscriptCounters": "interface TranscriptCounters { input: number; cache_write: number; cache_read: number; }"
