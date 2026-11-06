@@ -1,6 +1,9 @@
 import type { ScriptRegistry } from '../scripts/contract/surface.js'
-import { readFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import path from 'node:path'
+import process from 'node:process'
 import { describe, expect, it } from 'vitest'
 import { requiredChange } from '../scripts/contract/semantic-diff.js'
 import { renderScriptsTable, scriptNames, scriptRegistry } from '../scripts/contract/surface.js'
@@ -12,6 +15,8 @@ const RECORDED_SURFACE = JSON.parse(readFileSync(path.join(REPO_ROOT, 'contract/
 const REGISTRY = scriptRegistry()
 const ADDED = 'probe:added'
 const REASON = 'a hand-run print | not a gate'
+const SURFACE_ENTRY = 'scripts/contract/surface.ts'
+const RUN_TIMEOUT_MS = 120_000
 
 function withAddedScript(): ScriptRegistry {
   return {
@@ -23,6 +28,17 @@ function withAddedScript(): ScriptRegistry {
 function withoutScript(name: string): ScriptRegistry {
   const { [name]: _, ...scripts } = REGISTRY.scripts
   return { ...REGISTRY, scripts }
+}
+
+function treeWithAddedScript(): string {
+  const root = mkdtempSync(path.join(tmpdir(), 'construct-scripts-registry-'))
+  writeFileSync(path.join(root, 'package.json'), JSON.stringify(withAddedScript()))
+  writeFileSync(path.join(root, 'CONTRIBUTING.md'), CONTRIBUTING)
+  return root
+}
+
+function runNode(args: string[]): void {
+  execFileSync(process.execPath, args, { cwd: REPO_ROOT, stdio: 'ignore' })
 }
 
 function linesOf(text: string, name: string): string[] {
@@ -40,6 +56,11 @@ describe('package.json is the one registry of scripts, and the table and the sur
     const { scriptsOutsideTheHarness: _, ...added } = withAddedScript()
     const table = renderScriptsTable(CONTRIBUTING, { ...added, scriptsOutsideTheHarness: REGISTRY.scriptsOutsideTheHarness })
     expect(linesOf(table, ADDED)).toEqual([`| \`pnpm ${ADDED}\` | In the harness. | \`pnpm ${ADDED}\` |`])
+  })
+
+  it('folds a reason written over several lines into the one line a table row holds', () => {
+    const added = { ...REGISTRY, scripts: { ...REGISTRY.scripts, [ADDED]: 'x' }, scriptsOutsideTheHarness: { ...REGISTRY.scriptsOutsideTheHarness, [ADDED]: 'a hand-run\n    print' } }
+    expect(linesOf(renderScriptsTable(CONTRIBUTING, added), ADDED)).toEqual([`| \`pnpm ${ADDED}\` | a hand-run print | \`pnpm ${ADDED}\` |`])
   })
 
   it('puts the new row inside the table, before the text that follows it', () => {
@@ -76,4 +97,22 @@ describe('package.json is the one registry of scripts, and the table and the sur
     const withAdded = { ...recorded, scripts: [...recorded.scripts, ADDED] }
     expect(requiredChange(recorded, withAdded).level).toBe('none')
   })
+})
+
+describe('pnpm contract:update carries a script from the registry into the table', () => {
+  it('rewrites the table of the tree it is pointed at, through the step package.json names', () => {
+    const root = treeWithAddedScript()
+    const step = REGISTRY.scripts['contract:update']?.split(' && ').find(command => command.endsWith(SURFACE_ENTRY))
+    expect(step).toBe(`node --import tsx ${SURFACE_ENTRY}`)
+    runNode([...step!.split(' ').slice(1), root])
+    expect(linesOf(readFileSync(path.join(root, 'CONTRIBUTING.md'), 'utf8'), ADDED)).toEqual([`| \`pnpm ${ADDED}\` | a hand-run print \\| not a gate | \`pnpm ${ADDED}\` |`])
+  }, RUN_TIMEOUT_MS)
+
+  it('writes nothing when the module is only imported', () => {
+    const root = treeWithAddedScript()
+    const importer = path.join(root, 'imports-the-surface.mjs')
+    writeFileSync(importer, `import ${JSON.stringify(path.join(REPO_ROOT, SURFACE_ENTRY))}\n`)
+    runNode(['--import', 'tsx', importer, root])
+    expect(readFileSync(path.join(root, 'CONTRIBUTING.md'), 'utf8')).toBe(CONTRIBUTING)
+  }, RUN_TIMEOUT_MS)
 })

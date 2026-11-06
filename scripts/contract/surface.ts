@@ -36,8 +36,8 @@ const MARKERS_NOT_OBSERVABLE = 'block and discovery markers are read from the so
 const CONTOURS_NOT_OBSERVABLE = 'contour schemas are read from contract/contours/, not from the tag\'s output'
 const OUTSIDE_NOT_OBSERVABLE = 'what lies outside the contract is a recorded decision, not an output of the tag'
 const AVAILABLE_PRESETS = 'import(\'./src/presets/index.ts\').then(m => console.log(JSON.stringify(m.PRESET_LIST.filter(p => p.available !== false).map(p => p.id))))'
-const MANIFEST_FILE = path.join(REPO_ROOT, 'package.json')
-const CONTRIBUTING_FILE = path.join(REPO_ROOT, 'CONTRIBUTING.md')
+const MANIFEST_FILE = 'package.json'
+const CONTRIBUTING_FILE = 'CONTRIBUTING.md'
 const SCRIPTS_HEADING = '## Scripts'
 const SCRIPT_ROW = /^\| `pnpm (?:run )?([\w:-]+)[ `]/
 const IN_THE_HARNESS = 'In the harness.'
@@ -79,8 +79,14 @@ export interface ScriptRegistry {
   scriptsOutsideTheHarness: Record<string, string>
 }
 
-export function scriptRegistry(): ScriptRegistry {
-  return JSON.parse(readFileSync(MANIFEST_FILE, 'utf8')) as ScriptRegistry
+export function scriptRegistry(root = REPO_ROOT): ScriptRegistry {
+  return JSON.parse(readFileSync(path.join(root, MANIFEST_FILE), 'utf8')) as ScriptRegistry
+}
+
+function writeScriptsTable(root: string): string {
+  const contributing = path.join(root, CONTRIBUTING_FILE)
+  writeFileSync(contributing, renderScriptsTable(readFileSync(contributing, 'utf8'), scriptRegistry(root)))
+  return contributing
 }
 
 export function scriptNames(registry: ScriptRegistry): string[] {
@@ -347,6 +353,5 @@ export function renderSurface(surface: Surface): string {
 }
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  writeFileSync(CONTRIBUTING_FILE, renderScriptsTable(readFileSync(CONTRIBUTING_FILE, 'utf8'), scriptRegistry()))
-  console.warn(`[contract] ${path.relative(process.cwd(), CONTRIBUTING_FILE)}`)
+  console.warn(`[contract] ${path.relative(process.cwd(), writeScriptsTable(process.argv[2] ?? REPO_ROOT))}`)
 }
