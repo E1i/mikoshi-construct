@@ -683,7 +683,7 @@ function candidates(db: DatabaseSync, ts: string): (() => QueuedTask[])[] {
 
 const UNFINISHED_STATES = [...UNFINISHED].map(state => `'${state}'`).join(', ')
 
-const QUEUES_A_MERGE_FINISHES = `'merge', 'close', 'witness'`
+const A_CLOSE_DENIED_ON_THIS_WITNESS = `EXISTS (SELECT 1 FROM events AS denied WHERE denied.type = '${POLICY_DENIED}' AND denied.legacy = 0 AND denied.card_id = tasks.card_id AND denied.head = tasks.head AND json_extract(denied.payload, '$.reason') = 'witness' AND json_extract(denied.payload, '$.command') = 'close' AND instr(tasks.task_key, ':base-' || json_extract(denied.payload, '$.base')) > 0)`
 
 const TASKS_OF_AN_OLD_HEAD = `
   SELECT tasks.task_key, tasks.queue, tasks.card_id, tasks.pr, tasks.head FROM tasks JOIN prs ON prs.pr = tasks.pr
@@ -703,11 +703,11 @@ const MERGES_OF_AN_OLD_BODY = `
   ORDER BY tasks.task_key
 `
 
-const TASKS_OF_A_CLOSED_PULL_REQUEST = `
-  SELECT tasks.task_key, tasks.queue, tasks.card_id, tasks.pr, tasks.head FROM tasks JOIN prs ON prs.pr = tasks.pr
-  WHERE (prs.state = 'closed' OR (prs.state = 'merged' AND tasks.queue NOT IN (${QUEUES_A_MERGE_FINISHES}))) AND tasks.state IN (${UNFINISHED_STATES})
-  ORDER BY tasks.task_key
-`
+const A_MERGED_CARD_STILL_NEEDS_IT = `(tasks.queue IN ('merge', 'close', 'witness') AND tasks.state = '${LEASED}' AND tasks.lease_until >= ?) OR (NOT EXISTS (SELECT 1 FROM events AS closed WHERE closed.type = '${CARD_CLOSED}' AND closed.card_id = tasks.card_id) AND (tasks.queue = 'close' OR (tasks.queue = 'witness' AND ${A_CLOSE_DENIED_ON_THIS_WITNESS})))`
+
+const TASKS_OF_A_CLOSED_PULL_REQUEST = `SELECT tasks.task_key, tasks.queue, tasks.card_id, tasks.pr, tasks.head FROM tasks JOIN prs ON prs.pr = tasks.pr
+  WHERE tasks.state IN (${UNFINISHED_STATES}) AND (prs.state = 'closed' OR (prs.state = 'merged' AND NOT (${A_MERGED_CARD_STILL_NEEDS_IT})))
+  ORDER BY tasks.task_key`
 
 const CAUSE_GONE_ON: Record<string, string> = {
   no_verification: `gone.type = '${CARD_VERIFIED}' AND gone.legacy = 0`,
@@ -1273,7 +1273,7 @@ export function deriveQueues(db: DatabaseSync, ts: string): Derived {
     if (supersedeTask(db, ts, identity(row)))
       derived.superseded.push(row.task_key)
   }
-  for (const row of db.prepare(TASKS_OF_A_CLOSED_PULL_REQUEST).all() as unknown as TaskRow[])
+  for (const row of db.prepare(TASKS_OF_A_CLOSED_PULL_REQUEST).all(ts) as unknown as TaskRow[])
     withdrawTask(db, ts, identity(row))
   for (const row of [...reviewsOfAnOldInput(db), ...answersOfAnOldCardBody(db), ...db.prepare(MERGES_OF_AN_OLD_BODY).all() as unknown as TaskRow[]]) {
     if (supersedeTask(db, ts, identity(row)))
