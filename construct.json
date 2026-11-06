@@ -17,6 +17,12 @@
   },
   "contracts": null,
   "lanes": 7,
+  "sharedAppendFiles": [
+    "templates/attach/earlier-carriers.json",
+    "contract/surface.json",
+    "contract/factory.json",
+    "contract/ratchet.json"
+  ],
   "vars": {
     "projectName": "mikoshi-construct",
     "scope": "@mikoshi-construct",
