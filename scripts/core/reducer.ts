@@ -5,7 +5,7 @@ import { realpathSync } from 'node:fs'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { ROLE_FOLDS, ROLES_PROJECTION } from '../nodes/restart/role.js'
-import { archiveSpentDecisions, DECISION_FOLDS } from '../policy/decisions.js'
+import { archiveSpentDecisions, DECISION_FOLDS, waitsTheDecisionNames } from '../policy/decisions.js'
 import { allowLiveCommand, namesQueueLive } from '../policy/live-decision.js'
 import { RECUT_ACTOR } from '../policy/round-limit-decision.js'
 import { CARD_FOLDS, cardLinkObserved, cardPrMerged, cardPrOpened, CARDS_PROJECTION, CLOSED_CARD, DROPPED_CARD, MERGED_CARD } from './card-automaton.js'
@@ -337,10 +337,11 @@ function commandsTheDecisionAnswers(text: string): string[] {
 function closeWaitsTheDecisionsAnswer(db: DatabaseSync, event: StoredEvent): void {
   const decisions = db.prepare('SELECT decision_id, text, scope FROM decisions WHERE event_id = ?').all(event.id) as { decision_id: number, text: string, scope: string | null }[]
   for (const decision of decisions) {
+    const named = JSON.stringify(waitsTheDecisionNames(db, decision.text))
     db.prepare(`
       UPDATE owner_waits SET state = '${CLOSED_WAIT}', answer = ?, event_id = ?
-      WHERE state = '${OPEN_WAIT}' AND (command IN (SELECT value FROM json_each(?)) OR (need IN ('decision', 'command') AND card_id IN (SELECT value FROM json_each(?))))
-    `).run(`D-${decision.decision_id}`, event.id, JSON.stringify(commandsTheDecisionAnswers(decision.text)), decision.scope ?? '[]')
+      WHERE state = '${OPEN_WAIT}' AND (command IN (SELECT value FROM json_each(?)) OR (need IN ('decision', 'command') AND card_id IN (SELECT value FROM json_each(?)) AND (json_array_length(?) = 0 OR id IN (SELECT value FROM json_each(?)))))
+    `).run(`D-${decision.decision_id}`, event.id, JSON.stringify(commandsTheDecisionAnswers(decision.text)), decision.scope ?? '[]', named, named)
   }
 }
 
