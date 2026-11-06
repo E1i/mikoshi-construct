@@ -102,8 +102,12 @@ function heldByWindow(bus: string): number[] {
   }
 }
 
-function windowAtLimit(deps: TaskStartDeps, id: string): string | null {
-  if (deps.windowLimit === undefined)
+function isShiftCard(cardFile: CardFile): boolean {
+  return cardFile.kind === 'parked' && cardFile.parked.who === 'shift'
+}
+
+function windowAtLimit(deps: TaskStartDeps, id: string, cardFile: CardFile): string | null {
+  if (deps.windowLimit === undefined || isShiftCard(cardFile))
     return null
   let limit: number
   try {
@@ -336,10 +340,10 @@ export function runTaskStart(argv: string[], deps: TaskStartDeps, handed?: Hande
   }
   if (admitted.kind === 'refused')
     return refuse(`${admitted.reason}; nothing written`)
-  const atLimit = windowAtLimit(deps, id)
+  const cardFile = readCardBody(deps, card)
+  const atLimit = windowAtLimit(deps, id, cardFile)
   if (atLimit !== null)
     return refuse(atLimit)
-  const cardFile = readCardBody(deps, card)
   const edited = editedPastAdmission(admitted, cardFile, card)
   if (edited !== null)
     return refuse(edited)
