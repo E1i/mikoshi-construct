@@ -3,11 +3,12 @@ import { spawnSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
-import { isCardSession } from './tab-window.mjs'
+import { startedByMiko, tabCandidate } from './tab-window.mjs'
 
 const CORE_FILE = 'architecture/window-core.md'
 const MISSING_WARNING = 'WINDOW-CORE MISSING: DO NOT COMMIT. DO NOT MERGE. STOP.'
 const COMPACT_START_TIMEOUT_MS = 8_000
+const NO_WINDOW_LINE = 'This session was not started by miko, so it is no window: no window heartbeat, and pnpm handoff:write and pnpm miko:watch refuse here. Start a window with pnpm miko (the loop) or pnpm miko --tab (a tab window); in another repository, miko or miko --tab.\n'
 
 function emit(output) {
   process.stdout.write(`${JSON.stringify({ hookSpecificOutput: { hookEventName: 'SessionStart', ...output.context }, ...output.top })}\n`)
@@ -40,8 +41,11 @@ function startContext(root, input) {
 }
 
 async function main() {
-  if (isCardSession(process.env))
+  if (!startedByMiko(process.env)) {
+    if (tabCandidate(process.env))
+      emit({ context: { additionalContext: NO_WINDOW_LINE }, top: {} })
     return
+  }
   const root = process.env.CLAUDE_PROJECT_DIR
   if (root == null || root === '') {
     refuse(`CLAUDE_PROJECT_DIR is not set, so ${CORE_FILE} cannot be read; the coordinating window starts without its laws`)

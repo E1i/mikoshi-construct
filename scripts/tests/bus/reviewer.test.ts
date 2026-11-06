@@ -194,21 +194,24 @@ describe('reviewer', () => {
     }
   })
 
-  it('after ReviewTrees.add prepares the tree node_modules/.bin/vitest exists in it', () => {
+  it('after ReviewTrees.add prepares the tree node_modules/.bin/vitest exists in it and no worktree entry is left', () => {
     const repo = gitRun(process.cwd(), 'rev-parse', '--show-toplevel').trim()
     const dir = realpathSync(mkdtempSync(path.join(tmpdir(), 'bus-reviewer-prepare-')))
-    const trees = new ReviewTrees(repo, dir)
+    const trees = new ReviewTrees(repo, dir, { ...GIT_TREE_TOOLS, freeTrees: 0 })
     const tree = path.join(dir, 'prepared')
+    const entriesUnderDir = (): string[] => gitRun(repo, 'worktree', 'list', '--porcelain').split('\n').filter(line => line.startsWith(`worktree ${dir}${path.sep}`))
     try {
       trees.add(tree, gitRun(repo, 'rev-parse', 'HEAD').trim())
 
       expect(existsSync(path.join(tree, 'node_modules', '.bin', 'vitest'))).toBe(true)
       expect(trees.state(tree).status).toEqual([])
+      expect(entriesUnderDir()).toEqual([`worktree ${tree}`])
     }
     finally {
       trees.release(tree)
       rmSync(dir, { recursive: true, force: true })
     }
+    expect(entriesUnderDir()).toEqual([])
   }, 300_000)
 
   it('a review tree that is not clean before the review is refused before the session runs', async () => {

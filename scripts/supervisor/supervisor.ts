@@ -21,6 +21,7 @@ import { LIVE_FLAG } from '../core/node.js'
 import { inForceDecisions } from '../policy/decisions.js'
 import { allowLiveCommand, liveDecisionOf } from '../policy/live-decision.js'
 import { CHECK_MS } from '../ports/netwatch.js'
+import { WindowSessionEnds } from '../window/window-session-end.js'
 import { alive, BUILD_DIR, BUILT_MODULE, flagsInArgs, installedPackage, instancesOf, launchName, PREFIX, printBg, provenOnBus, psList, runBusBg, runningInstance, stampedOtherwise, startDetached, thisBus, withBuses } from './bg.js'
 import { BusHealer, CorruptionWatch, RecordedNodes } from './bus-heal.js'
 import { BusSnapshot } from './bus-snapshot.js'
@@ -933,6 +934,7 @@ export interface SupervisingParts {
   judge?: LivenessJudge
   heal?: BusHealer
   snapshot?: BusSnapshot
+  windowEnds?: WindowSessionEnds
   relaunch: () => BgResult
   print: (line: string) => void
   pause: () => Promise<unknown>
@@ -949,7 +951,7 @@ export async function superviseUntilReplaced(parts: SupervisingParts): Promise<v
     const lines = await parts.supervisor.step()
     const head = parts.supervisor.ownCodeBehind
     const replacement = head === null ? { lines: [], replaced: false } : replacedBy(head, parts.relaunch())
-    const ticked = [...lines, ...replacement.lines, ...replacement.replaced ? [] : [...parts.keeper.step(), ...await parts.judge?.step() ?? []]]
+    const ticked = [...lines, ...replacement.lines, ...replacement.replaced ? [] : [...parts.keeper.step(), ...await parts.judge?.step() ?? [], ...parts.windowEnds?.step() ?? []]]
     for (const line of [...ticked, ...await parts.heal?.step(ticked) ?? [], ...parts.snapshot?.step() ?? []])
       parts.print(line)
     if (replacement.replaced)
@@ -1069,16 +1071,14 @@ async function supervise(busDir: string, cwd: string, reviewPreflight: () => str
     down: down => recordWorkerDown(db, new Date().toISOString(), down),
     now: () => Date.now(),
   })
+  const restartJudged = (name: string): Promise<string[]> => restartSilent(name, wanted(), { processes, start, stop: (running, launch) => stopInstance(running, launch.markers, processes) })
   console.log(`${PREFIX}supervising the bus processes over ${busPath}: a main.advanced or a move of the local ${LOCAL_MAIN_REF} restarts, once ${cwd} holds it, each bus process whose code it changed, and this supervisor when its own code changed, and each tick starts a switched-on worker that is not running and stops a switched-off one that is`)
   try {
     await superviseUntilReplaced({
       supervisor,
       keeper,
-      judge: new LivenessJudge(db, () => Date.now(), () => expectedRunning(db, wanted()), name => restartSilent(name, wanted(), {
-        processes,
-        start,
-        stop: (running, launch) => stopInstance(running, launch.markers, processes),
-      }), psStartOf),
+      judge: new LivenessJudge(db, () => Date.now(), () => expectedRunning(db, wanted()), restartJudged, psStartOf),
+      windowEnds: new WindowSessionEnds(db, cwd, () => Date.now(), PREFIX),
       heal: new BusHealer({ busPath, nodes, now: () => new Date(), watch: new CorruptionWatch(busLaunches(reviewPreflight).map(launch => path.join(busDir, launch.log))) }),
       snapshot: new BusSnapshot({ db, busPath, file: snapshotPathOf(busPath), now: () => Date.now(), paused: () => nodes.held() }),
       relaunch: () => startDetached(SUPERVISOR_LAUNCH, busDir, process.env, psOutsideOwnGroup()),

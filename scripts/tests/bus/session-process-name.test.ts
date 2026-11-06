@@ -60,7 +60,7 @@ function listedByItsOwnName(name: string, tree: string): boolean {
 function clientListingNames(tree: string): boolean {
   const read = claudeProcessCwds()
   expect(read.kind).toBe('listed')
-  return read.kind === 'listed' && read.listing.split('\n').includes(`n${tree}`)
+  return read.kind === 'listed' && read.cwds.includes(tree)
 }
 
 it.skipIf(lsofAbsent)('a live process named by a version holds the tree it stands in', async () => {

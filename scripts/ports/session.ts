@@ -45,6 +45,8 @@ export const EXIT_REQUEST_VARIABLE = 'MIKO_EXIT_REQUEST'
 
 export type WindowMode = 'loop' | 'tab'
 
+const TAB_LAUNCHER_MARK: WindowMode = 'tab'
+
 function underTheLoop(env: NodeJS.ProcessEnv): boolean {
   return env[WINDOW_VARIABLE] === WINDOW_MARK || Boolean(env[LOOP_PID_VARIABLE]) || Boolean(env[EXIT_REQUEST_VARIABLE])
 }
@@ -52,7 +54,9 @@ function underTheLoop(env: NodeJS.ProcessEnv): boolean {
 export function windowModeOf(env: NodeJS.ProcessEnv): WindowMode | null {
   if (env[CARD_VARIABLE])
     return null
-  return underTheLoop(env) ? 'loop' : 'tab'
+  if (underTheLoop(env))
+    return 'loop'
+  return env[WINDOW_VARIABLE] === TAB_LAUNCHER_MARK ? TAB_LAUNCHER_MARK : null
 }
 
 export function witnessEnv(base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {

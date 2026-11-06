@@ -1,5 +1,8 @@
 {
   "files": {
+    "contract/accepted.json": "contract",
+    "contract/factory.json": "contract",
+    "contract/ratchet.json": "contract",
     "scripts/nodes/answer/answer-executor.ts": "bus:answer",
     "scripts/nodes/answer/answer-worker.ts": "bus:answer",
     "scripts/nodes/close/close-executor.ts": "bus:close",

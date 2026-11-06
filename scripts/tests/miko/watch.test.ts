@@ -16,6 +16,7 @@ import { prClosed } from '../../core/observations.js'
 import { QUEUE_ACTOR } from '../../core/queue.js'
 import { noPullRequestDetail } from '../../nodes/launch/launch-worker.js'
 import { REVIEW_ROUNDS_SPENT } from '../../nodes/review/review-executor.js'
+import { WINDOW_MARK, WINDOW_VARIABLE } from '../../ports/session.js'
 import { recordJudged, recordWorkerDown } from '../../supervisor/supervisor.js'
 import { ANOTHER_CONSUMER, ONCE_STORE, OnceStore } from '../../window/watch-store.js'
 import { BUS_ALIVE_MS, cardOfEvent, deliverOnce, LEGACY_CURSOR, ONCE, parseWatchArgs, parseWokenStalls, productionDeps, selectOnce, skippedLine, STALL_MS, stalledOf, STOP_EVENT, stuckOf, tick, USER_SETTINGS, wakesTheWindow, WATCHING, WATCHING_FROM_CURSOR, watchState, withWoken, WOKEN_STALLS } from '../../window/watch.js'
@@ -131,7 +132,7 @@ interface Watch {
 
 function startWatch(file: string, args: string[] = [], bus = path.join(path.dirname(file), 'bus.db')): Watch {
   const child = spawn(TSX, [WATCH, ...args], {
-    env: { ...process.env, CONSTRUCT_HANDOFF_DIR: path.dirname(file), CONSTRUCT_BUS_DB: bus },
+    env: { ...process.env, [WINDOW_VARIABLE]: WINDOW_MARK, CONSTRUCT_HANDOFF_DIR: path.dirname(file), CONSTRUCT_BUS_DB: bus },
     stdio: ['ignore', 'pipe', 'pipe'],
   })
   return observe(child, args.includes(ONCE) ? WATCHING_FROM_CURSOR : WATCHING)
@@ -140,7 +141,7 @@ function startWatch(file: string, args: string[] = [], bus = path.join(path.dirn
 function startNode(file: string, nodeArgs: string[], bus = path.join(path.dirname(file), 'bus.db')): Watch {
   const child = spawn(process.execPath, ['--import', 'tsx', ...nodeArgs], {
     cwd: REPO_ROOT,
-    env: { ...process.env, CONSTRUCT_HANDOFF_DIR: path.dirname(file), CONSTRUCT_BUS_DB: bus },
+    env: { ...process.env, [WINDOW_VARIABLE]: WINDOW_MARK, CONSTRUCT_HANDOFF_DIR: path.dirname(file), CONSTRUCT_BUS_DB: bus },
     stdio: ['ignore', 'pipe', 'pipe'],
   })
   return observe(child, WATCHING_FROM_CURSOR)

@@ -1,3 +1,4 @@
+import type { DatabaseSync } from 'node:sqlite'
 import type { WatchCursor } from './watch-store.js'
 import type { WindowPr } from './window-prs.js'
 import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs'
@@ -6,6 +7,7 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { PRIORITIES } from '../../src/card/parking.js'
 import { IN_REVIEW_CARD, RUNNING_CARD, STOPPED_CARD } from '../core/card-automaton.js'
+import { cardHoldOf } from '../core/card-hold.js'
 import { defaultBusPath, openBus } from '../core/db.js'
 import { BUS_PULSE, CARD_CLOSED, CARD_STOPPED, CARD_WAITING, GHOST_LINE, MERGE_DONE, POLICY_DENIED, PR_CLOSED, PR_OBSERVED, PROCESS_JUDGED, REQUEST_DONE, REQUEST_REFUSED, REVIEW_RECORDED, TASK_EXPIRED, WINDOW_REQUEST, WITNESS_RECORDED, WORKER_DOWN } from '../core/events.js'
 import { defaultHandoffDir } from '../core/handoff-dir.js'
@@ -13,6 +15,7 @@ import { HEARTBEAT_QUEUES, LEASE_EXPIRED } from '../core/lease.js'
 import { REVIEW_ROUNDS_SPENT } from '../nodes/review/review-executor.js'
 import { USER_SETTINGS } from '../ports/client/claude/adapter.js'
 import { CARD_PROCESS } from '../supervisor/heartbeat.js'
+import { noWindowRefusal } from './tab.js'
 import { WatchRefusal } from './watch-refusal.js'
 import { ONCE_STORE, OnceStore, parentGone } from './watch-store.js'
 import { windowBeat, windowOf } from './window-heartbeat.js'
@@ -33,6 +36,8 @@ export const DENIALS_IN_A_ROW = 2
 export const STALL_MS = 20 * 60_000
 export const BUS_ALIVE_MS = 2 * 60_000
 export const IN_FLIGHT_CARDS = [RUNNING_CARD, IN_REVIEW_CARD]
+const OPEN_PR = 'open'
+const CLOSED_PR = 'closed'
 export const POLL_MS = 500
 export const USAGE = 'usage: pnpm miko:watch [--once [--card <N>] | --tail]'
 export const ONCE = '--once'
@@ -600,6 +605,13 @@ interface ActivityRow {
   ts: string
 }
 
+function heldWithItsPullRequestClosed(db: DatabaseSync, cardId: number): boolean {
+  if (cardHoldOf(db, cardId) === null)
+    return false
+  const states = (db.prepare('SELECT state FROM prs WHERE card_id = ?').all(cardId) as unknown as Array<{ state: string }>).map(row => row.state)
+  return states.includes(CLOSED_PR) && !states.includes(OPEN_PR)
+}
+
 function stalls(bus: string, now: number): CardActivity[] {
   const db = openBus(bus)
   try {
@@ -613,7 +625,7 @@ function stalls(bus: string, now: number): CardActivity[] {
       ) ORDER BY id
     `).all(...IN_FLIGHT_CARDS, ...IN_FLIGHT_CARDS) as unknown as ActivityRow[]
     const cards = rows.map(row => ({ cardId: Number(row.card_id), lastEventId: Number(row.id), lastType: row.type, lastTs: row.ts }))
-    return stalledOf(cards, pulse?.ts, now)
+    return stalledOf(cards, pulse?.ts, now).filter(card => !heldWithItsPullRequestClosed(db, card.cardId))
   }
   finally {
     db.close()
@@ -751,6 +763,11 @@ if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLTo
   if (args === undefined) {
     console.error(USAGE)
     process.exit(2)
+  }
+  const refusal = noWindowRefusal(process.env)
+  if (refusal !== null) {
+    console.error(`miko:watch: ${refusal}`)
+    process.exit(1)
   }
   const handoff = defaultHandoffDir()
   mkdirSync(handoff, { recursive: true })

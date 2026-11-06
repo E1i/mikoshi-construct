@@ -2,10 +2,11 @@ import type { ArgsDef, CommandDef } from 'citty'
 import type { JsonKeys, ObservedCli } from './json-samples.js'
 import type { SurfaceReading, Unbaselined } from './semantic-diff.js'
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
+import { fileURLToPath } from 'node:url'
 import { ATTACH_EXIT, SETTINGS_FILE } from '../../src/commands/attach/index.js'
 import { BOARD_EXIT } from '../../src/commands/board/index.js'
 import { COST_EXIT } from '../../src/commands/cost/index.js'
@@ -35,6 +36,11 @@ const MARKERS_NOT_OBSERVABLE = 'block and discovery markers are read from the so
 const CONTOURS_NOT_OBSERVABLE = 'contour schemas are read from contract/contours/, not from the tag\'s output'
 const OUTSIDE_NOT_OBSERVABLE = 'what lies outside the contract is a recorded decision, not an output of the tag'
 const AVAILABLE_PRESETS = 'import(\'./src/presets/index.ts\').then(m => console.log(JSON.stringify(m.PRESET_LIST.filter(p => p.available !== false).map(p => p.id))))'
+const MANIFEST_FILE = 'package.json'
+const CONTRIBUTING_FILE = 'CONTRIBUTING.md'
+const SCRIPTS_HEADING = '## Scripts'
+const SCRIPT_ROW = /^\| `pnpm (?:run )?([\w:-]+)[ `]/
+const IN_THE_HARNESS = 'In the harness.'
 
 export const SURFACE_VERSION = 3
 
@@ -65,6 +71,51 @@ export interface Surface {
   markers: { block: string[][], discover: { tags: string[], markers: string[] } }
   contours: Record<string, string>
   outside: string[]
+  scripts: string[]
+}
+
+export interface ScriptRegistry {
+  scripts: Record<string, string>
+  scriptsOutsideTheHarness: Record<string, string>
+}
+
+export function scriptRegistry(root = REPO_ROOT): ScriptRegistry {
+  return JSON.parse(readFileSync(path.join(root, MANIFEST_FILE), 'utf8')) as ScriptRegistry
+}
+
+function writeScriptsTable(root: string): string {
+  const contributing = path.join(root, CONTRIBUTING_FILE)
+  writeFileSync(contributing, renderScriptsTable(readFileSync(contributing, 'utf8'), scriptRegistry(root)))
+  return contributing
+}
+
+export function scriptNames(registry: ScriptRegistry): string[] {
+  return Object.keys(registry.scripts).sort()
+}
+
+function scriptRow(name: string, registry: ScriptRegistry): string {
+  const what = (registry.scriptsOutsideTheHarness[name] ?? IN_THE_HARNESS).replace(/\s+/g, ' ').replaceAll('|', '\\|')
+  return `| \`pnpm ${name}\` | ${what} | \`pnpm ${name}\` |`
+}
+
+export function renderScriptsTable(contributing: string, registry: ScriptRegistry): string {
+  const lines = contributing.split('\n')
+  const start = lines.indexOf(SCRIPTS_HEADING)
+  const next = lines.findIndex((line, at) => at > start && line.startsWith('## '))
+  const end = next === -1 ? lines.length : next
+  const section = lines.slice(start, end)
+  const lastRow = section.map(line => SCRIPT_ROW.test(line)).lastIndexOf(true)
+  if (start === -1 || lastRow === -1)
+    throw new Error(`CONTRIBUTING.md has no rows under "${SCRIPTS_HEADING}" to keep the scripts in`)
+  const rowName = (line: string): string | undefined => SCRIPT_ROW.exec(line)?.[1]
+  const table = section.slice(0, lastRow + 1)
+  const listed = new Set(table.flatMap(line => rowName(line) ?? []))
+  const kept = table.filter((line) => {
+    const name = rowName(line)
+    return name === undefined || name in registry.scripts
+  })
+  const added = Object.keys(registry.scripts).filter(name => !listed.has(name)).map(name => scriptRow(name, registry))
+  return [...lines.slice(0, start), ...kept, ...added, ...section.slice(lastRow + 1), ...lines.slice(end)].join('\n')
 }
 
 function subCommandsOf(command: CommandDef, name: string): Record<string, CommandDef> | null {
@@ -232,6 +283,7 @@ export function generateSurface(): Surface {
     markers: markers(),
     contours: contours(),
     outside: [...OUTSIDE_THE_CONTRACT],
+    scripts: scriptNames(scriptRegistry()),
   }
 }
 
@@ -298,4 +350,8 @@ function sortedKeys(value: JsonValue): JsonValue {
 
 export function renderSurface(surface: Surface): string {
   return `${JSON.stringify(sortedKeys(surface as unknown as JsonValue), null, 2)}\n`
+}
+
+if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  console.warn(`[contract] ${path.relative(process.cwd(), writeScriptsTable(process.argv[2] ?? REPO_ROOT))}`)
 }

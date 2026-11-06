@@ -12,6 +12,7 @@ const RAISED_VARIABLE = 'CONSTRUCT_BUS_RAISED'
 const RAISED_MARK = '1'
 const WINDOW_VARIABLE = 'MIKO_WINDOW'
 const WINDOW_MARK = '1'
+const TAB_MARK = 'tab'
 const LOOP_PID_VARIABLE = 'MIKO_LOOP_PID'
 const EXIT_REQUEST_VARIABLE = 'MIKO_EXIT_REQUEST'
 const BUS_FILE = 'bus.db'
@@ -38,6 +39,10 @@ export function tabCandidate(env) {
   return !isCardSession(env) && !underTheLoop(env) && env[ENTRYPOINT_VARIABLE] !== HEADLESS_ENTRYPOINT && env[RAISED_VARIABLE] !== RAISED_MARK
 }
 
+export function startedByMiko(env) {
+  return !isCardSession(env) && (underTheLoop(env) || (tabCandidate(env) && env[WINDOW_VARIABLE] === TAB_MARK))
+}
+
 function isInside(dir, home) {
   const relative = path.relative(path.resolve(home), path.resolve(dir))
   return relative !== '' && !relative.startsWith('..') && !path.isAbsolute(relative)
@@ -61,5 +66,5 @@ export function inCardTree(dir, treeHomes) {
 }
 
 export function isTabWindowIn(env, dir, treeHomes) {
-  return tabCandidate(env) && !inCardTree(dir, treeHomes)
+  return tabCandidate(env) && env[WINDOW_VARIABLE] === TAB_MARK && !inCardTree(dir, treeHomes)
 }

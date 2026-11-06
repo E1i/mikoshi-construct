@@ -18,6 +18,7 @@ const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')
 const HEADER = readFileSync(path.join(REPO_ROOT, 'scripts/nodes/launch/header.md'), 'utf8')
 const NOW = new Date('2026-11-04T12:00:00Z')
 const CORES = 16
+const LIMIT_THAT_LEAVES_THE_GRANT = 1
 const FULL_RUN: Run = { kind: 'full', why: 'fixture' }
 const LAYER_RUN: Run = { kind: 'layers', layers: [], tests: [] }
 
@@ -37,7 +38,7 @@ afterEach(() => {
 })
 
 function session(dir: string, tree: string, over: Partial<BudgetDeps> = {}): BudgetDeps {
-  return { dir, tree, pid: 101, cores: CORES, isAlive: () => true, ...over }
+  return { dir, tree, pid: 101, cores: CORES, sessionLimit: LIMIT_THAT_LEAVES_THE_GRANT, isAlive: () => true, ...over }
 }
 
 function logEvents(dir: string): string[] {

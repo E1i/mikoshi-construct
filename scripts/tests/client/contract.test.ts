@@ -13,7 +13,7 @@ import { LadderCardStarter } from '../../ladder/ladder-starter.js'
 import { cardCommand, launchArgv, shellWord } from '../../nodes/launch/launch-starter.js'
 import { parseSessionJournal } from '../../nodes/launch/session-journal.js'
 import { claudeResume } from '../../nodes/launch/tree-pr-cli.js'
-import { ClientOperationPending, WINDOW_RESUME_REFUSAL } from '../../ports/client/claude/adapter.js'
+import { WINDOW_RESUME_REFUSAL } from '../../ports/client/claude/adapter.js'
 import { clientAdapter } from '../../ports/client/index.js'
 import { sessionEnv, witnessEnv } from '../../ports/session.js'
 import { settingsFlag, shiftSettings } from '../../ports/shift-settings.js'
@@ -297,17 +297,5 @@ it('the journal of the contract is the shape the session journal parser returns'
 it('clientAdapter returns Claude and its capabilities', () => {
   const adapter = clientAdapter()
   expect(adapter.id).toBe('claude')
-  expect(adapter.capabilities).toEqual({ identity: 'assigned', ladder: true, reports: { cost: true, turns: true, model: true, denials: true, journal: true } })
-})
-
-it('an operation a later card fills throws a named error that names that card', () => {
-  const adapter = clientAdapter()
-  const operations: [() => unknown, string][] = [
-    [() => adapter.models(), 'clientmodels'],
-    [() => adapter.modelFor('review', null, 'auto'), 'clientmodels'],
-  ]
-  for (const [operation, card] of operations) {
-    expect(operation).toThrow(ClientOperationPending)
-    expect(operation).toThrow(card)
-  }
+  expect(adapter.capabilities).toEqual({ identity: 'assigned', ladder: true, reports: { cost: true, turns: true, model: true, denials: true, journal: true }, guarantees: { allowlist: true, writeConfinement: true, mcpOff: true, toolNarrowing: true, guardFailsClosed: true } })
 })

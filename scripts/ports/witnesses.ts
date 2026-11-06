@@ -3,6 +3,7 @@ import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync,
 import path from 'node:path'
 import { isChangeWitness, unjudgedCommand } from '../../src/commands/intake/check.js'
 import { pathsNamedBy } from '../../src/commands/intake/command-word.js'
+import { commandLine, GENERATED_FILES } from '../core/generated-files.js'
 import { gitIn, lastLine, stageSketch, tailLines } from './worktree.js'
 
 export interface Witness { criterion: string, command: string, onBase?: { command: string, stated: string } }
@@ -44,8 +45,8 @@ export interface TreeTask {
 }
 
 const NOT_RUN_STATUSES = [126, 127]
-const ATTACH_CARRIER_SOURCES = ['templates/ai/claude/', 'templates/attach/earlier-carriers.json']
-const EARLIER_CARRIERS_CHECK = 'pnpm exec tsx scripts/attach/earlier-carriers.ts --check'
+const ATTACH_CARRIER_SOURCES = ['templates/ai/claude/', GENERATED_FILES.earlierCarriers.path]
+const EARLIER_CARRIERS_CHECK = commandLine(GENERATED_FILES.earlierCarriers.check)
 const LOCKFILE = 'pnpm-lock.yaml'
 const DEPENDENCY_FILES = ['package.json', LOCKFILE]
 const INSTALL = 'pnpm install --frozen-lockfile'

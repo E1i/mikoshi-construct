@@ -466,23 +466,52 @@ function movableParts(db: DatabaseSync, chain: readonly ReflowCard[], cards: rea
   return parts.filter(part => part.some(member => member.deferred !== true) && cards.some(other => other.lane === part[0]!.lane && !part.includes(other) && other.deferred !== true))
 }
 
+function freeToLeaveItsLane(part: readonly ReflowCard[], cards: readonly ReflowCard[], shared: readonly string[]): boolean {
+  const live = new Set(cards.map(card => card.cardId))
+  const members = new Set(part.map(member => member.cardId))
+  return part.every(member => member.depends.every(parent => !live.has(parent)))
+    && !cards.some(other => other.lane === part[0]!.lane && other.depends.some(parent => members.has(parent)))
+    && !cards.some(other => !other.waiting && part.some(member => overlaps(member.task, other.task, shared)))
+}
+
+function waitingIn(lane: string, cards: readonly ReflowCard[]): number {
+  return cards.filter(card => card.lane === lane && card.waiting && card.deferred !== true).length
+}
+
+function roomierLane(part: readonly ReflowCard[], cards: readonly ReflowCard[], count: number, waitingOnOwner: ReadonlySet<number>, shared: readonly string[]): string | null {
+  if (!freeToLeaveItsLane(part, cards, shared))
+    return null
+  const own = part[0]!.lane
+  const occupants = cards.filter(card => card.deferred !== true)
+  const open = lanesClearOfOwnerMerge(count, occupants, waitingOnOwner).filter((number) => {
+    const lane = chainLaneName(number)
+    return lane !== own && !occupants.some(other => other.lane === lane && part.some(member => overlaps(member.task, other.task, shared)))
+  })
+  if (open.length === 0)
+    return null
+  const load = new Map(open.map(number => [number, waitingIn(chainLaneName(number), cards)]))
+  const least = leastLoaded(load, open)
+  return waitingIn(own, cards) - load.get(least)! > part.length ? chainLaneName(least) : null
+}
+
 function reflowLanes(db: DatabaseSync, count: number, ts: string, actor: string, shared: readonly string[]): number {
   const rows = liveRows(db)
   const cards = reflowCards(db, rows)
   const occupied = new Set(cards.filter(card => card.deferred !== true).map(card => card.lane))
   const empty = laneNumbers(count).map(chainLaneName).filter(lane => !occupied.has(lane))
   const holders = touchHolders(cards, rows, cardIds(db, OPEN_PR_CARDS))
+  const waitingOnOwner = ownerMergeHolders(db)
   const seen = new Set<number>()
   let moved = 0
   for (const card of [...cards].sort(startOrder(cards))) {
-    if (empty.length === 0 || seen.has(card.cardId))
+    if (seen.has(card.cardId))
       continue
     const chain = chainIn(card, cards, shared)
     chain.forEach(member => seen.add(member.cardId))
     for (const part of movableParts(db, chain, cards, holders, shared)) {
-      const lane = empty.shift()
-      if (lane === undefined)
-        break
+      const lane = empty.shift() ?? roomierLane(part, cards, count, waitingOnOwner, shared)
+      if (lane === null)
+        continue
       for (const member of part) {
         member.lane = lane
         if (assign(db, member.cardId, member.admission, { lane, reason: 'reflowed', after: [] }, count, ts, actor))

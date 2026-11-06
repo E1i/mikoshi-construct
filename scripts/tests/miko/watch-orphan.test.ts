@@ -6,6 +6,7 @@ import process from 'node:process'
 import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { openBus } from '../../core/db.js'
+import { WINDOW_MARK, WINDOW_VARIABLE } from '../../ports/session.js'
 import { ANOTHER_CONSUMER, ONCE_STORE, OnceStore, ownerFile } from '../../window/watch-store.js'
 import { ONCE, parentGoneLine, WATCHING_FROM_CURSOR } from '../../window/watch.js'
 import { waitFor } from '../wait-for.js'
@@ -126,7 +127,7 @@ async function orphanWatch(dir: string): Promise<Orphan> {
   ].join('\n')
   const parent = spawn(process.execPath, ['--input-type=module', '-e', parentScript], {
     cwd: REPO_ROOT,
-    env: { ...process.env, CONSTRUCT_HANDOFF_DIR: dir, CONSTRUCT_BUS_DB: bus },
+    env: { ...process.env, [WINDOW_VARIABLE]: WINDOW_MARK, CONSTRUCT_HANDOFF_DIR: dir, CONSTRUCT_BUS_DB: bus },
     stdio: ['ignore', 'pipe', 'pipe'],
   })
   pids.push(parent.pid!)

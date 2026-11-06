@@ -28,6 +28,7 @@ const SOURCE_FILE = /\.ts$/
 const CHANGESET_NOTE = /^\.changeset\/[^/]+\.md$/
 const CHANGESET_TOUCH = '.changeset/**'
 const LAYERS_SEPARATOR = ','
+const CONTRACT_RECORD_TESTS = 'tests/contract/'
 export const CHANGESET_READERS: readonly string[] = ['tests/changesets-one-line.test.ts']
 const TEST_INFRASTRUCTURE = /^(?:vitest\.config\.ts|vitest-[^/]+\.ts|scripts\/scratch\/vitest-[^/]+|scripts\/ci\/.+)$/
 
@@ -45,12 +46,24 @@ export function isChangesetNote(entry: string): boolean {
   return entry === CHANGESET_TOUCH || CHANGESET_NOTE.test(entry)
 }
 
+function isRecord(map: LayerMap, file: string): boolean {
+  return !SOURCE_FILE.test(file) && !underTestRoot(file) && map.files[file] !== undefined
+}
+
+export function recordsOf(map: LayerMap): string[] {
+  return Object.keys(map.files).filter(file => isRecord(map, file))
+}
+
+function isPlaced(map: LayerMap, file: string): boolean {
+  return isRecord(map, file) || (!underTestRoot(file) && SOURCE_FILE.test(file))
+}
+
 export function declaredLayersIn(map: LayerMap, file: string): string[] {
-  return underTestRoot(file) || !SOURCE_FILE.test(file) ? [] : [...new Set(layersIn(map, file))].sort()
+  return isPlaced(map, file) ? [...new Set(layersIn(map, file))].sort() : []
 }
 
 export function layersInOf(map: LayerMap, file: string): string[] {
-  if (underTestRoot(file) || !SOURCE_FILE.test(file))
+  if (!isPlaced(map, file))
     return []
   const declared = declaredLayersIn(map, file)
   const folder = SCRIPT_DIR.exec(file)?.[1]
@@ -112,10 +125,12 @@ function resolvedByLayers(file: string, graph: Graph, map: LayerMap): boolean {
   const layers = layersInOf(map, file)
   if (layers.length === 0)
     return false
-  return graph.has(file) || (declaredLayersIn(map, file).length > 0 && modulesOfLayers(layers, graph, map).length > 0)
+  return graph.has(file) || isRecord(map, file) || (declaredLayersIn(map, file).length > 0 && modulesOfLayers(layers, graph, map).length > 0)
 }
 
 function seedsOfLayers(file: string, graph: Graph, map: LayerMap): string[] {
+  if (isRecord(map, file))
+    return []
   const layers = layersInOf(map, file)
   return !isTest(file) && (!graph.has(file) || layers.length > 1) ? modulesOfLayers(layers, graph, map) : []
 }
@@ -140,7 +155,8 @@ export function selectRun(given: readonly string[], graph: Graph, testText: (tes
   const treeScanners = allTests.filter(test => scansATree(testText(test)))
   const busWide = changed.some(file => BUS_SHARED.includes(file)) ? allTests.filter(test => test.startsWith(BUS_TESTS)) : []
   const named = changed.flatMap(file => NAMED_READERS[file] ?? []).filter(test => graph.has(test))
-  const spawning = [...spawnedBy(reached, readers, testText), ...changed.flatMap(file => scanning(file, allTests)), ...treeScanners, ...busWide, ...named, ...changesetReaders]
+  const recordReaders = changed.some(file => isRecord(map, file)) ? allTests.filter(test => test.startsWith(CONTRACT_RECORD_TESTS)) : []
+  const spawning = [...spawnedBy(reached, readers, testText), ...changed.flatMap(file => scanning(file, allTests)), ...treeScanners, ...busWide, ...named, ...recordReaders, ...changesetReaders]
   const closure = dependents([...reached, ...spawning], reverse)
   const layers = [...new Set([...closure].flatMap(file => layersInOf(map, file)))].sort()
   const tests = [...closure].filter(isTest).sort()
