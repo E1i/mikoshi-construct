@@ -6,7 +6,7 @@ import type { LaunchCatch } from './launch-candidates.js'
 import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
-import { parseParkingFile, WINDOW_WHO } from '../../../src/card/parking.js'
+import { parseParkingFile, PRIORITIES, WINDOW_WHO } from '../../../src/card/parking.js'
 import { ATTACH_RECORD_FILE } from '../../../src/commands/attach/record.js'
 import { DEFAULT_LANES, isLaneCount, MANIFEST_FILE } from '../../../src/manifest.js'
 import { currentLane, latestAssignment, OPEN_WAIT, OWNER_WAITS } from '../../core/bus-readings.js'
@@ -308,7 +308,7 @@ function dependentsOf(cards: readonly OrderedCard[]): Map<number, number[]> {
   return dependents
 }
 
-function blockedBy(cardId: number, dependents: ReadonlyMap<number, readonly number[]>): number {
+function blockedBy(cardId: number, dependents: ReadonlyMap<number, readonly number[]>): Set<number> {
   const seen = new Set<number>()
   const pending = [...(dependents.get(cardId) ?? [])]
   while (pending.length > 0) {
@@ -318,17 +318,21 @@ function blockedBy(cardId: number, dependents: ReadonlyMap<number, readonly numb
     seen.add(next)
     pending.push(...(dependents.get(next) ?? []))
   }
-  return seen.size
+  return seen
 }
 
-function priorityRank(card: OrderedCard): number {
-  return card.priority === null ? 1 : 0
+function priorityRank(priority: Priority | null): number {
+  return priority === null ? PRIORITIES.length : PRIORITIES.indexOf(priority)
 }
 
 export function startOrder(cards: readonly OrderedCard[]): (a: OrderedCard, b: OrderedCard) => number {
   const dependents = dependentsOf(cards)
-  const blocks = new Map(cards.map(card => [card.cardId, blockedBy(card.cardId, dependents)]))
-  return (a, b) => (blocks.get(b.cardId) ?? 0) - (blocks.get(a.cardId) ?? 0) || priorityRank(a) - priorityRank(b) || a.cardId - b.cardId
+  const ownRanks = new Map(cards.map(card => [card.cardId, priorityRank(card.priority)]))
+  const blocked = new Map(cards.map(card => [card.cardId, [...blockedBy(card.cardId, dependents)]]))
+  const ranks = new Map(cards.map(card => [card.cardId, Math.min(ownRanks.get(card.cardId)!, ...blocked.get(card.cardId)!.map(each => ownRanks.get(each)!))]))
+  const rank = (card: OrderedCard): number => ranks.get(card.cardId) ?? priorityRank(card.priority)
+  const blocks = (card: OrderedCard): number => blocked.get(card.cardId)?.length ?? 0
+  return (a, b) => rank(a) - rank(b) || blocks(b) - blocks(a) || a.cardId - b.cardId
 }
 
 export { currentLane }
