@@ -14,8 +14,8 @@ export const RATCHET_RECORD = 'contract/ratchet.json'
 export type RatchetNumbers = Record<string, number>
 
 export function overlapNumbers(section: Record<string, Record<string, number>>): RatchetNumbers {
-  return Object.fromEntries(Object.entries(section).flatMap(([concept, files]) =>
-    Object.entries(files).map(([file, count]) => [`overlaps:${concept}:${file}`, count])))
+  return Object.fromEntries(Object.entries(section).map(([concept, files]) =>
+    [`overlaps:${concept}`, Object.values(files).reduce((sum, count) => sum + count, 0)]))
 }
 
 export function bigFileNumbers(root: string, threshold: number): RatchetNumbers {
