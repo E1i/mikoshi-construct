@@ -20,6 +20,7 @@ import { ARCHIVE_HEADER, runDecisionsAdd } from '../policy/decisions/add.js'
 import { PREFIX, projectDecisions } from '../policy/decisions/decisions.js'
 import { archiveOf } from '../policy/decisions/read.js'
 import { ghApi, ghApiPatch } from '../ports/github.js'
+import { EXIT_REQUEST_VARIABLE, LOOP_PID_VARIABLE, WINDOW_VARIABLE } from '../ports/session.js'
 import { cardTree } from '../ports/worktree-home.js'
 
 const WORKTREE_LINE = /^worktree (.+)$/
@@ -62,7 +63,7 @@ export function realRequestTools(db: DatabaseSync, busPath: string, repo: string
     treeOf: cardId => cardTree(env, busPath, String(cardId)),
     exists: existsSync,
     cutTree: (branch, cardLine) => {
-      execFileSync('pnpm', ['--silent', 'task:start', branch, '--card', cardLine], { cwd: repo, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+      execFileSync('pnpm', ['--silent', 'task:start', branch, '--card', cardLine], { cwd: repo, env: { ...env, [WINDOW_VARIABLE]: '', [LOOP_PID_VARIABLE]: '', [EXIT_REQUEST_VARIABLE]: '' }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
     },
     dryRunOf: dryRunIn(dryRunReviewsDir(busDirOf(busPath))),
     addDecision: decisionsAdder(db, decisionsFileOf(busPath), () => new Date()),

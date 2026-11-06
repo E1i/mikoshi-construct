@@ -19,6 +19,7 @@ const LOCKLESS_INSTALL_ARGS = ['install', '--prefer-offline']
 const LOCKFILE = 'pnpm-lock.yaml'
 const FETCH_MAIN_OVER_HTTPS = ['-c', 'url.https://github.com/.insteadOf=git@github.com:', '-c', 'url.https://github.com/.insteadOf=ssh://git@github.com/', 'fetch', 'origin', 'main']
 const UNABLE_TO_CREATE = /unable to create file (.+?): /g
+const ADD_FOUND_ANOTHER_CUT = /already exists/
 export const FREE_TREES = '.free'
 const CLEAN_ALL_BUT_INSTALLED = ['clean', '-fdxq', '-e', 'node_modules']
 const LINK_FROM_THE_SHARED_STORE = '--config.packageImportMethod=hardlink'
@@ -281,6 +282,21 @@ function removeTree(deps: TreeDeps, repo: string, worktree: string, branch: stri
   }
 }
 
+function undoFailedAdd(deps: TreeDeps, repo: string, worktree: string, branch: string): string {
+  try {
+    if (deps.exists(worktree))
+      deps.git(repo, ['worktree', 'remove', '--force', worktree])
+    deps.git(repo, ['worktree', 'prune'])
+    if (!branchExists(deps, repo, branch))
+      return 'nothing written'
+    deps.git(repo, ['branch', '-D', branch])
+    return `branch ${branch} was removed; nothing written`
+  }
+  catch (error) {
+    return `removing what the failed add left failed (${firstLine(error)}); remove ${worktree} and branch ${branch} by hand`
+  }
+}
+
 function unwritablePaths(message: string): string[] {
   return [...new Set([...message.matchAll(UNABLE_TO_CREATE)].map(match => match[1]!))]
 }
@@ -376,10 +392,12 @@ export function cutTree(deps: TreeDeps, id: string, branch: string): ReadyTree |
     }
     catch (error) {
       const recovered = recoverCheckout(deps, worktree, error)
-      if (recovered === null)
-        return { refused: `could not cut ${worktree}: ${gitMessage(error)}; nothing written` }
+      if (recovered === null) {
+        const message = gitMessage(error)
+        return { refused: `could not cut ${worktree}: ${message}; ${ADD_FOUND_ANOTHER_CUT.test(message) ? 'nothing written' : undoFailedAdd(deps, repo, worktree, branch)}` }
+      }
       if (!Array.isArray(recovered))
-        return { refused: `could not cut ${worktree}: ${recovered.failed}; ${removeTree(deps, repo, worktree, branch)}; nothing written` }
+        return { refused: `could not cut ${worktree}: ${recovered.failed}; ${undoFailedAdd(deps, repo, worktree, branch)}` }
       absent = recovered
     }
   }
