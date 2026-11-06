@@ -17,10 +17,11 @@ export function fixtureSurface(): Surface {
     markers: { block: [['<!-- construct:begin -->', '<!-- construct:end -->']], discover: { tags: ['<!-- construct:discover:<marker> -->'], markers: ['product'] } },
     contours: { 'ledger-row': 'mikoshi-construct/contours/ledger-row/1' },
     outside: ['lore strings'],
+    scripts: ['quality'],
   }
 }
 
 export function reading(surface: Surface): SurfaceReading {
-  const { surfaceVersion: _, ...sections } = surface
+  const { surfaceVersion: _, scripts: __, ...sections } = surface
   return sections
 }
