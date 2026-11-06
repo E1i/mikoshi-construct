@@ -19,6 +19,7 @@ const TS = '2026-11-05T10:00:00.000Z'
 const HEAD = 'b'.repeat(40)
 const MINUTE_MS = 60_000
 const LANES = 3
+const MACHINE_CORES = 16
 const roots: string[] = []
 
 afterEach(() => {
@@ -81,11 +82,11 @@ class Bench {
   }
 
   candidates(): number[] {
-    return launchCandidates(this.db, () => false, () => Date.parse(TS), () => {}, [], () => LANES, new MachineSessions(path.join(this.root, 'machine'), () => false)).map(candidate => candidate.cardId)
+    return launchCandidates(this.db, () => false, () => Date.parse(TS), () => {}, [], () => LANES, new MachineSessions(path.join(this.root, 'machine'), () => false, MACHINE_CORES)).map(candidate => candidate.cardId)
   }
 
   holds(): StartableHold[] {
-    return plannedStalls(this.db, Date.parse(TS), () => false, [], () => LANES, new MachineSessions(path.join(this.root, 'machine'), () => false)).map(card => card.hold)
+    return plannedStalls(this.db, Date.parse(TS), () => false, [], () => LANES, new MachineSessions(path.join(this.root, 'machine'), () => false, MACHINE_CORES)).map(card => card.hold)
   }
 
   linesAfter(minutes: number): string[] {

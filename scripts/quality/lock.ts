@@ -6,6 +6,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { sleep } from '../core/every.js'
+import { machineSessions } from '../core/machine-sessions.js'
 import { CLIENT_SANDBOX_DIRECTORY } from '../ports/client/claude/adapter.js'
 
 export const LOCK_DIR_VARIABLE = 'CONSTRUCT_QUALITY_LOCK_DIR'
@@ -31,6 +32,7 @@ export interface BudgetDeps {
   tree: string
   pid: number
   cores: number
+  sessionLimit: number
   isAlive: (pid: number) => boolean
 }
 
@@ -162,6 +164,10 @@ export function workerBudget(cores: number, sessions: number): number {
   return Math.max(1, Math.floor((cores - 1) / Math.max(1, sessions)))
 }
 
+function workersPerSession(deps: BudgetDeps): number {
+  return Math.max(1, Math.floor(deps.cores / deps.sessionLimit))
+}
+
 function sessionFile(sessions: string, tree: string, pid: number): string {
   return path.join(sessions, `${createHash('sha256').update(tree).digest('hex').slice(0, SESSION_NAME_LENGTH)}-${pid}${SESSION_FILE_SUFFIX}`)
 }
@@ -237,7 +243,7 @@ export function runGrant(deps: BudgetDeps, runsToLeaveRoomFor = 0): number {
   const fair = workerBudget(deps.cores, trees.size + runsToLeaveRoomFor)
   const grants = largestGrantByTree(runs.filter(run => run.tree !== deps.tree), fair)
   const taken = [...grants.values()].reduce((sum, workers) => sum + workers, 0)
-  return Math.max(1, Math.min(fair, deps.cores - 1 - taken))
+  return Math.max(1, Math.min(fair, deps.cores - 1 - taken, workersPerSession(deps)))
 }
 
 export function joinSession(deps: BudgetDeps, runsToLeaveRoomFor = 0): number {
@@ -248,7 +254,7 @@ export function joinSession(deps: BudgetDeps, runsToLeaveRoomFor = 0): number {
     return workers
   }
   catch {
-    return workerBudget(deps.cores, 1)
+    return Math.min(workerBudget(deps.cores, 1), workersPerSession(deps))
   }
 }
 
@@ -257,7 +263,7 @@ export function leaveSession(deps: BudgetDeps): void {
 }
 
 function machineRun(tree: string): BudgetDeps {
-  return { dir: queueDir(), reads: budgetDirs(), tree, pid: process.pid, cores: os.availableParallelism(), isAlive }
+  return { dir: queueDir(), reads: budgetDirs(), tree, pid: process.pid, cores: os.availableParallelism(), sessionLimit: machineSessions(isAlive).limit(), isAlive }
 }
 
 export function joinReviewTree(tree: string): number {
