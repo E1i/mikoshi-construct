@@ -6,7 +6,7 @@ import process from 'node:process'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { appendedOnCard } from '../../core/card-automaton.js'
 import { appendEvent, BUS_DB_VARIABLE, openBus, openBusWait, openOwnerWait } from '../../core/db.js'
-import { CARD_WAITING, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, REJECTED, WITNESS_DOWNGRADE } from '../../core/events.js'
+import { CARD_WAITING, DECISIONS_IMPORTED, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, REJECTED, WITNESS_DOWNGRADE } from '../../core/events.js'
 import { cardIdOfDescription } from '../../core/identifiers.js'
 import { ghostLines } from '../../core/journal.js'
 import { reentryLimitWaitText } from '../../core/queue.js'
@@ -565,6 +565,90 @@ describe('the reducer of the owner_waits projection', () => {
     recordDecision(db, { ts, decisionId: 905, text: '[owner] разрешить понижение свидетеля w; red on main у #1216', cards: [1216] })
     reduce(db)
     expect(waits(db).map(wait => [wait.id, wait.state, wait.answer])).toEqual([['Q1', 'open', null], [id, 'closed', 'D-905']])
+    db.close()
+  })
+
+  function twoQuestionsOnAStoppedCard(cardId: number): { db: ReturnType<typeof openBus>, first: string, second: string } {
+    const db = busWith(admitted(cardId), started(cardId), event('card.stopped', { actor: 'worker:launch:s1', cardId, payload: { reason: 'question.owner', detail: 'which path, which name?' } }))
+    const ts = '2026-10-09T12:00:00.000Z'
+    const first = openOwnerWait(db, ts, 'policy', { need: 'decision', text: 'which path?', card: cardId, request: 7 })
+    const second = openOwnerWait(db, ts, 'policy', { need: 'decision', text: 'which name?', card: cardId, request: 8 })
+    return { db, first, second }
+  }
+
+  function cardState(db: ReturnType<typeof openBus>, cardId: number): unknown {
+    return cards(db).find(card => card.card_id === cardId)?.state
+  }
+
+  it('a decision naming one wait of a card closes that wait and leaves the other wait of the card open', () => {
+    const { db, first, second } = twoQuestionsOnAStoppedCard(1400)
+    recordDecision(db, { ts: '2026-10-09T12:00:00.000Z', decisionId: 910, text: `[owner] ${first}: the first path`, cards: [1400] })
+    reduce(db)
+    expect(waits(db).map(wait => [wait.id, wait.state, wait.answer])).toEqual([[first, 'closed', 'D-910'], [second, 'open', null]])
+    db.close()
+  })
+
+  it('a card stays stopped while a wait the decision did not name stays open', () => {
+    const { db, first, second } = twoQuestionsOnAStoppedCard(1401)
+    const ts = '2026-10-09T12:00:00.000Z'
+    recordDecision(db, { ts, decisionId: 911, text: `[owner] ${first}: the first path`, cards: [1401] })
+    reduce(db)
+    expect(cardState(db, 1401)).toBe('stopped')
+    recordDecision(db, { ts, decisionId: 912, text: `[owner] ${second}: the short name`, cards: [1401] })
+    reduce(db)
+    expect(waits(db).map(wait => [wait.id, wait.state, wait.answer])).toEqual([[first, 'closed', 'D-911'], [second, 'closed', 'D-912']])
+    expect(cardState(db, 1401)).not.toBe('stopped')
+    db.close()
+  })
+
+  it('a decision naming every open wait of a card closes them and releases the card', () => {
+    const { db, first, second } = twoQuestionsOnAStoppedCard(1402)
+    recordDecision(db, { ts: '2026-10-09T12:00:00.000Z', decisionId: 913, text: `[owner] ${first} and ${second}: both as proposed`, cards: [1402] })
+    reduce(db)
+    expect(waits(db).map(wait => [wait.id, wait.state])).toEqual([[first, 'closed'], [second, 'closed']])
+    expect(cardState(db, 1402)).not.toBe('stopped')
+    db.close()
+  })
+
+  it('a decision naming no wait closes every wait of its scope and releases the card', () => {
+    const { db, first, second } = twoQuestionsOnAStoppedCard(1403)
+    recordDecision(db, { ts: '2026-10-09T12:00:00.000Z', decisionId: 914, text: '[owner] both as proposed', cards: [1403] })
+    reduce(db)
+    expect(waits(db).map(wait => [wait.id, wait.state, wait.answer])).toEqual([[first, 'closed', 'D-914'], [second, 'closed', 'D-914']])
+    expect(cardState(db, 1403)).not.toBe('stopped')
+    db.close()
+  })
+
+  it('a decision naming a wait outside its scope closes neither that wait nor those of its scope', () => {
+    const { db, first, second } = twoQuestionsOnAStoppedCard(1404)
+    const ts = '2026-10-09T12:00:00.000Z'
+    const elsewhere = openOwnerWait(db, ts, 'policy', { need: 'decision', text: 'which lane?', card: 1405, request: 9 })
+    recordDecision(db, { ts, decisionId: 915, text: `[owner] ${elsewhere}: the first lane`, cards: [1404] })
+    reduce(db)
+    expect(waits(db).map(wait => [wait.id, wait.state])).toEqual([[first, 'open'], [second, 'open'], [elsewhere, 'open']])
+    expect(cardState(db, 1404)).toBe('stopped')
+    db.close()
+  })
+
+  it('a witness id in a decision is not a wait id, so the decision closes the waits of its scope', () => {
+    const witnessNoWaitIsNamedAfter = 'W999999'
+    const db = busWith(downgradeOf(1406))
+    reduce(db)
+    recordDecision(db, { ts: '2026-10-09T12:00:00.000Z', decisionId: 916, text: `[owner] разрешить понижение свидетеля ${witnessNoWaitIsNamedAfter} у #1406`, cards: [1406] })
+    reduce(db)
+    expect(waits(db).map(wait => [wait.card_id, wait.state, wait.answer])).toEqual([[1406, 'closed', 'D-916']])
+    db.close()
+  })
+
+  it('a downgrade wait named by its id closes alone, and an imported decision reads names the same way', () => {
+    const { db, first, second } = twoQuestionsOnAStoppedCard(1407)
+    appendEvent(db, downgradeOf(1407))
+    reduce(db)
+    const downgrade = waits(db).find(wait => wait.need === 'decision' && wait.id !== first && wait.id !== second)!.id as string
+    appendEvent(db, event(DECISIONS_IMPORTED, { payload: { decisions: [{ decision_id: 917, text: `[owner] ${downgrade}: allowed`, scope: [1407] }] } }))
+    reduce(db)
+    expect(waits(db).map(wait => [wait.id, wait.state, wait.answer])).toEqual([[first, 'open', null], [second, 'open', null], [downgrade, 'closed', 'D-917']])
+    expect(cardState(db, 1407)).toBe('stopped')
     db.close()
   })
 
