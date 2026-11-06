@@ -238,6 +238,4 @@ export function lookupPr(list: PrList, branch: string | undefined): PrLookup {
   return { kind: 'none' }
 }
 
-export const REQUIRED_CHECK = 'required'
-
-export const SECRET_SCAN_CHECK = 'Secret scan'
+export { REQUIRED_CHECK, SECRET_SCAN_CHECK } from '../../src/commands/ci/state.js'

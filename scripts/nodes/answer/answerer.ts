@@ -590,7 +590,7 @@ export function realAnswererTools(busPath: string = defaultBusPath()): AnswererT
     context: session => sessionGauges(os.homedir(), projectRoot(process.env), session).context ?? null,
     contextWarn: contextWarnOfEddies,
     diff: diffAgainstBase,
-    ciLog: (card, head) => new GhCiRuns().failedJobLog(head, card.worktree),
+    ciLog: (card, head) => new GhCiRuns().failureLogOn(head, card.worktree),
   }
 }
 

@@ -2,7 +2,7 @@ import type { CiState, RollupCheck } from '../../ports/ci-reading.js'
 import type { GhSpawned, PullRequest } from '../../ports/gh.js'
 import process from 'node:process'
 import { describe, expect, it } from 'vitest'
-import { CI_LOG_CEILING, ciLogForPrompt, ciWord, GhCiRuns, GitHubCommitCi, InMemoryCi } from '../../ports/ci-reading.js'
+import { CI_LOG_CEILING, ciFieldsOfObservation, ciLogForPrompt, ciWord, GhCiRuns, GitHubCommitCi, InMemoryCi } from '../../ports/ci-reading.js'
 import { GhBudgetWindow, ghPort, REQUIRED_CHECK, SECRET_SCAN_CHECK } from '../../ports/gh.js'
 import { Meter } from '../../ports/meter.js'
 
@@ -117,8 +117,13 @@ describe('the two adapters of the CI reading', () => {
     const log = { log: 'FAIL x', jobLink: null }
     const ci = new InMemoryCi({ failedLogs: { [HEAD]: log } })
 
-    expect(ci.failedJobLog(HEAD)).toEqual(log)
-    expect(ci.failedJobLog('other')).toBeNull()
+    expect(ci.failureLogOn(HEAD)).toEqual(log)
+    expect(ci.failureLogOn('other')).toBeNull()
+  })
+
+  it('an observation carries the CI word, and the failed checks only when there are some, in the order its digest was taken', () => {
+    expect(JSON.stringify(ciFieldsOfObservation({ state: 'green', failedChecks: [] }))).toBe('{"ci":"green"}')
+    expect(JSON.stringify(ciFieldsOfObservation({ state: 'red', failedChecks: ['vitest 1/4'] }))).toBe('{"ci":"red","failed_checks":["vitest 1/4"]}')
   })
 
   it('a CI word a record carries reads as that word and anything else as no reading', () => {

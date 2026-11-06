@@ -1,11 +1,11 @@
-import type { CiReading } from './ci-reading.js'
+import type { CiObservation } from './ci-reading.js'
 import type { Meter } from './meter.js'
 import process from 'node:process'
 import { readAttachRecord } from '../../src/commands/attach/record.js'
 import { repositoryRoot } from '../core/bus-path.js'
 import { FACTORY_FORMER_FOLDERS, inScopes } from '../core/factory-paths.js'
 import { cardIdOfDescription, isFullSha, prBodySha } from '../core/identifiers.js'
-import { GitHubCommitCi } from './ci-reading.js'
+import { ciFieldsOfObservation, GitHubCommitCi } from './ci-reading.js'
 import { REQUIRED_CHECK } from './gh.js'
 import { REVIEW_STATUS_CONTEXT } from './github-status.js'
 
@@ -25,8 +25,7 @@ export interface OpenPr {
   head: string
   branch: string | null
   mergeable: Mergeable
-  ci: CiReading
-  failedChecks: string[]
+  ciFields: CiObservation
   verdictOnHead: VerdictOnHead | null
   autoMerge: boolean
   draft: boolean
@@ -108,7 +107,6 @@ function openPrOf(meter: Meter, pull: Pull, requiredCheck: string): OpenPr | nul
   const mergeable = MERGEABLE_OF_STATE[pull.mergeable_state ?? '']
   if (mergeable === undefined)
     return null
-  const { state: ci, failedChecks } = new GitHubCommitCi(meter).onCommit(pull.head.sha, requiredCheck)
   return {
     pr: pull.number,
     cardId: cardIdOfDescription(pull.body),
@@ -116,8 +114,7 @@ function openPrOf(meter: Meter, pull: Pull, requiredCheck: string): OpenPr | nul
     head: pull.head.sha,
     branch: pull.head.ref ?? null,
     mergeable,
-    ci,
-    failedChecks,
+    ciFields: ciFieldsOfObservation(new GitHubCommitCi(meter).onCommit(pull.head.sha, requiredCheck)),
     verdictOnHead: verdictOf(meter, pull.head.sha),
     autoMerge: pull.auto_merge !== null && pull.auto_merge !== undefined,
     draft: pull.draft === true,

@@ -1061,7 +1061,7 @@
     },
     "ci-reading": {
       "axis": "architecture",
-      "owner": "scripts/ports/ci-reading.ts",
+      "owner": "src/commands/ci/state.ts",
       "ownerExists": true,
       "status": "proposed",
       "title": "the state of CI on a commit or a pull request"
@@ -1143,11 +1143,7 @@
       "scripts/nodes/answer/answer-executor.ts": 20,
       "scripts/nodes/answer/answerer.ts": 23
     },
-    "ci-reading": {
-      "scripts/core/observations.ts": 1,
-      "src/commands/board/items.ts": 1,
-      "src/commands/board/prs.ts": 6
-    },
+    "ci-reading": {},
     "generated-files": {},
     "git": {
       "scripts/atlas/build.ts": 1,
@@ -1335,35 +1331,35 @@
       }
     },
     "scripts/ports/ci-reading.ts": {
-      "constants": [
-        "CI_LOG_CEILING"
+      "constants": [],
+      "functions": {},
+      "reexports": [
+        "ArtifactRequest",
+        "CI_LOG_CEILING",
+        "CheckRun",
+        "CiObservation",
+        "CiReading",
+        "CiState",
+        "CommitCi",
+        "FailedJobLog",
+        "PrDetails",
+        "RollupCheck",
+        "RunIdentity",
+        "ciFieldsOfObservation",
+        "ciLogForPrompt",
+        "ciOf",
+        "ciWord",
+        "failedJobLinkIn"
       ],
-      "functions": {
-        "ciLogForPrompt": "({ log, jobLink }: FailedJobLog): string",
-        "ciOf": "(meter: Meter, sha: string, requiredCheck = REQUIRED_CHECK): CiReading",
-        "ciWord": "(value: unknown): CiReading | null",
-        "failedJobLinkIn": "(jobsJson: string): string | null"
-      },
-      "reexports": [],
       "types": {
-        "ArtifactRequest": "interface ArtifactRequest { name: string; dir: string; repository?: string; }",
-        "CheckRun": "interface CheckRun { name?: string; status?: string; conclusion?: string | null; }",
-        "Ci": "interface Ci { state: CiState; text: string; head: string; greenAt?: string; }",
         "CiAct": "type CiAct = { done: true; } | { done: false; reason: string; }",
         "CiOfCommits": "interface CiOfCommits { onCommit: (sha: string, requiredCheck?: string) => CommitCi; approvedRunOn: (head: string | undefined) => boolean; }",
         "CiRead": "type CiRead<T> = GhRead<T>",
-        "CiReading": "type CiReading = 'pending' | 'green' | 'red'",
-        "CiRuns": "interface CiRuns { pullRequest: (pr: PullRequest, repository: string) => PrDetails; failedJobLog: (head: string, tree: string) => FailedJobLog | null; successfulRunsOnMain: (limit: number) => CiRead<RunOnMain[]>; jobsOfRun: (runId: number) => CiRead<{ jobs: RunJob[]; }>; artifactsNamed: (run: RunIdentity, name: string) => CiRead<number>; downloadArtifact: (runId: string | number, artifact: ArtifactRequest) => CiAct; cancel: (run: RunIdentity) => boolean; }",
-        "CiState": "type CiState = 'none' | 'unknown' | CiReading",
+        "CiRuns": "interface CiRuns { pullRequest: (pr: PullRequest, repository: string) => PrDetails; failureLogOn: (head: string, tree: string) => FailedJobLog | null; successfulRunsOnMain: (limit: number) => CiRead<RunOnMain[]>; jobsOfRun: (runId: number) => CiRead<{ jobs: RunJob[]; }>; artifactsNamed: (run: RunIdentity, name: string) => CiRead<number>; downloadArtifact: (runId: string | number, artifact: ArtifactRequest) => CiAct; cancel: (run: RunIdentity) => boolean; }",
         "CiWorld": "interface CiWorld { commits?: Record<string, CheckRun[]>; approvedHeads?: string[]; rollups?: Record<number, RollupCheck[]>; failedLogs?: Record<string, FailedJobLog>; runsOnMain?: RunOnMain[]; jobs?: Record<number, RunJob[]>; artifacts?: Record<string, string[]>; }",
-        "CommitCi": "interface CommitCi { state: CiReading; failedChecks: string[]; }",
-        "FailedJobLog": "interface FailedJobLog { log: string; jobLink: string | null; }",
-        "GhCiRuns": "class GhCiRuns implements CiRuns { constructor(private readonly gh: GhPort = PROCESS_GH_PORT); pullRequest(pr: PullRequest, repository: string): PrDetails; failedJobLog(head: string, tree: string): FailedJobLog | null; successfulRunsOnMain(limit: number): CiRead<RunOnMain[]>; jobsOfRun(runId: number): CiRead<{ jobs: RunJob[]; }>; artifactsNamed(run: RunIdentity, name: string): CiRead<number>; downloadArtifact(runId: string | number, artifact: ArtifactRequest): CiAct; cancel(run: RunIdentity): boolean }",
+        "GhCiRuns": "class GhCiRuns implements CiRuns { constructor(private readonly gh: GhPort = PROCESS_GH_PORT); pullRequest(pr: PullRequest, repository: string): PrDetails; failureLogOn(head: string, tree: string): FailedJobLog | null; successfulRunsOnMain(limit: number): CiRead<RunOnMain[]>; jobsOfRun(runId: number): CiRead<{ jobs: RunJob[]; }>; artifactsNamed(run: RunIdentity, name: string): CiRead<number>; downloadArtifact(runId: string | number, artifact: ArtifactRequest): CiAct; cancel(run: RunIdentity): boolean }",
         "GitHubCommitCi": "class GitHubCommitCi implements CiOfCommits { constructor(private readonly meter: Meter); onCommit(sha: string, requiredCheck = REQUIRED_CHECK): CommitCi; approvedRunOn(head: string | undefined): boolean }",
-        "InMemoryCi": "class InMemoryCi implements CiOfCommits, CiRuns { cancelled: RunIdentity[]; downloaded: ArtifactRequest[]; constructor(private readonly world: CiWorld = {}); onCommit(sha: string, requiredCheck = REQUIRED_CHECK): CommitCi; approvedRunOn(head: string | undefined): boolean; pullRequest(pr: PullRequest): PrDetails; failedJobLog(head: string): FailedJobLog | null; successfulRunsOnMain(limit: number): CiRead<RunOnMain[]>; jobsOfRun(runId: number): CiRead<{ jobs: RunJob[]; }>; artifactsNamed(run: RunIdentity, name: string): CiRead<number>; downloadArtifact(runId: string | number, artifact: ArtifactRequest): CiAct; cancel(run: RunIdentity): boolean }",
-        "PrDetails": "interface PrDetails { ci: Ci; files: string[] | undefined; }",
-        "RollupCheck": "interface RollupCheck { name?: string; status?: string; conclusion?: string; state?: string; completedAt?: string; }",
-        "RunIdentity": "interface RunIdentity { repository: string; runId: string; }",
+        "InMemoryCi": "class InMemoryCi implements CiOfCommits, CiRuns { cancelled: RunIdentity[]; downloaded: ArtifactRequest[]; constructor(private readonly world: CiWorld = {}); onCommit(sha: string, requiredCheck = REQUIRED_CHECK): CommitCi; approvedRunOn(head: string | undefined): boolean; pullRequest(pr: PullRequest): PrDetails; failureLogOn(head: string): FailedJobLog | null; successfulRunsOnMain(limit: number): CiRead<RunOnMain[]>; jobsOfRun(runId: number): CiRead<{ jobs: RunJob[]; }>; artifactsNamed(run: RunIdentity, name: string): CiRead<number>; downloadArtifact(runId: string | number, artifact: ArtifactRequest): CiAct; cancel(run: RunIdentity): boolean }",
         "RunJob": "interface RunJob { name: string; conclusion: string; startedAt: string; completedAt: string; steps?: RunStep[]; }",
         "RunOnMain": "interface RunOnMain { databaseId: number; headSha: string; }",
         "RunStep": "interface RunStep { name: string; startedAt: string; completedAt: string; }"
@@ -1481,8 +1477,6 @@
         "PROCESS_GH_BUDGET",
         "PROCESS_GH_PORT",
         "PR_LIST_LIMIT",
-        "REQUIRED_CHECK",
-        "SECRET_SCAN_CHECK",
         "execGh: GhCaller"
       ],
       "functions": {
@@ -1495,7 +1489,10 @@
         "recordedAccount": "(env: NodeJS.ProcessEnv): string | null",
         "stdoutOrThrow": "(gh: GhCaller): GhRunner"
       },
-      "reexports": [],
+      "reexports": [
+        "REQUIRED_CHECK",
+        "SECRET_SCAN_CHECK"
+      ],
       "types": {
         "GhAccountToken": "type GhAccountToken = { kind: 'token'; token: string; } | { kind: 'failed'; reason: string; stderr: string; }",
         "GhBudget": "interface GhBudget { calls: number; windowMs: number; }",
@@ -1768,7 +1765,7 @@
         "ClosedPr": "interface ClosedPr { pr: number; cardId: number | null; branch?: string | null; merged: boolean; commit: string | null; mergedBy: string | null; mergedAt: string | null; }",
         "MainHead": "interface MainHead { sha: string; touchesMechanics: boolean; }",
         "Mergeable": "type Mergeable = 'clean' | 'behind' | 'dirty' | 'blocked'",
-        "OpenPr": "interface OpenPr { pr: number; cardId: number | null; base: string; head: string; branch: string | null; mergeable: Mergeable; ci: CiReading; failedChecks: string[]; verdictOnHead: VerdictOnHead | null; autoMerge: boolean; draft: boolean; bodySha: string; }",
+        "OpenPr": "interface OpenPr { pr: number; cardId: number | null; base: string; head: string; branch: string | null; mergeable: Mergeable; ciFields: CiObservation; verdictOnHead: VerdictOnHead | null; autoMerge: boolean; draft: boolean; bodySha: string; }",
         "Snapshot": "interface Snapshot { open: OpenPr[]; closed: ClosedPr[]; unsettled: number[]; main: MainHead | null; }",
         "VerdictOnHead": "type VerdictOnHead = 'pass' | 'changes'"
       }

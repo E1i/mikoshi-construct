@@ -36,7 +36,7 @@ function started(db: DatabaseSync, ordinal: number): void {
 }
 
 function merged(db: DatabaseSync): void {
-  appendEvent(db, prObserved(LONG_AGO, { pr: PR, cardId: CARD, base: 'main', head: HEAD, branch: null, mergeable: 'clean', ci: 'green', failedChecks: [], verdictOnHead: null, autoMerge: false, draft: false, bodySha: 'body' }, null))
+  appendEvent(db, prObserved(LONG_AGO, { pr: PR, cardId: CARD, base: 'main', head: HEAD, branch: null, mergeable: 'clean', ciFields: { ci: 'green' }, verdictOnHead: null, autoMerge: false, draft: false, bodySha: 'body' }, null))
   appendEvent(db, prClosed(LONG_AGO, { pr: PR, cardId: CARD, merged: true, commit: COMMIT, mergedBy: 'bus', mergedAt: LONG_AGO }))
 }
 

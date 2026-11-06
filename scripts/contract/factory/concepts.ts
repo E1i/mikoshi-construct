@@ -126,7 +126,7 @@ export const CONCEPTS: readonly Concept[] = [
   {
     id: 'ci-reading',
     title: 'the state of CI on a commit or a pull request',
-    owner: 'scripts/ports/ci-reading.ts',
+    owner: 'src/commands/ci/state.ts',
     ownerExists: true,
     axis: 'architecture',
     detectors: [

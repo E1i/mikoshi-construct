@@ -244,12 +244,12 @@ describe('the failed job and its link', () => {
   it('failedJobLog reads the log and the link through the same port', () => {
     const port = gh({ '--log-failed': { status: 0, stdout: FAILURE }, 'jobs': { status: 0, stdout: JSON.stringify({ jobs: [{ conclusion: 'failure', url: JOB_LINK }] }) }, 'run list': { status: 0, stdout: '[{"databaseId":7}]' } })
 
-    expect(new GhCiRuns(port).failedJobLog('a'.repeat(40), CARD.worktree)).toEqual({ log: FAILURE, jobLink: JOB_LINK })
+    expect(new GhCiRuns(port).failureLogOn('a'.repeat(40), CARD.worktree)).toEqual({ log: FAILURE, jobLink: JOB_LINK })
   })
 
   it('a failed link read keeps the log and leaves the link unread', () => {
     const port = gh({ '--log-failed': { status: 0, stdout: FAILURE }, 'jobs': { status: 1, stdout: '' }, 'run list': { status: 0, stdout: '[{"databaseId":7}]' } })
 
-    expect(new GhCiRuns(port).failedJobLog('a'.repeat(40), CARD.worktree)).toEqual({ log: FAILURE, jobLink: null })
+    expect(new GhCiRuns(port).failureLogOn('a'.repeat(40), CARD.worktree)).toEqual({ log: FAILURE, jobLink: null })
   })
 })
