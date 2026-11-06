@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { afterEach, describe, expect, it } from 'vitest'
-import { selectRun } from '../../ci/layers.js'
+import { isTest, recordsOf, selectRun } from '../../ci/layers.js'
 import { cruise } from '../../ci/select.js'
 import { catalogDocumentReads, catalogModules, catalogTests, overlapWithMain, writeCatalog } from '../../cli/check-catalog.js'
 import { CONCEPTS } from '../../contract/factory/concepts.js'
@@ -15,6 +15,7 @@ import { findSites } from '../../contract/factory/overlaps.js'
 import { RATCHET_RECORD } from '../../contract/ratchet.js'
 import { GENERATED_FILES as REEXPORTED } from '../../core/factory-paths.js'
 import { commandLine, GENERATED_FILES, GENERATED_PATHS, RATCHET_FILE, rebuildsOf, SHARED_APPEND_PATHS } from '../../core/generated-files.js'
+import { readLayerMap } from '../../core/layer-map.js'
 import { taskConflicts } from '../../nodes/launch/overlap.js'
 import { sharedAppendFiles } from '../../nodes/launch/shared-files.js'
 import { mainMergeInCardTree } from '../../nodes/update/update-executor.js'
@@ -230,8 +231,13 @@ describe('the layer of the contract records', () => {
     const tests = run.kind === 'layers' ? run.tests : []
     expect(tests).toEqual(expect.arrayContaining([CONTRACT_LAYER_READER, 'tests/contract/factory.test.ts', 'scripts/tests/bus/ratchet-merge-policy.test.ts']))
     expect(tests).not.toContain('scripts/tests/bus/answer-ci-log.test.ts')
-    const factoryRun = selectRun([FACTORY], graph, text)
-    expect(factoryRun.kind === 'layers' && factoryRun.tests).toContain('tests/harness-membership.test.ts')
+    const allTests = [...graph.keys()].filter(isTest)
+    for (const record of recordsOf(readLayerMap())) {
+      const recordRun = selectRun([record], graph, text)
+      const readers = allTests.filter(test => text(test).includes(path.posix.basename(record)))
+      expect(readers.length).toBeGreaterThan(0)
+      expect(recordRun.kind === 'layers' ? recordRun.tests : []).toEqual(expect.arrayContaining(readers))
+    }
   }, SLOW)
 
   it('a pull request that changes a contract record still updates when main changed one', () => {
