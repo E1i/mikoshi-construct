@@ -205,7 +205,14 @@ describe('contract/factory.json', () => {
   })
 
   it('an entry that cites no decision reads proposed, whatever its owner', () => {
-    const entries = [GIT_OWNER, { owner: GIT_OWNER }, { owner: GIT_OWNER, decision: '' }, { owner: GIT_OWNER, decision: 'the owner said so' }]
+    const entries = [
+      GIT_OWNER,
+      { owner: GIT_OWNER },
+      { owner: GIT_OWNER, decision: '' },
+      { owner: GIT_OWNER, decision: 'the owner said so' },
+      { owner: GIT_OWNER, decision: 'xD-335' },
+      { owner: GIT_OWNER, decision: 'D-335 and more' },
+    ]
 
     for (const git of entries)
       expect(conceptsSection({ git } as unknown as AcceptedConcepts).git!.status, JSON.stringify(git)).toBe('proposed')
