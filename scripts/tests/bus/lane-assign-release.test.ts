@@ -13,6 +13,7 @@ import { launchCandidates } from '../../nodes/launch/launch-candidates.js'
 
 const TS = '2026-10-29T10:00:00.000Z'
 const HEAD = 'a'.repeat(40)
+const MOVE_ROOM = 20
 const roots: string[] = []
 
 afterEach(() => {
@@ -94,7 +95,7 @@ class Bench {
   }
 
   launchable(): number[] {
-    return launchCandidates(this.db, () => false).map(candidate => candidate.cardId)
+    return launchCandidates(this.db, () => false, undefined, undefined, undefined, () => this.lanes + MOVE_ROOM).map(candidate => candidate.cardId)
   }
 
   private append(type: string, cardId: number, pr: number | null, dedupeKey: string, payload: Record<string, unknown>, head: string | null = null): void {
@@ -133,8 +134,8 @@ describe('a move changes the lane launch reads', () => {
     const bench = new Bench(1).admit(1, 'src/a.ts').start(1).admit(2, 'src/b.ts')
     expect(bench.lane(2)).toBe('lane-1')
     expect(bench.launchable()).toEqual([])
-    bench.move(2, 'lane-21').lay()
-    expect(bench.lane(2)).toBe('lane-21')
+    bench.move(2, `lane-${1 + MOVE_ROOM}`).lay()
+    expect(bench.lane(2)).toBe(`lane-${1 + MOVE_ROOM}`)
     expect(bench.launchable()).toEqual([2])
   })
 })

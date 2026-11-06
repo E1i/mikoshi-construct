@@ -957,7 +957,7 @@ describe('the launch queue', () => {
 
   function requeuedAfterFaultStop(bench: ReturnType<typeof launchBench>, cardId: number, stop: Record<string, unknown> | null): void {
     const ts = (): string => bench.clock.now().toISOString()
-    bench.admit(cardId, `lane-${cardId}`)
+    bench.admit(cardId, `lane-card-${cardId}`)
     bench.tick()
     for (let failure = 0; failure < FAILURES_TO_STOP; failure += 1) {
       const lease = bench.leaseLaunch()!
@@ -979,7 +979,7 @@ describe('the launch queue', () => {
     requeuedAfterFaultStop(bench, 1185, null)
 
     expect(taskState(bench.db, launch(1185))).toMatchObject({ state: 'queued' })
-    expect(launchableCard(bench.db, 1185)).toEqual({ lane: 'lane-1185', contour: 'cheap' })
+    expect(launchableCard(bench.db, 1185)).toEqual({ lane: 'lane-card-1185', contour: 'cheap' })
     bench.close()
   })
 

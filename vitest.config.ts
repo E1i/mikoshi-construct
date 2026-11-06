@@ -1,12 +1,14 @@
 import type { TestSpecification } from 'vitest/node'
 import type { TestWeights } from './scripts/ci/shard.js'
 import { readFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { defineConfig } from 'vitest/config'
 import { BaseSequencer } from 'vitest/node'
 import { witnessGuard } from './scripts/ci/no-match-reporter.js'
 import { balanceShards } from './scripts/ci/shard.js'
-import { sessionWorkers } from './scripts/quality/lock.js'
+import { MACHINE_DIR_VARIABLE } from './scripts/core/machine-sessions.js'
+import { LOCK_DIR_VARIABLE, sessionWorkers } from './scripts/quality/lock.js'
 
 const weights = JSON.parse(readFileSync(path.join(import.meta.dirname, 'scripts/ci/test-weights.json'), 'utf8')) as TestWeights
 
@@ -24,7 +26,7 @@ export default defineConfig({
     include: ['tests/**/*.test.ts', 'scripts/tests/**/*.test.ts'],
     exclude: ['**/node_modules/**', 'tests/fixtures/**'],
     environment: 'node',
-    env: { NODE_OPTIONS: '--disable-warning=ExperimentalWarning' },
+    env: { NODE_OPTIONS: '--disable-warning=ExperimentalWarning', [MACHINE_DIR_VARIABLE]: path.join(tmpdir(), 'construct-test-machine'), [LOCK_DIR_VARIABLE]: path.join(tmpdir(), 'construct-test-quality') },
     globalSetup: [path.join(import.meta.dirname, 'scripts/scratch/vitest-setup.ts')],
     setupFiles: [path.join(import.meta.dirname, 'scripts/scratch/vitest-bus.ts')],
     testTimeout: 30_000,

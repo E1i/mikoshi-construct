@@ -11,6 +11,8 @@ import { CLIENT_SANDBOX_DIRECTORY } from '../ports/client/claude/adapter.js'
 export const LOCK_DIR_VARIABLE = 'CONSTRUCT_QUALITY_LOCK_DIR'
 export const HELD_VARIABLE = 'CONSTRUCT_QUALITY_LOCK_HELD'
 export const LOG_FILE = 'lock.log'
+export const WORKER_LIMIT_VARIABLE = 'VITEST_MAX_WORKERS'
+const RUNS_A_REVIEW_LEAVES_ROOM_FOR = 1
 const HELD = 'held'
 const HOLDER_FILE = 'holder.json'
 const POLL_MS = 1000
@@ -21,10 +23,11 @@ const SESSION_NAME_LENGTH = 16
 
 export interface Holder { pid: number, cwd: string, at: string }
 
-interface SessionRecord { tree: string, pid: number }
+interface SessionRecord { tree: string, pid: number, workers?: number }
 
 export interface BudgetDeps {
   dir: string
+  reads?: readonly string[]
   tree: string
   pid: number
   cores: number
@@ -118,7 +121,7 @@ export async function withQualityLock(deps: LockDeps): Promise<number> {
   return exitCode
 }
 
-function isAlive(pid: number): boolean {
+export function isAlive(pid: number): boolean {
   try {
     process.kill(pid, 0)
     return true
@@ -139,9 +142,20 @@ function canWrite(dir: string): boolean {
   }
 }
 
+function documentedDir(home: string): string {
+  return path.join(home, '.construct', 'quality')
+}
+
+const SANDBOX_QUEUE = path.join(CLIENT_SANDBOX_DIRECTORY, 'construct-quality')
+
 export function queueDir(env: NodeJS.ProcessEnv = process.env, home: string = os.homedir()): string {
-  const documented = path.join(home, '.construct', 'quality')
-  return env[LOCK_DIR_VARIABLE] ?? (canWrite(documented) ? documented : path.join(CLIENT_SANDBOX_DIRECTORY, 'construct-quality'))
+  const documented = documentedDir(home)
+  return env[LOCK_DIR_VARIABLE] ?? (canWrite(documented) ? documented : SANDBOX_QUEUE)
+}
+
+export function budgetDirs(env: NodeJS.ProcessEnv = process.env, home: string = os.homedir()): string[] {
+  const named = env[LOCK_DIR_VARIABLE]
+  return named === undefined ? [documentedDir(home), SANDBOX_QUEUE] : [named]
 }
 
 export function workerBudget(cores: number, sessions: number): number {
@@ -161,38 +175,101 @@ function readSession(file: string): SessionRecord | null {
   }
 }
 
-function liveSessions(sessions: string, deps: BudgetDeps): number {
-  const trees = new Set<string>()
-  for (const name of readdirSync(sessions).filter(entry => entry.endsWith(SESSION_FILE_SUFFIX))) {
-    const file = path.join(sessions, name)
-    const session = readSession(file)
-    if (session === null)
-      continue
-    if (deps.isAlive(session.pid))
-      trees.add(session.tree)
-    else
-      rmSync(file, { force: true })
+function namesIn(sessions: string): string[] {
+  try {
+    return readdirSync(sessions).filter(entry => entry.endsWith(SESSION_FILE_SUFFIX))
   }
-  return trees.size
+  catch {
+    return []
+  }
 }
 
-export function joinSession(deps: BudgetDeps): number {
+function removeIfAble(file: string): void {
   try {
-    const sessions = path.join(deps.dir, SESSIONS_DIR)
-    mkdirSync(sessions, { recursive: true })
-    const file = sessionFile(sessions, deps.tree, deps.pid)
-    const staged = `${file}.tmp`
-    writeFileSync(staged, JSON.stringify({ tree: deps.tree, pid: deps.pid } satisfies SessionRecord))
-    renameSync(staged, file)
-    return workerBudget(deps.cores, liveSessions(sessions, deps))
+    rmSync(file, { force: true })
+  }
+  catch {}
+}
+
+function liveRuns(deps: BudgetDeps): SessionRecord[] {
+  const runs: SessionRecord[] = []
+  for (const dir of deps.reads ?? [deps.dir]) {
+    const sessions = path.join(dir, SESSIONS_DIR)
+    for (const name of namesIn(sessions)) {
+      const file = path.join(sessions, name)
+      const session = readSession(file)
+      if (session === null)
+        continue
+      if (deps.isAlive(session.pid))
+        runs.push(session)
+      else
+        removeIfAble(file)
+    }
+  }
+  return runs
+}
+
+function largestGrantByTree(runs: readonly SessionRecord[], fair: number): Map<string, number> {
+  const grants = new Map<string, number>()
+  for (const run of runs)
+    grants.set(run.tree, Math.max(grants.get(run.tree) ?? 0, run.workers ?? fair))
+  return grants
+}
+
+function writeRun(deps: BudgetDeps, workers?: number): void {
+  const sessions = path.join(deps.dir, SESSIONS_DIR)
+  mkdirSync(sessions, { recursive: true })
+  const file = sessionFile(sessions, deps.tree, deps.pid)
+  const staged = `${file}.tmp`
+  const record: SessionRecord = { tree: deps.tree, pid: deps.pid, ...(workers === undefined ? {} : { workers }) }
+  writeFileSync(staged, JSON.stringify(record))
+  renameSync(staged, file)
+}
+
+export function registerRun(deps: BudgetDeps): void {
+  writeRun(deps)
+}
+
+export function runGrant(deps: BudgetDeps, runsToLeaveRoomFor = 0): number {
+  const runs = liveRuns(deps)
+  const trees = new Set(runs.map(run => run.tree))
+  trees.add(deps.tree)
+  const fair = workerBudget(deps.cores, trees.size + runsToLeaveRoomFor)
+  const grants = largestGrantByTree(runs.filter(run => run.tree !== deps.tree), fair)
+  const taken = [...grants.values()].reduce((sum, workers) => sum + workers, 0)
+  return Math.max(1, Math.min(fair, deps.cores - 1 - taken))
+}
+
+export function joinSession(deps: BudgetDeps, runsToLeaveRoomFor = 0): number {
+  try {
+    registerRun(deps)
+    const workers = runGrant(deps, runsToLeaveRoomFor)
+    writeRun(deps, workers)
+    return workers
   }
   catch {
     return workerBudget(deps.cores, 1)
   }
 }
 
+export function leaveSession(deps: BudgetDeps): void {
+  removeIfAble(sessionFile(path.join(deps.dir, SESSIONS_DIR), deps.tree, deps.pid))
+}
+
+function machineRun(tree: string): BudgetDeps {
+  return { dir: queueDir(), reads: budgetDirs(), tree, pid: process.pid, cores: os.availableParallelism(), isAlive }
+}
+
+export function joinReviewTree(tree: string): number {
+  return joinSession(machineRun(tree), RUNS_A_REVIEW_LEAVES_ROOM_FOR)
+}
+
+export function leaveReviewTree(tree: string): void {
+  leaveSession(machineRun(tree))
+}
+
 export function sessionWorkers(tree: string): number {
-  return joinSession({ dir: queueDir(), tree, pid: process.pid, cores: os.availableParallelism(), isAlive })
+  return joinSession(machineRun(tree))
 }
 
 export function heavyStep(run: () => Promise<number>, dir: string = queueDir()): Promise<number> {

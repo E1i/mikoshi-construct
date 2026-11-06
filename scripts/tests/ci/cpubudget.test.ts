@@ -8,9 +8,12 @@ import process from 'node:process'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanTreeGate, throughQueue } from '../../ci/prepush.js'
 import { printBoard } from '../../cli/board-page.js'
-import { heavyStep, HELD_VARIABLE, joinSession, LOCK_DIR_VARIABLE, LOG_FILE, queueDir, workerBudget } from '../../quality/lock.js'
+import { fullReview } from '../../nodes/review/review-depth.js'
+import { claudeReviewer, ReviewTrees } from '../../nodes/review/reviewer.js'
+import { budgetDirs, heavyStep, HELD_VARIABLE, joinSession, leaveSession, LOCK_DIR_VARIABLE, LOG_FILE, queueDir, registerRun, runGrant, WORKER_LIMIT_VARIABLE, workerBudget } from '../../quality/lock.js'
 import { busWithCardStarted } from '../ghosts/card-started-bus.js'
 
+const HEAD = 'a'.repeat(40)
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')
 const HEADER = readFileSync(path.join(REPO_ROOT, 'scripts/nodes/launch/header.md'), 'utf8')
 const NOW = new Date('2026-11-04T12:00:00Z')
@@ -79,7 +82,70 @@ describe('one worker budget for the machine', () => {
     const cores = os.availableParallelism()
     joinSession(session(dir, '/tree/other', { cores, pid: process.pid }))
     const { default: config } = await import('../../../vitest.config.js')
-    expect(config.test?.maxWorkers).toBe(workerBudget(cores, 2))
+    expect(config.test?.maxWorkers).toBe(1)
+  })
+
+  it('two buses with simultaneous runs get at most cores minus one workers in sum', () => {
+    const reads = [scratch(), scratch()]
+    const first = session(reads[0]!, '/bus-a/tree', { reads, pid: 101 })
+    const second = session(reads[1]!, '/bus-b/tree', { reads, pid: 102 })
+    registerRun(first)
+    registerRun(second)
+    expect(runGrant(first) + runGrant(second)).toBeLessThanOrEqual(CORES - 1)
+  })
+
+  it('a run that starts behind another gets what the earlier one left, and never less than one worker', () => {
+    const dir = scratch()
+    expect(joinSession(session(dir, '/tree/a', { pid: 101 }))).toBe(CORES - 1)
+    expect(joinSession(session(dir, '/tree/b', { pid: 102 }))).toBe(1)
+  })
+
+  it('a review joins the budget of the runs around it and leaves room for one more', () => {
+    const dir = scratch()
+    const review = joinSession(session(dir, '/reviews/session', { pid: 101 }), 1)
+    const prepush = joinSession(session(dir, '/tree/prepush', { pid: 102 }))
+    expect(review).toBe(workerBudget(CORES, 2))
+    expect(review + prepush).toBeLessThanOrEqual(CORES - 1)
+  })
+
+  it('a session that left stops counting while its worker process lives on', () => {
+    const dir = scratch()
+    const review = session(dir, '/reviews/session', { pid: 101 })
+    joinSession(review)
+    leaveSession(review)
+    expect(joinSession(session(dir, '/tree/a', { pid: 102 }))).toBe(CORES - 1)
+  })
+
+  it('the budget reads the queue directory of a sandboxed run and of an unsandboxed one, and only the named one when moved', () => {
+    const home = scratch()
+    expect(budgetDirs({}, home)).toEqual([path.join(home, '.construct', 'quality'), path.join('/tmp', `claude-${os.userInfo().uid}`, 'construct-quality')])
+    expect(budgetDirs({ [LOCK_DIR_VARIABLE]: '/moved' }, home)).toEqual(['/moved'])
+  })
+
+  it('a review session is registered for as long as it runs and is spawned with its grant in the env', async () => {
+    const dir = scratch()
+    const joined: string[] = []
+    const left: string[] = []
+    const spawned: (string | undefined)[] = []
+    const trees = new ReviewTrees('/repo', dir, { git: () => {}, worktrees: () => [], prepare: () => {}, state: () => ({ head: HEAD, status: [] }) })
+    const review = claudeReviewer(trees, async (params) => {
+      expect(left).toEqual([])
+      spawned.push(params.env?.[WORKER_LIMIT_VARIABLE])
+      writeFileSync(path.join(dir, `${params.sessionId}.verdict.json`), '{"verdict":"pass","findings":[]}')
+      return 0
+    }, () => {}, 50, () => null, {
+      gate: { start: async () => true, release: () => {} },
+      keep: () => true,
+      joinWorkers: (tree) => {
+        joined.push(tree)
+        return 3
+      },
+      leaveWorkers: tree => left.push(tree),
+    })
+    await review({ taskKey: `review:1050:950:${HEAD}`, queue: 'review', cardId: 1050, pr: 950, head: HEAD, leaseGen: 1, actor: 'worker:review:w' }, fullReview('a fixed plan'))
+    expect(spawned).toEqual(['3'])
+    expect(joined).toHaveLength(1)
+    expect(left).toEqual(joined)
   })
 
   it('a second run in one tree is one session', () => {
@@ -98,7 +164,7 @@ describe('one worker budget for the machine', () => {
     const dir = scratch()
     joinSession(session(dir, '/tree/a', { pid: 101 }))
     joinSession(session(dir, '/tree/a', { pid: 102 }))
-    expect(joinSession(session(dir, '/tree/b', { pid: 103, isAlive: pid => pid !== 102 }))).toBe(workerBudget(CORES, 2))
+    expect(joinSession(session(dir, '/tree/b', { pid: 103, isAlive: pid => pid !== 102 }))).toBe(1)
   })
 
   it('the floor is one worker, so a budget never stops a run', () => {
