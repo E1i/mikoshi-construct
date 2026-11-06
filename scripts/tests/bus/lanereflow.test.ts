@@ -190,9 +190,9 @@ describe('a chain that holds a not-ready card', () => {
 
   it('a card a not-ready card precedes stays with it', () => {
     const bench = readyBehindWaiting(2).admit(5, { touches: 'src/e.ts', depends: [4] })
-    expect(bench.lane(5)).toBe('lane-1')
+    expect([bench.lane(3), bench.lane(5)]).toEqual(['lane-2', 'lane-1'])
     bench.grow(3).tick()
-    expect([bench.lane(3), bench.lane(4), bench.lane(5)]).toEqual(['lane-3', 'lane-1', 'lane-1'])
+    expect([bench.lane(4), bench.lane(5)]).toEqual(['lane-1', 'lane-1'])
   })
 
   it('a ready card whose touches overlap a ready card moves with it', () => {
