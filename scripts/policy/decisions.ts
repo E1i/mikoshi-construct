@@ -2,7 +2,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { Fold, StoredEvent } from '../core/stored.js'
 import type { DecisionRow } from './decisions/decisions.js'
 import { cardReleased, CLOSED_CARD, MERGED_CARD, STOPPED_CARD } from '../core/card-automaton.js'
-import { appendEvent, DECISION_ARCHIVED, DECISION_IN_FORCE } from '../core/db.js'
+import { appendEvent, DECISION_ARCHIVED, DECISION_IN_FORCE, OPEN_WAIT } from '../core/db.js'
 import { CARD_STOPPED, DECISION_RECORDED, DECISIONS_IMPORTED, QUESTION_OWNER } from '../core/events.js'
 import { OWNER } from '../core/inbox.js'
 import { NETWATCH } from '../core/observations.js'
@@ -65,9 +65,21 @@ function cardState(db: DatabaseSync, cardId: number): string | null | undefined 
   return (db.prepare('SELECT state FROM cards WHERE card_id = ?').get(cardId) as { state: string | null } | undefined)?.state
 }
 
-function answerQuestions(db: DatabaseSync, cards: readonly number[], eventId: number): void {
+const WAIT_ID_IN_TEXT = /\b[QW]\d+\b/g
+
+export function waitsTheDecisionNames(db: DatabaseSync, text: string): string[] {
+  const mentioned = JSON.stringify(text.match(WAIT_ID_IN_TEXT) ?? [])
+  return (db.prepare('SELECT id FROM owner_waits WHERE id IN (SELECT value FROM json_each(?))').all(mentioned) as { id: string }[]).map(wait => wait.id)
+}
+
+function aWaitItDidNotNameStaysOpen(db: DatabaseSync, cardId: number, named: readonly string[]): boolean {
+  return named.length > 0 && db.prepare(`SELECT 1 FROM owner_waits WHERE state = '${OPEN_WAIT}' AND card_id = ? AND id NOT IN (SELECT value FROM json_each(?)) LIMIT 1`).get(cardId, JSON.stringify(named)) !== undefined
+}
+
+function answerQuestions(db: DatabaseSync, cards: readonly number[], text: string, eventId: number): void {
+  const named = waitsTheDecisionNames(db, text)
   for (const cardId of cards) {
-    if (cardState(db, cardId) === STOPPED_CARD && lastStopReason(db, cardId, eventId) === QUESTION_OWNER)
+    if (cardState(db, cardId) === STOPPED_CARD && lastStopReason(db, cardId, eventId) === QUESTION_OWNER && !aWaitItDidNotNameStaysOpen(db, cardId, named))
       cardReleased(db, cardId, eventId)
   }
 }
@@ -113,7 +125,7 @@ function foldDecisionRecorded(db: DatabaseSync, event: StoredEvent): void {
     .run(decisionId, text, JSON.stringify(cards), OWNER, event.id, termOf(text).until, JSON.stringify(supersedes))
   for (const target of supersedes)
     archive(db, target)
-  answerQuestions(db, cards, event.id)
+  answerQuestions(db, cards, text, event.id)
   archiveSpentDecisions(db)
 }
 
@@ -166,7 +178,7 @@ function foldDecisionsImported(db: DatabaseSync, event: StoredEvent): void {
       INSERT INTO decisions (decision_id, text, scope, source, event_id, until, state) VALUES (?, ?, ?, ?, ?, ?, '${DECISION_IN_FORCE}')
       ON CONFLICT (decision_id) DO UPDATE SET text = excluded.text, scope = excluded.scope, source = excluded.source, event_id = excluded.event_id, until = excluded.until, state = excluded.state
     `).run(decision.decisionId, decision.text, JSON.stringify(decision.cards), OWNER_DECISIONS_FILE, event.id, termOf(decision.text).until)
-    answerQuestions(db, decision.cards, event.id)
+    answerQuestions(db, decision.cards, decision.text, event.id)
   }
   archiveSpentDecisions(db)
 }
