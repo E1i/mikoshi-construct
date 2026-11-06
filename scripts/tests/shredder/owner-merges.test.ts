@@ -65,8 +65,8 @@ describe('architecture/owner-merges.md as the window reads it', () => {
     expect(ownerMerges(files, kinds).ownerMerged).toBe(ownerMerged)
   })
 
-  it('owner-merged kinds are release, release-workflow, workflows, security-invariants, agent-permissions, new-write-path and own-instructions', () => {
-    expect(kinds.map(kind => kind.kind).sort()).toEqual(['agent-permissions', 'new-write-path', 'own-instructions', 'release', 'release-workflow', 'security-invariants', 'workflows'])
+  it('owner-merged kinds are release, release-workflow, workflows, security-invariants, accepted-model, agent-permissions, new-write-path and own-instructions', () => {
+    expect(kinds.map(kind => kind.kind).sort()).toEqual(['accepted-model', 'agent-permissions', 'new-write-path', 'own-instructions', 'release', 'release-workflow', 'security-invariants', 'workflows'])
     expect(kinds.find(kind => kind.kind === 'workflows')?.globs).toEqual(['.github/workflows/**'])
     expect(kinds.find(kind => kind.kind === 'release')?.title).toBe('chore: version packages')
     expect(kinds.find(kind => kind.kind === 'new-write-path')?.notChecked).toBe(true)
