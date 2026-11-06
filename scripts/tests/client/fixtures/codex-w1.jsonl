@@ -1,0 +1,4 @@
+{"type":"thread.started","thread_id":"01a1aa9f-0000-4000-8000-000000000001"}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"item_0","type":"command_execution","command":"/bin/zsh -lc 'git rev-parse --short HEAD'","aggregated_output":"xcrun: error: cannot create cache file: Operation not permitted\n44774fe0\n","exit_code":0,"status":"completed"}}
+{"type":"turn.completed","usage":{"input_tokens":37266,"cached_input_tokens":21760,"cache_write_input_tokens":0,"output_tokens":100,"reasoning_output_tokens":0}}
