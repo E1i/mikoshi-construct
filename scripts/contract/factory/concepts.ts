@@ -85,7 +85,6 @@ export const CONCEPTS: readonly Concept[] = [
     detectors: [
       declaredFunction(/^liveSession(?!s$)/),
       referenced('claudeProcessCwds'),
-      called(['listedCwds']),
       adjacentLiterals('-c', name => clientAdapter().processes.isClient(name), 'the client process name in lsof arguments'),
     ],
   },
