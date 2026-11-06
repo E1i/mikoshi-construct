@@ -119,15 +119,16 @@ describe('a question.owner stop has a named lift for each route', () => {
     expect(existsSync(`${word}${USED_WORD}`)).toBe(true)
   })
 
-  it('owner answer lifts a stop with no shard active, where a window close only closes the wait', () => {
+  it('owner answer lifts a stop with no shard active, where a window close is refused', () => {
     const answered = stoppedRoom('may the retry back off?', false)
     sayToOwnerChannel(answered.channel, OWNER_WORDS, answered.made.clock.now())
     expect(closes(answered, OWNER_WORDS, '--from', ANSWER_SOURCE).kind).toBe('done')
     expect(openStop(answered)).toBeNull()
 
-    const closedOnly = stoppedRoom('may the retry back off?', false)
-    expect(closes(closedOnly, 'yes').kind).toBe('done')
-    expect(openStop(closedOnly)).toBe(closedOnly.stop)
+    const refused = stoppedRoom('may the retry back off?', false)
+    expect(closes(refused, 'yes').kind).toBe('refused')
+    expect(waitState(refused)).toBe('open')
+    expect(openStop(refused)).toBe(refused.stop)
   })
 
   it('--from answer without the word in the channel is refused and lifts nothing', () => {
@@ -150,7 +151,8 @@ describe('a question.owner stop has a named lift for each route', () => {
 
   it('a wait already closed spends no owner word', () => {
     const room = stoppedRoom('may the retry back off?', false)
-    expect(closes(room, 'yes').kind).toBe('done')
+    sayToOwnerChannel(room.channel, 'yes', room.made.clock.now())
+    expect(closes(room, 'yes', '--from', ANSWER_SOURCE).kind).toBe('done')
     reduce(room.made.db)
     const word = sayToOwnerChannel(room.channel, OWNER_WORDS, room.made.clock.now())
 
@@ -228,7 +230,8 @@ describe('a question.owner stop has a named lift for each route', () => {
 
   it('an amend naming the card\'s older wait lifts only the stop of that wait', () => {
     const room = stoppedRoom('first question', false)
-    expect(closes(room, 'yes').kind).toBe('done')
+    sayToOwnerChannel(room.channel, 'yes', room.made.clock.now())
+    expect(closes(room, 'yes', '--from', ANSWER_SOURCE).kind).toBe('done')
     reduce(room.made.db)
     const later = stopWithItsWait(room.made, 'second question', 'second')
     expect(later.wait).not.toBe(room.wait)

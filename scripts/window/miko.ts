@@ -5,6 +5,7 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 
 export const LOOP_SCRIPT_NAME = 'loop'
+export const TAB_WORD = '--tab'
 export const WINDOW_SCRIPTS: ReadonlyArray<readonly [readonly string[], string]> = [
   [['watch'], 'watch'],
   [['handoff', 'write'], 'handoff-write'],
@@ -27,15 +28,15 @@ function startsWith(argv: readonly string[], words: readonly string[]): boolean 
 }
 
 export function mikoHelp(): string {
-  return WINDOW_SCRIPTS.map(([words, script]) => `miko ${words.join(' ')}  (${script})`).join('\n')
+  return [`miko ${TAB_WORD}  (a tab window, no loop)`, ...WINDOW_SCRIPTS.map(([words, script]) => `miko ${words.join(' ')}  (${script})`)].join('\n')
 }
 
 export function mikoRoute(argv: readonly string[], here: string): MikoRoute {
   const dir = path.dirname(here)
   const extension = path.extname(here)
   const sibling = (name: string): string => path.join(dir, `${name}${extension}`)
-  if (argv.length === 0)
-    return { script: sibling(LOOP_SCRIPT_NAME), args: [] }
+  if (argv.length === 0 || argv[0] === TAB_WORD)
+    return { script: sibling(LOOP_SCRIPT_NAME), args: [...argv] }
   const window = WINDOW_SCRIPTS.find(([words]) => startsWith(argv, words))
   if (window !== undefined)
     return { script: sibling(window[1]), args: argv.slice(window[0].length) }

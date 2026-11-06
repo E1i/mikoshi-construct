@@ -77,6 +77,65 @@ describe('the session journal', () => {
     expect(journalDoubt(journal, 'h.ts', { content: 'session text', mtimeMs: edited })).toBe('the session journal holds no Write or Edit of it')
   })
 
+  describe('a unicode escape and the character it names are the same text', () => {
+    const DASH = '—'
+    const DASH_ESCAPE = '\\u2014'
+    const OTHER_DASH_ESCAPE = '\\u2013'
+    const EDITED = T0 + 60_000
+    const lastEditLost = 'its content lacks the session\'s last Edit of it'
+    const lastWriteLost = 'its content differs from the session\'s last Write and the Edits after it'
+
+    function editOf(newString: string): ReturnType<typeof parseSessionJournal> {
+      return parseSessionJournal([
+        use(1, 'e', 'Edit', { file_path: `${TREE}/g.ts`, old_string: 'a', new_string: newString }),
+        result(1, 'e'),
+      ].join('\n'), TREE)
+    }
+
+    function writeThenEdit(content: string, oldString: string, newString: string): ReturnType<typeof parseSessionJournal> {
+      return parseSessionJournal([
+        use(1, 'w', 'Write', { file_path: `${TREE}/f.ts`, content }),
+        result(1, 'w'),
+        use(1, 'e', 'Edit', { file_path: `${TREE}/f.ts`, old_string: oldString, new_string: newString }),
+        result(1, 'e'),
+      ].join('\n'), TREE)
+    }
+
+    function writeOf(content: string): ReturnType<typeof parseSessionJournal> {
+      return parseSessionJournal([
+        use(1, 'w', 'Write', { file_path: `${TREE}/f.ts`, content }),
+        result(1, 'w'),
+      ].join('\n'), TREE)
+    }
+
+    it('an Edit whose text differs from the file only by a unicode escape raises no doubt', () => {
+      expect(journalDoubt(editOf(`x ${DASH} y`), 'g.ts', { content: `head x ${DASH_ESCAPE} y tail`, mtimeMs: EDITED })).toBeNull()
+      expect(journalDoubt(editOf(`x ${DASH_ESCAPE} y`), 'g.ts', { content: `head x ${DASH} y tail`, mtimeMs: EDITED })).toBeNull()
+    })
+
+    it('an Edit whose text differs from the file by another character behind an escape is still a doubt', () => {
+      const journal = editOf(`x ${DASH} y`)
+
+      expect(journalDoubt(journal, 'g.ts', { content: `x ${DASH_ESCAPE} y`, mtimeMs: EDITED })).toBeNull()
+      expect(journalDoubt(journal, 'g.ts', { content: `x ${OTHER_DASH_ESCAPE} y`, mtimeMs: EDITED })).toBe(lastEditLost)
+      expect(journalDoubt(journal, 'g.ts', { content: 'other text', mtimeMs: EDITED })).toBe(lastEditLost)
+    })
+
+    it('a Write whose text differs from the file only by a unicode escape raises no doubt, and another character is a doubt', () => {
+      const journal = writeOf(`x ${DASH} y`)
+
+      expect(journalDoubt(journal, 'f.ts', { content: `x ${DASH_ESCAPE} y`, mtimeMs: EDITED })).toBeNull()
+      expect(journalDoubt(journal, 'f.ts', { content: `x ${OTHER_DASH_ESCAPE} y`, mtimeMs: EDITED })).toBe(lastWriteLost)
+    })
+
+    it('an Edit replayed over a Write finds its old text behind an escape, and not behind another character', () => {
+      const replayedOverEscape = writeThenEdit(`x ${DASH_ESCAPE} y`, DASH, 'dash')
+
+      expect(journalDoubt(replayedOverEscape, 'f.ts', { content: 'x dash y', mtimeMs: EDITED })).toBeNull()
+      expect(journalDoubt(writeThenEdit(`x ${OTHER_DASH_ESCAPE} y`, DASH, 'dash'), 'f.ts', { content: 'x dash y', mtimeMs: EDITED })).toBe(lastWriteLost)
+    })
+  })
+
   it('a file the session edited and its own lint:fix then rewrote raises no doubt', () => {
     for (const command of ['pnpm lint:fix', 'pnpm run lint:fix', `pnpm --dir ${TREE} lint:fix`, `pnpm --dir ${TREE} run lint:fix`, `pnpm --dir ${TREE}/ lint:fix`]) {
       const journal = editThenRun({ command })
