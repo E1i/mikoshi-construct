@@ -1,10 +1,11 @@
-import type { ClientAdapter, Denial, Invocation, JournalChange, ReadBudget, Refusal, Role, SessionJournal, SessionPlace, SessionPolicy, SessionReading, SessionSpec, SessionTool, ToolUse, Usage } from '../contract.js'
+import type { ClientAdapter, Denial, Effort, Invocation, JournalChange, ModelChoice, ModelOffer, ModelPick, ReadBudget, Refusal, Role, SessionJournal, SessionPlace, SessionPolicy, SessionReading, SessionSpec, SessionTool, ToolUse, Usage } from '../contract.js'
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { commandWords } from '../../isolation.js'
+import { reviewModelOf } from '../../session.js'
 import { settingsFlag, shiftSettings } from '../../shift-settings.js'
 import { claudeProcessCwds } from '../../worktree.js'
 
@@ -44,17 +45,23 @@ export const WINDOW_COMMAND_VARIABLE = 'MIKO_CLAUDE'
 export const CLIENT_SANDBOX_DIRECTORY = path.join('/tmp', `claude-${os.userInfo().uid}`)
 export const WINDOW_RESUME_REFUSAL = 'a window session is never resumed: the miko loop starts a fresh session from the handoff'
 
-export class ClientOperationPending extends Error {
-  constructor(readonly operation: string, readonly card: string) {
-    super(`the client operation ${operation} is filled by the card ${card}`)
-    this.name = 'ClientOperationPending'
-  }
+const OFFERED_MODELS = ['fable', 'opus', 'sonnet', 'haiku', 'claude-fable-5-1', 'claude-opus-5-5', 'claude-sonnet-5-5', 'claude-sonnet-5', 'claude-haiku-5-5'] as const
+const OFFERED_EFFORTS: readonly Effort[] = ['low', 'medium', 'high', 'xhigh', 'max']
+const AUTO_MODEL: ModelChoice = 'auto'
+
+function models(): ModelOffer[] {
+  return OFFERED_MODELS.map(id => ({ id, efforts: [...OFFERED_EFFORTS], contextWindow: null, recommendedFor: [] }))
 }
 
-function pending(operation: string, card: string): () => never {
-  return () => {
-    throw new ClientOperationPending(operation, card)
-  }
+function autoPick(role: Role): ModelPick {
+  return { model: role === 'review' ? reviewModelOf() ?? null : null, effort: null }
+}
+
+function modelFor(role: Role, _effort: Effort | null, wanted: ModelChoice): ModelPick | Refusal {
+  if (wanted === AUTO_MODEL)
+    return autoPick(role)
+  const offers = models().map(offer => offer.id)
+  return offers.includes(wanted) ? { model: wanted, effort: null } : { kind: 'refused', reason: `the model ${wanted} is not offered: the offers are ${offers.join(', ')}` }
 }
 
 function userInstructionsOff(): { autoMemoryEnabled: false, claudeMdExcludes: string[] } {
@@ -134,9 +141,10 @@ function budgetOf(transcript: string): ReadBudget {
   return { startContext, readBeforeEdit: startContext === null || editContext === null ? null : editContext - startContext }
 }
 
-function readBudget(home: string, session: string): ReadBudget {
+function readBudget(place: SessionPlace): ReadBudget {
+  const home = os.homedir()
   const projects = path.join(home, '.claude', 'projects')
-  const transcript = existsSync(projects) ? findTranscript(home, session) : null
+  const transcript = existsSync(projects) ? findTranscript(home, place.session) : null
   return budgetOf(textOf(transcript) ?? '')
 }
 
@@ -154,12 +162,13 @@ export const claudeAdapter: ClientAdapter = {
     identity: 'assigned',
     ladder: true,
     reports: { cost: true, turns: true, model: true, denials: true, journal: true },
+    guarantees: { allowlist: true, writeConfinement: true, mcpOff: true, toolNarrowing: true, guardFailsClosed: true },
   },
   invocation: spec => SESSION_OF_ROLE[spec.role](spec),
   reading: place => readingOf(place),
   readBudget,
-  models: pending('models', 'clientmodels'),
-  modelFor: pending('modelFor', 'clientmodels'),
+  models,
+  modelFor,
   processes: {
     isClient: isClaudeArgv,
     sessionMarker: session => `${SESSION_ID_FLAG} ${session}`,

@@ -13,7 +13,7 @@
   "overlaps:git": 72,
   "overlaps:handoff-status": 10,
   "overlaps:layers": 10,
-  "overlaps:live-session": 8,
+  "overlaps:live-session": 6,
   "overlaps:owner-commands": 179,
   "overlaps:owner-decisions": 33,
   "overlaps:pid-liveness": 5,
