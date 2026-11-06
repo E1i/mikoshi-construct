@@ -1055,72 +1055,84 @@
       "axis": "architecture",
       "owner": "scripts/nodes/answer/duties/",
       "ownerExists": false,
+      "status": "proposed",
       "title": "four duties each in the answer executor and the answerer"
     },
     "ci-reading": {
       "axis": "architecture",
       "owner": "scripts/ports/ci-reading.ts",
       "ownerExists": false,
+      "status": "proposed",
       "title": "the state of CI on a commit or a pull request"
     },
     "generated-files": {
       "axis": "architecture",
       "owner": "scripts/core/generated-files.ts",
       "ownerExists": false,
+      "status": "proposed",
       "title": "the list of generated files"
     },
     "git": {
       "axis": "architecture",
       "owner": "scripts/ports/git.ts",
       "ownerExists": true,
+      "status": "proposed",
       "title": "running git"
     },
     "handoff-status": {
       "axis": "architecture",
       "owner": "scripts/core/handoff-status.ts",
       "ownerExists": false,
+      "status": "proposed",
       "title": "the STATUS line of a handoff"
     },
     "layers": {
       "axis": "architecture",
       "owner": "scripts/core/layer-map.ts",
       "ownerExists": true,
+      "status": "proposed",
       "title": "which layer a file belongs to"
     },
     "live-session": {
       "axis": "architecture",
       "owner": "scripts/ports/client/",
       "ownerExists": true,
+      "status": "proposed",
       "title": "whether a client session is alive in a tree"
     },
     "owner-commands": {
       "axis": "interface",
       "owner": "scripts/core/owner-commands.ts",
       "ownerExists": false,
+      "status": "proposed",
       "title": "the command lines the owner is told to run"
     },
     "owner-decisions": {
       "axis": "architecture",
       "owner": "scripts/policy/decisions.ts",
       "ownerExists": true,
+      "status": "proposed",
       "title": "the owner decisions, read from the markdown file or the bus table"
     },
     "pid-liveness": {
       "axis": "architecture",
       "owner": "scripts/ports/process-table.ts",
       "ownerExists": false,
+      "status": "proposed",
       "title": "whether a pid is alive"
     },
     "process-table": {
       "axis": "architecture",
       "owner": "scripts/ports/process-table.ts",
       "ownerExists": false,
+      "status": "proposed",
       "title": "the process table of the OS, read with ps, lsof or top and parsed"
     },
     "window-requests": {
       "axis": "architecture",
       "owner": "scripts/window/requests/",
       "ownerExists": false,
+      "status": "proposed",
       "title": "one class for every kind of window request"
     }
   },
