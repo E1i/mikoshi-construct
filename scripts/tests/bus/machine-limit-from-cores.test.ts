@@ -4,7 +4,7 @@ import os, { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { afterEach, expect, it, vi } from 'vitest'
-import { MACHINE_DIR_VARIABLE, MACHINE_LIMIT_FILE, machineSessions, MachineSessions } from '../../core/machine-sessions.js'
+import { MACHINE_DIR_VARIABLE, MACHINE_LIMIT_FILE, machineSessions, MachineSessions, setMachineLimit } from '../../core/machine-sessions.js'
 import { joinSession, LOCK_DIR_VARIABLE, sessionWorkers } from '../../quality/lock.js'
 
 const CORES = 16
@@ -64,6 +64,18 @@ it('an invalid limit file gives the default and a valid one wins', () => {
     expect(sessionsOn(CORES, withLimitFile(invalid)).limit()).toBe(QUARTER_OF_THE_CORES)
   expect(sessionsOn(CORES, withLimitFile('{"sessions":9}')).limit()).toBe(9)
   expect(sessionsOn(CORES, withLimitFile('{"sessions":1}')).limit()).toBe(1)
+})
+
+it('a set limit is the limit that directory reads back, in a directory that did not exist', () => {
+  const dir = path.join(scratch(), 'not-yet')
+  setMachineLimit(dir, 7)
+  expect(sessionsOn(CORES, dir).limit()).toBe(7)
+})
+
+it('the suite runs under a limit of its own, above the default of any machine it runs on', () => {
+  const suite = machineSessions(() => true)
+  expect(suite.limit()).toBeGreaterThan(os.availableParallelism())
+  expect(machineSessions(() => true, { [MACHINE_DIR_VARIABLE]: scratch() }).limit()).toBeLessThanOrEqual(os.availableParallelism())
 })
 
 it('a lone session gets cores divided by the limit in workers', () => {

@@ -78,6 +78,10 @@ function defaultSessionLimit(cores: number): number {
   return Math.max(1, Math.floor(cores / CORES_PER_DEFAULT_SESSION))
 }
 
+export function setMachineLimit(dir: string, sessions: number): void {
+  writeAtomically(path.join(dir, MACHINE_LIMIT_FILE), { sessions })
+}
+
 export class MachineSessions {
   constructor(private readonly dir: string, private readonly isLive: SessionLive, private readonly cores: number, private readonly now: () => Date = () => new Date()) {}
 
