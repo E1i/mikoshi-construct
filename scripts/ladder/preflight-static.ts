@@ -24,6 +24,7 @@ const GHOSTS_FILE_CREATED_IN_TEXT = new RegExp(`(${GHOSTS_FILE_FORMS})\`? \\(cre
 const GENERATORS = [
   { path: 'templates/attach/earlier-carriers.json', command: 'pnpm exec tsx scripts/attach/earlier-carriers.ts' },
   { path: 'contract/surface.json', command: 'pnpm contract:update' },
+  { path: 'contract/factory.json', command: 'pnpm contract:update' },
   { path: 'architecture/composition/', command: 'pnpm composition:render' },
   { path: 'architecture/model.md', command: 'pnpm model:render' },
 ]

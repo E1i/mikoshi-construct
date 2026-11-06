@@ -31,6 +31,7 @@ export function sortByVocabulary(capabilities: Capability[]): Capability[] {
 }
 
 const CONTRACT_SURFACE_PATH = 'contract/surface.json'
+const CONTRACT_FACTORY_PATH = 'contract/factory.json'
 const WORKFLOWS_PREFIX = '.github/workflows/'
 const MATERIALIZE_PREFIX = 'src/materialize/'
 
@@ -38,6 +39,9 @@ export function pathTriggeredCapabilities(writePaths: string[]): Capability[] {
   const capabilities: Capability[] = []
   if (writePaths.includes(CONTRACT_SURFACE_PATH)) {
     capabilities.push('need generated artifact', 'need contract diff')
+  }
+  else if (writePaths.includes(CONTRACT_FACTORY_PATH)) {
+    capabilities.push('need generated artifact')
   }
   if (writePaths.some(path => path.startsWith(WORKFLOWS_PREFIX))) {
     capabilities.push('need live CI observation')

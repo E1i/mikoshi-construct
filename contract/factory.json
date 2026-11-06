@@ -1,0 +1,1870 @@
+{
+  "bus": {
+    "busVersion": 1,
+    "events": {
+      "answer.step": {
+        "complete": true,
+        "keys": [
+          "seconds",
+          "step"
+        ]
+      },
+      "artifact.kept": {
+        "complete": false,
+        "keys": []
+      },
+      "artifact.removed": {
+        "complete": true,
+        "keys": [
+          "by",
+          "parked",
+          "path"
+        ]
+      },
+      "board.alarm": {
+        "complete": true,
+        "keys": [
+          "cause",
+          "detail",
+          "digest",
+          "failures",
+          "lease",
+          "lease_gen",
+          "path",
+          "reason",
+          "ref",
+          "task_key",
+          "worker"
+        ]
+      },
+      "board.alarm.cleared": {
+        "complete": true,
+        "keys": [
+          "alarm",
+          "digest",
+          "reason"
+        ]
+      },
+      "bus.cutover": {
+        "complete": false,
+        "keys": []
+      },
+      "bus.heal.held": {
+        "complete": true,
+        "keys": [
+          "backup",
+          "failure"
+        ]
+      },
+      "bus.healed": {
+        "complete": false,
+        "keys": []
+      },
+      "card.admitted": {
+        "complete": false,
+        "keys": [
+          "admission",
+          "bodySha",
+          "card",
+          "confirmation",
+          "contour",
+          "corrections",
+          "decision",
+          "depends",
+          "lane",
+          "moved",
+          "source",
+          "text",
+          "textSha"
+        ]
+      },
+      "card.answered": {
+        "complete": false,
+        "keys": []
+      },
+      "card.closed": {
+        "complete": true,
+        "keys": [
+          "report",
+          "verification",
+          "witnessedOnMain"
+        ]
+      },
+      "card.continued": {
+        "complete": false,
+        "keys": [
+          "continuation",
+          "contour",
+          "from"
+        ]
+      },
+      "card.deferred": {
+        "complete": false,
+        "keys": []
+      },
+      "card.dropped": {
+        "complete": true,
+        "keys": [
+          "bodySha",
+          "from",
+          "lane",
+          "reason",
+          "recut",
+          "request",
+          "to"
+        ]
+      },
+      "card.fell": {
+        "complete": true,
+        "keys": [
+          "kind"
+        ]
+      },
+      "card.held": {
+        "complete": true,
+        "keys": [
+          "reason",
+          "request",
+          "takeover"
+        ]
+      },
+      "card.moved": {
+        "complete": false,
+        "keys": []
+      },
+      "card.planned": {
+        "complete": true,
+        "keys": [
+          "card",
+          "recut_of",
+          "release"
+        ]
+      },
+      "card.pulse": {
+        "complete": true,
+        "keys": [
+          "pgid",
+          "session",
+          "since"
+        ]
+      },
+      "card.released": {
+        "complete": false,
+        "keys": []
+      },
+      "card.session.ended": {
+        "complete": true,
+        "keys": [
+          "detail",
+          "pgid",
+          "published",
+          "session",
+          "stopped"
+        ]
+      },
+      "card.started": {
+        "complete": false,
+        "keys": [
+          "admission",
+          "adopts",
+          "branch",
+          "card",
+          "entry",
+          "forecast",
+          "isolation",
+          "isolationGaps",
+          "path",
+          "session",
+          "shift",
+          "started",
+          "tree_origin",
+          "worktree"
+        ]
+      },
+      "card.stopped": {
+        "complete": false,
+        "keys": [
+          "code",
+          "detail",
+          "dropped",
+          "paths",
+          "reason",
+          "touches",
+          "widen"
+        ]
+      },
+      "card.takeover": {
+        "complete": true,
+        "keys": [
+          "ground",
+          "reason",
+          "request"
+        ]
+      },
+      "card.unplanned": {
+        "complete": false,
+        "keys": []
+      },
+      "card.verified": {
+        "complete": false,
+        "keys": [
+          "detail",
+          "session"
+        ]
+      },
+      "card.waiting": {
+        "complete": true,
+        "keys": [
+          "actions",
+          "amended",
+          "bodySha",
+          "code",
+          "depends",
+          "detail",
+          "reason",
+          "session",
+          "started",
+          "step",
+          "witnesses"
+        ]
+      },
+      "chain.observed": {
+        "complete": true,
+        "keys": [
+          "boundary",
+          "dir",
+          "leader",
+          "parking",
+          "pid",
+          "sha",
+          "state",
+          "waitingOn"
+        ]
+      },
+      "chain.restarted": {
+        "complete": false,
+        "keys": []
+      },
+      "checks.matrix": {
+        "complete": true,
+        "keys": [
+          "full",
+          "killed",
+          "notRun",
+          "skipped",
+          "summary",
+          "survived"
+        ]
+      },
+      "command.executed": {
+        "complete": false,
+        "keys": [
+          "command",
+          "endpoint",
+          "event_id",
+          "lease_gen",
+          "status",
+          "task_key"
+        ]
+      },
+      "decision.recorded": {
+        "complete": true,
+        "keys": [
+          "decision_id",
+          "scope",
+          "source",
+          "supersedes",
+          "text"
+        ]
+      },
+      "decisions.imported": {
+        "complete": true,
+        "keys": [
+          "decisions",
+          "sha256"
+        ]
+      },
+      "factory.mode": {
+        "complete": true,
+        "keys": [
+          "mode",
+          "request"
+        ]
+      },
+      "ghost.line": {
+        "complete": false,
+        "keys": []
+      },
+      "ghost.row": {
+        "complete": true,
+        "keys": [
+          "id",
+          "row",
+          "state"
+        ]
+      },
+      "intake": {
+        "complete": false,
+        "keys": []
+      },
+      "intake-move": {
+        "complete": false,
+        "keys": []
+      },
+      "ladder.approval": {
+        "complete": false,
+        "keys": []
+      },
+      "lane.assigned": {
+        "complete": false,
+        "keys": [
+          "admission",
+          "lanes"
+        ]
+      },
+      "lane.overlap": {
+        "complete": true,
+        "keys": [
+          "generation",
+          "lane"
+        ]
+      },
+      "leases.draining": {
+        "complete": true,
+        "keys": [
+          "from",
+          "node",
+          "sha",
+          "until"
+        ]
+      },
+      "merge.done": {
+        "complete": true,
+        "keys": [
+          "commit",
+          "lease_gen",
+          "rule",
+          "task_key",
+          "witnessBase"
+        ]
+      },
+      "netwatch.tick": {
+        "complete": false,
+        "keys": [
+          "calls",
+          "gap_s",
+          "rate_remaining",
+          "reason",
+          "unsettled",
+          "written"
+        ]
+      },
+      "node.detected": {
+        "complete": true,
+        "keys": [
+          "event_id",
+          "key",
+          "outcome",
+          "via"
+        ]
+      },
+      "node.equivalence": {
+        "complete": false,
+        "keys": [
+          "event_id"
+        ]
+      },
+      "numbers.foreign": {
+        "complete": true,
+        "keys": [
+          "ids",
+          "request"
+        ]
+      },
+      "owner.wait.closed": {
+        "complete": true,
+        "keys": [
+          "answer",
+          "id",
+          "request"
+        ]
+      },
+      "owner.wait.opened": {
+        "complete": false,
+        "keys": [
+          "id",
+          "need",
+          "text"
+        ]
+      },
+      "plan.backfilled": {
+        "complete": false,
+        "keys": []
+      },
+      "plan.closed": {
+        "complete": false,
+        "keys": []
+      },
+      "plan.item.added": {
+        "complete": false,
+        "keys": []
+      },
+      "plan.item.linked": {
+        "complete": false,
+        "keys": []
+      },
+      "plan.item.removed": {
+        "complete": false,
+        "keys": []
+      },
+      "plan.opened": {
+        "complete": true,
+        "keys": [
+          "goal",
+          "id",
+          "plan_file",
+          "title"
+        ]
+      },
+      "policy.allowed": {
+        "complete": true,
+        "keys": [
+          "by",
+          "command",
+          "lease_gen",
+          "reason",
+          "rule",
+          "task_key"
+        ]
+      },
+      "policy.denied": {
+        "complete": false,
+        "keys": [
+          "by",
+          "command",
+          "detail",
+          "kind",
+          "reason",
+          "refused",
+          "rule"
+        ]
+      },
+      "pr.closed": {
+        "complete": true,
+        "keys": [
+          "by",
+          "cardId",
+          "dedupeKey",
+          "head",
+          "merged",
+          "payload",
+          "pr",
+          "reason"
+        ]
+      },
+      "pr.observed": {
+        "complete": true,
+        "keys": [
+          "cardId",
+          "dedupeKey",
+          "head",
+          "payload",
+          "pr"
+        ]
+      },
+      "pr.opened": {
+        "complete": true,
+        "keys": [
+          "pr",
+          "recut_of"
+        ]
+      },
+      "pr.status.refused": {
+        "complete": true,
+        "keys": [
+          "event_id",
+          "state",
+          "status",
+          "step"
+        ]
+      },
+      "pr.status.set": {
+        "complete": true,
+        "keys": [
+          "event_id",
+          "state",
+          "status",
+          "step"
+        ]
+      },
+      "process.ended": {
+        "complete": true,
+        "keys": [
+          "process"
+        ]
+      },
+      "process.heartbeat": {
+        "complete": false,
+        "keys": [
+          "process"
+        ]
+      },
+      "process.judged": {
+        "complete": true,
+        "keys": [
+          "last_beat",
+          "limit_ms",
+          "process",
+          "silent_ms",
+          "verdict"
+        ]
+      },
+      "process.refused": {
+        "complete": true,
+        "keys": [
+          "last_beat",
+          "live",
+          "process"
+        ]
+      },
+      "question.agent": {
+        "complete": true,
+        "keys": [
+          "widen"
+        ]
+      },
+      "question.owner": {
+        "complete": false,
+        "keys": []
+      },
+      "reducer.reduced": {
+        "complete": true,
+        "keys": [
+          "applied",
+          "rejected",
+          "through_event_id"
+        ]
+      },
+      "reducer.rejected": {
+        "complete": true,
+        "keys": [
+          "event_id",
+          "reason",
+          "type"
+        ]
+      },
+      "review.recorded": {
+        "complete": false,
+        "keys": [
+          "card_body",
+          "depth",
+          "depth_why",
+          "findings",
+          "head",
+          "model",
+          "review_ms",
+          "reviewer_session",
+          "verdict"
+        ]
+      },
+      "review.rounds_spent": {
+        "complete": true,
+        "keys": [
+          "findings",
+          "pr",
+          "rounds",
+          "state"
+        ]
+      },
+      "review.tree.orphaned": {
+        "complete": true,
+        "keys": [
+          "detail",
+          "path"
+        ]
+      },
+      "role.leased": {
+        "complete": false,
+        "keys": []
+      },
+      "role.raised": {
+        "complete": false,
+        "keys": []
+      },
+      "role.returned": {
+        "complete": true,
+        "keys": [
+          "ended",
+          "handoff",
+          "last_sign",
+          "role"
+        ]
+      },
+      "role.stopped": {
+        "complete": false,
+        "keys": []
+      },
+      "round.extended": {
+        "complete": true,
+        "keys": [
+          "findings",
+          "pr",
+          "previous"
+        ]
+      },
+      "round.mutations.parked": {
+        "complete": true,
+        "keys": [
+          "card",
+          "head",
+          "mutations",
+          "pr"
+        ]
+      },
+      "scope.widened": {
+        "complete": true,
+        "keys": [
+          "admission",
+          "detail",
+          "paths"
+        ]
+      },
+      "session.heartbeat": {
+        "complete": false,
+        "keys": [
+          "lease_gen",
+          "read_before_edit",
+          "session",
+          "start_context",
+          "step",
+          "task_key"
+        ]
+      },
+      "shard.decided": {
+        "complete": true,
+        "keys": [
+          "answer",
+          "doneBy",
+          "ground",
+          "options",
+          "question",
+          "shard",
+          "stop",
+          "wait"
+        ]
+      },
+      "shard.expired": {
+        "complete": true,
+        "keys": [
+          "id"
+        ]
+      },
+      "shard.issued": {
+        "complete": true,
+        "keys": [
+          "by",
+          "id",
+          "run",
+          "scope",
+          "under",
+          "until",
+          "window"
+        ]
+      },
+      "shard.revoked": {
+        "complete": false,
+        "keys": []
+      },
+      "shard.used": {
+        "complete": true,
+        "keys": [
+          "commit",
+          "id"
+        ]
+      },
+      "supervisor.restarted": {
+        "complete": true,
+        "keys": [
+          "sha"
+        ]
+      },
+      "task.completed": {
+        "complete": false,
+        "keys": [
+          "lease_gen",
+          "queue",
+          "task_key"
+        ]
+      },
+      "task.enqueued": {
+        "complete": false,
+        "keys": [
+          "failure",
+          "fault",
+          "queue",
+          "task_key"
+        ]
+      },
+      "task.expired": {
+        "complete": true,
+        "keys": [
+          "detail",
+          "failures",
+          "reason",
+          "task_key",
+          "withdraw"
+        ]
+      },
+      "task.failed": {
+        "complete": false,
+        "keys": [
+          "detail",
+          "failures",
+          "lease_gen",
+          "next",
+          "queue",
+          "reason",
+          "task_key"
+        ]
+      },
+      "task.leased": {
+        "complete": false,
+        "keys": [
+          "lease_gen",
+          "queue",
+          "task_key"
+        ]
+      },
+      "task.released": {
+        "complete": false,
+        "keys": [
+          "lease_gen",
+          "queue",
+          "reason",
+          "task_key",
+          "until"
+        ]
+      },
+      "task.renewed": {
+        "complete": false,
+        "keys": [
+          "lease_gen",
+          "queue",
+          "task_key"
+        ]
+      },
+      "task.requeued": {
+        "complete": false,
+        "keys": [
+          "failure",
+          "fault",
+          "generation",
+          "queue",
+          "request",
+          "task_key"
+        ]
+      },
+      "task.superseded": {
+        "complete": false,
+        "keys": [
+          "failure",
+          "fault",
+          "lease_gen",
+          "queue",
+          "task_key"
+        ]
+      },
+      "task.withdrawn": {
+        "complete": false,
+        "keys": [
+          "failure",
+          "fault",
+          "queue",
+          "task_key"
+        ]
+      },
+      "touches.followed": {
+        "complete": true,
+        "keys": [
+          "paths",
+          "reason"
+        ]
+      },
+      "update.done": {
+        "complete": false,
+        "keys": [
+          "carried",
+          "clean",
+          "from",
+          "lease_gen",
+          "task_key",
+          "to",
+          "tookMain",
+          "why"
+        ]
+      },
+      "window.heartbeat": {
+        "complete": false,
+        "keys": [
+          "session"
+        ]
+      },
+      "window.request": {
+        "complete": false,
+        "keys": []
+      },
+      "window.request.done": {
+        "complete": true,
+        "keys": [
+          "detail",
+          "kind",
+          "request"
+        ]
+      },
+      "window.request.refused": {
+        "complete": false,
+        "keys": []
+      },
+      "window.subagent": {
+        "complete": true,
+        "keys": [
+          "phase",
+          "role",
+          "session",
+          "step",
+          "task",
+          "tree"
+        ]
+      },
+      "witness.downgrade": {
+        "complete": false,
+        "keys": []
+      },
+      "witness.fields.backfilled": {
+        "complete": false,
+        "keys": []
+      },
+      "witness.recorded": {
+        "complete": true,
+        "keys": [
+          "base",
+          "cardBody",
+          "detail",
+          "head",
+          "verdict"
+        ]
+      },
+      "worker.down": {
+        "complete": true,
+        "keys": [
+          "cause",
+          "failures",
+          "next_attempt_at",
+          "worker"
+        ]
+      },
+      "worker.started": {
+        "complete": true,
+        "keys": [
+          "pid",
+          "started",
+          "worker"
+        ]
+      }
+    },
+    "eventsOutsideTheCatalogue": {
+      "decision.expired": {
+        "complete": true,
+        "keys": [
+          "decision_id",
+          "until"
+        ]
+      },
+      "decisions.projected": {
+        "complete": true,
+        "keys": []
+      },
+      "role.to_owner": {
+        "complete": true,
+        "keys": [
+          "detail",
+          "handoff",
+          "role",
+          "wait"
+        ]
+      },
+      "worker.retiring": {
+        "complete": false,
+        "keys": [
+          "worker"
+        ]
+      }
+    },
+    "tables": {
+      "card_bodies": [
+        "admission_event_id",
+        "branch",
+        "card_id",
+        "card_line",
+        "contour",
+        "creates",
+        "decision",
+        "depends",
+        "lane",
+        "priority",
+        "text",
+        "text_sha",
+        "touches",
+        "who"
+      ],
+      "card_releases": [
+        "card_id",
+        "event_id",
+        "release"
+      ],
+      "cards": [
+        "card_id",
+        "event_id",
+        "pr",
+        "state"
+      ],
+      "chains": [
+        "boundary",
+        "card_id",
+        "dir",
+        "event_id",
+        "leader",
+        "parking",
+        "pid",
+        "sha",
+        "state"
+      ],
+      "decisions": [
+        "decision_id",
+        "event_id",
+        "scope",
+        "source",
+        "state",
+        "supersedes",
+        "text",
+        "until"
+      ],
+      "events": [
+        "actor",
+        "card_id",
+        "dedupe_key",
+        "head",
+        "id",
+        "legacy",
+        "payload",
+        "pr",
+        "ts",
+        "type"
+      ],
+      "heartbeats": [
+        "payload",
+        "process",
+        "ts",
+        "type"
+      ],
+      "mains": [
+        "event_id",
+        "sha",
+        "touches_mechanics"
+      ],
+      "node_cursors": [
+        "event_id",
+        "kind"
+      ],
+      "owner_waits": [
+        "answer",
+        "card_id",
+        "command",
+        "event_id",
+        "id",
+        "need",
+        "opened_at",
+        "pr",
+        "state",
+        "text"
+      ],
+      "plan_items": [
+        "cards",
+        "event_id",
+        "item_id",
+        "plan_id",
+        "title"
+      ],
+      "plans": [
+        "event_id",
+        "gate",
+        "goal",
+        "plan_file",
+        "plan_id",
+        "state",
+        "title"
+      ],
+      "projection_watermarks": [
+        "projection",
+        "through_event_id"
+      ],
+      "prs": [
+        "auto_merge",
+        "base",
+        "body_sha",
+        "card_id",
+        "ci",
+        "draft",
+        "event_id",
+        "head",
+        "mergeable",
+        "pr",
+        "state",
+        "verdict_on_head"
+      ],
+      "roles": [
+        "event_id",
+        "failures",
+        "handoff",
+        "lease_gen",
+        "lease_until",
+        "pid",
+        "raises",
+        "reason",
+        "role",
+        "state",
+        "status"
+      ],
+      "tasks": [
+        "card_id",
+        "event_id",
+        "failures",
+        "head",
+        "id",
+        "lease_gen",
+        "lease_until",
+        "pr",
+        "queue",
+        "state",
+        "task_key"
+      ]
+    }
+  },
+  "concepts": {
+    "answer-duties": {
+      "axis": "architecture",
+      "owner": "scripts/nodes/answer/duties/",
+      "ownerExists": false,
+      "title": "four duties each in the answer executor and the answerer"
+    },
+    "ci-reading": {
+      "axis": "architecture",
+      "owner": "scripts/ports/ci-reading.ts",
+      "ownerExists": false,
+      "title": "the state of CI on a commit or a pull request"
+    },
+    "generated-files": {
+      "axis": "architecture",
+      "owner": "scripts/core/generated-files.ts",
+      "ownerExists": false,
+      "title": "the list of generated files"
+    },
+    "git": {
+      "axis": "architecture",
+      "owner": "scripts/ports/git.ts",
+      "ownerExists": true,
+      "title": "running git"
+    },
+    "handoff-status": {
+      "axis": "architecture",
+      "owner": "scripts/core/handoff-status.ts",
+      "ownerExists": false,
+      "title": "the STATUS line of a handoff"
+    },
+    "layers": {
+      "axis": "architecture",
+      "owner": "scripts/core/layer-map.ts",
+      "ownerExists": true,
+      "title": "which layer a file belongs to"
+    },
+    "live-session": {
+      "axis": "architecture",
+      "owner": "scripts/ports/client/",
+      "ownerExists": true,
+      "title": "whether a client session is alive in a tree"
+    },
+    "owner-commands": {
+      "axis": "interface",
+      "owner": "scripts/core/owner-commands.ts",
+      "ownerExists": false,
+      "title": "the command lines the owner is told to run"
+    },
+    "owner-decisions": {
+      "axis": "architecture",
+      "owner": "scripts/policy/decisions.ts",
+      "ownerExists": true,
+      "title": "the owner decisions, read from the markdown file or the bus table"
+    },
+    "pid-liveness": {
+      "axis": "architecture",
+      "owner": "scripts/ports/process-table.ts",
+      "ownerExists": false,
+      "title": "whether a pid is alive"
+    },
+    "process-table": {
+      "axis": "architecture",
+      "owner": "scripts/ports/process-table.ts",
+      "ownerExists": false,
+      "title": "the process table of the OS, read with ps, lsof or top and parsed"
+    },
+    "window-requests": {
+      "axis": "architecture",
+      "owner": "scripts/window/requests/",
+      "ownerExists": false,
+      "title": "one class for every kind of window request"
+    }
+  },
+  "factoryVersion": 1,
+  "overlaps": {
+    "answer-duties": {
+      "scripts/nodes/answer/answer-executor.ts": 20,
+      "scripts/nodes/answer/answerer.ts": 24
+    },
+    "ci-reading": {
+      "scripts/ci/test-weights.ts": 3,
+      "scripts/core/observations.ts": 1,
+      "scripts/nodes/answer/answerer.ts": 5,
+      "scripts/nodes/answer/ci-log.ts": 1,
+      "scripts/nodes/merge/merge-executor.ts": 1,
+      "scripts/ports/gh.ts": 3,
+      "scripts/ports/snapshot.ts": 4,
+      "scripts/release/cancel-run.ts": 3,
+      "scripts/window/watch.ts": 1,
+      "scripts/window/window-prs.ts": 1,
+      "src/commands/board/items.ts": 1,
+      "src/commands/board/prs.ts": 6
+    },
+    "generated-files": {
+      "scripts/attach/earlier-carriers.ts": 1,
+      "scripts/contract/bump.ts": 1,
+      "scripts/contract/update.ts": 2,
+      "scripts/core/factory-paths.ts": 2,
+      "scripts/ladder/preflight-static.ts": 5,
+      "scripts/ladder/regenerated.ts": 1,
+      "scripts/model/render.ts": 1,
+      "scripts/policy/shredder/vocabulary.ts": 2,
+      "scripts/ports/witnesses.ts": 1,
+      "src/card/risk.ts": 3,
+      "src/commands/intake/check.ts": 5
+    },
+    "git": {
+      "scripts/atlas/build.ts": 1,
+      "scripts/attach/earlier-carriers.ts": 1,
+      "scripts/ci/prepush.ts": 1,
+      "scripts/ci/select.ts": 1,
+      "scripts/ci/test-weights.ts": 1,
+      "scripts/construct/check-acceptance.mjs": 1,
+      "scripts/contract/bump.ts": 5,
+      "scripts/contract/declared.ts": 1,
+      "scripts/contract/json-samples.ts": 1,
+      "scripts/contract/surface.ts": 1,
+      "scripts/core/node.ts": 1,
+      "scripts/core/push-policy.ts": 1,
+      "scripts/done/tree.ts": 1,
+      "scripts/ladder/brief-finish-cli.ts": 1,
+      "scripts/ladder/cleanup.ts": 7,
+      "scripts/ladder/hash.ts": 1,
+      "scripts/ladder/launch.ts": 3,
+      "scripts/ladder/supersede.ts": 1,
+      "scripts/ladder/supervise.ts": 3,
+      "scripts/ladder/verdict.ts": 3,
+      "scripts/nodes/answer/answerer.ts": 3,
+      "scripts/nodes/close/close-executor.ts": 1,
+      "scripts/nodes/close/ended-card-trees.ts": 1,
+      "scripts/nodes/launch/lane-assign.ts": 1,
+      "scripts/nodes/launch/launch-starter.ts": 1,
+      "scripts/nodes/launch/launch-worker.ts": 3,
+      "scripts/nodes/launch/tree-pr-cli.ts": 1,
+      "scripts/nodes/review/depth-sources.ts": 1,
+      "scripts/nodes/review/reviewer.ts": 3,
+      "scripts/policy/shard.ts": 1,
+      "scripts/ports/card-tree.ts": 1,
+      "scripts/ports/diff.ts": 1,
+      "scripts/ports/prepare-tree.ts": 1,
+      "scripts/ports/task-start.ts": 1,
+      "scripts/ports/tree-publish.ts": 1,
+      "scripts/ports/worktree.ts": 2,
+      "scripts/release/changesets.ts": 1,
+      "scripts/release/evidence.ts": 1,
+      "scripts/release/security-diff.ts": 1,
+      "scripts/supervisor/supervisor.ts": 5,
+      "scripts/window/owner-command.ts": 1,
+      "scripts/window/pull.ts": 1,
+      "scripts/window/window-agents.ts": 1,
+      "scripts/window/window-request-tools.ts": 1,
+      "src/detect/git.ts": 1
+    },
+    "handoff-status": {
+      "scripts/cli/board-page.ts": 3,
+      "scripts/window/exit.ts": 1,
+      "scripts/window/loop.ts": 3,
+      "scripts/window/tab.ts": 1,
+      "src/commands/doctor/factory.ts": 2
+    },
+    "layers": {
+      "scripts/ci/card-runs.ts": 1,
+      "scripts/ci/layers.ts": 5,
+      "scripts/cli/check-catalog.ts": 3,
+      "src/card/witness-fields.ts": 1
+    },
+    "live-session": {
+      "scripts/nodes/answer/answerer.ts": 3,
+      "scripts/ports/worktree.ts": 4,
+      "scripts/window/session-load.ts": 1
+    },
+    "owner-commands": {
+      "scripts/ci/prepush.ts": 2,
+      "scripts/ci/select.ts": 3,
+      "scripts/ci/test-weights.ts": 3,
+      "scripts/cli/board-page.ts": 3,
+      "scripts/cli/card.ts": 2,
+      "scripts/cli/slot.ts": 1,
+      "scripts/composition/check.ts": 1,
+      "scripts/contract/bump.ts": 1,
+      "scripts/contract/json-samples.ts": 1,
+      "scripts/contract/surface.ts": 1,
+      "scripts/core/queue.ts": 1,
+      "scripts/core/reducer.ts": 2,
+      "scripts/docs/anchors.ts": 1,
+      "scripts/intake/intake.ts": 3,
+      "scripts/ladder/approval.ts": 1,
+      "scripts/ladder/approve.ts": 1,
+      "scripts/ladder/brief-finish.ts": 1,
+      "scripts/ladder/ladder.ts": 4,
+      "scripts/ladder/launch.ts": 2,
+      "scripts/ladder/morse-approve.ts": 1,
+      "scripts/ladder/preflight-static.ts": 5,
+      "scripts/ladder/role.ts": 1,
+      "scripts/model/render.ts": 1,
+      "scripts/nodes/close/task-close.ts": 2,
+      "scripts/nodes/launch/tree-pr-cli.ts": 1,
+      "scripts/nodes/restart/role.ts": 1,
+      "scripts/nodes/review/review-worker.ts": 1,
+      "scripts/nodes/witness/witness-executor.ts": 1,
+      "scripts/owner/say.ts": 1,
+      "scripts/policy/decisions/add.ts": 3,
+      "scripts/policy/decisions/read.ts": 1,
+      "scripts/policy/live-decision.ts": 1,
+      "scripts/policy/shard.ts": 2,
+      "scripts/policy/shards.ts": 1,
+      "scripts/ports/task-start.ts": 3,
+      "scripts/ports/witnesses.ts": 3,
+      "scripts/release-notes/render.ts": 1,
+      "scripts/release/evidence.ts": 1,
+      "scripts/supervisor/launchd/install.ts": 1,
+      "scripts/supervisor/start.ts": 1,
+      "scripts/window/compact-start.ts": 1,
+      "scripts/window/exit.ts": 8,
+      "scripts/window/handoff-check.ts": 3,
+      "scripts/window/handoff-write.ts": 1,
+      "scripts/window/loop.ts": 4,
+      "scripts/window/operator-boundary.ts": 1,
+      "scripts/window/owner-command.ts": 1,
+      "scripts/window/pre-compact.ts": 2,
+      "scripts/window/turn-watch.ts": 4,
+      "scripts/window/watch.ts": 1,
+      "scripts/window/window-requests.ts": 5,
+      "scripts/window/window-subagents.ts": 1,
+      "scripts/window/window.ts": 1,
+      "src/atlas/chrome.ts": 1,
+      "src/atlas/docs.ts": 1,
+      "src/atlas/map.ts": 1,
+      "src/commands/attach/earlier.ts": 1,
+      "src/commands/board/screens.ts": 5,
+      "src/commands/doctor/factory.ts": 3,
+      "src/commands/doctor/report.ts": 1,
+      "src/commands/init.ts": 1,
+      "src/commands/intake/check.ts": 3,
+      "src/program.ts": 1,
+      "src/ui/lore.ts": 67
+    },
+    "owner-decisions": {
+      "scripts/core/bus-path.ts": 1,
+      "scripts/core/inbox.ts": 1,
+      "scripts/core/reducer.ts": 1,
+      "scripts/nodes/answer/answer-source.ts": 1,
+      "scripts/nodes/close/task-close.ts": 2,
+      "scripts/nodes/launch/launch-candidates.ts": 1,
+      "scripts/policy/decisions-import.ts": 1,
+      "scripts/policy/decisions/add.ts": 4,
+      "scripts/policy/decisions/decisions.ts": 7,
+      "scripts/policy/decisions/read.ts": 2,
+      "scripts/supervisor/run.ts": 1,
+      "scripts/supervisor/start.ts": 3,
+      "scripts/window/window-request-tools.ts": 2,
+      "src/commands/doctor/factory.ts": 2,
+      "src/commands/intake/admit.ts": 4
+    },
+    "pid-liveness": {
+      "scripts/ladder/cleanup.ts": 1,
+      "scripts/quality/lock.ts": 1,
+      "scripts/scratch/run-root.ts": 1,
+      "scripts/supervisor/bg.ts": 1,
+      "scripts/supervisor/supervisor.ts": 1
+    },
+    "process-table": {
+      "scripts/ladder/watch-process.ts": 1,
+      "scripts/nodes/launch/launch-starter.ts": 1,
+      "scripts/nodes/restart/chain-process.ts": 1,
+      "scripts/ports/worktree.ts": 1,
+      "scripts/supervisor/bg.ts": 2,
+      "scripts/supervisor/supervisor.ts": 3,
+      "scripts/window/exit.ts": 2,
+      "scripts/window/loop.ts": 1,
+      "scripts/window/session-load.ts": 1
+    },
+    "window-requests": {
+      "scripts/window/window-requests.ts": 16
+    }
+  },
+  "ports": {
+    "scripts/ports/card-tree.ts": {
+      "constants": [],
+      "functions": {
+        "cardTreeOf": "(db: DatabaseSync, cardId: number, tools: CardTreeTools): CardSession | null",
+        "cardlessTreeName": "(branch: string): string",
+        "cardlessTreeOf": "(branch: string, tools: CardTreeTools): string",
+        "gitCardTrees": "(repo: string, home: string, install: (cwd: string) => void, gitHub: GitHub = ghApi(repo), treeOf?: (cardId: string) => string): CardTreeTools",
+        "realCardTrees": "(): CardTreeTools"
+      },
+      "reexports": [],
+      "types": {
+        "CardTreeRefused": "class CardTreeRefused extends Error {  }",
+        "CardTreeTools": "interface CardTreeTools { home: string; treeOf?: (cardId: string) => string; exists: (dir: string) => boolean; branchOf: (pr: number) => string; recreate: (worktree: string, branch: string) => void; bringTo: (worktree: string, branch: string, head: string) => void; }"
+      }
+    },
+    "scripts/ports/client/claude/adapter.ts": {
+      "constants": [
+        "CLIENT_ENV_PREFIXES",
+        "CLIENT_SANDBOX_DIRECTORY",
+        "SESSION_VARIABLE",
+        "USER_SETTINGS",
+        "WINDOW_COMMAND_VARIABLE",
+        "WINDOW_RESUME_REFUSAL",
+        "claudeAdapter: ClientAdapter"
+      ],
+      "functions": {
+        "cardIsolationCommand": "(client: string): string[]",
+        "clientHome": "(env: NodeJS.ProcessEnv): string",
+        "clientLastSteps": "(env: NodeJS.ProcessEnv, worktree: string, session: string): string[] | null",
+        "clientTranscript": "(env: NodeJS.ProcessEnv, worktree: string, session: string): string | null",
+        "findTranscript": "(home: string, session: string): string | null",
+        "hasClientTranscript": "(env: NodeJS.ProcessEnv, worktree: string, session: string): boolean",
+        "measuredSession": "(root: string, transcript: string): { context: number; spent: number; }",
+        "measuredSpent": "(root: string, transcript: string): number",
+        "measuredSubagents": "(root: string, transcript: string): MeasuredSubagent[]",
+        "ownerMessagesOf": "(transcript: string): number",
+        "parseSessionJournal": "(text: string, worktree: string): CommandJournal",
+        "rawUsageIn": "(stdoutPath: string): unknown | null",
+        "spendBasis": "(): string",
+        "stoppedTasksOf": "(transcript: string): Set<string>",
+        "transcriptContext": "(text: string): number | null",
+        "transcriptCounters": "(text: string): { start: TranscriptCounters | null; end: TranscriptCounters | null; startedAt: string | null; }",
+        "transcriptFile": "(claudeHome: string, worktree: string, session: string): string | null",
+        "transcriptModel": "(text: string): string | null",
+        "windowCommand": "(env: NodeJS.ProcessEnv): string"
+      },
+      "reexports": [],
+      "types": {
+        "ClientOperationPending": "class ClientOperationPending extends Error { constructor(readonly operation: string, readonly card: string) }",
+        "CommandJournal": "interface CommandJournal extends SessionJournal { commandRuns: readonly CommandRun[]; }",
+        "MeasuredSubagent": "interface MeasuredSubagent { name: string; context: number; spent: number; at: string; }",
+        "TranscriptCounters": "interface TranscriptCounters { input: number; cache_write: number; cache_read: number; }"
+      }
+    },
+    "scripts/ports/client/contract.ts": {
+      "constants": [],
+      "functions": {},
+      "reexports": [],
+      "types": {
+        "Capabilities": "interface Capabilities { identity: 'assigned' | 'reported'; ladder: boolean; reports: { cost: boolean; turns: boolean; model: boolean; denials: boolean; journal: boolean; }; }",
+        "ClientAdapter": "interface ClientAdapter { readonly id: string; readonly capabilities: Capabilities; invocation: (spec: SessionSpec) => Invocation | Refusal; reading: (place: SessionPlace) => SessionReading; readBudget: (home: string, session: string) => ReadBudget; models: () => ModelOffer[]; modelFor: (role: Role, effort: Effort | null, wanted: ModelChoice) => ModelPick | Refusal; processes: ClientProcesses; ownSession: (env: NodeJS.ProcessEnv) => string | null; }",
+        "ClientProcesses": "interface ClientProcesses { isClient: (argv: string) => boolean; sessionMarker: (session: string) => string | null; liveCwds: () => ProcessCwds; isolationCommand: () => string[]; }",
+        "Denial": "interface Denial { tool: string; path: string | null; command: string | null; text: string; }",
+        "Effort": "type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max'",
+        "Invocation": "interface Invocation { command: string; args: string[]; env: NodeJS.ProcessEnv; stdin: string | null; }",
+        "JournalChange": "type JournalChange = { kind: 'write'; content: string; at: number; } | { kind: 'edit'; oldString: string; newString: string; replaceAll: boolean; at: number; }",
+        "ModelChoice": "type ModelChoice = 'auto' | string",
+        "ModelOffer": "interface ModelOffer { id: string; efforts: Effort[]; contextWindow: number | null; recommendedFor: Role[]; }",
+        "ModelPick": "interface ModelPick { model: string | null; }",
+        "ProcessCwds": "type ProcessCwds = { kind: 'listed'; listing: string; } | { kind: 'unreadable'; why: string; }",
+        "ReadBudget": "interface ReadBudget { startContext: number | null; readBeforeEdit: number | null; }",
+        "Refusal": "interface Refusal { kind: 'refused'; reason: string; }",
+        "Role": "type Role = 'launch' | 'answer' | 'review' | 'ladder' | 'ghost' | 'window'",
+        "SessionJournal": "interface SessionJournal { end: number; changes: ReadonlyMap<string, JournalChange[]>; }",
+        "SessionPlace": "interface SessionPlace { session: string; cwd: string; stdoutPath: string | null; }",
+        "SessionPolicy": "interface SessionPolicy { profile: 'sandboxed' | 'client-default'; gateCommands: string[]; writePaths: string[]; mcpOff: boolean; tools?: readonly SessionTool[]; }",
+        "SessionReading": "interface SessionReading { end: 'completed' | 'failed' | 'missing'; failure: string | null; usage: Usage | null; costUsd: number | null; turns: number | null; durationMs: number | null; model: string | null; denials: Denial[]; toolUses: ToolUse[]; journal: SessionJournal | 'unreadable'; lastSteps: string[] | null; contextTokens: number | null; }",
+        "SessionSpec": "interface SessionSpec { kind: 'start' | 'resume'; role: Role; session: string; cwd: string; prompt: string; addDirs: string[]; pick: ModelPick; policy: SessionPolicy; }",
+        "SessionTool": "type SessionTool = 'web' | 'skills' | 'agents'",
+        "ToolUse": "interface ToolUse { kind: 'write' | 'exec' | 'other'; command: string | null; path: string | null; }",
+        "Usage": "interface Usage { input: number; cached: number; cacheWrite: number; output: number; reasoning: number; }"
+      }
+    },
+    "scripts/ports/client/index.ts": {
+      "constants": [],
+      "functions": {
+        "clientAdapter": "(): ClientAdapter"
+      },
+      "reexports": [],
+      "types": {}
+    },
+    "scripts/ports/diff.ts": {
+      "constants": [],
+      "functions": {
+        "changedFilesFrom": "(nameStatusOutput: string, numstatOutput: string): ChangedFile[]",
+        "getChangedFiles": "(repo: string, base: string, head: string): ChangedFile[]",
+        "gitTopLevel": "(dir: string): string | null",
+        "resolveRevision": "(repo: string, revision: string): string"
+      },
+      "reexports": [],
+      "types": {}
+    },
+    "scripts/ports/disk.ts": {
+      "constants": [
+        "DISK_FLOOR_BYTES",
+        "DISK_LOW"
+      ],
+      "functions": {
+        "diskLowDetail": "(read: DiskReader): string | null",
+        "freeBytes": "(read: DiskReader): number",
+        "statfsReader": "(dir: string = process.cwd()): DiskReader"
+      },
+      "reexports": [],
+      "types": {
+        "DiskBlocks": "interface DiskBlocks { bavail: number; bsize: number; }",
+        "DiskReader": "type DiskReader = () => DiskBlocks"
+      }
+    },
+    "scripts/ports/gh.ts": {
+      "constants": [
+        "GH_ATTEMPTS",
+        "GH_HOURLY_BUDGET: GhBudget",
+        "GH_PAUSE_MS",
+        "GH_TIMEOUT_SECONDS",
+        "PROCESS_GH_BUDGET",
+        "PROCESS_GH_PORT",
+        "PR_LIST_LIMIT",
+        "REQUIRED_CHECK",
+        "SECRET_SCAN_CHECK",
+        "execGh: GhCaller"
+      ],
+      "functions": {
+        "accountToken": "(account: string, options: { command?: string; spawn?: GhSpawn; timeoutMs?: number; } = {}): GhAccountToken",
+        "ghPort": "(overrides: Partial<GhPortOptions> = {}): GhPort",
+        "ghRunner": "(timeoutSeconds: number, command = 'gh', port: GhPort = ghPort({ command, timeoutSeconds })): GhCaller",
+        "listPrs": "(gh: GhCaller, repo: string): PrList",
+        "lookupPr": "(list: PrList, branch: string | undefined): PrLookup",
+        "prDetails": "(gh: GhRunner, repo: string, pr: PullRequest): PrDetails",
+        "readGhJson": "<T>(gh: GhCaller, args: string[]): GhRead<T>",
+        "recordedAccount": "(env: NodeJS.ProcessEnv): string | null",
+        "stdoutOrThrow": "(gh: GhCaller): GhRunner"
+      },
+      "reexports": [],
+      "types": {
+        "Ci": "interface Ci { state: CiState; text: string; head: string; greenAt?: string; }",
+        "CiState": "type CiState = 'none' | 'pending' | 'red' | 'green' | 'unknown'",
+        "GhAccountToken": "type GhAccountToken = { kind: 'token'; token: string; } | { kind: 'failed'; reason: string; stderr: string; }",
+        "GhBudget": "interface GhBudget { calls: number; windowMs: number; }",
+        "GhBudgetWindow": "class GhBudgetWindow { constructor(private readonly budget: GhBudget, private readonly now: () => number); spend(): GhSpend }",
+        "GhCall": "type GhCall = { kind: 'ran'; stdout: string; attempts: number; } | { kind: 'failed'; cause: GhFailureCause; reason: string; stdout: string; stderr: string; attempts: number; retryAfterSeconds?: number; }",
+        "GhCallOptions": "interface GhCallOptions { cwd?: string; input?: string; env?: NodeJS.ProcessEnv; }",
+        "GhCaller": "type GhCaller = (args: string[]) => GhCall",
+        "GhFailed": "class GhFailed extends Error { stderr: string; constructor(failure: Extract<GhCall, { kind: 'failed'; }>) }",
+        "GhFailureCause": "type GhFailureCause = 'timeout' | 'transient' | 'failed' | 'budget'",
+        "GhPort": "class GhPort { constructor(private readonly options: GhPortOptions); call(args: string[], asked: GhCallOptions = {}): GhCall }",
+        "GhPortOptions": "interface GhPortOptions { command: string; timeoutSeconds: number; attempts: number; pauseMs: number; budget: GhBudgetWindow; spawn: GhSpawn; pause: (ms: number) => void; environment: NodeJS.ProcessEnv; }",
+        "GhRead": "type GhRead<T> = { kind: 'read'; value: T; } | { kind: 'failed'; reason: string; cause: GhFailureCause | 'unparsed'; }",
+        "GhRunner": "type GhRunner = (args: string[]) => string",
+        "GhSpawn": "type GhSpawn = (command: string, args: string[], options: GhSpawnOptions) => GhSpawned",
+        "GhSpawnOptions": "interface GhSpawnOptions { cwd?: string; input?: string; env?: NodeJS.ProcessEnv; timeoutMs: number; }",
+        "GhSpawned": "interface GhSpawned { status: number | null; stdout: string; stderr: string; error?: NodeJS.ErrnoException; }",
+        "GhSpend": "type GhSpend = { kind: 'spent'; } | { kind: 'spent-out'; reason: string; retryAfterSeconds: number; }",
+        "GhTimedOut": "class GhTimedOut extends GhFailed {  }",
+        "PrDetails": "interface PrDetails { ci: Ci; files: string[] | undefined; }",
+        "PrList": "type PrList = { kind: 'failed'; reason?: string; } | { kind: 'listed'; prs: PullRequest[]; truncated: boolean; }",
+        "PrLookup": "type PrLookup = { kind: 'found'; pr: PullRequest; } | { kind: 'none'; } | { kind: 'unknown'; missing: string; }",
+        "PullRequest": "interface PullRequest { number: number; title?: string; headRefName: string; headRefOid: string; state: string; mergedAt: string | null; mergeCommit: { oid: string; } | null; }"
+      }
+    },
+    "scripts/ports/git.ts": {
+      "constants": [
+        "execGit: GitReader"
+      ],
+      "functions": {
+        "parseWorktrees": "(porcelain: string): WorktreeEntry[]"
+      },
+      "reexports": [],
+      "types": {
+        "GitReader": "interface GitReader { dirty: (worktree: string) => number | undefined; worktrees: (repoRoot: string) => WorktreeEntry[] | undefined; }",
+        "WorktreeEntry": "interface WorktreeEntry { path: string; branch: string | undefined; }"
+      }
+    },
+    "scripts/ports/github-status.ts": {
+      "constants": [
+        "REVIEW_STATUS_CONTEXT"
+      ],
+      "functions": {
+        "ghStatusPublisher": "(repo: string, port: GhPort = PROCESS_GH_PORT): StatusPublisher"
+      },
+      "reexports": [],
+      "types": {
+        "ReviewStatus": "interface ReviewStatus { commit: string; state: 'success' | 'failure'; context: typeof REVIEW_STATUS_CONTEXT; description: string; }",
+        "StatusPublisher": "type StatusPublisher = (status: ReviewStatus) => void"
+      }
+    },
+    "scripts/ports/github.ts": {
+      "constants": [
+        "BUDGET_SPENT_STATUS",
+        "NO_ANSWER_STATUS",
+        "RATE_LIMIT_STATUSES"
+      ],
+      "functions": {
+        "ghApi": "(cwd: string, port: GhPort = PROCESS_GH_PORT): GitHub",
+        "ghApiPatch": "(cwd: string, port: GhPort = PROCESS_GH_PORT): GitHubPut",
+        "ghApiPost": "(cwd: string, port: GhPort = PROCESS_GH_PORT): GitHubPut",
+        "ghApiPut": "(cwd: string, port: GhPort = PROCESS_GH_PORT): GitHubPut",
+        "parseIncluded": "(output: string): GhResponse"
+      },
+      "reexports": [],
+      "types": {
+        "CommandResult": "type CommandResult = { ok: boolean; status: number; } | { ok: false; error: string; } | { ok: true; }",
+        "GhResponse": "interface GhResponse { status: number; headers: Record<string, string>; body: unknown; }",
+        "GitHub": "type GitHub = (endpoint: string) => GhResponse",
+        "GitHubPut": "type GitHubPut = (endpoint: string, fields: Record<string, string>) => GhResponse"
+      }
+    },
+    "scripts/ports/isolation.ts": {
+      "constants": [
+        "NO_ISOLATION"
+      ],
+      "functions": {
+        "commandWords": "(command: string): string[]",
+        "readIsolationFacts": "(env: NodeJS.ProcessEnv, cwd: string, command: string[], flag: SettingsLayer = null): IsolationFacts",
+        "realIsolationReader": "(env: NodeJS.ProcessEnv, cwd: string, command: string[], flag: SettingsLayer = null): IsolationReader",
+        "runtimeIsolation": "(facts: IsolationFacts): Isolation",
+        "settingsPaths": "(env: NodeJS.ProcessEnv, cwd: string, platform: string, home: string): SettingsPaths"
+      },
+      "reexports": [],
+      "types": {
+        "Isolation": "type Isolation = { level: 'full' | 'partial'; mechanism: 'claude-code-sandbox'; gaps: string[]; } | { level: 'none'; why: string; }",
+        "IsolationFacts": "interface IsolationFacts { managed: SettingsLayer; flag: SettingsLayer; local: SettingsLayer; project: SettingsLayer; user: SettingsLayer; platform: string; sandboxExec: boolean; bwrap: boolean; socat: boolean; command: string[]; }",
+        "IsolationReader": "type IsolationReader = () => Isolation",
+        "SettingsLayer": "type SettingsLayer = Record<string, unknown> | null",
+        "SettingsPaths": "interface SettingsPaths { managed: string | null; local: string; project: string; user: string; }"
+      }
+    },
+    "scripts/ports/meter.ts": {
+      "constants": [
+        "DEFAULT_RETRY_AFTER_S"
+      ],
+      "functions": {
+        "retryAfterSeconds": "(response: GhResponse, nowMs: number): number"
+      },
+      "reexports": [],
+      "types": {
+        "GitHubFailed": "class GitHubFailed extends Error { constructor(readonly status: number, endpoint: string, cause?: string) }",
+        "Meter": "class Meter { calls; remaining: number | null; constructor(private readonly gitHub: GitHub, private readonly nowMs: () => number); get(endpoint: string): unknown }",
+        "RateLimited": "class RateLimited extends Error { constructor(readonly status: number, readonly retryAfterSeconds: number) }"
+      }
+    },
+    "scripts/ports/netwatch.ts": {
+      "constants": [
+        "CHECK_MS",
+        "NETWATCH_SCRIPT",
+        "PREFIX",
+        "TICK_MS",
+        "WAKE_GAP_MS"
+      ],
+      "functions": {
+        "knownOpenPrs": "(db: DatabaseSync): number[]",
+        "lastMain": "(db: DatabaseSync): string | null",
+        "lastObserved": "(db: DatabaseSync, pr: number): PreviousObservation | null",
+        "pollLine": "(poll: Poll): string"
+      },
+      "reexports": [],
+      "types": {
+        "NetWatch": "class NetWatch { constructor(private readonly db: DatabaseSync, private readonly gitHub: GitHub, private readonly clock: () => Date, private readonly process: string = RUN_SCRIPT, private readonly root?: string); dueReason(nowMs: number): PollReason | null; poll(): Poll | null }",
+        "Poll": "type Poll = { kind: 'ticked'; reason: PollReason; calls: number; remaining: number | null; written: number; unsettled: number[]; } | { kind: 'skipped'; reason: PollReason; cause: 'retry-after' | 'rate-limited' | 'failed'; calls: number; until?: string; detail?: string; }",
+        "PollReason": "type PollReason = 'start' | 'interval' | 'wake'"
+      }
+    },
+    "scripts/ports/pr-status.ts": {
+      "constants": [
+        "PREFIX",
+        "STATUS_ACTOR",
+        "STATUS_BATCH",
+        "STATUS_CONTEXT",
+        "STATUS_CURSOR",
+        "STATUS_OFF_FILE",
+        "STEP_EVENTS"
+      ],
+      "functions": {
+        "setStepStatuses": "(db: DatabaseSync, post: GitHubPost, now: () => Date = () => new Date(), batch = STATUS_BATCH): StepStatus[]",
+        "statusFailureLine": "(error: unknown): string",
+        "statusFields": "(status: StepStatus): Record<string, string>",
+        "statusLine": "(status: StepStatus): string",
+        "statusesSwitchedOff": "(busPath: string): boolean",
+        "stepStatusOf": "(event: StepEvent): StepStatus | null"
+      },
+      "reexports": [
+        "ghApiPost"
+      ],
+      "types": {
+        "GitHubPost": "type GitHubPost = GitHubPut",
+        "StatusRefusedForNow": "class StatusRefusedForNow extends Error {  }",
+        "StatusState": "type StatusState = 'pending' | 'success' | 'failure'",
+        "StepEvent": "interface StepEvent { id: number; type: string; pr: number | null; head: string | null; payload: string; }",
+        "StepStatus": "interface StepStatus { pr: number; head: string; step: string; state: StatusState; refused?: number; }"
+      }
+    },
+    "scripts/ports/prepare-tree.ts": {
+      "constants": [
+        "PREPARE_ENV_KEYS",
+        "PREPARE_MS",
+        "PREPARE_TREE",
+        "PROXY_ENV_KEYS"
+      ],
+      "functions": {
+        "browserNotPreinstalledLine": "(tree: string, why: string): string",
+        "notPreparedLine": "(tree: string, why: string): string",
+        "preinstallBrowser": "(tree: string, env: NodeJS.ProcessEnv = process.env, factoryLab: string = FACTORY_LAB): void",
+        "prepareBeforeSession": "(tree: string, prepare: TreePreparer = prepareTree, preinstall: TreePreparer = preinstallBrowser): string | null",
+        "prepareEnv": "(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv",
+        "prepareTree": "(tree: string): void"
+      },
+      "reexports": [],
+      "types": {
+        "TreePreparer": "type TreePreparer = (tree: string) => void"
+      }
+    },
+    "scripts/ports/prompt-store.ts": {
+      "constants": [
+        "PROMPTS_DIR"
+      ],
+      "functions": {
+        "promptsDirOf": "(busPath: string): string",
+        "sha256": "(text: string): string",
+        "storedInput": "(prompts: string | undefined, input: SessionInput | undefined): StoredInput"
+      },
+      "reexports": [],
+      "types": {
+        "AnswerInput": "interface AnswerInput extends SessionInput { cardBody: string | null; }",
+        "SessionInput": "interface SessionInput { prompt: string; }",
+        "StoredInput": "type StoredInput = { prompt_sha: string; prompt_path: string; } | { prompt_sha: string; prompt_unstored: string; } | Record<string, never>"
+      }
+    },
+    "scripts/ports/result.ts": {
+      "constants": [],
+      "functions": {
+        "readResultFields": "(reportPath: string): ResultFields"
+      },
+      "reexports": [],
+      "types": {
+        "ResultFields": "interface ResultFields { resultLine: 'present' | 'missing'; total_cost_usd: number | null; num_turns: number | null; duration_ms: number | null; usage: unknown | null; }"
+      }
+    },
+    "scripts/ports/serve-record.ts": {
+      "constants": [],
+      "functions": {
+        "serveRecordAt": "(tree: string, head: string): ServeRecord | null"
+      },
+      "reexports": [],
+      "types": {}
+    },
+    "scripts/ports/session.ts": {
+      "constants": [
+        "CARD_VARIABLE",
+        "EXIT_REQUEST_VARIABLE",
+        "LOOP_PID_VARIABLE",
+        "REVIEW_MODEL_VARIABLE",
+        "WINDOW_MARK",
+        "WINDOW_VARIABLE"
+      ],
+      "functions": {
+        "clientCommand": "(): string",
+        "clientInvocation": "(spec: SessionSpec): Invocation",
+        "headlessInvocation": "(parts: Partial<SessionSpec> = {}): Invocation",
+        "reviewModelOf": "(env: NodeJS.ProcessEnv = process.env): string | undefined",
+        "sessionEnv": "(base: NodeJS.ProcessEnv = process.env, card?: number): NodeJS.ProcessEnv",
+        "spawnReviewSession": "(params: SpawnSessionParams): Promise<number>",
+        "spawnSession": "(params: SpawnSessionParams): Promise<number>",
+        "streamReading": "(stdoutPath: string): SessionReading",
+        "windowModeOf": "(env: NodeJS.ProcessEnv): WindowMode | null",
+        "withoutCard": "(base: NodeJS.ProcessEnv): NodeJS.ProcessEnv",
+        "witnessEnv": "(base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv"
+      },
+      "reexports": [],
+      "types": {
+        "SessionCeilingReached": "class SessionCeilingReached extends Error { constructor(readonly sessionId: string, readonly ceilingMs: number) }",
+        "SpawnSessionParams": "interface SpawnSessionParams { cwd: string; sessionId: string; prompt: string; stdoutPath: string; stderrPath: string; env?: NodeJS.ProcessEnv; addDirs?: string[]; model?: string; ceilingMs?: number; role?: Extract<Role, 'review' | 'ghost'>; }",
+        "WindowMode": "type WindowMode = 'loop' | 'tab'"
+      }
+    },
+    "scripts/ports/shift-settings.ts": {
+      "constants": [
+        "CARD_SESSION_SANDBOX",
+        "TSX_PIPE_DIRECTORY"
+      ],
+      "functions": {
+        "settingsFlag": "(settings: ShiftSettings): string[]",
+        "shiftSettings": "(tree: string, gate: ShiftGate, writable: string[] = [], home: string = os.homedir()): ShiftSettings"
+      },
+      "reexports": [],
+      "types": {
+        "ShiftSettings": "interface ShiftSettings { sandbox: typeof CARD_SESSION_SANDBOX & { excludedCommands?: string[]; filesystem?: { denyWrite: string[]; }; }; permissions: { allow: string[]; deny?: string[]; }; }"
+      }
+    },
+    "scripts/ports/snapshot.ts": {
+      "constants": [
+        "MAIN_BRANCH",
+        "MECHANICS_PATHS",
+        "MERGEABLE_OF_STATE: Record<string, Mergeable>",
+        "OPEN_PULLS_PAGE"
+      ],
+      "functions": {
+        "ciOf": "(meter: Meter, sha: string, requiredCheck = REQUIRED_CHECK): CiReading",
+        "requiredCheckOf": "(root: string = watchedRoot()): string",
+        "takeSnapshot": "(meter: Meter, known: number[], lastMain: string | null, requiredCheck = REQUIRED_CHECK): Snapshot",
+        "touchesMechanics": "(files: string[]): boolean",
+        "verdictOf": "(meter: Meter, sha: string): VerdictOnHead | null",
+        "watchedRoot": "(): string"
+      },
+      "reexports": [],
+      "types": {
+        "CiReading": "type CiReading = 'pending' | 'green' | 'red'",
+        "ClosedPr": "interface ClosedPr { pr: number; cardId: number | null; branch?: string | null; merged: boolean; commit: string | null; mergedBy: string | null; mergedAt: string | null; }",
+        "MainHead": "interface MainHead { sha: string; touchesMechanics: boolean; }",
+        "Mergeable": "type Mergeable = 'clean' | 'behind' | 'dirty' | 'blocked'",
+        "OpenPr": "interface OpenPr { pr: number; cardId: number | null; base: string; head: string; branch: string | null; mergeable: Mergeable; ci: CiReading; failedChecks: string[]; verdictOnHead: VerdictOnHead | null; autoMerge: boolean; draft: boolean; bodySha: string; }",
+        "Snapshot": "interface Snapshot { open: OpenPr[]; closed: ClosedPr[]; unsettled: number[]; main: MainHead | null; }",
+        "VerdictOnHead": "type VerdictOnHead = 'pass' | 'changes'"
+      }
+    },
+    "scripts/ports/task-start.ts": {
+      "constants": [
+        "ADOPT_USAGE",
+        "PREFIX",
+        "USAGE"
+      ],
+      "functions": {
+        "gitIn": "(cwd: string, args: string[]): string",
+        "realDeps": "(): TaskStartDeps",
+        "runTaskStart": "(argv: string[], deps: TaskStartDeps, handed?: HandedContract): TaskStartResult"
+      },
+      "reexports": [],
+      "types": {
+        "HandedContract": "interface HandedContract extends Contract { forecast?: CheapForecast; }",
+        "TaskStartDeps": "interface TaskStartDeps { cwd: string; git: (cwd: string, args: string[]) => string; install: (cwd: string, args: string[]) => void; exists: (target: string) => boolean; bus: string; now: () => Date; session: string | undefined; shift?: string; worktreeHome?: string; treeOf?: (id: string) => string; style?: SignalStyle; cardBody?: CardBodyReader; windowLimit?: () => number; }",
+        "TaskStartResult": "interface TaskStartResult { stdout: string[]; stderr: string[]; exitCode: number; worktree?: string; }"
+      }
+    },
+    "scripts/ports/tree-publish.ts": {
+      "constants": [
+        "HTTPS_ORIGIN_ENV: Record<string, string>",
+        "TREE_PR_ENTRY"
+      ],
+      "functions": {
+        "builtTreePr": "(entry: string): string",
+        "launchDirOf": "(home: string, busPath: string): string",
+        "restoreReport": "(saved: string, worktree: string): void",
+        "savedReportOf": "(launchDir: string, cardId: number): string",
+        "shellWord": "(text: string): string",
+        "treeHoldsACommit": "(worktree: string, base: string): boolean",
+        "treePrCommand": "(repo: string): string",
+        "treePrOfThisBuild": "(repo: string, moduleUrl: string = import.meta.url): string",
+        "treePrPublisher": "(treePr: string, launchDir: string, env: NodeJS.ProcessEnv): (worktree: string, cardId: number) => void"
+      },
+      "reexports": [],
+      "types": {}
+    },
+    "scripts/ports/witnesses.ts": {
+      "constants": [],
+      "functions": {
+        "grepMatchProbe": "(command: string): string | null",
+        "grepRefusal": "(witness: Witness, sides: string): string",
+        "runOnTree": "(run: TreeRun, task: TreeTask): void",
+        "runOnTreeAsync": "(run: AsyncTreeRun, task: TreeTask): Promise<void>",
+        "testTargetOf": "(command: string): TestTarget | null"
+      },
+      "reexports": [],
+      "types": {
+        "AsyncTreeRun": "interface AsyncTreeRun extends TreeContext { shell: (command: string, cwd: string) => Promise<ShellResult>; }",
+        "Refuse": "type Refuse = (step: string, problem: string | null) => void",
+        "TestTarget": "interface TestTarget { file: string; name: string | null; }",
+        "Timer": "type Timer = <T>(name: string, run: () => T) => T",
+        "TreeRun": "interface TreeRun extends TreeContext { shell: Shell; time: Timer; }",
+        "TreeTask": "interface TreeTask { acceptance: Witness[]; invariants: Witness[]; harnessCommand: string | null; sketchSha: string | null; changed: string[] | null; witnessesDir: string; creates: string[]; }",
+        "Witness": "interface Witness { criterion: string; command: string; onBase?: { command: string; stated: string; }; }"
+      }
+    },
+    "scripts/ports/worktree-home.ts": {
+      "constants": [],
+      "functions": {
+        "busStartedTree": "(busPath: string, id: string): string | null",
+        "busWorktreeHome": "(busPath: string): string",
+        "cardTree": "(env: NodeJS.ProcessEnv, busPath: string, id: string, oldHome: string = DEFAULT_WORKTREE_HOME, exists: (target: string) => boolean = existsSync, startedTree: StartedTreeReader = busStartedTree): string",
+        "cardTreeRoots": "(env: NodeJS.ProcessEnv, busPath: string, repo: string): { homes: string[]; perBus: string; }",
+        "taskWorktree": "(home: string, id: string): string"
+      },
+      "reexports": [
+        "DEFAULT_WORKTREE_HOME",
+        "WORKTREE_HOME_VARIABLE",
+        "worktreeHome"
+      ],
+      "types": {
+        "StartedTreeReader": "type StartedTreeReader = (busPath: string, id: string) => string | null"
+      }
+    },
+    "scripts/ports/worktree.ts": {
+      "constants": [
+        "FREE_TREES",
+        "FREE_TREE_CAPACITY",
+        "LSOF_CLIENT_NAMES"
+      ],
+      "functions": {
+        "adoptTree": "(deps: TreeDeps, tree: string, branch: string): ReadyTree | RefusedTree",
+        "claudeProcessCwds": "(): ProcessCwds",
+        "cutTree": "(deps: TreeDeps, id: string, branch: string): ReadyTree | RefusedTree",
+        "freeTreeHome": "(tree: string): string",
+        "gitIn": "(cwd: string, args: string[]): string",
+        "gitInAsync": "(cwd, args)",
+        "lastLine": "(output: string): string",
+        "listedCwds": "(listing: string): string[]",
+        "liveSessionHolds": "(tree: string, cwds: () => ProcessCwds = claudeProcessCwds): boolean",
+        "parkTree": "(git: GitRun, repo: string, tree: string, capacity: number): string | null",
+        "pnpmInstall": "(cwd: string, args: string[]): void",
+        "realShell": "(command: string, cwd: string): ShellResult",
+        "stageSketch": "(tree: string, base: string, sketchSha: string): void",
+        "tailLines": "(output: string, count = TAIL_LINES): string",
+        "takeFreeTree": "(git: GitRun, repo: string, target: string, settle: (tree: string) => void): boolean",
+        "treeOriginIn": "(output: string): TreeOrigin | null",
+        "treeOriginLine": "(origin: TreeOrigin): string",
+        "withWorktree": "<T>(repo: string, base: string, run: (tree: string) => T): T",
+        "withWorktreeAsync": "<T>(repo: string, base: string, run: (tree: string) => Promise<T>, turns: SetupTurns, git: GitAsync = gitInAsync): Promise<T>"
+      },
+      "reexports": [],
+      "types": {
+        "GitAsync": "type GitAsync = (cwd: string, args: string[]) => Promise<string>",
+        "GitRun": "type GitRun = (cwd: string, args: string[]) => string",
+        "ReadyTree": "interface ReadyTree { worktree: string; origin?: TreeOrigin; how: string; failedAppend: string; }",
+        "RefusedTree": "interface RefusedTree { refused: string; }",
+        "SetupTurns": "class SetupTurns { take<T>(step: () => Promise<T>): Promise<T> }",
+        "Shell": "type Shell = (command: string, cwd: string) => ShellResult",
+        "ShellResult": "interface ShellResult { status: number | null; output: string; }",
+        "TreeDeps": "interface TreeDeps { cwd: string; git: (cwd: string, args: string[]) => string; install: (cwd: string, args: string[]) => void; exists: (target: string) => boolean; worktreeHome?: string; treeOf?: (id: string) => string; }",
+        "TreeOrigin": "type TreeOrigin = 'reused' | 'cut'"
+      }
+    }
+  }
+}

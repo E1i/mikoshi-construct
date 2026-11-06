@@ -76,6 +76,7 @@ const GATE_SCRIPTS = ['scripts/composition', 'scripts/model', 'scripts/privacy',
 
 export const GENERATED_WITH: Record<string, readonly string[]> = {
   'contract/surface.json': ['src/program.ts', 'scripts/contract'],
+  'contract/factory.json': ['scripts', 'src'],
   'templates/attach/earlier-carriers.json': ['templates/ai', 'scripts/attach/earlier-carriers.ts'],
 }
 const TWINS: readonly (readonly [string, string])[] = [
