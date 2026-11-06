@@ -149,7 +149,17 @@ describe('a late review round that repeats an earlier one', () => {
     expect(answersOfThePr(fixed)).toBe(1)
     expect(eventsOf(fixed.bench.db, REVIEW_ROUNDS_SPENT)).toEqual([])
     expect(allFindingsRepeat([A_NOTE], [[A_NOTE]])).toBe(false)
-    expect(allFindingsRepeat([THE_FINDING, A_NOTE], [[THE_FINDING, A_NOTE]])).toBe(false)
+    expect(allFindingsRepeat([A_NEW_FINDING, A_NOTE], [[THE_FINDING, A_NOTE]])).toBe(false)
+  })
+
+  it('a note beside repeated findings is dropped from the round, and the round stops', async () => {
+    const fixed = fixture()
+    await reviewRound(fixed, sha('b'), [THE_FINDING, A_NOTE])
+    await reviewRound(fixed, sha('c'), [`Still open: ${THE_FINDING}`, A_NOTE])
+
+    expect(answersOfThePr(fixed)).toBe(0)
+    expect(eventsOf(fixed.bench.db, REVIEW_ROUNDS_SPENT)).toEqual([expect.objectContaining({ state: REPEAT_FINDINGS, pr: PR, rounds: 2 })])
+    expect(allFindingsRepeat([THE_FINDING, A_NOTE], [[THE_FINDING, A_NOTE]])).toBe(true)
   })
 
   it('a repeat right after an owner amend answers, the card it was found against has changed', async () => {

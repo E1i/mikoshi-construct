@@ -24,13 +24,16 @@ export function jaccard(one: string, other: string): number {
   return all === 0 ? 0 : shared / all
 }
 
+function withoutNotes(findings: readonly string[]): string[] {
+  return findings.filter(finding => !isNote(finding))
+}
+
 function repeatsOneOf(finding: string, earlier: readonly string[]): boolean {
-  if (isNote(finding) || earlier.length === 0)
-    return false
   return STILL_OPEN.test(opening(finding)) || earlier.some(each => jaccard(finding, each) >= REPEAT_JACCARD)
 }
 
 export function allFindingsRepeat(findings: readonly string[], earlierRounds: readonly (readonly string[])[]): boolean {
-  const earlier = earlierRounds.flat().filter(finding => !isNote(finding))
-  return findings.length > 0 && findings.every(finding => repeatsOneOf(finding, earlier))
+  const round = withoutNotes(findings)
+  const earlier = withoutNotes(earlierRounds.flat())
+  return round.length > 0 && earlier.length > 0 && round.every(finding => repeatsOneOf(finding, earlier))
 }
