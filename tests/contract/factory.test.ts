@@ -1,4 +1,4 @@
-import type { Factory } from '../../scripts/contract/factory.js'
+import type { AcceptedConcepts, Factory } from '../../scripts/contract/factory.js'
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -7,7 +7,7 @@ import process from 'node:process'
 import { afterAll, describe, expect, it } from 'vitest'
 import { selectRun } from '../../scripts/ci/layers.js'
 import { scansATree } from '../../scripts/ci/tree-scanners.js'
-import { generateFactory, renderFactory } from '../../scripts/contract/factory.js'
+import { conceptsSection, generateFactory, renderFactory } from '../../scripts/contract/factory.js'
 import { AXES, CONCEPTS } from '../../scripts/contract/factory/concepts.js'
 import { findSites, overlapsSection } from '../../scripts/contract/factory/overlaps.js'
 import { parsedFiles } from '../../scripts/contract/factory/walk.js'
@@ -26,6 +26,7 @@ const FACTORY_RECORD = 'contract/factory.json'
 const CODE_MODULE = /\.(?:ts|mts|mjs|js)$/
 const LINE_NUMBER = /:\d+/
 const SITE_LINE = /^(\S+):(\d+) (\S+) /
+const GIT_OWNER = 'scripts/ports/git.ts'
 
 const CONCEPT_IDS = [
   'process-table',
@@ -183,6 +184,39 @@ describe('contract/factory.json', () => {
       expect(AXES, id).toContain(concept.axis)
       expect(existsSync(path.join(REPO_ROOT, concept.owner)), `${id}: ownerExists is ${concept.ownerExists} for ${concept.owner}`).toBe(concept.ownerExists)
     }
+  }, GENERATION_TIMEOUT)
+
+  it('a concept the accepted model does not name reads proposed', () => {
+    const concepts = conceptsSection({ git: { owner: GIT_OWNER, decision: 'D-335' } })
+
+    expect(concepts.layers!.status).toBe('proposed')
+    expect(Object.values(conceptsSection({})).map(concept => concept.status)).toEqual(CONCEPT_IDS.map(() => 'proposed'))
+  })
+
+  it('a concept the accepted model names with its owner reads accepted', () => {
+    const concepts = conceptsSection({ git: { owner: GIT_OWNER, decision: 'D-335' } })
+
+    expect(concepts.git!.status).toBe('accepted')
+    expect(Object.keys(concepts).filter(id => concepts[id]!.status === 'accepted')).toEqual(['git'])
+  })
+
+  it('an accepted entry with another owner reads proposed', () => {
+    expect(conceptsSection({ git: { owner: 'scripts/ports/moved-git.ts', decision: 'D-335' } }).git!.status).toBe('proposed')
+  })
+
+  it('an entry that cites no decision reads proposed, whatever its owner', () => {
+    const entries = [GIT_OWNER, { owner: GIT_OWNER }, { owner: GIT_OWNER, decision: '' }, { owner: GIT_OWNER, decision: 'the owner said so' }]
+
+    for (const git of entries)
+      expect(conceptsSection({ git } as unknown as AcceptedConcepts).git!.status, JSON.stringify(git)).toBe('proposed')
+  })
+
+  it('the status is derived at generation and CONCEPTS carries none by hand', () => {
+    const accepted = JSON.parse(readFileSync(path.join(REPO_ROOT, 'contract', 'accepted.json'), 'utf8')) as { concepts: AcceptedConcepts }
+
+    expect(generated().concepts).toEqual(conceptsSection(accepted.concepts))
+    for (const concept of CONCEPTS)
+      expect(concept, concept.id).not.toHaveProperty('status')
   }, GENERATION_TIMEOUT)
 
   it('overlaps lists a site for each duplicate A to F of the reconnaissance', () => {
