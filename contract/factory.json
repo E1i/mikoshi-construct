@@ -797,6 +797,7 @@
           "clean",
           "from",
           "lease_gen",
+          "rebuilt",
           "task_key",
           "to",
           "tookMain",
@@ -1068,8 +1069,8 @@
     "generated-files": {
       "axis": "architecture",
       "owner": "scripts/core/generated-files.ts",
-      "ownerExists": false,
-      "status": "proposed",
+      "ownerExists": true,
+      "status": "accepted",
       "title": "the list of generated files"
     },
     "git": {
@@ -1156,19 +1157,7 @@
       "src/commands/board/items.ts": 1,
       "src/commands/board/prs.ts": 6
     },
-    "generated-files": {
-      "scripts/attach/earlier-carriers.ts": 1,
-      "scripts/contract/bump.ts": 1,
-      "scripts/contract/update.ts": 2,
-      "scripts/core/factory-paths.ts": 2,
-      "scripts/ladder/preflight-static.ts": 5,
-      "scripts/ladder/regenerated.ts": 1,
-      "scripts/model/render.ts": 1,
-      "scripts/policy/shredder/vocabulary.ts": 2,
-      "scripts/ports/witnesses.ts": 1,
-      "src/card/risk.ts": 3,
-      "src/commands/intake/check.ts": 5
-    },
+    "generated-files": {},
     "git": {
       "scripts/atlas/build.ts": 1,
       "scripts/attach/earlier-carriers.ts": 1,
@@ -1255,7 +1244,6 @@
       "scripts/ladder/ladder.ts": 4,
       "scripts/ladder/launch.ts": 2,
       "scripts/ladder/morse-approve.ts": 1,
-      "scripts/ladder/preflight-static.ts": 5,
       "scripts/ladder/role.ts": 1,
       "scripts/model/render.ts": 1,
       "scripts/nodes/close/task-close.ts": 2,
@@ -1270,7 +1258,7 @@
       "scripts/policy/shard.ts": 2,
       "scripts/policy/shards.ts": 1,
       "scripts/ports/task-start.ts": 3,
-      "scripts/ports/witnesses.ts": 3,
+      "scripts/ports/witnesses.ts": 2,
       "scripts/release-notes/render.ts": 1,
       "scripts/release/evidence.ts": 1,
       "scripts/supervisor/launchd/install.ts": 1,

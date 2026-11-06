@@ -26,8 +26,11 @@ function modulesUnder(root: string): string[] {
 describe('the accepted model', () => {
   const ownerMergesText = readFileSync(path.join(REPO_ROOT, 'architecture/owner-merges.md'), 'utf8')
 
-  it('the record holds its version and an empty map of concepts: this carrier ratifies nothing', () => {
-    expect(JSON.parse(readFileSync(path.join(REPO_ROOT, ACCEPTED), 'utf8'))).toEqual({ acceptedVersion: 1, concepts: {} })
+  it('the record holds its version and the concepts the owner ratified', () => {
+    expect(JSON.parse(readFileSync(path.join(REPO_ROOT, ACCEPTED), 'utf8'))).toEqual({
+      acceptedVersion: 1,
+      concepts: { 'generated-files': { owner: 'scripts/core/generated-files.ts', decision: 'D-335' } },
+    })
   })
 
   it('the accepted model is an owner-merged path', () => {

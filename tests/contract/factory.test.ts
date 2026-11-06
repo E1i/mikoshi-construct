@@ -12,17 +12,12 @@ import { AXES, CONCEPTS } from '../../scripts/contract/factory/concepts.js'
 import { findSites, overlapsSection } from '../../scripts/contract/factory/overlaps.js'
 import { parsedFiles } from '../../scripts/contract/factory/walk.js'
 import { BUS_VERSION } from '../../scripts/core/bus-version.js'
-import { FACTORY_PATH_EXCLUSIONS } from '../../scripts/core/factory-paths.js'
-import { pathTriggeredCapabilities } from '../../scripts/policy/shredder/vocabulary.js'
 import { SCANNED_TREES } from '../../src/card/covering-tests.js'
-import { GENERATED_WITH } from '../../src/card/risk.js'
-import { COMPANION_TABLE } from '../../src/commands/intake/check.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../..')
 const RECORDED = path.join(REPO_ROOT, 'contract', 'factory.json')
 const THIS_TEST = 'tests/contract/factory.test.ts'
 const GENERATION_TIMEOUT = 180_000
-const FACTORY_RECORD = 'contract/factory.json'
 const CODE_MODULE = /\.(?:ts|mts|mjs|js)$/
 const LINE_NUMBER = /:\d+/
 const SITE_LINE = /^(\S+):(\d+) (\S+) /
@@ -86,13 +81,6 @@ const SITES_OF_THE_RECONNAISSANCE: Record<string, readonly string[]> = {
     'scripts/core/observations.ts',
     'scripts/release/cancel-run.ts',
     'scripts/nodes/answer/ci-log.ts',
-  ],
-  'generated-files': [
-    'scripts/core/factory-paths.ts',
-    'scripts/ladder/preflight-static.ts',
-    'scripts/ladder/regenerated.ts',
-    'src/card/risk.ts',
-    'src/commands/intake/check.ts',
   ],
   'owner-commands': [
     'scripts/core/reducer.ts',
@@ -296,13 +284,5 @@ describe('contract/factory.json', () => {
         expect(Number.isInteger(count) && count > 0).toBe(true)
     }
     expect(counted).toEqual(committed.overlaps)
-  }, GENERATION_TIMEOUT)
-
-  it('takes its row in the generated-file lists its neighbour contract/surface.json sits in', () => {
-    expect(FACTORY_PATH_EXCLUSIONS.generated).toContain(FACTORY_RECORD)
-    expect(GENERATED_WITH[FACTORY_RECORD]).toEqual(['scripts', 'src'])
-    expect(pathTriggeredCapabilities([FACTORY_RECORD])).toContain('need generated artifact')
-    expect(COMPANION_TABLE.map(row => row.kind)).toContain('the factory contract')
-    expect(generated().overlaps['generated-files']!['scripts/ladder/preflight-static.ts']).toBeGreaterThan(0)
   }, GENERATION_TIMEOUT)
 })

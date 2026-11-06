@@ -1,5 +1,6 @@
 import type { Witness } from '../ports/witnesses.js'
 import { FACTORY_FORMER_FOLDERS, inScopes, scopeOf } from '../core/factory-paths.js'
+import { GENERATORS } from '../core/generated-files.js'
 import { GHOSTS_FILES, readGhostsFiles } from '../policy/shredder/reader.js'
 
 export { movingRefRefusal } from '../../src/commands/intake/check.js'
@@ -21,13 +22,6 @@ const IMMUTABLE_PATH = /^[\w.@+-]+(?:\/[\w.@+-]+)*\/?$/
 const GHOSTS_FILE_FORMS = FACTORY_FORMER_FOLDERS.ghosts.map(ghostsFileForm).join('|')
 const GHOSTS_FILE_IN_TEXT = new RegExp(`(?:${GHOSTS_FILE_FORMS})`, 'g')
 const GHOSTS_FILE_CREATED_IN_TEXT = new RegExp(`(${GHOSTS_FILE_FORMS})\`? \\(creates, (?:ghosts|plain)\\)`, 'g')
-const GENERATORS = [
-  { path: 'templates/attach/earlier-carriers.json', command: 'pnpm exec tsx scripts/attach/earlier-carriers.ts' },
-  { path: 'contract/surface.json', command: 'pnpm contract:update' },
-  { path: 'contract/factory.json', command: 'pnpm contract:update' },
-  { path: 'architecture/composition/', command: 'pnpm composition:render' },
-  { path: 'architecture/model.md', command: 'pnpm model:render' },
-]
 
 export function invariantWitnesses(invariants: string[]): Witness[] {
   return invariants.flatMap((item) => {
