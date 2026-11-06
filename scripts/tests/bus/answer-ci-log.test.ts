@@ -1,7 +1,7 @@
 import type { AnswerRequest } from '../../nodes/answer/answerer.js'
 import { describe, expect, it } from 'vitest'
-import { answerPrompt, failedJobLog } from '../../nodes/answer/answerer.js'
-import { CI_LOG_CEILING, ciLogForPrompt, failedJobLinkIn } from '../../nodes/answer/ci-log.js'
+import { answerPrompt } from '../../nodes/answer/answerer.js'
+import { CI_LOG_CEILING, ciLogForPrompt, failedJobLinkIn, GhCiRuns } from '../../ports/ci-reading.js'
 import { ghPort } from '../../ports/gh.js'
 
 const JOB_LINK = 'https://github.com/owner/repo/actions/runs/1/job/2'
@@ -244,12 +244,12 @@ describe('the failed job and its link', () => {
   it('failedJobLog reads the log and the link through the same port', () => {
     const port = gh({ '--log-failed': { status: 0, stdout: FAILURE }, 'jobs': { status: 0, stdout: JSON.stringify({ jobs: [{ conclusion: 'failure', url: JOB_LINK }] }) }, 'run list': { status: 0, stdout: '[{"databaseId":7}]' } })
 
-    expect(failedJobLog(CARD, 'a'.repeat(40), port)).toEqual({ log: FAILURE, jobLink: JOB_LINK })
+    expect(new GhCiRuns(port).failedJobLog('a'.repeat(40), CARD.worktree)).toEqual({ log: FAILURE, jobLink: JOB_LINK })
   })
 
   it('a failed link read keeps the log and leaves the link unread', () => {
     const port = gh({ '--log-failed': { status: 0, stdout: FAILURE }, 'jobs': { status: 1, stdout: '' }, 'run list': { status: 0, stdout: '[{"databaseId":7}]' } })
 
-    expect(failedJobLog(CARD, 'a'.repeat(40), port)).toEqual({ log: FAILURE, jobLink: null })
+    expect(new GhCiRuns(port).failedJobLog('a'.repeat(40), CARD.worktree)).toEqual({ log: FAILURE, jobLink: null })
   })
 })

@@ -3,12 +3,11 @@ import type { ShiftGate } from '../../../src/manifest.js'
 import type { BusEvent } from '../../core/db.js'
 import type { Lease } from '../../core/lease.js'
 import type { MachineGate } from '../../core/machine-sessions.js'
+import type { FailedJobLog } from '../../ports/ci-reading.js'
 import type { Denial, Invocation, ProcessCwds, SessionTool, Usage } from '../../ports/client/contract.js'
-import type { GhPort } from '../../ports/gh.js'
 import type { AnswerInput } from '../../ports/prompt-store.js'
 import type { FreshBaseGap } from '../launch/tree-pr.js'
 import type { AnswerSource, CardSession } from './answer-source.js'
-import type { FailedJobLog } from './ci-log.js'
 import { execFileSync, spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, realpathSync, rmSync, writeSync } from 'node:fs'
@@ -24,8 +23,8 @@ import { busNameOf, machineGate, machineSessions } from '../../core/machine-sess
 import { treeReportPath } from '../../core/places.js'
 import { pushPolicyOf } from '../../core/push-policy.js'
 import { busCardBodies } from '../../intake/parking-reads.js'
+import { ciLogForPrompt, GhCiRuns } from '../../ports/ci-reading.js'
 import { hasClientTranscript } from '../../ports/client/claude/adapter.js'
-import { PROCESS_GH_PORT } from '../../ports/gh.js'
 import { CARD_VARIABLE, clientInvocation, sessionEnv, streamReading } from '../../ports/session.js'
 import { MAIN_BRANCH } from '../../ports/snapshot.js'
 import { claudeProcessCwds, listedCwds } from '../../ports/worktree.js'
@@ -33,7 +32,6 @@ import { isAlive } from '../../quality/lock.js'
 import { busSessionPulse } from '../../supervisor/heartbeat.js'
 import { projectRoot, realExitReadings, sessionGauges, UNKNOWN } from '../../window/eddies-measure.js'
 import { answerFollowed, commitAndPush, followedLine, freshBaseProblem, freshBaseTask, worktreeCoverage } from '../launch/tree-pr.js'
-import { ciLogForPrompt, failedJobLinkIn } from './ci-log.js'
 
 export const PREFIX = '[bus:answer] '
 export const ANSWER_BEAT_MS = 60_000
@@ -222,10 +220,8 @@ function redCiLines(failedChecks: string[], ciLog: FailedJobLog | null | undefin
   ]
 }
 
-function failedChecksOf(source: AnswerSource): string[] | null {
-  if (source.kind === 'ci')
-    return source.failedChecks
-  return source.kind === 'changes' ? source.failedChecks ?? null : null
+function asksAboutRedCi(source: AnswerSource): boolean {
+  return source.kind === 'ci' || (source.kind === 'changes' && source.failedChecks !== undefined)
 }
 
 function sourceLines(source: AnswerSource, ciLog?: FailedJobLog | null): string[] {
@@ -337,25 +333,6 @@ function remoteHead(card: CardSession): string | null {
 
 function git(cwd: string, args: string[]): string {
   return execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 64 * 1024 * 1024 })
-}
-
-export function failedJobLog(card: CardSession, head: string, gh: GhPort = PROCESS_GH_PORT): FailedJobLog | null {
-  const runs = gh.call(['run', 'list', '--commit', head, '--status', 'failure', '--json', 'databaseId', '--limit', '1'], { cwd: card.worktree })
-  if (runs.kind !== 'ran')
-    return null
-  try {
-    const [run] = JSON.parse(runs.stdout) as { databaseId: number }[]
-    if (run === undefined)
-      return null
-    const log = gh.call(['run', 'view', String(run.databaseId), '--log-failed'], { cwd: card.worktree })
-    if (log.kind !== 'ran')
-      return null
-    const jobs = gh.call(['run', 'view', String(run.databaseId), '--json', 'jobs'], { cwd: card.worktree })
-    return { log: log.stdout, jobLink: jobs.kind === 'ran' ? failedJobLinkIn(jobs.stdout) : null }
-  }
-  catch {
-    return null
-  }
 }
 
 function diffAgainstBase(card: CardSession): string | null {
@@ -613,7 +590,7 @@ export function realAnswererTools(busPath: string = defaultBusPath()): AnswererT
     context: session => sessionGauges(os.homedir(), projectRoot(process.env), session).context ?? null,
     contextWarn: contextWarnOfEddies,
     diff: diffAgainstBase,
-    ciLog: (card, head) => failedJobLog(card, head),
+    ciLog: (card, head) => new GhCiRuns().failedJobLog(head, card.worktree),
   }
 }
 
@@ -651,7 +628,7 @@ function sessionAnswerer(dir: string, tools: AnswererTools): Answerer {
     const cardBody = tools.cardText(request.lease.cardId)
     const gate = roundGateOf(readShiftGate(card.worktree), tools.localHead?.(card) ?? null)
     const timer = new RoundTimer(tools.now ?? Date.now, gate.prepush)
-    const ciLog = failedChecksOf(request.source) !== null && request.lease.head !== null ? tools.ciLog?.(card, request.lease.head) : undefined
+    const ciLog = asksAboutRedCi(request.source) && request.lease.head !== null ? tools.ciLog?.(card, request.lease.head) : undefined
     const handoff = answerHandoffPath(card.worktree)
     if (request.fresh !== true)
       rmSync(handoff, { force: true })
