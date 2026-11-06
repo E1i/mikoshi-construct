@@ -34,6 +34,8 @@ const NAMED_NOT_CARRIED = {
   'architecture/window.md': 'cited in a handoff-check message, never read',
   'architecture/code-matrix.md': 'cited in a merge refusal, never read',
   'architecture/model.md': 'matched against a changed path to name its render command, never read',
+  'architecture/add-population.md': 'matched against a changed path by the intake check, which lets it follow its sources, never read',
+  'architecture/self-hosting-drift.yaml': 'matched against a changed path by the intake check, which lets it follow its sources, never read',
   'architecture/security-invariants.md': 'matched against a changed path to classify instructions, never read',
   'scripts/construct/browser-lab.mjs': 'carried by the Claude templates, not this manifest; the browser preinstall reads it only where a tree has it, and a repository without it has no lab to preinstall',
 } as const

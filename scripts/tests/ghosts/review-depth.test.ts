@@ -79,7 +79,6 @@ describe('bus review depth follows the MORSE instructions rule', () => {
   it.each([
     { file: 'contract/surface.json', touches: [TOUCHED_MODULE], added: [] },
     { file: CARD_CHANGESET, touches: [TOUCHED_MODULE], added: [CARD_CHANGESET] },
-    { file: 'src/materialize/factory-manifest.ts', touches: ['architecture/decisions/window-allow-merge.md'], added: [] },
     { file: 'architecture/composition/intake.yaml', touches: [TOUCHED_MODULE], added: [] },
     { file: 'architecture/intake.md', touches: [TOUCHED_MODULE], added: [] },
   ])('a file that follows the touches is no finding of the first review: $file', ({ file, touches, added }) => {

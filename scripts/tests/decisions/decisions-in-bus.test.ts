@@ -54,6 +54,16 @@ function mergeDone(made: Bench, card: number): void {
   reduce(made.db)
 }
 
+function admit(made: Bench, card: number): void {
+  appendEvent(made.db, { ts: NOW.toISOString(), type: 'card.admitted', actor: 'netwatch', cardId: card, pr: null, head: null, dedupeKey: `card.admitted:${card}`, payload: {}, legacy: false })
+  reduce(made.db)
+}
+
+function drop(made: Bench, card: number): void {
+  appendEvent(made.db, { ts: NOW.toISOString(), type: 'card.dropped', actor: 'owner', cardId: card, pr: null, head: null, dedupeKey: `card.dropped:${card}`, payload: {}, legacy: false })
+  reduce(made.db)
+}
+
 function inForceNumbers(db: DatabaseSync): number[] {
   return inForceDecisions(db).map(decision => decision.decisionId)
 }
@@ -320,6 +330,77 @@ describe('owner decisions live in the bus', () => {
 
     mergeDone(made, OTHER_CARD)
     expect(inForce().some(decision => reservationOf(OTHER_CARD, decision.text))).toBe(false)
+  })
+
+  it('a decision whose text names a card that has not ended stays in force after its scope merges', () => {
+    const made = bench()
+    admit(made, OTHER_CARD)
+    record(made, 1, `#${OTHER_CARD} reserved for the owner.`, [CARD])
+    const inForce = (): ReturnType<typeof decisionsInForceAt> => decisionsInForceAt(made.db, NOW)
+
+    mergeDone(made, CARD)
+    expect(inForceNumbers(made.db)).toEqual([1])
+    expect(inForce().some(decision => reservationOf(OTHER_CARD, decision.text))).toBe(true)
+
+    mergeDone(made, OTHER_CARD)
+    expect(inForceNumbers(made.db)).toEqual([])
+    expect(stateOf(made.db, 1)).toBe('archived')
+  })
+
+  it('a decision archives once its scope and every card its text names have ended, a dropped card and a number that is no card included', () => {
+    const made = bench()
+    const THIRD_CARD = 732
+    const PULL_REQUEST = 1421
+    admit(made, OTHER_CARD)
+    admit(made, THIRD_CARD)
+    record(made, 1, `#${OTHER_CARD} and #${THIRD_CARD} reserved, as in PR #${PULL_REQUEST}.`, [CARD])
+    record(made, 2, `see PR #${PULL_REQUEST}.`, [CARD])
+
+    mergeDone(made, CARD)
+    expect(inForceNumbers(made.db)).toEqual([1])
+    expect(stateOf(made.db, 2)).toBe('archived')
+
+    drop(made, OTHER_CARD)
+    expect(inForceNumbers(made.db)).toEqual([1])
+
+    mergeDone(made, THIRD_CARD)
+    expect(inForceNumbers(made.db)).toEqual([])
+    expect(stateOf(made.db, 1)).toBe('archived')
+  })
+
+  it('a card in the table with no state yet has not ended and holds the decision that names it', () => {
+    const made = bench()
+    admit(made, OTHER_CARD)
+    made.db.prepare('UPDATE cards SET state = NULL WHERE card_id = ?').run(OTHER_CARD)
+    record(made, 1, `#${OTHER_CARD} reserved for the owner.`, [CARD])
+
+    mergeDone(made, CARD)
+    expect(inForceNumbers(made.db)).toEqual([1])
+  })
+
+  it('a dropped card in the scope has ended, alone or named by the text as well', () => {
+    const made = bench()
+    admit(made, CARD)
+    admit(made, OTHER_CARD)
+    record(made, 1, 'for the card.', [CARD])
+    record(made, 2, `#${OTHER_CARD} reserved for the owner.`, [OTHER_CARD])
+
+    drop(made, CARD)
+    expect(inForceNumbers(made.db)).toEqual([2])
+    expect(stateOf(made.db, 1)).toBe('archived')
+
+    drop(made, OTHER_CARD)
+    expect(inForceNumbers(made.db)).toEqual([])
+    expect(stateOf(made.db, 2)).toBe('archived')
+  })
+
+  it('a decision with an empty scope stays in force whatever its text names', () => {
+    const made = bench()
+    admit(made, OTHER_CARD)
+    record(made, 1, `#${OTHER_CARD} reserved for the owner.`)
+
+    drop(made, OTHER_CARD)
+    expect(inForceNumbers(made.db)).toEqual([1])
   })
 
   it('a rebuild with nothing changed writes nothing and records one marker', () => {

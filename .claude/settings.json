@@ -4,11 +4,6 @@
     "type": "command",
     "command": "bash \"$(git rev-parse --show-toplevel)/.claude/statusline.sh\""
   },
-  "permissions": {
-    "allow": [
-      "Bash(gh pr merge * --auto *)"
-    ]
-  },
   "hooks": {
     "SessionStart": [{
       "hooks": [

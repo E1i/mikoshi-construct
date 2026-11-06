@@ -2,8 +2,6 @@ import { readdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { mergePolicy } from '../../scripts/policy/policy.js'
-import { ownerMerges } from '../../scripts/policy/shredder/authority.js'
-import { readOwnerMergeKinds } from '../../scripts/policy/shredder/reader.js'
 import { cardBody } from '../../scripts/tests/bus/github-fake.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../..')
@@ -28,13 +26,15 @@ function modulesUnder(root: string): string[] {
 describe('the accepted model', () => {
   const ownerMergesText = readFileSync(path.join(REPO_ROOT, 'architecture/owner-merges.md'), 'utf8')
 
-  it('the record holds its version and an empty map of concepts: this carrier ratifies nothing', () => {
-    expect(JSON.parse(readFileSync(path.join(REPO_ROOT, ACCEPTED), 'utf8'))).toEqual({ acceptedVersion: 1, concepts: {} })
+  it('the record holds its version and the concepts the owner ratified', () => {
+    expect(JSON.parse(readFileSync(path.join(REPO_ROOT, ACCEPTED), 'utf8'))).toEqual({
+      acceptedVersion: 1,
+      concepts: { 'generated-files': { owner: 'scripts/core/generated-files.ts', decision: 'D-335' } },
+    })
   })
 
   it('the accepted model is an owner-merged path', () => {
-    expect(ownerMerges([ACCEPTED], readOwnerMergeKinds(ownerMergesText)).ownerMerged).toBe(true)
-    for (const lifted of [{ shardActive: true }, { windowShard: 'shard-1' }]) {
+    for (const lifted of [{}, { shardActive: true }, { windowShard: 'shard-1' }]) {
       const verdict = mergePolicy({
         cardId: 1042,
         description: cardBody(942),

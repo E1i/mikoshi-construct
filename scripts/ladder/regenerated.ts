@@ -1,13 +1,7 @@
 import { spawnSync } from 'node:child_process'
+import { REGENERATED } from '../core/generated-files.js'
 
-export interface Regenerated {
-  path: string
-  check: readonly string[]
-}
-
-export const REGENERATED: readonly Regenerated[] = [
-  { path: 'templates/attach/earlier-carriers.json', check: ['exec', 'tsx', 'scripts/attach/earlier-carriers.ts', '--check'] },
-]
+export { REGENERATED }
 
 export const REGENERATED_PATHS = REGENERATED.map(entry => entry.path)
 

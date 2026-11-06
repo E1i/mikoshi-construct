@@ -1,4 +1,4 @@
-import type { Factory } from '../../scripts/contract/factory.js'
+import type { AcceptedConcepts, Factory } from '../../scripts/contract/factory.js'
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -7,25 +7,21 @@ import process from 'node:process'
 import { afterAll, describe, expect, it } from 'vitest'
 import { selectRun } from '../../scripts/ci/layers.js'
 import { scansATree } from '../../scripts/ci/tree-scanners.js'
-import { generateFactory, renderFactory } from '../../scripts/contract/factory.js'
+import { conceptsSection, generateFactory, renderFactory } from '../../scripts/contract/factory.js'
 import { AXES, CONCEPTS } from '../../scripts/contract/factory/concepts.js'
 import { findSites, overlapsSection } from '../../scripts/contract/factory/overlaps.js'
 import { parsedFiles } from '../../scripts/contract/factory/walk.js'
 import { BUS_VERSION } from '../../scripts/core/bus-version.js'
-import { FACTORY_PATH_EXCLUSIONS } from '../../scripts/core/factory-paths.js'
-import { pathTriggeredCapabilities } from '../../scripts/policy/shredder/vocabulary.js'
 import { SCANNED_TREES } from '../../src/card/covering-tests.js'
-import { GENERATED_WITH } from '../../src/card/risk.js'
-import { COMPANION_TABLE } from '../../src/commands/intake/check.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../..')
 const RECORDED = path.join(REPO_ROOT, 'contract', 'factory.json')
 const THIS_TEST = 'tests/contract/factory.test.ts'
 const GENERATION_TIMEOUT = 180_000
-const FACTORY_RECORD = 'contract/factory.json'
 const CODE_MODULE = /\.(?:ts|mts|mjs|js)$/
 const LINE_NUMBER = /:\d+/
 const SITE_LINE = /^(\S+):(\d+) (\S+) /
+const GIT_OWNER = 'scripts/ports/git.ts'
 
 const CONCEPT_IDS = [
   'process-table',
@@ -85,13 +81,6 @@ const SITES_OF_THE_RECONNAISSANCE: Record<string, readonly string[]> = {
     'scripts/core/observations.ts',
     'scripts/release/cancel-run.ts',
     'scripts/nodes/answer/ci-log.ts',
-  ],
-  'generated-files': [
-    'scripts/core/factory-paths.ts',
-    'scripts/ladder/preflight-static.ts',
-    'scripts/ladder/regenerated.ts',
-    'src/card/risk.ts',
-    'src/commands/intake/check.ts',
   ],
   'owner-commands': [
     'scripts/core/reducer.ts',
@@ -185,6 +174,46 @@ describe('contract/factory.json', () => {
     }
   }, GENERATION_TIMEOUT)
 
+  it('a concept the accepted model does not name reads proposed', () => {
+    const concepts = conceptsSection({ git: { owner: GIT_OWNER, decision: 'D-335' } })
+
+    expect(concepts.layers!.status).toBe('proposed')
+    expect(Object.values(conceptsSection({})).map(concept => concept.status)).toEqual(CONCEPT_IDS.map(() => 'proposed'))
+  })
+
+  it('a concept the accepted model names with its owner reads accepted', () => {
+    const concepts = conceptsSection({ git: { owner: GIT_OWNER, decision: 'D-335' } })
+
+    expect(concepts.git!.status).toBe('accepted')
+    expect(Object.keys(concepts).filter(id => concepts[id]!.status === 'accepted')).toEqual(['git'])
+  })
+
+  it('an accepted entry with another owner reads proposed', () => {
+    expect(conceptsSection({ git: { owner: 'scripts/ports/moved-git.ts', decision: 'D-335' } }).git!.status).toBe('proposed')
+  })
+
+  it('an entry that cites no decision reads proposed, whatever its owner', () => {
+    const entries = [
+      GIT_OWNER,
+      { owner: GIT_OWNER },
+      { owner: GIT_OWNER, decision: '' },
+      { owner: GIT_OWNER, decision: 'the owner said so' },
+      { owner: GIT_OWNER, decision: 'xD-335' },
+      { owner: GIT_OWNER, decision: 'D-335 and more' },
+    ]
+
+    for (const git of entries)
+      expect(conceptsSection({ git } as unknown as AcceptedConcepts).git!.status, JSON.stringify(git)).toBe('proposed')
+  })
+
+  it('the status is derived at generation and CONCEPTS carries none by hand', () => {
+    const accepted = JSON.parse(readFileSync(path.join(REPO_ROOT, 'contract', 'accepted.json'), 'utf8')) as { concepts: AcceptedConcepts }
+
+    expect(generated().concepts).toEqual(conceptsSection(accepted.concepts))
+    for (const concept of CONCEPTS)
+      expect(concept, concept.id).not.toHaveProperty('status')
+  }, GENERATION_TIMEOUT)
+
   it('overlaps lists a site for each duplicate A to F of the reconnaissance', () => {
     const { overlaps } = generated()
 
@@ -255,13 +284,5 @@ describe('contract/factory.json', () => {
         expect(Number.isInteger(count) && count > 0).toBe(true)
     }
     expect(counted).toEqual(committed.overlaps)
-  }, GENERATION_TIMEOUT)
-
-  it('takes its row in the generated-file lists its neighbour contract/surface.json sits in', () => {
-    expect(FACTORY_PATH_EXCLUSIONS.generated).toContain(FACTORY_RECORD)
-    expect(GENERATED_WITH[FACTORY_RECORD]).toEqual(['scripts', 'src'])
-    expect(pathTriggeredCapabilities([FACTORY_RECORD])).toContain('need generated artifact')
-    expect(COMPANION_TABLE.map(row => row.kind)).toContain('the factory contract')
-    expect(generated().overlaps['generated-files']!['scripts/ladder/preflight-static.ts']).toBeGreaterThan(0)
   }, GENERATION_TIMEOUT)
 })
