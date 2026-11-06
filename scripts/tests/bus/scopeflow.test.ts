@@ -214,7 +214,7 @@ describe('scope questions settle on the bus', () => {
     const noShard = bench()
     admitWith(noShard, 1511, ['src/a.ts'], 'body-1')
     const closedOnly = ownerStop(noShard, 1511, 'may the retry back off the way src/b.ts does?')
-    expect(windowCloses(noShard, closedOnly, 'yes')).toBe('done')
+    expect(windowCloses(noShard, closedOnly, 'yes')).toBe('refused')
     expect(inboxOf(noShard)).toHaveLength(1)
     expect(shardDecisions(noShard.db)).toEqual([])
   })

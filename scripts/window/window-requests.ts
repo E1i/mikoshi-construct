@@ -71,10 +71,11 @@ export const ALLOW_MERGE_RECORD = 'architecture/decisions/window-allow-merge.md'
 const RULE_ACCEPTED = /^Status: accepted\b/m
 export const REQUEST_RULE = 'window_request'
 export const PREFIX = '[bus:request] '
-export const USAGE = `usage: pnpm bus:request tree.cut --card <N> | amend --card <N> [--touches +<path>,-<path>] [--add-witness <witness>]... [--remove-witness <witness>]... [--owner-words <the owner's words>] [--depends +#<N>,-#<N>] [--auto-confirm] | allow-merge --pr <N> --head <sha> --dry-run <reviewer session> | close-pr --pr <N> --card <N> --reason <text> | pr.body --pr <N> | requeue --task <task_key> | mode --set ${FACTORY_MODES.join('|')} | plan --op ${[...PLAN_OPS.keys()].join('|')} [--plan <id>] [--title <text>] [--goal <text>] [--file <absolute plan file>] [--gate <word>] [--card <N>] | owner.wait --need ${OWNER_WAIT_NEEDS.join('|')} --text <what the owner decides> [--command <line>] [--card <N>] [--pr <N>] | owner.wait.close --id Q<N> --answer <answer> | decisions:add --from ${ANSWER_SOURCE} [--supersedes D-M]... [--card #N]... [--until <YYYY-MM-DDTHH:MMZ>] "[owner] <decision>" | hold --card <N> --reason <why the owner holds it> | release --card <N> | takeover --card <N> --reason <why the bus has no route for it> | drop --card <N> --reason <why a card with no body is dropped> | numbers.foreign --ids <card ids of another factory's row, comma separated>`
+export const USAGE = `usage: pnpm bus:request tree.cut --card <N> | amend --card <N> [--touches +<path>,-<path>] [--add-witness <witness>]... [--remove-witness <witness>]... [--owner-words <the owner's words>] [--depends +#<N>,-#<N>] [--auto-confirm] | allow-merge --pr <N> --head <sha> --dry-run <reviewer session> | close-pr --pr <N> --card <N> --reason <text> | pr.body --pr <N> | requeue --task <task_key> | mode --set ${FACTORY_MODES.join('|')} | plan --op ${[...PLAN_OPS.keys()].join('|')} [--plan <id>] [--title <text>] [--goal <text>] [--file <absolute plan file>] [--gate <word>] [--card <N>] | owner.wait --need ${OWNER_WAIT_NEEDS.join('|')} --text <what the owner decides> [--command <line>] [--card <N>] [--pr <N>] | owner.wait.close --id Q<N> --answer <answer> [--from ${ANSWER_SOURCE}] | decisions:add --from ${ANSWER_SOURCE} [--supersedes D-M]... [--card #N]... [--until <YYYY-MM-DDTHH:MMZ>] "[owner] <decision>" | hold --card <N> --reason <why the owner holds it> | release --card <N> | takeover --card <N> --reason <why the bus has no route for it> | drop --card <N> --reason <why a card with no body is dropped> | numbers.foreign --ids <card ids of another factory's row, comma separated>`
 
 const BY_HAND = 'by-hand'
 const OWNER_ANSWER_USAGE = `an owner's word from the channel closes a wait with: pnpm bus:request owner.wait.close --id Q<N> --answer <the owner's word> --from ${ANSWER_SOURCE}`
+export const OWNER_WORD_NEEDED = `closing an owner wait needs the owner's word from the channel or a recorded decision`
 const HELP_FLAGS = ['--help', '-h']
 
 export type RequestKind = typeof REQUEST_KINDS[number]
@@ -421,16 +422,15 @@ export class WindowRequests {
     if (reserved !== null)
       return { done: false, why: `${id} answers the card #${wait.card_id} stop ${stop!.id} on ${reserved}, which stays the owner's under any shard` }
     const ts = this.clock().toISOString()
-    const closed = wait.state === OPEN_WAIT && inTransaction(this.db, () => {
+    const closed = shard !== null && wait.state === OPEN_WAIT && inTransaction(this.db, () => {
       if (!closeOwnerWait(this.db, ts, QUEUE_ACTOR, id, answer, request))
         return false
-      if (shard !== null)
-        appendEvent(this.db, { ts, type: SHARD_DECIDED, actor: QUEUE_ACTOR, cardId: wait.card_id, pr: null, head: null, dedupeKey: `${SHARD_DECIDED}:${stop!.id}:${request}`, payload: { shard: shard.id, stop: stop!.id, wait: id, question, answer, ground: `the window's answer to ${id} under shard ${shard.id} (${shard.scope}, by ${shard.by}, until ${shard.until})` }, legacy: false })
+      appendEvent(this.db, { ts, type: SHARD_DECIDED, actor: QUEUE_ACTOR, cardId: wait.card_id, pr: null, head: null, dedupeKey: `${SHARD_DECIDED}:${stop!.id}:${request}`, payload: { shard: shard.id, stop: stop!.id, wait: id, question, answer, ground: `the window's answer to ${id} under shard ${shard.id} (${shard.scope}, by ${shard.by}, until ${shard.until})` }, legacy: false })
       return true
     })
     if (!closed)
-      return { done: false, why: `${id} is closed already` }
-    return { done: true, why: shard === null ? `closed ${id}: ${answer}` : `closed ${id} and lifted the card #${wait.card_id} stop ${stop!.id} as a decision under shard ${shard.id}: ${answer}` }
+      return { done: false, why: shard === null && wait.state === OPEN_WAIT ? `${id} stays open: ${OWNER_WORD_NEEDED}; ${OWNER_ANSWER_USAGE}` : `${id} is closed already` }
+    return { done: true, why: `closed ${id} and lifted the card #${wait.card_id} stop ${stop!.id} as a decision under shard ${shard.id}: ${answer}` }
   }
 
   private closeWaitOnOwnerWord(request: number, id: string, wait: { state: string, card_id: number | null }, answer: string, stop: number | null): Executed {
