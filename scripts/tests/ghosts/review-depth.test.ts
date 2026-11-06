@@ -64,12 +64,12 @@ describe('bus review depth follows the MORSE instructions rule', () => {
   const HEAD = 'h'.repeat(40)
   const lease = { taskKey: `review:1974:974:${HEAD}`, queue: 'review' as const, cardId: 1974, pr: 974, head: HEAD, leaseGen: 1, actor: 'worker:review:w' }
 
-  function sourcesOf(paths: string[], touches: string[], added: string[] = []): DepthSources {
+  function sourcesOf(paths: string[], touches: string[], added: string[] = [], creates: string[] = []): DepthSources {
     return {
       base: () => BASE,
       changed: () => paths,
       predict: () => ({ prediction: classify(paths.map(file => ({ path: file, status: added.includes(file) ? 'A' : 'M', additions: 1, deletions: 0 }))), files: paths, added }),
-      scope: () => ({ touches, runs: [] }),
+      scope: () => ({ touches, creates, runs: [] }),
     }
   }
 
@@ -95,6 +95,19 @@ describe('bus review depth follows the MORSE instructions rule', () => {
   ])('a file that does not follow the touches stays a finding of the first review: $file', ({ file, added }) => {
     const plan = planReview(lease, null, sourcesOf([TOUCHED_MODULE, file], [TOUCHED_MODULE], added))
     expect(plan).toMatchObject({ depth: 'diff', round: 'first', touchFindings: [`${file} is outside the touches of card #1974 (${TOUCHED_MODULE})`] })
+  })
+
+  it('a file the card creates is no finding of the first review', () => {
+    const created = 'scripts/nodes/review/created.ts'
+    const plan = planReview(lease, null, sourcesOf([TOUCHED_MODULE, created], [TOUCHED_MODULE], [created], [created]))
+    expect(plan).toMatchObject({ depth: 'diff', round: 'first', touchFindings: [] })
+  })
+
+  it('a card that creates one file does not cover another file beside it, whose finding keeps its text', () => {
+    const created = 'scripts/nodes/review/created.ts'
+    const other = 'scripts/nodes/review/other.ts'
+    const plan = planReview(lease, null, sourcesOf([TOUCHED_MODULE, created, other], [TOUCHED_MODULE], [created, other], [created]))
+    expect(plan).toMatchObject({ depth: 'diff', round: 'first', touchFindings: [`${other} is outside the touches of card #1974 (${TOUCHED_MODULE})`] })
   })
 
   it('a review reads the composition records of the repository it runs in, not those beside the installed code', () => {
