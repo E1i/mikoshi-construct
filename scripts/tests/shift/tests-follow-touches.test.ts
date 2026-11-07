@@ -88,14 +88,14 @@ describe('the shift gate lets the tests that cover the touched files follow the 
     expect(treePr(ports(), CARD, worktree, null)).toEqual({ kind: 'pr', number: '954', followed: ['scripts/tests/bus/review-worker.test.ts'] })
   })
 
-  it('an edit of a test the card runs outside touches does not stop the card, and the same edit of a test it neither runs nor covers does', () => {
+  it('an edit of a test the card runs outside touches follows silently, and the same edit of a test it neither runs nor covers follows by name', () => {
     const edit = { 'scripts/nodes/review/review-worker.ts': 'export function runReviewWorker(): number {\n  return 2\n}\n', 'scripts/tests/bus/merge-worker.test.ts': 'export const ran = 1\n' }
     const running = cardTree()
     write(running, edit)
     expect(treePr(ports(), { ...CARD, runs: ['scripts/tests/bus/merge-worker.test.ts'] }, running, null)).toEqual({ kind: 'pr', number: '954', followed: [] })
     const notRunning = cardTree()
     write(notRunning, edit)
-    expect(treePr(ports(), CARD, notRunning, null)).toMatchObject({ kind: 'problem' })
+    expect(treePr(ports(), CARD, notRunning, null)).toEqual({ kind: 'pr', number: '954', followed: ['scripts/tests/bus/merge-worker.test.ts'] })
   })
 
   it('a Runs: entry that names code, not a test, lets no code change outside the touches', () => {

@@ -152,10 +152,18 @@ describe('the touches follow the change: tests, generated twins and the changese
     expect(run.followed).toEqual([])
   })
 
-  it('an answer that touches a test covering no touched file stops with a question', async () => {
+  it('an answer that touches a test covering no touched file pushes and records the widening', async () => {
     const run = answerChanging([UNRELATED_TEST], [TOUCHED_MODULE])
 
-    await expect(run.answer()).rejects.toThrow(`left changes to ${UNRELATED_TEST}, outside`)
+    await expect(run.answer()).resolves.toMatchObject({ owner: null })
+    expect(run.published).toEqual(['feat/widget'])
+    expect(run.followed).toEqual([[UNRELATED_TEST]])
+  })
+
+  it('an answer that touches a file that is neither a test nor generated stops with a question', async () => {
+    const run = answerChanging(['README.md'], [TOUCHED_MODULE])
+
+    await expect(run.answer()).rejects.toThrow('left changes to README.md, outside')
     expect(run.published).toEqual([])
   })
 
@@ -222,6 +230,16 @@ describe('a card session follows the touches the same way and the shift records 
 
     expect(treePr(shiftPorts(bodies), SHIFT_CARD, worktree, null)).toEqual({ kind: 'pr', number: String(OPENED_PR), followed: [SURFACE, COVERING_TEST] })
     expect(bodies[0]).toContain(`Touches followed: ${SURFACE}, ${COVERING_TEST}`)
+  })
+
+  it('the shift opens the pull request with an unrelated test and a generated file of an untouched source, and names them', () => {
+    const bodies: string[] = []
+    const worktree = shiftTree({ [UNRELATED_TEST]: 'export const other = 3\n', 'architecture/model.md': 'the model\n' })
+
+    expect(treePr(shiftPorts(bodies), SHIFT_CARD, worktree, null)).toEqual({ kind: 'pr', number: String(OPENED_PR), followed: expect.arrayContaining([UNRELATED_TEST, 'architecture/model.md']) })
+    expect(bodies[0]).toContain('Touches followed: ')
+    expect(bodies[0]).toContain(UNRELATED_TEST)
+    expect(bodies[0]).toContain('architecture/model.md')
   })
 
   it('the shift opens no pull request for a guarded path outside the touches', () => {
@@ -319,11 +337,20 @@ describe('a registry test in an application layout follows the touches only by i
     expect(bodies[0]).toContain(`Touches followed: ${REGISTRY_TEST}`)
   })
 
-  it('does not follow a test that imports no touched file, even one that names it', () => {
+  it('follows an app test that imports no touched file too, and names it', () => {
     const bodies: string[] = []
     const worktree = shiftTree({ [SCHEMA]: 'export const MIGRATIONS = []\n', [REGISTRY_TEST]: 'export const about = [\'schema.ts\', \'src/widget.ts\', \'apps/api/src/storage/schema.ts\']\n' })
 
-    expect(treePr(shiftPorts(bodies), SCHEMA_CARD, worktree, null)).toMatchObject({ kind: 'problem', gaps: [{ reason: 'outside-touches', paths: [REGISTRY_TEST] }] })
+    expect(treePr(shiftPorts(bodies), SCHEMA_CARD, worktree, null)).toEqual({ kind: 'pr', number: String(OPENED_PR), followed: [REGISTRY_TEST] })
+    expect(bodies[0]).toContain(`Touches followed: ${REGISTRY_TEST}`)
+  })
+
+  it('does not follow an app test helper that is no test file', () => {
+    const bodies: string[] = []
+    const helper = 'apps/api/tests/storage/helper.ts'
+    const worktree = shiftTree({ [SCHEMA]: 'export const MIGRATIONS = []\n', [helper]: 'export const about = 1\n' })
+
+    expect(treePr(shiftPorts(bodies), SCHEMA_CARD, worktree, null)).toMatchObject({ kind: 'problem', gaps: [{ reason: 'outside-touches', paths: [helper] }] })
     expect(bodies).toEqual([])
   })
 })
@@ -342,9 +369,11 @@ describe('the following table', () => {
 
   it.each([
     [SURFACE, [TOUCHED_MODULE], true],
-    [SURFACE, ['scripts/nodes/x.ts'], false],
+    [SURFACE, ['scripts/nodes/x.ts'], true],
     ['architecture/add-population.md', ['templates/base/architecture/x.md'], true],
-    ['architecture/add-population.md', [TOUCHED_MODULE], false],
+    ['architecture/add-population.md', [TOUCHED_MODULE], true],
+    [UNRELATED_TEST, [TOUCHED_MODULE], true],
+    ['tests/helper.ts', [TOUCHED_MODULE], false],
     ['architecture/self-hosting-drift.yaml', ['templates/ai/**'], true],
     ['architecture/decisions/x.md', ['templates/base/architecture/decisions/x.md'], true],
     ['architecture/decisions/y.md', ['templates/base/architecture/decisions/x.md'], false],
@@ -370,9 +399,9 @@ describe('the following table', () => {
     expect(neverFollows(file, { touches: [TOUCHED_MODULE], added: new Set(), compositionRecords: [] })).toBe(never)
   })
 
-  it('the shift fence lets a covering test and a twin through and holds a guarded twin and an unrelated test', () => {
+  it('the shift fence lets a test and a generated file through and holds a guarded twin and any other file', () => {
     const coverage = new TestCoverage(() => Object.keys(REPOSITORY), file => REPOSITORY[file] ?? null)
 
-    expect(touchesFollowed([COVERING_TEST, SURFACE, UNRELATED_TEST, LINT_CONFIG], { touches: [TOUCHED_MODULE, TEMPLATE_LINT], added: new Set(), compositionRecords: [] }, coverage)).toEqual({ followed: [COVERING_TEST, SURFACE], outside: [UNRELATED_TEST, LINT_CONFIG] })
+    expect(touchesFollowed([COVERING_TEST, SURFACE, UNRELATED_TEST, LINT_CONFIG, 'README.md'], { touches: [TOUCHED_MODULE, TEMPLATE_LINT], added: new Set(), compositionRecords: [] }, coverage)).toEqual({ followed: [COVERING_TEST, SURFACE, UNRELATED_TEST], outside: [LINT_CONFIG, 'README.md'] })
   })
 })
