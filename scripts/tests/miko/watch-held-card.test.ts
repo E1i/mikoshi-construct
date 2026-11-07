@@ -25,7 +25,7 @@ afterEach(() => {
 
 function opened(db: DatabaseSync, pr: number): void {
   appendEvent(db, { ts: LONG_AGO, type: PR_OPENED, actor: ACTOR, cardId: CARD, pr, head: null, dedupeKey: `${PR_OPENED}:${pr}`, payload: { pr, lease_gen: 0 }, legacy: false })
-  appendEvent(db, prObserved(LONG_AGO, { pr, cardId: CARD, base: 'main', head: HEAD, branch: null, mergeable: 'clean', ci: 'pending', failedChecks: [], verdictOnHead: null, autoMerge: false, draft: false, bodySha: 'body' }, null))
+  appendEvent(db, prObserved(LONG_AGO, { pr, cardId: CARD, base: 'main', head: HEAD, branch: null, mergeable: 'clean', ciFields: { ci: 'pending' }, verdictOnHead: null, autoMerge: false, draft: false, bodySha: 'body' }, null))
 }
 
 function closed(db: DatabaseSync, pr: number): void {

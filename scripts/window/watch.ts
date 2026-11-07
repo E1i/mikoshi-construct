@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { CiReading } from '../ports/ci-reading.js'
 import type { WatchCursor } from './watch-store.js'
 import type { WindowPr } from './window-prs.js'
 import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs'
@@ -13,6 +14,7 @@ import { BUS_PULSE, CARD_CLOSED, CARD_STOPPED, CARD_WAITING, GHOST_LINE, MERGE_D
 import { defaultHandoffDir } from '../core/handoff-dir.js'
 import { HEARTBEAT_QUEUES, LEASE_EXPIRED } from '../core/lease.js'
 import { REVIEW_ROUNDS_SPENT } from '../nodes/review/review-executor.js'
+import { ciWord } from '../ports/ci-reading.js'
 import { USER_SETTINGS } from '../ports/client/claude/adapter.js'
 import { CARD_PROCESS } from '../supervisor/heartbeat.js'
 import { noWindowRefusal } from './tab.js'
@@ -64,7 +66,7 @@ export interface DenialRun {
 
 export interface WatchState {
   busId: number
-  ciByPr: Map<number | null, { head: string | null, ci: unknown }>
+  ciByPr: Map<number | null, { head: string | null, ci: CiReading | null }>
   witnessByPr: Map<number | null, unknown>
   deniedByTask: Map<string, DenialRun>
   windowPrs: ReadonlySet<number>
@@ -253,8 +255,8 @@ export function watchState(deps: WatchDeps): WatchState {
   return { busId, ciByPr: new Map(), witnessByPr: new Map(), deniedByTask: denialsUpTo(deps, busId), windowPrs: deps.windowPrs(), ownRequest: deps.ownRequest, stalls: new Set(deps.stalls().map(stallKey)), stuck: new Set(deps.stuck().map(stuckKey)) }
 }
 
-function ciOf(payload: string): unknown {
-  return payloadOf(payload).ci
+function ciInPayload(payload: string): CiReading | null {
+  return ciWord(payloadOf(payload).ci)
 }
 
 function verdictOf(payload: string): unknown {
@@ -264,14 +266,14 @@ function verdictOf(payload: string): unknown {
 type BusMemory = Pick<WatchState, 'ciByPr' | 'witnessByPr' | 'deniedByTask' | 'windowPrs' | 'ownRequest'>
 
 function busMemoryUpTo(deps: WatchDeps, busId: number): BusMemory {
-  const ciByPr: BusMemory['ciByPr'] = new Map(deps.observedUpTo(busId).map(event => [event.pr, { head: event.head, ci: ciOf(event.payload) }]))
+  const ciByPr: BusMemory['ciByPr'] = new Map(deps.observedUpTo(busId).map(event => [event.pr, { head: event.head, ci: ciInPayload(event.payload) }]))
   const witnessByPr: BusMemory['witnessByPr'] = new Map(deps.witnessedUpTo(busId).map(event => [event.pr, verdictOf(event.payload)]))
   return { ciByPr, witnessByPr, deniedByTask: denialsUpTo(deps, busId), windowPrs: deps.windowPrs(), ownRequest: deps.ownRequest }
 }
 
 function ciTurns(state: BusMemory, event: BusEvent): boolean {
   const before = state.ciByPr.get(event.pr)
-  const now = { head: event.head, ci: ciOf(event.payload) }
+  const now = { head: event.head, ci: ciInPayload(event.payload) }
   state.ciByPr.set(event.pr, now)
   const changed = before?.ci !== now.ci || before?.head !== now.head
   if (now.ci === FAILED_CI)

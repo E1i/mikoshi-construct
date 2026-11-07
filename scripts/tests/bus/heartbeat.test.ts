@@ -33,7 +33,6 @@ const BEAT_ENV = { [CARD_VARIABLE]: '1110', [STEP_VARIABLE]: 'implement' }
 const START = Date.parse('2026-10-20T02:00:00.000Z')
 const HEAD = 'a'.repeat(40)
 const LONG_TRANSCRIPT_TURNS = 50_000
-const HEARTBEAT_HOLD_MS = 100
 const roots: string[] = []
 
 afterEach(() => {
@@ -284,16 +283,20 @@ describe('a session holds its lease by the heartbeat its hook writes on every tu
     expect(rows.map(row => JSON.parse(row.payload))).toEqual([{ step: 'implement', session: 'session-1', start_context: null, read_before_edit: null, reason: NO_TRANSCRIPT }, { step: 'implement', session: 'session-1', start_context: null, read_before_edit: null, reason: NO_TRANSCRIPT }])
   })
 
-  it('a session heartbeat holds the write lock no longer than 100 ms', () => {
+  it('a session heartbeat reads its gauges outside the write lock', () => {
     const { db } = bus()
     const lease = reviewLease(db)
     const { home, root } = sessionTree('session-1', Array.from({ length: LONG_TRANSCRIPT_TURNS }, (_, turn) => usageLine(`r${turn}`, { input: 3_000 + turn, cacheRead: 40_000 })))
     const readings: LockReading[] = []
     watchLocks(db, { now: () => performance.now(), observe: reading => readings.push(reading) })
-    recordHeartbeat(db, at(60_000), { card: lease.cardId, pr: lease.pr, head: lease.head, step: lease.queue, session: 'session-1', lease: heldBy(lease) }, session => sessionGauges(home, root, session))
+    const lockHeldAtRead: boolean[] = []
+    recordHeartbeat(db, at(60_000), { card: lease.cardId, pr: lease.pr, head: lease.head, step: lease.queue, session: 'session-1', lease: heldBy(lease) }, (session) => {
+      lockHeldAtRead.push(db.isTransaction)
+      return sessionGauges(home, root, session)
+    })
 
+    expect(lockHeldAtRead).toEqual([false])
     expect(readings.map(reading => reading.outcome)).toEqual(['commit'])
-    expect(readings[0]!.holdMs).toBeLessThanOrEqual(HEARTBEAT_HOLD_MS)
     expect(taskState(db, lease).lease_until).not.toBeNull()
     expect(lastHeartbeat(db, lease.cardId)?.ts).toBe(at(60_000))
   })

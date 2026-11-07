@@ -115,7 +115,7 @@ const attach = withKnownFlags(defineCommand({
     serveUrl: { type: 'string', description: 'The URL that answers once the server is up; needs --serve' },
     yes: { type: 'boolean', alias: 'y', description: 'Non-interactive: skip the confirmation; needs --harness', default: false },
     entry: { type: 'boolean', description: 'Print the entry protocol the agent follows to propose one harness; reads and writes nothing', default: false },
-    upgrade: { type: 'boolean', description: 'Rewrite only the carriers to this version; data, handoff, bus and local settings stay', default: false },
+    upgrade: { type: 'boolean', description: 'Rewrite the carriers to this version and add the browser lab exclusion to the local settings; data, handoff and bus stay', default: false },
   },
   async run({ args }) {
     const console = ui(args)
@@ -367,7 +367,7 @@ const sync = withKnownFlags(defineCommand({
   args: {
     ...commonArgs,
     json: { type: 'boolean', description: 'Machine-readable report', default: false },
-    apply: { type: 'boolean', description: 'Write the paths the construct owns \u2014 the only way sync writes; never a conflict, a removal or a merged file', default: false },
+    apply: { type: 'boolean', description: 'Write the paths the construct owns and the browser lab exclusion in the local settings \u2014 the only way sync writes; never a conflict, a removal or a merged file', default: false },
   },
   run({ args }) {
     const console = ui(args)

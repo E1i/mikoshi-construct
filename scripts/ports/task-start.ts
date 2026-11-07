@@ -27,16 +27,20 @@ import { slotsOf, slotsVariable } from '../supervisor/scheduler.js'
 import { STARTER_ACTOR, windowOpenPrs } from '../window/window-prs.js'
 import { SESSION_VARIABLE } from './client/claude/adapter.js'
 import { clientAdapter } from './client/index.js'
+import { windowModeOf } from './session.js'
 import { cardTree } from './worktree-home.js'
 import { adoptTree, cutTree, pnpmInstall, treeOriginLine } from './worktree.js'
 
 export const PREFIX = '[task:start] '
-export const USAGE = 'usage: pnpm task:start <branch> --card "<card>" [--without-intake "<reason>"]'
+const START_USAGE = 'usage: pnpm task:start <branch> --card "<card>"'
+const WITHOUT_INTAKE_USAGE = '[--without-intake "<reason>"]'
+export const USAGE = `${START_USAGE} ${WITHOUT_INTAKE_USAGE}`
 const CARD_FLAG = '--card'
 const ADOPT_FLAG = '--adopt'
-export const ADOPT_USAGE = 'usage: pnpm task:start <branch> --card "<card>" --adopt <tree> [--without-intake "<reason>"]'
+export const ADOPT_USAGE = `${START_USAGE} --adopt <tree> ${WITHOUT_INTAKE_USAGE}`
 const WITHOUT_INTAKE_FLAG = '--without-intake'
 const SAFE_BRANCH = /^[^\s-]\S*$/
+const CARD_ID = /^#(\d+)\s/
 
 export interface TaskStartDeps {
   cwd: string
@@ -314,6 +318,11 @@ function whoAndRisk(cardFile: CardFile): { who?: string, risk?: WrittenRisk } {
   return { who: cardFile.parked.who, ...(risk === undefined ? {} : { risk }) }
 }
 
+function windowRefusal(argv: string[]): string {
+  const id = CARD_ID.exec(flagValue(argv, CARD_FLAG).value ?? '')?.[1] ?? '<N>'
+  return `a window does not start a task itself: the bus cuts its tree, ask it with pnpm bus:request tree.cut --card ${id}; nothing written`
+}
+
 export function runTaskStart(argv: string[], deps: TaskStartDeps, handed?: HandedContract): TaskStartResult {
   if (!argv.includes(CARD_FLAG))
     return refuse(`a task starts from its card now: ${USAGE}; the id is the card's #<id>`)
@@ -400,7 +409,8 @@ export function realDeps(): TaskStartDeps {
 }
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const result = runTaskStart(process.argv.slice(2), realDeps())
+  const argv = process.argv.slice(2)
+  const result = windowModeOf(process.env) === null ? runTaskStart(argv, realDeps()) : refuse(windowRefusal(argv))
   for (const line of result.stdout)
     console.log(line)
   for (const line of result.stderr)
