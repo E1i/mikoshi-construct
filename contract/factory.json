@@ -431,6 +431,7 @@
         "keys": [
           "by",
           "command",
+          "detail",
           "lease_gen",
           "reason",
           "rule",
@@ -1311,7 +1312,7 @@
       "scripts/window/session-load.ts": 1
     },
     "window-requests": {
-      "scripts/window/window-requests.ts": 16
+      "scripts/window/window-requests.ts": 18
     }
   },
   "ports": {
@@ -1349,7 +1350,9 @@
         "ciLogForPrompt",
         "ciOf",
         "ciWord",
-        "failedJobLinkIn"
+        "failedJobLinkIn",
+        "rerunFailedJobsEndpoint",
+        "runsOnHeadEndpoint"
       ],
       "types": {
         "CiAct": "type CiAct = { done: true; } | { done: false; reason: string; }",

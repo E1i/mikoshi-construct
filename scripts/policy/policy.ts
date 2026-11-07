@@ -6,6 +6,7 @@ import { createdPaths } from '../../src/card/parking.js'
 import { RISK_LEVELS, riskOf } from '../../src/card/risk.js'
 import { judgedFieldWitnessesOf, witnessesOf } from '../../src/commands/intake/admit.js'
 import { isChangeWitness, ownerPathsOf } from '../../src/commands/intake/check.js'
+import { CLOSED_CARD, DROPPED_CARD, MERGED_CARD } from '../core/card-automaton.js'
 import { CARD_ADMITTED, MERGE_DONE, PR_CLOSED, WITNESS_RECORDED } from '../core/events.js'
 import { matchGlob } from './shredder/glob.js'
 import { readOwnerMergeKinds } from './shredder/reader.js'
@@ -308,6 +309,66 @@ export function closePolicy(facts: CloseFacts): CloseVerdict {
   if (facts.mergeLeased)
     return { kind: 'denied', rule: 'merge_leased', detail: `PR #${facts.pr} is under a live merge lease` }
   return { kind: 'allowed', rule: 'card_pr', detail: `PR #${facts.pr} is the pull request of card #${card.card.id}, open and under no merge lease` }
+}
+
+export const REOPEN_RULES = ['version_pr', 'not_closed', 'merged', 'no_card', 'other_card', 'card_ended'] as const
+export const ENDED_CARD_STATES: ReadonlySet<string> = new Set([MERGED_CARD, CLOSED_CARD, DROPPED_CARD])
+
+export type ReopenRule = typeof REOPEN_RULES[number]
+
+export type ReopenVerdict
+  = | { kind: 'allowed', rule: 'card_pr', detail: string }
+    | { kind: 'denied', rule: ReopenRule, detail: string }
+
+export interface ReopenFacts {
+  pr: number
+  state: string
+  merged: boolean
+  headRef: string
+  body: string
+  cardId: number
+  cardState: string | null
+}
+
+export function reopenPolicy(facts: ReopenFacts): ReopenVerdict {
+  if (VERSION_BRANCH.test(facts.headRef))
+    return { kind: 'denied', rule: 'version_pr', detail: `PR #${facts.pr} on ${facts.headRef} is the version pull request and stays the owner's` }
+  if (facts.merged)
+    return { kind: 'denied', rule: 'merged', detail: `PR #${facts.pr} is merged; a merged pull request is not reopened` }
+  if (facts.state !== 'closed')
+    return { kind: 'denied', rule: 'not_closed', detail: `PR #${facts.pr} is ${facts.state}, not closed` }
+  const card = readBodyCard(facts.body)
+  if (card.kind === 'refused')
+    return { kind: 'denied', rule: 'no_card', detail: `PR #${facts.pr} names no card on the first line of its description (${card.reason}) and stays the owner's` }
+  if (card.card.id !== facts.cardId)
+    return { kind: 'denied', rule: 'other_card', detail: `PR #${facts.pr} is the pull request of card #${card.card.id}, not #${facts.cardId}` }
+  if (facts.cardState !== null && ENDED_CARD_STATES.has(facts.cardState))
+    return { kind: 'denied', rule: 'card_ended', detail: `card #${facts.cardId} is ${facts.cardState} in the bus, so nothing would close PR #${facts.pr} again` }
+  return { kind: 'allowed', rule: 'card_pr', detail: `PR #${facts.pr} is the closed unmerged pull request of card #${facts.cardId}, which the bus holds live` }
+}
+
+export type CardPrRule = 'version_pr' | 'not_open' | 'no_card'
+
+export type CardPrVerdict
+  = | { kind: 'allowed', rule: 'card_pr', cardId: number, detail: string }
+    | { kind: 'denied', rule: CardPrRule, detail: string }
+
+export interface CardPrFacts {
+  pr: number
+  state: string
+  headRef: string
+  body: string
+}
+
+export function cardPrPolicy(facts: CardPrFacts): CardPrVerdict {
+  if (VERSION_BRANCH.test(facts.headRef))
+    return { kind: 'denied', rule: 'version_pr', detail: `PR #${facts.pr} on ${facts.headRef} is the version pull request and stays the owner's` }
+  if (facts.state !== 'open')
+    return { kind: 'denied', rule: 'not_open', detail: `PR #${facts.pr} is ${facts.state}, not open` }
+  const card = readBodyCard(facts.body)
+  if (card.kind === 'refused')
+    return { kind: 'denied', rule: 'no_card', detail: `PR #${facts.pr} names no card on the first line of its description (${card.reason}) and stays the owner's` }
+  return { kind: 'allowed', rule: 'card_pr', cardId: card.card.id, detail: `PR #${facts.pr} is the open pull request of card #${card.card.id}` }
 }
 
 export function pastRoundLimit(detail: string, decisionId: number, pr: number, head: string): MergeVerdict & { kind: 'allowed' } {
