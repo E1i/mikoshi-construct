@@ -5,6 +5,7 @@ import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cardToolsOf, parseParkingFile } from '../../../src/card/parking.js'
 import { openBus } from '../../core/db.js'
+import { windowCommand } from '../../ports/client/claude/adapter.js'
 import { clientAdapter } from '../../ports/client/index.js'
 import { runtimeIsolation } from '../../ports/isolation.js'
 import { clientInvocation } from '../../ports/session.js'
@@ -93,9 +94,10 @@ describe('the invocation of a card session', () => {
     expect(clientInvocation(specOf({ role: 'review', policy: CLIENT_DEFAULT })).args).not.toContain('--setting-sources')
   })
 
-  it('a window invocation is unchanged and a tools line widens only that card', () => {
+  it('a window invocation is the window command and a tools line widens only that card', () => {
     const window = clientInvocation(specOf({ role: 'window', policy: CLIENT_DEFAULT, prompt: '' }))
-    expect(window.args).toEqual(['--permission-mode', 'dontAsk'])
+    expect(window.args).toEqual(windowCommand({}).split(' ').slice(1))
+    expect(window.args).not.toContain('--tools')
 
     const plain = clientInvocation(specOf({ role: 'launch' })).args
     expect(plain[plain.indexOf('--tools') + 1]).toBe(SIX_TOOLS)

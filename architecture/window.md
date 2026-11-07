@@ -8,8 +8,10 @@ A question about the state of the work — "status", "what's there", "where are 
 `/status` answers it ([.claude/commands/status.md](../.claude/commands/status.md)). Every report on the state of tasks
 starts from `pnpm board`, never from the session's memory of them. With no flag it prints a short text reading — the
 release progress, what waits for the owner, the cards by stage, the live backlog by lane and the services — sized for a
-window's context; `pnpm board --json` prints the bus as JSON for a script, and `pnpm board --html` prints the HTML page,
-megabytes long, for a browser and never for a window's reading.
+window's context; `pnpm board --json` prints the bus as JSON for a script, a megabyte with every card the bus ever held,
+and `pnpm board --json --live` prints the same object with only the live cards (`isLive` in `src/commands/board/screens.ts`:
+a card with a body, not closed, in a flow stage and a live state), which is the window's start reading of the cards; `pnpm board --html`
+prints the HTML page, megabytes long, for a browser and never for a window's reading.
 
 While any Ghost is running, the coordinating window keeps `pnpm board --every 180` running in the background, which
 rewrites `board.txt` in the handoff directory with every frame. Every report to the owner in that time starts with the

@@ -313,8 +313,8 @@ describe('pnpm miko restarts Miko in its own terminal while miko.md says STATUS:
   })
 
   it('the loop starts claude in dontAsk mode unless MIKO_CLAUDE overrides it', () => {
-    expect(DEFAULT_CLAUDE).toBe('claude --permission-mode dontAsk')
-    expect(claudeCommand({})).toBe('claude --permission-mode dontAsk')
+    expect(DEFAULT_CLAUDE).toMatch(/^claude .* --permission-mode dontAsk$/)
+    expect(claudeCommand({})).toBe(DEFAULT_CLAUDE)
     expect(claudeCommand({ MIKO_CLAUDE: '/opt/other-claude' })).toBe('/opt/other-claude')
   })
 
