@@ -1316,7 +1316,9 @@
   },
   "ports": {
     "scripts/ports/card-tree.ts": {
-      "constants": [],
+      "constants": [
+        "TECHNOLOGY_WORDS"
+      ],
       "functions": {
         "cardTreeOf": "(db: DatabaseSync, cardId: number, tools: CardTreeTools): CardSession | null",
         "cardlessTreeName": "(branch: string): string",
@@ -1327,6 +1329,7 @@
       "language": "technology",
       "reexports": [],
       "technologyWords": [
+        "database",
         "gh",
         "git"
       ],
@@ -1358,6 +1361,7 @@
         "failedJobLinkIn"
       ],
       "technologyWords": [
+        "database",
         "gh",
         "git"
       ],
@@ -1679,6 +1683,7 @@
         "CHECK_MS",
         "NETWATCH_SCRIPT",
         "PREFIX",
+        "TECHNOLOGY_WORDS",
         "TICK_MS",
         "WAKE_GAP_MS"
       ],
@@ -1691,6 +1696,7 @@
       "language": "technology",
       "reexports": [],
       "technologyWords": [
+        "database",
         "git"
       ],
       "types": {
@@ -1707,7 +1713,8 @@
         "STATUS_CONTEXT",
         "STATUS_CURSOR",
         "STATUS_OFF_FILE",
-        "STEP_EVENTS"
+        "STEP_EVENTS",
+        "TECHNOLOGY_WORDS"
       ],
       "functions": {
         "setStepStatuses": "(db: DatabaseSync, post: GitHubPost, now: () => Date = () => new Date(), batch = STATUS_BATCH): StepStatus[]",
@@ -1722,6 +1729,7 @@
         "ghApiPost"
       ],
       "technologyWords": [
+        "database",
         "gh",
         "git"
       ],
@@ -1879,6 +1887,7 @@
       "constants": [
         "ADOPT_USAGE",
         "PREFIX",
+        "TECHNOLOGY_WORDS",
         "USAGE"
       ],
       "functions": {

@@ -31,6 +31,8 @@ import { windowModeOf } from './session.js'
 import { cardTree } from './worktree-home.js'
 import { adoptTree, cutTree, pnpmInstall, treeOriginLine } from './worktree.js'
 
+export const TECHNOLOGY_WORDS = ['database'] as const
+
 export const PREFIX = '[task:start] '
 const START_USAGE = 'usage: pnpm task:start <branch> --card "<card>"'
 const WITHOUT_INTAKE_USAGE = '[--without-intake "<reason>"]'

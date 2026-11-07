@@ -43,6 +43,7 @@ describe('the language each port speaks in contract/factory.json', () => {
     }
     expect(ports['scripts/ports/git.ts']!.language).toBe('technology')
     expect(ports['scripts/ports/git.ts']!.technologyWords).toEqual(expect.arrayContaining(['git', 'porcelain']))
+    expect(ports['scripts/ports/card-tree.ts']!.technologyWords).toContain('database')
   })
 
   it('a new technology word declared only in its adapter marks the port without an edit to factory.ts', () => {
