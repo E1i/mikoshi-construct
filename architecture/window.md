@@ -6,7 +6,10 @@ Read on demand by the coordinating window; the laws it must know first are in [w
 
 A question about the state of the work — "status", "what's there", "where are we", in any language — is answered as
 `/status` answers it ([.claude/commands/status.md](../.claude/commands/status.md)). Every report on the state of tasks
-starts from `pnpm board` (`pnpm board --json` for the window's own reading), never from the session's memory of them.
+starts from `pnpm board`, never from the session's memory of them. With no flag it prints a short text reading — the
+release progress, what waits for the owner, the cards by stage, the live backlog by lane and the services — sized for a
+window's context; `pnpm board --json` prints the bus as JSON for a script, and `pnpm board --html` prints the HTML page,
+megabytes long, for a browser and never for a window's reading.
 
 While any Ghost is running, the coordinating window keeps `pnpm board --every 180` running in the background, which
 rewrites `board.txt` in the handoff directory with every frame. Every report to the owner in that time starts with the
