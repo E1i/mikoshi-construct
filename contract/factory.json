@@ -1061,8 +1061,8 @@
     },
     "ci-reading": {
       "axis": "architecture",
-      "owner": "scripts/ports/ci-reading.ts",
-      "ownerExists": false,
+      "owner": "src/commands/ci/state.ts",
+      "ownerExists": true,
       "status": "proposed",
       "title": "the state of CI on a commit or a pull request"
     },
@@ -1141,22 +1141,9 @@
   "overlaps": {
     "answer-duties": {
       "scripts/nodes/answer/answer-executor.ts": 20,
-      "scripts/nodes/answer/answerer.ts": 24
+      "scripts/nodes/answer/answerer.ts": 23
     },
-    "ci-reading": {
-      "scripts/ci/test-weights.ts": 3,
-      "scripts/core/observations.ts": 1,
-      "scripts/nodes/answer/answerer.ts": 5,
-      "scripts/nodes/answer/ci-log.ts": 1,
-      "scripts/nodes/merge/merge-executor.ts": 1,
-      "scripts/ports/gh.ts": 3,
-      "scripts/ports/snapshot.ts": 4,
-      "scripts/release/cancel-run.ts": 3,
-      "scripts/window/watch.ts": 1,
-      "scripts/window/window-prs.ts": 1,
-      "src/commands/board/items.ts": 1,
-      "src/commands/board/prs.ts": 6
-    },
+    "ci-reading": {},
     "generated-files": {},
     "git": {
       "scripts/atlas/build.ts": 1,
@@ -1343,6 +1330,41 @@
         "CardTreeTools": "interface CardTreeTools { home: string; treeOf?: (cardId: string) => string; exists: (dir: string) => boolean; branchOf: (pr: number) => string; recreate: (worktree: string, branch: string) => void; bringTo: (worktree: string, branch: string, head: string) => void; }"
       }
     },
+    "scripts/ports/ci-reading.ts": {
+      "constants": [],
+      "functions": {},
+      "reexports": [
+        "ArtifactRequest",
+        "CI_LOG_CEILING",
+        "CheckRun",
+        "CiObservation",
+        "CiReading",
+        "CiState",
+        "CommitCi",
+        "FailedJobLog",
+        "PrDetails",
+        "RollupCheck",
+        "RunIdentity",
+        "ciFieldsOfObservation",
+        "ciLogForPrompt",
+        "ciOf",
+        "ciWord",
+        "failedJobLinkIn"
+      ],
+      "types": {
+        "CiAct": "type CiAct = { done: true; } | { done: false; reason: string; }",
+        "CiOfCommits": "interface CiOfCommits { onCommit: (sha: string, requiredCheck?: string) => CommitCi; approvedRunOn: (head: string | undefined) => boolean; }",
+        "CiRead": "type CiRead<T> = GhRead<T>",
+        "CiRuns": "interface CiRuns { pullRequest: (pr: PullRequest, repository: string) => PrDetails; failureLogOn: (head: string, tree: string) => FailedJobLog | null; successfulRunsOnMain: (limit: number) => CiRead<RunOnMain[]>; jobsOfRun: (runId: number) => CiRead<{ jobs: RunJob[]; }>; artifactsNamed: (run: RunIdentity, name: string) => CiRead<number>; downloadArtifact: (runId: string | number, artifact: ArtifactRequest) => CiAct; cancel: (run: RunIdentity) => boolean; }",
+        "CiWorld": "interface CiWorld { commits?: Record<string, CheckRun[]>; approvedHeads?: string[]; rollups?: Record<number, RollupCheck[]>; failedLogs?: Record<string, FailedJobLog>; runsOnMain?: RunOnMain[]; jobs?: Record<number, RunJob[]>; artifacts?: Record<string, string[]>; }",
+        "GhCiRuns": "class GhCiRuns implements CiRuns { constructor(private readonly gh: GhPort = PROCESS_GH_PORT); pullRequest(pr: PullRequest, repository: string): PrDetails; failureLogOn(head: string, tree: string): FailedJobLog | null; successfulRunsOnMain(limit: number): CiRead<RunOnMain[]>; jobsOfRun(runId: number): CiRead<{ jobs: RunJob[]; }>; artifactsNamed(run: RunIdentity, name: string): CiRead<number>; downloadArtifact(runId: string | number, artifact: ArtifactRequest): CiAct; cancel(run: RunIdentity): boolean }",
+        "GitHubCommitCi": "class GitHubCommitCi implements CiOfCommits { constructor(private readonly meter: Meter); onCommit(sha: string, requiredCheck = REQUIRED_CHECK): CommitCi; approvedRunOn(head: string | undefined): boolean }",
+        "InMemoryCi": "class InMemoryCi implements CiOfCommits, CiRuns { cancelled: RunIdentity[]; downloaded: ArtifactRequest[]; constructor(private readonly world: CiWorld = {}); onCommit(sha: string, requiredCheck = REQUIRED_CHECK): CommitCi; approvedRunOn(head: string | undefined): boolean; pullRequest(pr: PullRequest): PrDetails; failureLogOn(head: string): FailedJobLog | null; successfulRunsOnMain(limit: number): CiRead<RunOnMain[]>; jobsOfRun(runId: number): CiRead<{ jobs: RunJob[]; }>; artifactsNamed(run: RunIdentity, name: string): CiRead<number>; downloadArtifact(runId: string | number, artifact: ArtifactRequest): CiAct; cancel(run: RunIdentity): boolean }",
+        "RunJob": "interface RunJob { name: string; conclusion: string; startedAt: string; completedAt: string; steps?: RunStep[]; }",
+        "RunOnMain": "interface RunOnMain { databaseId: number; headSha: string; }",
+        "RunStep": "interface RunStep { name: string; startedAt: string; completedAt: string; }"
+      }
+    },
     "scripts/ports/client/claude/adapter.ts": {
       "constants": [
         "CLIENT_ENV_PREFIXES",
@@ -1450,12 +1472,11 @@
         "GH_ATTEMPTS",
         "GH_HOURLY_BUDGET: GhBudget",
         "GH_PAUSE_MS",
+        "GH_QUERY_FAILED",
         "GH_TIMEOUT_SECONDS",
         "PROCESS_GH_BUDGET",
         "PROCESS_GH_PORT",
         "PR_LIST_LIMIT",
-        "REQUIRED_CHECK",
-        "SECRET_SCAN_CHECK",
         "execGh: GhCaller"
       ],
       "functions": {
@@ -1464,15 +1485,15 @@
         "ghRunner": "(timeoutSeconds: number, command = 'gh', port: GhPort = ghPort({ command, timeoutSeconds })): GhCaller",
         "listPrs": "(gh: GhCaller, repo: string): PrList",
         "lookupPr": "(list: PrList, branch: string | undefined): PrLookup",
-        "prDetails": "(gh: GhRunner, repo: string, pr: PullRequest): PrDetails",
         "readGhJson": "<T>(gh: GhCaller, args: string[]): GhRead<T>",
         "recordedAccount": "(env: NodeJS.ProcessEnv): string | null",
         "stdoutOrThrow": "(gh: GhCaller): GhRunner"
       },
-      "reexports": [],
+      "reexports": [
+        "REQUIRED_CHECK",
+        "SECRET_SCAN_CHECK"
+      ],
       "types": {
-        "Ci": "interface Ci { state: CiState; text: string; head: string; greenAt?: string; }",
-        "CiState": "type CiState = 'none' | 'pending' | 'red' | 'green' | 'unknown'",
         "GhAccountToken": "type GhAccountToken = { kind: 'token'; token: string; } | { kind: 'failed'; reason: string; stderr: string; }",
         "GhBudget": "interface GhBudget { calls: number; windowMs: number; }",
         "GhBudgetWindow": "class GhBudgetWindow { constructor(private readonly budget: GhBudget, private readonly now: () => number); spend(): GhSpend }",
@@ -1490,7 +1511,6 @@
         "GhSpawned": "interface GhSpawned { status: number | null; stdout: string; stderr: string; error?: NodeJS.ErrnoException; }",
         "GhSpend": "type GhSpend = { kind: 'spent'; } | { kind: 'spent-out'; reason: string; retryAfterSeconds: number; }",
         "GhTimedOut": "class GhTimedOut extends GhFailed {  }",
-        "PrDetails": "interface PrDetails { ci: Ci; files: string[] | undefined; }",
         "PrList": "type PrList = { kind: 'failed'; reason?: string; } | { kind: 'listed'; prs: PullRequest[]; truncated: boolean; }",
         "PrLookup": "type PrLookup = { kind: 'found'; pr: PullRequest; } | { kind: 'none'; } | { kind: 'unknown'; missing: string; }",
         "PullRequest": "interface PullRequest { number: number; title?: string; headRefName: string; headRefOid: string; state: string; mergedAt: string | null; mergeCommit: { oid: string; } | null; }"
@@ -1732,20 +1752,20 @@
         "OPEN_PULLS_PAGE"
       ],
       "functions": {
-        "ciOf": "(meter: Meter, sha: string, requiredCheck = REQUIRED_CHECK): CiReading",
         "requiredCheckOf": "(root: string = watchedRoot()): string",
         "takeSnapshot": "(meter: Meter, known: number[], lastMain: string | null, requiredCheck = REQUIRED_CHECK): Snapshot",
         "touchesMechanics": "(files: string[]): boolean",
         "verdictOf": "(meter: Meter, sha: string): VerdictOnHead | null",
         "watchedRoot": "(): string"
       },
-      "reexports": [],
+      "reexports": [
+        "ciOf"
+      ],
       "types": {
-        "CiReading": "type CiReading = 'pending' | 'green' | 'red'",
         "ClosedPr": "interface ClosedPr { pr: number; cardId: number | null; branch?: string | null; merged: boolean; commit: string | null; mergedBy: string | null; mergedAt: string | null; }",
         "MainHead": "interface MainHead { sha: string; touchesMechanics: boolean; }",
         "Mergeable": "type Mergeable = 'clean' | 'behind' | 'dirty' | 'blocked'",
-        "OpenPr": "interface OpenPr { pr: number; cardId: number | null; base: string; head: string; branch: string | null; mergeable: Mergeable; ci: CiReading; failedChecks: string[]; verdictOnHead: VerdictOnHead | null; autoMerge: boolean; draft: boolean; bodySha: string; }",
+        "OpenPr": "interface OpenPr { pr: number; cardId: number | null; base: string; head: string; branch: string | null; mergeable: Mergeable; ciFields: CiObservation; verdictOnHead: VerdictOnHead | null; autoMerge: boolean; draft: boolean; bodySha: string; }",
         "Snapshot": "interface Snapshot { open: OpenPr[]; closed: ClosedPr[]; unsettled: number[]; main: MainHead | null; }",
         "VerdictOnHead": "type VerdictOnHead = 'pass' | 'changes'"
       }
