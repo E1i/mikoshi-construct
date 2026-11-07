@@ -2,7 +2,8 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { Priority } from '../../../src/card/parking.js'
 import type { BusEvent } from '../../core/db.js'
 import type { AfterFailure, Lease, LeaseOrder } from '../../core/lease.js'
-import type { DetectionMode, Scope, WaitStep } from '../../core/node.js'
+import type { DetectionMode, NodeDeclaration, Scope, WaitStep } from '../../core/node.js'
+import { BUS_VERSION, CARD_VERSION, UNRECORDED_VERSION } from '../../core/bus-version.js'
 import type { QueuedTask } from '../../core/queue.js'
 import type { StoredEvent } from '../../core/stored.js'
 import type { CardTreeTools } from '../../ports/card-tree.js'
@@ -44,6 +45,8 @@ import { claudeAnswerer, PREFIX, realAnswererTools } from './answerer.js'
 const ANSWERS_DIR = path.join(defaultBusDir(), 'answers')
 
 export const ANSWER_ON = [REDUCED, PR_OBSERVED, PR_CLOSED, PR_OPENED, REVIEW_RECORDED, CARD_STOPPED, CARD_ANSWERED, CARD_STARTED, CARD_ADMITTED, DECISION_RECORDED, DECISIONS_IMPORTED, MERGE_DONE] as const
+
+export const ANSWER_NODE: NodeDeclaration = { kind: 'answer', on: ANSWER_ON, understands: { bus: [UNRECORDED_VERSION, BUS_VERSION], card: [CARD_VERSION] } }
 
 const WHOLE_QUEUE_ON: ReadonlySet<string> = new Set([REDUCED, DECISION_RECORDED, DECISIONS_IMPORTED, MERGE_DONE])
 const SCOPED_BY_PR_ON: ReadonlySet<string> = new Set([PR_OBSERVED, PR_CLOSED, REVIEW_RECORDED])
@@ -118,7 +121,7 @@ export class AnswerNode extends Node<AnswerStep> {
   constructor(private readonly answerParts: AnswerNodeParts) {
     super('answer', { db: answerParts.db, clock: answerParts.clock, session: answerParts.session, mode: answerParts.mode, env: answerParts.env })
     this.executor = new AnswerExecutor(answerParts)
-    this.subscribe(ANSWER_ON, scopeOf)
+    this.declare(ANSWER_NODE, scopeOf)
   }
 
   protected candidates(scope: Scope = {}): QueuedTask[] {

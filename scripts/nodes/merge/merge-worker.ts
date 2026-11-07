@@ -2,7 +2,8 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { PushPolicy } from '../../../src/commands/attach/record.js'
 import type { RerunMode } from '../../cli/check-catalog.js'
 import type { Lease } from '../../core/lease.js'
-import type { DetectionMode, Scope } from '../../core/node.js'
+import type { DetectionMode, NodeDeclaration, Scope } from '../../core/node.js'
+import { BUS_VERSION, CARD_VERSION, UNRECORDED_VERSION } from '../../core/bus-version.js'
 import type { QueuedTask } from '../../core/queue.js'
 import type { StoredEvent } from '../../core/stored.js'
 import type { StatusPublisher } from '../../ports/github-status.js'
@@ -30,6 +31,8 @@ import { MergeExecutor } from './merge-executor.js'
 export const LIVE_REVIEWER = 'worker:review:'
 export const CATALOG_REBUILD_FAILED = 'catalog_rebuild_failed'
 export const MERGE_ON = [REDUCED, PR_OBSERVED, PR_CLOSED, PR_OPENED, CARD_ADMITTED, MERGE_DONE, REVIEW_RECORDED, DECISION_RECORDED, DECISIONS_IMPORTED] as const
+
+export const MERGE_NODE: NodeDeclaration = { kind: 'merge', on: MERGE_ON, understands: { bus: [UNRECORDED_VERSION, BUS_VERSION], card: [CARD_VERSION] } }
 
 const WHOLE_QUEUE_ON: ReadonlySet<string> = new Set([REDUCED, MERGE_DONE, DECISION_RECORDED, DECISIONS_IMPORTED])
 
@@ -94,7 +97,7 @@ export class MergeNode extends Node<MergeStep> {
     this.gitHub = parts.gitHub
     this.rebuildCatalog = parts.rebuildCatalog
     this.executor = new MergeExecutor({ db: parts.db, gitHub: parts.gitHub, put: parts.put, publish: parts.publish, clock: parts.clock, run: parts.run, rerun: this.rerun, pushPolicy: parts.pushPolicy })
-    this.subscribe(MERGE_ON, scopeOf)
+    this.declare(MERGE_NODE, scopeOf)
   }
 
   protected override before(): void {

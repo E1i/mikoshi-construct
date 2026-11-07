@@ -3,7 +3,8 @@ import type { ShiftTask } from '../../../src/card/task-file.js'
 import type { BusEvent } from '../../core/db.js'
 import type { Lease } from '../../core/lease.js'
 import type { MachineClaimant, MachineSessions } from '../../core/machine-sessions.js'
-import type { DetectionMode, WaitStep } from '../../core/node.js'
+import type { DetectionMode, NodeDeclaration, WaitStep } from '../../core/node.js'
+import { BUS_VERSION, CARD_VERSION, UNRECORDED_VERSION } from '../../core/bus-version.js'
 import type { QueuedTask } from '../../core/queue.js'
 import type { CardBodyReader } from '../../intake/parking-reads.js'
 import type { LadderSteps } from '../../ladder/ladder-starter.js'
@@ -112,6 +113,8 @@ const LEGACY_MERGE = 'merge'
 const LEGACY_PATH = 'path'
 
 export const LAUNCH_ON = [CARD_ADMITTED, CARD_STARTED, CARD_CLOSED, CARD_STOPPED, PR_CLOSED, PR_OBSERVED, PR_OPENED, LEGACY_MERGE, LEGACY_PATH, TASK_ENQUEUED, TASK_REQUEUED, TASK_COMPLETED, TASK_FAILED, TASK_SUPERSEDED, TASK_RELEASED, TASK_EXPIRED, MERGE_DONE, GHOST_ROW, REDUCED] as const
+
+export const LAUNCH_NODE: NodeDeclaration = { kind: 'launch', on: LAUNCH_ON, understands: { bus: [UNRECORDED_VERSION, BUS_VERSION], card: [CARD_VERSION] } }
 
 export type LaunchStep = LaunchOutcome | WaitStep
 
@@ -305,7 +308,7 @@ export class LaunchNode extends Node<LaunchStep> {
     this.processes = launchParts.processes ?? REAL_PROCESSES
     this.lanes = launchParts.lanes ?? repositoryLanes(process.cwd())
     this.machine = launchParts.machine ?? machineSessions(isAlive)
-    this.subscribe(LAUNCH_ON)
+    this.declare(LAUNCH_NODE)
   }
 
   private machineClaimant(cardId: number): MachineClaimant {

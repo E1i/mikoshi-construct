@@ -1,10 +1,14 @@
 import type { BusSection } from './factory/bus.js'
+import type { CardSection } from './factory/card.js'
 import type { Axis, Concept } from './factory/concepts.js'
-import type { PortModule } from './factory/ports.js'
+import type { NodesSection } from './factory/nodes.js'
+import type { PortsSection } from './factory/ports.js'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { busSection } from './factory/bus.js'
+import { cardSection } from './factory/card.js'
 import { CONCEPTS } from './factory/concepts.js'
+import { nodesSection } from './factory/nodes.js'
 import { findSites, overlapsSection } from './factory/overlaps.js'
 import { portsSection } from './factory/ports.js'
 
@@ -33,8 +37,10 @@ export interface FactoryConcept {
 
 export interface Factory {
   factoryVersion: number
-  ports: Record<string, PortModule>
+  ports: PortsSection
   bus: BusSection
+  card: CardSection
+  nodes: NodesSection
   concepts: Record<string, FactoryConcept>
   overlaps: Record<string, Record<string, number>>
 }
@@ -63,6 +69,8 @@ export function generateFactory(root: string = REPO_ROOT): Factory {
     factoryVersion: FACTORY_VERSION,
     ports: portsSection(root),
     bus: busSection(root),
+    card: cardSection(root),
+    nodes: nodesSection(),
     concepts: conceptsSection(acceptedConcepts(root)),
     overlaps: overlapsSection(findSites(root)),
   }

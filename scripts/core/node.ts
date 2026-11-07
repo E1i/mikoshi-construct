@@ -1,5 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { SlotKind } from '../supervisor/scheduler.js'
+import type { Understood } from './bus-version.js'
 import type { BusEvent } from './db.js'
 import type { Queue } from './identifiers.js'
 import type { HolderStart, Lease, LeaseOrder } from './lease.js'
@@ -13,6 +14,8 @@ import { CHECK_MS, TICK_MS } from '../ports/netwatch.js'
 import { ownStart, recordProcessHeartbeat } from '../supervisor/heartbeat.js'
 import { slotsOf } from '../supervisor/scheduler.js'
 import { lastEventId } from '../window/operator-work.js'
+import { busVersionOf, cardVersionOf } from './bus-version.js'
+import { cardBodyText } from './card-bodies.js'
 import { appendEvent, inTransaction, openBus } from './db.js'
 import { NODE_DETECTED, NODE_EQUIVALENCE, TASK_LEASED } from './events.js'
 import { drainOpen, expireLeases, leasedByRetiring, leaseNext, recordWorkerStarted, RENEW_MS, renewLease, StaleLease, waitTask, workerRetiring } from './lease.js'
@@ -121,6 +124,22 @@ export class SecondSubscription extends Error {}
 
 export class NodeRefused extends Error {}
 
+export class ForeignVersion extends NodeRefused {}
+
+export interface NodeDeclaration {
+  kind: NodeKind
+  on: EventPattern
+  understands: Understood
+}
+
+export type VersionedRecord = keyof Understood
+
+export function foreignVersion(understands: Understood, record: VersionedRecord, version: number, whose: string): string | null {
+  if (understands[record].includes(version))
+    return null
+  return `${whose} carries ${record} version ${version}, and this node understands ${record} versions ${understands[record].join(', ')}; it takes no work from it`
+}
+
 const IDLE: IdleStep = { kind: 'idle' }
 
 const WHOLE_QUEUE: ScopeOf = () => undefined
@@ -223,6 +242,7 @@ export abstract class Node<S extends NodeStep> {
   readonly actor: string
   readonly slots: number
   private subscription: Subscription | null = null
+  private declaration: NodeDeclaration | null = null
   private lastStep: S | WaitStep | IdleStep | null = null
   private startedAt: string | null = null
   private startRecorded = false
@@ -263,11 +283,36 @@ export abstract class Node<S extends NodeStep> {
     }
   }
 
+  protected declare(declaration: NodeDeclaration, scopeOf: ScopeOf = WHOLE_QUEUE): Unsubscribe {
+    if (declaration.kind !== this.kind)
+      throw new Error(`the ${this.kind} node was handed the declaration of the ${declaration.kind} node`)
+    const unsubscribe = this.subscribe(declaration.on, scopeOf)
+    this.declaration = declaration
+    return unsubscribe
+  }
+
+  declared(): NodeDeclaration | null {
+    return this.declaration
+  }
+
+  private refuseForeign(record: VersionedRecord, version: number, whose: string): void {
+    const refusal = this.declaration === null ? null : foreignVersion(this.declaration.understands, record, version, whose)
+    if (refusal !== null)
+      throw new ForeignVersion(refusal)
+  }
+
+  private refuseForeignCard(lease: Lease): void {
+    const text = cardBodyText(this.db, lease.cardId)
+    if (text !== null)
+      this.refuseForeign('card', cardVersionOf(text), `card #${lease.cardId} (${lease.taskKey})`)
+  }
+
   emit(event: BusEvent): void {
     appendEvent(this.db, { ...event, actor: event.actor ?? this.actor, ts: event.ts ?? this.ts() })
   }
 
   async run(ctx: NodeContext): Promise<void> {
+    this.refuseForeign('bus', busVersionOf(this.db), 'the bus')
     this.before()
     this.codeSha = (this.parts.codeSha ?? loadedCodeSha)()
     this.startedAt = this.ts()
@@ -424,7 +469,10 @@ export abstract class Node<S extends NodeStep> {
     expireLeases(this.db, ts)
     if (drainOpen(this.db, ts, this.kind, this.codeSha))
       return null
-    return leaseNext(this.db, ts, this.kind, this.actor, this.leaseOrder())
+    const lease = leaseNext(this.db, ts, this.kind, this.actor, this.leaseOrder())
+    if (lease !== null)
+      this.refuseForeignCard(lease)
+    return lease
   }
 
   private retryWhenLocked(step: string, work: () => void): boolean {
@@ -527,7 +575,7 @@ export async function runNode(argv: readonly string[], kind: NodeKind, busPath: 
   catch (error) {
     if (!(error instanceof NodeRefused))
       throw error
-    console.error(`${prefix}refused to switch on: ${error.message}`)
+    console.error(`${prefix}${error instanceof ForeignVersion ? 'stopped on a foreign version' : 'refused to switch on'}: ${error.message}`)
     return 1
   }
   finally {
