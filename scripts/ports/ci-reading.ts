@@ -4,7 +4,7 @@ import type { Meter } from './meter.js'
 import { artifactDownloadArgs, artifactsOfRunArgs, ciOfRollup, commitCi, commitCiOfRuns, detailsOfPullRequestView, failedJobLog, hasApprovedRun, jobsOfRunArgs, pullRequestViewArgs, REQUIRED_CHECK, runCancelArgs, shortHead, successfulRunsOnMainArgs, unreadPullRequest } from '../../src/commands/ci/state.js'
 import { GH_QUERY_FAILED, PROCESS_GH_PORT, readGhJson } from './gh.js'
 
-export { CI_LOG_CEILING, ciFieldsOfObservation, ciLogForPrompt, ciOf, ciWord, failedJobLinkIn } from '../../src/commands/ci/state.js'
+export { CI_LOG_CEILING, ciFieldsOfObservation, ciLogForPrompt, ciOf, ciWord, failedJobLinkIn, rerunFailedJobsEndpoint, runsOnHeadEndpoint } from '../../src/commands/ci/state.js'
 export type { ArtifactRequest, CheckRun, CiObservation, CiReading, CiState, CommitCi, FailedJobLog, PrDetails, RollupCheck, RunIdentity } from '../../src/commands/ci/state.js'
 
 export interface RunOnMain {

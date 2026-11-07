@@ -49,7 +49,7 @@ function cardTree(): string {
   return tree
 }
 
-function requests(bench: MergeBench, tree = '/nowhere', pushPolicy: () => PushPolicy = () => 'auto'): WindowRequests {
+function requests(bench: MergeBench, tree = '/nowhere', pushPolicy: () => PushPolicy = () => 'bus'): WindowRequests {
   const closer = new PrCloser(bench.db, bench.gitHub.client, bench.gitHub.patch, bench.clock.now)
   const parts = { db: bench.db, gitHub: bench.gitHub.client, clock: bench.clock.now, pushPolicy }
   const appender = new PrBodyFileAppender(parts, bench.gitHub.patch, cardId => cardId === CARD ? tree : '/nowhere')

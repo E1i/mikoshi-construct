@@ -7,12 +7,12 @@ import { appendEvent } from '../../core/db.js'
 import { messageOf } from '../../core/errors.js'
 import { COMMAND_EXECUTED, POLICY_ALLOWED, POLICY_DENIED } from '../../core/events.js'
 import { cardPrPolicy } from '../../policy/policy.js'
+import { rerunFailedJobsEndpoint, runsOnHeadEndpoint } from '../../ports/ci-reading.js'
 import { readPullOf } from './pr-close.js'
 
 export const RERUN_COMMAND = 'rerun'
 export const BODY_COMMAND = 'body'
 const REPO = 'repos/{owner}/{repo}'
-const RUNS_PAGE = 100
 const RERUN_ACCEPTED = 201
 const FIRST_ATTEMPT = 1
 const FAILED = 'failure'
@@ -125,7 +125,7 @@ export class CiRerunner extends CardPrWrite<null, number[]> {
   }
 
   protected prepare(pull: CardPull): Prepared<number[]> {
-    const response = this.parts.gitHub(`${REPO}/actions/runs?head_sha=${pull.head}&per_page=${RUNS_PAGE}`)
+    const response = this.parts.gitHub(runsOnHeadEndpoint(pull.head))
     if (response.status !== 200)
       return { kind: 'failed', detail: `GitHub answered ${response.status} to the read of the runs on ${pull.head}${answerMessage(response)}` }
     const runs = ((response.body as { workflow_runs?: WorkflowRun[] } | null)?.workflow_runs ?? []).filter(run => run.conclusion === FAILED)
@@ -140,7 +140,7 @@ export class CiRerunner extends CardPrWrite<null, number[]> {
 
   protected write(pull: CardPull, ids: number[]): Written {
     for (const id of ids) {
-      const response = this.post(`${REPO}/actions/runs/${id}/rerun-failed-jobs`, {})
+      const response = this.post(rerunFailedJobsEndpoint(id), {})
       if (response.status !== RERUN_ACCEPTED)
         return { result: { ok: false, status: response.status }, fields: { runs: ids, run: id }, detail: `GitHub answered ${response.status} to the re-run of the failed jobs of run ${id} on PR #${pull.pr}${answerMessage(response)}` }
     }

@@ -551,7 +551,7 @@ describe('the launch queue', () => {
     expect(taskState(bench.db, launch(cardId, `again-${cardId}`))).toBeUndefined()
   }
 
-  it('a card whose pull request closed without merge and then reopened and merged keeps its run', () => {
+  it('a card whose pull request closed without merge and then reopened and merged ends, frees its lane and is not launched again', () => {
     const bench = launchBench()
     launchedWithPr(bench, 1320, 1120)
     bench.gitHub.close(1120, false)
@@ -559,7 +559,12 @@ describe('the launch queue', () => {
     reopened(bench, 1320, 1120)
     bench.gitHub.close(1120, true)
     bench.tick()
-    keepsItsRun(bench, 1320, 1321)
+    bench.admit(1321, 'lane-a')
+    bench.tick()
+    expect(taskState(bench.db, launch(1321))).toMatchObject({ state: 'queued' })
+    readmitted(bench, 1320)
+    expect(launchableCard(bench.db, 1320)).toBeNull()
+    expect(taskState(bench.db, launch(1320, 'again-1320'))).toBeUndefined()
     bench.close()
   })
 
