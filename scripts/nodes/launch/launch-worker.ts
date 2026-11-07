@@ -4,7 +4,6 @@ import type { BusEvent } from '../../core/db.js'
 import type { Lease } from '../../core/lease.js'
 import type { MachineClaimant, MachineSessions } from '../../core/machine-sessions.js'
 import type { DetectionMode, NodeDeclaration, WaitStep } from '../../core/node.js'
-import { BUS_VERSION, CARD_VERSION, UNRECORDED_VERSION } from '../../core/bus-version.js'
 import type { QueuedTask } from '../../core/queue.js'
 import type { CardBodyReader } from '../../intake/parking-reads.js'
 import type { LadderSteps } from '../../ladder/ladder-starter.js'
@@ -40,7 +39,7 @@ import { generationOfKey } from '../../core/identifiers.js'
 import { ghostLinesText } from '../../core/journal.js'
 import { failTask } from '../../core/lease.js'
 import { busNameOfDb, MACHINE_POLL_MS, machineSessions } from '../../core/machine-sessions.js'
-import { Node, prefixOf, runNode } from '../../core/node.js'
+import { Node, prefixOf, runNode, UNDERSTOOD_NOW } from '../../core/node.js'
 import { eddiesJournalPath, reportPath } from '../../core/places.js'
 import { COMPLETED, generationField, LAUNCH_STOP_WITH_NO_PULL_REQUEST, launchTasks, LEASED, TASK_FOLDS } from '../../core/queue.js'
 import { openDatabase } from '../../core/sqlite.js'
@@ -111,10 +110,8 @@ const HEARTBEAT_SILENCE_MS = HEARTBEAT_SILENCE_MINUTES * 60_000
 
 const LEGACY_MERGE = 'merge'
 const LEGACY_PATH = 'path'
-
 export const LAUNCH_ON = [CARD_ADMITTED, CARD_STARTED, CARD_CLOSED, CARD_STOPPED, PR_CLOSED, PR_OBSERVED, PR_OPENED, LEGACY_MERGE, LEGACY_PATH, TASK_ENQUEUED, TASK_REQUEUED, TASK_COMPLETED, TASK_FAILED, TASK_SUPERSEDED, TASK_RELEASED, TASK_EXPIRED, MERGE_DONE, GHOST_ROW, REDUCED] as const
-
-export const LAUNCH_NODE: NodeDeclaration = { kind: 'launch', on: LAUNCH_ON, understands: { bus: [UNRECORDED_VERSION, BUS_VERSION], card: [CARD_VERSION] } }
+export const LAUNCH_NODE: NodeDeclaration = { kind: 'launch', on: LAUNCH_ON, understands: UNDERSTOOD_NOW }
 
 export type LaunchStep = LaunchOutcome | WaitStep
 

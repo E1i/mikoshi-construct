@@ -17,7 +17,7 @@ export interface PortsSection {
 
 export const PORTS_VERSION = 2
 
-const PORTS_TREE =FACTORY_FOLDERS.sharedCode.find(folder => folder.endsWith('/ports'))!
+const PORTS_TREE = FACTORY_FOLDERS.sharedCode.find(folder => folder.endsWith('/ports'))!
 const DEFAULT_EXPORT = 'default'
 const printer = ts.createPrinter({ removeComments: true, omitTrailingSemicolon: true })
 

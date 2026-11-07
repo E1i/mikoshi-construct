@@ -1,5 +1,5 @@
-import type { Factory } from '../../scripts/contract/factory.js'
 import type { VersionedSection } from '../../scripts/contract/factory-bump.js'
+import type { Factory } from '../../scripts/contract/factory.js'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'

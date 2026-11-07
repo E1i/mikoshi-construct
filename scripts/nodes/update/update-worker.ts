@@ -3,7 +3,6 @@ import type { PushPolicy } from '../../../src/commands/attach/record.js'
 import type { RerunMode } from '../../cli/check-catalog.js'
 import type { Lease } from '../../core/lease.js'
 import type { DetectionMode, NodeDeclaration, Scope } from '../../core/node.js'
-import { BUS_VERSION, CARD_VERSION, UNRECORDED_VERSION } from '../../core/bus-version.js'
 import type { QueuedTask } from '../../core/queue.js'
 import type { StoredEvent } from '../../core/stored.js'
 import type { StatusPublisher } from '../../ports/github-status.js'
@@ -17,7 +16,7 @@ import { fileURLToPath } from 'node:url'
 import { rerunModeOf } from '../../cli/check-catalog.js'
 import { defaultBusPath } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_STOPPED, POLICY_DENIED, PR_OBSERVED, PR_OPENED, REDUCED } from '../../core/events.js'
-import { Node, runNode } from '../../core/node.js'
+import { Node, runNode, UNDERSTOOD_NOW } from '../../core/node.js'
 import { pushPolicyAt } from '../../core/push-policy.js'
 import { updateCandidates } from '../../core/queue.js'
 import { ghStatusPublisher } from '../../ports/github-status.js'
@@ -31,7 +30,7 @@ import { mainMergeInCardTree, UpdateExecutor } from './update-executor.js'
 export const SETTLE_MS = 2000
 export const UPDATE_ON = [REDUCED, PR_OBSERVED, PR_OPENED, CARD_ADMITTED, POLICY_DENIED, CARD_STOPPED] as const
 
-export const UPDATE_NODE: NodeDeclaration = { kind: 'update', on: UPDATE_ON, understands: { bus: [UNRECORDED_VERSION, BUS_VERSION], card: [CARD_VERSION] } }
+export const UPDATE_NODE: NodeDeclaration = { kind: 'update', on: UPDATE_ON, understands: UNDERSTOOD_NOW }
 
 const WHOLE_QUEUE_ON: ReadonlySet<string> = new Set([REDUCED, CARD_ADMITTED])
 const SCOPED_BY_PR_ON: ReadonlySet<string> = new Set([PR_OBSERVED])

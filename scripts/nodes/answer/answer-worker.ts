@@ -3,7 +3,6 @@ import type { Priority } from '../../../src/card/parking.js'
 import type { BusEvent } from '../../core/db.js'
 import type { AfterFailure, Lease, LeaseOrder } from '../../core/lease.js'
 import type { DetectionMode, NodeDeclaration, Scope, WaitStep } from '../../core/node.js'
-import { BUS_VERSION, CARD_VERSION, UNRECORDED_VERSION } from '../../core/bus-version.js'
 import type { QueuedTask } from '../../core/queue.js'
 import type { StoredEvent } from '../../core/stored.js'
 import type { CardTreeTools } from '../../ports/card-tree.js'
@@ -24,7 +23,7 @@ import { defaultBusPath } from '../../core/db.js'
 import { messageOf } from '../../core/errors.js'
 import { CARD_ADMITTED, CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, DECISION_RECORDED, DECISIONS_IMPORTED, MERGE_DONE, POLICY_DENIED, PR_CLOSED, PR_OBSERVED, PR_OPENED, REDUCED, REVIEW_RECORDED } from '../../core/events.js'
 import { assertHeld, failTask, queuedCards, StaleLease } from '../../core/lease.js'
-import { Node, runNode } from '../../core/node.js'
+import { Node, runNode, UNDERSTOOD_NOW } from '../../core/node.js'
 import { treeReportPath } from '../../core/places.js'
 import { answerCandidates } from '../../core/queue.js'
 import { cardContract, NOT_MINE, notMine } from '../../intake/card-contract.js'
@@ -46,7 +45,7 @@ const ANSWERS_DIR = path.join(defaultBusDir(), 'answers')
 
 export const ANSWER_ON = [REDUCED, PR_OBSERVED, PR_CLOSED, PR_OPENED, REVIEW_RECORDED, CARD_STOPPED, CARD_ANSWERED, CARD_STARTED, CARD_ADMITTED, DECISION_RECORDED, DECISIONS_IMPORTED, MERGE_DONE] as const
 
-export const ANSWER_NODE: NodeDeclaration = { kind: 'answer', on: ANSWER_ON, understands: { bus: [UNRECORDED_VERSION, BUS_VERSION], card: [CARD_VERSION] } }
+export const ANSWER_NODE: NodeDeclaration = { kind: 'answer', on: ANSWER_ON, understands: UNDERSTOOD_NOW }
 
 const WHOLE_QUEUE_ON: ReadonlySet<string> = new Set([REDUCED, DECISION_RECORDED, DECISIONS_IMPORTED, MERGE_DONE])
 const SCOPED_BY_PR_ON: ReadonlySet<string> = new Set([PR_OBSERVED, PR_CLOSED, REVIEW_RECORDED])

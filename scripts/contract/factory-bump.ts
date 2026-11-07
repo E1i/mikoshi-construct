@@ -34,9 +34,7 @@ function changedEntries(base: Recorded, head: Recorded): string[] {
     const after = recorded(head[name])
     if (before === null || after === null)
       return [name]
-    return [...new Set([...Object.keys(before), ...Object.keys(after)])].sort()
-      .filter(entry => !isDeepStrictEqual(before[entry], after[entry]))
-      .map(entry => `${name}.${entry}`)
+    return [...new Set([...Object.keys(before), ...Object.keys(after)])].sort().filter(entry => !isDeepStrictEqual(before[entry], after[entry])).map(entry => `${name}.${entry}`)
   })
 }
 
@@ -44,10 +42,11 @@ export function sectionVerdict(section: VersionedSection, baseSection: unknown, 
   const key = VERSIONED_SECTIONS[section]
   const base = recorded(baseSection)
   const head = recorded(headSection)
-  if (head === null)
+  if (head === null) {
     return base === null
       ? { section, red: false, line: `${section}: absent from the base and the head` }
       : { section, red: true, line: `${section}: the base holds it and the head does not; a removed section is a change no version can record` }
+  }
   const headVersion = versionOf(head, key)
   if (base === null)
     return { section, red: false, line: `${section}: new since the base, at ${key} ${headVersion}` }
@@ -60,7 +59,7 @@ export function sectionVerdict(section: VersionedSection, baseSection: unknown, 
   const entries = `changed (${changed.join(', ')})`
   if (headVersion > baseVersion)
     return { section, red: false, line: `${section}: ${entries}, ${key} grew from ${baseVersion} to ${headVersion}` }
-  return { section, red: true, line: `${section}: ${entries} and ${key} stayed ${baseVersion}: grow it to ${baseVersion + 1} in the module that writes it and run \`pnpm contract:update\`` }
+  return { section, red: true, line: `${section}: ${entries} and ${key} stayed ${baseVersion}: grow it to ${baseVersion + 1} in the module that writes it and regenerate the record` }
 }
 
 export function factoryVerdicts(base: unknown, head: unknown): SectionVerdict[] {

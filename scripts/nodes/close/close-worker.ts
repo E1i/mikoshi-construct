@@ -1,7 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { Lease } from '../../core/lease.js'
 import type { DetectionMode, NodeDeclaration, Scope } from '../../core/node.js'
-import { BUS_VERSION, CARD_VERSION, UNRECORDED_VERSION } from '../../core/bus-version.js'
 import type { QueuedTask } from '../../core/queue.js'
 import type { StoredEvent } from '../../core/stored.js'
 import type { CardTreeRemover, CloseOutcome, ReportedVerification } from './close-executor.js'
@@ -15,7 +14,7 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { defaultBusPath } from '../../core/db.js'
 import { CARD_VERIFIED, PR_CLOSED, PR_OPENED, REDUCED, WITNESS_RECORDED } from '../../core/events.js'
-import { Node, prefixOf, runNode } from '../../core/node.js'
+import { Node, prefixOf, runNode, UNDERSTOOD_NOW } from '../../core/node.js'
 import { closeCandidates } from '../../core/queue.js'
 import { stampLogOutput } from '../../supervisor/stamp.js'
 import { CloseExecutor, failureOf, probeClosingCardIds } from './close-executor.js'
@@ -25,7 +24,7 @@ import { cardVerifiedClosings, closingVerificationOf, legacyLines } from './task
 export const PREFIX = prefixOf('close')
 export const CLOSE_ON = [REDUCED, PR_CLOSED, PR_OPENED, CARD_VERIFIED, WITNESS_RECORDED] as const
 
-export const CLOSE_NODE: NodeDeclaration = { kind: 'close', on: CLOSE_ON, understands: { bus: [UNRECORDED_VERSION, BUS_VERSION], card: [CARD_VERSION] } }
+export const CLOSE_NODE: NodeDeclaration = { kind: 'close', on: CLOSE_ON, understands: UNDERSTOOD_NOW }
 
 const WHOLE_QUEUE_ON: ReadonlySet<string> = new Set([REDUCED])
 const SCOPED_BY_PR_ON: ReadonlySet<string> = new Set([PR_CLOSED])

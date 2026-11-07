@@ -3,7 +3,7 @@ import type { Factory } from '../../contract/factory.js'
 import type { Lease } from '../../core/lease.js'
 import type { NodeDeclaration, NodeStep } from '../../core/node.js'
 import type { QueuedTask } from '../../core/queue.js'
-import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -11,13 +11,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { NODE_DECLARATIONS, nodesSection } from '../../contract/factory/nodes.js'
 import { BUS_VERSION, busVersionOf, CARD_VERSION, CARD_VERSION_LINE, cardVersionOf, stampBusVersion, UNRECORDED_VERSION } from '../../core/bus-version.js'
 import { appendEvent, openBus } from '../../core/db.js'
+import { FACTORY_WORKERS } from '../../core/factory-paths.js'
 import { completeTask } from '../../core/lease.js'
 import { ForeignVersion, foreignVersion, Node, runNode, SWITCH_FLAG } from '../../core/node.js'
 import { queueTaskWithin } from '../../core/queue.js'
 import { Clock } from './github-fake.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')
-const NODES_TREE = path.join(REPO_ROOT, 'scripts', 'nodes')
 const A_NODE_CLASS = /\bextends Node</
 const FOREIGN = 9
 const CARD = 4242
@@ -62,9 +62,8 @@ class DeclaredNode extends Node<NodeStep> {
 }
 
 function workerFiles(): string[] {
-  return readdirSync(NODES_TREE, { recursive: true, withFileTypes: true })
-    .filter(entry => entry.isFile() && entry.name.endsWith('.ts'))
-    .map(entry => path.join(entry.parentPath, entry.name))
+  return Object.values(FACTORY_WORKERS)
+    .map(file => path.join(REPO_ROOT, file))
     .filter(file => A_NODE_CLASS.test(readFileSync(file, 'utf8')))
     .sort()
 }
@@ -74,7 +73,8 @@ function isDeclaration(value: unknown): value is NodeDeclaration {
 }
 
 function storeCard(db: DatabaseSync, text: string): void {
-  const admission = appendEvent(db, { ts: new Date().toISOString(), type: 'probe.admitted', actor: 'owner', cardId: CARD, pr: null, head: null, dedupeKey: `probe.admitted:${CARD}`, payload: {}, legacy: false })
+  appendEvent(db, { ts: new Date().toISOString(), type: 'probe.admitted', actor: 'owner', cardId: CARD, pr: null, head: null, dedupeKey: `probe.admitted:${CARD}`, payload: {}, legacy: false })
+  const admission = Number((db.prepare('SELECT MAX(id) AS id FROM events').get() as { id: number }).id)
   db.prepare('INSERT INTO card_bodies (card_id, admission_event_id, text, text_sha) VALUES (?, ?, ?, ?)').run(CARD, admission, text, 'sha')
 }
 

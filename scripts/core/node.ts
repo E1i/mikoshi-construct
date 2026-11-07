@@ -14,7 +14,7 @@ import { CHECK_MS, TICK_MS } from '../ports/netwatch.js'
 import { ownStart, recordProcessHeartbeat } from '../supervisor/heartbeat.js'
 import { slotsOf } from '../supervisor/scheduler.js'
 import { lastEventId } from '../window/operator-work.js'
-import { busVersionOf, cardVersionOf } from './bus-version.js'
+import { BUS_VERSION, busVersionOf, CARD_VERSION, cardVersionOf, UNRECORDED_VERSION } from './bus-version.js'
 import { cardBodyText } from './card-bodies.js'
 import { appendEvent, inTransaction, openBus } from './db.js'
 import { NODE_DETECTED, NODE_EQUIVALENCE, TASK_LEASED } from './events.js'
@@ -133,6 +133,8 @@ export interface NodeDeclaration {
 }
 
 export type VersionedRecord = keyof Understood
+
+export const UNDERSTOOD_NOW: Understood = { bus: [UNRECORDED_VERSION, BUS_VERSION], card: [CARD_VERSION] }
 
 export function foreignVersion(understands: Understood, record: VersionedRecord, version: number, whose: string): string | null {
   if (understands[record].includes(version))

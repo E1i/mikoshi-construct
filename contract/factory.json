@@ -1502,7 +1502,6 @@
       "scripts/cli/slot.ts": 1,
       "scripts/composition/check.ts": 1,
       "scripts/contract/bump.ts": 1,
-      "scripts/contract/factory-bump.ts": 1,
       "scripts/contract/json-samples.ts": 1,
       "scripts/contract/surface.ts": 1,
       "scripts/core/queue.ts": 1,
