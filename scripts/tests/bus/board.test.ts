@@ -271,7 +271,7 @@ describe('the factory board', () => {
     expect(readdirSync(root).filter(name => name.endsWith('.tmp'))).toEqual([])
   })
 
-  it('the board command exits 1 on a missing database and prints the page for a seeded one', () => {
+  it('the board command exits 1 on a missing database and prints the page under --html for a seeded one', () => {
     const bench = boardBench()
     seedProjections(bench)
     const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
@@ -279,7 +279,7 @@ describe('the factory board', () => {
     expect(errors).toHaveBeenCalledWith(expect.stringContaining('no bus database'))
     errors.mockRestore()
     const written = vi.spyOn(process.stdout, 'write').mockReturnValue(true)
-    expect(runBoardCli(bench.db.location()!)).toBe(0)
+    expect(runBoardCli(bench.db.location()!, ['--html'])).toBe(0)
     expect(String(written.mock.calls[0]?.[0])).toContain('<!doctype html>')
     written.mockRestore()
   })
