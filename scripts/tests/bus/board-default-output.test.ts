@@ -79,6 +79,17 @@ describe('pnpm board with no flag prints a reading that fits a window, and the p
     expect(reading).toContain(`#${FIRST_CARD + CARDS - 1}`)
   })
 
+  it('printBoard called with no format prints the same text reading as pnpm board with no flag', () => {
+    const busPath = crowdedBus()
+    let text = ''
+    expect(printBoard(busPath, NOW, (written) => {
+      text += written
+    })).toBe(0)
+    expect(text).not.toMatch(/<!doctype|<html/i)
+    expect(Buffer.byteLength(text)).toBeLessThan(WINDOW_CONTEXT_BYTES)
+    expect(text).toContain(`#${FIRST_CARD}`)
+  })
+
   it('--json keeps printing the bus JSON', () => {
     const json = JSON.parse(printed(crowdedBus(), ['--json'])) as { status: string, cards: { id: number }[] }
     expect(json.status).toBe('live')

@@ -171,7 +171,7 @@ describe('the factory board', () => {
     expect(projected).not.toContain('#999')
 
     const printed: string[] = []
-    expect(printBoard(busPath, bench.clock.now(), text => printed.push(text))).toBe(0)
+    expect(printBoard(busPath, bench.clock.now(), text => printed.push(text), undefined, 'html')).toBe(0)
     expect(printed.join('')).toContain('#862')
     expect(printed.join('')).not.toContain('#999')
 
@@ -469,7 +469,7 @@ describe('the factory board', () => {
     busReviewPulse(busPath, bench.clock.now, () => {}, () => measured)(review, 'reviewer-880')
     busSessionPulse(busPath, bench.clock.now, () => measured)(answer, 'answer-881')
     const written: string[] = []
-    expect(printBoard(busPath, bench.clock.now(), text => written.push(text))).toBe(0)
+    expect(printBoard(busPath, bench.clock.now(), text => written.push(text), undefined, 'html')).toBe(0)
     const tiles = written.join('').split('<div class="svc bevel" ').slice(1)
     for (const [role, task] of [['review', '#880'], ['answer', '#881']]) {
       const sessionTile = tiles.find(each => each.startsWith(`data-role="${role}"`) && each.includes(`>${task}<`) && each.includes(' · pulse '))
@@ -665,14 +665,14 @@ describe('the factory board', () => {
     bodyRow(bench, 932, { lane: 'lane-1', state: 'dropped' })
     openPlan(bench, [930, 931, 932])
     const written: string[] = []
-    expect(printBoard(bench.db.location()!, bench.clock.now(), text => written.push(text))).toBe(0)
+    expect(printBoard(bench.db.location()!, bench.clock.now(), text => written.push(text), undefined, 'html')).toBe(0)
     const page = written.join('')
     expect(page).toContain('<div class="goal" id="slot-goal"><div class="goal-top"><span class="goal-k">release</span><span class="goal-name">Plan 0.45: merged 1 of 2 · in work 0 · review 0 · queue 1 · remainder 1 · gate VEDETIRUN: open · +1 in 24 h · backlog: 0</span></div>')
     expect(page).toContain('<div class="bar" role="img" aria-label="Release cards by stage"><i class="sw" data-stage="delivered" style="--_n: 1" title="delivered: 1"></i><i class="sw" data-stage="queued" style="--_n: 1" title="queued: 1"></i></div><div class="goal-dropped">dropped 1: #932</div>')
     expect(page).toContain(`<h2 id="h-flow">Flow</h2><span class="meta">${FLOW_META}</span></div>`)
     planEvent(bench, PLAN_CLOSED, { plan: 'p-045' })
     const closed: string[] = []
-    expect(printBoard(bench.db.location()!, bench.clock.now(), text => closed.push(text))).toBe(0)
+    expect(printBoard(bench.db.location()!, bench.clock.now(), text => closed.push(text), undefined, 'html')).toBe(0)
     expect(closed.join('')).toContain('<div class="goal" id="slot-goal"></div>')
   })
 })

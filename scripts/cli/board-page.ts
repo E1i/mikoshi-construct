@@ -1857,7 +1857,7 @@ function boardText(busPath: string, now: Date, handoffFile: string, format: Boar
   }
 }
 
-export function printBoard(busPath: string, now: Date, write: (text: string) => void, handoffFile: string = HANDOFF_FILE, format: BoardFormat = 'html', eddiesFile: string = EDDIES_FILE): number {
+export function printBoard(busPath: string, now: Date, write: (text: string) => void, handoffFile: string = HANDOFF_FILE, format: BoardFormat = 'text', eddiesFile: string = EDDIES_FILE): number {
   let text: string
   try {
     text = boardText(busPath, now, handoffFile, format, eddiesFile)
