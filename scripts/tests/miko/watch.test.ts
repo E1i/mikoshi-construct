@@ -495,6 +495,16 @@ describe('pnpm miko:watch wakes the foreman on an event and on nothing else', ()
       expect(wakesTheWindow(state, event(WITNESS_RECORDED, { verdict: 'green' }))).toBe(false)
     })
 
+    it('wakes on a witness that could not check, and on a green after it, so a red before it keeps its green wake', () => {
+      const state = memory()
+      expect(wakesTheWindow(state, event(WITNESS_RECORDED, { verdict: 'unchecked' }))).toBe(true)
+      expect(wakesTheWindow(state, event(WITNESS_RECORDED, { verdict: 'green' }))).toBe(true)
+      expect(wakesTheWindow(state, event(WITNESS_RECORDED, { verdict: 'red' }))).toBe(true)
+      expect(wakesTheWindow(state, event(WITNESS_RECORDED, { verdict: 'unchecked' }))).toBe(true)
+      expect(wakesTheWindow(state, event(WITNESS_RECORDED, { verdict: 'green' }))).toBe(true)
+      expect(wakesTheWindow(state, event(WITNESS_RECORDED, { verdict: 'green' }))).toBe(false)
+    })
+
     it('wakes once when CI on a window card\'s PR turns green, and not when CI of another PR does', () => {
       const state = memory()
       expect(wakesTheWindow(state, event(PR_OBSERVED, { ci: 'pending' }))).toBe(false)
