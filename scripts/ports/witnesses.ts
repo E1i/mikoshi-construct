@@ -6,6 +6,8 @@ import { pathsNamedBy } from '../../src/commands/intake/command-word.js'
 import { commandLine, GENERATED_FILES } from '../core/generated-files.js'
 import { gitIn, lastLine, stageSketch, tailLines } from './worktree.js'
 
+export const TECHNOLOGY_WORDS = ['grep', 'shell'] as const
+
 export interface Witness { criterion: string, command: string, onBase?: { command: string, stated: string } }
 
 export type Refuse = (step: string, problem: string | null) => void

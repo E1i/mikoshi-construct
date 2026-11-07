@@ -16,6 +16,8 @@ export interface FakeMerger {
 }
 
 export interface FakeRun {
+  id?: number
+  run_attempt?: number
   status: 'queued' | 'in_progress' | 'completed'
   conclusion: 'action_required' | 'success' | 'failure' | null
 }
@@ -92,6 +94,10 @@ export class FakeGitHub {
     this.pulls.set(pull.number, { state: 'open', head: sha('a'), mergeable_state: 'clean', required: 'success', ...pull })
   }
 
+  reopen(pr: number): void {
+    this.pulls.set(pr, { ...this.pulls.get(pr)!, state: 'open', merged: false })
+  }
+
   close(pr: number, merged: boolean, merger: FakeMerger | null = merged ? MERGER : null): void {
     this.pulls.set(pr, { ...this.pulls.get(pr)!, state: 'closed', merged, ...(merged ? { merge_commit_sha: MAIN_2 } : {}), ...(merger === null ? {} : { merger }) })
   }
@@ -144,7 +150,27 @@ export class FakeGitHub {
     this.closes.push({ pr: Number(pull[1]), fields })
     if (fields.state === 'closed')
       this.close(Number(pull[1]), false)
+    if (fields.state === 'open')
+      this.reopen(Number(pull[1]))
+    if (fields.body !== undefined)
+      this.pulls.set(Number(pull[1]), { ...this.pulls.get(Number(pull[1]))!, body: fields.body })
     return { status: 200, headers: {}, body: this.pullBody(this.pulls.get(Number(pull[1]))!) }
+  }
+
+  rerunStatus = 201
+  reruns: number[] = []
+
+  readonly post: GitHubPut = (endpoint) => {
+    const rerun = /^repos\/\{owner\}\/\{repo\}\/actions\/runs\/(\d+)\/rerun-failed-jobs$/.exec(endpoint)
+    if (rerun === null)
+      throw new Error(`the fake has no answer for POST ${endpoint}`)
+    if (this.rerunStatus !== 201)
+      return { status: this.rerunStatus, headers: {}, body: { message: 'Resource not accessible by integration' } }
+    const id = Number(rerun[1])
+    this.reruns.push(id)
+    for (const pull of this.pulls.values())
+      pull.runs = pull.runs?.map(run => run.id === id ? { ...run, status: 'queued', conclusion: null, run_attempt: (run.run_attempt ?? 1) + 1 } : run)
+    return { status: 201, headers: {}, body: {} }
   }
 
   private updateBranch(pull: FakePull, expected: string | undefined): GhResponse {

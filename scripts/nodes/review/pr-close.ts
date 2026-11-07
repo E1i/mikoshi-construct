@@ -15,6 +15,7 @@ import { appendEvent, inTransaction, openBusWait } from '../../core/db.js'
 import { messageOf } from '../../core/errors.js'
 import { CARD_ADMITTED, CARD_DROPPED, CARD_PLANNED, COMMAND_EXECUTED, OPEN_PLAN, POLICY_ALLOWED, POLICY_DENIED, PR_CLOSED, PR_OPENED, ROUND_MUTATIONS_PARKED } from '../../core/events.js'
 import { leasedOn } from '../../core/lease.js'
+import { closedKey, reopeningOf } from '../../core/observations.js'
 import { CLOSE_RULES, closePolicy, RETRIED_CLOSE_RULES } from '../../policy/policy.js'
 import { parkPlanOf, RECUT_ACTOR, RECUT_SOURCE, recutCardCount, recutOf, recutPlanOf } from '../../policy/round-limit-decision.js'
 
@@ -69,11 +70,12 @@ export interface RecutParts {
   pushPolicy?: () => PushPolicy
 }
 
-interface PullAsRead {
+export interface PullAsRead {
   state?: unknown
+  merged?: unknown
   body?: unknown
   title?: unknown
-  head?: { ref?: unknown }
+  head?: { ref?: unknown, sha?: unknown }
   base?: { ref?: unknown }
 }
 
@@ -145,6 +147,16 @@ function cardLineOf(card: RecutCard): string {
   return parsed.kind === 'parked' ? parsed.parked.task.card.line : `#${card.id}`
 }
 
+export function readPullOf(gitHub: GitHub, pr: number): PullAsRead | string {
+  try {
+    const response = gitHub(`${REPO}/pulls/${pr}`)
+    return response.status === 200 && response.body !== null && typeof response.body === 'object' ? response.body as PullAsRead : `GitHub answered ${response.status} to the read of PR #${pr}`
+  }
+  catch (error) {
+    return `the read of PR #${pr} failed: ${messageOf(error)}`
+  }
+}
+
 export class PrCloser {
   constructor(private readonly db: DatabaseSync, private readonly gitHub: GitHub, private readonly patch: GitHubPut, private readonly clock: () => Date, private readonly pushPolicy?: () => PushPolicy) {}
 
@@ -181,13 +193,7 @@ export class PrCloser {
   }
 
   readPull(pr: number): PullAsRead | string {
-    try {
-      const response = this.gitHub(`${REPO}/pulls/${pr}`)
-      return response.status === 200 && response.body !== null && typeof response.body === 'object' ? response.body as PullAsRead : `GitHub answered ${response.status} to the read of PR #${pr}`
-    }
-    catch (error) {
-      return `the read of PR #${pr} failed: ${messageOf(error)}`
-    }
+    return readPullOf(this.gitHub, pr)
   }
 
   private closed(request: CloseRequest, verdict: CloseVerdict): CloseOutcome {
@@ -202,7 +208,7 @@ export class PrCloser {
     this.append(request, COMMAND_EXECUTED, { command: CLOSE_COMMAND, ...result })
     if (!result.ok)
       return { kind: 'failed', pr: request.pr, detail: 'status' in result ? `GitHub answered ${result.status} to the close of PR #${request.pr}` : `the close of PR #${request.pr} failed: ${result.error}` }
-    appendEvent(this.db, this.event(request, PR_CLOSED, `pr:${request.pr}:closed`, { merged: false, reason: request.reason, by: request.by }))
+    appendEvent(this.db, this.event(request, PR_CLOSED, closedKey(request.pr, reopeningOf(this.db)(request.pr)), { merged: false, reason: request.reason, by: request.by }))
     return { kind: 'closed', pr: request.pr, detail: `closed PR #${request.pr} without merge, its branch kept: ${verdict.detail}` }
   }
 

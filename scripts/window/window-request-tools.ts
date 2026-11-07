@@ -14,12 +14,14 @@ import { launchDirOf } from '../nodes/launch/launch-worker.js'
 import { matrixCountLineOf } from '../nodes/launch/tree-pr.js'
 import { dryRunIn, dryRunReviewsDir } from '../nodes/review/dry-run-record.js'
 import { PrCloser } from '../nodes/review/pr-close.js'
+import { PrReopener } from '../nodes/review/pr-reopen.js'
+import { CiRerunner, PrBodyFileAppender } from '../nodes/review/pr-rerun.js'
 import { decisionsIntake } from '../policy/decisions-import.js'
 import { busProjectsDecisions, decisionRows, expireDecisions, recordDecision, recordedNumbers, startProjectingDecisions } from '../policy/decisions.js'
 import { ARCHIVE_HEADER, runDecisionsAdd } from '../policy/decisions/add.js'
 import { PREFIX, projectDecisions } from '../policy/decisions/decisions.js'
 import { archiveOf } from '../policy/decisions/read.js'
-import { ghApi, ghApiPatch } from '../ports/github.js'
+import { ghApi, ghApiPatch, ghApiPost } from '../ports/github.js'
 import { EXIT_REQUEST_VARIABLE, LOOP_PID_VARIABLE, WINDOW_VARIABLE } from '../ports/session.js'
 import { cardTree } from '../ports/worktree-home.js'
 
@@ -59,8 +61,13 @@ export function realRequestTools(db: DatabaseSync, busPath: string, repo: string
   const patch = ghApiPatch(repo)
   const pushPolicy = (): PushPolicy => pushPolicyAt(repo)
   const closer = new PrCloser(db, gitHub, patch, () => new Date(), pushPolicy)
+  const reopener = new PrReopener(db, gitHub, patch, () => new Date(), pushPolicy)
+  const treeOf = (cardId: number): string => cardTree(env, busPath, String(cardId))
+  const parts = { db, gitHub, clock: () => new Date(), pushPolicy }
+  const rerunner = new CiRerunner(parts, ghApiPost(repo))
+  const bodyAppender = new PrBodyFileAppender(parts, patch, treeOf)
   return {
-    treeOf: cardId => cardTree(env, busPath, String(cardId)),
+    treeOf,
     exists: existsSync,
     cutTree: (branch, cardLine) => {
       execFileSync('pnpm', ['--silent', 'task:start', branch, '--card', cardLine], { cwd: repo, env: { ...env, [WINDOW_VARIABLE]: '', [LOOP_PID_VARIABLE]: '', [EXIT_REQUEST_VARIABLE]: '' }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
@@ -72,6 +79,12 @@ export function realRequestTools(db: DatabaseSync, busPath: string, repo: string
     closePr: request => closer.close(request),
     closeDropped: () => closer.closeDropped(),
     appendCountLine: countLineAppender(gitHub, patch, launchDirOf(os.homedir(), busPath), pushPolicy),
+    reopenPr: (request) => {
+      const outcome = reopener.reopen(request)
+      return { done: outcome.kind === 'reopened', why: outcome.detail }
+    },
+    appendBodyFile: (attempt, pr, file) => bodyAppender.append(attempt, pr, file),
+    rerunCi: (attempt, pr) => rerunner.rerun(attempt, pr),
   }
 }
 

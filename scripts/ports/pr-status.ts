@@ -10,6 +10,8 @@ import { NODE_CURSORS } from '../core/node.js'
 import { lastEventId } from '../window/operator-work.js'
 import { ghApiPost } from './github.js'
 
+export const TECHNOLOGY_WORDS = ['database'] as const
+
 export const PREFIX = '[bus:pr-status] '
 export const STATUS_CURSOR = 'pr-status'
 export const STATUS_BATCH = 20
