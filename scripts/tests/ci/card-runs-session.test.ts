@@ -21,6 +21,7 @@ const BRANCH = 'feat/a-card'
 const TOUCHED = 'scripts/nodes/review/review-worker.ts'
 const MASKED_TEST = 'scripts/tests/bus/merge-worker.test.ts'
 const OTHER_TEST = 'scripts/tests/ghosts/other.test.ts'
+const HELPER = 'scripts/tests/bus/helper.ts'
 const MASK_ON_BUS = `Do it.\n\n${runsLine(['layer:bus'])}`
 const FULL_READING = 'Runs read in full: '
 const EMPTY: CheckCatalog = { testLayers: new Map(), moduleLayers: new Map() }
@@ -39,9 +40,11 @@ const BASE: Record<string, string> = {
   [TOUCHED]: 'export const worker = 1\n',
   [MASKED_TEST]: 'export const ran = 1\n',
   [OTHER_TEST]: 'export const other = 1\n',
+  [HELPER]: 'export const helper = 1\n',
 }
 const EDIT_OF_MASKED_TEST = { [TOUCHED]: 'export const worker = 2\n', [MASKED_TEST]: 'export const ran = 2\n' }
 const EDIT_OF_OTHER_TEST = { [TOUCHED]: 'export const worker = 2\n', [OTHER_TEST]: 'export const other = 2\n' }
+const EDIT_OF_HELPER = { [TOUCHED]: 'export const worker = 2\n', [HELPER]: 'export const helper = 2\n' }
 const EDIT_OF_THE_TOUCH = { [TOUCHED]: 'export const worker = 2\n' }
 
 const roots: string[] = []
@@ -123,24 +126,35 @@ function pullRequest(body: string, catalog: BusCatalog, edit: Record<string, str
   return { pr: treePr(ports, shiftTreeCard(taskOf(cardText(body)), catalog), worktree, null), prBody }
 }
 
-function reviewFindings(body: string, catalog: BusCatalog, files: string[], touches: string[] = [TOUCHED]): string[] {
-  const text = cardText(body, touches)
+function reviewFindings(body: string, catalog: BusCatalog, files: string[]): string[] {
+  const plan = reviewPlan(body, catalog, files)
+  return plan.depth === 'diff' && plan.round === 'first' ? plan.touchFindings : []
+}
+
+function reviewNotes(body: string, catalog: BusCatalog, files: string[]): string[] {
+  const plan = reviewPlan(body, catalog, files)
+  return plan.depth === 'diff' && plan.round === 'first' ? plan.touchNotes : []
+}
+
+function reviewPlan(body: string, catalog: BusCatalog, files: string[]) {
+  const text = cardText(body)
   const sources = {
     ...gitDepthSources('/nowhere', '/nowhere/morse.jsonl', () => text, () => '', () => catalog),
     base: () => 'base',
     predict: (task: string, base: string, head: string) => ({ prediction: { task, base, head, verdict: 'cheap' as const, rule: 'docs-only' as const, why: files }, files, added: [] }),
   }
-  const plan = planReview({ taskKey: `review:${CARD_ID}:954:x`, queue: 'review', cardId: CARD_ID, pr: 954, head: 'head', leaseGen: 1, actor: 'worker:review:x' }, null, sources)
-  return plan.depth === 'diff' && plan.round === 'first' ? plan.touchFindings : []
+  return planReview({ taskKey: `review:${CARD_ID}:954:x`, queue: 'review', cardId: CARD_ID, pr: 954, head: 'head', leaseGen: 1, actor: 'worker:review:x' }, null, sources)
 }
 
 describe('the card session and the review read the runs of a card from one source', () => {
   it('a test of a masked layer counts as a run of the card in the pull request and in the review', () => {
     expect(pullRequest(MASK_ON_BUS, CATALOG, EDIT_OF_MASKED_TEST).pr).toEqual({ kind: 'pr', number: '954', followed: [] })
     expect(reviewFindings(MASK_ON_BUS, CATALOG, Object.keys(EDIT_OF_MASKED_TEST))).toEqual([])
+    expect(reviewNotes(MASK_ON_BUS, CATALOG, Object.keys(EDIT_OF_MASKED_TEST))).toEqual([])
 
-    expect(pullRequest(MASK_ON_BUS, CATALOG, EDIT_OF_OTHER_TEST).pr).toMatchObject({ kind: 'problem' })
-    expect(reviewFindings(MASK_ON_BUS, CATALOG, Object.keys(EDIT_OF_OTHER_TEST))).toEqual([expect.stringContaining(OTHER_TEST)])
+    expect(pullRequest(MASK_ON_BUS, CATALOG, EDIT_OF_OTHER_TEST).pr).toEqual({ kind: 'pr', number: '954', followed: [OTHER_TEST] })
+    expect(reviewFindings(MASK_ON_BUS, CATALOG, Object.keys(EDIT_OF_OTHER_TEST))).toEqual([])
+    expect(reviewNotes(MASK_ON_BUS, CATALOG, Object.keys(EDIT_OF_OTHER_TEST))).toEqual([expect.stringContaining(OTHER_TEST)])
   }, TREE_TIMEOUT_MS)
 
   it('a card with no runs takes the tests of the layers its touches reach, in both readers', () => {
@@ -148,26 +162,26 @@ describe('the card session and the review read the runs of a card from one sourc
     expect(reviewFindings('Do it.', CATALOG, Object.keys(EDIT_OF_MASKED_TEST))).toEqual([])
   })
 
-  it('an answer session counts a test of a masked layer as a run, and only that test', () => {
+  it('an answer session counts a test of a masked layer as a run, and names only the other test as followed', () => {
     const worktree = cardTree()
     const followed = answerFollowed(git, worktree, [MASKED_TEST, OTHER_TEST], CARD_ID, cardText(MASK_ON_BUS), worktreeCoverage(git, worktree), CATALOG)
-    expect(followed).toEqual({ followed: [], outside: [OTHER_TEST] })
+    expect(followed).toEqual({ followed: [OTHER_TEST], outside: [] })
   }, TREE_TIMEOUT_MS)
 
   it('a card body that does not parse carries no mask into an answer session', () => {
     const worktree = cardTree()
     const followed = answerFollowed(git, worktree, [MASKED_TEST], CARD_ID, MASK_ON_BUS, worktreeCoverage(git, worktree), CATALOG)
-    expect(followed).toEqual({ followed: [], outside: [MASKED_TEST] })
+    expect(followed).toEqual({ followed: [MASKED_TEST], outside: [] })
   }, TREE_TIMEOUT_MS)
 
   it('a full reading widens no permission', () => {
-    const refused = pullRequest(MASK_ON_BUS, EMPTY, EDIT_OF_MASKED_TEST).pr
-    expect(refused.kind === 'problem' && refused.why).toContain(`the card's touches for ${MASKED_TEST}`)
+    const refused = pullRequest(MASK_ON_BUS, EMPTY, EDIT_OF_HELPER).pr
+    expect(refused.kind === 'problem' && refused.why).toContain(`the card's touches for ${HELPER}`)
     expect(refused.kind === 'problem' && refused.why).toContain(`${FULL_READING}the check catalog is empty`)
 
     for (const catalog of [EMPTY, NO_TEST_OF_THE_MASK]) {
       expect(shiftTreeCard(taskOf(cardText(MASK_ON_BUS)), catalog).runs).toEqual([])
-      expect(reviewFindings(MASK_ON_BUS, catalog, [MASKED_TEST])).toEqual([expect.stringContaining(FULL_READING)])
+      expect(reviewFindings(MASK_ON_BUS, catalog, [HELPER])).toEqual([expect.stringContaining(FULL_READING)])
     }
     const unknownTouch = shiftTreeCard(taskOf(cardText('Do it.', ['docs/cli.md'])), CATALOG)
     expect(unknownTouch.runs).toEqual([])
@@ -191,8 +205,8 @@ describe('the card session and the review read the runs of a card from one sourc
     expect(allowed.prBody).not.toContain(FULL_READING)
     expect(reviewFindings(body, CATALOG, Object.keys(EDIT_OF_MASKED_TEST))).toEqual([])
 
-    expect(pullRequest(body, CATALOG, EDIT_OF_OTHER_TEST).pr).toMatchObject({ kind: 'problem' })
-    expect(reviewFindings(body, CATALOG, Object.keys(EDIT_OF_OTHER_TEST))).toEqual([`${OTHER_TEST} is outside the touches of card #${CARD_ID} (${TOUCHED})`])
+    expect(pullRequest(body, CATALOG, EDIT_OF_HELPER).pr).toMatchObject({ kind: 'problem' })
+    expect(reviewFindings(body, CATALOG, Object.keys(EDIT_OF_HELPER))).toEqual([`${HELPER} is outside the touches of card #${CARD_ID} (${TOUCHED})`])
     expect(shiftTreeCard(taskOf(cardText(body)), CATALOG).runs).toEqual([MASKED_TEST])
   }, TREE_TIMEOUT_MS)
 })
@@ -232,11 +246,11 @@ describe('the check catalog of the bus', () => {
     const unreadable = busCheckCatalog(bus)
     expect(unreadable.unreadable).toContain('the check catalog could not be read: ')
 
-    const refused = pullRequest(MASK_ON_BUS, unreadable, EDIT_OF_MASKED_TEST).pr
+    const refused = pullRequest(MASK_ON_BUS, unreadable, EDIT_OF_HELPER).pr
     expect(refused.kind === 'problem' && refused.why).toContain(`${FULL_READING}${unreadable.unreadable}`)
     expect(refused.kind === 'problem' && refused.why).not.toContain('the check catalog is empty')
 
-    const [finding] = reviewFindings(MASK_ON_BUS, unreadable, [MASKED_TEST])
+    const [finding] = reviewFindings(MASK_ON_BUS, unreadable, [HELPER])
     expect(finding).toContain(`${FULL_READING}${unreadable.unreadable}`)
     expect(finding).not.toContain('the check catalog is empty')
   }, TREE_TIMEOUT_MS)

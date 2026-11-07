@@ -131,7 +131,7 @@ describe('bus review depth follows the MORSE instructions rule', () => {
     { paths: ['scripts/core/queue.ts'], rule: 'doubt' },
   ])('a bus review with no MORSE instructions rule runs at diff depth ($rule)', ({ paths, rule }) => {
     const plan = planReview(lease, null, sourcesOf(paths, paths))
-    expect(plan).toEqual({ depth: 'diff', round: 'first', why: expect.stringContaining(`by rule ${rule}`), since: BASE, touchFindings: [] })
+    expect(plan).toEqual({ depth: 'diff', round: 'first', why: expect.stringContaining(`by rule ${rule}`), since: BASE, touchFindings: [], touchNotes: [] })
   })
 
   it('a bus review under the MORSE instructions rule runs at full depth', () => {
