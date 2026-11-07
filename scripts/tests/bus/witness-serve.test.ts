@@ -14,7 +14,7 @@ import { CARD_ADMITTED, CARD_STOPPED, POLICY_DENIED, PR_OBSERVED, WITNESS_RECORD
 import { reduce } from '../../core/reducer.js'
 import { realTimedShell } from '../../nodes/witness/witness-executor.js'
 import { WitnessNode } from '../../nodes/witness/witness-worker.js'
-import { GREEN, RED } from '../../policy/policy.js'
+import { GREEN, UNCHECKED } from '../../policy/policy.js'
 import { SetupTurns, withWorktreeAsync } from '../../ports/worktree.js'
 
 const CARD = 1550
@@ -210,12 +210,12 @@ describe('a browser witness and the serve field', () => {
     expect(payloadsOf(w, POLICY_DENIED)).toEqual([])
   })
 
-  it('a serve that never answers is red, naming the url, and leaves nothing running', async () => {
+  it('a serve that never answers could not check, naming the url, and leaves nothing running', async () => {
     const port = await freePort()
     const w = world({ port, onBase: { 'construct.json': serveOf(port, 'sleep 60', 300) } })
     await witnessRun(w)
     const [record] = payloadsOf(w, WITNESS_RECORDED)
-    expect(record?.verdict).toBe(RED)
+    expect(record?.verdict).toBe(UNCHECKED)
     expect(record?.detail).toContain(`http://127.0.0.1:${port}/ did not answer`)
     expect(labRuns(w)).toBe(0)
   })

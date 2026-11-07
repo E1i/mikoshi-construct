@@ -32,7 +32,7 @@ import { openDatabase } from '../core/sqlite.js'
 import { cardContract } from '../intake/card-contract.js'
 import { recordedWitnessFieldsBackfill, witnessTableOf } from '../intake/witness-fields-backfill.js'
 import { inForceDecisions } from '../policy/decisions.js'
-import { GREEN, RED } from '../policy/policy.js'
+import { GREEN, RED, UNCHECKED } from '../policy/policy.js'
 import { ghApi } from '../ports/github.js'
 import { BOARD_FILE, FRESH_MS, windowGauges } from '../window/board.js'
 import { mikoHandoff } from '../window/loop.js'
@@ -178,6 +178,7 @@ export const RELEASE_PROGRESS_ORDER: readonly ReleaseStage[] = ['delivered', 're
 const WAIT_NEEDS: Record<OwnerWait['need'], string> = { decision: 'D', merge: 'M', command: 'C' }
 const NOT_RUN_ON_HEAD = 'not run'
 const NOT_REACHED_ON_HEAD = 'not reached'
+const COULD_NOT_CHECK_ON_HEAD = 'could not check'
 const NEGATED_RUN = /^!\s+/
 const WITNESS_ID_COLUMN = 'id'
 const WITNESS_COLUMNS = ['run', 'test', 'head/base', 'proves']
@@ -712,6 +713,8 @@ function lastWitnessResult(field: WitnessField, record: WitnessRecordOnHead | nu
     return NOT_RUN_ON_HEAD
   if (record.verdict === GREEN)
     return GREEN
+  if (record.verdict === UNCHECKED)
+    return COULD_NOT_CHECK_ON_HEAD
   const command = fieldCommand(field).replace(NEGATED_RUN, '')
   return [command, `! ${command}`].some(named => record.detail.includes(`\`${named}\``)) ? RED : NOT_REACHED_ON_HEAD
 }
