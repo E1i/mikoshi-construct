@@ -386,13 +386,20 @@ export function underOwnerDecision(verdict: MergeVerdict, decisionId: number, pr
 export const WITNESS_REASON = 'witness'
 export const GREEN = 'green'
 export const RED = 'red'
+export const UNCHECKED = 'unchecked'
 
 const CREATES_LINE = /^creates:(.*)$/m
 const BACKTICKED = /`([^`]+)`/g
 const EXITS_ONE_ON_HEAD_ZERO_ON_BASE = /\bexits 1 on (?:the )?head,? and (?:exits )?0 on (?:the )?(?:base|main)\b/i
 const NEGATION = /^!\s+/
 
-export type WitnessVerdict = typeof GREEN | typeof RED
+export type WitnessVerdict = typeof GREEN | typeof RED | typeof UNCHECKED
+
+const STORED_VERDICTS: ReadonlySet<unknown> = new Set([GREEN, RED, UNCHECKED])
+
+function storedVerdict(stored: unknown): WitnessVerdict {
+  return STORED_VERDICTS.has(stored) ? stored as WitnessVerdict : RED
+}
 
 export interface CardWitnesses {
   acceptance: Witness[]
@@ -484,7 +491,7 @@ export function witnessRecordOf(db: DatabaseSync, cardId: number, head: string, 
   if (row === undefined)
     return null
   const payload = JSON.parse(row.payload) as { verdict?: unknown, base?: unknown, detail?: unknown }
-  return { verdict: payload.verdict === GREEN ? GREEN : RED, base: String(payload.base ?? ''), detail: String(payload.detail ?? '') }
+  return { verdict: storedVerdict(payload.verdict), base: String(payload.base ?? ''), detail: String(payload.detail ?? '') }
 }
 
 function recordDenial(db: DatabaseSync, subject: WitnessSubject, head: string, base: string | null): WitnessDenial | null {
@@ -492,6 +499,8 @@ function recordDenial(db: DatabaseSync, subject: WitnessSubject, head: string, b
   const where = base === null ? '' : ` on the base ${base}`
   if (record === null)
     return { detail: `no ${WITNESS_RECORDED} for card #${subject.cardId} at head ${head}${where} under card body ${subject.cardBody}: the witness node has not run every card witness red on the base and green on this head`, base }
+  if (record.verdict === UNCHECKED)
+    return { detail: `the ${WITNESS_RECORDED} for card #${subject.cardId} at head ${head} on the base ${record.base} under card body ${subject.cardBody} could not check, so nothing passed: ${record.detail}`, base }
   if (record.verdict !== GREEN)
     return { detail: `the ${WITNESS_RECORDED} for card #${subject.cardId} at head ${head} on the base ${record.base} under card body ${subject.cardBody} is red: ${record.detail}`, base }
   return null

@@ -1086,6 +1086,14 @@ describe('board.html', () => {
       expect(none).toContain('<td>pass/pass · last not run</td>')
     })
 
+    it('a witness that could not check reads apart from red on the board', () => {
+      const dialogOf = (events: SeedEvent[]): string => templatesOf(pageText(busOfFields(870, FIELD_CARD, events))).get('dialog-card-870')!
+      const unchecked = dialogOf([witnessRecord(HEAD, 'unchecked', 'http://127.0.0.1:1/ did not answer, so "`pnpm exec vitest run tests/a.test.ts`" did not run')])
+      expect(unchecked).toContain('<td>pass/fail · last could not check</td>')
+      expect(unchecked).toContain('<td>pass/pass · last could not check</td>')
+      expect(unchecked).not.toContain('last red')
+    })
+
     it('a backfilled card shows its table and no second runs line', () => {
       const text = fieldCard(870, 'Runs: tests/board/**', 'Witnesses:', '- `pnpm exec vitest run tests/a.test.ts -t \'the thing\'` exits 0; red on main')
       const backfill = witnessFieldsBackfillOf([{ card: 870, text }])
