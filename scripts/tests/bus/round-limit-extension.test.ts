@@ -22,8 +22,8 @@ import { eventsOf, liveBench } from './merge-bench.js'
 const PR = 975
 const CARD = PR + 100
 const BRANCH = `feat/card-${CARD}`
-const FILE = 'scripts/a.ts'
-const OTHER_FILE = 'scripts/b.ts'
+const FILE = 'src/detect/a.ts'
+const OTHER_FILE = 'src/detect/b.ts'
 const HEADS = [sha('b'), sha('c'), sha('d')]
 const NEXT_HEAD = sha('e')
 const LAST_HEAD = sha('f')

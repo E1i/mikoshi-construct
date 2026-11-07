@@ -22,7 +22,7 @@ import { limitRuleOf } from '../../policy/round-limit-decision.js'
 import { NO_ISOLATION } from '../../ports/isolation.js'
 import { storedInput } from '../../ports/prompt-store.js'
 import { freshDenial, recordVerdict } from './record-verdict.js'
-import { fullReview } from './review-depth.js'
+import { cardRiskOf, fullReview } from './review-depth.js'
 import { PREFIX, ReviewFailed } from './reviewer.js'
 
 const CI_NOT_READY = 'ci_not_ready'
@@ -58,6 +58,7 @@ interface Reviewed {
   plan: ReviewPlan
   ms: number
   isolation: Held | null
+  card: string | null
 }
 
 type Held = Exclude<Isolation, { level: 'none' }>
@@ -146,6 +147,17 @@ function notReopened(db: DatabaseSync, lease: Lease, review: Review): Review {
   return findings.length === 0 ? { ...review, verdict: 'pass', findings } : { ...review, findings }
 }
 
+type CardRisk = ReturnType<typeof cardRiskOf>
+
+const MUTATIONS_PASS_ON: readonly CardRisk[] = ['R3', 'R4']
+
+export function passOnSurvivingMutations(review: Review, risk: CardRisk): Review {
+  if (review.verdict !== 'changes' || review.findings.length === 0 || !MUTATIONS_PASS_ON.includes(risk))
+    return review
+  const marked = new Set((review.survivingMutations ?? []).map(finding => finding.trim()))
+  return review.findings.every(finding => marked.has(finding.trim())) ? { ...review, verdict: 'pass' } : review
+}
+
 interface RoundLimit {
   rule: LimitRule
   event: BusEvent
@@ -221,8 +233,9 @@ export class ReviewExecutor {
     const plan = planned(this.parts.plan, lease, earlierVerdict(db, lease))
     try {
       const started = clock().getTime()
-      const review = await this.parts.reviewer(lease, plan, cardBodyText(db, lease.cardId))
-      return { outcome: { review, plan, ms: clock().getTime() - started, isolation }, held: review.tree ?? null }
+      const card = cardBodyText(db, lease.cardId)
+      const review = await this.parts.reviewer(lease, plan, card)
+      return { outcome: { review, plan, ms: clock().getTime() - started, isolation, card }, held: review.tree ?? null }
     }
     catch (error) {
       return { outcome: { kind: 'technical', reason: 'review_failed', detail: error instanceof Error ? error.message : String(error) }, held: error instanceof ReviewFailed ? error.held : null }
@@ -240,7 +253,7 @@ export class ReviewExecutor {
     if ('kind' in reviewed)
       return this.denied(lease, reviewed)
     const { plan } = reviewed
-    const review = keptChanges(db, lease, notReopened(db, lease, reviewed.review))
+    const review = keptChanges(db, lease, passOnSurvivingMutations(notReopened(db, lease, reviewed.review), cardRiskOf(lease.cardId, reviewed.card)))
     const outcome = recordVerdict(db, gitHub, publish, { lease, verdict: review.verdict, reviewerSession: review.session }, () => clock().getTime())
     if (outcome.kind === 'denied')
       return this.denied(lease, outcome.denial)
