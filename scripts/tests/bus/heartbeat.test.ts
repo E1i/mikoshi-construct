@@ -182,7 +182,7 @@ describe('a session holds its lease by the heartbeat its hook writes on every tu
   it('the review session carries no card in its environment; the worker beats for it, holding its lease and printing a line per beat', () => {
     const { db, file } = bus()
     const lease = reviewLease(db)
-    const plan: ReviewPlan = { depth: 'diff', round: 'first', why: 'a fixed plan', since: HEAD, touchFindings: [] }
+    const plan: ReviewPlan = { depth: 'diff', round: 'first', why: 'a fixed plan', since: HEAD, touchFindings: [], touchNotes: [] }
     const session = reviewSession(REPO_ROOT, tmpdir(), 'reviewer-1', lease, plan, { [CARD_VARIABLE]: '1146' })
     expect(session.env).not.toHaveProperty(CARD_VARIABLE)
 

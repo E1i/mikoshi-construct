@@ -14,6 +14,7 @@ const TOUCHED_MODULE = 'src/widget.ts'
 const EXISTING_TEST = 'tests/widget.test.ts'
 const ADDED_TEST = 'tests/widget-more.test.ts'
 const UNRELATED_TEST = 'tests/other.test.ts'
+const TEST_HELPER = 'tests/helper.ts'
 const IMPORTS_THE_TOUCH = 'import { widget } from \'../src/widget.js\'\n\nexport const twice = widget * 2\n'
 const GUARDED_TWIN = 'src/materialize/factory-manifest.ts'
 const GUARDED_TWIN_SOURCE = 'architecture/decisions/window-allow-merge.md'
@@ -71,12 +72,21 @@ function sourcesOf(files: string[], touches: string[], added: string[] = []): De
   }
 }
 
-function reviewFindings({ root, head }: Tree, files: string[], touches: string[], added: string[] = [], leaseHead: string = head): string[] {
+function reviewPlan({ root, head }: Tree, files: string[], touches: string[], added: string[], leaseHead: string) {
   git(root, ['checkout', '-q', 'main'])
   vi.spyOn(process, 'cwd').mockReturnValue(root)
   const lease = { taskKey: `review:${CARD_ID}:974:${head}`, queue: 'review' as const, cardId: CARD_ID, pr: 974, head: leaseHead, leaseGen: 1, actor: 'worker:review:w' }
-  const plan = planReview(lease, null, sourcesOf(files, touches, added))
+  return planReview(lease, null, sourcesOf(files, touches, added))
+}
+
+function reviewFindings(tree: Tree, files: string[], touches: string[], added: string[] = []): string[] {
+  const plan = reviewPlan(tree, files, touches, added, tree.head)
   return plan.depth === 'diff' && plan.round === 'first' ? plan.touchFindings : [`the plan is ${plan.depth}`]
+}
+
+function reviewNotes(tree: Tree, files: string[], touches: string[], leaseHead: string = tree.head): string[] {
+  const plan = reviewPlan(tree, files, touches, [], leaseHead)
+  return plan.depth === 'diff' && plan.round === 'first' ? plan.touchNotes : [`the plan is ${plan.depth}`]
 }
 
 function fenceAtHead({ root }: Tree, outside: string[], touches: string[], added: string[] = []) {
@@ -98,11 +108,20 @@ describe('the fence and the review reach one verdict on what follows the touches
     expect(reviewFindings(tree, [TOUCHED_MODULE, ADDED_TEST], [TOUCHED_MODULE], [ADDED_TEST])).toEqual([])
   })
 
-  it('a test that covers no touched file stays outside in both readers', () => {
+  it('a test that covers no touched file follows in the fence and is a note in the review', () => {
     const tree = treeWithHead({ [UNRELATED_TEST]: 'export const other = 2\n' })
+    const outside = `${UNRELATED_TEST} is outside the touches of card #${CARD_ID} (${TOUCHED_MODULE})`
 
-    expect(fenceAtHead(tree, [UNRELATED_TEST], [TOUCHED_MODULE])).toEqual({ followed: [], outside: [UNRELATED_TEST] })
-    expect(reviewFindings(tree, [TOUCHED_MODULE, UNRELATED_TEST], [TOUCHED_MODULE])).toEqual([`${UNRELATED_TEST} is outside the touches of card #${CARD_ID} (${TOUCHED_MODULE})`])
+    expect(fenceAtHead(tree, [UNRELATED_TEST], [TOUCHED_MODULE])).toEqual({ followed: [UNRELATED_TEST], outside: [] })
+    expect(reviewFindings(tree, [TOUCHED_MODULE, UNRELATED_TEST], [TOUCHED_MODULE])).toEqual([])
+    expect(reviewNotes(tree, [TOUCHED_MODULE, UNRELATED_TEST], [TOUCHED_MODULE])).toEqual([outside])
+  })
+
+  it('a helper under the tests is no test file and stays outside in both readers', () => {
+    const tree = treeWithHead({ [TEST_HELPER]: 'export const helper = 2\n' })
+
+    expect(fenceAtHead(tree, [TEST_HELPER], [TOUCHED_MODULE])).toEqual({ followed: [], outside: [TEST_HELPER] })
+    expect(reviewFindings(tree, [TOUCHED_MODULE, TEST_HELPER], [TOUCHED_MODULE])).toEqual([`${TEST_HELPER} is outside the touches of card #${CARD_ID} (${TOUCHED_MODULE})`])
   })
 
   it('a twin the table generates but the fence guards stays outside in both readers', () => {
@@ -112,9 +131,9 @@ describe('the fence and the review reach one verdict on what follows the touches
     expect(reviewFindings(tree, [GUARDED_TWIN_SOURCE, GUARDED_TWIN], [GUARDED_TWIN_SOURCE])).toEqual([`${GUARDED_TWIN} is outside the touches of card #${CARD_ID} (${GUARDED_TWIN_SOURCE})`])
   })
 
-  it('a head the repository cannot read follows nothing, so the test stays a finding', () => {
+  it('a head the repository cannot read shows no coverage, so the test is a note by its path alone', () => {
     const tree = treeWithHead({ [EXISTING_TEST]: IMPORTS_THE_TOUCH })
 
-    expect(reviewFindings(tree, [TOUCHED_MODULE, EXISTING_TEST], [TOUCHED_MODULE], [], 'f'.repeat(40))).toEqual([`${EXISTING_TEST} is outside the touches of card #${CARD_ID} (${TOUCHED_MODULE})`])
+    expect(reviewNotes(tree, [TOUCHED_MODULE, EXISTING_TEST], [TOUCHED_MODULE], 'f'.repeat(40))).toEqual([`${EXISTING_TEST} is outside the touches of card #${CARD_ID} (${TOUCHED_MODULE})`])
   })
 })

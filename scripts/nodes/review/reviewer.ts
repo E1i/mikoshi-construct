@@ -115,17 +115,18 @@ function reReviewLines(since: string, head: string | null, findings: readonly st
   ]
 }
 
-function firstDiffLines(since: string, head: string | null, touchFindings: readonly string[]): string[] {
+function firstDiffLines(since: string, head: string | null, touchFindings: readonly string[], touchNotes: readonly string[]): string[] {
   return [
     `Read only the diff ${since}..${head} against the card, its witnesses, its touches, its creates and its runs (the tests the card's Runs: line names); do not walk the modules it touches.`,
     ...touchFindings.map(finding => `Report as a finding of this review: ${finding}`),
+    ...touchNotes.map(note => `Note in the report, not as a finding and no reason for changes; the pull request names it: ${note}`),
   ]
 }
 
 function depthLines(lease: Lease, plan: ReviewPlan): string[] {
   const depth = `Review depth ${plan.depth}: ${plan.why}.`
   if (plan.depth === 'diff' && plan.round === 'first')
-    return [depth, ...firstDiffLines(plan.since, lease.head, plan.touchFindings), ONE_PASS]
+    return [depth, ...firstDiffLines(plan.since, lease.head, plan.touchFindings, plan.touchNotes), ONE_PASS]
   if (plan.depth === 'diff')
     return [depth, ...reReviewLines(plan.since, lease.head, plan.findings), ONE_PASS]
   const ladder = plan.prediction?.verdict === 'ladder'
@@ -135,6 +136,8 @@ function depthLines(lease: Lease, plan: ReviewPlan): string[] {
 }
 
 const SURVIVING_MUTATIONS_LINE = 'survivingMutations is optional: list only the findings that are a surviving mutation with no behaviour defect. A finding outside it counts as a defect.'
+
+export const REVIEW_BAR_LINE = 'A test or a generated file outside the touches is a note, not a finding, and no reason for changes; on a .claude, owner-merges, security or other R1 path it stays a finding, as does any other file outside the touches. A surviving mutation with no behaviour defect is a finding listed in survivingMutations: on a card of risk R3 or R4 the bus records that verdict as pass with the findings kept; on R1 and R2 it stays changes.'
 
 const HANDS_OFF = 'Change nothing, commit nothing, push nothing, and post nothing to GitHub.'
 
@@ -170,6 +173,7 @@ export function reviewPrompt(lease: Lease, plan: ReviewPlan, tree: string, verdi
     ...depthLines(lease, plan),
     `Finish by writing ${verdictPath} as JSON: {"verdict": "pass" | "changes", "findings": ["one finding per string"], "survivingMutations": ["a finding string, repeated exactly"]}.`,
     SURVIVING_MUTATIONS_LINE,
+    REVIEW_BAR_LINE,
   ].join('\n')
 }
 
