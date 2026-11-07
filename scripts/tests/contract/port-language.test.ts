@@ -42,6 +42,7 @@ describe('the language each port speaks in contract/factory.json', () => {
       [{ types: { Reader: 'type Reader = (stdoutPath: string) => string' } }, 'stdout'],
       [{ constants: ['GH_TIMEOUT_SECONDS'] }, 'gh'],
       [{ reexports: ['execGit'] }, 'git'],
+      [{ functions: { GHClient: '(): void' } }, 'gh'],
     ]
 
     for (const [parts, word] of cases) {
