@@ -151,7 +151,7 @@ with a named check, not a second fix.
 | Command | What it does |
 |---|---|
 | `construct init` | Detect, configure, materialize. `--yes --preset node-backend\|node-frontend\|node-library\|monorepo --ai claude\|cursor\|both --review claude --dir . --dry-run` |
-| `construct attach` | Bring `/plan`, `/implement`, the three agents and the ladder into a repository the construct did not write, hidden through `.git/info/exclude`, with a guard that refuses the agent a direct `git commit`; never touches a tracked file; `--upgrade` rewrites only the carriers to the installed version (`--harness <command>`, `--serve <command> --serve-url <url>`, `--yes`; alias `jack-in`) |
+| `construct attach` | Bring `/plan`, `/implement`, the three agents and the ladder into a repository the construct did not write, hidden through `.git/info/exclude`, with a guard that refuses the agent a direct `git commit`; never touches a tracked file; `--upgrade` rewrites the carriers to the installed version and adds the browser lab exclusion to `.claude/settings.local.json` (`--harness <command>`, `--serve <command> --serve-url <url>`, `--yes`; alias `jack-in`) |
 | `construct detach` | Remove exactly what `attach` recorded — its files by hash, the guard entry, their emptied directories, the exclude block and the record — and nothing else; refuses when a carrier was changed (alias `jack-out`) |
 | `construct doctor` | Baseline files present, harness intact, discovery markers filled — `GLITCH` by name when not |
 | `construct sync` | Classify every path against today's templates and report; `--apply` writes only what the construct owns and you have not changed (`--json`) |

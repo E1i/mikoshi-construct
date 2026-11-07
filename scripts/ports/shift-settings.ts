@@ -15,6 +15,8 @@ const BROWSER_LAB_SCRIPT = 'scripts/construct/browser-lab.mjs'
 
 const REPOSITORY_SETTINGS_FILES = ['.claude/settings.json', SETTINGS_FILE]
 
+const GITDIR_POINTER = /^gitdir:[ \t]*(\S.*)$/m
+
 export interface ShiftSettings {
   sandbox: typeof CARD_SESSION_SANDBOX & { excludedCommands?: string[], filesystem?: { denyWrite: string[] } }
   permissions: { allow: string[], deny?: string[] }
@@ -30,6 +32,34 @@ function excludes(file: string, entry: string): boolean {
   }
 }
 
+function gitDirOfLinkedTree(tree: string): string | null {
+  try {
+    const pointer = GITDIR_POINTER.exec(readFileSync(path.join(tree, '.git'), 'utf8'))?.[1]
+    return pointer === undefined ? null : path.resolve(tree, pointer.trim())
+  }
+  catch {
+    return null
+  }
+}
+
+function mainCheckoutOf(tree: string): string | null {
+  const gitDir = gitDirOfLinkedTree(tree)
+  if (gitDir === null)
+    return null
+  try {
+    const common = path.resolve(gitDir, readFileSync(path.join(gitDir, 'commondir'), 'utf8').trim())
+    return path.basename(common) === '.git' ? path.dirname(common) : null
+  }
+  catch {
+    return null
+  }
+}
+
+function mainCheckoutExcludes(tree: string, entry: string): boolean {
+  const main = mainCheckoutOf(tree)
+  return main !== null && excludes(path.join(main, SETTINGS_FILE), entry)
+}
+
 export function shiftSettings(tree: string, gate: ShiftGate, writable: string[] = [], home: string = os.homedir()): ShiftSettings {
   const allow = [
     ...gate.prepush.map(command => `Bash(${command})`),
@@ -37,7 +67,7 @@ export function shiftSettings(tree: string, gate: ShiftGate, writable: string[] 
     ...writable.map(file => `Edit(/${file})`),
   ]
   const entry = browserLabExcludedCommand(home)
-  const excluded = existsSync(browserLabInstalledScript(home)) && REPOSITORY_SETTINGS_FILES.some(file => excludes(path.join(tree, file), entry))
+  const excluded = existsSync(browserLabInstalledScript(home)) && (REPOSITORY_SETTINGS_FILES.some(file => excludes(path.join(tree, file), entry)) || mainCheckoutExcludes(tree, entry))
   if (!excluded)
     return { sandbox: CARD_SESSION_SANDBOX, permissions: { allow } }
   const lab = path.join(tree, BROWSER_LAB_SCRIPT)

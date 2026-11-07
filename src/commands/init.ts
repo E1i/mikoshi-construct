@@ -20,8 +20,7 @@ import { isValidProjectName, parseLaneCount } from '../ui/prompts.js'
 import { VERSION } from '../version.js'
 import { writeOwnerDecisionsBeside } from './attach/index.js'
 import { ATTACH_RECORD_FILE } from './attach/record.js'
-import { browserLabExcludedCommand, excludeBrowserLabInLocalSettings, SETTINGS_FILE as LOCAL_SETTINGS_FILE } from './attach/settings.js'
-import { readTrackedPaths } from './detach/index-reader.js'
+import { browserLabExcludedCommand, excludedBrowserLabLocally, PROJECT_SETTINGS_FILE } from './attach/settings.js'
 import { printDetectReport } from './soulkill.js'
 
 function ownedShasOfBlocks(written: FileOp[]): Record<string, string> {
@@ -270,18 +269,6 @@ async function askChoices(ui: Ui, options: InitOptions, report: DetectReport, ro
   return { presetId, ai, projectName, review, reviewModel, lanes, answeredByTheRecord }
 }
 
-const SETTINGS_FILE = '.claude/settings.json'
-
-function excludedBrowserLabLocally(root: string, home: string): boolean {
-  try {
-    const index = readTrackedPaths(root)
-    return 'tracked' in index && !index.tracked.has(LOCAL_SETTINGS_FILE) && excludeBrowserLabInLocalSettings(root, home)
-  }
-  catch {
-    return false
-  }
-}
-
 export async function runInit(ui: Ui, options: InitOptions, prompter?: Prompter): Promise<InitResult> {
   const root = path.resolve(options.dir)
   mkdirSync(root, { recursive: true })
@@ -414,10 +401,10 @@ export async function runInit(ui: Ui, options: InitOptions, prompter?: Prompter)
   const changing = applied.filter(op => changesTheTree(root, op))
   const next = nextStepAfter(changing, vars)
   const written = applyPlan(root, plan.ops)
-  if (plan.ops.some(op => op.target === SETTINGS_FILE)) {
+  if (plan.ops.some(op => op.target === PROJECT_SETTINGS_FILE)) {
     const home = options.home ?? homedir()
     const command = browserLabExcludedCommand(home)
-    if (excludedBrowserLabLocally(root, home))
+    if (excludedBrowserLabLocally(root, home) != null)
       ui.line(ui.theme.dim(`  ${ui.lore.initBrowserLabExcluded(command)}`))
     else
       ui.glitch(ui.lore.initSettingsSkippedNoExclusion(command))

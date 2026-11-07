@@ -132,7 +132,25 @@ export function syncApplyJson(result: SyncApplyReport): Record<string, unknown> 
     retired: result.retired,
     pending: result.refused.map(entry => entry.target),
     ranAt: result.ranAt,
+    ...(result.browserLabExclusion == null ? {} : { browserLabExclusion: result.browserLabExclusion.state }),
   }
+}
+
+function printBrowserLabExclusion(ui: Ui, result: SyncApplyReport): void {
+  const exclusion = result.browserLabExclusion
+  if (exclusion == null || exclusion.state === 'held')
+    return
+  ui.line()
+  if (exclusion.state === 'refused')
+    ui.glitch(ui.lore.initSettingsSkippedNoExclusion(exclusion.command))
+  else
+    ui.line(ui.theme.dim(ui.lore.initBrowserLabExcluded(exclusion.command)))
+}
+
+function closingLine(ui: Ui, result: SyncApplyReport): string | null {
+  if (result.written.length > 0)
+    return ui.lore.syncApplyWrote(result.written.length)
+  return result.browserLabExclusion?.state === 'added' ? null : ui.lore.syncApplyNothingWritten
 }
 
 function printWritten(ui: Ui, result: SyncApplyReport): void {
@@ -191,9 +209,12 @@ export function printSyncApply(ui: Ui, result: SyncApplyReport | null): number {
   printRetired(ui, result)
   printUnknownVariants(ui, result)
   printRefused(ui, result)
+  printBrowserLabExclusion(ui, result)
 
+  const closing = closingLine(ui, result)
   ui.line()
-  ui.line(result.written.length === 0 ? ui.lore.syncApplyNothingWritten : ui.lore.syncApplyWrote(result.written.length))
+  if (closing != null)
+    ui.line(closing)
   if (result.refused.length > 0)
     ui.line(ui.lore.syncApplyLeftToYou(result.refused.length))
   return syncApplyExit(result)

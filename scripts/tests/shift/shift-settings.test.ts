@@ -1,6 +1,7 @@
 import type { ShiftGate } from '../../../src/manifest.js'
 import type { ShiftSettings } from '../../ports/shift-settings.js'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir, userInfo } from 'node:os'
 import path from 'node:path'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
@@ -171,5 +172,91 @@ describe('the browser lab exclusion a card session takes from the settings of it
     holdSettings('settings.local.json', [entry])
     const built = settings()
     expect(JSON.parse(settingsFlag(built).at(-1)!)).toEqual(built)
+  })
+})
+
+describe('the browser lab exclusion a card tree takes from its main checkout', () => {
+  const OTHER_ENTRY = 'bash *'
+  const GATE: ShiftGate = { prepush: ['pnpm run quality'], handoffWrite: null, codeMatrix: null }
+  let scratch = ''
+  let main = ''
+  let tree = ''
+  let home = ''
+  let entry = ''
+
+  function git(...args: string[]): void {
+    execFileSync('git', ['-C', main, '-c', 'user.email=t@t', '-c', 'user.name=t', '-c', 'commit.gpgsign=false', ...args], { stdio: 'ignore' })
+  }
+
+  function holdInMain(excludedCommands: unknown): void {
+    mkdirSync(path.join(main, '.claude'), { recursive: true })
+    writeFileSync(path.join(main, '.claude', 'settings.local.json'), JSON.stringify({ sandbox: { excludedCommands } }))
+  }
+
+  function settings(): ShiftSettings {
+    return shiftSettings(tree, GATE, [], home)
+  }
+
+  beforeEach(() => {
+    scratch = realpathSync(mkdtempSync(path.join(tmpdir(), 'construct-shift-main-')))
+    main = path.join(scratch, 'main')
+    tree = path.join(scratch, 'card-tree')
+    home = path.join(scratch, 'home')
+    entry = browserLabExcludedCommand(home)
+    mkdirSync(main)
+    git('init', '-q')
+    git('commit', '-q', '--allow-empty', '-m', 'base')
+    git('worktree', 'add', '-q', '--detach', tree)
+    mkdirSync(path.dirname(browserLabInstalledScript(home)), { recursive: true })
+    writeFileSync(browserLabInstalledScript(home), '')
+  })
+
+  afterEach(() => rmSync(scratch, { recursive: true, force: true }))
+
+  it('a card tree with no local settings gets the entry from its main checkout', () => {
+    holdInMain([entry])
+    const built = settings()
+    expect(existsSync(path.join(tree, '.claude', 'settings.local.json'))).toBe(false)
+    expect(built.sandbox.excludedCommands).toEqual([entry])
+    expect(built.permissions.deny).toContain(`Edit(/${path.join(tree, 'scripts', 'construct', 'browser-lab.mjs')})`)
+  })
+
+  it('any other entry in the main checkout never reaches the session settings', () => {
+    holdInMain([OTHER_ENTRY, entry])
+    const together = settings().sandbox.excludedCommands
+    holdInMain([OTHER_ENTRY])
+    expect({ together, alone: settings().sandbox.excludedCommands }).toEqual({ together: [entry], alone: undefined })
+  })
+
+  it('the entry in the main checkout opens nothing when the installed script is missing', () => {
+    holdInMain([entry])
+    rmSync(browserLabInstalledScript(home))
+    expect(settings().sandbox.excludedCommands).toBeUndefined()
+  })
+
+  it('a tree\'s own file still excludes the lab when the main checkout does not', () => {
+    mkdirSync(path.join(tree, '.claude'))
+    writeFileSync(path.join(tree, '.claude', 'settings.local.json'), JSON.stringify({ sandbox: { excludedCommands: [entry] } }))
+    expect(settings().sandbox.excludedCommands).toEqual([entry])
+  })
+
+  it('a main checkout without the file, or a tree whose git pointer leads nowhere, excludes nothing', () => {
+    const noFile = settings().sandbox.excludedCommands
+    holdInMain([entry])
+    writeFileSync(path.join(tree, '.git'), 'gitdir: /nowhere/at/all\n')
+    const brokenPointer = settings().sandbox.excludedCommands
+    writeFileSync(path.join(tree, '.git'), 'not a pointer\n')
+    expect({ noFile, brokenPointer, noPointer: settings().sandbox.excludedCommands }).toEqual({ noFile: undefined, brokenPointer: undefined, noPointer: undefined })
+  })
+
+  it('a pointer into a git directory not named .git names no main checkout', () => {
+    holdInMain([entry])
+    const elsewhere = path.join(scratch, 'elsewhere', 'worktrees', 'x')
+    mkdirSync(path.join(scratch, 'elsewhere', '.claude'), { recursive: true })
+    writeFileSync(path.join(scratch, 'elsewhere', '.claude', 'settings.local.json'), JSON.stringify({ sandbox: { excludedCommands: [entry] } }))
+    mkdirSync(elsewhere, { recursive: true })
+    writeFileSync(path.join(elsewhere, 'commondir'), '../..\n')
+    writeFileSync(path.join(tree, '.git'), `gitdir: ${elsewhere}\n`)
+    expect(settings().sandbox.excludedCommands).toBeUndefined()
   })
 })

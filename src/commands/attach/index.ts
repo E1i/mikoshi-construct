@@ -5,6 +5,7 @@ import type { HarnessCandidate } from './harness.js'
 import type { AttachHarness } from './record.js'
 import type { AttachRefusal, AttachRefusalReason } from './refusals.js'
 import type { Rollback } from './rollback.js'
+import type { SettingsHook } from './settings.js'
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import path from 'node:path'
@@ -25,7 +26,7 @@ import { dropOriginal, keepOriginal } from './original.js'
 import { ATTACH_LEDGER_DIR, ATTACH_RECORD_FILE, ATTACH_RECORD_VERSION, attachedVersionOf, carriersReading, DEFAULT_PUSH_POLICY, NO_HARNESS, readAttachRecord, serveFromFlags, writeAttachRecord } from './record.js'
 import { harnessRefusal, refusalFor, unresolvableCheckRefusal } from './refusals.js'
 import { rollbackAttach } from './rollback.js'
-import { installHookEntries, readSettings, SETTINGS_FILE } from './settings.js'
+import { browserLabExcludedCommand, excludedBrowserLabLocally, installHookEntries, isSettingsHook, readSettings, SETTINGS_FILE, withExclusionRecorded } from './settings.js'
 import { shellWord } from './shell-word.js'
 import { planCarrierUpgrade, planWindowHooks, rewriteCarrier, writeCarriersExclusively } from './write.js'
 
@@ -314,6 +315,19 @@ function flagsTheRecordHolds(options: AttachOptions): string[] {
   return given.filter(([, value]) => value != null).map(([flag]) => flag)
 }
 
+function upgradedSettingsHook(ui: Ui, root: string, hook: SettingsHook | undefined): SettingsHook | undefined {
+  const recordable = isSettingsHook(hook) ? hook : null
+  const exclusion = recordable == null ? null : excludedBrowserLabLocally(root)
+  if (recordable == null || exclusion == null) {
+    ui.glitch(ui.lore.initSettingsSkippedNoExclusion(browserLabExcludedCommand()))
+    return hook
+  }
+  if (exclusion.added.length === 0)
+    return hook
+  ui.line(ui.theme.dim(`  ${ui.lore.initBrowserLabExcluded(browserLabExcludedCommand())}`))
+  return withExclusionRecorded(recordable, exclusion)
+}
+
 export async function runAttachUpgrade(ui: Ui, options: AttachOptions, prompter?: Prompter): Promise<AttachResult> {
   const root = path.resolve(options.dir)
   const held = flagsTheRecordHolds(options)
@@ -344,6 +358,9 @@ export async function runAttachUpgrade(ui: Ui, options: AttachOptions, prompter?
   const written = [...upgrade.rewrite, ...upgrade.create]
   if (written.length === 0 && attachedVersion === VERSION) {
     ui.ok(ui.lore.attachUpgradeCurrent(VERSION))
+    const settingsHook = upgradedSettingsHook(ui, root, record.settingsHook)
+    if (settingsHook !== record.settingsHook)
+      writeAttachRecord(root, { ...record, settingsHook })
     return { status: 'done', created: [], rewritten: [], rolledBack: [] }
   }
 
@@ -373,6 +390,7 @@ export async function runAttachUpgrade(ui: Ui, options: AttachOptions, prompter?
     rewriteCarrier(root, op)
   writeAttachRecord(root, {
     ...record,
+    settingsHook: upgradedSettingsHook(ui, root, record.settingsHook),
     attachedVersion: VERSION,
     files: { ...record.files, ...Object.fromEntries(written.map(op => [op.target, sha256(op.content)])) },
     directories: [...record.directories, ...directories],
