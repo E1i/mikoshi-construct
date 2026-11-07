@@ -1,6 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { Lease } from '../../core/lease.js'
-import type { DetectionMode, Scope } from '../../core/node.js'
+import type { DetectionMode, NodeDeclaration, Scope } from '../../core/node.js'
 import type { QueuedTask } from '../../core/queue.js'
 import type { StoredEvent } from '../../core/stored.js'
 import type { TimedShell, WitnessOutcome, WitnessTrees } from './witness-executor.js'
@@ -11,13 +11,15 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { defaultBusPath } from '../../core/db.js'
 import { CARD_ADMITTED, PR_OBSERVED, PR_OPENED, REDUCED } from '../../core/events.js'
-import { Node, prefixOf, runNode } from '../../core/node.js'
+import { Node, prefixOf, runNode, UNDERSTOOD_NOW } from '../../core/node.js'
 import { witnessCandidates } from '../../core/queue.js'
 import { stampLogOutput } from '../../supervisor/stamp.js'
 import { gitWitnessTrees, realTimedShell, WitnessExecutor } from './witness-executor.js'
 
 export const PREFIX = prefixOf('witness')
 export const WITNESS_ON = [REDUCED, PR_OBSERVED, PR_OPENED, CARD_ADMITTED] as const
+
+export const WITNESS_NODE: NodeDeclaration = { kind: 'witness', on: WITNESS_ON, understands: UNDERSTOOD_NOW }
 
 export const CI_ENVIRONMENT = { CI: 'true' } as const
 
@@ -53,7 +55,7 @@ export class WitnessNode extends Node<WitnessOutcome> {
   constructor(parts: WitnessNodeParts) {
     super('witness', { db: parts.db, clock: parts.clock, session: parts.session, mode: parts.mode, env: parts.env })
     this.executor = new WitnessExecutor({ db: parts.db, clock: parts.clock, trees: parts.trees, shell: parts.shell, log: line => this.log(line) })
-    this.subscribe(WITNESS_ON, scopeOf)
+    this.declare(WITNESS_NODE, scopeOf)
   }
 
   protected candidates(scope: Scope = {}): QueuedTask[] {

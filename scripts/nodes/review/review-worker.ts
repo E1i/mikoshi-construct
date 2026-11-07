@@ -1,7 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { PushPolicy } from '../../../src/commands/attach/record.js'
 import type { Lease } from '../../core/lease.js'
-import type { DetectionMode, Scope } from '../../core/node.js'
+import type { DetectionMode, NodeDeclaration, Scope } from '../../core/node.js'
 import type { QueuedTask } from '../../core/queue.js'
 import type { ReadSet } from '../../core/report.js'
 import type { StoredEvent } from '../../core/stored.js'
@@ -27,7 +27,7 @@ import { BUSY_TIMEOUT_MS, defaultBusPath } from '../../core/db.js'
 import { CARD_ADMITTED, PR_CLOSED, PR_OBSERVED, PR_OPENED, REDUCED, REVIEW_RECORDED, SESSION_HEARTBEAT, TASK_COMPLETED, TASK_ENQUEUED, TASK_EXPIRED, TASK_FAILED, TASK_RELEASED, TASK_REQUEUED, TASK_SUPERSEDED } from '../../core/events.js'
 import { cardIdOfDescription, isFullSha, prBodySha, prOf, reviewInputOf, reviewInputOfKey, taskKey } from '../../core/identifiers.js'
 import { expireLeases, leaseNext, leaseQueued } from '../../core/lease.js'
-import { Node, runNode, SWITCH_FLAG } from '../../core/node.js'
+import { Node, runNode, SWITCH_FLAG, UNDERSTOOD_NOW } from '../../core/node.js'
 import { pushPolicyAt } from '../../core/push-policy.js'
 import { cardBodyShaOfCard, LEASED, reviewCandidates } from '../../core/queue.js'
 import { shadowReading } from '../../core/report.js'
@@ -62,6 +62,8 @@ const BUS_DIR = defaultBusDir()
 const MORSE_JOURNAL = path.join(BUS_DIR, 'morse.jsonl')
 
 export const REVIEW_ON = [REDUCED, PR_OBSERVED, PR_CLOSED, PR_OPENED, REVIEW_RECORDED, CARD_ADMITTED, TASK_ENQUEUED, TASK_REQUEUED, TASK_SUPERSEDED, TASK_COMPLETED, TASK_FAILED, TASK_RELEASED, TASK_EXPIRED] as const
+
+export const REVIEW_NODE: NodeDeclaration = { kind: 'review', on: REVIEW_ON, understands: UNDERSTOOD_NOW }
 
 const WHOLE_QUEUE_ON: ReadonlySet<string> = new Set([REDUCED])
 const SCOPED_BY_CARD_ON: ReadonlySet<string> = new Set([CARD_ADMITTED])
@@ -120,7 +122,7 @@ export class ReviewNode extends Node<Step> {
   constructor(private readonly reviewParts: ReviewNodeParts) {
     super('review', { db: reviewParts.db, clock: reviewParts.clock, session: reviewParts.session, mode: reviewParts.mode, env: reviewParts.env })
     this.executor = new ReviewExecutor(readingTheKeyedBody(reviewParts))
-    this.subscribe(REVIEW_ON, scopeOf)
+    this.declare(REVIEW_NODE, scopeOf)
   }
 
   protected override renewsByTimer(): boolean {

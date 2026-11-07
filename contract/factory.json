@@ -1,6 +1,6 @@
 {
   "bus": {
-    "busVersion": 1,
+    "busVersion": 2,
     "events": {
       "answer.step": {
         "complete": true,
@@ -1050,7 +1050,127 @@
         "state",
         "task_key"
       ]
-    }
+    },
+    "versionRecord": "PRAGMA application_id"
+  },
+  "card": {
+    "cardVersion": 1,
+    "contracts": {
+      "board": [
+        "id",
+        "name",
+        "contour",
+        "priority",
+        "who",
+        "depends",
+        "touches",
+        "creates",
+        "lane",
+        "state"
+      ],
+      "close": [
+        "id",
+        "cardLine",
+        "text"
+      ],
+      "intake": [
+        "id",
+        "name",
+        "kind",
+        "milestone",
+        "size",
+        "contour",
+        "decision",
+        "depends",
+        "blocks",
+        "cardLine",
+        "branch",
+        "touches",
+        "continue",
+        "who",
+        "priority",
+        "release",
+        "creates",
+        "prose",
+        "witnesses",
+        "witnessFields",
+        "runs",
+        "masks",
+        "unclear",
+        "risk",
+        "seam",
+        "slice",
+        "path",
+        "lane",
+        "text"
+      ],
+      "review": [
+        "id",
+        "cardLine",
+        "branch",
+        "continue",
+        "touches",
+        "risk",
+        "prose",
+        "witnesses",
+        "witnessFields",
+        "runs",
+        "masks",
+        "unclear",
+        "text",
+        "lastHeartbeat"
+      ],
+      "start": [
+        "id",
+        "name",
+        "cardLine",
+        "branch",
+        "contour",
+        "path",
+        "touches",
+        "who",
+        "risk",
+        "lane",
+        "textSha",
+        "lastHeartbeat"
+      ]
+    },
+    "fields": {
+      "admissionEventId": "number",
+      "blocks": "number[]",
+      "branch": "string",
+      "cardLine": "string",
+      "continue": "string",
+      "contour": "string",
+      "creates": "string[]",
+      "decision": "string",
+      "depends": "number[]",
+      "id": "number",
+      "kind": "string",
+      "lane": "string | null",
+      "lastHeartbeat": "LastHeartbeat | null",
+      "masks": "string[]",
+      "milestone": "string",
+      "name": "string",
+      "path": "string | null",
+      "priority": "string | null",
+      "prose": "string",
+      "release": "string | null",
+      "risk": "string | null",
+      "runs": "string[]",
+      "seam": "string[]",
+      "size": "string",
+      "slice": "string[]",
+      "state": "string | null",
+      "text": "string",
+      "textSha": "string",
+      "touches": "string[]",
+      "unclear": "string[]",
+      "who": "string",
+      "witnessFields": "WitnessField[]",
+      "witnesses": "string[]"
+    },
+    "versionRecord": "card.admitted payload.cardVersion"
   },
   "concepts": {
     "answer-duties": {
@@ -1139,6 +1259,170 @@
     }
   },
   "factoryVersion": 1,
+  "nodes": {
+    "declared": {
+      "answer": {
+        "on": [
+          "reducer.reduced",
+          "pr.observed",
+          "pr.closed",
+          "pr.opened",
+          "review.recorded",
+          "card.stopped",
+          "card.answered",
+          "card.started",
+          "card.admitted",
+          "decision.recorded",
+          "decisions.imported",
+          "merge.done"
+        ],
+        "understands": {
+          "bus": [
+            1,
+            2
+          ],
+          "card": [
+            1
+          ]
+        }
+      },
+      "close": {
+        "on": [
+          "reducer.reduced",
+          "pr.closed",
+          "pr.opened",
+          "card.verified",
+          "witness.recorded"
+        ],
+        "understands": {
+          "bus": [
+            1,
+            2
+          ],
+          "card": [
+            1
+          ]
+        }
+      },
+      "launch": {
+        "on": [
+          "card.admitted",
+          "card.started",
+          "card.closed",
+          "card.stopped",
+          "pr.closed",
+          "pr.observed",
+          "pr.opened",
+          "merge",
+          "path",
+          "task.enqueued",
+          "task.requeued",
+          "task.completed",
+          "task.failed",
+          "task.superseded",
+          "task.released",
+          "task.expired",
+          "merge.done",
+          "ghost.row",
+          "reducer.reduced"
+        ],
+        "understands": {
+          "bus": [
+            1,
+            2
+          ],
+          "card": [
+            1
+          ]
+        }
+      },
+      "merge": {
+        "on": [
+          "reducer.reduced",
+          "pr.observed",
+          "pr.closed",
+          "pr.opened",
+          "card.admitted",
+          "merge.done",
+          "review.recorded",
+          "decision.recorded",
+          "decisions.imported"
+        ],
+        "understands": {
+          "bus": [
+            1,
+            2
+          ],
+          "card": [
+            1
+          ]
+        }
+      },
+      "review": {
+        "on": [
+          "reducer.reduced",
+          "pr.observed",
+          "pr.closed",
+          "pr.opened",
+          "review.recorded",
+          "card.admitted",
+          "task.enqueued",
+          "task.requeued",
+          "task.superseded",
+          "task.completed",
+          "task.failed",
+          "task.released",
+          "task.expired"
+        ],
+        "understands": {
+          "bus": [
+            1,
+            2
+          ],
+          "card": [
+            1
+          ]
+        }
+      },
+      "update": {
+        "on": [
+          "reducer.reduced",
+          "pr.observed",
+          "pr.opened",
+          "card.admitted",
+          "policy.denied",
+          "card.stopped"
+        ],
+        "understands": {
+          "bus": [
+            1,
+            2
+          ],
+          "card": [
+            1
+          ]
+        }
+      },
+      "witness": {
+        "on": [
+          "reducer.reduced",
+          "pr.observed",
+          "pr.opened",
+          "card.admitted"
+        ],
+        "understands": {
+          "bus": [
+            1,
+            2
+          ],
+          "card": [
+            1
+          ]
+        }
+      }
+    },
+    "nodesVersion": 1
+  },
   "overlaps": {
     "answer-duties": {
       "scripts/nodes/answer/answer-executor.ts": 20,
@@ -1316,728 +1600,731 @@
     }
   },
   "ports": {
-    "scripts/ports/card-tree.ts": {
-      "constants": [
-        "TECHNOLOGY_WORDS"
-      ],
-      "functions": {
-        "cardTreeOf": "(db: DatabaseSync, cardId: number, tools: CardTreeTools): CardSession | null",
-        "cardlessTreeName": "(branch: string): string",
-        "cardlessTreeOf": "(branch: string, tools: CardTreeTools): string",
-        "gitCardTrees": "(repo: string, home: string, install: (cwd: string) => void, gitHub: GitHub = ghApi(repo), treeOf?: (cardId: string) => string): CardTreeTools",
-        "realCardTrees": "(): CardTreeTools"
+    "modules": {
+      "scripts/ports/card-tree.ts": {
+        "constants": [
+          "TECHNOLOGY_WORDS"
+        ],
+        "functions": {
+          "cardTreeOf": "(db: DatabaseSync, cardId: number, tools: CardTreeTools): CardSession | null",
+          "cardlessTreeName": "(branch: string): string",
+          "cardlessTreeOf": "(branch: string, tools: CardTreeTools): string",
+          "gitCardTrees": "(repo: string, home: string, install: (cwd: string) => void, gitHub: GitHub = ghApi(repo), treeOf?: (cardId: string) => string): CardTreeTools",
+          "realCardTrees": "(): CardTreeTools"
+        },
+        "language": "technology",
+        "reexports": [],
+        "technologyWords": [
+          "database",
+          "gh",
+          "git"
+        ],
+        "types": {
+          "CardTreeRefused": "class CardTreeRefused extends Error {  }",
+          "CardTreeTools": "interface CardTreeTools { home: string; treeOf?: (cardId: string) => string; exists: (dir: string) => boolean; branchOf: (pr: number) => string; recreate: (worktree: string, branch: string) => void; bringTo: (worktree: string, branch: string, head: string) => void; }"
+        }
       },
-      "language": "technology",
-      "reexports": [],
-      "technologyWords": [
-        "database",
-        "gh",
-        "git"
-      ],
-      "types": {
-        "CardTreeRefused": "class CardTreeRefused extends Error {  }",
-        "CardTreeTools": "interface CardTreeTools { home: string; treeOf?: (cardId: string) => string; exists: (dir: string) => boolean; branchOf: (pr: number) => string; recreate: (worktree: string, branch: string) => void; bringTo: (worktree: string, branch: string, head: string) => void; }"
+      "scripts/ports/ci-reading.ts": {
+        "constants": [],
+        "functions": {},
+        "language": "technology",
+        "reexports": [
+          "ArtifactRequest",
+          "CI_LOG_CEILING",
+          "CheckRun",
+          "CiObservation",
+          "CiReading",
+          "CiState",
+          "CommitCi",
+          "FailedJobLog",
+          "PrDetails",
+          "RollupCheck",
+          "RunIdentity",
+          "ciFieldsOfObservation",
+          "ciLogForPrompt",
+          "ciOf",
+          "ciWord",
+          "failedJobLinkIn",
+          "rerunFailedJobsEndpoint",
+          "runsOnHeadEndpoint"
+        ],
+        "technologyWords": [
+          "database",
+          "endpoint",
+          "gh",
+          "git"
+        ],
+        "types": {
+          "CiAct": "type CiAct = { done: true; } | { done: false; reason: string; }",
+          "CiOfCommits": "interface CiOfCommits { onCommit: (sha: string, requiredCheck?: string) => CommitCi; approvedRunOn: (head: string | undefined) => boolean; }",
+          "CiRead": "type CiRead<T> = GhRead<T>",
+          "CiRuns": "interface CiRuns { pullRequest: (pr: PullRequest, repository: string) => PrDetails; failureLogOn: (head: string, tree: string) => FailedJobLog | null; successfulRunsOnMain: (limit: number) => CiRead<RunOnMain[]>; jobsOfRun: (runId: number) => CiRead<{ jobs: RunJob[]; }>; artifactsNamed: (run: RunIdentity, name: string) => CiRead<number>; downloadArtifact: (runId: string | number, artifact: ArtifactRequest) => CiAct; cancel: (run: RunIdentity) => boolean; }",
+          "CiWorld": "interface CiWorld { commits?: Record<string, CheckRun[]>; approvedHeads?: string[]; rollups?: Record<number, RollupCheck[]>; failedLogs?: Record<string, FailedJobLog>; runsOnMain?: RunOnMain[]; jobs?: Record<number, RunJob[]>; artifacts?: Record<string, string[]>; }",
+          "GhCiRuns": "class GhCiRuns implements CiRuns { constructor(private readonly gh: GhPort = PROCESS_GH_PORT); pullRequest(pr: PullRequest, repository: string): PrDetails; failureLogOn(head: string, tree: string): FailedJobLog | null; successfulRunsOnMain(limit: number): CiRead<RunOnMain[]>; jobsOfRun(runId: number): CiRead<{ jobs: RunJob[]; }>; artifactsNamed(run: RunIdentity, name: string): CiRead<number>; downloadArtifact(runId: string | number, artifact: ArtifactRequest): CiAct; cancel(run: RunIdentity): boolean }",
+          "GitHubCommitCi": "class GitHubCommitCi implements CiOfCommits { constructor(private readonly meter: Meter); onCommit(sha: string, requiredCheck = REQUIRED_CHECK): CommitCi; approvedRunOn(head: string | undefined): boolean }",
+          "InMemoryCi": "class InMemoryCi implements CiOfCommits, CiRuns { cancelled: RunIdentity[]; downloaded: ArtifactRequest[]; constructor(private readonly world: CiWorld = {}); onCommit(sha: string, requiredCheck = REQUIRED_CHECK): CommitCi; approvedRunOn(head: string | undefined): boolean; pullRequest(pr: PullRequest): PrDetails; failureLogOn(head: string): FailedJobLog | null; successfulRunsOnMain(limit: number): CiRead<RunOnMain[]>; jobsOfRun(runId: number): CiRead<{ jobs: RunJob[]; }>; artifactsNamed(run: RunIdentity, name: string): CiRead<number>; downloadArtifact(runId: string | number, artifact: ArtifactRequest): CiAct; cancel(run: RunIdentity): boolean }",
+          "RunJob": "interface RunJob { name: string; conclusion: string; startedAt: string; completedAt: string; steps?: RunStep[]; }",
+          "RunOnMain": "interface RunOnMain { databaseId: number; headSha: string; }",
+          "RunStep": "interface RunStep { name: string; startedAt: string; completedAt: string; }"
+        }
+      },
+      "scripts/ports/client/claude/adapter.ts": {
+        "constants": [
+          "CLIENT_ENV_PREFIXES",
+          "CLIENT_SANDBOX_DIRECTORY",
+          "SESSION_VARIABLE",
+          "USER_SETTINGS",
+          "WINDOW_COMMAND_VARIABLE",
+          "WINDOW_KEPT_TOOLS",
+          "WINDOW_MCP_CONFIG",
+          "WINDOW_RESUME_REFUSAL",
+          "WINDOW_UNUSED_TOOLS",
+          "claudeAdapter: ClientAdapter"
+        ],
+        "functions": {
+          "cardIsolationCommand": "(client: string): string[]",
+          "clientHome": "(env: NodeJS.ProcessEnv): string",
+          "clientLastSteps": "(env: NodeJS.ProcessEnv, worktree: string, session: string): string[] | null",
+          "clientTranscript": "(env: NodeJS.ProcessEnv, worktree: string, session: string): string | null",
+          "findTranscript": "(home: string, session: string): string | null",
+          "hasClientTranscript": "(env: NodeJS.ProcessEnv, worktree: string, session: string): boolean",
+          "lastSessionPrompted": "(env: NodeJS.ProcessEnv, worktree: string, promptStart: string): string | null",
+          "measuredSession": "(root: string, transcript: string): { context: number; spent: number; }",
+          "measuredSpent": "(root: string, transcript: string): number",
+          "measuredSubagents": "(root: string, transcript: string): MeasuredSubagent[]",
+          "ownerMessagesOf": "(transcript: string): number",
+          "parseSessionJournal": "(text: string, worktree: string): CommandJournal",
+          "rawUsageIn": "(stdoutPath: string): unknown | null",
+          "spendBasis": "(): string",
+          "startContextOf": "(transcript: string, marker: string): StartContext",
+          "stoppedTasksOf": "(transcript: string): Set<string>",
+          "transcriptContext": "(text: string): number | null",
+          "transcriptCounters": "(text: string): { start: TranscriptCounters | null; end: TranscriptCounters | null; startedAt: string | null; }",
+          "transcriptFile": "(claudeHome: string, worktree: string, session: string): string | null",
+          "transcriptModel": "(text: string): string | null",
+          "windowCommand": "(env: NodeJS.ProcessEnv): string"
+        },
+        "language": "technology",
+        "reexports": [],
+        "technologyWords": [
+          "claude",
+          "stdout"
+        ],
+        "types": {
+          "CommandJournal": "interface CommandJournal extends SessionJournal { commandRuns: readonly CommandRun[]; }",
+          "MeasuredSubagent": "interface MeasuredSubagent { name: string; context: number; spent: number; at: string; }",
+          "StartContext": "interface StartContext { firstTurn: number | null; atMarker: number | null; }",
+          "TranscriptCounters": "interface TranscriptCounters { input: number; cache_write: number; cache_read: number; }"
+        }
+      },
+      "scripts/ports/client/contract.ts": {
+        "constants": [],
+        "functions": {},
+        "language": "technology",
+        "reexports": [],
+        "technologyWords": [
+          "argv",
+          "exec",
+          "stdout"
+        ],
+        "types": {
+          "Capabilities": "interface Capabilities { identity: 'assigned' | 'reported'; ladder: boolean; reports: { cost: boolean; turns: boolean; model: boolean; denials: boolean; journal: boolean; }; guarantees: { allowlist: boolean; writeConfinement: boolean; mcpOff: boolean; toolNarrowing: boolean; guardFailsClosed: boolean; }; }",
+          "ClientAdapter": "interface ClientAdapter { readonly id: string; readonly capabilities: Capabilities; invocation: (spec: SessionSpec) => Invocation | Refusal; reading: (place: SessionPlace) => SessionReading; readBudget: (place: SessionPlace) => ReadBudget; models: () => ModelOffer[] | null; modelFor: (role: Role, effort: Effort | null, wanted: ModelChoice) => ModelPick | Refusal; processes: ClientProcesses; ownSession: (env: NodeJS.ProcessEnv) => string | null; }",
+          "ClientProcesses": "interface ClientProcesses { isClient: (argv: string) => boolean; sessionMarker: (session: string) => string | null; liveCwds: () => ProcessCwds; isolationCommand: () => string[]; }",
+          "Denial": "interface Denial { tool: string; path: string | null; command: string | null; text: string; }",
+          "Effort": "type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max'",
+          "Invocation": "interface Invocation { command: string; args: string[]; env: NodeJS.ProcessEnv; stdin: string | null; }",
+          "JournalChange": "type JournalChange = { kind: 'write'; content: string; at: number; } | { kind: 'edit'; oldString: string; newString: string; replaceAll: boolean; at: number; }",
+          "ModelChoice": "type ModelChoice = 'auto' | string",
+          "ModelOffer": "interface ModelOffer { id: string; efforts: Effort[]; contextWindow: number | null; recommendedFor: Role[]; }",
+          "ModelPick": "interface ModelPick { model: string | null; effort: Effort | null; }",
+          "ProcessCwds": "type ProcessCwds = { kind: 'listed'; cwds: string[]; } | { kind: 'unreadable'; why: string; }",
+          "ReadBudget": "interface ReadBudget { startContext: number | null; readBeforeEdit: number | null; }",
+          "Refusal": "interface Refusal { kind: 'refused'; reason: string; }",
+          "Role": "type Role = 'launch' | 'answer' | 'review' | 'ladder' | 'ghost' | 'window'",
+          "SessionJournal": "interface SessionJournal { end: number; changes: ReadonlyMap<string, JournalChange[]>; }",
+          "SessionPlace": "interface SessionPlace { session: string; cwd: string; stdoutPath: string | null; }",
+          "SessionPolicy": "interface SessionPolicy { profile: 'sandboxed' | 'client-default'; gateCommands: string[]; writePaths: string[]; mcpOff: boolean; tools?: readonly SessionTool[]; }",
+          "SessionReading": "interface SessionReading { end: 'completed' | 'failed' | 'missing'; failure: string | null; usage: Usage | null; costUsd: number | null; turns: number | null; durationMs: number | null; model: string | null; denials: Denial[]; toolUses: ToolUse[]; journal: SessionJournal | 'unreadable'; lastSteps: string[] | null; contextTokens: number | null; }",
+          "SessionSpec": "interface SessionSpec { kind: 'start' | 'resume'; role: Role; session: string; cwd: string; prompt: string; addDirs: string[]; pick: Pick<ModelPick, 'model'> & Partial<Pick<ModelPick, 'effort'>>; policy: SessionPolicy; }",
+          "SessionTool": "type SessionTool = 'web' | 'skills' | 'agents'",
+          "ToolUse": "interface ToolUse { kind: 'write' | 'exec' | 'other'; command: string | null; path: string | null; }",
+          "Usage": "interface Usage { input: number; cached: number; cacheWrite: number; output: number; reasoning: number; }"
+        }
+      },
+      "scripts/ports/client/index.ts": {
+        "constants": [],
+        "functions": {
+          "clientAdapter": "(): ClientAdapter"
+        },
+        "language": "factory",
+        "reexports": [],
+        "technologyWords": [],
+        "types": {}
+      },
+      "scripts/ports/diff.ts": {
+        "constants": [
+          "TECHNOLOGY_WORDS"
+        ],
+        "functions": {
+          "changedFilesFrom": "(nameStatusOutput: string, numstatOutput: string): ChangedFile[]",
+          "getChangedFiles": "(repo: string, base: string, head: string): ChangedFile[]",
+          "gitTopLevel": "(dir: string): string | null",
+          "resolveRevision": "(repo: string, revision: string): string"
+        },
+        "language": "technology",
+        "reexports": [],
+        "technologyWords": [
+          "git"
+        ],
+        "types": {}
+      },
+      "scripts/ports/disk.ts": {
+        "constants": [
+          "DISK_FLOOR_BYTES",
+          "DISK_LOW",
+          "TECHNOLOGY_WORDS"
+        ],
+        "functions": {
+          "diskLowDetail": "(read: DiskReader): string | null",
+          "freeBytes": "(read: DiskReader): number",
+          "statfsReader": "(dir: string = process.cwd()): DiskReader"
+        },
+        "language": "technology",
+        "reexports": [],
+        "technologyWords": [
+          "statfs"
+        ],
+        "types": {
+          "DiskBlocks": "interface DiskBlocks { bavail: number; bsize: number; }",
+          "DiskReader": "type DiskReader = () => DiskBlocks"
+        }
+      },
+      "scripts/ports/gh.ts": {
+        "constants": [
+          "GH_ATTEMPTS",
+          "GH_HOURLY_BUDGET: GhBudget",
+          "GH_PAUSE_MS",
+          "GH_QUERY_FAILED",
+          "GH_TIMEOUT_SECONDS",
+          "PROCESS_GH_BUDGET",
+          "PROCESS_GH_PORT",
+          "PR_LIST_LIMIT",
+          "TECHNOLOGY_WORDS",
+          "execGh: GhCaller"
+        ],
+        "functions": {
+          "accountToken": "(account: string, options: { command?: string; spawn?: GhSpawn; timeoutMs?: number; } = {}): GhAccountToken",
+          "ghPort": "(overrides: Partial<GhPortOptions> = {}): GhPort",
+          "ghRunner": "(timeoutSeconds: number, command = 'gh', port: GhPort = ghPort({ command, timeoutSeconds })): GhCaller",
+          "listPrs": "(gh: GhCaller, repo: string): PrList",
+          "lookupPr": "(list: PrList, branch: string | undefined): PrLookup",
+          "readGhJson": "<T>(gh: GhCaller, args: string[]): GhRead<T>",
+          "recordedAccount": "(env: NodeJS.ProcessEnv): string | null",
+          "stdoutOrThrow": "(gh: GhCaller): GhRunner"
+        },
+        "language": "technology",
+        "reexports": [
+          "REQUIRED_CHECK",
+          "SECRET_SCAN_CHECK"
+        ],
+        "technologyWords": [
+          "errno",
+          "exec",
+          "gh",
+          "spawn",
+          "stderr",
+          "stdout"
+        ],
+        "types": {
+          "GhAccountToken": "type GhAccountToken = { kind: 'token'; token: string; } | { kind: 'failed'; reason: string; stderr: string; }",
+          "GhBudget": "interface GhBudget { calls: number; windowMs: number; }",
+          "GhBudgetWindow": "class GhBudgetWindow { constructor(private readonly budget: GhBudget, private readonly now: () => number); spend(): GhSpend }",
+          "GhCall": "type GhCall = { kind: 'ran'; stdout: string; attempts: number; } | { kind: 'failed'; cause: GhFailureCause; reason: string; stdout: string; stderr: string; attempts: number; retryAfterSeconds?: number; }",
+          "GhCallOptions": "interface GhCallOptions { cwd?: string; input?: string; env?: NodeJS.ProcessEnv; }",
+          "GhCaller": "type GhCaller = (args: string[]) => GhCall",
+          "GhFailed": "class GhFailed extends Error { stderr: string; constructor(failure: Extract<GhCall, { kind: 'failed'; }>) }",
+          "GhFailureCause": "type GhFailureCause = 'timeout' | 'transient' | 'failed' | 'budget'",
+          "GhPort": "class GhPort { constructor(private readonly options: GhPortOptions); call(args: string[], asked: GhCallOptions = {}): GhCall }",
+          "GhPortOptions": "interface GhPortOptions { command: string; timeoutSeconds: number; attempts: number; pauseMs: number; budget: GhBudgetWindow; spawn: GhSpawn; pause: (ms: number) => void; environment: NodeJS.ProcessEnv; }",
+          "GhRead": "type GhRead<T> = { kind: 'read'; value: T; } | { kind: 'failed'; reason: string; cause: GhFailureCause | 'unparsed'; }",
+          "GhRunner": "type GhRunner = (args: string[]) => string",
+          "GhSpawn": "type GhSpawn = (command: string, args: string[], options: GhSpawnOptions) => GhSpawned",
+          "GhSpawnOptions": "interface GhSpawnOptions { cwd?: string; input?: string; env?: NodeJS.ProcessEnv; timeoutMs: number; }",
+          "GhSpawned": "interface GhSpawned { status: number | null; stdout: string; stderr: string; error?: NodeJS.ErrnoException; }",
+          "GhSpend": "type GhSpend = { kind: 'spent'; } | { kind: 'spent-out'; reason: string; retryAfterSeconds: number; }",
+          "GhTimedOut": "class GhTimedOut extends GhFailed {  }",
+          "PrList": "type PrList = { kind: 'failed'; reason?: string; } | { kind: 'listed'; prs: PullRequest[]; truncated: boolean; }",
+          "PrLookup": "type PrLookup = { kind: 'found'; pr: PullRequest; } | { kind: 'none'; } | { kind: 'unknown'; missing: string; }",
+          "PullRequest": "interface PullRequest { number: number; title?: string; headRefName: string; headRefOid: string; state: string; mergedAt: string | null; mergeCommit: { oid: string; } | null; }"
+        }
+      },
+      "scripts/ports/git.ts": {
+        "constants": [
+          "TECHNOLOGY_WORDS",
+          "execGit: GitReader"
+        ],
+        "functions": {
+          "parseWorktrees": "(porcelain: string): WorktreeEntry[]"
+        },
+        "language": "technology",
+        "reexports": [],
+        "technologyWords": [
+          "exec",
+          "git",
+          "porcelain"
+        ],
+        "types": {
+          "GitReader": "interface GitReader { dirty: (worktree: string) => number | undefined; worktrees: (repoRoot: string) => WorktreeEntry[] | undefined; }",
+          "WorktreeEntry": "interface WorktreeEntry { path: string; branch: string | undefined; }"
+        }
+      },
+      "scripts/ports/github-status.ts": {
+        "constants": [
+          "REVIEW_STATUS_CONTEXT"
+        ],
+        "functions": {
+          "ghStatusPublisher": "(repo: string, port: GhPort = PROCESS_GH_PORT): StatusPublisher"
+        },
+        "language": "technology",
+        "reexports": [],
+        "technologyWords": [
+          "gh"
+        ],
+        "types": {
+          "ReviewStatus": "interface ReviewStatus { commit: string; state: 'success' | 'failure'; context: typeof REVIEW_STATUS_CONTEXT; description: string; }",
+          "StatusPublisher": "type StatusPublisher = (status: ReviewStatus) => void"
+        }
+      },
+      "scripts/ports/github.ts": {
+        "constants": [
+          "BUDGET_SPENT_STATUS",
+          "NO_ANSWER_STATUS",
+          "RATE_LIMIT_STATUSES",
+          "TECHNOLOGY_WORDS"
+        ],
+        "functions": {
+          "ghApi": "(cwd: string, port: GhPort = PROCESS_GH_PORT): GitHub",
+          "ghApiPatch": "(cwd: string, port: GhPort = PROCESS_GH_PORT): GitHubPut",
+          "ghApiPost": "(cwd: string, port: GhPort = PROCESS_GH_PORT): GitHubPut",
+          "ghApiPut": "(cwd: string, port: GhPort = PROCESS_GH_PORT): GitHubPut",
+          "parseIncluded": "(output: string): GhResponse"
+        },
+        "language": "technology",
+        "reexports": [],
+        "technologyWords": [
+          "endpoint",
+          "gh",
+          "git",
+          "headers"
+        ],
+        "types": {
+          "CommandResult": "type CommandResult = { ok: boolean; status: number; } | { ok: false; error: string; } | { ok: true; }",
+          "GhResponse": "interface GhResponse { status: number; headers: Record<string, string>; body: unknown; }",
+          "GitHub": "type GitHub = (endpoint: string) => GhResponse",
+          "GitHubPut": "type GitHubPut = (endpoint: string, fields: Record<string, string>) => GhResponse"
+        }
+      },
+      "scripts/ports/isolation.ts": {
+        "constants": [
+          "NO_ISOLATION",
+          "TECHNOLOGY_WORDS"
+        ],
+        "functions": {
+          "commandWords": "(command: string): string[]",
+          "readIsolationFacts": "(env: NodeJS.ProcessEnv, cwd: string, command: string[], flag: SettingsLayer = null): IsolationFacts",
+          "realIsolationReader": "(env: NodeJS.ProcessEnv, cwd: string, command: string[], flag: SettingsLayer = null): IsolationReader",
+          "runtimeIsolation": "(facts: IsolationFacts): Isolation",
+          "settingsPaths": "(env: NodeJS.ProcessEnv, cwd: string, platform: string, home: string): SettingsPaths"
+        },
+        "language": "technology",
+        "reexports": [],
+        "technologyWords": [
+          "bwrap",
+          "claude",
+          "exec",
+          "socat"
+        ],
+        "types": {
+          "Isolation": "type Isolation = { level: 'full' | 'partial'; mechanism: 'claude-code-sandbox'; gaps: string[]; } | { level: 'none'; why: string; }",
+          "IsolationFacts": "interface IsolationFacts { managed: SettingsLayer; flag: SettingsLayer; local: SettingsLayer; project: SettingsLayer; user: SettingsLayer; platform: string; sandboxExec: boolean; bwrap: boolean; socat: boolean; command: string[]; }",
+          "IsolationReader": "type IsolationReader = () => Isolation",
+          "SettingsLayer": "type SettingsLayer = Record<string, unknown> | null",
+          "SettingsPaths": "interface SettingsPaths { managed: string | null; local: string; project: string; user: string; }"
+        }
+      },
+      "scripts/ports/meter.ts": {
+        "constants": [
+          "DEFAULT_RETRY_AFTER_S"
+        ],
+        "functions": {
+          "retryAfterSeconds": "(response: GhResponse, nowMs: number): number"
+        },
+        "language": "technology",
+        "reexports": [],
+        "technologyWords": [
+          "endpoint",
+          "gh",
+          "git"
+        ],
+        "types": {
+          "GitHubFailed": "class GitHubFailed extends Error { constructor(readonly status: number, endpoint: string, cause?: string) }",
+          "Meter": "class Meter { calls; remaining: number | null; constructor(private readonly gitHub: GitHub, private readonly nowMs: () => number); get(endpoint: string): unknown }",
+          "RateLimited": "class RateLimited extends Error { constructor(readonly status: number, readonly retryAfterSeconds: number) }"
+        }
+      },
+      "scripts/ports/netwatch.ts": {
+        "constants": [
+          "CHECK_MS",
+          "NETWATCH_SCRIPT",
+          "PREFIX",
+          "TECHNOLOGY_WORDS",
+          "TICK_MS",
+          "WAKE_GAP_MS"
+        ],
+        "functions": {
+          "knownOpenPrs": "(db: DatabaseSync): number[]",
+          "lastMain": "(db: DatabaseSync): string | null",
+          "lastObserved": "(db: DatabaseSync, pr: number): PreviousObservation | null",
+          "pollLine": "(poll: Poll): string"
+        },
+        "language": "technology",
+        "reexports": [],
+        "technologyWords": [
+          "database",
+          "git"
+        ],
+        "types": {
+          "NetWatch": "class NetWatch { constructor(private readonly db: DatabaseSync, private readonly gitHub: GitHub, private readonly clock: () => Date, private readonly process: string = RUN_SCRIPT, private readonly root?: string); dueReason(nowMs: number): PollReason | null; poll(): Poll | null }",
+          "Poll": "type Poll = { kind: 'ticked'; reason: PollReason; calls: number; remaining: number | null; written: number; unsettled: number[]; } | { kind: 'skipped'; reason: PollReason; cause: 'retry-after' | 'rate-limited' | 'failed'; calls: number; until?: string; detail?: string; }",
+          "PollReason": "type PollReason = 'start' | 'interval' | 'wake'"
+        }
+      },
+      "scripts/ports/pr-status.ts": {
+        "constants": [
+          "PREFIX",
+          "STATUS_ACTOR",
+          "STATUS_BATCH",
+          "STATUS_CONTEXT",
+          "STATUS_CURSOR",
+          "STATUS_OFF_FILE",
+          "STEP_EVENTS",
+          "TECHNOLOGY_WORDS"
+        ],
+        "functions": {
+          "setStepStatuses": "(db: DatabaseSync, post: GitHubPost, now: () => Date = () => new Date(), batch = STATUS_BATCH): StepStatus[]",
+          "statusFailureLine": "(error: unknown): string",
+          "statusFields": "(status: StepStatus): Record<string, string>",
+          "statusLine": "(status: StepStatus): string",
+          "statusesSwitchedOff": "(busPath: string): boolean",
+          "stepStatusOf": "(event: StepEvent): StepStatus | null"
+        },
+        "language": "technology",
+        "reexports": [
+          "ghApiPost"
+        ],
+        "technologyWords": [
+          "database",
+          "gh",
+          "git"
+        ],
+        "types": {
+          "GitHubPost": "type GitHubPost = GitHubPut",
+          "StatusRefusedForNow": "class StatusRefusedForNow extends Error {  }",
+          "StatusState": "type StatusState = 'pending' | 'success' | 'failure'",
+          "StepEvent": "interface StepEvent { id: number; type: string; pr: number | null; head: string | null; payload: string; }",
+          "StepStatus": "interface StepStatus { pr: number; head: string; step: string; state: StatusState; refused?: number; }"
+        }
+      },
+      "scripts/ports/prepare-tree.ts": {
+        "constants": [
+          "PREPARE_ENV_KEYS",
+          "PREPARE_MS",
+          "PREPARE_TREE",
+          "PROXY_ENV_KEYS"
+        ],
+        "functions": {
+          "browserNotPreinstalledLine": "(tree: string, why: string): string",
+          "notPreparedLine": "(tree: string, why: string): string",
+          "preinstallBrowser": "(tree: string, env: NodeJS.ProcessEnv = process.env, factoryLab: string = FACTORY_LAB): void",
+          "prepareBeforeSession": "(tree: string, prepare: TreePreparer = prepareTree, preinstall: TreePreparer = preinstallBrowser): string | null",
+          "prepareEnv": "(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv",
+          "prepareTree": "(tree: string): void"
+        },
+        "language": "factory",
+        "reexports": [],
+        "technologyWords": [],
+        "types": {
+          "TreePreparer": "type TreePreparer = (tree: string) => void"
+        }
+      },
+      "scripts/ports/prompt-store.ts": {
+        "constants": [
+          "PROMPTS_DIR"
+        ],
+        "functions": {
+          "promptsDirOf": "(busPath: string): string",
+          "sha256": "(text: string): string",
+          "storedInput": "(prompts: string | undefined, input: SessionInput | undefined): StoredInput"
+        },
+        "language": "factory",
+        "reexports": [],
+        "technologyWords": [],
+        "types": {
+          "AnswerInput": "interface AnswerInput extends SessionInput { cardBody: string | null; }",
+          "SessionInput": "interface SessionInput { prompt: string; }",
+          "StoredInput": "type StoredInput = { prompt_sha: string; prompt_path: string; } | { prompt_sha: string; prompt_unstored: string; } | Record<string, never>"
+        }
+      },
+      "scripts/ports/result.ts": {
+        "constants": [],
+        "functions": {
+          "readResultFields": "(reportPath: string): ResultFields"
+        },
+        "language": "factory",
+        "reexports": [],
+        "technologyWords": [],
+        "types": {
+          "ResultFields": "interface ResultFields { resultLine: 'present' | 'missing'; total_cost_usd: number | null; num_turns: number | null; duration_ms: number | null; usage: unknown | null; }"
+        }
+      },
+      "scripts/ports/serve-record.ts": {
+        "constants": [],
+        "functions": {
+          "serveRecordAt": "(tree: string, head: string): ServeRecord | null"
+        },
+        "language": "factory",
+        "reexports": [],
+        "technologyWords": [],
+        "types": {}
+      },
+      "scripts/ports/session.ts": {
+        "constants": [
+          "CARD_VARIABLE",
+          "EXIT_REQUEST_VARIABLE",
+          "LOOP_PID_VARIABLE",
+          "REVIEW_MODEL_VARIABLE",
+          "TECHNOLOGY_WORDS",
+          "WINDOW_MARK",
+          "WINDOW_VARIABLE"
+        ],
+        "functions": {
+          "clientCommand": "(): string",
+          "clientInvocation": "(spec: SessionSpec): Invocation",
+          "headlessInvocation": "(parts: Partial<SessionSpec> = {}): Invocation",
+          "reviewModelOf": "(env: NodeJS.ProcessEnv = process.env): string | undefined",
+          "sessionEnv": "(base: NodeJS.ProcessEnv = process.env, card?: number): NodeJS.ProcessEnv",
+          "spawnReviewSession": "(params: SpawnSessionParams): Promise<number>",
+          "spawnSession": "(params: SpawnSessionParams): Promise<number>",
+          "streamReading": "(stdoutPath: string): SessionReading",
+          "windowModeOf": "(env: NodeJS.ProcessEnv): WindowMode | null",
+          "withoutCard": "(base: NodeJS.ProcessEnv): NodeJS.ProcessEnv",
+          "witnessEnv": "(base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv"
+        },
+        "language": "technology",
+        "reexports": [],
+        "technologyWords": [
+          "spawn",
+          "stderr",
+          "stdout"
+        ],
+        "types": {
+          "SessionCeilingReached": "class SessionCeilingReached extends Error { constructor(readonly sessionId: string, readonly ceilingMs: number) }",
+          "SpawnSessionParams": "interface SpawnSessionParams { cwd: string; sessionId: string; prompt: string; stdoutPath: string; stderrPath: string; env?: NodeJS.ProcessEnv; addDirs?: string[]; model?: string; ceilingMs?: number; role?: Extract<Role, 'review' | 'ghost'>; }",
+          "WindowMode": "type WindowMode = 'loop' | 'tab'"
+        }
+      },
+      "scripts/ports/shift-settings.ts": {
+        "constants": [
+          "CARD_SESSION_SANDBOX",
+          "TSX_PIPE_DIRECTORY"
+        ],
+        "functions": {
+          "settingsFlag": "(settings: ShiftSettings): string[]",
+          "shiftSettings": "(tree: string, gate: ShiftGate, writable: string[] = [], home: string = os.homedir()): ShiftSettings"
+        },
+        "language": "factory",
+        "reexports": [],
+        "technologyWords": [],
+        "types": {
+          "ShiftSettings": "interface ShiftSettings { sandbox: typeof CARD_SESSION_SANDBOX & { excludedCommands?: string[]; filesystem?: { denyWrite: string[]; }; }; permissions: { allow: string[]; deny?: string[]; }; }"
+        }
+      },
+      "scripts/ports/snapshot.ts": {
+        "constants": [
+          "MAIN_BRANCH",
+          "MECHANICS_PATHS",
+          "MERGEABLE_OF_STATE: Record<string, Mergeable>",
+          "OPEN_PULLS_PAGE"
+        ],
+        "functions": {
+          "requiredCheckOf": "(root: string = watchedRoot()): string",
+          "takeSnapshot": "(meter: Meter, known: number[], lastMain: string | null, requiredCheck = REQUIRED_CHECK): Snapshot",
+          "touchesMechanics": "(files: string[]): boolean",
+          "verdictOf": "(meter: Meter, sha: string): VerdictOnHead | null",
+          "watchedRoot": "(): string"
+        },
+        "language": "factory",
+        "reexports": [
+          "ciOf"
+        ],
+        "technologyWords": [],
+        "types": {
+          "ClosedPr": "interface ClosedPr { pr: number; cardId: number | null; branch?: string | null; merged: boolean; commit: string | null; mergedBy: string | null; mergedAt: string | null; }",
+          "MainHead": "interface MainHead { sha: string; touchesMechanics: boolean; }",
+          "Mergeable": "type Mergeable = 'clean' | 'behind' | 'dirty' | 'blocked'",
+          "OpenPr": "interface OpenPr { pr: number; cardId: number | null; base: string; head: string; branch: string | null; mergeable: Mergeable; ciFields: CiObservation; verdictOnHead: VerdictOnHead | null; autoMerge: boolean; draft: boolean; bodySha: string; }",
+          "Snapshot": "interface Snapshot { open: OpenPr[]; closed: ClosedPr[]; unsettled: number[]; main: MainHead | null; }",
+          "VerdictOnHead": "type VerdictOnHead = 'pass' | 'changes'"
+        }
+      },
+      "scripts/ports/task-start.ts": {
+        "constants": [
+          "ADOPT_USAGE",
+          "PREFIX",
+          "TECHNOLOGY_WORDS",
+          "USAGE"
+        ],
+        "functions": {
+          "gitIn": "(cwd: string, args: string[]): string",
+          "realDeps": "(): TaskStartDeps",
+          "runTaskStart": "(argv: string[], deps: TaskStartDeps, handed?: HandedContract): TaskStartResult"
+        },
+        "language": "technology",
+        "reexports": [],
+        "technologyWords": [
+          "argv",
+          "git",
+          "stderr",
+          "stdout"
+        ],
+        "types": {
+          "HandedContract": "interface HandedContract extends Contract { forecast?: CheapForecast; }",
+          "TaskStartDeps": "interface TaskStartDeps { cwd: string; git: (cwd: string, args: string[]) => string; install: (cwd: string, args: string[]) => void; exists: (target: string) => boolean; bus: string; now: () => Date; session: string | undefined; shift?: string; worktreeHome?: string; treeOf?: (id: string) => string; style?: SignalStyle; cardBody?: CardBodyReader; windowLimit?: () => number; }",
+          "TaskStartResult": "interface TaskStartResult { stdout: string[]; stderr: string[]; exitCode: number; worktree?: string; }"
+        }
+      },
+      "scripts/ports/tree-publish.ts": {
+        "constants": [
+          "HTTPS_ORIGIN_ENV: Record<string, string>",
+          "TECHNOLOGY_WORDS",
+          "TREE_PR_ENTRY"
+        ],
+        "functions": {
+          "builtTreePr": "(entry: string): string",
+          "launchDirOf": "(home: string, busPath: string): string",
+          "restoreReport": "(saved: string, worktree: string): void",
+          "savedReportOf": "(launchDir: string, cardId: number): string",
+          "shellWord": "(text: string): string",
+          "treeHoldsACommit": "(worktree: string, base: string): boolean",
+          "treePrCommand": "(repo: string): string",
+          "treePrOfThisBuild": "(repo: string, moduleUrl: string = import.meta.url): string",
+          "treePrPublisher": "(treePr: string, launchDir: string, env: NodeJS.ProcessEnv): (worktree: string, cardId: number) => void"
+        },
+        "language": "technology",
+        "reexports": [],
+        "technologyWords": [
+          "https",
+          "shell"
+        ],
+        "types": {}
+      },
+      "scripts/ports/witnesses.ts": {
+        "constants": [
+          "TECHNOLOGY_WORDS"
+        ],
+        "functions": {
+          "grepMatchProbe": "(command: string): string | null",
+          "grepRefusal": "(witness: Witness, sides: string): string",
+          "runOnTree": "(run: TreeRun, task: TreeTask): void",
+          "runOnTreeAsync": "(run: AsyncTreeRun, task: TreeTask): Promise<void>",
+          "testTargetOf": "(command: string): TestTarget | null"
+        },
+        "language": "technology",
+        "reexports": [],
+        "technologyWords": [
+          "grep",
+          "shell"
+        ],
+        "types": {
+          "AsyncTreeRun": "interface AsyncTreeRun extends TreeContext { shell: (command: string, cwd: string) => Promise<ShellResult>; }",
+          "Refuse": "type Refuse = (step: string, problem: string | null) => void",
+          "TestTarget": "interface TestTarget { file: string; name: string | null; }",
+          "Timer": "type Timer = <T>(name: string, run: () => T) => T",
+          "TreeRun": "interface TreeRun extends TreeContext { shell: Shell; time: Timer; }",
+          "TreeTask": "interface TreeTask { acceptance: Witness[]; invariants: Witness[]; harnessCommand: string | null; sketchSha: string | null; changed: string[] | null; witnessesDir: string; creates: string[]; }",
+          "Witness": "interface Witness { criterion: string; command: string; onBase?: { command: string; stated: string; }; }"
+        }
+      },
+      "scripts/ports/worktree-home.ts": {
+        "constants": [],
+        "functions": {
+          "busStartedTree": "(busPath: string, id: string): string | null",
+          "busWorktreeHome": "(busPath: string): string",
+          "cardTree": "(env: NodeJS.ProcessEnv, busPath: string, id: string, oldHome: string = DEFAULT_WORKTREE_HOME, exists: (target: string) => boolean = existsSync, startedTree: StartedTreeReader = busStartedTree): string",
+          "cardTreeRoots": "(env: NodeJS.ProcessEnv, busPath: string, repo: string): { homes: string[]; perBus: string; }",
+          "taskWorktree": "(home: string, id: string): string"
+        },
+        "language": "factory",
+        "reexports": [
+          "DEFAULT_WORKTREE_HOME",
+          "WORKTREE_HOME_VARIABLE",
+          "worktreeHome"
+        ],
+        "technologyWords": [],
+        "types": {
+          "StartedTreeReader": "type StartedTreeReader = (busPath: string, id: string) => string | null"
+        }
+      },
+      "scripts/ports/worktree.ts": {
+        "constants": [
+          "FREE_TREES",
+          "FREE_TREE_CAPACITY",
+          "LSOF_CLIENT_NAMES",
+          "TECHNOLOGY_WORDS"
+        ],
+        "functions": {
+          "adoptTree": "(deps: TreeDeps, tree: string, branch: string): ReadyTree | RefusedTree",
+          "claudeProcessCwds": "(): ProcessCwds",
+          "cutTree": "(deps: TreeDeps, id: string, branch: string): ReadyTree | RefusedTree",
+          "freeTreeHome": "(tree: string): string",
+          "gitIn": "(cwd: string, args: string[]): string",
+          "gitInAsync": "(cwd, args)",
+          "lastLine": "(output: string): string",
+          "liveSessionHolds": "(tree: string, cwds: () => ProcessCwds = claudeProcessCwds): boolean",
+          "parkTree": "(git: GitRun, repo: string, tree: string, capacity: number): string | null",
+          "pnpmInstall": "(cwd: string, args: string[]): void",
+          "realShell": "(command: string, cwd: string): ShellResult",
+          "stageSketch": "(tree: string, base: string, sketchSha: string): void",
+          "tailLines": "(output: string, count = TAIL_LINES): string",
+          "takeFreeTree": "(git: GitRun, repo: string, target: string, settle: (tree: string) => void): boolean",
+          "treeOriginIn": "(output: string): TreeOrigin | null",
+          "treeOriginLine": "(origin: TreeOrigin): string",
+          "withWorktree": "<T>(repo: string, base: string, run: (tree: string) => T): T",
+          "withWorktreeAsync": "<T>(repo: string, base: string, run: (tree: string) => Promise<T>, turns: SetupTurns, git: GitAsync = gitInAsync): Promise<T>"
+        },
+        "language": "technology",
+        "reexports": [],
+        "technologyWords": [
+          "claude",
+          "git",
+          "lsof",
+          "pnpm",
+          "shell"
+        ],
+        "types": {
+          "GitAsync": "type GitAsync = (cwd: string, args: string[]) => Promise<string>",
+          "GitRun": "type GitRun = (cwd: string, args: string[]) => string",
+          "ReadyTree": "interface ReadyTree { worktree: string; origin?: TreeOrigin; how: string; failedAppend: string; }",
+          "RefusedTree": "interface RefusedTree { refused: string; }",
+          "SetupTurns": "class SetupTurns { take<T>(step: () => Promise<T>): Promise<T> }",
+          "Shell": "type Shell = (command: string, cwd: string) => ShellResult",
+          "ShellResult": "interface ShellResult { status: number | null; output: string; }",
+          "TreeDeps": "interface TreeDeps { cwd: string; git: (cwd: string, args: string[]) => string; install: (cwd: string, args: string[]) => void; exists: (target: string) => boolean; worktreeHome?: string; treeOf?: (id: string) => string; }",
+          "TreeOrigin": "type TreeOrigin = 'reused' | 'cut'"
+        }
       }
     },
-    "scripts/ports/ci-reading.ts": {
-      "constants": [],
-      "functions": {},
-      "language": "technology",
-      "reexports": [
-        "ArtifactRequest",
-        "CI_LOG_CEILING",
-        "CheckRun",
-        "CiObservation",
-        "CiReading",
-        "CiState",
-        "CommitCi",
-        "FailedJobLog",
-        "PrDetails",
-        "RollupCheck",
-        "RunIdentity",
-        "ciFieldsOfObservation",
-        "ciLogForPrompt",
-        "ciOf",
-        "ciWord",
-        "failedJobLinkIn",
-        "rerunFailedJobsEndpoint",
-        "runsOnHeadEndpoint"
-      ],
-      "technologyWords": [
-        "database",
-        "endpoint",
-        "gh",
-        "git"
-      ],
-      "types": {
-        "CiAct": "type CiAct = { done: true; } | { done: false; reason: string; }",
-        "CiOfCommits": "interface CiOfCommits { onCommit: (sha: string, requiredCheck?: string) => CommitCi; approvedRunOn: (head: string | undefined) => boolean; }",
-        "CiRead": "type CiRead<T> = GhRead<T>",
-        "CiRuns": "interface CiRuns { pullRequest: (pr: PullRequest, repository: string) => PrDetails; failureLogOn: (head: string, tree: string) => FailedJobLog | null; successfulRunsOnMain: (limit: number) => CiRead<RunOnMain[]>; jobsOfRun: (runId: number) => CiRead<{ jobs: RunJob[]; }>; artifactsNamed: (run: RunIdentity, name: string) => CiRead<number>; downloadArtifact: (runId: string | number, artifact: ArtifactRequest) => CiAct; cancel: (run: RunIdentity) => boolean; }",
-        "CiWorld": "interface CiWorld { commits?: Record<string, CheckRun[]>; approvedHeads?: string[]; rollups?: Record<number, RollupCheck[]>; failedLogs?: Record<string, FailedJobLog>; runsOnMain?: RunOnMain[]; jobs?: Record<number, RunJob[]>; artifacts?: Record<string, string[]>; }",
-        "GhCiRuns": "class GhCiRuns implements CiRuns { constructor(private readonly gh: GhPort = PROCESS_GH_PORT); pullRequest(pr: PullRequest, repository: string): PrDetails; failureLogOn(head: string, tree: string): FailedJobLog | null; successfulRunsOnMain(limit: number): CiRead<RunOnMain[]>; jobsOfRun(runId: number): CiRead<{ jobs: RunJob[]; }>; artifactsNamed(run: RunIdentity, name: string): CiRead<number>; downloadArtifact(runId: string | number, artifact: ArtifactRequest): CiAct; cancel(run: RunIdentity): boolean }",
-        "GitHubCommitCi": "class GitHubCommitCi implements CiOfCommits { constructor(private readonly meter: Meter); onCommit(sha: string, requiredCheck = REQUIRED_CHECK): CommitCi; approvedRunOn(head: string | undefined): boolean }",
-        "InMemoryCi": "class InMemoryCi implements CiOfCommits, CiRuns { cancelled: RunIdentity[]; downloaded: ArtifactRequest[]; constructor(private readonly world: CiWorld = {}); onCommit(sha: string, requiredCheck = REQUIRED_CHECK): CommitCi; approvedRunOn(head: string | undefined): boolean; pullRequest(pr: PullRequest): PrDetails; failureLogOn(head: string): FailedJobLog | null; successfulRunsOnMain(limit: number): CiRead<RunOnMain[]>; jobsOfRun(runId: number): CiRead<{ jobs: RunJob[]; }>; artifactsNamed(run: RunIdentity, name: string): CiRead<number>; downloadArtifact(runId: string | number, artifact: ArtifactRequest): CiAct; cancel(run: RunIdentity): boolean }",
-        "RunJob": "interface RunJob { name: string; conclusion: string; startedAt: string; completedAt: string; steps?: RunStep[]; }",
-        "RunOnMain": "interface RunOnMain { databaseId: number; headSha: string; }",
-        "RunStep": "interface RunStep { name: string; startedAt: string; completedAt: string; }"
-      }
-    },
-    "scripts/ports/client/claude/adapter.ts": {
-      "constants": [
-        "CLIENT_ENV_PREFIXES",
-        "CLIENT_SANDBOX_DIRECTORY",
-        "SESSION_VARIABLE",
-        "USER_SETTINGS",
-        "WINDOW_COMMAND_VARIABLE",
-        "WINDOW_KEPT_TOOLS",
-        "WINDOW_MCP_CONFIG",
-        "WINDOW_RESUME_REFUSAL",
-        "WINDOW_UNUSED_TOOLS",
-        "claudeAdapter: ClientAdapter"
-      ],
-      "functions": {
-        "cardIsolationCommand": "(client: string): string[]",
-        "clientHome": "(env: NodeJS.ProcessEnv): string",
-        "clientLastSteps": "(env: NodeJS.ProcessEnv, worktree: string, session: string): string[] | null",
-        "clientTranscript": "(env: NodeJS.ProcessEnv, worktree: string, session: string): string | null",
-        "findTranscript": "(home: string, session: string): string | null",
-        "hasClientTranscript": "(env: NodeJS.ProcessEnv, worktree: string, session: string): boolean",
-        "lastSessionPrompted": "(env: NodeJS.ProcessEnv, worktree: string, promptStart: string): string | null",
-        "measuredSession": "(root: string, transcript: string): { context: number; spent: number; }",
-        "measuredSpent": "(root: string, transcript: string): number",
-        "measuredSubagents": "(root: string, transcript: string): MeasuredSubagent[]",
-        "ownerMessagesOf": "(transcript: string): number",
-        "parseSessionJournal": "(text: string, worktree: string): CommandJournal",
-        "rawUsageIn": "(stdoutPath: string): unknown | null",
-        "spendBasis": "(): string",
-        "startContextOf": "(transcript: string, marker: string): StartContext",
-        "stoppedTasksOf": "(transcript: string): Set<string>",
-        "transcriptContext": "(text: string): number | null",
-        "transcriptCounters": "(text: string): { start: TranscriptCounters | null; end: TranscriptCounters | null; startedAt: string | null; }",
-        "transcriptFile": "(claudeHome: string, worktree: string, session: string): string | null",
-        "transcriptModel": "(text: string): string | null",
-        "windowCommand": "(env: NodeJS.ProcessEnv): string"
-      },
-      "language": "technology",
-      "reexports": [],
-      "technologyWords": [
-        "claude",
-        "stdout"
-      ],
-      "types": {
-        "CommandJournal": "interface CommandJournal extends SessionJournal { commandRuns: readonly CommandRun[]; }",
-        "MeasuredSubagent": "interface MeasuredSubagent { name: string; context: number; spent: number; at: string; }",
-        "StartContext": "interface StartContext { firstTurn: number | null; atMarker: number | null; }",
-        "TranscriptCounters": "interface TranscriptCounters { input: number; cache_write: number; cache_read: number; }"
-      }
-    },
-    "scripts/ports/client/contract.ts": {
-      "constants": [],
-      "functions": {},
-      "language": "technology",
-      "reexports": [],
-      "technologyWords": [
-        "argv",
-        "exec",
-        "stdout"
-      ],
-      "types": {
-        "Capabilities": "interface Capabilities { identity: 'assigned' | 'reported'; ladder: boolean; reports: { cost: boolean; turns: boolean; model: boolean; denials: boolean; journal: boolean; }; guarantees: { allowlist: boolean; writeConfinement: boolean; mcpOff: boolean; toolNarrowing: boolean; guardFailsClosed: boolean; }; }",
-        "ClientAdapter": "interface ClientAdapter { readonly id: string; readonly capabilities: Capabilities; invocation: (spec: SessionSpec) => Invocation | Refusal; reading: (place: SessionPlace) => SessionReading; readBudget: (place: SessionPlace) => ReadBudget; models: () => ModelOffer[] | null; modelFor: (role: Role, effort: Effort | null, wanted: ModelChoice) => ModelPick | Refusal; processes: ClientProcesses; ownSession: (env: NodeJS.ProcessEnv) => string | null; }",
-        "ClientProcesses": "interface ClientProcesses { isClient: (argv: string) => boolean; sessionMarker: (session: string) => string | null; liveCwds: () => ProcessCwds; isolationCommand: () => string[]; }",
-        "Denial": "interface Denial { tool: string; path: string | null; command: string | null; text: string; }",
-        "Effort": "type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max'",
-        "Invocation": "interface Invocation { command: string; args: string[]; env: NodeJS.ProcessEnv; stdin: string | null; }",
-        "JournalChange": "type JournalChange = { kind: 'write'; content: string; at: number; } | { kind: 'edit'; oldString: string; newString: string; replaceAll: boolean; at: number; }",
-        "ModelChoice": "type ModelChoice = 'auto' | string",
-        "ModelOffer": "interface ModelOffer { id: string; efforts: Effort[]; contextWindow: number | null; recommendedFor: Role[]; }",
-        "ModelPick": "interface ModelPick { model: string | null; effort: Effort | null; }",
-        "ProcessCwds": "type ProcessCwds = { kind: 'listed'; cwds: string[]; } | { kind: 'unreadable'; why: string; }",
-        "ReadBudget": "interface ReadBudget { startContext: number | null; readBeforeEdit: number | null; }",
-        "Refusal": "interface Refusal { kind: 'refused'; reason: string; }",
-        "Role": "type Role = 'launch' | 'answer' | 'review' | 'ladder' | 'ghost' | 'window'",
-        "SessionJournal": "interface SessionJournal { end: number; changes: ReadonlyMap<string, JournalChange[]>; }",
-        "SessionPlace": "interface SessionPlace { session: string; cwd: string; stdoutPath: string | null; }",
-        "SessionPolicy": "interface SessionPolicy { profile: 'sandboxed' | 'client-default'; gateCommands: string[]; writePaths: string[]; mcpOff: boolean; tools?: readonly SessionTool[]; }",
-        "SessionReading": "interface SessionReading { end: 'completed' | 'failed' | 'missing'; failure: string | null; usage: Usage | null; costUsd: number | null; turns: number | null; durationMs: number | null; model: string | null; denials: Denial[]; toolUses: ToolUse[]; journal: SessionJournal | 'unreadable'; lastSteps: string[] | null; contextTokens: number | null; }",
-        "SessionSpec": "interface SessionSpec { kind: 'start' | 'resume'; role: Role; session: string; cwd: string; prompt: string; addDirs: string[]; pick: Pick<ModelPick, 'model'> & Partial<Pick<ModelPick, 'effort'>>; policy: SessionPolicy; }",
-        "SessionTool": "type SessionTool = 'web' | 'skills' | 'agents'",
-        "ToolUse": "interface ToolUse { kind: 'write' | 'exec' | 'other'; command: string | null; path: string | null; }",
-        "Usage": "interface Usage { input: number; cached: number; cacheWrite: number; output: number; reasoning: number; }"
-      }
-    },
-    "scripts/ports/client/index.ts": {
-      "constants": [],
-      "functions": {
-        "clientAdapter": "(): ClientAdapter"
-      },
-      "language": "factory",
-      "reexports": [],
-      "technologyWords": [],
-      "types": {}
-    },
-    "scripts/ports/diff.ts": {
-      "constants": [
-        "TECHNOLOGY_WORDS"
-      ],
-      "functions": {
-        "changedFilesFrom": "(nameStatusOutput: string, numstatOutput: string): ChangedFile[]",
-        "getChangedFiles": "(repo: string, base: string, head: string): ChangedFile[]",
-        "gitTopLevel": "(dir: string): string | null",
-        "resolveRevision": "(repo: string, revision: string): string"
-      },
-      "language": "technology",
-      "reexports": [],
-      "technologyWords": [
-        "git"
-      ],
-      "types": {}
-    },
-    "scripts/ports/disk.ts": {
-      "constants": [
-        "DISK_FLOOR_BYTES",
-        "DISK_LOW",
-        "TECHNOLOGY_WORDS"
-      ],
-      "functions": {
-        "diskLowDetail": "(read: DiskReader): string | null",
-        "freeBytes": "(read: DiskReader): number",
-        "statfsReader": "(dir: string = process.cwd()): DiskReader"
-      },
-      "language": "technology",
-      "reexports": [],
-      "technologyWords": [
-        "statfs"
-      ],
-      "types": {
-        "DiskBlocks": "interface DiskBlocks { bavail: number; bsize: number; }",
-        "DiskReader": "type DiskReader = () => DiskBlocks"
-      }
-    },
-    "scripts/ports/gh.ts": {
-      "constants": [
-        "GH_ATTEMPTS",
-        "GH_HOURLY_BUDGET: GhBudget",
-        "GH_PAUSE_MS",
-        "GH_QUERY_FAILED",
-        "GH_TIMEOUT_SECONDS",
-        "PROCESS_GH_BUDGET",
-        "PROCESS_GH_PORT",
-        "PR_LIST_LIMIT",
-        "TECHNOLOGY_WORDS",
-        "execGh: GhCaller"
-      ],
-      "functions": {
-        "accountToken": "(account: string, options: { command?: string; spawn?: GhSpawn; timeoutMs?: number; } = {}): GhAccountToken",
-        "ghPort": "(overrides: Partial<GhPortOptions> = {}): GhPort",
-        "ghRunner": "(timeoutSeconds: number, command = 'gh', port: GhPort = ghPort({ command, timeoutSeconds })): GhCaller",
-        "listPrs": "(gh: GhCaller, repo: string): PrList",
-        "lookupPr": "(list: PrList, branch: string | undefined): PrLookup",
-        "readGhJson": "<T>(gh: GhCaller, args: string[]): GhRead<T>",
-        "recordedAccount": "(env: NodeJS.ProcessEnv): string | null",
-        "stdoutOrThrow": "(gh: GhCaller): GhRunner"
-      },
-      "language": "technology",
-      "reexports": [
-        "REQUIRED_CHECK",
-        "SECRET_SCAN_CHECK"
-      ],
-      "technologyWords": [
-        "errno",
-        "exec",
-        "gh",
-        "spawn",
-        "stderr",
-        "stdout"
-      ],
-      "types": {
-        "GhAccountToken": "type GhAccountToken = { kind: 'token'; token: string; } | { kind: 'failed'; reason: string; stderr: string; }",
-        "GhBudget": "interface GhBudget { calls: number; windowMs: number; }",
-        "GhBudgetWindow": "class GhBudgetWindow { constructor(private readonly budget: GhBudget, private readonly now: () => number); spend(): GhSpend }",
-        "GhCall": "type GhCall = { kind: 'ran'; stdout: string; attempts: number; } | { kind: 'failed'; cause: GhFailureCause; reason: string; stdout: string; stderr: string; attempts: number; retryAfterSeconds?: number; }",
-        "GhCallOptions": "interface GhCallOptions { cwd?: string; input?: string; env?: NodeJS.ProcessEnv; }",
-        "GhCaller": "type GhCaller = (args: string[]) => GhCall",
-        "GhFailed": "class GhFailed extends Error { stderr: string; constructor(failure: Extract<GhCall, { kind: 'failed'; }>) }",
-        "GhFailureCause": "type GhFailureCause = 'timeout' | 'transient' | 'failed' | 'budget'",
-        "GhPort": "class GhPort { constructor(private readonly options: GhPortOptions); call(args: string[], asked: GhCallOptions = {}): GhCall }",
-        "GhPortOptions": "interface GhPortOptions { command: string; timeoutSeconds: number; attempts: number; pauseMs: number; budget: GhBudgetWindow; spawn: GhSpawn; pause: (ms: number) => void; environment: NodeJS.ProcessEnv; }",
-        "GhRead": "type GhRead<T> = { kind: 'read'; value: T; } | { kind: 'failed'; reason: string; cause: GhFailureCause | 'unparsed'; }",
-        "GhRunner": "type GhRunner = (args: string[]) => string",
-        "GhSpawn": "type GhSpawn = (command: string, args: string[], options: GhSpawnOptions) => GhSpawned",
-        "GhSpawnOptions": "interface GhSpawnOptions { cwd?: string; input?: string; env?: NodeJS.ProcessEnv; timeoutMs: number; }",
-        "GhSpawned": "interface GhSpawned { status: number | null; stdout: string; stderr: string; error?: NodeJS.ErrnoException; }",
-        "GhSpend": "type GhSpend = { kind: 'spent'; } | { kind: 'spent-out'; reason: string; retryAfterSeconds: number; }",
-        "GhTimedOut": "class GhTimedOut extends GhFailed {  }",
-        "PrList": "type PrList = { kind: 'failed'; reason?: string; } | { kind: 'listed'; prs: PullRequest[]; truncated: boolean; }",
-        "PrLookup": "type PrLookup = { kind: 'found'; pr: PullRequest; } | { kind: 'none'; } | { kind: 'unknown'; missing: string; }",
-        "PullRequest": "interface PullRequest { number: number; title?: string; headRefName: string; headRefOid: string; state: string; mergedAt: string | null; mergeCommit: { oid: string; } | null; }"
-      }
-    },
-    "scripts/ports/git.ts": {
-      "constants": [
-        "TECHNOLOGY_WORDS",
-        "execGit: GitReader"
-      ],
-      "functions": {
-        "parseWorktrees": "(porcelain: string): WorktreeEntry[]"
-      },
-      "language": "technology",
-      "reexports": [],
-      "technologyWords": [
-        "exec",
-        "git",
-        "porcelain"
-      ],
-      "types": {
-        "GitReader": "interface GitReader { dirty: (worktree: string) => number | undefined; worktrees: (repoRoot: string) => WorktreeEntry[] | undefined; }",
-        "WorktreeEntry": "interface WorktreeEntry { path: string; branch: string | undefined; }"
-      }
-    },
-    "scripts/ports/github-status.ts": {
-      "constants": [
-        "REVIEW_STATUS_CONTEXT"
-      ],
-      "functions": {
-        "ghStatusPublisher": "(repo: string, port: GhPort = PROCESS_GH_PORT): StatusPublisher"
-      },
-      "language": "technology",
-      "reexports": [],
-      "technologyWords": [
-        "gh"
-      ],
-      "types": {
-        "ReviewStatus": "interface ReviewStatus { commit: string; state: 'success' | 'failure'; context: typeof REVIEW_STATUS_CONTEXT; description: string; }",
-        "StatusPublisher": "type StatusPublisher = (status: ReviewStatus) => void"
-      }
-    },
-    "scripts/ports/github.ts": {
-      "constants": [
-        "BUDGET_SPENT_STATUS",
-        "NO_ANSWER_STATUS",
-        "RATE_LIMIT_STATUSES",
-        "TECHNOLOGY_WORDS"
-      ],
-      "functions": {
-        "ghApi": "(cwd: string, port: GhPort = PROCESS_GH_PORT): GitHub",
-        "ghApiPatch": "(cwd: string, port: GhPort = PROCESS_GH_PORT): GitHubPut",
-        "ghApiPost": "(cwd: string, port: GhPort = PROCESS_GH_PORT): GitHubPut",
-        "ghApiPut": "(cwd: string, port: GhPort = PROCESS_GH_PORT): GitHubPut",
-        "parseIncluded": "(output: string): GhResponse"
-      },
-      "language": "technology",
-      "reexports": [],
-      "technologyWords": [
-        "endpoint",
-        "gh",
-        "git",
-        "headers"
-      ],
-      "types": {
-        "CommandResult": "type CommandResult = { ok: boolean; status: number; } | { ok: false; error: string; } | { ok: true; }",
-        "GhResponse": "interface GhResponse { status: number; headers: Record<string, string>; body: unknown; }",
-        "GitHub": "type GitHub = (endpoint: string) => GhResponse",
-        "GitHubPut": "type GitHubPut = (endpoint: string, fields: Record<string, string>) => GhResponse"
-      }
-    },
-    "scripts/ports/isolation.ts": {
-      "constants": [
-        "NO_ISOLATION",
-        "TECHNOLOGY_WORDS"
-      ],
-      "functions": {
-        "commandWords": "(command: string): string[]",
-        "readIsolationFacts": "(env: NodeJS.ProcessEnv, cwd: string, command: string[], flag: SettingsLayer = null): IsolationFacts",
-        "realIsolationReader": "(env: NodeJS.ProcessEnv, cwd: string, command: string[], flag: SettingsLayer = null): IsolationReader",
-        "runtimeIsolation": "(facts: IsolationFacts): Isolation",
-        "settingsPaths": "(env: NodeJS.ProcessEnv, cwd: string, platform: string, home: string): SettingsPaths"
-      },
-      "language": "technology",
-      "reexports": [],
-      "technologyWords": [
-        "bwrap",
-        "claude",
-        "exec",
-        "socat"
-      ],
-      "types": {
-        "Isolation": "type Isolation = { level: 'full' | 'partial'; mechanism: 'claude-code-sandbox'; gaps: string[]; } | { level: 'none'; why: string; }",
-        "IsolationFacts": "interface IsolationFacts { managed: SettingsLayer; flag: SettingsLayer; local: SettingsLayer; project: SettingsLayer; user: SettingsLayer; platform: string; sandboxExec: boolean; bwrap: boolean; socat: boolean; command: string[]; }",
-        "IsolationReader": "type IsolationReader = () => Isolation",
-        "SettingsLayer": "type SettingsLayer = Record<string, unknown> | null",
-        "SettingsPaths": "interface SettingsPaths { managed: string | null; local: string; project: string; user: string; }"
-      }
-    },
-    "scripts/ports/meter.ts": {
-      "constants": [
-        "DEFAULT_RETRY_AFTER_S"
-      ],
-      "functions": {
-        "retryAfterSeconds": "(response: GhResponse, nowMs: number): number"
-      },
-      "language": "technology",
-      "reexports": [],
-      "technologyWords": [
-        "endpoint",
-        "gh",
-        "git"
-      ],
-      "types": {
-        "GitHubFailed": "class GitHubFailed extends Error { constructor(readonly status: number, endpoint: string, cause?: string) }",
-        "Meter": "class Meter { calls; remaining: number | null; constructor(private readonly gitHub: GitHub, private readonly nowMs: () => number); get(endpoint: string): unknown }",
-        "RateLimited": "class RateLimited extends Error { constructor(readonly status: number, readonly retryAfterSeconds: number) }"
-      }
-    },
-    "scripts/ports/netwatch.ts": {
-      "constants": [
-        "CHECK_MS",
-        "NETWATCH_SCRIPT",
-        "PREFIX",
-        "TECHNOLOGY_WORDS",
-        "TICK_MS",
-        "WAKE_GAP_MS"
-      ],
-      "functions": {
-        "knownOpenPrs": "(db: DatabaseSync): number[]",
-        "lastMain": "(db: DatabaseSync): string | null",
-        "lastObserved": "(db: DatabaseSync, pr: number): PreviousObservation | null",
-        "pollLine": "(poll: Poll): string"
-      },
-      "language": "technology",
-      "reexports": [],
-      "technologyWords": [
-        "database",
-        "git"
-      ],
-      "types": {
-        "NetWatch": "class NetWatch { constructor(private readonly db: DatabaseSync, private readonly gitHub: GitHub, private readonly clock: () => Date, private readonly process: string = RUN_SCRIPT, private readonly root?: string); dueReason(nowMs: number): PollReason | null; poll(): Poll | null }",
-        "Poll": "type Poll = { kind: 'ticked'; reason: PollReason; calls: number; remaining: number | null; written: number; unsettled: number[]; } | { kind: 'skipped'; reason: PollReason; cause: 'retry-after' | 'rate-limited' | 'failed'; calls: number; until?: string; detail?: string; }",
-        "PollReason": "type PollReason = 'start' | 'interval' | 'wake'"
-      }
-    },
-    "scripts/ports/pr-status.ts": {
-      "constants": [
-        "PREFIX",
-        "STATUS_ACTOR",
-        "STATUS_BATCH",
-        "STATUS_CONTEXT",
-        "STATUS_CURSOR",
-        "STATUS_OFF_FILE",
-        "STEP_EVENTS",
-        "TECHNOLOGY_WORDS"
-      ],
-      "functions": {
-        "setStepStatuses": "(db: DatabaseSync, post: GitHubPost, now: () => Date = () => new Date(), batch = STATUS_BATCH): StepStatus[]",
-        "statusFailureLine": "(error: unknown): string",
-        "statusFields": "(status: StepStatus): Record<string, string>",
-        "statusLine": "(status: StepStatus): string",
-        "statusesSwitchedOff": "(busPath: string): boolean",
-        "stepStatusOf": "(event: StepEvent): StepStatus | null"
-      },
-      "language": "technology",
-      "reexports": [
-        "ghApiPost"
-      ],
-      "technologyWords": [
-        "database",
-        "gh",
-        "git"
-      ],
-      "types": {
-        "GitHubPost": "type GitHubPost = GitHubPut",
-        "StatusRefusedForNow": "class StatusRefusedForNow extends Error {  }",
-        "StatusState": "type StatusState = 'pending' | 'success' | 'failure'",
-        "StepEvent": "interface StepEvent { id: number; type: string; pr: number | null; head: string | null; payload: string; }",
-        "StepStatus": "interface StepStatus { pr: number; head: string; step: string; state: StatusState; refused?: number; }"
-      }
-    },
-    "scripts/ports/prepare-tree.ts": {
-      "constants": [
-        "PREPARE_ENV_KEYS",
-        "PREPARE_MS",
-        "PREPARE_TREE",
-        "PROXY_ENV_KEYS"
-      ],
-      "functions": {
-        "browserNotPreinstalledLine": "(tree: string, why: string): string",
-        "notPreparedLine": "(tree: string, why: string): string",
-        "preinstallBrowser": "(tree: string, env: NodeJS.ProcessEnv = process.env, factoryLab: string = FACTORY_LAB): void",
-        "prepareBeforeSession": "(tree: string, prepare: TreePreparer = prepareTree, preinstall: TreePreparer = preinstallBrowser): string | null",
-        "prepareEnv": "(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv",
-        "prepareTree": "(tree: string): void"
-      },
-      "language": "factory",
-      "reexports": [],
-      "technologyWords": [],
-      "types": {
-        "TreePreparer": "type TreePreparer = (tree: string) => void"
-      }
-    },
-    "scripts/ports/prompt-store.ts": {
-      "constants": [
-        "PROMPTS_DIR"
-      ],
-      "functions": {
-        "promptsDirOf": "(busPath: string): string",
-        "sha256": "(text: string): string",
-        "storedInput": "(prompts: string | undefined, input: SessionInput | undefined): StoredInput"
-      },
-      "language": "factory",
-      "reexports": [],
-      "technologyWords": [],
-      "types": {
-        "AnswerInput": "interface AnswerInput extends SessionInput { cardBody: string | null; }",
-        "SessionInput": "interface SessionInput { prompt: string; }",
-        "StoredInput": "type StoredInput = { prompt_sha: string; prompt_path: string; } | { prompt_sha: string; prompt_unstored: string; } | Record<string, never>"
-      }
-    },
-    "scripts/ports/result.ts": {
-      "constants": [],
-      "functions": {
-        "readResultFields": "(reportPath: string): ResultFields"
-      },
-      "language": "factory",
-      "reexports": [],
-      "technologyWords": [],
-      "types": {
-        "ResultFields": "interface ResultFields { resultLine: 'present' | 'missing'; total_cost_usd: number | null; num_turns: number | null; duration_ms: number | null; usage: unknown | null; }"
-      }
-    },
-    "scripts/ports/serve-record.ts": {
-      "constants": [],
-      "functions": {
-        "serveRecordAt": "(tree: string, head: string): ServeRecord | null"
-      },
-      "language": "factory",
-      "reexports": [],
-      "technologyWords": [],
-      "types": {}
-    },
-    "scripts/ports/session.ts": {
-      "constants": [
-        "CARD_VARIABLE",
-        "EXIT_REQUEST_VARIABLE",
-        "LOOP_PID_VARIABLE",
-        "REVIEW_MODEL_VARIABLE",
-        "TECHNOLOGY_WORDS",
-        "WINDOW_MARK",
-        "WINDOW_VARIABLE"
-      ],
-      "functions": {
-        "clientCommand": "(): string",
-        "clientInvocation": "(spec: SessionSpec): Invocation",
-        "headlessInvocation": "(parts: Partial<SessionSpec> = {}): Invocation",
-        "reviewModelOf": "(env: NodeJS.ProcessEnv = process.env): string | undefined",
-        "sessionEnv": "(base: NodeJS.ProcessEnv = process.env, card?: number): NodeJS.ProcessEnv",
-        "spawnReviewSession": "(params: SpawnSessionParams): Promise<number>",
-        "spawnSession": "(params: SpawnSessionParams): Promise<number>",
-        "streamReading": "(stdoutPath: string): SessionReading",
-        "windowModeOf": "(env: NodeJS.ProcessEnv): WindowMode | null",
-        "withoutCard": "(base: NodeJS.ProcessEnv): NodeJS.ProcessEnv",
-        "witnessEnv": "(base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv"
-      },
-      "language": "technology",
-      "reexports": [],
-      "technologyWords": [
-        "spawn",
-        "stderr",
-        "stdout"
-      ],
-      "types": {
-        "SessionCeilingReached": "class SessionCeilingReached extends Error { constructor(readonly sessionId: string, readonly ceilingMs: number) }",
-        "SpawnSessionParams": "interface SpawnSessionParams { cwd: string; sessionId: string; prompt: string; stdoutPath: string; stderrPath: string; env?: NodeJS.ProcessEnv; addDirs?: string[]; model?: string; ceilingMs?: number; role?: Extract<Role, 'review' | 'ghost'>; }",
-        "WindowMode": "type WindowMode = 'loop' | 'tab'"
-      }
-    },
-    "scripts/ports/shift-settings.ts": {
-      "constants": [
-        "CARD_SESSION_SANDBOX",
-        "TSX_PIPE_DIRECTORY"
-      ],
-      "functions": {
-        "settingsFlag": "(settings: ShiftSettings): string[]",
-        "shiftSettings": "(tree: string, gate: ShiftGate, writable: string[] = [], home: string = os.homedir()): ShiftSettings"
-      },
-      "language": "factory",
-      "reexports": [],
-      "technologyWords": [],
-      "types": {
-        "ShiftSettings": "interface ShiftSettings { sandbox: typeof CARD_SESSION_SANDBOX & { excludedCommands?: string[]; filesystem?: { denyWrite: string[]; }; }; permissions: { allow: string[]; deny?: string[]; }; }"
-      }
-    },
-    "scripts/ports/snapshot.ts": {
-      "constants": [
-        "MAIN_BRANCH",
-        "MECHANICS_PATHS",
-        "MERGEABLE_OF_STATE: Record<string, Mergeable>",
-        "OPEN_PULLS_PAGE"
-      ],
-      "functions": {
-        "requiredCheckOf": "(root: string = watchedRoot()): string",
-        "takeSnapshot": "(meter: Meter, known: number[], lastMain: string | null, requiredCheck = REQUIRED_CHECK): Snapshot",
-        "touchesMechanics": "(files: string[]): boolean",
-        "verdictOf": "(meter: Meter, sha: string): VerdictOnHead | null",
-        "watchedRoot": "(): string"
-      },
-      "language": "factory",
-      "reexports": [
-        "ciOf"
-      ],
-      "technologyWords": [],
-      "types": {
-        "ClosedPr": "interface ClosedPr { pr: number; cardId: number | null; branch?: string | null; merged: boolean; commit: string | null; mergedBy: string | null; mergedAt: string | null; }",
-        "MainHead": "interface MainHead { sha: string; touchesMechanics: boolean; }",
-        "Mergeable": "type Mergeable = 'clean' | 'behind' | 'dirty' | 'blocked'",
-        "OpenPr": "interface OpenPr { pr: number; cardId: number | null; base: string; head: string; branch: string | null; mergeable: Mergeable; ciFields: CiObservation; verdictOnHead: VerdictOnHead | null; autoMerge: boolean; draft: boolean; bodySha: string; }",
-        "Snapshot": "interface Snapshot { open: OpenPr[]; closed: ClosedPr[]; unsettled: number[]; main: MainHead | null; }",
-        "VerdictOnHead": "type VerdictOnHead = 'pass' | 'changes'"
-      }
-    },
-    "scripts/ports/task-start.ts": {
-      "constants": [
-        "ADOPT_USAGE",
-        "PREFIX",
-        "TECHNOLOGY_WORDS",
-        "USAGE"
-      ],
-      "functions": {
-        "gitIn": "(cwd: string, args: string[]): string",
-        "realDeps": "(): TaskStartDeps",
-        "runTaskStart": "(argv: string[], deps: TaskStartDeps, handed?: HandedContract): TaskStartResult"
-      },
-      "language": "technology",
-      "reexports": [],
-      "technologyWords": [
-        "argv",
-        "git",
-        "stderr",
-        "stdout"
-      ],
-      "types": {
-        "HandedContract": "interface HandedContract extends Contract { forecast?: CheapForecast; }",
-        "TaskStartDeps": "interface TaskStartDeps { cwd: string; git: (cwd: string, args: string[]) => string; install: (cwd: string, args: string[]) => void; exists: (target: string) => boolean; bus: string; now: () => Date; session: string | undefined; shift?: string; worktreeHome?: string; treeOf?: (id: string) => string; style?: SignalStyle; cardBody?: CardBodyReader; windowLimit?: () => number; }",
-        "TaskStartResult": "interface TaskStartResult { stdout: string[]; stderr: string[]; exitCode: number; worktree?: string; }"
-      }
-    },
-    "scripts/ports/tree-publish.ts": {
-      "constants": [
-        "HTTPS_ORIGIN_ENV: Record<string, string>",
-        "TECHNOLOGY_WORDS",
-        "TREE_PR_ENTRY"
-      ],
-      "functions": {
-        "builtTreePr": "(entry: string): string",
-        "launchDirOf": "(home: string, busPath: string): string",
-        "restoreReport": "(saved: string, worktree: string): void",
-        "savedReportOf": "(launchDir: string, cardId: number): string",
-        "shellWord": "(text: string): string",
-        "treeHoldsACommit": "(worktree: string, base: string): boolean",
-        "treePrCommand": "(repo: string): string",
-        "treePrOfThisBuild": "(repo: string, moduleUrl: string = import.meta.url): string",
-        "treePrPublisher": "(treePr: string, launchDir: string, env: NodeJS.ProcessEnv): (worktree: string, cardId: number) => void"
-      },
-      "language": "technology",
-      "reexports": [],
-      "technologyWords": [
-        "https",
-        "shell"
-      ],
-      "types": {}
-    },
-    "scripts/ports/witnesses.ts": {
-      "constants": [
-        "TECHNOLOGY_WORDS"
-      ],
-      "functions": {
-        "grepMatchProbe": "(command: string): string | null",
-        "grepRefusal": "(witness: Witness, sides: string): string",
-        "runOnTree": "(run: TreeRun, task: TreeTask): void",
-        "runOnTreeAsync": "(run: AsyncTreeRun, task: TreeTask): Promise<void>",
-        "testTargetOf": "(command: string): TestTarget | null"
-      },
-      "language": "technology",
-      "reexports": [],
-      "technologyWords": [
-        "grep",
-        "shell"
-      ],
-      "types": {
-        "AsyncTreeRun": "interface AsyncTreeRun extends TreeContext { shell: (command: string, cwd: string) => Promise<ShellResult>; }",
-        "Refuse": "type Refuse = (step: string, problem: string | null) => void",
-        "TestTarget": "interface TestTarget { file: string; name: string | null; }",
-        "Timer": "type Timer = <T>(name: string, run: () => T) => T",
-        "TreeRun": "interface TreeRun extends TreeContext { shell: Shell; time: Timer; }",
-        "TreeTask": "interface TreeTask { acceptance: Witness[]; invariants: Witness[]; harnessCommand: string | null; sketchSha: string | null; changed: string[] | null; witnessesDir: string; creates: string[]; }",
-        "Witness": "interface Witness { criterion: string; command: string; onBase?: { command: string; stated: string; }; }"
-      }
-    },
-    "scripts/ports/worktree-home.ts": {
-      "constants": [],
-      "functions": {
-        "busStartedTree": "(busPath: string, id: string): string | null",
-        "busWorktreeHome": "(busPath: string): string",
-        "cardTree": "(env: NodeJS.ProcessEnv, busPath: string, id: string, oldHome: string = DEFAULT_WORKTREE_HOME, exists: (target: string) => boolean = existsSync, startedTree: StartedTreeReader = busStartedTree): string",
-        "cardTreeRoots": "(env: NodeJS.ProcessEnv, busPath: string, repo: string): { homes: string[]; perBus: string; }",
-        "taskWorktree": "(home: string, id: string): string"
-      },
-      "language": "factory",
-      "reexports": [
-        "DEFAULT_WORKTREE_HOME",
-        "WORKTREE_HOME_VARIABLE",
-        "worktreeHome"
-      ],
-      "technologyWords": [],
-      "types": {
-        "StartedTreeReader": "type StartedTreeReader = (busPath: string, id: string) => string | null"
-      }
-    },
-    "scripts/ports/worktree.ts": {
-      "constants": [
-        "FREE_TREES",
-        "FREE_TREE_CAPACITY",
-        "LSOF_CLIENT_NAMES",
-        "TECHNOLOGY_WORDS"
-      ],
-      "functions": {
-        "adoptTree": "(deps: TreeDeps, tree: string, branch: string): ReadyTree | RefusedTree",
-        "claudeProcessCwds": "(): ProcessCwds",
-        "cutTree": "(deps: TreeDeps, id: string, branch: string): ReadyTree | RefusedTree",
-        "freeTreeHome": "(tree: string): string",
-        "gitIn": "(cwd: string, args: string[]): string",
-        "gitInAsync": "(cwd, args)",
-        "lastLine": "(output: string): string",
-        "liveSessionHolds": "(tree: string, cwds: () => ProcessCwds = claudeProcessCwds): boolean",
-        "parkTree": "(git: GitRun, repo: string, tree: string, capacity: number): string | null",
-        "pnpmInstall": "(cwd: string, args: string[]): void",
-        "realShell": "(command: string, cwd: string): ShellResult",
-        "stageSketch": "(tree: string, base: string, sketchSha: string): void",
-        "tailLines": "(output: string, count = TAIL_LINES): string",
-        "takeFreeTree": "(git: GitRun, repo: string, target: string, settle: (tree: string) => void): boolean",
-        "treeOriginIn": "(output: string): TreeOrigin | null",
-        "treeOriginLine": "(origin: TreeOrigin): string",
-        "withWorktree": "<T>(repo: string, base: string, run: (tree: string) => T): T",
-        "withWorktreeAsync": "<T>(repo: string, base: string, run: (tree: string) => Promise<T>, turns: SetupTurns, git: GitAsync = gitInAsync): Promise<T>"
-      },
-      "language": "technology",
-      "reexports": [],
-      "technologyWords": [
-        "claude",
-        "git",
-        "lsof",
-        "pnpm",
-        "shell"
-      ],
-      "types": {
-        "GitAsync": "type GitAsync = (cwd: string, args: string[]) => Promise<string>",
-        "GitRun": "type GitRun = (cwd: string, args: string[]) => string",
-        "ReadyTree": "interface ReadyTree { worktree: string; origin?: TreeOrigin; how: string; failedAppend: string; }",
-        "RefusedTree": "interface RefusedTree { refused: string; }",
-        "SetupTurns": "class SetupTurns { take<T>(step: () => Promise<T>): Promise<T> }",
-        "Shell": "type Shell = (command: string, cwd: string) => ShellResult",
-        "ShellResult": "interface ShellResult { status: number | null; output: string; }",
-        "TreeDeps": "interface TreeDeps { cwd: string; git: (cwd: string, args: string[]) => string; install: (cwd: string, args: string[]) => void; exists: (target: string) => boolean; worktreeHome?: string; treeOf?: (id: string) => string; }",
-        "TreeOrigin": "type TreeOrigin = 'reused' | 'cut'"
-      }
-    }
+    "portsVersion": 2
   }
 }

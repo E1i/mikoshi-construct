@@ -134,7 +134,7 @@ describe('contract/factory.json', () => {
   }, GENERATION_TIMEOUT)
 
   it('every module under scripts/ports has its exported functions and types with signatures', () => {
-    const { ports } = generated()
+    const { ports: { modules: ports } } = generated()
 
     expect(Object.keys(ports)).toEqual(modulesUnderPorts())
     for (const [file, module] of Object.entries(ports))

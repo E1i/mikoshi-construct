@@ -10,6 +10,13 @@ export interface PortModule {
   reexports: string[]
 }
 
+export interface PortsSection {
+  portsVersion: number
+  modules: Record<string, PortModule>
+}
+
+export const PORTS_VERSION = 2
+
 const PORTS_TREE = FACTORY_FOLDERS.sharedCode.find(folder => folder.endsWith('/ports'))!
 const DEFAULT_EXPORT = 'default'
 const printer = ts.createPrinter({ removeComments: true, omitTrailingSemicolon: true })
@@ -94,6 +101,6 @@ function moduleOf({ source }: ParsedFile): PortModule {
   return { ...module, constants: module.constants.sort(), reexports: module.reexports.sort() }
 }
 
-export function portsSection(root: string): Record<string, PortModule> {
-  return Object.fromEntries(parsedFiles(root, [PORTS_TREE]).map(parsed => [parsed.file, moduleOf(parsed)]))
+export function portsSection(root: string): PortsSection {
+  return { portsVersion: PORTS_VERSION, modules: Object.fromEntries(parsedFiles(root, [PORTS_TREE]).map(parsed => [parsed.file, moduleOf(parsed)])) }
 }

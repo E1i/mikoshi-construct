@@ -30,7 +30,7 @@ function port(parts: Partial<PortModule>): PortModule {
 
 describe('the language each port speaks in contract/factory.json', () => {
   it('every port in the contract says whether it speaks the factory or a technology', () => {
-    const { ports } = JSON.parse(readFileSync(RECORDED, 'utf8')) as Factory
+    const { modules: ports } = (JSON.parse(readFileSync(RECORDED, 'utf8')) as Factory).ports
     const declared = technologyVocabulary()
 
     expect(Object.keys(ports).length).toBeGreaterThan(0)
@@ -52,7 +52,7 @@ describe('the language each port speaks in contract/factory.json', () => {
       'plain.ts': `export function cardTitle(card: number): string { return String(card) }\n`,
     })
     const vocabulary = technologyVocabulary(root)
-    const ports = portsSection(root)
+    const ports = portsSection(root).modules
 
     expect(readFileSync(GENERATOR, 'utf8')).not.toContain('frobnicator')
     expect(vocabulary.has('frobnicator')).toBe(true)

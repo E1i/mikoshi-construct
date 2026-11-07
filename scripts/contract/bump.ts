@@ -9,12 +9,14 @@ import process from 'node:process'
 import { parseArgs } from 'node:util'
 import { GENERATED_FILES } from '../core/generated-files.js'
 import { BUMP_LEVELS, declaredLevel, headVersion } from './declared.js'
+import { factoryVerdicts } from './factory-bump.js'
 import { cliArgs, cliEnv, failureLine, tagCli } from './json-samples.js'
 import { requiredChange, SECTIONS, unbaselined } from './semantic-diff.js'
 import { SURFACE_VERSION, tagSurfaceReading } from './surface.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../..')
 const SURFACE_FILE = GENERATED_FILES.surface.path
+const FACTORY_FILE = GENERATED_FILES.factory.path
 const UNVERSIONED_SURFACE = 1
 
 export interface RefReading {
@@ -40,12 +42,22 @@ function gitShow(root: string, ref: string, file: string): string {
   return execFileSync('git', ['show', `${ref}:${file}`], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
 }
 
-function tagSurface(root: string, tag: string): unknown {
+function recordAt(root: string, ref: string, file: string): unknown {
   try {
-    return JSON.parse(gitShow(root, tag, SURFACE_FILE)) as unknown
+    return JSON.parse(gitShow(root, ref, file)) as unknown
   }
   catch {
     return null
+  }
+}
+
+export function factoryGate(baseRef: string, base: unknown, head: unknown): { red: boolean, lines: string[] } {
+  if (base === null)
+    return { red: false, lines: [`[contract:bump] ${baseRef} carries no ${FACTORY_FILE}, so no section version of it is compared`] }
+  const verdicts = factoryVerdicts(base, head)
+  return {
+    red: verdicts.some(verdict => verdict.red),
+    lines: [`[contract:bump] ${FACTORY_FILE} sections against ${baseRef}:`, ...verdicts.map(verdict => `  ${verdict.red ? 'red' : 'ok'} ${verdict.line}`)],
   }
 }
 
@@ -132,7 +144,7 @@ export function isWeaker(declared: BumpLevel, required: BumpLevel): boolean {
 }
 
 function readingAt(root: string, ref: string, role: Role): RefReading {
-  return refReading(tagSurface(root, ref), ref, role, why => generatedFromCode(root, ref, role, why, TAG_CLI))
+  return refReading(recordAt(root, ref, SURFACE_FILE), ref, role, why => generatedFromCode(root, ref, role, why, TAG_CLI))
 }
 
 function requiredLines(tag: string, reading: RefReading, head: SurfaceReading, version: string): { required: BumpLevel, lines: string[] } {
@@ -152,7 +164,8 @@ function runPair(root: string, baseRef: string, headRef: string): number {
   const head = readingAt(root, headRef, 'head')
   const version = (JSON.parse(gitShow(root, headRef, 'package.json')) as { version: string }).version
   const { lines } = requiredLines(baseRef, readingAt(root, baseRef, 'base'), head.reading, version)
-  console.warn([...lines, `head ${headRef}: ${head.note}`, `head ${headRef}: the declared level is not compared for an explicit --base/--head pair`].join('\n'))
+  const factory = factoryGate(baseRef, recordAt(root, baseRef, FACTORY_FILE), recordAt(root, headRef, FACTORY_FILE))
+  console.warn([...lines, `head ${headRef}: ${head.note}`, `head ${headRef}: the declared level is not compared for an explicit --base/--head pair`, ...factory.lines].join('\n'))
   return 0
 }
 
@@ -162,11 +175,14 @@ function run(root: string): number {
   const { required, lines } = requiredLines(tag, readingAt(root, tag, 'base'), head, headVersion(root))
   const declared = declaredLevel(root, tag)
   lines.splice(2, 0, `declared: ${declared}`)
-  if (isWeaker(declared, required)) {
-    console.error([...lines, `declared ${declared} is weaker than required ${required}: add a changeset of level ${required} for mikoshi-construct`].join('\n'))
+  const factory = factoryGate(tag, recordAt(root, tag, FACTORY_FILE), JSON.parse(readFileSync(path.join(root, FACTORY_FILE), 'utf8')) as unknown)
+  const weaker = isWeaker(declared, required)
+  const report = [...lines, ...(weaker ? [`declared ${declared} is weaker than required ${required}: add a changeset of level ${required} for mikoshi-construct`] : []), ...factory.lines].join('\n')
+  if (weaker || factory.red) {
+    console.error(report)
     return 1
   }
-  console.warn(lines.join('\n'))
+  console.warn(report)
   return 0
 }
 

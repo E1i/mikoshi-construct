@@ -1,13 +1,17 @@
 import type { BusSection } from './factory/bus.js'
+import type { CardSection } from './factory/card.js'
 import type { Axis, Concept } from './factory/concepts.js'
-import type { PortModule } from './factory/ports.js'
+import type { NodesSection } from './factory/nodes.js'
+import type { PortModule, PortsSection } from './factory/ports.js'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import ts from 'typescript'
 import { FACTORY_FOLDERS } from '../core/factory-paths.js'
 import { clientAdapter } from '../ports/client/index.js'
 import { busSection } from './factory/bus.js'
+import { cardSection } from './factory/card.js'
 import { CONCEPTS } from './factory/concepts.js'
+import { nodesSection } from './factory/nodes.js'
 import { findSites, overlapsSection } from './factory/overlaps.js'
 import { portsSection } from './factory/ports.js'
 import { parsedFiles } from './factory/walk.js'
@@ -47,10 +51,16 @@ export interface FactoryPort extends PortModule {
   technologyWords: string[]
 }
 
+export interface FactoryPorts extends Omit<PortsSection, 'modules'> {
+  modules: Record<string, FactoryPort>
+}
+
 export interface Factory {
   factoryVersion: number
-  ports: Record<string, FactoryPort>
+  ports: FactoryPorts
   bus: BusSection
+  card: CardSection
+  nodes: NodesSection
   concepts: Record<string, FactoryConcept>
   overlaps: Record<string, Record<string, number>>
 }
@@ -107,8 +117,8 @@ export function portLanguage(module: PortModule, vocabulary: ReadonlySet<string>
   return { ...module, language: technologyWords.length === 0 ? 'factory' : 'technology', technologyWords }
 }
 
-function markedPorts(ports: Record<string, PortModule>, vocabulary: ReadonlySet<string>): Record<string, FactoryPort> {
-  return Object.fromEntries(Object.entries(ports).map(([file, module]) => [file, portLanguage(module, vocabulary)]))
+function markedPorts({ modules, ...versioned }: PortsSection, vocabulary: ReadonlySet<string>): FactoryPorts {
+  return { ...versioned, modules: Object.fromEntries(Object.entries(modules).map(([file, module]) => [file, portLanguage(module, vocabulary)])) }
 }
 
 function acceptedConcepts(root: string): AcceptedConcepts {
@@ -121,6 +131,8 @@ export function generateFactory(root: string = REPO_ROOT): Factory {
     factoryVersion: FACTORY_VERSION,
     ports: markedPorts(portsSection(root), technologyVocabulary(root)),
     bus: busSection(root),
+    card: cardSection(root),
+    nodes: nodesSection(),
     concepts: conceptsSection(acceptedConcepts(root)),
     overlaps: overlapsSection(findSites(root)),
   }
