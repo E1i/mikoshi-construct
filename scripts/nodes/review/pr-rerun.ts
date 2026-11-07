@@ -1,7 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { PushPolicy } from '../../../src/commands/attach/record.js'
 import type { CommandResult, GhResponse, GitHub, GitHubPut } from '../../ports/github.js'
-import { existsSync, readFileSync, realpathSync } from 'node:fs'
+import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs'
 import path from 'node:path'
 import { appendEvent } from '../../core/db.js'
 import { messageOf } from '../../core/errors.js'
@@ -72,7 +72,7 @@ abstract class CardPrWrite<A, W> {
     if (verdict.kind === 'denied')
       return this.denied(attempt, pr, null, verdict.rule, verdict.detail)
     const pull: CardPull = { pr, cardId: verdict.cardId, head: String(read.head?.sha ?? ''), body: String(read.body ?? '') }
-    const prepared = this.prepare(pull, asked)
+    const prepared = this.prepared(pull, asked)
     if (prepared.kind === 'failed')
       return { done: false, why: prepared.detail }
     if (prepared.kind === 'denied')
@@ -81,6 +81,15 @@ abstract class CardPrWrite<A, W> {
     const written = this.written(pull, prepared.write)
     this.record(attempt, pr, pull.cardId, COMMAND_EXECUTED, this.keyOf(COMMAND_EXECUTED, attempt), { command: this.command, ...written.result, ...written.fields })
     return { done: written.result.ok, why: written.detail }
+  }
+
+  private prepared(pull: CardPull, asked: A): Prepared<W> {
+    try {
+      return this.prepare(pull, asked)
+    }
+    catch (error) {
+      return { kind: 'failed', detail: `could not ${this.verb} PR #${pull.pr}: ${messageOf(error)}` }
+    }
   }
 
   private written(pull: CardPull, write: W): Written {
@@ -162,7 +171,7 @@ export class PrBodyFileAppender extends CardPrWrite<string, string> {
 
   protected prepare(pull: CardPull, file: string): Prepared<string> {
     const tree = this.treeOf(pull.cardId)
-    if (!path.isAbsolute(file) || !existsSync(file) || !existsSync(tree) || !insideOf(realpathSync(tree), realpathSync(file)))
+    if (!path.isAbsolute(file) || !existsSync(file) || !statSync(file).isFile() || !existsSync(tree) || !insideOf(realpathSync(tree), realpathSync(file)))
       return { kind: 'denied', rule: 'outside_tree', detail: `${file} is not a file in the tree ${tree} of card #${pull.cardId}` }
     const text = readFileSync(file, 'utf8').trim()
     if (text === '')

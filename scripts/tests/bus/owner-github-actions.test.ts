@@ -1,4 +1,5 @@
 import type { PushPolicy } from '../../../src/commands/attach/record.js'
+import type { GitHub } from '../../ports/github.js'
 import type { FakeRun } from './github-fake.js'
 import type { MergeBench } from './merge-bench.js'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
@@ -7,7 +8,7 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { MERGED_CARD } from '../../core/card-automaton.js'
 import { CLOSED_WAIT, openOwnerWait, OWNER_WAITS } from '../../core/db.js'
-import { COMMAND_EXECUTED, POLICY_ALLOWED, POLICY_DENIED, PR_CLOSED } from '../../core/events.js'
+import { COMMAND_EXECUTED, POLICY_ALLOWED, POLICY_DENIED, PR_CLOSED, REQUEST_REFUSED, WINDOW_REQUEST } from '../../core/events.js'
 import { QUEUE_ACTOR } from '../../core/queue.js'
 import { PrCloser } from '../../nodes/review/pr-close.js'
 import { CiRerunner, PrBodyFileAppender } from '../../nodes/review/pr-rerun.js'
@@ -49,9 +50,9 @@ function cardTree(): string {
   return tree
 }
 
-function requests(bench: MergeBench, tree = '/nowhere', pushPolicy: () => PushPolicy = () => 'bus'): WindowRequests {
+function requests(bench: MergeBench, tree = '/nowhere', pushPolicy: () => PushPolicy = () => 'bus', gitHub: GitHub = bench.gitHub.client): WindowRequests {
   const closer = new PrCloser(bench.db, bench.gitHub.client, bench.gitHub.patch, bench.clock.now)
-  const parts = { db: bench.db, gitHub: bench.gitHub.client, clock: bench.clock.now, pushPolicy }
+  const parts = { db: bench.db, gitHub, clock: bench.clock.now, pushPolicy }
   const appender = new PrBodyFileAppender(parts, bench.gitHub.patch, cardId => cardId === CARD ? tree : '/nowhere')
   const rerunner = new CiRerunner(parts, bench.gitHub.post)
   return new WindowRequests(bench.db, bench.clock.now, {
@@ -160,6 +161,30 @@ describe('the owner\'s GitHub actions go through bus:request', () => {
 
     for (const bench of [green, again, noCard])
       expect(bench.gitHub.reruns).toEqual([])
+  })
+
+  it('a directory in the card tree and a runs read that throws are refused answers, not unanswered requests', () => {
+    const tree = cardTree()
+    const bench = benchWithOpenPr({ runs: [FAILED_RUN] })
+    const directory = ask(bench, { kind: 'pr.body', pr: PR, file: tree })
+    const nested = path.join(tree, 'nested')
+    mkdirSync(nested)
+    const inner = ask(bench, { kind: 'pr.body', pr: PR, file: nested })
+    expect(requests(bench, tree).run()).toMatchObject([{ kind: 'refused', request: directory }, { kind: 'refused', request: inner }])
+    expect(deniedRules(bench, 'body')).toEqual(['outside_tree', 'outside_tree'])
+
+    const throwing: GitHub = (endpoint) => {
+      if (endpoint.includes('/actions/runs'))
+        throw new Error('socket hang up')
+      return bench.gitHub.client(endpoint)
+    }
+    const rerun = ask(bench, { kind: 'ci.rerun', pr: PR })
+    expect(requests(bench, tree, () => 'bus', throwing).run()).toMatchObject([{ kind: 'refused', request: rerun, detail: expect.stringContaining('socket hang up') }])
+    for (const request of [directory, inner, rerun])
+      expect(bench.db.prepare('SELECT type FROM events WHERE dedupe_key = ?').get(`${WINDOW_REQUEST}:${request}:answered`)).toEqual({ type: REQUEST_REFUSED })
+    expect(requests(bench, tree).run()).toEqual([])
+    expect(bench.gitHub.reruns).toEqual([])
+    expect(bench.gitHub.closes).toEqual([])
   })
 
   it('a pull request closed, reopened and merged ends its card and closes its merge wait', () => {
