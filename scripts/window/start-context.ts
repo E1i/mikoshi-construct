@@ -3,12 +3,13 @@ import { readFileSync, realpathSync } from 'node:fs'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { lastSessionPrompted, startContextOf } from '../ports/client/claude/adapter.js'
-import { MIKO_HANDOFF_NAME } from './loop.js'
+import { CONTINUE_PROMPT } from './loop.js'
 
 export const FIRST_TURN_LIMIT = 45_000
 export const FIRST_WATCH_LIMIT = 70_000
 export const WATCH_MARKER = 'miko:watch'
 const LAST_FLAG = '--last'
+export const WINDOW_PROMPT_START = CONTINUE_PROMPT.slice(0, CONTINUE_PROMPT.indexOf(';'))
 
 export interface StartVerdict {
   pass: boolean
@@ -31,7 +32,7 @@ export function verdictOf(context: StartContext): StartVerdict {
 export function startContextReport(env: NodeJS.ProcessEnv, worktree: string, args: readonly string[]): StartVerdict {
   if (!args.includes(LAST_FLAG))
     return { pass: false, lines: [`usage: start-context.ts ${LAST_FLAG}`] }
-  const transcript = lastSessionPrompted(env, worktree, MIKO_HANDOFF_NAME)
+  const transcript = lastSessionPrompted(env, worktree, WINDOW_PROMPT_START)
   if (transcript === null)
     return { pass: false, lines: [`no window session in ${worktree}`] }
   const verdict = verdictOf(startContextOf(readFileSync(transcript, 'utf8'), WATCH_MARKER))

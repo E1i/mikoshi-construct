@@ -385,12 +385,12 @@ function firstPromptOf(transcript: string): string {
   return promptText(prompt?.message?.content)
 }
 
-export function lastSessionPrompted(env: NodeJS.ProcessEnv, worktree: string, promptPart: string): string | null {
+export function lastSessionPrompted(env: NodeJS.ProcessEnv, worktree: string, promptStart: string): string | null {
   const dir = projectDirOf(clientHome(env), worktree)
   if (!existsSync(dir))
     return null
   const newestFirst = readdirSync(dir).filter(name => name.endsWith('.jsonl')).map(name => path.join(dir, name)).sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs)
-  return newestFirst.find(file => firstPromptOf(readFileSync(file, 'utf8')).includes(promptPart)) ?? null
+  return newestFirst.find(file => firstPromptOf(readFileSync(file, 'utf8')).startsWith(promptStart)) ?? null
 }
 
 function textOf(file: string | null): string | null {

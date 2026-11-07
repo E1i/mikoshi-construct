@@ -1365,6 +1365,7 @@
       ],
       "technologyWords": [
         "database",
+        "endpoint",
         "gh",
         "git"
       ],
@@ -1402,7 +1403,7 @@
         "clientTranscript": "(env: NodeJS.ProcessEnv, worktree: string, session: string): string | null",
         "findTranscript": "(home: string, session: string): string | null",
         "hasClientTranscript": "(env: NodeJS.ProcessEnv, worktree: string, session: string): boolean",
-        "lastSessionPrompted": "(env: NodeJS.ProcessEnv, worktree: string, promptPart: string): string | null",
+        "lastSessionPrompted": "(env: NodeJS.ProcessEnv, worktree: string, promptStart: string): string | null",
         "measuredSession": "(root: string, transcript: string): { context: number; spent: number; }",
         "measuredSpent": "(root: string, transcript: string): number",
         "measuredSubagents": "(root: string, transcript: string): MeasuredSubagent[]",
