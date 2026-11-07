@@ -42,14 +42,17 @@ The window's first line to the person, while it reads the handoff, names where t
 
 ## Procedures
 
+Read only the lines a pointer names (Read with offset and limit), never the whole of window.md. The start reading of
+the cards is `pnpm board --json --live`, never the whole `pnpm board --json`.
+
 - тупик карты — сначала навык window-recipes
-- Before a question about the state of work, or while any Ghost is running, read [window.md § Status and the board](window.md#status-and-the-board).
-- Before committing, opening or merging a pull request, cutting a branch or writing a changeset, read [window.md § Pull requests and branches](window.md#pull-requests-and-branches).
-- Before a merge to `main` while a version pull request is open, read [window.md § The version pull request lock](window.md#the-version-pull-request-lock).
-- Before taking new work after a finished step, read [window.md § The boundary](window.md#the-boundary).
-- Before launching a role, or after a pull that touches `.claude/agents/**`, read [window.md § Role definitions are read when a session starts](window.md#role-definitions-are-read-when-a-session-starts).
-- Before choosing the contour of a task, read [window.md § Choosing the contour: cheap path or ladder path](window.md#choosing-the-contour-cheap-path-or-ladder-path).
-- Before launching a Ghost, approving a brief or naming a task, read [window.md § Ghosts](window.md#ghosts).
-- Before publishing a release note, a changeset, a README line or a record, read [window.md § Published claims](window.md#published-claims).
-- Before giving a verdict on a run, read [window.md § Giving the verdict](window.md#giving-the-verdict).
-- Before mutating, or briefing a subagent that mutates, read [window.md § Mutations](window.md#mutations).
+- Before a question about the state of work, or while any Ghost is running, read [window.md § Status and the board, lines 5–35](window.md#status-and-the-board).
+- Before committing, opening or merging a pull request, cutting a branch or writing a changeset, read [window.md § Pull requests and branches, lines 265–297](window.md#pull-requests-and-branches).
+- Before a merge to `main` while a version pull request is open, read [window.md § The version pull request lock, lines 298–307](window.md#the-version-pull-request-lock).
+- Before taking new work after a finished step, read [window.md § The boundary, lines 36–182](window.md#the-boundary).
+- Before launching a role, or after a pull that touches `.claude/agents/**`, read [window.md § Role definitions are read when a session starts, lines 319–331](window.md#role-definitions-are-read-when-a-session-starts).
+- Before choosing the contour of a task, read [window.md § Choosing the contour: cheap path or ladder path, lines 332–413](window.md#choosing-the-contour-cheap-path-or-ladder-path).
+- Before launching a Ghost, approving a brief or naming a task, read [window.md § Ghosts, lines 414–551](window.md#ghosts).
+- Before publishing a release note, a changeset, a README line or a record, read [window.md § Published claims, lines 308–318](window.md#published-claims).
+- Before giving a verdict on a run, read [window.md § Giving the verdict, lines 562–581](window.md#giving-the-verdict).
+- Before mutating, or briefing a subagent that mutates, read [window.md § Mutations, lines 552–561](window.md#mutations).

@@ -1675,7 +1675,10 @@
           "SESSION_VARIABLE",
           "USER_SETTINGS",
           "WINDOW_COMMAND_VARIABLE",
+          "WINDOW_KEPT_TOOLS",
+          "WINDOW_MCP_CONFIG",
           "WINDOW_RESUME_REFUSAL",
+          "WINDOW_UNUSED_TOOLS",
           "claudeAdapter: ClientAdapter"
         ],
         "functions": {
@@ -1685,6 +1688,7 @@
           "clientTranscript": "(env: NodeJS.ProcessEnv, worktree: string, session: string): string | null",
           "findTranscript": "(home: string, session: string): string | null",
           "hasClientTranscript": "(env: NodeJS.ProcessEnv, worktree: string, session: string): boolean",
+          "lastSessionPrompted": "(env: NodeJS.ProcessEnv, worktree: string, promptStart: string): string | null",
           "measuredSession": "(root: string, transcript: string): { context: number; spent: number; }",
           "measuredSpent": "(root: string, transcript: string): number",
           "measuredSubagents": "(root: string, transcript: string): MeasuredSubagent[]",
@@ -1692,6 +1696,7 @@
           "parseSessionJournal": "(text: string, worktree: string): CommandJournal",
           "rawUsageIn": "(stdoutPath: string): unknown | null",
           "spendBasis": "(): string",
+          "startContextOf": "(transcript: string, marker: string): StartContext",
           "stoppedTasksOf": "(transcript: string): Set<string>",
           "transcriptContext": "(text: string): number | null",
           "transcriptCounters": "(text: string): { start: TranscriptCounters | null; end: TranscriptCounters | null; startedAt: string | null; }",
@@ -1708,6 +1713,7 @@
         "types": {
           "CommandJournal": "interface CommandJournal extends SessionJournal { commandRuns: readonly CommandRun[]; }",
           "MeasuredSubagent": "interface MeasuredSubagent { name: string; context: number; spent: number; at: string; }",
+          "StartContext": "interface StartContext { firstTurn: number | null; atMarker: number | null; }",
           "TranscriptCounters": "interface TranscriptCounters { input: number; cache_write: number; cache_read: number; }"
         }
       },

@@ -58,6 +58,25 @@ afterEach(() => {
     rmSync(root, { recursive: true, force: true })
 })
 
+const SECTION_POINTER = /\[window\.md § ([^\]]+), lines (\d+)–(\d+)\]\(window\.md#[^)]+\)/g
+const ANY_WINDOW_MD_LINK = /\]\(window\.md[#)]/g
+
+function sectionRanges(text: string): Map<string, [number, number]> {
+  const lines = text.endsWith('\n') ? text.slice(0, -1).split('\n') : text.split('\n')
+  const heads = lines.flatMap((line, at) => line.startsWith('## ') ? [{ title: line.slice(3), line: at + 1 }] : [])
+  return new Map(heads.map((head, at) => [head.title, [head.line, at + 1 < heads.length ? heads[at + 1]!.line - 1 : lines.length]]))
+}
+
+it('every window.md pointer in window-core names its section with a line range that matches the file', () => {
+  const core = readFileSync(path.join(REPO_ROOT, 'architecture', 'window-core.md'), 'utf8')
+  const ranges = sectionRanges(readFileSync(path.join(REPO_ROOT, 'architecture', 'window.md'), 'utf8'))
+  const pointers = [...core.matchAll(SECTION_POINTER)]
+  expect(pointers.length).toBeGreaterThan(0)
+  expect(pointers).toHaveLength([...core.matchAll(ANY_WINDOW_MD_LINK)].length)
+  for (const [, title, start, end] of pointers)
+    expect([Number(start), Number(end)], title).toEqual(ranges.get(title!))
+})
+
 describe('the window-core SessionStart hook', () => {
   it('prints exactly one additionalContext equal to the file text', () => {
     const result = run(project(true))

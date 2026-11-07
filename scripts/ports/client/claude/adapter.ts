@@ -4,6 +4,7 @@ import { createRequire } from 'node:module'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
+import { FACTORY_RUNTIME } from '../../../core/factory-paths.js'
 import { commandWords } from '../../isolation.js'
 import { reviewModelOf } from '../../session.js'
 import { settingsFlag, shiftSettings } from '../../shift-settings.js'
@@ -40,6 +41,11 @@ const ANY_LINE_BREAK = /\r\n?|[\n\p{Zl}\p{Zp}]/u
 const REPO_ROOT = path.join(import.meta.dirname, '..', '..', '..', '..')
 const HOOK_MEASURE_MODULE = path.join(REPO_ROOT, '.claude', 'hooks', 'eddies-measure.mjs')
 const TASK_STOP = 'TaskStop'
+export const WINDOW_MCP_CONFIG = path.join(REPO_ROOT, path.dirname(FACTORY_RUNTIME.mikoLoopEntry), 'window-mcp.json')
+export const WINDOW_UNUSED_TOOLS = ['Artifact', 'Workflow', 'AskUserQuestion', 'ScheduleWakeup', 'ReportFindings'] as const
+export const WINDOW_KEPT_TOOLS = ['Bash', 'Read', 'Edit', 'Write', 'CronCreate', 'CronDelete', 'CronList', 'Monitor', 'Agent', 'ListAgents', 'Skill', 'ToolSearch', 'SendMessage', TASK_STOP] as const
+const WINDOW_DIET = ['--setting-sources', 'project,local', MCP_OFF_FLAG, '--mcp-config', WINDOW_MCP_CONFIG, '--disallowedTools', WINDOW_UNUSED_TOOLS.join(',')] as const
+const WINDOW_FLAGS = [...WINDOW_DIET, ...CARD_PERMISSION] as const
 
 export const WINDOW_COMMAND_VARIABLE = 'MIKO_CLAUDE'
 export const CLIENT_SANDBOX_DIRECTORY = path.join('/tmp', `claude-${os.userInfo().uid}`)
@@ -112,7 +118,7 @@ function cardSession(spec: SessionSpec): Invocation {
 function windowSession(spec: SessionSpec): Invocation | Refusal {
   if (spec.kind === 'resume')
     return { kind: 'refused', reason: WINDOW_RESUME_REFUSAL }
-  return invocationOf([...CARD_PERMISSION, ...selectionOf(spec), ...(spec.prompt === '' ? [] : [spec.prompt])], null, WINDOW_ENV)
+  return invocationOf([...WINDOW_FLAGS, ...selectionOf(spec), ...(spec.prompt === '' ? [] : [spec.prompt])], null, WINDOW_ENV)
 }
 
 const SESSION_OF_ROLE: Record<Role, (spec: SessionSpec) => Invocation | Refusal> = {
@@ -179,7 +185,7 @@ export const claudeAdapter: ClientAdapter = {
 }
 
 export function windowCommand(env: NodeJS.ProcessEnv): string {
-  return env[WINDOW_COMMAND_VARIABLE] ?? [CLAUDE_COMMAND, ...CARD_PERMISSION].join(' ')
+  return env[WINDOW_COMMAND_VARIABLE] ?? [CLAUDE_COMMAND, ...WINDOW_FLAGS].join(' ')
 }
 
 interface HookTokens {
@@ -344,8 +350,47 @@ export function clientHome(env: NodeJS.ProcessEnv): string {
   return env[CONFIG_DIR_VARIABLE] || path.join(os.homedir(), '.claude')
 }
 
+function projectDirOf(claudeHome: string, worktree: string): string {
+  return path.join(claudeHome, 'projects', worktree.replace(/[^a-z0-9]/gi, '-'))
+}
+
 export function transcriptFile(claudeHome: string, worktree: string, session: string): string | null {
-  return PLAIN_SESSION.test(session) ? path.join(claudeHome, 'projects', worktree.replace(/[^a-z0-9]/gi, '-'), `${session}.jsonl`) : null
+  return PLAIN_SESSION.test(session) ? path.join(projectDirOf(claudeHome, worktree), `${session}.jsonl`) : null
+}
+
+export interface StartContext {
+  firstTurn: number | null
+  atMarker: number | null
+}
+
+function runsCommandWith(content: unknown, marker: string): boolean {
+  const blocks = (Array.isArray(content) ? content : []) as { type?: unknown, name?: unknown, input?: { command?: unknown } }[]
+  return blocks.some(block => block?.type === 'tool_use' && block.name === EXEC_TOOL && typeof block.input?.command === 'string' && block.input.command.includes(marker))
+}
+
+export function startContextOf(transcript: string, marker: string): StartContext {
+  const reported = entriesOf(transcript).filter(entry => entry.message?.role === 'assistant' && entry.message.usage != null)
+  const contextAt = (entry: TranscriptEntry | undefined): number | null => entry === undefined ? null : reportedContextOf(entry.message!.usage!)
+  return { firstTurn: contextAt(reported.at(0)), atMarker: contextAt(reported.find(entry => runsCommandWith(entry.message!.content, marker))) }
+}
+
+function promptText(content: unknown): string {
+  if (typeof content === 'string')
+    return content
+  return ((Array.isArray(content) ? content : []) as { type?: unknown, text?: unknown }[]).map(part => part?.type === 'text' && typeof part.text === 'string' ? part.text : '').join('')
+}
+
+function firstPromptOf(transcript: string): string {
+  const prompt = entriesOf(transcript).find(entry => entry.type === 'user' && entry.isMeta !== true && entry.isSidechain !== true)
+  return promptText(prompt?.message?.content)
+}
+
+export function lastSessionPrompted(env: NodeJS.ProcessEnv, worktree: string, promptStart: string): string | null {
+  const dir = projectDirOf(clientHome(env), worktree)
+  if (!existsSync(dir))
+    return null
+  const newestFirst = readdirSync(dir).filter(name => name.endsWith('.jsonl')).map(name => path.join(dir, name)).sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs)
+  return newestFirst.find(file => firstPromptOf(readFileSync(file, 'utf8')).startsWith(promptStart)) ?? null
 }
 
 function textOf(file: string | null): string | null {

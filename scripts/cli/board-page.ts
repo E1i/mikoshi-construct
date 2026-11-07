@@ -1760,11 +1760,11 @@ export function busDownText(down: BusDown): string {
   return `${[busDownLine(down), snapshotLine(down), ...(waits.length === 0 ? ['no open owner wait in the last snapshot or the handoff'] : waits.map(wait => `waits for you: ${wait}`))].join('\n')}\n`
 }
 
-export function busJson(db: DatabaseSync, now: Date): string {
+export function busJson(db: DatabaseSync, now: Date, liveOnly = false): string {
   const facts = busFacts(db, now)
   const prs = cardPrs(db)
   const events = latestCardEvents(db, EVENTS_PER_CARD)
-  return `${JSON.stringify({ status: 'live', at: facts.at, pulse: facts.pulse, waits: facts.waits, cards: facts.cards.map(card => ({ id: card.id, stage: card.stage, state: card.state, lane: card.lane, pr: prs.get(card.id) ?? null, line: card.line, events: events.get(card.id) ?? [] })), tasks: openTasks(db) }, null, 2)}\n`
+  return `${JSON.stringify({ status: 'live', at: facts.at, pulse: facts.pulse, waits: facts.waits, cards: (liveOnly ? facts.cards.filter(isLive) : facts.cards).map(card => ({ id: card.id, stage: card.stage, state: card.state, lane: card.lane, pr: prs.get(card.id) ?? null, line: card.line, events: events.get(card.id) ?? [] })), tasks: openTasks(db) }, null, 2)}\n`
 }
 
 export function renderBoard(page: BoardPage): string {
@@ -1845,11 +1845,11 @@ function mainUpToDateOfThisRepository(): MainUpToDate {
   return new MainUpToDate(ghApi(process.cwd()), Date.now)
 }
 
-function boardText(busPath: string, now: Date, handoffFile: string, format: BoardFormat, eddiesFile: string): string {
+function boardText(busPath: string, now: Date, handoffFile: string, format: BoardFormat, eddiesFile: string, liveOnly: boolean): string {
   const db = openDatabase(busPath, { readOnly: true, timeout: BUSY_TIMEOUT_MS })
   try {
     if (format !== 'html')
-      return format === 'json' ? busJson(db, now) : `${screenLines(busFacts(db, now), PLAIN_LORE).join('\n')}\n`
+      return format === 'json' ? busJson(db, now, liveOnly) : `${screenLines(busFacts(db, now), PLAIN_LORE).join('\n')}\n`
     return renderBoard(boardPageOf(db, busPath, now, handoffFile, null, mainUpToDateOfThisRepository(), eddiesFile))
   }
   finally {
@@ -1857,10 +1857,10 @@ function boardText(busPath: string, now: Date, handoffFile: string, format: Boar
   }
 }
 
-export function printBoard(busPath: string, now: Date, write: (text: string) => void, handoffFile: string = HANDOFF_FILE, format: BoardFormat = 'text', eddiesFile: string = EDDIES_FILE): number {
+export function printBoard(busPath: string, now: Date, write: (text: string) => void, handoffFile: string = HANDOFF_FILE, format: BoardFormat = 'text', eddiesFile: string = EDDIES_FILE, liveOnly = false): number {
   let text: string
   try {
-    text = boardText(busPath, now, handoffFile, format, eddiesFile)
+    text = boardText(busPath, now, handoffFile, format, eddiesFile, liveOnly)
   }
   catch (error) {
     const down = busDownOf(now, error instanceof Error ? error.message.split('\n')[0]! : String(error), path.join(path.dirname(busPath), BOARD_DATA_FILE), readHandoff(handoffFile))
@@ -1909,7 +1909,7 @@ export function runBoardCli(busPath: string = defaultBusPath(), args: readonly s
     }
     return printPlan(busPath, release, new Date(), text => process.stdout.write(text))
   }
-  return printBoard(busPath, new Date(), text => process.stdout.write(text), HANDOFF_FILE, boardFormatOf(args))
+  return printBoard(busPath, new Date(), text => process.stdout.write(text), HANDOFF_FILE, boardFormatOf(args), EDDIES_FILE, args.includes('--live'))
 }
 
 export interface BoardProjection {
