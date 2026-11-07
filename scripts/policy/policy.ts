@@ -8,6 +8,7 @@ import { judgedFieldWitnessesOf, witnessesOf } from '../../src/commands/intake/a
 import { isChangeWitness, ownerPathsOf } from '../../src/commands/intake/check.js'
 import { CLOSED_CARD, DROPPED_CARD, MERGED_CARD } from '../core/card-automaton.js'
 import { CARD_ADMITTED, MERGE_DONE, PR_CLOSED, WITNESS_RECORDED } from '../core/events.js'
+import { GENERATED_PATHS } from '../core/generated-files.js'
 import { matchGlob } from './shredder/glob.js'
 import { readOwnerMergeKinds } from './shredder/reader.js'
 
@@ -144,8 +145,12 @@ function changesOwnerMerges(facts: MergeFacts): MergeVerdict | null {
 }
 
 const RUNS_NOTHING = /^(?:scripts\/tests|tests|e2e)\/|\.md$/
+const GENERATED_PATH_SET: ReadonlySet<string> = new Set(GENERATED_PATHS)
 const HUNK_START = /^(?=@@ )/m
 const EXCLUDED_COMMANDS = 'excludedCommands'
+const EXCLUDED_ENTRY = 'excludedCommands entry'
+const STRING_LITERAL = /"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|`(?:[^`\\]|\\.)*`/g
+const ARRAY_PUNCTUATION_ONLY = /^[[\]\s,()]*$/
 const UNSANDBOXED_LINE_FORMS: readonly { form: string, line: RegExp }[] = [
   { form: 'allowUnsandboxedCommands other than false', line: /allowUnsandboxedCommands(?!["']?\s*[:=]\s*false\b)/ },
   { form: 'dangerouslyDisableSandbox', line: /dangerouslyDisableSandbox/ },
@@ -153,29 +158,97 @@ const UNSANDBOXED_LINE_FORMS: readonly { form: string, line: RegExp }[] = [
   { form: 'a spawn call', line: /(?<![\w$.])(?:execFileSync|execFile|execSync|exec|spawnSync|spawn|fork)\(/ },
 ]
 
-function unsandboxedFormIn(patch: string): string | undefined {
-  for (const hunk of patch.split(HUNK_START)) {
-    const added = hunk.split('\n').filter(line => line.startsWith('+'))
-    if (added.length === 0)
+type PatchSide = '-' | '+'
+
+interface CommandCall {
+  form: string
+  text: string
+}
+
+function callKey(call: CommandCall): string {
+  return `${call.form}\u0000${call.text}`
+}
+
+function bracketDepthChange(text: string): number {
+  const bare = text.replace(STRING_LITERAL, '')
+  return [...bare].reduce((depth, char) => depth + (char === '[' ? 1 : char === ']' ? -1 : 0), 0)
+}
+
+function entriesOf(segment: string): string[] {
+  const literals = segment.match(STRING_LITERAL)
+  if (literals !== null)
+    return literals
+  const bare = segment.trim().replace(/,$/, '')
+  return ARRAY_PUNCTUATION_ONLY.test(bare) ? [] : [bare]
+}
+
+function callsOnSide(hunk: string, side: PatchSide): CommandCall[] {
+  const calls: CommandCall[] = []
+  let depth = 0
+  let keyAwaitsArray = false
+  for (const line of hunk.split('\n').slice(1)) {
+    const mark = line[0]
+    if (mark !== ' ' && mark !== side)
       continue
-    if (hunk.includes(EXCLUDED_COMMANDS))
-      return EXCLUDED_COMMANDS
-    const found = UNSANDBOXED_LINE_FORMS.find(({ line }) => added.some(text => line.test(text)))
-    if (found !== undefined)
-      return found.form
+    const own = mark === side
+    const text = line.slice(1)
+    const trimmed = text.trim()
+    if (own)
+      calls.push(...UNSANDBOXED_LINE_FORMS.filter(({ line: form }) => form.test(text)).map(({ form }) => ({ form, text: trimmed })))
+    let inside: string | undefined
+    if (depth > 0) {
+      inside = text
+    }
+    else {
+      const key = text.indexOf(EXCLUDED_COMMANDS)
+      if (key !== -1) {
+        if (own)
+          calls.push({ form: EXCLUDED_COMMANDS, text: trimmed })
+        const rest = text.slice(key + EXCLUDED_COMMANDS.length)
+        const open = rest.indexOf('[')
+        keyAwaitsArray = open === -1 && /^["']?\??\s*(?:[:=]\s*)?$/.test(rest)
+        inside = open === -1 ? undefined : rest.slice(open)
+      }
+      else if (keyAwaitsArray && trimmed.startsWith('[')) {
+        keyAwaitsArray = false
+        inside = trimmed
+      }
+      else if (trimmed !== '') {
+        keyAwaitsArray = false
+      }
+    }
+    if (inside === undefined)
+      continue
+    if (own)
+      calls.push(...entriesOf(inside).map(entry => ({ form: EXCLUDED_ENTRY, text: entry })))
+    depth = Math.max(0, depth + bracketDepthChange(inside))
+  }
+  return calls
+}
+
+function newCommandCallIn(patch: string): CommandCall | undefined {
+  const hunks = patch.split(HUNK_START).filter(hunk => hunk.startsWith('@@'))
+  const removed = new Map<string, number>()
+  for (const call of hunks.flatMap(hunk => callsOnSide(hunk, '-')))
+    removed.set(callKey(call), (removed.get(callKey(call)) ?? 0) + 1)
+  for (const call of hunks.flatMap(hunk => callsOnSide(hunk, '+'))) {
+    const held = removed.get(callKey(call)) ?? 0
+    if (held === 0)
+      return call
+    removed.set(callKey(call), held - 1)
   }
   return undefined
 }
 
 function unsandboxedCommand(facts: MergeFacts): MergeVerdict | null {
   for (const { filename, patch, additions } of facts.patched) {
-    if (RUNS_NOTHING.test(filename))
+    if (RUNS_NOTHING.test(filename) || GENERATED_PATH_SET.has(filename))
       continue
     if (patch === undefined && additions !== 0)
       return denied('unsandboxed_command', `GitHub gives no patch for ${filename}, so whether it adds a command outside the sandbox is unknown, and it stays the owner's`)
-    const form = patch === undefined ? undefined : unsandboxedFormIn(patch)
-    if (form !== undefined)
-      return denied('unsandboxed_command', `the diff of ${filename} adds ${form}: a command outside the sandbox stays the owner's under every shard and every decision`)
+    const call = patch === undefined ? undefined : newCommandCallIn(patch)
+    if (call !== undefined)
+      return denied('unsandboxed_command', `the diff of ${filename} adds ${call.form} (${call.text}) that its removed lines do not hold: a command outside the sandbox stays the owner's under every shard and every decision`)
   }
   return null
 }
