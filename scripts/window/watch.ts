@@ -10,9 +10,9 @@ import { PRIORITIES } from '../../src/card/parking.js'
 import { IN_REVIEW_CARD, RUNNING_CARD, STOPPED_CARD } from '../core/card-automaton.js'
 import { cardHoldOf } from '../core/card-hold.js'
 import { defaultBusPath, openBus } from '../core/db.js'
-import { BUS_PULSE, CARD_CLOSED, CARD_STOPPED, CARD_WAITING, GHOST_LINE, MERGE_DONE, POLICY_DENIED, PR_CLOSED, PR_OBSERVED, PROCESS_JUDGED, REQUEST_DONE, REQUEST_REFUSED, REVIEW_RECORDED, TASK_EXPIRED, WINDOW_REQUEST, WITNESS_RECORDED, WORKER_DOWN } from '../core/events.js'
+import { BOARD_ALARM, BUS_PULSE, CARD_CLOSED, CARD_STOPPED, CARD_WAITING, GHOST_LINE, MERGE_DONE, OWNER_WAIT_OPENED, POLICY_DENIED, PR_CLOSED, PR_OBSERVED, PROCESS_JUDGED, REQUEST_DONE, REQUEST_REFUSED, REVIEW_RECORDED, TASK_EXPIRED, WINDOW_REQUEST, WITNESS_RECORDED, WORKER_DOWN } from '../core/events.js'
 import { defaultHandoffDir } from '../core/handoff-dir.js'
-import { HEARTBEAT_QUEUES, LEASE_EXPIRED } from '../core/lease.js'
+import { HEARTBEAT_QUEUES } from '../core/lease.js'
 import { REVIEW_ROUNDS_SPENT } from '../nodes/review/review-executor.js'
 import { ciWord } from '../ports/ci-reading.js'
 import { USER_SETTINGS } from '../ports/client/claude/adapter.js'
@@ -28,7 +28,7 @@ export { USER_SETTINGS }
 
 export const STOP_EVENT = 'relaunch-stop'
 export const WAKING_EVENTS = ['merge', 'fall', 'relaunch-stop', 'stop']
-export const WAKING_BUS_EVENTS = [GHOST_LINE, STOP_EVENT, REVIEW_RECORDED, MERGE_DONE, PR_CLOSED, CARD_CLOSED, PR_OBSERVED, REVIEW_ROUNDS_SPENT, CARD_STOPPED, CARD_WAITING, POLICY_DENIED, TASK_EXPIRED, WORKER_DOWN, PROCESS_JUDGED, REQUEST_REFUSED, REQUEST_DONE, WITNESS_RECORDED]
+export const WAKING_BUS_EVENTS = [GHOST_LINE, STOP_EVENT, REVIEW_RECORDED, MERGE_DONE, PR_CLOSED, CARD_CLOSED, PR_OBSERVED, REVIEW_ROUNDS_SPENT, CARD_STOPPED, CARD_WAITING, POLICY_DENIED, TASK_EXPIRED, WORKER_DOWN, PROCESS_JUDGED, REQUEST_REFUSED, REQUEST_DONE, WITNESS_RECORDED, OWNER_WAIT_OPENED, BOARD_ALARM]
 export const HEAD_BOUND_EVENTS = [STOP_EVENT, REVIEW_RECORDED, REVIEW_ROUNDS_SPENT, CARD_STOPPED]
 export const FAILED_CI = 'red'
 export const PASSED_CI = 'green'
@@ -182,8 +182,14 @@ function denialReason(payload: Record<string, unknown>): string {
   return textOf(payload, 'reason') ?? textOf(payload, 'rule') ?? '-'
 }
 
+function refusedByAuthority(payload: Record<string, unknown>): boolean {
+  return payload.kind === 'authority' && payload.refused === true
+}
+
 export function denialLine(payload: string): string {
   const parsed = payloadOf(payload)
+  if (refusedByAuthority(parsed))
+    return `refused by authority: rule ${denialReason(parsed)}; only the owner lifts it`
   return `second in a row for one task: reason ${denialReason(parsed)}; settings ${textOf(parsed, 'settings') ?? USER_SETTINGS}`
 }
 
@@ -297,20 +303,20 @@ function deniedTask(event: BusEvent, payload: Record<string, unknown>): string {
   return [event.cardId ?? '-', event.pr ?? '-', event.head ?? '-', textOf(payload, 'command') ?? '-'].join(':')
 }
 
-function deniedAgainInARow(state: Pick<BusMemory, 'deniedByTask'>, event: BusEvent): boolean {
+function denialRunWakes(state: Pick<BusMemory, 'deniedByTask'>, event: BusEvent): boolean {
   const payload = payloadOf(event.payload)
   const task = deniedTask(event, payload)
   const reason = denialReason(payload)
   const before = state.deniedByTask.get(task)
   const count = before?.reason === reason ? before.count + 1 : 1
   state.deniedByTask.set(task, { reason, count })
-  return count === DENIALS_IN_A_ROW
+  return count === (refusedByAuthority(payload) ? 1 : DENIALS_IN_A_ROW)
 }
 
 function denialsUpTo(deps: WatchDeps, busId: number): Map<string, DenialRun> {
   const seen: Pick<BusMemory, 'deniedByTask'> = { deniedByTask: new Map() }
   for (const event of deps.deniedUpTo(busId))
-    deniedAgainInARow(seen, event)
+    denialRunWakes(seen, event)
   return seen.deniedByTask
 }
 
@@ -324,17 +330,17 @@ export function wakesTheWindow(state: BusMemory, event: BusEvent): boolean {
   if (event.type === REQUEST_DONE)
     return answersOwnRequest(state, event)
   if (event.type === POLICY_DENIED)
-    return deniedAgainInARow(state, event)
+    return denialRunWakes(state, event)
   if (event.type === TASK_EXPIRED)
-    return sessionLeaseLapsed(payloadOf(event.payload))
+    return ofHeartbeatQueue(payloadOf(event.payload))
   if (event.type === GHOST_LINE)
     return wakingEvent(event.payload) !== undefined
   return true
 }
 
-function sessionLeaseLapsed(payload: Record<string, unknown>): boolean {
+function ofHeartbeatQueue(payload: Record<string, unknown>): boolean {
   const queue = textOf(payload, 'queue')
-  return textOf(payload, 'reason') === LEASE_EXPIRED && queue !== undefined && (HEARTBEAT_QUEUES as readonly string[]).includes(queue)
+  return queue !== undefined && (HEARTBEAT_QUEUES as readonly string[]).includes(queue)
 }
 
 export function ofSupersededHead(event: BusEvent, deps: Pick<WatchDeps, 'observedHeads'>): boolean {

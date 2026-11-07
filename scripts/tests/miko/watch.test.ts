@@ -10,7 +10,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { appendEvent, openBus } from '../../core/db.js'
-import { CARD_CLOSED, CARD_STOPPED, CARD_WAITING, GHOST_LINE, LADDER_APPROVAL, MERGE_DONE, POLICY_DENIED, PR_CLOSED, PR_OBSERVED, PROCESS_JUDGED, REQUEST_DONE, REQUEST_REFUSED, REVIEW_RECORDED, TASK_EXPIRED, WINDOW_REQUEST, WITNESS_RECORDED, WORKER_DOWN } from '../../core/events.js'
+import { BOARD_ALARM, CARD_CLOSED, CARD_STOPPED, CARD_WAITING, GHOST_LINE, LADDER_APPROVAL, MERGE_DONE, OWNER_WAIT_OPENED, POLICY_DENIED, PR_CLOSED, PR_OBSERVED, PROCESS_JUDGED, REQUEST_DONE, REQUEST_REFUSED, REVIEW_RECORDED, TASK_EXPIRED, WINDOW_REQUEST, WITNESS_RECORDED, WORKER_DOWN } from '../../core/events.js'
 import { recordGhostLine } from '../../core/journal.js'
 import { prClosed } from '../../core/observations.js'
 import { QUEUE_ACTOR } from '../../core/queue.js'
@@ -205,18 +205,56 @@ describe('pnpm miko:watch wakes the foreman on an event and on nothing else', ()
     expect(tick(state, deps)).toEqual([])
   })
 
-  it('an expiry forced on a stopped holder or of a lease the timer renews does not wake the window', () => {
+  it('an expiry of a lease the timer renews does not wake the window, whatever its reason', () => {
     const events: BusEvent[] = []
     const deps = fileDeps(journal(), events)
     const state = watchState(deps)
-    const forced = JSON.stringify({ task_key: 'review:1110', queue: 'review', lease_gen: 1, reason: 'holder_stopped', next: 'queued' })
     const timed = JSON.stringify({ task_key: 'merge:1110', queue: 'merge', lease_gen: 1, reason: 'lease_expired', next: 'queued' })
     const slot = JSON.stringify({ task_key: 'quality:1110', queue: 'quality', lease_gen: 1, reason: 'lease_expired', next: 'queued' })
+    const dead = JSON.stringify({ task_key: 'merge:1110', queue: 'merge', lease_gen: 2, reason: 'holder_dead', next: 'queued' })
     events.push(
-      { id: 1, type: TASK_EXPIRED, cardId: 1110, pr: 940, head: 'h1', payload: forced },
-      { id: 2, type: TASK_EXPIRED, cardId: 1110, pr: 940, head: 'h1', payload: timed },
-      { id: 3, type: TASK_EXPIRED, cardId: 1110, pr: 940, head: 'h1', payload: slot },
+      { id: 1, type: TASK_EXPIRED, cardId: 1110, pr: 940, head: 'h1', payload: timed },
+      { id: 2, type: TASK_EXPIRED, cardId: 1110, pr: 940, head: 'h1', payload: slot },
+      { id: 3, type: TASK_EXPIRED, cardId: 1110, pr: 940, head: 'h1', payload: dead },
     )
+    expect(tick(state, deps)).toEqual([])
+  })
+
+  function expirySeenBy(reason: string): void {
+    const events: BusEvent[] = []
+    const deps = fileDeps(journal(), events)
+    const state = watchState(deps)
+    const text = JSON.stringify({ task_key: 'review:1110', queue: 'review', lease_gen: 1, reason, next: 'queued' })
+    events.push({ id: 1, type: TASK_EXPIRED, cardId: 1110, pr: 940, head: 'h1', payload: text })
+    expect(tick(state, deps)).toEqual([`bus ${TASK_EXPIRED} card 1110 pr 940 ${text}`])
+    expect(tick(state, deps)).toEqual([])
+  }
+
+  it('a dead holder of a session task wakes the window', () => {
+    expirySeenBy('holder_dead')
+  })
+
+  it('an expiry forced on a stopped holder of a session task wakes the window', () => {
+    expirySeenBy('holder_stopped')
+  })
+
+  it('an opened owner wait wakes the window', () => {
+    const events: BusEvent[] = []
+    const deps = fileDeps(journal(), events)
+    const state = watchState(deps)
+    const text = JSON.stringify({ id: 'Q186', need: 'merge', text: 'the pull request is the owner\'s to merge' })
+    events.push({ id: 1, type: OWNER_WAIT_OPENED, cardId: 1669, pr: 1418, head: null, payload: text })
+    expect(tick(state, deps)).toEqual([`bus ${OWNER_WAIT_OPENED} card 1669 pr 1418 ${text}`])
+    expect(tick(state, deps)).toEqual([])
+  })
+
+  it('a board alarm wakes the window', () => {
+    const events: BusEvent[] = []
+    const deps = fileDeps(journal(), events)
+    const state = watchState(deps)
+    const text = JSON.stringify({ task_key: 'merge:1669', reason: 'fault', failures: 1, detail: 'withdrawn' })
+    events.push({ id: 1, type: BOARD_ALARM, cardId: 1669, pr: 1418, head: 'h1', payload: text })
+    expect(tick(state, deps)).toEqual([`bus ${BOARD_ALARM} card 1669 pr 1418 ${text}`])
     expect(tick(state, deps)).toEqual([])
   })
 
@@ -959,6 +997,51 @@ describe('pnpm miko:watch wakes the window where the bus is stuck, not only on a
     const once = { ...fileDeps(file, events.slice(0, 3)), lastBusId: () => 3 }
     expect(selectOnce({ offset, busId: 1 }, once, 1064)).toEqual({ line: lines[0], cursor: { offset, busId: 2 } })
     expect(selectOnce({ offset, busId: 2 }, once, 1064)).toBeUndefined()
+  })
+
+  describe('a refusal only the owner can lift', () => {
+    const refusal = (id: number, head = 'h1'): BusEvent => ({ id, type: POLICY_DENIED, cardId: 1669, pr: 1418, head, payload: JSON.stringify({ command: 'merge', kind: 'authority', rule: 'no_shard_merge', detail: 'stays the owner\'s', refused: true }) })
+    const line = (event: BusEvent): string => `bus ${POLICY_DENIED} card 1669 pr 1418 refused by authority: rule no_shard_merge; only the owner lifts it ${event.payload}`
+
+    it('one authority denial wakes the window and one technical denial does not', () => {
+      const events: BusEvent[] = []
+      const deps = fileDeps(journal(), events)
+      const state = watchState(deps)
+      events.push(denial(1, 'no_isolation'))
+      expect(tick(state, deps)).toEqual([])
+      events.push(refusal(2))
+      expect(tick(state, deps)).toEqual([line(refusal(2))])
+    })
+
+    it('a technical denial with refused true and an authority denial without it wait for the second in a row', () => {
+      const payload = (fields: object): string => JSON.stringify({ command: 'merge', ...fields })
+      const events: BusEvent[] = [
+        { id: 1, type: POLICY_DENIED, cardId: 1, pr: 1, head: 'h1', payload: payload({ kind: 'technical', reason: 'github_error', refused: true }) },
+        { id: 2, type: POLICY_DENIED, cardId: 2, pr: 2, head: 'h1', payload: payload({ kind: 'authority', rule: 'reserved' }) },
+      ]
+      const deps = fileDeps(journal(), events)
+      expect(tick(watchState(deps), deps)).toEqual([])
+    })
+
+    it('the same refusal again wakes nothing, and a refusal of a new head wakes again', () => {
+      const events: BusEvent[] = []
+      const deps = fileDeps(journal(), events)
+      const state = watchState(deps)
+      events.push(refusal(1))
+      expect(tick(state, deps)).toEqual([line(refusal(1))])
+      events.push(refusal(2))
+      expect(tick(state, deps)).toEqual([])
+      events.push(refusal(3, 'h2'))
+      expect(tick(state, deps)).toEqual([line(refusal(3, 'h2'))])
+    })
+
+    it('a --once wakes on the first refusal, and one restarted past it does not wake on the repeat', () => {
+      const offset = 0
+      const events = [refusal(1), refusal(2)]
+      const deps = { ...fileDeps(journal(), events), lastBusId: () => 2 }
+      expect(selectOnce({ offset, busId: 0 }, deps, 1669)).toEqual({ line: line(refusal(1)), cursor: { offset, busId: 1 } })
+      expect(selectOnce({ offset, busId: 1 }, deps, 1669)).toBeUndefined()
+    })
   })
 
   it('a card.waiting for a ladder approval wakes the window', () => {
