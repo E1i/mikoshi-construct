@@ -348,10 +348,14 @@ the four signal fields of [0046](decisions/0046-four-signal-fields-and-their-sou
 `contract:`, `expect:`, `action:`, `result:`, each saying what it does not hold rather than staying empty; the first line
 of its pull request description is the card.
 
-A cheap-path task starts only with `pnpm task:start <branch> --card "<card>"`, which checks the card, cuts
+A cheap-path task starts only through `task:start <branch> --card "<card>"`, which checks the card, cuts
 `mc-<id>` from `origin/main` under the worktree home, `~/.construct/worktrees` (`CONSTRUCT_WORKTREE_HOME` moves it), not
 beside the repository, and writes the journal start line carrying the card; a task with no start line was not
-started on the cheap path, whatever its branch is called. The bus removes a closed card's tree
+started on the cheap path, whatever its branch is called. A window never runs it: it asks the bus with
+`pnpm bus:request tree.cut --card <N>`, and `task:start` in a session `windowModeOf` calls a window refuses with that
+command before it touches git. The bus's two callers, the launch node and `tree.cut`, blank the window marks a bus raised
+from a window inherited, so they keep cutting; a person in a plain terminal still runs it by hand. A failed
+`git worktree add` removes the branch it created, so a refusal that says nothing was written holds. The bus removes a closed card's tree
 (`removeCardTree` in `scripts/nodes/close/close-executor.ts`). Before it cuts anything, `task:start` passes the card through the intake
 door: it takes a card only when the bus holds a `card.admitted` event for it, written through `pnpm intake` when it
 sliced and confirmed the card, by `pnpm intake --admit <draft>` for a card amended or parked before the door, the
