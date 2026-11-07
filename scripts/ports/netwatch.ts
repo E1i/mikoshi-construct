@@ -14,6 +14,8 @@ import { ghApi } from './github.js'
 import { Meter, RateLimited } from './meter.js'
 import { requiredCheckOf, takeSnapshot } from './snapshot.js'
 
+export const TECHNOLOGY_WORDS = ['database'] as const
+
 export const PREFIX = '[bus:netwatch] '
 export const TICK_MS = 60_000
 export const WAKE_GAP_MS = 3 * TICK_MS

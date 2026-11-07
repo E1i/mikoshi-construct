@@ -7,6 +7,8 @@ import { CLIENT_ENV_PREFIXES } from './client/claude/adapter.js'
 import { clientAdapter } from './client/index.js'
 import { PREPARE_ENV_KEYS } from './prepare-tree.js'
 
+export const TECHNOLOGY_WORDS = ['argv', 'spawn', 'stderr', 'stdout'] as const
+
 export function clientInvocation(spec: SessionSpec): Invocation {
   const invocation = clientAdapter().invocation(spec)
   if ('kind' in invocation)

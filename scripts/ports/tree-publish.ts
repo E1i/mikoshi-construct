@@ -8,6 +8,8 @@ import { messageOf } from '../core/errors.js'
 import { FACTORY_RUNTIME } from '../core/factory-paths.js'
 import { reportPath, treeReportPath } from '../core/places.js'
 
+export const TECHNOLOGY_WORDS = ['https', 'shell'] as const
+
 const PREFIX = '[tree-publish] '
 const LAUNCH_DIR = 'launch'
 const SOURCE_MODULE = '.ts'

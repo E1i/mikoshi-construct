@@ -1,5 +1,7 @@
 import { execFileSync } from 'node:child_process'
 
+export const TECHNOLOGY_WORDS = ['exec', 'git', 'porcelain'] as const
+
 export interface WorktreeEntry {
   path: string
   branch: string | undefined
