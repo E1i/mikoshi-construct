@@ -1327,7 +1327,6 @@
       "language": "technology",
       "reexports": [],
       "technologyWords": [
-        "database",
         "gh",
         "git"
       ],
@@ -1359,7 +1358,6 @@
         "failedJobLinkIn"
       ],
       "technologyWords": [
-        "database",
         "gh",
         "git"
       ],
@@ -1466,7 +1464,9 @@
       "types": {}
     },
     "scripts/ports/diff.ts": {
-      "constants": [],
+      "constants": [
+        "TECHNOLOGY_WORDS"
+      ],
       "functions": {
         "changedFilesFrom": "(nameStatusOutput: string, numstatOutput: string): ChangedFile[]",
         "getChangedFiles": "(repo: string, base: string, head: string): ChangedFile[]",
@@ -1483,7 +1483,8 @@
     "scripts/ports/disk.ts": {
       "constants": [
         "DISK_FLOOR_BYTES",
-        "DISK_LOW"
+        "DISK_LOW",
+        "TECHNOLOGY_WORDS"
       ],
       "functions": {
         "diskLowDetail": "(read: DiskReader): string | null",
@@ -1510,6 +1511,7 @@
         "PROCESS_GH_BUDGET",
         "PROCESS_GH_PORT",
         "PR_LIST_LIMIT",
+        "TECHNOLOGY_WORDS",
         "execGh: GhCaller"
       ],
       "functions": {
@@ -1560,6 +1562,7 @@
     },
     "scripts/ports/git.ts": {
       "constants": [
+        "TECHNOLOGY_WORDS",
         "execGit: GitReader"
       ],
       "functions": {
@@ -1598,7 +1601,8 @@
       "constants": [
         "BUDGET_SPENT_STATUS",
         "NO_ANSWER_STATUS",
-        "RATE_LIMIT_STATUSES"
+        "RATE_LIMIT_STATUSES",
+        "TECHNOLOGY_WORDS"
       ],
       "functions": {
         "ghApi": "(cwd: string, port: GhPort = PROCESS_GH_PORT): GitHub",
@@ -1624,7 +1628,8 @@
     },
     "scripts/ports/isolation.ts": {
       "constants": [
-        "NO_ISOLATION"
+        "NO_ISOLATION",
+        "TECHNOLOGY_WORDS"
       ],
       "functions": {
         "commandWords": "(command: string): string[]",
@@ -1686,7 +1691,6 @@
       "language": "technology",
       "reexports": [],
       "technologyWords": [
-        "database",
         "git"
       ],
       "types": {
@@ -1718,7 +1722,6 @@
         "ghApiPost"
       ],
       "technologyWords": [
-        "database",
         "gh",
         "git"
       ],
@@ -1798,6 +1801,7 @@
         "EXIT_REQUEST_VARIABLE",
         "LOOP_PID_VARIABLE",
         "REVIEW_MODEL_VARIABLE",
+        "TECHNOLOGY_WORDS",
         "WINDOW_MARK",
         "WINDOW_VARIABLE"
       ],
@@ -1899,6 +1903,7 @@
     "scripts/ports/tree-publish.ts": {
       "constants": [
         "HTTPS_ORIGIN_ENV: Record<string, string>",
+        "TECHNOLOGY_WORDS",
         "TREE_PR_ENTRY"
       ],
       "functions": {
@@ -1921,7 +1926,9 @@
       "types": {}
     },
     "scripts/ports/witnesses.ts": {
-      "constants": [],
+      "constants": [
+        "TECHNOLOGY_WORDS"
+      ],
       "functions": {
         "grepMatchProbe": "(command: string): string | null",
         "grepRefusal": "(witness: Witness, sides: string): string",
@@ -1969,7 +1976,8 @@
       "constants": [
         "FREE_TREES",
         "FREE_TREE_CAPACITY",
-        "LSOF_CLIENT_NAMES"
+        "LSOF_CLIENT_NAMES",
+        "TECHNOLOGY_WORDS"
       ],
       "functions": {
         "adoptTree": "(deps: TreeDeps, tree: string, branch: string): ReadyTree | RefusedTree",
