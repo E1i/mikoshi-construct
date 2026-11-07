@@ -425,7 +425,7 @@ describe('the review node', () => {
       made.tick()
       detectReview(made)
       const since = 'b'.repeat(40)
-      const plan: ReviewPlan = { depth: 'diff', round: 'first', why: 'a fixed plan', since, touchFindings: [] }
+      const plan: ReviewPlan = { depth: 'diff', round: 'first', why: 'a fixed plan', since, touchFindings: [], touchNotes: [] }
       let given = ''
       const reviewer = async (lease: Lease, planned: ReviewPlan): Promise<Review & { input: SessionInput }> => {
         given = reviewPrompt(lease, planned, '/trees/review-1097', '/verdicts/1097.json')
@@ -452,7 +452,7 @@ describe('the review node', () => {
     const blocker = path.join(root, 'a-file')
     writeFileSync(blocker, '')
     const since = 'b'.repeat(40)
-    const diff: ReviewPlan = { depth: 'diff', round: 'first', why: 'a fixed plan', since, touchFindings: [] }
+    const diff: ReviewPlan = { depth: 'diff', round: 'first', why: 'a fixed plan', since, touchFindings: [], touchNotes: [] }
     const cases: { name: string, plan: ReviewPlan, input: boolean, prompts: string | undefined, fields: string[] }[] = [
       { name: 'diff, stored', plan: diff, input: true, prompts: path.join(root, 'prompts'), fields: ['prompt_path', 'prompt_sha', 'since'] },
       { name: 'full, stored', plan: fullReview('a fixed plan'), input: true, prompts: path.join(root, 'prompts'), fields: ['prompt_path', 'prompt_sha'] },
