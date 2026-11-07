@@ -14,11 +14,11 @@ import { CHECK_MS, TICK_MS } from '../ports/netwatch.js'
 import { ownStart, recordProcessHeartbeat } from '../supervisor/heartbeat.js'
 import { slotsOf } from '../supervisor/scheduler.js'
 import { lastEventId } from '../window/operator-work.js'
-import { BUS_VERSION, busVersionOf, CARD_VERSION, cardVersionOf, UNRECORDED_VERSION } from './bus-version.js'
-import { cardBodyText } from './card-bodies.js'
+import { BUS_VERSION, CARD_VERSION, recordBusVersion, UNRECORDED_VERSION } from './bus-version.js'
+import { admittedCardVersion } from './card-bodies.js'
 import { appendEvent, inTransaction, openBus } from './db.js'
-import { NODE_DETECTED, NODE_EQUIVALENCE, TASK_LEASED } from './events.js'
-import { drainOpen, expireLeases, leasedByRetiring, leaseNext, recordWorkerStarted, RENEW_MS, renewLease, StaleLease, waitTask, workerRetiring } from './lease.js'
+import { CARD_STOPPED, NODE_DETECTED, NODE_EQUIVALENCE, TASK_LEASED } from './events.js'
+import { drainOpen, expireLeases, failTask, leasedByRetiring, leaseNext, recordWorkerStarted, RENEW_MS, renewLease, StaleLease, waitTask, workerRetiring } from './lease.js'
 import { keyOf, LEASED, queueTaskWithin } from './queue.js'
 import { STORED_COLUMNS } from './stored.js'
 
@@ -125,6 +125,10 @@ export class SecondSubscription extends Error {}
 export class NodeRefused extends Error {}
 
 export class ForeignVersion extends NodeRefused {}
+
+const FOREIGN_CARD = 'foreign-card-version'
+
+const FOREIGN_CARD_STOP = 'fault'
 
 export interface NodeDeclaration {
   kind: NodeKind
@@ -297,16 +301,24 @@ export abstract class Node<S extends NodeStep> {
     return this.declaration
   }
 
-  private refuseForeign(record: VersionedRecord, version: number, whose: string): void {
-    const refusal = this.declaration === null ? null : foreignVersion(this.declaration.understands, record, version, whose)
+  private foreign(record: VersionedRecord, version: number, whose: string): string | null {
+    return this.declaration === null ? null : foreignVersion(this.declaration.understands, record, version, whose)
+  }
+
+  private refuseForeignBus(): void {
+    const refusal = this.foreign('bus', recordBusVersion(this.db), 'the bus')
     if (refusal !== null)
       throw new ForeignVersion(refusal)
   }
 
-  private refuseForeignCard(lease: Lease): void {
-    const text = cardBodyText(this.db, lease.cardId)
-    if (text !== null)
-      this.refuseForeign('card', cardVersionOf(text), `card #${lease.cardId} (${lease.taskKey})`)
+  private refusedForeignCard(ts: string, lease: Lease): boolean {
+    const version = admittedCardVersion(this.db, lease.cardId)
+    const refusal = version === null ? null : this.foreign('card', version, `card #${lease.cardId} (${lease.taskKey})`)
+    if (refusal === null)
+      return false
+    const stopped: BusEvent = { ts, type: CARD_STOPPED, actor: this.actor, cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${CARD_STOPPED}:${FOREIGN_CARD}:${lease.taskKey}`, payload: { reason: FOREIGN_CARD_STOP, detail: refusal }, legacy: false }
+    failTask(this.db, ts, lease, { reason: refusal, withdraw: true }, [stopped])
+    return true
   }
 
   emit(event: BusEvent): void {
@@ -314,7 +326,7 @@ export abstract class Node<S extends NodeStep> {
   }
 
   async run(ctx: NodeContext): Promise<void> {
-    this.refuseForeign('bus', busVersionOf(this.db), 'the bus')
+    this.refuseForeignBus()
     this.before()
     this.codeSha = (this.parts.codeSha ?? loadedCodeSha)()
     this.startedAt = this.ts()
@@ -472,9 +484,7 @@ export abstract class Node<S extends NodeStep> {
     if (drainOpen(this.db, ts, this.kind, this.codeSha))
       return null
     const lease = leaseNext(this.db, ts, this.kind, this.actor, this.leaseOrder())
-    if (lease !== null)
-      this.refuseForeignCard(lease)
-    return lease
+    return lease !== null && this.refusedForeignCard(ts, lease) ? null : lease
   }
 
   private retryWhenLocked(step: string, work: () => void): boolean {

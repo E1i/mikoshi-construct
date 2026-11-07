@@ -6,6 +6,7 @@ import { parseParkingFile } from '../../src/card/parking.js'
 import { textSha } from '../../src/card/text-sha.js'
 import { AMEND_SOURCE, isLaneName, laneName, laneNumber, pathsNamedOutside } from '../../src/commands/intake/admit.js'
 import { NOT_A_BACKFILL } from './backfill-source.js'
+import { CARD_VERSION, CARD_VERSION_KEY, cardVersionIn } from './bus-version.js'
 import { appendEvent } from './db.js'
 import { CARD_ADMITTED, FACTORY_MODE } from './events.js'
 
@@ -105,7 +106,7 @@ function versioned(db: DatabaseSync, event: CardEvent): CardEvent {
   if (event.type !== CARD_ADMITTED || typeof event.payload.text !== 'string')
     return event
   const previous = db.prepare(PREVIOUS_ADMISSION).get(event.cardId) as { id: number, payload: string } | undefined
-  return { ...event, payload: { ...event.payload, prevAdmissionId: previous?.id ?? null, prevTextSha: previous === undefined ? null : recordedTextSha(previous.payload) } }
+  return { ...event, payload: { ...event.payload, [CARD_VERSION_KEY]: CARD_VERSION, prevAdmissionId: previous?.id ?? null, prevTextSha: previous === undefined ? null : recordedTextSha(previous.payload) } }
 }
 
 export function laid(db: DatabaseSync, event: CardEvent): CardEvent {
@@ -122,6 +123,13 @@ export function appendCardEvent(db: DatabaseSync, actor: string, unversioned: Ca
 
 export function cardBodyText(db: DatabaseSync, cardId: number): string | null {
   return (db.prepare(`SELECT text FROM ${CARD_BODIES} WHERE card_id = ?`).get(cardId) as { text: string } | undefined)?.text ?? null
+}
+
+const ADMISSION_OF_THE_BODY = `SELECT admission.payload FROM ${CARD_BODIES} body LEFT JOIN events admission ON admission.id = body.admission_event_id WHERE body.card_id = ?`
+
+export function admittedCardVersion(db: DatabaseSync, cardId: number): number | null {
+  const row = db.prepare(ADMISSION_OF_THE_BODY).get(cardId) as { payload: string | null } | undefined
+  return row === undefined ? null : cardVersionIn(row.payload)
 }
 
 export function pathsOutsideTheBody(db: DatabaseSync, cardId: number, text: string): string[] {

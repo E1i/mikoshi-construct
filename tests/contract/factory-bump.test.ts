@@ -6,7 +6,9 @@ import { describe, expect, it } from 'vitest'
 import { factoryGate } from '../../scripts/contract/bump.js'
 import { factoryVerdicts, sectionVerdict, VERSIONED_SECTIONS } from '../../scripts/contract/factory-bump.js'
 import { cardSection } from '../../scripts/contract/factory/card.js'
-import { CARD_VERSION, CARD_VERSION_LINE, UNRECORDED_VERSION } from '../../scripts/core/bus-version.js'
+import { NODES_VERSION } from '../../scripts/contract/factory/nodes.js'
+import { PORTS_VERSION } from '../../scripts/contract/factory/ports.js'
+import { CARD_VERSION, CARD_VERSION_KEY, UNRECORDED_VERSION } from '../../scripts/core/bus-version.js'
 import { CONTRACT_FIELDS, CONTRACTS } from '../../scripts/intake/card-contract.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../..')
@@ -102,7 +104,7 @@ describe('the factory section versions', () => {
     const card = cardSection(REPO_ROOT)
 
     expect(card.cardVersion).toBe(CARD_VERSION)
-    expect(card.versionLine).toBe(CARD_VERSION_LINE)
+    expect(card.versionRecord).toBe(`card.admitted payload.${CARD_VERSION_KEY}`)
     expect(card.contracts).toEqual(CONTRACT_FIELDS)
     for (const contract of CONTRACTS) {
       for (const field of CONTRACT_FIELDS[contract])
@@ -134,6 +136,17 @@ describe('the factory section versions', () => {
     expect(sectionVerdict('card', recorded.card, undefined).red).toBe(true)
     expect(sectionVerdict('nodes', { ...recorded.nodes, nodesVersion: 3 }, recorded.nodes).line).toContain('went down from 3')
     expect(sectionVerdict('nodes', undefined, undefined).red).toBe(false)
+    expect(sectionVerdict('bus', recorded.bus, recorded.bus)).toEqual({ section: 'bus', red: false, line: `bus: unchanged, busVersion ${recorded.bus.busVersion}` })
+  })
+
+  it('the ports reshape into { portsVersion, modules } passes against the unversioned record of main only because portsVersion grew past 1', () => {
+    const recorded = recordedFactory()
+
+    expect(recorded.ports.portsVersion).toBe(PORTS_VERSION)
+    expect(recorded.nodes.nodesVersion).toBe(NODES_VERSION)
+    expect(PORTS_VERSION).toBeGreaterThan(UNRECORDED_VERSION)
+    expect(sectionVerdict('ports', recorded.ports.modules, recorded.ports).red).toBe(false)
+    expect(sectionVerdict('ports', recorded.ports.modules, { ...recorded.ports, portsVersion: UNRECORDED_VERSION }).red).toBe(true)
   })
 
   it('a base tag that carries no factory record compares nothing', () => {

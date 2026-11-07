@@ -2,12 +2,13 @@ import type { Contract } from '../../intake/card-contract.js'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import ts from 'typescript'
-import { CARD_VERSION, CARD_VERSION_LINE } from '../../core/bus-version.js'
+import { CARD_VERSION, CARD_VERSION_KEY } from '../../core/bus-version.js'
+import { CARD_ADMITTED } from '../../core/events.js'
 import { CONTRACT_FIELDS } from '../../intake/card-contract.js'
 
 export interface CardSection {
   cardVersion: number
-  versionLine: string
+  versionRecord: string
   fields: Record<string, string>
   contracts: Record<Contract, readonly string[]>
 }
@@ -26,5 +27,5 @@ function fieldsOf(source: ts.SourceFile): Record<string, string> {
 
 export function cardSection(root: string): CardSection {
   const source = ts.createSourceFile(CARD_CONTRACT_MODULE, readFileSync(path.join(root, CARD_CONTRACT_MODULE), 'utf8'), ts.ScriptTarget.Latest, true)
-  return { cardVersion: CARD_VERSION, versionLine: CARD_VERSION_LINE, fields: fieldsOf(source), contracts: CONTRACT_FIELDS }
+  return { cardVersion: CARD_VERSION, versionRecord: `${CARD_ADMITTED} payload.${CARD_VERSION_KEY}`, fields: fieldsOf(source), contracts: CONTRACT_FIELDS }
 }

@@ -1049,7 +1049,8 @@
         "state",
         "task_key"
       ]
-    }
+    },
+    "versionRecord": "PRAGMA application_id"
   },
   "card": {
     "cardVersion": 1,
@@ -1168,7 +1169,7 @@
       "witnessFields": "WitnessField[]",
       "witnesses": "string[]"
     },
-    "versionLine": "card-version:"
+    "versionRecord": "card.admitted payload.cardVersion"
   },
   "concepts": {
     "answer-duties": {
