@@ -16,7 +16,7 @@ import { CARD_CLOSED, CARD_CONTINUED, CARD_SESSION_ENDED, CARD_STARTED, CARD_STO
 import { isFullSha } from '../../core/identifiers.js'
 import { assertHeld, completeTask, failTask, RENEW_MS, StaleLease } from '../../core/lease.js'
 import { baseOfKey, LEASE_MS } from '../../core/queue.js'
-import { GREEN, RED, witnessSubjectOf } from '../../policy/policy.js'
+import { GREEN, RED, UNCHECKED, witnessSubjectOf } from '../../policy/policy.js'
 import { execGh, stdoutOrThrow } from '../../ports/gh.js'
 import { serveRecordAt } from '../../ports/serve-record.js'
 import { witnessEnv } from '../../ports/session.js'
@@ -105,6 +105,8 @@ class ServeAddressTaken extends WitnessNotRun {
     super(`${url} already answers before the serve command starts, so a witness would read a server this node did not start`)
   }
 }
+
+class WitnessCouldNotCheck extends Error {}
 
 class NoServeDeclared extends Error {
   constructor(command: string, head: string) {
@@ -278,7 +280,7 @@ export class WitnessExecutor {
         red = await this.redOf(subject, base, lease.head)
       }
       catch (error) {
-        return this.notJudged(lease, error)
+        return this.notJudged(lease, subject, base, error)
       }
       const verdict = red === null ? GREEN : RED
       const detail = red ?? `every card witness red on the base ${base} and green on ${lease.head}`
@@ -298,7 +300,7 @@ export class WitnessExecutor {
       red = await this.redOnMain(subject, main)
     }
     catch (error) {
-      return this.notJudged(lease, error)
+      return this.notJudged(lease, subject, main, error)
     }
     const verdict = red === null ? GREEN : RED
     const detail = red ?? `every card witness green on main at ${main}`
@@ -336,7 +338,14 @@ export class WitnessExecutor {
     return { kind: 'skipped', taskKey: lease.taskKey, why: detail }
   }
 
-  private notJudged(lease: Lease, error: unknown): WitnessOutcome {
+  private couldNotCheck(lease: Lease, subject: WitnessSubject, base: string, detail: string): WitnessOutcome {
+    completeTask(this.parts.db, this.ts(), lease, [this.recorded(lease, subject, base, UNCHECKED, detail)])
+    return { kind: 'recorded', taskKey: lease.taskKey, verdict: UNCHECKED, base, detail }
+  }
+
+  private notJudged(lease: Lease, subject: WitnessSubject, base: string, error: unknown): WitnessOutcome {
+    if (error instanceof WitnessCouldNotCheck)
+      return this.couldNotCheck(lease, subject, base, error.message)
     if (error instanceof NoServeDeclared)
       return this.refusedForNoServe(lease, error.message)
     if (error instanceof WitnessNotRun)
@@ -366,11 +375,11 @@ export class WitnessExecutor {
         return run(command, cwd)
       if (serve === null)
         throw new NoServeDeclared(command, head)
-      return this.serveTurns.take(() => this.servedRun(command, cwd, serve, leftOf, run, last))
+      return this.serveTurns.take(() => this.servedRun(command, cwd, serve, leftOf, run))
     }
   }
 
-  private async servedRun(command: string, cwd: string, serve: ServeRecord, leftOf: (command: string) => number, run: (command: string, cwd: string) => Promise<ShellResult>, last: { result: ShellResult | null }): Promise<ShellResult> {
+  private async servedRun(command: string, cwd: string, serve: ServeRecord, leftOf: (command: string) => number, run: (command: string, cwd: string) => Promise<ShellResult>): Promise<ShellResult> {
     const patienceMs = Math.min(serve.readyTimeoutMs, leftOf(command))
     if (await answers(serve.url))
       throw new ServeAddressTaken(serve.url)
@@ -379,8 +388,7 @@ export class WitnessExecutor {
       const notReady = await notAnswering(server, serve, patienceMs)
       if (notReady === null)
         return await run(command, cwd)
-      last.result = { status: 1, output: `Error: ${notReady}` }
-      return last.result
+      throw new WitnessCouldNotCheck(`${notReady}, so "${command}" did not run`)
     }
     finally {
       await stopServer(server)

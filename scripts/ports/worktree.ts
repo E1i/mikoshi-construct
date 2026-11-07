@@ -7,6 +7,8 @@ import { promisify } from 'node:util'
 import { witnessEnv } from './session.js'
 import { taskWorktree } from './worktree-home.js'
 
+export const TECHNOLOGY_WORDS = ['git', 'lsof', 'pnpm', 'shell'] as const
+
 const execFileAsync = promisify(execFile)
 
 export interface ShellResult { status: number | null, output: string }

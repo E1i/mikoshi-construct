@@ -34,6 +34,8 @@ export const FAILED_CI = 'red'
 export const PASSED_CI = 'green'
 export const RED_WITNESS = 'red'
 export const GREEN_WITNESS = 'green'
+export const UNCHECKED_WITNESS = 'unchecked'
+const STUCK_WITNESS: ReadonlySet<unknown> = new Set([RED_WITNESS, UNCHECKED_WITNESS])
 export const DENIALS_IN_A_ROW = 2
 export const STALL_MS = 20 * 60_000
 export const BUS_ALIVE_MS = 2 * 60_000
@@ -291,7 +293,7 @@ function witnessTurns(state: BusMemory, event: BusEvent): boolean {
   const before = state.witnessByPr.get(event.pr)
   const now = verdictOf(event.payload)
   state.witnessByPr.set(event.pr, now)
-  return now === RED_WITNESS || (now === GREEN_WITNESS && before === RED_WITNESS)
+  return STUCK_WITNESS.has(now) || (now === GREEN_WITNESS && STUCK_WITNESS.has(before))
 }
 
 function answersOwnRequest(state: BusMemory, event: BusEvent): boolean {

@@ -10,6 +10,8 @@ import { NODE_CURSORS } from '../core/node.js'
 import { lastEventId } from '../window/operator-work.js'
 import { ghApiPost } from './github.js'
 
+export const TECHNOLOGY_WORDS = ['database'] as const
+
 export const PREFIX = '[bus:pr-status] '
 export const STATUS_CURSOR = 'pr-status'
 export const STATUS_BATCH = 20
@@ -21,6 +23,8 @@ export const STEP_EVENTS = [PR_OPENED, TASK_LEASED, REVIEW_RECORDED, 'card.answe
 const ALLOW_MERGE_AT = /allow-merge PR #(\d+) at ([0-9a-f]{7,40})(?![0-9a-f])/
 
 const HEAD_IS_GONE = 422
+
+const WITNESS_STEPS: Readonly<Partial<Record<string, [string, StatusState]>>> = { green: ['witness green', 'success'], unchecked: ['witness could not check', 'pending'] }
 
 export type StatusState = 'pending' | 'success' | 'failure'
 
@@ -64,7 +68,7 @@ function stepAndState(event: StepEvent): [string, StatusState] | null {
     case 'update.done': return ['updated', 'pending']
     case MERGE_DONE: return ['merged', 'success']
     case CARD_STOPPED: return ['stopped', 'failure']
-    case WITNESS_RECORDED: return payload.verdict === 'green' ? ['witness green', 'success'] : ['witness red', 'failure']
+    case WITNESS_RECORDED: return WITNESS_STEPS[String(payload.verdict)] ?? ['witness red', 'failure']
     case DECISION_RECORDED: return [`merge allowed by the owner, D-${String(payload.decision_id)}`, 'success']
     case POLICY_DENIED: return payload.command === 'merge' && payload.refused === true ? [`merge refused: ${String(payload.reason ?? payload.rule)}`, 'failure'] : null
     default: return null

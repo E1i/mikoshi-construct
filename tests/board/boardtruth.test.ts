@@ -64,7 +64,7 @@ function pageOf(busPath: string): string {
   let html = ''
   expect(printBoard(busPath, NOW, (text) => {
     html += text
-  }, path.join(path.dirname(busPath), 'miko.md'))).toBe(0)
+  }, path.join(path.dirname(busPath), 'miko.md'), 'html')).toBe(0)
   return html
 }
 

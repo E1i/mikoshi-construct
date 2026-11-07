@@ -2,6 +2,8 @@ import { spawnSync } from 'node:child_process'
 import process from 'node:process'
 import { GH_ACCOUNT_VARIABLE } from '../core/bus-path.js'
 
+export const TECHNOLOGY_WORDS = ['errno', 'exec', 'gh', 'spawn', 'stderr', 'stdout'] as const
+
 export type GhRunner = (args: string[]) => string
 
 export type GhFailureCause = 'timeout' | 'transient' | 'failed' | 'budget'

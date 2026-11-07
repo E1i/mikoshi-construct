@@ -1,5 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
-import type { OrderedCard } from '../../nodes/launch/lane-assign.js'
+import type { OrderedCard, SizedTask } from '../../nodes/launch/lane-assign.js'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -41,6 +41,10 @@ function start(db: DatabaseSync, id: number): void {
 
 function card(cardId: number, shape: Partial<OrderedCard> = {}): OrderedCard {
   return { cardId, depends: [], priority: null, ...shape }
+}
+
+function sized(size: SizedTask['card']['size']): SizedTask {
+  return { card: { size } }
 }
 
 function ordered(cards: readonly OrderedCard[]): number[] {
@@ -101,6 +105,39 @@ describe('startOrder', () => {
       card(4, { depends: [3], priority: 'p1' }),
     ]
     expect(ordered(cards)).toEqual([3, 1, 2, 4])
+  })
+
+  it('a card with a longer weighted chain behind it starts before a card with more but shorter dependents', () => {
+    const cards = [
+      card(1674),
+      card(1675, { depends: [1674], task: sized('XS') }),
+      card(1676, { depends: [1674], task: sized('XS') }),
+      card(1677, { depends: [1674], task: sized('XS') }),
+      card(1711),
+      card(1712, { depends: [1711], task: sized('M') }),
+    ]
+    expect(ordered(cards).slice(0, 2)).toEqual([1711, 1674])
+  })
+
+  it('the chain behind a card weighs each card on it by its size', () => {
+    const cards = [
+      card(10),
+      card(11, { depends: [10], task: sized('S') }),
+      card(12, { depends: [11], task: sized('S') }),
+      card(20),
+      card(21, { depends: [20], task: sized('L') }),
+    ]
+    expect(ordered(cards).slice(0, 2)).toEqual([20, 10])
+  })
+
+  it('a higher priority still starts first whatever the chain behind it', () => {
+    const cards = [
+      card(1),
+      card(2, { depends: [1], task: sized('L') }),
+      card(3, { depends: [2], task: sized('L') }),
+      card(4, { priority: 'p2' }),
+    ]
+    expect(ordered(cards)[0]).toBe(4)
   })
 
   it('a cycle of depends ends the walk and still takes the best priority in it', () => {

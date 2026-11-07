@@ -58,7 +58,7 @@ function dialogOf(text: string, state = 'in_review'): string {
   let html = ''
   expect(printBoard(file, NOW, (written) => {
     html += written
-  }, path.join(root, 'miko.md'))).toBe(0)
+  }, path.join(root, 'miko.md'), 'html')).toBe(0)
   return new RegExp(`<template id="dialog-card-${CARD}">([\\s\\S]*?)</template>`).exec(html)![1]!
 }
 

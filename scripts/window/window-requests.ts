@@ -55,7 +55,7 @@ const CARD_STATES = `
   SELECT DISTINCT card_id, NULL FROM events WHERE card_id IS NOT NULL AND card_id NOT IN (SELECT card_id FROM cards WHERE state IS NOT NULL)
 `
 const LATEST_INTAKE_ADMISSION = `SELECT id, ts, payload FROM events WHERE legacy = 0 AND type = '${CARD_ADMITTED}' AND actor LIKE '${INTAKE_ACTOR_PREFIX}%' AND card_id = ? AND json_type(payload, '$.card') = 'text' AND json_extract(payload, '$.bodySha') IS NOT NULL ORDER BY id DESC LIMIT 1`
-export const REQUEST_KINDS = ['tree.cut', 'amend', 'allow-merge', 'close-pr', 'pr.body', 'requeue', 'mode', 'plan', 'owner.wait', 'owner.wait.close', 'decisions:add', 'hold', 'release', 'takeover', 'drop', 'numbers.foreign'] as const
+export const REQUEST_KINDS = ['tree.cut', 'amend', 'allow-merge', 'close-pr', 'reopen-pr', 'pr.body', 'ci.rerun', 'requeue', 'mode', 'plan', 'owner.wait', 'owner.wait.close', 'decisions:add', 'hold', 'release', 'takeover', 'drop', 'numbers.foreign'] as const
 export const TAKEOVER_AFTER_MINUTES = 30
 export const PLAN_OPS: ReadonlyMap<string, string> = new Map([['open', PLAN_OPENED], ['add', CARD_PLANNED], ['remove', CARD_UNPLANNED], ['backfill', PLAN_BACKFILLED], ['close', PLAN_CLOSED]])
 const PLAN_FLAGS = ['op', 'plan', 'title', 'goal', 'file', 'gate', 'card'] as const
@@ -71,9 +71,10 @@ export const ALLOW_MERGE_RECORD = 'architecture/decisions/window-allow-merge.md'
 const RULE_ACCEPTED = /^Status: accepted\b/m
 export const REQUEST_RULE = 'window_request'
 export const PREFIX = '[bus:request] '
-export const USAGE = `usage: pnpm bus:request tree.cut --card <N> | amend --card <N> [--touches +<path>,-<path>] [--add-witness <witness>]... [--remove-witness <witness>]... [--owner-words <the owner's words>] [--depends +#<N>,-#<N>] [--auto-confirm] | allow-merge --pr <N> --head <sha> --dry-run <reviewer session> | close-pr --pr <N> --card <N> --reason <text> | pr.body --pr <N> | requeue --task <task_key> | mode --set ${FACTORY_MODES.join('|')} | plan --op ${[...PLAN_OPS.keys()].join('|')} [--plan <id>] [--title <text>] [--goal <text>] [--file <absolute plan file>] [--gate <word>] [--card <N>] | owner.wait --need ${OWNER_WAIT_NEEDS.join('|')} --text <what the owner decides> [--command <line>] [--card <N>] [--pr <N>] | owner.wait.close --id Q<N> --answer <answer> [--from ${ANSWER_SOURCE}] | decisions:add --from ${ANSWER_SOURCE} [--supersedes D-M]... [--card #N]... [--until <YYYY-MM-DDTHH:MMZ>] "[owner] <decision>" | hold --card <N> --reason <why the owner holds it> | release --card <N> | takeover --card <N> --reason <why the bus has no route for it> | drop --card <N> --reason <why a card with no body is dropped> | numbers.foreign --ids <card ids of another factory's row, comma separated>`
+export const USAGE = `usage: pnpm bus:request tree.cut --card <N> | amend --card <N> [--touches +<path>,-<path>] [--add-witness <witness>]... [--remove-witness <witness>]... [--owner-words <the owner's words>] [--depends +#<N>,-#<N>] [--auto-confirm] | allow-merge --pr <N> --head <sha> --dry-run <reviewer session> | close-pr|reopen-pr --pr <N> --card <N> --reason <text> | pr.body --pr <N> [--file <absolute path in the card tree>] | ci.rerun --pr <N> | requeue --task <task_key> | mode --set ${FACTORY_MODES.join('|')} | plan --op ${[...PLAN_OPS.keys()].join('|')} [--plan <id>] [--title <text>] [--goal <text>] [--file <absolute plan file>] [--gate <word>] [--card <N>] | owner.wait --need ${OWNER_WAIT_NEEDS.join('|')} --text <what the owner decides> [--command <line>] [--card <N>] [--pr <N>] | owner.wait.close --id Q<N> --answer <answer> [--from ${ANSWER_SOURCE}] | decisions:add --from ${ANSWER_SOURCE} [--supersedes D-M]... [--card #N]... [--until <YYYY-MM-DDTHH:MMZ>] "[owner] <decision>" | hold --card <N> --reason <why the owner holds it> | release --card <N> | takeover --card <N> --reason <why the bus has no route for it> | drop --card <N> --reason <why a card with no body is dropped> | numbers.foreign --ids <card ids of another factory's row, comma separated>`
 
 const BY_HAND = 'by-hand'
+const noTool = (what: string): Executed => ({ done: false, why: `this bus was built with no tool to ${what}` })
 const OWNER_ANSWER_USAGE = `an owner's word from the channel closes a wait with: pnpm bus:request owner.wait.close --id Q<N> --answer <the owner's word> --from ${ANSWER_SOURCE}`
 export const OWNER_WORD_NEEDED = `closing an owner wait needs the owner's word from the channel or a recorded decision`
 const HELP_FLAGS = ['--help', '-h']
@@ -95,6 +96,9 @@ export interface RequestTools {
   closePr: (request: CloseRequest) => CloseOutcome
   closeDropped: () => CloseOutcome[]
   appendCountLine?: (pr: number, cardId: number) => Executed
+  reopenPr?: (request: Omit<CloseRequest, 'by'>) => Executed
+  appendBodyFile?: (attempt: string, pr: number, file: string) => Executed
+  rerunCi?: (attempt: string, pr: number) => Executed
   settleDecisions?: () => void
 }
 
@@ -269,8 +273,10 @@ export class WindowRequests {
       'tree.cut': (_, payload) => this.treeCut(payload),
       'amend': (request, payload) => this.amend(request, payload),
       'allow-merge': (_, payload) => this.allowMerge(payload),
-      'close-pr': (request, payload) => this.closePr(request, payload),
-      'pr.body': (_, payload) => this.prBody(payload),
+      'close-pr': (request, payload) => this.closeOrReopen(request, payload),
+      'reopen-pr': (request, payload) => this.closeOrReopen(request, payload),
+      'pr.body': (request, payload) => this.prAction(request, payload),
+      'ci.rerun': (request, payload) => this.prAction(request, payload),
       'mode': (request, payload) => this.setMode(request, payload),
       'requeue': (request, payload) => this.requeue(request, payload),
       'plan': (request, payload) => this.plan(request, payload),
@@ -507,28 +513,25 @@ export class WindowRequests {
     return { done: written.code === 0, why: written.lines.join('; ') }
   }
 
-  private closePr(request: number, payload: Record<string, unknown>): Executed {
-    const pr = prOf(payload.pr)
-    const cardId = cardIdOf(payload.card)
-    const reason = text(payload.reason)
+  private closeOrReopen(request: number, payload: Record<string, unknown>): Executed {
+    const [pr, cardId, reason] = [prOf(payload.pr), cardIdOf(payload.card), text(payload.reason)]
     if (pr === null || cardId === null || reason === null)
-      return { done: false, why: 'close-pr needs a pr, a card and a reason' }
-    const outcome = this.tools.closePr({ attempt: `request-${request}`, pr, cardId, reason, by: 'window' })
-    return { done: outcome.kind === 'closed', why: outcome.detail }
+      return { done: false, why: `${String(payload.kind)} needs a pr, a card and a reason` }
+    const asked = { attempt: `request-${request}`, pr, cardId, reason }
+    const closed = payload.kind === 'close-pr' ? this.tools.closePr({ ...asked, by: 'window' }) : null
+    return closed === null ? this.tools.reopenPr?.(asked) ?? noTool('reopen a pull request') : { done: closed.kind === 'closed', why: closed.detail }
   }
 
-  private prBody(payload: Record<string, unknown>): Executed {
-    const pr = prOf(payload.pr)
-    if (pr === null)
-      return { done: false, why: 'pr.body names no pr' }
+  private prAction(request: number, payload: Record<string, unknown>): Executed {
+    const [pr, file, attempt] = [prOf(payload.pr), text(payload.file), `request-${request}`]
+    if (pr === null || file !== null || payload.kind === 'ci.rerun')
+      return pr === null ? { done: false, why: `${String(payload.kind)} names no pr` } : (payload.kind === 'ci.rerun' ? this.tools.rerunCi?.(attempt, pr) : this.tools.appendBodyFile?.(attempt, pr, file!)) ?? noTool(`answer ${String(payload.kind)}`)
     const row = this.observed(pr)
     if (row?.state !== 'open')
       return { done: false, why: `PR #${pr} is not open` }
     if (row.card_id === null)
       return { done: false, why: `PR #${pr} names no card, so no report holds its count line` }
-    if (this.tools.appendCountLine === undefined)
-      return { done: false, why: 'this bus was built with no tool to change a pull request body' }
-    return this.tools.appendCountLine(pr, row.card_id)
+    return this.tools.appendCountLine?.(pr, row.card_id) ?? noTool('change a pull request body')
   }
 
   private observed(pr: number): PrAsObserved | undefined {
@@ -865,24 +868,20 @@ export function requestOf(argv: readonly string[]): Record<string, unknown> | nu
     const dryRun = flag(argv, '--dry-run')
     return pr === null || !isFullSha(head) || dryRun === undefined ? null : { kind, pr, head, dry_run: dryRun }
   }
-  if (kind === 'close-pr') {
-    const pr = prOf(Number(flag(argv, '--pr')))
-    const card = cardIdOf(flag(argv, '--card'))
-    const reason = flag(argv, '--reason')
+  if (kind === 'close-pr' || kind === 'reopen-pr') {
+    const [pr, card, reason] = [prOf(Number(flag(argv, '--pr'))), cardIdOf(flag(argv, '--card')), flag(argv, '--reason')]
     return pr === null || card === null || reason === undefined ? null : { kind, pr, card, reason }
   }
-  if (kind === 'pr.body') {
-    const pr = prOf(Number(flag(argv, '--pr')))
-    return pr === null ? null : { kind, pr }
+  if (kind === 'pr.body' || kind === 'ci.rerun') {
+    const [pr, file] = [prOf(Number(flag(argv, '--pr'))), kind === 'pr.body' ? flag(argv, '--file') : undefined]
+    return pr === null ? null : { kind, pr, ...(file === undefined ? {} : { file }) }
   }
   if (kind === 'requeue') {
     const task = flag(argv, '--task')
     return task === undefined ? null : { kind, task_key: task }
   }
-  if (kind === 'mode') {
-    const mode = flag(argv, '--set')
-    return isFactoryMode(mode) ? { kind, mode } : null
-  }
+  if (kind === 'mode')
+    return isFactoryMode(flag(argv, '--set')) ? { kind, mode: flag(argv, '--set') } : null
   if (kind === 'owner.wait') {
     const need = flag(argv, '--need')
     const waitText = flag(argv, '--text')

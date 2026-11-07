@@ -141,7 +141,7 @@ export function ciOf(reader: EndpointReader, sha: string, requiredCheck = REQUIR
 export function hasApprovedRun(reader: EndpointReader, head: string | undefined): boolean {
   if (head === undefined)
     return false
-  const runs = (reader.get(`${REPO}/actions/runs?head_sha=${head}&per_page=${RUNS_PAGE}`) as { workflow_runs?: { conclusion?: string | null }[] }).workflow_runs ?? []
+  const runs = (reader.get(runsOnHeadEndpoint(head)) as { workflow_runs?: { conclusion?: string | null }[] }).workflow_runs ?? []
   return runs.some(run => run.conclusion !== AWAITING_APPROVAL)
 }
 
@@ -192,6 +192,14 @@ export function detailsOfPullRequestView(view: PullRequestView, knownHead: strin
 
 export function unreadPullRequest(reason: string, knownHead: string): PrDetails {
   return { ci: { state: 'unknown', text: `UNKNOWN (missing: checks; ${reason})`, head: shortHead(knownHead) }, files: undefined }
+}
+
+export function runsOnHeadEndpoint(head: string): string {
+  return `${REPO}/actions/runs?head_sha=${head}&per_page=${RUNS_PAGE}`
+}
+
+export function rerunFailedJobsEndpoint(runId: number): string {
+  return `${REPO}/actions/runs/${runId}/rerun-failed-jobs`
 }
 
 export function pullRequestViewArgs(pr: number, repository: string): string[] {
