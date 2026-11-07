@@ -119,7 +119,7 @@ describe('the window commands under the sandbox law', () => {
     let page = ''
     expect(printBoard(busPath, NOW, (text) => {
       page += text
-    })).toBe(0)
+    }, undefined, 'html')).toBe(0)
     expect(page).toContain('</html>')
 
     const handoffDir = path.join(dir, 'handoff')

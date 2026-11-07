@@ -154,6 +154,6 @@ function renderBoardOf(db: DatabaseSync): string {
   let html = ''
   expect(printBoard(busFile, NOW, (text) => {
     html += text
-  }, path.join(path.dirname(busFile), 'miko.md'))).toBe(0)
+  }, path.join(path.dirname(busFile), 'miko.md'), 'html')).toBe(0)
   return html
 }
