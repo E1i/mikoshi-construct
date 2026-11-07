@@ -8,8 +8,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { parkingFileText } from '../../../src/card/parking.js'
 import { textSha } from '../../../src/card/text-sha.js'
 import { appendEvent, openBus } from '../../core/db.js'
-import { CARD_ADMITTED, PR_OBSERVED, WITNESS_RECORDED } from '../../core/events.js'
-import { answerCandidates } from '../../core/queue.js'
+import { CARD_ADMITTED, POLICY_DENIED, PR_OBSERVED, WITNESS_RECORDED } from '../../core/events.js'
+import { answerCandidates, witnessCandidates } from '../../core/queue.js'
 import { reduce } from '../../core/reducer.js'
 import { realTimedShell } from '../../nodes/witness/witness-executor.js'
 import { WitnessNode } from '../../nodes/witness/witness-worker.js'
@@ -185,5 +185,22 @@ describe('the witness tells could not check from failed', () => {
     stored(w, UNCHECKED, '2026-11-07T10:01:20.000Z')
     expect(readVerdict(w)).toBe(UNCHECKED)
     expect(greenWitnesses(w.bus)).toEqual([])
+  })
+
+  it('could not check runs the witness again when a merge is denied on a newer base, and not on the same one', async () => {
+    const w = world(await freePort(), {}, {})
+    stored(w, UNCHECKED, '2026-11-07T10:01:10.000Z')
+    const witnessed = (): number[] => {
+      reduce(w.db)
+      return witnessCandidates(w.db, NOW).map(task => task.cardId)
+    }
+    const deniedOn = (base: string, at: string): void => {
+      appendEvent(w.db, { ts: at, type: POLICY_DENIED, actor: 'policy', cardId: CARD, pr: PR, head: w.head, dedupeKey: `${POLICY_DENIED}:merge:${at}`, payload: { command: 'merge', reason: 'witness', base, detail: 'denied' }, legacy: false })
+    }
+    expect(witnessed()).not.toContain(CARD)
+    deniedOn(w.base, '2026-11-07T10:01:20.000Z')
+    expect(witnessed()).not.toContain(CARD)
+    deniedOn('c'.repeat(40), '2026-11-07T10:01:30.000Z')
+    expect(witnessed()).toContain(CARD)
   })
 })
