@@ -103,11 +103,21 @@ function stoppedByFault(db: DatabaseSync, cardId: number, before: number): boole
   return row?.reason === FAULT
 }
 
+const FIRST_LEASE_GEN = 1
+
+export function launchStartKey(taskKey: string, leaseGen: number): string {
+  return leaseGen === FIRST_LEASE_GEN ? `${CARD_STARTED}:${taskKey}` : `${CARD_STARTED}:${taskKey}:${leaseGen}`
+}
+
+export function launchStartLease(leaseGen: number): { lease_gen?: number } {
+  return leaseGen === FIRST_LEASE_GEN ? {} : { lease_gen: leaseGen }
+}
+
 function leaseGenCarriedBy(event: StoredEvent, current: LaunchLease | undefined): number | null {
   const carried = payloadOf(event).lease_gen
   if (typeof carried === 'number' && Number.isSafeInteger(carried) && carried > 0)
     return carried
-  return current?.state === LEASED_TASK && event.dedupe_key === `${CARD_STARTED}:${current.task_key}` ? current.lease_gen : null
+  return current?.state === LEASED_TASK && event.dedupe_key === launchStartKey(current.task_key, current.lease_gen) ? current.lease_gen : null
 }
 
 function restoreFromFault(db: DatabaseSync, event: StoredEvent, cardId: number): void {
