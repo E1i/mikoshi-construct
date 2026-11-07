@@ -13,8 +13,9 @@ import { answerCandidates } from '../../core/queue.js'
 import { reduce } from '../../core/reducer.js'
 import { realTimedShell } from '../../nodes/witness/witness-executor.js'
 import { WitnessNode } from '../../nodes/witness/witness-worker.js'
-import { RED, UNCHECKED, witnessDenial } from '../../policy/policy.js'
+import { GREEN, RED, UNCHECKED, witnessDenial, witnessRecordOf, witnessSubjectOf } from '../../policy/policy.js'
 import { SetupTurns, withWorktreeAsync } from '../../ports/worktree.js'
+import { greenWitnesses } from '../../release/evidence.js'
 
 const CARD = 1698
 const PR = 2698
@@ -75,6 +76,7 @@ function serveOf(port: number, command: string, readyTimeoutMs: number): string 
 
 interface World {
   db: DatabaseSync
+  bus: string
   repo: string
   base: string
   head: string
@@ -87,14 +89,15 @@ function world(port: number, onBase: Record<string, string>, onHead: Record<stri
   execFileSync('git', ['init', '-q', repo])
   const base = commit(repo, { 'README.md': 'base\n', [LAB]: LAB_TEXT, ...onBase }, 'base')
   const head = commit(repo, { 'done.txt': 'done\n', ...onHead }, 'head')
-  const db = openBus(path.join(root, 'bus.db'))
+  const bus = path.join(root, 'bus.db')
+  const db = openBus(bus)
   dbs.push(db)
   const body = `Serve the page.\n\nWitnesses:\n- \`node ${LAB} page http://127.0.0.1:${port}/\` exits 0; red on main`
   const text = parkingFileText({ card: `#${CARD} unchecked [implement/construct/S/cheap/auto] · depends — · blocks —`, branch: 'feat/unchecked', touches: ['done.txt'], continue: 'stop', who: 'shift', body })
   appendEvent(db, { ts: '2026-11-07T10:00:00.000Z', type: CARD_ADMITTED, actor: 'worker:intake:by-hand', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${CARD}`, payload: { card: `#${CARD}`, lane: 'lane-1', text, textSha: textSha(text), bodySha: textSha(text).slice(0, 12) }, legacy: false })
   appendEvent(db, { ts: '2026-11-07T10:01:00.000Z', type: PR_OBSERVED, actor: 'netwatch', cardId: CARD, pr: PR, head, dedupeKey: `${PR_OBSERVED}:${PR}:${head}`, payload: { card_id: CARD, base: 'main', head, mergeable: 'clean', ci: 'green', auto_merge: false, draft: false, body_sha: 'a'.repeat(64) }, legacy: false })
   reduce(db)
-  return { db, repo, base, head }
+  return { db, bus, repo, base, head }
 }
 
 async function neverAnswering(): Promise<World> {
@@ -119,6 +122,15 @@ async function witnessRun(w: World): Promise<void> {
 
 function verdictsOf(w: World): unknown[] {
   return (w.db.prepare('SELECT payload FROM events WHERE type = ?').all(WITNESS_RECORDED) as { payload: string }[]).map(row => (JSON.parse(row.payload) as { verdict: unknown }).verdict)
+}
+
+function stored(w: World, verdict: unknown, at: string): void {
+  const cardBody = witnessSubjectOf(w.db, CARD)!.cardBody
+  appendEvent(w.db, { ts: at, type: WITNESS_RECORDED, actor: 'worker:witness:older', cardId: CARD, pr: PR, head: w.head, dedupeKey: `${WITNESS_RECORDED}:older:${at}`, payload: { head: w.head, base: w.base, cardBody, verdict, detail: `stored ${String(verdict)}` }, legacy: false })
+}
+
+function readVerdict(w: World): unknown {
+  return witnessRecordOf(w.db, CARD, w.head, w.base, witnessSubjectOf(w.db, CARD)!.cardBody)?.verdict
 }
 
 function answeredCards(w: World): number[] {
@@ -153,5 +165,25 @@ describe('the witness tells could not check from failed', () => {
     expect(verdictsOf(w)).toEqual([RED])
     expect(witnessDenial(w.db, CARD, w.head, w.base)?.detail).toContain('is red')
     expect(answeredCards(w)).toContain(CARD)
+  })
+
+  it('an older event keeps its verdict and is not rewritten', async () => {
+    const w = world(await freePort(), {}, {})
+    stored(w, 'failed', '2026-11-07T10:01:10.000Z')
+    expect(readVerdict(w)).toBe(RED)
+    stored(w, RED, '2026-11-07T10:01:20.000Z')
+    expect(readVerdict(w)).toBe(RED)
+    stored(w, GREEN, '2026-11-07T10:01:30.000Z')
+    expect(readVerdict(w)).toBe(GREEN)
+    expect(verdictsOf(w)).toEqual(['failed', RED, GREEN])
+  })
+
+  it('an unchecked last witness is not counted green in the release evidence', async () => {
+    const w = world(await freePort(), {}, {})
+    stored(w, GREEN, '2026-11-07T10:01:10.000Z')
+    expect(greenWitnesses(w.bus).map(green => green.task)).toEqual([String(CARD)])
+    stored(w, UNCHECKED, '2026-11-07T10:01:20.000Z')
+    expect(readVerdict(w)).toBe(UNCHECKED)
+    expect(greenWitnesses(w.bus)).toEqual([])
   })
 })

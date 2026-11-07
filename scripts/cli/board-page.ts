@@ -179,6 +179,7 @@ const WAIT_NEEDS: Record<OwnerWait['need'], string> = { decision: 'D', merge: 'M
 const NOT_RUN_ON_HEAD = 'not run'
 const NOT_REACHED_ON_HEAD = 'not reached'
 const COULD_NOT_CHECK_ON_HEAD = 'could not check'
+const SETTLED_ON_HEAD: Readonly<Partial<Record<string, string>>> = { [GREEN]: GREEN, [UNCHECKED]: COULD_NOT_CHECK_ON_HEAD }
 const NEGATED_RUN = /^!\s+/
 const WITNESS_ID_COLUMN = 'id'
 const WITNESS_COLUMNS = ['run', 'test', 'head/base', 'proves']
@@ -711,12 +712,8 @@ function cardPunch(card: BusCard, detail: CardDetail, page: BoardPage): string {
 function lastWitnessResult(field: WitnessField, record: WitnessRecordOnHead | null): string {
   if (record === null)
     return NOT_RUN_ON_HEAD
-  if (record.verdict === GREEN)
-    return GREEN
-  if (record.verdict === UNCHECKED)
-    return COULD_NOT_CHECK_ON_HEAD
   const command = fieldCommand(field).replace(NEGATED_RUN, '')
-  return [command, `! ${command}`].some(named => record.detail.includes(`\`${named}\``)) ? RED : NOT_REACHED_ON_HEAD
+  return SETTLED_ON_HEAD[record.verdict] ?? ([command, `! ${command}`].some(named => record.detail.includes(`\`${named}\``)) ? RED : NOT_REACHED_ON_HEAD)
 }
 
 function witnessRow(field: WitnessField, record: WitnessRecordOnHead | null, page: BoardPage): string {
