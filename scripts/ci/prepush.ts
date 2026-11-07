@@ -94,9 +94,22 @@ function brokenGate(why: string): Gate {
   }
 }
 
-export function roundRun(run: Run, changed: readonly string[], graph: Graph, select: (files: readonly string[]) => Run): Run {
+export interface Selection {
+  changed: readonly string[]
+  run: Run
+  graph: Graph
+  select: (files: readonly string[]) => Run
+  reading: CardRuns | null
+}
+
+export function roundRun({ changed, run, graph, select, reading }: Selection): Run {
   if (run.kind !== 'full')
     return run
+  const layered = selectEachPath(changed, graph, select)
+  return reading === null || 'full' in reading ? layered : withCardRuns(layered, reading, graph)
+}
+
+function selectEachPath(changed: readonly string[], graph: Graph, select: (files: readonly string[]) => Run): Run {
   const reverse = reverseGraph(graph)
   const layers = new Set<string>()
   const tests = new Set<string>()
@@ -146,8 +159,9 @@ export interface Suite {
   log: (line: string) => void
 }
 
-export async function testStep(changed: readonly string[], selected: Run, round: string | null, graph: Graph, select: (files: readonly string[]) => Run, suite: Suite): Promise<number> {
-  const run = round === null ? selected : roundRun(selected, changed, graph, select)
+export async function testStep(selection: Selection, round: string | null, suite: Suite): Promise<number> {
+  const { changed, run: selected } = selection
+  const run = round === null ? selected : roundRun(selection)
   if (run !== selected)
     suite.log(`prepush: the round runs only the layers its change reaches (${selected.kind === 'full' ? selected.why : 'layered'}); the full suite is CI's.`)
   suite.log(runSummary(run))
@@ -247,6 +261,7 @@ async function main(): Promise<number> {
   let run: Run
   let round: string | null
   let graph: Graph
+  let reading: CardRuns | null
   try {
     round = roundOf(process.argv.slice(2))
     const clean = cleanTreeGate(git)
@@ -256,7 +271,8 @@ async function main(): Promise<number> {
     }
     changed = changesSince(git, round)
     graph = changed.length === 0 ? new Map() : cruise()
-    run = reportedRun(withCardRuns(selectRun(changed, graph, readTest), readingOfBranch(git), graph))
+    reading = readingOfBranch(git)
+    run = reportedRun(withCardRuns(selectRun(changed, graph, readTest), reading, graph))
   }
   catch (error) {
     console.log(brokenGate(`the CI selector did not run: ${error instanceof Error ? error.message : String(error)}`).lines.join('\n'))
@@ -270,7 +286,7 @@ async function main(): Promise<number> {
       return linted.code
     }
   }
-  return testStep(changed, run, round, graph, files => selectRun(files, graph, readTest), { vitest: args => runVitest(args), liveness: sandboxLiveness, queue: heavyStep, log: line => console.log(line) })
+  return testStep({ changed, run, graph, select: files => selectRun(files, graph, readTest), reading }, round, { vitest: args => runVitest(args), liveness: sandboxLiveness, queue: heavyStep, log: line => console.log(line) })
 }
 
 if (process.argv[1] === import.meta.filename)
