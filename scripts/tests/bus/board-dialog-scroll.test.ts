@@ -26,7 +26,7 @@ function emptyPage(): string {
   let html = ''
   expect(printBoard(busPath, NOW, (text) => {
     html += text
-  }, path.join(root, 'miko.md'))).toBe(0)
+  }, path.join(root, 'miko.md'), 'html')).toBe(0)
   return html
 }
 
