@@ -11,7 +11,7 @@ import process from 'node:process'
 import { withinTouches } from '../../src/card/covering-tests.js'
 import { heavyStep } from '../quality/lock.js'
 import { branchCardRuns } from './card-runs.js'
-import { isTest, selectRun } from './layers.js'
+import { isTest, reverseGraph, selectRun } from './layers.js'
 import { SANDBOX_FAILING } from './sandbox-failing.js'
 import { listedFiles, livenessApplies, runTraced, staleInSandbox, staleLines } from './sandbox-liveness.js'
 import { cruise, readTest, reportedRun, runSummary } from './select.js'
@@ -94,7 +94,72 @@ function brokenGate(why: string): Gate {
   }
 }
 
-export function prepushGate(changed: readonly string[], tests: () => Verdict, liveness: () => Stale[] | null): Gate {
+export function roundRun(run: Run, changed: readonly string[], graph: Graph, select: (files: readonly string[]) => Run): Run {
+  if (run.kind !== 'full')
+    return run
+  const reverse = reverseGraph(graph)
+  const layers = new Set<string>()
+  const tests = new Set<string>()
+  for (const file of changed) {
+    const one = select([file])
+    if (one.kind === 'layers') {
+      one.layers.forEach(layer => layers.add(layer))
+      one.tests.forEach(test => tests.add(test))
+    }
+    else {
+      testsReaching(file, reverse).forEach(test => tests.add(test))
+    }
+  }
+  return { kind: 'layers', layers: [...layers].sort(), tests: [...tests].sort() }
+}
+
+function testsReaching(file: string, reverse: ReadonlyMap<string, readonly string[]>): string[] {
+  const seen = new Set([file])
+  const queue = [file]
+  for (let next = queue.shift(); next !== undefined; next = queue.shift()) {
+    for (const from of reverse.get(next) ?? []) {
+      if (!seen.has(from)) {
+        seen.add(from)
+        queue.push(from)
+      }
+    }
+  }
+  return [...seen].filter(isTest)
+}
+
+export const NO_TESTS: Verdict = { kind: 'green', ran: 0 }
+
+export function roundTests(run: Run, vitest: () => VitestRun): Verdict {
+  return run.kind === 'layers' && run.tests.length === 0 ? NO_TESTS : testsVerdict(vitest())
+}
+
+export function greenLine(ran: number, round: string | null): string {
+  return round === null
+    ? `prepush: green — ${ran} tests ran; the push may go.`
+    : `prepush: green — ${ran} tests of the layers this round reaches ran; the full suite is CI's, and the merge waits for its green run; the push may go.`
+}
+
+export interface Suite {
+  vitest: (args: readonly string[]) => VitestRun
+  liveness: () => Stale[] | null
+  queue: (step: () => Promise<number>) => Promise<number>
+  log: (line: string) => void
+}
+
+export async function testStep(changed: readonly string[], selected: Run, round: string | null, graph: Graph, select: (files: readonly string[]) => Run, suite: Suite): Promise<number> {
+  const run = round === null ? selected : roundRun(selected, changed, graph, select)
+  if (run !== selected)
+    suite.log(`prepush: the round runs only the layers its change reaches (${selected.kind === 'full' ? selected.why : 'layered'}); the full suite is CI's.`)
+  suite.log(runSummary(run))
+  return throughQueue(run, async () => {
+    const started = Date.now()
+    const gate = prepushGate(changed, () => roundTests(run, () => suite.vitest(sessionArgs(run, SANDBOX_FAILING))), suite.liveness, round)
+    suite.log([...gate.lines, `prepush: ${Math.round((Date.now() - started) / 1000)} s of local tests`].join('\n'))
+    return gate.code
+  }, suite.queue)
+}
+
+export function prepushGate(changed: readonly string[], tests: () => Verdict, liveness: () => Stale[] | null, round: string | null = null): Gate {
   const verdict = tests()
   if (verdict.kind === 'broken')
     return brokenGate(verdict.why)
@@ -107,7 +172,7 @@ export function prepushGate(changed: readonly string[], tests: () => Verdict, li
     if (stale.length > 0)
       return { lines: ['prepush: red — this change touches the sandbox list or the selector, and the liveness check is red; the push does not happen:', ...staleLines(stale)], code: 1 }
   }
-  return { lines: [`prepush: green — ${verdict.ran} tests ran; the push may go.`], code: 0 }
+  return { lines: [greenLine(verdict.ran, round)], code: 0 }
 }
 
 export type Git = (args: readonly string[]) => string
@@ -181,6 +246,7 @@ async function main(): Promise<number> {
   let changed: string[]
   let run: Run
   let round: string | null
+  let graph: Graph
   try {
     round = roundOf(process.argv.slice(2))
     const clean = cleanTreeGate(git)
@@ -189,7 +255,7 @@ async function main(): Promise<number> {
       return clean.code
     }
     changed = changesSince(git, round)
-    const graph = changed.length === 0 ? new Map() : cruise()
+    graph = changed.length === 0 ? new Map() : cruise()
     run = reportedRun(withCardRuns(selectRun(changed, graph, readTest), readingOfBranch(git), graph))
   }
   catch (error) {
@@ -204,13 +270,7 @@ async function main(): Promise<number> {
       return linted.code
     }
   }
-  console.log(runSummary(run))
-  return throughQueue(run, async () => {
-    const started = Date.now()
-    const gate = prepushGate(changed, () => testsVerdict(runVitest(sessionArgs(run, SANDBOX_FAILING))), sandboxLiveness)
-    console.log([...gate.lines, `prepush: ${Math.round((Date.now() - started) / 1000)} s of local tests`].join('\n'))
-    return gate.code
-  })
+  return testStep(changed, run, round, graph, files => selectRun(files, graph, readTest), { vitest: args => runVitest(args), liveness: sandboxLiveness, queue: heavyStep, log: line => console.log(line) })
 }
 
 if (process.argv[1] === import.meta.filename)
