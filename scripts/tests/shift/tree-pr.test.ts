@@ -551,8 +551,8 @@ describe('a refusal the session can fix returns the card to it once', () => {
     expect({ code, events }).toEqual({ code: 0, events: [PR] })
   })
 
-  it('a test outside touches is a wait for the window and the session leaves touches unchanged', () => {
-    const outside = 'scripts/tests/other/y.test.ts'
+  it('a test helper outside touches is a wait for the window and the session leaves touches unchanged', () => {
+    const outside = 'scripts/tests/other/helper.ts'
     const { code, bus } = settled('ladder', { files: [{ path: SCRIPT }, { path: outside }] }, untouchable)
 
     const db = openBus(bus.busPath)

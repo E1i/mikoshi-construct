@@ -1287,7 +1287,7 @@ describe('review depth by MORSE', () => {
     const today = await reviewOnce(961, DOCS, ['docs/**'], 'today')
 
     expect(diff.world.predictions).toEqual([{ task: review(961), verdict: 'cheap', rule: 'docs-only' }])
-    expect(diff.seen.map(each => each.plan)).toEqual([{ depth: 'diff', round: 'first', why: 'MORSE predicts cheap by rule docs-only, and only the instructions rule takes the full review', since: MERGE_BASE, touchFindings: [] }])
+    expect(diff.seen.map(each => each.plan)).toEqual([{ depth: 'diff', round: 'first', why: 'MORSE predicts cheap by rule docs-only, and only the instructions rule takes the full review', since: MERGE_BASE, touchFindings: [], touchNotes: [] }])
     expect(reviewPrompt(diff.seen[0]!.lease, diff.seen[0]!.plan, '/t', '/v.json')).toContain(`Read only the diff ${MERGE_BASE}..${sha('a')} against the card, its witnesses, its touches, its creates and its runs (the tests the card's Runs: line names); do not walk the modules it touches.`)
     expect(today.seen.map(each => each.plan.depth)).toEqual(['full'])
     const [diffMs] = recordedMs(diff.bench.db)
@@ -1303,7 +1303,7 @@ describe('review depth by MORSE', () => {
     const { bench, world, seen } = await reviewOnce(962, [edited('scripts/core/queue.ts'), edited('scripts/tests/bus/queue.test.ts', 4, 0)], ['scripts/core/**', 'scripts/tests/bus/**'], 'depth')
 
     expect(world.predictions).toEqual([{ task: review(962), verdict: 'ladder', rule: 'doubt' }])
-    expect(seen.map(each => each.plan)).toEqual([{ depth: 'diff', round: 'first', why: 'MORSE predicts ladder by rule doubt, and only the instructions rule takes the full review', since: MERGE_BASE, touchFindings: [] }])
+    expect(seen.map(each => each.plan)).toEqual([{ depth: 'diff', round: 'first', why: 'MORSE predicts ladder by rule doubt, and only the instructions rule takes the full review', since: MERGE_BASE, touchFindings: [], touchNotes: [] }])
     expect(reviewPrompt(seen[0]!.lease, seen[0]!.plan, '/t', '/v.json')).not.toContain('Review the whole pull request')
     expect(events(bench.db, 'review.recorded')).toMatchObject([{ depth: 'diff', review_ms: READING_MS.diff }])
     bench.db.close()
@@ -1430,11 +1430,12 @@ describe('review depth by MORSE', () => {
     bench.db.close()
   })
 
-  it('a test the card runs is no finding of the review; a test it does not run, a helper under its runs and code its runs name are', () => {
+  it('a test the card runs is neither finding nor note; a test it does not run is a note; a helper under its runs and code its runs name are findings', () => {
     const changed = ['scripts/bus/a.ts', 'scripts/tests/bus/a.test.ts', 'scripts/tests/bus/helper.ts', 'scripts/tests/other/x.test.ts', 'src/foo.ts']
     const world = new DepthWorld().change(MERGE_BASE, sha('a'), changed.map(file => edited(file))).card(1071, ['scripts/bus/a.ts'], ['scripts/tests/bus/**', 'src/foo.ts'])
     const lease = { taskKey: review(971), queue: 'review' as const, cardId: 1071, pr: 971, head: sha('a'), leaseGen: 1, actor: 'worker:review:w' }
-    expect(planReview(lease, null, world.sources)).toMatchObject({ depth: 'diff', round: 'first', touchFindings: ['scripts/tests/bus/helper.ts', 'scripts/tests/other/x.test.ts', 'src/foo.ts'].map(file => `${file} is outside the touches of card #1071 (scripts/bus/a.ts)`) })
+    const outside = (file: string): string => `${file} is outside the touches of card #1071 (scripts/bus/a.ts)`
+    expect(planReview(lease, null, world.sources)).toMatchObject({ depth: 'diff', round: 'first', touchFindings: ['scripts/tests/bus/helper.ts', 'src/foo.ts'].map(outside), touchNotes: ['scripts/tests/other/x.test.ts'].map(outside) })
   })
 
   it('touches that cannot be read stay a diff review and become a finding of it', () => {
