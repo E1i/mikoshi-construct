@@ -8,7 +8,7 @@ import { BUSY_TIMEOUT_MS, defaultBusPath } from '../core/db.js'
 import { messageOf } from '../core/errors.js'
 import { layersOfEntry, readLayerMap } from '../core/layer-map.js'
 import { openDatabase } from '../core/sqlite.js'
-import { CHANGESET_READERS, isChangesetNote } from './layers.js'
+import { CHANGESET_READERS, declaredReadersOf, isChangesetNote } from './layers.js'
 
 export const NO_LAYER = 'none'
 
@@ -36,9 +36,15 @@ function filesWithin(entry: string, catalog: LayersByFile): string[] {
   return [...catalog.keys()].filter(file => withinTouches(file, [entry]))
 }
 
+const TRAILING_GLOB = /\*\*$/
+
+function declaredReaderLayers(touch: string, moduleLayers: LayersByFile): string[] {
+  return (declaredReadersOf(touch.replace(TRAILING_GLOB, '')) ?? []).flatMap(reader => moduleLayers.get(reader) ?? [])
+}
+
 function touchedLayers(touch: string, moduleLayers: LayersByFile, map: LayerMap): string[] {
   const catalogued = filesWithin(touch, moduleLayers).flatMap(file => moduleLayers.get(file) ?? [])
-  return catalogued.length > 0 ? catalogued : layersOfEntry(map, touch)
+  return catalogued.length > 0 ? catalogued : sortedUnique([...layersOfEntry(map, touch), ...declaredReaderLayers(touch, moduleLayers)])
 }
 
 function testsOfTouch(touch: string, testLayers: LayersByFile): string[] {

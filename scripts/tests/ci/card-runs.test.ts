@@ -49,6 +49,16 @@ describe('the runs of a card, read from the check catalog', () => {
     expect(cardRunsOf({ touches: ['CONTRIBUTING.md'], runs: ['tests/a.test.ts'], masks: [] }, CATALOG)).toEqual({ full: true, why: expect.stringContaining('CONTRIBUTING.md') })
   })
 
+  it('a touch with declared path readers takes the layers of those readers, as selectRun does', () => {
+    const catalog = {
+      testLayers: new Map([...CATALOG.testLayers, ['tests/materialize.test.ts', ['src']], ['scripts/tests/bus/policy.test.ts', ['bus']], ['tests/contract/c.test.ts', ['contract']]]),
+      moduleLayers: new Map([...CATALOG.moduleLayers, ['src/materialize/templates.ts', ['src']], ['scripts/policy/policy.ts', ['bus']], ['scripts/contract/ratchet.ts', ['contract']]]),
+    }
+    expect(cardRunsOf({ touches: ['templates/**'], runs: [], masks: [] }, catalog)).toMatchObject({ layers: ['src'] })
+    expect(cardRunsOf({ touches: ['templates/base/x.eta'], runs: [], masks: [] }, catalog)).toMatchObject({ layers: ['src'] })
+    expect(cardRunsOf({ touches: ['contract/ratchet.json'], runs: [], masks: [] }, catalog)).toMatchObject({ layers: expect.arrayContaining(['bus', 'contract']) })
+  })
+
   it('an unknown layer is refused and an empty catalog reads full rather than nothing', () => {
     expect(witnessFieldRefusals('runs: ["layer:no-such-layer"]')).toEqual([expect.stringContaining('\'layer:no-such-layer\' names no layer')])
     expect(witnessFieldRefusals('runs: ["layer:core", "layer:bus:answer"]')).toEqual([])

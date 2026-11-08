@@ -115,11 +115,15 @@ export function isRootConfigOrWorkflow(file: string): boolean {
   return (!file.includes('/') && !isDocument(file)) || file.startsWith(WORKFLOWS)
 }
 
+function isImported(file: string, graph: Graph): boolean {
+  return [...graph.values()].some(targets => targets.includes(file))
+}
+
 function resolvedByLayers(file: string, graph: Graph, map: LayerMap): boolean {
   if (isDocument(file))
     return true
   if (underTestRoot(file) && graph.has(file))
-    return true
+    return isImported(file, graph)
   const layers = layersInOf(map, file)
   if (layers.length === 0)
     return false
