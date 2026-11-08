@@ -20,6 +20,7 @@ export const DOCTOR_FIELD_FAMILY = {
   youAreHere: 'knowledge',
   notCarried: 'knowledge',
   versionGap: 'provenance',
+  unknownClients: 'provenance',
 } as const satisfies Record<keyof DoctorResult, ResultFamily>
 
 export const RETIRED_IDENTIFIERS = ['red-gate', 'hook', 'construct-tests', 'weakestLink'] as const

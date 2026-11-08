@@ -103,6 +103,7 @@ const CARRIERS: readonly Carrier[] = [
   { path: 'src/commands/intake/check.ts', reason: 'the .claude directory never follows a card' },
   { path: 'src/card/complexity.ts', reason: 'counts the .claude directory as a path kind' },
   { path: 'src/card/risk.ts', reason: 'maps .claude to the templates it comes from' },
+  { path: 'src/manifest.ts', reason: 'the client ids construct.json may name, which doctor reads where the factory adapters cannot be imported; scripts/tests/client/config.test.ts holds them equal to the adapters' },
   { path: 'src/materialize/factory-manifest.ts', reason: 'the settings file is a path of the factory manifest' },
   { path: 'src/materialize/rules.ts', reason: 'the rules of the claude AI target' },
   { path: 'src/materialize/strategies.ts', reason: 'the settings file merges its hooks' },

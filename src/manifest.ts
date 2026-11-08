@@ -71,6 +71,19 @@ export interface ShiftGate {
   codeMatrix: string | null
 }
 
+export const DEFAULT_CLIENT_MODEL = 'auto'
+
+export const CLIENT_IDS = ['claude', 'codex'] as const
+
+export const CLIENT_ROLES = ['launch', 'answer', 'review', 'window'] as const
+export type ClientRole = (typeof CLIENT_ROLES)[number]
+
+export interface ClientRecord {
+  id?: string
+  model?: string
+  roles?: Partial<Record<ClientRole, string>>
+}
+
 export interface Manifest {
   manifestVersion: number
   construct: string
@@ -93,6 +106,7 @@ export interface Manifest {
   lanes?: number
   shift?: ShiftRecord
   serve?: ServeRecord
+  client?: ClientRecord
 }
 
 export function sha256(content: string): string {
@@ -154,6 +168,7 @@ export function buildManifest(input: {
     policy: input.policy == null ? input.previous?.policy ?? null : { workspaceImports: input.policy },
     lanes: input.lanes ?? input.previous?.lanes,
     serve: input.previous?.serve ?? input.serve,
+    client: input.previous?.client,
   }
 }
 
@@ -245,6 +260,49 @@ function upgradeServe(raw: unknown): ServeRecord | undefined {
   return { command, url, readyTimeoutMs: value.readyTimeoutMs }
 }
 
+function upgradeClientRoles(raw: unknown): Partial<Record<ClientRole, string>> | undefined {
+  const value = (raw ?? {}) as Partial<Record<ClientRole, unknown>>
+  const entries = CLIENT_ROLES.flatMap((role) => {
+    const id = declaredText(value[role])
+    return id === undefined ? [] : [[role, id] as const]
+  })
+  return entries.length === 0 ? undefined : Object.fromEntries(entries)
+}
+
+function upgradeClient(raw: unknown): ClientRecord | undefined {
+  if (typeof raw !== 'object' || raw == null)
+    return undefined
+  const value = raw as Partial<Record<keyof ClientRecord, unknown>>
+  const id = declaredText(value.id)
+  const model = declaredText(value.model)
+  const roles = upgradeClientRoles(value.roles)
+  if (id === undefined && model === undefined && roles === undefined)
+    return undefined
+  return {
+    ...(id === undefined ? {} : { id }),
+    ...(model === undefined ? {} : { model }),
+    ...(roles === undefined ? {} : { roles }),
+  }
+}
+
+export function clientIdsNamed(record: ClientRecord | undefined): string[] {
+  const named = [record?.id, ...CLIENT_ROLES.map(role => record?.roles?.[role])]
+  return [...new Set(named.filter((id): id is string => id !== undefined))]
+}
+
+export function clientIdsWithNoAdapter(record: ClientRecord | undefined): string[] {
+  const known = new Set<string>(CLIENT_IDS)
+  return clientIdsNamed(record).filter(id => !known.has(id))
+}
+
+export function clientIdFor(record: ClientRecord | undefined, role: ClientRole): string | null {
+  return record?.roles?.[role] ?? record?.id ?? null
+}
+
+export function clientModelOf(record: ClientRecord | undefined): string {
+  return record?.model ?? DEFAULT_CLIENT_MODEL
+}
+
 export function shiftGateOf(manifest: Manifest | null): ShiftGate {
   const shift = manifest?.shift
   const fallback = manifest?.harness.command
@@ -295,6 +353,7 @@ export function upgradeManifest(raw: unknown): Manifest {
     lanes: isLaneCount(manifest.lanes) ? manifest.lanes : undefined,
     shift: upgradeShift(manifest.shift),
     serve: upgradeServe(manifest.serve),
+    client: upgradeClient(manifest.client),
   }
 }
 
