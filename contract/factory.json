@@ -10,8 +10,12 @@
         ]
       },
       "artifact.kept": {
-        "complete": false,
-        "keys": []
+        "complete": true,
+        "keys": [
+          "by",
+          "parked",
+          "path"
+        ]
       },
       "artifact.removed": {
         "complete": true,
@@ -46,7 +50,7 @@
         ]
       },
       "bus.cutover": {
-        "complete": false,
+        "complete": true,
         "keys": []
       },
       "bus.heal.held": {
@@ -57,11 +61,17 @@
         ]
       },
       "bus.healed": {
-        "complete": false,
-        "keys": []
+        "complete": true,
+        "keys": [
+          "backup",
+          "broken",
+          "count",
+          "max_id",
+          "steps"
+        ]
       },
       "card.admitted": {
-        "complete": false,
+        "complete": true,
         "keys": [
           "admission",
           "bodySha",
@@ -79,8 +89,26 @@
         ]
       },
       "card.answered": {
-        "complete": false,
-        "keys": []
+        "complete": true,
+        "keys": [
+          "card_body_sha",
+          "from",
+          "head",
+          "minutes",
+          "pr",
+          "prompt_path",
+          "prompt_sha",
+          "prompt_unstored",
+          "published",
+          "reentry",
+          "resumed",
+          "session",
+          "source",
+          "steps",
+          "to",
+          "tokens",
+          "worktree"
+        ]
       },
       "card.closed": {
         "complete": true,
@@ -91,16 +119,31 @@
         ]
       },
       "card.continued": {
-        "complete": false,
+        "complete": true,
         "keys": [
+          "base",
+          "branch",
           "continuation",
           "contour",
-          "from"
+          "from",
+          "pgid",
+          "pid",
+          "prompt_path",
+          "prompt_sha",
+          "prompt_unstored",
+          "session",
+          "step",
+          "worktree"
         ]
       },
       "card.deferred": {
-        "complete": false,
-        "keys": []
+        "complete": true,
+        "keys": [
+          "bodySha",
+          "from",
+          "lane",
+          "to"
+        ]
       },
       "card.dropped": {
         "complete": true,
@@ -129,15 +172,21 @@
         ]
       },
       "card.moved": {
-        "complete": false,
-        "keys": []
+        "complete": true,
+        "keys": [
+          "bodySha",
+          "from",
+          "lane",
+          "to"
+        ]
       },
       "card.planned": {
         "complete": true,
         "keys": [
           "card",
           "recut_of",
-          "release"
+          "release",
+          "request"
         ]
       },
       "card.pulse": {
@@ -149,8 +198,12 @@
         ]
       },
       "card.released": {
-        "complete": false,
-        "keys": []
+        "complete": true,
+        "keys": [
+          "reason",
+          "request",
+          "takeover"
+        ]
       },
       "card.session.ended": {
         "complete": true,
@@ -163,26 +216,37 @@
         ]
       },
       "card.started": {
-        "complete": false,
+        "complete": true,
         "keys": [
           "admission",
           "adopts",
+          "base",
           "branch",
           "card",
+          "contour",
           "entry",
           "forecast",
           "isolation",
           "isolationGaps",
+          "lease_gen",
           "path",
+          "pgid",
+          "pid",
+          "prompt_path",
+          "prompt_sha",
+          "prompt_unstored",
+          "risk",
           "session",
           "shift",
           "started",
+          "step",
           "tree_origin",
+          "who",
           "worktree"
         ]
       },
       "card.stopped": {
-        "complete": false,
+        "complete": true,
         "keys": [
           "code",
           "detail",
@@ -202,14 +266,26 @@
         ]
       },
       "card.unplanned": {
-        "complete": false,
-        "keys": []
+        "complete": true,
+        "keys": [
+          "card",
+          "request"
+        ]
       },
       "card.verified": {
-        "complete": false,
+        "complete": true,
         "keys": [
+          "actual",
           "detail",
-          "session"
+          "ended",
+          "override",
+          "path",
+          "pr",
+          "report",
+          "session",
+          "sessions",
+          "sharedBy",
+          "verification"
         ]
       },
       "card.waiting": {
@@ -242,8 +318,14 @@
         ]
       },
       "chain.restarted": {
-        "complete": false,
-        "keys": []
+        "complete": true,
+        "keys": [
+          "dir",
+          "from",
+          "from_dir",
+          "pid",
+          "to"
+        ]
       },
       "checks.matrix": {
         "complete": true,
@@ -257,14 +339,26 @@
         ]
       },
       "command.executed": {
-        "complete": false,
+        "complete": true,
         "keys": [
           "command",
           "endpoint",
+          "error",
           "event_id",
           "lease_gen",
+          "ok",
+          "run",
+          "runs",
           "status",
-          "task_key"
+          "task_key",
+          "text"
+        ]
+      },
+      "decision.expired": {
+        "complete": true,
+        "keys": [
+          "decision_id",
+          "until"
         ]
       },
       "decision.recorded": {
@@ -284,6 +378,10 @@
           "sha256"
         ]
       },
+      "decisions.projected": {
+        "complete": true,
+        "keys": []
+      },
       "factory.mode": {
         "complete": true,
         "keys": [
@@ -292,8 +390,41 @@
         ]
       },
       "ghost.line": {
-        "complete": false,
-        "keys": []
+        "complete": true,
+        "keys": [
+          "actual",
+          "agreedSha256",
+          "approvedSha256",
+          "approvedSketch",
+          "argsSha256",
+          "baseSha",
+          "card",
+          "class",
+          "contour",
+          "duration_ms",
+          "event",
+          "exit",
+          "expected",
+          "install",
+          "iterations",
+          "ladder",
+          "num_turns",
+          "path",
+          "pr",
+          "rangeDiff",
+          "reason",
+          "report",
+          "resultLine",
+          "review",
+          "run",
+          "session",
+          "sketch",
+          "task",
+          "total_cost_usd",
+          "ts",
+          "usage",
+          "verification"
+        ]
       },
       "ghost.row": {
         "complete": true,
@@ -304,22 +435,35 @@
         ]
       },
       "intake": {
-        "complete": false,
-        "keys": []
+        "complete": true,
+        "keys": [
+          "card",
+          "event",
+          "from",
+          "source",
+          "task",
+          "to"
+        ]
       },
       "intake-move": {
-        "complete": false,
-        "keys": []
-      },
-      "ladder.approval": {
-        "complete": false,
-        "keys": []
+        "complete": true,
+        "keys": [
+          "card",
+          "event",
+          "from",
+          "source",
+          "task",
+          "to"
+        ]
       },
       "lane.assigned": {
-        "complete": false,
+        "complete": true,
         "keys": [
           "admission",
-          "lanes"
+          "after",
+          "lane",
+          "lanes",
+          "reason"
         ]
       },
       "lane.overlap": {
@@ -338,6 +482,13 @@
           "until"
         ]
       },
+      "main.advanced": {
+        "complete": true,
+        "keys": [
+          "sha",
+          "touches_mechanics"
+        ]
+      },
       "merge.done": {
         "complete": true,
         "keys": [
@@ -348,8 +499,18 @@
           "witnessBase"
         ]
       },
+      "netwatch.skipped": {
+        "complete": true,
+        "keys": [
+          "calls",
+          "cause",
+          "detail",
+          "reason",
+          "until"
+        ]
+      },
       "netwatch.tick": {
-        "complete": false,
+        "complete": true,
         "keys": [
           "calls",
           "gap_s",
@@ -369,9 +530,12 @@
         ]
       },
       "node.equivalence": {
-        "complete": false,
+        "complete": true,
         "keys": [
-          "event_id"
+          "event_id",
+          "only_derive",
+          "only_node",
+          "same"
         ]
       },
       "numbers.foreign": {
@@ -390,40 +554,69 @@
         ]
       },
       "owner.wait.opened": {
-        "complete": false,
+        "complete": true,
         "keys": [
+          "card",
+          "command",
           "id",
           "need",
+          "pr",
+          "request",
           "text"
         ]
       },
       "plan.backfilled": {
-        "complete": false,
-        "keys": []
+        "complete": true,
+        "keys": [
+          "cards",
+          "gate",
+          "plan",
+          "request"
+        ]
       },
       "plan.closed": {
-        "complete": false,
-        "keys": []
+        "complete": true,
+        "keys": [
+          "plan",
+          "request"
+        ]
       },
       "plan.item.added": {
-        "complete": false,
-        "keys": []
+        "complete": true,
+        "keys": [
+          "item",
+          "plan",
+          "request",
+          "title"
+        ]
       },
       "plan.item.linked": {
-        "complete": false,
-        "keys": []
+        "complete": true,
+        "keys": [
+          "card",
+          "item",
+          "plan",
+          "request"
+        ]
       },
       "plan.item.removed": {
-        "complete": false,
-        "keys": []
+        "complete": true,
+        "keys": [
+          "item",
+          "plan",
+          "request"
+        ]
       },
       "plan.opened": {
         "complete": true,
         "keys": [
+          "gate",
           "goal",
           "id",
           "plan_file",
-          "title"
+          "request",
+          "title",
+          "version"
         ]
       },
       "policy.allowed": {
@@ -439,13 +632,17 @@
         ]
       },
       "policy.denied": {
-        "complete": false,
+        "complete": true,
         "keys": [
+          "base",
           "by",
           "command",
           "detail",
           "kind",
+          "parkedUntil",
+          "paths",
           "reason",
+          "refusal",
           "refused",
           "rule"
         ]
@@ -453,24 +650,29 @@
       "pr.closed": {
         "complete": true,
         "keys": [
+          "branch",
           "by",
-          "cardId",
-          "dedupeKey",
-          "head",
+          "commit",
           "merged",
-          "payload",
-          "pr",
+          "merged_at",
+          "merged_by",
           "reason"
         ]
       },
       "pr.observed": {
         "complete": true,
         "keys": [
-          "cardId",
-          "dedupeKey",
+          "auto_merge",
+          "base",
+          "body_sha",
+          "branch",
+          "card_id",
+          "ci",
+          "draft",
+          "failed_checks",
           "head",
-          "payload",
-          "pr"
+          "mergeable",
+          "verdict_on_head"
         ]
       },
       "pr.opened": {
@@ -505,9 +707,11 @@
         ]
       },
       "process.heartbeat": {
-        "complete": false,
+        "complete": true,
         "keys": [
-          "process"
+          "process",
+          "queue",
+          "slots"
         ]
       },
       "process.judged": {
@@ -528,16 +732,6 @@
           "process"
         ]
       },
-      "question.agent": {
-        "complete": true,
-        "keys": [
-          "widen"
-        ]
-      },
-      "question.owner": {
-        "complete": false,
-        "keys": []
-      },
       "reducer.reduced": {
         "complete": true,
         "keys": [
@@ -555,16 +749,29 @@
         ]
       },
       "review.recorded": {
-        "complete": false,
+        "complete": true,
         "keys": [
+          "cache_r",
+          "cache_w",
           "card_body",
           "depth",
           "depth_why",
           "findings",
           "head",
+          "isolation",
+          "isolationGaps",
           "model",
+          "prompt_path",
+          "prompt_sha",
+          "prompt_unstored",
           "review_ms",
           "reviewer_session",
+          "rules_version",
+          "since",
+          "treeAfter",
+          "treeBefore",
+          "treeMutated",
+          "tree_origin",
           "verdict"
         ]
       },
@@ -585,12 +792,26 @@
         ]
       },
       "role.leased": {
-        "complete": false,
-        "keys": []
+        "complete": true,
+        "keys": [
+          "lease_gen",
+          "role"
+        ]
+      },
+      "role.raise_failed": {
+        "complete": true,
+        "keys": [
+          "lease_gen",
+          "role"
+        ]
       },
       "role.raised": {
-        "complete": false,
-        "keys": []
+        "complete": true,
+        "keys": [
+          "lease_gen",
+          "pid",
+          "role"
+        ]
       },
       "role.returned": {
         "complete": true,
@@ -602,8 +823,23 @@
         ]
       },
       "role.stopped": {
-        "complete": false,
-        "keys": []
+        "complete": true,
+        "keys": [
+          "handoff",
+          "raised",
+          "reason",
+          "role",
+          "status"
+        ]
+      },
+      "role.to_owner": {
+        "complete": true,
+        "keys": [
+          "detail",
+          "handoff",
+          "role",
+          "wait"
+        ]
       },
       "round.extended": {
         "complete": true,
@@ -631,7 +867,7 @@
         ]
       },
       "session.heartbeat": {
-        "complete": false,
+        "complete": true,
         "keys": [
           "lease_gen",
           "read_before_edit",
@@ -673,8 +909,10 @@
         ]
       },
       "shard.revoked": {
-        "complete": false,
-        "keys": []
+        "complete": true,
+        "keys": [
+          "id"
+        ]
       },
       "shard.used": {
         "complete": true,
@@ -690,18 +928,20 @@
         ]
       },
       "task.completed": {
-        "complete": false,
+        "complete": true,
         "keys": [
+          "generation",
           "lease_gen",
           "queue",
           "task_key"
         ]
       },
       "task.enqueued": {
-        "complete": false,
+        "complete": true,
         "keys": [
           "failure",
           "fault",
+          "generation",
           "queue",
           "task_key"
         ]
@@ -717,27 +957,30 @@
         ]
       },
       "task.failed": {
-        "complete": false,
+        "complete": true,
         "keys": [
           "detail",
           "failures",
+          "generation",
           "lease_gen",
           "next",
           "queue",
           "reason",
-          "task_key"
+          "task_key",
+          "uncounted"
         ]
       },
       "task.leased": {
-        "complete": false,
+        "complete": true,
         "keys": [
+          "generation",
           "lease_gen",
           "queue",
           "task_key"
         ]
       },
       "task.released": {
-        "complete": false,
+        "complete": true,
         "keys": [
           "lease_gen",
           "queue",
@@ -747,15 +990,16 @@
         ]
       },
       "task.renewed": {
-        "complete": false,
+        "complete": true,
         "keys": [
+          "generation",
           "lease_gen",
           "queue",
           "task_key"
         ]
       },
       "task.requeued": {
-        "complete": false,
+        "complete": true,
         "keys": [
           "failure",
           "fault",
@@ -766,20 +1010,22 @@
         ]
       },
       "task.superseded": {
-        "complete": false,
+        "complete": true,
         "keys": [
           "failure",
           "fault",
+          "generation",
           "lease_gen",
           "queue",
           "task_key"
         ]
       },
       "task.withdrawn": {
-        "complete": false,
+        "complete": true,
         "keys": [
           "failure",
           "fault",
+          "generation",
           "queue",
           "task_key"
         ]
@@ -792,13 +1038,14 @@
         ]
       },
       "update.done": {
-        "complete": false,
+        "complete": true,
         "keys": [
           "carried",
           "clean",
           "from",
           "lease_gen",
           "rebuilt",
+          "rules_version",
           "task_key",
           "to",
           "tookMain",
@@ -806,14 +1053,53 @@
         ]
       },
       "window.heartbeat": {
-        "complete": false,
+        "complete": true,
         "keys": [
-          "session"
+          "context",
+          "error",
+          "mode",
+          "model",
+          "reason",
+          "root",
+          "session",
+          "spent",
+          "subagents"
         ]
       },
       "window.request": {
-        "complete": false,
-        "keys": []
+        "complete": true,
+        "keys": [
+          "add_witness",
+          "answer",
+          "auto_confirm",
+          "card",
+          "cards",
+          "command",
+          "depends",
+          "dry_run",
+          "file",
+          "from",
+          "gate",
+          "goal",
+          "head",
+          "id",
+          "ids",
+          "kind",
+          "mode",
+          "need",
+          "op",
+          "owner_words",
+          "plan",
+          "pr",
+          "reason",
+          "remove_witness",
+          "supersedes",
+          "task_key",
+          "text",
+          "title",
+          "touches",
+          "until"
+        ]
       },
       "window.request.done": {
         "complete": true,
@@ -824,8 +1110,13 @@
         ]
       },
       "window.request.refused": {
-        "complete": false,
-        "keys": []
+        "complete": true,
+        "keys": [
+          "detail",
+          "kind",
+          "owner",
+          "request"
+        ]
       },
       "window.subagent": {
         "complete": true,
@@ -838,13 +1129,12 @@
           "tree"
         ]
       },
-      "witness.downgrade": {
-        "complete": false,
-        "keys": []
-      },
       "witness.fields.backfilled": {
-        "complete": false,
-        "keys": []
+        "complete": true,
+        "keys": [
+          "cards",
+          "unparsed"
+        ]
       },
       "witness.recorded": {
         "complete": true,
@@ -865,6 +1155,16 @@
           "worker"
         ]
       },
+      "worker.retiring": {
+        "complete": true,
+        "keys": [
+          "from",
+          "node",
+          "pids",
+          "sha",
+          "worker"
+        ]
+      },
       "worker.started": {
         "complete": true,
         "keys": [
@@ -874,34 +1174,7 @@
         ]
       }
     },
-    "eventsOutsideTheCatalogue": {
-      "decision.expired": {
-        "complete": true,
-        "keys": [
-          "decision_id",
-          "until"
-        ]
-      },
-      "decisions.projected": {
-        "complete": true,
-        "keys": []
-      },
-      "role.to_owner": {
-        "complete": true,
-        "keys": [
-          "detail",
-          "handoff",
-          "role",
-          "wait"
-        ]
-      },
-      "worker.retiring": {
-        "complete": false,
-        "keys": [
-          "worker"
-        ]
-      }
-    },
+    "eventsOutsideTheCatalogue": {},
     "tables": {
       "card_bodies": [
         "admission_event_id",

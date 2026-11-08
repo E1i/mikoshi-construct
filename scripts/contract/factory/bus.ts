@@ -40,5 +40,7 @@ export function busSection(root: string): BusSection {
   if (catalogue === undefined)
     throw new Error(`${EVENTS_MODULE} is not under ${root}, so the bus section has no event types to read`)
   const written = writtenEvents(files, catalogueOf(catalogue))
+  if (written.refused.length > 0)
+    throw new Error(`a writer writes a payload key ${EVENTS_MODULE} does not declare: ${written.refused.map(({ type, key, file }) => `${type}.${key} in ${file}`).join(', ')}`)
   return { busVersion: BUS_VERSION, versionRecord: BUS_VERSION_RECORD, events: written.events, eventsOutsideTheCatalogue: written.outsideTheCatalogue, tables: tablesOfAScratchBus() }
 }
