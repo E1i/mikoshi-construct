@@ -12,7 +12,7 @@ import { boundText, calendarTerm, cardTail, decisionsRefusals, outOfForceLines, 
 import { archiveOf } from './read.js'
 
 export const USAGE = 'usage: pnpm decisions:add [--file <owner-decisions.md>] [--supersedes D-M]... [--card #N]... [--until <YYYY-MM-DDTHH:MMZ>] [--settled #N]... "[owner] <decision>"'
-export const OWNER_SHELL_USAGE = 'usage: pnpm decisions:add [--supersedes D-M]... [--card #N]... [--until <YYYY-MM-DDTHH:MMZ>] "[owner] <decision>"'
+export const OWNER_SHELL_USAGE = 'usage: pnpm decisions:add [--supersedes D-M]... [--card #N]... [--creates <path>]... [--until <YYYY-MM-DDTHH:MMZ>] "[owner] <decision>"'
 export const ARCHIVE_HEADER = '# Owner decisions archive\n\nSuperseded decisions, moved here from the decisions file by pnpm decisions:add.\n\n'
 
 const SOURCE_TAG = /^\[[^\]]*\]/
@@ -20,6 +20,7 @@ const DECISION_REFERENCE = /^D-([1-9]\d*)$/
 const CARD_REFERENCE = /^#?([1-9]\d*)$/
 const UNTIL_VALUE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?Z$/
 const OWNER_SHELL_SESSION = 'owner-shell'
+const CREATES_FLAG = '--creates'
 
 export interface DecisionsAddDeps {
   decisions: string
@@ -198,9 +199,47 @@ export function runDecisionsAdd(args: string[], deps: DecisionsAddDeps): number 
   return 0
 }
 
+export function splitCreates(args: readonly string[]): { creates: string[], rest: string[] } {
+  const creates: string[] = []
+  const rest: string[] = []
+  for (let index = 0; index < args.length; index += 1) {
+    const value = args[index + 1]
+    if (args[index] === CREATES_FLAG && value !== undefined && !value.startsWith('--')) {
+      creates.push(value)
+      index += 1
+    }
+    else {
+      rest.push(args[index]!)
+    }
+  }
+  return { creates, rest }
+}
+
+function cardsNamed(args: readonly string[]): number[] {
+  return args.flatMap((arg, index) => {
+    const value = args[index + 1]
+    return arg === '--card' && value !== undefined && CARD_REFERENCE.test(value) ? [Number(CARD_REFERENCE.exec(value)![1])] : []
+  })
+}
+
+function requestWidening(db: DatabaseSync, cards: readonly number[], creates: readonly string[], now: Date, session: string, out: (line: string) => void): boolean {
+  const change = creates.map(file => `+${file}`).join(',')
+  return cards.every(card => runRequest(['amend', '--card', String(card), '--touches', change, '--auto-confirm'], db, now, session, out) === 0)
+}
+
 export function requestDecision(args: readonly string[], db: DatabaseSync, now: Date, session: string, out: (line: string) => void): number {
+  const { creates, rest } = splitCreates(args)
+  if (creates.length > 0) {
+    const cards = cardsNamed(rest)
+    if (cards.length === 0) {
+      out(`${PREFIX}${CREATES_FLAG} names a file a card's decision requires and needs --card; nothing requested`)
+      return 2
+    }
+    if (!requestWidening(db, cards, creates, now, session, out))
+      return 1
+  }
   const lines: string[] = []
-  const code = runRequest(['decisions:add', ...args], db, now, session, line => lines.push(line))
+  const code = runRequest(['decisions:add', ...rest], db, now, session, line => lines.push(line))
   for (const line of lines)
     out(line)
   if (code === 0)
@@ -219,7 +258,7 @@ function requestFromThisWindow(session: string, args: string[]): number {
 }
 
 export function requestFromOwnerShell(args: string[], channel: string, db: DatabaseSync, now: Date, out: (line: string) => void, err: (line: string) => void): number {
-  const parsed = parseArgs(args)
+  const parsed = parseArgs(splitCreates(args).rest)
   if (parsed === null || parsed.file !== null || parsed.settled.length > 0) {
     err(`${PREFIX}${OWNER_SHELL_USAGE}`)
     return 2
