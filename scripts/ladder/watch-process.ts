@@ -1,50 +1,15 @@
-import { execFileSync } from 'node:child_process'
+import type { ProcessRow, ProcessSnapshot } from '../ports/process-table.js'
 import { clientAdapter } from '../ports/client/index.js'
 
-export interface ProcessRow {
-  pid: number
-  args: string
-}
-
-export type ProcessListing
-  = | { readable: true, processes: ProcessRow[] }
-    | { readable: false, reason: string }
-
-function firstLine(error: unknown): string {
-  const message = error instanceof Error ? error.message : String(error)
-  return message.split('\n')[0].trim()
-}
-
-export function listProcesses(): ProcessListing {
-  let output: string
-  try {
-    output = execFileSync('ps', ['-Ao', 'pid=,args='], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
-  }
-  catch (error) {
-    return { readable: false, reason: firstLine(error) }
-  }
-
-  const processes = output.split('\n')
-    .map(line => line.trim())
-    .filter(line => line !== '')
-    .map((line) => {
-      const spaceIndex = line.indexOf(' ')
-      if (spaceIndex === -1)
-        return { pid: Number(line), args: '' }
-      return { pid: Number(line.slice(0, spaceIndex)), args: line.slice(spaceIndex + 1) }
-    })
-  return { readable: true, processes }
-}
-
-export function isSessionAlive(sessionId: string, processes: ProcessRow[]): boolean {
+export function sessionInSnapshot(sessionId: string, rows: readonly ProcessRow[]): boolean {
   const marker = clientAdapter().processes.sessionMarker(sessionId)
-  return marker !== null && processes.some(process => process.args.includes(marker))
+  return marker !== null && rows.some(row => row.command.includes(marker))
 }
 
-export function processField(sessionId: string | undefined, listing: ProcessListing): string {
+export function processField(sessionId: string | undefined, snapshot: ProcessSnapshot): string {
   if (sessionId === undefined)
     return 'process no session'
-  if (!listing.readable)
-    return `process unknown (ps failed: ${listing.reason})`
-  return isSessionAlive(sessionId, listing.processes) ? 'process alive' : 'process dead'
+  if (!snapshot.readable)
+    return `process unknown (the process table could not be read: ${snapshot.reason})`
+  return sessionInSnapshot(sessionId, snapshot.rows) ? 'process in the table' : 'process not in the table'
 }

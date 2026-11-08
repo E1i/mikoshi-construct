@@ -4,10 +4,11 @@ import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
+import { OsProcessTable } from './process-table.js'
 import { witnessEnv } from './session.js'
 import { taskWorktree } from './worktree-home.js'
 
-export const TECHNOLOGY_WORDS = ['git', 'lsof', 'pnpm', 'shell'] as const
+export const TECHNOLOGY_WORDS = ['git', 'pnpm', 'shell'] as const
 
 const execFileAsync = promisify(execFile)
 
@@ -28,10 +29,6 @@ const LINK_FROM_THE_SHARED_STORE = '--config.packageImportMethod=hardlink'
 const NEVER_INDEX_MARKER = '.metadata_never_index'
 
 export const FREE_TREE_CAPACITY = 8
-
-const LSOF_PATH_FIELD = 'n'
-const LSOF_FOUND_NONE = 1
-export const LSOF_CLIENT_NAMES = ['-c', 'claude', '-c', '/^[0-9]+[.][0-9]+[.][0-9]+$/']
 
 export type GitRun = (cwd: string, args: string[]) => string
 
@@ -135,23 +132,7 @@ function realOrAsWritten(where: string): string {
   return existsSync(where) ? realpathSync(where) : where
 }
 
-function cwdsInLsofOutput(output: string): string[] {
-  return output.split('\n').filter(line => line.startsWith(LSOF_PATH_FIELD)).map(line => line.slice(LSOF_PATH_FIELD.length))
-}
-
-export function claudeProcessCwds(): ProcessCwds {
-  try {
-    return { kind: 'listed', cwds: cwdsInLsofOutput(execFileSync('lsof', ['-a', ...LSOF_CLIENT_NAMES, '-d', 'cwd', '-F', LSOF_PATH_FIELD], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })) }
-  }
-  catch (error) {
-    const failed = error as { status?: unknown, stdout?: unknown }
-    if (failed.status === LSOF_FOUND_NONE)
-      return { kind: 'listed', cwds: cwdsInLsofOutput(typeof failed.stdout === 'string' ? failed.stdout : '') }
-    return { kind: 'unreadable', why: error instanceof Error ? error.message.trim() : String(error) }
-  }
-}
-
-export function liveSessionHolds(tree: string, cwds: () => ProcessCwds = claudeProcessCwds): boolean {
+export function clientMayWorkIn(tree: string, cwds: () => ProcessCwds = () => new OsProcessTable().clientCwds()): boolean {
   const read = cwds()
   if (read.kind === 'unreadable')
     return true

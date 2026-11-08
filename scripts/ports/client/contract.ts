@@ -139,6 +139,6 @@ export type ProcessCwds = { kind: 'listed', cwds: string[] } | { kind: 'unreadab
 export interface ClientProcesses {
   isClient: (argv: string) => boolean
   sessionMarker: (session: string) => string | null
-  liveCwds: () => ProcessCwds
+  processNames: readonly string[]
   isolationCommand: () => string[]
 }

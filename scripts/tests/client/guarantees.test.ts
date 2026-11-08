@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { claudeAdapter, clientHome } from '../../ports/client/claude/adapter.js'
+import { OsProcessTable } from '../../ports/process-table.js'
 
 const lsof = vi.hoisted(() => ({ run: (): string => '' }))
 
@@ -108,22 +109,22 @@ describe('readBudget of a session place', () => {
   })
 })
 
-describe('liveCwds', () => {
+describe('the client cwds of the process table', () => {
   it('returns the parsed directories, one per process, and no raw listing', () => {
     lsof.run = () => 'p101\nfcwd\nn/trees/1\np102\nfcwd\nn/trees/two words\n'
-    expect(claudeAdapter.processes.liveCwds()).toEqual({ kind: 'listed', cwds: ['/trees/1', '/trees/two words'] })
+    expect(new OsProcessTable().clientCwds()).toEqual({ kind: 'listed', cwds: ['/trees/1', '/trees/two words'] })
   })
 
   it('an empty search is an empty list, and a search that found none keeps what it printed', () => {
-    expect(claudeAdapter.processes.liveCwds()).toEqual({ kind: 'listed', cwds: [] })
+    expect(new OsProcessTable().clientCwds()).toEqual({ kind: 'listed', cwds: [] })
     lsof.run = failedWith(LSOF_FOUND_NONE, '')
-    expect(claudeAdapter.processes.liveCwds()).toEqual({ kind: 'listed', cwds: [] })
+    expect(new OsProcessTable().clientCwds()).toEqual({ kind: 'listed', cwds: [] })
     lsof.run = failedWith(LSOF_FOUND_NONE, 'p101\nfcwd\nn/trees/1\n')
-    expect(claudeAdapter.processes.liveCwds()).toEqual({ kind: 'listed', cwds: ['/trees/1'] })
+    expect(new OsProcessTable().clientCwds()).toEqual({ kind: 'listed', cwds: ['/trees/1'] })
   })
 
   it('a search that failed is unreadable and says why, never an empty list', () => {
     lsof.run = failedWith(LSOF_REFUSED, 'n/trees/1\n')
-    expect(claudeAdapter.processes.liveCwds()).toEqual({ kind: 'unreadable', why: `lsof exited ${LSOF_REFUSED}` })
+    expect(new OsProcessTable().clientCwds()).toEqual({ kind: 'unreadable', why: `lsof exited ${LSOF_REFUSED}` })
   })
 })

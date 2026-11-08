@@ -8,7 +8,7 @@ STUB_SECONDS=300
 STUB_EXIT_POLLS=50
 FILLER_LINES=300
 PREFIX='[ghosts:watch] '
-PS_UNKNOWN='process unknown (ps failed: Command failed: ps -Ao pid=,args=)'
+PS_UNKNOWN='process unknown (the process table could not be read: Command failed: ps -Ao pid=,ppid=,pgid=,lstart=,args=)'
 
 fail() {
   echo "watch world.sh $CHECK: $*" >&2
@@ -303,22 +303,22 @@ EOF
 
 expected_g1() {
   case $1 in
-    no-report) echo 'no report|tool none|stage failed run-g1|process dead' ;;
-    no-tool|far-tool) echo 'age|tool none|stage failed run-g1|process dead' ;;
-    near-tool) echo 'age|tool Edit|stage failed run-g1|process dead' ;;
-    no-ledger) echo 'age|tool Grep|stage no ledger lines|process dead' ;;
-    alive) echo 'age|tool Grep|stage failed run-g1|process alive' ;;
+    no-report) echo 'no report|tool none|stage failed run-g1|process not in the table' ;;
+    no-tool|far-tool) echo 'age|tool none|stage failed run-g1|process not in the table' ;;
+    near-tool) echo 'age|tool Edit|stage failed run-g1|process not in the table' ;;
+    no-ledger) echo 'age|tool Grep|stage no ledger lines|process not in the table' ;;
+    alive) echo 'age|tool Grep|stage failed run-g1|process in the table' ;;
     no-row) echo 'age|tool Grep|stage failed run-g1|process no session' ;;
-    ledger-writing) echo 'age|tool Grep|ledger: writing|process dead' ;;
+    ledger-writing) echo 'age|tool Grep|ledger: writing|process not in the table' ;;
     ps-fails) echo "age|tool Grep|stage failed run-g1|$PS_UNKNOWN" ;;
-    *) echo 'age|tool Grep|stage failed run-g1|process dead' ;;
+    *) echo 'age|tool Grep|stage failed run-g1|process not in the table' ;;
   esac
 }
 
 expected_g2() {
   case $1 in
     ps-fails) echo "no report|tool none|stage no ledger lines|$PS_UNKNOWN" ;;
-    *) echo 'no report|tool none|stage no ledger lines|process dead' ;;
+    *) echo 'no report|tool none|stage no ledger lines|process not in the table' ;;
   esac
 }
 

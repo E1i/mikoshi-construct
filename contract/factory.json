@@ -1217,7 +1217,7 @@
     },
     "live-session": {
       "axis": "architecture",
-      "owner": "scripts/ports/client/",
+      "owner": "scripts/supervisor/supervisor.ts",
       "ownerExists": true,
       "status": "proposed",
       "title": "whether a client session is alive in a tree"
@@ -1238,15 +1238,15 @@
     },
     "pid-liveness": {
       "axis": "architecture",
-      "owner": "scripts/ports/process-table.ts",
-      "ownerExists": false,
+      "owner": "scripts/supervisor/supervisor.ts",
+      "ownerExists": true,
       "status": "proposed",
       "title": "whether a pid is alive"
     },
     "process-table": {
       "axis": "architecture",
       "owner": "scripts/ports/process-table.ts",
-      "ownerExists": false,
+      "ownerExists": true,
       "status": "proposed",
       "title": "the process table of the OS, read with ps, lsof or top and parsed"
     },
@@ -1486,9 +1486,7 @@
     },
     "layers": {},
     "live-session": {
-      "scripts/nodes/answer/answerer.ts": 2,
-      "scripts/ports/worktree.ts": 3,
-      "scripts/window/session-load.ts": 1
+      "scripts/core/machine-sessions.ts": 1
     },
     "owner-commands": {
       "scripts/ci/prepush.ts": 2,
@@ -1576,20 +1574,9 @@
       "scripts/ladder/cleanup.ts": 1,
       "scripts/quality/lock.ts": 1,
       "scripts/scratch/run-root.ts": 1,
-      "scripts/supervisor/bg.ts": 1,
-      "scripts/supervisor/supervisor.ts": 1
+      "scripts/supervisor/bg.ts": 1
     },
-    "process-table": {
-      "scripts/ladder/watch-process.ts": 1,
-      "scripts/nodes/launch/launch-starter.ts": 1,
-      "scripts/nodes/restart/chain-process.ts": 1,
-      "scripts/ports/worktree.ts": 1,
-      "scripts/supervisor/bg.ts": 2,
-      "scripts/supervisor/supervisor.ts": 3,
-      "scripts/window/exit.ts": 2,
-      "scripts/window/loop.ts": 1,
-      "scripts/window/session-load.ts": 1
-    },
+    "process-table": {},
     "window-requests": {
       "scripts/window/window-requests.ts": 18
     }
@@ -1725,7 +1712,7 @@
         "types": {
           "Capabilities": "interface Capabilities { identity: 'assigned' | 'reported'; ladder: boolean; reports: { cost: boolean; turns: boolean; model: boolean; denials: boolean; journal: boolean; }; guarantees: { allowlist: boolean; writeConfinement: boolean; mcpOff: boolean; toolNarrowing: boolean; guardFailsClosed: boolean; }; }",
           "ClientAdapter": "interface ClientAdapter { readonly id: string; readonly capabilities: Capabilities; invocation: (spec: SessionSpec) => Invocation | Refusal; reading: (place: SessionPlace) => SessionReading; readBudget: (place: SessionPlace) => ReadBudget; models: () => ModelOffer[] | null; modelFor: (role: Role, effort: Effort | null, wanted: ModelChoice) => ModelPick | Refusal; processes: ClientProcesses; ownSession: (env: NodeJS.ProcessEnv) => string | null; }",
-          "ClientProcesses": "interface ClientProcesses { isClient: (argv: string) => boolean; sessionMarker: (session: string) => string | null; liveCwds: () => ProcessCwds; isolationCommand: () => string[]; }",
+          "ClientProcesses": "interface ClientProcesses { isClient: (argv: string) => boolean; sessionMarker: (session: string) => string | null; processNames: readonly string[]; isolationCommand: () => string[]; }",
           "Denial": "interface Denial { tool: string; path: string | null; command: string | null; text: string; }",
           "Effort": "type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max'",
           "Invocation": "interface Invocation { command: string; args: string[]; env: NodeJS.ProcessEnv; stdin: string | null; }",
@@ -1770,7 +1757,8 @@
         "language": "technology",
         "reexports": [],
         "technologyWords": [
-          "git"
+          "git",
+          "top"
         ],
         "types": {}
       },
@@ -2054,6 +2042,29 @@
           "TreePreparer": "type TreePreparer = (tree: string) => void"
         }
       },
+      "scripts/ports/process-table.ts": {
+        "constants": [
+          "CLIENT_CWDS_COMMAND",
+          "CPU_SAMPLE_COMMAND",
+          "TECHNOLOGY_WORDS"
+        ],
+        "functions": {
+          "parseListing": "(output: string): ProcessRow[]",
+          "rowOf": "(snapshot: ProcessSnapshot, pid: number): ProcessRow | null",
+          "rowsOf": "(snapshot: ProcessSnapshot): readonly ProcessRow[]"
+        },
+        "language": "factory",
+        "reexports": [],
+        "technologyWords": [],
+        "types": {
+          "InMemoryProcessTable": "class InMemoryProcessTable implements ProcessTable { constructor(private readonly held: InMemoryProcesses); snapshot(): ProcessSnapshot; clientCwds(): ProcessCwds; cpuSample(): string }",
+          "InMemoryProcesses": "interface InMemoryProcesses { rows?: readonly ProcessRow[] | { unreadable: string; }; cwds?: ProcessCwds; cpu?: string; }",
+          "OsProcessTable": "class OsProcessTable implements ProcessTable { snapshot(): ProcessSnapshot; clientCwds(): ProcessCwds; cpuSample(): string }",
+          "ProcessRow": "interface ProcessRow { pid: number; ppid: number; pgid: number; started: string; command: string; }",
+          "ProcessSnapshot": "type ProcessSnapshot = { readable: true; rows: readonly ProcessRow[]; } | { readable: false; reason: string; }",
+          "ProcessTable": "interface ProcessTable { snapshot: () => ProcessSnapshot; clientCwds: () => ProcessCwds; cpuSample: () => string; }"
+        }
+      },
       "scripts/ports/prompt-store.ts": {
         "constants": [
           "PROMPTS_DIR"
@@ -2276,18 +2287,16 @@
         "constants": [
           "FREE_TREES",
           "FREE_TREE_CAPACITY",
-          "LSOF_CLIENT_NAMES",
           "TECHNOLOGY_WORDS"
         ],
         "functions": {
           "adoptTree": "(deps: TreeDeps, tree: string, branch: string): ReadyTree | RefusedTree",
-          "claudeProcessCwds": "(): ProcessCwds",
+          "clientMayWorkIn": "(tree: string, cwds: () => ProcessCwds = () => new OsProcessTable().clientCwds()): boolean",
           "cutTree": "(deps: TreeDeps, id: string, branch: string): ReadyTree | RefusedTree",
           "freeTreeHome": "(tree: string): string",
           "gitIn": "(cwd: string, args: string[]): string",
           "gitInAsync": "(cwd, args)",
           "lastLine": "(output: string): string",
-          "liveSessionHolds": "(tree: string, cwds: () => ProcessCwds = claudeProcessCwds): boolean",
           "parkTree": "(git: GitRun, repo: string, tree: string, capacity: number): string | null",
           "pnpmInstall": "(cwd: string, args: string[]): void",
           "realShell": "(command: string, cwd: string): ShellResult",
@@ -2302,9 +2311,7 @@
         "language": "technology",
         "reexports": [],
         "technologyWords": [
-          "claude",
           "git",
-          "lsof",
           "pnpm",
           "shell"
         ],
