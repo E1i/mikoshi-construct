@@ -3,9 +3,13 @@ import type { BusCode } from '../../supervisor/supervisor.js'
 import { mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
 import { busDirOf } from '../../core/bus-path.js'
-import { BUS_FLAG, launchName } from '../../supervisor/bg.js'
+import { openBus } from '../../core/db.js'
+import { BUS_FLAG, launchName, RUN_SCRIPT } from '../../supervisor/bg.js'
+import { recordProcessHeartbeat } from '../../supervisor/heartbeat.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { reviewLaunch } from '../../supervisor/review-bg.js'
 import { holdRunLock, lockBreakerOf, RUN_LOCK } from '../../supervisor/run.js'
 import { BusSupervisor, entryOf, gitCode, importClosure, LOCAL_MAIN_REF, SUPERVISOR_LAUNCH } from '../../supervisor/supervisor.js'
@@ -162,22 +166,36 @@ describe('one bus:run serves one bus', () => {
     expect(readFileSync(lock, 'utf8').trim()).toBe(String(dead))
   })
 
-  it('with the process table unreadable a held run lock refuses without asking whether its pid is alive', () => {
+  it('with the process table unreadable a run lock is held while bus:run beats and taken once it falls silent', () => {
     const busPath = busPathIn('bus-run-no-ps-')
     const lock = path.join(busDirOf(busPath), RUN_LOCK)
     const unreadable = (): never => {
       throw new Error('spawnSync ps EPERM')
     }
-    for (const holder of [process.ppid, 2 ** 22 + 1]) {
-      rmSync(lock, { force: true })
-      expect(holdRunLock(busPath, () => [], holder).exitCode).toBe(0)
+    const nowMs = Date.parse('2026-11-08T12:00:00.000Z')
+    const db = openBus(busPath)
+    recordProcessHeartbeat(db, new Date(nowMs - SILENT_MS + 1000).toISOString(), RUN_SCRIPT)
+    db.close()
+    expect(holdRunLock(busPath, () => [], 4401).exitCode).toBe(0)
 
-      const refused = holdRunLock(busPath, unreadable)
+    const refused = holdRunLock(busPath, unreadable, process.pid, nowMs)
+    expect(refused.exitCode).toBe(1)
+    expect(refused.stderr.join('\n')).toContain('spawnSync ps EPERM')
+    expect(readFileSync(lock, 'utf8').trim()).toBe('4401')
 
-      expect(refused.exitCode).toBe(1)
-      expect(refused.stderr.join('\n')).toContain('spawnSync ps EPERM')
-      expect(readFileSync(lock, 'utf8').trim()).toBe(String(holder))
-    }
+    expect(holdRunLock(busPath, unreadable, process.pid, nowMs + 2000).exitCode).toBe(0)
+    expect(readFileSync(lock, 'utf8').trim()).toBe(String(process.pid))
+  })
+
+  it('with the process table unreadable and no bus beside it a run lock is taken', () => {
+    const busPath = busPathIn('bus-run-no-ps-no-bus-')
+    const lock = path.join(busDirOf(busPath), RUN_LOCK)
+    expect(holdRunLock(busPath, () => [], 4402).exitCode).toBe(0)
+
+    expect(holdRunLock(busPath, () => {
+      throw new Error('spawnSync ps EPERM')
+    }).exitCode).toBe(0)
+    expect(readFileSync(lock, 'utf8').trim()).toBe(String(process.pid))
   })
 })
 

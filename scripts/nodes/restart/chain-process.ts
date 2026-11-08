@@ -1,4 +1,5 @@
 import type { ChainRow, ChainState } from '../../core/chain.js'
+import type { ProcessTable as ProcessTablePort } from '../../ports/process-table.js'
 import process from 'node:process'
 import { OsProcessTable, rowOf } from '../../ports/process-table.js'
 
@@ -46,8 +47,8 @@ export function stopChain(chain: ChainRow, table: ProcessTable): void {
   table.signalGroup(chain.leader!)
 }
 
-export function commandLineOf(pid: number): string | null {
-  const line = rowOf(new OsProcessTable().snapshot(), pid)?.command ?? ''
+export function commandLineOf(pid: number, table: ProcessTablePort = new OsProcessTable()): string | null {
+  const line = rowOf(table.snapshot(), pid)?.command ?? ''
   return line === '' ? null : line
 }
 

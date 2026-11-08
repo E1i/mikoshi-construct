@@ -2053,7 +2053,6 @@
           "TECHNOLOGY_WORDS"
         ],
         "functions": {
-          "ourClient": "(row: ProcessRow): boolean",
           "parseListing": "(output: string): ProcessRow[]",
           "rowOf": "(snapshot: ProcessSnapshot, pid: number): ProcessRow | null",
           "rowsOf": "(snapshot: ProcessSnapshot): readonly ProcessRow[]"

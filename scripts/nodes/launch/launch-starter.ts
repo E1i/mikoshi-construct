@@ -1,5 +1,6 @@
 import type { ShiftTask } from '../../../src/card/task-file.js'
 import type { SessionSpec } from '../../ports/client/contract.js'
+import type { ProcessTable } from '../../ports/process-table.js'
 import type { CardStart, CardStarter, HeldTree, QueuedCard, StartedCard } from './launch-executor.js'
 import type { PromptPlaces } from './prompt.js'
 import type { SessionJournal, TreeFile } from './session-journal.js'
@@ -283,8 +284,8 @@ export function gitChangedPaths(worktree: string): string[] {
   return paths.filter(each => each !== '')
 }
 
-export function psPgid(pid: number): number {
-  const row = rowsOf(new OsProcessTable().snapshot()).find(candidate => candidate.pid === pid)
+export function psPgid(pid: number, table: ProcessTable = new OsProcessTable()): number {
+  const row = rowsOf(table.snapshot()).find(candidate => candidate.pid === pid)
   if (row === undefined)
     throw new Error(`no process ${pid} in the process table, so its group cannot be read`)
   return row.pgid

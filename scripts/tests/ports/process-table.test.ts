@@ -3,7 +3,10 @@ import { chmodSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { psPgid } from '../../nodes/launch/launch-starter.js'
+import { commandLineOf } from '../../nodes/restart/chain-process.js'
 import { InMemoryProcessTable, OsProcessTable, parseListing, rowOf } from '../../ports/process-table.js'
+import { outsideOwnGroup } from '../../supervisor/supervisor.js'
 
 afterEach(() => {
   vi.unstubAllEnvs()
@@ -64,5 +67,34 @@ describe('the process table port', () => {
     expect(table.clientCwds()).toEqual({ kind: 'listed', cwds: ['/trees/1'] })
     expect(table.cpuSample()).toBe('COMMAND %CPU')
     expect(new InMemoryProcessTable({}).clientCwds()).toEqual({ kind: 'listed', cwds: [] })
+  })
+})
+
+describe('the callers read facts from the port', () => {
+  const row = (pid: number, pgid: number, command: string) => ({ pid, ppid: 1, pgid, started: 'Sat Nov 8 04:21:20 2026', command })
+
+  it('the group of a pid is its row, and a pid with no row or an unreadable table throws', () => {
+    expect(psPgid(7, new InMemoryProcessTable({ rows: [row(7, 70, 'node a')] }))).toBe(70)
+    expect(() => psPgid(8, new InMemoryProcessTable({ rows: [row(7, 70, 'node a')] }))).toThrow('no process 8 in the process table')
+    expect(() => psPgid(7, new InMemoryProcessTable({ rows: { unreadable: 'ps refused' } }))).toThrow('ps refused')
+  })
+
+  it('the command line of a pid is its row, and an empty command or no row is null', () => {
+    const table = new InMemoryProcessTable({ rows: [row(7, 7, 'node a --flag'), row(8, 8, '')] })
+    expect(commandLineOf(7, table)).toBe('node a --flag')
+    expect(commandLineOf(8, table)).toBeNull()
+    expect(commandLineOf(9, table)).toBeNull()
+    expect(commandLineOf(7, new InMemoryProcessTable({ rows: { unreadable: 'ps refused' } }))).toBeNull()
+  })
+
+  it('outside its own group leaves out the group of its row, or its own pid as the group when it has no row', () => {
+    const rows = [row(10, 10, 'node a'), row(11, 10, 'node b'), row(20, 20, 'node c'), row(30, 30, 'node d')]
+    expect(outsideOwnGroup(new InMemoryProcessTable({ rows }), 11)().map(each => each.pid)).toEqual([20, 30])
+    expect(outsideOwnGroup(new InMemoryProcessTable({ rows }), 30)().map(each => each.pid)).toEqual([10, 11, 20])
+  })
+
+  it('outside its own group with no row of its own takes its pid as the group, and an unreadable table throws when listed', () => {
+    expect(outsideOwnGroup(new InMemoryProcessTable({ rows: [row(10, 10, 'node a'), row(41, 40, 'node f')] }), 40)().map(each => each.pid)).toEqual([10])
+    expect(() => outsideOwnGroup(new InMemoryProcessTable({ rows: { unreadable: 'ps refused' } }), 40)()).toThrow('ps refused')
   })
 })

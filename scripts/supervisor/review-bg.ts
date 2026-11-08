@@ -10,9 +10,7 @@ import { FACTORY_WORKERS } from '../core/factory-paths.js'
 import { nodeProcess } from '../core/node.js'
 import { shadowReading } from '../core/report.js'
 import { REVIEW_READS, SWITCH_FLAG } from '../nodes/review/review-worker.js'
-import { argsBeforeBus, printBg, psList, servesBus, startDetached, thisBus } from './bg.js'
-import { lastProcessBeats } from './heartbeat.js'
-import { beatsLive } from './liveness-sites.js'
+import { argsBeforeBus, printBg, processBeatsOn, psList, servesBus, startDetached, thisBus } from './bg.js'
 
 export const PREFIX = '[bus:review:bg] '
 export const REVIEW_SCRIPT = 'bus:review'
@@ -36,26 +34,13 @@ export function busShadowProblems(busPath: string): string[] {
   }
 }
 
-export function reviewNodeBeats(busPath: string | undefined, nowMs: number): boolean {
-  if (busPath === undefined || !existsSync(busPath))
-    return false
-  const db = openBus(busPath)
-  try {
-    const beat = lastProcessBeats(db).find(each => each.process === nodeProcess('review'))
-    return beat !== undefined && beatsLive(beat.ts, nowMs)
-  }
-  finally {
-    db.close()
-  }
-}
-
 function recordedWorker(busDir: string, env: NodeJS.ProcessEnv, processes: ProcessList): RunningProcess | undefined {
   const file = path.join(busDir, REVIEW_INSTANCE_FILE)
   if (!existsSync(file))
     return undefined
   const pid = Number(readFileSync(file, 'utf8').trim())
   const bus = thisBus(env)
-  if (!Number.isInteger(pid) || pid <= 0 || pid === process.pid || bus === undefined || !reviewNodeBeats(bus, Date.now()))
+  if (!Number.isInteger(pid) || pid <= 0 || pid === process.pid || !processBeatsOn(bus, nodeProcess('review'), Date.now()))
     return undefined
   const listed = processes().find(candidate => candidate.pid === pid)
   if (listed === undefined)

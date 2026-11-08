@@ -7,10 +7,10 @@ import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
 import { openBus } from '../../core/db.js'
 import { NetWatch } from '../../ports/netwatch.js'
-import { PREFIX as BG_PREFIX, psList, runBusBg, runningBus, runningInstance, startDetached } from '../../supervisor/bg.js'
+import { PREFIX as BG_PREFIX, processBeatsOn, psList, runBusBg, runningBus, runningInstance, startDetached } from '../../supervisor/bg.js'
 import { recordProcessHeartbeat } from '../../supervisor/heartbeat.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
-import { busShadowProblems, PREFIX, REVIEW_INSTANCE_FILE, REVIEW_LOG, REVIEW_START_LOCK, REVIEW_WORKER_MARKERS, reviewLaunch, reviewNodeBeats, startReviewWorker } from '../../supervisor/review-bg.js'
+import { busShadowProblems, PREFIX, REVIEW_INSTANCE_FILE, REVIEW_LOG, REVIEW_START_LOCK, REVIEW_WORKER_MARKERS, reviewLaunch, startReviewWorker } from '../../supervisor/review-bg.js'
 import { BusTick } from '../../supervisor/run.js'
 import { settled } from '../shift/fixtures/settled.js'
 import { waitFor } from '../wait-for.js'
@@ -155,10 +155,11 @@ describe('pnpm bus:review:bg', () => {
     recordProcessHeartbeat(db, new Date(nowMs - SILENT_MS - 1).toISOString(), 'bus:review')
     db.close()
 
-    expect(reviewNodeBeats(bus, nowMs)).toBe(false)
-    expect(reviewNodeBeats(bus, nowMs - 2)).toBe(true)
-    expect(reviewNodeBeats(undefined, nowMs)).toBe(false)
-    expect(reviewNodeBeats(path.join(path.dirname(bus), 'absent.db'), nowMs)).toBe(false)
+    expect(processBeatsOn(bus, 'bus:review', nowMs)).toBe(false)
+    expect(processBeatsOn(bus, 'bus:review', nowMs - 2)).toBe(true)
+    expect(processBeatsOn(bus, 'bus:run', nowMs - 2)).toBe(false)
+    expect(processBeatsOn(undefined, 'bus:review', nowMs)).toBe(false)
+    expect(processBeatsOn(path.join(path.dirname(bus), 'absent.db'), 'bus:review', nowMs)).toBe(false)
   })
 
   it('a second review worker is not started while one runs', async () => {

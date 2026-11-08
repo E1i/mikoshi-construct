@@ -1,13 +1,16 @@
 import type { ProcessTable } from '../ports/process-table.js'
 import { spawn } from 'node:child_process'
-import { closeSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { BUS_DB_VARIABLE, GH_ACCOUNT_VARIABLE } from '../core/bus-path.js'
+import { openBus } from '../core/db.js'
 import { FACTORY_RUNTIME } from '../core/factory-paths.js'
 import { OsProcessTable, rowsOf } from '../ports/process-table.js'
 import { REVIEW_MODEL_VARIABLE } from '../ports/session.js'
+import { lastProcessBeats } from './heartbeat.js'
+import { beatsLive } from './liveness-sites.js'
 import { agentEnvStamp, STAMP_ENV } from './stamp.js'
 
 export const PREFIX = '[bus:bg] '
@@ -125,6 +128,19 @@ export function psList(table: ProcessTable = new OsProcessTable()): ProcessList 
 export function thisBus(env: NodeJS.ProcessEnv = process.env): string | undefined {
   const bus = env[BUS_DB_VARIABLE]
   return bus === undefined || bus === '' ? undefined : bus
+}
+
+export function processBeatsOn(busPath: string | undefined, name: string, nowMs: number): boolean {
+  if (busPath === undefined || !existsSync(busPath))
+    return false
+  const db = openBus(busPath)
+  try {
+    const beat = lastProcessBeats(db).find(each => each.process === name)
+    return beat !== undefined && beatsLive(beat.ts, nowMs)
+  }
+  finally {
+    db.close()
+  }
 }
 
 export function servesBus(candidate: RunningProcess, bus: string | undefined): boolean {

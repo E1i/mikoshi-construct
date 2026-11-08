@@ -53,10 +53,6 @@ export function rowsOf(snapshot: ProcessSnapshot): readonly ProcessRow[] {
   return snapshot.rows
 }
 
-export function ourClient(row: ProcessRow): boolean {
-  return clientAdapter().processes.isClient(row.command)
-}
-
 function clientNameArgs(): string[] {
   return clientAdapter().processes.processNames.flatMap(name => ['-c', name])
 }

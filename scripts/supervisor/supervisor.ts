@@ -961,8 +961,8 @@ export function outsideGroup(processes: GroupedProcess[], group: number): Runnin
   return processes.filter(candidate => candidate.group !== group).map(({ group: _group, ...running }) => running)
 }
 
-function psOutsideOwnGroup(table: ProcessTable = new OsProcessTable()): ProcessList {
-  const own = rowOf(table.snapshot(), process.pid)?.pgid ?? process.pid
+export function outsideOwnGroup(table: ProcessTable = new OsProcessTable(), self: number = process.pid): ProcessList {
+  const own = rowOf(table.snapshot(), self)?.pgid ?? self
   return () => outsideGroup(withBuses(rowsOf(table.snapshot()).map(row => ({ pid: row.pid, group: row.pgid, args: row.command }))), own)
 }
 
@@ -1070,7 +1070,7 @@ async function supervise(busDir: string, cwd: string, reviewPreflight: () => str
       windowEnds: new WindowSessionEnds(db, cwd, () => Date.now(), PREFIX),
       heal: new BusHealer({ busPath, nodes, now: () => new Date(), watch: new CorruptionWatch(busLaunches(reviewPreflight).map(launch => path.join(busDir, launch.log))) }),
       snapshot: new BusSnapshot({ db, busPath, file: snapshotPathOf(busPath), now: () => Date.now(), paused: () => nodes.held() }),
-      relaunch: () => startDetached(SUPERVISOR_LAUNCH, busDir, process.env, psOutsideOwnGroup()),
+      relaunch: () => startDetached(SUPERVISOR_LAUNCH, busDir, process.env, outsideOwnGroup()),
       print: line => console.log(line),
       pause: () => sleep(CHECK_MS),
     })
