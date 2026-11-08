@@ -56,7 +56,7 @@ describe('the runs of a card, read from the check catalog', () => {
     }
     expect(cardRunsOf({ touches: ['templates/**'], runs: [], masks: [] }, catalog)).toMatchObject({ layers: ['src'] })
     expect(cardRunsOf({ touches: ['templates/base/x.eta'], runs: [], masks: [] }, catalog)).toMatchObject({ layers: ['src'] })
-    expect(cardRunsOf({ touches: ['contract/ratchet.json'], runs: [], masks: [] }, catalog)).toMatchObject({ layers: expect.arrayContaining(['bus', 'contract']) })
+    expect(cardRunsOf({ touches: ['contract/ratchet.json'], runs: [], masks: [] }, catalog)).toMatchObject({ layers: ['contract'] })
   })
 
   it('an unknown layer is refused and an empty catalog reads full rather than nothing', () => {

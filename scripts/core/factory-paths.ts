@@ -1,7 +1,7 @@
 import path from 'node:path'
 import { GENERATED_FILES } from './generated-files.js'
 
-export { GENERATED_FILES, SEAM_SOURCES } from './generated-files.js'
+export { GENERATED_FILES, RATCHET_FILE, SEAM_SOURCES } from './generated-files.js'
 
 export const FACTORY_ROOT = 'scripts'
 

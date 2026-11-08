@@ -1,6 +1,5 @@
 import path from 'node:path'
-import { FACTORY_FOLDERS, FACTORY_FORMER_FOLDERS, FACTORY_NAMED, FACTORY_ROOT, scopeOf } from '../../scripts/core/factory-paths.js'
-import { GENERATED_FILES, RATCHET_FILE } from '../../scripts/core/generated-files.js'
+import { FACTORY_FOLDERS, FACTORY_FORMER_FOLDERS, FACTORY_NAMED, FACTORY_ROOT, GENERATED_FILES, RATCHET_FILE, scopeOf } from '../../scripts/core/factory-paths.js'
 import { createdPaths } from './parking.js'
 import { PREFIX_SUFFIX } from './task-file.js'
 import { isLayerEntry, layerNamedBy, runsFieldOf } from './witness-fields.js'
@@ -26,9 +25,9 @@ export const NAMED_READERS: Readonly<Record<string, readonly string[]>> = {
 export const DECLARED_PATH_READERS: Readonly<Record<string, readonly string[]>> = {
   'templates/': ['src/materialize/templates.ts'],
   'contract/accepted.json': ['scripts/contract/factory.ts'],
-  [GENERATED_FILES.factory.path]: ['scripts/contract/factory.ts', 'scripts/core/generated-files.ts'],
-  [RATCHET_FILE.path]: ['scripts/contract/ratchet.ts', 'scripts/core/generated-files.ts', 'src/commands/intake/check.ts'],
-  [GENERATED_FILES.surface.path]: ['scripts/core/generated-files.ts'],
+  [GENERATED_FILES.factory.path]: ['scripts/contract/factory.ts', 'scripts/contract/bump.ts'],
+  [RATCHET_FILE.path]: ['scripts/contract/ratchet.ts'],
+  [GENERATED_FILES.surface.path]: ['scripts/contract/factory/concepts.ts', 'scripts/contract/bump.ts'],
   'contract/contours/ledger-row.schema.json': ['scripts/ladder/watch-ledger.ts'],
   'contract/contours/review-verdict.schema.json': ['scripts/ladder/handoff.ts'],
 }
