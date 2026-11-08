@@ -1,11 +1,11 @@
 import type { CardBodyReader } from '../intake/parking-reads.js'
-import { execFileSync } from 'node:child_process'
 import { readFileSync, realpathSync } from 'node:fs'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { parseParkingFile } from '../../src/card/parking.js'
 import { defaultBusPath } from '../core/db.js'
 import { busCardBodies } from '../intake/parking-reads.js'
+import { processGit } from '../ports/git.js'
 import { finishBrief } from './brief-finish.js'
 import { runPnpmCommand } from './install.js'
 
@@ -15,7 +15,7 @@ const CARD_NUMBER = /^[1-9]\d*$/
 
 export const REAL_DEPS = {
   cwd: process.cwd(),
-  git: (cwd: string, args: string[]) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8' as const, stdio: ['ignore', 'pipe', 'pipe'] as ['ignore', 'pipe', 'pipe'] }),
+  git: (cwd: string, args: string[]) => processGit.read(cwd, args),
   read: (file: string) => readFileSync(file, 'utf8'),
   pnpm: runPnpmCommand,
 }

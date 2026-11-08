@@ -49,6 +49,16 @@ describe('the runs of a card, read from the check catalog', () => {
     expect(cardRunsOf({ touches: ['CONTRIBUTING.md'], runs: ['tests/a.test.ts'], masks: [] }, CATALOG)).toEqual({ full: true, why: expect.stringContaining('CONTRIBUTING.md') })
   })
 
+  it('a touch with declared path readers takes the layers of those readers, as selectRun does', () => {
+    const catalog = {
+      testLayers: new Map([...CATALOG.testLayers, ['tests/materialize.test.ts', ['src']], ['scripts/tests/bus/policy.test.ts', ['bus']], ['tests/contract/c.test.ts', ['contract']]]),
+      moduleLayers: new Map([...CATALOG.moduleLayers, ['src/materialize/templates.ts', ['src']], ['scripts/policy/policy.ts', ['bus']], ['scripts/contract/ratchet.ts', ['contract']]]),
+    }
+    expect(cardRunsOf({ touches: ['templates/**'], runs: [], masks: [] }, catalog)).toMatchObject({ layers: ['src'] })
+    expect(cardRunsOf({ touches: ['templates/base/x.eta'], runs: [], masks: [] }, catalog)).toMatchObject({ layers: ['src'] })
+    expect(cardRunsOf({ touches: ['contract/ratchet.json'], runs: [], masks: [] }, catalog)).toMatchObject({ layers: ['contract'] })
+  })
+
   it('an unknown layer is refused and an empty catalog reads full rather than nothing', () => {
     expect(witnessFieldRefusals('runs: ["layer:no-such-layer"]')).toEqual([expect.stringContaining('\'layer:no-such-layer\' names no layer')])
     expect(witnessFieldRefusals('runs: ["layer:core", "layer:bus:answer"]')).toEqual([])
@@ -56,6 +66,11 @@ describe('the runs of a card, read from the check catalog', () => {
     const emptyModules = { testLayers: CATALOG.testLayers, moduleLayers: new Map() }
     expect(cardRunsOf({ touches: ['src/a.ts'], runs: [], masks: [] }, emptyTests)).toEqual({ full: true, why: expect.stringContaining('empty') })
     expect(cardRunsOf({ touches: [], runs: [], masks: ['core'] }, emptyModules)).toEqual({ full: true, why: expect.stringContaining('empty') })
+  })
+
+  it('a touch on a non-code file in a layer folder takes the layers of the code beside it, not the full run', () => {
+    const map = { files: { 'scripts/core/c.ts': 'core' }, folders: { 'scripts/core/': 'core' } }
+    expect(cardRunsOf({ touches: ['scripts/core/header.md'], runs: [], masks: [] }, CATALOG, map)).toEqual({ layers: ['core'], paths: [], tests: ['scripts/tests/core/c.test.ts', 'tests/b.test.ts'] })
   })
 
   it('whatever cannot name a test reads full with its reason', () => {

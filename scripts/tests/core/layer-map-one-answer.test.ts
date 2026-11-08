@@ -7,6 +7,7 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { EVERY_CHANGE_READERS } from '../../../src/card/covering-tests.js'
 import { cardRunsOf } from '../../ci/card-runs.js'
 import { selectRun } from '../../ci/layers.js'
 import { rebuildCatalogAt, writeCatalog } from '../../cli/check-catalog.js'
@@ -178,8 +179,8 @@ it('a failed catalog rebuild writes an event with its reason', async () => {
   expect(eventsOf(made.db, BOARD_ALARM)).toContainEqual(expect.objectContaining({ reason: CATALOG_REBUILD_FAILED, ref: MAIN_2, detail: expect.stringContaining('depcruise is not installed in this tree') }))
 })
 
-it('a change only to a docs file runs the docs layer tests and not the full suite', () => {
-  expect(selectRun([WINDOW_DOC], GRAPH, testText, MAP)).toEqual({ kind: 'layers', layers: [DOCS_LAYER], tests: [DOCS_TEST] })
+it('a change only to a docs file runs the docs layer tests and the every-change readers, not the full suite', () => {
+  expect(selectRun([WINDOW_DOC], GRAPH, testText, MAP)).toEqual({ kind: 'layers', layers: [DOCS_LAYER], tests: [...new Set([DOCS_TEST, ...EVERY_CHANGE_READERS.filter(test => GRAPH.has(test))])].sort() })
   expect(cardRunsOf({ touches: [WINDOW_DOC], runs: [], masks: [] }, CATALOG, MAP)).toEqual({ layers: [DOCS_LAYER], paths: [], tests: [DOCS_TEST] })
   for (const glob of ['architecture/**', 'docs/**', '.claude/skills/**'])
     expect(cardRunsOf({ touches: [glob], runs: [], masks: [] }, CATALOG, MAP), glob).toEqual({ layers: [DOCS_LAYER], paths: [], tests: [DOCS_TEST] })

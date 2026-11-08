@@ -1166,7 +1166,7 @@ header.panel {
   --_surface: radial-gradient(120% 140% at 0% 0%, var(--signal-soft), transparent 55%), var(--panel);
 }
 header.panel::before { --_sweep: oklch(from var(--wire) l c h / 0.5); animation: --animation-bevel-sweep 14s linear infinite; }
-.banner-wrap { overflow-x: auto; min-inline-size: 0; }
+.banner-wrap { overflow-x: clip; min-inline-size: 0; }
 .banner {
   margin: 0;
   color: var(--signal);
@@ -1810,9 +1810,8 @@ function boardPageOf(db: DatabaseSync, busPath: string, now: Date, handoffFile: 
     warnings: [
       ...contextWarnings(sessionContexts(facts.services, sources, liveness), limits),
       ...boardWarnings({
+        ...limits,
         contexts: [],
-        contextLimit: limits.contextLimit,
-        warnRatio: limits.warnRatio,
         openPrs: openPrCountOf(db),
         openPrLimit: openPrLimitOf(process.env),
         ownerWaits: facts.waits.length,

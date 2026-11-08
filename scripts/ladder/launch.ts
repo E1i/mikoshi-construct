@@ -4,7 +4,6 @@ import type { StartedTree, Task } from '../core/tasks.js'
 import type { Expect } from './expect.js'
 import type { Sketch } from './sketch.js'
 import type { FallKind, PreparedTask, SupervisorPayload, TaskContext, TaskOutcome } from './supervise.js'
-import { execFileSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
@@ -15,6 +14,7 @@ import { renderSignal, terminalStyle } from '../../src/ui/signal.js'
 import { ENTRY_RESULT, entryEvent } from '../core/entry.js'
 import { journalText, recordGhostLine } from '../core/journal.js'
 import { readTasksFile, startedTree } from '../core/tasks.js'
+import { processGit } from '../ports/git.js'
 import { approvedHashPath, approverOf, cardNumberOf, checkApproval, fallsOf, journalEvents, MORSE, morseApprovalOf, revocationOf, revokeEvent, sha256Hex } from './approval.js'
 import { launchStepExpects } from './expect-sample.js'
 import { briefEffort, formatExpect, formatStepBreakdown, parseExpect } from './expect.js'
@@ -25,13 +25,7 @@ import { ghostRowState } from './status.js'
 import { errorMessage, FALL_KINDS, fallEvent, git, resultPathOf, spawnSupervisor } from './supervise.js'
 
 function branchExists(repo: string, branch: string): boolean {
-  try {
-    execFileSync('git', ['-C', repo, 'rev-parse', '--verify', '--quiet', `refs/heads/${branch}`], { stdio: 'pipe' })
-    return true
-  }
-  catch {
-    return false
-  }
+  return processGit.succeeds(repo, ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`])
 }
 
 interface SketchCheck { refusals: string[], rangeDiff: RangeDiffOutcome | null, regenerated: string[] }
@@ -50,12 +44,8 @@ function sketchRefusals(repo: string, taskId: string, baseSha: string, sketch: S
   const tip = git(repo, ['rev-parse', `refs/heads/${sketch.branch}`])
   if (tip !== sketch.sha)
     return refused(`sketch branch ${sketch.branch} is at ${tip}, not the ${sketch.sha} the brief names`)
-  try {
-    execFileSync('git', ['-C', repo, 'merge-base', '--is-ancestor', baseSha, sketch.sha], { stdio: 'pipe' })
-  }
-  catch {
+  if (!processGit.succeeds(repo, ['merge-base', '--is-ancestor', baseSha, sketch.sha]))
     return refused(`sketch ${sketch.sha.slice(0, 7)} does not contain origin/main ${baseSha.slice(0, 7)}; rebase ${sketch.branch} onto origin/main and re-approve the brief`)
-  }
   if (approvedSketch === sketch.sha)
     return { refusals: [], rangeDiff: 'identical', regenerated: [] }
   const verdict = rangeDiffVerdict(args => git(repo, args), approvedSketch, sketch.sha, baseSha, REGENERATED_PATHS)
@@ -66,13 +56,7 @@ function sketchRefusals(repo: string, taskId: string, baseSha: string, sketch: S
 }
 
 function isAncestor(repo: string, ancestor: string, descendant: string): boolean {
-  try {
-    execFileSync('git', ['-C', repo, 'merge-base', '--is-ancestor', ancestor, descendant], { stdio: 'pipe' })
-    return true
-  }
-  catch {
-    return false
-  }
+  return processGit.succeeds(repo, ['merge-base', '--is-ancestor', ancestor, descendant])
 }
 
 function changedPathCount(worktree: string): number {

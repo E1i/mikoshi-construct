@@ -6,7 +6,7 @@ import type { StepExpect } from './expect-sample.js'
 import type { Expect } from './expect.js'
 import type { MatrixLookup } from './matrix.js'
 import type { Sketch } from './sketch.js'
-import { execFileSync, spawn } from 'node:child_process'
+import { spawn } from 'node:child_process'
 import { closeSync, openSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
@@ -15,6 +15,7 @@ import { LEDGER_FILE } from '../../src/commands/cost/ledger.js'
 import { appendEvent, defaultBusPath, openBus } from '../core/db.js'
 import { CARD_FELL } from '../core/events.js'
 import { recordGhostLine, taskLine } from '../core/journal.js'
+import { processGit } from '../ports/git.js'
 import { readResultFields } from '../ports/result.js'
 import { sessionEnv, spawnSession } from '../ports/session.js'
 import { writeAgreedText } from './agreed.js'
@@ -56,7 +57,7 @@ export interface TaskOutcome {
 }
 
 export function git(repo: string, args: string[]): string {
-  return execFileSync('git', ['-C', repo, ...args], { encoding: 'utf8' }).trim()
+  return processGit.read(repo, args).trim()
 }
 
 export const FALL_KINDS = ['base-red', 'ladder-not-done', 'review-hole', 'handoff-without-pr', 'hash-recounted'] as const
@@ -124,13 +125,13 @@ function approvalFields(task: PreparedTask): Pick<JournalEntry, 'agreedSha256' |
 }
 
 function prepareTree(ctx: TaskContext, task: PreparedTask): void {
-  execFileSync('git', ['-C', task.worktree, 'reset', '--hard', task.sketch.kind === 'branch' ? task.sketch.sha : ctx.baseSha], { stdio: 'pipe' })
+  processGit.read(task.worktree, ['reset', '--hard', task.sketch.kind === 'branch' ? task.sketch.sha : ctx.baseSha])
   if (task.rangeDiff !== 'regenerated')
     stageSketch(ctx, task)
 }
 
 function stageSketch(ctx: TaskContext, task: PreparedTask): void {
-  execFileSync('git', ['-C', task.worktree, 'reset', '--soft', ctx.baseSha], { stdio: 'pipe' })
+  processGit.read(task.worktree, ['reset', '--soft', ctx.baseSha])
 }
 
 function noSessionJournalEntry(task: PreparedTask, baseSha: string, matrixRow: MatrixLookup | null, install: number | null): JournalEntry {
