@@ -178,7 +178,7 @@ it('a branch and a pull request with no card select as before', () => {
   const graph = new Map<string, string[]>([[WORKER, []], [WORKER_TEST, [WORKER]], [CLI, []], [CLI_TEST, [CLI]]])
 
   expect(selectRun([WORKER], graph, NO_TEXT)).toEqual({ kind: 'layers', layers: ['bus:merge'], tests: [WORKER_TEST] })
-  expect(selectRun(['docs/index.md'], graph, NO_TEXT).kind).toBe('full')
+  expect(selectRun(['CONTRIBUTING.md'], graph, NO_TEXT).kind).toBe('full')
   expect(rerunThrough(liveBenchOf([WORKER], [CLI]))).toBe(false)
   expect(rerunThrough(liveBenchOf([WORKER, CLI], [CLI]))).toBe(true)
 })

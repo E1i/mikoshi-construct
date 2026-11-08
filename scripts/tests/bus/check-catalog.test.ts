@@ -248,7 +248,7 @@ describe('the overlap of main\'s changes since the base with the layers of a pul
 
   it('counts a file no layer holds, a test the catalog does not place, or an empty catalog as an overlap', () => {
     const db = cataloged()
-    expect(overlapWithMain(db, PR, ['README.md'])).toBe('README.md belongs to no layer of the check catalog')
+    expect(overlapWithMain(db, PR, ['CONTRIBUTING.md'])).toBe('CONTRIBUTING.md belongs to no layer of the check catalog')
     expect(overlapWithMain(db, [...PR, 'tests/orphan.test.ts'], ['src/cli.ts'])).toBe('tests/orphan.test.ts belongs to no layer of the check catalog')
     expect(overlapWithMain(db, [...PR, 'tests/new.test.ts'], ['src/cli.ts'])).toBe('tests/new.test.ts belongs to no layer of the check catalog')
     expect(overlapWithMain(openDatabase(path.join(scratch(), 'bus.db')), PR, ['src/cli.ts'])).toBe('the check catalog is empty, so no layer can be told apart')

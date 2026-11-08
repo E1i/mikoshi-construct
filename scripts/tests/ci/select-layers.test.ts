@@ -43,7 +43,7 @@ describe('the checks a change reaches follow the layers of the dependency graph'
   })
 
   it('a path in no layer of the graph takes the full run', () => {
-    expect(selectRun(['docs/index.md'], GRAPH, () => '').kind).toBe('full')
+    expect(selectRun(['CONTRIBUTING.md'], GRAPH, () => '').kind).toBe('full')
     expect(selectRun(['scripts/bus/unknown.ts'], GRAPH, () => '').kind).toBe('full')
     expect(selectRun([], GRAPH, () => '').kind).toBe('full')
   })
@@ -167,13 +167,13 @@ describe('the window gate of D-194 takes the CI selection by layers', () => {
   })
 
   it('the window gate takes the full run when the rest of a package.json change reaches no layer', () => {
-    const run = windowGate(['package.json', 'docs/index.md'], graph, () => '')
-    expect(run).toEqual(selectRun(['docs/index.md'], graph, () => ''))
+    const run = windowGate(['package.json', 'CONTRIBUTING.md'], graph, () => '')
+    expect(run).toEqual(selectRun(['CONTRIBUTING.md'], graph, () => ''))
     expect(run.kind).toBe('full')
   })
 
   it('the window gate is the CI selection for a change without package.json', () => {
-    for (const changed of [['scripts/core/db.ts'], ['docs/index.md'], []])
+    for (const changed of [['scripts/core/db.ts'], ['CONTRIBUTING.md'], []])
       expect(windowGate(changed, graph, () => '')).toEqual(selectRun(changed, graph, () => ''))
   })
 

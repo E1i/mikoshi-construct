@@ -242,7 +242,7 @@ describe('the CI selector reads its layers from the one layer map', () => {
     expect(layerIn(map, 'scripts/core/queue.ts')).toBe('queue')
     expect(layerIn(map, 'scripts/core/lease.ts')).toBe('core')
     expect(layerIn(map, 'scripts/ladder/launch.ts')).toBe('ladder')
-    expect(layerIn(map, 'docs/index.ts')).toBeNull()
+    expect(layerIn(map, 'bin/index.ts')).toBeNull()
     const recorded = readLayerMap()
     for (const [file, layer] of Object.entries(recorded.files))
       expect([file, layerOf(file)]).toEqual([file, layer])
