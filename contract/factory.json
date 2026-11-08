@@ -1175,6 +1175,7 @@
   "concepts": {
     "answer-duties": {
       "axis": "architecture",
+      "lore": null,
       "owner": "scripts/nodes/answer/duties/",
       "ownerExists": false,
       "status": "proposed",
@@ -1182,6 +1183,7 @@
     },
     "ci-reading": {
       "axis": "architecture",
+      "lore": null,
       "owner": "src/commands/ci/state.ts",
       "ownerExists": true,
       "status": "proposed",
@@ -1189,6 +1191,7 @@
     },
     "generated-files": {
       "axis": "architecture",
+      "lore": null,
       "owner": "scripts/core/generated-files.ts",
       "ownerExists": true,
       "status": "accepted",
@@ -1196,6 +1199,7 @@
     },
     "git": {
       "axis": "architecture",
+      "lore": null,
       "owner": "scripts/ports/git.ts",
       "ownerExists": true,
       "status": "proposed",
@@ -1203,6 +1207,7 @@
     },
     "handoff-status": {
       "axis": "architecture",
+      "lore": null,
       "owner": "scripts/core/handoff-status.ts",
       "ownerExists": true,
       "status": "proposed",
@@ -1210,6 +1215,7 @@
     },
     "layers": {
       "axis": "architecture",
+      "lore": null,
       "owner": "scripts/core/layer-map.ts",
       "ownerExists": true,
       "status": "proposed",
@@ -1217,6 +1223,7 @@
     },
     "live-session": {
       "axis": "architecture",
+      "lore": null,
       "owner": "scripts/supervisor/supervisor.ts",
       "ownerExists": true,
       "status": "proposed",
@@ -1224,6 +1231,7 @@
     },
     "owner-commands": {
       "axis": "interface",
+      "lore": null,
       "owner": "scripts/core/owner-commands.ts",
       "ownerExists": false,
       "status": "proposed",
@@ -1231,6 +1239,7 @@
     },
     "owner-decisions": {
       "axis": "architecture",
+      "lore": null,
       "owner": "scripts/policy/decisions.ts",
       "ownerExists": true,
       "status": "proposed",
@@ -1238,6 +1247,7 @@
     },
     "pid-liveness": {
       "axis": "architecture",
+      "lore": null,
       "owner": "scripts/supervisor/supervisor.ts",
       "ownerExists": true,
       "status": "proposed",
@@ -1245,6 +1255,7 @@
     },
     "process-table": {
       "axis": "architecture",
+      "lore": null,
       "owner": "scripts/ports/process-table.ts",
       "ownerExists": true,
       "status": "proposed",
@@ -1252,6 +1263,7 @@
     },
     "window-requests": {
       "axis": "architecture",
+      "lore": null,
       "owner": "scripts/window/requests/",
       "ownerExists": false,
       "status": "proposed",
