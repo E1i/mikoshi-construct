@@ -15,6 +15,7 @@ import { decisionsInForceAt, unspentShardsOf, WINDOW_SHARDS_LIVE_AT } from '../p
 import { MAIN_BRANCH } from '../ports/snapshot.js'
 import { BACKFILL_SOURCE, NOT_A_BACKFILL } from './backfill-source.js'
 import { CARD_BODIES } from './card-bodies.js'
+import { answerDecisionOfKey, decisionSegment, withDecidedContinuations } from './card-decisions.js'
 import { appendEvent, inTransaction, OPEN_WAIT, openOwnerWait, OWNER_WAITS } from './db.js'
 import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, CARD_WAITING, INTAKE_EVENT, INTAKE_MOVE_EVENT, MERGE_DONE, OWNER_WAIT_OPENED, POLICY_DENIED, PR_CLOSED, PR_OPENED, QUESTION_AGENT, QUESTION_OWNER, REVIEW_RECORDED, REVIEW_ROUNDS_SPENT, ROUND_EXTENDED, ROUND_MUTATIONS_PARKED, SESSION_HEARTBEAT, TASK_COMPLETED, TASK_ENQUEUED, TASK_EXPIRED, TASK_FAILED, TASK_LEASED, TASK_RELEASED, TASK_RENEWED, TASK_REQUEUED, TASK_SUPERSEDED, TASK_WITHDRAWN, UPDATE_DONE, WITNESS_DOWNGRADE, WITNESS_RECORDED } from './events.js'
 import { generationOfKey, isFullSha, QUEUES, reviewInputOf, reviewInputOfKey, taskKey } from './identifiers.js'
@@ -815,12 +816,13 @@ export interface QueuedTask extends TaskIdentity {
   cardBody?: string
   base?: string
   prBody?: string
+  decision?: number
 }
 
 const CARD_BODY_QUEUES: readonly Queue[] = ['answer', 'witness']
 const STOP_SUFFIX = /:stop-([1-9]\d*)$/
 const BODY_SHA = /^[0-9a-f]{8,64}$/
-const ANSWER_CARD_BODY = /:card-body-([0-9a-f]{8,64})(?::base-[0-9a-f]{40})?(?::stop-[1-9]\d*)?$/
+const ANSWER_CARD_BODY = /:card-body-([0-9a-f]{8,64})(?::base-[0-9a-f]{40})?(?::decision-[1-9]\d*)?(?::stop-[1-9]\d*)?$/
 const MERGE_PR_BODY = /:pr-body-([0-9a-f]{8,64})$/
 const WITNESS_BASE = /:base-([0-9a-f]{40})(?::stop-[1-9]\d*)?$/
 
@@ -857,7 +859,7 @@ export function baseOfKey(key: string): string | undefined {
 }
 
 export function keyOf(task: QueuedTask): string {
-  const key = `${taskKey(task)}${cardBodySegment(task)}${baseSegment(task)}${prBodySegment(task)}`
+  const key = `${taskKey(task)}${cardBodySegment(task)}${baseSegment(task)}${prBodySegment(task)}${decisionSegment(task)}`
   return task.stop === undefined ? key : `${key}:stop-${task.stop}`
 }
 
@@ -936,7 +938,7 @@ export function answerCandidates(db: DatabaseSync, ts: string): QueuedTask[] {
   const leased = db.prepare(ANSWERS_LEASED_NOW).all() as { card_id: number, task_key: string }[]
   const answering = new Set(leased.map(row => Number(row.card_id)))
   const leasedKeys = new Set(leased.map(row => row.task_key))
-  return ANSWER_CANDIDATES.flatMap(query => openCandidates(db, ts, 'answer', candidateRows(db, query, everyRow))).filter(task => !answering.has(task.cardId) || leasedKeys.has(keyOf(task)))
+  return withDecidedContinuations(db, ANSWER_CANDIDATES.flatMap(query => openCandidates(db, ts, 'answer', candidateRows(db, query, everyRow))).filter(task => !answering.has(task.cardId) || leasedKeys.has(keyOf(task))), { decisions: decisionsInForceAt(db, new Date(ts)), sql: { cardBody: cardBodyShaOf, latestTurn: latestTurnOf, notAWindowCard, downgradeWaitOpenOn: aDowngradeWaitOpenOn }, pastTheLimit: (pr, head) => outOfRounds(db, 'answer', pr) && mergeDecidedPastRoundLimit(db, ts, pr, head) === null, cardBodyOf: answerCardBodyOf })
 }
 
 export function mergeCandidates(db: DatabaseSync, ts: string, rerun: RerunMode = 'as-now'): QueuedTask[] {
@@ -964,7 +966,7 @@ export function identityOf(event: StoredEvent): { key: string, queue: Queue } {
     reject(`${event.type} of a review input needs a pr and a head`)
   const base = queue === 'witness' ? baseOfKey(String(payload.task_key)) : undefined
   const prBody = queue === 'merge' ? mergeBodyOfKey(String(payload.task_key)) : undefined
-  const key = keyOf({ queue, cardId, pr: event.pr ?? undefined, head: event.head ?? undefined, generation, stop, input, cardBody, base, prBody })
+  const key = keyOf({ queue, cardId, pr: event.pr ?? undefined, head: event.head ?? undefined, generation, stop, input, cardBody, base, prBody, decision: answerDecisionOfKey(queue, payload.task_key) })
   if (payload.task_key !== key)
     reject(`task_key ${String(payload.task_key)} is not ${key}`)
   return { key, queue }
@@ -1177,7 +1179,7 @@ function identity(row: TaskRow): QueuedTask {
   const cardBody = CARD_BODY_QUEUES.includes(row.queue) ? cardBodyIn(row.task_key) : undefined
   const base = row.queue === 'witness' ? baseOfKey(row.task_key) : undefined
   const prBody = row.queue === 'merge' ? mergeBodyOfKey(row.task_key) : undefined
-  return { ...plain, generation: generationOfKey(row.task_key, plain), stop: stopIn(row.task_key), input, cardBody, base, prBody }
+  return { ...plain, generation: generationOfKey(row.task_key, plain), stop: stopIn(row.task_key), input, cardBody, base, prBody, decision: answerDecisionOfKey(row.queue, row.task_key) }
 }
 
 export interface BodyAdmission { bodySha: string, event: string }
@@ -1240,9 +1242,7 @@ function underCurrentInput(row: ReviewRow): boolean {
 }
 
 function requeueTask(db: DatabaseSync, ts: string, row: StoppedRow, fault = false): boolean {
-  if (closedByRounds(db, ts, row.queue, row.pr, row.head))
-    return false
-  return written(db, taskEvent(ts, TASK_REQUEUED, identity(row), row.failure, undefined, fault))
+  return (answerDecisionOfKey(row.queue, row.task_key) !== undefined || !closedByRounds(db, ts, row.queue, row.pr, row.head)) && written(db, taskEvent(ts, TASK_REQUEUED, identity(row), row.failure, undefined, fault))
 }
 
 function requeueOnceItsCauseIsGone(db: DatabaseSync, ts: string, row: AlarmRow): boolean {

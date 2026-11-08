@@ -29,6 +29,7 @@ import { NOT_A_BACKFILL } from '../../core/backfill-source.js'
 import { busPathOf, machineBusPath } from '../../core/bus-path.js'
 import { DROPPED_CARD, RUNNING_CARD } from '../../core/card-automaton.js'
 import { bodyNotFoldedYet, CARD_BODIES, cardBodyText, pathsOutsideTheBody } from '../../core/card-bodies.js'
+import { busCardDecisions, withCardDecisions } from '../../core/card-decisions.js'
 import { cardHoldOf, HOLD_RECHECK_MS } from '../../core/card-hold.js'
 import { appendEvent, BUSY_TIMEOUT_MS, defaultBusPath, inTransaction, openBus, openOwnerWait } from '../../core/db.js'
 import { messageOf } from '../../core/errors.js'
@@ -48,7 +49,7 @@ import { busCardBodies } from '../../intake/parking-reads.js'
 import { LadderCardStarter } from '../../ladder/ladder-starter.js'
 import { briefBody, briefPathOf, ladderStep, reviewBody, tasksFilePathOf, tasksFileText } from '../../ladder/ladder.js'
 import { reviewOf } from '../../ladder/verdict.js'
-import { cardDecisionCommand } from '../../policy/shards.js'
+import { cardDecisionCommand, cardDecisionLines } from '../../policy/shards.js'
 import { cardIsolationCommand, clientLastSteps, clientTranscript } from '../../ports/client/claude/adapter.js'
 import { realIsolationReader } from '../../ports/isolation.js'
 import { TICK_MS } from '../../ports/netwatch.js'
@@ -851,7 +852,7 @@ export class CutTreeOrigins {
   }
 }
 
-export function realStarterPorts(repo: string, env: NodeJS.ProcessEnv, header: string, uuid: () => string, bodyOf: CardBodyReader = () => null, cardSessions: (cardId: number) => string[] = () => [], installed: string | null = installedPackage(), busPath: string = busPathOf(env, os.homedir(), repo), prepare: TreePreparer = prepareTree, origins: CutTreeOrigins = new CutTreeOrigins()): StarterPorts {
+export function realStarterPorts(repo: string, env: NodeJS.ProcessEnv, header: string, uuid: () => string, bodyOf: CardBodyReader = () => null, cardSessions: (cardId: number) => string[] = () => [], installed: string | null = installedPackage(), busPath: string = busPathOf(env, os.homedir(), repo), prepare: TreePreparer = prepareTree, origins: CutTreeOrigins = new CutTreeOrigins(), decisionsOf: (cardId: number) => string[] = () => []): StarterPorts {
   const taskStart = taskStartCommand(installed)
   return {
     read: bodyOf,
@@ -872,7 +873,7 @@ export function realStarterPorts(repo: string, env: NodeJS.ProcessEnv, header: s
     kill: killQuietly,
     uuid,
     envOf: cardId => ({ ...sessionEnv(env, cardId), ...heartbeatEnv({ cardId, pr: null, head: null, queue: 'launch' }), ...HTTPS_ORIGIN_ENV }),
-    prompt: (task, places) => renderPrompt(header, continuedOnCardText(task, bodyOf), places),
+    prompt: (task, places) => renderPrompt(header, withCardDecisions(continuedOnCardText(task, bodyOf), decisionsOf(task.card.id)), places),
     changedPaths: gitChangedPaths,
     readReport: file => existsSync(file) ? sessionWrittenPart(readFileSync(file, 'utf8')) : null,
     cardSessions,
@@ -902,8 +903,7 @@ export function busCardSessions(busPath: string): (cardId: number) => string[] {
       return []
     const db = openDatabase(busPath, { readOnly: true, timeout: BUSY_TIMEOUT_MS })
     try {
-      const rows = db.prepare(CARD_SESSIONS).all(cardId) as { session: string }[]
-      return [...new Set(rows.map(row => row.session))]
+      return [...new Set((db.prepare(CARD_SESSIONS).all(cardId) as { session: string }[]).map(row => row.session))]
     }
     finally {
       db.close()
@@ -912,7 +912,7 @@ export function busCardSessions(busPath: string): (cardId: number) => string[] {
 }
 
 export function busStarterPorts(busPath: string, repo: string, env: NodeJS.ProcessEnv, header: string, uuid: () => string, origins?: CutTreeOrigins): StarterPorts {
-  return realStarterPorts(repo, env, header, uuid, busCardBodies(busPath), busCardSessions(busPath), installedPackage(), busPath, prepareTree, origins)
+  return realStarterPorts(repo, env, header, uuid, busCardBodies(busPath), busCardSessions(busPath), installedPackage(), busPath, prepareTree, origins, busCardDecisions(busPath, cardDecisionLines))
 }
 
 export function repoHandoffEnv(env: NodeJS.ProcessEnv, repo: string, home: string = os.homedir()): NodeJS.ProcessEnv {

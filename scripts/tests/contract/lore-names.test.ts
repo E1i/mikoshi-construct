@@ -9,7 +9,7 @@ import { assertNoLoreConflict, CONCEPTS, loreConflicts } from '../../contract/fa
 const RECORDED = path.resolve(import.meta.dirname, '../../..', 'contract', 'factory.json')
 
 function concept(id: string, lore: string | null): Concept {
-  return { id, title: id, owner: `scripts/${id}.ts`, ownerExists: false, axis: 'interface', lore, detectors: [] }
+  return { id, title: id, owner: `scripts/${id}.ts`, ownerExists: false, ownerExport: null, axis: 'interface', lore, detectors: [] }
 }
 
 describe('the lore name column of the concepts table', () => {

@@ -1178,6 +1178,7 @@
       "lore": null,
       "owner": "scripts/nodes/answer/duties/",
       "ownerExists": false,
+      "ownerExport": null,
       "status": "proposed",
       "title": "four duties each in the answer executor and the answerer"
     },
@@ -1186,6 +1187,7 @@
       "lore": null,
       "owner": "src/commands/ci/state.ts",
       "ownerExists": true,
+      "ownerExport": "ciOf",
       "status": "proposed",
       "title": "the state of CI on a commit or a pull request"
     },
@@ -1194,6 +1196,7 @@
       "lore": null,
       "owner": "scripts/core/generated-files.ts",
       "ownerExists": true,
+      "ownerExport": "GENERATED_FILES",
       "status": "accepted",
       "title": "the list of generated files"
     },
@@ -1202,6 +1205,7 @@
       "lore": null,
       "owner": "scripts/ports/git.ts",
       "ownerExists": true,
+      "ownerExport": "processGit",
       "status": "proposed",
       "title": "running git"
     },
@@ -1210,6 +1214,7 @@
       "lore": null,
       "owner": "scripts/core/handoff-status.ts",
       "ownerExists": true,
+      "ownerExport": "statusOf",
       "status": "proposed",
       "title": "the STATUS line of a handoff"
     },
@@ -1218,6 +1223,7 @@
       "lore": null,
       "owner": "scripts/core/layer-map.ts",
       "ownerExists": true,
+      "ownerExport": "layersOf",
       "status": "proposed",
       "title": "which layer a file belongs to"
     },
@@ -1226,6 +1232,7 @@
       "lore": null,
       "owner": "scripts/supervisor/supervisor.ts",
       "ownerExists": true,
+      "ownerExport": "LivenessJudge",
       "status": "proposed",
       "title": "whether a client session is alive in a tree"
     },
@@ -1234,6 +1241,7 @@
       "lore": null,
       "owner": "scripts/core/owner-commands.ts",
       "ownerExists": false,
+      "ownerExport": null,
       "status": "proposed",
       "title": "the command lines the owner is told to run"
     },
@@ -1242,6 +1250,7 @@
       "lore": null,
       "owner": "scripts/policy/decisions.ts",
       "ownerExists": true,
+      "ownerExport": "inForceDecisions",
       "status": "proposed",
       "title": "the owner decisions, read from the markdown file or the bus table"
     },
@@ -1250,6 +1259,7 @@
       "lore": null,
       "owner": "scripts/supervisor/supervisor.ts",
       "ownerExists": true,
+      "ownerExport": "LivenessJudge",
       "status": "proposed",
       "title": "whether a pid is alive"
     },
@@ -1258,6 +1268,7 @@
       "lore": null,
       "owner": "scripts/ports/process-table.ts",
       "ownerExists": true,
+      "ownerExport": "OsProcessTable",
       "status": "proposed",
       "title": "the process table of the OS, read with ps, lsof or top and parsed"
     },
@@ -1266,6 +1277,7 @@
       "lore": null,
       "owner": "scripts/window/requests/",
       "ownerExists": false,
+      "ownerExport": null,
       "status": "proposed",
       "title": "one class for every kind of window request"
     }
@@ -1438,7 +1450,7 @@
   "overlaps": {
     "answer-duties": {
       "scripts/nodes/answer/answer-executor.ts": 20,
-      "scripts/nodes/answer/answerer.ts": 23
+      "scripts/nodes/answer/answerer.ts": 22
     },
     "ci-reading": {},
     "generated-files": {},
