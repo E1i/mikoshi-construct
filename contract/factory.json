@@ -1204,7 +1204,7 @@
     "handoff-status": {
       "axis": "architecture",
       "owner": "scripts/core/handoff-status.ts",
-      "ownerExists": false,
+      "ownerExists": true,
       "status": "proposed",
       "title": "the STATUS line of a handoff"
     },
@@ -1478,10 +1478,6 @@
       "src/detect/git.ts": 1
     },
     "handoff-status": {
-      "scripts/cli/board-page.ts": 3,
-      "scripts/window/exit.ts": 1,
-      "scripts/window/loop.ts": 3,
-      "scripts/window/tab.ts": 1,
       "src/commands/doctor/factory.ts": 2
     },
     "layers": {},
