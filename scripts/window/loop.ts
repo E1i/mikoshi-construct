@@ -1,7 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { WindowMode } from '../ports/session.js'
 import type { ProcessRow } from './exit.js'
-import { execFileSync, spawn, spawnSync } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -13,11 +13,12 @@ import { appendEvent, defaultBusPath, inTransaction, openBus } from '../core/db.
 import { PROCESS_ENDED, PROCESS_HEARTBEAT, PROCESS_REFUSED } from '../core/events.js'
 import { defaultHandoffDir } from '../core/handoff-dir.js'
 import { WINDOW_COMMAND_VARIABLE, windowCommand } from '../ports/client/claude/adapter.js'
+import { OsProcessTable } from '../ports/process-table.js'
 import { EXIT_REQUEST_VARIABLE, LOOP_PID_VARIABLE, WINDOW_MARK, WINDOW_VARIABLE } from '../ports/session.js'
 import { recordProcessHeartbeat } from '../supervisor/heartbeat.js'
 import { beatsLive, SILENT_MS } from '../supervisor/liveness-sites.js'
 import { coreVersionIn, LOADED_CORE_VARIABLE, UNKNOWN } from './eddies-measure.js'
-import { ancestors, exitRootOf, parsePs } from './exit.js'
+import { ancestors, chainRowsOf, exitRootOf } from './exit.js'
 import { windowEndObserver } from './role-end.js'
 import { lastLoopBeats, LOOP_PROCESS } from './window-heartbeat.js'
 
@@ -115,7 +116,7 @@ export function requestEndsSession(table: ProcessRow[] | null, requester: number
 
 function readTable(): ProcessRow[] | null {
   try {
-    return parsePs(execFileSync('ps', ['-A', '-o', 'pid=,ppid=,args='], { encoding: 'utf8' }))
+    return chainRowsOf(new OsProcessTable())
   }
   catch {
     return null
