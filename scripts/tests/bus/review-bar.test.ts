@@ -12,7 +12,7 @@ import { RATCHET_FILE } from '../../core/generated-files.js'
 import { fullReview, planReview } from '../../nodes/review/review-depth.js'
 import { passOnSurvivingMutations } from '../../nodes/review/review-executor.js'
 import { ReviewWorker } from '../../nodes/review/review-worker.js'
-import { REVIEW_BAR_LINE, reviewPrompt } from '../../nodes/review/reviewer.js'
+import { ADVICE_LINE, REVIEW_BAR_LINE, reviewOf, reviewPrompt } from '../../nodes/review/reviewer.js'
 import { classify } from '../../policy/morse/rules.js'
 import { cardBody, sha } from './github-fake.js'
 import { eventsOf, liveBench } from './merge-bench.js'
@@ -196,12 +196,41 @@ describe('a surviving mutation, second bar', () => {
   })
 })
 
+describe('a finding on the pull request description, third bar', () => {
+  const DESCRIPTION = 'the pull request description names no count line'
+  const verdictText = (verdict: string, findings: string[], advice?: string[]): string => JSON.stringify({ verdict, findings, ...(advice === undefined ? {} : { advice }) })
+
+  it('a finding only on the pull request description is advice and does not make the verdict changes', () => {
+    expect(reviewOf(verdictText('changes', [DESCRIPTION], [DESCRIPTION]), 's-1')).toEqual({ verdict: 'pass', findings: [DESCRIPTION], advice: [DESCRIPTION], session: 's-1' })
+    expect(reviewOf(verdictText('changes', [` ${DESCRIPTION} `], [DESCRIPTION]), 's-1').verdict).toBe('pass')
+  })
+
+  it('advice beside a defect of code stays changes with both findings kept', () => {
+    expect(reviewOf(verdictText('changes', [DESCRIPTION, DEFECT], [DESCRIPTION]), 's-1')).toMatchObject({ verdict: 'changes', findings: [DESCRIPTION, DEFECT] })
+  })
+
+  it('a changes verdict with no findings, or with no advice list, stays changes', () => {
+    expect(reviewOf(verdictText('changes', [], [DESCRIPTION]), 's-1').verdict).toBe('changes')
+    expect(reviewOf(verdictText('changes', [DESCRIPTION]), 's-1').verdict).toBe('changes')
+  })
+
+  it('an advice that is no list of strings is refused', () => {
+    expect(() => reviewOf(JSON.stringify({ verdict: 'changes', findings: [DESCRIPTION], advice: DESCRIPTION }), 's-1')).toThrow(/advice that is no list of strings/)
+  })
+
+  it('every prompt states that only code, test and contract defects make the verdict changes', () => {
+    expect(reviewPrompt(LEASE, firstPlan(SOURCE), '/tmp/t', '/tmp/v.json')).toContain(ADVICE_LINE)
+    expect(reviewPrompt(LEASE, fullReview('a fixed plan'), '/tmp/t', '/tmp/v.json')).toContain(ADVICE_LINE)
+    expect(ADVICE_LINE).toContain('Only a defect of code, tests or the contract makes the verdict changes')
+  })
+})
+
 describe('one bar', () => {
   it('the prompt and the role line in the template state the same bar', () => {
     const template = readFileSync('templates/ai/claude/_claude/agents/review.md', 'utf8')
     expect(template).toContain(REVIEW_BAR_LINE)
     expect(reviewPrompt(LEASE, firstPlan(SOURCE), '/tmp/t', '/tmp/v.json')).toContain(REVIEW_BAR_LINE)
     expect(reviewPrompt(LEASE, { depth: 'full', why: 'a fixed plan', prediction: null }, '/tmp/t', '/tmp/v.json')).toContain(REVIEW_BAR_LINE)
-    expect(reviewPrompt(LEASE, { depth: 'diff', round: 'again', why: 'after changes', since: BASE, findings: [] }, '/tmp/t', '/tmp/v.json')).toContain(REVIEW_BAR_LINE)
+    expect(reviewPrompt(LEASE, { depth: 'diff', round: 'again', why: 'after changes', since: BASE, reviewed: BASE, findings: [] }, '/tmp/t', '/tmp/v.json')).toContain(REVIEW_BAR_LINE)
   })
 })

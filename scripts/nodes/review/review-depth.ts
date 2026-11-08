@@ -21,7 +21,7 @@ export const FULL_DEPTH_RULE: RuleId = 'instructions'
 export type ReviewPlan
   = | { depth: 'full', why: string, prediction: Prediction | null }
     | { depth: 'diff', round: 'first', why: string, since: string, touchFindings: string[], touchNotes: string[] }
-    | { depth: 'diff', round: 'again', why: string, since: string, findings: string[] }
+    | { depth: 'diff', round: 'again', why: string, since: string, reviewed: string, findings: string[] }
 
 export interface EarlierVerdict {
   head: string
@@ -70,12 +70,14 @@ function namedByFindings(file: string, findings: readonly string[]): boolean {
 }
 
 function reReview(head: string, earlier: EarlierVerdict, sources: DepthSources): ReviewPlan {
+  const base = sources.base(head)
   const range = `${earlier.head}..${head}`
-  const outside = sources.changed(earlier.head, head).filter(file => !namedByFindings(file, earlier.findings))
+  const ofTheCard = new Set(sources.changed(base, head))
+  const outside = sources.changed(earlier.head, head).filter(file => ofTheCard.has(file) && !namedByFindings(file, earlier.findings))
   const why = outside.length > 0
     ? `${range} also changes ${outside.join(', ')}, which no finding of the earlier ${earlier.verdict} verdict names`
     : `${range} changes only files the earlier ${earlier.verdict} verdict's findings name`
-  return { depth: 'diff', round: 'again', why, since: earlier.head, findings: earlier.findings }
+  return { depth: 'diff', round: 'again', why, since: base, reviewed: earlier.head, findings: earlier.findings }
 }
 
 function compositionRecords(): CompositionRecord[] {

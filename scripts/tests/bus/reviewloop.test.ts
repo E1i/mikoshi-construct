@@ -140,7 +140,7 @@ describe('the review loop', () => {
     const lease = leaseOf(1050, sha('a'), again)
     expect(earlierVerdict(db, lease)).toEqual({ head: sha('a'), verdict: 'changes', findings: [finding] })
     expect(earlierVerdict(db, leaseOf(1050, sha('a'), first))).toBeNull()
-    const prompt = reviewPrompt(lease, { depth: 'diff', round: 'again', why: 'a re-review', since: sha('a'), findings: [finding] }, '/tree', '/verdict.json')
+    const prompt = reviewPrompt(lease, { depth: 'diff', round: 'again', why: 'a re-review', since: sha('a'), reviewed: sha('a'), findings: [finding] }, '/tree', '/verdict.json')
     expect(prompt).toContain('Report no new finding against the code')
     expect(prompt).toContain(`Earlier finding: ${finding}`)
     db.close()

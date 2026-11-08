@@ -54,9 +54,11 @@ describe('reviewer', () => {
   })
 
   it('the prompt of a re-review names the earlier findings, the diff since..head and a regression outside the diff the change causes', () => {
-    const prompt = reviewPrompt(lease, { depth: 'diff', round: 'again', why: 'after changes', since: sha('b'), findings: ['a.ts:1 x'] }, '/tmp/t', '/tmp/v.json')
+    const prompt = reviewPrompt(lease, { depth: 'diff', round: 'again', why: 'after changes', since: sha('b'), reviewed: sha('c'), findings: ['a.ts:1 x'] }, '/tmp/t', '/tmp/v.json')
     expect(prompt).toContain('Earlier finding: a.ts:1 x')
     expect(prompt).toContain(`explore the diff ${sha('b')}..${sha('a')}`)
+    expect(prompt).toContain(`${sha('b')} is the merge-base of main and the head, so that diff is the card's change alone; the earlier verdict read ${sha('c')}`)
+    expect(prompt).not.toContain('Report no new finding against the code')
     expect(prompt).toContain('its callers, the modules that depend on it, its tests, and a regression outside the diff that the change causes')
     expect(prompt).toContain('report every finding of this pass in one verdict, not in portions')
   })
