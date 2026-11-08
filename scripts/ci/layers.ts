@@ -126,7 +126,7 @@ export function selectRun(given: readonly string[], graph: Graph, testText: (tes
   const changed = given.filter(file => !CHANGESET_NOTE.test(file))
   const changesetReaders = changed.length < given.length ? CHANGESET_READERS.filter(test => graph.has(test)) : []
   if (changed.length === 0)
-    return { kind: 'layers', layers: [], tests: [...changesetReaders] }
+    return { kind: 'layers', layers: [], tests: [...new Set([...changesetReaders, ...EVERY_CHANGE_READERS.filter(test => graph.has(test))])].sort() }
   const infrastructure = changed.find(isCheckPipeline)
   if (infrastructure !== undefined)
     return { kind: 'full', why: `${infrastructure} is test infrastructure every test runs under` }

@@ -156,6 +156,12 @@ describe('the checks a change reaches follow the layers of the dependency graph'
     expect(TRACED_TREE_SPAWNERS).toHaveLength(45)
   })
 
+  it('every tree walker and spawner of the open trace runs on a change of only changeset notes', () => {
+    const reader = 'tests/changesets-one-line.test.ts'
+    const graph: Graph = new Map([[reader, []], ...EVERY_CHANGE_READERS.map(test => [test, []] as const)])
+    expect(selectRun(['.changeset/hygiene.md'], graph, () => '')).toEqual({ kind: 'layers', layers: [], tests: [...new Set([reader, ...EVERY_CHANGE_READERS])].sort() })
+  })
+
   it('every tree walker and spawner of the open trace is a test file of the repository', () => {
     const repository = path.resolve(import.meta.dirname, '..', '..', '..')
     expect(EVERY_CHANGE_READERS.filter(test => !existsSync(path.join(repository, test)))).toEqual([])
