@@ -1,10 +1,12 @@
 import type { DiscoveryMarker } from '../src/manifest.js'
 import type { Strategy } from '../src/materialize/strategies.js'
 import type { PathClass, PathClassification } from '../src/sync/classify.js'
+import { execFileSync } from 'node:child_process'
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { browserLabExcludedCommand, SETTINGS_FILE } from '../src/commands/attach/settings.js'
 import { discoveryProvenance } from '../src/commands/doctor/provenance.js'
 import { runInit } from '../src/commands/init.js'
 import { applySync, printSyncApply, runSync, SYNC_APPLY_EXIT, SYNC_JSON_SCHEMA_VERSION, syncApplyExit, syncApplyJson } from '../src/commands/sync/index.js'
@@ -22,6 +24,7 @@ import { VERSION } from '../src/version.js'
 
 const FIXTURE = path.join(import.meta.dirname, 'fixtures/sync/materialized-by-0.1.0')
 const MANIFEST = 'construct.json'
+const LOCAL_SETTINGS = SETTINGS_FILE
 const MARKER_CARRYING_FILES = ['AGENTS.md', 'architecture/security-invariants.md', 'CLAUDE.md']
 const EMOJI = /\p{Extended_Pictographic}/u
 const LORE_VOCABULARY = ['GLITCH', 'FLATLINED', 'RELIC WRITE', 'BRAINDANCE', 'ENGRAM', 'BLACKWALL', 'WRITTEN', 'LEFT TO YOU', 'REPLAYED BY', 'Netrunner', 'ARASAKA']
@@ -289,8 +292,111 @@ describe('what sync --apply never touches', () => {
     expect(added.length).toBeGreaterThan(0)
     for (const file of before)
       expect(after, file).toContain(file)
-    expect(after.filter(file => !before.includes(file))).toEqual([...added].sort())
+    expect(after.filter(file => !before.includes(file))).toEqual([...added, LOCAL_SETTINGS].sort())
     expect(result.written).toEqual(expect.arrayContaining(added))
+    expect(result.written).not.toContain(LOCAL_SETTINGS)
+  })
+})
+
+describe('the installed lab exclusion under sync', () => {
+  const HOME = '/home/someone'
+  const ENTRY = browserLabExcludedCommand(HOME)
+
+  async function initialised(ai: 'claude' | 'cursor' = 'claude'): Promise<string> {
+    const dir = scratch()
+    await runInit(createUi(resolveTheme({ plain: true }), silentWriter), { dir, preset: 'node-backend', name: 'scratch', ai, yes: true, dryRun: false, home: HOME })
+    rmSync(path.join(dir, LOCAL_SETTINGS), { force: true })
+    return dir
+  }
+
+  function excludedIn(dir: string): unknown {
+    return (JSON.parse(read(dir, LOCAL_SETTINGS)) as { sandbox?: { excludedCommands?: unknown } }).sandbox?.excludedCommands
+  }
+
+  function printed(result: ReturnType<typeof applySync>): string {
+    const lines: string[] = []
+    printSyncApply(createUi(resolveTheme({ plain: true }), text => lines.push(text)), result)
+    return lines.join('\n')
+  }
+
+  it('sync apply writes the installed lab exclusion even with nothing else to write', async () => {
+    const dir = await initialised()
+    const manifest = read(dir, MANIFEST)
+
+    const result = applySync(dir, VERSION, HOME)!
+
+    expect(result.written).toEqual([])
+    expect(result.browserLabExclusion).toEqual({ command: ENTRY, state: 'added' })
+    expect(excludedIn(dir)).toEqual([ENTRY])
+    expect(read(dir, MANIFEST)).toBe(manifest)
+    expect(syncApplyJson(result).browserLabExclusion).toBe('added')
+    const output = printed(result)
+    expect(output).toContain(PLAIN_LORE.initBrowserLabExcluded(ENTRY))
+    expect(output).not.toContain(PLAIN_LORE.syncApplyNothingWritten)
+    expect(syncApplyExit(result)).toBe(SYNC_APPLY_EXIT.written)
+  })
+
+  it('sync apply leaves a tracked settings.local.json alone and says so', async () => {
+    const dir = await initialised()
+    const held = `${JSON.stringify({ model: 'opus' })}\n`
+    writeFileSync(path.join(dir, LOCAL_SETTINGS), held)
+    execFileSync('git', ['init', '-q'], { cwd: dir })
+    execFileSync('git', ['add', '-f', LOCAL_SETTINGS], { cwd: dir })
+
+    const result = applySync(dir, VERSION, HOME)!
+
+    expect(read(dir, LOCAL_SETTINGS)).toBe(held)
+    expect(result.browserLabExclusion).toEqual({ command: ENTRY, state: 'refused' })
+    expect(printed(result)).toContain(PLAIN_LORE.initSettingsSkippedNoExclusion(ENTRY))
+    expect(syncApplyExit(result)).toBe(SYNC_APPLY_EXIT.written)
+  })
+
+  it('leaves an unreadable settings.local.json alone and says so', async () => {
+    const dir = await initialised()
+    writeFileSync(path.join(dir, LOCAL_SETTINGS), '{ not json')
+
+    const result = applySync(dir, VERSION, HOME)!
+
+    expect(read(dir, LOCAL_SETTINGS)).toBe('{ not json')
+    expect(printed(result)).toContain(PLAIN_LORE.initSettingsSkippedNoExclusion(ENTRY))
+  })
+
+  it('an entry already held is not added twice and the file stays byte for byte, and the other keys of a file it edits too', async () => {
+    const dir = await initialised()
+    const before = '{ "model":   "opus",\n  "n": 1.0 }\n'
+    writeFileSync(path.join(dir, LOCAL_SETTINGS), before)
+
+    const first = applySync(dir, VERSION, HOME)!
+    const afterFirst = read(dir, LOCAL_SETTINGS)
+    expect(first.browserLabExclusion?.state).toBe('added')
+    expect(afterFirst.startsWith('{ "model":   "opus",\n  "n": 1.0,')).toBe(true)
+    expect(excludedIn(dir)).toEqual([ENTRY])
+
+    const second = applySync(dir, VERSION, HOME)!
+    expect(second.browserLabExclusion?.state).toBe('held')
+    expect(read(dir, LOCAL_SETTINGS)).toBe(afterFirst)
+    expect(printed(second)).toContain(PLAIN_LORE.syncApplyNothingWritten)
+    expect(printed(second)).not.toContain(ENTRY)
+  })
+
+  it('sync without --apply stays read-only', async () => {
+    const dir = await initialised()
+    const tree = treeDigest(dir)
+
+    runSync(dir, VERSION)
+
+    expect(treeDigest(dir)).toEqual(tree)
+    expect(existsSync(path.join(dir, LOCAL_SETTINGS))).toBe(false)
+  })
+
+  it('a repository whose construct carries no claude settings gets no file, as under init', async () => {
+    const dir = await initialised('cursor')
+
+    const result = applySync(dir, VERSION, HOME)!
+
+    expect(result.browserLabExclusion).toBeNull()
+    expect(existsSync(path.join(dir, LOCAL_SETTINGS))).toBe(false)
+    expect(syncApplyJson(result)).not.toHaveProperty('browserLabExclusion')
   })
 })
 

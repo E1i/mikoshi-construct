@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { CONTINUE_PROMPT } from '../scripts/nodes/launch/continuation.js'
-import { MIKO_HANDOFF_NAME } from '../scripts/window/loop.js'
+import { MIKO_HANDOFF_NAME, TAB_MODE } from '../scripts/window/loop.js'
 
 const HOOK = path.resolve(import.meta.dirname, '../.claude/hooks/eddies.mjs')
 const SESSION = 'sess-eddies'
@@ -51,7 +51,7 @@ function hook(s: Scratch, mode: string, input: Record<string, unknown> | string,
   const started = performance.now()
   const result = spawnSync('node', [script, mode], {
     input: typeof input === 'string' ? input : JSON.stringify({ session_id: SESSION, transcript_path: s.transcript, cwd: s.root, ...input }),
-    env: { ...process.env, CONSTRUCT_CARD: undefined, CONSTRUCT_HANDOFF: undefined, CLAUDE_CODE_AUTO_COMPACT_WINDOW: undefined, CLAUDE_PROJECT_DIR: projectDir, CONSTRUCT_HANDOFF_DIR: s.handoff, ...s.env },
+    env: { ...process.env, CONSTRUCT_CARD: undefined, CONSTRUCT_HANDOFF: undefined, CLAUDE_CODE_AUTO_COMPACT_WINDOW: undefined, MIKO_WINDOW: '1', CLAUDE_PROJECT_DIR: projectDir, CONSTRUCT_HANDOFF_DIR: s.handoff, ...s.env },
     encoding: 'utf8',
   })
   return { status: result.status, stdout: result.stdout, stderr: result.stderr, ms: performance.now() - started }
@@ -118,7 +118,7 @@ function continueLine(s: Scratch): string {
 function cardContinueLine(s: Scratch): string {
   return `eddies: to continue in a new window — cd '${s.root}' && claude '${CONTINUE_PROMPT}'\n`
 }
-const TAB_ENV = { MIKO_WINDOW: '', MIKO_LOOP_PID: '', MIKO_EXIT_REQUEST: '', CONSTRUCT_BUS_RAISED: '', CLAUDE_CODE_ENTRYPOINT: 'cli' }
+const TAB_ENV = { MIKO_WINDOW: TAB_MODE, MIKO_LOOP_PID: '', MIKO_EXIT_REQUEST: '', CONSTRUCT_BUS_RAISED: '', CLAUDE_CODE_ENTRYPOINT: 'cli' }
 
 function tabWindow(compaction: Record<string, string>, settings: Record<string, unknown> | null, parent: Usage[]): Scratch {
   const s = scratch(LIMITS, parent)
@@ -279,6 +279,16 @@ describe('eddies: the budget hook refuses work past a threshold of .claude/eddie
 
     expect(window.stdout).toContain('pnpm miko:exit')
     expect(window.stdout.indexOf('pnpm handoff:write')).toBeLessThan(window.stdout.indexOf('pnpm miko:exit'))
+  })
+
+  it.runIf(readFileSync(path.join(path.dirname(HOOK), 'tab-window.mjs'), 'utf8').includes('startedByMiko'))('gives a session miko did not start the warn and no handoff or window line', () => {
+    const s = scratch(LIMITS, [{ input: 127500 }])
+    s.env = { MIKO_WINDOW: '', MIKO_LOOP_PID: '', MIKO_EXIT_REQUEST: '', CONSTRUCT_BUS_RAISED: '', CLAUDE_CODE_ENTRYPOINT: 'cli' }
+    const bare = hook(s, 'prompt', { hook_event_name: 'UserPromptSubmit', prompt: 'p' })
+
+    expect(bare.stdout).toContain('session-context warn')
+    expect(bare.stdout).not.toContain('pnpm handoff:write')
+    expect(bare.stdout).not.toContain('pnpm miko')
   })
 
   it('names no pnpm miko:exit in a session-spend warn below the spend limit, where the exit rule does not hold', () => {

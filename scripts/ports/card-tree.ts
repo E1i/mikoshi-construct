@@ -11,6 +11,8 @@ import { Meter } from './meter.js'
 import { cardTree, taskWorktree, worktreeHome } from './worktree-home.js'
 import { pnpmInstall, takeFreeTree } from './worktree.js'
 
+export const TECHNOLOGY_WORDS = ['database'] as const
+
 const INSTALL_ARGS = ['install', '--frozen-lockfile', '--prefer-offline']
 
 export interface CardTreeTools {

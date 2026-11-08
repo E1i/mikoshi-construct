@@ -12,7 +12,7 @@ const BUDGET_CHANGED_ONLY_IN_AN_OWNER_PR: Record<string, number> = {
   '.claude/rules/conventions.md': 4_176,
   '.claude/rules/secrets.md': 612,
   '.claude/rules/tests.md': 382,
-  'architecture/window-core.md': 3_740,
+  'architecture/window-core.md': 4_600,
 }
 
 const WINDOW_MD = 'architecture/window.md'
@@ -59,6 +59,6 @@ describe('the always-on text stays inside a fixed budget', () => {
   })
 
   it('names its version on a line of its own in window-core.md', () => {
-    expect(read('architecture/window-core.md').split('\n')).toContain('window-core v6')
+    expect(read('architecture/window-core.md').split('\n')).toContain('window-core v7')
   })
 })

@@ -529,9 +529,18 @@ describe('a card that cannot move by itself frees its lane', () => {
     for (const id of [3, 4, 5, 6, 7])
       bench.admit(id, `src/${id}.ts`)
     expect([3, 4, 5, 6, 7].map(id => bench.lane(id))).toEqual(['lane-1', 'lane-2', 'lane-1', 'lane-2', 'lane-1'])
-    bench.drop(4).drop(6).deniedMerge(1, NO_COUNT_LINE)
+    bench.deniedMerge(1, NO_COUNT_LINE)
     expect(launched(bench, 2)).toEqual([3])
     expect([3, 5, 7].map(id => bench.lane(id))).toEqual(['lane-1', 'lane-1', 'lane-1'])
+  })
+
+  it('a queued card behind a stalled card leaves for a lighter lane when no lane is free, and the next card launches past the stall', () => {
+    const bench = new Bench(2).admit(1, 'src/a.ts').admit(2, 'src/b.ts').start(1).start(2)
+    for (const id of [3, 4, 5, 6, 7])
+      bench.admit(id, `src/${id}.ts`)
+    bench.drop(4).drop(6).deniedMerge(1, NO_COUNT_LINE)
+    expect(launched(bench, 2)).toEqual([5])
+    expect([3, 5, 7].map(id => bench.lane(id))).toEqual(['lane-2', 'lane-1', 'lane-1'])
   })
 
   it('a queued card alone behind a stalled card is reflowed into the emptied lane', () => {

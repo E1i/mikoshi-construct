@@ -1,6 +1,8 @@
 import type { Detector } from './detectors.js'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
+import { FACTORY_RUNTIME } from '../../core/factory-paths.js'
+import { GENERATED_FILES, GENERATED_PATHS } from '../../core/generated-files.js'
 import { clientAdapter } from '../../ports/client/index.js'
 import {
   adjacentLiterals,
@@ -35,25 +37,17 @@ export interface Concept {
 }
 
 const PROCESS_TABLE_OWNER = 'scripts/ports/process-table.ts'
+const LIVENESS_JUDGE = FACTORY_RUNTIME.busSupervisor
 const PROCESS_TABLE_PROGRAMS = 'ps lsof top'.split(' ')
 const ANSWER_EXECUTOR = 'scripts/nodes/answer/answer-executor.ts'
 const ANSWERER = 'scripts/nodes/answer/answerer.ts'
 const WINDOW_REQUESTS = 'scripts/window/window-requests.ts'
 const LEADING_PARENTS = /^(?:\.\.\/)+/
-const GENERATED_PATHS = new Set([
-  'contract/factory.json',
-  'contract/surface.json',
-  'templates/attach/earlier-carriers.json',
-  'architecture/composition/',
-  'architecture/model.md',
-  'architecture/add-population.md',
-  'architecture/self-hosting-drift.yaml',
-  'src/materialize/factory-manifest.ts',
-])
+const GENERATED_PATH_SET = new Set(GENERATED_PATHS)
 const HANDOFF_STATUS_LINE = /\^STATUS:/
 const PNPM_COMMAND = /\bpnpm (?!(?:at|in|is|monorepo|on)\b)(?:--[\w-]+ )*(?:run |exec )?[a-z][\w:-]*/
 const COMMANDS_A_GENERATED_REPOSITORY_RUNS = new Set(['scripts/harness-command/render.ts', 'src/model/write.ts', 'src/presets/index.ts'])
-const SURFACE_FILE = path.resolve(import.meta.dirname, '../../../contract/surface.json')
+const SURFACE_FILE = path.resolve(import.meta.dirname, '../../..', GENERATED_FILES.surface.path)
 const GH_RUN_VERBS = new Set(['view', 'list', 'cancel', 'download', 'watch', 'rerun'])
 
 let constructCommand: RegExp | undefined
@@ -72,28 +66,28 @@ export const CONCEPTS: readonly Concept[] = [
     id: 'process-table',
     title: 'the process table of the OS, read with ps, lsof or top and parsed',
     owner: PROCESS_TABLE_OWNER,
-    ownerExists: false,
+    ownerExists: true,
     axis: 'architecture',
     detectors: [programCall(PROCESS_TABLE_PROGRAMS), declaredFunction(/^parsePs$/)],
   },
   {
     id: 'pid-liveness',
     title: 'whether a pid is alive',
-    owner: PROCESS_TABLE_OWNER,
-    ownerExists: false,
+    owner: LIVENESS_JUDGE,
+    ownerExists: true,
     axis: 'architecture',
     detectors: [pidProbe()],
   },
   {
     id: 'live-session',
     title: 'whether a client session is alive in a tree',
-    owner: 'scripts/ports/client/',
+    owner: LIVENESS_JUDGE,
     ownerExists: true,
     axis: 'architecture',
     detectors: [
       declaredFunction(/^liveSession(?!s$)/),
+      declaredFunction(/^(?:sessionLiveness|isSessionAlive)$/),
       referenced('claudeProcessCwds'),
-      called(['listedCwds']),
       adjacentLiterals('-c', name => clientAdapter().processes.isClient(name), 'the client process name in lsof arguments'),
     ],
   },
@@ -135,14 +129,15 @@ export const CONCEPTS: readonly Concept[] = [
   {
     id: 'ci-reading',
     title: 'the state of CI on a commit or a pull request',
-    owner: 'scripts/ports/ci-reading.ts',
-    ownerExists: false,
+    owner: 'src/commands/ci/state.ts',
+    ownerExists: true,
     axis: 'architecture',
     detectors: [
       declaredFunction(/^(?:ciOf|ciOfRuns|failedChecksOf|failedJobLog|ciLogForPrompt)$/),
       propertyRead('statusCheckRollup'),
       literal(text => /statusCheckRollup|\/check-runs|\/actions\/runs/.test(text), 'a CI request by its literal'),
       adjacentLiterals('run', verb => GH_RUN_VERBS.has(verb), 'a gh run command'),
+      adjacentLiterals('pr', verb => verb === 'checks', 'a gh pr checks command'),
       copiedProperty('ci'),
     ],
   },
@@ -150,9 +145,9 @@ export const CONCEPTS: readonly Concept[] = [
     id: 'generated-files',
     title: 'the list of generated files',
     owner: 'scripts/core/generated-files.ts',
-    ownerExists: false,
+    ownerExists: true,
     axis: 'architecture',
-    detectors: [literal(text => GENERATED_PATHS.has(text.replace(LEADING_PARENTS, '')), 'a generated path by its literal')],
+    detectors: [literal(text => GENERATED_PATH_SET.has(text.replace(LEADING_PARENTS, '')), 'a generated path by its literal')],
   },
   {
     id: 'owner-commands',
@@ -193,8 +188,8 @@ export const CONCEPTS: readonly Concept[] = [
       declaredIn(ANSWER_EXECUTOR, 'the stale question', ['staleQuestion', 'asked', 'ownersQuestion', 'namesAnOwnerPath']),
       declaredIn(ANSWER_EXECUTOR, 'outcomes', ['stopped', 'ownersStop', 'windowWidens', 'denialEvent', 'denied', 'superseded', 'waitingForTheSupersededSession']),
       declaredIn(ANSWERER, 'the prompt', ['answerPrompt', 'mergePrompt', 'sourceLines', 'cardLines', 'decisionLines', 'diffLines', 'gateLine', 'handoffLines']),
-      declaredIn(ANSWERER, 'the CI log', ['failedJobLog', 'ciLogLines', 'redCiLines', 'failedChecksOf']),
-      declaredIn(ANSWERER, 'reading the tree', ['localHead', 'remoteHead', 'git', 'diffAgainstBase', 'treeMergeOf', 'porcelainEntries', 'committedOnTheBranch', 'uncommitted', 'pendingPathsOf', 'liveSessionIn', 'treeDirtyOf']),
+      declaredIn(ANSWERER, 'the CI log', ['ciLogLines', 'redCiLines', 'asksAboutRedCi']),
+      declaredIn(ANSWERER, 'reading the tree', ['localHead', 'remoteHead', 'git', 'diffAgainstBase', 'treeMergeOf', 'porcelainEntries', 'committedOnTheBranch', 'uncommitted', 'pendingPathsOf', 'clientInTree', 'treeDirtyOf']),
       declaredIn(ANSWERER, 'running the client', ['spawnClient']),
     ],
   },

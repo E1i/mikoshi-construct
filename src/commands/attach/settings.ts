@@ -7,11 +7,14 @@ import { isDeepStrictEqual } from 'node:util'
 import { appendHookEntry, isJsonObject } from '../../materialize/strategies.js'
 import { engramFile } from '../../model/discovery.js'
 import { ATTACH_GUARD, ATTACH_WINDOW_HOOKS } from '../../presets/index.js'
+import { readTrackedPaths } from '../detach/index-reader.js'
 import { sha256OfBytes } from './original.js'
 
 type JsonObject = Record<string, unknown>
 
 export const SETTINGS_FILE = '.claude/settings.local.json'
+
+export const PROJECT_SETTINGS_FILE = '.claude/settings.json'
 
 const GUARD_TIMEOUT_SECONDS = 30
 
@@ -251,14 +254,167 @@ function restoreSandbox(settings: JsonObject, exclusion: SandboxExclusion): void
     delete settings.sandbox
 }
 
-export function excludeBrowserLabInLocalSettings(root: string, home: string = homedir()): boolean {
+interface JsonSlot {
+  key?: unknown
+  start: number
+  valueStart: number
+  valueEnd: number
+}
+
+interface JsonContainer {
+  open: number
+  close: number
+  slots: JsonSlot[]
+}
+
+function isJsonWhitespace(character: string | undefined): boolean {
+  return character === ' ' || character === '\t' || character === '\n' || character === '\r'
+}
+
+function skipWhitespace(text: string, from: number): number {
+  let at = from
+  while (isJsonWhitespace(text[at]))
+    at += 1
+  return at
+}
+
+function endOfString(text: string, open: number): number {
+  let at = open + 1
+  while (text[at] !== '"')
+    at += text[at] === '\\' ? 2 : 1
+  return at + 1
+}
+
+function endOfLiteral(text: string, start: number): number {
+  let at = start
+  while (at < text.length && !isJsonWhitespace(text[at]) && !',]}'.includes(text[at]!))
+    at += 1
+  return at
+}
+
+function endOfValue(text: string, start: number): number {
+  if (text[start] === '"')
+    return endOfString(text, start)
+  if (text[start] === '{' || text[start] === '[')
+    return readContainer(text, start).close + 1
+  return endOfLiteral(text, start)
+}
+
+function readContainer(text: string, open: number): JsonContainer {
+  const slots: JsonSlot[] = []
+  let at = skipWhitespace(text, open + 1)
+  while (text[at] !== '}' && text[at] !== ']') {
+    const start = at
+    let key: unknown
+    if (text[open] === '{') {
+      const keyEnd = endOfString(text, start)
+      key = JSON.parse(text.slice(start, keyEnd))
+      at = skipWhitespace(text, skipWhitespace(text, keyEnd) + 1)
+    }
+    const valueEnd = endOfValue(text, at)
+    slots.push({ key, start, valueStart: at, valueEnd })
+    at = skipWhitespace(text, valueEnd)
+    if (text[at] === ',')
+      at = skipWhitespace(text, at + 1)
+  }
+  return { open, close: at, slots }
+}
+
+function renderedAt(value: unknown, indent: string | null): string {
+  return indent == null ? JSON.stringify(value) : JSON.stringify(value, null, 2).replaceAll('\n', `\n${indent}`)
+}
+
+function indentOfLineAt(text: string, at: number): string {
+  const lineStart = text.lastIndexOf('\n', at - 1) + 1
+  return /^[ \t]*/.exec(text.slice(lineStart, at))?.[0] ?? ''
+}
+
+function appendInContainer(text: string, container: JsonContainer, render: (indent: string | null) => string): string {
+  const last = container.slots.at(-1)
+  if (last == null) {
+    const outer = indentOfLineAt(text, container.open)
+    const indent = `${outer}  `
+    return `${text.slice(0, container.open + 1)}\n${indent}${render(indent)}\n${outer}${text.slice(container.close)}`
+  }
+  let leadStart = last.start
+  while (isJsonWhitespace(text[leadStart - 1]))
+    leadStart -= 1
+  const lead = text.slice(leadStart, last.start)
+  const indent = lead.includes('\n') ? lead.slice(lead.lastIndexOf('\n') + 1) : null
+  return `${text.slice(0, last.valueEnd)},${lead}${render(indent)}${text.slice(last.valueEnd)}`
+}
+
+function slotNamed(container: JsonContainer, key: string): JsonSlot | undefined {
+  return container.slots.filter(slot => slot.key === key).at(-1)
+}
+
+function withExcludedCommand(text: string, entry: string): string {
+  const root = readContainer(text, skipWhitespace(text, 0))
+  const sandboxSlot = slotNamed(root, 'sandbox')
+  if (sandboxSlot == null)
+    return appendInContainer(text, root, indent => `"sandbox": ${renderedAt({ excludedCommands: [entry] }, indent)}`)
+  const sandbox = readContainer(text, sandboxSlot.valueStart)
+  const excludedSlot = slotNamed(sandbox, 'excludedCommands')
+  if (excludedSlot == null)
+    return appendInContainer(text, sandbox, indent => `"excludedCommands": ${renderedAt([entry], indent)}`)
+  return appendInContainer(text, readContainer(text, excludedSlot.valueStart), () => JSON.stringify(entry))
+}
+
+export interface LocalExclusion extends SandboxExclusion {
+  createdFile: boolean
+  beforeSha256: string | null
+  afterSha256: string | null
+}
+
+export function excludeBrowserLabInLocalSettings(root: string, home: string = homedir()): LocalExclusion | null {
   const reading = readSettings(root)
   if (reading.kind === 'unreadable')
-    return false
-  const settings: JsonObject = reading.kind === 'read' ? reading.settings : {}
-  excludeBrowserLab(settings, browserLabExcludedCommand(home))
-  writeSettings(root, settings)
-  return true
+    return null
+  const entry = browserLabExcludedCommand(home)
+  const exclusion = excludeBrowserLab(reading.kind === 'read' ? structuredClone(reading.settings) : {}, entry)
+  const beforeSha256 = reading.kind === 'read' ? sha256OfBytes(reading.bytes) : null
+  const createdFile = reading.kind === 'absent'
+  if (exclusion.added.length === 0)
+    return { ...exclusion, createdFile, beforeSha256, afterSha256: beforeSha256 }
+  const text = reading.kind === 'read' ? withExcludedCommand(reading.bytes.toString('utf8'), entry) : `${JSON.stringify({ sandbox: { excludedCommands: [entry] } }, null, 2)}\n`
+  const bytes = Buffer.from(text)
+  writeSettingsBytes(root, bytes)
+  return { ...exclusion, createdFile, beforeSha256, afterSha256: sha256OfBytes(bytes) }
+}
+
+function isLinkedWorktree(root: string): boolean {
+  return existsSync(path.join(root, '.git')) && !lstatSync(path.join(root, '.git')).isDirectory()
+}
+
+export function excludedBrowserLabLocally(root: string, home: string = homedir()): LocalExclusion | null {
+  try {
+    if (isLinkedWorktree(root))
+      return null
+    const index = readTrackedPaths(root)
+    if (!('tracked' in index) || index.tracked.has(SETTINGS_FILE))
+      return null
+    return excludeBrowserLabInLocalSettings(root, home)
+  }
+  catch {
+    return null
+  }
+}
+
+export function withExclusionRecorded(hook: SettingsHook, exclusion: LocalExclusion): SettingsHook {
+  const held = hook.sandbox
+  const sandbox: SandboxExclusion = {
+    added: [...new Set([...(held?.added ?? []), ...exclusion.added])],
+    createdSandbox: held?.createdSandbox === true || exclusion.createdSandbox,
+    createdExcluded: held?.createdExcluded === true || exclusion.createdExcluded,
+  }
+  const original = hook.original
+  const untouchedSinceAttach = original != null && original.afterSha256 === exclusion.beforeSha256 && exclusion.afterSha256 != null
+  return {
+    ...hook,
+    created: { ...hook.created, file: hook.created.file || (exclusion.createdFile && original == null) },
+    sandbox,
+    ...(untouchedSinceAttach ? { original: { ...original, afterSha256: exclusion.afterSha256! } } : {}),
+  }
 }
 
 function isSandboxRecord(value: unknown): boolean {
@@ -326,6 +482,11 @@ export function isSettingsHook(value: unknown): value is SettingsHook {
 
 export type EntryClass = 'adopted' | 'absent' | 'unreadable' | 'changed' | 'remove'
 
+function holdsRecordedExclusion(settings: JsonObject, hook: SettingsHook): boolean {
+  const excluded = isJsonObject(settings.sandbox) ? settings.sandbox.excludedCommands : undefined
+  return Array.isArray(excluded) && (hook.sandbox?.added ?? []).some(command => excluded.includes(command))
+}
+
 export function classifyEntry(root: string, hook: SettingsHook, tracked: Set<string>): EntryClass {
   if (tracked.has(SETTINGS_FILE))
     return 'adopted'
@@ -337,16 +498,16 @@ export function classifyEntry(root: string, hook: SettingsHook, tracked: Set<str
   const settings = reading.settings
   const named = recordedEntries(hook).map(recorded => ({ recorded, found: entriesOf(settings, recorded.event).filter(element => names(element, recorded.target)) }))
   if (named.every(({ found }) => found.length === 0))
-    return 'absent'
+    return holdsRecordedExclusion(settings, hook) ? 'remove' : 'absent'
   return named.every(({ recorded, found }) => found.every(element => isDeepStrictEqual(element, recorded.entry))) ? 'remove' : 'changed'
 }
 
 export function removeHookEntries(root: string, hook: SettingsHook): { fileDeleted: boolean } {
   const reading = readSettings(root)
-  if (reading.kind !== 'read' || !isJsonObject(reading.settings.hooks))
+  if (reading.kind !== 'read')
     throw new Error(`${SETTINGS_FILE} changed while detach ran`)
   const settings = reading.settings
-  const hooks = reading.settings.hooks
+  const hooks: JsonObject = isJsonObject(settings.hooks) ? settings.hooks : {}
   const recorded = recordedEntries(hook)
   for (const { event, entry } of recorded) {
     if (!(event in hooks))

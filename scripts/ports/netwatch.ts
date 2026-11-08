@@ -7,12 +7,14 @@ import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { appendEvent, defaultBusPath, inTransaction, openBus } from '../core/db.js'
-import { NETWATCH, observationsOf } from '../core/observations.js'
+import { NETWATCH, observationsOf, reopeningOf } from '../core/observations.js'
 import { RUN_SCRIPT } from '../supervisor/bg.js'
 import { recordProcessHeartbeat } from '../supervisor/heartbeat.js'
 import { ghApi } from './github.js'
 import { Meter, RateLimited } from './meter.js'
 import { requiredCheckOf, takeSnapshot } from './snapshot.js'
+
+export const TECHNOLOGY_WORDS = ['database'] as const
 
 export const PREFIX = '[bus:netwatch] '
 export const TICK_MS = 60_000
@@ -29,17 +31,17 @@ export type Poll
 const KNOWN_OPEN_PRS = `
   SELECT pr FROM prs WHERE pr NOT IN (SELECT pr FROM events WHERE type = 'pr.closed' AND pr IS NOT NULL)
   UNION
-  SELECT pr FROM events WHERE type = 'pr.observed' AND pr IS NOT NULL
-    AND pr NOT IN (SELECT pr FROM events WHERE type = 'pr.closed' AND pr IS NOT NULL)
+  SELECT pr FROM events WHERE type IN ('pr.observed', 'pr.closed') AND pr IS NOT NULL
+  GROUP BY pr HAVING max(CASE WHEN type = 'pr.observed' THEN id END) > coalesce(max(CASE WHEN type = 'pr.closed' THEN id END), 0)
   ORDER BY pr
 `
 
 const LAST_MAIN = `SELECT payload FROM events WHERE type = 'main.advanced' ORDER BY id DESC LIMIT 1`
 
-const LAST_OBSERVED = `SELECT id, dedupe_key, payload FROM events WHERE type = 'pr.observed' AND pr = ? ORDER BY id DESC LIMIT 1`
+const LAST_OBSERVED_OR_CLOSED = `SELECT id, dedupe_key, payload FROM events WHERE type IN ('pr.observed', 'pr.closed') AND pr = ? ORDER BY id DESC LIMIT 1`
 
 export function lastObserved(db: DatabaseSync, pr: number): PreviousObservation | null {
-  const row = db.prepare(LAST_OBSERVED).get(pr)
+  const row = db.prepare(LAST_OBSERVED_OR_CLOSED).get(pr)
   return row === undefined ? null : { id: Number(row.id), dedupeKey: String(row.dedupe_key), payload: String(row.payload) }
 }
 
@@ -91,7 +93,7 @@ export class NetWatch {
       const snapshot = takeSnapshot(meter, knownOpenPrs(this.db), lastMain(this.db), requiredCheckOf(this.root))
       const poll: Poll = { kind: 'ticked', reason, calls: meter.calls, remaining: meter.remaining, written: 0, unsettled: snapshot.unsettled }
       inTransaction(this.db, () => {
-        for (const event of observationsOf(ts, snapshot, pr => lastObserved(this.db, pr))) {
+        for (const event of observationsOf(ts, snapshot, pr => lastObserved(this.db, pr), reopeningOf(this.db))) {
           if (appendEvent(this.db, event))
             poll.written += 1
         }

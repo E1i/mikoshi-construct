@@ -1,3 +1,5 @@
+import type { DatabaseSync } from 'node:sqlite'
+import type { CiReading } from '../ports/ci-reading.js'
 import type { WatchCursor } from './watch-store.js'
 import type { WindowPr } from './window-prs.js'
 import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs'
@@ -6,13 +8,16 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { PRIORITIES } from '../../src/card/parking.js'
 import { IN_REVIEW_CARD, RUNNING_CARD, STOPPED_CARD } from '../core/card-automaton.js'
+import { cardHoldOf } from '../core/card-hold.js'
 import { defaultBusPath, openBus } from '../core/db.js'
-import { BUS_PULSE, CARD_CLOSED, CARD_STOPPED, CARD_WAITING, GHOST_LINE, MERGE_DONE, POLICY_DENIED, PR_CLOSED, PR_OBSERVED, PROCESS_JUDGED, REQUEST_DONE, REQUEST_REFUSED, REVIEW_RECORDED, TASK_EXPIRED, WINDOW_REQUEST, WITNESS_RECORDED, WORKER_DOWN } from '../core/events.js'
+import { BOARD_ALARM, BUS_PULSE, CARD_CLOSED, CARD_STOPPED, CARD_WAITING, GHOST_LINE, MERGE_DONE, OWNER_WAIT_OPENED, POLICY_DENIED, PR_CLOSED, PR_OBSERVED, PROCESS_JUDGED, REQUEST_DONE, REQUEST_REFUSED, REVIEW_RECORDED, TASK_EXPIRED, WINDOW_REQUEST, WITNESS_RECORDED, WORKER_DOWN } from '../core/events.js'
 import { defaultHandoffDir } from '../core/handoff-dir.js'
-import { HEARTBEAT_QUEUES, LEASE_EXPIRED } from '../core/lease.js'
+import { HEARTBEAT_QUEUES } from '../core/lease.js'
 import { REVIEW_ROUNDS_SPENT } from '../nodes/review/review-executor.js'
+import { ciWord } from '../ports/ci-reading.js'
 import { USER_SETTINGS } from '../ports/client/claude/adapter.js'
 import { CARD_PROCESS } from '../supervisor/heartbeat.js'
+import { noWindowRefusal } from './tab.js'
 import { WatchRefusal } from './watch-refusal.js'
 import { ONCE_STORE, OnceStore, parentGone } from './watch-store.js'
 import { windowBeat, windowOf } from './window-heartbeat.js'
@@ -23,16 +28,20 @@ export { USER_SETTINGS }
 
 export const STOP_EVENT = 'relaunch-stop'
 export const WAKING_EVENTS = ['merge', 'fall', 'relaunch-stop', 'stop']
-export const WAKING_BUS_EVENTS = [GHOST_LINE, STOP_EVENT, REVIEW_RECORDED, MERGE_DONE, PR_CLOSED, CARD_CLOSED, PR_OBSERVED, REVIEW_ROUNDS_SPENT, CARD_STOPPED, CARD_WAITING, POLICY_DENIED, TASK_EXPIRED, WORKER_DOWN, PROCESS_JUDGED, REQUEST_REFUSED, REQUEST_DONE, WITNESS_RECORDED]
+export const WAKING_BUS_EVENTS = [GHOST_LINE, STOP_EVENT, REVIEW_RECORDED, MERGE_DONE, PR_CLOSED, CARD_CLOSED, PR_OBSERVED, REVIEW_ROUNDS_SPENT, CARD_STOPPED, CARD_WAITING, POLICY_DENIED, TASK_EXPIRED, WORKER_DOWN, PROCESS_JUDGED, REQUEST_REFUSED, REQUEST_DONE, WITNESS_RECORDED, OWNER_WAIT_OPENED, BOARD_ALARM]
 export const HEAD_BOUND_EVENTS = [STOP_EVENT, REVIEW_RECORDED, REVIEW_ROUNDS_SPENT, CARD_STOPPED]
 export const FAILED_CI = 'red'
 export const PASSED_CI = 'green'
 export const RED_WITNESS = 'red'
 export const GREEN_WITNESS = 'green'
+export const UNCHECKED_WITNESS = 'unchecked'
+const STUCK_WITNESS: ReadonlySet<unknown> = new Set([RED_WITNESS, UNCHECKED_WITNESS])
 export const DENIALS_IN_A_ROW = 2
 export const STALL_MS = 20 * 60_000
 export const BUS_ALIVE_MS = 2 * 60_000
 export const IN_FLIGHT_CARDS = [RUNNING_CARD, IN_REVIEW_CARD]
+const OPEN_PR = 'open'
+const CLOSED_PR = 'closed'
 export const POLL_MS = 500
 export const USAGE = 'usage: pnpm miko:watch [--once [--card <N>] | --tail]'
 export const ONCE = '--once'
@@ -59,7 +68,7 @@ export interface DenialRun {
 
 export interface WatchState {
   busId: number
-  ciByPr: Map<number | null, { head: string | null, ci: unknown }>
+  ciByPr: Map<number | null, { head: string | null, ci: CiReading | null }>
   witnessByPr: Map<number | null, unknown>
   deniedByTask: Map<string, DenialRun>
   windowPrs: ReadonlySet<number>
@@ -175,8 +184,14 @@ function denialReason(payload: Record<string, unknown>): string {
   return textOf(payload, 'reason') ?? textOf(payload, 'rule') ?? '-'
 }
 
+function refusedByAuthority(payload: Record<string, unknown>): boolean {
+  return payload.kind === 'authority' && payload.refused === true
+}
+
 export function denialLine(payload: string): string {
   const parsed = payloadOf(payload)
+  if (refusedByAuthority(parsed))
+    return `refused by authority: rule ${denialReason(parsed)}; only the owner lifts it`
   return `second in a row for one task: reason ${denialReason(parsed)}; settings ${textOf(parsed, 'settings') ?? USER_SETTINGS}`
 }
 
@@ -248,8 +263,8 @@ export function watchState(deps: WatchDeps): WatchState {
   return { busId, ciByPr: new Map(), witnessByPr: new Map(), deniedByTask: denialsUpTo(deps, busId), windowPrs: deps.windowPrs(), ownRequest: deps.ownRequest, stalls: new Set(deps.stalls().map(stallKey)), stuck: new Set(deps.stuck().map(stuckKey)) }
 }
 
-function ciOf(payload: string): unknown {
-  return payloadOf(payload).ci
+function ciInPayload(payload: string): CiReading | null {
+  return ciWord(payloadOf(payload).ci)
 }
 
 function verdictOf(payload: string): unknown {
@@ -259,14 +274,14 @@ function verdictOf(payload: string): unknown {
 type BusMemory = Pick<WatchState, 'ciByPr' | 'witnessByPr' | 'deniedByTask' | 'windowPrs' | 'ownRequest'>
 
 function busMemoryUpTo(deps: WatchDeps, busId: number): BusMemory {
-  const ciByPr: BusMemory['ciByPr'] = new Map(deps.observedUpTo(busId).map(event => [event.pr, { head: event.head, ci: ciOf(event.payload) }]))
+  const ciByPr: BusMemory['ciByPr'] = new Map(deps.observedUpTo(busId).map(event => [event.pr, { head: event.head, ci: ciInPayload(event.payload) }]))
   const witnessByPr: BusMemory['witnessByPr'] = new Map(deps.witnessedUpTo(busId).map(event => [event.pr, verdictOf(event.payload)]))
   return { ciByPr, witnessByPr, deniedByTask: denialsUpTo(deps, busId), windowPrs: deps.windowPrs(), ownRequest: deps.ownRequest }
 }
 
 function ciTurns(state: BusMemory, event: BusEvent): boolean {
   const before = state.ciByPr.get(event.pr)
-  const now = { head: event.head, ci: ciOf(event.payload) }
+  const now = { head: event.head, ci: ciInPayload(event.payload) }
   state.ciByPr.set(event.pr, now)
   const changed = before?.ci !== now.ci || before?.head !== now.head
   if (now.ci === FAILED_CI)
@@ -278,7 +293,7 @@ function witnessTurns(state: BusMemory, event: BusEvent): boolean {
   const before = state.witnessByPr.get(event.pr)
   const now = verdictOf(event.payload)
   state.witnessByPr.set(event.pr, now)
-  return now === RED_WITNESS || (now === GREEN_WITNESS && before === RED_WITNESS)
+  return STUCK_WITNESS.has(now) || (now === GREEN_WITNESS && STUCK_WITNESS.has(before))
 }
 
 function answersOwnRequest(state: BusMemory, event: BusEvent): boolean {
@@ -290,20 +305,20 @@ function deniedTask(event: BusEvent, payload: Record<string, unknown>): string {
   return [event.cardId ?? '-', event.pr ?? '-', event.head ?? '-', textOf(payload, 'command') ?? '-'].join(':')
 }
 
-function deniedAgainInARow(state: Pick<BusMemory, 'deniedByTask'>, event: BusEvent): boolean {
+function denialRunWakes(state: Pick<BusMemory, 'deniedByTask'>, event: BusEvent): boolean {
   const payload = payloadOf(event.payload)
   const task = deniedTask(event, payload)
   const reason = denialReason(payload)
   const before = state.deniedByTask.get(task)
   const count = before?.reason === reason ? before.count + 1 : 1
   state.deniedByTask.set(task, { reason, count })
-  return count === DENIALS_IN_A_ROW
+  return count === (refusedByAuthority(payload) ? 1 : DENIALS_IN_A_ROW)
 }
 
 function denialsUpTo(deps: WatchDeps, busId: number): Map<string, DenialRun> {
   const seen: Pick<BusMemory, 'deniedByTask'> = { deniedByTask: new Map() }
   for (const event of deps.deniedUpTo(busId))
-    deniedAgainInARow(seen, event)
+    denialRunWakes(seen, event)
   return seen.deniedByTask
 }
 
@@ -317,17 +332,17 @@ export function wakesTheWindow(state: BusMemory, event: BusEvent): boolean {
   if (event.type === REQUEST_DONE)
     return answersOwnRequest(state, event)
   if (event.type === POLICY_DENIED)
-    return deniedAgainInARow(state, event)
+    return denialRunWakes(state, event)
   if (event.type === TASK_EXPIRED)
-    return sessionLeaseLapsed(payloadOf(event.payload))
+    return ofHeartbeatQueue(payloadOf(event.payload))
   if (event.type === GHOST_LINE)
     return wakingEvent(event.payload) !== undefined
   return true
 }
 
-function sessionLeaseLapsed(payload: Record<string, unknown>): boolean {
+function ofHeartbeatQueue(payload: Record<string, unknown>): boolean {
   const queue = textOf(payload, 'queue')
-  return textOf(payload, 'reason') === LEASE_EXPIRED && queue !== undefined && (HEARTBEAT_QUEUES as readonly string[]).includes(queue)
+  return queue !== undefined && (HEARTBEAT_QUEUES as readonly string[]).includes(queue)
 }
 
 export function ofSupersededHead(event: BusEvent, deps: Pick<WatchDeps, 'observedHeads'>): boolean {
@@ -600,6 +615,13 @@ interface ActivityRow {
   ts: string
 }
 
+function heldWithItsPullRequestClosed(db: DatabaseSync, cardId: number): boolean {
+  if (cardHoldOf(db, cardId) === null)
+    return false
+  const states = (db.prepare('SELECT state FROM prs WHERE card_id = ?').all(cardId) as unknown as Array<{ state: string }>).map(row => row.state)
+  return states.includes(CLOSED_PR) && !states.includes(OPEN_PR)
+}
+
 function stalls(bus: string, now: number): CardActivity[] {
   const db = openBus(bus)
   try {
@@ -613,7 +635,7 @@ function stalls(bus: string, now: number): CardActivity[] {
       ) ORDER BY id
     `).all(...IN_FLIGHT_CARDS, ...IN_FLIGHT_CARDS) as unknown as ActivityRow[]
     const cards = rows.map(row => ({ cardId: Number(row.card_id), lastEventId: Number(row.id), lastType: row.type, lastTs: row.ts }))
-    return stalledOf(cards, pulse?.ts, now)
+    return stalledOf(cards, pulse?.ts, now).filter(card => !heldWithItsPullRequestClosed(db, card.cardId))
   }
   finally {
     db.close()
@@ -751,6 +773,11 @@ if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLTo
   if (args === undefined) {
     console.error(USAGE)
     process.exit(2)
+  }
+  const refusal = noWindowRefusal(process.env)
+  if (refusal !== null) {
+    console.error(`miko:watch: ${refusal}`)
+    process.exit(1)
   }
   const handoff = defaultHandoffDir()
   mkdirSync(handoff, { recursive: true })

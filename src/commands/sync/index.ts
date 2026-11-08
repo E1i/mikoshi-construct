@@ -1,5 +1,6 @@
 import type { PathClass, PathClassification } from '../../sync/classify.js'
 import { rmSync } from 'node:fs'
+import { homedir } from 'node:os'
 import path from 'node:path'
 import { factsTheRepositoryEstablishes } from '../../detect/facts.js'
 import { blocksWrittenWith, readManifest, recordSync, writeManifest } from '../../manifest.js'
@@ -7,6 +8,7 @@ import { applyPlan } from '../../materialize/apply.js'
 import { PATH_CLASSES } from '../../sync/classify.js'
 import { replay } from '../../sync/replay.js'
 import { planWrites } from '../../sync/write.js'
+import { browserLabExcludedCommand, excludedBrowserLabLocally, PROJECT_SETTINGS_FILE } from '../attach/settings.js'
 
 export interface SyncReport {
   fromVersion: string
@@ -21,6 +23,12 @@ export interface SyncApplyReport {
   retired: string[]
   refused: PathClassification[]
   ranAt: string
+  browserLabExclusion: BrowserLabExclusion | null
+}
+
+export interface BrowserLabExclusion {
+  command: string
+  state: 'added' | 'held' | 'refused'
 }
 
 function countByClass(classifications: PathClassification[]): Record<PathClass, number> {
@@ -38,7 +46,15 @@ export function runSync(root: string, version: string): SyncReport | null {
   return { fromVersion, toVersion, counts: countByClass(classifications), classifications }
 }
 
-export function applySync(root: string, version: string): SyncApplyReport | null {
+function excludeInstalledLab(root: string, home: string): BrowserLabExclusion {
+  const exclusion = excludedBrowserLabLocally(root, home)
+  const command = browserLabExcludedCommand(home)
+  if (exclusion == null)
+    return { command, state: 'refused' }
+  return { command, state: exclusion.added.length === 0 ? 'held' : 'added' }
+}
+
+export function applySync(root: string, version: string, home: string = homedir()): SyncApplyReport | null {
   const manifest = readManifest(root)
   if (manifest == null)
     return null
@@ -61,7 +77,7 @@ export function applySync(root: string, version: string): SyncApplyReport | null
     }))
   }
 
-  return { report, written: written.map(op => op.target), retired: removals, refused, ranAt }
+  return { report, written: written.map(op => op.target), retired: removals, refused, ranAt, browserLabExclusion: PROJECT_SETTINGS_FILE in produced ? excludeInstalledLab(root, home) : null }
 }
 
 export { PENDING_CLASSES } from '../../sync/write.js'

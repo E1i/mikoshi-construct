@@ -6,7 +6,7 @@ import type { LaunchCatch } from './launch-candidates.js'
 import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
-import { parseParkingFile, WINDOW_WHO } from '../../../src/card/parking.js'
+import { parseParkingFile, PRIORITIES, WINDOW_WHO } from '../../../src/card/parking.js'
 import { ATTACH_RECORD_FILE } from '../../../src/commands/attach/record.js'
 import { DEFAULT_LANES, isLaneCount, MANIFEST_FILE } from '../../../src/manifest.js'
 import { currentLane, latestAssignment, OPEN_WAIT, OWNER_WAITS } from '../../core/bus-readings.js'
@@ -293,11 +293,22 @@ function priorityOf(db: DatabaseSync, cardId: number): Priority | null {
   return parkedOf(cardId, latestPayload(db, cardId))?.priority ?? null
 }
 
+type Size = ShiftTask['card']['size']
+
+export interface SizedTask {
+  card: { size: Size }
+}
+
 export interface OrderedCard {
   cardId: number
   depends: readonly number[]
   priority: Priority | null
+  task?: SizedTask | null
 }
+
+const SIZE_WEIGHTS: Record<Size, number> = { XS: 1, S: 2, M: 3, L: 5 }
+
+const UNSIZED_WEIGHT = SIZE_WEIGHTS.XS
 
 function dependentsOf(cards: readonly OrderedCard[]): Map<number, number[]> {
   const dependents = new Map<number, number[]>()
@@ -308,7 +319,7 @@ function dependentsOf(cards: readonly OrderedCard[]): Map<number, number[]> {
   return dependents
 }
 
-function blockedBy(cardId: number, dependents: ReadonlyMap<number, readonly number[]>): number {
+function blockedBy(cardId: number, dependents: ReadonlyMap<number, readonly number[]>): Set<number> {
   const seen = new Set<number>()
   const pending = [...(dependents.get(cardId) ?? [])]
   while (pending.length > 0) {
@@ -318,17 +329,37 @@ function blockedBy(cardId: number, dependents: ReadonlyMap<number, readonly numb
     seen.add(next)
     pending.push(...(dependents.get(next) ?? []))
   }
-  return seen.size
+  return seen
 }
 
-function priorityRank(card: OrderedCard): number {
-  return card.priority === null ? 1 : 0
+function priorityRank(priority: Priority | null): number {
+  return priority === null ? PRIORITIES.length : PRIORITIES.indexOf(priority)
+}
+
+function weightOf(card: OrderedCard): number {
+  const size = card.task?.card.size
+  return size === undefined ? UNSIZED_WEIGHT : SIZE_WEIGHTS[size]
+}
+
+function chainBehind(cardId: number, dependents: ReadonlyMap<number, readonly number[]>, weights: ReadonlyMap<number, number>, onPath: Set<number>, memo: Map<number, number>): number {
+  const known = memo.get(cardId)
+  if (known !== undefined)
+    return known
+  onPath.add(cardId)
+  const longest = Math.max(0, ...(dependents.get(cardId) ?? []).filter(next => !onPath.has(next)).map(next => weights.get(next)! + chainBehind(next, dependents, weights, onPath, memo)))
+  onPath.delete(cardId)
+  memo.set(cardId, longest)
+  return longest
 }
 
 export function startOrder(cards: readonly OrderedCard[]): (a: OrderedCard, b: OrderedCard) => number {
   const dependents = dependentsOf(cards)
-  const blocks = new Map(cards.map(card => [card.cardId, blockedBy(card.cardId, dependents)]))
-  return (a, b) => (blocks.get(b.cardId) ?? 0) - (blocks.get(a.cardId) ?? 0) || priorityRank(a) - priorityRank(b) || a.cardId - b.cardId
+  const weights = new Map(cards.map(card => [card.cardId, weightOf(card)]))
+  const ownRanks = new Map(cards.map(card => [card.cardId, priorityRank(card.priority)]))
+  const blocked = new Map(cards.map(card => [card.cardId, [...blockedBy(card.cardId, dependents)]]))
+  const ranks = new Map(cards.map(card => [card.cardId, Math.min(ownRanks.get(card.cardId)!, ...blocked.get(card.cardId)!.map(each => ownRanks.get(each)!))]))
+  const chains = new Map(cards.map(card => [card.cardId, chainBehind(card.cardId, dependents, weights, new Set(), new Map())]))
+  return (a, b) => ranks.get(a.cardId)! - ranks.get(b.cardId)! || chains.get(b.cardId)! - chains.get(a.cardId)! || blocked.get(b.cardId)!.length - blocked.get(a.cardId)!.length || a.cardId - b.cardId
 }
 
 export { currentLane }
@@ -406,6 +437,7 @@ export function layOutLanes(db: DatabaseSync, count: number, ts: string, actor: 
 }
 
 interface ReflowCard extends LiveLane, OrderedCard {
+  task: ShiftTask | null
   admission: number
   waiting: boolean
 }
@@ -466,23 +498,52 @@ function movableParts(db: DatabaseSync, chain: readonly ReflowCard[], cards: rea
   return parts.filter(part => part.some(member => member.deferred !== true) && cards.some(other => other.lane === part[0]!.lane && !part.includes(other) && other.deferred !== true))
 }
 
+function freeToLeaveItsLane(part: readonly ReflowCard[], cards: readonly ReflowCard[], shared: readonly string[]): boolean {
+  const live = new Set(cards.map(card => card.cardId))
+  const members = new Set(part.map(member => member.cardId))
+  return part.every(member => member.depends.every(parent => !live.has(parent)))
+    && !cards.some(other => other.lane === part[0]!.lane && other.depends.some(parent => members.has(parent)))
+    && !cards.some(other => !other.waiting && part.some(member => overlaps(member.task, other.task, shared)))
+}
+
+function waitingIn(lane: string, cards: readonly ReflowCard[]): number {
+  return cards.filter(card => card.lane === lane && card.waiting && card.deferred !== true).length
+}
+
+function roomierLane(part: readonly ReflowCard[], cards: readonly ReflowCard[], count: number, waitingOnOwner: ReadonlySet<number>, shared: readonly string[]): string | null {
+  if (!freeToLeaveItsLane(part, cards, shared))
+    return null
+  const own = part[0]!.lane
+  const occupants = cards.filter(card => card.deferred !== true)
+  const open = lanesClearOfOwnerMerge(count, occupants, waitingOnOwner).filter((number) => {
+    const lane = chainLaneName(number)
+    return lane !== own && !occupants.some(other => other.lane === lane && part.some(member => overlaps(member.task, other.task, shared)))
+  })
+  if (open.length === 0)
+    return null
+  const load = new Map(open.map(number => [number, waitingIn(chainLaneName(number), cards)]))
+  const least = leastLoaded(load, open)
+  return waitingIn(own, cards) - load.get(least)! > part.length ? chainLaneName(least) : null
+}
+
 function reflowLanes(db: DatabaseSync, count: number, ts: string, actor: string, shared: readonly string[]): number {
   const rows = liveRows(db)
   const cards = reflowCards(db, rows)
   const occupied = new Set(cards.filter(card => card.deferred !== true).map(card => card.lane))
   const empty = laneNumbers(count).map(chainLaneName).filter(lane => !occupied.has(lane))
   const holders = touchHolders(cards, rows, cardIds(db, OPEN_PR_CARDS))
+  const waitingOnOwner = ownerMergeHolders(db)
   const seen = new Set<number>()
   let moved = 0
   for (const card of [...cards].sort(startOrder(cards))) {
-    if (empty.length === 0 || seen.has(card.cardId))
+    if (seen.has(card.cardId))
       continue
     const chain = chainIn(card, cards, shared)
     chain.forEach(member => seen.add(member.cardId))
     for (const part of movableParts(db, chain, cards, holders, shared)) {
-      const lane = empty.shift()
-      if (lane === undefined)
-        break
+      const lane = empty.shift() ?? roomierLane(part, cards, count, waitingOnOwner, shared)
+      if (lane === null)
+        continue
       for (const member of part) {
         member.lane = lane
         if (assign(db, member.cardId, member.admission, { lane, reason: 'reflowed', after: [] }, count, ts, actor))

@@ -9,12 +9,22 @@ export interface TreeFile {
   mtimeMs: number
 }
 
+const UNICODE_ESCAPE = /\\u([0-9a-f]{4})/gi
+
+function withEscapesDecoded(text: string): string {
+  return text.replace(UNICODE_ESCAPE, (_escape, hex: string) => String.fromCharCode(Number.parseInt(hex, 16)))
+}
+
 function replayed(content: string, edits: JournalChange[]): string | null {
-  let text = content
+  let text = withEscapesDecoded(content)
   for (const edit of edits) {
-    if (edit.kind !== 'edit' || edit.oldString === '' || !text.includes(edit.oldString))
+    if (edit.kind !== 'edit' || edit.oldString === '')
       return null
-    text = edit.replaceAll ? text.split(edit.oldString).join(edit.newString) : text.replace(edit.oldString, () => edit.newString)
+    const oldText = withEscapesDecoded(edit.oldString)
+    const newText = withEscapesDecoded(edit.newString)
+    if (!text.includes(oldText))
+      return null
+    text = edit.replaceAll ? text.split(oldText).join(newText) : text.replace(oldText, () => newText)
   }
   return text
 }
@@ -36,9 +46,10 @@ export function journalDoubt(journal: SessionJournal, relative: string, file: Tr
     return 'it changed after the session ended'
   const lastWrite = changes.map(change => change.kind).lastIndexOf('write')
   const written = changes[lastWrite]
+  const content = withEscapesDecoded(file.content)
   if (written?.kind === 'write')
-    return replayed(written.content, changes.slice(lastWrite + 1)) === file.content ? null : 'its content differs from the session\'s last Write and the Edits after it'
-  if (last.kind !== 'edit' || !file.content.includes(last.newString))
+    return replayed(written.content, changes.slice(lastWrite + 1)) === content ? null : 'its content differs from the session\'s last Write and the Edits after it'
+  if (last.kind !== 'edit' || !content.includes(withEscapesDecoded(last.newString)))
     return 'its content lacks the session\'s last Edit of it'
   if (file.mtimeMs > last.at)
     return 'it changed after the session\'s last Edit of it, outside every command of the session'

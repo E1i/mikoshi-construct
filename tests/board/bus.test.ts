@@ -9,9 +9,11 @@ import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { openBus } from '../../scripts/core/db.js'
 import { PROCESS_HEARTBEAT } from '../../scripts/core/events.js'
+import { ANSWER_SOURCE } from '../../scripts/core/inbox.js'
 import { Node } from '../../scripts/core/node.js'
 import { reduce } from '../../scripts/core/reducer.js'
 import { busCardEvents } from '../../scripts/intake/intake.js'
+import { sayToOwnerChannel } from '../../scripts/owner/channel.js'
 import { slotsVariable } from '../../scripts/supervisor/scheduler.js'
 import { requestFromWindow, WindowRequests } from '../../scripts/window/window-requests.js'
 import { busReaderAt, latestCardEvents, openTasks, SESSION_SHOWN_MINUTES, SUBAGENT_SHOWN_HOURS } from '../../src/commands/board/bus.js'
@@ -120,7 +122,8 @@ describe('the board bus reader', () => {
     const refusing = (): never => {
       throw new Error('not used by an owner wait')
     }
-    const requests = new WindowRequests(db, clock, { treeOf: refusing, exists: refusing, cutTree: refusing, dryRunOf: refusing, addDecision: refusing, causeHolds: refusing, closePr: refusing, closeDropped: () => [] })
+    const channel = path.join(scratch(), 'owner-answers')
+    const requests = new WindowRequests(db, clock, { treeOf: refusing, exists: refusing, cutTree: refusing, dryRunOf: refusing, addDecision: refusing, causeHolds: refusing, closePr: refusing, closeDropped: () => [] }, channel)
     const board = busReaderAt(file, clock)
     const waitsOnTheBoard = (): BusFacts['waits'] => {
       const reading = board()
@@ -131,8 +134,9 @@ describe('the board bus reader', () => {
       expect(requests.run().map(outcome => outcome.detail)).toEqual(['opened Q1'])
       reduce(db)
       expect(waitsOnTheBoard()).toEqual([{ id: 'Q1', need: 'decision', text: 'which path for #1213?', command: null, card: 1213, pr: null, since: NOW.toISOString() }])
-      requestFromWindow(db, NOW.toISOString(), 'window-1', { kind: 'owner.wait.close', id: 'Q1', answer: 'the first path' })
-      expect(requests.run().map(outcome => outcome.detail)).toEqual(['closed Q1: the first path'])
+      sayToOwnerChannel(channel, 'the first path', NOW)
+      requestFromWindow(db, NOW.toISOString(), 'window-1', { kind: 'owner.wait.close', id: 'Q1', answer: 'the first path', from: ANSWER_SOURCE })
+      expect(requests.run().map(outcome => outcome.kind)).toEqual(['done'])
       expect(waitsOnTheBoard()).toEqual([])
       reduce(db)
       expect(waitsOnTheBoard()).toEqual([])

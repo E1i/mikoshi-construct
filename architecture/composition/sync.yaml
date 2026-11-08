@@ -12,7 +12,11 @@ description: >-
   `block-edited`, a `record-vars-edited`, an `unknown`, a `removed` or a `foreign` path — then
   records the owned view and the template variant of each written path in the manifest's `sync`
   branch, and for a block target the owned-view sha and the vars it was written with, leaving the
-  branch `init` wrote untouched. A block target whose record carries that sha and vars snapshot
+  branch `init` wrote untouched. Under `--apply` a repository whose construct carries the Claude
+  settings also gets the installed browser lab exclusion in `.claude/settings.local.json`, through
+  the one function `init` and `attach --upgrade` call, even when nothing else is written: a tracked
+  or unreadable file is left alone and the run says so, an entry already held is not added twice,
+  every other byte stays, and the manifest records nothing of it. A block target whose record carries that sha and vars snapshot
   (manifest version 6, decision 0032) reads `block-edited` when its owned view differs from the sha,
   else `record-vars-edited` when the record's `vars` differ from the snapshot, else `keep` or
   `template-moved-on`. Any other append-block target is classified after `establishVariant` settles
@@ -87,6 +91,10 @@ nodes:
     label: writeManifest · the sync branch only, the init branch untouched
     path: src/manifest.ts
     boundary: write
+  - id: exclusion
+    label: excludedBrowserLabLocally · one entry in the untracked local settings, shared with init and attach --upgrade
+    path: src/commands/attach/settings.ts
+    boundary: write
   - id: print
     label: printSync · eight counts, the actionable paths, the version gap, the exit code
     path: src/commands/sync/report.ts
@@ -115,4 +123,5 @@ edges:
   - {from: ownership, to: writes, kind: wires}
   - {from: writes, to: applied, kind: sequence}
   - {from: applied, to: record, kind: sequence}
-  - {from: record, to: printApply, kind: sequence}
+  - {from: record, to: exclusion, kind: sequence}
+  - {from: exclusion, to: printApply, kind: sequence}

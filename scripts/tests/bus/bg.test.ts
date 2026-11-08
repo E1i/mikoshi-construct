@@ -15,6 +15,7 @@ import { REVIEW_RECORDED } from '../../core/events.js'
 import { MergeNode } from '../../nodes/merge/merge-worker.js'
 import { UpdateNode } from '../../nodes/update/update-worker.js'
 import { AGENT_ENV, alive, BUS_FLAG, BUS_RUN_LAUNCH, BUS_RUN_MARKERS, busInArgs, carriesMarker, flagsInArgs, instancesOf, launchArgv, launchName, PREFIX, psList, RUN_SCRIPT, runBusBg, runningBus, runningInstance, servesBus, SHADOW_LOG, START_LOCK, START_LOCK_LIMIT_MS, startDetached, withBuses } from '../../supervisor/bg.js'
+import { recordProcessHeartbeat } from '../../supervisor/heartbeat.js'
 import { startReviewWorker } from '../../supervisor/review-bg.js'
 import { factoryBusOf } from '../../supervisor/start.js'
 import { bgCommand, BusSupervisor, entryOf, gitCode, lastMainAdvance, mainAdvancedSince, startUnderAgentEnv, stopInstance, SUPERVISOR_LAUNCH, switchCommand } from '../../supervisor/supervisor.js'
@@ -80,7 +81,7 @@ function world(): World {
   stub(bin, 'nohup', 'exec "$@"')
   stub(bin, 'pnpm', `echo "bus:run output"\nprintf '%s\\n' "$*" >> "$STUB_OUT/pnpm.argv"\necho $$ > "$STUB_OUT/pid"\nsleep 30`)
   const env = { PATH: bin, STUB_OUT: out }
-  return { busDir: path.join(root, 'bus'), out, env, processes: () => psList(env)().filter(candidate => candidate.args.includes(bin)) }
+  return { busDir: path.join(root, 'bus'), out, env, processes: () => psList()().filter(candidate => candidate.args.includes(bin)) }
 }
 
 function detachedSleep(): number {
@@ -472,7 +473,11 @@ describe('pnpm bus:bg', () => {
     const w = world()
     switchWorker(w.busDir, 'review', true)
     writeFileSync(path.join(w.busDir, 'bus-review.pid'), `${process.ppid}\n`)
-    const result = runBusBg(w.busDir, wantedLaunches(w.busDir, NO_PREFLIGHT).filter(launch => launch.script === 'bus:review'), w.env, () => [], startReviewWorker)
+    const bus = path.join(path.dirname(w.busDir), 'bus.db')
+    const db = openBus(bus)
+    recordProcessHeartbeat(db, new Date().toISOString(), 'bus:review')
+    db.close()
+    const result = runBusBg(w.busDir, wantedLaunches(w.busDir, NO_PREFLIGHT).filter(launch => launch.script === 'bus:review'), { ...w.env, CONSTRUCT_BUS_DB: bus }, () => [], startReviewWorker)
     expect(result.exitCode).toBe(0)
     expect(result.stdout).toEqual([`${PREFIX}bus:review --on is already running as pid ${process.ppid}; left alone`])
     expect(w.processes()).toEqual([])

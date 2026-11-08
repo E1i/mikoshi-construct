@@ -1,12 +1,14 @@
 import type { Kind } from '../../card/grammar.js'
+import type { RiskLevel } from '../../card/risk.js'
 import type { DraftCard, DraftPlan, UnclearField } from './draft.js'
 import type { RepositoryFacts } from './facts.js'
 import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
+import { GENERATED_FILES } from '../../../scripts/core/factory-paths.js'
 import { isTestScope, runsOf, withinTouches } from '../../card/covering-tests.js'
 import { CONTOURS, decisionsOf, KINDS } from '../../card/grammar.js'
 import { createdPaths, parseCreatesEntry, parseParkingFile } from '../../card/parking.js'
-import { CHANGESET_COMPANION, RISK_LEVELS, riskOf, touchedOrCreated } from '../../card/risk.js'
+import { CHANGESET_COMPANION, RISK_LEVELS, riskOf, riskReading, touchedOrCreated } from '../../card/risk.js'
 import { PREFIX_SUFFIX, touchError } from '../../card/task-file.js'
 import { commandInsideJudgedWrap } from '../../card/witness-fields.js'
 import { FACTORY_MANIFEST } from '../../materialize/factory-manifest.js'
@@ -128,18 +130,34 @@ export const COMPANION_TABLE: readonly (CompanionRow | FollowingRow)[] = [
   { kind: 'published code', keptBy: '.changeset/config.json', touched: (entry, published) => published.some(root => under(entry, SOURCE_OF_BUILT_ROOT[root] ?? root)), companions: () => [CHANGESET_COMPANION] },
   { kind: 'source code', keptBy: TESTS_ROOT, touched: entry => under(entry, 'src'), companions: testBeside },
   { kind: 'the card\'s changeset', follows: (file, reach) => CHANGESET_FILE.test(file) && reach.added.has(file) },
-  { kind: 'the command surface', follows: generatedFrom('contract/surface.json', ['src', 'templates', 'scripts/contract']) },
-  { kind: 'the factory contract', follows: generatedFrom('contract/factory.json', ['scripts', 'src']) },
-  { kind: 'the add population', follows: generatedFrom('architecture/add-population.md', ['templates', 'src/presets', 'src/materialize']) },
-  { kind: 'the self-hosting drift list', follows: generatedFrom('architecture/self-hosting-drift.yaml', ['templates']) },
-  { kind: 'the factory manifest', follows: generatedFrom('src/materialize/factory-manifest.ts', FACTORY_MANIFEST) },
+  { kind: 'the command surface', follows: generatedFrom(GENERATED_FILES.surface.path, GENERATED_FILES.surface.followSources) },
+  { kind: 'the factory contract', follows: generatedFrom(GENERATED_FILES.factory.path, GENERATED_FILES.factory.followSources) },
+  { kind: 'the add population', follows: generatedFrom(GENERATED_FILES.addPopulation.path, GENERATED_FILES.addPopulation.followSources) },
+  { kind: 'the self-hosting drift list', follows: generatedFrom(GENERATED_FILES.selfHostingDrift.path, GENERATED_FILES.selfHostingDrift.followSources) },
+  { kind: 'the factory manifest', follows: generatedFrom(GENERATED_FILES.factoryManifest.path, FACTORY_MANIFEST) },
   { kind: 'a root self-hosting copy', follows: (file, reach) => reach.touches.some((touch) => {
     const copy = rootCopyOf(touch)
     return copy !== null && covers(copy, file)
   }) },
   { kind: 'a composition record and its document', follows: reachedRecordFollows },
+  { kind: 'a test or a generated file', follows: (file, reach) => isTestOrGenerated(file) && !neverFollows(file, reach) },
 ]
-export const FOLLOWING_REASON = 'a generated twin of a touched file, a composition record and its document whose node the touches reach, or a changeset the card adds, follows the touches: the companion table in src/commands/intake/check.ts'
+export const FOLLOWING_REASON = 'a test or a generated file off the guarded paths, a generated twin of a touched file, a composition record and its document whose node the touches reach, or a changeset the card adds, follows the touches: the companion table in src/commands/intake/check.ts'
+
+const RATCHET_RECORD = 'contract/ratchet.json'
+const GENERATED_PATHS: readonly string[] = [RATCHET_RECORD, ...Object.values(GENERATED_FILES).map(row => row.path)]
+
+export function isTestOrGenerated(file: string): boolean {
+  return isTestScope(file) || GENERATED_PATHS.includes(file)
+}
+
+export function cardRiskOf(cardId: number, card: string | null): RiskLevel | null {
+  const parsed = card === null ? null : parseParkingFile(`${cardId}.md`, card)
+  if (parsed?.kind !== 'parked')
+    return null
+  const reached = touchedOrCreated(parsed.parked.task.touches, createdPaths(parsed.parked.creates))
+  return reached.length === 0 ? null : riskReading(reached, false).level
+}
 
 export function neverFollows(file: string, reach: FollowingReach): boolean {
   if (under(file, COMPOSITION_ROOT) && reachedRecordFollows(file, reach))

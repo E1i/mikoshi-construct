@@ -177,7 +177,7 @@ describe('doctor --factory says goes or does not go for every item of PARITY and
     writeManifest(factory.dir, { ...manifest, files })
     rmSync(path.join(factory.dir, BRIEF_AGENT))
     expect(red(check(factory))).toEqual({ 'factory-files': SYNC_APPLY })
-    applySync(factory.dir, VERSION)
+    applySync(factory.dir, VERSION, factory.home)
     expect(red(check(factory))).toEqual({})
   })
 
@@ -198,7 +198,7 @@ describe('doctor --factory says goes or does not go for every item of PARITY and
     rmSync(path.join(factory.dir, REVIEW_AGENT))
     expect(red(check(factory))).toEqual({ 'factory-files': `git restore -- ${BRIEF_AGENT} && ${SYNC_APPLY}` })
     writeFileSync(path.join(factory.dir, BRIEF_AGENT), lost)
-    applySync(factory.dir, VERSION)
+    applySync(factory.dir, VERSION, factory.home)
     expect(red(check(factory))).toEqual({})
   })
 
@@ -208,7 +208,7 @@ describe('doctor --factory says goes or does not go for every item of PARITY and
       delete settings.hooks
     })
     expect(red(check(factory))).toEqual({ 'factory-hooks': SYNC_APPLY })
-    applySync(factory.dir, VERSION)
+    applySync(factory.dir, VERSION, factory.home)
     expect(red(check(factory))).toEqual({})
   })
 

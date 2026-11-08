@@ -1,6 +1,6 @@
 import type { RoleStop, THRESHOLDS, WindowEnd } from '../nodes/restart/role.js'
+import type { ProcessTable } from '../ports/process-table.js'
 import type { ExitLine, ExitReadings, Reading } from './eddies-measure.js'
-import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -12,6 +12,7 @@ import { defaultHandoffDir } from '../core/handoff-dir.js'
 import { RAISED_STATUS, raisedByTheBus } from '../nodes/restart/role.js'
 import { ownerMessagesOf } from '../ports/client/claude/adapter.js'
 import { clientAdapter } from '../ports/client/index.js'
+import { OsProcessTable, rowsOf } from '../ports/process-table.js'
 import { EXIT_REQUEST_VARIABLE, LOOP_PID_VARIABLE } from '../ports/session.js'
 import { appendExitLine, EDDIES_JOURNAL_FILE, exitLineOf, PROJECT_VARIABLE, projectRoot, realExitReadings, SESSION_EXIT_EVENT, UNKNOWN } from './eddies-measure.js'
 import { MIKO_HANDOFF_NAME, mikoHandoff, PREFIX, statusOf } from './loop.js'
@@ -85,11 +86,8 @@ function ownerHasNotSpoken(deps: MikoExitDeps): boolean {
   return messages !== null && messages <= MESSAGES_BEFORE_THE_OWNER_SPOKE
 }
 
-export function parsePs(text: string): ProcessRow[] {
-  return text.split('\n').flatMap((line) => {
-    const [pid, ppid, ...args] = line.trim().split(/\s+/)
-    return /^\d+$/.test(pid ?? '') && /^\d+$/.test(ppid ?? '') ? [{ pid: Number(pid), ppid: Number(ppid), args: args.join(' ') }] : []
-  })
+export function chainRowsOf(table: ProcessTable): ProcessRow[] {
+  return rowsOf(table.snapshot()).map(row => ({ pid: row.pid, ppid: row.ppid, args: row.command }))
 }
 
 export function ancestors(table: ProcessRow[], pid: number): ProcessRow[] {
@@ -317,7 +315,7 @@ export function exitRootOf(env: NodeJS.ProcessEnv, cwd: string): string {
 export function realMikoExitDeps(handoff: string): MikoExitDeps {
   const root = exitRootOf(process.env, process.cwd())
   const transcript = (): string | null => sessionTranscriptOf(os.homedir(), process.env[SESSION_VARIABLE])
-  const table = (): ProcessRow[] => parsePs(execFileSync('ps', ['-A', '-o', 'pid=,ppid=,args='], { encoding: 'utf8' }))
+  const table = (): ProcessRow[] => chainRowsOf(new OsProcessTable())
   return {
     pid: process.pid,
     table,

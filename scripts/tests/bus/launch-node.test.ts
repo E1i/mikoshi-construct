@@ -24,6 +24,7 @@ import { cardBodyText } from '../../core/card-bodies.js'
 import { appendEvent, BUS_DB_VARIABLE, OPEN_WAIT, OWNER_WAITS } from '../../core/db.js'
 import { BOARD_ALARM, CARD_ADMITTED, CARD_CONTINUED, CARD_FELL, CARD_MOVED, CARD_PULSE, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, CARD_WAITING, GHOST_ROW, LADDER_APPROVAL, NODE_DETECTED, NODE_EQUIVALENCE, OWNER_WAIT_OPENED, PR_CLOSED, PR_OPENED, TASK_ENQUEUED, TASK_FAILED, TASK_RELEASED } from '../../core/events.js'
 import { HANDOFF_FIELDS } from '../../core/handoff-fields.js'
+import { ANSWER_SOURCE } from '../../core/inbox.js'
 import { recordGhostLine } from '../../core/journal.js'
 import { leaseNext } from '../../core/lease.js'
 import { NODE_CURSORS } from '../../core/node.js'
@@ -37,6 +38,7 @@ import { CONTINUE_PROMPT, MAX_RESTARTS } from '../../nodes/launch/continuation.j
 import { LaunchExecutor } from '../../nodes/launch/launch-executor.js'
 import { gitChangedPaths, ShiftCardStarter } from '../../nodes/launch/launch-starter.js'
 import { AMENDED_AFTER_START, BODY_NOT_FOLDED, CARD_TEXT_HEADING, eddiesWarned, handoffLadderSteps, handoffWrittenSince, hasCommitsAhead, HEARTBEAT_SILENCE_MINUTES, LAUNCH_LIMIT_MINUTES, LAUNCH_START_MINUTES, LAUNCH_UNSTARTED, launchIsolationCommand, LaunchNode, launchPlaces, noPullRequestDetail, PULSE_MINUTES, realStarterPorts, reportResultLine, reportSince, reportWrittenSince, SESSION_DEATH_CAP, splitByRepository } from '../../nodes/launch/launch-worker.js'
+import { sayToOwnerChannel } from '../../owner/channel.js'
 import { cardDecisionCommand } from '../../policy/shards.js'
 import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
 import { TICK_MS } from '../../ports/netwatch.js'
@@ -645,8 +647,16 @@ describe('the launch node', () => {
     const refuse = (): never => {
       throw new Error('not this request')
     }
-    requestFromWindow(made.db, made.clock.now().toISOString(), 'test', { kind: 'owner.wait.close', id: wait, answer: 'go on without them' })
-    expect(new WindowRequests(made.db, made.clock.now, { treeOf: refuse, exists: refuse, cutTree: refuse, dryRunOf: refuse, addDecision: refuse, causeHolds: refuse, closePr: refuse, closeDropped: () => [] }).run()).toMatchObject([{ kind: 'done' }])
+    const root = mkdtempSync(path.join(tmpdir(), 'bus-launch-owner-word-'))
+    try {
+      const channel = path.join(root, 'owner-answers')
+      sayToOwnerChannel(channel, 'go on without them', made.clock.now())
+      requestFromWindow(made.db, made.clock.now().toISOString(), 'test', { kind: 'owner.wait.close', id: wait, answer: 'go on without them', from: ANSWER_SOURCE })
+      expect(new WindowRequests(made.db, made.clock.now, { treeOf: refuse, exists: refuse, cutTree: refuse, dryRunOf: refuse, addDecision: refuse, causeHolds: refuse, closePr: refuse, closeDropped: () => [] }, channel).run()).toMatchObject([{ kind: 'done' }])
+    }
+    finally {
+      rmSync(root, { recursive: true, force: true })
+    }
   }
 
   it('a question.agent no-PR stop whose widen holds only non-paths names them dropped and starts again once the owner closes its question, with no window', async () => {

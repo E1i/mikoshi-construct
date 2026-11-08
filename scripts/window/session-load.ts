@@ -1,9 +1,8 @@
 import type { ProcessCwds } from '../ports/client/contract.js'
-import { execFileSync } from 'node:child_process'
 import { realpathSync } from 'node:fs'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { claudeProcessCwds, LSOF_CLIENT_NAMES } from '../ports/worktree.js'
+import { CLIENT_CWDS_COMMAND, CPU_SAMPLE_COMMAND, OsProcessTable } from '../ports/process-table.js'
 
 export interface SessionLoad {
   sysPercent: number
@@ -15,13 +14,10 @@ export interface SessionLoad {
   producedBy: string
 }
 
-const TOP_ARGS = ['-l', '2', '-s', '1', '-n', '1000', '-stats', 'command,cpu']
 const SYS_PERCENT = /([\d.]+)% sys/g
 const TABLE_HEADER = 'COMMAND'
-const LSOF_PROCESS_LINE = /^p\d/
-const MAX_BUFFER = 1 << 26
 
-export const PRODUCED_BY = `top ${TOP_ARGS.join(' ')} (sys and per-process percents, its second sample) and lsof ${LSOF_CLIENT_NAMES.join(' ')} (a session is a process lsof names claude or a version number, the name the client runs under)`
+export const PRODUCED_BY = `${CPU_SAMPLE_COMMAND} (sys and per-process percents, its second sample) and ${CLIENT_CWDS_COMMAND} (a session is a process lsof names claude or a version number, the name the client runs under)`
 
 interface ProcessRow {
   percent: number
@@ -56,7 +52,7 @@ function sysPercentOf(top: string): number {
 function sessionsIn(cwds: ProcessCwds): number {
   if (cwds.kind === 'unreadable')
     throw new Error(`lsof could not list the claude processes: ${cwds.why}`)
-  return cwds.listing.split('\n').filter(line => LSOF_PROCESS_LINE.test(line)).length
+  return cwds.cwds.length
 }
 
 export function readingOf(top: string, cwds: ProcessCwds): SessionLoad {
@@ -74,11 +70,9 @@ export function readingOf(top: string, cwds: ProcessCwds): SessionLoad {
   }
 }
 
-function topOutput(): string {
-  return execFileSync('top', TOP_ARGS, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: MAX_BUFFER })
-}
+const table = new OsProcessTable()
 
-export function readSessionLoad(top: () => string = topOutput, cwds: () => ProcessCwds = claudeProcessCwds): SessionLoad {
+export function readSessionLoad(top: () => string = () => table.cpuSample(), cwds: () => ProcessCwds = () => table.clientCwds()): SessionLoad {
   return readingOf(top(), cwds())
 }
 

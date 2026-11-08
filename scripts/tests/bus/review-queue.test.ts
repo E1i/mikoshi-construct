@@ -422,6 +422,8 @@ describe('review queue', () => {
 describe('the review round limit of D-104', () => {
   const HEADS = [sha('a'), sha('b'), sha('c'), sha('d')]
 
+  const FINDINGS_OF_THE_ROUNDS = [['first.ts:1 wrong order', 'first.ts:2 lost row'], ['second.ts:1 stale cache', 'second.ts:2 leaked handle'], ['third.ts:1 missing guard', 'third.ts:2 bad retry']]
+
   async function rounds(pr: number, verdicts: ('pass' | 'changes')[]): Promise<{ db: DatabaseSync, gitHub: FakeGitHub, tick: () => void, worker: ReviewWorker, notes: [number, string][] }> {
     const { db, gitHub, clock, tick } = setUp()
     const notes: [number, string][] = []
@@ -436,7 +438,7 @@ describe('the review round limit of D-104', () => {
       reviewer: async () => {
         round += 1
         const verdict = verdicts[round - 1]!
-        return { verdict, findings: verdict === 'changes' ? [`a.ts:${round} the finding of round ${round}`, `b.ts:${round} the second finding of round ${round}`] : [], session: `reviewer-${round}` }
+        return { verdict, findings: verdict === 'changes' ? FINDINGS_OF_THE_ROUNDS[round - 1]! : [], session: `reviewer-${round}` }
       },
       plan: () => fullReview('a fixed plan'),
       clock: clock.now,
@@ -469,7 +471,7 @@ describe('the review round limit of D-104', () => {
     const { db, gitHub, tick, worker, notes } = await rounds(940, ['changes', 'changes', 'changes'])
 
     expect(liveTasksOn(db, HEADS[2]!)).toEqual([])
-    expect(spentEvents(db)).toEqual([{ state: 'round_limit_reached', pr: 940, rounds: 3, findings: ['a.ts:3 the finding of round 3', 'b.ts:3 the second finding of round 3'] }])
+    expect(spentEvents(db)).toEqual([{ state: 'round_limit_reached', pr: 940, rounds: 3, findings: FINDINGS_OF_THE_ROUNDS[2] }])
     expect(notes).toEqual([[940, roundLimitLine(940, 3)]])
     expect(gitHub.pulls.get(940)!.body).toBe(`${cardBody(940)}\n\n${roundLimitLine(940, 3)}`)
 

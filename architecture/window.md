@@ -6,7 +6,12 @@ Read on demand by the coordinating window; the laws it must know first are in [w
 
 A question about the state of the work — "status", "what's there", "where are we", in any language — is answered as
 `/status` answers it ([.claude/commands/status.md](../.claude/commands/status.md)). Every report on the state of tasks
-starts from `pnpm board` (`pnpm board --json` for the window's own reading), never from the session's memory of them.
+starts from `pnpm board`, never from the session's memory of them. With no flag it prints a short text reading — the
+release progress, what waits for the owner, the cards by stage, the live backlog by lane and the services — sized for a
+window's context; `pnpm board --json` prints the bus as JSON for a script, a megabyte with every card the bus ever held,
+and `pnpm board --json --live` prints the same object with only the live cards (`isLive` in `src/commands/board/screens.ts`:
+a card with a body, not closed, in a flow stage and a live state), which is the window's start reading of the cards; `pnpm board --html`
+prints the HTML page, megabytes long, for a browser and never for a window's reading.
 
 While any Ghost is running, the coordinating window keeps `pnpm board --every 180` running in the background, which
 rewrites `board.txt` in the handoff directory with every frame. Every report to the owner in that time starts with the
@@ -31,18 +36,18 @@ branch included, makes a new head, and the pull request is ready again only once
 ## The boundary
 
 The coordinating window stops at a boundary rather than at the limit. It checks the boundary after each finished step.
-The boundary is reached when the session's context reaches `contextLimit` or its spend reaches `sessionSpend`, both in
-`.claude/eddies.json`, or when a pull request of an owner-merged kind has just merged. From then on it takes no new work.
+The boundary is the stop reason `stopReasonOf` in `scripts/window/exit.ts` decides: the context warn (`contextLimit` ×
+`warnRatio`, a session with `CONSTRUCT_CARD`: `cardContextLine`), the spend warn (`sessionSpend` × `warnRatio`), all in
+`.claude/eddies.json`, a core change, or `STATUS: DONE`. From then on it takes no new work.
 It waits for the subagents it started itself, writes their results into the handoff, and stops. The wait is
 mechanical: a `SubagentStart` and a `SubagentStop` hook (`.claude/hooks/window-agents.mjs`) pair each subagent by its
 `agent_id` and keep the live ones in `.construct/window-agents.jsonl`, and `pnpm miko:exit` (`scripts/window/exit.ts`) refuses, naming them,
 while any is live or a worktree of the repository holds uncommitted changes. It does not wait for
 Ghosts: their state is in the ledger and the journal, and the next session reads it there. Eddies enforces the budget
-half of this rule: `.claude/hooks/eddies.mjs` refuses `Agent`, `Workflow`, a nested `claude -p` and `ghosts:launch` once
+part of this rule: `.claude/hooks/eddies.mjs` refuses `Agent`, `Workflow`, a nested `claude -p` and `ghosts:launch` once
 either session threshold is reached, an agent's or a workflow run's further calls past `agentSpend` or `runSpend`, and
 records each stop in `.construct/eddies.jsonl`; the thresholds live only in `.claude/eddies.json`. A line there names the
-`task` whose `task:start` line in `ghosts.jsonl` carries the session, and has no `task` when none does. The merge half is
-not enforced. No flag switches Eddies off in Ghost Protocol yet; #394 asks for one.
+`task` whose `task:start` line in `ghosts.jsonl` carries the session, and has no `task` when none does. No flag switches Eddies off in Ghost Protocol yet; #394 asks for one.
 
 A launch or answer session at the context warn (a `context-line` event at `cardContextLine`, an absolute value `warnRatio` does not apply to; with the key absent, a `budget-warn` of level `session-context` at `contextLimit` × `warnRatio`)
 writes a handoff and stops, and the bus pushes nothing: it continues the card in a fresh session from that handoff, whatever
@@ -79,10 +84,15 @@ STATUS means to the window: a `miko.md` whose last `STATUS:` line is `CONTINUE` 
 question to the owner; one whose last `STATUS:` line is `OWNER` has its question asked in the window and the answer waited
 for in the same session, then `pnpm handoff:write` with `STATUS: CONTINUE`, with no `pnpm miko:exit`.
 
-Mikoshi runs in one of two modes, decided by `windowModeOf` in `scripts/ports/session.ts` (#1265): loop mode under
-`pnpm miko` (`MIKO_WINDOW=1`, `MIKO_LOOP_PID` or `MIKO_EXIT_REQUEST` set), and tab mode, a session with none of those
-marks and no `CONSTRUCT_CARD` (an IDE tab or a bare `claude`). Loop mode keeps the rules above. A tab window is that
-session when it is interactive and not raised by the bus (`tabWindowOf` in `scripts/window/tab.ts`: a
+A window is what miko started, not what a hook read: a hook gives no rights the launcher did not give. Mikoshi runs in
+one of two modes, decided by `windowModeOf` in `scripts/ports/session.ts` (#1265): loop mode under `pnpm miko`
+(`MIKO_WINDOW=1`, `MIKO_LOOP_PID` or `MIKO_EXIT_REQUEST` set), and tab mode under `pnpm miko --tab`, one session the
+launcher marks `MIKO_WINDOW=tab`, with no loop above it. A session with neither, or with a `CONSTRUCT_CARD`, is no
+window: a bare `claude` or an IDE tab writes no window heartbeat, `pnpm handoff:write` and `pnpm miko:watch` refuse it
+and tell it to start a window (`noWindowRefusal` in `scripts/window/tab.ts`), and the SessionStart hook says the same.
+A prompt whose first line names the `handoff/miko.md` of another factory is refused before the session reads it, naming
+the window it belongs to (`misaddressedPromptRefusal`). Loop mode keeps the rules above. A tab window is a marked session
+when it is interactive and not raised by the bus (`tabWindowOf` in `scripts/window/tab.ts`: a
 `CLAUDE_CODE_ENTRYPOINT` of `sdk-cli`, the headless one a bus reviewer runs under, or `CONSTRUCT_BUS_RAISED=1` is no
 tab window). A tab window continues by itself with nobody at a terminal. At Stop, `scripts/window/turn-watch.ts` reads
 the last `STATUS:` of the session's handoff: `CONTINUE` blocks the stop with a reason telling the window to run
@@ -254,19 +264,15 @@ open owner questions and the owner texts of the current session, at most `DAY_FI
 
 ## Pull requests and branches
 
-A pull request of no owner-merged kind: before it, run the gate `pnpm gate:window` prints (#1079). Then commit, push and open the pull request; `gh pr update-branch <N> -R E1i/mikoshi-construct`,
-then, for a briefed pull request with a review verdict, `pnpm ghosts:verdict <verdict> --commit <new head>`, which carries the
-review when main merged in cleanly and refuses with `review again` otherwise
-([0052](decisions/0052-an-approval-carries-a-regeneration-and-a-review-carries-a-clean-update-branch.md)), and a cheap
-one is carried by the bus;
-and `gh pr merge <N> --auto --squash --match-head-commit <gated sha> -R E1i/mikoshi-construct`. A pull request of an
+A pull request of no owner-merged kind: before it, run the gate `pnpm gate:window` prints (#1079). Then commit, push and open the pull request. The window does no more: the bus update node updates the branch and carries
+a review, and the bus merges. A pull request of an
 owner-merged kind is gated locally the same way, committed, pushed and opened; the owner merges.
 When the owner commits a card tree's change themselves, the window builds the patch and the command it hands them only with
 `pnpm owner:command --tree <worktree> --card <id> --message <m>`, never by hand: the patch carries every file the card
 created, and the command commits without `-a`.
 A pull request that changes `src/` or `templates/` ends its description with the code matrix over the alphabet of
 [architecture/code-matrix.md](code-matrix.md), the common rules and those its brief declares, and its count line
-`■ n □ n · n`; the window does not arm auto-merge on one without that line. A pull request that changes only `scripts/`
+`■ n □ n · n`; the merge queue withdraws one without that line. A pull request that changes only `scripts/`
 needs none.
 
 Under an active shard the window itself decides and merges everything except the owner's boundaries of
@@ -347,10 +353,14 @@ the four signal fields of [0046](decisions/0046-four-signal-fields-and-their-sou
 `contract:`, `expect:`, `action:`, `result:`, each saying what it does not hold rather than staying empty; the first line
 of its pull request description is the card.
 
-A cheap-path task starts only with `pnpm task:start <branch> --card "<card>"`, which checks the card, cuts
+A cheap-path task starts only through `task:start <branch> --card "<card>"`, which checks the card, cuts
 `mc-<id>` from `origin/main` under the worktree home, `~/.construct/worktrees` (`CONSTRUCT_WORKTREE_HOME` moves it), not
 beside the repository, and writes the journal start line carrying the card; a task with no start line was not
-started on the cheap path, whatever its branch is called. The bus removes a closed card's tree
+started on the cheap path, whatever its branch is called. A window never runs it: it asks the bus with
+`pnpm bus:request tree.cut --card <N>`, and `task:start` in a session `windowModeOf` calls a window refuses with that
+command before it touches git. The bus's two callers, the launch node and `tree.cut`, blank the window marks a bus raised
+from a window inherited, so they keep cutting; a person in a plain terminal still runs it by hand. A failed
+`git worktree add` removes the branch it created, so a refusal that says nothing was written holds. The bus removes a closed card's tree
 (`removeCardTree` in `scripts/nodes/close/close-executor.ts`). Before it cuts anything, `task:start` passes the card through the intake
 door: it takes a card only when the bus holds a `card.admitted` event for it, written through `pnpm intake` when it
 sliced and confirmed the card, by `pnpm intake --admit <draft>` for a card amended or parked before the door, the

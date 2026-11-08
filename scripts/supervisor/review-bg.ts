@@ -7,9 +7,10 @@ import { fileURLToPath } from 'node:url'
 import { busDirOf, pinBus } from '../core/bus-path.js'
 import { openBus } from '../core/db.js'
 import { FACTORY_WORKERS } from '../core/factory-paths.js'
+import { nodeProcess } from '../core/node.js'
 import { shadowReading } from '../core/report.js'
 import { REVIEW_READS, SWITCH_FLAG } from '../nodes/review/review-worker.js'
-import { alive, argsBeforeBus, printBg, psList, servesBus, startDetached, thisBus } from './bg.js'
+import { argsBeforeBus, printBg, processBeatsOn, psList, servesBus, startDetached, thisBus } from './bg.js'
 
 export const PREFIX = '[bus:review:bg] '
 export const REVIEW_SCRIPT = 'bus:review'
@@ -38,12 +39,13 @@ function recordedWorker(busDir: string, env: NodeJS.ProcessEnv, processes: Proce
   if (!existsSync(file))
     return undefined
   const pid = Number(readFileSync(file, 'utf8').trim())
-  if (!Number.isInteger(pid) || pid <= 0 || pid === process.pid || !alive(pid))
+  const bus = thisBus(env)
+  if (!Number.isInteger(pid) || pid <= 0 || pid === process.pid || !processBeatsOn(bus, nodeProcess('review'), Date.now()))
     return undefined
   const listed = processes().find(candidate => candidate.pid === pid)
   if (listed === undefined)
-    return { pid, args: `recorded in ${file}` }
-  return servesBus(listed, thisBus(env)) && REVIEW_WORKER_MARKERS.some(marker => argsBeforeBus(listed.args).includes(marker)) ? listed : undefined
+    return { pid, args: `recorded in ${file}`, bus }
+  return servesBus(listed, bus) && REVIEW_WORKER_MARKERS.some(marker => argsBeforeBus(listed.args).includes(marker)) ? listed : undefined
 }
 
 export function startReviewWorker(launch: DetachedLaunch, busDir: string, env: NodeJS.ProcessEnv, processes: ProcessList): BgResult {

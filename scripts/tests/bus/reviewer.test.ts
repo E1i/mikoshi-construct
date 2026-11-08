@@ -46,7 +46,7 @@ describe('reviewer', () => {
   })
 
   it('the prompt of a first diff review reads only since..head against the card, its witnesses and touches, and makes each touch finding a finding', () => {
-    const prompt = reviewPrompt(lease, { depth: 'diff', round: 'first', why: 'by rule docs-only', since: sha('c'), touchFindings: ['architecture/window.md is outside the touches of card #1050 (docs/**)'] }, '/tmp/t', '/tmp/v.json')
+    const prompt = reviewPrompt(lease, { depth: 'diff', round: 'first', why: 'by rule docs-only', since: sha('c'), touchFindings: ['architecture/window.md is outside the touches of card #1050 (docs/**)'], touchNotes: [] }, '/tmp/t', '/tmp/v.json')
     expect(prompt).toContain(`Read only the diff ${sha('c')}..${sha('a')} against the card, its witnesses, its touches, its creates and its runs (the tests the card's Runs: line names); do not walk the modules it touches.`)
     expect(prompt).toContain('Report as a finding of this review: architecture/window.md is outside the touches of card #1050 (docs/**)')
     expect(prompt).not.toContain('Review the whole pull request')
@@ -194,21 +194,24 @@ describe('reviewer', () => {
     }
   })
 
-  it('after ReviewTrees.add prepares the tree node_modules/.bin/vitest exists in it', () => {
+  it('after ReviewTrees.add prepares the tree node_modules/.bin/vitest exists in it and no worktree entry is left', () => {
     const repo = gitRun(process.cwd(), 'rev-parse', '--show-toplevel').trim()
     const dir = realpathSync(mkdtempSync(path.join(tmpdir(), 'bus-reviewer-prepare-')))
-    const trees = new ReviewTrees(repo, dir)
+    const trees = new ReviewTrees(repo, dir, { ...GIT_TREE_TOOLS, freeTrees: 0 })
     const tree = path.join(dir, 'prepared')
+    const entriesUnderDir = (): string[] => gitRun(repo, 'worktree', 'list', '--porcelain').split('\n').filter(line => line.startsWith(`worktree ${dir}${path.sep}`))
     try {
       trees.add(tree, gitRun(repo, 'rev-parse', 'HEAD').trim())
 
       expect(existsSync(path.join(tree, 'node_modules', '.bin', 'vitest'))).toBe(true)
       expect(trees.state(tree).status).toEqual([])
+      expect(entriesUnderDir()).toEqual([`worktree ${tree}`])
     }
     finally {
       trees.release(tree)
       rmSync(dir, { recursive: true, force: true })
     }
+    expect(entriesUnderDir()).toEqual([])
   }, 300_000)
 
   it('a review tree that is not clean before the review is refused before the session runs', async () => {

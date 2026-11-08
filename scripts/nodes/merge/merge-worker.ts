@@ -2,7 +2,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { PushPolicy } from '../../../src/commands/attach/record.js'
 import type { RerunMode } from '../../cli/check-catalog.js'
 import type { Lease } from '../../core/lease.js'
-import type { DetectionMode, Scope } from '../../core/node.js'
+import type { DetectionMode, NodeDeclaration, Scope } from '../../core/node.js'
 import type { QueuedTask } from '../../core/queue.js'
 import type { StoredEvent } from '../../core/stored.js'
 import type { StatusPublisher } from '../../ports/github-status.js'
@@ -17,7 +17,7 @@ import { catalogIsEmpty, changedPaths, changesTheCatalog, MAIN_TIP, rebuildCatal
 import { appendEvent, defaultBusPath } from '../../core/db.js'
 import { messageOf } from '../../core/errors.js'
 import { BOARD_ALARM, CARD_ADMITTED, DECISION_RECORDED, DECISIONS_IMPORTED, MERGE_DONE, PR_CLOSED, PR_OBSERVED, PR_OPENED, REDUCED, REVIEW_RECORDED } from '../../core/events.js'
-import { Node, NodeRefused, runNode } from '../../core/node.js'
+import { Node, NodeRefused, runNode, UNDERSTOOD_NOW } from '../../core/node.js'
 import { pushPolicyAt } from '../../core/push-policy.js'
 import { closedByRounds, MERGE_CANDIDATES, MERGE_CANDIDATES_BEHIND, MERGE_CANDIDATES_WITHOUT_PASS, mergeCandidates, mergeDecidedPastRoundLimit } from '../../core/queue.js'
 import { ghStatusPublisher } from '../../ports/github-status.js'
@@ -30,6 +30,8 @@ import { MergeExecutor } from './merge-executor.js'
 export const LIVE_REVIEWER = 'worker:review:'
 export const CATALOG_REBUILD_FAILED = 'catalog_rebuild_failed'
 export const MERGE_ON = [REDUCED, PR_OBSERVED, PR_CLOSED, PR_OPENED, CARD_ADMITTED, MERGE_DONE, REVIEW_RECORDED, DECISION_RECORDED, DECISIONS_IMPORTED] as const
+
+export const MERGE_NODE: NodeDeclaration = { kind: 'merge', on: MERGE_ON, understands: UNDERSTOOD_NOW }
 
 const WHOLE_QUEUE_ON: ReadonlySet<string> = new Set([REDUCED, MERGE_DONE, DECISION_RECORDED, DECISIONS_IMPORTED])
 
@@ -94,7 +96,7 @@ export class MergeNode extends Node<MergeStep> {
     this.gitHub = parts.gitHub
     this.rebuildCatalog = parts.rebuildCatalog
     this.executor = new MergeExecutor({ db: parts.db, gitHub: parts.gitHub, put: parts.put, publish: parts.publish, clock: parts.clock, run: parts.run, rerun: this.rerun, pushPolicy: parts.pushPolicy })
-    this.subscribe(MERGE_ON, scopeOf)
+    this.declare(MERGE_NODE, scopeOf)
   }
 
   protected override before(): void {

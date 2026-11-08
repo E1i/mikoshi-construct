@@ -16,7 +16,7 @@ import { leaseNext } from '../../core/lease.js'
 import { answerCandidates, DOWNGRADE_WAIT_OPEN, queueTask } from '../../core/queue.js'
 import { reduce } from '../../core/reducer.js'
 import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
-import { claudeAnswerer, liveSessionIn, pendingPathsOf, refusedOwnerQuestionIn } from '../../nodes/answer/answerer.js'
+import { claudeAnswerer, clientInTree, pendingPathsOf, refusedOwnerQuestionIn } from '../../nodes/answer/answerer.js'
 import { codexAdapter } from '../../ports/client/codex/adapter.js'
 import { clientAdapter } from '../../ports/client/index.js'
 import { requestFromWindow, requestOf, WindowRequests } from '../../window/window-requests.js'
@@ -464,15 +464,15 @@ describe('a live session in the card tree', () => {
     const tree = path.join(dir, 'mc-905')
     mkdirSync(path.join(tree, 'scripts'), { recursive: true })
     const real = realpathSync(tree)
-    const listed = (...cwds: string[]) => () => ({ kind: 'listed' as const, listing: cwds.flatMap(cwd => ['p1', 'fcwd', `n${cwd}`]).join('\n') })
+    const listed = (...cwds: string[]) => () => ({ kind: 'listed' as const, cwds })
 
-    expect(liveSessionIn(treeAt(tree), listed(real))).toContain(real)
-    expect(liveSessionIn(treeAt(tree), listed(path.join(real, 'scripts')))).toContain(path.join(real, 'scripts'))
-    expect(liveSessionIn(treeAt(tree), listed(`${real}-sibling`))).toBeNull()
-    expect(liveSessionIn(treeAt(tree), listed())).toBeNull()
+    expect(clientInTree(treeAt(tree), listed(real))).toContain(real)
+    expect(clientInTree(treeAt(tree), listed(path.join(real, 'scripts')))).toContain(path.join(real, 'scripts'))
+    expect(clientInTree(treeAt(tree), listed(`${real}-sibling`))).toBeNull()
+    expect(clientInTree(treeAt(tree), listed())).toBeNull()
   })
 
   it('counts the card as held when the sessions cannot be read', () => {
-    expect(liveSessionIn(treeAt('/nowhere'), () => ({ kind: 'unreadable', why: 'spawn lsof ENOENT' }))).toContain('spawn lsof ENOENT')
+    expect(clientInTree(treeAt('/nowhere'), () => ({ kind: 'unreadable', why: 'spawn lsof ENOENT' }))).toContain('spawn lsof ENOENT')
   })
 })

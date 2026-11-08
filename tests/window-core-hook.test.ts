@@ -4,9 +4,9 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { HANDOFF_DIR_VARIABLE } from '../scripts/core/handoff-dir.js'
-import { CARD_VARIABLE, EXIT_REQUEST_VARIABLE, LOOP_PID_VARIABLE, WINDOW_VARIABLE } from '../scripts/ports/session.js'
+import { CARD_VARIABLE, EXIT_REQUEST_VARIABLE, LOOP_PID_VARIABLE, WINDOW_MARK, WINDOW_VARIABLE } from '../scripts/ports/session.js'
 import { WAKE_UP } from '../scripts/window/compact-start.js'
-import { MIKO_HANDOFF_NAME, repositoryContinuePrompt } from '../scripts/window/loop.js'
+import { MIKO_HANDOFF_NAME, repositoryContinuePrompt, TAB_MODE } from '../scripts/window/loop.js'
 import { ENTRYPOINT_VARIABLE } from '../scripts/window/tab.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..')
@@ -24,7 +24,7 @@ function project(withCore: boolean): string {
 }
 
 function run(root: string | null) {
-  const env = { ...process.env }
+  const env: NodeJS.ProcessEnv = { ...process.env, [WINDOW_VARIABLE]: WINDOW_MARK }
   delete env.CLAUDE_PROJECT_DIR
   delete env[CARD_VARIABLE]
   if (root != null)
@@ -45,7 +45,7 @@ function tabSession(source: string): { additionalContext: string, handoff: strin
   roots.push(handoffDir)
   writeFileSync(path.join(handoffDir, MIKO_HANDOFF_NAME), '# Handoff\n\nSTATUS: CONTINUE\n')
   const project = projectOutsideCardTrees()
-  const env = { ...process.env, HOME: handoffDir, CONSTRUCT_WORKTREE_HOME: path.join(handoffDir, 'worktrees'), CONSTRUCT_BUS_DB: path.join(handoffDir, 'bus.db'), CLAUDE_PROJECT_DIR: project, CLAUDE_CODE_SESSION_ID: 's-tab', [HANDOFF_DIR_VARIABLE]: handoffDir, CONSTRUCT_HANDOFF: '', CONSTRUCT_BUS_RAISED: '', [ENTRYPOINT_VARIABLE]: 'cli', [CARD_VARIABLE]: '', [WINDOW_VARIABLE]: '', [LOOP_PID_VARIABLE]: '', [EXIT_REQUEST_VARIABLE]: '' }
+  const env = { ...process.env, HOME: handoffDir, CONSTRUCT_WORKTREE_HOME: path.join(handoffDir, 'worktrees'), CONSTRUCT_BUS_DB: path.join(handoffDir, 'bus.db'), CLAUDE_PROJECT_DIR: project, CLAUDE_CODE_SESSION_ID: 's-tab', [HANDOFF_DIR_VARIABLE]: handoffDir, CONSTRUCT_HANDOFF: '', CONSTRUCT_BUS_RAISED: '', [ENTRYPOINT_VARIABLE]: 'cli', [CARD_VARIABLE]: '', [WINDOW_VARIABLE]: TAB_MODE, [LOOP_PID_VARIABLE]: '', [EXIT_REQUEST_VARIABLE]: '' }
   const result = spawnSync('node', [HOOK], { cwd: project, input: JSON.stringify({ hook_event_name: 'SessionStart', source }), env, encoding: 'utf8' })
   expect(result.status).toBe(0)
   const lines = result.stdout.split('\n').filter(line => line !== '')
@@ -56,6 +56,25 @@ function tabSession(source: string): { additionalContext: string, handoff: strin
 afterEach(() => {
   for (const root of roots.splice(0))
     rmSync(root, { recursive: true, force: true })
+})
+
+const SECTION_POINTER = /\[window\.md § ([^\]]+), lines (\d+)–(\d+)\]\(window\.md#[^)]+\)/g
+const ANY_WINDOW_MD_LINK = /\]\(window\.md[#)]/g
+
+function sectionRanges(text: string): Map<string, [number, number]> {
+  const lines = text.endsWith('\n') ? text.slice(0, -1).split('\n') : text.split('\n')
+  const heads = lines.flatMap((line, at) => line.startsWith('## ') ? [{ title: line.slice(3), line: at + 1 }] : [])
+  return new Map(heads.map((head, at) => [head.title, [head.line, at + 1 < heads.length ? heads[at + 1]!.line - 1 : lines.length]]))
+}
+
+it('every window.md pointer in window-core names its section with a line range that matches the file', () => {
+  const core = readFileSync(path.join(REPO_ROOT, 'architecture', 'window-core.md'), 'utf8')
+  const ranges = sectionRanges(readFileSync(path.join(REPO_ROOT, 'architecture', 'window.md'), 'utf8'))
+  const pointers = [...core.matchAll(SECTION_POINTER)]
+  expect(pointers.length).toBeGreaterThan(0)
+  expect(pointers).toHaveLength([...core.matchAll(ANY_WINDOW_MD_LINK)].length)
+  for (const [, title, start, end] of pointers)
+    expect([Number(start), Number(end)], title).toEqual(ranges.get(title!))
 })
 
 describe('the window-core SessionStart hook', () => {

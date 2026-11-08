@@ -8,11 +8,13 @@ import { appendedOnCard } from '../../core/card-automaton.js'
 import { appendEvent, BUS_DB_VARIABLE, openBus, openBusWait, openOwnerWait } from '../../core/db.js'
 import { CARD_WAITING, DECISIONS_IMPORTED, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, REJECTED, WITNESS_DOWNGRADE } from '../../core/events.js'
 import { cardIdOfDescription } from '../../core/identifiers.js'
+import { ANSWER_SOURCE } from '../../core/inbox.js'
 import { ghostLines } from '../../core/journal.js'
 import { reentryLimitWaitText } from '../../core/queue.js'
 import { closeWaitsOfEndedCards, DIRTY_ROWS, projectionDump, reduce, REDUCE_BATCH, reducedThrough, SNAPSHOT } from '../../core/reducer.js'
 import { WATERMARKS } from '../../core/watermark.js'
 import { recordFall } from '../../ladder/supervise.js'
+import { sayToOwnerChannel } from '../../owner/channel.js'
 import { recordDecision } from '../../policy/decisions.js'
 import { allowLiveCommand } from '../../policy/live-decision.js'
 import { requestFromWindow, WindowRequests } from '../../window/window-requests.js'
@@ -32,6 +34,15 @@ function newBus(): ReturnType<typeof openBus> {
   const root = mkdtempSync(path.join(tmpdir(), 'bus-reducer-'))
   roots.push(root)
   return openBus(path.join(root, 'bus.db'))
+}
+
+function ownerChannelWith(...words: string[]): string {
+  const root = mkdtempSync(path.join(tmpdir(), 'bus-reducer-channel-'))
+  roots.push(root)
+  const channel = path.join(root, 'owner-answers')
+  for (const said of words)
+    sayToOwnerChannel(channel, said, new Date('2026-10-09T12:00:00.000Z'))
+  return channel
 }
 
 function event(type: string, fields: Partial<BusEvent>): BusEvent {
@@ -748,9 +759,11 @@ describe('the reducer of the owner_waits projection', () => {
     const refuse = (): never => {
       throw new Error('closing a wait uses no tool')
     }
+    const channel = ownerChannelWith('the downgrade is withdrawn')
     requestFromWindow(db, '2026-10-09T12:00:00.000Z', 'test', { kind: 'owner.wait.close', id, answer: 'the downgrade is withdrawn' })
+    requestFromWindow(db, '2026-10-09T12:00:00.000Z', 'test', { kind: 'owner.wait.close', id, answer: 'the downgrade is withdrawn', from: ANSWER_SOURCE })
     const tools = { treeOf: refuse, exists: refuse, cutTree: refuse, dryRunOf: refuse, addDecision: refuse, causeHolds: refuse, closePr: refuse, closeDropped: () => [] }
-    expect(new WindowRequests(db, () => new Date('2026-10-09T12:00:00.000Z'), tools).run()).toMatchObject([{ kind: 'done' }])
+    expect(new WindowRequests(db, () => new Date('2026-10-09T12:00:00.000Z'), tools, channel).run()).toMatchObject([{ kind: 'refused' }, { kind: 'done' }])
     expect(reduce(db).rejected).toBe(0)
     expect(waits(db).map(each => [each.id, each.state, each.answer])).toEqual([[id, 'closed', 'the downgrade is withdrawn']])
     db.close()
@@ -767,9 +780,10 @@ describe('the reducer of the owner_waits projection', () => {
       throw new Error('closing a wait uses no tool')
     }
     const tools = { treeOf: refuse, exists: refuse, cutTree: refuse, dryRunOf: refuse, addDecision: refuse, causeHolds: refuse, closePr: refuse, closeDropped: () => [] }
-    const requests = new WindowRequests(db, () => new Date('2026-10-09T12:00:00.000Z'), tools)
-    requestFromWindow(db, '2026-10-09T12:00:00.000Z', 'test', { kind: 'owner.wait.close', id, answer: 'card #1262 dropped, the wait is void' })
-    requestFromWindow(db, '2026-10-09T12:00:01.000Z', 'test', { kind: 'owner.wait.close', id, answer: 'the same close again' })
+    const channel = ownerChannelWith('card #1262 dropped, the wait is void', 'the same close again')
+    const requests = new WindowRequests(db, () => new Date('2026-10-09T12:00:00.000Z'), tools, channel)
+    requestFromWindow(db, '2026-10-09T12:00:00.000Z', 'test', { kind: 'owner.wait.close', id, answer: 'card #1262 dropped, the wait is void', from: ANSWER_SOURCE })
+    requestFromWindow(db, '2026-10-09T12:00:01.000Z', 'test', { kind: 'owner.wait.close', id, answer: 'the same close again', from: ANSWER_SOURCE })
     expect(requests.run().map(outcome => outcome.kind)).toEqual(['done', 'refused'])
     expect(reduce(db).rejected).toBe(0)
     expect(waits(db).map(each => [each.id, each.state, each.answer])).toEqual([[id, 'closed', 'card #1262 dropped, the wait is void']])

@@ -151,8 +151,8 @@ describe('the models', () => {
   })
 
   it('passes a named model through and leaves auto to the client', () => {
-    expect(codexAdapter.modelFor('review', null, 'no-such-model-x')).toEqual({ model: 'no-such-model-x' })
-    expect(codexAdapter.modelFor('review', 'high', 'auto')).toEqual({ model: null })
+    expect(codexAdapter.modelFor('review', null, 'no-such-model-x')).toEqual({ model: 'no-such-model-x', effort: null })
+    expect(codexAdapter.modelFor('review', 'high', 'auto')).toEqual({ model: null, effort: null })
   })
 })
 
@@ -164,11 +164,11 @@ describe('the rest of the contract', () => {
     expect(codexAdapter.processes.isClient('grep -r something codex')).toBe(false)
   })
 
-  it('holds no session marker, no own session, no process reading and no budget reading', () => {
+  it('holds no session marker, no own session and no budget reading, and names its process codex', () => {
     expect(codexAdapter.processes.sessionMarker('core-session')).toBeNull()
     expect(codexAdapter.ownSession({})).toBeNull()
-    expect(codexAdapter.processes.liveCwds()).toMatchObject({ kind: 'unreadable' })
-    expect(codexAdapter.readBudget('/home-of-test', 'core-session')).toEqual({ startContext: null, readBeforeEdit: null })
+    expect(codexAdapter.processes.processNames).toEqual(['codex'])
+    expect(codexAdapter.readBudget({ session: 'core-session', cwd: '/tree', stdoutPath: null })).toEqual({ startContext: null, readBeforeEdit: null })
     expect(codexAdapter.processes.isolationCommand()).toEqual(['codex', 'exec', '--json', '-s', 'read-only', '-C'])
   })
 })

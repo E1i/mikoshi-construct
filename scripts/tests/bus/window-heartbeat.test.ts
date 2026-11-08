@@ -61,13 +61,13 @@ function lockedBusError(file: string): unknown {
 }
 
 describe('the window heartbeat', () => {
-  it('a window session without MIKO_WINDOW records a window.heartbeat carrying mode tab', () => {
+  it('a session the tab launcher marked records a window.heartbeat carrying mode tab', () => {
     const root = mkdtempSync(path.join(tmpdir(), 'tab-tree-'))
     roots.push(root)
     vi.stubEnv('HOME', root)
     vi.stubEnv('CLAUDE_PROJECT_DIR', root)
     vi.stubEnv('CLAUDE_CODE_SESSION_ID', 'tab-1')
-    vi.stubEnv(WINDOW_VARIABLE, undefined)
+    vi.stubEnv(WINDOW_VARIABLE, 'tab')
     vi.stubEnv(LOOP_PID_VARIABLE, undefined)
     vi.stubEnv(EXIT_REQUEST_VARIABLE, undefined)
     vi.stubEnv(CARD_VARIABLE, '')

@@ -16,7 +16,7 @@ import { VERIFICATION_WORDS } from '../../core/verification.js'
 import { archiveCardFile } from '../../intake/card-archive.js'
 import { cardContract, NOT_MINE, notMine } from '../../intake/card-contract.js'
 import { closeWitnessDenial, MERGE_RECORD, WITNESS_REASON } from '../../policy/policy.js'
-import { FREE_TREE_CAPACITY, liveSessionHolds, parkTree } from '../../ports/worktree.js'
+import { clientMayWorkIn, FREE_TREE_CAPACITY, parkTree } from '../../ports/worktree.js'
 import { cardSessionOf } from '../answer/answer-source.js'
 
 export type CloseTechnicalReason = 'card_closed' | 'no_verification' | 'no_merge_commit' | typeof WITNESS_REASON | typeof NOT_MINE
@@ -89,7 +89,7 @@ function dirtyCount(worktree: string): number {
 
 export function treeMayBeReused(db: DatabaseSync, cardId: number, card: CardSession, cwds?: () => ProcessCwds): boolean {
   const row = db.prepare('SELECT state FROM cards WHERE card_id = ?').get(cardId) as { state: string | null } | undefined
-  return row?.state !== STOPPED_CARD && !liveSessionHolds(card.worktree, cwds)
+  return row?.state !== STOPPED_CARD && !clientMayWorkIn(card.worktree, cwds)
 }
 
 export function parkedOrNull(repo: string, tree: string, capacity: number): string | null {

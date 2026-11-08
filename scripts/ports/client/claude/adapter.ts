@@ -1,14 +1,16 @@
-import type { ClientAdapter, Denial, Invocation, JournalChange, ReadBudget, Refusal, Role, SessionJournal, SessionPlace, SessionPolicy, SessionReading, SessionSpec, SessionTool, ToolUse, Usage } from '../contract.js'
+import type { ClientAdapter, Denial, Effort, Invocation, JournalChange, ModelChoice, ModelOffer, ModelPick, ReadBudget, Refusal, Role, SessionJournal, SessionPlace, SessionPolicy, SessionReading, SessionSpec, SessionTool, ToolUse, Usage } from '../contract.js'
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
+import { FACTORY_RUNTIME } from '../../../core/factory-paths.js'
 import { commandWords } from '../../isolation.js'
+import { reviewModelOf } from '../../session.js'
 import { settingsFlag, shiftSettings } from '../../shift-settings.js'
-import { claudeProcessCwds } from '../../worktree.js'
 
 const CLAUDE_COMMAND = 'claude'
+const CLAUDE_PROCESS_NAMES = [CLAUDE_COMMAND, '/^[0-9]+[.][0-9]+[.][0-9]+$/']
 const MCP_OFF_FLAG = '--strict-mcp-config'
 const CARD_PERMISSION = ['--permission-mode', 'dontAsk'] as const
 const SESSION_ID_FLAG = '--session-id'
@@ -39,22 +41,33 @@ const ANY_LINE_BREAK = /\r\n?|[\n\p{Zl}\p{Zp}]/u
 const REPO_ROOT = path.join(import.meta.dirname, '..', '..', '..', '..')
 const HOOK_MEASURE_MODULE = path.join(REPO_ROOT, '.claude', 'hooks', 'eddies-measure.mjs')
 const TASK_STOP = 'TaskStop'
+export const WINDOW_MCP_CONFIG = path.join(REPO_ROOT, path.dirname(FACTORY_RUNTIME.mikoLoopEntry), 'window-mcp.json')
+export const WINDOW_UNUSED_TOOLS = ['Artifact', 'Workflow', 'AskUserQuestion', 'ScheduleWakeup', 'ReportFindings'] as const
+export const WINDOW_KEPT_TOOLS = ['Bash', 'Read', 'Edit', 'Write', 'CronCreate', 'CronDelete', 'CronList', 'Monitor', 'Agent', 'ListAgents', 'Skill', 'ToolSearch', 'SendMessage', TASK_STOP] as const
+const WINDOW_DIET = ['--setting-sources', 'project,local', MCP_OFF_FLAG, '--mcp-config', WINDOW_MCP_CONFIG, '--disallowedTools', WINDOW_UNUSED_TOOLS.join(',')] as const
+const WINDOW_FLAGS = [...WINDOW_DIET, ...CARD_PERMISSION] as const
 
 export const WINDOW_COMMAND_VARIABLE = 'MIKO_CLAUDE'
 export const CLIENT_SANDBOX_DIRECTORY = path.join('/tmp', `claude-${os.userInfo().uid}`)
 export const WINDOW_RESUME_REFUSAL = 'a window session is never resumed: the miko loop starts a fresh session from the handoff'
 
-export class ClientOperationPending extends Error {
-  constructor(readonly operation: string, readonly card: string) {
-    super(`the client operation ${operation} is filled by the card ${card}`)
-    this.name = 'ClientOperationPending'
-  }
+const OFFERED_MODELS = ['fable', 'opus', 'sonnet', 'haiku', 'claude-fable-5-1', 'claude-opus-5-5', 'claude-sonnet-5-5', 'claude-sonnet-5', 'claude-haiku-5-5'] as const
+const OFFERED_EFFORTS: readonly Effort[] = ['low', 'medium', 'high', 'xhigh', 'max']
+const AUTO_MODEL: ModelChoice = 'auto'
+
+function models(): ModelOffer[] {
+  return OFFERED_MODELS.map(id => ({ id, efforts: [...OFFERED_EFFORTS], contextWindow: null, recommendedFor: [] }))
 }
 
-function pending(operation: string, card: string): () => never {
-  return () => {
-    throw new ClientOperationPending(operation, card)
-  }
+function autoPick(role: Role): ModelPick {
+  return { model: role === 'review' ? reviewModelOf() ?? null : null, effort: null }
+}
+
+function modelFor(role: Role, _effort: Effort | null, wanted: ModelChoice): ModelPick | Refusal {
+  if (wanted === AUTO_MODEL)
+    return autoPick(role)
+  const offers = models().map(offer => offer.id)
+  return offers.includes(wanted) ? { model: wanted, effort: null } : { kind: 'refused', reason: `the model ${wanted} is not offered: the offers are ${offers.join(', ')}` }
 }
 
 function userInstructionsOff(): { autoMemoryEnabled: false, claudeMdExcludes: string[] } {
@@ -105,7 +118,7 @@ function cardSession(spec: SessionSpec): Invocation {
 function windowSession(spec: SessionSpec): Invocation | Refusal {
   if (spec.kind === 'resume')
     return { kind: 'refused', reason: WINDOW_RESUME_REFUSAL }
-  return invocationOf([...CARD_PERMISSION, ...selectionOf(spec), ...(spec.prompt === '' ? [] : [spec.prompt])], null, WINDOW_ENV)
+  return invocationOf([...WINDOW_FLAGS, ...selectionOf(spec), ...(spec.prompt === '' ? [] : [spec.prompt])], null, WINDOW_ENV)
 }
 
 const SESSION_OF_ROLE: Record<Role, (spec: SessionSpec) => Invocation | Refusal> = {
@@ -134,9 +147,10 @@ function budgetOf(transcript: string): ReadBudget {
   return { startContext, readBeforeEdit: startContext === null || editContext === null ? null : editContext - startContext }
 }
 
-function readBudget(home: string, session: string): ReadBudget {
+function readBudget(place: SessionPlace): ReadBudget {
+  const home = os.homedir()
   const projects = path.join(home, '.claude', 'projects')
-  const transcript = existsSync(projects) ? findTranscript(home, session) : null
+  const transcript = existsSync(projects) ? findTranscript(home, place.session) : null
   return budgetOf(textOf(transcript) ?? '')
 }
 
@@ -159,19 +173,19 @@ export const claudeAdapter: ClientAdapter = {
   invocation: spec => SESSION_OF_ROLE[spec.role](spec),
   reading: place => readingOf(place),
   readBudget,
-  models: pending('models', 'clientmodels'),
-  modelFor: pending('modelFor', 'clientmodels'),
+  models,
+  modelFor,
   processes: {
     isClient: isClaudeArgv,
     sessionMarker: session => `${SESSION_ID_FLAG} ${session}`,
-    liveCwds: () => claudeProcessCwds(),
+    processNames: CLAUDE_PROCESS_NAMES,
     isolationCommand: () => [CLAUDE_COMMAND, ...HEADLESS_OUTPUT, MCP_OFF_FLAG, SESSION_ID_FLAG],
   },
   ownSession: env => env[SESSION_VARIABLE] || null,
 }
 
 export function windowCommand(env: NodeJS.ProcessEnv): string {
-  return env[WINDOW_COMMAND_VARIABLE] ?? [CLAUDE_COMMAND, ...CARD_PERMISSION].join(' ')
+  return env[WINDOW_COMMAND_VARIABLE] ?? [CLAUDE_COMMAND, ...WINDOW_FLAGS].join(' ')
 }
 
 interface HookTokens {
@@ -336,8 +350,47 @@ export function clientHome(env: NodeJS.ProcessEnv): string {
   return env[CONFIG_DIR_VARIABLE] || path.join(os.homedir(), '.claude')
 }
 
+function projectDirOf(claudeHome: string, worktree: string): string {
+  return path.join(claudeHome, 'projects', worktree.replace(/[^a-z0-9]/gi, '-'))
+}
+
 export function transcriptFile(claudeHome: string, worktree: string, session: string): string | null {
-  return PLAIN_SESSION.test(session) ? path.join(claudeHome, 'projects', worktree.replace(/[^a-z0-9]/gi, '-'), `${session}.jsonl`) : null
+  return PLAIN_SESSION.test(session) ? path.join(projectDirOf(claudeHome, worktree), `${session}.jsonl`) : null
+}
+
+export interface StartContext {
+  firstTurn: number | null
+  atMarker: number | null
+}
+
+function runsCommandWith(content: unknown, marker: string): boolean {
+  const blocks = (Array.isArray(content) ? content : []) as { type?: unknown, name?: unknown, input?: { command?: unknown } }[]
+  return blocks.some(block => block?.type === 'tool_use' && block.name === EXEC_TOOL && typeof block.input?.command === 'string' && block.input.command.includes(marker))
+}
+
+export function startContextOf(transcript: string, marker: string): StartContext {
+  const reported = entriesOf(transcript).filter(entry => entry.message?.role === 'assistant' && entry.message.usage != null)
+  const contextAt = (entry: TranscriptEntry | undefined): number | null => entry === undefined ? null : reportedContextOf(entry.message!.usage!)
+  return { firstTurn: contextAt(reported.at(0)), atMarker: contextAt(reported.find(entry => runsCommandWith(entry.message!.content, marker))) }
+}
+
+function promptText(content: unknown): string {
+  if (typeof content === 'string')
+    return content
+  return ((Array.isArray(content) ? content : []) as { type?: unknown, text?: unknown }[]).map(part => part?.type === 'text' && typeof part.text === 'string' ? part.text : '').join('')
+}
+
+function firstPromptOf(transcript: string): string {
+  const prompt = entriesOf(transcript).find(entry => entry.type === 'user' && entry.isMeta !== true && entry.isSidechain !== true)
+  return promptText(prompt?.message?.content)
+}
+
+export function lastSessionPrompted(env: NodeJS.ProcessEnv, worktree: string, promptStart: string): string | null {
+  const dir = projectDirOf(clientHome(env), worktree)
+  if (!existsSync(dir))
+    return null
+  const newestFirst = readdirSync(dir).filter(name => name.endsWith('.jsonl')).map(name => path.join(dir, name)).sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs)
+  return newestFirst.find(file => firstPromptOf(readFileSync(file, 'utf8')).startsWith(promptStart)) ?? null
 }
 
 function textOf(file: string | null): string | null {
@@ -551,9 +604,10 @@ function endOf(result: RawEntry | null): Pick<SessionReading, 'end' | 'failure'>
 }
 
 function runEndOf(entries: RawEntry[], place: SessionPlace): Pick<SessionReading, 'end' | 'failure'> {
-  if (entries.length > 0 || place.exitCode === null || place.exitCode === 0)
+  const exitCode = place.exitCode ?? null
+  if (entries.length > 0 || exitCode === null || exitCode === 0)
     return endOf(resultLineOf(entries))
-  return { end: 'failed', failure: nonEmpty(textOf(place.stderrPath)) ?? `the client exited ${place.exitCode} with no stream and no error text` }
+  return { end: 'failed', failure: nonEmpty(textOf(place.stderrPath ?? null)) ?? `the client exited ${exitCode} with no stream and no error text` }
 }
 
 function clientSessionOf(entries: RawEntry[], place: SessionPlace): string | null {

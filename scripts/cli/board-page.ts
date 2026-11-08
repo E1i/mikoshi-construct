@@ -20,7 +20,7 @@ import { RUNS_PREFIX, withinTouches } from '../../src/card/covering-tests.js'
 import { fieldCommand } from '../../src/card/witness-fields.js'
 import { busFacts, CARD_STAGES, latestCardEvents, openTasks } from '../../src/commands/board/bus.js'
 import { DROPPED, droppedLine, goalOf, MARK_WORDS, planLine } from '../../src/commands/board/goal.js'
-import { backlogCards, isLive, laneColumns, matrixLines, pulseLines, slotsReading, waitAction, waitTarget } from '../../src/commands/board/screens.js'
+import { backlogCards, isLive, laneColumns, matrixLines, pulseLines, screenLines, slotsReading, waitAction, waitTarget } from '../../src/commands/board/screens.js'
 import { factoryLiveness } from '../../src/commands/liveness.js'
 import { BANNER, LORE, PLAIN_LORE } from '../../src/ui/lore.js'
 import { currentVersion } from '../../src/version.js'
@@ -32,7 +32,7 @@ import { openDatabase } from '../core/sqlite.js'
 import { cardContract } from '../intake/card-contract.js'
 import { recordedWitnessFieldsBackfill, witnessTableOf } from '../intake/witness-fields-backfill.js'
 import { inForceDecisions } from '../policy/decisions.js'
-import { GREEN, RED } from '../policy/policy.js'
+import { GREEN, RED, UNCHECKED } from '../policy/policy.js'
 import { ghApi } from '../ports/github.js'
 import { BOARD_FILE, FRESH_MS, windowGauges } from '../window/board.js'
 import { mikoHandoff } from '../window/loop.js'
@@ -143,7 +143,7 @@ const MILLION = 1_000_000
 const MINUTE_MS = 60_000
 export const BOARD_DATA_FILE = 'board-data.js'
 const BOARD_DATA_PREFIX = 'window.BOARD = '
-const JSON_FLAG = '--json'
+const FORMAT_FLAGS: readonly (readonly [string, BoardFormat])[] = [['--json', 'json'], ['--html', 'html']]
 const PLAN_FLAG = '--plan'
 const EXPORT_ORDER: readonly CardMark[] = ['delivered', 'in_progress', 'review', 'queued', DROPPED]
 const EVENTS_PER_CARD = 5
@@ -178,6 +178,8 @@ export const RELEASE_PROGRESS_ORDER: readonly ReleaseStage[] = ['delivered', 're
 const WAIT_NEEDS: Record<OwnerWait['need'], string> = { decision: 'D', merge: 'M', command: 'C' }
 const NOT_RUN_ON_HEAD = 'not run'
 const NOT_REACHED_ON_HEAD = 'not reached'
+const COULD_NOT_CHECK_ON_HEAD = 'could not check'
+const SETTLED_ON_HEAD: Readonly<Partial<Record<string, string>>> = { [GREEN]: GREEN, [UNCHECKED]: COULD_NOT_CHECK_ON_HEAD }
 const NEGATED_RUN = /^!\s+/
 const WITNESS_ID_COLUMN = 'id'
 const WITNESS_COLUMNS = ['run', 'test', 'head/base', 'proves']
@@ -710,10 +712,8 @@ function cardPunch(card: BusCard, detail: CardDetail, page: BoardPage): string {
 function lastWitnessResult(field: WitnessField, record: WitnessRecordOnHead | null): string {
   if (record === null)
     return NOT_RUN_ON_HEAD
-  if (record.verdict === GREEN)
-    return GREEN
   const command = fieldCommand(field).replace(NEGATED_RUN, '')
-  return [command, `! ${command}`].some(named => record.detail.includes(`\`${named}\``)) ? RED : NOT_REACHED_ON_HEAD
+  return SETTLED_ON_HEAD[record.verdict] ?? ([command, `! ${command}`].some(named => record.detail.includes(`\`${named}\``)) ? RED : NOT_REACHED_ON_HEAD)
 }
 
 function witnessRow(field: WitnessField, record: WitnessRecordOnHead | null, page: BoardPage): string {
@@ -1736,13 +1736,13 @@ function busDownWaits(down: BusDown): string {
     : `<section class="owner-strip bevel" aria-label="Waits for you"><span class="lbl">waits for you</span>${items.join('')}</section>`
 }
 
+function pageHead(title: string, body: string): string[] {
+  return ['<!doctype html>', '<html lang="en"><head><meta charset="utf-8">', '<meta name="viewport" content="width=device-width, initial-scale=1">', `<title>${TITLE_PREFIX}${title}</title>`, `<style>${STYLE}</style></head>${body}`]
+}
+
 export function renderBusDown(down: BusDown): string {
   return [
-    '<!doctype html>',
-    '<html lang="en"><head><meta charset="utf-8">',
-    '<meta name="viewport" content="width=device-width, initial-scale=1">',
-    `<title>${TITLE_PREFIX}bus stopped</title>`,
-    `<style>${STYLE}</style></head><body>`,
+    ...pageHead('bus stopped', '<body>'),
     `<section class="panel bevel" role="alert" aria-labelledby="h-bus-down"><div class="panel-head"><h2 id="h-bus-down">bus stopped</h2></div>`,
     `<div class="down"><p class="fail">${escaped(busDownLine(down))}</p><p><span class="live" data-snapshot${snapshotStale(down) ? ' data-stale' : ''}>${escaped(snapshotLine(down))}</span></p></div></section>`,
     busDownWaits(down),
@@ -1755,28 +1755,22 @@ export function busDownJson(down: BusDown): string {
   return `${JSON.stringify({ status: 'stopped', at: down.at, line: busDownLine(down), stoppedAt: down.stoppedAt, error: down.error, snapshot: down.snapshot === null ? null : { written: down.snapshot.written, ageMs: snapshotAgeMs(down), stale: snapshotStale(down) }, waits: down.snapshot?.waits ?? [], handoffStatus: down.handoffStatus }, null, 2)}\n`
 }
 
-export function busJson(db: DatabaseSync, now: Date): string {
+export function busDownText(down: BusDown): string {
+  const waits = [...(down.snapshot?.waits ?? []).map(wait => `${WAIT_NEEDS[wait.need] ?? '?'} ${waitText(wait)}`), ...(down.handoffStatus === null ? [] : [`handoff STATUS: ${down.handoffStatus}`])]
+  return `${[busDownLine(down), snapshotLine(down), ...(waits.length === 0 ? ['no open owner wait in the last snapshot or the handoff'] : waits.map(wait => `waits for you: ${wait}`))].join('\n')}\n`
+}
+
+export function busJson(db: DatabaseSync, now: Date, liveOnly = false): string {
   const facts = busFacts(db, now)
   const prs = cardPrs(db)
   const events = latestCardEvents(db, EVENTS_PER_CARD)
-  return `${JSON.stringify({
-    status: 'live',
-    at: facts.at,
-    pulse: facts.pulse,
-    waits: facts.waits,
-    cards: facts.cards.map(card => ({ id: card.id, stage: card.stage, state: card.state, lane: card.lane, pr: prs.get(card.id) ?? null, line: card.line, events: events.get(card.id) ?? [] })),
-    tasks: openTasks(db),
-  }, null, 2)}\n`
+  return `${JSON.stringify({ status: 'live', at: facts.at, pulse: facts.pulse, waits: facts.waits, cards: (liveOnly ? facts.cards.filter(isLive) : facts.cards).map(card => ({ id: card.id, stage: card.stage, state: card.state, lane: card.lane, pr: prs.get(card.id) ?? null, line: card.line, events: events.get(card.id) ?? [] })), tasks: openTasks(db) }, null, 2)}\n`
 }
 
 export function renderBoard(page: BoardPage): string {
   const { slots } = boardData(page)
   return [
-    '<!doctype html>',
-    '<html lang="en"><head><meta charset="utf-8">',
-    '<meta name="viewport" content="width=device-width, initial-scale=1">',
-    `<title>${TITLE_PREFIX}${escaped(page.facts.at)}</title>`,
-    `<style>${STYLE}</style></head><body data-written="${escaped(page.facts.at)}" data-tick-ms="${page.tickMs ?? ''}">`,
+    ...pageHead(escaped(page.facts.at), `<body data-written="${escaped(page.facts.at)}" data-tick-ms="${page.tickMs ?? ''}">`),
     headerPanel(page, slots),
     `<div class="warnings" id="${SLOT_PREFIX}warnings">${slots.warnings}</div>`,
     `<section class="panel bevel" id="${SLOT_PREFIX}services" aria-labelledby="h-services">\n${slots.services}\n</section>`,
@@ -1841,30 +1835,36 @@ export function writeBoardPage(file: string, html: string, files: BoardFiles = D
   files.rename(temporary, file)
 }
 
-export type BoardFormat = 'html' | 'json'
+export type BoardFormat = 'html' | 'json' | 'text'
+
+export function boardFormatOf(args: readonly string[]): BoardFormat {
+  return FORMAT_FLAGS.find(([flag]) => args.includes(flag))?.[1] ?? 'text'
+}
 
 function mainUpToDateOfThisRepository(): MainUpToDate {
   return new MainUpToDate(ghApi(process.cwd()), Date.now)
 }
 
-function boardText(busPath: string, now: Date, handoffFile: string, format: BoardFormat, eddiesFile: string): string {
+function boardText(busPath: string, now: Date, handoffFile: string, format: BoardFormat, eddiesFile: string, liveOnly: boolean): string {
   const db = openDatabase(busPath, { readOnly: true, timeout: BUSY_TIMEOUT_MS })
   try {
-    return format === 'json' ? busJson(db, now) : renderBoard(boardPageOf(db, busPath, now, handoffFile, null, mainUpToDateOfThisRepository(), eddiesFile))
+    if (format !== 'html')
+      return format === 'json' ? busJson(db, now, liveOnly) : `${screenLines(busFacts(db, now), PLAIN_LORE).join('\n')}\n`
+    return renderBoard(boardPageOf(db, busPath, now, handoffFile, null, mainUpToDateOfThisRepository(), eddiesFile))
   }
   finally {
     db.close()
   }
 }
 
-export function printBoard(busPath: string, now: Date, write: (text: string) => void, handoffFile: string = HANDOFF_FILE, format: BoardFormat = 'html', eddiesFile: string = EDDIES_FILE): number {
+export function printBoard(busPath: string, now: Date, write: (text: string) => void, handoffFile: string = HANDOFF_FILE, format: BoardFormat = 'text', eddiesFile: string = EDDIES_FILE, liveOnly = false): number {
   let text: string
   try {
-    text = boardText(busPath, now, handoffFile, format, eddiesFile)
+    text = boardText(busPath, now, handoffFile, format, eddiesFile, liveOnly)
   }
   catch (error) {
     const down = busDownOf(now, error instanceof Error ? error.message.split('\n')[0]! : String(error), path.join(path.dirname(busPath), BOARD_DATA_FILE), readHandoff(handoffFile))
-    write(format === 'json' ? busDownJson(down) : renderBusDown(down))
+    write({ html: renderBusDown, json: busDownJson, text: busDownText }[format](down))
     return 1
   }
   write(text)
@@ -1909,7 +1909,7 @@ export function runBoardCli(busPath: string = defaultBusPath(), args: readonly s
     }
     return printPlan(busPath, release, new Date(), text => process.stdout.write(text))
   }
-  return printBoard(busPath, new Date(), text => process.stdout.write(text), HANDOFF_FILE, args.includes(JSON_FLAG) ? 'json' : 'html')
+  return printBoard(busPath, new Date(), text => process.stdout.write(text), HANDOFF_FILE, boardFormatOf(args), EDDIES_FILE, args.includes('--live'))
 }
 
 export interface BoardProjection {

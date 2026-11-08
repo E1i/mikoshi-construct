@@ -6,7 +6,7 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { HANDOFF_DIR_VARIABLE } from '../../core/handoff-dir.js'
 import { WINDOW_VARIABLE } from '../../ports/session.js'
-import { MIKO_HANDOFF_NAME } from '../../window/loop.js'
+import { MIKO_HANDOFF_NAME, TAB_MODE } from '../../window/loop.js'
 import { LIVE_WATCH, NO_LIVE_WATCH, OWNER_QUESTION_WAITS, realTurnWatchDeps, runTurnWatch } from '../../window/turn-watch.js'
 import { WINDOW_BEAT_MS } from '../../window/window-heartbeat.js'
 
@@ -22,7 +22,7 @@ function ownerQuestionHandoff(): NodeJS.ProcessEnv {
   const dir = mkdtempSync(path.join(tmpdir(), 'windowawake-'))
   roots.push(dir)
   writeFileSync(path.join(dir, MIKO_HANDOFF_NAME), '# Handoff\n\nSTATUS: CONTINUE\n\nSTATUS: OWNER — boundary: owner-question\n')
-  return { [HANDOFF_DIR_VARIABLE]: dir, CLAUDE_CODE_SESSION_ID: 's-window', [WINDOW_VARIABLE]: '' }
+  return { [HANDOFF_DIR_VARIABLE]: dir, CLAUDE_CODE_SESSION_ID: 's-window', [WINDOW_VARIABLE]: TAB_MODE }
 }
 
 function stopTab(lastBeat: string | null): { code: number, lines: string[] } {

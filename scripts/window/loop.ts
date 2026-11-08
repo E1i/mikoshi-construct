@@ -1,6 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { WindowMode } from '../ports/session.js'
 import type { ProcessRow } from './exit.js'
-import { execFileSync, spawn } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -12,11 +13,12 @@ import { appendEvent, defaultBusPath, inTransaction, openBus } from '../core/db.
 import { PROCESS_ENDED, PROCESS_HEARTBEAT, PROCESS_REFUSED } from '../core/events.js'
 import { defaultHandoffDir } from '../core/handoff-dir.js'
 import { WINDOW_COMMAND_VARIABLE, windowCommand } from '../ports/client/claude/adapter.js'
+import { OsProcessTable } from '../ports/process-table.js'
 import { EXIT_REQUEST_VARIABLE, LOOP_PID_VARIABLE, WINDOW_MARK, WINDOW_VARIABLE } from '../ports/session.js'
 import { recordProcessHeartbeat } from '../supervisor/heartbeat.js'
 import { beatsLive, SILENT_MS } from '../supervisor/liveness-sites.js'
 import { coreVersionIn, LOADED_CORE_VARIABLE, UNKNOWN } from './eddies-measure.js'
-import { ancestors, exitRootOf, parsePs } from './exit.js'
+import { ancestors, chainRowsOf, exitRootOf } from './exit.js'
 import { windowEndObserver } from './role-end.js'
 import { lastLoopBeats, LOOP_PROCESS } from './window-heartbeat.js'
 
@@ -49,6 +51,8 @@ export const DOUBLE_CTRL_C_WINDOW_MS = 1500
 export const EXIT_REQUEST_PREFIX = 'miko-exit'
 export const EXIT_POLL_MS = 200
 export const LOOP_BEAT_MS = 5 * 60_000
+export const TAB_WORD = '--tab'
+export const TAB_MODE: WindowMode = 'tab'
 
 export type Status = 'CONTINUE' | 'OWNER' | 'DONE' | 'STOP'
 
@@ -112,7 +116,7 @@ export function requestEndsSession(table: ProcessRow[] | null, requester: number
 
 function readTable(): ProcessRow[] | null {
   try {
-    return parsePs(execFileSync('ps', ['-A', '-o', 'pid=,ppid=,args='], { encoding: 'utf8' }))
+    return chainRowsOf(new OsProcessTable())
   }
   catch {
     return null
@@ -343,6 +347,11 @@ export function runSession(command: string, prompt: string | undefined, request:
   })
 }
 
+export function runTabSession(command: string, args: readonly string[]): number {
+  const run = spawnSync('sh', ['-c', sessionScript(command), 'miko', ...args], { stdio: 'inherit', env: { ...process.env, [LOOP_PID_VARIABLE]: '', [EXIT_REQUEST_VARIABLE]: '', [WINDOW_VARIABLE]: TAB_MODE } })
+  return run.status ?? 1
+}
+
 export const HANGUPS = ['SIGHUP', 'SIGTERM'] as const
 
 export function once(work: () => void): () => void {
@@ -368,6 +377,10 @@ export { windowCommand as claudeCommand }
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const command = windowCommand(process.env)
+  if (process.argv[2] === TAB_WORD) {
+    process.on('SIGINT', () => {})
+    process.exit(runTabSession(command, process.argv.slice(3)))
+  }
   const refusal = compoundCommandRefusal(command)
   if (refusal !== null) {
     console.error(refusal)

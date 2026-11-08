@@ -11,7 +11,6 @@ const FAILED_WITH_NO_TEXT = 'the client reported a failed turn and no text'
 
 const ONLY_READ_ONLY_REVIEW = 'this client runs only a read-only review session (Q167)'
 const NO_RESUME_OF_REVIEW = 'this client starts a read-only review session and never resumes one: resume takes neither the tree nor the sandbox flag (Q167)'
-const NO_PROCESS_READING = 'this client has no reading of the working directories of its processes'
 const NO_BUDGET_READING: ReadBudget = { startContext: null, readBeforeEdit: null }
 const NO_WRITE_PATHS = 'a read-only review writes nowhere, and the policy names paths to write'
 const NO_ADD_DIRS = 'a read-only review reads only its tree: a further directory under it was never witnessed, so addDirs is refused and not dropped'
@@ -91,14 +90,15 @@ function failureOf(failed: RawEntry): string {
   return typeof message === 'string' && message.trim() !== '' ? message.trim() : FAILED_WITH_NO_TEXT
 }
 
-function failedStart(place: SessionPlace): string {
-  const text = textOf(place.stderrPath)?.trim()
-  return text === undefined || text === '' ? `the client exited ${place.exitCode} with no stream and no error text` : text
+function failedStart(place: SessionPlace, exitCode: number): string {
+  const text = textOf(place.stderrPath ?? null)?.trim()
+  return text === undefined || text === '' ? `the client exited ${exitCode} with no stream and no error text` : text
 }
 
 function endOf(entries: RawEntry[], place: SessionPlace): Pick<SessionReading, 'end' | 'failure'> {
-  if (entries.length === 0 && place.exitCode !== null && place.exitCode !== 0)
-    return { end: 'failed', failure: failedStart(place) }
+  const exitCode = place.exitCode ?? null
+  if (entries.length === 0 && exitCode !== null && exitCode !== 0)
+    return { end: 'failed', failure: failedStart(place, exitCode) }
   const last = entries.filter(entry => entry.type === 'turn.completed' || entry.type === 'turn.failed').at(-1)
   if (last === undefined)
     return { end: 'missing', failure: null }
@@ -142,7 +142,7 @@ function isCodexArgv(argv: string): boolean {
 }
 
 function modelOf(wanted: string): ModelPick {
-  return { model: wanted === 'auto' ? null : wanted }
+  return { model: wanted === 'auto' ? null : wanted, effort: null }
 }
 
 export const codexAdapter: ClientAdapter = {
@@ -161,7 +161,7 @@ export const codexAdapter: ClientAdapter = {
   processes: {
     isClient: isCodexArgv,
     sessionMarker: () => null,
-    liveCwds: () => ({ kind: 'unreadable', why: NO_PROCESS_READING }),
+    processNames: [CODEX_COMMAND],
     isolationCommand: () => [CODEX_COMMAND, ...READ_ONLY_HEADLESS, TREE_FLAG],
   },
   ownSession: () => null,

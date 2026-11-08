@@ -21,6 +21,7 @@ import { projectRoot, realExitReadings, UNKNOWN } from './eddies-measure.js'
 import { stopReasonOf } from './exit.js'
 import { BLOCKED_LABEL, handoffBytes, handoffRefusals, IN_FLIGHT_LABEL, labelsOf, NO_PREV, PREV_LABEL, STATE_LABELS } from './handoff-check.js'
 import { HANDOFF_VARIABLE, MIKO_HANDOFF_NAME, statusOf } from './loop.js'
+import { noWindowRefusal } from './tab.js'
 import { openWindowQuestion, requestSession } from './window-requests.js'
 import { windowOf } from './window.js'
 
@@ -499,6 +500,11 @@ function ghPrState(pr: number): PrState {
 }
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const refusal = noWindowRefusal(process.env)
+  if (refusal !== null) {
+    console.error(`${PREFIX}${refusal}`)
+    process.exit(1)
+  }
   process.exitCode = runHandoffWrite(process.argv.slice(2), {
     cwd: process.cwd(),
     handoffDir: handoffDirOf(process.env, os.homedir(), process.cwd()),

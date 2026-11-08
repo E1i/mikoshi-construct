@@ -4,8 +4,11 @@ import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
+import { OsProcessTable } from './process-table.js'
 import { witnessEnv } from './session.js'
 import { taskWorktree } from './worktree-home.js'
+
+export const TECHNOLOGY_WORDS = ['git', 'pnpm', 'shell'] as const
 
 const execFileAsync = promisify(execFile)
 
@@ -19,16 +22,13 @@ const LOCKLESS_INSTALL_ARGS = ['install', '--prefer-offline']
 const LOCKFILE = 'pnpm-lock.yaml'
 const FETCH_MAIN_OVER_HTTPS = ['-c', 'url.https://github.com/.insteadOf=git@github.com:', '-c', 'url.https://github.com/.insteadOf=ssh://git@github.com/', 'fetch', 'origin', 'main']
 const UNABLE_TO_CREATE = /unable to create file (.+?): /g
+const ADD_FOUND_ANOTHER_CUT = /already exists/
 export const FREE_TREES = '.free'
 const CLEAN_ALL_BUT_INSTALLED = ['clean', '-fdxq', '-e', 'node_modules']
 const LINK_FROM_THE_SHARED_STORE = '--config.packageImportMethod=hardlink'
 const NEVER_INDEX_MARKER = '.metadata_never_index'
 
 export const FREE_TREE_CAPACITY = 8
-
-const LSOF_PATH_FIELD = 'n'
-const LSOF_FOUND_NONE = 1
-export const LSOF_CLIENT_NAMES = ['-c', 'claude', '-c', '/^[0-9]+[.][0-9]+[.][0-9]+$/']
 
 export type GitRun = (cwd: string, args: string[]) => string
 
@@ -132,28 +132,12 @@ function realOrAsWritten(where: string): string {
   return existsSync(where) ? realpathSync(where) : where
 }
 
-export function claudeProcessCwds(): ProcessCwds {
-  try {
-    return { kind: 'listed', listing: execFileSync('lsof', ['-a', ...LSOF_CLIENT_NAMES, '-d', 'cwd', '-F', LSOF_PATH_FIELD], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }) }
-  }
-  catch (error) {
-    const failed = error as { status?: unknown, stdout?: unknown }
-    if (failed.status === LSOF_FOUND_NONE)
-      return { kind: 'listed', listing: typeof failed.stdout === 'string' ? failed.stdout : '' }
-    return { kind: 'unreadable', why: error instanceof Error ? error.message.trim() : String(error) }
-  }
-}
-
-export function listedCwds(listing: string): string[] {
-  return listing.split('\n').filter(line => line.startsWith(LSOF_PATH_FIELD)).map(line => line.slice(LSOF_PATH_FIELD.length))
-}
-
-export function liveSessionHolds(tree: string, cwds: () => ProcessCwds = claudeProcessCwds): boolean {
+export function clientMayWorkIn(tree: string, cwds: () => ProcessCwds = () => new OsProcessTable().clientCwds()): boolean {
   const read = cwds()
   if (read.kind === 'unreadable')
     return true
   const real = realOrAsWritten(tree)
-  return listedCwds(read.listing).some(cwd => cwd === real || cwd.startsWith(`${real}${path.sep}`))
+  return read.cwds.some(cwd => cwd === real || cwd.startsWith(`${real}${path.sep}`))
 }
 
 function freeTreesIn(git: GitRun, repo: string, home: string): string[] {
@@ -281,6 +265,21 @@ function removeTree(deps: TreeDeps, repo: string, worktree: string, branch: stri
   }
 }
 
+function undoFailedAdd(deps: TreeDeps, repo: string, worktree: string, branch: string): string {
+  try {
+    if (deps.exists(worktree))
+      deps.git(repo, ['worktree', 'remove', '--force', worktree])
+    deps.git(repo, ['worktree', 'prune'])
+    if (!branchExists(deps, repo, branch))
+      return 'nothing written'
+    deps.git(repo, ['branch', '-D', branch])
+    return `branch ${branch} was removed; nothing written`
+  }
+  catch (error) {
+    return `removing what the failed add left failed (${firstLine(error)}); remove ${worktree} and branch ${branch} by hand`
+  }
+}
+
 function unwritablePaths(message: string): string[] {
   return [...new Set([...message.matchAll(UNABLE_TO_CREATE)].map(match => match[1]!))]
 }
@@ -376,10 +375,12 @@ export function cutTree(deps: TreeDeps, id: string, branch: string): ReadyTree |
     }
     catch (error) {
       const recovered = recoverCheckout(deps, worktree, error)
-      if (recovered === null)
-        return { refused: `could not cut ${worktree}: ${gitMessage(error)}; nothing written` }
+      if (recovered === null) {
+        const message = gitMessage(error)
+        return { refused: `could not cut ${worktree}: ${message}; ${ADD_FOUND_ANOTHER_CUT.test(message) ? 'nothing written' : undoFailedAdd(deps, repo, worktree, branch)}` }
+      }
       if (!Array.isArray(recovered))
-        return { refused: `could not cut ${worktree}: ${recovered.failed}; ${removeTree(deps, repo, worktree, branch)}; nothing written` }
+        return { refused: `could not cut ${worktree}: ${recovered.failed}; ${undoFailedAdd(deps, repo, worktree, branch)}` }
       absent = recovered
     }
   }

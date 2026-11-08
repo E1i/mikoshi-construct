@@ -3,6 +3,8 @@ import os from 'node:os'
 import path from 'node:path'
 import { unresolvedCommandWord } from '../../src/commands/intake/command-word.js'
 
+export const TECHNOLOGY_WORDS = ['bwrap', 'exec', 'socat'] as const
+
 export const NO_ISOLATION = 'no_isolation'
 
 export type SettingsLayer = Record<string, unknown> | null

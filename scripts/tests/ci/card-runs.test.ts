@@ -46,7 +46,7 @@ describe('the runs of a card, read from the check catalog', () => {
 
   it('a card with a runs field keeps a touch one run covers from adding its layers, and reads full for a touch no layer holds', () => {
     expect(cardRunsOf({ touches: ['src/a.ts'], runs: ['tests/a.test.ts'], masks: [] }, CATALOG)).toEqual({ layers: [], paths: ['tests/a.test.ts'], tests: ['tests/a.test.ts'] })
-    expect(cardRunsOf({ touches: ['docs/cli.md'], runs: ['tests/a.test.ts'], masks: [] }, CATALOG)).toEqual({ full: true, why: expect.stringContaining('docs/cli.md') })
+    expect(cardRunsOf({ touches: ['CONTRIBUTING.md'], runs: ['tests/a.test.ts'], masks: [] }, CATALOG)).toEqual({ full: true, why: expect.stringContaining('CONTRIBUTING.md') })
   })
 
   it('an unknown layer is refused and an empty catalog reads full rather than nothing', () => {
@@ -59,7 +59,7 @@ describe('the runs of a card, read from the check catalog', () => {
   })
 
   it('whatever cannot name a test reads full with its reason', () => {
-    expect(cardRunsOf({ touches: ['src/a.ts', 'docs/cli.md'], runs: [], masks: [] }, CATALOG)).toEqual({ full: true, why: expect.stringContaining('docs/cli.md') })
+    expect(cardRunsOf({ touches: ['src/a.ts', 'CONTRIBUTING.md'], runs: [], masks: [] }, CATALOG)).toEqual({ full: true, why: expect.stringContaining('CONTRIBUTING.md') })
     expect(cardRunsOf({ touches: ['scripts/release/e.ts'], runs: [], masks: [] }, CATALOG)).toEqual({ full: true, why: expect.stringContaining('release') })
     expect(cardRunsOf({ touches: [], runs: [], masks: ['release'] }, CATALOG)).toEqual({ full: true, why: expect.stringContaining('release') })
     expect(cardRunsOf({ touches: [], runs: [], masks: [] }, CATALOG)).toEqual({ full: true, why: expect.stringContaining('no touch') })

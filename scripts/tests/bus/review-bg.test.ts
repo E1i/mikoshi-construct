@@ -7,7 +7,9 @@ import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
 import { openBus } from '../../core/db.js'
 import { NetWatch } from '../../ports/netwatch.js'
-import { PREFIX as BG_PREFIX, psList, runBusBg, runningBus, runningInstance, startDetached } from '../../supervisor/bg.js'
+import { PREFIX as BG_PREFIX, processBeatsOn, psList, runBusBg, runningBus, runningInstance, startDetached } from '../../supervisor/bg.js'
+import { recordProcessHeartbeat } from '../../supervisor/heartbeat.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { busShadowProblems, PREFIX, REVIEW_INSTANCE_FILE, REVIEW_LOG, REVIEW_START_LOCK, REVIEW_WORKER_MARKERS, reviewLaunch, startReviewWorker } from '../../supervisor/review-bg.js'
 import { BusTick } from '../../supervisor/run.js'
 import { settled } from '../shift/fixtures/settled.js'
@@ -68,7 +70,7 @@ function world(pnpm = WORKER_STUB): World {
   stub(bin, 'nohup', 'exec "$@"')
   stub(bin, 'pnpm', pnpm)
   const env = { PATH: bin, STUB_OUT: out }
-  return { busDir: path.join(root, 'bus'), out, env, processes: () => psList(env)().filter(candidate => candidate.args.includes(bin)) }
+  return { busDir: path.join(root, 'bus'), out, env, processes: () => psList()().filter(candidate => candidate.args.includes(bin)) }
 }
 
 const clean = (): string[] => []
@@ -145,13 +147,33 @@ describe('pnpm bus:review:bg', () => {
     expect(third.stderr.join('\n')).toContain('pid 4343')
   })
 
+  it('a review node that beats holds the start of a second one, and one gone silent does not', () => {
+    const bus = path.join(mkdtempSync(path.join(tmpdir(), 'review-beat-')), 'bus.db')
+    roots.push(path.dirname(bus))
+    const db = openBus(bus)
+    const nowMs = Date.parse('2026-11-08T12:00:00.000Z')
+    recordProcessHeartbeat(db, new Date(nowMs - SILENT_MS - 1).toISOString(), 'bus:review')
+    db.close()
+
+    expect(processBeatsOn(bus, 'bus:review', nowMs)).toBe(false)
+    expect(processBeatsOn(bus, 'bus:review', nowMs - 2)).toBe(true)
+    expect(processBeatsOn(bus, 'bus:run', nowMs - 2)).toBe(false)
+    expect(processBeatsOn(undefined, 'bus:review', nowMs)).toBe(false)
+    expect(processBeatsOn(path.join(path.dirname(bus), 'absent.db'), 'bus:review', nowMs)).toBe(false)
+  })
+
   it('a second review worker is not started while one runs', async () => {
     const w = world()
     mkdirSync(w.busDir, { recursive: true })
     const survivor = String(process.ppid)
     writeFileSync(path.join(w.busDir, REVIEW_INSTANCE_FILE), `${survivor}\n`)
+    const bus = path.join(path.dirname(w.busDir), 'bus.db')
+    const db = openBus(bus)
+    recordProcessHeartbeat(db, new Date().toISOString(), 'bus:review')
+    db.close()
+    const env = { ...w.env, CONSTRUCT_BUS_DB: bus }
 
-    const second = startReviewWorker(reviewLaunch(clean), w.busDir, w.env, () => [])
+    const second = startReviewWorker(reviewLaunch(clean), w.busDir, env, () => [])
     expect(second.exitCode).toBe(1)
     expect(second.stderr.join('\n')).toContain(`pid ${survivor}`)
     expect(second.alreadyRunning?.pid).toBe(Number(survivor))

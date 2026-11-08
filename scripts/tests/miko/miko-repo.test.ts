@@ -10,8 +10,9 @@ import { appendEvent, openBus } from '../../core/db.js'
 import { PROCESS_HEARTBEAT, WINDOW_REQUEST } from '../../core/events.js'
 import { HANDOFF_DIR, HANDOFF_DIR_VARIABLE, handoffDirOf } from '../../core/handoff-dir.js'
 import { HANDOFF_FIELDS } from '../../core/handoff-fields.js'
+import { WINDOW_VARIABLE } from '../../ports/session.js'
 import { compactContextOf } from '../../window/compact-start.js'
-import { CONTINUE_PROMPT, continuePrompt, MIKO_HANDOFF_NAME, mikoHandoff, PACKAGE_COMMANDS } from '../../window/loop.js'
+import { CONTINUE_PROMPT, continuePrompt, MIKO_HANDOFF_NAME, mikoHandoff, PACKAGE_COMMANDS, TAB_MODE } from '../../window/loop.js'
 import { LOOP_SCRIPT_NAME, mikoRoute } from '../../window/miko.js'
 import { ONCE_STORE } from '../../window/watch-store.js'
 
@@ -187,7 +188,7 @@ describe('miko runs the window of the repository it is started in', () => {
   it('a compacted tab window of a foreign repository is handed that repository\'s continue prompt', () => {
     const w = world()
     const handoffDir = path.join(w.own, HANDOFF_DIR)
-    const env = { CLAUDE_CODE_SESSION_ID: 's-tab', [HANDOFF_DIR_VARIABLE]: handoffDir }
+    const env = { CLAUDE_CODE_SESSION_ID: 's-tab', [HANDOFF_DIR_VARIABLE]: handoffDir, [WINDOW_VARIABLE]: TAB_MODE }
     const handoff = mikoHandoff(handoffDir)
     const context = compactContextOf('compact', env, file => file === handoff, w.repo)
     expect(context).toBe(continuePrompt(handoff, PACKAGE_COMMANDS))

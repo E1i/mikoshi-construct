@@ -524,7 +524,7 @@ describe('a head that moves under the queues', () => {
     }
   })
 
-  it('a merged pull request keeps its merge and close tasks', () => {
+  it('a merged pull request withdraws a merge task no lease is finishing and keeps its close task', () => {
     const bench = mergeBench()
     bench.gitHub.open({ number: 957, review: 'success' })
     bench.tick()
@@ -535,7 +535,7 @@ describe('a head that moves under the queues', () => {
     queueTask(bench.db, bench.clock.now().toISOString(), { queue: 'close', cardId: 1057, pr: 957, head: sha('a') })
     bench.tick()
 
-    expect(tasksOfPr(bench, 957)).toEqual({ close: 'queued', merge: 'queued' })
+    expect(tasksOfPr(bench, 957)).toEqual({ close: 'queued', merge: 'withdrawn' })
     expect(taskState(bench.db, keyOf({ queue: 'merge', cardId: 1057, pr: 957, head: sha('a'), prBody: prBodySha(cardBody(957)) })).failures).toBe(0)
     bench.close()
   })

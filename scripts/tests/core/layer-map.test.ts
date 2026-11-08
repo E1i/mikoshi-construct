@@ -2,10 +2,14 @@ import { spawnSync } from 'node:child_process'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { BUS_CORE, BUS_SERVICE } from '../../ci/layers.js'
-import { layersIn, readLayerMap } from '../../core/layer-map.js'
+import { layersIn, readLayerMap, recordsOf } from '../../core/layer-map.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..', '..')
 const TEST_ROOT = 'scripts/tests/'
+
+function tracked(file: string): boolean {
+  return spawnSync('git', ['ls-files', '--error-unmatch', '--', file], { cwd: REPO_ROOT, encoding: 'utf8' }).status === 0
+}
 
 function trackedSources(): string[] {
   const listed = spawnSync('git', ['ls-files', 'scripts', 'src'], { cwd: REPO_ROOT, encoding: 'utf8' })
@@ -21,8 +25,16 @@ describe('the layer map gives every source file one layer', () => {
     expect(sources.filter(file => layersIn(map, file).length !== 1)).toEqual([])
   })
 
-  it('every file entry of the map names a tracked source file', () => {
-    expect(Object.keys(map.files).filter(file => !sources.includes(file))).toEqual([])
+  it('every file entry of the map names a tracked source file or a contract record', () => {
+    const records = recordsOf(map)
+    expect(Object.keys(map.files).filter(file => !sources.includes(file) && !records.includes(file))).toEqual([])
+  })
+
+  it('the only records in the map are the three tracked contract records, in the layer contract', () => {
+    const records = recordsOf(map)
+    expect(records.map(record => path.posix.basename(record)).sort()).toEqual(['accepted.json', 'factory.json', 'ratchet.json'])
+    expect(records.filter(record => map.files[record] !== 'contract')).toEqual([])
+    expect(records.filter(record => !tracked(record))).toEqual([])
   })
 
   it('a file entry wins over the folder that holds it', () => {

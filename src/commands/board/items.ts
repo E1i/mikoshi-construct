@@ -1,6 +1,6 @@
 import type { LedgerEntry, TokenCount } from '../cost/ledger.js'
 import type { PullRequest } from './prs.js'
-import { ciOf } from './prs.js'
+import { ciOfPullRequest } from '../ci/state.js'
 
 export const NO_NEXT = '—'
 const TASK_WIDTH = 40
@@ -41,7 +41,7 @@ export function ladderItems(entries: LedgerEntry[]): Item[] {
 }
 
 function openPr(pr: PullRequest, base: Pick<Item, 'task' | 'path'>): Item {
-  const ci = ciOf(pr.statusCheckRollup)
+  const ci = ciOfPullRequest(pr)
   if (ci.state === 'green')
     return { ...base, stage: 'ready', state: 'waiting', at: new Date(ci.completedAt ?? pr.createdAt), next: 'a merge (you)', tone: 'red' }
   const at = new Date(pr.createdAt)

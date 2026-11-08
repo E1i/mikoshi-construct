@@ -2,9 +2,10 @@ import type { ModelPicture } from '../../src/model/graph.js'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { PICTURE_PROSE } from '../../src/model/graph.js'
+import { GENERATED_FILES } from '../core/generated-files.js'
 
 export const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
-export const PICTURE_DOC = 'architecture/model.md'
+export const PICTURE_DOC = GENERATED_FILES.model.path
 export const PICTURE_DOC_PATH = path.join(REPO_ROOT, PICTURE_DOC)
 
 export const OPENING_MARKER = '<!-- model:picture -->'

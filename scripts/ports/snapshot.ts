@@ -1,18 +1,21 @@
+import type { CiObservation } from './ci-reading.js'
 import type { Meter } from './meter.js'
 import process from 'node:process'
 import { readAttachRecord } from '../../src/commands/attach/record.js'
 import { repositoryRoot } from '../core/bus-path.js'
 import { FACTORY_FORMER_FOLDERS, inScopes } from '../core/factory-paths.js'
 import { cardIdOfDescription, isFullSha, prBodySha } from '../core/identifiers.js'
-import { REQUIRED_CHECK, SECRET_SCAN_CHECK } from './gh.js'
+import { ciFieldsOfObservation, GitHubCommitCi } from './ci-reading.js'
+import { REQUIRED_CHECK } from './gh.js'
 import { REVIEW_STATUS_CONTEXT } from './github-status.js'
+
+export { ciOf } from './ci-reading.js'
 
 export const MAIN_BRANCH = 'main'
 export const OPEN_PULLS_PAGE = 100
 export const MECHANICS_PATHS = FACTORY_FORMER_FOLDERS.shift
 
 export type Mergeable = 'clean' | 'behind' | 'dirty' | 'blocked'
-export type CiReading = 'pending' | 'green' | 'red'
 export type VerdictOnHead = 'pass' | 'changes'
 
 export interface OpenPr {
@@ -22,8 +25,7 @@ export interface OpenPr {
   head: string
   branch: string | null
   mergeable: Mergeable
-  ci: CiReading
-  failedChecks: string[]
+  ciFields: CiObservation
   verdictOnHead: VerdictOnHead | null
   autoMerge: boolean
   draft: boolean
@@ -79,24 +81,12 @@ interface Pull {
   head: { sha: string, ref?: string }
 }
 
-interface CheckRun {
-  name?: string
-  status?: string
-  conclusion?: string | null
-}
-
 interface CommitStatus {
   context?: string
   state?: string
 }
 
 const REPO = 'repos/{owner}/{repo}'
-
-const FAILED_CONCLUSIONS = new Set(['failure', 'timed_out', 'cancelled', 'action_required', 'startup_failure'])
-
-function checkRunsOf(meter: Meter, sha: string): CheckRun[] {
-  return (meter.get(`${REPO}/commits/${sha}/check-runs?per_page=100`) as { check_runs?: CheckRun[] }).check_runs ?? []
-}
 
 export function watchedRoot(): string {
   return repositoryRoot(process.cwd()) ?? process.cwd()
@@ -105,28 +95,6 @@ export function watchedRoot(): string {
 export function requiredCheckOf(root: string = watchedRoot()): string {
   const harness = readAttachRecord(root)?.harness
   return typeof harness === 'object' && harness.job != null ? harness.job : REQUIRED_CHECK
-}
-
-function ciOfRuns(runs: CheckRun[], requiredCheck: string): CiReading {
-  const required = runs.find(run => run.name === requiredCheck)
-  if (required === undefined || required.status !== 'completed')
-    return 'pending'
-  if (required.conclusion !== 'success')
-    return 'red'
-  const secretScan = runs.find(run => run.name === SECRET_SCAN_CHECK)
-  if (secretScan === undefined)
-    return 'green'
-  if (secretScan.status !== 'completed')
-    return 'pending'
-  return FAILED_CONCLUSIONS.has(secretScan.conclusion ?? '') ? 'red' : 'green'
-}
-
-function failedChecksOf(runs: CheckRun[], requiredCheck: string): string[] {
-  return runs.flatMap(run => run.name !== undefined && run.name !== requiredCheck && run.status === 'completed' && FAILED_CONCLUSIONS.has(run.conclusion ?? '') ? [run.name] : [])
-}
-
-export function ciOf(meter: Meter, sha: string, requiredCheck = REQUIRED_CHECK): CiReading {
-  return ciOfRuns(checkRunsOf(meter, sha), requiredCheck)
 }
 
 export function verdictOf(meter: Meter, sha: string): VerdictOnHead | null {
@@ -139,8 +107,6 @@ function openPrOf(meter: Meter, pull: Pull, requiredCheck: string): OpenPr | nul
   const mergeable = MERGEABLE_OF_STATE[pull.mergeable_state ?? '']
   if (mergeable === undefined)
     return null
-  const runs = checkRunsOf(meter, pull.head.sha)
-  const ci = ciOfRuns(runs, requiredCheck)
   return {
     pr: pull.number,
     cardId: cardIdOfDescription(pull.body),
@@ -148,8 +114,7 @@ function openPrOf(meter: Meter, pull: Pull, requiredCheck: string): OpenPr | nul
     head: pull.head.sha,
     branch: pull.head.ref ?? null,
     mergeable,
-    ci,
-    failedChecks: ci === 'red' ? failedChecksOf(runs, requiredCheck) : [],
+    ciFields: ciFieldsOfObservation(new GitHubCommitCi(meter).onCommit(pull.head.sha, requiredCheck)),
     verdictOnHead: verdictOf(meter, pull.head.sha),
     autoMerge: pull.auto_merge !== null && pull.auto_merge !== undefined,
     draft: pull.draft === true,

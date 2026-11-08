@@ -10,6 +10,7 @@ export const MACHINE_DIR_VARIABLE = 'CONSTRUCT_MACHINE_DIR'
 export const MACHINE_LIMIT_FILE = 'limit.json'
 export const MACHINE_POLL_MS = 30_000
 
+const CORES_PER_DEFAULT_SESSION = 4
 const CLAIM_PREFIX = 'claim-'
 const WAIT_PREFIX = 'wait-'
 const RECORD_SUFFIX = '.json'
@@ -73,12 +74,20 @@ function removeQuietly(file: string): void {
   catch {}
 }
 
-export class MachineSessions {
-  constructor(private readonly dir: string, private readonly isLive: SessionLive, private readonly now: () => Date = () => new Date()) {}
+function defaultSessionLimit(cores: number): number {
+  return Math.max(1, Math.floor(cores / CORES_PER_DEFAULT_SESSION))
+}
 
-  limit(): number | null {
+export function setMachineLimit(dir: string, sessions: number): void {
+  writeAtomically(path.join(dir, MACHINE_LIMIT_FILE), { sessions })
+}
+
+export class MachineSessions {
+  constructor(private readonly dir: string, private readonly isLive: SessionLive, private readonly cores: number, private readonly now: () => Date = () => new Date()) {}
+
+  limit(): number {
     const sessions = readJson<{ sessions?: unknown }>(path.join(this.dir, MACHINE_LIMIT_FILE))?.sessions
-    return typeof sessions === 'number' && Number.isInteger(sessions) && sessions > 0 ? sessions : null
+    return typeof sessions === 'number' && Number.isInteger(sessions) && sessions > 0 ? sessions : defaultSessionLimit(this.cores)
   }
 
   live(): number {
@@ -87,15 +96,12 @@ export class MachineSessions {
 
   held(): MachineHold | null {
     const limit = this.limit()
-    if (limit === null)
-      return null
     const live = this.live()
     return live >= limit ? { live, limit } : null
   }
 
   free(): number {
-    const limit = this.limit()
-    return limit === null ? Number.POSITIVE_INFINITY : Math.max(0, limit - this.live())
+    return Math.max(0, this.limit() - this.live())
   }
 
   claim(claimant: MachineClaimant, pid: number = process.pid): MachineClaim {
@@ -143,11 +149,11 @@ export class MachineSessions {
     this.sweep()
     const limit = this.limit()
     const before = this.live()
-    if (limit !== null && before >= limit)
+    if (before >= limit)
       return { kind: 'refused', hold: { live: before, limit } }
     writeAtomically(file, { ...claimant, pid } satisfies MachineRecord)
     const after = this.live()
-    if (limit !== null && after > limit) {
+    if (after > limit) {
       removeQuietly(file)
       return { kind: 'refused', hold: { live: after - 1, limit } }
     }
@@ -199,7 +205,7 @@ export function machineDir(env: NodeJS.ProcessEnv = process.env, home: string = 
 }
 
 export function machineSessions(exists: ProcessExists, env: NodeJS.ProcessEnv = process.env, home: string = os.homedir()): MachineSessions {
-  return new MachineSessions(machineDir(env, home), sessionLiveness(exists))
+  return new MachineSessions(machineDir(env, home), sessionLiveness(exists), os.availableParallelism())
 }
 
 export function busNameOf(busPath: string): string {

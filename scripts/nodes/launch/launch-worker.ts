@@ -3,7 +3,7 @@ import type { ShiftTask } from '../../../src/card/task-file.js'
 import type { BusEvent } from '../../core/db.js'
 import type { Lease } from '../../core/lease.js'
 import type { MachineClaimant, MachineSessions } from '../../core/machine-sessions.js'
-import type { DetectionMode, WaitStep } from '../../core/node.js'
+import type { DetectionMode, NodeDeclaration, WaitStep } from '../../core/node.js'
 import type { QueuedTask } from '../../core/queue.js'
 import type { CardBodyReader } from '../../intake/parking-reads.js'
 import type { LadderSteps } from '../../ladder/ladder-starter.js'
@@ -39,7 +39,7 @@ import { generationOfKey } from '../../core/identifiers.js'
 import { ghostLinesText } from '../../core/journal.js'
 import { failTask } from '../../core/lease.js'
 import { busNameOfDb, MACHINE_POLL_MS, machineSessions } from '../../core/machine-sessions.js'
-import { Node, prefixOf, runNode } from '../../core/node.js'
+import { Node, prefixOf, runNode, UNDERSTOOD_NOW } from '../../core/node.js'
 import { eddiesJournalPath, reportPath } from '../../core/places.js'
 import { COMPLETED, generationField, LAUNCH_STOP_WITH_NO_PULL_REQUEST, launchTasks, LEASED, TASK_FOLDS } from '../../core/queue.js'
 import { openDatabase } from '../../core/sqlite.js'
@@ -54,7 +54,7 @@ import { realIsolationReader } from '../../ports/isolation.js'
 import { TICK_MS } from '../../ports/netwatch.js'
 import { prepareBeforeSession, prepareTree } from '../../ports/prepare-tree.js'
 import { promptsDirOf, storedInput } from '../../ports/prompt-store.js'
-import { clientCommand, sessionEnv } from '../../ports/session.js'
+import { clientCommand, EXIT_REQUEST_VARIABLE, LOOP_PID_VARIABLE, sessionEnv, WINDOW_VARIABLE } from '../../ports/session.js'
 import { CARD_SESSION_SANDBOX } from '../../ports/shift-settings.js'
 import { builtTreePr, HTTPS_ORIGIN_ENV, launchDirOf, TREE_PR_ENTRY, treeHoldsACommit, treePrCommand, treePrPublisher } from '../../ports/tree-publish.js'
 import { cardTree } from '../../ports/worktree-home.js'
@@ -110,8 +110,8 @@ const HEARTBEAT_SILENCE_MS = HEARTBEAT_SILENCE_MINUTES * 60_000
 
 const LEGACY_MERGE = 'merge'
 const LEGACY_PATH = 'path'
-
 export const LAUNCH_ON = [CARD_ADMITTED, CARD_STARTED, CARD_CLOSED, CARD_STOPPED, PR_CLOSED, PR_OBSERVED, PR_OPENED, LEGACY_MERGE, LEGACY_PATH, TASK_ENQUEUED, TASK_REQUEUED, TASK_COMPLETED, TASK_FAILED, TASK_SUPERSEDED, TASK_RELEASED, TASK_EXPIRED, MERGE_DONE, GHOST_ROW, REDUCED] as const
+export const LAUNCH_NODE: NodeDeclaration = { kind: 'launch', on: LAUNCH_ON, understands: UNDERSTOOD_NOW }
 
 export type LaunchStep = LaunchOutcome | WaitStep
 
@@ -305,7 +305,7 @@ export class LaunchNode extends Node<LaunchStep> {
     this.processes = launchParts.processes ?? REAL_PROCESSES
     this.lanes = launchParts.lanes ?? repositoryLanes(process.cwd())
     this.machine = launchParts.machine ?? machineSessions(isAlive)
-    this.subscribe(LAUNCH_ON)
+    this.declare(LAUNCH_NODE)
   }
 
   private machineClaimant(cardId: number): MachineClaimant {
@@ -856,7 +856,7 @@ export function realStarterPorts(repo: string, env: NodeJS.ProcessEnv, header: s
   return {
     read: bodyOf,
     cut: (task) => {
-      const output = execFileSync(taskStart.file, [...taskStart.args, task.branch, '--card', task.card.line], { cwd: repo, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+      const output = execFileSync(taskStart.file, [...taskStart.args, task.branch, '--card', task.card.line], { cwd: repo, env: { ...env, [WINDOW_VARIABLE]: '', [LOOP_PID_VARIABLE]: '', [EXIT_REQUEST_VARIABLE]: '' }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
       const worktree = cardTree(env, busPath, String(task.card.id))
       origins.note(worktree, output)
       return worktree

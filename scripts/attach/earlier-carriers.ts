@@ -7,6 +7,7 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
 import { ATTACH_CARRIERS } from '../../src/presets/index.js'
+import { GENERATED_FILES } from '../core/generated-files.js'
 
 export interface KnownCarrier {
   target: string
@@ -20,7 +21,7 @@ export interface Drift {
 }
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
-const KNOWN_SET_FILE = path.join(REPO_ROOT, 'templates/attach/earlier-carriers.json')
+const KNOWN_SET_FILE = path.join(REPO_ROOT, GENERATED_FILES.earlierCarriers.path)
 const CLAUDE_SOURCE_ROOT = 'templates/ai/claude/'
 const ATTACH_SOURCE_ROOT = 'templates/attach/'
 const ATTACH_ONLY_TARGETS = ['.claude/commands/attached-discover.md']

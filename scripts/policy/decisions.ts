@@ -1,12 +1,12 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { Fold, StoredEvent } from '../core/stored.js'
 import type { DecisionRow } from './decisions/decisions.js'
-import { cardReleased, CLOSED_CARD, MERGED_CARD, STOPPED_CARD } from '../core/card-automaton.js'
+import { cardReleased, CLOSED_CARD, DROPPED_CARD, MERGED_CARD, STOPPED_CARD } from '../core/card-automaton.js'
 import { appendEvent, DECISION_ARCHIVED, DECISION_IN_FORCE, OPEN_WAIT } from '../core/db.js'
 import { CARD_STOPPED, DECISION_RECORDED, DECISIONS_IMPORTED, QUESTION_OWNER } from '../core/events.js'
 import { OWNER } from '../core/inbox.js'
 import { NETWATCH } from '../core/observations.js'
-import { payloadOf, reject } from '../core/stored.js'
+import { payloadOf, reject, Rejection, STORED_COLUMNS } from '../core/stored.js'
 import { termOf } from './decisions/decisions.js'
 
 export const OWNER_DECISIONS_FILE = 'owner-decisions.md'
@@ -25,6 +25,18 @@ export interface OwnerDecision {
   text: string
   cards: number[]
   supersedes?: number[]
+}
+
+interface RecordedWords {
+  decisionId: number
+  text: string
+  cards: number[]
+  supersedes: number[]
+}
+
+export interface RecordedDecision extends RecordedWords {
+  eventId: number
+  recordedAt: string
 }
 
 function isPositiveInteger(value: unknown): value is number {
@@ -97,28 +109,49 @@ function archive(db: DatabaseSync, decisionId: number): void {
   db.prepare(`UPDATE decisions SET state = '${DECISION_ARCHIVED}' WHERE decision_id = ?`).run(decisionId)
 }
 
+const ENDED_CARD_STATES = `'${MERGED_CARD}', '${CLOSED_CARD}', '${DROPPED_CARD}'`
+const CARD_NUMBER_IN_TEXT = /#(\d+)\b/g
+
+function aCardTheTextNamesHasNotEnded(db: DatabaseSync, text: string): boolean {
+  const named = [...text.matchAll(CARD_NUMBER_IN_TEXT)].map(match => Number(match[1]))
+  return db.prepare(`
+    SELECT 1 FROM cards
+    WHERE card_id IN (SELECT value FROM json_each(?)) AND coalesce(state, '') NOT IN (${ENDED_CARD_STATES})
+    LIMIT 1
+  `).get(JSON.stringify(named)) !== undefined
+}
+
 export function archiveSpentDecisions(db: DatabaseSync): void {
-  db.exec(`
-    UPDATE decisions SET state = '${DECISION_ARCHIVED}'
+  const scopeEnded = db.prepare(`
+    SELECT decision_id, text FROM decisions
     WHERE state = '${DECISION_IN_FORCE}' AND json_array_length(coalesce(scope, '[]')) > 0
       AND NOT EXISTS (
         SELECT 1 FROM json_each(decisions.scope) AS named
-        WHERE named.value NOT IN (SELECT card_id FROM cards WHERE state IN ('${MERGED_CARD}', '${CLOSED_CARD}'))
+        WHERE named.value NOT IN (SELECT card_id FROM cards WHERE state IN (${ENDED_CARD_STATES}))
       )
-  `)
+  `).all() as { decision_id: number, text: string }[]
+  for (const decision of scopeEnded) {
+    if (!aCardTheTextNamesHasNotEnded(db, decision.text))
+      archive(db, Number(decision.decision_id))
+  }
+}
+
+function recordedWordsOf(payload: Record<string, unknown>): RecordedWords {
+  if (payload.source !== OWNER)
+    reject(`source is not ${OWNER}`)
+  return {
+    decisionId: isPositiveInteger(payload.decision_id) ? payload.decision_id : reject('decision_id is not a positive integer'),
+    text: typeof payload.text === 'string' && payload.text.trim() !== '' ? payload.text : reject('text is empty'),
+    cards: scopeOf(payload),
+    supersedes: payload.supersedes === undefined ? [] : numbersOf(payload, 'supersedes'),
+  }
 }
 
 function foldDecisionRecorded(db: DatabaseSync, event: StoredEvent): void {
   const actor = actorOf(db, event)
   if (actor !== OWNER)
     reject(`${DECISION_RECORDED} is the owner's, not ${actor}'s`)
-  const payload = payloadOf(event)
-  if (payload.source !== OWNER)
-    reject(`source is not ${OWNER}`)
-  const decisionId = isPositiveInteger(payload.decision_id) ? payload.decision_id : reject('decision_id is not a positive integer')
-  const text = typeof payload.text === 'string' && payload.text.trim() !== '' ? payload.text : reject('text is empty')
-  const cards = scopeOf(payload)
-  const supersedes = payload.supersedes === undefined ? [] : numbersOf(payload, 'supersedes')
+  const { decisionId, text, cards, supersedes } = recordedWordsOf(payloadOf(event))
   if (db.prepare('SELECT 1 FROM decisions WHERE decision_id = ?').get(decisionId) !== undefined)
     reject(`D-${decisionId} is already recorded`)
   db.prepare('INSERT INTO decisions (decision_id, text, scope, source, event_id, until, supersedes) VALUES (?, ?, ?, ?, ?, ?, ?)')
@@ -217,11 +250,39 @@ export function startProjectingDecisions(db: DatabaseSync, now: Date): void {
   appendEvent(db, { ts: now.toISOString(), type: DECISIONS_PROJECTED, actor: NETWATCH, cardId: null, pr: null, head: null, dedupeKey: DECISIONS_PROJECTED, payload: {}, legacy: false })
 }
 
+function recordedDecisionOf(event: StoredEvent): RecordedDecision[] {
+  try {
+    return [{ ...recordedWordsOf(payloadOf(event)), eventId: event.id, recordedAt: event.ts }]
+  }
+  catch (error) {
+    if (error instanceof Rejection)
+      return []
+    throw error
+  }
+}
+
+function firstEventOfEachDecision(decisions: RecordedDecision[]): RecordedDecision[] {
+  const given = new Set<number>()
+  return decisions.filter((decision) => {
+    if (given.has(decision.decisionId))
+      return false
+    given.add(decision.decisionId)
+    return true
+  })
+}
+
+export function decisionHistory(db: DatabaseSync): RecordedDecision[] {
+  const events = db.prepare(`SELECT ${STORED_COLUMNS} FROM events WHERE type = '${DECISION_RECORDED}' AND legacy = 0 AND actor = '${OWNER}' ORDER BY id`).all() as unknown as StoredEvent[]
+  return firstEventOfEachDecision(events.flatMap(recordedDecisionOf))
+}
+
 export function recordedNumbers(db: DatabaseSync): number[] {
-  return (db.prepare('SELECT decision_id FROM decisions').all() as { decision_id: number }[]).map(row => Number(row.decision_id))
+  const inTheTable = (db.prepare('SELECT decision_id FROM decisions').all() as { decision_id: number }[]).map(row => Number(row.decision_id))
+  return [...new Set([...inTheTable, ...decisionHistory(db).map(decision => decision.decisionId)])]
 }
 
 export function decisionRows(db: DatabaseSync): DecisionRow[] {
+  const ownDate = new Map(decisionHistory(db).map(decision => [decision.decisionId, decision.recordedAt]))
   const rows = db.prepare(`
     SELECT decisions.decision_id, decisions.text, decisions.scope, decisions.until, decisions.state, decisions.source, decisions.supersedes, events.ts
     FROM decisions JOIN events ON events.id = decisions.event_id ORDER BY decisions.decision_id
@@ -238,7 +299,7 @@ export function decisionRows(db: DatabaseSync): DecisionRow[] {
     until: row.until,
     inForce: row.state === DECISION_IN_FORCE,
     written: row.source === OWNER,
-    recordedAt: row.ts,
+    recordedAt: ownDate.get(Number(row.decision_id)) ?? row.ts,
     supersededBy: successor.get(Number(row.decision_id)) ?? null,
   }))
 }

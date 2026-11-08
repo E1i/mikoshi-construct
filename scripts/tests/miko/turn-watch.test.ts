@@ -9,7 +9,7 @@ import { WINDOW_HEARTBEAT } from '../../core/events.js'
 import { HANDOFF_DIR_VARIABLE } from '../../core/handoff-dir.js'
 import { RAISED_VARIABLE } from '../../nodes/restart/role.js'
 import { WINDOW_MARK, WINDOW_VARIABLE, withoutCard } from '../../ports/session.js'
-import { MIKO_HANDOFF_NAME } from '../../window/loop.js'
+import { MIKO_HANDOFF_NAME, TAB_MODE } from '../../window/loop.js'
 import { ENTRYPOINT_VARIABLE, HEADLESS_ENTRYPOINT } from '../../window/tab.js'
 import { lastWindowBeat, LIVE_WATCH, NO_LIVE_WATCH, NOT_A_WINDOW, realTurnWatchDeps, runTurnWatch, TAB_CONTINUE, TAB_STOPS, watchIsLive } from '../../window/turn-watch.js'
 import { recordWindowHeartbeat, WINDOW_BEAT_MS } from '../../window/window-heartbeat.js'
@@ -137,10 +137,14 @@ describe('the loop window waits on a watch, a tab window on the STATUS of its ha
   })
 
   it('a tab window whose handoff ends STATUS: CONTINUE is blocked with the watch to run, and stops at DONE, STOP or without a handoff', () => {
-    expect(hook({ ...handoffDir('CONTINUE'), CLAUDE_CODE_SESSION_ID: 's-tab', [WINDOW_VARIABLE]: '' })).toEqual({ code: 1, lines: [TAB_CONTINUE] })
+    expect(hook({ ...handoffDir('CONTINUE'), CLAUDE_CODE_SESSION_ID: 's-tab', [WINDOW_VARIABLE]: TAB_MODE })).toEqual({ code: 1, lines: [TAB_CONTINUE] })
     expect(TAB_CONTINUE).toContain('pnpm miko:watch --once')
     for (const status of ['DONE', 'STOP', null])
-      expect(hook({ ...handoffDir(status), CLAUDE_CODE_SESSION_ID: 's-tab' })).toEqual({ code: 0, lines: [TAB_STOPS] })
+      expect(hook({ ...handoffDir(status), CLAUDE_CODE_SESSION_ID: 's-tab', [WINDOW_VARIABLE]: TAB_MODE })).toEqual({ code: 0, lines: [TAB_STOPS] })
+  })
+
+  it('a session miko did not start is not asked for a watch, whatever its handoff says', () => {
+    expect(hook({ ...handoffDir('CONTINUE'), CLAUDE_CODE_SESSION_ID: 's-bare', [WINDOW_VARIABLE]: '' })).toEqual({ code: 0, lines: [NOT_A_WINDOW] })
   })
 
   it('a window session with the marker and no live watch is blocked', () => {
@@ -167,7 +171,7 @@ describe('turn-watch tells a tab window from a card session by the tree it runs 
     writeFileSync(path.join(dir, MIKO_HANDOFF_NAME), '# Handoff\n\nSTATUS: CONTINUE\n')
     const project = projectUnder(path.join(dir, 'trees'))
     const worktreeHome = inCardTree ? path.dirname(project) : path.join(dir, 'no-card-trees-here')
-    const env = { ...process.env, HOME: dir, CONSTRUCT_WORKTREE_HOME: worktreeHome, CONSTRUCT_BUS_DB: path.join(dir, 'bus.db'), CLAUDE_PROJECT_DIR: project, [HANDOFF_DIR_VARIABLE]: dir, CONSTRUCT_HANDOFF: '', CONSTRUCT_CARD: '', [WINDOW_VARIABLE]: '', MIKO_LOOP_PID: '', MIKO_EXIT_REQUEST: '', [RAISED_VARIABLE]: '', [ENTRYPOINT_VARIABLE]: 'cli' }
+    const env = { ...process.env, HOME: dir, CONSTRUCT_WORKTREE_HOME: worktreeHome, CONSTRUCT_BUS_DB: path.join(dir, 'bus.db'), CLAUDE_PROJECT_DIR: project, [HANDOFF_DIR_VARIABLE]: dir, CONSTRUCT_HANDOFF: '', CONSTRUCT_CARD: '', [WINDOW_VARIABLE]: TAB_MODE, MIKO_LOOP_PID: '', MIKO_EXIT_REQUEST: '', [RAISED_VARIABLE]: '', [ENTRYPOINT_VARIABLE]: 'cli' }
     const run = spawnSync(process.execPath, [TURN_WATCH_HOOK], { cwd: project, env, input: JSON.stringify({ session_id: 's-tree', stop_hook_active: false }), encoding: 'utf8' })
     return { status: run.status, stdout: run.stdout }
   }

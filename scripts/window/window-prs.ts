@@ -1,5 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import { CARD_STARTED } from '../core/events.js'
+import { ciWord } from '../ports/ci-reading.js'
 
 export const STARTER_ACTOR = 'worker:start:'
 
@@ -31,5 +32,5 @@ interface WindowPrRow {
 }
 
 export function windowOpenPrs(db: DatabaseSync): WindowPr[] {
-  return (db.prepare(WINDOW_OPEN_PRS).all() as unknown as WindowPrRow[]).map(row => ({ pr: Number(row.pr), cardId: Number(row.card_id), head: row.head, ci: row.ci, cardState: row.card_state, priority: row.priority }))
+  return (db.prepare(WINDOW_OPEN_PRS).all() as unknown as WindowPrRow[]).map(row => ({ pr: Number(row.pr), cardId: Number(row.card_id), head: row.head, ci: ciWord(row.ci), cardState: row.card_state, priority: row.priority }))
 }
