@@ -1,4 +1,4 @@
-import type { ClientAdapter, Denial, Effort, Invocation, JournalChange, ModelChoice, ModelOffer, ModelPick, ReadBudget, Refusal, Role, SessionJournal, SessionPlace, SessionPolicy, SessionReading, SessionSpec, SessionTool, ToolUse, Usage } from '../contract.js'
+import type { BudgetPlace, ClientAdapter, Denial, Effort, Invocation, JournalChange, ModelChoice, ModelOffer, ModelPick, ReadBudget, Refusal, Role, SessionJournal, SessionPlace, SessionPolicy, SessionReading, SessionSpec, SessionTool, ToolUse, Usage } from '../contract.js'
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import os from 'node:os'
@@ -147,7 +147,7 @@ function budgetOf(transcript: string): ReadBudget {
   return { startContext, readBeforeEdit: startContext === null || editContext === null ? null : editContext - startContext }
 }
 
-function readBudget(place: SessionPlace): ReadBudget {
+function readBudget(place: BudgetPlace): ReadBudget {
   const home = os.homedir()
   const projects = path.join(home, '.claude', 'projects')
   const transcript = existsSync(projects) ? findTranscript(home, place.session) : null
@@ -603,6 +603,16 @@ function endOf(result: RawEntry | null): Pick<SessionReading, 'end' | 'failure'>
   return { end: 'failed', failure: nonEmpty(result.result) ?? nonEmpty(result.subtype) ?? 'the client reported an error and no text' }
 }
 
+function runEndOf(entries: RawEntry[], place: SessionPlace): Pick<SessionReading, 'end' | 'failure'> {
+  if (entries.length > 0 || place.exitCode === null || place.exitCode === 0)
+    return endOf(resultLineOf(entries))
+  return { end: 'failed', failure: nonEmpty(textOf(place.stderrPath)) ?? `the client exited ${place.exitCode} with no stream and no error text` }
+}
+
+function clientSessionOf(entries: RawEntry[], place: SessionPlace): string | null {
+  return nonEmpty(place.session) ?? nonEmpty(entries.find(entry => typeof entry.session_id === 'string')?.session_id)
+}
+
 function reportedContext(transcript: string): number | null {
   const usages = entriesOf(transcript).map(entry => entry.message?.role === 'assistant' ? entry.message.usage : null).filter(usage => usage != null && typeof usage === 'object')
   const last = usages.at(-1)
@@ -616,7 +626,7 @@ function readingOf(place: SessionPlace): SessionReading {
   const entries = rawEntriesOf(source ?? '')
   const result = resultLineOf(entries)
   return {
-    ...endOf(result),
+    ...runEndOf(entries, place),
     usage: usageOf(result?.usage),
     costUsd: numberOrNull(result?.total_cost_usd),
     turns: numberOrNull(result?.num_turns),
@@ -627,6 +637,7 @@ function readingOf(place: SessionPlace): SessionReading {
     journal: journalOf(transcript, place.cwd),
     lastSteps: transcript === null ? null : lastSteps(transcript),
     contextTokens: transcript === null ? null : reportedContext(transcript),
+    clientSession: clientSessionOf(entries, place),
   }
 }
 

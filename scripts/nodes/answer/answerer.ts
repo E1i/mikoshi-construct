@@ -259,7 +259,7 @@ function denialAimsAt(denial: Denial, file: string): boolean {
 }
 
 export function refusedOwnerQuestionIn(stdoutPath: string, file: string): string | null {
-  const refused = streamReading(stdoutPath).denials.find(denial => denialAimsAt(denial, file))
+  const refused = streamReading(stdoutPath).denials?.find(denial => denialAimsAt(denial, file))
   return refused === undefined || refused.text === '' ? null : refused.text
 }
 
