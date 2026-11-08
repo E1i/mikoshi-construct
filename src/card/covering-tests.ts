@@ -24,12 +24,12 @@ export const NAMED_READERS: Readonly<Record<string, readonly string[]>> = {
 }
 export const DECLARED_PATH_READERS: Readonly<Record<string, readonly string[]>> = {
   'templates/': ['src/materialize/templates.ts'],
-  'contract/accepted.json': ['scripts/contract/factory.ts'],
-  [GENERATED_FILES.factory.path]: ['scripts/contract/factory.ts', 'scripts/contract/bump.ts'],
-  [RATCHET_FILE.path]: ['scripts/contract/ratchet.ts'],
-  [GENERATED_FILES.surface.path]: ['scripts/contract/factory/concepts.ts', 'scripts/contract/bump.ts'],
-  'contract/contours/ledger-row.schema.json': ['scripts/ladder/watch-ledger.ts'],
-  'contract/contours/review-verdict.schema.json': ['scripts/ladder/handoff.ts'],
+  'contract/accepted.json': [`${FACTORY_ROOT}/contract/factory.ts`],
+  [GENERATED_FILES.factory.path]: [`${FACTORY_ROOT}/contract/factory.ts`, `${FACTORY_ROOT}/contract/bump.ts`],
+  [RATCHET_FILE.path]: [`${FACTORY_ROOT}/contract/ratchet.ts`],
+  [GENERATED_FILES.surface.path]: [`${FACTORY_ROOT}/contract/factory/concepts.ts`, `${FACTORY_ROOT}/contract/bump.ts`],
+  'contract/contours/ledger-row.schema.json': [`${FACTORY_ROOT}/ladder/watch-ledger.ts`],
+  'contract/contours/review-verdict.schema.json': [`${FACTORY_ROOT}/ladder/handoff.ts`],
 }
 export const SCANNED_TREES: Readonly<Record<string, readonly string[]>> = {
   'src/': ['tests/dependency-policy.test.ts', 'tests/graph-command.test.ts', 'tests/every-source-has-a-reader.test.ts', 'tests/intake-command-word.test.ts', 'tests/delivery-boundary.test.ts', 'tests/contract/factory.test.ts', 'tests/contract/accepted.test.ts', FACTORY_NAMED.eventsTest, FACTORY_NAMED.noParkingReadsTest, FACTORY_NAMED.journalGuardTest, FACTORY_NAMED.factoryPathsTest, FACTORY_NAMED.clientSealTest],
