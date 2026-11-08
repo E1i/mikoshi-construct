@@ -41,6 +41,7 @@ export interface Review {
   verdict: VerdictWord
   findings: string[]
   survivingMutations?: string[]
+  advice?: string[]
   session: string
   model?: string
   cache?: CacheTokens
@@ -90,26 +91,46 @@ export const HEAD_MOVED = 'HEAD'
 
 export const PREPARED_TREE_LINE = 'The worker prepared this tree before the session: its dependencies are in place, so run the harness there as it is. Read and run; leave the tree as the worker left it, because the worker compares it before and after the review and a moved HEAD or a changed or new file git does not ignore makes the verdict changes.'
 
+function optionalStrings(value: unknown, field: string, session: string): string[] | undefined {
+  if (value !== undefined && !(Array.isArray(value) && value.every(finding => typeof finding === 'string')))
+    throw new Error(`the review of session ${session} has a ${field} that is no list of strings`)
+  return value as string[] | undefined
+}
+
+function verdictWithoutAdvice(verdict: VerdictWord, findings: readonly string[], advice: readonly string[] | undefined): VerdictWord {
+  if (verdict !== 'changes' || advice === undefined || findings.length === 0)
+    return verdict
+  const marked = new Set(advice.map(entry => entry.trim()))
+  return findings.every(finding => marked.has(finding.trim())) ? 'pass' : verdict
+}
+
 export function reviewOf(text: string, session: string): Review {
-  const parsed = JSON.parse(text) as { verdict?: unknown, findings?: unknown, survivingMutations?: unknown }
+  const parsed = JSON.parse(text) as { verdict?: unknown, findings?: unknown, survivingMutations?: unknown, advice?: unknown }
   if (typeof parsed.verdict !== 'string' || !VERDICTS.has(parsed.verdict))
     throw new Error(`the review of session ${session} names no verdict pass | changes`)
   if (!Array.isArray(parsed.findings) || !parsed.findings.every(finding => typeof finding === 'string'))
     throw new Error(`the review of session ${session} has no findings list of strings`)
-  const marked = parsed.survivingMutations
-  if (marked !== undefined && !(Array.isArray(marked) && marked.every(finding => typeof finding === 'string')))
-    throw new Error(`the review of session ${session} has a survivingMutations that is no list of strings`)
-  return { verdict: parsed.verdict as VerdictWord, findings: parsed.findings as string[], ...(marked === undefined ? {} : { survivingMutations: marked as string[] }), session }
+  const findings = parsed.findings as string[]
+  const marked = optionalStrings(parsed.survivingMutations, 'survivingMutations', session)
+  const advice = optionalStrings(parsed.advice, 'advice', session)
+  return {
+    verdict: verdictWithoutAdvice(parsed.verdict as VerdictWord, findings, advice),
+    findings,
+    ...(marked === undefined ? {} : { survivingMutations: marked }),
+    ...(advice === undefined ? {} : { advice }),
+    session,
+  }
 }
 
 const ONE_PASS = 'Walk every mutation over the changed lines and report every finding of this pass in one verdict, not in portions.'
 
 const UNCHANGED_HEAD = 'The head is the one the earlier verdict read: the code has not changed since. Report no new finding against the code; check each earlier finding, and judge only what a changed card body or pull request description names.'
 
-function reReviewLines(since: string, head: string | null, findings: readonly string[]): string[] {
+function reReviewLines(since: string, reviewed: string, head: string | null, findings: readonly string[]): string[] {
   return [
-    ...(since === head ? [UNCHANGED_HEAD] : []),
+    ...(reviewed === head ? [UNCHANGED_HEAD] : []),
     `This is a re-review: check that each finding of the earlier verdict is closed, one still open stays a finding, and explore the diff ${since}..${head}.`,
+    `${since} is the merge-base of main and the head, so that diff is the card's change alone; the earlier verdict read ${reviewed}, and a file that ${reviewed}..${head} shows only because the head merged main is not the card's change.`,
     `A new finding is allowed on the changed lines and on code the change affects: its callers, the modules that depend on it, its tests, and a regression outside the diff that the change causes. Do not re-read the whole pull request without a reason; a new finding on code the change neither touches nor affects, which the first pass already read, is not allowed.`,
     ...findings.map(finding => `Earlier finding: ${finding}`),
   ]
@@ -128,7 +149,7 @@ function depthLines(lease: Lease, plan: ReviewPlan): string[] {
   if (plan.depth === 'diff' && plan.round === 'first')
     return [depth, ...firstDiffLines(plan.since, lease.head, plan.touchFindings, plan.touchNotes), ONE_PASS]
   if (plan.depth === 'diff')
-    return [depth, ...reReviewLines(plan.since, lease.head, plan.findings), ONE_PASS]
+    return [depth, ...reReviewLines(plan.since, plan.reviewed, lease.head, plan.findings), ONE_PASS]
   const ladder = plan.prediction?.verdict === 'ladder'
     ? [`MORSE predicts the ladder by rule ${plan.prediction.rule} (${plan.prediction.why.join(', ')}): cheap is the default path (D-224), so a card or pull request that names no D-76 reason is not a finding.`]
     : []
@@ -136,6 +157,8 @@ function depthLines(lease: Lease, plan: ReviewPlan): string[] {
 }
 
 const SURVIVING_MUTATIONS_LINE = 'survivingMutations is optional: list only the findings that are a surviving mutation with no behaviour defect. A finding outside it counts as a defect.'
+
+export const ADVICE_LINE = 'Only a defect of code, tests or the contract makes the verdict changes. A finding only on the description of the pull request, the changeset or the prose of the card is advice: keep it in findings and repeat it exactly in advice; when every finding is advice the bus records the verdict as pass with the findings kept.'
 
 export const REVIEW_BAR_LINE = 'A test or a generated file outside the touches is a note, not a finding, and no reason for changes; on a .claude, owner-merges, security or other R1 path it stays a finding, as does any other file outside the touches. A surviving mutation with no behaviour defect is a finding listed in survivingMutations: on a card of risk R3 or R4 the bus records that verdict as pass with the findings kept; on R1 and R2 it stays changes.'
 
@@ -171,9 +194,10 @@ export function reviewPrompt(lease: Lease, plan: ReviewPlan, tree: string, verdi
     ...cardLines(card),
     ...prBodyLines(prBody),
     ...depthLines(lease, plan),
-    `Finish by writing ${verdictPath} as JSON: {"verdict": "pass" | "changes", "findings": ["one finding per string"], "survivingMutations": ["a finding string, repeated exactly"]}.`,
+    `Finish by writing ${verdictPath} as JSON: {"verdict": "pass" | "changes", "findings": ["one finding per string"], "survivingMutations": ["a finding string, repeated exactly"], "advice": ["a finding string, repeated exactly"]}.`,
     SURVIVING_MUTATIONS_LINE,
     REVIEW_BAR_LINE,
+    ADVICE_LINE,
   ].join('\n')
 }
 
