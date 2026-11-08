@@ -456,6 +456,12 @@ describe('board.html', () => {
     expect(html.indexOf('id="h-backlog"')).toBeLessThan(html.indexOf('<footer class="statusline"'))
   })
 
+  it('the logo wrapper clips the glitch instead of scrolling', () => {
+    const html = pageText(seededBus())
+    expect(html).toContain('.banner-wrap { overflow-x: clip; min-inline-size: 0; }')
+    expect(html).not.toMatch(/\.banner-wrap\s*\{[^}]*overflow-x:\s*auto/)
+  })
+
   it('an eddies tile has no bar while the bus holds no context or spent for it', () => {
     const silent = pageText(seededBus([
       { ts: minutesAgo(3), type: SESSION_HEARTBEAT, card: 861, payload: JSON.stringify({ step: 'launch', session: 's861' }) },
