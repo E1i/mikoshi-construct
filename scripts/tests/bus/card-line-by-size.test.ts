@@ -163,6 +163,16 @@ describe('compaction of a card session', () => {
     expect(Number(cardSessionOverlay(treeWithLimits(LIMITS, 900_000), { [COMPACT_WINDOW_VARIABLE]: '400000' }, 'L')[COMPACT_WINDOW_VARIABLE])).toBeGreaterThan(L_LINE)
   })
 
+  it('a card line equal to the window is not above it and asks for no override', () => {
+    const root = treeWithLimits({ ...LIMITS, cardContextLineBySize: { ...LIMITS.cardContextLineBySize, L: COMPACT_WINDOW } })
+    expect(cardSessionOverlay(root, {}, 'L')).toEqual({ [CARD_SIZE_VARIABLE]: 'L' })
+  })
+
+  it('the window asked above a line never passes the ceiling of 1000000 the setting accepts', () => {
+    const root = treeWithLimits({ ...LIMITS, cardContextLineBySize: { ...LIMITS.cardContextLineBySize, L: 800_000 } })
+    expect(cardSessionOverlay(root, {}, 'L')).toEqual({ [CARD_SIZE_VARIABLE]: 'L', [COMPACT_WINDOW_VARIABLE]: '1000000' })
+  })
+
   it('no declared window asks for no override', () => {
     expect(cardSessionOverlay(treeWithLimits(LIMITS, null), {}, 'L')).toEqual({ [CARD_SIZE_VARIABLE]: 'L' })
   })
