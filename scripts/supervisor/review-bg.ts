@@ -10,7 +10,7 @@ import { FACTORY_WORKERS } from '../core/factory-paths.js'
 import { nodeProcess } from '../core/node.js'
 import { shadowReading } from '../core/report.js'
 import { REVIEW_READS, SWITCH_FLAG } from '../nodes/review/review-worker.js'
-import { argsBeforeBus, printBg, processBeatsOn, psList, servesBus, startDetached, thisBus } from './bg.js'
+import { alive, argsBeforeBus, printBg, processBeatsOn, psList, servesBus, startDetached, thisBus } from './bg.js'
 
 export const PREFIX = '[bus:review:bg] '
 export const REVIEW_SCRIPT = 'bus:review'
@@ -40,7 +40,7 @@ function recordedWorker(busDir: string, env: NodeJS.ProcessEnv, processes: Proce
     return undefined
   const pid = Number(readFileSync(file, 'utf8').trim())
   const bus = thisBus(env)
-  if (!Number.isInteger(pid) || pid <= 0 || pid === process.pid || !processBeatsOn(bus, nodeProcess('review'), Date.now()))
+  if (!Number.isInteger(pid) || pid <= 0 || pid === process.pid || !alive(pid) || !processBeatsOn(bus, nodeProcess('review'), Date.now()))
     return undefined
   const listed = processes().find(candidate => candidate.pid === pid)
   if (listed === undefined)

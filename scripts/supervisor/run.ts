@@ -25,7 +25,7 @@ import { CHECK_MS, NetWatch, pollLine, TICK_MS } from '../ports/netwatch.js'
 import { ghApiPost, setStepStatuses, STATUS_CONTEXT, STATUS_OFF_FILE, statusesSwitchedOff, statusFailureLine, statusLine } from '../ports/pr-status.js'
 import { realRequestTools } from '../window/window-request-tools.js'
 import { WindowRequests } from '../window/window-requests.js'
-import { BUS_RUN_MARKERS, instancesOf, processBeatsOn, psList, RUN_SCRIPT } from './bg.js'
+import { alive, BUS_RUN_MARKERS, instancesOf, processBeatsOn, psList, RUN_SCRIPT } from './bg.js'
 import { stampLogOutput } from './stamp.js'
 
 export const PREFIX = '[bus:run] '
@@ -58,7 +58,7 @@ function holderReading(lock: string, holder: number, processes: ProcessList, bus
 }
 
 function unprovenHolderQuestion(lock: string, holder: number, busPath: string, why: string): string {
-  return `pid ${holder} holds ${lock} for ${busPath}; the process table could not be read (${why}) and no bus:run heartbeat on this bus is recent, so nothing proves the holder gone. A second bus:run on one bus.db is not allowed: remove ${lock} only once pid ${holder} is no bus:run`
+  return `pid ${holder} holds ${lock} for ${busPath}; the process table could not be read (${why}) and no bus:run heartbeat on this bus is recent, so nothing proves the holder gone (a signal 0 to pid ${holder} ${alive(holder) ? 'is answered' : 'finds no process'}). A second bus:run on one bus.db is not allowed: remove ${lock} only once pid ${holder} is no bus:run`
 }
 
 function askOwnerOfUnprovenHolder(busPath: string, question: string, lock: string, nowMs: number): string | null {
