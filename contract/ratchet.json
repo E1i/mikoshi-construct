@@ -7,7 +7,7 @@
   "lines:scripts/supervisor/supervisor.ts": 1190,
   "lines:scripts/window/window-requests.ts": 961,
   "lines:src/ui/lore.ts": 1338,
-  "overlaps:answer-duties": 43,
+  "overlaps:answer-duties": 42,
   "overlaps:ci-reading": 0,
   "overlaps:generated-files": 0,
   "overlaps:git": 53,

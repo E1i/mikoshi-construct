@@ -11,10 +11,11 @@ import { textSha } from '../../../src/card/text-sha.js'
 import { appendEvent } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_HELD, CARD_RELEASED, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, CARD_TAKEOVER, PR_OPENED, QUESTION_AGENT, QUESTION_OWNER, WITNESS_RECORDED } from '../../core/events.js'
 import { failTask, leaseNext } from '../../core/lease.js'
-import { queueTask } from '../../core/queue.js'
+import { cardBodyShaOfCard, queueTask } from '../../core/queue.js'
 import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
 import { ownerHoldOf } from '../../nodes/answer/answer-source.js'
 import { claudeAnswerer } from '../../nodes/answer/answerer.js'
+import { recordDecision } from '../../policy/decisions.js'
 import { requestFromWindow, requestOf, TAKEOVER_AFTER_MINUTES, WindowRequests } from '../../window/window-requests.js'
 import { sha } from './github-fake.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
@@ -312,5 +313,42 @@ describe('a window takeover of a card the bus has no route for', () => {
     expect(requestOf(['takeover', '--card', String(CARD)])).toBeNull()
     expect(requestOf(['takeover', '--reason', REASON])).toBeNull()
     expect(requestOf(['takeover', '--card', String(CARD), '--reason', REASON])).toEqual({ kind: 'takeover', card: CARD, reason: REASON })
+  })
+})
+
+describe('an amend against a decision on an admitted card', () => {
+  const ADMITTED_BODY = 'aaaa1111'
+  const AMENDED_BODY = 'bbbb2222'
+
+  function admitBody(made: MergeBench, bodySha: string): void {
+    appendEvent(made.db, { ts: made.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'policy', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${CARD}:${bodySha}`, payload: { lane: 'lane-1', decision: 'auto', contour: 'cheap', depends: [], admission: `admission-${CARD}-${bodySha}`, bodySha }, legacy: false })
+  }
+
+  function liveAnswers(made: MergeBench): string[] {
+    return (made.db.prepare(`SELECT task_key FROM tasks WHERE card_id = ? AND queue = 'answer' AND state IN ('queued', 'leased') ORDER BY task_key`).all(CARD) as { task_key: string }[]).map(row => row.task_key)
+  }
+
+  function redCardOnTheAdmittedBody(): MergeBench {
+    const { made } = startedCard()
+    admitBody(made, ADMITTED_BODY)
+    prOpened(made)
+    made.gitHub.open({ number: PR_OF_THE_CARD, required: 'failure', failed: ['required'] })
+    made.tick()
+    return made
+  }
+
+  it('an amend of an admitted card stays a full readmission', () => {
+    const made = redCardOnTheAdmittedBody()
+    expect(liveAnswers(made)).toEqual([expect.stringMatching(new RegExp(`:card-body-${ADMITTED_BODY}$`))])
+
+    recordDecision(made.db, { ts: made.clock.now().toISOString(), decisionId: 905, text: 'keep the body as admitted', cards: [CARD] })
+    made.tick()
+    expect(cardBodyShaOfCard(made.db, CARD)).toBe(ADMITTED_BODY)
+
+    admitBody(made, AMENDED_BODY)
+    made.tick()
+
+    expect(cardBodyShaOfCard(made.db, CARD)).toBe(AMENDED_BODY)
+    expect(liveAnswers(made)).toEqual([expect.stringMatching(new RegExp(`:card-body-${AMENDED_BODY}$`))])
   })
 })

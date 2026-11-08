@@ -17,6 +17,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { readShiftGate } from '../../../src/manifest.js'
 import { roundGate } from '../../ci/prepush.js'
+import { cardDecisionBlock } from '../../core/card-decisions.js'
 import { appendEvent, defaultBusPath, openBus } from '../../core/db.js'
 import { TOUCHES_FOLLOWED } from '../../core/events.js'
 import { assertHeld, StaleLease } from '../../core/lease.js'
@@ -240,6 +241,8 @@ function sourceLines(source: AnswerSource, ciLog?: FailedJobLog | null): string[
   }
   if (source.kind === 'ci')
     return redCiLines(source.failedChecks, ciLog)
+  if (source.kind === 'decision')
+    return [`The owner decided on this card: D-${source.decisionId}: ${source.text}`, 'Continue the card under that decision; the card body is unchanged.']
   return [`The card stopped with a question for the agent: ${source.detail}`, 'Answer it as the Operator role would and continue the card.']
 }
 
@@ -269,10 +272,6 @@ function cardLines(cardId: number, cardText: string | null): string[] {
   return [`The card as the bus holds it now, witnesses admitted after the verdict included:`, cardText.trim()]
 }
 
-function decisionLines(decisions: readonly string[]): string[] {
-  return decisions.length === 0 ? [] : ['Owner decisions in force for this card. They are the owner\'s answer: follow them, and do not ask the owner again what they settle.', ...decisions]
-}
-
 function diffLines(card: CardSession, diff: string | null | undefined): string[] {
   if (diff === undefined)
     return []
@@ -293,7 +292,7 @@ export function answerPrompt(request: AnswerRequest, ownerQuestion: string, card
     `[answer:${lease.taskKey}]`,
     `Card #${lease.cardId}${lease.pr === null ? '' : `, pull request #${lease.pr} at ${lease.head}`}, in its tree ${card.worktree} on ${card.branch}.`,
     ...cardLines(lease.cardId, cardText),
-    ...decisionLines(source.decisions),
+    ...cardDecisionBlock(source.decisions),
     ...sourceLines(source, ciLog),
     ...diffLines(card, diff),
     ...(widened === null ? [] : [`The touches are widened: ${widened}.`]),
