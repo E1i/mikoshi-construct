@@ -1,8 +1,8 @@
 import { spawnSync } from 'node:child_process'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { BUS_CORE, BUS_SERVICE, recordsOf } from '../../ci/layers.js'
-import { layersIn, readLayerMap } from '../../core/layer-map.js'
+import { BUS_CORE, BUS_SERVICE } from '../../ci/layers.js'
+import { layersIn, readLayerMap, recordsOf } from '../../core/layer-map.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..', '..')
 const TEST_ROOT = 'scripts/tests/'

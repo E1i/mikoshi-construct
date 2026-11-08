@@ -2,8 +2,9 @@ import type { Graph } from '../../ci/layers.js'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { BUS_CORE as CORE_PATTERN, layerOf, selectRun, BUS_SERVICE as SERVICE_PATTERN, windowGate } from '../../ci/layers.js'
+import { BUS_CORE as CORE_PATTERN, selectRun, BUS_SERVICE as SERVICE_PATTERN, windowGate } from '../../ci/layers.js'
 import { changedPathsOf, outputLines, pathsOf, reportedRun, runSummary, windowLines } from '../../ci/select.js'
+import { layerOf } from '../../core/layer-map.js'
 
 const GRAPH: Graph = new Map([
   ['scripts/core/db.ts', []],

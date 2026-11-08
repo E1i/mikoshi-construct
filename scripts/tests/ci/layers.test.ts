@@ -5,9 +5,9 @@ import path from 'node:path'
 import process from 'node:process'
 import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
-import { layerIn, layerOf, selectRun } from '../../ci/layers.js'
+import { selectRun } from '../../ci/layers.js'
 import { cruise } from '../../ci/select.js'
-import { readLayerMap } from '../../core/layer-map.js'
+import { layerIn, layerOf, readLayerMap } from '../../core/layer-map.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..', '..')
 const DEPCRUISE = path.join(REPO_ROOT, 'node_modules', 'dependency-cruiser', 'bin', 'dependency-cruiser.mjs')

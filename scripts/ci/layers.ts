@@ -2,7 +2,7 @@ import type { LayerMap } from '../core/layer-map.js'
 import path from 'node:path'
 import { isTest, NAMED_READERS, PACKAGE_MANIFEST, PACKAGE_SCRIPT_READERS, SCANNED_TREES, TEST_ROOTS } from '../../src/card/covering-tests.js'
 import { FACTORY_FOLDERS, FACTORY_NAMED } from '../core/factory-paths.js'
-import { layersIn, readLayerMap } from '../core/layer-map.js'
+import { declaredLayersIn, isDocument, isRecord, isTestInfrastructure, layersInOf, repositoryLayerMap } from '../core/layer-map.js'
 import { scansATree } from './tree-scanners.js'
 
 export { isTest }
@@ -19,18 +19,10 @@ export const BUS_SHARED: readonly string[] = [
   FACTORY_NAMED.busStored,
 ]
 export const BUS_TESTS = `${FACTORY_FOLDERS.busTests[0]}/`
-const theLayerMap = ((): (() => LayerMap) => {
-  let read: LayerMap | undefined
-  return () => read ??= readLayerMap()
-})()
-const SCRIPT_DIR = /^scripts\/([^/]+)\//
-const SOURCE_FILE = /\.ts$/
 const CHANGESET_NOTE = /^\.changeset\/[^/]+\.md$/
 const CHANGESET_TOUCH = '.changeset/**'
-const LAYERS_SEPARATOR = ','
 const CONTRACT_RECORD_TESTS = 'tests/contract/'
 export const CHANGESET_READERS: readonly string[] = ['tests/changesets-one-line.test.ts']
-const TEST_INFRASTRUCTURE = /^(?:vitest\.config\.ts|vitest-[^/]+\.ts|scripts\/scratch\/vitest-[^/]+|scripts\/ci\/.+)$/
 
 export type Graph = ReadonlyMap<string, readonly string[]>
 
@@ -44,43 +36,6 @@ function underTestRoot(file: string): boolean {
 
 export function isChangesetNote(entry: string): boolean {
   return entry === CHANGESET_TOUCH || CHANGESET_NOTE.test(entry)
-}
-
-function isRecord(map: LayerMap, file: string): boolean {
-  return !SOURCE_FILE.test(file) && !underTestRoot(file) && map.files[file] !== undefined
-}
-
-export function recordsOf(map: LayerMap): string[] {
-  return Object.keys(map.files).filter(file => isRecord(map, file))
-}
-
-function isPlaced(map: LayerMap, file: string): boolean {
-  return isRecord(map, file) || (!underTestRoot(file) && SOURCE_FILE.test(file))
-}
-
-export function declaredLayersIn(map: LayerMap, file: string): string[] {
-  return isPlaced(map, file) ? [...new Set(layersIn(map, file))].sort() : []
-}
-
-export function layersInOf(map: LayerMap, file: string): string[] {
-  if (!isPlaced(map, file))
-    return []
-  const declared = declaredLayersIn(map, file)
-  const folder = SCRIPT_DIR.exec(file)?.[1]
-  return declared.length === 0 && folder !== undefined ? [folder] : declared
-}
-
-export function layerIn(map: LayerMap, file: string): string | null {
-  const layers = layersInOf(map, file)
-  return layers.length === 0 ? null : layers.join(LAYERS_SEPARATOR)
-}
-
-export function layerOf(file: string): string | null {
-  return layerIn(theLayerMap(), file)
-}
-
-export function layersOf(file: string): string[] {
-  return layersInOf(theLayerMap(), file)
 }
 
 export function reverseGraph(graph: Graph): Map<string, string[]> {
@@ -122,6 +77,8 @@ function modulesOfLayers(layers: readonly string[], graph: Graph, map: LayerMap)
 }
 
 function resolvedByLayers(file: string, graph: Graph, map: LayerMap): boolean {
+  if (isDocument(file))
+    return true
   const layers = layersInOf(map, file)
   if (layers.length === 0)
     return false
@@ -135,14 +92,14 @@ function seedsOfLayers(file: string, graph: Graph, map: LayerMap): string[] {
   return !isTest(file) && (!graph.has(file) || layers.length > 1) ? modulesOfLayers(layers, graph, map) : []
 }
 
-export function selectRun(given: readonly string[], graph: Graph, testText: (test: string) => string, map: LayerMap = theLayerMap()): Run {
+export function selectRun(given: readonly string[], graph: Graph, testText: (test: string) => string, map: LayerMap = repositoryLayerMap()): Run {
   if (given.length === 0)
     return { kind: 'full', why: 'no changed path was given' }
   const changed = given.filter(file => !CHANGESET_NOTE.test(file))
   const changesetReaders = changed.length < given.length ? CHANGESET_READERS.filter(test => graph.has(test)) : []
   if (changed.length === 0)
     return { kind: 'layers', layers: [], tests: [...changesetReaders] }
-  const infrastructure = changed.find(file => TEST_INFRASTRUCTURE.test(file))
+  const infrastructure = changed.find(isTestInfrastructure)
   if (infrastructure !== undefined)
     return { kind: 'full', why: `${infrastructure} is test infrastructure every test runs under` }
   const unmapped = changed.find(file => !isTest(file) && !resolvedByLayers(file, graph, map))
