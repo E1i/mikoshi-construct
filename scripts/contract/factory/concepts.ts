@@ -1,5 +1,5 @@
 import type { Detector } from './detectors.js'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync, statSync } from 'node:fs'
 import path from 'node:path'
 import ts from 'typescript'
 import { FACTORY_RUNTIME } from '../../core/factory-paths.js'
@@ -28,14 +28,72 @@ export const AXES = ['autonomy', 'cost', 'self-learning', 'interface', 'architec
 
 export type Axis = typeof AXES[number]
 
-export interface Concept {
+interface BuiltOwner {
+  ownerExists: true
+  ownerExport: string
+}
+
+interface ProposedOwner {
+  ownerExists: false
+  ownerExport: null
+}
+
+export type Concept = {
   id: string
   title: string
   owner: string
-  ownerExists: boolean
   axis: Axis
   lore: string | null
   detectors: readonly Detector[]
+} & (BuiltOwner | ProposedOwner)
+
+function exportModifiers(statement: ts.Statement): { exported: boolean, isDefault: boolean } {
+  const modifiers = ts.canHaveModifiers(statement) ? ts.getModifiers(statement) ?? [] : []
+  return {
+    exported: modifiers.some(modifier => modifier.kind === ts.SyntaxKind.ExportKeyword),
+    isDefault: modifiers.some(modifier => modifier.kind === ts.SyntaxKind.DefaultKeyword),
+  }
+}
+
+function namesExportedBy(statement: ts.Statement): string[] {
+  if (ts.isExportAssignment(statement))
+    return ['default']
+  if (ts.isExportDeclaration(statement))
+    return statement.exportClause !== undefined && ts.isNamedExports(statement.exportClause) ? statement.exportClause.elements.map(element => element.name.text) : []
+  const { exported, isDefault } = exportModifiers(statement)
+  if (!exported)
+    return []
+  if (isDefault)
+    return ['default']
+  if (ts.isVariableStatement(statement))
+    return statement.declarationList.declarations.flatMap(declaration => ts.isIdentifier(declaration.name) ? [declaration.name.text] : [])
+  if (ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement) || ts.isInterfaceDeclaration(statement) || ts.isTypeAliasDeclaration(statement) || ts.isEnumDeclaration(statement))
+    return statement.name === undefined ? [] : [statement.name.text]
+  return []
+}
+
+export function exportedNames(file: string): ReadonlySet<string> {
+  const source = ts.createSourceFile(file, readFileSync(file, 'utf8'), ts.ScriptTarget.Latest, false)
+  return new Set(source.statements.flatMap(namesExportedBy))
+}
+
+function isFile(file: string): boolean {
+  return existsSync(file) && statSync(file).isFile()
+}
+
+export function ownerExportFault(concept: Concept, root: string): string | null {
+  const ownerPath = path.join(root, concept.owner)
+  if (!concept.ownerExists)
+    return existsSync(ownerPath) ? `${concept.id}: ${concept.owner} exists, so name the export it owns the concept by and set ownerExists true` : null
+  if (!isFile(ownerPath))
+    return `${concept.id}: ownerExists is true but ${concept.owner} is not a file`
+  return exportedNames(ownerPath).has(concept.ownerExport) ? null : `${concept.id}: ${concept.owner} does not export ${concept.ownerExport}`
+}
+
+export function assertOwnersExport(concepts: readonly Concept[], root: string): void {
+  const faults = concepts.flatMap(concept => ownerExportFault(concept, root) ?? [])
+  if (faults.length > 0)
+    throw new Error(`a concept's owner exports the name it declares: ${faults.join('; ')}`)
 }
 
 export type LoreConflicts = Readonly<Record<string, readonly string[]>>
@@ -149,6 +207,7 @@ export const CONCEPTS: readonly Concept[] = [
     title: 'the process table of the OS, read with ps, lsof or top and parsed',
     owner: PROCESS_TABLE_OWNER,
     ownerExists: true,
+    ownerExport: 'OsProcessTable',
     axis: 'architecture',
     lore: null,
     detectors: [programCall(PROCESS_TABLE_PROGRAMS), declaredFunction(/^parsePs$/)],
@@ -158,6 +217,7 @@ export const CONCEPTS: readonly Concept[] = [
     title: 'whether a pid is alive',
     owner: LIVENESS_JUDGE,
     ownerExists: true,
+    ownerExport: 'LivenessJudge',
     axis: 'architecture',
     lore: null,
     detectors: [pidProbe()],
@@ -167,6 +227,7 @@ export const CONCEPTS: readonly Concept[] = [
     title: 'whether a client session is alive in a tree',
     owner: LIVENESS_JUDGE,
     ownerExists: true,
+    ownerExport: 'LivenessJudge',
     axis: 'architecture',
     lore: null,
     detectors: [
@@ -181,6 +242,7 @@ export const CONCEPTS: readonly Concept[] = [
     title: 'which layer a file belongs to',
     owner: 'scripts/core/layer-map.ts',
     ownerExists: true,
+    ownerExport: 'layersOf',
     axis: 'architecture',
     lore: null,
     detectors: [declaredFunction(/^(?:(?:declared)?[lL]ayers?(?:Id)?(?:In|Of)(?:[A-Z]\w*)?|layersReachedBy\w+)$/)],
@@ -190,6 +252,7 @@ export const CONCEPTS: readonly Concept[] = [
     title: 'the owner decisions, read from the markdown file or the bus table',
     owner: 'scripts/policy/decisions.ts',
     ownerExists: true,
+    ownerExport: 'inForceDecisions',
     axis: 'architecture',
     lore: null,
     detectors: [
@@ -204,6 +267,7 @@ export const CONCEPTS: readonly Concept[] = [
     title: 'the STATUS line of a handoff',
     owner: 'scripts/core/handoff-status.ts',
     ownerExists: true,
+    ownerExport: 'statusOf',
     axis: 'architecture',
     lore: null,
     detectors: [
@@ -219,6 +283,7 @@ export const CONCEPTS: readonly Concept[] = [
     title: 'the state of CI on a commit or a pull request',
     owner: 'src/commands/ci/state.ts',
     ownerExists: true,
+    ownerExport: 'ciOf',
     axis: 'architecture',
     lore: null,
     detectors: [
@@ -235,6 +300,7 @@ export const CONCEPTS: readonly Concept[] = [
     title: 'the list of generated files',
     owner: 'scripts/core/generated-files.ts',
     ownerExists: true,
+    ownerExport: 'GENERATED_FILES',
     axis: 'architecture',
     lore: null,
     detectors: [literal(text => GENERATED_PATH_SET.has(text.replace(LEADING_PARENTS, '')), 'a generated path by its literal')],
@@ -244,6 +310,7 @@ export const CONCEPTS: readonly Concept[] = [
     title: 'the command lines the owner is told to run',
     owner: 'scripts/core/owner-commands.ts',
     ownerExists: false,
+    ownerExport: null,
     axis: 'interface',
     lore: null,
     detectors: [
@@ -256,6 +323,7 @@ export const CONCEPTS: readonly Concept[] = [
     title: 'running git',
     owner: 'scripts/ports/git.ts',
     ownerExists: true,
+    ownerExport: 'processGit',
     axis: 'architecture',
     lore: null,
     detectors: [programCall(['git'])],
@@ -265,6 +333,7 @@ export const CONCEPTS: readonly Concept[] = [
     title: 'one class for every kind of window request',
     owner: 'scripts/window/requests/',
     ownerExists: false,
+    ownerExport: null,
     axis: 'architecture',
     lore: null,
     detectors: [entriesOfTable(WINDOW_REQUESTS, 'executors', 'a request kind inside the class:')],
@@ -274,6 +343,7 @@ export const CONCEPTS: readonly Concept[] = [
     title: 'four duties each in the answer executor and the answerer',
     owner: 'scripts/nodes/answer/duties/',
     ownerExists: false,
+    ownerExport: null,
     axis: 'architecture',
     lore: null,
     detectors: [

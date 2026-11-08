@@ -148,6 +148,7 @@ describe('contract/factory.json', () => {
     for (const [id, concept] of Object.entries(concepts)) {
       expect(AXES, id).toContain(concept.axis)
       expect(existsSync(path.join(REPO_ROOT, concept.owner)), `${id}: ownerExists is ${concept.ownerExists} for ${concept.owner}`).toBe(concept.ownerExists)
+      expect(concept.ownerExport === null, `${id}: ownerExport ${concept.ownerExport}`).toBe(!concept.ownerExists)
     }
   }, GENERATION_TIMEOUT)
 
