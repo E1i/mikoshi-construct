@@ -224,7 +224,7 @@ function cardsNamed(args: readonly string[]): number[] {
 
 function requestWidening(db: DatabaseSync, cards: readonly number[], creates: readonly string[], now: Date, session: string, out: (line: string) => void): boolean {
   const change = creates.map(file => `+${file}`).join(',')
-  return cards.every(card => runRequest(['amend', '--card', String(card), '--touches', change, '--creates', change, '--auto-confirm'], db, now, session, out) === 0)
+  return cards.every(card => runRequest(['amend', '--card', String(card), '--touches', change, '--auto-confirm'], db, now, session, out) === 0)
 }
 
 export function requestDecision(args: readonly string[], db: DatabaseSync, now: Date, session: string, out: (line: string) => void): number {

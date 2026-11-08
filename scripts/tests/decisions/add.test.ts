@@ -236,7 +236,6 @@ describe('pnpm decisions:add in a window session asks the bus', () => {
       reduce(db)
       const body = busCardAdmissions(db)(5)!.text!
       expect(body).toMatch(/^touches: src\/a\.ts, src\/new\.ts$/m)
-      expect(body).toMatch(/^creates: src\/new\.ts$/m)
       expect(requestDecision(['--from', 'answer', '--creates', 'src/other.ts', '[owner] no card.'], db, NOW, 'window-1', () => {})).toBe(2)
       expect(pendingRequests(db)).toHaveLength(0)
     }
