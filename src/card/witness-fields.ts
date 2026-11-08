@@ -135,7 +135,7 @@ export function isLayerEntry(entry: string): boolean {
   return entry.startsWith(LAYER_ENTRY_PREFIX)
 }
 
-export function layerIdOf(entry: string): string {
+export function layerNamedBy(entry: string): string {
   return entry.slice(LAYER_ENTRY_PREFIX.length)
 }
 
@@ -147,7 +147,7 @@ export function layerEntryRefusals(entries: readonly string[], roots: readonly s
     return [`runs entries ${entries.join(', ')} cannot be checked: this build holds no ${LAYER_MAP}`]
   const { files, folders } = JSON.parse(readFileSync(path.join(root, LAYER_MAP), 'utf8')) as Record<'files' | 'folders', Record<string, string>>
   const known = new Set([...Object.values(files), ...Object.values(folders)])
-  return entries.filter(entry => !known.has(layerIdOf(entry))).map(entry => `runs entry '${entry}' names no layer of ${LAYER_MAP}`)
+  return entries.filter(entry => !known.has(layerNamedBy(entry))).map(entry => `runs entry '${entry}' names no layer of ${LAYER_MAP}`)
 }
 
 function runsRefusals(text: string): string[] {

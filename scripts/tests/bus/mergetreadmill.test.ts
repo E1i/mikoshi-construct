@@ -146,21 +146,21 @@ describe('a pull request of documents and the update', () => {
     expect(overlapWithMain(db, ['tests/links.test.ts'], [UNREAD_DOCUMENT])).toBe(forced)
   })
 
-  it('a file that is not markdown under architecture or docs stays outside the catalog', () => {
+  it('a file outside architecture and docs stays outside the catalog, and any file under them is in the docs layer', () => {
     const db = catalogDb()
     aCatalogOf(db)
 
-    expect(overlapWithMain(db, ['README.md'], [CLI])).toBe('README.md belongs to no layer of the check catalog')
-    expect(overlapWithMain(db, ['architecture/composition/init.yaml'], [CLI])).toBe('architecture/composition/init.yaml belongs to no layer of the check catalog')
-    expect(overlapWithMain(db, [UNREAD_DOCUMENT], ['docs/.vitepress/config.ts'])).toBe('docs/.vitepress/config.ts belongs to no layer of the check catalog')
+    expect(overlapWithMain(db, ['CONTRIBUTING.md'], [CLI])).toBe('CONTRIBUTING.md belongs to no layer of the check catalog')
+    expect(overlapWithMain(db, ['architecture/composition/init.yaml'], [CLI])).toBeNull()
+    expect(overlapWithMain(db, [UNREAD_DOCUMENT], ['docs/.vitepress/config.ts'])).toBeNull()
   })
 
-  it('a catalog written before the reads were recorded keeps every document outside it', () => {
+  it('a catalog written before the reads were recorded still puts a document in the docs layer', () => {
     const db = catalogDb()
     aCatalogOf(db)
     db.exec('DROP TABLE check_document_reads')
 
-    expect(overlapWithMain(db, [UNREAD_DOCUMENT], [CLI])).toBe(`${UNREAD_DOCUMENT} belongs to no layer of the check catalog`)
+    expect(overlapWithMain(db, [UNREAD_DOCUMENT], [CLI])).toBeNull()
   })
 
   it('a document beside code keeps the gate of the code', () => {
@@ -208,7 +208,7 @@ describe('a test the pull request adds', () => {
     expect(overlapWithMain(db, [ADDED_BUS_TEST], ['scripts/core/db.ts'], read)).toMatch(/^main changed the layer /)
   })
 
-  it('stays outside the catalog when its text or an import cannot be read, it scans a tree or it reaches no layer', () => {
+  it('stays outside the catalog when its text or an import cannot be read or it scans a tree, and runs itself when it reaches no layer', () => {
     const db = catalogDb()
     aCatalogOf(db)
     const outside = `${ADDED_TEST} belongs to no layer of the check catalog`
@@ -216,7 +216,7 @@ describe('a test the pull request adds', () => {
     expect(overlapWithMain(db, [ADDED_TEST], [CLI])).toBe(outside)
     expect(overlapWithMain(db, [ADDED_TEST], [CLI], reading({ [ADDED_TEST]: importing('./gone.js') }))).toBe(outside)
     expect(overlapWithMain(db, [ADDED_TEST], [CLI], reading({ [ADDED_TEST]: `${TREE_WALK}(join(REPO_ROOT, 'src'))` }))).toBe(outside)
-    expect(overlapWithMain(db, [ADDED_TEST], [CLI], reading({ [ADDED_TEST]: `import { it } from 'vitest'` }))).toBe(outside)
+    expect(overlapWithMain(db, [ADDED_TEST], [CLI], reading({ [ADDED_TEST]: `import { it } from 'vitest'` }))).toBeNull()
   })
 
   it('a test the catalog already holds as reaching no layer is not read', () => {

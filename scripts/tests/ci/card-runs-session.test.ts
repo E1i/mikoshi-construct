@@ -183,9 +183,9 @@ describe('the card session and the review read the runs of a card from one sourc
       expect(shiftTreeCard(taskOf(cardText(MASK_ON_BUS)), catalog).runs).toEqual([])
       expect(reviewFindings(MASK_ON_BUS, catalog, [HELPER])).toEqual([expect.stringContaining(FULL_READING)])
     }
-    const unknownTouch = shiftTreeCard(taskOf(cardText('Do it.', ['docs/cli.md'])), CATALOG)
+    const unknownTouch = shiftTreeCard(taskOf(cardText('Do it.', ['CONTRIBUTING.md'])), CATALOG)
     expect(unknownTouch.runs).toEqual([])
-    expect(unknownTouch.fullReading).toContain('docs/cli.md belongs to no layer of the check catalog')
+    expect(unknownTouch.fullReading).toContain('CONTRIBUTING.md belongs to no layer of the check catalog')
 
     const inside = pullRequest(MASK_ON_BUS, EMPTY, EDIT_OF_THE_TOUCH)
     expect(inside.pr).toEqual({ kind: 'pr', number: '954', followed: [] })

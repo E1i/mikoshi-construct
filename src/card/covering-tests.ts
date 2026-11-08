@@ -2,7 +2,7 @@ import path from 'node:path'
 import { FACTORY_FOLDERS, FACTORY_FORMER_FOLDERS, FACTORY_NAMED, FACTORY_ROOT, scopeOf } from '../../scripts/core/factory-paths.js'
 import { createdPaths } from './parking.js'
 import { PREFIX_SUFFIX } from './task-file.js'
-import { isLayerEntry, layerIdOf, runsFieldOf } from './witness-fields.js'
+import { isLayerEntry, layerNamedBy, runsFieldOf } from './witness-fields.js'
 
 function scannedBy(groups: readonly (readonly [readonly string[], readonly string[]])[]): Record<string, readonly string[]> {
   const trees: Record<string, string[]> = {}
@@ -90,7 +90,7 @@ export function runsOf(body: string): string[] {
 }
 
 export function layerMasksOf(body: string): string[] {
-  return runsEntriesOf(body).filter(isLayerEntry).map(layerIdOf)
+  return runsEntriesOf(body).filter(isLayerEntry).map(layerNamedBy)
 }
 
 export function runsCover(file: string, runs: readonly string[]): boolean {
