@@ -22,16 +22,23 @@ const DOCUMENTS: readonly RegExp[] = [
 ]
 
 const TEST_INFRASTRUCTURE: readonly RegExp[] = [
-  /^scripts\/ci\/.+$/,
+  /^scripts\/ci\/(?:layers|select|prepush|test-command)\.ts$/,
   /^scripts\/tests\/ci\/(?:select-layers|prepush-selector)\.test\.ts$/,
   /^vitest(?:\.[\w-]+)*\.config\.[cm]?[jt]s$/,
-  /^vitest-[^/]+\.ts$/,
-  /^scripts\/scratch\/vitest-[^/]+$/,
   /^package\.json$/,
   /^pnpm-lock\.yaml$/,
   /^\.changeset\/config\.json$/,
   /^tests\/changesets-[\w-]+\.test\.ts$/,
 ]
+
+const CHECK_PIPELINE: readonly RegExp[] = [
+  /^vitest\.config\.ts$/,
+  /^vitest-[^/]+\.ts$/,
+  /^scripts\/scratch\/vitest-[^/]+$/,
+  /^scripts\/ci\/.+$/,
+]
+
+const DOCUMENT_SAMPLE = 'any.md'
 
 const FACTORY_TESTS = `${FACTORY_FOLDERS.tests[0]}/`
 const SCRIPT_DIR = /^scripts\/([^/]+)\//
@@ -63,6 +70,14 @@ export function isTestInfrastructure(file: string): boolean {
   return TEST_INFRASTRUCTURE.some(pattern => pattern.test(file))
 }
 
+export function isCheckPipeline(file: string): boolean {
+  return CHECK_PIPELINE.some(pattern => pattern.test(file))
+}
+
+function holdsOnlyDocuments(glob: string): boolean {
+  return isDocument(`${glob.slice(0, -GLOB_SUFFIX.length)}/${DOCUMENT_SAMPLE}`)
+}
+
 export function isRecord(map: LayerMap, file: string): boolean {
   return !SOURCE_FILE.test(file) && !file.startsWith(FACTORY_TESTS) && map.files[file] !== undefined
 }
@@ -90,7 +105,9 @@ export function layersInOf(map: LayerMap, file: string): string[] {
 }
 
 export function layersOfEntry(map: LayerMap, entry: string): string[] {
-  return entry.endsWith(GLOB_SUFFIX) ? layersIn(map, entry) : declaredLayersIn(map, entry)
+  if (!entry.endsWith(GLOB_SUFFIX))
+    return declaredLayersIn(map, entry)
+  return holdsOnlyDocuments(entry) ? [DOCS_LAYER] : layersIn(map, entry)
 }
 
 export function layerIn(map: LayerMap, file: string): string | null {

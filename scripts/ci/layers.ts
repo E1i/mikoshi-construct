@@ -2,7 +2,7 @@ import type { LayerMap } from '../core/layer-map.js'
 import path from 'node:path'
 import { isTest, NAMED_READERS, PACKAGE_MANIFEST, PACKAGE_SCRIPT_READERS, SCANNED_TREES, TEST_ROOTS } from '../../src/card/covering-tests.js'
 import { FACTORY_FOLDERS, FACTORY_NAMED } from '../core/factory-paths.js'
-import { declaredLayersIn, isDocument, isRecord, isTestInfrastructure, layersInOf, repositoryLayerMap } from '../core/layer-map.js'
+import { declaredLayersIn, isCheckPipeline, isDocument, isRecord, layersInOf, repositoryLayerMap } from '../core/layer-map.js'
 import { scansATree } from './tree-scanners.js'
 
 export { isTest }
@@ -99,7 +99,7 @@ export function selectRun(given: readonly string[], graph: Graph, testText: (tes
   const changesetReaders = changed.length < given.length ? CHANGESET_READERS.filter(test => graph.has(test)) : []
   if (changed.length === 0)
     return { kind: 'layers', layers: [], tests: [...changesetReaders] }
-  const infrastructure = changed.find(isTestInfrastructure)
+  const infrastructure = changed.find(isCheckPipeline)
   if (infrastructure !== undefined)
     return { kind: 'full', why: `${infrastructure} is test infrastructure every test runs under` }
   const unmapped = changed.find(file => !isTest(file) && !resolvedByLayers(file, graph, map))

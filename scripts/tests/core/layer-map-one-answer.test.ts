@@ -13,7 +13,7 @@ import { rebuildCatalogAt, writeCatalog } from '../../cli/check-catalog.js'
 import { findSites } from '../../contract/factory/overlaps.js'
 import { appendEvent } from '../../core/db.js'
 import { BOARD_ALARM, MERGE_DONE, REVIEW_RECORDED } from '../../core/events.js'
-import { DOCS_LAYER, layersInOf } from '../../core/layer-map.js'
+import { DOCS_LAYER, isCheckPipeline, isTestInfrastructure, layersInOf } from '../../core/layer-map.js'
 import { CATALOG_REBUILD_FAILED, MergeNode } from '../../nodes/merge/merge-worker.js'
 import { cardBody, MAIN_2, sha } from '../bus/github-fake.js'
 import { eventsOf, mergeBench } from '../bus/merge-bench.js'
@@ -24,6 +24,7 @@ const QUEUE = 'scripts/core/queue.ts'
 const SEAM = 'scripts/core/db.ts'
 const FRESH = 'scripts/core/fresh.ts'
 const CI_MODULE = 'scripts/ci/layers.ts'
+const CARD_RUNS = 'scripts/ci/card-runs.ts'
 const WINDOW_DOC = 'architecture/window.md'
 const COMPOSITION = 'architecture/composition/intake.yaml'
 const RECORD = 'contract/factory.json'
@@ -32,6 +33,7 @@ const QUEUE_TEST = 'scripts/tests/core/queue.test.ts'
 const SEAM_TEST = 'scripts/tests/bus/db.test.ts'
 const RECORD_TEST = 'tests/contract/factory.test.ts'
 const DOCS_TEST = 'scripts/tests/docs/window.test.ts'
+const CI_TEST = 'scripts/tests/ci/card-runs.test.ts'
 const NEW_TEST = 'scripts/tests/core/brand-new.test.ts'
 const FULL = 'full'
 
@@ -47,6 +49,8 @@ const GRAPH: Graph = new Map([
   [SEAM_TEST, [SEAM]],
   [RECORD_TEST, []],
   [DOCS_TEST, []],
+  [CARD_RUNS, []],
+  [CI_TEST, [CARD_RUNS]],
 ])
 
 const TEST_TEXT: Readonly<Record<string, string>> = {
@@ -54,17 +58,18 @@ const TEST_TEXT: Readonly<Record<string, string>> = {
 }
 
 const CATALOG: CheckCatalog = {
-  moduleLayers: new Map([[QUEUE, ['core']], [SEAM, ['bus-core']]]),
-  testLayers: new Map([[QUEUE_TEST, ['core']], [SEAM_TEST, ['bus-core']], [RECORD_TEST, ['contract']], [DOCS_TEST, [DOCS_LAYER]]]),
+  moduleLayers: new Map([[QUEUE, ['core']], [SEAM, ['bus-core']], [CARD_RUNS, ['ci']]]),
+  testLayers: new Map([[QUEUE_TEST, ['core']], [SEAM_TEST, ['bus-core']], [RECORD_TEST, ['contract']], [DOCS_TEST, [DOCS_LAYER]], [CI_TEST, ['ci']]]),
 }
 
-const LAYER_OF_FILE: Readonly<Record<string, { layer: string, run: string }>> = {
-  [FRESH]: { layer: 'core', run: 'core' },
-  [SEAM]: { layer: 'bus-core', run: 'bus-core' },
-  [CI_MODULE]: { layer: 'ci', run: FULL },
-  [WINDOW_DOC]: { layer: DOCS_LAYER, run: DOCS_LAYER },
-  [RECORD]: { layer: 'contract', run: 'contract' },
-  [COMPOSITION]: { layer: DOCS_LAYER, run: DOCS_LAYER },
+const LAYER_OF_FILE: Readonly<Record<string, { layer: string, selected: string, carded: string }>> = {
+  [FRESH]: { layer: 'core', selected: 'core', carded: 'core' },
+  [SEAM]: { layer: 'bus-core', selected: 'bus-core', carded: 'bus-core' },
+  [CI_MODULE]: { layer: 'ci', selected: FULL, carded: 'ci' },
+  [CARD_RUNS]: { layer: 'ci', selected: FULL, carded: 'ci' },
+  [WINDOW_DOC]: { layer: DOCS_LAYER, selected: DOCS_LAYER, carded: DOCS_LAYER },
+  [RECORD]: { layer: 'contract', selected: 'contract', carded: 'contract' },
+  [COMPOSITION]: { layer: DOCS_LAYER, selected: DOCS_LAYER, carded: DOCS_LAYER },
 }
 
 function testText(test: string): string {
@@ -136,12 +141,18 @@ function aMergeOfANewTest(): MergeBench {
 it('every reader answers the same layer for a new file, a seam, ci and md json yml', () => {
   const answers = Object.keys(LAYER_OF_FILE).map(file => ({ file, layersIn: layersInOf(MAP, file), selected: selected(file), carded: carded(file) }))
 
-  expect(answers).toEqual(Object.entries(LAYER_OF_FILE).map(([file, { layer, run }]) => ({
+  expect(answers).toEqual(Object.entries(LAYER_OF_FILE).map(([file, { layer, selected, carded }]) => ({
     file,
     layersIn: [layer],
-    selected: run === FULL ? FULL : expect.arrayContaining([run]),
-    carded: run === FULL ? FULL : [run],
+    selected: selected === FULL ? FULL : expect.arrayContaining([selected]),
+    carded: [carded],
   })))
+})
+
+it('only the files that choose or run the tests are test infrastructure, and the rest of scripts/ci keeps its ci layer for a card', () => {
+  expect([CI_MODULE, CARD_RUNS, 'vitest.config.ts', 'scripts/ci/tree-scanners.ts'].map(isTestInfrastructure)).toEqual([true, false, true, false])
+  expect([CI_MODULE, CARD_RUNS, 'vitest-setup.ts', WINDOW_DOC].map(isCheckPipeline)).toEqual([true, true, true, false])
+  expect(cardRunsOf({ touches: [CARD_RUNS, CI_MODULE], runs: [], masks: [] }, CATALOG, MAP)).toEqual({ layers: ['ci'], paths: [], tests: [CI_TEST] })
 })
 
 it('a layer resolver outside the layer map is red', () => {
@@ -170,6 +181,9 @@ it('a failed catalog rebuild writes an event with its reason', async () => {
 it('a change only to a docs file runs the docs layer tests and not the full suite', () => {
   expect(selectRun([WINDOW_DOC], GRAPH, testText, MAP)).toEqual({ kind: 'layers', layers: [DOCS_LAYER], tests: [DOCS_TEST] })
   expect(cardRunsOf({ touches: [WINDOW_DOC], runs: [], masks: [] }, CATALOG, MAP)).toEqual({ layers: [DOCS_LAYER], paths: [], tests: [DOCS_TEST] })
+  for (const glob of ['architecture/**', 'docs/**', '.claude/skills/**'])
+    expect(cardRunsOf({ touches: [glob], runs: [], masks: [] }, CATALOG, MAP), glob).toEqual({ layers: [DOCS_LAYER], paths: [], tests: [DOCS_TEST] })
+  expect(cardRunsOf({ touches: ['bin/**'], runs: [], masks: [] }, CATALOG, MAP)).toEqual({ full: true, why: 'bin/** belongs to no layer of the check catalog' })
 })
 
 it('a new test file not yet in the graph runs itself and not the full suite', () => {
