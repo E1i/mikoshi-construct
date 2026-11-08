@@ -377,3 +377,6 @@
 {"file":"tests/hijack-deploy-beside.test.ts","test":"","refused":"npm registry 403"}
 {"file":"tests/intake-from-package.test.ts","test":"","refused":"npm registry 403"}
 {"file":"tests/package-factory.test.ts","test":"","refused":"npm registry 403"}
+{"file":"scripts/tests/witness/one-gib-disk.test.ts","test":"the launch queue > a launch is spawned detached as its own process group leader and records card.started","refused":"spawnSync ps EPERM"}
+{"file":"scripts/tests/witness/one-gib-disk.test.ts","test":"the launch queue > a session started while its card was started elsewhere is killed with its process group","refused":"spawnSync ps EPERM"}
+{"file":"scripts/tests/witness/one-gib-disk.test.ts","test":"the launch queue > a launch worker started from an auto window starts the card session in dontAsk","refused":"spawnSync ps EPERM"}
