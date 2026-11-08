@@ -16,7 +16,7 @@ const SCANNED_ROOTS = [FACTORY_ROOT, 'src']
 const UNSCANNED = `${FACTORY_FOLDERS.tests[0]}/`
 const SCANNED_EXTENSIONS = ['.ts', '.mjs']
 
-export type LivenessKind = 'ps' | 'pid-file' | 'kill' | 'imported-judge'
+export type LivenessKind = 'ps' | 'pid-file' | 'kill' | 'imported-judge' | 'live-session'
 
 export interface LivenessSite {
   file: string
@@ -28,6 +28,7 @@ const PATTERNS: Record<LivenessKind, RegExp> = {
   'pid-file': /\.pid['"`]|\bpid[-_]?file\b/i,
   'kill': /(?<![\w.])kill\(|\bprocess\.kill\(|\bchild\w*\.kill\(|['"`]p?kill['"`\s]|\bkillall\b/,
   'imported-judge': /\bimport\s*\{[^}]*\b(?:alive|isAlive)\b[^}]*\}\s*from\b/,
+  'live-session': /\b(?:function|const|let)\s+(?:liveSession(?!s\b)\w*|isSessionAlive|sessionLiveness)\b/,
 }
 
 function siteKey(site: LivenessSite): string {

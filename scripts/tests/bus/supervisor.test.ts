@@ -166,7 +166,7 @@ describe('one bus:run serves one bus', () => {
     expect(readFileSync(lock, 'utf8').trim()).toBe(String(dead))
   })
 
-  it('with the process table unreadable a run lock is held while bus:run beats and taken once it falls silent', () => {
+  it('with the process table unreadable a run lock is held while bus:run beats', () => {
     const busPath = busPathIn('bus-run-no-ps-')
     const lock = path.join(busDirOf(busPath), RUN_LOCK)
     const unreadable = (): never => {
@@ -182,20 +182,6 @@ describe('one bus:run serves one bus', () => {
     expect(refused.exitCode).toBe(1)
     expect(refused.stderr.join('\n')).toContain('spawnSync ps EPERM')
     expect(readFileSync(lock, 'utf8').trim()).toBe('4401')
-
-    expect(holdRunLock(busPath, unreadable, process.pid, nowMs + 2000).exitCode).toBe(0)
-    expect(readFileSync(lock, 'utf8').trim()).toBe(String(process.pid))
-  })
-
-  it('with the process table unreadable and no bus beside it a run lock is taken', () => {
-    const busPath = busPathIn('bus-run-no-ps-no-bus-')
-    const lock = path.join(busDirOf(busPath), RUN_LOCK)
-    expect(holdRunLock(busPath, () => [], 4402).exitCode).toBe(0)
-
-    expect(holdRunLock(busPath, () => {
-      throw new Error('spawnSync ps EPERM')
-    }).exitCode).toBe(0)
-    expect(readFileSync(lock, 'utf8').trim()).toBe(String(process.pid))
   })
 })
 

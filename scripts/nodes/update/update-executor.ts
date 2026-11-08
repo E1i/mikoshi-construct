@@ -13,7 +13,7 @@ import { rerunOf, upToDateRequired } from '../../cli/check-catalog.js'
 import { pathsOutsideTheBody } from '../../core/card-bodies.js'
 import { appendEvent, openBusWait } from '../../core/db.js'
 import { messageOf } from '../../core/errors.js'
-import { CARD_STOPPED, COMMAND_EXECUTED, POLICY_ALLOWED, POLICY_DENIED, QUESTION_OWNER, UPDATE_DONE } from '../../core/events.js'
+import { CARD_STOPPED, COMMAND_EXECUTED, POLICY_ALLOWED, POLICY_DENIED, QUESTION_OWNER, REVIEW_RECORDED, UPDATE_DONE } from '../../core/events.js'
 import { commandLine, isRebuiltOnUpdate, rebuildsOf, SHARED_APPEND_PATHS } from '../../core/generated-files.js'
 import { assertHeld, completeTask, failTask, releaseTask, StaleLease } from '../../core/lease.js'
 import { KEPT_BY_PUSH_POLICY } from '../../core/push-policy.js'
@@ -48,7 +48,7 @@ export interface UpdateDenial {
   detail: string
 }
 
-export type Carry = ({ carried: VerdictOnHead } | { carried: null, why: string }) & { clean: boolean }
+export type Carry = ({ carried: VerdictOnHead, rules_version: number | null } | { carried: null, why: string }) & { clean: boolean }
 
 export type UpdateOutcome
   = | { kind: 'updated', taskKey: string, from: string, to: string | null, carry: Carry }
@@ -91,6 +91,22 @@ export interface ManualUpdate {
   pr: number
   from: string
   to: string
+}
+
+export interface RecordedVerdict {
+  verdict: string
+  rulesVersion: number | null
+}
+
+const VERDICT_RECORDS_OF_A_HEAD = `SELECT type, payload FROM events WHERE legacy = 0 AND pr = ? AND ((type = '${REVIEW_RECORDED}' AND head = ?) OR (type = '${UPDATE_DONE}' AND json_extract(payload, '$.to') = ? AND json_extract(payload, '$.carried') IS NOT NULL)) ORDER BY id DESC LIMIT 1`
+
+export function recordedVerdictOn(db: DatabaseSync, pr: number, head: string): RecordedVerdict | null {
+  const row = db.prepare(VERDICT_RECORDS_OF_A_HEAD).get(pr, head, head) as { type: string, payload: string } | undefined
+  if (row === undefined)
+    return null
+  const payload = JSON.parse(row.payload) as { verdict?: unknown, carried?: unknown, rules_version?: unknown }
+  const verdict = row.type === REVIEW_RECORDED ? payload.verdict : payload.carried
+  return typeof verdict === 'string' ? { verdict, rulesVersion: typeof payload.rules_version === 'number' ? payload.rules_version : null } : null
 }
 
 export const MANUAL_UPDATE_WHY = 'a manual update-branch the window checked clean'
@@ -412,7 +428,12 @@ export class UpdateExecutor {
       return { carried: null, why: messageOf(error), clean: true }
     }
     this.executed(lease, 'publish', { ok: true })
-    return { carried: before.verdict, clean: true }
+    return { carried: before.verdict, rules_version: this.carriedRulesVersion(lease, before.verdict), clean: true }
+  }
+
+  private carriedRulesVersion(lease: Lease, verdict: VerdictOnHead): number | null {
+    const recorded = recordedVerdictOn(this.parts.db, lease.pr!, lease.head!)
+    return recorded?.verdict === verdict ? recorded.rulesVersion : null
   }
 
   private updated(lease: Lease, before: Before): UpdateOutcome {

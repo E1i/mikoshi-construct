@@ -132,7 +132,7 @@ function realOrAsWritten(where: string): string {
   return existsSync(where) ? realpathSync(where) : where
 }
 
-export function clientMayWorkIn(tree: string, cwds: () => ProcessCwds = () => new OsProcessTable().clientCwds()): boolean {
+export function liveSessionHolds(tree: string, cwds: () => ProcessCwds = () => new OsProcessTable().clientCwds()): boolean {
   const read = cwds()
   if (read.kind === 'unreadable')
     return true
