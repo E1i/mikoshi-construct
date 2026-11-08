@@ -189,7 +189,7 @@ export const CONCEPTS: readonly Concept[] = [
       declaredIn(ANSWER_EXECUTOR, 'outcomes', ['stopped', 'ownersStop', 'windowWidens', 'denialEvent', 'denied', 'superseded', 'waitingForTheSupersededSession']),
       declaredIn(ANSWERER, 'the prompt', ['answerPrompt', 'mergePrompt', 'sourceLines', 'cardLines', 'decisionLines', 'diffLines', 'gateLine', 'handoffLines']),
       declaredIn(ANSWERER, 'the CI log', ['ciLogLines', 'redCiLines', 'asksAboutRedCi']),
-      declaredIn(ANSWERER, 'reading the tree', ['localHead', 'remoteHead', 'git', 'diffAgainstBase', 'treeMergeOf', 'porcelainEntries', 'committedOnTheBranch', 'uncommitted', 'pendingPathsOf', 'clientInTree', 'treeDirtyOf']),
+      declaredIn(ANSWERER, 'reading the tree', ['localHead', 'remoteHead', 'git', 'diffAgainstBase', 'treeMergeOf', 'porcelainEntries', 'committedOnTheBranch', 'uncommitted', 'pendingPathsOf', 'liveSessionIn', 'treeDirtyOf']),
       declaredIn(ANSWERER, 'running the client', ['spawnClient']),
     ],
   },

@@ -6,9 +6,9 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { afterEach, expect, it } from 'vitest'
-import { clientInTree } from '../../nodes/answer/answerer.js'
+import { liveSessionIn } from '../../nodes/answer/answerer.js'
 import { OsProcessTable } from '../../ports/process-table.js'
-import { clientMayWorkIn } from '../../ports/worktree.js'
+import { liveSessionHolds } from '../../ports/worktree.js'
 
 const SMALL_SYSTEM_BINARY = '/bin/sleep'
 const VERSION_NAME = '2.1.318'
@@ -67,13 +67,13 @@ function clientListingNames(tree: string): boolean {
 it.skipIf(lsofAbsent)('a live process named by a version holds the tree it stands in', async () => {
   const tree = await processNamedIn(VERSION_NAME)
   expect(clientListingNames(tree)).toBe(true)
-  expect(clientMayWorkIn(tree)).toBe(true)
+  expect(liveSessionHolds(tree)).toBe(true)
   expect(stillRunning(running)).toBe(true)
 })
 
 it.skipIf(lsofAbsent)('the answerer sees a live process named by a version in the card tree', async () => {
   const tree = await processNamedIn(VERSION_NAME)
-  expect(clientInTree({ session: 'a-session', worktree: tree, branch: 'feat/a-card' })).toContain(tree)
+  expect(liveSessionIn({ session: 'a-session', worktree: tree, branch: 'feat/a-card' })).toContain(tree)
   expect(stillRunning(running)).toBe(true)
 })
 
@@ -81,7 +81,7 @@ it.skipIf(lsofAbsent)('a live process with another name does not hold the tree i
   const tree = await processNamedIn(ANOTHER_NAME)
   expect(listedByItsOwnName(ANOTHER_NAME, tree)).toBe(true)
   expect(clientListingNames(tree)).toBe(false)
-  expect(clientMayWorkIn(tree)).toBe(false)
-  expect(clientInTree({ session: 'a-session', worktree: tree, branch: 'feat/a-card' })).toBeNull()
+  expect(liveSessionHolds(tree)).toBe(false)
+  expect(liveSessionIn({ session: 'a-session', worktree: tree, branch: 'feat/a-card' })).toBeNull()
   expect(stillRunning(running)).toBe(true)
 })

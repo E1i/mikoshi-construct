@@ -27,7 +27,7 @@ import { prepareBeforeSession, prepareTree } from '../../ports/prepare-tree.js'
 import { sha256, storedInput } from '../../ports/prompt-store.js'
 import { MAIN_BRANCH } from '../../ports/snapshot.js'
 import { admittedScopeOf, answerSourceOf, boundDecisionLines, decisionAnsweringRepeat, ownerHoldOf } from './answer-source.js'
-import { AnswerOutsideTouches, CardTreeGone, clientInTree, PREFIX, secondsOf, treeDirtyOf, treeMergeOf } from './answerer.js'
+import { AnswerOutsideTouches, CardTreeGone, liveSessionIn, PREFIX, secondsOf, treeDirtyOf, treeMergeOf } from './answerer.js'
 import { CONCEPT_WIDENING_REASON } from './concept-scope.js'
 
 export type AnswerTechnicalReason = 'nothing_to_answer' | 'no_card_tree' | 'card_tree_gone' | 'answer_failed' | 'left_nothing' | 'held_for_owner' | 'outside_touches' | 'repeated_stop' | 'old_card_body' | 'closed_wait' | typeof DOWNGRADE_WAIT_OPEN
@@ -220,7 +220,7 @@ export class AnswerExecutor {
         return this.denied(lease, { kind: 'technical', reason: 'no_card_tree', detail: `card #${lease.cardId} has no card.started, no start line with a worktree and a branch, and no open pull request` })
       if ('kind' in card)
         return this.denied(lease, card)
-      const live = (this.parts.liveSession ?? clientInTree)(card)
+      const live = (this.parts.liveSession ?? liveSessionIn)(card)
       if (live !== null)
         return this.waitingForTheSupersededSession(lease) ?? this.heldForTheOwner(lease, live)
       const merge = source === null ? (this.parts.treeMerge ?? treeMergeOf)(card) : null
