@@ -53,6 +53,37 @@ describe('owner-commands detector', () => {
     expect(ownerCommandLines(root)).toEqual([1])
   })
 
+  it('a command passed to a method that runs a command is run by the code', () => {
+    const root = fixtureTree({ [SEEDED]: [
+      `declare const child: { execFileSync: (...args: unknown[]) => void, spawn: (...args: unknown[]) => void }`,
+      `child.execFileSync('sh', ['-c', 'pnpm install'])`,
+      `child.spawn('pnpm lint')`,
+      `export const told = 'run pnpm lint yourself'`,
+      '',
+    ].join('\n') })
+
+    expect(ownerCommandLines(root)).toEqual([4])
+  })
+
+  it('a command under as, satisfies or parentheses is still seen in its run position and in its binding', () => {
+    const root = fixtureTree({ [SEEDED]: [
+      `import { spawnSync } from 'node:child_process'`,
+      `spawnSync('sh', ['-c', 'pnpm install'] as const)`,
+      `spawnSync(('pnpm lint'))`,
+      `spawnSync('pnpm typecheck' satisfies string)`,
+      `const AS_CONST = 'pnpm test' as const`,
+      `const PARENTHESIZED = ('pnpm build')`,
+      `const SATISFIES = 'pnpm docs:build' satisfies string`,
+      `spawnSync(AS_CONST)`,
+      `spawnSync(PARENTHESIZED)`,
+      `spawnSync(SATISFIES)`,
+      `export const told = 'run pnpm lint yourself'`,
+      '',
+    ].join('\n') })
+
+    expect(ownerCommandLines(root)).toEqual([11])
+  })
+
   it('a command bound into a statement parameter is not run by the code', () => {
     const root = fixtureTree({ [SEEDED]: `const AMEND = 'pnpm intake --admit '\nexport function amend(statement: { run: (...values: unknown[]) => void }) { statement.run(AMEND.length, AMEND) }\n` })
 
