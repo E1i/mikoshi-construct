@@ -299,7 +299,8 @@ function signalOf(task: PreparedTask, baseSha: string, byMorse: ReadonlySet<stri
 }
 
 function launchEntryEvent(task: PreparedTask, baseSha: string, byMorse: ReadonlySet<string>) {
-  return { ...entryEvent(task.id, signalOf(task, baseSha, byMorse), new Date().toISOString()), card: task.card }
+  const signal = signalOf(task, baseSha, byMorse)
+  return { ...entryEvent(task.id, signal, new Date().toISOString()), ...signal, card: task.card }
 }
 
 function describeTask(task: PreparedTask, baseSha: string, byMorse: ReadonlySet<string>, style: SignalStyle): string[] {

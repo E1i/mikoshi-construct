@@ -396,6 +396,10 @@
       "ghost.line": {
         "complete": true,
         "keys": [
+          "ACTION",
+          "CONTRACT",
+          "EXPECT",
+          "RESULT",
           "actual",
           "agreedSha256",
           "approvedSha256",
