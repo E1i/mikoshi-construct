@@ -150,7 +150,7 @@ describe('review worker', () => {
 
     expect(await worker(reviewing()).step()).toEqual({ kind: 'recorded', taskKey: review(939), verdict: 'pass', depth: 'full' })
     expect(statuses.map(status => status.state)).toEqual(['success'])
-    expect(events(db, 'review.recorded')).toEqual([{ head: sha('a'), card_body: null, verdict: 'pass', depth: 'full', depth_why: 'a fixed plan', review_ms: 0, reviewer_session: 'reviewer-1', findings: [], isolation: 'full', isolationGaps: [] }])
+    expect(events(db, 'review.recorded')).toEqual([{ head: sha('a'), card_body: null, verdict: 'pass', rules_version: 1, depth: 'full', depth_why: 'a fixed plan', review_ms: 0, reviewer_session: 'reviewer-1', findings: [], isolation: 'full', isolationGaps: [] }])
     expectReplayIdentical(db)
     db.close()
   })
@@ -164,7 +164,7 @@ describe('review worker', () => {
     const step = await worker(ran).step()
     expect(step).toEqual({ kind: 'recorded', taskKey: review(941), verdict: 'pass', depth: 'full', model: 'claude-haiku-5-5' })
     expect(stepLine(step)).toBe(`[bus:review] ${review(941)}: pass recorded, review depth full, model claude-haiku-5-5`)
-    expect(events(db, 'review.recorded')).toEqual([{ head: sha('a'), card_body: null, verdict: 'pass', depth: 'full', depth_why: 'a fixed plan', review_ms: 0, reviewer_session: 'reviewer-1', model: 'claude-haiku-5-5', findings: [], isolation: 'full', isolationGaps: [] }])
+    expect(events(db, 'review.recorded')).toEqual([{ head: sha('a'), card_body: null, verdict: 'pass', rules_version: 1, depth: 'full', depth_why: 'a fixed plan', review_ms: 0, reviewer_session: 'reviewer-1', model: 'claude-haiku-5-5', findings: [], isolation: 'full', isolationGaps: [] }])
     expectReplayIdentical(db)
     db.close()
   })
@@ -176,7 +176,7 @@ describe('review worker', () => {
 
     expect(await worker(reviewing('reviewer-1', 'changes')).step()).toEqual({ kind: 'recorded', taskKey: review(940), verdict: 'changes', depth: 'full' })
     expect(statuses).toEqual([{ commit: sha('a'), state: 'failure', context: 'review', description: 'review verdict changes for card #1040 by reviewer-1' }])
-    expect(events(db, 'review.recorded')).toEqual([{ head: sha('a'), card_body: null, verdict: 'changes', depth: 'full', depth_why: 'a fixed plan', review_ms: 0, reviewer_session: 'reviewer-1', findings: ['a finding'], isolation: 'full', isolationGaps: [] }])
+    expect(events(db, 'review.recorded')).toEqual([{ head: sha('a'), card_body: null, verdict: 'changes', rules_version: 1, depth: 'full', depth_why: 'a fixed plan', review_ms: 0, reviewer_session: 'reviewer-1', findings: ['a finding'], isolation: 'full', isolationGaps: [] }])
     expect(task(db, review(940))).toEqual({ state: 'completed', lease_gen: 1, failures: 0 })
 
     tick()
@@ -1338,6 +1338,7 @@ describe('review depth by MORSE', () => {
       head: sha('a'),
       card_body: null,
       verdict: 'pass',
+      rules_version: 1,
       depth: 'diff',
       depth_why: 'MORSE predicts cheap by rule docs-only, and only the instructions rule takes the full review',
       review_ms: READING_MS.diff,

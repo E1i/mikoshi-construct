@@ -31,6 +31,8 @@ export const TREE_LEFT = 'tree_left'
 export { REVIEW_ROUNDS_SPENT }
 export const ROUND_LIMIT_REACHED = 'round_limit_reached'
 export const SPAWNS_NO_SESSION = 'spawns-no-session'
+export const REVIEW_RULES_VERSION = 1
+export const RULES_VERSION_KEY = 'rules_version'
 
 export type Step
   = | { kind: 'idle' }
@@ -370,7 +372,7 @@ export class ReviewExecutor {
       pr: lease.pr,
       head: lease.head,
       dedupeKey: `${REVIEW_RECORDED}:${lease.taskKey}:${lease.leaseGen}`,
-      payload: { head: lease.head, card_body: reviewInputOfKey(lease.taskKey)?.cardBody ?? null, verdict: review.verdict, depth: plan.depth, depth_why: plan.why, review_ms: ms, reviewer_session: review.session, model: review.model, ...review.cache, findings: review.findings, ...treeFields(review), ...isolationFields(isolation), ...inputFields(this.parts.prompts, plan, review.input) },
+      payload: { head: lease.head, card_body: reviewInputOfKey(lease.taskKey)?.cardBody ?? null, verdict: review.verdict, [RULES_VERSION_KEY]: REVIEW_RULES_VERSION, depth: plan.depth, depth_why: plan.why, review_ms: ms, reviewer_session: review.session, model: review.model, ...review.cache, findings: review.findings, ...treeFields(review), ...isolationFields(isolation), ...inputFields(this.parts.prompts, plan, review.input) },
       legacy: false,
     }
   }
