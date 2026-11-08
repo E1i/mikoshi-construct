@@ -34,7 +34,25 @@ export interface Concept {
   owner: string
   ownerExists: boolean
   axis: Axis
+  lore: string | null
   detectors: readonly Detector[]
+}
+
+export type LoreConflicts = Readonly<Record<string, readonly string[]>>
+
+export function loreConflicts(concepts: readonly Pick<Concept, 'id' | 'lore'>[]): LoreConflicts {
+  const holders = new Map<string, string[]>()
+  for (const { id, lore } of concepts) {
+    if (lore !== null)
+      holders.set(lore, [...holders.get(lore) ?? [], id])
+  }
+  return Object.fromEntries([...holders].filter(([, ids]) => ids.length > 1).sort(([a], [b]) => a.localeCompare(b)))
+}
+
+export function assertNoLoreConflict(concepts: readonly Pick<Concept, 'id' | 'lore'>[]): void {
+  const conflicts = Object.entries(loreConflicts(concepts))
+  if (conflicts.length > 0)
+    throw new Error(`one lore name per concept: ${conflicts.map(([lore, ids]) => `${lore} is held by ${ids.join(', ')}`).join('; ')}`)
 }
 
 const PROCESS_TABLE_OWNER = 'scripts/ports/process-table.ts'
@@ -132,6 +150,7 @@ export const CONCEPTS: readonly Concept[] = [
     owner: PROCESS_TABLE_OWNER,
     ownerExists: true,
     axis: 'architecture',
+    lore: null,
     detectors: [programCall(PROCESS_TABLE_PROGRAMS), declaredFunction(/^parsePs$/)],
   },
   {
@@ -140,6 +159,7 @@ export const CONCEPTS: readonly Concept[] = [
     owner: LIVENESS_JUDGE,
     ownerExists: true,
     axis: 'architecture',
+    lore: null,
     detectors: [pidProbe()],
   },
   {
@@ -148,6 +168,7 @@ export const CONCEPTS: readonly Concept[] = [
     owner: LIVENESS_JUDGE,
     ownerExists: true,
     axis: 'architecture',
+    lore: null,
     detectors: [
       declaredFunction(/^liveSession(?!s$)/),
       declaredFunction(/^(?:sessionLiveness|isSessionAlive)$/),
@@ -161,6 +182,7 @@ export const CONCEPTS: readonly Concept[] = [
     owner: 'scripts/core/layer-map.ts',
     ownerExists: true,
     axis: 'architecture',
+    lore: null,
     detectors: [declaredFunction(/^(?:(?:declared)?[lL]ayers?(?:Id)?(?:In|Of)(?:[A-Z]\w*)?|layersReachedBy\w+)$/)],
   },
   {
@@ -169,6 +191,7 @@ export const CONCEPTS: readonly Concept[] = [
     owner: 'scripts/policy/decisions.ts',
     ownerExists: true,
     axis: 'architecture',
+    lore: null,
     detectors: [
       literal(text => text === 'owner-decisions.md', 'the file name owner-decisions.md'),
       called(['parseDecisions', 'decisionsFileOf']),
@@ -182,6 +205,7 @@ export const CONCEPTS: readonly Concept[] = [
     owner: 'scripts/core/handoff-status.ts',
     ownerExists: true,
     axis: 'architecture',
+    lore: null,
     detectors: [
       regexLiteral(HANDOFF_STATUS_LINE, 'a regex over the STATUS line'),
       literal(text => text === 'STATUS', 'the label STATUS'),
@@ -196,6 +220,7 @@ export const CONCEPTS: readonly Concept[] = [
     owner: 'src/commands/ci/state.ts',
     ownerExists: true,
     axis: 'architecture',
+    lore: null,
     detectors: [
       declaredFunction(/^(?:ciOf|ciOfRuns|failedChecksOf|failedJobLog|ciLogForPrompt)$/),
       propertyRead('statusCheckRollup'),
@@ -211,6 +236,7 @@ export const CONCEPTS: readonly Concept[] = [
     owner: 'scripts/core/generated-files.ts',
     ownerExists: true,
     axis: 'architecture',
+    lore: null,
     detectors: [literal(text => GENERATED_PATH_SET.has(text.replace(LEADING_PARENTS, '')), 'a generated path by its literal')],
   },
   {
@@ -219,6 +245,7 @@ export const CONCEPTS: readonly Concept[] = [
     owner: 'scripts/core/owner-commands.ts',
     ownerExists: false,
     axis: 'interface',
+    lore: null,
     detectors: [
       outside(COMMANDS_A_GENERATED_REPOSITORY_RUNS, toldToTheOwner(literal(text => PNPM_COMMAND.test(text), 'a pnpm command in a string'))),
       outside(COMMANDS_A_GENERATED_REPOSITORY_RUNS, toldToTheOwner(literal(namesAConstructCommand, 'a construct command in a string'))),
@@ -230,6 +257,7 @@ export const CONCEPTS: readonly Concept[] = [
     owner: 'scripts/ports/git.ts',
     ownerExists: true,
     axis: 'architecture',
+    lore: null,
     detectors: [programCall(['git'])],
   },
   {
@@ -238,6 +266,7 @@ export const CONCEPTS: readonly Concept[] = [
     owner: 'scripts/window/requests/',
     ownerExists: false,
     axis: 'architecture',
+    lore: null,
     detectors: [entriesOfTable(WINDOW_REQUESTS, 'executors', 'a request kind inside the class:')],
   },
   {
@@ -246,6 +275,7 @@ export const CONCEPTS: readonly Concept[] = [
     owner: 'scripts/nodes/answer/duties/',
     ownerExists: false,
     axis: 'architecture',
+    lore: null,
     detectors: [
       declaredIn(ANSWER_EXECUTOR, 'choosing the source', ['sourceOf', 'redWitness', 'boundDecisions', 'closedWaitLines', 'dirtyOnHead', 'conflict']),
       declaredIn(ANSWER_EXECUTOR, 'publishing', ['published', 'leftDirty', 'leftNothing']),
