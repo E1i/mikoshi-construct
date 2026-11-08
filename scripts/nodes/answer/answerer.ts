@@ -417,7 +417,7 @@ export function contextWarnOfEddies(): number | null {
   return warn === UNKNOWN ? null : warn
 }
 
-function spawnClient(run: AnswerRun): Promise<number> {
+export function spawnClient(run: AnswerRun): Promise<number> {
   const outFd = openSync(run.stdoutPath, 'w')
   const errFd = openSync(run.stderrPath, 'w')
   let closed = false
@@ -435,6 +435,8 @@ function spawnClient(run: AnswerRun): Promise<number> {
     const child = spawn(run.command, run.argv, { cwd: run.cwd, env: run.env, stdio: ['ignore', 'pipe', errFd], signal: run.signal })
     child.stdout?.setEncoding('utf8')
     child.stdout?.on('data', (chunk: string) => {
+      if (closed)
+        return
       writeSync(outFd, chunk)
       const lines = `${partial}${chunk}`.split('\n')
       partial = lines.pop() ?? ''
