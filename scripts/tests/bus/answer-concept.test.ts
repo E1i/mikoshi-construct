@@ -14,7 +14,7 @@ import { CARD_ADMITTED, CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, SCOPE_WIDENED
 import { leaseNext } from '../../core/lease.js'
 import { queueTask } from '../../core/queue.js'
 import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
-import { claudeAnswerer } from '../../nodes/answer/answerer.js'
+import { claudeAnswerer, FreshBaseConflict } from '../../nodes/answer/answerer.js'
 import { CONCEPT_WIDENING_REASON } from '../../nodes/answer/concept-scope.js'
 import { DECISIONS_SCOPE } from '../../policy/shards.js'
 import { sha } from './github-fake.js'
@@ -30,6 +30,8 @@ const TEST_KEYED_RECORD = 'scripts/ci/sandbox-failing.jsonl'
 const CLAUDE_FILE = '.claude/rules/answer.md'
 const OWNER_IMPORTER = 'scripts/ports/isolation.ts'
 const UNRELATED = 'scripts/core/unrelated.ts'
+const CREATED = 'scripts/nodes/answer/concept-made.ts'
+const CREATED_IMPORTER = 'scripts/nodes/answer/made-reader.ts'
 const Q211_SHAPE = [IMPORTER, FIXTURE, TEST_KEYED_RECORD]
 
 const REPOSITORY: Record<string, string> = {
@@ -42,6 +44,8 @@ const REPOSITORY: Record<string, string> = {
   [CLAUDE_FILE]: 'rule\n',
   [OWNER_IMPORTER]: 'import { answer } from \'../nodes/answer/answerer.js\'\n\nexport const isolation = answer\n',
   [UNRELATED]: 'export const unrelated = 1\n',
+  [CREATED]: 'export const made = 1\n',
+  [CREATED_IMPORTER]: 'import { made } from \'./concept-made.js\'\n\nexport const reader = made\n',
 }
 
 const benches: MergeBench[] = []
@@ -77,19 +81,24 @@ function cardTree(home: string): string {
   return worktree
 }
 
-const CARD_TEXT = parkingFileText({ card: `#${CARD_ID} answer-concept [implement/construct/M/cheap/owner] · depends — · blocks —`, branch: `feat/card-${CARD_ID}`, touches: [TOUCHED], continue: 'auto', who: 'window', body: 'the answer card' })
+const CARD_TEXT = parkingFileText({ card: `#${CARD_ID} answer-concept [implement/construct/M/cheap/owner] · depends — · blocks —`, branch: `feat/card-${CARD_ID}`, touches: [TOUCHED], creates: [CREATED], continue: 'auto', who: 'window', body: 'the answer card' })
 
 interface Answering {
   outcome: AnswerOutcome
   published: string[]
   made: MergeBench
+  lease: Lease
+}
+
+function FRESH_BASE_CONFLICT(): never {
+  throw new FreshBaseConflict({ files: [IMPORTER], failure: null })
 }
 
 function eventOf(made: MergeBench, type: string, cardId: number | null, payload: Record<string, unknown>, key: string): void {
   appendEvent(made.db, { ts: made.clock.now().toISOString(), type, actor: 'worker:launch:launch-1', cardId, pr: null, head: null, dedupeKey: key, payload, legacy: false })
 }
 
-async function answerLeaving(changed: readonly string[], shard: boolean): Promise<Answering> {
+async function answerLeaving(changed: readonly string[], shard: boolean, publish?: () => void): Promise<Answering> {
   const made = mergeBench()
   benches.push(made)
   const home = mkdtempSync(path.join(tmpdir(), 'bus-answer-concept-'))
@@ -118,12 +127,19 @@ async function answerLeaving(changed: readonly string[], shard: boolean): Promis
       return 0
     },
     newSession: () => 'new-session',
-    publish: card => published.push(card.branch),
+    publish: (card) => {
+      publish?.()
+      published.push(card.branch)
+    },
     pending: () => [TOUCHED, ...changed],
   })
   const trees: CardTreeTools = { home, exists: existsSync, branchOf: card => `feat/card-${card}`, recreate: () => {}, bringTo: () => {} }
   const executor = new AnswerExecutor({ db: made.db, answerer, ownerMerges: () => OWNER_MERGES, clock: made.clock.now, trees, dirty: () => false, liveSession: () => null, prepare: () => {} })
-  return { outcome: await executor.answer(lease), published, made }
+  return { outcome: await executor.answer(lease), published, made, lease }
+}
+
+function widenedKeys(made: MergeBench): string[] {
+  return (made.db.prepare('SELECT dedupe_key FROM events WHERE type = ?').all(SCOPE_WIDENED) as { dedupe_key: string }[]).map(row => row.dedupe_key)
 }
 
 describe('an answer under a window shard widens within the card\'s concept (D-360, D-371)', () => {
@@ -135,6 +151,27 @@ describe('an answer under a window shard widens within the card\'s concept (D-36
     expect(eventsOf(made.db, SCOPE_WIDENED)).toEqual([{ paths: Q211_SHAPE, admission: expect.any(Number) as unknown, detail: CONCEPT_WIDENING_REASON }])
     expect(eventsOf(made.db, CARD_ANSWERED)).toHaveLength(1)
     expect(eventsOf(made.db, CARD_STOPPED)).toHaveLength(1)
+  })
+
+  it('the concept widening is recorded once per lease, keyed by its task and lease generation', async () => {
+    const { made, lease } = await answerLeaving(Q211_SHAPE, true)
+
+    expect(widenedKeys(made)).toEqual([`${SCOPE_WIDENED}:concept:${lease.taskKey}:${lease.leaseGen}`])
+  })
+
+  it('an importer of a file the card creates is within the concept', async () => {
+    const { outcome, published, made } = await answerLeaving([CREATED_IMPORTER], true)
+
+    expect(outcome).toMatchObject({ kind: 'answered' })
+    expect(published).toEqual([`feat/card-${CARD_ID}`])
+    expect(eventsOf(made.db, SCOPE_WIDENED)).toEqual([{ paths: [CREATED_IMPORTER], admission: expect.any(Number) as unknown, detail: CONCEPT_WIDENING_REASON }])
+  })
+
+  it('a push that hits a fresh-base conflict records no concept widening', async () => {
+    const { published, made } = await answerLeaving(Q211_SHAPE, true, FRESH_BASE_CONFLICT)
+
+    expect(published).toEqual([])
+    expect(eventsOf(made.db, SCOPE_WIDENED)).toEqual([])
   })
 
   it('under a window shard a .claude file, an owner path or a file that imports no touch still stops the answer', async () => {

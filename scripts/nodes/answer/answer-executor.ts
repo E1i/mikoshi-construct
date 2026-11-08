@@ -315,7 +315,7 @@ export class AnswerExecutor {
     const beforeTheSession = { lease: secondsOf(preparing - leased), tree: secondsOf(prepared - preparing) }
     this.recordSteps(lease, preparing, beforeTheSession)
     try {
-      const answered = await this.parts.answerer({ lease, source, widened: widened?.reason ?? null, card, fresh, outsideTouches: this.outsideTouchesOf(lease, widened), concept: this.conceptOf(lease, widened), stepped: steps => this.recordSteps(lease, preparing, steps) })
+      const answered = await this.parts.answerer({ lease, source, widened: widened?.reason ?? null, card, fresh, outsideTouches: this.outsideTouchesOf(lease, widened), concept: this.conceptOf(lease), stepped: steps => this.recordSteps(lease, preparing, steps) })
       return answered.steps === undefined ? answered : { ...answered, steps: { ...beforeTheSession, ...answered.steps } }
     }
     catch (error) {
@@ -340,11 +340,11 @@ export class AnswerExecutor {
     return paths => scope === null ? [...paths] : pathsOutside([...scope.touches, ...widenedPaths], scope.creates, paths)
   }
 
-  private conceptOf(lease: Lease, widened: Widened | null): CardConcept | null {
+  private conceptOf(lease: Lease): CardConcept | null {
     const scope = admittedScopeOf(this.parts.db, lease.cardId)
     if (scope === null || activeWindowShards(this.parts.db, this.parts.clock()).length === 0)
       return null
-    return { touches: [...scope.touches, ...(widened?.paths ?? [])], creates: scope.creates, ownerPath: file => this.namesAnOwnerPath([file]) }
+    return { touches: scope.touches, creates: scope.creates, ownerPath: file => this.namesAnOwnerPath([file]) }
   }
 
   private widenedInConcept(lease: Lease, answered: Answered): BusEvent[] {
