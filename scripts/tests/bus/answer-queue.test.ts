@@ -1038,6 +1038,26 @@ describe('a decision on a card is an event, and the card body stays as admitted'
     bench.close()
   })
 
+  it('a question.owner stop an answer task wrote on the pull request before its push is not continued by a card decision', () => {
+    const bench = answerBench()
+    bench.started(CARD)
+    bench.gitHub.open({ number: PR, review: 'success' })
+    bench.tick()
+    const ts = bench.clock.now().toISOString()
+    expect(queueTask(bench.db, ts, { queue: 'answer', cardId: CARD, pr: PR, head: sha('a') })).toBe(true)
+    const lease = bench.leaseAnswer()!
+    completeTask(bench.db, ts, lease, [{ ts, type: CARD_STOPPED, actor: 'worker:answer:worker-1', cardId: CARD, pr: PR, head: sha('a'), dedupeKey: `${CARD_STOPPED}:${lease.taskKey}:${lease.leaseGen}`, payload: { reason: QUESTION_OWNER, detail: 'may the answer touch architecture/owner-merges.md?' }, legacy: false }])
+    bench.gitHub.open({ number: PR, head: PUSHED, review: 'success' })
+    bench.tick()
+
+    decide(bench)
+    bench.tick()
+    bench.tick()
+
+    expect(answerTasks(bench.db).filter(key => key.includes(':decision-'))).toEqual([])
+    bench.close()
+  })
+
   it('a card decision queues no witness and no review and leaves the card body unchanged', () => {
     const bench = stoppedOnTheOwner()
     const checks = checkTasks(bench.db)

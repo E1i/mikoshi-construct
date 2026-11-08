@@ -2,9 +2,10 @@ import type { Lease } from '../../core/lease.js'
 import type { MergeBench } from './merge-bench.js'
 import { afterEach, describe, expect, it } from 'vitest'
 import { appendEvent } from '../../core/db.js'
-import { CARD_ADMITTED, REVIEW_RECORDED } from '../../core/events.js'
+import { CARD_ADMITTED, CARD_STOPPED, REVIEW_RECORDED } from '../../core/events.js'
 import { taskKey } from '../../core/identifiers.js'
-import { closedByRounds, reentryLimitWaitText, REVIEW_ROUNDS } from '../../core/queue.js'
+import { completeTask, leaseNext } from '../../core/lease.js'
+import { closedByRounds, queueTask, reentryLimitWaitText, REVIEW_ROUNDS } from '../../core/queue.js'
 import { answerSourceOf } from '../../nodes/answer/answer-source.js'
 import { recordDecision } from '../../policy/decisions.js'
 import { CONTINUE_FIXES, continueFixesDecisionOf, pushedAfterContinueFixes } from '../../policy/round-limit-decision.js'
@@ -125,6 +126,56 @@ describe('continue-fixes past the review round limit', () => {
     expect(bench.db.prepare(`SELECT task_key, state FROM tasks WHERE pr = ? AND queue IN ('answer', 'review', 'witness') ORDER BY task_key`).all(PR)).toEqual([{ task_key: decided, state: 'queued' }])
     expect(answerSourceOf(bench.db, leaseOf(bench))).toMatchObject({ kind: 'decision', decisionId: DECISION })
     expect(admissions()).toEqual(before)
+  })
+
+  it('past the round limit a faulted decision task is set again, and a faulted plain answer task is not', () => {
+    const faulted = (bench: MergeBench, key: string): string => {
+      const lease = leaseNext(bench.db, bench.clock.now().toISOString(), 'answer', 'worker:answer:test')!
+      expect(lease.taskKey).toBe(key)
+      completeTask(bench.db, bench.clock.now().toISOString(), lease, [{ ts: bench.clock.now().toISOString(), type: CARD_STOPPED, actor: 'worker:answer:test', cardId: CARD, pr: PR, head: HEAD, dedupeKey: `${CARD_STOPPED}:${key}:${lease.leaseGen}`, payload: { reason: 'fault', detail: 'the chain fell' }, legacy: false }])
+      bench.tick()
+      return (bench.db.prepare('SELECT state FROM tasks WHERE task_key = ?').get(key) as { state: string }).state
+    }
+    const plain = taskKey({ queue: 'answer', cardId: CARD, pr: PR, head: HEAD })
+
+    const decided = roundLimited()
+    recordDecision(decided.db, { ts: decided.clock.now().toISOString(), decisionId: DECISION, text: '[owner] keep fixing the second row, one more round', cards: [CARD] })
+    decided.tick()
+    expect(closedByRounds(decided.db, decided.clock.now().toISOString(), 'answer', PR, HEAD)).toBe(true)
+    expect(faulted(decided, `${plain}:decision-${DECISION}`)).toBe('queued')
+
+    const undecided = roundLimited()
+    expect(queueTask(undecided.db, undecided.clock.now().toISOString(), { queue: 'answer', cardId: CARD, pr: PR, head: HEAD })).toBe(true)
+    expect(faulted(undecided, plain)).toBe('completed')
+  })
+
+  it('past the round limit a decision whose continuation already ran queues no second one on the pushed head', () => {
+    const bench = roundLimited()
+    recordDecision(bench.db, { ts: bench.clock.now().toISOString(), decisionId: DECISION, text: '[owner] keep fixing the second row, one more round', cards: [CARD] })
+    bench.tick()
+    const lease = leaseNext(bench.db, bench.clock.now().toISOString(), 'answer', 'worker:answer:test')!
+    expect(lease.taskKey).toBe(`${taskKey({ queue: 'answer', cardId: CARD, pr: PR, head: HEAD })}:decision-${DECISION}`)
+    completeTask(bench.db, bench.clock.now().toISOString(), lease, [])
+    bench.gitHub.open({ number: PR, head: PUSHED, review: 'failure' })
+    bench.tick()
+    bench.tick()
+
+    expect(bench.db.prepare(`SELECT task_key FROM tasks WHERE queue = 'answer' AND task_key LIKE '%:decision-%' ORDER BY task_key`).all()).toEqual([{ task_key: lease.taskKey }])
+  })
+
+  it('past the round limit a card decision recorded before the last review continues nothing', () => {
+    const bench = liveBench()
+    benches.push(bench)
+    bench.gitHub.open({ number: PR, head: HEAD, review: 'failure' })
+    for (let round = 1; round < REVIEW_ROUNDS; round += 1)
+      review(bench, sha(String(round)), 'changes', `round-${round}`)
+    recordDecision(bench.db, { ts: bench.clock.now().toISOString(), decisionId: DECISION, text: '[owner] keep fixing the second row, one more round', cards: [CARD] })
+    review(bench, HEAD, 'changes', `round-${REVIEW_ROUNDS}`, [FINDING])
+    bench.tick()
+    bench.tick()
+
+    expect(closedByRounds(bench.db, bench.clock.now().toISOString(), 'answer', PR, HEAD)).toBe(true)
+    expect(queued(bench)).toEqual([])
   })
 
   it('the round-limit wait names continue-fixes for the PR beside allow-merge, a re-cut and a drop', () => {
