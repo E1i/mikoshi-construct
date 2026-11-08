@@ -102,6 +102,12 @@ export function pathReaders(file: string, graph: Graph, moduleText: (module: str
   return [...graph.keys()].filter(module => module !== file && READABLE_MODULE.test(module) && named.some(name => names(moduleText(module), name)))
 }
 
+const WORKFLOWS = '.github/workflows/'
+
+export function isRootConfigOrWorkflow(file: string): boolean {
+  return (!file.includes('/') && !isDocument(file)) || file.startsWith(WORKFLOWS)
+}
+
 function resolvedByLayers(file: string, graph: Graph, map: LayerMap): boolean {
   if (isDocument(file))
     return true
@@ -111,6 +117,17 @@ function resolvedByLayers(file: string, graph: Graph, map: LayerMap): boolean {
   if (layers.length === 0)
     return false
   return graph.has(file) || isRecord(map, file) || (declaredLayersIn(map, file).length > 0 && modulesOfLayers(layers, graph, map).length > 0)
+}
+
+export function fullRunReason(changed: readonly string[], graph: Graph, moduleText: (module: string) => string, map: LayerMap): string | null {
+  const infrastructure = changed.find(isCheckPipeline)
+  if (infrastructure !== undefined)
+    return `${infrastructure} is test infrastructure every test runs under`
+  const rootConfig = changed.find(isRootConfigOrWorkflow)
+  if (rootConfig !== undefined)
+    return `${rootConfig} is a root config or a workflow, which take the full run`
+  const unmapped = changed.find(file => !isTest(file) && !resolvedByLayers(file, graph, map) && pathReaders(file, graph, moduleText).length === 0)
+  return unmapped === undefined ? null : `${unmapped} belongs to no layer of the dependency graph`
 }
 
 function seedsOfLayers(file: string, graph: Graph, map: LayerMap): string[] {
@@ -127,15 +144,12 @@ export function selectRun(given: readonly string[], graph: Graph, testText: (tes
   const changesetReaders = changed.length < given.length ? CHANGESET_READERS.filter(test => graph.has(test)) : []
   if (changed.length === 0)
     return { kind: 'layers', layers: [], tests: [...new Set([...changesetReaders, ...EVERY_CHANGE_READERS.filter(test => graph.has(test))])].sort() }
-  const infrastructure = changed.find(isCheckPipeline)
-  if (infrastructure !== undefined)
-    return { kind: 'full', why: `${infrastructure} is test infrastructure every test runs under` }
   const texts = new Map<string, string>()
   const moduleText = (module: string): string => texts.get(module) ?? texts.set(module, testText(module)).get(module)!
-  const readByPath = new Map(changed.filter(file => !isTest(file) && !graph.has(file) && !isDocument(file)).map(file => [file, pathReaders(file, graph, moduleText)]))
-  const unmapped = changed.find(file => !isTest(file) && !resolvedByLayers(file, graph, map) && (readByPath.get(file) ?? []).length === 0)
-  if (unmapped !== undefined)
-    return { kind: 'full', why: `${unmapped} belongs to no layer of the dependency graph` }
+  const why = fullRunReason(changed, graph, moduleText, map)
+  if (why !== null)
+    return { kind: 'full', why }
+  const readByPath = new Map(changed.filter(file => !isTest(file) && !isDocument(file) && (!graph.has(file) || !resolvedByLayers(file, graph, map))).map(file => [file, pathReaders(file, graph, moduleText)]))
   const allTests = [...graph.keys()].filter(isTest)
   const reverse = reverseGraph(graph)
   const reached = dependents([...changed, ...changed.flatMap(file => seedsOfLayers(file, graph, map))], reverse)

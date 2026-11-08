@@ -1,9 +1,9 @@
 import { spawnSync } from 'node:child_process'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { BUS_CORE, BUS_SERVICE } from '../../ci/layers.js'
-import { placementOf } from '../../cli/no-layer-recount.js'
-import { layersIn, readLayerMap, recordsOf } from '../../core/layer-map.js'
+import { BUS_CORE, BUS_SERVICE, fullRunReason, isRootConfigOrWorkflow, selectRun } from '../../ci/layers.js'
+import { cruise, readTest } from '../../ci/select.js'
+import { isCheckPipeline, layersIn, readLayerMap, recordsOf } from '../../core/layer-map.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..', '..')
 const TEST_ROOT = 'scripts/tests/'
@@ -39,11 +39,18 @@ describe('the layer map gives every source file one layer', () => {
     expect(records.filter(record => !tracked(record))).toEqual([])
   })
 
-  it('a recount over git ls-files leaves outside the layers only the root configs and the workflows', () => {
+  it('selectRun over every tracked file takes the full run only for the root configs and the workflows', () => {
     const files = spawnSync('git', ['ls-files'], { cwd: REPO_ROOT, encoding: 'utf8' }).stdout.split('\n').filter(file => file !== '')
-    const outside = files.filter(file => placementOf(file, map) === 'full')
-    expect(outside.filter(file => file.includes('/') && !file.startsWith(WORKFLOWS))).toEqual([])
-  })
+    const graph = cruise()
+    const texts = new Map<string, string>()
+    const text = (module: string): string => texts.get(module) ?? texts.set(module, readTest(module)).get(module)!
+    const full = files.filter(file => !isCheckPipeline(file) && fullRunReason([file], graph, text, map) !== null)
+    expect(full.filter(file => !isRootConfigOrWorkflow(file))).toEqual([])
+    expect(files.filter(isRootConfigOrWorkflow).filter(file => !isCheckPipeline(file) && !full.includes(file))).toEqual([])
+    expect(full.filter(file => file.startsWith(WORKFLOWS)).length).toBeGreaterThan(0)
+    expect(selectRun(['.github/workflows/ci.yml'], graph, text, map).kind).toBe('full')
+    expect(selectRun(['scripts/construct/daemon.mjs'], graph, text, map).kind).toBe('layers')
+  }, 120_000)
 
   it('a file entry wins over the folder that holds it', () => {
     expect(layersIn({ files: { 'scripts/core/queue.ts': 'core' }, folders: { 'scripts/bus/': 'bus' } }, 'scripts/core/queue.ts')).toEqual(['core'])
