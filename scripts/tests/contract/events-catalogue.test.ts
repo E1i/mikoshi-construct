@@ -1,5 +1,6 @@
 import type { ParsedFile } from '../../contract/factory/walk.js'
 import type { Fold } from '../../core/stored.js'
+import type { MergeBench } from '../bus/merge-bench.js'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -8,8 +9,12 @@ import ts from 'typescript'
 import { afterAll, describe, expect, it } from 'vitest'
 import { catalogueOf, typedReading, writtenEvents } from '../../contract/factory/payloads.js'
 import { parsedFiles } from '../../contract/factory/walk.js'
-import { declaredPayload, EVENT_PAYLOADS } from '../../core/events.js'
+import { appendCardEvent } from '../../core/card-bodies.js'
+import { appendEvent } from '../../core/db.js'
+import { CARD_ADMITTED, CARD_STOPPED, declaredPayload, EVENT_PAYLOADS } from '../../core/events.js'
+import { LAUNCH_STOP_WITH_NO_PULL_REQUEST, LIFTED_ADMISSION } from '../../core/queue.js'
 import { reducedTypesOf } from '../../core/reducer.js'
+import { eventsOf, mergeBench } from '../bus/merge-bench.js'
 
 const ROOT = process.cwd()
 const EVENTS_MODULE = 'scripts/core/events.ts'
@@ -39,6 +44,8 @@ function parsed(file: string, text: string): ParsedFile {
 const repository = parsedFiles(ROOT)
 const catalogue = catalogueOf(repository.find(({ file }) => file === EVENTS_MODULE)!)
 const scratchRoots: string[] = []
+const benches: MergeBench[] = []
+const ADMITTED_BY_INTAKE = 1301
 
 function typedTree(files: Record<string, string>): string {
   const root = mkdtempSync(path.join(tmpdir(), 'events-catalogue-'))
@@ -58,7 +65,10 @@ function measured(root: string, trees?: string[]): ReturnType<typeof writtenEven
 
 const written = measured(ROOT)
 
-afterAll(() => scratchRoots.forEach(root => rmSync(root, { recursive: true, force: true })))
+afterAll(() => {
+  scratchRoots.forEach(root => rmSync(root, { recursive: true, force: true }))
+  benches.splice(0).forEach(made => made.close())
+})
 
 describe('the typed catalogue of bus events', () => {
   it('every bus event in contract factory json is complete', () => {
@@ -127,5 +137,26 @@ describe('the typed catalogue of bus events', () => {
 
   it('keeps the stop reasons out of the event types', () => {
     expect(Object.keys(EVENT_PAYLOADS).filter(type => STOP_REASONS.includes(type))).toEqual([])
+  })
+
+  it('reads the re-versioning writer of card-bodies, so card.admitted carries the keys appendCardEvent adds', () => {
+    expect(written.events['card.admitted']!.keys).toEqual(expect.arrayContaining(['cardVersion', 'prevAdmissionId', 'prevTextSha', 'plan']))
+    expect(factoryBus().events['card.admitted']!.keys).toEqual(expect.arrayContaining(['cardVersion', 'prevAdmissionId', 'prevTextSha', 'plan']))
+  })
+
+  it('lifts a launch stop on a card intake admitted through appendCardEvent, versioned keys and plan link included', () => {
+    const made = mergeBench()
+    benches.push(made)
+    const ts = made.clock.now().toISOString()
+    const admission = { card: `#${ADMITTED_BY_INTAKE} lifted`, lane: 'lane-a', decision: 'auto', contour: 'cheap', depends: [], text: `card: #${ADMITTED_BY_INTAKE} lifted`, plan: { plan: 'P-1', item: 'a' }, admission: `admission-${ADMITTED_BY_INTAKE}` }
+    expect(appendCardEvent(made.db, 'worker:intake:window', { type: CARD_ADMITTED, cardId: ADMITTED_BY_INTAKE, ts, dedupeKey: `${CARD_ADMITTED}:${ADMITTED_BY_INTAKE}`, payload: admission })).toBe(true)
+    appendEvent(made.db, { ts, type: CARD_STOPPED, actor: 'worker:launch:launch-1', cardId: ADMITTED_BY_INTAKE, pr: null, head: null, dedupeKey: `${LAUNCH_STOP_WITH_NO_PULL_REQUEST}${ADMITTED_BY_INTAKE}`, payload: { reason: 'question.agent', detail: 'asks', widen: [] }, legacy: false })
+    const stop = (made.db.prepare(`SELECT max(id) AS id FROM events WHERE type = '${CARD_STOPPED}'`).get() as { id: number }).id
+    made.tick()
+    made.tick()
+    expect(eventsOf(made.db, CARD_ADMITTED)).toEqual([
+      expect.objectContaining({ cardVersion: 1, prevAdmissionId: null, prevTextSha: null }),
+      expect.objectContaining({ cardVersion: 1, plan: { plan: 'P-1', item: 'a' }, admission: `${LIFTED_ADMISSION}:${stop}` }),
+    ])
   })
 })

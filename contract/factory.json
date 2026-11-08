@@ -76,6 +76,7 @@
           "admission",
           "bodySha",
           "card",
+          "cardVersion",
           "confirmation",
           "contour",
           "corrections",
@@ -83,6 +84,9 @@
           "depends",
           "lane",
           "moved",
+          "plan",
+          "prevAdmissionId",
+          "prevTextSha",
           "source",
           "text",
           "textSha"

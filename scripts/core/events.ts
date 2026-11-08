@@ -130,7 +130,7 @@ export const EVENT_PAYLOADS = {
   [CUTOVER]: [],
   [BUS_HEAL_HELD]: ['backup', 'failure'],
   [BUS_HEALED]: ['backup', 'broken', 'count', 'max_id', 'steps'],
-  [CARD_ADMITTED]: ['admission', 'bodySha', 'card', 'confirmation', 'contour', 'corrections', 'decision', 'depends', 'lane', 'moved', 'source', 'text', 'textSha'],
+  [CARD_ADMITTED]: ['admission', 'bodySha', 'card', 'cardVersion', 'confirmation', 'contour', 'corrections', 'decision', 'depends', 'lane', 'moved', 'plan', 'prevAdmissionId', 'prevTextSha', 'source', 'text', 'textSha'],
   [CARD_ANSWERED]: ['card_body_sha', 'from', 'head', 'minutes', 'pr', 'prompt_path', 'prompt_sha', 'prompt_unstored', 'published', 'reentry', 'resumed', 'session', 'source', 'steps', 'to', 'tokens', 'worktree'],
   [CARD_CLOSED]: ['report', 'verification', 'witnessedOnMain'],
   [CARD_CONTINUED]: ['base', 'branch', 'continuation', 'contour', 'from', 'pgid', 'pid', 'prompt_path', 'prompt_sha', 'prompt_unstored', 'session', 'step', 'worktree'],

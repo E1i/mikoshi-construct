@@ -35,6 +35,8 @@ interface Keys {
 interface Reading {
   checker: ts.TypeChecker | null
   bindings: ReadonlyMap<string, ts.Expression>
+  envelope?: string
+  declared: ReadonlyMap<string, readonly string[]>
   fileOf: (source: ts.SourceFile) => string
   typed: (source: ts.SourceFile) => boolean
 }
@@ -154,17 +156,29 @@ function typedKeys(value: ts.Expression, reading: Reading): Keys {
   return keys === null ? opaque(value, reading) : { keys, opaqueAt: [] }
 }
 
-function computedKey(expression: ts.Expression): Keys | null {
+function literalOf(expression: ts.Expression, reading: Reading): string | null {
+  if (reading.checker === null || !reading.typed(expression.getSourceFile()))
+    return null
+  const type = reading.checker.getTypeAtLocation(expression)
+  return type.isStringLiteral() ? type.value : null
+}
+
+function computedKey(expression: ts.Expression, reading: Reading): Keys | null {
   const value = ts.isIdentifier(expression) ? declaredObject(expression.text, expression) : expression
-  return value !== null && ts.isStringLiteralLike(value) ? { keys: [value.text], opaqueAt: [] } : null
+  const key = value !== null && ts.isStringLiteralLike(value) ? value.text : literalOf(expression, reading)
+  return key === null ? null : { keys: [key], opaqueAt: [] }
+}
+
+function reSpreadsItsOwnPayload(spread: ts.Expression, reading: Reading): boolean {
+  return reading.envelope !== undefined && ts.isPropertyAccessExpression(spread) && spread.name.text === 'payload' && ts.isIdentifier(spread.expression) && spread.expression.text === reading.envelope
 }
 
 function keysOfMember(member: ts.ObjectLiteralElementLike, reading: Reading): Keys {
   if (ts.isSpreadAssignment(member))
-    return keysOf(member.expression, reading)
+    return reSpreadsItsOwnPayload(member.expression, reading) ? { keys: [], opaqueAt: [] } : keysOf(member.expression, reading)
   const name = member.name
   if (name !== undefined && ts.isComputedPropertyName(name))
-    return computedKey(name.expression) ?? opaque(member, reading)
+    return computedKey(name.expression, reading) ?? opaque(member, reading)
   if (name === undefined)
     return opaque(member, reading)
   return { keys: [ts.isIdentifier(name) || ts.isStringLiteralLike(name) ? name.text : name.getText()], opaqueAt: [] }
@@ -216,11 +230,40 @@ function namesVisibleIn(source: ts.SourceFile, names: ReadonlyMap<string, string
   return new Map([...names, ...exportedStrings(source)])
 }
 
+function spreadEnvelope(node: ts.ObjectLiteralExpression): string | undefined {
+  const spread = node.properties.find(member => ts.isSpreadAssignment(member) && ts.isIdentifier(member.expression)) as ts.SpreadAssignment | undefined
+  return spread === undefined ? undefined : (spread.expression as ts.Identifier).text
+}
+
+function typesSpreadInto(node: ts.ObjectLiteralExpression, reading: Reading): string[] {
+  if (reading.checker === null || !reading.typed(node.getSourceFile()))
+    return []
+  const property = reading.checker.getTypeAtLocation(node).getProperty('type')
+  if (property === undefined)
+    return []
+  const type = reading.checker.getTypeOfSymbolAtLocation(property, node)
+  return (type.isUnion() ? type.types : [type]).flatMap(each => each.isStringLiteral() ? [each.value] : [])
+}
+
 function writesOfObject(node: ts.ObjectLiteralExpression, names: ReadonlyMap<string, string>, tallies: Map<string, Tally>, reading: Reading): void {
   const type = propertyValue(node, 'type')
   const payload = propertyValue(node, 'payload')
-  if (type !== null && payload !== null)
-    typesOf(type, names).forEach(each => recordWrite(tallies, each, keysOf(payload, reading), reading.fileOf(node.getSourceFile())))
+  if (payload === null)
+    return
+  const envelope = spreadEnvelope(node)
+  const file = reading.fileOf(node.getSourceFile())
+  const keys = keysOf(payload, { ...reading, envelope })
+  if (type !== null) {
+    typesOf(type, names).forEach(each => recordWrite(tallies, each, keys, file))
+    return
+  }
+  const union = envelope === undefined ? [] : typesSpreadInto(node, reading)
+  const declaredBy = (each: string, key: string): boolean => reading.declared.get(each)?.includes(key) === true
+  union.forEach((each) => {
+    const own = keys.keys.filter(key => declaredBy(each, key) || !union.some(other => declaredBy(other, key)))
+    if (own.length > 0 || keys.opaqueAt.length > 0)
+      recordWrite(tallies, each, { keys: own, opaqueAt: keys.opaqueAt }, file)
+  })
 }
 
 function argumentBindings(helper: ts.FunctionDeclaration, call: ts.CallExpression): Map<string, ts.Expression> {
@@ -254,7 +297,7 @@ function writesOfAHelper(call: ts.CallExpression, catalogue: Catalogue, reading:
     const payload = ts.isObjectLiteralExpression(node) ? propertyValue(node, 'payload') : null
     if (type === null || payload === null || !mentionsAny(payload, inside.bindings))
       return
-    typesOf(type, names).filter(each => catalogue.payloads.has(each)).forEach(each => writes.push([each, keysOf(payload, inside)]))
+    typesOf(type, names).filter(each => catalogue.payloads.has(each)).forEach(each => writes.push([each, keysOf(payload, { ...inside, envelope: spreadEnvelope(node as ts.ObjectLiteralExpression) })]))
   })
   return writes
 }
@@ -276,7 +319,7 @@ function keysBuiltByHelper(call: ts.CallExpression, reading: Reading): Keys | nu
   eachNode(helper.body, (node) => {
     const payload = ts.isObjectLiteralExpression(node) && propertyValue(node, 'type') !== null ? propertyValue(node, 'payload') : null
     if (payload !== null)
-      built.push(keysOf(payload, inside))
+      built.push(keysOf(payload, { ...inside, envelope: spreadEnvelope(node as ts.ObjectLiteralExpression) }))
   })
   return built.length === 0 ? null : mergedKeys(built)
 }
@@ -326,7 +369,7 @@ export function writtenEvents(files: readonly ParsedFile[], catalogue: Catalogue
   const tallies = new Map<string, Tally>()
   const fileNames = new Map(files.map(({ file, source }) => [source, file] as const))
   const typed = new Set(files.filter(({ source }) => path.isAbsolute(source.fileName)).map(({ source }) => source))
-  const reading: Reading = { checker, bindings: new Map(), fileOf: source => fileNames.get(source) ?? source.fileName, typed: source => typed.has(source) }
+  const reading: Reading = { checker, bindings: new Map(), declared: catalogue.payloads, fileOf: source => fileNames.get(source) ?? source.fileName, typed: source => typed.has(source) }
   for (const { source } of files) {
     const names = namesVisibleIn(source, catalogue.names)
     eachNode(source, (node) => {
