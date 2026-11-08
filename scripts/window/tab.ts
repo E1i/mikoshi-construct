@@ -1,14 +1,15 @@
-import type { Status } from './loop.js'
+import type { Status } from '../core/handoff-status.js'
 import type { WindowSession } from './window-heartbeat.js'
-import { existsSync, readFileSync, realpathSync } from 'node:fs'
+import { readFileSync, realpathSync } from 'node:fs'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { isTabWindowIn, tabCandidate, worktreeHomesOf } from '../../.claude/hooks/tab-window.mjs'
 import { isOwnerCheckout, REPO_ID_SEPARATOR, repoIdOf } from '../core/bus-path.js'
+import { statusOfFile } from '../core/handoff-status.js'
 import { clientAdapter } from '../ports/client/index.js'
 import { windowModeOf } from '../ports/session.js'
 import { busWorktreeHome } from '../ports/worktree-home.js'
-import { PREFIX, statusOf } from './loop.js'
+import { PREFIX } from './loop.js'
 import { windowOf } from './window-heartbeat.js'
 
 export { ENTRYPOINT_VARIABLE, HEADLESS_ENTRYPOINT } from '../../.claude/hooks/tab-window.mjs'
@@ -32,7 +33,7 @@ export function tabWindowIn(env: NodeJS.ProcessEnv, dir: string, treeHomes: read
 }
 
 export function handoffStatusOf(handoff: string | null): Status | null {
-  return handoff !== null && existsSync(handoff) ? statusOf(readFileSync(handoff, 'utf8')) : null
+  return handoff === null ? null : statusOfFile(handoff) ?? null
 }
 
 export function noWindowRefusal(env: NodeJS.ProcessEnv): string | null {
