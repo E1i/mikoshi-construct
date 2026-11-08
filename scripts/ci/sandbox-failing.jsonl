@@ -308,6 +308,7 @@
 {"file":"scripts/tests/worlds.test.ts","test":"test worlds leave nothing in TMPDIR > a watch world is removed once its test is done, with every temporary of its calls","refused":"mkdtemp under /tmp EPERM"}
 {"file":"tests/attach-entry.test.ts","test":"attach --entry > prints the subtitle, a blank line and the protocol whole, in a directory that is not a repository","refused":"listen EPERM on the tsx IPC pipe"}
 {"file":"tests/attach-entry.test.ts","test":"attach --entry > writes nothing into a repository, even with --yes and --harness given","refused":"listen EPERM on the tsx IPC pipe"}
+{"file":"tests/cli-exit-codes.test.ts","test":"every command exits with the code it exits with today, as a literal > atlas: written 0","refused":"listen EPERM on the tsx IPC pipe"}
 {"file":"tests/cli-exit-codes.test.ts","test":"every command exits with the code it exits with today, as a literal > attach and its alias: attached 0, refused 1, required check unresolvable 2","refused":"listen EPERM on the tsx IPC pipe"}
 {"file":"tests/cli-exit-codes.test.ts","test":"every command exits with the code it exits with today, as a literal > board: shown 0, an unreadable --prs 0","refused":"listen EPERM on the tsx IPC pipe"}
 {"file":"tests/cli-exit-codes.test.ts","test":"every command exits with the code it exits with today, as a literal > cost: no session store 3, a store with nothing for this directory 0, a look-alike key only 1","refused":"listen EPERM on the tsx IPC pipe"}
@@ -318,6 +319,7 @@
 {"file":"tests/cli-exit-codes.test.ts","test":"every command exits with the code it exits with today, as a literal > intake: written 0, dry run 0, refused 1, awaiting confirmation 2, waiting on a depends 3","refused":"listen EPERM on the tsx IPC pipe"}
 {"file":"tests/cli-exit-codes.test.ts","test":"every command exits with the code it exits with today, as a literal > mutate apply: applied 0, refused 1","refused":"listen EPERM on the tsx IPC pipe"}
 {"file":"tests/cli-exit-codes.test.ts","test":"every command exits with the code it exits with today, as a literal > mutate judge: matched 0, baseline recorded 0, refused 1, unmatched 2, no witness 2, hard failure 3","refused":"listen EPERM on the tsx IPC pipe"}
+{"file":"tests/cli-exit-codes.test.ts","test":"every command exits with the code it exits with today, as a literal > say: said 0, no words 2","refused":"listen EPERM on the tsx IPC pipe"}
 {"file":"tests/cli-exit-codes.test.ts","test":"every command exits with the code it exits with today, as a literal > soulkill and its aliases: 0, with and without --json","refused":"listen EPERM on the tsx IPC pipe"}
 {"file":"tests/cli-exit-codes.test.ts","test":"every command exits with the code it exits with today, as a literal > sync --apply: written 0, no construct.json 1, a pending merged target refused 2","refused":"listen EPERM on the tsx IPC pipe"}
 {"file":"tests/cli-exit-codes.test.ts","test":"every command exits with the code it exits with today, as a literal > sync: up to date 0, no construct.json 1, pending 2","refused":"listen EPERM on the tsx IPC pipe"}
