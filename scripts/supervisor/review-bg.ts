@@ -54,12 +54,13 @@ function recordedWorker(busDir: string, env: NodeJS.ProcessEnv, processes: Proce
   if (!existsSync(file))
     return undefined
   const pid = Number(readFileSync(file, 'utf8').trim())
-  if (!Number.isInteger(pid) || pid <= 0 || pid === process.pid || !reviewNodeBeats(thisBus(env), Date.now()))
+  const bus = thisBus(env)
+  if (!Number.isInteger(pid) || pid <= 0 || pid === process.pid || bus === undefined || !reviewNodeBeats(bus, Date.now()))
     return undefined
   const listed = processes().find(candidate => candidate.pid === pid)
   if (listed === undefined)
-    return { pid, args: `recorded in ${file}` }
-  return servesBus(listed, thisBus(env)) && REVIEW_WORKER_MARKERS.some(marker => argsBeforeBus(listed.args).includes(marker)) ? listed : undefined
+    return { pid, args: `recorded in ${file}`, bus }
+  return servesBus(listed, bus) && REVIEW_WORKER_MARKERS.some(marker => argsBeforeBus(listed.args).includes(marker)) ? listed : undefined
 }
 
 export function startReviewWorker(launch: DetachedLaunch, busDir: string, env: NodeJS.ProcessEnv, processes: ProcessList): BgResult {
