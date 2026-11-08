@@ -1,7 +1,7 @@
 import type { RoleStop, THRESHOLDS, WindowEnd } from '../nodes/restart/role.js'
 import type { ProcessTable } from '../ports/process-table.js'
 import type { ExitLine, ExitReadings, Reading } from './eddies-measure.js'
-import { existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -9,13 +9,14 @@ import { fileURLToPath } from 'node:url'
 import { defaultBusPath } from '../core/db.js'
 import { FACTORY_RUNTIME } from '../core/factory-paths.js'
 import { defaultHandoffDir } from '../core/handoff-dir.js'
+import { statusOfFile } from '../core/handoff-status.js'
 import { RAISED_STATUS, raisedByTheBus } from '../nodes/restart/role.js'
 import { ownerMessagesOf } from '../ports/client/claude/adapter.js'
 import { clientAdapter } from '../ports/client/index.js'
 import { OsProcessTable, rowsOf } from '../ports/process-table.js'
 import { EXIT_REQUEST_VARIABLE, LOOP_PID_VARIABLE } from '../ports/session.js'
 import { appendExitLine, EDDIES_JOURNAL_FILE, exitLineOf, PROJECT_VARIABLE, projectRoot, realExitReadings, SESSION_EXIT_EVENT, UNKNOWN } from './eddies-measure.js'
-import { MIKO_HANDOFF_NAME, mikoHandoff, PREFIX, statusOf } from './loop.js'
+import { MIKO_HANDOFF_NAME, mikoHandoff, PREFIX } from './loop.js'
 import { realRoleStopObserver } from './role-bus.js'
 import { windowEndObserver } from './role-end.js'
 import { tabWindowOf } from './tab.js'
@@ -331,7 +332,7 @@ export function realMikoExitDeps(handoff: string): MikoExitDeps {
     readings: () => realExitReadings(process.env, os.homedir(), root, defaultBusPath()),
     recordExit: line => appendExitLine(root, line),
     handoff,
-    status: () => existsSync(handoff) ? statusOf(readFileSync(handoff, 'utf8')) : null,
+    status: () => statusOfFile(handoff) ?? null,
     raised: raisedByTheBus(process.env),
     observeStop: realRoleStopObserver(line => console.error(`${PREFIX}${line}`)),
     endWindow: windowEndObserver({ busPath: defaultBusPath(), pid: process.pid, now: () => new Date(), err: line => console.error(`${PREFIX}${line}`) }),
