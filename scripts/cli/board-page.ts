@@ -1810,9 +1810,8 @@ function boardPageOf(db: DatabaseSync, busPath: string, now: Date, handoffFile: 
     warnings: [
       ...contextWarnings(sessionContexts(facts.services, sources, liveness), limits),
       ...boardWarnings({
+        ...limits,
         contexts: [],
-        contextLimit: limits.contextLimit,
-        warnRatio: limits.warnRatio,
         openPrs: openPrCountOf(db),
         openPrLimit: openPrLimitOf(process.env),
         ownerWaits: facts.waits.length,
