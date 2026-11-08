@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { Status } from '../core/handoff-status.js'
 import type { WindowMode } from '../ports/session.js'
 import type { ProcessRow } from './exit.js'
 import { spawn, spawnSync } from 'node:child_process'
@@ -12,6 +13,7 @@ import { isOwnerCheckout } from '../core/bus-path.js'
 import { appendEvent, defaultBusPath, inTransaction, openBus } from '../core/db.js'
 import { PROCESS_ENDED, PROCESS_HEARTBEAT, PROCESS_REFUSED } from '../core/events.js'
 import { defaultHandoffDir } from '../core/handoff-dir.js'
+import { statusOfFile } from '../core/handoff-status.js'
 import { WINDOW_COMMAND_VARIABLE, windowCommand } from '../ports/client/claude/adapter.js'
 import { OsProcessTable } from '../ports/process-table.js'
 import { EXIT_REQUEST_VARIABLE, LOOP_PID_VARIABLE, WINDOW_MARK, WINDOW_VARIABLE } from '../ports/session.js'
@@ -54,14 +56,7 @@ export const LOOP_BEAT_MS = 5 * 60_000
 export const TAB_WORD = '--tab'
 export const TAB_MODE: WindowMode = 'tab'
 
-export type Status = 'CONTINUE' | 'OWNER' | 'DONE' | 'STOP'
-
-const STATUS_LINE = /^STATUS:\s*(CONTINUE|OWNER|DONE|STOP)\b/
-
-export function statusOf(text: string): Status | null {
-  const found = text.split(/\r?\n/).flatMap(line => STATUS_LINE.exec(line)?.[1] ?? [])
-  return (found.at(-1) as Status | undefined) ?? null
-}
+export type { Status }
 
 const SHELL_COULD_NOT_RUN_THE_COMMAND = new Set([126, 127])
 
@@ -286,10 +281,6 @@ async function sessionsUntilTheWindowEnds(deps: MikoLoopDeps): Promise<number> {
     }
     prompt = next
   }
-}
-
-function statusOfFile(file: string): Status | null | undefined {
-  return existsSync(file) ? statusOf(readFileSync(file, 'utf8')) : undefined
 }
 
 function mtimeOf(file: string): number | undefined {

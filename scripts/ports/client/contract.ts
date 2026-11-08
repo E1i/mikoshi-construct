@@ -21,7 +21,7 @@ export interface ClientAdapter {
   readonly capabilities: Capabilities
   invocation: (spec: SessionSpec) => Invocation | Refusal
   reading: (place: SessionPlace) => SessionReading
-  readBudget: (place: SessionPlace) => ReadBudget
+  readBudget: (place: BudgetPlace) => ReadBudget
   models: () => ModelOffer[] | null
   modelFor: (role: Role, effort: Effort | null, wanted: ModelChoice) => ModelPick | Refusal
   processes: ClientProcesses
@@ -58,7 +58,11 @@ export interface SessionPlace {
   session: string
   cwd: string
   stdoutPath: string | null
+  stderrPath: string | null
+  exitCode: number | null
 }
+
+export type BudgetPlace = Pick<SessionPlace, 'session' | 'cwd' | 'stdoutPath'>
 
 export interface Usage {
   input: number
@@ -96,11 +100,12 @@ export interface SessionReading {
   turns: number | null
   durationMs: number | null
   model: string | null
-  denials: Denial[]
+  denials: Denial[] | null
   toolUses: ToolUse[]
   journal: SessionJournal | 'unreadable'
   lastSteps: string[] | null
   contextTokens: number | null
+  clientSession: string | null
 }
 
 export interface ReadBudget {
@@ -115,6 +120,14 @@ export interface ModelOffer {
   recommendedFor: Role[]
 }
 
+export interface ClientGuarantees {
+  allowlist: boolean
+  writeConfinement: boolean
+  mcpOff: boolean
+  toolNarrowing: boolean
+  guardFailsClosed: boolean
+}
+
 export interface Capabilities {
   identity: 'assigned' | 'reported'
   ladder: boolean
@@ -125,13 +138,7 @@ export interface Capabilities {
     denials: boolean
     journal: boolean
   }
-  guarantees: {
-    allowlist: boolean
-    writeConfinement: boolean
-    mcpOff: boolean
-    toolNarrowing: boolean
-    guardFailsClosed: boolean
-  }
+  guarantees: ClientGuarantees
 }
 
 export type ProcessCwds = { kind: 'listed', cwds: string[] } | { kind: 'unreadable', why: string }

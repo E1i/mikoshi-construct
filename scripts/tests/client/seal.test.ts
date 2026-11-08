@@ -14,6 +14,8 @@ const CLIENT_LITERALS: readonly RegExp[] = [
   /\bclaude (?:-p|--[a-z])/,
   /--(?:permission-mode|permission-prompts|strict-mcp-config|session-id|output-format|add-dir|resume|setting-sources|dangerously-skip-permissions)\b/,
   /\.claude\/settings|~\/\.claude|['"`]\.claude['"`]/,
+  /['"`]codex['"`]/,
+  /\bcodex exec\b/,
 ]
 
 interface Carrier {
@@ -42,6 +44,7 @@ const GOLDEN_PIN_TESTS = [
   'bus/reviewloop',
   'bus/shardlabel',
   'bus/window-heartbeat',
+  'client/codex-reading',
   'client/contract',
   'client/identity',
   'client/process',
@@ -139,7 +142,7 @@ function realTree(): Map<string, string> {
 
 describe('the client seal', () => {
   it('a client literal outside the adapter and the table fails', () => {
-    const planted = ['spawn(\'claude\')', 'process.env.CLAUDE_CONFIG_DIR', 'run(`claude -p`)', 'args.push(\'--session-id\')', 'read(\'~/.claude/settings.json\')']
+    const planted = ['spawn(\'claude\')', 'process.env.CLAUDE_CONFIG_DIR', 'run(`claude -p`)', 'args.push(\'--session-id\')', 'read(\'~/.claude/settings.json\')', 'spawn(\'codex\')', 'run(`codex exec --json`)']
     for (const line of planted) {
       const tree = new Map([['scripts/nodes/planted.ts', line], ['scripts/ports/client/claude/adapter.ts', line], ['scripts/ports/carried.ts', line], ['templates/outside.ts', line]])
       expect(sealOf(tree, [{ path: 'scripts/ports/carried.ts', reason: 'a sample' }]).outside, line).toEqual(['scripts/nodes/planted.ts'])

@@ -116,7 +116,7 @@ export const CONCEPTS: readonly Concept[] = [
     id: 'handoff-status',
     title: 'the STATUS line of a handoff',
     owner: 'scripts/core/handoff-status.ts',
-    ownerExists: false,
+    ownerExists: true,
     axis: 'architecture',
     detectors: [
       regexLiteral(HANDOFF_STATUS_LINE, 'a regex over the STATUS line'),

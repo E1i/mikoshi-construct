@@ -29,7 +29,7 @@ export function clientCommand(): string {
 }
 
 export function streamReading(stdoutPath: string): SessionReading {
-  return clientAdapter().reading({ session: '', cwd: '', stdoutPath })
+  return clientAdapter().reading({ session: '', cwd: '', stdoutPath, stderrPath: null, exitCode: null })
 }
 
 export const REVIEW_MODEL_VARIABLE = 'CONSTRUCT_REVIEW_MODEL'
