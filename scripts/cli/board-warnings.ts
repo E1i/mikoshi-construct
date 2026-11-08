@@ -1,7 +1,10 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { RecordedVerdict } from '../nodes/update/update-executor.js'
 import type { GitHub } from '../ports/github.js'
 import type { SlotKind } from '../supervisor/scheduler.js'
 import { holdReason, plannedStalls } from '../nodes/launch/launch-candidates.js'
+import { REVIEW_RULES_VERSION } from '../nodes/review/review-executor.js'
+import { recordedVerdictOn } from '../nodes/update/update-executor.js'
 import { Meter } from '../ports/meter.js'
 import { MAIN_BRANCH } from '../ports/snapshot.js'
 import { slotsOf, slotsVariable } from '../supervisor/scheduler.js'
@@ -30,6 +33,7 @@ export interface WarningReadings {
   ownerWaits: number
   stalls: readonly string[]
   savingOff: boolean
+  stalePasses?: number
 }
 
 export const SAVING_OFF_WARNING = 'BUS_RERUN=by-layers, но на main strict: true (или ruleset требует up-to-date) — экономия выключена'
@@ -64,6 +68,24 @@ function ownerWaitWarning(waits: number): BoardWarning[] {
   return waits === 0 ? [] : [{ level: 'amber', text: `${waits} open owner wait${waits === 1 ? '' : 's'}` }]
 }
 
+export function stalePassText(count: number): string {
+  return `${count} open pass verdict${count === 1 ? '' : 's'} under review rules older than version ${REVIEW_RULES_VERSION}`
+}
+
+function stalePassWarning(count: number | undefined): BoardWarning[] {
+  return count === undefined || count === 0 ? [] : [{ level: 'amber', text: stalePassText(count) }]
+}
+
+function underOlderRules(verdict: RecordedVerdict | null): boolean {
+  return verdict === null || verdict.rulesVersion === null || verdict.rulesVersion < REVIEW_RULES_VERSION
+}
+
+const OPEN_PASS_HEADS = `SELECT pr, head FROM prs WHERE state = 'open' AND verdict_on_head = 'pass' AND head IS NOT NULL ORDER BY pr`
+
+export function stalePassCountOf(db: DatabaseSync): number {
+  return readOr(() => (db.prepare(OPEN_PASS_HEADS).all() as { pr: number, head: string }[]).filter(row => underOlderRules(recordedVerdictOn(db, Number(row.pr), row.head))).length, 0)
+}
+
 export function boardWarnings(readings: WarningReadings): BoardWarning[] {
   const line = eddiesLine(readings.contextLimit, readings.warnRatio)
   return [
@@ -72,6 +94,7 @@ export function boardWarnings(readings: WarningReadings): BoardWarning[] {
     ...ownerWaitWarning(readings.ownerWaits),
     ...readings.stalls.map((stall): BoardWarning => ({ level: 'amber', text: stall })),
     ...(readings.savingOff ? [{ level: 'amber', text: SAVING_OFF_WARNING } as const] : []),
+    ...stalePassWarning(readings.stalePasses),
   ]
 }
 

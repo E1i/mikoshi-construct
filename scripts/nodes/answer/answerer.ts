@@ -399,13 +399,13 @@ export function pendingPathsOf(card: CardSession): string[] {
   return [...new Set([...committedOnTheBranch(card), ...uncommitted(card)])]
 }
 
-export function clientInTree(card: CardSession, cwds: () => ProcessCwds = () => new OsProcessTable().clientCwds()): string | null {
+export function liveSessionIn(card: CardSession, cwds: () => ProcessCwds = () => new OsProcessTable().clientCwds()): string | null {
   const read = cwds()
   if (read.kind === 'unreadable')
-    return `the client processes working in the tree ${card.worktree} cannot be read (${read.why}), so the card counts as held`
+    return `the sessions running in the tree ${card.worktree} cannot be read (${read.why}), so the card counts as held`
   const tree = existsSync(card.worktree) ? realpathSync(card.worktree) : card.worktree
   const inside = read.cwds.find(cwd => cwd === tree || cwd.startsWith(`${tree}${path.sep}`))
-  return inside === undefined ? null : `a client process works in ${inside}, inside the tree ${card.worktree}`
+  return inside === undefined ? null : `a live session runs in ${inside}, inside the tree ${card.worktree}`
 }
 
 export function treeDirtyOf(card: CardSession): boolean {

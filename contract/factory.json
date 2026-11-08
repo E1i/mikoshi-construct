@@ -1482,7 +1482,10 @@
     },
     "layers": {},
     "live-session": {
-      "scripts/core/machine-sessions.ts": 1
+      "scripts/core/machine-sessions.ts": 1,
+      "scripts/ladder/watch-process.ts": 1,
+      "scripts/nodes/answer/answerer.ts": 1,
+      "scripts/ports/worktree.ts": 1
     },
     "owner-commands": {
       "scripts/ci/prepush.ts": 2,
@@ -2304,12 +2307,12 @@
         ],
         "functions": {
           "adoptTree": "(deps: TreeDeps, tree: string, branch: string): ReadyTree | RefusedTree",
-          "clientMayWorkIn": "(tree: string, cwds: () => ProcessCwds = () => new OsProcessTable().clientCwds()): boolean",
           "cutTree": "(deps: TreeDeps, id: string, branch: string): ReadyTree | RefusedTree",
           "freeTreeHome": "(tree: string): string",
           "gitIn": "(cwd: string, args: string[]): string",
           "gitInAsync": "(cwd, args)",
           "lastLine": "(output: string): string",
+          "liveSessionHolds": "(tree: string, cwds: () => ProcessCwds = () => new OsProcessTable().clientCwds()): boolean",
           "parkTree": "(git: GitRun, repo: string, tree: string, capacity: number): string | null",
           "pnpmInstall": "(cwd: string, args: string[]): void",
           "realShell": "(command: string, cwd: string): ShellResult",
