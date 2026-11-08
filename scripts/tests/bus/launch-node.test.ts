@@ -1056,6 +1056,81 @@ describe('the launch node', () => {
     expect(launchRows(made, 1124)).toBe(1)
   })
 
+  function questionTree(installed: boolean): string {
+    const tree = mkdtempSync(path.join(tmpdir(), 'launch-question-tree-'))
+    roots.push(tree)
+    writeFileSync(path.join(tree, 'pnpm-lock.yaml'), 'lockfileVersion: 9.0\n')
+    writeFileSync(path.join(tree, 'package.json'), JSON.stringify({ name: 'a-tree', devDependencies: { vitest: '^1.0.0' } }))
+    if (installed) {
+      mkdirSync(path.join(tree, 'node_modules', 'vitest'), { recursive: true })
+      writeFileSync(path.join(tree, 'node_modules', 'vitest', 'package.json'), '{"name":"vitest"}')
+    }
+    return tree
+  }
+
+  class TreeContinuingStarter extends ContinuingStarter {
+    constructor(private readonly tree: string) {
+      super()
+    }
+
+    override start(card: QueuedCard): CardStart {
+      const started = super.start(card)
+      return started.kind === 'started' ? { ...started, card: { ...started.card, worktree: this.tree } } : started
+    }
+  }
+
+  async function questionAtContextLine(made: MergeBench, cardId: number, tree: string): Promise<{ node: ProbedLaunchNode, starter: TreeContinuingStarter }> {
+    admit(made, cardId, 'lane-a')
+    made.tick()
+    const starter = new TreeContinuingStarter(tree)
+    const report = `#${cardId} a-card\nresult: stopped before PR\nno PR\nquestion: the sandbox cannot reinstall node_modules; may the owner restore it?\n`
+    const exited: ProcessTable = { commandLine: () => null, signalGroup: () => {} }
+    const node = new ProbedLaunchNode({ db: made.db, starter, continuer: starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes: exited, resulted: () => true, handedOff: () => false, atContextLine: () => true, reportOf: start => start.cardId === cardId ? report : null, disk: roomy, isolation: sandboxed })
+    await once(node)
+    made.tick()
+    return { node, starter }
+  }
+
+  it('a session that asks a question from a tree with no node_modules continues and opens no owner wait', async () => {
+    const made = bench()
+    const tree = questionTree(false)
+    const { node, starter } = await questionAtContextLine(made, 1710, tree)
+
+    expect(node.stopOverdue()).toEqual([])
+    expect(starter.continued).toHaveLength(1)
+    expect(starter.continued[0]!.from.worktree).toBe(tree)
+    expect(eventsOf(made.db, CARD_STOPPED)).toEqual([])
+    expect(eventsOf(made.db, OWNER_WAIT_OPENED)).toEqual([])
+    expect(eventsOf(made.db, CARD_CONTINUED)).toMatchObject([{ session: 's-1710-c1', worktree: tree, continuation: 1, from: 's-1710' }])
+  })
+
+  it('a session that asks a question from a tree that has its dependencies stops and opens an owner wait', async () => {
+    const made = bench()
+    const { node, starter } = await questionAtContextLine(made, 1711, questionTree(true))
+
+    expect(node.stopOverdue()).toEqual([1711])
+    expect(starter.continued).toEqual([])
+    expect(eventsOf(made.db, CARD_STOPPED)).toMatchObject([{ reason: 'question.agent' }])
+    expect(eventsOf(made.db, OWNER_WAIT_OPENED)).toMatchObject([{ need: 'decision', card: 1711 }])
+  })
+
+  it('a session that asks a question from a tree with no node_modules at the continuation limit stops and opens an owner wait', async () => {
+    const made = bench()
+    const { node, starter } = await questionAtContextLine(made, 1712, questionTree(false))
+
+    for (let exit = 1; exit <= MAX_RESTARTS; exit++) {
+      expect(node.stopOverdue()).toEqual([])
+      made.tick()
+    }
+    expect(starter.continued).toHaveLength(MAX_RESTARTS)
+    expect(eventsOf(made.db, OWNER_WAIT_OPENED)).toEqual([])
+
+    expect(node.stopOverdue()).toEqual([1712])
+    expect(starter.continued).toHaveLength(MAX_RESTARTS)
+    expect(eventsOf(made.db, CARD_STOPPED)).toMatchObject([{ reason: 'question.agent' }])
+    expect(eventsOf(made.db, OWNER_WAIT_OPENED)).toMatchObject([{ need: 'decision', card: 1712 }])
+  })
+
   it('a session that exits with no handoff is stopped as before and not continued', async () => {
     const made = bench()
     admit(made, 1125, 'lane-a')

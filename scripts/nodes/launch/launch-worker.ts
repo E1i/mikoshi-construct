@@ -52,7 +52,7 @@ import { cardDecisionCommand } from '../../policy/shards.js'
 import { cardIsolationCommand, clientLastSteps, clientTranscript } from '../../ports/client/claude/adapter.js'
 import { realIsolationReader } from '../../ports/isolation.js'
 import { TICK_MS } from '../../ports/netwatch.js'
-import { prepareBeforeSession, prepareTree } from '../../ports/prepare-tree.js'
+import { lacksItsPackages, prepareBeforeSession, prepareTree } from '../../ports/prepare-tree.js'
 import { promptsDirOf, storedInput } from '../../ports/prompt-store.js'
 import { clientCommand, EXIT_REQUEST_VARIABLE, LOOP_PID_VARIABLE, sessionEnv, WINDOW_VARIABLE } from '../../ports/session.js'
 import { CARD_SESSION_SANDBOX } from '../../ports/shift-settings.js'
@@ -596,7 +596,7 @@ export class LaunchNode extends Node<LaunchStep> {
   private stopWithoutPullRequest(start: RunningStart, card: StartedCard, session: SessionStart, refusal: string | null): boolean {
     const questions = reportQuestions(this.launchParts.reportOf?.(session) ?? null)
     if (questions.length > 0)
-      return this.stopOnQuestions(start, card, questions, splitByRepository(card.worktree, pathsOutsideTheBody(this.db, start.card_id, questions.join('\n'))), refusal)
+      return this.launchParts.continuer !== undefined && this.continuationsUsed(start) < MAX_RESTARTS && lacksItsPackages(card.worktree) ? this.continueSession(start, card, this.launchParts.continuer, `card #${start.card_id} session ${card.session} asked a question from ${card.worktree}, whose lockfile names packages the tree lacks; the bus prepares the tree for the next session`) : this.stopOnQuestions(start, card, questions, splitByRepository(card.worktree, pathsOutsideTheBody(this.db, start.card_id, questions.join('\n'))), refusal)
     const ended = noPullRequestDetail(start.card_id, card.session, this.launchParts.endedWith?.(session) ?? null)
     const detail = refusal === null ? ended : `${ended}; ${refusal}`
     return inTransaction(this.db, () => this.faultStop(this.ts(), start, `${LAUNCH_STOP_WITH_NO_PULL_REQUEST}${start.dedupe_key}`, detail))
