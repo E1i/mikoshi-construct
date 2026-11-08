@@ -26,9 +26,9 @@ import { pushPolicyOf } from '../../core/push-policy.js'
 import { busCardBodies } from '../../intake/parking-reads.js'
 import { ciLogForPrompt, GhCiRuns } from '../../ports/ci-reading.js'
 import { hasClientTranscript } from '../../ports/client/claude/adapter.js'
+import { OsProcessTable } from '../../ports/process-table.js'
 import { CARD_VARIABLE, clientInvocation, sessionEnv, streamReading } from '../../ports/session.js'
 import { MAIN_BRANCH } from '../../ports/snapshot.js'
-import { claudeProcessCwds } from '../../ports/worktree.js'
 import { isAlive } from '../../quality/lock.js'
 import { busSessionPulse } from '../../supervisor/heartbeat.js'
 import { projectRoot, realExitReadings, sessionGauges, UNKNOWN } from '../../window/eddies-measure.js'
@@ -259,7 +259,7 @@ function denialAimsAt(denial: Denial, file: string): boolean {
 }
 
 export function refusedOwnerQuestionIn(stdoutPath: string, file: string): string | null {
-  const refused = streamReading(stdoutPath).denials.find(denial => denialAimsAt(denial, file))
+  const refused = streamReading(stdoutPath).denials?.find(denial => denialAimsAt(denial, file))
   return refused === undefined || refused.text === '' ? null : refused.text
 }
 
@@ -399,7 +399,7 @@ export function pendingPathsOf(card: CardSession): string[] {
   return [...new Set([...committedOnTheBranch(card), ...uncommitted(card)])]
 }
 
-export function liveSessionIn(card: CardSession, cwds: () => ProcessCwds = claudeProcessCwds): string | null {
+export function liveSessionIn(card: CardSession, cwds: () => ProcessCwds = () => new OsProcessTable().clientCwds()): string | null {
   const read = cwds()
   if (read.kind === 'unreadable')
     return `the sessions running in the tree ${card.worktree} cannot be read (${read.why}), so the card counts as held`

@@ -168,7 +168,6 @@
 {"file":"scripts/tests/ghosts/morse.test.ts","test":"ghosts:hash for MORSE from the command line > the flag --card needs --by morse","refused":"listen EPERM on the tsx IPC pipe"}
 {"file":"scripts/tests/ghosts/no-journal-writes.test.ts","test":"the window commands write the bus, not the journal > no window command appends to ghosts.jsonl: ghosts:launch --fall writes ghost.line to the bus","refused":"listen EPERM on the tsx IPC pipe"}
 {"file":"scripts/tests/ghosts/no-journal-writes.test.ts","test":"the window commands write the bus, not the journal > no window command appends to ghosts.jsonl: ghosts:launch --revoke writes ghost.line to the bus","refused":"listen EPERM on the tsx IPC pipe"}
-{"file":"scripts/tests/ghosts/watch-process.test.ts","test":"listProcesses > lists this process among running processes, with its pid a positive number","refused":"spawnSync ps EPERM"}
 {"file":"scripts/tests/ghosts/watch.e2e.test.ts","test":"ghosts watch, end to end through the stub > carries the prefix on every printed line, in a frame and in a refusal","refused":"listen EPERM on the tsx IPC pipe"}
 {"file":"scripts/tests/ghosts/watch.e2e.test.ts","test":"ghosts watch, end to end through the stub > reads the tasks file through readTasksFile, refusing an unknown key by name","refused":"listen EPERM on the tsx IPC pipe"}
 {"file":"scripts/tests/ghosts/watch.e2e.test.ts","test":"ghosts watch, end to end through the stub > redraws with --every until it is interrupted","refused":"listen EPERM on the tsx IPC pipe"}
@@ -295,6 +294,7 @@
 {"file":"scripts/tests/morse/cli.test.ts","test":"morse rules > rule tests-modified-pos","refused":"listen EPERM on the tsx IPC pipe"}
 {"file":"scripts/tests/morse/cli.test.ts","test":"morse rules > rule tests-shrunk-neg","refused":"listen EPERM on the tsx IPC pipe"}
 {"file":"scripts/tests/morse/cli.test.ts","test":"morse rules > rule tests-shrunk-pos","refused":"listen EPERM on the tsx IPC pipe"}
+{"file":"scripts/tests/ports/process-table.test.ts","test":"the process table port > the in-memory adapter answers as the live one for an alive and a dead pid","refused":"spawnSync ps EPERM"}
 {"file":"scripts/tests/privacy/package-files.test.ts","test":"published package > carries no run or findings data","refused":"open under ~/.npm/_cacache EPERM"}
 {"file":"scripts/tests/quality/lock.test.ts","test":"quality lock > a run inside a run does not wait on the lock its parent holds","refused":"listen EPERM on the tsx IPC pipe"}
 {"file":"scripts/tests/quality/lock.test.ts","test":"quality lock > two concurrent quality runs run one after the other","refused":"listen EPERM on the tsx IPC pipe"}

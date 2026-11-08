@@ -1,6 +1,8 @@
 import type { Detector } from './detectors.js'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
+import ts from 'typescript'
+import { FACTORY_RUNTIME } from '../../core/factory-paths.js'
 import { GENERATED_FILES, GENERATED_PATHS } from '../../core/generated-files.js'
 import { clientAdapter } from '../../ports/client/index.js'
 import {
@@ -36,6 +38,7 @@ export interface Concept {
 }
 
 const PROCESS_TABLE_OWNER = 'scripts/ports/process-table.ts'
+const LIVENESS_JUDGE = FACTORY_RUNTIME.busSupervisor
 const PROCESS_TABLE_PROGRAMS = 'ps lsof top'.split(' ')
 const ANSWER_EXECUTOR = 'scripts/nodes/answer/answer-executor.ts'
 const ANSWERER = 'scripts/nodes/answer/answerer.ts'
@@ -48,7 +51,70 @@ const COMMANDS_A_GENERATED_REPOSITORY_RUNS = new Set(['scripts/harness-command/r
 const SURFACE_FILE = path.resolve(import.meta.dirname, '../../..', GENERATED_FILES.surface.path)
 const GH_RUN_VERBS = new Set(['view', 'list', 'cancel', 'download', 'watch', 'rerun'])
 
+const RUNNING_FUNCTION = /^(?:exec|spawn|run|shell)/
+const RUNNING_METHOD = /^(?:exec|spawn|shell)/
+
 let constructCommand: RegExp | undefined
+
+const namesRunBySource = new WeakMap<ts.SourceFile, ReadonlySet<string>>()
+
+function runsACommand(call: ts.CallExpression): boolean {
+  const callee = call.expression
+  if (ts.isIdentifier(callee))
+    return RUNNING_FUNCTION.test(callee.text)
+  return ts.isPropertyAccessExpression(callee) && RUNNING_METHOD.test(callee.name.text)
+}
+
+function isWrapping(node: ts.Node | undefined): boolean {
+  return node !== undefined && (ts.isArrayLiteralExpression(node) || ts.isParenthesizedExpression(node) || ts.isAsExpression(node) || ts.isSatisfiesExpression(node))
+}
+
+function inRunPosition(node: ts.Node): boolean {
+  let child = node
+  while (isWrapping(child.parent))
+    child = child.parent
+  const parent = child.parent
+  if (ts.isYieldExpression(parent))
+    return true
+  return ts.isCallExpression(parent) && parent.arguments.includes(child as ts.Expression) && runsACommand(parent)
+}
+
+function namesRunIn(source: ts.SourceFile): ReadonlySet<string> {
+  const known = namesRunBySource.get(source)
+  if (known !== undefined)
+    return known
+  const names = new Set<string>()
+  const visit = (node: ts.Node): void => {
+    if (ts.isIdentifier(node) && inRunPosition(node))
+      names.add(node.text)
+    ts.forEachChild(node, visit)
+  }
+  visit(source)
+  namesRunBySource.set(source, names)
+  return names
+}
+
+function boundName(node: ts.Node): string | null {
+  let value = node
+  while (ts.isAsExpression(value.parent) || ts.isSatisfiesExpression(value.parent) || ts.isParenthesizedExpression(value.parent))
+    value = value.parent
+  const declaration = value.parent
+  return ts.isVariableDeclaration(declaration) && declaration.initializer === value && ts.isIdentifier(declaration.name) ? declaration.name.text : null
+}
+
+function runByTheCode(node: ts.Node): boolean {
+  if (inRunPosition(node))
+    return true
+  const name = boundName(node)
+  return name !== null && namesRunIn(node.getSourceFile()).has(name)
+}
+
+function toldToTheOwner(detector: Detector): Detector {
+  return (node, file) => {
+    const form = detector(node, file)
+    return form === null || runByTheCode(node) ? null : form
+  }
+}
 
 function namesAConstructCommand(text: string): boolean {
   if (constructCommand === undefined) {
@@ -64,26 +130,27 @@ export const CONCEPTS: readonly Concept[] = [
     id: 'process-table',
     title: 'the process table of the OS, read with ps, lsof or top and parsed',
     owner: PROCESS_TABLE_OWNER,
-    ownerExists: false,
+    ownerExists: true,
     axis: 'architecture',
     detectors: [programCall(PROCESS_TABLE_PROGRAMS), declaredFunction(/^parsePs$/)],
   },
   {
     id: 'pid-liveness',
     title: 'whether a pid is alive',
-    owner: PROCESS_TABLE_OWNER,
-    ownerExists: false,
+    owner: LIVENESS_JUDGE,
+    ownerExists: true,
     axis: 'architecture',
     detectors: [pidProbe()],
   },
   {
     id: 'live-session',
     title: 'whether a client session is alive in a tree',
-    owner: 'scripts/ports/client/',
+    owner: LIVENESS_JUDGE,
     ownerExists: true,
     axis: 'architecture',
     detectors: [
       declaredFunction(/^liveSession(?!s$)/),
+      declaredFunction(/^(?:sessionLiveness|isSessionAlive)$/),
       referenced('claudeProcessCwds'),
       adjacentLiterals('-c', name => clientAdapter().processes.isClient(name), 'the client process name in lsof arguments'),
     ],
@@ -113,7 +180,7 @@ export const CONCEPTS: readonly Concept[] = [
     id: 'handoff-status',
     title: 'the STATUS line of a handoff',
     owner: 'scripts/core/handoff-status.ts',
-    ownerExists: false,
+    ownerExists: true,
     axis: 'architecture',
     detectors: [
       regexLiteral(HANDOFF_STATUS_LINE, 'a regex over the STATUS line'),
@@ -153,8 +220,8 @@ export const CONCEPTS: readonly Concept[] = [
     ownerExists: false,
     axis: 'interface',
     detectors: [
-      outside(COMMANDS_A_GENERATED_REPOSITORY_RUNS, literal(text => PNPM_COMMAND.test(text), 'a pnpm command in a string')),
-      outside(COMMANDS_A_GENERATED_REPOSITORY_RUNS, literal(namesAConstructCommand, 'a construct command in a string')),
+      outside(COMMANDS_A_GENERATED_REPOSITORY_RUNS, toldToTheOwner(literal(text => PNPM_COMMAND.test(text), 'a pnpm command in a string'))),
+      outside(COMMANDS_A_GENERATED_REPOSITORY_RUNS, toldToTheOwner(literal(namesAConstructCommand, 'a construct command in a string'))),
     ],
   },
   {

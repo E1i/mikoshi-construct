@@ -5,6 +5,10 @@ import { existsSync, realpathSync } from 'node:fs'
 import os from 'node:os'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import { WINDOW_WHO } from '../../src/card/parking.js'
+import { openOwnerWaits } from '../core/bus-readings.js'
+import { RUNNING_CARD } from '../core/card-automaton.js'
+import { CARD_BODIES } from '../core/card-bodies.js'
 import { defaultBusPath, openBus } from '../core/db.js'
 import { WINDOW_HEARTBEAT } from '../core/events.js'
 import { sessionHandoffOf } from './handoff-write.js'
@@ -18,6 +22,18 @@ export const LIVE_WATCH = 'turn-watch: a live pnpm miko:watch beats for this win
 export const TAB_CONTINUE = 'turn-watch: the handoff of this tab window ends STATUS: CONTINUE; run pnpm miko:watch --once and take the next move in this session'
 export const TAB_STOPS = 'turn-watch: the handoff of this tab window ends neither STATUS: CONTINUE nor STATUS: OWNER; the turn ends'
 export const OWNER_QUESTION_WAITS = `turn-watch: the handoff of this tab window ends STATUS: OWNER and no window.heartbeat is newer than ${WINDOW_BEAT_MS / 60_000} minutes; the owner question is an owner wait on the board, not a turn end: run pnpm miko:watch --once and settle every other card while it waits`
+
+export function ownCardHasNoPr(card: number): string {
+  return `turn-watch: window card #${card} is running with no PR and no open owner wait; take its next step, no watch`
+}
+
+const OWN_CARDS_WITHOUT_PR = `SELECT card.card_id AS id FROM cards AS card JOIN ${CARD_BODIES} AS body ON body.card_id = card.card_id WHERE body.who = '${WINDOW_WHO}' AND card.state = '${RUNNING_CARD}' AND card.pr IS NULL ORDER BY card.card_id`
+
+export function ownCardWithoutPr(db: DatabaseSync): number | null {
+  const waiting = new Set(openOwnerWaits(db).map(wait => wait.card))
+  const cards = db.prepare(OWN_CARDS_WITHOUT_PR).all() as unknown as { id: number }[]
+  return cards.find(card => !waiting.has(card.id))?.id ?? null
+}
 
 const LAST_BEAT = `SELECT ts FROM events WHERE type = '${WINDOW_HEARTBEAT}' AND legacy = 0 AND json_valid(payload) AND json_extract(payload, '$.session') = ? ORDER BY id DESC LIMIT 1`
 
@@ -38,6 +54,7 @@ export interface TurnWatchDeps {
   mode: WindowMode
   status: () => Status | null
   lastBeat: (session: string) => string | null
+  ownCard: () => number | null
   now: () => number
   err: (line: string) => void
 }
@@ -69,6 +86,11 @@ export function runTurnWatch(deps: TurnWatchDeps): number {
     deps.err(NOT_A_WINDOW)
     return 0
   }
+  const own = deps.ownCard()
+  if (own !== null) {
+    deps.err(ownCardHasNoPr(own))
+    return 1
+  }
   if (deps.mode === 'tab')
     return tabTurn(deps, deps.session)
   if (!liveWatch(deps, deps.session)) {
@@ -79,28 +101,28 @@ export function runTurnWatch(deps: TurnWatchDeps): number {
   return 0
 }
 
-function busBeat(bus: string): (session: string) => string | null {
-  return (session) => {
-    if (!existsSync(bus))
-      return null
-    const db = openBus(bus)
-    try {
-      return lastWindowBeat(db, session)
-    }
-    finally {
-      db.close()
-    }
+function readBus<T>(bus: string, read: (db: DatabaseSync) => T | null): T | null {
+  if (!existsSync(bus))
+    return null
+  const db = openBus(bus)
+  try {
+    return read(db)
+  }
+  finally {
+    db.close()
   }
 }
 
 export function realTurnWatchDeps(env: NodeJS.ProcessEnv, dir: string = process.cwd()): TurnWatchDeps {
   const tab = tabWindowIn(env, dir, cardTreeHomes(env, defaultBusPath()))
   const handoff = sessionHandoffOf(env, os.homedir())
+  const bus = defaultBusPath()
   return {
     session: tab?.session ?? windowSessionOf(env),
     mode: tab === null ? 'loop' : 'tab',
     status: () => handoffStatusOf(handoff),
-    lastBeat: busBeat(defaultBusPath()),
+    lastBeat: session => readBus(bus, db => lastWindowBeat(db, session)),
+    ownCard: () => readBus(bus, ownCardWithoutPr),
     now: () => Date.now(),
     err: line => console.error(`${PREFIX}${line}`),
   }

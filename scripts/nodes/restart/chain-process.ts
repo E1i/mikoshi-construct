@@ -1,6 +1,7 @@
 import type { ChainRow, ChainState } from '../../core/chain.js'
-import { execFileSync } from 'node:child_process'
+import type { ProcessTable as ProcessTablePort } from '../../ports/process-table.js'
 import process from 'node:process'
+import { OsProcessTable, rowOf } from '../../ports/process-table.js'
 
 export type ChainProcess = 'gone' | 'foreign' | 'live'
 
@@ -46,17 +47,12 @@ export function stopChain(chain: ChainRow, table: ProcessTable): void {
   table.signalGroup(chain.leader!)
 }
 
-export function psCommandLine(pid: number): string | null {
-  try {
-    const line = execFileSync('ps', ['-o', 'args=', '-p', String(pid)], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim()
-    return line === '' ? null : line
-  }
-  catch {
-    return null
-  }
+export function commandLineOf(pid: number, table: ProcessTablePort = new OsProcessTable()): string | null {
+  const line = rowOf(table.snapshot(), pid)?.command ?? ''
+  return line === '' ? null : line
 }
 
 export const REAL_PROCESSES: ProcessTable = {
-  commandLine: psCommandLine,
+  commandLine: commandLineOf,
   signalGroup: leader => process.kill(-leader, 'SIGTERM'),
 }

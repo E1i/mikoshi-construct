@@ -7,7 +7,8 @@ import path from 'node:path'
 import process from 'node:process'
 import { afterEach, expect, it } from 'vitest'
 import { liveSessionIn } from '../../nodes/answer/answerer.js'
-import { claudeProcessCwds, liveSessionHolds } from '../../ports/worktree.js'
+import { OsProcessTable } from '../../ports/process-table.js'
+import { liveSessionHolds } from '../../ports/worktree.js'
 
 const SMALL_SYSTEM_BINARY = '/bin/sleep'
 const VERSION_NAME = '2.1.318'
@@ -58,7 +59,7 @@ function listedByItsOwnName(name: string, tree: string): boolean {
 }
 
 function clientListingNames(tree: string): boolean {
-  const read = claudeProcessCwds()
+  const read = new OsProcessTable().clientCwds()
   expect(read.kind).toBe('listed')
   return read.kind === 'listed' && read.cwds.includes(tree)
 }

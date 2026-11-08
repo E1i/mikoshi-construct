@@ -1,6 +1,6 @@
 import type { ProcessCwds } from '../../ports/client/contract.js'
 import { describe, expect, it } from 'vitest'
-import { LSOF_CLIENT_NAMES } from '../../ports/worktree.js'
+import { CLIENT_CWDS_COMMAND } from '../../ports/process-table.js'
 import { PRODUCED_BY, readingOf, readSessionLoad } from '../../window/session-load.js'
 
 const TOP = [
@@ -39,7 +39,7 @@ describe('the session load reading', () => {
     })
     expect(PRODUCED_BY).toContain('top')
     expect(PRODUCED_BY).toContain('lsof')
-    expect(PRODUCED_BY).toContain(LSOF_CLIENT_NAMES.join(' '))
+    expect(PRODUCED_BY).toContain(CLIENT_CWDS_COMMAND)
     expect(PRODUCED_BY).toContain('claude or a version number')
   })
 

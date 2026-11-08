@@ -27,6 +27,7 @@ import { currentVersion } from '../../src/version.js'
 import { cardRunsOf, catalogLayersByTest, catalogModuleLayers } from '../ci/card-runs.js'
 import { BUSY_TIMEOUT_MS, defaultBusPath } from '../core/db.js'
 import { defaultHandoffDir } from '../core/handoff-dir.js'
+import { statusLineOf } from '../core/handoff-status.js'
 import { readLayerMap } from '../core/layer-map.js'
 import { openDatabase } from '../core/sqlite.js'
 import { cardContract } from '../intake/card-contract.js'
@@ -37,7 +38,7 @@ import { ghApi } from '../ports/github.js'
 import { BOARD_FILE, FRESH_MS, windowGauges } from '../window/board.js'
 import { mikoHandoff } from '../window/loop.js'
 import { planMarkdown } from '../window/plan-export.js'
-import { boardWarnings, MainUpToDate, openPrCountOf, openPrLimitOf, plannedStallLines, savingOff, stallLines } from './board-warnings.js'
+import { boardWarnings, MainUpToDate, openPrCountOf, openPrLimitOf, plannedStallLines, savingOff, stalePassCountOf, stallLines } from './board-warnings.js'
 import { cardChain } from './card-chain.js'
 
 export const PREFIX = '[bus:board] '
@@ -149,7 +150,6 @@ const EXPORT_ORDER: readonly CardMark[] = ['delivered', 'in_progress', 'review',
 const EVENTS_PER_CARD = 5
 const STALE_TICKS = 2
 const STALE_READING = 'STALE'
-const OWNER_STATUS = 'OWNER'
 export const SLOT_PREFIX = 'slot-'
 const BUS_LIVE = 'bus-live'
 const PULSE_ELEMENT_ID = 'bus-pulse'
@@ -163,7 +163,6 @@ const BACKLOG_SCROLL = 'backlog-scroll'
 const DIALOG_PREFIX = 'dialog-'
 const HANDOFF_DIALOG = 'handoff'
 const DECISIONS_DIALOG = 'decisions'
-const HANDOFF_STATUS = 'STATUS'
 const OPEN_HINT = '<span class="open-hint">open ›</span>'
 const CARD_TASK = /^#(\d+)$/
 const CARD_REFERENCE = /(?<!&|PR )#(\d+)\b/g
@@ -902,7 +901,7 @@ function handoffDialogHtml(page: BoardPage): string {
   if (page.handoff.text === null)
     return `${handoffHead(name, '')}<div class="drill-body">${note(`No ${escaped(name)} to read.`)}</div>`
   const { fields, prose } = handoffParts(page.handoff.text)
-  const status = fields.find(([label]) => label === HANDOFF_STATUS)?.[1][0]
+  const status = statusLineOf(page.handoff.text)?.value
   const punchFields = fields.map(([label, values]) => punchField(label, values.length === 1 ? values[0] : values, page, values.length > 1))
   return [
     handoffHead(name, status === undefined ? '' : `<span class="st">${escaped(status)}</span>`),
@@ -1708,8 +1707,8 @@ function snapshotStale(down: BusDown): boolean {
 function ownerStatus(handoff: Handoff): string | null {
   if (handoff.text === null)
     return null
-  const status = handoffParts(handoff.text).fields.find(([label]) => label === HANDOFF_STATUS)?.[1][0]
-  return status !== undefined && status.startsWith(OWNER_STATUS) ? status : null
+  const status = statusLineOf(handoff.text)
+  return status?.status === 'OWNER' ? status.value : null
 }
 
 export function busDownOf(now: Date, error: string, snapshotFile: string, handoff: Handoff): BusDown {
@@ -1811,14 +1810,14 @@ function boardPageOf(db: DatabaseSync, busPath: string, now: Date, handoffFile: 
     warnings: [
       ...contextWarnings(sessionContexts(facts.services, sources, liveness), limits),
       ...boardWarnings({
+        ...limits,
         contexts: [],
-        contextLimit: limits.contextLimit,
-        warnRatio: limits.warnRatio,
         openPrs: openPrCountOf(db),
         openPrLimit: openPrLimitOf(process.env),
         ownerWaits: facts.waits.length,
         stalls: [...stallLines(db, facts.pulse, now), ...plannedStallLines(db, now)],
         savingOff: savingOff(process.env, main),
+        stalePasses: stalePassCountOf(db),
       }),
     ],
     details: cardDetails(db, facts),

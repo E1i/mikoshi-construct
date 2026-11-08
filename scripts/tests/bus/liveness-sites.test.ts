@@ -50,6 +50,20 @@ describe('only the supervisor judges liveness, and every other ps, pid file and 
       expect(livenessSites(new Map([['scripts/bus/sneak.ts', unrelated]])), unrelated).toEqual([])
   })
 
+  it('an imported liveness judge is a site of the importer, and an unrelated import is not', () => {
+    for (const spelling of [`import { isAlive } from '../../quality/lock.js'`, `import { alive, psList } from './bg.js'`])
+      expect(livenessSites(new Map([['scripts/bus/judge.ts', spelling]])), spelling).toEqual([{ file: 'scripts/bus/judge.ts', kind: 'imported-judge' }])
+    for (const unrelated of [`import { aliveCount } from './count.js'`, `const alive = rows.length`])
+      expect(livenessSites(new Map([['scripts/bus/judge.ts', unrelated]])), unrelated).toEqual([])
+  })
+
+  it('a declared live-session judge is a site of its file, and a list of sessions is not', () => {
+    for (const spelling of [`export function liveSessionIn(tree: string) {}`, `function isSessionAlive() {}`, `export const sessionLiveness = () => 1`])
+      expect(livenessSites(new Map([['scripts/bus/session.ts', spelling]])), spelling).toEqual([{ file: 'scripts/bus/session.ts', kind: 'live-session' }])
+    for (const unrelated of [`export function liveSessions() {}`, `const ok = liveSessionIn(tree)`])
+      expect(livenessSites(new Map([['scripts/bus/session.ts', unrelated]])), unrelated).toEqual([])
+  })
+
   it('a recorded site that is gone fails, so the list only shrinks', () => {
     const gone = { file: 'scripts/ports/netwatch.ts', kind: 'ps' } as const
     expect(staleLivenessSites(found, [...known, gone])).toEqual([gone])

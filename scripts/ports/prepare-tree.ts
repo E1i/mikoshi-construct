@@ -33,8 +33,45 @@ export function prepareEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   return Object.fromEntries(PREPARE_ENV_KEYS.filter(key => env[key] !== undefined).map(key => [key, env[key]]))
 }
 
-export function prepareTree(tree: string): void {
-  execFileSync(PREPARE_TREE[0]!, PREPARE_TREE.slice(1), { cwd: tree, env: prepareEnv(process.env), timeout: PREPARE_MS, stdio: ['ignore', 'pipe', 'pipe'] })
+const RESTORE_PACKAGES = '--force'
+
+type InstallRunner = (tree: string, args: readonly string[]) => void
+
+const DEPENDENCY_FIELDS = ['dependencies', 'devDependencies', 'optionalDependencies'] as const
+
+function directDependencies(tree: string): string[] {
+  const manifest = path.join(tree, 'package.json')
+  if (!existsSync(manifest))
+    return []
+  let declared: Partial<Record<typeof DEPENDENCY_FIELDS[number], Record<string, string>>>
+  try {
+    declared = JSON.parse(readFileSync(manifest, 'utf8')) as typeof declared
+  }
+  catch {
+    return []
+  }
+  return [...new Set(DEPENDENCY_FIELDS.flatMap(field => Object.keys(declared[field] ?? {})))]
+}
+
+export function lacksItsPackages(tree: string): boolean {
+  if (!existsSync(path.join(tree, LOCKFILE)))
+    return false
+  if (!existsSync(path.join(tree, NODE_MODULES)))
+    return true
+  return directDependencies(tree).some(name => !existsSync(path.join(tree, NODE_MODULES, name, 'package.json')))
+}
+
+function prepareArgs(tree: string): string[] {
+  const plain = PREPARE_TREE.slice(1)
+  return lacksItsPackages(tree) ? [...plain, RESTORE_PACKAGES] : plain
+}
+
+function runInstall(tree: string, args: readonly string[]): void {
+  execFileSync(PREPARE_TREE[0]!, args, { cwd: tree, env: prepareEnv(process.env), timeout: PREPARE_MS, stdio: ['ignore', 'pipe', 'pipe'] })
+}
+
+export function prepareTree(tree: string, run: InstallRunner = runInstall): void {
+  run(tree, prepareArgs(tree))
 }
 
 function labHome(env: NodeJS.ProcessEnv): string {

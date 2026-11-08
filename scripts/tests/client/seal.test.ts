@@ -14,6 +14,8 @@ const CLIENT_LITERALS: readonly RegExp[] = [
   /\bclaude (?:-p|--[a-z])/,
   /--(?:permission-mode|permission-prompts|strict-mcp-config|session-id|output-format|add-dir|resume|setting-sources|dangerously-skip-permissions)\b/,
   /\.claude\/settings|~\/\.claude|['"`]\.claude['"`]/,
+  /['"`]codex['"`]/,
+  /\bcodex exec\b/,
 ]
 
 interface Carrier {
@@ -42,6 +44,7 @@ const GOLDEN_PIN_TESTS = [
   'bus/reviewloop',
   'bus/shardlabel',
   'bus/window-heartbeat',
+  'client/codex-reading',
   'client/contract',
   'client/identity',
   'client/process',
@@ -86,7 +89,6 @@ const CARRIERS: readonly Carrier[] = [
   { path: 'scripts/tests/ghosts/watch-fixtures/world.sh', reason: 'the fake client a watch fixture runs in place of the binary' },
   { path: 'scripts/ports/shift-settings.ts', reason: 'the settings a card session runs under, with their flags; called by the adapter' },
   { path: 'scripts/ports/isolation.ts', reason: 'reads which settings the client would load, to refuse a card session without isolation' },
-  { path: 'scripts/ports/worktree.ts', reason: 'the lsof process names behind the adapter\'s liveCwds' },
   { path: 'scripts/nodes/launch/launch-starter.ts', reason: 'the card argv launchArgv spawns, pinned against the adapter by the contract goldens' },
   { path: 'scripts/window/eddies-measure.ts', reason: 'the window side of the hook that the client calls with its project variable' },
   { path: 'scripts/window/window-heartbeat.ts', reason: 'the project variable the client gives its hooks' },
@@ -140,7 +142,7 @@ function realTree(): Map<string, string> {
 
 describe('the client seal', () => {
   it('a client literal outside the adapter and the table fails', () => {
-    const planted = ['spawn(\'claude\')', 'process.env.CLAUDE_CONFIG_DIR', 'run(`claude -p`)', 'args.push(\'--session-id\')', 'read(\'~/.claude/settings.json\')']
+    const planted = ['spawn(\'claude\')', 'process.env.CLAUDE_CONFIG_DIR', 'run(`claude -p`)', 'args.push(\'--session-id\')', 'read(\'~/.claude/settings.json\')', 'spawn(\'codex\')', 'run(`codex exec --json`)']
     for (const line of planted) {
       const tree = new Map([['scripts/nodes/planted.ts', line], ['scripts/ports/client/claude/adapter.ts', line], ['scripts/ports/carried.ts', line], ['templates/outside.ts', line]])
       expect(sealOf(tree, [{ path: 'scripts/ports/carried.ts', reason: 'a sample' }]).outside, line).toEqual(['scripts/nodes/planted.ts'])

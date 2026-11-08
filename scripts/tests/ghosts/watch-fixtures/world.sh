@@ -8,7 +8,7 @@ STUB_SECONDS=300
 STUB_EXIT_POLLS=50
 FILLER_LINES=300
 PREFIX='[ghosts:watch] '
-PS_UNKNOWN='process unknown (ps failed: Command failed: ps -Ao pid=,args=)'
+PS_UNKNOWN='process unknown (the process table could not be read: Command failed: ps -Ao pid=,ppid=,pgid=,lstart=,args=)'
 
 fail() {
   echo "watch world.sh $CHECK: $*" >&2

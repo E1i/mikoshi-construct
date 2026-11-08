@@ -39,24 +39,13 @@ const CONCEPT_IDS = [
 ]
 
 const SITES_OF_THE_RECONNAISSANCE: Record<string, readonly string[]> = {
-  'process-table': [
-    'scripts/nodes/launch/launch-starter.ts',
-    'scripts/nodes/restart/chain-process.ts',
-    'scripts/ladder/watch-process.ts',
-    'scripts/window/exit.ts',
-    'scripts/window/loop.ts',
-    'scripts/supervisor/supervisor.ts',
-    'scripts/supervisor/bg.ts',
-    'scripts/ports/worktree.ts',
-  ],
   'pid-liveness': [
     'scripts/quality/lock.ts',
     'scripts/ladder/cleanup.ts',
     'scripts/scratch/run-root.ts',
     'scripts/supervisor/bg.ts',
-    'scripts/supervisor/supervisor.ts',
   ],
-  'live-session': ['scripts/nodes/answer/answerer.ts', 'scripts/ports/worktree.ts', 'scripts/window/session-load.ts'],
+  'live-session': ['scripts/core/machine-sessions.ts'],
   'owner-decisions': [
     'scripts/nodes/launch/launch-candidates.ts',
     'scripts/core/inbox.ts',
@@ -69,7 +58,7 @@ const SITES_OF_THE_RECONNAISSANCE: Record<string, readonly string[]> = {
     'scripts/policy/decisions/read.ts',
     'scripts/core/bus-path.ts',
   ],
-  'handoff-status': ['scripts/window/loop.ts', 'src/commands/doctor/factory.ts', 'scripts/cli/board-page.ts', 'scripts/window/tab.ts', 'scripts/window/exit.ts'],
+  'handoff-status': ['src/commands/doctor/factory.ts'],
   'owner-commands': [
     'scripts/core/reducer.ts',
     'scripts/core/queue.ts',
@@ -207,6 +196,7 @@ describe('contract/factory.json', () => {
 
     for (const [concept, files] of Object.entries(SITES_OF_THE_RECONNAISSANCE))
       expect(Object.keys(overlaps[concept]!), concept).toEqual(expect.arrayContaining([...files]))
+    expect(overlaps['process-table']).toEqual({})
     expect(overlaps['window-requests']!['scripts/window/window-requests.ts']).toBeGreaterThan(1)
     expect(overlaps.layers).toEqual({})
   }, GENERATION_TIMEOUT)

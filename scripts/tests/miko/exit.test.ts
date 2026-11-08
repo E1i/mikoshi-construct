@@ -1,6 +1,6 @@
 import type { RoleStop, WindowEnd } from '../../nodes/restart/role.js'
 import type { ExitLine, ExitReadings } from '../../window/eddies-measure.js'
-import type { MikoExitDeps } from '../../window/exit.js'
+import type { MikoExitDeps, ProcessRow } from '../../window/exit.js'
 import { spawn } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -9,9 +9,16 @@ import process from 'node:process'
 import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { appendExitLine, LOADED_CORE_VARIABLE, realExitReadings, UNKNOWN, UNREAD } from '../../window/eddies-measure.js'
-import { ancestors, exitDecision, FRESH_MS, loopExitDecision, loopRequestOf, NOT_AT_A_STOP_CONDITION, notAtAStopRefusal, parsePs, runMikoExit, SANDBOX_REFUSAL, sessionClaudeOf, stopReasonOf, TAB_THRESHOLD } from '../../window/exit.js'
+import { ancestors, exitDecision, FRESH_MS, loopExitDecision, loopRequestOf, NOT_AT_A_STOP_CONDITION, notAtAStopRefusal, runMikoExit, SANDBOX_REFUSAL, sessionClaudeOf, stopReasonOf, TAB_THRESHOLD } from '../../window/exit.js'
 import { MIKO_HANDOFF_NAME, mikoHandoff } from '../../window/loop.js'
 import { ENTRYPOINT_VARIABLE, HEADLESS_ENTRYPOINT } from '../../window/tab.js'
+
+function tableOf(text: string): ProcessRow[] {
+  return text.trim().split('\n').map((line) => {
+    const [pid, ppid, ...args] = line.trim().split(/\s+/)
+    return { pid: Number(pid), ppid: Number(ppid), args: args.join(' ') }
+  })
+}
 
 const REPO_ROOT = path.join(import.meta.dirname, '..', '..', '..')
 const LOOP = path.join(REPO_ROOT, 'scripts', 'window', 'loop.ts')
@@ -102,8 +109,8 @@ const AT_CONTEXT: ExitReadings = { ...BELOW, context: CONTEXT_WARN }
 const AT_SPEND_WARN: ExitReadings = { ...BELOW, spent: SPEND_WARN }
 const AT_SPEND: ExitReadings = { ...BELOW, spent: LIMITS.sessionSpend }
 
-const underLoop = parsePs('  1     0 /sbin/launchd\n 10     1 node tsx scripts/window/loop.ts\n 12    10 claude\n 13    12 zsh\n 14    13 node exit.ts\n')
-const outsideLoop = parsePs('  1     0 /sbin/launchd\n 12     1 claude\n 13    12 zsh\n 14    13 node exit.ts\n')
+const underLoop = tableOf('  1     0 /sbin/launchd\n 10     1 node tsx scripts/window/loop.ts\n 12    10 claude\n 13    12 zsh\n 14    13 node exit.ts\n')
+const outsideLoop = tableOf('  1     0 /sbin/launchd\n 12     1 claude\n 13    12 zsh\n 14    13 node exit.ts\n')
 
 interface Outcome {
   code: number
@@ -255,7 +262,7 @@ describe('miko:exit ends a session only at a stop reason', () => {
   })
 
   it('with no handoff the exit refuses naming the missing handoff before it reads the process table', () => {
-    const table = vi.fn(() => parsePs('  1     0 /sbin/launchd\n 14     1 node exit.ts\n'))
+    const table = vi.fn(() => tableOf('  1     0 /sbin/launchd\n 14     1 node exit.ts\n'))
     const outcome = exit({ table, handoffMtime: () => undefined, status: () => null, readings: () => AT_CONTEXT })
     expect(outcome).toMatchObject({ code: 1, kills: [], recorded: [] })
     expect(outcome.lines).toEqual([`[miko] ${MIKO_HANDOFF_NAME} does not exist: write it with pnpm handoff:write first; nothing ended`])
@@ -478,7 +485,7 @@ describe('under the pnpm miko loop miko:exit asks the loop to end the session an
 
 describe('under the loop variables there is one path whatever the process table shows', () => {
   const env = { MIKO_LOOP_PID: '10', MIKO_EXIT_REQUEST: '/h/miko-exit.request' }
-  const claudeAbove = parsePs(' 10 1 node tsx scripts/window/loop.ts\n 12 10 claude\n 13 12 zsh\n 14 13 claude\n 15 14 node exit.ts\n')
+  const claudeAbove = tableOf(' 10 1 node tsx scripts/window/loop.ts\n 12 10 claude\n 13 12 zsh\n 14 13 claude\n 15 14 node exit.ts\n')
 
   it('the request file is the loop variable whenever the loop pid is set, and absent otherwise', () => {
     expect(loopRequestOf(env)).toBe(env.MIKO_EXIT_REQUEST)
@@ -488,7 +495,7 @@ describe('under the loop variables there is one path whatever the process table 
 
   it('the request names the nearest claude above the caller, which outlives the caller, and nothing when ps fails or no claude is found', () => {
     expect(sessionClaudeOf(() => claudeAbove, 15)).toBe(14)
-    expect(sessionClaudeOf(() => parsePs(' 10 1 node tsx scripts/window/loop.ts\n 15 10 node exit.ts\n'), 15)).toBeUndefined()
+    expect(sessionClaudeOf(() => tableOf(' 10 1 node tsx scripts/window/loop.ts\n 15 10 node exit.ts\n'), 15)).toBeUndefined()
     expect(sessionClaudeOf(() => {
       throw Object.assign(new Error('spawnSync ps EPERM'), { code: 'EPERM' })
     }, 15)).toBeUndefined()

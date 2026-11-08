@@ -14,8 +14,10 @@ import { appendEvent, openBus } from '../../core/db.js'
 import { REVIEW_RECORDED } from '../../core/events.js'
 import { MergeNode } from '../../nodes/merge/merge-worker.js'
 import { UpdateNode } from '../../nodes/update/update-worker.js'
+import { InMemoryProcessTable } from '../../ports/process-table.js'
 import { AGENT_ENV, alive, BUS_FLAG, BUS_RUN_LAUNCH, BUS_RUN_MARKERS, busInArgs, carriesMarker, flagsInArgs, instancesOf, launchArgv, launchName, PREFIX, psList, RUN_SCRIPT, runBusBg, runningBus, runningInstance, servesBus, SHADOW_LOG, START_LOCK, START_LOCK_LIMIT_MS, startDetached, withBuses } from '../../supervisor/bg.js'
-import { startReviewWorker } from '../../supervisor/review-bg.js'
+import { recordProcessHeartbeat } from '../../supervisor/heartbeat.js'
+import { REVIEW_WORKER_MARKERS, startReviewWorker } from '../../supervisor/review-bg.js'
 import { factoryBusOf } from '../../supervisor/start.js'
 import { bgCommand, BusSupervisor, entryOf, gitCode, lastMainAdvance, mainAdvancedSince, startUnderAgentEnv, stopInstance, SUPERVISOR_LAUNCH, switchCommand } from '../../supervisor/supervisor.js'
 import { busLaunches, switchDetection, switchedOn, switchWorker, wantedLaunches, WORKERS_FILE } from '../../supervisor/workers.js'
@@ -80,7 +82,7 @@ function world(): World {
   stub(bin, 'nohup', 'exec "$@"')
   stub(bin, 'pnpm', `echo "bus:run output"\nprintf '%s\\n' "$*" >> "$STUB_OUT/pnpm.argv"\necho $$ > "$STUB_OUT/pid"\nsleep 30`)
   const env = { PATH: bin, STUB_OUT: out }
-  return { busDir: path.join(root, 'bus'), out, env, processes: () => psList(env)().filter(candidate => candidate.args.includes(bin)) }
+  return { busDir: path.join(root, 'bus'), out, env, processes: () => psList()().filter(candidate => candidate.args.includes(bin)) }
 }
 
 function detachedSleep(): number {
@@ -472,10 +474,30 @@ describe('pnpm bus:bg', () => {
     const w = world()
     switchWorker(w.busDir, 'review', true)
     writeFileSync(path.join(w.busDir, 'bus-review.pid'), `${process.ppid}\n`)
-    const result = runBusBg(w.busDir, wantedLaunches(w.busDir, NO_PREFLIGHT).filter(launch => launch.script === 'bus:review'), w.env, () => [], startReviewWorker)
+    const bus = path.join(path.dirname(w.busDir), 'bus.db')
+    const db = openBus(bus)
+    recordProcessHeartbeat(db, new Date().toISOString(), 'bus:review')
+    db.close()
+    const table = new InMemoryProcessTable({ rows: [{ pid: process.ppid, ppid: 1, pgid: process.ppid, started: 'Sun Nov  8 10:00:00 2026', command: `node --import tsx ${REVIEW_WORKER_MARKERS[0]} ${BUS_FLAG} ${bus}` }] })
+    const result = runBusBg(w.busDir, wantedLaunches(w.busDir, NO_PREFLIGHT).filter(launch => launch.script === 'bus:review'), { ...w.env, CONSTRUCT_BUS_DB: bus }, psList(table), startReviewWorker)
     expect(result.exitCode).toBe(0)
     expect(result.stdout).toEqual([`${PREFIX}bus:review --on is already running as pid ${process.ppid}; left alone`])
     expect(w.processes()).toEqual([])
+  })
+
+  it('a recorded review worker that just exited is started again, whatever the beat of the review node', async () => {
+    const w = world()
+    switchWorker(w.busDir, 'review', true)
+    writeFileSync(path.join(w.busDir, 'bus-review.pid'), `${process.ppid}\n`)
+    const bus = path.join(path.dirname(w.busDir), 'bus.db')
+    const db = openBus(bus)
+    recordProcessHeartbeat(db, new Date().toISOString(), 'bus:review')
+    db.close()
+    const result = runBusBg(w.busDir, wantedLaunches(w.busDir, NO_PREFLIGHT).filter(launch => launch.script === 'bus:review'), { ...w.env, CONSTRUCT_BUS_DB: bus }, psList(new InMemoryProcessTable({ rows: [] })), startReviewWorker)
+    expect(result.exitCode).toBe(0)
+    expect(pidsOf(result)).toHaveLength(1)
+    expect(result.stdout.some(line => line.includes('already running'))).toBe(false)
+    expect((await argvLines(w, 1))[0]).toContain('bus:review --on')
   })
 
   it('a worker that is switched off is not started', async () => {
