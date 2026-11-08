@@ -1,6 +1,6 @@
-import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
+import { processGit } from '../ports/git.js'
 import { approvedHashPath, extractApprovedSketch } from './approval.js'
 
 const NO_SKETCH = 'none'
@@ -49,7 +49,7 @@ export function lastRunSketch(journalText: string, namesTask: (value: unknown) =
 }
 
 function git(worktree: string, args: string[]): string {
-  return execFileSync('git', ['-C', worktree, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+  return processGit.read(worktree, args)
 }
 
 export function releaseTree(worktree: string, patch: string): { saved: true } | { failure: string } | { clean: true } {

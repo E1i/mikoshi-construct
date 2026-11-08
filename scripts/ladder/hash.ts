@@ -4,7 +4,7 @@ import type { JournalEvent } from './approval.js'
 import type { Expect } from './expect.js'
 import type { Preflight } from './preflight.js'
 import type { Sketch } from './sketch.js'
-import { execFileSync, spawnSync } from 'node:child_process'
+import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -18,6 +18,7 @@ import { defaultBusPath } from '../core/db.js'
 import { defaultHandoffDir } from '../core/handoff-dir.js'
 import { recordGhostLine } from '../core/journal.js'
 import { busCardBodies } from '../intake/parking-reads.js'
+import { processGit } from '../ports/git.js'
 import { approvalEvent, approvalSha256, approvedHashPath, canonicalImplementText, cardNumberOf, carriedReason, contourSuggestion, fallsOf, journalEvents, MORSE, morseCarryOf, revocationOf, suggestionEvent } from './approval.js'
 import { parseExpect } from './expect.js'
 import { pinnedBaseAtCwd, runPreflight, witnessesDirOf } from './preflight.js'
@@ -132,7 +133,7 @@ function localDate(now: Date): string {
 
 export function gitUserName(): string {
   try {
-    return execFileSync('git', ['config', 'user.name'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim()
+    return processGit.read(process.cwd(), ['config', 'user.name']).trim()
   }
   catch {
     return ''

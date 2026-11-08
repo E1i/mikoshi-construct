@@ -1,7 +1,6 @@
 import type { TasksFile } from '../core/tasks.js'
 import type { PrList, PullRequest } from '../ports/gh.js'
 import type { GhostRowSupervisor } from './status.js'
-import { execFileSync } from 'node:child_process'
 import { existsSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
@@ -14,7 +13,7 @@ import { defaultHandoffDir } from '../core/handoff-dir.js'
 import { journalText, recordGhostLine } from '../core/journal.js'
 import { readTasksFile, startedTree } from '../core/tasks.js'
 import { execGh, listPrs, PROCESS_GH_PORT, readGhJson } from '../ports/gh.js'
-import { execGit } from '../ports/git.js'
+import { execGit, processGit } from '../ports/git.js'
 import { readHandoff } from './handoff.js'
 import { carryLedgerLines, carryStepCacheLines } from './ledger.js'
 import { handLadderPolicy, handLadderRows } from './policy.js'
@@ -107,7 +106,7 @@ function changesRefusal(task: Target, disposition: Disposition, pr: PullRequest 
 }
 
 function changedPaths(worktree: string): number {
-  return execFileSync('git', ['-C', worktree, 'status', '--porcelain'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+  return processGit.read(worktree, ['status', '--porcelain'])
     .split('\n')
     .filter(line => line !== '')
     .length
@@ -234,8 +233,8 @@ function processAlive(pid: number): boolean {
 function stashKilledTree(worktree: string, message: string): string {
   if (changedPaths(worktree) === 0)
     return 'clean'
-  execFileSync('git', ['-C', worktree, 'stash', 'push', '--include-untracked', '-m', message], { stdio: 'pipe' })
-  const entry = execFileSync('git', ['-C', worktree, 'stash', 'list', '--format=%H %gs'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+  processGit.read(worktree, ['stash', 'push', '--include-untracked', '-m', message])
+  const entry = processGit.read(worktree, ['stash', 'list', '--format=%H %gs'])
     .split('\n')
     .find(line => line.endsWith(`: ${message}`))
   return `clean, its changes stashed as ${entry?.slice(0, 7) ?? 'an entry'} "${message}"`
@@ -271,7 +270,7 @@ export async function releaseKilled(task: Target, ctx: CleanupContext): Promise<
   catch (error) {
     return kept(task, `${notSetAside}: ${firstLine(error)}`)
   }
-  const headSha = existsSync(task.worktree) ? execFileSync('git', ['-C', task.worktree, 'rev-parse', 'HEAD'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim() : row.sha
+  const headSha = existsSync(task.worktree) ? processGit.read(task.worktree, ['rev-parse', 'HEAD']).trim() : row.sha
   writeGhostRow(defaultBusPath(), /^\d+$/.test(task.id) ? Number(task.id) : null, id, freeRow({ id, worktree: task.worktree, headSha, start: row.start, end: rowTimestamp(), outcome: `${killed}; freed by ghosts:cleanup` }), CLEANUP_ACTOR)
   return `${label(task)} released: ${killed} with the row ${row.state}; row ghost-${id} free; ${report}; ${tree}`
 }
@@ -314,7 +313,7 @@ export async function cleanupMerged(task: Target, ctx: CleanupContext): Promise<
     if ('failure' in lines)
       return kept(task, `PR #${pr.number} merged, but ${lines.failure}`)
     carried = lines.carried
-    execFileSync('git', ['-C', ctx.repo, 'worktree', 'remove', task.worktree], { stdio: 'pipe' })
+    processGit.read(ctx.repo, ['worktree', 'remove', task.worktree])
     removed.push(`worktree ${task.worktree}`)
   }
 
@@ -333,11 +332,11 @@ function defaultRepo(cwd: string): string | undefined {
 }
 
 function toplevel(): string {
-  return execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
+  return processGit.read(process.cwd(), ['rev-parse', '--show-toplevel']).trim()
 }
 
 function mainCheckout(repoRoot: string): string {
-  const commonDir = execFileSync('git', ['-C', repoRoot, 'rev-parse', '--path-format=absolute', '--git-common-dir'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
+  const commonDir = processGit.read(repoRoot, ['rev-parse', '--path-format=absolute', '--git-common-dir']).trim()
   return path.dirname(commonDir)
 }
 
