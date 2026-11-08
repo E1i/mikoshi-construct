@@ -173,7 +173,8 @@ describe('pnpm bus:review:bg', () => {
     db.close()
     const env = { ...w.env, CONSTRUCT_BUS_DB: bus }
 
-    const second = startReviewWorker(reviewLaunch(clean), w.busDir, env, () => [])
+    const listedSurvivor: ProcessList = () => [{ pid: Number(survivor), args: `node /x/node_modules/tsx/dist/cli.mjs ${REVIEW_WORKER_MARKERS[0]}`, bus }]
+    const second = startReviewWorker(reviewLaunch(clean), w.busDir, env, listedSurvivor)
     expect(second.exitCode).toBe(1)
     expect(second.stderr.join('\n')).toContain(`pid ${survivor}`)
     expect(second.alreadyRunning?.pid).toBe(Number(survivor))
