@@ -14,7 +14,7 @@ import { holdRunLock, RUN_LOCK } from '../../supervisor/run.js'
 const HOLDER = 4401
 const NOW_MS = Date.parse('2026-11-08T12:00:00.000Z')
 
-const unreadable = (): never => {
+function unreadable(): never {
   throw new Error('spawnSync ps EPERM')
 }
 
