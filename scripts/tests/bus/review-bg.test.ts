@@ -68,7 +68,7 @@ function world(pnpm = WORKER_STUB): World {
   stub(bin, 'nohup', 'exec "$@"')
   stub(bin, 'pnpm', pnpm)
   const env = { PATH: bin, STUB_OUT: out }
-  return { busDir: path.join(root, 'bus'), out, env, processes: () => psList(env)().filter(candidate => candidate.args.includes(bin)) }
+  return { busDir: path.join(root, 'bus'), out, env, processes: () => psList()().filter(candidate => candidate.args.includes(bin)) }
 }
 
 const clean = (): string[] => []

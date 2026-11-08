@@ -80,7 +80,7 @@ function world(): World {
   stub(bin, 'nohup', 'exec "$@"')
   stub(bin, 'pnpm', `echo "bus:run output"\nprintf '%s\\n' "$*" >> "$STUB_OUT/pnpm.argv"\necho $$ > "$STUB_OUT/pid"\nsleep 30`)
   const env = { PATH: bin, STUB_OUT: out }
-  return { busDir: path.join(root, 'bus'), out, env, processes: () => psList(env)().filter(candidate => candidate.args.includes(bin)) }
+  return { busDir: path.join(root, 'bus'), out, env, processes: () => psList()().filter(candidate => candidate.args.includes(bin)) }
 }
 
 function detachedSleep(): number {

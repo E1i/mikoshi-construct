@@ -1,5 +1,5 @@
 import type { Task, TasksFile } from '../core/tasks.js'
-import type { ProcessListing } from './watch-process.js'
+import type { ProcessSnapshot } from '../ports/process-table.js'
 import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
@@ -8,7 +8,8 @@ import { journalText } from '../core/journal.js'
 import { readTasksFile, startedTree } from '../core/tasks.js'
 import { ghostRowSessionId } from './status.js'
 import { readLedgerStage } from './watch-ledger.js'
-import { listProcesses, processField } from './watch-process.js'
+import { OsProcessTable } from '../ports/process-table.js'
+import { processField } from './watch-process.js'
 import { lastToolName, reportAgeField } from './watch-report.js'
 
 const PREFIX = '[ghosts:watch] '
@@ -62,7 +63,7 @@ function treeStageField(task: Task, journalText: string): string {
   return tree === undefined ? `stage no task:start line for card #${task.card.id}` : stageField(path.join(tree.worktree, '.construct', 'runs.jsonl'))
 }
 
-function taskLine(task: Task, out: string, journalText: string, statusText: string | undefined, processes: ProcessListing): string {
+function taskLine(task: Task, out: string, journalText: string, statusText: string | undefined, processes: ProcessSnapshot): string {
   const reportPath = path.join(out, `ghost-${task.id}.jsonl`)
   const reportField = reportAgeField(reportPath)
   const tool = lastToolName(reportPath)
@@ -79,7 +80,7 @@ function drawFrame(tasksData: TasksFile): void {
   const statusText = existsSync(tasksData.status) ? readFileSync(tasksData.status, 'utf8') : undefined
   const journalPath = path.join(tasksData.out, 'ghosts.jsonl')
   const journal = journalText(journalPath)
-  const processes = listProcesses()
+  const processes = new OsProcessTable().snapshot()
   const lines = tasksData.tasks.map(task => taskLine(task, tasksData.out, journal, statusText, processes))
   print(`frame ${at}`)
   for (const line of lines)

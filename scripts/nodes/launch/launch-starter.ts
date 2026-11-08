@@ -13,6 +13,7 @@ import { BUS_DB_VARIABLE } from '../../core/bus-path.js'
 import { messageOf } from '../../core/errors.js'
 import { exitCodePath, treeReportPath } from '../../core/places.js'
 import { accountToken, recordedAccount } from '../../ports/gh.js'
+import { OsProcessTable, rowsOf } from '../../ports/process-table.js'
 import { clientInvocation } from '../../ports/session.js'
 import { restoreReport, shellWord } from '../../ports/tree-publish.js'
 import { HELD_TREE_CHANGED, technical } from './launch-executor.js'
@@ -283,5 +284,8 @@ export function gitChangedPaths(worktree: string): string[] {
 }
 
 export function psPgid(pid: number): number {
-  return Number(execFileSync('ps', ['-o', 'pgid=', '-p', String(pid)], { encoding: 'utf8' }).trim())
+  const row = rowsOf(new OsProcessTable().snapshot()).find(candidate => candidate.pid === pid)
+  if (row === undefined)
+    throw new Error(`no process ${pid} in the process table, so its group cannot be read`)
+  return row.pgid
 }

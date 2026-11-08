@@ -1,10 +1,12 @@
-import { execFileSync, spawn } from 'node:child_process'
+import type { ProcessTable } from '../ports/process-table.js'
+import { spawn } from 'node:child_process'
 import { closeSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { BUS_DB_VARIABLE, GH_ACCOUNT_VARIABLE } from '../core/bus-path.js'
 import { FACTORY_RUNTIME } from '../core/factory-paths.js'
+import { OsProcessTable, rowsOf } from '../ports/process-table.js'
 import { REVIEW_MODEL_VARIABLE } from '../ports/session.js'
 import { agentEnvStamp, STAMP_ENV } from './stamp.js'
 
@@ -19,7 +21,6 @@ export const BUILT_MODULE = '.js'
 
 const FACTORY_SCRIPT = /^node --import tsx (scripts\/[\w/-]+)\.ts(?:\s|$)/
 const SOURCE_MARKER = /^(scripts\/[\w/-]+)\.ts(?=\s|$)/
-const PS_LINE = /^\s*(\d+)\s(.*)$/
 export const BUS_FLAG = '--bus'
 const BUS_ARGUMENT = ` ${BUS_FLAG} `
 
@@ -86,17 +87,8 @@ export function carriesMarker(args: string, markers: readonly string[]): boolean
   return markers.some(marker => command.includes(marker) || command.includes(marker.replace(SOURCE_MARKER, `$1${BUILT_MODULE}`)))
 }
 
-function psLines(args: string[], env: NodeJS.ProcessEnv): RunningProcess[] {
-  return parsePs(execFileSync('ps', args, { encoding: 'utf8', env }))
-}
-
-function parsePs(output: string): RunningProcess[] {
-  return output
-    .split('\n')
-    .flatMap((line) => {
-      const match = PS_LINE.exec(line)
-      return match === null ? [] : [{ pid: Number(match[1]), args: match[2]! }]
-    })
+function runningIn(table: ProcessTable): RunningProcess[] {
+  return rowsOf(table.snapshot()).map(row => ({ pid: row.pid, args: row.command }))
 }
 
 export function argsBeforeBus(args: string): string {
@@ -126,8 +118,8 @@ export function withBuses<T extends RunningProcess>(processes: T[]): T[] {
   })
 }
 
-export function psList(env: NodeJS.ProcessEnv = process.env): ProcessList {
-  return () => withBuses(psLines(['-axo', 'pid=,args='], env))
+export function psList(table: ProcessTable = new OsProcessTable()): ProcessList {
+  return () => withBuses(runningIn(table))
 }
 
 export function thisBus(env: NodeJS.ProcessEnv = process.env): string | undefined {
@@ -207,7 +199,7 @@ function startHolder(lock: string, processes: ProcessList): number | null {
   return readStartLock(lock)?.holder ?? 0
 }
 
-export function startDetached(launch: DetachedLaunch, busDir: string, env: NodeJS.ProcessEnv = process.env, processes: ProcessList = psList(env)): BgResult {
+export function startDetached(launch: DetachedLaunch, busDir: string, env: NodeJS.ProcessEnv = process.env, processes: ProcessList = psList()): BgResult {
   const { prefix, script } = launch
   const lock = path.join(busDir, launch.startLock)
   const log = path.join(busDir, launch.log)
@@ -247,7 +239,7 @@ export function launchName(launch: DetachedLaunch): string {
   return [launch.script, ...launch.args].join(' ')
 }
 
-export function runBusBg(busDir: string, launches: DetachedLaunch[], env: NodeJS.ProcessEnv = process.env, processes: ProcessList = psList(env), start: (launch: DetachedLaunch, busDir: string, env: NodeJS.ProcessEnv, processes: ProcessList) => BgResult = startDetached): BgResult {
+export function runBusBg(busDir: string, launches: DetachedLaunch[], env: NodeJS.ProcessEnv = process.env, processes: ProcessList = psList(), start: (launch: DetachedLaunch, busDir: string, env: NodeJS.ProcessEnv, processes: ProcessList) => BgResult = startDetached): BgResult {
   const result: BgResult = { stdout: [], stderr: [], exitCode: 0 }
   const bus = thisBus(env)
   let up = 0
