@@ -70,6 +70,75 @@ function modelFor(role: Role, _effort: Effort | null, wanted: ModelChoice): Mode
   return offers.includes(wanted) ? { model: wanted, effort: null } : { kind: 'refused', reason: `the model ${wanted} is not offered: the offers are ${offers.join(', ')}` }
 }
 
+export const EDDIES_CONFIG_FILE = path.join('.claude', 'eddies.json')
+const SETTINGS_FILE = path.join('.claude', 'settings.json')
+const CARD_LINE = 'cardContextLine'
+const CARD_LINE_BY_SIZE = 'cardContextLineBySize'
+export const COMPACT_WINDOW_VARIABLE = 'CLAUDE_CODE_AUTO_COMPACT_WINDOW'
+const COMPACT_WINDOW_SETTING = 'autoCompactWindow'
+const COMPACT_WINDOW_MAX = 1_000_000
+const COMPACT_ABOVE_LINE = 1.5
+
+export interface CardLine {
+  line: number
+  key: string
+}
+
+function positiveNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null
+}
+
+function jsonObjectIn(file: string): Record<string, unknown> | null {
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(file, 'utf8'))
+    return parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : null
+  }
+  catch {
+    return null
+  }
+}
+
+export function eddiesConfigIn(root: string): Record<string, unknown> | null {
+  return jsonObjectIn(path.join(root, EDDIES_CONFIG_FILE))
+}
+
+function sizedLineOf(config: Record<string, unknown>, size: string | undefined): CardLine | null {
+  const lines = config[CARD_LINE_BY_SIZE]
+  if (size === undefined || lines === null || typeof lines !== 'object' || !Object.hasOwn(lines, size))
+    return null
+  const line = positiveNumber((lines as Record<string, unknown>)[size])
+  return line === null ? null : { line, key: `${CARD_LINE_BY_SIZE}.${size}` }
+}
+
+export function cardLineOfConfig(config: Record<string, unknown>, size: string | undefined): CardLine | null {
+  const sized = sizedLineOf(config, size)
+  if (sized !== null)
+    return sized
+  const line = positiveNumber(config[CARD_LINE])
+  return line === null ? null : { line, key: CARD_LINE }
+}
+
+function compactWindowOf(value: unknown): number | null {
+  const tokens = typeof value === 'string' && /^\d+$/.test(value.trim()) ? Number(value) : value
+  return typeof tokens === 'number' && Number.isInteger(tokens) && tokens > 0 ? tokens : null
+}
+
+function declaredCompactWindow(root: string): number | null {
+  const settings = jsonObjectIn(path.join(root, SETTINGS_FILE))
+  return settings === null ? null : compactWindowOf(settings[COMPACT_WINDOW_SETTING])
+}
+
+function compactWindowAbove(line: number): number {
+  return Math.min(COMPACT_WINDOW_MAX, Math.round(line * COMPACT_ABOVE_LINE))
+}
+
+export function compactWindowOverlay(root: string, base: NodeJS.ProcessEnv, size: string | null): NodeJS.ProcessEnv {
+  const config = eddiesConfigIn(root)
+  const cardLine = config === null ? null : cardLineOfConfig(config, size ?? undefined)
+  const window = compactWindowOf(base[COMPACT_WINDOW_VARIABLE]) ?? declaredCompactWindow(root)
+  return cardLine === null || window === null || cardLine.line <= window ? {} : { [COMPACT_WINDOW_VARIABLE]: String(compactWindowAbove(cardLine.line)) }
+}
+
 function userInstructionsOff(): { autoMemoryEnabled: false, claudeMdExcludes: string[] } {
   return { autoMemoryEnabled: false, claudeMdExcludes: [path.join(os.homedir(), '.claude', 'CLAUDE.md')] }
 }

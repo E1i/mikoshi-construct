@@ -28,7 +28,7 @@ import { busCardBodies } from '../../intake/parking-reads.js'
 import { ciLogForPrompt, GhCiRuns } from '../../ports/ci-reading.js'
 import { hasClientTranscript } from '../../ports/client/claude/adapter.js'
 import { OsProcessTable } from '../../ports/process-table.js'
-import { CARD_VARIABLE, clientInvocation, sessionEnv, streamReading } from '../../ports/session.js'
+import { CARD_SIZE_VARIABLE, CARD_VARIABLE, cardSessionOverlay, cardSizeIn, clientInvocation, sessionEnv, streamReading } from '../../ports/session.js'
 import { MAIN_BRANCH } from '../../ports/snapshot.js'
 import { isAlive } from '../../quality/lock.js'
 import { busSessionPulse } from '../../supervisor/heartbeat.js'
@@ -97,7 +97,7 @@ export interface AnswererTools {
   pushPolicy?: (card: CardSession) => PushPolicy
   pulse?: AnswerPulse
   context?: (session: string) => number | null
-  contextWarn?: () => number | null
+  contextWarn?: (size: string | null) => number | null
   diff?: (card: CardSession) => string | null
   ciLog?: (card: CardSession, head: string) => FailedJobLog | null
   held?: (lease: Lease) => boolean
@@ -416,8 +416,8 @@ export function treeDirtyOf(card: CardSession): boolean {
   }
 }
 
-export function contextWarnOfEddies(): number | null {
-  const warn = realExitReadings({ [CARD_VARIABLE]: 'answer' }, os.homedir(), projectRoot(process.env), defaultBusPath()).contextWarn
+export function contextWarnOfEddies(size: string | null = null): number | null {
+  const warn = realExitReadings({ [CARD_VARIABLE]: 'answer', ...(size === null ? {} : { [CARD_SIZE_VARIABLE]: size }) }, os.homedir(), projectRoot(process.env), defaultBusPath()).contextWarn
   return warn === UNKNOWN ? null : warn
 }
 
@@ -600,8 +600,8 @@ export function realAnswererTools(busPath: string = defaultBusPath()): AnswererT
   }
 }
 
-function atContextWarn(tools: AnswererTools, session: string): boolean {
-  const warn = tools.contextWarn?.() ?? null
+function atContextWarn(tools: AnswererTools, session: string, size: string | null): boolean {
+  const warn = tools.contextWarn?.(size) ?? null
   const context = warn === null ? null : tools.context?.(session) ?? null
   return warn !== null && context !== null && context >= warn
 }
@@ -628,10 +628,11 @@ export function claudeAnswerer(dir: string, tools: AnswererTools): Answerer {
 function sessionAnswerer(dir: string, tools: AnswererTools): Answerer {
   return async (request) => {
     const { card } = request
-    const resumed = request.fresh !== true && tools.available(card) && !atContextWarn(tools, card.session)
+    const cardBody = tools.cardText(request.lease.cardId)
+    const size = cardSizeIn(cardBody)
+    const resumed = request.fresh !== true && tools.available(card) && !atContextWarn(tools, card.session, size)
     const session = resumed ? card.session : tools.newSession()
     const ownerQuestion = ownerQuestionPath(dir, session, request.lease.leaseGen)
-    const cardBody = tools.cardText(request.lease.cardId)
     const gate = roundGateOf(readShiftGate(card.worktree), tools.localHead?.(card) ?? null)
     const timer = new RoundTimer(tools.now ?? Date.now, gate.prepush)
     const ciLog = asksAboutRedCi(request.source) && request.lease.head !== null ? tools.ciLog?.(card, request.lease.head) : undefined
@@ -668,7 +669,7 @@ function sessionAnswerer(dir: string, tools: AnswererTools): Answerer {
           argv: invocation.args,
           stdoutPath: stdoutOf(step),
           stderrPath: path.join(dir, `${session}.${request.lease.leaseGen}${step}.err.log`),
-          env: { ...sessionEnv(process.env, request.lease.cardId), ...invocation.env },
+          env: { ...sessionEnv(process.env, request.lease.cardId, cardSessionOverlay(projectRoot(process.env), process.env, size)), ...invocation.env },
           signal: withdrawn.signal,
           onLine: line => timer.line(line),
         })
@@ -727,7 +728,7 @@ function sessionAnswerer(dir: string, tools: AnswererTools): Answerer {
       if (code !== 0)
         throw new Error(`the answer session ${session} exited ${code}`)
       const kept = tools.pushPolicy?.(card) === 'none'
-      const atLine = atContextWarn(tools, session)
+      const atLine = atContextWarn(tools, session, size)
       const owner = ownerAfter('') ?? (kept || atLine ? null : await publish())
       const measured = measuredOf(steps.map(stdoutOf))
       return { session, resumed, atContextWarn: atLine, before, after: tools.remoteHead(card), owner, ...measured, input: { prompt, cardBody }, steps: timer.steps(), ...(widenedInConcept.size === 0 ? {} : { widenedInConcept: [...widenedInConcept] }) }

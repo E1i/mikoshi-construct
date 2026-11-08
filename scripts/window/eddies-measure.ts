@@ -3,9 +3,9 @@ import type { StopReason } from './exit.js'
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { openDatabase } from '../core/sqlite.js'
-import { findTranscript, measuredSession, measuredSpent, measuredSubagents, spendBasis, transcriptContext, transcriptCounters, transcriptModel } from '../ports/client/claude/adapter.js'
+import { cardLineOfConfig, EDDIES_CONFIG_FILE, eddiesConfigIn, findTranscript, measuredSession, measuredSpent, measuredSubagents, spendBasis, transcriptContext, transcriptCounters, transcriptModel } from '../ports/client/claude/adapter.js'
 import { clientAdapter } from '../ports/client/index.js'
-import { CARD_VARIABLE } from '../ports/session.js'
+import { CARD_SIZE_VARIABLE, CARD_VARIABLE } from '../ports/session.js'
 
 export const UNKNOWN = 'unknown'
 export const SESSION_EXIT_EVENT = 'session-exit'
@@ -13,7 +13,6 @@ export const PROJECT_VARIABLE = 'CLAUDE_PROJECT_DIR'
 export const LOADED_CORE_VARIABLE = 'MIKO_LOADED_CORE'
 const CORE_FILE = path.join('architecture', 'window-core.md')
 const CORE_VERSION_LINE = /^window-core v(\d+)$/m
-const CONFIG_FILE = path.join('.claude', 'eddies.json')
 export const EDDIES_JOURNAL_FILE = path.join('.construct', 'eddies.jsonl')
 const BUDGET_WARN_EVENT = 'budget-warn'
 const SESSION_CONTEXT_LEVEL = 'session-context'
@@ -139,20 +138,20 @@ function warnOf(limit: number | null, warnRatio: number | null): Reading<number>
   return limit === null || warnRatio === null || warnRatio > 1 ? UNKNOWN : limit * warnRatio
 }
 
-function cardLineOf(config: Record<string, unknown>, env: NodeJS.ProcessEnv): number | null {
-  return env[CARD_VARIABLE] ? positive(config.cardContextLine) : null
+function cardLineOf(config: Record<string, unknown>, env: NodeJS.ProcessEnv) {
+  return env[CARD_VARIABLE] ? cardLineOfConfig(config, env[CARD_SIZE_VARIABLE]) : null
 }
 
 function limitsOf(root: string, env: NodeJS.ProcessEnv): { contextWarn: Reading<number>, contextWarnSource: Reading<string>, spendWarn: Reading<number> } {
-  const config = attempt(() => JSON.parse(readFileSync(path.join(root, CONFIG_FILE), 'utf8')) as Record<string, unknown> | null)
-  if (config === UNKNOWN || typeof config !== 'object')
+  const config = eddiesConfigIn(root)
+  if (config === null)
     return { contextWarn: UNKNOWN, contextWarnSource: UNKNOWN, spendWarn: UNKNOWN }
   const warnRatio = positive(config.warnRatio)
   const cardLine = cardLineOf(config, env)
-  const contextWarn = cardLine ?? warnOf(positive(config.contextLimit), warnRatio)
+  const contextWarn = cardLine?.line ?? warnOf(positive(config.contextLimit), warnRatio)
   return {
     contextWarn,
-    contextWarnSource: contextWarn === UNKNOWN ? UNKNOWN : `${CONFIG_FILE} ${cardLine === null ? 'contextLimit × warnRatio' : 'cardContextLine'}`,
+    contextWarnSource: contextWarn === UNKNOWN ? UNKNOWN : `${EDDIES_CONFIG_FILE} ${cardLine?.key ?? 'contextLimit × warnRatio'}`,
     spendWarn: warnOf(positive(config.sessionSpend), warnRatio),
   }
 }

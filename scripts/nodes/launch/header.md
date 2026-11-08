@@ -38,7 +38,7 @@ shift is over; where a decision is the owner's, stop, write it into the report a
   unpushed commit runs none of them. A heavy step waits for its turn in the foreground, so give each a
   Bash timeout of 600000. A red pre-push run is fixed in this session before you end it. A broken one prints a `finding:` and a `question:` line: copy both into the
   report and exit; the bus pushes nothing.
-- On the context warn (the Eddies line on the session's context, `cardContextLine`): finish the step you are in, write the
+- On the context warn (the Eddies line on the session's context, `cardContextLineBySize` for the card's size, else `cardContextLine`): finish the step you are in, write the
   report with the handoff in it, exit. The form the bus reads, written in one step to `{{report}}`: the card line, then
   one `<label>: <value>` line for each of {{handoffFields}}; `queue` holds only card numbers (`#N`) and `decisions` holds
   `none` or a file path; no more than one `## STOP` heading; 6000 bytes at most for the whole file. The bus pushes nothing and
@@ -49,7 +49,7 @@ shift is over; where a decision is the owner's, stop, write it into the report a
   and the report, exit; the bus then commits, pushes and opens the pull request from the tree before it
   records the stop.
 - On an Eddies stop: write the report and exit.
-- At a boundary — the session's context reached `cardContextLine`, or an owner-merged pull request just
+- At a boundary — the session's context reached its card line, or an owner-merged pull request just
   merged — finish the step you are in, write the handoff and the report with a
   `boundary: <which boundary>` line in it, and exit.
 - At an Eddies warn or a boundary, the shift report also carries the handoff contract: each of the

@@ -35,6 +35,7 @@ import { recordedWitnessFieldsBackfill, witnessTableOf } from '../intake/witness
 import { inForceDecisions } from '../policy/decisions.js'
 import { GREEN, RED, UNCHECKED } from '../policy/policy.js'
 import { ghApi } from '../ports/github.js'
+import { cardSizeIn } from '../ports/session.js'
 import { BOARD_FILE, FRESH_MS, windowGauges } from '../window/board.js'
 import { mikoHandoff } from '../window/loop.js'
 import { planMarkdown } from '../window/plan-export.js'
@@ -73,6 +74,7 @@ export interface Gauges {
 export interface EddiesLimits {
   contextLimit: number | null
   cardContextLine: number | null
+  cardLineBySize?: ReadonlyMap<string, number>
   sessionSpend: number | null
   agentSpend: number | null
   warnRatio: number | null
@@ -189,7 +191,7 @@ function positive(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null
 }
 
-function modelWindowsOf(value: unknown): ReadonlyMap<string, number> {
+function positiveEntriesOf(value: unknown): ReadonlyMap<string, number> {
   if (value === null || typeof value !== 'object')
     return new Map()
   return new Map(Object.entries(value).flatMap(([model, size]): [string, number][] => {
@@ -201,7 +203,7 @@ function modelWindowsOf(value: unknown): ReadonlyMap<string, number> {
 export function readEddiesLimits(file: string = EDDIES_FILE): EddiesLimits {
   try {
     const config = JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown> | null
-    return config === null || typeof config !== 'object' ? NO_LIMITS : { contextLimit: positive(config.contextLimit), cardContextLine: positive(config.cardContextLine), sessionSpend: positive(config.sessionSpend), agentSpend: positive(config.agentSpend), warnRatio: positive(config.warnRatio), modelWindows: modelWindowsOf(config.modelWindows) }
+    return config === null || typeof config !== 'object' ? NO_LIMITS : { contextLimit: positive(config.contextLimit), cardContextLine: positive(config.cardContextLine), cardLineBySize: positiveEntriesOf(config.cardContextLineBySize), sessionSpend: positive(config.sessionSpend), agentSpend: positive(config.agentSpend), warnRatio: positive(config.warnRatio), modelWindows: positiveEntriesOf(config.modelWindows) }
   }
   catch {
     return NO_LIMITS
@@ -307,12 +309,14 @@ function eddiesBar(name: string, value: number | null, denominator: number | nul
 
 type ContextLine = Pick<EddiesLimits, 'contextLimit' | 'warnRatio'>
 
-function cardLineOf(limits: EddiesLimits): ContextLine {
-  return limits.cardContextLine === null ? limits : { contextLimit: limits.cardContextLine, warnRatio: 1 }
+function cardLineOf(limits: EddiesLimits, task: string, facts: Pick<BusFacts, 'cards'>): ContextLine {
+  const size = cardSizeIn(facts.cards.find(card => card.id === Number(CARD_TASK.exec(task)?.[1]))?.line ?? null)
+  const line = (size === null ? undefined : limits.cardLineBySize?.get(size)) ?? limits.cardContextLine
+  return line === null ? limits : { contextLimit: line, warnRatio: 1 }
 }
 
-function contextBar(service: BusService, gauges: Gauges, limits: EddiesLimits): string {
-  const line = service.role === WINDOW_ROLE ? limits : cardLineOf(limits)
+function contextBar(service: BusService, gauges: Gauges, limits: EddiesLimits, facts: Pick<BusFacts, 'cards'>): string {
+  const line = service.role === WINDOW_ROLE ? limits : cardLineOf(limits, service.task, facts)
   const denominator = gauges.model === null ? null : limits.modelWindows.get(gauges.model) ?? null
   return eddiesBar('ctx', gauges.context, denominator, line.contextLimit, line.warnRatio)
 }
@@ -379,7 +383,7 @@ function serviceTile(service: BusService, page: BoardPage): string {
   const gauges = gaugesOf(service, page)
   const bars = gauges == null
     ? ''
-    : contextBar(service, gauges, page.limits) + eddiesBar('spent', gauges.spent, page.limits.sessionSpend, page.limits.sessionSpend, page.limits.warnRatio)
+    : contextBar(service, gauges, page.limits, page.facts) + eddiesBar('spent', gauges.spent, page.limits.sessionSpend, page.limits.sessionSpend, page.limits.warnRatio)
   const dialog = tileDialog(service, page)
   return [
     `<div class="svc bevel" data-role="${escaped(service.role)}"${dialog === null ? '' : `${opener(dialog)} role="button"`}>`,
@@ -412,9 +416,10 @@ function servicesMeta(page: BoardPage): string {
   const { facts, limits } = page
   const warn = limits.warnRatio === null ? 'eddies: no warn line' : `eddies: warn line <b>${percent(limits.warnRatio)}</b>`
   const cardLine = limits.cardContextLine === null ? '' : ` · card line <b>${compact(limits.cardContextLine)}</b>`
+  const sizedLines = [...limits.cardLineBySize ?? []].filter(([, line]) => line !== limits.cardContextLine).map(([size, line]) => ` · ${escaped(size)} <b>${compact(line)}</b>`).join('')
   return [
     `<span class="meta">quickhacks on the subnet · agents at work <b>${facts.services.length}</b> · slots <b>${escaped(slotsReading(facts))}</b></span>`,
-    `<span class="meta right edd-note">${warn}${cardLine}</span>`,
+    `<span class="meta right edd-note">${warn}${cardLine}${sizedLines}</span>`,
   ].join('')
 }
 
@@ -1784,14 +1789,9 @@ export function renderBoard(page: BoardPage): string {
   ].join('\n')
 }
 
-function contextWarnings(contexts: readonly SessionContext[], limits: EddiesLimits): BoardWarning[] {
+function contextWarnings(contexts: readonly SessionContext[], limits: EddiesLimits, facts: Pick<BusFacts, 'cards'>): BoardWarning[] {
   const quiet = { openPrs: 0, openPrLimit: null, ownerWaits: 0, stalls: [], savingOff: false }
-  const ofWindow = (session: SessionContext): boolean => session.who === WINDOW_ROLE
-  const { contextLimit, warnRatio } = limits
-  return [
-    ...boardWarnings({ ...quiet, ...cardLineOf(limits), contexts: contexts.filter(session => !ofWindow(session)) }),
-    ...boardWarnings({ ...quiet, contextLimit, warnRatio, contexts: contexts.filter(ofWindow) }),
-  ]
+  return contexts.flatMap(session => boardWarnings({ ...quiet, ...(session.who === WINDOW_ROLE ? limits : cardLineOf(limits, session.who, facts)), contexts: [session] }))
 }
 
 function boardPageOf(db: DatabaseSync, busPath: string, now: Date, handoffFile: string, tickMs: number | null, main: MainUpToDate, eddiesFile: string = EDDIES_FILE): BoardPage {
@@ -1808,7 +1808,7 @@ function boardPageOf(db: DatabaseSync, busPath: string, now: Date, handoffFile: 
     ...sources,
     limits,
     warnings: [
-      ...contextWarnings(sessionContexts(facts.services, sources, liveness), limits),
+      ...contextWarnings(sessionContexts(facts.services, sources, liveness), limits, facts),
       ...boardWarnings({
         ...limits,
         contexts: [],
