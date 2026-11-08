@@ -10,7 +10,7 @@ import { FACTORY_FOLDERS } from '../core/factory-paths.js'
 import { clientAdapter } from '../ports/client/index.js'
 import { busSection } from './factory/bus.js'
 import { cardSection } from './factory/card.js'
-import { assertNoLoreConflict, CONCEPTS } from './factory/concepts.js'
+import { assertNoLoreConflict, assertOwnersExport, CONCEPTS } from './factory/concepts.js'
 import { nodesSection } from './factory/nodes.js'
 import { findSites, overlapsSection } from './factory/overlaps.js'
 import { portsSection } from './factory/ports.js'
@@ -36,6 +36,7 @@ export interface FactoryConcept {
   title: string
   owner: string
   ownerExists: boolean
+  ownerExport: string | null
   axis: Axis
   lore: string | null
   status: ConceptStatus
@@ -73,11 +74,12 @@ function ratifiedOwnerStatus({ id, owner }: Concept, accepted: AcceptedConcepts)
   return entry?.owner === owner && DECISION_ID.test(entry.decision) ? 'accepted' : 'proposed'
 }
 
-export function conceptsSection(accepted: AcceptedConcepts, concepts: readonly Concept[] = CONCEPTS): Record<string, FactoryConcept> {
+export function conceptsSection(accepted: AcceptedConcepts, concepts: readonly Concept[] = CONCEPTS, root: string = REPO_ROOT): Record<string, FactoryConcept> {
   assertNoLoreConflict(concepts)
+  assertOwnersExport(concepts, root)
   return Object.fromEntries(concepts.map((concept) => {
-    const { id, title, owner, ownerExists, axis, lore } = concept
-    return [id, { title, owner, ownerExists, axis, lore, status: ratifiedOwnerStatus(concept, accepted) }]
+    const { id, title, owner, ownerExists, ownerExport, axis, lore } = concept
+    return [id, { title, owner, ownerExists, ownerExport, axis, lore, status: ratifiedOwnerStatus(concept, accepted) }]
   }))
 }
 
@@ -135,7 +137,7 @@ export function generateFactory(root: string = REPO_ROOT): Factory {
     bus: busSection(root),
     card: cardSection(root),
     nodes: nodesSection(),
-    concepts: conceptsSection(acceptedConcepts(root)),
+    concepts: conceptsSection(acceptedConcepts(root), CONCEPTS, root),
     overlaps: overlapsSection(findSites(root)),
   }
 }
