@@ -58,6 +58,11 @@ describe('the runs of a card, read from the check catalog', () => {
     expect(cardRunsOf({ touches: [], runs: [], masks: ['core'] }, emptyModules)).toEqual({ full: true, why: expect.stringContaining('empty') })
   })
 
+  it('a touch on a non-code file in a layer folder takes the layers of the code beside it, not the full run', () => {
+    const map = { files: { 'scripts/core/c.ts': 'core' }, folders: { 'scripts/core/': 'core' } }
+    expect(cardRunsOf({ touches: ['scripts/core/header.md'], runs: [], masks: [] }, CATALOG, map)).toEqual({ layers: ['core'], paths: [], tests: ['scripts/tests/core/c.test.ts', 'tests/b.test.ts'] })
+  })
+
   it('whatever cannot name a test reads full with its reason', () => {
     expect(cardRunsOf({ touches: ['src/a.ts', 'CONTRIBUTING.md'], runs: [], masks: [] }, CATALOG)).toEqual({ full: true, why: expect.stringContaining('CONTRIBUTING.md') })
     expect(cardRunsOf({ touches: ['scripts/release/e.ts'], runs: [], masks: [] }, CATALOG)).toEqual({ full: true, why: expect.stringContaining('release') })
