@@ -45,6 +45,7 @@ interface Tally {
 }
 
 const THE_DECLARATION = 'EVENT_PAYLOADS'
+const REFUSED_AT_WRITE_TIME = 'declaredPayload'
 
 function exportedStrings(source: ts.SourceFile): Map<string, string> {
   return new Map(source.statements.flatMap((statement) => {
@@ -185,6 +186,10 @@ function keysOf(value: ts.Expression, reading: Reading): Keys {
   }
   if (ts.isCallExpression(value) && value.expression.getText() === 'JSON.stringify' && value.arguments[0] !== undefined)
     return keysOf(value.arguments[0], reading)
+  if (ts.isCallExpression(value) && ts.isIdentifier(value.expression) && value.expression.text === REFUSED_AT_WRITE_TIME && value.arguments[1] !== undefined) {
+    const checked = keysOf(value.arguments[1], reading)
+    return checked.opaqueAt.length > 0 && reading.bindings.size === 0 ? typedKeys(value, reading) : { keys: checked.keys, opaqueAt: [] }
+  }
   return typedKeys(value, reading)
 }
 
@@ -225,12 +230,46 @@ function argumentBindings(helper: ts.FunctionDeclaration, call: ts.CallExpressio
   }))
 }
 
-function keysBuiltByHelper(call: ts.CallExpression, reading: Reading): Keys | null {
+function helperOf(call: ts.CallExpression, reading: Reading): ts.FunctionDeclaration | undefined {
   const callee = call.expression
   if (!ts.isIdentifier(callee))
-    return null
-  const helper = call.getSourceFile().statements.find(statement => ts.isFunctionDeclaration(statement) && statement.name?.text === callee.text) as ts.FunctionDeclaration | undefined
-  if (helper?.body === undefined)
+    return undefined
+  const local = call.getSourceFile().statements.find(statement => ts.isFunctionDeclaration(statement) && statement.name?.text === callee.text) as ts.FunctionDeclaration | undefined
+  if (local !== undefined || reading.checker === null || !reading.typed(call.getSourceFile()))
+    return local
+  const symbol = reading.checker.getSymbolAtLocation(callee)
+  const target = symbol !== undefined && (symbol.flags & ts.SymbolFlags.Alias) !== 0 ? reading.checker.getAliasedSymbol(symbol) : symbol
+  return target?.declarations?.find(ts.isFunctionDeclaration)
+}
+
+function writesOfAHelper(call: ts.CallExpression, catalogue: Catalogue, reading: Reading): [string, Keys][] {
+  const helper = helperOf(call, reading)
+  if (helper?.body === undefined || helper.getSourceFile() === call.getSourceFile())
+    return []
+  const names = namesVisibleIn(helper.getSourceFile(), catalogue.names)
+  const inside = { ...reading, bindings: argumentBindings(helper, call) }
+  const writes: [string, Keys][] = []
+  eachNode(helper.body, (node) => {
+    const type = ts.isObjectLiteralExpression(node) ? propertyValue(node, 'type') : null
+    const payload = ts.isObjectLiteralExpression(node) ? propertyValue(node, 'payload') : null
+    if (type === null || payload === null || !mentionsAny(payload, inside.bindings))
+      return
+    typesOf(type, names).filter(each => catalogue.payloads.has(each)).forEach(each => writes.push([each, keysOf(payload, inside)]))
+  })
+  return writes
+}
+
+function mentionsAny(node: ts.Node, bindings: ReadonlyMap<string, ts.Expression>): boolean {
+  let found = false
+  eachNode(node, (each) => {
+    found ||= ts.isIdentifier(each) && bindings.has(each.text)
+  })
+  return found
+}
+
+function keysBuiltByHelper(call: ts.CallExpression, reading: Reading): Keys | null {
+  const helper = helperOf(call, reading)
+  if (helper?.body === undefined || helper.getSourceFile() !== call.getSourceFile())
     return null
   const inside = { ...reading, bindings: argumentBindings(helper, call) }
   const built: Keys[] = []
@@ -242,8 +281,10 @@ function keysBuiltByHelper(call: ts.CallExpression, reading: Reading): Keys | nu
   return built.length === 0 ? null : mergedKeys(built)
 }
 
-function writesOfCall(node: ts.CallExpression, names: ReadonlyMap<string, string>, values: ReadonlySet<string>, tallies: Map<string, Tally>, reading: Reading): void {
+function writesOfCall(node: ts.CallExpression, names: ReadonlyMap<string, string>, catalogue: Catalogue, tallies: Map<string, Tally>, reading: Reading): void {
+  const values = new Set(catalogue.payloads.keys())
   const file = reading.fileOf(node.getSourceFile())
+  writesOfAHelper(node, catalogue, reading).forEach(([type, keys]) => recordWrite(tallies, type, keys, file))
   node.arguments.forEach((argument, at) => {
     const type = ts.isIdentifier(argument) || ts.isStringLiteralLike(argument) ? typesOf(argument, names).find(each => values.has(each)) : undefined
     if (type === undefined)
@@ -292,7 +333,7 @@ export function writtenEvents(files: readonly ParsedFile[], catalogue: Catalogue
       if (ts.isObjectLiteralExpression(node))
         writesOfObject(node, names, tallies, reading)
       else if (ts.isCallExpression(node))
-        writesOfCall(node, names, values, tallies, reading)
+        writesOfCall(node, names, catalogue, tallies, reading)
     })
   }
   return {

@@ -101,6 +101,6 @@ export function journalText(journalPath: string, busPath: string = defaultBusPat
   return withGhostLines(existsSync(journalPath) ? readFileSync(journalPath, 'utf8') : null, busPath)
 }
 
-export function taskLine(entry: JournalEntry, ts: string = new Date().toISOString()): GhostLine {
+export function taskLine(entry: JournalEntry, ts: string = new Date().toISOString()) {
   return { event: 'task', ts, ...entry, review: null }
 }

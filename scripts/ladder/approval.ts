@@ -151,7 +151,7 @@ export interface ApprovalFields {
   carriedFrom?: string
 }
 
-export function approvalEvent(fields: ApprovalFields): JournalEvent {
+export function approvalEvent(fields: ApprovalFields) {
   return {
     event: 'approval',
     by: MORSE,
@@ -202,7 +202,7 @@ export function carriedReason(from: string): string {
   return `carried from sketch ${shortSketch(from)} with the same text`
 }
 
-export function revokeEvent(sha256: string, card: number, ts: string): JournalEvent {
+export function revokeEvent(sha256: string, card: number, ts: string) {
   return { event: 'revoke', sha256, card, ts }
 }
 
@@ -229,6 +229,6 @@ export function contourSuggestion(card: Card, forecast: Forecast): string | unde
   return `mechanism: ladder, I suggest cheap, because card #${card.id} is size ${card.size} and its forecast ${forecast.minutes} minutes is under ${CHEAP_P75_START_TO_MERGE_MINUTES_550}, the cheap path's p75 start to merge in #550, difference ≈${tokens} tokens / ${minutes} minutes against the cheap median in #550; the contour stays as the card says, a person decides`
 }
 
-export function suggestionEvent(card: number, line: string, ts: string): JournalEvent {
+export function suggestionEvent(card: number, line: string, ts: string) {
   return { event: 'suggestion', by: MORSE, card, contour: 'ladder', suggests: 'cheap', line, ts }
 }
