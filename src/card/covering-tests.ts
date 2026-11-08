@@ -1,5 +1,6 @@
 import path from 'node:path'
 import { FACTORY_FOLDERS, FACTORY_FORMER_FOLDERS, FACTORY_NAMED, FACTORY_ROOT, scopeOf } from '../../scripts/core/factory-paths.js'
+import { GENERATED_FILES, RATCHET_FILE } from '../../scripts/core/generated-files.js'
 import { createdPaths } from './parking.js'
 import { PREFIX_SUFFIX } from './task-file.js'
 import { isLayerEntry, layerNamedBy, runsFieldOf } from './witness-fields.js'
@@ -25,9 +26,9 @@ export const NAMED_READERS: Readonly<Record<string, readonly string[]>> = {
 export const DECLARED_PATH_READERS: Readonly<Record<string, readonly string[]>> = {
   'templates/': ['src/materialize/templates.ts'],
   'contract/accepted.json': ['scripts/contract/factory.ts'],
-  'contract/factory.json': ['scripts/contract/factory.ts', 'scripts/core/generated-files.ts'],
-  'contract/ratchet.json': ['scripts/contract/ratchet.ts', 'scripts/policy/policy.ts', 'scripts/core/generated-files.ts', 'src/commands/intake/check.ts'],
-  'contract/surface.json': ['scripts/core/generated-files.ts'],
+  [GENERATED_FILES.factory.path]: ['scripts/contract/factory.ts', 'scripts/core/generated-files.ts'],
+  [RATCHET_FILE.path]: ['scripts/contract/ratchet.ts', 'scripts/core/generated-files.ts', 'src/commands/intake/check.ts'],
+  [GENERATED_FILES.surface.path]: ['scripts/core/generated-files.ts'],
   'contract/contours/ledger-row.schema.json': ['scripts/ladder/watch-ledger.ts'],
   'contract/contours/review-verdict.schema.json': ['scripts/ladder/handoff.ts'],
 }
@@ -44,14 +45,14 @@ export const SCANNED_TREES: Readonly<Record<string, readonly string[]>> = {
 export const TRACED_TREE_WALKERS: readonly string[] = [
   'scripts/tests/bus/launch-queue.test.ts',
   'scripts/tests/bus/liveness-sites.test.ts',
-  'scripts/tests/bus/no-parking-reads.test.ts',
+  FACTORY_NAMED.noParkingReadsTest,
   'scripts/tests/bus/supervisor-liveness.test.ts',
   'scripts/tests/ci/card-runs-session.test.ts',
-  'scripts/tests/ci/layers.test.ts',
+  FACTORY_NAMED.layersTest,
   'scripts/tests/ci/scanned-trees.test.ts',
-  'scripts/tests/client/seal.test.ts',
-  'scripts/tests/core/events.test.ts',
-  'scripts/tests/core/factory-paths.test.ts',
+  FACTORY_NAMED.clientSealTest,
+  FACTORY_NAMED.eventsTest,
+  FACTORY_NAMED.factoryPathsTest,
   'scripts/tests/core/generated-files.test.ts',
   'scripts/tests/core/gh-callers.test.ts',
   'scripts/tests/core/layer-map-one-answer.test.ts',
