@@ -86,13 +86,29 @@ export function recordsOf(map: LayerMap): string[] {
   return Object.keys(map.files).filter(file => isRecord(map, file))
 }
 
+function isAsset(map: LayerMap, file: string): boolean {
+  return !SOURCE_FILE.test(file) && !file.startsWith(FACTORY_TESTS) && !isRecord(map, file) && layersIn(map, file).length > 0
+}
+
+function directoryOf(file: string): string {
+  return path.posix.dirname(file)
+}
+
+function layersOfTheCodeBeside(map: LayerMap, asset: string): string[] {
+  const directory = directoryOf(asset)
+  const beside = Object.entries(map.files).filter(([file]) => SOURCE_FILE.test(file) && directoryOf(file) === directory).map(([, layer]) => layer)
+  return beside.length > 0 ? beside : layersIn(map, asset)
+}
+
 function isPlaced(map: LayerMap, file: string): boolean {
-  return isRecord(map, file) || (!file.startsWith(FACTORY_TESTS) && SOURCE_FILE.test(file))
+  return isRecord(map, file) || isAsset(map, file) || (!file.startsWith(FACTORY_TESTS) && SOURCE_FILE.test(file))
 }
 
 export function declaredLayersIn(map: LayerMap, file: string): string[] {
   if (isDocument(file))
     return [DOCS_LAYER]
+  if (isAsset(map, file))
+    return [...new Set(layersOfTheCodeBeside(map, file))].sort()
   return isPlaced(map, file) ? [...new Set(layersIn(map, file))].sort() : []
 }
 

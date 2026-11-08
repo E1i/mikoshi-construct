@@ -42,6 +42,15 @@ describe('the checks a change reaches follow the layers of the dependency graph'
     ])
   })
 
+  it('a non-code file in a layer folder runs the layers of the code beside it, not the full run', () => {
+    const graph: Graph = new Map([...GRAPH, ['scripts/nodes/launch/launch-worker.ts', []], ['scripts/tests/bus/launch-worker.test.ts', ['scripts/nodes/launch/launch-worker.ts']]])
+    const run = selectRun(['scripts/nodes/launch/header.md'], graph, () => '')
+    if (run.kind !== 'layers')
+      throw new Error(`expected a layer run, got: ${run.why}`)
+    expect(run.layers).toContain('bus:launch')
+    expect(run.tests).toContain('scripts/tests/bus/launch-worker.test.ts')
+  })
+
   it('a path in no layer of the graph takes the full run', () => {
     expect(selectRun(['CONTRIBUTING.md'], GRAPH, () => '').kind).toBe('full')
     expect(selectRun(['scripts/bus/unknown.ts'], GRAPH, () => '').kind).toBe('full')
