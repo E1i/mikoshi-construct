@@ -91,14 +91,13 @@ function failureOf(failed: RawEntry): string {
 }
 
 function failedStart(place: SessionPlace, exitCode: number): string {
-  const text = textOf(place.stderrPath ?? null)?.trim()
+  const text = textOf(place.stderrPath)?.trim()
   return text === undefined || text === '' ? `the client exited ${exitCode} with no stream and no error text` : text
 }
 
 function endOf(entries: RawEntry[], place: SessionPlace): Pick<SessionReading, 'end' | 'failure'> {
-  const exitCode = place.exitCode ?? null
-  if (entries.length === 0 && exitCode !== null && exitCode !== 0)
-    return { end: 'failed', failure: failedStart(place, exitCode) }
+  if (entries.length === 0 && place.exitCode !== null && place.exitCode !== 0)
+    return { end: 'failed', failure: failedStart(place, place.exitCode) }
   const last = entries.filter(entry => entry.type === 'turn.completed' || entry.type === 'turn.failed').at(-1)
   if (last === undefined)
     return { end: 'missing', failure: null }

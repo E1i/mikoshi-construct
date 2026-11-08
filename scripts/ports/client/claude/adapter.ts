@@ -1,4 +1,4 @@
-import type { ClientAdapter, Denial, Effort, Invocation, JournalChange, ModelChoice, ModelOffer, ModelPick, ReadBudget, Refusal, Role, SessionJournal, SessionPlace, SessionPolicy, SessionReading, SessionSpec, SessionTool, ToolUse, Usage } from '../contract.js'
+import type { BudgetPlace, ClientAdapter, Denial, Effort, Invocation, JournalChange, ModelChoice, ModelOffer, ModelPick, ReadBudget, Refusal, Role, SessionJournal, SessionPlace, SessionPolicy, SessionReading, SessionSpec, SessionTool, ToolUse, Usage } from '../contract.js'
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import os from 'node:os'
@@ -147,7 +147,7 @@ function budgetOf(transcript: string): ReadBudget {
   return { startContext, readBeforeEdit: startContext === null || editContext === null ? null : editContext - startContext }
 }
 
-function readBudget(place: SessionPlace): ReadBudget {
+function readBudget(place: BudgetPlace): ReadBudget {
   const home = os.homedir()
   const projects = path.join(home, '.claude', 'projects')
   const transcript = existsSync(projects) ? findTranscript(home, place.session) : null
@@ -604,10 +604,9 @@ function endOf(result: RawEntry | null): Pick<SessionReading, 'end' | 'failure'>
 }
 
 function runEndOf(entries: RawEntry[], place: SessionPlace): Pick<SessionReading, 'end' | 'failure'> {
-  const exitCode = place.exitCode ?? null
-  if (entries.length > 0 || exitCode === null || exitCode === 0)
+  if (entries.length > 0 || place.exitCode === null || place.exitCode === 0)
     return endOf(resultLineOf(entries))
-  return { end: 'failed', failure: nonEmpty(textOf(place.stderrPath ?? null)) ?? `the client exited ${exitCode} with no stream and no error text` }
+  return { end: 'failed', failure: nonEmpty(textOf(place.stderrPath)) ?? `the client exited ${place.exitCode} with no stream and no error text` }
 }
 
 function clientSessionOf(entries: RawEntry[], place: SessionPlace): string | null {

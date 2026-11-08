@@ -21,7 +21,7 @@ export interface ClientAdapter {
   readonly capabilities: Capabilities
   invocation: (spec: SessionSpec) => Invocation | Refusal
   reading: (place: SessionPlace) => SessionReading
-  readBudget: (place: SessionPlace) => ReadBudget
+  readBudget: (place: BudgetPlace) => ReadBudget
   models: () => ModelOffer[] | null
   modelFor: (role: Role, effort: Effort | null, wanted: ModelChoice) => ModelPick | Refusal
   processes: ClientProcesses
@@ -58,9 +58,11 @@ export interface SessionPlace {
   session: string
   cwd: string
   stdoutPath: string | null
-  stderrPath?: string | null
-  exitCode?: number | null
+  stderrPath: string | null
+  exitCode: number | null
 }
+
+export type BudgetPlace = Pick<SessionPlace, 'session' | 'cwd' | 'stdoutPath'>
 
 export interface Usage {
   input: number
