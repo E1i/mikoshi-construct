@@ -2,7 +2,7 @@ import type { Graph } from '../../ci/layers.js'
 import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { EVERY_CHANGE_READERS, TRACED_TREE_SPAWNERS, TRACED_TREE_WALKERS } from '../../../src/card/covering-tests.js'
+import { DECLARED_PATH_READERS, EVERY_CHANGE_READERS, TRACED_TREE_SPAWNERS, TRACED_TREE_WALKERS } from '../../../src/card/covering-tests.js'
 import { BUS_CORE as CORE_PATTERN, selectRun, BUS_SERVICE as SERVICE_PATTERN, windowGate } from '../../ci/layers.js'
 import { changedPathsOf, outputLines, pathsOf, reportedRun, runSummary, windowLines } from '../../ci/select.js'
 import { layerOf } from '../../core/layer-map.js'
@@ -165,6 +165,42 @@ describe('the checks a change reaches follow the layers of the dependency graph'
   it('every tree walker and spawner of the open trace is a test file of the repository', () => {
     const repository = path.resolve(import.meta.dirname, '..', '..', '..')
     expect(EVERY_CHANGE_READERS.filter(test => !existsSync(path.join(repository, test)))).toEqual([])
+  })
+
+  it('a template change runs its declared readers and the tests naming its path, not the whole bus layer', () => {
+    const template = 'templates/base/AGENTS.md.eta'
+    const graph: Graph = new Map([
+      ['src/materialize/templates.ts', []],
+      ['tests/init.test.ts', ['src/materialize/templates.ts']],
+      ['tests/agents-template.test.ts', []],
+      ['scripts/core/queue.ts', []],
+      ['scripts/tests/bus/queue.test.ts', ['scripts/core/queue.ts']],
+    ])
+    const text = (file: string): string => ({ 'tests/agents-template.test.ts': `read('${template}')`, 'scripts/core/queue.ts': `path.join('templates', 'base')`, 'scripts/tests/bus/queue.test.ts': `'templates/'` })[file] ?? ''
+    const run = selectRun([template], graph, text)
+    if (run.kind !== 'layers')
+      throw new Error(`expected a layer run, got: ${run.why}`)
+    expect(run.tests).toEqual(['tests/agents-template.test.ts', 'tests/init.test.ts'])
+  })
+
+  it('a contract record runs its declared readers and the tests naming its path, not the whole bus layer', () => {
+    const schema = 'contract/contours/ledger-row.schema.json'
+    const graph: Graph = new Map([
+      ['scripts/ladder/watch-ledger.ts', []],
+      ['scripts/tests/ghosts/watch-ledger.test.ts', ['scripts/ladder/watch-ledger.ts']],
+      ['scripts/core/queue.ts', []],
+      ['scripts/tests/bus/queue.test.ts', ['scripts/core/queue.ts']],
+    ])
+    const text = (file: string): string => ({ 'scripts/core/queue.ts': `path.join('contract', 'contours')`, 'scripts/tests/bus/queue.test.ts': `'contract/'` })[file] ?? ''
+    const run = selectRun([schema], graph, text)
+    if (run.kind !== 'layers')
+      throw new Error(`expected a layer run, got: ${run.why}`)
+    expect(run.tests).toEqual(['scripts/tests/ghosts/watch-ledger.test.ts'])
+  })
+
+  it('every declared path reader is a module of the repository', () => {
+    const repository = path.resolve(import.meta.dirname, '..', '..', '..')
+    expect(Object.values(DECLARED_PATH_READERS).flat().filter(module => !existsSync(path.join(repository, module)))).toEqual([])
   })
 
   it('a path in no layer still takes the full run beside the tree walkers and spawners', () => {

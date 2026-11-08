@@ -1,6 +1,6 @@
 import type { LayerMap } from '../core/layer-map.js'
 import path from 'node:path'
-import { EVERY_CHANGE_READERS, isTest, NAMED_READERS, PACKAGE_MANIFEST, PACKAGE_SCRIPT_READERS, SCANNED_TREES, TEST_ROOTS } from '../../src/card/covering-tests.js'
+import { DECLARED_PATH_READERS, EVERY_CHANGE_READERS, isTest, NAMED_READERS, PACKAGE_MANIFEST, PACKAGE_SCRIPT_READERS, SCANNED_TREES, TEST_ROOTS } from '../../src/card/covering-tests.js'
 import { FACTORY_FOLDERS, FACTORY_NAMED } from '../core/factory-paths.js'
 import { declaredLayersIn, isCheckPipeline, isDocument, isRecord, layersInOf, repositoryLayerMap } from '../core/layer-map.js'
 import { scansATree } from './tree-scanners.js'
@@ -97,7 +97,14 @@ function names(text: string, name: string): boolean {
   return new RegExp(`(?<![\\w-])${escaped(name)}${edge}`).test(text)
 }
 
+export function declaredReadersOf(file: string): readonly string[] | undefined {
+  return Object.entries(DECLARED_PATH_READERS).find(([place]) => place.endsWith('/') ? file.startsWith(place) : file === place)?.[1]
+}
+
 export function pathReaders(file: string, graph: Graph, moduleText: (module: string) => string): string[] {
+  const declared = declaredReadersOf(file)
+  if (declared !== undefined)
+    return [...declared.filter(module => graph.has(module)), ...[...graph.keys()].filter(module => isTest(module) && names(moduleText(module), file))]
   const named = namesOf(file)
   return [...graph.keys()].filter(module => module !== file && READABLE_MODULE.test(module) && named.some(name => names(moduleText(module), name)))
 }

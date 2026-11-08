@@ -22,6 +22,15 @@ export const NAMED_READERS: Readonly<Record<string, readonly string[]>> = {
   [PACKAGE_MANIFEST]: PACKAGE_SCRIPT_READERS,
   [RISK_RULE]: RISK_RULE_READERS,
 }
+export const DECLARED_PATH_READERS: Readonly<Record<string, readonly string[]>> = {
+  'templates/': ['src/materialize/templates.ts'],
+  'contract/accepted.json': ['scripts/contract/factory.ts'],
+  'contract/factory.json': ['scripts/contract/factory.ts', 'scripts/core/generated-files.ts'],
+  'contract/ratchet.json': ['scripts/contract/ratchet.ts', 'scripts/policy/policy.ts', 'scripts/core/generated-files.ts', 'src/commands/intake/check.ts'],
+  'contract/surface.json': ['scripts/core/generated-files.ts'],
+  'contract/contours/ledger-row.schema.json': ['scripts/ladder/watch-ledger.ts'],
+  'contract/contours/review-verdict.schema.json': ['scripts/ladder/handoff.ts'],
+}
 export const SCANNED_TREES: Readonly<Record<string, readonly string[]>> = {
   'src/': ['tests/dependency-policy.test.ts', 'tests/graph-command.test.ts', 'tests/every-source-has-a-reader.test.ts', 'tests/intake-command-word.test.ts', 'tests/delivery-boundary.test.ts', 'tests/contract/factory.test.ts', 'tests/contract/accepted.test.ts', FACTORY_NAMED.eventsTest, FACTORY_NAMED.noParkingReadsTest, FACTORY_NAMED.journalGuardTest, FACTORY_NAMED.factoryPathsTest, FACTORY_NAMED.clientSealTest],
   [`${FACTORY_ROOT}/`]: ['tests/graph-command.test.ts', 'tests/contract/factory.test.ts', 'tests/contract/accepted.test.ts', FACTORY_NAMED.sqliteTest, FACTORY_NAMED.factoryPathsTest, FACTORY_NAMED.eventsTest, FACTORY_NAMED.noParkingReadsTest, FACTORY_NAMED.journalGuardTest, FACTORY_NAMED.clientSealTest],
