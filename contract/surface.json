@@ -491,8 +491,135 @@
     "modelVersion": 6,
     "recordVersion": 4
   },
+  "jsonForms": {
+    "board": [
+      "--json",
+      "--prs"
+    ],
+    "board --all": [
+      "--all",
+      "--json",
+      "--prs"
+    ],
+    "board --geek": [
+      "--geek",
+      "--json",
+      "--prs"
+    ],
+    "cost": [
+      "--json"
+    ],
+    "cost --expect": [
+      "--expect",
+      "--json"
+    ],
+    "cost --last": [
+      "--json",
+      "--last"
+    ],
+    "doctor": [
+      "--json"
+    ],
+    "doctor --factory": [
+      "--factory",
+      "--json"
+    ],
+    "mutate apply": [
+      "--from",
+      "--id",
+      "--json"
+    ],
+    "mutate judge": [
+      "--baseline",
+      "--id",
+      "--json",
+      "--report"
+    ],
+    "soulkill": [
+      "--json"
+    ],
+    "sync": [
+      "--json"
+    ],
+    "sync --apply": [
+      "--apply",
+      "--json"
+    ]
+  },
   "jsonKeys": {
     "board": {
+      "shown": {
+        "keys": [
+          "format",
+          "rows",
+          "rows[].at",
+          "rows[].next",
+          "rows[].path",
+          "rows[].shown",
+          "rows[].stage",
+          "rows[].stale",
+          "rows[].state",
+          "rows[].task",
+          "rows[].tone",
+          "schemaVersion",
+          "sources",
+          "sources.ledger",
+          "sources.ledger.file",
+          "sources.ledger.malformed",
+          "sources.ledger.status",
+          "sources.prs",
+          "sources.prs.count",
+          "sources.prs.file",
+          "sources.prs.status",
+          "summary",
+          "summary.blocked",
+          "summary.merged",
+          "summary.open",
+          "summary.running",
+          "summary.stale",
+          "summary.waiting",
+          "unknown"
+        ],
+        "root": "object"
+      }
+    },
+    "board --all": {
+      "shown": {
+        "keys": [
+          "format",
+          "rows",
+          "rows[].at",
+          "rows[].next",
+          "rows[].path",
+          "rows[].shown",
+          "rows[].stage",
+          "rows[].stale",
+          "rows[].state",
+          "rows[].task",
+          "rows[].tone",
+          "schemaVersion",
+          "sources",
+          "sources.ledger",
+          "sources.ledger.file",
+          "sources.ledger.malformed",
+          "sources.ledger.status",
+          "sources.prs",
+          "sources.prs.count",
+          "sources.prs.file",
+          "sources.prs.status",
+          "summary",
+          "summary.blocked",
+          "summary.merged",
+          "summary.open",
+          "summary.running",
+          "summary.stale",
+          "summary.waiting",
+          "unknown"
+        ],
+        "root": "object"
+      }
+    },
+    "board --geek": {
       "shown": {
         "keys": [
           "format",
@@ -636,6 +763,79 @@
         "root": "object"
       }
     },
+    "cost --expect": {
+      "forecast": {
+        "keys": [
+          "head",
+          "head.kind",
+          "head.reason",
+          "line",
+          "notes",
+          "sources",
+          "steps"
+        ],
+        "root": "object"
+      }
+    },
+    "cost --last": {
+      "ok": {
+        "keys": [
+          "key",
+          "reconciliation",
+          "reconciliation.entriesWithoutSession",
+          "reconciliation.sessionsWithoutEntry",
+          "reconciliation.unjoinable",
+          "runs",
+          "runs[].agents",
+          "runs[].agents[].label",
+          "runs[].agents[].type",
+          "runs[].agents[].usage",
+          "runs[].agents[].usage.cacheRead",
+          "runs[].agents[].usage.cacheWrite",
+          "runs[].agents[].usage.calls",
+          "runs[].agents[].usage.input",
+          "runs[].agents[].usage.models",
+          "runs[].agents[].usage.output",
+          "runs[].run",
+          "runs[].session",
+          "runs[].startedAt",
+          "runs[].total",
+          "runs[].total.cacheRead",
+          "runs[].total.cacheWrite",
+          "runs[].total.calls",
+          "runs[].total.input",
+          "runs[].total.models",
+          "runs[].total.output",
+          "runtime",
+          "schemaVersion",
+          "status",
+          "turns",
+          "turns.gaps",
+          "turns.main",
+          "turns.main.cacheRead",
+          "turns.main.cacheWrite",
+          "turns.main.calls",
+          "turns.main.input",
+          "turns.main.models",
+          "turns.main.output",
+          "turns.malformed",
+          "turns.sessions",
+          "turns.status",
+          "turns.subagents",
+          "turns.subagents.cacheRead",
+          "turns.subagents.cacheWrite",
+          "turns.subagents.calls",
+          "turns.subagents.input",
+          "turns.subagents.models",
+          "turns.subagents.output",
+          "turns.turns",
+          "turns.unmeasured",
+          "turns.unread",
+          "version"
+        ],
+        "root": "object"
+      }
+    },
     "doctor": {
       "attached": {
         "keys": [
@@ -730,6 +930,21 @@
           "warnings",
           "youAreHere",
           "youAreHere.at"
+        ],
+        "root": "object"
+      }
+    },
+    "doctor --factory": {
+      "notOk": {
+        "keys": [
+          "bus",
+          "goes",
+          "items",
+          "items[].command",
+          "items[].goes",
+          "items[].item",
+          "items[].slice",
+          "schemaVersion"
         ],
         "root": "object"
       }
@@ -1528,5 +1743,21 @@
     "typecheck",
     "version-packages"
   ],
-  "surfaceVersion": 3
+  "surfaceVersion": 3,
+  "unknownFlag": {
+    "atlas": 1,
+    "attach": 1,
+    "board": 1,
+    "cost": 1,
+    "detach": 1,
+    "doctor": 1,
+    "graph": 1,
+    "init": 1,
+    "intake": 1,
+    "mutate apply": 1,
+    "mutate judge": 1,
+    "say": 1,
+    "soulkill": 1,
+    "sync": 1
+  }
 }

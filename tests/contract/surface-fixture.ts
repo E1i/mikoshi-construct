@@ -12,6 +12,8 @@ export function fixtureSurface(): Surface {
     },
     exits: { doctor: { ok: 0, notOk: 1, noManifest: 1 } },
     jsonKeys: { doctor: { ok: { root: 'object', keys: ['ok', 'schemaVersion'] }, noManifest: { root: 'object', keys: ['schemaVersion'] } } },
+    jsonForms: { doctor: ['--json'] },
+    unknownFlag: { doctor: 1, init: 1 },
     formats: { manifestVersion: 1, modelVersion: 1, recordVersion: 1 },
     paths: { init: { 'node-library': ['AGENTS.md', 'package.json'] }, attach: { writes: ['AGENTS.md'], edits: ['.git/info/exclude'] } },
     markers: { block: [['<!-- construct:begin -->', '<!-- construct:end -->']], discover: { tags: ['<!-- construct:discover:<marker> -->'], markers: ['product'] } },
@@ -22,6 +24,6 @@ export function fixtureSurface(): Surface {
 }
 
 export function reading(surface: Surface): SurfaceReading {
-  const { surfaceVersion: _, scripts: __, ...sections } = surface
+  const { surfaceVersion: _, scripts: __, jsonForms: ___, unknownFlag: ____, ...sections } = surface
   return sections
 }
