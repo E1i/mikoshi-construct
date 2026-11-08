@@ -8,6 +8,7 @@ import type { TreePreparer } from '../../ports/prepare-tree.js'
 import type { AnswerInput } from '../../ports/prompt-store.js'
 import type { AdmittedScope, AnswerSource, CardSession } from './answer-source.js'
 import type { Answered, Answerer, StepSeconds, TreeMerge } from './answerer.js'
+import type { CardConcept } from './concept-scope.js'
 import { pathsIn, pathsOutside } from '../../../src/card/covering-tests.js'
 import { riskOf } from '../../../src/card/risk.js'
 import { CLOSED_WAIT, OWNER_WAITS } from '../../core/bus-readings.js'
@@ -17,7 +18,7 @@ import { ANSWER_STEP, CARD_ANSWERED, CARD_STOPPED, POLICY_DENIED, PR_OBSERVED, P
 import { assertHeld, completeTask, failTask, StaleLease, supersedeLease, waitTask } from '../../core/lease.js'
 import { answerOnAnOldCardBody, DOWNGRADE_WAIT_OPEN, downgradeWaitOpenOn, FAILURES_TO_STOP, REVIEW_ROUNDS, supersededAnswerWithinItsLease } from '../../core/queue.js'
 import { OWNER_EVEN_UNDER_THE_DECISION, reservationOf } from '../../policy/policy.js'
-import { activeDecisionsShard, cardDecisionCommand, DECISIONS_SCOPE, decisionsInForceAt, ownersUnderAnyShard, unspentShard } from '../../policy/shards.js'
+import { activeDecisionsShard, activeWindowShards, cardDecisionCommand, DECISIONS_SCOPE, decisionsInForceAt, ownersUnderAnyShard, unspentShard } from '../../policy/shards.js'
 import { matchGlob } from '../../policy/shredder/glob.js'
 import { ownerGlobs } from '../../policy/widening.js'
 import { cardTreeOf, CardTreeRefused, realCardTrees } from '../../ports/card-tree.js'
@@ -27,6 +28,7 @@ import { sha256, storedInput } from '../../ports/prompt-store.js'
 import { MAIN_BRANCH } from '../../ports/snapshot.js'
 import { admittedScopeOf, answerSourceOf, boundDecisionLines, decisionAnsweringRepeat, ownerHoldOf } from './answer-source.js'
 import { AnswerOutsideTouches, CardTreeGone, clientInTree, PREFIX, secondsOf, treeDirtyOf, treeMergeOf } from './answerer.js'
+import { CONCEPT_WIDENING_REASON } from './concept-scope.js'
 
 export type AnswerTechnicalReason = 'nothing_to_answer' | 'no_card_tree' | 'card_tree_gone' | 'answer_failed' | 'left_nothing' | 'held_for_owner' | 'outside_touches' | 'repeated_stop' | 'old_card_body' | 'closed_wait' | typeof DOWNGRADE_WAIT_OPEN
 
@@ -313,7 +315,7 @@ export class AnswerExecutor {
     const beforeTheSession = { lease: secondsOf(preparing - leased), tree: secondsOf(prepared - preparing) }
     this.recordSteps(lease, preparing, beforeTheSession)
     try {
-      const answered = await this.parts.answerer({ lease, source, widened: widened?.reason ?? null, card, fresh, outsideTouches: this.outsideTouchesOf(lease, widened), stepped: steps => this.recordSteps(lease, preparing, steps) })
+      const answered = await this.parts.answerer({ lease, source, widened: widened?.reason ?? null, card, fresh, outsideTouches: this.outsideTouchesOf(lease, widened), concept: this.conceptOf(lease), stepped: steps => this.recordSteps(lease, preparing, steps) })
       return answered.steps === undefined ? answered : { ...answered, steps: { ...beforeTheSession, ...answered.steps } }
     }
     catch (error) {
@@ -338,6 +340,21 @@ export class AnswerExecutor {
     return paths => scope === null ? [...paths] : pathsOutside([...scope.touches, ...widenedPaths], scope.creates, paths)
   }
 
+  private conceptOf(lease: Lease): CardConcept | null {
+    const scope = admittedScopeOf(this.parts.db, lease.cardId)
+    if (scope === null || activeWindowShards(this.parts.db, this.parts.clock()).length === 0)
+      return null
+    return { touches: scope.touches, creates: scope.creates, ownerPath: file => this.namesAnOwnerPath([file]) }
+  }
+
+  private widenedInConcept(lease: Lease, answered: Answered): BusEvent[] {
+    const paths = answered.widenedInConcept ?? []
+    const scope = admittedScopeOf(this.parts.db, lease.cardId)
+    if (paths.length === 0 || scope === null)
+      return []
+    return [{ ...this.event(lease, SCOPE_WIDENED, { paths, admission: scope.admission, detail: CONCEPT_WIDENING_REASON }), dedupeKey: `${SCOPE_WIDENED}:concept:${lease.taskKey}:${lease.leaseGen}` }]
+  }
+
   private refusedOrDenied(lease: Lease, denial: AnswerDenial, widened: Widened | null): AnswerOutcome {
     if (denial.reason !== 'outside_touches')
       return this.denied(lease, denial)
@@ -354,7 +371,7 @@ export class AnswerExecutor {
   }
 
   private async settled(lease: Lease, source: Answering, widened: Widened | null, card: CardSession, answered: Answered, minutes: number): Promise<AnswerOutcome> {
-    const scope = widened === null ? [] : [widened.event]
+    const scope = [...(widened === null ? [] : [widened.event]), ...this.widenedInConcept(lease, answered)]
     if (answered.after === null || answered.after === answered.before) {
       if (answered.owner !== null)
         return this.asked(lease, answered.owner, widened, card)
