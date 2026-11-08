@@ -7,7 +7,7 @@ import type { ChangedFile, Prediction } from '../../policy/morse/rules.js'
 import type { GhRunner } from '../../ports/gh.js'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
-import { COVERING_REASON, layerMasksOf, runsCover, runsOf, TestCoverage, withinTouches } from '../../../src/card/covering-tests.js'
+import { COVERING_REASON, importersOf, layerMasksOf, pathsOutside, runsCover, runsOf, TEST_ROOTS, TestCoverage, withinTouches } from '../../../src/card/covering-tests.js'
 import { admittedReachOf, COMPANION_TABLE, COMPOSITION_ROOT, FOLLOWING_REASON, followsTouches, neverFollows, OWNER_MERGES, PACKAGE_MANIFEST, publishedRootsOf } from '../../../src/commands/intake/check.js'
 import { readShiftGate } from '../../../src/manifest.js'
 import { busCheckCatalog, cardReadingOf } from '../../ci/card-runs.js'
@@ -193,8 +193,27 @@ export interface TouchesFollowed {
   outside: string[]
 }
 
+function worktreeFiles(git: TreePrPorts['git'], worktree: string): string[] {
+  return listedOrNone(() => git(worktree, ['ls-files', '--cached', '--others', '--exclude-standard']))
+}
+
 export function worktreeCoverage(git: TreePrPorts['git'], worktree: string): TestCoverage {
-  return new TestCoverage(() => listedOrNone(() => git(worktree, ['ls-files', '--cached', '--others', '--exclude-standard'])), file => readOrNull(path.join(worktree, file)))
+  return new TestCoverage(() => worktreeFiles(git, worktree), file => readOrNull(path.join(worktree, file)))
+}
+
+interface ConceptReach {
+  touches: readonly string[]
+  creates: readonly string[]
+}
+
+export const CONCEPT_RULES = {
+  reaches: (file: string, concept: ConceptReach): boolean => pathsOutside(concept.touches, concept.creates, [file]).length === 0,
+  neverFollows: (file: string, concept: ConceptReach): boolean => neverFollows(file, { touches: [...concept.touches], added: new Set(), compositionRecords: [] }),
+  testRoots: TEST_ROOTS,
+}
+
+export function worktreeImporters(git: TreePrPorts['git'], worktree: string): Map<string, string[]> {
+  return importersOf(worktreeFiles(git, worktree), file => readOrNull(path.join(worktree, file)))
 }
 
 function listedOrNone(list: () => string): string[] {

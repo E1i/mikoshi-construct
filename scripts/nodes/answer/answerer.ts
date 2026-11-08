@@ -8,6 +8,7 @@ import type { Denial, Invocation, ProcessCwds, SessionTool, Usage } from '../../
 import type { AnswerInput } from '../../ports/prompt-store.js'
 import type { FreshBaseGap } from '../launch/tree-pr.js'
 import type { AnswerSource, CardSession } from './answer-source.js'
+import type { CardConcept, Importers } from './concept-scope.js'
 import { execFileSync, spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, realpathSync, rmSync, writeSync } from 'node:fs'
@@ -31,7 +32,8 @@ import { claudeProcessCwds } from '../../ports/worktree.js'
 import { isAlive } from '../../quality/lock.js'
 import { busSessionPulse } from '../../supervisor/heartbeat.js'
 import { projectRoot, realExitReadings, sessionGauges, UNKNOWN } from '../../window/eddies-measure.js'
-import { answerFollowed, commitAndPush, followedLine, freshBaseProblem, freshBaseTask, worktreeCoverage } from '../launch/tree-pr.js'
+import { answerFollowed, commitAndPush, CONCEPT_RULES, followedLine, freshBaseProblem, freshBaseTask, worktreeCoverage, worktreeImporters } from '../launch/tree-pr.js'
+import { conceptWidening } from './concept-scope.js'
 
 export const PREFIX = '[bus:answer] '
 export const ANSWER_BEAT_MS = 60_000
@@ -44,6 +46,7 @@ export interface AnswerRequest {
   card: CardSession
   fresh?: boolean
   outsideTouches?: (paths: readonly string[]) => string[]
+  concept?: CardConcept | null
   stepped?: (steps: StepSeconds) => void
 }
 
@@ -57,6 +60,7 @@ export interface Answered {
   tokens?: number | null
   input?: AnswerInput
   steps?: StepSeconds
+  widenedInConcept?: string[]
 }
 
 export function tokensOf(usage: Usage | null): number | null {
@@ -98,6 +102,7 @@ export interface AnswererTools {
   held?: (lease: Lease) => boolean
   pending?: (card: CardSession) => string[]
   coverage?: (card: CardSession) => ReturnType<typeof worktreeCoverage>
+  importers?: (card: CardSession) => Importers
   followed?: (lease: Lease, paths: readonly string[]) => void
   localHead?: (card: CardSession) => string | null
   now?: () => number
@@ -683,20 +688,27 @@ function sessionAnswerer(dir: string, tools: AnswererTools): Answerer {
     }
     const steps = ['']
     const ownerAfter = (step: string): string | null => ownerQuestionIn(ownerQuestion) ?? refusedOwnerQuestionIn(stdoutOf(step), ownerQuestion)
-    const followedOrRefused = (): string[] => {
+    const widenedInConcept = new Set<string>()
+    const followedOrRefused = (): { followed: string[], widened: string[] } => {
       const outside = request.outsideTouches?.(tools.pending?.(card) ?? []) ?? []
       if (outside.length === 0)
-        return []
+        return { followed: [], widened: [] }
       const touched = answerFollowed(git, card.worktree, outside, request.lease.cardId, cardBody, (tools.coverage ?? (tree => worktreeCoverage(git, tree.worktree)))(card))
-      if (touched.outside.length > 0)
-        throw new AnswerOutsideTouches(request.lease, touched.outside)
-      return touched.followed
+      const concept = request.concept
+      const within = concept === undefined || concept === null
+        ? { widened: [], outside: touched.outside }
+        : conceptWidening(touched.outside, concept, CONCEPT_RULES, () => (tools.importers ?? (tree => worktreeImporters(git, tree.worktree)))(card))
+      if (within.outside.length > 0)
+        throw new AnswerOutsideTouches(request.lease, within.outside)
+      return { followed: touched.followed, widened: within.widened }
     }
     const pushTree = (): FreshBaseGap | null => {
-      const followed = followedOrRefused()
+      const { followed, widened } = followedOrRefused()
       const gap = timer.pushing(() => freshBaseGapOf(() => tools.publish(card, answerCommitMessage(request.lease))))
       if (gap === null && followed.length > 0)
         tools.followed?.(request.lease, followed)
+      if (gap === null)
+        widened.forEach(file => widenedInConcept.add(file))
       return gap
     }
     const publish = async (): Promise<string | null> => {
@@ -719,7 +731,7 @@ function sessionAnswerer(dir: string, tools: AnswererTools): Answerer {
       const atLine = atContextWarn(tools, session)
       const owner = ownerAfter('') ?? (kept || atLine ? null : await publish())
       const measured = measuredOf(steps.map(stdoutOf))
-      return { session, resumed, atContextWarn: atLine, before, after: tools.remoteHead(card), owner, ...measured, input: { prompt, cardBody }, steps: timer.steps() }
+      return { session, resumed, atContextWarn: atLine, before, after: tools.remoteHead(card), owner, ...measured, input: { prompt, cardBody }, steps: timer.steps(), ...(widenedInConcept.size === 0 ? {} : { widenedInConcept: [...widenedInConcept] }) }
     }
     finally {
       request.stepped?.(timer.steps())
