@@ -1,7 +1,6 @@
 import type { Buffer } from 'node:buffer'
 import type { RiskLevel } from '../../src/card/risk.js'
 import type { ReviewStatus, StatusPublisher } from '../ports/github-status.js'
-import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
@@ -13,6 +12,7 @@ import { readContourSchema, violations } from '../contract/contours.js'
 import { defaultHandoffDir } from '../core/handoff-dir.js'
 import { journalText, recordGhostLine } from '../core/journal.js'
 import { reviewCarry } from '../nodes/update/review-carry.js'
+import { processGit } from '../ports/git.js'
 import { ghStatusPublisher, REVIEW_STATUS_CONTEXT } from '../ports/github-status.js'
 import { approvedHashPath, extractApprovedHash } from './approval.js'
 
@@ -128,7 +128,7 @@ function briefReasons(brief: Digest, dir: string): string[] {
 }
 
 function revParse(repo: string, revision: string): string {
-  return execFileSync('git', ['-C', repo, 'rev-parse', '--verify', '--end-of-options', revision], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
+  return processGit.read(repo, ['rev-parse', '--verify', '--end-of-options', revision]).trim()
 }
 
 function resolveCommit(target: ReviewTarget): ResolvedCommit | undefined {
@@ -165,7 +165,7 @@ export type FetchedVerdict
     | { ok: false, reasons: string[] }
 
 function showFromRef(repo: string, ref: string, file: string): Buffer {
-  return execFileSync('git', ['-C', repo, 'show', `${ref}:${file}`], { stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 64 * 1024 * 1024 })
+  return processGit.readBytes(repo, ['show', `${ref}:${file}`], 64 * 1024 * 1024)
 }
 
 function reportPathFault(ref: string, verdictInRef: string, reportPath: string): string | undefined {
@@ -221,7 +221,7 @@ export function fetchVerdictFromRef(ref: string, repo: string, verdictInRef: str
 }
 
 function gitIn(repo: string): (args: string[]) => string {
-  return args => execFileSync('git', ['-C', repo, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
+  return args => processGit.read(repo, args).trim()
 }
 
 function carriedLine(verdict: Verdict, tree: string, verdictPath: string, dir: string, target: ReviewTarget, resolved: ResolvedCommit, now: Date): VerdictCheck | undefined {
