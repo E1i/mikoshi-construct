@@ -15,6 +15,7 @@ import { textSha } from '../../../src/card/text-sha.js'
 import { runAdmit } from '../../../src/commands/intake/admit.js'
 import { runIntake } from '../../../src/commands/intake/index.js'
 import { cardBodyText } from '../../core/card-bodies.js'
+import { CARD_DECISIONS_HEADING } from '../../core/card-decisions.js'
 import { appendEvent, openBus } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_DROPPED, CARD_MOVED, CARD_STARTED, CARD_STOPPED, GHOST_ROW } from '../../core/events.js'
 import { taskKey } from '../../core/identifiers.js'
@@ -812,6 +813,26 @@ describe('the launch queue', () => {
       const busPath = busWithBody(root)
       parked(root, '931.md')
       expect(busStarterPorts(busPath, root, {}, '', () => 'u').read(931)).toBe(BUS_TEXT)
+    })
+
+    it('the launch prompt the ports build from the bus path carries the decisions of the card', () => {
+      const root = tempRoot()
+      const busPath = busWithBody(root)
+      const db = openBus(busPath)
+      try {
+        recordDecision(db, { ts: '2026-10-20T00:00:00.000Z', decisionId: 4931, text: 'launch reads this decision.', cards: [931] })
+        recordDecision(db, { ts: '2026-10-20T00:00:00.000Z', decisionId: 4932, text: 'another card decision.', cards: [932] })
+        reduce(db)
+      }
+      finally {
+        db.close()
+      }
+      const parsed = parseParkingFile('931.md', BUS_TEXT)
+      if (parsed.kind !== 'parked')
+        throw new Error('the bus text does not parse')
+      const prompt = busStarterPorts(busPath, root, {}, '', () => 'u').prompt(parsed.parked.task, { worktree: '/t', report: '/t/report.md', gate: { prepush: [], handoffWrite: null, codeMatrix: null } })
+      expect(prompt).toContain(`${CARD_DECISIONS_HEADING}\nD-4931: launch reads this decision.`)
+      expect(prompt).not.toContain('D-4932')
     })
 
     it('a parking file the bus holds no body of is never read', () => {

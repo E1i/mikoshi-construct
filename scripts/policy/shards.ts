@@ -3,7 +3,7 @@ import type { BusEvent } from '../core/db.js'
 import type { InForceDecision } from './decisions.js'
 import { SHARD_EXPIRED, SHARD_ISSUED, SHARD_REVOKED, SHARD_USED } from '../core/events.js'
 import { inForceDecisions } from './decisions.js'
-import { lapsed, OWNER_SOURCE, termOf } from './decisions/decisions.js'
+import { lapsed, OWNER_SOURCE, termOf, visibleToCard } from './decisions/decisions.js'
 
 export const WINDOW_SHARD_HOURS = 6
 export const DECISIONS_SCOPE = 'merge+decisions'
@@ -93,6 +93,12 @@ export function expiredWindowShards(db: DatabaseSync, now: Date, actor: string):
 
 export function decisionsInForceAt(db: DatabaseSync, now: Date): InForceDecision[] {
   return inForceDecisions(db).filter(decision => !lapsed(termOf(decision.text), now))
+}
+
+export function cardDecisionLines(db: DatabaseSync, cardId: number, now: Date): string[] {
+  return decisionsInForceAt(db, now)
+    .filter(decision => visibleToCard(decision, cardId))
+    .map(decision => `D-${decision.decisionId}: ${decision.text}`)
 }
 
 export function shardActive(db: DatabaseSync, run: string | null): boolean {
