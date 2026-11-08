@@ -1695,6 +1695,16 @@
           "TranscriptCounters": "interface TranscriptCounters { input: number; cache_write: number; cache_read: number; }"
         }
       },
+      "scripts/ports/client/codex/adapter.ts": {
+        "constants": [
+          "codexAdapter: ClientAdapter"
+        ],
+        "functions": {},
+        "language": "factory",
+        "reexports": [],
+        "technologyWords": [],
+        "types": {}
+      },
       "scripts/ports/client/contract.ts": {
         "constants": [],
         "functions": {},
@@ -1703,11 +1713,14 @@
         "technologyWords": [
           "argv",
           "exec",
+          "stderr",
           "stdout"
         ],
         "types": {
-          "Capabilities": "interface Capabilities { identity: 'assigned' | 'reported'; ladder: boolean; reports: { cost: boolean; turns: boolean; model: boolean; denials: boolean; journal: boolean; }; guarantees: { allowlist: boolean; writeConfinement: boolean; mcpOff: boolean; toolNarrowing: boolean; guardFailsClosed: boolean; }; }",
-          "ClientAdapter": "interface ClientAdapter { readonly id: string; readonly capabilities: Capabilities; invocation: (spec: SessionSpec) => Invocation | Refusal; reading: (place: SessionPlace) => SessionReading; readBudget: (place: SessionPlace) => ReadBudget; models: () => ModelOffer[] | null; modelFor: (role: Role, effort: Effort | null, wanted: ModelChoice) => ModelPick | Refusal; processes: ClientProcesses; ownSession: (env: NodeJS.ProcessEnv) => string | null; }",
+          "BudgetPlace": "type BudgetPlace = Pick<SessionPlace, 'session' | 'cwd' | 'stdoutPath'>",
+          "Capabilities": "interface Capabilities { identity: 'assigned' | 'reported'; ladder: boolean; reports: { cost: boolean; turns: boolean; model: boolean; denials: boolean; journal: boolean; }; guarantees: ClientGuarantees; }",
+          "ClientAdapter": "interface ClientAdapter { readonly id: string; readonly capabilities: Capabilities; invocation: (spec: SessionSpec) => Invocation | Refusal; reading: (place: SessionPlace) => SessionReading; readBudget: (place: BudgetPlace) => ReadBudget; models: () => ModelOffer[] | null; modelFor: (role: Role, effort: Effort | null, wanted: ModelChoice) => ModelPick | Refusal; processes: ClientProcesses; ownSession: (env: NodeJS.ProcessEnv) => string | null; }",
+          "ClientGuarantees": "interface ClientGuarantees { allowlist: boolean; writeConfinement: boolean; mcpOff: boolean; toolNarrowing: boolean; guardFailsClosed: boolean; }",
           "ClientProcesses": "interface ClientProcesses { isClient: (argv: string) => boolean; sessionMarker: (session: string) => string | null; processNames: readonly string[]; isolationCommand: () => string[]; }",
           "Denial": "interface Denial { tool: string; path: string | null; command: string | null; text: string; }",
           "Effort": "type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max'",
@@ -1721,9 +1734,9 @@
           "Refusal": "interface Refusal { kind: 'refused'; reason: string; }",
           "Role": "type Role = 'launch' | 'answer' | 'review' | 'ladder' | 'ghost' | 'window'",
           "SessionJournal": "interface SessionJournal { end: number; changes: ReadonlyMap<string, JournalChange[]>; }",
-          "SessionPlace": "interface SessionPlace { session: string; cwd: string; stdoutPath: string | null; }",
+          "SessionPlace": "interface SessionPlace { session: string; cwd: string; stdoutPath: string | null; stderrPath: string | null; exitCode: number | null; }",
           "SessionPolicy": "interface SessionPolicy { profile: 'sandboxed' | 'client-default'; gateCommands: string[]; writePaths: string[]; mcpOff: boolean; tools?: readonly SessionTool[]; }",
-          "SessionReading": "interface SessionReading { end: 'completed' | 'failed' | 'missing'; failure: string | null; usage: Usage | null; costUsd: number | null; turns: number | null; durationMs: number | null; model: string | null; denials: Denial[]; toolUses: ToolUse[]; journal: SessionJournal | 'unreadable'; lastSteps: string[] | null; contextTokens: number | null; }",
+          "SessionReading": "interface SessionReading { end: 'completed' | 'failed' | 'missing'; failure: string | null; usage: Usage | null; costUsd: number | null; turns: number | null; durationMs: number | null; model: string | null; denials: Denial[] | null; toolUses: ToolUse[]; journal: SessionJournal | 'unreadable'; lastSteps: string[] | null; contextTokens: number | null; clientSession: string | null; }",
           "SessionSpec": "interface SessionSpec { kind: 'start' | 'resume'; role: Role; session: string; cwd: string; prompt: string; addDirs: string[]; pick: Pick<ModelPick, 'model'> & Partial<Pick<ModelPick, 'effort'>>; policy: SessionPolicy; }",
           "SessionTool": "type SessionTool = 'web' | 'skills' | 'agents'",
           "ToolUse": "interface ToolUse { kind: 'write' | 'exec' | 'other'; command: string | null; path: string | null; }",
