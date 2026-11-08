@@ -2028,11 +2028,12 @@
         ],
         "functions": {
           "browserNotPreinstalledLine": "(tree: string, why: string): string",
+          "lacksItsPackages": "(tree: string): boolean",
           "notPreparedLine": "(tree: string, why: string): string",
           "preinstallBrowser": "(tree: string, env: NodeJS.ProcessEnv = process.env, factoryLab: string = FACTORY_LAB): void",
           "prepareBeforeSession": "(tree: string, prepare: TreePreparer = prepareTree, preinstall: TreePreparer = preinstallBrowser): string | null",
           "prepareEnv": "(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv",
-          "prepareTree": "(tree: string): void"
+          "prepareTree": "(tree: string, run: InstallRunner = runInstall): void"
         },
         "language": "factory",
         "reexports": [],
