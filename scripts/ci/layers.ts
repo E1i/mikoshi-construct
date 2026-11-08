@@ -1,6 +1,6 @@
 import type { LayerMap } from '../core/layer-map.js'
 import path from 'node:path'
-import { isTest, NAMED_READERS, PACKAGE_MANIFEST, PACKAGE_SCRIPT_READERS, SCANNED_TREES, TEST_ROOTS } from '../../src/card/covering-tests.js'
+import { EVERY_CHANGE_READERS, isTest, NAMED_READERS, PACKAGE_MANIFEST, PACKAGE_SCRIPT_READERS, SCANNED_TREES, TEST_ROOTS } from '../../src/card/covering-tests.js'
 import { FACTORY_FOLDERS, FACTORY_NAMED } from '../core/factory-paths.js'
 import { declaredLayersIn, isCheckPipeline, isDocument, isRecord, layersInOf, repositoryLayerMap } from '../core/layer-map.js'
 import { scansATree } from './tree-scanners.js'
@@ -140,7 +140,7 @@ export function selectRun(given: readonly string[], graph: Graph, testText: (tes
   const reverse = reverseGraph(graph)
   const reached = dependents([...changed, ...changed.flatMap(file => seedsOfLayers(file, graph, map))], reverse)
   const readers = [...graph.keys()].filter(underTestRoot)
-  const treeScanners = allTests.filter(test => scansATree(moduleText(test)))
+  const treeScanners = allTests.filter(test => scansATree(moduleText(test)) || EVERY_CHANGE_READERS.includes(test))
   const busWide = changed.some(file => BUS_SHARED.includes(file)) ? allTests.filter(test => test.startsWith(BUS_TESTS)) : []
   const named = changed.flatMap(file => NAMED_READERS[file] ?? []).filter(test => graph.has(test))
   const recordReaders = changed.some(file => isRecord(map, file)) ? allTests.filter(test => test.startsWith(CONTRACT_RECORD_TESTS)) : []

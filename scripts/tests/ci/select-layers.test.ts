@@ -1,7 +1,8 @@
 import type { Graph } from '../../ci/layers.js'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { EVERY_CHANGE_READERS, TRACED_TREE_SPAWNERS, TRACED_TREE_WALKERS } from '../../../src/card/covering-tests.js'
 import { BUS_CORE as CORE_PATTERN, selectRun, BUS_SERVICE as SERVICE_PATTERN, windowGate } from '../../ci/layers.js'
 import { changedPathsOf, outputLines, pathsOf, reportedRun, runSummary, windowLines } from '../../ci/select.js'
 import { layerOf } from '../../core/layer-map.js'
@@ -13,7 +14,7 @@ const GRAPH: Graph = new Map([
   ['scripts/ladder/launch.ts', ['scripts/core/db.ts']],
   ['scripts/notes/print.ts', []],
   ['scripts/tests/bus/merge-worker.test.ts', ['scripts/nodes/merge/merge-worker.ts']],
-  ['scripts/tests/bus/review-worker.test.ts', ['scripts/nodes/review/review-worker.ts']],
+  ['scripts/tests/bus/review-service.test.ts', ['scripts/nodes/review/review-worker.ts']],
   ['scripts/tests/ghosts/launch.test.ts', ['scripts/ladder/launch.ts']],
   ['scripts/tests/notes/spawn.test.ts', []],
 ])
@@ -37,7 +38,7 @@ describe('the checks a change reaches follow the layers of the dependency graph'
     expect(run.layers).toEqual(['bus-core', 'bus:merge', 'bus:review', 'ladder'])
     expect(run.tests).toEqual([
       'scripts/tests/bus/merge-worker.test.ts',
-      'scripts/tests/bus/review-worker.test.ts',
+      'scripts/tests/bus/review-service.test.ts',
       'scripts/tests/ghosts/launch.test.ts',
     ])
   })
@@ -142,6 +143,27 @@ describe('the checks a change reaches follow the layers of the dependency graph'
   it('a change to only a test file selects that test', () => {
     const run = layersRun(['scripts/tests/bus/merge-worker.test.ts'])
     expect(run.tests).toEqual(['scripts/tests/bus/merge-worker.test.ts'])
+  })
+
+  it('every tree walker and spawner of the open trace runs on a change it neither imports nor names', () => {
+    const graph: Graph = new Map([
+      ['scripts/notes/print.ts', []],
+      ...EVERY_CHANGE_READERS.map(test => [test, []] as const),
+    ])
+    const run = selectRun(['scripts/notes/print.ts'], graph, () => '')
+    expect(run).toMatchObject({ kind: 'layers', tests: [...EVERY_CHANGE_READERS].sort() })
+    expect(TRACED_TREE_WALKERS).toHaveLength(26)
+    expect(TRACED_TREE_SPAWNERS).toHaveLength(45)
+  })
+
+  it('every tree walker and spawner of the open trace is a test file of the repository', () => {
+    const repository = path.resolve(import.meta.dirname, '..', '..', '..')
+    expect(EVERY_CHANGE_READERS.filter(test => !existsSync(path.join(repository, test)))).toEqual([])
+  })
+
+  it('a path in no layer still takes the full run beside the tree walkers and spawners', () => {
+    const graph: Graph = new Map(EVERY_CHANGE_READERS.map(test => [test, []] as const))
+    expect(selectRun(['loose/unread.ts'], graph, () => '')).toMatchObject({ kind: 'full' })
   })
 
   it('a change outside every scanned tree does not add the scanning tests', () => {
