@@ -40,6 +40,21 @@ describe('contract/surface.json declares every flag, json form and unknown-flag 
     expect(Object.keys(surface.jsonKeys['cost --expect'] ?? {})).not.toEqual([])
   })
 
+  it('a flag or json form a command accepts that contract/surface.json does not declare fails the check', () => {
+    const surface = recorded()
+    const head = headCommands()
+    const doctor = head.doctor
+    if (!('flags' in doctor))
+      throw new Error('doctor is an alias on the command line')
+    const withFlag = { ...head, doctor: { flags: { ...doctor.flags, undeclaredMode: { type: 'boolean' } } } }
+    expect(undeclared(surface, head)).toEqual([])
+    expect(undeclared(surface, withFlag)).toEqual([
+      'doctor --undeclared-mode: the flag is not declared as boolean',
+      'doctor --undeclared-mode --json: the json form is not declared',
+    ])
+    expect(undeclared({ ...surface, commands: withFlag }, withFlag)).toEqual(['doctor --undeclared-mode --json: the json form is not declared'])
+  })
+
   it('fails on a flag the command accepts and the contract does not declare', () => {
     expect(undeclared(fixtureSurface(), headWith('init', 'force', 'boolean'))).toEqual(['init --force: the flag is not declared as boolean'])
   })
