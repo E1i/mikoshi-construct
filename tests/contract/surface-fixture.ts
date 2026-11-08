@@ -10,7 +10,7 @@ export function fixtureSurface(): Surface {
       init: { flags: { yes: { type: 'boolean', alias: 'y' } } },
       inspect: { aliasOf: 'doctor' },
     },
-    exits: { doctor: { ok: 0, notOk: 1, noManifest: 1 } },
+    exits: { doctor: { ok: 0, notOk: 1, noManifest: 1 }, init: { written: 0, failed: 1 } },
     jsonKeys: { doctor: { ok: { root: 'object', keys: ['ok', 'schemaVersion'] }, noManifest: { root: 'object', keys: ['schemaVersion'] } } },
     jsonForms: { doctor: ['--json'] },
     unknownFlag: { doctor: 1, init: 1 },

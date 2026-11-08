@@ -401,6 +401,10 @@
     "review-verdict": "mikoshi-construct/contours/review-verdict/2"
   },
   "exits": {
+    "atlas": {
+      "failed": 1,
+      "written": 0
+    },
     "attach": {
       "aborted": 1,
       "done": 0,
@@ -468,6 +472,11 @@
       "noWitness": 2,
       "refused": 1,
       "unmatched": 2
+    },
+    "say": {
+      "failed": 1,
+      "noWords": 2,
+      "said": 0
     },
     "soulkill": {
       "failed": 1,

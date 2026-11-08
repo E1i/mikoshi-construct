@@ -338,7 +338,7 @@ const atlas = withKnownFlags(defineCommand({
   },
 }), ROOT_META)
 
-const SAY_EXIT = { said: 0, noWords: 2 } as const
+export const SAY_EXIT = { said: 0, noWords: 2 } as const
 
 const say = withKnownFlags(defineCommand({
   meta: { name: 'say', description: 'Write the owner\'s words, with the time, as one unused answer in the owner channel of this repository\'s bus (~/.construct-owner/answers for the machine bus, ~/.construct-owner/answers/<repo-id> for a repository bus), the channel an owner decision is accepted from' },

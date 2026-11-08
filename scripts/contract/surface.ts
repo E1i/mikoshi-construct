@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import { ATLAS_EXIT } from '../../src/atlas/index.js'
 import { ATTACH_EXIT, SETTINGS_FILE } from '../../src/commands/attach/index.js'
 import { BOARD_EXIT } from '../../src/commands/board/index.js'
 import { COST_EXIT } from '../../src/commands/cost/index.js'
@@ -22,7 +23,7 @@ import { FAILED_EXIT } from '../../src/failure.js'
 import { DISCOVERY_MARKERS } from '../../src/manifest.js'
 import { blockMarkers, discoveryTags } from '../../src/materialize/strategies.js'
 import { PRESET_LIST } from '../../src/presets/index.js'
-import { main } from '../../src/program.js'
+import { main, SAY_EXIT } from '../../src/program.js'
 import { contourSchemaNames, readContourSchema, schemaId } from './contours.js'
 import { commandFromHelp, listsCommands, usageCommands } from './help.js'
 import { cliArgs, cliEnv, failureLine, HEAD_CLI, headJson, tagCli, tagJsonKeys } from './json-samples.js'
@@ -193,6 +194,8 @@ function exits(): Record<string, Record<string, number>> {
     'intake': withFailed(INTAKE_EXIT),
     'mutate apply': withFailed(MUTATE_APPLY_EXIT),
     'mutate judge': withFailed(MUTATE_JUDGE_EXIT),
+    'atlas': withFailed(ATLAS_EXIT),
+    'say': withFailed(SAY_EXIT),
   }
 }
 
@@ -322,11 +325,12 @@ function undeclaredForms(name: string, flags: Record<string, Flag>, forms: JsonF
     .map(([flag]) => `${name} --${kebab(flag)} --json: the json form is not declared`)
 }
 
-export function undeclared(recorded: Pick<Surface, 'commands' | 'jsonForms' | 'jsonKeys' | 'unknownFlag'>, head: Record<string, CommandSurface>, refusal = FAILED_EXIT): string[] {
+export function undeclared(recorded: Pick<Surface, 'commands' | 'exits' | 'jsonForms' | 'jsonKeys' | 'unknownFlag'>, head: Record<string, CommandSurface>, refusal = FAILED_EXIT): string[] {
   const aliases = Object.entries(head).flatMap(([name, command]) => 'aliasOf' in command && !(name in recorded.commands) ? [`${name}: the alias is not declared`] : [])
   const own = ownCommands(head).flatMap(([name, flags]) => [
     ...undeclaredFlags(name, flags, recorded.commands[name]),
     ...undeclaredForms(name, flags, recorded.jsonForms),
+    ...(recorded.exits[name] == null ? [`${name}: the exit codes are not declared`] : []),
     ...(recorded.unknownFlag[name] === refusal ? [] : [`${name} ${UNDECLARED_FLAG_PROBE}: the refusal of an unknown flag is not declared as exit ${refusal}`]),
   ])
   const unsampled = Object.keys(recorded.jsonForms).filter(form => recorded.jsonKeys[form] == null).map(form => `${form}: the json form has no recorded shape`)

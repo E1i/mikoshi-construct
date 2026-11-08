@@ -88,8 +88,27 @@ describe('contract/surface.json declares every flag, json form and unknown-flag 
     expect(undeclared(surface, head)).toEqual([
       'check: the alias is not declared',
       'atlas: the command is not declared',
+      'atlas: the exit codes are not declared',
       'atlas --undeclared-flag-probe: the refusal of an unknown flag is not declared as exit 1',
     ])
+  })
+
+  it('fails on a command whose exit codes are not declared', () => {
+    const surface = fixtureSurface()
+    const { init: _, ...exits } = surface.exits
+    expect(undeclared({ ...surface, exits }, surface.commands)).toEqual(['init: the exit codes are not declared'])
+  })
+
+  it('declares the exit codes of atlas and say, which have no json form', () => {
+    const surface = recorded()
+    expect(surface.exits.atlas).toEqual({ written: 0, failed: FAILED_EXIT })
+    expect(surface.exits.say).toEqual({ said: 0, noWords: 2, failed: FAILED_EXIT })
+    const head = headCommands()
+    const takesJson = (name: string): boolean => {
+      const command = head[name]
+      return !('flags' in command) || 'json' in command.flags
+    }
+    expect(['atlas', 'say'].filter(takesJson)).toEqual([])
   })
 
   it('fails on a command whose refusal of an unknown flag is not recorded as the failed exit', () => {
