@@ -3,7 +3,7 @@ import { spawn } from 'node:child_process'
 import { closeSync, openSync } from 'node:fs'
 import process from 'node:process'
 import { BUS_DB_VARIABLE } from '../core/bus-path.js'
-import { CLIENT_ENV_PREFIXES } from './client/claude/adapter.js'
+import { CLIENT_ENV_PREFIXES, compactWindowOverlay } from './client/claude/adapter.js'
 import { clientAdapter } from './client/index.js'
 import { PREPARE_ENV_KEYS } from './prepare-tree.js'
 
@@ -38,6 +38,7 @@ export function reviewModelOf(env: NodeJS.ProcessEnv = process.env): string | un
 }
 
 export const CARD_VARIABLE = 'CONSTRUCT_CARD'
+export const CARD_SIZE_VARIABLE = 'CONSTRUCT_CARD_SIZE'
 export const WINDOW_VARIABLE = 'MIKO_WINDOW'
 export const WINDOW_MARK = '1'
 export const LOOP_PID_VARIABLE = 'MIKO_LOOP_PID'
@@ -65,7 +66,7 @@ export function witnessEnv(base: NodeJS.ProcessEnv = process.env): NodeJS.Proces
 }
 
 export function withoutCard(base: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
-  const { [CARD_VARIABLE]: _card, [WINDOW_VARIABLE]: _window, ...rest } = base
+  const { [CARD_VARIABLE]: _card, [CARD_SIZE_VARIABLE]: _size, [WINDOW_VARIABLE]: _window, ...rest } = base
   return rest
 }
 
@@ -80,12 +81,27 @@ function listedVariables(base: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   return Object.fromEntries(Object.entries(base).filter(([name]) => isSessionVariable(name)))
 }
 
-export function sessionEnv(base: NodeJS.ProcessEnv = process.env, card?: number): NodeJS.ProcessEnv {
+const BODY_CARD_PREFIX = 'card: '
+const SIZE_OF_CARD_LINE = /^#\d+ \S+ \[[^/\]]+\/[^/\]]+\/([^/\]]+)\//
+
+export function cardSizeIn(cardBody: string | null): string | null {
+  if (cardBody === null)
+    return null
+  const first = cardBody.split('\n')[0]!.trim()
+  const line = first.startsWith(BODY_CARD_PREFIX) ? first.slice(BODY_CARD_PREFIX.length) : first
+  return SIZE_OF_CARD_LINE.exec(line)?.[1] ?? null
+}
+
+export function cardSessionOverlay(root: string, base: NodeJS.ProcessEnv, size: string | null): NodeJS.ProcessEnv {
+  return { ...(size === null ? {} : { [CARD_SIZE_VARIABLE]: size }), ...compactWindowOverlay(root, base, size) }
+}
+
+export function sessionEnv(base: NodeJS.ProcessEnv = process.env, card?: number, cardOverlay: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...witnessEnv(listedVariables(base)), ...headlessInvocation().env }
   if (card === undefined)
     return env
-  const { [BUS_DB_VARIABLE]: _ownersBus, ...cardEnv } = env
-  return { ...cardEnv, [CARD_VARIABLE]: String(card) }
+  const { [BUS_DB_VARIABLE]: _ownersBus, [CARD_SIZE_VARIABLE]: _inheritedSize, ...cardEnv } = env
+  return { ...cardEnv, [CARD_VARIABLE]: String(card), ...cardOverlay }
 }
 
 export interface SpawnSessionParams {

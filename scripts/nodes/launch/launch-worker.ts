@@ -54,7 +54,7 @@ import { realIsolationReader } from '../../ports/isolation.js'
 import { TICK_MS } from '../../ports/netwatch.js'
 import { prepareBeforeSession, prepareTree } from '../../ports/prepare-tree.js'
 import { promptsDirOf, storedInput } from '../../ports/prompt-store.js'
-import { clientCommand, sessionEnv } from '../../ports/session.js'
+import { cardSessionOverlay, cardSizeIn, clientCommand, sessionEnv } from '../../ports/session.js'
 import { CARD_SESSION_SANDBOX } from '../../ports/shift-settings.js'
 import { builtTreePr, HTTPS_ORIGIN_ENV, launchDirOf, TREE_PR_ENTRY, treeHoldsACommit, treePrCommand, treePrPublisher } from '../../ports/tree-publish.js'
 import { cardTree } from '../../ports/worktree-home.js'
@@ -871,7 +871,7 @@ export function realStarterPorts(repo: string, env: NodeJS.ProcessEnv, header: s
     pgidOf: psPgid,
     kill: killQuietly,
     uuid,
-    envOf: cardId => ({ ...sessionEnv(env, cardId), ...heartbeatEnv({ cardId, pr: null, head: null, queue: 'launch' }), ...HTTPS_ORIGIN_ENV }),
+    envOf: cardId => ({ ...sessionEnv(env, cardId, cardSessionOverlay(repo, env, cardSizeIn(bodyOf(cardId)))), ...heartbeatEnv({ cardId, pr: null, head: null, queue: 'launch' }), ...HTTPS_ORIGIN_ENV }),
     prompt: (task, places) => renderPrompt(header, continuedOnCardText(task, bodyOf), places),
     changedPaths: gitChangedPaths,
     readReport: file => existsSync(file) ? sessionWrittenPart(readFileSync(file, 'utf8')) : null,

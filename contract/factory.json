@@ -1359,6 +1359,8 @@
       "constants": [
         "CLIENT_ENV_PREFIXES",
         "CLIENT_SANDBOX_DIRECTORY",
+        "COMPACT_WINDOW_VARIABLE",
+        "EDDIES_CONFIG_FILE",
         "SESSION_VARIABLE",
         "USER_SETTINGS",
         "WINDOW_COMMAND_VARIABLE",
@@ -1367,9 +1369,12 @@
       ],
       "functions": {
         "cardIsolationCommand": "(client: string): string[]",
+        "cardLineOfConfig": "(config: Record<string, unknown>, size: string | undefined): CardLine | null",
         "clientHome": "(env: NodeJS.ProcessEnv): string",
         "clientLastSteps": "(env: NodeJS.ProcessEnv, worktree: string, session: string): string[] | null",
         "clientTranscript": "(env: NodeJS.ProcessEnv, worktree: string, session: string): string | null",
+        "compactWindowOverlay": "(root: string, base: NodeJS.ProcessEnv, size: string | null): NodeJS.ProcessEnv",
+        "eddiesConfigIn": "(root: string): Record<string, unknown> | null",
         "findTranscript": "(home: string, session: string): string | null",
         "hasClientTranscript": "(env: NodeJS.ProcessEnv, worktree: string, session: string): boolean",
         "measuredSession": "(root: string, transcript: string): { context: number; spent: number; }",
@@ -1388,6 +1393,7 @@
       },
       "reexports": [],
       "types": {
+        "CardLine": "interface CardLine { line: number; key: string; }",
         "ClientOperationPending": "class ClientOperationPending extends Error { constructor(readonly operation: string, readonly card: string) }",
         "CommandJournal": "interface CommandJournal extends SessionJournal { commandRuns: readonly CommandRun[]; }",
         "MeasuredSubagent": "interface MeasuredSubagent { name: string; context: number; spent: number; at: string; }",
@@ -1696,6 +1702,7 @@
     },
     "scripts/ports/session.ts": {
       "constants": [
+        "CARD_SIZE_VARIABLE",
         "CARD_VARIABLE",
         "EXIT_REQUEST_VARIABLE",
         "LOOP_PID_VARIABLE",
@@ -1704,11 +1711,13 @@
         "WINDOW_VARIABLE"
       ],
       "functions": {
+        "cardSessionOverlay": "(root: string, base: NodeJS.ProcessEnv, size: string | null): NodeJS.ProcessEnv",
+        "cardSizeIn": "(cardBody: string | null): string | null",
         "clientCommand": "(): string",
         "clientInvocation": "(spec: SessionSpec): Invocation",
         "headlessInvocation": "(parts: Partial<SessionSpec> = {}): Invocation",
         "reviewModelOf": "(env: NodeJS.ProcessEnv = process.env): string | undefined",
-        "sessionEnv": "(base: NodeJS.ProcessEnv = process.env, card?: number): NodeJS.ProcessEnv",
+        "sessionEnv": "(base: NodeJS.ProcessEnv = process.env, card?: number, cardOverlay: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv",
         "spawnReviewSession": "(params: SpawnSessionParams): Promise<number>",
         "spawnSession": "(params: SpawnSessionParams): Promise<number>",
         "streamReading": "(stdoutPath: string): SessionReading",
