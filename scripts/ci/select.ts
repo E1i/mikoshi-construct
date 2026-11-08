@@ -1,8 +1,10 @@
+import type { CiRuns } from '../ports/ci-reading.js'
 import type { Graph, Run } from './layers.js'
 import { spawnSync } from 'node:child_process'
 import { appendFileSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
+import { GhCiRuns } from '../ports/ci-reading.js'
 import { selectRun, windowGate } from './layers.js'
 import { livenessApplies } from './sandbox-liveness.js'
 
@@ -59,6 +61,34 @@ export function windowLines(run: Run): string {
   return `${runSummary(run)}\nWindow gate (D-194): the card's witnesses, then ${tests}, pnpm typecheck and pnpm lint, each as its own command.`
 }
 
+export type Git = (args: readonly string[]) => string
+
+export type GreenRuns = Pick<CiRuns, 'successfulRunsOnMain'>
+
+export interface GateBase { sha: string, why: string }
+
+export const GREEN_RUNS_READ = 20
+
+function inHistory(read: Git, sha: string): boolean {
+  try {
+    return read(['merge-base', sha, 'HEAD']).trim() === sha
+  }
+  catch {
+    return false
+  }
+}
+
+export function lastGreenMain(read: Git, ci: GreenRuns): GateBase {
+  const mergeBase = read(['merge-base', 'HEAD', 'origin/main']).trim()
+  const runs = ci.successfulRunsOnMain(GREEN_RUNS_READ)
+  if (runs.kind === 'failed')
+    return { sha: mergeBase, why: `the merge-base with origin/main, because the last green main could not be read: ${runs.reason}` }
+  const green = runs.value.find(run => inHistory(read, run.headSha))
+  if (green === undefined)
+    return { sha: mergeBase, why: `the merge-base with origin/main, because none of the last ${GREEN_RUNS_READ} green main runs is in this branch's history` }
+  return { sha: green.headSha, why: `the last main commit with green CI, ${green.headSha.slice(0, 7)} (run ${green.databaseId})` }
+}
+
 function git(args: readonly string[]): string {
   const run = spawnSync('git', args, { cwd: REPO_ROOT, encoding: 'utf8' })
   if (run.status !== 0)
@@ -67,7 +97,7 @@ function git(args: readonly string[]): string {
 }
 
 function treeChanges(): string[] {
-  const base = git(['merge-base', 'HEAD', 'origin/main']).trim()
+  const base = lastGreenMain(git, new GhCiRuns()).sha
   return changedPathsOf(git(['diff', '--name-only', base]), git(['ls-files', '--others', '--exclude-standard']))
 }
 
