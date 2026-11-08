@@ -11,6 +11,7 @@ import type { RoundLimitAt, RoundLimitRecut } from './pr-close.js'
 import type { Denial, VerdictWord } from './record-verdict.js'
 import type { EarlierVerdict, ReviewDepth, ReviewPlan, ReviewPlanner } from './review-depth.js'
 import type { HeldTree, LeftoverTree, Review, Reviewer } from './reviewer.js'
+import { createHash } from 'node:crypto'
 import { cardBodyText } from '../../core/card-bodies.js'
 import { appendEvent } from '../../core/db.js'
 import { ARTIFACT_REMOVED, BOARD_ALARM, POLICY_DENIED, REVIEW_RECORDED, REVIEW_ROUNDS_SPENT, REVIEW_TREE_ORPHANED, ROUND_EXTENDED } from '../../core/events.js'
@@ -23,7 +24,7 @@ import { NO_ISOLATION } from '../../ports/isolation.js'
 import { storedInput } from '../../ports/prompt-store.js'
 import { freshDenial, recordVerdict } from './record-verdict.js'
 import { cardRiskOf, fullReview } from './review-depth.js'
-import { PREFIX, ReviewFailed } from './reviewer.js'
+import { PREFIX, REVIEW_BAR_LINE, ReviewFailed } from './reviewer.js'
 
 const CI_NOT_READY = 'ci_not_ready'
 const STALE_HEAD = 'stale_head'
@@ -32,6 +33,12 @@ export { REVIEW_ROUNDS_SPENT }
 export const ROUND_LIMIT_REACHED = 'round_limit_reached'
 export const SPAWNS_NO_SESSION = 'spawns-no-session'
 export const REVIEW_RULES_VERSION = 1
+export const REVIEW_RULES_FILE = '.claude/agents/review.md'
+export const REVIEW_RULES_SHA = '5bc3df6ef4484cecce4ce4e3fe27143be831ee6b16a02340e94991d48014a009'
+
+export function reviewRulesSha(rulesFileText: string): string {
+  return createHash('sha256').update(`${rulesFileText}\n${REVIEW_BAR_LINE}`).digest('hex')
+}
 export const RULES_VERSION_KEY = 'rules_version'
 
 export type Step

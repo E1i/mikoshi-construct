@@ -1,18 +1,24 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { BoardFiles } from '../../cli/board-page.js'
 import type { MergeBench } from './merge-bench.js'
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { boardWarnings, stalePassCountOf, stalePassText } from '../../cli/board-warnings.js'
+import { boardProjection } from '../../cli/board-page.js'
+import { boardWarnings, MainUpToDate, stalePassCountOf, stalePassText } from '../../cli/board-warnings.js'
 import { appendEvent } from '../../core/db.js'
 import { REVIEW_RECORDED, UPDATE_DONE } from '../../core/events.js'
 import { leaseNext } from '../../core/lease.js'
 import { fullReview } from '../../nodes/review/review-depth.js'
-import { REVIEW_RULES_VERSION, ReviewExecutor, SPAWNS_NO_SESSION } from '../../nodes/review/review-executor.js'
+import { REVIEW_RULES_FILE, REVIEW_RULES_SHA, REVIEW_RULES_VERSION, ReviewExecutor, reviewRulesSha, SPAWNS_NO_SESSION } from '../../nodes/review/review-executor.js'
 import { recordedVerdictOn, UpdateExecutor } from '../../nodes/update/update-executor.js'
 import { sha } from './github-fake.js'
 import { eventCount, eventsOf, liveBench } from './merge-bench.js'
 import { detectUpdate } from './update-detection.js'
 
 const NEW_HEAD = sha('d')
+const REPOSITORY_ROOT = path.resolve(import.meta.dirname, '../../..')
+const rulesText = (): string => readFileSync(path.join(REPOSITORY_ROOT, REVIEW_RULES_FILE), 'utf8')
 
 function recordedVerdict(bench: MergeBench, pr: number, head: string, payload: Record<string, unknown>): void {
   appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: REVIEW_RECORDED, actor: 'worker:review:worker-0', cardId: pr + 100, pr, head, dedupeKey: `${REVIEW_RECORDED}:seeded-${pr}-${head}:1`, payload: { head, findings: [], ...payload }, legacy: false })
@@ -27,6 +33,14 @@ function updated(bench: MergeBench): Record<string, unknown>[] {
   detectUpdate(bench)
   executor.update(leaseNext(bench.db, bench.clock.now().toISOString(), 'update', 'worker:update:worker-1')!)
   return eventsOf(bench.db, UPDATE_DONE)
+}
+
+function projectedPage(bench: MergeBench): string {
+  const written = new Map<string, string>()
+  const files: BoardFiles = { write: (file, text) => written.set(file, text), rename: (from, to) => written.set(to, written.get(from)!) }
+  const projection = boardProjection(bench.db, bench.busPath, 1_000, files, path.join(path.dirname(bench.busPath), 'handoff.md'), new MainUpToDate(bench.gitHub.client, () => bench.clock.now().getTime()))
+  projection.project(bench.clock.now())
+  return written.get(projection.file) ?? ''
 }
 
 function prRows(db: DatabaseSync): unknown[] {
@@ -44,6 +58,11 @@ describe('the version of the review rules on a verdict', () => {
     expect(eventsOf(bench.db, REVIEW_RECORDED)).toMatchObject([{ verdict: 'pass', rules_version: REVIEW_RULES_VERSION }])
     expect(recordedVerdictOn(bench.db, 1701, sha('a'))).toEqual({ verdict: 'pass', rulesVersion: REVIEW_RULES_VERSION })
     bench.close()
+  })
+
+  it('the rules version is pinned to the review rules: changing them without recording their new sha and raising the version is red', () => {
+    expect(reviewRulesSha(rulesText()), `the review rules changed: raise REVIEW_RULES_VERSION past ${REVIEW_RULES_VERSION} and record the new REVIEW_RULES_SHA`).toBe(REVIEW_RULES_SHA)
+    expect(reviewRulesSha(`${rulesText()}\nA new rule.`)).not.toBe(REVIEW_RULES_SHA)
   })
 
   it('a carried pass keeps the version of the verdict it carries', () => {
@@ -79,6 +98,7 @@ describe('the version of the review rules on a verdict', () => {
     recordedVerdict(bench, 1715, sha('5'), { verdict: 'changes' })
 
     expect(stalePassCountOf(bench.db)).toBe(3)
+    expect(projectedPage(bench)).toContain(stalePassText(3))
     expect(boardWarnings({ contexts: [], contextLimit: null, warnRatio: null, openPrs: 0, openPrLimit: null, ownerWaits: 0, stalls: [], savingOff: false, stalePasses: 2 })).toEqual([{ level: 'amber', text: stalePassText(2) }])
     expect(boardWarnings({ contexts: [], contextLimit: null, warnRatio: null, openPrs: 0, openPrLimit: null, ownerWaits: 0, stalls: [], savingOff: false, stalePasses: 0 })).toEqual([])
     expect(stalePassText(1)).toBe(`1 open pass verdict under review rules older than version ${REVIEW_RULES_VERSION}`)
