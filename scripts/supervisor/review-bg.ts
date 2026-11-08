@@ -44,7 +44,7 @@ function recordedWorker(busDir: string, env: NodeJS.ProcessEnv, processes: Proce
     return undefined
   const listed = processes().find(candidate => candidate.pid === pid)
   if (listed === undefined)
-    return { pid, args: `recorded in ${file}`, bus }
+    return undefined
   return servesBus(listed, bus) && REVIEW_WORKER_MARKERS.some(marker => argsBeforeBus(listed.args).includes(marker)) ? listed : undefined
 }
 
