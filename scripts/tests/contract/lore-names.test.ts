@@ -21,6 +21,19 @@ describe('the lore name column of the concepts table', () => {
     expect(() => conceptsSection({}, table)).toThrow('daemon is held by commands, daemon-command')
   })
 
+  it('two conflicting lore names are reported in alphabetical order, each with its holders, in one message', () => {
+    const table = [
+      concept('agents', 'quickhacks'),
+      concept('commands', 'daemon'),
+      concept('board-agents', 'quickhacks'),
+      concept('daemon-command', 'daemon'),
+    ]
+
+    expect(Object.keys(loreConflicts(table))).toEqual(['daemon', 'quickhacks'])
+    expect(loreConflicts(table)).toEqual({ daemon: ['commands', 'daemon-command'], quickhacks: ['agents', 'board-agents'] })
+    expect(() => assertNoLoreConflict(table)).toThrow(new Error('one lore name per concept: daemon is held by commands, daemon-command; quickhacks is held by agents, board-agents'))
+  })
+
   it('concepts holding no lore name or distinct ones are not a conflict', () => {
     const table = [concept('agents', 'quickhacks'), concept('commands', 'daemon'), concept('git', null), concept('layers', null)]
 
