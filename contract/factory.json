@@ -1762,12 +1762,16 @@
       "scripts/ports/client/index.ts": {
         "constants": [],
         "functions": {
-          "clientAdapter": "(): ClientAdapter"
+          "clientAdapter": "(): ClientAdapter",
+          "clientAdapterById": "(id: string): ClientAdapter | Refusal",
+          "clientForRole": "(record: ClientRecord | undefined, role: ClientRole): ClientChoice | Refusal"
         },
         "language": "factory",
         "reexports": [],
         "technologyWords": [],
-        "types": {}
+        "types": {
+          "ClientChoice": "interface ClientChoice { adapter: ClientAdapter; model: ModelChoice; }"
+        }
       },
       "scripts/ports/diff.ts": {
         "constants": [

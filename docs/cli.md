@@ -306,6 +306,7 @@ that claim stands on, and where you are is the model's own path selection.
 | `youAreHere` | knowledge |
 | `notCarried` | knowledge |
 | `versionGap` | provenance |
+| `unknownClients` | provenance |
 
 `harnessProblems` carries provenance only: `package.json` is gone, it has no script under the name
 `construct.json` recorded, or a contract path that manifest points at is absent. Each of those goes
@@ -656,6 +657,13 @@ end, and a verdict there would pronounce on a file its owner owns, so the list s
 nothing. A non-literal include leaves it empty for the same reason, and a runner config that cannot be read
 leaves it empty and is named in `unreadableFiles`.
 
+### A client the record names and no adapter carries
+
+`unknownClients` names each id the optional `client` branch of `construct.json` names — `client.id`
+or a `client.roles` entry — that no client adapter carries, beside the known ones in the line it
+prints. With no `client` branch it is empty, and the default client is used. It is provenance, read
+off `construct.json` alone, and it does not move `ok`: no caller selects a client from the record yet.
+
 A repository that already had its own `eslint.config.mjs` keeps it: `init` never overwrites a file the
 construct did not write. The construct's syntax policy is therefore not applied there, and the test
 that proves the policy fires — `scripts/tests/lint/syntax-policy.test.ts` — is materialized only into a
@@ -777,7 +785,8 @@ never changes the exit code.
   ],
   "youAreHere": { "at": "stop", "stop": { "claimId": "every-change-passes-the-harness", "stage": "enforcement", "state": "unsupported", "doesNotHold": [".github/workflows/ci.yml"] } },
   "notCarried": [{ "claimId": "lint-policy", "reading": "does-not-hold", "path": "scripts/tests/lint/syntax-policy.test.ts" }],
-  "versionGap": { "materializedBy": "0.1.0", "readBy": "0.2.0", "pending": 3 }
+  "versionGap": { "materializedBy": "0.1.0", "readBy": "0.2.0", "pending": 3 },
+  "unknownClients": []
 }
 ```
 

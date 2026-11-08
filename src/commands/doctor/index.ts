@@ -8,7 +8,7 @@ import type { ClaimPlacement, HypothesisReading } from './projection.js'
 import type { MarkerReading } from './provenance.js'
 import type { CheckVerdict } from './verdict.js'
 import type { VersionGap } from './version-gap.js'
-import { readManifest, recordedShas } from '../../manifest.js'
+import { clientIdsWithNoAdapter, readManifest, recordedShas } from '../../manifest.js'
 import { authoredByOwner } from '../../model/ownership.js'
 import { readModel } from '../../model/write.js'
 import { VERSION } from '../../version.js'
@@ -43,6 +43,7 @@ export interface DoctorResult {
   youAreHere: ClaimPlacement
   notCarried: ClaimNotCarried[]
   versionGap: VersionGap
+  unknownClients: string[]
 }
 
 export interface AttachedReport {
@@ -90,6 +91,7 @@ export function runDoctor(root: string, version: string = VERSION): DoctorResult
     uncollectedTests: uncollected,
     warnings: typecheckWarnings(manifest.preset, harness),
     versionGap: versionGap(root, manifest, version),
+    unknownClients: clientIdsWithNoAdapter(manifest.client),
   }
 
   return {
@@ -109,6 +111,7 @@ export function runDoctor(root: string, version: string = VERSION): DoctorResult
     youAreHere: knowledge.youAreHere,
     notCarried: claimsNotCarried(root, manifest, model),
     versionGap: versionGap(root, manifest, version),
+    unknownClients: clientIdsWithNoAdapter(manifest.client),
   }
 }
 
