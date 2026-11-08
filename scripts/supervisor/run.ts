@@ -5,7 +5,7 @@ import type { GitHub } from '../ports/github.js'
 import type { Poll } from '../ports/netwatch.js'
 import type { GitHubPost } from '../ports/pr-status.js'
 import type { BgResult, ProcessList } from './bg.js'
-import { linkSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, linkSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -13,10 +13,10 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { boardProjection } from '../cli/board-page.js'
 import { busDirOf, decisionsFileOf } from '../core/bus-path.js'
-import { appendEvent, defaultBusPath, inTransaction, openBus } from '../core/db.js'
+import { appendEvent, defaultBusPath, inTransaction, openBus, openBusWait } from '../core/db.js'
 import { REDUCED, WINDOW_REQUEST } from '../core/events.js'
 import { DATABASE_LOCKED, isDatabaseLocked } from '../core/node.js'
-import { deriveQueues } from '../core/queue.js'
+import { deriveQueues, QUEUE_ACTOR } from '../core/queue.js'
 import { closeWaitsOfEndedCards, reduce } from '../core/reducer.js'
 import { ownerChannelOfBus } from '../owner/channel.js'
 import { decisionsIntake } from '../policy/decisions-import.js'
@@ -25,7 +25,7 @@ import { CHECK_MS, NetWatch, pollLine, TICK_MS } from '../ports/netwatch.js'
 import { ghApiPost, setStepStatuses, STATUS_CONTEXT, STATUS_OFF_FILE, statusesSwitchedOff, statusFailureLine, statusLine } from '../ports/pr-status.js'
 import { realRequestTools } from '../window/window-request-tools.js'
 import { WindowRequests } from '../window/window-requests.js'
-import { alive, BUS_RUN_MARKERS, instancesOf, psList } from './bg.js'
+import { alive, BUS_RUN_MARKERS, instancesOf, processBeatsOn, psList, RUN_SCRIPT } from './bg.js'
 import { stampLogOutput } from './stamp.js'
 
 export const PREFIX = '[bus:run] '
@@ -43,15 +43,34 @@ function lockHolder(lock: string): number | null {
   }
 }
 
-function holderServes(holder: number, processes: ProcessList, busPath: string): boolean {
+type HolderReading = { kind: 'serves' } | { kind: 'gone' } | { kind: 'beats', why: string } | { kind: 'unproven', question: string }
+
+function holderReading(lock: string, holder: number, processes: ProcessList, busPath: string, nowMs: number): HolderReading {
   let listed: ReturnType<ProcessList>
   try {
     listed = processes()
   }
-  catch {
-    return alive(holder)
+  catch (error) {
+    const why = error instanceof Error ? error.message : String(error)
+    return processBeatsOn(busPath, RUN_SCRIPT, nowMs) ? { kind: 'beats', why } : { kind: 'unproven', question: unprovenHolderQuestion(lock, holder, busPath, why) }
   }
-  return instancesOf(listed, BUS_RUN_MARKERS, busPath).some(candidate => candidate.pid === holder)
+  return instancesOf(listed, BUS_RUN_MARKERS, busPath).some(candidate => candidate.pid === holder) ? { kind: 'serves' } : { kind: 'gone' }
+}
+
+function unprovenHolderQuestion(lock: string, holder: number, busPath: string, why: string): string {
+  return `pid ${holder} holds ${lock} for ${busPath}; the process table could not be read (${why}) and no bus:run heartbeat on this bus is recent, so nothing proves the holder gone (a signal 0 to pid ${holder} ${alive(holder) ? 'is answered' : 'finds no process'}). A second bus:run on one bus.db is not allowed: remove ${lock} only once pid ${holder} is no bus:run`
+}
+
+function askOwnerOfUnprovenHolder(busPath: string, question: string, lock: string, nowMs: number): string | null {
+  if (!existsSync(busPath))
+    return null
+  const db = openBus(busPath)
+  try {
+    return openBusWait(db, new Date(nowMs).toISOString(), QUEUE_ACTOR, { need: 'command', text: question, command: `rm ${lock}` })
+  }
+  finally {
+    db.close()
+  }
 }
 
 function refusedRun(line: string): BgResult {
@@ -103,7 +122,7 @@ function removeStaleLock(lock: string, staleHolder: number | null, self: number)
   }
 }
 
-export function holdRunLock(busPath: string, processes: ProcessList, self: number = process.pid): BgResult {
+export function holdRunLock(busPath: string, processes: ProcessList, self: number = process.pid, nowMs: number = Date.now()): BgResult {
   const busDir = busDirOf(busPath)
   const lock = path.join(busDir, RUN_LOCK)
   mkdirSync(busDir, { recursive: true })
@@ -111,8 +130,15 @@ export function holdRunLock(busPath: string, processes: ProcessList, self: numbe
     if (linkLock(lock, self))
       return { stdout: [], stderr: [], exitCode: 0 }
     const holder = lockHolder(lock)
-    if (holder !== null && holder !== self && holderServes(holder, processes, busPath))
+    const reading = holder === null || holder === self ? null : holderReading(lock, holder, processes, busPath, nowMs)
+    if (reading?.kind === 'serves')
       return refusedRun(`another bus:run, pid ${holder}, holds ${lock} for ${busPath}; one bus:run serves one bus, so this one exits and starts nothing`)
+    if (reading?.kind === 'beats')
+      return refusedRun(`pid ${holder} holds ${lock} for ${busPath}, the process table could not be read (${reading.why}) and a bus:run heartbeat on this bus is recent; this one exits and starts nothing`)
+    if (reading?.kind === 'unproven') {
+      const wait = askOwnerOfUnprovenHolder(busPath, reading.question, lock, nowMs)
+      return refusedRun(`${reading.question}; this one exits, takes no lock and starts nothing${wait === null ? '' : `, owner wait ${wait}`}`)
+    }
     const refused = removeStaleLock(lock, holder, self)
     if (refused !== null)
       return refused

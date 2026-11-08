@@ -14,7 +14,6 @@ import { WINDOW_MARK, WINDOW_VARIABLE } from '../../ports/session.js'
 import { lastProcessBeats, recordProcessHeartbeat } from '../../supervisor/heartbeat.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { LOADED_CORE_VARIABLE, PROJECT_VARIABLE } from '../../window/eddies-measure.js'
-import { parsePs } from '../../window/exit.js'
 import { STATE_LABELS } from '../../window/handoff-check.js'
 import { claimLoop, CLAUDE_VARIABLE, claudeCommand, compoundCommandRefusal, CONTINUE_PROMPT, DEFAULT_CLAUDE, DOUBLE_CTRL_C_WINDOW_MS, doubleCtrlCWatcher, exitRequestFile, HANGUPS, liveLoop, loopProcess, MIKO_HANDOFF_NAME, mikoHandoff, once, PAUSE_MS, pauseUntilCtrlC, PREFIX, recordLoopEnded, requestEndsSession, requesterOf, runMikoLoop, runSession, sessionAndPauseSharingCtrlCs, sessionCtrlCsStillInFlight, sessionScript, takeExitRequest } from '../../window/loop.js'
 import { waitFor } from '../wait-for.js'
@@ -313,8 +312,8 @@ describe('pnpm miko restarts Miko in its own terminal while miko.md says STATUS:
   })
 
   it('the loop starts claude in dontAsk mode unless MIKO_CLAUDE overrides it', () => {
-    expect(DEFAULT_CLAUDE).toBe('claude --permission-mode dontAsk')
-    expect(claudeCommand({})).toBe('claude --permission-mode dontAsk')
+    expect(DEFAULT_CLAUDE).toMatch(/^claude .* --permission-mode dontAsk$/)
+    expect(claudeCommand({})).toBe(DEFAULT_CLAUDE)
     expect(claudeCommand({ MIKO_CLAUDE: '/opt/other-claude' })).toBe('/opt/other-claude')
   })
 
@@ -639,7 +638,7 @@ describe('the loop owns the end of a session: a request file asks it to end the 
   })
 
   describe('an exit request ends the session only from a pid that descends from the claude the loop started', () => {
-    const table = parsePs(' 10 1 node tsx scripts/window/loop.ts\n 11 10 claude\n 12 11 zsh\n 13 12 node exit.ts\n 20 1 zsh\n 21 20 claude\n 22 21 node exit.ts\n')
+    const table = [[10, 1, 'node tsx scripts/window/loop.ts'], [11, 10, 'claude'], [12, 11, 'zsh'], [13, 12, 'node exit.ts'], [20, 1, 'zsh'], [21, 20, 'claude'], [22, 21, 'node exit.ts']].map(([pid, ppid, args]) => ({ pid: Number(pid), ppid: Number(ppid), args: String(args) }))
 
     it('ends it for a pid under the session', () => {
       expect(requestEndsSession(table, 13, 11)).toBe(true)

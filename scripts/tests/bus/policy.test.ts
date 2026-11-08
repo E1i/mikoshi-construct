@@ -5,6 +5,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { GENERATED_PATHS } from '../../core/generated-files.js'
 import { ownerInbox } from '../../core/inbox.js'
 import { decisionsIntake } from '../../policy/decisions-import.js'
 import { closePolicy, mergePolicy, MERGES_UNDER_A_SHARD, OWNER_MERGES_RULES } from '../../policy/policy.js'
@@ -283,6 +284,34 @@ describe('the merge policy', () => {
   it('a diff that names no form as an added line stays auto', () => {
     for (const line of ['+allowUnsandboxedCommands: false', '+"allowUnsandboxedCommands": false', '+const found = /a/.exec(text)', '+db.exec(sql)', '+respawn(worker)', '+const shape = spawnedBy', '-execFileSync(\'pnpm\', [\'install\'])', ' execFileSync(\'pnpm\', [\'install\'])', '-  excludedCommands: [\'pnpm\'],'])
       expect(mergePolicy(facts({ patched: [{ filename: ORDINARY, patch: `@@ -1 +1,2 @@\n x\n${line}` }] })), line).toMatchObject({ kind: 'allowed', rule: 'auto' })
+  })
+
+  it('a regenerated factory.json whose context names excludedCommands stays auto', () => {
+    const patch = '@@ -120,6 +120,7 @@\n   "ShiftSettings": {\n     "excludedCommands?": "string[]",\n     "allowLocalBinding": "boolean",\n+    "allowUnixSockets": "string[]",\n     "note": "db.exec(PRAGMA journal_mode = WAL)"\n   },'
+    expect(GENERATED_PATHS).toContain('contract/factory.json')
+    expect(mergePolicy(facts({ files: ['contract/factory.json'], patched: [{ filename: 'contract/factory.json', patch }] }))).toMatchObject({ kind: 'allowed', rule: 'auto' })
+    expect(mergePolicy(facts({ files: ['contract/factory.json'], patched: [{ filename: 'contract/factory.json', patch: '@@ -1 +1,2 @@\n x\n+execFileSync(\'pnpm\')' }] }))).toMatchObject({ kind: 'allowed', rule: 'auto' })
+  })
+
+  it('the word excludedCommands in a context line with an added line outside its array stays auto', () => {
+    const patch = '@@ -3,3 +3,4 @@\n type ShiftSettings = {\n   excludedCommands?: string[]\n+  allowUnixSockets?: string[]\n }'
+    expect(mergePolicy(facts({ patched: [{ filename: ORDINARY, patch }] }))).toMatchObject({ kind: 'allowed', rule: 'auto' })
+  })
+
+  it('a diff whose set of command calls is unchanged stays auto', () => {
+    const moved = '@@ -10,4 +10,3 @@\n function setup(db) {\n-  execFileSync(\'pnpm\', [\'install\'])\n   db.exec(\'PRAGMA journal_mode = WAL\')\n+  db.exec(\'PRAGMA busy_timeout = 5000\')\n }\n@@ -40,2 +39,3 @@\n function later() {\n+    execFileSync(\'pnpm\', [\'install\'])\n }'
+    const reindentedEntry = '@@ -3,3 +3,3 @@\n   "excludedCommands": [\n-  "node x *"\n+    "node x *",\n   ]'
+    for (const patch of [moved, reindentedEntry])
+      expect(mergePolicy(facts({ patched: [{ filename: ORDINARY, patch }] })), patch).toMatchObject({ kind: 'allowed', rule: 'auto' })
+  })
+
+  it('a call whose text changes, or one more copy of a call, is a new call and the owner\'s', () => {
+    const changed = '@@ -1 +1 @@\n-execFileSync(\'pnpm\', [\'install\'])\n+execFileSync(\'pnpm\', [\'publish\'])'
+    const copied = '@@ -1,2 +1,3 @@\n-spawn(file)\n+spawn(file)\n+spawn(file)'
+    const widened = '@@ -1 +1 @@\n-excludedCommands: [\'a\'],\n+excludedCommands: [\'a\', \'b\'],'
+    const keyOnNextLine = '@@ -1,2 +1,4 @@\n   "excludedCommands":\n+  [\n+    "pnpm install *"\n+  ]'
+    for (const patch of [changed, copied, widened, keyOnNextLine])
+      expect(mergePolicy(facts({ patched: [{ filename: ORDINARY, patch }] })), patch).toMatchObject({ kind: 'denied', rule: 'unsandboxed_command' })
   })
 
   it('a form in a test or in prose stays auto', () => {

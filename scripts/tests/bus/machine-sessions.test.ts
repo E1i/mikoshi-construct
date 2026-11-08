@@ -28,6 +28,8 @@ const BUS_A = '/home/.construct/bus.db'
 const BUS_B = '/home/.construct/owner--repo/bus.db'
 const FIRST_PID = 1001
 const LIMIT = 3
+const CORES = 16
+const DEFAULT_LIMIT = 4
 const LANES = 3
 const ENDED_PID = 4242
 const CONTINUED_PID = 4243
@@ -51,7 +53,7 @@ function scratch(): string {
 class MachineBench {
   readonly dir = path.join(scratch(), 'machine')
   readonly live = new Set<number>()
-  readonly machine = new MachineSessions(this.dir, (record: MachineRecord) => record.pid === process.pid || this.live.has(record.pid), () => new Date(TS))
+  readonly machine = new MachineSessions(this.dir, (record: MachineRecord) => record.pid === process.pid || this.live.has(record.pid), CORES, () => new Date(TS))
 
   limitedTo(sessions: unknown): this {
     mkdirSync(this.dir, { recursive: true })
@@ -279,23 +281,23 @@ describe('the machine limit', () => {
     expect(bench.machine.claim({ bus: BUS_B, role: 'launch', cardId: 5 }).kind).toBe('claimed')
   })
 
-  it('with no value set nothing is limited', () => {
+  it('with no value set the default limit holds', () => {
     const bench = new MachineBench().occupied({ bus: BUS_A, role: 'launch', cardId: 1 }, { bus: BUS_B, role: 'review', cardId: 2 })
-    expect(bench.machine.limit()).toBeNull()
+    expect(bench.machine.limit()).toBe(DEFAULT_LIMIT)
     expect(bench.machine.held()).toBeNull()
-    expect(bench.machine.free()).toBe(Number.POSITIVE_INFINITY)
+    expect(bench.machine.free()).toBe(DEFAULT_LIMIT - 2)
     expect(bench.machine.claim({ bus: BUS_A, role: 'answer', cardId: 3 }).kind).toBe('claimed')
   })
 
-  it.each([[0], [-1], [1.5], ['3'], [null]])('a limit of %j is no limit', (value) => {
-    expect(new MachineBench().limitedTo(value).machine.limit()).toBeNull()
+  it.each([[0], [-1], [1.5], ['3'], [null]])('a limit of %j takes the default', (value) => {
+    expect(new MachineBench().limitedTo(value).machine.limit()).toBe(DEFAULT_LIMIT)
   })
 
-  it('a limit file that does not parse is no limit', () => {
+  it('a limit file that does not parse takes the default', () => {
     const bench = new MachineBench()
     mkdirSync(bench.dir, { recursive: true })
     writeFileSync(path.join(bench.dir, MACHINE_LIMIT_FILE), 'not json')
-    expect(bench.machine.limit()).toBeNull()
+    expect(bench.machine.limit()).toBe(DEFAULT_LIMIT)
   })
 
   it('the same claimant holds one place, however often it claims', () => {
@@ -341,7 +343,7 @@ describe('the machine limit', () => {
   it('a registry that cannot be written lets the start go', () => {
     const blocked = path.join(scratch(), 'a-file')
     writeFileSync(blocked, '')
-    expect(new MachineSessions(path.join(blocked, 'below'), () => false).claim({ bus: BUS_A, role: 'launch', cardId: 1 }).kind).toBe('claimed')
+    expect(new MachineSessions(path.join(blocked, 'below'), () => false, CORES).claim({ bus: BUS_A, role: 'launch', cardId: 1 }).kind).toBe('claimed')
   })
 
   it('an answer withdrawn while it waits never spawns and throws AnswerWithdrawn', async () => {

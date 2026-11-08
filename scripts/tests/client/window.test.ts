@@ -1,11 +1,11 @@
 import type { Invocation, SessionSpec } from '../../ports/client/contract.js'
 import { spawnSync } from 'node:child_process'
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { afterEach, expect, it } from 'vitest'
-import { CLIENT_SANDBOX_DIRECTORY, findTranscript, measuredSession, measuredSpent, ownerMessagesOf, stoppedTasksOf, transcriptContext, transcriptCounters, transcriptModel, WINDOW_COMMAND_VARIABLE, windowCommand } from '../../ports/client/claude/adapter.js'
+import { CLIENT_SANDBOX_DIRECTORY, findTranscript, measuredSession, measuredSpent, ownerMessagesOf, stoppedTasksOf, transcriptContext, transcriptCounters, transcriptModel, WINDOW_COMMAND_VARIABLE, WINDOW_KEPT_TOOLS, WINDOW_MCP_CONFIG, WINDOW_UNUSED_TOOLS, windowCommand } from '../../ports/client/claude/adapter.js'
 import { clientAdapter } from '../../ports/client/index.js'
 import { TSX_PIPE_DIRECTORY } from '../../ports/shift-settings.js'
 import { queueDir } from '../../quality/lock.js'
@@ -70,10 +70,49 @@ function transcriptIn(home: string, session: string, lines: string[]): string {
   return file
 }
 
+const WINDOW_DIET_COMMAND = `claude --setting-sources project,local --strict-mcp-config --mcp-config ${WINDOW_MCP_CONFIG} --disallowedTools Artifact,Workflow,AskUserQuestion,ScheduleWakeup,ReportFindings --permission-mode dontAsk`
+
+const TOOLS_THE_WINDOW_KEEPS = ['Bash', 'Read', 'Edit', 'Write', 'CronCreate', 'CronDelete', 'Monitor', 'Agent', 'Skill', 'ToolSearch', 'SendMessage', 'TaskStop']
+
+function disallowedOf(args: readonly string[]): string[] {
+  const at = args.indexOf('--disallowedTools')
+  return at === -1 ? [] : args[at + 1]!.split(',')
+}
+
+it('the window command carries --setting-sources project,local, --strict-mcp-config with the window MCP config and --disallowedTools for the unused schemas', () => {
+  const { args } = windowInvocation(PROMPT)
+  expect(args[args.indexOf('--setting-sources') + 1]).toBe('project,local')
+  expect(args).toContain('--strict-mcp-config')
+  expect(args[args.indexOf('--mcp-config') + 1]).toBe(WINDOW_MCP_CONFIG)
+  expect(JSON.parse(readFileSync(WINDOW_MCP_CONFIG, 'utf8'))).toEqual({ mcpServers: {} })
+  expect(disallowedOf(args)).toEqual([...WINDOW_UNUSED_TOOLS])
+  expect(args.slice(args.indexOf('--disallowedTools') + 2).at(0), 'a variadic flag never stands right before the prompt').toMatch(/^--/)
+  expect(args.at(-1)).toBe(PROMPT)
+  expect(DEFAULT_CLAUDE).toBe(WINDOW_DIET_COMMAND)
+  expect(WINDOW_KEPT_TOOLS).toEqual(expect.arrayContaining(TOOLS_THE_WINDOW_KEEPS))
+  expect(WINDOW_KEPT_TOOLS.filter(kept => disallowedOf(args).includes(kept))).toEqual([])
+})
+
+it('the window command never disallows a tool the window keeps', () => {
+  const { args } = windowInvocation(PROMPT)
+  expect(TOOLS_THE_WINDOW_KEEPS.filter(kept => disallowedOf(args).includes(kept))).toEqual([])
+  expect(args).not.toContain('--tools')
+  expect(args).not.toContain('--disable-slash-commands')
+})
+
+it('the card session command is unchanged by the window diet', () => {
+  const card = clientAdapter().invocation({ ...windowSpec(PROMPT), role: 'launch' })
+  if ('kind' in card)
+    throw new Error(card.reason)
+  expect(card.args).toEqual(['--permission-mode', 'dontAsk', '--settings', JSON.stringify({ autoMemoryEnabled: false, claudeMdExcludes: [path.join(homedir(), '.claude', 'CLAUDE.md')] }), '--tools', 'Read,Edit,Write,Bash,Grep,Glob', '--disable-slash-commands', '-p', '--session-id', SESSION])
+  expect(card.args).not.toContain('--disallowedTools')
+  expect(card.args).not.toContain('--mcp-config')
+})
+
 it('the window invocation equals the command of the existing loop', () => {
   const invocation = windowInvocation('')
-  expect([invocation.command, ...invocation.args].join(' ')).toBe('claude --permission-mode dontAsk')
-  expect(DEFAULT_CLAUDE).toBe('claude --permission-mode dontAsk')
+  expect([invocation.command, ...invocation.args].join(' ')).toBe(WINDOW_DIET_COMMAND)
+  expect(DEFAULT_CLAUDE).toBe(WINDOW_DIET_COMMAND)
   expect(claudeCommand({})).toBe(DEFAULT_CLAUDE)
   expect(argvThroughTheLoop(claudeCommand({}), PROMPT)).toEqual(windowInvocation(PROMPT).args)
   expect(argvThroughTheLoop(claudeCommand({}), '')).toEqual([...invocation.args, ''])

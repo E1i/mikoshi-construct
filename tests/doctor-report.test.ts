@@ -42,6 +42,7 @@ function result(overrides: Partial<DoctorResult> = {}): DoctorResult {
     youAreHere: { at: 'stop', stop: { claimId: 'lint-policy', stage: 'verification', state: 'unsupported', doesNotHold: ['scripts/tests/lint/syntax-policy.test.ts'] } },
     notCarried: [],
     versionGap: { materializedBy: '0.1.0', readBy: '0.2.0', pending: 0 },
+    unknownClients: [],
     ...overrides,
   }
 }

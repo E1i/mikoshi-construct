@@ -7,6 +7,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import YAML from 'yaml'
+import { EVERY_CHANGE_READERS } from '../../../src/card/covering-tests.js'
 import { BUS_SERVICE, BUS_SHARED, CHANGESET_READERS, selectRun } from '../../ci/layers.js'
 import { changesSince, CI_DIFF, ciArgs, LINT_COMMAND, lintGate, PREPUSH_COMMAND, prepushGate, roundGate, roundLintArgs, roundOf, sessionArgs, testsVerdict } from '../../ci/prepush.js'
 import { SANDBOX_FAILING } from '../../ci/sandbox-failing.js'
@@ -197,7 +198,7 @@ describe('the session pre-push runs the CI selector over the session diff', () =
     expect(prepushGate(['scripts/notes/print.ts'], () => verdict, () => []).code).toBe(1)
   })
 
-  it('round diff: a round that changed only a changeset runs only the changeset readers, linting only that file, while the whole pull request would run every test', () => {
+  it('round diff: a round that changed only a changeset runs the changeset readers and the every-change readers, linting only that file, while the whole pull request would run every test', () => {
     const round = 'b'.repeat(40)
     const base = 'c'.repeat(40)
     const read: Git = (args) => {
@@ -214,7 +215,7 @@ describe('the session pre-push runs the CI selector over the session diff', () =
     expect(roundOf([])).toBeNull()
     expect(() => roundOf(['--round'])).toThrow(/names no head/)
     expect(changesSince(read, round)).toEqual(['.changeset/answergate.md'])
-    expect(selectRun(changesSince(read, round), graph, () => '')).toEqual({ kind: 'layers', layers: [], tests: [...CHANGESET_READERS] })
+    expect(selectRun(changesSince(read, round), graph, () => '')).toEqual({ kind: 'layers', layers: [], tests: [...new Set([...CHANGESET_READERS, ...EVERY_CHANGE_READERS.filter(test => graph.has(test))])].sort() })
     expect(selectRun(changesSince(read, null), graph, () => '')).toMatchObject({ kind: 'full' })
     expect(roundGate(['pnpm typecheck', LINT_COMMAND, PREPUSH_COMMAND], round)).toEqual(['pnpm typecheck', `${PREPUSH_COMMAND} --round ${round}`])
     expect(roundGate(['pnpm run gate-of-the-tree', LINT_COMMAND], round)).toEqual(['pnpm run gate-of-the-tree', LINT_COMMAND])

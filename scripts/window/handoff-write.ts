@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url'
 import { defaultBusPath, openBus } from '../core/db.js'
 import { MERGE_DONE } from '../core/events.js'
 import { handoffDirOf } from '../core/handoff-dir.js'
+import { statusLineOf as lastStatusLineOf, statusOf } from '../core/handoff-status.js'
 import { busParkedDepends } from '../intake/parking-reads.js'
 import { activeDecisionsShard, OWNERS_OF_A_STOP } from '../policy/shards.js'
 import { execGh, readGhJson } from '../ports/gh.js'
@@ -20,7 +21,7 @@ import { appended, archiveOfDay, DAY_FILE_LIMIT, dayBytes, dayFileNamedIn, split
 import { projectRoot, realExitReadings, UNKNOWN } from './eddies-measure.js'
 import { stopReasonOf } from './exit.js'
 import { BLOCKED_LABEL, handoffBytes, handoffRefusals, IN_FLIGHT_LABEL, labelsOf, NO_PREV, PREV_LABEL, STATE_LABELS } from './handoff-check.js'
-import { HANDOFF_VARIABLE, MIKO_HANDOFF_NAME, statusOf } from './loop.js'
+import { HANDOFF_VARIABLE, MIKO_HANDOFF_NAME } from './loop.js'
 import { noWindowRefusal } from './tab.js'
 import { openWindowQuestion, requestSession } from './window-requests.js'
 import { windowOf } from './window.js'
@@ -161,7 +162,7 @@ function withFieldValue(text: string, label: string, value: string): string {
 }
 
 function statusLineOf(text: string): string | undefined {
-  return text.split(/\r?\n/).filter(line => statusOf(line) !== null).at(-1)
+  return lastStatusLineOf(text)?.line
 }
 
 export function draftGeneratedRefusals(draft: string): string[] {
@@ -195,7 +196,7 @@ export function ownerQuestions(text: string, handoff: string): string[] {
   const named = text.split(/\r?\n/).flatMap(line => pattern.exec(line)?.[1]?.trim() || [])
   if (named.length > 0)
     return [...new Set(named)]
-  return ownerWaitEntries(text).some(entry => OPEN_WAIT_ENTRY.test(entry)) ? [] : [`${handoff} ends ${statusLine.trim()} and names no ${QUESTION_LABEL}: line`]
+  return namesOpenOwnerItems(text) ? [] : [`${handoff} ends ${statusLine.trim()} and names no ${QUESTION_LABEL}: line`]
 }
 
 export function withOwnerWaitsOpen(text: string, ids: readonly string[]): string {
@@ -273,9 +274,13 @@ export function ownerWhileWorkIsFreeRefusal(text: string, reading: StateReading)
   return `${PREFIX}STATUS: OWNER while the bus holds ${reading.state.ready.map(card => `#${card.card}`).join(', ')}, which can be taken without the owner; owner questions go into the day file and the next card is taken`
 }
 
+function namesOpenOwnerItems(text: string): boolean {
+  return ownerWaitEntries(text).some(entry => OPEN_WAIT_ENTRY.test(entry))
+}
+
 export function ownerUnderDecisionsShardRefusal(text: string, shard: WindowShard | null): string | null {
   const statusLine = statusLineOf(text) ?? ''
-  if (shard === null || statusOf(statusLine) !== 'OWNER' || BOUNDARIES_THE_BUS_KEEPS.includes(NAMED_BOUNDARY.exec(statusLine)?.[1] ?? ''))
+  if (shard === null || statusOf(statusLine) !== 'OWNER' || BOUNDARIES_THE_BUS_KEEPS.includes(NAMED_BOUNDARY.exec(statusLine)?.[1] ?? '') || namesOpenOwnerItems(text))
     return null
   return `${PREFIX}STATUS: OWNER under the active ${shard.scope} shard ${shard.id} (by ${shard.by}, until ${shard.until}); the window decides the question under the shard, and only a boundary the bus keeps stays the owner's: ${BOUNDARIES_THE_BUS_KEEPS.join(', ')}`
 }

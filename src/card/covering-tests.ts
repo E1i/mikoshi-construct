@@ -1,8 +1,8 @@
 import path from 'node:path'
-import { FACTORY_FOLDERS, FACTORY_FORMER_FOLDERS, FACTORY_NAMED, FACTORY_ROOT, scopeOf } from '../../scripts/core/factory-paths.js'
+import { FACTORY_FOLDERS, FACTORY_FORMER_FOLDERS, FACTORY_NAMED, FACTORY_ROOT, GENERATED_FILES, RATCHET_FILE, scopeOf } from '../../scripts/core/factory-paths.js'
 import { createdPaths } from './parking.js'
 import { PREFIX_SUFFIX } from './task-file.js'
-import { isLayerEntry, layerIdOf, runsFieldOf } from './witness-fields.js'
+import { isLayerEntry, layerNamedBy, runsFieldOf } from './witness-fields.js'
 
 function scannedBy(groups: readonly (readonly [readonly string[], readonly string[]])[]): Record<string, readonly string[]> {
   const trees: Record<string, string[]> = {}
@@ -22,6 +22,15 @@ export const NAMED_READERS: Readonly<Record<string, readonly string[]>> = {
   [PACKAGE_MANIFEST]: PACKAGE_SCRIPT_READERS,
   [RISK_RULE]: RISK_RULE_READERS,
 }
+export const DECLARED_PATH_READERS: Readonly<Record<string, readonly string[]>> = {
+  'templates/': ['src/materialize/templates.ts'],
+  'contract/accepted.json': [`${FACTORY_ROOT}/contract/factory.ts`],
+  [GENERATED_FILES.factory.path]: [`${FACTORY_ROOT}/contract/factory.ts`, `${FACTORY_ROOT}/contract/bump.ts`],
+  [RATCHET_FILE.path]: [`${FACTORY_ROOT}/contract/ratchet.ts`],
+  [GENERATED_FILES.surface.path]: [`${FACTORY_ROOT}/contract/factory/concepts.ts`, `${FACTORY_ROOT}/contract/bump.ts`],
+  'contract/contours/ledger-row.schema.json': [`${FACTORY_ROOT}/ladder/watch-ledger.ts`],
+  'contract/contours/review-verdict.schema.json': [`${FACTORY_ROOT}/ladder/handoff.ts`],
+}
 export const SCANNED_TREES: Readonly<Record<string, readonly string[]>> = {
   'src/': ['tests/dependency-policy.test.ts', 'tests/graph-command.test.ts', 'tests/every-source-has-a-reader.test.ts', 'tests/intake-command-word.test.ts', 'tests/delivery-boundary.test.ts', 'tests/contract/factory.test.ts', 'tests/contract/accepted.test.ts', FACTORY_NAMED.eventsTest, FACTORY_NAMED.noParkingReadsTest, FACTORY_NAMED.journalGuardTest, FACTORY_NAMED.factoryPathsTest, FACTORY_NAMED.clientSealTest],
   [`${FACTORY_ROOT}/`]: ['tests/graph-command.test.ts', 'tests/contract/factory.test.ts', 'tests/contract/accepted.test.ts', FACTORY_NAMED.sqliteTest, FACTORY_NAMED.factoryPathsTest, FACTORY_NAMED.eventsTest, FACTORY_NAMED.noParkingReadsTest, FACTORY_NAMED.journalGuardTest, FACTORY_NAMED.clientSealTest],
@@ -32,6 +41,82 @@ export const SCANNED_TREES: Readonly<Record<string, readonly string[]>> = {
     [FACTORY_FORMER_FOLDERS.shift, ['tests/decisions-read-through-reader.test.ts']],
   ]),
 }
+export const TRACED_TREE_WALKERS: readonly string[] = [
+  'scripts/tests/bus/launch-queue.test.ts',
+  'scripts/tests/bus/liveness-sites.test.ts',
+  FACTORY_NAMED.noParkingReadsTest,
+  'scripts/tests/bus/supervisor-liveness.test.ts',
+  'scripts/tests/ci/card-runs-session.test.ts',
+  FACTORY_NAMED.layersTest,
+  'scripts/tests/ci/scanned-trees.test.ts',
+  FACTORY_NAMED.clientSealTest,
+  FACTORY_NAMED.eventsTest,
+  FACTORY_NAMED.factoryPathsTest,
+  'scripts/tests/core/generated-files.test.ts',
+  'scripts/tests/core/gh-callers.test.ts',
+  'scripts/tests/core/layer-map-one-answer.test.ts',
+  'scripts/tests/dead-modules.test.ts',
+  'scripts/tests/done/wiring.test.ts',
+  'scripts/tests/ports/ci-reading-seal.test.ts',
+  'scripts/tests/privacy/package-files.test.ts',
+  'scripts/tests/shift/runner-removed.test.ts',
+  'scripts/tests/witness/one-gib-disk.test.ts',
+  'tests/atlas-components.test.ts',
+  'tests/contract/accepted.test.ts',
+  'tests/contract/factory.test.ts',
+  'tests/contract/ratchet.test.ts',
+  'tests/factory-off-owner-machine.test.ts',
+  'tests/graph-command.test.ts',
+  'tests/hijack-deploy-beside.test.ts',
+]
+export const TRACED_TREE_SPAWNERS: readonly string[] = [
+  'scripts/tests/bus/bg.test.ts',
+  'scripts/tests/bus/db.test.ts',
+  'scripts/tests/bus/depth-sources.test.ts',
+  'scripts/tests/bus/node-versions.test.ts',
+  'scripts/tests/bus/review-worker.test.ts',
+  'scripts/tests/bus/stamp.test.ts',
+  'scripts/tests/bus/window-requests.test.ts',
+  'scripts/tests/ci/check-matrix.test.ts',
+  'scripts/tests/ci/cpubudget.test.ts',
+  'scripts/tests/ci/no-match-reporter.test.ts',
+  'scripts/tests/ci/prepush-selector.test.ts',
+  'scripts/tests/ghosts/launch-outlives-window.e2e.test.ts',
+  'scripts/tests/miko/exit.test.ts',
+  'scripts/tests/miko/handoff-relative.test.ts',
+  'scripts/tests/miko/loop.test.ts',
+  'scripts/tests/miko/miko-help.test.ts',
+  'scripts/tests/miko/miko-repo.test.ts',
+  'scripts/tests/miko/pre-compact.test.ts',
+  'scripts/tests/miko/turn-watch.test.ts',
+  'scripts/tests/miko/watch-orphan.test.ts',
+  'scripts/tests/miko/watch.test.ts',
+  'scripts/tests/miko/window-hooks-launched.test.ts',
+  'scripts/tests/miko/window-is-launched.test.ts',
+  'scripts/tests/policy/merge-rights-live-path.test.ts',
+  'scripts/tests/scratch/run-root.test.ts',
+  'scripts/tests/scratch/run.test.ts',
+  'scripts/tests/shift/handoff-write.test.ts',
+  'tests/attach-upgrade.test.ts',
+  'tests/build-target.test.ts',
+  'tests/card/witness-fields.test.ts',
+  'tests/check-acceptance-verbatim.test.ts',
+  'tests/delivery-boundary.test.ts',
+  'tests/eslint-nested-worktrees.test.ts',
+  'tests/every-source-has-a-reader.test.ts',
+  'tests/factory-start.test.ts',
+  'tests/identifier-scope.test.ts',
+  'tests/init.test.ts',
+  'tests/intake-from-package.test.ts',
+  'tests/ladder-base-pinned.test.ts',
+  'tests/ladder-sketch.test.ts',
+  'tests/ladder-witness-by-digest.test.ts',
+  'tests/package-factory.test.ts',
+  'tests/scripts-registry.test.ts',
+  'tests/window-recipes-template.test.ts',
+  'tests/window-recipes.test.ts',
+]
+export const EVERY_CHANGE_READERS: readonly string[] = [...TRACED_TREE_WALKERS, ...TRACED_TREE_SPAWNERS]
 const LINT_CONFIG = /^eslint\.config\.[cm]?[jt]s$/
 const LINT_RUN = /\bnew\s+ESLint\s*\(|\bcalculateConfigForFile\s*\(/
 const WORD_BOUNDARY = /[\s,;:()[\]"'`?!<>]+/
@@ -90,7 +175,7 @@ export function runsOf(body: string): string[] {
 }
 
 export function layerMasksOf(body: string): string[] {
-  return runsEntriesOf(body).filter(isLayerEntry).map(layerIdOf)
+  return runsEntriesOf(body).filter(isLayerEntry).map(layerNamedBy)
 }
 
 export function runsCover(file: string, runs: readonly string[]): boolean {

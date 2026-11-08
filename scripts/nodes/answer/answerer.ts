@@ -3,12 +3,12 @@ import type { ShiftGate } from '../../../src/manifest.js'
 import type { BusEvent } from '../../core/db.js'
 import type { Lease } from '../../core/lease.js'
 import type { MachineGate } from '../../core/machine-sessions.js'
+import type { FailedJobLog } from '../../ports/ci-reading.js'
 import type { Denial, Invocation, ProcessCwds, SessionTool, Usage } from '../../ports/client/contract.js'
-import type { GhPort } from '../../ports/gh.js'
 import type { AnswerInput } from '../../ports/prompt-store.js'
 import type { FreshBaseGap } from '../launch/tree-pr.js'
 import type { AnswerSource, CardSession } from './answer-source.js'
-import type { FailedJobLog } from './ci-log.js'
+import type { CardConcept, Importers } from './concept-scope.js'
 import { execFileSync, spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, realpathSync, rmSync, writeSync } from 'node:fs'
@@ -17,6 +17,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { readShiftGate } from '../../../src/manifest.js'
 import { roundGate } from '../../ci/prepush.js'
+import { cardDecisionBlock } from '../../core/card-decisions.js'
 import { appendEvent, defaultBusPath, openBus } from '../../core/db.js'
 import { TOUCHES_FOLLOWED } from '../../core/events.js'
 import { assertHeld, StaleLease } from '../../core/lease.js'
@@ -24,16 +25,16 @@ import { busNameOf, machineGate, machineSessions } from '../../core/machine-sess
 import { treeReportPath } from '../../core/places.js'
 import { pushPolicyOf } from '../../core/push-policy.js'
 import { busCardBodies } from '../../intake/parking-reads.js'
+import { ciLogForPrompt, GhCiRuns } from '../../ports/ci-reading.js'
 import { hasClientTranscript } from '../../ports/client/claude/adapter.js'
-import { PROCESS_GH_PORT } from '../../ports/gh.js'
+import { OsProcessTable } from '../../ports/process-table.js'
 import { CARD_SIZE_VARIABLE, CARD_VARIABLE, cardSessionOverlay, cardSizeIn, clientInvocation, sessionEnv, streamReading } from '../../ports/session.js'
 import { MAIN_BRANCH } from '../../ports/snapshot.js'
-import { claudeProcessCwds, listedCwds } from '../../ports/worktree.js'
 import { isAlive } from '../../quality/lock.js'
 import { busSessionPulse } from '../../supervisor/heartbeat.js'
 import { projectRoot, realExitReadings, sessionGauges, UNKNOWN } from '../../window/eddies-measure.js'
-import { answerFollowed, commitAndPush, followedLine, freshBaseProblem, freshBaseTask, worktreeCoverage } from '../launch/tree-pr.js'
-import { ciLogForPrompt, failedJobLinkIn } from './ci-log.js'
+import { answerFollowed, commitAndPush, CONCEPT_RULES, followedLine, freshBaseProblem, freshBaseTask, worktreeCoverage, worktreeImporters } from '../launch/tree-pr.js'
+import { conceptWidening } from './concept-scope.js'
 
 export const PREFIX = '[bus:answer] '
 export const ANSWER_BEAT_MS = 60_000
@@ -46,6 +47,7 @@ export interface AnswerRequest {
   card: CardSession
   fresh?: boolean
   outsideTouches?: (paths: readonly string[]) => string[]
+  concept?: CardConcept | null
   stepped?: (steps: StepSeconds) => void
 }
 
@@ -59,6 +61,7 @@ export interface Answered {
   tokens?: number | null
   input?: AnswerInput
   steps?: StepSeconds
+  widenedInConcept?: string[]
 }
 
 export function tokensOf(usage: Usage | null): number | null {
@@ -100,6 +103,7 @@ export interface AnswererTools {
   held?: (lease: Lease) => boolean
   pending?: (card: CardSession) => string[]
   coverage?: (card: CardSession) => ReturnType<typeof worktreeCoverage>
+  importers?: (card: CardSession) => Importers
   followed?: (lease: Lease, paths: readonly string[]) => void
   localHead?: (card: CardSession) => string | null
   now?: () => number
@@ -222,10 +226,8 @@ function redCiLines(failedChecks: string[], ciLog: FailedJobLog | null | undefin
   ]
 }
 
-function failedChecksOf(source: AnswerSource): string[] | null {
-  if (source.kind === 'ci')
-    return source.failedChecks
-  return source.kind === 'changes' ? source.failedChecks ?? null : null
+function asksAboutRedCi(source: AnswerSource): boolean {
+  return source.kind === 'ci' || (source.kind === 'changes' && source.failedChecks !== undefined)
 }
 
 function sourceLines(source: AnswerSource, ciLog?: FailedJobLog | null): string[] {
@@ -239,6 +241,8 @@ function sourceLines(source: AnswerSource, ciLog?: FailedJobLog | null): string[
   }
   if (source.kind === 'ci')
     return redCiLines(source.failedChecks, ciLog)
+  if (source.kind === 'decision')
+    return [`The owner decided on this card: D-${source.decisionId}: ${source.text}`, 'Continue the card under that decision; the card body is unchanged.']
   return [`The card stopped with a question for the agent: ${source.detail}`, 'Answer it as the Operator role would and continue the card.']
 }
 
@@ -258,7 +262,7 @@ function denialAimsAt(denial: Denial, file: string): boolean {
 }
 
 export function refusedOwnerQuestionIn(stdoutPath: string, file: string): string | null {
-  const refused = streamReading(stdoutPath).denials.find(denial => denialAimsAt(denial, file))
+  const refused = streamReading(stdoutPath).denials?.find(denial => denialAimsAt(denial, file))
   return refused === undefined || refused.text === '' ? null : refused.text
 }
 
@@ -266,10 +270,6 @@ function cardLines(cardId: number, cardText: string | null): string[] {
   if (cardText === null)
     return [`Card #${cardId} has no admitted body in the bus; read the card from the pull request.`]
   return [`The card as the bus holds it now, witnesses admitted after the verdict included:`, cardText.trim()]
-}
-
-function decisionLines(decisions: readonly string[]): string[] {
-  return decisions.length === 0 ? [] : ['Owner decisions in force for this card. They are the owner\'s answer: follow them, and do not ask the owner again what they settle.', ...decisions]
 }
 
 function diffLines(card: CardSession, diff: string | null | undefined): string[] {
@@ -292,7 +292,7 @@ export function answerPrompt(request: AnswerRequest, ownerQuestion: string, card
     `[answer:${lease.taskKey}]`,
     `Card #${lease.cardId}${lease.pr === null ? '' : `, pull request #${lease.pr} at ${lease.head}`}, in its tree ${card.worktree} on ${card.branch}.`,
     ...cardLines(lease.cardId, cardText),
-    ...decisionLines(source.decisions),
+    ...cardDecisionBlock(source.decisions),
     ...sourceLines(source, ciLog),
     ...diffLines(card, diff),
     ...(widened === null ? [] : [`The touches are widened: ${widened}.`]),
@@ -337,25 +337,6 @@ function remoteHead(card: CardSession): string | null {
 
 function git(cwd: string, args: string[]): string {
   return execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 64 * 1024 * 1024 })
-}
-
-export function failedJobLog(card: CardSession, head: string, gh: GhPort = PROCESS_GH_PORT): FailedJobLog | null {
-  const runs = gh.call(['run', 'list', '--commit', head, '--status', 'failure', '--json', 'databaseId', '--limit', '1'], { cwd: card.worktree })
-  if (runs.kind !== 'ran')
-    return null
-  try {
-    const [run] = JSON.parse(runs.stdout) as { databaseId: number }[]
-    if (run === undefined)
-      return null
-    const log = gh.call(['run', 'view', String(run.databaseId), '--log-failed'], { cwd: card.worktree })
-    if (log.kind !== 'ran')
-      return null
-    const jobs = gh.call(['run', 'view', String(run.databaseId), '--json', 'jobs'], { cwd: card.worktree })
-    return { log: log.stdout, jobLink: jobs.kind === 'ran' ? failedJobLinkIn(jobs.stdout) : null }
-  }
-  catch {
-    return null
-  }
 }
 
 function diffAgainstBase(card: CardSession): string | null {
@@ -417,12 +398,12 @@ export function pendingPathsOf(card: CardSession): string[] {
   return [...new Set([...committedOnTheBranch(card), ...uncommitted(card)])]
 }
 
-export function liveSessionIn(card: CardSession, cwds: () => ProcessCwds = claudeProcessCwds): string | null {
+export function liveSessionIn(card: CardSession, cwds: () => ProcessCwds = () => new OsProcessTable().clientCwds()): string | null {
   const read = cwds()
   if (read.kind === 'unreadable')
     return `the sessions running in the tree ${card.worktree} cannot be read (${read.why}), so the card counts as held`
   const tree = existsSync(card.worktree) ? realpathSync(card.worktree) : card.worktree
-  const inside = listedCwds(read.listing).find(cwd => cwd === tree || cwd.startsWith(`${tree}${path.sep}`))
+  const inside = read.cwds.find(cwd => cwd === tree || cwd.startsWith(`${tree}${path.sep}`))
   return inside === undefined ? null : `a live session runs in ${inside}, inside the tree ${card.worktree}`
 }
 
@@ -440,7 +421,7 @@ export function contextWarnOfEddies(size: string | null = null): number | null {
   return warn === UNKNOWN ? null : warn
 }
 
-function spawnClient(run: AnswerRun): Promise<number> {
+export function spawnClient(run: AnswerRun): Promise<number> {
   const outFd = openSync(run.stdoutPath, 'w')
   const errFd = openSync(run.stderrPath, 'w')
   let closed = false
@@ -458,6 +439,8 @@ function spawnClient(run: AnswerRun): Promise<number> {
     const child = spawn(run.command, run.argv, { cwd: run.cwd, env: run.env, stdio: ['ignore', 'pipe', errFd], signal: run.signal })
     child.stdout?.setEncoding('utf8')
     child.stdout?.on('data', (chunk: string) => {
+      if (closed)
+        return
       writeSync(outFd, chunk)
       const lines = `${partial}${chunk}`.split('\n')
       partial = lines.pop() ?? ''
@@ -613,7 +596,7 @@ export function realAnswererTools(busPath: string = defaultBusPath()): AnswererT
     context: session => sessionGauges(os.homedir(), projectRoot(process.env), session).context ?? null,
     contextWarn: contextWarnOfEddies,
     diff: diffAgainstBase,
-    ciLog: (card, head) => failedJobLog(card, head),
+    ciLog: (card, head) => new GhCiRuns().failureLogOn(head, card.worktree),
   }
 }
 
@@ -652,7 +635,7 @@ function sessionAnswerer(dir: string, tools: AnswererTools): Answerer {
     const ownerQuestion = ownerQuestionPath(dir, session, request.lease.leaseGen)
     const gate = roundGateOf(readShiftGate(card.worktree), tools.localHead?.(card) ?? null)
     const timer = new RoundTimer(tools.now ?? Date.now, gate.prepush)
-    const ciLog = failedChecksOf(request.source) !== null && request.lease.head !== null ? tools.ciLog?.(card, request.lease.head) : undefined
+    const ciLog = asksAboutRedCi(request.source) && request.lease.head !== null ? tools.ciLog?.(card, request.lease.head) : undefined
     const handoff = answerHandoffPath(card.worktree)
     if (request.fresh !== true)
       rmSync(handoff, { force: true })
@@ -705,20 +688,27 @@ function sessionAnswerer(dir: string, tools: AnswererTools): Answerer {
     }
     const steps = ['']
     const ownerAfter = (step: string): string | null => ownerQuestionIn(ownerQuestion) ?? refusedOwnerQuestionIn(stdoutOf(step), ownerQuestion)
-    const followedOrRefused = (): string[] => {
+    const widenedInConcept = new Set<string>()
+    const followedOrRefused = (): { followed: string[], widened: string[] } => {
       const outside = request.outsideTouches?.(tools.pending?.(card) ?? []) ?? []
       if (outside.length === 0)
-        return []
+        return { followed: [], widened: [] }
       const touched = answerFollowed(git, card.worktree, outside, request.lease.cardId, cardBody, (tools.coverage ?? (tree => worktreeCoverage(git, tree.worktree)))(card))
-      if (touched.outside.length > 0)
-        throw new AnswerOutsideTouches(request.lease, touched.outside)
-      return touched.followed
+      const concept = request.concept
+      const within = concept === undefined || concept === null
+        ? { widened: [], outside: touched.outside }
+        : conceptWidening(touched.outside, concept, CONCEPT_RULES, () => (tools.importers ?? (tree => worktreeImporters(git, tree.worktree)))(card))
+      if (within.outside.length > 0)
+        throw new AnswerOutsideTouches(request.lease, within.outside)
+      return { followed: touched.followed, widened: within.widened }
     }
     const pushTree = (): FreshBaseGap | null => {
-      const followed = followedOrRefused()
+      const { followed, widened } = followedOrRefused()
       const gap = timer.pushing(() => freshBaseGapOf(() => tools.publish(card, answerCommitMessage(request.lease))))
       if (gap === null && followed.length > 0)
         tools.followed?.(request.lease, followed)
+      if (gap === null)
+        widened.forEach(file => widenedInConcept.add(file))
       return gap
     }
     const publish = async (): Promise<string | null> => {
@@ -741,7 +731,7 @@ function sessionAnswerer(dir: string, tools: AnswererTools): Answerer {
       const atLine = atContextWarn(tools, session, size)
       const owner = ownerAfter('') ?? (kept || atLine ? null : await publish())
       const measured = measuredOf(steps.map(stdoutOf))
-      return { session, resumed, atContextWarn: atLine, before, after: tools.remoteHead(card), owner, ...measured, input: { prompt, cardBody }, steps: timer.steps() }
+      return { session, resumed, atContextWarn: atLine, before, after: tools.remoteHead(card), owner, ...measured, input: { prompt, cardBody }, steps: timer.steps(), ...(widenedInConcept.size === 0 ? {} : { widenedInConcept: [...widenedInConcept] }) }
     }
     finally {
       request.stepped?.(timer.steps())

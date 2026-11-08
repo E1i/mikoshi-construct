@@ -1,12 +1,31 @@
+import type { DatabaseSync } from 'node:sqlite'
 import type { ClosedPr, MainHead, OpenPr, Snapshot } from '../ports/snapshot.js'
 import type { BusEvent } from './db.js'
 import { createHash } from 'node:crypto'
-import { PR_CLOSED } from './events.js'
+import { PR_CLOSED, PR_OBSERVED } from './events.js'
 
 export const NETWATCH = 'netwatch'
 
 function observation(ts: string, type: string, fields: Pick<BusEvent, 'cardId' | 'pr' | 'head' | 'dedupeKey' | 'payload'>): BusEvent {
   return { ts, type, actor: NETWATCH, legacy: false, ...fields }
+}
+
+const OBSERVATION_AFTER_THE_LATEST_CLOSE = `
+  SELECT min(id) AS id FROM events
+  WHERE type = '${PR_OBSERVED}' AND pr = ?1 AND id > (SELECT max(id) FROM events WHERE type = '${PR_CLOSED}' AND pr = ?1)
+`
+
+export type ReopeningOf = (pr: number) => number | null
+
+export function reopeningOf(db: DatabaseSync): ReopeningOf {
+  return (pr) => {
+    const row = db.prepare(OBSERVATION_AFTER_THE_LATEST_CLOSE).get(pr) as { id: number | null } | undefined
+    return row?.id == null ? null : Number(row.id)
+  }
+}
+
+export function closedKey(pr: number, reopening: number | null): string {
+  return reopening === null ? `pr:${pr}:closed` : `pr:${pr}:closed:after-${reopening}`
 }
 
 export interface PreviousObservation {
@@ -28,8 +47,7 @@ export function prObserved(ts: string, open: OpenPr, previous: PreviousObservati
     head: open.head,
     ...(open.branch === null ? {} : { branch: open.branch }),
     mergeable: open.mergeable,
-    ci: open.ci,
-    ...(open.failedChecks.length === 0 ? {} : { failed_checks: open.failedChecks }),
+    ...open.ciFields,
     ...(open.verdictOnHead === null ? {} : { verdict_on_head: open.verdictOnHead }),
     auto_merge: open.autoMerge,
     draft: open.draft,
@@ -41,7 +59,7 @@ export function prObserved(ts: string, open: OpenPr, previous: PreviousObservati
   return observation(ts, 'pr.observed', { cardId: open.cardId, pr: open.pr, head: open.head, dedupeKey, payload })
 }
 
-export function prClosed(ts: string, closed: ClosedPr): BusEvent {
+export function prClosed(ts: string, closed: ClosedPr, reopening: number | null = null): BusEvent {
   const payload = {
     merged: closed.merged,
     ...(closed.branch == null ? {} : { branch: closed.branch }),
@@ -49,17 +67,17 @@ export function prClosed(ts: string, closed: ClosedPr): BusEvent {
     ...(closed.mergedBy === null ? {} : { merged_by: closed.mergedBy }),
     ...(closed.mergedAt === null ? {} : { merged_at: closed.mergedAt }),
   }
-  return observation(ts, PR_CLOSED, { cardId: closed.cardId, pr: closed.pr, head: null, dedupeKey: `pr:${closed.pr}:closed`, payload })
+  return observation(ts, PR_CLOSED, { cardId: closed.cardId, pr: closed.pr, head: null, dedupeKey: closedKey(closed.pr, reopening), payload })
 }
 
 export function mainAdvanced(ts: string, main: MainHead): BusEvent {
   return observation(ts, 'main.advanced', { cardId: null, pr: null, head: null, dedupeKey: `main:${main.sha}`, payload: { sha: main.sha, touches_mechanics: main.touchesMechanics } })
 }
 
-export function observationsOf(ts: string, snapshot: Snapshot, previousOf: PreviousObservationOf): BusEvent[] {
+export function observationsOf(ts: string, snapshot: Snapshot, previousOf: PreviousObservationOf, reopening: ReopeningOf = () => null): BusEvent[] {
   return [
     ...snapshot.open.map(open => prObserved(ts, open, previousOf(open.pr))),
-    ...snapshot.closed.map(closed => prClosed(ts, closed)),
+    ...snapshot.closed.map(closed => prClosed(ts, closed, reopening(closed.pr))),
     ...(snapshot.main === null ? [] : [mainAdvanced(ts, snapshot.main)]),
   ]
 }

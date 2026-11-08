@@ -1,3 +1,4 @@
+import type { RunJob } from '../ports/ci-reading.js'
 import type { TestWeights } from './shard.js'
 import { spawnSync } from 'node:child_process'
 import { existsSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
@@ -6,11 +7,10 @@ import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import config from '../../vitest.config.js'
-import { execGh, readGhJson } from '../ports/gh.js'
+import { GhCiRuns } from '../ports/ci-reading.js'
 import { updateWeights, weightsFromVitestReport } from './shard.js'
 
-export interface RunStep { name: string, startedAt: string, completedAt: string }
-export interface RunJob { name: string, conclusion: string, startedAt: string, completedAt: string, steps?: RunStep[] }
+export type { RunJob, RunStep } from '../ports/ci-reading.js'
 
 export type SpreadVerdict
   = | { kind: 'not-proven', before: number[], after: number[], needed: number }
@@ -24,6 +24,7 @@ const RUNS_LISTED = 60
 const SHARD_JOB = /^vitest (\d+)\/(\d+)$/
 const TEST_STEP = 'Run pnpm test'
 const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..')
+const CI = new GhCiRuns()
 
 const seconds = (from: string, to: string): number => (Date.parse(to) - Date.parse(from)) / 1000
 
@@ -89,7 +90,7 @@ function failWith(line: string): never {
 }
 
 function mainRuns(): { databaseId: number, headSha: string }[] {
-  const listed = readGhJson<{ databaseId: number, headSha: string }[]>(execGh, ['run', 'list', '--workflow', 'CI', '--branch', 'main', '--event', 'push', '--status', 'success', '--limit', String(RUNS_LISTED), '--json', 'databaseId,headSha'])
+  const listed = CI.successfulRunsOnMain(RUNS_LISTED)
   return listed.kind === 'read' ? listed.value : failWith(`test:weights: the CI runs on main could not be listed: ${listed.reason}`)
 }
 
@@ -110,7 +111,7 @@ function spreadOnMain(boundaryArgument: string | undefined): void {
     if (side.filter(reading => reading.testSet === testSet).length >= RUNS_PER_SIDE)
       continue
     const runTestSet = testSetOf((git(['ls-tree', '-r', '--name-only', run.headSha]) ?? '').split('\n'))
-    const jobs = readGhJson<{ jobs: RunJob[] }>(execGh, ['run', 'view', String(run.databaseId), '--json', 'jobs'])
+    const jobs = CI.jobsOfRun(run.databaseId)
     const reading = jobs.kind === 'read' ? shardSpread(jobs.value.jobs) : undefined
     if (reading !== undefined)
       side.push({ testSet: runTestSet, ...reading })
@@ -128,7 +129,7 @@ function spreadOnMain(boundaryArgument: string | undefined): void {
 function reportFromMain(): string {
   const directory = mkdtempSync(path.join(tmpdir(), 'test-weights-'))
   for (const run of mainRuns()) {
-    if (execGh(['run', 'download', String(run.databaseId), '--name', CI_REPORT_ARTIFACT, '--dir', directory]).kind === 'ran')
+    if (CI.downloadArtifact(run.databaseId, { name: CI_REPORT_ARTIFACT, dir: directory }).done)
       return path.join(directory, 'vitest.json')
   }
   return failWith(`test:weights: no successful push run on main carries the ${CI_REPORT_ARTIFACT} artifact; the table is left as it is`)

@@ -306,6 +306,7 @@ that claim stands on, and where you are is the model's own path selection.
 | `youAreHere` | knowledge |
 | `notCarried` | knowledge |
 | `versionGap` | provenance |
+| `unknownClients` | provenance |
 
 `harnessProblems` carries provenance only: `package.json` is gone, it has no script under the name
 `construct.json` recorded, or a contract path that manifest points at is absent. Each of those goes
@@ -656,6 +657,13 @@ end, and a verdict there would pronounce on a file its owner owns, so the list s
 nothing. A non-literal include leaves it empty for the same reason, and a runner config that cannot be read
 leaves it empty and is named in `unreadableFiles`.
 
+### A client the record names and no adapter carries
+
+`unknownClients` names each id the optional `client` branch of `construct.json` names — `client.id`
+or a `client.roles` entry — that no client adapter carries, beside the known ones in the line it
+prints. With no `client` branch it is empty, and the default client is used. It is provenance, read
+off `construct.json` alone, and it does not move `ok`: no caller selects a client from the record yet.
+
 A repository that already had its own `eslint.config.mjs` keeps it: `init` never overwrites a file the
 construct did not write. The construct's syntax policy is therefore not applied there, and the test
 that proves the policy fires — `scripts/tests/lint/syntax-policy.test.ts` — is materialized only into a
@@ -777,7 +785,8 @@ never changes the exit code.
   ],
   "youAreHere": { "at": "stop", "stop": { "claimId": "every-change-passes-the-harness", "stage": "enforcement", "state": "unsupported", "doesNotHold": [".github/workflows/ci.yml"] } },
   "notCarried": [{ "claimId": "lint-policy", "reading": "does-not-hold", "path": "scripts/tests/lint/syntax-policy.test.ts" }],
-  "versionGap": { "materializedBy": "0.1.0", "readBy": "0.2.0", "pending": 3 }
+  "versionGap": { "materializedBy": "0.1.0", "readBy": "0.2.0", "pending": 3 },
+  "unknownClients": []
 }
 ```
 
@@ -823,7 +832,7 @@ can prove it owns, and nothing else.
 | Option | Default | What it does |
 |---|---|---|
 | `--json` | `false` | The classification as a JSON object, for CI. |
-| `--apply` | `false` | Write the paths the construct owns. The only way `sync` writes anything. |
+| `--apply` | `false` | Write the paths the construct owns and the browser lab exclusion in `.claude/settings.local.json`. The only way `sync` writes anything. |
 
 ```bash
 npx mikoshi-construct sync
@@ -926,6 +935,18 @@ is kept, and a filled `construct:discover` body is carried over into the new blo
 has the sha of its owned view recorded under `sync` in `construct.json`, together with when the run
 happened, the version that materialized the repository and the version that wrote. The branch `init`
 wrote is never touched, and when nothing was written `construct.json` is not touched at all.
+
+**The browser lab exclusion.** One write stands outside the record. Where the construct carries the
+Claude settings, `--apply` adds `node <home>/.construct/browser-lab/bin/browser-lab.mjs *`, with the
+home directory written out absolute, to `sandbox.excludedCommands` of `.claude/settings.local.json`, as
+`init` does, even when no path has anything to write. An entry already held is not added twice and the
+file is then not written; otherwise every other byte stays. A file git tracks, a file that does not
+read as settings, an unreadable git index or a linked worktree (whose index this reader cannot see) is
+not edited, and the run prints that the browser organ runs inside the sandbox without its exclusion.
+That does not change the exit code. Under `--json` the key `browserLabExclusion` reads `added`, `held`
+or `refused`, and is absent where the construct carries no Claude settings. `sync` without `--apply`
+writes nothing, this file included. `construct.json` records nothing of it: the line holds a home path
+and stays on this machine.
 
 **What it never writes.** A `keep` (there is nothing to write), a `conflict` (a decision only an owner
 can make), a `removed` path (deleted deliberately; sync never puts it back), an `orphaned` path (it
@@ -1137,7 +1158,7 @@ did in `.construct/attach.json`. No `construct.json`, no
 | `--serve-url <url>` | none | The `http` or `https` URL that answers once the server is up, recorded as `serve.url`. The witness node waits for it up to the default `readyTimeoutMs` of `30000`; attach takes no timeout flag. |
 | `--yes`, `-y` | `false` | Skip the confirmation. Without `--harness`, nothing is proposed and the harness is recorded as `none`. |
 | `--entry` | `false` | Print the entry protocol and exit `0`; nothing else runs, whatever other flags are given. |
-| `--upgrade` | `false` | Rewrite only the carriers of a repository already attached to the installed version. See [Upgrading the carriers](#upgrading-the-carriers). `--harness`, `--required-check`, `--ai`, `--lanes`, `--serve` and `--serve-url` are refused with it: the record holds them. |
+| `--upgrade` | `false` | Rewrite the carriers of a repository already attached to the installed version, and add the browser lab exclusion to `.claude/settings.local.json`. See [Upgrading the carriers](#upgrading-the-carriers). `--harness`, `--required-check`, `--ai`, `--lanes`, `--serve` and `--serve-url` are refused with it: the record holds them. |
 
 ```bash
 npx mikoshi-construct attach --harness "npm test"
@@ -1246,8 +1267,15 @@ factory runs on: the factory's place is then not attach's.
 It rewrites a recorded carrier whose bytes are the ones the record names, creates a carrier the older
 build did not have and adds it to the exclude block, and records the new hashes and `attachedVersion`.
 Everything else stays byte for byte: the `.construct` data, the handoff and the bus beside the
-repository, and `.claude/settings.local.json`. A window hook entry a later version adds is therefore not
-wired by an upgrade; attach says so for a record that carries no window entries.
+repository. In `.claude/settings.local.json` an upgrade adds one thing, the browser lab exclusion
+`node <home>/.construct/browser-lab/bin/browser-lab.mjs *`, even at the installed version, where it asks
+no confirmation because nothing else is rewritten. It records what it added in `settingsHook.sandbox`, so
+`detach` removes it and an entry the repository held before stays. An entry already held is not added
+twice and leaves the file and the record as they are; otherwise every other byte of the file stays. A
+tracked or unreadable file, or a record with no readable `settingsHook` to hold the entry, is not edited,
+and the upgrade prints that the browser organ runs inside the sandbox without its exclusion. A window hook
+entry a later version adds is not wired by an upgrade; attach says so for a record that carries no window
+entries.
 
 | What it finds | What it does |
 |---|---|

@@ -102,7 +102,7 @@ describe('the check matrix built from the catalog rows', () => {
   })
 
   it('a path in no layer gives a full run and no matrix', async () => {
-    const matrix = buildMatrix(['README.md'], GRAPH, () => '', catalogDb(BRIEF))
+    const matrix = buildMatrix(['CONTRIBUTING.md'], GRAPH, () => '', catalogDb(BRIEF))
     expect(matrix.full).not.toBeNull()
     expect(matrixSummary(matrix, [])).toContain('full run')
   })

@@ -1,6 +1,8 @@
 import { statfsSync } from 'node:fs'
 import process from 'node:process'
 
+export const TECHNOLOGY_WORDS = ['statfs'] as const
+
 export const DISK_LOW = 'disk_low'
 
 const GIB = 1024 ** 3

@@ -6,7 +6,9 @@ import { createdPaths } from '../../src/card/parking.js'
 import { RISK_LEVELS, riskOf } from '../../src/card/risk.js'
 import { judgedFieldWitnessesOf, witnessesOf } from '../../src/commands/intake/admit.js'
 import { isChangeWitness, ownerPathsOf } from '../../src/commands/intake/check.js'
+import { CLOSED_CARD, DROPPED_CARD, MERGED_CARD } from '../core/card-automaton.js'
 import { CARD_ADMITTED, MERGE_DONE, PR_CLOSED, WITNESS_RECORDED } from '../core/events.js'
+import { GENERATED_PATHS } from '../core/generated-files.js'
 import { matchGlob } from './shredder/glob.js'
 import { readOwnerMergeKinds } from './shredder/reader.js'
 
@@ -143,8 +145,12 @@ function changesOwnerMerges(facts: MergeFacts): MergeVerdict | null {
 }
 
 const RUNS_NOTHING = /^(?:scripts\/tests|tests|e2e)\/|\.md$/
+const GENERATED_PATH_SET: ReadonlySet<string> = new Set(GENERATED_PATHS)
 const HUNK_START = /^(?=@@ )/m
 const EXCLUDED_COMMANDS = 'excludedCommands'
+const EXCLUDED_ENTRY = 'excludedCommands entry'
+const STRING_LITERAL = /"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|`(?:[^`\\]|\\.)*`/g
+const ARRAY_PUNCTUATION_ONLY = /^[[\]\s,()]*$/
 const UNSANDBOXED_LINE_FORMS: readonly { form: string, line: RegExp }[] = [
   { form: 'allowUnsandboxedCommands other than false', line: /allowUnsandboxedCommands(?!["']?\s*[:=]\s*false\b)/ },
   { form: 'dangerouslyDisableSandbox', line: /dangerouslyDisableSandbox/ },
@@ -152,29 +158,97 @@ const UNSANDBOXED_LINE_FORMS: readonly { form: string, line: RegExp }[] = [
   { form: 'a spawn call', line: /(?<![\w$.])(?:execFileSync|execFile|execSync|exec|spawnSync|spawn|fork)\(/ },
 ]
 
-function unsandboxedFormIn(patch: string): string | undefined {
-  for (const hunk of patch.split(HUNK_START)) {
-    const added = hunk.split('\n').filter(line => line.startsWith('+'))
-    if (added.length === 0)
+type PatchSide = '-' | '+'
+
+interface CommandCall {
+  form: string
+  text: string
+}
+
+function callKey(call: CommandCall): string {
+  return `${call.form}\u0000${call.text}`
+}
+
+function bracketDepthChange(text: string): number {
+  const bare = text.replace(STRING_LITERAL, '')
+  return [...bare].reduce((depth, char) => depth + (char === '[' ? 1 : char === ']' ? -1 : 0), 0)
+}
+
+function entriesOf(segment: string): string[] {
+  const literals = segment.match(STRING_LITERAL)
+  if (literals !== null)
+    return literals
+  const bare = segment.trim().replace(/,$/, '')
+  return ARRAY_PUNCTUATION_ONLY.test(bare) ? [] : [bare]
+}
+
+function callsOnSide(hunk: string, side: PatchSide): CommandCall[] {
+  const calls: CommandCall[] = []
+  let depth = 0
+  let keyAwaitsArray = false
+  for (const line of hunk.split('\n').slice(1)) {
+    const mark = line[0]
+    if (mark !== ' ' && mark !== side)
       continue
-    if (hunk.includes(EXCLUDED_COMMANDS))
-      return EXCLUDED_COMMANDS
-    const found = UNSANDBOXED_LINE_FORMS.find(({ line }) => added.some(text => line.test(text)))
-    if (found !== undefined)
-      return found.form
+    const own = mark === side
+    const text = line.slice(1)
+    const trimmed = text.trim()
+    if (own)
+      calls.push(...UNSANDBOXED_LINE_FORMS.filter(({ line: form }) => form.test(text)).map(({ form }) => ({ form, text: trimmed })))
+    let inside: string | undefined
+    if (depth > 0) {
+      inside = text
+    }
+    else {
+      const key = text.indexOf(EXCLUDED_COMMANDS)
+      if (key !== -1) {
+        if (own)
+          calls.push({ form: EXCLUDED_COMMANDS, text: trimmed })
+        const rest = text.slice(key + EXCLUDED_COMMANDS.length)
+        const open = rest.indexOf('[')
+        keyAwaitsArray = open === -1 && /^["']?\??\s*(?:[:=]\s*)?$/.test(rest)
+        inside = open === -1 ? undefined : rest.slice(open)
+      }
+      else if (keyAwaitsArray && trimmed.startsWith('[')) {
+        keyAwaitsArray = false
+        inside = trimmed
+      }
+      else if (trimmed !== '') {
+        keyAwaitsArray = false
+      }
+    }
+    if (inside === undefined)
+      continue
+    if (own)
+      calls.push(...entriesOf(inside).map(entry => ({ form: EXCLUDED_ENTRY, text: entry })))
+    depth = Math.max(0, depth + bracketDepthChange(inside))
+  }
+  return calls
+}
+
+function newCommandCallIn(patch: string): CommandCall | undefined {
+  const hunks = patch.split(HUNK_START).filter(hunk => hunk.startsWith('@@'))
+  const removed = new Map<string, number>()
+  for (const call of hunks.flatMap(hunk => callsOnSide(hunk, '-')))
+    removed.set(callKey(call), (removed.get(callKey(call)) ?? 0) + 1)
+  for (const call of hunks.flatMap(hunk => callsOnSide(hunk, '+'))) {
+    const held = removed.get(callKey(call)) ?? 0
+    if (held === 0)
+      return call
+    removed.set(callKey(call), held - 1)
   }
   return undefined
 }
 
 function unsandboxedCommand(facts: MergeFacts): MergeVerdict | null {
   for (const { filename, patch, additions } of facts.patched) {
-    if (RUNS_NOTHING.test(filename))
+    if (RUNS_NOTHING.test(filename) || GENERATED_PATH_SET.has(filename))
       continue
     if (patch === undefined && additions !== 0)
       return denied('unsandboxed_command', `GitHub gives no patch for ${filename}, so whether it adds a command outside the sandbox is unknown, and it stays the owner's`)
-    const form = patch === undefined ? undefined : unsandboxedFormIn(patch)
-    if (form !== undefined)
-      return denied('unsandboxed_command', `the diff of ${filename} adds ${form}: a command outside the sandbox stays the owner's under every shard and every decision`)
+    const call = patch === undefined ? undefined : newCommandCallIn(patch)
+    if (call !== undefined)
+      return denied('unsandboxed_command', `the diff of ${filename} adds ${call.form} (${call.text}) that its removed lines do not hold: a command outside the sandbox stays the owner's under every shard and every decision`)
   }
   return null
 }
@@ -310,6 +384,66 @@ export function closePolicy(facts: CloseFacts): CloseVerdict {
   return { kind: 'allowed', rule: 'card_pr', detail: `PR #${facts.pr} is the pull request of card #${card.card.id}, open and under no merge lease` }
 }
 
+export const REOPEN_RULES = ['version_pr', 'not_closed', 'merged', 'no_card', 'other_card', 'card_ended'] as const
+export const ENDED_CARD_STATES: ReadonlySet<string> = new Set([MERGED_CARD, CLOSED_CARD, DROPPED_CARD])
+
+export type ReopenRule = typeof REOPEN_RULES[number]
+
+export type ReopenVerdict
+  = | { kind: 'allowed', rule: 'card_pr', detail: string }
+    | { kind: 'denied', rule: ReopenRule, detail: string }
+
+export interface ReopenFacts {
+  pr: number
+  state: string
+  merged: boolean
+  headRef: string
+  body: string
+  cardId: number
+  cardState: string | null
+}
+
+export function reopenPolicy(facts: ReopenFacts): ReopenVerdict {
+  if (VERSION_BRANCH.test(facts.headRef))
+    return { kind: 'denied', rule: 'version_pr', detail: `PR #${facts.pr} on ${facts.headRef} is the version pull request and stays the owner's` }
+  if (facts.merged)
+    return { kind: 'denied', rule: 'merged', detail: `PR #${facts.pr} is merged; a merged pull request is not reopened` }
+  if (facts.state !== 'closed')
+    return { kind: 'denied', rule: 'not_closed', detail: `PR #${facts.pr} is ${facts.state}, not closed` }
+  const card = readBodyCard(facts.body)
+  if (card.kind === 'refused')
+    return { kind: 'denied', rule: 'no_card', detail: `PR #${facts.pr} names no card on the first line of its description (${card.reason}) and stays the owner's` }
+  if (card.card.id !== facts.cardId)
+    return { kind: 'denied', rule: 'other_card', detail: `PR #${facts.pr} is the pull request of card #${card.card.id}, not #${facts.cardId}` }
+  if (facts.cardState !== null && ENDED_CARD_STATES.has(facts.cardState))
+    return { kind: 'denied', rule: 'card_ended', detail: `card #${facts.cardId} is ${facts.cardState} in the bus, so nothing would close PR #${facts.pr} again` }
+  return { kind: 'allowed', rule: 'card_pr', detail: `PR #${facts.pr} is the closed unmerged pull request of card #${facts.cardId}, which the bus holds live` }
+}
+
+export type CardPrRule = 'version_pr' | 'not_open' | 'no_card'
+
+export type CardPrVerdict
+  = | { kind: 'allowed', rule: 'card_pr', cardId: number, detail: string }
+    | { kind: 'denied', rule: CardPrRule, detail: string }
+
+export interface CardPrFacts {
+  pr: number
+  state: string
+  headRef: string
+  body: string
+}
+
+export function cardPrPolicy(facts: CardPrFacts): CardPrVerdict {
+  if (VERSION_BRANCH.test(facts.headRef))
+    return { kind: 'denied', rule: 'version_pr', detail: `PR #${facts.pr} on ${facts.headRef} is the version pull request and stays the owner's` }
+  if (facts.state !== 'open')
+    return { kind: 'denied', rule: 'not_open', detail: `PR #${facts.pr} is ${facts.state}, not open` }
+  const card = readBodyCard(facts.body)
+  if (card.kind === 'refused')
+    return { kind: 'denied', rule: 'no_card', detail: `PR #${facts.pr} names no card on the first line of its description (${card.reason}) and stays the owner's` }
+  return { kind: 'allowed', rule: 'card_pr', cardId: card.card.id, detail: `PR #${facts.pr} is the open pull request of card #${card.card.id}` }
+}
+
 export function pastRoundLimit(detail: string, decisionId: number, pr: number, head: string): MergeVerdict & { kind: 'allowed' } {
   return { kind: 'allowed', rule: 'owner_after_round_limit', detail: `${detail}; past the review round limit D-${decisionId} names PR #${pr} at ${head}` }
 }
@@ -325,13 +459,20 @@ export function underOwnerDecision(verdict: MergeVerdict, decisionId: number, pr
 export const WITNESS_REASON = 'witness'
 export const GREEN = 'green'
 export const RED = 'red'
+export const UNCHECKED = 'unchecked'
 
 const CREATES_LINE = /^creates:(.*)$/m
 const BACKTICKED = /`([^`]+)`/g
 const EXITS_ONE_ON_HEAD_ZERO_ON_BASE = /\bexits 1 on (?:the )?head,? and (?:exits )?0 on (?:the )?(?:base|main)\b/i
 const NEGATION = /^!\s+/
 
-export type WitnessVerdict = typeof GREEN | typeof RED
+export type WitnessVerdict = typeof GREEN | typeof RED | typeof UNCHECKED
+
+const STORED_VERDICTS: ReadonlySet<unknown> = new Set([GREEN, RED, UNCHECKED])
+
+function storedVerdict(stored: unknown): WitnessVerdict {
+  return STORED_VERDICTS.has(stored) ? stored as WitnessVerdict : RED
+}
 
 export interface CardWitnesses {
   acceptance: Witness[]
@@ -423,7 +564,7 @@ export function witnessRecordOf(db: DatabaseSync, cardId: number, head: string, 
   if (row === undefined)
     return null
   const payload = JSON.parse(row.payload) as { verdict?: unknown, base?: unknown, detail?: unknown }
-  return { verdict: payload.verdict === GREEN ? GREEN : RED, base: String(payload.base ?? ''), detail: String(payload.detail ?? '') }
+  return { verdict: storedVerdict(payload.verdict), base: String(payload.base ?? ''), detail: String(payload.detail ?? '') }
 }
 
 function recordDenial(db: DatabaseSync, subject: WitnessSubject, head: string, base: string | null): WitnessDenial | null {
@@ -431,6 +572,8 @@ function recordDenial(db: DatabaseSync, subject: WitnessSubject, head: string, b
   const where = base === null ? '' : ` on the base ${base}`
   if (record === null)
     return { detail: `no ${WITNESS_RECORDED} for card #${subject.cardId} at head ${head}${where} under card body ${subject.cardBody}: the witness node has not run every card witness red on the base and green on this head`, base }
+  if (record.verdict === UNCHECKED)
+    return { detail: `the ${WITNESS_RECORDED} for card #${subject.cardId} at head ${head} on the base ${record.base} under card body ${subject.cardBody} could not check, so nothing passed: ${record.detail}`, base }
   if (record.verdict !== GREEN)
     return { detail: `the ${WITNESS_RECORDED} for card #${subject.cardId} at head ${head} on the base ${record.base} under card body ${subject.cardBody} is red: ${record.detail}`, base }
   return null

@@ -8,6 +8,7 @@ export type ModelChoice = 'auto' | string
 
 export interface ModelPick {
   model: string | null
+  effort: Effort | null
 }
 
 export interface Refusal {
@@ -20,8 +21,8 @@ export interface ClientAdapter {
   readonly capabilities: Capabilities
   invocation: (spec: SessionSpec) => Invocation | Refusal
   reading: (place: SessionPlace) => SessionReading
-  readBudget: (home: string, session: string) => ReadBudget
-  models: () => ModelOffer[]
+  readBudget: (place: BudgetPlace) => ReadBudget
+  models: () => ModelOffer[] | null
   modelFor: (role: Role, effort: Effort | null, wanted: ModelChoice) => ModelPick | Refusal
   processes: ClientProcesses
   ownSession: (env: NodeJS.ProcessEnv) => string | null
@@ -42,7 +43,7 @@ export interface SessionSpec {
   cwd: string
   prompt: string
   addDirs: string[]
-  pick: ModelPick
+  pick: Pick<ModelPick, 'model'> & Partial<Pick<ModelPick, 'effort'>>
   policy: SessionPolicy
 }
 
@@ -57,7 +58,11 @@ export interface SessionPlace {
   session: string
   cwd: string
   stdoutPath: string | null
+  stderrPath: string | null
+  exitCode: number | null
 }
+
+export type BudgetPlace = Pick<SessionPlace, 'session' | 'cwd' | 'stdoutPath'>
 
 export interface Usage {
   input: number
@@ -95,11 +100,12 @@ export interface SessionReading {
   turns: number | null
   durationMs: number | null
   model: string | null
-  denials: Denial[]
+  denials: Denial[] | null
   toolUses: ToolUse[]
   journal: SessionJournal | 'unreadable'
   lastSteps: string[] | null
   contextTokens: number | null
+  clientSession: string | null
 }
 
 export interface ReadBudget {
@@ -114,6 +120,14 @@ export interface ModelOffer {
   recommendedFor: Role[]
 }
 
+export interface ClientGuarantees {
+  allowlist: boolean
+  writeConfinement: boolean
+  mcpOff: boolean
+  toolNarrowing: boolean
+  guardFailsClosed: boolean
+}
+
 export interface Capabilities {
   identity: 'assigned' | 'reported'
   ladder: boolean
@@ -124,13 +138,14 @@ export interface Capabilities {
     denials: boolean
     journal: boolean
   }
+  guarantees: ClientGuarantees
 }
 
-export type ProcessCwds = { kind: 'listed', listing: string } | { kind: 'unreadable', why: string }
+export type ProcessCwds = { kind: 'listed', cwds: string[] } | { kind: 'unreadable', why: string }
 
 export interface ClientProcesses {
   isClient: (argv: string) => boolean
   sessionMarker: (session: string) => string | null
-  liveCwds: () => ProcessCwds
+  processNames: readonly string[]
   isolationCommand: () => string[]
 }

@@ -98,7 +98,6 @@ export interface NodeControl {
 
 export interface ProcessSignals {
   signal: (pid: number, name: NodeJS.Signals) => void
-  alive: (pid: number) => boolean
   runsNodeOfThisBus: (pid: number, script: string) => boolean
   runningOnThisBus: () => string[]
   pause: (ms: number) => Promise<unknown>
@@ -154,7 +153,7 @@ export class RecordedNodes implements NodeControl {
   }
 
   private stillTheNode(node: RecordedNode): boolean {
-    return this.signals.alive(node.pid) && this.signals.runsNodeOfThisBus(node.pid, node.script)
+    return this.signals.runsNodeOfThisBus(node.pid, node.script)
   }
 
   hold(question: string, backup: string | null): void {

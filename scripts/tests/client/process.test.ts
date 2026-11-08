@@ -1,16 +1,12 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { isSessionAlive } from '../../ladder/watch-process.js'
 import { launchIsolationCommand } from '../../nodes/launch/launch-worker.js'
 import { reviewIsolationCommand } from '../../nodes/review/review-worker.js'
 import { clientAdapter } from '../../ports/client/index.js'
+import { CLIENT_CWDS_COMMAND } from '../../ports/process-table.js'
 
 const SESSION = 'session-1578'
 const HEADLESS_FLAGS = ['-p', '--output-format', 'stream-json', '--verbose', '--permission-mode', 'auto', '--permission-prompts', 'none', '--strict-mcp-config', '--session-id']
-
-vi.mock('../../ports/worktree.js', async importOriginal => ({
-  ...await importOriginal<typeof import('../../ports/worktree.js')>(),
-  claudeProcessCwds: () => ({ kind: 'listed', listing: 'from the worktree port' }),
-}))
 
 describe('the client process', () => {
   it('the adapter recognises the client process and its session marker', () => {
@@ -25,14 +21,15 @@ describe('the client process', () => {
 
   it('a session is alive when a process carries the adapter marker', () => {
     const marker = clientAdapter().processes.sessionMarker(SESSION)!
-    expect(isSessionAlive(SESSION, [{ pid: 1, args: `claude -p ${marker} go` }])).toBe(true)
-    expect(isSessionAlive(SESSION, [{ pid: 1, args: 'claude -p --session-id other go' }])).toBe(false)
+    const row = (command: string) => ({ pid: 1, ppid: 0, pgid: 1, started: '', command })
+    expect(isSessionAlive(SESSION, [row(`claude -p ${marker} go`)])).toBe(true)
+    expect(isSessionAlive(SESSION, [row('claude -p --session-id other go')])).toBe(false)
   })
 })
 
-describe('the live working directories of the client', () => {
-  it('come from the one lsof search of the worktree port', () => {
-    expect(clientAdapter().processes.liveCwds()).toEqual({ kind: 'listed', listing: 'from the worktree port' })
+describe('the process names of the client', () => {
+  it('reach the process table as the names its cwd search asks for', () => {
+    expect(CLIENT_CWDS_COMMAND).toBe(`lsof ${clientAdapter().processes.processNames.flatMap(name => ['-c', name]).join(' ')}`)
   })
 })
 

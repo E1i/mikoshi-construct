@@ -683,6 +683,7 @@
           "provenance[].marker",
           "schemaVersion",
           "uncollectedTests",
+          "unknownClients",
           "unreadableFiles",
           "versionGap",
           "versionGap.materializedBy",
@@ -720,6 +721,7 @@
           "provenance[].marker",
           "schemaVersion",
           "uncollectedTests",
+          "unknownClients",
           "unreadableFiles",
           "versionGap",
           "versionGap.materializedBy",
@@ -951,6 +953,7 @@
       },
       "refused": {
         "keys": [
+          "browserLabExclusion",
           "counts",
           "counts.add",
           "counts.block-edited",
@@ -984,6 +987,7 @@
       },
       "written": {
         "keys": [
+          "browserLabExclusion",
           "counts",
           "counts.add",
           "counts.block-edited",
@@ -1461,6 +1465,7 @@
     "bus:witness",
     "bus:witness-backfill",
     "card",
+    "card:measure",
     "changeset",
     "checks:catalog",
     "checks:matrix",

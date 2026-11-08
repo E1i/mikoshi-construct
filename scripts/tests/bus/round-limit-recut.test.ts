@@ -125,9 +125,14 @@ async function reviewHead(fixed: Fixture, head: string): Promise<void> {
   expect(await fixed.worker.step()).toMatchObject({ kind: 'recorded' })
 }
 
+const EARLIER_ROUNDS = [['nothing here matters at all yet'], ['wholly different subject comes up']]
+
 async function reviewToTheLimit(fixed: Fixture): Promise<void> {
-  for (const head of HEADS)
+  const atTheLimit = fixed.reviewer.findings
+  for (const [at, head] of HEADS.entries()) {
+    fixed.reviewer.findings = EARLIER_ROUNDS[at] ?? atTheLimit
     await reviewHead(fixed, head)
+  }
 }
 
 function admittedByTheRecut(db: DatabaseSync): { cardId: number, text: string, depends: unknown }[] {
@@ -377,10 +382,10 @@ describe('the re-cut of a pull request at the review round limit', () => {
 
   it('a change of the card body that is not an owner amend still spends a round', async () => {
     const fixed = fixture(cardText())
-    fixed.reviewer.findings = [NARROW_FINDING]
-    await reviewHead(fixed, HEADS[0]!)
-    for (const head of HEADS.slice(1)) {
-      admitCard(fixed.bench, cardText({ body: [`Rewritten for ${head}.`] }))
+    for (const [at, head] of HEADS.entries()) {
+      if (at > 0)
+        admitCard(fixed.bench, cardText({ body: [`Rewritten for ${head}.`] }))
+      fixed.reviewer.findings = EARLIER_ROUNDS[at] ?? [NARROW_FINDING]
       await reviewHead(fixed, head)
     }
 

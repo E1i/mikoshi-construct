@@ -7,6 +7,7 @@ import type { ClaimPlacement, HypothesisReading } from './projection.js'
 import type { MarkerAuthorship, MarkerReading } from './provenance.js'
 import type { CheckVerdict } from './verdict.js'
 import type { VersionGap } from './version-gap.js'
+import { CLIENT_IDS } from '../../manifest.js'
 import { FACTORY_MANIFEST } from '../../materialize/factory-manifest.js'
 import { MARKER_AUTHORSHIP, readingsBy } from './provenance.js'
 
@@ -229,6 +230,8 @@ export function printDoctor(ui: Ui, result: DoctorResult | AttachedReport | null
     ui.glitch(ui.lore.discoveryIncomplete, ['', 'Missing:', ...result.missingDiscovery.map(marker => `  ${marker}`), '', 'Run: claude → /construct-discover'])
   if (result.warnings.length > 0)
     ui.glitch(ui.lore.typecheckCaveat, result.warnings)
+  if (result.unknownClients.length > 0)
+    ui.glitch(ui.lore.clientsWithNoAdapter(result.unknownClients, CLIENT_IDS))
   if (result.movedFiles.length > 0)
     ui.line(ui.theme.dim(`  ${ui.lore.baselineMovedToSuccessor(result.movedFiles)}`))
   if (result.modifiedFiles.length > 0)

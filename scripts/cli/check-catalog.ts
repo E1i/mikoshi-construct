@@ -1,7 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { CardRunsSource } from '../ci/card-runs.js'
 import type { Graph } from '../ci/layers.js'
-import type { LayerMap } from '../core/layer-map.js'
+import type { LayerMap, ReadFile } from '../core/layer-map.js'
 import type { CardBody } from '../intake/parking-reads.js'
 import type { Meter } from '../ports/meter.js'
 import { Buffer } from 'node:buffer'
@@ -12,12 +12,12 @@ import path from 'node:path'
 import process from 'node:process'
 import { parseMutationFile } from '../../src/commands/mutate/lines.js'
 import { cardRunsOf, catalogLayersByTest, catalogModuleLayers, hasTable, NO_LAYER, runsSourceOfPr } from '../ci/card-runs.js'
-import { BUS_SHARED, BUS_TESTS, isTest, layerOf, layersInOf, layersOf, selectRun } from '../ci/layers.js'
+import { BUS_SHARED, BUS_TESTS, isTest, selectRun } from '../ci/layers.js'
 import { cruise } from '../ci/select.js'
 import { scansATree, walksATree } from '../ci/tree-scanners.js'
 import { BUS_DB_VARIABLE, BUSY_TIMEOUT_MS, defaultBusPath } from '../core/db.js'
 import { GHOST_LINE, POLICY_DENIED } from '../core/events.js'
-import { LAYER_MAP, readLayerMap } from '../core/layer-map.js'
+import { DOCS_LAYER, isTestInfrastructure, LAYER_MAP, layerOf, layersInOf, layersOf, layersReachedByImports, readLayerMap, recordsOf } from '../core/layer-map.js'
 import { legacyHistory } from '../core/legacy-history.js'
 import { openDatabase } from '../core/sqlite.js'
 import { cardBodies } from '../intake/parking-reads.js'
@@ -36,24 +36,12 @@ const EACH_TOKEN = /(%%)|%[sdifjo#]|\$[a-z_][\w.]*/gi
 const RENDERED_PERCENT = '%'
 const SHELL_QUOTED_APOSTROPHE = /'\\''/g
 const WITNESSES_HEADING = /^Witnesses:/
-const TEST_INFRASTRUCTURE = [
-  /^scripts\/ci\/(?:layers|select|prepush|test-command)\.ts$/,
-  /^scripts\/tests\/ci\/(?:select-layers|prepush-selector)\.test\.ts$/,
-  /^vitest(?:\.[\w-]+)*\.config\.[cm]?[jt]s$/,
-  /^package\.json$/,
-  /^pnpm-lock\.yaml$/,
-  /^\.changeset\/config\.json$/,
-  /^tests\/changesets-[\w-]+\.test\.ts$/,
-]
 const CARD_NOTE = /^\.changeset\/[^/]+\.md$/
 const DOCUMENT = /^(?:architecture|docs)\/.+\.md$/
 const DOCUMENT_READER = /^(?:scripts|src|tests)\/.+\.[cm]?[jt]s$/
 const DOCUMENT_NAME = /(?<![\w./-])(?:[\w.-]+\/)*[\w.-]+\.md\b/g
 const DOCUMENT_TREE = /['"`]((?:\.{1,2}\/)*(?:architecture|docs)(?:\/[\w-]+)*)\/?['"`]/g
 const LEADING_DOTS = /^(?:\.{1,2}\/)+/
-const IMPORT_SPECIFIER = /\bfrom\s*['"](\.{1,2}\/[^'"]+)['"]|\bimport\s*(?:\(\s*)?['"](\.{1,2}\/[^'"]+)['"]/g
-const NAMED_MODULE = /\b(?:scripts|src)\/[\w./-]+\.ts\b/g
-const COMPILED_MODULE = /\.js$/
 
 export const RERUN_VARIABLE = 'BUS_RERUN'
 export const RERUN_MODES = ['as-now', 'by-layers'] as const
@@ -120,8 +108,6 @@ export interface DocumentRead { document: string, reader: string, walked: boolea
 
 export interface Catalog { tests: CheckTest[], mutations: CheckMutation[], modules?: CheckModule[], documentReads?: DocumentRead[] }
 
-export type ReadFile = (file: string) => string | null
-
 export interface Brief { card: number, text: string }
 
 export interface CatalogSources {
@@ -140,7 +126,7 @@ export function kindOf(test: string): string {
 
 function layersByTest(graph: Graph, testText: (test: string) => string): Map<string, string[]> {
   const modulesByLayer = new Map<string, string[]>()
-  for (const file of graph.keys()) {
+  for (const file of [...graph.keys(), ...recordsOf(readLayerMap())]) {
     for (const layer of layersOf(file))
       modulesByLayer.set(layer, [...(modulesByLayer.get(layer) ?? []), file])
   }
@@ -152,7 +138,13 @@ function layersByTest(graph: Graph, testText: (test: string) => string): Map<str
         byTest.set(test, [...(byTest.get(test) ?? []), layer])
     }
   }
+  for (const test of [...graph.keys()].filter(file => isTest(file) && readsDocuments(testText(file))))
+    byTest.set(test, [...new Set([...(byTest.get(test) ?? []), DOCS_LAYER])].sort())
   return byTest
+}
+
+function readsDocuments(text: string): boolean {
+  return documentsNamedIn(text).length > 0 || documentTreesWalkedIn(text).length > 0
 }
 
 function memoized(read: (test: string) => string): (test: string) => string {
@@ -391,13 +383,9 @@ export function rebuildCatalogAt(ref: string, busPath: string, repo: string = RE
   })
 }
 
-function layersOfFile(file: string, byTest: ReadonlyMap<string, readonly string[]>, map: LayerMap): readonly string[] | null {
+function placedLayers(file: string, byTest: ReadonlyMap<string, readonly string[]>, map: LayerMap): readonly string[] | null {
   const layers = isTest(file) ? byTest.get(file) ?? [] : layersInOf(map, file)
   return layers.length === 0 ? null : layers
-}
-
-export function isTestInfrastructure(file: string): boolean {
-  return TEST_INFRASTRUCTURE.some(pattern => pattern.test(file))
 }
 
 function withoutCardNotes(files: readonly string[]): string[] {
@@ -425,43 +413,12 @@ function documentRead(pr: readonly string[], main: readonly string[], reads: rea
   return walker === undefined ? null : `${walker.reader} walks ${walker.document}, and each side changed the walker or a document in it`
 }
 
-function modulesNamedIn(file: string, text: string): { imported: string[], named: string[] } {
-  const imported = [...text.matchAll(IMPORT_SPECIFIER)].map(match => path.posix.normalize(path.posix.join(path.posix.dirname(file), match[1] ?? match[2]!)).replace(COMPILED_MODULE, '.ts'))
-  return { imported, named: [...text.matchAll(NAMED_MODULE)].map(match => match[0]) }
-}
-
-function layersReachedByText(test: string, modules: ReadonlyMap<string, readonly string[]>, read: ReadFile): string[] | null {
-  const layers = new Set<string>()
-  const seen = new Set([test])
-  const queue = [test]
-  const place = (module: string): boolean => {
-    const known = modules.get(module)
-    for (const layer of known ?? layersOf(module))
-      layers.add(layer)
-    return known !== undefined
-  }
-  for (let file = queue.shift(); file !== undefined; file = queue.shift()) {
-    const text = read(file)
-    if (text === null)
-      return null
-    const { imported, named } = modulesNamedIn(file, text)
-    for (const module of named)
-      place(module)
-    for (const module of imported.filter(each => !seen.has(each))) {
-      seen.add(module)
-      if (!place(module))
-        queue.push(module)
-    }
-  }
-  return [...layers]
-}
-
-function layersOfAnAddedTest(test: string, modules: ReadonlyMap<string, readonly string[]>, read: ReadFile): string[] | null {
+function addedTestReach(test: string, modules: ReadonlyMap<string, readonly string[]>, read: ReadFile, map: LayerMap): string[] | null {
   const text = read(test)
   if (modules.size === 0 || text === null || scansATree(text))
     return null
-  const reached = layersReachedByText(test, modules, read)
-  if (reached === null || reached.length === 0)
+  const reached = layersReachedByImports(test, modules, read, map)
+  if (reached === null)
     return null
   const busWide = test.startsWith(BUS_TESTS) ? BUS_SHARED.flatMap(layersOf) : []
   return [...new Set([...reached, ...busWide])]
@@ -489,20 +446,26 @@ export function overlapWithMain(db: DatabaseSync, prFiles: readonly string[], ma
     return read
   const unread = (file: string): boolean => reads === null || !DOCUMENT.test(file)
   const modules = catalogModuleLayers(db)
-  const placedPr = pr.filter(unread).map(file => [file, layersOfFile(file, byTest, map) ?? (isTest(file) && !byTest.has(file) ? layersOfAnAddedTest(file, modules, readAtHead) : null)] as const)
-  const placedMain = main.filter(unread).map(file => [file, layersOfFile(file, byTest, map)] as const)
+  const placedPr = pr.filter(unread).map(file => [file, placedLayers(file, byTest, map) ?? (isTest(file) && !byTest.has(file) ? addedTestReach(file, modules, readAtHead, map) : null)] as const)
+  const placedMain = main.filter(unread).map(file => [file, placedLayers(file, byTest, map)] as const)
   const unplaced = [...placedPr, ...placedMain].find(([, layers]) => layers === null)
   if (unplaced !== undefined)
     return `${unplaced[0]} belongs to no layer of the check catalog`
   const reading = card === null ? null : cardRunsOf(card, { testLayers: byTest, moduleLayers: modules }, map)
   if (reading !== null && 'full' in reading)
     return reading.why
-  const prLayers = new Set([...placedPr.flatMap(([, layers]) => layers!), ...(reading?.layers ?? [])])
+  const records = recordsOf(map)
+  const recordLayers = new Set(records.flatMap(record => layersInOf(map, record)))
+  const cardLayers = (reading?.layers ?? []).filter(layer => !recordLayers.has(layer))
+  const prLayers = new Set([...placedPr.flatMap(([, layers]) => layers!), ...cardLayers])
   const mainLayers = new Set(placedMain.flatMap(([, layers]) => layers!))
   const shared = [...prLayers].sort().find(layer => mainLayers.has(layer))
   if (shared !== undefined)
     return `main changed the layer ${shared} since the base`
-  const both = [...byTest].sort(([a], [b]) => a.localeCompare(b)).find(([, layers]) => layers.some(layer => prLayers.has(layer)) && layers.some(layer => mainLayers.has(layer)))
+  const layersOfCode = (placed: typeof placedMain): Set<string> => new Set(placed.filter(([file]) => !records.includes(file)).flatMap(([, layers]) => layers!))
+  const prCode = new Set([...layersOfCode(placedPr), ...cardLayers])
+  const mainCode = layersOfCode(placedMain)
+  const both = [...byTest].sort(([a], [b]) => a.localeCompare(b)).find(([, layers]) => layers.some(layer => prCode.has(layer)) && layers.some(layer => mainCode.has(layer)))
   return both === undefined ? null : `${both[0]} runs for a layer of the pull request and a layer main changed`
 }
 

@@ -26,6 +26,7 @@ export interface ExpectLore {
   expectUnreadAgent: (agent: string, reason: string) => string
   costEffortNeedsExpect: string
   costEffortUnknown: (value: string) => string
+  clientsWithNoAdapter: (ids: readonly string[], known: readonly string[]) => string
 }
 
 export const EXPECT_LORE: ExpectLore = {
@@ -59,4 +60,5 @@ export const EXPECT_LORE: ExpectLore = {
   expectUnreadAgent: (agent, reason) => `agent ${agent} (${reason})`,
   costEffortNeedsExpect: '--effort needs --expect; nothing was written',
   costEffortUnknown: value => `--effort ${value} is not one of low, medium, high; nothing was written`,
+  clientsWithNoAdapter: (ids, known) => `construct.json names a client with no adapter: ${ids.join(', ')}. Known: ${known.join(', ')}. Name a known id in the client branch of construct.json, or drop the one that has none.`,
 }

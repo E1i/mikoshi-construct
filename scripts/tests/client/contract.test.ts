@@ -13,7 +13,7 @@ import { LadderCardStarter } from '../../ladder/ladder-starter.js'
 import { cardCommand, launchArgv, shellWord } from '../../nodes/launch/launch-starter.js'
 import { parseSessionJournal } from '../../nodes/launch/session-journal.js'
 import { claudeResume } from '../../nodes/launch/tree-pr-cli.js'
-import { ClientOperationPending, WINDOW_RESUME_REFUSAL } from '../../ports/client/claude/adapter.js'
+import { WINDOW_MCP_CONFIG, WINDOW_RESUME_REFUSAL } from '../../ports/client/claude/adapter.js'
 import { clientAdapter } from '../../ports/client/index.js'
 import { sessionEnv, witnessEnv } from '../../ports/session.js'
 import { settingsFlag, shiftSettings } from '../../ports/shift-settings.js'
@@ -27,6 +27,7 @@ const GATE = 'pnpm run gate'
 const QUESTION = '/owner/question.md'
 const CARD = 1573
 const CARD_FLAGS = ['--permission-mode', 'dontAsk']
+const WINDOW_FLAGS = ['--setting-sources', 'project,local', '--strict-mcp-config', '--mcp-config', WINDOW_MCP_CONFIG, '--disallowedTools', 'Artifact,Workflow,AskUserQuestion,ScheduleWakeup,ReportFindings', ...CARD_FLAGS]
 const HEADLESS_FLAGS = ['-p', '--output-format', 'stream-json', '--verbose', '--permission-mode', 'auto', '--permission-prompts', 'none', '--strict-mcp-config']
 const CARD_TOOLS = ['--tools', 'Read,Edit,Write,Bash,Grep,Glob', '--disable-slash-commands']
 const USER_INSTRUCTIONS_OFF = { autoMemoryEnabled: false, claudeMdExcludes: [path.join(homedir(), '.claude', 'CLAUDE.md')] }
@@ -231,7 +232,7 @@ const GOLDENS: Golden[] = [
     kind: 'start',
     spec: () => ({ policy: CLIENT_DEFAULT }),
     today: spot => windowStartToday(spot, PROMPT),
-    literal: () => [...CARD_FLAGS, PROMPT],
+    literal: () => [...WINDOW_FLAGS, PROMPT],
     stdin: null,
   },
   {
@@ -240,7 +241,7 @@ const GOLDENS: Golden[] = [
     kind: 'start',
     spec: () => ({ policy: CLIENT_DEFAULT, prompt: '' }),
     today: spot => windowStartToday(spot, undefined),
-    literal: () => CARD_FLAGS,
+    literal: () => WINDOW_FLAGS,
     stdin: null,
   },
 ]
@@ -297,17 +298,5 @@ it('the journal of the contract is the shape the session journal parser returns'
 it('clientAdapter returns Claude and its capabilities', () => {
   const adapter = clientAdapter()
   expect(adapter.id).toBe('claude')
-  expect(adapter.capabilities).toEqual({ identity: 'assigned', ladder: true, reports: { cost: true, turns: true, model: true, denials: true, journal: true } })
-})
-
-it('an operation a later card fills throws a named error that names that card', () => {
-  const adapter = clientAdapter()
-  const operations: [() => unknown, string][] = [
-    [() => adapter.models(), 'clientmodels'],
-    [() => adapter.modelFor('review', null, 'auto'), 'clientmodels'],
-  ]
-  for (const [operation, card] of operations) {
-    expect(operation).toThrow(ClientOperationPending)
-    expect(operation).toThrow(card)
-  }
+  expect(adapter.capabilities).toEqual({ identity: 'assigned', ladder: true, reports: { cost: true, turns: true, model: true, denials: true, journal: true }, guarantees: { allowlist: true, writeConfinement: true, mcpOff: true, toolNarrowing: true, guardFailsClosed: true } })
 })

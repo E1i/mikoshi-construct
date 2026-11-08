@@ -333,6 +333,17 @@ describe('the PR status check the bus sets', () => {
     expect(setStepStatuses(db, post, () => NOW).map(({ step, state }) => [step, state])).toEqual([['witness red', 'failure']])
   })
 
+  it('a witness that could not check is published apart from red and is not a success', () => {
+    const db = bus()
+    pullRequest(db, HEAD, 'open')
+    step(db, 'witness.recorded', HEAD, { head: HEAD, base: 'a'.repeat(40), cardBody: 'x', verdict: 'unchecked', detail: 'http://127.0.0.1:1/ did not answer' })
+    const { post, calls } = recorder()
+    expect(setStepStatuses(db, post, () => NOW).map(({ step, state }) => [step, state])).toEqual([['witness could not check', 'pending']])
+    expect(calls.at(-1)).toEqual([`repos/{owner}/{repo}/statuses/${HEAD}`, { state: 'pending', context: STATUS_CONTEXT, description: 'mikoshi: witness could not check' }])
+    step(db, 'witness.recorded', HEAD, { head: HEAD, base: 'e'.repeat(40), cardBody: 'x', verdict: 'failed', detail: 'an older verdict' })
+    expect(setStepStatuses(db, post, () => NOW).map(({ step, state }) => [step, state])).toEqual([['witness red', 'failure']])
+  })
+
   it('the same status twice on a head writes one pr.status.set: a status is posted only on change', () => {
     const db = bus()
     pullRequest(db, HEAD, 'open')

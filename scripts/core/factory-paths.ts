@@ -1,4 +1,7 @@
 import path from 'node:path'
+import { GENERATED_FILES } from './generated-files.js'
+
+export { GENERATED_FILES, RATCHET_FILE, SEAM_SOURCES } from './generated-files.js'
 
 export const FACTORY_ROOT = 'scripts'
 
@@ -117,5 +120,5 @@ export const FACTORY_PATH_EXCLUSIONS = {
   fixtures: ['tests/**', 'scripts/tests/**'],
   history: ['docs/release-notes/**', 'architecture/decisions/**'],
   productTwins: ['scripts/construct/**', 'templates/**'],
-  generated: ['contract/surface.json', 'contract/factory.json'],
+  generated: [GENERATED_FILES.surface.path, GENERATED_FILES.factory.path],
 } as const satisfies Record<string, readonly string[]>

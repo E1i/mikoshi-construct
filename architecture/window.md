@@ -6,7 +6,12 @@ Read on demand by the coordinating window; the laws it must know first are in [w
 
 A question about the state of the work — "status", "what's there", "where are we", in any language — is answered as
 `/status` answers it ([.claude/commands/status.md](../.claude/commands/status.md)). Every report on the state of tasks
-starts from `pnpm board` (`pnpm board --json` for the window's own reading), never from the session's memory of them.
+starts from `pnpm board`, never from the session's memory of them. With no flag it prints a short text reading — the
+release progress, what waits for the owner, the cards by stage, the live backlog by lane and the services — sized for a
+window's context; `pnpm board --json` prints the bus as JSON for a script, a megabyte with every card the bus ever held,
+and `pnpm board --json --live` prints the same object with only the live cards (`isLive` in `src/commands/board/screens.ts`:
+a card with a body, not closed, in a flow stage and a live state), which is the window's start reading of the cards; `pnpm board --html`
+prints the HTML page, megabytes long, for a browser and never for a window's reading.
 
 While any Ghost is running, the coordinating window keeps `pnpm board --every 180` running in the background, which
 rewrites `board.txt` in the handoff directory with every frame. Every report to the owner in that time starts with the
@@ -348,10 +353,14 @@ the four signal fields of [0046](decisions/0046-four-signal-fields-and-their-sou
 `contract:`, `expect:`, `action:`, `result:`, each saying what it does not hold rather than staying empty; the first line
 of its pull request description is the card.
 
-A cheap-path task starts only with `pnpm task:start <branch> --card "<card>"`, which checks the card, cuts
+A cheap-path task starts only through `task:start <branch> --card "<card>"`, which checks the card, cuts
 `mc-<id>` from `origin/main` under the worktree home, `~/.construct/worktrees` (`CONSTRUCT_WORKTREE_HOME` moves it), not
 beside the repository, and writes the journal start line carrying the card; a task with no start line was not
-started on the cheap path, whatever its branch is called. The bus removes a closed card's tree
+started on the cheap path, whatever its branch is called. A window never runs it: it asks the bus with
+`pnpm bus:request tree.cut --card <N>`, and `task:start` in a session `windowModeOf` calls a window refuses with that
+command before it touches git. The bus's two callers, the launch node and `tree.cut`, blank the window marks a bus raised
+from a window inherited, so they keep cutting; a person in a plain terminal still runs it by hand. A failed
+`git worktree add` removes the branch it created, so a refusal that says nothing was written holds. The bus removes a closed card's tree
 (`removeCardTree` in `scripts/nodes/close/close-executor.ts`). Before it cuts anything, `task:start` passes the card through the intake
 door: it takes a card only when the bus holds a `card.admitted` event for it, written through `pnpm intake` when it
 sliced and confirmed the card, by `pnpm intake --admit <draft>` for a card amended or parked before the door, the

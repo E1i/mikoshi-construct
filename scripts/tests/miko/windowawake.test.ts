@@ -27,14 +27,14 @@ function ownerQuestionHandoff(): NodeJS.ProcessEnv {
 
 function stopTab(lastBeat: string | null): { code: number, lines: string[] } {
   const lines: string[] = []
-  const code = runTurnWatch({ ...realTurnWatchDeps(ownerQuestionHandoff(), tmpdir()), lastBeat: () => lastBeat, now: () => NOW, err: line => lines.push(line) })
+  const code = runTurnWatch({ ...realTurnWatchDeps(ownerQuestionHandoff(), tmpdir()), lastBeat: () => lastBeat, ownCard: () => null, now: () => NOW, err: line => lines.push(line) })
   return { code, lines }
 }
 
 function stopIn(mode: WindowMode, lastBeat: string | null): { code: number, lines: string[] } {
   const lines: string[] = []
   const owner: Status = 'OWNER'
-  const code = runTurnWatch({ session: 's-window', mode, status: () => owner, lastBeat: () => lastBeat, now: () => NOW, err: line => lines.push(line) })
+  const code = runTurnWatch({ session: 's-window', mode, status: () => owner, lastBeat: () => lastBeat, ownCard: () => null, now: () => NOW, err: line => lines.push(line) })
   return { code, lines }
 }
 

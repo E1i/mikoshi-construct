@@ -3,7 +3,7 @@ import type { ShiftTask } from '../../../src/card/task-file.js'
 import type { BusEvent } from '../../core/db.js'
 import type { Lease } from '../../core/lease.js'
 import type { MachineClaimant, MachineSessions } from '../../core/machine-sessions.js'
-import type { DetectionMode, WaitStep } from '../../core/node.js'
+import type { DetectionMode, NodeDeclaration, WaitStep } from '../../core/node.js'
 import type { QueuedTask } from '../../core/queue.js'
 import type { CardBodyReader } from '../../intake/parking-reads.js'
 import type { LadderSteps } from '../../ladder/ladder-starter.js'
@@ -29,6 +29,7 @@ import { NOT_A_BACKFILL } from '../../core/backfill-source.js'
 import { busPathOf, machineBusPath } from '../../core/bus-path.js'
 import { DROPPED_CARD, RUNNING_CARD } from '../../core/card-automaton.js'
 import { bodyNotFoldedYet, CARD_BODIES, cardBodyText, pathsOutsideTheBody } from '../../core/card-bodies.js'
+import { busCardDecisions, withCardDecisions } from '../../core/card-decisions.js'
 import { cardHoldOf, HOLD_RECHECK_MS } from '../../core/card-hold.js'
 import { appendEvent, BUSY_TIMEOUT_MS, defaultBusPath, inTransaction, openBus, openOwnerWait } from '../../core/db.js'
 import { messageOf } from '../../core/errors.js'
@@ -39,7 +40,7 @@ import { generationOfKey } from '../../core/identifiers.js'
 import { ghostLinesText } from '../../core/journal.js'
 import { failTask } from '../../core/lease.js'
 import { busNameOfDb, MACHINE_POLL_MS, machineSessions } from '../../core/machine-sessions.js'
-import { Node, prefixOf, runNode } from '../../core/node.js'
+import { Node, prefixOf, runNode, UNDERSTOOD_NOW } from '../../core/node.js'
 import { eddiesJournalPath, reportPath } from '../../core/places.js'
 import { COMPLETED, generationField, LAUNCH_STOP_WITH_NO_PULL_REQUEST, launchTasks, LEASED, TASK_FOLDS } from '../../core/queue.js'
 import { openDatabase } from '../../core/sqlite.js'
@@ -48,13 +49,13 @@ import { busCardBodies } from '../../intake/parking-reads.js'
 import { LadderCardStarter } from '../../ladder/ladder-starter.js'
 import { briefBody, briefPathOf, ladderStep, reviewBody, tasksFilePathOf, tasksFileText } from '../../ladder/ladder.js'
 import { reviewOf } from '../../ladder/verdict.js'
-import { cardDecisionCommand } from '../../policy/shards.js'
+import { cardDecisionCommand, cardDecisionLines } from '../../policy/shards.js'
 import { cardIsolationCommand, clientLastSteps, clientTranscript } from '../../ports/client/claude/adapter.js'
 import { realIsolationReader } from '../../ports/isolation.js'
 import { TICK_MS } from '../../ports/netwatch.js'
-import { prepareBeforeSession, prepareTree } from '../../ports/prepare-tree.js'
+import { lacksItsPackages, prepareBeforeSession, prepareTree } from '../../ports/prepare-tree.js'
 import { promptsDirOf, storedInput } from '../../ports/prompt-store.js'
-import { cardSessionOverlay, cardSizeIn, clientCommand, sessionEnv } from '../../ports/session.js'
+import { cardSessionOverlay, cardSizeIn, clientCommand, EXIT_REQUEST_VARIABLE, LOOP_PID_VARIABLE, sessionEnv, WINDOW_VARIABLE } from '../../ports/session.js'
 import { CARD_SESSION_SANDBOX } from '../../ports/shift-settings.js'
 import { builtTreePr, HTTPS_ORIGIN_ENV, launchDirOf, TREE_PR_ENTRY, treeHoldsACommit, treePrCommand, treePrPublisher } from '../../ports/tree-publish.js'
 import { cardTree } from '../../ports/worktree-home.js'
@@ -110,8 +111,8 @@ const HEARTBEAT_SILENCE_MS = HEARTBEAT_SILENCE_MINUTES * 60_000
 
 const LEGACY_MERGE = 'merge'
 const LEGACY_PATH = 'path'
-
 export const LAUNCH_ON = [CARD_ADMITTED, CARD_STARTED, CARD_CLOSED, CARD_STOPPED, PR_CLOSED, PR_OBSERVED, PR_OPENED, LEGACY_MERGE, LEGACY_PATH, TASK_ENQUEUED, TASK_REQUEUED, TASK_COMPLETED, TASK_FAILED, TASK_SUPERSEDED, TASK_RELEASED, TASK_EXPIRED, MERGE_DONE, GHOST_ROW, REDUCED] as const
+export const LAUNCH_NODE: NodeDeclaration = { kind: 'launch', on: LAUNCH_ON, understands: UNDERSTOOD_NOW }
 
 export type LaunchStep = LaunchOutcome | WaitStep
 
@@ -305,7 +306,7 @@ export class LaunchNode extends Node<LaunchStep> {
     this.processes = launchParts.processes ?? REAL_PROCESSES
     this.lanes = launchParts.lanes ?? repositoryLanes(process.cwd())
     this.machine = launchParts.machine ?? machineSessions(isAlive)
-    this.subscribe(LAUNCH_ON)
+    this.declare(LAUNCH_NODE)
   }
 
   private machineClaimant(cardId: number): MachineClaimant {
@@ -596,7 +597,7 @@ export class LaunchNode extends Node<LaunchStep> {
   private stopWithoutPullRequest(start: RunningStart, card: StartedCard, session: SessionStart, refusal: string | null): boolean {
     const questions = reportQuestions(this.launchParts.reportOf?.(session) ?? null)
     if (questions.length > 0)
-      return this.stopOnQuestions(start, card, questions, splitByRepository(card.worktree, pathsOutsideTheBody(this.db, start.card_id, questions.join('\n'))), refusal)
+      return this.launchParts.continuer !== undefined && this.continuationsUsed(start) < MAX_RESTARTS && lacksItsPackages(card.worktree) ? this.continueSession(start, card, this.launchParts.continuer, `card #${start.card_id} session ${card.session} asked a question from ${card.worktree}, whose lockfile names packages the tree lacks; the bus prepares the tree for the next session`) : this.stopOnQuestions(start, card, questions, splitByRepository(card.worktree, pathsOutsideTheBody(this.db, start.card_id, questions.join('\n'))), refusal)
     const ended = noPullRequestDetail(start.card_id, card.session, this.launchParts.endedWith?.(session) ?? null)
     const detail = refusal === null ? ended : `${ended}; ${refusal}`
     return inTransaction(this.db, () => this.faultStop(this.ts(), start, `${LAUNCH_STOP_WITH_NO_PULL_REQUEST}${start.dedupe_key}`, detail))
@@ -851,12 +852,12 @@ export class CutTreeOrigins {
   }
 }
 
-export function realStarterPorts(repo: string, env: NodeJS.ProcessEnv, header: string, uuid: () => string, bodyOf: CardBodyReader = () => null, cardSessions: (cardId: number) => string[] = () => [], installed: string | null = installedPackage(), busPath: string = busPathOf(env, os.homedir(), repo), prepare: TreePreparer = prepareTree, origins: CutTreeOrigins = new CutTreeOrigins()): StarterPorts {
+export function realStarterPorts(repo: string, env: NodeJS.ProcessEnv, header: string, uuid: () => string, bodyOf: CardBodyReader = () => null, cardSessions: (cardId: number) => string[] = () => [], installed: string | null = installedPackage(), busPath: string = busPathOf(env, os.homedir(), repo), prepare: TreePreparer = prepareTree, origins: CutTreeOrigins = new CutTreeOrigins(), decisionsOf: (cardId: number) => string[] = () => []): StarterPorts {
   const taskStart = taskStartCommand(installed)
   return {
     read: bodyOf,
     cut: (task) => {
-      const output = execFileSync(taskStart.file, [...taskStart.args, task.branch, '--card', task.card.line], { cwd: repo, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+      const output = execFileSync(taskStart.file, [...taskStart.args, task.branch, '--card', task.card.line], { cwd: repo, env: { ...env, [WINDOW_VARIABLE]: '', [LOOP_PID_VARIABLE]: '', [EXIT_REQUEST_VARIABLE]: '' }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
       const worktree = cardTree(env, busPath, String(task.card.id))
       origins.note(worktree, output)
       return worktree
@@ -872,7 +873,7 @@ export function realStarterPorts(repo: string, env: NodeJS.ProcessEnv, header: s
     kill: killQuietly,
     uuid,
     envOf: cardId => ({ ...sessionEnv(env, cardId, cardSessionOverlay(repo, env, cardSizeIn(bodyOf(cardId)))), ...heartbeatEnv({ cardId, pr: null, head: null, queue: 'launch' }), ...HTTPS_ORIGIN_ENV }),
-    prompt: (task, places) => renderPrompt(header, continuedOnCardText(task, bodyOf), places),
+    prompt: (task, places) => renderPrompt(header, withCardDecisions(continuedOnCardText(task, bodyOf), decisionsOf(task.card.id)), places),
     changedPaths: gitChangedPaths,
     readReport: file => existsSync(file) ? sessionWrittenPart(readFileSync(file, 'utf8')) : null,
     cardSessions,
@@ -902,8 +903,7 @@ export function busCardSessions(busPath: string): (cardId: number) => string[] {
       return []
     const db = openDatabase(busPath, { readOnly: true, timeout: BUSY_TIMEOUT_MS })
     try {
-      const rows = db.prepare(CARD_SESSIONS).all(cardId) as { session: string }[]
-      return [...new Set(rows.map(row => row.session))]
+      return [...new Set((db.prepare(CARD_SESSIONS).all(cardId) as { session: string }[]).map(row => row.session))]
     }
     finally {
       db.close()
@@ -912,7 +912,7 @@ export function busCardSessions(busPath: string): (cardId: number) => string[] {
 }
 
 export function busStarterPorts(busPath: string, repo: string, env: NodeJS.ProcessEnv, header: string, uuid: () => string, origins?: CutTreeOrigins): StarterPorts {
-  return realStarterPorts(repo, env, header, uuid, busCardBodies(busPath), busCardSessions(busPath), installedPackage(), busPath, prepareTree, origins)
+  return realStarterPorts(repo, env, header, uuid, busCardBodies(busPath), busCardSessions(busPath), installedPackage(), busPath, prepareTree, origins, busCardDecisions(busPath, cardDecisionLines))
 }
 
 export function repoHandoffEnv(env: NodeJS.ProcessEnv, repo: string, home: string = os.homedir()): NodeJS.ProcessEnv {

@@ -11,10 +11,11 @@ import { AMEND_SOURCE, witnessesOf } from '../../src/commands/intake/admit.js'
 import { launchCandidates } from '../nodes/launch/launch-candidates.js'
 import { cleanUpdatesOf } from '../nodes/update/update-done.js'
 import { CONTINUE_FIXES, continueFixesDecisionOf, mutationsParkedGrantOf, observedHeadsOf, pushedAfterContinueFixes, roundLimitDecisionOf } from '../policy/round-limit-decision.js'
-import { activeDecisionsShard, decisionsInForceAt, unspentShardsOf, WINDOW_SHARDS_LIVE_AT } from '../policy/shards.js'
+import { decisionsInForceAt, unspentShardsOf, WINDOW_SHARDS_LIVE_AT } from '../policy/shards.js'
 import { MAIN_BRANCH } from '../ports/snapshot.js'
 import { BACKFILL_SOURCE, NOT_A_BACKFILL } from './backfill-source.js'
 import { CARD_BODIES } from './card-bodies.js'
+import { answerDecisionOfKey, decisionSegment, withDecidedContinuations } from './card-decisions.js'
 import { appendEvent, inTransaction, OPEN_WAIT, openOwnerWait, OWNER_WAITS } from './db.js'
 import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, CARD_WAITING, INTAKE_EVENT, INTAKE_MOVE_EVENT, MERGE_DONE, OWNER_WAIT_OPENED, POLICY_DENIED, PR_CLOSED, PR_OPENED, QUESTION_AGENT, QUESTION_OWNER, REVIEW_RECORDED, REVIEW_ROUNDS_SPENT, ROUND_EXTENDED, ROUND_MUTATIONS_PARKED, SESSION_HEARTBEAT, TASK_COMPLETED, TASK_ENQUEUED, TASK_EXPIRED, TASK_FAILED, TASK_LEASED, TASK_RELEASED, TASK_RENEWED, TASK_REQUEUED, TASK_SUPERSEDED, TASK_WITHDRAWN, UPDATE_DONE, WITNESS_DOWNGRADE, WITNESS_RECORDED } from './events.js'
 import { generationOfKey, isFullSha, QUEUES, reviewInputOf, reviewInputOfKey, taskKey } from './identifiers.js'
@@ -545,7 +546,7 @@ interface Candidate {
   text?: unknown
 }
 
-const REVIEWS_OF_A_PR = `
+export const REVIEWS_OF_A_PR = `
   SELECT head, json_extract(payload, '$.verdict') AS verdict, json_extract(payload, '$.card_body') AS card_body FROM events
   WHERE type = '${REVIEW_RECORDED}' AND legacy = 0 AND pr = ? ORDER BY id
 `
@@ -556,7 +557,7 @@ export interface RoundReview {
   card_body: unknown
 }
 
-const BODIES_OWNER_AMENDED_FOR_A_PR = `
+export const BODIES_OWNER_AMENDED_FOR_A_PR = `
   SELECT DISTINCT json_extract(payload, '$.bodySha') AS body FROM events
   WHERE type = '${CARD_ADMITTED}' AND legacy = 0 AND json_extract(payload, '$.source') = '${AMEND_SOURCE}' AND json_type(payload, '$.bodySha') = 'text'
     AND card_id IN (SELECT card_id FROM events WHERE type = '${REVIEW_RECORDED}' AND legacy = 0 AND pr = ? AND card_id IS NOT NULL)
@@ -568,7 +569,7 @@ function bodyThePreviousHeadWasFirstReviewedUnder(reviews: readonly RoundReview[
   return previous === undefined ? null : earlier.find(review => review.head === previous.head)!.card_body
 }
 
-function ownerAmendedSinceThePreviousReview(reviews: readonly RoundReview[], at: number, ownerAmended: ReadonlySet<string>): boolean {
+export function ownerAmendedSinceThePreviousReview(reviews: readonly RoundReview[], at: number, ownerAmended: ReadonlySet<string>): boolean {
   const before = bodyThePreviousHeadWasFirstReviewedUnder(reviews, at)
   const now = reviews[at]!.card_body
   return typeof before === 'string' && typeof now === 'string' && before !== now && ownerAmended.has(now)
@@ -592,9 +593,9 @@ function reentryRoundsOf(db: DatabaseSync, pr: number, reviews: readonly RoundRe
   return (db.prepare(REENTRY_HEADS_OF_A_PR).all(pr) as { head: string | null }[]).filter(row => !reviewedForChanges.has(row.head)).length
 }
 
-export function decisionsShardActive(db: DatabaseSync, now: Date): boolean {
-  return activeDecisionsShard(db, now) !== null
-}
+export { activeDecisionsShard } from '../policy/shards.js'
+export const REPEAT_FINDINGS = 'repeat_findings'
+const REPEAT_STOP_ON_A_HEAD = `SELECT 1 FROM events WHERE type = '${REVIEW_ROUNDS_SPENT}' AND legacy = 0 AND pr = ? AND head IS ? AND json_extract(payload, '$.state') = '${REPEAT_FINDINGS}' LIMIT 1`
 
 const EXTENSIONS_OF_A_PR = `SELECT count(*) AS extensions FROM events WHERE type = '${ROUND_EXTENDED}' AND legacy = 0 AND pr = ?`
 
@@ -603,10 +604,10 @@ function extensionsOf(db: DatabaseSync, pr: number): number {
 }
 
 export function changesRoundsOf(db: DatabaseSync, pr: number, next?: RoundReview): number {
-  const reviews = db.prepare(REVIEWS_OF_A_PR).all(pr) as unknown as RoundReview[]
   const ownerAmended = new Set((db.prepare(BODIES_OWNER_AMENDED_FOR_A_PR).all(pr) as { body: string }[]).map(row => row.body))
-  const counted = next === undefined ? reviews : [...reviews, next]
-  return roundsOf(counted, ownerAmended) + reentryRoundsOf(db, pr, counted) - extensionsOf(db, pr)
+  const counted = [...db.prepare(REVIEWS_OF_A_PR).all(pr) as unknown as RoundReview[], ...(next === undefined ? [] : [next])]
+  const rounds = roundsOf(counted, ownerAmended) + reentryRoundsOf(db, pr, counted) - extensionsOf(db, pr)
+  return db.prepare(REPEAT_STOP_ON_A_HEAD).get(pr, counted.at(-1)?.head ?? null) === undefined ? rounds : Math.max(rounds, REVIEW_ROUNDS)
 }
 
 const ROUND_LIMITED: readonly Queue[] = ['review', 'answer', 'merge']
@@ -683,7 +684,7 @@ function candidates(db: DatabaseSync, ts: string): (() => QueuedTask[])[] {
 
 const UNFINISHED_STATES = [...UNFINISHED].map(state => `'${state}'`).join(', ')
 
-const QUEUES_A_MERGE_FINISHES = `'merge', 'close', 'witness'`
+const A_CLOSE_DENIED_ON_THIS_WITNESS = `EXISTS (SELECT 1 FROM events AS denied WHERE denied.type = '${POLICY_DENIED}' AND denied.legacy = 0 AND denied.card_id = tasks.card_id AND denied.head = tasks.head AND json_extract(denied.payload, '$.reason') = 'witness' AND json_extract(denied.payload, '$.command') = 'close' AND instr(tasks.task_key, ':base-' || json_extract(denied.payload, '$.base')) > 0)`
 
 const TASKS_OF_AN_OLD_HEAD = `
   SELECT tasks.task_key, tasks.queue, tasks.card_id, tasks.pr, tasks.head FROM tasks JOIN prs ON prs.pr = tasks.pr
@@ -703,11 +704,11 @@ const MERGES_OF_AN_OLD_BODY = `
   ORDER BY tasks.task_key
 `
 
-const TASKS_OF_A_CLOSED_PULL_REQUEST = `
-  SELECT tasks.task_key, tasks.queue, tasks.card_id, tasks.pr, tasks.head FROM tasks JOIN prs ON prs.pr = tasks.pr
-  WHERE (prs.state = 'closed' OR (prs.state = 'merged' AND tasks.queue NOT IN (${QUEUES_A_MERGE_FINISHES}))) AND tasks.state IN (${UNFINISHED_STATES})
-  ORDER BY tasks.task_key
-`
+const A_MERGED_CARD_STILL_NEEDS_IT = `(tasks.queue IN ('merge', 'close', 'witness') AND tasks.state = '${LEASED}' AND tasks.lease_until >= ?) OR (NOT EXISTS (SELECT 1 FROM events AS closed WHERE closed.type = '${CARD_CLOSED}' AND closed.card_id = tasks.card_id) AND (tasks.queue = 'close' OR (tasks.queue = 'witness' AND ${A_CLOSE_DENIED_ON_THIS_WITNESS})))`
+
+const TASKS_OF_A_CLOSED_PULL_REQUEST = `SELECT tasks.task_key, tasks.queue, tasks.card_id, tasks.pr, tasks.head FROM tasks JOIN prs ON prs.pr = tasks.pr
+  WHERE tasks.state IN (${UNFINISHED_STATES}) AND (prs.state = 'closed' OR (prs.state = 'merged' AND NOT (${A_MERGED_CARD_STILL_NEEDS_IT})))
+  ORDER BY tasks.task_key`
 
 const CAUSE_GONE_ON: Record<string, string> = {
   no_verification: `gone.type = '${CARD_VERIFIED}' AND gone.legacy = 0`,
@@ -815,12 +816,13 @@ export interface QueuedTask extends TaskIdentity {
   cardBody?: string
   base?: string
   prBody?: string
+  decision?: number
 }
 
 const CARD_BODY_QUEUES: readonly Queue[] = ['answer', 'witness']
 const STOP_SUFFIX = /:stop-([1-9]\d*)$/
 const BODY_SHA = /^[0-9a-f]{8,64}$/
-const ANSWER_CARD_BODY = /:card-body-([0-9a-f]{8,64})(?::base-[0-9a-f]{40})?(?::stop-[1-9]\d*)?$/
+const ANSWER_CARD_BODY = /:card-body-([0-9a-f]{8,64})(?::base-[0-9a-f]{40})?(?::decision-[1-9]\d*)?(?::stop-[1-9]\d*)?$/
 const MERGE_PR_BODY = /:pr-body-([0-9a-f]{8,64})$/
 const WITNESS_BASE = /:base-([0-9a-f]{40})(?::stop-[1-9]\d*)?$/
 
@@ -857,7 +859,7 @@ export function baseOfKey(key: string): string | undefined {
 }
 
 export function keyOf(task: QueuedTask): string {
-  const key = `${taskKey(task)}${cardBodySegment(task)}${baseSegment(task)}${prBodySegment(task)}`
+  const key = `${taskKey(task)}${cardBodySegment(task)}${baseSegment(task)}${prBodySegment(task)}${decisionSegment(task)}`
   return task.stop === undefined ? key : `${key}:stop-${task.stop}`
 }
 
@@ -936,7 +938,7 @@ export function answerCandidates(db: DatabaseSync, ts: string): QueuedTask[] {
   const leased = db.prepare(ANSWERS_LEASED_NOW).all() as { card_id: number, task_key: string }[]
   const answering = new Set(leased.map(row => Number(row.card_id)))
   const leasedKeys = new Set(leased.map(row => row.task_key))
-  return ANSWER_CANDIDATES.flatMap(query => openCandidates(db, ts, 'answer', candidateRows(db, query, everyRow))).filter(task => !answering.has(task.cardId) || leasedKeys.has(keyOf(task)))
+  return withDecidedContinuations(db, ANSWER_CANDIDATES.flatMap(query => openCandidates(db, ts, 'answer', candidateRows(db, query, everyRow))).filter(task => !answering.has(task.cardId) || leasedKeys.has(keyOf(task))), { decisions: decisionsInForceAt(db, new Date(ts)), sql: { cardBody: cardBodyShaOf, latestTurn: latestTurnOf, notAWindowCard, downgradeWaitOpenOn: aDowngradeWaitOpenOn }, pastTheLimit: (pr, head) => outOfRounds(db, 'answer', pr) && mergeDecidedPastRoundLimit(db, ts, pr, head) === null, cardBodyOf: answerCardBodyOf })
 }
 
 export function mergeCandidates(db: DatabaseSync, ts: string, rerun: RerunMode = 'as-now'): QueuedTask[] {
@@ -964,7 +966,7 @@ export function identityOf(event: StoredEvent): { key: string, queue: Queue } {
     reject(`${event.type} of a review input needs a pr and a head`)
   const base = queue === 'witness' ? baseOfKey(String(payload.task_key)) : undefined
   const prBody = queue === 'merge' ? mergeBodyOfKey(String(payload.task_key)) : undefined
-  const key = keyOf({ queue, cardId, pr: event.pr ?? undefined, head: event.head ?? undefined, generation, stop, input, cardBody, base, prBody })
+  const key = keyOf({ queue, cardId, pr: event.pr ?? undefined, head: event.head ?? undefined, generation, stop, input, cardBody, base, prBody, decision: answerDecisionOfKey(queue, payload.task_key) })
   if (payload.task_key !== key)
     reject(`task_key ${String(payload.task_key)} is not ${key}`)
   return { key, queue }
@@ -1177,7 +1179,7 @@ function identity(row: TaskRow): QueuedTask {
   const cardBody = CARD_BODY_QUEUES.includes(row.queue) ? cardBodyIn(row.task_key) : undefined
   const base = row.queue === 'witness' ? baseOfKey(row.task_key) : undefined
   const prBody = row.queue === 'merge' ? mergeBodyOfKey(row.task_key) : undefined
-  return { ...plain, generation: generationOfKey(row.task_key, plain), stop: stopIn(row.task_key), input, cardBody, base, prBody }
+  return { ...plain, generation: generationOfKey(row.task_key, plain), stop: stopIn(row.task_key), input, cardBody, base, prBody, decision: answerDecisionOfKey(row.queue, row.task_key) }
 }
 
 export interface BodyAdmission { bodySha: string, event: string }
@@ -1240,9 +1242,7 @@ function underCurrentInput(row: ReviewRow): boolean {
 }
 
 function requeueTask(db: DatabaseSync, ts: string, row: StoppedRow, fault = false): boolean {
-  if (closedByRounds(db, ts, row.queue, row.pr, row.head))
-    return false
-  return written(db, taskEvent(ts, TASK_REQUEUED, identity(row), row.failure, undefined, fault))
+  return (answerDecisionOfKey(row.queue, row.task_key) !== undefined || !closedByRounds(db, ts, row.queue, row.pr, row.head)) && written(db, taskEvent(ts, TASK_REQUEUED, identity(row), row.failure, undefined, fault))
 }
 
 function requeueOnceItsCauseIsGone(db: DatabaseSync, ts: string, row: AlarmRow): boolean {
@@ -1273,7 +1273,7 @@ export function deriveQueues(db: DatabaseSync, ts: string): Derived {
     if (supersedeTask(db, ts, identity(row)))
       derived.superseded.push(row.task_key)
   }
-  for (const row of db.prepare(TASKS_OF_A_CLOSED_PULL_REQUEST).all() as unknown as TaskRow[])
+  for (const row of db.prepare(TASKS_OF_A_CLOSED_PULL_REQUEST).all(ts) as unknown as TaskRow[])
     withdrawTask(db, ts, identity(row))
   for (const row of [...reviewsOfAnOldInput(db), ...answersOfAnOldCardBody(db), ...db.prepare(MERGES_OF_AN_OLD_BODY).all() as unknown as TaskRow[]]) {
     if (supersedeTask(db, ts, identity(row)))

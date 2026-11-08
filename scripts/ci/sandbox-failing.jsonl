@@ -168,7 +168,6 @@
 {"file":"scripts/tests/ghosts/morse.test.ts","test":"ghosts:hash for MORSE from the command line > the flag --card needs --by morse","refused":"listen EPERM on the tsx IPC pipe"}
 {"file":"scripts/tests/ghosts/no-journal-writes.test.ts","test":"the window commands write the bus, not the journal > no window command appends to ghosts.jsonl: ghosts:launch --fall writes ghost.line to the bus","refused":"listen EPERM on the tsx IPC pipe"}
 {"file":"scripts/tests/ghosts/no-journal-writes.test.ts","test":"the window commands write the bus, not the journal > no window command appends to ghosts.jsonl: ghosts:launch --revoke writes ghost.line to the bus","refused":"listen EPERM on the tsx IPC pipe"}
-{"file":"scripts/tests/ghosts/watch-process.test.ts","test":"listProcesses > lists this process among running processes, with its pid a positive number","refused":"spawnSync ps EPERM"}
 {"file":"scripts/tests/ghosts/watch.e2e.test.ts","test":"ghosts watch, end to end through the stub > carries the prefix on every printed line, in a frame and in a refusal","refused":"listen EPERM on the tsx IPC pipe"}
 {"file":"scripts/tests/ghosts/watch.e2e.test.ts","test":"ghosts watch, end to end through the stub > reads the tasks file through readTasksFile, refusing an unknown key by name","refused":"listen EPERM on the tsx IPC pipe"}
 {"file":"scripts/tests/ghosts/watch.e2e.test.ts","test":"ghosts watch, end to end through the stub > redraws with --every until it is interrupted","refused":"listen EPERM on the tsx IPC pipe"}
@@ -295,6 +294,7 @@
 {"file":"scripts/tests/morse/cli.test.ts","test":"morse rules > rule tests-modified-pos","refused":"listen EPERM on the tsx IPC pipe"}
 {"file":"scripts/tests/morse/cli.test.ts","test":"morse rules > rule tests-shrunk-neg","refused":"listen EPERM on the tsx IPC pipe"}
 {"file":"scripts/tests/morse/cli.test.ts","test":"morse rules > rule tests-shrunk-pos","refused":"listen EPERM on the tsx IPC pipe"}
+{"file":"scripts/tests/ports/process-table.test.ts","test":"the process table port > the in-memory adapter answers as the live one for an alive and a dead pid","refused":"spawnSync ps EPERM"}
 {"file":"scripts/tests/privacy/package-files.test.ts","test":"published package > carries no run or findings data","refused":"open under ~/.npm/_cacache EPERM"}
 {"file":"scripts/tests/quality/lock.test.ts","test":"quality lock > a run inside a run does not wait on the lock its parent holds","refused":"listen EPERM on the tsx IPC pipe"}
 {"file":"scripts/tests/quality/lock.test.ts","test":"quality lock > two concurrent quality runs run one after the other","refused":"listen EPERM on the tsx IPC pipe"}
@@ -377,3 +377,6 @@
 {"file":"tests/hijack-deploy-beside.test.ts","test":"","refused":"npm registry 403"}
 {"file":"tests/intake-from-package.test.ts","test":"","refused":"npm registry 403"}
 {"file":"tests/package-factory.test.ts","test":"","refused":"npm registry 403"}
+{"file":"scripts/tests/witness/one-gib-disk.test.ts","test":"the launch queue > a launch is spawned detached as its own process group leader and records card.started","refused":"spawnSync ps EPERM"}
+{"file":"scripts/tests/witness/one-gib-disk.test.ts","test":"the launch queue > a session started while its card was started elsewhere is killed with its process group","refused":"spawnSync ps EPERM"}
+{"file":"scripts/tests/witness/one-gib-disk.test.ts","test":"the launch queue > a launch worker started from an auto window starts the card session in dontAsk","refused":"spawnSync ps EPERM"}

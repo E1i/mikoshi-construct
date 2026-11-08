@@ -12,17 +12,12 @@ import { AXES, CONCEPTS } from '../../scripts/contract/factory/concepts.js'
 import { findSites, overlapsSection } from '../../scripts/contract/factory/overlaps.js'
 import { parsedFiles } from '../../scripts/contract/factory/walk.js'
 import { BUS_VERSION } from '../../scripts/core/bus-version.js'
-import { FACTORY_PATH_EXCLUSIONS } from '../../scripts/core/factory-paths.js'
-import { pathTriggeredCapabilities } from '../../scripts/policy/shredder/vocabulary.js'
 import { SCANNED_TREES } from '../../src/card/covering-tests.js'
-import { GENERATED_WITH } from '../../src/card/risk.js'
-import { COMPANION_TABLE } from '../../src/commands/intake/check.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../..')
 const RECORDED = path.join(REPO_ROOT, 'contract', 'factory.json')
 const THIS_TEST = 'tests/contract/factory.test.ts'
 const GENERATION_TIMEOUT = 180_000
-const FACTORY_RECORD = 'contract/factory.json'
 const CODE_MODULE = /\.(?:ts|mts|mjs|js)$/
 const LINE_NUMBER = /:\d+/
 const SITE_LINE = /^(\S+):(\d+) (\S+) /
@@ -44,25 +39,13 @@ const CONCEPT_IDS = [
 ]
 
 const SITES_OF_THE_RECONNAISSANCE: Record<string, readonly string[]> = {
-  'process-table': [
-    'scripts/nodes/launch/launch-starter.ts',
-    'scripts/nodes/restart/chain-process.ts',
-    'scripts/ladder/watch-process.ts',
-    'scripts/window/exit.ts',
-    'scripts/window/loop.ts',
-    'scripts/supervisor/supervisor.ts',
-    'scripts/supervisor/bg.ts',
-    'scripts/ports/worktree.ts',
-  ],
   'pid-liveness': [
     'scripts/quality/lock.ts',
     'scripts/ladder/cleanup.ts',
     'scripts/scratch/run-root.ts',
     'scripts/supervisor/bg.ts',
-    'scripts/supervisor/supervisor.ts',
   ],
-  'live-session': ['scripts/nodes/answer/answerer.ts', 'scripts/ports/worktree.ts', 'scripts/window/session-load.ts'],
-  'layers': ['scripts/ci/layers.ts', 'scripts/ci/card-runs.ts', 'scripts/cli/check-catalog.ts', 'src/card/witness-fields.ts'],
+  'live-session': ['scripts/core/machine-sessions.ts'],
   'owner-decisions': [
     'scripts/nodes/launch/launch-candidates.ts',
     'scripts/core/inbox.ts',
@@ -75,25 +58,7 @@ const SITES_OF_THE_RECONNAISSANCE: Record<string, readonly string[]> = {
     'scripts/policy/decisions/read.ts',
     'scripts/core/bus-path.ts',
   ],
-  'handoff-status': ['scripts/window/loop.ts', 'src/commands/doctor/factory.ts', 'scripts/cli/board-page.ts', 'scripts/window/tab.ts', 'scripts/window/exit.ts'],
-  'ci-reading': [
-    'scripts/nodes/answer/answerer.ts',
-    'scripts/nodes/merge/merge-executor.ts',
-    'scripts/ports/snapshot.ts',
-    'scripts/ports/gh.ts',
-    'src/commands/board/items.ts',
-    'src/commands/board/prs.ts',
-    'scripts/core/observations.ts',
-    'scripts/release/cancel-run.ts',
-    'scripts/nodes/answer/ci-log.ts',
-  ],
-  'generated-files': [
-    'scripts/core/factory-paths.ts',
-    'scripts/ladder/preflight-static.ts',
-    'scripts/ladder/regenerated.ts',
-    'src/card/risk.ts',
-    'src/commands/intake/check.ts',
-  ],
+  'handoff-status': ['src/commands/doctor/factory.ts'],
   'owner-commands': [
     'scripts/core/reducer.ts',
     'scripts/core/queue.ts',
@@ -157,7 +122,7 @@ describe('contract/factory.json', () => {
   }, GENERATION_TIMEOUT)
 
   it('every module under scripts/ports has its exported functions and types with signatures', () => {
-    const { ports } = generated()
+    const { ports: { modules: ports } } = generated()
 
     expect(Object.keys(ports)).toEqual(modulesUnderPorts())
     for (const [file, module] of Object.entries(ports))
@@ -183,6 +148,7 @@ describe('contract/factory.json', () => {
     for (const [id, concept] of Object.entries(concepts)) {
       expect(AXES, id).toContain(concept.axis)
       expect(existsSync(path.join(REPO_ROOT, concept.owner)), `${id}: ownerExists is ${concept.ownerExists} for ${concept.owner}`).toBe(concept.ownerExists)
+      expect(concept.ownerExport === null, `${id}: ownerExport ${concept.ownerExport}`).toBe(!concept.ownerExists)
     }
   }, GENERATION_TIMEOUT)
 
@@ -231,7 +197,9 @@ describe('contract/factory.json', () => {
 
     for (const [concept, files] of Object.entries(SITES_OF_THE_RECONNAISSANCE))
       expect(Object.keys(overlaps[concept]!), concept).toEqual(expect.arrayContaining([...files]))
+    expect(overlaps['process-table']).toEqual({})
     expect(overlaps['window-requests']!['scripts/window/window-requests.ts']).toBeGreaterThan(1)
+    expect(overlaps.layers).toEqual({})
   }, GENERATION_TIMEOUT)
 
   it('a change to any scripts module selects the freshness test in the per-layer CI run', () => {
@@ -296,13 +264,5 @@ describe('contract/factory.json', () => {
         expect(Number.isInteger(count) && count > 0).toBe(true)
     }
     expect(counted).toEqual(committed.overlaps)
-  }, GENERATION_TIMEOUT)
-
-  it('takes its row in the generated-file lists its neighbour contract/surface.json sits in', () => {
-    expect(FACTORY_PATH_EXCLUSIONS.generated).toContain(FACTORY_RECORD)
-    expect(GENERATED_WITH[FACTORY_RECORD]).toEqual(['scripts', 'src'])
-    expect(pathTriggeredCapabilities([FACTORY_RECORD])).toContain('need generated artifact')
-    expect(COMPANION_TABLE.map(row => row.kind)).toContain('the factory contract')
-    expect(generated().overlaps['generated-files']!['scripts/ladder/preflight-static.ts']).toBeGreaterThan(0)
   }, GENERATION_TIMEOUT)
 })

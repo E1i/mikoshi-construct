@@ -456,6 +456,12 @@ describe('board.html', () => {
     expect(html.indexOf('id="h-backlog"')).toBeLessThan(html.indexOf('<footer class="statusline"'))
   })
 
+  it('the logo wrapper clips the glitch instead of scrolling', () => {
+    const html = pageText(seededBus())
+    expect(html).toContain('.banner-wrap { overflow-x: clip; min-inline-size: 0; }')
+    expect(html).not.toMatch(/\.banner-wrap\s*\{[^}]*overflow-x:\s*auto/)
+  })
+
   it('an eddies tile has no bar while the bus holds no context or spent for it', () => {
     const silent = pageText(seededBus([
       { ts: minutesAgo(3), type: SESSION_HEARTBEAT, card: 861, payload: JSON.stringify({ step: 'launch', session: 's861' }) },
@@ -1084,6 +1090,14 @@ describe('board.html', () => {
       const none = dialogOf([witnessRecord('b'.repeat(40), 'green', 'on an older head')])
       expect(none).toContain('<td>pass/fail · last not run</td>')
       expect(none).toContain('<td>pass/pass · last not run</td>')
+    })
+
+    it('a witness that could not check reads apart from red on the board', () => {
+      const dialogOf = (events: SeedEvent[]): string => templatesOf(pageText(busOfFields(870, FIELD_CARD, events))).get('dialog-card-870')!
+      const unchecked = dialogOf([witnessRecord(HEAD, 'unchecked', 'http://127.0.0.1:1/ did not answer, so "`pnpm exec vitest run tests/a.test.ts`" did not run')])
+      expect(unchecked).toContain('<td>pass/fail · last could not check</td>')
+      expect(unchecked).toContain('<td>pass/pass · last could not check</td>')
+      expect(unchecked).not.toContain('last red')
     })
 
     it('a backfilled card shows its table and no second runs line', () => {

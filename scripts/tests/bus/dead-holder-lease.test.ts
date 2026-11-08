@@ -10,6 +10,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { openBus } from '../../core/db.js'
 import { BOARD_ALARM, TASK_EXPIRED, WORKER_STARTED } from '../../core/events.js'
 import { completeTask, HOLDER_DEAD, HOLDER_UNPROVEN, judgeHolders, LEASE_MS, leaseNext, leaseQueued, leaseWhileFree, recordWorkerStarted, releaseTask, renewLease, SAME_START_MS, StaleLease, WORKER_HUNG } from '../../core/lease.js'
+import { InMemoryProcessTable } from '../../ports/process-table.js'
 import { launchName, PREFIX } from '../../supervisor/bg.js'
 import { ownStart } from '../../supervisor/heartbeat.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
@@ -239,9 +240,14 @@ describe('a lease whose holder process is dead is freed at once', () => {
     expect(Math.abs(started - Date.parse(ownStart().started))).toBeLessThan(SAME_START_MS)
   })
 
-  it('a pid whose process has exited reads as gone', () => {
+  it.skipIf(PS_REFUSED_HERE)('a pid whose process has exited reads as gone', () => {
     const exited = spawnSync(process.execPath, ['-e', '']).pid
     expect(psStartOf(exited)).toEqual({ state: 'gone' })
+  })
+
+  it('a pid absent from a readable snapshot reads as gone, and an unreadable snapshot as unreadable', () => {
+    expect(psStartOf(DEAD_PID, new InMemoryProcessTable({ rows: [] }))).toEqual({ state: 'gone' })
+    expect(psStartOf(DEAD_PID, new InMemoryProcessTable({ rows: { unreadable: 'ps refused' } }))).toEqual({ state: 'unreadable' })
   })
 
   it('a live pid that ps cannot read is unreadable, never gone', () => {

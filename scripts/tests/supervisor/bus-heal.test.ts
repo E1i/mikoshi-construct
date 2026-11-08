@@ -104,7 +104,6 @@ function fakeSignals(): Signals {
       sent.push({ pid, name })
       stopped.add(pid)
     },
-    alive: pid => !stopped.has(pid),
     runsNodeOfThisBus: pid => !stopped.has(pid),
     runningOnThisBus: () => [],
     pause: async () => {},

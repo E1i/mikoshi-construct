@@ -1,6 +1,8 @@
 import type { GhCall, GhPort } from './gh.js'
 import { PROCESS_GH_PORT } from './gh.js'
 
+export const TECHNOLOGY_WORDS = ['endpoint', 'gh', 'headers'] as const
+
 export interface GhResponse {
   status: number
   headers: Record<string, string>

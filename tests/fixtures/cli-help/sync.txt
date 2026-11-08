@@ -4,10 +4,10 @@ USAGE construct sync [OPTIONS]
 
 OPTIONS
 
-  --dir=<dir>    Target directory (Default: .)                                                                                               
-      --plain    No colors, no lore (CI-friendly) (Default: false)                                                                           
-     --johnny    Wake up, Netrunner. (Default: false)                                                                                        
-       --json    Machine-readable report (Default: false)                                                                                    
-      --apply    Write the paths the construct owns — the only way sync writes; never a conflict, a removal or a merged file (Default: false)
+  --dir=<dir>    Target directory (Default: .)                                                                                                                                                   
+      --plain    No colors, no lore (CI-friendly) (Default: false)                                                                                                                               
+     --johnny    Wake up, Netrunner. (Default: false)                                                                                                                                            
+       --json    Machine-readable report (Default: false)                                                                                                                                        
+      --apply    Write the paths the construct owns and the browser lab exclusion in the local settings — the only way sync writes; never a conflict, a removal or a merged file (Default: false)
 
 

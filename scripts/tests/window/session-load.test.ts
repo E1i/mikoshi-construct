@@ -1,6 +1,6 @@
 import type { ProcessCwds } from '../../ports/client/contract.js'
 import { describe, expect, it } from 'vitest'
-import { LSOF_CLIENT_NAMES } from '../../ports/worktree.js'
+import { CLIENT_CWDS_COMMAND } from '../../ports/process-table.js'
 import { PRODUCED_BY, readingOf, readSessionLoad } from '../../window/session-load.js'
 
 const TOP = [
@@ -24,7 +24,7 @@ const TOP = [
   'nodemon          2.0',
 ].join('\n')
 
-const TWO_SESSIONS: ProcessCwds = { kind: 'listed', listing: 'p101\nfcwd\nn/trees/1\np102\nfcwd\nn/trees/2\n' }
+const TWO_SESSIONS: ProcessCwds = { kind: 'listed', cwds: ['/trees/1', '/trees/2'] }
 
 describe('the session load reading', () => {
   it('a reading gives sys percent and node per session with what produced it', () => {
@@ -39,12 +39,12 @@ describe('the session load reading', () => {
     })
     expect(PRODUCED_BY).toContain('top')
     expect(PRODUCED_BY).toContain('lsof')
-    expect(PRODUCED_BY).toContain(LSOF_CLIENT_NAMES.join(' '))
+    expect(PRODUCED_BY).toContain(CLIENT_CWDS_COMMAND)
     expect(PRODUCED_BY).toContain('claude or a version number')
   })
 
   it('no live session gives no node per session rather than a division by zero', () => {
-    expect(readingOf(TOP, { kind: 'listed', listing: '' })).toMatchObject({ nodeProcesses: 3, liveSessions: 0, nodePerSession: null })
+    expect(readingOf(TOP, { kind: 'listed', cwds: [] })).toMatchObject({ nodeProcesses: 3, liveSessions: 0, nodePerSession: null })
   })
 
   it('a top with no CPU line is an error, not a zero', () => {

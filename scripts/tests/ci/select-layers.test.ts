@@ -1,9 +1,11 @@
 import type { Graph } from '../../ci/layers.js'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { BUS_CORE as CORE_PATTERN, layerOf, selectRun, BUS_SERVICE as SERVICE_PATTERN, windowGate } from '../../ci/layers.js'
+import { DECLARED_PATH_READERS, EVERY_CHANGE_READERS, TRACED_TREE_SPAWNERS, TRACED_TREE_WALKERS } from '../../../src/card/covering-tests.js'
+import { BUS_CORE as CORE_PATTERN, selectRun, BUS_SERVICE as SERVICE_PATTERN, windowGate } from '../../ci/layers.js'
 import { changedPathsOf, outputLines, pathsOf, reportedRun, runSummary, windowLines } from '../../ci/select.js'
+import { layerOf } from '../../core/layer-map.js'
 
 const GRAPH: Graph = new Map([
   ['scripts/core/db.ts', []],
@@ -12,7 +14,7 @@ const GRAPH: Graph = new Map([
   ['scripts/ladder/launch.ts', ['scripts/core/db.ts']],
   ['scripts/notes/print.ts', []],
   ['scripts/tests/bus/merge-worker.test.ts', ['scripts/nodes/merge/merge-worker.ts']],
-  ['scripts/tests/bus/review-worker.test.ts', ['scripts/nodes/review/review-worker.ts']],
+  ['scripts/tests/bus/review-service.test.ts', ['scripts/nodes/review/review-worker.ts']],
   ['scripts/tests/ghosts/launch.test.ts', ['scripts/ladder/launch.ts']],
   ['scripts/tests/notes/spawn.test.ts', []],
 ])
@@ -36,13 +38,22 @@ describe('the checks a change reaches follow the layers of the dependency graph'
     expect(run.layers).toEqual(['bus-core', 'bus:merge', 'bus:review', 'ladder'])
     expect(run.tests).toEqual([
       'scripts/tests/bus/merge-worker.test.ts',
-      'scripts/tests/bus/review-worker.test.ts',
+      'scripts/tests/bus/review-service.test.ts',
       'scripts/tests/ghosts/launch.test.ts',
     ])
   })
 
+  it('a non-code file in a layer folder runs the layers of the code beside it, not the full run', () => {
+    const graph: Graph = new Map([...GRAPH, ['scripts/nodes/launch/launch-worker.ts', []], ['scripts/tests/bus/launch-worker.test.ts', ['scripts/nodes/launch/launch-worker.ts']]])
+    const run = selectRun(['scripts/nodes/launch/header.md'], graph, () => '')
+    if (run.kind !== 'layers')
+      throw new Error(`expected a layer run, got: ${run.why}`)
+    expect(run.layers).toContain('bus:launch')
+    expect(run.tests).toContain('scripts/tests/bus/launch-worker.test.ts')
+  })
+
   it('a path in no layer of the graph takes the full run', () => {
-    expect(selectRun(['docs/index.md'], GRAPH, () => '').kind).toBe('full')
+    expect(selectRun(['CONTRIBUTING.md'], GRAPH, () => '').kind).toBe('full')
     expect(selectRun(['scripts/bus/unknown.ts'], GRAPH, () => '').kind).toBe('full')
     expect(selectRun([], GRAPH, () => '').kind).toBe('full')
   })
@@ -134,6 +145,69 @@ describe('the checks a change reaches follow the layers of the dependency graph'
     expect(run.tests).toEqual(['scripts/tests/bus/merge-worker.test.ts'])
   })
 
+  it('every tree walker and spawner of the open trace runs on a change it neither imports nor names', () => {
+    const graph: Graph = new Map([
+      ['scripts/notes/print.ts', []],
+      ...EVERY_CHANGE_READERS.map(test => [test, []] as const),
+    ])
+    const run = selectRun(['scripts/notes/print.ts'], graph, () => '')
+    expect(run).toMatchObject({ kind: 'layers', tests: [...EVERY_CHANGE_READERS].sort() })
+    expect(TRACED_TREE_WALKERS).toHaveLength(26)
+    expect(TRACED_TREE_SPAWNERS).toHaveLength(45)
+  })
+
+  it('every tree walker and spawner of the open trace runs on a change of only changeset notes', () => {
+    const reader = 'tests/changesets-one-line.test.ts'
+    const graph: Graph = new Map([[reader, []], ...EVERY_CHANGE_READERS.map(test => [test, []] as const)])
+    expect(selectRun(['.changeset/hygiene.md'], graph, () => '')).toEqual({ kind: 'layers', layers: [], tests: [...new Set([reader, ...EVERY_CHANGE_READERS])].sort() })
+  })
+
+  it('every tree walker and spawner of the open trace is a test file of the repository', () => {
+    const repository = path.resolve(import.meta.dirname, '..', '..', '..')
+    expect(EVERY_CHANGE_READERS.filter(test => !existsSync(path.join(repository, test)))).toEqual([])
+  })
+
+  it('a template change runs its declared readers and the tests naming its path, not the whole bus layer', () => {
+    const template = 'templates/base/AGENTS.md.eta'
+    const graph: Graph = new Map([
+      ['src/materialize/templates.ts', []],
+      ['tests/init.test.ts', ['src/materialize/templates.ts']],
+      ['tests/agents-template.test.ts', []],
+      ['scripts/core/queue.ts', []],
+      ['scripts/tests/bus/queue.test.ts', ['scripts/core/queue.ts']],
+    ])
+    const text = (file: string): string => ({ 'tests/agents-template.test.ts': `read('${template}')`, 'scripts/core/queue.ts': `path.join('templates', 'base')`, 'scripts/tests/bus/queue.test.ts': `'templates/'` })[file] ?? ''
+    const run = selectRun([template], graph, text)
+    if (run.kind !== 'layers')
+      throw new Error(`expected a layer run, got: ${run.why}`)
+    expect(run.tests).toEqual(['tests/agents-template.test.ts', 'tests/init.test.ts'])
+  })
+
+  it('a contract record runs its declared readers and the tests naming its path, not the whole bus layer', () => {
+    const schema = 'contract/contours/ledger-row.schema.json'
+    const graph: Graph = new Map([
+      ['scripts/ladder/watch-ledger.ts', []],
+      ['scripts/tests/ghosts/watch-ledger.test.ts', ['scripts/ladder/watch-ledger.ts']],
+      ['scripts/core/queue.ts', []],
+      ['scripts/tests/bus/queue.test.ts', ['scripts/core/queue.ts']],
+    ])
+    const text = (file: string): string => ({ 'scripts/core/queue.ts': `path.join('contract', 'contours')`, 'scripts/tests/bus/queue.test.ts': `'contract/'` })[file] ?? ''
+    const run = selectRun([schema], graph, text)
+    if (run.kind !== 'layers')
+      throw new Error(`expected a layer run, got: ${run.why}`)
+    expect(run.tests).toEqual(['scripts/tests/ghosts/watch-ledger.test.ts'])
+  })
+
+  it('every declared path reader is a module of the repository', () => {
+    const repository = path.resolve(import.meta.dirname, '..', '..', '..')
+    expect(Object.values(DECLARED_PATH_READERS).flat().filter(module => !existsSync(path.join(repository, module)))).toEqual([])
+  })
+
+  it('a path in no layer still takes the full run beside the tree walkers and spawners', () => {
+    const graph: Graph = new Map(EVERY_CHANGE_READERS.map(test => [test, []] as const))
+    expect(selectRun(['loose/unread.ts'], graph, () => '')).toMatchObject({ kind: 'full' })
+  })
+
   it('a change outside every scanned tree does not add the scanning tests', () => {
     const graph: Graph = new Map([
       ['scripts/notes/print.ts', []],
@@ -166,13 +240,13 @@ describe('the window gate of D-194 takes the CI selection by layers', () => {
   })
 
   it('the window gate takes the full run when the rest of a package.json change reaches no layer', () => {
-    const run = windowGate(['package.json', 'docs/index.md'], graph, () => '')
-    expect(run).toEqual(selectRun(['docs/index.md'], graph, () => ''))
+    const run = windowGate(['package.json', 'CONTRIBUTING.md'], graph, () => '')
+    expect(run).toEqual(selectRun(['CONTRIBUTING.md'], graph, () => ''))
     expect(run.kind).toBe('full')
   })
 
   it('the window gate is the CI selection for a change without package.json', () => {
-    for (const changed of [['scripts/core/db.ts'], ['docs/index.md'], []])
+    for (const changed of [['scripts/core/db.ts'], ['CONTRIBUTING.md'], []])
       expect(windowGate(changed, graph, () => '')).toEqual(selectRun(changed, graph, () => ''))
   })
 

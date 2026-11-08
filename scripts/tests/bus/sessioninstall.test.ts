@@ -2,7 +2,7 @@ import type { Answerer } from '../../nodes/answer/answerer.js'
 import type { DetachedSpawn } from '../../nodes/launch/launch-starter.js'
 import type { CardTreeTools } from '../../ports/card-tree.js'
 import type { MergeBench } from './merge-bench.js'
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -14,7 +14,7 @@ import { leaseNext } from '../../core/lease.js'
 import { queueTask } from '../../core/queue.js'
 import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
 import { realStarterPorts } from '../../nodes/launch/launch-worker.js'
-import { PREPARE_TREE } from '../../ports/prepare-tree.js'
+import { lacksItsPackages, PREPARE_TREE, prepareTree } from '../../ports/prepare-tree.js'
 import { sha } from './github-fake.js'
 import { mergeBench } from './merge-bench.js'
 
@@ -78,6 +78,43 @@ describe('the launch worker', () => {
     expect(existsSync(spawn.log)).toBe(true)
     expect(said).toHaveBeenCalledWith(expect.stringContaining('ERR_PNPM_OUTDATED_LOCKFILE'))
     expect(said).toHaveBeenCalledWith(expect.stringContaining(PREPARE_TREE.join(' ')))
+  })
+
+  function lockedTree(dir: string): string {
+    const tree = treeIn(dir, true)
+    writeFileSync(path.join(tree, 'package.json'), JSON.stringify({ name: 'a-tree', dependencies: { citty: '^0.1.0' }, devDependencies: { vitest: '^1.0.0' } }))
+    mkdirSync(path.join(tree, 'node_modules'))
+    writeFileSync(path.join(tree, 'node_modules', '.modules.yaml'), 'layoutVersion: 5\n')
+    return tree
+  }
+
+  function installed(tree: string, name: string): void {
+    mkdirSync(path.join(tree, 'node_modules', name), { recursive: true })
+    writeFileSync(path.join(tree, 'node_modules', name, 'package.json'), `{"name":"${name}"}`)
+  }
+
+  function preparedArgs(tree: string): (readonly string[])[] {
+    const runs: (readonly string[])[] = []
+    prepareTree(tree, (_tree, args) => runs.push(args))
+    return runs
+  }
+
+  it('a tree whose modules state survived and whose packages are gone is prepared with --force', () => {
+    const tree = lockedTree(root())
+    installed(tree, 'citty')
+    symlinkSync(path.join(tree, 'node_modules', '.pnpm', 'vitest@1.0.0', 'node_modules', 'vitest'), path.join(tree, 'node_modules', 'vitest'))
+
+    expect(lacksItsPackages(tree)).toBe(true)
+    expect(preparedArgs(tree)).toEqual([[...PREPARE_TREE.slice(1), '--force']])
+  })
+
+  it('a tree whose packages are present is prepared with the plain frozen install', () => {
+    const tree = lockedTree(root())
+    installed(tree, 'citty')
+    installed(tree, 'vitest')
+
+    expect(lacksItsPackages(tree)).toBe(false)
+    expect(preparedArgs(tree)).toEqual([PREPARE_TREE.slice(1)])
   })
 
   it('a tree with no lockfile is not prepared', () => {

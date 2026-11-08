@@ -59,7 +59,7 @@ function startedCard(): Bench {
 }
 
 function observe(bench: Bench, head: string): void {
-  appendEvent(bench.db, prObserved(STARTED_AT, { pr: PR, cardId: CARD, base: 'main', head, branch: `feat/${CARD}`, mergeable: 'clean', ci: 'green', failedChecks: [], verdictOnHead: null, autoMerge: false, draft: false, bodySha: sha('d') }, null))
+  appendEvent(bench.db, prObserved(STARTED_AT, { pr: PR, cardId: CARD, base: 'main', head, branch: `feat/${CARD}`, mergeable: 'clean', ciFields: { ci: 'green' }, verdictOnHead: null, autoMerge: false, draft: false, bodySha: sha('d') }, null))
   reduce(bench.db)
 }
 

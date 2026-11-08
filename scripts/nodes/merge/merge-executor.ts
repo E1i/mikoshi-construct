@@ -21,9 +21,10 @@ import { cardContract, NOT_MINE, notMine } from '../../intake/card-contract.js'
 import { allowLiveCommand, liveDecisionOf } from '../../policy/live-decision.js'
 import { mergePolicy, OWNER_MERGES, OWNER_MERGES_RULES, underOwnerDecision, VERSION_BRANCH, WITNESS_REASON, witnessDenial, witnessSubjectOf } from '../../policy/policy.js'
 import { activeWindowShards, decisionsInForceAt, expiredWindowShards, shardActive, unspentShard } from '../../policy/shards.js'
+import { ciOf, GitHubCommitCi } from '../../ports/ci-reading.js'
 import { REVIEW_STATUS_CONTEXT } from '../../ports/github-status.js'
 import { Meter } from '../../ports/meter.js'
-import { ciOf, MAIN_BRANCH, MERGEABLE_OF_STATE, OPEN_PULLS_PAGE, requiredCheckOf, verdictOf } from '../../ports/snapshot.js'
+import { MAIN_BRANCH, MERGEABLE_OF_STATE, OPEN_PULLS_PAGE, requiredCheckOf, verdictOf } from '../../ports/snapshot.js'
 
 export const MERGE_METHOD = 'squash'
 export const MERGE_QUEUE = 'merge'
@@ -35,9 +36,7 @@ const WAIT_REASONS: ReadonlySet<MergeTechnicalReason> = new Set(['version_pr_ope
 const OPEN_QUESTIONS_OF_CARD = `${openDecisionWaitsOf('?')} ORDER BY opened_at, id`
 const REVIEWS_IN_FLIGHT = `SELECT task_key FROM tasks WHERE queue = 'review' AND pr = ? AND head = ? AND state IN ('queued', 'leased') ORDER BY id`
 const WITHDRAWN_ON_THE_BODY: ReadonlySet<AuthorityRule> = new Set(['decision_unread', 'no_matrix_count_line'])
-const RUNS_PAGE = 100
 const FILES_PAGE = 100
-const AWAITING_APPROVAL = 'action_required'
 const REPO = 'repos/{owner}/{repo}'
 
 export type MergeTechnicalReason = TechnicalReason | 'not_mergeable' | 'no_pass_on_head' | 'version_pr_open' | 'wrong_base' | 'not_a_candidate' | 'not_mine' | typeof HELD_FOR_OWNER | typeof QUESTION_OPEN | typeof WITNESS_REASON | typeof NEEDS_UPDATE | typeof KEPT_BY_PUSH_POLICY
@@ -99,13 +98,6 @@ function patchedFiles(meter: Meter, pr: number): PatchedFile[] {
     if (listed.length < FILES_PAGE)
       return files
   }
-}
-
-function approvedRunsOn(meter: Meter, head: string | undefined): boolean {
-  if (head === undefined)
-    return false
-  const runs = (meter.get(`${REPO}/actions/runs?head_sha=${head}&per_page=${RUNS_PAGE}`) as { workflow_runs?: { conclusion?: string | null }[] }).workflow_runs ?? []
-  return runs.some(run => run.conclusion !== AWAITING_APPROVAL)
 }
 
 function textOf(body: unknown): string {
@@ -326,7 +318,7 @@ export class MergeExecutor {
     try {
       const meter = new Meter(this.parts.gitHub, () => this.parts.clock().getTime())
       const open = meter.get(`${REPO}/pulls?state=open&per_page=${OPEN_PULLS_PAGE}`) as Pull[]
-      const versionPr = open.find(candidate => candidate.number !== lease.pr && VERSION_BRANCH.test(candidate.head?.ref ?? '') && approvedRunsOn(meter, candidate.head?.sha))
+      const versionPr = open.find(candidate => candidate.number !== lease.pr && VERSION_BRANCH.test(candidate.head?.ref ?? '') && new GitHubCommitCi(meter).approvedRunOn(candidate.head?.sha))
       return versionPr === undefined ? null : { kind: 'technical', reason: 'version_pr_open', detail: `#${versionPr.number} is a version pull request with approved runs on ${versionPr.head?.sha} and locks every merge` }
     }
     catch (error) {
