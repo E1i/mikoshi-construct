@@ -45,6 +45,32 @@ describe('a concept\'s owner is checked at the export, not the file', () => {
 
   it('a concept that claims an owner which is no file is red', () => {
     expect(ownerExportFault(built('seededOwner'), fixtureTree({}))).toBe(`seeded: ownerExists is true but ${OWNER} is not a file`)
+    expect(ownerExportFault(built('seededOwner'), fixtureTree({ [`${OWNER}/index.ts`]: 'export function seededOwner(): void {}\n' }))).toBe(`seeded: ownerExists is true but ${OWNER} is not a file`)
+  })
+
+  it('a default declaration exports the name default, not its own name, named or anonymous', () => {
+    const root = fixtureTree({
+      'scripts/seeded/function.ts': 'export default function seededOwner(): void {}\n',
+      'scripts/seeded/class.ts': 'export default class SeededOwner {}\n',
+      'scripts/seeded/anonymous.ts': 'export default function (): void {}\n',
+      'scripts/seeded/anonymous-class.ts': 'export default class {}\n',
+    })
+
+    expect([...exportedNames(path.join(root, 'scripts/seeded/function.ts'))]).toEqual(['default'])
+    expect([...exportedNames(path.join(root, 'scripts/seeded/class.ts'))]).toEqual(['default'])
+    expect([...exportedNames(path.join(root, 'scripts/seeded/anonymous.ts'))]).toEqual(['default'])
+    expect([...exportedNames(path.join(root, 'scripts/seeded/anonymous-class.ts'))]).toEqual(['default'])
+  })
+
+  it('a name reachable only through export * from is not seen, so its owner is red; export * as ns exports ns', () => {
+    const root = fixtureTree({
+      [OWNER]: 'export * from \'./inner.js\'\nexport * as seededSpace from \'./inner.js\'\n',
+      'scripts/seeded/inner.ts': 'export function seededOwner(): void {}\n',
+    })
+
+    expect([...exportedNames(path.join(root, OWNER))]).toEqual(['seededSpace'])
+    expect(ownerExportFault(built('seededOwner'), root)).toBe(`seeded: ${OWNER} does not export seededOwner`)
+    expect(ownerExportFault(built('seededSpace'), root)).toBeNull()
   })
 
   it('every concept with an existing owner exports the name it declares', () => {

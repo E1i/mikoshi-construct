@@ -58,17 +58,19 @@ function exportModifiers(statement: ts.Statement): { exported: boolean, isDefaul
 function namesExportedBy(statement: ts.Statement): string[] {
   if (ts.isExportAssignment(statement))
     return ['default']
-  if (ts.isExportDeclaration(statement))
-    return statement.exportClause !== undefined && ts.isNamedExports(statement.exportClause) ? statement.exportClause.elements.map(element => element.name.text) : []
+  if (ts.isExportDeclaration(statement)) {
+    const clause = statement.exportClause
+    if (clause === undefined)
+      return []
+    return ts.isNamedExports(clause) ? clause.elements.map(element => element.name.text) : [clause.name.text]
+  }
   const { exported, isDefault } = exportModifiers(statement)
   if (!exported)
     return []
-  if (isDefault)
-    return ['default']
   if (ts.isVariableStatement(statement))
     return statement.declarationList.declarations.flatMap(declaration => ts.isIdentifier(declaration.name) ? [declaration.name.text] : [])
   if (ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement) || ts.isInterfaceDeclaration(statement) || ts.isTypeAliasDeclaration(statement) || ts.isEnumDeclaration(statement))
-    return statement.name === undefined ? [] : [statement.name.text]
+    return [isDefault || statement.name === undefined ? 'default' : statement.name.text]
   return []
 }
 
