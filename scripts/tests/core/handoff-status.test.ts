@@ -77,7 +77,8 @@ describe('the STATUS line of a handoff', () => {
     expect(filesWithSites(REPO_ROOT)).toEqual(SRC_MAY_NOT_IMPORT_THE_OWNER_YET)
   })
 
-  it('sTATUS OWNER is accepted under a shard when the handoff names owner items', () => {
+  // eslint-disable-next-line test/prefer-lowercase-title
+  it('STATUS OWNER is accepted under a shard when the handoff names owner items', () => {
     const named = handoff(['owner waits: Q7 answered; Q12 open', OWNER_QUESTION])
     const answeredOnly = handoff(['owner waits: Q7 answered', OWNER_QUESTION])
     const none = handoff(['owner waits: none', 'question: which path?', OWNER_QUESTION])
