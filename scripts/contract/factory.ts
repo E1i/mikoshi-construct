@@ -10,7 +10,7 @@ import { FACTORY_FOLDERS } from '../core/factory-paths.js'
 import { clientAdapter } from '../ports/client/index.js'
 import { busSection } from './factory/bus.js'
 import { cardSection } from './factory/card.js'
-import { CONCEPTS } from './factory/concepts.js'
+import { assertNoLoreConflict, CONCEPTS } from './factory/concepts.js'
 import { nodesSection } from './factory/nodes.js'
 import { findSites, overlapsSection } from './factory/overlaps.js'
 import { portsSection } from './factory/ports.js'
@@ -37,6 +37,7 @@ export interface FactoryConcept {
   owner: string
   ownerExists: boolean
   axis: Axis
+  lore: string | null
   status: ConceptStatus
 }
 
@@ -72,10 +73,11 @@ function ratifiedOwnerStatus({ id, owner }: Concept, accepted: AcceptedConcepts)
   return entry?.owner === owner && DECISION_ID.test(entry.decision) ? 'accepted' : 'proposed'
 }
 
-export function conceptsSection(accepted: AcceptedConcepts): Record<string, FactoryConcept> {
-  return Object.fromEntries(CONCEPTS.map((concept) => {
-    const { id, title, owner, ownerExists, axis } = concept
-    return [id, { title, owner, ownerExists, axis, status: ratifiedOwnerStatus(concept, accepted) }]
+export function conceptsSection(accepted: AcceptedConcepts, concepts: readonly Concept[] = CONCEPTS): Record<string, FactoryConcept> {
+  assertNoLoreConflict(concepts)
+  return Object.fromEntries(concepts.map((concept) => {
+    const { id, title, owner, ownerExists, axis, lore } = concept
+    return [id, { title, owner, ownerExists, axis, lore, status: ratifiedOwnerStatus(concept, accepted) }]
   }))
 }
 
