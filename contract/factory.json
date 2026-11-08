@@ -1444,13 +1444,6 @@
       "scripts/core/node.ts": 1,
       "scripts/core/push-policy.ts": 1,
       "scripts/done/tree.ts": 1,
-      "scripts/ladder/brief-finish-cli.ts": 1,
-      "scripts/ladder/cleanup.ts": 7,
-      "scripts/ladder/hash.ts": 1,
-      "scripts/ladder/launch.ts": 3,
-      "scripts/ladder/supersede.ts": 1,
-      "scripts/ladder/supervise.ts": 3,
-      "scripts/ladder/verdict.ts": 3,
       "scripts/nodes/answer/answerer.ts": 3,
       "scripts/nodes/close/close-executor.ts": 1,
       "scripts/nodes/close/ended-card-trees.ts": 1,
@@ -1857,7 +1850,8 @@
       "scripts/ports/git.ts": {
         "constants": [
           "TECHNOLOGY_WORDS",
-          "execGit: GitReader"
+          "execGit: GitReader",
+          "processGit: GitRunner"
         ],
         "functions": {
           "parseWorktrees": "(porcelain: string): WorktreeEntry[]"
@@ -1870,7 +1864,11 @@
           "porcelain"
         ],
         "types": {
+          "GitAnswer": "type GitAnswer = string | Buffer | Error",
+          "GitCall": "interface GitCall { tree: string; args: string[]; }",
           "GitReader": "interface GitReader { dirty: (worktree: string) => number | undefined; worktrees: (repoRoot: string) => WorktreeEntry[] | undefined; }",
+          "GitRunner": "interface GitRunner { read: (tree: string, args: readonly string[]) => string; readBytes: (tree: string, args: readonly string[], maxBuffer: number) => Buffer; succeeds: (tree: string, args: readonly string[]) => boolean; }",
+          "InMemoryGit": "class InMemoryGit implements GitRunner { calls: GitCall[]; constructor(private readonly answer: (call: GitCall) => GitAnswer); read(tree: string, args: readonly string[]): string; readBytes(tree: string, args: readonly string[]): Buffer; succeeds(tree: string, args: readonly string[]): boolean }",
           "WorktreeEntry": "interface WorktreeEntry { path: string; branch: string | undefined; }"
         }
       },
