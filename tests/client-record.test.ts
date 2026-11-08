@@ -3,10 +3,12 @@ import { cpSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { printDoctor, runDoctor } from '../src/commands/doctor/index.js'
 import { runInit } from '../src/commands/init.js'
 import { applySync } from '../src/commands/sync/index.js'
-import { clientIdFor, clientModelOf, MANIFEST_FILE, MANIFEST_VERSION, readManifest, upgradeManifest } from '../src/manifest.js'
+import { CLIENT_IDS, clientIdFor, clientIdsNamed, clientModelOf, MANIFEST_FILE, MANIFEST_VERSION, readManifest, upgradeManifest } from '../src/manifest.js'
 import { createUi, silentWriter } from '../src/ui/console.js'
+import { PLAIN_LORE } from '../src/ui/lore.js'
 import { resolveTheme } from '../src/ui/theme.js'
 import { VERSION } from '../src/version.js'
 
@@ -60,7 +62,8 @@ describe('the client branch of construct.json', () => {
   it('reads every key as optional and drops what is not text', () => {
     const base = JSON.parse(readFileSync(FROZEN_RECORD, 'utf8')) as Record<string, unknown>
     expect(upgradeManifest(base).client).toBeUndefined()
-    expect(upgradeManifest({ ...base, client: {} }).client).toEqual({})
+    expect(upgradeManifest({ ...base, client: {} }).client).toBeUndefined()
+    expect(upgradeManifest({ ...base, client: { id: ' ', roles: {} } }).client).toBeUndefined()
     expect(upgradeManifest({ ...base, client: { id: 7, model: ' ', roles: { review: 'adapter-b', ladder: 'adapter-b', answer: 1 } } }).client).toEqual({ roles: { review: 'adapter-b' } })
     expect(upgradeManifest({ ...base, client: 'adapter-a' }).client).toBeUndefined()
   })
@@ -78,5 +81,39 @@ describe('the client branch of construct.json', () => {
     await init(dir)
     withClient(dir, RECORD)
     expect(readManifest(dir)!.client).toEqual(RECORD)
+  })
+
+  it('a reader that does not know a branch carries it through read and sync, as an older build carries client', () => {
+    const dir = scratch()
+    cpSync(FROZEN_RECORD, path.join(dir, MANIFEST_FILE))
+    const unknown = { anything: ['kept'] }
+    writeFileSync(path.join(dir, MANIFEST_FILE), `${JSON.stringify({ ...rawRecord(dir), notYetKnown: unknown }, null, 2)}\n`)
+    expect((readManifest(dir) as unknown as Record<string, unknown>).notYetKnown).toEqual(unknown)
+    applySync(dir, VERSION)
+    expect(rawRecord(dir).notYetKnown).toEqual(unknown)
+    expect(rawRecord(dir).manifestVersion).toBe(MANIFEST_VERSION)
+  })
+
+  it('names every id the record names, once', () => {
+    expect(clientIdsNamed(undefined)).toEqual([])
+    expect(clientIdsNamed(RECORD)).toEqual(['adapter-a', 'adapter-b'])
+  })
+
+  it('doctor names an id with no adapter, beside the known ones, and says nothing with no record or a known one', async () => {
+    const dir = scratch()
+    await init(dir)
+    const quiet = runDoctor(dir)!
+    if ('state' in quiet)
+      throw new Error('expected a construct.json reading')
+    expect(quiet.unknownClients).toEqual([])
+    withClient(dir, { id: CLIENT_IDS[0], roles: { review: 'adapter-b' } })
+    const named = runDoctor(dir)!
+    if ('state' in named)
+      throw new Error('expected a construct.json reading')
+    expect(named.unknownClients).toEqual(['adapter-b'])
+    expect(named.ok).toBe(quiet.ok)
+    const lines: string[] = []
+    printDoctor(createUi(resolveTheme({ plain: true }), text => lines.push(text)), named)
+    expect(lines.join('')).toContain(PLAIN_LORE.clientsWithNoAdapter(['adapter-b'], CLIENT_IDS))
   })
 })

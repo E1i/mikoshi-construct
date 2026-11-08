@@ -73,6 +73,8 @@ export interface ShiftGate {
 
 export const DEFAULT_CLIENT_MODEL = 'auto'
 
+export const CLIENT_IDS = ['claude', 'codex'] as const
+
 export const CLIENT_ROLES = ['launch', 'answer', 'review', 'window'] as const
 export type ClientRole = (typeof CLIENT_ROLES)[number]
 
@@ -274,11 +276,23 @@ function upgradeClient(raw: unknown): ClientRecord | undefined {
   const id = declaredText(value.id)
   const model = declaredText(value.model)
   const roles = upgradeClientRoles(value.roles)
+  if (id === undefined && model === undefined && roles === undefined)
+    return undefined
   return {
     ...(id === undefined ? {} : { id }),
     ...(model === undefined ? {} : { model }),
     ...(roles === undefined ? {} : { roles }),
   }
+}
+
+export function clientIdsNamed(record: ClientRecord | undefined): string[] {
+  const named = [record?.id, ...CLIENT_ROLES.map(role => record?.roles?.[role])]
+  return [...new Set(named.filter((id): id is string => id !== undefined))]
+}
+
+export function clientIdsWithNoAdapter(record: ClientRecord | undefined): string[] {
+  const known = new Set<string>(CLIENT_IDS)
+  return clientIdsNamed(record).filter(id => !known.has(id))
 }
 
 export function clientIdFor(record: ClientRecord | undefined, role: ClientRole): string | null {
