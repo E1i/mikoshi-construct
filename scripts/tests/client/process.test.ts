@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { sessionInSnapshot } from '../../ladder/watch-process.js'
+import { isSessionAlive } from '../../ladder/watch-process.js'
 import { launchIsolationCommand } from '../../nodes/launch/launch-worker.js'
 import { reviewIsolationCommand } from '../../nodes/review/review-worker.js'
 import { clientAdapter } from '../../ports/client/index.js'
@@ -19,11 +19,11 @@ describe('the client process', () => {
     expect(sessionMarker(SESSION)).toBe(`--session-id ${SESSION}`)
   })
 
-  it('a session is in the table when a process carries the adapter marker', () => {
+  it('a session is alive when a process carries the adapter marker', () => {
     const marker = clientAdapter().processes.sessionMarker(SESSION)!
     const row = (command: string) => ({ pid: 1, ppid: 0, pgid: 1, started: '', command })
-    expect(sessionInSnapshot(SESSION, [row(`claude -p ${marker} go`)])).toBe(true)
-    expect(sessionInSnapshot(SESSION, [row('claude -p --session-id other go')])).toBe(false)
+    expect(isSessionAlive(SESSION, [row(`claude -p ${marker} go`)])).toBe(true)
+    expect(isSessionAlive(SESSION, [row('claude -p --session-id other go')])).toBe(false)
   })
 })
 

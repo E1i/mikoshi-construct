@@ -303,22 +303,22 @@ EOF
 
 expected_g1() {
   case $1 in
-    no-report) echo 'no report|tool none|stage failed run-g1|process not in the table' ;;
-    no-tool|far-tool) echo 'age|tool none|stage failed run-g1|process not in the table' ;;
-    near-tool) echo 'age|tool Edit|stage failed run-g1|process not in the table' ;;
-    no-ledger) echo 'age|tool Grep|stage no ledger lines|process not in the table' ;;
-    alive) echo 'age|tool Grep|stage failed run-g1|process in the table' ;;
+    no-report) echo 'no report|tool none|stage failed run-g1|process dead' ;;
+    no-tool|far-tool) echo 'age|tool none|stage failed run-g1|process dead' ;;
+    near-tool) echo 'age|tool Edit|stage failed run-g1|process dead' ;;
+    no-ledger) echo 'age|tool Grep|stage no ledger lines|process dead' ;;
+    alive) echo 'age|tool Grep|stage failed run-g1|process alive' ;;
     no-row) echo 'age|tool Grep|stage failed run-g1|process no session' ;;
-    ledger-writing) echo 'age|tool Grep|ledger: writing|process not in the table' ;;
+    ledger-writing) echo 'age|tool Grep|ledger: writing|process dead' ;;
     ps-fails) echo "age|tool Grep|stage failed run-g1|$PS_UNKNOWN" ;;
-    *) echo 'age|tool Grep|stage failed run-g1|process not in the table' ;;
+    *) echo 'age|tool Grep|stage failed run-g1|process dead' ;;
   esac
 }
 
 expected_g2() {
   case $1 in
     ps-fails) echo "no report|tool none|stage no ledger lines|$PS_UNKNOWN" ;;
-    *) echo 'no report|tool none|stage no ledger lines|process not in the table' ;;
+    *) echo 'no report|tool none|stage no ledger lines|process dead' ;;
   esac
 }
 
