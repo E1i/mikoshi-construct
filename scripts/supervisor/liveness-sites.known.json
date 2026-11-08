@@ -1,7 +1,10 @@
 [
   { "file": "scripts/construct/browser-witness.mjs", "kind": "kill" },
+  { "file": "scripts/core/machine-sessions.ts", "kind": "live-session" },
   { "file": "scripts/ladder/cleanup.ts", "kind": "kill" },
+  { "file": "scripts/ladder/watch-process.ts", "kind": "live-session" },
   { "file": "scripts/nodes/answer/answerer.ts", "kind": "imported-judge" },
+  { "file": "scripts/nodes/answer/answerer.ts", "kind": "live-session" },
   { "file": "scripts/nodes/launch/launch-candidates.ts", "kind": "imported-judge" },
   { "file": "scripts/nodes/launch/launch-starter.ts", "kind": "kill" },
   { "file": "scripts/nodes/launch/launch-worker.ts", "kind": "imported-judge" },
@@ -9,6 +12,7 @@
   { "file": "scripts/nodes/review/reviewer.ts", "kind": "imported-judge" },
   { "file": "scripts/nodes/witness/witness-executor.ts", "kind": "kill" },
   { "file": "scripts/ports/process-table.ts", "kind": "ps" },
+  { "file": "scripts/ports/worktree.ts", "kind": "live-session" },
   { "file": "scripts/quality/lock.ts", "kind": "kill" },
   { "file": "scripts/scratch/run-root.ts", "kind": "kill" },
   { "file": "scripts/scratch/run.ts", "kind": "kill" },
