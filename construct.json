@@ -21,7 +21,8 @@
     "templates/attach/earlier-carriers.json",
     "contract/surface.json",
     "contract/factory.json",
-    "contract/ratchet.json"
+    "contract/ratchet.json",
+    "scripts/ci/sandbox-failing.jsonl"
   ],
   "vars": {
     "projectName": "mikoshi-construct",

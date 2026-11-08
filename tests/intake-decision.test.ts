@@ -153,6 +153,52 @@ describe('construct intake --admit derives the decision from architecture/owner-
   })
 })
 
+describe('a refused witness downgrade hands the owner the decision admit accepts', () => {
+  const FIRST = '`pnpm exec vitest run tests/a.test.ts` exits 0; red on main'
+  const SECOND = '`pnpm exec vitest run tests/b.test.ts` exits 0; red on main'
+  const KEPT = '`pnpm exec vitest run tests/c.test.ts` exits 0'
+
+  function body(...witnesses: string[]): string {
+    return `Do the thing.\n\nWitnesses:\n${witnesses.map(witness => `- ${witness}`).join('\n')}`
+  }
+
+  function amended(w: World, decisions: string): AdmitResult {
+    const file = park(w, 90, 'auto', 'src/board/**')
+    const line = cardOf(file).slice('card: '.length)
+    writeFileSync(file, `${readFileSync(file, 'utf8').replace('Do the thing.\n', '')}${body(KEPT)}\n`)
+    const previous = readFileSync(file, 'utf8').replace(body(KEPT), body(FIRST, SECOND, KEPT))
+    return admit(w, file, { decisions, admissions: () => ({ card: line, bodySha: null, ts: null, confirmation: null, source: 'admit', text: previous }) })
+  }
+
+  function decided(w: World, words: string, cards = '#90'): string {
+    const file = path.join(path.dirname(w.repo), 'owner-decisions.md')
+    writeFileSync(file, `# Owner decisions\n\n- D-7 · 2026-10-13 — ${words} · card ${cards} · decisions:add\n`)
+    return file
+  }
+
+  it('a refused witness downgrade prints the decisions:add command with the exact phrase admit accepts', () => {
+    const w = world(['src/board/run.ts'])
+    const held = amended(w, path.join(path.dirname(w.repo), 'owner-decisions.md'))
+    const command = 'pnpm decisions:add --card 90 "[owner] разрешить понижение свидетелей #90 W1 W2"'
+    expect(held).toMatchObject({ status: 'ownerWait', downgrades: [FIRST, SECOND], command })
+    const lines: string[] = []
+    expect(printAdmit(createUi(resolveTheme({ plain: true }), line => lines.push(line)), held)).toBe(INTAKE_EXIT.waiting)
+    expect(lines.join('\n')).toContain(command)
+    expect(amended(w, decided(w, /"(.+)"$/.exec(command)![1]!))).toMatchObject({ status: 'admitted', source: 'amend' })
+  })
+
+  it('a decision naming the card and the witnesses in any order with the word понижение allows the downgrade', () => {
+    for (const words of ['[owner] W2 и W1 у #90: понижение разрешаю', '[owner] #90 — понижение W1, W2', '[owner] Понижение W2 W1 карты #90 разрешено']) {
+      const w = world(['src/board/run.ts'])
+      expect(amended(w, decided(w, words)), words).toMatchObject({ status: 'admitted', source: 'amend' })
+    }
+    for (const [words, cards] of [['[owner] #90 W1 W2 разрешаю'], ['[owner] понижение W1 W2'], ['[owner] понижение #901 W1 W2'], ['[owner] понижение #90 W1 W21'], ['[owner] понижение #90 W1 W2', '#91']]) {
+      const w = world(['src/board/run.ts'])
+      expect(amended(w, decided(w, words!, cards)), words).toMatchObject({ status: 'ownerWait' })
+    }
+  })
+})
+
 function drafted(w: World, decision: string | undefined, touches: readonly string[]): IntakeResult {
   const draft = path.join(path.dirname(w.repo), 'draft.json')
   writeFileSync(draft, JSON.stringify({ cards: [{ name: 'drafted-card', kind: 'implement', milestone: 'black-ice', size: 'S', contour: 'cheap', decision, who: 'shift', touches, task: 'Do the thing.', witnesses: ['`pnpm test` passes'] }] }))

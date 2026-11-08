@@ -1,18 +1,21 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { AdmitResult } from '../../../src/commands/intake/admit.js'
 import type { OwnerDecision } from '../decisions.js'
 import { realpathSync } from 'node:fs'
 import os from 'node:os'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import { runAmend } from '../../../src/commands/intake/amend.js'
 import { defaultBusPath, openBus } from '../../core/db.js'
 import { REQUEST_DONE, REQUEST_REFUSED } from '../../core/events.js'
+import { busIntakePorts } from '../../intake/intake.js'
 import { ownerChannelOfBus, sayToOwnerChannel } from '../../owner/channel.js'
 import { runRequest, SESSION_VARIABLE } from '../../window/window-requests.js'
 import { boundText, calendarTerm, cardTail, decisionsRefusals, outOfForceLines, OWNER_SOURCE, parseDecisions, PREFIX, settleSupersedes, stampOf, untilTail, WRITER_MARKER } from './decisions.js'
 import { archiveOf } from './read.js'
 
 export const USAGE = 'usage: pnpm decisions:add [--file <owner-decisions.md>] [--supersedes D-M]... [--card #N]... [--until <YYYY-MM-DDTHH:MMZ>] [--settled #N]... "[owner] <decision>"'
-export const OWNER_SHELL_USAGE = 'usage: pnpm decisions:add [--supersedes D-M]... [--card #N]... [--until <YYYY-MM-DDTHH:MMZ>] "[owner] <decision>"'
+export const OWNER_SHELL_USAGE = 'usage: pnpm decisions:add [--supersedes D-M]... [--card #N]... [--creates <path>]... [--until <YYYY-MM-DDTHH:MMZ>] "[owner] <decision>"'
 export const ARCHIVE_HEADER = '# Owner decisions archive\n\nSuperseded decisions, moved here from the decisions file by pnpm decisions:add.\n\n'
 
 const SOURCE_TAG = /^\[[^\]]*\]/
@@ -20,6 +23,7 @@ const DECISION_REFERENCE = /^D-([1-9]\d*)$/
 const CARD_REFERENCE = /^#?([1-9]\d*)$/
 const UNTIL_VALUE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?Z$/
 const OWNER_SHELL_SESSION = 'owner-shell'
+const CREATES_FLAG = '--creates'
 
 export interface DecisionsAddDeps {
   decisions: string
@@ -198,9 +202,61 @@ export function runDecisionsAdd(args: string[], deps: DecisionsAddDeps): number 
   return 0
 }
 
-export function requestDecision(args: readonly string[], db: DatabaseSync, now: Date, session: string, out: (line: string) => void): number {
+export function splitCreates(args: readonly string[]): { creates: string[], rest: string[] } {
+  const creates: string[] = []
+  const rest: string[] = []
+  for (let index = 0; index < args.length; index += 1) {
+    const value = args[index + 1]
+    if (args[index] === CREATES_FLAG && value !== undefined && !value.startsWith('--')) {
+      creates.push(value)
+      index += 1
+    }
+    else {
+      rest.push(args[index]!)
+    }
+  }
+  return { creates, rest }
+}
+
+function cardsNamed(args: readonly string[]): number[] {
+  return args.flatMap((arg, index) => {
+    const value = args[index + 1]
+    return arg === '--card' && value !== undefined && CARD_REFERENCE.test(value) ? [Number(CARD_REFERENCE.exec(value)![1])] : []
+  })
+}
+
+function amendRefusal(result: AdmitResult): string {
+  if (result.status === 'refused')
+    return result.why
+  if ('reasons' in result)
+    return result.reasons.join('; ')
+  return `the amend ended ${result.status}`
+}
+
+function widenCards(db: DatabaseSync, cards: readonly number[], creates: readonly string[], dir: string, now: Date, out: (line: string) => void): boolean {
+  const ports = busIntakePorts(db)
+  const change = creates.map(file => `+${file}`).join(',')
+  return cards.every((card) => {
+    const result = runAmend({ card: `#${card}`, flags: { touches: change, creates: change }, dir, dryRun: false, autoConfirm: true, events: ports.cardEvents, cardStates: ports.cardStates, admissions: ports.cardAdmissions }, () => now)
+    const widened = result.status === 'admitted' || result.status === 'alreadyAdmitted'
+    out(widened ? `${PREFIX}#${card}: ${creates.join(', ')} added to its touches and creates` : `${PREFIX}#${card}: ${creates.join(', ')} not added to its touches, nothing requested: ${amendRefusal(result)}`)
+    return widened
+  })
+}
+
+export function requestDecision(args: readonly string[], db: DatabaseSync, now: Date, session: string, out: (line: string) => void, dir: string = process.cwd()): number {
+  const { creates, rest } = splitCreates(args)
+  if (creates.length > 0) {
+    const cards = cardsNamed(rest)
+    if (cards.length === 0) {
+      out(`${PREFIX}${CREATES_FLAG} names a file a card's decision requires and needs --card; nothing requested`)
+      return 2
+    }
+    if (!widenCards(db, cards, creates, dir, now, out))
+      return 1
+  }
   const lines: string[] = []
-  const code = runRequest(['decisions:add', ...args], db, now, session, line => lines.push(line))
+  const code = runRequest(['decisions:add', ...rest], db, now, session, line => lines.push(line))
   for (const line of lines)
     out(line)
   if (code === 0)
@@ -219,7 +275,7 @@ function requestFromThisWindow(session: string, args: string[]): number {
 }
 
 export function requestFromOwnerShell(args: string[], channel: string, db: DatabaseSync, now: Date, out: (line: string) => void, err: (line: string) => void): number {
-  const parsed = parseArgs(args)
+  const parsed = parseArgs(splitCreates(args).rest)
   if (parsed === null || parsed.file !== null || parsed.settled.length > 0) {
     err(`${PREFIX}${OWNER_SHELL_USAGE}`)
     return 2
