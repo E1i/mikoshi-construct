@@ -179,7 +179,7 @@ describe('a refused witness downgrade hands the owner the decision admit accepts
   it('a refused witness downgrade prints the decisions:add command with the exact phrase admit accepts', () => {
     const w = world(['src/board/run.ts'])
     const held = amended(w, path.join(path.dirname(w.repo), 'owner-decisions.md'))
-    const command = 'pnpm decisions:add --card 90 "[owner] разрешить понижение свидетелей #90 W1 W2"'
+    const command = 'pnpm decisions:add --card #90 "[owner] разрешить понижение свидетелей #90 W1 W2"'
     expect(held).toMatchObject({ status: 'ownerWait', downgrades: [FIRST, SECOND], command })
     const lines: string[] = []
     expect(printAdmit(createUi(resolveTheme({ plain: true }), line => lines.push(line)), held)).toBe(INTAKE_EXIT.waiting)

@@ -14,7 +14,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { decisionsFileOf, defaultBusPath } from '../../../scripts/core/bus-path.js'
 import { CARD_ADMITTED, CARD_WAITING, WITNESS_DOWNGRADE } from '../../../scripts/core/events.js'
-import { inForce, OWNER_SOURCE, parseDecisions } from '../../../scripts/policy/decisions/decisions.js'
+import { decisionCommand, inForce, OWNER_SOURCE, parseDecisions } from '../../../scripts/policy/decisions/decisions.js'
 import { endedCards } from '../../card/closed.js'
 import { pathsIn, pathsOutside } from '../../card/covering-tests.js'
 import { cardLine, parseCard } from '../../card/grammar.js'
@@ -176,7 +176,6 @@ const DOWNGRADE_ALLOWANCE = 'разрешить понижение свидет�
 const GENERAL_DOWNGRADE_ALLOWANCE = 'разрешить понижение свидетелей у '
 const LISTED_DOWNGRADE_ALLOWANCE = 'разрешить понижение свидетелей'
 const DOWNGRADE_WORD = 'понижение'
-const DECISIONS_ADD = 'pnpm decisions:add --card'
 export const EQUIVALENT_REPLACEMENT_ALLOWANCE = 'разрешить равноценную замену свидетеля:'
 const CARD_SEPARATOR = /,\s*|\s+и\s+/
 const ALLOWED_CARDS = new RegExp(`^#[1-9]\\d*(?:(?:${CARD_SEPARATOR.source})#[1-9]\\d*)*`)
@@ -206,7 +205,7 @@ export function downgradeAction(cardId: number, witness: string, admitted: reado
 export function downgradeCommand(cardId: number, witnesses: readonly string[], admitted: readonly string[]): string {
   const ids = witnesses.map(witness => witnessIdIn(admitted, witness))
   const phrase = ids.length === 1 ? allowanceById(cardId, ids[0]!) : `${LISTED_DOWNGRADE_ALLOWANCE} #${cardId} ${ids.join(' ')}`
-  return `${DECISIONS_ADD} ${cardId} "${OWNER_SOURCE} ${phrase}"`
+  return decisionCommand(phrase, [cardId])
 }
 
 function witnessCore(witness: string): string {

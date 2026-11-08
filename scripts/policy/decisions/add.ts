@@ -1,14 +1,11 @@
 import type { DatabaseSync } from 'node:sqlite'
-import type { AdmitResult } from '../../../src/commands/intake/admit.js'
 import type { OwnerDecision } from '../decisions.js'
 import { realpathSync } from 'node:fs'
 import os from 'node:os'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { runAmend } from '../../../src/commands/intake/amend.js'
 import { defaultBusPath, openBus } from '../../core/db.js'
 import { REQUEST_DONE, REQUEST_REFUSED } from '../../core/events.js'
-import { busIntakePorts } from '../../intake/intake.js'
 import { ownerChannelOfBus, sayToOwnerChannel } from '../../owner/channel.js'
 import { runRequest, SESSION_VARIABLE } from '../../window/window-requests.js'
 import { boundText, calendarTerm, cardTail, decisionsRefusals, outOfForceLines, OWNER_SOURCE, parseDecisions, PREFIX, settleSupersedes, stampOf, untilTail, WRITER_MARKER } from './decisions.js'
@@ -225,26 +222,12 @@ function cardsNamed(args: readonly string[]): number[] {
   })
 }
 
-function amendRefusal(result: AdmitResult): string {
-  if (result.status === 'refused')
-    return result.why
-  if ('reasons' in result)
-    return result.reasons.join('; ')
-  return `the amend ended ${result.status}`
-}
-
-function widenCards(db: DatabaseSync, cards: readonly number[], creates: readonly string[], dir: string, now: Date, out: (line: string) => void): boolean {
-  const ports = busIntakePorts(db)
+function requestWidening(db: DatabaseSync, cards: readonly number[], creates: readonly string[], now: Date, session: string, out: (line: string) => void): boolean {
   const change = creates.map(file => `+${file}`).join(',')
-  return cards.every((card) => {
-    const result = runAmend({ card: `#${card}`, flags: { touches: change, creates: change }, dir, dryRun: false, autoConfirm: true, events: ports.cardEvents, cardStates: ports.cardStates, admissions: ports.cardAdmissions }, () => now)
-    const widened = result.status === 'admitted' || result.status === 'alreadyAdmitted'
-    out(widened ? `${PREFIX}#${card}: ${creates.join(', ')} added to its touches and creates` : `${PREFIX}#${card}: ${creates.join(', ')} not added to its touches, nothing requested: ${amendRefusal(result)}`)
-    return widened
-  })
+  return cards.every(card => runRequest(['amend', '--card', String(card), '--touches', change, '--creates', change, '--auto-confirm'], db, now, session, out) === 0)
 }
 
-export function requestDecision(args: readonly string[], db: DatabaseSync, now: Date, session: string, out: (line: string) => void, dir: string = process.cwd()): number {
+export function requestDecision(args: readonly string[], db: DatabaseSync, now: Date, session: string, out: (line: string) => void): number {
   const { creates, rest } = splitCreates(args)
   if (creates.length > 0) {
     const cards = cardsNamed(rest)
@@ -252,7 +235,7 @@ export function requestDecision(args: readonly string[], db: DatabaseSync, now: 
       out(`${PREFIX}${CREATES_FLAG} names a file a card's decision requires and needs --card; nothing requested`)
       return 2
     }
-    if (!widenCards(db, cards, creates, dir, now, out))
+    if (!requestWidening(db, cards, creates, now, session, out))
       return 1
   }
   const lines: string[] = []

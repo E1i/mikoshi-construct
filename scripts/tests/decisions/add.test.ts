@@ -1,4 +1,5 @@
 import type { OwnerDecision } from '../../policy/decisions.js'
+import type { RequestTools } from '../../window/window-requests.js'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -10,7 +11,7 @@ import { reduce } from '../../core/reducer.js'
 import { busCardAdmissions, busCardEvents } from '../../intake/intake.js'
 import { ARCHIVE_HEADER, requestDecision, runDecisionsAdd } from '../../policy/decisions/add.js'
 import { runDecisionsRead } from '../../policy/decisions/read.js'
-import { pendingRequests } from '../../window/window-requests.js'
+import { pendingRequests, WindowRequests } from '../../window/window-requests.js'
 
 const FILE = '/d/owner-decisions.md'
 const ARCHIVE = '/d/owner-decisions.archive.md'
@@ -228,14 +229,16 @@ describe('pnpm decisions:add in a window session asks the bus', () => {
       busCardEvents(db, 's1', () => 3)({ type: CARD_ADMITTED, cardId: 5, ts: NOW.toISOString(), dedupeKey: 'admit-5', payload: { card: text.split('\n')[0]!.slice('card: '.length), lane: null, depends: [], decision: 'auto', contour: 'cheap', bodySha: textSha(text), text, textSha: textSha(text) } })
       reduce(db)
       const out: string[] = []
-      expect(requestDecision(['--from', 'answer', '--card', '#5', '--creates', 'src/new.ts', '[owner] the card writes src/new.ts.'], db, NOW, 'window-1', line => out.push(line), repo), out.join('\n')).toBe(0)
+      expect(requestDecision(['--from', 'answer', '--card', '#5', '--creates', 'src/new.ts', '[owner] the card writes src/new.ts.'], db, NOW, 'window-1', line => out.push(line)), out.join('\n')).toBe(0)
+      expect(pendingRequests(db).map(request => (JSON.parse(request.payload) as { kind: string }).kind)).toEqual(['amend', 'decisions:add'])
+      expect(JSON.parse(pendingRequests(db)[1]!.payload)).toMatchObject({ kind: 'decisions:add', text: '[owner] the card writes src/new.ts.', cards: ['#5'] })
+      new WindowRequests(db, () => NOW, { closeDropped: () => [] } as unknown as RequestTools, path.join(root, 'channel'), () => null, repo, {} as never).run()
       reduce(db)
       const body = busCardAdmissions(db)(5)!.text!
       expect(body).toMatch(/^touches: src\/a\.ts, src\/new\.ts$/m)
       expect(body).toMatch(/^creates: src\/new\.ts$/m)
-      expect(JSON.parse(pendingRequests(db)[0]!.payload)).toMatchObject({ kind: 'decisions:add', text: '[owner] the card writes src/new.ts.', cards: ['#5'] })
-      expect(requestDecision(['--from', 'answer', '--creates', 'src/other.ts', '[owner] no card.'], db, NOW, 'window-1', () => {}, repo)).toBe(2)
-      expect(pendingRequests(db)).toHaveLength(1)
+      expect(requestDecision(['--from', 'answer', '--creates', 'src/other.ts', '[owner] no card.'], db, NOW, 'window-1', () => {})).toBe(2)
+      expect(pendingRequests(db)).toHaveLength(0)
     }
     finally {
       db.close()

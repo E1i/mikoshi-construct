@@ -71,7 +71,7 @@ export const ALLOW_MERGE_RECORD = 'architecture/decisions/window-allow-merge.md'
 const RULE_ACCEPTED = /^Status: accepted\b/m
 export const REQUEST_RULE = 'window_request'
 export const PREFIX = '[bus:request] '
-export const USAGE = `usage: pnpm bus:request tree.cut --card <N> | amend --card <N> [--touches +<path>,-<path>] [--add-witness <witness>]... [--remove-witness <witness>]... [--owner-words <the owner's words>] [--depends +#<N>,-#<N>] [--auto-confirm] | allow-merge --pr <N> --head <sha> --dry-run <reviewer session> | close-pr|reopen-pr --pr <N> --card <N> --reason <text> | pr.body --pr <N> [--file <absolute path in the card tree>] | ci.rerun --pr <N> | requeue --task <task_key> | mode --set ${FACTORY_MODES.join('|')} | plan --op ${[...PLAN_OPS.keys()].join('|')} [--plan <id>] [--title <text>] [--goal <text>] [--file <absolute plan file>] [--gate <word>] [--card <N>] | owner.wait --need ${OWNER_WAIT_NEEDS.join('|')} --text <what the owner decides> [--command <line>] [--card <N>] [--pr <N>] | owner.wait.close --id Q<N> --answer <answer> [--from ${ANSWER_SOURCE}] | decisions:add --from ${ANSWER_SOURCE} [--supersedes D-M]... [--card #N]... [--until <YYYY-MM-DDTHH:MMZ>] "[owner] <decision>" | hold --card <N> --reason <why the owner holds it> | release --card <N> | takeover --card <N> --reason <why the bus has no route for it> | drop --card <N> --reason <why a card with no body is dropped> | numbers.foreign --ids <card ids of another factory's row, comma separated>`
+export const USAGE = `usage: pnpm bus:request tree.cut --card <N> | amend --card <N> [--touches +<path>,-<path>] [--creates +<path>,-<path>] [--add-witness <witness>]... [--remove-witness <witness>]... [--owner-words <the owner's words>] [--depends +#<N>,-#<N>] [--auto-confirm] | allow-merge --pr <N> --head <sha> --dry-run <reviewer session> | close-pr|reopen-pr --pr <N> --card <N> --reason <text> | pr.body --pr <N> [--file <absolute path in the card tree>] | ci.rerun --pr <N> | requeue --task <task_key> | mode --set ${FACTORY_MODES.join('|')} | plan --op ${[...PLAN_OPS.keys()].join('|')} [--plan <id>] [--title <text>] [--goal <text>] [--file <absolute plan file>] [--gate <word>] [--card <N>] | owner.wait --need ${OWNER_WAIT_NEEDS.join('|')} --text <what the owner decides> [--command <line>] [--card <N>] [--pr <N>] | owner.wait.close --id Q<N> --answer <answer> [--from ${ANSWER_SOURCE}] | decisions:add --from ${ANSWER_SOURCE} [--supersedes D-M]... [--card #N]... [--until <YYYY-MM-DDTHH:MMZ>] "[owner] <decision>" | hold --card <N> --reason <why the owner holds it> | release --card <N> | takeover --card <N> --reason <why the bus has no route for it> | drop --card <N> --reason <why a card with no body is dropped> | numbers.foreign --ids <card ids of another factory's row, comma separated>`
 
 const BY_HAND = 'by-hand'
 const noTool = (what: string): Executed => ({ done: false, why: `this bus was built with no tool to ${what}` })
@@ -825,7 +825,7 @@ function amendRequestOf(argv: readonly string[]): Record<string, unknown> | null
     return null
   const addWitnesses = listFlagOf(argv, 'add-witness', AMEND_WITNESS_SEPARATOR)?.split(AMEND_WITNESS_SEPARATOR)
   const removeWitnesses = listFlagOf(argv, 'remove-witness', AMEND_WITNESS_SEPARATOR)?.split(AMEND_WITNESS_SEPARATOR)
-  const fields = { touches: listFlagOf(argv, 'touches'), depends: listFlagOf(argv, 'depends'), add_witness: addWitnesses, remove_witness: removeWitnesses, owner_words: flag(argv, '--owner-words') }
+  const fields = { touches: listFlagOf(argv, 'touches'), creates: listFlagOf(argv, 'creates'), depends: listFlagOf(argv, 'depends'), add_witness: addWitnesses, remove_witness: removeWitnesses, owner_words: flag(argv, '--owner-words') }
   return { kind: 'amend', card, ...Object.fromEntries(Object.entries(fields).filter(([, value]) => value !== undefined)), ...(argv.includes('--auto-confirm') ? { auto_confirm: true } : {}) }
 }
 
@@ -834,7 +834,7 @@ function textList(value: unknown): string[] | undefined {
 }
 
 function amendFlagsOf(payload: Record<string, unknown>): AmendFlags {
-  const flags = { touches: text(payload.touches), depends: text(payload.depends), ownerWords: typeof payload.owner_words === 'string' ? payload.owner_words : null, addWitnesses: textList(payload.add_witness), removeWitnesses: textList(payload.remove_witness) }
+  const flags = { touches: text(payload.touches), creates: text(payload.creates), depends: text(payload.depends), ownerWords: typeof payload.owner_words === 'string' ? payload.owner_words : null, addWitnesses: textList(payload.add_witness), removeWitnesses: textList(payload.remove_witness) }
   return Object.fromEntries(Object.entries(flags).filter(([, value]) => value !== null && value !== undefined))
 }
 

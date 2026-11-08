@@ -364,3 +364,7 @@ export function decisionsFindings(text: string): string[] {
     return decision.cards.length > 0 || mention === null ? [] : [`${PREFIX}D-${decision.number} on line ${decision.line}: names ${mention[0]} in its text without · card #N; a decision bound to a card carries the card tail, so it is spent when the card closes`]
   })
 }
+
+export function decisionCommand(words: string, cards: readonly number[] = []): string {
+  return `pnpm decisions:add ${cards.map(card => `--card #${card} `).join('')}"${OWNER_SOURCE} ${words}"`
+}
