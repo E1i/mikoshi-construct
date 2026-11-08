@@ -158,7 +158,7 @@ export const EVENT_PAYLOADS = {
   [DECISIONS_IMPORTED]: ['decisions', 'sha256'],
   [DECISIONS_PROJECTED]: [],
   [FACTORY_MODE]: ['mode', 'request'],
-  [GHOST_LINE]: ['actual', 'agreedSha256', 'approvedSha256', 'approvedSketch', 'argsSha256', 'baseSha', 'card', 'class', 'contour', 'duration_ms', 'event', 'exit', 'expected', 'install', 'iterations', 'ladder', 'num_turns', 'path', 'pr', 'rangeDiff', 'reason', 'report', 'resultLine', 'review', 'run', 'session', 'sketch', 'task', 'total_cost_usd', 'ts', 'usage', 'verification'],
+  [GHOST_LINE]: ['actual', 'agreedSha256', 'approvedSha256', 'approvedSketch', 'argsSha256', 'baseSha', 'card', 'class', 'contour', 'duration_ms', 'event', 'exit', 'expected', 'id', 'install', 'iterations', 'ladder', 'matched', 'num_turns', 'outcome', 'path', 'pr', 'rangeDiff', 'reason', 'report', 'resultLine', 'review', 'run', 'session', 'sketch', 'task', 'total_cost_usd', 'ts', 'usage', 'verification'],
   [GHOST_ROW]: ['id', 'row', 'state'],
   [INTAKE_EVENT]: ['card', 'event', 'from', 'source', 'task', 'to'],
   [INTAKE_MOVE_EVENT]: ['card', 'event', 'from', 'source', 'task', 'to'],
@@ -205,7 +205,7 @@ export const EVENT_PAYLOADS = {
   [ROUND_EXTENDED]: ['findings', 'pr', 'previous'],
   [ROUND_MUTATIONS_PARKED]: ['card', 'head', 'mutations', 'pr'],
   [SCOPE_WIDENED]: ['admission', 'detail', 'paths'],
-  [SESSION_HEARTBEAT]: ['lease_gen', 'read_before_edit', 'session', 'start_context', 'step', 'task_key'],
+  [SESSION_HEARTBEAT]: ['context', 'error', 'lease_gen', 'model', 'read_before_edit', 'reason', 'session', 'spent', 'start_context', 'step', 'subagents', 'task_key'],
   [SHARD_DECIDED]: ['answer', 'doneBy', 'ground', 'options', 'question', 'shard', 'stop', 'wait'],
   [SHARD_EXPIRED]: ['id'],
   [SHARD_ISSUED]: ['by', 'id', 'run', 'scope', 'under', 'until', 'window'],
@@ -217,7 +217,7 @@ export const EVENT_PAYLOADS = {
   [TASK_EXPIRED]: ['detail', 'failures', 'reason', 'task_key', 'withdraw'],
   [TASK_FAILED]: ['detail', 'failures', 'generation', 'lease_gen', 'next', 'queue', 'reason', 'task_key', 'uncounted'],
   [TASK_LEASED]: ['generation', 'lease_gen', 'queue', 'task_key'],
-  [TASK_RELEASED]: ['lease_gen', 'queue', 'reason', 'task_key', 'until'],
+  [TASK_RELEASED]: ['generation', 'lease_gen', 'queue', 'reason', 'task_key', 'until'],
   [TASK_RENEWED]: ['generation', 'lease_gen', 'queue', 'task_key'],
   [TASK_REQUEUED]: ['failure', 'fault', 'generation', 'queue', 'request', 'task_key'],
   [TASK_SUPERSEDED]: ['failure', 'fault', 'generation', 'lease_gen', 'queue', 'task_key'],
@@ -241,6 +241,16 @@ export type EventType = keyof typeof EVENT_PAYLOADS
 export type PayloadKey<T extends EventType> = (typeof EVENT_PAYLOADS)[T][number]
 
 export type EventPayload<T extends EventType> = { readonly [K in PayloadKey<T>]?: unknown }
+
+export type Declared<T extends EventType, P> = P & { readonly [K in Exclude<keyof P, PayloadKey<T>>]: never }
+
+export function declaredPayload<T extends EventType>(type: T, payload: object): EventPayload<T> {
+  const declared: readonly string[] = EVENT_PAYLOADS[type]
+  const undeclared = Object.keys(payload).filter(key => !declared.includes(key))
+  if (undeclared.length > 0)
+    throw new Error(`${type} declares no payload key ${undeclared.join(', ')} in EVENT_PAYLOADS of scripts/core/events.ts; nothing written`)
+  return payload as EventPayload<T>
+}
 
 export function catalogued(type: string): EventType {
   if (!Object.hasOwn(EVENT_PAYLOADS, type))

@@ -1,5 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { BusEvent } from '../../core/db.js'
+import type { EventPayload } from '../../core/events.js'
 import type { AfterFailure, Lease } from '../../core/lease.js'
 import type { WaitStep } from '../../core/node.js'
 import type { CardTreeTools } from '../../ports/card-tree.js'
@@ -498,7 +499,7 @@ export class AnswerExecutor {
     return ownersEvenUnderTheDecision(named) !== undefined || named.some(file => globs.some(glob => matchGlob(glob, file)))
   }
 
-  private stopped(lease: Lease, reason: string, detail: string, extra: Record<string, unknown> = {}, scope: BusEvent[] = [], inTheSameCommit: (db: DatabaseSync) => void = () => {}): AnswerOutcome {
+  private stopped(lease: Lease, reason: string, detail: string, extra: EventPayload<typeof CARD_STOPPED> = {}, scope: BusEvent[] = [], inTheSameCommit: (db: DatabaseSync) => void = () => {}): AnswerOutcome {
     completeTask(this.parts.db, this.ts(), lease, [...scope, this.event(lease, CARD_STOPPED, { reason, detail, ...extra })], inTheSameCommit)
     return { kind: 'stopped', taskKey: lease.taskKey, reason, detail }
   }

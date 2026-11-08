@@ -1,4 +1,5 @@
 import type { ParsedFile } from './walk.js'
+import path from 'node:path'
 import ts from 'typescript'
 import { eachNode } from './walk.js'
 
@@ -17,6 +18,8 @@ export interface WrittenEvents {
   events: Record<string, EventWrites>
   outsideTheCatalogue: Record<string, EventWrites>
   refused: RefusedWrite[]
+  opaque: Record<string, string[]>
+  unwritten: Record<string, string[]>
 }
 
 export interface Catalogue {
@@ -26,15 +29,21 @@ export interface Catalogue {
 
 interface Keys {
   keys: string[]
-  opaque: boolean
+  opaqueAt: string[]
+}
+
+interface Reading {
+  checker: ts.TypeChecker | null
+  bindings: ReadonlyMap<string, ts.Expression>
+  fileOf: (source: ts.SourceFile) => string
+  typed: (source: ts.SourceFile) => boolean
 }
 
 interface Tally {
   keys: Map<string, Set<string>>
-  opaque: boolean
+  opaqueAt: Set<string>
 }
 
-const NO_KEYS: Keys = { keys: [], opaque: true }
 const THE_DECLARATION = 'EVENT_PAYLOADS'
 
 function exportedStrings(source: ts.SourceFile): Map<string, string> {
@@ -115,32 +124,68 @@ function declaredObject(name: string, from: ts.Node): ts.Expression | null {
 }
 
 function mergedKeys(parts: readonly Keys[]): Keys {
-  return { keys: parts.flatMap(part => part.keys), opaque: parts.some(part => part.opaque) }
+  return { keys: parts.flatMap(part => part.keys), opaqueAt: parts.flatMap(part => part.opaqueAt) }
 }
 
-function keysOfMember(member: ts.ObjectLiteralElementLike): Keys {
+function opaque(value: ts.Node, reading: Reading): Keys {
+  const source = value.getSourceFile()
+  return { keys: [], opaqueAt: [`${reading.fileOf(source)}:${source.getLineAndCharacterOfPosition(value.getStart()).line + 1}`] }
+}
+
+const OPEN_TYPES = ts.TypeFlags.Any | ts.TypeFlags.Unknown | ts.TypeFlags.NonPrimitive | ts.TypeFlags.TypeParameter | ts.TypeFlags.Index | ts.TypeFlags.IndexedAccess
+const ABSENT_TYPES = ts.TypeFlags.Undefined | ts.TypeFlags.Null | ts.TypeFlags.Void | ts.TypeFlags.Never
+
+function keysOfType(type: ts.Type, checker: ts.TypeChecker): string[] | null {
+  const keys: string[] = []
+  for (const part of type.isUnion() ? type.types : [type]) {
+    if ((part.flags & ABSENT_TYPES) !== 0)
+      continue
+    const apparent = (part.flags & OPEN_TYPES) !== 0 ? null : part
+    if (apparent === null || ((apparent.flags & ts.TypeFlags.Object) === 0 && !apparent.isIntersection()) || checker.getIndexInfosOfType(apparent).some(index => (index.type.flags & ts.TypeFlags.Never) === 0))
+      return null
+    keys.push(...checker.getPropertiesOfType(apparent).map(property => property.name))
+  }
+  return keys
+}
+
+function typedKeys(value: ts.Expression, reading: Reading): Keys {
+  const keys = reading.checker === null || !reading.typed(value.getSourceFile()) ? null : keysOfType(reading.checker.getTypeAtLocation(value), reading.checker)
+  return keys === null ? opaque(value, reading) : { keys, opaqueAt: [] }
+}
+
+function computedKey(expression: ts.Expression): Keys | null {
+  const value = ts.isIdentifier(expression) ? declaredObject(expression.text, expression) : expression
+  return value !== null && ts.isStringLiteralLike(value) ? { keys: [value.text], opaqueAt: [] } : null
+}
+
+function keysOfMember(member: ts.ObjectLiteralElementLike, reading: Reading): Keys {
   if (ts.isSpreadAssignment(member))
-    return keysOf(member.expression)
+    return keysOf(member.expression, reading)
   const name = member.name
-  if (name === undefined || ts.isComputedPropertyName(name))
-    return NO_KEYS
-  return { keys: [ts.isIdentifier(name) || ts.isStringLiteralLike(name) ? name.text : name.getText()], opaque: false }
+  if (name !== undefined && ts.isComputedPropertyName(name))
+    return computedKey(name.expression) ?? opaque(member, reading)
+  if (name === undefined)
+    return opaque(member, reading)
+  return { keys: [ts.isIdentifier(name) || ts.isStringLiteralLike(name) ? name.text : name.getText()], opaqueAt: [] }
 }
 
-function keysOf(value: ts.Expression): Keys {
+function keysOf(value: ts.Expression, reading: Reading): Keys {
   if (ts.isObjectLiteralExpression(value))
-    return mergedKeys(value.properties.map(keysOfMember))
+    return mergedKeys(value.properties.map(member => keysOfMember(member, reading)))
   if (ts.isParenthesizedExpression(value) || ts.isAsExpression(value) || ts.isSatisfiesExpression(value))
-    return keysOf(value.expression)
+    return keysOf(value.expression, reading)
   if (ts.isConditionalExpression(value))
-    return mergedKeys([keysOf(value.whenTrue), keysOf(value.whenFalse)])
+    return mergedKeys([keysOf(value.whenTrue, reading), keysOf(value.whenFalse, reading)])
   if (ts.isIdentifier(value)) {
+    const bound = reading.bindings.get(value.text)
+    if (bound !== undefined)
+      return keysOf(bound, { ...reading, bindings: new Map() })
     const declared = declaredObject(value.text, value)
-    return declared === null ? NO_KEYS : keysOf(declared)
+    return declared === null ? typedKeys(value, reading) : keysOf(declared, reading)
   }
   if (ts.isCallExpression(value) && value.expression.getText() === 'JSON.stringify' && value.arguments[0] !== undefined)
-    return keysOf(value.arguments[0])
-  return NO_KEYS
+    return keysOf(value.arguments[0], reading)
+  return typedKeys(value, reading)
 }
 
 function propertyValue(object: ts.ObjectLiteralExpression, name: string): ts.Expression | null {
@@ -156,53 +201,65 @@ function propertyValue(object: ts.ObjectLiteralExpression, name: string): ts.Exp
 }
 
 function recordWrite(tallies: Map<string, Tally>, type: string, keys: Keys, file: string): void {
-  const tally = tallies.get(type) ?? { keys: new Map<string, Set<string>>(), opaque: false }
+  const tally = tallies.get(type) ?? { keys: new Map<string, Set<string>>(), opaqueAt: new Set<string>() }
   keys.keys.forEach(key => tally.keys.set(key, (tally.keys.get(key) ?? new Set<string>()).add(file)))
-  tallies.set(type, { keys: tally.keys, opaque: tally.opaque || keys.opaque })
+  keys.opaqueAt.forEach(site => tally.opaqueAt.add(site))
+  tallies.set(type, tally)
 }
 
 function namesVisibleIn(source: ts.SourceFile, names: ReadonlyMap<string, string>): Map<string, string> {
   return new Map([...names, ...exportedStrings(source)])
 }
 
-function writesOfObject(node: ts.ObjectLiteralExpression, names: ReadonlyMap<string, string>, tallies: Map<string, Tally>): void {
+function writesOfObject(node: ts.ObjectLiteralExpression, names: ReadonlyMap<string, string>, tallies: Map<string, Tally>, reading: Reading): void {
   const type = propertyValue(node, 'type')
   const payload = propertyValue(node, 'payload')
   if (type !== null && payload !== null)
-    typesOf(type, names).forEach(each => recordWrite(tallies, each, keysOf(payload), node.getSourceFile().fileName))
+    typesOf(type, names).forEach(each => recordWrite(tallies, each, keysOf(payload, reading), reading.fileOf(node.getSourceFile())))
 }
 
-function keysBuiltByHelper(call: ts.CallExpression): Keys | null {
+function argumentBindings(helper: ts.FunctionDeclaration, call: ts.CallExpression): Map<string, ts.Expression> {
+  return new Map(helper.parameters.flatMap((parameter, at) => {
+    const bound = call.arguments[at] ?? parameter.initializer
+    return ts.isIdentifier(parameter.name) && bound !== undefined ? [[parameter.name.text, bound] as const] : []
+  }))
+}
+
+function keysBuiltByHelper(call: ts.CallExpression, reading: Reading): Keys | null {
   const callee = call.expression
   if (!ts.isIdentifier(callee))
     return null
   const helper = call.getSourceFile().statements.find(statement => ts.isFunctionDeclaration(statement) && statement.name?.text === callee.text) as ts.FunctionDeclaration | undefined
   if (helper?.body === undefined)
     return null
+  const inside = { ...reading, bindings: argumentBindings(helper, call) }
   const built: Keys[] = []
   eachNode(helper.body, (node) => {
     const payload = ts.isObjectLiteralExpression(node) && propertyValue(node, 'type') !== null ? propertyValue(node, 'payload') : null
     if (payload !== null)
-      built.push(keysOf(payload))
+      built.push(keysOf(payload, inside))
   })
   return built.length === 0 ? null : mergedKeys(built)
 }
 
-function writesOfCall(node: ts.CallExpression, names: ReadonlyMap<string, string>, values: ReadonlySet<string>, tallies: Map<string, Tally>): void {
+function writesOfCall(node: ts.CallExpression, names: ReadonlyMap<string, string>, values: ReadonlySet<string>, tallies: Map<string, Tally>, reading: Reading): void {
+  const file = reading.fileOf(node.getSourceFile())
   node.arguments.forEach((argument, at) => {
     const type = ts.isIdentifier(argument) || ts.isStringLiteralLike(argument) ? typesOf(argument, names).find(each => values.has(each)) : undefined
+    if (type === undefined)
+      return
+    const built = keysBuiltByHelper(node, reading)
     const payload = node.arguments.slice(at + 1).find(ts.isObjectLiteralExpression)
-    const built = type === undefined ? null : keysBuiltByHelper(node)
     const enveloped = payload === undefined ? null : propertyValue(payload, 'payload')
-    if (type !== undefined && payload !== undefined)
-      recordWrite(tallies, type, keysOf(enveloped ?? payload), node.getSourceFile().fileName)
-    if (type !== undefined && built !== null)
-      recordWrite(tallies, type, built, node.getSourceFile().fileName)
+    if (built !== null)
+      recordWrite(tallies, type, built, file)
+    else if (payload !== undefined)
+      recordWrite(tallies, type, keysOf(enveloped ?? payload, reading), file)
   })
 }
 
-function reading(tally: Tally): EventWrites {
-  return { keys: [...tally.keys.keys()].sort(), complete: !tally.opaque }
+function writesOf(tally: Tally): EventWrites {
+  return { keys: [...tally.keys.keys()].sort(), complete: tally.opaqueAt.size === 0 }
 }
 
 function refusedOf(tallies: ReadonlyMap<string, Tally>, payloads: ReadonlyMap<string, readonly string[]>): RefusedWrite[] {
@@ -214,21 +271,39 @@ function refusedOf(tallies: ReadonlyMap<string, Tally>, payloads: ReadonlyMap<st
   })
 }
 
-export function writtenEvents(files: readonly ParsedFile[], catalogue: Catalogue): WrittenEvents {
+export function typedReading(root: string, files: readonly ParsedFile[]): { files: ParsedFile[], checker: ts.TypeChecker } {
+  const config = ts.getParsedCommandLineOfConfigFile(path.join(root, 'tsconfig.json'), {}, { ...ts.sys, onUnRecoverableConfigFileDiagnostic: () => {} })
+  const program = ts.createProgram(files.map(({ file }) => path.join(root, file)), { ...config?.options, noEmit: true })
+  return {
+    files: files.map(({ file, source }) => ({ file, source: program.getSourceFile(path.join(root, file)) ?? source })),
+    checker: program.getTypeChecker(),
+  }
+}
+
+export function writtenEvents(files: readonly ParsedFile[], catalogue: Catalogue, checker: ts.TypeChecker | null = null): WrittenEvents {
   const values = new Set(catalogue.payloads.keys())
   const tallies = new Map<string, Tally>()
+  const fileNames = new Map(files.map(({ file, source }) => [source, file] as const))
+  const typed = new Set(files.filter(({ source }) => path.isAbsolute(source.fileName)).map(({ source }) => source))
+  const reading: Reading = { checker, bindings: new Map(), fileOf: source => fileNames.get(source) ?? source.fileName, typed: source => typed.has(source) }
   for (const { source } of files) {
     const names = namesVisibleIn(source, catalogue.names)
     eachNode(source, (node) => {
       if (ts.isObjectLiteralExpression(node))
-        writesOfObject(node, names, tallies)
+        writesOfObject(node, names, tallies, reading)
       else if (ts.isCallExpression(node))
-        writesOfCall(node, names, values, tallies)
+        writesOfCall(node, names, values, tallies, reading)
     })
   }
   return {
-    events: Object.fromEntries([...catalogue.payloads].map(([type, keys]) => [type, { keys: [...keys].sort(), complete: true }])),
-    outsideTheCatalogue: Object.fromEntries([...tallies].filter(([type]) => !values.has(type)).map(([type, tally]) => [type, reading(tally)])),
+    events: Object.fromEntries([...catalogue.payloads].map(([type, keys]) => [type, { keys: [...keys].sort(), complete: (tallies.get(type)?.opaqueAt.size ?? 0) === 0 }])),
+    outsideTheCatalogue: Object.fromEntries([...tallies].filter(([type]) => !values.has(type)).map(([type, tally]) => [type, writesOf(tally)])),
     refused: refusedOf(tallies, catalogue.payloads),
+    unwritten: Object.fromEntries([...catalogue.payloads].flatMap(([type, keys]) => {
+      const written = tallies.get(type)?.keys
+      const missing = written === undefined ? [] : keys.filter(key => !written.has(key))
+      return missing.length === 0 ? [] : [[type, missing] as const]
+    })),
+    opaque: Object.fromEntries([...tallies].filter(([type, tally]) => values.has(type) && tally.opaqueAt.size > 0).map(([type, tally]) => [type, [...tally.opaqueAt].sort()])),
   }
 }

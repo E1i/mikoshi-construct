@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { EventType } from './events.js'
 import type { Fold, StoredEvent } from './stored.js'
 import type { IncrementalProjection } from './watermark.js'
 import { realpathSync } from 'node:fs'
@@ -485,6 +486,10 @@ export const PLAN_FOLDS: Record<string, Fold> = {
   [PLAN_BACKFILLED]: planBackfilled,
 }
 
+export function reducedTypesOf(folds: Record<string, Fold>): EventType[] {
+  return Object.keys(folds).map(catalogued)
+}
+
 const REDUCERS: Record<string, Fold> = {
   [PR_OBSERVED]: prObserved,
   [PR_CLOSED]: prClosed,
@@ -518,7 +523,7 @@ const NO_SECOND_KEY = `''`
 const PROJECTION_TABLES = Object.keys(PROJECTION_KEYS)
 const PROJECTION_SEQUENCES = `name IN (${PROJECTION_TABLES.map(table => `'${table}'`).join(', ')})`
 const SEQUENCE_SNAPSHOT = 'projection_sequence_snapshot'
-const REDUCED_TYPES = Object.keys(REDUCERS).map(catalogued)
+const REDUCED_TYPES = reducedTypesOf(REDUCERS)
 const ROW_WRITES = { insert: ['NEW'], update: ['OLD', 'NEW'], delete: ['OLD'] } as const
 const FOREIGN_REFERENCE = /\s+REFERENCES\s+\w+\s*\(\w+\)/g
 

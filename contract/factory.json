@@ -405,10 +405,13 @@
           "event",
           "exit",
           "expected",
+          "id",
           "install",
           "iterations",
           "ladder",
+          "matched",
           "num_turns",
+          "outcome",
           "path",
           "pr",
           "rangeDiff",
@@ -869,11 +872,17 @@
       "session.heartbeat": {
         "complete": true,
         "keys": [
+          "context",
+          "error",
           "lease_gen",
+          "model",
           "read_before_edit",
+          "reason",
           "session",
+          "spent",
           "start_context",
           "step",
+          "subagents",
           "task_key"
         ]
       },
@@ -982,6 +991,7 @@
       "task.released": {
         "complete": true,
         "keys": [
+          "generation",
           "lease_gen",
           "queue",
           "reason",

@@ -1,16 +1,27 @@
 import type { ParsedFile } from '../../contract/factory/walk.js'
-import { readFileSync } from 'node:fs'
+import type { Fold } from '../../core/stored.js'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import ts from 'typescript'
-import { describe, expect, it } from 'vitest'
-import { catalogueOf, writtenEvents } from '../../contract/factory/payloads.js'
+import { afterAll, describe, expect, it } from 'vitest'
+import { catalogueOf, typedReading, writtenEvents } from '../../contract/factory/payloads.js'
 import { parsedFiles } from '../../contract/factory/walk.js'
-import { catalogued, EVENT_PAYLOADS } from '../../core/events.js'
+import { declaredPayload, EVENT_PAYLOADS } from '../../core/events.js'
+import { reducedTypesOf } from '../../core/reducer.js'
 
 const ROOT = process.cwd()
 const EVENTS_MODULE = 'scripts/core/events.ts'
 const CORE_EVENTS = ['card.admitted', 'card.started', 'task.leased', 'task.completed', 'window.request', 'owner.wait.opened', 'review.recorded']
+const STOP_REASONS = ['question.agent', 'question.owner', 'ladder.approval', 'witness.downgrade']
+
+const WRITTEN_UNDER_A_TYPE_CHOSEN_AT_RUN_TIME: Record<string, { keys: string[], writer: string }> = {
+  'card.planned': { keys: ['request'], writer: 'scripts/window/window-requests.ts plan(): the type is PLAN_OPS.get(op)' },
+  'plan.opened': { keys: ['gate', 'request', 'version'], writer: 'scripts/window/window-requests.ts plan(): the type is PLAN_OPS.get(op)' },
+  'task.expired': { keys: ['withdraw'], writer: 'scripts/core/lease.ts: the type is a parameter passed down two helpers' },
+  'task.failed': { keys: ['uncounted'], writer: 'scripts/core/lease.ts failed(): the type is a parameter passed down two helpers' },
+}
 
 interface FactoryBus {
   events: Record<string, { keys: string[], complete: boolean }>
@@ -27,20 +38,39 @@ function parsed(file: string, text: string): ParsedFile {
 
 const repository = parsedFiles(ROOT)
 const catalogue = catalogueOf(repository.find(({ file }) => file === EVENTS_MODULE)!)
+const scratchRoots: string[] = []
+
+function typedTree(files: Record<string, string>): string {
+  const root = mkdtempSync(path.join(tmpdir(), 'events-catalogue-'))
+  scratchRoots.push(root)
+  writeFileSync(path.join(root, 'tsconfig.json'), JSON.stringify({ compilerOptions: { strict: true, target: 'ES2022', module: 'NodeNext', moduleResolution: 'NodeNext', noEmit: true } }))
+  for (const [file, text] of Object.entries(files)) {
+    mkdirSync(path.dirname(path.join(root, file)), { recursive: true })
+    writeFileSync(path.join(root, file), text)
+  }
+  return root
+}
+
+function measured(root: string, trees?: string[]): ReturnType<typeof writtenEvents> {
+  const { files, checker } = typedReading(root, parsedFiles(root, trees))
+  return writtenEvents(files, catalogue, checker)
+}
+
+const written = measured(ROOT)
+
+afterAll(() => scratchRoots.forEach(root => rmSync(root, { recursive: true, force: true })))
 
 describe('the typed catalogue of bus events', () => {
   it('every bus event in contract factory json is complete', () => {
-    const { events } = factoryBus()
-    expect(Object.keys(events).sort()).toEqual(Object.keys(EVENT_PAYLOADS).sort())
-    expect(Object.entries(events).filter(([, written]) => !written.complete).map(([type]) => type)).toEqual([])
-    for (const [type, keys] of Object.entries(EVENT_PAYLOADS))
-      expect(events[type]!.keys).toEqual([...keys].sort())
-    expect(Object.keys(events)).toEqual(expect.arrayContaining(CORE_EVENTS))
+    expect(written.opaque).toEqual({})
+    expect(Object.entries(written.events).filter(([, each]) => !each.complete).map(([type]) => type)).toEqual([])
+    expect(factoryBus().events).toEqual(written.events)
+    expect(Object.keys(written.events)).toEqual(expect.arrayContaining(CORE_EVENTS))
   })
 
   it('no event is written outside the catalogue', () => {
     expect(factoryBus().eventsOutsideTheCatalogue).toEqual({})
-    expect(writtenEvents(repository, catalogue).outsideTheCatalogue).toEqual({})
+    expect(written.outsideTheCatalogue).toEqual({})
   })
 
   it('a writer with an undeclared payload key is refused', () => {
@@ -49,12 +79,45 @@ describe('the typed catalogue of bus events', () => {
       'appendEvent(db, { ts, type: TASK_LEASED, actor, cardId: null, pr: null, head: null, dedupeKey: \'k\', payload: { task_key: key, smuggled: 1 }, legacy: false })',
     ].join('\n'))
     expect(writtenEvents([writer], catalogue).refused).toEqual([{ type: 'task.leased', key: 'smuggled', file: 'scripts/core/smuggler.ts' }])
-    expect(writtenEvents(repository, catalogue).refused).toEqual([])
+    expect(written.refused).toEqual([])
   })
 
-  it('refuses a helper envelope only on the keys of its nested payload', () => {
-    const writer = parsed('scripts/core/envelope.ts', 'observation(ts, \'main.advanced\', { cardId: null, pr: null, head: null, dedupeKey: k, payload: { sha, touches_mechanics: true, extra: 1 } })')
-    expect(writtenEvents([writer], catalogue).refused.map(({ key }) => key)).toEqual(['extra'])
+  it('refuses an undeclared key a writer spreads from a typed value, which the syntax alone does not show', () => {
+    const root = typedTree({ 'scripts/spread.ts': [
+      'export const TASK_LEASED = \'task.leased\'',
+      'interface Leased { task_key: string, smuggled: number }',
+      'declare const leased: Leased',
+      'declare function appendEvent(event: object): void',
+      'appendEvent({ type: TASK_LEASED, payload: { ...leased, queue: \'launch\' } })',
+    ].join('\n') })
+    expect(measured(root, ['scripts']).refused).toEqual([{ type: 'task.leased', key: 'smuggled', file: 'scripts/spread.ts' }])
+  })
+
+  it('reads an event as incomplete while a writer spreads a payload whose keys no type bounds', () => {
+    const root = typedTree({ 'scripts/open.ts': [
+      'export const TASK_RENEWED = \'task.renewed\'',
+      'declare const open: Record<string, unknown>',
+      'declare function appendEvent(event: object): void',
+      'appendEvent({ type: TASK_RENEWED, payload: { ...open, task_key: \'k\' } })',
+    ].join('\n') })
+    const reading = measured(root, ['scripts'])
+    expect(reading.events['task.renewed']!.complete).toBe(false)
+    expect(reading.opaque).toEqual({ 'task.renewed': ['scripts/open.ts:4'] })
+  })
+
+  it('refuses at write time an open payload that carries an undeclared key', () => {
+    expect(declaredPayload('window.request', { kind: 'tree.cut', card: 1 })).toEqual({ kind: 'tree.cut', card: 1 })
+    expect(() => declaredPayload('window.request', { kind: 'tree.cut', smuggled: 1 })).toThrow('window.request declares no payload key smuggled')
+  })
+
+  it('declares no key that no writer writes, beyond the writers whose type is chosen at run time', () => {
+    expect(written.unwritten).toEqual(Object.fromEntries(Object.entries(WRITTEN_UNDER_A_TYPE_CHOSEN_AT_RUN_TIME).map(([type, { keys }]) => [type, keys])))
+  })
+
+  it('folds no type the catalogue does not declare', () => {
+    const fold: Fold = () => {}
+    expect(reducedTypesOf({ 'task.leased': fold })).toEqual(['task.leased'])
+    expect(() => reducedTypesOf({ 'task.leased': fold, 'stray.event': fold })).toThrow('stray.event declares no payload in EVENT_PAYLOADS')
   })
 
   it('counts a write of an undeclared type as outside the catalogue', () => {
@@ -62,12 +125,7 @@ describe('the typed catalogue of bus events', () => {
     expect(Object.keys(writtenEvents([writer], catalogue).outsideTheCatalogue)).toEqual(['stray.event'])
   })
 
-  it('lets nothing fold a type the catalogue does not declare', () => {
-    expect(catalogued('task.leased')).toBe('task.leased')
-    expect(() => catalogued('stray.event')).toThrow('declares no payload in EVENT_PAYLOADS')
-  })
-
   it('keeps the stop reasons out of the event types', () => {
-    expect(Object.keys(EVENT_PAYLOADS).filter(type => ['question.agent', 'question.owner', 'ladder.approval', 'witness.downgrade'].includes(type))).toEqual([])
+    expect(Object.keys(EVENT_PAYLOADS).filter(type => STOP_REASONS.includes(type))).toEqual([])
   })
 })
