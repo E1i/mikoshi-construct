@@ -1,20 +1,22 @@
 import type { SpawnSyncReturns } from 'node:child_process'
 import type { CardRuns } from './card-runs.js'
 import type { Graph, Run } from './layers.js'
-import type { SandboxFailing } from './sandbox-failing.js'
+import type { Capability, SandboxFailing } from './sandbox-failing.js'
 import type { Stale } from './sandbox-liveness.js'
+import type { GateBase, Git, GreenRuns } from './select.js'
 import type { VitestRun } from './test-command.js'
 import { spawnSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { withinTouches } from '../../src/card/covering-tests.js'
+import { GhCiRuns } from '../ports/ci-reading.js'
 import { heavyStep } from '../quality/lock.js'
 import { branchCardRuns } from './card-runs.js'
 import { isTest, reverseGraph, selectRun } from './layers.js'
-import { SANDBOX_FAILING } from './sandbox-failing.js'
+import { CAPABILITIES, normLine, probeCapabilities, SANDBOX_FAILING, sandboxNorm } from './sandbox-failing.js'
 import { listedFiles, livenessApplies, runTraced, staleInSandbox, staleLines } from './sandbox-liveness.js'
-import { cruise, readTest, reportedRun, runSummary } from './select.js'
+import { cruise, lastGreenMain, readTest, reportedRun, runSummary } from './select.js'
 import { PASS_WITH_NO_TESTS, REPO_ROOT, RETRY, runVitest } from './test-command.js'
 import { outcomesOf, testKey } from './vitest-report.js'
 
@@ -146,39 +148,48 @@ export function roundTests(run: Run, vitest: () => VitestRun): Verdict {
   return run.kind === 'layers' && run.tests.length === 0 ? NO_TESTS : testsVerdict(vitest())
 }
 
-export function greenLine(ran: number, round: string | null): string {
-  return round === null
-    ? `prepush: green — ${ran} tests ran; the push may go.`
-    : `prepush: green — ${ran} tests of the layers this round reaches ran; the full suite is CI's, and the merge waits for its green run; the push may go.`
+export const FULL_RUN_IS_CI = 'the full suite is CI\'s, and the merge waits for its green run'
+
+export function greenLine(ran: number): string {
+  return `prepush: green — ${ran} tests of the layers this change reaches ran; ${FULL_RUN_IS_CI}; the push may go.`
 }
+
+export const SANDBOX_NORM_LINE = `prepush: green apart from sandbox norm; ${FULL_RUN_IS_CI}; the push may go.`
+
+const EVERY_CAPABILITY: ReadonlySet<Capability> = new Set(CAPABILITIES)
 
 export interface Suite {
   vitest: (args: readonly string[]) => VitestRun
   liveness: () => Stale[] | null
   queue: (step: () => Promise<number>) => Promise<number>
   log: (line: string) => void
+  capabilities?: () => Promise<ReadonlySet<Capability>>
 }
 
-export async function testStep(selection: Selection, round: string | null, suite: Suite): Promise<number> {
+export async function testStep(selection: Selection, suite: Suite): Promise<number> {
   const { changed, run: selected } = selection
-  const run = round === null ? selected : roundRun(selection)
+  const run = roundRun(selection)
   if (run !== selected)
-    suite.log(`prepush: the round runs only the layers its change reaches (${selected.kind === 'full' ? selected.why : 'layered'}); the full suite is CI's.`)
+    suite.log(`prepush: the gate runs only the layers its change reaches (${selected.kind === 'full' ? selected.why : 'layered'}); the full suite is CI's.`)
   suite.log(runSummary(run))
   return throughQueue(run, async () => {
     const started = Date.now()
-    const gate = prepushGate(changed, () => roundTests(run, () => suite.vitest(sessionArgs(run, SANDBOX_FAILING))), suite.liveness, round)
+    const verdict = roundTests(run, () => suite.vitest(sessionArgs(run, SANDBOX_FAILING)))
+    const available = verdict.kind === 'red' ? await (suite.capabilities ?? probeCapabilities)() : EVERY_CAPABILITY
+    const gate = prepushGate(changed, () => verdict, suite.liveness, available)
     suite.log([...gate.lines, `prepush: ${Math.round((Date.now() - started) / 1000)} s of local tests`].join('\n'))
     return gate.code
   }, suite.queue)
 }
 
-export function prepushGate(changed: readonly string[], tests: () => Verdict, liveness: () => Stale[] | null, round: string | null = null): Gate {
+export function prepushGate(changed: readonly string[], tests: () => Verdict, liveness: () => Stale[] | null, available: ReadonlySet<Capability> = EVERY_CAPABILITY): Gate {
   const verdict = tests()
   if (verdict.kind === 'broken')
     return brokenGate(verdict.why)
-  if (verdict.kind === 'red')
-    return { lines: ['prepush: red — the push does not happen; fix these in this session and run the gate again:', ...verdict.failed.map(key => `failed: ${key}`)], code: 1 }
+  const reading = verdict.kind === 'red' ? sandboxNorm(verdict.failed, available) : null
+  if (reading !== null && reading.real.length > 0)
+    return { lines: ['prepush: red — the push does not happen; fix these in this session and run the gate again:', ...reading.real.map(key => `failed: ${key}`), ...reading.norm.map(normLine)], code: 1 }
+  const normLines = reading === null ? [] : ['prepush: the only reds are sandbox norm — each test declares a capability this sandbox lacks, so it is red on main here too; another run changes nothing, and CI runs them:', ...reading.norm.map(normLine)]
   if (livenessApplies(changed)) {
     const stale = liveness()
     if (stale === null)
@@ -186,10 +197,10 @@ export function prepushGate(changed: readonly string[], tests: () => Verdict, li
     if (stale.length > 0)
       return { lines: ['prepush: red — this change touches the sandbox list or the selector, and the liveness check is red; the push does not happen:', ...staleLines(stale)], code: 1 }
   }
-  return { lines: [greenLine(verdict.ran, round)], code: 0 }
+  return { lines: [...normLines, verdict.kind === 'green' ? greenLine(verdict.ran) : SANDBOX_NORM_LINE], code: 0 }
 }
 
-export type Git = (args: readonly string[]) => string
+export type { Git } from './select.js'
 
 function git(args: readonly string[]): string {
   const run = spawnSync('git', args, { cwd: REPO_ROOT, encoding: 'utf8' })
@@ -218,8 +229,11 @@ export function roundOf(argv: readonly string[]): string | null {
   return head
 }
 
-export function changesSince(read: Git, round: string | null): string[] {
-  const base = round ?? read(['merge-base', 'HEAD', 'origin/main']).trim()
+export function gateBase(read: Git, round: string | null, ci: GreenRuns): GateBase {
+  return round === null ? lastGreenMain(read, ci) : { sha: round, why: 'the head the round started on' }
+}
+
+export function changesSince(read: Git, base: string): string[] {
   const paths = [...read([...CI_DIFF, base]).split('\0'), ...read(['ls-files', '--others', '--exclude-standard', '-z']).split('\0')]
   return [...new Set(paths.filter(entry => entry !== ''))].sort()
 }
@@ -269,7 +283,9 @@ async function main(): Promise<number> {
       console.log(clean.lines.join('\n'))
       return clean.code
     }
-    changed = changesSince(git, round)
+    const base = gateBase(git, round, new GhCiRuns())
+    console.log(`prepush: the diff from ${base.why}`)
+    changed = changesSince(git, base.sha)
     graph = changed.length === 0 ? new Map() : cruise()
     reading = readingOfBranch(git)
     run = reportedRun(withCardRuns(selectRun(changed, graph, readTest), reading, graph))
@@ -278,15 +294,15 @@ async function main(): Promise<number> {
     console.log(brokenGate(`the CI selector did not run: ${error instanceof Error ? error.message : String(error)}`).lines.join('\n'))
     return 2
   }
+  console.log(`prepush: ${changed.length} changed paths`)
   if (round !== null) {
-    console.log(`prepush: the round's diff from ${round}: ${changed.length} paths`)
     const linted = lintGate(roundLintArgs(changed, existsSync), eslint)
     if (linted !== null) {
       console.log(linted.lines.join('\n'))
       return linted.code
     }
   }
-  return testStep({ changed, run, graph, select: files => selectRun(files, graph, readTest), reading }, round, { vitest: args => runVitest(args), liveness: sandboxLiveness, queue: heavyStep, log: line => console.log(line) })
+  return testStep({ changed, run, graph, select: files => selectRun(files, graph, readTest), reading }, { vitest: args => runVitest(args), liveness: sandboxLiveness, queue: heavyStep, log: line => console.log(line) })
 }
 
 if (process.argv[1] === import.meta.filename)
