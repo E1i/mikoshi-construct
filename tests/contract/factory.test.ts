@@ -57,7 +57,6 @@ const SITES_OF_THE_RECONNAISSANCE: Record<string, readonly string[]> = {
     'scripts/supervisor/supervisor.ts',
   ],
   'live-session': ['scripts/nodes/answer/answerer.ts', 'scripts/ports/worktree.ts', 'scripts/window/session-load.ts'],
-  'layers': ['scripts/ci/layers.ts', 'scripts/ci/card-runs.ts', 'scripts/cli/check-catalog.ts', 'src/card/witness-fields.ts'],
   'owner-decisions': [
     'scripts/nodes/launch/launch-candidates.ts',
     'scripts/core/inbox.ts',
@@ -209,6 +208,7 @@ describe('contract/factory.json', () => {
     for (const [concept, files] of Object.entries(SITES_OF_THE_RECONNAISSANCE))
       expect(Object.keys(overlaps[concept]!), concept).toEqual(expect.arrayContaining([...files]))
     expect(overlaps['window-requests']!['scripts/window/window-requests.ts']).toBeGreaterThan(1)
+    expect(overlaps.layers).toEqual({})
   }, GENERATION_TIMEOUT)
 
   it('a change to any scripts module selects the freshness test in the per-layer CI run', () => {
