@@ -1,70 +1,34 @@
-import { chmodSync, mkdtempSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import path from 'node:path'
-import process from 'node:process'
-import { afterEach, describe, expect, it } from 'vitest'
-import { isSessionAlive, listProcesses, processField } from '../../ladder/watch-process.js'
+import type { ProcessSnapshot } from '../../ports/process-table.js'
+import { describe, expect, it } from 'vitest'
+import { processField, sessionInSnapshot } from '../../ladder/watch-process.js'
 
-const originalPath = process.env.PATH
-
-afterEach(() => {
-  process.env.PATH = originalPath
-})
-
-function pathWithFailingPs(): string {
-  const dir = mkdtempSync(path.join(tmpdir(), 'ghosts-watch-ps-'))
-  const ps = path.join(dir, 'ps')
-  writeFileSync(ps, '#!/bin/sh\necho "ps: stub failure" >&2\nexit 1\n')
-  chmodSync(ps, 0o755)
-  return `${dir}${path.delimiter}${originalPath}`
+function row(command: string) {
+  return { pid: 1, ppid: 0, pgid: 1, started: 'Sat Nov 8 04:21:20 2026', command }
 }
 
-describe('listProcesses', () => {
-  it('lists this process among running processes, with its pid a positive number', () => {
-    const listing = listProcesses()
-    expect(listing.readable).toBe(true)
-    const processes = listing.readable ? listing.processes : []
-    const self = processes.find(entry => entry.pid === process.pid)
-    expect(self).toBeDefined()
-    expect(self!.pid).toBeGreaterThan(0)
-  })
-
-  it.each([
-    { name: 'absent from PATH', searchPath: () => mkdtempSync(path.join(tmpdir(), 'ghosts-watch-empty-')), reason: 'ENOENT' },
-    { name: 'failing', searchPath: pathWithFailingPs, reason: 'Command failed: ps' },
-  ])('is unreadable, with the reason, when ps is $name', ({ searchPath, reason }) => {
-    process.env.PATH = searchPath()
-    const listing = listProcesses()
-    expect(listing.readable).toBe(false)
-    expect(listing.readable ? '' : listing.reason).toContain(reason)
-  })
-})
-
 describe('processField', () => {
-  const listing = { readable: true as const, processes: [{ pid: 1, args: 'claude --session-id abc-123' }] }
+  const snapshot: ProcessSnapshot = { readable: true, rows: [row('claude --session-id abc-123')] }
 
   it('names no session when the status row carries none', () => {
-    expect(processField(undefined, listing)).toBe('process no session')
+    expect(processField(undefined, snapshot)).toBe('process no session')
   })
 
-  it('reads alive or dead from a readable listing', () => {
-    expect(processField('abc-123', listing)).toBe('process alive')
-    expect(processField('other', listing)).toBe('process dead')
+  it('reads whether the session is in a readable table, and says no more', () => {
+    expect(processField('abc-123', snapshot)).toBe('process in the table')
+    expect(processField('other', snapshot)).toBe('process not in the table')
   })
 
-  it('reads unknown with the reason, never dead, from an unreadable listing', () => {
-    expect(processField('abc-123', { readable: false, reason: 'spawnSync ps ENOENT' })).toBe('process unknown (ps failed: spawnSync ps ENOENT)')
+  it('reads unknown with the reason from an unreadable table', () => {
+    expect(processField('abc-123', { readable: false, reason: 'spawnSync ps ENOENT' })).toBe('process unknown (the process table could not be read: spawnSync ps ENOENT)')
   })
 })
 
-describe('isSessionAlive', () => {
+describe('sessionInSnapshot', () => {
   it('is true when a process carries --session-id <uuid> in its arguments', () => {
-    const processes = [{ pid: 1, args: 'node script.js --session-id abc-123 /implement brief.md' }]
-    expect(isSessionAlive('abc-123', processes)).toBe(true)
+    expect(sessionInSnapshot('abc-123', [row('node script.js --session-id abc-123 /implement brief.md')])).toBe(true)
   })
 
   it('is false when no process carries that session id', () => {
-    const processes = [{ pid: 1, args: 'node script.js --session-id other-id /implement brief.md' }]
-    expect(isSessionAlive('abc-123', processes)).toBe(false)
+    expect(sessionInSnapshot('abc-123', [row('node script.js --session-id other-id /implement brief.md')])).toBe(false)
   })
 })

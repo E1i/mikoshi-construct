@@ -1,6 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { HolderProcess, HolderReading, ProcessStartOf } from '../core/lease.js'
 import type { InForceDecision } from '../policy/decisions.js'
+import type { ProcessTable } from '../ports/process-table.js'
 import type { BgResult, DetachedLaunch, ProcessList, RunningProcess } from './bg.js'
 import type { ProcessBeat } from './heartbeat.js'
 import { execFileSync, spawnSync } from 'node:child_process'
@@ -21,8 +22,9 @@ import { LIVE_FLAG } from '../core/node.js'
 import { inForceDecisions } from '../policy/decisions.js'
 import { allowLiveCommand, liveDecisionOf } from '../policy/live-decision.js'
 import { CHECK_MS } from '../ports/netwatch.js'
+import { OsProcessTable, rowOf, rowsOf } from '../ports/process-table.js'
 import { WindowSessionEnds } from '../window/window-session-end.js'
-import { alive, BUILD_DIR, BUILT_MODULE, flagsInArgs, installedPackage, instancesOf, launchName, PREFIX, printBg, provenOnBus, psList, runBusBg, runningInstance, stampedOtherwise, startDetached, thisBus, withBuses } from './bg.js'
+import { BUILD_DIR, BUILT_MODULE, flagsInArgs, installedPackage, instancesOf, launchName, PREFIX, printBg, provenOnBus, psList, runBusBg, runningInstance, stampedOtherwise, startDetached, thisBus, withBuses } from './bg.js'
 import { BusHealer, CorruptionWatch, RecordedNodes } from './bus-heal.js'
 import { BusSnapshot } from './bus-snapshot.js'
 import { CARD_PROCESS, lastProcessBeats, recordProcessHeartbeat } from './heartbeat.js'
@@ -563,23 +565,14 @@ export function lstartToIso(line: string): string | null {
   return Number.isNaN(ms) ? null : new Date(ms).toISOString()
 }
 
-function signalledAsGone(pid: number): boolean {
-  try {
-    process.kill(pid, 0)
-    return false
-  }
-  catch (error) {
-    return (error as NodeJS.ErrnoException).code === 'ESRCH'
-  }
-}
-
-export function psStartOf(pid: number): HolderProcess {
-  if (signalledAsGone(pid))
-    return { state: 'gone' }
-  const read = spawnSync('ps', ['-o', 'lstart=', '-p', String(pid)], { encoding: 'utf8', env: { ...process.env, LC_ALL: 'C' } })
-  if (read.error !== undefined || read.status !== 0)
+export function psStartOf(pid: number, table: ProcessTable = new OsProcessTable()): HolderProcess {
+  const snapshot = table.snapshot()
+  if (!snapshot.readable)
     return { state: 'unreadable' }
-  const started = lstartToIso(read.stdout)
+  const row = rowOf(snapshot, pid)
+  if (row === null)
+    return { state: 'gone' }
+  const started = lstartToIso(row.started)
   return started === null ? { state: 'unreadable' } : { state: 'running', started }
 }
 
@@ -968,12 +961,9 @@ export function outsideGroup(processes: GroupedProcess[], group: number): Runnin
   return processes.filter(candidate => candidate.group !== group).map(({ group: _group, ...running }) => running)
 }
 
-function psOutsideOwnGroup(): ProcessList {
-  const own = Number(execFileSync('ps', ['-o', 'pgid=', '-p', String(process.pid)], { encoding: 'utf8' }).trim())
-  return () => outsideGroup(withBuses(execFileSync('ps', ['-axo', 'pid=,pgid=,args='], { encoding: 'utf8' }).split('\n').flatMap((line) => {
-    const match = /^\s*(\d+)\s+(\d+)\s(.*)$/.exec(line)
-    return match === null ? [] : [{ pid: Number(match[1]), group: Number(match[2]), args: match[3]! }]
-  })), own)
+export function outsideOwnGroup(table: ProcessTable = new OsProcessTable(), self: number = process.pid): ProcessList {
+  const own = rowOf(table.snapshot(), self)?.pgid ?? self
+  return () => outsideGroup(withBuses(rowsOf(table.snapshot()).map(row => ({ pid: row.pid, group: row.pgid, args: row.command }))), own)
 }
 
 export function runReducer(cwd: string): string[] {
@@ -1037,7 +1027,6 @@ async function supervise(busDir: string, cwd: string, reviewPreflight: () => str
   const known = busLaunches(reviewPreflight)
   const nodes = new RecordedNodes(busPath, {
     signal,
-    alive,
     runsNodeOfThisBus: (pid, script) => known.some(launch => launch.script === script && instancesOf(everyProcess(), launch.markers).some(each => each.pid === pid && provenOnBus(each, thisBus()))),
     runningOnThisBus: () => known.flatMap(launch => instancesOf(everyProcess(), launch.markers).map(each => `${launch.script} (pid ${each.pid})`)),
     pause: sleep,
@@ -1081,7 +1070,7 @@ async function supervise(busDir: string, cwd: string, reviewPreflight: () => str
       windowEnds: new WindowSessionEnds(db, cwd, () => Date.now(), PREFIX),
       heal: new BusHealer({ busPath, nodes, now: () => new Date(), watch: new CorruptionWatch(busLaunches(reviewPreflight).map(launch => path.join(busDir, launch.log))) }),
       snapshot: new BusSnapshot({ db, busPath, file: snapshotPathOf(busPath), now: () => Date.now(), paused: () => nodes.held() }),
-      relaunch: () => startDetached(SUPERVISOR_LAUNCH, busDir, process.env, psOutsideOwnGroup()),
+      relaunch: () => startDetached(SUPERVISOR_LAUNCH, busDir, process.env, outsideOwnGroup()),
       print: line => console.log(line),
       pause: () => sleep(CHECK_MS),
     })

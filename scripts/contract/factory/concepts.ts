@@ -1,6 +1,7 @@
 import type { Detector } from './detectors.js'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
+import { FACTORY_RUNTIME } from '../../core/factory-paths.js'
 import { GENERATED_FILES, GENERATED_PATHS } from '../../core/generated-files.js'
 import { clientAdapter } from '../../ports/client/index.js'
 import {
@@ -36,6 +37,7 @@ export interface Concept {
 }
 
 const PROCESS_TABLE_OWNER = 'scripts/ports/process-table.ts'
+const LIVENESS_JUDGE = FACTORY_RUNTIME.busSupervisor
 const PROCESS_TABLE_PROGRAMS = 'ps lsof top'.split(' ')
 const ANSWER_EXECUTOR = 'scripts/nodes/answer/answer-executor.ts'
 const ANSWERER = 'scripts/nodes/answer/answerer.ts'
@@ -64,26 +66,27 @@ export const CONCEPTS: readonly Concept[] = [
     id: 'process-table',
     title: 'the process table of the OS, read with ps, lsof or top and parsed',
     owner: PROCESS_TABLE_OWNER,
-    ownerExists: false,
+    ownerExists: true,
     axis: 'architecture',
     detectors: [programCall(PROCESS_TABLE_PROGRAMS), declaredFunction(/^parsePs$/)],
   },
   {
     id: 'pid-liveness',
     title: 'whether a pid is alive',
-    owner: PROCESS_TABLE_OWNER,
-    ownerExists: false,
+    owner: LIVENESS_JUDGE,
+    ownerExists: true,
     axis: 'architecture',
     detectors: [pidProbe()],
   },
   {
     id: 'live-session',
     title: 'whether a client session is alive in a tree',
-    owner: 'scripts/ports/client/',
+    owner: LIVENESS_JUDGE,
     ownerExists: true,
     axis: 'architecture',
     detectors: [
       declaredFunction(/^liveSession(?!s$)/),
+      declaredFunction(/^(?:sessionLiveness|isSessionAlive)$/),
       referenced('claudeProcessCwds'),
       adjacentLiterals('-c', name => clientAdapter().processes.isClient(name), 'the client process name in lsof arguments'),
     ],
@@ -186,7 +189,7 @@ export const CONCEPTS: readonly Concept[] = [
       declaredIn(ANSWER_EXECUTOR, 'outcomes', ['stopped', 'ownersStop', 'windowWidens', 'denialEvent', 'denied', 'superseded', 'waitingForTheSupersededSession']),
       declaredIn(ANSWERER, 'the prompt', ['answerPrompt', 'mergePrompt', 'sourceLines', 'cardLines', 'decisionLines', 'diffLines', 'gateLine', 'handoffLines']),
       declaredIn(ANSWERER, 'the CI log', ['ciLogLines', 'redCiLines', 'asksAboutRedCi']),
-      declaredIn(ANSWERER, 'reading the tree', ['localHead', 'remoteHead', 'git', 'diffAgainstBase', 'treeMergeOf', 'porcelainEntries', 'committedOnTheBranch', 'uncommitted', 'pendingPathsOf', 'liveSessionIn', 'treeDirtyOf']),
+      declaredIn(ANSWERER, 'reading the tree', ['localHead', 'remoteHead', 'git', 'diffAgainstBase', 'treeMergeOf', 'porcelainEntries', 'committedOnTheBranch', 'uncommitted', 'pendingPathsOf', 'clientInTree', 'treeDirtyOf']),
       declaredIn(ANSWERER, 'running the client', ['spawnClient']),
     ],
   },

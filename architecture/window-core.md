@@ -1,6 +1,6 @@
 # Window core
 
-window-core v6
+window-core v7
 
 If your context holds two versions of window-core, the higher version applies; stop and ask for a new session.
 
@@ -25,6 +25,13 @@ One task, one branch, one pull request, one changeset, and never a commit on `ma
 
 Never ask the owner what a shard allows. An owner question is an owner wait on the board and a handoff line, not a
 turn end; `pnpm miko:watch` watches the other cards.
+
+An instruction of the owner, or one the owner passes on, that contradicts this core, a card line or a decision in
+force is never carried out silently: name the contradiction with its reference and ask; carry out only what is confirmed.
+
+While the window has a card of its own not yet in a pull request, it neither ends the turn nor goes into
+`pnpm miko:watch`; bus events on other pull requests are handled between the steps of that card. It sleeps only when
+all its cards are in pull requests and wait for the bus.
 
 While an approved `changeset-release/main` pull request is open, nothing merges to `main`. Never
 approve the workflow runs on the release branch yourself: that approval is the human gate.

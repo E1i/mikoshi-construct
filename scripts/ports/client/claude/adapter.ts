@@ -8,9 +8,9 @@ import { FACTORY_RUNTIME } from '../../../core/factory-paths.js'
 import { commandWords } from '../../isolation.js'
 import { reviewModelOf } from '../../session.js'
 import { settingsFlag, shiftSettings } from '../../shift-settings.js'
-import { claudeProcessCwds } from '../../worktree.js'
 
 const CLAUDE_COMMAND = 'claude'
+const CLAUDE_PROCESS_NAMES = [CLAUDE_COMMAND, '/^[0-9]+[.][0-9]+[.][0-9]+$/']
 const MCP_OFF_FLAG = '--strict-mcp-config'
 const CARD_PERMISSION = ['--permission-mode', 'dontAsk'] as const
 const SESSION_ID_FLAG = '--session-id'
@@ -178,7 +178,7 @@ export const claudeAdapter: ClientAdapter = {
   processes: {
     isClient: isClaudeArgv,
     sessionMarker: session => `${SESSION_ID_FLAG} ${session}`,
-    liveCwds: () => claudeProcessCwds(),
+    processNames: CLAUDE_PROCESS_NAMES,
     isolationCommand: () => [CLAUDE_COMMAND, ...HEADLESS_OUTPUT, MCP_OFF_FLAG, SESSION_ID_FLAG],
   },
   ownSession: env => env[SESSION_VARIABLE] || null,
