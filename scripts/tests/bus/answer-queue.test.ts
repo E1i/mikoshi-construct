@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { ShiftTask } from '../../../src/card/task-file.js'
 import type { Queue } from '../../core/identifiers.js'
 import type { Lease } from '../../core/lease.js'
 import type { StoredEvent } from '../../core/stored.js'
@@ -16,7 +17,7 @@ import { ANSWER_STEP, BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_STARTED, C
 import { taskKey } from '../../core/identifiers.js'
 import { inboxText, ownerInbox } from '../../core/inbox.js'
 import { completeTask, expireLeases, failTask, LEASE_MS, leaseNext } from '../../core/lease.js'
-import { admitCommandOf, answerCardBodyOf, appendedAndReduced, FAILURES_TO_STOP, identityOf, keyOf, LAUNCH_STOP_WITH_NO_PULL_REQUEST, MERGE_REFUSED, queueTask, REVIEW_ROUNDS } from '../../core/queue.js'
+import { admitCommandOf, answerCardBodyOf, appendedAndReduced, cardBodyShaOfCard, FAILURES_TO_STOP, identityOf, keyOf, LAUNCH_STOP_WITH_NO_PULL_REQUEST, MERGE_REFUSED, queueTask, REVIEW_ROUNDS } from '../../core/queue.js'
 import { projectionDump, reduce } from '../../core/reducer.js'
 import { Rejection } from '../../core/stored.js'
 import { importJournal } from '../../intake/import.js'
@@ -24,8 +25,9 @@ import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
 import { answerSourceOf, NO_RECORDED_SESSION } from '../../nodes/answer/answer-source.js'
 import { AnswerNode, runAnswerWorker, VERDICT_NOT_RECORDED } from '../../nodes/answer/answer-worker.js'
 import { claudeAnswerer, ownerQuestionPath, treeMergeOf } from '../../nodes/answer/answerer.js'
+import { withCardDecisions } from '../../nodes/launch/launch-worker.js'
 import { recordDecision } from '../../policy/decisions.js'
-import { cardDecisionCommand } from '../../policy/shards.js'
+import { CARD_DECISIONS_HEADING, cardDecisionBlock, cardDecisionCommand, cardDecisionLines } from '../../policy/shards.js'
 import { transcriptFile } from '../../ports/client/claude/adapter.js'
 import { readBoard } from '../../window/board.js'
 import { sha } from './github-fake.js'
@@ -956,6 +958,99 @@ describe('the answer queue', () => {
     const stepsWrittenWhileTheLeaseWasHeld = ['lease', 'tree']
     expect(eventsOf(bench.db, ANSWER_STEP).map(event => event.step)).toEqual(stepsWrittenWhileTheLeaseWasHeld)
     expect(eventCount(bench.db) - during).toBe(2 + stepsWrittenWhileTheLeaseWasHeld.length)
+    bench.close()
+  })
+})
+
+describe('a decision on a card is an event, and the card body stays as admitted', () => {
+  const CARD = 1260
+  const PR = 1160
+  const DECISION = 378
+  const DECIDED = 'the card may touch architecture/owner-merges.md'
+  const BODY = textSha('#1260 decided [implement/netwatch/S/cheap/owner] · depends — · blocks —')
+  const answerTasks = (db: DatabaseSync): string[] => (db.prepare(`SELECT task_key FROM tasks WHERE queue = 'answer' ORDER BY task_key`).all() as { task_key: string }[]).map(row => row.task_key)
+  const checkTasks = (db: DatabaseSync): string[] => (db.prepare(`SELECT task_key FROM tasks WHERE queue IN ('witness', 'review') ORDER BY task_key`).all() as { task_key: string }[]).map(row => row.task_key)
+  const admissions = (db: DatabaseSync): number => Number((db.prepare(`SELECT count(*) AS n FROM events WHERE type = '${CARD_ADMITTED}' AND card_id = ?`).get(CARD) as { n: number }).n)
+  const decided = `${answer(CARD, PR, sha('a'))}:card-body-${BODY}:decision-${DECISION}`
+
+  function stoppedOnTheOwner() {
+    const bench = answerBench()
+    bench.started(CARD)
+    appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'worker:intake:window', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${CARD}:body`, payload: { lane: 'lane-a', decision: 'auto', contour: 'cheap', depends: [], bodySha: BODY }, legacy: false })
+    bench.gitHub.open({ number: PR, review: 'success' })
+    bench.stopped(CARD, { reason: QUESTION_OWNER, detail: 'may the card touch architecture/owner-merges.md?' }, PR, sha('a'))
+    bench.tick()
+    return bench
+  }
+
+  function decide(bench: ReturnType<typeof answerBench>): void {
+    recordDecision(bench.db, { ts: bench.clock.now().toISOString(), decisionId: DECISION, text: DECIDED, cards: [CARD] })
+  }
+
+  it('a decision with --card on a card stopped on question.owner queues exactly one continuation task', () => {
+    const bench = stoppedOnTheOwner()
+    expect(answerTasks(bench.db)).toEqual([])
+
+    decide(bench)
+    bench.tick()
+
+    expect(answerTasks(bench.db)).toEqual([decided])
+    expect(taskState(bench.db, decided)).toEqual({ state: 'queued', lease_gen: 0, failures: 0 })
+    expect(admissions(bench.db)).toBe(2)
+    expect(reduce(bench.db)).toMatchObject({ rejected: 0 })
+    bench.close()
+  })
+
+  it('the same card decision delivered twice queues one continuation task keyed by the decision id', () => {
+    const bench = stoppedOnTheOwner()
+    decide(bench)
+    bench.tick()
+    expect(() => decide(bench)).toThrow(`${DECISION_RECORDED}:${DECISION} is already in the bus`)
+    bench.tick()
+    bench.tick()
+
+    expect(queueTask(bench.db, bench.clock.now().toISOString(), { queue: 'answer', cardId: CARD, pr: PR, head: sha('a'), cardBody: BODY, decision: DECISION })).toBe(false)
+    expect(answerTasks(bench.db)).toEqual([decided])
+    expect(eventsOf(bench.db, TASK_ENQUEUED).filter(event => event.task_key === decided)).toHaveLength(1)
+    expect(() => keyOf({ queue: 'review', cardId: CARD, pr: PR, head: sha('a'), decision: DECISION })).toThrow('only an answer task carries a decision id')
+    bench.close()
+  })
+
+  it('launch and answer prompts carry the decisions of the card from one source', async () => {
+    const bench = stoppedOnTheOwner()
+    bench.tools.heads = [sha('a'), PUSHED]
+    decide(bench)
+    bench.tick()
+    const block = cardDecisionBlock(cardDecisionLines(bench.db, CARD, bench.clock.now())).join('\n')
+    expect(block).toBe(`${CARD_DECISIONS_HEADING}\nD-${DECISION}: ${DECIDED}`)
+
+    const lease = bench.leaseAnswer()!
+    expect(lease).toMatchObject({ taskKey: decided })
+    expect(answerSourceOf(bench.db, lease, bench.clock.now())).toMatchObject({ kind: 'decision', decisionId: DECISION, text: DECIDED })
+    expect(await bench.answer(lease)).toMatchObject({ kind: 'answered', head: PUSHED })
+    const answerPromptText = bench.tools.runs[0]!.argv.at(-1)!
+    expect(answerPromptText).toContain(block)
+    expect(answerPromptText).toContain(`The owner decided on this card: D-${DECISION}: ${DECIDED}`)
+
+    const launchTask = { body: `#${CARD} decided`, card: { id: CARD } } as unknown as ShiftTask
+    expect(withCardDecisions(launchTask, cardDecisionLines(bench.db, CARD, bench.clock.now())).body).toBe(`#${CARD} decided\n\n${block}`)
+    expect(withCardDecisions(launchTask, [])).toBe(launchTask)
+    bench.close()
+  })
+
+  it('a card decision queues no witness and no review and leaves the card body unchanged', () => {
+    const bench = stoppedOnTheOwner()
+    const checks = checkTasks(bench.db)
+    expect(cardBodyShaOfCard(bench.db, CARD)).toBe(BODY)
+
+    decide(bench)
+    bench.tick()
+    bench.tick()
+
+    expect(answerTasks(bench.db)).toEqual([decided])
+    expect(checkTasks(bench.db)).toEqual(checks)
+    expect(cardBodyShaOfCard(bench.db, CARD)).toBe(BODY)
+    expect(admissions(bench.db)).toBe(2)
     bench.close()
   })
 })

@@ -48,7 +48,7 @@ import { busCardBodies } from '../../intake/parking-reads.js'
 import { LadderCardStarter } from '../../ladder/ladder-starter.js'
 import { briefBody, briefPathOf, ladderStep, reviewBody, tasksFilePathOf, tasksFileText } from '../../ladder/ladder.js'
 import { reviewOf } from '../../ladder/verdict.js'
-import { cardDecisionCommand } from '../../policy/shards.js'
+import { cardDecisionBlock, cardDecisionCommand, cardDecisionLines } from '../../policy/shards.js'
 import { cardIsolationCommand, clientLastSteps, clientTranscript } from '../../ports/client/claude/adapter.js'
 import { realIsolationReader } from '../../ports/isolation.js'
 import { TICK_MS } from '../../ports/netwatch.js'
@@ -835,6 +835,11 @@ export function continuedOnCardText(task: ShiftTask, bodyOf: CardBodyReader): Sh
   return { ...task, body: `${task.body}\n\n${CARD_TEXT_HEADING}\n\n${parsed.parked.task.body}` }
 }
 
+export function withCardDecisions(task: ShiftTask, decisions: readonly string[]): ShiftTask {
+  const block = cardDecisionBlock(decisions)
+  return block.length === 0 ? task : { ...task, body: `${task.body}\n\n${block.join('\n')}` }
+}
+
 export class CutTreeOrigins {
   private readonly byTree = new Map<string, TreeOrigin>()
 
@@ -851,7 +856,7 @@ export class CutTreeOrigins {
   }
 }
 
-export function realStarterPorts(repo: string, env: NodeJS.ProcessEnv, header: string, uuid: () => string, bodyOf: CardBodyReader = () => null, cardSessions: (cardId: number) => string[] = () => [], installed: string | null = installedPackage(), busPath: string = busPathOf(env, os.homedir(), repo), prepare: TreePreparer = prepareTree, origins: CutTreeOrigins = new CutTreeOrigins()): StarterPorts {
+export function realStarterPorts(repo: string, env: NodeJS.ProcessEnv, header: string, uuid: () => string, bodyOf: CardBodyReader = () => null, cardSessions: (cardId: number) => string[] = () => [], installed: string | null = installedPackage(), busPath: string = busPathOf(env, os.homedir(), repo), prepare: TreePreparer = prepareTree, origins: CutTreeOrigins = new CutTreeOrigins(), decisionsOf: (cardId: number) => string[] = () => []): StarterPorts {
   const taskStart = taskStartCommand(installed)
   return {
     read: bodyOf,
@@ -872,7 +877,7 @@ export function realStarterPorts(repo: string, env: NodeJS.ProcessEnv, header: s
     kill: killQuietly,
     uuid,
     envOf: cardId => ({ ...sessionEnv(env, cardId), ...heartbeatEnv({ cardId, pr: null, head: null, queue: 'launch' }), ...HTTPS_ORIGIN_ENV }),
-    prompt: (task, places) => renderPrompt(header, continuedOnCardText(task, bodyOf), places),
+    prompt: (task, places) => renderPrompt(header, withCardDecisions(continuedOnCardText(task, bodyOf), decisionsOf(task.card.id)), places),
     changedPaths: gitChangedPaths,
     readReport: file => existsSync(file) ? sessionWrittenPart(readFileSync(file, 'utf8')) : null,
     cardSessions,
@@ -911,8 +916,22 @@ export function busCardSessions(busPath: string): (cardId: number) => string[] {
   }
 }
 
+export function busCardDecisions(busPath: string, now: () => Date = () => new Date()): (cardId: number) => string[] {
+  return (cardId) => {
+    if (!existsSync(busPath))
+      return []
+    const db = openDatabase(busPath, { readOnly: true, timeout: BUSY_TIMEOUT_MS })
+    try {
+      return cardDecisionLines(db, cardId, now())
+    }
+    finally {
+      db.close()
+    }
+  }
+}
+
 export function busStarterPorts(busPath: string, repo: string, env: NodeJS.ProcessEnv, header: string, uuid: () => string, origins?: CutTreeOrigins): StarterPorts {
-  return realStarterPorts(repo, env, header, uuid, busCardBodies(busPath), busCardSessions(busPath), installedPackage(), busPath, prepareTree, origins)
+  return realStarterPorts(repo, env, header, uuid, busCardBodies(busPath), busCardSessions(busPath), installedPackage(), busPath, prepareTree, origins, busCardDecisions(busPath))
 }
 
 export function repoHandoffEnv(env: NodeJS.ProcessEnv, repo: string, home: string = os.homedir()): NodeJS.ProcessEnv {

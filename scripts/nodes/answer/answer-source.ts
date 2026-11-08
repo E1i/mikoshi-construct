@@ -4,9 +4,10 @@ import type { InForceDecision } from '../../policy/decisions.js'
 import { CARD_BODIES } from '../../core/card-bodies.js'
 import { cardHoldOf } from '../../core/card-hold.js'
 import { CARD_STARTED, CARD_STOPPED, QUESTION_AGENT, QUESTION_OWNER, REVIEW_RECORDED } from '../../core/events.js'
-import { latestTurnOf } from '../../core/queue.js'
-import { visibleToCard } from '../../policy/decisions/decisions.js'
-import { decisionsInForceAt } from '../../policy/shards.js'
+import { decisionOfKey, latestTurnOf } from '../../core/queue.js'
+import { cardDecisionLines, decisionsInForceAt } from '../../policy/shards.js'
+
+export { cardDecisionLines as boundDecisionLines } from '../../policy/shards.js'
 
 export const LATEST_EVENTS = 20
 
@@ -25,6 +26,7 @@ export type AnswerSource
   = | { kind: 'question', detail: string, widen: WideningRequest | null, events: CardEvent[], decisions: string[] }
     | { kind: 'changes', findings: string[], failedChecks?: string[], events: CardEvent[], decisions: string[] }
     | { kind: 'ci', failedChecks: string[], events: CardEvent[], decisions: string[] }
+    | { kind: 'decision', decisionId: number, text: string, events: CardEvent[], decisions: string[] }
 
 export interface CardSession {
   session: string
@@ -76,12 +78,6 @@ function decisionsBoundTo(db: DatabaseSync, cardId: number, now: Date): InForceD
   return decisionsInForceAt(db, now).filter(decision => decision.cards.includes(cardId))
 }
 
-export function boundDecisionLines(db: DatabaseSync, cardId: number, now: Date): string[] {
-  return decisionsInForceAt(db, now)
-    .filter(decision => visibleToCard(decision, cardId))
-    .map(decision => `D-${decision.decisionId}: ${decision.text}`)
-}
-
 const QUESTION_REASONS: readonly unknown[] = [QUESTION_AGENT, QUESTION_OWNER]
 
 function recordedAfter(db: DatabaseSync, decision: InForceDecision, eventId: number): boolean {
@@ -122,7 +118,11 @@ export function failedChecksOn(db: DatabaseSync, lease: Lease): string[] | null 
 
 export function answerSourceOf(db: DatabaseSync, lease: Lease, now: Date = new Date()): AnswerSource | null {
   const events = latestEvents(db, lease.cardId)
-  const decisions = boundDecisionLines(db, lease.cardId, now)
+  const decisions = cardDecisionLines(db, lease.cardId, now)
+  const decided = decisionOfKey(lease.taskKey)
+  const decision = decided === undefined ? undefined : decisionsInForceAt(db, now).find(each => each.decisionId === decided)
+  if (decision !== undefined)
+    return { kind: 'decision', decisionId: decision.decisionId, text: decision.text, events, decisions }
   const question = openQuestion(db, lease.cardId)
   if (question !== null)
     return { kind: 'question', detail: text(question.detail) ?? '', widen: widenOf(question), events, decisions }

@@ -2,7 +2,8 @@ import type { Lease } from '../../core/lease.js'
 import type { MergeBench } from './merge-bench.js'
 import { afterEach, describe, expect, it } from 'vitest'
 import { appendEvent } from '../../core/db.js'
-import { REVIEW_RECORDED } from '../../core/events.js'
+import { CARD_ADMITTED, REVIEW_RECORDED } from '../../core/events.js'
+import { taskKey } from '../../core/identifiers.js'
 import { closedByRounds, reentryLimitWaitText, REVIEW_ROUNDS } from '../../core/queue.js'
 import { answerSourceOf } from '../../nodes/answer/answer-source.js'
 import { recordDecision } from '../../policy/decisions.js'
@@ -108,6 +109,22 @@ describe('continue-fixes past the review round limit', () => {
 
       expect(queued(bench), text).toEqual([])
     }
+  })
+
+  it('a card decision past the round limit queues exactly one continuation task without an amend', () => {
+    const bench = roundLimited()
+    const admissions = (): unknown => bench.db.prepare(`SELECT count(*) AS n FROM events WHERE type = '${CARD_ADMITTED}' AND card_id = ?`).get(CARD)
+    const before = admissions()
+    expect(queued(bench)).toEqual([])
+
+    recordDecision(bench.db, { ts: bench.clock.now().toISOString(), decisionId: DECISION, text: '[owner] keep fixing the second row, one more round', cards: [CARD] })
+    bench.tick()
+    bench.tick()
+
+    const decided = `${taskKey({ queue: 'answer', cardId: CARD, pr: PR, head: HEAD })}:decision-${DECISION}`
+    expect(bench.db.prepare(`SELECT task_key, state FROM tasks WHERE pr = ? AND queue IN ('answer', 'review', 'witness') ORDER BY task_key`).all(PR)).toEqual([{ task_key: decided, state: 'queued' }])
+    expect(answerSourceOf(bench.db, leaseOf(bench))).toMatchObject({ kind: 'decision', decisionId: DECISION })
+    expect(admissions()).toEqual(before)
   })
 
   it('the round-limit wait names continue-fixes for the PR beside allow-merge, a re-cut and a drop', () => {
