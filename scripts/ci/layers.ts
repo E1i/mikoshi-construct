@@ -76,8 +76,36 @@ function modulesOfLayers(layers: readonly string[], graph: Graph, map: LayerMap)
   return [...graph.keys()].filter(file => !isTest(file) && layersInOf(map, file).some(layer => layers.includes(layer)))
 }
 
+const TOO_WIDE_TO_NAME = new Set(['scripts', ...TEST_ROOTS])
+const NAME_CHARACTER = /[\w-]/
+const READABLE_MODULE = /^(?!node_modules\/)[\w.-]+(?:\/[\w.-]+)*\.[cm]?[jt]s$/
+
+function escaped(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function namesOf(file: string): string[] {
+  const segments = file.split('/')
+  const directories = segments.slice(0, -1).map((_, index) => segments.slice(0, index + 1).join('/'))
+  return [...new Set([file, segments.at(-1)!, ...directories, ...segments.slice(0, -1)])].filter(name => !TOO_WIDE_TO_NAME.has(name))
+}
+
+function names(text: string, name: string): boolean {
+  if (!text.includes(name))
+    return false
+  const edge = NAME_CHARACTER.test(name.at(-1)!) ? '(?![\\w])' : ''
+  return new RegExp(`(?<![\\w-])${escaped(name)}${edge}`).test(text)
+}
+
+export function pathReaders(file: string, graph: Graph, moduleText: (module: string) => string): string[] {
+  const named = namesOf(file)
+  return [...graph.keys()].filter(module => module !== file && READABLE_MODULE.test(module) && named.some(name => names(moduleText(module), name)))
+}
+
 function resolvedByLayers(file: string, graph: Graph, map: LayerMap): boolean {
   if (isDocument(file))
+    return true
+  if (underTestRoot(file) && graph.has(file))
     return true
   const layers = layersInOf(map, file)
   if (layers.length === 0)
@@ -102,18 +130,21 @@ export function selectRun(given: readonly string[], graph: Graph, testText: (tes
   const infrastructure = changed.find(isCheckPipeline)
   if (infrastructure !== undefined)
     return { kind: 'full', why: `${infrastructure} is test infrastructure every test runs under` }
-  const unmapped = changed.find(file => !isTest(file) && !resolvedByLayers(file, graph, map))
+  const texts = new Map<string, string>()
+  const moduleText = (module: string): string => texts.get(module) ?? texts.set(module, testText(module)).get(module)!
+  const readByPath = new Map(changed.filter(file => !isTest(file) && !graph.has(file) && !isDocument(file)).map(file => [file, pathReaders(file, graph, moduleText)]))
+  const unmapped = changed.find(file => !isTest(file) && !resolvedByLayers(file, graph, map) && (readByPath.get(file) ?? []).length === 0)
   if (unmapped !== undefined)
     return { kind: 'full', why: `${unmapped} belongs to no layer of the dependency graph` }
   const allTests = [...graph.keys()].filter(isTest)
   const reverse = reverseGraph(graph)
   const reached = dependents([...changed, ...changed.flatMap(file => seedsOfLayers(file, graph, map))], reverse)
   const readers = [...graph.keys()].filter(underTestRoot)
-  const treeScanners = allTests.filter(test => scansATree(testText(test)))
+  const treeScanners = allTests.filter(test => scansATree(moduleText(test)))
   const busWide = changed.some(file => BUS_SHARED.includes(file)) ? allTests.filter(test => test.startsWith(BUS_TESTS)) : []
   const named = changed.flatMap(file => NAMED_READERS[file] ?? []).filter(test => graph.has(test))
   const recordReaders = changed.some(file => isRecord(map, file)) ? allTests.filter(test => test.startsWith(CONTRACT_RECORD_TESTS)) : []
-  const spawning = [...spawnedBy(reached, readers, testText), ...changed.flatMap(file => scanning(file, allTests)), ...treeScanners, ...busWide, ...named, ...recordReaders, ...changesetReaders]
+  const spawning = [...[...readByPath.values()].flat(), ...spawnedBy(reached, readers, moduleText), ...changed.flatMap(file => scanning(file, allTests)), ...treeScanners, ...busWide, ...named, ...recordReaders, ...changesetReaders]
   const closure = dependents([...reached, ...spawning], reverse)
   const layers = [...new Set([...closure].flatMap(file => layersInOf(map, file)))].sort()
   const tests = [...closure].filter(isTest).sort()
