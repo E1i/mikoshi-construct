@@ -1484,12 +1484,7 @@
       "scripts/window/tab.ts": 1,
       "src/commands/doctor/factory.ts": 2
     },
-    "layers": {
-      "scripts/ci/card-runs.ts": 1,
-      "scripts/ci/layers.ts": 5,
-      "scripts/cli/check-catalog.ts": 3,
-      "src/card/witness-fields.ts": 1
-    },
+    "layers": {},
     "live-session": {
       "scripts/core/machine-sessions.ts": 1
     },

@@ -39,13 +39,24 @@ const CONCEPT_IDS = [
 ]
 
 const SITES_OF_THE_RECONNAISSANCE: Record<string, readonly string[]> = {
+  'process-table': [
+    'scripts/nodes/launch/launch-starter.ts',
+    'scripts/nodes/restart/chain-process.ts',
+    'scripts/ladder/watch-process.ts',
+    'scripts/window/exit.ts',
+    'scripts/window/loop.ts',
+    'scripts/supervisor/supervisor.ts',
+    'scripts/supervisor/bg.ts',
+    'scripts/ports/worktree.ts',
+  ],
   'pid-liveness': [
     'scripts/quality/lock.ts',
     'scripts/ladder/cleanup.ts',
     'scripts/scratch/run-root.ts',
     'scripts/supervisor/bg.ts',
+    'scripts/supervisor/supervisor.ts',
   ],
-  'layers': ['scripts/ci/layers.ts', 'scripts/ci/card-runs.ts', 'scripts/cli/check-catalog.ts', 'src/card/witness-fields.ts'],
+  'live-session': ['scripts/nodes/answer/answerer.ts', 'scripts/ports/worktree.ts', 'scripts/window/session-load.ts'],
   'owner-decisions': [
     'scripts/nodes/launch/launch-candidates.ts',
     'scripts/core/inbox.ts',
@@ -197,6 +208,7 @@ describe('contract/factory.json', () => {
     for (const [concept, files] of Object.entries(SITES_OF_THE_RECONNAISSANCE))
       expect(Object.keys(overlaps[concept]!), concept).toEqual(expect.arrayContaining([...files]))
     expect(overlaps['window-requests']!['scripts/window/window-requests.ts']).toBeGreaterThan(1)
+    expect(overlaps.layers).toEqual({})
   }, GENERATION_TIMEOUT)
 
   it('a change to any scripts module selects the freshness test in the per-layer CI run', () => {
