@@ -5,9 +5,9 @@ import path from 'node:path'
 import process from 'node:process'
 import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
-import { layerIn, layerOf, selectRun } from '../../ci/layers.js'
+import { selectRun } from '../../ci/layers.js'
 import { cruise } from '../../ci/select.js'
-import { readLayerMap } from '../../core/layer-map.js'
+import { layerIn, layerOf, readLayerMap } from '../../core/layer-map.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..', '..')
 const DEPCRUISE = path.join(REPO_ROOT, 'node_modules', 'dependency-cruiser', 'bin', 'dependency-cruiser.mjs')
@@ -242,7 +242,7 @@ describe('the CI selector reads its layers from the one layer map', () => {
     expect(layerIn(map, 'scripts/core/queue.ts')).toBe('queue')
     expect(layerIn(map, 'scripts/core/lease.ts')).toBe('core')
     expect(layerIn(map, 'scripts/ladder/launch.ts')).toBe('ladder')
-    expect(layerIn(map, 'docs/index.ts')).toBeNull()
+    expect(layerIn(map, 'bin/index.ts')).toBeNull()
     const recorded = readLayerMap()
     for (const [file, layer] of Object.entries(recorded.files))
       expect([file, layerOf(file)]).toEqual([file, layer])

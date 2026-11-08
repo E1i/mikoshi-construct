@@ -6,13 +6,12 @@ import { parseParkingFile } from '../../src/card/parking.js'
 import { CARD_BODIES } from '../core/card-bodies.js'
 import { BUSY_TIMEOUT_MS, defaultBusPath } from '../core/db.js'
 import { messageOf } from '../core/errors.js'
-import { layersIn, readLayerMap } from '../core/layer-map.js'
+import { layersOfEntry, readLayerMap } from '../core/layer-map.js'
 import { openDatabase } from '../core/sqlite.js'
-import { CHANGESET_READERS, declaredLayersIn, isChangesetNote } from './layers.js'
+import { CHANGESET_READERS, isChangesetNote } from './layers.js'
 
 export const NO_LAYER = 'none'
 
-const GLOB_SUFFIX = '/**'
 const CARD_OF_BRANCH = `SELECT card_id, text FROM ${CARD_BODIES} WHERE branch = ? LIMIT 2`
 const CARD_OF_PR = `SELECT body.card_id, body.text FROM prs JOIN ${CARD_BODIES} body ON body.card_id = prs.card_id WHERE prs.pr = ?`
 
@@ -37,11 +36,9 @@ function filesWithin(entry: string, catalog: LayersByFile): string[] {
   return [...catalog.keys()].filter(file => withinTouches(file, [entry]))
 }
 
-function layersOfTouch(touch: string, moduleLayers: LayersByFile, map: LayerMap): string[] {
+function touchedLayers(touch: string, moduleLayers: LayersByFile, map: LayerMap): string[] {
   const catalogued = filesWithin(touch, moduleLayers).flatMap(file => moduleLayers.get(file) ?? [])
-  if (catalogued.length > 0)
-    return catalogued
-  return touch.endsWith(GLOB_SUFFIX) ? layersIn(map, touch) : declaredLayersIn(map, touch)
+  return catalogued.length > 0 ? catalogued : layersOfEntry(map, touch)
 }
 
 function testsOfTouch(touch: string, testLayers: LayersByFile): string[] {
@@ -67,7 +64,7 @@ function testsOfLayers(layers: readonly string[], testLayers: LayersByFile): Set
 function runsCoverTouch(touch: string, { runs, masks }: CardRunsSource, { testLayers, moduleLayers }: CheckCatalog, map: LayerMap): boolean {
   if (withinTouches(touch, runs))
     return true
-  const layers = layersOfTouch(touch, moduleLayers, map)
+  const layers = touchedLayers(touch, moduleLayers, map)
   if (layers.length === 0)
     return false
   const ran = [...testsOfLayers(masks, testLayers), ...runs.flatMap(entry => filesWithin(entry, testLayers))]
@@ -80,10 +77,10 @@ export function cardRunsOf(source: CardRunsSource, catalog: CheckCatalog, map: L
   if (testLayers.size === 0 || moduleLayers.size === 0)
     return { full: true, why: 'the check catalog is empty' }
   const followed = touches.filter(touch => !runsCoverTouch(touch, source, catalog, map))
-  const unknown = followed.find(touch => layersOfTouch(touch, moduleLayers, map).length === 0 && testsOfTouch(touch, testLayers).length === 0 && !isChangesetNote(touch))
+  const unknown = followed.find(touch => touchedLayers(touch, moduleLayers, map).length === 0 && testsOfTouch(touch, testLayers).length === 0 && !isChangesetNote(touch))
   if (unknown !== undefined)
     return { full: true, why: `${unknown} belongs to no layer of the check catalog` }
-  const layers = sortedUnique([...masks, ...followed.flatMap(touch => layersOfTouch(touch, moduleLayers, map))])
+  const layers = sortedUnique([...masks, ...followed.flatMap(touch => touchedLayers(touch, moduleLayers, map))])
   const catalogued = [...testLayers.values()].flat()
   const untested = layers.find(layer => !catalogued.includes(layer))
   if (untested !== undefined)
