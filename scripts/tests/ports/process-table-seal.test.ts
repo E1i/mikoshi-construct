@@ -4,12 +4,16 @@ import path from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
 import { CONCEPTS } from '../../contract/factory/concepts.js'
 import { findSites, overlapsSection } from '../../contract/factory/overlaps.js'
+import { knownLivenessSites, LIVENESS_JUDGE, livenessSources } from '../../supervisor/liveness-sites.js'
 
 const REPO_ROOT = path.join(import.meta.dirname, '..', '..', '..')
 const PORT = 'scripts/ports/process-table.ts'
 const PLANTED_FILE = 'scripts/nodes/planted.ts'
 const SCAN_TIMEOUT = 180_000
 const LIVENESS_WORDS = /\balive\b|\bliveness\b|\bisAlive\b|process\.kill\(/i
+const LIVENESS_JUDGEMENT = /\bkill\([^,()]+,\s*0\s*\)|\b(?:function|const|let)\s+(?:alive|isAlive|\w*Liveness)\b|import\s*\{[^}]*\b(?:alive|isAlive)\b[^}]*\}|\bprocess (?:alive|dead)\b/
+const PORT_IMPORT = /from\s+['"][./]*(?:ports\/)?process-table\.js['"]/
+const LEFT_FOR_THE_PORT = ['scripts/ladder/watch-process.ts', 'scripts/nodes/launch/launch-starter.ts', 'scripts/nodes/restart/chain-process.ts', 'scripts/supervisor/bg.ts', 'scripts/window/exit.ts', 'scripts/window/loop.ts']
 const PROCESS_CONCEPTS = CONCEPTS.filter(concept => concept.id === 'process-table' || concept.id === 'pid-liveness')
 
 const PLANTED: readonly (readonly [string, string])[] = [
@@ -40,11 +44,20 @@ function filesWithSites(root: string): string[] {
   return [...new Set(Object.values(section).flatMap(perFile => Object.keys(perFile)))].sort()
 }
 
+function recordedInTheKnownList(): Set<string> {
+  return new Set(knownLivenessSites(REPO_ROOT).map(site => site.file))
+}
+
+function judgesByThePort(sources: ReadonlyMap<string, string>, excused: ReadonlySet<string>): string[] {
+  return [...sources].filter(([file, text]) => file !== PORT && file !== LIVENESS_JUDGE && !excused.has(file) && PORT_IMPORT.test(text) && LIVENESS_JUDGEMENT.test(text)).map(([file]) => file).sort()
+}
+
 describe('the seal of the process table', () => {
   it('a ps, lsof or kill zero outside the port is red', { timeout: SCAN_TIMEOUT }, () => {
     for (const [label, line] of PLANTED)
       expect(filesWithSites(treeWith({ [PLANTED_FILE]: line })), label).toEqual([PLANTED_FILE])
-    expect(filesWithSites(REPO_ROOT)).toEqual([])
+    const excused = recordedInTheKnownList()
+    expect(filesWithSites(REPO_ROOT).filter(file => !excused.has(file))).toEqual([])
   })
 
   it('the live session detector sees machine-sessions and watch-process', { timeout: SCAN_TIMEOUT }, () => {
@@ -61,5 +74,27 @@ describe('the seal of the process table', () => {
     const port = readFileSync(path.join(REPO_ROOT, PORT), 'utf8')
 
     expect(port).not.toMatch(LIVENESS_WORDS)
+  })
+
+  it('no caller judges liveness by the port', () => {
+    const planted = new Map([
+      ['scripts/nodes/judge.ts', 'import { OsProcessTable, rowOf } from \'../ports/process-table.js\'\nexport function alive(pid: number) { return rowOf(new OsProcessTable().snapshot(), pid) !== null }'],
+      ['scripts/nodes/fact.ts', 'import { OsProcessTable, rowOf } from \'../ports/process-table.js\'\nexport function rowFor(pid: number) { return rowOf(new OsProcessTable().snapshot(), pid) }'],
+    ])
+    expect(judgesByThePort(planted, new Set())).toEqual(['scripts/nodes/judge.ts'])
+    const lockJudge = new Map([['scripts/nodes/gate.ts', 'import { OsProcessTable } from \'../ports/process-table.js\'\nimport { isAlive } from \'../quality/lock.js\'\nexport const gate = [OsProcessTable, isAlive]']])
+    expect(judgesByThePort(lockJudge, new Set(['scripts/quality/lock.ts']))).toEqual(['scripts/nodes/gate.ts'])
+    expect(judgesByThePort(lockJudge, new Set(['scripts/nodes/gate.ts']))).toEqual([])
+
+    expect(judgesByThePort(livenessSources(REPO_ROOT), recordedInTheKnownList())).toEqual([])
+  })
+
+  it('the known list takes the port only when more entries leave it', () => {
+    const known = knownLivenessSites(REPO_ROOT)
+    const processTableEntries = known.filter(site => site.kind === 'ps')
+
+    expect(processTableEntries).toEqual([{ file: PORT, kind: 'ps' }])
+    expect(LEFT_FOR_THE_PORT.filter(file => known.some(site => site.file === file && site.kind === 'ps'))).toEqual([])
+    expect(LEFT_FOR_THE_PORT.length).toBeGreaterThan(processTableEntries.length)
   })
 })

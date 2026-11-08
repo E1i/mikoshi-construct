@@ -25,7 +25,7 @@ import { CHECK_MS, NetWatch, pollLine, TICK_MS } from '../ports/netwatch.js'
 import { ghApiPost, setStepStatuses, STATUS_CONTEXT, STATUS_OFF_FILE, statusesSwitchedOff, statusFailureLine, statusLine } from '../ports/pr-status.js'
 import { realRequestTools } from '../window/window-request-tools.js'
 import { WindowRequests } from '../window/window-requests.js'
-import { alive, BUS_RUN_MARKERS, instancesOf, psList } from './bg.js'
+import { BUS_RUN_MARKERS, instancesOf, psList } from './bg.js'
 import { stampLogOutput } from './stamp.js'
 
 export const PREFIX = '[bus:run] '
@@ -43,15 +43,17 @@ function lockHolder(lock: string): number | null {
   }
 }
 
-function holderServes(holder: number, processes: ProcessList, busPath: string): boolean {
+type HolderReading = { kind: 'serves' } | { kind: 'gone' } | { kind: 'unread', why: string }
+
+function holderReading(holder: number, processes: ProcessList, busPath: string): HolderReading {
   let listed: ReturnType<ProcessList>
   try {
     listed = processes()
   }
-  catch {
-    return alive(holder)
+  catch (error) {
+    return { kind: 'unread', why: error instanceof Error ? error.message : String(error) }
   }
-  return instancesOf(listed, BUS_RUN_MARKERS, busPath).some(candidate => candidate.pid === holder)
+  return instancesOf(listed, BUS_RUN_MARKERS, busPath).some(candidate => candidate.pid === holder) ? { kind: 'serves' } : { kind: 'gone' }
 }
 
 function refusedRun(line: string): BgResult {
@@ -111,8 +113,11 @@ export function holdRunLock(busPath: string, processes: ProcessList, self: numbe
     if (linkLock(lock, self))
       return { stdout: [], stderr: [], exitCode: 0 }
     const holder = lockHolder(lock)
-    if (holder !== null && holder !== self && holderServes(holder, processes, busPath))
+    const reading = holder === null || holder === self ? null : holderReading(holder, processes, busPath)
+    if (reading?.kind === 'serves')
       return refusedRun(`another bus:run, pid ${holder}, holds ${lock} for ${busPath}; one bus:run serves one bus, so this one exits and starts nothing`)
+    if (reading?.kind === 'unread')
+      return refusedRun(`pid ${holder} holds ${lock} for ${busPath} and the process table could not be read (${reading.why}), so whether it still serves the bus is not known; this one exits and starts nothing`)
     const refused = removeStaleLock(lock, holder, self)
     if (refused !== null)
       return refused

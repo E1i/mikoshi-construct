@@ -21,7 +21,7 @@ function tableOf(text: string): ProcessRow[] {
 }
 
 const REPO_ROOT = path.join(import.meta.dirname, '..', '..', '..')
-const LOOP =path.join(REPO_ROOT, 'scripts', 'window', 'loop.ts')
+const LOOP = path.join(REPO_ROOT, 'scripts', 'window', 'loop.ts')
 const EXIT = path.join(REPO_ROOT, 'scripts', 'window', 'exit.ts')
 const TSX = path.join(REPO_ROOT, 'node_modules', '.bin', 'tsx')
 const TSX_LOADER = pathToFileURL(path.join(REPO_ROOT, 'node_modules', 'tsx', 'dist', 'loader.mjs')).href

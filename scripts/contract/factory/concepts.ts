@@ -1,6 +1,7 @@
 import type { Detector } from './detectors.js'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
+import { FACTORY_RUNTIME } from '../../core/factory-paths.js'
 import { GENERATED_FILES, GENERATED_PATHS } from '../../core/generated-files.js'
 import { clientAdapter } from '../../ports/client/index.js'
 import {
@@ -36,7 +37,7 @@ export interface Concept {
 }
 
 const PROCESS_TABLE_OWNER = 'scripts/ports/process-table.ts'
-const LIVENESS_JUDGE = 'scripts/supervisor/supervisor.ts'
+const LIVENESS_JUDGE = FACTORY_RUNTIME.busSupervisor
 const PROCESS_TABLE_PROGRAMS = 'ps lsof top'.split(' ')
 const ANSWER_EXECUTOR = 'scripts/nodes/answer/answer-executor.ts'
 const ANSWERER = 'scripts/nodes/answer/answerer.ts'

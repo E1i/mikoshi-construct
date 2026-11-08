@@ -162,20 +162,22 @@ describe('one bus:run serves one bus', () => {
     expect(readFileSync(lock, 'utf8').trim()).toBe(String(dead))
   })
 
-  it('with ps unreadable a run lock held by a live pid refuses and one held by a dead pid is taken', () => {
+  it('with the process table unreadable a held run lock refuses without asking whether its pid is alive', () => {
     const busPath = busPathIn('bus-run-no-ps-')
     const lock = path.join(busDirOf(busPath), RUN_LOCK)
     const unreadable = (): never => {
       throw new Error('spawnSync ps EPERM')
     }
-    expect(holdRunLock(busPath, () => [], process.ppid).exitCode).toBe(0)
+    for (const holder of [process.ppid, 2 ** 22 + 1]) {
+      rmSync(lock, { force: true })
+      expect(holdRunLock(busPath, () => [], holder).exitCode).toBe(0)
 
-    expect(holdRunLock(busPath, unreadable).exitCode).toBe(1)
+      const refused = holdRunLock(busPath, unreadable)
 
-    rmSync(lock)
-    expect(holdRunLock(busPath, () => [], 2 ** 22 + 1).exitCode).toBe(0)
-    expect(holdRunLock(busPath, unreadable).exitCode).toBe(0)
-    expect(readFileSync(lock, 'utf8').trim()).toBe(String(process.pid))
+      expect(refused.exitCode).toBe(1)
+      expect(refused.stderr.join('\n')).toContain('spawnSync ps EPERM')
+      expect(readFileSync(lock, 'utf8').trim()).toBe(String(holder))
+    }
   })
 })
 

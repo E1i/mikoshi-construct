@@ -39,24 +39,12 @@ const CONCEPT_IDS = [
 ]
 
 const SITES_OF_THE_RECONNAISSANCE: Record<string, readonly string[]> = {
-  'process-table': [
-    'scripts/nodes/launch/launch-starter.ts',
-    'scripts/nodes/restart/chain-process.ts',
-    'scripts/ladder/watch-process.ts',
-    'scripts/window/exit.ts',
-    'scripts/window/loop.ts',
-    'scripts/supervisor/supervisor.ts',
-    'scripts/supervisor/bg.ts',
-    'scripts/ports/worktree.ts',
-  ],
   'pid-liveness': [
     'scripts/quality/lock.ts',
     'scripts/ladder/cleanup.ts',
     'scripts/scratch/run-root.ts',
     'scripts/supervisor/bg.ts',
-    'scripts/supervisor/supervisor.ts',
   ],
-  'live-session': ['scripts/nodes/answer/answerer.ts', 'scripts/ports/worktree.ts', 'scripts/window/session-load.ts'],
   'layers': ['scripts/ci/layers.ts', 'scripts/ci/card-runs.ts', 'scripts/cli/check-catalog.ts', 'src/card/witness-fields.ts'],
   'owner-decisions': [
     'scripts/nodes/launch/launch-candidates.ts',

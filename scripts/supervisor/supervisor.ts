@@ -22,12 +22,12 @@ import { LIVE_FLAG } from '../core/node.js'
 import { inForceDecisions } from '../policy/decisions.js'
 import { allowLiveCommand, liveDecisionOf } from '../policy/live-decision.js'
 import { CHECK_MS } from '../ports/netwatch.js'
+import { OsProcessTable, rowOf, rowsOf } from '../ports/process-table.js'
 import { WindowSessionEnds } from '../window/window-session-end.js'
-import { alive, BUILD_DIR, BUILT_MODULE, flagsInArgs, installedPackage, instancesOf, launchName, PREFIX, printBg, provenOnBus, psList, runBusBg, runningInstance, stampedOtherwise, startDetached, thisBus, withBuses } from './bg.js'
+import { BUILD_DIR, BUILT_MODULE, flagsInArgs, installedPackage, instancesOf, launchName, PREFIX, printBg, provenOnBus, psList, runBusBg, runningInstance, stampedOtherwise, startDetached, thisBus, withBuses } from './bg.js'
 import { BusHealer, CorruptionWatch, RecordedNodes } from './bus-heal.js'
 import { BusSnapshot } from './bus-snapshot.js'
 import { CARD_PROCESS, lastProcessBeats, recordProcessHeartbeat } from './heartbeat.js'
-import { OsProcessTable, rowOf, rowsOf } from '../ports/process-table.js'
 import { beatsLive, SILENT_MS } from './liveness-sites.js'
 import { busShadowProblems, startReviewWorker } from './review-bg.js'
 import { stampLogOutput } from './stamp.js'
@@ -1027,7 +1027,6 @@ async function supervise(busDir: string, cwd: string, reviewPreflight: () => str
   const known = busLaunches(reviewPreflight)
   const nodes = new RecordedNodes(busPath, {
     signal,
-    alive,
     runsNodeOfThisBus: (pid, script) => known.some(launch => launch.script === script && instancesOf(everyProcess(), launch.markers).some(each => each.pid === pid && provenOnBus(each, thisBus()))),
     runningOnThisBus: () => known.flatMap(launch => instancesOf(everyProcess(), launch.markers).map(each => `${launch.script} (pid ${each.pid})`)),
     pause: sleep,
