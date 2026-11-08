@@ -1,6 +1,12 @@
 {
   "contextLimit": 250000,
   "cardContextLine": 150000,
+  "cardContextLineBySize": {
+    "XS": 150000,
+    "S": 150000,
+    "M": 150000,
+    "L": 500000
+  },
   "sessionSpend": 3000000,
   "agentSpend": 2000000,
   "runSpend": 3000000,
