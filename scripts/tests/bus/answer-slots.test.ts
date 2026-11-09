@@ -1,5 +1,6 @@
 import type { Lease } from '../../core/lease.js'
-import type { Answered, AnswerRequest, AnswerRun } from '../../nodes/answer/answerer.js'
+import type { Answered, AnswerRequest } from '../../nodes/answer/answerer.js'
+import type { AnswerRun } from '../../nodes/answer/duties/index.js'
 import type { CardTreeTools } from '../../ports/card-tree.js'
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'

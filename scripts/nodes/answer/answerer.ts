@@ -9,15 +9,15 @@ import type { AnswerInput } from '../../ports/prompt-store.js'
 import type { FreshBaseGap } from '../launch/tree-pr.js'
 import type { AnswerSource, CardSession } from './answer-source.js'
 import type { CardConcept, Importers } from './concept-scope.js'
-import { execFileSync, spawn } from 'node:child_process'
+import type { AnswerRun } from './duties/index.js'
+import { execFileSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, realpathSync, rmSync, writeSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { readShiftGate } from '../../../src/manifest.js'
 import { roundGate } from '../../ci/prepush.js'
-import { cardDecisionBlock } from '../../core/card-decisions.js'
 import { appendEvent, defaultBusPath, openBus } from '../../core/db.js'
 import { TOUCHES_FOLLOWED } from '../../core/events.js'
 import { assertHeld, StaleLease } from '../../core/lease.js'
@@ -25,7 +25,7 @@ import { busNameOf, machineGate, machineSessions } from '../../core/machine-sess
 import { treeReportPath } from '../../core/places.js'
 import { pushPolicyOf } from '../../core/push-policy.js'
 import { busCardBodies } from '../../intake/parking-reads.js'
-import { ciLogForPrompt, GhCiRuns } from '../../ports/ci-reading.js'
+import { GhCiRuns } from '../../ports/ci-reading.js'
 import { hasClientTranscript } from '../../ports/client/claude/adapter.js'
 import { OsProcessTable } from '../../ports/process-table.js'
 import { CARD_SIZE_VARIABLE, CARD_VARIABLE, cardSessionOverlay, cardSizeIn, clientInvocation, sessionEnv, streamReading } from '../../ports/session.js'
@@ -35,10 +35,10 @@ import { busSessionPulse } from '../../supervisor/heartbeat.js'
 import { projectRoot, realExitReadings, sessionGauges, UNKNOWN } from '../../window/eddies-measure.js'
 import { answerFollowed, commitAndPush, CONCEPT_RULES, followedLine, freshBaseProblem, freshBaseTask, worktreeCoverage, worktreeImporters } from '../launch/tree-pr.js'
 import { conceptWidening } from './concept-scope.js'
+import { answerPrompt, asksAboutRedCi, diffAgainstBase, gateLine, git, handoffLines, localHead, mergePrompt, pendingPathsOf, remoteHead, spawnClient } from './duties/index.js'
 
 export const PREFIX = '[bus:answer] '
 export const ANSWER_BEAT_MS = 60_000
-export const DIFF_PROMPT_LIMIT = 100_000
 
 export interface AnswerRequest {
   lease: Lease
@@ -72,17 +72,6 @@ export function tokensOf(usage: Usage | null): number | null {
 }
 
 export type Answerer = (request: AnswerRequest) => Promise<Answered>
-
-export interface AnswerRun {
-  cwd: string
-  command: string
-  argv: string[]
-  stdoutPath: string
-  stderrPath: string
-  env: NodeJS.ProcessEnv
-  signal?: AbortSignal
-  onLine?: (line: string) => void
-}
 
 export type CardText = (cardId: number) => string | null
 
@@ -188,15 +177,6 @@ function freshBaseGapOf(publish: () => void): FreshBaseGap | null {
   }
 }
 
-export function mergePrompt(lease: Lease, card: CardSession, gap: FreshBaseGap, ownerQuestion: string): string {
-  return [
-    `[answer:${lease.taskKey}]`,
-    `The bus merges a fresh origin/${MAIN_BRANCH} into ${card.branch} before it pushes, and that merge ${freshBaseProblem(gap)}; nothing was pushed.`,
-    `Your part: ${freshBaseTask(card.worktree, gap)}.`,
-    `Then repeat the window gate of D-194 in ${card.worktree} and end the session; the bus merges again and pushes. If the merge cannot be settled without the owner, write the question for the owner, one line, to ${ownerQuestion}; the bus then pushes nothing.`,
-  ].join('\n')
-}
-
 export function unmergedQuestion(card: CardSession, gap: FreshBaseGap): string {
   return `merging a fresh origin/${MAIN_BRANCH} into ${card.branch} ${freshBaseProblem(gap)} and the answer session did not resolve it`
 }
@@ -209,41 +189,6 @@ function measuredOf(stdoutPaths: readonly string[]): { tokens?: number | null } 
     return {}
   const counts = results.map(result => tokensOf(result.usage)).filter((count): count is number => count !== null)
   return { tokens: counts.length === 0 ? null : counts.reduce((sum, count) => sum + count, 0) }
-}
-
-function ciLogLines(ciLog: FailedJobLog | null | undefined): string[] {
-  if (ciLog === undefined)
-    return ['Read their logs (gh pr checks, gh run view --log-failed) and fix every one.']
-  if (ciLog === null)
-    return ['The bus could not read the failed-job log; fix every failed check from what the tree shows.']
-  return ['The failures and the tail of the failed-job log the bus read:', ciLogForPrompt(ciLog), 'Fix every failure it shows.']
-}
-
-function redCiLines(failedChecks: string[], ciLog: FailedJobLog | null | undefined): string[] {
-  return [
-    failedChecks.length === 0 ? 'CI is red on this head and the bus recorded no failed check by name.' : `CI is red on this head. The failed checks: ${failedChecks.join(', ')}.`,
-    ...ciLogLines(ciLog),
-  ]
-}
-
-function asksAboutRedCi(source: AnswerSource): boolean {
-  return source.kind === 'ci' || (source.kind === 'changes' && source.failedChecks !== undefined)
-}
-
-function sourceLines(source: AnswerSource, ciLog?: FailedJobLog | null): string[] {
-  if (source.kind === 'changes') {
-    return [
-      source.findings.length === 0 ? 'The review asked for changes and recorded no findings on the bus; read the review on the pull request.' : 'The review asked for changes. Its findings:',
-      ...source.findings.map(finding => `- ${finding}`),
-      'Address every finding.',
-      ...(source.failedChecks === undefined ? [] : redCiLines(source.failedChecks, ciLog)),
-    ]
-  }
-  if (source.kind === 'ci')
-    return redCiLines(source.failedChecks, ciLog)
-  if (source.kind === 'decision')
-    return [`The owner decided on this card: D-${source.decisionId}: ${source.text}`, 'Continue the card under that decision; the card body is unchanged.']
-  return [`The card stopped with a question for the agent: ${source.detail}`, 'Answer it as the Operator role would and continue the card.']
 }
 
 export function ownerQuestionPath(dir: string, session: string, leaseGen: number): string {
@@ -266,136 +211,16 @@ export function refusedOwnerQuestionIn(stdoutPath: string, file: string): string
   return refused === undefined || refused.text === '' ? null : refused.text
 }
 
-function cardLines(cardId: number, cardText: string | null): string[] {
-  if (cardText === null)
-    return [`Card #${cardId} has no admitted body in the bus; read the card from the pull request.`]
-  return [`The card as the bus holds it now, witnesses admitted after the verdict included:`, cardText.trim()]
-}
-
-function diffLines(card: CardSession, diff: string | null | undefined): string[] {
-  if (diff === undefined)
-    return []
-  if (diff === null)
-    return [`The diff of the tree against ${MAIN_BRANCH} could not be read; read it with git diff in ${card.worktree}.`]
-  if (diff.length > DIFF_PROMPT_LIMIT)
-    return [`The diff of the tree against ${MAIN_BRANCH}, cut at ${DIFF_PROMPT_LIMIT} characters; read the rest with git diff in ${card.worktree}:`, diff.slice(0, DIFF_PROMPT_LIMIT)]
-  return [`The diff of the tree against ${MAIN_BRANCH}:`, diff]
-}
-
-function gateLine(gate: ShiftGate): string {
-  return gate.prepush.length === 0 ? `the card's witnesses` : `the card's witnesses and the pre-push checks this repository declares, ${gate.prepush.join(', ')}`
-}
-
-export function answerPrompt(request: AnswerRequest, ownerQuestion: string, cardText: string | null, gate: ShiftGate, diff?: string | null, ciLog?: FailedJobLog | null): string {
-  const { lease, source, widened, card } = request
-  return [
-    `[answer:${lease.taskKey}]`,
-    `Card #${lease.cardId}${lease.pr === null ? '' : `, pull request #${lease.pr} at ${lease.head}`}, in its tree ${card.worktree} on ${card.branch}.`,
-    ...cardLines(lease.cardId, cardText),
-    ...cardDecisionBlock(source.decisions),
-    ...sourceLines(source, ciLog),
-    ...diffLines(card, diff),
-    ...(widened === null ? [] : [`The touches are widened: ${widened}.`]),
-    `The card's latest events, oldest first:`,
-    ...source.events.map(event => JSON.stringify(event)),
-    `Run the window gate of D-194 in ${card.worktree}, each as its own command: ${gateLine(gate)}. A session that leaves a clean tree and no unpushed commit runs none of them. A heavy step waits for its turn in the foreground, so give it a Bash timeout of 600000. End the session when they are green. A red pre-push run is fixed in this session; a broken one prints its finding and question, and that question goes to the owner as below. Do not commit and do not push: once the session ends the bus commits the tree and pushes it to ${card.branch}. A refused git command is not a question. If the card cannot go on without the owner, write the question for the owner, one line, to ${ownerQuestion}; the bus then pushes nothing.`,
-  ].join('\n')
+export function windowGateRule(card: CardSession, gate: ShiftGate, ownerQuestion: string): string {
+  return `Run the window gate of D-194 in ${card.worktree}, each as its own command: ${gateLine(gate)}. A session that leaves a clean tree and no unpushed commit runs none of them. A heavy step waits for its turn in the foreground, so give it a Bash timeout of 600000. End the session when they are green. A red pre-push run is fixed in this session; a broken one prints its finding and question, and that question goes to the owner as below. Do not commit and do not push: once the session ends the bus commits the tree and pushes it to ${card.branch}. A refused git command is not a question. If the card cannot go on without the owner, write the question for the owner, one line, to ${ownerQuestion}; the bus then pushes nothing.`
 }
 
 export function answerHandoffPath(worktree: string): string {
   return path.join(path.dirname(treeReportPath(worktree)), 'answer-handoff.md')
 }
 
-function handoffLines(handoff: string, fresh: boolean): string[] {
-  const stop = `On the context warn (the Eddies warn on the session's context): finish the step you are in, write what is done and what is not to ${handoff}, leave the tree as it is and end the session; the bus pushes nothing and continues in a fresh session from that handoff and the tree.`
-  const left = fresh && existsSync(handoff) ? readFileSync(handoff, 'utf8').trim() : ''
-  return left === '' ? [stop] : ['The session before this one stopped at the context warn and left this handoff; continue from it:', left, stop]
-}
-
-function localHead(card: CardSession): string | null {
-  try {
-    return git(card.worktree, ['rev-parse', 'HEAD']).trim() || null
-  }
-  catch {
-    return null
-  }
-}
-
 export function roundGateOf(gate: ShiftGate, head: string | null): ShiftGate {
   return head === null ? gate : { ...gate, prepush: roundGate(gate.prepush, head) }
-}
-
-function remoteHead(card: CardSession): string | null {
-  try {
-    const line = execFileSync('git', ['-C', card.worktree, 'ls-remote', 'origin', `refs/heads/${card.branch}`], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
-    return line.split(/\s/)[0] || null
-  }
-  catch {
-    return null
-  }
-}
-
-function git(cwd: string, args: string[]): string {
-  return execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 64 * 1024 * 1024 })
-}
-
-function diffAgainstBase(card: CardSession): string | null {
-  try {
-    const base = git(card.worktree, ['merge-base', `origin/${MAIN_BRANCH}`, 'HEAD']).trim()
-    return git(card.worktree, ['diff', base])
-  }
-  catch {
-    return null
-  }
-}
-
-export type TreeMerge = { kind: 'none' } | { kind: 'mid-merge', files: string[] } | { kind: 'unreadable', why: string }
-
-export function treeMergeOf(card: CardSession): TreeMerge {
-  try {
-    const mergeHead = path.resolve(card.worktree, git(card.worktree, ['rev-parse', '--git-path', 'MERGE_HEAD']).trim())
-    const unmerged = git(card.worktree, ['diff', '--name-only', '--diff-filter=U']).split('\n').filter(file => file !== '')
-    return existsSync(mergeHead) || unmerged.length > 0 ? { kind: 'mid-merge', files: unmerged } : { kind: 'none' }
-  }
-  catch (error) {
-    return { kind: 'unreadable', why: error instanceof Error ? error.message.trim() : String(error) }
-  }
-}
-
-interface PendingPath {
-  file: string
-  untracked: boolean
-}
-
-const UNTRACKED = '??'
-
-function porcelainEntries(output: string): PendingPath[] {
-  const entries = output.split('\0').filter(each => each !== '')
-  const pending: PendingPath[] = []
-  for (let at = 0; at < entries.length; at += 1) {
-    const entry = entries[at]!
-    pending.push({ file: entry.slice(3), untracked: entry.startsWith(UNTRACKED) })
-    if (entry.startsWith('R') || entry.startsWith('C'))
-      at += 1
-  }
-  return pending
-}
-
-function committedOnTheBranch(card: CardSession): string[] {
-  const base = git(card.worktree, ['merge-base', `origin/${MAIN_BRANCH}`, 'HEAD']).trim()
-  return git(card.worktree, ['diff', '--name-only', '-z', base, 'HEAD']).split('\0').filter(file => file !== '')
-}
-
-function uncommitted(card: CardSession): string[] {
-  const changed = porcelainEntries(git(card.worktree, ['status', '--porcelain', '-z', '--untracked-files=all']))
-  if (treeMergeOf(card).kind !== 'mid-merge')
-    return changed.map(each => each.file)
-  const differFromTheMergedBranch = new Set(git(card.worktree, ['diff', '--name-only', '-z', 'MERGE_HEAD']).split('\0'))
-  return changed.filter(each => each.untracked || differFromTheMergedBranch.has(each.file)).map(each => each.file)
-}
-
-export function pendingPathsOf(card: CardSession): string[] {
-  return [...new Set([...committedOnTheBranch(card), ...uncommitted(card)])]
 }
 
 export function liveSessionIn(card: CardSession, cwds: () => ProcessCwds = () => new OsProcessTable().clientCwds()): string | null {
@@ -407,55 +232,9 @@ export function liveSessionIn(card: CardSession, cwds: () => ProcessCwds = () =>
   return inside === undefined ? null : `a live session runs in ${inside}, inside the tree ${card.worktree}`
 }
 
-export function treeDirtyOf(card: CardSession): boolean {
-  try {
-    return git(card.worktree, ['status', '--porcelain']).trim() !== ''
-  }
-  catch {
-    return false
-  }
-}
-
 export function contextWarnOfEddies(size: string | null = null): number | null {
   const warn = realExitReadings({ [CARD_VARIABLE]: 'answer', ...(size === null ? {} : { [CARD_SIZE_VARIABLE]: size }) }, os.homedir(), projectRoot(process.env), defaultBusPath()).contextWarn
   return warn === UNKNOWN ? null : warn
-}
-
-export function spawnClient(run: AnswerRun): Promise<number> {
-  const outFd = openSync(run.stdoutPath, 'w')
-  const errFd = openSync(run.stderrPath, 'w')
-  let closed = false
-  let partial = ''
-  const closeOnce = (): void => {
-    if (!closed) {
-      closed = true
-      if (partial !== '')
-        run.onLine?.(partial)
-      closeSync(outFd)
-      closeSync(errFd)
-    }
-  }
-  return new Promise((resolve, reject) => {
-    const child = spawn(run.command, run.argv, { cwd: run.cwd, env: run.env, stdio: ['ignore', 'pipe', errFd], signal: run.signal })
-    child.stdout?.setEncoding('utf8')
-    child.stdout?.on('data', (chunk: string) => {
-      if (closed)
-        return
-      writeSync(outFd, chunk)
-      const lines = `${partial}${chunk}`.split('\n')
-      partial = lines.pop() ?? ''
-      for (const line of lines)
-        run.onLine?.(line)
-    })
-    child.on('error', (error) => {
-      closeOnce()
-      reject(error)
-    })
-    child.on('close', (code) => {
-      closeOnce()
-      resolve(code ?? 1)
-    })
-  })
 }
 
 export interface StepSeconds {
@@ -639,7 +418,7 @@ function sessionAnswerer(dir: string, tools: AnswererTools): Answerer {
     const handoff = answerHandoffPath(card.worktree)
     if (request.fresh !== true)
       rmSync(handoff, { force: true })
-    const prompt = [answerPrompt(request, ownerQuestion, cardBody, gate, resumed ? undefined : tools.diff?.(card), ciLog), ...handoffLines(handoff, request.fresh === true)].join('\n')
+    const prompt = [answerPrompt(request, cardBody, windowGateRule(card, gate, ownerQuestion), resumed ? undefined : tools.diff?.(card), ciLog), ...handoffLines(handoff, request.fresh === true)].join('\n')
     const invocationOf = (kind: 'start' | 'resume', text: string): Invocation => clientInvocation({ kind, role: 'answer', session, cwd: card.worktree, prompt: text, addDirs: [dir], pick: { model: null }, policy: { profile: 'sandboxed', gateCommands: gate.prepush, writePaths: [ownerQuestion], mcpOff: true, tools: tools.cardTools?.(request.lease.cardId, cardBody) } })
     mkdirSync(dir, { recursive: true })
     rmSync(ownerQuestion, { force: true })
@@ -716,7 +495,7 @@ function sessionAnswerer(dir: string, tools: AnswererTools): Answerer {
       if (gap === null)
         return null
       steps.push(MERGE_STEP)
-      const merged = await run(invocationOf('resume', mergePrompt(request.lease, card, gap, ownerQuestion)), MERGE_STEP)
+      const merged = await run(invocationOf('resume', mergePrompt(request.lease, card, { problem: freshBaseProblem(gap), task: freshBaseTask(card.worktree, gap) }, ownerQuestion)), MERGE_STEP)
       const owner = ownerAfter(MERGE_STEP)
       if (owner !== null)
         return owner
