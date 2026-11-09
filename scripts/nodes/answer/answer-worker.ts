@@ -25,7 +25,7 @@ import { CARD_ADMITTED, CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, DECISION_RECO
 import { assertHeld, failTask, queuedCards, StaleLease, supersedeLease } from '../../core/lease.js'
 import { Node, runNode, UNDERSTOOD_NOW } from '../../core/node.js'
 import { treeReportPath } from '../../core/places.js'
-import { answerCandidates, pullRequestHeadPastTheAnswer, STALE_ANSWER_HEAD } from '../../core/queue.js'
+import { answerCandidates } from '../../core/queue.js'
 import { cardContract, NOT_MINE, notMine } from '../../intake/card-contract.js'
 import { busCardBodies } from '../../intake/parking-reads.js'
 import { OWNER_MERGES } from '../../policy/policy.js'
@@ -72,6 +72,18 @@ export interface StaleHeadDenial {
   kind: 'technical'
   reason: typeof STALE_ANSWER_HEAD
   detail: string
+}
+
+export const STALE_ANSWER_HEAD = 'stale_head'
+
+const PULL_REQUEST_HEAD_PAST_THE_ANSWER = `
+  SELECT prs.head FROM tasks JOIN prs ON prs.pr = tasks.pr
+  WHERE tasks.task_key = ? AND tasks.queue = 'answer' AND tasks.head IS NOT NULL AND prs.head IS NOT NULL AND prs.head != tasks.head
+`
+
+function pullRequestHeadPastTheAnswer(db: DatabaseSync, taskKey: string): string | null {
+  const row = db.prepare(PULL_REQUEST_HEAD_PAST_THE_ANSWER).get(taskKey) as { head: string } | undefined
+  return row === undefined ? null : row.head
 }
 
 export const VERDICT_NOT_RECORDED = 'verdict_not_recorded'
