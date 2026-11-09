@@ -169,6 +169,23 @@ describe('the bus of a launch', () => {
   })
 })
 
+describe('a start whose group cannot be read', () => {
+  it('a start whose pgid cannot be read kills the whole process group', () => {
+    const killed: number[] = []
+    const held = heldTree(['notes.md'], {
+      pgidOf: () => {
+        throw new Error('spawnSync ps ENOBUFS')
+      },
+      kill: (target) => {
+        killed.push(target)
+      },
+    })
+    const outcome = held.startQueued()
+    expect(outcome).toMatchObject({ kind: 'refused', denial: { detail: expect.stringContaining('ENOBUFS') } })
+    expect(killed).toEqual([-4242])
+  })
+})
+
 describe('the github account of a card session', () => {
   const ACTIVE_TOKEN = 'token-of-the-active-account'
   const REPO_TOKEN = 'token-of-repo-account'
