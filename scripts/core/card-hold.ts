@@ -17,7 +17,7 @@ export interface QueueTaskRow {
 const ANSWERS_WITHDRAWN_SINCE = `
   SELECT tasks.task_key, tasks.queue, tasks.card_id, tasks.pr, tasks.head, tasks.state FROM tasks
   JOIN events AS withdrawal ON withdrawal.id = tasks.event_id
-  WHERE tasks.card_id = ? AND tasks.queue = 'answer' AND tasks.state = '${WITHDRAWN}' AND withdrawal.id > ?
+  WHERE tasks.card_id = ? AND tasks.queue = 'answer' AND tasks.state = ? AND withdrawal.id > ?
     AND withdrawal.type = '${TASK_FAILED}' AND json_extract(withdrawal.payload, '$.reason') = 'held_for_owner'
   ORDER BY tasks.task_key
 `
@@ -74,7 +74,7 @@ export function holderOf(layers: HoldLayers): string | null {
 }
 
 export function answersWithdrawnByAClosedHold(db: DatabaseSync, cardId: number, opened: number | null): QueueTaskRow[] {
-  return opened === null || holderOf(holdLayersOf(db, cardId)) !== null ? [] : db.prepare(ANSWERS_WITHDRAWN_SINCE).all(cardId, opened) as unknown as QueueTaskRow[]
+  return opened === null || holderOf(holdLayersOf(db, cardId)) !== null ? [] : db.prepare(ANSWERS_WITHDRAWN_SINCE).all(cardId, WITHDRAWN, opened) as unknown as QueueTaskRow[]
 }
 
 export function holdThatStays(db: DatabaseSync, cardId: number): string | null {
