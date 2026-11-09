@@ -48,6 +48,7 @@ export function prObserved(ts: string, open: OpenPr, previous: PreviousObservati
     ...(open.branch === null ? {} : { branch: open.branch }),
     mergeable: open.mergeable,
     ...open.ciFields,
+    ...((open.cancelledChecks ?? []).length === 0 ? {} : { cancelled_checks: open.cancelledChecks }),
     ...(open.verdictOnHead === null ? {} : { verdict_on_head: open.verdictOnHead }),
     auto_merge: open.autoMerge,
     draft: open.draft,
