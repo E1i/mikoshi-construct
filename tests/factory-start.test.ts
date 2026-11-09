@@ -21,7 +21,7 @@ import { sayToOwnerChannel, USED_WORD } from '../scripts/owner/channel.js'
 import { activeWindowShards } from '../scripts/policy/shards.js'
 import { BUS_FLAG, BUS_RUN_LAUNCH, carriesMarker, installedPackage, launchArgv, runBusBg } from '../scripts/supervisor/bg.js'
 import { agentEnvStamp } from '../scripts/supervisor/stamp.js'
-import { AGENT_LOG, agentLabel, factoryBusOf, ghostProtocolWord, installKeepAlive, KEEP_ALIVE_PLATFORM, KEEP_ALIVE_PROGRAM, LAUNCH_AGENTS, runMode, runStart, sayCommand, START_BIN, startCommandOf, USAGE } from '../scripts/supervisor/start.js'
+import { AGENT_LOG, agentLabel, factoryBusOf, ghostProtocolWord, HOLD_CHECK_MS, HOLD_FLAG, holdWhileSupervised, installKeepAlive, KEEP_ALIVE_PLATFORM, KEEP_ALIVE_PROGRAM, LAUNCH_AGENTS, RAISED_WITHIN_S, runMode, runStart, sayCommand, START_BIN, startAndHold, startCommandOf, USAGE } from '../scripts/supervisor/start.js'
 import { startUnderAgentEnv, SUPERVISE_FLAG, SUPERVISOR_LAUNCH } from '../scripts/supervisor/supervisor.js'
 import { liveWorkers, MODE_WORKERS, modeOf, returnToWindowAtTermEnd, switchDetection, switchedOn, switchWorker, termEndOf, wantedLaunches, WORKERS, WORKERS_FILE } from '../scripts/supervisor/workers.js'
 import { waitFor } from '../scripts/tests/wait-for.js'
@@ -278,7 +278,7 @@ describe('the keep-alive of the start command', () => {
     const user = tempRoot('factory-user-')
     expect(installKeepAlive(user, REPOSITORY, keepAliveParts(home, recordingLaunchctl().run)).exitCode).toBe(0)
     const text = readFileSync(path.join(home, LAUNCH_AGENTS, `${agentLabel(user)}.plist`), 'utf8')
-    expect(programArguments(text)).toEqual(['/usr/bin/env', START_BIN])
+    expect(programArguments(text)).toEqual(['/usr/bin/env', START_BIN, HOLD_FLAG])
     for (const pinned of [process.execPath, path.dirname(process.execPath), REPOSITORY, OUT_DIR, 'supervisor.js'])
       expect(text, pinned).not.toContain(pinned)
   })
@@ -475,6 +475,79 @@ describe('the exit code of the start command', () => {
     const unserved = () => [{ pid: process.pid, args: startArgs }, { pid: otherStart, args: startArgs }]
     const startingOnly = await runStart(tempRoot('factory-user-'), REPOSITORY, parts, async () => runBusBg(parts.busDir, [BUS_RUN_LAUNCH], env, unserved))
     expect(startingOnly.exitCode, startingOnly.stderr.join('\n')).toBe(0)
+  })
+})
+
+const ALIVE_FOR_S = 3600
+const OWN_BUS = '/x/bus.db'
+
+function supervisorOn(bus: string, pid = 4244): { pid: number, args: string, bus: string } {
+  return { pid, args: `node /x/${OUT_DIR}/scripts/supervisor/supervisor.js ${SUPERVISE_FLAG} ${BUS_FLAG} ${bus}`, bus }
+}
+
+interface KeepAliveRun {
+  launches: number
+  results: { stdout: string[], stderr: string[], exitCode: number }[]
+}
+
+async function keepAliveFor(aliveForMs: number, start: () => Promise<{ stdout: string[], stderr: string[], exitCode: number }>): Promise<KeepAliveRun> {
+  let clockMs = 0
+  const run: KeepAliveRun = { launches: 0, results: [] }
+  const processes = () => clockMs < aliveForMs ? [supervisorOn(OWN_BUS)] : []
+  while (clockMs < aliveForMs) {
+    run.launches += 1
+    await startAndHold(start, { busDb: OWN_BUS, processes, wait: async (ms) => {
+      clockMs += ms
+    }, say: () => {} }, result => run.results.push(result))
+    clockMs += RAISED_WITHIN_S * 1000
+  }
+  return run
+}
+
+describe('the keep-alive holds while its factory lives', () => {
+  it('with the bus processes alive for N seconds the keep-alive launches construct-factory at most once', async () => {
+    const run = await keepAliveFor(ALIVE_FOR_S * 1000, fresh)
+    expect(run.launches).toBeLessThanOrEqual(1)
+    expect(run.results.at(-1)?.exitCode).toBe(1)
+    expect(run.results.at(-1)?.stderr.join('\n')).toContain(`no supervisor of ${OWN_BUS} is running after ${ALIVE_FOR_S * 1000 / HOLD_CHECK_MS} checks`)
+  })
+
+  it('a start that failed does not hold, so launchd reruns it', async () => {
+    const run = await keepAliveFor(3 * RAISED_WITHIN_S * 1000, async () => ({ stdout: [], stderr: ['refused'], exitCode: 1 }))
+    expect(run.launches).toBe(3)
+    expect(run.results.map(result => result.exitCode)).toEqual([1, 1, 1])
+  })
+
+  it('a supervisor of another bus, or one whose bus it cannot read, does not hold it', async () => {
+    for (const others of [[supervisorOn('/y/bus.db')], [{ pid: 4245, args: `node /x/${OUT_DIR}/scripts/supervisor/supervisor.js ${SUPERVISE_FLAG}` }], [{ pid: 4246, args: `node /x/${OUT_DIR}/scripts/supervisor/run.js ${BUS_FLAG} ${OWN_BUS}`, bus: OWN_BUS }]]) {
+      let waited = 0
+      const result = await holdWhileSupervised({ busDb: OWN_BUS, processes: () => others, wait: async () => {
+        waited += 1
+      }, say: () => {} })
+      expect(result.exitCode).toBe(1)
+      expect(waited).toBe(0)
+      expect(result.stderr.join('\n')).toContain('right after the start')
+    }
+  })
+
+  it('names the supervisor it holds on once, and exits when it goes', async () => {
+    const said: string[] = []
+    let checks = 0
+    const result = await holdWhileSupervised({ busDb: OWN_BUS, processes: () => checks < 3 ? [supervisorOn(OWN_BUS)] : [], wait: async () => {
+      checks += 1
+    }, say: line => said.push(line) })
+    expect(said).toHaveLength(1)
+    expect(said[0]).toContain('pid 4244')
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr.join('\n')).toContain('after 3 checks')
+  })
+
+  it('the keep-alive runs the starter with --hold, and by hand it neither holds nor takes another argument', () => {
+    expect(KEEP_ALIVE_PROGRAM.at(-1)).toBe(HOLD_FLAG)
+    expect(startCommandOf([HOLD_FLAG])).toEqual({ kind: 'start', hold: true })
+    expect(startCommandOf([])).toEqual({ kind: 'start', hold: false })
+    expect(startCommandOf([HOLD_FLAG, 'extra'])).toBeNull()
+    expect(USAGE).toContain(HOLD_FLAG)
   })
 })
 
