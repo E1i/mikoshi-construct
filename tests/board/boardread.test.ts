@@ -88,18 +88,19 @@ describe('the board reads the bus through the bus readers', () => {
     withBus((db, file) => {
       const [first, second] = openTwoWaits(db)
       closeOwnerWait(db, NOW.toISOString(), 'owner', first, 'the first path', 3)
+      reduce(db)
       const bus = withReadOnlyBus(file, openOwnerWaits)
       expect(bus.map(wait => wait.id)).toEqual([second])
       expect(factsOf(file).waits).toEqual(bus)
     })
   })
 
-  it('a wait closed by owner.wait.closed is not on the board', () => {
+  it('a wait closed by owner.wait.closed and not reduced yet reads stale on the board, and is gone once reduced', () => {
     withBus((db, file) => {
       const [first, second] = openTwoWaits(db)
       expect(factsOf(file).waits.map(wait => wait.id)).toEqual([first, second])
       expect(closeOwnerWait(db, NOW.toISOString(), 'owner', first, 'the first path', 3)).toBe(true)
-      expect(factsOf(file).waits.map(wait => wait.id)).toEqual([second])
+      expect(factsOf(file)).toMatchObject({ waits: [], waitsStale: expect.stringMatching(/^owner_waits is stale: reduced through event \d+, behind owner\.wait\.closed \d+$/) })
       reduce(db)
       expect(factsOf(file).waits.map(wait => wait.id)).toEqual([second])
     })

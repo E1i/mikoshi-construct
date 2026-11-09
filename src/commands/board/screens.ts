@@ -7,6 +7,7 @@ const CARD_PREFIX = /^card:\s*/
 const MATRIX_ROLE = 'matrix'
 const BUS_ROLE = 'bus'
 const WAITS_ROLE = 'waits for you'
+const CARDS_ROLE = 'cards'
 const MINUTE_MS = 60_000
 export const ENDED_SHOWN_HOURS = 12
 const HOUR_MS = 3_600_000
@@ -145,7 +146,13 @@ function waitName(wait: OwnerWait, lore: Lore): string {
 }
 
 export function waitsLines(facts: BusFacts, lore: Lore): string[] {
+  if (facts.waitsStale !== undefined)
+    return [lore.boardServiceLine(WAITS_ROLE, '?', undefined, facts.waitsStale)]
   return facts.waits.length === 0 ? [] : [lore.boardServiceLine(WAITS_ROLE, `${facts.waits.length}`, undefined, facts.waits.map(wait => waitName(wait, lore)).join(' \u00B7 '))]
+}
+
+function staleCardsLines(facts: BusFacts, lore: Lore): string[] | null {
+  return facts.cardsStale === undefined ? null : [lore.boardServiceLine(CARDS_ROLE, '?', undefined, facts.cardsStale)]
 }
 
 export function flowHintLines(cards: BusCard[], lore: Lore): string[] {
@@ -165,8 +172,8 @@ export interface Screens {
 export function boardScreens(facts: BusFacts, lore: Lore, all = false): Screens {
   return {
     screens: [
-      { title: lore.boardTabFlow, lines: [...goalLines(facts, lore), ...waitsLines(facts, lore), ...flowLines(facts.cards, lore), ...flowHintLines(facts.cards, lore)] },
-      { title: lore.boardTabBacklog, lines: backlogLines(backlogCards(facts.cards, facts.at, all), lore) },
+      { title: lore.boardTabFlow, lines: [...goalLines(facts, lore), ...waitsLines(facts, lore), ...staleCardsLines(facts, lore) ?? [...flowLines(facts.cards, lore), ...flowHintLines(facts.cards, lore)]] },
+      { title: lore.boardTabBacklog, lines: staleCardsLines(facts, lore) ?? backlogLines(backlogCards(facts.cards, facts.at, all), lore) },
       { title: lore.boardTabServices, lines: [...servicesLines(facts, lore), ...pulseLines(facts, lore), ...matrixLines(facts, lore)] },
     ],
     footer: lore.boardFooter(facts.services.length, facts.failure ?? undefined, facts.reviewQueue),

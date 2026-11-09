@@ -2,6 +2,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import { realpathSync } from 'node:fs'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import { DECISIONS, readCurrent, staleLine } from './bus-readings.js'
 import { CARD_BODIES } from './card-bodies.js'
 import { CARD_BLOCKS, CLOSED_WAIT, defaultBusPath, openBus, OWNER_WAITS } from './db.js'
 import { CARD_ADMITTED, CARD_STOPPED, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, POLICY_DENIED, QUESTION_OWNER, SHARD_DECIDED, WINDOW_REQUEST } from './events.js'
@@ -175,8 +176,15 @@ export function inboxText(line: InboxLine): string {
   return `${PREFIX}${parts.filter(part => part !== null).join(' · ')}`
 }
 
+const STALE_EXIT = 1
+
 export function runInbox(db: DatabaseSync, out: (line: string) => void): number {
-  const lines = ownerInbox(db)
+  const reading = readCurrent(db, [DECISIONS, OWNER_WAITS], () => ownerInbox(db))
+  if (reading.stale !== null) {
+    out(`${PREFIX}${staleLine(reading.stale)}`)
+    return STALE_EXIT
+  }
+  const lines = reading.rows
   for (const line of lines)
     out(inboxText(line))
   if (lines.length === 0)

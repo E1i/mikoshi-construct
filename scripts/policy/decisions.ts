@@ -1,7 +1,9 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { Reading } from '../core/bus-readings.js'
 import type { EventPayload } from '../core/events.js'
 import type { Fold, StoredEvent } from '../core/stored.js'
 import type { DecisionRow } from './decisions/decisions.js'
+import { DECISIONS, readCurrent } from '../core/bus-readings.js'
 import { cardReleased, CLOSED_CARD, DROPPED_CARD, MERGED_CARD, STOPPED_CARD } from '../core/card-automaton.js'
 import { appendEvent, DECISION_ARCHIVED, DECISION_IN_FORCE, OPEN_WAIT } from '../core/db.js'
 import { CARD_STOPPED, DECISION_EXPIRED, DECISION_RECORDED, DECISIONS_IMPORTED, DECISIONS_PROJECTED, QUESTION_OWNER } from '../core/events.js'
@@ -228,6 +230,10 @@ function foldDecisionExpired(db: DatabaseSync, event: StoredEvent): void {
 export function inForceDecisions(db: DatabaseSync): InForceDecision[] {
   return (db.prepare(`SELECT decision_id, text, scope FROM decisions WHERE state = '${DECISION_IN_FORCE}' ORDER BY decision_id`).all() as { decision_id: number, text: string, scope: string | null }[])
     .map(row => ({ decisionId: Number(row.decision_id), text: row.text, cards: JSON.parse(row.scope ?? '[]') as number[] }))
+}
+
+export function currentDecisions(db: DatabaseSync): Reading<InForceDecision[]> {
+  return readCurrent(db, [DECISIONS], () => inForceDecisions(db))
 }
 
 export function expireDecisions(db: DatabaseSync, now: Date): void {

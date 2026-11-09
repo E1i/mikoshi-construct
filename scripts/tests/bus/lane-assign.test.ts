@@ -604,6 +604,14 @@ describe('a card that cannot move by itself frees its lane', () => {
     expect(bench.stallDetails()).toEqual(['card #1 cannot move by itself: the latest merge denial'])
   })
 
+  it('a merge denial of an older head is not the cause of a stall on the new head', () => {
+    const bench = new Bench(1).admit(1, 'src/a.ts').start(1).awaitingOwnerMerge(1)
+    bench.openPr(1, NEW_HEAD)
+    launched(bench, 1)
+    expect(bench.stallAlarms()).toEqual([{ card: 1, cause: OWNER_MERGE }])
+    expect(bench.stallDetails()).toEqual(['card #1 cannot move by itself: PR #1001 waits for the owner to merge it'])
+  })
+
   it('two stalled cards raise one alarm each, once', () => {
     const bench = new Bench(2).admit(1, 'src/a.ts').admit(2, 'src/b.ts').start(1).start(2).deniedMerge(1, NO_COUNT_LINE).deniedMerge(2, { kind: 'technical', reason: 'witness', detail: 'no witness.recorded' })
     launched(bench, 2)

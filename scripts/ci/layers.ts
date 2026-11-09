@@ -2,7 +2,7 @@ import type { LayerMap } from '../core/layer-map.js'
 import path from 'node:path'
 import { DECLARED_PATH_READERS, EVERY_CHANGE_READERS, isTest, NAMED_READERS, PACKAGE_MANIFEST, PACKAGE_SCRIPT_READERS, SCANNED_TREES, TEST_ROOTS } from '../../src/card/covering-tests.js'
 import { FACTORY_FOLDERS, FACTORY_NAMED } from '../core/factory-paths.js'
-import { declaredLayersIn, isCheckPipeline, isDocument, isRecord, layersInOf, repositoryLayerMap } from '../core/layer-map.js'
+import { declaredLayersIn, globalRunReason, isCheckPipeline, isDocument, isRecord, layersInOf, repositoryLayerMap } from '../core/layer-map.js'
 import { scansATree } from './tree-scanners.js'
 
 export { isTest }
@@ -109,12 +109,6 @@ export function pathReaders(file: string, graph: Graph, moduleText: (module: str
   return [...graph.keys()].filter(module => module !== file && READABLE_MODULE.test(module) && named.some(name => names(moduleText(module), name)))
 }
 
-const WORKFLOWS = '.github/workflows/'
-
-export function isRootConfigOrWorkflow(file: string): boolean {
-  return (!file.includes('/') && !isDocument(file)) || file.startsWith(WORKFLOWS)
-}
-
 function isImported(file: string, graph: Graph): boolean {
   return [...graph.values()].some(targets => targets.includes(file))
 }
@@ -134,9 +128,9 @@ export function fullRunReason(changed: readonly string[], graph: Graph, moduleTe
   const infrastructure = changed.find(isCheckPipeline)
   if (infrastructure !== undefined)
     return `${infrastructure} is test infrastructure every test runs under`
-  const rootConfig = changed.find(isRootConfigOrWorkflow)
-  if (rootConfig !== undefined)
-    return `${rootConfig} is a root config or a workflow, which take the full run`
+  const global = changed.map(file => globalRunReason(map, file)).find((reason): reason is string => reason !== null)
+  if (global !== undefined)
+    return global
   const unmapped = changed.find(file => !isTest(file) && !resolvedByLayers(file, graph, map) && pathReaders(file, graph, moduleText).length === 0)
   return unmapped === undefined ? null : `${unmapped} belongs to no layer of the dependency graph`
 }

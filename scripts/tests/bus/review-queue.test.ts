@@ -3,7 +3,7 @@ import type { IsolationReader } from '../../ports/isolation.js'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { appendEvent, openBus } from '../../core/db.js'
 import { BOARD_ALARM, CARD_ADMITTED, CARD_STOPPED, REVIEW_RECORDED, TASK_SUPERSEDED } from '../../core/events.js'
 import { prBodySha, taskKey } from '../../core/identifiers.js'
@@ -18,6 +18,20 @@ import { BusTick } from '../../supervisor/run.js'
 import { cardBody, Clock, FakeGitHub, sha } from './github-fake.js'
 import { detectMerge } from './merge-detection.js'
 import { detectReview } from './review-detection.js'
+
+vi.mock('node:child_process', async (importOriginal) => {
+  const real = await importOriginal<typeof import('node:child_process')>()
+  const gitCommonDirOnceAFile = new Map<string, ReturnType<typeof real.execFileSync>>()
+  const execFileSync = ((file: string, args?: readonly string[], options?: object) => {
+    if (file !== 'git' || !args?.includes('--git-common-dir'))
+      return real.execFileSync(file, args, options)
+    const key = JSON.stringify(args)
+    if (!gitCommonDirOnceAFile.has(key))
+      gitCommonDirOnceAFile.set(key, real.execFileSync(file, args, options))
+    return gitCommonDirOnceAFile.get(key)
+  }) as typeof real.execFileSync
+  return { ...real, execFileSync }
+})
 
 const sandboxed: IsolationReader = () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] })
 

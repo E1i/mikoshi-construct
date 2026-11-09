@@ -6,7 +6,7 @@ import { parseParkingFile } from '../../src/card/parking.js'
 import { CARD_BODIES } from '../core/card-bodies.js'
 import { BUSY_TIMEOUT_MS, defaultBusPath } from '../core/db.js'
 import { messageOf } from '../core/errors.js'
-import { layersOfEntry, readLayerMap } from '../core/layer-map.js'
+import { globalRunReason, layersOfEntry, readLayerMap } from '../core/layer-map.js'
 import { openDatabase } from '../core/sqlite.js'
 import { CHANGESET_READERS, declaredReadersOf, isChangesetNote } from './layers.js'
 
@@ -82,6 +82,9 @@ export function cardRunsOf(source: CardRunsSource, catalog: CheckCatalog, map: L
   const { testLayers, moduleLayers } = catalog
   if (testLayers.size === 0 || moduleLayers.size === 0)
     return { full: true, why: 'the check catalog is empty' }
+  const global = touches.map(touch => globalRunReason(map, touch)).find((reason): reason is string => reason !== null)
+  if (global !== undefined)
+    return { full: true, why: global }
   const followed = touches.filter(touch => !runsCoverTouch(touch, source, catalog, map))
   const unknown = followed.find(touch => touchedLayers(touch, moduleLayers, map).length === 0 && testsOfTouch(touch, testLayers).length === 0 && !isChangesetNote(touch))
   if (unknown !== undefined)

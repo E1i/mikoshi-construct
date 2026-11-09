@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { FACTORY_FOLDERS, FACTORY_RUNTIME } from './factory-paths.js'
+import { commandLine, GENERATED_FILES } from './generated-files.js'
 
 export const LAYER_MAP = FACTORY_RUNTIME.layerMap
 
@@ -9,6 +10,7 @@ const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..')
 export interface LayerMap {
   files: Readonly<Record<string, string>>
   folders: Readonly<Record<string, string>>
+  globals?: readonly string[]
 }
 
 export const DOCS_LAYER = 'docs'
@@ -18,7 +20,7 @@ const DOCUMENTS: readonly RegExp[] = [
   /^docs\/.+/,
   /^\.claude\/skills\/.+\.md$/,
   /^\.claude\/commands\/[^/]+\.md$/,
-  /^README\.md$/,
+  /^(?:README|SECURITY|CODE_OF_CONDUCT)\.md$/,
 ]
 
 const TEST_INFRASTRUCTURE: readonly RegExp[] = [
@@ -48,11 +50,25 @@ const LAYERS_SEPARATOR = ','
 const IMPORT_SPECIFIER = /\bfrom\s*['"](\.{1,2}\/[^'"]+)['"]|\bimport\s*(?:\(\s*)?['"](\.{1,2}\/[^'"]+)['"]/g
 const NAMED_MODULE = /\b(?:scripts|src)\/[\w./-]+\.ts\b/g
 const COMPILED_MODULE = /\.js$/
+const RECORD_FOLDER = 'contract/'
+const GLOBAL_FILES_RECORD = GENERATED_FILES.factory.path
+const GLOBAL_FILES_REBUILD = commandLine(GENERATED_FILES.factory.rebuild)
 
 export type ReadFile = (file: string) => string | null
 
+export function readGlobalFiles(root: string = REPO_ROOT): string[] {
+  const contract = JSON.parse(readFileSync(path.join(root, GLOBAL_FILES_RECORD), 'utf8')) as { globals?: { files: Record<string, string> } }
+  if (contract.globals === undefined)
+    throw new Error(`${GLOBAL_FILES_RECORD} carries no globals section; run ${GLOBAL_FILES_REBUILD}`)
+  return Object.keys(contract.globals.files)
+}
+
 export function readLayerMap(root: string = REPO_ROOT): LayerMap {
-  return JSON.parse(readFileSync(path.join(root, LAYER_MAP), 'utf8')) as LayerMap
+  return { ...JSON.parse(readFileSync(path.join(root, LAYER_MAP), 'utf8')) as LayerMap, globals: readGlobalFiles(root) }
+}
+
+export function globalRunReason(map: LayerMap, file: string): string | null {
+  return map.globals?.includes(file) === true ? `${file} is a global file of ${GLOBAL_FILES_RECORD}, which takes the full run` : null
 }
 
 export function layersIn(map: LayerMap, file: string): string[] {
@@ -79,7 +95,7 @@ function holdsOnlyDocuments(glob: string): boolean {
 }
 
 export function isRecord(map: LayerMap, file: string): boolean {
-  return !SOURCE_FILE.test(file) && !file.startsWith(FACTORY_TESTS) && map.files[file] !== undefined
+  return file.startsWith(RECORD_FOLDER) && !SOURCE_FILE.test(file) && map.files[file] !== undefined
 }
 
 export function recordsOf(map: LayerMap): string[] {
