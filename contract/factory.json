@@ -2221,6 +2221,7 @@
         "derived": false,
         "directory": false,
         "namedIn": [
+          "scripts/supervisor/start.ts",
           "scripts/supervisor/supervisor.ts"
         ],
         "owner": "scripts/supervisor/supervisor.ts",
@@ -2356,6 +2357,7 @@
         "derived": false,
         "directory": false,
         "namedIn": [
+          "scripts/supervisor/start.ts",
           "scripts/supervisor/supervisor.ts"
         ],
         "owner": "scripts/supervisor/supervisor.ts",
