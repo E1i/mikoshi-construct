@@ -1611,6 +1611,984 @@
     }
   },
   "factoryVersion": 1,
+  "files": {
+    "entries": {
+      ".construct/atlas.html": {
+        "derived": false,
+        "directory": false,
+        "namedIn": [
+          "scripts/atlas/build.ts",
+          "src/atlas/index.ts",
+          "src/commands/attach/carriers.ts",
+          "src/commands/detach/runtime.ts",
+          "src/program.ts"
+        ],
+        "owner": "src/atlas/index.ts",
+        "source": "owner",
+        "writers": [
+          "src/atlas/index.ts"
+        ]
+      },
+      ".construct/attach.json": {
+        "derived": false,
+        "directory": false,
+        "namedIn": [
+          "scripts/construct/check-acceptance.mjs",
+          "scripts/core/push-policy.ts",
+          "scripts/nodes/answer/answerer.ts",
+          "scripts/nodes/launch/lane-assign.ts",
+          "scripts/nodes/launch/tree-pr-cli.ts",
+          "scripts/nodes/merge/merge-worker.ts",
+          "scripts/nodes/review/review-worker.ts",
+          "scripts/nodes/update/update-worker.ts",
+          "scripts/window/window-request-tools.ts",
+          "src/commands/attach/index.ts",
+          "src/commands/attach/record.ts",
+          "src/commands/attach/refusals.ts",
+          "src/commands/detach/index.ts",
+          "src/commands/detach/remove.ts",
+          "src/commands/init.ts"
+        ],
+        "owner": "src/commands/attach/record.ts",
+        "source": "owner",
+        "writers": [
+          "src/commands/attach/record.ts"
+        ]
+      },
+      ".construct/browser": {
+        "derived": false,
+        "directory": true,
+        "namedIn": [
+          "scripts/construct/browser-witness.mjs",
+          "src/commands/attach/carriers.ts",
+          "src/commands/detach/preview.ts",
+          "src/commands/detach/remove.ts",
+          "src/commands/detach/runtime.ts"
+        ],
+        "owner": "scripts/construct/browser-witness.mjs",
+        "source": "owner",
+        "writers": []
+      },
+      ".construct/commit-guard.mjs": {
+        "derived": false,
+        "directory": false,
+        "namedIn": [
+          "src/commands/attach/carriers.ts",
+          "src/commands/attach/settings.ts",
+          "src/presets/index.ts"
+        ],
+        "owner": "src/presets/index.ts",
+        "source": "owner",
+        "writers": []
+      },
+      ".construct/daemon/evidence.json": {
+        "derived": false,
+        "directory": false,
+        "namedIn": [
+          "scripts/construct/daemon-run.mjs",
+          "src/commands/cost/daemon.ts"
+        ],
+        "owner": "scripts/construct/daemon-run.mjs",
+        "source": "owner",
+        "writers": [
+          "scripts/construct/daemon-run.mjs"
+        ]
+      },
+      ".construct/eddies.jsonl": {
+        "derived": false,
+        "directory": false,
+        "namedIn": [
+          "scripts/core/eddies.ts",
+          "scripts/core/places.ts",
+          "scripts/ladder/handoff.ts",
+          "scripts/nodes/launch/continuation.ts",
+          "scripts/nodes/launch/launch-worker.ts",
+          "scripts/window/eddies-measure.ts",
+          "scripts/window/exit.ts"
+        ],
+        "owner": "scripts/window/eddies-measure.ts",
+        "source": "owner",
+        "writers": [
+          "scripts/window/eddies-measure.ts"
+        ]
+      },
+      ".construct/environment-print.mjs": {
+        "derived": false,
+        "directory": false,
+        "namedIn": [
+          "src/commands/attach/carriers.ts",
+          "src/commands/attach/settings.ts",
+          "src/presets/index.ts"
+        ],
+        "owner": "src/presets/index.ts",
+        "source": "owner",
+        "writers": []
+      },
+      ".construct/implement-agreed.txt": {
+        "derived": false,
+        "directory": false,
+        "namedIn": [
+          "scripts/ladder/agreed.ts",
+          "scripts/ladder/supervise.ts",
+          "src/commands/attach/carriers.ts",
+          "src/commands/detach/runtime.ts"
+        ],
+        "owner": "scripts/ladder/agreed.ts",
+        "source": "owner",
+        "writers": [
+          "scripts/ladder/agreed.ts"
+        ]
+      },
+      ".construct/implement-args.json": {
+        "derived": false,
+        "directory": false,
+        "namedIn": [
+          "scripts/ladder/args-chain.ts",
+          "src/commands/attach/carriers.ts",
+          "src/commands/detach/runtime.ts"
+        ],
+        "owner": "scripts/ladder/args-chain.ts",
+        "source": "owner",
+        "writers": []
+      },
+      ".construct/mechanics.json": {
+        "derived": false,
+        "directory": false,
+        "namedIn": [
+          "src/model/discovery.ts",
+          "src/model/schema.ts"
+        ],
+        "owner": "src/model/discovery.ts",
+        "source": "owner",
+        "writers": [
+          "src/model/discovery.ts"
+        ]
+      },
+      ".construct/mutations": {
+        "derived": false,
+        "directory": true,
+        "namedIn": [
+          "src/commands/mutate/index.ts",
+          "src/commands/mutate/judge.ts",
+          "src/commands/mutate/record.ts"
+        ],
+        "owner": "src/commands/mutate/record.ts",
+        "source": "owner",
+        "writers": [
+          "src/commands/mutate/record.ts"
+        ]
+      },
+      ".construct/report.md": {
+        "derived": false,
+        "directory": false,
+        "namedIn": [
+          "scripts/core/places.ts",
+          "scripts/nodes/answer/answer-worker.ts",
+          "scripts/nodes/answer/answerer.ts",
+          "scripts/nodes/launch/launch-starter.ts",
+          "scripts/nodes/launch/report-collect.ts",
+          "scripts/nodes/launch/tree-pr-cli.ts",
+          "scripts/ports/tree-publish.ts"
+        ],
+        "owner": "scripts/ports/tree-publish.ts",
+        "source": "owner",
+        "writers": [
+          "scripts/ports/tree-publish.ts"
+        ]
+      },
+      ".construct/reports/vitest.json": {
+        "derived": false,
+        "directory": false,
+        "namedIn": [
+          "scripts/ci/test-weights.ts"
+        ],
+        "owner": "scripts/ci/test-weights.ts",
+        "source": "owner",
+        "writers": []
+      },
+      ".construct/roles.jsonl": {
+        "derived": false,
+        "directory": false,
+        "namedIn": [
+          "scripts/ladder/handoff.ts",
+          "scripts/ladder/roles.ts"
+        ],
+        "owner": "scripts/ladder/roles.ts",
+        "source": "owner",
+        "writers": []
+      },
+      ".construct/runs.jsonl": {
+        "derived": false,
+        "directory": false,
+        "namedIn": [
+          "scripts/cli/board-page.ts",
+          "scripts/ladder/cleanup.ts",
+          "scripts/ladder/expect-sample.ts",
+          "scripts/ladder/handoff.ts",
+          "scripts/ladder/supervise.ts",
+          "scripts/ladder/watch.ts",
+          "src/atlas/index.ts",
+          "src/commands/attach/carriers.ts",
+          "src/commands/board/bus.ts",
+          "src/commands/board/index.ts",
+          "src/commands/cost/index.ts",
+          "src/commands/cost/ledger.ts",
+          "src/commands/detach/runtime.ts",
+          "src/program.ts",
+          "src/ui/console.ts",
+          "src/ui/lore.ts"
+        ],
+        "owner": "src/commands/cost/ledger.ts",
+        "source": "owner",
+        "writers": []
+      },
+      ".construct/shell-parser.mjs": {
+        "derived": false,
+        "directory": false,
+        "namedIn": [
+          "src/commands/attach/carriers.ts",
+          "src/commands/attach/settings.ts",
+          "src/presets/index.ts"
+        ],
+        "owner": "src/presets/index.ts",
+        "source": "owner",
+        "writers": []
+      },
+      ".construct/steps.jsonl": {
+        "derived": false,
+        "directory": false,
+        "namedIn": [
+          "scripts/ladder/cleanup.ts",
+          "src/commands/attach/carriers.ts",
+          "src/commands/cost/step-cache.ts",
+          "src/commands/detach/runtime.ts"
+        ],
+        "owner": "src/commands/cost/step-cache.ts",
+        "source": "owner",
+        "writers": [
+          "src/commands/cost/step-cache.ts"
+        ]
+      },
+      ".construct/turns.jsonl": {
+        "derived": false,
+        "directory": false,
+        "namedIn": [
+          "scripts/ladder/role-sample.ts",
+          "scripts/ladder/window.ts",
+          "scripts/window/window-session-end.ts",
+          "src/commands/cost/expect.ts",
+          "src/commands/cost/report.ts",
+          "src/commands/cost/turns.ts"
+        ],
+        "owner": "src/commands/cost/turns.ts",
+        "source": "owner",
+        "writers": []
+      },
+      ".construct/window-agents.jsonl": {
+        "derived": false,
+        "directory": false,
+        "namedIn": [
+          "scripts/window/window-agents.ts"
+        ],
+        "owner": "scripts/window/window-agents.ts",
+        "source": "owner",
+        "writers": []
+      },
+      ".construct/window-hooks.mjs": {
+        "derived": false,
+        "directory": false,
+        "namedIn": [
+          "src/commands/attach/settings.ts",
+          "src/commands/attach/write.ts",
+          "src/presets/index.ts"
+        ],
+        "owner": "src/presets/index.ts",
+        "source": "owner",
+        "writers": []
+      },
+      ".construct/window-rules.md": {
+        "derived": false,
+        "directory": false,
+        "namedIn": [
+          "src/commands/attach/settings.ts",
+          "src/commands/attach/write.ts",
+          "src/presets/index.ts"
+        ],
+        "owner": "src/presets/index.ts",
+        "source": "owner",
+        "writers": []
+      },
+      "~/.construct-owner/answers": {
+        "derived": false,
+        "directory": true,
+        "namedIn": [
+          "scripts/owner/channel.ts",
+          "scripts/owner/say.ts",
+          "scripts/policy/decisions/add.ts",
+          "scripts/supervisor/run.ts",
+          "scripts/supervisor/start.ts",
+          "scripts/window/window-requests.ts",
+          "src/program.ts"
+        ],
+        "owner": "scripts/owner/channel.ts",
+        "source": "owner",
+        "writers": []
+      },
+      "~/.construct/attach": {
+        "derived": false,
+        "directory": true,
+        "namedIn": [
+          "src/commands/attach/index.ts",
+          "src/commands/attach/original.ts",
+          "src/commands/attach/refusals.ts",
+          "src/commands/detach/restore.ts"
+        ],
+        "owner": "src/commands/attach/original.ts",
+        "source": "owner",
+        "writers": [
+          "src/commands/attach/original.ts"
+        ]
+      },
+      "~/.construct/backups": {
+        "derived": false,
+        "directory": true,
+        "namedIn": [
+          "scripts/core/bus-path.ts",
+          "scripts/supervisor/bus-heal.ts"
+        ],
+        "owner": "scripts/core/bus-path.ts",
+        "source": "owner",
+        "writers": [
+          "scripts/supervisor/bus-heal.ts"
+        ]
+      },
+      "~/.construct/board-data.js": {
+        "derived": false,
+        "directory": false,
+        "namedIn": [
+          "scripts/cli/board-page.ts",
+          "scripts/supervisor/run.ts"
+        ],
+        "owner": "scripts/cli/board-page.ts",
+        "source": "owner",
+        "writers": []
+      },
+      "~/.construct/board.html": {
+        "derived": false,
+        "directory": false,
+        "namedIn": [
+          "scripts/cli/board-page.ts",
+          "scripts/window/board.ts"
+        ],
+        "owner": "scripts/cli/board-page.ts",
+        "source": "owner",
+        "writers": [
+          "scripts/cli/board-page.ts"
+        ]
+      },
+      "~/.construct/browser-lab/bin/browser-lab.mjs": {
+        "derived": false,
+        "directory": false,
+        "namedIn": [
+          "scripts/construct/browser-lab.mjs",
+          "scripts/ports/prepare-tree.ts",
+          "scripts/ports/shift-settings.ts",
+          "src/commands/attach/index.ts",
+          "src/commands/attach/settings.ts",
+          "src/commands/doctor/factory.ts",
+          "src/commands/init.ts",
+          "src/commands/sync/index.ts"
+        ],
+        "owner": "scripts/ports/prepare-tree.ts",
+        "source": "owner",
+        "writers": [
+          "scripts/ports/prepare-tree.ts"
+        ]
+      },
+      "~/.construct/browser-lab/npm-cache": {
+        "derived": false,
+        "directory": true,
+        "namedIn": [
+          "scripts/construct/browser-lab.mjs",
+          "scripts/ports/prepare-tree.ts"
+        ],
+        "owner": "scripts/construct/browser-lab.mjs",
+        "source": "owner",
+        "writers": [
+          "scripts/ports/prepare-tree.ts"
+        ]
+      },
+      "~/.construct/bus.db": {
+        "derived": false,
+        "directory": false,
+        "namedIn": [
+          "scripts/ci/card-runs.ts",
+          "scripts/cli/board-page.ts",
+          "scripts/cli/card.ts",
+          "scripts/cli/check-catalog.ts",
+          "scripts/cli/check-matrix.ts",
+          "scripts/cli/mutate.ts",
+          "scripts/cli/no-layer-recount.ts",
+          "scripts/cli/slot.ts",
+          "scripts/core/bus-path.ts",
+          "scripts/core/inbox.ts",
+          "scripts/core/journal.ts",
+          "scripts/core/machine-sessions.ts",
+          "scripts/core/reducer.ts",
+          "scripts/core/report.ts",
+          "scripts/core/tasks.ts",
+          "scripts/done/check.ts",
+          "scripts/intake/import.ts",
+          "scripts/intake/intake.ts",
+          "scripts/intake/runs-layers-backfill.ts",
+          "scripts/intake/witness-fields-backfill.ts",
+          "scripts/ladder/approve.ts",
+          "scripts/ladder/brief-finish-cli.ts",
+          "scripts/ladder/cleanup.ts",
+          "scripts/ladder/handoff.ts",
+          "scripts/ladder/hash.ts",
+          "scripts/ladder/morse-approve.ts",
+          "scripts/ladder/supervise.ts",
+          "scripts/nodes/answer/answer-worker.ts",
+          "scripts/nodes/answer/answerer.ts",
+          "scripts/nodes/close/close-worker.ts",
+          "scripts/nodes/close/task-close.ts",
+          "scripts/nodes/launch/launch-candidates.ts",
+          "scripts/nodes/launch/launch-worker.ts",
+          "scripts/nodes/launch/tree-pr-cli.ts",
+          "scripts/nodes/merge/merge-worker.ts",
+          "scripts/nodes/restart/restart-worker.ts",
+          "scripts/nodes/review/review-worker.ts",
+          "scripts/nodes/review/reviewer.ts",
+          "scripts/nodes/update/update-worker.ts",
+          "scripts/nodes/witness/witness-worker.ts",
+          "scripts/owner/channel.ts",
+          "scripts/owner/say.ts",
+          "scripts/policy/decisions/add.ts",
+          "scripts/policy/decisions/read.ts",
+          "scripts/policy/shard.ts",
+          "scripts/ports/card-tree.ts",
+          "scripts/ports/netwatch.ts",
+          "scripts/ports/pr-status.ts",
+          "scripts/ports/task-start.ts",
+          "scripts/ports/tree-publish.ts",
+          "scripts/ports/worktree-home.ts",
+          "scripts/release/evidence.ts",
+          "scripts/supervisor/bus-heal.ts",
+          "scripts/supervisor/heartbeat.ts",
+          "scripts/supervisor/review-bg.ts",
+          "scripts/supervisor/run.ts",
+          "scripts/supervisor/start.ts",
+          "scripts/supervisor/supervisor.ts",
+          "scripts/window/card-measure.ts",
+          "scripts/window/compact-start.ts",
+          "scripts/window/exit.ts",
+          "scripts/window/handoff-check.ts",
+          "scripts/window/handoff-write.ts",
+          "scripts/window/loop.ts",
+          "scripts/window/owner-command.ts",
+          "scripts/window/pre-compact.ts",
+          "scripts/window/role-bus.ts",
+          "scripts/window/turn-watch.ts",
+          "scripts/window/watch.ts",
+          "scripts/window/window-agents.ts",
+          "scripts/window/window-request-tools.ts",
+          "scripts/window/window-requests.ts",
+          "scripts/window/window-subagents.ts",
+          "scripts/window/window.ts",
+          "src/commands/attach/beside.ts",
+          "src/commands/cost/index.ts",
+          "src/commands/doctor/factory.ts",
+          "src/commands/intake/admit.ts",
+          "src/program.ts"
+        ],
+        "owner": "src/commands/attach/beside.ts",
+        "source": "owner",
+        "writers": [
+          "src/commands/attach/beside.ts"
+        ]
+      },
+      "~/.construct/bus.db#check_document_reads": {
+        "derived": false,
+        "directory": false,
+        "namedIn": [
+          "scripts/cli/check-catalog.ts"
+        ],
+        "owner": "scripts/cli/check-catalog.ts",
+        "source": "owner",
+        "writers": [
+          "scripts/cli/check-catalog.ts"
+        ]
+      },
+      "~/.construct/bus.db#check_modules": {
+        "derived": false,
+        "directory": false,
+        "namedIn": [
+          "scripts/ci/card-runs.ts",
+          "scripts/cli/check-catalog.ts"
+        ],
+        "owner": "scripts/cli/check-catalog.ts",
+        "source": "owner",
+        "writers": [
+          "scripts/cli/check-catalog.ts"
+        ]
+      },
+      "~/.construct/bus.db#check_mutations": {
+        "derived": false,
+        "directory": false,
+        "namedIn": [
+          "scripts/cli/check-catalog.ts",
+          "scripts/cli/check-matrix.ts"
+        ],
+        "owner": "scripts/cli/check-catalog.ts",
+        "source": "owner",
+        "writers": [
+          "scripts/cli/check-catalog.ts"
+        ]
+      },
+      "~/.construct/bus.db#check_tests": {
+        "derived": false,
+        "directory": false,
+        "namedIn": [
+          "scripts/ci/card-runs.ts",
+          "scripts/cli/check-catalog.ts",
+          "scripts/cli/check-matrix.ts"
+        ],
+        "owner": "scripts/cli/check-catalog.ts",
+        "source": "owner",
+        "writers": [
+          "scripts/cli/check-catalog.ts"
+        ]
+      },
+      "~/.construct/bus.snapshot.db": {
+        "derived": false,
+        "directory": false,
+        "namedIn": [
+          "scripts/core/bus-path.ts",
+          "scripts/supervisor/supervisor.ts"
+        ],
+        "owner": "scripts/core/bus-path.ts",
+        "source": "owner",
+        "writers": []
+      },
+      "~/.construct/bus/answers": {
+        "derived": false,
+        "directory": true,
+        "namedIn": [
+          "scripts/nodes/answer/answer-worker.ts"
+        ],
+        "owner": "scripts/nodes/answer/answer-worker.ts",
+        "source": "owner",
+        "writers": []
+      },
+      "~/.construct/bus/bus-bg.pid": {
+        "derived": false,
+        "directory": false,
+        "namedIn": [
+          "scripts/supervisor/supervisor.ts"
+        ],
+        "owner": "scripts/supervisor/supervisor.ts",
+        "source": "owner",
+        "writers": []
+      },
+      "~/.construct/bus/bus-heal.stop": {
+        "derived": false,
+        "directory": false,
+        "namedIn": [
+          "scripts/supervisor/bus-heal.ts"
+        ],
+        "owner": "scripts/supervisor/bus-heal.ts",
+        "source": "owner",
+        "writers": []
+      },
+      "~/.construct/bus/bus-nodes.json": {
+        "derived": false,
+        "directory": false,
+        "namedIn": [
+          "scripts/supervisor/bus-heal.ts"
+        ],
+        "owner": "scripts/supervisor/bus-heal.ts",
+        "source": "owner",
+        "writers": [
+          "scripts/supervisor/bus-heal.ts"
+        ]
+      },
+      "~/.construct/bus/bus-review.pid": {
+        "derived": false,
+        "directory": false,
+        "namedIn": [
+          "scripts/supervisor/review-bg.ts",
+          "scripts/supervisor/supervisor.ts",
+          "scripts/supervisor/workers.ts"
+        ],
+        "owner": "scripts/supervisor/review-bg.ts",
+        "source": "owner",
+        "writers": []
+      },
+      "~/.construct/bus/bus-run.lock": {
+        "derived": false,
+        "directory": false,
+        "namedIn": [
+          "scripts/supervisor/run.ts"
+        ],
+        "owner": "scripts/supervisor/run.ts",
+        "source": "owner",
+        "writers": [
+          "scripts/supervisor/run.ts"
+        ]
+      },
+      "~/.construct/bus/dry-run-reviews": {
+        "derived": false,
+        "directory": true,
+        "namedIn": [
+          "scripts/nodes/review/dry-run-record.ts",
+          "scripts/nodes/review/review-worker.ts",
+          "scripts/window/window-request-tools.ts"
+        ],
+        "owner": "scripts/nodes/review/dry-run-record.ts",
+        "source": "owner",
+        "writers": []
+      },
+      "~/.construct/bus/launch": {
+        "derived": false,
+        "directory": true,
+        "namedIn": [
+          "scripts/nodes/answer/answer-worker.ts",
+          "scripts/nodes/launch/launch-worker.ts",
+          "scripts/ports/tree-publish.ts",
+          "scripts/window/window-request-tools.ts"
+        ],
+        "owner": "scripts/ports/tree-publish.ts",
+        "source": "owner",
+        "writers": []
+      },
+      "~/.construct/bus/launchd.log": {
+        "derived": false,
+        "directory": false,
+        "namedIn": [
+          "scripts/supervisor/start.ts"
+        ],
+        "owner": "scripts/supervisor/start.ts",
+        "source": "owner",
+        "writers": []
+      },
+      "~/.construct/bus/locks.log": {
+        "derived": false,
+        "directory": false,
+        "namedIn": [
+          "scripts/core/db.ts"
+        ],
+        "owner": "scripts/core/db.ts",
+        "source": "owner",
+        "writers": []
+      },
+      "~/.construct/bus/review.log": {
+        "derived": false,
+        "directory": false,
+        "namedIn": [
+          "scripts/supervisor/review-bg.ts",
+          "scripts/supervisor/workers.ts"
+        ],
+        "owner": "scripts/supervisor/review-bg.ts",
+        "source": "owner",
+        "writers": []
+      },
+      "~/.construct/bus/reviews": {
+        "derived": false,
+        "directory": true,
+        "namedIn": [
+          "scripts/nodes/review/review-worker.ts"
+        ],
+        "owner": "scripts/nodes/review/review-worker.ts",
+        "source": "owner",
+        "writers": []
+      },
+      "~/.construct/bus/supervisor.jsonl": {
+        "derived": false,
+        "directory": false,
+        "namedIn": [
+          "scripts/supervisor/supervisor.ts"
+        ],
+        "owner": "scripts/supervisor/supervisor.ts",
+        "source": "owner",
+        "writers": [
+          "scripts/supervisor/supervisor.ts"
+        ]
+      },
+      "~/.construct/bus/supervisor.log": {
+        "derived": false,
+        "directory": false,
+        "namedIn": [
+          "scripts/supervisor/supervisor.ts"
+        ],
+        "owner": "scripts/supervisor/supervisor.ts",
+        "source": "owner",
+        "writers": []
+      },
+      "~/.construct/bus/workers.json": {
+        "derived": false,
+        "directory": false,
+        "namedIn": [
+          "scripts/supervisor/start.ts",
+          "scripts/supervisor/workers.ts"
+        ],
+        "owner": "scripts/supervisor/workers.ts",
+        "source": "owner",
+        "writers": [
+          "scripts/supervisor/workers.ts"
+        ]
+      },
+      "~/.construct/bus/worktrees": {
+        "derived": false,
+        "directory": true,
+        "namedIn": [
+          "scripts/nodes/close/ended-card-trees.ts",
+          "scripts/nodes/launch/launch-worker.ts",
+          "scripts/nodes/update/update-worker.ts",
+          "scripts/ports/card-tree.ts",
+          "scripts/ports/task-start.ts",
+          "scripts/ports/worktree-home.ts",
+          "scripts/window/tab.ts",
+          "scripts/window/window-agents.ts",
+          "scripts/window/window-request-tools.ts"
+        ],
+        "owner": "scripts/ports/worktree-home.ts",
+        "source": "owner",
+        "writers": []
+      },
+      "~/.construct/engram": {
+        "derived": false,
+        "directory": true,
+        "namedIn": [
+          "src/atlas/index.ts",
+          "src/commands/attach/settings.ts",
+          "src/commands/detach/beside.ts",
+          "src/commands/detach/preview.ts",
+          "src/model/discovery.ts"
+        ],
+        "owner": "src/model/discovery.ts",
+        "source": "owner",
+        "writers": [
+          "src/atlas/index.ts",
+          "src/model/discovery.ts"
+        ]
+      },
+      "~/.construct/handoff": {
+        "derived": false,
+        "directory": true,
+        "namedIn": [
+          "scripts/cli/check-catalog.ts",
+          "scripts/core/handoff-dir.ts",
+          "scripts/intake/import.ts",
+          "scripts/ladder/hash.ts",
+          "scripts/ladder/morse-approve.ts",
+          "scripts/nodes/launch/launch-worker.ts",
+          "scripts/window/compact-start.ts",
+          "scripts/window/handoff-write.ts",
+          "scripts/window/loop.ts",
+          "scripts/window/pre-compact.ts",
+          "scripts/window/turn-watch.ts",
+          "src/commands/doctor/factory.ts",
+          "src/program.ts"
+        ],
+        "owner": "scripts/core/handoff-dir.ts",
+        "source": "owner",
+        "writers": []
+      },
+      "~/.construct/handoff/miko-watch-stalls.json": {
+        "derived": false,
+        "directory": false,
+        "namedIn": [
+          "scripts/window/watch.ts"
+        ],
+        "owner": "scripts/window/watch.ts",
+        "source": "owner",
+        "writers": []
+      },
+      "~/.construct/handoff/miko-watch.db#cursor": {
+        "derived": false,
+        "directory": false,
+        "namedIn": [
+          "scripts/window/watch-store.ts"
+        ],
+        "owner": "scripts/window/watch-store.ts",
+        "source": "owner",
+        "writers": [
+          "scripts/window/watch-store.ts"
+        ]
+      },
+      "~/.construct/handoff/miko-watch.json": {
+        "derived": false,
+        "directory": false,
+        "namedIn": [
+          "scripts/window/watch.ts"
+        ],
+        "owner": "scripts/window/watch.ts",
+        "source": "owner",
+        "writers": []
+      },
+      "~/.construct/machine": {
+        "derived": false,
+        "directory": true,
+        "namedIn": [
+          "scripts/core/machine-sessions.ts"
+        ],
+        "owner": "scripts/core/machine-sessions.ts",
+        "source": "owner",
+        "writers": []
+      },
+      "~/.construct/owner-decisions.md": {
+        "derived": true,
+        "directory": false,
+        "namedIn": [
+          "scripts/core/bus-path.ts",
+          "scripts/nodes/close/task-close.ts",
+          "scripts/policy/decisions.ts",
+          "scripts/policy/decisions/read.ts",
+          "scripts/supervisor/run.ts",
+          "scripts/supervisor/start.ts",
+          "scripts/window/window-request-tools.ts",
+          "src/commands/attach/index.ts",
+          "src/commands/doctor/factory.ts",
+          "src/commands/intake/admit.ts"
+        ],
+        "owner": "scripts/policy/decisions.ts",
+        "source": "table:decisions",
+        "writers": [
+          "scripts/supervisor/start.ts",
+          "src/commands/attach/index.ts"
+        ]
+      },
+      "~/.construct/parking": {
+        "derived": false,
+        "directory": true,
+        "namedIn": [
+          "scripts/intake/import.ts",
+          "src/commands/intake/admit.ts",
+          "src/commands/intake/index.ts",
+          "src/program.ts"
+        ],
+        "owner": "src/commands/intake/index.ts",
+        "source": "owner",
+        "writers": []
+      },
+      "~/.construct/parking/*/lane.json": {
+        "derived": true,
+        "directory": false,
+        "namedIn": [
+          "scripts/intake/card-archive.ts",
+          "scripts/intake/lane-json.ts",
+          "scripts/intake/runs-layers-backfill.ts",
+          "src/commands/intake/admit.ts",
+          "src/commands/intake/amend.ts",
+          "src/program.ts"
+        ],
+        "owner": "scripts/nodes/launch/lane-assign.ts",
+        "source": "event:lane.assigned",
+        "writers": [
+          "scripts/intake/lane-json.ts",
+          "src/commands/intake/admit.ts"
+        ]
+      },
+      "~/.construct/pr-status.off": {
+        "derived": false,
+        "directory": false,
+        "namedIn": [
+          "scripts/ports/pr-status.ts",
+          "scripts/supervisor/run.ts"
+        ],
+        "owner": "scripts/ports/pr-status.ts",
+        "source": "owner",
+        "writers": []
+      },
+      "~/.construct/probes": {
+        "derived": false,
+        "directory": true,
+        "namedIn": [
+          "scripts/window/owner-command.ts",
+          "src/commands/intake/admit.ts",
+          "src/commands/intake/index.ts",
+          "src/commands/intake/shared-code-masks.ts"
+        ],
+        "owner": "scripts/window/owner-command.ts",
+        "source": "owner",
+        "writers": []
+      },
+      "~/.construct/probes/contour-map/contour-map.md": {
+        "derived": false,
+        "directory": false,
+        "namedIn": [
+          "src/commands/intake/admit.ts",
+          "src/commands/intake/index.ts",
+          "src/commands/intake/shared-code-masks.ts"
+        ],
+        "owner": "src/commands/intake/shared-code-masks.ts",
+        "source": "owner",
+        "writers": []
+      },
+      "~/.construct/prompts": {
+        "derived": false,
+        "directory": true,
+        "namedIn": [
+          "scripts/nodes/answer/answer-worker.ts",
+          "scripts/nodes/launch/launch-worker.ts",
+          "scripts/nodes/review/review-worker.ts",
+          "scripts/ports/prompt-store.ts",
+          "src/card/complexity.ts",
+          "src/program.ts",
+          "src/ui/prompts.ts"
+        ],
+        "owner": "scripts/ports/prompt-store.ts",
+        "source": "owner",
+        "writers": []
+      },
+      "~/.construct/quality": {
+        "derived": false,
+        "directory": true,
+        "namedIn": [
+          "scripts/quality/lock.ts"
+        ],
+        "owner": "scripts/quality/lock.ts",
+        "source": "owner",
+        "writers": []
+      },
+      "~/.construct/quality/lock.log": {
+        "derived": false,
+        "directory": false,
+        "namedIn": [
+          "scripts/quality/lock.ts"
+        ],
+        "owner": "scripts/quality/lock.ts",
+        "source": "owner",
+        "writers": [
+          "scripts/quality/lock.ts"
+        ]
+      },
+      "~/.construct/reports": {
+        "derived": false,
+        "directory": true,
+        "namedIn": [
+          "scripts/ci/test-weights.ts"
+        ],
+        "owner": "scripts/ci/test-weights.ts",
+        "source": "owner",
+        "writers": []
+      },
+      "~/.construct/shift/*/shift.jsonl": {
+        "derived": false,
+        "directory": false,
+        "namedIn": [
+          "scripts/core/places.ts",
+          "scripts/release/evidence.ts",
+          "src/commands/cost/cheap.ts"
+        ],
+        "owner": "scripts/core/places.ts",
+        "source": "owner",
+        "writers": []
+      }
+    },
+    "filesVersion": 1
+  },
   "nodes": {
     "declared": {
       "answer": {
