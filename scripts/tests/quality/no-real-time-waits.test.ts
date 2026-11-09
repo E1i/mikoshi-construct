@@ -16,7 +16,7 @@ async function realTimeWaits(source: string, file = PROBES[0]!): Promise<number[
 }
 
 describe('no real-time waits in tests', () => {
-  it('a test that awaits sleep(100) is red under the rule', async () => {
+  it('a test that awaits sleep100 is red under the rule', async () => {
     const source = [
       'import { setTimeout as sleep } from \'node:timers/promises\'',
       'export async function settle(): Promise<void> {',
