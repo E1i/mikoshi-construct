@@ -29,7 +29,7 @@ const AREA_ROOTS: readonly (readonly [string, Area])[] = [
 ]
 const UNSLICEABLE = 'alone hold more reading than one session, so no slice of the volume seam fits; narrow them by hand'
 const SLICES_MIX_RISK = 'its slices by area would still hold R1 together with R3–R4 work, so the risk seam slices instead'
-const VOLUME_PRINCIPLE = 'a card whose reading fills one session context leaves no room for its work, so its touches are cut into slices that each fit; a generated file stays with its sources and a template with its twin; a person confirms the slices or keeps the card whole with the reason written'
+const VOLUME_PRINCIPLE = 'a card whose reading fills one session context leaves no room for its work, so its touches are cut into slices that each fit; a generated file stays with its sources, a lock file with its manifest and a template with its twin; a person confirms the slices or keeps the card whole with the reason written'
 const PRINCIPLE = 'slice by complexity first, by the risk matrix R1–R4 when these slices do not hold; a person confirms the slices or keeps the card whole with the reason written'
 
 export type Area = typeof AREAS[number]
