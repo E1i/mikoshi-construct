@@ -46,10 +46,3 @@ export function sessionLifeIn(table: ProcessTable): LifeOf {
     return snapshot.rows.some(row => row.command.split(/\s+/).includes(session)) ? 'live' : 'dead'
   }
 }
-
-export function sessionPids(table: ProcessTable, session: string): number[] {
-  const snapshot = table.snapshot()
-  if (!snapshot.readable)
-    return []
-  return snapshot.rows.filter(row => row.command.split(/\s+/).includes(session)).map(row => row.pid)
-}

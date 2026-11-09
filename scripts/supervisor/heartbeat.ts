@@ -176,7 +176,7 @@ export function lastHeartbeat(db: DatabaseSync, card: number): LastHeartbeat | n
 }
 
 const BEATS_OF_LEASE = `
-  SELECT ts, json_extract(payload, '$.session') AS session, json_extract(payload, '$.context') AS context, json_extract(payload, '$.spent') AS spent
+  SELECT ts, json_extract(payload, '$.session') AS session, json_extract(payload, '$.context') AS context
   FROM events WHERE type = '${SESSION_HEARTBEAT}' AND legacy = 0 AND json_valid(payload)
     AND json_extract(payload, '$.task_key') = ? AND json_extract(payload, '$.lease_gen') = ?
   ORDER BY id
@@ -186,7 +186,6 @@ export interface LeaseBeat {
   ts: string
   session: string | null
   context: number | null
-  spent: number | null
 }
 
 export function beatsOfLease(db: DatabaseSync, lease: HeldLease): LeaseBeat[] {

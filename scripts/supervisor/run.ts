@@ -28,7 +28,7 @@ import { realRequestTools } from '../window/window-request-tools.js'
 import { WindowRequests } from '../window/window-requests.js'
 import { alive, BUS_RUN_MARKERS, instancesOf, processBeatsOn, psList, RUN_SCRIPT } from './bg.js'
 import { sessionLifeIn } from './recorded-worker.js'
-import { StalledSessions, stopSessionIn } from './stalled-sessions.js'
+import { StalledSessions } from './stalled-sessions.js'
 import { stampLogOutput } from './stamp.js'
 
 export const PREFIX = '[bus:run] '
@@ -230,7 +230,7 @@ export function composeBusTick(db: DatabaseSync, busPath: string, gitHub: GitHub
     }
   }
   const table = new OsProcessTable()
-  const silent = new StalledSessions(db, clock, { lifeOf: sessionLifeIn(table), stop: stopSessionIn(table), prefix: PREFIX })
+  const silent = new StalledSessions(db, clock, { lifeOf: sessionLifeIn(table), prefix: PREFIX })
   const stalled = (): void => {
     for (const line of silent.step())
       console.log(line)

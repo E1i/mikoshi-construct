@@ -10,7 +10,7 @@ import { appendEvent } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_STOPPED } from '../../core/events.js'
 import { LaunchNode } from '../../nodes/launch/launch-worker.js'
 import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
-import { recordedPid, recordedPidLives, sessionLifeIn, sessionPids } from '../../supervisor/recorded-worker.js'
+import { recordedPid, recordedPidLives, sessionLifeIn } from '../../supervisor/recorded-worker.js'
 import { eventsOf, mergeBench } from '../bus/merge-bench.js'
 
 const RECORDED_PID = 4242
@@ -114,7 +114,6 @@ describe('the recorded worker pid', () => {
 
     expect(sessionLifeIn(table)('abc')).toBe('live')
     expect(sessionLifeIn(table)('xyz')).toBe('dead')
-    expect(sessionPids(table, 'abc')).toEqual([100])
     expect(sessionLifeIn({ ...table, snapshot: () => ({ readable: false, reason: 'ps refused' }) })('abc')).toBe('unknown')
   })
 })

@@ -957,13 +957,10 @@
         "keys": [
           "lease_gen",
           "life",
-          "limit",
           "queue",
           "reason",
           "session",
           "since",
-          "spent",
-          "stopped",
           "task_key"
         ]
       },
@@ -1175,7 +1172,6 @@
           "head",
           "id",
           "ids",
-          "keep_tree",
           "kind",
           "mode",
           "need",
