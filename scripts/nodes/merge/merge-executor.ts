@@ -225,6 +225,8 @@ export class MergeExecutor {
           return technical('ci_red', `CI is red on ${lease.head}`)
         if (ci !== 'green')
           return technical('ci_not_ready', `CI is ${ci} on ${lease.head}`)
+        if (verdict === 'changes' && decidedPastRoundLimit === null)
+          return { kind: 'denied', denial: { kind: 'technical', reason: 'no_pass_on_head', detail: `the review verdict on ${lease.head} turned changes; the answer to it brings a new head, and the merge waits for that head`, parkedUntil: 'new_head' } }
         if (verdict !== 'pass' && decidedPastRoundLimit === null)
           return technical('no_pass_on_head', `the review verdict on ${lease.head} is ${verdict ?? 'missing'}, not pass`)
       }
