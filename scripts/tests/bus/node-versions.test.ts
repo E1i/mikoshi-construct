@@ -9,12 +9,12 @@ import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { NODE_DECLARATIONS, nodesSection } from '../../contract/factory/nodes.js'
-import { BUS_VERSION, BUS_VERSION_RECORD, busVersionOf, CARD_VERSION, CARD_VERSION_KEY, cardVersionIn, stampBusVersion, UNRECORDED_VERSION } from '../../core/bus-version.js'
+import { BUS_VERSION, BUS_VERSION_BEFORE_LADDER_RUN, BUS_VERSION_RECORD, busVersionOf, CARD_VERSION, CARD_VERSION_KEY, cardVersionIn, stampBusVersion, UNRECORDED_VERSION } from '../../core/bus-version.js'
 import { admittedCardVersion, appendCardEvent } from '../../core/card-bodies.js'
 import { appendEvent, openBus } from '../../core/db.js'
 import { FACTORY_WORKERS } from '../../core/factory-paths.js'
 import { completeTask } from '../../core/lease.js'
-import { foreignVersion, Node, runNode, SWITCH_FLAG } from '../../core/node.js'
+import { foreignVersion, Node, runNode, SWITCH_FLAG, UNDERSTOOD_NOW } from '../../core/node.js'
 import { queueTaskWithin } from '../../core/queue.js'
 import { Clock } from './github-fake.js'
 
@@ -42,7 +42,7 @@ function busPath(): string {
   return path.join(root, 'bus.db')
 }
 
-const DECLARATION: NodeDeclaration = { kind: 'review', on: ['probe.seen'], understands: { bus: [UNRECORDED_VERSION, BUS_VERSION], card: [CARD_VERSION] } }
+const DECLARATION: NodeDeclaration = { kind: 'review', on: ['probe.seen'], understands: UNDERSTOOD_NOW }
 
 class DeclaredNode extends Node<NodeStep> {
   handled: string[] = []
@@ -63,11 +63,22 @@ class DeclaredNode extends Node<NodeStep> {
   }
 }
 
+const SIBLING_IMPORT = /from '\.\/([\w-]+)\.js'/g
+
+function holdsANode(file: string): boolean {
+  return A_NODE_CLASS.test(readFileSync(file, 'utf8'))
+}
+
+function nodeFileOf(entry: string): string[] {
+  if (holdsANode(entry))
+    return [entry]
+  return [...readFileSync(entry, 'utf8').matchAll(SIBLING_IMPORT)]
+    .map(match => path.join(path.dirname(entry), `${match[1]}.ts`))
+    .filter(holdsANode)
+}
+
 function workerFiles(): string[] {
-  return Object.values(FACTORY_WORKERS)
-    .map(file => path.join(REPO_ROOT, file))
-    .filter(file => A_NODE_CLASS.test(readFileSync(file, 'utf8')))
-    .sort()
+  return [...new Set(Object.values(FACTORY_WORKERS).flatMap(file => nodeFileOf(path.join(REPO_ROOT, file))))].sort()
 }
 
 function isDeclaration(value: unknown): value is NodeDeclaration {
@@ -167,6 +178,22 @@ describe('the node versions', () => {
     db.close()
   })
 
+  it('a bus stamped before ladder.run keeps its stamp and a node of this build still takes its work', async () => {
+    const db = openBus(busPath())
+    const clock = new Clock()
+    const task: QueuedTask = { queue: 'review', cardId: CARD }
+    stampBusVersion(db, BUS_VERSION_BEFORE_LADDER_RUN)
+    storeCard(db, CARD, {})
+    queueTaskWithin(db, clock.now().toISOString(), task)
+    const node = new DeclaredNode(db, clock, [task])
+
+    expect(UNDERSTOOD_NOW.bus).toEqual([UNRECORDED_VERSION, BUS_VERSION_BEFORE_LADDER_RUN, BUS_VERSION])
+    await runOnce(node)
+    expect(node.handled).toHaveLength(1)
+    expect(busVersionOf(db)).toBe(BUS_VERSION_BEFORE_LADDER_RUN)
+    db.close()
+  })
+
   it('an admitted card body carries the card version this build writes', () => {
     const db = openBus(busPath())
     appendCardEvent(db, 'owner', { type: 'card.admitted', cardId: CARD, ts: new Date().toISOString(), dedupeKey: `card.admitted:${CARD}`, payload: { text: '# card\n' } })
@@ -186,7 +213,7 @@ describe('the node versions', () => {
     expect(cardVersionIn(null)).toBe(UNRECORDED_VERSION)
     expect(cardVersionIn(JSON.stringify({ [CARD_VERSION_KEY]: 3 }))).toBe(3)
     expect(foreignVersion(DECLARATION.understands, 'card', CARD_VERSION, 'card #1')).toBeNull()
-    expect(foreignVersion(DECLARATION.understands, 'bus', FOREIGN, 'the bus')).toBe(`the bus carries bus version ${FOREIGN}, and this node understands bus versions ${UNRECORDED_VERSION}, ${BUS_VERSION}; it takes no work from it`)
+    expect(foreignVersion(DECLARATION.understands, 'bus', FOREIGN, 'the bus')).toBe(`the bus carries bus version ${FOREIGN}, and this node understands bus versions ${UNRECORDED_VERSION}, ${BUS_VERSION_BEFORE_LADDER_RUN}, ${BUS_VERSION}; it takes no work from it`)
     db.close()
   })
 })

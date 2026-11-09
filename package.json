@@ -48,7 +48,7 @@
     "bus:close": "node --import tsx scripts/nodes/close/close-worker.ts",
     "bus:import": "node --import tsx scripts/intake/import.ts",
     "bus:inbox": "node --import tsx scripts/core/inbox.ts",
-    "bus:launch": "node --import tsx scripts/nodes/launch/launch-worker.ts",
+    "bus:launch": "node --import tsx scripts/nodes/launch/launch-root.ts",
     "bus:merge": "node --import tsx scripts/nodes/merge/merge-worker.ts",
     "bus:netwatch": "node --import tsx scripts/ports/netwatch.ts",
     "bus:reduce": "node --import tsx scripts/core/reducer.ts",

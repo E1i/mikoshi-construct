@@ -151,10 +151,16 @@ const EXCLUDED_COMMANDS = 'excludedCommands'
 const EXCLUDED_ENTRY = 'excludedCommands entry'
 const STRING_LITERAL = /"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|`(?:[^`\\]|\\.)*`/g
 const ARRAY_PUNCTUATION_ONLY = /^[[\]\s,()]*$/
+const CHILD_PROCESS_IMPORT = 'an import of child_process'
+const FROM_CHILD_PROCESS = /\bfrom\s*["'](?:node:)?child_process["']/g
+const BARE_CHILD_PROCESS_IMPORT = /\bimport\s*["'](?:node:)?child_process["']/
+const IMPORT_KEYWORD = 'import'
+const TYPE_ONLY_CLAUSE = /^type[\s{*]/
+const SIDE_EFFECT_IMPORT = '*side-effect'
 const UNSANDBOXED_LINE_FORMS: readonly { form: string, line: RegExp }[] = [
   { form: 'allowUnsandboxedCommands other than false', line: /allowUnsandboxedCommands(?!["']?\s*[:=]\s*false\b)/ },
   { form: 'dangerouslyDisableSandbox', line: /dangerouslyDisableSandbox/ },
-  { form: 'an import of child_process', line: /child_process/ },
+  { form: CHILD_PROCESS_IMPORT, line: /child_process/ },
   { form: 'a spawn call', line: /(?<![\w$.])(?:execFileSync|execFile|execSync|exec|spawnSync|spawn|fork)\(/ },
 ]
 
@@ -193,8 +199,10 @@ function callsOnSide(hunk: string, side: PatchSide): CommandCall[] {
     const own = mark === side
     const text = line.slice(1)
     const trimmed = text.trim()
-    if (own)
-      calls.push(...UNSANDBOXED_LINE_FORMS.filter(({ line: form }) => form.test(text)).map(({ form }) => ({ form, text: trimmed })))
+    if (own) {
+      const importLine = new RegExp(FROM_CHILD_PROCESS.source).test(text) || BARE_CHILD_PROCESS_IMPORT.test(text)
+      calls.push(...UNSANDBOXED_LINE_FORMS.filter(({ form, line: pattern }) => pattern.test(text) && !(importLine && form === CHILD_PROCESS_IMPORT)).map(({ form }) => ({ form, text: trimmed })))
+    }
     let inside: string | undefined
     if (depth > 0) {
       inside = text
@@ -226,8 +234,54 @@ function callsOnSide(hunk: string, side: PatchSide): CommandCall[] {
   return calls
 }
 
+function sideText(hunk: string, side: PatchSide): string {
+  return hunk.split('\n').slice(1).filter(line => line[0] === ' ' || line[0] === side).map(line => line.slice(1)).join('\n')
+}
+
+function importedSymbolsOf(clause: string): string[] {
+  const symbols: string[] = []
+  const named = /\{(?<names>[^}]*)\}/.exec(clause)
+  for (const entry of (named?.groups?.names ?? '').split(',')) {
+    const name = entry.trim()
+    if (name !== '' && !name.startsWith('type '))
+      symbols.push(name.split(/\s+as\s+/)[0]!.trim())
+  }
+  const outside = clause.replace(/\{[^}]*\}/, '')
+  if (/\*\s*as\s/.test(outside))
+    symbols.push('*')
+  if (/^\s*[\w$]+\s*(?:,|$)/.test(outside))
+    symbols.push('default')
+  return symbols
+}
+
+function childProcessSymbolsOn(hunks: readonly string[], side: PatchSide): Set<string> {
+  const symbols = new Set<string>()
+  for (const hunk of hunks) {
+    const text = sideText(hunk, side)
+    if (BARE_CHILD_PROCESS_IMPORT.test(text))
+      symbols.add(SIDE_EFFECT_IMPORT)
+    for (const match of text.matchAll(FROM_CHILD_PROCESS)) {
+      const head = text.slice(0, match.index)
+      const start = head.lastIndexOf(IMPORT_KEYWORD)
+      const clause = start === -1 ? '' : head.slice(start + IMPORT_KEYWORD.length).trim()
+      if (!TYPE_ONLY_CLAUSE.test(clause))
+        importedSymbolsOf(clause).forEach(symbol => symbols.add(symbol))
+    }
+  }
+  return symbols
+}
+
+function newChildProcessSymbolIn(hunks: readonly string[]): CommandCall | undefined {
+  const removed = childProcessSymbolsOn(hunks, '-')
+  const added = [...childProcessSymbolsOn(hunks, '+')].find(symbol => !removed.has(symbol))
+  return added === undefined ? undefined : { form: CHILD_PROCESS_IMPORT, text: added }
+}
+
 function newCommandCallIn(patch: string): CommandCall | undefined {
   const hunks = patch.split(HUNK_START).filter(hunk => hunk.startsWith('@@'))
+  const symbol = newChildProcessSymbolIn(hunks)
+  if (symbol !== undefined)
+    return symbol
   const removed = new Map<string, number>()
   for (const call of hunks.flatMap(hunk => callsOnSide(hunk, '-')))
     removed.set(callKey(call), (removed.get(callKey(call)) ?? 0) + 1)

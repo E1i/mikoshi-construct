@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { busDirOf } from '../../core/bus-path.js'
 import { appendEvent, openBus } from '../../core/db.js'
 import { CARD_STARTED } from '../../core/events.js'
-import { handoffLadderSteps, realStarterPorts } from '../../nodes/launch/launch-worker.js'
+import { handoffLadderSteps, realStarterPorts } from '../../nodes/launch/launch-root.js'
 import { cardTree, cardTreeRoots, DEFAULT_WORKTREE_HOME, WORKTREE_HOME_VARIABLE } from '../../ports/worktree-home.js'
 import { realRequestTools } from '../../window/window-request-tools.js'
 

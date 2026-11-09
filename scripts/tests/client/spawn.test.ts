@@ -220,7 +220,7 @@ it('every spawn point takes the golden argv from the adapter', async () => {
   }
 })
 
-const SPAWN_FILES = ['ports/session.ts', 'nodes/answer/answerer.ts', 'nodes/launch/launch-worker.ts', 'nodes/launch/tree-pr-cli.ts']
+const SPAWN_FILES = ['ports/session.ts', 'nodes/answer/answerer.ts', 'nodes/launch/launch-root.ts', 'nodes/launch/tree-pr-cli.ts']
 
 it('the client binary literal is gone from the spawn files', () => {
   for (const file of SPAWN_FILES) {

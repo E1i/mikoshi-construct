@@ -27,7 +27,7 @@ describe('a path moved in the factory registry', () => {
     expect(USAGE).toContain(`${MOVED}/window/window.ts`)
     expect(treePrCommand('/repo')).toContain(`${MOVED}/nodes/launch/tree-pr-cli.ts`)
     expect(LOOP_SCRIPT).toBe(`${MOVED}/window/loop.ts`)
-    const { HEADER_FILE } = await import('../../nodes/launch/launch-worker.js')
+    const { HEADER_FILE } = await import('../../nodes/launch/launch-root.js')
     const { BRIEF_FINISH_CLI } = await import('../../ladder/ladder-starter.js')
     const { OWNER_AGENT, OWNER_AGENT_FILE } = await import('../../core/bus-path.js')
     expect(TREE_PR_ENTRY).toBe(`${MOVED}/nodes/launch/tree-pr-cli`)
