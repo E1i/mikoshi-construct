@@ -1,15 +1,17 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { BudgetLine } from '../../core/eddies.js'
 import type { Lease } from '../../core/lease.js'
 import type { QueuedTask } from '../../core/queue.js'
 import type { SessionLife } from '../../supervisor/recorded-worker.js'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { appendEvent, openBus } from '../../core/db.js'
-import { CARD_SESSION_ENDED, PR_OPENED, SESSION_HEARTBEAT, SESSION_STALLED } from '../../core/events.js'
+import { CARD_SESSION_ENDED, CARD_STARTED, PR_OPENED, SESSION_HEARTBEAT, SESSION_STALLED } from '../../core/events.js'
 import { leaseQueued } from '../../core/lease.js'
 import { keyOf, queueTask } from '../../core/queue.js'
+import { REVIEW_CEILING_MS } from '../../nodes/review/reviewer.js'
 import { NO_PROGRESS_LINES, StalledSessions } from '../../supervisor/stalled-sessions.js'
 
 const LEASED_AT = Date.parse('2026-11-09T08:00:00.000Z')
@@ -43,13 +45,26 @@ function beat(db: DatabaseSync, lease: Lease, minutes: number, context: number):
   appendEvent(db, { ts: at(minutes).toISOString(), type: SESSION_HEARTBEAT, actor: `worker:${lease.queue}:worker-1`, cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${SESSION_HEARTBEAT}:${lease.taskKey}:${minutes}`, payload: { task_key: lease.taskKey, lease_gen: lease.leaseGen, session: SESSION, context }, legacy: false })
 }
 
-function watching(db: DatabaseSync, life: SessionLife): (minutes: number) => string[] {
+interface Watch {
+  sweepAt: (minutes: number) => string[]
+  stopped: string[]
+}
+
+function stopping(db: DatabaseSync, life: SessionLife, spend: BudgetLine | null = null): Watch {
   let now = at(0)
-  const watch = new StalledSessions(db, () => now, { lifeOf: () => life })
-  return (minutes) => {
-    now = at(minutes)
-    return watch.step()
+  const stopped: string[] = []
+  const watch = new StalledSessions(db, () => now, { lifeOf: () => life, stop: session => stopped.push(session), spendOf: () => spend })
+  return {
+    stopped,
+    sweepAt: (minutes) => {
+      now = at(minutes)
+      return watch.step()
+    },
   }
+}
+
+function watching(db: DatabaseSync, life: SessionLife): (minutes: number) => string[] {
+  return stopping(db, life).sweepAt
 }
 
 function payloadsOf(db: DatabaseSync, type: string): Record<string, unknown>[] {
@@ -61,7 +76,10 @@ function stateOf(db: DatabaseSync, lease: Lease): string {
 }
 
 const LAUNCH: QueuedTask = { queue: 'launch', cardId: 1881, generation: 'g1' }
+const REVIEW: QueuedTask = { queue: 'review', cardId: 1882, pr: 1882, head: 'b'.repeat(40) }
 const launchLine = NO_PROGRESS_LINES.launch / 60_000
+const reviewLine = NO_PROGRESS_LINES.review / 60_000
+const reviewCeiling = REVIEW_CEILING_MS / 60_000
 
 describe('the silent card and answer sessions', () => {
   it('a session expected to push with no push and no new step past the line is closed and requeued when its process is dead', () => {
@@ -135,5 +153,77 @@ describe('the silent card and answer sessions', () => {
     expect(asked).toBe(0)
     expect(payloadsOf(db, SESSION_STALLED)).toMatchObject([{ session: null, life: 'unknown' }])
     expect(stateOf(db, lease)).toBe('leased')
+  })
+
+  it('a session whose spend reaches the limit is stopped with a window event naming the spend', () => {
+    const { db, lease } = busWith(LAUNCH)
+    beat(db, lease, 1, 1000)
+    const spend: BudgetLine = { event: 'budget-stop', level: 'session-spend', spent: 41.5, limit: 40, tool: null, at: at(2).toISOString(), session: SESSION }
+    const watch = stopping(db, 'live', spend)
+
+    expect(watch.sweepAt(2)).toEqual([expect.stringContaining('spent 41.5 against the Eddies limit 40')])
+    expect(watch.stopped).toEqual([SESSION])
+    expect(payloadsOf(db, SESSION_STALLED)).toMatchObject([{ session: SESSION, reason: expect.stringContaining('spent 41.5 against the Eddies limit 40 and was stopped') }])
+  })
+
+  it('the spend stop is read from the Eddies journal of the card tree, for that session only', () => {
+    const { db, lease } = busWith(LAUNCH)
+    const tree = mkdtempSync(path.join(tmpdir(), 'stalled-sessions-tree-'))
+    roots.push(tree)
+    mkdirSync(path.join(tree, '.construct'))
+    const line = (session: string, level: string, spent: number): string => JSON.stringify({ event: 'budget-stop', level, spent, limit: 40, tool: null, at: at(2).toISOString(), session_id: session })
+    writeFileSync(path.join(tree, '.construct', 'eddies.jsonl'), `${[line('another-session', 'session-spend', 90), line(SESSION, 'context', 70), line(SESSION, 'session-spend', 44)].join('\n')}\n`)
+    appendEvent(db, { ts: at(0).toISOString(), type: CARD_STARTED, actor: 'worker:launch:worker-1', cardId: lease.cardId, pr: null, head: null, dedupeKey: `${CARD_STARTED}:${lease.taskKey}`, payload: { worktree: tree }, legacy: false })
+    beat(db, lease, 1, 1000)
+    const stopped: string[] = []
+    let now = at(2)
+    const watch = new StalledSessions(db, () => now, { lifeOf: () => 'live', stop: session => stopped.push(session) })
+
+    expect(watch.step()).toEqual([expect.stringContaining('spent 44 against the Eddies limit 40')])
+    expect(stopped).toEqual([SESSION])
+    now = at(4)
+    expect(watch.step()).toEqual([])
+  })
+
+  it('a session under the spend limit is not stopped before its no-progress line', () => {
+    const { db, lease } = busWith(LAUNCH)
+    beat(db, lease, 1, 1000)
+    const watch = stopping(db, 'live')
+
+    expect(watch.sweepAt(2)).toEqual([])
+    expect(watch.stopped).toEqual([])
+  })
+})
+
+describe('the silent review sessions', () => {
+  it('a review session with no new step and no output past the no-progress line is ended at that line, before its ceiling', () => {
+    const { db, lease } = busWith(REVIEW)
+    beat(db, lease, 1, 5000)
+    const watch = stopping(db, 'live')
+
+    expect(watch.sweepAt(reviewLine)).toEqual([])
+    expect(watch.sweepAt(reviewLine + 2)).toEqual([expect.stringContaining('ended before its ceiling')])
+    expect(watch.stopped).toEqual([SESSION])
+    expect(reviewLine + 2).toBeLessThan(reviewCeiling)
+  })
+
+  it('a review session that keeps making steps is not ended before its ceiling', () => {
+    const { db, lease } = busWith(REVIEW)
+    const watch = stopping(db, 'live')
+    for (let minute = 1; minute < reviewCeiling; minute++) {
+      beat(db, lease, minute, 5000 + minute * 100)
+      expect(watch.sweepAt(minute + 0.5)).toEqual([])
+    }
+    expect(watch.stopped).toEqual([])
+  })
+
+  it('a review session whose context does not grow past the no-progress line is ended there although its heartbeat is alive', () => {
+    const { db, lease } = busWith(REVIEW)
+    const watch = stopping(db, 'live')
+    for (let minute = 1; minute <= reviewLine + 1; minute++)
+      beat(db, lease, minute, 62659)
+
+    expect(watch.sweepAt(reviewLine + 1.5)).toEqual([expect.stringContaining('its context did not grow')])
+    expect(watch.stopped).toEqual([SESSION])
   })
 })
