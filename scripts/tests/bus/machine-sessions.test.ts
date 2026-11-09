@@ -1,6 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { MachineClaimant, MachineRecord } from '../../core/machine-sessions.js'
-import type { AnswerRun } from '../../nodes/answer/answerer.js'
+import type { AnswerRun } from '../../nodes/answer/duties/index.js'
 import type { CardStart, CardStarter, LaunchDenial, QueuedCard, StartedCard } from '../../nodes/launch/launch-executor.js'
 import type { SessionContinuer } from '../../nodes/launch/launch-starter.js'
 import type { SpawnSessionParams } from '../../ports/session.js'

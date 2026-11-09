@@ -1,4 +1,4 @@
-import type { AnswerRun } from '../../nodes/answer/answerer.js'
+import type { AnswerRun } from '../../nodes/answer/duties/index.js'
 import type { StarterPorts } from '../../nodes/launch/launch-starter.js'
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
