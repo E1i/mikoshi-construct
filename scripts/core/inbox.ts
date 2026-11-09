@@ -7,7 +7,7 @@ import { CARD_BODIES } from './card-bodies.js'
 import { CARD_BLOCKS, CLOSED_WAIT, defaultBusPath, openBus, OWNER_WAITS } from './db.js'
 import { CARD_ADMITTED, CARD_STOPPED, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, POLICY_DENIED, QUESTION_OWNER, SHARD_DECIDED, WINDOW_REQUEST } from './events.js'
 
-export const RESTART_MISSED = 'supervisor.restart_missed'
+export { RESTART_MISSED } from './events.js'
 export const OWNER = 'owner'
 export const ANSWER_SOURCE = 'answer'
 export const PREFIX = '[bus:inbox] '

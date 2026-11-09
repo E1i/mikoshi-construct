@@ -1,6 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { OwnerDecision } from '../decisions.js'
-import { realpathSync } from 'node:fs'
+import type { Decision } from './decisions.js'
+import { closeSync, openSync, readFileSync, realpathSync, rmSync, writeSync } from 'node:fs'
 import os from 'node:os'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
@@ -32,6 +33,7 @@ export interface DecisionsAddDeps {
   read: (file: string) => string
   write: (file: string, text: string) => void
   remove: (file: string) => void
+  lock?: (file: string) => (() => void) | string
   record: (decision: OwnerDecision) => void
   held?: () => readonly number[]
   settled: (card: number) => boolean
@@ -103,6 +105,12 @@ export function sourceRefusal(text: string): string | null {
   return `${PREFIX}${source}: decisions:add writes only the owner's own words, a record that starts with ${OWNER_SOURCE}; nothing written`
 }
 
+function wholeNumbersLeaving(decisions: readonly Decision[], outOfForce: ReadonlySet<number>): Decision[] {
+  const leaving = decisions.filter(decision => decision.supersededBy !== null || outOfForce.has(decision.line))
+  const staying = new Set(decisions.filter(decision => !leaving.includes(decision)).map(decision => decision.number))
+  return leaving.filter(decision => !staying.has(decision.number))
+}
+
 export function planAdd(read: string, archive: string, { text: record, supersedes, cards, until }: AddArgs, now: Date, settled: (card: number) => boolean = () => false, held: readonly number[] = []): AddPlan | string {
   const text = settleSupersedes(read, archive)
   const { decisions } = parseDecisions(text)
@@ -111,13 +119,13 @@ export function planAdd(read: string, archive: string, { text: record, supersede
   const number = Math.max(0, ...decisions.map(decision => decision.number), ...archivedNumbers, ...held) + 1
   const lines = text.split('\n')
   for (const target of supersedes) {
-    const decision = decisions.find(candidate => candidate.number === target)
-    if (decision === undefined)
+    const records = decisions.filter(candidate => candidate.number === target)
+    if (records.length === 0)
       return `${PREFIX}--supersedes D-${target}: not a decision in the file; nothing written`
-    if (decision.supersededBy === null)
+    for (const decision of records.filter(record => record.supersededBy === null))
       lines[decision.line - 1] = `${lines[decision.line - 1]!.trimEnd()} · superseded-by D-${number}`
   }
-  const marked = parseDecisions(lines.join('\n')).decisions.filter(decision => decision.supersededBy !== null || outOfForce.has(decision.line))
+  const marked = wholeNumbersLeaving(parseDecisions(lines.join('\n')).decisions, outOfForce)
   const movedLines = new Set(marked.map(decision => decision.line))
   const kept = lines.filter((_, index) => !movedLines.has(index + 1))
   const line = `- D-${number} · ${stampOf(now)} — ${record}${cardTail(cards)}${untilTail(until)} · ${WRITER_MARKER}`
@@ -129,6 +137,50 @@ export function planAdd(read: string, archive: string, { text: record, supersede
     archive: moved === '' ? archive : `${archive === '' ? ARCHIVE_HEADER : archive.replace(/\n*$/, '\n')}${moved}`,
     archived: marked.map(decision => decision.number),
   }
+}
+
+const LOCK_ATTEMPTS = 50
+const LOCK_PAUSE_MS = 100
+
+export function lockFileOf(file: string): string {
+  return `${file}.lock`
+}
+
+function holderOf(lockFile: string): string {
+  try {
+    return readFileSync(lockFile, 'utf8').trim()
+  }
+  catch {
+    return ''
+  }
+}
+
+function pause(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
+}
+
+function lockRefusal(lockFile: string): string {
+  const holder = holderOf(lockFile)
+  const named = /^[1-9]\d*$/.test(holder) ? `process ${holder}` : 'another decisions:add'
+  return `${PREFIX}${lockFile} is held by ${named}; nothing written. Run decisions:add again; if no decisions:add is running, remove ${lockFile} first`
+}
+
+export function takeFileLock(lockFile: string, attempts = LOCK_ATTEMPTS, pauseMs = LOCK_PAUSE_MS): (() => void) | string {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      const descriptor = openSync(lockFile, 'wx')
+      writeSync(descriptor, String(process.pid))
+      closeSync(descriptor)
+      return () => rmSync(lockFile, { force: true })
+    }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST')
+        throw error
+      if (attempt + 1 < attempts)
+        pause(pauseMs)
+    }
+  }
+  return lockRefusal(lockFile)
 }
 
 function recordFailure(error: unknown): string {
@@ -151,6 +203,20 @@ export function runDecisionsAdd(args: string[], deps: DecisionsAddDeps): number 
     deps.err(`${PREFIX}no decisions at ${file}`)
     return 1
   }
+  const release = (deps.lock ?? (target => takeFileLock(lockFileOf(target))))(file)
+  if (typeof release === 'string') {
+    deps.err(release)
+    return 1
+  }
+  try {
+    return addUnderLock(file, parsed, deps)
+  }
+  finally {
+    release()
+  }
+}
+
+function addUnderLock(file: string, parsed: Required<AddArgs>, deps: DecisionsAddDeps): number {
   const archiveFile = archiveOf(file)
   const original = deps.read(file)
   const archiveExisted = deps.exists(archiveFile)
@@ -161,11 +227,15 @@ export function runDecisionsAdd(args: string[], deps: DecisionsAddDeps): number 
     deps.err(plan)
     return 1
   }
+  const holds = (target: string, text: string): boolean => deps.exists(target) && deps.read(target) === text
   const restore = (): void => {
-    deps.write(file, original)
+    if (holds(file, plan.file))
+      deps.write(file, original)
+    if (plan.archive === originalArchive || !holds(archiveFile, plan.archive))
+      return
     if (archiveExisted)
       deps.write(archiveFile, originalArchive)
-    else if (deps.exists(archiveFile))
+    else
       deps.remove(archiveFile)
   }
   try {

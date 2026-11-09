@@ -27,6 +27,7 @@ export interface SlicedCard {
   risk: string[]
   slices: CardSlice[]
   text: string
+  whole?: string
 }
 
 export type Slice = { kind: 'sliced', cards: SlicedCard[] } | { kind: 'refused', reasons: string[] }
@@ -147,11 +148,15 @@ export function sliceCards(cards: readonly CheckedCard[], numbers: readonly numb
     const volumeSlices = split.slices.length > 0 ? [] : volume.slices
     const read = riskReading(card.touches.filter(entry => !card.covering.includes(entry)), split.slices.length > 0 || volumeSlices.length > 0)
     const keptWhole = card.whole === undefined ? riskWholeReason(read, card.size) : null
-    const reading = keptWhole === null ? read : { ...read, slices: [], capabilityDelivery: false }
     const whole = card.whole ?? keptWhole ?? undefined
-    const proposed = [...split.slices.map(slice => slice.touches), ...volumeSlices, ...reading.slices.map(slice => slice.touches)]
+    const reading = whole === undefined ? read : { ...read, slices: [], capabilityDelivery: false }
+    const proposed = whole === undefined ? [...split.slices.map(slice => slice.touches), ...volumeSlices, ...reading.slices.map(slice => slice.touches)] : []
     const order = sliceDepends(proposed, sources)
-    const seam = [...importNotes[index]!, ...seamLines(split, order), ...volumeLines({ ...volume, slices: volumeSlices }, order)]
+    const seam = [
+      ...importNotes[index]!,
+      ...seamLines(whole === undefined ? split : { ...split, slices: [] }, order),
+      ...volumeLines({ ...volume, slices: whole === undefined ? volumeSlices : [] }, order),
+    ]
     const risk = riskLines(reading, order)
     const heldForSlicing = whole === undefined && proposed.length > 0
     if (heldForSlicing && slicedByItsText(card))
@@ -174,7 +179,7 @@ export function sliceCards(cards: readonly CheckedCard[], numbers: readonly numb
     const parsed = parseParkingFile(file, text)
     if (parsed.kind === 'refused')
       reasons.push(`${card.name}: ${parsed.reason}`)
-    return { id, file, line, who, unclear, corrections, seam, risk, slices, text }
+    return { id, file, line, who, unclear, corrections, seam, risk, slices, text, ...(whole === undefined ? {} : { whole: whole.trim() }) }
   })
   return reasons.length > 0 ? { kind: 'refused', reasons } : { kind: 'sliced', cards: sliced }
 }

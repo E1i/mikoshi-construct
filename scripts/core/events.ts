@@ -94,6 +94,7 @@ export const SHARD_ISSUED = 'shard.issued'
 export const SHARD_REVOKED = 'shard.revoked'
 export const SHARD_USED = 'shard.used'
 export const RESTARTED = 'supervisor.restarted'
+export const RESTART_MISSED = 'supervisor.restart_missed'
 export const TASK_COMPLETED = 'task.completed'
 export const TASK_ENQUEUED = 'task.enqueued'
 export const TASK_EXPIRED = 'task.expired'
@@ -218,6 +219,7 @@ export const EVENT_PAYLOADS = {
   [SHARD_REVOKED]: ['id'],
   [SHARD_USED]: ['commit', 'id'],
   [RESTARTED]: ['sha'],
+  [RESTART_MISSED]: ['limit_ms', 'sha', 'waited_ms'],
   [TASK_COMPLETED]: ['generation', 'lease_gen', 'queue', 'task_key'],
   [TASK_ENQUEUED]: ['failure', 'fault', 'generation', 'queue', 'task_key'],
   [TASK_EXPIRED]: ['detail', 'failures', 'reason', 'task_key', 'withdraw'],
@@ -231,7 +233,7 @@ export const EVENT_PAYLOADS = {
   [TOUCHES_FOLLOWED]: ['paths', 'reason'],
   [UPDATE_DONE]: ['carried', 'clean', 'from', 'lease_gen', 'rebuilt', 'rules_version', 'task_key', 'to', 'tookMain', 'why'],
   [WINDOW_HEARTBEAT]: ['context', 'error', 'mode', 'model', 'reason', 'root', 'session', 'spent', 'subagents'],
-  [WINDOW_REQUEST]: ['add_witness', 'answer', 'auto_confirm', 'card', 'cards', 'command', 'depends', 'dry_run', 'file', 'from', 'gate', 'goal', 'head', 'id', 'ids', 'kind', 'mode', 'need', 'op', 'owner_words', 'plan', 'pr', 'reason', 'remove_witness', 'supersedes', 'task_key', 'text', 'title', 'touches', 'until'],
+  [WINDOW_REQUEST]: ['add_witness', 'answer', 'auto_confirm', 'card', 'cards', 'command', 'depends', 'dry_run', 'file', 'from', 'gate', 'goal', 'head', 'id', 'ids', 'keep_tree', 'kind', 'mode', 'need', 'op', 'owner_words', 'plan', 'pr', 'reason', 'remove_witness', 'supersedes', 'task_key', 'text', 'title', 'touches', 'until'],
   [REQUEST_DONE]: ['detail', 'kind', 'request'],
   [REQUEST_REFUSED]: ['detail', 'kind', 'owner', 'request'],
   [WINDOW_SUBAGENT_EVENT]: ['phase', 'role', 'session', 'step', 'task', 'tree'],

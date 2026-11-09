@@ -1,5 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
-import type { CardRunsSource } from '../ci/card-runs.js'
+import type { CardRuns, CardRunsSource } from '../ci/card-runs.js'
 import type { Graph } from '../ci/layers.js'
 import type { LayerMap, ReadFile } from '../core/layer-map.js'
 import type { CardBody } from '../intake/parking-reads.js'
@@ -11,12 +11,13 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { parseMutationFile } from '../../src/commands/mutate/lines.js'
-import { cardRunsOf, catalogLayersByTest, catalogModuleLayers, hasTable, NO_LAYER, runsSourceOfPr } from '../ci/card-runs.js'
+import { cardRunsOf, catalogLayersByTest, catalogModuleLayers, hasTable, LayerWithoutTests, NO_LAYER, runsSourceOfPr } from '../ci/card-runs.js'
 import { BUS_SHARED, BUS_TESTS, isTest, selectRun } from '../ci/layers.js'
 import { cruise } from '../ci/select.js'
 import { scansATree, walksATree } from '../ci/tree-scanners.js'
 import { BUS_DB_VARIABLE, BUSY_TIMEOUT_MS, defaultBusPath } from '../core/db.js'
 import { GHOST_LINE, POLICY_DENIED } from '../core/events.js'
+import { FACTORY_FOLDERS } from '../core/factory-paths.js'
 import { DOCS_LAYER, isTestInfrastructure, LAYER_MAP, layerOf, layersInOf, layersOf, layersReachedByImports, readLayerMap, recordsOf } from '../core/layer-map.js'
 import { legacyHistory } from '../core/legacy-history.js'
 import { openDatabase } from '../core/sqlite.js'
@@ -42,6 +43,8 @@ const DOCUMENT_READER = /^(?:scripts|src|tests)\/.+\.[cm]?[jt]s$/
 const DOCUMENT_NAME = /(?<![\w./-])(?:[\w.-]+\/)*[\w.-]+\.md\b/g
 const DOCUMENT_TREE = /['"`]((?:\.{1,2}\/)*(?:architecture|docs)(?:\/[\w-]+)*)\/?['"`]/g
 const LEADING_DOTS = /^(?:\.{1,2}\/)+/
+const SCRIPT_FOLDER = /^scripts\/([^/]+)\/$/
+const FACTORY_TESTS = FACTORY_FOLDERS.tests[0]
 
 export const RERUN_VARIABLE = 'BUS_RERUN'
 export const RERUN_MODES = ['as-now', 'by-layers'] as const
@@ -140,7 +143,20 @@ function layersByTest(graph: Graph, testText: (test: string) => string): Map<str
   }
   for (const test of [...graph.keys()].filter(file => isTest(file) && readsDocuments(testText(file))))
     byTest.set(test, [...new Set([...(byTest.get(test) ?? []), DOCS_LAYER])].sort())
+  const testFolders = testFoldersOfLayers(readLayerMap())
+  for (const test of [...graph.keys()].filter(isTest)) {
+    const own = testFolders.filter(([folder]) => test.startsWith(folder)).map(([, layer]) => layer)
+    if (own.length > 0)
+      byTest.set(test, [...new Set([...(byTest.get(test) ?? []), ...own])].sort())
+  }
   return byTest
+}
+
+export function testFoldersOfLayers(map: LayerMap): [string, string][] {
+  return Object.entries(map.folders).flatMap(([folder, layer]): [string, string][] => {
+    const name = SCRIPT_FOLDER.exec(folder)?.[1]
+    return name === undefined ? [] : [[`${FACTORY_TESTS}/${name}/`, layer]]
+  })
 }
 
 function readsDocuments(text: string): boolean {
@@ -451,7 +467,15 @@ export function overlapWithMain(db: DatabaseSync, prFiles: readonly string[], ma
   const unplaced = [...placedPr, ...placedMain].find(([, layers]) => layers === null)
   if (unplaced !== undefined)
     return `${unplaced[0]} belongs to no layer of the check catalog`
-  const reading = card === null ? null : cardRunsOf(card, { testLayers: byTest, moduleLayers: modules }, map)
+  let reading: CardRuns | null
+  try {
+    reading = card === null ? null : cardRunsOf(card, { testLayers: byTest, moduleLayers: modules }, map)
+  }
+  catch (error) {
+    if (error instanceof LayerWithoutTests)
+      return error.message
+    throw error
+  }
   if (reading !== null && 'full' in reading)
     return reading.why
   const records = recordsOf(map)
