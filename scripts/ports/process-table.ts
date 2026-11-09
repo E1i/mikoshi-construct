@@ -29,6 +29,7 @@ const CWD_FIELD = 'n'
 const NO_CLIENT_FOUND = 1
 const SAMPLE_ARGS = ['-l', '2', '-s', '1', '-n', '1000', '-stats', 'command,cpu']
 const SAMPLE_BUFFER = 1 << 26
+const LISTING_BUFFER = 1 << 26
 
 function firstLine(error: unknown): string {
   return (error instanceof Error ? error.message : String(error)).split('\n')[0]!.trim()
@@ -67,7 +68,7 @@ function cwdsIn(output: string): string[] {
 export class OsProcessTable implements ProcessTable {
   snapshot(): ProcessSnapshot {
     try {
-      return { readable: true, rows: parseListing(execFileSync('ps', LISTING_COLUMNS, { encoding: 'utf8', env: { ...process.env, LC_ALL: 'C' }, stdio: ['ignore', 'pipe', 'pipe'] })) }
+      return { readable: true, rows: parseListing(execFileSync('ps', LISTING_COLUMNS, { encoding: 'utf8', env: { ...process.env, LC_ALL: 'C' }, stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: LISTING_BUFFER })) }
     }
     catch (error) {
       return { readable: false, reason: firstLine(error) }
