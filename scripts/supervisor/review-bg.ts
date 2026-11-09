@@ -1,4 +1,4 @@
-import type { BgResult, DetachedLaunch, ProcessList, RunningProcess } from './bg.js'
+import type { BgResult, DetachedLaunch, ProcessList } from './bg.js'
 import { existsSync, realpathSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
