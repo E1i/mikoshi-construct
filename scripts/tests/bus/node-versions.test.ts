@@ -63,11 +63,22 @@ class DeclaredNode extends Node<NodeStep> {
   }
 }
 
+const SIBLING_IMPORT = /from '\.\/([\w-]+)\.js'/g
+
+function holdsANode(file: string): boolean {
+  return A_NODE_CLASS.test(readFileSync(file, 'utf8'))
+}
+
+function nodeFileOf(entry: string): string[] {
+  if (holdsANode(entry))
+    return [entry]
+  return [...readFileSync(entry, 'utf8').matchAll(SIBLING_IMPORT)]
+    .map(match => path.join(path.dirname(entry), `${match[1]}.ts`))
+    .filter(holdsANode)
+}
+
 function workerFiles(): string[] {
-  return Object.values(FACTORY_WORKERS)
-    .map(file => path.join(REPO_ROOT, file))
-    .filter(file => A_NODE_CLASS.test(readFileSync(file, 'utf8')))
-    .sort()
+  return [...new Set(Object.values(FACTORY_WORKERS).flatMap(file => nodeFileOf(path.join(REPO_ROOT, file))))].sort()
 }
 
 function isDeclaration(value: unknown): value is NodeDeclaration {

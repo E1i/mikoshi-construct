@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { isSessionAlive } from '../../ladder/watch-process.js'
-import { launchIsolationCommand } from '../../nodes/launch/launch-worker.js'
+import { launchIsolationCommand } from '../../nodes/launch/launch-root.js'
 import { reviewIsolationCommand } from '../../nodes/review/review-worker.js'
 import { clientAdapter } from '../../ports/client/index.js'
 import { CLIENT_CWDS_COMMAND } from '../../ports/process-table.js'
