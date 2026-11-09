@@ -1,7 +1,7 @@
 import type { BusEvent } from '../core/db.js'
 import type { WindowShard } from '../policy/shards.js'
 import type { GhCaller } from '../ports/gh.js'
-import type { BgResult } from './bg.js'
+import type { BgResult, ProcessList, RunningProcess } from './bg.js'
 import type { BusWorker, FactoryMode } from './workers.js'
 import { spawnSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
@@ -9,6 +9,7 @@ import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
+import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { agentLabel, BUS_DB_VARIABLE, busDirOf, decisionsFileOf, GH_ACCOUNT_VARIABLE, isOwnerCheckout, LAUNCH_AGENTS, OWNER_AGENT, OWNER_AGENT_FILE, pinBus, remoteUrlOf, repoSlugOfUrl } from '../core/bus-path.js'
 import { appendEvent, openBus } from '../core/db.js'
@@ -19,8 +20,8 @@ import { allowLiveText, namesQueueLive } from '../policy/live-decision.js'
 import { activeWindowShards, DECISIONS_SCOPE, WINDOW_SHARD_HOURS, windowShardEnded } from '../policy/shards.js'
 import { ghPort, readGhJson, recordedAccount } from '../ports/gh.js'
 import { decisionsAdder } from '../window/window-request-tools.js'
-import { installedPackage, printBg } from './bg.js'
-import { startBus } from './supervisor.js'
+import { installedPackage, instancesOf, printBg, provenOnBus, psList } from './bg.js'
+import { startBus, SUPERVISOR_LAUNCH } from './supervisor.js'
 import { DEFAULT_MODE, FACTORY_MODES, isBusWorker, isFactoryMode, MODE_LIVE, MODE_WORKERS, startingMode, switchDetection, switchMode } from './workers.js'
 
 export { AGENT_PREFIX, agentLabel, LAUNCH_AGENTS } from '../core/bus-path.js'
@@ -30,7 +31,9 @@ export const KEEP_ALIVE_PLATFORM = 'darwin'
 export const AGENT_LOG = 'launchd.log'
 export const RAISED_WITHIN_S = 20
 export const START_BIN = 'construct-factory'
-export const KEEP_ALIVE_PROGRAM = ['/usr/bin/env', START_BIN]
+export const HOLD_FLAG = '--hold'
+export const HOLD_CHECK_MS = RAISED_WITHIN_S * 1000
+export const KEEP_ALIVE_PROGRAM = ['/usr/bin/env', START_BIN, HOLD_FLAG]
 export const MODE_FLAG = '--mode'
 export const HOURS_FLAG = '--hours'
 export const LIVE_SWITCH = '--live'
@@ -38,7 +41,7 @@ export const SHADOW_SWITCH = '--shadow'
 export const SAY_COMMAND = 'construct say'
 export const MODE_SHARD_SCOPE = DECISIONS_SCOPE
 export const SHARD_DECIDES_LIVE: readonly BusWorker[] = ['merge', 'update']
-export const USAGE = `usage: ${START_BIN} — starts the factory for the git repository in the current directory and installs its keep-alive; ${START_BIN} ${MODE_FLAG} ${FACTORY_MODES[0]} | ${MODE_FLAG} ${FACTORY_MODES[1]} [${HOURS_FLAG} <n>] | ${LIVE_SWITCH} <worker> | ${SHADOW_SWITCH} <worker> — switches its mode or a worker's queue and writes bus/workers.json`
+export const USAGE = `usage: ${START_BIN} — starts the factory for the git repository in the current directory and installs its keep-alive; ${START_BIN} ${HOLD_FLAG} — does the same, then stays up while the supervisor of its bus runs and exits once it is gone, as the keep-alive runs it; ${START_BIN} ${MODE_FLAG} ${FACTORY_MODES[0]} | ${MODE_FLAG} ${FACTORY_MODES[1]} [${HOURS_FLAG} <n>] | ${LIVE_SWITCH} <worker> | ${SHADOW_SWITCH} <worker> — switches its mode or a worker's queue and writes bus/workers.json`
 
 const HOUR_MS = 3_600_000
 const DECISION_TERM_LENGTH = 19
@@ -154,7 +157,7 @@ export function installKeepAlive(repository: string, installed: string | null, p
   const loaded = parts.launchctl(['bootstrap', domain, plist])
   if (loaded.status !== 0)
     return { stdout: [], stderr: [`${START_PREFIX}wrote ${plist}, but launchctl bootstrap ${domain} refused it (exit ${loaded.status}): ${loaded.stderr.trim()}`], exitCode: 1 }
-  return { stdout: [`${START_PREFIX}installed the keep-alive ${label} for ${repository}: launchd reruns the factory starter within ${RAISED_WITHIN_S} s whenever it is not running, also after a restart of the machine (${plist})`], stderr: [], exitCode: 0 }
+  return { stdout: [`${START_PREFIX}installed the keep-alive ${label} for ${repository}: the starter it runs stays up while the supervisor of the bus runs, and launchd reruns it within ${RAISED_WITHIN_S} s once it exits, also after a restart of the machine (${plist})`], stderr: [], exitCode: 0 }
 }
 
 function sameLogin(one: string, other: string): boolean {
@@ -211,8 +214,41 @@ export async function runStart(repository: string, installed: string | null, par
   return { stdout: [...account, ...fresh, ...started.stdout, ...kept.stdout], stderr: [...started.stderr, ...kept.stderr], exitCode: Math.max(started.exitCode, kept.exitCode) }
 }
 
+export interface HoldParts {
+  busDb: string
+  processes: ProcessList
+  wait: (ms: number) => Promise<void>
+  say: (line: string) => void
+}
+
+export function heldSupervisors(processes: RunningProcess[], busDb: string): RunningProcess[] {
+  return instancesOf(processes, SUPERVISOR_LAUNCH.markers, busDb).filter(candidate => provenOnBus(candidate, busDb))
+}
+
+export async function holdWhileSupervised(parts: HoldParts): Promise<BgResult> {
+  let checks = 0
+  for (;;) {
+    const [supervisor] = heldSupervisors(parts.processes(), parts.busDb)
+    if (supervisor === undefined) {
+      const after = checks === 0 ? 'right after the start' : `after ${checks} checks ${HOLD_CHECK_MS / 1000} s apart`
+      return { stdout: [], stderr: [`${START_PREFIX}no supervisor of ${parts.busDb} is running ${after}; the starter exits so its keep-alive starts the factory again`], exitCode: 1 }
+    }
+    if (checks === 0)
+      parts.say(`${START_PREFIX}holding while the supervisor of ${parts.busDb} runs as pid ${supervisor.pid}; checked every ${HOLD_CHECK_MS / 1000} s`)
+    checks += 1
+    await parts.wait(HOLD_CHECK_MS)
+  }
+}
+
+export async function startAndHold(start: () => Promise<BgResult>, hold: HoldParts, print: (result: BgResult) => void = printBg): Promise<void> {
+  const started = await start()
+  print(started)
+  if (started.exitCode === 0)
+    print(await holdWhileSupervised(hold))
+}
+
 export type StartCommand
-  = | { kind: 'start' }
+  = | { kind: 'start', hold: boolean }
     | { kind: 'mode', mode: FactoryMode, hours: number }
     | { kind: 'queue', worker: BusWorker, live: boolean }
 
@@ -234,7 +270,9 @@ function positiveHours(value: string | undefined): number | null {
 
 export function startCommandOf(argv: readonly string[]): StartCommand | null {
   if (argv.length === 0)
-    return { kind: 'start' }
+    return { kind: 'start', hold: false }
+  if (argv.length === 1 && argv[0] === HOLD_FLAG)
+    return { kind: 'start', hold: true }
   const [flag, value, ...rest] = argv
   if ((flag === LIVE_SWITCH || flag === SHADOW_SWITCH) && value !== undefined && isBusWorker(value) && rest.length === 0)
     return { kind: 'queue', worker: value, live: flag === LIVE_SWITCH }
@@ -451,7 +489,7 @@ async function main(): Promise<void> {
     }))
     return
   }
-  printBg(await runStart(realpathSync(process.cwd()), installedPackage(), {
+  const start = async (): Promise<BgResult> => runStart(realpathSync(process.cwd()), installedPackage(), {
     platform: process.platform,
     home: os.homedir(),
     uid: process.getuid?.() ?? 0,
@@ -461,7 +499,14 @@ async function main(): Promise<void> {
     launchctl: systemLaunchctl,
     env: process.env,
     gh: args => ghPort({ attempts: 1 }).call(args),
-  }))
+  })
+  if (!command.hold) {
+    printBg(await start())
+    return
+  }
+  await startAndHold(start, { busDb, processes: psList(), wait: async (ms) => {
+    await sleep(ms)
+  }, say: line => console.log(line) })
 }
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url))
