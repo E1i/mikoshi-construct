@@ -1,4 +1,6 @@
 import type { ParsedFile } from './walk.js'
+import { existsSync } from 'node:fs'
+import path from 'node:path'
 import ts from 'typescript'
 import { FACTORY_FOLDERS } from '../../core/factory-paths.js'
 import { parsedFiles } from './walk.js'
@@ -13,9 +15,16 @@ export interface PortModule {
 export interface PortsSection {
   portsVersion: number
   modules: Record<string, PortModule>
+  boundary: Record<string, PortModule>
 }
 
-export const PORTS_VERSION = 2
+export type ImportedNames = ReadonlyMap<string, ReadonlySet<string>>
+
+export const PORTS_VERSION = 3
+
+const PRODUCT_TREE = 'src'
+const FACTORY_TREE = 'scripts'
+const SOURCE_SUFFIX = /\.js$/
 
 const PORTS_TREE = FACTORY_FOLDERS.sharedCode.find(folder => folder.endsWith('/ports'))!
 const DEFAULT_EXPORT = 'default'
@@ -101,6 +110,79 @@ function moduleOf({ source }: ParsedFile): PortModule {
   return { ...module, constants: module.constants.sort(), reexports: module.reexports.sort() }
 }
 
+function importedFile(importer: string, specifier: string): string | null {
+  if (!specifier.startsWith('.'))
+    return null
+  const target = path.posix.normalize(path.posix.join(path.posix.dirname(importer), specifier)).replace(SOURCE_SUFFIX, '.ts')
+  return target.startsWith(`${PRODUCT_TREE}/`) ? target : null
+}
+
+function namesOf(statement: ts.ImportDeclaration | ts.ExportDeclaration): string[] {
+  if (ts.isExportDeclaration(statement)) {
+    const clause = statement.exportClause
+    return clause !== undefined && ts.isNamedExports(clause) ? clause.elements.map(element => (element.propertyName ?? element.name).text) : []
+  }
+  const clause = statement.importClause
+  if (clause === undefined)
+    return []
+  const bindings = clause.namedBindings
+  return [
+    ...(clause.name === undefined ? [] : [DEFAULT_EXPORT]),
+    ...(bindings !== undefined && ts.isNamedImports(bindings) ? bindings.elements.map(element => (element.propertyName ?? element.name).text) : []),
+  ]
+}
+
+export function namesImportedAcross(importers: readonly ParsedFile[]): ImportedNames {
+  const imported = new Map<string, Set<string>>()
+  for (const { file, source } of importers.filter(({ file }) => file.startsWith(`${FACTORY_TREE}/`))) {
+    for (const statement of source.statements) {
+      if (!(ts.isImportDeclaration(statement) || ts.isExportDeclaration(statement)) || statement.moduleSpecifier === undefined || !ts.isStringLiteral(statement.moduleSpecifier))
+        continue
+      const target = importedFile(file, statement.moduleSpecifier.text)
+      if (target === null)
+        continue
+      const names = imported.get(target) ?? new Set<string>()
+      namesOf(statement).forEach(name => names.add(name))
+      imported.set(target, names)
+    }
+  }
+  return imported
+}
+
+function named(record: Record<string, string>, names: ReadonlySet<string>): Record<string, string> {
+  return Object.fromEntries(Object.entries(record).filter(([name]) => names.has(name)))
+}
+
+function constantName(constant: string): string {
+  return constant.split(':')[0]!
+}
+
+export function crossingPart(module: PortModule, names: ReadonlySet<string>): PortModule {
+  return {
+    functions: named(module.functions, names),
+    types: named(module.types, names),
+    constants: module.constants.filter(constant => names.has(constantName(constant))),
+    reexports: module.reexports.filter(name => names.has(name)),
+  }
+}
+
+export function namesOutside(module: PortModule, names: ReadonlySet<string>): string[] {
+  const described = new Set([...Object.keys(module.functions), ...Object.keys(module.types), ...module.constants.map(constantName), ...module.reexports])
+  return [...names].filter(name => !described.has(name)).sort()
+}
+
+export function boundarySection(products: readonly ParsedFile[], imported: ImportedNames): Record<string, PortModule> {
+  const crossing = products.filter(({ file }) => imported.has(file))
+  const undescribed = crossing.flatMap(parsed => namesOutside(moduleOf(parsed), imported.get(parsed.file)!).map(name => `${parsed.file} :: ${name}`))
+  if (undescribed.length > 0)
+    throw new Error(`${FACTORY_TREE}/ imports a name ${PRODUCT_TREE}/ exports by no declaration the ports section reads: ${undescribed.join(', ')}`)
+  return Object.fromEntries(crossing.map(parsed => [parsed.file, crossingPart(moduleOf(parsed), imported.get(parsed.file)!)]))
+}
+
 export function portsSection(root: string): PortsSection {
-  return { portsVersion: PORTS_VERSION, modules: Object.fromEntries(parsedFiles(root, [PORTS_TREE]).map(parsed => [parsed.file, moduleOf(parsed)])) }
+  return {
+    portsVersion: PORTS_VERSION,
+    modules: Object.fromEntries(parsedFiles(root, [PORTS_TREE]).map(parsed => [parsed.file, moduleOf(parsed)])),
+    boundary: existsSync(path.join(root, PRODUCT_TREE)) ? boundarySection(parsedFiles(root, [PRODUCT_TREE]), namesImportedAcross(parsedFiles(root, [FACTORY_TREE]))) : {},
+  }
 }
