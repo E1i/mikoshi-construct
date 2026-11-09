@@ -63,6 +63,15 @@ if (args.includes('--once'))
   process.exit(3)
 `
 
+const LENIENT_ENTRY = `import { parseArgs } from 'node:util'
+const OPTIONS = { verbose: { type: 'boolean' } } satisfies Record<string, unknown>
+const { values } = parseArgs(({ options: OPTIONS, strict: false } as const))
+const depth = values.verbose ? 2 : 1
+console.log(\`--depth=\${depth}\`)
+const result = { exitCode: 4 }
+process.exitCode = result.exitCode
+`
+
 const WITH_UNDECLARED_FLAG = LOOSE_ENTRY.replace('\'--once\'', '\'--once\') || args.includes(\'--since\'')
 
 function tree(entries: Record<string, string>): string {
@@ -91,9 +100,10 @@ describe('the scripts section of contract/surface.json declares what every packa
   })
 
   it('reads parseArgs options, constants behind them, literal flags, template flags and exit codes from the entry', () => {
-    const read = scriptSurfaces(tree({ strict: STRICT_ENTRY, loose: LOOSE_ENTRY }))
+    const read = scriptSurfaces(tree({ strict: STRICT_ENTRY, loose: LOOSE_ENTRY, lenient: LENIENT_ENTRY }))
     expect(read).toEqual({
       build: { entries: [], flags: [], json: false, exits: [], unknownFlag: REFUSAL_NOT_READ },
+      lenient: { entries: ['scripts/lenient.ts'], flags: ['depth', 'verbose'], json: false, exits: [4], unknownFlag: REFUSAL_NOT_READ },
       loose: { entries: ['scripts/loose.ts'], flags: ['json', 'once', 'tail'], json: true, exits: [3], unknownFlag: REFUSAL_NOT_READ },
       strict: { entries: ['scripts/strict.ts'], flags: ['apply', 'card'], json: false, exits: [2], unknownFlag: REFUSED_BY_STRICT_PARSE_ARGS },
     })
