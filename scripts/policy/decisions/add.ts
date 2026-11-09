@@ -8,6 +8,7 @@ import { defaultBusPath, openBus } from '../../core/db.js'
 import { REQUEST_DONE, REQUEST_REFUSED } from '../../core/events.js'
 import { ownerChannelOfBus, sayToOwnerChannel } from '../../owner/channel.js'
 import { runRequest, SESSION_VARIABLE } from '../../window/window-requests.js'
+import { continueFixesDecisionOf, namesPrAtHead, observedHeadsOf } from '../round-limit-decision.js'
 import { boundText, calendarTerm, cardTail, decisionsRefusals, outOfForceLines, OWNER_SOURCE, parseDecisions, PREFIX, settleSupersedes, stampOf, untilTail, WRITER_MARKER } from './decisions.js'
 import { archiveOf } from './read.js'
 
@@ -21,6 +22,8 @@ const CARD_REFERENCE = /^#?([1-9]\d*)$/
 const UNTIL_VALUE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?Z$/
 const OWNER_SHELL_SESSION = 'owner-shell'
 const CREATES_FLAG = '--creates'
+const PR_AT_A_SHA = new RegExp(`^(?:${OWNER_SOURCE.replace(/[[\]]/g, '\\$&')} )?\\S+ PR #([1-9]\\d*) at ([0-9a-f]+)(?![0-9a-f])`, 'i')
+const ANY_FULL_HEAD = '0'.repeat(40)
 
 export interface DecisionsAddDeps {
   decisions: string
@@ -222,6 +225,39 @@ function cardsNamed(args: readonly string[]): number[] {
   })
 }
 
+function decidesAtHead(text: string, pr: number, head: string): boolean {
+  return namesPrAtHead(text, pr, head) || continueFixesDecisionOf([{ decisionId: 0, text, cards: [] }], pr, head, []) !== null
+}
+
+function closestHeadHint(sha: string, pr: number, heads: readonly string[], atHead: (head: string) => string): string {
+  const extending = [...new Set(heads.filter(head => head.startsWith(sha.toLowerCase())))]
+  if (extending.length === 1)
+    return `the full head is ${extending[0]}: write "${atHead(extending[0]!)}"`
+  if (extending.length > 1)
+    return `${extending.length} observed heads of PR #${pr} start with ${sha}; name the full one`
+  return heads.length === 0 ? `the bus observed no head of PR #${pr}` : `the latest observed head of PR #${pr} is ${heads.at(-1)}`
+}
+
+export function roundLimitHeadRefusal(text: string, observedHeads: (pr: number) => readonly string[]): string | null {
+  const named = PR_AT_A_SHA.exec(text)
+  if (named === null)
+    return null
+  const pr = Number(named[1])
+  const sha = named[2]!
+  const shaAt = named[0].length - sha.length
+  const atHead = (head: string): string => `${text.slice(0, shaAt)}${head}${text.slice(named[0].length)}`
+  if (!decidesAtHead(atHead(ANY_FULL_HEAD), pr, ANY_FULL_HEAD))
+    return null
+  const heads = observedHeads(pr)
+  if (heads.includes(sha))
+    return null
+  return `${PREFIX}${sha} is not a full observed head of PR #${pr}: the bus reads an allow-merge or continue-fixes record only at a full 40-hex head it observed, so this one would never be answered; ${closestHeadHint(sha, pr, heads, atHead)}; nothing requested`
+}
+
+function headRefusalIn(args: readonly string[], db: DatabaseSync): string | null {
+  return args.filter(arg => !arg.startsWith('--')).map(arg => roundLimitHeadRefusal(arg.trim(), pr => observedHeadsOf(db, pr))).find(refusal => refusal !== null) ?? null
+}
+
 function requestWidening(db: DatabaseSync, cards: readonly number[], creates: readonly string[], now: Date, session: string, out: (line: string) => void): boolean {
   const change = creates.map(file => `+${file}`).join(',')
   return cards.every(card => runRequest(['amend', '--card', String(card), '--touches', change, '--auto-confirm'], db, now, session, out) === 0)
@@ -229,6 +265,11 @@ function requestWidening(db: DatabaseSync, cards: readonly number[], creates: re
 
 export function requestDecision(args: readonly string[], db: DatabaseSync, now: Date, session: string, out: (line: string) => void): number {
   const { creates, rest } = splitCreates(args)
+  const headRefusal = headRefusalIn(rest, db)
+  if (headRefusal !== null) {
+    out(headRefusal)
+    return 1
+  }
   if (creates.length > 0) {
     const cards = cardsNamed(rest)
     if (cards.length === 0) {
@@ -266,6 +307,11 @@ export function requestFromOwnerShell(args: string[], channel: string, db: Datab
   const source = sourceRefusal(parsed.text)
   if (source !== null) {
     err(source)
+    return 1
+  }
+  const headRefusal = headRefusalIn([parsed.text], db)
+  if (headRefusal !== null) {
+    err(headRefusal)
     return 1
   }
   sayToOwnerChannel(channel, parsed.text.slice(OWNER_SOURCE.length), now)

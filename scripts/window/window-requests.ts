@@ -2,9 +2,10 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { AdmitResult } from '../../src/commands/intake/admit.js'
 import type { AmendFlags } from '../../src/commands/intake/amend.js'
 import type { CardAdmissionsPort, CardEventPort } from '../../src/commands/intake/index.js'
+import type { QueueTaskRow as TaskRow } from '../core/card-hold.js'
 import type { BusEvent } from '../core/db.js'
-import type { Queue } from '../core/identifiers.js'
 import type { StoredEvent } from '../core/stored.js'
+import type { AmendedStop } from '../nodes/answer/answer-executor.js'
 import type { DryRunRecord } from '../nodes/review/dry-run-record.js'
 import type { CloseOutcome, CloseRequest } from '../nodes/review/pr-close.js'
 import type { MergeFacts, PatchedFile } from '../policy/policy.js'
@@ -21,18 +22,20 @@ import { correctionText } from '../../src/commands/intake/check.js'
 import { parseTaken } from '../../src/commands/intake/numbers.js'
 import { CLOSED_CARD, DROPPED_CARD, MERGED_CARD } from '../core/card-automaton.js'
 import { appendCardEvent, bodyNotFoldedYet, CARD_BODIES, cardBodyText, FACTORY_MODES, isFactoryMode, laid } from '../core/card-bodies.js'
+import { answersWithdrawnByAClosedHold, holdLayersOf, holdThatStays, ownerHoldGround } from '../core/card-hold.js'
 import { appendEvent, CLOSED_WAIT, closeOwnerWait, defaultBusPath, inTransaction, isOwnerWaitNeed, OPEN_WAIT, openBus, openOwnerWait, OWNER_WAIT_NEEDS, OWNER_WAITS } from '../core/db.js'
-import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_DROPPED, CARD_HELD, CARD_PLANNED, CARD_RELEASED, CARD_STARTED, CARD_STOPPED, CARD_TAKEOVER, CARD_UNPLANNED, declaredPayload, FACTORY_MODE, NUMBERS_FOREIGN, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PLAN_BACKFILLED, PLAN_CLOSED, PLAN_OPENED, POLICY_DENIED, PR_OBSERVED, PR_OPENED, REQUEST_DONE, REQUEST_REFUSED, SHARD_DECIDED, TASK_FAILED, TASK_REQUEUED, WINDOW_REQUEST, WITNESS_RECORDED } from '../core/events.js'
+import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_DROPPED, CARD_HELD, CARD_PLANNED, CARD_RELEASED, CARD_STARTED, CARD_STOPPED, CARD_TAKEOVER, CARD_UNPLANNED, declaredPayload, FACTORY_MODE, NUMBERS_FOREIGN, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PLAN_BACKFILLED, PLAN_CLOSED, PLAN_OPENED, POLICY_DENIED, PR_OBSERVED, PR_OPENED, REQUEST_DONE, REQUEST_REFUSED, SHARD_DECIDED, TASK_REQUEUED, WINDOW_REQUEST, WITNESS_RECORDED } from '../core/events.js'
 import { cardIdOf, generationOfKey, isFullSha, prOf } from '../core/identifiers.js'
 import { ANSWER_SOURCE, OPEN_OWNER_STOP_OF_CARD, OWNER } from '../core/inbox.js'
 import { legacyHistory } from '../core/legacy-history.js'
-import { changesRoundsOf, closedByRounds, FAILURES_TO_STOP, latestTurnOf, LEASED, QUEUE_ACTOR, QUEUED, REVIEW_ROUNDS, TASK_FOLDS, WITHDRAWN } from '../core/queue.js'
+import { changesRoundsOf, closedByRounds, FAILURES_TO_STOP, latestTurnOf, LEASED, QUEUE_ACTOR, QUEUED, REVIEW_ROUNDS, TASK_FOLDS } from '../core/queue.js'
 import { storedByKey } from '../core/stored.js'
 import { INTAKE_ACTOR_PREFIX } from '../intake/admissions.js'
+import { answerToResumeAfterAmend } from '../nodes/answer/answer-executor.js'
 import { openPrOfCard, ownerHoldOf } from '../nodes/answer/answer-source.js'
 import { layLanes, repositoryLanes } from '../nodes/launch/lane-assign.js'
 import { cleanUpdatesOf } from '../nodes/update/update-done.js'
-import { consumeOwnerWord, OWNER_WORD_NOT_FOUND, ownerChannelOf, USED_WORD } from '../owner/channel.js'
+import { consumeOwnerWord, consumeOwnerWordClosing, OWNER_WORD_NOT_FOUND, ownerChannelOf, ownerWordAwaited, USED_WORD } from '../owner/channel.js'
 import { OWNER_SOURCE } from '../policy/decisions/decisions.js'
 import { settledCards } from '../policy/decisions/read.js'
 import { mergePolicy, OWNER_MERGES } from '../policy/policy.js'
@@ -71,7 +74,7 @@ export const ALLOW_MERGE_RECORD = 'architecture/decisions/window-allow-merge.md'
 const RULE_ACCEPTED = /^Status: accepted\b/m
 export const REQUEST_RULE = 'window_request'
 export const PREFIX = '[bus:request] '
-export const USAGE = `usage: pnpm bus:request tree.cut --card <N> | amend --card <N> [--touches +<path>,-<path>] [--add-witness <witness>]... [--remove-witness <witness>]... [--owner-words <the owner's words>] [--depends +#<N>,-#<N>] [--auto-confirm] | allow-merge --pr <N> --head <sha> --dry-run <reviewer session> | close-pr|reopen-pr --pr <N> --card <N> --reason <text> | pr.body --pr <N> [--file <absolute path in the card tree>] | ci.rerun --pr <N> | requeue --task <task_key> | mode --set ${FACTORY_MODES.join('|')} | plan --op ${[...PLAN_OPS.keys()].join('|')} [--plan <id>] [--title <text>] [--goal <text>] [--file <absolute plan file>] [--gate <word>] [--card <N>] | owner.wait --need ${OWNER_WAIT_NEEDS.join('|')} --text <what the owner decides> [--command <line>] [--card <N>] [--pr <N>] | owner.wait.close --id Q<N> --answer <answer> [--from ${ANSWER_SOURCE}] | decisions:add --from ${ANSWER_SOURCE} [--supersedes D-M]... [--card #N]... [--until <YYYY-MM-DDTHH:MMZ>] "[owner] <decision>" | hold --card <N> --reason <why the owner holds it> | release --card <N> | takeover --card <N> --reason <why the bus has no route for it> | drop --card <N> --reason <why a card with no body is dropped> | numbers.foreign --ids <card ids of another factory's row, comma separated>`
+export const USAGE = `usage: pnpm bus:request tree.cut --card <N> | amend --card <N> [--touches +<path>,-<path>] [--add-witness <witness>]... [--remove-witness <witness>]... [--owner-words <the owner's words>] [--depends +#<N>,-#<N>] [--auto-confirm] | allow-merge --pr <N> --head <sha> --dry-run <reviewer session> | close-pr|reopen-pr --pr <N> --card <N> --reason <text> | pr.body --pr <N> [--file <absolute path in the card tree>] | ci.rerun --pr <N> | requeue --task <task_key> | mode --set ${FACTORY_MODES.join('|')} | plan --op ${[...PLAN_OPS.keys()].join('|')} [--plan <id>] [--title <text>] [--goal <text>] [--file <absolute plan file>] [--gate <word>] [--card <N>] | owner.wait --need ${OWNER_WAIT_NEEDS.join('|')} --text <what the owner decides> [--command <line>] [--card <N>] [--pr <N>] | owner.wait.close --id Q<N> --answer <answer> [--from ${ANSWER_SOURCE}] | owner.wait.close --id Q<N> --from ${ANSWER_SOURCE} | decisions:add --from ${ANSWER_SOURCE} [--supersedes D-M]... [--card #N]... [--until <YYYY-MM-DDTHH:MMZ>] "[owner] <decision>" | hold --card <N> --reason <why the owner holds it> | release --card <N> | takeover --card <N> --reason <why the bus has no route for it> | drop --card <N> --reason <why a card with no body is dropped> | numbers.foreign --ids <card ids of another factory's row, comma separated>`
 
 const BY_HAND = 'by-hand'
 const noTool = (what: string): Executed => ({ done: false, why: `this bus was built with no tool to ${what}` })
@@ -110,15 +113,6 @@ export type RequestOutcome
 export interface Executed {
   done: boolean
   why: string
-}
-
-interface TaskRow {
-  task_key: string
-  queue: Queue
-  card_id: number
-  pr: number | null
-  head: string | null
-  state: string
 }
 
 const PENDING = `
@@ -171,18 +165,6 @@ const LIVE_TASK_OF_CARD = `SELECT task_key, queue, state FROM tasks WHERE card_i
 const LATEST_WITNESS_OF_CARD = `SELECT head, json_extract(payload, '$.verdict') AS verdict FROM events WHERE card_id = ? AND legacy = 0 AND type = '${WITNESS_RECORDED}' ORDER BY id DESC LIMIT 1`
 
 const OPEN_PR_ANSWER_NEEDED = `SELECT pr FROM prs WHERE card_id = ? AND state = 'open' AND (ci = 'red' OR verdict_on_head = 'changes') ORDER BY pr DESC LIMIT 1`
-
-const ANSWERS_WITHDRAWN_BY_THE_OPEN_HOLD = `
-  SELECT tasks.task_key, tasks.queue, tasks.card_id, tasks.pr, tasks.head, tasks.state FROM tasks
-  JOIN events AS withdrawal ON withdrawal.id = tasks.event_id
-  JOIN events AS opened ON opened.id = (
-    SELECT min(id) FROM events WHERE card_id = tasks.card_id AND legacy = 0 AND type = '${CARD_HELD}' AND id > coalesce((SELECT max(id) FROM events WHERE card_id = tasks.card_id AND legacy = 0 AND type = '${CARD_RELEASED}'), 0)
-  )
-  WHERE tasks.card_id = ? AND tasks.queue = 'answer' AND tasks.state = '${WITHDRAWN}'
-    AND withdrawal.id > opened.id
-    AND withdrawal.type = '${TASK_FAILED}' AND json_extract(withdrawal.payload, '$.reason') = 'held_for_owner'
-  ORDER BY tasks.task_key
-`
 
 const LAST_MOVE_OF_CARD = `
   SELECT ts FROM events WHERE id = (
@@ -299,6 +281,7 @@ export class WindowRequests {
     if (bodyNotFoldedYet(this.db, cardId))
       return { done: false, why: `#${cardId}: the bus has not folded its latest body yet; ask again on the next tick` }
     const lane = (this.db.prepare(`SELECT lane FROM ${CARD_BODIES} WHERE card_id = ?`).get(cardId) as { lane: string | null } | undefined)?.lane ?? null
+    const stop = this.db.prepare(OPEN_OWNER_STOP_OF_CARD).get(cardId) as { id: number, payload: string } | undefined
     const result = runAmend({
       card: `#${cardId}`,
       flags: amendFlagsOf(payload),
@@ -309,7 +292,20 @@ export class WindowRequests {
       admissions: latestAdmissionOf(this.db),
       cardStates: () => new Map((this.db.prepare(CARD_STATES).all() as unknown as { card_id: number, state: string | null }[]).map(row => [String(row.card_id), row.state ?? HELD_WITHOUT_STATE])),
     }, this.clock)
-    return amendAnswer(cardId, result, lane)
+    const answered = amendAnswer(cardId, result, lane)
+    return stop === undefined || result.status !== 'admitted' ? answered : { done: true, why: `${answered.why}; ${this.resumeAfterAmend(request, cardId, stop, payload)}` }
+  }
+
+  private resumeAfterAmend(request: number, cardId: number, stop: AmendedStop, payload: Record<string, unknown>): string {
+    const task = answerToResumeAfterAmend(this.db, cardId, stop, text(payload.touches))
+    try {
+      if (typeof task !== 'string')
+        inTransaction(this.db, () => this.appendRequeue(this.clock().toISOString(), request, task))
+      return typeof task === 'string' ? task : `the stop ${stop.id} is settled: its answer ${task.task_key} queued again`
+    }
+    catch (error) {
+      return `the stop ${stop.id} is settled but its answer stays: ${messageOf(error)}; card #${cardId} waits for the window's takeover`
+    }
   }
 
   private amendEvents(request: number): CardEventPort {
@@ -411,16 +407,16 @@ export class WindowRequests {
   private closeWait(request: number, payload: Record<string, unknown>): Executed {
     const id = text(payload.id)
     const answer = text(payload.answer)
-    if (id === null || answer === null)
-      return { done: false, why: 'owner.wait.close needs an id Q<N> and an answer' }
     const from = text(payload.from)
+    if (id === null || (answer === null && from === null))
+      return { done: false, why: 'owner.wait.close needs an id Q<N> and an answer, or --from the owner channel' }
     if (from !== null && from !== ANSWER_SOURCE)
       return { done: false, why: `owner.wait.close --from ${from} is not ${ANSWER_SOURCE}; only the owner's word that pnpm owner:say put into the owner channel closes a wait as the owner's answer` }
     const wait = this.db.prepare(`SELECT state, card_id FROM ${OWNER_WAITS} WHERE id = ?`).get(id) as { state: string, card_id: number | null } | undefined
     if (wait === undefined)
       return { done: false, why: `${id} is not an owner wait the bus has reduced` }
     const stop = wait.card_id === null ? undefined : this.db.prepare(OPEN_OWNER_STOP_OF_CARD).get(wait.card_id) as { id: number, payload: string } | undefined
-    if (from !== null)
+    if (from !== null || answer === null)
       return this.closeWaitOnOwnerWord(request, id, wait, answer, stop?.id ?? null)
     const shard = stop === undefined ? null : activeDecisionsShard(this.db, this.clock())
     const question = stop === undefined ? '' : String((JSON.parse(stop.payload) as Record<string, unknown>).detail ?? '')
@@ -439,12 +435,14 @@ export class WindowRequests {
     return { done: true, why: `closed ${id} and lifted the card #${wait.card_id} stop ${stop!.id} as a decision under shard ${shard.id}: ${answer}` }
   }
 
-  private closeWaitOnOwnerWord(request: number, id: string, wait: { state: string, card_id: number | null }, answer: string, stop: number | null): Executed {
+  private closeWaitOnOwnerWord(request: number, id: string, wait: { state: string, card_id: number | null }, asked: string | null, stop: number | null): Executed {
     if (wait.state !== OPEN_WAIT)
       return { done: false, why: `${id} is closed already` }
-    const word = consumeOwnerWord(this.ownerChannel, answer)
+    const verbatim = asked === null ? null : consumeOwnerWord(this.ownerChannel, asked)
+    const word = verbatim ?? consumeOwnerWordClosing(this.ownerChannel, id)
     if (word === null)
-      return { done: false, why: OWNER_WORD_NOT_FOUND }
+      return { done: false, why: `${OWNER_WORD_NOT_FOUND}: ${ownerWordAwaited(id)}` }
+    const answer = 'words' in word && typeof word.words === 'string' ? word.words : asked!
     const refusal = this.refusalToClose(request, id, answer)
     if (refusal !== null)
       return { done: false, why: `${refusal}; owner word ${word.file} ${word.release() ? 'left unused' : unreleasedWord(word.file)}` }
@@ -587,13 +585,14 @@ export class WindowRequests {
       return { done: false, why: type === CARD_HELD ? 'hold needs a card and the reason the owner holds it' : 'release names no card' }
     const ts = this.clock().toISOString()
     const requeued = inTransaction(this.db, () => {
-      const withdrawn = type === CARD_RELEASED ? this.db.prepare(ANSWERS_WITHDRAWN_BY_THE_OPEN_HOLD).all(cardId) as unknown as TaskRow[] : []
+      const opened = holdLayersOf(this.db, cardId).opened
       appendEvent(this.db, { ts, type, actor: QUEUE_ACTOR, cardId, pr: null, head: null, dedupeKey: `${type}:request-${request}`, payload: { request, ...(reason === null ? {} : { reason }) }, legacy: false })
-      for (const task of withdrawn)
-        this.appendRequeue(ts, request, task)
+      const withdrawn = type === CARD_RELEASED ? answersWithdrawnByAClosedHold(this.db, cardId, opened) : []
+      withdrawn.forEach(task => this.appendRequeue(ts, request, task))
       return withdrawn.map(task => task.task_key)
     })
-    return { done: true, why: `${type} #${cardId}${reason === null ? '' : `: ${reason}`}${requeued.length === 0 ? '' : `; queued again: ${requeued.join(', ')}`}` }
+    const stays = type === CARD_RELEASED ? holdThatStays(this.db, cardId) : null
+    return { done: true, why: `${type} #${cardId}${reason === null ? '' : `: ${reason}`}${stays ?? (requeued.length === 0 ? '' : `; queued again: ${requeued.join(', ')}`)}` }
   }
 
   private takeover(request: number, payload: Record<string, unknown>): Executed {
@@ -605,7 +604,7 @@ export class WindowRequests {
     if (route !== null)
       return { done: false, why: route }
     const sessionEnded = windowSessionEndGround(this.db, cardId)
-    const ground = sessionEnded ?? this.noRouteGround(cardId)
+    const ground = sessionEnded ?? ownerHoldGround(this.db, cardId) ?? this.noRouteGround(cardId)
     if (typeof ground !== 'object')
       return { done: false, why: ground }
     const ts = this.clock().toISOString()
@@ -649,7 +648,8 @@ export class WindowRequests {
     const card = this.db.prepare('SELECT state FROM cards WHERE card_id = ?').get(cardId) as { state: string | null } | undefined
     if (ENDED_CARDS.has(card?.state))
       return `card #${cardId} is ${card!.state}; there is nothing to take over`
-    const hold = ownerHoldOf(this.db, cardId)
+    const layers = holdLayersOf(this.db, cardId)
+    const hold = layers.owner === null || layers.takeover !== null ? ownerHoldOf(this.db, cardId) : null
     if (hold !== null)
       return `${hold}; release it before a takeover`
     const task = this.db.prepare(LIVE_TASK_OF_CARD).get(cardId) as { task_key: string, queue: string, state: string } | undefined
@@ -892,7 +892,7 @@ export function requestOf(argv: readonly string[]): Record<string, unknown> | nu
     const id = flag(argv, '--id')
     const answer = flag(argv, '--answer')
     const from = flag(argv, '--from')
-    return id === undefined || answer === undefined ? null : { kind, id, answer, ...(from === undefined ? {} : { from }) }
+    return id === undefined || (answer === undefined && from === undefined) ? null : { kind, id, ...(answer === undefined ? {} : { answer }), ...(from === undefined ? {} : { from }) }
   }
   if (kind === 'decisions:add')
     return decisionRequestOf(argv)

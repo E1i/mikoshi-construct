@@ -41,6 +41,7 @@ export const GHOST_ROW = 'ghost.row'
 export const INTAKE_EVENT = 'intake'
 export const INTAKE_MOVE_EVENT = 'intake-move'
 export const LADDER_APPROVAL = 'ladder.approval'
+export const LADDER_RUN = 'ladder.run'
 export const LANE_ASSIGNED = 'lane.assigned'
 export const LANE_OVERLAP = 'lane.overlap'
 export const LEASES_DRAINING = 'leases.draining'
@@ -164,6 +165,7 @@ export const EVENT_PAYLOADS = {
   [GHOST_ROW]: ['id', 'row', 'state'],
   [INTAKE_EVENT]: ['card', 'event', 'from', 'source', 'task', 'to'],
   [INTAKE_MOVE_EVENT]: ['card', 'event', 'from', 'source', 'task', 'to'],
+  [LADDER_RUN]: ['agents', 'agreedSha256', 'argsSha256', 'at', 'attempts', 'cause', 'effort', 'run', 'rung', 'seconds', 'sketch', 'status', 'task', 'tokens', 'tokensSource', 'toolUses'],
   [LANE_ASSIGNED]: ['admission', 'after', 'lane', 'lanes', 'reason'],
   [LANE_OVERLAP]: ['generation', 'lane'],
   [LEASES_DRAINING]: ['from', 'node', 'sha', 'until'],

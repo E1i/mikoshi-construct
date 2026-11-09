@@ -134,7 +134,7 @@ describe('a question.owner stop has a named lift for each route', () => {
   it('--from answer without the word in the channel is refused and lifts nothing', () => {
     const room = stoppedRoom()
 
-    expect(closes(room, OWNER_WORDS, '--from', ANSWER_SOURCE)).toMatchObject({ kind: 'refused', detail: OWNER_WORD_NOT_FOUND })
+    expect(closes(room, OWNER_WORDS, '--from', ANSWER_SOURCE)).toMatchObject({ kind: 'refused', detail: expect.stringContaining(OWNER_WORD_NOT_FOUND) as unknown })
     expect(waitState(room)).toBe('open')
     expect(openStop(room)).toBe(room.stop)
   })
