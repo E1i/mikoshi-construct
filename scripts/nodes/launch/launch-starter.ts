@@ -235,7 +235,7 @@ export class ShiftCardStarter implements CardStarter, SessionContinuer {
       return this.ports.pgidOf(pid)
     }
     catch (error) {
-      this.ports.kill(pid)
+      this.ports.kill(-pid)
       throw error
     }
   }
