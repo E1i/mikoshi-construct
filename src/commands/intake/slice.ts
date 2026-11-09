@@ -27,6 +27,7 @@ export interface SlicedCard {
   risk: string[]
   slices: CardSlice[]
   text: string
+  whole?: string
 }
 
 export type Slice = { kind: 'sliced', cards: SlicedCard[] } | { kind: 'refused', reasons: string[] }
@@ -85,12 +86,6 @@ function bodyOf(card: CheckedCard, corrections: readonly Correction[], unclear: 
     ...witnessBlock(card),
     ...(notes.length === 0 ? [] : ['', ...notes]),
   ].join('\n')
-}
-
-export const HELD_WHOLE_PREFIX = 'held whole: '
-
-function heldWholeLine(seamed: number): string {
-  return `${HELD_WHOLE_PREFIX}whole: keeps this card one card, so the ${seamed} slice${seamed === 1 ? '' : 's'} the seams proposed ${seamed === 1 ? 'is' : 'are'} not cut; --confirm parks it whole`
 }
 
 function slicedByItsText(card: CheckedCard): boolean {
@@ -155,14 +150,12 @@ export function sliceCards(cards: readonly CheckedCard[], numbers: readonly numb
     const keptWhole = card.whole === undefined ? riskWholeReason(read, card.size) : null
     const whole = card.whole ?? keptWhole ?? undefined
     const reading = whole === undefined ? read : { ...read, slices: [], capabilityDelivery: false }
-    const seamed = [...split.slices.map(slice => slice.touches), ...volumeSlices, ...read.slices.map(slice => slice.touches)]
-    const proposed = whole === undefined ? seamed : []
+    const proposed = whole === undefined ? [...split.slices.map(slice => slice.touches), ...volumeSlices, ...reading.slices.map(slice => slice.touches)] : []
     const order = sliceDepends(proposed, sources)
     const seam = [
       ...importNotes[index]!,
       ...seamLines(whole === undefined ? split : { ...split, slices: [] }, order),
       ...volumeLines({ ...volume, slices: whole === undefined ? volumeSlices : [] }, order),
-      ...(whole !== undefined && seamed.length > 0 ? [heldWholeLine(seamed.length)] : []),
     ]
     const risk = riskLines(reading, order)
     const heldForSlicing = whole === undefined && proposed.length > 0
@@ -186,7 +179,7 @@ export function sliceCards(cards: readonly CheckedCard[], numbers: readonly numb
     const parsed = parseParkingFile(file, text)
     if (parsed.kind === 'refused')
       reasons.push(`${card.name}: ${parsed.reason}`)
-    return { id, file, line, who, unclear, corrections, seam, risk, slices, text }
+    return { id, file, line, who, unclear, corrections, seam, risk, slices, text, ...(whole === undefined ? {} : { whole: whole.trim() }) }
   })
   return reasons.length > 0 ? { kind: 'refused', reasons } : { kind: 'sliced', cards: sliced }
 }
