@@ -6,15 +6,13 @@ import type { AfterFailure, Lease } from '../../core/lease.js'
 import type { CardFields } from '../../intake/card-contract.js'
 import type { ReviewStatus, StatusPublisher } from '../../ports/github-status.js'
 import type { CommandResult, GitHub, GitHubPut } from '../../ports/github.js'
+import type { MergeMain } from '../../ports/main-merge.js'
 import type { VerdictOnHead } from '../../ports/snapshot.js'
 import type { TechnicalReason } from '../review/record-verdict.js'
-import { spawnSync } from 'node:child_process'
 import { rerunOf, upToDateRequired } from '../../cli/check-catalog.js'
-import { pathsOutsideTheBody } from '../../core/card-bodies.js'
 import { appendEvent, openBusWait } from '../../core/db.js'
 import { messageOf } from '../../core/errors.js'
 import { CARD_STOPPED, CI_RERUN_REQUESTED, COMMAND_EXECUTED, POLICY_ALLOWED, POLICY_DENIED, QUESTION_OWNER, REVIEW_RECORDED, UPDATE_DONE } from '../../core/events.js'
-import { commandLine, isRebuiltOnUpdate, rebuildsOf, SHARED_APPEND_PATHS } from '../../core/generated-files.js'
 import { assertHeld, completeTask, failTask, releaseTask, StaleLease } from '../../core/lease.js'
 import { rerunDueOn } from '../../core/observations.js'
 import { KEPT_BY_PUSH_POLICY } from '../../core/push-policy.js'
@@ -23,6 +21,7 @@ import { cardContract, NOT_MINE, notMine } from '../../intake/card-contract.js'
 import { cardDecisionCommand } from '../../policy/shards.js'
 import { rerunFailedJobsEndpoint, runsOnHeadEndpoint } from '../../ports/ci-reading.js'
 import { REVIEW_STATUS_CONTEXT } from '../../ports/github-status.js'
+import { conflictingCardOf } from '../../ports/main-merge.js'
 import { Meter } from '../../ports/meter.js'
 import { CANCELLED, MAIN_BRANCH, MERGEABLE_OF_STATE, verdictOf } from '../../ports/snapshot.js'
 import { pollHead } from './head-poll.js'
@@ -40,7 +39,6 @@ export const MERGES_WITHOUT_UPDATE = 'merges_without_update'
 export const WAITS_ITS_TURN = 'waits_its_turn'
 const UPDATE_COMMAND = 'update_branch'
 const MERGE_MAIN_COMMAND = 'merge_main'
-const MAIN_REF = `origin/${MAIN_BRANCH}`
 
 export type UpdateCommand = typeof UPDATE_COMMAND | typeof MERGE_MAIN_COMMAND | 'publish'
 
@@ -66,22 +64,6 @@ export interface RerunRequest {
   detail: string
   runs: number[]
 }
-
-export interface ConflictingCard {
-  cardId: number
-  branch: string
-  outsideTheCard: (files: string[]) => string[]
-  head: string
-}
-
-export type MainMerge
-  = | { kind: 'merged', to: string, tookMain: string[], rebuilt: string[] }
-    | { kind: 'inside', files: string[] }
-    | { kind: 'refused', why: string }
-
-export type MergeMain = (card: ConflictingCard) => MainMerge
-
-export type TreeGit = (cwd: string, args: string[]) => string
 
 export interface UpdateParts {
   db: DatabaseSync
@@ -191,120 +173,6 @@ function diffOf(meter: Meter, pr: number): DiffFile[] {
 function parentsOf(meter: Meter, commit: string): string[] {
   const parents = (meter.get(`${REPO}/commits/${commit}`) as { parents?: { sha?: string }[] }).parents ?? []
   return parents.flatMap(parent => parent.sha === undefined ? [] : [parent.sha])
-}
-
-function unmergedIn(git: TreeGit, tree: string): string[] {
-  return git(tree, ['diff', '--name-only', '--diff-filter=U']).split('\n').filter(file => file !== '')
-}
-
-function onMain(git: TreeGit, tree: string, file: string): boolean {
-  try {
-    git(tree, ['cat-file', '-e', `${MAIN_REF}:${file}`])
-    return true
-  }
-  catch {
-    return false
-  }
-}
-
-function takeMain(git: TreeGit, tree: string, file: string): void {
-  if (onMain(git, tree, file))
-    git(tree, ['checkout', MAIN_REF, '--', file])
-  else
-    git(tree, ['rm', '-q', '--', file])
-}
-
-function abortMerge(git: TreeGit, tree: string): void {
-  try {
-    git(tree, ['merge', '--abort'])
-  }
-  catch {}
-}
-
-export type RebuildRunner = (cwd: string, args: readonly string[]) => { status: number | null, stderr: string }
-
-function pnpmRebuild(cwd: string, args: readonly string[]): { status: number | null, stderr: string } {
-  const result = spawnSync('pnpm', [...args], { cwd, encoding: 'utf8' })
-  return { status: result.status, stderr: result.error?.message ?? result.stderr }
-}
-
-function rebuildGenerated(git: TreeGit, tree: string, card: ConflictingCard, files: readonly string[], run: RebuildRunner): MainMerge | null {
-  for (const rebuild of rebuildsOf(files)) {
-    const result = run(tree, rebuild)
-    if (result.status !== 0) {
-      git(tree, ['reset', '-q', '--hard', card.head])
-      return { kind: 'refused', why: `the rebuild after the merge of ${MAIN_BRANCH} failed, and the tree went back to ${card.head}: ${commandLine(rebuild)} exited ${result.status ?? 'without a status'}: ${result.stderr.trim()}` }
-    }
-  }
-  const changed = git(tree, ['ls-files', '-m', '-o', '--exclude-standard', '--', ...SHARED_APPEND_PATHS]).split('\n').filter(file => file !== '')
-  if (changed.length > 0) {
-    git(tree, ['add', '--', ...changed])
-    git(tree, ['commit', '-q', '--amend', '--no-edit'])
-  }
-  return null
-}
-
-function mergeMainIn(git: TreeGit, tree: string, card: ConflictingCard, run: RebuildRunner): MainMerge {
-  const at = git(tree, ['rev-parse', 'HEAD'])
-  if (at !== card.head)
-    return { kind: 'refused', why: `the tree ${tree} stands at ${at}, not at the head ${card.head}` }
-  if (git(tree, ['status', '--porcelain']) !== '')
-    return { kind: 'refused', why: `the tree ${tree} has changes of its own` }
-  git(tree, ['fetch', '-q', 'origin', MAIN_BRANCH])
-  const carried = git(tree, ['diff', '--name-only', `${MAIN_REF}...HEAD`]).split('\n').filter(isRebuiltOnUpdate)
-  let tookMain: string[] = []
-  let conflicted: string[] = []
-  try {
-    git(tree, ['merge', '-q', '--no-edit', MAIN_REF])
-  }
-  catch (error) {
-    const files = unmergedIn(git, tree)
-    if (files.length === 0) {
-      abortMerge(git, tree)
-      return { kind: 'refused', why: messageOf(error) }
-    }
-    conflicted = files.filter(isRebuiltOnUpdate)
-    const rest = files.filter(file => !isRebuiltOnUpdate(file))
-    const outside = card.outsideTheCard(rest)
-    const inside = rest.filter(file => !outside.includes(file))
-    if (inside.length > 0) {
-      abortMerge(git, tree)
-      return { kind: 'inside', files: inside }
-    }
-    for (const file of files)
-      takeMain(git, tree, file)
-    git(tree, ['commit', '-q', '--no-edit'])
-    tookMain = rest
-  }
-  const moved = git(tree, ['rev-parse', 'HEAD']) !== card.head
-  const rebuilt = moved ? [...new Set([...conflicted, ...carried])] : []
-  const refused = rebuildGenerated(git, tree, card, rebuilt, run)
-  return refused ?? pushedOrUndone(git, tree, card, tookMain, rebuilt)
-}
-
-function pushedOrUndone(git: TreeGit, tree: string, card: ConflictingCard, tookMain: string[], rebuilt: string[]): MainMerge {
-  const to = git(tree, ['rev-parse', 'HEAD'])
-  try {
-    git(tree, ['push', '-q', 'origin', `HEAD:refs/heads/${card.branch}`])
-  }
-  catch (error) {
-    git(tree, ['reset', '-q', '--hard', card.head])
-    return { kind: 'refused', why: `the push of the merge ${to} to ${card.branch} failed, and the tree went back to ${card.head}: ${messageOf(error)}` }
-  }
-  return { kind: 'merged', to, tookMain, rebuilt }
-}
-
-export function mainMergeInCardTree(git: TreeGit, treeOf: (cardId: number) => string, run: RebuildRunner = pnpmRebuild): MergeMain {
-  return (card) => {
-    const tree = treeOf(card.cardId)
-    try {
-      return mergeMainIn(git, tree, card, run)
-    }
-    catch (error) {
-      abortMerge(git, tree)
-      return { kind: 'refused', why: messageOf(error) }
-    }
-  }
 }
 
 export class UpdateExecutor {
@@ -521,7 +389,7 @@ export class UpdateExecutor {
     if (card === null)
       return this.denied(lease, technical(MERGE_REFUSED, `card #${lease.cardId} has no admitted body, so its branch and touches are unknown`))
     this.allowed(lease, MERGE_MAIN_COMMAND)
-    const merge = this.parts.mergeMain!({ cardId: lease.cardId, branch: card.branch, outsideTheCard: files => pathsOutsideTheBody(this.parts.db, lease.cardId, files.join('\n')), head: lease.head! })
+    const merge = this.parts.mergeMain!(conflictingCardOf(this.parts.db, lease.cardId, card.branch, lease.head!))
     this.executed(lease, MERGE_MAIN_COMMAND, merge.kind === 'merged' ? { ok: true } : { ok: false, error: merge.kind === 'refused' ? merge.why : `conflicts inside the card's touches: ${merge.files.join(', ')}` })
     if (merge.kind === 'refused')
       return this.denied(lease, technical(MERGE_REFUSED, merge.why))

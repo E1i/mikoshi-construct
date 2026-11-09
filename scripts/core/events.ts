@@ -87,6 +87,7 @@ export const ROLE_STOPPED = 'role.stopped'
 export const ROLE_TO_OWNER = 'role.to_owner'
 export const SCOPE_WIDENED = 'scope.widened'
 export const SESSION_HEARTBEAT = 'session.heartbeat'
+export const SESSION_STALLED = 'session.stalled'
 export const SHARD_DECIDED = 'shard.decided'
 export const SHARD_EXPIRED = 'shard.expired'
 export const SHARD_ISSUED = 'shard.issued'
@@ -210,6 +211,7 @@ export const EVENT_PAYLOADS = {
   [ROUND_MUTATIONS_PARKED]: ['card', 'head', 'mutations', 'pr'],
   [SCOPE_WIDENED]: ['admission', 'detail', 'paths'],
   [SESSION_HEARTBEAT]: ['context', 'error', 'lease_gen', 'model', 'read_before_edit', 'reason', 'session', 'spent', 'start_context', 'step', 'subagents', 'task_key'],
+  [SESSION_STALLED]: ['lease_gen', 'life', 'queue', 'reason', 'session', 'since', 'task_key'],
   [SHARD_DECIDED]: ['answer', 'doneBy', 'ground', 'options', 'question', 'shard', 'stop', 'wait'],
   [SHARD_EXPIRED]: ['id'],
   [SHARD_ISSUED]: ['by', 'id', 'run', 'scope', 'under', 'until', 'window'],

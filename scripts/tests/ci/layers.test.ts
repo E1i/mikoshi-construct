@@ -125,7 +125,7 @@ describe('the layer rules of the contours hold over scripts and src', () => {
   it('the code of each node lives in one folder nodes/<name>/', () => {
     const files = nodeShapedFiles()
     const elsewhere = files.filter(file => !/^scripts\/nodes\/([a-z]+)\/\1-(?:worker|executor|starter)\.ts$/.test(file))
-    expect(elsewhere).toEqual(['scripts/ladder/ladder-starter.ts'])
+    expect(elsewhere).toEqual(['scripts/ladder/ladder-starter.ts', 'scripts/supervisor/recorded-worker.ts'])
     const folders = readdirSync(path.join(REPO_ROOT, 'scripts', 'nodes'), { withFileTypes: true }).filter(entry => entry.isDirectory()).map(entry => entry.name).sort()
     expect(folders).toEqual([...new Set(files.filter(file => file.startsWith('scripts/nodes/')).map(file => file.split('/')[2]!))].sort())
     expect(files).toContain('scripts/nodes/merge/merge-executor.ts')

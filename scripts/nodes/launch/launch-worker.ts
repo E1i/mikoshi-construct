@@ -52,6 +52,13 @@ export const HEARTBEAT_SILENCE_MINUTES = 20
 const HEARTBEAT_SILENCE_MS = HEARTBEAT_SILENCE_MINUTES * 60_000
 
 const LEGACY_MERGE = 'merge'
+
+export type PidAlive = (pid: number) => boolean
+
+function recordedPidLivesIn(pid: number, pidAlive: PidAlive): boolean {
+  return Number.isInteger(pid) && pid > 0 && pidAlive(pid)
+}
+
 const LEGACY_PATH = 'path'
 export const LAUNCH_ON = [CARD_ADMITTED, CARD_STARTED, CARD_CLOSED, CARD_STOPPED, PR_CLOSED, PR_OBSERVED, PR_OPENED, LEGACY_MERGE, LEGACY_PATH, TASK_ENQUEUED, TASK_REQUEUED, TASK_COMPLETED, TASK_FAILED, TASK_SUPERSEDED, TASK_RELEASED, TASK_EXPIRED, MERGE_DONE, GHOST_ROW, REDUCED] as const
 export const LAUNCH_NODE: NodeDeclaration = { kind: 'launch', on: LAUNCH_ON, understands: UNDERSTOOD_NOW }
@@ -70,6 +77,7 @@ export interface LaunchNodeParts {
   mode: DetectionMode
   env: NodeJS.ProcessEnv
   processes?: ProcessTable
+  pidAlive?: PidAlive
   resulted?: (card: StartedCard, start: SessionStart) => boolean
   endedWith?: (start: SessionStart) => string | null
   handedOff?: (start: SessionStart) => boolean
@@ -238,6 +246,7 @@ export class LaunchNode extends Node<LaunchStep> {
   private readonly executor: LaunchExecutor
   private readonly starters: Partial<Record<Contour, CardStarter>>
   private readonly processes: ProcessTable
+  private readonly pidAlive: PidAlive
   private readonly lanes: () => number
   private readonly machine: MachineSessions
 
@@ -246,6 +255,7 @@ export class LaunchNode extends Node<LaunchStep> {
     this.executor = new LaunchExecutor(launchParts)
     this.starters = { cheap: launchParts.starter, ladder: launchParts.ladder }
     this.processes = launchParts.processes ?? REAL_PROCESSES
+    this.pidAlive = launchParts.pidAlive ?? (launchParts.processes === undefined ? isAlive : () => true)
     this.lanes = launchParts.lanes ?? repositoryLanes(process.cwd())
     this.machine = launchParts.machine ?? machineSessions(isAlive)
     this.declare(LAUNCH_NODE)
@@ -333,6 +343,8 @@ export class LaunchNode extends Node<LaunchStep> {
   }
 
   private sessionProcess(card: StartedCard): 'live' | 'gone' {
+    if (!recordedPidLivesIn(card.pid, this.pidAlive))
+      return 'gone'
     return launchProcess({ pgid: card.pgid, session: card.session }, this.processes) === 'live' ? 'live' : 'gone'
   }
 

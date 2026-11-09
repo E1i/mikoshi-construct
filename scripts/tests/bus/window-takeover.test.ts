@@ -16,6 +16,7 @@ import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
 import { ownerHoldOf } from '../../nodes/answer/answer-source.js'
 import { claudeAnswerer } from '../../nodes/answer/answerer.js'
 import { recordDecision } from '../../policy/decisions.js'
+import { STARTER_ACTOR } from '../../window/window-prs.js'
 import { requestFromWindow, requestOf, TAKEOVER_AFTER_MINUTES, WindowRequests } from '../../window/window-requests.js'
 import { sha } from './github-fake.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
@@ -295,6 +296,16 @@ describe('a window takeover of a card the bus has no route for', () => {
   it('a red pull request after the named minutes is a ground', () => {
     const { made } = startedCard()
     sessionEnded(made)
+    made.db.prepare(`INSERT INTO prs (pr, card_id, state, ci, event_id) VALUES (?, ?, 'open', 'red', 1)`).run(PR_OF_THE_CARD, CARD)
+    made.clock.advance(TAKEOVER_AFTER_MINUTES * MINUTE)
+
+    expect(takeover(made)).toMatchObject({ kind: 'done' })
+  })
+
+  it('a takeover after the window session that started the card ended is not refused', () => {
+    const made = mergeBench()
+    benches.push(made)
+    appendEvent(made.db, { ts: made.clock.now().toISOString(), type: CARD_STARTED, actor: `${STARTER_ACTOR}window`, cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_STARTED}:${CARD}:window`, payload: { session: 'window-session-1', worktree: 'unused', branch: `feat/card-${CARD}`, base: sha('1'), shift: null }, legacy: false })
     made.db.prepare(`INSERT INTO prs (pr, card_id, state, ci, event_id) VALUES (?, ?, 'open', 'red', 1)`).run(PR_OF_THE_CARD, CARD)
     made.clock.advance(TAKEOVER_AFTER_MINUTES * MINUTE)
 

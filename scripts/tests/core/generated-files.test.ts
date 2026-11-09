@@ -18,7 +18,7 @@ import { APPEND_ONLY_LOGS, commandLine, GENERATED_FILES, GENERATED_PATHS, isRebu
 import { readLayerMap, recordsOf } from '../../core/layer-map.js'
 import { taskConflicts } from '../../nodes/launch/overlap.js'
 import { sharedAppendFiles } from '../../nodes/launch/shared-files.js'
-import { mainMergeInCardTree } from '../../nodes/update/update-executor.js'
+import { mainMergeInCardTree } from '../../ports/main-merge.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')
 const OWNER = 'scripts/core/generated-files.ts'

@@ -23,9 +23,12 @@ import { decisionsIntake } from '../policy/decisions-import.js'
 import { ghApi } from '../ports/github.js'
 import { CHECK_MS, NetWatch, pollLine, TICK_MS } from '../ports/netwatch.js'
 import { ghApiPost, setStepStatuses, STATUS_CONTEXT, STATUS_OFF_FILE, statusesSwitchedOff, statusFailureLine, statusLine } from '../ports/pr-status.js'
+import { OsProcessTable } from '../ports/process-table.js'
 import { realRequestTools } from '../window/window-request-tools.js'
 import { WindowRequests } from '../window/window-requests.js'
 import { alive, BUS_RUN_MARKERS, instancesOf, processBeatsOn, psList, RUN_SCRIPT } from './bg.js'
+import { sessionLifeIn } from './recorded-worker.js'
+import { StalledSessions } from './stalled-sessions.js'
 import { stampLogOutput } from './stamp.js'
 
 export const PREFIX = '[bus:run] '
@@ -157,7 +160,7 @@ function lastEventId(db: DatabaseSync): number {
 }
 
 export class BusTick {
-  constructor(private readonly db: DatabaseSync, private readonly netWatch: NetWatch, private readonly clock: () => Date, private readonly intake: () => void = () => {}, private readonly project: (now: Date) => void = () => {}, private readonly requests: () => void = () => {}, private readonly statuses: () => void = () => {}) {}
+  constructor(private readonly db: DatabaseSync, private readonly netWatch: NetWatch, private readonly clock: () => Date, private readonly intake: () => void = () => {}, private readonly project: (now: Date) => void = () => {}, private readonly requests: () => void = () => {}, private readonly statuses: () => void = () => {}, private readonly stalled: () => void = () => {}) {}
 
   run(): Tick | null {
     const poll = this.netWatch.poll()
@@ -175,6 +178,7 @@ export class BusTick {
     appendEvent(this.db, { ts, type: REDUCED, actor: 'reducer', cardId: null, pr: null, head: null, dedupeKey: `${REDUCED}:${ts}`, payload: { through_event_id: through, ...reduced }, legacy: false })
     const derived = deriveQueues(this.db, ts)
     this.statuses()
+    this.stalled()
     this.project(this.clock())
     return { poll, reduced, derived }
   }
@@ -225,7 +229,13 @@ export function composeBusTick(db: DatabaseSync, busPath: string, gitHub: GitHub
       console.log(statusFailureLine(error))
     }
   }
-  return { busTick: new BusTick(db, new NetWatch(db, gitHub, clock), clock, decisionsIntake(db, decisionsFileOf(busPath), clock), board.project, answer, statuses), boardFile: board.file, boardDataFile: board.dataFile }
+  const table = new OsProcessTable()
+  const silent = new StalledSessions(db, clock, { lifeOf: sessionLifeIn(table), prefix: PREFIX })
+  const stalled = (): void => {
+    for (const line of silent.step())
+      console.log(line)
+  }
+  return { busTick: new BusTick(db, new NetWatch(db, gitHub, clock), clock, decisionsIntake(db, decisionsFileOf(busPath), clock), board.project, answer, statuses, stalled), boardFile: board.file, boardDataFile: board.dataFile }
 }
 
 export function startBus(db: DatabaseSync, clock: () => Date): string[] {
