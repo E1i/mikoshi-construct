@@ -17,9 +17,10 @@ import { BACKFILL_SOURCE, NOT_A_BACKFILL } from './backfill-source.js'
 import { CARD_BODIES } from './card-bodies.js'
 import { answerDecisionOfKey, decisionSegment, withDecidedContinuations } from './card-decisions.js'
 import { appendEvent, inTransaction, OPEN_WAIT, openOwnerWait, OWNER_WAITS } from './db.js'
-import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, CARD_WAITING, CI_RERUN_REQUESTED, declaredPart, INTAKE_EVENT, INTAKE_MOVE_EVENT, MERGE_DONE, OWNER_WAIT_OPENED, POLICY_DENIED, PR_CLOSED, PR_OBSERVED, PR_OPENED, QUESTION_AGENT, QUESTION_OWNER, REVIEW_RECORDED, REVIEW_ROUNDS_SPENT, ROUND_EXTENDED, ROUND_MUTATIONS_PARKED, SESSION_HEARTBEAT, TASK_COMPLETED, TASK_ENQUEUED, TASK_EXPIRED, TASK_FAILED, TASK_LEASED, TASK_RELEASED, TASK_RENEWED, TASK_REQUEUED, TASK_SUPERSEDED, TASK_WITHDRAWN, UPDATE_DONE, WITNESS_DOWNGRADE, WITNESS_RECORDED } from './events.js'
+import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, CARD_WAITING, declaredPart, INTAKE_EVENT, INTAKE_MOVE_EVENT, MERGE_DONE, OWNER_WAIT_OPENED, POLICY_DENIED, PR_CLOSED, PR_OPENED, QUESTION_AGENT, QUESTION_OWNER, REVIEW_RECORDED, REVIEW_ROUNDS_SPENT, ROUND_EXTENDED, ROUND_MUTATIONS_PARKED, SESSION_HEARTBEAT, TASK_COMPLETED, TASK_ENQUEUED, TASK_EXPIRED, TASK_FAILED, TASK_LEASED, TASK_RELEASED, TASK_RENEWED, TASK_REQUEUED, TASK_SUPERSEDED, TASK_WITHDRAWN, UPDATE_DONE, WITNESS_DOWNGRADE, WITNESS_RECORDED } from './events.js'
 import { generationOfKey, isFullSha, QUEUES, reviewInputOf, reviewInputOfKey, taskKey } from './identifiers.js'
 import { ownerQuestionAnswered } from './inbox.js'
+import { A_RERUN_DUE, withTheHeadsARerunIsDueOn } from './observations.js'
 import { payloadOf, reject } from './stored.js'
 import { markReduced, reduceProjection, watermarkOf } from './watermark.js'
 
@@ -521,32 +522,7 @@ function answerCandidatesWhere(condition: string): string {
 
 const CHANGES_CANDIDATES = answerCandidatesWhere(`verdict_on_head = 'changes'`)
 
-const LATEST_OBSERVATION_OF_THE_HEAD = `(SELECT max(seen.id) FROM events AS seen WHERE seen.type = '${PR_OBSERVED}' AND seen.pr = prs.pr AND seen.head = prs.head)`
-
-const RED_ONLY_FROM_CANCELLED_CHECKS = `EXISTS (
-    SELECT 1 FROM events AS observed WHERE observed.id = ${LATEST_OBSERVATION_OF_THE_HEAD}
-      AND json_extract(observed.payload, '$.ci') = 'red'
-      AND json_array_length(observed.payload, '$.failed_checks') > 0
-      AND json_array_length(observed.payload, '$.cancelled_checks') = json_array_length(observed.payload, '$.failed_checks')
-  )`
-
-const ITS_RERUN_SPENT = `EXISTS (
-    SELECT 1 FROM events AS rerun WHERE rerun.type = '${CI_RERUN_REQUESTED}' AND rerun.legacy = 0 AND rerun.pr = prs.pr AND rerun.head = prs.head
-  )`
-
-const A_RERUN_DUE = `(${RED_ONLY_FROM_CANCELLED_CHECKS} AND NOT ${ITS_RERUN_SPENT})`
-
 const RED_CI_CANDIDATES = answerCandidatesWhere(`ci = 'red' AND NOT ${A_RERUN_DUE}`)
-
-const CANCELLED_ONLY_TO_RERUN = `
-  SELECT pr, card_id, head FROM prs
-  WHERE state = 'open' AND ci = 'red' AND card_id IS NOT NULL AND head IS NOT NULL AND ${A_RERUN_DUE}
-  ORDER BY pr
-`
-
-export function rerunDueOn(db: DatabaseSync, pr: number, head: string): boolean {
-  return db.prepare(`SELECT 1 FROM prs WHERE pr = ? AND head = ? AND ci = 'red' AND ${A_RERUN_DUE}`).get(pr, head) !== undefined
-}
 
 const DIRTY_THE_UPDATE_COULD_NOT_MERGE = answerCandidatesWhere(`base = '${MAIN_BRANCH}' AND mergeable = 'dirty' AND draft = 0 AND EXISTS (
     SELECT 1 FROM events AS refused WHERE refused.type = '${POLICY_DENIED}' AND refused.legacy = 0 AND refused.pr = prs.pr AND refused.head = prs.head
@@ -922,10 +898,6 @@ function holdsOfTheUpdateTurn(db: DatabaseSync, ts: string): (Candidate & { upda
   return rows.filter(aMergeCandidate(db, ts))
 }
 
-function prsHoldingTheUpdateTurn(db: DatabaseSync, ts: string): Set<number | null> {
-  return new Set(holdsOfTheUpdateTurn(db, ts).map(row => row.pr))
-}
-
 export function updateTurnHeldUntil(db: DatabaseSync, ts: string, pr: number): string | null {
   const holds = holdsOfTheUpdateTurn(db, ts)
   if (holds.length === 0 || holds.some(row => row.pr === pr))
@@ -941,11 +913,9 @@ export function updateCandidates(db: DatabaseSync, ts: string, rerun: RerunMode 
   const sent = rerun === 'by-layers' ? candidateRows(db, GREEN_CLEAN_A_MERGE_SENT_TO_UPDATE, aMergeCandidate(db, ts)) : []
   const conflicting = candidateRows(db, CONFLICTING_BY_CARD_PRIORITY, everyRow)
   const green = [...candidateRows(db, GREEN_BEHIND_BY_CARD_PRIORITY, aMergeCandidate(db, ts)), ...sent]
-  const holders = prsHoldingTheUpdateTurn(db, ts)
+  const holders = new Set(holdsOfTheUpdateTurn(db, ts).map(row => row.pr))
   const inTurn = holders.size === 0 ? green : green.filter(row => holders.has(row.pr))
-  const turn = [...inTurn, ...conflicting].slice(0, 1)
-  const reruns = candidateRows(db, CANCELLED_ONLY_TO_RERUN, everyRow).filter(row => !turn.some(taken => taken.pr === row.pr && taken.head === row.head))
-  return openCandidates(db, ts, 'update', [...turn, ...reruns])
+  return openCandidates(db, ts, 'update', withTheHeadsARerunIsDueOn(db, [...inTurn, ...conflicting].slice(0, 1)))
 }
 
 export function closeCandidates(db: DatabaseSync, ts: string): QueuedTask[] {
