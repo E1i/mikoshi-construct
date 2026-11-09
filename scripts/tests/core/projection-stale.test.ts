@@ -1,5 +1,8 @@
 import type { DatabaseSync } from 'node:sqlite'
 import { afterEach, describe, expect, it } from 'vitest'
+import { busFacts } from '../../../src/commands/board/bus.js'
+import { screenLines, waitsLines } from '../../../src/commands/board/screens.js'
+import { PLAIN_LORE } from '../../../src/ui/lore.js'
 import { CARD_TYPES_FOLDED_ON_APPEND, CARDS, DECISIONS, openOwnerWaits, OWNER_WAITS, PROJECTION_TYPES, readCurrent, staleProjection } from '../../core/bus-readings.js'
 import { appendedOnCard, CARD_FOLDS, CARDS_PROJECTION } from '../../core/card-automaton.js'
 import { appendEvent, openBus, openOwnerWait } from '../../core/db.js'
@@ -7,7 +10,7 @@ import { CARD_STARTED, CARD_STOPPED, DECISION_RECORDED, OWNER_WAIT_OPENED, QUEST
 import { runInbox } from '../../core/inbox.js'
 import { OWNER_WAIT_FOLDS, reduce, REDUCED_TYPES, SNAPSHOT } from '../../core/reducer.js'
 import { watermarkOf } from '../../core/watermark.js'
-import { DECISION_FOLDS, inForceDecisions, recordDecision } from '../../policy/decisions.js'
+import { currentDecisions, DECISION_FOLDS, inForceDecisions, recordDecision } from '../../policy/decisions.js'
 
 const TS = '2026-11-09T08:02:45.000Z'
 const CARD = 7
@@ -55,14 +58,48 @@ describe('a reader of a projection behind its events', () => {
     const reduced = watermarkOf(db, SNAPSHOT)
     recordDecision(db, { ts: TS, decisionId: 1, text: 'go on', cards: [] })
     expect(inForceDecisions(db)).toEqual([])
-    expect(readCurrent(db, [DECISIONS], () => inForceDecisions(db))).toEqual({ stale: { projection: DECISIONS, type: DECISION_RECORDED, latest: lastId(db), through: reduced } })
+    expect(currentDecisions(db)).toEqual({ stale: { projection: DECISIONS, type: DECISION_RECORDED, latest: lastId(db), through: reduced } })
     expect(staleProjection(db, CARDS)).toEqual({ projection: CARDS, type: DECISION_RECORDED, latest: lastId(db), through: reduced })
+    const staleOut: string[] = []
+    expect(runInbox(db, line => staleOut.push(line))).toBe(1)
+    expect(staleOut).toEqual([`[bus:inbox] decisions is stale: reduced through event ${reduced}, behind ${DECISION_RECORDED} ${lastId(db)}`])
     reduce(db)
+    expect(currentDecisions(db)).toEqual({ stale: null, rows: [{ decisionId: 1, text: 'go on', cards: [] }] })
     const second = watermarkOf(db, SNAPSHOT)
     appendEvent(db, { ts: TS, type: CARD_STARTED, actor: 'policy', cardId: CARD + 1, pr: null, head: null, dedupeKey: `${CARD_STARTED}:${CARD + 1}`, payload: {}, legacy: false })
     expect(staleProjection(db, CARDS)).toEqual({ projection: CARDS, type: CARD_STARTED, latest: lastId(db), through: second })
     const out: string[] = []
     expect(runInbox(db, line => out.push(line))).toBe(0)
+    expect(out).toEqual(['[bus:inbox] the owner inbox is empty'])
+  })
+
+  it('the board names stale owner waits instead of reading none', () => {
+    const db = bus()
+    cardStarted(db)
+    reduce(db)
+    waitForTheOwner(db)
+    const line = `owner_waits is stale: reduced through event ${watermarkOf(db, SNAPSHOT)}, behind ${OWNER_WAIT_OPENED} ${lastId(db)}`
+    const facts = busFacts(db, new Date(TS))
+    expect([facts.waits, facts.waitsStale]).toEqual([[], line])
+    expect(waitsLines(facts, PLAIN_LORE)).toEqual([PLAIN_LORE.boardServiceLine('waits for you', '?', undefined, line)])
+    reduce(db)
+    expect(busFacts(db, new Date(TS)).waitsStale).toBeUndefined()
+    expect(waitsLines(busFacts(db, new Date(TS)), PLAIN_LORE)).toHaveLength(1)
+  })
+
+  it('the board names stale cards instead of reading them', () => {
+    const db = bus()
+    cardStarted(db)
+    reduce(db)
+    expect(busFacts(db, new Date(TS)).cardsStale).toBeUndefined()
+    const reduced = watermarkOf(db, SNAPSHOT)
+    appendEvent(db, { ts: TS, type: CARD_STARTED, actor: 'policy', cardId: CARD + 1, pr: null, head: null, dedupeKey: `${CARD_STARTED}:${CARD + 1}`, payload: {}, legacy: false })
+    const line = `cards is stale: reduced through event ${reduced}, behind ${CARD_STARTED} ${lastId(db)}`
+    const facts = busFacts(db, new Date(TS))
+    expect([facts.cards, facts.cardsStale]).toEqual([[], line])
+    expect(screenLines(facts, PLAIN_LORE).filter(each => each === PLAIN_LORE.boardServiceLine('cards', '?', undefined, line))).toHaveLength(2)
+    reduce(db)
+    expect(busFacts(db, new Date(TS)).cardsStale).toBeUndefined()
   })
 
   it('a projection reduced through its latest event answers', () => {
@@ -77,6 +114,14 @@ describe('a reader of a projection behind its events', () => {
       .toEqual({ stale: null, rows: { waits: [wait], decisions: [1] } })
     appendedOnCard(db, { ts: TS, type: CARD_STOPPED, actor: 'policy', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:${CARD}`, payload: { reason: QUESTION_OWNER }, legacy: false })
     expect(staleProjection(db, CARDS)).toBeNull()
+  })
+
+  it('a reduce marks each projection by its name and none by an empty one', () => {
+    const db = bus()
+    cardStarted(db)
+    reduce(db)
+    const names = (db.prepare('SELECT projection FROM projection_watermarks ORDER BY projection').all() as { projection: string }[]).map(row => row.projection)
+    expect(names).toEqual([CARDS, 'chains', DECISIONS, OWNER_WAITS, 'roles', SNAPSHOT, 'tasks'])
   })
 
   it('every type a fold of the projection reads is a type its reader checks, and every checked type is reduced', () => {

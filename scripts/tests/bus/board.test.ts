@@ -18,8 +18,9 @@ import { CARD_ADMITTED, CARD_DROPPED, CARD_MOVED, CARD_PLANNED, CARD_STARTED, CA
 import { OWNER, RESTART_MISSED } from '../../core/inbox.js'
 import { completeTask, leaseNext, leaseWhileFree } from '../../core/lease.js'
 import { queueTask } from '../../core/queue.js'
-import { PLAN_FOLDS } from '../../core/reducer.js'
+import { PLAN_FOLDS, SNAPSHOT } from '../../core/reducer.js'
 import { storedByKey } from '../../core/stored.js'
+import { markReduced } from '../../core/watermark.js'
 import { importJournal } from '../../intake/import.js'
 import { answerLeaseOrder } from '../../nodes/answer/answer-worker.js'
 import { busReviewPulse } from '../../nodes/review/review-worker.js'
@@ -151,6 +152,7 @@ function seedProjections(bench: BoardBench): void {
   bodyRow(bench, 862, { lane: 'lane-2', depends: [860] })
   bodyRow(bench, 863, { lane: 'lane-2', state: 'stopped' })
   appendEvent(bench.db, { ts: bench.ts(), type: CARD_STOPPED, actor: 'policy', cardId: 863, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:863`, payload: { reason: 'question' }, legacy: false })
+  markReduced(bench.db, SNAPSHOT, Number((bench.db.prepare('SELECT max(id) AS id FROM events').get() as { id: number }).id))
 }
 
 describe('the factory board', () => {

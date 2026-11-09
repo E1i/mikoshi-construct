@@ -7,7 +7,6 @@ import type { CheckCatalog } from '../ci/card-runs.js'
 import type { LayerMap } from '../core/layer-map.js'
 import type { CardFields } from '../intake/card-contract.js'
 import type { WitnessRecordOnHead, WitnessTable } from '../intake/witness-fields-backfill.js'
-import type { InForceDecision } from '../policy/decisions.js'
 import type { BoardWarning, SessionContext } from './board-warnings.js'
 import type { CardChain } from './card-chain.js'
 import { createHash } from 'node:crypto'
@@ -25,6 +24,7 @@ import { factoryLiveness } from '../../src/commands/liveness.js'
 import { BANNER, LORE, PLAIN_LORE } from '../../src/ui/lore.js'
 import { currentVersion } from '../../src/version.js'
 import { cardRunsOf, catalogLayersByTest, catalogModuleLayers } from '../ci/card-runs.js'
+import { staleLine } from '../core/bus-readings.js'
 import { BUSY_TIMEOUT_MS, defaultBusPath } from '../core/db.js'
 import { defaultHandoffDir } from '../core/handoff-dir.js'
 import { statusLineOf } from '../core/handoff-status.js'
@@ -32,7 +32,7 @@ import { readLayerMap } from '../core/layer-map.js'
 import { openDatabase } from '../core/sqlite.js'
 import { cardContract } from '../intake/card-contract.js'
 import { recordedWitnessFieldsBackfill, witnessTableOf } from '../intake/witness-fields-backfill.js'
-import { inForceDecisions } from '../policy/decisions.js'
+import { currentDecisions } from '../policy/decisions.js'
 import { GREEN, RED, UNCHECKED } from '../policy/policy.js'
 import { ghApi } from '../ports/github.js'
 import { cardSizeIn } from '../ports/session.js'
@@ -124,7 +124,7 @@ export interface BoardPage {
   windowGauges: Gauges | null
   limits: EddiesLimits
   details: Map<number, CardDetail>
-  decisions: InForceDecision[]
+  decisions: ReturnType<typeof currentDecisions>
   handoff: Handoff
   repository: string | null
   tickMs: number | null
@@ -489,8 +489,8 @@ function waitItem(wait: OwnerWait, page: BoardPage): string {
 }
 
 function waitsSlot(page: BoardPage): string {
-  const { waits } = page.facts
-  return waits.length === 0 ? '' : `<section class="owner-strip bevel" aria-label="Waits for you"><span class="lbl">waits for you</span>${waits.map(wait => waitItem(wait, page)).join('')}</section>`
+  const { waits, waitsStale } = page.facts
+  return waits.length === 0 && waitsStale === undefined ? '' : `<section class="owner-strip bevel" aria-label="Waits for you"><span class="lbl">waits for you</span>${waitsStale === undefined ? waits.map(wait => waitItem(wait, page)).join('') : `<span class="ask" data-static>${escaped(waitsStale)}</span>`}</section>`
 }
 
 function warningsSlot(warnings: readonly BoardWarning[]): string {
@@ -504,7 +504,7 @@ function flowSlot(page: BoardPage): string {
     `<div class="panel-head"><h2 id="h-flow">${PLAIN_LORE.boardTabFlow}</h2><span class="meta">${FLOW_META}</span></div>`,
     '<div class="flow">',
     ...flowStages(facts).map(entry => legendRow(entry, page)),
-    `<div class="flow-note"><span>review queue <b>${facts.reviewQueue}</b></span>${failureSpan(facts)}</div>`,
+    `<div class="flow-note"><span>review queue <b>${facts.reviewQueue}</b></span>${failureSpan(facts)}${facts.cardsStale === undefined ? '' : `<span data-static>${escaped(facts.cardsStale)}</span>`}</div>`,
     '</div>',
   ].join('\n')
 }
@@ -919,11 +919,11 @@ function handoffDialogHtml(page: BoardPage): string {
 }
 
 function decisionsDialogHtml(page: BoardPage): string {
-  const rows = page.decisions.map(decision => `<div><b>D-${decision.decisionId}</b><span>${linked(decision.text, page)}</span></div>`)
+  const rows = (page.decisions.stale === null ? page.decisions.rows : []).map(decision => `<div><b>D-${decision.decisionId}</b><span>${linked(decision.text, page)}</span></div>`)
   return [
-    dialogHead('decisions', 'in force', `${page.decisions.length} owner decisions`, ''),
+    dialogHead('decisions', 'in force', page.decisions.stale === null ? `${rows.length} owner decisions` : staleLine(page.decisions.stale), ''),
     '<div class="drill-body">',
-    rows.length === 0 ? note('The bus holds no owner decision in force.') : `<div class="dec">${rows.join('')}</div>`,
+    page.decisions.stale !== null ? note(escaped(staleLine(page.decisions.stale))) : rows.length === 0 ? note('The bus holds no owner decision in force.') : `<div class="dec">${rows.join('')}</div>`,
     '</div>',
   ].join('')
 }
@@ -1108,7 +1108,7 @@ export function busJson(db: DatabaseSync, now: Date, liveOnly = false): string {
   const facts = busFacts(db, now)
   const prs = cardPrs(db)
   const events = latestCardEvents(db, EVENTS_PER_CARD)
-  return `${JSON.stringify({ status: 'live', at: facts.at, pulse: facts.pulse, waits: facts.waits, cards: (liveOnly ? facts.cards.filter(isLive) : facts.cards).map(card => ({ id: card.id, stage: card.stage, state: card.state, lane: card.lane, pr: prs.get(card.id) ?? null, line: card.line, events: events.get(card.id) ?? [] })), tasks: openTasks(db) }, null, 2)}\n`
+  return `${JSON.stringify({ status: 'live', at: facts.at, pulse: facts.pulse, waits: facts.waits, waitsStale: facts.waitsStale ?? null, cardsStale: facts.cardsStale ?? null, cards: (liveOnly ? facts.cards.filter(isLive) : facts.cards).map(card => ({ id: card.id, stage: card.stage, state: card.state, lane: card.lane, pr: prs.get(card.id) ?? null, line: card.line, events: events.get(card.id) ?? [] })), tasks: openTasks(db) }, null, 2)}\n`
 }
 
 export function renderBoard(page: BoardPage): string {
@@ -1161,7 +1161,7 @@ function boardPageOf(db: DatabaseSync, busPath: string, now: Date, handoffFile: 
       }),
     ],
     details: cardDetails(db, facts),
-    decisions: inForceDecisions(db),
+    decisions: currentDecisions(db),
     handoff: readHandoff(handoffFile),
     repository: readRepositoryUrl(),
     tickMs,

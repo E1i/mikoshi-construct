@@ -6,7 +6,7 @@ import os from 'node:os'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { WINDOW_WHO } from '../../src/card/parking.js'
-import { openOwnerWaits } from '../core/bus-readings.js'
+import { CARDS, openOwnerWaits, OWNER_WAITS, readCurrent } from '../core/bus-readings.js'
 import { RUNNING_CARD } from '../core/card-automaton.js'
 import { CARD_BODIES } from '../core/card-bodies.js'
 import { defaultBusPath, openBus } from '../core/db.js'
@@ -30,9 +30,11 @@ export function ownCardHasNoPr(card: number): string {
 const OWN_CARDS_WITHOUT_PR = `SELECT card.card_id AS id FROM cards AS card JOIN ${CARD_BODIES} AS body ON body.card_id = card.card_id WHERE body.who = '${WINDOW_WHO}' AND card.state = '${RUNNING_CARD}' AND card.pr IS NULL ORDER BY card.card_id`
 
 export function ownCardWithoutPr(db: DatabaseSync): number | null {
-  const waiting = new Set(openOwnerWaits(db).map(wait => wait.card))
-  const cards = db.prepare(OWN_CARDS_WITHOUT_PR).all() as unknown as { id: number }[]
-  return cards.find(card => !waiting.has(card.id))?.id ?? null
+  const reading = readCurrent(db, [OWNER_WAITS, CARDS], () => ({ waits: openOwnerWaits(db), cards: db.prepare(OWN_CARDS_WITHOUT_PR).all() as unknown as { id: number }[] }))
+  if (reading.stale !== null)
+    return null
+  const waiting = new Set(reading.rows.waits.map(wait => wait.card))
+  return reading.rows.cards.find(card => !waiting.has(card.id))?.id ?? null
 }
 
 const LAST_BEAT = `SELECT ts FROM events WHERE type = '${WINDOW_HEARTBEAT}' AND legacy = 0 AND json_valid(payload) AND json_extract(payload, '$.session') = ? ORDER BY id DESC LIMIT 1`

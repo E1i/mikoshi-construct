@@ -98,6 +98,10 @@ export function openOwnerWaits(db: DatabaseSync): OwnerWait[] {
   return (db.prepare(OPEN_OWNER_WAITS).all() as unknown as OwnerWait[]).map(row => ({ ...row }))
 }
 
+export function currentOwnerWaits(db: DatabaseSync): Reading<OwnerWait[]> {
+  return readCurrent(db, [OWNER_WAITS], () => openOwnerWaits(db))
+}
+
 const LATEST_ASSIGNMENT = `SELECT id, json_extract(payload, '$.lane') AS lane, json_extract(payload, '$.reason') AS reason, json_extract(payload, '$.after') AS after FROM events WHERE legacy = 0 AND type = '${LANE_ASSIGNED}' AND card_id = ? ORDER BY id DESC LIMIT 1`
 
 const LATEST_END = `SELECT max(id) AS id FROM events WHERE legacy = 0 AND card_id = ? AND type IN ('${CARD_DROPPED}', '${CARD_CLOSED}', '${MERGE_DONE}')`

@@ -2,7 +2,7 @@ import type { OwnerWait } from '../../../scripts/core/bus-readings.js'
 import type { BusDb } from '../cost/bus.js'
 import type { Goal } from './goal.js'
 import { existsSync } from 'node:fs'
-import { currentLane, openOwnerWaits } from '../../../scripts/core/bus-readings.js'
+import { CARDS, currentLane, currentOwnerWaits, readCurrent, staleLine } from '../../../scripts/core/bus-readings.js'
 import { BUS_PULSE, CARD_FELL, CARD_STOPPED, CARD_VERIFIED, CHECKS_MATRIX_EVENT, PROCESS_HEARTBEAT, SESSION_HEARTBEAT, TERMINAL_LANES, WINDOW_HEARTBEAT, WINDOW_SUBAGENT_EVENT } from '../../../scripts/core/events.js'
 import { PLAIN_LORE } from '../../ui/lore.js'
 import { withReadOnlyBus } from '../cost/bus.js'
@@ -102,6 +102,8 @@ export interface BusFacts {
   at: string
   goal: Goal | null
   waits: OwnerWait[]
+  waitsStale?: string
+  cardsStale?: string
   pulse: string | null
   slots: BusSlot[]
   cards: BusCard[]
@@ -453,15 +455,18 @@ export function latestCardEvents(db: BusDb, perCard: number): Map<number, BusCar
 export function busFacts(db: BusDb, now: Date): BusFacts {
   const queue = db.prepare(`SELECT count(*) AS n FROM tasks WHERE queue = 'review' AND state IN ('queued', 'leased')`).get() as { n: number }
   const events = boardEvents(db)
-  const cards = cardsOf(db, events)
+  const cardReading = readCurrent(db, [CARDS], () => cardsOf(db, events))
+  const cards = cardReading.stale === null ? cardReading.rows : []
   const sessions = sessionServices(events, cards, now)
+  const waits = currentOwnerWaits(db)
   return {
     at: now.toISOString(),
     goal: goalOf(db, now),
-    waits: openOwnerWaits(db),
+    ...waits.stale === null ? { waits: waits.rows } : { waits: [], waitsStale: staleLine(waits.stale) },
     pulse: lastPulse(db),
     slots: slotsOf(db),
     cards,
+    ...cardReading.stale === null ? {} : { cardsStale: staleLine(cardReading.stale) },
     services: [...windowTiles(db, events, now), ...oneTilePerProcess(taskServices(db), sessions), ...sessions],
     matrices: checkMatrices(db),
     failure: lastFailure(events),

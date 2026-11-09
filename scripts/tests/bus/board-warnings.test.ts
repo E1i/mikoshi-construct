@@ -223,7 +223,7 @@ function pageWritten(at: string, tickMs: number | null, warnings: BoardPage['war
     windowGauges: null,
     limits: { contextLimit: null, cardContextLine: null, sessionSpend: null, agentSpend: null, warnRatio: null, modelWindows: new Map() },
     details: new Map(),
-    decisions: [],
+    decisions: { stale: null, rows: [] },
     handoff: { file: 'miko.md', text: null },
     repository: null,
     tickMs,
