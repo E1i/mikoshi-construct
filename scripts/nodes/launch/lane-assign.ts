@@ -49,7 +49,7 @@ const OWNER_MERGE_HOLDERS = `
 
 const LATEST_MERGE_DENIAL = `
   SELECT payload FROM events
-  WHERE legacy = 0 AND type = '${POLICY_DENIED}' AND card_id = ? AND pr = ? AND json_valid(payload) AND json_extract(payload, '$.command') = 'merge'
+  WHERE legacy = 0 AND type = '${POLICY_DENIED}' AND card_id = ? AND pr = ? AND head IS ? AND json_valid(payload) AND json_extract(payload, '$.command') = 'merge'
   ORDER BY id DESC LIMIT 1
 `
 
@@ -148,7 +148,7 @@ export interface Stall {
 interface StalledPr { card_id: number, pr: number, head: string | null }
 
 function denialOf(db: DatabaseSync, row: StalledPr): Pick<Stall, 'cause' | 'detail'> {
-  const denial = db.prepare(LATEST_MERGE_DENIAL).get(row.card_id, row.pr) as { payload: string } | undefined
+  const denial = db.prepare(LATEST_MERGE_DENIAL).get(row.card_id, row.pr, row.head) as { payload: string } | undefined
   const payload = denial === undefined ? {} : parsed(denial.payload)
   const cause = payload.rule ?? payload.reason
   return {

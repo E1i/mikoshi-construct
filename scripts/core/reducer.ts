@@ -9,6 +9,7 @@ import { ROLE_FOLDS, ROLES_PROJECTION } from '../nodes/restart/role.js'
 import { archiveSpentDecisions, DECISION_FOLDS, waitsTheDecisionNames } from '../policy/decisions.js'
 import { allowLiveCommand, namesQueueLive } from '../policy/live-decision.js'
 import { RECUT_ACTOR } from '../policy/round-limit-decision.js'
+import { IN_ORDER_MARK, REDUCED_IN_ORDER } from './bus-readings.js'
 import { CARD_FOLDS, cardLinkObserved, cardPrMerged, cardPrOpened, CARDS_PROJECTION, CLOSED_CARD, DROPPED_CARD, MERGED_CARD } from './card-automaton.js'
 import { CARD_BODIES, foldCardBody } from './card-bodies.js'
 import { CHAINS_PROJECTION } from './chain.js'
@@ -514,7 +515,7 @@ export function reducedThrough(db: DatabaseSync): number {
 }
 
 export const REDUCE_BATCH = 500
-export const SNAPSHOT = 'snapshot'
+export const SNAPSHOT = IN_ORDER_MARK
 export const DIRTY_ROWS = 'projection_dirty'
 
 export type ReduceScope = 'pending' | 'rebuild'
@@ -626,6 +627,8 @@ function batchThrough(events: StoredEvent[], from: number, target: number): numb
 function markInOrderThrough(db: DatabaseSync, through: number): void {
   db.exec(`PRAGMA user_version = ${through}`)
   markReduced(db, SNAPSHOT, through)
+  for (const projection of REDUCED_IN_ORDER)
+    markReduced(db, projection, through)
   for (const projection of INCREMENTAL_PROJECTIONS) {
     markReduced(db, projection.table, through)
     reduceProjection(db, projection)

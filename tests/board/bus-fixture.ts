@@ -1,4 +1,5 @@
 import { DatabaseSync } from 'node:sqlite'
+import { IN_ORDER_MARK } from '../../scripts/core/bus-readings.js'
 import { LANE_ASSIGNED } from '../../scripts/core/events.js'
 
 const BUS_SCHEMA = `
@@ -10,6 +11,7 @@ CREATE TABLE tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, queue TEXT NOT NULL, c
 CREATE TABLE roles (role TEXT PRIMARY KEY, status TEXT NOT NULL, state TEXT NOT NULL);
 CREATE TABLE decisions (decision_id INTEGER PRIMARY KEY, text TEXT NOT NULL, scope TEXT, event_id INTEGER, until TEXT, supersedes TEXT, state TEXT NOT NULL DEFAULT 'in-force');
 CREATE TABLE heartbeats (process TEXT NOT NULL, type TEXT NOT NULL, ts TEXT NOT NULL, payload TEXT NOT NULL, PRIMARY KEY (process, type));
+CREATE TABLE projection_watermarks (projection TEXT PRIMARY KEY, through_event_id INTEGER NOT NULL);
 CREATE TABLE owner_waits (id TEXT PRIMARY KEY, need TEXT NOT NULL, text TEXT NOT NULL, command TEXT, card_id INTEGER, pr INTEGER, state TEXT NOT NULL, answer TEXT, opened_at TEXT NOT NULL, event_id INTEGER NOT NULL);
 `
 
@@ -109,6 +111,7 @@ export function writeBus(file: string, seed: BusSeed): string {
       const eventId = insertEvent(db, { ts: null, type: DECISION_EVENT, card: null, payload: '{}' })
       db.prepare('INSERT INTO decisions (decision_id, text, scope, event_id) VALUES (?, ?, ?, ?)').run(decisionId, text, scope === undefined ? null : JSON.stringify(scope), eventId)
     }
+    db.prepare('INSERT INTO projection_watermarks (projection, through_event_id) SELECT ?, coalesce(max(id), 0) FROM events').run(IN_ORDER_MARK)
   }
   finally {
     db.close()

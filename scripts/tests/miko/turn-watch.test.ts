@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { WINDOW_WHO } from '../../../src/card/parking.js'
 import { textSha } from '../../../src/card/text-sha.js'
 import { appendEvent, openBus } from '../../core/db.js'
-import { CARD_ADMITTED, CARD_STARTED, CARD_STOPPED, OWNER_WAIT_OPENED, WINDOW_HEARTBEAT } from '../../core/events.js'
+import { CARD_ADMITTED, CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, OWNER_WAIT_OPENED, WINDOW_HEARTBEAT } from '../../core/events.js'
 import { HANDOFF_DIR_VARIABLE } from '../../core/handoff-dir.js'
 import { reduce } from '../../core/reducer.js'
 import { RAISED_VARIABLE } from '../../nodes/restart/role.js'
@@ -73,7 +73,7 @@ function cardEvent(db: DatabaseSync, type: string, payload: Record<string, unkno
   appendEvent(db, { ts: new Date(NOW).toISOString(), type, actor: CARD_ACTOR, cardId: OWN_CARD, pr: null, head: null, dedupeKey: `${type}:${OWN_CARD}`, payload, legacy: false })
 }
 
-function ownCardAfter(who: string, story: (db: DatabaseSync) => void = () => {}): number | null {
+function ownCardAfter(who: string, story: (db: DatabaseSync) => void = () => {}, unreduced: (db: DatabaseSync) => void = () => {}): number | null {
   const db = openBus(busFile())
   try {
     const text = cardText(who)
@@ -81,6 +81,7 @@ function ownCardAfter(who: string, story: (db: DatabaseSync) => void = () => {})
     cardEvent(db, CARD_STARTED, { session: 's-window', worktree: `/trees/${OWN_CARD}`, branch: `feat/${OWN_CARD}` })
     story(db)
     reduce(db)
+    unreduced(db)
     return ownCardWithoutPr(db)
   }
   finally {
@@ -114,6 +115,14 @@ describe('a window card with no pull request holds the turn on the card, not on 
       expect(turnWith(own, 'loop', null)).toEqual({ code: 1, lines: [NO_LIVE_WATCH] })
       expect(turnWith(own, 'tab', null)).toEqual({ code: 1, lines: [TAB_CONTINUE] })
     }
+  })
+
+  it('a window whose owner waits are behind their events claims no card without a wait', () => {
+    expect(ownCardAfter(WINDOW_WHO, () => {}, db => cardEvent(db, OWNER_WAIT_OPENED, { id: 'Q1', need: 'command', text: 'the owner runs it', command: 'pnpm it', card: OWN_CARD }))).toBeNull()
+  })
+
+  it('a window whose cards are behind their events claims no card', () => {
+    expect(ownCardAfter(WINDOW_WHO, () => {}, db => cardEvent(db, CARD_ANSWERED, {}))).toBeNull()
   })
 
   it('a running card the shift takes is not the window card', () => {
