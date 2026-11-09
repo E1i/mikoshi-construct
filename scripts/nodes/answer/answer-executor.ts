@@ -561,8 +561,8 @@ function touchesAfterAmend(admitted: readonly string[], delta: string | null): S
 export function answerToResumeAfterAmend(db: DatabaseSync, cardId: number, stop: AmendedStop, delta: string | null): QueueTaskRow | string {
   const asked = (JSON.parse(stop.payload) as { widen?: unknown }).widen
   const widen = Array.isArray(asked) ? asked.filter((each): each is string => typeof each === 'string') : []
-  const touches = touchesAfterAmend(admittedScopeOf(db, cardId)?.touches ?? [], delta)
-  const uncovered = widen.filter(wanted => !touches.has(wanted))
+  const scope = admittedScopeOf(db, cardId)
+  const uncovered = pathsOutside([...touchesAfterAmend(scope?.touches ?? [], delta)], scope?.creates ?? [], widen)
   if (widen.length === 0 || uncovered.length > 0)
     return `the stop ${stop.id} stays: card #${cardId} waits for ${widen.length === 0 ? 'the owner\'s answer to its question' : `touches that cover ${uncovered.join(', ')}`}, lifted by the owner's decision with --card #${cardId} or an amend`
   const task = db.prepare(LATEST_ANSWER_OF_CARD).get(cardId) as QueueTaskRow | undefined

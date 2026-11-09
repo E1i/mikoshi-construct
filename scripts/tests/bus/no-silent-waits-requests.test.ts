@@ -195,4 +195,17 @@ describe('no silent waits: window requests, the owner channel, the answer node a
     expect(w.db.prepare(OPEN_OWNER_STOP_OF_CARD).get(CARD)).toBeUndefined()
     w.db.close()
   })
+
+  it('an amend that adds the directory of the refused path as a /** entry requeues its answer', () => {
+    const w = amendWorld()
+    stoppedOutsideTouches(w)
+
+    const answer = amended(w, `+${REFUSED.slice(0, REFUSED.lastIndexOf('/'))}/**`)
+
+    expect(answer.type).toBe(REQUEST_DONE)
+    expect(answer.detail).toContain('is settled: its answer')
+    expect(answer.detail).not.toContain('touches that cover')
+    expect(answerStatesOf(w.db)).toEqual(['queued'])
+    w.db.close()
+  })
 })
