@@ -87,6 +87,12 @@ function bodyOf(card: CheckedCard, corrections: readonly Correction[], unclear: 
   ].join('\n')
 }
 
+export const HELD_WHOLE_PREFIX = 'held whole: '
+
+function heldWholeLine(seamed: number): string {
+  return `${HELD_WHOLE_PREFIX}whole: keeps this card one card, so the ${seamed} slice${seamed === 1 ? '' : 's'} the seams proposed ${seamed === 1 ? 'is' : 'are'} not cut; --confirm parks it whole`
+}
+
 function slicedByItsText(card: CheckedCard): boolean {
   return card.task.split('\n').some(line => line.trim().startsWith(SLICE_PREFIX))
 }
@@ -147,11 +153,17 @@ export function sliceCards(cards: readonly CheckedCard[], numbers: readonly numb
     const volumeSlices = split.slices.length > 0 ? [] : volume.slices
     const read = riskReading(card.touches.filter(entry => !card.covering.includes(entry)), split.slices.length > 0 || volumeSlices.length > 0)
     const keptWhole = card.whole === undefined ? riskWholeReason(read, card.size) : null
-    const reading = keptWhole === null ? read : { ...read, slices: [], capabilityDelivery: false }
     const whole = card.whole ?? keptWhole ?? undefined
-    const proposed = [...split.slices.map(slice => slice.touches), ...volumeSlices, ...reading.slices.map(slice => slice.touches)]
+    const reading = whole === undefined ? read : { ...read, slices: [], capabilityDelivery: false }
+    const seamed = [...split.slices.map(slice => slice.touches), ...volumeSlices, ...read.slices.map(slice => slice.touches)]
+    const proposed = whole === undefined ? seamed : []
     const order = sliceDepends(proposed, sources)
-    const seam = [...importNotes[index]!, ...seamLines(split, order), ...volumeLines({ ...volume, slices: volumeSlices }, order)]
+    const seam = [
+      ...importNotes[index]!,
+      ...seamLines(whole === undefined ? split : { ...split, slices: [] }, order),
+      ...volumeLines({ ...volume, slices: whole === undefined ? volumeSlices : [] }, order),
+      ...(whole !== undefined && seamed.length > 0 ? [heldWholeLine(seamed.length)] : []),
+    ]
     const risk = riskLines(reading, order)
     const heldForSlicing = whole === undefined && proposed.length > 0
     if (heldForSlicing && slicedByItsText(card))
