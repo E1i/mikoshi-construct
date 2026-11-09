@@ -1,7 +1,7 @@
 import { isDeepStrictEqual } from 'node:util'
 import { UNRECORDED_VERSION } from '../core/bus-version.js'
 
-export const VERSIONED_SECTIONS = { bus: 'busVersion', card: 'cardVersion', ports: 'portsVersion', nodes: 'nodesVersion' } as const
+export const VERSIONED_SECTIONS = { bus: 'busVersion', card: 'cardVersion', ports: 'portsVersion', nodes: 'nodesVersion', laws: 'lawsVersion' } as const
 
 export type VersionedSection = keyof typeof VERSIONED_SECTIONS
 
