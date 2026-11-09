@@ -13,21 +13,25 @@ import { rerunOf, upToDateRequired } from '../../cli/check-catalog.js'
 import { pathsOutsideTheBody } from '../../core/card-bodies.js'
 import { appendEvent, openBusWait } from '../../core/db.js'
 import { messageOf } from '../../core/errors.js'
-import { CARD_STOPPED, COMMAND_EXECUTED, POLICY_ALLOWED, POLICY_DENIED, QUESTION_OWNER, REVIEW_RECORDED, UPDATE_DONE } from '../../core/events.js'
+import { CARD_STOPPED, CI_RERUN_REQUESTED, COMMAND_EXECUTED, POLICY_ALLOWED, POLICY_DENIED, QUESTION_OWNER, REVIEW_RECORDED, UPDATE_DONE } from '../../core/events.js'
 import { commandLine, isRebuiltOnUpdate, rebuildsOf, SHARED_APPEND_PATHS } from '../../core/generated-files.js'
 import { assertHeld, completeTask, failTask, releaseTask, StaleLease } from '../../core/lease.js'
+import { rerunDueOn } from '../../core/observations.js'
 import { KEPT_BY_PUSH_POLICY } from '../../core/push-policy.js'
 import { COMPLETED, MERGE_REFUSED, updateTurnHeldFrom } from '../../core/queue.js'
 import { cardContract, NOT_MINE, notMine } from '../../intake/card-contract.js'
 import { cardDecisionCommand } from '../../policy/shards.js'
+import { rerunFailedJobsEndpoint, runsOnHeadEndpoint } from '../../ports/ci-reading.js'
 import { REVIEW_STATUS_CONTEXT } from '../../ports/github-status.js'
 import { Meter } from '../../ports/meter.js'
-import { MAIN_BRANCH, MERGEABLE_OF_STATE, verdictOf } from '../../ports/snapshot.js'
+import { CANCELLED, MAIN_BRANCH, MERGEABLE_OF_STATE, verdictOf } from '../../ports/snapshot.js'
 import { pollHead } from './head-poll.js'
 
 export const UPDATED_STATUS = 202
 export const STALE_HEAD_ON_UPDATE = 422
 export const HEAD_READS = 5
+export const RERUN_ACCEPTED = 201
+const RERUN_CONCLUSIONS: ReadonlySet<unknown> = new Set([CANCELLED, 'failure', 'timed_out'])
 const FILES_PAGE = 100
 const REPO = 'repos/{owner}/{repo}'
 const STATE_OF_VERDICT: Record<VerdictOnHead, ReviewStatus['state']> = { pass: 'success', changes: 'failure' }
@@ -55,6 +59,13 @@ export type UpdateOutcome
     | { kind: 'denied', taskKey: string, denial: UpdateDenial, next: AfterFailure | typeof COMPLETED }
     | { kind: 'stopped', taskKey: string, reason: typeof QUESTION_OWNER, detail: string }
     | { kind: 'fenced', taskKey: string }
+    | { kind: 'rerun', taskKey: string, requested: boolean, detail: string }
+
+export interface RerunRequest {
+  requested: boolean
+  detail: string
+  runs: number[]
+}
 
 export interface ConflictingCard {
   cardId: number
@@ -82,6 +93,7 @@ export interface UpdateParts {
   rerun?: RerunMode
   pushPolicy?: () => PushPolicy
   mergeMain?: MergeMain
+  post?: GitHubPut
 }
 
 export interface ManualUpdate {
@@ -310,11 +322,14 @@ export class UpdateExecutor {
     try {
       assertHeld(this.parts.db, lease)
       if (this.parts.pushPolicy?.() === 'none')
-        return this.denied(lease, technical(KEPT_BY_PUSH_POLICY, `push policy none: the bus does not update #${lease.pr}`))
+        return this.denied(lease, this.rerunRefused(lease, technical(KEPT_BY_PUSH_POLICY, `push policy none: the bus does not update #${lease.pr}`)))
       const card = cardContract(this.parts.db, lease.cardId)
       const foreign = notMine(card, 'update')
       if (foreign !== null)
-        return this.denied(lease, technical(NOT_MINE, foreign))
+        return this.denied(lease, this.rerunRefused(lease, technical(NOT_MINE, foreign)))
+      const rerun = this.rerunWhenDue(lease)
+      if (rerun !== null)
+        return rerun
       const checked = this.fresh(lease)
       if (checked.kind === 'denied')
         return this.denied(lease, checked.denial)
@@ -333,6 +348,64 @@ export class UpdateExecutor {
         return { kind: 'fenced', taskKey: lease.taskKey }
       throw error
     }
+  }
+
+  private rerunDue(lease: Lease): boolean {
+    return lease.pr !== null && lease.head !== null && rerunDueOn(this.parts.db, lease.pr, lease.head)
+  }
+
+  private rerunEvent(lease: Lease, request: RerunRequest): BusEvent {
+    return { ts: this.ts(), type: CI_RERUN_REQUESTED, actor: lease.actor, cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${CI_RERUN_REQUESTED}:${lease.pr}:${lease.head}`, payload: { ...request, task_key: lease.taskKey, lease_gen: lease.leaseGen }, legacy: false }
+  }
+
+  private rerunRefused(lease: Lease, denial: UpdateDenial): UpdateDenial {
+    if (this.rerunDue(lease))
+      appendEvent(this.parts.db, this.rerunEvent(lease, { requested: false, detail: `no re-run of the cancelled jobs: ${denial.detail}`, runs: [] }))
+    return denial
+  }
+
+  private rerunWhenDue(lease: Lease): UpdateOutcome | null {
+    if (!this.rerunDue(lease))
+      return null
+    const request = this.rerunRequest(lease)
+    const event = this.rerunEvent(lease, request)
+    if (this.conflictingAt(lease)) {
+      appendEvent(this.parts.db, event)
+      return null
+    }
+    completeTask(this.parts.db, this.ts(), lease, [event])
+    return { kind: 'rerun', taskKey: lease.taskKey, requested: request.requested, detail: request.detail }
+  }
+
+  private conflictingAt(lease: Lease): boolean {
+    return this.parts.db.prepare(`SELECT 1 FROM prs WHERE pr = ? AND head = ? AND mergeable = 'dirty'`).get(lease.pr, lease.head) !== undefined
+  }
+
+  private rerunRequest(lease: Lease): RerunRequest {
+    const post = this.parts.post
+    if (post === undefined)
+      return { requested: false, detail: `the update node holds no POST port, so the cancelled jobs on ${lease.head} are not re-run`, runs: [] }
+    let runs: number[]
+    try {
+      const listed = (this.meter().get(runsOnHeadEndpoint(lease.head!)) as { workflow_runs?: { id?: unknown, conclusion?: unknown }[] }).workflow_runs ?? []
+      runs = listed.filter(run => RERUN_CONCLUSIONS.has(run.conclusion) && typeof run.id === 'number').map(run => run.id as number)
+    }
+    catch (error) {
+      return { requested: false, detail: `the runs on ${lease.head} could not be read: ${messageOf(error)}`, runs: [] }
+    }
+    if (runs.length === 0)
+      return { requested: false, detail: `no run on ${lease.head} of #${lease.pr} ended cancelled or failed, so nothing is re-run`, runs }
+    for (const run of runs) {
+      try {
+        const response = post(rerunFailedJobsEndpoint(run), {})
+        if (response.status !== RERUN_ACCEPTED)
+          return { requested: false, detail: `GitHub answered ${response.status} to the re-run of the failed jobs of run ${run} on #${lease.pr}`, runs }
+      }
+      catch (error) {
+        return { requested: false, detail: `the re-run of the failed jobs of run ${run} on #${lease.pr} failed: ${messageOf(error)}`, runs }
+      }
+    }
+    return { requested: true, detail: `re-ran the failed jobs of runs ${runs.join(', ')} on ${lease.head} of #${lease.pr}, whose red was only cancelled checks`, runs }
   }
 
   private fresh(lease: Lease): Checked {

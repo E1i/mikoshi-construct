@@ -342,6 +342,16 @@
           "survived"
         ]
       },
+      "ci.rerun.requested": {
+        "complete": true,
+        "keys": [
+          "detail",
+          "lease_gen",
+          "requested",
+          "runs",
+          "task_key"
+        ]
+      },
       "command.executed": {
         "complete": true,
         "keys": [
@@ -703,6 +713,7 @@
           "base",
           "body_sha",
           "branch",
+          "cancelled_checks",
           "card_id",
           "ci",
           "draft",
@@ -2519,6 +2530,7 @@
       },
       "scripts/ports/snapshot.ts": {
         "constants": [
+          "CANCELLED",
           "MAIN_BRANCH",
           "MECHANICS_PATHS",
           "MERGEABLE_OF_STATE: Record<string, Mergeable>",
@@ -2540,7 +2552,7 @@
           "ClosedPr": "interface ClosedPr { pr: number; cardId: number | null; branch?: string | null; merged: boolean; commit: string | null; mergedBy: string | null; mergedAt: string | null; }",
           "MainHead": "interface MainHead { sha: string; touchesMechanics: boolean; }",
           "Mergeable": "type Mergeable = 'clean' | 'behind' | 'dirty' | 'blocked'",
-          "OpenPr": "interface OpenPr { pr: number; cardId: number | null; base: string; head: string; branch: string | null; mergeable: Mergeable; ciFields: CiObservation; verdictOnHead: VerdictOnHead | null; autoMerge: boolean; draft: boolean; bodySha: string; }",
+          "OpenPr": "interface OpenPr { pr: number; cardId: number | null; base: string; head: string; branch: string | null; mergeable: Mergeable; ciFields: CiObservation; cancelledChecks?: string[]; verdictOnHead: VerdictOnHead | null; autoMerge: boolean; draft: boolean; bodySha: string; }",
           "Snapshot": "interface Snapshot { open: OpenPr[]; closed: ClosedPr[]; unsettled: number[]; main: MainHead | null; }",
           "VerdictOnHead": "type VerdictOnHead = 'pass' | 'changes'"
         }

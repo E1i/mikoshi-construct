@@ -2,10 +2,11 @@ import type { CiObservation } from './ci-reading.js'
 import type { Meter } from './meter.js'
 import process from 'node:process'
 import { readAttachRecord } from '../../src/commands/attach/record.js'
+import { commitCi } from '../../src/commands/ci/state.js'
 import { repositoryRoot } from '../core/bus-path.js'
 import { FACTORY_FORMER_FOLDERS, inScopes } from '../core/factory-paths.js'
 import { cardIdOfDescription, isFullSha, prBodySha } from '../core/identifiers.js'
-import { ciFieldsOfObservation, GitHubCommitCi } from './ci-reading.js'
+import { ciFieldsOfObservation } from './ci-reading.js'
 import { REQUIRED_CHECK } from './gh.js'
 import { REVIEW_STATUS_CONTEXT } from './github-status.js'
 
@@ -14,6 +15,8 @@ export { ciOf } from './ci-reading.js'
 export const MAIN_BRANCH = 'main'
 export const OPEN_PULLS_PAGE = 100
 export const MECHANICS_PATHS = FACTORY_FORMER_FOLDERS.shift
+
+export const CANCELLED = 'cancelled'
 
 export type Mergeable = 'clean' | 'behind' | 'dirty' | 'blocked'
 export type VerdictOnHead = 'pass' | 'changes'
@@ -26,6 +29,7 @@ export interface OpenPr {
   branch: string | null
   mergeable: Mergeable
   ciFields: CiObservation
+  cancelledChecks?: string[]
   verdictOnHead: VerdictOnHead | null
   autoMerge: boolean
   draft: boolean
@@ -81,6 +85,16 @@ interface Pull {
   head: { sha: string, ref?: string }
 }
 
+interface ConcludedCheck {
+  name?: string
+  conclusion?: string | null
+}
+
+interface CiOnHead {
+  ciFields: CiObservation
+  cancelledChecks: string[]
+}
+
 interface CommitStatus {
   context?: string
   state?: string
@@ -103,10 +117,26 @@ export function verdictOf(meter: Meter, sha: string): VerdictOnHead | null {
   return review?.state === undefined ? null : VERDICT_OF_STATE[review.state] ?? null
 }
 
+function cancelledAmong(bodies: readonly unknown[], failedChecks: readonly string[]): string[] {
+  const cancelled = new Set(bodies.flatMap(body => ((body as { check_runs?: ConcludedCheck[] } | null)?.check_runs ?? []).flatMap(check => check.conclusion === CANCELLED && check.name !== undefined ? [check.name] : [])))
+  return failedChecks.filter(name => cancelled.has(name))
+}
+
+function ciOnHead(meter: Meter, sha: string, requiredCheck: string): CiOnHead {
+  const bodies: unknown[] = []
+  const commit = commitCi({ get: (endpoint) => {
+    const body = meter.get(endpoint)
+    bodies.push(body)
+    return body
+  } }, sha, requiredCheck)
+  return { ciFields: ciFieldsOfObservation(commit), cancelledChecks: cancelledAmong(bodies, commit.failedChecks) }
+}
+
 function openPrOf(meter: Meter, pull: Pull, requiredCheck: string): OpenPr | null {
   const mergeable = MERGEABLE_OF_STATE[pull.mergeable_state ?? '']
   if (mergeable === undefined)
     return null
+  const ci = ciOnHead(meter, pull.head.sha, requiredCheck)
   return {
     pr: pull.number,
     cardId: cardIdOfDescription(pull.body),
@@ -114,7 +144,8 @@ function openPrOf(meter: Meter, pull: Pull, requiredCheck: string): OpenPr | nul
     head: pull.head.sha,
     branch: pull.head.ref ?? null,
     mergeable,
-    ciFields: ciFieldsOfObservation(new GitHubCommitCi(meter).onCommit(pull.head.sha, requiredCheck)),
+    ciFields: ci.ciFields,
+    cancelledChecks: ci.cancelledChecks,
     verdictOnHead: verdictOf(meter, pull.head.sha),
     autoMerge: pull.auto_merge !== null && pull.auto_merge !== undefined,
     draft: pull.draft === true,

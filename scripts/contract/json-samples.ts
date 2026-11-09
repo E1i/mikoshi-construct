@@ -10,13 +10,14 @@ import { DOCTOR_EXIT } from '../../src/commands/doctor/index.js'
 import { MUTATE_APPLY_EXIT, MUTATE_JUDGE_EXIT } from '../../src/commands/mutate/index.js'
 import { SOULKILL_EXIT } from '../../src/commands/soulkill.js'
 import { SYNC_APPLY_EXIT, SYNC_EXIT } from '../../src/commands/sync/index.js'
+import { BUS_DB_VARIABLE } from '../core/bus-path.js'
 import { unbaselined } from './semantic-diff.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../..')
 const FROZEN_010 = path.join(REPO_ROOT, 'tests/fixtures/sync/materialized-by-0.1.0')
 const EXISTING_MONOREPO = path.join(REPO_ROOT, 'tests/fixtures/existing-monorepo')
 const RUNTIME_MARKERS = ['CLAUDECODE', 'CLAUDE_CODE_ENTRYPOINT', 'CURSOR_AGENT', 'CURSOR_TRACE_ID']
-const SHIFT_MARKERS = ['CONSTRUCT_CARD']
+const SHIFT_MARKERS = ['CONSTRUCT_CARD', BUS_DB_VARIABLE]
 const MACHINE_COREPACK_HOME = process.env.COREPACK_HOME ?? path.join(homedir(), '.cache', 'node', 'corepack')
 const SAMPLE_PRESET = 'node-library'
 
@@ -28,6 +29,8 @@ export interface JsonSample {
 }
 
 export type JsonKeys = Record<string, Record<string, JsonSample>>
+
+export type JsonForms = Record<string, string[]>
 
 export interface ObservedCli {
   root: string
@@ -125,10 +128,15 @@ function withRecordedRun(world: World): World {
   return world
 }
 
+function withDoneRun(world: World): World {
+  mkdirSync(path.join(world.dir, '.construct'), { recursive: true })
+  writeFileSync(path.join(world.dir, '.construct/runs.jsonl'), `${JSON.stringify({ at: new Date().toISOString(), task: 'a task', effort: 'low', status: 'done', rung: 'low', attempts: [], agents: 1, tokens: 1, toolUses: 1, seconds: 1 })}\n`)
+  return world
+}
+
 function withBoardSources(world: World): string {
   const at = new Date().toISOString()
-  mkdirSync(path.join(world.dir, '.construct'), { recursive: true })
-  writeFileSync(path.join(world.dir, '.construct/runs.jsonl'), `${JSON.stringify({ at, task: 'a task', effort: 'low', status: 'done', rung: 'low', attempts: [], agents: 1, tokens: 1, toolUses: 1, seconds: 1 })}\n`)
+  withDoneRun(world)
   const file = path.join(world.dir, 'prs.json')
   writeFileSync(file, JSON.stringify([{ number: 1, title: 'a pull request', state: 'OPEN', createdAt: at, closedAt: null, mergedAt: null, statusCheckRollup: [] }]))
   return file
@@ -239,7 +247,12 @@ const SAMPLES: Sample[] = [
   { command: 'cost', state: 'mismatch', args: ['cost', '--json'], world: scratch => throughSymlinkRecordedAtRealPath(scratch.init()) },
   { command: 'cost', state: 'unknown', args: ['cost', '--json'], world: scratch => withLookalikeKey(scratch.init()) },
   { command: 'cost', state: 'unsupported', args: ['cost', '--json'], world: scratch => scratch.init() },
+  { command: 'cost --last', state: 'ok', args: ['cost', '--last', '--json'], world: scratch => withRecordedRun(scratch.init()) },
+  { command: 'cost --expect', state: 'forecast', args: ['cost', '--expect', '--json'], world: scratch => withDoneRun(scratch.init()) },
+  { command: 'doctor --factory', state: 'notOk', args: ['doctor', '--factory', '--json'], world: scratch => scratch.init() },
   { command: 'board', state: 'shown', args: world => ['board', '--json', '--prs', withBoardSources(world)], world: scratch => scratch.init() },
+  { command: 'board --all', state: 'shown', args: world => ['board', '--all', '--json', '--prs', withBoardSources(world)], world: scratch => scratch.init() },
+  { command: 'board --geek', state: 'shown', args: world => ['board', '--geek', '--json', '--prs', withBoardSources(world)], world: scratch => scratch.init() },
   { command: 'soulkill', state: 'reported', args: ['soulkill', '--json'], world: scratch => scratch.init() },
   { command: 'mutate apply', state: 'applied', args: applyArgs, world: scratch => withBaseline(scratch, mutationTarget(scratch.world())) },
   { command: 'mutate apply', state: 'refused', args: applyArgs, world: scratch => mutationTarget(scratch.world()) },
@@ -251,12 +264,19 @@ const SAMPLES: Sample[] = [
   { command: 'mutate judge', state: 'hardFailure', args: world => judgeArgs(report(world, 'red.json', Date.now(), 'failed')), world: scratch => withForeignEdit(applied(scratch)) },
 ]
 
+const EXIT_CODE_LEFT_UNSET = 0
+
 export const EXIT_TABLES: Record<string, Record<string, number>> = {
   'doctor': { ...DOCTOR_EXIT, attached: DOCTOR_EXIT.ok },
+  'doctor --factory': { notOk: DOCTOR_EXIT.notOk },
   'sync': SYNC_EXIT,
   'sync --apply': SYNC_APPLY_EXIT,
   'board': BOARD_EXIT,
+  'board --all': BOARD_EXIT,
+  'board --geek': BOARD_EXIT,
   'cost': COST_EXIT,
+  'cost --last': { ok: COST_EXIT.ok },
+  'cost --expect': { forecast: EXIT_CODE_LEFT_UNSET },
   'soulkill': SOULKILL_EXIT,
   'mutate apply': MUTATE_APPLY_EXIT,
   'mutate judge': MUTATE_JUDGE_EXIT,
@@ -310,9 +330,22 @@ function parsedOutput(sample: Sample, status: number | null, stdout: string): un
   }
 }
 
-function sampled(sample: Sample, scratch: Scratch): JsonSample {
+function argsOf(sample: Sample, world: World): string[] {
+  return typeof sample.args === 'function' ? sample.args(world) : sample.args
+}
+
+function typedFlags(args: string[]): string[] {
+  return args.filter(token => token.startsWith('--')).map(token => token.split('=')[0])
+}
+
+function sampled(sample: Sample, scratch: Scratch, forms: Map<string, Set<string>>): JsonSample {
   const world = sample.world(scratch)
-  const { status, stdout } = run(scratch.cli, typeof sample.args === 'function' ? sample.args(world) : sample.args, world)
+  const args = argsOf(sample, world)
+  const form = forms.get(sample.command) ?? new Set<string>()
+  for (const flag of typedFlags(args))
+    form.add(flag)
+  forms.set(sample.command, form)
+  const { status, stdout } = run(scratch.cli, args, world)
   const parsed = parsedOutput(sample, status, stdout)
   if (scratch.cli.holdsHeadInvariants)
     heldHeadInvariants(sample, status, parsed)
@@ -323,32 +356,42 @@ function sampled(sample: Sample, scratch: Scratch): JsonSample {
 
 export type UnsampledPair<T> = (command: string, state: string, error: unknown) => T
 
-export function observedJsonKeys<T>(cli: ObservedCli, unsampled: UnsampledPair<T>): Record<string, Record<string, JsonSample | T>> {
+interface Observed<T> {
+  keys: Record<string, Record<string, JsonSample | T>>
+  forms: JsonForms
+}
+
+function observedJson<T>(cli: ObservedCli, unsampled: UnsampledPair<T>): Observed<T> {
   const scratch = new Scratch(realpathSync(mkdtempSync(path.join(tmpdir(), 'construct-json-'))), cli)
   try {
     const keys: Record<string, Record<string, JsonSample | T>> = {}
+    const forms = new Map<string, Set<string>>()
     for (const sample of SAMPLES) {
       keys[sample.command] ??= {}
       try {
-        keys[sample.command][sample.state] = sampled(sample, scratch)
+        keys[sample.command][sample.state] = sampled(sample, scratch, forms)
       }
       catch (error) {
         keys[sample.command][sample.state] = unsampled(sample.command, sample.state, error)
       }
     }
-    return keys
+    return { keys, forms: Object.fromEntries([...forms].map(([command, flags]) => [command, [...flags].sort()])) }
   }
   finally {
     rmSync(scratch.root, { recursive: true, force: true })
   }
 }
 
+export function observedJsonKeys<T>(cli: ObservedCli, unsampled: UnsampledPair<T>): Record<string, Record<string, JsonSample | T>> {
+  return observedJson(cli, unsampled).keys
+}
+
 function rethrown(_command: string, _state: string, error: unknown): never {
   throw error
 }
 
-export function jsonKeys(): JsonKeys {
-  return observedJsonKeys(HEAD_CLI, rethrown)
+export function headJson(): { keys: JsonKeys, forms: JsonForms } {
+  return observedJson(HEAD_CLI, rethrown)
 }
 
 export function failureLine(error: unknown): string {

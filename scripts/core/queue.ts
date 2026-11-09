@@ -20,6 +20,7 @@ import { appendEvent, inTransaction, OPEN_WAIT, openOwnerWait, OWNER_WAITS } fro
 import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, CARD_WAITING, declaredPart, INTAKE_EVENT, INTAKE_MOVE_EVENT, MERGE_DONE, OWNER_WAIT_OPENED, POLICY_DENIED, PR_CLOSED, PR_OPENED, QUESTION_AGENT, QUESTION_OWNER, REVIEW_RECORDED, REVIEW_ROUNDS_SPENT, ROUND_EXTENDED, ROUND_MUTATIONS_PARKED, SESSION_HEARTBEAT, TASK_COMPLETED, TASK_ENQUEUED, TASK_EXPIRED, TASK_FAILED, TASK_LEASED, TASK_RELEASED, TASK_RENEWED, TASK_REQUEUED, TASK_SUPERSEDED, TASK_WITHDRAWN, UPDATE_DONE, WITNESS_DOWNGRADE, WITNESS_RECORDED } from './events.js'
 import { generationOfKey, isFullSha, QUEUES, reviewInputOf, reviewInputOfKey, taskKey } from './identifiers.js'
 import { ownerQuestionAnswered } from './inbox.js'
+import { A_RERUN_DUE, withTheHeadsARerunIsDueOn } from './observations.js'
 import { payloadOf, reject } from './stored.js'
 import { markReduced, reduceProjection, watermarkOf } from './watermark.js'
 
@@ -521,7 +522,7 @@ function answerCandidatesWhere(condition: string): string {
 
 const CHANGES_CANDIDATES = answerCandidatesWhere(`verdict_on_head = 'changes'`)
 
-const RED_CI_CANDIDATES = answerCandidatesWhere(`ci = 'red'`)
+const RED_CI_CANDIDATES = answerCandidatesWhere(`ci = 'red' AND NOT ${A_RERUN_DUE}`)
 
 const DIRTY_THE_UPDATE_COULD_NOT_MERGE = answerCandidatesWhere(`base = '${MAIN_BRANCH}' AND mergeable = 'dirty' AND draft = 0 AND EXISTS (
     SELECT 1 FROM events AS refused WHERE refused.type = '${POLICY_DENIED}' AND refused.legacy = 0 AND refused.pr = prs.pr AND refused.head = prs.head
@@ -897,10 +898,6 @@ function holdsOfTheUpdateTurn(db: DatabaseSync, ts: string): (Candidate & { upda
   return rows.filter(aMergeCandidate(db, ts))
 }
 
-function prsHoldingTheUpdateTurn(db: DatabaseSync, ts: string): Set<number | null> {
-  return new Set(holdsOfTheUpdateTurn(db, ts).map(row => row.pr))
-}
-
 export function updateTurnHeldUntil(db: DatabaseSync, ts: string, pr: number): string | null {
   const holds = holdsOfTheUpdateTurn(db, ts)
   if (holds.length === 0 || holds.some(row => row.pr === pr))
@@ -916,9 +913,9 @@ export function updateCandidates(db: DatabaseSync, ts: string, rerun: RerunMode 
   const sent = rerun === 'by-layers' ? candidateRows(db, GREEN_CLEAN_A_MERGE_SENT_TO_UPDATE, aMergeCandidate(db, ts)) : []
   const conflicting = candidateRows(db, CONFLICTING_BY_CARD_PRIORITY, everyRow)
   const green = [...candidateRows(db, GREEN_BEHIND_BY_CARD_PRIORITY, aMergeCandidate(db, ts)), ...sent]
-  const holders = prsHoldingTheUpdateTurn(db, ts)
+  const holders = new Set(holdsOfTheUpdateTurn(db, ts).map(row => row.pr))
   const inTurn = holders.size === 0 ? green : green.filter(row => holders.has(row.pr))
-  return openCandidates(db, ts, 'update', [...inTurn, ...conflicting].slice(0, 1))
+  return openCandidates(db, ts, 'update', withTheHeadsARerunIsDueOn(db, [...inTurn, ...conflicting].slice(0, 1)))
 }
 
 export function closeCandidates(db: DatabaseSync, ts: string): QueuedTask[] {

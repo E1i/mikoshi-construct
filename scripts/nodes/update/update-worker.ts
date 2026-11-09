@@ -20,7 +20,7 @@ import { Node, runNode, UNDERSTOOD_NOW } from '../../core/node.js'
 import { pushPolicyAt } from '../../core/push-policy.js'
 import { updateCandidates } from '../../core/queue.js'
 import { ghStatusPublisher } from '../../ports/github-status.js'
-import { ghApi, ghApiPut } from '../../ports/github.js'
+import { ghApi, ghApiPost, ghApiPut } from '../../ports/github.js'
 import { cardTree } from '../../ports/worktree-home.js'
 import { gitIn } from '../../ports/worktree.js'
 import { stampLogOutput } from '../../supervisor/stamp.js'
@@ -49,6 +49,7 @@ export interface UpdateNodeParts {
   env: NodeJS.ProcessEnv
   pushPolicy?: () => PushPolicy
   mergeMain?: MergeMain
+  post?: GitHubPut
 }
 
 function scopeOf(event: StoredEvent): Scope | undefined {
@@ -70,7 +71,7 @@ export class UpdateNode extends Node<UpdateStep> {
   constructor(parts: UpdateNodeParts) {
     super('update', { db: parts.db, clock: parts.clock, session: parts.session, mode: parts.mode, env: parts.env })
     this.rerun = rerunModeOf(parts.env)
-    this.executor = new UpdateExecutor({ db: parts.db, gitHub: parts.gitHub, put: parts.put, publish: parts.publish, clock: parts.clock, settle: parts.settle, rerun: this.rerun, pushPolicy: parts.pushPolicy, mergeMain: parts.mergeMain })
+    this.executor = new UpdateExecutor({ db: parts.db, gitHub: parts.gitHub, put: parts.put, publish: parts.publish, clock: parts.clock, settle: parts.settle, rerun: this.rerun, pushPolicy: parts.pushPolicy, mergeMain: parts.mergeMain, post: parts.post })
     this.declare(UPDATE_NODE, scopeOf)
   }
 
@@ -95,6 +96,8 @@ export class UpdateNode extends Node<UpdateStep> {
   protected override stepLine(step: UpdateStep): string | null {
     if (step.kind === 'stopped')
       return `${step.taskKey}: stopped with ${step.reason}: ${step.detail}`
+    if (step.kind === 'rerun')
+      return `${step.taskKey}: ${step.requested ? 'a re-run requested' : 'no re-run'}: ${step.detail}`
     if (step.kind !== 'updated')
       return super.stepLine(step)
     const carry = step.carry.carried === null ? `no verdict carried: ${step.carry.why}` : `${step.carry.carried} carried`
@@ -116,17 +119,18 @@ export interface UpdateRun {
   pause: (ms: number) => Promise<unknown>
   pushPolicy?: () => PushPolicy
   mergeMain?: MergeMain
+  post?: GitHubPut
 }
 
 export async function runUpdateWorker(argv: string[], run: UpdateRun): Promise<number> {
-  return runNode(argv, 'update', run.busPath, (db, mode) => new UpdateNode({ db, gitHub: run.gitHub, put: run.put, publish: run.publish, clock: () => new Date(), settle: run.settle, session: run.session, mode, env: process.env, pushPolicy: run.pushPolicy, mergeMain: run.mergeMain }), { pause: run.pause })
+  return runNode(argv, 'update', run.busPath, (db, mode) => new UpdateNode({ db, gitHub: run.gitHub, put: run.put, publish: run.publish, clock: () => new Date(), settle: run.settle, session: run.session, mode, env: process.env, pushPolicy: run.pushPolicy, mergeMain: run.mergeMain, post: run.post }), { pause: run.pause })
 }
 
 async function main(): Promise<number> {
   const cwd = process.cwd()
   const busPath = defaultBusPath()
   const mergeMain = mainMergeInCardTree(gitIn, cardId => cardTree(process.env, busPath, String(cardId)))
-  return runUpdateWorker(process.argv.slice(2), { busPath, mergeMain, gitHub: ghApi(cwd), put: ghApiPut(cwd), publish: ghStatusPublisher(cwd), settle: () => blockFor(SETTLE_MS), session: randomUUID(), pause: sleep, pushPolicy: () => pushPolicyAt(cwd) })
+  return runUpdateWorker(process.argv.slice(2), { busPath, mergeMain, gitHub: ghApi(cwd), put: ghApiPut(cwd), post: ghApiPost(cwd), publish: ghStatusPublisher(cwd), settle: () => blockFor(SETTLE_MS), session: randomUUID(), pause: sleep, pushPolicy: () => pushPolicyAt(cwd) })
 }
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
