@@ -80,6 +80,8 @@ const TWINS: readonly (readonly [string, string])[] = [
   ['.claude', 'templates/ai/shared/_claude'],
   ['scripts/construct', 'templates/ai/claude/scripts/construct'],
 ]
+const LOCK_FILES = ['pnpm-lock.yaml', 'package-lock.json', 'npm-shrinkwrap.json', 'yarn.lock', 'bun.lock', 'bun.lockb']
+const LOCK_SOURCES = ['package.json', 'pnpm-workspace.yaml']
 const ACCOMPANYING = ['tests', '.changeset']
 const WITNESS_ROOTS: readonly (readonly [string, string | null])[] = [
   [FACTORY_FOLDERS.tests[0], FACTORY_ROOT],
@@ -91,7 +93,7 @@ const EXTENSION = /\.[^.]+$/
 const DELIVERY = ['templates/attach', 'templates/ai', 'src/presets', 'scripts/attach']
 const CAPABILITY = ['src', 'scripts']
 const NO_COMPLEXITY_SLICES = 'R1 and R3–R4 in one card, and the complexity seam proposed no slices that keep them apart'
-const PRINCIPLE = 'the highest level a touch reaches decides; a generated file stays with its sources and a template with its twin; this only proposes, a person confirms the slices or keeps the card whole, and the level is revised as the work shows what it touches'
+const PRINCIPLE = 'the highest level a touch reaches decides; a generated file stays with its sources, a lock file with its manifest and a template with its twin; this only proposes, a person confirms the slices or keeps the card whole, and the level is revised as the work shows what it touches'
 
 interface RiskOfTouch {
   touch: string
@@ -178,8 +180,26 @@ function generatedTogether(a: string, b: string): boolean {
   })
 }
 
+function splitPath(path: string): { directory: string, name: string } {
+  const at = path.lastIndexOf('/')
+  return at < 0 ? { directory: '', name: path } : { directory: path.slice(0, at), name: path.slice(at + 1) }
+}
+
+function isLockFile(entry: string): boolean {
+  const scope = scopeOf(entry)
+  return !scope.prefix && LOCK_FILES.includes(splitPath(scope.path).name)
+}
+
+function lockedWith(lock: string, manifest: string): boolean {
+  const scope = scopeOf(manifest)
+  if (!isLockFile(lock) || scope.prefix || !LOCK_SOURCES.includes(splitPath(scope.path).name))
+    return false
+  const { directory } = splitPath(scopeOf(lock).path)
+  return directory === '' || under(scope.path, directory)
+}
+
 function keptTogether(a: string, b: string): boolean {
-  return twins(a, b) || generatedTogether(a, b)
+  return twins(a, b) || generatedTogether(a, b) || lockedWith(a, b) || lockedWith(b, a)
 }
 
 export function groupsOf(touches: readonly string[]): number[] {
@@ -189,6 +209,12 @@ export function groupsOf(touches: readonly string[]): number[] {
     if (i < j && keptTogether(a, b))
       group[find(j)] = find(i)
   }))
+  touches.forEach((touch, i) => {
+    const alone = touches.every((_, j) => j === i || find(j) !== find(i))
+    const host = touches.findIndex((other, j) => j !== i && !isLockFile(other))
+    if (isLockFile(touch) && alone && host >= 0)
+      group[find(i)] = find(host)
+  })
   return touches.map((_, index) => find(index))
 }
 
