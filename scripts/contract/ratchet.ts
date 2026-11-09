@@ -1,13 +1,17 @@
+import type { LawCells } from '../nodes/laws.js'
 import { readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import { gapRows, LAW_CELLS } from '../nodes/laws.js'
 import { findSites, overlapsSection } from './factory/overlaps.js'
 import { parsedFiles } from './factory/walk.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../..')
 const THRESHOLD_KEY = 'threshold'
 const LINE_SCOPE_KEY = 'lines-scope:non-test-code-in-scripts-and-src'
+
+export const LAW_GAP_PREFIX = 'law-gaps:'
 
 export const RATCHET_RECORD = 'contract/ratchet.json'
 
@@ -25,8 +29,12 @@ export function bigFileNumbers(root: string, threshold: number): RatchetNumbers 
     .map(([file, lines]) => [`lines:${file}`, lines]))
 }
 
+export function lawGapNumbers(cells: LawCells = LAW_CELLS): RatchetNumbers {
+  return Object.fromEntries(gapRows(cells).map(({ law, node }) => [`${LAW_GAP_PREFIX}${law}:${node}`, 1]))
+}
+
 export function generateNumbers(root: string, threshold: number): RatchetNumbers {
-  return { [THRESHOLD_KEY]: threshold, [LINE_SCOPE_KEY]: 1, ...overlapNumbers(overlapsSection(findSites(root))), ...bigFileNumbers(root, threshold) }
+  return { [THRESHOLD_KEY]: threshold, [LINE_SCOPE_KEY]: 1, ...overlapNumbers(overlapsSection(findSites(root))), ...bigFileNumbers(root, threshold), ...lawGapNumbers() }
 }
 
 export function ratchetBreaks(recorded: RatchetNumbers, generated: RatchetNumbers): string[] {

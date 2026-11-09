@@ -1,4 +1,5 @@
 import type { AcceptedConcepts, Factory } from '../../scripts/contract/factory.js'
+import type { FactoryWithLaws } from '../../scripts/contract/factory/laws.js'
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -9,6 +10,7 @@ import { selectRun } from '../../scripts/ci/layers.js'
 import { scansATree } from '../../scripts/ci/tree-scanners.js'
 import { conceptsSection, generateFactory, renderFactory } from '../../scripts/contract/factory.js'
 import { AXES, CONCEPTS } from '../../scripts/contract/factory/concepts.js'
+import { lawsSection, withLaws } from '../../scripts/contract/factory/laws.js'
 import { findSites, overlapsSection } from '../../scripts/contract/factory/overlaps.js'
 import { parsedFiles } from '../../scripts/contract/factory/walk.js'
 import { BUS_VERSION } from '../../scripts/core/bus-version.js'
@@ -77,10 +79,10 @@ const SITES_OF_THE_RECONNAISSANCE: Record<string, readonly string[]> = {
   'window-requests': ['scripts/window/window-requests.ts'],
 }
 
-let generatedFactory: Factory | undefined
+let generatedFactory: FactoryWithLaws | undefined
 
-function generated(): Factory {
-  generatedFactory ??= generateFactory()
+function generated(): FactoryWithLaws {
+  generatedFactory ??= withLaws(generateFactory())
   return generatedFactory
 }
 
@@ -119,6 +121,14 @@ describe('contract/factory.json', () => {
   it('contract/factory.json matches the generated file byte for byte; the test compares and never writes', () => {
     expect(renderFactory(generated()), 'contract/factory.json is stale: run `pnpm contract:update` and put its diff in the pull request').toBe(readFileSync(RECORDED, 'utf8'))
   }, GENERATION_TIMEOUT)
+
+  it('contract/factory.json carries the laws registry scripts/nodes/laws.ts declares', () => {
+    const { laws } = JSON.parse(readFileSync(RECORDED, 'utf8')) as FactoryWithLaws
+
+    expect(laws).toEqual(JSON.parse(JSON.stringify(lawsSection())))
+    expect(Object.keys(laws.laws)).toEqual(['Z1', 'Z2', 'Z3', 'Z4', 'Z5', 'Z6', 'Z7'])
+    expect(laws.lawsVersion).toBeGreaterThan(0)
+  })
 
   it('every module under scripts/ports has its exported functions and types with signatures', () => {
     const { ports: { modules: ports } } = generated()
