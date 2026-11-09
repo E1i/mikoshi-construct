@@ -163,7 +163,9 @@ const PR_OPENED_AFTER = `SELECT 1 FROM events WHERE card_id = ? AND legacy = 0 A
 
 const STARTED_BY_THE_WINDOW = `SELECT 1 FROM events WHERE id = ? AND actor LIKE '${STARTER_ACTOR}%' AND json_extract(payload, '$.shift') IS NULL AND json_extract(payload, '$.session') IS NOT NULL`
 
-const LIVE_TASK_OF_CARD =`SELECT task_key, queue, state FROM tasks WHERE card_id = ? AND state IN ('${QUEUED}', '${LEASED}') ORDER BY id DESC LIMIT 1`
+const DIRTY_TREE_CAUSE = /has uncommitted changes$/
+
+const LIVE_TASK_OF_CARD = `SELECT task_key, queue, state FROM tasks WHERE card_id = ? AND state IN ('${QUEUED}', '${LEASED}') ORDER BY id DESC LIMIT 1`
 
 const LATEST_WITNESS_OF_CARD = `SELECT head, json_extract(payload, '$.verdict') AS verdict FROM events WHERE card_id = ? AND legacy = 0 AND type = '${WITNESS_RECORDED}' ORDER BY id DESC LIMIT 1`
 
@@ -567,8 +569,9 @@ export class WindowRequests {
     if (requeues >= FAILURES_TO_STOP)
       return { done: false, why: `${key} was requeued ${requeues} times since ${BOARD_ALARM} ${alarm.id}, the D-104 limit` }
     const holds = this.tools.causeHolds({ taskKey: key, cardId: task.card_id })
-    if (holds !== null)
-      return { done: false, why: `the cause of ${BOARD_ALARM} ${alarm.id} holds: ${holds}` }
+    const keepsTheTree = payload.keep_tree === true && task.queue === 'launch' && holds !== null && DIRTY_TREE_CAUSE.test(holds)
+    if (holds !== null && !keepsTheTree)
+      return { done: false, why: `the cause of ${BOARD_ALARM} ${alarm.id} holds: ${holds}${task.queue === 'launch' && DIRTY_TREE_CAUSE.test(holds) ? `; a requeue with keep_tree: true launches the session on that tree as it stands, writing nothing in it` : ''}` }
     try {
       inTransaction(this.db, () => this.appendRequeue(ts, request, task))
     }
@@ -578,7 +581,7 @@ export class WindowRequests {
     const after = this.db.prepare('SELECT state FROM tasks WHERE task_key = ?').get(key) as { state: string }
     if (after.state !== QUEUED)
       return { done: false, why: `${key} stays ${after.state}: the bus rejected its ${TASK_REQUEUED}` }
-    return { done: true, why: `${key} queued again after ${BOARD_ALARM} ${alarm.id}, requeue ${requeues + 1} of ${FAILURES_TO_STOP}` }
+    return { done: true, why: `${key} queued again after ${BOARD_ALARM} ${alarm.id}, requeue ${requeues + 1} of ${FAILURES_TO_STOP}${keepsTheTree ? `; its session starts on the tree as it stands: ${holds}` : ''}` }
   }
 
   private holdFor(request: number, payload: Record<string, unknown>, type: typeof CARD_HELD | typeof CARD_RELEASED): Executed {
@@ -881,7 +884,7 @@ export function requestOf(argv: readonly string[]): Record<string, unknown> | nu
   }
   if (kind === 'requeue') {
     const task = flag(argv, '--task')
-    return task === undefined ? null : { kind, task_key: task }
+    return task === undefined ? null : { kind, task_key: task, ...(argv.includes('--keep-tree') ? { keep_tree: true } : {}) }
   }
   if (kind === 'mode')
     return isFactoryMode(flag(argv, '--set')) ? { kind, mode: flag(argv, '--set') } : null

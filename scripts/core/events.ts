@@ -231,7 +231,7 @@ export const EVENT_PAYLOADS = {
   [TOUCHES_FOLLOWED]: ['paths', 'reason'],
   [UPDATE_DONE]: ['carried', 'clean', 'from', 'lease_gen', 'rebuilt', 'rules_version', 'task_key', 'to', 'tookMain', 'why'],
   [WINDOW_HEARTBEAT]: ['context', 'error', 'mode', 'model', 'reason', 'root', 'session', 'spent', 'subagents'],
-  [WINDOW_REQUEST]: ['add_witness', 'answer', 'auto_confirm', 'card', 'cards', 'command', 'depends', 'dry_run', 'file', 'from', 'gate', 'goal', 'head', 'id', 'ids', 'kind', 'mode', 'need', 'op', 'owner_words', 'plan', 'pr', 'reason', 'remove_witness', 'supersedes', 'task_key', 'text', 'title', 'touches', 'until'],
+  [WINDOW_REQUEST]: ['add_witness', 'answer', 'auto_confirm', 'card', 'cards', 'command', 'depends', 'dry_run', 'file', 'from', 'gate', 'goal', 'head', 'id', 'ids', 'keep_tree', 'kind', 'mode', 'need', 'op', 'owner_words', 'plan', 'pr', 'reason', 'remove_witness', 'supersedes', 'task_key', 'text', 'title', 'touches', 'until'],
   [REQUEST_DONE]: ['detail', 'kind', 'request'],
   [REQUEST_REFUSED]: ['detail', 'kind', 'owner', 'request'],
   [WINDOW_SUBAGENT_EVENT]: ['phase', 'role', 'session', 'step', 'task', 'tree'],

@@ -2,8 +2,10 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { BusEvent } from '../core/db.js'
 import type { BudgetLine } from '../core/eddies.js'
 import type { Lease } from '../core/lease.js'
+import type { ProcessTable } from '../ports/process-table.js'
 import type { LeaseBeat } from './heartbeat.js'
 import type { LifeOf, SessionLife } from './recorded-worker.js'
+import process from 'node:process'
 import { appendEvent } from '../core/db.js'
 import { spendStopOf } from '../core/eddies.js'
 import { messageOf } from '../core/errors.js'
@@ -11,6 +13,7 @@ import { CARD_SESSION_ENDED, CARD_STARTED, PR_OBSERVED, PR_OPENED, SESSION_STALL
 import { releaseTask } from '../core/lease.js'
 import { LEASED } from '../core/queue.js'
 import { beatsOfLease } from './heartbeat.js'
+import { sessionPids } from './recorded-worker.js'
 
 export const STALLED_AFTER_MS = 30 * 60_000
 export const REVIEW_STALLED_AFTER_MS = 8 * 60_000
@@ -84,6 +87,17 @@ export function lastProgress(leasedAt: string, beats: readonly LeaseBeat[], push
   return pushed !== null && pushed > moved ? pushed : moved
 }
 
+export function stopSessionIn(table: ProcessTable, signal: (pid: number) => void = pid => process.kill(pid, 'SIGTERM')): StopSession {
+  return (session) => {
+    for (const pid of sessionPids(table, session)) {
+      try {
+        signal(pid)
+      }
+      catch {}
+    }
+  }
+}
+
 export function spendInCardTree(db: DatabaseSync): SpendOf {
   return (lease, session) => {
     const tree = (db.prepare(CARD_TREE).get(lease.cardId) as { worktree: string } | undefined)?.worktree
@@ -138,7 +152,7 @@ export class StalledSessions {
     const beats = beatsOfLease(this.db, { taskKey: row.task_key, leaseGen: Number(row.lease_gen) })
     const pushed = EXPECTED_TO_PUSH.includes(row.queue) ? (this.db.prepare(PUSHES_AFTER).get(row.card_id, leased.id) as { ts: string | null }).ts : null
     const lease: Lease = { taskKey: row.task_key, queue: row.queue, cardId: Number(row.card_id), pr: row.pr, head: row.head, leaseGen: Number(row.lease_gen), actor: leased.actor }
-    return { lease, queue: row.queue, session: beats.findLast(beat => beat.session !== null)?.session ?? null, since: lastProgress(leased.ts, beats, pushed) }
+    return { lease, queue: row.queue, session: [...beats].reverse().find(beat => beat.session !== null)?.session ?? null, since: lastProgress(leased.ts, beats, pushed) }
   }
 
   private overSpend({ lease, queue, session, since }: Silence, nowMs: number): string[] | null {

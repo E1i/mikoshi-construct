@@ -230,7 +230,7 @@ export function composeBusTick(db: DatabaseSync, busPath: string, gitHub: GitHub
     }
   }
   const table = new OsProcessTable()
-  const silent = new StalledSessions({ db, clock, lifeOf: sessionLifeIn(table), stop: stopSessionIn(table), prefix: PREFIX })
+  const silent = new StalledSessions(db, clock, { lifeOf: sessionLifeIn(table), stop: stopSessionIn(table), prefix: PREFIX })
   const stalled = (): void => {
     for (const line of silent.step())
       console.log(line)
