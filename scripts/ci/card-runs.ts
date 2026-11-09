@@ -28,6 +28,13 @@ export interface CheckCatalog {
   moduleLayers: LayersByFile
 }
 
+export class LayerWithoutTests extends Error {
+  constructor(readonly layer: string) {
+    super(`layer ${layer} meets no test of the check catalog`)
+    this.name = 'LayerWithoutTests'
+  }
+}
+
 export type CardRuns
   = | { full: true, why: string }
     | { layers: string[], paths: string[], tests: string[] }
@@ -93,7 +100,7 @@ export function cardRunsOf(source: CardRunsSource, catalog: CheckCatalog, map: L
   const catalogued = [...testLayers.values()].flat()
   const untested = layers.find(layer => !catalogued.includes(layer))
   if (untested !== undefined)
-    return { full: true, why: `layer ${untested} meets no test of the check catalog` }
+    throw new LayerWithoutTests(untested)
   const ofLayers = testsOfLayers(layers, testLayers)
   const paths = runs.filter(entry => !coveredBy(entry, ofLayers, testLayers))
   const tests = sortedUnique([...ofLayers, ...followed.flatMap(touch => testsOfTouch(touch, testLayers)), ...paths])
@@ -156,6 +163,8 @@ export function branchCardRuns(branch: string, busPath: string = defaultBusPath(
     return source === null ? { kind: 'no-card' } : { kind: 'card', reading: cardRunsOf(source, { testLayers: catalogLayersByTest(db), moduleLayers: catalogModuleLayers(db) }) }
   }
   catch (error) {
+    if (error instanceof LayerWithoutTests)
+      throw error
     return { kind: 'unreadable', why: messageOf(error) }
   }
   finally {
@@ -187,7 +196,15 @@ export interface CardReading {
 export function cardReadingOf(touches: readonly string[], named: string[], masks: readonly string[], catalog: BusCatalog): CardReading {
   if (catalog.unreadable !== undefined)
     return { runs: named, fullReading: catalog.unreadable }
-  const reading = cardRunsOf({ touches, runs: named, masks }, catalog)
+  let reading: CardRuns
+  try {
+    reading = cardRunsOf({ touches, runs: named, masks }, catalog)
+  }
+  catch (error) {
+    if (error instanceof LayerWithoutTests)
+      return { runs: named, fullReading: error.message }
+    throw error
+  }
   return 'full' in reading
     ? { runs: named, fullReading: reading.why }
     : { runs: [...new Set([...named, ...reading.tests])] }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { witnessFieldRefusals } from '../../../src/card/witness-fields.js'
-import { cardRunsOf } from '../../ci/card-runs.js'
+import { cardRunsOf, LayerWithoutTests } from '../../ci/card-runs.js'
 
 const CATALOG = {
   testLayers: new Map([
@@ -75,8 +75,8 @@ describe('the runs of a card, read from the check catalog', () => {
 
   it('whatever cannot name a test reads full with its reason', () => {
     expect(cardRunsOf({ touches: ['src/a.ts', 'CONTRIBUTING.md'], runs: [], masks: [] }, CATALOG)).toEqual({ full: true, why: expect.stringContaining('CONTRIBUTING.md') })
-    expect(cardRunsOf({ touches: ['scripts/release/e.ts'], runs: [], masks: [] }, CATALOG)).toEqual({ full: true, why: expect.stringContaining('release') })
-    expect(cardRunsOf({ touches: [], runs: [], masks: ['release'] }, CATALOG)).toEqual({ full: true, why: expect.stringContaining('release') })
+    expect(() => cardRunsOf({ touches: ['scripts/release/e.ts'], runs: [], masks: [] }, CATALOG)).toThrow(LayerWithoutTests)
+    expect(() => cardRunsOf({ touches: [], runs: [], masks: ['release'] }, CATALOG)).toThrow(LayerWithoutTests)
     expect(cardRunsOf({ touches: [], runs: [], masks: [] }, CATALOG)).toEqual({ full: true, why: expect.stringContaining('no touch') })
   })
 })

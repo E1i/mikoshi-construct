@@ -94,6 +94,7 @@ export const SHARD_ISSUED = 'shard.issued'
 export const SHARD_REVOKED = 'shard.revoked'
 export const SHARD_USED = 'shard.used'
 export const RESTARTED = 'supervisor.restarted'
+export const RESTART_MISSED = 'supervisor.restart_missed'
 export const TASK_COMPLETED = 'task.completed'
 export const TASK_ENQUEUED = 'task.enqueued'
 export const TASK_EXPIRED = 'task.expired'
@@ -218,6 +219,7 @@ export const EVENT_PAYLOADS = {
   [SHARD_REVOKED]: ['id'],
   [SHARD_USED]: ['commit', 'id'],
   [RESTARTED]: ['sha'],
+  [RESTART_MISSED]: ['limit_ms', 'sha', 'waited_ms'],
   [TASK_COMPLETED]: ['generation', 'lease_gen', 'queue', 'task_key'],
   [TASK_ENQUEUED]: ['failure', 'fault', 'generation', 'queue', 'task_key'],
   [TASK_EXPIRED]: ['detail', 'failures', 'reason', 'task_key', 'withdraw'],

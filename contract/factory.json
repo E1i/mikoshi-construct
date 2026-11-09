@@ -1008,6 +1008,14 @@
           "id"
         ]
       },
+      "supervisor.restart_missed": {
+        "complete": true,
+        "keys": [
+          "limit_ms",
+          "sha",
+          "waited_ms"
+        ]
+      },
       "supervisor.restarted": {
         "complete": true,
         "keys": [
@@ -1497,39 +1505,85 @@
       ]
     },
     "fields": {
+      "Owner, verbatim:": "body line read by src/commands/intake/amend.ts",
+      "Runs:": "body line read by src/card/covering-tests.ts",
+      "Witnesses:": "body line read by src/commands/intake/slice.ts",
       "admissionEventId": "number",
       "blocks": "number[]",
       "branch": "string",
+      "card:": "body line read by src/card/grammar.ts, src/commands/intake/admit.ts",
       "cardLine": "string",
       "continue": "string",
       "contour": "string",
+      "corrected:": "body line read by src/commands/intake/slice.ts",
       "creates": "string[]",
+      "creates:": "body line read by src/card/parking.ts, src/commands/intake/amend.ts",
       "decision": "string",
       "depends": "number[]",
+      "draft.blocks": "string[]",
+      "draft.branch": "string",
+      "draft.continue": "string",
+      "draft.contour": "string",
+      "draft.creates": "string[]",
+      "draft.decision": "string",
+      "draft.depends": "string[]",
+      "draft.item": "string",
+      "draft.kind": "string",
+      "draft.milestone": "string",
+      "draft.name": "string",
+      "draft.number": "number",
+      "draft.plan.file": "string",
+      "draft.plan.goal": "string",
+      "draft.plan.id": "string",
+      "draft.plan.title": "string",
+      "draft.runs": "string[]",
+      "draft.size": "string",
+      "draft.task": "string",
+      "draft.touches": "string[]",
+      "draft.unclear": "UnclearField[]",
+      "draft.who": "string",
+      "draft.whole": "string",
+      "draft.witnessFields": "WitnessField[]",
+      "draft.witnesses": "string[]",
       "id": "number",
+      "import:": "body line read by src/commands/intake/slice.ts",
       "kind": "string",
+      "ladder:": "body line read by src/commands/intake/check.ts",
       "lane": "string | null",
       "lastHeartbeat": "LastHeartbeat | null",
+      "layer:": "body line read by src/card/witness-fields.ts",
       "masks": "string[]",
       "milestone": "string",
       "name": "string",
       "path": "string | null",
       "priority": "string | null",
+      "priority:": "body line read by src/card/parking.ts",
       "prose": "string",
       "release": "string | null",
+      "release:": "body line read by src/card/parking.ts",
       "risk": "string | null",
+      "risk:": "body line read by src/card/risk.ts",
       "runs": "string[]",
+      "runs:": "body line read by src/card/witness-fields.ts",
       "seam": "string[]",
+      "seam:": "body line read by src/card/risk.ts",
       "size": "string",
       "slice": "string[]",
+      "slice:": "body line read by src/card/risk.ts",
       "state": "string | null",
       "text": "string",
       "textSha": "string",
+      "tools:": "body line read by src/card/parking.ts",
       "touches": "string[]",
+      "touches:": "body line read by src/commands/intake/confirm.ts",
       "unclear": "string[]",
+      "unclear:": "body line read by src/commands/intake/slice.ts",
       "who": "string",
+      "who:": "body line read by src/card/parking.ts, src/commands/intake/amend.ts",
+      "whole:": "body line read by src/commands/intake/slice.ts",
       "witnessFields": "WitnessField[]",
-      "witnesses": "string[]"
+      "witnesses": "string[]",
+      "witnesses:": "body line read by src/card/witness-fields.ts"
     },
     "versionRecord": "card.admitted payload.cardVersion"
   },
@@ -2956,6 +3010,796 @@
     }
   },
   "ports": {
+    "boundary": {
+      "src/atlas/index.ts": {
+        "constants": [
+          "ATLAS_EXIT"
+        ],
+        "functions": {
+          "runAtlas": "(options: AtlasOptions): AtlasWritten"
+        },
+        "reexports": [],
+        "types": {}
+      },
+      "src/atlas/switch.ts": {
+        "constants": [],
+        "functions": {
+          "docsFileOf": "(mapFile: string): string"
+        },
+        "reexports": [],
+        "types": {}
+      },
+      "src/card/closed.ts": {
+        "constants": [
+          "JOURNAL_HISTORY_ENDS"
+        ],
+        "functions": {
+          "closedFromBus": "(legacyHistory: readonly JournalEntry[], bus: BusCardStates): Map<string, string>",
+          "mergedFromBus": "(legacyHistory: readonly JournalEntry[], bus: BusCardStates): Set<string>",
+          "mergedTasks": "(journal: string | null, bus?: BusCardStates): Set<string>",
+          "writtenBeforeHistoryEnds": "(entry: JournalEntry): boolean"
+        },
+        "reexports": [],
+        "types": {
+          "BusCardStates": "type BusCardStates = ReadonlyMap<string, string>",
+          "JournalEntry": "interface JournalEntry { event?: unknown; task?: unknown; verification?: unknown; report?: unknown; pr?: unknown; ts?: unknown; }"
+        }
+      },
+      "src/card/covering-tests.ts": {
+        "constants": [
+          "COVERING_REASON",
+          "DECLARED_PATH_READERS: Readonly<Record<string, readonly string[]>>",
+          "EVERY_CHANGE_READERS: readonly string[]",
+          "NAMED_READERS: Readonly<Record<string, readonly string[]>>",
+          "PACKAGE_MANIFEST",
+          "PACKAGE_SCRIPT_READERS",
+          "RUNS_PREFIX",
+          "SCANNED_TREES: Readonly<Record<string, readonly string[]>>",
+          "TEST_ROOTS"
+        ],
+        "functions": {
+          "importersOf": "(files: readonly string[], read: (file: string) => string | null): Map<string, string[]>",
+          "isTest": "(file: string): boolean",
+          "layerMasksOf": "(body: string): string[]",
+          "pathsIn": "(text: string): string[]",
+          "pathsOutside": "(touches: readonly string[], creates: readonly string[], paths: readonly string[]): string[]",
+          "runsCover": "(file: string, runs: readonly string[]): boolean",
+          "runsOf": "(body: string): string[]",
+          "touchesWithoutRuns": "(touches: readonly string[], body: string): string[]",
+          "withinTouches": "(file: string, touches: readonly string[]): boolean"
+        },
+        "reexports": [],
+        "types": {
+          "TestCoverage": "class TestCoverage { constructor(private readonly list: () => readonly string[], private readonly read: (file: string) => string | null); of(touches: readonly string[]): string[] }"
+        }
+      },
+      "src/card/grammar.ts": {
+        "constants": [
+          "SIZES"
+        ],
+        "functions": {
+          "cardLine": "(card: Omit<Card, 'line'>): string",
+          "cardTerms": "(card: Card): string",
+          "parseCard": "(text: string, milestones?: readonly string[]): ParsedCard",
+          "readBodyCard": "(body: string): ParsedCard"
+        },
+        "reexports": [],
+        "types": {
+          "Card": "interface Card { id: number; name: string; kind: Kind; milestone: Milestone; size: Size; contour: Contour; decision: Decision; depends: number[]; blocks: number[]; line: string; }",
+          "Contour": "type Contour = typeof CONTOURS[number]"
+        }
+      },
+      "src/card/parking.ts": {
+        "constants": [
+          "CREATES_KINDS",
+          "PRIORITIES",
+          "SHIFT_WHO",
+          "WINDOW_WHO"
+        ],
+        "functions": {
+          "cardToolsOf": "(file: string, text: string | null): CardTool[]",
+          "createdPaths": "(entries: readonly string[]): string[]",
+          "parkingFileText": "(fields: ParkingFileFields): string",
+          "parseCreatesEntry": "(entry: string): ParsedCreatesEntry",
+          "parseParkingFile": "(file: string, text: string): ParsedParkingFile"
+        },
+        "reexports": [],
+        "types": {
+          "ParkedTask": "interface ParkedTask { task: ShiftTask; who: string; priority: Priority | null; release: string | null; creates: string[]; tools: CardTool[]; }",
+          "Priority": "type Priority = typeof PRIORITIES[number]"
+        }
+      },
+      "src/card/risk.ts": {
+        "constants": [
+          "RISK_LEVELS",
+          "RISK_PREFIX",
+          "SEAM_PREFIX",
+          "SLICE_DEPENDS",
+          "SLICE_PREFIX"
+        ],
+        "functions": {
+          "riskOf": "(touch: string): RiskOfTouch",
+          "riskReading": "(touches: readonly string[], complexitySliced: boolean): RiskReading"
+        },
+        "reexports": [],
+        "types": {
+          "RiskLevel": "type RiskLevel = typeof RISK_LEVELS[number]"
+        }
+      },
+      "src/card/task-file.ts": {
+        "constants": [
+          "PREFIX_SUFFIX"
+        ],
+        "functions": {},
+        "reexports": [],
+        "types": {
+          "ContinueMode": "type ContinueMode = typeof CONTINUE_MODES[number]",
+          "ShiftTask": "interface ShiftTask { file: string; number: string; id: string; card: Card; branch: string; touches: string[]; body: string; continue: ContinueMode; }"
+        }
+      },
+      "src/card/text-sha.ts": {
+        "constants": [],
+        "functions": {
+          "textSha": "(text: string): string"
+        },
+        "reexports": [],
+        "types": {}
+      },
+      "src/card/witness-fields.ts": {
+        "constants": [],
+        "functions": {
+          "fieldCommand": "(field: Pick<WitnessField, 'run' | 'test'>): string",
+          "isWitnessFieldLine": "(line: string): boolean",
+          "parseWitnessList": "(value: unknown): ParsedWitnessList",
+          "runsFieldLine": "(runs: readonly string[]): string",
+          "runsFieldOf": "(text: string): string[]",
+          "witnessFieldRefusals": "(text: string): string[]",
+          "witnessFieldsOf": "(text: string): WitnessField[] | null"
+        },
+        "reexports": [],
+        "types": {
+          "WitnessExpectation": "type WitnessExpectation = 'pass' | 'fail' | `exit:${number}`",
+          "WitnessField": "interface WitnessField { id: string; run: string; test: string | null; head: WitnessExpectation; base: WitnessExpectation; proves: string; }"
+        }
+      },
+      "src/commands/attach/index.ts": {
+        "constants": [
+          "ATTACH_EXIT: Record<AttachResult['status'] | 'required-check-unresolvable', number>"
+        ],
+        "functions": {},
+        "reexports": [
+          "SETTINGS_FILE"
+        ],
+        "types": {}
+      },
+      "src/commands/attach/record.ts": {
+        "constants": [
+          "ATTACH_RECORD_FILE"
+        ],
+        "functions": {
+          "readAttachRecord": "(root: string): AttachRecord | null"
+        },
+        "reexports": [],
+        "types": {
+          "PushPolicy": "type PushPolicy = 'none' | 'bus'"
+        }
+      },
+      "src/commands/attach/settings.ts": {
+        "constants": [
+          "SETTINGS_FILE"
+        ],
+        "functions": {
+          "browserLabExcludedCommand": "(home: string = homedir()): string",
+          "browserLabInstalledScript": "(home: string = homedir()): string"
+        },
+        "reexports": [],
+        "types": {}
+      },
+      "src/commands/board/bus.ts": {
+        "constants": [
+          "CARD_STAGES"
+        ],
+        "functions": {
+          "busFacts": "(db: BusDb, now: Date): BusFacts",
+          "latestCardEvents": "(db: BusDb, perCard: number): Map<number, BusCardEvent[]>",
+          "openTasks": "(db: BusDb): BusTask[]"
+        },
+        "reexports": [
+          "OwnerWait"
+        ],
+        "types": {
+          "BusCard": "interface BusCard { id: number; state: string | null; stage: CardStage; lane: string | null; line: string | null; since: string | null; body: boolean; closed: boolean; closedAt: string | null; }",
+          "BusFacts": "interface BusFacts { at: string; goal: Goal | null; waits: OwnerWait[]; waitsStale?: string; cardsStale?: string; pulse: string | null; slots: BusSlot[]; cards: BusCard[]; services: BusService[]; matrices: BusMatrix[]; failure: string | null; reviewQueue: number; }",
+          "BusMatrix": "interface BusMatrix { pr: number; head: string | null; full: string | null; killed: number; survived: number; notRun: number; }",
+          "BusService": "interface BusService { role: string; task: string; tree: string | null; step: string; session?: string; gauges?: ServiceGauges; subagents?: SubagentReading[]; }",
+          "CardStage": "type CardStage = typeof CARD_STAGES[number]",
+          "CardsAtStage": "interface CardsAtStage { stage: CardStage; cards: number[]; }",
+          "SubagentReading": "interface SubagentReading { name: string; context: number | null; spent: number | null; at: string | null; }"
+        }
+      },
+      "src/commands/board/goal.ts": {
+        "constants": [
+          "DROPPED",
+          "MARK_WORDS: Readonly<Record<CardMark, string>>"
+        ],
+        "functions": {
+          "droppedLine": "(plan: PlanProgress, lore: Lore): string | null",
+          "goalOf": "(db: BusDb, now: Date = new Date()): Goal | null",
+          "planLine": "(plan: PlanProgress, backlog: number): string"
+        },
+        "reexports": [],
+        "types": {
+          "CardMark": "type CardMark = typeof DROPPED | ReleaseStage",
+          "Goal": "interface Goal { plans: PlanProgress[]; backlog: number; }",
+          "PlanProgress": "interface PlanProgress { id: string; title: string; goal: string; delivered: number; total: number; remainder: number; stages: Record<ReleaseStage, number>; cards: ReleaseCard[]; gate: ReleaseGate | null; deliveredRecently: number; }",
+          "ReleaseStage": "type ReleaseStage = typeof RELEASE_STAGES[number]"
+        }
+      },
+      "src/commands/board/index.ts": {
+        "constants": [
+          "BOARD_EXIT"
+        ],
+        "functions": {},
+        "reexports": [],
+        "types": {}
+      },
+      "src/commands/board/screens.ts": {
+        "constants": [],
+        "functions": {
+          "backlogCards": "(cards: BusCard[], at: string, all: boolean): BusCard[]",
+          "isLive": "(card: BusCard): boolean",
+          "laneColumns": "(cards: BusCard[]): (string | null)[]",
+          "matrixLines": "(facts: BusFacts, lore: Lore): string[]",
+          "pulseLines": "(facts: BusFacts, lore: Lore): string[]",
+          "screenLines": "(facts: BusFacts, lore: Lore, all = false): string[]",
+          "slotsReading": "(facts: BusFacts): string",
+          "waitAction": "(wait: OwnerWait, lore: Lore): string",
+          "waitTarget": "(wait: OwnerWait): string | null"
+        },
+        "reexports": [],
+        "types": {}
+      },
+      "src/commands/ci/state.ts": {
+        "constants": [
+          "CI_LOG_CEILING",
+          "REQUIRED_CHECK",
+          "SECRET_SCAN_CHECK"
+        ],
+        "functions": {
+          "artifactDownloadArgs": "(runId: string | number, artifact: ArtifactRequest): string[]",
+          "artifactsOfRunArgs": "(run: RunIdentity, name: string): string[]",
+          "ciFieldsOfObservation": "({ state, failedChecks }: CommitCi): CiObservation",
+          "ciLogForPrompt": "({ log, jobLink }: FailedJobLog): string",
+          "ciOf": "(reader: EndpointReader, sha: string, requiredCheck = REQUIRED_CHECK): CiReading",
+          "ciOfRollup": "(checks: readonly RollupCheck[], head: string, requiredCheck = REQUIRED_CHECK): Ci",
+          "ciWord": "(value: unknown): CiReading | null",
+          "commitCi": "(reader: EndpointReader, sha: string, requiredCheck = REQUIRED_CHECK): CommitCi",
+          "commitCiOfRuns": "(runs: readonly CheckRun[], requiredCheck: string): CommitCi",
+          "detailsOfPullRequestView": "(view: PullRequestView, knownHead: string): PrDetails",
+          "failedJobLinkIn": "(jobsJson: string): string | null",
+          "failedJobLog": "(run: CiCommand, head: string): FailedJobLog | null",
+          "hasApprovedRun": "(reader: EndpointReader, head: string | undefined): boolean",
+          "jobsOfRunArgs": "(runId: number): string[]",
+          "pullRequestViewArgs": "(pr: number, repository: string): string[]",
+          "rerunFailedJobsEndpoint": "(runId: number): string",
+          "runCancelArgs": "(run: RunIdentity): string[]",
+          "runsOnHeadEndpoint": "(head: string): string",
+          "shortHead": "(head: string): string",
+          "successfulRunsOnMainArgs": "(limit: number): string[]",
+          "unreadPullRequest": "(reason: string, knownHead: string): PrDetails"
+        },
+        "reexports": [],
+        "types": {
+          "ArtifactRequest": "interface ArtifactRequest { name: string; dir: string; repository?: string; }",
+          "CheckRun": "interface CheckRun { name?: string; status?: string; conclusion?: string | null; }",
+          "CiObservation": "interface CiObservation { ci: CiReading; failed_checks?: string[]; }",
+          "CiReading": "type CiReading = 'pending' | 'green' | 'red'",
+          "CiState": "type CiState = 'none' | 'unknown' | CiReading",
+          "CommitCi": "interface CommitCi { state: CiReading; failedChecks: string[]; }",
+          "FailedJobLog": "interface FailedJobLog { log: string; jobLink: string | null; }",
+          "PrDetails": "interface PrDetails { ci: Ci; files: string[] | undefined; }",
+          "PullRequestView": "interface PullRequestView { headRefOid?: string; statusCheckRollup?: RollupCheck[]; files?: { path: string; }[]; }",
+          "RollupCheck": "interface RollupCheck { name?: string; status?: string; conclusion?: string; state?: string; completedAt?: string; }",
+          "RunIdentity": "interface RunIdentity { repository: string; runId: string; }"
+        }
+      },
+      "src/commands/cost/cheap.ts": {
+        "constants": [],
+        "functions": {
+          "cheapClass": "(card: { kind: string; size: string; }): string",
+          "cheapForecastOf": "(shiftRoot: string, taskClass: string, projectsDir: string, busPath: string): CheapForecast",
+          "defaultShiftRoot": "(): string",
+          "sessionTokens": "(projectsDir: string, session: CheapSession): number | null"
+        },
+        "reexports": [
+          "claudeProjectsDir",
+          "projectKey"
+        ],
+        "types": {
+          "CheapForecast": "type CheapForecast = { kind: 'forecast'; taskClass: string; n: number; tokens: number; minutes: number; } | { kind: 'none'; taskClass: string; n: number; }",
+          "CheapSession": "interface CheapSession { id: string; project: string; }"
+        }
+      },
+      "src/commands/cost/expect.ts": {
+        "constants": [],
+        "functions": {
+          "countsTowardSteps": "(entry: LedgerEntry, effort: string | undefined): boolean",
+          "formatTokens": "(tokens: number): string"
+        },
+        "reexports": [],
+        "types": {
+          "RoleMinutes": "type RoleMinutes = { kind: 'median'; minutes: number; } | { kind: 'not recorded'; undated: number; runs: number; }"
+        }
+      },
+      "src/commands/cost/index.ts": {
+        "constants": [],
+        "functions": {
+          "stepsOfRepository": "(root: string, runs: string[], warnings: string[], lore: Lore, source: CostSource | null): Map<string, RunStep[]>"
+        },
+        "reexports": [
+          "COST_EXIT",
+          "CheapForecast",
+          "CostSource",
+          "ExpectInput",
+          "ImplementSubsample",
+          "MINIMUM_SAMPLE",
+          "RoleBand",
+          "RunStep",
+          "SampleRow",
+          "SampleSource",
+          "StepExpect",
+          "Subsample",
+          "expectFor",
+          "formatContour",
+          "formatRoleExpect",
+          "formatStepExpect",
+          "formatTokens",
+          "projectKey",
+          "readLedgerEntries",
+          "recordingSource",
+          "stepExpects"
+        ],
+        "types": {}
+      },
+      "src/commands/cost/ledger.ts": {
+        "constants": [
+          "LEDGER_FILE"
+        ],
+        "functions": {
+          "parseLedgerLine": "(text: string): LedgerEntry | string"
+        },
+        "reexports": [],
+        "types": {
+          "LedgerEntry": "interface LedgerEntry { run: string | null; at: string; task: string; effort: string; status: string; rung: string; attempts: LedgerAttempt[]; agents: number; tokens: TokenCount; toolUses: number; seconds: number; cause?: Cause | typeof CAUSE_NOT_RECORDED; tokensSource?: TokenSource; agreedSha256?: string; argsSha256?: string; sketch?: string | null; }",
+          "TokenCount": "type TokenCount = number | 'unknown'"
+        }
+      },
+      "src/commands/cost/sample.ts": {
+        "constants": [
+          "RECENT_RUNS"
+        ],
+        "functions": {
+          "median": "(values: number[]): number",
+          "recentBand": "(oldestFirst: number[]): Band"
+        },
+        "reexports": [],
+        "types": {
+          "Band": "type Band = { kind: 'band'; median: number; p25: number; p75: number; n: number; } | { kind: 'none'; n: number; }"
+        }
+      },
+      "src/commands/cost/step-cache.ts": {
+        "constants": [
+          "STEP_CACHE_FILE"
+        ],
+        "functions": {},
+        "reexports": [],
+        "types": {}
+      },
+      "src/commands/cost/turns.ts": {
+        "constants": [
+          "TURN_JOURNAL_FILE"
+        ],
+        "functions": {
+          "readSubagentRecords": "(root: string): SubagentRecord[] | null"
+        },
+        "reexports": [],
+        "types": {
+          "SubagentRecord": "interface SubagentRecord { agent: string; agentType: string; at: string; startedAt: string | null; usage: Usage; }"
+        }
+      },
+      "src/commands/cost/usage.ts": {
+        "constants": [],
+        "functions": {
+          "tokensWithoutCacheReads": "(usage: Usage): number"
+        },
+        "reexports": [],
+        "types": {}
+      },
+      "src/commands/detach/index.ts": {
+        "constants": [
+          "DETACH_EXIT: Record<DetachResult['status'], number>"
+        ],
+        "functions": {},
+        "reexports": [],
+        "types": {}
+      },
+      "src/commands/doctor/index.ts": {
+        "constants": [],
+        "functions": {},
+        "reexports": [
+          "DOCTOR_EXIT"
+        ],
+        "types": {}
+      },
+      "src/commands/graph.ts": {
+        "constants": [
+          "GRAPH_EXIT"
+        ],
+        "functions": {},
+        "reexports": [],
+        "types": {}
+      },
+      "src/commands/init.ts": {
+        "constants": [
+          "INIT_EXIT: Record<InitResult['status'], number>"
+        ],
+        "functions": {},
+        "reexports": [],
+        "types": {}
+      },
+      "src/commands/intake/admit.ts": {
+        "constants": [
+          "ADMIT_SOURCE",
+          "AMEND_SOURCE",
+          "LANE_FILE"
+        ],
+        "functions": {
+          "admittedCardFile": "(cardId: number, parkingRoot?: string): string",
+          "isLaneName": "(name: string): boolean",
+          "judgedFieldWitnessesOf": "(body: string): { acceptance: JudgedWitness[]; invariants: JudgedWitness[]; } | null",
+          "laneName": "(number: number): string",
+          "laneNumber": "(name: string): number | null",
+          "pathsNamedOutside": "(parked: ParkedTask, text: string): string[]",
+          "runAdmit": "(options: AdmitOptions, now: () => Date = () => new Date()): AdmitResult",
+          "withRunsLine": "(text: string, runs: readonly string[]): string",
+          "witnessesOf": "(body: string): string[]"
+        },
+        "reexports": [],
+        "types": {
+          "AdmitResult": "type AdmitResult = { status: 'refused'; why: string; } | { status: 'invalidTestPattern'; reasons: string[]; } | { status: 'sharedCodeMask'; reasons: string[]; } | { status: 'admitted' | 'alreadyAdmitted' | 'dryRun'; file: string; card: SlicedCard; autoConfirm: boolean; source: AdmitSource; inBus: boolean; event: number | null; windowShard: string | null; } | { status: 'awaiting'; file: string; card: SlicedCard; token: string; stale: boolean; } | { status: 'waiting'; file: string; card: SlicedCard; waitingOn: number[]; inBus: boolean; dryRun: boolean; } | { status: 'ownerWait'; file: string; card: SlicedCard; downgrades: string[]; actions: string[]; command: string; inBus: boolean; dryRun: boolean; }"
+        }
+      },
+      "src/commands/intake/amend.ts": {
+        "constants": [],
+        "functions": {
+          "listFlagOf": "(rawArgs: readonly string[], flag: string, separator: string = LIST_SEPARATOR): string | undefined",
+          "runAmend": "(options: AmendOptions, now: () => Date = () => new Date()): AdmitResult"
+        },
+        "reexports": [],
+        "types": {
+          "AmendFlags": "interface AmendFlags { touches?: string; creates?: string; note?: string; witness?: string; who?: string; addWitnesses?: readonly string[]; removeWitnesses?: readonly string[]; ownerWords?: string; depends?: string; }"
+        }
+      },
+      "src/commands/intake/check.ts": {
+        "constants": [
+          "COMPANION_TABLE: readonly (CompanionRow | FollowingRow)[]",
+          "COMPOSITION_ROOT",
+          "FOLLOWING_REASON",
+          "OWNER_MERGES",
+          "PACKAGE_MANIFEST",
+          "PLAN_FIELD"
+        ],
+        "functions": {
+          "admittedReachOf": "(cardId: number, cardBody: string | null): AdmittedReach",
+          "cardRiskOf": "(cardId: number, card: string | null): RiskLevel | null",
+          "correctionText": "(correction: Correction): string",
+          "followsTouches": "(file: string, reach: FollowingReach): boolean",
+          "isChangeWitness": "(witness: string): boolean",
+          "isTestOrGenerated": "(file: string): boolean",
+          "movingRefRefusal": "(witnesses: readonly NamedCommand[]): string | null",
+          "neverFollows": "(file: string, reach: FollowingReach): boolean",
+          "ownerPathsOf": "(ownerMergesText: string): OwnerPaths",
+          "publishedRootsOf": "(packageManifestText: string): string[] | undefined",
+          "unjudgedCommand": "(command: string): string"
+        },
+        "reexports": [],
+        "types": {
+          "AdmittedReach": "interface AdmittedReach { touches: string[]; runs: string[]; }",
+          "CompanionRow": "interface CompanionRow { kind: string; keptBy: string; touched: (entry: string, published: readonly string[]) => boolean; companions: (entry: string, touches: readonly string[], repository: RepositoryFacts) => string[]; }",
+          "CompositionRecord": "interface CompositionRecord { id: string; doc: string; nodes: readonly { path?: string; }[]; }",
+          "FollowingReach": "interface FollowingReach { touches: readonly string[]; added: ReadonlySet<string>; compositionRecords: readonly CompositionRecord[]; }"
+        }
+      },
+      "src/commands/intake/command-word.ts": {
+        "constants": [],
+        "functions": {
+          "pathsNamedBy": "(command: string, readable: (relative: string) => boolean): string[]",
+          "unresolvedCommandWord": "(command: string, searchPath: string): string | null"
+        },
+        "reexports": [],
+        "types": {}
+      },
+      "src/commands/intake/confirm.ts": {
+        "constants": [
+          "WINDOW_SHARD_VARIABLE"
+        ],
+        "functions": {
+          "bodySha": "(text: string): string",
+          "bodyShaWithoutTouches": "(text: string): string"
+        },
+        "reexports": [],
+        "types": {}
+      },
+      "src/commands/intake/draft.ts": {
+        "constants": [],
+        "functions": {
+          "withoutWitnessKind": "(witness: string): string"
+        },
+        "reexports": [],
+        "types": {}
+      },
+      "src/commands/intake/export.ts": {
+        "constants": [],
+        "functions": {
+          "printExport": "(ui: Ui, result: ExportResult, write: (text: string) => void): number",
+          "runExport": "(options: ExportOptions): ExportResult"
+        },
+        "reexports": [],
+        "types": {}
+      },
+      "src/commands/intake/index.ts": {
+        "constants": [
+          "INTAKE_EXIT"
+        ],
+        "functions": {},
+        "reexports": [],
+        "types": {
+          "CardAdmissionsPort": "type CardAdmissionsPort = (cardId: number) => RecordedIntake | null",
+          "CardEvent": "interface CardEvent { type: typeof CARD_ADMITTED | typeof CARD_MOVED | typeof CARD_DROPPED | typeof CARD_WAITING; cardId: number; ts: string; dedupeKey: string; payload: Record<string, unknown>; }",
+          "CardEventPort": "type CardEventPort = (event: CardEvent) => void",
+          "CardStatesPort": "type CardStatesPort = () => CardsOfTheBus",
+          "RecordedIntake": "interface RecordedIntake { card: string; bodySha: unknown; ts: unknown; confirmation: unknown; source: unknown; text?: string; }"
+        }
+      },
+      "src/commands/intake/numbers.ts": {
+        "constants": [],
+        "functions": {
+          "nextCardNumbers": "(bus: CardsOfTheBus | undefined, outsideTheBus: readonly number[], count: number): number[]",
+          "parseTaken": "(text: string): ParsedTaken"
+        },
+        "reexports": [],
+        "types": {
+          "CardsOfTheBus": "type CardsOfTheBus = BusCardStates & { readonly foreign?: ReadonlySet<number>; }"
+        }
+      },
+      "src/commands/intake/slice.ts": {
+        "constants": [
+          "UNCLEAR_PREFIX",
+          "WITNESSES_HEADING"
+        ],
+        "functions": {},
+        "reexports": [],
+        "types": {}
+      },
+      "src/commands/liveness.ts": {
+        "constants": [],
+        "functions": {
+          "factoryLiveness": "(busFile: string, nowMs: number): FactoryLiveness"
+        },
+        "reexports": [],
+        "types": {
+          "FactoryState": "type FactoryState = 'live' | 'offline'"
+        }
+      },
+      "src/commands/mutate/index.ts": {
+        "constants": [
+          "MUTATE_APPLY_EXIT",
+          "MUTATE_JUDGE_EXIT"
+        ],
+        "functions": {},
+        "reexports": [],
+        "types": {}
+      },
+      "src/commands/mutate/journal.ts": {
+        "constants": [
+          "MUTATION_JUDGED_EVENT"
+        ],
+        "functions": {},
+        "reexports": [],
+        "types": {
+          "MutationJudgedPort": "type MutationJudgedPort = (line: MutationJudgedLine) => string"
+        }
+      },
+      "src/commands/mutate/lines.ts": {
+        "constants": [],
+        "functions": {
+          "parseMutationFile": "(text: string): ParsedLine[]"
+        },
+        "reexports": [],
+        "types": {}
+      },
+      "src/commands/soulkill.ts": {
+        "constants": [
+          "SOULKILL_EXIT"
+        ],
+        "functions": {},
+        "reexports": [],
+        "types": {}
+      },
+      "src/commands/sync/index.ts": {
+        "constants": [],
+        "functions": {},
+        "reexports": [
+          "SYNC_APPLY_EXIT",
+          "SYNC_EXIT"
+        ],
+        "types": {}
+      },
+      "src/detect/index.ts": {
+        "constants": [],
+        "functions": {
+          "detect": "(dir: string): DetectReport"
+        },
+        "reexports": [],
+        "types": {}
+      },
+      "src/failure.ts": {
+        "constants": [
+          "FAILED_EXIT"
+        ],
+        "functions": {},
+        "reexports": [],
+        "types": {}
+      },
+      "src/manifest.ts": {
+        "constants": [
+          "DEFAULT_LANES",
+          "DISCOVERY_MARKERS",
+          "MANIFEST_FILE"
+        ],
+        "functions": {
+          "clientIdFor": "(record: ClientRecord | undefined, role: ClientRole): string | null",
+          "clientModelOf": "(record: ClientRecord | undefined): string",
+          "isLaneCount": "(value: unknown): value is number",
+          "readMilestones": "(root: string): string[] | undefined",
+          "readShiftGate": "(root: string): ShiftGate",
+          "upgradeManifest": "(raw: unknown): Manifest"
+        },
+        "reexports": [],
+        "types": {
+          "ClientRecord": "interface ClientRecord { id?: string; model?: string; roles?: Partial<Record<ClientRole, string>>; }",
+          "ClientRole": "type ClientRole = (typeof CLIENT_ROLES)[number]",
+          "ShiftGate": "interface ShiftGate { prepush: string[]; handoffWrite: string | null; codeMatrix: string | null; }"
+        }
+      },
+      "src/materialize/plan.ts": {
+        "constants": [],
+        "functions": {
+          "planMaterialize": "(root: string, groups: TemplateGroup[], vars: TemplateVars, options: PlanOptions): MaterializePlan"
+        },
+        "reexports": [],
+        "types": {}
+      },
+      "src/materialize/strategies.ts": {
+        "constants": [],
+        "functions": {
+          "blockMarkers": "(target: string): [ string, string ]",
+          "discoveryTags": "(marker: string): [ string, string ]",
+          "isJsonObject": "(value: unknown): value is JsonObject"
+        },
+        "reexports": [],
+        "types": {}
+      },
+      "src/model/graph.ts": {
+        "constants": [
+          "PICTURE_PROSE: Record<PictureReading, string>"
+        ],
+        "functions": {
+          "pictureOfModel": "(model: RepositoryModel | null, root: string, states: StateSource = deriveModelState): ModelPicture"
+        },
+        "reexports": [],
+        "types": {
+          "ModelPicture": "type ModelPicture = { at: 'drawn'; mermaid: string; } | { at: Exclude<PictureReading, 'drawn'>; }"
+        }
+      },
+      "src/model/schema.ts": {
+        "constants": [],
+        "functions": {},
+        "reexports": [],
+        "types": {
+          "AbilityNode": "interface AbilityNode { id: string; label: string; stage: string; source: NodeSource; supportedBy: string[]; }",
+          "Fact": "interface Fact { id: string; kind: FactKind; path: string; authoredBy: EntryAuthor; needle?: string; surface?: string[]; format?: ReportFormat; }",
+          "RepositoryModel": "interface RepositoryModel { modelVersion: number; facts: Fact[]; claims: Claim[]; hypotheses: Hypothesis[]; stages: Stage[]; nodes: AbilityNode[]; links: Link[]; mechanics?: Mechanics; interpretation?: Interpretation; }"
+        }
+      },
+      "src/model/write.ts": {
+        "constants": [],
+        "functions": {
+          "readModel": "(root: string): RepositoryModel | null"
+        },
+        "reexports": [],
+        "types": {}
+      },
+      "src/presets/index.ts": {
+        "constants": [
+          "ATTACH_CARRIERS",
+          "PRESET_IDS",
+          "PRESET_LIST"
+        ],
+        "functions": {
+          "getPreset": "(id: PresetId): Preset",
+          "groupsFor": "(preset: Preset, ai: AiTarget, review: ReviewProvider): TemplateGroup[]"
+        },
+        "reexports": [],
+        "types": {
+          "PresetId": "type PresetId = 'node-backend' | 'node-frontend' | 'node-library' | 'monorepo'",
+          "ServeRecord": "interface ServeRecord { command: string; url: string; readyTimeoutMs: number; }",
+          "TemplateVars": "interface TemplateVars extends Record<string, string> { projectName: string; scope: string; nodeMajor: string; contracts: string; contractPath: string; contractTypesOutput: string; compositionDir: string; harnessCommand: string; packageManager: string; pnpmVersion: string; reviewModel: string; constructVersion: string; }"
+        }
+      },
+      "src/program.ts": {
+        "constants": [
+          "SAY_EXIT",
+          "main"
+        ],
+        "functions": {
+          "createMain": "(bus?: BusPorts)"
+        },
+        "reexports": [],
+        "types": {
+          "BusPorts": "interface BusPorts { cardEvents: CardEventPort; cardStates: CardStatesPort; cardAdmissions: CardAdmissionsPort; mutationJudged?: MutationJudgedPort; }"
+        }
+      },
+      "src/ui/console.ts": {
+        "constants": [],
+        "functions": {
+          "createUi": "(theme: Theme, write: Writer = stdoutWriter): Ui"
+        },
+        "reexports": [],
+        "types": {}
+      },
+      "src/ui/lore.ts": {
+        "constants": [
+          "BANNER",
+          "LORE: Lore",
+          "PLAIN_LORE: Lore"
+        ],
+        "functions": {},
+        "reexports": [],
+        "types": {}
+      },
+      "src/ui/signal.ts": {
+        "constants": [
+          "PLAIN_STYLE",
+          "SIGNAL_FIELDS"
+        ],
+        "functions": {
+          "renderSignal": "(title: string, signal: Signal, style: SignalStyle, tone?: Tone): string[]",
+          "terminalStyle": "(isTTY: boolean | undefined, noColor: string | undefined): SignalStyle"
+        },
+        "reexports": [],
+        "types": {
+          "Signal": "type Signal = Record<SignalField, string>",
+          "SignalStyle": "interface SignalStyle { ascii: boolean; paint: Paint; }"
+        }
+      },
+      "src/ui/theme.ts": {
+        "constants": [],
+        "functions": {
+          "resolveTheme": "(options: { plain?: boolean; johnny?: boolean; }): Theme"
+        },
+        "reexports": [],
+        "types": {}
+      },
+      "src/version.ts": {
+        "constants": [],
+        "functions": {
+          "currentVersion": "(): string"
+        },
+        "reexports": [],
+        "types": {}
+      }
+    },
     "modules": {
       "scripts/ports/card-tree.ts": {
         "constants": [
@@ -3758,6 +4602,6 @@
         }
       }
     },
-    "portsVersion": 2
+    "portsVersion": 3
   }
 }
