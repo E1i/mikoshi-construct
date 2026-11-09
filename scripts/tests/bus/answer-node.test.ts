@@ -19,6 +19,7 @@ import { textSha } from '../../../src/card/text-sha.js'
 import { readShiftGate } from '../../../src/manifest.js'
 import { PREPUSH_COMMAND } from '../../ci/prepush.js'
 import { DROPPED_LANE } from '../../core/card-automaton.js'
+import { LIVE_SESSION_IN_THE_TREE } from '../../core/card-hold.js'
 import { appendEvent, openOwnerWait } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_MOVED, CARD_STARTED, CARD_STOPPED, MERGE_DONE, NODE_DETECTED, NODE_EQUIVALENCE, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, POLICY_DENIED, SHARD_DECIDED, SHARD_ISSUED, TASK_ENQUEUED } from '../../core/events.js'
 import { assertHeld, failTask, leaseNext, StaleLease } from '../../core/lease.js'
@@ -311,14 +312,15 @@ describe('an answer on an amended card body', () => {
     expect(taskState(made.db, key(NEW_BODY))).toMatchObject({ state: 'queued', failures: 0 })
   })
 
-  it('a live session with no superseded answer inside its lease still holds the card for the owner', async () => {
+  it('a live session with no superseded answer inside its lease makes the answer wait for it, not withdraw', async () => {
     const made = bench()
     const { key, lease, trees } = questionOnTheOldBody(made)
+    vi.spyOn(console, 'log').mockImplementation(() => {})
 
     const outcome = await executorOf(made, trees, vi.fn<Answerer>(), () => 'a live session runs in the tree').answer(lease())
 
-    expect(outcome).toMatchObject({ kind: 'denied', denial: { reason: 'held_for_owner' } })
-    expect(taskState(made.db, key(OLD_BODY)).state).toBe('withdrawn')
+    expect(outcome).toMatchObject({ kind: 'waiting', reason: LIVE_SESSION_IN_THE_TREE })
+    expect(taskState(made.db, key(OLD_BODY))).toMatchObject({ state: 'queued', failures: 0 })
   })
 
   it('a question naming a closed wait is not written, and the next prompt carries the closed wait', async () => {
