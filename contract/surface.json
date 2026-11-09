@@ -1781,7 +1781,7 @@
     },
     "bus:launch": {
       "entries": [
-        "scripts/nodes/launch/launch-worker.ts"
+        "scripts/nodes/launch/launch-root.ts"
       ],
       "exits": [],
       "flags": [
