@@ -155,6 +155,12 @@ describe('owner decisions live in the bus', () => {
     expect(expired.map(event => event.until)).toEqual([TERM])
   })
 
+  it('a session no longer reads a decision whose words end it «до» a term already passed', () => {
+    const made = bench(`# Owner decisions\n\n- D-1 · 2026-10-08 — one.\n- D-2 · 2026-10-09 — продлеваю D-1 до 2026-10-10T10:00Z\n`)
+    const read = sessionRead(made.file, null)
+    expect(read).toEqual(['- D-1 · 2026-10-08 — one.'])
+  })
+
   it('a session sees only the decisions of its own card and the general ones', () => {
     const made = bench()
     record(made, 1, 'general.')

@@ -1,4 +1,5 @@
 import type { BusCardStates, JournalEntry } from '../../../src/card/closed.js'
+import type { Decision } from './decisions.js'
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
@@ -8,9 +9,24 @@ import { defaultBusPath } from '../../core/db.js'
 import { busHistory } from '../../core/journal.js'
 import { busCardStates } from '../../core/tasks.js'
 import { CARD_VARIABLE } from '../../ports/session.js'
-import { decisionsFindings, decisionsRefusals, inForce, parseDecisions, PREFIX, settleSupersedes, spentByCards, visibleToCard } from './decisions.js'
+import { calendarTerm, decisionsFindings, decisionsRefusals, inForce, parseDecisions, PREFIX, settleSupersedes, spentByCards, visibleToCard } from './decisions.js'
 
 export const USAGE = 'usage: pnpm decisions [<owner-decisions.md>]'
+
+const TERM_IN_WORDS = /(?<![\p{L}\p{N}])до\s+(?<until>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?Z)(?![\p{L}\p{N}])/gu
+
+export function termInWords(body: string): string | null {
+  const named = new Set([...body.matchAll(TERM_IN_WORDS)].map(match => match.groups!.until!))
+  const [until] = named
+  return named.size === 1 && calendarTerm(until!) ? until! : null
+}
+
+export function withTermInWords(decision: Decision): Decision {
+  if (decision.term.until !== null || decision.term.unread)
+    return decision
+  const until = termInWords(decision.body)
+  return until === null ? decision : { ...decision, term: { until, unread: false } }
+}
 
 export interface DecisionsReadDeps {
   decisions: string
@@ -60,7 +76,7 @@ export function runDecisionsRead(args: string[], deps: DecisionsReadDeps): numbe
     deps.err(`${PREFIX}${file} refused: ${refusals.length} refusals, no decision read`)
     return 1
   }
-  const { decisions } = parseDecisions(text)
+  const decisions = parseDecisions(text).decisions.map(withTermInWords)
   const spent = new Set(spentByCards(decisions, card => settled.has(card)).map(decision => decision.number))
   for (const decision of inForce(decisions).filter(each => !spent.has(each.number) && visibleToCard(each, deps.card ?? null)))
     deps.out(decision.text)
