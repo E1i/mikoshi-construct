@@ -268,6 +268,8 @@ const board = withKnownFlags(defineCommand({
   },
 }), ROOT_META)
 
+const COST_EXPECT_JSON_SCHEMA_VERSION = 1
+
 const cost = withKnownFlags(defineCommand({
   meta: { name: 'cost', description: 'Token usage of the /implement runs recorded for this directory (from Claude Code session data)' },
   args: {
@@ -292,7 +294,7 @@ const cost = withKnownFlags(defineCommand({
         for (const warning of warnings)
           console.line(warning)
         const { line, head, sources, notes, steps } = result
-        process.stdout.write(args.json ? `${JSON.stringify({ line, head, sources, notes, steps }, null, 2)}\n` : `${expectLines(result, console.lore).join('\n')}\n`)
+        process.stdout.write(args.json ? `${JSON.stringify({ schemaVersion: COST_EXPECT_JSON_SCHEMA_VERSION, line, head, sources, notes, steps }, null, 2)}\n` : `${expectLines(result, console.lore).join('\n')}\n`)
         return
       }
       const report = costReport(path.resolve(args.dir))
@@ -338,7 +340,7 @@ const atlas = withKnownFlags(defineCommand({
   },
 }), ROOT_META)
 
-const SAY_EXIT = { said: 0, noWords: 2 } as const
+export const SAY_EXIT = { said: 0, noWords: 2 } as const
 
 const say = withKnownFlags(defineCommand({
   meta: { name: 'say', description: 'Write the owner\'s words, with the time, as one unused answer in the owner channel of this repository\'s bus (~/.construct-owner/answers for the machine bus, ~/.construct-owner/answers/<repo-id> for a repository bus), the channel an owner decision is accepted from' },
