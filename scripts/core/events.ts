@@ -252,6 +252,11 @@ export function declaredPayload<T extends EventType>(type: T, payload: object): 
   return payload as EventPayload<T>
 }
 
+export function declaredPart<T extends EventType>(type: T, stored: object): EventPayload<T> {
+  const declared: readonly string[] = EVENT_PAYLOADS[type]
+  return Object.fromEntries(Object.entries(stored).filter(([key]) => declared.includes(key))) as EventPayload<T>
+}
+
 export function catalogued(type: string): EventType {
   if (!Object.hasOwn(EVENT_PAYLOADS, type))
     throw new Error(`${type} declares no payload in EVENT_PAYLOADS of scripts/core/events.ts, so nothing may write or fold it`)

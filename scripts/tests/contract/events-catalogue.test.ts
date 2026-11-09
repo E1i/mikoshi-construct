@@ -13,7 +13,7 @@ import { appendCardEvent } from '../../core/card-bodies.js'
 import { appendEvent } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_STOPPED, declaredPayload, EVENT_PAYLOADS } from '../../core/events.js'
 import { LAUNCH_STOP_WITH_NO_PULL_REQUEST, LIFTED_ADMISSION } from '../../core/queue.js'
-import { reducedTypesOf } from '../../core/reducer.js'
+import { REDUCED_TYPES, reducedTypesOf } from '../../core/reducer.js'
 import { eventsOf, mergeBench } from '../bus/merge-bench.js'
 
 const ROOT = process.cwd()
@@ -46,6 +46,7 @@ const catalogue = catalogueOf(repository.find(({ file }) => file === EVENTS_MODU
 const scratchRoots: string[] = []
 const benches: MergeBench[] = []
 const ADMITTED_BY_INTAKE = 1301
+const ADMITTED_BEFORE_THE_CATALOGUE = 1302
 
 function typedTree(files: Record<string, string>): string {
   const root = mkdtempSync(path.join(tmpdir(), 'events-catalogue-'))
@@ -130,6 +131,12 @@ describe('the typed catalogue of bus events', () => {
     expect(() => reducedTypesOf({ 'task.leased': fold, 'stray.event': fold })).toThrow('stray.event declares no payload in EVENT_PAYLOADS')
   })
 
+  it('folds in the reducer only types the catalogue declares', () => {
+    expect(REDUCED_TYPES.length).toBeGreaterThan(0)
+    expect(REDUCED_TYPES.filter(type => !Object.hasOwn(EVENT_PAYLOADS, type))).toEqual([])
+    expect(REDUCED_TYPES).toEqual(expect.arrayContaining(['card.admitted', 'owner.wait.opened', 'pr.observed', 'main.advanced']))
+  })
+
   it('counts a write of an undeclared type as outside the catalogue', () => {
     const writer = parsed('scripts/core/stray.ts', 'export const STRAY = \'stray.event\'\nappendEvent(db, { type: STRAY, payload: { a: 1 } })')
     expect(Object.keys(writtenEvents([writer], catalogue).outsideTheCatalogue)).toEqual(['stray.event'])
@@ -158,5 +165,21 @@ describe('the typed catalogue of bus events', () => {
       expect.objectContaining({ cardVersion: 1, prevAdmissionId: null, prevTextSha: null }),
       expect.objectContaining({ cardVersion: 1, plan: { plan: 'P-1', item: 'a' }, admission: `${LIFTED_ADMISSION}:${stop}` }),
     ])
+  })
+
+  it('lifts a launch stop on a card admitted before the catalogue, dropping the keys it no longer declares', () => {
+    const made = mergeBench()
+    benches.push(made)
+    const ts = made.clock.now().toISOString()
+    const card = ADMITTED_BEFORE_THE_CATALOGUE
+    const older = { card: `#${card} older`, lane: 'lane-a', depends: [], text: `card: #${card} older`, textSha: 'f'.repeat(64), bodyMatchesAdmission: false, textVerified: false }
+    appendEvent(made.db, { ts, type: CARD_ADMITTED, actor: 'worker:intake:window', cardId: card, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${card}`, payload: older, legacy: false })
+    appendEvent(made.db, { ts, type: CARD_STOPPED, actor: 'worker:launch:launch-1', cardId: card, pr: null, head: null, dedupeKey: `${LAUNCH_STOP_WITH_NO_PULL_REQUEST}${card}`, payload: { reason: 'question.agent', detail: 'asks', widen: [] }, legacy: false })
+    const stop = (made.db.prepare(`SELECT max(id) AS id FROM events WHERE type = '${CARD_STOPPED}'`).get() as { id: number }).id
+    made.tick()
+    made.tick()
+    const admissions = eventsOf(made.db, CARD_ADMITTED)
+    expect(admissions).toHaveLength(2)
+    expect(admissions[1]).toEqual({ card: `#${card} older`, lane: 'lane-a', depends: [], text: `card: #${card} older`, textSha: 'f'.repeat(64), admission: `${LIFTED_ADMISSION}:${stop}` })
   })
 })

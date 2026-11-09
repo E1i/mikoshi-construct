@@ -523,7 +523,7 @@ const NO_SECOND_KEY = `''`
 const PROJECTION_TABLES = Object.keys(PROJECTION_KEYS)
 const PROJECTION_SEQUENCES = `name IN (${PROJECTION_TABLES.map(table => `'${table}'`).join(', ')})`
 const SEQUENCE_SNAPSHOT = 'projection_sequence_snapshot'
-const REDUCED_TYPES = reducedTypesOf(REDUCERS)
+export const REDUCED_TYPES = reducedTypesOf(REDUCERS)
 const ROW_WRITES = { insert: ['NEW'], update: ['OLD', 'NEW'], delete: ['OLD'] } as const
 const FOREIGN_REFERENCE = /\s+REFERENCES\s+\w+\s*\(\w+\)/g
 
