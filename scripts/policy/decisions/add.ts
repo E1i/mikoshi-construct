@@ -1,7 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { OwnerDecision } from '../decisions.js'
 import type { Decision } from './decisions.js'
-import { realpathSync } from 'node:fs'
+import { closeSync, openSync, readFileSync, realpathSync, rmSync, writeSync } from 'node:fs'
 import os from 'node:os'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
@@ -33,6 +33,7 @@ export interface DecisionsAddDeps {
   read: (file: string) => string
   write: (file: string, text: string) => void
   remove: (file: string) => void
+  lock?: (file: string) => (() => void) | string
   record: (decision: OwnerDecision) => void
   held?: () => readonly number[]
   settled: (card: number) => boolean
@@ -138,33 +139,48 @@ export function planAdd(read: string, archive: string, { text: record, supersede
   }
 }
 
-interface HeldFiles {
-  file: string
-  archive: string
-  archiveExisted: boolean
+const LOCK_ATTEMPTS = 50
+const LOCK_PAUSE_MS = 100
+
+export function lockFileOf(file: string): string {
+  return `${file}.lock`
 }
 
-const ISSUE_ATTEMPTS = 5
-
-function heldFiles(file: string, archiveFile: string, deps: DecisionsAddDeps): HeldFiles {
-  const archiveExisted = deps.exists(archiveFile)
-  return { file: deps.read(file), archive: archiveExisted ? deps.read(archiveFile) : '', archiveExisted }
-}
-
-function sameFiles(a: HeldFiles, b: HeldFiles): boolean {
-  return a.file === b.file && a.archive === b.archive && a.archiveExisted === b.archiveExisted
-}
-
-function issueNumber(file: string, archiveFile: string, deps: DecisionsAddDeps, plan: (held: HeldFiles) => AddPlan | string): { plan: AddPlan, held: HeldFiles } | string {
-  for (let attempt = 0; attempt < ISSUE_ATTEMPTS; attempt += 1) {
-    const held = heldFiles(file, archiveFile, deps)
-    const planned = plan(held)
-    if (typeof planned === 'string')
-      return planned
-    if (sameFiles(held, heldFiles(file, archiveFile, deps)))
-      return { plan: planned, held }
+function holderOf(lockFile: string): string {
+  try {
+    return readFileSync(lockFile, 'utf8').trim()
   }
-  return `${PREFIX}${file} changed under each of ${ISSUE_ATTEMPTS} attempts to issue the next number; nothing written`
+  catch {
+    return ''
+  }
+}
+
+function pause(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
+}
+
+function lockRefusal(lockFile: string): string {
+  const holder = holderOf(lockFile)
+  const named = /^[1-9]\d*$/.test(holder) ? `process ${holder}` : 'another decisions:add'
+  return `${PREFIX}${lockFile} is held by ${named}; nothing written. Run decisions:add again; if no decisions:add is running, remove ${lockFile} first`
+}
+
+export function takeFileLock(lockFile: string, attempts = LOCK_ATTEMPTS, pauseMs = LOCK_PAUSE_MS): (() => void) | string {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      const descriptor = openSync(lockFile, 'wx')
+      writeSync(descriptor, String(process.pid))
+      closeSync(descriptor)
+      return () => rmSync(lockFile, { force: true })
+    }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST')
+        throw error
+      if (attempt + 1 < attempts)
+        pause(pauseMs)
+    }
+  }
+  return lockRefusal(lockFile)
 }
 
 function recordFailure(error: unknown): string {
@@ -187,24 +203,37 @@ export function runDecisionsAdd(args: string[], deps: DecisionsAddDeps): number 
     deps.err(`${PREFIX}no decisions at ${file}`)
     return 1
   }
-  const archiveFile = archiveOf(file)
-  const now = deps.now()
-  const settled = (card: number): boolean => parsed.settled.includes(card) || deps.settled(card)
-  const issued = issueNumber(file, archiveFile, deps, held => planAdd(held.file, held.archive, parsed, now, settled, deps.held?.() ?? []))
-  if (typeof issued === 'string') {
-    deps.err(issued)
+  const release = (deps.lock ?? (target => takeFileLock(lockFileOf(target))))(file)
+  if (typeof release === 'string') {
+    deps.err(release)
     return 1
   }
-  const { plan, held } = issued
-  const original = held.file
-  const originalArchive = held.archive
+  try {
+    return addUnderLock(file, parsed, deps)
+  }
+  finally {
+    release()
+  }
+}
+
+function addUnderLock(file: string, parsed: Required<AddArgs>, deps: DecisionsAddDeps): number {
+  const archiveFile = archiveOf(file)
+  const original = deps.read(file)
+  const archiveExisted = deps.exists(archiveFile)
+  const originalArchive = archiveExisted ? deps.read(archiveFile) : ''
+  const now = deps.now()
+  const plan = planAdd(original, originalArchive, parsed, now, card => parsed.settled.includes(card) || deps.settled(card), deps.held?.() ?? [])
+  if (typeof plan === 'string') {
+    deps.err(plan)
+    return 1
+  }
   const holds = (target: string, text: string): boolean => deps.exists(target) && deps.read(target) === text
   const restore = (): void => {
     if (holds(file, plan.file))
       deps.write(file, original)
-    if (!holds(archiveFile, plan.archive) || plan.archive === originalArchive)
+    if (plan.archive === originalArchive || !holds(archiveFile, plan.archive))
       return
-    if (held.archiveExisted)
+    if (archiveExisted)
       deps.write(archiveFile, originalArchive)
     else
       deps.remove(archiveFile)
