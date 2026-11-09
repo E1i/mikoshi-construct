@@ -74,7 +74,7 @@ export const ALLOW_MERGE_RECORD = 'architecture/decisions/window-allow-merge.md'
 const RULE_ACCEPTED = /^Status: accepted\b/m
 export const REQUEST_RULE = 'window_request'
 export const PREFIX = '[bus:request] '
-export const USAGE = `usage: pnpm bus:request tree.cut --card <N> | amend --card <N> [--touches +<path>,-<path>] [--add-witness <witness>]... [--remove-witness <witness>]... [--owner-words <the owner's words>] [--depends +#<N>,-#<N>] [--auto-confirm] | allow-merge --pr <N> --head <sha> --dry-run <reviewer session> | close-pr|reopen-pr --pr <N> --card <N> --reason <text> | pr.body --pr <N> [--file <absolute path in the card tree>] | ci.rerun --pr <N> | requeue --task <task_key> | mode --set ${FACTORY_MODES.join('|')} | plan --op ${[...PLAN_OPS.keys()].join('|')} [--plan <id>] [--title <text>] [--goal <text>] [--file <absolute plan file>] [--gate <word>] [--card <N>] | owner.wait --need ${OWNER_WAIT_NEEDS.join('|')} --text <what the owner decides> [--command <line>] [--card <N>] [--pr <N>] | owner.wait.close --id Q<N> --answer <answer> [--from ${ANSWER_SOURCE}] | owner.wait.close --id Q<N> --from ${ANSWER_SOURCE} | decisions:add --from ${ANSWER_SOURCE} [--supersedes D-M]... [--card #N]... [--until <YYYY-MM-DDTHH:MMZ>] "[owner] <decision>" | hold --card <N> --reason <why the owner holds it> | release --card <N> | takeover --card <N> --reason <why the bus has no route for it> | drop --card <N> --reason <why a card with no body is dropped> | numbers.foreign --ids <card ids of another factory's row, comma separated>`
+export const USAGE = `usage: pnpm bus:request tree.cut --card <N> | amend --card <N> [--touches +<path>,-<path>] [--add-witness <witness>]... [--remove-witness <witness>]... [--owner-words <the owner's words>] [--depends +#<N>,-#<N>] [--auto-confirm] | allow-merge --pr <N> --head <sha> --dry-run <reviewer session> | close-pr|reopen-pr --pr <N> --card <N> --reason <text> | pr.body --pr <N> [--file <absolute path in the card tree>] | ci.rerun --pr <N> | requeue --task <task_key> [--keep-tree] | mode --set ${FACTORY_MODES.join('|')} | plan --op ${[...PLAN_OPS.keys()].join('|')} [--plan <id>] [--title <text>] [--goal <text>] [--file <absolute plan file>] [--gate <word>] [--card <N>] | owner.wait --need ${OWNER_WAIT_NEEDS.join('|')} --text <what the owner decides> [--command <line>] [--card <N>] [--pr <N>] | owner.wait.close --id Q<N> --answer <answer> [--from ${ANSWER_SOURCE}] | owner.wait.close --id Q<N> --from ${ANSWER_SOURCE} | decisions:add --from ${ANSWER_SOURCE} [--supersedes D-M]... [--card #N]... [--until <YYYY-MM-DDTHH:MMZ>] "[owner] <decision>" | hold --card <N> --reason <why the owner holds it> | release --card <N> | takeover --card <N> --reason <why the bus has no route for it> | drop --card <N> --reason <why a card with no body is dropped> | numbers.foreign --ids <card ids of another factory's row, comma separated>`
 
 const BY_HAND = 'by-hand'
 const noTool = (what: string): Executed => ({ done: false, why: `this bus was built with no tool to ${what}` })
@@ -84,10 +84,7 @@ const HELP_FLAGS = ['--help', '-h']
 
 export type RequestKind = typeof REQUEST_KINDS[number]
 
-export interface CardTask {
-  taskKey: string
-  cardId: number
-}
+export interface CardTask { taskKey: string, cardId: number }
 
 export interface RequestTools {
   treeOf: (cardId: number) => string
@@ -157,6 +154,8 @@ const UNCLOSED_QUESTION = `
 const ENDED_CARDS: ReadonlySet<string | null | undefined> = new Set([MERGED_CARD, CLOSED_CARD, DROPPED_CARD])
 
 const LATEST_TURN = `SELECT id, type FROM events WHERE id = ${latestTurnOf('?')}`
+
+const DIRTY_TREE_CAUSE = /has uncommitted changes$/
 
 const LIVE_TASK_OF_CARD = `SELECT task_key, queue, state FROM tasks WHERE card_id = ? AND state IN ('${QUEUED}', '${LEASED}') ORDER BY id DESC LIMIT 1`
 
@@ -562,8 +561,9 @@ export class WindowRequests {
     if (requeues >= FAILURES_TO_STOP)
       return { done: false, why: `${key} was requeued ${requeues} times since ${BOARD_ALARM} ${alarm.id}, the D-104 limit` }
     const holds = this.tools.causeHolds({ taskKey: key, cardId: task.card_id })
-    if (holds !== null)
-      return { done: false, why: `the cause of ${BOARD_ALARM} ${alarm.id} holds: ${holds}` }
+    const keepsTheTree = payload.keep_tree === true && task.queue === 'launch' && holds !== null && DIRTY_TREE_CAUSE.test(holds)
+    if (holds !== null && !keepsTheTree)
+      return { done: false, why: `the cause of ${BOARD_ALARM} ${alarm.id} holds: ${holds}${task.queue === 'launch' && DIRTY_TREE_CAUSE.test(holds) ? `; a requeue with keep_tree: true launches the session on that tree as it stands, writing nothing in it` : ''}` }
     try {
       inTransaction(this.db, () => this.appendRequeue(ts, request, task))
     }
@@ -573,7 +573,7 @@ export class WindowRequests {
     const after = this.db.prepare('SELECT state FROM tasks WHERE task_key = ?').get(key) as { state: string }
     if (after.state !== QUEUED)
       return { done: false, why: `${key} stays ${after.state}: the bus rejected its ${TASK_REQUEUED}` }
-    return { done: true, why: `${key} queued again after ${BOARD_ALARM} ${alarm.id}, requeue ${requeues + 1} of ${FAILURES_TO_STOP}` }
+    return { done: true, why: `${key} queued again after ${BOARD_ALARM} ${alarm.id}, requeue ${requeues + 1} of ${FAILURES_TO_STOP}${keepsTheTree ? `; its session starts on the tree as it stands: ${holds}` : ''}` }
   }
 
   private holdFor(request: number, payload: Record<string, unknown>, type: typeof CARD_HELD | typeof CARD_RELEASED): Executed {
@@ -875,7 +875,7 @@ export function requestOf(argv: readonly string[]): Record<string, unknown> | nu
   }
   if (kind === 'requeue') {
     const task = flag(argv, '--task')
-    return task === undefined ? null : { kind, task_key: task }
+    return task === undefined ? null : { kind, task_key: task, ...(argv.includes('--keep-tree') ? { keep_tree: true } : {}) }
   }
   if (kind === 'mode')
     return isFactoryMode(flag(argv, '--set')) ? { kind, mode: flag(argv, '--set') } : null
