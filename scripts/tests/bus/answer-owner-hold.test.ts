@@ -9,6 +9,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { textSha } from '../../../src/card/text-sha.js'
+import { LIVE_SESSION_IN_THE_TREE } from '../../core/card-hold.js'
 import { appendEvent } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_HELD, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, CARD_WAITING, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, POLICY_DENIED, QUESTION_AGENT, QUESTION_OWNER, WITNESS_DOWNGRADE } from '../../core/events.js'
 import { leaseNext } from '../../core/lease.js'
@@ -160,14 +161,15 @@ describe('the answer node and a card held for the owner', () => {
     expect(run.published).toEqual([])
   })
 
-  it('a live session in the card tree holds it for the owner', async () => {
+  it('a live session in the card tree makes the answer wait for it, with no denial', async () => {
     const card = stoppedCard()
+    vi.spyOn(console, 'log').mockImplementation(() => {})
 
     const run = await answered(card, [TOUCHED], true)
 
-    expect(run.outcome).toMatchObject({ kind: 'denied', denial: { reason: 'held_for_owner' } })
+    expect(run.outcome).toMatchObject({ kind: 'waiting', reason: LIVE_SESSION_IN_THE_TREE })
     expect(run.spawned).toBe(0)
-    expect(deniedReasons(card.made)).toEqual(['held_for_owner'])
+    expect(deniedReasons(card.made)).toEqual([])
   })
 
   it('an answer commit with a path outside the card touches is refused', async () => {

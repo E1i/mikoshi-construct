@@ -22,7 +22,7 @@ import { bodyNotFoldedYet } from '../../core/card-bodies.js'
 import { defaultBusPath } from '../../core/db.js'
 import { messageOf } from '../../core/errors.js'
 import { CARD_ADMITTED, CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, DECISION_RECORDED, DECISIONS_IMPORTED, MERGE_DONE, POLICY_DENIED, PR_CLOSED, PR_OBSERVED, PR_OPENED, REDUCED, REVIEW_RECORDED } from '../../core/events.js'
-import { assertHeld, failTask, queuedCards, StaleLease } from '../../core/lease.js'
+import { assertHeld, failTask, queuedCards, StaleLease, supersedeLease } from '../../core/lease.js'
 import { Node, runNode, UNDERSTOOD_NOW } from '../../core/node.js'
 import { treeReportPath } from '../../core/places.js'
 import { answerCandidates } from '../../core/queue.js'
@@ -68,12 +68,30 @@ export interface NotMineDenial {
   detail: string
 }
 
+export interface StaleHeadDenial {
+  kind: 'technical'
+  reason: typeof STALE_ANSWER_HEAD
+  detail: string
+}
+
+export const STALE_ANSWER_HEAD = 'stale_head'
+
+const PULL_REQUEST_HEAD_PAST_THE_ANSWER = `
+  SELECT prs.head FROM tasks JOIN prs ON prs.pr = tasks.pr
+  WHERE tasks.task_key = ? AND tasks.queue = 'answer' AND tasks.head IS NOT NULL AND prs.head IS NOT NULL AND prs.head != tasks.head
+`
+
+function pullRequestHeadPastTheAnswer(db: DatabaseSync, taskKey: string): string | null {
+  const row = db.prepare(PULL_REQUEST_HEAD_PAST_THE_ANSWER).get(taskKey) as { head: string } | undefined
+  return row === undefined ? null : row.head
+}
+
 export const VERDICT_NOT_RECORDED = 'verdict_not_recorded'
 export const AMEND_NOT_FOLDED = 'amend_not_folded'
 
 const CHANGES_RECORDED_ON_HEAD = `SELECT 1 FROM events WHERE type = '${REVIEW_RECORDED}' AND card_id = ? AND head = ? AND json_extract(payload, '$.verdict') = 'changes' LIMIT 1`
 
-export type AnswerStep = AnswerOutcome | WaitStep | { kind: 'denied', taskKey: string, denial: NotMineDenial, next: AfterFailure } | { kind: 'faulted', taskKey: string, detail: string }
+export type AnswerStep = AnswerOutcome | WaitStep | { kind: 'denied', taskKey: string, denial: NotMineDenial | StaleHeadDenial, next: AfterFailure } | { kind: 'faulted', taskKey: string, detail: string }
 
 export interface AnswerNodeParts {
   db: DatabaseSync
@@ -154,6 +172,16 @@ export class AnswerNode extends Node<AnswerStep> {
     }
   }
 
+  private supersededOnAStaleHead(lease: Lease): AnswerStep | null {
+    const head = pullRequestHeadPastTheAnswer(this.db, lease.taskKey)
+    if (head === null)
+      return null
+    const denial: StaleHeadDenial = { kind: 'technical', reason: STALE_ANSWER_HEAD, detail: `pull request #${lease.pr} moved from ${lease.head} to ${head} before this answer ran; no session runs on the old head and no review round is spent` }
+    const ts = this.ts()
+    const event: BusEvent = { ts, type: POLICY_DENIED, actor: 'policy', cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${POLICY_DENIED}:${lease.taskKey}:${lease.leaseGen}`, payload: { command: 'answer', ...denial }, legacy: false }
+    return { kind: 'denied', taskKey: lease.taskKey, denial, next: supersedeLease(this.db, ts, lease, [event]) }
+  }
+
   private verdictNotRecordedYet(lease: Lease): boolean {
     return answerSourceOf(this.db, lease)?.kind === 'changes' && this.db.prepare(CHANGES_RECORDED_ON_HEAD).get(lease.cardId, lease.head) === undefined
   }
@@ -168,7 +196,7 @@ export class AnswerNode extends Node<AnswerStep> {
 
   protected async handle(lease: Lease): Promise<AnswerStep> {
     try {
-      return this.withdrawnIfNotMine(lease) ?? this.waitingForTheAmend(lease) ?? this.waitingForTheVerdict(lease) ?? await this.executor.answer(lease)
+      return this.withdrawnIfNotMine(lease) ?? this.supersededOnAStaleHead(lease) ?? this.waitingForTheAmend(lease) ?? this.waitingForTheVerdict(lease) ?? await this.executor.answer(lease)
     }
     catch (error) {
       const detail = messageOf(error)
