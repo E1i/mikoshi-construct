@@ -2,6 +2,7 @@ import type { Card } from '../../../src/card/grammar.js'
 import type { CheapForecast, CheapSession } from '../../../src/commands/cost/cheap.js'
 import type { SignalStyle } from '../../../src/ui/signal.js'
 import type { BusEvent } from '../../core/db.js'
+import type { EventPayload } from '../../core/events.js'
 import type { Decision } from '../../policy/decisions/decisions.js'
 import type { GhCall, GhCaller, GhRead } from '../../ports/gh.js'
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
@@ -583,7 +584,7 @@ function recordVerified(busPath: string, event: BusEvent): void {
   }
 }
 
-function writeClosing(deps: TaskCloseDeps, id: string, record: Record<string, unknown> & { pr?: number }, at: string): ClosingWrite {
+function writeClosing(deps: TaskCloseDeps, id: string, record: EventPayload<typeof CARD_VERIFIED> & { pr?: number }, at: string): ClosingWrite {
   const event: BusEvent = { ts: at, type: CARD_VERIFIED, actor: `worker:task-close:${deps.session ?? CLOSER_SESSION_BY_HAND}`, cardId: Number(id), pr: record.pr ?? null, head: null, dedupeKey: `${CARD_VERIFIED}:${id}:${at}`, payload: record, legacy: false }
   try {
     recordVerified(deps.busPath, event)

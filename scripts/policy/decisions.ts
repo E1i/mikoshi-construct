@@ -1,17 +1,16 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { EventPayload } from '../core/events.js'
 import type { Fold, StoredEvent } from '../core/stored.js'
 import type { DecisionRow } from './decisions/decisions.js'
 import { cardReleased, CLOSED_CARD, DROPPED_CARD, MERGED_CARD, STOPPED_CARD } from '../core/card-automaton.js'
 import { appendEvent, DECISION_ARCHIVED, DECISION_IN_FORCE, OPEN_WAIT } from '../core/db.js'
-import { CARD_STOPPED, DECISION_RECORDED, DECISIONS_IMPORTED, QUESTION_OWNER } from '../core/events.js'
+import { CARD_STOPPED, DECISION_EXPIRED, DECISION_RECORDED, DECISIONS_IMPORTED, DECISIONS_PROJECTED, QUESTION_OWNER } from '../core/events.js'
 import { OWNER } from '../core/inbox.js'
 import { NETWATCH } from '../core/observations.js'
 import { payloadOf, reject, Rejection, STORED_COLUMNS } from '../core/stored.js'
 import { termOf } from './decisions/decisions.js'
 
 export const OWNER_DECISIONS_FILE = 'owner-decisions.md'
-export const DECISION_EXPIRED = 'decision.expired'
-export const DECISIONS_PROJECTED = 'decisions.projected'
 
 export interface InForceDecision {
   decisionId: number
@@ -237,7 +236,7 @@ export function expireDecisions(db: DatabaseSync, now: Date): void {
     const until = row.until ?? termOf(row.text).until
     if (until !== null && Date.parse(until) <= now.getTime()) {
       const decisionId = Number(row.decision_id)
-      appendEvent(db, { ts: now.toISOString(), type: DECISION_EXPIRED, actor: NETWATCH, cardId: null, pr: null, head: null, dedupeKey: `${DECISION_EXPIRED}:${decisionId}:${until}`, payload: { decision_id: decisionId, until }, legacy: false })
+      appendEvent(db, { ts: now.toISOString(), type: DECISION_EXPIRED, actor: NETWATCH, cardId: null, pr: null, head: null, dedupeKey: `${DECISION_EXPIRED}:${decisionId}:${until}`, payload: { decision_id: decisionId, until } satisfies EventPayload<typeof DECISION_EXPIRED>, legacy: false })
     }
   }
 }

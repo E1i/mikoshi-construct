@@ -1,5 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { BusEvent } from '../core/db.js'
+import type { EventPayload } from '../core/events.js'
 import type { PreviousObservation } from '../core/observations.js'
 import type { GitHub } from './github.js'
 import { realpathSync } from 'node:fs'
@@ -7,6 +8,7 @@ import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { appendEvent, defaultBusPath, inTransaction, openBus } from '../core/db.js'
+import { BUS_PULSE, MAIN_ADVANCED, NETWATCH_SKIPPED } from '../core/events.js'
 import { NETWATCH, observationsOf, reopeningOf } from '../core/observations.js'
 import { RUN_SCRIPT } from '../supervisor/bg.js'
 import { recordProcessHeartbeat } from '../supervisor/heartbeat.js'
@@ -36,7 +38,7 @@ const KNOWN_OPEN_PRS = `
   ORDER BY pr
 `
 
-const LAST_MAIN = `SELECT payload FROM events WHERE type = 'main.advanced' ORDER BY id DESC LIMIT 1`
+const LAST_MAIN = `SELECT payload FROM events WHERE type = '${MAIN_ADVANCED}' ORDER BY id DESC LIMIT 1`
 
 const LAST_OBSERVED_OR_CLOSED = `SELECT id, dedupe_key, payload FROM events WHERE type IN ('pr.observed', 'pr.closed') AND pr = ? ORDER BY id DESC LIMIT 1`
 
@@ -57,7 +59,7 @@ export function lastMain(db: DatabaseSync): string | null {
   return typeof sha === 'string' ? sha : null
 }
 
-function record(ts: string, type: 'netwatch.tick' | 'netwatch.skipped', payload: object): BusEvent {
+function record<T extends typeof BUS_PULSE | typeof NETWATCH_SKIPPED>(ts: string, type: T, payload: EventPayload<T>): BusEvent {
   return { ts, type, actor: NETWATCH, cardId: null, pr: null, head: null, dedupeKey: `${type}:${ts}`, payload, legacy: false }
 }
 
@@ -97,7 +99,7 @@ export class NetWatch {
           if (appendEvent(this.db, event))
             poll.written += 1
         }
-        appendEvent(this.db, record(ts, 'netwatch.tick', { reason, gap_s: gapSeconds, calls: poll.calls, rate_remaining: poll.remaining, written: poll.written, unsettled: poll.unsettled }))
+        appendEvent(this.db, record(ts, BUS_PULSE, { reason, gap_s: gapSeconds, calls: poll.calls, rate_remaining: poll.remaining, written: poll.written, unsettled: poll.unsettled }))
       })
       return poll
     }
@@ -111,7 +113,7 @@ export class NetWatch {
   }
 
   private skipped(ts: string, poll: Extract<Poll, { kind: 'skipped' }>): Poll {
-    appendEvent(this.db, record(ts, 'netwatch.skipped', { reason: poll.reason, cause: poll.cause, calls: poll.calls, until: poll.until ?? null, detail: poll.detail ?? null }))
+    appendEvent(this.db, record(ts, NETWATCH_SKIPPED, { reason: poll.reason, cause: poll.cause, calls: poll.calls, until: poll.until ?? null, detail: poll.detail ?? null }))
     return poll
   }
 }

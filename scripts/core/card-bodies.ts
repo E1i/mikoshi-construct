@@ -106,14 +106,14 @@ function versioned(db: DatabaseSync, event: CardEvent): CardEvent {
   if (event.type !== CARD_ADMITTED || typeof event.payload.text !== 'string')
     return event
   const previous = db.prepare(PREVIOUS_ADMISSION).get(event.cardId) as { id: number, payload: string } | undefined
-  return { ...event, payload: { ...event.payload, [CARD_VERSION_KEY]: CARD_VERSION, prevAdmissionId: previous?.id ?? null, prevTextSha: previous === undefined ? null : recordedTextSha(previous.payload) } }
+  return { ...event, type: CARD_ADMITTED, payload: { ...event.payload, [CARD_VERSION_KEY]: CARD_VERSION, prevAdmissionId: previous?.id ?? null, prevTextSha: previous === undefined ? null : recordedTextSha(previous.payload) } }
 }
 
 export function laid(db: DatabaseSync, event: CardEvent): CardEvent {
   if (event.type !== CARD_ADMITTED)
     return event
   const kept = event.payload.source === AMEND_SOURCE ? laneOfCard(db, event.cardId) : null
-  return { ...event, payload: { ...event.payload, lane: kept ?? admittedLane(db, event.cardId, event.payload.depends) } }
+  return { ...event, type: CARD_ADMITTED, payload: { ...event.payload, lane: kept ?? admittedLane(db, event.cardId, event.payload.depends) } }
 }
 
 export function appendCardEvent(db: DatabaseSync, actor: string, unversioned: CardEvent): boolean {

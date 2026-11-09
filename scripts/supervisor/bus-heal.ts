@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { EventPayload } from '../core/events.js'
 import type { BgResult, DetachedLaunch } from './bg.js'
 import { Buffer } from 'node:buffer'
 import { createHash } from 'node:crypto'
@@ -332,7 +333,7 @@ function repair(live: DatabaseSync, control: EventsControl, reduceBus: (db: Data
   return ['REINDEX events', 'VACUUM', 'integrity_check ok', `${control.count} events in place through ${control.maxId}`, 'bus:reduce', 'watermarks at max(id)']
 }
 
-function recordHealed(live: DatabaseSync, at: string, payload: Record<string, unknown>, reduceBus: (db: DatabaseSync) => void): void {
+function recordHealed(live: DatabaseSync, at: string, payload: EventPayload<typeof BUS_HEALED>, reduceBus: (db: DatabaseSync) => void): void {
   appendEvent(live, { ts: at, type: BUS_HEALED, actor: HEAL_ACTOR, cardId: null, pr: null, head: null, dedupeKey: `${BUS_HEALED}:${at}`, payload, legacy: false })
   reduceBus(live)
 }
