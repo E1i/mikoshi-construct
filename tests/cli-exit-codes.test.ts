@@ -159,6 +159,18 @@ describe.concurrent('every command exits with the code it exits with today, as a
     expect(await run(world(), 'graph')).toBe(0)
   })
 
+  it('atlas: written 0', async () => {
+    const w = await initialised()
+    expect(await run(w, 'atlas', '--out', path.join(w.home, 'atlas.html'))).toBe(0)
+  })
+
+  it('say: said 0, no words 2', async () => {
+    const w = world()
+    const say = async (...words: string[]): Promise<number | null> => (await runCli(['say', ...words], w.home, { CONSTRUCT_BUS_DB: path.join(w.home, 'no-bus.db') })).status
+    expect(await say('the', 'owner', 'words')).toBe(0)
+    expect(await say()).toBe(2)
+  })
+
   it('soulkill and its aliases: 0, with and without --json', async () => {
     const w = (await initialised())
     for (const command of ['soulkill', 'inspect', 'capture'])

@@ -1,12 +1,13 @@
 import type { ArgsDef, CommandDef } from 'citty'
-import type { JsonKeys, ObservedCli } from './json-samples.js'
+import type { JsonForms, JsonKeys, ObservedCli } from './json-samples.js'
 import type { SurfaceReading, Unbaselined } from './semantic-diff.js'
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawnSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import { ATLAS_EXIT } from '../../src/atlas/index.js'
 import { ATTACH_EXIT, SETTINGS_FILE } from '../../src/commands/attach/index.js'
 import { BOARD_EXIT } from '../../src/commands/board/index.js'
 import { COST_EXIT } from '../../src/commands/cost/index.js'
@@ -22,11 +23,11 @@ import { FAILED_EXIT } from '../../src/failure.js'
 import { DISCOVERY_MARKERS } from '../../src/manifest.js'
 import { blockMarkers, discoveryTags } from '../../src/materialize/strategies.js'
 import { PRESET_LIST } from '../../src/presets/index.js'
-import { main } from '../../src/program.js'
+import { main, SAY_EXIT } from '../../src/program.js'
 import { contourSchemaNames, readContourSchema, schemaId } from './contours.js'
 import { commandFromHelp, listsCommands, usageCommands } from './help.js'
-import { cliArgs, cliEnv, failureLine, HEAD_CLI, jsonKeys, tagCli, tagJsonKeys } from './json-samples.js'
-import { unbaselined } from './semantic-diff.js'
+import { cliArgs, cliEnv, failureLine, HEAD_CLI, headJson, tagCli, tagJsonKeys } from './json-samples.js'
+import { isUnbaselined, unbaselined } from './semantic-diff.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../..')
 const ATTACH_SAMPLE = path.join(REPO_ROOT, 'tests/fixtures/existing-monorepo')
@@ -34,6 +35,7 @@ const GIT_EXCLUDE = '.git/info/exclude'
 const EXITS_NOT_OBSERVABLE = 'exit codes are not observable from the tag\'s output'
 const MARKERS_NOT_OBSERVABLE = 'block and discovery markers are read from the source\'s exports, not from the tag\'s output'
 const CONTOURS_NOT_OBSERVABLE = 'contour schemas are read from contract/contours/, not from the tag\'s output'
+const JSON_FORMS_NOT_OBSERVABLE = 'json forms are the flags of the head\'s samples, not an output of the tag'
 const OUTSIDE_NOT_OBSERVABLE = 'what lies outside the contract is a recorded decision, not an output of the tag'
 const AVAILABLE_PRESETS = 'import(\'./src/presets/index.ts\').then(m => console.log(JSON.stringify(m.PRESET_LIST.filter(p => p.available !== false).map(p => p.id))))'
 const MANIFEST_FILE = 'package.json'
@@ -41,6 +43,9 @@ const CONTRIBUTING_FILE = 'CONTRIBUTING.md'
 const SCRIPTS_HEADING = '## Scripts'
 const SCRIPT_ROW = /^\| `pnpm (?:run )?([\w:-]+)[ `]/
 const IN_THE_HARNESS = 'In the harness.'
+const UNDECLARED_FLAG_PROBE = '--undeclared-flag-probe'
+const PROBE_TIMEOUT_MS = 60_000
+const FLAGS_OF_EVERY_FORM = new Set(['json', 'plain', 'johnny'])
 
 export const SURFACE_VERSION = 3
 
@@ -66,6 +71,8 @@ export interface Surface {
   commands: Record<string, CommandSurface>
   exits: Record<string, Record<string, number>>
   jsonKeys: JsonKeys
+  jsonForms: JsonForms
+  unknownFlag: Record<string, number>
   formats: { manifestVersion: number, modelVersion: number, recordVersion: number }
   paths: { init: Record<string, string[]>, attach: { writes: string[], edits: string[] } }
   markers: { block: string[][], discover: { tags: string[], markers: string[] } }
@@ -188,6 +195,8 @@ function exits(): Record<string, Record<string, number>> {
     'intake': withFailed(INTAKE_EXIT),
     'mutate apply': withFailed(MUTATE_APPLY_EXIT),
     'mutate judge': withFailed(MUTATE_JUDGE_EXIT),
+    'atlas': withFailed(ATLAS_EXIT),
+    'say': withFailed(SAY_EXIT),
   }
 }
 
@@ -271,13 +280,79 @@ export function headCommands(): Record<string, CommandSurface> {
   return commandsOf(main)
 }
 
+function ownCommands(commands: Record<string, CommandSurface>): [string, Record<string, Flag>][] {
+  return Object.entries(commands).flatMap(([name, command]) => 'flags' in command ? [[name, command.flags] as [string, Record<string, Flag>]] : [])
+}
+
+export function refusalCode(command: string, status: number | null): number {
+  if (status == null)
+    throw new Error(`${command} ${UNDECLARED_FLAG_PROBE} did not exit within ${PROBE_TIMEOUT_MS} ms`)
+  return status
+}
+
+function refusalOf(cli: ObservedCli, command: string, scratch: string): number {
+  const result = spawnSync(process.execPath, cliArgs(cli, [...command.split(' '), UNDECLARED_FLAG_PROBE]), { cwd: scratch, env: cliEnv(scratch), stdio: 'ignore', timeout: PROBE_TIMEOUT_MS })
+  return refusalCode(command, result.status)
+}
+
+export function unknownFlagRefusals(cli: ObservedCli, commands: Record<string, CommandSurface>): Record<string, number> {
+  const scratch = realpathSync(mkdtempSync(path.join(tmpdir(), 'construct-refusal-')))
+  try {
+    return Object.fromEntries(ownCommands(commands).map(([name]) => [name, refusalOf(cli, name, scratch)]))
+  }
+  finally {
+    rmSync(scratch, { recursive: true, force: true })
+  }
+}
+
+function kebab(name: string): string {
+  return name.replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase()
+}
+
+function formsOf(command: string, forms: JsonForms): Set<string> {
+  return new Set(Object.entries(forms).filter(([form]) => form === command || form.startsWith(`${command} --`)).flatMap(([, flags]) => flags))
+}
+
+function undeclaredFlags(name: string, flags: Record<string, Flag>, recorded: CommandSurface | undefined): string[] {
+  if (recorded == null)
+    return [`${name}: the command is not declared`]
+  if ('aliasOf' in recorded)
+    return [`${name}: declared as an alias of ${recorded.aliasOf}, the command line has it as a command`]
+  return Object.entries(flags).flatMap(([flag, declared]) => recorded.flags[flag]?.type === declared.type ? [] : [`${name} --${kebab(flag)}: the flag is not declared as ${declared.type}`])
+}
+
+function undeclaredForms(name: string, flags: Record<string, Flag>, forms: JsonForms): string[] {
+  if (!('json' in flags))
+    return []
+  const declared = formsOf(name, forms)
+  return Object.entries(flags)
+    .filter(([flag, declaredFlag]) => declaredFlag.type === 'boolean' && !FLAGS_OF_EVERY_FORM.has(flag) && !declared.has(`--${kebab(flag)}`))
+    .map(([flag]) => `${name} --${kebab(flag)} --json: the json form is not declared`)
+}
+
+export function undeclared(recorded: Pick<Surface, 'commands' | 'exits' | 'jsonForms' | 'jsonKeys' | 'unknownFlag'>, head: Record<string, CommandSurface>, refusal = FAILED_EXIT): string[] {
+  const aliases = Object.entries(head).flatMap(([name, command]) => 'aliasOf' in command && !(name in recorded.commands) ? [`${name}: the alias is not declared`] : [])
+  const own = ownCommands(head).flatMap(([name, flags]) => [
+    ...undeclaredFlags(name, flags, recorded.commands[name]),
+    ...undeclaredForms(name, flags, recorded.jsonForms),
+    ...(recorded.exits[name] == null ? [`${name}: the exit codes are not declared`] : []),
+    ...(recorded.unknownFlag[name] === refusal ? [] : [`${name} ${UNDECLARED_FLAG_PROBE}: the refusal of an unknown flag is not declared as exit ${refusal}`]),
+  ])
+  const unsampled = Object.keys(recorded.jsonForms).filter(form => recorded.jsonKeys[form] == null).map(form => `${form}: the json form has no recorded shape`)
+  return [...aliases, ...own, ...unsampled]
+}
+
 export function generateSurface(): Surface {
   const runs = observedRuns(HEAD_CLI, PRESET_LIST.filter(candidate => candidate.available !== false).map(preset => preset.id))
+  const commands = headCommands()
+  const json = headJson()
   return {
     surfaceVersion: SURFACE_VERSION,
-    commands: headCommands(),
+    commands,
     exits: exits(),
-    jsonKeys: jsonKeys(),
+    jsonKeys: json.keys,
+    jsonForms: json.forms,
+    unknownFlag: unknownFlagRefusals(HEAD_CLI, commands),
     formats: runs.formats,
     paths: runs.paths,
     markers: markers(),
@@ -328,10 +403,13 @@ function observedOrUnbaselined<T>(what: string, observe: () => T): T | Unbaselin
 export function tagSurfaceReading(worktree: string): SurfaceReading {
   const cli = tagCli(worktree)
   const runs = observedOrUnbaselined('init and attach', () => observedRuns(cli, availablePresets(cli)))
+  const commands = observedOrUnbaselined('--help', () => commandsFromHelp(cli))
   return {
-    commands: observedOrUnbaselined('--help', () => commandsFromHelp(cli)),
+    commands,
     exits: unbaselined(EXITS_NOT_OBSERVABLE),
     jsonKeys: tagJsonKeys(cli),
+    jsonForms: unbaselined(JSON_FORMS_NOT_OBSERVABLE),
+    unknownFlag: isUnbaselined(commands) ? commands : observedOrUnbaselined('the refusal of an unknown flag', () => unknownFlagRefusals(cli, commands)),
     formats: 'formats' in runs ? runs.formats : runs,
     paths: 'paths' in runs ? runs.paths : runs,
     markers: unbaselined(MARKERS_NOT_OBSERVABLE),
