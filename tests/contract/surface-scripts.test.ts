@@ -99,10 +99,12 @@ describe('the scripts section of contract/surface.json declares what every packa
     })
   })
 
-  it('fails on a flag a script accepts that the section does not declare', () => {
+  it('a flag or json form a package.json script accepts that the scripts section of contract/surface.json does not declare fails the check', () => {
     const recorded = scriptSurfaces(tree({ loose: LOOSE_ENTRY }))
     const head = scriptSurfaces(tree({ loose: WITH_UNDECLARED_FLAG }))
     expect(undeclaredScripts(recorded, head)).toEqual(['pnpm loose --since: the flag is not declared'])
+    const withoutJsonForm = { ...recorded, loose: declared(recorded.loose, { json: false }) }
+    expect(undeclaredScripts(withoutJsonForm, recorded)).toEqual(['pnpm loose --json: the json form is not declared'])
   })
 
   it('fails on a json form, an exit code or a refusal the section does not declare', () => {
