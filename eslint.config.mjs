@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process'
 import path from 'node:path'
 import antfu from '@antfu/eslint-config'
 import INTERNAL_MODULES from './internal-modules.json' with { type: 'json' }
+import REAL_TIME_WAITS_EXCEPTED from './scripts/quality/real-time-waits-excepted.json' with { type: 'json' }
 
 const ALLOWED_INTERNAL_IMPORTS = {
   'src/atlas': ['detect', 'manifest', 'model', 'ui'],
@@ -205,6 +206,22 @@ const theSurfaceTestNeverWrites = {
   },
 }
 
+const A_TEST_WAITS_ON_AN_EVENT = 'A test never waits on real time: await the event or the promise, and take time and timers from an injected clock (clock.setTimeout, clock.now) — setTimeout, setInterval, sleep and node:timers are a wait the scheduler decides'
+
+const NO_REAL_TIME_WAITS = [
+  { selector: 'CallExpression[callee.name=/^(setTimeout|setInterval|sleep)$/]', message: A_TEST_WAITS_ON_AN_EVENT },
+  { selector: 'CallExpression[callee.object.name=/^(globalThis|global|window)$/][callee.property.name=/^(setTimeout|setInterval)$/]', message: A_TEST_WAITS_ON_AN_EVENT },
+  { selector: 'ImportDeclaration[source.value=/^(node:)?timers(.promises)?$/]', message: A_TEST_WAITS_ON_AN_EVENT },
+]
+
+const aTestWaitsOnAnEvent = {
+  files: ['scripts/tests/**', 'tests/**'],
+  ignores: REAL_TIME_WAITS_EXCEPTED,
+  rules: {
+    'no-restricted-syntax': ['error', ...ANTFU_RESTRICTED_SYNTAX, ...NO_REAL_TIME_WAITS],
+  },
+}
+
 export default antfu(
   {
     isInEditor: false,
@@ -224,4 +241,5 @@ export default antfu(
   theRecordItselfMayReadBothHalves,
   theSurfaceTestNeverWrites,
   aHookReadsStdinToItsEnd,
+  aTestWaitsOnAnEvent,
 )
