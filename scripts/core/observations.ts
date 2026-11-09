@@ -2,7 +2,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { ClosedPr, MainHead, OpenPr, Snapshot } from '../ports/snapshot.js'
 import type { BusEvent } from './db.js'
 import { createHash } from 'node:crypto'
-import { PR_CLOSED, PR_OBSERVED } from './events.js'
+import { CI_RERUN_REQUESTED, PR_CLOSED, PR_OBSERVED } from './events.js'
 
 export const NETWATCH = 'netwatch'
 
@@ -48,6 +48,7 @@ export function prObserved(ts: string, open: OpenPr, previous: PreviousObservati
     ...(open.branch === null ? {} : { branch: open.branch }),
     mergeable: open.mergeable,
     ...open.ciFields,
+    ...((open.cancelledChecks ?? []).length === 0 ? {} : { cancelled_checks: open.cancelledChecks }),
     ...(open.verdictOnHead === null ? {} : { verdict_on_head: open.verdictOnHead }),
     auto_merge: open.autoMerge,
     draft: open.draft,
@@ -80,4 +81,45 @@ export function observationsOf(ts: string, snapshot: Snapshot, previousOf: Previ
     ...snapshot.closed.map(closed => prClosed(ts, closed, reopening(closed.pr))),
     ...(snapshot.main === null ? [] : [mainAdvanced(ts, snapshot.main)]),
   ]
+}
+
+const LATEST_OBSERVATION_OF_THE_HEAD = `(SELECT max(seen.id) FROM events AS seen WHERE seen.type = '${PR_OBSERVED}' AND seen.pr = prs.pr AND seen.head = prs.head)`
+
+const RED_ONLY_FROM_CANCELLED_CHECKS = `EXISTS (
+    SELECT 1 FROM events AS observed WHERE observed.id = ${LATEST_OBSERVATION_OF_THE_HEAD}
+      AND json_extract(observed.payload, '$.ci') = 'red'
+      AND json_array_length(observed.payload, '$.failed_checks') > 0
+      AND json_array_length(observed.payload, '$.cancelled_checks') = json_array_length(observed.payload, '$.failed_checks')
+  )`
+
+const ITS_RERUN_SPENT = `EXISTS (
+    SELECT 1 FROM events AS rerun WHERE rerun.type = '${CI_RERUN_REQUESTED}' AND rerun.legacy = 0 AND rerun.pr = prs.pr AND rerun.head = prs.head
+  )`
+
+export const A_RERUN_DUE = `(${RED_ONLY_FROM_CANCELLED_CHECKS} AND NOT ${ITS_RERUN_SPENT})`
+
+const CANCELLED_ONLY_TO_RERUN = `
+  SELECT pr, card_id, head FROM prs
+  WHERE state = 'open' AND ci = 'red' AND card_id IS NOT NULL AND head IS NOT NULL AND ${A_RERUN_DUE}
+  ORDER BY pr
+`
+
+export interface HeadARerunIsDueOn {
+  pr: number
+  card_id: number
+  head: string
+}
+
+interface HeadOfAPr {
+  pr: number | null
+  head: string | null
+}
+
+export function rerunDueOn(db: DatabaseSync, pr: number, head: string): boolean {
+  return db.prepare(`SELECT 1 FROM prs WHERE pr = ? AND head = ? AND ci = 'red' AND ${A_RERUN_DUE}`).get(pr, head) !== undefined
+}
+
+export function withTheHeadsARerunIsDueOn<Row extends HeadOfAPr>(db: DatabaseSync, taken: Row[]): (Row | HeadARerunIsDueOn)[] {
+  const due = db.prepare(CANCELLED_ONLY_TO_RERUN).all() as unknown as HeadARerunIsDueOn[]
+  return [...taken, ...due.filter(row => !taken.some(each => each.pr === row.pr && each.head === row.head))]
 }
