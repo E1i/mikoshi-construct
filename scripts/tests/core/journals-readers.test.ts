@@ -4,10 +4,11 @@ import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { readBoard } from '../../../src/commands/board/index.js'
 import { costReport } from '../../../src/commands/cost/index.js'
-import { LEDGER_EVENT, LEDGER_FILE, readLedger } from '../../../src/commands/cost/ledger.js'
+import { LEDGER_FILE, readLedger } from '../../../src/commands/cost/ledger.js'
 import { isolatedCostRoots } from '../../../tests/cost-roots.js'
 import { BUS_DB_VARIABLE, openBus } from '../../core/db.js'
-import { importRuns, LADDER_RUN, runEventOf, RUNS_JOURNAL } from '../../intake/import.js'
+import { LADDER_RUN } from '../../core/events.js'
+import { importRuns, runEventOf, RUNS_JOURNAL } from '../../intake/import.js'
 
 const NOW = new Date('2026-11-09T10:00:00.000Z')
 
@@ -99,8 +100,7 @@ describe('the frozen runs.jsonl moves into the bus', () => {
     }
   })
 
-  it('writes the event type and reads the journal the ledger reader names', () => {
-    expect(LADDER_RUN).toBe(LEDGER_EVENT)
+  it('reads the journal the ledger reader names', () => {
     expect(RUNS_JOURNAL).toBe(LEDGER_FILE)
   })
 

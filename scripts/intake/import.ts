@@ -8,12 +8,12 @@ import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { appendEvent, defaultBusPath, inTransaction, openBus } from '../core/db.js'
+import { declaredPart, LADDER_RUN } from '../core/events.js'
 import { defaultHandoffDir } from '../core/handoff-dir.js'
 import { cardIdOf, isFullSha, prOf } from '../core/identifiers.js'
 import { admitFromJournal, parkingLane } from './admissions.js'
 
 export const PREFIX = '[bus:import] '
-export const LADDER_RUN = 'ladder.run'
 export const RUNS_JOURNAL = '.construct/runs.jsonl'
 
 export interface ImportCount {
@@ -91,7 +91,7 @@ export function runEventOf(line: string, lineNumber: number): BusEvent | null {
     pr: null,
     head: null,
     dedupeKey: `${LADDER_RUN}:${lineNumber}:${createHash('sha256').update(line).digest('hex')}`,
-    payload: line,
+    payload: declaredPart(LADDER_RUN, entry),
     legacy: true,
   }
 }

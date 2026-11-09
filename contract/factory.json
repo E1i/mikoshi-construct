@@ -493,6 +493,27 @@
           "to"
         ]
       },
+      "ladder.run": {
+        "complete": true,
+        "keys": [
+          "agents",
+          "agreedSha256",
+          "argsSha256",
+          "at",
+          "attempts",
+          "cause",
+          "effort",
+          "run",
+          "rung",
+          "seconds",
+          "sketch",
+          "status",
+          "task",
+          "tokens",
+          "tokensSource",
+          "toolUses"
+        ]
+      },
       "lane.assigned": {
         "complete": true,
         "keys": [
