@@ -1,10 +1,12 @@
 import type { CommandSurface, Surface } from '../../scripts/contract/surface.js'
-import { readFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { headCommands, undeclared } from '../../scripts/contract/surface.js'
+import { requiredChange } from '../../scripts/contract/semantic-diff.js'
+import { headCommands, refusalCode, undeclared, unknownFlagRefusals } from '../../scripts/contract/surface.js'
 import { FAILED_EXIT } from '../../src/failure.js'
-import { fixtureSurface } from './surface-fixture.js'
+import { fixtureSurface, reading } from './surface-fixture.js'
 
 const RECORDED = path.resolve(import.meta.dirname, '../../contract/surface.json')
 
@@ -38,6 +40,13 @@ describe('contract/surface.json declares every flag, json form and unknown-flag 
     expect(surface.jsonForms['cost --expect']).toContain('--expect')
     expect(Object.keys(surface.jsonKeys['doctor --factory'] ?? {})).not.toEqual([])
     expect(Object.keys(surface.jsonKeys['cost --expect'] ?? {})).not.toEqual([])
+  })
+
+  it('records a schemaVersion on every json form, cost --expect included', () => {
+    const surface = recorded()
+    const states = Object.entries(surface.jsonKeys).flatMap(([form, byState]) => Object.entries(byState).map(([state, sample]) => ({ form, state, sample })))
+    expect(states.filter(({ sample }) => sample.root === 'object' && !sample.keys.includes('schemaVersion')).map(({ form, state }) => `${form} ${state}`)).toEqual([])
+    expect(surface.jsonKeys['cost --expect']?.forecast?.keys).toContain('schemaVersion')
   })
 
   it('a flag or json form a command accepts that contract/surface.json does not declare fails the check', () => {
@@ -114,5 +123,38 @@ describe('contract/surface.json declares every flag, json form and unknown-flag 
   it('fails on a command whose refusal of an unknown flag is not recorded as the failed exit', () => {
     const surface = fixtureSurface()
     expect(undeclared({ ...surface, unknownFlag: { ...surface.unknownFlag, init: 0 } }, surface.commands)).toEqual(['init --undeclared-flag-probe: the refusal of an unknown flag is not declared as exit 1'])
+  })
+
+  it('a probe that never exits is a failure of the generator, not a recorded refusal', () => {
+    expect(() => refusalCode('doctor', null)).toThrow('doctor --undeclared-flag-probe did not exit within 60000 ms')
+    expect(refusalCode('doctor', 1)).toBe(1)
+    expect(refusalCode('doctor', 0)).toBe(0)
+  })
+
+  it('probes every command but an alias with the unknown flag last, and records the code it exits with', () => {
+    const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'construct-probe-')))
+    try {
+      mkdirSync(path.join(root, 'node_modules/tsx/dist'), { recursive: true })
+      writeFileSync(path.join(root, 'node_modules/tsx/dist/cli.mjs'), 'const args = process.argv.slice(3)\nprocess.exit(args.at(-1) === \'--undeclared-flag-probe\' ? args.length : 0)\n')
+      const commands: Record<string, CommandSurface> = { 'doctor': { flags: {} }, 'inspect': { aliasOf: 'doctor' }, 'mutate apply': { flags: {} } }
+      expect(unknownFlagRefusals({ root, holdsHeadInvariants: false }, commands)).toEqual({ 'doctor': 2, 'mutate apply': 3 })
+    }
+    finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('a json form or unknown-flag refusal removed is breaking, one added is additive', () => {
+    const base = reading(fixtureSurface())
+    expect(requiredChange(base, { ...base, jsonForms: {} })).toEqual({ level: 'breaking', reasons: ['jsonForms.doctor removed'] })
+    expect(requiredChange(base, { ...base, jsonForms: { doctor: ['--json', '--quiet'] } })).toEqual({ level: 'additive', reasons: ['jsonForms.doctor: --quiet added'] })
+    expect(requiredChange(base, { ...base, unknownFlag: { doctor: 0, init: 1 } })).toEqual({ level: 'breaking', reasons: ['unknownFlag.doctor: 1 → 0'] })
+    expect(requiredChange(base, { ...base, unknownFlag: { doctor: 1, init: 1, sync: 1 } })).toEqual({ level: 'additive', reasons: ['unknownFlag.sync added'] })
+  })
+
+  it('a base recorded before json forms and unknown-flag refusals were declared reads them as empty, so declaring them is additive', () => {
+    const head = reading(fixtureSurface())
+    const { jsonForms: _, unknownFlag: __, ...older } = head
+    expect(requiredChange(older as typeof head, head)).toEqual({ level: 'additive', reasons: ['jsonForms.doctor added', 'unknownFlag.doctor added', 'unknownFlag.init added'] })
   })
 })

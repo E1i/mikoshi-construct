@@ -266,8 +266,6 @@ const SAMPLES: Sample[] = [
 
 const EXIT_CODE_LEFT_UNSET = 0
 
-export const FORMS_WITHOUT_SCHEMA_VERSION: readonly string[] = ['cost --expect']
-
 export const EXIT_TABLES: Record<string, Record<string, number>> = {
   'doctor': { ...DOCTOR_EXIT, attached: DOCTOR_EXIT.ok },
   'doctor --factory': { notOk: DOCTOR_EXIT.notOk },
@@ -317,8 +315,6 @@ function heldHeadInvariants(sample: Sample, status: number | null, parsed: unkno
   const expected = EXIT_TABLES[sample.command]?.[sample.state]
   if (status !== expected)
     throw new Error(`${sample.command} ${sample.state}: the sample exited ${status}, the state exits ${expected}`)
-  if (FORMS_WITHOUT_SCHEMA_VERSION.includes(sample.command))
-    return
   if (parsed == null || typeof parsed !== 'object' || Array.isArray(parsed) || !('schemaVersion' in parsed))
     throw new Error(`${sample.command} ${sample.state}: the --json sample carries no top-level schemaVersion`)
 }

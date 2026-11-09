@@ -780,6 +780,7 @@
           "head.reason",
           "line",
           "notes",
+          "schemaVersion",
           "sources",
           "steps"
         ],

@@ -27,7 +27,7 @@ import { main, SAY_EXIT } from '../../src/program.js'
 import { contourSchemaNames, readContourSchema, schemaId } from './contours.js'
 import { commandFromHelp, listsCommands, usageCommands } from './help.js'
 import { cliArgs, cliEnv, failureLine, HEAD_CLI, headJson, tagCli, tagJsonKeys } from './json-samples.js'
-import { unbaselined } from './semantic-diff.js'
+import { isUnbaselined, unbaselined } from './semantic-diff.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../..')
 const ATTACH_SAMPLE = path.join(REPO_ROOT, 'tests/fixtures/existing-monorepo')
@@ -35,6 +35,7 @@ const GIT_EXCLUDE = '.git/info/exclude'
 const EXITS_NOT_OBSERVABLE = 'exit codes are not observable from the tag\'s output'
 const MARKERS_NOT_OBSERVABLE = 'block and discovery markers are read from the source\'s exports, not from the tag\'s output'
 const CONTOURS_NOT_OBSERVABLE = 'contour schemas are read from contract/contours/, not from the tag\'s output'
+const JSON_FORMS_NOT_OBSERVABLE = 'json forms are the flags of the head\'s samples, not an output of the tag'
 const OUTSIDE_NOT_OBSERVABLE = 'what lies outside the contract is a recorded decision, not an output of the tag'
 const AVAILABLE_PRESETS = 'import(\'./src/presets/index.ts\').then(m => console.log(JSON.stringify(m.PRESET_LIST.filter(p => p.available !== false).map(p => p.id))))'
 const MANIFEST_FILE = 'package.json'
@@ -283,14 +284,18 @@ function ownCommands(commands: Record<string, CommandSurface>): [string, Record<
   return Object.entries(commands).flatMap(([name, command]) => 'flags' in command ? [[name, command.flags] as [string, Record<string, Flag>]] : [])
 }
 
-function refusalOf(cli: ObservedCli, command: string, scratch: string): number {
-  const result = spawnSync(process.execPath, cliArgs(cli, [...command.split(' '), UNDECLARED_FLAG_PROBE]), { cwd: scratch, env: cliEnv(scratch), stdio: 'ignore', timeout: PROBE_TIMEOUT_MS })
-  if (result.status == null)
+export function refusalCode(command: string, status: number | null): number {
+  if (status == null)
     throw new Error(`${command} ${UNDECLARED_FLAG_PROBE} did not exit within ${PROBE_TIMEOUT_MS} ms`)
-  return result.status
+  return status
 }
 
-function unknownFlagRefusals(cli: ObservedCli, commands: Record<string, CommandSurface>): Record<string, number> {
+function refusalOf(cli: ObservedCli, command: string, scratch: string): number {
+  const result = spawnSync(process.execPath, cliArgs(cli, [...command.split(' '), UNDECLARED_FLAG_PROBE]), { cwd: scratch, env: cliEnv(scratch), stdio: 'ignore', timeout: PROBE_TIMEOUT_MS })
+  return refusalCode(command, result.status)
+}
+
+export function unknownFlagRefusals(cli: ObservedCli, commands: Record<string, CommandSurface>): Record<string, number> {
   const scratch = realpathSync(mkdtempSync(path.join(tmpdir(), 'construct-refusal-')))
   try {
     return Object.fromEntries(ownCommands(commands).map(([name]) => [name, refusalOf(cli, name, scratch)]))
@@ -398,10 +403,13 @@ function observedOrUnbaselined<T>(what: string, observe: () => T): T | Unbaselin
 export function tagSurfaceReading(worktree: string): SurfaceReading {
   const cli = tagCli(worktree)
   const runs = observedOrUnbaselined('init and attach', () => observedRuns(cli, availablePresets(cli)))
+  const commands = observedOrUnbaselined('--help', () => commandsFromHelp(cli))
   return {
-    commands: observedOrUnbaselined('--help', () => commandsFromHelp(cli)),
+    commands,
     exits: unbaselined(EXITS_NOT_OBSERVABLE),
     jsonKeys: tagJsonKeys(cli),
+    jsonForms: unbaselined(JSON_FORMS_NOT_OBSERVABLE),
+    unknownFlag: isUnbaselined(commands) ? commands : observedOrUnbaselined('the refusal of an unknown flag', () => unknownFlagRefusals(cli, commands)),
     formats: 'formats' in runs ? runs.formats : runs,
     paths: 'paths' in runs ? runs.paths : runs,
     markers: unbaselined(MARKERS_NOT_OBSERVABLE),

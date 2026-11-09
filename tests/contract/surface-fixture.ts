@@ -24,6 +24,6 @@ export function fixtureSurface(): Surface {
 }
 
 export function reading(surface: Surface): SurfaceReading {
-  const { surfaceVersion: _, scripts: __, jsonForms: ___, unknownFlag: ____, ...sections } = surface
+  const { surfaceVersion: _, scripts: __, ...sections } = surface
   return sections
 }
