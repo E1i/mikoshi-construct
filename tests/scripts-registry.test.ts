@@ -1,4 +1,4 @@
-import type { ScriptRegistry } from '../scripts/contract/surface.js'
+import type { ScriptRegistry, Surface } from '../scripts/contract/surface.js'
 import { execFileSync } from 'node:child_process'
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -11,7 +11,7 @@ import { fixtureSurface } from './contract/surface-fixture.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..')
 const CONTRIBUTING = readFileSync(path.join(REPO_ROOT, 'CONTRIBUTING.md'), 'utf8')
-const RECORDED_SURFACE = JSON.parse(readFileSync(path.join(REPO_ROOT, 'contract/surface.json'), 'utf8')) as { scripts: string[] }
+const RECORDED_SURFACE = JSON.parse(readFileSync(path.join(REPO_ROOT, 'contract/surface.json'), 'utf8')) as Pick<Surface, 'scripts'>
 const REGISTRY = scriptRegistry()
 const ADDED = 'probe:added'
 const REASON = 'a hand-run print | not a gate'
@@ -81,7 +81,7 @@ describe('package.json is the one registry of scripts, and the table and the sur
   })
 
   it('finds the surface current: it records exactly the names in the registry', () => {
-    expect(RECORDED_SURFACE.scripts).toEqual(scriptNames(REGISTRY))
+    expect(Object.keys(RECORDED_SURFACE.scripts)).toEqual(scriptNames(REGISTRY))
   })
 
   it('refuses a CONTRIBUTING.md with no table to keep the scripts in', () => {
@@ -94,7 +94,7 @@ describe('package.json is the one registry of scripts, and the table and the sur
 
   it('a script added to the surface asks no bump of the published package', () => {
     const { surfaceVersion: _, ...recorded } = fixtureSurface()
-    const withAdded = { ...recorded, scripts: [...recorded.scripts, ADDED] }
+    const withAdded = { ...recorded, scripts: { ...recorded.scripts, [ADDED]: recorded.scripts.quality } }
     expect(requiredChange(recorded, withAdded).level).toBe('none')
   })
 })
