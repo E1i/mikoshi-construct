@@ -1,4 +1,5 @@
-import type { AnswererTools, AnswerRequest, AnswerRun } from '../../nodes/answer/answerer.js'
+import type { AnswererTools, AnswerRequest } from '../../nodes/answer/answerer.js'
+import type { AnswerRun } from '../../nodes/answer/duties/index.js'
 import type { CardTreeTools } from '../../ports/card-tree.js'
 import type { MergeBench } from './merge-bench.js'
 import { execFileSync } from 'node:child_process'

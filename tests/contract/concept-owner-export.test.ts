@@ -77,11 +77,17 @@ describe('a concept\'s owner is checked at the export, not the file', () => {
     const owned = CONCEPTS.filter(concept => concept.ownerExists)
 
     expect(owned.length).toBeGreaterThan(0)
-    for (const concept of owned) {
-      if (concept.ownerExists)
-        expect(exportedNames(path.join(REPO_ROOT, concept.owner)), `${concept.id}: ${concept.owner}`).toContain(concept.ownerExport)
-    }
+    for (const concept of owned)
+      expect(ownerExportFault(concept, REPO_ROOT), `${concept.id}: ${concept.owner}`).toBeNull()
     expect(() => assertOwnersExport(CONCEPTS, REPO_ROOT)).not.toThrow()
+  })
+
+  it('a folder owner is read at its index.ts', () => {
+    const folder: Concept = { ...built('seededOwner'), owner: 'scripts/seeded/' }
+
+    expect(ownerExportFault(folder, fixtureTree({ 'scripts/seeded/index.ts': 'export { seededOwner } from \'./owner.js\'\n', 'scripts/seeded/owner.ts': 'export function seededOwner(): void {}\n' }))).toBeNull()
+    expect(ownerExportFault(folder, fixtureTree({ 'scripts/seeded/index.ts': 'export const other = 1\n' }))).toBe('seeded: scripts/seeded/index.ts does not export seededOwner')
+    expect(ownerExportFault(folder, fixtureTree({ 'scripts/seeded/owner.ts': 'export function seededOwner(): void {}\n' }))).toBe('seeded: ownerExists is true but scripts/seeded/index.ts is not a file')
   })
 
   it('a concept with no owner file yet stays ownerExists false', () => {

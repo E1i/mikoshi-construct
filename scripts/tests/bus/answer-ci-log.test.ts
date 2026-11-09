@@ -1,6 +1,7 @@
 import type { AnswerRequest } from '../../nodes/answer/answerer.js'
 import { describe, expect, it } from 'vitest'
-import { answerPrompt } from '../../nodes/answer/answerer.js'
+import { windowGateRule } from '../../nodes/answer/answerer.js'
+import { answerPrompt } from '../../nodes/answer/duties/index.js'
 import { CI_LOG_CEILING, ciLogForPrompt, failedJobLinkIn, GhCiRuns } from '../../ports/ci-reading.js'
 import { ghPort } from '../../ports/gh.js'
 
@@ -33,7 +34,7 @@ describe('the failed-job log the answer prompt carries', () => {
     expect(CI_LOG_CEILING).toBe(20_000)
     expect(log.length).toBeGreaterThan(5 * CI_LOG_CEILING)
 
-    const prompt = answerPrompt(request, '/answers/owner.txt', null, { prepush: [], handoffWrite: null, codeMatrix: null }, undefined, { log, jobLink: JOB_LINK })
+    const prompt = answerPrompt(request, null, windowGateRule(request.card, { prepush: [], handoffWrite: null, codeMatrix: null }, '/answers/owner.txt'), undefined, { log, jobLink: JOB_LINK })
 
     expect(prompt).toContain(FAILURE)
     expect(prompt).toContain('AssertionError: expected 1 to be 2')

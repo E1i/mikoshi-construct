@@ -1,9 +1,9 @@
 import type { Lease } from '../../core/lease.js'
 import type { DetectionMode, Scope } from '../../core/node.js'
 import type { QueuedTask } from '../../core/queue.js'
-import type { AnswerOutcome, ShardDecider, ShardDecision } from '../../nodes/answer/answer-executor.js'
 import type { AnswerNodeParts, AnswerRun, AnswerStep } from '../../nodes/answer/answer-worker.js'
 import type { Answered, Answerer } from '../../nodes/answer/answerer.js'
+import type { AnswerOutcome, ShardDecider, ShardDecision } from '../../nodes/answer/duties/index.js'
 import type { CardTreeTools } from '../../ports/card-tree.js'
 import type { Usage } from '../../ports/client/contract.js'
 import type { Isolation, IsolationReader } from '../../ports/isolation.js'
@@ -26,7 +26,8 @@ import { NODE_CURSORS } from '../../core/node.js'
 import { answerCandidates, FAILURES_TO_STOP, keyOf, queueTask } from '../../core/queue.js'
 import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
 import { AnswerNode, answerNodeOf } from '../../nodes/answer/answer-worker.js'
-import { answerPrompt, claudeAnswerer, tokensOf } from '../../nodes/answer/answerer.js'
+import { claudeAnswerer, tokensOf, windowGateRule } from '../../nodes/answer/answerer.js'
+import { answerPrompt } from '../../nodes/answer/duties/index.js'
 import { MAX_RESTARTS } from '../../nodes/launch/continuation.js'
 import { cardDecisionCommand, DECISIONS_SCOPE, OWNERS_UNDER_ANY_SHARD, VERSION_PR_RESERVATION } from '../../policy/shards.js'
 import { busSessionPulse, lastHeartbeat } from '../../supervisor/heartbeat.js'
@@ -688,7 +689,7 @@ describe('the answer node', () => {
     const cardBody = '#905 answer-input [implement/netwatch/S/cheap/auto]\n\nthe card body'
     let given = ''
     const answerer = async (request: Parameters<Answerer>[0]): Promise<Answered & { input: AnswerInput }> => {
-      given = answerPrompt(request, '/answers/card-session-1.1.owner.txt', cardBody, OWN_GATE)
+      given = answerPrompt(request, cardBody, windowGateRule(request.card, OWN_GATE, '/answers/card-session-1.1.owner.txt'))
       return { session: 'card-session-1', resumed: true, before: sha('a'), after: sha('e'), owner: null, input: { prompt: given, cardBody } }
     }
     const executor = new AnswerExecutor({ db: made.db, answerer, ownerMerges: () => OWNER_MERGES, clock: made.clock.now, trees: cardTrees, prompts: path.join(trees, 'prompts') })
@@ -729,12 +730,13 @@ describe('the answer node', () => {
   })
 
   it('the answer round prompt in this repository names the window gate of D-194 with the pre-push tests its construct.json declares, not pnpm run quality', () => {
+    const card = { session: 's', worktree: '/trees/mc-1079', branch: 'feat/window-gate-by-layers' }
     const prompt = answerPrompt({
       lease: { taskKey: 'answer:1079:925:head', queue: 'answer', cardId: 1079, pr: 925, head: sha('a'), leaseGen: 1, actor: 'worker:answer:s' },
       source: { kind: 'changes', findings: ['a.ts:1 a finding'], events: [], decisions: [] },
       widened: null,
-      card: { session: 's', worktree: '/trees/mc-1079', branch: 'feat/window-gate-by-layers' },
-    }, '/answers/s.1.owner.txt', null, OWN_GATE)
+      card,
+    }, null, windowGateRule(card, OWN_GATE, '/answers/s.1.owner.txt'))
 
     expect(prompt).toContain('D-194')
     expect(prompt).toContain(PREPUSH_COMMAND)

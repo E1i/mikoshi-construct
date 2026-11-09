@@ -1,5 +1,5 @@
 import type { Lease } from '../../core/lease.js'
-import type { AnswerRun } from '../../nodes/answer/answerer.js'
+import type { AnswerRun } from '../../nodes/answer/duties/index.js'
 import type { CardTreeTools } from '../../ports/card-tree.js'
 import type { RequestOutcome, RequestTools } from '../../window/window-requests.js'
 import type { MergeBench } from './merge-bench.js'

@@ -75,7 +75,6 @@ const SITES_OF_THE_RECONNAISSANCE: Record<string, readonly string[]> = {
     'src/ui/lore.ts',
   ],
   'window-requests': ['scripts/window/window-requests.ts'],
-  'answer-duties': ['scripts/nodes/answer/answer-executor.ts', 'scripts/nodes/answer/answerer.ts'],
 }
 
 let generatedFactory: Factory | undefined
