@@ -1,7 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { Lease } from '../../core/lease.js'
-import type { AnswerOutcome } from '../../nodes/answer/answer-executor.js'
 import type { Answerer, AnswerRequest } from '../../nodes/answer/answerer.js'
+import type { AnswerOutcome } from '../../nodes/answer/duties/index.js'
 import type { CardTreeTools } from '../../ports/card-tree.js'
 import type { IsolationReader } from '../../ports/isolation.js'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
@@ -18,7 +18,8 @@ import { answerCandidates, changesRoundsOf, mergeCandidates, queueTask, reentryL
 import { reduce } from '../../core/reducer.js'
 import { importJournal } from '../../intake/import.js'
 import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
-import { answerPrompt, AnswerWithdrawn, claudeAnswerer } from '../../nodes/answer/answerer.js'
+import { AnswerWithdrawn, claudeAnswerer, windowGateRule } from '../../nodes/answer/answerer.js'
+import { answerPrompt } from '../../nodes/answer/duties/index.js'
 import { fullReview } from '../../nodes/review/review-depth.js'
 import { AMEND_KEEPS_CHANGES, earlierVerdict } from '../../nodes/review/review-executor.js'
 import { ReviewWorker } from '../../nodes/review/review-worker.js'
@@ -263,7 +264,7 @@ describe('the review loop', () => {
     const lease: Lease = { taskKey: answerTasksOf(made.db, 1161)[0]!.task_key, queue: 'answer', cardId: 1161, pr: 1061, head: sha('a'), leaseGen: 1, actor: 'worker:answer:worker-1' }
     const request: AnswerRequest = { lease, source: { kind: 'ci', failedChecks: ['vitest 2/4'], events: [], decisions: [] }, widened: null, card: { session: 's', worktree: '/tree', branch: 'feat/card-1161' } }
     const log = 'FAIL scripts/tests/bus/queue.test.ts > the queue > expected 1 to be 2'
-    const prompt = answerPrompt(request, '/answers/s.1.owner.txt', null, GATE, undefined, { log, jobLink: null })
+    const prompt = answerPrompt(request, null, windowGateRule(request.card, GATE, '/answers/s.1.owner.txt'), undefined, { log, jobLink: null })
     expect(prompt).toContain(log)
     expect(prompt).not.toContain('gh run view --log-failed')
     made.close()

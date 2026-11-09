@@ -1,4 +1,4 @@
-import type { AnswerRun } from '../../nodes/answer/answerer.js'
+import type { AnswerRun } from '../../nodes/answer/duties/index.js'
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'

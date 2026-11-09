@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
-import { spawnClient } from '../../nodes/answer/answerer.js'
+import { spawnClient } from '../../nodes/answer/duties/index.js'
 
 const SPEAKS_AFTER_ABORT_MS = 150
 const CHILD_ENDS_MS = 400
