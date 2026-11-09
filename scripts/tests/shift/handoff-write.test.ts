@@ -20,7 +20,7 @@ import { archiveOfDay, DAY_FILE_LIMIT, QUESTIONS_HEADING } from '../../window/da
 import { UNREAD } from '../../window/eddies-measure.js'
 import { stopReasonOf } from '../../window/exit.js'
 import { HANDOFF_LIMIT, runHandoffCheck } from '../../window/handoff-check.js'
-import { busMerged, busOpenQuestion, nextArchive, OWNER_BOUNDARIES, runHandoffWrite, sessionHandoffOf, withPrev } from '../../window/handoff-write.js'
+import { busMerged, busOpenQuestion, nextArchive, OWNER_BOUNDARIES, ROUND_LIMIT_BOUNDARY, runHandoffWrite, sessionHandoffOf, withPrev } from '../../window/handoff-write.js'
 import { pendingRequests } from '../../window/window-requests.js'
 import { COMPLETION_OF } from '../../window/window.js'
 
@@ -303,6 +303,20 @@ describe('handoff:write', () => {
       expect(result.code).toBe(0)
       expect(statusOf(readFileSync(handoff, 'utf8'))).toBe('OWNER')
     }
+  })
+
+  // eslint-disable-next-line test/prefer-lowercase-title
+  it('STATUS OWNER naming a round-limit decision is accepted under a decisions shard', () => {
+    decisionsShard = { id: 'ws-1', by: 'Eli', scope: 'merge+decisions', until: '2026-10-17T16:00:00.000Z' }
+    const { handoff, draft: file } = world()
+    writeFileSync(file, draft().replace('STATUS: CONTINUE', `STATUS: OWNER — boundary: ${ROUND_LIMIT_BOUNDARY}`))
+    const result = write([handoff, file])
+    expect(result.err).toEqual([])
+    expect(result.code).toBe(0)
+    const written = readFileSync(handoff, 'utf8')
+    expect(statusOf(written)).toBe('OWNER')
+    expect(written).toContain(`boundary: ${ROUND_LIMIT_BOUNDARY}`)
+    expect(OWNER_BOUNDARIES).toContain(ROUND_LIMIT_BOUNDARY)
   })
 
   it.each(BOUNDARIES_THE_BUS_DOES_NOT_KEEP)('under a decisions shard still refuses STATUS: OWNER at %s, naming what the bus keeps and writing nothing', (boundary) => {

@@ -145,9 +145,9 @@ card change through `pnpm intake --admit`), and the message names it.
 `STATUS: OWNER` stops a session only at a boundary [owner-merges.md](owner-merges.md) or the owner
 decisions define, named on the line as `STATUS: OWNER — boundary: <name>` from the closed list `OWNER_BOUNDARIES` in
 `scripts/window/handoff-write.ts`: the names of `OWNERS_OF_A_STOP` in `scripts/policy/shards.ts`, which the bus keeps from
-the window's close of a stop (`version-pr` is the version pull request), `owner-merged-kind` (an owner-merged kind no
-delegation decision covers), `missing-right` (a right the window lacks under its permission mode), `owner-question` (an
-explicit new question from the owner). Review changes, red CI, a denied form that has an allowed route and `who: window`
+the window's close of a stop (`version-pr` is the version pull request), `round-limit` (a decision past the review round
+limit, recorded only from the owner channel), `owner-merged-kind` (an owner-merged kind no delegation decision covers),
+`missing-right` (a right the window lacks under its permission mode), `owner-question` (an explicit new question from the owner). Review changes, red CI, a denied form that has an allowed route and `who: window`
 cards are executor work, never OWNER; `pnpm handoff:write` refuses a draft whose last STATUS line is OWNER without a name
 from the list, names the list in the refusal, and writes nothing.
 
@@ -280,9 +280,9 @@ Under an active shard the window itself decides and merges everything except the
 with those. A pull request of a kind whose «merges under a shard» is `no` — `release`, `release-workflow`, `workflows`,
 `security-invariants`, `accepted-model` — stays the owner's; one of `own-instructions`, `agent-permissions` or `new-write-path` merges under
 the shard. A handoff stops with `STATUS: OWNER` only at a named boundary — `version-pr`, `npm-stage`,
-`security-invariants`, `claude-config`, `owner-merges`, `workflows`, `dropped-witness`, `owner-merged-kind`,
-`missing-right`, `owner-question` — and under a decisions shard only at those the bus keeps from the window's close of a
-stop, `OWNERS_OF_A_STOP`: all but the last three. R1 in intake is a risk class, not an
+`security-invariants`, `claude-config`, `owner-merges`, `workflows`, `dropped-witness`, `round-limit`, `owner-merged-kind`,
+`missing-right`, `owner-question` — and under a decisions shard only at those the bus keeps: the names of
+`OWNERS_OF_A_STOP` from the window's close of a stop and `round-limit`, all but the last three. R1 in intake is a risk class, not an
 owner boundary: R1 does not widen these boundaries.
 
 Independent branches are cut in parallel by default (`/plan`). A branch the window cuts is a conventional-commit prefix
