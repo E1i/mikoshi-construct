@@ -167,7 +167,7 @@ export function gitCode(cwd: string): BusCode {
   }
 }
 
-function signal(pid: number, name: NodeJS.Signals): void {
+export function signal(pid: number, name: NodeJS.Signals): void {
   try {
     process.kill(-pid, name)
   }
@@ -547,7 +547,7 @@ function workerKindsOf(launches: DetachedLaunch[]): string[] {
 }
 
 function runsRounds(launch: DetachedLaunch): boolean {
-  return workerKindsOf([launch]).some(kind => ROUND_WORKERS.includes(kind))
+  return workerKindsOf([launch]).some(kind => kind === 'review' || ROUND_WORKERS.includes(kind))
 }
 
 export function withoutRetiring(processes: ProcessList, db: DatabaseSync, holding: () => boolean = () => false): ProcessList {
