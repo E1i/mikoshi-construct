@@ -51,10 +51,48 @@ function renamed(from: string, to: string): boolean {
   }
 }
 
+export interface ClosingWord extends ConsumedWord {
+  words: string
+}
+
+function unusedWordsOf(channel: string): string[] {
+  return existsSync(channel) ? readdirSync(channel).filter(name => name.endsWith(UNUSED_WORD)).sort().map(name => path.join(channel, name)) : []
+}
+
+function consumed(file: string): ConsumedWord {
+  return { file, release: () => renamed(`${file}${USED_WORD}`, file) }
+}
+
 export function consumeOwnerWord(channel: string, words: string): ConsumedWord | null {
-  if (!existsSync(channel))
+  const file = unusedWordsOf(channel).find(candidate => holdsWords(candidate, words) && renamed(candidate, `${candidate}${USED_WORD}`))
+  return file === undefined ? null : consumed(file)
+}
+
+function escaped(literal: string): string {
+  return literal.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function wordsClosing(file: string, id: string): string | null {
+  const naming = new RegExp(`^(?:close:\\s*)?${escaped(id)}(?=[:\\s]|$):?\\s*`)
+  try {
+    const said = readFileSync(file, 'utf8').split('\n').slice(1).join('\n').trim()
+    const prefix = naming.exec(said)
+    return prefix === null ? null : said.slice(prefix[0].length).trim()
+  }
+  catch {
     return null
-  const unused = readdirSync(channel).filter(name => name.endsWith(UNUSED_WORD)).sort().map(name => path.join(channel, name))
-  const file = unused.find(candidate => holdsWords(candidate, words) && renamed(candidate, `${candidate}${USED_WORD}`))
-  return file === undefined ? null : { file, release: () => renamed(`${file}${USED_WORD}`, file) }
+  }
+}
+
+export function consumeOwnerWordClosing(channel: string, id: string): ClosingWord | null {
+  for (const file of unusedWordsOf(channel)) {
+    const words = wordsClosing(file, id)
+    if (words !== null && renamed(file, `${file}${USED_WORD}`))
+      return { ...consumed(file), words: words === '' ? id : words }
+  }
+  return null
+}
+
+export function ownerWordAwaited(id: string): string {
+  return `${id} waits for the owner's word naming ${id}: the owner lifts it by saying "${id}: <the answer>" into the owner channel, or the answer verbatim`
 }

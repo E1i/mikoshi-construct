@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { QueueTaskRow } from '../../core/card-hold.js'
 import type { BusEvent } from '../../core/db.js'
 import type { EventPayload } from '../../core/events.js'
 import type { AfterFailure, Lease } from '../../core/lease.js'
@@ -17,7 +18,7 @@ import { appendEvent, openBusWait } from '../../core/db.js'
 import { messageOf } from '../../core/errors.js'
 import { ANSWER_STEP, CARD_ANSWERED, CARD_STOPPED, POLICY_DENIED, PR_OBSERVED, PR_OPENED, QUESTION_AGENT, QUESTION_OWNER, SCOPE_WIDENED, SHARD_DECIDED, WITNESS_RECORDED } from '../../core/events.js'
 import { assertHeld, completeTask, failTask, StaleLease, supersedeLease, waitTask } from '../../core/lease.js'
-import { answerOnAnOldCardBody, DOWNGRADE_WAIT_OPEN, downgradeWaitOpenOn, FAILURES_TO_STOP, REVIEW_ROUNDS, supersededAnswerWithinItsLease } from '../../core/queue.js'
+import { answerOnAnOldCardBody, DOWNGRADE_WAIT_OPEN, downgradeWaitOpenOn, FAILURES_TO_STOP, LEASED, QUEUED, REVIEW_ROUNDS, supersededAnswerWithinItsLease } from '../../core/queue.js'
 import { OWNER_EVEN_UNDER_THE_DECISION, reservationOf } from '../../policy/policy.js'
 import { activeDecisionsShard, activeWindowShards, cardDecisionCommand, DECISIONS_SCOPE, decisionsInForceAt, ownersUnderAnyShard, unspentShard } from '../../policy/shards.js'
 import { matchGlob } from '../../policy/shredder/glob.js'
@@ -537,4 +538,35 @@ export class AnswerExecutor {
     waitTask(this.parts.db, this.ts(), lease, { reason: SUPERSEDED_SESSION_ENDING, until })
     return { kind: 'waiting', taskKey: lease.taskKey, reason: SUPERSEDED_SESSION_ENDING, until }
   }
+}
+
+const LATEST_ANSWER_OF_CARD = `SELECT task_key, queue, card_id, pr, head, state FROM tasks WHERE card_id = ? AND queue = 'answer' ORDER BY id DESC LIMIT 1`
+
+export interface AmendedStop {
+  id: number
+  payload: string
+}
+
+function touchesAfterAmend(admitted: readonly string[], delta: string | null): Set<string> {
+  const touches = new Set(admitted)
+  for (const entry of (delta ?? '').split(',').map(each => each.trim()).filter(each => each !== '')) {
+    if (entry.startsWith('-'))
+      touches.delete(entry.slice(1))
+    else
+      touches.add(entry.replace(/^\+/, ''))
+  }
+  return touches
+}
+
+export function answerToResumeAfterAmend(db: DatabaseSync, cardId: number, stop: AmendedStop, delta: string | null): QueueTaskRow | string {
+  const asked = (JSON.parse(stop.payload) as { widen?: unknown }).widen
+  const widen = Array.isArray(asked) ? asked.filter((each): each is string => typeof each === 'string') : []
+  const scope = admittedScopeOf(db, cardId)
+  const uncovered = pathsOutside([...touchesAfterAmend(scope?.touches ?? [], delta)], scope?.creates ?? [], widen)
+  if (widen.length === 0 || uncovered.length > 0)
+    return `the stop ${stop.id} stays: card #${cardId} waits for ${widen.length === 0 ? 'the owner\'s answer to its question' : `touches that cover ${uncovered.join(', ')}`}, lifted by the owner's decision with --card #${cardId} or an amend`
+  const task = db.prepare(LATEST_ANSWER_OF_CARD).get(cardId) as QueueTaskRow | undefined
+  if (task === undefined)
+    return `the stop ${stop.id} is settled and card #${cardId} has no answer task to resume: it waits for the bus to derive one from its pull request, or for the window's takeover`
+  return task.state === QUEUED || task.state === LEASED ? `the answer ${task.task_key} is ${task.state} already` : task
 }

@@ -1,8 +1,14 @@
 import type { WorkflowRun } from './usage.js'
 import { existsSync, readFileSync } from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
+import process from 'node:process'
+import { busPathOf } from '../../../scripts/core/bus-path.js'
+import { LADDER_RUN } from '../../../scripts/core/events.js'
+import { withReadOnlyBus } from './bus.js'
 
 export const LEDGER_FILE = '.construct/runs.jsonl'
+const LEDGER_EVENTS = 'SELECT payload FROM events WHERE type = ? ORDER BY id'
 
 export type TokenCount = number | 'unknown'
 
@@ -37,9 +43,17 @@ export interface MalformedLedgerLine {
   reason: string
 }
 
+export const LEDGER_ORIGINS = ['bus', 'file', 'absent'] as const
+
+export interface LedgerOrigin {
+  kind: typeof LEDGER_ORIGINS[number]
+  file: string
+}
+
 export interface LedgerReading {
   entries: LedgerEntry[]
   malformed: MalformedLedgerLine[]
+  origin?: LedgerOrigin
 }
 
 export interface LedgerSummary {
@@ -188,12 +202,9 @@ export function parseLedgerLine(text: string): LedgerEntry | string {
   return toEntry(raw)
 }
 
-export function readLedger(root: string): LedgerReading {
-  const file = path.join(root, LEDGER_FILE)
-  const reading: LedgerReading = { entries: [], malformed: [] }
-  if (!existsSync(file))
-    return reading
-  readFileSync(file, 'utf8').split('\n').forEach((text, index) => {
+function readLines(lines: readonly string[], origin: LedgerOrigin): LedgerReading {
+  const reading: LedgerReading = { entries: [], malformed: [], origin }
+  lines.forEach((text, index) => {
     if (text.trim() === '')
       return
     const entry = parseLedgerLine(text)
@@ -203,6 +214,36 @@ export function readLedger(root: string): LedgerReading {
       reading.entries.push(entry)
   })
   return reading
+}
+
+function ledgerBusOf(root: string): string | null {
+  try {
+    return busPathOf(process.env, os.homedir(), root)
+  }
+  catch {
+    return null
+  }
+}
+
+function busLines(busPath: string | null): string[] {
+  if (busPath === null || !existsSync(busPath))
+    return []
+  try {
+    return withReadOnlyBus(busPath, db => (db.prepare(LEDGER_EVENTS).all(LADDER_RUN) as { payload: string }[]).map(row => row.payload))
+  }
+  catch {
+    return []
+  }
+}
+
+export function readLedger(root: string, busPath: string | null = ledgerBusOf(root)): LedgerReading {
+  const fromBus = busLines(busPath)
+  if (busPath !== null && fromBus.length > 0)
+    return readLines(fromBus, { kind: 'bus', file: busPath })
+  const file = path.join(root, LEDGER_FILE)
+  if (!existsSync(file))
+    return { entries: [], malformed: [], origin: { kind: 'absent', file: LEDGER_FILE } }
+  return readLines(readFileSync(file, 'utf8').split('\n'), { kind: 'file', file: LEDGER_FILE })
 }
 
 export function summarizeLedger(reading: LedgerReading): LedgerSummary {

@@ -21,7 +21,7 @@ export const FACTORY_WORKERS = {
   review: 'scripts/nodes/review/review-worker.ts',
   merge: 'scripts/nodes/merge/merge-worker.ts',
   update: 'scripts/nodes/update/update-worker.ts',
-  launch: 'scripts/nodes/launch/launch-worker.ts',
+  launch: 'scripts/nodes/launch/launch-root.ts',
   restart: 'scripts/nodes/restart/restart-worker.ts',
   answer: 'scripts/nodes/answer/answer-worker.ts',
   close: 'scripts/nodes/close/close-worker.ts',

@@ -15,6 +15,7 @@
     "scripts/ladder/ladder-starter.ts": "bus:ladder",
     "scripts/nodes/launch/launch-candidates.ts": "bus",
     "scripts/nodes/launch/launch-executor.ts": "bus:launch",
+    "scripts/nodes/launch/launch-root.ts": "bus:launch",
     "scripts/nodes/launch/launch-starter.ts": "bus:launch",
     "scripts/nodes/launch/launch-worker.ts": "bus:launch",
     "scripts/nodes/merge/merge-executor.ts": "bus:merge",

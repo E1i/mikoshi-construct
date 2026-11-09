@@ -10,8 +10,8 @@ import { parkingFileText } from '../../../src/card/parking.js'
 import { BUS_DB_VARIABLE, GH_ACCOUNT_VARIABLE } from '../../core/bus-path.js'
 import { appendEvent, openBus } from '../../core/db.js'
 import { CARD_ANSWERED, CARD_STARTED, CARD_STOPPED } from '../../core/events.js'
+import { busCardSessions } from '../../nodes/launch/launch-root.js'
 import { launchArgv, launchEnv, ShiftCardStarter } from '../../nodes/launch/launch-starter.js'
-import { busCardSessions } from '../../nodes/launch/launch-worker.js'
 import { HTTPS_ORIGIN_ENV } from '../../ports/tree-publish.js'
 
 const NO_FILE_CONFIG_ENV = { GIT_CONFIG_GLOBAL: devNull, GIT_CONFIG_NOSYSTEM: '1' }

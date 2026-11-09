@@ -1,6 +1,6 @@
 {
   "bus": {
-    "busVersion": 2,
+    "busVersion": 3,
     "events": {
       "answer.step": {
         "complete": true,
@@ -501,6 +501,27 @@
           "source",
           "task",
           "to"
+        ]
+      },
+      "ladder.run": {
+        "complete": true,
+        "keys": [
+          "agents",
+          "agreedSha256",
+          "argsSha256",
+          "at",
+          "attempts",
+          "cause",
+          "effort",
+          "run",
+          "rung",
+          "seconds",
+          "sketch",
+          "status",
+          "task",
+          "tokens",
+          "tokensSource",
+          "toolUses"
         ]
       },
       "lane.assigned": {
@@ -2621,7 +2642,8 @@
         "understands": {
           "bus": [
             1,
-            2
+            2,
+            3
           ],
           "card": [
             1
@@ -2639,7 +2661,8 @@
         "understands": {
           "bus": [
             1,
-            2
+            2,
+            3
           ],
           "card": [
             1
@@ -2671,7 +2694,8 @@
         "understands": {
           "bus": [
             1,
-            2
+            2,
+            3
           ],
           "card": [
             1
@@ -2693,7 +2717,8 @@
         "understands": {
           "bus": [
             1,
-            2
+            2,
+            3
           ],
           "card": [
             1
@@ -2719,7 +2744,8 @@
         "understands": {
           "bus": [
             1,
-            2
+            2,
+            3
           ],
           "card": [
             1
@@ -2738,7 +2764,8 @@
         "understands": {
           "bus": [
             1,
-            2
+            2,
+            3
           ],
           "card": [
             1
@@ -2755,7 +2782,8 @@
         "understands": {
           "bus": [
             1,
-            2
+            2,
+            3
           ],
           "card": [
             1
@@ -2763,7 +2791,7 @@
         }
       }
     },
-    "nodesVersion": 1
+    "nodesVersion": 2
   },
   "overlaps": {
     "answer-duties": {
@@ -2790,8 +2818,8 @@
       "scripts/nodes/close/close-executor.ts": 1,
       "scripts/nodes/close/ended-card-trees.ts": 1,
       "scripts/nodes/launch/lane-assign.ts": 1,
+      "scripts/nodes/launch/launch-root.ts": 3,
       "scripts/nodes/launch/launch-starter.ts": 1,
-      "scripts/nodes/launch/launch-worker.ts": 3,
       "scripts/nodes/launch/tree-pr-cli.ts": 1,
       "scripts/nodes/review/depth-sources.ts": 1,
       "scripts/nodes/review/reviewer.ts": 3,

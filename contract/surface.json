@@ -1665,94 +1665,1081 @@
       ]
     }
   },
-  "scripts": [
-    "approve",
-    "board",
-    "build",
-    "bus:agent",
-    "bus:answer",
-    "bus:bg",
-    "bus:close",
-    "bus:import",
-    "bus:inbox",
-    "bus:launch",
-    "bus:merge",
-    "bus:netwatch",
-    "bus:reduce",
-    "bus:report",
-    "bus:request",
-    "bus:restart",
-    "bus:review",
-    "bus:review:bg",
-    "bus:run",
-    "bus:slot",
-    "bus:update",
-    "bus:witness",
-    "bus:witness-backfill",
-    "card",
-    "card:measure",
-    "changeset",
-    "checks:catalog",
-    "checks:matrix",
-    "ci",
-    "ci:select",
-    "composition:check",
-    "composition:render",
-    "contract:bump",
-    "contract:overlaps",
-    "contract:update",
-    "decisions",
-    "decisions:add",
-    "dev",
-    "docs:anchors",
-    "docs:build",
-    "docs:dev",
-    "docs:pending",
-    "docs:preview",
-    "done:check",
-    "factory:start",
-    "gate:window",
-    "ghosts:cleanup",
-    "ghosts:expect-sample",
-    "ghosts:hash",
-    "ghosts:launch",
-    "ghosts:role",
-    "ghosts:verdict",
-    "ghosts:watch",
-    "handoff:check",
-    "handoff:write",
-    "intake",
-    "layers:check",
-    "lint",
-    "lint:fix",
-    "miko",
-    "miko:exit",
-    "miko:pull",
-    "miko:watch",
-    "model:check",
-    "model:render",
-    "morse:approve",
-    "morse:predict",
-    "mutate",
-    "owner:command",
-    "owner:say",
-    "prepack",
-    "privacy:check",
-    "quality",
-    "quality:steps",
-    "release",
-    "release-notes:render",
-    "release:evidence",
-    "release:verify",
-    "shard",
-    "task:close",
-    "task:start",
-    "test",
-    "test:watch",
-    "test:weights",
-    "typecheck",
-    "version-packages"
-  ],
+  "scripts": {
+    "approve": {
+      "entries": [
+        "scripts/ladder/approve.ts"
+      ],
+      "exits": [
+        1
+      ],
+      "flags": [
+        "by",
+        "revoke"
+      ],
+      "json": false,
+      "unknownFlag": "not read"
+    },
+    "board": {
+      "entries": [
+        "scripts/cli/board-page.ts"
+      ],
+      "exits": [],
+      "flags": [
+        "html",
+        "json",
+        "live",
+        "plan"
+      ],
+      "json": true,
+      "unknownFlag": "not read"
+    },
+    "build": {
+      "entries": [],
+      "exits": [],
+      "flags": [],
+      "json": false,
+      "unknownFlag": "not read"
+    },
+    "bus:agent": {
+      "entries": [
+        "scripts/supervisor/launchd/install.ts"
+      ],
+      "exits": [
+        0,
+        1,
+        2
+      ],
+      "flags": [
+        "apply",
+        "factory-dir",
+        "label",
+        "token-source"
+      ],
+      "json": false,
+      "unknownFlag": "strict parseArgs"
+    },
+    "bus:answer": {
+      "entries": [
+        "scripts/nodes/answer/answer-worker.ts"
+      ],
+      "exits": [],
+      "flags": [],
+      "json": false,
+      "unknownFlag": "not read"
+    },
+    "bus:bg": {
+      "entries": [
+        "scripts/supervisor/supervisor.ts"
+      ],
+      "exits": [
+        0,
+        1
+      ],
+      "flags": [
+        "ff-only",
+        "is-ancestor",
+        "live",
+        "name-only",
+        "off",
+        "on",
+        "quiet",
+        "shadow",
+        "silent",
+        "supervise",
+        "verify"
+      ],
+      "json": false,
+      "unknownFlag": "not read"
+    },
+    "bus:close": {
+      "entries": [
+        "scripts/nodes/close/close-worker.ts"
+      ],
+      "exits": [],
+      "flags": [],
+      "json": false,
+      "unknownFlag": "not read"
+    },
+    "bus:import": {
+      "entries": [
+        "scripts/intake/import.ts"
+      ],
+      "exits": [],
+      "flags": [],
+      "json": false,
+      "unknownFlag": "not read"
+    },
+    "bus:inbox": {
+      "entries": [
+        "scripts/core/inbox.ts"
+      ],
+      "exits": [],
+      "flags": [],
+      "json": false,
+      "unknownFlag": "not read"
+    },
+    "bus:launch": {
+      "entries": [
+        "scripts/nodes/launch/launch-root.ts"
+      ],
+      "exits": [],
+      "flags": [
+        "card",
+        "count",
+        "silent"
+      ],
+      "json": false,
+      "unknownFlag": "not read"
+    },
+    "bus:merge": {
+      "entries": [
+        "scripts/nodes/merge/merge-worker.ts"
+      ],
+      "exits": [],
+      "flags": [],
+      "json": false,
+      "unknownFlag": "not read"
+    },
+    "bus:netwatch": {
+      "entries": [
+        "scripts/ports/netwatch.ts"
+      ],
+      "exits": [],
+      "flags": [
+        "once"
+      ],
+      "json": false,
+      "unknownFlag": "not read"
+    },
+    "bus:reduce": {
+      "entries": [
+        "scripts/core/reducer.ts"
+      ],
+      "exits": [],
+      "flags": [],
+      "json": false,
+      "unknownFlag": "not read"
+    },
+    "bus:report": {
+      "entries": [
+        "scripts/core/report.ts"
+      ],
+      "exits": [],
+      "flags": [
+        "since"
+      ],
+      "json": false,
+      "unknownFlag": "not read"
+    },
+    "bus:request": {
+      "entries": [
+        "scripts/window/window-requests.ts"
+      ],
+      "exits": [],
+      "flags": [
+        "answer",
+        "auto-confirm",
+        "card",
+        "command",
+        "dry-run",
+        "file",
+        "from",
+        "head",
+        "help",
+        "id",
+        "ids",
+        "need",
+        "owner-words",
+        "pr",
+        "reason",
+        "set",
+        "settled",
+        "supersedes",
+        "task",
+        "text",
+        "until"
+      ],
+      "json": false,
+      "unknownFlag": "not read"
+    },
+    "bus:restart": {
+      "entries": [
+        "scripts/nodes/restart/restart-worker.ts"
+      ],
+      "exits": [],
+      "flags": [],
+      "json": false,
+      "unknownFlag": "not read"
+    },
+    "bus:review": {
+      "entries": [
+        "scripts/nodes/review/review-worker.ts"
+      ],
+      "exits": [],
+      "flags": [
+        "body-file",
+        "dry-run",
+        "json"
+      ],
+      "json": true,
+      "unknownFlag": "not read"
+    },
+    "bus:review:bg": {
+      "entries": [
+        "scripts/supervisor/review-bg.ts"
+      ],
+      "exits": [
+        1
+      ],
+      "flags": [
+        "silent"
+      ],
+      "json": false,
+      "unknownFlag": "not read"
+    },
+    "bus:run": {
+      "entries": [
+        "scripts/supervisor/run.ts"
+      ],
+      "exits": [
+        0,
+        1
+      ],
+      "flags": [],
+      "json": false,
+      "unknownFlag": "not read"
+    },
+    "bus:slot": {
+      "entries": [
+        "scripts/cli/slot.ts"
+      ],
+      "exits": [],
+      "flags": [
+        "card"
+      ],
+      "json": false,
+      "unknownFlag": "not read"
+    },
+    "bus:update": {
+      "entries": [
+        "scripts/nodes/update/update-worker.ts"
+      ],
+      "exits": [],
+      "flags": [],
+      "json": false,
+      "unknownFlag": "not read"
+    },
+    "bus:witness": {
+      "entries": [
+        "scripts/nodes/witness/witness-worker.ts"
+      ],
+      "exits": [],
+      "flags": [],
+      "json": false,
+      "unknownFlag": "not read"
+    },
+    "bus:witness-backfill": {
+      "entries": [
+        "scripts/intake/witness-fields-backfill.ts"
+      ],
+      "exits": [],
+      "flags": [],
+      "json": false,
+      "unknownFlag": "not read"
+    },
+    "card": {
+      "entries": [
+        "scripts/cli/card.ts"
+      ],
+      "exits": [],
+      "flags": [
+        "chain",
+        "contract",
+        "md"
+      ],
+      "json": false,
+      "unknownFlag": "not read"
+    },
+    "card:measure": {
+      "entries": [
+        "scripts/window/card-measure.ts"
+      ],
+      "exits": [],
+      "flags": [
+        "after",
+        "before",
+        "list"
+      ],
+      "json": false,
+      "unknownFlag": "strict parseArgs"
+    },
+    "changeset": {
+      "entries": [],
+      "exits": [],
+      "flags": [],
+      "json": false,
+      "unknownFlag": "not read"
+    },
+    "checks:catalog": {
+      "entries": [
+        "scripts/cli/check-catalog.ts"
+      ],
+      "exits": [],
+      "flags": [
+        "import"
+      ],
+      "json": false,
+      "unknownFlag": "not read"
+    },
+    "checks:matrix": {
+      "entries": [
+        "scripts/cli/check-matrix.ts"
+      ],
+      "exits": [],
+      "flags": [
+        "dir",
+        "head",
+        "pr"
+      ],
+      "json": false,
+      "unknownFlag": "strict parseArgs"
+    },
+    "ci": {
+      "entries": [],
+      "exits": [],
+      "flags": [],
+      "json": false,
+      "unknownFlag": "not read"
+    },
+    "ci:select": {
+      "entries": [
+        "scripts/ci/select.ts"
+      ],
+      "exits": [],
+      "flags": [
+        "config",
+        "exclude-standard",
+        "name-only",
+        "others",
+        "output-type",
+        "stdin",
+        "window"
+      ],
+      "json": false,
+      "unknownFlag": "not read"
+    },
+    "composition:check": {
+      "entries": [
+        "scripts/composition/check.ts"
+      ],
+      "exits": [
+        1
+      ],
+      "flags": [],
+      "json": false,
+      "unknownFlag": "not read"
+    },
+    "composition:render": {
+      "entries": [
+        "scripts/composition/sync-docs.ts"
+      ],
+      "exits": [],
+      "flags": [],
+      "json": false,
+      "unknownFlag": "not read"
+    },
+    "contract:bump": {
+      "entries": [
+        "scripts/contract/bump.ts"
+      ],
+      "exits": [],
+      "flags": [
+        "abbrev",
+        "base",
+        "detach",
+        "force",
+        "frozen-lockfile",
+        "head",
+        "help",
+        "match",
+        "tags"
+      ],
+      "json": false,
+      "unknownFlag": "strict parseArgs"
+    },
+    "contract:overlaps": {
+      "entries": [
+        "scripts/contract/overlaps.ts"
+      ],
+      "exits": [],
+      "flags": [],
+      "json": false,
+      "unknownFlag": "not read"
+    },
+    "contract:update": {
+      "entries": [
+        "scripts/contract/update.ts",
+        "scripts/contract/surface.ts"
+      ],
+      "exits": [],
+      "flags": [
+        "dir",
+        "eval",
+        "harness",
+        "help",
+        "json",
+        "preset",
+        "required-check",
+        "undeclared-flag-probe",
+        "yes"
+      ],
+      "json": true,
+      "unknownFlag": "not read"
+    },
+    "decisions": {
+      "entries": [
+        "scripts/policy/decisions/read.ts"
+      ],
+      "exits": [],
+      "flags": [],
+      "json": false,
+      "unknownFlag": "not read"
+    },
+    "decisions:add": {
+      "entries": [
+        "scripts/policy/decisions/add.ts"
+      ],
+      "exits": [],
+      "flags": [
+        "auto-confirm",
+        "card",
+        "creates",
+        "file",
+        "from",
+        "settled",
+        "supersedes",
+        "touches",
+        "until"
+      ],
+      "json": false,
+      "unknownFlag": "strict parseArgs"
+    },
+    "dev": {
+      "entries": [
+        "src/cli.ts"
+      ],
+      "exits": [],
+      "flags": [],
+      "json": false,
+      "unknownFlag": "not read"
+    },
+    "docs:anchors": {
+      "entries": [
+        "scripts/docs/anchors.ts"
+      ],
+      "exits": [
+        1
+      ],
+      "flags": [],
+      "json": false,
+      "unknownFlag": "not read"
+    },
+    "docs:build": {
+      "entries": [
+        "src/cli.ts"
+      ],
+      "exits": [],
+      "flags": [],
+      "json": false,
+      "unknownFlag": "not read"
+    },
+    "docs:dev": {
+      "entries": [],
+      "exits": [],
+      "flags": [],
+      "json": false,
+      "unknownFlag": "not read"
+    },
+    "docs:pending": {
+      "entries": [
+        "scripts/docs/build-pending.ts"
+      ],
+      "exits": [
+        0,
+        1
+      ],
+      "flags": [],
+      "json": false,
+      "unknownFlag": "not read"
+    },
+    "docs:preview": {
+      "entries": [],
+      "exits": [],
+      "flags": [],
+      "json": false,
+      "unknownFlag": "not read"
+    },
+    "done:check": {
+      "entries": [
+        "scripts/done/check.ts"
+      ],
+      "exits": [],
+      "flags": [
+        "args",
+        "base",
+        "map",
+        "task"
+      ],
+      "json": false,
+      "unknownFlag": "not read"
+    },
+    "factory:start": {
+      "entries": [
+        "scripts/supervisor/start.ts"
+      ],
+      "exits": [
+        0,
+        1,
+        2
+      ],
+      "flags": [
+        "hours",
+        "live",
+        "mode",
+        "shadow",
+        "supersedes",
+        "until"
+      ],
+      "json": false,
+      "unknownFlag": "not read"
+    },
+    "gate:window": {
+      "entries": [
+        "scripts/ci/select.ts"
+      ],
+      "exits": [],
+      "flags": [
+        "config",
+        "exclude-standard",
+        "name-only",
+        "others",
+        "output-type",
+        "stdin",
+        "window"
+      ],
+      "json": false,
+      "unknownFlag": "not read"
+    },
+    "ghosts:cleanup": {
+      "entries": [
+        "scripts/ladder/cleanup.ts"
+      ],
+      "exits": [
+        1
+      ],
+      "flags": [
+        "format",
+        "git-common-dir",
+        "include-untracked",
+        "json",
+        "ledger-only",
+        "logs",
+        "path-format",
+        "porcelain",
+        "repo",
+        "show-toplevel",
+        "tasks"
+      ],
+      "json": true,
+      "unknownFlag": "strict parseArgs"
+    },
+    "ghosts:expect-sample": {
+      "entries": [
+        "scripts/ladder/expect-sample.ts"
+      ],
+      "exits": [
+        1
+      ],
+      "flags": [
+        "effort",
+        "journal",
+        "runs",
+        "sketch"
+      ],
+      "json": false,
+      "unknownFlag": "strict parseArgs"
+    },
+    "ghosts:hash": {
+      "entries": [
+        "scripts/ladder/hash.ts"
+      ],
+      "exits": [
+        1
+      ],
+      "flags": [
+        "brief",
+        "by",
+        "card"
+      ],
+      "json": false,
+      "unknownFlag": "not read"
+    },
+    "ghosts:launch": {
+      "entries": [
+        "scripts/ladder/launch.ts"
+      ],
+      "exits": [
+        1
+      ],
+      "flags": [
+        "abbrev-ref",
+        "card",
+        "fall",
+        "is-ancestor",
+        "owner-allows",
+        "porcelain",
+        "quiet",
+        "revoke",
+        "tasks",
+        "verify"
+      ],
+      "json": false,
+      "unknownFlag": "strict parseArgs"
+    },
+    "ghosts:role": {
+      "entries": [
+        "scripts/ladder/role.ts"
+      ],
+      "exits": [],
+      "flags": [
+        "task"
+      ],
+      "json": false,
+      "unknownFlag": "strict parseArgs"
+    },
+    "ghosts:verdict": {
+      "entries": [
+        "scripts/ladder/verdict.ts"
+      ],
+      "exits": [
+        1
+      ],
+      "flags": [
+        "by",
+        "commit",
+        "dir",
+        "end-of-options",
+        "from",
+        "merge-follow-up",
+        "pr",
+        "repo",
+        "task",
+        "verify"
+      ],
+      "json": false,
+      "unknownFlag": "strict parseArgs"
+    },
+    "ghosts:watch": {
+      "entries": [
+        "scripts/ladder/watch.ts"
+      ],
+      "exits": [
+        1
+      ],
+      "flags": [
+        "every",
+        "tasks"
+      ],
+      "json": false,
+      "unknownFlag": "strict parseArgs"
+    },
+    "handoff:check": {
+      "entries": [
+        "scripts/window/handoff-check.ts"
+      ],
+      "exits": [],
+      "flags": [],
+      "json": false,
+      "unknownFlag": "not read"
+    },
+    "handoff:write": {
+      "entries": [
+        "scripts/window/handoff-write.ts"
+      ],
+      "exits": [
+        1
+      ],
+      "flags": [
+        "json"
+      ],
+      "json": true,
+      "unknownFlag": "strict parseArgs"
+    },
+    "intake": {
+      "entries": [
+        "scripts/intake/intake.ts"
+      ],
+      "exits": [
+        1
+      ],
+      "flags": [
+        "export",
+        "johnny",
+        "plain",
+        "release"
+      ],
+      "json": false,
+      "unknownFlag": "not read"
+    },
+    "layers:check": {
+      "entries": [],
+      "exits": [],
+      "flags": [],
+      "json": false,
+      "unknownFlag": "not read"
+    },
+    "lint": {
+      "entries": [
+        "scripts/quality/lock.ts"
+      ],
+      "exits": [],
+      "flags": [],
+      "json": false,
+      "unknownFlag": "not read"
+    },
+    "lint:fix": {
+      "entries": [],
+      "exits": [],
+      "flags": [],
+      "json": false,
+      "unknownFlag": "not read"
+    },
+    "miko": {
+      "entries": [
+        "scripts/window/miko.ts"
+      ],
+      "exits": [],
+      "flags": [
+        "help",
+        "tab"
+      ],
+      "json": false,
+      "unknownFlag": "not read"
+    },
+    "miko:exit": {
+      "entries": [
+        "scripts/window/exit.ts"
+      ],
+      "exits": [],
+      "flags": [],
+      "json": false,
+      "unknownFlag": "not read"
+    },
+    "miko:pull": {
+      "entries": [
+        "scripts/window/pull.ts"
+      ],
+      "exits": [],
+      "flags": [
+        "ff-only",
+        "name-only",
+        "show-toplevel"
+      ],
+      "json": false,
+      "unknownFlag": "not read"
+    },
+    "miko:watch": {
+      "entries": [
+        "scripts/window/watch.ts"
+      ],
+      "exits": [
+        1,
+        2
+      ],
+      "flags": [
+        "card",
+        "once",
+        "tail"
+      ],
+      "json": false,
+      "unknownFlag": "not read"
+    },
+    "model:check": {
+      "entries": [
+        "scripts/model/check.ts"
+      ],
+      "exits": [
+        1
+      ],
+      "flags": [],
+      "json": false,
+      "unknownFlag": "not read"
+    },
+    "model:render": {
+      "entries": [
+        "scripts/model/sync-docs.ts"
+      ],
+      "exits": [],
+      "flags": [],
+      "json": false,
+      "unknownFlag": "not read"
+    },
+    "morse:approve": {
+      "entries": [
+        "scripts/ladder/morse-approve.ts"
+      ],
+      "exits": [
+        1
+      ],
+      "flags": [],
+      "json": false,
+      "unknownFlag": "not read"
+    },
+    "morse:predict": {
+      "entries": [
+        "scripts/morse/cli.ts"
+      ],
+      "exits": [
+        1
+      ],
+      "flags": [
+        "base",
+        "files",
+        "head",
+        "journal",
+        "repo",
+        "task"
+      ],
+      "json": false,
+      "unknownFlag": "not read"
+    },
+    "mutate": {
+      "entries": [
+        "scripts/cli/mutate.ts"
+      ],
+      "exits": [],
+      "flags": [],
+      "json": false,
+      "unknownFlag": "not read"
+    },
+    "owner:command": {
+      "entries": [
+        "scripts/window/owner-command.ts"
+      ],
+      "exits": [],
+      "flags": [
+        "binary",
+        "card",
+        "exclude-standard",
+        "intent-to-add",
+        "message",
+        "others",
+        "tree"
+      ],
+      "json": false,
+      "unknownFlag": "strict parseArgs"
+    },
+    "owner:say": {
+      "entries": [
+        "scripts/owner/say.ts"
+      ],
+      "exits": [],
+      "flags": [],
+      "json": false,
+      "unknownFlag": "not read"
+    },
+    "prepack": {
+      "entries": [],
+      "exits": [],
+      "flags": [],
+      "json": false,
+      "unknownFlag": "not read"
+    },
+    "privacy:check": {
+      "entries": [
+        "scripts/privacy/check.ts"
+      ],
+      "exits": [
+        1
+      ],
+      "flags": [],
+      "json": false,
+      "unknownFlag": "not read"
+    },
+    "quality": {
+      "entries": [
+        "scripts/quality/lock.ts",
+        "scripts/scratch/run.ts"
+      ],
+      "exits": [],
+      "flags": [
+        "reporter"
+      ],
+      "json": false,
+      "unknownFlag": "not read"
+    },
+    "quality:steps": {
+      "entries": [],
+      "exits": [],
+      "flags": [],
+      "json": false,
+      "unknownFlag": "not read"
+    },
+    "release": {
+      "entries": [
+        "scripts/release/stage-publish.ts"
+      ],
+      "exits": [],
+      "flags": [
+        "access",
+        "ignore-scripts",
+        "json",
+        "tag"
+      ],
+      "json": true,
+      "unknownFlag": "not read"
+    },
+    "release-notes:render": {
+      "entries": [
+        "scripts/release-notes/sync-docs.ts"
+      ],
+      "exits": [],
+      "flags": [],
+      "json": false,
+      "unknownFlag": "not read"
+    },
+    "release:evidence": {
+      "entries": [
+        "scripts/release/evidence.ts"
+      ],
+      "exits": [
+        0,
+        1
+      ],
+      "flags": [],
+      "json": false,
+      "unknownFlag": "not read"
+    },
+    "release:verify": {
+      "entries": [
+        "scripts/release/verify-published.ts"
+      ],
+      "exits": [],
+      "flags": [],
+      "json": false,
+      "unknownFlag": "not read"
+    },
+    "shard": {
+      "entries": [
+        "scripts/policy/shard.ts"
+      ],
+      "exits": [],
+      "flags": [
+        "by",
+        "card",
+        "hours",
+        "pr",
+        "scope",
+        "stop",
+        "under",
+        "window"
+      ],
+      "json": false,
+      "unknownFlag": "not read"
+    },
+    "task:close": {
+      "entries": [
+        "scripts/nodes/close/task-close.ts"
+      ],
+      "exits": [
+        0,
+        1
+      ],
+      "flags": [
+        "comment",
+        "json",
+        "limit",
+        "override-report",
+        "pr",
+        "report",
+        "shared-by",
+        "state",
+        "verification"
+      ],
+      "json": true,
+      "unknownFlag": "not read"
+    },
+    "task:start": {
+      "entries": [
+        "scripts/ports/task-start.ts"
+      ],
+      "exits": [
+        0,
+        1
+      ],
+      "flags": [
+        "adopt",
+        "card",
+        "without-intake"
+      ],
+      "json": false,
+      "unknownFlag": "not read"
+    },
+    "test": {
+      "entries": [
+        "scripts/scratch/run.ts"
+      ],
+      "exits": [],
+      "flags": [
+        "reporter"
+      ],
+      "json": false,
+      "unknownFlag": "not read"
+    },
+    "test:watch": {
+      "entries": [
+        "scripts/scratch/run.ts"
+      ],
+      "exits": [],
+      "flags": [
+        "reporter"
+      ],
+      "json": false,
+      "unknownFlag": "not read"
+    },
+    "test:weights": {
+      "entries": [
+        "scripts/ci/test-weights.ts"
+      ],
+      "exits": [
+        1
+      ],
+      "flags": [
+        "boundary",
+        "format",
+        "from",
+        "name-only",
+        "spread"
+      ],
+      "json": false,
+      "unknownFlag": "not read"
+    },
+    "typecheck": {
+      "entries": [],
+      "exits": [],
+      "flags": [],
+      "json": false,
+      "unknownFlag": "not read"
+    },
+    "version-packages": {
+      "entries": [],
+      "exits": [],
+      "flags": [],
+      "json": false,
+      "unknownFlag": "not read"
+    }
+  },
   "surfaceVersion": 3,
   "unknownFlag": {
     "atlas": 1,

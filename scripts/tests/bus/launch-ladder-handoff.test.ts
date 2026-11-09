@@ -15,7 +15,8 @@ import { CARD_ADMITTED, CARD_STARTED, CARD_STOPPED, CARD_WAITING, LADDER_APPROVA
 import { HANDOFF_DIR, HANDOFF_DIR_VARIABLE } from '../../core/handoff-dir.js'
 import { journalPath } from '../../intake/import.js'
 import { handoffJournalPath } from '../../ladder/hash.js'
-import { LaunchNode, realStarterPorts, repoHandoffEnv, repoLadderSteps, WITHDRAWN_TO_CHEAP } from '../../nodes/launch/launch-worker.js'
+import { realStarterPorts, repoHandoffEnv, repoLadderSteps } from '../../nodes/launch/launch-root.js'
+import { LaunchNode, WITHDRAWN_TO_CHEAP } from '../../nodes/launch/launch-worker.js'
 import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
 
