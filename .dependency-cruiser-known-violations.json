@@ -1100,7 +1100,7 @@
   },
   {
     "type": "dependency",
-    "from": "scripts/nodes/launch/launch-worker.ts",
+    "from": "scripts/nodes/launch/launch-root.ts",
     "to": "scripts/ladder/ladder-starter.ts",
     "unresolvedTo": "../../ladder/ladder-starter.js",
     "dependencyTypes": [
@@ -1114,7 +1114,7 @@
   },
   {
     "type": "dependency",
-    "from": "scripts/nodes/launch/launch-worker.ts",
+    "from": "scripts/nodes/launch/launch-root.ts",
     "to": "scripts/ladder/ladder.ts",
     "unresolvedTo": "../../ladder/ladder.js",
     "dependencyTypes": [
@@ -1128,7 +1128,7 @@
   },
   {
     "type": "dependency",
-    "from": "scripts/nodes/launch/launch-worker.ts",
+    "from": "scripts/nodes/launch/launch-root.ts",
     "to": "scripts/ladder/verdict.ts",
     "unresolvedTo": "../../ladder/verdict.js",
     "dependencyTypes": [
@@ -1680,7 +1680,7 @@
   },
   {
     "type": "dependency",
-    "from": "scripts/nodes/launch/launch-worker.ts",
+    "from": "scripts/nodes/launch/launch-root.ts",
     "to": "scripts/intake/parking-reads.ts",
     "unresolvedTo": "../../intake/parking-reads.js",
     "dependencyTypes": [
@@ -1694,9 +1694,37 @@
   },
   {
     "type": "dependency",
-    "from": "scripts/nodes/launch/launch-worker.ts",
+    "from": "scripts/nodes/launch/launch-root.ts",
     "to": "scripts/supervisor/bg.ts",
     "unresolvedTo": "../../supervisor/bg.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/launch/launch-root.ts",
+    "to": "scripts/supervisor/heartbeat.ts",
+    "unresolvedTo": "../../supervisor/heartbeat.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/launch/launch-root.ts",
+    "to": "src/card/parking.ts",
+    "unresolvedTo": "../../../src/card/parking.js",
     "dependencyTypes": [
       "local",
       "import"
@@ -1722,7 +1750,7 @@
   },
   {
     "type": "dependency",
-    "from": "scripts/nodes/launch/launch-worker.ts",
+    "from": "scripts/nodes/launch/launch-root.ts",
     "to": "scripts/supervisor/stamp.ts",
     "unresolvedTo": "../../supervisor/stamp.js",
     "dependencyTypes": [
@@ -1750,7 +1778,7 @@
   },
   {
     "type": "dependency",
-    "from": "scripts/nodes/launch/launch-worker.ts",
+    "from": "scripts/nodes/launch/launch-root.ts",
     "to": "src/card/task-file.ts",
     "unresolvedTo": "../../../src/card/task-file.js",
     "dependencyTypes": [

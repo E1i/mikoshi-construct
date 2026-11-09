@@ -54,7 +54,7 @@ const NAMED_BUT_NEVER_RUN_BY_THE_FACTORY: string[] = [FACTORY_NAMED.ghCallers]
 const FORMER_FOLDER_ENTRIES: string[] = Object.values(FACTORY_FORMER_FOLDERS).flat()
 
 const READ_BESIDE_THE_MODULE: Record<string, string> = {
-  'scripts/nodes/launch/header.md': 'scripts/nodes/launch/launch-worker.ts',
+  'scripts/nodes/launch/header.md': 'scripts/nodes/launch/launch-root.ts',
   'scripts/construct/check-acceptance.mjs': 'scripts/ladder/hash.ts',
   '.claude/hooks/eddies-measure.mjs': 'scripts/window/eddies-measure.ts',
   'scripts/ci/sandbox-trace-child.mjs': 'scripts/ci/sandbox-trace.ts',

@@ -7,7 +7,7 @@ import process from 'node:process'
 import { build } from 'tsup'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { openDatabase } from '../scripts/core/sqlite.js'
-import { publishedTreePr, taskStartCommand } from '../scripts/nodes/launch/launch-worker.js'
+import { publishedTreePr, taskStartCommand } from '../scripts/nodes/launch/launch-root.js'
 import { DISK_FLOOR_BYTES, DISK_LOW, freeBytes, statfsReader } from '../scripts/ports/disk.js'
 import { TREE_PR_ENTRY } from '../scripts/ports/tree-publish.js'
 import { waitFor } from '../scripts/tests/wait-for.js'
@@ -162,7 +162,7 @@ describe('the published factory path takes a card from intake to a session', () 
     const underTheFloor = freeBytes(statfsReader(foreign.repo)) < DISK_FLOOR_BYTES
     let worker: ChildProcess | undefined
     try {
-      worker = spawn(process.execPath, [built('nodes/launch/launch-worker.js'), '--on', '--live'], { cwd: foreign.repo, env: foreign.env, stdio: 'ignore' })
+      worker = spawn(process.execPath, [built('nodes/launch/launch-root.js'), '--on', '--live'], { cwd: foreign.repo, env: foreign.env, stdio: 'ignore' })
       if (underTheFloor) {
         await waitFor(() => launchDenials(foreign.bus).length > 0, () => `policy.denied for #${CARD_ID} in ${foreign.bus}`, STARTED_WITHIN_MS)
       }

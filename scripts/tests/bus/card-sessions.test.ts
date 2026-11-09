@@ -4,7 +4,7 @@ import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { appendEvent, openBus } from '../../core/db.js'
 import { CARD_CONTINUED, CARD_STARTED } from '../../core/events.js'
-import { busCardSessions } from '../../nodes/launch/launch-worker.js'
+import { busCardSessions } from '../../nodes/launch/launch-root.js'
 
 const CARD = 1583
 const STARTED = '221f6276'
