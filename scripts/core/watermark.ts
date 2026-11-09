@@ -1,9 +1,10 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { Fold, StoredEvent } from './stored.js'
+import { WATERMARKS } from './bus-readings.js'
 import { appliedOrRejected } from './rejection.js'
 import { STORED_COLUMNS } from './stored.js'
 
-export const WATERMARKS = 'projection_watermarks'
+export { WATERMARKS }
 
 export interface IncrementalProjection {
   table: string
