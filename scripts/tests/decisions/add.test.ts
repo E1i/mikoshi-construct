@@ -43,6 +43,7 @@ function add(files: Record<string, string>, args: string[], failingWrite = 0, se
       delete state[file]
     },
     record: decision => recorded.push(decision),
+    lock: () => () => {},
     settled,
     out: line => out.push(line),
     err: line => err.push(line),
