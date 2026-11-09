@@ -26,13 +26,14 @@ const TS = '2026-11-06T10:00:00.000Z'
 const HEAD = 'a'.repeat(40)
 const BUS_A = '/home/.construct/bus.db'
 const BUS_B = '/home/.construct/owner--repo/bus.db'
-const FIRST_PID = 1001
+const ABOVE_THIS_PROCESS = process.pid + 1
+const FIRST_PID = ABOVE_THIS_PROCESS + 1000
 const LIMIT = 3
 const CORES = 16
 const DEFAULT_LIMIT = 4
 const LANES = 3
-const ENDED_PID = 4242
-const CONTINUED_PID = 4243
+const ENDED_PID = ABOVE_THIS_PROCESS + 4241
+const CONTINUED_PID = ABOVE_THIS_PROCESS + 4242
 const roots: string[] = []
 const benches: MergeBench[] = []
 

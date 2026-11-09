@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { openBus } from '../../core/db.js'
-import { CARD_STOPPED, ROLE_LEASED, ROLE_RAISED } from '../../core/events.js'
+import { CARD_STOPPED, ROLE_LEASED, ROLE_RAISE_FAILED, ROLE_RAISED, ROLE_TO_OWNER } from '../../core/events.js'
 import { LEASE_MS } from '../../core/lease.js'
 import { projectionDump, reduce } from '../../core/reducer.js'
 import * as restartExecutor from '../../nodes/restart/restart-executor.js'
@@ -17,7 +17,7 @@ import { requestFromWindow } from '../../window/window-requests.js'
 
 const MIKO_HANDOFF = '/handoff/miko.md'
 const START = Date.parse('2026-10-22T10:00:00.000Z')
-const RAISE_EVENTS = [ROLE_LEASED, ROLE_RAISED, role.ROLE_RAISE_FAILED, CARD_STOPPED]
+const RAISE_EVENTS = [ROLE_LEASED, ROLE_RAISED, ROLE_RAISE_FAILED, CARD_STOPPED]
 
 function roleBus() {
   const root = mkdtempSync(path.join(tmpdir(), 'role-wait-'))
@@ -136,7 +136,7 @@ describe('a role stopped at a threshold', () => {
     expect(bus.worker.step()).toEqual({ kind: 'idle' })
     reduce(bus.db)
     expect(waits(bus.db)).toEqual([])
-    expect(countOf(bus.db, [role.ROLE_TO_OWNER])).toBe(0)
+    expect(countOf(bus.db, [ROLE_TO_OWNER])).toBe(0)
     bus.close()
   })
 
@@ -149,7 +149,7 @@ describe('a role stopped at a threshold', () => {
     expect(bus.worker.step()).toEqual({ kind: 'idle' })
     reduce(bus.db)
     expect(waits(bus.db)).toEqual([])
-    expect(countOf(bus.db, [role.ROLE_TO_OWNER])).toBe(0)
+    expect(countOf(bus.db, [ROLE_TO_OWNER])).toBe(0)
     bus.close()
   })
 

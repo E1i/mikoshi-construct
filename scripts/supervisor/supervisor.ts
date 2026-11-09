@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url'
 import { busDirOf, pinBus, snapshotPathOf } from '../core/bus-path.js'
 import { RUNNING_CARD } from '../core/card-automaton.js'
 import { appendEvent, defaultBusPath, openBus } from '../core/db.js'
-import { CARD_CONTINUED, CARD_STARTED, PROCESS_JUDGED, RESTARTED, TASK_EXPIRED, WORKER_DOWN } from '../core/events.js'
+import { CARD_CONTINUED, CARD_STARTED, MAIN_ADVANCED, PROCESS_JUDGED, RESTARTED, TASK_EXPIRED, WORKER_DOWN } from '../core/events.js'
 import { FACTORY_NAMED, FACTORY_RUNTIME, FACTORY_WORKERS } from '../core/factory-paths.js'
 import { RESTART_MISSED } from '../core/inbox.js'
 import { closeDrain, expireLeasesHeldBy, HOLDER_DEAD, HOLDER_UNPROVEN, judgeHolders, LEASE_MS, leasesHeldBy, openDrain, retireHolders, retiringPids, WORKER_HUNG } from '../core/lease.js'
@@ -87,11 +87,11 @@ export interface MainAdvance {
 }
 
 export function lastMainAdvance(db: DatabaseSync): number {
-  return Number((db.prepare(`SELECT coalesce(max(id), 0) AS id FROM events WHERE type = 'main.advanced'`).get() as { id: number }).id)
+  return Number((db.prepare(`SELECT coalesce(max(id), 0) AS id FROM events WHERE type = '${MAIN_ADVANCED}'`).get() as { id: number }).id)
 }
 
 export function mainAdvancedSince(db: DatabaseSync, afterId: number): MainAdvance[] {
-  return db.prepare(`SELECT id, payload FROM events WHERE type = 'main.advanced' AND id > ? ORDER BY id`).all(afterId).flatMap((row) => {
+  return db.prepare(`SELECT id, payload FROM events WHERE type = '${MAIN_ADVANCED}' AND id > ? ORDER BY id`).all(afterId).flatMap((row) => {
     const sha = (JSON.parse(String(row.payload)) as { sha?: unknown }).sha
     return typeof sha === 'string' ? [{ id: Number(row.id), sha }] : []
   })

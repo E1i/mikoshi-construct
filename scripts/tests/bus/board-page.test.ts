@@ -433,7 +433,7 @@ describe('board.html', () => {
     const limits = readEddiesLimits()
     const version = JSON.parse(readFileSync(path.resolve(import.meta.dirname, '../../../package.json'), 'utf8')) as { version: string }
     const warnLine = limits.warnRatio === null ? [] : [Math.round(limits.warnRatio * 100)]
-    const allowed = [load, cores, ...busNumbers(busPath), ...Object.values(limits).filter(value => typeof value === 'number'), ...limits.modelWindows.values(), ...warnLine, readModelVersion() ?? 0, ...version.version.split('.').map(Number), ...NOW.toISOString().split(/\D+/).filter(Boolean).map(Number)]
+    const allowed = [load, cores, ...busNumbers(busPath), ...Object.values(limits).filter(value => typeof value === 'number'), ...limits.modelWindows.values(), ...limits.cardLineBySize?.values() ?? [], ...warnLine, readModelVersion() ?? 0, ...version.version.split('.').map(Number), ...NOW.toISOString().split(/\D+/).filter(Boolean).map(Number)]
     const counts = Array.from({ length: 6 }, (_, at) => at)
     const tokens = [...visibleText(html).matchAll(/(?<![\w.#-])\d+(?:\.\d+)?[kM]?(?![\w.])/g)].map(match => match[0])
     expect(tokens).toEqual(expect.arrayContaining(['182k', '1.4M', '3M']))
@@ -628,7 +628,8 @@ describe('board.html', () => {
     const services = sectionOf(html, '<h2 id="h-services">', '<div class="svc-grid">')
     expect(services).toMatch(/<span class="meta">quickhacks on the subnet · agents at work <b>\d+<\/b> · slots <b>[^<]+<\/b><\/span>/)
     const cardLine = limits.cardContextLine === null ? '' : ` · card line <b>${limits.cardContextLine / 1000}k</b>`
-    expect(services).toContain(`<span class="meta right edd-note">eddies: warn line <b>${Math.round(limits.warnRatio! * 100)}%</b>${cardLine}</span>`)
+    const sizedLines = [...limits.cardLineBySize ?? []].filter(([, line]) => line !== limits.cardContextLine).map(([size, line]) => ` · ${size} <b>${line / 1000}k</b>`).join('')
+    expect(services).toContain(`<span class="meta right edd-note">eddies: warn line <b>${Math.round(limits.warnRatio! * 100)}%</b>${cardLine}${sizedLines}</span>`)
     const flowNote = sectionOf(html, '<div class="flow-note">', '</div>')
     expect(flowNote).toMatch(/<span class="fail"( data-none)?>last failure <b>[^<]+<\/b><\/span>/)
     const statusline = sectionOf(html, '<footer class="statusline"', '</footer>')

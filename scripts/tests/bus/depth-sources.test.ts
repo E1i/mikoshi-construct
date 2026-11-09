@@ -91,6 +91,30 @@ describe('git depth sources', () => {
     expect(plan).toMatchObject({ depth: 'diff', round: 'first', since: main, touchFindings: [] })
   })
 
+  it('an again round on a head that merged main diffs from the merge-base, so a file main brought in is not a change of the card', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'bus-depth-sources-'))
+    roots.push(root)
+    const repo = path.join(root, 'repo')
+    mkdirSync(repo)
+    git(repo, ['init', '--quiet', '-b', 'main'])
+    commit(repo, { 'docs/guide.md': 'one\n' })
+    git(repo, ['checkout', '--quiet', '-b', 'feature'])
+    const reviewed = commit(repo, { 'docs/guide.md': 'one\ntwo\n' })
+    git(repo, ['checkout', '--quiet', 'main'])
+    const main = commit(repo, { 'scripts/ports/prepare-tree.ts': 'export {}\n' })
+    git(repo, ['update-ref', 'refs/remotes/origin/main', main])
+    git(repo, ['checkout', '--quiet', 'feature'])
+    git(repo, ['merge', '--quiet', '--no-edit', 'main'])
+    const head = commit(repo, { 'docs/guide.md': 'one\ntwo\nthree\n' })
+    const run = (dir: string, args: string[]): string => args[0] === 'fetch' ? '' : git(dir, args)
+    const lease = { taskKey: `review:1971:1233:${head}`, queue: 'review' as const, cardId: 1971, pr: 1233, head, leaseGen: 1, actor: 'worker:review:x' }
+
+    const plan = gitReviewPlanner(repo, path.join(root, 'morse.jsonl'), () => null, run)(lease, { head: reviewed, verdict: 'changes', findings: ['docs/guide.md: the heading is wrong'] })
+
+    expect(git(repo, ['diff', '--name-only', reviewed, head]).split('\n')).toContain('scripts/ports/prepare-tree.ts')
+    expect(plan).toEqual({ depth: 'diff', round: 'again', why: `${reviewed}..${head} changes only files the earlier changes verdict's findings name`, since: main, reviewed, findings: ['docs/guide.md: the heading is wrong'] })
+  })
+
   it('still fails a fetch whose error is not a lost ref race, without a retry', () => {
     let fetches = 0
     const run = (_dir: string, args: string[]): string => {

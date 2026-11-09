@@ -28,6 +28,6 @@ export function regeneratedCheckFailedOutcome(failures: readonly string[]): stri
   return `regenerated check failed, no session: ${failures.join('; ')}; regenerate on the sketch or re-approve the brief`
 }
 
-export function approvalCarryEvent(task: string, approvedSketch: string, sketch: string | null, regenerated: readonly string[], now: Date): object {
+export function approvalCarryEvent(task: string, approvedSketch: string, sketch: string | null, regenerated: readonly string[], now: Date) {
   return { event: 'approval-carry', ts: now.toISOString(), task, kind: 'regenerated', approvedSketch, sketch, regenerated: [...regenerated] }
 }

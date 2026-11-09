@@ -9,7 +9,7 @@ import { describe, expect, it, vi } from 'vitest'
 import YAML from 'yaml'
 import { EVERY_CHANGE_READERS } from '../../../src/card/covering-tests.js'
 import { BUS_SERVICE, BUS_SHARED, CHANGESET_READERS, selectRun } from '../../ci/layers.js'
-import { changesSince, CI_DIFF, ciArgs, LINT_COMMAND, lintGate, PREPUSH_COMMAND, prepushGate, roundGate, roundLintArgs, roundOf, sessionArgs, testsVerdict } from '../../ci/prepush.js'
+import { changesSince, CI_DIFF, ciArgs, greenLine, LINT_COMMAND, lintGate, PREPUSH_COMMAND, prepushGate, roundGate, roundLintArgs, roundOf, sessionArgs, testsVerdict } from '../../ci/prepush.js'
 import { SANDBOX_FAILING } from '../../ci/sandbox-failing.js'
 import { missingInCi, staleInSandbox } from '../../ci/sandbox-liveness.js'
 import { reportedRun, runSummary } from '../../ci/select.js'
@@ -216,7 +216,7 @@ describe('the session pre-push runs the CI selector over the session diff', () =
     expect(() => roundOf(['--round'])).toThrow(/names no head/)
     expect(changesSince(read, round)).toEqual(['.changeset/answergate.md'])
     expect(selectRun(changesSince(read, round), graph, () => '')).toEqual({ kind: 'layers', layers: [], tests: [...new Set([...CHANGESET_READERS, ...EVERY_CHANGE_READERS.filter(test => graph.has(test))])].sort() })
-    expect(selectRun(changesSince(read, null), graph, () => '')).toMatchObject({ kind: 'full' })
+    expect(selectRun(changesSince(read, base), graph, () => '')).toMatchObject({ kind: 'full' })
     expect(roundGate(['pnpm typecheck', LINT_COMMAND, PREPUSH_COMMAND], round)).toEqual(['pnpm typecheck', `${PREPUSH_COMMAND} --round ${round}`])
     expect(roundGate(['pnpm run gate-of-the-tree', LINT_COMMAND], round)).toEqual(['pnpm run gate-of-the-tree', LINT_COMMAND])
     expect(roundLintArgs(['.changeset/answergate.md', 'scripts/gone.ts'], file => file.endsWith('.md'))).toEqual(['.changeset/answergate.md'])
@@ -258,7 +258,7 @@ describe('the session pre-push runs the CI selector over the session diff', () =
     expect(ofTheList.lines).toContain('stale: scripts/tests/notes/print.test.ts > print > spawns ps — no longer fails in the session sandbox: it passed')
     const liveness = vi.fn(() => stale)
     const ordinary = prepushGate(['scripts/notes/parse.ts'], green, liveness)
-    expect(ordinary).toEqual({ lines: ['prepush: green — 1 tests ran; the push may go.'], code: 0 })
+    expect(ordinary).toEqual({ lines: [greenLine(1)], code: 0 })
     expect(liveness).not.toHaveBeenCalled()
     expect(workflow.jobs['sandbox-list']!.steps.at(-1)).toEqual({ if: 'needs.changes.outputs.liveness == \'true\'', run: 'pnpm exec tsx scripts/ci/sandbox-liveness.ts --ci' })
   })

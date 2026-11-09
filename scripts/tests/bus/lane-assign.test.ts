@@ -678,6 +678,13 @@ describe('a shared-append file chains no two cards in any lane decision', () => 
     expect([bench.lane(3), bench.lane(5)]).toEqual(['lane-2', 'lane-1'])
   })
 
+  it('two cards whose only shared touch is scripts/ci/sandbox-failing.jsonl do not wait for each other', () => {
+    process.chdir(startDir)
+    const bench = new Bench(3).admit(1, 'scripts/ci/sandbox-failing.jsonl, src/a.ts').admit(2, 'scripts/ci/sandbox-failing.jsonl, src/b.ts')
+    expect(bench.lane(2)).not.toBe(bench.lane(1))
+    expect(bench.launchable()).toEqual([1, 2])
+  })
+
   it('a reflow moves a waiting card that shares only the file with a running card', () => {
     declaringShared()
     const bench = new Bench(2).admit(1, SHARED).admit(2, 'src/b.ts').start(1).start(2).admit(3, SHARED).admit(4, 'src/d.ts')

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { BUS_VERSION, BUS_VERSION_RECORD } from '../../core/bus-version.js'
 import { openBus } from '../../core/db.js'
-import { catalogueOf, writtenEvents } from './payloads.js'
+import { catalogueOf, typedReading, writtenEvents } from './payloads.js'
 import { parsedFiles } from './walk.js'
 
 export interface BusSection {
@@ -35,10 +35,12 @@ function tablesOfAScratchBus(): Record<string, string[]> {
 }
 
 export function busSection(root: string): BusSection {
-  const files = parsedFiles(root)
+  const { files, checker } = typedReading(root, parsedFiles(root))
   const catalogue = files.find(({ file }) => file === EVENTS_MODULE)
   if (catalogue === undefined)
     throw new Error(`${EVENTS_MODULE} is not under ${root}, so the bus section has no event types to read`)
-  const written = writtenEvents(files, catalogueOf(catalogue))
+  const written = writtenEvents(files, catalogueOf(catalogue), checker)
+  if (written.refused.length > 0)
+    throw new Error(`a writer writes a payload key ${EVENTS_MODULE} does not declare: ${written.refused.map(({ type, key, file }) => `${type}.${key} in ${file}`).join(', ')}`)
   return { busVersion: BUS_VERSION, versionRecord: BUS_VERSION_RECORD, events: written.events, eventsOutsideTheCatalogue: written.outsideTheCatalogue, tables: tablesOfAScratchBus() }
 }

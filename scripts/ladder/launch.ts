@@ -298,8 +298,9 @@ function signalOf(task: PreparedTask, baseSha: string, byMorse: ReadonlySet<stri
   }
 }
 
-function launchEntryEvent(task: PreparedTask, baseSha: string, byMorse: ReadonlySet<string>): object {
-  return { ...entryEvent(task.id, signalOf(task, baseSha, byMorse), new Date().toISOString()), card: task.card }
+function launchEntryEvent(task: PreparedTask, baseSha: string, byMorse: ReadonlySet<string>) {
+  const signal = signalOf(task, baseSha, byMorse)
+  return { ...entryEvent(task.id, signal, new Date().toISOString()), ...signal, card: task.card }
 }
 
 function describeTask(task: PreparedTask, baseSha: string, byMorse: ReadonlySet<string>, style: SignalStyle): string[] {
@@ -310,7 +311,7 @@ function journalPathOf(out: string): string {
   return path.join(out, 'ghosts.jsonl')
 }
 
-function ownerAllowsEvents(prepared: PreparedTask[], ownerAllows: number[]): object[] {
+function ownerAllowsEvents(prepared: PreparedTask[], ownerAllows: number[]) {
   const ts = new Date().toISOString()
   return ownerAllows.map(card => ({ event: 'owner-allows', card, tasks: prepared.filter(task => task.card.id === card).map(task => task.id), ts }))
 }

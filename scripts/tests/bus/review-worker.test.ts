@@ -1268,6 +1268,7 @@ async function changesThenNewHead(pr: number, finding: string, fix: ChangedFile[
   const world = new DepthWorld()
     .change(MERGE_BASE, sha('a'), [edited('docs/guide.md', 30, 0), edited('docs/cli.md', 12, 0)])
     .change(sha('a'), sha('b'), fix)
+    .change(MERGE_BASE, sha('b'), [edited('docs/guide.md', 30, 0), edited('docs/cli.md', 12, 0)])
     .card(pr + 100, ['docs/**'])
   const seen: Seen[] = []
   bench.gitHub.open({ number: pr })
@@ -1353,16 +1354,16 @@ describe('review depth by MORSE', () => {
     bench.db.close()
   })
 
-  it('a re-review after changes reads only the diff from the last verdict head and checks its findings are closed', async () => {
+  it('a re-review after changes reads the diff from the merge-base, names the last verdict head and checks its findings are closed', async () => {
     const finding = 'docs/guide.md: the example names a flag the CLI does not have'
     const { bench, world, seen } = await changesThenNewHead(965, finding, [edited('docs/guide.md')])
 
     expect(seen.map(each => each.plan.depth)).toEqual(['diff', 'diff'])
-    expect(seen[1]!.plan).toEqual({ depth: 'diff', round: 'again', why: `${sha('a')}..${sha('b')} changes only files the earlier changes verdict's findings name`, since: sha('a'), findings: [finding] })
-    expect(world.asked).toEqual([`${MERGE_BASE}..${sha('a')}`, `${sha('a')}..${sha('b')}`])
+    expect(seen[1]!.plan).toEqual({ depth: 'diff', round: 'again', why: `${sha('a')}..${sha('b')} changes only files the earlier changes verdict's findings name`, since: MERGE_BASE, reviewed: sha('a'), findings: [finding] })
+    expect(world.asked).toEqual([`${MERGE_BASE}..${sha('a')}`, `${MERGE_BASE}..${sha('b')}`, `${sha('a')}..${sha('b')}`])
     expect(world.predictions).toHaveLength(1)
     const prompt = reviewPrompt(seen[1]!.lease, seen[1]!.plan, '/t', '/v.json')
-    expect(prompt).toContain(`check that each finding of the earlier verdict is closed, one still open stays a finding, and explore the diff ${sha('a')}..${sha('b')}`)
+    expect(prompt).toContain(`check that each finding of the earlier verdict is closed, one still open stays a finding, and explore the diff ${MERGE_BASE}..${sha('b')}`)
     expect(prompt).toContain('a regression outside the diff that the change causes')
     expect(prompt).toContain('a new finding on code the change neither touches nor affects, which the first pass already read, is not allowed')
     expect(prompt).toContain(`Earlier finding: ${finding}`)
@@ -1375,9 +1376,9 @@ describe('review depth by MORSE', () => {
     const finding = 'docs/guide.md: the heading is wrong'
     const { bench, seen } = await changesThenNewHead(966, finding, [edited('docs/guide.md'), edited('docs/cli.md')])
 
-    expect(seen[1]!.plan).toEqual({ depth: 'diff', round: 'again', why: `${sha('a')}..${sha('b')} also changes docs/cli.md, which no finding of the earlier changes verdict names`, since: sha('a'), findings: [finding] })
+    expect(seen[1]!.plan).toEqual({ depth: 'diff', round: 'again', why: `${sha('a')}..${sha('b')} also changes docs/cli.md, which no finding of the earlier changes verdict names`, since: MERGE_BASE, reviewed: sha('a'), findings: [finding] })
     const prompt = reviewPrompt(seen[1]!.lease, seen[1]!.plan, '/t', '/v.json')
-    expect(prompt).toContain(`explore the diff ${sha('a')}..${sha('b')}`)
+    expect(prompt).toContain(`explore the diff ${MERGE_BASE}..${sha('b')}`)
     expect(prompt).toContain(`Earlier finding: ${finding}`)
     expect(prompt).not.toContain('Review the whole pull request')
     expect(events(bench.db, 'review.recorded').map(payload => payload.depth)).toEqual(['diff', 'diff'])

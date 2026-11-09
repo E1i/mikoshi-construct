@@ -93,7 +93,9 @@ export const REBUILT_ON_UPDATE: readonly { path: string, rebuild: readonly strin
   RATCHET_FILE,
 ]
 
-export const SHARED_APPEND_PATHS: readonly string[] = REBUILT_ON_UPDATE.map(row => row.path)
+export const APPEND_ONLY_LOGS: readonly string[] = ['scripts/ci/sandbox-failing.jsonl']
+
+export const SHARED_APPEND_PATHS: readonly string[] = [...REBUILT_ON_UPDATE.map(row => row.path), ...APPEND_ONLY_LOGS]
 
 export const GENERATORS: readonly { path: string, command: string }[] = ROWS.flatMap(row => row.rebuild === null ? [] : [{ path: row.path, command: commandLine(row.rebuild) }])
 
@@ -106,7 +108,7 @@ export function commandLine(args: readonly string[]): string {
 }
 
 export function isRebuiltOnUpdate(file: string): boolean {
-  return SHARED_APPEND_PATHS.includes(file)
+  return REBUILT_ON_UPDATE.some(row => row.path === file)
 }
 
 export function rebuildsOf(files: readonly string[]): (readonly string[])[] {

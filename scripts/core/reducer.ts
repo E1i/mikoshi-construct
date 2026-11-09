@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { EventType } from './events.js'
 import type { Fold, StoredEvent } from './stored.js'
 import type { IncrementalProjection } from './watermark.js'
 import { realpathSync } from 'node:fs'
@@ -12,7 +13,7 @@ import { CARD_FOLDS, cardLinkObserved, cardPrMerged, cardPrOpened, CARDS_PROJECT
 import { CARD_BODIES, foldCardBody } from './card-bodies.js'
 import { CHAINS_PROJECTION } from './chain.js'
 import { appendEvent, CLOSED_WAIT, defaultBusPath, inTransaction, isOwnerWaitNeed, OPEN_WAIT, openBus, OWNER_WAIT_NEEDS, OWNER_WAITS, WAIT_ID } from './db.js'
-import { CARD_ADMITTED, CARD_CLOSED, CARD_DROPPED, CARD_MOVED, CARD_PLANNED, CARD_UNPLANNED, CARD_WAITING, CLOSED_PLAN, DECISION_RECORDED, DECISIONS_IMPORTED, MERGE_DONE, OPEN_PLAN, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PLAN_BACKFILLED, PLAN_CLOSED, PLAN_ITEM_ADDED, PLAN_ITEM_LINKED, PLAN_ITEM_REMOVED, PLAN_OPENED, PR_OPENED, WITNESS_DOWNGRADE } from './events.js'
+import { CARD_ADMITTED, CARD_CLOSED, CARD_DROPPED, CARD_MOVED, CARD_PLANNED, CARD_UNPLANNED, CARD_WAITING, catalogued, CLOSED_PLAN, DECISION_RECORDED, DECISIONS_IMPORTED, MAIN_ADVANCED, MERGE_DONE, OPEN_PLAN, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PLAN_BACKFILLED, PLAN_CLOSED, PLAN_ITEM_ADDED, PLAN_ITEM_LINKED, PLAN_ITEM_REMOVED, PLAN_OPENED, PR_CLOSED, PR_OBSERVED, PR_OPENED, WITNESS_DOWNGRADE } from './events.js'
 import { cardIdOf, isFullSha, prOf } from './identifiers.js'
 import { OWNER } from './inbox.js'
 import { TASKS_PROJECTION } from './queue.js'
@@ -485,10 +486,14 @@ export const PLAN_FOLDS: Record<string, Fold> = {
   [PLAN_BACKFILLED]: planBackfilled,
 }
 
+export function reducedTypesOf(folds: Record<string, Fold>): EventType[] {
+  return Object.keys(folds).map(catalogued)
+}
+
 const REDUCERS: Record<string, Fold> = {
-  'pr.observed': prObserved,
-  'pr.closed': prClosed,
-  'main.advanced': mainAdvanced,
+  [PR_OBSERVED]: prObserved,
+  [PR_CLOSED]: prClosed,
+  [MAIN_ADVANCED]: mainAdvanced,
   [PR_OPENED]: prOpened,
   ...TASKS_PROJECTION.folds,
   ...CHAINS_PROJECTION.folds,
@@ -518,7 +523,7 @@ const NO_SECOND_KEY = `''`
 const PROJECTION_TABLES = Object.keys(PROJECTION_KEYS)
 const PROJECTION_SEQUENCES = `name IN (${PROJECTION_TABLES.map(table => `'${table}'`).join(', ')})`
 const SEQUENCE_SNAPSHOT = 'projection_sequence_snapshot'
-const REDUCED_TYPES = Object.keys(REDUCERS)
+export const REDUCED_TYPES = reducedTypesOf(REDUCERS)
 const ROW_WRITES = { insert: ['NEW'], update: ['OLD', 'NEW'], delete: ['OLD'] } as const
 const FOREIGN_REFERENCE = /\s+REFERENCES\s+\w+\s*\(\w+\)/g
 

@@ -1,5 +1,5 @@
 import type { InForceDecision } from './decisions.js'
-import { OWNER_SOURCE } from './decisions/decisions.js'
+import { decisionCommand, OWNER_SOURCE } from './decisions/decisions.js'
 
 const OWNER_PREFIX = `${OWNER_SOURCE.replace(/[[\]]/g, '\\$&')} `
 const UNTIL_TAIL = ' · until \\S+'
@@ -17,5 +17,5 @@ export function liveDecisionOf(decisions: readonly InForceDecision[], queue: str
 }
 
 export function allowLiveCommand(queue: string): string {
-  return `pnpm decisions:add "${OWNER_SOURCE} ${allowLiveText(queue)}"`
+  return decisionCommand(allowLiveText(queue))
 }

@@ -17,6 +17,8 @@ const GHOST_JOURNAL = 'ghosts.jsonl'
 const JOURNAL_VERSION = 1
 const THRESHOLDS = ['contextLimit', 'sessionSpend', 'agentSpend', 'runSpend', 'warnRatio']
 const CARD_LINE = 'cardContextLine'
+const CARD_LINE_BY_SIZE = 'cardContextLineBySize'
+const CARD_SIZE_VARIABLE = 'CONSTRUCT_CARD_SIZE'
 const CONTEXT_LINE_EVENT = 'context-line'
 const CARD_LINE_ACTION = 'write the handoff and stop — the bus continues this card in a fresh session from it and pushes nothing'
 const NEW_WORK_TOOLS = ['Agent', 'Workflow']
@@ -64,6 +66,10 @@ function positiveNumber(value) {
   return typeof value === 'number' && Number.isFinite(value) && value > 0
 }
 
+function isLineBySize(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value) && Object.values(value).every(positiveNumber)
+}
+
 function readConfig(root) {
   let text
   try {
@@ -81,6 +87,8 @@ function readConfig(root) {
   }
   if (config[CARD_LINE] !== undefined && !positiveNumber(config[CARD_LINE]))
     throw new Unread(`config-${CARD_LINE}-invalid`)
+  if (config[CARD_LINE_BY_SIZE] !== undefined && !isLineBySize(config[CARD_LINE_BY_SIZE]))
+    throw new Unread(`config-${CARD_LINE_BY_SIZE}-invalid`)
   if (config.warnRatio > 1)
     throw new Unread('config-warnRatio-invalid')
   return config
@@ -156,10 +164,16 @@ function subagentsDirOf(transcript) {
   return path.join(transcript.replace(/\.jsonl$/, ''), 'subagents')
 }
 
+function cardLineOf(config) {
+  const size = process.env[CARD_SIZE_VARIABLE]
+  const lines = config[CARD_LINE_BY_SIZE]
+  if (lines !== undefined && size !== undefined && Object.hasOwn(lines, size))
+    return { limit: lines[size], limitName: `${CARD_LINE_BY_SIZE}.${size}`, absolute: true }
+  return config[CARD_LINE] === undefined ? null : { limit: config[CARD_LINE], limitName: CARD_LINE, absolute: true }
+}
+
 function contextThresholdOf(config) {
-  if (isCardSession() && config[CARD_LINE] !== undefined)
-    return { limit: config[CARD_LINE], limitName: CARD_LINE, absolute: true }
-  return { limit: config.contextLimit, limitName: 'contextLimit' }
+  return (isCardSession() ? cardLineOf(config) : null) ?? { limit: config.contextLimit, limitName: 'contextLimit' }
 }
 
 function sessionGauges({ addTokens, agentTranscriptsUnder, CONTEXT_BASIS, contextOf, readTranscript, SPEND_BASIS, spentOf, sumTranscripts }, root, transcript, config, caller) {

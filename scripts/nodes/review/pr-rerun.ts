@@ -32,7 +32,7 @@ export interface CardPull {
 interface Written {
   result: CommandResult
   detail: string
-  fields?: Record<string, unknown>
+  fields?: { runs: number[], run?: number }
 }
 
 type Prepared<W>

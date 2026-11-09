@@ -37,7 +37,7 @@ branch included, makes a new head, and the pull request is ready again only once
 
 The coordinating window stops at a boundary rather than at the limit. It checks the boundary after each finished step.
 The boundary is the stop reason `stopReasonOf` in `scripts/window/exit.ts` decides: the context warn (`contextLimit` ×
-`warnRatio`, a session with `CONSTRUCT_CARD`: `cardContextLine`), the spend warn (`sessionSpend` × `warnRatio`), all in
+`warnRatio`, a session with `CONSTRUCT_CARD`: `cardContextLineBySize[CONSTRUCT_CARD_SIZE]`, else `cardContextLine`), the spend warn (`sessionSpend` × `warnRatio`), all in
 `.claude/eddies.json`, a core change, or `STATUS: DONE`. From then on it takes no new work.
 It waits for the subagents it started itself, writes their results into the handoff, and stops. The wait is
 mechanical: a `SubagentStart` and a `SubagentStop` hook (`.claude/hooks/window-agents.mjs`) pair each subagent by its
@@ -49,7 +49,7 @@ either session threshold is reached, an agent's or a workflow run's further call
 records each stop in `.construct/eddies.jsonl`; the thresholds live only in `.claude/eddies.json`. A line there names the
 `task` whose `task:start` line in `ghosts.jsonl` carries the session, and has no `task` when none does. No flag switches Eddies off in Ghost Protocol yet; #394 asks for one.
 
-A launch or answer session at the context warn (a `context-line` event at `cardContextLine`, an absolute value `warnRatio` does not apply to; with the key absent, a `budget-warn` of level `session-context` at `contextLimit` × `warnRatio`)
+A launch or answer session at the context warn (a `context-line` event at the line of its card's size, `cardContextLineBySize` read through `CONSTRUCT_CARD_SIZE`, or at `cardContextLine` when the size is unknown, an absolute value `warnRatio` does not apply to; with the key absent, a `budget-warn` of level `session-context` at `contextLimit` × `warnRatio`)
 writes a handoff and stops, and the bus pushes nothing: it continues the card in a fresh session from that handoff, whatever
 the card's `continue` field says. A launch report with no valid handoff stops the card with `continuation-refused`, and past
 `MAX_RESTARTS` in `scripts/nodes/launch/continuation.ts` the card stops with `continuation-limit`, both with no push. At the
