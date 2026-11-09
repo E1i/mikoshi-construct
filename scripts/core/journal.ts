@@ -5,7 +5,7 @@ import { randomUUID } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
 import process from 'node:process'
 import { appendEvent, BUSY_TIMEOUT_MS, defaultBusPath, openBus } from './db.js'
-import { GHOST_LINE } from './events.js'
+import { declaredPayload, GHOST_LINE } from './events.js'
 import { cardIdOf } from './identifiers.js'
 import { legacyHistory } from './legacy-history.js'
 import { openDatabase } from './sqlite.js'
@@ -54,7 +54,7 @@ export function recordGhostLine(writer: string, line: object, busPath: string = 
       pr: null,
       head: null,
       dedupeKey: `${GHOST_LINE}:${randomUUID()}`,
-      payload: line,
+      payload: declaredPayload(GHOST_LINE, line),
       legacy: false,
     })
   }
@@ -101,6 +101,6 @@ export function journalText(journalPath: string, busPath: string = defaultBusPat
   return withGhostLines(existsSync(journalPath) ? readFileSync(journalPath, 'utf8') : null, busPath)
 }
 
-export function taskLine(entry: JournalEntry, ts: string = new Date().toISOString()): GhostLine {
+export function taskLine(entry: JournalEntry, ts: string = new Date().toISOString()) {
   return { event: 'task', ts, ...entry, review: null }
 }

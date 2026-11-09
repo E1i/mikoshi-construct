@@ -78,7 +78,7 @@ const LADDER_STOPS_THAT_ARE_NOT_FALLS = new Set(['done', 'base moved'])
 
 export const FALL_ACTOR_PREFIX = 'worker:ladder:'
 
-export function fallEvent(card: number, kind: FallKind, ts: string = new Date().toISOString()): object {
+export function fallEvent(card: number, kind: FallKind, ts: string = new Date().toISOString()) {
   return { event: 'fall', card, kind, ts }
 }
 

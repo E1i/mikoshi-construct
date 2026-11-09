@@ -1,5 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { BusEvent } from '../../core/db.js'
+import type { EventPayload } from '../../core/events.js'
 import type { AfterFailure, Lease, SUPERSEDED_LEASE } from '../../core/lease.js'
 import type { RoundReview } from '../../core/queue.js'
 import type { LimitRule } from '../../policy/round-limit-decision.js'
@@ -72,7 +73,7 @@ interface Reviewed {
 
 type Held = Exclude<Isolation, { level: 'none' }>
 
-function isolationFields(isolation: Held | null): Record<string, unknown> {
+function isolationFields(isolation: Held | null): EventPayload<typeof REVIEW_RECORDED> {
   return isolation === null ? {} : { isolation: isolation.level, isolationGaps: isolation.gaps }
 }
 
@@ -189,11 +190,11 @@ export function repeatStopLine(pr: number): string {
   return `Review stopped on a repeat: every finding of this round on PR #${pr} repeats an earlier round, so another answer would spend its tokens on what answers already did not close. The bus queues no further review or answer for it and does not merge it; it goes the way of the round limit (D-104), a re-cut or an owner decision. The findings are in the bus event ${REVIEW_ROUNDS_SPENT}.`
 }
 
-function treeFields({ tree }: Review): Record<string, unknown> {
+function treeFields({ tree }: Review): EventPayload<typeof REVIEW_RECORDED> {
   return tree === undefined ? {} : { tree_origin: tree.origin, treeBefore: tree.before, treeAfter: tree.after, treeMutated: tree.mutated }
 }
 
-function inputFields(prompts: string | undefined, plan: ReviewPlan, input: SessionInput | undefined): Record<string, unknown> {
+function inputFields(prompts: string | undefined, plan: ReviewPlan, input: SessionInput | undefined): EventPayload<typeof REVIEW_RECORDED> {
   const stored = storedInput(prompts, input)
   return 'prompt_sha' in stored && plan.depth === 'diff' ? { ...stored, since: plan.since } : stored
 }
