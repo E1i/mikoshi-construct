@@ -5,7 +5,7 @@ export interface Unbaselined {
   unbaselined: string
 }
 
-export const SECTIONS = ['commands', 'exits', 'jsonKeys', 'formats', 'paths', 'markers', 'contours', 'outside'] as const
+export const SECTIONS = ['commands', 'exits', 'jsonKeys', 'jsonForms', 'unknownFlag', 'formats', 'paths', 'markers', 'contours', 'outside'] as const
 
 export type Section = typeof SECTIONS[number]
 
@@ -135,12 +135,16 @@ const SECTION_DIFF: { [K in Section]: Compare<SectionReadings[K]> } = {
     ...setDiff(`${at}.discover.tags`, base.discover.tags, head.discover.tags),
     ...setDiff(`${at}.discover.markers`, base.discover.markers, head.discover.markers),
   ],
+  jsonForms: (at, base, head) => recordDiff(at, base, head, setDiff),
+  unknownFlag: (at, base, head) => recordDiff(at, base, head, valueDiff),
   contours: (at, base, head) => recordDiff(at, base, head, valueDiff),
   outside: outsideDiff,
 }
 
+const SECTIONS_A_BASE_MAY_PREDATE: Partial<{ [K in Section]: SectionReadings[K] }> = { jsonForms: {}, unknownFlag: {} }
+
 function sectionDiff<K extends Section>(section: K, base: SurfaceReading, head: SurfaceReading): Change[] {
-  const recorded = base[section]
+  const recorded = base[section] ?? SECTIONS_A_BASE_MAY_PREDATE[section]
   const observed = head[section]
   if (isUnbaselined(recorded))
     return [breaking(`${section}: unbaselined in the base (${recorded.unbaselined}), so every item in it counts as changed`)]
