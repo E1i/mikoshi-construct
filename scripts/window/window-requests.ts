@@ -3,7 +3,6 @@ import type { AdmitResult } from '../../src/commands/intake/admit.js'
 import type { AmendFlags } from '../../src/commands/intake/amend.js'
 import type { CardAdmissionsPort, CardEventPort } from '../../src/commands/intake/index.js'
 import type { QueueTaskRow as TaskRow } from '../core/card-hold.js'
-import type { BusEvent } from '../core/db.js'
 import type { StoredEvent } from '../core/stored.js'
 import type { AmendedStop } from '../nodes/answer/answer-executor.js'
 import type { DryRunRecord } from '../nodes/review/dry-run-record.js'
@@ -25,13 +24,13 @@ import { appendCardEvent, bodyNotFoldedYet, CARD_BODIES, cardBodyText, FACTORY_M
 import { answersWithdrawnByAClosedHold, holdLayersOf, holdThatStays, ownerHoldGround } from '../core/card-hold.js'
 import { appendEvent, CLOSED_WAIT, closeOwnerWait, defaultBusPath, inTransaction, isOwnerWaitNeed, OPEN_WAIT, openBus, openOwnerWait, OWNER_WAIT_NEEDS, OWNER_WAITS } from '../core/db.js'
 import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_DROPPED, CARD_HELD, CARD_PLANNED, CARD_RELEASED, CARD_STARTED, CARD_STOPPED, CARD_TAKEOVER, CARD_UNPLANNED, declaredPayload, FACTORY_MODE, NUMBERS_FOREIGN, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PLAN_BACKFILLED, PLAN_CLOSED, PLAN_OPENED, POLICY_DENIED, PR_OBSERVED, REQUEST_DONE, REQUEST_REFUSED, SHARD_DECIDED, TASK_REQUEUED, WINDOW_REQUEST, WITNESS_RECORDED } from '../core/events.js'
-import { cardIdOf, generationOfKey, isFullSha, prOf } from '../core/identifiers.js'
+import { cardIdOf, isFullSha, prOf } from '../core/identifiers.js'
 import { ANSWER_SOURCE, OPEN_OWNER_STOP_OF_CARD, OWNER } from '../core/inbox.js'
 import { legacyHistory } from '../core/legacy-history.js'
-import { changesRoundsOf, closedByRounds, FAILURES_TO_STOP, latestTurnOf, LEASED, QUEUE_ACTOR, QUEUED, REVIEW_ROUNDS, TASK_FOLDS } from '../core/queue.js'
+import { changesRoundsOf, closedByRounds, FAILURES_TO_STOP, latestTurnOf, LEASED, QUEUE_ACTOR, QUEUED, REVIEW_ROUNDS } from '../core/queue.js'
 import { storedByKey } from '../core/stored.js'
 import { INTAKE_ACTOR_PREFIX } from '../intake/admissions.js'
-import { answerToResumeAfterAmend } from '../nodes/answer/answer-executor.js'
+import { answerToResumeAfterAmend, queueAgain } from '../nodes/answer/answer-executor.js'
 import { openPrOfCard, ownerHoldOf } from '../nodes/answer/answer-source.js'
 import { layLanes, repositoryLanes } from '../nodes/launch/lane-assign.js'
 import { cleanUpdatesOf } from '../nodes/update/update-done.js'
@@ -298,7 +297,7 @@ export class WindowRequests {
     const task = answerToResumeAfterAmend(this.db, cardId, stop, text(payload.touches))
     try {
       if (typeof task !== 'string')
-        inTransaction(this.db, () => this.appendRequeue(this.clock().toISOString(), request, task))
+        inTransaction(this.db, () => queueAgain(this.db, this.clock().toISOString(), task, request, `request-${request}`))
       return typeof task === 'string' ? task : `the stop ${stop.id} is settled: its answer ${task.task_key} queued again`
     }
     catch (error) {
@@ -565,7 +564,7 @@ export class WindowRequests {
     if (holds !== null)
       return { done: false, why: `the cause of ${BOARD_ALARM} ${alarm.id} holds: ${holds}` }
     try {
-      inTransaction(this.db, () => this.appendRequeue(ts, request, task))
+      inTransaction(this.db, () => queueAgain(this.db, ts, task, request, `request-${request}`))
     }
     catch (error) {
       return { done: false, why: messageOf(error) }
@@ -586,7 +585,7 @@ export class WindowRequests {
       const opened = holdLayersOf(this.db, cardId).opened
       appendEvent(this.db, { ts, type, actor: QUEUE_ACTOR, cardId, pr: null, head: null, dedupeKey: `${type}:request-${request}`, payload: { request, ...(reason === null ? {} : { reason }) }, legacy: false })
       const withdrawn = type === CARD_RELEASED ? answersWithdrawnByAClosedHold(this.db, cardId, opened) : []
-      withdrawn.forEach(task => this.appendRequeue(ts, request, task))
+      withdrawn.forEach(task => queueAgain(this.db, ts, task, request, `request-${request}`))
       return withdrawn.map(task => task.task_key)
     })
     const stays = type === CARD_RELEASED ? holdThatStays(this.db, cardId) : null
@@ -733,14 +732,6 @@ export class WindowRequests {
     if (this.db.prepare(RELEASE_OPEN_IN_THE_LOG).get(plan) === undefined)
       return `${type}: release ${plan} is not open`
     return { release: plan, card }
-  }
-
-  private appendRequeue(ts: string, request: number, task: TaskRow): void {
-    const plain = { queue: task.queue, cardId: task.card_id, pr: task.pr ?? undefined, head: task.head ?? undefined }
-    const generation = generationOfKey(task.task_key, plain)
-    const event: BusEvent = { ts, type: TASK_REQUEUED, actor: QUEUE_ACTOR, cardId: task.card_id, pr: task.pr, head: task.head, dedupeKey: `${TASK_REQUEUED}:${task.task_key}:request-${request}`, payload: { task_key: task.task_key, queue: task.queue, ...(generation === undefined ? {} : { generation }), request }, legacy: false }
-    if (appendEvent(this.db, event))
-      TASK_FOLDS[TASK_REQUEUED]!(this.db, storedByKey(this.db, event.dedupeKey))
   }
 }
 
