@@ -293,10 +293,8 @@ export function printIntake(ui: Ui, result: IntakeResult): number {
   for (const card of result.cards) {
     if (result.status === 'dryRun')
       ui.line(card.text)
-    else if (result.status === 'awaiting' && card.whole !== undefined)
-      ui.line(ui.lore.intakeWholeCard(card.line, card.whole))
     else if (result.status === 'awaiting')
-      ui.line(ui.lore.intakeAwaitingCard(card.line))
+      ui.line(ui.lore.intakeAwaitingCard(card.line, card.whole))
     else if (result.inBus)
       ui.ok(ui.lore.intakeAdmitted(`#${card.id}`, card.line, true))
     else
