@@ -1,5 +1,7 @@
 {
   "files": {
+    ".dependency-cruiser-known-violations.json": "ci",
+    ".dependency-cruiser.mjs": "ci",
     "contract/accepted.json": "contract",
     "contract/factory.json": "contract",
     "contract/ratchet.json": "contract",
