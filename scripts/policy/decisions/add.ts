@@ -1,5 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { OwnerDecision } from '../decisions.js'
+import type { Decision } from './decisions.js'
 import { realpathSync } from 'node:fs'
 import os from 'node:os'
 import process from 'node:process'
@@ -103,6 +104,12 @@ export function sourceRefusal(text: string): string | null {
   return `${PREFIX}${source}: decisions:add writes only the owner's own words, a record that starts with ${OWNER_SOURCE}; nothing written`
 }
 
+function wholeNumbersLeaving(decisions: readonly Decision[], outOfForce: ReadonlySet<number>): Decision[] {
+  const leaving = decisions.filter(decision => decision.supersededBy !== null || outOfForce.has(decision.line))
+  const staying = new Set(decisions.filter(decision => !leaving.includes(decision)).map(decision => decision.number))
+  return leaving.filter(decision => !staying.has(decision.number))
+}
+
 export function planAdd(read: string, archive: string, { text: record, supersedes, cards, until }: AddArgs, now: Date, settled: (card: number) => boolean = () => false, held: readonly number[] = []): AddPlan | string {
   const text = settleSupersedes(read, archive)
   const { decisions } = parseDecisions(text)
@@ -111,13 +118,13 @@ export function planAdd(read: string, archive: string, { text: record, supersede
   const number = Math.max(0, ...decisions.map(decision => decision.number), ...archivedNumbers, ...held) + 1
   const lines = text.split('\n')
   for (const target of supersedes) {
-    const decision = decisions.find(candidate => candidate.number === target)
-    if (decision === undefined)
+    const records = decisions.filter(candidate => candidate.number === target)
+    if (records.length === 0)
       return `${PREFIX}--supersedes D-${target}: not a decision in the file; nothing written`
-    if (decision.supersededBy === null)
+    for (const decision of records.filter(record => record.supersededBy === null))
       lines[decision.line - 1] = `${lines[decision.line - 1]!.trimEnd()} · superseded-by D-${number}`
   }
-  const marked = parseDecisions(lines.join('\n')).decisions.filter(decision => decision.supersededBy !== null || outOfForce.has(decision.line))
+  const marked = wholeNumbersLeaving(parseDecisions(lines.join('\n')).decisions, outOfForce)
   const movedLines = new Set(marked.map(decision => decision.line))
   const kept = lines.filter((_, index) => !movedLines.has(index + 1))
   const line = `- D-${number} · ${stampOf(now)} — ${record}${cardTail(cards)}${untilTail(until)} · ${WRITER_MARKER}`
@@ -129,6 +136,35 @@ export function planAdd(read: string, archive: string, { text: record, supersede
     archive: moved === '' ? archive : `${archive === '' ? ARCHIVE_HEADER : archive.replace(/\n*$/, '\n')}${moved}`,
     archived: marked.map(decision => decision.number),
   }
+}
+
+interface HeldFiles {
+  file: string
+  archive: string
+  archiveExisted: boolean
+}
+
+const ISSUE_ATTEMPTS = 5
+
+function heldFiles(file: string, archiveFile: string, deps: DecisionsAddDeps): HeldFiles {
+  const archiveExisted = deps.exists(archiveFile)
+  return { file: deps.read(file), archive: archiveExisted ? deps.read(archiveFile) : '', archiveExisted }
+}
+
+function sameFiles(a: HeldFiles, b: HeldFiles): boolean {
+  return a.file === b.file && a.archive === b.archive && a.archiveExisted === b.archiveExisted
+}
+
+function issueNumber(file: string, archiveFile: string, deps: DecisionsAddDeps, plan: (held: HeldFiles) => AddPlan | string): { plan: AddPlan, held: HeldFiles } | string {
+  for (let attempt = 0; attempt < ISSUE_ATTEMPTS; attempt += 1) {
+    const held = heldFiles(file, archiveFile, deps)
+    const planned = plan(held)
+    if (typeof planned === 'string')
+      return planned
+    if (sameFiles(held, heldFiles(file, archiveFile, deps)))
+      return { plan: planned, held }
+  }
+  return `${PREFIX}${file} changed under each of ${ISSUE_ATTEMPTS} attempts to issue the next number; nothing written`
 }
 
 function recordFailure(error: unknown): string {
@@ -152,20 +188,25 @@ export function runDecisionsAdd(args: string[], deps: DecisionsAddDeps): number 
     return 1
   }
   const archiveFile = archiveOf(file)
-  const original = deps.read(file)
-  const archiveExisted = deps.exists(archiveFile)
-  const originalArchive = archiveExisted ? deps.read(archiveFile) : ''
   const now = deps.now()
-  const plan = planAdd(original, originalArchive, parsed, now, card => parsed.settled.includes(card) || deps.settled(card), deps.held?.() ?? [])
-  if (typeof plan === 'string') {
-    deps.err(plan)
+  const settled = (card: number): boolean => parsed.settled.includes(card) || deps.settled(card)
+  const issued = issueNumber(file, archiveFile, deps, held => planAdd(held.file, held.archive, parsed, now, settled, deps.held?.() ?? []))
+  if (typeof issued === 'string') {
+    deps.err(issued)
     return 1
   }
+  const { plan, held } = issued
+  const original = held.file
+  const originalArchive = held.archive
+  const holds = (target: string, text: string): boolean => deps.exists(target) && deps.read(target) === text
   const restore = (): void => {
-    deps.write(file, original)
-    if (archiveExisted)
+    if (holds(file, plan.file))
+      deps.write(file, original)
+    if (!holds(archiveFile, plan.archive) || plan.archive === originalArchive)
+      return
+    if (held.archiveExisted)
       deps.write(archiveFile, originalArchive)
-    else if (deps.exists(archiveFile))
+    else
       deps.remove(archiveFile)
   }
   try {

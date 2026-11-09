@@ -170,17 +170,21 @@ function offFormatRefusals(lines: readonly OffFormatLine[]): string[] {
   return lines.map(({ line, numbered }) => `${PREFIX}line ${line}: ${numbered ? 'a decision off the format' : 'a decision without D-N'}; every decision is ${DECISION_FORMAT}`)
 }
 
+export function supersedingWayOut(number: number): string {
+  return `pnpm ${WRITER_MARKER} --supersedes D-${number} "${OWNER_SOURCE} <what D-${number} says now>" retires every record of D-${number}`
+}
+
 function repeatedNumberRefusals(decisions: readonly Decision[], archived: ReadonlySet<number>): string[] {
   const seen = new Map<number, number>()
   const refusals: string[] = []
   for (const decision of decisions) {
     const first = seen.get(decision.number)
     if (archived.has(decision.number))
-      refusals.push(`${PREFIX}D-${decision.number}: on line ${decision.line} and in the archive; a number names one decision`)
+      refusals.push(`${PREFIX}D-${decision.number}: on line ${decision.line} and in the archive; a number names one decision; ${supersedingWayOut(decision.number)}`)
     else if (first === undefined)
       seen.set(decision.number, decision.line)
     else
-      refusals.push(`${PREFIX}D-${decision.number}: on line ${first} and line ${decision.line}; a number names one decision`)
+      refusals.push(`${PREFIX}D-${decision.number}: on line ${first} and line ${decision.line}; a number names one decision; ${supersedingWayOut(decision.number)}`)
   }
   return refusals
 }
@@ -334,6 +338,11 @@ function preambleOf(text: string): string {
 }
 
 export function projectDecisions(rows: readonly DecisionRow[], file: string, archive: string, archiveHeader: string): ProjectedDecisions {
+  const projected = projectionOf(rows, file, archive, archiveHeader)
+  return decisionsRefusals(projected.file, projected.archive).length === 0 ? projected : { file, archive }
+}
+
+function projectionOf(rows: readonly DecisionRow[], file: string, archive: string, archiveHeader: string): ProjectedDecisions {
   const { decisions: lines, offFormat } = parseDecisions(file)
   const fileLines = file.split(/\r?\n/)
   const held = new Map(lines.map(decision => [decision.number, decision]))
