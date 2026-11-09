@@ -28,7 +28,7 @@ import { cardTreeOf, CardTreeRefused, realCardTrees } from '../../ports/card-tre
 import { conflictingCardOf, mainKeptInTheTree } from '../../ports/main-merge.js'
 import { prepareBeforeSession, prepareTree } from '../../ports/prepare-tree.js'
 import { MAIN_BRANCH } from '../../ports/snapshot.js'
-import { admittedScopeOf, ownerHoldOf } from './answer-source.js'
+import { admittedScopeOf, decisionAnsweringRepeat, ownerHoldOf } from './answer-source.js'
 import { AnswerOutsideTouches, CardTreeGone, liveSessionIn, PREFIX, secondsOf } from './answerer.js'
 import { CONCEPT_WIDENING_REASON } from './concept-scope.js'
 import { AnswerOutcomes, AnswerPublishing, AnswerSources, leftNoNewHead, OwnerQuestions, treeDirtyOf, treeMergeOf } from './duties/index.js'
@@ -78,6 +78,10 @@ function ownersEvenUnderTheDecision(paths: readonly string[]): string | undefine
 
 export function scopeWideningAsked(question: string, scope: AdmittedScope | null, underAShard: boolean): string[] {
   return !underAShard || scope === null || !ASKS_ABOUT_THE_SCOPE.test(question) ? [] : pathsOutside(scope.touches, scope.creates, pathsIn(question))
+}
+
+export function questionAskedTwiceLine(cardId: number, question: string): string {
+  return `card #${cardId} asks twice in a row, its answer session repeating the question its ${QUESTION_AGENT} stop already carried; another answer round would ask it again, so the card waits for the owner: ${question}`
 }
 
 const CARD_PATHS: CardPaths = { pathsIn, ownerBoundary: ownersEvenUnderTheDecision, wideningAsked: scopeWideningAsked }
@@ -260,7 +264,7 @@ export class AnswerExecutor {
     const scope = [...(widened === null ? [] : [widened.event]), ...this.widenedInConcept(lease, answered)]
     if (answered.after === null || answered.after === answered.before) {
       if (answered.owner !== null)
-        return this.questions.asked(lease, answered.owner, widened, card, this.decidedRound(lease, widened, card))
+        return this.questions.staleQuestion(lease, answered.owner) ?? this.askedTwiceInARow(lease, source, answered.owner, scope) ?? await this.questions.asked(lease, answered.owner, widened, card, this.decidedRound(lease, widened, card))
       if (this.dirty(card))
         return this.publishing.leftDirty(lease, card, answered.session)
       return this.publishing.published(lease, source, card, answered, minutes, scope) ?? this.publishing.leftNothing(lease, answered, scope)
@@ -269,6 +273,14 @@ export class AnswerExecutor {
     const payload = this.publishing.answeredPayload(source, card, answered, minutes, reentry ? { reentry: true } : {})
     completeTask(this.parts.db, this.ts(), lease, [...scope, this.outcomes.event(lease, CARD_ANSWERED, payload)])
     return { kind: 'answered', taskKey: lease.taskKey, session: answered.session, resumed: answered.resumed, head: answered.after }
+  }
+
+  private askedTwiceInARow(lease: Lease, source: Answering, question: string, scope: BusEvent[]): AnswerOutcome | null {
+    if (source.kind !== 'question' || source.detail.trim() !== question.trim())
+      return null
+    if (decisionAnsweringRepeat(this.parts.db, lease.cardId, question, this.parts.clock()) !== null)
+      return null
+    return this.outcomes.ownersStop(lease, question, scope, questionAskedTwiceLine(lease.cardId, question))
   }
 
   private decidedRound(lease: Lease, widened: Widened | null, card: CardSession): DecidedRound {

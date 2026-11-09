@@ -22,7 +22,7 @@ import { admitCommandOf, answerCardBodyOf, appendedAndReduced, cardBodyShaOfCard
 import { projectionDump, reduce } from '../../core/reducer.js'
 import { Rejection } from '../../core/stored.js'
 import { importJournal } from '../../intake/import.js'
-import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
+import { AnswerExecutor, questionAskedTwiceLine } from '../../nodes/answer/answer-executor.js'
 import { answerSourceOf, NO_RECORDED_SESSION } from '../../nodes/answer/answer-source.js'
 import { AnswerNode, runAnswerWorker, VERDICT_NOT_RECORDED } from '../../nodes/answer/answer-worker.js'
 import { claudeAnswerer, ownerQuestionPath } from '../../nodes/answer/answerer.js'
@@ -127,6 +127,8 @@ function answerBench(storesPrompts = false) {
     },
   }
 }
+
+const NINE_ANSWER_ROUNDS_MS = 120_000
 
 describe('the answer queue', () => {
   it('a question.agent stop and a changes verdict on the current head enter answer and a question.owner stop does not', () => {
@@ -358,7 +360,7 @@ describe('the answer queue', () => {
     bench.close()
   })
 
-  it('the same question twice in a row enqueues no second answer', async () => {
+  it('the same question twice in a row stops the card for the owner and enqueues no second answer', async () => {
     const bench = answerBench()
     const repeated = 'which reader owns the session id?'
     bench.tools.heads = [sha('a'), sha('a')]
@@ -367,11 +369,25 @@ describe('the answer queue', () => {
     bench.tick()
     const lease = bench.leaseAnswer()!
     bench.tools.during = () => writeFileSync(ownerQuestionPath(bench.answers, CARD_SESSION, lease.leaseGen), `${repeated}\n`)
-    expect(await bench.answer(lease)).toMatchObject({ kind: 'stopped', reason: 'question.agent', detail: repeated })
+    expect(await bench.answer(lease)).toMatchObject({ kind: 'stopped', reason: QUESTION_OWNER, detail: repeated })
     bench.tick()
     bench.tick()
 
     expect(answerTaskCount(bench)).toBe(1)
+    expect(bench.leaseAnswer()).toBeNull()
+    expect(eventsOf(bench.db, OWNER_WAIT_OPENED)).toEqual([expect.objectContaining({ need: 'decision', text: questionAskedTwiceLine(921, repeated), command: cardDecisionCommand(921), card: 921 })])
+    bench.close()
+  })
+
+  it('two question.agent stops in a row with one question enqueue no second answer', () => {
+    const bench = answerBench()
+    const repeated = 'which reader owns the session id?'
+    bench.started(921)
+    bench.stopped(921, { reason: 'question.agent', detail: repeated })
+    bench.stopped(921, { reason: 'question.agent', detail: repeated, round: 2 })
+    bench.tick()
+    bench.tick()
+
     expect(bench.leaseAnswer()).toBeNull()
     expect(eventsOf(bench.db, OWNER_WAIT_OPENED)).toEqual([expect.objectContaining({ need: 'command', text: expect.stringContaining('card #921 asked the same question twice in a row'), command: admitCommandOf(921, 'lane-a'), card: 921 })])
 
@@ -1215,7 +1231,7 @@ describe('the answer executor', () => {
     const asked = (bench.db.prepare(`SELECT card_id FROM tasks WHERE queue = 'answer' AND state = 'queued' ORDER BY card_id`).all() as { card_id: number }[]).map(row => row.card_id)
     expect(asked).toEqual([1120, 1125, 1127])
     bench.close()
-  })
+  }, NINE_ANSWER_ROUNDS_MS)
 
   it('a pull request that turns dirty after its last round gets an answer task to resolve the conflict on its current head once the update node refused to merge main', async () => {
     const bench = answerBench()
