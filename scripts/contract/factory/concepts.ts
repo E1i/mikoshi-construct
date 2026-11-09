@@ -83,13 +83,20 @@ function isFile(file: string): boolean {
   return existsSync(file) && statSync(file).isFile()
 }
 
+const FOLDER_ENTRY = 'index.ts'
+
+function ownerModuleOf(owner: string): string {
+  return owner.endsWith('/') ? `${owner}${FOLDER_ENTRY}` : owner
+}
+
 export function ownerExportFault(concept: Concept, root: string): string | null {
-  const ownerPath = path.join(root, concept.owner)
   if (!concept.ownerExists)
-    return existsSync(ownerPath) ? `${concept.id}: ${concept.owner} exists, so name the export it owns the concept by and set ownerExists true` : null
+    return existsSync(path.join(root, concept.owner)) ? `${concept.id}: ${concept.owner} exists, so name the export it owns the concept by and set ownerExists true` : null
+  const ownerModule = ownerModuleOf(concept.owner)
+  const ownerPath = path.join(root, ownerModule)
   if (!isFile(ownerPath))
-    return `${concept.id}: ownerExists is true but ${concept.owner} is not a file`
-  return exportedNames(ownerPath).has(concept.ownerExport) ? null : `${concept.id}: ${concept.owner} does not export ${concept.ownerExport}`
+    return `${concept.id}: ownerExists is true but ${ownerModule} is not a file`
+  return exportedNames(ownerPath).has(concept.ownerExport) ? null : `${concept.id}: ${ownerModule} does not export ${concept.ownerExport}`
 }
 
 export function assertOwnersExport(concepts: readonly Concept[], root: string): void {
@@ -342,10 +349,10 @@ export const CONCEPTS: readonly Concept[] = [
   },
   {
     id: 'answer-duties',
-    title: 'four duties each in the answer executor and the answerer',
+    title: 'the duties of the answer executor and the answerer, one file each',
     owner: 'scripts/nodes/answer/duties/',
-    ownerExists: false,
-    ownerExport: null,
+    ownerExists: true,
+    ownerExport: 'AnswerOutcomes',
     axis: 'architecture',
     lore: null,
     detectors: [

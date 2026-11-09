@@ -1538,10 +1538,10 @@
       "axis": "architecture",
       "lore": null,
       "owner": "scripts/nodes/answer/duties/",
-      "ownerExists": false,
-      "ownerExport": null,
+      "ownerExists": true,
+      "ownerExport": "AnswerOutcomes",
       "status": "proposed",
-      "title": "four duties each in the answer executor and the answerer"
+      "title": "the duties of the answer executor and the answerer, one file each"
     },
     "ci-reading": {
       "axis": "architecture",
@@ -2813,8 +2813,7 @@
   },
   "overlaps": {
     "answer-duties": {
-      "scripts/nodes/answer/answer-executor.ts": 20,
-      "scripts/nodes/answer/answerer.ts": 22
+      "scripts/nodes/answer/answerer.ts": 1
     },
     "ci-reading": {},
     "generated-files": {},
@@ -2832,7 +2831,8 @@
       "scripts/core/node.ts": 1,
       "scripts/core/push-policy.ts": 1,
       "scripts/done/tree.ts": 1,
-      "scripts/nodes/answer/answerer.ts": 3,
+      "scripts/nodes/answer/answerer.ts": 1,
+      "scripts/nodes/answer/duties/tree.ts": 2,
       "scripts/nodes/close/close-executor.ts": 1,
       "scripts/nodes/close/ended-card-trees.ts": 1,
       "scripts/nodes/launch/lane-assign.ts": 1,

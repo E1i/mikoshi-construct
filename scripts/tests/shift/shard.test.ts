@@ -1,7 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { BusEvent } from '../../core/db.js'
-import type { AnswerOutcome } from '../../nodes/answer/answer-executor.js'
 import type { Answerer } from '../../nodes/answer/answerer.js'
+import type { AnswerOutcome } from '../../nodes/answer/duties/index.js'
 import type { ShardDeps } from '../../policy/shard.js'
 import type { CardTreeTools } from '../../ports/card-tree.js'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync } from 'node:fs'
