@@ -72,7 +72,7 @@ export function readBoard(dir: string, options: BoardOptions): BoardReading {
     all: options.all,
     bus,
     heal: bus?.status === 'read' ? healAt(bus.file, now) : null,
-    ledgerPresent: existsSync(path.join(dir, LEDGER_FILE)),
+    ledgerPresent: ledger.origin?.kind !== 'absent',
     ledger,
     prs,
     implement: existsSync(path.join(dir, IMPLEMENT_SKILL)),
@@ -80,9 +80,13 @@ export function readBoard(dir: string, options: BoardOptions): BoardReading {
   }
 }
 
+function ledgerFile(reading: BoardReading): string {
+  return reading.ledger.origin?.file ?? LEDGER_FILE
+}
+
 function ledgerLine(ui: Ui, reading: BoardReading): string {
   const { lore } = ui
-  const base = reading.ledgerPresent ? lore.boardLedgerRead(LEDGER_FILE, reading.ledger.entries.length) : lore.boardLedgerAbsent(LEDGER_FILE)
+  const base = reading.ledgerPresent ? lore.boardLedgerRead(ledgerFile(reading), reading.ledger.entries.length) : lore.boardLedgerAbsent(LEDGER_FILE)
   const lines = reading.ledger.malformed.map(entry => entry.line)
   return lines.length === 0 ? base : `${base}; ${lore.boardLedgerMalformed(lines)}`
 }
@@ -98,7 +102,7 @@ function prsLine(ui: Ui, prs: PrsReading): string {
 function ledgerClause(ui: Ui, reading: BoardReading): string | undefined {
   if (!reading.implement)
     return undefined
-  return reading.ledger.entries.length === 0 ? ui.lore.boardNoLadderRuns(LEDGER_FILE) : ui.lore.boardNoRecentLadderRuns(LEDGER_FILE, FINISHED_SHOWN_HOURS)
+  return reading.ledger.entries.length === 0 ? ui.lore.boardNoLadderRuns(ledgerFile(reading)) : ui.lore.boardNoRecentLadderRuns(ledgerFile(reading), FINISHED_SHOWN_HOURS)
 }
 
 function prsClause(ui: Ui, prs: PrsReading): string {
@@ -174,7 +178,7 @@ export function boardJson(reading: BoardReading): Record<string, unknown> {
     format: BOARD_FORMAT,
     summary: view.summary,
     sources: {
-      ledger: { status: reading.ledgerPresent ? 'read' : 'absent', file: LEDGER_FILE, malformed: reading.ledger.malformed },
+      ledger: { status: reading.ledgerPresent ? 'read' : 'absent', file: ledgerFile(reading), malformed: reading.ledger.malformed },
       prs: prsSource(prs),
     },
     rows: view.rows.map(row => ({ task: row.task, path: row.path, stage: row.stage, state: row.state, at: Number.isNaN(row.at.getTime()) ? null : row.at.toISOString(), next: row.next, tone: row.tone, stale: row.stale, shown: row.shown })),

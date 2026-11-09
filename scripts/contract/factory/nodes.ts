@@ -17,7 +17,7 @@ export interface NodesSection {
   declared: Record<string, NodeRow>
 }
 
-export const NODES_VERSION = 1
+export const NODES_VERSION = 2
 
 export const NODE_DECLARATIONS: readonly NodeDeclaration[] = [ANSWER_NODE, CLOSE_NODE, LAUNCH_NODE, MERGE_NODE, REVIEW_NODE, UPDATE_NODE, WITNESS_NODE]
 

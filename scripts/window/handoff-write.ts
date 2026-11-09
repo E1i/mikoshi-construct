@@ -29,7 +29,8 @@ import { windowOf } from './window.js'
 export const PREFIX = '[handoff:write] '
 export const USAGE = 'usage: pnpm handoff:write <handoff.md> <draft.md>'
 export const ARCHIVE_DIR = 'archive'
-const BOUNDARIES_THE_BUS_KEEPS = Object.keys(OWNERS_OF_A_STOP)
+export const ROUND_LIMIT_BOUNDARY = 'round-limit'
+const BOUNDARIES_THE_BUS_KEEPS = [...Object.keys(OWNERS_OF_A_STOP), ROUND_LIMIT_BOUNDARY]
 export const OWNER_BOUNDARIES = [...BOUNDARIES_THE_BUS_KEEPS, 'owner-merged-kind', 'missing-right', 'owner-question']
 
 const ARCHIVED = /^(\d{4,})\.md$/
