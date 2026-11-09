@@ -122,6 +122,22 @@ describe('the files section of contract/factory.json', () => {
     expect(filesSection(files, NO_SOURCES, [CACHE]).entries[CACHE.path]).toMatchObject({ owner: 'scripts/one.ts', directory: true })
   })
 
+  it('a directory declared owned by a module that names it is owned by it, though another module is its one writer', () => {
+    const files = parsedFiles(tree({ 'scripts/one.ts': makerOf('cache'), 'src/reader.ts': `export const CACHE_DIR = '.construct/cache'\n` }))
+    const entry = filesSection(files, NO_SOURCES, [{ ...CACHE, owner: 'src/reader.ts' }]).entries[CACHE.path]
+    expect(entry).toMatchObject({ owner: 'src/reader.ts', directory: true, writers: ['scripts/one.ts'] })
+  })
+
+  it('a directory with one writer and two modules naming it fails the check until one is declared its owner', () => {
+    const files = parsedFiles(tree({ 'scripts/one.ts': makerOf('cache'), 'src/reader.ts': `export const CACHE_DIR = '.construct/cache'\n` }))
+    expect(() => filesSection(files, NO_SOURCES, [CACHE])).toThrow(/\.construct\/cache has no single writer and is named in scripts\/one\.ts, src\/reader\.ts; declare which of them owns it/)
+  })
+
+  it('a table entry does not cover the database file it lives in', () => {
+    const files = parsedFiles(tree({ 'scripts/store.ts': TABLE_WRITER, 'scripts/db.ts': `export const DB = '.construct/bus.db'\n` }))
+    expect(() => filesSection(files, NO_SOURCES, [THINGS])).toThrow(/: \.construct\/bus\.db \(scripts\/db\.ts\)$/)
+  })
+
   it('a table is owned by the one module that writes its rows', () => {
     const files = parsedFiles(tree({ 'scripts/store.ts': TABLE_WRITER, 'scripts/read.ts': TABLE_READER }))
     expect(filesSection(files, NO_SOURCES, [THINGS]).entries[THINGS.path]).toMatchObject({ owner: 'scripts/store.ts', directory: false, writers: ['scripts/store.ts'], namedIn: ['scripts/read.ts', 'scripts/store.ts'] })

@@ -2,6 +2,7 @@ import type { BusSection } from './factory/bus.js'
 import type { CardSection } from './factory/card.js'
 import type { Axis, Concept } from './factory/concepts.js'
 import type { FilesSection } from './factory/files.js'
+import type { GlobalsSection } from './factory/globals.js'
 import type { NodesSection } from './factory/nodes.js'
 import type { PortModule, PortsSection } from './factory/ports.js'
 import { readFileSync } from 'node:fs'
@@ -13,6 +14,7 @@ import { busSection } from './factory/bus.js'
 import { cardSection } from './factory/card.js'
 import { assertNoLoreConflict, assertOwnersExport, CONCEPTS } from './factory/concepts.js'
 import { filesSection } from './factory/files.js'
+import { globalsSection } from './factory/globals.js'
 import { nodesSection } from './factory/nodes.js'
 import { findSites, overlapsSection } from './factory/overlaps.js'
 import { portsSection } from './factory/ports.js'
@@ -66,6 +68,7 @@ export interface Factory {
   card: CardSection
   nodes: NodesSection
   files: FilesSection
+  globals: GlobalsSection
   concepts: Record<string, FactoryConcept>
   overlaps: Record<string, Record<string, number>>
 }
@@ -142,6 +145,7 @@ export function generateFactory(root: string = REPO_ROOT): Factory {
     card: cardSection(root),
     nodes: nodesSection(),
     files: filesSection(parsedFiles(root), { events: new Set(Object.keys(bus.events)), tables: new Set(Object.keys(bus.tables)) }),
+    globals: globalsSection(root),
     concepts: conceptsSection(acceptedConcepts(root), CONCEPTS, root),
     overlaps: overlapsSection(findSites(root)),
   }

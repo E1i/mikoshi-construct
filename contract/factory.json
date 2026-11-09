@@ -2589,6 +2589,18 @@
     },
     "filesVersion": 1
   },
+  "globals": {
+    "files": {
+      ".npmrc": "the install settings every dependency is resolved under",
+      ".nvmrc": "the Node version every test runs on",
+      "package.json": "the scripts and dependencies every test runs under",
+      "pnpm-lock.yaml": "the installed dependency tree every module imports from",
+      "pnpm-workspace.yaml": "the workspace and the catalog every dependency range resolves through",
+      "tsconfig.base.json": "the compiler settings every module is checked under",
+      "tsconfig.json": "the compiler settings every module is checked under"
+    },
+    "globalsVersion": 1
+  },
   "nodes": {
     "declared": {
       "answer": {
