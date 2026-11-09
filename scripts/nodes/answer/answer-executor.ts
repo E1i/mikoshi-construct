@@ -8,6 +8,7 @@ import type { CardTreeTools } from '../../ports/card-tree.js'
 import type { Isolation, IsolationReader } from '../../ports/isolation.js'
 import type { TreePreparer } from '../../ports/prepare-tree.js'
 import type { AnswerInput } from '../../ports/prompt-store.js'
+import type { MergeMain } from '../update/update-executor.js'
 import type { AdmittedScope, AnswerSource, CardSession } from './answer-source.js'
 import type { Answered, Answerer, StepSeconds, TreeMerge } from './answerer.js'
 import type { CardConcept } from './concept-scope.js'
@@ -28,6 +29,7 @@ import { TICK_MS } from '../../ports/netwatch.js'
 import { prepareBeforeSession, prepareTree } from '../../ports/prepare-tree.js'
 import { sha256, storedInput } from '../../ports/prompt-store.js'
 import { MAIN_BRANCH } from '../../ports/snapshot.js'
+import { conflictingCardOf, mainKeptInTheTree } from '../update/update-executor.js'
 import { admittedScopeOf, answerSourceOf, boundDecisionLines, decisionAnsweringRepeat, ownerHoldOf } from './answer-source.js'
 import { AnswerOutsideTouches, CardTreeGone, liveSessionIn, PREFIX, secondsOf, treeDirtyOf, treeMergeOf } from './answerer.js'
 import { CONCEPT_WIDENING_REASON } from './concept-scope.js'
@@ -76,6 +78,7 @@ export interface AnswerParts {
   liveSession?: (card: CardSession) => string | null
   prepare?: TreePreparer
   publishing?: TreePublishing
+  mergeMain?: (tree: string) => MergeMain
 }
 
 type Answering = AnswerSource & { reentry?: true }
@@ -225,6 +228,8 @@ export class AnswerExecutor {
       const live = (this.parts.liveSession ?? liveSessionIn)(card)
       if (live !== null)
         return this.waitingForTheSupersededSession(lease) ?? this.heldForTheOwner(lease, live)
+      if (source !== null)
+        this.mainMergedBeforeTheSession(lease, card)
       const merge = source === null ? (this.parts.treeMerge ?? treeMergeOf)(card) : null
       if (merge?.kind === 'unreadable')
         return this.waiting(lease, card, merge.why)
@@ -266,6 +271,15 @@ export class AnswerExecutor {
       return null
     const detail = typeof red.detail === 'string' && red.detail !== '' ? red.detail : 'the bus recorded no detail'
     return { kind: 'changes', findings: [`the card's witness is red on ${lease.head}: ${detail}`], events: [], decisions: this.boundDecisions(lease), reentry: true }
+  }
+
+  private mainMergedBeforeTheSession(lease: Lease, card: CardSession): void {
+    if (lease.head === null)
+      return
+    const mergeMain = (this.parts.mergeMain ?? mainKeptInTheTree)(card.worktree)
+    const merged = mergeMain(conflictingCardOf(this.parts.db, lease.cardId, card.branch, lease.head))
+    if (merged.kind === 'merged' && merged.to !== lease.head)
+      console.log(`${PREFIX}card #${lease.cardId}: ${MAIN_BRANCH} merged into ${card.worktree} at ${merged.to} before the answer session`)
   }
 
   private boundDecisions(lease: Lease): string[] {

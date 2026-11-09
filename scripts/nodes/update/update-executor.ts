@@ -244,7 +244,13 @@ function rebuildGenerated(git: TreeGit, tree: string, card: ConflictingCard, fil
   return null
 }
 
-function mergeMainIn(git: TreeGit, tree: string, card: ConflictingCard, run: RebuildRunner): MainMerge {
+export function conflictingCardOf(db: DatabaseSync, cardId: number, branch: string, head: string): ConflictingCard {
+  return { cardId, branch, outsideTheCard: files => pathsOutsideTheBody(db, cardId, files.join('\n')), head }
+}
+
+export type MergedMain = 'pushed' | 'kept-in-the-tree'
+
+function mergeMainIn(git: TreeGit, tree: string, card: ConflictingCard, run: RebuildRunner, merged: MergedMain): MainMerge {
   const at = git(tree, ['rev-parse', 'HEAD'])
   if (at !== card.head)
     return { kind: 'refused', why: `the tree ${tree} stands at ${at}, not at the head ${card.head}` }
@@ -279,7 +285,9 @@ function mergeMainIn(git: TreeGit, tree: string, card: ConflictingCard, run: Reb
   const moved = git(tree, ['rev-parse', 'HEAD']) !== card.head
   const rebuilt = moved ? [...new Set([...conflicted, ...carried])] : []
   const refused = rebuildGenerated(git, tree, card, rebuilt, run)
-  return refused ?? pushedOrUndone(git, tree, card, tookMain, rebuilt)
+  if (refused !== null)
+    return refused
+  return merged === 'pushed' ? pushedOrUndone(git, tree, card, tookMain, rebuilt) : { kind: 'merged', to: git(tree, ['rev-parse', 'HEAD']), tookMain, rebuilt }
 }
 
 function pushedOrUndone(git: TreeGit, tree: string, card: ConflictingCard, tookMain: string[], rebuilt: string[]): MainMerge {
@@ -294,17 +302,28 @@ function pushedOrUndone(git: TreeGit, tree: string, card: ConflictingCard, tookM
   return { kind: 'merged', to, tookMain, rebuilt }
 }
 
-export function mainMergeInCardTree(git: TreeGit, treeOf: (cardId: number) => string, run: RebuildRunner = pnpmRebuild): MergeMain {
+export function mainMergeInCardTree(git: TreeGit, treeOf: (cardId: number) => string, run: RebuildRunner = pnpmRebuild, merged: MergedMain = 'pushed'): MergeMain {
   return (card) => {
     const tree = treeOf(card.cardId)
     try {
-      return mergeMainIn(git, tree, card, run)
+      return mergeMainIn(git, tree, card, run, merged)
     }
     catch (error) {
       abortMerge(git, tree)
       return { kind: 'refused', why: messageOf(error) }
     }
   }
+}
+
+function treeGit(cwd: string, args: string[]): string {
+  const run = spawnSync('git', ['-C', cwd, ...args], { encoding: 'utf8' })
+  if (run.error !== undefined || run.status !== 0)
+    throw new Error(`git ${args.join(' ')} in ${cwd} failed: ${run.error?.message ?? run.stderr.trim()}`)
+  return run.stdout.trim()
+}
+
+export function mainKeptInTheTree(tree: string): MergeMain {
+  return mainMergeInCardTree(treeGit, () => tree, pnpmRebuild, 'kept-in-the-tree')
 }
 
 export class UpdateExecutor {
@@ -521,7 +540,7 @@ export class UpdateExecutor {
     if (card === null)
       return this.denied(lease, technical(MERGE_REFUSED, `card #${lease.cardId} has no admitted body, so its branch and touches are unknown`))
     this.allowed(lease, MERGE_MAIN_COMMAND)
-    const merge = this.parts.mergeMain!({ cardId: lease.cardId, branch: card.branch, outsideTheCard: files => pathsOutsideTheBody(this.parts.db, lease.cardId, files.join('\n')), head: lease.head! })
+    const merge = this.parts.mergeMain!(conflictingCardOf(this.parts.db, lease.cardId, card.branch, lease.head!))
     this.executed(lease, MERGE_MAIN_COMMAND, merge.kind === 'merged' ? { ok: true } : { ok: false, error: merge.kind === 'refused' ? merge.why : `conflicts inside the card's touches: ${merge.files.join(', ')}` })
     if (merge.kind === 'refused')
       return this.denied(lease, technical(MERGE_REFUSED, merge.why))

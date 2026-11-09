@@ -175,6 +175,24 @@ export function lastHeartbeat(db: DatabaseSync, card: number): LastHeartbeat | n
   return { ts: row.ts, pr: row.pr, head: row.head, step: textField(payload, 'step'), session: textField(payload, 'session') }
 }
 
+const BEATS_OF_LEASE = `
+  SELECT ts, json_extract(payload, '$.session') AS session, json_extract(payload, '$.context') AS context, json_extract(payload, '$.spent') AS spent
+  FROM events WHERE type = '${SESSION_HEARTBEAT}' AND legacy = 0 AND json_valid(payload)
+    AND json_extract(payload, '$.task_key') = ? AND json_extract(payload, '$.lease_gen') = ?
+  ORDER BY id
+`
+
+export interface LeaseBeat {
+  ts: string
+  session: string | null
+  context: number | null
+  spent: number | null
+}
+
+export function beatsOfLease(db: DatabaseSync, lease: HeldLease): LeaseBeat[] {
+  return db.prepare(BEATS_OF_LEASE).all(lease.taskKey, lease.leaseGen) as unknown as LeaseBeat[]
+}
+
 export function busSessionPulse(busPath: string, clock: () => Date, measure: SessionMeasure = measureCardSession): (lease: Lease, session: string) => string {
   return (lease, session) => {
     const ts = clock().toISOString()

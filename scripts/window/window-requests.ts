@@ -46,6 +46,7 @@ import { ghApi } from '../ports/github.js'
 import { Meter } from '../ports/meter.js'
 import { MAIN_BRANCH } from '../ports/snapshot.js'
 import { MAIN_REF, readReleaseVersion, VERSION_PR_REF } from '../release/changesets.js'
+import { STARTER_ACTOR } from './window-prs.js'
 import { SESSION_ENDED_AFTER, windowSessionEndGround } from './window-session-end.js'
 
 export { SESSION_VARIABLE } from '../ports/client/claude/adapter.js'
@@ -160,7 +161,9 @@ const LATEST_TURN = `SELECT id, type FROM events WHERE id = ${latestTurnOf('?')}
 
 const PR_OPENED_AFTER = `SELECT 1 FROM events WHERE card_id = ? AND legacy = 0 AND type = '${PR_OPENED}' AND id > ? LIMIT 1`
 
-const LIVE_TASK_OF_CARD = `SELECT task_key, queue, state FROM tasks WHERE card_id = ? AND state IN ('${QUEUED}', '${LEASED}') ORDER BY id DESC LIMIT 1`
+const STARTED_BY_THE_WINDOW = `SELECT 1 FROM events WHERE id = ? AND actor LIKE '${STARTER_ACTOR}%' AND json_extract(payload, '$.shift') IS NULL AND json_extract(payload, '$.session') IS NOT NULL`
+
+const LIVE_TASK_OF_CARD =`SELECT task_key, queue, state FROM tasks WHERE card_id = ? AND state IN ('${QUEUED}', '${LEASED}') ORDER BY id DESC LIMIT 1`
 
 const LATEST_WITNESS_OF_CARD = `SELECT head, json_extract(payload, '$.verdict') AS verdict FROM events WHERE card_id = ? AND legacy = 0 AND type = '${WITNESS_RECORDED}' ORDER BY id DESC LIMIT 1`
 
@@ -656,7 +659,7 @@ export class WindowRequests {
     if (task !== undefined)
       return `card #${cardId} has a bus route: the ${task.queue} task ${task.task_key} is ${task.state}`
     const turn = this.latestTurn(cardId)
-    if (turn?.type === CARD_STARTED && [SESSION_ENDED_AFTER, PR_OPENED_AFTER].every(ended => this.db.prepare(ended).get(cardId, turn.id) === undefined))
+    if (turn?.type === CARD_STARTED && this.db.prepare(STARTED_BY_THE_WINDOW).get(turn.id) === undefined && [SESSION_ENDED_AFTER, PR_OPENED_AFTER].every(ended => this.db.prepare(ended).get(cardId, turn.id) === undefined))
       return `card #${cardId} has a bus route: its session started at event ${turn.id} has not ended`
     return null
   }

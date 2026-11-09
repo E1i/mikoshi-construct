@@ -35,6 +35,12 @@ function budgetOf(line: string): BudgetLine[] {
   }
 }
 
+export const SPEND_LEVEL = 'session-spend'
+
+export function spendStopOf(dir: string, session: string): BudgetLine | null {
+  return readBudgetLines(dir).findLast(line => line.event === 'budget-stop' && line.level === SPEND_LEVEL && line.session === session) ?? null
+}
+
 export function readBudgetLines(dir: string | undefined): BudgetLine[] {
   if (dir === undefined)
     return []

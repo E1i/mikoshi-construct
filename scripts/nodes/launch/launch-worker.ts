@@ -6,6 +6,7 @@ import type { DetectionMode, NodeDeclaration, WaitStep } from '../../core/node.j
 import type { QueuedTask } from '../../core/queue.js'
 import type { DiskReader } from '../../ports/disk.js'
 import type { IsolationReader } from '../../ports/isolation.js'
+import type { PidAlive } from '../../supervisor/recorded-worker.js'
 import type { ProcessTable } from '../restart/chain-process.js'
 import type { Contour } from './launch-candidates.js'
 import type { CardStarter, LaunchOutcome, StartedCard } from './launch-executor.js'
@@ -33,6 +34,7 @@ import { storedInput } from '../../ports/prompt-store.js'
 import { launchDirOf } from '../../ports/tree-publish.js'
 import { isAlive } from '../../quality/lock.js'
 import { lastHeartbeat } from '../../supervisor/heartbeat.js'
+import { recordedPidLives } from '../../supervisor/recorded-worker.js'
 import { launchProcess, REAL_PROCESSES } from '../restart/chain-process.js'
 import { MAX_RESTARTS } from './continuation.js'
 import { laneOverlapRecorder, layLanes, repositoryLanes } from './lane-assign.js'
@@ -70,6 +72,7 @@ export interface LaunchNodeParts {
   mode: DetectionMode
   env: NodeJS.ProcessEnv
   processes?: ProcessTable
+  pidAlive?: PidAlive
   resulted?: (card: StartedCard, start: SessionStart) => boolean
   endedWith?: (start: SessionStart) => string | null
   handedOff?: (start: SessionStart) => boolean
@@ -238,6 +241,7 @@ export class LaunchNode extends Node<LaunchStep> {
   private readonly executor: LaunchExecutor
   private readonly starters: Partial<Record<Contour, CardStarter>>
   private readonly processes: ProcessTable
+  private readonly pidAlive: PidAlive
   private readonly lanes: () => number
   private readonly machine: MachineSessions
 
@@ -246,6 +250,7 @@ export class LaunchNode extends Node<LaunchStep> {
     this.executor = new LaunchExecutor(launchParts)
     this.starters = { cheap: launchParts.starter, ladder: launchParts.ladder }
     this.processes = launchParts.processes ?? REAL_PROCESSES
+    this.pidAlive = launchParts.pidAlive ?? (launchParts.processes === undefined ? isAlive : () => true)
     this.lanes = launchParts.lanes ?? repositoryLanes(process.cwd())
     this.machine = launchParts.machine ?? machineSessions(isAlive)
     this.declare(LAUNCH_NODE)
@@ -333,6 +338,8 @@ export class LaunchNode extends Node<LaunchStep> {
   }
 
   private sessionProcess(card: StartedCard): 'live' | 'gone' {
+    if (!recordedPidLives(card.pid, this.pidAlive))
+      return 'gone'
     return launchProcess({ pgid: card.pgid, session: card.session }, this.processes) === 'live' ? 'live' : 'gone'
   }
 

@@ -1,5 +1,5 @@
 import type { BgResult, DetachedLaunch, ProcessList, RunningProcess } from './bg.js'
-import { existsSync, readFileSync, realpathSync } from 'node:fs'
+import { existsSync, realpathSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -10,7 +10,8 @@ import { FACTORY_WORKERS } from '../core/factory-paths.js'
 import { nodeProcess } from '../core/node.js'
 import { shadowReading } from '../core/report.js'
 import { REVIEW_READS, SWITCH_FLAG } from '../nodes/review/review-worker.js'
-import { alive, argsBeforeBus, printBg, processBeatsOn, psList, servesBus, startDetached, thisBus } from './bg.js'
+import { printBg, psList, startDetached, thisBus } from './bg.js'
+import { recordedWorker } from './recorded-worker.js'
 
 export const PREFIX = '[bus:review:bg] '
 export const REVIEW_SCRIPT = 'bus:review'
@@ -34,22 +35,10 @@ export function busShadowProblems(busPath: string): string[] {
   }
 }
 
-function recordedWorker(busDir: string, env: NodeJS.ProcessEnv, processes: ProcessList): RunningProcess | undefined {
-  const file = path.join(busDir, REVIEW_INSTANCE_FILE)
-  if (!existsSync(file))
-    return undefined
-  const pid = Number(readFileSync(file, 'utf8').trim())
-  const bus = thisBus(env)
-  if (!Number.isInteger(pid) || pid <= 0 || pid === process.pid || !alive(pid) || !processBeatsOn(bus, nodeProcess('review'), Date.now()))
-    return undefined
-  const listed = processes().find(candidate => candidate.pid === pid)
-  if (listed === undefined)
-    return undefined
-  return servesBus(listed, bus) && REVIEW_WORKER_MARKERS.some(marker => argsBeforeBus(listed.args).includes(marker)) ? listed : undefined
-}
-
 export function startReviewWorker(launch: DetachedLaunch, busDir: string, env: NodeJS.ProcessEnv, processes: ProcessList): BgResult {
-  const held = launch.instanceFile === REVIEW_INSTANCE_FILE ? recordedWorker(busDir, env, processes) : undefined
+  const held = launch.instanceFile === REVIEW_INSTANCE_FILE
+    ? recordedWorker({ file: path.join(busDir, REVIEW_INSTANCE_FILE), node: nodeProcess('review'), markers: REVIEW_WORKER_MARKERS, bus: thisBus(env) }, processes)
+    : undefined
   if (held !== undefined)
     return { stdout: [], stderr: [`${launch.prefix}${launch.script} is already running as pid ${held.pid} (${held.args}); nothing started`], exitCode: 1, alreadyRunning: held }
   return startDetached(launch, busDir, env, processes)
