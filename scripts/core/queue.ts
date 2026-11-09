@@ -1212,6 +1212,18 @@ export function answerOnAnOldCardBody(db: DatabaseSync, task: { taskKey: string,
   return leaseOnAnOldCardBody(task.taskKey, { card_body: cardBodyShaOfCard(db, task.cardId) })
 }
 
+export const STALE_ANSWER_HEAD = 'stale_head'
+
+const PULL_REQUEST_HEAD_PAST_THE_ANSWER = `
+  SELECT prs.head FROM tasks JOIN prs ON prs.pr = tasks.pr
+  WHERE tasks.task_key = ? AND tasks.queue = 'answer' AND tasks.head IS NOT NULL AND prs.head IS NOT NULL AND prs.head != tasks.head
+`
+
+export function pullRequestHeadPastTheAnswer(db: DatabaseSync, taskKey: string): string | null {
+  const row = db.prepare(PULL_REQUEST_HEAD_PAST_THE_ANSWER).get(taskKey) as { head: string } | undefined
+  return row === undefined ? null : row.head
+}
+
 export function supersededAnswerWithinItsLease(db: DatabaseSync, cardId: number, ts: string): boolean {
   return db.prepare(A_SUPERSEDED_ANSWER_WITHIN_ITS_LEASE).get(cardId, ts) !== undefined
 }
