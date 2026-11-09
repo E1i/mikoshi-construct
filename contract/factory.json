@@ -1172,6 +1172,7 @@
           "head",
           "id",
           "ids",
+          "keep_tree",
           "kind",
           "mode",
           "need",
