@@ -1134,6 +1134,10 @@ function contextWarnings(contexts: readonly SessionContext[], limits: EddiesLimi
   return contexts.flatMap(session => boardWarnings({ ...quiet, ...(session.who === WINDOW_ROLE ? limits : cardLineOf(limits, session.who, facts)), contexts: [session] }))
 }
 
+function launchedSessionBeats(facts: BusFacts): boolean {
+  return facts.services.some(service => service.role !== WINDOW_ROLE && service.session !== undefined)
+}
+
 function boardPageOf(db: DatabaseSync, busPath: string, now: Date, handoffFile: string, tickMs: number | null, main: MainUpToDate, eddiesFile: string = EDDIES_FILE): BoardPage {
   const facts = busFacts(db, now)
   const liveness = factoryLiveness(busPath, now.getTime()).state
@@ -1142,7 +1146,7 @@ function boardPageOf(db: DatabaseSync, busPath: string, now: Date, handoffFile: 
   return {
     version: currentVersion(),
     machine: machineLoad(),
-    liveness,
+    liveness: launchedSessionBeats(facts) ? FACTORY_LIVE : liveness,
     modelVersion: readModelVersion(),
     facts,
     ...sources,
