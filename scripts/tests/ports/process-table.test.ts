@@ -23,7 +23,26 @@ function pathWithFailingListing(): string {
   return `${dir}${path.delimiter}${process.env.PATH}`
 }
 
+const DEFAULT_MAX_BUFFER = 1024 * 1024
+const BUSY_TABLE_ROWS = 40_000
+const BUSY_LINE = '  412     1   412 Sat Nov  8 04:21:20 2026 node --import tsx scripts/a.ts --flag x'
+
+function pathWithBusyListing(): string {
+  const dir = mkdtempSync(path.join(tmpdir(), 'process-table-busy-'))
+  writeFileSync(path.join(dir, 'ps'), `#!/bin/sh\nyes '${BUSY_LINE}' | head -n ${BUSY_TABLE_ROWS}\n`)
+  chmodSync(path.join(dir, 'ps'), 0o755)
+  return `${dir}${path.delimiter}${process.env.PATH}`
+}
+
 describe('the process table port', () => {
+  it('the ps listing is read with a buffer larger than the default', () => {
+    expect((BUSY_LINE.length + 1) * BUSY_TABLE_ROWS).toBeGreaterThan(DEFAULT_MAX_BUFFER)
+    vi.stubEnv('PATH', pathWithBusyListing())
+    const snapshot = new OsProcessTable().snapshot()
+
+    expect(snapshot.readable ? snapshot.rows.length : snapshot.reason).toBe(BUSY_TABLE_ROWS)
+  })
+
   it('the in-memory adapter answers as the live one for an alive and a dead pid', () => {
     const gone = deadPid()
     const live = new OsProcessTable().snapshot()
