@@ -1,5 +1,5 @@
 import type { LadderSteps } from '../../ladder/ladder-starter.js'
-import type { AnswerRun } from '../../nodes/answer/answerer.js'
+import type { AnswerRun } from '../../nodes/answer/duties/index.js'
 import type { DetachedSpawn, StarterPorts } from '../../nodes/launch/launch-starter.js'
 import type { ClientAdapter, SessionSpec } from '../../ports/client/contract.js'
 import { spawnSync } from 'node:child_process'

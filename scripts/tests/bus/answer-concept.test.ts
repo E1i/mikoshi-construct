@@ -1,5 +1,5 @@
 import type { Lease } from '../../core/lease.js'
-import type { AnswerOutcome } from '../../nodes/answer/answer-executor.js'
+import type { AnswerOutcome } from '../../nodes/answer/duties/index.js'
 import type { CardTreeTools } from '../../ports/card-tree.js'
 import type { MergeBench } from './merge-bench.js'
 import { execFileSync } from 'node:child_process'

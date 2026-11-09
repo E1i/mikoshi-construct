@@ -1,6 +1,6 @@
 import type { ShiftGate } from '../../../src/manifest.js'
 import type { Lease } from '../../core/lease.js'
-import type { AnswerOutcome } from '../../nodes/answer/answer-executor.js'
+import type { AnswerOutcome } from '../../nodes/answer/duties/index.js'
 import type { CardTreeTools } from '../../ports/card-tree.js'
 import type { MergeBench } from './merge-bench.js'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
@@ -13,7 +13,8 @@ import { leaseNext } from '../../core/lease.js'
 import { NETWATCH } from '../../core/observations.js'
 import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
 import { answerSourceOf } from '../../nodes/answer/answer-source.js'
-import { answerPrompt, claudeAnswerer, ownerQuestionPath } from '../../nodes/answer/answerer.js'
+import { claudeAnswerer, ownerQuestionPath, windowGateRule } from '../../nodes/answer/answerer.js'
+import { answerPrompt } from '../../nodes/answer/duties/index.js'
 import { recordDecision } from '../../policy/decisions.js'
 import { sha } from './github-fake.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
@@ -102,7 +103,8 @@ function leaseOf(): Lease {
 
 function promptOf(bench: Bench): string {
   const source = answerSourceOf(bench.made.db, leaseOf(), bench.made.clock.now())!
-  return answerPrompt({ lease: leaseOf(), source, widened: null, card: { session: CARD_SESSION, worktree: bench.worktree, branch: `feat/card-${CARD}` } }, 'owner.txt', null, GATE)
+  const card = { session: CARD_SESSION, worktree: bench.worktree, branch: `feat/card-${CARD}` }
+  return answerPrompt({ lease: leaseOf(), source, widened: null, card }, null, windowGateRule(card, GATE, 'owner.txt'))
 }
 
 async function stoppedOnTheOwner(bench: Bench): Promise<void> {
