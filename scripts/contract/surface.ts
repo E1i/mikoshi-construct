@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import ts from 'typescript'
 import { ATLAS_EXIT } from '../../src/atlas/index.js'
 import { ATTACH_EXIT, SETTINGS_FILE } from '../../src/commands/attach/index.js'
 import { BOARD_EXIT } from '../../src/commands/board/index.js'
@@ -46,6 +47,26 @@ const IN_THE_HARNESS = 'In the harness.'
 const UNDECLARED_FLAG_PROBE = '--undeclared-flag-probe'
 const PROBE_TIMEOUT_MS = 60_000
 const FLAGS_OF_EVERY_FORM = new Set(['json', 'plain', 'johnny'])
+const TSX_ENTRY = /node --import tsx (\S+\.ts)(?=\s|$)/g
+const FLAG_AT_START = /^--([a-z][\w-]*)/
+const FLAG_NAME = /^[a-z][\w-]*$/
+const FLAG_PREFIX_AT_END = /(?:^|[^\w-])--$/
+const JSON_FLAG = 'json'
+const PARSE_ARGS = 'parseArgs'
+const CONSTANT_DEPTH = 8
+
+export const REFUSED_BY_STRICT_PARSE_ARGS = 'strict parseArgs'
+export const REFUSAL_NOT_READ = 'not read'
+
+export type ScriptRefusal = typeof REFUSED_BY_STRICT_PARSE_ARGS | typeof REFUSAL_NOT_READ
+
+export interface ScriptSurface {
+  entries: string[]
+  flags: string[]
+  json: boolean
+  exits: number[]
+  unknownFlag: ScriptRefusal
+}
 
 export const SURFACE_VERSION = 3
 
@@ -78,7 +99,7 @@ export interface Surface {
   markers: { block: string[][], discover: { tags: string[], markers: string[] } }
   contours: Record<string, string>
   outside: string[]
-  scripts: string[]
+  scripts: Record<string, ScriptSurface>
 }
 
 export interface ScriptRegistry {
@@ -98,6 +119,151 @@ function writeScriptsTable(root: string): string {
 
 export function scriptNames(registry: ScriptRegistry): string[] {
   return Object.keys(registry.scripts).sort()
+}
+
+type Constants = Map<string, ts.Expression>
+
+interface EntryReading {
+  flags: Set<string>
+  exits: Set<number>
+  refuses: boolean
+}
+
+function unwrapped(expression: ts.Expression): ts.Expression {
+  let current = expression
+  while (ts.isAsExpression(current) || ts.isParenthesizedExpression(current) || ts.isSatisfiesExpression(current))
+    current = current.expression
+  return current
+}
+
+function constantsOf(source: ts.SourceFile): Constants {
+  const constants: Constants = new Map()
+  const visit = (node: ts.Node): void => {
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer != null)
+      constants.set(node.name.text, unwrapped(node.initializer))
+    ts.forEachChild(node, visit)
+  }
+  visit(source)
+  return constants
+}
+
+function resolved(expression: ts.Expression, constants: Constants, depth = CONSTANT_DEPTH): ts.Expression {
+  const current = unwrapped(expression)
+  const target = ts.isIdentifier(current) ? constants.get(current.text) : undefined
+  return target == null || depth === 0 ? current : resolved(target, constants, depth - 1)
+}
+
+function literalOf(expression: ts.Expression, constants: Constants): string | number | undefined {
+  const value = resolved(expression, constants)
+  if (ts.isStringLiteralLike(value))
+    return value.text
+  return ts.isNumericLiteral(value) ? Number(value.text) : undefined
+}
+
+function propertyName(name: ts.PropertyName, constants: Constants): string | undefined {
+  if (ts.isIdentifier(name) || ts.isStringLiteral(name))
+    return name.text
+  if (!ts.isComputedPropertyName(name))
+    return undefined
+  const value = literalOf(name.expression, constants)
+  return typeof value === 'string' ? value : undefined
+}
+
+function objectProperties(expression: ts.Expression | undefined, constants: Constants): ts.PropertyAssignment[] {
+  const value = expression == null ? undefined : resolved(expression, constants)
+  return value != null && ts.isObjectLiteralExpression(value) ? value.properties.filter(ts.isPropertyAssignment) : []
+}
+
+function readParseArgs(call: ts.CallExpression, constants: Constants, into: EntryReading): void {
+  const config = objectProperties(call.arguments[0], constants)
+  const named = (name: string): ts.PropertyAssignment | undefined => config.find(property => propertyName(property.name, constants) === name)
+  for (const option of objectProperties(named('options')?.initializer, constants)) {
+    const flag = propertyName(option.name, constants)
+    if (flag != null)
+      into.flags.add(flag)
+  }
+  if (named('strict')?.initializer.kind !== ts.SyntaxKind.FalseKeyword)
+    into.refuses = true
+}
+
+function readFlagsInTemplate(template: ts.TemplateExpression, constants: Constants, into: EntryReading): void {
+  const texts = [template.head.text, ...template.templateSpans.map(span => span.literal.text)]
+  template.templateSpans.forEach((span, at) => {
+    const value = FLAG_PREFIX_AT_END.test(texts[at]) ? literalOf(span.expression, constants) : undefined
+    if (typeof value === 'string' && FLAG_NAME.test(value))
+      into.flags.add(value)
+  })
+  const leading = FLAG_AT_START.exec(template.head.text)?.[1]
+  if (leading != null)
+    into.flags.add(leading)
+}
+
+function exitCodeOf(node: ts.Node, constants: Constants): number | undefined {
+  const isExitCode = (target: ts.Node): boolean => ts.isPropertyAccessExpression(target) && target.name.text === 'exitCode'
+  const code = (expression: ts.Expression): number | undefined => {
+    const value = literalOf(expression, constants)
+    return typeof value === 'number' ? value : undefined
+  }
+  if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken && isExitCode(node.left))
+    return code(node.right)
+  if (ts.isCallExpression(node) && node.expression.getText() === 'process.exit' && node.arguments[0] != null)
+    return code(node.arguments[0])
+  if (ts.isPropertyAssignment(node) && propertyName(node.name, constants) === 'exitCode')
+    return code(node.initializer)
+  return undefined
+}
+
+function readEntry(file: string, into: EntryReading): void {
+  const source = ts.createSourceFile(file, readFileSync(file, 'utf8'), ts.ScriptTarget.Latest, true)
+  const constants = constantsOf(source)
+  const visit = (node: ts.Node): void => {
+    const leading = ts.isStringLiteralLike(node) ? FLAG_AT_START.exec(node.text)?.[1] : undefined
+    if (leading != null)
+      into.flags.add(leading)
+    if (ts.isTemplateExpression(node))
+      readFlagsInTemplate(node, constants, into)
+    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === PARSE_ARGS)
+      readParseArgs(node, constants, into)
+    const exit = exitCodeOf(node, constants)
+    if (exit != null)
+      into.exits.add(exit)
+    ts.forEachChild(node, visit)
+  }
+  visit(source)
+}
+
+function scriptSurface(command: string, root: string): ScriptSurface {
+  const entries = [...new Set([...command.matchAll(TSX_ENTRY)].map(match => match[1]))]
+  const reading: EntryReading = { flags: new Set(), exits: new Set(), refuses: false }
+  for (const entry of entries)
+    readEntry(path.join(root, entry), reading)
+  return {
+    entries,
+    flags: [...reading.flags].sort(),
+    json: reading.flags.has(JSON_FLAG),
+    exits: [...reading.exits].sort((a, b) => a - b),
+    unknownFlag: reading.refuses ? REFUSED_BY_STRICT_PARSE_ARGS : REFUSAL_NOT_READ,
+  }
+}
+
+export function scriptSurfaces(root = REPO_ROOT): Record<string, ScriptSurface> {
+  const registry = scriptRegistry(root)
+  return Object.fromEntries(scriptNames(registry).map(name => [name, scriptSurface(registry.scripts[name], root)]))
+}
+
+function undeclaredOfScript(name: string, script: ScriptSurface, declared: ScriptSurface | undefined): string[] {
+  if (declared == null)
+    return [`pnpm ${name}: the script is not declared`]
+  return [
+    ...script.flags.filter(flag => !declared.flags.includes(flag)).map(flag => `pnpm ${name} --${flag}: the flag is not declared`),
+    ...(script.json && !declared.json ? [`pnpm ${name} --${JSON_FLAG}: the json form is not declared`] : []),
+    ...script.exits.filter(code => !declared.exits.includes(code)).map(code => `pnpm ${name}: exit ${code} is not declared`),
+    ...(script.unknownFlag === declared.unknownFlag ? [] : [`pnpm ${name} ${UNDECLARED_FLAG_PROBE}: the refusal of an unknown flag reads as ${script.unknownFlag}, declared as ${declared.unknownFlag}`]),
+  ]
+}
+
+export function undeclaredScripts(recorded: Record<string, ScriptSurface>, head: Record<string, ScriptSurface>): string[] {
+  return Object.entries(head).flatMap(([name, script]) => undeclaredOfScript(name, script, recorded[name]))
 }
 
 function scriptRow(name: string, registry: ScriptRegistry): string {
@@ -358,7 +524,7 @@ export function generateSurface(): Surface {
     markers: markers(),
     contours: contours(),
     outside: [...OUTSIDE_THE_CONTRACT],
-    scripts: scriptNames(scriptRegistry()),
+    scripts: scriptSurfaces(),
   }
 }
 

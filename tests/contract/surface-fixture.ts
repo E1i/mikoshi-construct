@@ -1,6 +1,6 @@
 import type { SurfaceReading } from '../../scripts/contract/semantic-diff.js'
 import type { Surface } from '../../scripts/contract/surface.js'
-import { SURFACE_VERSION } from '../../scripts/contract/surface.js'
+import { REFUSAL_NOT_READ, SURFACE_VERSION } from '../../scripts/contract/surface.js'
 
 export function fixtureSurface(): Surface {
   return {
@@ -19,7 +19,7 @@ export function fixtureSurface(): Surface {
     markers: { block: [['<!-- construct:begin -->', '<!-- construct:end -->']], discover: { tags: ['<!-- construct:discover:<marker> -->'], markers: ['product'] } },
     contours: { 'ledger-row': 'mikoshi-construct/contours/ledger-row/1' },
     outside: ['lore strings'],
-    scripts: ['quality'],
+    scripts: { quality: { entries: ['scripts/quality/lock.ts'], flags: [], json: false, exits: [], unknownFlag: REFUSAL_NOT_READ } },
   }
 }
 
