@@ -6,7 +6,6 @@ import type { DetectionMode, NodeDeclaration, WaitStep } from '../../core/node.j
 import type { QueuedTask } from '../../core/queue.js'
 import type { DiskReader } from '../../ports/disk.js'
 import type { IsolationReader } from '../../ports/isolation.js'
-import type { PidAlive } from '../../supervisor/recorded-worker.js'
 import type { ProcessTable } from '../restart/chain-process.js'
 import type { Contour } from './launch-candidates.js'
 import type { CardStarter, LaunchOutcome, StartedCard } from './launch-executor.js'
@@ -34,7 +33,6 @@ import { storedInput } from '../../ports/prompt-store.js'
 import { launchDirOf } from '../../ports/tree-publish.js'
 import { isAlive } from '../../quality/lock.js'
 import { lastHeartbeat } from '../../supervisor/heartbeat.js'
-import { recordedPidLives } from '../../supervisor/recorded-worker.js'
 import { launchProcess, REAL_PROCESSES } from '../restart/chain-process.js'
 import { MAX_RESTARTS } from './continuation.js'
 import { laneOverlapRecorder, layLanes, repositoryLanes } from './lane-assign.js'
@@ -54,6 +52,13 @@ export const HEARTBEAT_SILENCE_MINUTES = 20
 const HEARTBEAT_SILENCE_MS = HEARTBEAT_SILENCE_MINUTES * 60_000
 
 const LEGACY_MERGE = 'merge'
+
+export type PidAlive = (pid: number) => boolean
+
+function recordedPidLivesIn(pid: number, pidAlive: PidAlive): boolean {
+  return Number.isInteger(pid) && pid > 0 && pidAlive(pid)
+}
+
 const LEGACY_PATH = 'path'
 export const LAUNCH_ON = [CARD_ADMITTED, CARD_STARTED, CARD_CLOSED, CARD_STOPPED, PR_CLOSED, PR_OBSERVED, PR_OPENED, LEGACY_MERGE, LEGACY_PATH, TASK_ENQUEUED, TASK_REQUEUED, TASK_COMPLETED, TASK_FAILED, TASK_SUPERSEDED, TASK_RELEASED, TASK_EXPIRED, MERGE_DONE, GHOST_ROW, REDUCED] as const
 export const LAUNCH_NODE: NodeDeclaration = { kind: 'launch', on: LAUNCH_ON, understands: UNDERSTOOD_NOW }
@@ -338,7 +343,7 @@ export class LaunchNode extends Node<LaunchStep> {
   }
 
   private sessionProcess(card: StartedCard): 'live' | 'gone' {
-    if (!recordedPidLives(card.pid, this.pidAlive))
+    if (!recordedPidLivesIn(card.pid, this.pidAlive))
       return 'gone'
     return launchProcess({ pgid: card.pgid, session: card.session }, this.processes) === 'live' ? 'live' : 'gone'
   }

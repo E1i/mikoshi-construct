@@ -24,7 +24,7 @@ import { CLOSED_CARD, DROPPED_CARD, MERGED_CARD } from '../core/card-automaton.j
 import { appendCardEvent, bodyNotFoldedYet, CARD_BODIES, cardBodyText, FACTORY_MODES, isFactoryMode, laid } from '../core/card-bodies.js'
 import { answersWithdrawnByAClosedHold, holdLayersOf, holdThatStays, ownerHoldGround } from '../core/card-hold.js'
 import { appendEvent, CLOSED_WAIT, closeOwnerWait, defaultBusPath, inTransaction, isOwnerWaitNeed, OPEN_WAIT, openBus, openOwnerWait, OWNER_WAIT_NEEDS, OWNER_WAITS } from '../core/db.js'
-import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_DROPPED, CARD_HELD, CARD_PLANNED, CARD_RELEASED, CARD_STARTED, CARD_STOPPED, CARD_TAKEOVER, CARD_UNPLANNED, declaredPayload, FACTORY_MODE, NUMBERS_FOREIGN, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PLAN_BACKFILLED, PLAN_CLOSED, PLAN_OPENED, POLICY_DENIED, PR_OBSERVED, PR_OPENED, REQUEST_DONE, REQUEST_REFUSED, SHARD_DECIDED, TASK_REQUEUED, WINDOW_REQUEST, WITNESS_RECORDED } from '../core/events.js'
+import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_DROPPED, CARD_HELD, CARD_PLANNED, CARD_RELEASED, CARD_STARTED, CARD_STOPPED, CARD_TAKEOVER, CARD_UNPLANNED, declaredPayload, FACTORY_MODE, NUMBERS_FOREIGN, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PLAN_BACKFILLED, PLAN_CLOSED, PLAN_OPENED, POLICY_DENIED, PR_OBSERVED, REQUEST_DONE, REQUEST_REFUSED, SHARD_DECIDED, TASK_REQUEUED, WINDOW_REQUEST, WITNESS_RECORDED } from '../core/events.js'
 import { cardIdOf, generationOfKey, isFullSha, prOf } from '../core/identifiers.js'
 import { ANSWER_SOURCE, OPEN_OWNER_STOP_OF_CARD, OWNER } from '../core/inbox.js'
 import { legacyHistory } from '../core/legacy-history.js'
@@ -46,8 +46,7 @@ import { ghApi } from '../ports/github.js'
 import { Meter } from '../ports/meter.js'
 import { MAIN_BRANCH } from '../ports/snapshot.js'
 import { MAIN_REF, readReleaseVersion, VERSION_PR_REF } from '../release/changesets.js'
-import { STARTER_ACTOR } from './window-prs.js'
-import { SESSION_ENDED_AFTER, windowSessionEndGround } from './window-session-end.js'
+import { startStillOpen, windowSessionEndGround } from './window-session-end.js'
 
 export { SESSION_VARIABLE } from '../ports/client/claude/adapter.js'
 
@@ -158,10 +157,6 @@ const UNCLOSED_QUESTION = `
 const ENDED_CARDS: ReadonlySet<string | null | undefined> = new Set([MERGED_CARD, CLOSED_CARD, DROPPED_CARD])
 
 const LATEST_TURN = `SELECT id, type FROM events WHERE id = ${latestTurnOf('?')}`
-
-const PR_OPENED_AFTER = `SELECT 1 FROM events WHERE card_id = ? AND legacy = 0 AND type = '${PR_OPENED}' AND id > ? LIMIT 1`
-
-const STARTED_BY_THE_WINDOW = `SELECT 1 FROM events WHERE id = ? AND actor LIKE '${STARTER_ACTOR}%' AND json_extract(payload, '$.shift') IS NULL AND json_extract(payload, '$.session') IS NOT NULL`
 
 const DIRTY_TREE_CAUSE = /has uncommitted changes$/
 
@@ -662,7 +657,7 @@ export class WindowRequests {
     if (task !== undefined)
       return `card #${cardId} has a bus route: the ${task.queue} task ${task.task_key} is ${task.state}`
     const turn = this.latestTurn(cardId)
-    if (turn?.type === CARD_STARTED && this.db.prepare(STARTED_BY_THE_WINDOW).get(turn.id) === undefined && [SESSION_ENDED_AFTER, PR_OPENED_AFTER].every(ended => this.db.prepare(ended).get(cardId, turn.id) === undefined))
+    if (turn?.type === CARD_STARTED && startStillOpen(this.db, cardId, turn.id))
       return `card #${cardId} has a bus route: its session started at event ${turn.id} has not ended`
     return null
   }
@@ -758,8 +753,7 @@ export function allowMergeRuleInForce(repository: string): boolean {
 }
 
 function cardStatesOf(db: DatabaseSync): Map<string, string> {
-  const rows = db.prepare('SELECT card_id, state FROM cards WHERE state IS NOT NULL').all() as { card_id: number, state: string }[]
-  return new Map(rows.map(row => [String(row.card_id), row.state]))
+  return new Map((db.prepare('SELECT card_id, state FROM cards WHERE state IS NOT NULL').all() as { card_id: number, state: string }[]).map(row => [String(row.card_id), row.state]))
 }
 
 function foreignIdsOf(value: unknown): number[] | null {

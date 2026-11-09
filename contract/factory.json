@@ -952,6 +952,21 @@
           "task_key"
         ]
       },
+      "session.stalled": {
+        "complete": true,
+        "keys": [
+          "lease_gen",
+          "life",
+          "limit",
+          "queue",
+          "reason",
+          "session",
+          "since",
+          "spent",
+          "stopped",
+          "task_key"
+        ]
+      },
       "shard.decided": {
         "complete": true,
         "keys": [
@@ -1160,6 +1175,7 @@
           "head",
           "id",
           "ids",
+          "keep_tree",
           "kind",
           "mode",
           "need",
@@ -2330,6 +2346,30 @@
           "IsolationReader": "type IsolationReader = () => Isolation",
           "SettingsLayer": "type SettingsLayer = Record<string, unknown> | null",
           "SettingsPaths": "interface SettingsPaths { managed: string | null; local: string; project: string; user: string; }"
+        }
+      },
+      "scripts/ports/main-merge.ts": {
+        "constants": [],
+        "functions": {
+          "conflictingCardOf": "(db: DatabaseSync, cardId: number, branch: string, head: string): ConflictingCard",
+          "mainKeptInTheTree": "(tree: string): MergeMain",
+          "mainMergeInCardTree": "(git: TreeGit, treeOf: (cardId: number) => string, run: RebuildRunner = pnpmRebuild, merged: MergedMain = 'pushed'): MergeMain"
+        },
+        "language": "technology",
+        "reexports": [],
+        "technologyWords": [
+          "database",
+          "git",
+          "pnpm",
+          "stderr"
+        ],
+        "types": {
+          "ConflictingCard": "interface ConflictingCard { cardId: number; branch: string; outsideTheCard: (files: string[]) => string[]; head: string; }",
+          "MainMerge": "type MainMerge = { kind: 'merged'; to: string; tookMain: string[]; rebuilt: string[]; } | { kind: 'inside'; files: string[]; } | { kind: 'refused'; why: string; }",
+          "MergeMain": "type MergeMain = (card: ConflictingCard) => MainMerge",
+          "MergedMain": "type MergedMain = 'pushed' | 'kept-in-the-tree'",
+          "RebuildRunner": "type RebuildRunner = (cwd: string, args: readonly string[]) => { status: number | null; stderr: string; }",
+          "TreeGit": "type TreeGit = (cwd: string, args: string[]) => string"
         }
       },
       "scripts/ports/meter.ts": {

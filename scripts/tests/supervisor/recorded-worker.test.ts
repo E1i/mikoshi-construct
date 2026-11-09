@@ -42,7 +42,7 @@ async function launchedWith(cardId: number, pidAlive: (pid: number) => boolean):
   benches.push(made)
   appendEvent(made.db, { ts: made.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'policy', cardId, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${cardId}`, payload: { lane: 'lane-a', decision: 'auto', contour: 'cheap', depends: [], admission: `admission-${cardId}` }, legacy: false })
   made.tick()
-  const groupStillListed: ProcessTable = { commandLine: pid => pid === RECORDED_PID ? `claude --session-id s-${cardId}` : null, signalGroup: () => {} }
+  const groupStillListed: ProcessTable = { commandLine: pid => pid === RECORDED_PID ? `agent session s-${cardId}` : null, signalGroup: () => {} }
   const node = new LaunchNode({
     db: made.db,
     starter: new OneSessionStarter(),
@@ -110,7 +110,7 @@ describe('the recorded worker pid', () => {
   })
 
   it('a session lives while a process names it, and the bus cannot tell when the table is unreadable', () => {
-    const table = tableOf(['claude --session-id abc', 'node other'])
+    const table = tableOf(['agent session abc', 'node other'])
 
     expect(sessionLifeIn(table)('abc')).toBe('live')
     expect(sessionLifeIn(table)('xyz')).toBe('dead')

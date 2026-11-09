@@ -546,10 +546,8 @@ function workerKindsOf(launches: DetachedLaunch[]): string[] {
   return launches.map(launch => launch.script.replace(/^bus:/, '')).filter(isBusWorker)
 }
 
-const RETIRING_WORKERS: readonly string[] = [...ROUND_WORKERS, 'review']
-
 function runsRounds(launch: DetachedLaunch): boolean {
-  return workerKindsOf([launch]).some(kind => RETIRING_WORKERS.includes(kind))
+  return workerKindsOf([launch]).some(kind => ROUND_WORKERS.includes(kind))
 }
 
 export function withoutRetiring(processes: ProcessList, db: DatabaseSync, holding: () => boolean = () => false): ProcessList {

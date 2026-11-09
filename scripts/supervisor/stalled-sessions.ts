@@ -105,6 +105,16 @@ export function spendInCardTree(db: DatabaseSync): SpendOf {
   }
 }
 
+interface StalledPayload {
+  session: string | null
+  life: SessionLife
+  since: string
+  reason: string
+  spent?: number
+  limit?: number
+  stopped?: true
+}
+
 export class StalledSessions {
   private lastSweep = Number.NEGATIVE_INFINITY
   private readonly lines: Readonly<Record<SupervisedQueue, number>>
@@ -210,7 +220,7 @@ export class StalledSessions {
       : `the ${lease.queue} session ${session} of card #${lease.cardId} made no push and no new step for ${minutes} min, and the process table could not be read`
   }
 
-  private raise(lease: Lease, nowMs: number, payload: Record<string, unknown> & { reason: string }, mark: string): string[] {
+  private raise(lease: Lease, nowMs: number, payload: StalledPayload, mark: string): string[] {
     const ts = new Date(nowMs).toISOString()
     const raised = appendEvent(this.db, { ts, type: SESSION_STALLED, actor: STALLED_ACTOR, cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${SESSION_STALLED}:${lease.taskKey}:${lease.leaseGen}:${mark}`, payload: { task_key: lease.taskKey, lease_gen: lease.leaseGen, queue: lease.queue, ...payload }, legacy: false })
     return raised ? [`${this.prefix}${SESSION_STALLED} #${lease.cardId}: ${payload.reason}`] : []

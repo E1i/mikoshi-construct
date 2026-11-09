@@ -3,18 +3,21 @@ import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { CLOSED_CARD, DROPPED_CARD, MERGED_CARD } from '../core/card-automaton.js'
 import { appendEvent } from '../core/db.js'
-import { CARD_SESSION_ENDED, CARD_STARTED, WINDOW_HEARTBEAT } from '../core/events.js'
+import { CARD_SESSION_ENDED, CARD_STARTED, PR_OPENED, WINDOW_HEARTBEAT } from '../core/events.js'
 import { latestTurnOf } from '../core/queue.js'
 import { STARTER_ACTOR } from './window-prs.js'
 
 export const WINDOW_SESSION_END_ACTOR = 'worker:supervisor:window-session-end'
 export const WINDOW_SESSION_SWEEP_MS = 60_000
-export const SESSION_ENDED_AFTER = `SELECT 1 FROM events WHERE card_id = ? AND legacy = 0 AND type = '${CARD_SESSION_ENDED}' AND id > ? LIMIT 1`
+const SESSION_ENDED_AFTER = `SELECT 1 FROM events WHERE card_id = ? AND legacy = 0 AND type = '${CARD_SESSION_ENDED}' AND id > ? LIMIT 1`
+const PR_OPENED_AFTER = `SELECT 1 FROM events WHERE card_id = ? AND legacy = 0 AND type = '${PR_OPENED}' AND id > ? LIMIT 1`
 
 export const SESSION_JOURNAL = '.construct/turns.jsonl'
 const SESSION_END_LINE = 'session-end'
 
 const STARTED_BY_A_WINDOW = `started.type = '${CARD_STARTED}' AND started.legacy = 0 AND started.actor LIKE '${STARTER_ACTOR}%' AND json_extract(started.payload, '$.shift') IS NULL AND json_extract(started.payload, '$.session') IS NOT NULL`
+
+const WINDOW_START_WITH_ITS_PR = `SELECT 1 FROM events AS started WHERE started.id = ? AND ${STARTED_BY_A_WINDOW} AND EXISTS (SELECT 1 FROM prs WHERE prs.card_id = started.card_id)`
 
 const UNENDED_WINDOW_STARTS = `
   SELECT started.card_id, started.ts, started.dedupe_key, json_extract(started.payload, '$.session') AS session, json_extract(started.payload, '$.worktree') AS worktree FROM events AS started
@@ -138,4 +141,10 @@ export class WindowSessionEnds {
 export function windowSessionEndGround(db: DatabaseSync, cardId: number): { named: string } | null {
   const turn = db.prepare(ENDED_WINDOW_TURN).get(cardId) as { id: number, session: string } | undefined
   return turn === undefined ? null : { named: `its window session ${turn.session} started at event ${turn.id} has ended and no pull request of the card is open` }
+}
+
+export function startStillOpen(db: DatabaseSync, cardId: number, startId: number): boolean {
+  if (db.prepare(WINDOW_START_WITH_ITS_PR).get(startId) !== undefined)
+    return false
+  return [SESSION_ENDED_AFTER, PR_OPENED_AFTER].every(ended => db.prepare(ended).get(cardId, startId) === undefined)
 }
