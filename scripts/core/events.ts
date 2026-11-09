@@ -28,6 +28,7 @@ export const CARD_VERIFIED = 'card.verified'
 export const CARD_WAITING = 'card.waiting'
 export const CHAIN_OBSERVED = 'chain.observed'
 export const CHAIN_RESTARTED = 'chain.restarted'
+export const CI_RERUN_REQUESTED = 'ci.rerun.requested'
 export const CHECKS_MATRIX_EVENT = 'checks.matrix'
 export const COMMAND_EXECUTED = 'command.executed'
 export const DECISION_EXPIRED = 'decision.expired'
@@ -152,6 +153,7 @@ export const EVENT_PAYLOADS = {
   [CARD_WAITING]: ['actions', 'amended', 'bodySha', 'code', 'depends', 'detail', 'reason', 'session', 'started', 'step', 'witnesses'],
   [CHAIN_OBSERVED]: ['boundary', 'dir', 'leader', 'parking', 'pid', 'sha', 'state', 'waitingOn'],
   [CHAIN_RESTARTED]: ['dir', 'from', 'from_dir', 'pid', 'to'],
+  [CI_RERUN_REQUESTED]: ['detail', 'lease_gen', 'requested', 'runs', 'task_key'],
   [CHECKS_MATRIX_EVENT]: ['full', 'killed', 'notRun', 'skipped', 'summary', 'survived'],
   [COMMAND_EXECUTED]: ['command', 'endpoint', 'error', 'event_id', 'lease_gen', 'ok', 'run', 'runs', 'status', 'task_key', 'text'],
   [DECISION_EXPIRED]: ['decision_id', 'until'],
@@ -185,7 +187,7 @@ export const EVENT_PAYLOADS = {
   [POLICY_ALLOWED]: ['by', 'command', 'detail', 'lease_gen', 'reason', 'rule', 'task_key'],
   [POLICY_DENIED]: ['base', 'by', 'command', 'detail', 'kind', 'parkedUntil', 'paths', 'reason', 'refusal', 'refused', 'rule'],
   [PR_CLOSED]: ['branch', 'by', 'commit', 'merged', 'merged_at', 'merged_by', 'reason'],
-  [PR_OBSERVED]: ['auto_merge', 'base', 'body_sha', 'branch', 'card_id', 'ci', 'draft', 'failed_checks', 'head', 'mergeable', 'verdict_on_head'],
+  [PR_OBSERVED]: ['auto_merge', 'base', 'body_sha', 'branch', 'cancelled_checks', 'card_id', 'ci', 'draft', 'failed_checks', 'head', 'mergeable', 'verdict_on_head'],
   [PR_OPENED]: ['pr', 'recut_of'],
   [PR_STATUS_REFUSED]: ['event_id', 'state', 'status', 'step'],
   [PR_STATUS_SET]: ['event_id', 'state', 'status', 'step'],
