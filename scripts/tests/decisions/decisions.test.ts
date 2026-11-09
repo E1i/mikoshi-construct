@@ -53,7 +53,7 @@ describe('owner decisions are a numbered record', () => {
   })
 
   it('numbers every decision once: a D-N on two lines is refused', () => {
-    expect(decisionsRefusals(file('- D-1 · 2026-10-08 — one.', '- D-1 · 2026-10-08 — two.'))).toEqual(['[decisions] D-1: on line 5 and line 6; a number names one decision'])
+    expect(decisionsRefusals(file('- D-1 · 2026-10-08 — one.', '- D-1 · 2026-10-08 — two.'))).toEqual(['[decisions] D-1: on line 5 and line 6; a number names one decision; pnpm decisions:add --supersedes D-1 "[owner] <what D-1 says now>" retires every record of D-1'])
   })
 
   it('reads only decisions in force: one marked superseded-by D-M is not read', () => {
@@ -184,7 +184,7 @@ describe('owner decisions are a numbered record', () => {
     const archive = file('- D-1 · 2026-10-08 — one. · superseded-by D-3')
     expect(decisionsRefusals(file('- D-2 · 2026-10-08 — two.', '- D-3 · 2026-10-08 — three.'), archive)).toEqual([])
     expect(decisionsRefusals(file('- D-2 · 2026-10-08 — two.', '- D-3 · 2026-10-08 — three.'))).toEqual(['[decisions] D-2 on line 5: expected D-1; numbers run 1..n in file order'])
-    expect(decisionsRefusals(file('- D-1 · 2026-10-08 — one.', '- D-2 · 2026-10-08 — two.'), archive)).toEqual(['[decisions] D-1: on line 5 and in the archive; a number names one decision'])
+    expect(decisionsRefusals(file('- D-1 · 2026-10-08 — one.', '- D-2 · 2026-10-08 — two.'), archive)).toEqual(['[decisions] D-1: on line 5 and in the archive; a number names one decision; pnpm decisions:add --supersedes D-1 "[owner] <what D-1 says now>" retires every record of D-1'])
   })
 
   it('a new decision carrying supersedes D-M takes the old decision out of force', () => {
