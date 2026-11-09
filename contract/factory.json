@@ -1,6 +1,6 @@
 {
   "bus": {
-    "busVersion": 2,
+    "busVersion": 3,
     "events": {
       "answer.step": {
         "complete": true,
@@ -1652,7 +1652,8 @@
         "understands": {
           "bus": [
             1,
-            2
+            2,
+            3
           ],
           "card": [
             1
@@ -1670,7 +1671,8 @@
         "understands": {
           "bus": [
             1,
-            2
+            2,
+            3
           ],
           "card": [
             1
@@ -1702,7 +1704,8 @@
         "understands": {
           "bus": [
             1,
-            2
+            2,
+            3
           ],
           "card": [
             1
@@ -1724,7 +1727,8 @@
         "understands": {
           "bus": [
             1,
-            2
+            2,
+            3
           ],
           "card": [
             1
@@ -1750,7 +1754,8 @@
         "understands": {
           "bus": [
             1,
-            2
+            2,
+            3
           ],
           "card": [
             1
@@ -1769,7 +1774,8 @@
         "understands": {
           "bus": [
             1,
-            2
+            2,
+            3
           ],
           "card": [
             1
@@ -1786,7 +1792,8 @@
         "understands": {
           "bus": [
             1,
-            2
+            2,
+            3
           ],
           "card": [
             1
@@ -1794,7 +1801,7 @@
         }
       }
     },
-    "nodesVersion": 1
+    "nodesVersion": 2
   },
   "overlaps": {
     "answer-duties": {
