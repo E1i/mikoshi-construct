@@ -37,7 +37,17 @@ function writerOf(file: string): string {
   return `import { writeFileSync } from 'node:fs'\nimport path from 'node:path'\n\nexport function save(): void {\n  writeFileSync(path.join('.construct', '${file}'), '{}')\n}\n`
 }
 
+function makerOf(directory: string): string {
+  return `import { mkdirSync } from 'node:fs'\nimport path from 'node:path'\n\nexport function make(): void {\n  mkdirSync(path.join('.construct', '${directory}'), { recursive: true })\n}\n`
+}
+
 const RECORD: HomeFile = { path: '.construct/record.json', names: ['record.json'], source: { kind: 'owner' } }
+const RECORD_READ: HomeFile = { ...RECORD, owner: 'src/reader.ts' }
+const CACHE: HomeFile = { path: '.construct/cache', names: ['.construct/cache'], source: { kind: 'owner' } }
+const THINGS: HomeFile = { path: '~/.construct/bus.db#things', names: [], source: { kind: 'owner' } }
+const READER = `export const RECORD_FILE = 'record.json'\n`
+const TABLE_WRITER = `export const CREATE = 'CREATE TABLE IF NOT EXISTS things (id INTEGER)'\nexport const ADD = 'INSERT INTO things (id) VALUES (?)'\n`
+const TABLE_READER = `export const ALL = 'SELECT id FROM things'\n`
 
 describe('the files section of contract/factory.json', () => {
   it('a file in the home directory or under .construct with no entry in contract/factory.json fails the check', () => {
@@ -74,6 +84,60 @@ describe('the files section of contract/factory.json', () => {
     const view: HomeFile = { path: '.construct/view.json', names: ['view.json'], source: { kind: 'event', name: 'lane.assigned' } }
     const files = parsedFiles(tree({ 'scripts/emit.ts': `export const E = { type: 'lane.assigned' }\n`, 'scripts/one.ts': writerOf('view.json') }))
     expect(() => filesSection(files, NO_SOURCES, [view])).toThrow(/which the bus section does not hold/)
+  })
+
+  it('a declared owner that does not name the file fails the check', () => {
+    const files = parsedFiles(tree({ 'scripts/one.ts': writerOf('record.json') }))
+    expect(() => filesSection(files, NO_SOURCES, [{ ...RECORD, owner: 'scripts/other.ts' }])).toThrow(/declared owned by scripts\/other\.ts, which does not name it/)
+  })
+
+  it('a declared owner that is not the one writer of the file fails the check', () => {
+    const files = parsedFiles(tree({ 'scripts/one.ts': writerOf('record.json'), 'src/reader.ts': READER }))
+    expect(() => filesSection(files, NO_SOURCES, [{ ...RECORD, owner: 'src/reader.ts' }])).toThrow(/declared owned by src\/reader\.ts and written by scripts\/one\.ts/)
+  })
+
+  it('a declared owner that names a file nobody writes owns it', () => {
+    const files = parsedFiles(tree({ 'src/reader.ts': READER, 'src/other.ts': READER }))
+    expect(filesSection(files, NO_SOURCES, [{ ...RECORD, owner: 'src/reader.ts' }]).entries[RECORD.path]).toMatchObject({ owner: 'src/reader.ts', writers: [] })
+  })
+
+  it('an entry no module names is stale and fails the check', () => {
+    const files = parsedFiles(tree({ 'scripts/one.ts': `export const NOTHING = 1\n` }))
+    expect(() => filesSection(files, NO_SOURCES, [RECORD])).toThrow(/\.construct\/record\.json is named in no module under record\.json; the entry is stale/)
+  })
+
+  it('a file no module writes and two modules name fails the check until one is declared its owner', () => {
+    const files = parsedFiles(tree({ 'src/reader.ts': READER, 'src/other.ts': READER }))
+    expect(() => filesSection(files, NO_SOURCES, [RECORD])).toThrow(/has no single writer and is named in src\/other\.ts, src\/reader\.ts; declare which of them owns it/)
+  })
+
+  it('a directory may have several writer modules and is owned by the one declared', () => {
+    const files = parsedFiles(tree({ 'scripts/one.ts': makerOf('cache'), 'scripts/two.ts': makerOf('cache') }))
+    const entry = filesSection(files, NO_SOURCES, [{ ...CACHE, owner: 'scripts/two.ts' }]).entries[CACHE.path]
+    expect(entry).toMatchObject({ owner: 'scripts/two.ts', directory: true, writers: ['scripts/one.ts', 'scripts/two.ts'] })
+  })
+
+  it('a directory with one module naming it is owned by that module, whoever writes it', () => {
+    const files = parsedFiles(tree({ 'scripts/one.ts': makerOf('cache') }))
+    expect(filesSection(files, NO_SOURCES, [CACHE]).entries[CACHE.path]).toMatchObject({ owner: 'scripts/one.ts', directory: true })
+  })
+
+  it('a table is owned by the one module that writes its rows', () => {
+    const files = parsedFiles(tree({ 'scripts/store.ts': TABLE_WRITER, 'scripts/read.ts': TABLE_READER }))
+    expect(filesSection(files, NO_SOURCES, [THINGS]).entries[THINGS.path]).toMatchObject({ owner: 'scripts/store.ts', directory: false, writers: ['scripts/store.ts'], namedIn: ['scripts/read.ts', 'scripts/store.ts'] })
+  })
+
+  it('a table with two writer modules fails the check', () => {
+    const files = parsedFiles(tree({ 'scripts/store.ts': TABLE_WRITER, 'scripts/other.ts': TABLE_WRITER }))
+    expect(() => filesSection(files, NO_SOURCES, [THINGS])).toThrow(/~\/\.construct\/bus\.db#things has 2 writer modules/)
+  })
+
+  it('a table with no entry fails the check unless the bus section holds it', () => {
+    const files = parsedFiles(tree({ 'scripts/store.ts': TABLE_WRITER }))
+    expect(() => filesSection(files, NO_SOURCES, [RECORD_READ])).toThrow(/#things \(scripts\/store\.ts\)/)
+    expect(() => filesSection(files, NO_SOURCES, [{ ...THINGS, path: '~/.construct/bus.db#other' }])).toThrow(/#things \(scripts\/store\.ts\)/)
+    const held: FileSources = { events: new Set(), tables: new Set(['things']) }
+    expect(Object.keys(filesSection(parsedFiles(tree({ 'scripts/store.ts': TABLE_WRITER, 'src/reader.ts': READER })), held, [RECORD_READ]).entries)).toEqual([RECORD.path])
   })
 
   it('records lane and owner-decisions as derived views of their one source', () => {
