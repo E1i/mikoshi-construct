@@ -196,15 +196,7 @@ export interface CardReading {
 export function cardReadingOf(touches: readonly string[], named: string[], masks: readonly string[], catalog: BusCatalog): CardReading {
   if (catalog.unreadable !== undefined)
     return { runs: named, fullReading: catalog.unreadable }
-  let reading: CardRuns
-  try {
-    reading = cardRunsOf({ touches, runs: named, masks }, catalog)
-  }
-  catch (error) {
-    if (error instanceof LayerWithoutTests)
-      return { runs: named, fullReading: error.message }
-    throw error
-  }
+  const reading = cardRunsOf({ touches, runs: named, masks }, catalog)
   return 'full' in reading
     ? { runs: named, fullReading: reading.why }
     : { runs: [...new Set([...named, ...reading.tests])] }

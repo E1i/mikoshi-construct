@@ -7,7 +7,7 @@ import path from 'node:path'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { runsLine } from '../../../src/card/covering-tests.js'
 import { parkingFileText, parseParkingFile } from '../../../src/card/parking.js'
-import { busCheckCatalog } from '../../ci/card-runs.js'
+import { busCheckCatalog, LayerWithoutTests } from '../../ci/card-runs.js'
 import { catalogLayersByTest, catalogModuleLayers, writeCatalog } from '../../cli/check-catalog.js'
 import { openDatabase } from '../../core/sqlite.js'
 import { answerFollowed, shiftTreeCard, treePr, worktreeCoverage } from '../../nodes/launch/tree-pr.js'
@@ -179,10 +179,8 @@ describe('the card session and the review read the runs of a card from one sourc
     expect(refused.kind === 'problem' && refused.why).toContain(`the card's touches for ${HELPER}`)
     expect(refused.kind === 'problem' && refused.why).toContain(`${FULL_READING}the check catalog is empty`)
 
-    for (const catalog of [EMPTY, NO_TEST_OF_THE_MASK]) {
-      expect(shiftTreeCard(taskOf(cardText(MASK_ON_BUS)), catalog).runs).toEqual([])
-      expect(reviewFindings(MASK_ON_BUS, catalog, [HELPER])).toEqual([expect.stringContaining(FULL_READING)])
-    }
+    expect(shiftTreeCard(taskOf(cardText(MASK_ON_BUS)), EMPTY).runs).toEqual([])
+    expect(reviewFindings(MASK_ON_BUS, EMPTY, [HELPER])).toEqual([expect.stringContaining(FULL_READING)])
     const unknownTouch = shiftTreeCard(taskOf(cardText('Do it.', ['CONTRIBUTING.md'])), CATALOG)
     expect(unknownTouch.runs).toEqual([])
     expect(unknownTouch.fullReading).toContain('CONTRIBUTING.md belongs to no layer of the check catalog')
@@ -191,6 +189,11 @@ describe('the card session and the review read the runs of a card from one sourc
     expect(inside.pr).toEqual({ kind: 'pr', number: '954', followed: [] })
     expect(inside.prBody).not.toContain(FULL_READING)
   }, TREE_TIMEOUT_MS)
+
+  it('a mask on a layer with no test fails the launch and the review reading instead of reading full', () => {
+    expect(() => shiftTreeCard(taskOf(cardText(MASK_ON_BUS)), NO_TEST_OF_THE_MASK)).toThrow(LayerWithoutTests)
+    expect(() => reviewFindings(MASK_ON_BUS, NO_TEST_OF_THE_MASK, [HELPER])).toThrow(LayerWithoutTests)
+  })
 
   it('a full reading keeps the paths the card names and adds nothing to them', () => {
     const named = shiftTreeCard(taskOf(cardText(`Do it.\n\n${runsLine([MASKED_TEST, 'layer:bus'])}`)), EMPTY)
