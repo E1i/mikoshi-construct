@@ -13,11 +13,5 @@
   "scripts/tests/shift/fixtures/settled.ts",
   "scripts/tests/shift/settled.test.ts",
   "scripts/tests/supervisor/review-drain-slots.test.ts",
-  "scripts/tests/wait-for.ts",
-  "tests/browser-lab-route.test.ts",
-  "tests/commit-guard.test.ts",
-  "tests/daemon.test.ts",
-  "tests/eddies.test.ts",
-  "tests/prompts.test.ts",
-  "tests/turn-journal.test.ts"
+  "scripts/tests/wait-for.ts"
 ]
