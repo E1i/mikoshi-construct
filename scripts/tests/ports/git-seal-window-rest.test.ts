@@ -1,14 +1,22 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
 import { CONCEPTS, GIT_BEYOND_THE_PORT } from '../../contract/factory/concepts.js'
+import { programCall } from '../../contract/factory/detectors.js'
 import { findSites, overlapsSection } from '../../contract/factory/overlaps.js'
 import { InMemoryGit } from '../../ports/git.js'
 
 const REPO_ROOT = path.join(import.meta.dirname, '..', '..', '..')
 const SCAN_TIMEOUT = 180_000
 const GIT_CONCEPT = CONCEPTS.filter(concept => concept.id === 'git')
+
+const CALLS_BEYOND_THE_PORT = {
+  'scripts/construct/check-acceptance.mjs': 1,
+  'scripts/core/node.ts': 1,
+  'scripts/core/push-policy.ts': 1,
+  'src/detect/git.ts': 1,
+}
 
 const THROUGH_THE_PORT = [
   'scripts/atlas/build.ts',
@@ -68,10 +76,22 @@ describe('the seal of git in the window and the rest', () => {
       expect(filesCallingGit(treeWith({ [file]: text })), label).toEqual([file])
   })
 
-  it('the files the port cannot reach are named, and each still runs git itself', () => {
-    expect([...GIT_BEYOND_THE_PORT].sort()).toEqual(['scripts/construct/check-acceptance.mjs', 'scripts/core/node.ts', 'scripts/core/push-policy.ts', 'src/detect/git.ts'])
-    for (const file of GIT_BEYOND_THE_PORT)
-      expect(readFileSync(path.join(REPO_ROOT, file), 'utf8'), file).toMatch(/(?:spawnSync|execFileSync)\('git'/)
+  it('the files the port cannot reach keep only the git call each has today, so a new one there is red', { timeout: SCAN_TIMEOUT }, () => {
+    const unexempted = GIT_CONCEPT.map(concept => ({ ...concept, detectors: [programCall(['git'])] }))
+    const section = overlapsSection(findSites(REPO_ROOT, unexempted), unexempted).git ?? {}
+    const exempted = Object.fromEntries(Object.entries(section).filter(([file]) => GIT_BEYOND_THE_PORT.has(file)))
+
+    expect(exempted).toEqual(CALLS_BEYOND_THE_PORT)
+    expect(Object.keys(section).filter(file => !GIT_BEYOND_THE_PORT.has(file))).toEqual([])
+  })
+
+  it('a second git call planted in a file the port cannot reach is counted', () => {
+    const unexempted = GIT_CONCEPT.map(concept => ({ ...concept, detectors: [programCall(['git'])] }))
+    const twice = 'import { execFileSync } from \'node:child_process\'\nexport const a = execFileSync(\'git\', [\'status\'])\nexport const b = execFileSync(\'git\', [\'log\'])'
+    const root = treeWith({ 'scripts/core/push-policy.ts': twice })
+
+    expect(filesCallingGit(root)).toEqual([])
+    expect(overlapsSection(findSites(root, unexempted), unexempted).git).toEqual({ 'scripts/core/push-policy.ts': 2 })
   })
 
   it('the in-memory port answers the asynchronous read the trees use', async () => {
