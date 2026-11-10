@@ -8,6 +8,8 @@ export function pnpmCommand(script: string, ...args: readonly OwnerCommandArgume
   return commandLine('pnpm', script, args)
 }
 
+export const ADMIT_COMMAND = pnpmCommand('intake', '--admit')
+
 export function constructCommand(command: string, ...args: readonly OwnerCommandArgument[]): string {
   return commandLine('construct', command, args)
 }

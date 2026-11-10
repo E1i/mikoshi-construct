@@ -17,6 +17,7 @@ import { appendEvent, CLOSED_WAIT, defaultBusPath, inTransaction, isOwnerWaitNee
 import { CARD_ADMITTED, CARD_CLOSED, CARD_DROPPED, CARD_MOVED, CARD_PLANNED, CARD_UNPLANNED, CARD_WAITING, catalogued, CLOSED_PLAN, DECISION_RECORDED, DECISIONS_IMPORTED, MAIN_ADVANCED, MERGE_DONE, OPEN_PLAN, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PLAN_BACKFILLED, PLAN_CLOSED, PLAN_ITEM_ADDED, PLAN_ITEM_LINKED, PLAN_ITEM_REMOVED, PLAN_OPENED, PR_CLOSED, PR_OBSERVED, PR_OPENED, WITNESS_DOWNGRADE } from './events.js'
 import { cardIdOf, isFullSha, prOf } from './identifiers.js'
 import { OWNER } from './inbox.js'
+import { ADMIT_COMMAND, pnpmCommand } from './owner-commands.js'
 import { TASKS_PROJECTION } from './queue.js'
 import { appliedOrRejected } from './rejection.js'
 import { payloadOf, reject, STORED_COLUMNS } from './stored.js'
@@ -226,7 +227,7 @@ function closeDowngradeWaitsTheAdmissionAnswers(db: DatabaseSync, event: StoredE
     .run(`card #${event.card_id} admitted`, event.id, event.card_id, event.id)
 }
 
-const AMEND_COMMAND = 'pnpm intake --admit '
+const AMEND_COMMAND = `${ADMIT_COMMAND} `
 
 function closeAmendWaitsTheAdmissionAnswers(db: DatabaseSync, event: StoredEvent): void {
   db.prepare(`UPDATE owner_waits SET state = '${CLOSED_WAIT}', answer = ?, event_id = ? WHERE state = '${OPEN_WAIT}' AND card_id = ? AND need = 'command' AND substr(command, 1, ?) = ? AND event_id < ?`)
@@ -264,7 +265,7 @@ function prOpened(db: DatabaseSync, event: StoredEvent): void {
 }
 
 export function decisionsAddCommand(text: string): string {
-  return `pnpm decisions:add "${text}"`
+  return pnpmCommand('decisions:add', `"${text}"`)
 }
 
 function filled(value: unknown): string | null {
