@@ -1,3 +1,4 @@
+import type { Readable } from 'node:stream'
 import { Buffer } from 'node:buffer'
 import { spawn, spawnSync } from 'node:child_process'
 import { appendFileSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
@@ -94,17 +95,33 @@ function stops(s: Scratch): EddiesLine[] {
   return lines(s).filter(line => line.event === 'budget-stop')
 }
 
-function lateGuard(s: Scratch, input: Record<string, unknown>, afterMs: number): Promise<{ status: number | null, stderr: string }> {
+const SIGNALS_EACH_STDIN_READ = `data:text/javascript,${encodeURIComponent([
+  'import { writeSync } from \'node:fs\'',
+  'const stdin = process.stdin',
+  'const chunks = stdin[Symbol.asyncIterator].bind(stdin)',
+  'stdin[Symbol.asyncIterator] = function () {',
+  '  const iterator = chunks()',
+  '  return { next: () => { writeSync(3, \'?\'); return iterator.next() }, return: value => iterator.return(value), [Symbol.asyncIterator]() { return this } }',
+  '}',
+].join('\n'))}`
+
+function lateGuard(s: Scratch, input: Record<string, unknown>): Promise<{ status: number | null, stderr: string }> {
   return new Promise((resolve) => {
-    const child = spawn('node', [HOOK, 'guard'], { env: { ...process.env, CLAUDE_PROJECT_DIR: s.root, CONSTRUCT_HANDOFF_DIR: s.handoff } })
+    const child = spawn('node', ['--import', SIGNALS_EACH_STDIN_READ, HOOK, 'guard'], { env: { ...process.env, CLAUDE_PROJECT_DIR: s.root, CONSTRUCT_HANDOFF_DIR: s.handoff }, stdio: ['pipe', 'pipe', 'pipe', 'pipe'] })
     let stderr = ''
     child.stderr.on('data', (chunk: Uint8Array) => {
       stderr += String(chunk)
     })
     child.on('close', status => resolve({ status, stderr }))
     const text = JSON.stringify({ session_id: SESSION, transcript_path: s.transcript, ...input })
-    setTimeout(() => child.stdin.write(text.slice(0, 20)), afterMs)
-    setTimeout(() => child.stdin.end(text.slice(20)), afterMs * 2)
+    const unwritten = [text.slice(0, 20), text.slice(20)]
+    ;(child.stdio[3] as Readable).on('data', () => {
+      const piece = unwritten.shift()
+      if (piece !== undefined && unwritten.length === 0)
+        child.stdin.end(piece)
+      else if (piece !== undefined)
+        child.stdin.write(piece)
+    })
   })
 }
 
@@ -466,10 +483,10 @@ describe('eddies: the budget hook refuses work past a threshold of .claude/eddie
     expect(hook(noConfig, 'guard', 'not json').status).toBe(2)
   })
 
-  it('refuses on stdin its parent writes in pieces, 200 ms late, as it refuses on stdin written at once', async () => {
+  it('refuses on stdin its parent writes in pieces, each only once the hook waits for it, as it refuses on stdin written at once', async () => {
     const s = scratch(LIMITS, [{ input: 1, cacheWrite: 1000, cacheRead: 149000 }])
 
-    expect(await lateGuard(s, { hook_event_name: 'PreToolUse', tool_name: 'Agent', tool_input: { prompt: 'p' } }, 200)).toMatchObject({ status: 2, stderr: expect.stringContaining('session-context stop') })
+    expect(await lateGuard(s, { hook_event_name: 'PreToolUse', tool_name: 'Agent', tool_input: { prompt: 'p' } })).toMatchObject({ status: 2, stderr: expect.stringContaining('session-context stop') })
   })
 
   it('names the task task:start registered for the session on its budget-warn line', () => {
