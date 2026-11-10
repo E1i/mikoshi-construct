@@ -53,9 +53,13 @@ function withReadOnlyBus<T>(busPath: string, read: (db: DatabaseSync) => T): T {
   }
 }
 
+export function ledgerPathOf(root: string): string {
+  return path.join(root, LEDGER_FILE)
+}
+
 export function runSourceOf(worktree: string, card: number, env: NodeJS.ProcessEnv = process.env, home: string = os.homedir()): RunSource {
   const busPath = wiredBusOf({ dir: worktree, env, home })
-  return busPath === null ? { kind: 'file', runsPath: path.join(worktree, LEDGER_FILE) } : { kind: 'bus', busPath, card }
+  return busPath === null ? { kind: 'file', runsPath: ledgerPathOf(worktree) } : { kind: 'bus', busPath, card }
 }
 
 export function ladderRunMark(source: RunSource): number {

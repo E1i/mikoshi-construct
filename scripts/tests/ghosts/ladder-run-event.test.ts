@@ -7,6 +7,7 @@ import { RUN_RECORD_CARD_VARIABLE, runRecord } from '../../../src/commands/run-r
 import { BUS_DB_VARIABLE, busPathOf } from '../../core/bus-path.js'
 import { openBus } from '../../core/db.js'
 import { EVENT_PAYLOADS, LADDER_RUN } from '../../core/events.js'
+import { busLadderRun } from '../../intake/intake.js'
 import { ladderRunMark, NO_LADDER_RUN, readLadderOutcome, readLadderStage, runSourceOf } from '../../ladder/ledger.js'
 import { CARD_VARIABLE } from '../../ports/session.js'
 
@@ -39,7 +40,7 @@ function ladderRuns(busPath: string): { type: string, card_id: number | null, ac
 describe('the run record of the /implement ladder', () => {
   it('the run command records one ladder.run event and writes no runs.jsonl line', () => {
     const { tree, home, busPath, env } = wiredBus()
-    const result = runRecord(JSON.stringify(STEP_FOUR), { dir: tree, env, home, now: () => NOW })
+    const result = runRecord(JSON.stringify(STEP_FOUR), { dir: tree, env, home, now: () => NOW }, busLadderRun)
 
     expect(result).toEqual({ kind: 'recorded', adapter: 'bus', target: busPath, fresh: true })
     const rows = ladderRuns(busPath)
@@ -54,12 +55,12 @@ describe('the run record of the /implement ladder', () => {
     const source = runSourceOf(tree, CARD, env, home)
     expect(source).toEqual({ kind: 'bus', busPath, card: CARD })
 
-    runRecord(JSON.stringify({ ...STEP_FOUR, run: 'wf_before', status: 'failed', cause: 'task' }), { dir: tree, env, home, now: () => NOW })
+    runRecord(JSON.stringify({ ...STEP_FOUR, run: 'wf_before', status: 'failed', cause: 'task' }), { dir: tree, env, home, now: () => NOW }, busLadderRun)
     const mark = ladderRunMark(source)
     expect(readLadderOutcome(source, mark)).toEqual({ status: NO_LADDER_RUN, run: null, iterations: null, actual: null })
 
-    runRecord(JSON.stringify({ ...STEP_FOUR, run: 'wf_other' }), { dir: tree, env: { ...env, [RUN_RECORD_CARD_VARIABLE]: '9' }, home, now: () => NOW })
-    runRecord(JSON.stringify(STEP_FOUR), { dir: tree, env, home, now: () => NOW })
+    runRecord(JSON.stringify({ ...STEP_FOUR, run: 'wf_other' }), { dir: tree, env: { ...env, [RUN_RECORD_CARD_VARIABLE]: '9' }, home, now: () => NOW }, busLadderRun)
+    runRecord(JSON.stringify(STEP_FOUR), { dir: tree, env, home, now: () => NOW }, busLadderRun)
 
     expect(readLadderOutcome(source, mark)).toEqual({ status: 'done', run: 'wf_1750', iterations: 2, actual: { tokens: 120_000, minutes: 10 } })
     expect(readLadderStage(source)).toEqual({ kind: 'entry', status: 'done', run: 'wf_1750' })
@@ -69,7 +70,7 @@ describe('the run record of the /implement ladder', () => {
   it('with no bus wired the run command appends one runs.jsonl line with the step 4 fields and writes no event', () => {
     const { tree, home } = aTree()
     const env: NodeJS.ProcessEnv = { [RUN_RECORD_CARD_VARIABLE]: String(CARD) }
-    const result = runRecord(JSON.stringify(STEP_FOUR), { dir: tree, env, home, now: () => NOW })
+    const result = runRecord(JSON.stringify(STEP_FOUR), { dir: tree, env, home, now: () => NOW }, busLadderRun)
 
     const file = path.join(tree, LEDGER_FILE)
     expect(result).toEqual({ kind: 'recorded', adapter: 'file', target: file, fresh: true })
@@ -88,8 +89,15 @@ describe('the run record of the /implement ladder', () => {
     const { tree, home, busPath } = wiredBus()
     const env = { [BUS_DB_VARIABLE]: busPath }
     const record = JSON.stringify({ ...STEP_FOUR, task: '#1751 ladder-run-step-four' })
-    expect(runRecord(record, { dir: tree, env, home, now: () => NOW })).toMatchObject({ fresh: true })
-    expect(runRecord(record, { dir: tree, env, home, now: () => NOW })).toMatchObject({ fresh: false })
+    expect(runRecord(record, { dir: tree, env, home, now: () => NOW }, busLadderRun)).toMatchObject({ fresh: true })
+    expect(runRecord(record, { dir: tree, env, home, now: () => NOW }, busLadderRun)).toMatchObject({ fresh: false })
     expect(ladderRuns(busPath).map(row => row.card_id)).toEqual([1751])
+  })
+
+  it('with a bus wired and no factory port the published command writes nothing and names the bus', () => {
+    const { tree, home, busPath, env } = wiredBus()
+    expect(runRecord(JSON.stringify(STEP_FOUR), { dir: tree, env, home, now: () => NOW })).toEqual({ kind: 'needsBus', busPath })
+    expect(ladderRuns(busPath)).toEqual([])
+    expect(existsSync(path.join(tree, LEDGER_FILE))).toBe(false)
   })
 })

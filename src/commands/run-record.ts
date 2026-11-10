@@ -2,7 +2,6 @@ import type { Ui } from '../ui/console.js'
 import { createHash } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import path from 'node:path'
-import { DatabaseSync } from 'node:sqlite'
 import { busPathOf, isOwnerCheckout, repositoryRoot } from '../../scripts/core/bus-path.js'
 import { LADDER_RUN } from '../../scripts/core/events.js'
 import { appendLedgerLine, LEDGER_FIELDS, parseLedgerLine } from './cost/ledger.js'
@@ -13,21 +12,16 @@ export const RUN_RECORD_ADAPTERS = ['bus', 'file'] as const
 export const RUN_RECORD_ACTOR_PREFIX = 'worker:ladder:'
 export const UNJOINABLE_RUN = 'unjoinable'
 
-const BUSY_TIMEOUT_MS = 5000
 const ACTOR_UNSAFE = /[:\s]/g
 const LEADING_CARD = /^#?(\d+)(?!\d)/
 const POSITIVE_INTEGER = /^[1-9]\d*$/
-const INSERT_EVENT = `
-INSERT INTO events (ts, type, actor, card_id, pr, head, dedupe_key, payload, legacy)
-VALUES (?, ?, ?, ?, NULL, NULL, ?, ?, 0)
-ON CONFLICT (dedupe_key) DO NOTHING
-`
 
 export type RunRecordAdapter = typeof RUN_RECORD_ADAPTERS[number]
 
 export type RunRecordResult
   = | { kind: 'recorded', adapter: RunRecordAdapter, target: string, fresh: boolean }
     | { kind: 'refused', reason: string }
+    | { kind: 'needsBus', busPath: string }
 
 export interface RunRecordPlace {
   dir: string
@@ -35,6 +29,16 @@ export interface RunRecordPlace {
   home: string
   now: () => Date
 }
+
+export interface LadderRunEvent {
+  ts: string
+  actor: string
+  cardId: number | null
+  dedupeKey: string
+  payload: string
+}
+
+export type LadderRunPort = (busPath: string, event: LadderRunEvent) => boolean
 
 type RunFields = Record<string, unknown>
 
@@ -73,38 +77,36 @@ export function wiredBusOf(place: Pick<RunRecordPlace, 'dir' | 'env' | 'home'>):
   return existsSync(busPath) ? busPath : null
 }
 
-function appendToBus(busPath: string, record: RunFields, place: RunRecordPlace): boolean {
+export function ladderRunEventOf(record: RunFields, place: Pick<RunRecordPlace, 'env' | 'now'>): LadderRunEvent {
   const payload = JSON.stringify(record)
-  const db = new DatabaseSync(busPath, { timeout: BUSY_TIMEOUT_MS })
-  try {
-    const result = db.prepare(INSERT_EVENT).run(
-      place.now().toISOString(),
-      LADDER_RUN,
-      actorOf(record),
-      cardOf(record, place.env),
-      `${LADDER_RUN}:${createHash('sha256').update(payload).digest('hex')}`,
-      payload,
-    )
-    return Number(result.changes) === 1
-  }
-  finally {
-    db.close()
+  return {
+    ts: place.now().toISOString(),
+    actor: actorOf(record),
+    cardId: cardOf(record, place.env),
+    dedupeKey: `${LADDER_RUN}:${createHash('sha256').update(payload).digest('hex')}`,
+    payload,
   }
 }
 
-export function runRecord(text: string, place: RunRecordPlace): RunRecordResult {
+export function runRecord(text: string, place: RunRecordPlace, ladderRun?: LadderRunPort): RunRecordResult {
   const record = recordOf(text.trim())
   if (typeof record === 'string')
     return { kind: 'refused', reason: record }
   const busPath = wiredBusOf(place)
-  if (busPath !== null)
-    return { kind: 'recorded', adapter: 'bus', target: busPath, fresh: appendToBus(busPath, record, place) }
-  return { kind: 'recorded', adapter: 'file', target: appendLedgerLine(rootOf(place.dir), JSON.stringify(record)), fresh: true }
+  if (busPath === null)
+    return { kind: 'recorded', adapter: 'file', target: appendLedgerLine(rootOf(place.dir), JSON.stringify(record)), fresh: true }
+  if (ladderRun === undefined)
+    return { kind: 'needsBus', busPath }
+  return { kind: 'recorded', adapter: 'bus', target: busPath, fresh: ladderRun(busPath, ladderRunEventOf(record, place)) }
 }
 
 export function printRunRecord(ui: Ui, result: RunRecordResult): number {
   if (result.kind === 'refused') {
     ui.flatline(ui.lore.runRecorded('refused', result.reason))
+    return RUN_RECORD_EXIT.refused
+  }
+  if (result.kind === 'needsBus') {
+    ui.flatline(ui.lore.runRecorded('needsBus', result.busPath))
     return RUN_RECORD_EXIT.refused
   }
   ui.ok(ui.lore.runRecorded(result.fresh ? result.adapter : 'present', result.target))

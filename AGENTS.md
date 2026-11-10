@@ -15,9 +15,9 @@ whoever changes the thing they describe.
 `mikoshi-construct` is a CLI (`construct`, `miko`, `npx mikoshi-construct`) that materializes a
 construct — architecture policy, an optional OpenAPI contract, a quality harness and agent
 instructions — into a new or existing repository, hands the repository to the agent for discovery,
-and afterwards reads back what that repository has become. Thirteen commands, as `src/program.ts` lists
-them: `init`, `attach` (alias `jack-in`), `detach` (alias `jack-out`), `soulkill` (aliases `inspect`,
-`capture`), `doctor`, `sync`, `cost`, `board`, `graph`, `atlas`, `intake`, `mutate`, `say`. Pitch and lifecycle:
+and afterwards reads back what that repository has become. The commands `src/program.ts` lists:
+`init`, `attach` (alias `jack-in`), `detach` (alias `jack-out`), `soulkill` (aliases `inspect`,
+`capture`), `doctor`, `sync`, `cost`, `board`, `graph`, `atlas`, `intake`, `mutate`, `say`, `run-record`. Pitch and lifecycle:
 [README.md § What it does](README.md#what-it-does); every command, its flags and its output:
 [docs/cli.md](docs/cli.md).
 
@@ -101,7 +101,7 @@ here. Before proposing an architecture, answer the questions and name the catego
 
 - *Composition roots.*
   <!-- construct:discover:composition-roots -->
-  `src/program.ts` wires the fourteen commands and their aliases — `init`, `attach`/`jack-in`,
+  `src/program.ts` wires each command and alias — `init`, `attach`/`jack-in`,
   `detach`/`jack-out`, `soulkill`/`inspect`/`capture`, `doctor`, `sync`, `cost`, `board`, `graph`,
   `atlas`, `intake`, `mutate`, `say`, `run-record` — to `src/commands/*` and `src/atlas`, `say` straight to `scripts/owner/channel.ts`, creates the `Ui` (theme, lore, writer) and the
   clack `Prompter`, and is the only place that reads `process.stdout` / `process.stdin` for a TTY or
@@ -118,8 +118,6 @@ here. Before proposing an architecture, answer the questions and name the catego
   `costReport` in `src/commands/cost/index.ts` ([cost.yaml](architecture/composition/cost.yaml)) reads
   the session files and the ladder record, and writes one file: it appends to `.construct/steps.jsonl`
   the step split of each run the ledger names and the cache does not hold yet, never rewriting a line.
-  `runRecord` in `src/commands/run-record.ts` ([runRecord.yaml](architecture/composition/runRecord.yaml))
-  appends one ladder run: an event on the bus where one is wired, else one line in `.construct/runs.jsonl`.
 
   The rest only read. `runDoctor` in `src/commands/doctor/index.ts`
   ([doctor.yaml](architecture/composition/doctor.yaml)) reads `construct.json` and

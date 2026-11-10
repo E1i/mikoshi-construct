@@ -3947,7 +3947,9 @@
           "wiredBusOf": "(place: Pick<RunRecordPlace, 'dir' | 'env' | 'home'>): string | null"
         },
         "reexports": [],
-        "types": {}
+        "types": {
+          "LadderRunPort": "type LadderRunPort = (busPath: string, event: LadderRunEvent) => boolean"
+        }
       },
       "src/commands/soulkill.ts": {
         "constants": [
@@ -4074,11 +4076,11 @@
           "main"
         ],
         "functions": {
-          "createMain": "(bus?: BusPorts)"
+          "createMain": "(bus?: Partial<BusPorts>)"
         },
         "reexports": [],
         "types": {
-          "BusPorts": "interface BusPorts { cardEvents: CardEventPort; cardStates: CardStatesPort; cardAdmissions: CardAdmissionsPort; mutationJudged?: MutationJudgedPort; }"
+          "BusPorts": "interface BusPorts { cardEvents: CardEventPort; cardStates: CardStatesPort; cardAdmissions: CardAdmissionsPort; mutationJudged?: MutationJudgedPort; ladderRun?: LadderRunPort; }"
         }
       },
       "src/ui/console.ts": {

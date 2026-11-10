@@ -79,36 +79,38 @@ that pattern countable instead of anecdotal.
 ## Writing a ladder run
 
 The ledger line a ladder run writes today is recorded by one command, `construct run-record`, which
-picks the adapter itself: a `ladder.run` event where a bus is wired, a `.construct/runs.jsonl` line
-where none is. The flow below is rendered from [composition/runRecord.yaml](composition/runRecord.yaml).
+picks the adapter itself: a `.construct/runs.jsonl` line where no bus is wired, and where one is a
+`ladder.run` event through the port the factory bin `construct-intake run-record` wires in. The flow below is rendered from [composition/runRecord.yaml](composition/runRecord.yaml).
 Edit the model, then run `pnpm composition:render`; `pnpm composition:check` fails when the diagram
 and the model drift apart.
 
 <!-- composition:runRecord -->
-`runRecord(text, place)` in `src/commands/run-record.ts` is the composition root, and the one call step 4 of `/implement` makes in the factory and in a generated repository alike. It parses the record with the ledger's own `parseLedgerLine` and refuses a line that does not parse or that names a field outside `LEDGER_FIELDS`, so nothing is written for a refused record. Then it picks the adapter, and the choice lives here, never in the skill: `wiredBusOf` resolves the bus path the factory would use for the directory, and where that bus exists the record is appended as one `ladder.run` event, its card taken from `CONSTRUCT_CARD` or the leading `#N` of the task, its dedupe key the sha of the payload, so a repeated call adds no second event. Where no bus is wired the record is appended as one line to `.construct/runs.jsonl` through `appendLedgerLine`, the module that owns that file. The readers follow the same choice: `runSourceOf` in `scripts/ladder/ledger.ts` reads the bus where one is wired and the tree's file where none is, so no reader stays on a file nobody writes. `printRunRecord` names the adapter and the target; a refusal exits 2.
+`runRecord(text, place, ladderRun?)` in `src/commands/run-record.ts` is the composition root of the one call step 4 of `/implement` makes, in the factory and in a generated repository alike. It parses the record with the ledger's own `parseLedgerLine` and refuses a line that does not parse or that names a field outside `LEDGER_FIELDS`, so nothing is written for a refused record. Then it picks the adapter, and the choice lives here, never in the skill: `wiredBusOf` resolves the bus path the factory would use for the directory. Where none exists the record is appended as one line to `.construct/runs.jsonl` through `appendLedgerLine`, the module that owns that file. Where one exists the published CLI does not write to it: the record goes, as one `ladder.run` event with its card from `CONSTRUCT_CARD` or the leading `#N` of the task and its dedupe key the sha of the payload, through the `ladderRun` port that the factory bin `construct-intake run-record` wires in (`busLadderRun` in `scripts/intake/intake.ts`), so a repeated call adds no second event; with no port the command refuses and names the bus. The readers follow the same choice: `runSourceOf` in `scripts/ladder/ledger.ts` reads the bus where one is wired and the tree's file where none is, so no reader stays on a file nobody writes. `printRunRecord` names the adapter and the target; a refusal exits 2.
 
 ```mermaid
 flowchart LR
   subgraph b_entry["Entry"]
     cli["construct run-record (citty) · JSON argument, or stdin with -"]
-    run["runRecord(text, place)"]
+    run["runRecord(text, place, ladderRun?)"]
   end
   subgraph b_check["Check · the ledger's fields only"]
     parse["parseLedgerLine · LEDGER_FIELDS, an undeclared field is refused"]
   end
   subgraph b_adapter["Adapter · bus or file"]
     wired["wiredBusOf · the bus path for the directory, if it exists"]
-    event["ladder.run event · dedupe by payload sha"]
+    event["busLadderRun · construct-intake run-record appends the ladder.run event, dedupe by payload sha"]
     file["appendLedgerLine → .construct/runs.jsonl"]
     readers["runSourceOf · supervise, watch and handoff read the same source"]
   end
   subgraph b_report["Report"]
+    held["no port · refused, the bus named"]
     print["printRunRecord · recorded 0, refused 2"]
   end
   cli --> run
   run --> parse
   parse --> wired
   wired -->|"bus wired"| event
+  wired -->|"bus wired"| held
   wired -->|"no bus"| file
   event -->|"fan-in"| readers
   file -->|"fan-in"| readers

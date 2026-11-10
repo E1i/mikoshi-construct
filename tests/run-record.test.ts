@@ -4,6 +4,7 @@ import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { BUS_DB_VARIABLE } from '../scripts/core/bus-path.js'
 import { openBus } from '../scripts/core/db.js'
+import { busLadderRun } from '../scripts/intake/intake.js'
 import { LEDGER_FILE } from '../src/commands/cost/ledger.js'
 import { printRunRecord, RUN_RECORD_EXIT, runRecord } from '../src/commands/run-record.js'
 import { createUi } from '../src/ui/console.js'
@@ -20,7 +21,7 @@ function noBus(): { dir: string, home: string, file: string } {
 }
 
 function recordIn(dir: string, home: string, text: string, env: NodeJS.ProcessEnv = {}) {
-  return runRecord(text, { dir, env, home, now: () => NOW })
+  return runRecord(text, { dir, env, home, now: () => NOW }, busLadderRun)
 }
 
 function printed(result: ReturnType<typeof runRecord>): { exit: number, lines: string[] } {
@@ -63,9 +64,10 @@ describe('construct run-record', () => {
     const env = { [BUS_DB_VARIABLE]: busPath }
     expect(printed(recordIn(dir, home, JSON.stringify(RECORD), env)).lines).toEqual([expect.stringContaining(PLAIN_LORE.runRecorded('bus', busPath))])
     expect(printed(recordIn(dir, home, JSON.stringify(RECORD), env)).lines).toEqual([expect.stringContaining(PLAIN_LORE.runRecorded('present', busPath))])
+    expect(printed(runRecord(JSON.stringify(RECORD), { dir, env, home, now: () => NOW }))).toEqual({ exit: RUN_RECORD_EXIT.refused, lines: [expect.stringContaining(PLAIN_LORE.runRecorded('needsBus', busPath))] })
   })
 
-  it.each(['bus', 'file', 'present', 'refused'] as const)('says the %s outcome in lore and in plain', (outcome) => {
+  it.each(['bus', 'file', 'present', 'refused', 'needsBus'] as const)('says the %s outcome in lore and in plain', (outcome) => {
     expect(LORE.runRecorded(outcome, 'x')).toContain('x')
     expect(PLAIN_LORE.runRecorded(outcome, 'x')).toContain('x')
   })

@@ -81,7 +81,7 @@ abstraction and no dependency, never weaken a test, ship the test with the logic
 
 See [the reasoning budget](/guide/reasoning-budget) for what each class means and what it costs.
 
-Each run ends with one call, `construct run-record`, which records what the ladder did: an event on the bus where one is wired, one line in `.construct/runs.jsonl` where none is, see [the reference](/cli#construct-run-record).
+Each run ends with one call, `construct run-record`, which records what the ladder did: one line in `.construct/runs.jsonl` where no bus is wired, and an event on the bus through `construct-intake run-record` where one is, see [the reference](/cli#construct-run-record).
 
 `construct board` shows where each task stands while it runs, on one screen: Flow, the live Backlog, and Services with the window and its subagents, all read from the bus; without a bus it reads the ladder runs in `.construct/runs.jsonl` and the open pull requests, see [the reference](/cli#construct-board).
 

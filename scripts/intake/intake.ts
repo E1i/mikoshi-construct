@@ -1,6 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { CardAdmissionsPort, CardEvent, CardEventPort, RecordedIntake } from '../../src/commands/intake/index.js'
 import type { CardsOfTheBus } from '../../src/commands/intake/numbers.js'
+import type { LadderRunPort } from '../../src/commands/run-record.js'
 import type { BusPorts } from '../../src/program.js'
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import path from 'node:path'
@@ -19,7 +20,7 @@ import { resolveTheme } from '../../src/ui/theme.js'
 import { BUS_DB_VARIABLE, ForeignBusRefused } from '../core/bus-path.js'
 import { appendCardEvent, cardBodyText, laid } from '../core/card-bodies.js'
 import { appendEvent, BUSY_TIMEOUT_MS, defaultBusPath, inTransaction, openBus } from '../core/db.js'
-import { CARD_ADMITTED, CARD_MOVED, CARD_PLANNED, CARD_UNPLANNED, NUMBERS_FOREIGN, PLAN_CLOSED, PLAN_OPENED } from '../core/events.js'
+import { CARD_ADMITTED, CARD_MOVED, CARD_PLANNED, CARD_UNPLANNED, LADDER_RUN, NUMBERS_FOREIGN, PLAN_CLOSED, PLAN_OPENED } from '../core/events.js'
 import { OWNER } from '../core/inbox.js'
 import { openDatabase } from '../core/sqlite.js'
 import { assignMovedLane, layLanes, repositoryLanes } from '../nodes/launch/lane-assign.js'
@@ -30,6 +31,7 @@ import { windowSessionOf } from '../window/window-heartbeat.js'
 import { INTAKE_ACTOR_PREFIX } from './admissions.js'
 
 const INTAKE_SUBCOMMAND = 'intake'
+const RUN_RECORD_SUBCOMMAND = 'run-record'
 const SESSION_BY_HAND = 'by-hand'
 const EXPORT_FLAG = '--export'
 const PLAIN_FLAG = '--plain'
@@ -270,7 +272,25 @@ export function windowShardOfRun(db: DatabaseSync, env: NodeJS.ProcessEnv, now: 
   return activeWindowShards(db, now)[0]?.id ?? null
 }
 
+export const busLadderRun: LadderRunPort = (busPath, event) => {
+  const db = openBus(busPath)
+  try {
+    return appendEvent(db, { ...event, type: LADDER_RUN, pr: null, head: null, legacy: false })
+  }
+  finally {
+    db.close()
+  }
+}
+
+export async function runRunRecord(argv: readonly string[]): Promise<void> {
+  await runMain(createMain({ ladderRun: busLadderRun }), { rawArgs: [...argv] })
+}
+
 async function main(): Promise<void> {
+  if (process.argv[2] === RUN_RECORD_SUBCOMMAND) {
+    await runRunRecord(process.argv.slice(2))
+    return
+  }
   const busPath = intakeBusPath()
   if (busPath === null)
     return

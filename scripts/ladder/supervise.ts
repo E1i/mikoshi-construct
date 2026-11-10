@@ -20,7 +20,7 @@ import { sessionEnv, spawnSession } from '../ports/session.js'
 import { writeAgreedText } from './agreed.js'
 import { tiedArgsSha256 } from './args-chain.js'
 import { runInstall } from './install.js'
-import { ladderRunMark, NO_LADDER_RUN, readLadderOutcome, runSourceOf } from './ledger.js'
+import { carryLedgerLines, ladderRunMark, ledgerPathOf, NO_LADDER_RUN, readLadderOutcome, runSourceOf } from './ledger.js'
 import { lookupMatrixRow } from './matrix.js'
 import { approvalCarryEvent, regeneratedCheckFailedOutcome, regeneratedCheckFailures } from './regenerated.js'
 import { freeRow, installFailedOutcome, installUnspawnableOutcome, rowTimestamp, sessionOutcome, sessionUnspawnableOutcome, writeGhostRow, writingRow } from './status.js'
@@ -181,7 +181,7 @@ async function launchTask(ctx: TaskContext, task: PreparedTask): Promise<TaskOut
     sessionId: task.sessionId,
   }), `${FALL_ACTOR_PREFIX}${task.sessionId}`)
 
-  const runs = runSourceOf(task.worktree, task.card.id)
+  const runs = runSourceOf(task.worktree, task.card.id, sessionEnv(process.env, task.card.id))
   const runsMark = ladderRunMark(runs)
   const installLogPath = path.join(ctx.out, `ghost-${task.id}.install.log`)
   const matrixRow = lookupMatrixRow(ctx.matrixPath, task.id)
@@ -222,6 +222,7 @@ async function launchTask(ctx: TaskContext, task: PreparedTask): Promise<TaskOut
   }
 
   const ladder = readLadderOutcome(runs, runsMark)
+  const carryFailure = runs.kind === 'file' ? carryIntoMainLedger(runs.runsPath, ctx.repo) : ''
   const resultFields = readResultFields(task.reportPath)
   const outcome = sessionOutcome(code, ladder.status, task.reportPath, task.sessionId)
   await closeOut(ctx, task, start, outcome, {
@@ -250,9 +251,20 @@ async function launchTask(ctx: TaskContext, task: PreparedTask): Promise<TaskOut
   if (!LADDER_STOPS_THAT_ARE_NOT_FALLS.has(ladder.status))
     recordFall(task.card.id, 'ladder-not-done', task.sessionId)
 
-  const line = ladder.status === NO_LADDER_RUN ? NO_LADDER_RUN : `ladder ${ladder.status}`
+  const line = `${ladder.status === NO_LADDER_RUN ? NO_LADDER_RUN : `ladder ${ladder.status}`}${carryFailure}`
   const ok = code === 0 && ladder.status === 'done'
   return { id: task.id, line, ok }
+}
+
+function carryIntoMainLedger(runsPath: string, repo: string): string {
+  const mainLedger = ledgerPathOf(repo)
+  try {
+    carryLedgerLines(runsPath, mainLedger)
+    return ''
+  }
+  catch (error) {
+    return `; ledger lines not carried into ${mainLedger}: ${errorMessage(error)}`
+  }
 }
 
 export interface SupervisorPayload {
