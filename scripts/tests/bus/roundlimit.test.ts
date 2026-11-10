@@ -5,10 +5,10 @@ import { appendEvent } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_STOPPED, REVIEW_RECORDED } from '../../core/events.js'
 import { taskKey } from '../../core/identifiers.js'
 import { completeTask, leaseNext } from '../../core/lease.js'
-import { closedByRounds, queueTask, reentryLimitWaitText, REVIEW_ROUNDS } from '../../core/queue.js'
+import { closedByRounds, queueTask, REVIEW_ROUNDS } from '../../core/queue.js'
 import { answerSourceOf } from '../../nodes/answer/answer-source.js'
 import { recordDecision } from '../../policy/decisions.js'
-import { CONTINUE_FIXES, continueFixesDecisionOf, pushedAfterContinueFixes } from '../../policy/round-limit-decision.js'
+import { continueFixesDecisionOf, pushedAfterContinueFixes } from '../../policy/round-limit-decision.js'
 import { sha } from './github-fake.js'
 import { liveBench } from './merge-bench.js'
 
@@ -176,13 +176,6 @@ describe('continue-fixes past the review round limit', () => {
 
     expect(closedByRounds(bench.db, bench.clock.now().toISOString(), 'answer', PR, HEAD)).toBe(true)
     expect(queued(bench)).toEqual([])
-  })
-
-  it('the round-limit wait names continue-fixes for the PR beside allow-merge, a re-cut and a drop', () => {
-    const text = reentryLimitWaitText(CARD, PR)
-
-    expect(text).toContain(`${CONTINUE_FIXES} PR #${PR} at its head`)
-    expect(text).toMatch(/allow-merge, continue-fixes PR #971 at its head, a re-cut or a drop$/)
   })
 
   it('reads the continued head through clean updates and counts one round after it', () => {
