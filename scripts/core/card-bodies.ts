@@ -2,13 +2,15 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { ParkedTask } from '../../src/card/parking.js'
 import type { CardEvent } from '../../src/commands/intake/index.js'
 import type { StoredEvent } from './stored.js'
+import { existsSync } from 'node:fs'
 import { parseParkingFile } from '../../src/card/parking.js'
 import { textSha } from '../../src/card/text-sha.js'
 import { AMEND_SOURCE, isLaneName, laneName, laneNumber, pathsNamedOutside } from '../../src/commands/intake/admit.js'
 import { NOT_A_BACKFILL } from './backfill-source.js'
 import { CARD_VERSION, CARD_VERSION_KEY, cardVersionIn } from './bus-version.js'
-import { appendEvent } from './db.js'
+import { appendEvent, BUSY_TIMEOUT_MS } from './db.js'
 import { CARD_ADMITTED, FACTORY_MODE } from './events.js'
+import { openDatabase } from './sqlite.js'
 
 export const CARD_BODIES = 'card_bodies'
 export const FACTORY_MODES = ['window', 'parallel'] as const
@@ -123,6 +125,27 @@ export function appendCardEvent(db: DatabaseSync, actor: string, unversioned: Ca
 
 export function cardBodyText(db: DatabaseSync, cardId: number): string | null {
   return (db.prepare(`SELECT text FROM ${CARD_BODIES} WHERE card_id = ?`).get(cardId) as { text: string } | undefined)?.text ?? null
+}
+
+const ADMITTED_TEXTS = `SELECT json_extract(payload, '$.text') AS text, json_extract(payload, '$.textSha') AS sha FROM events WHERE legacy = 0 AND type = '${CARD_ADMITTED}' AND card_id = ? AND json_type(payload, '$.text') = 'text' ORDER BY id DESC`
+
+export function admittedBodyText(db: DatabaseSync, cardId: number): string | null {
+  const rows = db.prepare(ADMITTED_TEXTS).all(cardId) as { text: string, sha: unknown }[]
+  return rows.find(row => row.sha === textSha(row.text))?.text ?? null
+}
+
+export function busAdmittedBodies(busPath: string): (cardId: number) => string | null {
+  return (cardId) => {
+    if (!existsSync(busPath))
+      return null
+    const db = openDatabase(busPath, { readOnly: true, timeout: BUSY_TIMEOUT_MS })
+    try {
+      return admittedBodyText(db, cardId)
+    }
+    finally {
+      db.close()
+    }
+  }
 }
 
 const ADMISSION_OF_THE_BODY = `SELECT admission.payload FROM ${CARD_BODIES} body LEFT JOIN events admission ON admission.id = body.admission_event_id WHERE body.card_id = ?`
