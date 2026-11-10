@@ -26,7 +26,7 @@ const READINGS = [
   { command: `pnpm exec vitest run ${CARD_TEST} --dir=foo/bar`, outside: ['foo/bar'] },
 ]
 
-describe('intake and the witness node read one witness command alike', () => {
+describe('intake and the witness node read the same named paths from one witness command', () => {
   it.each(READINGS)('$command names $outside outside the card for both', ({ command, outside }) => {
     const base = emptyBase()
     const byNode = namedOutsideTheCard(base, { criterion: 'W1', command }, CARD, [])
