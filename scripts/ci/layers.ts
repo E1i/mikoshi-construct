@@ -17,6 +17,7 @@ export const BUS_SHARED: readonly string[] = [
   FACTORY_NAMED.busQueue,
   FACTORY_NAMED.busStamping,
   FACTORY_NAMED.busStored,
+  FACTORY_NAMED.gitPort,
 ]
 export const BUS_TESTS = `${FACTORY_FOLDERS.busTests[0]}/`
 const CHANGESET_NOTE = /^\.changeset\/[^/]+\.md$/

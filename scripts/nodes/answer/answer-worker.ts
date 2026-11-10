@@ -30,6 +30,7 @@ import { cardContract, NOT_MINE, notMine } from '../../intake/card-contract.js'
 import { busCardBodies } from '../../intake/parking-reads.js'
 import { OWNER_MERGES } from '../../policy/policy.js'
 import { clientAdapter } from '../../ports/client/index.js'
+import { loadedCodeSha } from '../../ports/git.js'
 import { realIsolationReader } from '../../ports/isolation.js'
 import { TICK_MS } from '../../ports/netwatch.js'
 import { promptsDirOf } from '../../ports/prompt-store.js'
@@ -238,7 +239,7 @@ export function answerNodeOf(run: AnswerRun, db: DatabaseSync, mode: DetectionMo
 }
 
 export async function runAnswerWorker(argv: string[], run: AnswerRun): Promise<number> {
-  return runNode(argv, 'answer', run.busPath, (db, mode) => answerNodeOf(run, db, mode), { pause: run.pause })
+  return runNode(argv, 'answer', run.busPath, (db, mode) => answerNodeOf(run, db, mode), { pause: run.pause, codeSha: loadedCodeSha })
 }
 
 async function main(): Promise<number> {

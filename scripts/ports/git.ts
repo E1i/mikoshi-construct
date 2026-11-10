@@ -135,6 +135,14 @@ export class InMemoryGit implements GitRunner {
   }
 }
 
+export function readThroughPort(tree: string, args: readonly string[]): string {
+  return processGit.read(tree, args)
+}
+
+export function loadedCodeSha(): string | null {
+  return processGit.readOrNull(import.meta.dirname, ['rev-parse', 'HEAD'])?.trim() ?? null
+}
+
 export function parseWorktrees(porcelain: string): WorktreeEntry[] {
   return porcelain.split('\n\n').filter(block => block.trim() !== '').map((block) => {
     const lines = block.split('\n')
