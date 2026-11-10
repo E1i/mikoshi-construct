@@ -18,8 +18,9 @@ import { rerunModeOf } from '../../cli/check-catalog.js'
 import { defaultBusPath } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_STOPPED, POLICY_DENIED, PR_OBSERVED, PR_OPENED, REDUCED } from '../../core/events.js'
 import { Node, runNode, UNDERSTOOD_NOW } from '../../core/node.js'
-import { pushPolicyAt } from '../../core/push-policy.js'
+import { pushPolicyOf } from '../../core/push-policy.js'
 import { updateCandidates } from '../../core/queue.js'
+import { loadedCodeSha, readThroughPort } from '../../ports/git.js'
 import { ghStatusPublisher } from '../../ports/github-status.js'
 import { ghApi, ghApiPost, ghApiPut } from '../../ports/github.js'
 import { mainMergeInCardTree } from '../../ports/main-merge.js'
@@ -125,14 +126,14 @@ export interface UpdateRun {
 }
 
 export async function runUpdateWorker(argv: string[], run: UpdateRun): Promise<number> {
-  return runNode(argv, 'update', run.busPath, (db, mode) => new UpdateNode({ db, gitHub: run.gitHub, put: run.put, publish: run.publish, clock: () => new Date(), settle: run.settle, session: run.session, mode, env: process.env, pushPolicy: run.pushPolicy, mergeMain: run.mergeMain, post: run.post }), { pause: run.pause })
+  return runNode(argv, 'update', run.busPath, (db, mode) => new UpdateNode({ db, gitHub: run.gitHub, put: run.put, publish: run.publish, clock: () => new Date(), settle: run.settle, session: run.session, mode, env: process.env, pushPolicy: run.pushPolicy, mergeMain: run.mergeMain, post: run.post }), { pause: run.pause, codeSha: loadedCodeSha })
 }
 
 async function main(): Promise<number> {
   const cwd = process.cwd()
   const busPath = defaultBusPath()
   const mergeMain = mainMergeInCardTree(gitIn, cardId => cardTree(process.env, busPath, String(cardId)))
-  return runUpdateWorker(process.argv.slice(2), { busPath, mergeMain, gitHub: ghApi(cwd), put: ghApiPut(cwd), post: ghApiPost(cwd), publish: ghStatusPublisher(cwd), settle: () => blockFor(SETTLE_MS), session: randomUUID(), pause: sleep, pushPolicy: () => pushPolicyAt(cwd) })
+  return runUpdateWorker(process.argv.slice(2), { busPath, mergeMain, gitHub: ghApi(cwd), put: ghApiPut(cwd), post: ghApiPost(cwd), publish: ghStatusPublisher(cwd), settle: () => blockFor(SETTLE_MS), session: randomUUID(), pause: sleep, pushPolicy: () => pushPolicyOf(readThroughPort, cwd) })
 }
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {

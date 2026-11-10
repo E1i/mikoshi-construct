@@ -8,7 +8,7 @@ import os from 'node:os'
 import { busDirOf, decisionsFileOf } from '../core/bus-path.js'
 import { CARD_BODIES } from '../core/card-bodies.js'
 import { reportPath } from '../core/places.js'
-import { pushPolicyAt } from '../core/push-policy.js'
+import { pushPolicyOf } from '../core/push-policy.js'
 import { reduce } from '../core/reducer.js'
 import { cardSessionOf } from '../nodes/answer/answer-source.js'
 import { launchDirOf } from '../nodes/launch/launch-worker.js'
@@ -22,7 +22,7 @@ import { busProjectsDecisions, decisionRows, expireDecisions, recordDecision, re
 import { ARCHIVE_HEADER, runDecisionsAdd } from '../policy/decisions/add.js'
 import { PREFIX, projectDecisions } from '../policy/decisions/decisions.js'
 import { archiveOf } from '../policy/decisions/read.js'
-import { processGit } from '../ports/git.js'
+import { processGit, readThroughPort } from '../ports/git.js'
 import { ghApi, ghApiPatch, ghApiPost } from '../ports/github.js'
 import { EXIT_REQUEST_VARIABLE, LOOP_PID_VARIABLE, WINDOW_VARIABLE } from '../ports/session.js'
 import { cardTree } from '../ports/worktree-home.js'
@@ -80,7 +80,7 @@ function causeHoldsIn(db: DatabaseSync, repo: string, treeOf: (cardId: number) =
 export function realRequestTools(db: DatabaseSync, busPath: string, repo: string, env: NodeJS.ProcessEnv): RequestTools {
   const gitHub = ghApi(repo)
   const patch = ghApiPatch(repo)
-  const pushPolicy = (): PushPolicy => pushPolicyAt(repo)
+  const pushPolicy = (): PushPolicy => pushPolicyOf(readThroughPort, repo)
   const closer = new PrCloser(db, gitHub, patch, () => new Date(), pushPolicy)
   const reopener = new PrReopener(db, gitHub, patch, () => new Date(), pushPolicy)
   const treeOf = (cardId: number): string => cardTree(env, busPath, String(cardId))

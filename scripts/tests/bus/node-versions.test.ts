@@ -132,7 +132,7 @@ describe('the node versions', () => {
     const error = vi.spyOn(console, 'error').mockImplementation(() => {})
     const build = (db: DatabaseSync): Node<NodeStep> => new DeclaredNode(db, new Clock())
 
-    expect(await runNode([SWITCH_FLAG], 'review', foreignBus, build, { pause: async () => {} })).toBe(1)
+    expect(await runNode([SWITCH_FLAG], 'review', foreignBus, build, { pause: async () => {}, codeSha: () => null })).toBe(1)
     expect(error).toHaveBeenCalledWith(expect.stringContaining(`stopped on a foreign version: the bus carries bus version ${FOREIGN}`))
 
     const db = openBus(busPath())

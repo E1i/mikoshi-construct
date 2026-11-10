@@ -2,7 +2,7 @@ import type { Detector } from './detectors.js'
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import path from 'node:path'
 import ts from 'typescript'
-import { FACTORY_NAMED, FACTORY_RUNTIME } from '../../core/factory-paths.js'
+import { FACTORY_RUNTIME } from '../../core/factory-paths.js'
 import { GENERATED_FILES, GENERATED_PATHS } from '../../core/generated-files.js'
 import { clientAdapter } from '../../ports/client/index.js'
 import {
@@ -136,7 +136,6 @@ const COMMANDS_A_GENERATED_REPOSITORY_RUNS = new Set(['scripts/harness-command/r
 export const GIT_BEYOND_THE_PORT_BY_REASON = {
   'src-imports-no-scripts': ['src/detect/git.ts'],
   'a-template-carrier-runs-without-the-factory': ['scripts/construct/check-acceptance.mjs'],
-  'core-imports-nothing-to-its-right': [FACTORY_NAMED.busNode, 'scripts/core/push-policy.ts'],
 } as const
 export const GIT_BEYOND_THE_PORT: ReadonlySet<string> = new Set(Object.values(GIT_BEYOND_THE_PORT_BY_REASON).flat())
 const SURFACE_FILE = path.resolve(import.meta.dirname, '../../..', GENERATED_FILES.surface.path)

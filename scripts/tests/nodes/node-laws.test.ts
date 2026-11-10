@@ -1,6 +1,6 @@
 import type { SeedEvent } from '../../../tests/board/bus-fixture.js'
 import type { Lease } from '../../core/lease.js'
-import type { NodeKind, NodeStep } from '../../core/node.js'
+import type { NodeContext, NodeKind, NodeStep } from '../../core/node.js'
 import type { QueuedTask } from '../../core/queue.js'
 import type { CardStart, CardStarter, QueuedCard, StartedCard } from '../../nodes/launch/launch-executor.js'
 import type { SessionContinuer } from '../../nodes/launch/launch-starter.js'
@@ -74,7 +74,11 @@ class LiveSession extends Node<NodeStep> {
   private readonly rounds: (() => void)[] = []
 
   constructor(kind: NodeKind, db: DatabaseSync, clock: () => Date) {
-    super(kind, { db, clock, session: 'old', mode: 'live', env: { [slotsVariable(kind)]: '1' }, self: { pid: SESSION_PID, started: clock().toISOString() }, codeSha: () => OLD_MAIN })
+    super(kind, { db, clock, session: 'old', mode: 'live', env: { [slotsVariable(kind)]: '1' }, self: { pid: SESSION_PID, started: clock().toISOString() } })
+  }
+
+  override async run(ctx: NodeContext): Promise<void> {
+    return super.run({ ...ctx, codeSha: () => OLD_MAIN })
   }
 
   protected candidates(): QueuedTask[] {
