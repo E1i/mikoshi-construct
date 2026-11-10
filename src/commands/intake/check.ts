@@ -404,6 +404,9 @@ export function nonPathTouchRefusals(cards: readonly DraftCard[], repository: Re
   })
 }
 
+export const FACTORY_TWIN_SOURCE = 'scripts/contract/factory/*.ts'
+export const FACTORY_TWIN_REASON = `${GENERATED_FILES.factory.path} is a generated twin: its source is ${FACTORY_TWIN_SOURCE}, the session neither reads nor edits it, and the bus rebuilds it with pnpm ${GENERATED_FILES.factory.rebuild.join(' ')} and commits it with the sources that changed it`
+
 function touchesChecked(card: DraftCard, repository: RepositoryFacts): Touched {
   const touched: Touched = { touches: [], corrections: [], unclear: [] }
   const creates = createdPaths(card.creates)
@@ -412,6 +415,10 @@ function touchesChecked(card: DraftCard, repository: RepositoryFacts): Touched {
       touched.unclear.push({ field: 'creates', reason: parsed.reason })
   }
   for (const entry of card.touches) {
+    if (entry === GENERATED_FILES.factory.path) {
+      touched.corrections.push({ field: 'touches', was: entry, now: '(removed)', reason: FACTORY_TWIN_REASON })
+      continue
+    }
     if (touchError(entry) !== null) {
       touched.touches.push(entry)
       continue

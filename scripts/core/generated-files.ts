@@ -111,6 +111,10 @@ export function isRebuiltOnUpdate(file: string): boolean {
   return REBUILT_ON_UPDATE.some(row => row.path === file)
 }
 
+export function pathsRebuiltBy(rebuild: readonly string[]): string[] {
+  return REBUILT_ON_UPDATE.filter(row => commandLine(row.rebuild) === commandLine(rebuild)).map(row => row.path)
+}
+
 export function rebuildsOf(files: readonly string[]): (readonly string[])[] {
   const selected = REBUILT_ON_UPDATE.filter(row => files.includes(row.path)).map(row => row.rebuild)
   return [...new Set(selected)]
