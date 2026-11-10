@@ -7,7 +7,7 @@ import type { IsolationReader } from '../../ports/isolation.js'
 import type { MergeMain } from '../../ports/main-merge.js'
 import type { TreePreparer } from '../../ports/prepare-tree.js'
 import type { AdmittedScope, AnswerSource, CardSession } from './answer-source.js'
-import type { Answered, Answerer, FindingProof, StepSeconds } from './answerer.js'
+import type { Answered, Answerer, StepSeconds } from './answerer.js'
 import type { CardConcept } from './concept-scope.js'
 import type { AnswerDenial, Answering, AnswerOutcome, AnswerTechnicalReason, CardPaths, DecidedRound, ShardDecider, TreeMerge, TreePublishing, Widened } from './duties/index.js'
 import { pathsIn, pathsOutside } from '../../../src/card/covering-tests.js'
@@ -27,7 +27,7 @@ import { conflictingCardOf, mainKeptInTheTree } from '../../ports/main-merge.js'
 import { prepareBeforeSession, prepareTree } from '../../ports/prepare-tree.js'
 import { MAIN_BRANCH } from '../../ports/snapshot.js'
 import { admittedScopeOf, decisionAnsweringRepeat, ownerHoldOf } from './answer-source.js'
-import { AnswerOutsideTouches, CardTreeGone, liveSessionIn, PREFIX, secondsOf } from './answerer.js'
+import { AnswerOutsideTouches, CardTreeGone, liveSessionIn, PREFIX, secondsOf, unprovedFindings } from './answerer.js'
 import { CONCEPT_WIDENING_REASON } from './concept-scope.js'
 import { AnswerOutcomes, AnswerPublishing, AnswerSources, leftNoNewHead, OwnerQuestions, treeDirtyOf, treeMergeOf } from './duties/index.js'
 
@@ -84,17 +84,14 @@ export function questionAskedTwiceLine(cardId: number, question: string): string
 
 const CARD_PATHS: CardPaths = { pathsIn, ownerBoundary: ownersEvenUnderTheDecision, wideningAsked: scopeWideningAsked }
 
-export function unprovedFindings(given: readonly string[], proofs: readonly FindingProof[] | undefined): string[] {
-  const proved = new Set((proofs ?? []).filter(each => each.proof.trim() !== '').map(each => each.finding.trim()))
-  return [...new Set(given.map(finding => finding.trim()))].filter(finding => finding !== '' && !proved.has(finding))
-}
-
 export function findingsGivenByAReview(source: Answering | null): string[] {
   return source?.kind === 'changes' && source.reentry !== true ? source.findings : []
 }
 
-export function unprovedFindingsLine(cardId: number, head: string, unproved: readonly string[]): string {
-  return `card #${cardId}: the answer at ${head} leaves ${unproved.length} given finding${unproved.length === 1 ? '' : 's'} unproved, so it is refused and the answer goes again: ${unproved.join('; ')}`
+export function unprovedFindingsLine(cardId: number, answered: Pick<Answered, 'before' | 'after'>, unproved: readonly string[]): string {
+  const pushed = answered.after !== null && answered.after !== answered.before
+  const fate = pushed ? `its head ${answered.after} was pushed without them and stays on the pull request for the next review` : `the bus pushed nothing from it, so the answer goes again on ${answered.before ?? 'the same head'}`
+  return `card #${cardId}: the answer leaves ${unproved.length} given finding${unproved.length === 1 ? '' : 's'} unproved, so it is refused; ${fate}: ${unproved.join('; ')}`
 }
 
 export class AnswerExecutor {
@@ -215,7 +212,7 @@ export class AnswerExecutor {
     }
   }
 
-  private async session(lease: Lease, source: AnswerSource, widened: Widened | null, card: CardSession, fresh: boolean, leased: number, prove: readonly string[] = []): Promise<Answered | AnswerDenial> {
+  private async session(lease: Lease, source: AnswerSource, widened: Widened | null, card: CardSession, fresh: boolean, leased: number, prove: readonly string[]): Promise<Answered | AnswerDenial> {
     const preparing = this.parts.clock().getTime()
     const unprepared = prepareBeforeSession(card.worktree, this.parts.prepare ?? prepareTree)
     if (unprepared !== null)
@@ -279,20 +276,20 @@ export class AnswerExecutor {
     return (this.parts.dirty ?? treeDirtyOf)(card)
   }
 
-  private async settled(lease: Lease, source: Answering, widened: Widened | null, card: CardSession, answered: Answered, minutes: number, prove: readonly string[] = []): Promise<AnswerOutcome> {
+  private async settled(lease: Lease, source: Answering, widened: Widened | null, card: CardSession, answered: Answered, minutes: number, prove: readonly string[]): Promise<AnswerOutcome> {
+    const unproved = answered.owner === null ? unprovedFindings(prove, answered.proofs) : []
+    if (unproved.length > 0)
+      return this.outcomes.denied(lease, { kind: 'technical', reason: 'answer_failed', detail: unprovedFindingsLine(lease.cardId, answered, unproved) })
     const scope = [...(widened === null ? [] : [widened.event]), ...this.widenedInConcept(lease, answered)]
     if (answered.after === null || answered.after === answered.before) {
       if (answered.owner !== null && answered.noViolationFreePath === true)
         return this.outcomes.ownersStop(lease, answered.owner, scope)
       if (answered.owner !== null && !timeoutUnderLoadOutside(answered.owner, this.outsideTouchesOf(lease, widened)))
-        return this.questions.staleQuestion(lease, answered.owner) ?? this.askedTwiceInARow(lease, source, answered.owner, scope) ?? await this.questions.asked(lease, answered.owner, widened, card, this.decidedRound(lease, widened, card))
+        return this.questions.staleQuestion(lease, answered.owner) ?? this.askedTwiceInARow(lease, source, answered.owner, scope) ?? await this.questions.asked(lease, answered.owner, widened, card, this.decidedRound(lease, widened, card, prove))
       if (this.dirty(card))
         return this.publishing.leftDirty(lease, card, answered.session)
       return this.publishing.published(lease, source, card, answered, minutes, scope) ?? this.publishing.leftNothing(lease, answered, scope)
     }
-    const unproved = unprovedFindings(prove, answered.proofs)
-    if (unproved.length > 0)
-      return this.outcomes.denied(lease, { kind: 'technical', reason: 'answer_failed', detail: unprovedFindingsLine(lease.cardId, answered.after, unproved) })
     const reentry = REENTRY_SOURCES.has(source.kind) || source.reentry === true
     const payload = this.publishing.answeredPayload(source, card, answered, minutes, reentry ? { reentry: true } : {})
     completeTask(this.parts.db, this.ts(), lease, [...scope, this.outcomes.event(lease, CARD_ANSWERED, payload)])
@@ -307,11 +304,11 @@ export class AnswerExecutor {
     return this.outcomes.ownersStop(lease, question, scope, questionAskedTwiceLine(lease.cardId, question))
   }
 
-  private decidedRound(lease: Lease, widened: Widened | null, card: CardSession): DecidedRound {
+  private decidedRound(lease: Lease, widened: Widened | null, card: CardSession, prove: readonly string[]): DecidedRound {
     return {
-      run: async source => this.session(lease, source, widened, card, false, this.parts.clock().getTime()),
+      run: async source => this.session(lease, source, widened, card, false, this.parts.clock().getTime(), prove),
       refusedOrDenied: denial => this.refusedOrDenied(lease, denial, widened),
-      settled: async (source, answered) => this.settled(lease, source, widened, card, answered, 0),
+      settled: async (source, answered) => this.settled(lease, source, widened, card, answered, 0, prove),
       dirty: () => this.dirty(card),
     }
   }

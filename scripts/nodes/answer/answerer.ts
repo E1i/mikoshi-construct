@@ -192,6 +192,7 @@ export function unmergedQuestion(card: CardSession, gap: FreshBaseGap): string {
 
 export const MERGE_STEP = '.merge'
 const VIOLATION_STEP = '.violation'
+const PROOFS_STEP = '.proofs'
 export const KNOWN_VIOLATIONS = '.dependency-cruiser-known-violations.json'
 
 function onlyAGrownViolationBaseline(outside: readonly string[]): boolean {
@@ -242,6 +243,15 @@ export function proofsIn(file: string, findings: readonly string[]): FindingProo
   catch {
     return []
   }
+}
+
+export function unprovedFindings(given: readonly string[], proofs: readonly FindingProof[] | undefined): string[] {
+  const proved = new Set((proofs ?? []).filter(each => each.proof.trim() !== '').map(each => each.finding.trim()))
+  return [...new Set(given.map(finding => finding.trim()))].filter(finding => finding !== '' && !proved.has(finding))
+}
+
+export function missingProofsPrompt(unproved: readonly string[], file: string): string {
+  return [`The bus pushes nothing until every finding has its proof in ${file}. These findings have none yet:`, ...unproved.map(finding => `- ${finding}`), 'Prove each one, or fix what keeps it from being proved, and write its proof under its number; then end the session.'].join('\n')
 }
 
 function ownerQuestionIn(file: string): string | null {
@@ -590,7 +600,16 @@ function sessionAnswerer(dir: string, tools: AnswererTools): Answerer {
         throw new Error(`the answer session ${session} exited ${code}`)
       const kept = tools.pushPolicy?.(card) === 'none'
       const atLine = atContextWarn(tools, session, size)
-      const owner = askedUnlessRetried(request, ownerAfter('')) ?? (kept || atLine ? null : await publish())
+      const unprovedNow = (): string[] => unprovedFindings(prove, proofsIn(proofs, prove))
+      const asked = askedUnlessRetried(request, ownerAfter(''))
+      const reasked = asked !== null || kept || atLine || unprovedNow().length === 0
+        ? asked
+        : await (async () => {
+            steps.push(PROOFS_STEP)
+            await run(invocationOf('resume', missingProofsPrompt(unprovedNow(), proofs)), PROOFS_STEP)
+            return ownerAfter(PROOFS_STEP)
+          })()
+      const owner = reasked ?? (kept || atLine || unprovedNow().length > 0 ? null : await publish())
       const measured = measuredOf(steps.map(stdoutOf))
       return { session, resumed, atContextWarn: atLine, before, after: tools.remoteHead(card), owner, ...measured, input: { prompt, cardBody }, steps: timer.steps(), ...(widenedInConcept.size === 0 ? {} : { widenedInConcept: [...widenedInConcept] }), ...(noViolationFreePath ? { noViolationFreePath } : {}), ...(prove.length === 0 ? {} : { proofs: proofsIn(proofs, prove) }) }
     }

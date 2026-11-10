@@ -1,5 +1,6 @@
 import type { Lease } from '../../core/lease.js'
-import type { Answerer } from '../../nodes/answer/answerer.js'
+import type { Answered, Answerer, AnswerRequest } from '../../nodes/answer/answerer.js'
+import type { ShardDecider } from '../../nodes/answer/duties/index.js'
 import type { CardTreeTools } from '../../ports/card-tree.js'
 import type { MergeBench } from './merge-bench.js'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
@@ -7,16 +8,16 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { appendEvent } from '../../core/db.js'
-import { CARD_ANSWERED, CARD_STARTED, REVIEW_RECORDED } from '../../core/events.js'
+import { CARD_ANSWERED, CARD_STARTED, REVIEW_RECORDED, SHARD_ISSUED } from '../../core/events.js'
 import { leaseNext } from '../../core/lease.js'
 import { queueTask } from '../../core/queue.js'
-import { AnswerExecutor, findingsGivenByAReview, unprovedFindings, unprovedFindingsLine } from '../../nodes/answer/answer-executor.js'
-import { proofsIn, proofsPath, proofsRule } from '../../nodes/answer/answerer.js'
+import { AnswerExecutor, findingsGivenByAReview, unprovedFindingsLine } from '../../nodes/answer/answer-executor.js'
+import { claudeAnswerer, proofsIn, proofsPath, proofsRule, unprovedFindings } from '../../nodes/answer/answerer.js'
 import { dryRunIn, keepDryRun } from '../../nodes/review/dry-run-record.js'
 import { PrCloser } from '../../nodes/review/pr-close.js'
 import { sayToOwnerChannel, USED_WORD } from '../../owner/channel.js'
 import { roundLimitDecisionOf } from '../../policy/round-limit-decision.js'
-import { decisionsInForceAt } from '../../policy/shards.js'
+import { DECISIONS_SCOPE, decisionsInForceAt } from '../../policy/shards.js'
 import { decisionsAdder } from '../../window/window-request-tools.js'
 import { ALLOW_MERGE_RECORD, ANSWER_SOURCE, HEAD_WORD, requestFromWindow, requestOf, WindowRequests } from '../../window/window-requests.js'
 import { sha } from './github-fake.js'
@@ -94,11 +95,11 @@ function ownerSaid(window: Window, words: string): void {
 
 interface Changes {
   bench: MergeBench
-  executor: (answerer: Answerer) => AnswerExecutor
+  executor: (answerer: Answerer, shardDecider?: ShardDecider) => AnswerExecutor
   lease: () => Lease
 }
 
-function changesOnTheHead(): Changes {
+function changesOnTheHead(underAShard = false): Changes {
   const bench = mergeBench()
   benches.push(bench)
   const home = rootDir('autonomy-rounds-answer-')
@@ -107,6 +108,8 @@ function changesOnTheHead(): Changes {
   const ts = bench.clock.now().toISOString()
   bench.gitHub.open({ number: PR, head: HEAD, review: 'failure' })
   bench.tick()
+  if (underAShard)
+    appendEvent(bench.db, { ts, type: SHARD_ISSUED, actor: 'owner', cardId: null, pr: null, head: null, dedupeKey: `${SHARD_ISSUED}:ws-1`, payload: { id: 'ws-1', by: 'owner', scope: DECISIONS_SCOPE, until: new Date(bench.clock.now().getTime() + 3_600_000).toISOString(), window: 1 }, legacy: false })
   appendEvent(bench.db, { ts, type: CARD_STARTED, actor: 'worker:launch:launch-1', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_STARTED}:${CARD}`, payload: { session: 'card-session-1', worktree, branch: `feat/card-${CARD}`, base: sha('1') }, legacy: false })
   appendEvent(bench.db, { ts, type: REVIEW_RECORDED, actor: 'worker:review:review-1', cardId: CARD, pr: PR, head: HEAD, dedupeKey: `${REVIEW_RECORDED}:${PR}:${HEAD}`, payload: { head: HEAD, verdict: 'changes', reviewer_session: 'reviewer-1', findings: FINDINGS }, legacy: false })
   bench.tick()
@@ -114,13 +117,64 @@ function changesOnTheHead(): Changes {
   const trees: CardTreeTools = { home, exists: existsSync, branchOf: pr => `feat/card-${pr + 100}`, recreate: () => {}, bringTo: () => {} }
   return {
     bench,
-    executor: answerer => new AnswerExecutor({ db: bench.db, answerer, ownerMerges: () => '', clock: bench.clock.now, trees, dirty: () => false, liveSession: () => null, prepare: () => {}, mergeMain: () => () => ({ kind: 'inside', files: [] }) }),
+    executor: (answerer, shardDecider) => new AnswerExecutor({ db: bench.db, answerer, ownerMerges: () => OWNER_MERGES, clock: bench.clock.now, trees, dirty: () => false, liveSession: () => null, prepare: () => {}, mergeMain: () => () => ({ kind: 'inside', files: [] }), ...(shardDecider === undefined ? {} : { shardDecider, isolation: () => ({ level: 'partial', mechanism: 'claude-code-sandbox', gaps: [] }) }) }),
     lease: () => leaseNext(bench.db, bench.clock.now().toISOString(), 'answer', 'worker:answer:answer-1')!,
   }
 }
 
-function answering(proofs?: { finding: string, proof: string }[]): Answerer {
-  return async () => ({ session: 'card-session-1', resumed: true, before: HEAD, after: ANSWERED_HEAD, owner: null, ...(proofs === undefined ? {} : { proofs }) })
+const OWNER_MERGES = readFileSync('architecture/owner-merges.md', 'utf8')
+const PROVED = FINDINGS.map(finding => ({ finding: ` ${finding} `, proof: 'a test that fails without the fix' }))
+
+function answered(fields: Partial<Answered> = {}): Answered {
+  return { session: 'card-session-1', resumed: true, before: HEAD, after: ANSWERED_HEAD, owner: null, ...fields }
+}
+
+function answeringInTurn(asked: AnswerRequest[], ...turns: Answered[]): Answerer {
+  return async (request) => {
+    asked.push(request)
+    return turns.shift()!
+  }
+}
+
+interface RealAnswer {
+  prompts: string[]
+  argv: string[][]
+  published: number
+  result: Answered
+}
+
+async function realAnswer(writesProofs: (prompt: string) => Record<string, string> | null, staleProofs = false): Promise<RealAnswer> {
+  const dir = rootDir('autonomy-rounds-real-')
+  const worktree = path.join(dir, 'tree')
+  mkdirSync(worktree)
+  const answers = path.join(dir, 'answers')
+  mkdirSync(answers)
+  const lease: Lease = { taskKey: `answer:${CARD}:${PR}:${HEAD}`, queue: 'answer', cardId: CARD, pr: PR, head: HEAD, leaseGen: 3, actor: 'worker:answer:answer-1' }
+  if (staleProofs)
+    writeFileSync(proofsPath(answers, 'card-session-1', lease.leaseGen), JSON.stringify({ 1: 'left by an earlier session', 2: 'left by an earlier session' }))
+  const heads = [HEAD]
+  const made: RealAnswer = { prompts: [], argv: [], published: 0, result: answered() }
+  const answerer = claudeAnswerer(answers, {
+    cardText: () => null,
+    available: () => true,
+    remoteHead: () => heads.at(-1)!,
+    spawn: async (run) => {
+      const prompt = run.argv.at(-1)!
+      made.prompts.push(prompt)
+      made.argv.push(run.argv)
+      const proofs = writesProofs(prompt)
+      if (proofs !== null)
+        writeFileSync(proofsPath(answers, 'card-session-1', lease.leaseGen), JSON.stringify(proofs))
+      return 0
+    },
+    newSession: () => 'new-session-1',
+    publish: () => {
+      made.published += 1
+      heads.push(ANSWERED_HEAD)
+    },
+  })
+  made.result = await answerer({ lease, source: { kind: 'changes', findings: FINDINGS, events: [], decisions: [] }, widened: null, card: { session: 'card-session-1', worktree, branch: `feat/card-${CARD}` }, findingsToProve: FINDINGS })
+  return made
 }
 
 describe('autonomy rounds at the window and the answer', () => {
@@ -133,7 +187,13 @@ describe('autonomy rounds at the window and the answer', () => {
 
     expect(window.requests.run()).toEqual([expect.objectContaining({ kind: 'done', request: decision })])
     expect(window.decisions()).toContain(`[owner] continue-fixes PR #${PR} at ${HEAD}: one more round on the new findings`)
-    expect(window.decisions()).not.toContain(`at ${HEAD_WORD}`)
+    expect(window.decisions()).not.toContain(`at ${HEAD_WORD}:`)
+
+    const lookalike = `continue-fixes PR #${PR} at headroom, and PR #${PR} at head-of-line`
+    ownerSaid(window, lookalike)
+    asked(window, { kind: 'decisions:add', text: `[owner] ${lookalike}`, from: ANSWER_SOURCE })
+    expect(window.requests.run()).toEqual([expect.objectContaining({ kind: 'done' })])
+    expect(window.decisions()).toContain(`[owner] ${lookalike}`)
 
     const unobserved = `continue-fixes PR #${PR + 1} at ${HEAD_WORD}`
     ownerSaid(window, unobserved)
@@ -153,19 +213,65 @@ describe('autonomy rounds at the window and the answer', () => {
   })
 
   it('an answer that leaves a given finding unproved is refused', async () => {
-    const refused = changesOnTheHead()
-    const unproved = await refused.executor(answering([{ finding: FINDINGS[0]!, proof: 'scripts/tests/a.test.ts: run reports the error' }, { finding: FINDINGS[1]!, proof: ' ' }])).answer(refused.lease())
+    const changes = changesOnTheHead()
+    const asked: AnswerRequest[] = []
+    const partial = [{ finding: FINDINGS[0]!, proof: 'scripts/tests/a.test.ts: run reports the error' }, { finding: FINDINGS[1]!, proof: ' ' }]
+    const answerer = answeringInTurn(asked, answered({ after: HEAD, proofs: partial }), answered({ after: HEAD }), answered({ proofs: PROVED }))
 
-    expect(unproved).toMatchObject({ kind: 'denied', denial: { reason: 'answer_failed', detail: unprovedFindingsLine(CARD, ANSWERED_HEAD, [FINDINGS[1]!]) } })
-    expect(eventsOf(refused.bench.db, CARD_ANSWERED)).toEqual([])
+    expect(await changes.executor(answerer).answer(changes.lease())).toMatchObject({ kind: 'denied', denial: { reason: 'answer_failed', detail: unprovedFindingsLine(CARD, { before: HEAD, after: HEAD }, [FINDINGS[1]!]) } })
+    expect(unprovedFindingsLine(CARD, { before: HEAD, after: HEAD }, [FINDINGS[1]!])).toContain(`the bus pushed nothing from it, so the answer goes again on ${HEAD}`)
+    expect(await changes.executor(answerer).answer(changes.lease())).toMatchObject({ kind: 'denied', denial: { detail: unprovedFindingsLine(CARD, { before: HEAD, after: HEAD }, FINDINGS) } })
+    expect(eventsOf(changes.bench.db, CARD_ANSWERED)).toEqual([])
 
-    const silent = changesOnTheHead()
-    expect(await silent.executor(answering()).answer(silent.lease())).toMatchObject({ kind: 'denied', denial: { detail: unprovedFindingsLine(CARD, ANSWERED_HEAD, FINDINGS) } })
+    expect(await changes.executor(answerer).answer(changes.lease())).toMatchObject({ kind: 'answered', head: ANSWERED_HEAD })
+    expect(eventsOf(changes.bench.db, CARD_ANSWERED)).toHaveLength(1)
+    expect(asked.map(request => request.findingsToProve)).toEqual([FINDINGS, FINDINGS, FINDINGS])
+    expect(unprovedFindingsLine(CARD, { before: HEAD, after: ANSWERED_HEAD }, FINDINGS)).toContain(`its head ${ANSWERED_HEAD} was pushed without them`)
+  })
 
-    const proved = changesOnTheHead()
-    const outcome = await proved.executor(answering(FINDINGS.map(finding => ({ finding: ` ${finding} `, proof: 'a test that fails without the fix' })))).answer(proved.lease())
-    expect(outcome).toMatchObject({ kind: 'answered', head: ANSWERED_HEAD })
-    expect(eventsOf(proved.bench.db, CARD_ANSWERED)).toHaveLength(1)
+  it('a session restarted at the context warn is asked for the proofs again', async () => {
+    const changes = changesOnTheHead()
+    const asked: AnswerRequest[] = []
+    const answerer = answeringInTurn(asked, answered({ after: HEAD, atContextWarn: true }), answered({ proofs: PROVED }))
+
+    expect(await changes.executor(answerer).answer(changes.lease())).toMatchObject({ kind: 'answered', head: ANSWERED_HEAD })
+    expect(asked.map(request => [request.fresh, request.findingsToProve])).toEqual([[false, FINDINGS], [true, FINDINGS]])
+  })
+
+  it('a round the window decides under a shard still owes a proof of every finding', async () => {
+    const question = 'may the card also touch .claude/settings.json?'
+    const decide: ShardDecider = () => ({ answer: 'the one the finding names' })
+    const unproved = changesOnTheHead(true)
+    const asked: AnswerRequest[] = []
+    const outcome = await unproved.executor(answeringInTurn(asked, answered({ after: HEAD, owner: question }), answered()), decide).answer(unproved.lease())
+
+    expect(asked.map(request => request.findingsToProve)).toEqual([FINDINGS, FINDINGS])
+    expect(outcome).toMatchObject({ kind: 'denied', denial: { detail: unprovedFindingsLine(CARD, { before: HEAD, after: ANSWERED_HEAD }, FINDINGS) } })
+    expect(eventsOf(unproved.bench.db, CARD_ANSWERED)).toEqual([])
+
+    const proved = changesOnTheHead(true)
+    expect(await proved.executor(answeringInTurn([], answered({ after: HEAD, owner: question }), answered({ proofs: PROVED })), decide).answer(proved.lease())).toMatchObject({ kind: 'answered' })
+  })
+
+  it('the answerer asks the session again for missing proofs and publishes nothing until every finding is proved', async () => {
+    const proofsFile = (made: RealAnswer): string => made.argv[0]!.find(arg => arg.includes('Edit(') && arg.includes('.proofs.json')) ?? ''
+    const late = await realAnswer(prompt => prompt.includes('These findings have none yet') ? { 1: 'a.test.ts fails without the fix', 2: 'the empty list test' } : null)
+    expect(late.prompts).toHaveLength(2)
+    expect(late.prompts[1]).toContain(`- ${FINDINGS[0]}`)
+    expect(late.published).toBe(1)
+    expect(late.result).toMatchObject({ after: ANSWERED_HEAD, proofs: [{ finding: FINDINGS[0], proof: 'a.test.ts fails without the fix' }, { finding: FINDINGS[1], proof: 'the empty list test' }] })
+    expect(proofsFile(late)).toContain(proofsPath('', 'card-session-1', 3).slice(1))
+
+    const never = await realAnswer(() => ({ 1: 'only the first' }))
+    expect(never.prompts).toHaveLength(2)
+    expect(never.prompts[1]).not.toContain(`- ${FINDINGS[0]}`)
+    expect(never.prompts[1]).toContain(`- ${FINDINGS[1]}`)
+    expect(never.published).toBe(0)
+    expect(never.result).toMatchObject({ before: HEAD, after: HEAD, proofs: [{ finding: FINDINGS[0], proof: 'only the first' }] })
+
+    const stale = await realAnswer(() => null, true)
+    expect(stale.published).toBe(0)
+    expect(stale.result.proofs).toEqual([])
   })
 
   it('unproved findings are the given ones without a proof, read trimmed', () => {
