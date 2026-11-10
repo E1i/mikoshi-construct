@@ -5,7 +5,6 @@ import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
-import { setTimeout as sleep } from 'node:timers/promises'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { parkingFileText } from '../../../src/card/parking.js'
 import { textSha } from '../../../src/card/text-sha.js'
@@ -16,8 +15,10 @@ import { realTimedShell } from '../../nodes/witness/witness-executor.js'
 import { WitnessNode } from '../../nodes/witness/witness-worker.js'
 import { GREEN, UNCHECKED } from '../../policy/policy.js'
 import { SetupTurns, withWorktreeAsync } from '../../ports/worktree.js'
+import { waitFor } from '../wait-for.js'
 
 const CARD = 1550
+const SERVER_EXITS_WITHIN_MS = 5_000
 const PR = 2550
 const roots: string[] = []
 const dbs: DatabaseSync[] = []
@@ -166,7 +167,7 @@ describe('a browser witness and the serve field', () => {
     expect(payloadsOf(w, WITNESS_RECORDED).map(payload => payload.verdict)).toEqual([GREEN])
     expect(labRuns(w)).toBe(2)
     const pid = Number(readFileSync(w.pidFile, 'utf8'))
-    await sleep(100)
+    await waitFor(() => !alive(pid), () => `the fixture server ${pid} to exit`, SERVER_EXITS_WITHIN_MS)
     expect(alive(pid)).toBe(false)
     expect(await refuses(port)).toBe(true)
   })
