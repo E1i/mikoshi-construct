@@ -8,6 +8,7 @@ export const SITES_BEYOND_NODES = {
   netwatch: 'scripts/ports/netwatch.ts',
   window: 'scripts/window/watch.ts',
   intake: 'src/commands/intake/admit.ts',
+  supervisor: 'scripts/supervisor/stalled-sessions.ts',
 } as const
 
 export type SiteBeyondNodes = keyof typeof SITES_BEYOND_NODES
@@ -48,6 +49,7 @@ const LAUNCH_EVENTS = 1767
 const TREE_WAY_BACK = 1764
 const INTAKE_READS_DECISIONS = 1779
 export const SLICED_DROP_REPOINTS_DEPENDS = 1789
+export const REVIEW_STALL_IS_NOT_A_SILENT_LOOP = 1792
 export const CARD_WAIT_STATES = 1740
 export const NO_HEAD_OF_LINE = 1744
 export const RESTART_KEEPS_SESSION = 'Z1-restart-keeps-session'
@@ -99,8 +101,18 @@ const INTAKE: Record<LawId, LawCell> = {
   Z7: { notApplicable: 'intake reads no liveness: it admits from the card text, the decisions in force and the bus card states' },
 }
 
+const SUPERVISOR: Record<LawId, LawCell> = {
+  Z1: { notApplicable: 'StalledSessions starts no process; a session it ends it ends by name, which Z7 judges, not a child left behind' },
+  Z2: gap(NODE_CONTRACT_SUITE),
+  Z3: { notApplicable: 'StalledSessions applies the stall lines it is built with and takes no decision a window decision governs' },
+  Z4: { notApplicable: 'StalledSessions opens no wait: it raises session.stalled, queues a dead session\'s task again or ends a review session' },
+  Z5: { notApplicable: 'StalledSessions launches nothing' },
+  Z6: { notApplicable: 'StalledSessions writes bus events and task releases, never a card tree' },
+  Z7: gap(REVIEW_STALL_IS_NOT_A_SILENT_LOOP),
+}
+
 function beyondNodes(law: LawId): Record<SiteBeyondNodes, LawCell> {
-  return { netwatch: NETWATCH[law], window: WINDOW[law], intake: INTAKE[law] }
+  return { netwatch: NETWATCH[law], window: WINDOW[law], intake: INTAKE[law], supervisor: SUPERVISOR[law] }
 }
 
 export const LAW_CELLS: LawCells = {
@@ -136,7 +148,7 @@ export const LAW_CELLS: LawCells = {
     launch: { witness: SESSION_BEAT_BESIDE_STALE_WINDOW },
     merge: { notApplicable: NO_SESSION_TO_READ },
     restart: { notApplicable: NO_SESSION_TO_READ },
-    review: { witness: SESSION_BEAT_BESIDE_STALE_WINDOW },
+    review: gap(REVIEW_STALL_IS_NOT_A_SILENT_LOOP),
     update: { notApplicable: NO_SESSION_TO_READ },
     witness: { witness: SESSION_BEAT_BESIDE_STALE_WINDOW },
     ...beyondNodes('Z7'),

@@ -2725,6 +2725,9 @@
           "review": {
             "witness": "Z1-restart-keeps-session"
           },
+          "supervisor": {
+            "notApplicable": "StalledSessions starts no process; a session it ends it ends by name, which Z7 judges, not a child left behind"
+          },
           "update": {
             "notApplicable": "the node starts no session, so no child process of its own outlives it"
           },
@@ -2761,6 +2764,11 @@
             "notApplicable": "the node starts no session, runs no test and judges no CI run, so no timeout under load, abandoned run or usage limit reaches it as its own failure"
           },
           "review": {
+            "gap": [
+              1777
+            ]
+          },
+          "supervisor": {
             "gap": [
               1777
             ]
@@ -2818,6 +2826,9 @@
             "gap": [
               1672
             ]
+          },
+          "supervisor": {
+            "notApplicable": "StalledSessions applies the stall lines it is built with and takes no decision a window decision governs"
           },
           "update": {
             "gap": [
@@ -2883,6 +2894,9 @@
               1754
             ]
           },
+          "supervisor": {
+            "notApplicable": "StalledSessions opens no wait: it raises session.stalled, queues a dead session's task again or ends a review session"
+          },
           "update": {
             "gap": [
               1740,
@@ -2942,6 +2956,9 @@
               1767
             ]
           },
+          "supervisor": {
+            "notApplicable": "StalledSessions launches nothing"
+          },
           "update": {
             "gap": [
               1767
@@ -2996,6 +3013,9 @@
               1764
             ]
           },
+          "supervisor": {
+            "notApplicable": "StalledSessions writes bus events and task releases, never a card tree"
+          },
           "update": {
             "gap": [
               1764
@@ -3036,7 +3056,14 @@
             "notApplicable": "the node starts no session, so the factory reading holds no beat of its own to weigh"
           },
           "review": {
-            "witness": "Z7-session-beat-beside-stale-window"
+            "gap": [
+              1792
+            ]
+          },
+          "supervisor": {
+            "gap": [
+              1792
+            ]
           },
           "update": {
             "notApplicable": "the node starts no session, so the factory reading holds no beat of its own to weigh"

@@ -1,5 +1,6 @@
 {
   "law-gaps:Z2:review": 1,
+  "law-gaps:Z2:supervisor": 1,
   "law-gaps:Z2:window": 1,
   "law-gaps:Z2:witness": 1,
   "law-gaps:Z3:close": 1,
@@ -36,6 +37,8 @@
   "law-gaps:Z6:review": 1,
   "law-gaps:Z6:update": 1,
   "law-gaps:Z6:witness": 1,
+  "law-gaps:Z7:review": 1,
+  "law-gaps:Z7:supervisor": 1,
   "lines-scope:non-test-code-in-scripts-and-src": 1,
   "lines:scripts/cli/board-page.ts": 1280,
   "lines:scripts/construct/browser-lab.mjs": 809,

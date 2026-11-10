@@ -16,11 +16,12 @@ import { openBus } from '../../core/db.js'
 import { CARD_STARTED, SESSION_HEARTBEAT, WINDOW_HEARTBEAT } from '../../core/events.js'
 import { FACTORY_WORKERS } from '../../core/factory-paths.js'
 import { rerunDueOn } from '../../core/observations.js'
-import { ABANDONED_READ_AS_RERUN, LAW_CELLS, LAW_NODES, LAW_SITES, lawIds, PULSE_BESIDE_CARD_SILENCE, SITES_BEYOND_NODES, sourceOf, WINDOW_BESIDE_SESSIONS } from '../../nodes/laws.js'
+import { ABANDONED_READ_AS_RERUN, LAW_CELLS, LAW_NODES, LAW_SITES, lawIds, PULSE_BESIDE_CARD_SILENCE, REVIEW_STALL_IS_NOT_A_SILENT_LOOP, SITES_BEYOND_NODES, sourceOf, WINDOW_BESIDE_SESSIONS } from '../../nodes/laws.js'
 import { NetWatch, TICK_MS } from '../../ports/netwatch.js'
 import { BusTick } from '../../supervisor/run.js'
 import { BUS_ALIVE_MS, STALL_MS, stalledOf } from '../../window/watch.js'
 import { Clock, FakeGitHub, sha } from '../bus/github-fake.js'
+import { reachesSite } from './law-reach.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')
 const NOW = new Date('2026-11-09T15:40:00.000Z')
@@ -29,7 +30,7 @@ const STALE_WINDOW_BEAT = '2026-11-07T14:39:00.000Z'
 const LIVE_HEADER = 'id="bus-live">bus live<'
 const SILENT_SESSION_MINUTES = 120
 const INTAKE_READS_DECISIONS = 1779
-const BEYOND: readonly SiteBeyondNodes[] = ['netwatch', 'window', 'intake']
+const BEYOND: readonly SiteBeyondNodes[] = ['netwatch', 'window', 'intake', 'supervisor']
 const roots: string[] = []
 
 beforeEach(() => {
@@ -191,6 +192,22 @@ describe('law sites beyond the bus nodes', () => {
     expect(siteFaults('intake', missing)).toEqual(['Z5 × intake: no cell'])
     expect(siteFaults('intake', unreasoned)).toEqual(['Z1 × intake: not applicable without its reason'])
     expect(siteFaults('intake', unwitnessed)).toEqual([expect.stringContaining('Z7 × intake: witness Z7-unwritten')])
+  })
+
+  it('supervisor is a law site and Z7 x supervisor names the card that ends the single-signal stall kill', () => {
+    expect(sourceOf('supervisor')).toBe('scripts/supervisor/stalled-sessions.ts')
+    expect(siteFaults('supervisor')).toEqual([])
+    expect(LAW_CELLS.Z7.supervisor).toEqual({ gap: [REVIEW_STALL_IS_NOT_A_SILENT_LOOP] })
+    expect(REVIEW_STALL_IS_NOT_A_SILENT_LOOP).toBe(1792)
+    expect(readRatchet(REPO_ROOT)['law-gaps:Z7:supervisor']).toBe(1)
+    expect(Object.keys(lawsSection().laws.Z7.cells)).toContain('supervisor')
+  })
+
+  it('a witness run reaches a site only when it calls a function of the site module', async () => {
+    expect(await reachesSite('netwatch', abandonedReadAsRerun)).toBe(true)
+    expect(await reachesSite('netwatch', () => TICK_MS)).toBe(false)
+    expect(await reachesSite('netwatch', () => stalledOf([], undefined, NOW.getTime()))).toBe(false)
+    expect(await reachesSite('window', () => stalledOf([], undefined, NOW.getTime()))).toBe(true)
   })
 
   it('every cell of a site beyond the nodes is a witness, a reasoned not applicable or a gap the ratchet records', () => {

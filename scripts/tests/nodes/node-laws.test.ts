@@ -29,7 +29,7 @@ import { answerCandidates, keyOf, queueTask, queueTaskWithin, updateCandidates }
 import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
 import { claudeAnswerer } from '../../nodes/answer/answerer.js'
 import { LaunchNode } from '../../nodes/launch/launch-worker.js'
-import { CARD_WAIT_STATES, DIRECT_IMPORTER_WIDENED, gapRows, INFRASTRUCTURE_RETRIED, LAW_CELLS, LAW_NODES, LAW_SITES, lawIds, LAWS, NO_HEAD_OF_LINE, RESTART_KEEPS_SESSION, SESSION_BEAT_BESIDE_STALE_WINDOW, SLICED_DROP_REPOINTS_DEPENDS, sourceOf } from '../../nodes/laws.js'
+import { CARD_WAIT_STATES, DIRECT_IMPORTER_WIDENED, gapRows, INFRASTRUCTURE_RETRIED, LAW_CELLS, LAW_NODES, LAW_SITES, lawIds, LAWS, NO_HEAD_OF_LINE, RESTART_KEEPS_SESSION, REVIEW_STALL_IS_NOT_A_SILENT_LOOP, SESSION_BEAT_BESIDE_STALE_WINDOW, SLICED_DROP_REPOINTS_DEPENDS, sourceOf } from '../../nodes/laws.js'
 import { UpdateExecutor } from '../../nodes/update/update-executor.js'
 import { NetWatch, TICK_MS } from '../../ports/netwatch.js'
 import { launchName } from '../../supervisor/bg.js'
@@ -39,6 +39,7 @@ import { busDrain, BusSupervisor, freeLeasesOf, withoutRetiring } from '../../su
 import { workerLaunches } from '../../supervisor/workers.js'
 import { Clock, FakeGitHub, sha } from '../bus/github-fake.js'
 import { eventsOf, mergeBench } from '../bus/merge-bench.js'
+import { reachesSite } from './law-reach.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')
 const OWNER_LAWS = ['Z1', 'Z2', 'Z3', 'Z4', 'Z5', 'Z6', 'Z7']
@@ -49,6 +50,8 @@ interface Witness {
 }
 
 type Witnesses = Readonly<Record<string, Witness>>
+
+type Reaches = (site: LawSite, run: () => unknown) => Promise<boolean>
 
 const OLD_MAIN = 'a'.repeat(40)
 const NEW_MAIN = 'b'.repeat(40)
@@ -432,15 +435,16 @@ function failureOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
-async function lawOutcome(law: LawId, node: LawNode, witnesses: Witnesses): Promise<string | null> {
+async function lawOutcome(law: LawId, node: LawNode, witnesses: Witnesses, reaches: Reaches = reachesSite): Promise<string | null> {
   const ofTheLaw = Object.entries(witnesses).filter(([, witness]) => witness.law === law)
   if (ofTheLaw.length === 0)
     return `no witness of ${law} runs on ${node}`
   const failures: string[] = []
   for (const [id, witness] of ofTheLaw) {
     try {
-      await witness.run(node)
-      return null
+      if (await reaches(node, async () => witness.run(node)))
+        return null
+      failures.push(`${id}: passes without calling ${sourceOf(node)}`)
     }
     catch (error) {
       failures.push(`${id}: ${failureOf(error)}`)
@@ -483,8 +487,13 @@ describe('the laws of a node', () => {
   it('a gap cell that passes is red until its row is struck', async () => {
     const passing: Witnesses = { 'Z5-seeded': { law: 'Z5', run: async () => {} } }
     const failing: Witnesses = { 'Z5-seeded': { law: 'Z5', run: async () => Promise.reject(new Error('launch wrote no event')) } }
+    const calling: Reaches = async (_site, run) => {
+      await run()
+      return true
+    }
 
-    expect(await lawOutcome('Z5', 'launch', passing)).toBeNull()
+    expect(await lawOutcome('Z5', 'launch', passing, calling)).toBeNull()
+    expect(await lawOutcome('Z5', 'launch', passing)).toBe(`Z5-seeded: passes without calling ${sourceOf('launch')}`)
     expect(await lawOutcome('Z5', 'launch', failing)).toBe('Z5-seeded: launch wrote no event')
     expect(await lawOutcome('Z5', 'launch', {})).toBe('no witness of Z5 runs on launch')
     expect(registryFaults({ ...LAW_CELLS, Z5: { ...LAW_CELLS.Z5, launch: { witness: 'Z5-seeded' } } }, { ...WITNESSES, ...passing })).toEqual([])
@@ -509,6 +518,15 @@ describe('the laws of a node', () => {
     expect(SLICED_DROP_REPOINTS_DEPENDS).toBe(1789)
     expect(LAW_CELLS[laneWaitLaw].window).toEqual({ gap: [1740, 1754] })
     expect(gapRows().filter(({ law, node }) => law === laneWaitLaw && node === 'intake')).toHaveLength(1)
+  })
+
+  const stallLaw: LawId = 'Z7'
+  it(`${stallLaw} x review names the card that ends the single-signal review stall kill`, async () => {
+    expect(LAW_CELLS.Z7.review).toEqual({ gap: [REVIEW_STALL_IS_NOT_A_SILENT_LOOP] })
+    expect(REVIEW_STALL_IS_NOT_A_SILENT_LOOP).toBe(1792)
+    expect(gapRows().filter(({ law, node }) => law === 'Z7' && node === 'review')).toHaveLength(1)
+    expect(recordedLawGaps()[`${LAW_GAP_PREFIX}Z7:review`]).toBe(1)
+    expect(await lawOutcome('Z7', 'review', WITNESSES)).toBe(`${SESSION_BEAT_BESIDE_STALE_WINDOW}: passes without calling ${sourceOf('review')}`)
   })
 
   it('a new gap row is a ratchet break', () => {
