@@ -62,6 +62,10 @@ describe('no real-time waits in tests', () => {
     expect(EXCEPTED).toEqual([...new Set(EXCEPTED)].sort())
   })
 
+  it('no root test is excepted from the real-time rule', () => {
+    expect(EXCEPTED.filter(file => file.startsWith('tests/'))).toEqual([])
+  })
+
   it('every excepted file still waits on real time', async () => {
     const fixed: string[] = []
     for (const file of EXCEPTED) {

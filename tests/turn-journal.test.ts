@@ -1,3 +1,4 @@
+import type { Readable } from 'node:stream'
 import { spawn, spawnSync } from 'node:child_process'
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -45,42 +46,55 @@ afterEach(() => {
     rmSync(root, { recursive: true, force: true })
 })
 
-function fireInPieces(root: string, transcript: string, event: string, pieces: Array<{ afterMs: number, text: string }>): Promise<{ status: number | null, stdout: string }> {
+const SIGNALS_EACH_STDIN_READ = `data:text/javascript,${encodeURIComponent([
+  'import { writeSync } from \'node:fs\'',
+  'const stdin = process.stdin',
+  'const chunks = stdin[Symbol.asyncIterator].bind(stdin)',
+  'stdin[Symbol.asyncIterator] = function () {',
+  '  const iterator = chunks()',
+  '  return { next: () => { writeSync(3, \'?\'); return iterator.next() }, return: value => iterator.return(value), [Symbol.asyncIterator]() { return this } }',
+  '}',
+].join('\n'))}`
+
+function fireWhenAsked(root: string, pieces: string[]): Promise<{ status: number | null, stdout: string }> {
   return new Promise((resolve) => {
-    const child = spawn('node', [HOOK], { env: { ...process.env, CLAUDE_PROJECT_DIR: root } })
+    const child = spawn('node', ['--import', SIGNALS_EACH_STDIN_READ, HOOK], { env: { ...process.env, CLAUDE_PROJECT_DIR: root }, stdio: ['pipe', 'pipe', 'pipe', 'pipe'] })
     let stdout = ''
     child.stdout.on('data', (chunk: Uint8Array) => {
       stdout += String(chunk)
     })
     child.on('close', status => resolve({ status, stdout }))
-    let elapsed = 0
-    pieces.forEach(({ afterMs, text }, index) => {
-      elapsed += afterMs
-      setTimeout(() => index === pieces.length - 1 ? child.stdin.end(text) : child.stdin.write(text), elapsed)
+    const unwritten = [...pieces]
+    ;(child.stdio[3] as Readable).on('data', () => {
+      const piece = unwritten.shift()
+      if (piece !== undefined && unwritten.length === 0)
+        child.stdin.end(piece)
+      else if (piece !== undefined)
+        child.stdin.write(piece)
     })
   })
 }
 
-describe('the turn journal hook, fired by a parent that writes stdin when it writes it', () => {
+describe('the turn journal hook, fired by a parent that writes stdin only once the hook waits on it', () => {
   const input = (root: string, transcript: string, event: string, extra: Record<string, unknown> = {}): string =>
     JSON.stringify({ session_id: 'sess-1', transcript_path: transcript, cwd: root, hook_event_name: event, ...extra })
 
-  it('records a turn whose prompt arrives 200 ms after the spawn', async () => {
+  it('records a turn whose prompt arrives only after the hook is waiting on stdin', async () => {
     const { root, transcript } = project()
-    const prompt = await fireInPieces(root, transcript, 'UserPromptSubmit', [{ afterMs: 200, text: input(root, transcript, 'UserPromptSubmit', { prompt_id: 'p-late' }) }])
+    const prompt = await fireWhenAsked(root, [input(root, transcript, 'UserPromptSubmit', { prompt_id: 'p-late' })])
     appendFileSync(transcript, assistant('r1', { input_tokens: 5, output_tokens: 6 }))
-    const stop = await fireInPieces(root, transcript, 'Stop', [{ afterMs: 200, text: input(root, transcript, 'Stop', { prompt_id: 'p-late' }) }])
+    const stop = await fireWhenAsked(root, [input(root, transcript, 'Stop', { prompt_id: 'p-late' })])
 
     expect([prompt.status, stop.status]).toEqual([0, 0])
     expect([prompt.stdout, stop.stdout]).toEqual(['', ''])
     expect(journal(root).filter(line => line.kind === 'turn').map(line => line.prompt)).toEqual(['p-late'])
   })
 
-  it('records a prompt whose input arrives in two writes 100 ms apart, and one of 300 KB', async () => {
+  it('records a prompt whose input arrives in two writes, each when the hook asks for more, and one of 300 KB', async () => {
     const { root, transcript } = project()
     const text = input(root, transcript, 'UserPromptSubmit', { prompt_id: 'p-split', prompt: 'x'.repeat(300_000) })
     const half = Math.floor(text.length / 2)
-    await fireInPieces(root, transcript, 'UserPromptSubmit', [{ afterMs: 0, text: text.slice(0, half) }, { afterMs: 100, text: text.slice(half) }])
+    await fireWhenAsked(root, [text.slice(0, half), text.slice(half)])
     appendFileSync(transcript, assistant('r1', { input_tokens: 5, output_tokens: 6 }))
     fire(root, transcript, 'Stop', { prompt_id: 'p-split' })
 
