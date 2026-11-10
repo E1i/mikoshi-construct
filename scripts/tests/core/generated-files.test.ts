@@ -14,7 +14,7 @@ import { CONCEPTS } from '../../contract/factory/concepts.js'
 import { findSites } from '../../contract/factory/overlaps.js'
 import { RATCHET_RECORD } from '../../contract/ratchet.js'
 import { GENERATED_FILES as REEXPORTED } from '../../core/factory-paths.js'
-import { APPEND_ONLY_LOGS, commandLine, GENERATED_FILES, GENERATED_PATHS, isRebuiltOnUpdate, RATCHET_FILE, rebuildsOf, REBUILT_ON_UPDATE, SHARED_APPEND_PATHS } from '../../core/generated-files.js'
+import { APPEND_ONLY_LOGS, commandLine, GENERATED_FILES, GENERATED_PATHS, isRebuiltOnUpdate, pathsRebuiltBy, RATCHET_FILE, rebuildsOf, REBUILT_ON_UPDATE, SHARED_APPEND_PATHS } from '../../core/generated-files.js'
 import { readLayerMap, recordsOf } from '../../core/layer-map.js'
 import { taskConflicts } from '../../nodes/launch/overlap.js'
 import { sharedAppendFiles } from '../../nodes/launch/shared-files.js'
@@ -138,6 +138,11 @@ describe('the one list of generated files', () => {
     expect(commandLine(GENERATED_FILES.surface.rebuild)).toBe('pnpm contract:update')
     expect(rebuildsOf([GENERATED_FILES.surface.path, FACTORY])).toEqual([GENERATED_FILES.factory.rebuild])
     expect(rebuildsOf([RATCHET_RECORD, GENERATED_FILES.earlierCarriers.path])).toEqual([GENERATED_FILES.earlierCarriers.rebuild, RATCHET_FILE.rebuild])
+  })
+
+  it('the rebuild of the factory contract writes the command surface as well, and nothing else', () => {
+    expect(pathsRebuiltBy(GENERATED_FILES.factory.rebuild)).toEqual([GENERATED_FILES.surface.path, FACTORY])
+    expect(pathsRebuiltBy(RATCHET_FILE.rebuild)).toEqual([RATCHET_RECORD])
   })
 
   it('the manifest field sharedAppendFiles is the list the owner rebuilds on an update and the append-only logs', () => {
