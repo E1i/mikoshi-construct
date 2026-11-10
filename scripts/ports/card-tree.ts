@@ -72,13 +72,19 @@ function bringToHead(worktree: string, branch: string, head: string): void {
   const current = git(worktree, ['branch', '--show-current']).trim()
   if (current !== branch)
     throw new CardTreeRefused(`the card tree ${worktree} is on ${current || 'a detached head'}, not ${branch}; it is not brought to the task head ${head}`)
-  if (git(worktree, ['status', '--porcelain']).trim() !== '')
-    throw new CardTreeRefused(`the card tree ${worktree} at ${at} has uncommitted changes; it is not brought to the task head ${head}`)
   if (isAncestor(worktree, head, at))
     return
   if (!isAncestor(worktree, at, head))
     throw new CardTreeRefused(`the card tree ${worktree} at ${at} is not behind the task head ${head}, it has commits the head lacks; it is not brought to it`)
-  git(worktree, ['merge', '-q', '--ff-only', head])
+  const uncommitted = git(worktree, ['status', '--porcelain']).trim() !== ''
+  try {
+    git(worktree, ['merge', '-q', '--ff-only', head])
+  }
+  catch (error) {
+    if (!uncommitted)
+      throw error
+    throw new CardTreeRefused(`the card tree ${worktree} at ${at} has uncommitted changes the task head ${head} would overwrite; they are kept and the tree is not brought to it`)
+  }
 }
 
 function openHeadOf(db: DatabaseSync, pr: number): string | null {
