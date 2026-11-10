@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
-import { bigFileNumbers, generateNumbers, overlapNumbers, ratchetBreaks, readRatchet, renderRatchet, thresholdOf } from '../../scripts/contract/ratchet.js'
+import { bigFileNumbers, generateNumbers, lawGapNumbers, overlapNumbers, ratchetBreaks, readRatchet, renderRatchet, thresholdOf } from '../../scripts/contract/ratchet.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../..')
 const GENERATION_TIMEOUT = 180_000
@@ -86,7 +86,7 @@ describe('the ratchet', () => {
     const generated = generateNumbers(treeWithFile(1), 800)
     expect(generated[LINE_SCOPE_KEY]).toBe(1)
     expect(readRatchet(REPO_ROOT)[LINE_SCOPE_KEY]).toBe(1)
-    expect(ratchetBreaks({ threshold: 800 }, generated)).toEqual([expect.stringContaining(`${LINE_SCOPE_KEY} grew from 0 to 1`)])
+    expect(ratchetBreaks({ threshold: 800, ...lawGapNumbers() }, generated)).toEqual([expect.stringContaining(`${LINE_SCOPE_KEY} grew from 0 to 1`)])
   })
 
   it('a number below the baseline is red until the baseline is lowered', () => {
