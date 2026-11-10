@@ -431,9 +431,8 @@ function activeShard(db: DatabaseSync, now: Date): ActiveShard | null {
 }
 
 export function shardDecisions(db: DatabaseSync): ShardDecision[] {
-  const decided = new BusRead(db).where({ card: ANY }).slice(SHARD_DECIDED, ['shard', 'wait', 'answer', 'stop'])
-  const stopped = decided.filter(row => row.fields.stop !== undefined && row.fields.stop !== null)
-  return stopped.slice(-SHOWN_SHARD_DECISIONS).reverse().map(row => ({ card: row.card!, shard: String(row.fields.shard), wait: String(row.fields.wait), answer: String(row.fields.answer), ts: row.ts! }))
+  const stopped = new BusRead(db).where({ card: ANY, present: ['stop'], limit: SHOWN_SHARD_DECISIONS }).slice(SHARD_DECIDED, ['shard', 'wait', 'answer'], 'newest')
+  return stopped.map(row => ({ card: row.card!, shard: String(row.fields.shard), wait: String(row.fields.wait), answer: String(row.fields.answer), ts: row.ts! }))
 }
 
 function taskQueues(db: DatabaseSync, orders: LeaseOrders): TaskQueue[] {

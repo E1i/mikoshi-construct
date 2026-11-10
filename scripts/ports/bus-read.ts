@@ -25,9 +25,12 @@ export interface SliceWhere {
   pr?: number | typeof ANY
   from?: number
   actor?: string
+  present?: readonly string[]
+  legacy?: boolean
+  limit?: number
 }
 
-export const SLICE_TAKES = ['all', 'last', 'last-per-card'] as const
+export const SLICE_TAKES = ['all', 'last', 'last-per-card', 'newest'] as const
 
 export type SliceTake = typeof SLICE_TAKES[number]
 
@@ -43,15 +46,22 @@ interface SliceRow {
 
 const SLICE_COLUMNS = 'id, ts, actor, card_id AS card, pr, head, payload'
 
-const SLICE_WHERE = `type = :type AND legacy = 0 AND json_valid(payload)
+const UNLIMITED = -1
+
+const SLICE_MATCH = `type = :type AND (:withLegacy = 1 OR legacy = 0)
   AND (:card IS NULL OR card_id = :card) AND (:anyCard = 0 OR card_id IS NOT NULL)
   AND (:pr IS NULL OR pr = :pr) AND (:anyPr = 0 OR pr IS NOT NULL)
   AND id >= :from AND (:actor IS NULL OR substr(actor, 1, length(:actor)) = :actor)`
 
+const SLICE_PRESENT = `NOT EXISTS (SELECT 1 FROM json_each(:present) AS wanted WHERE json_extract(payload, '$.' || wanted.value) IS NULL)`
+
+const SLICE_WHERE = `${SLICE_MATCH} AND json_valid(payload) AND ${SLICE_PRESENT}`
+
 const SLICE_BY_TAKE: Readonly<Record<SliceTake, string>> = {
   'all': `SELECT ${SLICE_COLUMNS} FROM events WHERE ${SLICE_WHERE} ORDER BY id`,
   'last': `SELECT ${SLICE_COLUMNS} FROM events WHERE ${SLICE_WHERE} ORDER BY id DESC LIMIT 1`,
-  'last-per-card': `SELECT ${SLICE_COLUMNS} FROM events WHERE id IN (SELECT max(id) FROM events WHERE ${SLICE_WHERE} GROUP BY card_id) ORDER BY card_id, id`,
+  'last-per-card': `SELECT ${SLICE_COLUMNS} FROM events WHERE id IN (SELECT max(id) FROM events WHERE ${SLICE_MATCH} GROUP BY card_id) AND json_valid(payload) AND ${SLICE_PRESENT} ORDER BY card_id, id`,
+  'newest': `SELECT ${SLICE_COLUMNS} FROM events WHERE ${SLICE_WHERE} ORDER BY id DESC LIMIT :limit`,
 }
 
 function exact(value: number | typeof ANY | undefined): number | null {
@@ -67,6 +77,9 @@ function sliceParameters(type: EventType, where: SliceWhere): Record<string, str
     anyPr: where.pr === ANY ? 1 : 0,
     from: where.from ?? 0,
     actor: where.actor ?? null,
+    present: JSON.stringify(where.present ?? []),
+    withLegacy: where.legacy === true ? 1 : 0,
+    limit: where.limit ?? UNLIMITED,
   }
 }
 
@@ -92,10 +105,12 @@ export class BusRead {
   }
 
   slice<T extends EventType, K extends PayloadKey<T>>(type: T, fields: readonly K[], take: SliceTake = 'all'): EventSlice<T, K>[] {
-    const undeclared = undeclaredFields(type, fields)
+    const undeclared = undeclaredFields(type, [...fields, ...this.filter.present ?? []])
     if (undeclared.length > 0)
       throw new Error(`${type} declares no payload field ${undeclared.join(', ')} in EVENT_PAYLOADS of scripts/core/events.ts, so no slice reads it`)
-    const rows = this.db.prepare(SLICE_BY_TAKE[take]).all(sliceParameters(type, this.filter)) as unknown as SliceRow[]
+    const statement = this.db.prepare(SLICE_BY_TAKE[take])
+    statement.setAllowUnknownNamedParameters(true)
+    const rows = statement.all(sliceParameters(type, this.filter)) as unknown as SliceRow[]
     return rows.map(({ payload, ...row }) => ({
       id: Number(row.id),
       ts: row.ts,

@@ -5,10 +5,10 @@ import { DatabaseSync } from 'node:sqlite'
 import { afterAll, afterEach, describe, expect, it } from 'vitest'
 import { CARDS, staleLine } from '../../core/bus-readings.js'
 import { appendEvent, openBus } from '../../core/db.js'
-import { CARD_STARTED, EVENT_PAYLOADS, SESSION_HEARTBEAT, WINDOW_HEARTBEAT } from '../../core/events.js'
+import { CARD_STARTED, EVENT_PAYLOADS, SESSION_HEARTBEAT, SHARD_DECIDED, WINDOW_HEARTBEAT } from '../../core/events.js'
 import { reduce } from '../../core/reducer.js'
 import { ANY, BusRead } from '../../ports/bus-read.js'
-import { cardGauges, windowGauges } from '../../window/board.js'
+import { cardGauges, shardDecisions, windowGauges } from '../../window/board.js'
 
 const TS = '2026-11-09T08:00:00.000Z'
 const LATER = '2026-11-09T08:05:00.000Z'
@@ -34,8 +34,14 @@ function bus(file = ':memory:'): DatabaseSync {
   return db
 }
 
-function append(db: DatabaseSync, type: typeof SESSION_HEARTBEAT | typeof WINDOW_HEARTBEAT | typeof CARD_STARTED, ts: string, cardId: number | null, payload: Record<string, unknown>, key: string): void {
+const SHOWN_SHARD_DECISIONS = 20
+
+function append(db: DatabaseSync, type: typeof SESSION_HEARTBEAT | typeof WINDOW_HEARTBEAT | typeof CARD_STARTED | typeof SHARD_DECIDED, ts: string, cardId: number | null, payload: Record<string, unknown>, key: string): void {
   appendEvent(db, { ts, type, actor: `worker:test:${key}`, cardId, pr: null, head: null, dedupeKey: `${type}:${key}`, payload, legacy: false })
+}
+
+function appendRaw(db: DatabaseSync, type: string, cardId: number, payload: string, key: string): void {
+  db.prepare('INSERT INTO events (ts, type, actor, card_id, pr, head, dedupe_key, payload, legacy) VALUES (?, ?, ?, ?, NULL, NULL, ?, ?, 0)').run(LATER, type, `worker:test:${key}`, cardId, `${type}:${key}`, payload)
 }
 
 describe('the bus read port', () => {
@@ -100,5 +106,29 @@ describe('the bus read port', () => {
     expect(new BusRead(readOnly).slice(SESSION_HEARTBEAT, ['context']).map(row => row.fields)).toEqual([{ context: 10 }])
     expect(new BusRead(readOnly).stale(CARDS)).toBeNull()
     expect(SQL_WRITE.test(readFileSync(PORT, 'utf8'))).toBe(false)
+  })
+
+  it('the board shows the newest stopped shard decisions first, capped, and skips one without a stop', () => {
+    const db = bus()
+    const total = SHOWN_SHARD_DECISIONS + 3
+    for (let n = 1; n <= total; n++)
+      append(db, SHARD_DECIDED, TS, n, { shard: `ws-${n}`, wait: 'w', answer: `a-${n}`, stop: 'question.owner' }, `stopped-${n}`)
+    append(db, SHARD_DECIDED, LATER, CARD, { shard: 'ws-none', wait: 'w', answer: 'a', stop: null }, 'no-stop')
+    append(db, SHARD_DECIDED, LATER, OTHER_CARD, { shard: 'ws-absent', wait: 'w', answer: 'a' }, 'absent-stop')
+
+    const shown = shardDecisions(db)
+
+    expect(shown).toHaveLength(SHOWN_SHARD_DECISIONS)
+    expect(shown.map(row => row.card)).toEqual(Array.from({ length: SHOWN_SHARD_DECISIONS }, (_, index) => total - index))
+    expect(shown.some(row => row.shard === 'ws-none' || row.shard === 'ws-absent')).toBe(false)
+  })
+
+  it('the board drops a card whose newest heartbeat is not json, and does not fall back to an older beat', () => {
+    const db = bus()
+    append(db, SESSION_HEARTBEAT, TS, CARD, { context: 300, spent: 1 }, 'seven-valid')
+    appendRaw(db, SESSION_HEARTBEAT, CARD, 'not json', 'seven-broken')
+    append(db, SESSION_HEARTBEAT, TS, OTHER_CARD, { context: 800 }, 'eight')
+
+    expect(cardGauges(db).map(gauges => gauges.card)).toEqual([OTHER_CARD])
   })
 })

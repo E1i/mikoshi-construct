@@ -4313,7 +4313,7 @@
           "EventSlice": "interface EventSlice<T extends EventType, K extends PayloadKey<T>> { id: number; ts: string | null; actor: string | null; card: number | null; pr: number | null; head: string | null; fields: SliceFields<T, K>; }",
           "SliceFields": "type SliceFields<T extends EventType, K extends PayloadKey<T>> = { readonly [P in K]?: unknown; }",
           "SliceTake": "type SliceTake = typeof SLICE_TAKES[number]",
-          "SliceWhere": "interface SliceWhere { card?: number | typeof ANY; pr?: number | typeof ANY; from?: number; actor?: string; }"
+          "SliceWhere": "interface SliceWhere { card?: number | typeof ANY; pr?: number | typeof ANY; from?: number; actor?: string; present?: readonly string[]; legacy?: boolean; limit?: number; }"
         }
       },
       "scripts/ports/card-tree.ts": {

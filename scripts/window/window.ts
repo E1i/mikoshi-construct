@@ -71,7 +71,7 @@ function keyOfCompletion(db: DatabaseSync, queue: WindowQueue, completion: Compl
 
 function equivalenceTicks(db: DatabaseSync, queue: WindowQueue, since: number): { ticks: number, oneSided: OneSidedTick[] } {
   const actor = `worker:${queue}:`
-  const rows = new BusRead(db).where({ actor, from: since }).slice(NODE_EQUIVALENCE, ['only_node', 'only_derive'])
+  const rows = new BusRead(db).where({ actor, from: since, legacy: true }).slice(NODE_EQUIVALENCE, ['only_node', 'only_derive'])
   const oneSided = rows.map((row) => {
     const fields = row.fields as Partial<Pick<Equivalence, 'only_node' | 'only_derive'>>
     return { id: row.id, only_node: fields.only_node ?? [], only_derive: fields.only_derive ?? [] }
