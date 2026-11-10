@@ -1,6 +1,6 @@
-import { spawnSync } from 'node:child_process'
 import { existsSync, readdirSync } from 'node:fs'
 import process from 'node:process'
+import { processGit } from '../ports/git.js'
 
 export const CHANGESET_DIR = '.changeset'
 
@@ -115,8 +115,12 @@ export function readReleaseSources(git: GitRead): ReleaseSources | null {
 
 export function gitIn(repo: string): GitRead {
   return (args) => {
-    const run = spawnSync('git', ['-C', repo, ...args], { encoding: 'utf8' })
-    return run.status === 0 ? run.stdout : null
+    try {
+      return processGit.read(repo, args)
+    }
+    catch {
+      return null
+    }
   }
 }
 

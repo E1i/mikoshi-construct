@@ -8,6 +8,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { parseArgs } from 'node:util'
 import { GENERATED_FILES } from '../core/generated-files.js'
+import { processGit } from '../ports/git.js'
 import { BUMP_LEVELS, declaredLevel, headVersion } from './declared.js'
 import { factoryVerdicts } from './factory-bump.js'
 import { cliArgs, cliEnv, failureLine, tagCli } from './json-samples.js'
@@ -35,11 +36,11 @@ export type Role = 'base' | 'head'
 export type GenerateReading = (why: string) => RefReading
 
 export function baseTag(root: string): string {
-  return execFileSync('git', ['describe', '--tags', '--abbrev=0', '--match', 'v*', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim()
+  return processGit.read(root, ['describe', '--tags', '--abbrev=0', '--match', 'v*', 'HEAD']).trim()
 }
 
 function gitShow(root: string, ref: string, file: string): string {
-  return execFileSync('git', ['show', `${ref}:${file}`], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
+  return processGit.read(root, ['show', `${ref}:${file}`])
 }
 
 function recordAt(root: string, ref: string, file: string): unknown {
@@ -96,15 +97,15 @@ function failedStep(worktree: string, observer: TagObserver): string | null {
 
 function removeWorktree(root: string, worktree: string): void {
   if (existsSync(worktree))
-    execFileSync('git', ['worktree', 'remove', '--force', worktree], { cwd: root, stdio: 'ignore' })
-  execFileSync('git', ['worktree', 'prune'], { cwd: root, stdio: 'ignore' })
+    processGit.read(root, ['worktree', 'remove', '--force', worktree])
+  processGit.read(root, ['worktree', 'prune'])
 }
 
 export function generatedFromCode(root: string, tag: string, role: Role, why: string, observer: TagObserver): RefReading {
   const scratch = realpathSync(mkdtempSync(path.join(tmpdir(), 'construct-base-')))
   const worktree = path.join(scratch, 'tree')
   try {
-    execFileSync('git', ['worktree', 'add', '--detach', worktree, tag], { cwd: root, stdio: 'ignore' })
+    processGit.read(root, ['worktree', 'add', '--detach', worktree, tag])
     const failed = failedStep(worktree, observer)
     if (failed != null)
       return { reading: wholeReadingUnbaselined(failed), note: `${why}; ${failed}: the whole ${role} is unbaselined` }

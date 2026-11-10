@@ -1,6 +1,6 @@
-import { execFileSync } from 'node:child_process'
 import { readdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
+import { processGit } from '../ports/git.js'
 
 export const BUMP_LEVELS = ['none', 'patch', 'minor', 'major'] as const
 
@@ -60,6 +60,6 @@ export function headVersion(root: string): string {
 }
 
 export function declaredLevel(root: string, baseRef: string): BumpLevel {
-  const baseVersion = versionOf(execFileSync('git', ['show', `${baseRef}:package.json`], { cwd: root, encoding: 'utf8' }))
+  const baseVersion = versionOf(processGit.read(root, ['show', `${baseRef}:package.json`]))
   return declaredFrom(baseVersion, headVersion(root), readChangesets(path.join(root, '.changeset')))
 }
