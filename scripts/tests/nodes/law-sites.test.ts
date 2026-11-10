@@ -268,7 +268,7 @@ describe('law sites beyond the bus nodes', () => {
     expect(witnessCells.map(({ law, site }) => `${law} × ${site}`)).toEqual(['Z2 × netwatch', 'Z7 × window', 'Z7 × supervisor'])
     expect(unreached).toEqual([])
     expect(await reachesSite('netwatch', () => WITNESSES[PULSE_BESIDE_CARD_SILENCE]!.run('netwatch'))).toBe(false)
-    expect(lawIds().flatMap(law => LAW_SITES.filter(site => 'witness' in LAW_CELLS[law][site]).map(site => `${law} × ${site}`))).toEqual(['Z2 × netwatch', 'Z7 × window', 'Z7 × supervisor'])
+    expect(lawIds().flatMap(law => LAW_SITES.filter(site => 'witness' in LAW_CELLS[law][site]).map(site => `${law} × ${site}`))).toEqual(['Z1 × review', 'Z2 × netwatch', 'Z7 × window', 'Z7 × supervisor'])
   })
 
   it('a gap names only a card that is still open', () => {

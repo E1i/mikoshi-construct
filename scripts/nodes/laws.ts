@@ -52,6 +52,7 @@ export const NODE_WITNESSES_CALL_THEIR_NODE = 1814
 export const CARD_WAIT_STATES = 1740
 export const NO_HEAD_OF_LINE = 1744
 export const RESTART_KEEPS_SESSION = 'Z1-restart-keeps-session'
+export const REVIEW_KEEPS_SESSION_AND_LEAVES_NO_DESCENDANT = 'Z1-review-keeps-session-and-leaves-no-descendant'
 export const SESSION_BEAT_BESIDE_STALE_WINDOW = 'Z7-session-beat-beside-stale-window'
 export const PULSE_BESIDE_CARD_SILENCE = 'Z7-pulse-beside-card-silence'
 export const WINDOW_BESIDE_SESSIONS = 'Z7-window-beside-sessions'
@@ -122,7 +123,7 @@ export const LAW_CELLS: LawCells = {
     launch: gap(NODE_WITNESSES_CALL_THEIR_NODE),
     merge: { notApplicable: STARTS_NO_SESSION },
     restart: { notApplicable: STARTS_NO_SESSION },
-    review: gap(NODE_WITNESSES_CALL_THEIR_NODE),
+    review: { witness: REVIEW_KEEPS_SESSION_AND_LEAVES_NO_DESCENDANT },
     update: { notApplicable: STARTS_NO_SESSION },
     witness: gap(NODE_WITNESSES_CALL_THEIR_NODE),
     ...beyondNodes('Z1'),
