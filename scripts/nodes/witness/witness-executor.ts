@@ -5,7 +5,7 @@ import type { BusEvent } from '../../core/db.js'
 import type { AfterFailure, Lease } from '../../core/lease.js'
 import type { VERIFICATION_WORDS } from '../../core/verification.js'
 import type { WitnessSubject, WitnessVerdict } from '../../policy/policy.js'
-import type { CardScope, ReplacementField, Witness } from '../../ports/witnesses.js'
+import type { BaseRun, CardScope, ReplacementField, Witness } from '../../ports/witnesses.js'
 import type { GitAsync, ShellResult } from '../../ports/worktree.js'
 import { execFile, spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
@@ -21,7 +21,7 @@ import { GREEN, RED, UNCHECKED, witnessSubjectOf } from '../../policy/policy.js'
 import { execGh, stdoutOrThrow } from '../../ports/gh.js'
 import { serveRecordAt } from '../../ports/serve-record.js'
 import { witnessEnv } from '../../ports/session.js'
-import { BASE_PHASE, cardScopeOfAdmitted, namedOutsideTheCard, ranNoTests, redOnMainProposal, runOnTreeAsync } from '../../ports/witnesses.js'
+import { BASE_PHASE, cardScopeOfAdmitted, namedOutsideTheCard, redOnMainProposal, runOnTreeAsync, witnessesFindingNoTest } from '../../ports/witnesses.js'
 import { gitIn, gitInAsync, SetupTurns, withWorktreeAsync } from '../../ports/worktree.js'
 
 export const WITNESS_UNRUN = 'witness_unrun'
@@ -106,8 +106,8 @@ function changedOnHead(tree: string, base: string, head: string): string[] {
   try {
     return gitIn(tree, ['diff', '--name-only', '--diff-filter=d', base, head]).split('\n').filter(file => file !== '')
   }
-  catch {
-    return []
+  catch (error) {
+    throw new WitnessNotRun(`the diff of ${head} against the base ${base} could not be read, so no witness is judged unfit on a guess: ${error instanceof Error ? error.message.split('\n')[0] : String(error)}`)
   }
 }
 
@@ -443,12 +443,12 @@ export class WitnessExecutor {
       if (outside.length > 0)
         return unfitJudgement(outside.map(({ witness, file }) => `witness "${witness.criterion}" names ${file}, absent on the base ${base} and outside the card's touches, creates and diff: a file another card writes`), outside.map(({ witness }) => witness), witnesses, changed)
       const budgeted = this.budgeted(deadline, last, head)
-      const foundNoTest = new Set<string>()
+      const onBase: BaseRun[] = []
       let phase = ''
       const shell = async (command: string, cwd: string): Promise<ShellResult> => {
         const result = await budgeted(command, cwd)
-        if (phase === BASE_PHASE && ranNoTests(command, result.output))
-          foundNoTest.add(command)
+        if (phase === BASE_PHASE)
+          onBase.push({ command, output: result.output })
         return result
       }
       let red: string | null = null
@@ -468,7 +468,7 @@ export class WitnessExecutor {
           throw error
         red = withFailureExcerpt(error.message, last.result)
       }
-      const empty = witnesses.filter(witness => foundNoTest.has(witness.command) || (witness.onBase !== undefined && foundNoTest.has(witness.onBase.command)))
+      const empty = witnessesFindingNoTest(witnesses, onBase)
       if (empty.length > 0)
         return unfitJudgement(empty.map(witness => `witness "${witness.criterion}" ran no test on the base ${base}: a witness that finds zero tests cannot fail`), empty, witnesses, changed)
       return red === null ? { kind: 'green' } : { kind: 'red', detail: red }

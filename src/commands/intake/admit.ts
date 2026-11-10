@@ -1,7 +1,7 @@
 import type { BusCardStates } from '../../card/closed.js'
 import type { Card, Decision } from '../../card/grammar.js'
 import type { ParkedTask } from '../../card/parking.js'
-import type { WitnessExpectation, WitnessField } from '../../card/witness-fields.js'
+import type { CardScope, WitnessExpectation, WitnessField } from '../../card/witness-fields.js'
 import type { Ui } from '../../ui/console.js'
 import type { Lore } from '../../ui/lore.js'
 import type { CheckedCard } from './check.js'
@@ -20,7 +20,7 @@ import { pathsIn, pathsOutside } from '../../card/covering-tests.js'
 import { cardLine, parseCard } from '../../card/grammar.js'
 import { createdPaths, parseParkingFile } from '../../card/parking.js'
 import { PREFIX_SUFFIX } from '../../card/task-file.js'
-import { fieldCommand, isAcceptanceField, isWitnessFieldLine, judgedCommand, namedPaths, renderedWitness, runsFieldLine, runsFieldOf, statesAnExit, testRunnerOf, withinScope, witnessFieldsOf, witnessText } from '../../card/witness-fields.js'
+import { fieldCommand, isAcceptanceField, isWitnessFieldLine, judgedCommand, namedAbsentOutside, namedPaths, renderedWitness, runsFieldLine, runsFieldOf, statesAnExit, testRunnerOf, withinScope, witnessFieldsOf, witnessText } from '../../card/witness-fields.js'
 import { readMilestones } from '../../manifest.js'
 import { CARD_REFERENCE, checkDraft, correctionText, invalidTestPatterns, isChangeWitness, nonPathTouchRefusals, OWNER_MERGES, ownerPathsOf, PACKAGE_MANIFEST, publishedRootsOf } from './check.js'
 import { TEST_NAME_ARGUMENT } from './command-word.js'
@@ -458,45 +458,48 @@ export function createdPathsAreTheChange(decisionsFile: string, now: Date): bool
     .some(decision => decision.cards.length === 0 && decision.body.startsWith(OWNER_SOURCE) && decision.body.toLowerCase().includes(CREATED_PATHS_ARE_THE_CHANGE))
 }
 
-export interface CardScope {
+export interface BaseScope {
   dir: string
-  card: readonly string[]
+  card: CardScope
   createdAreTheChange: boolean
 }
 
-function absentFrom(scope: CardScope, file: string): boolean {
+function absentFrom(scope: BaseScope, file: string): boolean {
   return !existsSync(path.join(scope.dir, file))
 }
 
-export function unfitOnTheBase(command: string, scope: CardScope): boolean {
+export function unfitOnTheBase(command: string, scope: BaseScope): boolean {
   const named = namedPaths(command)
-  const absent = named.filter(file => absentFrom(scope, file))
   const runner = testRunnerOf(command)
-  const findsNoTest = runner !== null && named.length > 0 && absent.length === named.length && !named.some(runner.isTestFile)
-  return findsNoTest || absent.some(file => !withinScope(file, scope.card))
+  const findsNoTest = runner !== null && named.length > 0 && named.every(file => absentFrom(scope, file)) && !named.some(runner.isTestFile)
+  return findsNoTest || namedAbsentOutside(command, scope.card, file => absentFrom(scope, file)).length > 0
 }
 
-function checksOnlyCreatedPaths(command: string, scope: CardScope): boolean {
+function checksOnlyCreatedPaths(command: string, scope: BaseScope): boolean {
   const named = namedPaths(command)
-  return named.length > 0 && named.every(file => absentFrom(scope, file) && withinScope(file, scope.card))
+  return named.length > 0 && named.every(file => absentFrom(scope, file) && withinScope(file, [...scope.card.touches, ...scope.card.creates]))
 }
 
-function refinable(fact: WitnessFact, scope: CardScope): boolean {
+function refinable(fact: WitnessFact, scope: BaseScope): boolean {
   return unfitOnTheBase(fact.command, scope) || (scope.createdAreTheChange && checksOnlyCreatedPaths(fact.command, scope))
 }
 
-function redOnMain(fact: WitnessFact, scope: CardScope): boolean {
+function redOnMain(fact: WitnessFact, scope: BaseScope): boolean {
   return fact.head === 'pass' && fact.base === 'fail' && !unfitOnTheBase(fact.command, scope)
 }
 
-export function withoutRefinements(downgrades: readonly string[], previous: readonly string[], next: readonly string[], scope: CardScope): string[] {
+export function withoutRefinements(downgrades: readonly string[], previous: readonly string[], next: readonly string[], scope: BaseScope): string[] {
   const previousCores = new Set(previous.map(witnessCore))
-  const strict = next.filter(witness => !previousCores.has(witnessCore(witness))).flatMap(witness => witnessFact(witness) ?? []).some(fact => redOnMain(fact, scope))
-  if (!strict)
-    return [...downgrades]
+  const strictIds = new Set(next
+    .filter(witness => !previousCores.has(witnessCore(witness)))
+    .filter((witness) => {
+      const fact = witnessFact(witness)
+      return fact !== null && redOnMain(fact, scope)
+    })
+    .map(witness => witnessIdIn(next, witness)))
   return downgrades.filter((witness) => {
     const fact = witnessFact(witness)
-    return fact === null || !refinable(fact, scope)
+    return fact === null || !strictIds.has(witnessIdIn(previous, witness)) || !refinable(fact, scope)
   })
 }
 
@@ -708,7 +711,7 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
   const previous = recorded?.text === undefined ? [] : witnessesOf(recorded.text)
   const lowered = recorded?.text === undefined ? [] : unreplacedFieldDowngrades(witnessDowngrades(previous, witnessesOf(admitted.text)), previous, witnessesOf(admitted.text))
   const unreplaced = lowered.length > 0 && standingReplacementAllowed(decisionsFile, now()) ? unreplacedDowngrades(lowered, previous, witnessesOf(admitted.text)) : lowered
-  const scope: CardScope = { dir: options.dir, card: [...checked.touches, ...createdPaths(checked.creates)], createdAreTheChange: unreplaced.length > 0 && createdPathsAreTheChange(decisionsFile, now()) }
+  const scope: BaseScope = { dir: options.dir, card: { touches: checked.touches, creates: createdPaths(checked.creates) }, createdAreTheChange: unreplaced.length > 0 && createdPathsAreTheChange(decisionsFile, now()) }
   const downgrades = unreplaced.length > 0 ? withoutRefinements(unreplaced, previous, witnessesOf(admitted.text), scope) : unreplaced
   if (downgrades.length > 0 && !ownerAllowed(decisionsFile, card.id, downgrades, previous)) {
     const actions = downgrades.map(witness => downgradeAction(card.id, witness, previous))

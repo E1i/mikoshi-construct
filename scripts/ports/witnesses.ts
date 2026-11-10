@@ -436,8 +436,15 @@ export function namedOutsideTheCard(tree: string, witness: Witness, scope: CardS
   return namedPaths(witness.onBase?.command ?? witness.command).filter(file => !existsSync(path.join(tree, file)) && !withinScope(file, card))
 }
 
-export function ranNoTests(command: string, output: string): boolean {
+function ranNoTests(command: string, output: string): boolean {
   return testRunnerOf(command)?.ranNoTests(output) === true
+}
+
+export interface BaseRun { command: string, output: string }
+
+export function witnessesFindingNoTest(witnesses: readonly Witness[], onBase: readonly BaseRun[]): Witness[] {
+  const foundNoTest = new Set(onBase.filter(run => ranNoTests(run.command, run.output)).map(run => run.command))
+  return witnesses.filter(witness => foundNoTest.has(witness.command) || (witness.onBase !== undefined && foundNoTest.has(witness.onBase.command)))
 }
 
 export interface RedOnMainProposal { replacement: ReplacementField[] | null, files: string[] }

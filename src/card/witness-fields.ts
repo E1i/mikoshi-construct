@@ -238,6 +238,14 @@ export interface TestRunner {
 }
 
 const VITEST_TEST_FILE = /\.(?:test|spec)\.[cm]?[jt]sx?$/
+const COMMAND_TOKEN_QUOTES = /^['"(]+|['");]+$/g
+const NOT_A_RELATIVE_PATH = /^-|^[~/$]|[:*?$`]/
+const CURRENT_DIRECTORY = /^\.\//
+const TRAILING_SLASHES = /\/+$/
+
+function unjudgedRun(command: string): string {
+  return (commandInsideJudgedWrap(command) ?? command).trim().replace(NEGATION, '')
+}
 
 const VITEST_RUNNER: TestRunner = {
   runs: command => VITEST.test(command),
@@ -250,22 +258,21 @@ export function testRunnerOf(command: string): TestRunner | null {
   return TEST_RUNNERS.find(runner => runner.runs(command)) ?? null
 }
 
-const COMMAND_TOKEN_QUOTES = /^['"(]+|['");]+$/g
-const NOT_A_RELATIVE_PATH = /^-|^[~/$]|[:*?$`]/
-const CURRENT_DIRECTORY = /^\.\//
-
-function unjudgedRun(command: string): string {
-  return (commandInsideJudgedWrap(command) ?? command).trim().replace(NEGATION, '')
-}
-
 export function namedPaths(command: string): string[] {
   const tokens = unjudgedRun(command).split(/\s+/).map(token => token.replace(COMMAND_TOKEN_QUOTES, '').replace(CURRENT_DIRECTORY, ''))
-  return [...new Set(tokens.filter(token => token.includes('/') && !NOT_A_RELATIVE_PATH.test(token)).map(token => token.replace(/\/+$/, '')))]
+  return [...new Set(tokens.filter(token => token.includes('/') && !NOT_A_RELATIVE_PATH.test(token)).map(token => token.replace(TRAILING_SLASHES, '')))]
 }
 
 export function withinScope(file: string, scope: readonly string[]): boolean {
   return scope.some((entry) => {
-    const root = (entry.endsWith(PREFIX_SUFFIX) ? entry.slice(0, -PREFIX_SUFFIX.length) : entry).replace(/\/+$/, '')
+    const root = (entry.endsWith(PREFIX_SUFFIX) ? entry.slice(0, -PREFIX_SUFFIX.length) : entry).replace(TRAILING_SLASHES, '')
     return file === root || file.startsWith(`${root}/`) || root.startsWith(`${file}/`)
   })
+}
+
+export interface CardScope { touches: readonly string[], creates: readonly string[] }
+
+export function namedAbsentOutside(command: string, scope: CardScope, absent: (file: string) => boolean, changed: readonly string[] = []): string[] {
+  const card = [...scope.touches, ...scope.creates, ...changed]
+  return namedPaths(command).filter(file => absent(file) && !withinScope(file, card))
 }

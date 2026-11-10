@@ -61,13 +61,15 @@ async function vitestLike(command: string, cwd: string): Promise<TimedShellResul
 
 interface World { db: DatabaseSync, repo: string, base: string, head: string }
 
-function world(witnesses: readonly object[]): World {
+const OUTSIDE_THE_TOUCHES = 'tests/other/c.test.ts'
+
+function world(witnesses: readonly object[], headFiles: Record<string, string> = {}): World {
   const root = mkdtempSync(path.join(tmpdir(), 'unfit-witness-'))
   roots.push(root)
   const repo = path.join(root, 'repo')
   execFileSync('git', ['init', '-q', repo])
   const base = commit(repo, { 'README.md': 'base\n' }, 'base')
-  const head = commit(repo, { [ADDED_TEST]: 'it passes\n' }, 'head')
+  const head = commit(repo, { [ADDED_TEST]: 'it passes\n', ...headFiles }, 'head')
   const db = openBus(path.join(root, 'bus.db'))
   dbs.push(db)
   const body = `Add the tests.\n\nwitnesses: ${JSON.stringify(witnesses)}`
@@ -78,9 +80,14 @@ function world(witnesses: readonly object[]): World {
   return { db, repo, base, head }
 }
 
-async function witnessRun(w: World): Promise<void> {
+async function witnessRun(w: World, gitDiff: 'reads' | 'fails' = 'reads'): Promise<void> {
   const turns = new SetupTurns()
-  const trees = { baseOf: async () => w.base, withTree: <T>(base: string, run: (tree: string) => Promise<T>) => withWorktreeAsync(w.repo, base, run, turns) }
+  const withoutHeadObjects = async <T>(run: (tree: string) => Promise<T>): Promise<T> => {
+    const tree = mkdtempSync(path.join(tmpdir(), 'unfit-witness-not-a-repo-'))
+    roots.push(tree)
+    return run(tree)
+  }
+  const trees = { baseOf: async () => w.base, withTree: <T>(base: string, run: (tree: string) => Promise<T>) => gitDiff === 'fails' ? withoutHeadObjects(run) : withWorktreeAsync(w.repo, base, run, turns) }
   const node = new WitnessNode({ db: w.db, clock: () => new Date(NOW), session: 'witness-1', mode: 'live', env: {}, shell: vitestLike, trees })
   for (let round = 0; round < 2; round += 1) {
     const controller = new AbortController()
@@ -114,6 +121,19 @@ describe('the witness node tells unfit from green and red on the base', () => {
     await witnessRun(w)
     expect(payloadsOf(w, WITNESS_RECORDED).map(payload => payload.verdict)).toEqual([UNFIT])
     expect(String(payloadsOf(w, CARD_STOPPED)[0]!.detail)).toContain('tests/other/b.test.ts')
+  })
+
+  it('a witness naming a file the head adds outside the touches is not unfit', async () => {
+    const w = world([{ ...FOREIGN_WITNESS, run: `pnpm exec vitest run ${OUTSIDE_THE_TOUCHES}` }], { [OUTSIDE_THE_TOUCHES]: 'it passes\n' })
+    await witnessRun(w)
+    expect(payloadsOf(w, WITNESS_RECORDED).map(payload => payload.verdict)).toEqual([GREEN])
+  })
+
+  it('a diff of the head that cannot be read leaves the witness unjudged, not unfit', async () => {
+    const w = world([{ ...FOREIGN_WITNESS, run: `pnpm exec vitest run ${OUTSIDE_THE_TOUCHES}` }], { [OUTSIDE_THE_TOUCHES]: 'it passes\n' })
+    await witnessRun(w, 'fails')
+    expect(payloadsOf(w, WITNESS_RECORDED).map(payload => payload.verdict)).not.toContain(UNFIT)
+    expect(payloadsOf(w, CARD_STOPPED).filter(payload => payload.code === WITNESS_UNFIT)).toEqual([])
   })
 
   it('a strict witness over the test the head adds stays green and stops nothing', async () => {

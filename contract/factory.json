@@ -4833,11 +4833,11 @@
           "grepMatchProbe": "(command: string): string | null",
           "grepRefusal": "(witness: Witness, sides: string): string",
           "namedOutsideTheCard": "(tree: string, witness: Witness, scope: CardScope | null, changed: readonly string[]): string[]",
-          "ranNoTests": "(command: string, output: string): boolean",
           "redOnMainProposal": "(unfit: readonly Witness[], witnesses: readonly Witness[], changed: readonly string[]): RedOnMainProposal",
           "runOnTree": "(run: TreeRun, task: TreeTask): void",
           "runOnTreeAsync": "(run: AsyncTreeRun, task: TreeTask): Promise<void>",
-          "testTargetOf": "(command: string): TestTarget | null"
+          "testTargetOf": "(command: string): TestTarget | null",
+          "witnessesFindingNoTest": "(witnesses: readonly Witness[], onBase: readonly BaseRun[]): Witness[]"
         },
         "language": "technology",
         "reexports": [],
@@ -4847,6 +4847,7 @@
         ],
         "types": {
           "AsyncTreeRun": "interface AsyncTreeRun extends TreeContext { shell: (command: string, cwd: string) => Promise<ShellResult>; phase?: (name: string) => void; }",
+          "BaseRun": "interface BaseRun { command: string; output: string; }",
           "CardScope": "interface CardScope { touches: string[]; creates: string[]; }",
           "RedOnMainProposal": "interface RedOnMainProposal { replacement: ReplacementField[] | null; files: string[]; }",
           "Refuse": "type Refuse = (step: string, problem: string | null) => void",

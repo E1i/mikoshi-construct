@@ -114,6 +114,19 @@ describe('intake counts replacing an unfit witness with a red-on-main one as a r
     expect(ownerWaits(w)).toBe(0)
   })
 
+  it('a red-on-main witness added beside an unfit one does not excuse that unfit one\'s downgrade', () => {
+    const w = world()
+    admit(w, DIRECTORY)
+    expect(amend(w, { ...replacing(GREEN_ON_MAIN), addWitnesses: [JSON.stringify({ ...RED_ON_MAIN, id: 'W2' })] })).toMatchObject({ status: 'ownerWait' })
+  })
+
+  it('under the standing decision, a red-on-main witness added beside a created-path one does not excuse its downgrade', () => {
+    const w = world()
+    standingDecision(w)
+    admit(w, OVER_CREATED)
+    expect(amend(w, { ...replacing(GREEN_ON_MAIN), addWitnesses: [JSON.stringify({ ...RED_ON_MAIN, id: 'W2' })] })).toMatchObject({ status: 'ownerWait' })
+  })
+
   it('a decision bound to another card is not a standing general decision', () => {
     const w = world()
     writeFileSync(w.decisions, `# Owner decisions\n\n- D-41 · 2026-11-01 — [owner] ${CREATED_PATHS_ARE_THE_CHANGE} · card #7\n`)
@@ -122,7 +135,7 @@ describe('intake counts replacing an unfit witness with a red-on-main one as a r
   })
 
   it('a witness is unfit on the base when it runs a directory that is not there, or names a file outside the card', () => {
-    const scope = { dir: world().repo, card: [ADDED_TEST, CREATED_FILE], createdAreTheChange: false }
+    const scope = { dir: world().repo, card: { touches: [ADDED_TEST], creates: [CREATED_FILE] }, createdAreTheChange: false }
     expect(unfitOnTheBase('pnpm exec vitest run tests/newdir', scope)).toBe(true)
     expect(unfitOnTheBase('pnpm exec vitest run tests/other/b.test.ts', scope)).toBe(true)
     expect(unfitOnTheBase(`pnpm exec vitest run ${ADDED_TEST}`, scope)).toBe(false)
