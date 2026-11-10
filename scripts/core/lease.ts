@@ -481,6 +481,20 @@ export function leasedByRetiring(db: DatabaseSync, queue: Queue): number {
   return heldByRetiring(db).filter(row => row.queue === queue).length
 }
 
+export const RESTART_CUT = 'restart_cut'
+
+const RESTART_SINCE_THE_LEASE = `
+  SELECT 1 FROM events AS leased JOIN events AS restart ON restart.id > leased.id
+  WHERE leased.dedupe_key = ?
+    AND (restart.dedupe_key = '${WORKER_RETIRING}:' || leased.actor
+      OR (restart.type = '${LEASES_DRAINING}' AND json_extract(restart.payload, '$.node') = ?))
+  LIMIT 1
+`
+
+export function cutByRestart(db: DatabaseSync, lease: Lease): boolean {
+  return db.prepare(RESTART_SINCE_THE_LEASE).get(`${TASK_LEASED}:${lease.taskKey}:${lease.leaseGen}`, lease.queue) !== undefined
+}
+
 export function openDrain(db: DatabaseSync, ts: string, sha: string, until: string, node: string, from: string | null = null): void {
   appendEvent(db, { ts, type: LEASES_DRAINING, actor: QUEUE_ACTOR, cardId: null, pr: null, head: null, dedupeKey: `${LEASES_DRAINING}:${node}:${sha}:${until}`, payload: { sha, until, node, ...(from === null ? {} : { from }) }, legacy: false })
 }

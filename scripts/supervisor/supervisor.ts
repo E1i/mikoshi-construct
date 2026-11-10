@@ -31,7 +31,7 @@ import { CARD_PROCESS, lastProcessBeats, recordProcessHeartbeat } from './heartb
 import { beatsLive, SILENT_MS } from './liveness-sites.js'
 import { busShadowProblems, startReviewWorker } from './review-bg.js'
 import { stampLogOutput } from './stamp.js'
-import { busLaunches, isBusWorker, ROUND_WORKERS, switchDetection, switchWorker, wantedLaunches, WORKERS } from './workers.js'
+import { busLaunches, isBusWorker, switchDetection, switchWorker, wantedLaunches, WORKERS } from './workers.js'
 
 export const SUPERVISE_FLAG = '--supervise'
 export const ON_FLAG = '--on'
@@ -364,7 +364,7 @@ export class BusSupervisor {
       this.settle(head)
       return [...lines, `${PREFIX}main advanced to ${sha} with no change to the code a bus process runs; nothing restarted`]
     }
-    lines.push(...this.retireRounds(scope, head))
+    lines.push(...this.retireRounds(scope.launches, head))
     const drained = this.drain(head, scope)
     if (drained.waits)
       return [...lines, ...drained.lines, ...await this.restartEarly(drained.free, head)]
@@ -418,13 +418,12 @@ export class BusSupervisor {
     return [`${PREFIX}${free.map(launchName).join(', ')} hold no lease in flight; restarted on ${head} at once, and they lease new tasks while the drain waits${notBack}`, ...relaunched.lines]
   }
 
-  private retireRounds(scope: RestartScope, head: string): string[] {
+  private retireRounds(launches: DetachedLaunch[], head: string): string[] {
     const drain = this.parts.drain
     if (drain === undefined)
       return []
-    const processes = this.parts.processes()
-    return scope.launches.filter(runsRounds).flatMap((launch) => {
-      const pids = instancesOf(processes, launch.markers).map(each => each.pid)
+    return launches.filter(launch => workerKindsOf([launch]).some(kind => ['launch', 'review', 'answer', 'witness'].includes(kind))).flatMap((launch) => {
+      const pids = instancesOf(this.parts.processes(), launch.markers).map(each => each.pid)
       const rounds = drain.retire(launch, pids, head, this.codeSha)
       return rounds.length === 0 ? [] : [`${PREFIX}${launchName(launch)} (pid ${pids.join(', ')}) finishes the rounds it holds on ${this.codeSha} and exits, and new leases go to the worker on ${head}: ${rounds.join(', ')}`]
     })
@@ -494,10 +493,15 @@ export class BusSupervisor {
       const instance = runningInstance(processes, launch.markers)
       return instance === undefined ? [] : [{ launch, instance }]
     })
-    for (const { launch, instance } of running)
-      await this.parts.stop(instance, launch)
+    const kept: string[] = []
+    for (const { launch, instance } of running) {
+      const handedOver = this.retireRounds([launch], head)
+      kept.push(...handedOver)
+      if (handedOver.length === 0)
+        await this.parts.stop(instance, launch)
+    }
     const stopped = running.map(({ launch }) => launch)
-    const freed = this.parts.freeLeases?.(stopped) ?? []
+    const freed = [...kept, ...this.parts.freeLeases?.(stopped) ?? []]
     beforeStart()
     const down: string[] = []
     const lines = wanted.flatMap((launch) => {
@@ -544,10 +548,6 @@ export function startingBaseline(db: DatabaseSync, code: BusCode): number {
 
 function workerKindsOf(launches: DetachedLaunch[]): string[] {
   return launches.map(launch => launch.script.replace(/^bus:/, '')).filter(isBusWorker)
-}
-
-function runsRounds(launch: DetachedLaunch): boolean {
-  return workerKindsOf([launch]).some(kind => kind === 'review' || ROUND_WORKERS.includes(kind))
 }
 
 export function withoutRetiring(processes: ProcessList, db: DatabaseSync, holding: () => boolean = () => false): ProcessList {

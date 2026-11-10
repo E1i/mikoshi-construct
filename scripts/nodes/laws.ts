@@ -28,6 +28,7 @@ export interface GapRow {
 }
 
 const NO_IN_MEMORY_PORT = 1672
+export const RESTART_KEEPS_SESSION = 'Z1-restart-keeps-session'
 const STARTS_NO_SESSION = 'the node starts no session, so no child process of its own outlives it'
 
 function gap(...cards: number[]): LawCell {
@@ -40,14 +41,14 @@ function everyNode(cell: LawCell): Record<LawNode, LawCell> {
 
 export const LAW_CELLS: LawCells = {
   Z1: {
-    answer: gap(1776),
+    answer: { witness: RESTART_KEEPS_SESSION },
     close: { notApplicable: STARTS_NO_SESSION },
-    launch: gap(1776),
+    launch: { witness: RESTART_KEEPS_SESSION },
     merge: { notApplicable: STARTS_NO_SESSION },
     restart: { notApplicable: STARTS_NO_SESSION },
-    review: gap(1776),
+    review: { witness: RESTART_KEEPS_SESSION },
     update: { notApplicable: STARTS_NO_SESSION },
-    witness: gap(1776),
+    witness: { witness: RESTART_KEEPS_SESSION },
   },
   Z2: everyNode(gap(1774)),
   Z3: { ...everyNode(gap(NO_IN_MEMORY_PORT)), answer: gap(1775) },
