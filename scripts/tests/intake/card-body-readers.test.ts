@@ -5,6 +5,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync,
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { textSha } from '../../../src/card/text-sha.js'
 import { runAdmit } from '../../../src/commands/intake/admit.js'
 import { runAmend } from '../../../src/commands/intake/amend.js'
 import { BUS_DB_VARIABLE } from '../../core/bus-path.js'
@@ -127,9 +128,16 @@ describe('the card body is read from card.* events; the parking file is a projec
     })
   })
 
-  it('a card.admitted whose text does not match its textSha is not a body, and no bus is no body', () => {
+  it('a card.admitted whose text does not match its textSha, a legacy one, or one without a text is not a body, and no bus is no body', () => {
     const w = newWorld()
-    inBus(w, db => appendEvent(db, { ts: AT.toISOString(), type: CARD_ADMITTED, actor: 'worker:intake:by-hand', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:forged`, payload: { card: LINE, text: bodyOf('forged'), textSha: 'f'.repeat(64) }, legacy: false }))
+    const legacyText = bodyOf('legacy')
+    inBus(w, (db) => {
+      appendEvent(db, { ts: AT.toISOString(), type: CARD_ADMITTED, actor: 'worker:intake:by-hand', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:forged`, payload: { card: LINE, text: bodyOf('forged'), textSha: 'f'.repeat(64) }, legacy: false })
+      appendEvent(db, { ts: AT.toISOString(), type: CARD_ADMITTED, actor: 'journal', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:legacy`, payload: { card: LINE, text: legacyText, textSha: textSha(legacyText) }, legacy: true })
+      appendEvent(db, { ts: AT.toISOString(), type: CARD_ADMITTED, actor: 'worker:intake:by-hand', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:no-text`, payload: { card: LINE, textSha: textSha('') }, legacy: false })
+      appendEvent(db, { ts: AT.toISOString(), type: CARD_ADMITTED, actor: 'worker:intake:by-hand', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:number-text`, payload: { card: LINE, text: 42, textSha: textSha('42') }, legacy: false })
+      expect(db.prepare('SELECT COUNT(*) AS n FROM events WHERE type = ? AND card_id = ?').get(CARD_ADMITTED, CARD)).toEqual({ n: 4 })
+    })
     expect(busAdmittedBodies(w.bus)(CARD)).toBeNull()
     expect(busAdmittedBodies(path.join(w.root, 'no-bus.db'))(CARD)).toBeNull()
   })
