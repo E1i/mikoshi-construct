@@ -47,6 +47,7 @@ const WAIT_RECORDS = [1740, 1754]
 const LAUNCH_EVENTS = 1767
 const TREE_WAY_BACK = 1764
 const INTAKE_READS_DECISIONS = 1779
+export const PRIORITY_KEPT_ON_READMISSION = 1785
 export const RESTART_KEEPS_SESSION = 'Z1-restart-keeps-session'
 export const SESSION_BEAT_BESIDE_STALE_WINDOW = 'Z7-session-beat-beside-stale-window'
 export const PULSE_BESIDE_CARD_SILENCE = 'Z7-pulse-beside-card-silence'
@@ -89,7 +90,7 @@ const WINDOW: Record<LawId, LawCell> = {
 const INTAKE: Record<LawId, LawCell> = {
   Z1: { notApplicable: 'intake starts no session and no child process' },
   Z2: { notApplicable: 'intake admits from the card text and the bus; it starts no session, runs no test and reads no CI run' },
-  Z3: gap(INTAKE_READS_DECISIONS),
+  Z3: gap(INTAKE_READS_DECISIONS, PRIORITY_KEPT_ON_READMISSION),
   Z4: gap(...WAIT_RECORDS),
   Z5: { notApplicable: 'intake launches nothing; it admits a card the launch node later starts' },
   Z6: { notApplicable: 'intake writes the parking lane and the bus, never a card tree' },
