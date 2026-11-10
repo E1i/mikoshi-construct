@@ -13,6 +13,7 @@ import { defaultBusPath } from '../../core/db.js'
 import { CARD_ADMITTED, PR_OBSERVED, PR_OPENED, REDUCED } from '../../core/events.js'
 import { Node, prefixOf, runNode, UNDERSTOOD_NOW } from '../../core/node.js'
 import { witnessCandidates } from '../../core/queue.js'
+import { loadedCodeSha } from '../../ports/git.js'
 import { stampLogOutput } from '../../supervisor/stamp.js'
 import { gitWitnessTrees, realTimedShell, WitnessExecutor } from './witness-executor.js'
 
@@ -87,7 +88,7 @@ export interface WitnessRun {
 }
 
 export async function runWitnessWorker(argv: string[], run: WitnessRun): Promise<number> {
-  return runNode(argv, 'witness', run.busPath, (db, mode) => new WitnessNode({ db, clock: () => new Date(), session: run.session, mode, env: process.env, trees: gitWitnessTrees(run.repo), shell: realTimedShell }), { pause: run.pause })
+  return runNode(argv, 'witness', run.busPath, (db, mode) => new WitnessNode({ db, clock: () => new Date(), session: run.session, mode, env: process.env, trees: gitWitnessTrees(run.repo), shell: realTimedShell }), { pause: run.pause, codeSha: loadedCodeSha })
 }
 
 async function main(): Promise<number> {

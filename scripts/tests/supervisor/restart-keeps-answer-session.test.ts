@@ -1,6 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { Lease } from '../../core/lease.js'
-import type { NodeStep } from '../../core/node.js'
+import type { NodeContext, NodeStep } from '../../core/node.js'
 import type { QueuedTask } from '../../core/queue.js'
 import type { BgResult, DetachedLaunch, RunningProcess } from '../../supervisor/bg.js'
 import { mkdtempSync, rmSync } from 'node:fs'
@@ -44,7 +44,11 @@ class AnswerSession extends Node<NodeStep> {
   private readonly rounds: (() => void)[] = []
 
   constructor(db: DatabaseSync, clock: () => Date, private readonly commit: (lease: Lease) => void) {
-    super('answer', { db, clock, session: 'old', mode: 'live', env: { [slotsVariable('answer')]: '2' }, self: { pid: ANSWER_PID, started: clock().toISOString() }, codeSha: () => OLD_MAIN })
+    super('answer', { db, clock, session: 'old', mode: 'live', env: { [slotsVariable('answer')]: '2' }, self: { pid: ANSWER_PID, started: clock().toISOString() } })
+  }
+
+  override async run(ctx: NodeContext): Promise<void> {
+    return super.run({ ...ctx, codeSha: () => OLD_MAIN })
   }
 
   protected candidates(): QueuedTask[] {

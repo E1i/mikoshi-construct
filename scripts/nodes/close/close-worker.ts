@@ -16,6 +16,7 @@ import { defaultBusPath } from '../../core/db.js'
 import { CARD_VERIFIED, PR_CLOSED, PR_OPENED, REDUCED, WITNESS_RECORDED } from '../../core/events.js'
 import { Node, prefixOf, runNode, UNDERSTOOD_NOW } from '../../core/node.js'
 import { closeCandidates } from '../../core/queue.js'
+import { loadedCodeSha } from '../../ports/git.js'
 import { stampLogOutput } from '../../supervisor/stamp.js'
 import { CloseExecutor, failureOf, probeClosingCardIds } from './close-executor.js'
 import { cardTreeSweep, gitWorktrees, recordEndedTrees } from './ended-card-trees.js'
@@ -120,7 +121,7 @@ export interface CloseRun {
 }
 
 export async function runCloseWorker(argv: string[], run: CloseRun): Promise<number> {
-  return runNode(argv, 'close', run.busPath, (db, mode) => new CloseNode({ db, reported: run.reported, clock: () => new Date(), session: run.session, parking: run.parking, mode, env: process.env, endedTrees: run.endedTrees?.(db) }), { pause: run.pause })
+  return runNode(argv, 'close', run.busPath, (db, mode) => new CloseNode({ db, reported: run.reported, clock: () => new Date(), session: run.session, parking: run.parking, mode, env: process.env, endedTrees: run.endedTrees?.(db) }), { pause: run.pause, codeSha: loadedCodeSha })
 }
 
 async function main(): Promise<number> {
