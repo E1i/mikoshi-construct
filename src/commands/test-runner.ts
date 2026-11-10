@@ -20,7 +20,13 @@ const OUTPUT_REDIRECT = /(?:\d|&)?>>?\s*\S+/g
 const ARGUMENT_PREFIX = /^(?:[\w-]+=|\d*[<>]+&?|['"(])+/
 const TRAILING_QUOTES = /['");]+$/
 const HOME_REFERENCE = /^~(?:\/|$)|\$\{?HOME\b/
-const NOT_A_PLAIN_PATH = /[:*?$`]/
+const NOT_A_PLAIN_PATH = /[:*?$`()|[\]+^\\'"]/
+const PATTERN_FLAG = /^-[a-zA-Z]*[eEF]$/
+const QUOTE_LED = /^(?:[\w-]+=)?['"]['"]/
+const GREP = /^[ef]?grep$/
+const COMMAND_SEPARATOR = /^(?:&&|\|\||;|\|)$/
+const GLUED_SEPARATOR = /(;|&&|\|\|)/
+const QUOTE = /['"]/
 const CURRENT_DIRECTORY = /^\.\//
 const SCOPE_GLOB_TAIL = /\/\*\*$/
 const TRAILING_SLASHES = /\/+$/
@@ -51,9 +57,34 @@ function isPlainRelativePath(token: string): boolean {
   return token.includes('/') && !token.startsWith('-') && !path.isAbsolute(token) && !HOME_REFERENCE.test(token) && !NOT_A_PLAIN_PATH.test(token)
 }
 
+function separated(token: string): string[] {
+  const quoteAt = token.search(QUOTE)
+  const unquoted = quoteAt === -1 ? token : token.slice(0, quoteAt)
+  const quoted = quoteAt === -1 ? '' : token.slice(quoteAt)
+  const pieces = unquoted.split(GLUED_SEPARATOR)
+  pieces[pieces.length - 1] += quoted
+  return pieces.filter(piece => piece !== '')
+}
+
+function grepPatternIndexes(tokens: readonly string[]): Set<number> {
+  const patterns = new Set<number>()
+  let inGrep = false
+  tokens.forEach((token, index) => {
+    if (COMMAND_SEPARATOR.test(token))
+      inGrep = false
+    else if (GREP.test(token))
+      inGrep = true
+    else if (inGrep && PATTERN_FLAG.test(token))
+      patterns.add(index + 1)
+  })
+  return patterns
+}
+
 export function namedPaths(run: string): string[] {
-  const tokens = unnegated(run).replace(TEST_NAME_ARGUMENT, ' ').replace(OUTPUT_REDIRECT, ' ').split(/\s+/)
-  const named = tokens.map(token => token.replace(ARGUMENT_PREFIX, '').replace(TRAILING_QUOTES, '')).filter(isPlainRelativePath)
+  const tokens = unnegated(run).replace(TEST_NAME_ARGUMENT, ' ').replace(OUTPUT_REDIRECT, ' ').split(/\s+/).flatMap(separated)
+  const patterns = grepPatternIndexes(tokens)
+  const operands = tokens.filter((token, index) => !patterns.has(index) && !QUOTE_LED.test(token))
+  const named = operands.map(token => token.replace(ARGUMENT_PREFIX, '').replace(TRAILING_QUOTES, '')).filter(isPlainRelativePath)
   return [...new Set(named.map(token => token.replace(CURRENT_DIRECTORY, '').replace(TRAILING_SLASHES, '')))]
 }
 
