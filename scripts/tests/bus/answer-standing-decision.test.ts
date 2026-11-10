@@ -4,17 +4,19 @@ import type { Answerer } from '../../nodes/answer/answerer.js'
 import type { CardTreeTools } from '../../ports/card-tree.js'
 import type { GitHub } from '../../ports/github.js'
 import type { MergeBench } from './merge-bench.js'
-import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { textSha } from '../../../src/card/text-sha.js'
 import { ABANDONED_TITLE, blockingJobs, ranNeeds, REQUIRED_JOB, requiredSummary, rerunDue } from '../../ci/required.js'
 import { appendEvent, openBus } from '../../core/db.js'
-import { CARD_ADMITTED, CARD_STARTED, CARD_STOPPED, CI_RERUN_REQUESTED, OWNER_WAIT_OPENED, PR_OPENED } from '../../core/events.js'
+import { CARD_ADMITTED, CARD_STARTED, CARD_STOPPED, CI_RERUN_REQUESTED, OWNER_WAIT_OPENED, PR_OPENED, SCOPE_WIDENED } from '../../core/events.js'
 import { leaseNext } from '../../core/lease.js'
 import { answerCandidates, queueTask, queueTaskWithin, updateCandidates } from '../../core/queue.js'
 import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
+import { claudeAnswerer } from '../../nodes/answer/answerer.js'
 import { UpdateExecutor } from '../../nodes/update/update-executor.js'
 import { NetWatch, TICK_MS } from '../../ports/netwatch.js'
 import { BusTick } from '../../supervisor/run.js'
@@ -71,6 +73,72 @@ async function answerAsking(question: string): Promise<{ made: MergeBench, outco
   const lease = leaseNext(made.db, made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1') as Lease
   return { made, outcome: await executor.answer(lease), published }
 }
+
+const TOUCHED = 'scripts/a.ts'
+const IMPORTER = 'scripts/b.ts'
+const CARD_FILES: Record<string, string> = {
+  'construct.json': `${JSON.stringify({ harness: { command: 'pnpm run quality' }, shift: { prepush: [] } })}\n`,
+  [TOUCHED]: 'export const a = 1\n',
+  [IMPORTER]: 'import { a } from \'./a.js\'\n\nexport const b = a\n',
+}
+
+function gitTree(worktree: string): void {
+  for (const [file, text] of Object.entries(CARD_FILES)) {
+    mkdirSync(path.dirname(path.join(worktree, file)), { recursive: true })
+    writeFileSync(path.join(worktree, file), text)
+  }
+  execFileSync('git', ['init', '-q', worktree])
+  execFileSync('git', ['-C', worktree, 'add', '-A'])
+  execFileSync('git', ['-C', worktree, '-c', 'user.name=bus', '-c', 'user.email=bus@example.invalid', 'commit', '-q', '-m', 'base'])
+  execFileSync('git', ['-C', worktree, 'update-ref', 'refs/remotes/origin/main', 'HEAD'])
+}
+
+async function answerEditing(changed: readonly string[]): Promise<{ made: MergeBench, outcome: Awaited<ReturnType<AnswerExecutor['answer']>>, published: string[] }> {
+  const made = mergeBench()
+  benches.push(made)
+  const home = tempDir('bus-standing-importer-')
+  const worktree = path.join(home, `mc-${CARD}`)
+  gitTree(worktree)
+  const ts = made.clock.now().toISOString()
+  const text = `card: #${CARD} card-${CARD} [implement/construct/S/cheap/auto] · depends — · blocks —\nbranch: feat/card-${CARD}\ntouches: ${TOUCHED}\ncontinue: stop\nwho: shift\n\nAnswer it.\n`
+  appendEvent(made.db, { ts, type: CARD_ADMITTED, actor: 'worker:intake:by-hand', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:body:${CARD}`, payload: { card: `#${CARD}`, lane: 'lane-1', text, textSha: textSha(text) }, legacy: false })
+  appendEvent(made.db, { ts, type: CARD_STARTED, actor: 'worker:launch:launch-1', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_STARTED}:${CARD}`, payload: { session: 'card-session-1', worktree, branch: `feat/card-${CARD}`, base: sha('1') }, legacy: false })
+  appendEvent(made.db, { ts, type: CARD_STOPPED, actor: 'worker:launch:launch-1', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:${CARD}`, payload: { reason: 'question.agent', detail: 'the importer follows the renamed export' }, legacy: false })
+  made.tick()
+  const stop = Number((made.db.prepare('SELECT max(id) AS id FROM events WHERE type = ?').get(CARD_STOPPED) as { id: number }).id)
+  queueTask(made.db, made.clock.now().toISOString(), { queue: 'answer', cardId: CARD, stop })
+  const published: string[] = []
+  const heads = [sha('a'), sha('e')]
+  const answerer = claudeAnswerer(path.join(home, 'answers'), {
+    cardText: () => text,
+    available: () => true,
+    remoteHead: () => heads.shift() ?? null,
+    spawn: async (run) => {
+      for (const file of [TOUCHED, ...changed])
+        writeFileSync(path.join(worktree, file), `${CARD_FILES[file] ?? ''}// answered\n`)
+      writeFileSync(run.stdoutPath, `${JSON.stringify({ type: 'result', subtype: 'success', result: 'answered' })}\n`)
+      return 0
+    },
+    newSession: () => 'new-session',
+    publish: card => published.push(card.branch),
+    pending: () => [TOUCHED, ...changed],
+  })
+  const cardTrees: CardTreeTools = { home, exists: existsSync, branchOf: pr => `feat/card-${pr}`, recreate: () => {}, bringTo: () => {} }
+  const executor = new AnswerExecutor({ db: made.db, answerer, ownerMerges: () => '', clock: made.clock.now, trees: cardTrees, dirty: () => false, liveSession: () => null, prepare: () => {} })
+  const lease = leaseNext(made.db, made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1') as Lease
+  return { made, outcome: await executor.answer(lease), published }
+}
+
+describe('a direct importer of a touched file in an answer round (D-441 (1), Z3)', () => {
+  it('an answer that edits a direct importer of a touched file commits with no owner.wait', async () => {
+    const { made, outcome, published } = await answerEditing([IMPORTER])
+
+    expect(outcome).toMatchObject({ kind: 'answered', head: sha('e') })
+    expect(published).toEqual([`feat/card-${CARD}`])
+    expect(eventsOf(made.db, SCOPE_WIDENED)).toMatchObject([{ paths: [IMPORTER] }])
+    expect(eventsOf(made.db, OWNER_WAIT_OPENED)).toEqual([])
+  })
+})
 
 describe('a timeout under load in an answer round (D-441 (2))', () => {
   it('a timeout under load outside the touches with green witnesses is retried, not stopped', async () => {

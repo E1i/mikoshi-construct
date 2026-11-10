@@ -8,7 +8,8 @@ import type { LawCell, LawCells, LawId, LawNode, LawSite } from '../../nodes/law
 import type { GitHub } from '../../ports/github.js'
 import type { BgResult, DetachedLaunch, RunningProcess } from '../../supervisor/bg.js'
 import type { BusWorker } from '../../supervisor/workers.js'
-import { existsSync, mkdtempSync, rmSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
@@ -20,14 +21,15 @@ import { printBoard } from '../../cli/board-page.js'
 import { NODE_DECLARATIONS } from '../../contract/factory/nodes.js'
 import { LAW_GAP_PREFIX, lawGapNumbers, ratchetBreaks, readRatchet } from '../../contract/ratchet.js'
 import { appendEvent, openBus } from '../../core/db.js'
-import { BOARD_ALARM, CARD_ADMITTED, CARD_STARTED, CARD_STOPPED, CARD_WAITING, CI_RERUN_REQUESTED, OWNER_WAIT_OPENED, PR_OPENED, SESSION_HEARTBEAT, WINDOW_HEARTBEAT } from '../../core/events.js'
+import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, CARD_WAITING, CI_RERUN_REQUESTED, OWNER_WAIT_OPENED, PR_OPENED, SCOPE_WIDENED, SESSION_HEARTBEAT, WINDOW_HEARTBEAT } from '../../core/events.js'
 import { completeTask, leaseNext, recordWorkerStarted } from '../../core/lease.js'
 import { MachineSessions } from '../../core/machine-sessions.js'
 import { Node } from '../../core/node.js'
 import { answerCandidates, keyOf, queueTask, queueTaskWithin, updateCandidates } from '../../core/queue.js'
 import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
+import { claudeAnswerer } from '../../nodes/answer/answerer.js'
 import { LaunchNode } from '../../nodes/launch/launch-worker.js'
-import { gapRows, INFRASTRUCTURE_RETRIED, LAW_CELLS, LAW_NODES, LAW_SITES, lawIds, LAWS, RESTART_KEEPS_SESSION, SESSION_BEAT_BESIDE_STALE_WINDOW, sourceOf } from '../../nodes/laws.js'
+import { DIRECT_IMPORTER_WIDENED, gapRows, INFRASTRUCTURE_RETRIED, LAW_CELLS, LAW_NODES, LAW_SITES, lawIds, LAWS, RESTART_KEEPS_SESSION, SESSION_BEAT_BESIDE_STALE_WINDOW, sourceOf } from '../../nodes/laws.js'
 import { UpdateExecutor } from '../../nodes/update/update-executor.js'
 import { NetWatch, TICK_MS } from '../../ports/netwatch.js'
 import { launchName } from '../../supervisor/bg.js'
@@ -332,9 +334,70 @@ async function infrastructureFailureIsRetried(node: LawNode): Promise<void> {
   throw new Error(`no infrastructure retry is wired on ${node}`)
 }
 
+const IMPORTED = 'scripts/a.ts'
+const IMPORTER = 'scripts/b.ts'
+
+function treeWithAnImporter(worktree: string): void {
+  const files: Record<string, string> = {
+    'construct.json': `${JSON.stringify({ harness: { command: 'pnpm run quality' }, shift: { prepush: [] } })}\n`,
+    [IMPORTED]: 'export const a = 1\n',
+    [IMPORTER]: 'import { a } from \'./a.js\'\n\nexport const b = a\n',
+  }
+  for (const [file, text] of Object.entries(files)) {
+    mkdirSync(path.dirname(path.join(worktree, file)), { recursive: true })
+    writeFileSync(path.join(worktree, file), text)
+  }
+  execFileSync('git', ['init', '-q', worktree])
+  execFileSync('git', ['-C', worktree, 'add', '-A'])
+  execFileSync('git', ['-C', worktree, '-c', 'user.name=bus', '-c', 'user.email=bus@example.invalid', 'commit', '-q', '-m', 'base'])
+  execFileSync('git', ['-C', worktree, 'update-ref', 'refs/remotes/origin/main', 'HEAD'])
+}
+
+async function directImporterWidened(node: LawNode): Promise<void> {
+  if (node !== 'answer')
+    throw new Error(`no direct-importer widening is wired on ${node}`)
+  const made = mergeBench()
+  try {
+    const home = scratchDir('z3-answer-')
+    const worktree = path.join(home, 'mc-1775')
+    treeWithAnImporter(worktree)
+    const ts = made.clock.now().toISOString()
+    const text = `card: #1775 a-card [implement/construct/S/cheap/auto] · depends — · blocks —\nbranch: feat/card-1775\ntouches: ${IMPORTED}\ncontinue: stop\nwho: shift\n\nAnswer it.\n`
+    appendEvent(made.db, { ts, type: CARD_ADMITTED, actor: 'worker:intake:by-hand', cardId: 1775, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:body:1775`, payload: { card: '#1775', lane: 'lane-1', text, textSha: textSha(text) }, legacy: false })
+    appendEvent(made.db, { ts, type: CARD_STARTED, actor: 'worker:launch:launch-1', cardId: 1775, pr: null, head: null, dedupeKey: `${CARD_STARTED}:1775`, payload: { session: 'card-session-1', worktree, branch: 'feat/card-1775', base: sha('1') }, legacy: false })
+    appendEvent(made.db, { ts, type: CARD_STOPPED, actor: 'worker:launch:launch-1', cardId: 1775, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:1775`, payload: { reason: 'question.agent', detail: 'the importer follows the export' }, legacy: false })
+    made.tick()
+    const stop = Number((made.db.prepare('SELECT max(id) AS id FROM events WHERE type = ?').get(CARD_STOPPED) as { id: number }).id)
+    queueTask(made.db, made.clock.now().toISOString(), { queue: 'answer', cardId: 1775, stop })
+    const heads = [sha('a'), sha('e')]
+    const answerer = claudeAnswerer(path.join(home, 'answers'), {
+      cardText: () => text,
+      available: () => true,
+      remoteHead: () => heads.shift() ?? null,
+      spawn: async (run) => {
+        writeFileSync(path.join(worktree, IMPORTED), 'export const a = 2\n')
+        writeFileSync(path.join(worktree, IMPORTER), 'import { a } from \'./a.js\'\n\nexport const b = a + 1\n')
+        writeFileSync(run.stdoutPath, `${JSON.stringify({ type: 'result', subtype: 'success', result: 'answered' })}\n`)
+        return 0
+      },
+      newSession: () => 'new-session',
+      publish: () => {},
+      pending: () => [IMPORTED, IMPORTER],
+    })
+    const executor = new AnswerExecutor({ db: made.db, answerer, ownerMerges: () => '', clock: made.clock.now, trees: { home, exists: existsSync, branchOf: pr => `feat/card-${pr}`, recreate: () => {}, bringTo: () => {} }, dirty: () => false, liveSession: () => null, prepare: () => {} })
+    await executor.answer(leaseNext(made.db, made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1') as Lease)
+    if (eventsOf(made.db, CARD_ANSWERED).length !== 1 || eventsOf(made.db, OWNER_WAIT_OPENED).length > 0 || eventsOf(made.db, SCOPE_WIDENED).length !== 1)
+      throw new Error('an answer that edits a direct importer of a touched file was stopped for the owner instead of widened')
+  }
+  finally {
+    made.close()
+  }
+}
+
 const WITNESSES: Witnesses = {
   [RESTART_KEEPS_SESSION]: { law: 'Z1', run: restartKeepsSession },
   [INFRASTRUCTURE_RETRIED]: { law: 'Z2', run: infrastructureFailureIsRetried },
+  [DIRECT_IMPORTER_WIDENED]: { law: 'Z3', run: directImporterWidened },
   [SESSION_BEAT_BESIDE_STALE_WINDOW]: { law: 'Z7', run: sessionBeatBesideStaleWindow },
 }
 

@@ -2,6 +2,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { PushPolicy } from '../../../src/commands/attach/record.js'
 import type { RerunMode } from '../../cli/check-catalog.js'
 import type { BusEvent } from '../../core/db.js'
+import type { QUESTION_OWNER } from '../../core/events.js'
 import type { AfterFailure, Lease } from '../../core/lease.js'
 import type { CardFields } from '../../intake/card-contract.js'
 import type { ReviewStatus, StatusPublisher } from '../../ports/github-status.js'
@@ -10,15 +11,14 @@ import type { MergeMain } from '../../ports/main-merge.js'
 import type { VerdictOnHead } from '../../ports/snapshot.js'
 import type { TechnicalReason } from '../review/record-verdict.js'
 import { rerunOf, upToDateRequired } from '../../cli/check-catalog.js'
-import { appendEvent, openBusWait } from '../../core/db.js'
+import { appendEvent } from '../../core/db.js'
 import { messageOf } from '../../core/errors.js'
-import { CARD_STOPPED, CI_RERUN_REQUESTED, COMMAND_EXECUTED, POLICY_ALLOWED, POLICY_DENIED, QUESTION_OWNER, REVIEW_RECORDED, UPDATE_DONE } from '../../core/events.js'
+import { CI_RERUN_REQUESTED, COMMAND_EXECUTED, POLICY_ALLOWED, POLICY_DENIED, REVIEW_RECORDED, UPDATE_DONE } from '../../core/events.js'
 import { assertHeld, completeTask, failTask, releaseTask, StaleLease } from '../../core/lease.js'
 import { rerunDueOn } from '../../core/observations.js'
 import { KEPT_BY_PUSH_POLICY } from '../../core/push-policy.js'
 import { COMPLETED, MERGE_REFUSED, updateTurnHeldFrom } from '../../core/queue.js'
 import { cardContract, NOT_MINE, notMine } from '../../intake/card-contract.js'
-import { cardDecisionCommand } from '../../policy/shards.js'
 import { rerunFailedJobsEndpoint, runsOnHeadEndpoint } from '../../ports/ci-reading.js'
 import { REVIEW_STATUS_CONTEXT } from '../../ports/github-status.js'
 import { conflictingCardOf } from '../../ports/main-merge.js'
@@ -140,6 +140,10 @@ type Checked = { kind: 'ready', before: Before } | { kind: 'conflicting' } | { k
 
 const WAIT_REASONS: ReadonlySet<UpdateTechnicalReason> = new Set(['not_mergeable', MERGES_WITHOUT_UPDATE, WAITS_ITS_TURN])
 const WITHDRAWN_REASONS: ReadonlySet<UpdateTechnicalReason> = new Set([NOT_MINE, KEPT_BY_PUSH_POLICY, MERGE_REFUSED])
+
+function insideTheTouchesLine(lease: Lease, files: readonly string[]): string {
+  return `pull request #${lease.pr} conflicts with ${MAIN_BRANCH} at ${lease.head} inside the card's own touches: ${files.join(', ')}; the conflict is the card's own (D-441, Q267), so it goes to the answer session to merge ${MAIN_BRANCH} keeping both sides, not to the owner`
+}
 
 function technical(reason: UpdateTechnicalReason, detail: string): UpdateDenial {
   return { kind: 'technical', reason, detail }
@@ -394,19 +398,12 @@ export class UpdateExecutor {
     if (merge.kind === 'refused')
       return this.denied(lease, technical(MERGE_REFUSED, merge.why))
     if (merge.kind === 'inside')
-      return this.ownersStop(lease, `pull request #${lease.pr} conflicts with ${MAIN_BRANCH} at ${lease.head} inside the card's own touches: ${merge.files.join(', ')}`)
+      return this.denied(lease, technical(MERGE_REFUSED, insideTheTouchesLine(lease, merge.files)))
     const why = merge.tookMain.length === 0 ? `a merge of ${MAIN_BRANCH} into the card tree` : `a merge of ${MAIN_BRANCH} into the card tree that took ${MAIN_BRANCH} on ${merge.tookMain.join(', ')}`
     const carry: Carry = { carried: null, why, clean: false }
     const event: BusEvent = { ts: this.ts(), type: UPDATE_DONE, actor: lease.actor, cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${UPDATE_DONE}:${lease.taskKey}`, payload: { from: lease.head, to: merge.to, ...carry, tookMain: merge.tookMain, rebuilt: merge.rebuilt, task_key: lease.taskKey, lease_gen: lease.leaseGen }, legacy: false }
     completeTask(this.parts.db, this.ts(), lease, [event])
     return { kind: 'updated', taskKey: lease.taskKey, from: lease.head!, to: merge.to, carry }
-  }
-
-  private ownersStop(lease: Lease, detail: string): UpdateOutcome {
-    const ask = { need: 'decision' as const, text: `card #${lease.cardId} asks: ${detail}`, command: cardDecisionCommand(lease.cardId), card: lease.cardId, ...(lease.pr === null ? {} : { pr: lease.pr }) }
-    const stop: BusEvent = { ts: this.ts(), type: CARD_STOPPED, actor: lease.actor, cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${CARD_STOPPED}:${lease.taskKey}:${lease.leaseGen}`, payload: { reason: QUESTION_OWNER, detail }, legacy: false }
-    completeTask(this.parts.db, this.ts(), lease, [stop], db => openBusWait(db, this.ts(), lease.actor, ask))
-    return { kind: 'stopped', taskKey: lease.taskKey, reason: QUESTION_OWNER, detail }
   }
 
   private allowed(lease: Lease, command: UpdateCommand = UPDATE_COMMAND): void {
