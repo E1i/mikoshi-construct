@@ -1,11 +1,11 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { CardSession } from '../nodes/answer/answer-source.js'
 import type { GitHub } from './github.js'
-import { execFileSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import process from 'node:process'
 import { defaultBusPath } from '../core/db.js'
 import { cardSessionOf, NO_RECORDED_SESSION, openPrOfCard } from '../nodes/answer/answer-source.js'
+import { processGit } from './git.js'
 import { ghApi } from './github.js'
 import { Meter } from './meter.js'
 import { cardTree, taskWorktree, worktreeHome } from './worktree-home.js'
@@ -25,7 +25,7 @@ export interface CardTreeTools {
 }
 
 function git(repo: string, args: string[]): string {
-  return execFileSync('git', ['-C', repo, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+  return processGit.read(repo, args)
 }
 
 function headRefOf(pull: unknown, pr: number): string {

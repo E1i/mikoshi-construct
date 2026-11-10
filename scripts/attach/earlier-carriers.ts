@@ -1,5 +1,4 @@
 import type { Buffer } from 'node:buffer'
-import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
@@ -8,6 +7,7 @@ import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
 import { ATTACH_CARRIERS } from '../../src/presets/index.js'
 import { GENERATED_FILES } from '../core/generated-files.js'
+import { processGit } from '../ports/git.js'
 
 export interface KnownCarrier {
   target: string
@@ -62,7 +62,7 @@ export function renderKnownSet(entries: KnownCarrier[]): string {
 }
 
 function git(args: string[], input?: string): Buffer {
-  return execFileSync('git', args, { cwd: REPO_ROOT, input, maxBuffer: 1 << 28 })
+  return processGit.readBytes(REPO_ROOT, args, 1 << 28, { input })
 }
 
 function sha256Of(bytes: Buffer): string {

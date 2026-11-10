@@ -5,6 +5,7 @@ import { appendFileSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { GhCiRuns } from '../ports/ci-reading.js'
+import { processGit } from '../ports/git.js'
 import { selectRun, windowGate } from './layers.js'
 import { livenessApplies } from './sandbox-liveness.js'
 
@@ -90,10 +91,7 @@ export function lastGreenMain(read: Git, ci: GreenRuns): GateBase {
 }
 
 function git(args: readonly string[]): string {
-  const run = spawnSync('git', args, { cwd: REPO_ROOT, encoding: 'utf8' })
-  if (run.status !== 0)
-    throw new Error(`git ${args.join(' ')} failed: ${run.stderr}`)
-  return run.stdout
+  return processGit.read(REPO_ROOT, args)
 }
 
 function treeChanges(): string[] {

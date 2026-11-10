@@ -3227,30 +3227,7 @@
     },
     "ci-reading": {},
     "generated-files": {},
-    "git": {
-      "scripts/atlas/build.ts": 1,
-      "scripts/attach/earlier-carriers.ts": 1,
-      "scripts/ci/prepush.ts": 1,
-      "scripts/ci/select.ts": 1,
-      "scripts/ci/test-weights.ts": 1,
-      "scripts/construct/check-acceptance.mjs": 1,
-      "scripts/core/node.ts": 1,
-      "scripts/core/push-policy.ts": 1,
-      "scripts/done/tree.ts": 1,
-      "scripts/policy/shard.ts": 1,
-      "scripts/ports/card-tree.ts": 1,
-      "scripts/ports/diff.ts": 1,
-      "scripts/ports/prepare-tree.ts": 1,
-      "scripts/ports/task-start.ts": 1,
-      "scripts/ports/tree-publish.ts": 1,
-      "scripts/ports/worktree.ts": 2,
-      "scripts/supervisor/supervisor.ts": 5,
-      "scripts/window/owner-command.ts": 1,
-      "scripts/window/pull.ts": 1,
-      "scripts/window/window-agents.ts": 1,
-      "scripts/window/window-request-tools.ts": 1,
-      "src/detect/git.ts": 1
-    },
+    "git": {},
     "handoff-status": {
       "src/commands/doctor/factory.ts": 2
     },
@@ -4446,9 +4423,10 @@
         "types": {
           "GitAnswer": "type GitAnswer = string | Buffer | Error",
           "GitCall": "interface GitCall { tree: string; args: string[]; }",
+          "GitOptions": "interface GitOptions { maxBuffer?: number; timeoutMs?: number; input?: string; env?: NodeJS.ProcessEnv; errorsShown?: boolean; }",
           "GitReader": "interface GitReader { dirty: (worktree: string) => number | undefined; worktrees: (repoRoot: string) => WorktreeEntry[] | undefined; }",
-          "GitRunner": "interface GitRunner { read: (tree: string, args: readonly string[]) => string; readBytes: (tree: string, args: readonly string[], maxBuffer: number) => Buffer; succeeds: (tree: string, args: readonly string[]) => boolean; }",
-          "InMemoryGit": "class InMemoryGit implements GitRunner { calls: GitCall[]; constructor(private readonly answer: (call: GitCall) => GitAnswer); read(tree: string, args: readonly string[]): string; readBytes(tree: string, args: readonly string[]): Buffer; succeeds(tree: string, args: readonly string[]): boolean }",
+          "GitRunner": "interface GitRunner { read: (tree: string, args: readonly string[], options?: GitOptions) => string; readOrNull: (tree: string, args: readonly string[], options?: GitOptions) => string | null; readBytes: (tree: string, args: readonly string[], maxBuffer: number, options?: GitOptions) => Buffer; readLater: (tree: string, args: readonly string[], options?: GitOptions) => Promise<string>; succeeds: (tree: string, args: readonly string[], options?: GitOptions) => boolean; }",
+          "InMemoryGit": "class InMemoryGit implements GitRunner { calls: GitCall[]; constructor(private readonly answer: (call: GitCall) => GitAnswer); read(tree: string, args: readonly string[]): string; readOrNull(tree: string, args: readonly string[]): string | null; readBytes(tree: string, args: readonly string[]): Buffer; readLater(tree: string, args: readonly string[]): Promise<string>; succeeds(tree: string, args: readonly string[]): boolean }",
           "WorktreeEntry": "interface WorktreeEntry { path: string; branch: string | undefined; }"
         }
       },

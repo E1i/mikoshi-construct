@@ -1,6 +1,5 @@
 import type { RunJob } from '../ports/ci-reading.js'
 import type { TestWeights } from './shard.js'
-import { spawnSync } from 'node:child_process'
 import { existsSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -8,6 +7,7 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import config from '../../vitest.config.js'
 import { GhCiRuns } from '../ports/ci-reading.js'
+import { processGit } from '../ports/git.js'
 import { updateWeights, weightsFromVitestReport } from './shard.js'
 
 export type { RunJob, RunStep } from '../ports/ci-reading.js'
@@ -80,8 +80,7 @@ export function spreadLines(verdict: SpreadVerdict, boundary: string): string[] 
 }
 
 function git(args: string[]): string | undefined {
-  const run = spawnSync('git', args, { cwd: REPO_ROOT, encoding: 'utf8' })
-  return run.status === 0 ? run.stdout.trim() : undefined
+  return processGit.readOrNull(REPO_ROOT, args)?.trim()
 }
 
 function failWith(line: string): never {

@@ -5,6 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { browserLabInstalledScript } from '../../src/commands/attach/settings.js'
+import { processGit } from './git.js'
 
 export type TreePreparer = (tree: string) => void
 
@@ -120,7 +121,7 @@ export function preinstallBrowser(tree: string, env: NodeJS.ProcessEnv = process
   if (!existsSync(path.join(tree, BROWSER_LAB)))
     return
   const prepared = prepareEnv(env)
-  execFileSync('git', ['-C', tree, 'check-ignore', '-q', `${NODE_MODULES}/`], { env: prepared, stdio: ['ignore', 'pipe', 'pipe'] })
+  processGit.read(tree, ['check-ignore', '-q', `${NODE_MODULES}/`], { env: prepared })
   const text = readFileSync(factoryLab, 'utf8')
   const npxEnv = { ...prepared, npm_config_registry: PUBLIC_REGISTRY, npm_config_cache: path.join(labHome(env), 'npm-cache'), npm_config_ignore_scripts: 'true' }
   for (const tool of LAB_TOOLS) {

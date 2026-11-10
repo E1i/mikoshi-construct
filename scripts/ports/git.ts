@@ -1,5 +1,6 @@
 import { Buffer } from 'node:buffer'
-import { execFileSync } from 'node:child_process'
+import { execFile, execFileSync } from 'node:child_process'
+import { promisify } from 'node:util'
 
 export const TECHNOLOGY_WORDS = ['exec', 'git', 'porcelain'] as const
 
@@ -13,10 +14,20 @@ export interface GitReader {
   worktrees: (repoRoot: string) => WorktreeEntry[] | undefined
 }
 
+export interface GitOptions {
+  maxBuffer?: number
+  timeoutMs?: number
+  input?: string
+  env?: NodeJS.ProcessEnv
+  errorsShown?: boolean
+}
+
 export interface GitRunner {
-  read: (tree: string, args: readonly string[]) => string
-  readBytes: (tree: string, args: readonly string[], maxBuffer: number) => Buffer
-  succeeds: (tree: string, args: readonly string[]) => boolean
+  read: (tree: string, args: readonly string[], options?: GitOptions) => string
+  readOrNull: (tree: string, args: readonly string[], options?: GitOptions) => string | null
+  readBytes: (tree: string, args: readonly string[], maxBuffer: number, options?: GitOptions) => Buffer
+  readLater: (tree: string, args: readonly string[], options?: GitOptions) => Promise<string>
+  succeeds: (tree: string, args: readonly string[], options?: GitOptions) => boolean
 }
 
 export type GitAnswer = string | Buffer | Error
@@ -26,20 +37,48 @@ export interface GitCall {
   args: string[]
 }
 
-function run(args: string[]): string {
-  return execFileSync('git', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+const execFileAsync = promisify(execFile)
+
+function settings(options: GitOptions = {}) {
+  return {
+    stdio: [options.input === undefined ? 'ignore' : 'pipe', 'pipe', options.errorsShown === true ? 'inherit' : 'pipe'] as ('ignore' | 'pipe' | 'inherit')[],
+    ...(options.input === undefined ? {} : { input: options.input }),
+    ...(options.maxBuffer === undefined ? {} : { maxBuffer: options.maxBuffer }),
+    ...(options.timeoutMs === undefined ? {} : { timeout: options.timeoutMs, killSignal: 'SIGKILL' as const }),
+    ...(options.env === undefined ? {} : { env: options.env }),
+  }
+}
+
+function run(args: string[], options?: GitOptions): string {
+  return execFileSync('git', args, { ...settings(options), encoding: 'utf8' })
 }
 
 export const processGit: GitRunner = {
-  read(tree, args) {
-    return run(['-C', tree, ...args])
+  read(tree, args, options) {
+    return run(['-C', tree, ...args], options)
   },
-  readBytes(tree, args, maxBuffer) {
-    return execFileSync('git', ['-C', tree, ...args], { stdio: ['ignore', 'pipe', 'pipe'], maxBuffer })
-  },
-  succeeds(tree, args) {
+  readOrNull(tree, args, options) {
     try {
-      run(['-C', tree, ...args])
+      return run(['-C', tree, ...args], options)
+    }
+    catch {
+      return null
+    }
+  },
+  readBytes(tree, args, maxBuffer, options) {
+    return execFileSync('git', ['-C', tree, ...args], { ...settings(options), maxBuffer })
+  },
+  async readLater(tree, args, options) {
+    const { stdout } = await execFileAsync('git', ['-C', tree, ...args], {
+      encoding: 'utf8',
+      ...(options?.maxBuffer === undefined ? {} : { maxBuffer: options.maxBuffer }),
+      ...(options?.env === undefined ? {} : { env: options.env }),
+    })
+    return stdout
+  },
+  succeeds(tree, args, options) {
+    try {
+      run(['-C', tree, ...args], options)
       return true
     }
     catch {
@@ -58,9 +97,22 @@ export class InMemoryGit implements GitRunner {
     return typeof answered === 'string' ? answered : answered.toString('utf8')
   }
 
+  readOrNull(tree: string, args: readonly string[]): string | null {
+    try {
+      return this.read(tree, args)
+    }
+    catch {
+      return null
+    }
+  }
+
   readBytes(tree: string, args: readonly string[]): Buffer {
     const answered = this.answered(tree, args)
     return typeof answered === 'string' ? Buffer.from(answered, 'utf8') : answered
+  }
+
+  async readLater(tree: string, args: readonly string[]): Promise<string> {
+    return this.read(tree, args)
   }
 
   succeeds(tree: string, args: readonly string[]): boolean {
