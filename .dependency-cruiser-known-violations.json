@@ -984,20 +984,6 @@
   },
   {
     "type": "dependency",
-    "from": "scripts/ladder/supervise.ts",
-    "to": "src/commands/cost/ledger.ts",
-    "unresolvedTo": "../../src/commands/cost/ledger.js",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "ladder-imports-only-core-and-ports"
-    }
-  },
-  {
-    "type": "dependency",
     "from": "scripts/ladder/verdict.ts",
     "to": "scripts/nodes/update/review-carry.ts",
     "unresolvedTo": "../nodes/update/review-carry.js",
