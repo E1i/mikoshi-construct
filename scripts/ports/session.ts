@@ -1,6 +1,6 @@
 import type { Invocation, Role, SessionPolicy, SessionReading, SessionSpec } from './client/contract.js'
 import { spawn } from 'node:child_process'
-import { closeSync, openSync } from 'node:fs'
+import { closeSync, openSync, writeFileSync } from 'node:fs'
 import process from 'node:process'
 import { BUS_DB_VARIABLE } from '../core/bus-path.js'
 import { CLIENT_ENV_PREFIXES, compactWindowOverlay } from './client/claude/adapter.js'
@@ -168,4 +168,32 @@ export function spawnSession(params: SpawnSessionParams): Promise<number> {
 
 export function spawnReviewSession(params: SpawnSessionParams): Promise<number> {
   return spawnSession({ ...params, role: 'review' })
+}
+
+export type SessionSpawner = (params: SpawnSessionParams) => Promise<number>
+
+export interface SessionRun {
+  code: number
+  stdout?: string
+  stderr?: string
+}
+
+export type SessionAnswer = SessionRun | Error
+
+export class InMemorySessions {
+  readonly started: SpawnSessionParams[] = []
+
+  constructor(private readonly answer: (params: SpawnSessionParams) => SessionAnswer) {}
+
+  readonly spawn: SessionSpawner = async (params) => {
+    this.started.push(params)
+    const answered = this.answer(params)
+    if (answered instanceof Error)
+      throw answered
+    writeFileSync(params.stdoutPath, answered.stdout ?? '')
+    writeFileSync(params.stderrPath, answered.stderr ?? '')
+    return answered.code
+  }
+
+  readonly spawnReview: SessionSpawner = async params => this.spawn({ ...params, role: 'review' })
 }
