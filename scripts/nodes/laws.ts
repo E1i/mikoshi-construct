@@ -1,6 +1,20 @@
+import { FACTORY_WORKERS } from '../core/factory-paths.js'
+
 export const LAW_NODES = ['answer', 'close', 'launch', 'merge', 'restart', 'review', 'update', 'witness'] as const
 
 export type LawNode = typeof LAW_NODES[number]
+
+export const SITES_BEYOND_NODES = {
+  netwatch: 'scripts/ports/netwatch.ts',
+  window: 'scripts/window/watch.ts',
+  intake: 'src/commands/intake/admit.ts',
+} as const
+
+export type SiteBeyondNodes = keyof typeof SITES_BEYOND_NODES
+
+export type LawSite = LawNode | SiteBeyondNodes
+
+export const LAW_SITES: readonly LawSite[] = [...LAW_NODES, ...Object.keys(SITES_BEYOND_NODES) as SiteBeyondNodes[]]
 
 export const LAWS = {
   Z1: 'a process that leaves does not kill its children',
@@ -19,17 +33,26 @@ export type LawCell
     | { notApplicable: string }
     | { gap: readonly number[] }
 
-export type LawCells = Readonly<Record<LawId, Readonly<Record<LawNode, LawCell>>>>
+export type LawCells = Readonly<Record<LawId, Readonly<Record<LawSite, LawCell>>>>
 
 export interface GapRow {
   law: LawId
-  node: LawNode
+  node: LawSite
   cards: readonly number[]
 }
 
 const NO_IN_MEMORY_PORT = 1672
+const INFRASTRUCTURE_RETRY = 1774
+const WAIT_RECORDS = [1740, 1754]
+const LAUNCH_EVENTS = 1767
+const TREE_WAY_BACK = 1764
+const INTAKE_READS_DECISIONS = 1779
 export const RESTART_KEEPS_SESSION = 'Z1-restart-keeps-session'
+export const SESSION_BEAT_BESIDE_STALE_WINDOW = 'Z7-session-beat-beside-stale-window'
+export const PULSE_BESIDE_CARD_SILENCE = 'Z7-pulse-beside-card-silence'
+export const WINDOW_BESIDE_SESSIONS = 'Z7-window-beside-sessions'
 const STARTS_NO_SESSION = 'the node starts no session, so no child process of its own outlives it'
+const NO_SESSION_TO_READ = 'the node starts no session, so the factory reading holds no beat of its own to weigh'
 
 function gap(...cards: number[]): LawCell {
   return { gap: cards }
@@ -37,6 +60,40 @@ function gap(...cards: number[]): LawCell {
 
 function everyNode(cell: LawCell): Record<LawNode, LawCell> {
   return Object.fromEntries(LAW_NODES.map(node => [node, cell])) as Record<LawNode, LawCell>
+}
+
+const NETWATCH: Record<LawId, LawCell> = {
+  Z1: { notApplicable: 'netwatch starts no session; its GitHub calls are synchronous and end inside the tick, so no child of its own outlives it' },
+  Z2: gap(INFRASTRUCTURE_RETRY),
+  Z3: { notApplicable: 'netwatch records what GitHub shows as bus events and takes no decision a window decision governs' },
+  Z4: { notApplicable: 'netwatch opens no wait: a retry-after is a netwatch.skipped event carrying its until, and the clock lifts it' },
+  Z5: { notApplicable: 'netwatch launches nothing' },
+  Z6: { notApplicable: 'netwatch writes no tree, only bus events and its heartbeat' },
+  Z7: { witness: PULSE_BESIDE_CARD_SILENCE },
+}
+
+const WINDOW: Record<LawId, LawCell> = {
+  Z1: { notApplicable: 'miko:watch starts no session and no child process; it reads the bus and writes its own cursor' },
+  Z2: gap(INFRASTRUCTURE_RETRY),
+  Z3: { notApplicable: 'the window is where these decisions are taken; the law is about the nodes that act on them' },
+  Z4: gap(...WAIT_RECORDS),
+  Z5: { notApplicable: 'miko:watch launches nothing; a card the window starts is launched by the launch node, which writes the event' },
+  Z6: { notApplicable: 'miko:watch writes no card tree, only its cursor beside the handoff' },
+  Z7: { witness: WINDOW_BESIDE_SESSIONS },
+}
+
+const INTAKE: Record<LawId, LawCell> = {
+  Z1: { notApplicable: 'intake starts no session and no child process' },
+  Z2: gap(INFRASTRUCTURE_RETRY),
+  Z3: gap(INTAKE_READS_DECISIONS),
+  Z4: gap(...WAIT_RECORDS),
+  Z5: { notApplicable: 'intake launches nothing; it admits a card the launch node later starts' },
+  Z6: { notApplicable: 'intake writes the parking lane and the bus, never a card tree' },
+  Z7: { notApplicable: 'intake reads no liveness: it admits from the card text, the decisions in force and the bus card states' },
+}
+
+function beyondNodes(law: LawId): Record<SiteBeyondNodes, LawCell> {
+  return { netwatch: NETWATCH[law], window: WINDOW[law], intake: INTAKE[law] }
 }
 
 export const LAW_CELLS: LawCells = {
@@ -49,13 +106,28 @@ export const LAW_CELLS: LawCells = {
     review: { witness: RESTART_KEEPS_SESSION },
     update: { notApplicable: STARTS_NO_SESSION },
     witness: { witness: RESTART_KEEPS_SESSION },
+    ...beyondNodes('Z1'),
   },
-  Z2: everyNode(gap(1774)),
-  Z3: { ...everyNode(gap(NO_IN_MEMORY_PORT)), answer: gap(1775) },
-  Z4: everyNode(gap(1740, 1754)),
-  Z5: everyNode(gap(1767)),
-  Z6: everyNode(gap(1764)),
-  Z7: everyNode(gap(1756)),
+  Z2: { ...everyNode(gap(INFRASTRUCTURE_RETRY)), ...beyondNodes('Z2') },
+  Z3: { ...everyNode(gap(NO_IN_MEMORY_PORT)), answer: gap(1775), ...beyondNodes('Z3') },
+  Z4: { ...everyNode(gap(...WAIT_RECORDS)), ...beyondNodes('Z4') },
+  Z5: { ...everyNode(gap(LAUNCH_EVENTS)), ...beyondNodes('Z5') },
+  Z6: { ...everyNode(gap(TREE_WAY_BACK)), ...beyondNodes('Z6') },
+  Z7: {
+    answer: { witness: SESSION_BEAT_BESIDE_STALE_WINDOW },
+    close: { notApplicable: NO_SESSION_TO_READ },
+    launch: { witness: SESSION_BEAT_BESIDE_STALE_WINDOW },
+    merge: { notApplicable: NO_SESSION_TO_READ },
+    restart: { notApplicable: NO_SESSION_TO_READ },
+    review: { witness: SESSION_BEAT_BESIDE_STALE_WINDOW },
+    update: { notApplicable: NO_SESSION_TO_READ },
+    witness: { witness: SESSION_BEAT_BESIDE_STALE_WINDOW },
+    ...beyondNodes('Z7'),
+  },
+}
+
+export function sourceOf(site: LawSite): string {
+  return site in SITES_BEYOND_NODES ? SITES_BEYOND_NODES[site as SiteBeyondNodes] : FACTORY_WORKERS[site as LawNode]
 }
 
 export function lawIds(): LawId[] {
@@ -63,7 +135,7 @@ export function lawIds(): LawId[] {
 }
 
 export function gapRows(cells: LawCells = LAW_CELLS): GapRow[] {
-  return lawIds().flatMap(law => LAW_NODES.flatMap((node) => {
+  return lawIds().flatMap(law => LAW_SITES.flatMap((node) => {
     const cell = cells[law][node]
     return 'gap' in cell ? [{ law, node, cards: cell.gap }] : []
   }))

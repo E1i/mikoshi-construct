@@ -2705,11 +2705,17 @@
           "close": {
             "notApplicable": "the node starts no session, so no child process of its own outlives it"
           },
+          "intake": {
+            "notApplicable": "intake starts no session and no child process"
+          },
           "launch": {
             "witness": "Z1-restart-keeps-session"
           },
           "merge": {
             "notApplicable": "the node starts no session, so no child process of its own outlives it"
+          },
+          "netwatch": {
+            "notApplicable": "netwatch starts no session; its GitHub calls are synchronous and end inside the tick, so no child of its own outlives it"
           },
           "restart": {
             "notApplicable": "the node starts no session, so no child process of its own outlives it"
@@ -2719,6 +2725,9 @@
           },
           "update": {
             "notApplicable": "the node starts no session, so no child process of its own outlives it"
+          },
+          "window": {
+            "notApplicable": "miko:watch starts no session and no child process; it reads the bus and writes its own cursor"
           },
           "witness": {
             "witness": "Z1-restart-keeps-session"
@@ -2738,12 +2747,22 @@
               1774
             ]
           },
+          "intake": {
+            "gap": [
+              1774
+            ]
+          },
           "launch": {
             "gap": [
               1774
             ]
           },
           "merge": {
+            "gap": [
+              1774
+            ]
+          },
+          "netwatch": {
             "gap": [
               1774
             ]
@@ -2759,6 +2778,11 @@
             ]
           },
           "update": {
+            "gap": [
+              1774
+            ]
+          },
+          "window": {
             "gap": [
               1774
             ]
@@ -2783,6 +2807,11 @@
               1672
             ]
           },
+          "intake": {
+            "gap": [
+              1779
+            ]
+          },
           "launch": {
             "gap": [
               1672
@@ -2792,6 +2821,9 @@
             "gap": [
               1672
             ]
+          },
+          "netwatch": {
+            "notApplicable": "netwatch records what GitHub shows as bus events and takes no decision a window decision governs"
           },
           "restart": {
             "gap": [
@@ -2807,6 +2839,9 @@
             "gap": [
               1672
             ]
+          },
+          "window": {
+            "notApplicable": "the window is where these decisions are taken; the law is about the nodes that act on them"
           },
           "witness": {
             "gap": [
@@ -2830,6 +2865,12 @@
               1754
             ]
           },
+          "intake": {
+            "gap": [
+              1740,
+              1754
+            ]
+          },
           "launch": {
             "gap": [
               1740,
@@ -2841,6 +2882,9 @@
               1740,
               1754
             ]
+          },
+          "netwatch": {
+            "notApplicable": "netwatch opens no wait: a retry-after is a netwatch.skipped event carrying its until, and the clock lifts it"
           },
           "restart": {
             "gap": [
@@ -2855,6 +2899,12 @@
             ]
           },
           "update": {
+            "gap": [
+              1740,
+              1754
+            ]
+          },
+          "window": {
             "gap": [
               1740,
               1754
@@ -2881,6 +2931,9 @@
               1767
             ]
           },
+          "intake": {
+            "notApplicable": "intake launches nothing; it admits a card the launch node later starts"
+          },
           "launch": {
             "gap": [
               1767
@@ -2890,6 +2943,9 @@
             "gap": [
               1767
             ]
+          },
+          "netwatch": {
+            "notApplicable": "netwatch launches nothing"
           },
           "restart": {
             "gap": [
@@ -2905,6 +2961,9 @@
             "gap": [
               1767
             ]
+          },
+          "window": {
+            "notApplicable": "miko:watch launches nothing; a card the window starts is launched by the launch node, which writes the event"
           },
           "witness": {
             "gap": [
@@ -2926,6 +2985,9 @@
               1764
             ]
           },
+          "intake": {
+            "notApplicable": "intake writes the parking lane and the bus, never a card tree"
+          },
           "launch": {
             "gap": [
               1764
@@ -2935,6 +2997,9 @@
             "gap": [
               1764
             ]
+          },
+          "netwatch": {
+            "notApplicable": "netwatch writes no tree, only bus events and its heartbeat"
           },
           "restart": {
             "gap": [
@@ -2950,6 +3015,9 @@
             "gap": [
               1764
             ]
+          },
+          "window": {
+            "notApplicable": "miko:watch writes no card tree, only its cursor beside the handoff"
           },
           "witness": {
             "gap": [
@@ -2962,50 +3030,43 @@
       "Z7": {
         "cells": {
           "answer": {
-            "gap": [
-              1756
-            ]
+            "witness": "Z7-session-beat-beside-stale-window"
           },
           "close": {
-            "gap": [
-              1756
-            ]
+            "notApplicable": "the node starts no session, so the factory reading holds no beat of its own to weigh"
+          },
+          "intake": {
+            "notApplicable": "intake reads no liveness: it admits from the card text, the decisions in force and the bus card states"
           },
           "launch": {
-            "gap": [
-              1756
-            ]
+            "witness": "Z7-session-beat-beside-stale-window"
           },
           "merge": {
-            "gap": [
-              1756
-            ]
+            "notApplicable": "the node starts no session, so the factory reading holds no beat of its own to weigh"
+          },
+          "netwatch": {
+            "witness": "Z7-pulse-beside-card-silence"
           },
           "restart": {
-            "gap": [
-              1756
-            ]
+            "notApplicable": "the node starts no session, so the factory reading holds no beat of its own to weigh"
           },
           "review": {
-            "gap": [
-              1756
-            ]
+            "witness": "Z7-session-beat-beside-stale-window"
           },
           "update": {
-            "gap": [
-              1756
-            ]
+            "notApplicable": "the node starts no session, so the factory reading holds no beat of its own to weigh"
+          },
+          "window": {
+            "witness": "Z7-window-beside-sessions"
           },
           "witness": {
-            "gap": [
-              1756
-            ]
+            "witness": "Z7-session-beat-beside-stale-window"
           }
         },
         "text": "liveness is read from more than one signal"
       }
     },
-    "lawsVersion": 1
+    "lawsVersion": 2
   },
   "nodes": {
     "declared": {
@@ -4788,14 +4849,19 @@
       },
       "scripts/ports/witnesses.ts": {
         "constants": [
+          "BASE_PHASE",
           "TECHNOLOGY_WORDS"
         ],
         "functions": {
+          "cardScopeOfAdmitted": "(cardId: number, text: string, creates: readonly string[]): CardScope | null",
           "grepMatchProbe": "(command: string): string | null",
           "grepRefusal": "(witness: Witness, sides: string): string",
+          "namedOutsideTheCard": "(tree: string, witness: Witness, scope: CardScope | null, changed: readonly string[]): string[]",
+          "redOnMainProposal": "(unfit: readonly Witness[], witnesses: readonly Witness[], changed: readonly string[]): RedOnMainProposal",
           "runOnTree": "(run: TreeRun, task: TreeTask): void",
           "runOnTreeAsync": "(run: AsyncTreeRun, task: TreeTask): Promise<void>",
-          "testTargetOf": "(command: string): TestTarget | null"
+          "testTargetOf": "(command: string): TestTarget | null",
+          "witnessesFindingNoTest": "(witnesses: readonly Witness[], onBase: readonly BaseRun[]): Witness[]"
         },
         "language": "technology",
         "reexports": [],
@@ -4804,8 +4870,13 @@
           "shell"
         ],
         "types": {
-          "AsyncTreeRun": "interface AsyncTreeRun extends TreeContext { shell: (command: string, cwd: string) => Promise<ShellResult>; }",
+          "AsyncTreeRun": "interface AsyncTreeRun extends TreeContext { shell: (command: string, cwd: string) => Promise<ShellResult>; phase?: (name: string) => void; }",
+          "BaseRun": "interface BaseRun { command: string; output: string; }",
+          "CardScope": "interface CardScope { touches: string[]; creates: string[]; }",
+          "RedOnMainProposal": "interface RedOnMainProposal { replacement: ReplacementField[] | null; files: string[]; }",
           "Refuse": "type Refuse = (step: string, problem: string | null) => void",
+          "ReplacementField": "interface ReplacementField { id: string; run: string; test: null; head: 'pass'; base: 'fail'; proves: string; }",
+          "TestRunner": "interface TestRunner { runs: (command: string) => boolean; ranNoTests: (output: string) => boolean; isTestFile: (file: string) => boolean; retargeted: (command: string, files: readonly string[]) => string | null; }",
           "TestTarget": "interface TestTarget { file: string; name: string | null; }",
           "Timer": "type Timer = <T>(name: string, run: () => T) => T",
           "TreeRun": "interface TreeRun extends TreeContext { shell: Shell; time: Timer; }",

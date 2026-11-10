@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { FACTORY_RUNTIME } from '../../scripts/core/factory-paths.js'
-import { touchError } from './task-file.js'
+import { PREFIX_SUFFIX, touchError } from './task-file.js'
 
 export const WITNESS_KINDS = ['acceptance', 'invariant'] as const
 export type WitnessKind = typeof WITNESS_KINDS[number]
@@ -230,4 +230,49 @@ export function statesAnExit(field: Pick<WitnessField, 'head' | 'base'>): boolea
 export function commandInsideJudgedWrap(command: string): string | null {
   const wrapped = JUDGED_WRAP.exec(command.trim())
   return wrapped === null ? null : wrapped[1] ?? wrapped[2]!
+}
+
+export interface TestRunner {
+  runs: (command: string) => boolean
+  isTestFile: (file: string) => boolean
+}
+
+const VITEST_TEST_FILE = /\.(?:test|spec)\.[cm]?[jt]sx?$/
+const COMMAND_TOKEN_QUOTES = /^['"(]+|['");]+$/g
+const NOT_A_RELATIVE_PATH = /^-|^[~/$]|[:*?$`]/
+const CURRENT_DIRECTORY = /^\.\//
+const TRAILING_SLASHES = /\/+$/
+
+function unjudgedRun(command: string): string {
+  return (commandInsideJudgedWrap(command) ?? command).trim().replace(NEGATION, '')
+}
+
+const VITEST_RUNNER: TestRunner = {
+  runs: command => VITEST.test(command),
+  isTestFile: file => VITEST_TEST_FILE.test(file),
+}
+
+const TEST_RUNNERS: readonly TestRunner[] = [VITEST_RUNNER]
+
+export function testRunnerOf(command: string): TestRunner | null {
+  return TEST_RUNNERS.find(runner => runner.runs(command)) ?? null
+}
+
+export function namedPaths(command: string): string[] {
+  const tokens = unjudgedRun(command).split(/\s+/).map(token => token.replace(COMMAND_TOKEN_QUOTES, '').replace(CURRENT_DIRECTORY, ''))
+  return [...new Set(tokens.filter(token => token.includes('/') && !NOT_A_RELATIVE_PATH.test(token)).map(token => token.replace(TRAILING_SLASHES, '')))]
+}
+
+export function withinScope(file: string, scope: readonly string[]): boolean {
+  return scope.some((entry) => {
+    const root = (entry.endsWith(PREFIX_SUFFIX) ? entry.slice(0, -PREFIX_SUFFIX.length) : entry).replace(TRAILING_SLASHES, '')
+    return file === root || file.startsWith(`${root}/`) || root.startsWith(`${file}/`)
+  })
+}
+
+export interface CardScope { touches: readonly string[], creates: readonly string[] }
+
+export function namedAbsentOutside(command: string, scope: CardScope, absent: (file: string) => boolean, changed: readonly string[] = []): string[] {
+  const card = [...scope.touches, ...scope.creates, ...changed]
+  return namedPaths(command).filter(file => absent(file) && !withinScope(file, card))
 }

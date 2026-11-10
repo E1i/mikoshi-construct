@@ -1,28 +1,31 @@
-import type { DatabaseSync } from 'node:sqlite'
+import type { SeedEvent } from '../../../tests/board/bus-fixture.js'
 import type { Lease } from '../../core/lease.js'
 import type { NodeKind, NodeStep } from '../../core/node.js'
 import type { QueuedTask } from '../../core/queue.js'
-import type { LawCell, LawCells, LawId, LawNode } from '../../nodes/laws.js'
+import type { LawCell, LawCells, LawId, LawNode, LawSite } from '../../nodes/laws.js'
 import type { BgResult, DetachedLaunch, RunningProcess } from '../../supervisor/bg.js'
 import type { BusWorker } from '../../supervisor/workers.js'
 import { existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { DatabaseSync } from 'node:sqlite'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { writeBus } from '../../../tests/board/bus-fixture.js'
+import { printBoard } from '../../cli/board-page.js'
 import { NODE_DECLARATIONS } from '../../contract/factory/nodes.js'
 import { LAW_GAP_PREFIX, lawGapNumbers, ratchetBreaks, readRatchet } from '../../contract/ratchet.js'
 import { openBus } from '../../core/db.js'
+import { SESSION_HEARTBEAT, WINDOW_HEARTBEAT } from '../../core/events.js'
 import { completeTask, recordWorkerStarted } from '../../core/lease.js'
 import { Node } from '../../core/node.js'
 import { keyOf, queueTaskWithin } from '../../core/queue.js'
-import { gapRows, LAW_CELLS, LAW_NODES, lawIds, LAWS, RESTART_KEEPS_SESSION } from '../../nodes/laws.js'
+import { gapRows, LAW_CELLS, LAW_NODES, LAW_SITES, lawIds, LAWS, RESTART_KEEPS_SESSION, SESSION_BEAT_BESIDE_STALE_WINDOW, sourceOf } from '../../nodes/laws.js'
 import { launchName } from '../../supervisor/bg.js'
 import { slotsVariable } from '../../supervisor/scheduler.js'
 import { busDrain, BusSupervisor, freeLeasesOf, withoutRetiring } from '../../supervisor/supervisor.js'
 import { workerLaunches } from '../../supervisor/workers.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')
-const NODES_TREE = path.join(REPO_ROOT, 'scripts', 'nodes')
 const OWNER_LAWS = ['Z1', 'Z2', 'Z3', 'Z4', 'Z5', 'Z6', 'Z7']
 
 interface Witness {
@@ -39,6 +42,11 @@ const SESSION_WRAPPER_PID = 599
 const SESSION_PID = 600
 const CLOSE_PID = 610
 const PROMISE_TURNS = 10_000
+const MINUTE = 60_000
+const BOARD_NOW = new Date('2026-11-09T15:40:00.000Z')
+const STALE_WINDOW_BEAT = '2026-11-07T14:39:00.000Z'
+const LIVE_HEADER = 'id="bus-live">bus live<'
+const SILENT_SESSION_MINUTES = 120
 const roots: string[] = []
 
 afterEach(() => {
@@ -154,8 +162,45 @@ async function restartKeepsSession(node: LawNode): Promise<void> {
     throw new Error(`the ${node} session did not finish its round: ${JSON.stringify(state)}`)
 }
 
+function boardReadsLive(node: LawNode, sessionBeat: string): boolean {
+  const root = mkdtempSync(path.join(tmpdir(), 'z7-session-'))
+  roots.push(root)
+  const events: SeedEvent[] = [
+    { ts: STALE_WINDOW_BEAT, type: WINDOW_HEARTBEAT, card: null, payload: JSON.stringify({ session: 'window' }) },
+    { ts: sessionBeat, type: SESSION_HEARTBEAT, card: 45, payload: JSON.stringify({ session: 's-45', step: node }) },
+  ]
+  const busPath = writeBus(path.join(root, 'bus.db'), { events })
+  const db = new DatabaseSync(busPath)
+  try {
+    db.exec('ALTER TABLE card_bodies ADD COLUMN admission_event_id INTEGER; ALTER TABLE card_bodies ADD COLUMN text_sha TEXT NOT NULL DEFAULT \'\'')
+  }
+  finally {
+    db.close()
+  }
+  let html = ''
+  vi.stubEnv('BUS_RERUN', '')
+  try {
+    printBoard(busPath, BOARD_NOW, (text) => {
+      html += text
+    }, path.join(root, 'miko.md'), 'html')
+  }
+  finally {
+    vi.unstubAllEnvs()
+  }
+  return html.includes(LIVE_HEADER)
+}
+
+async function sessionBeatBesideStaleWindow(node: LawNode): Promise<void> {
+  const ago = (minutes: number): string => new Date(BOARD_NOW.getTime() - minutes * MINUTE).toISOString()
+  if (!boardReadsLive(node, ago(1)))
+    throw new Error(`a ${node} session beating a minute ago beside a stale window beat reads the factory down`)
+  if (boardReadsLive(node, ago(SILENT_SESSION_MINUTES)))
+    throw new Error(`a ${node} session silent for ${SILENT_SESSION_MINUTES} minutes beside a stale window beat reads the factory live`)
+}
+
 const WITNESSES: Witnesses = {
   [RESTART_KEEPS_SESSION]: { law: 'Z1', run: restartKeepsSession },
+  [SESSION_BEAT_BESIDE_STALE_WINDOW]: { law: 'Z7', run: sessionBeatBesideStaleWindow },
 }
 
 function cellKinds(cell: LawCell): string[] {
@@ -180,7 +225,7 @@ function registryFaults(cells: LawCells, witnesses: Witnesses): string[] {
     const row = cells[law] as Partial<Record<LawNode, LawCell>> | undefined
     if (row === undefined)
       return [`${law}: no row`]
-    const strangers = Object.keys(row).filter(node => !(LAW_NODES as readonly string[]).includes(node)).map(node => `${law} × ${node}: not a node`)
+    const strangers = Object.keys(row).filter(node => !(LAW_SITES as readonly string[]).includes(node)).map(node => `${law} × ${node}: not a law site`)
     return [...strangers, ...LAW_NODES.flatMap(node => cellFaults(law, node, row[node], witnesses))]
   })]
 }
@@ -210,8 +255,8 @@ function gapTitle(law: LawId, node: LawNode, cards: readonly number[]): string {
   return `gap: ${law} × ${node} → ${cards.map(card => `#${card}`).join(', ')}`
 }
 
-function workerOf(node: string): string {
-  return path.join(NODES_TREE, node, `${node}-worker.ts`)
+function siteWithoutSource(site: LawSite): boolean {
+  return !existsSync(path.join(REPO_ROOT, sourceOf(site)))
 }
 
 function recordedLawGaps(): Record<string, number> {
@@ -221,7 +266,7 @@ function recordedLawGaps(): Record<string, number> {
 describe('the laws of a node', () => {
   it('every law has a cell for each of the 8 nodes and every witness cell names a witness', () => {
     expect(lawIds()).toEqual(OWNER_LAWS)
-    expect(LAW_NODES.filter(node => !existsSync(workerOf(node)))).toEqual([])
+    expect(LAW_SITES.filter(siteWithoutSource)).toEqual([])
     expect(NODE_DECLARATIONS.map(({ kind }) => kind).filter(kind => !(LAW_NODES as readonly string[]).includes(kind))).toEqual([])
     expect(LAW_NODES).toHaveLength(8)
     expect(registryFaults(LAW_CELLS, WITNESSES)).toEqual([])

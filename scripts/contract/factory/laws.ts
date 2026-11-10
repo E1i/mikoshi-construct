@@ -1,12 +1,12 @@
-import type { LawCell, LawCells, LawId, LawNode } from '../../nodes/laws.js'
+import type { LawCell, LawCells, LawId, LawSite } from '../../nodes/laws.js'
 import type { Factory } from '../factory.js'
-import { LAW_CELLS, LAW_NODES, lawIds, LAWS } from '../../nodes/laws.js'
+import { LAW_CELLS, LAW_SITES, lawIds, LAWS } from '../../nodes/laws.js'
 
-export const LAWS_VERSION = 1
+export const LAWS_VERSION = 2
 
 export interface LawRow {
   text: string
-  cells: Record<LawNode, LawCell>
+  cells: Record<LawSite, LawCell>
 }
 
 export interface LawsSection {
@@ -21,7 +21,7 @@ export function lawsSection(cells: LawCells = LAW_CELLS): LawsSection {
     lawsVersion: LAWS_VERSION,
     laws: Object.fromEntries(lawIds().map(law => [law, {
       text: LAWS[law],
-      cells: Object.fromEntries(LAW_NODES.map(node => [node, cells[law][node]])) as Record<LawNode, LawCell>,
+      cells: Object.fromEntries(LAW_SITES.map(site => [site, cells[law][site]])) as Record<LawSite, LawCell>,
     }])) as Record<LawId, LawRow>,
   }
 }
