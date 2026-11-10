@@ -1,7 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import { afterEach, describe, expect, it } from 'vitest'
 import { appendEvent, openBus } from '../../core/db.js'
-import { CARD_ANSWERED, PR_OBSERVED, REVIEW_RECORDED, ROUND_EXTENDED, SHARD_ISSUED, SHARD_REVOKED, WITNESS_RECORDED } from '../../core/events.js'
+import { CARD_ANSWERED, PR_OBSERVED, REVIEW_RECORDED, ROUND_EXTENDED, SHARD_EXPIRED, SHARD_ISSUED, SHARD_REVOKED, WITNESS_RECORDED } from '../../core/events.js'
 import { changesRoundsOf, REVIEW_ROUNDS } from '../../core/queue.js'
 import { DECISIONS_SCOPE } from '../../policy/shards.js'
 import { sha } from './github-fake.js'
@@ -10,8 +10,10 @@ const PR = 1741
 const CARD = PR + 100
 const TS = '2026-11-10T10:00:00.000Z'
 const UNTIL = '2026-11-10T16:00:00.000Z'
+const PAST_UNTIL = '2026-11-10T17:00:00.000Z'
 const HEADS = [sha('a'), sha('b'), sha('c')]
 const LAST = HEADS.at(-1)!
+const SHARD = 'ws-1'
 const dbs: DatabaseSync[] = []
 
 afterEach(() => {
@@ -27,9 +29,9 @@ function bus(): DatabaseSync {
 
 let serial = 0
 
-function event(db: DatabaseSync, type: string, head: string | null, payload: Record<string, unknown>): void {
+function event(db: DatabaseSync, type: string, head: string | null, payload: Record<string, unknown>, ts = TS): void {
   serial += 1
-  appendEvent(db, { ts: TS, type, actor: 'worker:test:1', cardId: CARD, pr: PR, head, dedupeKey: `${type}:${serial}`, payload, legacy: false })
+  appendEvent(db, { ts, type, actor: 'worker:test:1', cardId: CARD, pr: PR, head, dedupeKey: `${type}:${serial}`, payload, legacy: false })
 }
 
 function reviewed(db: DatabaseSync, head: string, verdict: 'changes' | 'pass', findings: string[] = []): void {
@@ -40,32 +42,49 @@ function observed(db: DatabaseSync, head: string, ci: 'green' | 'red'): void {
   event(db, PR_OBSERVED, head, { card_id: CARD, base: 'main', head, mergeable: 'clean', ci, auto_merge: false, draft: false })
 }
 
-function windowShard(db: DatabaseSync, id: string, scope = DECISIONS_SCOPE): void {
-  appendEvent(db, { ts: TS, type: SHARD_ISSUED, actor: 'owner', cardId: null, pr: null, head: null, dedupeKey: `${SHARD_ISSUED}:${id}`, payload: { id, by: 'owner', scope, until: UNTIL, window: 1 }, legacy: false })
+type Shard = 'window' | 'none' | 'not-window' | 'merge'
+
+function issued(db: DatabaseSync, shard: Shard): void {
+  if (shard === 'none')
+    return
+  const scope = shard === 'merge' ? 'merge' : DECISIONS_SCOPE
+  const window = shard === 'not-window' ? 0 : 1
+  appendEvent(db, { ts: TS, type: SHARD_ISSUED, actor: 'owner', cardId: null, pr: null, head: null, dedupeKey: `${SHARD_ISSUED}:${SHARD}`, payload: { id: SHARD, by: 'owner', scope, until: UNTIL, window }, legacy: false })
 }
 
-function extended(db: DatabaseSync, findings: string[], previous: string[]): void {
-  event(db, ROUND_EXTENDED, LAST, { pr: PR, findings, previous })
+type Ending = typeof SHARD_REVOKED | typeof SHARD_EXPIRED
+
+function ended(db: DatabaseSync, type: Ending): void {
+  appendEvent(db, { ts: TS, type, actor: 'owner', cardId: null, pr: null, head: null, dedupeKey: `${type}:${SHARD}`, payload: { id: SHARD }, legacy: false })
 }
 
 interface Limit {
-  shard: boolean
-  ci: 'green' | 'red'
-  findings: string[]
-  revoked?: boolean
+  shard?: Shard
+  ci?: 'green' | 'red'
+  findings?: string[]
+  endedBefore?: Ending
+  endedAfter?: Ending
+  extendedAt?: string
+  laterGreenHead?: boolean
+  redAfter?: boolean
 }
 
-function atTheLimit({ shard, ci, findings, revoked = false }: Limit): DatabaseSync {
+function atTheLimit({ shard = 'window', ci = 'green', findings = ['a new defect'], endedBefore, endedAfter, extendedAt = TS, laterGreenHead = false, redAfter = false }: Limit = {}): DatabaseSync {
   const db = bus()
-  if (shard)
-    windowShard(db, 'ws-1')
-  if (revoked)
-    appendEvent(db, { ts: TS, type: SHARD_REVOKED, actor: 'owner', cardId: null, pr: null, head: null, dedupeKey: `${SHARD_REVOKED}:ws-1`, payload: { id: 'ws-1' }, legacy: false })
+  issued(db, shard)
+  if (endedBefore !== undefined)
+    ended(db, endedBefore)
   for (const [at, head] of HEADS.entries()) {
     observed(db, head, at === HEADS.length - 1 ? ci : 'green')
     reviewed(db, head, 'changes', [`finding ${at}`])
   }
-  extended(db, findings, ['finding 1'])
+  if (laterGreenHead)
+    observed(db, sha('e'), 'green')
+  event(db, ROUND_EXTENDED, LAST, { pr: PR, findings, previous: ['finding 1'] }, extendedAt)
+  if (endedAfter !== undefined)
+    ended(db, endedAfter)
+  if (redAfter)
+    observed(db, LAST, 'red')
   return db
 }
 
@@ -87,30 +106,23 @@ describe('autonomy rounds in the queue', () => {
   })
 
   it('under a shard the window grants one more round on green CI with new findings', () => {
-    const granted = atTheLimit({ shard: true, ci: 'green', findings: ['a new defect'] })
-
-    expect(changesRoundsOf(granted, PR)).toBe(REVIEW_ROUNDS - 1)
-
-    const refused: Record<string, DatabaseSync> = {
-      'no shard': atTheLimit({ shard: false, ci: 'green', findings: ['a new defect'] }),
-      'a revoked shard': atTheLimit({ shard: true, revoked: true, ci: 'green', findings: ['a new defect'] }),
-      'red CI on the extended head': atTheLimit({ shard: true, ci: 'red', findings: ['a new defect'] }),
-      'the previous findings again': atTheLimit({ shard: true, ci: 'green', findings: [' finding 1 '] }),
-      'no findings': atTheLimit({ shard: true, ci: 'green', findings: [] }),
+    const cases: Record<string, { limit: Limit, rounds: number }> = {
+      'a live window decisions shard, green CI, new findings': { limit: {}, rounds: REVIEW_ROUNDS - 1 },
+      'a shard revoked after the extension': { limit: { endedAfter: SHARD_REVOKED }, rounds: REVIEW_ROUNDS - 1 },
+      'a shard expired after the extension': { limit: { endedAfter: SHARD_EXPIRED }, rounds: REVIEW_ROUNDS - 1 },
+      'red CI observed after the extension': { limit: { redAfter: true }, rounds: REVIEW_ROUNDS - 1 },
+      'no shard': { limit: { shard: 'none' }, rounds: REVIEW_ROUNDS },
+      'a decisions shard outside the window': { limit: { shard: 'not-window' }, rounds: REVIEW_ROUNDS },
+      'a merge-only window shard': { limit: { shard: 'merge' }, rounds: REVIEW_ROUNDS },
+      'a shard revoked before the extension': { limit: { endedBefore: SHARD_REVOKED }, rounds: REVIEW_ROUNDS },
+      'a shard expired before the extension': { limit: { endedBefore: SHARD_EXPIRED }, rounds: REVIEW_ROUNDS },
+      'an extension past the shard\'s until': { limit: { extendedAt: PAST_UNTIL }, rounds: REVIEW_ROUNDS },
+      'red CI on the extended head': { limit: { ci: 'red' }, rounds: REVIEW_ROUNDS },
+      'a later green observation of another head': { limit: { laterGreenHead: true }, rounds: REVIEW_ROUNDS },
+      'the previous findings again': { limit: { findings: [' finding 1 '] }, rounds: REVIEW_ROUNDS },
+      'no findings': { limit: { findings: [] }, rounds: REVIEW_ROUNDS },
     }
-    for (const [name, db] of Object.entries(refused))
-      expect({ name, rounds: changesRoundsOf(db, PR) }).toEqual({ name, rounds: REVIEW_ROUNDS })
-  })
-
-  it('a merge-only window shard grants no round', () => {
-    const db = bus()
-    windowShard(db, 'ws-merge', 'merge')
-    for (const [at, head] of HEADS.entries()) {
-      observed(db, head, 'green')
-      reviewed(db, head, 'changes', [`finding ${at}`])
-    }
-    extended(db, ['a new defect'], ['finding 1'])
-
-    expect(changesRoundsOf(db, PR)).toBe(REVIEW_ROUNDS)
+    for (const [name, { limit, rounds }] of Object.entries(cases))
+      expect({ name, rounds: changesRoundsOf(atTheLimit(limit), PR) }).toEqual({ name, rounds })
   })
 })
