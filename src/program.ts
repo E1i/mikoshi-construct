@@ -2,6 +2,7 @@ import type { ArgsDef, CommandDef, CommandMeta } from 'citty'
 import type { BoardReading } from './commands/board/index.js'
 import type { CardAdmissionsPort, CardEventPort, CardStatesPort } from './commands/intake/index.js'
 import type { MutationJudgedPort } from './commands/mutate/journal.js'
+import type { LadderRunPort } from './commands/run-record.js'
 import { homedir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -23,6 +24,7 @@ import { listFlagOf, runAmend } from './commands/intake/amend.js'
 import { defaultParking, INTAKE_EXIT, printIntake, readStdinToEnd, runIntake } from './commands/intake/index.js'
 import { printMove, runMove } from './commands/intake/move.js'
 import { applyExit, applyJson, applyMutation, judgeExit, judgeJson, printApply, printJudge, REPORT_FORMATS, runJudge } from './commands/mutate/index.js'
+import { printRunRecord, runRecord } from './commands/run-record.js'
 import { printDetectReport, SOULKILL_EXIT, soulkillJson } from './commands/soulkill.js'
 import { applySync, printSync, printSyncApply, runSync, SYNC_NO_MANIFEST_JSON, syncApplyExit, syncApplyJson, syncExit, syncJson } from './commands/sync/index.js'
 import { detect } from './detect/index.js'
@@ -364,6 +366,25 @@ const say = withKnownFlags(defineCommand({
   },
 }), ROOT_META)
 
+const RUN_RECORD_FROM_STDIN = '-'
+
+function runRecordCommand(ladderRun: LadderRunPort | undefined) {
+  return withKnownFlags(defineCommand({
+    meta: { name: 'run-record', description: 'Record one /implement ladder run: one line in .construct/runs.jsonl where no bus is wired, a bus ladder event through construct-intake run-record where one is; the record is the JSON argument, or stdin with -' },
+    args: commonArgs,
+    run({ args }) {
+      const console = ui(args)
+      const given = args._.join(' ').trim()
+      const failed = reported(console, () => {
+        const text = given === RUN_RECORD_FROM_STDIN ? readStdinToEnd() : given
+        process.exitCode = printRunRecord(console, runRecord(text, { dir: args.dir, env: process.env, home: homedir(), now: () => new Date() }, ladderRun))
+      })
+      if (failed !== 0)
+        process.exitCode = failed
+    },
+  }), ROOT_META)
+}
+
 const sync = withKnownFlags(defineCommand({
   meta: { name: 'sync', description: 'Classify what today\'s construct would change in this repository; --apply writes what it owns' },
   args: {
@@ -404,7 +425,7 @@ const sync = withKnownFlags(defineCommand({
   },
 }), ROOT_META)
 
-function intakeCommand(bus: BusPorts | undefined) {
+function intakeCommand(bus: Partial<BusPorts> | undefined) {
   const { cardEvents: events, cardStates, cardAdmissions: admissions } = bus ?? {}
   return withKnownFlags(defineCommand({
     meta: { name: 'intake', description: 'Turn a draft of sliced cards into parking cards: assigns the next numbers free in the parking and among the pull requests and issues --taken lists, marks what the retelling left unclear, and checks every card with the parking grammar before writing; the CLI runs no gh and no model' },
@@ -530,7 +551,7 @@ function mutateJudgeCommand(record: MutationJudgedPort | undefined) {
   }), MUTATE_META)
 }
 
-function mutateCommand(bus: BusPorts | undefined) {
+function mutateCommand(bus: Partial<BusPorts> | undefined) {
   return defineCommand({
     meta: MUTATE_META,
     subCommands: {
@@ -545,9 +566,10 @@ export interface BusPorts {
   cardStates: CardStatesPort
   cardAdmissions: CardAdmissionsPort
   mutationJudged?: MutationJudgedPort
+  ladderRun?: LadderRunPort
 }
 
-export function createMain(bus?: BusPorts) {
+export function createMain(bus?: Partial<BusPorts>) {
   const intake = intakeCommand(bus)
   const mutate = mutateCommand(bus)
   return defineCommand({
@@ -570,6 +592,7 @@ export function createMain(bus?: BusPorts) {
       intake,
       mutate,
       say,
+      'run-record': runRecordCommand(bus?.ladderRun),
     },
   })
 }

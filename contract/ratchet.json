@@ -42,7 +42,7 @@
   "lines:scripts/core/queue.ts": 1311,
   "lines:scripts/supervisor/supervisor.ts": 1187,
   "lines:scripts/window/window-requests.ts": 947,
-  "lines:src/ui/lore.ts": 1338,
+  "lines:src/ui/lore.ts": 1337,
   "overlaps:answer-duties": 1,
   "overlaps:ci-reading": 0,
   "overlaps:generated-files": 0,
