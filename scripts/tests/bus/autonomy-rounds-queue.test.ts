@@ -54,8 +54,8 @@ function issued(db: DatabaseSync, shard: Shard): void {
 
 type Ending = typeof SHARD_REVOKED | typeof SHARD_EXPIRED
 
-function ended(db: DatabaseSync, type: Ending): void {
-  appendEvent(db, { ts: TS, type, actor: 'owner', cardId: null, pr: null, head: null, dedupeKey: `${type}:${SHARD}`, payload: { id: SHARD }, legacy: false })
+function ended(db: DatabaseSync, type: Ending, id = SHARD): void {
+  appendEvent(db, { ts: TS, type, actor: 'owner', cardId: null, pr: null, head: null, dedupeKey: `${type}:${id}`, payload: { id }, legacy: false })
 }
 
 interface Limit {
@@ -63,17 +63,20 @@ interface Limit {
   ci?: 'green' | 'red'
   findings?: string[]
   endedBefore?: Ending
+  endedBeforeId?: string
   endedAfter?: Ending
   extendedAt?: string
+  issuedAfter?: boolean
   laterGreenHead?: boolean
   redAfter?: boolean
 }
 
-function atTheLimit({ shard = 'window', ci = 'green', findings = ['a new defect'], endedBefore, endedAfter, extendedAt = TS, laterGreenHead = false, redAfter = false }: Limit = {}): DatabaseSync {
+function atTheLimit({ shard = 'window', ci = 'green', findings = ['a new defect'], endedBefore, endedBeforeId = SHARD, endedAfter, extendedAt = TS, issuedAfter = false, laterGreenHead = false, redAfter = false }: Limit = {}): DatabaseSync {
   const db = bus()
-  issued(db, shard)
+  if (!issuedAfter)
+    issued(db, shard)
   if (endedBefore !== undefined)
-    ended(db, endedBefore)
+    ended(db, endedBefore, endedBeforeId)
   for (const [at, head] of HEADS.entries()) {
     observed(db, head, at === HEADS.length - 1 ? ci : 'green')
     reviewed(db, head, 'changes', [`finding ${at}`])
@@ -81,6 +84,8 @@ function atTheLimit({ shard = 'window', ci = 'green', findings = ['a new defect'
   if (laterGreenHead)
     observed(db, sha('e'), 'green')
   event(db, ROUND_EXTENDED, LAST, { pr: PR, findings, previous: ['finding 1'] }, extendedAt)
+  if (issuedAfter)
+    issued(db, shard)
   if (endedAfter !== undefined)
     ended(db, endedAfter)
   if (redAfter)
@@ -111,6 +116,9 @@ describe('autonomy rounds in the queue', () => {
       'a shard revoked after the extension': { limit: { endedAfter: SHARD_REVOKED }, rounds: REVIEW_ROUNDS - 1 },
       'a shard expired after the extension': { limit: { endedAfter: SHARD_EXPIRED }, rounds: REVIEW_ROUNDS - 1 },
       'red CI observed after the extension': { limit: { redAfter: true }, rounds: REVIEW_ROUNDS - 1 },
+      'another shard revoked before the extension': { limit: { endedBefore: SHARD_REVOKED, endedBeforeId: 'ws-2' }, rounds: REVIEW_ROUNDS - 1 },
+      'another shard expired before the extension': { limit: { endedBefore: SHARD_EXPIRED, endedBeforeId: 'ws-2' }, rounds: REVIEW_ROUNDS - 1 },
+      'a shard issued only after the extension': { limit: { issuedAfter: true }, rounds: REVIEW_ROUNDS },
       'no shard': { limit: { shard: 'none' }, rounds: REVIEW_ROUNDS },
       'a decisions shard outside the window': { limit: { shard: 'not-window' }, rounds: REVIEW_ROUNDS },
       'a merge-only window shard': { limit: { shard: 'merge' }, rounds: REVIEW_ROUNDS },
