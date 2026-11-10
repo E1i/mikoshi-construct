@@ -1,5 +1,6 @@
 import type { SeedEvent } from '../../../tests/board/bus-fixture.js'
 import type { LawCell, LawId, SiteBeyondNodes } from '../../nodes/laws.js'
+import type { GitHub } from '../../ports/github.js'
 import type { CardActivity } from '../../window/watch.js'
 import { existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -7,13 +8,19 @@ import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { writeBus } from '../../../tests/board/bus-fixture.js'
+import { ABANDONED_TITLE } from '../../ci/required.js'
 import { printBoard } from '../../cli/board-page.js'
 import { lawsSection } from '../../contract/factory/laws.js'
 import { lawGapNumbers, readRatchet } from '../../contract/ratchet.js'
+import { openBus } from '../../core/db.js'
 import { CARD_STARTED, SESSION_HEARTBEAT, WINDOW_HEARTBEAT } from '../../core/events.js'
 import { FACTORY_WORKERS } from '../../core/factory-paths.js'
-import { LAW_CELLS, LAW_NODES, LAW_SITES, lawIds, PULSE_BESIDE_CARD_SILENCE, SITES_BEYOND_NODES, sourceOf, WINDOW_BESIDE_SESSIONS } from '../../nodes/laws.js'
+import { rerunDueOn } from '../../core/observations.js'
+import { ABANDONED_READ_AS_RERUN, LAW_CELLS, LAW_NODES, LAW_SITES, lawIds, PULSE_BESIDE_CARD_SILENCE, SITES_BEYOND_NODES, sourceOf, WINDOW_BESIDE_SESSIONS } from '../../nodes/laws.js'
+import { NetWatch, TICK_MS } from '../../ports/netwatch.js'
+import { BusTick } from '../../supervisor/run.js'
 import { BUS_ALIVE_MS, STALL_MS, stalledOf } from '../../window/watch.js'
+import { Clock, FakeGitHub, sha } from '../bus/github-fake.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')
 const NOW = new Date('2026-11-09T15:40:00.000Z')
@@ -87,7 +94,44 @@ function pulseBesideCardSilence(): void {
     throw new Error('a silent card reads stalled with no netwatch pulse at all')
 }
 
+function abandonedReadAsRerun(): void {
+  const root = mkdtempSync(path.join(tmpdir(), 'law-sites-z2-'))
+  roots.push(root)
+  const db = openBus(path.join(root, 'bus.db'))
+  try {
+    const gitHub = new FakeGitHub()
+    const clock = new Clock()
+    const abandonedHead = sha('a')
+    const client: GitHub = (endpoint) => {
+      const annotations = /check-runs\/(\d+)\/annotations$/.exec(endpoint)
+      if (annotations !== null)
+        return { status: 200, headers: {}, body: [{ title: annotations[1] === '1' ? ABANDONED_TITLE : 'CI / required is red' }] }
+      const response = gitHub.client(endpoint)
+      const head = /\/commits\/([0-9a-f]{40})\/check-runs/.exec(endpoint)?.[1]
+      if (head === undefined)
+        return response
+      const id = head === abandonedHead ? 1 : 2
+      const body = response.body as { check_runs: { name: string, conclusion: string | null }[] }
+      return { ...response, body: { check_runs: body.check_runs.map(check => check.name === 'required' && check.conclusion === 'failure' ? { ...check, id, output: { annotations_count: 1, annotations_url: `https://api.github.com/repos/{owner}/{repo}/check-runs/${id}/annotations` } } : check) } }
+    }
+    const tick = new BusTick(db, new NetWatch(db, client, clock.now), clock.now, () => {})
+    tick.run()
+    clock.advance(TICK_MS)
+    gitHub.open({ number: 1493, head: abandonedHead, required: 'failure', failed: [] })
+    gitHub.open({ number: 1494, head: sha('b'), required: 'failure', failed: [] })
+    tick.run()
+    if (!rerunDueOn(db, 1493, abandonedHead))
+      throw new Error('netwatch read a required red only from abandoned jobs as a defect, not a rerun due')
+    if (rerunDueOn(db, 1494, sha('b')))
+      throw new Error('netwatch read a required red with no abandoned annotation as a rerun due')
+  }
+  finally {
+    db.close()
+  }
+}
+
 const WITNESSES: Readonly<Record<string, Witness>> = {
+  [ABANDONED_READ_AS_RERUN]: { law: 'Z2', run: abandonedReadAsRerun },
   [WINDOW_BESIDE_SESSIONS]: { law: 'Z7', run: windowBesideSessions },
   [PULSE_BESIDE_CARD_SILENCE]: { law: 'Z7', run: pulseBesideCardSilence },
 }
