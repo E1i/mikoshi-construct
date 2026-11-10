@@ -22,6 +22,7 @@ import { appendCardEvent, cardBodyText, laid } from '../core/card-bodies.js'
 import { appendEvent, BUSY_TIMEOUT_MS, defaultBusPath, inTransaction, openBus } from '../core/db.js'
 import { CARD_ADMITTED, CARD_MOVED, CARD_PLANNED, CARD_UNPLANNED, LADDER_RUN, NUMBERS_FOREIGN, PLAN_CLOSED, PLAN_OPENED } from '../core/events.js'
 import { OWNER } from '../core/inbox.js'
+import { constructCommand, pnpmCommand } from '../core/owner-commands.js'
 import { openDatabase } from '../core/sqlite.js'
 import { assignMovedLane, layLanes, repositoryLanes } from '../nodes/launch/lane-assign.js'
 import { activeWindowShards } from '../policy/shards.js'
@@ -37,6 +38,7 @@ const EXPORT_FLAG = '--export'
 const PLAIN_FLAG = '--plain'
 const JOHNNY_FLAG = '--johnny'
 const RELEASE_FLAG = '--release'
+const OPEN_A_RELEASE = pnpmCommand('bus:request', 'plan --op open')
 
 const INTAKE_ADMISSIONS = `
   SELECT id, ts, card_id, payload FROM events
@@ -178,7 +180,7 @@ function releaseToEnter(db: DatabaseSync, event: CardEvent, flagged: string | un
   if (plannedRelease(db, event.cardId) === named)
     return undefined
   if (!isOpenRelease(db, named))
-    throw new Error(`Refused: #${event.cardId} names release ${named} in its body, and that is no open release in the bus; open it with pnpm bus:request plan --op open first, or take the line out. Nothing was admitted.`)
+    throw new Error(`Refused: #${event.cardId} names release ${named} in its body, and that is no open release in the bus; open it with ${OPEN_A_RELEASE} first, or take the line out. Nothing was admitted.`)
   return named
 }
 
@@ -234,7 +236,7 @@ export async function runBusIntake(db: DatabaseSync, argv: readonly string[], se
   const releaseAt = argv.indexOf(RELEASE_FLAG)
   const release = releaseAt === -1 ? undefined : argv[releaseAt + 1] ?? ''
   if (release !== undefined && !isOpenRelease(db, release)) {
-    process.stderr.write(`Refused: ${RELEASE_FLAG} ${release} names no open release in the bus; open it with pnpm bus:request plan --op open first. Nothing was admitted.\n`)
+    process.stderr.write(`Refused: ${RELEASE_FLAG} ${release} names no open release in the bus; open it with ${OPEN_A_RELEASE} first. Nothing was admitted.\n`)
     process.exitCode = 1
     return
   }
@@ -257,7 +259,7 @@ function intakeBusPath(): string | null {
     const busPath = defaultBusPath()
     if (namesItsBus() || existsSync(busPath))
       return busPath
-    return refused(`Refused: no bus at ${busPath}, and a card number comes only from the bus; run construct-factory or construct attach in this repository first, or name the bus in ${BUS_DB_VARIABLE}. No bus was created and no number assigned.`)
+    return refused(`Refused: no bus at ${busPath}, and a card number comes only from the bus; run construct-factory or ${constructCommand('attach')} in this repository first, or name the bus in ${BUS_DB_VARIABLE}. No bus was created and no number assigned.`)
   }
   catch (error) {
     if (!(error instanceof ForeignBusRefused))

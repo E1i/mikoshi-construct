@@ -1,9 +1,10 @@
 import type { ReleaseEntry } from './changelog.js'
+import { pnpmCommand } from '../core/owner-commands.js'
 
 const LEAD = `# Releases
 
 Every released version, generated from [CHANGELOG.md](https://github.com/E1i/mikoshi-construct/blob/main/CHANGELOG.md).
-Edit the changesets, then run \`pnpm release-notes:render\`; the test suite fails when this page and the
+Edit the changesets, then run \`${pnpmCommand('release-notes:render')}\`; the test suite fails when this page and the
 changelog drift apart. A release with a hand-written note links to it rather than repeating it here.`
 
 function entrySection(entry: ReleaseEntry, handWritten: Map<string, string>): string {

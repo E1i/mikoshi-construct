@@ -5,7 +5,8 @@ import path from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
 import { CONCEPTS } from '../../contract/factory/concepts.js'
 import { findSites } from '../../contract/factory/overlaps.js'
-import { constructCommand, pnpmCommand } from '../../core/owner-commands.js'
+import { ADMIT_COMMAND, constructCommand, pnpmCommand } from '../../core/owner-commands.js'
+import { admitCommandOf } from '../../core/queue.js'
 
 const REPO_ROOT = path.join(import.meta.dirname, '..', '..', '..')
 const CONCEPT_ID = 'owner-commands'
@@ -61,6 +62,13 @@ describe('the owner of owner commands', () => {
     expect(pnpmCommand('board')).toBe('pnpm board')
     expect(constructCommand('doctor', '--dir', '.')).toBe('construct doctor --dir .')
     expect(constructCommand('intake', '--admit', 1797)).toBe('construct intake --admit 1797')
+  })
+
+  it('holds the admit command the queue tells the owner to run, with or without a lane', () => {
+    expect(ADMIT_COMMAND).toBe('pnpm intake --admit')
+    expect(admitCommandOf(1802, 'lane-2')).toBe('pnpm intake --admit <parking>/lane-2/1802.md')
+    expect(admitCommandOf(1802, '')).toBe('pnpm intake --admit <parking>/1802.md')
+    expect(admitCommandOf(1802, null)).toBe('pnpm intake --admit <parking>/1802.md')
   })
 
   it('is the owner the factory contract names', () => {

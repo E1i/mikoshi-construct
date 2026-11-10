@@ -21,6 +21,7 @@ import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_STARTED, C
 import { generationOfKey, isFullSha, QUEUES, reviewInputOf, reviewInputOfKey, taskKey } from './identifiers.js'
 import { ownerQuestionAnswered } from './inbox.js'
 import { A_RERUN_DUE, withTheHeadsARerunIsDueOn } from './observations.js'
+import { ADMIT_COMMAND } from './owner-commands.js'
 import { payloadOf, reject } from './stored.js'
 import { markReduced, reduceProjection, watermarkOf } from './watermark.js'
 
@@ -434,8 +435,7 @@ interface WindowQuestionRow {
 }
 
 export function admitCommandOf(cardId: number, lane: unknown): string {
-  const dir = typeof lane === 'string' && lane !== '' ? `<parking>/${lane}` : '<parking>'
-  return `pnpm intake --admit ${dir}/${cardId}.md`
+  return `${ADMIT_COMMAND} <parking>${typeof lane === 'string' && lane !== '' ? `/${lane}` : ''}/${cardId}.md`
 }
 
 function windowWaitText(row: WindowQuestionRow): string {
