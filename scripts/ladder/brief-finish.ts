@@ -12,7 +12,7 @@ export interface BriefFinishDeps {
   pnpm?: (cwd: string, args: string[], input?: string) => PnpmResult
 }
 
-export const NO_PNPM_RUNNER = 'no pnpm runner is wired into this shift'
+export const NO_PNPM_RUNNER = 'no runner for pnpm is wired into this shift'
 
 export function firstLine(text: string): string {
   return text.split('\n').find(line => line.trim() !== '')?.trim() ?? ''

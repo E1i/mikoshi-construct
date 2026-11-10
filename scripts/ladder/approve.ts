@@ -11,6 +11,7 @@ import { riskReading } from '../../src/card/risk.js'
 import { defaultBusPath } from '../core/db.js'
 import { defaultHandoffDir } from '../core/handoff-dir.js'
 import { recordGhostLine } from '../core/journal.js'
+import { pnpmCommand } from '../core/owner-commands.js'
 import { readTasksFile } from '../core/tasks.js'
 import { busCardBodies } from '../intake/parking-reads.js'
 import { approvedHashPath, canonicalImplementText, cardNumberOf, checkApproval, extractApprovedHash, extractApprovedSketch, journalEvents, MORSE, revocationOf, revokeEvent } from './approval.js'
@@ -129,7 +130,7 @@ export function renderWaiting(waiting: WaitingBrief[]): string[] {
 export async function approveCard(card: number, options: ApproveOptions): Promise<string> {
   const { handoffDir, now, approver, runBuild = checkAcceptanceBuild, preflight = runPreflight } = options
   if (approver.trim().toLowerCase() === MORSE)
-    throw new Error(`pnpm approve writes the owner's approval; ${MORSE} approves through pnpm ghosts:hash ${BY_FLAG} ${MORSE}`)
+    throw new Error(`${pnpmCommand('approve')} writes the owner's approval; ${MORSE} approves through ${pnpmCommand('ghosts:hash', BY_FLAG, MORSE)}`)
   const queued = queuedBrief(handoffDir, card)
   const sha256 = hashBrief(queued.brief)
   if (revocationOf(journalEvents(queued.journalPath), sha256, card) !== undefined)
