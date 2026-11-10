@@ -1,4 +1,5 @@
 import type { Buffer } from 'node:buffer'
+import type { Readable } from 'node:stream'
 import { execFileSync, spawn, spawnSync } from 'node:child_process'
 import { closeSync, mkdirSync, mkdtempSync, openSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -243,23 +244,33 @@ describe('the installed commit guard, what it is given', () => {
   })
 })
 
-function guardWithLateStdin(stdin: string, delayMs: number): Promise<{ status: number | null, stderr: string }> {
+const SIGNALS_EACH_STDIN_READ = `data:text/javascript,${encodeURIComponent([
+  'import { writeSync } from \'node:fs\'',
+  'const stdin = process.stdin',
+  'const chunks = stdin[Symbol.asyncIterator].bind(stdin)',
+  'stdin[Symbol.asyncIterator] = function () {',
+  '  const iterator = chunks()',
+  '  return { next: () => { writeSync(3, \'?\'); return iterator.next() }, return: value => iterator.return(value), [Symbol.asyncIterator]() { return this } }',
+  '}',
+].join('\n'))}`
+
+function guardWithLateStdin(stdin: string): Promise<{ status: number | null, stderr: string }> {
   return new Promise((resolve) => {
-    const child = spawn('node', [path.join(world.attached, GUARD)], { cwd: world.attached })
+    const child = spawn('node', ['--import', SIGNALS_EACH_STDIN_READ, path.join(world.attached, GUARD)], { cwd: world.attached, stdio: ['pipe', 'pipe', 'pipe', 'pipe'] })
     let stderr = ''
     child.stderr.on('data', (chunk: Buffer) => {
       stderr += chunk.toString('utf8')
     })
     child.on('close', status => resolve({ status, stderr }))
-    setTimeout(() => child.stdin.end(stdin), delayMs)
+    ;(child.stdio[3] as Readable).once('data', () => child.stdin.end(stdin))
   })
 }
 
 describe('the installed commit guard, how it reads stdin', () => {
-  it('refuses a commit whose input a Node parent writes 200 ms after the start', async () => {
+  it('refuses a commit whose input a Node parent writes only once the guard waits on stdin', async () => {
     const input = JSON.stringify({ tool_name: 'Bash', tool_input: { command: 'git commit -m x' }, cwd: world.attached })
 
-    const result = await guardWithLateStdin(input, 200)
+    const result = await guardWithLateStdin(input)
 
     expect(result.status).toBe(2)
     expect(result.stderr).toMatch(/^Refused: git commit targets /)

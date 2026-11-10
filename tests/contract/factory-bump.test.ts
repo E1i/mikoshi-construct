@@ -1,11 +1,12 @@
 import type { VersionedSection } from '../../scripts/contract/factory-bump.js'
-import type { Factory } from '../../scripts/contract/factory.js'
+import type { FactoryWithLaws as Factory } from '../../scripts/contract/factory/laws.js'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { factoryGate } from '../../scripts/contract/bump.js'
 import { factoryVerdicts, sectionVerdict, VERSIONED_SECTIONS } from '../../scripts/contract/factory-bump.js'
 import { cardSection } from '../../scripts/contract/factory/card.js'
+import { LAWS_VERSION } from '../../scripts/contract/factory/laws.js'
 import { NODES_VERSION } from '../../scripts/contract/factory/nodes.js'
 import { PORTS_VERSION } from '../../scripts/contract/factory/ports.js'
 import { CARD_VERSION, CARD_VERSION_KEY, UNRECORDED_VERSION } from '../../scripts/core/bus-version.js'
@@ -40,6 +41,9 @@ const CHANGES: Record<VersionedSection, (factory: Factory) => void> = {
   },
   nodes: (factory) => {
     factory.nodes.declared.merge!.understands = { ...factory.nodes.declared.merge!.understands, card: [] }
+  },
+  laws: (factory) => {
+    factory.laws.laws.Z5.cells.launch = { witness: 'Z5-seeded' }
   },
 }
 
@@ -85,6 +89,15 @@ describe('the factory section versions', () => {
 
     expect(verdict.red).toBe(true)
     expect(verdict.line).toContain('declared.merge')
+  })
+
+  it('a changed laws section without a grown version is red', () => {
+    const verdict = verdictOf('laws', changedHead('laws'))
+
+    expect(verdict.red).toBe(true)
+    expect(verdict.line).toContain('laws.Z5')
+    expect(verdict.line).toContain(`lawsVersion stayed ${LAWS_VERSION}`)
+    expect(recordedFactory().laws.lawsVersion).toBe(LAWS_VERSION)
   })
 
   it('a changed section with a grown version passes', () => {

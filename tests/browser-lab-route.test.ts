@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { afterAll, describe, expect, it } from 'vitest'
+import { afterAll, describe, expect, it, vi } from 'vitest'
 
 const SCRIPT = path.resolve(import.meta.dirname, '..', 'scripts/construct/browser-lab.mjs')
 
@@ -61,15 +61,16 @@ const SETTLE_MS = 200
 function pageWithTwoEngineChecks() {
   let cartRendered = false
   let hear: (call: ConsoleCall) => void = () => {}
+  let loaded: () => void = () => {}
+  const load = new Promise<void>((resolve) => {
+    loaded = resolve
+  })
   const check = (text: string, timestamp: number): ConsoleCall => ({ type: 'log', args: [{ value: text }], executionContextId: 1, timestamp })
   const page = {
     on: () => {},
     goto: async () => {
       hear(check('engine: missing selectors', FIRST_CHECK_AT))
-      setTimeout(() => {
-        cartRendered = true
-        hear(check('engine: applied', SECOND_CHECK_AT))
-      }, SECOND_CHECK_AFTER_LOAD_MS)
+      loaded()
       return { status: () => 200 }
     },
     title: async () => (cartRendered ? 'Cart' : 'Loading'),
@@ -82,12 +83,32 @@ function pageWithTwoEngineChecks() {
     },
     send: async () => {},
   }
-  return { newPage: async () => page, newCDPSession: async () => session }
+  const renderCart = (): void => {
+    cartRendered = true
+    hear(check('engine: applied', SECOND_CHECK_AT))
+  }
+  return { context: { newPage: async () => page, newCDPSession: async () => session }, load, renderCart }
+}
+
+async function visitWhileTheCartRenders(): Promise<Visited> {
+  vi.useFakeTimers()
+  try {
+    const { context, load, renderCart } = pageWithTwoEngineChecks()
+    const visiting = visit(context, 'http://shop.invalid/cart', { settleMs: SETTLE_MS })
+    await load
+    await vi.advanceTimersByTimeAsync(SECOND_CHECK_AFTER_LOAD_MS)
+    renderCart()
+    await vi.runAllTimersAsync()
+    return await visiting
+  }
+  finally {
+    vi.useRealTimers()
+  }
 }
 
 describe('page settling', () => {
   it('page reports every engine check with its timestamp instead of only the first', async () => {
-    const seen = await visit(pageWithTwoEngineChecks(), 'http://shop.invalid/cart', { settleMs: SETTLE_MS })
+    const seen = await visitWhileTheCartRenders()
     expect(seen.messages).toEqual([
       { level: 'log', text: 'engine: missing selectors', world: 'page', at: new Date(FIRST_CHECK_AT).toISOString() },
       { level: 'log', text: 'engine: applied', world: 'page', at: new Date(SECOND_CHECK_AT).toISOString() },
@@ -95,7 +116,7 @@ describe('page settling', () => {
   })
 
   it('the page is read after the settle window, not at load', async () => {
-    const seen = await visit(pageWithTwoEngineChecks(), 'http://shop.invalid/cart', { settleMs: SETTLE_MS })
+    const seen = await visitWhileTheCartRenders()
     expect(seen).toMatchObject({ title: 'Cart', text: 'two items' })
   })
 

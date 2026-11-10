@@ -9,6 +9,12 @@ import { storedByKey } from './stored.js'
 
 export const HOLD_RECHECK_MS = 5 * 60_000
 
+export const LIVE_SESSION_IN_THE_TREE = 'live_session_in_the_tree'
+
+export function holdRecheckAt(now: Date): string {
+  return new Date(now.getTime() + HOLD_RECHECK_MS).toISOString()
+}
+
 export interface QueueTaskRow {
   task_key: string
   queue: Queue

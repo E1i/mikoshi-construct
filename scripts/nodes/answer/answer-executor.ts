@@ -12,11 +12,11 @@ import type { CardConcept } from './concept-scope.js'
 import type { AnswerDenial, Answering, AnswerOutcome, AnswerTechnicalReason, CardPaths, DecidedRound, ShardDecider, TreeMerge, TreePublishing, Widened } from './duties/index.js'
 import { pathsIn, pathsOutside } from '../../../src/card/covering-tests.js'
 import { riskOf } from '../../../src/card/risk.js'
-import { answersWithdrawnByAClosedHold, queueAgain } from '../../core/card-hold.js'
+import { answersWithdrawnByAClosedHold, holdRecheckAt, LIVE_SESSION_IN_THE_TREE, queueAgain } from '../../core/card-hold.js'
 import { appendEvent, inTransaction, openBusWait } from '../../core/db.js'
 import { messageOf } from '../../core/errors.js'
 import { ANSWER_STEP, CARD_ANSWERED, CARD_RELEASED, QUESTION_AGENT, SCOPE_WIDENED } from '../../core/events.js'
-import { assertHeld, completeTask, StaleLease } from '../../core/lease.js'
+import { assertHeld, completeTask, StaleLease, waitTask } from '../../core/lease.js'
 import { answerOnAnOldCardBody, DOWNGRADE_WAIT_OPEN, downgradeWaitOpenOn, LEASED, QUEUED } from '../../core/queue.js'
 import { OWNER_EVEN_UNDER_THE_DECISION } from '../../policy/policy.js'
 import { activeWindowShards } from '../../policy/shards.js'
@@ -135,7 +135,7 @@ export class AnswerExecutor {
         return this.outcomes.denied(lease, card)
       const live = (this.parts.liveSession ?? liveSessionIn)(card)
       if (live !== null)
-        return this.outcomes.waitingForTheSupersededSession(lease) ?? this.outcomes.heldForTheOwner(lease, live)
+        return this.outcomes.waitingForTheSupersededSession(lease) ?? this.waitingForTheLiveSession(lease, live)
       if (source !== null)
         this.mainMergedBeforeTheSession(lease, card)
       const merge = source === null ? (this.parts.treeMerge ?? treeMergeOf)(card) : null
@@ -174,6 +174,13 @@ export class AnswerExecutor {
     const merged = mergeMain(conflictingCardOf(this.parts.db, lease.cardId, card.branch, lease.head))
     if (merged.kind === 'merged' && merged.to !== lease.head)
       console.log(`${PREFIX}card #${lease.cardId}: ${MAIN_BRANCH} merged into ${card.worktree} at ${merged.to} before the answer session`)
+  }
+
+  private waitingForTheLiveSession(lease: Lease, live: string): AnswerOutcome {
+    const until = holdRecheckAt(this.parts.clock())
+    console.log(`${PREFIX}card #${lease.cardId}: ${live}; the answer waits until ${until} and goes once that session ends`)
+    waitTask(this.parts.db, this.ts(), lease, { reason: LIVE_SESSION_IN_THE_TREE, until })
+    return { kind: 'waiting', taskKey: lease.taskKey, reason: LIVE_SESSION_IN_THE_TREE, until }
   }
 
   private waiting(lease: Lease, card: CardSession, why: string): AnswerOutcome {
