@@ -11,7 +11,7 @@ import { TASK_LEASED } from '../../core/events.js'
 import { closeDrain, drainOpen, openDrain, releaseTask } from '../../core/lease.js'
 import { Node } from '../../core/node.js'
 import { keyOf, queueTaskWithin } from '../../core/queue.js'
-import { CHECK_MS, TICK_MS } from '../../ports/netwatch.js'
+import { CHECK_MS } from '../../ports/netwatch.js'
 import { slotsVariable } from '../../supervisor/scheduler.js'
 import { DRAIN_LIMIT_MS, recordRestarted } from '../../supervisor/supervisor.js'
 import { Clock } from './github-fake.js'
@@ -101,9 +101,10 @@ class HookedNode extends BlockingNode {
   }
 }
 
-function realPause(ms: number): Promise<void> {
+function checkWakesAtOnceTickNever(ms: number): Promise<void> {
   return new Promise((resolve) => {
-    setTimeout(resolve, ms).unref()
+    if (ms === CHECK_MS)
+      setImmediate(resolve)
   })
 }
 
@@ -227,25 +228,30 @@ describe('a fill pass', () => {
     expect(leasedEvents(db, first)).toBe(1)
   })
 
-  it('on real timers with three slots, a task queued as another settles is leased before TICK_MS while the first still runs', async () => {
+  it('with three slots, a task queued as another settles is leased on a CHECK_MS wake, before any TICK_MS pause ends, while the first still runs', async () => {
     const db = newBus()
     const clock = new Clock()
     const first = keyOf(task(970))
     const quick = keyOf(task(971))
     const late = keyOf(task(972))
+    let lateTaken: () => void = () => {}
+    const lateHandled = new Promise<void>((resolve) => {
+      lateTaken = resolve
+    })
     const node = new HookedNode(db, clock, 3, first, (key) => {
       if (key === quick)
         queueTaskWithin(db, clock.now().toISOString(), task(972))
+      if (key === late)
+        lateTaken()
     })
     queueTaskWithin(db, clock.now().toISOString(), task(970))
     queueTaskWithin(db, clock.now().toISOString(), task(971))
     const controller = new AbortController()
-    const running = node.run({ pause: realPause, signal: controller.signal })
-    const started = Date.now()
+    const running = node.run({ pause: checkWakesAtOnceTickNever, signal: controller.signal })
 
     try {
-      await vi.waitFor(() => expect(leasedEvents(db, late)).toBe(1), { timeout: 3 * CHECK_MS, interval: 50 })
-      expect(Date.now() - started).toBeLessThan(TICK_MS)
+      await lateHandled
+      expect(leasedEvents(db, late)).toBe(1)
       expect(node.handledWhileFirstRuns).toEqual([quick, late])
     }
     finally {
@@ -253,7 +259,7 @@ describe('a fill pass', () => {
       node.finishFirst()
       await running
     }
-  }, 6 * CHECK_MS)
+  })
 
   it('with every slot busy, an event appended meanwhile is delivered and its cursor recorded', async () => {
     const db = newBus()

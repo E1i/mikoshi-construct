@@ -317,7 +317,7 @@ function fakeProject(): { root: string, marker: string } {
   mkdirSync(path.join(root, 'scripts', 'supervisor'), { recursive: true })
   symlinkSync(path.join(REPO_ROOT, 'node_modules'), path.join(root, 'node_modules'))
   const marker = path.join(root, 'beat')
-  writeFileSync(path.join(root, 'scripts', 'supervisor', 'heartbeat.ts'), `import { writeFileSync } from 'node:fs'\nwriteFileSync(${JSON.stringify(marker)}, process.argv[2] ?? '')\n`)
+  writeFileSync(path.join(root, 'scripts', 'supervisor', 'heartbeat.ts'), `import { appendFileSync } from 'node:fs'\nappendFileSync(${JSON.stringify(marker)}, (process.argv[2] ?? '') + '\\n')\n`)
   return { root, marker }
 }
 
@@ -365,12 +365,10 @@ describe('the PostToolUse hook starts the heartbeat CLI only in a session of a c
 
   it('with no CONSTRUCT_CARD the hook starts nothing, and with one it starts the CLI with the session id', async () => {
     const { root, marker } = fakeProject()
-    runHook(root, undefined, { session_id: 'session-1' })
-    await new Promise(resolve => setTimeout(resolve, 1500))
-    expect(existsSync(marker)).toBe(false)
+    runHook(root, undefined, { session_id: 'session-0' })
     runHook(root, '1110', { session_id: 'session-1' })
-    await waitFor(() => existsSync(marker), () => `${marker} written by the spawned CLI`, 10_000)
-    expect(readFileSync(marker, 'utf8')).toBe('session-1')
+    await waitFor(() => existsSync(marker) && readFileSync(marker, 'utf8').includes('session-1'), () => `${marker} written by the spawned CLI`, 10_000)
+    expect(readFileSync(marker, 'utf8')).toBe('session-1\n')
   })
 
   it('a session.heartbeat with step review or answer carries context and spent equal to sessionGauges on the same transcript', () => {
