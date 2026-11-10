@@ -454,22 +454,22 @@ export class DescendantWatch {
   async settle(): Promise<number[]> {
     const polls = Math.max(1, Math.ceil(this.parts.graceMs / this.parts.sampleMs))
     for (let poll = 0; poll < polls; poll++) {
-      const alive = this.alive()
-      if (alive === null || alive.length === 0)
+      const running = this.running()
+      if (running === null || running.length === 0)
         return []
       await this.parts.pause(this.parts.sampleMs)
     }
-    const left = this.alive() ?? []
+    const left = this.running() ?? []
     for (const pid of left)
       this.parts.end(pid, 'SIGTERM')
     if (left.length > 0)
       await this.parts.pause(this.parts.sampleMs)
-    for (const pid of this.alive() ?? [])
+    for (const pid of this.running() ?? [])
       this.parts.end(pid, 'SIGKILL')
     return left
   }
 
-  private alive(): number[] | null {
+  private running(): number[] | null {
     const snapshot = this.parts.table.snapshot()
     if (!snapshot.readable) {
       console.error(unreadableDescendantsLine(this.session, snapshot.reason))

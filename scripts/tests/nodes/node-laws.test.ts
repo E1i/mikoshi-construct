@@ -614,7 +614,8 @@ describe('the laws of a node', () => {
     expect(gapRows().filter(({ law, node }) => law === laneWaitLaw && node === 'intake')).toHaveLength(1)
   })
 
-  it('z1 x review: no descendant of a finished review session is alive when its tree is removed', async () => {
+  const sessionLaw: LawId = 'Z1'
+  it(`${sessionLaw} x review: no descendant of a finished review session is alive when its tree is removed`, async () => {
     expect(LAW_CELLS.Z1.review).toEqual({ witness: REVIEW_KEEPS_SESSION_AND_LEAVES_NO_DESCENDANT })
     expect(recordedLawGaps()[`${LAW_GAP_PREFIX}Z1:review`]).toBeUndefined()
     expect(await lawOutcome('Z1', 'review', WITNESSES)).toBeNull()

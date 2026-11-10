@@ -10,6 +10,7 @@
   { "file": "scripts/nodes/launch/launch-worker.ts", "kind": "imported-judge" },
   { "file": "scripts/nodes/restart/chain-process.ts", "kind": "kill" },
   { "file": "scripts/nodes/review/reviewer.ts", "kind": "imported-judge" },
+  { "file": "scripts/nodes/review/reviewer.ts", "kind": "kill" },
   { "file": "scripts/nodes/witness/witness-executor.ts", "kind": "kill" },
   { "file": "scripts/ports/process-table.ts", "kind": "ps" },
   { "file": "scripts/ports/worktree.ts", "kind": "live-session" },
