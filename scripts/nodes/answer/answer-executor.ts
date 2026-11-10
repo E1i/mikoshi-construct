@@ -84,6 +84,26 @@ export function questionAskedTwiceLine(cardId: number, question: string): string
 
 const CARD_PATHS: CardPaths = { pathsIn, ownerBoundary: ownersEvenUnderTheDecision, wideningAsked: scopeWideningAsked }
 
+export interface FindingProof {
+  finding: string
+  proof: string
+}
+
+export interface ProvingAnswer extends Answered {
+  proofs?: readonly FindingProof[]
+}
+
+export function unprovedFindings(given: readonly string[], proofs: readonly FindingProof[] | undefined): string[] {
+  if (proofs === undefined)
+    return []
+  const proved = new Set(proofs.filter(each => each.proof.trim() !== '').map(each => each.finding.trim()))
+  return [...new Set(given.map(finding => finding.trim()))].filter(finding => finding !== '' && !proved.has(finding))
+}
+
+export function unprovedFindingsLine(cardId: number, head: string, unproved: readonly string[]): string {
+  return `card #${cardId}: the answer at ${head} leaves ${unproved.length} given finding${unproved.length === 1 ? '' : 's'} unproved, so it is refused and the answer goes again: ${unproved.join('; ')}`
+}
+
 export class AnswerExecutor {
   private readonly outcomes: AnswerOutcomes
   private readonly sources: AnswerSources
@@ -276,6 +296,9 @@ export class AnswerExecutor {
         return this.publishing.leftDirty(lease, card, answered.session)
       return this.publishing.published(lease, source, card, answered, minutes, scope) ?? this.publishing.leftNothing(lease, answered, scope)
     }
+    const unproved = source.kind === 'changes' ? unprovedFindings(source.findings, (answered as ProvingAnswer).proofs) : []
+    if (unproved.length > 0)
+      return this.outcomes.denied(lease, { kind: 'technical', reason: 'answer_failed', detail: unprovedFindingsLine(lease.cardId, answered.after, unproved) })
     const reentry = REENTRY_SOURCES.has(source.kind) || source.reentry === true
     const payload = this.publishing.answeredPayload(source, card, answered, minutes, reentry ? { reentry: true } : {})
     completeTask(this.parts.db, this.ts(), lease, [...scope, this.outcomes.event(lease, CARD_ANSWERED, payload)])
