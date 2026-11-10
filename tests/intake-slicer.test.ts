@@ -310,6 +310,16 @@ describe('intake refuses what it cannot number or check', () => {
     expect(detail(intake(draft, '1', path.join(root, 'parking')))).toEqual(['card 1: unknown key \'urgency\'; the keys are name, kind, milestone, size, task, contour, decision, branch, who, continue, whole, item, touches, witnesses, depends, blocks, creates, runs, number, priority, unclear'])
   })
 
+  it('keeps the priority a draft card gives in the parking text', () => {
+    const root = scratch()
+    const draft = { cards: [{ ...SLICED.cards[0], priority: 'p1' }, SLICED.cards[2]] }
+    const [first, second] = cards(intake(draft, '1', path.join(root, 'parking')))
+    expect(first!.text.split('\n\n')[0]!.split('\n')).toContain('priority: p1')
+    expect(second!.text).not.toContain('priority:')
+    const parked = parseParkingFile(first!.file, readFileSync(path.join(root, 'parking', first!.file), 'utf8'))
+    expect(parked.kind === 'parked' ? parked.parked.priority : null).toBe('p1')
+  })
+
   it('refuses a name given to two cards, since depends name cards by it', () => {
     const root = scratch()
     const draft = { cards: [SLICED.cards[0], SLICED.cards[0]] }

@@ -3,15 +3,16 @@ import type { AmendFlags } from '../src/commands/intake/amend.js'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
-import { openBus } from '../scripts/core/db.js'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { BUS_DB_VARIABLE, openBus } from '../scripts/core/db.js'
 import { CARD_ADMITTED } from '../scripts/core/events.js'
 import { reduce } from '../scripts/core/reducer.js'
-import { busCardAdmissions, busCardEvents } from '../scripts/intake/intake.js'
+import { busCardAdmissions, busCardEvents, runBusIntake } from '../scripts/intake/intake.js'
 import { parseParkingFile } from '../src/card/parking.js'
 import { runAdmit } from '../src/commands/intake/admit.js'
 import { amendedText, runAmend } from '../src/commands/intake/amend.js'
 import { parseDraft } from '../src/commands/intake/draft.js'
+import { INTAKE_EXIT } from '../src/commands/intake/index.js'
 
 const START = Date.parse('2026-11-10T09:00:00.000Z')
 let tick = 0
@@ -25,6 +26,7 @@ const WITNESS = '`pnpm exec vitest run tests/a.test.ts` exits 0; red on main'
 const roots: string[] = []
 
 afterEach(() => {
+  vi.unstubAllEnvs()
   for (const root of roots.splice(0))
     rmSync(root, { recursive: true, force: true })
 })
@@ -137,6 +139,36 @@ describe('the owner order survives an amend or a readmission', () => {
   it('an amend with a priority outside p0, p1, p2 and none is refused', () => {
     expect(amendedText(cardText('Do the thing.'), { priority: 'p9' })).toEqual({ kind: 'refused', why: '--priority p9 is one of p0, p1, p2, none' })
     expect(amendedText(cardText('Do the thing.', 'p1'), { priority: 'none' })).toEqual({ kind: 'edited', text: cardText('Do the thing.') })
+  })
+})
+
+describe('the command line takes --amend --priority', () => {
+  it('construct intake --amend #80 --priority p1 sets the priority, and --priority none clears it', async () => {
+    const w = world()
+    admit(w, cardText('Do the thing.'))
+    vi.stubEnv(BUS_DB_VARIABLE, w.bus)
+    vi.stubEnv('HOME', path.dirname(w.repo))
+    mkdirSync(path.join(path.dirname(w.repo), '.construct', 'parking'), { recursive: true })
+    const write = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
+    const previousExit = process.exitCode
+    try {
+      for (const priority of ['p1', 'none']) {
+        const db = openBus(w.bus)
+        try {
+          await runBusIntake(db, ['--plain', '--amend', '#80', '--priority', priority, '--auto-confirm', '--dir', w.repo])
+          expect(process.exitCode ?? 0).not.toBe(INTAKE_EXIT.refused)
+          reduce(db)
+        }
+        finally {
+          db.close()
+        }
+        expect(priorityOf(latest(w).text)).toBe(priority === 'none' ? null : priority)
+      }
+    }
+    finally {
+      write.mockRestore()
+      process.exitCode = previousExit
+    }
   })
 })
 

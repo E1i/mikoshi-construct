@@ -174,6 +174,7 @@ export function sliceCards(cards: readonly CheckedCard[], numbers: readonly numb
       creates: card.creates,
       continue: card.continue ?? DEFAULT_CONTINUE,
       who,
+      priority: card.priority,
       body: bodyOf({ ...card, whole }, corrections, unclear, seam, risk),
     })
     const parsed = parseParkingFile(file, text)

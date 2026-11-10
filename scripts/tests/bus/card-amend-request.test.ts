@@ -182,4 +182,16 @@ describe('bus:request amend edits a card in the bus with no file', () => {
       auto_confirm: true,
     })
   })
+
+  it('a priority set or cleared by request moves only the priority line', () => {
+    const w = world()
+    inLane(w, 80)
+    expect(requestOf(['amend', '--card', '80', '--priority', 'p0'])).toEqual({ kind: 'amend', card: 80, priority: 'p0' })
+    expect(asked(w, { card: 80, priority: 'p0' }).type).toBe(REQUEST_DONE)
+    expect(latest(w, 80).text).toBe(body(80).replace('who: shift\n', 'who: shift\npriority: p0\n'))
+    expect(asked(w, { card: 80, priority: 'none' }).type).toBe(REQUEST_DONE)
+    expect(latest(w, 80).text).not.toContain('priority:')
+    expect(asked(w, { card: 80, priority: 'p9' }).type).toBe(REQUEST_REFUSED)
+    w.db.close()
+  })
 })

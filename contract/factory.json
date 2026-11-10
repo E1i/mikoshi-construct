@@ -1188,6 +1188,7 @@
           "owner_words",
           "plan",
           "pr",
+          "priority",
           "reason",
           "remove_witness",
           "supersedes",
