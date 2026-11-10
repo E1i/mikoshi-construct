@@ -10,7 +10,6 @@ import type { FreshBaseGap } from '../launch/tree-pr.js'
 import type { AnswerSource, CardSession } from './answer-source.js'
 import type { CardConcept, Importers } from './concept-scope.js'
 import type { AnswerRun } from './duties/index.js'
-import { execFileSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync } from 'node:fs'
 import os from 'node:os'
@@ -27,6 +26,7 @@ import { pushPolicyOf } from '../../core/push-policy.js'
 import { busCardBodies } from '../../intake/parking-reads.js'
 import { GhCiRuns } from '../../ports/ci-reading.js'
 import { hasClientTranscript } from '../../ports/client/claude/adapter.js'
+import { processGit } from '../../ports/git.js'
 import { OsProcessTable } from '../../ports/process-table.js'
 import { CARD_SIZE_VARIABLE, CARD_VARIABLE, cardSessionOverlay, cardSizeIn, clientInvocation, sessionEnv, streamReading } from '../../ports/session.js'
 import { MAIN_BRANCH } from '../../ports/snapshot.js'
@@ -156,7 +156,7 @@ export class FreshBaseConflict extends Error {
 }
 
 function publishTree(card: CardSession, commitMessage: string): void {
-  const pushed = commitAndPush((cwd, args) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }), card.worktree, card.branch, commitMessage)
+  const pushed = commitAndPush((cwd, args) => processGit.read(cwd, args), card.worktree, card.branch, commitMessage)
   if (pushed.kind === 'conflict')
     throw new FreshBaseConflict(pushed)
 }
