@@ -1,7 +1,11 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { BusEvent } from './db.js'
 import type { Queue } from './identifiers.js'
-import { CARD_HELD, CARD_RELEASED, TASK_FAILED } from './events.js'
-import { WITHDRAWN } from './queue.js'
+import { appendEvent } from './db.js'
+import { CARD_HELD, CARD_RELEASED, TASK_FAILED, TASK_REQUEUED } from './events.js'
+import { generationOfKey } from './identifiers.js'
+import { QUEUE_ACTOR, TASK_FOLDS, WITHDRAWN } from './queue.js'
+import { storedByKey } from './stored.js'
 
 export const HOLD_RECHECK_MS = 5 * 60_000
 
@@ -92,4 +96,12 @@ export function cardHoldOf(db: DatabaseSync, cardId: number): string | null {
   if (takeover !== null)
     return `card #${cardId} is taken over by the window: ${takeover.reason}${owner === null ? '' : ` (held for the owner: ${owner.reason})`}`
   return owner === null ? null : `card #${cardId} is held for the owner: ${owner.reason}`
+}
+
+export function queueAgain(db: DatabaseSync, ts: string, task: QueueTaskRow, request: number | null, after: string): void {
+  const plain = { queue: task.queue, cardId: task.card_id, pr: task.pr ?? undefined, head: task.head ?? undefined }
+  const generation = generationOfKey(task.task_key, plain)
+  const event: BusEvent = { ts, type: TASK_REQUEUED, actor: QUEUE_ACTOR, cardId: task.card_id, pr: task.pr, head: task.head, dedupeKey: `${TASK_REQUEUED}:${task.task_key}:${after}`, payload: { task_key: task.task_key, queue: task.queue, ...(generation === undefined ? {} : { generation }), ...(request === null ? {} : { request }) }, legacy: false }
+  if (appendEvent(db, event))
+    TASK_FOLDS[TASK_REQUEUED]!(db, storedByKey(db, event.dedupeKey))
 }

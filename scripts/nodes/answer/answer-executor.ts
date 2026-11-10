@@ -12,14 +12,12 @@ import type { CardConcept } from './concept-scope.js'
 import type { AnswerDenial, Answering, AnswerOutcome, AnswerTechnicalReason, CardPaths, DecidedRound, ShardDecider, TreeMerge, TreePublishing, Widened } from './duties/index.js'
 import { pathsIn, pathsOutside } from '../../../src/card/covering-tests.js'
 import { riskOf } from '../../../src/card/risk.js'
-import { answersWithdrawnByAClosedHold } from '../../core/card-hold.js'
+import { answersWithdrawnByAClosedHold, queueAgain } from '../../core/card-hold.js'
 import { appendEvent, inTransaction, openBusWait } from '../../core/db.js'
 import { messageOf } from '../../core/errors.js'
-import { ANSWER_STEP, CARD_ANSWERED, CARD_RELEASED, QUESTION_AGENT, SCOPE_WIDENED, TASK_REQUEUED } from '../../core/events.js'
-import { generationOfKey } from '../../core/identifiers.js'
+import { ANSWER_STEP, CARD_ANSWERED, CARD_RELEASED, QUESTION_AGENT, SCOPE_WIDENED } from '../../core/events.js'
 import { assertHeld, completeTask, StaleLease } from '../../core/lease.js'
-import { answerOnAnOldCardBody, DOWNGRADE_WAIT_OPEN, downgradeWaitOpenOn, LEASED, QUEUE_ACTOR, QUEUED, TASK_FOLDS } from '../../core/queue.js'
-import { storedByKey } from '../../core/stored.js'
+import { answerOnAnOldCardBody, DOWNGRADE_WAIT_OPEN, downgradeWaitOpenOn, LEASED, QUEUED } from '../../core/queue.js'
 import { OWNER_EVEN_UNDER_THE_DECISION } from '../../policy/policy.js'
 import { activeWindowShards } from '../../policy/shards.js'
 import { matchGlob } from '../../policy/shredder/glob.js'
@@ -291,14 +289,6 @@ export class AnswerExecutor {
       dirty: () => this.dirty(card),
     }
   }
-}
-
-export function queueAgain(db: DatabaseSync, ts: string, task: QueueTaskRow, request: number | null, after: string): void {
-  const plain = { queue: task.queue, cardId: task.card_id, pr: task.pr ?? undefined, head: task.head ?? undefined }
-  const generation = generationOfKey(task.task_key, plain)
-  const event: BusEvent = { ts, type: TASK_REQUEUED, actor: QUEUE_ACTOR, cardId: task.card_id, pr: task.pr, head: task.head, dedupeKey: `${TASK_REQUEUED}:${task.task_key}:${after}`, payload: { task_key: task.task_key, queue: task.queue, ...(generation === undefined ? {} : { generation }), ...(request === null ? {} : { request }) }, legacy: false }
-  if (appendEvent(db, event))
-    TASK_FOLDS[TASK_REQUEUED]!(db, storedByKey(db, event.dedupeKey))
 }
 
 const LATEST_RELEASE_OF_CARD = `SELECT id, json_extract(payload, '$.request') AS request FROM events WHERE card_id = ? AND legacy = 0 AND type = '${CARD_RELEASED}' ORDER BY id DESC LIMIT 1`
