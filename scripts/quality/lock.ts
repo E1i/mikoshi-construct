@@ -1,4 +1,4 @@
-import type { MachineLoad } from '../core/machine-sessions.js'
+import type { LoadReading, MachineLoad } from '../core/machine-sessions.js'
 import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { appendFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs'
@@ -18,6 +18,7 @@ const RUNS_A_REVIEW_LEAVES_ROOM_FOR = 1
 const HELD = 'held'
 const HOLDER_FILE = 'holder.json'
 const POLL_MS = 1000
+export const OVERLOAD_WAIT_MS = 5 * 60_000
 const PREFIX = '[quality-lock] '
 const SESSIONS_DIR = 'sessions'
 const SESSION_FILE_SUFFIX = '.json'
@@ -43,6 +44,7 @@ export type LockEvent
     | { event: 'stale', pid: number, cwd: string, at: string, holder: Holder }
     | { event: 'start', pid: number, cwd: string, at: string }
     | { event: 'end', pid: number, cwd: string, at: string, exitCode: number }
+    | { event: 'overload', pid: number, cwd: string, at: string, load: LoadReading }
 
 export interface LockDeps {
   dir: string
@@ -53,6 +55,7 @@ export interface LockDeps {
   sleep: (ms: number) => Promise<void>
   say: (line: string) => void
   run: () => Promise<number>
+  overload?: () => LoadReading | null
 }
 
 function log(dir: string, entry: LockEvent): void {
@@ -90,6 +93,23 @@ function releaseStale(dir: string, holder: Holder): void {
   catch {}
 }
 
+async function waitOutOverload(deps: LockDeps, me: { pid: number, cwd: string }, at: () => string): Promise<void> {
+  const since = deps.now().getTime()
+  let told = false
+  for (let load = deps.overload?.() ?? null; load !== null; load = deps.overload?.() ?? null) {
+    if (deps.now().getTime() - since >= OVERLOAD_WAIT_MS) {
+      deps.say(`${PREFIX}the machine is still overloaded after ${OVERLOAD_WAIT_MS / 60_000} minutes; the run starts with the workers the load leaves`)
+      return
+    }
+    if (!told) {
+      told = true
+      log(deps.dir, { event: 'overload', ...me, at: at(), load })
+      deps.say(`${PREFIX}machine overloaded: load ${load.busy.toFixed(1)} on ${load.cores} cores; the run waits in the queue until the load falls`)
+    }
+    await deps.sleep(POLL_MS)
+  }
+}
+
 export async function withQualityLock(deps: LockDeps): Promise<number> {
   mkdirSync(deps.dir, { recursive: true })
   const at = (): string => deps.now().toISOString()
@@ -113,6 +133,7 @@ export async function withQualityLock(deps: LockDeps): Promise<number> {
     }
     await deps.sleep(POLL_MS)
   }
+  await waitOutOverload(deps, me, at)
   log(deps.dir, { event: 'start', ...me, at: at() })
   let exitCode = 1
   try {
@@ -294,6 +315,7 @@ export function heavyStep(run: () => Promise<number>, dir: string = queueDir()):
     sleep,
     say: line => process.stderr.write(`${line}\n`),
     run,
+    overload: () => machineSessions(isAlive).overload(),
   })
 }
 

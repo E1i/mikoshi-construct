@@ -52,10 +52,6 @@ export function idleLoad(cores: number): MachineLoad {
   return { read: () => ({ busy: 0, cores }) }
 }
 
-export function freeCores(reading: LoadReading): number {
-  return Math.max(0, reading.cores - Math.ceil(reading.busy))
-}
-
 export interface MachineHold {
   live: number
   limit: number
