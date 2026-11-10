@@ -441,6 +441,7 @@ function intakeCommand(bus: Partial<BusPorts> | undefined) {
       note: { type: 'string', description: 'With --amend: a line appended to the card body' },
       witness: { type: 'string', description: 'With --amend: <old witness>=<new witness>, replacing one witness; a weaker one waits for the owner as under --admit' },
       who: { type: 'string', description: 'With --amend: who takes the card, shift or window' },
+      priority: { type: 'string', description: 'With --amend: the owner order of the card, p0, p1 or p2; none clears it, and an amend without it keeps the priority the card has' },
       move: { type: 'string', description: 'A parked card (#<id>) to move to the parking directory --to names: found in the parking root or a direct subdirectory, the file unchanged, the bus holds it' },
       to: { type: 'string', description: 'With --move: the target parking directory, a subdirectory of the parking root (created when missing) or . for the root' },
       parking: { type: 'string', description: 'The parking directory the cards are written to (default: ~/.construct/parking)' },
@@ -458,7 +459,7 @@ function intakeCommand(bus: Partial<BusPorts> | undefined) {
           return
         }
         if (args.amend !== undefined) {
-          const flags = { touches: listFlagOf(rawArgs, 'touches'), creates: listFlagOf(rawArgs, 'creates'), note: args.note, witness: args.witness, who: args.who }
+          const flags = { touches: listFlagOf(rawArgs, 'touches'), creates: listFlagOf(rawArgs, 'creates'), note: args.note, witness: args.witness, who: args.who, priority: args.priority }
           process.exitCode = printAdmit(console, runAmend({ card: args.amend, flags, dir, dryRun: args.dryRun, confirm: args.confirm, autoConfirm: args.autoConfirm, events, cardStates, admissions }))
           return
         }
