@@ -2704,7 +2704,9 @@
       "Z1": {
         "cells": {
           "answer": {
-            "witness": "Z1-restart-keeps-session"
+            "gap": [
+              1814
+            ]
           },
           "close": {
             "notApplicable": "the node starts no session, so no child process of its own outlives it"
@@ -2713,7 +2715,9 @@
             "notApplicable": "intake starts no session and no child process"
           },
           "launch": {
-            "witness": "Z1-restart-keeps-session"
+            "gap": [
+              1814
+            ]
           },
           "merge": {
             "notApplicable": "the node starts no session, so no child process of its own outlives it"
@@ -2725,7 +2729,12 @@
             "notApplicable": "the node starts no session, so no child process of its own outlives it"
           },
           "review": {
-            "witness": "Z1-restart-keeps-session"
+            "gap": [
+              1814
+            ]
+          },
+          "supervisor": {
+            "notApplicable": "StalledSessions starts no process; a session it ends it ends by name, which Z7 judges, not a child left behind"
           },
           "update": {
             "notApplicable": "the node starts no session, so no child process of its own outlives it"
@@ -2734,7 +2743,9 @@
             "notApplicable": "miko:watch starts no session and no child process; it reads the bus and writes its own cursor"
           },
           "witness": {
-            "witness": "Z1-restart-keeps-session"
+            "gap": [
+              1814
+            ]
           }
         },
         "text": "a process that leaves does not kill its children"
@@ -2742,7 +2753,9 @@
       "Z2": {
         "cells": {
           "answer": {
-            "witness": "Z2-infrastructure-retried"
+            "gap": [
+              1814
+            ]
           },
           "close": {
             "notApplicable": "the node starts no session, runs no test and judges no CI run, so no timeout under load, abandoned run or usage limit reaches it as its own failure"
@@ -2751,7 +2764,9 @@
             "notApplicable": "intake admits from the card text and the bus; it starts no session, runs no test and reads no CI run"
           },
           "launch": {
-            "witness": "Z2-infrastructure-retried"
+            "gap": [
+              1814
+            ]
           },
           "merge": {
             "notApplicable": "the merge node merges only on a green CI and starts no session; an abandoned run reaches it as not green, and its rerun belongs to netwatch and the update node"
@@ -2764,20 +2779,27 @@
           },
           "review": {
             "gap": [
-              1777
+              1814
+            ]
+          },
+          "supervisor": {
+            "gap": [
+              1814
             ]
           },
           "update": {
-            "witness": "Z2-infrastructure-retried"
+            "gap": [
+              1814
+            ]
           },
           "window": {
             "gap": [
-              1777
+              1814
             ]
           },
           "witness": {
             "gap": [
-              1777
+              1814
             ]
           }
         },
@@ -2786,7 +2808,9 @@
       "Z3": {
         "cells": {
           "answer": {
-            "witness": "Z3-direct-importer-widened"
+            "gap": [
+              1814
+            ]
           },
           "close": {
             "gap": [
@@ -2820,6 +2844,9 @@
             "gap": [
               1672
             ]
+          },
+          "supervisor": {
+            "notApplicable": "StalledSessions applies the stall lines it is built with and takes no decision a window decision governs"
           },
           "update": {
             "gap": [
@@ -2885,6 +2912,9 @@
               1754
             ]
           },
+          "supervisor": {
+            "notApplicable": "StalledSessions opens no wait: it raises session.stalled, queues a dead session's task again or ends a review session"
+          },
           "update": {
             "gap": [
               1740,
@@ -2944,6 +2974,9 @@
               1767
             ]
           },
+          "supervisor": {
+            "notApplicable": "StalledSessions launches nothing"
+          },
           "update": {
             "gap": [
               1767
@@ -2998,6 +3031,9 @@
               1764
             ]
           },
+          "supervisor": {
+            "notApplicable": "StalledSessions writes bus events and task releases, never a card tree"
+          },
           "update": {
             "gap": [
               1764
@@ -3017,7 +3053,9 @@
       "Z7": {
         "cells": {
           "answer": {
-            "witness": "Z7-session-beat-beside-stale-window"
+            "gap": [
+              1814
+            ]
           },
           "close": {
             "notApplicable": "the node starts no session, so the factory reading holds no beat of its own to weigh"
@@ -3026,19 +3064,28 @@
             "notApplicable": "intake reads no liveness: it admits from the card text, the decisions in force and the bus card states"
           },
           "launch": {
-            "witness": "Z7-session-beat-beside-stale-window"
+            "gap": [
+              1814
+            ]
           },
           "merge": {
             "notApplicable": "the node starts no session, so the factory reading holds no beat of its own to weigh"
           },
           "netwatch": {
-            "witness": "Z7-pulse-beside-card-silence"
+            "gap": [
+              1814
+            ]
           },
           "restart": {
             "notApplicable": "the node starts no session, so the factory reading holds no beat of its own to weigh"
           },
           "review": {
-            "witness": "Z7-session-beat-beside-stale-window"
+            "gap": [
+              1814
+            ]
+          },
+          "supervisor": {
+            "witness": "Z7-review-live-on-one-stale-signal"
           },
           "update": {
             "notApplicable": "the node starts no session, so the factory reading holds no beat of its own to weigh"
@@ -3047,7 +3094,9 @@
             "witness": "Z7-window-beside-sessions"
           },
           "witness": {
-            "witness": "Z7-session-beat-beside-stale-window"
+            "gap": [
+              1814
+            ]
           }
         },
         "text": "liveness is read from more than one signal"
@@ -3252,10 +3301,7 @@
       "scripts/cli/slot.ts": 1,
       "scripts/composition/check.ts": 1,
       "scripts/contract/bump.ts": 1,
-      "scripts/core/queue.ts": 1,
-      "scripts/core/reducer.ts": 2,
       "scripts/docs/anchors.ts": 1,
-      "scripts/intake/intake.ts": 3,
       "scripts/model/render.ts": 1,
       "scripts/nodes/close/task-close.ts": 2,
       "scripts/nodes/launch/tree-pr-cli.ts": 1,
@@ -3268,8 +3314,6 @@
       "scripts/policy/shard.ts": 2,
       "scripts/policy/shards.ts": 1,
       "scripts/ports/task-start.ts": 3,
-      "scripts/release-notes/render.ts": 1,
-      "scripts/release/evidence.ts": 1,
       "scripts/supervisor/launchd/install.ts": 1,
       "scripts/supervisor/start.ts": 1,
       "scripts/window/compact-start.ts": 1,
