@@ -2695,6 +2695,326 @@
     },
     "globalsVersion": 1
   },
+  "laws": {
+    "laws": {
+      "Z1": {
+        "cells": {
+          "answer": {
+            "gap": [
+              1776
+            ]
+          },
+          "close": {
+            "notApplicable": "the node starts no session, so no child process of its own outlives it"
+          },
+          "launch": {
+            "gap": [
+              1776
+            ]
+          },
+          "merge": {
+            "notApplicable": "the node starts no session, so no child process of its own outlives it"
+          },
+          "restart": {
+            "notApplicable": "the node starts no session, so no child process of its own outlives it"
+          },
+          "review": {
+            "gap": [
+              1776
+            ]
+          },
+          "update": {
+            "notApplicable": "the node starts no session, so no child process of its own outlives it"
+          },
+          "witness": {
+            "gap": [
+              1776
+            ]
+          }
+        },
+        "text": "a process that leaves does not kill its children"
+      },
+      "Z2": {
+        "cells": {
+          "answer": {
+            "gap": [
+              1774
+            ]
+          },
+          "close": {
+            "gap": [
+              1774
+            ]
+          },
+          "launch": {
+            "gap": [
+              1774
+            ]
+          },
+          "merge": {
+            "gap": [
+              1774
+            ]
+          },
+          "restart": {
+            "gap": [
+              1774
+            ]
+          },
+          "review": {
+            "gap": [
+              1774
+            ]
+          },
+          "update": {
+            "gap": [
+              1774
+            ]
+          },
+          "witness": {
+            "gap": [
+              1774
+            ]
+          }
+        },
+        "text": "an infrastructure failure (a timeout under load, an abandoned CI run, a usage limit, a failed measurement) is a retry, not a defect and not a question for the owner"
+      },
+      "Z3": {
+        "cells": {
+          "answer": {
+            "gap": [
+              1775
+            ]
+          },
+          "close": {
+            "gap": [
+              1672
+            ]
+          },
+          "launch": {
+            "gap": [
+              1672
+            ]
+          },
+          "merge": {
+            "gap": [
+              1672
+            ]
+          },
+          "restart": {
+            "gap": [
+              1672
+            ]
+          },
+          "review": {
+            "gap": [
+              1672
+            ]
+          },
+          "update": {
+            "gap": [
+              1672
+            ]
+          },
+          "witness": {
+            "gap": [
+              1672
+            ]
+          }
+        },
+        "text": "decisions of the window under a shard act the same in every node"
+      },
+      "Z4": {
+        "cells": {
+          "answer": {
+            "gap": [
+              1740,
+              1754
+            ]
+          },
+          "close": {
+            "gap": [
+              1740,
+              1754
+            ]
+          },
+          "launch": {
+            "gap": [
+              1740,
+              1754
+            ]
+          },
+          "merge": {
+            "gap": [
+              1740,
+              1754
+            ]
+          },
+          "restart": {
+            "gap": [
+              1740,
+              1754
+            ]
+          },
+          "review": {
+            "gap": [
+              1740,
+              1754
+            ]
+          },
+          "update": {
+            "gap": [
+              1740,
+              1754
+            ]
+          },
+          "witness": {
+            "gap": [
+              1740,
+              1754
+            ]
+          }
+        },
+        "text": "every \"waits\" has a wait record and the one who lifts it"
+      },
+      "Z5": {
+        "cells": {
+          "answer": {
+            "gap": [
+              1767
+            ]
+          },
+          "close": {
+            "gap": [
+              1767
+            ]
+          },
+          "launch": {
+            "gap": [
+              1767
+            ]
+          },
+          "merge": {
+            "gap": [
+              1767
+            ]
+          },
+          "restart": {
+            "gap": [
+              1767
+            ]
+          },
+          "review": {
+            "gap": [
+              1767
+            ]
+          },
+          "update": {
+            "gap": [
+              1767
+            ]
+          },
+          "witness": {
+            "gap": [
+              1767
+            ]
+          }
+        },
+        "text": "every launch writes its own event"
+      },
+      "Z6": {
+        "cells": {
+          "answer": {
+            "gap": [
+              1764
+            ]
+          },
+          "close": {
+            "gap": [
+              1764
+            ]
+          },
+          "launch": {
+            "gap": [
+              1764
+            ]
+          },
+          "merge": {
+            "gap": [
+              1764
+            ]
+          },
+          "restart": {
+            "gap": [
+              1764
+            ]
+          },
+          "review": {
+            "gap": [
+              1764
+            ]
+          },
+          "update": {
+            "gap": [
+              1764
+            ]
+          },
+          "witness": {
+            "gap": [
+              1764
+            ]
+          }
+        },
+        "text": "a dirty tree has a way back"
+      },
+      "Z7": {
+        "cells": {
+          "answer": {
+            "gap": [
+              1756
+            ]
+          },
+          "close": {
+            "gap": [
+              1756
+            ]
+          },
+          "launch": {
+            "gap": [
+              1756
+            ]
+          },
+          "merge": {
+            "gap": [
+              1756
+            ]
+          },
+          "restart": {
+            "gap": [
+              1756
+            ]
+          },
+          "review": {
+            "gap": [
+              1756
+            ]
+          },
+          "update": {
+            "gap": [
+              1756
+            ]
+          },
+          "witness": {
+            "gap": [
+              1756
+            ]
+          }
+        },
+        "text": "liveness is read from more than one signal"
+      }
+    },
+    "lawsVersion": 1
+  },
   "nodes": {
     "declared": {
       "answer": {
