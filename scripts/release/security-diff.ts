@@ -1,8 +1,8 @@
-import { execFileSync } from 'node:child_process'
 import { realpathSync } from 'node:fs'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { execGh, stdoutOrThrow } from '../ports/gh.js'
+import { processGit } from '../ports/git.js'
 
 export const SECURITY_INVARIANTS_FILE = 'architecture/security-invariants.md'
 export const UNCHANGED = 'без изменений'
@@ -11,7 +11,7 @@ export const BLOCK_END = '<!-- /release:security-invariants -->'
 const RELEASE_TAG_PATTERN = 'v*'
 
 function git(cwd: string, args: string[]): string {
-  return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+  return processGit.read(cwd, args)
 }
 
 export function lastReleaseTag(cwd: string): string {
