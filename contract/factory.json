@@ -2782,9 +2782,7 @@
       "Z3": {
         "cells": {
           "answer": {
-            "gap": [
-              1775
-            ]
+            "witness": "Z3-direct-importer-widened"
           },
           "close": {
             "gap": [
