@@ -4,7 +4,7 @@ import type { Answerer, AnswerRequest } from '../../nodes/answer/answerer.js'
 import type { AnswerOutcome } from '../../nodes/answer/duties/index.js'
 import type { CardTreeTools } from '../../ports/card-tree.js'
 import type { IsolationReader } from '../../ports/isolation.js'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -282,6 +282,8 @@ describe('the review loop', () => {
       remoteHead: () => heads.shift() ?? null,
       spawn: async (run) => {
         prompts.push(run.argv.at(-1)!)
+        if (run.argv.at(-1)!.includes('Prove every finding'))
+          writeFileSync(run.stdoutPath.replace(/\.out\.jsonl$/, '.proofs.json'), JSON.stringify({ 1: 'scripts/tests/bus/queue.test.ts fails without the fix' }))
         return 0
       },
       newSession: () => 'new-session-1',
@@ -312,6 +314,7 @@ describe('the review loop', () => {
     expect(logsRead).toEqual([sha('a')])
     expect(prompts).toHaveLength(1)
     expect(prompts[0]).toContain('- the source is one kind')
+    expect(prompts[0]).toContain('1. the source is one kind')
     expect(prompts[0]).toContain('The failed checks: vitest 4/4.')
     expect(prompts[0]).toContain('FAIL scripts/tests/bus/queue.test.ts > the queue > expected 1 to be 2')
     made.close()
