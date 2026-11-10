@@ -36,6 +36,7 @@ import { briefBody, briefPathOf, ladderStep, reviewBody, tasksFilePathOf, tasksF
 import { reviewOf } from '../../ladder/verdict.js'
 import { cardDecisionLines } from '../../policy/shards.js'
 import { cardIsolationCommand, clientLastSteps, clientTranscript } from '../../ports/client/claude/adapter.js'
+import { processGit } from '../../ports/git.js'
 import { realIsolationReader } from '../../ports/isolation.js'
 import { prepareBeforeSession, prepareTree } from '../../ports/prepare-tree.js'
 import { promptsDirOf } from '../../ports/prompt-store.js'
@@ -107,7 +108,7 @@ export function runWithdrawLegacy(busPath: string, clock: () => Date): number {
 
 export function hasCommitsAhead(card: StartedCard): boolean {
   try {
-    return Number(execFileSync('git', ['-C', card.worktree, 'rev-list', '--count', `${card.base}..HEAD`], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim()) > 0
+    return Number(processGit.read(card.worktree, ['rev-list', '--count', `${card.base}..HEAD`]).trim()) > 0
   }
   catch {
     return true
@@ -138,7 +139,7 @@ const TREE_DIFF_MAX_BUFFER = 64 * 1024 * 1024
 function treeDiffOf(card: StartedCard): string {
   try {
     const changed = gitChangedPaths(card.worktree).join('\n')
-    const diff = execFileSync('git', ['-C', card.worktree, 'diff', card.base], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: TREE_DIFF_MAX_BUFFER })
+    const diff = processGit.readBytes(card.worktree, ['diff', card.base], TREE_DIFF_MAX_BUFFER).toString('utf8')
     return `${changed}\n\n${diff}`
   }
   catch (error) {
@@ -243,7 +244,7 @@ export function realStarterPorts(repo: string, env: NodeJS.ProcessEnv, header: s
       origins.note(worktree, output)
       return worktree
     },
-    base: worktree => execFileSync('git', ['-C', worktree, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
+    base: worktree => processGit.read(worktree, ['rev-parse', 'HEAD']).trim(),
     spawnDetached: (detached) => {
       const unprepared = prepareBeforeSession(detached.cwd, prepare)
       if (unprepared !== null)

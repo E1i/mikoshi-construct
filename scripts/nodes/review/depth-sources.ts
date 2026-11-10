@@ -1,11 +1,11 @@
 import type { BusCatalog } from '../../ci/card-runs.js'
 import type { CardBodyReader } from '../../intake/parking-reads.js'
 import type { CardScope, DepthSources, ReviewPlanner } from './review-depth.js'
-import { execFileSync } from 'node:child_process'
 import { layerMasksOf, runsOf } from '../../../src/card/covering-tests.js'
 import { createdPaths, parseParkingFile } from '../../../src/card/parking.js'
 import { busCheckCatalog, cardReadingOf } from '../../ci/card-runs.js'
 import { predict } from '../../policy/morse/predict.js'
+import { processGit } from '../../ports/git.js'
 import { planReview } from './review-depth.js'
 
 const MAIN = 'origin/main'
@@ -15,7 +15,7 @@ const CONCURRENT_REF_UPDATE = 'cannot lock ref'
 export type GitRun = (repo: string, args: string[]) => string
 
 function git(repo: string, args: string[]): string {
-  return execFileSync('git', ['-C', repo, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+  return processGit.read(repo, args)
 }
 
 function lostRefRace(error: unknown): boolean {
