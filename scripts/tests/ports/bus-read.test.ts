@@ -40,6 +40,10 @@ function append(db: DatabaseSync, type: typeof SESSION_HEARTBEAT | typeof WINDOW
   appendEvent(db, { ts, type, actor: `worker:test:${key}`, cardId, pr: null, head: null, dedupeKey: `${type}:${key}`, payload, legacy: false })
 }
 
+function appendLegacy(db: DatabaseSync, type: typeof SESSION_HEARTBEAT | typeof WINDOW_HEARTBEAT | typeof SHARD_DECIDED, cardId: number | null, payload: Record<string, unknown>, key: string): void {
+  appendEvent(db, { ts: LATER, type, actor: `worker:test:${key}`, cardId, pr: null, head: null, dedupeKey: `${type}:legacy-${key}`, payload, legacy: true })
+}
+
 function appendRaw(db: DatabaseSync, type: string, cardId: number, payload: string, key: string): void {
   db.prepare('INSERT INTO events (ts, type, actor, card_id, pr, head, dedupe_key, payload, legacy) VALUES (?, ?, ?, ?, NULL, NULL, ?, ?, 0)').run(LATER, type, `worker:test:${key}`, cardId, `${type}:${key}`, payload)
 }
@@ -130,5 +134,21 @@ describe('the bus read port', () => {
     append(db, SESSION_HEARTBEAT, TS, OTHER_CARD, { context: 800 }, 'eight')
 
     expect(cardGauges(db).map(gauges => gauges.card)).toEqual([OTHER_CARD])
+  })
+
+  it('the board reads past legacy events: a newer legacy beat or decision is not shown', () => {
+    const db = bus()
+    append(db, SESSION_HEARTBEAT, TS, CARD, { context: 300, spent: 1 }, 'seven-live')
+    appendLegacy(db, SESSION_HEARTBEAT, CARD, { context: 9999, spent: 99 }, 'seven')
+    appendLegacy(db, SESSION_HEARTBEAT, OTHER_CARD, { context: 800 }, 'eight')
+    append(db, WINDOW_HEARTBEAT, TS, null, { session: 'tab-live', context: 100, spent: 1 }, 'window-live')
+    appendLegacy(db, WINDOW_HEARTBEAT, null, { session: 'tab-legacy', context: 9999, spent: 99 }, 'window')
+    append(db, SHARD_DECIDED, TS, CARD, { shard: 'ws-live', wait: 'w', answer: 'a', stop: 'question.owner' }, 'decided-live')
+    appendLegacy(db, SHARD_DECIDED, OTHER_CARD, { shard: 'ws-legacy', wait: 'w', answer: 'a', stop: 'question.owner' }, 'decided')
+
+    expect(cardGauges(db).map(gauges => ({ card: gauges.card, context: gauges.context }))).toEqual([{ card: CARD, context: 300 }])
+    expect(windowGauges(db)?.session).toBe('tab-live')
+    expect(shardDecisions(db).map(row => row.shard)).toEqual(['ws-live'])
+    expect(new BusRead(db).where({ card: ANY, legacy: true }).slice(SESSION_HEARTBEAT, ['context'], 'last-per-card').map(row => row.fields.context)).toEqual([9999, 800])
   })
 })
