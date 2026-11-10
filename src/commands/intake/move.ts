@@ -84,6 +84,11 @@ function projectionLagsTheJournal(admission: RecordedIntake | null | undefined):
   return admission?.text !== undefined && admission.bodySha !== bodySha(admission.text) && admission.bodySha !== bodyShaWithoutTouches(admission.text)
 }
 
+function latestAdmittedSha(options: MoveOptions, number: number, parkedText: string): string {
+  const latest = options.admissions?.(number)?.bodySha
+  return typeof latest === 'string' ? latest : bodySha(parkedText)
+}
+
 function staleBodyRefusal(options: MoveOptions, number: number, targetDir: string, slicing: Slicing | null): MoveResult | null {
   if (moveType(options.parking, targetDir, slicing) !== CARD_MOVED || !projectionLagsTheJournal(options.admissions?.(number)))
     return null
@@ -97,7 +102,7 @@ function moveInBus(options: MoveOptions, number: number, text: string, now: () =
     return stale
   if (options.dryRun === true)
     return { status: 'dryRun', parking: options.parking, from: `#${number}`, to, event: moveType(options.parking, to, null) }
-  recordMove(options, number, { from: null, to, bodySha: bodySha(text) }, null, now().toISOString())
+  recordMove(options, number, { from: null, to, bodySha: latestAdmittedSha(options, number, text) }, null, now().toISOString())
   return { status: 'moved', from: `#${number}`, to, event: moveType(options.parking, to, null) }
 }
 
@@ -138,7 +143,7 @@ export function runMove(options: MoveOptions, now: () => Date = () => new Date()
   if (!inPlace)
     renameSync(from, target)
   const ts = now().toISOString()
-  const moved = { from: path.dirname(from), to: targetDir, bodySha: bodySha(text) }
+  const moved = { from: path.dirname(from), to: targetDir, bodySha: latestAdmittedSha(options, number, text) }
   const type = moveType(options.parking, targetDir, slicing)
   try {
     recordMove(options, number, moved, slicing, ts)

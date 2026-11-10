@@ -39,6 +39,10 @@ function headerAndBody(text: string): { header: string[], body: string } {
   return { header: lines.slice(0, headerEnd), body: lines.slice(headerEnd).join('\n').trim() }
 }
 
+export function headerLinesOf(text: string): string[] {
+  return headerAndBody(text).header
+}
+
 export function bodyShaWithoutTouches(text: string): string {
   return digest(headerAndBody(text).body)
 }

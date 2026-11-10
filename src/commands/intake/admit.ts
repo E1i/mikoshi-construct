@@ -24,7 +24,7 @@ import { fieldCommand, isAcceptanceField, isWitnessFieldLine, judgedCommand, nam
 import { readMilestones } from '../../manifest.js'
 import { CARD_REFERENCE, checkDraft, correctionText, invalidTestPatterns, isChangeWitness, nonPathTouchRefusals, OWNER_MERGES, ownerPathsOf, PACKAGE_MANIFEST, publishedRootsOf } from './check.js'
 import { TEST_NAME_ARGUMENT } from './command-word.js'
-import { admitCorrectionsNeedPerson, bodySha, bodyShaWithoutTouches, confirmationOf, confirmationToken, isConfirmation, tokenConfirmation, TOUCHES_HEADER, windowShard } from './confirm.js'
+import { admitCorrectionsNeedPerson, bodySha, bodyShaWithoutTouches, confirmationOf, confirmationToken, headerLinesOf, isConfirmation, tokenConfirmation, TOUCHES_HEADER, windowShard } from './confirm.js'
 import { withoutWitnessKind } from './draft.js'
 import { DirectoryFacts } from './facts.js'
 import { admittedRecord, defaultParking, INTAKE_EXIT, knownCards, recordIntake } from './index.js'
@@ -579,6 +579,14 @@ function sameBody(recorded: unknown, text: string): boolean {
   return recorded === bodySha(text) || recorded === bodyShaWithoutTouches(text)
 }
 
+function headerFieldsBeyondLineAndTouches(text: string): string[] {
+  return headerLinesOf(text).filter(entry => !entry.startsWith(CARD_HEADER) && !entry.startsWith(TOUCHES_HEADER))
+}
+
+function sameHeader(recorded: string | undefined, text: string): boolean {
+  return recorded === undefined || headerFieldsBeyondLineAndTouches(recorded).join('\n') === headerFieldsBeyondLineAndTouches(text).join('\n')
+}
+
 function parkedFilesUnder(root: string): string[] {
   return parkingTree(root).flatMap(dir => readdirSync(dir, { withFileTypes: true }).filter(entry => !entry.isDirectory()).map(entry => entry.name))
 }
@@ -693,7 +701,7 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
     return event === null ? { status: 'refused', why: lostWrite(card.id) } : { ...base, status, event }
   }
   const lane = laneOf(options.parkingRoot ?? defaultParking(), path.dirname(options.file))
-  if (recorded !== null && sameCardLine(recorded.card, line) && sameBody(recorded.bodySha, admitted.text)) {
+  if (recorded !== null && sameCardLine(recorded.card, line) && sameBody(recorded.bodySha, admitted.text) && sameHeader(recorded.text, admitted.text)) {
     if (!options.dryRun)
       options.events?.(admittedRecord(admitted, recordedConfirmation(recorded, admitted, options.autoConfirm), admittedAt(recorded, now), lane, recordedSource(recorded)))
     return inJournal('alreadyAdmitted')
