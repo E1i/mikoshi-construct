@@ -24,9 +24,11 @@ import { generationOfKey } from '../../core/identifiers.js'
 import { failTask } from '../../core/lease.js'
 import { busNameOfDb, MACHINE_POLL_MS, machineSessions } from '../../core/machine-sessions.js'
 import { Node, UNDERSTOOD_NOW } from '../../core/node.js'
+import { MACHINE_OVERLOADED, machineOverloadedLine, timeoutUnderLoadOutside } from '../../core/observations.js'
 import { COMPLETED, generationField, LAUNCH_STOP_WITH_NO_PULL_REQUEST, launchTasks, LEASED, TASK_FOLDS } from '../../core/queue.js'
 import { storedByKey } from '../../core/stored.js'
 import { cardDecisionCommand } from '../../policy/shards.js'
+import { clientTranscript } from '../../ports/client/claude/adapter.js'
 import { TICK_MS } from '../../ports/netwatch.js'
 import { lacksItsPackages } from '../../ports/prepare-tree.js'
 import { storedInput } from '../../ports/prompt-store.js'
@@ -38,7 +40,7 @@ import { MAX_RESTARTS } from './continuation.js'
 import { laneOverlapRecorder, layLanes, repositoryLanes } from './lane-assign.js'
 import { holdReason, startHold } from './launch-candidates.js'
 import { LaunchExecutor } from './launch-executor.js'
-import { REPORT_MISSING } from './report-collect.js'
+import { REPORT_MISSING, USAGE_LIMIT, usageLimitDetail, usageLimitResetIn, usageLimitResetOf } from './report-collect.js'
 import { reportClosingOf } from './tree-pr.js'
 
 export { launchDirOf }
@@ -83,6 +85,7 @@ export interface LaunchNodeParts {
   handedOff?: (start: SessionStart) => boolean
   reportOf?: (start: SessionStart) => string | null
   collected?: (card: StartedCard, start: SessionStart) => string | null
+  usageLimitedUntil?: (card: StartedCard) => string | null
   warned?: (card: StartedCard) => boolean
   atContextLine?: (card: StartedCard) => boolean
   spendStopped?: (card: StartedCard) => boolean
@@ -161,8 +164,16 @@ export const SESSION_DEATH_CAP = 3
 
 const SESSION_DEATHS = `SELECT count(*) AS n FROM events WHERE type = '${CARD_STOPPED}' AND legacy = 0 AND card_id = ? AND dedupe_key LIKE '${CARD_STOPPED}:session-end:%'`
 
-const CONTINUATIONS = `SELECT count(*) AS n FROM events WHERE type = '${CARD_CONTINUED}' AND legacy = 0 AND card_id = ?
-  AND id > (SELECT coalesce(MAX(id), 0) FROM events WHERE type = '${CARD_STARTED}' AND legacy = 0 AND card_id = ?)`
+const USAGE_LIMIT_WAIT_PREFIX = `${CARD_WAITING}:${USAGE_LIMIT}:`
+
+const CONTINUATIONS = `SELECT count(*) AS n FROM events AS c WHERE c.type = '${CARD_CONTINUED}' AND c.legacy = 0 AND c.card_id = ?
+  AND c.id > (SELECT coalesce(MAX(id), 0) FROM events WHERE type = '${CARD_STARTED}' AND legacy = 0 AND card_id = ?)
+  AND NOT EXISTS (SELECT 1 FROM events AS w WHERE w.type = '${CARD_WAITING}' AND w.card_id = c.card_id
+    AND w.dedupe_key = '${USAGE_LIMIT_WAIT_PREFIX}' || substr(c.dedupe_key, ${CARD_CONTINUED.length + 2}))`
+
+const USAGE_LIMIT_WAIT_OF_START = `SELECT payload FROM events WHERE type = '${CARD_WAITING}' AND card_id = ? AND dedupe_key = ? LIMIT 1`
+
+const LATEST_USAGE_LIMIT_WAIT = `SELECT payload FROM events WHERE type = '${CARD_WAITING}' AND legacy = 0 AND dedupe_key LIKE '${USAGE_LIMIT_WAIT_PREFIX}%' ORDER BY id DESC LIMIT 1`
 
 const PR_SINCE = `SELECT 1 FROM events WHERE card_id = ? AND id > ? AND type IN ('${PR_OPENED}', '${PR_OBSERVED}') LIMIT 1`
 
@@ -249,6 +260,7 @@ export class LaunchNode extends Node<LaunchStep> {
   private readonly pidAlive: PidAlive
   private readonly lanes: () => number
   private readonly machine: MachineSessions
+  private readonly usageLimitedUntil: (card: StartedCard) => string | null
 
   constructor(private readonly launchParts: LaunchNodeParts) {
     super('launch', { db: launchParts.db, clock: launchParts.clock, session: launchParts.session, mode: launchParts.mode, env: launchParts.env })
@@ -258,6 +270,7 @@ export class LaunchNode extends Node<LaunchStep> {
     this.pidAlive = launchParts.pidAlive ?? (launchParts.processes === undefined ? isAlive : () => true)
     this.lanes = launchParts.lanes ?? repositoryLanes(process.cwd())
     this.machine = launchParts.machine ?? machineSessions(isAlive)
+    this.usageLimitedUntil = launchParts.usageLimitedUntil ?? (card => usageLimitResetOf(clientTranscript(launchParts.env, card.worktree, card.session)))
     this.declare(LAUNCH_NODE)
   }
 
@@ -368,10 +381,17 @@ export class LaunchNode extends Node<LaunchStep> {
 
   private stopEnded(start: RunningStart, card: StartedCard): boolean {
     const session: SessionStart = { cardId: start.card_id, ts: start.ts }
+    const usageReset = this.usageLimitWaitOf(start)
+    if (usageReset !== null)
+      return this.relaunchAfterTheReset(start, card, session, usageReset)
     const missing = card.contour === 'cheap' ? this.launchParts.collected?.(card, session) ?? null : null
     const atLine = card.contour === 'cheap' && (this.launchParts.atContextLine?.(card) ?? false)
-    if (missing !== null && !atLine)
+    if (missing !== null && !atLine) {
+      const reset = this.usageLimitedUntil(card)
+      if (reset !== null)
+        return this.waitForTheReset(start, card, reset)
       return this.faultStop(this.ts(), start, `${CARD_STOPPED}:${REPORT_MISSING}:${start.dedupe_key}`, missing, REPORT_MISSING)
+    }
     const handedOff = this.launchParts.handedOff?.(session) ?? false
     if (atLine)
       return this.continueAtContextLine(start, card, session, handedOff)
@@ -390,6 +410,39 @@ export class LaunchNode extends Node<LaunchStep> {
     if (published === true)
       return false
     return this.stopWithoutPullRequest(start, card, session, published === false ? null : published)
+  }
+
+  private usageLimitWaitOf(start: RunningStart): string | null {
+    const row = this.db.prepare(USAGE_LIMIT_WAIT_OF_START).get(start.card_id, `${USAGE_LIMIT_WAIT_PREFIX}${start.dedupe_key}`) as { payload: string } | undefined
+    if (row === undefined)
+      return null
+    const { detail } = JSON.parse(row.payload) as { detail?: unknown }
+    return typeof detail === 'string' ? usageLimitResetIn(detail) : null
+  }
+
+  private waitForTheReset(start: RunningStart, card: StartedCard, reset: string): boolean {
+    const detail = usageLimitDetail(start.card_id, card.session, reset)
+    appendEvent(this.db, { ts: this.ts(), type: CARD_WAITING, actor: this.actor, cardId: start.card_id, pr: null, head: null, dedupeKey: `${USAGE_LIMIT_WAIT_PREFIX}${start.dedupe_key}`, payload: { reason: USAGE_LIMIT, code: USAGE_LIMIT, session: card.session, detail }, legacy: false })
+    return false
+  }
+
+  private relaunchAfterTheReset(start: RunningStart, card: StartedCard, session: SessionStart, reset: string): boolean {
+    if (this.parts.clock().getTime() < Date.parse(reset))
+      return false
+    const exited = `card #${start.card_id} session ${card.session} ended on the account's usage limit, which reset at ${reset}`
+    const { continuer } = this.launchParts
+    if (continuer === undefined)
+      return this.stopContinuation(start, 'continuation-refused', `${exited}; no continuer is wired, so no session continues from it`)
+    if (!(this.launchParts.handedOff?.(session) ?? false))
+      this.launchParts.buildHandoff?.(card, session, cardBodyText(this.db, start.card_id))
+    return this.continueSession(start, card, continuer, exited)
+  }
+
+  private usageLimitResetPending(): string | null {
+    const row = this.db.prepare(LATEST_USAGE_LIMIT_WAIT).get() as { payload: string } | undefined
+    const { detail } = row === undefined ? {} : JSON.parse(row.payload) as { detail?: unknown }
+    const reset = typeof detail === 'string' ? usageLimitResetIn(detail) : null
+    return reset !== null && this.parts.clock().getTime() < Date.parse(reset) ? reset : null
   }
 
   private continueAtContextLine(start: RunningStart, card: StartedCard, session: SessionStart, handedOff: boolean): boolean {
@@ -500,7 +553,7 @@ export class LaunchNode extends Node<LaunchStep> {
   }
 
   private continueSession(start: RunningStart, card: StartedCard, continuer: SessionContinuer, exited: string): boolean {
-    if (cardHoldOf(this.db, start.card_id) !== null || bodyNotFoldedYet(this.db, start.card_id))
+    if (cardHoldOf(this.db, start.card_id) !== null || bodyNotFoldedYet(this.db, start.card_id) || this.usageLimitResetPending() !== null)
       return false
     const used = this.continuationsUsed(start)
     if (used >= MAX_RESTARTS)
@@ -550,11 +603,31 @@ export class LaunchNode extends Node<LaunchStep> {
 
   private stopWithoutPullRequest(start: RunningStart, card: StartedCard, session: SessionStart, refusal: string | null): boolean {
     const questions = reportQuestions(this.launchParts.reportOf?.(session) ?? null)
+    if (questions.length > 0 && questions.every(question => timeoutUnderLoadOutside(question, paths => pathsOutsideTheBody(this.db, start.card_id, paths.join('\n')))))
+      return this.retryUnderLoad(start, card, session, questions)
     if (questions.length > 0)
       return this.launchParts.continuer !== undefined && this.continuationsUsed(start) < MAX_RESTARTS && lacksItsPackages(card.worktree) ? this.continueSession(start, card, this.launchParts.continuer, `card #${start.card_id} session ${card.session} asked a question from ${card.worktree}, whose lockfile names packages the tree lacks; the bus prepares the tree for the next session`) : this.stopOnQuestions(start, card, questions, splitByRepository(card.worktree, pathsOutsideTheBody(this.db, start.card_id, questions.join('\n'))), refusal)
     const ended = noPullRequestDetail(start.card_id, card.session, this.launchParts.endedWith?.(session) ?? null)
     const detail = refusal === null ? ended : `${ended}; ${refusal}`
     return inTransaction(this.db, () => this.faultStop(this.ts(), start, `${LAUNCH_STOP_WITH_NO_PULL_REQUEST}${start.dedupe_key}`, detail))
+  }
+
+  private retryUnderLoad(start: RunningStart, card: StartedCard, session: SessionStart, questions: readonly string[]): boolean {
+    const detail = machineOverloadedLine(start.card_id, questions.join('; '))
+    appendEvent(this.db, { ts: this.ts(), type: CARD_WAITING, actor: this.actor, cardId: start.card_id, pr: null, head: null, dedupeKey: `${CARD_WAITING}:${MACHINE_OVERLOADED}:${start.dedupe_key}`, payload: { reason: MACHINE_OVERLOADED, code: MACHINE_OVERLOADED, session: card.session, detail }, legacy: false })
+    if (card.contour === 'cheap' && this.launchParts.publish !== undefined) {
+      this.launchParts.publish(card, session)
+      if (this.db.prepare(PR_SINCE).get(start.card_id, start.id) !== undefined) {
+        appendEvent(this.db, { ts: this.ts(), type: CARD_SESSION_ENDED, actor: this.actor, cardId: start.card_id, pr: null, head: null, dedupeKey: `${CARD_SESSION_ENDED}:${start.dedupe_key}`, payload: { session: card.session, pgid: card.pgid, stopped: false, published: true, detail: `${detail}; the bus ran tree-pr and it opened the pull request` }, legacy: false })
+        return false
+      }
+      if (this.db.prepare(STOPPED_SINCE).get(start.card_id, start.id) !== undefined)
+        return false
+    }
+    const { continuer } = this.launchParts
+    if (continuer === undefined)
+      return this.stopContinuation(start, 'continuation-refused', `${detail}; no continuer is wired, so the session is not retried`)
+    return this.continueSession(start, card, continuer, detail)
   }
 
   private openQuestionWaits(ts: string, start: RunningStart, card: StartedCard, questions: readonly string[]): void {
@@ -617,6 +690,9 @@ export class LaunchNode extends Node<LaunchStep> {
       return this.waitOn(lease, BODY_NOT_FOLDED, new Date(this.parts.clock().getTime() + TICK_MS).toISOString())
     if (cardHoldOf(this.db, lease.cardId) !== null)
       return this.waitOn(lease, CARD_HELD, new Date(this.parts.clock().getTime() + HOLD_RECHECK_MS).toISOString())
+    const usageReset = this.usageLimitResetPending()
+    if (usageReset !== null)
+      return this.waitOn(lease, USAGE_LIMIT, usageReset)
     const hold = startHold(this.db, lease.cardId, this.lanes(), this.machine)
     if (hold !== null)
       return this.waitOn(lease, holdReason(hold), new Date(this.parts.clock().getTime() + MACHINE_POLL_MS).toISOString())

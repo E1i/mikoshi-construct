@@ -27,6 +27,7 @@ import { HANDOFF_FIELDS } from '../../core/handoff-fields.js'
 import { ANSWER_SOURCE } from '../../core/inbox.js'
 import { recordGhostLine } from '../../core/journal.js'
 import { leaseNext } from '../../core/lease.js'
+import { MachineSessions } from '../../core/machine-sessions.js'
 import { NODE_CURSORS } from '../../core/node.js'
 import { treeReportPath } from '../../core/places.js'
 import { keyOf, launchTasks, queueTask } from '../../core/queue.js'
@@ -1774,5 +1775,118 @@ describe('what a launched session left behind', () => {
     expect(eddiesWarned(card)).toBe(false)
     writeFileSync(path.join(worktree, '.construct', 'eddies.jsonl'), `${JSON.stringify({ event: 'budget-warn', session_id: 'sess-warned' })}\n`)
     expect(eddiesWarned(card)).toBe(true)
+  })
+})
+
+describe('a session that ends on the account usage limit', () => {
+  const RESET_AFTER_MS = 2 * 3_600_000
+  const MISSING = 'report-missing: card #1711: the shift report /trees/mc-1711/.construct/report.md: no report was written there; the session exited with code 1'
+
+  function transcriptEndingOnTheLimit(resetsAt: number): string {
+    const turn = { type: 'assistant', message: { role: 'assistant', model: 'a-model', content: [{ type: 'text', text: 'working' }] } }
+    const limit = { type: 'assistant', message: { role: 'assistant', model: '<synthetic>', content: [{ type: 'text', text: 'You\'ve hit your weekly limit' }] }, apiError: 'usage_limit_reached', apiErrorStatus: 429, isApiErrorMessage: true, quotaLimits: { status: 'rejected', resetsAt, rateLimitType: 'seven_day' } }
+    return [turn, limit, { type: 'system', subtype: 'stop_hook_summary' }, { type: 'last-prompt' }].map(record => JSON.stringify(record)).join('\n')
+  }
+
+  function limitedBench(made: MergeBench, limited: readonly number[]): { node: ProbedLaunchNode, starter: ContinuingStarter, reset: string } {
+    const starter = new ContinuingStarter()
+    const exited: ProcessTable = { commandLine: () => null, signalGroup: () => {} }
+    const reset = new Date(Math.ceil((made.clock.now().getTime() + RESET_AFTER_MS) / 1000) * 1000).toISOString()
+    const machineDir = mkdtempSync(path.join(tmpdir(), 'usage-limit-machine-'))
+    roots.push(machineDir)
+    const node = new ProbedLaunchNode({
+      db: made.db,
+      starter,
+      continuer: starter,
+      clock: made.clock.now,
+      session: 'node-1',
+      mode: 'live',
+      env: {},
+      processes: exited,
+      resulted: () => false,
+      handedOff: () => false,
+      collected: (_card, start) => start.cardId === 1711 ? MISSING : null,
+      usageLimitedUntil: card => limited.includes(Number(card.session.slice(2))) ? reset : null,
+      machine: new MachineSessions(machineDir, () => false, 16),
+      lanes: () => 4,
+      disk: roomy,
+      isolation: sandboxed,
+    })
+    return { node, starter, reset }
+  }
+
+  it('a session that ended on the usage limit waits for its reset and is launched again without a fault', async () => {
+    const made = bench()
+    admit(made, 1711, 'lane-a')
+    made.tick()
+    const { node, starter, reset } = limitedBench(made, [1711])
+    await once(node)
+    made.tick()
+
+    expect(node.stopOverdue()).toEqual([])
+    made.tick()
+    expect(eventsOf(made.db, CARD_STOPPED)).toEqual([])
+    expect(eventsOf(made.db, BOARD_ALARM)).toEqual([])
+    expect(eventsOf(made.db, CARD_WAITING)).toEqual([expect.objectContaining({ reason: 'usage-limit', session: 's-1711', detail: expect.stringContaining(`resets at ${reset}`) })])
+
+    made.clock.advance(Date.parse(reset) - made.clock.now().getTime() - 1000)
+    expect(node.stopOverdue()).toEqual([])
+    expect(starter.continued).toEqual([])
+
+    made.clock.advance(2000)
+    expect(node.stopOverdue()).toEqual([])
+    expect(starter.continued).toEqual([expect.objectContaining({ card: { cardId: 1711, lane: 'lane-a' } })])
+    expect(eventsOf(made.db, CARD_CONTINUED)).toEqual([expect.objectContaining({ session: 's-1711-c1', from: 's-1711' })])
+    expect(eventsOf(made.db, CARD_STOPPED)).toEqual([])
+    expect(eventsOf(made.db, BOARD_ALARM)).toEqual([])
+    made.tick()
+    expect(made.db.prepare(`SELECT state FROM cards WHERE card_id = 1711`).get()).toEqual({ state: 'running' })
+  })
+
+  it('no session starts before a recorded usage-limit reset', async () => {
+    const made = bench()
+    admit(made, 1711, 'lane-a')
+    made.tick()
+    const { node, starter } = limitedBench(made, [1711])
+    await once(node)
+    made.tick()
+    node.stopOverdue()
+    made.tick()
+
+    admit(made, 1712, 'lane-b')
+    made.tick()
+    await once(node)
+    made.tick()
+    expect(starter.starts.map(card => card.cardId)).toEqual([1711])
+    expect(taskState(made.db, launchKey(1712))).toMatchObject({ state: 'queued' })
+
+    made.clock.advance(RESET_AFTER_MS + 60_000)
+    await once(node)
+    made.tick()
+    expect(starter.starts.map(card => card.cardId)).toEqual([1711, 1712])
+  })
+
+  it('a session that ended with no report and no usage limit stops as report-missing', async () => {
+    const made = bench()
+    admit(made, 1711, 'lane-a')
+    made.tick()
+    const { node, starter } = limitedBench(made, [])
+    await once(node)
+    made.tick()
+
+    expect(node.stopOverdue()).toEqual([1711])
+    expect(eventsOf(made.db, CARD_STOPPED)).toEqual([{ reason: 'fault', code: 'report-missing', detail: MISSING }])
+    expect(eventsOf(made.db, BOARD_ALARM)).toEqual([expect.objectContaining({ reason: 'fault', detail: MISSING })])
+    expect(eventsOf(made.db, CARD_WAITING)).toEqual([])
+    expect(starter.continued).toEqual([])
+  })
+
+  it('reads the reset only from a transcript whose last turn is the usage-limit record', async () => {
+    const { usageLimitResetOf } = await import('../../nodes/launch/report-collect.js')
+    const resetsAt = 1794063600
+    expect(usageLimitResetOf(transcriptEndingOnTheLimit(resetsAt))).toBe('2026-11-07T15:00:00.000Z')
+    expect(usageLimitResetOf(`${transcriptEndingOnTheLimit(resetsAt)}\n${JSON.stringify({ type: 'user', message: { role: 'user', content: 'go on' } })}`)).toBeNull()
+    expect(usageLimitResetOf(null)).toBeNull()
+    expect(usageLimitResetOf('not json\n')).toBeNull()
   })
 })

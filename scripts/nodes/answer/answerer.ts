@@ -21,6 +21,7 @@ import { appendEvent, defaultBusPath, openBus } from '../../core/db.js'
 import { TOUCHES_FOLLOWED } from '../../core/events.js'
 import { assertHeld, StaleLease } from '../../core/lease.js'
 import { busNameOf, machineGate, machineSessions } from '../../core/machine-sessions.js'
+import { machineOverloadedLine, timeoutUnderLoadOutside } from '../../core/observations.js'
 import { treeReportPath } from '../../core/places.js'
 import { pushPolicyOf } from '../../core/push-policy.js'
 import { busCardBodies } from '../../intake/parking-reads.js'
@@ -404,6 +405,13 @@ export function claudeAnswerer(dir: string, tools: AnswererTools): Answerer {
   }
 }
 
+function askedUnlessRetried(request: AnswerRequest, asked: string | null): string | null {
+  if (asked === null || request.outsideTouches === undefined || !timeoutUnderLoadOutside(asked, request.outsideTouches))
+    return asked
+  console.log(`${PREFIX}${machineOverloadedLine(request.lease.cardId, asked)}`)
+  return null
+}
+
 function sessionAnswerer(dir: string, tools: AnswererTools): Answerer {
   return async (request) => {
     const { card } = request
@@ -508,7 +516,7 @@ function sessionAnswerer(dir: string, tools: AnswererTools): Answerer {
         throw new Error(`the answer session ${session} exited ${code}`)
       const kept = tools.pushPolicy?.(card) === 'none'
       const atLine = atContextWarn(tools, session, size)
-      const owner = ownerAfter('') ?? (kept || atLine ? null : await publish())
+      const owner = askedUnlessRetried(request, ownerAfter('')) ?? (kept || atLine ? null : await publish())
       const measured = measuredOf(steps.map(stdoutOf))
       return { session, resumed, atContextWarn: atLine, before, after: tools.remoteHead(card), owner, ...measured, input: { prompt, cardBody }, steps: timer.steps(), ...(widenedInConcept.size === 0 ? {} : { widenedInConcept: [...widenedInConcept] }) }
     }

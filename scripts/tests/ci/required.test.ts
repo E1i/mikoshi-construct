@@ -1,9 +1,9 @@
-import type { JobResult, Needs } from '../../ci/required.js'
+import type { JobResult, Needs, RunJob } from '../../ci/required.js'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import YAML from 'yaml'
-import { blockingJobs, CLASSIFY_JOB, SKIPPED_ON_FAST_PATH } from '../../ci/required.js'
+import { blockingJobs, CLASSIFY_JOB, ranNeeds, REQUIRED_JOB, requiredSummary, rerunDue, SKIPPED_ON_FAST_PATH } from '../../ci/required.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..', '..')
 
@@ -70,6 +70,57 @@ describe('the required verdict', () => {
 
   it('is red when it was given no job results', () => {
     expect(blockingJobs({})).toHaveLength(1)
+  })
+})
+
+const STEP = { name: 'Run', status: 'completed' }
+
+function jobsThatRan(needed: Needs, without: readonly string[] = []): RunJob[] {
+  const ran = Object.keys(needed).filter(job => !without.includes(job)).map(job => ({ name: job === 'vitest' ? 'vitest 1/4' : job, runner_name: 'GitHub Actions 7', steps: [STEP] }))
+  return [...ran, { name: REQUIRED_JOB, runner_name: 'GitHub Actions 9', steps: [STEP] }]
+}
+
+describe('an abandoned need', () => {
+  it('abandoned: a failed need GitHub gave no runner is named abandoned, and a red only from it is a rerun due', () => {
+    const run = needs(false, { vitest: 'failure' })
+    const blocking = blockingJobs(run, ranNeeds(run, jobsThatRan(run, ['vitest'])))
+
+    expect(blocking).toEqual(['vitest: abandoned'])
+    expect(rerunDue(blocking)).toBe(true)
+    expect(requiredSummary(blocking)).toContain('a rerun is due')
+    expect(requiredSummary(blocking)).not.toMatch(/^CI \/ required is red: /)
+  })
+
+  it('abandoned: a listed job with no runner and no step is abandoned too', () => {
+    const run = needs(false, { acceptance: 'failure' })
+    const jobs = [...jobsThatRan(run, ['acceptance']), { name: 'acceptance (node-backend, 22, 0)', runner_name: null, steps: [] }]
+
+    expect(blockingJobs(run, ranNeeds(run, jobs))).toEqual(['acceptance: abandoned'])
+  })
+
+  it('abandoned: a need that ran and failed stays a failure, beside an abandoned one too, and no rerun is due', () => {
+    const run = needs(false, { lint: 'failure', vitest: 'failure' })
+    const blocking = blockingJobs(run, ranNeeds(run, jobsThatRan(run, ['vitest'])))
+
+    expect(blocking).toEqual(['lint: failure', 'vitest: abandoned'])
+    expect(rerunDue(blocking)).toBe(false)
+    expect(requiredSummary(blocking)).toBe('CI / required is red: lint: failure, vitest: abandoned')
+  })
+
+  it('abandoned: with no reading of the run\'s jobs, or one that misses a green need, every failure stays a failure', () => {
+    const run = needs(false, { vitest: 'failure' })
+    const missingAGreenNeed = jobsThatRan(run, ['vitest', 'lint'])
+
+    expect(blockingJobs(run, ranNeeds(run, null))).toEqual(['vitest: failure'])
+    expect(blockingJobs(run, ranNeeds(run, missingAGreenNeed))).toEqual(['vitest: failure'])
+    expect(blockingJobs(run, ranNeeds(run, jobsThatRan(run, ['vitest']).filter(job => job.name !== REQUIRED_JOB)))).toEqual(['vitest: failure'])
+    expect(rerunDue(['vitest: failure'])).toBe(false)
+  })
+
+  it('abandoned: cancelled beside abandoned is a rerun due, cancelled alone is left to the bus reading the cancelled check', () => {
+    expect(rerunDue(['vitest: abandoned', 'docs: cancelled'])).toBe(true)
+    expect(rerunDue(['docs: cancelled'])).toBe(false)
+    expect(rerunDue([])).toBe(false)
   })
 })
 
