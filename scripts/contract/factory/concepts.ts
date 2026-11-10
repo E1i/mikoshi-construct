@@ -323,8 +323,8 @@ export const CONCEPTS: readonly Concept[] = [
     id: 'owner-commands',
     title: 'the command lines the owner is told to run',
     owner: 'scripts/core/owner-commands.ts',
-    ownerExists: false,
-    ownerExport: null,
+    ownerExists: true,
+    ownerExport: 'pnpmCommand',
     axis: 'interface',
     lore: null,
     detectors: [
