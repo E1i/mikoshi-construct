@@ -2,11 +2,12 @@ import { realpathSync } from 'node:fs'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { defaultBusPath } from '../core/db.js'
+import { pnpmCommand } from '../core/owner-commands.js'
 import { busCardBodies } from '../intake/parking-reads.js'
 import { cardNumberOf } from './approval.js'
 import { handoffJournalPath, morseApprove } from './hash.js'
 
-const USAGE = `usage: morse-approve.ts <brief> <card>; it writes only an approval by morse, an owner approval is pnpm approve`
+const USAGE = `usage: morse-approve.ts <brief> <card>; it writes only an approval by morse, an owner approval is ${pnpmCommand('approve')}`
 
 interface MorseApproveArgs {
   briefPath: string
