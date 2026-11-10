@@ -195,6 +195,8 @@ export interface Lore extends Omit<ExpectLore, 'expectRoleForecast'> {
   intakeMoveRecordedInPlace: (file: string, event: string) => string
   intakeMoveNotFound: (id: number) => string
   intakeMoveAmbiguous: (id: number, paths: string) => string
+  intakeDropRepointed: (card: number, dropped: number, children: string) => string
+  intakeDropLeavesDependents: (dropped: number, cards: string) => string
   intakeMoveNeedsBoth: string
   intakeMoveNeedsTheBus: string
   intakeMoveTargetOutside: (to: string) => string
@@ -639,6 +641,8 @@ export const LORE: Lore = {
   intakeMoveRecordedInPlace: (file: string, event: string) => `MOVE RECORDED // ${file} is already there; the bus holds it as ${event}, the file stays put`,
   intakeMoveNotFound: (id: number) => `INTAKE REFUSED // NO CARD: #${id} is in no parking directory under the root`,
   intakeMoveAmbiguous: (id: number, paths: string) => `INTAKE REFUSED // AMBIGUOUS: #${id} is parked in more than one place: ${paths}`,
+  intakeDropRepointed: (card: number, dropped: number, children: string) => `REWIRED // #${card} depends on ${children} where it waited on #${dropped}`,
+  intakeDropLeavesDependents: (dropped: number, cards: string) => `INTAKE REFUSED // ORPHANS: ${cards} depend on #${dropped} and no slice of it names them in its blocks; re-point their depends first`,
   intakeMoveNeedsBoth: 'INTAKE REFUSED // --move and --to go together, with no --draft, --taken or --admit',
   intakeMoveNeedsTheBus: 'INTAKE REFUSED // NO BUS: a move is held only by the bus, and this entry has none; run construct-intake --move; nothing moved',
   intakeMoveTargetOutside: (to: string) => `INTAKE REFUSED // OUTSIDE: --to ${to} is not the parking root (.) or one directory directly under it; nothing moved`,
@@ -1097,6 +1101,8 @@ export const PLAIN_LORE: Lore = {
   intakeMoveRecordedInPlace: (file: string, event: string) => `${file} is already in that directory. The bus holds the move as ${event}; the file was not moved.`,
   intakeMoveNotFound: (id: number) => `Refused: #${id} is in no parking directory under the root. Nothing was written.`,
   intakeMoveAmbiguous: (id: number, paths: string) => `Refused: #${id} is parked in more than one place: ${paths}. Nothing was written.`,
+  intakeDropRepointed: (card: number, dropped: number, children: string) => `#${card} now depends on ${children} instead of the dropped #${dropped}.`,
+  intakeDropLeavesDependents: (dropped: number, cards: string) => `Refused: ${cards} depend on #${dropped}, and no slice of #${dropped} names them in its blocks, so they would wait for a card that never merges. Re-point their depends with an amend first. Nothing was written.`,
   intakeMoveNeedsBoth: 'Refused: --move and --to go together, with no --draft, --taken or --admit. Nothing was written.',
   intakeMoveNeedsTheBus: 'Refused: a move is held only by the bus, and this entry has none; run construct-intake --move. Nothing was moved.',
   intakeMoveTargetOutside: (to: string) => `Refused: --to ${to} is not the parking root (.) or one directory directly under it. Nothing was moved.`,
