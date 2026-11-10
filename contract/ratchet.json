@@ -56,7 +56,7 @@
   "lines:scripts/construct/browser-lab.mjs": 809,
   "lines:scripts/core/queue.ts": 1314,
   "lines:scripts/supervisor/supervisor.ts": 1190,
-  "lines:scripts/window/window-requests.ts": 949,
+  "lines:scripts/window/window-requests.ts": 947,
   "lines:src/ui/lore.ts": 1338,
   "overlaps:answer-duties": 1,
   "overlaps:ci-reading": 0,

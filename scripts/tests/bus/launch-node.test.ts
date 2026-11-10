@@ -558,6 +558,36 @@ describe('the launch node', () => {
     expect(taskState(made.db, launchKey(1302))).toMatchObject({ state: 'queued' })
   })
 
+  it('a launch after requeue records card.started', async () => {
+    const made = bench()
+    admit(made, 1304, 'lane-a')
+    made.tick()
+    const starter = new FakeStarter()
+    const processes: ProcessTable = { commandLine: () => null, signalGroup: () => {} }
+    const node = new ProbedLaunchNode({ db: made.db, starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, resulted: () => true, disk: roomy, isolation: sandboxed })
+    await once(node)
+    made.tick()
+    appendEvent(made.db, { ts: made.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'policy', cardId: 1304, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:1304:amended`, payload: { lane: 'lane-a', decision: 'auto', contour: 'cheap', depends: [], admission: 'admission-1304-amended' }, legacy: false })
+    made.tick()
+    expect(node.stopOverdue()).toEqual([1304])
+    made.tick()
+    const refuse = (): never => {
+      throw new Error('a requeue of a launch uses no tree tool')
+    }
+    requestFromWindow(made.db, made.clock.now().toISOString(), 'test', { kind: 'requeue', task_key: launchKey(1304) })
+    const tools = { treeOf: refuse, exists: refuse, cutTree: refuse, dryRunOf: refuse, addDecision: refuse, causeHolds: () => null, closePr: refuse, closeDropped: () => [] }
+    expect(new WindowRequests(made.db, made.clock.now, tools).run()).toMatchObject([{ kind: 'done' }])
+    made.tick()
+
+    await once(node)
+
+    made.tick()
+    expect(made.db.prepare('SELECT state FROM cards WHERE card_id = 1304').get()).toEqual({ state: 'running' })
+    expect(starter.starts.map(card => card.cardId)).toEqual([1304, 1304])
+    expect(taskState(made.db, launchKey(1304))).toMatchObject({ state: 'completed' })
+    expect(eventsOf(made.db, CARD_STARTED)).toHaveLength(2)
+  })
+
   it('a requeue the bus rejects is answered as refused, not done', async () => {
     const made = bench()
     admit(made, 1303, 'lane-a')

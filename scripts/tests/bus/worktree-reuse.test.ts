@@ -1,3 +1,5 @@
+import type { CardStart } from '../../nodes/launch/launch-executor.js'
+import type { StarterPorts } from '../../nodes/launch/launch-starter.js'
 import type { ProcessCwds } from '../../ports/client/contract.js'
 import type { TreeDeps } from '../../ports/worktree.js'
 import { execFileSync } from 'node:child_process'
@@ -5,6 +7,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSyn
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { parkingFileText } from '../../../src/card/parking.js'
 import { STOPPED_CARD } from '../../core/card-automaton.js'
 import { appendEvent } from '../../core/db.js'
 import { ARTIFACT_REMOVED, CARD_ADMITTED, CARD_CLOSED, CARD_STARTED } from '../../core/events.js'
@@ -12,6 +15,7 @@ import { leaseNext } from '../../core/lease.js'
 import { reduce } from '../../core/reducer.js'
 import { CloseExecutor, gitTreeRemover, treeMayBeReused } from '../../nodes/close/close-executor.js'
 import { EndedCardTrees, gitWorktrees, recordEndedTrees } from '../../nodes/close/ended-card-trees.js'
+import { ShiftCardStarter, staleTreeLine } from '../../nodes/launch/launch-starter.js'
 import { GIT_TREE_TOOLS, ReviewTrees } from '../../nodes/review/reviewer.js'
 import { gitCardTrees } from '../../ports/card-tree.js'
 import { cutTree, FREE_TREE_CAPACITY, FREE_TREES, pnpmInstall } from '../../ports/worktree.js'
@@ -298,5 +302,61 @@ describe('the close that frees and the start that takes are one lifecycle', () =
     expect(readFileSync(path.join(secondTree, 'README.md'), 'utf8')).toBe('README.md\n')
     expect(existsSync(path.join(secondTree, 'left.txt'))).toBe(false)
     expect(trees.holds(secondTree)).toBe(true)
+  })
+})
+
+describe('a requeued card relaunched on the tree it holds', () => {
+  function relaunch(tree: string, held: string): { start: CardStart, bodies: string[] } {
+    const bodies: string[] = []
+    const text = parkingFileText({ card: `#${FIRST} card-${FIRST} [implement/netwatch/S/cheap/auto] · depends — · blocks —`, branch: `feat/card-${FIRST}`, touches: ['src/**'], continue: 'auto', who: 'shift', body: 'Do the card.' })
+    const ports: StarterPorts = {
+      read: () => text,
+      cut: () => {
+        throw new Error('a card relaunched on its held tree is not cut again')
+      },
+      base: worktree => git(worktree, ['rev-parse', 'HEAD']).trim(),
+      spawnDetached: () => 4242,
+      pgidOf: pid => pid,
+      kill: () => {},
+      uuid: () => 's-relaunch',
+      envOf: () => ({}),
+      prompt: (task) => {
+        bodies.push(task.body)
+        return task.body
+      },
+      changedPaths: () => [],
+      readReport: () => null,
+      cardSessions: () => [],
+      readTranscript: () => null,
+      treeFile: () => null,
+    }
+    const starter = new ShiftCardStarter({ launchDir: path.join(root, 'launch'), claude: 'client-stub', treePr: 'tree-pr' }, ports)
+    return { start: starter.start({ cardId: FIRST, lane: 'lane-a', continueIn: { worktree: tree, base: held } }), bodies }
+  }
+
+  it('a requeued card whose clean tree is behind main starts its session on fresh main', () => {
+    const tree = cut(FIRST).worktree
+    const held = git(tree, ['rev-parse', 'HEAD']).trim()
+    const fresh = advanceMain('landed-on-main.txt')
+
+    const { start, bodies } = relaunch(tree, held)
+
+    expect(start).toMatchObject({ kind: 'started', card: { worktree: tree, base: fresh } })
+    expect(git(tree, ['rev-parse', 'HEAD']).trim()).toBe(fresh)
+    expect(existsSync(path.join(tree, 'landed-on-main.txt'))).toBe(true)
+    expect(bodies[0]).not.toContain(staleTreeLine('').split(':')[0])
+  })
+
+  it('a requeued card whose tree carries its own commits keeps them, and its session is told the tree is not on fresh main', () => {
+    const tree = cut(FIRST).worktree
+    const held = git(tree, ['rev-parse', 'HEAD']).trim()
+    const worked = workedOn(tree)
+    advanceMain('landed-on-main.txt')
+
+    const { start, bodies } = relaunch(tree, held)
+
+    expect(start).toMatchObject({ kind: 'started', card: { worktree: tree, base: held } })
+    expect(git(tree, ['rev-parse', 'HEAD']).trim()).toBe(worked)
+    expect(bodies[0]).toContain(staleTreeLine(`${tree} carries 1 commit(s) over origin/main, so it was not brought to it`))
   })
 })
