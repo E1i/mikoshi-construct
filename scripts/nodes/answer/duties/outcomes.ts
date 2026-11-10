@@ -6,8 +6,8 @@ import type { WaitStep } from '../../../core/node.js'
 import type { AdmittedScope } from '../answer-source.js'
 import { openBusWait } from '../../../core/db.js'
 import { CARD_STOPPED, POLICY_DENIED, QUESTION_OWNER } from '../../../core/events.js'
-import { completeTask, failTask, supersedeLease, waitTask } from '../../../core/lease.js'
-import { DOWNGRADE_WAIT_OPEN, supersededAnswerWithinItsLease } from '../../../core/queue.js'
+import { completeTask, cutByRestart, failTask, releaseTask, RESTART_CUT, supersedeLease, waitTask } from '../../../core/lease.js'
+import { DOWNGRADE_WAIT_OPEN, QUEUED, supersededAnswerWithinItsLease } from '../../../core/queue.js'
 import { cardDecisionCommand, decisionsInForceAt, unspentShard } from '../../../policy/shards.js'
 import { TICK_MS } from '../../../ports/netwatch.js'
 import { admittedScopeOf } from '../answer-source.js'
@@ -90,6 +90,10 @@ export class AnswerOutcomes {
   }
 
   denied(lease: Lease, denial: AnswerDenial): AnswerOutcome {
+    if (denial.reason === 'answer_failed' && cutByRestart(this.parts.db, lease)) {
+      releaseTask(this.parts.db, this.ts(), lease, RESTART_CUT)
+      return { kind: 'denied', taskKey: lease.taskKey, denial: { ...denial, detail: `${denial.detail}; a restart of the bus cut the session, so it is queued again and not counted as a failed round` }, next: QUEUED }
+    }
     const next = failTask(this.parts.db, this.ts(), lease, { reason: denial.reason, withdraw: WITHDRAWN_REASONS.has(denial.reason) }, [this.denialEvent(lease, denial)])
     return { kind: 'denied', taskKey: lease.taskKey, denial, next }
   }

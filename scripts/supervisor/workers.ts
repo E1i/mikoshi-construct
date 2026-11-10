@@ -11,7 +11,7 @@ import { reviewLaunch } from './review-bg.js'
 
 export const WORKERS_FILE = 'workers.json'
 export const WORKERS = ['review', 'merge', 'update', 'launch', 'restart', 'answer', 'close', 'witness'] as const
-export const ROUND_WORKERS: readonly string[] = ['launch', 'answer']
+export const ROUND_WORKERS: readonly string[] = ['launch', 'review', 'answer', 'witness']
 
 export const FACTORY_MODES = ['window', 'ghost-protocol'] as const
 export const DEFAULT_MODE = 'window'

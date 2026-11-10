@@ -1,10 +1,25 @@
+import type { DatabaseSync } from 'node:sqlite'
+import type { Lease } from '../../core/lease.js'
+import type { NodeKind, NodeStep } from '../../core/node.js'
+import type { QueuedTask } from '../../core/queue.js'
 import type { LawCell, LawCells, LawId, LawNode } from '../../nodes/laws.js'
-import { existsSync } from 'node:fs'
+import type { BgResult, DetachedLaunch, RunningProcess } from '../../supervisor/bg.js'
+import type { BusWorker } from '../../supervisor/workers.js'
+import { existsSync, mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import { NODE_DECLARATIONS } from '../../contract/factory/nodes.js'
 import { LAW_GAP_PREFIX, lawGapNumbers, ratchetBreaks, readRatchet } from '../../contract/ratchet.js'
-import { gapRows, LAW_CELLS, LAW_NODES, lawIds, LAWS } from '../../nodes/laws.js'
+import { openBus } from '../../core/db.js'
+import { completeTask, recordWorkerStarted } from '../../core/lease.js'
+import { Node } from '../../core/node.js'
+import { keyOf, queueTaskWithin } from '../../core/queue.js'
+import { gapRows, LAW_CELLS, LAW_NODES, lawIds, LAWS, RESTART_KEEPS_SESSION } from '../../nodes/laws.js'
+import { launchName } from '../../supervisor/bg.js'
+import { slotsVariable } from '../../supervisor/scheduler.js'
+import { busDrain, BusSupervisor, freeLeasesOf, withoutRetiring } from '../../supervisor/supervisor.js'
+import { workerLaunches } from '../../supervisor/workers.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')
 const NODES_TREE = path.join(REPO_ROOT, 'scripts', 'nodes')
@@ -17,7 +32,131 @@ interface Witness {
 
 type Witnesses = Readonly<Record<string, Witness>>
 
-const WITNESSES: Witnesses = {}
+const OLD_MAIN = 'a'.repeat(40)
+const NEW_MAIN = 'b'.repeat(40)
+const SHARED_FILE = 'scripts/core/db.ts'
+const SESSION_WRAPPER_PID = 599
+const SESSION_PID = 600
+const CLOSE_PID = 610
+const PROMISE_TURNS = 10_000
+const roots: string[] = []
+
+afterEach(() => {
+  for (const root of roots.splice(0))
+    rmSync(root, { recursive: true, force: true })
+})
+
+class LiveSession extends Node<NodeStep> {
+  readonly taken: string[] = []
+  private readonly rounds: (() => void)[] = []
+
+  constructor(kind: NodeKind, db: DatabaseSync, clock: () => Date) {
+    super(kind, { db, clock, session: 'old', mode: 'live', env: { [slotsVariable(kind)]: '1' }, self: { pid: SESSION_PID, started: clock().toISOString() }, codeSha: () => OLD_MAIN })
+  }
+
+  protected candidates(): QueuedTask[] {
+    return []
+  }
+
+  protected async handle(lease: Lease): Promise<NodeStep> {
+    this.taken.push(lease.taskKey)
+    await new Promise<void>((resolve) => {
+      this.rounds.push(resolve)
+    })
+    completeTask(this.db, this.clockIso(), lease, [])
+    return { kind: 'completed', taskKey: lease.taskKey }
+  }
+
+  private clockIso(): string {
+    return this.parts.clock().toISOString()
+  }
+
+  finish(): void {
+    for (const round of this.rounds.splice(0))
+      round()
+  }
+}
+
+async function untilTrue(condition: () => boolean): Promise<void> {
+  for (let turns = 0; turns < PROMISE_TURNS && !condition(); turns++)
+    await Promise.resolve()
+  if (!condition())
+    throw new Error('the session never took its lease')
+}
+
+async function restartKeepsSession(node: LawNode): Promise<void> {
+  const root = mkdtempSync(path.join(tmpdir(), 'z1-restart-'))
+  roots.push(root)
+  const db = openBus(path.join(root, 'bus.db'))
+  const date = (): Date => new Date('2026-11-09T18:45:26.000Z')
+  const ts = (): string => date().toISOString()
+  const launches = workerLaunches(() => [])
+  const { close } = launches
+  const sessionLaunch = launches[node as BusWorker]
+  let alive: RunningProcess[] = [
+    { pid: CLOSE_PID, args: `node pnpm.cjs --silent ${launchName(close)}` },
+    { pid: SESSION_WRAPPER_PID, args: `node pnpm.cjs --silent ${launchName(sessionLaunch)}` },
+    { pid: SESSION_PID, args: `node --import tsx ${sessionLaunch.markers[0]}` },
+  ]
+  const stopped: number[] = []
+  const kind = node as NodeKind
+  const session = new LiveSession(kind, db, date)
+  recordWorkerStarted(db, ts(), session.actor, { pid: SESSION_PID, started: ts() })
+  const task: QueuedTask = { queue: kind, cardId: 1776 }
+  let head = OLD_MAIN
+  const known: DetachedLaunch[] = [close, sessionLaunch]
+  const supervisor = new BusSupervisor({
+    known,
+    wanted: () => known,
+    start: (launch): BgResult => {
+      alive = [...alive, { pid: 701, args: `node pnpm.cjs --silent ${launchName(launch)}` }]
+      return { stdout: [], stderr: [], exitCode: 0 }
+    },
+    stop: async (instance, launch) => {
+      if (launch === close) {
+        queueTaskWithin(db, ts(), task)
+        await untilTrue(() => session.taken.length === 1)
+      }
+      stopped.push(instance.pid)
+      alive = alive.filter(each => each.pid !== instance.pid)
+    },
+    freeLeases: list => freeLeasesOf(db, ts(), list),
+    drain: busDrain(db, ts),
+    processes: withoutRetiring(() => alive, db),
+    mainSince: () => [{ id: 1, sha: NEW_MAIN }],
+    code: {
+      head: () => head,
+      holds: sha => sha === head,
+      pull: () => {
+        head = NEW_MAIN
+      },
+      changedSince: sha => sha === head ? [] : [SHARED_FILE],
+      runs: () => new Set([SHARED_FILE]),
+    },
+    journal: () => {},
+    now: () => date().getTime(),
+  }, 0)
+  const controller = new AbortController()
+  const running = session.run({ pause: async () => {}, signal: controller.signal })
+  try {
+    await supervisor.step()
+  }
+  finally {
+    session.finish()
+    controller.abort()
+    await running.catch(() => {})
+  }
+  const state = db.prepare('SELECT state FROM tasks WHERE task_key = ?').get(keyOf(task))
+  db.close()
+  if (stopped.includes(SESSION_PID) || stopped.includes(SESSION_WRAPPER_PID))
+    throw new Error(`the restart signalled the live ${node} session (stopped ${stopped.join(', ')})`)
+  if ((state as { state?: string } | undefined)?.state !== 'completed')
+    throw new Error(`the ${node} session did not finish its round: ${JSON.stringify(state)}`)
+}
+
+const WITNESSES: Witnesses = {
+  [RESTART_KEEPS_SESSION]: { law: 'Z1', run: restartKeepsSession },
+}
 
 function cellKinds(cell: LawCell): string[] {
   return ['witness', 'notApplicable', 'gap'].filter(kind => kind in cell)
@@ -105,7 +244,7 @@ describe('the laws of a node', () => {
     expect(await lawOutcome('Z5', 'launch', passing)).toBeNull()
     expect(await lawOutcome('Z5', 'launch', failing)).toBe('Z5-seeded: launch wrote no event')
     expect(await lawOutcome('Z5', 'launch', {})).toBe('no witness of Z5 runs on launch')
-    expect(registryFaults({ ...LAW_CELLS, Z5: { ...LAW_CELLS.Z5, launch: { witness: 'Z5-seeded' } } }, passing)).toEqual([])
+    expect(registryFaults({ ...LAW_CELLS, Z5: { ...LAW_CELLS.Z5, launch: { witness: 'Z5-seeded' } } }, { ...WITNESSES, ...passing })).toEqual([])
   })
 
   it('a new gap row is a ratchet break', () => {
