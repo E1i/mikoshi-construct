@@ -16,7 +16,7 @@ import { openBus } from '../../core/db.js'
 import { CARD_STARTED, SESSION_HEARTBEAT, WINDOW_HEARTBEAT } from '../../core/events.js'
 import { FACTORY_WORKERS } from '../../core/factory-paths.js'
 import { rerunDueOn } from '../../core/observations.js'
-import { ABANDONED_READ_AS_RERUN, LAW_CELLS, LAW_NODES, LAW_SITES, lawIds, PRIORITY_KEPT_ON_READMISSION, PULSE_BESIDE_CARD_SILENCE, SITES_BEYOND_NODES, sourceOf, WINDOW_BESIDE_SESSIONS } from '../../nodes/laws.js'
+import { ABANDONED_READ_AS_RERUN, LAW_CELLS, LAW_NODES, LAW_SITES, lawIds, PULSE_BESIDE_CARD_SILENCE, SITES_BEYOND_NODES, sourceOf, WINDOW_BESIDE_SESSIONS } from '../../nodes/laws.js'
 import { NetWatch, TICK_MS } from '../../ports/netwatch.js'
 import { BusTick } from '../../supervisor/run.js'
 import { BUS_ALIVE_MS, STALL_MS, stalledOf } from '../../window/watch.js'
@@ -180,7 +180,7 @@ describe('law sites beyond the bus nodes', () => {
   it('intake is a law site with a cell for every law', () => {
     expect(sourceOf('intake')).toBe('src/commands/intake/admit.ts')
     expect(siteFaults('intake')).toEqual([])
-    expect(LAW_CELLS.Z3.intake).toEqual({ gap: [INTAKE_READS_DECISIONS, PRIORITY_KEPT_ON_READMISSION] })
+    expect(LAW_CELLS.Z3.intake).toEqual({ gap: [INTAKE_READS_DECISIONS] })
     expect(readRatchet(REPO_ROOT)['law-gaps:Z3:intake']).toBe(1)
     expect(Object.keys(lawsSection().laws.Z3.cells)).toContain('intake')
 

@@ -2245,7 +2245,11 @@ checks as `--admit`, as a new `card.admitted` with source `amend`. `--touches` a
 `+<path>` to add and `-<path>` to remove, several as `+a,+b`, as `+a +b` or by repeating the flag; a
 removal that starts an argument is written `--touches=-<path>`, because a bare `-<path>` reads as a flag
 and is refused; `--note <line>` appends a line to the body; `--witness <old>=<new>` replaces one witness, and a weaker one
-is held as an owner wait exactly as under `--admit`; `--who shift|window` sets who takes the card. An edit
+is held as an owner wait exactly as under `--admit`; `--who shift|window` sets who takes the card;
+`--priority p0|p1|p2` sets the owner order of the card and `--priority none` clears it. An edit that
+names no `--priority`, and an `--admit` of a card the bus already admitted whose text has no `priority:`
+line, keep the priority of the card's latest admission; a priority-only edit leaves the card body as it
+was, so a live session on the card goes on. An edit
 recomputes the body's `risk:` line when it has one, and a change of touches recomputes its `runs:` line.
 `--dry-run` prints the amended body and writes no event. The card number is the one `--amend` names; a
 card the bus never admitted, a removal of a path the card does not name, a witness the card does not hold,
