@@ -16,7 +16,7 @@ import { openBus } from '../../core/db.js'
 import { CARD_STARTED, SESSION_HEARTBEAT, WINDOW_HEARTBEAT } from '../../core/events.js'
 import { FACTORY_WORKERS } from '../../core/factory-paths.js'
 import { rerunDueOn } from '../../core/observations.js'
-import { ABANDONED_READ_AS_RERUN, LAW_CELLS, LAW_NODES, LAW_SITES, lawIds, PULSE_BESIDE_CARD_SILENCE, REVIEW_STALL_IS_NOT_A_SILENT_LOOP, SITES_BEYOND_NODES, sourceOf, WINDOW_BESIDE_SESSIONS } from '../../nodes/laws.js'
+import { ABANDONED_READ_AS_RERUN, LAW_CELLS, LAW_NODES, LAW_SITES, lawIds, NODE_CONTRACT_SUITE, PULSE_BESIDE_CARD_SILENCE, REVIEW_STALL_IS_NOT_A_SILENT_LOOP, SITES_BEYOND_NODES, sourceOf, WINDOW_BESIDE_SESSIONS } from '../../nodes/laws.js'
 import { NetWatch, TICK_MS } from '../../ports/netwatch.js'
 import { BusTick } from '../../supervisor/run.js'
 import { BUS_ALIVE_MS, STALL_MS, stalledOf } from '../../window/watch.js'
@@ -167,15 +167,15 @@ describe('law sites beyond the bus nodes', () => {
     expect(LAW_NODES.map(sourceOf)).toEqual(LAW_NODES.map(node => FACTORY_WORKERS[node]))
   })
 
-  it('liveness is witnessed on netwatch and on the window', () => {
-    for (const site of ['netwatch', 'window'] as const) {
-      const cell = LAW_CELLS.Z7[site]
+  it('liveness is witnessed on the window, and on netwatch only as a gap while its witness calls the window instead', () => {
+    const cell = LAW_CELLS.Z7.window
 
-      expect('witness' in cell, `Z7 × ${site}`).toBe(true)
-      const witness = WITNESSES[(cell as { witness: string }).witness]
-      expect(witness?.law).toBe('Z7')
-      witness!.run(site)
-    }
+    expect('witness' in cell).toBe(true)
+    const witness = WITNESSES[(cell as { witness: string }).witness]
+    expect(witness?.law).toBe('Z7')
+    witness!.run('window')
+    expect(LAW_CELLS.Z7.netwatch).toEqual({ gap: [NODE_CONTRACT_SUITE] })
+    pulseBesideCardSilence()
   })
 
   it('intake is a law site with a cell for every law', () => {
@@ -210,6 +210,23 @@ describe('law sites beyond the bus nodes', () => {
     expect(await reachesSite('window', () => stalledOf([], undefined, NOW.getTime()))).toBe(true)
   })
 
+  it('a law cell is green only when its witness calls the code of its own site', async () => {
+    const witnessCells = lawIds().flatMap(law => BEYOND.flatMap((site) => {
+      const cell = LAW_CELLS[law][site]
+      return 'witness' in cell ? [{ law, site, witness: cell.witness }] : []
+    }))
+    const unreached: string[] = []
+    for (const { law, site, witness } of witnessCells) {
+      if (!await reachesSite(site, () => WITNESSES[witness]!.run(site)))
+        unreached.push(`${law} × ${site}`)
+    }
+
+    expect(witnessCells.map(({ law, site }) => `${law} × ${site}`)).toEqual(['Z2 × netwatch', 'Z7 × window'])
+    expect(unreached).toEqual([])
+    expect(await reachesSite('netwatch', () => WITNESSES[PULSE_BESIDE_CARD_SILENCE]!.run('netwatch'))).toBe(false)
+    expect(lawIds().flatMap(law => LAW_SITES.filter(site => 'witness' in LAW_CELLS[law][site]).map(site => `${law} × ${site}`))).toEqual(['Z2 × netwatch', 'Z7 × window'])
+  })
+
   it('every cell of a site beyond the nodes is a witness, a reasoned not applicable or a gap the ratchet records', () => {
     const recorded = readRatchet(REPO_ROOT)
 
@@ -224,8 +241,8 @@ describe('law sites beyond the bus nodes', () => {
       for (const site of BEYOND) {
         const cell = LAW_CELLS[law][site]
         if ('witness' in cell) {
-          it(`${law} × ${site}`, () => {
-            WITNESSES[cell.witness]!.run(site)
+          it(`${law} × ${site}`, async () => {
+            expect(await reachesSite(site, () => WITNESSES[cell.witness]!.run(site)), `${cell.witness} does not call ${sourceOf(site)}`).toBe(true)
           })
         }
       }

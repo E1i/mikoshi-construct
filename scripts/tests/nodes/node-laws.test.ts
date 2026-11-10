@@ -550,7 +550,7 @@ describe('the laws of a node', () => {
             const witness = WITNESSES[cell.witness]
 
             expect(witness?.law, `${cell.witness} is not a witness of ${law}`).toBe(law)
-            await witness!.run(node)
+            expect(await reachesSite(node, async () => witness!.run(node)), `${cell.witness} does not call ${sourceOf(node)}`).toBe(true)
           })
         }
         if ('gap' in cell) {

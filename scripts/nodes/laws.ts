@@ -43,7 +43,7 @@ export interface GapRow {
 }
 
 const NO_IN_MEMORY_PORT = 1672
-const NODE_CONTRACT_SUITE = 1777
+export const NODE_CONTRACT_SUITE = 1777
 const WAIT_RECORDS = [1740, 1754]
 const LAUNCH_EVENTS = 1767
 const TREE_WAY_BACK = 1764
@@ -78,7 +78,7 @@ const NETWATCH: Record<LawId, LawCell> = {
   Z4: { notApplicable: 'netwatch opens no wait: a retry-after is a netwatch.skipped event carrying its until, and the clock lifts it' },
   Z5: { notApplicable: 'netwatch launches nothing' },
   Z6: { notApplicable: 'netwatch writes no tree, only bus events and its heartbeat' },
-  Z7: { witness: PULSE_BESIDE_CARD_SILENCE },
+  Z7: gap(NODE_CONTRACT_SUITE),
 }
 
 const WINDOW: Record<LawId, LawCell> = {
@@ -117,40 +117,40 @@ function beyondNodes(law: LawId): Record<SiteBeyondNodes, LawCell> {
 
 export const LAW_CELLS: LawCells = {
   Z1: {
-    answer: { witness: RESTART_KEEPS_SESSION },
+    answer: gap(NODE_CONTRACT_SUITE),
     close: { notApplicable: STARTS_NO_SESSION },
-    launch: { witness: RESTART_KEEPS_SESSION },
+    launch: gap(NODE_CONTRACT_SUITE),
     merge: { notApplicable: STARTS_NO_SESSION },
     restart: { notApplicable: STARTS_NO_SESSION },
-    review: { witness: RESTART_KEEPS_SESSION },
+    review: gap(NODE_CONTRACT_SUITE),
     update: { notApplicable: STARTS_NO_SESSION },
-    witness: { witness: RESTART_KEEPS_SESSION },
+    witness: gap(NODE_CONTRACT_SUITE),
     ...beyondNodes('Z1'),
   },
   Z2: {
-    answer: { witness: INFRASTRUCTURE_RETRIED },
+    answer: gap(NODE_CONTRACT_SUITE),
     close: { notApplicable: NO_INFRASTRUCTURE_TO_FAIL },
-    launch: { witness: INFRASTRUCTURE_RETRIED },
+    launch: gap(NODE_CONTRACT_SUITE),
     merge: { notApplicable: 'the merge node merges only on a green CI and starts no session; an abandoned run reaches it as not green, and its rerun belongs to netwatch and the update node' },
     restart: { notApplicable: NO_INFRASTRUCTURE_TO_FAIL },
     review: gap(NODE_CONTRACT_SUITE),
-    update: { witness: INFRASTRUCTURE_RETRIED },
+    update: gap(NODE_CONTRACT_SUITE),
     witness: gap(NODE_CONTRACT_SUITE),
     ...beyondNodes('Z2'),
   },
-  Z3: { ...everyNode(gap(NO_IN_MEMORY_PORT)), answer: { witness: DIRECT_IMPORTER_WIDENED }, ...beyondNodes('Z3') },
+  Z3: { ...everyNode(gap(NO_IN_MEMORY_PORT)), answer: gap(NODE_CONTRACT_SUITE), ...beyondNodes('Z3') },
   Z4: { ...everyNode(gap(...WAIT_RECORDS)), launch: gap(CARD_WAIT_STATES, NO_HEAD_OF_LINE), ...beyondNodes('Z4') },
   Z5: { ...everyNode(gap(LAUNCH_EVENTS)), ...beyondNodes('Z5') },
   Z6: { ...everyNode(gap(TREE_WAY_BACK)), ...beyondNodes('Z6') },
   Z7: {
-    answer: { witness: SESSION_BEAT_BESIDE_STALE_WINDOW },
+    answer: gap(NODE_CONTRACT_SUITE),
     close: { notApplicable: NO_SESSION_TO_READ },
-    launch: { witness: SESSION_BEAT_BESIDE_STALE_WINDOW },
+    launch: gap(NODE_CONTRACT_SUITE),
     merge: { notApplicable: NO_SESSION_TO_READ },
     restart: { notApplicable: NO_SESSION_TO_READ },
     review: gap(REVIEW_STALL_IS_NOT_A_SILENT_LOOP),
     update: { notApplicable: NO_SESSION_TO_READ },
-    witness: { witness: SESSION_BEAT_BESIDE_STALE_WINDOW },
+    witness: gap(NODE_CONTRACT_SUITE),
     ...beyondNodes('Z7'),
   },
 }
