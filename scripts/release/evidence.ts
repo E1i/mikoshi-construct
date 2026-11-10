@@ -3,7 +3,6 @@ import type { IntakeAdmission } from '../intake/intake.js'
 import type { JournalEvent } from '../ladder/approval.js'
 import type { VerifiedClosing } from '../nodes/close/task-close.js'
 import type { BusMerge } from '../nodes/close/task-merged.js'
-import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
@@ -19,6 +18,7 @@ import { busIntakeAdmissions } from '../intake/intake.js'
 import { cardVerifiedClosings } from '../nodes/close/task-close.js'
 import { busMerges } from '../nodes/close/task-merged.js'
 import { GREEN } from '../policy/policy.js'
+import { processGit } from '../ports/git.js'
 
 export const PREFIX = '[release:evidence] '
 export const USAGE = 'usage: pnpm release:evidence <from> <to>'
@@ -271,7 +271,7 @@ function realDeps(): EvidenceDeps {
     witnessed: () => greenWitnesses(bus),
     admissions: () => busIntakeAdmissions(bus),
     read: file => existsSync(file) ? readFileSync(file, 'utf8') : null,
-    commits: (from, to) => new Set(execFileSync('git', ['rev-list', `${from}..${to}`], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).split('\n').filter(sha => sha !== '')),
+    commits: (from, to) => new Set(processGit.read(process.cwd(), ['rev-list', `${from}..${to}`]).split('\n').filter(sha => sha !== '')),
   }
 }
 

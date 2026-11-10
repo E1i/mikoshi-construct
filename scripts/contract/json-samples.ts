@@ -11,6 +11,7 @@ import { MUTATE_APPLY_EXIT, MUTATE_JUDGE_EXIT } from '../../src/commands/mutate/
 import { SOULKILL_EXIT } from '../../src/commands/soulkill.js'
 import { SYNC_APPLY_EXIT, SYNC_EXIT } from '../../src/commands/sync/index.js'
 import { BUS_DB_VARIABLE } from '../core/bus-path.js'
+import { processGit } from '../ports/git.js'
 import { unbaselined } from './semantic-diff.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../..')
@@ -157,7 +158,7 @@ function throughSymlinkRecordedAtRealPath(world: World): World {
 function attachedWorld(scratch: Scratch): World {
   const world = scratch.world()
   cpSync(EXISTING_MONOREPO, world.dir, { recursive: true })
-  spawnSync('git', ['init', '-q'], { cwd: world.dir })
+  processGit.succeeds(world.dir, ['init', '-q'])
   const status = run(scratch.cli, ['attach', '--yes', '--harness', 'pnpm run quality', '--required-check', 'quality'], world).status
   if (status !== 0)
     throw new Error(`attach exited ${status} while building the --json samples`)
