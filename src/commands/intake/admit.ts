@@ -24,7 +24,7 @@ import { fieldCommand, isAcceptanceField, isWitnessFieldLine, judgedCommand, nam
 import { readMilestones } from '../../manifest.js'
 import { CARD_REFERENCE, checkDraft, correctionText, invalidTestPatterns, isChangeWitness, nonPathTouchRefusals, OWNER_MERGES, ownerPathsOf, PACKAGE_MANIFEST, publishedRootsOf } from './check.js'
 import { TEST_NAME_ARGUMENT } from './command-word.js'
-import { admitCorrectionsNeedPerson, bodySha, bodyShaWithoutTouches, confirmationOf, confirmationToken, isConfirmation, tokenConfirmation, TOUCHES_HEADER, windowShard } from './confirm.js'
+import { admitCorrectionsNeedPerson, bodySha, bodyShaWithoutTouches, confirmationOf, confirmationToken, isConfirmation, sameHeader, tokenConfirmation, TOUCHES_HEADER, windowShard } from './confirm.js'
 import { withoutWitnessKind } from './draft.js'
 import { DirectoryFacts } from './facts.js'
 import { admittedRecord, defaultParking, INTAKE_EXIT, knownCards, recordIntake } from './index.js'
@@ -693,7 +693,7 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
     return event === null ? { status: 'refused', why: lostWrite(card.id) } : { ...base, status, event }
   }
   const lane = laneOf(options.parkingRoot ?? defaultParking(), path.dirname(options.file))
-  if (recorded !== null && sameCardLine(recorded.card, line) && sameBody(recorded.bodySha, admitted.text)) {
+  if (recorded !== null && sameCardLine(recorded.card, line) && sameBody(recorded.bodySha, admitted.text) && sameHeader(recorded.text, admitted.text, CARD_HEADER)) {
     if (!options.dryRun)
       options.events?.(admittedRecord(admitted, recordedConfirmation(recorded, admitted, options.autoConfirm), admittedAt(recorded, now), lane, recordedSource(recorded)))
     return inJournal('alreadyAdmitted')

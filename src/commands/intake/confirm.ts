@@ -39,6 +39,11 @@ function headerAndBody(text: string): { header: string[], body: string } {
   return { header: lines.slice(0, headerEnd), body: lines.slice(headerEnd).join('\n').trim() }
 }
 
+export function sameHeader(recorded: string | undefined, text: string, cardHeader: string): boolean {
+  const fields = (of: string): string => headerAndBody(of).header.filter(line => !line.startsWith(cardHeader) && !line.startsWith(TOUCHES_HEADER)).join('\n')
+  return recorded === undefined || fields(recorded) === fields(text)
+}
+
 export function bodyShaWithoutTouches(text: string): string {
   return digest(headerAndBody(text).body)
 }
