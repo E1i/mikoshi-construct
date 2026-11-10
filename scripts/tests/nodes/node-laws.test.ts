@@ -29,7 +29,7 @@ import { answerCandidates, keyOf, queueTask, queueTaskWithin, updateCandidates }
 import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
 import { claudeAnswerer } from '../../nodes/answer/answerer.js'
 import { LaunchNode } from '../../nodes/launch/launch-worker.js'
-import { CARD_WAIT_STATES, DIRECT_IMPORTER_WIDENED, gapRows, INFRASTRUCTURE_RETRIED, LAW_CELLS, LAW_NODES, LAW_SITES, lawIds, LAWS, NO_HEAD_OF_LINE, RESTART_KEEPS_SESSION, REVIEW_STALL_IS_NOT_A_SILENT_LOOP, SESSION_BEAT_BESIDE_STALE_WINDOW, SLICED_DROP_REPOINTS_DEPENDS, sourceOf } from '../../nodes/laws.js'
+import { CARD_WAIT_STATES, DIRECT_IMPORTER_WIDENED, gapRows, INFRASTRUCTURE_RETRIED, LAW_CELLS, LAW_NODES, LAW_SITES, lawIds, LAWS, NO_HEAD_OF_LINE, NODE_WITNESSES_CALL_THEIR_NODE, RESTART_KEEPS_SESSION, SESSION_BEAT_BESIDE_STALE_WINDOW, SLICED_DROP_REPOINTS_DEPENDS, sourceOf } from '../../nodes/laws.js'
 import { UpdateExecutor } from '../../nodes/update/update-executor.js'
 import { NetWatch, TICK_MS } from '../../ports/netwatch.js'
 import { launchName } from '../../supervisor/bg.js'
@@ -526,8 +526,8 @@ describe('the laws of a node', () => {
 
   const stallLaw: LawId = 'Z7'
   it(`${stallLaw} x review names the card that ends the single-signal review stall kill`, async () => {
-    expect(LAW_CELLS.Z7.review).toEqual({ gap: [REVIEW_STALL_IS_NOT_A_SILENT_LOOP] })
-    expect(REVIEW_STALL_IS_NOT_A_SILENT_LOOP).toBe(1792)
+    expect(LAW_CELLS.Z7.review).toEqual({ gap: [NODE_WITNESSES_CALL_THEIR_NODE] })
+    expect(NODE_WITNESSES_CALL_THEIR_NODE).toBe(1811)
     expect(gapRows().filter(({ law, node }) => law === 'Z7' && node === 'review')).toHaveLength(1)
     expect(recordedLawGaps()[`${LAW_GAP_PREFIX}Z7:review`]).toBe(1)
     expect(await lawOutcome('Z7', 'review', WITNESSES)).toBe(`${SESSION_BEAT_BESIDE_STALE_WINDOW}: passes without calling ${sourceOf('review')}`)

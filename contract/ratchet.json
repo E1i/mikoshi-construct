@@ -49,7 +49,6 @@
   "law-gaps:Z7:launch": 1,
   "law-gaps:Z7:netwatch": 1,
   "law-gaps:Z7:review": 1,
-  "law-gaps:Z7:supervisor": 1,
   "law-gaps:Z7:witness": 1,
   "lines-scope:non-test-code-in-scripts-and-src": 1,
   "lines:scripts/cli/board-page.ts": 1280,

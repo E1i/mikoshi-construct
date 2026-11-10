@@ -2703,7 +2703,7 @@
         "cells": {
           "answer": {
             "gap": [
-              1777
+              1811
             ]
           },
           "close": {
@@ -2714,7 +2714,7 @@
           },
           "launch": {
             "gap": [
-              1777
+              1811
             ]
           },
           "merge": {
@@ -2728,7 +2728,7 @@
           },
           "review": {
             "gap": [
-              1777
+              1811
             ]
           },
           "supervisor": {
@@ -2742,7 +2742,7 @@
           },
           "witness": {
             "gap": [
-              1777
+              1811
             ]
           }
         },
@@ -2752,7 +2752,7 @@
         "cells": {
           "answer": {
             "gap": [
-              1777
+              1811
             ]
           },
           "close": {
@@ -2763,7 +2763,7 @@
           },
           "launch": {
             "gap": [
-              1777
+              1811
             ]
           },
           "merge": {
@@ -2777,27 +2777,27 @@
           },
           "review": {
             "gap": [
-              1777
+              1811
             ]
           },
           "supervisor": {
             "gap": [
-              1777
+              1811
             ]
           },
           "update": {
             "gap": [
-              1777
+              1811
             ]
           },
           "window": {
             "gap": [
-              1777
+              1811
             ]
           },
           "witness": {
             "gap": [
-              1777
+              1811
             ]
           }
         },
@@ -2807,7 +2807,7 @@
         "cells": {
           "answer": {
             "gap": [
-              1777
+              1811
             ]
           },
           "close": {
@@ -3052,7 +3052,7 @@
         "cells": {
           "answer": {
             "gap": [
-              1777
+              1811
             ]
           },
           "close": {
@@ -3063,7 +3063,7 @@
           },
           "launch": {
             "gap": [
-              1777
+              1811
             ]
           },
           "merge": {
@@ -3071,7 +3071,7 @@
           },
           "netwatch": {
             "gap": [
-              1777
+              1811
             ]
           },
           "restart": {
@@ -3079,13 +3079,11 @@
           },
           "review": {
             "gap": [
-              1792
+              1811
             ]
           },
           "supervisor": {
-            "gap": [
-              1792
-            ]
+            "witness": "Z7-review-live-on-one-stale-signal"
           },
           "update": {
             "notApplicable": "the node starts no session, so the factory reading holds no beat of its own to weigh"
@@ -3095,7 +3093,7 @@
           },
           "witness": {
             "gap": [
-              1777
+              1811
             ]
           }
         },
