@@ -14,7 +14,7 @@ import { appendEvent, openBus } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, OWNER_WAIT_OPENED, QUESTION_OWNER, REVIEW_RECORDED, SCOPE_WIDENED, SHARD_DECIDED, SHARD_ISSUED, WITNESS_RECORDED } from '../../core/events.js'
 import { prBodySha, taskKey } from '../../core/identifiers.js'
 import { leaseNext } from '../../core/lease.js'
-import { answerCandidates, changesRoundsOf, mergeCandidates, queueTask, reentryLimitWaitText, REVIEW_ROUNDS, witnessCandidates } from '../../core/queue.js'
+import { answerCandidates, changesRoundsOf, mergeCandidates, queueTask, witnessCandidates } from '../../core/queue.js'
 import { reduce } from '../../core/reducer.js'
 import { importJournal } from '../../intake/import.js'
 import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
@@ -330,7 +330,7 @@ describe('the review loop', () => {
     made.close()
   })
 
-  it('a spent round limit asks the owner and never merges', () => {
+  it('red CI re-entry answers spend no round, ask the owner nothing and leave a passed PR to merge', () => {
     const made = mergeBench()
     made.gitHub.open({ number: 1062, review: 'success' })
     made.tick()
@@ -339,9 +339,9 @@ describe('the review loop', () => {
     made.tick()
     made.tick()
 
-    expect(changesRoundsOf(made.db, 1062)).toBeGreaterThanOrEqual(REVIEW_ROUNDS)
-    expect(eventsOf(made.db, OWNER_WAIT_OPENED).map(wait => wait.text)).toEqual([reentryLimitWaitText(1162, 1062)])
-    expect(mergeCandidates(made.db, made.clock.now().toISOString()).filter(task => task.pr === 1062)).toEqual([])
+    expect(changesRoundsOf(made.db, 1062)).toBe(0)
+    expect(eventsOf(made.db, OWNER_WAIT_OPENED)).toEqual([])
+    expect(mergeCandidates(made.db, made.clock.now().toISOString()).filter(task => task.pr === 1062)).toMatchObject([{ queue: 'merge', pr: 1062, cardId: 1162 }])
     made.close()
   })
 
