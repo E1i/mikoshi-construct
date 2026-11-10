@@ -1,4 +1,5 @@
 import type { ProcessCwds } from './client/contract.js'
+import type { GitRunner } from './git.js'
 import { execFileSync, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -210,6 +211,46 @@ export interface TreeDeps {
   worktreeHome?: string
   treeOf?: (id: string) => string
   holds?: (tree: string) => boolean
+}
+
+export class InMemoryShell {
+  readonly ran: { command: string, cwd: string }[] = []
+
+  constructor(private readonly answer: (command: string, cwd: string) => ShellResult) {}
+
+  readonly shell: Shell = (command, cwd) => {
+    this.ran.push({ command, cwd })
+    return this.answer(command, cwd)
+  }
+}
+
+export interface InMemoryTreeState {
+  present?: Iterable<string>
+  held?: Iterable<string>
+  installRefusal?: string
+}
+
+export class InMemoryTrees implements TreeDeps {
+  readonly installs: { cwd: string, args: string[] }[] = []
+  readonly present: Set<string>
+  private readonly held: Set<string>
+
+  constructor(readonly cwd: string, private readonly runner: GitRunner, private readonly state: InMemoryTreeState = {}) {
+    this.present = new Set(state.present)
+    this.held = new Set(state.held)
+  }
+
+  readonly git: GitRun = (cwd, args) => this.runner.read(cwd, args)
+
+  readonly install = (cwd: string, args: string[]): void => {
+    this.installs.push({ cwd, args: [...args] })
+    if (this.state.installRefusal !== undefined)
+      throw new Error(this.state.installRefusal)
+  }
+
+  readonly exists = (target: string): boolean => this.present.has(target)
+
+  readonly holds = (tree: string): boolean => this.held.has(tree)
 }
 
 export type TreeOrigin = 'reused' | 'cut'
