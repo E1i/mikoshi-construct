@@ -42,7 +42,7 @@ export interface GapRow {
 }
 
 const NO_IN_MEMORY_PORT = 1672
-const INFRASTRUCTURE_RETRY = 1774
+const NODE_CONTRACT_SUITE = 1777
 const WAIT_RECORDS = [1740, 1754]
 const LAUNCH_EVENTS = 1767
 const TREE_WAY_BACK = 1764
@@ -51,6 +51,9 @@ export const RESTART_KEEPS_SESSION = 'Z1-restart-keeps-session'
 export const SESSION_BEAT_BESIDE_STALE_WINDOW = 'Z7-session-beat-beside-stale-window'
 export const PULSE_BESIDE_CARD_SILENCE = 'Z7-pulse-beside-card-silence'
 export const WINDOW_BESIDE_SESSIONS = 'Z7-window-beside-sessions'
+export const INFRASTRUCTURE_RETRIED = 'Z2-infrastructure-retried'
+export const ABANDONED_READ_AS_RERUN = 'Z2-abandoned-read-as-rerun'
+const NO_INFRASTRUCTURE_TO_FAIL = 'the node starts no session, runs no test and judges no CI run, so no timeout under load, abandoned run or usage limit reaches it as its own failure'
 const STARTS_NO_SESSION = 'the node starts no session, so no child process of its own outlives it'
 const NO_SESSION_TO_READ = 'the node starts no session, so the factory reading holds no beat of its own to weigh'
 
@@ -64,7 +67,7 @@ function everyNode(cell: LawCell): Record<LawNode, LawCell> {
 
 const NETWATCH: Record<LawId, LawCell> = {
   Z1: { notApplicable: 'netwatch starts no session; its GitHub calls are synchronous and end inside the tick, so no child of its own outlives it' },
-  Z2: gap(INFRASTRUCTURE_RETRY),
+  Z2: { witness: ABANDONED_READ_AS_RERUN },
   Z3: { notApplicable: 'netwatch records what GitHub shows as bus events and takes no decision a window decision governs' },
   Z4: { notApplicable: 'netwatch opens no wait: a retry-after is a netwatch.skipped event carrying its until, and the clock lifts it' },
   Z5: { notApplicable: 'netwatch launches nothing' },
@@ -74,7 +77,7 @@ const NETWATCH: Record<LawId, LawCell> = {
 
 const WINDOW: Record<LawId, LawCell> = {
   Z1: { notApplicable: 'miko:watch starts no session and no child process; it reads the bus and writes its own cursor' },
-  Z2: gap(INFRASTRUCTURE_RETRY),
+  Z2: gap(NODE_CONTRACT_SUITE),
   Z3: { notApplicable: 'the window is where these decisions are taken; the law is about the nodes that act on them' },
   Z4: gap(...WAIT_RECORDS),
   Z5: { notApplicable: 'miko:watch launches nothing; a card the window starts is launched by the launch node, which writes the event' },
@@ -84,7 +87,7 @@ const WINDOW: Record<LawId, LawCell> = {
 
 const INTAKE: Record<LawId, LawCell> = {
   Z1: { notApplicable: 'intake starts no session and no child process' },
-  Z2: gap(INFRASTRUCTURE_RETRY),
+  Z2: { notApplicable: 'intake admits from the card text and the bus; it starts no session, runs no test and reads no CI run' },
   Z3: gap(INTAKE_READS_DECISIONS),
   Z4: gap(...WAIT_RECORDS),
   Z5: { notApplicable: 'intake launches nothing; it admits a card the launch node later starts' },
@@ -108,7 +111,17 @@ export const LAW_CELLS: LawCells = {
     witness: { witness: RESTART_KEEPS_SESSION },
     ...beyondNodes('Z1'),
   },
-  Z2: { ...everyNode(gap(INFRASTRUCTURE_RETRY)), ...beyondNodes('Z2') },
+  Z2: {
+    answer: { witness: INFRASTRUCTURE_RETRIED },
+    close: { notApplicable: NO_INFRASTRUCTURE_TO_FAIL },
+    launch: { witness: INFRASTRUCTURE_RETRIED },
+    merge: { notApplicable: 'the merge node merges only on a green CI and starts no session; an abandoned run reaches it as not green, and its rerun belongs to netwatch and the update node' },
+    restart: { notApplicable: NO_INFRASTRUCTURE_TO_FAIL },
+    review: gap(NODE_CONTRACT_SUITE),
+    update: { witness: INFRASTRUCTURE_RETRIED },
+    witness: gap(NODE_CONTRACT_SUITE),
+    ...beyondNodes('Z2'),
+  },
   Z3: { ...everyNode(gap(NO_IN_MEMORY_PORT)), answer: gap(1775), ...beyondNodes('Z3') },
   Z4: { ...everyNode(gap(...WAIT_RECORDS)), ...beyondNodes('Z4') },
   Z5: { ...everyNode(gap(LAUNCH_EVENTS)), ...beyondNodes('Z5') },

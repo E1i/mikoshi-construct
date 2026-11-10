@@ -1,15 +1,17 @@
-import type { JobResult, Needs } from '../../ci/required.js'
+import type { JobResult, Needs, RunJob } from '../../ci/required.js'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import YAML from 'yaml'
-import { blockingJobs, CLASSIFY_JOB, SKIPPED_ON_FAST_PATH } from '../../ci/required.js'
+import { blockingJobs, CLASSIFY_JOB, ranNeeds, REQUIRED_JOB, requiredSummary, rerunDue, SKIPPED_ON_FAST_PATH } from '../../ci/required.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..', '..')
 
-interface Job { name?: string, needs?: string | string[], if?: string, steps: { id?: string, if?: string, run?: string, env?: Record<string, string> }[], outputs?: Record<string, string> }
+interface Job { name?: string, needs?: string | string[], if?: string, permissions?: Record<string, string>, steps: { id?: string, if?: string, run?: string, env?: Record<string, string> }[], outputs?: Record<string, string> }
 const workflow = YAML.parse(readFileSync(path.join(REPO_ROOT, '.github/workflows/ci.yml'), 'utf8')) as { jobs: Record<string, Job> }
 const manifest = JSON.parse(readFileSync(path.join(REPO_ROOT, 'package.json'), 'utf8')) as { scripts: Record<string, string> }
+
+const GITHUB_TOKEN_EXPRESSION = ['$', '{{ github.token }}'].join('')
 
 const OTHER_JOBS = ['checks', 'lint', 'typecheck', 'vitest', 'docs', 'package', 'contract-bump', 'acceptance']
 
@@ -73,6 +75,57 @@ describe('the required verdict', () => {
   })
 })
 
+const STEP = { name: 'Run', status: 'completed' }
+
+function jobsThatRan(needed: Needs, without: readonly string[] = []): RunJob[] {
+  const ran = Object.keys(needed).filter(job => !without.includes(job)).map(job => ({ name: job === 'vitest' ? 'vitest 1/4' : job, runner_name: 'GitHub Actions 7', steps: [STEP] }))
+  return [...ran, { name: REQUIRED_JOB, runner_name: 'GitHub Actions 9', steps: [STEP] }]
+}
+
+describe('an abandoned need', () => {
+  it('abandoned: a failed need GitHub gave no runner is named abandoned, and a red only from it is a rerun due', () => {
+    const run = needs(false, { vitest: 'failure' })
+    const blocking = blockingJobs(run, ranNeeds(run, jobsThatRan(run, ['vitest'])))
+
+    expect(blocking).toEqual(['vitest: abandoned'])
+    expect(rerunDue(blocking)).toBe(true)
+    expect(requiredSummary(blocking)).toContain('a rerun is due')
+    expect(requiredSummary(blocking)).not.toMatch(/^CI \/ required is red: /)
+  })
+
+  it('abandoned: a listed job with no runner and no step is abandoned too', () => {
+    const run = needs(false, { acceptance: 'failure' })
+    const jobs = [...jobsThatRan(run, ['acceptance']), { name: 'acceptance (node-backend, 22, 0)', runner_name: null, steps: [] }]
+
+    expect(blockingJobs(run, ranNeeds(run, jobs))).toEqual(['acceptance: abandoned'])
+  })
+
+  it('abandoned: a need that ran and failed stays a failure, beside an abandoned one too, and no rerun is due', () => {
+    const run = needs(false, { lint: 'failure', vitest: 'failure' })
+    const blocking = blockingJobs(run, ranNeeds(run, jobsThatRan(run, ['vitest'])))
+
+    expect(blocking).toEqual(['lint: failure', 'vitest: abandoned'])
+    expect(rerunDue(blocking)).toBe(false)
+    expect(requiredSummary(blocking)).toBe('CI / required is red: lint: failure, vitest: abandoned')
+  })
+
+  it('abandoned: with no reading of the run\'s jobs, or one that misses a green need, every failure stays a failure', () => {
+    const run = needs(false, { vitest: 'failure' })
+    const missingAGreenNeed = jobsThatRan(run, ['vitest', 'lint'])
+
+    expect(blockingJobs(run, ranNeeds(run, null))).toEqual(['vitest: failure'])
+    expect(blockingJobs(run, ranNeeds(run, missingAGreenNeed))).toEqual(['vitest: failure'])
+    expect(blockingJobs(run, ranNeeds(run, jobsThatRan(run, ['vitest']).filter(job => job.name !== REQUIRED_JOB)))).toEqual(['vitest: failure'])
+    expect(rerunDue(['vitest: failure'])).toBe(false)
+  })
+
+  it('abandoned: cancelled beside abandoned is a rerun due, cancelled alone is left to the bus reading the cancelled check', () => {
+    expect(rerunDue(['vitest: abandoned', 'docs: cancelled'])).toBe(true)
+    expect(rerunDue(['docs: cancelled'])).toBe(false)
+    expect(rerunDue([])).toBe(false)
+  })
+})
+
 describe('ci.yml wiring', () => {
   it('makes required wait on every other job, whatever their results', () => {
     const others = Object.keys(workflow.jobs).filter(job => job !== 'required')
@@ -80,6 +133,18 @@ describe('ci.yml wiring', () => {
     expect([workflow.jobs.required!.needs].flat().sort()).toEqual(others.sort())
     expect(workflow.jobs.required!.if).toBe('always()')
     expect(workflow.jobs.required!.steps.map(step => step.run ?? '').join('\n')).toContain('scripts/ci/verdict.ts')
+  })
+
+  it('gives only the required job a token that reads the run\'s jobs, and only its verdict step the token', () => {
+    const workflowWide = (YAML.parse(readFileSync(path.join(REPO_ROOT, '.github/workflows/ci.yml'), 'utf8')) as { permissions?: Record<string, string> }).permissions
+    const required = workflow.jobs.required!
+    const withToken = Object.entries(workflow.jobs).flatMap(([name, job]) => job.steps.filter(step => step.env?.GH_TOKEN !== undefined).map(step => `${name}: ${step.run ?? ''}`))
+
+    expect(workflowWide).toEqual({ contents: 'read' })
+    expect(required.permissions).toEqual({ contents: 'read', actions: 'read' })
+    expect(Object.entries(workflow.jobs).filter(([name, job]) => name !== 'required' && job.permissions !== undefined)).toEqual([])
+    expect(withToken).toEqual(['required: pnpm exec tsx scripts/ci/verdict.ts'])
+    expect(required.steps.find(step => step.run === 'pnpm exec tsx scripts/ci/verdict.ts')?.env?.GH_TOKEN).toBe(GITHUB_TOKEN_EXPRESSION)
   })
 
   it('skips only the preset matrix on the fast path, and the docs job runs the docs build on every change', () => {

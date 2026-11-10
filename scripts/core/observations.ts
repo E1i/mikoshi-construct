@@ -6,6 +6,27 @@ import { CI_RERUN_REQUESTED, PR_CLOSED, PR_OBSERVED } from './events.js'
 
 export const NETWATCH = 'netwatch'
 
+export const MACHINE_OVERLOADED = 'machine-overloaded'
+export const MACHINE_OVERLOADED_MARK = 'машина перегружена'
+
+const TIMED_OUT = /\btim(?:ed|es)?[ -]?out\b|таймаут/i
+const UNDER_LOAD = /\b(?:over)?load(?:ed)?\b|нагрузк|перегруж/i
+const NAMED_PATH = /[\w@.-]+(?:\/[\w@*.-]+)+/g
+const TRAILING_DOTS = /\.+$/
+
+function pathsNamedIn(question: string): string[] {
+  return [...new Set((question.match(NAMED_PATH) ?? []).map(found => found.replace(TRAILING_DOTS, '')))]
+}
+
+export function timeoutUnderLoadOutside(question: string, outsideTouches: (paths: readonly string[]) => readonly string[]): boolean {
+  const named = pathsNamedIn(question)
+  return TIMED_OUT.test(question) && UNDER_LOAD.test(question) && named.length > 0 && outsideTouches(named).length === named.length
+}
+
+export function machineOverloadedLine(cardId: number, question: string): string {
+  return `${MACHINE_OVERLOADED_MARK}: card #${cardId} timed out under machine load on a path outside its touches; that is a retry, not a card failure and not a question for the owner — the bus pushes the tree and CI judges: ${question}`
+}
+
 function observation(ts: string, type: string, fields: Pick<BusEvent, 'cardId' | 'pr' | 'head' | 'dedupeKey' | 'payload'>): BusEvent {
   return { ts, type, actor: NETWATCH, legacy: false, ...fields }
 }

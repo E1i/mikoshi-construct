@@ -2738,58 +2738,42 @@
       "Z2": {
         "cells": {
           "answer": {
-            "gap": [
-              1774
-            ]
+            "witness": "Z2-infrastructure-retried"
           },
           "close": {
-            "gap": [
-              1774
-            ]
+            "notApplicable": "the node starts no session, runs no test and judges no CI run, so no timeout under load, abandoned run or usage limit reaches it as its own failure"
           },
           "intake": {
-            "gap": [
-              1774
-            ]
+            "notApplicable": "intake admits from the card text and the bus; it starts no session, runs no test and reads no CI run"
           },
           "launch": {
-            "gap": [
-              1774
-            ]
+            "witness": "Z2-infrastructure-retried"
           },
           "merge": {
-            "gap": [
-              1774
-            ]
+            "notApplicable": "the merge node merges only on a green CI and starts no session; an abandoned run reaches it as not green, and its rerun belongs to netwatch and the update node"
           },
           "netwatch": {
-            "gap": [
-              1774
-            ]
+            "witness": "Z2-abandoned-read-as-rerun"
           },
           "restart": {
-            "gap": [
-              1774
-            ]
+            "notApplicable": "the node starts no session, runs no test and judges no CI run, so no timeout under load, abandoned run or usage limit reaches it as its own failure"
           },
           "review": {
             "gap": [
-              1774
+              1777
             ]
           },
           "update": {
-            "gap": [
-              1774
-            ]
+            "witness": "Z2-infrastructure-retried"
           },
           "window": {
             "gap": [
-              1774
+              1777
             ]
           },
           "witness": {
             "gap": [
-              1774
+              1777
             ]
           }
         },
@@ -4162,7 +4146,9 @@
       },
       "scripts/ports/ci-reading.ts": {
         "constants": [],
-        "functions": {},
+        "functions": {
+          "annotationTitles": "(meter: Meter, check: AnnotatedCheck | undefined): string[]"
+        },
         "language": "technology",
         "reexports": [
           "ArtifactRequest",
@@ -4191,6 +4177,7 @@
           "git"
         ],
         "types": {
+          "AnnotatedCheck": "interface AnnotatedCheck { conclusion?: string | null; output?: { annotations_count?: number; annotations_url?: string; } | null; }",
           "CiAct": "type CiAct = { done: true; } | { done: false; reason: string; }",
           "CiOfCommits": "interface CiOfCommits { onCommit: (sha: string, requiredCheck?: string) => CommitCi; approvedRunOn: (head: string | undefined) => boolean; }",
           "CiRead": "type CiRead<T> = GhRead<T>",

@@ -2,7 +2,7 @@ import type { CiState, RollupCheck } from '../../ports/ci-reading.js'
 import type { GhSpawned, PullRequest } from '../../ports/gh.js'
 import process from 'node:process'
 import { describe, expect, it } from 'vitest'
-import { CI_LOG_CEILING, ciFieldsOfObservation, ciLogForPrompt, ciWord, GhCiRuns, GitHubCommitCi, InMemoryCi } from '../../ports/ci-reading.js'
+import { annotationTitles, CI_LOG_CEILING, ciFieldsOfObservation, ciLogForPrompt, ciWord, GhCiRuns, GitHubCommitCi, InMemoryCi } from '../../ports/ci-reading.js'
 import { GhBudgetWindow, ghPort, REQUIRED_CHECK, SECRET_SCAN_CHECK } from '../../ports/gh.js'
 import { Meter } from '../../ports/meter.js'
 
@@ -170,5 +170,26 @@ describe('a long failed-job log', () => {
     const read = port.call(['-e', `process.stdout.write('x'.repeat(${bytes}))`])
 
     expect(read.kind === 'ran' && read.stdout.length).toBe(bytes)
+  })
+})
+
+describe('the annotations of a check run', () => {
+  const URL = 'https://api.github.com/repos/owner/repo/check-runs/77/annotations'
+
+  it('reads the titles over the annotations url GitHub gave the failed check run', () => {
+    const { meter, endpoints } = meterAnswering([{ title: 'CI abandoned', message: 'a rerun is due' }, { message: 'Process completed with exit code 1.' }])
+
+    expect(annotationTitles(meter, { conclusion: 'failure', output: { annotations_count: 2, annotations_url: URL } })).toEqual(['CI abandoned'])
+    expect(endpoints).toEqual(['repos/owner/repo/check-runs/77/annotations'])
+  })
+
+  it('reads nothing for a check run that did not fail, has no annotation, or names no API url', () => {
+    const { meter, endpoints } = meterAnswering([{ title: 'CI abandoned' }])
+
+    expect(annotationTitles(meter, { conclusion: 'success', output: { annotations_count: 1, annotations_url: URL } })).toEqual([])
+    expect(annotationTitles(meter, { conclusion: 'failure', output: { annotations_count: 0, annotations_url: URL } })).toEqual([])
+    expect(annotationTitles(meter, { conclusion: 'failure', output: { annotations_count: 1, annotations_url: 'file:///etc/passwd' } })).toEqual([])
+    expect(annotationTitles(meter, undefined)).toEqual([])
+    expect(endpoints).toEqual([])
   })
 })

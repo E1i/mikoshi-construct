@@ -6,6 +6,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { ABANDONED_TITLE } from '../../ci/required.js'
 import { openBus } from '../../core/db.js'
 import { CI_RERUN_REQUESTED, PR_OBSERVED } from '../../core/events.js'
 import { leaseNext } from '../../core/lease.js'
@@ -16,11 +17,14 @@ import { BusTick } from '../../supervisor/run.js'
 import { Clock, FakeGitHub, sha } from './github-fake.js'
 
 const CANCELLED_RUN = 4242
+const FAILED_RUN = 4343
+const REQUIRED_RUN_ID = 9000
 
 interface CancelBench {
   db: DatabaseSync
   gitHub: FakeGitHub
   cancelled: Set<string>
+  abandoned: Set<string>
   tick: () => void
   answers: (pr: number) => QueuedTask[]
   updates: (pr: number) => QueuedTask[]
@@ -35,12 +39,24 @@ function cancelBench(): CancelBench {
   const gitHub = new FakeGitHub()
   const clock = new Clock()
   const cancelled = new Set<string>()
+  const abandoned = new Set<string>()
+  const titles = new Map<number, string>()
   const client: GitHub = (endpoint) => {
+    const annotations = /^repos\/\{owner\}\/\{repo\}\/check-runs\/(\d+)\/annotations$/.exec(endpoint)
+    if (annotations !== null)
+      return { status: 200, headers: {}, body: [{ title: titles.get(Number(annotations[1])) ?? null, message: 'Process completed with exit code 1.' }] }
     const response = gitHub.client(endpoint)
     if (!endpoint.includes('/check-runs'))
       return response
+    const head = /\/commits\/([0-9a-f]{40})\/check-runs/.exec(endpoint)?.[1] ?? ''
     const body = response.body as { check_runs: { name: string, conclusion: string | null }[] }
-    return { ...response, body: { check_runs: body.check_runs.map(check => cancelled.has(check.name) ? { ...check, conclusion: 'cancelled' } : check) } }
+    return { ...response, body: { check_runs: body.check_runs.map((check) => {
+      if (check.name !== gitHub.checkName || check.conclusion !== 'failure')
+        return cancelled.has(check.name) ? { ...check, conclusion: 'cancelled' } : check
+      const id = REQUIRED_RUN_ID + titles.size
+      titles.set(id, abandoned.has(head) ? ABANDONED_TITLE : 'CI / required is red')
+      return { ...check, id, output: { annotations_count: 1, annotations_url: `https://api.github.com/repos/{owner}/{repo}/check-runs/${id}/annotations` } }
+    }) } }
   }
   const busTick = new BusTick(db, new NetWatch(db, client, clock.now), clock.now, () => {})
   const executor = new UpdateExecutor({ db, gitHub: client, put: gitHub.put, post: gitHub.post, publish: gitHub.publish, clock: clock.now, settle: () => {} })
@@ -54,6 +70,7 @@ function cancelBench(): CancelBench {
     db,
     gitHub,
     cancelled,
+    abandoned,
     tick,
     answers: pr => answerCandidates(db, ts()).filter(task => task.pr === pr),
     updates: pr => updateCandidates(db, ts()).filter(task => task.pr === pr),
@@ -70,6 +87,8 @@ function cancelBench(): CancelBench {
     },
   }
 }
+
+const failedRun = (): FakeRun => ({ id: FAILED_RUN, run_attempt: 1, status: 'completed', conclusion: 'failure' })
 
 const cancelledRun = (): FakeRun => ({ id: CANCELLED_RUN, run_attempt: 1, status: 'completed', conclusion: 'cancelled' as FakeRun['conclusion'] })
 
@@ -162,6 +181,39 @@ describe('a red head only from a cancelled check', () => {
     expect(bench.updateOnce(1205)).toMatchObject({ kind: 'rerun', requested: true })
     expect(bench.gitHub.reruns).toEqual([CANCELLED_RUN, CANCELLED_RUN + 1])
     expect(bench.rerunEvents(1205).map(event => event.head)).toEqual([sha('a'), sha('e')])
+    bench.close()
+  })
+})
+
+describe('a red head only from needs GitHub abandoned', () => {
+  it('abandoned: a required red only from abandoned needs gets one rerun and enqueues no answer', () => {
+    const bench = cancelBench()
+    bench.abandoned.add(sha('a'))
+    bench.gitHub.open({ number: 1493, required: 'failure', failed: [], runs: [failedRun()] })
+    bench.tick()
+
+    expect(observedPayloads(bench.db, 1493).at(-1)).toMatchObject({ ci: 'red', failed_checks: ['required'], cancelled_checks: ['required'] })
+    expect(bench.answers(1493)).toEqual([])
+    expect(bench.updates(1493)).toEqual([expect.objectContaining({ queue: 'update', pr: 1493, head: sha('a') })])
+    expect(bench.updateOnce(1493)).toMatchObject({ kind: 'rerun', requested: true })
+    expect(bench.gitHub.reruns).toEqual([FAILED_RUN])
+    expect(bench.updates(1493)).toEqual([])
+    bench.close()
+  })
+
+  it('abandoned: a required red beside a job that ran and failed, or with no abandoned annotation, still enqueues an answer', () => {
+    const bench = cancelBench()
+    bench.abandoned.add(sha('b'))
+    bench.gitHub.open({ number: 1494, head: sha('b'), required: 'failure', failed: ['lint'], runs: [failedRun()] })
+    bench.gitHub.open({ number: 1495, head: sha('c'), required: 'failure', failed: [], runs: [failedRun()] })
+    bench.tick()
+
+    expect(observedPayloads(bench.db, 1494).at(-1)).not.toHaveProperty('cancelled_checks')
+    expect(observedPayloads(bench.db, 1495).at(-1)).not.toHaveProperty('cancelled_checks')
+    expect(bench.answers(1494)).toEqual([expect.objectContaining({ queue: 'answer', pr: 1494 })])
+    expect(bench.answers(1495)).toEqual([expect.objectContaining({ queue: 'answer', pr: 1495 })])
+    expect(bench.updates(1494)).toEqual([])
+    expect(bench.updates(1495)).toEqual([])
     bench.close()
   })
 })
