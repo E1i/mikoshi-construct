@@ -2,7 +2,7 @@ import type { Detector } from './detectors.js'
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import path from 'node:path'
 import ts from 'typescript'
-import { FACTORY_RUNTIME } from '../../core/factory-paths.js'
+import { FACTORY_NAMED, FACTORY_RUNTIME } from '../../core/factory-paths.js'
 import { GENERATED_FILES, GENERATED_PATHS } from '../../core/generated-files.js'
 import { clientAdapter } from '../../ports/client/index.js'
 import {
@@ -133,6 +133,7 @@ const GENERATED_PATH_SET = new Set(GENERATED_PATHS)
 const HANDOFF_STATUS_LINE = /\^STATUS:/
 const PNPM_COMMAND = /\bpnpm (?!(?:at|in|is|monorepo|on)\b)(?:--[\w-]+ )*(?:run |exec )?[a-z][\w:-]*/
 const COMMANDS_A_GENERATED_REPOSITORY_RUNS = new Set(['scripts/harness-command/render.ts', 'src/model/write.ts', 'src/presets/index.ts'])
+export const GIT_BEYOND_THE_PORT = new Set(['scripts/construct/check-acceptance.mjs', FACTORY_NAMED.busNode, 'scripts/core/push-policy.ts', 'src/detect/git.ts'])
 const SURFACE_FILE = path.resolve(import.meta.dirname, '../../..', GENERATED_FILES.surface.path)
 const GH_RUN_VERBS = new Set(['view', 'list', 'cancel', 'download', 'watch', 'rerun'])
 
@@ -335,7 +336,7 @@ export const CONCEPTS: readonly Concept[] = [
     ownerExport: 'processGit',
     axis: 'architecture',
     lore: null,
-    detectors: [programCall(['git'])],
+    detectors: [outside(GIT_BEYOND_THE_PORT, programCall(['git']))],
   },
   {
     id: 'window-requests',

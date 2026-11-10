@@ -1,16 +1,14 @@
 import type { ProcessCwds } from './client/contract.js'
-import { execFile, execFileSync, spawnSync } from 'node:child_process'
+import { execFileSync, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { promisify } from 'node:util'
+import { processGit } from './git.js'
 import { OsProcessTable } from './process-table.js'
 import { witnessEnv } from './session.js'
 import { taskWorktree } from './worktree-home.js'
 
 export const TECHNOLOGY_WORDS = ['git', 'pnpm', 'shell'] as const
-
-const execFileAsync = promisify(execFile)
 
 export interface ShellResult { status: number | null, output: string }
 export type Shell = (command: string, cwd: string) => ShellResult
@@ -38,14 +36,13 @@ export function realShell(command: string, cwd: string): ShellResult {
 }
 
 export function gitIn(cwd: string, args: string[]): string {
-  return execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: SHELL_BUFFER }).trim()
+  return processGit.read(cwd, args, { maxBuffer: SHELL_BUFFER }).trim()
 }
 
 export type GitAsync = (cwd: string, args: string[]) => Promise<string>
 
 export const gitInAsync: GitAsync = async (cwd, args) => {
-  const { stdout } = await execFileAsync('git', ['-C', cwd, ...args], { encoding: 'utf8', maxBuffer: SHELL_BUFFER })
-  return stdout.trim()
+  return (await processGit.readLater(cwd, args, { maxBuffer: SHELL_BUFFER })).trim()
 }
 
 export function lastLine(output: string): string {

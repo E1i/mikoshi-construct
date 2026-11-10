@@ -1,7 +1,7 @@
 import { Buffer } from 'node:buffer'
-import { execFileSync } from 'node:child_process'
 import { lstatSync, readFileSync } from 'node:fs'
 import path from 'node:path'
+import { processGit } from '../ports/git.js'
 import { isReadExtension } from './wiring.js'
 
 export interface Tree {
@@ -16,7 +16,7 @@ const HUNK = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/
 
 function git(root: string, args: string[], whenSilent = `git ${args[0]} failed: no reason`): string {
   try {
-    return execFileSync('git', args, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 1 << 30 })
+    return processGit.read(root, args, { maxBuffer: 1 << 30 })
   }
   catch (error) {
     const reason = String((error as Error).message).split('\n').find(line => line.length > 0 && !line.startsWith('Command failed'))

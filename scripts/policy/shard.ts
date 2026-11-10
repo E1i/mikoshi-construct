@@ -1,12 +1,12 @@
 import type { BusEvent } from '../core/db.js'
 import type { WindowScope, WindowShard } from './shards.js'
-import { execFileSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { realpathSync } from 'node:fs'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { appendEvent, defaultBusPath, openBus } from '../core/db.js'
 import { SHARD_ISSUED, SHARD_REVOKED } from '../core/events.js'
+import { processGit } from '../ports/git.js'
 import { activeWindowShards, decisionsInForceAt, isWindowScope, WINDOW_SHARD_HOURS, windowShardEnded } from './shards.js'
 
 export const PREFIX = '[shard] '
@@ -173,7 +173,7 @@ function realDeps(): ShardDeps {
     uuid: randomUUID,
     by: () => {
       try {
-        return execFileSync('git', ['config', 'user.name'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
+        return processGit.read(process.cwd(), ['config', 'user.name'])
       }
       catch {
         return ''

@@ -7,6 +7,7 @@ import { busDirOf, machineBusPath } from '../core/bus-path.js'
 import { messageOf } from '../core/errors.js'
 import { FACTORY_RUNTIME } from '../core/factory-paths.js'
 import { reportPath, treeReportPath } from '../core/places.js'
+import { processGit } from './git.js'
 
 export const TECHNOLOGY_WORDS = ['https', 'shell'] as const
 
@@ -76,7 +77,7 @@ export function treePrPublisher(treePr: string, launchDir: string, env: NodeJS.P
 
 export function treeHoldsACommit(worktree: string, base: string): boolean {
   try {
-    return Number(execFileSync('git', ['-C', worktree, 'rev-list', '--count', `${base}..HEAD`], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim()) > 0
+    return Number(processGit.read(worktree, ['rev-list', '--count', `${base}..HEAD`]).trim()) > 0
   }
   catch {
     return false
