@@ -1,9 +1,12 @@
 import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { runAdmit } from '../../../src/commands/intake/admit.js'
+import { runAmend } from '../../../src/commands/intake/amend.js'
 import { runMove } from '../../../src/commands/intake/move.js'
+import { BUS_DB_VARIABLE } from '../../core/bus-path.js'
+import { busAdmittedBodies } from '../../core/card-bodies.js'
 import { appendEvent, openBus } from '../../core/db.js'
 import { CARD_STARTED, CARD_STOPPED } from '../../core/events.js'
 import { launchTasks, queueTask } from '../../core/queue.js'
@@ -12,6 +15,7 @@ import { busIntakePorts } from '../../intake/intake.js'
 import { busCardBodies, busParkedDepends } from '../../intake/parking-reads.js'
 import { realAnswererTools } from '../../nodes/answer/answerer.js'
 import { gitDepthSources } from '../../nodes/review/depth-sources.js'
+import { realDeps } from '../../ports/task-start.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')
 const RUNTIME_ROOTS = ['scripts', 'src']
@@ -42,10 +46,12 @@ const CARD = '#90 port-card [implement/netwatch/S/cheap/auto] · depends — · 
 const TEXT = `card: ${CARD}\nbranch: feat/port-card\ntouches: src/a.ts\ncontinue: stop\nwho: shift\n\nDo the thing.\n`
 const ADMITTED_AT = new Date('2026-10-13T09:00:00.000Z')
 const MOVED_AT = new Date('2026-10-13T09:05:00.000Z')
+const AMENDED_NOTE = 'The amended line.'
 const roots: string[] = []
 const locked: string[] = []
 
 afterEach(() => {
+  vi.unstubAllEnvs()
   for (const target of locked.splice(0).reverse())
     chmodSync(target, 0o700)
   for (const root of roots.splice(0))
@@ -149,6 +155,29 @@ describe('no runtime reader opens the parking directory; the card body comes fro
     finally {
       db.close()
     }
+  })
+
+  it('task start reads the amended body from card.* events while the parking file holds another body and cannot be opened', () => {
+    const w = world('amended')
+    const db = openBus(w.bus)
+    try {
+      const ports = busIntakePorts(db, 's1')
+      const intake = { dir: w.repo, dryRun: false, autoConfirm: false, parkingRoot: w.parking, events: ports.cardEvents, cardStates: ports.cardStates, admissions: ports.cardAdmissions }
+      expect(runAdmit({ ...intake, file: path.join(w.parking, 'lane-1', '90.md') }, () => ADMITTED_AT).status).toBe('admitted')
+      reduce(db)
+      expect(runAmend({ ...intake, card: '#90', flags: { note: AMENDED_NOTE } }, () => MOVED_AT).status).toBe('admitted')
+    }
+    finally {
+      db.close()
+    }
+    const parked = path.join(w.parking, 'lane-1', '90.md')
+    writeFileSync(parked, TEXT.replace('Do the thing.', 'A parking body nobody admitted.'))
+    unreadable(parked)
+    vi.stubEnv(BUS_DB_VARIABLE, w.bus)
+    const body = realDeps().cardBody!(90)
+    expect(body).toContain(AMENDED_NOTE)
+    expect(body).not.toContain('A parking body nobody admitted.')
+    expect(body).toBe(busAdmittedBodies(w.bus)(90))
   })
 
   it('replaying the log in a copy of the repository at another path dumps byte-identical tasks', () => {
