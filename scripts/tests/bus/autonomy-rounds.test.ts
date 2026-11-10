@@ -28,6 +28,7 @@ const CARD = PR + 100
 const HEAD = sha('a')
 const ANSWERED_HEAD = sha('b')
 const SESSION = 'window-1'
+const OWNER_MERGES = readFileSync('architecture/owner-merges.md', 'utf8')
 const DRY_RUN = 'reviewer-dry'
 const FINDINGS = ['scripts/a.ts:run drops the error', 'no test covers the empty list']
 
@@ -122,7 +123,6 @@ function changesOnTheHead(underAShard = false): Changes {
   }
 }
 
-const OWNER_MERGES = readFileSync('architecture/owner-merges.md', 'utf8')
 const PROVED = FINDINGS.map(finding => ({ finding: ` ${finding} `, proof: 'a test that fails without the fix' }))
 
 function answered(fields: Partial<Answered> = {}): Answered {
@@ -239,7 +239,7 @@ describe('autonomy rounds at the window and the answer', () => {
   })
 
   it('a round the window decides under a shard still owes a proof of every finding', async () => {
-    const question = 'may the card also touch .claude/settings.json?'
+    const question = 'may the card also touch contract/factory-permissions.json?'
     const decide: ShardDecider = () => ({ answer: 'the one the finding names' })
     const unproved = changesOnTheHead(true)
     const asked: AnswerRequest[] = []
