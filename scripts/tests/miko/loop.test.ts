@@ -20,7 +20,6 @@ import { waitFor } from '../wait-for.js'
 
 const REPO_ROOT = path.join(import.meta.dirname, '..', '..', '..')
 const LOOP = path.join(REPO_ROOT, 'scripts', 'window', 'loop.ts')
-const KEY_PRESS_GAP_MS = 300
 const READY_DEADLINE_MS = 15_000
 const PAUSE_LINE = 'next session in'
 const SESSION = 'session-972'
@@ -35,7 +34,12 @@ set -- $(sed -n "\${n}p" "$STUB_DIR/plan")
 case "$1" in
   continue|owner|stop) echo "STATUS: $(echo "$1" | tr a-z A-Z)" > "$HOME/.construct/handoff/miko.md"; exit "$2" ;;
   quiet) exit "$2" ;;
-  deaf) trap '' INT; echo 'STATUS: CONTINUE' > "$HOME/.construct/handoff/miko.md"; : > "$STUB_DIR/ready"; exec sleep 2 ;;
+  deaf)
+    presses=0
+    trap 'presses=$((presses + 1)); echo "$presses" >> "$STUB_DIR/presses"' INT
+    echo 'STATUS: CONTINUE' > "$HOME/.construct/handoff/miko.md"; : > "$STUB_DIR/ready"
+    while [ "$presses" -lt 2 ]; do sleep 1 </dev/null >/dev/null 2>&1 & wait $!; done
+    exit 0 ;;
   hang) echo 'STATUS: CONTINUE' > "$HOME/.construct/handoff/miko.md"; : > "$STUB_DIR/ready"; exec sleep 30 ;;
   threshold)
     node --disable-warning=ExperimentalWarning --import tsx scripts/window/handoff-write.ts "$HOME/.construct/handoff/miko.md" "$STUB_DIR/draft.md" >> "$STUB_DIR/threshold.log" 2>&1
@@ -209,7 +213,7 @@ describe('pnpm miko restarts Miko in its own terminal while miko.md says STATUS:
     const loop = startLoop(dir)
     await sessionReady(dir)
     process.kill(-loop.pid, 'SIGINT')
-    await new Promise(resolve => setTimeout(resolve, KEY_PRESS_GAP_MS))
+    await waitFor(() => lines(dir, 'presses').length === 1, () => 'the session to see the first Ctrl-C', READY_DEADLINE_MS)
     process.kill(-loop.pid, 'SIGINT')
     const outcome = await loop.done
     expect(lines(dir, 'calls')).toEqual(['0|'])
@@ -221,7 +225,6 @@ describe('pnpm miko restarts Miko in its own terminal while miko.md says STATUS:
     const miko = startPnpmMiko(dir)
     try {
       await pauseLine(miko.stderr)
-      await new Promise(resolve => setTimeout(resolve, KEY_PRESS_GAP_MS))
       process.kill(-miko.pid, 'SIGINT')
       await miko.exited
       const stderr = await miko.done
@@ -559,6 +562,13 @@ describe('the loop owns the end of a session: a request file asks it to end the 
     return file
   }
 
+  function sessionThatSaysReady(file: string): { command: string, ready: () => Promise<void> } {
+    const ready = `${file}.ready`
+    const command = `${file}.ready.sh`
+    writeFileSync(command, `#!/bin/sh\n: > '${ready}'\nexec sleep 30\n`, { mode: 0o755 })
+    return { command, ready: () => waitFor(() => existsSync(ready), () => 'the session to say it is running', 5_000) }
+  }
+
   it('names the request next to miko.md, one file per loop', () => {
     expect(path.dirname(exitRequestFile('/h', 41))).toBe(path.dirname(mikoHandoff('/h')))
     expect(exitRequestFile('/h', 41)).not.toBe(exitRequestFile('/h', 42))
@@ -570,9 +580,11 @@ describe('the loop owns the end of a session: a request file asks it to end the 
     const mine = exitRequestFile(dir, 41)
     const other = exitRequestFile(dir, 42)
     mkdirSync(path.dirname(mine), { recursive: true })
-    const ending = runSession('sleep 30', undefined, mine, POLL_MS)
+    const session = sessionThatSaysReady(mine)
+    const ending = runSession(session.command, undefined, mine, POLL_MS)
     const staying = runSession('sleep 1', undefined, other, POLL_MS)
-    setTimeout(writeFileSync, 100, mine, '\n')
+    await session.ready()
+    writeFileSync(mine, '\n')
     expect(await ending).toEqual({ code: null, signal: 'SIGTERM' })
     expect(await staying).toEqual({ code: 0, signal: null })
   }, 10_000)
@@ -588,8 +600,10 @@ describe('the loop owns the end of a session: a request file asks it to end the 
 
   it('ends the session with SIGTERM when a request appears, and removes the request', async () => {
     const file = request()
-    const ending = runSession('sleep 30', undefined, file, POLL_MS)
-    setTimeout(writeFileSync, 100, file, '\n')
+    const session = sessionThatSaysReady(file)
+    const ending = runSession(session.command, undefined, file, POLL_MS)
+    await session.ready()
+    writeFileSync(file, '\n')
     expect(await ending).toEqual({ code: null, signal: 'SIGTERM' })
     expect(existsSync(file)).toBe(false)
   }, 10_000)

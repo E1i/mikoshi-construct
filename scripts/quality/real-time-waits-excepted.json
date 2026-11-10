@@ -1,14 +1,3 @@
 [
-  "scripts/tests/bus/answer-worker-ebadf.test.ts",
-  "scripts/tests/bus/bg.test.ts",
-  "scripts/tests/bus/drain-keeps-round.test.ts",
-  "scripts/tests/bus/heartbeat.test.ts",
-  "scripts/tests/bus/node-fill.test.ts",
-  "scripts/tests/bus/reviewer.test.ts",
-  "scripts/tests/bus/witness-node.test.ts",
-  "scripts/tests/bus/witness-serve.test.ts",
-  "scripts/tests/miko/loop.test.ts",
-  "scripts/tests/miko/miko-repo.test.ts",
-  "scripts/tests/supervisor/review-drain-slots.test.ts",
-  "scripts/tests/wait-for.ts"
+  "scripts/tests/supervisor/review-drain-slots.test.ts"
 ]

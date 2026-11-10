@@ -6,7 +6,6 @@ import type { BgResult, DetachedLaunch, RunningProcess } from '../../supervisor/
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { setTimeout as sleep } from 'node:timers/promises'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { openBus } from '../../core/db.js'
 import { CARD_ANSWERED, TASK_EXPIRED, WORKER_RETIRING } from '../../core/events.js'
@@ -39,6 +38,7 @@ afterEach(() => {
 class RoundNode extends Node<NodeStep> {
   readonly taken: string[] = []
   private readonly rounds: (() => void)[] = []
+  private readonly awaitingTaken: { count: number, reached: () => void }[] = []
 
   constructor(db: DatabaseSync, clock: () => Date, session: string, private readonly codeOf: string, private readonly commit: (lease: Lease) => void) {
     super('answer', { db, clock, session, mode: 'live', env: { [slotsVariable('answer')]: '2' }, self: { pid: session === 'old' ? OLD_PID : 701, started: clock().toISOString() } })
@@ -54,11 +54,23 @@ class RoundNode extends Node<NodeStep> {
 
   protected async handle(lease: Lease): Promise<NodeStep> {
     this.taken.push(`${this.codeOf}:${lease.taskKey}`)
+    for (const waiting of this.awaitingTaken.filter(each => each.count <= this.taken.length)) {
+      this.awaitingTaken.splice(this.awaitingTaken.indexOf(waiting), 1)
+      waiting.reached()
+    }
     await new Promise<void>((resolve) => {
       this.rounds.push(resolve)
     })
     this.commit(lease)
     return { kind: 'answered', taskKey: lease.taskKey }
+  }
+
+  tookRounds(count: number): Promise<void> {
+    if (this.taken.length >= count)
+      return Promise.resolve()
+    return new Promise((reached) => {
+      this.awaitingTaken.push({ count, reached })
+    })
   }
 
   finish(): void {
@@ -116,14 +128,8 @@ function bench(holderStart: { pid: number, started: string } | null = { pid: OLD
   return { db, clock, ts, date, answer, close, started, stopped, alive: () => alive, processes, supervisorOn, commit }
 }
 
-async function untilTrue(condition: () => boolean): Promise<void> {
-  for (let tries = 0; tries < 500 && !condition(); tries++)
-    await sleep(2)
-  expect(condition()).toBe(true)
-}
-
-function fastPause(): Promise<void> {
-  return sleep(2)
+function nextTurn(): Promise<void> {
+  return new Promise(resolve => setImmediate(resolve))
 }
 
 const eventsOf = (db: DatabaseSync, type: string): number => Number((db.prepare('SELECT count(*) AS n FROM events WHERE type = ?').get(type) as { n: number }).n)
@@ -134,8 +140,8 @@ describe('a restart of the bus code keeps the rounds in flight', () => {
     const task: QueuedTask = { queue: 'answer', cardId: 1483 }
     queueTaskWithin(db, ts(), task)
     const old = new RoundNode(db, date, 'old', OLD_MAIN, commit)
-    const running = old.run({ pause: fastPause })
-    await untilTrue(() => old.taken.length === 1)
+    const running = old.run({ pause: nextTurn })
+    await old.tookRounds(1)
 
     const lines = (await supervisorOn().step()).join('\n')
     expect(lines).toContain(`finishes the rounds it holds on ${OLD_MAIN} and exits`)
@@ -161,8 +167,8 @@ describe('a restart of the bus code keeps the rounds in flight', () => {
     const { db, ts, date, supervisorOn, commit } = bench()
     queueTaskWithin(db, ts(), { queue: 'answer', cardId: 1483 })
     const old = new RoundNode(db, date, 'old', OLD_MAIN, commit)
-    const oldRun = old.run({ pause: fastPause })
-    await untilTrue(() => old.taken.length === 1)
+    const oldRun = old.run({ pause: nextTurn })
+    await old.tookRounds(1)
 
     await supervisorOn().step()
     expect(workerRetiring(db, 'worker:answer:old')).toBe(true)
@@ -171,8 +177,8 @@ describe('a restart of the bus code keeps the rounds in flight', () => {
     queueTaskWithin(db, ts(), { queue: 'answer', cardId: 1560 })
     const fresh = new RoundNode(db, date, 'new', NEW_MAIN, commit)
     const controller = new AbortController()
-    const freshRun = fresh.run({ pause: fastPause, signal: controller.signal })
-    await untilTrue(() => fresh.taken.length === 1)
+    const freshRun = fresh.run({ pause: nextTurn, signal: controller.signal })
+    await fresh.tookRounds(1)
     expect(fresh.taken[0]).toContain(`${NEW_MAIN}:`)
     expect(fresh.taken[0]).toContain('1560')
     expect(old.taken).toHaveLength(1)
@@ -191,8 +197,8 @@ describe('a restart of the bus code keeps the rounds in flight', () => {
     const old = new RoundNode(db, date, 'old', OLD_MAIN, commit)
     queueTaskWithin(db, ts(), { queue: 'answer', cardId: 1 })
     queueTaskWithin(db, ts(), { queue: 'answer', cardId: 2 })
-    const oldRun = old.run({ pause: fastPause })
-    await untilTrue(() => old.taken.length === 2)
+    const oldRun = old.run({ pause: nextTurn })
+    await old.tookRounds(2)
     await supervisorOn().step()
 
     queueTaskWithin(db, ts(), { queue: 'answer', cardId: 3 })
@@ -204,7 +210,7 @@ describe('a restart of the bus code keeps the rounds in flight', () => {
         passes += 1
         if (passes > 2)
           controller.abort()
-        await sleep(1)
+        await nextTurn()
       },
       signal: controller.signal,
     })

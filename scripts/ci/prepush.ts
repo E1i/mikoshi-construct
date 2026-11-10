@@ -1,5 +1,5 @@
 import type { SpawnSyncReturns } from 'node:child_process'
-import type { CardRuns } from './card-runs.js'
+import type { BranchTests, CardRuns } from './card-runs.js'
 import type { Graph, Run } from './layers.js'
 import type { Capability, SandboxFailing } from './sandbox-failing.js'
 import type { Stale } from './sandbox-liveness.js'
@@ -10,6 +10,8 @@ import { existsSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { withinTouches } from '../../src/card/covering-tests.js'
+import { testFoldersOfLayers } from '../cli/check-catalog.js'
+import { readLayerMap } from '../core/layer-map.js'
 import { GhCiRuns } from '../ports/ci-reading.js'
 import { processGit } from '../ports/git.js'
 import { heavyStep } from '../quality/lock.js'
@@ -46,8 +48,12 @@ export function withCardRuns(run: Run, reading: CardRuns | null, graph: Graph): 
   return { kind: 'layers', layers: [...new Set([...run.layers, ...reading.layers])].sort(), tests: [...new Set([...run.tests, ...added])].sort() }
 }
 
-function readingOfBranch(read: Git): CardRuns | null {
-  const found = branchCardRuns(read(['rev-parse', '--abbrev-ref', 'HEAD']).trim())
+export function testsOfBranch(graph: Graph, folders: BranchTests['folders']): BranchTests {
+  return { tests: [...graph.keys()].filter(isTest), folders }
+}
+
+function readingOfBranch(read: Git, graph: Graph): CardRuns | null {
+  const found = branchCardRuns(read(['rev-parse', '--abbrev-ref', 'HEAD']).trim(), undefined, testsOfBranch(graph, testFoldersOfLayers(readLayerMap())))
   if (found.kind === 'unreadable')
     console.log(`prepush: the card of the branch could not be read, the selection stays the changed paths': ${found.why}`)
   return found.kind === 'card' ? found.reading : null
@@ -285,7 +291,7 @@ async function main(): Promise<number> {
     console.log(`prepush: the diff from ${base.why}`)
     changed = changesSince(git, base.sha)
     graph = changed.length === 0 ? new Map() : cruise()
-    reading = readingOfBranch(git)
+    reading = readingOfBranch(git, graph)
     run = reportedRun(withCardRuns(selectRun(changed, graph, readTest), reading, graph))
   }
   catch (error) {
