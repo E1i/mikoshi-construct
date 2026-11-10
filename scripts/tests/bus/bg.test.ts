@@ -1,5 +1,6 @@
 import type { BgResult, DetachedLaunch, ProcessList, RunningProcess } from '../../supervisor/bg.js'
 import type { BusCode } from '../../supervisor/supervisor.js'
+import type { WaitClock } from '../wait-for.js'
 import type { MergeBench } from './merge-bench.js'
 import { execFileSync, spawn, spawnSync } from 'node:child_process'
 import { appendFileSync, chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs'
@@ -22,7 +23,7 @@ import { factoryBusOf } from '../../supervisor/start.js'
 import { bgCommand, BusSupervisor, entryOf, gitCode, lastMainAdvance, mainAdvancedSince, startUnderAgentEnv, stopInstance, SUPERVISOR_LAUNCH, switchCommand } from '../../supervisor/supervisor.js'
 import { busLaunches, switchDetection, switchedOn, switchWorker, wantedLaunches, WORKERS_FILE } from '../../supervisor/workers.js'
 import { settled } from '../shift/fixtures/settled.js'
-import { waitFor } from '../wait-for.js'
+import { SYSTEM_CLOCK, waitFor } from '../wait-for.js'
 import { sha } from './github-fake.js'
 import { mergeBench } from './merge-bench.js'
 
@@ -93,6 +94,7 @@ function detachedSleep(): number {
 }
 
 const ARRIVAL_GUARD_MS = 25_000
+const SIX_SECONDS_MS = 6_000
 const ISO_STAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z (?=\S)/
 const TSX_LOADER = pathToFileURL(path.resolve(import.meta.dirname, '..', '..', '..', 'node_modules', 'tsx', 'dist', 'esm', 'index.mjs')).href
 const STAMPED_ENTRY = path.join(import.meta.dirname, 'stamp-entry.ts')
@@ -102,8 +104,8 @@ function readArgv(w: World): string[] {
   return existsSync(file) ? readFileSync(file, 'utf8').trim().split('\n') : []
 }
 
-async function argvLines(w: World, count: number): Promise<string[]> {
-  await waitFor(() => readArgv(w).length >= count, () => `${count} pnpm.argv lines (read: ${JSON.stringify(readArgv(w))})`, ARRIVAL_GUARD_MS)
+async function argvLines(w: World, count: number, clock: WaitClock = SYSTEM_CLOCK): Promise<string[]> {
+  await waitFor(() => readArgv(w).length >= count, () => `${count} pnpm.argv lines (read: ${JSON.stringify(readArgv(w))})`, ARRIVAL_GUARD_MS, clock)
   return readArgv(w)
 }
 
@@ -519,13 +521,21 @@ describe('pnpm bus:bg', () => {
 
   it('a pnpm.argv line that comes six seconds late is still awaited', async () => {
     const w = world()
-    const late = setTimeout(() => appendFileSync(path.join(w.out, 'pnpm.argv'), '--silent bus:run\n'), 6000)
-    try {
-      expect(await argvLines(w, 1)).toEqual(['--silent bus:run'])
+    let now = 0
+    let written = false
+    const sixSecondsLate: WaitClock = {
+      now: () => now,
+      setTimeout: (run, ms) => {
+        now += ms
+        if (!written && now >= SIX_SECONDS_MS) {
+          appendFileSync(path.join(w.out, 'pnpm.argv'), '--silent bus:run\n')
+          written = true
+        }
+        setImmediate(run)
+      },
     }
-    finally {
-      clearTimeout(late)
-    }
+    expect(await argvLines(w, 1, sixSecondsLate)).toEqual(['--silent bus:run'])
+    expect(now).toBeGreaterThanOrEqual(SIX_SECONDS_MS)
   })
 
   it('switch writes the flag without ps or kill', () => {
