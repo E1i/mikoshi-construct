@@ -7,9 +7,11 @@ import { blockingJobs, CLASSIFY_JOB, ranNeeds, REQUIRED_JOB, requiredSummary, re
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..', '..')
 
-interface Job { name?: string, needs?: string | string[], if?: string, steps: { id?: string, if?: string, run?: string, env?: Record<string, string> }[], outputs?: Record<string, string> }
+interface Job { name?: string, needs?: string | string[], if?: string, permissions?: Record<string, string>, steps: { id?: string, if?: string, run?: string, env?: Record<string, string> }[], outputs?: Record<string, string> }
 const workflow = YAML.parse(readFileSync(path.join(REPO_ROOT, '.github/workflows/ci.yml'), 'utf8')) as { jobs: Record<string, Job> }
 const manifest = JSON.parse(readFileSync(path.join(REPO_ROOT, 'package.json'), 'utf8')) as { scripts: Record<string, string> }
+
+const GITHUB_TOKEN_EXPRESSION = ['$', '{{ github.token }}'].join('')
 
 const OTHER_JOBS = ['checks', 'lint', 'typecheck', 'vitest', 'docs', 'package', 'contract-bump', 'acceptance']
 
@@ -131,6 +133,18 @@ describe('ci.yml wiring', () => {
     expect([workflow.jobs.required!.needs].flat().sort()).toEqual(others.sort())
     expect(workflow.jobs.required!.if).toBe('always()')
     expect(workflow.jobs.required!.steps.map(step => step.run ?? '').join('\n')).toContain('scripts/ci/verdict.ts')
+  })
+
+  it('gives only the required job a token that reads the run\'s jobs, and only its verdict step the token', () => {
+    const workflowWide = (YAML.parse(readFileSync(path.join(REPO_ROOT, '.github/workflows/ci.yml'), 'utf8')) as { permissions?: Record<string, string> }).permissions
+    const required = workflow.jobs.required!
+    const withToken = Object.entries(workflow.jobs).flatMap(([name, job]) => job.steps.filter(step => step.env?.GH_TOKEN !== undefined).map(step => `${name}: ${step.run ?? ''}`))
+
+    expect(workflowWide).toEqual({ contents: 'read' })
+    expect(required.permissions).toEqual({ contents: 'read', actions: 'read' })
+    expect(Object.entries(workflow.jobs).filter(([name, job]) => name !== 'required' && job.permissions !== undefined)).toEqual([])
+    expect(withToken).toEqual(['required: pnpm exec tsx scripts/ci/verdict.ts'])
+    expect(required.steps.find(step => step.run === 'pnpm exec tsx scripts/ci/verdict.ts')?.env?.GH_TOKEN).toBe(GITHUB_TOKEN_EXPRESSION)
   })
 
   it('skips only the preset matrix on the fast path, and the docs job runs the docs build on every change', () => {
