@@ -10,7 +10,8 @@ import { appendEvent } from '../../core/db.js'
 import { CARD_ANSWERED, CARD_STARTED, REVIEW_RECORDED } from '../../core/events.js'
 import { leaseNext } from '../../core/lease.js'
 import { queueTask } from '../../core/queue.js'
-import { AnswerExecutor, unprovedFindings, unprovedFindingsLine } from '../../nodes/answer/answer-executor.js'
+import { AnswerExecutor, findingsGivenByAReview, unprovedFindings, unprovedFindingsLine } from '../../nodes/answer/answer-executor.js'
+import { proofsIn, proofsPath, proofsRule } from '../../nodes/answer/answerer.js'
 import { dryRunIn, keepDryRun } from '../../nodes/review/dry-run-record.js'
 import { PrCloser } from '../../nodes/review/pr-close.js'
 import { sayToOwnerChannel, USED_WORD } from '../../owner/channel.js'
@@ -158,6 +159,9 @@ describe('autonomy rounds at the window and the answer', () => {
     expect(unproved).toMatchObject({ kind: 'denied', denial: { reason: 'answer_failed', detail: unprovedFindingsLine(CARD, ANSWERED_HEAD, [FINDINGS[1]!]) } })
     expect(eventsOf(refused.bench.db, CARD_ANSWERED)).toEqual([])
 
+    const silent = changesOnTheHead()
+    expect(await silent.executor(answering()).answer(silent.lease())).toMatchObject({ kind: 'denied', denial: { detail: unprovedFindingsLine(CARD, ANSWERED_HEAD, FINDINGS) } })
+
     const proved = changesOnTheHead()
     const outcome = await proved.executor(answering(FINDINGS.map(finding => ({ finding: ` ${finding} `, proof: 'a test that fails without the fix' })))).answer(proved.lease())
     expect(outcome).toMatchObject({ kind: 'answered', head: ANSWERED_HEAD })
@@ -169,6 +173,27 @@ describe('autonomy rounds at the window and the answer', () => {
     expect(unprovedFindings([' a ', 'a', 'b'], [{ finding: 'a', proof: 'p' }])).toEqual(['b'])
     expect(unprovedFindings(['a'], [{ finding: 'a', proof: '' }])).toEqual(['a'])
     expect(unprovedFindings(['a', ''], [{ finding: 'a', proof: 'p' }])).toEqual([])
-    expect(unprovedFindings(FINDINGS, undefined)).toEqual([])
+    expect(unprovedFindings(FINDINGS, undefined)).toEqual(FINDINGS)
+  })
+
+  it('the answer session is asked for a proof per numbered finding, and the answerer reads them back', () => {
+    const dir = rootDir('autonomy-rounds-proofs-')
+    const file = proofsPath(dir, 'session-1', 2)
+    const changes = { kind: 'changes' as const, findings: FINDINGS, events: [], decisions: [] }
+
+    expect(proofsRule(FINDINGS, file)).toEqual([expect.stringContaining(file) as unknown, `1. ${FINDINGS[0]}`, `2. ${FINDINGS[1]}`])
+    expect(proofsRule([], file)).toEqual([])
+    expect(findingsGivenByAReview(changes)).toEqual(FINDINGS)
+    expect(findingsGivenByAReview({ ...changes, reentry: true })).toEqual([])
+    expect(findingsGivenByAReview({ kind: 'ci', failedChecks: [], events: [], decisions: [] })).toEqual([])
+    expect(findingsGivenByAReview(null)).toEqual([])
+    expect(proofsIn(file, FINDINGS)).toEqual([])
+
+    writeFileSync(file, JSON.stringify({ 1: 'scripts/tests/a.test.ts fails without the fix', 2: 7 }))
+    expect(proofsIn(file, FINDINGS)).toEqual([{ finding: FINDINGS[0], proof: 'scripts/tests/a.test.ts fails without the fix' }])
+    writeFileSync(file, 'not json')
+    expect(proofsIn(file, FINDINGS)).toEqual([])
+    writeFileSync(file, JSON.stringify(['a proof']))
+    expect(proofsIn(file, FINDINGS)).toEqual([])
   })
 })

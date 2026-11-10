@@ -23,7 +23,6 @@ import { CLOSED_CARD, DROPPED_CARD, MERGED_CARD } from '../core/card-automaton.j
 import { appendCardEvent, bodyNotFoldedYet, CARD_BODIES, cardBodyText, FACTORY_MODES, isFactoryMode, laid } from '../core/card-bodies.js'
 import { answersWithdrawnByAClosedHold, holdLayersOf, holdThatStays, ownerHoldGround, queueAgain } from '../core/card-hold.js'
 import { appendEvent, CLOSED_WAIT, closeOwnerWait, defaultBusPath, inTransaction, isOwnerWaitNeed, OPEN_WAIT, openBus, openOwnerWait, OWNER_WAIT_NEEDS, OWNER_WAITS } from '../core/db.js'
-import { messageOf } from '../core/errors.js'
 import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_DROPPED, CARD_HELD, CARD_PLANNED, CARD_RELEASED, CARD_STARTED, CARD_STOPPED, CARD_TAKEOVER, CARD_UNPLANNED, declaredPayload, FACTORY_MODE, NUMBERS_FOREIGN, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PLAN_BACKFILLED, PLAN_CLOSED, PLAN_OPENED, POLICY_DENIED, PR_OBSERVED, REQUEST_DONE, REQUEST_REFUSED, SHARD_DECIDED, TASK_REQUEUED, WINDOW_REQUEST, WITNESS_RECORDED } from '../core/events.js'
 import { cardIdOf, isFullSha, prOf } from '../core/identifiers.js'
 import { ANSWER_SOURCE, OPEN_OWNER_STOP_OF_CARD, OWNER } from '../core/inbox.js'
@@ -327,16 +326,13 @@ export class WindowRequests {
     if (from !== ANSWER_SOURCE)
       return { done: false, why: `decisions:add --from ${from} is not ${ANSWER_SOURCE}; a decision comes only from the owner's word that pnpm owner:say put into the owner channel, never from an owner order file` }
     const words = decision.startsWith(OWNER_SOURCE) ? decision.slice(OWNER_SOURCE.length).trim() : decision
-    if (words === '')
-      return { done: false, why: `decisions:add: an empty decision; the bus writes only the owner's own words` }
-    const filled = this.atHeadFilled(decision)
-    if (filled === null)
-      return { done: false, why: `decisions:add: the decision names a PR at ${HEAD_WORD} whose head the bus has not observed, so the bus has no sha to put in` }
+    const filled = [...decision.matchAll(AT_HEAD_OF_A_PR)].some(match => this.observed(Number(match[1]))?.head == null) ? null : decision.replace(AT_HEAD_OF_A_PR, (_, pr: string) => `PR #${pr} at ${this.observed(Number(pr))!.head!}`)
+    if (words === '' || filled === null)
+      return { done: false, why: words === '' ? `decisions:add: an empty decision; the bus writes only the owner's own words` : `decisions:add: the decision names a PR at ${HEAD_WORD} whose head the bus has not observed, so the bus has no sha to put in` }
     const word = consumeOwnerWord(this.ownerChannel, words)
     if (word === null)
       return { done: false, why: OWNER_WORD_NOT_FOUND }
-    const cardStates = new Map((this.db.prepare('SELECT card_id, state FROM cards WHERE state IS NOT NULL').all() as { card_id: number, state: string }[]).map(row => [String(row.card_id), row.state]))
-    const settled = [...settledCards(legacyHistory(this.db), cardStates)].map(card => `#${card}`)
+    const settled = [...settledCards(legacyHistory(this.db), cardStatesOf(this.db))].map(card => `#${card}`)
     const written = this.writtenDecision([...flagsOf('--supersedes', payload.supersedes), ...flagsOf('--card', payload.cards), ...flagsOf('--until', payload.until), ...flagsOf('--settled', settled), filled])
     const done = written.code === 0
     const fate = done ? 'used' : word.release() ? 'left unused' : unreleasedWord(word.file)
@@ -481,17 +477,11 @@ export class WindowRequests {
     return this.tools.exists(tree) ? { done: true, why: `cut ${tree} on ${branch}` } : { done: false, why: `task:start ${branch} for card #${cardId} left no tree at ${tree}` }
   }
 
-  private atHeadFilled(decision: string): string | null {
-    const unobserved = [...decision.matchAll(AT_HEAD_OF_A_PR)].some(match => this.observed(Number(match[1]))?.head == null)
-    return unobserved ? null : decision.replace(AT_HEAD_OF_A_PR, (_, pr: string) => `PR #${pr} at ${this.observed(Number(pr))!.head!}`)
-  }
-
   private allowMerge(payload: Record<string, unknown>): Executed {
-    const pr = prOf(payload.pr)
-    const atHead = payload.head === HEAD_WORD
-    const session = text(payload.dry_run)
-    if (pr === null || (!atHead && !isFullSha(payload.head)) || session === null)
-      return { done: false, why: `allow-merge needs a pr, a full head sha or ${HEAD_WORD}, and the reviewer session of its dry run` }
+    const [pr, session] = [prOf(payload.pr), text(payload.dry_run)]
+    const head = payload.head === HEAD_WORD && pr !== null ? this.observed(pr)?.head ?? null : isFullSha(payload.head) ? payload.head : null
+    if (pr === null || head === null || session === null)
+      return { done: false, why: `allow-merge needs a pr, a full head sha or ${HEAD_WORD} on an observed head, and the reviewer session of its dry run` }
     const now = this.clock()
     const inForce = decisionsInForceAt(this.db, now)
     if (!allowMergeRuleInForce(this.repository))
@@ -501,9 +491,8 @@ export class WindowRequests {
       return { done: false, why: `PR #${pr} is not open` }
     if (row.card_id === null)
       return { done: false, why: `PR #${pr} names no card; the version pull request stays the owner's` }
-    const head = atHead ? row.head : payload.head as string
-    if (head === null || row.head !== head)
-      return { done: false, why: `PR #${pr} is at ${row.head ?? 'no head'}, not ${head ?? HEAD_WORD}` }
+    if (row.head !== head)
+      return { done: false, why: `PR #${pr} is at ${row.head ?? 'no head'}, not ${head}` }
     const rounds = changesRoundsOf(this.db, pr)
     if (rounds < REVIEW_ROUNDS)
       return { done: false, why: `PR #${pr} has ${rounds} of ${REVIEW_ROUNDS} review rounds, not past the round limit` }
@@ -730,7 +719,7 @@ export class WindowRequests {
     if (type === PLAN_CLOSED)
       return { plan }
     if (type === PLAN_BACKFILLED) {
-      const cards = [...new Set((this.db.prepare(LINKED_CARDS).all(plan) as { cards: string }[]).flatMap(item => JSON.parse(item.cards) as number[]))].sort((a, b) => a - b)
+      const cards = linkedCards(this.db, plan)
       if (gate === null || cards.length === 0)
         return `${type} needs a --gate and a plan whose items link cards`
       return { plan, gate, cards }
@@ -749,6 +738,10 @@ export class WindowRequests {
 export function allowMergeRuleInForce(repository: string): boolean {
   const record = path.join(repository, ALLOW_MERGE_RECORD)
   return existsSync(record) && RULE_ACCEPTED.test(readFileSync(record, 'utf8'))
+}
+
+function cardStatesOf(db: DatabaseSync): Map<string, string> {
+  return new Map((db.prepare('SELECT card_id, state FROM cards WHERE state IS NOT NULL').all() as { card_id: number, state: string }[]).map(row => [String(row.card_id), row.state]))
 }
 
 function foreignIdsOf(value: unknown): number[] | null {
@@ -786,6 +779,15 @@ function decisionRequestOf(argv: readonly string[]): Record<string, unknown> | n
 
 function unreleasedWord(file: string): string {
   return `stays used though nothing was written; the owner renames ${file}${USED_WORD} back to ${path.basename(file)}`
+}
+
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+function linkedCards(db: DatabaseSync, plan: string): number[] {
+  const items = db.prepare(LINKED_CARDS).all(plan) as { cards: string }[]
+  return [...new Set(items.flatMap(item => JSON.parse(item.cards) as number[]))].sort((a, b) => a - b)
 }
 
 function flag(argv: readonly string[], name: string): string | undefined {
@@ -849,9 +851,7 @@ export function requestOf(argv: readonly string[]): Record<string, unknown> | nu
   if (kind === 'amend')
     return amendRequestOf(argv)
   if (kind === 'allow-merge') {
-    const pr = prOf(Number(flag(argv, '--pr')))
-    const head = flag(argv, '--head')
-    const dryRun = flag(argv, '--dry-run')
+    const [pr, head, dryRun] = [prOf(Number(flag(argv, '--pr'))), flag(argv, '--head'), flag(argv, '--dry-run')]
     return pr === null || (head !== HEAD_WORD && !isFullSha(head)) || dryRun === undefined ? null : { kind, pr, head, dry_run: dryRun }
   }
   if (kind === 'close-pr' || kind === 'reopen-pr') {

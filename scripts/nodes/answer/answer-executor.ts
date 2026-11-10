@@ -7,7 +7,7 @@ import type { IsolationReader } from '../../ports/isolation.js'
 import type { MergeMain } from '../../ports/main-merge.js'
 import type { TreePreparer } from '../../ports/prepare-tree.js'
 import type { AdmittedScope, AnswerSource, CardSession } from './answer-source.js'
-import type { Answered, Answerer, StepSeconds } from './answerer.js'
+import type { Answered, Answerer, FindingProof, StepSeconds } from './answerer.js'
 import type { CardConcept } from './concept-scope.js'
 import type { AnswerDenial, Answering, AnswerOutcome, AnswerTechnicalReason, CardPaths, DecidedRound, ShardDecider, TreeMerge, TreePublishing, Widened } from './duties/index.js'
 import { pathsIn, pathsOutside } from '../../../src/card/covering-tests.js'
@@ -84,20 +84,13 @@ export function questionAskedTwiceLine(cardId: number, question: string): string
 
 const CARD_PATHS: CardPaths = { pathsIn, ownerBoundary: ownersEvenUnderTheDecision, wideningAsked: scopeWideningAsked }
 
-export interface FindingProof {
-  finding: string
-  proof: string
-}
-
-export interface ProvingAnswer extends Answered {
-  proofs?: readonly FindingProof[]
-}
-
 export function unprovedFindings(given: readonly string[], proofs: readonly FindingProof[] | undefined): string[] {
-  if (proofs === undefined)
-    return []
-  const proved = new Set(proofs.filter(each => each.proof.trim() !== '').map(each => each.finding.trim()))
+  const proved = new Set((proofs ?? []).filter(each => each.proof.trim() !== '').map(each => each.finding.trim()))
   return [...new Set(given.map(finding => finding.trim()))].filter(finding => finding !== '' && !proved.has(finding))
+}
+
+export function findingsGivenByAReview(source: Answering | null): string[] {
+  return source?.kind === 'changes' && source.reentry !== true ? source.findings : []
 }
 
 export function unprovedFindingsLine(cardId: number, head: string, unproved: readonly string[]): string {
@@ -163,14 +156,15 @@ export class AnswerExecutor {
         return this.waiting(lease, card, merge.why)
       const answering = source ?? this.sources.conflict(lease, card, merge)
       const sessionStart = this.parts.clock().getTime()
-      let answered = await this.session(lease, answering, widened, card, false, leased)
+      const prove = findingsGivenByAReview(source)
+      let answered = await this.session(lease, answering, widened, card, false, leased, prove)
       for (let restarts = 0; endedOnContextWarn(answered) && restarts < ANSWER_RESTARTS; restarts += 1)
-        answered = await this.session(lease, answering, widened, card, true, this.parts.clock().getTime())
+        answered = await this.session(lease, answering, widened, card, true, this.parts.clock().getTime(), prove)
       if ('kind' in answered)
         return this.refusedOrDenied(lease, answered, widened)
       if (endedOnContextWarn(answered))
         return this.outcomes.stopped(lease, 'fault', `continuation-limit: card #${lease.cardId} answer session ${answered.session} stopped at the context warn; ${ANSWER_RESTARTS} of ${ANSWER_RESTARTS} continuations used (D-104), the card is not continued again and the bus pushed nothing from it`, { code: 'continuation-limit' }, widened === null ? [] : [widened.event])
-      return await this.settled(lease, answering, widened, card, answered, minutesSince(sessionStart, this.parts.clock().getTime()))
+      return await this.settled(lease, answering, widened, card, answered, minutesSince(sessionStart, this.parts.clock().getTime()), prove)
     }
     catch (error) {
       if (error instanceof StaleLease)
@@ -221,7 +215,7 @@ export class AnswerExecutor {
     }
   }
 
-  private async session(lease: Lease, source: AnswerSource, widened: Widened | null, card: CardSession, fresh: boolean, leased: number): Promise<Answered | AnswerDenial> {
+  private async session(lease: Lease, source: AnswerSource, widened: Widened | null, card: CardSession, fresh: boolean, leased: number, prove: readonly string[] = []): Promise<Answered | AnswerDenial> {
     const preparing = this.parts.clock().getTime()
     const unprepared = prepareBeforeSession(card.worktree, this.parts.prepare ?? prepareTree)
     if (unprepared !== null)
@@ -230,7 +224,7 @@ export class AnswerExecutor {
     const beforeTheSession = { lease: secondsOf(preparing - leased), tree: secondsOf(prepared - preparing) }
     this.recordSteps(lease, preparing, beforeTheSession)
     try {
-      const answered = await this.parts.answerer({ lease, source, widened: widened?.reason ?? null, card, fresh, outsideTouches: this.outsideTouchesOf(lease, widened), concept: this.conceptOf(lease), stepped: steps => this.recordSteps(lease, preparing, steps) })
+      const answered = await this.parts.answerer({ lease, source, widened: widened?.reason ?? null, card, fresh, outsideTouches: this.outsideTouchesOf(lease, widened), concept: this.conceptOf(lease), findingsToProve: prove, stepped: steps => this.recordSteps(lease, preparing, steps) })
       return answered.steps === undefined ? answered : { ...answered, steps: { ...beforeTheSession, ...answered.steps } }
     }
     catch (error) {
@@ -285,7 +279,7 @@ export class AnswerExecutor {
     return (this.parts.dirty ?? treeDirtyOf)(card)
   }
 
-  private async settled(lease: Lease, source: Answering, widened: Widened | null, card: CardSession, answered: Answered, minutes: number): Promise<AnswerOutcome> {
+  private async settled(lease: Lease, source: Answering, widened: Widened | null, card: CardSession, answered: Answered, minutes: number, prove: readonly string[] = []): Promise<AnswerOutcome> {
     const scope = [...(widened === null ? [] : [widened.event]), ...this.widenedInConcept(lease, answered)]
     if (answered.after === null || answered.after === answered.before) {
       if (answered.owner !== null && answered.noViolationFreePath === true)
@@ -296,7 +290,7 @@ export class AnswerExecutor {
         return this.publishing.leftDirty(lease, card, answered.session)
       return this.publishing.published(lease, source, card, answered, minutes, scope) ?? this.publishing.leftNothing(lease, answered, scope)
     }
-    const unproved = source.kind === 'changes' ? unprovedFindings(source.findings, (answered as ProvingAnswer).proofs) : []
+    const unproved = unprovedFindings(prove, answered.proofs)
     if (unproved.length > 0)
       return this.outcomes.denied(lease, { kind: 'technical', reason: 'answer_failed', detail: unprovedFindingsLine(lease.cardId, answered.after, unproved) })
     const reentry = REENTRY_SOURCES.has(source.kind) || source.reentry === true
