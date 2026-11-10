@@ -7,8 +7,8 @@ import { parseEverySeconds, sleep } from '../core/every.js'
 import { journalText } from '../core/journal.js'
 import { readTasksFile, startedTree } from '../core/tasks.js'
 import { OsProcessTable } from '../ports/process-table.js'
+import { readLadderStage, runSourceOf } from './ledger.js'
 import { ghostRowSessionId } from './status.js'
-import { readLedgerStage } from './watch-ledger.js'
 import { processField } from './watch-process.js'
 import { lastToolName, reportAgeField } from './watch-report.js'
 
@@ -51,8 +51,8 @@ function parseArgs(argv: string[]): Args {
   return { tasksFile, everySeconds: everyRaw === undefined ? undefined : parseEverySeconds(everyRaw) }
 }
 
-function stageField(runsPath: string): string {
-  const stage = readLedgerStage(runsPath)
+function stageField(worktree: string, card: number): string {
+  const stage = readLadderStage(runSourceOf(worktree, card))
   if (stage === null)
     return 'stage no ledger lines'
   return stage.kind === 'writing' ? 'ledger: writing' : `stage ${stage.status} ${stage.run}`
@@ -60,7 +60,7 @@ function stageField(runsPath: string): string {
 
 function treeStageField(task: Task, journalText: string): string {
   const tree = startedTree(journalText, task.card)
-  return tree === undefined ? `stage no task:start line for card #${task.card.id}` : stageField(path.join(tree.worktree, '.construct', 'runs.jsonl'))
+  return tree === undefined ? `stage no task:start line for card #${task.card.id}` : stageField(tree.worktree, task.card.id)
 }
 
 function taskLine(task: Task, out: string, journalText: string, statusText: string | undefined, processes: ProcessSnapshot): string {

@@ -1913,9 +1913,7 @@
           "scripts/intake/import.ts",
           "scripts/ladder/cleanup.ts",
           "scripts/ladder/expect-sample.ts",
-          "scripts/ladder/handoff.ts",
-          "scripts/ladder/supervise.ts",
-          "scripts/ladder/watch.ts",
+          "scripts/ladder/ledger.ts",
           "src/atlas/index.ts",
           "src/commands/attach/carriers.ts",
           "src/commands/board/bus.ts",
@@ -1923,13 +1921,16 @@
           "src/commands/cost/index.ts",
           "src/commands/cost/ledger.ts",
           "src/commands/detach/runtime.ts",
+          "src/commands/run-record.ts",
           "src/program.ts",
           "src/ui/console.ts",
           "src/ui/lore.ts"
         ],
         "owner": "src/commands/cost/ledger.ts",
         "source": "owner",
-        "writers": []
+        "writers": [
+          "src/commands/cost/ledger.ts"
+        ]
       },
       ".construct/shell-parser.mjs": {
         "derived": false,
@@ -2191,6 +2192,7 @@
           "src/commands/cost/ledger.ts",
           "src/commands/doctor/factory.ts",
           "src/commands/intake/admit.ts",
+          "src/commands/run-record.ts",
           "src/program.ts"
         ],
         "owner": "src/commands/attach/beside.ts",
@@ -3933,6 +3935,16 @@
         "constants": [],
         "functions": {
           "parseMutationFile": "(text: string): ParsedLine[]"
+        },
+        "reexports": [],
+        "types": {}
+      },
+      "src/commands/run-record.ts": {
+        "constants": [
+          "RUN_RECORD_EXIT"
+        ],
+        "functions": {
+          "wiredBusOf": "(place: Pick<RunRecordPlace, 'dir' | 'env' | 'home'>): string | null"
         },
         "reexports": [],
         "types": {}

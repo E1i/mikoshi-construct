@@ -20,13 +20,15 @@ function subCommandLines(): string[] {
 }
 
 function entries(): { name: string, aliasOf: string | null }[] {
-  return subCommandLines()
+  const named = subCommandLines()
     .map(line => line.trim().replace(/,$/, ''))
     .filter(line => line !== '' && !line.startsWith('//'))
     .map((line) => {
       const [name, target] = line.split(':').map(part => part.trim().replace(/^'(.*)'$/, '$1'))
-      return { name, aliasOf: target == null || target === '' ? null : target }
+      return { name, target: target == null || target === '' ? null : target }
     })
+  const shorthand = new Set(named.filter(entry => entry.target == null).map(entry => entry.name))
+  return named.map(({ name, target }) => ({ name, aliasOf: target != null && shorthand.has(target) ? target : null }))
 }
 
 function registeredCommands(): string[] {

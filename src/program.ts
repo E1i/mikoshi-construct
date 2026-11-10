@@ -23,6 +23,7 @@ import { listFlagOf, runAmend } from './commands/intake/amend.js'
 import { defaultParking, INTAKE_EXIT, printIntake, readStdinToEnd, runIntake } from './commands/intake/index.js'
 import { printMove, runMove } from './commands/intake/move.js'
 import { applyExit, applyJson, applyMutation, judgeExit, judgeJson, printApply, printJudge, REPORT_FORMATS, runJudge } from './commands/mutate/index.js'
+import { printRunRecord, runRecord } from './commands/run-record.js'
 import { printDetectReport, SOULKILL_EXIT, soulkillJson } from './commands/soulkill.js'
 import { applySync, printSync, printSyncApply, runSync, SYNC_NO_MANIFEST_JSON, syncApplyExit, syncApplyJson, syncExit, syncJson } from './commands/sync/index.js'
 import { detect } from './detect/index.js'
@@ -364,6 +365,23 @@ const say = withKnownFlags(defineCommand({
   },
 }), ROOT_META)
 
+const RUN_RECORD_FROM_STDIN = '-'
+
+const runRecordCommand = withKnownFlags(defineCommand({
+  meta: { name: 'run-record', description: 'Record one /implement ladder run: a bus ladder event where a bus is wired, else one line in .construct/runs.jsonl; the record is the JSON argument, or stdin with -' },
+  args: commonArgs,
+  run({ args }) {
+    const console = ui(args)
+    const given = args._.join(' ').trim()
+    const failed = reported(console, () => {
+      const text = given === RUN_RECORD_FROM_STDIN ? readStdinToEnd() : given
+      process.exitCode = printRunRecord(console, runRecord(text, { dir: args.dir, env: process.env, home: homedir(), now: () => new Date() }))
+    })
+    if (failed !== 0)
+      process.exitCode = failed
+  },
+}), ROOT_META)
+
 const sync = withKnownFlags(defineCommand({
   meta: { name: 'sync', description: 'Classify what today\'s construct would change in this repository; --apply writes what it owns' },
   args: {
@@ -569,6 +587,7 @@ export function createMain(bus?: BusPorts) {
       intake,
       mutate,
       say,
+      'run-record': runRecordCommand,
     },
   })
 }

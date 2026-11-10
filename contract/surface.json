@@ -350,6 +350,19 @@
         }
       }
     },
+    "run-record": {
+      "flags": {
+        "dir": {
+          "type": "string"
+        },
+        "johnny": {
+          "type": "boolean"
+        },
+        "plain": {
+          "type": "boolean"
+        }
+      }
+    },
     "say": {
       "flags": {
         "johnny": {
@@ -472,6 +485,11 @@
       "noWitness": 2,
       "refused": 1,
       "unmatched": 2
+    },
+    "run-record": {
+      "failed": 1,
+      "recorded": 0,
+      "refused": 2
     },
     "say": {
       "failed": 1,
@@ -2755,6 +2773,7 @@
     "intake": 1,
     "mutate apply": 1,
     "mutate judge": 1,
+    "run-record": 1,
     "say": 1,
     "soulkill": 1,
     "sync": 1

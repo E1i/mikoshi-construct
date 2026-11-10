@@ -1060,6 +1060,29 @@ run with `--card` are unchanged; outside a shift, with `CONSTRUCT_CARD` unset, n
 `refused`, `unmatched`, `noWitness` or `hardFailure`). The records under `.construct/mutations/` are
 local working state, not part of the recorded surface.
 
+## construct run-record
+
+The one call step 4 of `/implement` makes to record a ladder run, in the factory and in a generated
+repository alike. The record is one JSON object with the fields of the ledger (`run`, `at`, `task`,
+`effort`, `status`, `rung`, `attempts`, `agents`, `toolUses`, `seconds`, `tokens`, `cause`,
+`tokensSource`, `agreedSha256`, `argsSha256`, `sketch`), given as the argument or on stdin with `-`.
+The command picks where it goes: where a bus is wired for the directory, it appends one ladder run
+event to that bus, its card from `CONSTRUCT_CARD` or the leading `#N` of `task`, and a repeated call
+with the same record adds no second event; where none is, it appends one line to
+`.construct/runs.jsonl`. `construct cost`, `construct board` and the ladder's supervisor read the
+same source. The flow: [architecture/run-record.md](../architecture/run-record.md).
+
+```bash
+construct run-record '{"run":"wf_1","at":"2026-11-10T09:00:00Z","task":"#12 add a flag","effort":"low","status":"done","rung":"low","attempts":[{"rung":1,"effort":"low","outcome":"passed","reason":""}],"agents":1,"toolUses":2,"seconds":30,"tokens":10}'
+```
+
+| Option | Default | What it does |
+|---|---|---|
+| `<record>` | — | The run as one JSON object, or `-` to read it from stdin. |
+
+Exit `0` when the run was recorded, or was already on the bus; `2` when the record does not parse or
+names a field the ledger does not declare, and nothing is written.
+
 ## construct say
 
 The owner's channel for a decision, in the published package: the same write as the repository's
@@ -2373,7 +2396,7 @@ one of the forms above.
 |---|---|
 | `0` | The command did what it said. `detach` with nothing attached, `graph` with no model to draw, `atlas` once its page is written and every `soulkill` exit `0`. |
 | `1` | `init` was declined, had no terminal without `--yes`, refused a preset that contradicts the detected stack, or failed; `attach` refused for any reason but an unresolvable required check, was cancelled or had no terminal (`attach --entry` exits `0`); `detach` refused; `doctor` found a missing baseline file or a broken harness, found no `construct.json`, or found one written by a later build; `sync` found no `construct.json` or failed to write; `cost` could not match the directory to the recorded project key (`mismatch` or `unknown`); `mutate apply` or `mutate judge` refused; `intake` refused a draft; `atlas` found neither a `construct.json` nor an attach record, met an Engram from a later build, or failed to write. |
-| `2` | `attach` was given `--harness` without `--required-check` and no CI job with a fixed check name runs that command; `sync` classified at least one path as `add` or `update`; under `--apply`, one of them was refused because it is a `merge-json` target; `mutate judge` found an outcome that does not match the prediction, or no witness; `intake` holds corrected cards, or a corrected card under `--admit`, until a person confirms them. |
+| `2` | `attach` was given `--harness` without `--required-check` and no CI job with a fixed check name runs that command; `sync` classified at least one path as `add` or `update`; under `--apply`, one of them was refused because it is a `merge-json` target; `mutate judge` found an outcome that does not match the prediction, or no witness; `intake` holds corrected cards, or a corrected card under `--admit`, until a person confirms them; `run-record` refused a record that does not parse or names an undeclared field. |
 | `3` | `cost` ran under a runtime that does not expose per-run token usage (`unsupported`); `mutate judge` met a hard failure; `intake --admit` left a card parked because a card it depends on is not merged. |
 
 ### The recorded surface

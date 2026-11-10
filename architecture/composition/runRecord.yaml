@@ -1,0 +1,68 @@
+id: runRecord
+title: construct run-record composition
+description: >-
+  `runRecord(text, place)` in `src/commands/run-record.ts` is the composition root, and the one call
+  step 4 of `/implement` makes in the factory and in a generated repository alike. It parses the
+  record with the ledger's own `parseLedgerLine` and refuses a line that does not parse or that names
+  a field outside `LEDGER_FIELDS`, so nothing is written for a refused record. Then it picks the
+  adapter, and the choice lives here, never in the skill: `wiredBusOf` resolves the bus path the
+  factory would use for the directory, and where that bus exists the record is appended as one
+  `ladder.run` event, its card taken from `CONSTRUCT_CARD` or the leading `#N` of the task, its dedupe
+  key the sha of the payload, so a repeated call adds no second event. Where no bus is wired the
+  record is appended as one line to `.construct/runs.jsonl` through `appendLedgerLine`, the module that
+  owns that file. The readers follow the same choice: `runSourceOf` in `scripts/ladder/ledger.ts`
+  reads the bus where one is wired and the tree's file where none is, so no reader stays on a file
+  nobody writes. `printRunRecord` names the adapter and the target; a refusal exits 2.
+doc: architecture/run-record.md
+boundaries:
+  - id: entry
+    label: Entry
+  - id: check
+    label: Check · the ledger's fields only
+  - id: adapter
+    label: Adapter · bus or file
+  - id: report
+    label: Report
+nodes:
+  - id: cli
+    label: construct run-record (citty) · JSON argument, or stdin with -
+    path: src/program.ts
+    boundary: entry
+  - id: run
+    label: runRecord(text, place)
+    path: src/commands/run-record.ts
+    boundary: entry
+  - id: parse
+    label: parseLedgerLine · LEDGER_FIELDS, an undeclared field is refused
+    path: src/commands/cost/ledger.ts
+    boundary: check
+  - id: wired
+    label: wiredBusOf · the bus path for the directory, if it exists
+    path: src/commands/run-record.ts
+    boundary: adapter
+  - id: event
+    label: ladder.run event · dedupe by payload sha
+    path: scripts/core/events.ts
+    boundary: adapter
+  - id: file
+    label: appendLedgerLine → .construct/runs.jsonl
+    path: src/commands/cost/ledger.ts
+    boundary: adapter
+  - id: readers
+    label: runSourceOf · supervise, watch and handoff read the same source
+    path: scripts/ladder/ledger.ts
+    boundary: adapter
+  - id: print
+    label: printRunRecord · recorded 0, refused 2
+    path: src/commands/run-record.ts
+    boundary: report
+edges:
+  - {from: cli, to: run, kind: sequence}
+  - {from: run, to: parse, kind: sequence}
+  - {from: parse, to: wired, kind: sequence}
+  - {from: wired, to: event, kind: route, label: bus wired}
+  - {from: wired, to: file, kind: route, label: no bus}
+  - {from: event, to: readers, kind: fan-in}
+  - {from: file, to: readers, kind: fan-in}
+  - {from: event, to: print, kind: fan-in}
+  - {from: file, to: print, kind: fan-in}

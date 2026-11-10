@@ -1,5 +1,5 @@
 import type { WorkflowRun } from './usage.js'
-import { existsSync, readFileSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -244,6 +244,15 @@ export function readLedger(root: string, busPath: string | null = ledgerBusOf(ro
   if (!existsSync(file))
     return { entries: [], malformed: [], origin: { kind: 'absent', file: LEDGER_FILE } }
   return readLines(readFileSync(file, 'utf8').split('\n'), { kind: 'file', file: LEDGER_FILE })
+}
+
+export function appendLedgerLine(root: string, line: string): string {
+  const file = path.join(root, LEDGER_FILE)
+  const existing = existsSync(file) ? readFileSync(file, 'utf8') : ''
+  const separator = existing === '' || existing.endsWith('\n') ? '' : '\n'
+  mkdirSync(path.dirname(file), { recursive: true })
+  appendFileSync(file, `${separator}${line}\n`)
+  return file
 }
 
 export function summarizeLedger(reading: LedgerReading): LedgerSummary {
