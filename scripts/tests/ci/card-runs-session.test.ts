@@ -7,8 +7,15 @@ import path from 'node:path'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { runsLine } from '../../../src/card/covering-tests.js'
 import { parkingFileText, parseParkingFile } from '../../../src/card/parking.js'
-import { busCheckCatalog, LayerWithoutTests } from '../../ci/card-runs.js'
-import { catalogLayersByTest, catalogModuleLayers, writeCatalog } from '../../cli/check-catalog.js'
+import { textSha } from '../../../src/card/text-sha.js'
+import { branchCardRuns, busCheckCatalog, LayerWithoutTests } from '../../ci/card-runs.js'
+import { testsOfBranch } from '../../ci/prepush.js'
+import { catalogLayersByTest, catalogModuleLayers, testFoldersOfLayers, writeCatalog } from '../../cli/check-catalog.js'
+import { appendCardEvent } from '../../core/card-bodies.js'
+import { openBus } from '../../core/db.js'
+import { CARD_ADMITTED } from '../../core/events.js'
+import { readLayerMap } from '../../core/layer-map.js'
+import { reduce } from '../../core/reducer.js'
 import { openDatabase } from '../../core/sqlite.js'
 import { answerFollowed, shiftTreeCard, treePr, worktreeCoverage } from '../../nodes/launch/tree-pr.js'
 import { gitDepthSources } from '../../nodes/review/depth-sources.js'
@@ -263,5 +270,41 @@ describe('the check catalog of the bus', () => {
     const card = shiftTreeCard(taskOf(cardText(`Do it.\n\n${runsLine([MASKED_TEST, 'layer:bus'])}`)), unreadable)
     expect(card.runs).toEqual([MASKED_TEST])
     expect(card.fullReading).toBe(unreadable.unreadable)
+  })
+})
+
+describe('a layer the branch assigns tests to', () => {
+  const NEW_LAYER = 'ci'
+  const MODULE = 'scripts/ci/a.ts'
+  const BRANCH_TEST = 'scripts/tests/ci/a.test.ts'
+
+  function busOfMain(): string {
+    const bus = path.join(freshRoot(), 'bus.db')
+    const db = openBus(bus)
+    writeCatalog(db, {
+      tests: [{ test: MASKED_TEST, layer: 'bus', kind: 'unit', what: '', witness: '' }],
+      mutations: [],
+      modules: [{ module: MODULE, layers: [NEW_LAYER] }, { module: TOUCHED, layers: ['bus'] }],
+    })
+    const text = cardText('Do it.', [MODULE])
+    appendCardEvent(db, 'owner', { ts: '2026-11-10T00:00:00.000Z', type: CARD_ADMITTED, cardId: CARD_ID, dedupeKey: `${CARD_ADMITTED}:${CARD_ID}`, payload: { text, textSha: textSha(text) } })
+    reduce(db)
+    db.close()
+    return bus
+  }
+
+  it('a branch that assigns tests to a new layer is not reported as a layer without tests', () => {
+    const bus = busOfMain()
+    expect(() => branchCardRuns(BRANCH, bus)).toThrow(LayerWithoutTests)
+
+    const graph = new Map([[BRANCH_TEST, [MODULE]], [MODULE, []], [MASKED_TEST, []]])
+    const branchTests = testsOfBranch(graph, testFoldersOfLayers(readLayerMap()))
+    expect(branchCardRuns(BRANCH, bus, branchTests)).toEqual({ kind: 'card', reading: { layers: [NEW_LAYER], paths: [], tests: [BRANCH_TEST] } })
+  })
+
+  it('a branch test outside every test folder of the layer map adds no layer', () => {
+    const bus = busOfMain()
+    const branchTests = testsOfBranch(new Map([['tests/elsewhere.test.ts', []]]), testFoldersOfLayers(readLayerMap()))
+    expect(() => branchCardRuns(BRANCH, bus, branchTests)).toThrow(LayerWithoutTests)
   })
 })
