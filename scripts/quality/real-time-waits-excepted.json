@@ -1,5 +1,3 @@
 [
-  "scripts/tests/miko/loop.test.ts",
-  "scripts/tests/miko/miko-repo.test.ts",
   "scripts/tests/supervisor/review-drain-slots.test.ts"
 ]
