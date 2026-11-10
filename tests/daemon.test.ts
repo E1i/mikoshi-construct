@@ -90,7 +90,7 @@ async function runDaemon(root: string, objects: number, limit?: number, mechanic
       return null
     active += 1
     widest = Math.max(widest, active)
-    await new Promise(resolve => setTimeout(resolve, 10))
+    await new Promise(resolve => setImmediate(resolve))
     const evidence = evidenceDirectoryOf(prompt)
     write(root, `${evidence}/lab-1.json`, '{"observed":true}\n')
     write(root, `${evidence}/shot.png`, 'png')

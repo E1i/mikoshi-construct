@@ -1142,7 +1142,7 @@ function boardPageOf(db: DatabaseSync, busPath: string, now: Date, handoffFile: 
   return {
     version: currentVersion(),
     machine: machineLoad(),
-    liveness,
+    liveness: facts.services.some(service => service.role !== WINDOW_ROLE && service.session !== undefined) ? FACTORY_LIVE : liveness,
     modelVersion: readModelVersion(),
     facts,
     ...sources,

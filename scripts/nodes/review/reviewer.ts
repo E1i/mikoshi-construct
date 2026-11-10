@@ -7,7 +7,6 @@ import type { TreeOrigin } from '../../ports/worktree.js'
 import type { VerdictWord } from './record-verdict.js'
 import type { ReviewPlan } from './review-depth.js'
 import { Buffer } from 'node:buffer'
-import { execFileSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, realpathSync, statSync } from 'node:fs'
 import path from 'node:path'
@@ -15,6 +14,7 @@ import process from 'node:process'
 import { defaultBusPath, openBus } from '../../core/db.js'
 import { RENEW_MS, renewLease, StaleLease } from '../../core/lease.js'
 import { busNameOf, machineGate, machineSessions } from '../../core/machine-sessions.js'
+import { processGit } from '../../ports/git.js'
 import { prepareTree } from '../../ports/prepare-tree.js'
 import { reviewModelOf, spawnSession, streamReading, withoutCard } from '../../ports/session.js'
 import { FREE_TREE_CAPACITY, FREE_TREES, gitIn, parkTree, takeFreeTree } from '../../ports/worktree.js'
@@ -202,11 +202,11 @@ export function reviewPrompt(lease: Lease, plan: ReviewPlan, tree: string, verdi
 }
 
 function git(cwd: string, args: string[]): void {
-  execFileSync('git', ['-C', cwd, ...args], { stdio: ['ignore', 'pipe', 'pipe'] })
+  processGit.read(cwd, args)
 }
 
 function worktrees(repo: string): string[] {
-  return execFileSync('git', ['-C', repo, 'worktree', 'list', '--porcelain'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+  return processGit.read(repo, ['worktree', 'list', '--porcelain'])
     .split('\n')
     .filter(line => line.startsWith('worktree '))
     .map(line => line.slice('worktree '.length))
@@ -230,7 +230,7 @@ export function statusLines(porcelainZ: string): string[] {
 }
 
 function state(tree: string): TreeState {
-  const read = (args: string[]): string => execFileSync('git', ['-C', tree, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+  const read = (args: string[]): string => processGit.read(tree, args)
   return { head: read(['rev-parse', 'HEAD']).trim(), status: statusLines(read(['status', '--porcelain', '-z'])) }
 }
 

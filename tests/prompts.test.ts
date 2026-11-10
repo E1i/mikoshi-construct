@@ -14,7 +14,7 @@ function terminal() {
   })
   const prompter = createClackPrompter(PLAIN_LORE, { input, output })
   const press = (keys: string): void => {
-    setTimeout(() => input.write(keys), 10)
+    output.once('data', () => queueMicrotask(() => input.write(keys)))
   }
   return { prompter, press, rendered: () => rendered }
 }

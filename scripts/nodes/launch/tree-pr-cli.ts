@@ -1,7 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { ReportCollection } from './report-collect.js'
 import type { Refusal, RefusalReason, TreeCard, TreePr, TreePrPorts } from './tree-pr.js'
-import { execFileSync, spawnSync } from 'node:child_process'
+import { spawnSync } from 'node:child_process'
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
@@ -14,6 +14,7 @@ import { pushPolicyOf } from '../../core/push-policy.js'
 import { openDatabase } from '../../core/sqlite.js'
 import { cardContract } from '../../intake/card-contract.js'
 import { execGh, stdoutOrThrow } from '../../ports/gh.js'
+import { processGit } from '../../ports/git.js'
 import { clientInvocation, sessionEnv } from '../../ports/session.js'
 import { cardSessionOf } from '../answer/answer-source.js'
 import { reachedContextLine } from './continuation.js'
@@ -203,7 +204,7 @@ export function busCardText(busPath: string): TreePrCliPorts['card'] {
 
 const REAL_BUS: PrOpenedBus = { busPath: defaultBusPath(), pid: process.pid, now: () => new Date(), err: line => process.stderr.write(`${line}\n`) }
 
-const REAL_GIT: TreePrPorts['git'] = (cwd, args) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+const REAL_GIT: TreePrPorts['git'] = (cwd, args) => processGit.read(cwd, args)
 
 const REAL_PORTS: TreePrCliPorts = {
   git: REAL_GIT,

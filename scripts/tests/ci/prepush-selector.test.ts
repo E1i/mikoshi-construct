@@ -74,7 +74,7 @@ const CORE_FILES_OUTSIDE_THE_FORMER_BUS = /^scripts\/core\/(?:bus-path|eddies|ev
 const RELATIVE_IMPORT = /from '(\.{1,2}\/[\w./-]+)\.js'/g
 
 function nodeFiles(): string[] {
-  const folders = [LADDER_DIR, ...readdirSync(path.join(REPO_ROOT, NODES_DIR)).map(name => `${NODES_DIR}/${name}`)]
+  const folders = [LADDER_DIR, ...readdirSync(path.join(REPO_ROOT, NODES_DIR), { withFileTypes: true }).filter(entry => entry.isDirectory()).map(entry => `${NODES_DIR}/${entry.name}`)]
   return folders.flatMap(folder => readdirSync(path.join(REPO_ROOT, folder), { withFileTypes: true }).filter(entry => entry.isFile()).map(entry => `${folder}/${entry.name}`)).filter(file => BUS_SERVICE.test(file))
 }
 

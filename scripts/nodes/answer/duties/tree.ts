@@ -1,7 +1,7 @@
 import type { CardSession } from '../answer-source.js'
-import { execFileSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import path from 'node:path'
+import { processGit } from '../../../ports/git.js'
 import { MAIN_BRANCH } from '../../../ports/snapshot.js'
 
 export type TreeMerge = { kind: 'none' } | { kind: 'mid-merge', files: string[] } | { kind: 'unreadable', why: string }
@@ -12,9 +12,10 @@ interface PendingPath {
 }
 
 const UNTRACKED = '??'
+const TREE_GIT_MAX_BUFFER = 64 * 1024 * 1024
 
 export function git(cwd: string, args: string[]): string {
-  return execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 64 * 1024 * 1024 })
+  return processGit.readBytes(cwd, args, TREE_GIT_MAX_BUFFER).toString('utf8')
 }
 
 export function localHead(card: CardSession): string | null {
@@ -28,7 +29,7 @@ export function localHead(card: CardSession): string | null {
 
 export function remoteHead(card: CardSession): string | null {
   try {
-    const line = execFileSync('git', ['-C', card.worktree, 'ls-remote', 'origin', `refs/heads/${card.branch}`], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+    const line = processGit.read(card.worktree, ['ls-remote', 'origin', `refs/heads/${card.branch}`])
     return line.split(/\s/)[0] || null
   }
   catch {

@@ -4,7 +4,7 @@ import type { ProcessTable } from '../../ports/process-table.js'
 import type { CardStart, CardStarter, HeldTree, QueuedCard, StartedCard } from './launch-executor.js'
 import type { PromptPlaces } from './prompt.js'
 import type { SessionJournal, TreeFile } from './session-journal.js'
-import { execFileSync, spawn } from 'node:child_process'
+import { spawn } from 'node:child_process'
 import { closeSync, mkdirSync, openSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
@@ -14,6 +14,7 @@ import { BUS_DB_VARIABLE } from '../../core/bus-path.js'
 import { messageOf } from '../../core/errors.js'
 import { exitCodePath, treeReportPath } from '../../core/places.js'
 import { accountToken, recordedAccount } from '../../ports/gh.js'
+import { processGit } from '../../ports/git.js'
 import { OsProcessTable, rowsOf } from '../../ports/process-table.js'
 import { clientInvocation } from '../../ports/session.js'
 import { restoreReport, shellWord } from '../../ports/tree-publish.js'
@@ -271,7 +272,7 @@ export function spawnDetached(run: DetachedSpawn): number {
 }
 
 export function gitChangedPaths(worktree: string): string[] {
-  const entries = execFileSync('git', ['-C', worktree, 'status', '--porcelain=v1', '-z', '--untracked-files=all'], { encoding: 'utf8' }).split('\0')
+  const entries = processGit.read(worktree, ['status', '--porcelain=v1', '-z', '--untracked-files=all']).split('\0')
   const paths: string[] = []
   for (let at = 0; at < entries.length; at++) {
     const entry = entries[at]!
