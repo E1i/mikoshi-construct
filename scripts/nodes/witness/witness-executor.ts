@@ -5,6 +5,7 @@ import type { BusEvent } from '../../core/db.js'
 import type { AfterFailure, Lease } from '../../core/lease.js'
 import type { VERIFICATION_WORDS } from '../../core/verification.js'
 import type { WitnessSubject, WitnessVerdict } from '../../policy/policy.js'
+import type { CardScope, ReplacementField, Witness } from '../../ports/witnesses.js'
 import type { GitAsync, ShellResult } from '../../ports/worktree.js'
 import { execFile, spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
@@ -12,7 +13,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { stripVTControlCharacters } from 'node:util'
-import { CARD_CLOSED, CARD_CONTINUED, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, POLICY_DENIED, WITNESS_RECORDED } from '../../core/events.js'
+import { CARD_ADMITTED, CARD_CLOSED, CARD_CONTINUED, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, POLICY_DENIED, QUESTION_AGENT, WITNESS_RECORDED } from '../../core/events.js'
 import { isFullSha } from '../../core/identifiers.js'
 import { assertHeld, completeTask, failTask, RENEW_MS, StaleLease } from '../../core/lease.js'
 import { baseOfKey, LEASE_MS } from '../../core/queue.js'
@@ -20,8 +21,8 @@ import { GREEN, RED, UNCHECKED, witnessSubjectOf } from '../../policy/policy.js'
 import { execGh, stdoutOrThrow } from '../../ports/gh.js'
 import { serveRecordAt } from '../../ports/serve-record.js'
 import { witnessEnv } from '../../ports/session.js'
-import { runOnTreeAsync } from '../../ports/witnesses.js'
-import { gitInAsync, SetupTurns, withWorktreeAsync } from '../../ports/worktree.js'
+import { BASE_PHASE, cardScopeOfAdmitted, namedOutsideTheCard, ranNoTests, redOnMainProposal, runOnTreeAsync } from '../../ports/witnesses.js'
+import { gitIn, gitInAsync, SetupTurns, withWorktreeAsync } from '../../ports/worktree.js'
 
 export const WITNESS_UNRUN = 'witness_unrun'
 export const WITNESS_NO_SERVE = 'witness_no_serve'
@@ -80,8 +81,42 @@ export interface WitnessParts {
   log: (line: string) => void
 }
 
+export const UNFIT = 'unfit'
+export const WITNESS_UNFIT = 'witness_unfit'
+
+export type NodeVerdict = WitnessVerdict | typeof UNFIT
+
+type BaseJudgement
+  = | { kind: 'green' }
+    | { kind: 'red', detail: string }
+    | { kind: 'unfit', why: string[], replacement: ReplacementField[] | null, files: string[] }
+
+const LATEST_ADMITTED_TEXT = `
+  SELECT json_extract(payload, '$.text') AS text FROM events
+  WHERE legacy = 0 AND type = '${CARD_ADMITTED}' AND card_id = ? AND json_type(payload, '$.text') = 'text'
+  ORDER BY id DESC LIMIT 1
+`
+
+function cardScopeOf(db: DatabaseSync, subject: WitnessSubject): CardScope | null {
+  const row = db.prepare(LATEST_ADMITTED_TEXT).get(subject.cardId) as { text: string } | undefined
+  return row === undefined ? null : cardScopeOfAdmitted(subject.cardId, row.text, subject.creates)
+}
+
+function changedOnHead(tree: string, base: string, head: string): string[] {
+  try {
+    return gitIn(tree, ['diff', '--name-only', '--diff-filter=d', base, head]).split('\n').filter(file => file !== '')
+  }
+  catch {
+    return []
+  }
+}
+
+function unfitJudgement(why: string[], unfit: readonly Witness[], witnesses: readonly Witness[], changed: readonly string[]): BaseJudgement {
+  return { kind: 'unfit', why, ...redOnMainProposal(unfit, witnesses, changed) }
+}
+
 export type WitnessOutcome
-  = | { kind: 'recorded', taskKey: string, verdict: WitnessVerdict, base: string, detail: string }
+  = | { kind: 'recorded', taskKey: string, verdict: NodeVerdict, base: string, detail: string, replacement?: ReplacementField[] | null }
     | { kind: 'skipped', taskKey: string, why: string }
     | { kind: 'denied', taskKey: string, denial: { kind: 'technical', reason: string, detail: string }, next: AfterFailure }
     | { kind: 'fenced', taskKey: string }
@@ -275,15 +310,17 @@ export class WitnessExecutor {
       catch (error) {
         return this.unrun(lease, `the base of ${lease.head} could not be read: ${error instanceof Error ? error.message.split('\n')[0] : String(error)}`)
       }
-      let red: string | null
+      let judgement: BaseJudgement
       try {
-        red = await this.redOf(subject, base, lease.head)
+        judgement = await this.judgedOnBase(subject, base, lease.head)
       }
       catch (error) {
         return this.notJudged(lease, subject, base, error)
       }
-      const verdict = red === null ? GREEN : RED
-      const detail = red ?? `every card witness red on the base ${base} and green on ${lease.head}`
+      if (judgement.kind === 'unfit')
+        return this.unfitOutcome(lease, subject, base, judgement)
+      const verdict = judgement.kind === 'green' ? GREEN : RED
+      const detail = judgement.kind === 'red' ? judgement.detail : `every card witness red on the base ${base} and green on ${lease.head}`
       completeTask(this.parts.db, this.ts(), lease, [this.recorded(lease, subject, base, verdict, detail)])
       return { kind: 'recorded', taskKey: lease.taskKey, verdict, base, detail }
     }
@@ -395,29 +432,61 @@ export class WitnessExecutor {
     }
   }
 
-  private async redOf(subject: WitnessSubject, base: string, head: string): Promise<string | null> {
+  private async judgedOnBase(subject: WitnessSubject, base: string, head: string): Promise<BaseJudgement> {
     const deadline = this.parts.clock().getTime() + WITNESS_BUDGET_MS
     const last: { result: ShellResult | null } = { result: null }
+    const scope = cardScopeOf(this.parts.db, subject)
     return this.parts.trees.withTree(base, async (tree) => {
+      const changed = changedOnHead(tree, base, head)
+      const witnesses = [...subject.acceptance, ...subject.invariants]
+      const outside = witnesses.flatMap(witness => namedOutsideTheCard(tree, witness, scope, changed).map(file => ({ witness, file })))
+      if (outside.length > 0)
+        return unfitJudgement(outside.map(({ witness, file }) => `witness "${witness.criterion}" names ${file}, absent on the base ${base} and outside the card's touches, creates and diff: a file another card writes`), outside.map(({ witness }) => witness), witnesses, changed)
+      const budgeted = this.budgeted(deadline, last, head)
+      const foundNoTest = new Set<string>()
+      let phase = ''
+      const shell = async (command: string, cwd: string): Promise<ShellResult> => {
+        const result = await budgeted(command, cwd)
+        if (phase === BASE_PHASE && ranNoTests(command, result.output))
+          foundNoTest.add(command)
+        return result
+      }
+      let red: string | null = null
       try {
         await runOnTreeAsync(
-          { tree, base, shell: this.budgeted(deadline, last, head), log: this.parts.log, refuse: (step, problem) => {
+          { tree, base, shell, phase: (name) => {
+            phase = name
+          }, log: this.parts.log, refuse: (step, problem) => {
             if (problem !== null)
               throw new WitnessRed(step, problem)
           } },
           { acceptance: subject.acceptance, invariants: subject.invariants, harnessCommand: null, sketchSha: head, changed: [], witnessesDir: tree, creates: subject.creates },
         )
-        return null
       }
       catch (error) {
-        if (error instanceof WitnessRed)
-          return withFailureExcerpt(error.message, last.result)
-        throw error
+        if (!(error instanceof WitnessRed))
+          throw error
+        red = withFailureExcerpt(error.message, last.result)
       }
+      const empty = witnesses.filter(witness => foundNoTest.has(witness.command) || (witness.onBase !== undefined && foundNoTest.has(witness.onBase.command)))
+      if (empty.length > 0)
+        return unfitJudgement(empty.map(witness => `witness "${witness.criterion}" ran no test on the base ${base}: a witness that finds zero tests cannot fail`), empty, witnesses, changed)
+      return red === null ? { kind: 'green' } : { kind: 'red', detail: red }
     })
   }
 
-  private recorded(lease: Lease, subject: WitnessSubject, base: string, verdict: WitnessVerdict, detail: string): BusEvent {
+  private unfitOutcome(lease: Lease, subject: WitnessSubject, base: string, judgement: Extract<BaseJudgement, { kind: 'unfit' }>): WitnessOutcome {
+    const head = lease.head!
+    const proposal = judgement.replacement === null
+      ? 'the card\'s diff holds no test file to propose; amend the witness to a test the card adds, red on main'
+      : `replace it with ${judgement.replacement.map(field => `--witness ${field.id}=${JSON.stringify(field)}`).join(' ')}`
+    const detail = `${judgement.why.join('; ')}; ${proposal}`
+    const stopped: BusEvent = { ts: this.ts(), type: CARD_STOPPED, actor: lease.actor, cardId: lease.cardId, pr: lease.pr, head, dedupeKey: `${CARD_STOPPED}:${WITNESS_UNFIT}:${lease.cardId}:${head}:${base}:${subject.cardBody}`, payload: { reason: QUESTION_AGENT, code: WITNESS_UNFIT, detail, paths: judgement.files }, legacy: false }
+    completeTask(this.parts.db, this.ts(), lease, [this.recorded(lease, subject, base, UNFIT, detail), stopped])
+    return { kind: 'recorded', taskKey: lease.taskKey, verdict: UNFIT, base, detail, replacement: judgement.replacement }
+  }
+
+  private recorded(lease: Lease, subject: WitnessSubject, base: string, verdict: NodeVerdict, detail: string): BusEvent {
     return { ts: this.ts(), type: WITNESS_RECORDED, actor: lease.actor, cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${WITNESS_RECORDED}:${lease.cardId}:${lease.head}:${base}:${subject.cardBody}`, payload: { head: lease.head, base, cardBody: subject.cardBody, verdict, detail }, legacy: false }
   }
 }

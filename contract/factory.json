@@ -4515,11 +4515,16 @@
       },
       "scripts/ports/witnesses.ts": {
         "constants": [
+          "BASE_PHASE",
           "TECHNOLOGY_WORDS"
         ],
         "functions": {
+          "cardScopeOfAdmitted": "(cardId: number, text: string, creates: readonly string[]): CardScope | null",
           "grepMatchProbe": "(command: string): string | null",
           "grepRefusal": "(witness: Witness, sides: string): string",
+          "namedOutsideTheCard": "(tree: string, witness: Witness, scope: CardScope | null, changed: readonly string[]): string[]",
+          "ranNoTests": "(command: string, output: string): boolean",
+          "redOnMainProposal": "(unfit: readonly Witness[], witnesses: readonly Witness[], changed: readonly string[]): RedOnMainProposal",
           "runOnTree": "(run: TreeRun, task: TreeTask): void",
           "runOnTreeAsync": "(run: AsyncTreeRun, task: TreeTask): Promise<void>",
           "testTargetOf": "(command: string): TestTarget | null"
@@ -4531,8 +4536,12 @@
           "shell"
         ],
         "types": {
-          "AsyncTreeRun": "interface AsyncTreeRun extends TreeContext { shell: (command: string, cwd: string) => Promise<ShellResult>; }",
+          "AsyncTreeRun": "interface AsyncTreeRun extends TreeContext { shell: (command: string, cwd: string) => Promise<ShellResult>; phase?: (name: string) => void; }",
+          "CardScope": "interface CardScope { touches: string[]; creates: string[]; }",
+          "RedOnMainProposal": "interface RedOnMainProposal { replacement: ReplacementField[] | null; files: string[]; }",
           "Refuse": "type Refuse = (step: string, problem: string | null) => void",
+          "ReplacementField": "interface ReplacementField { id: string; run: string; test: null; head: 'pass'; base: 'fail'; proves: string; }",
+          "TestRunner": "interface TestRunner { runs: (command: string) => boolean; ranNoTests: (output: string) => boolean; isTestFile: (file: string) => boolean; retargeted: (command: string, files: readonly string[]) => string | null; }",
           "TestTarget": "interface TestTarget { file: string; name: string | null; }",
           "Timer": "type Timer = <T>(name: string, run: () => T) => T",
           "TreeRun": "interface TreeRun extends TreeContext { shell: Shell; time: Timer; }",
