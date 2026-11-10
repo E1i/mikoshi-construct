@@ -1658,8 +1658,8 @@
       "axis": "interface",
       "lore": null,
       "owner": "scripts/core/owner-commands.ts",
-      "ownerExists": false,
-      "ownerExport": null,
+      "ownerExists": true,
+      "ownerExport": "pnpmCommand",
       "status": "proposed",
       "title": "the command lines the owner is told to run"
     },
