@@ -28,7 +28,7 @@ import { CARD_ADMITTED, PR_CLOSED, PR_OBSERVED, PR_OPENED, REDUCED, REVIEW_RECOR
 import { cardIdOfDescription, isFullSha, prBodySha, prOf, reviewInputOf, reviewInputOfKey, taskKey } from '../../core/identifiers.js'
 import { expireLeases, leaseNext, leaseQueued } from '../../core/lease.js'
 import { Node, runNode, SWITCH_FLAG, UNDERSTOOD_NOW } from '../../core/node.js'
-import { pushPolicyAt } from '../../core/push-policy.js'
+import { pushPolicyOf } from '../../core/push-policy.js'
 import { cardBodyShaOfCard, LEASED, reviewCandidates } from '../../core/queue.js'
 import { shadowReading } from '../../core/report.js'
 import { openDatabase } from '../../core/sqlite.js'
@@ -36,6 +36,7 @@ import { busHeldCards } from '../../intake/intake.js'
 import { busCardBodies } from '../../intake/parking-reads.js'
 import { clientAdapter } from '../../ports/client/index.js'
 import { GhFailed, PROCESS_GH_PORT } from '../../ports/gh.js'
+import { loadedCodeSha, readThroughPort } from '../../ports/git.js'
 import { ghStatusPublisher } from '../../ports/github-status.js'
 import { ghApi, ghApiPatch, ghApiPost } from '../../ports/github.js'
 import { realIsolationReader } from '../../ports/isolation.js'
@@ -416,7 +417,7 @@ export async function runReview(argv: string[], run: ReviewRun): Promise<number>
     env,
   })
   try {
-    return await runNode(argv, 'review', run.busPath, build, { pause: run.pause })
+    return await runNode(argv, 'review', run.busPath, build, { pause: run.pause, codeSha: loadedCodeSha })
   }
   catch (error) {
     if (!(error instanceof ShadowNotClean))
@@ -454,10 +455,10 @@ async function main(): Promise<number> {
     slots: slotsOf('review', process.env),
     pause: sleep,
     clearLeftovers: () => trees.clearLeftovers(),
-    notePr: ghNotePr(cwd, PROCESS_GH_PORT, () => pushPolicyAt(cwd)),
+    notePr: ghNotePr(cwd, PROCESS_GH_PORT, () => pushPolicyOf(readThroughPort, cwd)),
     isolation: realIsolationReader(process.env, cwd, reviewIsolationCommand()),
     keepDryRun: keepDryRun(trees.dir),
-    recut: db => new RoundLimitRecutter({ db, gitHub: ghApi(cwd), post: ghApiPost(cwd), patch: ghApiPatch(cwd), clock: () => new Date(), cardStates: () => busHeldCards(db), pushPolicy: () => pushPolicyAt(cwd) }),
+    recut: db => new RoundLimitRecutter({ db, gitHub: ghApi(cwd), post: ghApiPost(cwd), patch: ghApiPatch(cwd), clock: () => new Date(), cardStates: () => busHeldCards(db), pushPolicy: () => pushPolicyOf(readThroughPort, cwd) }),
   })
 }
 

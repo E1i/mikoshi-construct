@@ -4479,7 +4479,9 @@
           "processGit: GitRunner"
         ],
         "functions": {
-          "parseWorktrees": "(porcelain: string): WorktreeEntry[]"
+          "loadedCodeSha": "(): string | null",
+          "parseWorktrees": "(porcelain: string): WorktreeEntry[]",
+          "readThroughPort": "(tree: string, args: readonly string[]): string"
         },
         "language": "technology",
         "reexports": [],

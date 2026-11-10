@@ -48,6 +48,7 @@ export const FACTORY_NAMED = {
   knownProjectionWrites: 'scripts/core/projection-writes.known.json',
   factoryRegistry: 'scripts/core/factory-paths.ts',
   ghPort: 'scripts/ports/gh.ts',
+  gitPort: 'scripts/ports/git.ts',
   ghCallers: 'scripts/core/gh-callers.ts',
   knownGhCallers: 'scripts/core/gh-callers.known.json',
   ghostsApproval: 'scripts/ladder/approval.ts',

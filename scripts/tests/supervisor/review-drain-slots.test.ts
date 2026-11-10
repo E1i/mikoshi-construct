@@ -1,6 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { Lease } from '../../core/lease.js'
-import type { NodeStep } from '../../core/node.js'
+import type { NodeContext, NodeStep } from '../../core/node.js'
 import type { QueuedTask } from '../../core/queue.js'
 import type { BgResult, RunningProcess } from '../../supervisor/bg.js'
 import { mkdtempSync, rmSync } from 'node:fs'
@@ -41,7 +41,11 @@ class ReviewRounds extends Node<NodeStep> {
   private readonly rounds: (() => void)[] = []
 
   constructor(db: DatabaseSync, clock: () => Date, session: string, private readonly codeOf: string) {
-    super('review', { db, clock, session, mode: 'live', env: { [slotsVariable('review')]: '3' }, self: { pid: session === 'old' ? OLD_PID : NEW_PID, started: clock().toISOString() }, codeSha: () => codeOf })
+    super('review', { db, clock, session, mode: 'live', env: { [slotsVariable('review')]: '3' }, self: { pid: session === 'old' ? OLD_PID : NEW_PID, started: clock().toISOString() } })
+  }
+
+  override async run(ctx: NodeContext): Promise<void> {
+    return super.run({ ...ctx, codeSha: () => this.codeOf })
   }
 
   protected candidates(): QueuedTask[] {

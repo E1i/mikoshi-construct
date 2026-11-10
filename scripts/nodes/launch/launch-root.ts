@@ -36,7 +36,7 @@ import { briefBody, briefPathOf, ladderStep, reviewBody, tasksFilePathOf, tasksF
 import { reviewOf } from '../../ladder/verdict.js'
 import { cardDecisionLines } from '../../policy/shards.js'
 import { cardIsolationCommand, clientLastSteps, clientTranscript } from '../../ports/client/claude/adapter.js'
-import { processGit } from '../../ports/git.js'
+import { loadedCodeSha, processGit } from '../../ports/git.js'
 import { realIsolationReader } from '../../ports/isolation.js'
 import { prepareBeforeSession, prepareTree } from '../../ports/prepare-tree.js'
 import { promptsDirOf } from '../../ports/prompt-store.js'
@@ -203,7 +203,7 @@ export async function runLaunchWorker(argv: string[], run: LaunchRun): Promise<n
     node?.stopOverdue()
     return run.pause(ms)
   }
-  return runNode(argv, 'launch', run.busPath, build, { pause })
+  return runNode(argv, 'launch', run.busPath, build, { pause, codeSha: loadedCodeSha })
 }
 
 export const CARD_TEXT_HEADING = 'The card text this session runs on:'
