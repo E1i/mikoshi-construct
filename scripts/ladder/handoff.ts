@@ -16,11 +16,11 @@ import { entryOf, startedEntryOf } from '../core/entry.js'
 import { journalText } from '../core/journal.js'
 import { cardStartedLines, readTasksFile } from '../core/tasks.js'
 import { callsBrowserWitness } from '../core/verification.js'
+import { readLadderStage, runSourceOf } from './ledger.js'
 import { lookupMatrixRow } from './matrix.js'
 import { handLadderRows } from './policy.js'
 import { readModelMismatches } from './roles.js'
 import { ghostRowState } from './status.js'
-import { readLedgerStage } from './watch-ledger.js'
 import { readWindow } from './window.js'
 
 export type TaskEvent = JournalEntry & { event: 'task', ts: string }
@@ -192,11 +192,13 @@ function browserWitnessOf(brief: string | undefined): boolean {
   return brief !== undefined && existsSync(brief) && callsBrowserWitness(readFileSync(brief, 'utf8'))
 }
 
-function ledgerOf(worktree: string | undefined): Attempt['ledger'] {
+const CARD_NUMBER = /^\d+$/
+
+function ledgerOf(worktree: string | undefined, id: string): Attempt['ledger'] {
   if (worktree === undefined)
     return null
   try {
-    return readLedgerStage(path.join(worktree, '.construct', 'runs.jsonl'))
+    return readLadderStage(runSourceOf(worktree, CARD_NUMBER.test(id) ? Number(id) : 0))
   }
   catch {
     return 'unreadable'
@@ -305,7 +307,7 @@ export function readHandoff(dir: string, repoRoot?: string, busPath = defaultBus
       tasksFileMtime: facts.tasksFileMtime,
       row: ghostRow(statusText, ghost),
       handLadderUpdated: handLadders.get(ghost) ?? handLadders.get(id),
-      ledger: ledgerOf(worktree),
+      ledger: ledgerOf(worktree, id),
       browserWitness: browserWitnessOf(facts.brief),
       modelMismatches: readModelMismatches(worktree),
       budgetLines: [...readBudgetLines(worktree), ...(session === undefined || worktree === repoRoot ? [] : windowBudgetLines.filter(line => line.session === session))],
