@@ -1,7 +1,7 @@
 import type { Shell, ShellResult } from './worktree.js'
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
-import { isChangeWitness, unjudgedCommand } from '../../src/commands/intake/check.js'
+import { admittedReachOf, isChangeWitness, unjudgedCommand } from '../../src/commands/intake/check.js'
 import { pathsNamedBy } from '../../src/commands/intake/command-word.js'
 import { commandLine, GENERATED_FILES } from '../core/generated-files.js'
 import { gitIn, lastLine, stageSketch, tailLines } from './worktree.js'
@@ -27,7 +27,10 @@ export interface TreeRun extends TreeContext {
 
 export interface AsyncTreeRun extends TreeContext {
   shell: (command: string, cwd: string) => Promise<ShellResult>
+  phase?: (name: string) => void
 }
+
+export const BASE_PHASE = 'P7 base'
 
 type Commands<T> = Generator<string, T, ShellResult>
 
@@ -286,7 +289,7 @@ function* treePhases(run: TreeContext, task: TreeTask): Generator<TreePhase, voi
       refuse('P7', (yield INSTALL).status === 0 ? null : `${INSTALL} failed on the base ${baseShort}`)
     })() }
   }
-  yield { name: 'P7 base', commands: (function* (): Commands<void> {
+  yield { name: BASE_PHASE, commands: (function* (): Commands<void> {
     task.acceptance.filter(witness => absent.has(witness)).forEach(witness => run.log(`witness "${witness.criterion}": red on the base ${baseShort} by absence: its test is not in the base tree; checked on the head`))
     declared.filter(witness => absent.has(witness)).forEach(witness => run.log(`invariant "${witness.criterion}": not applicable on the base ${baseShort}: new test; checked on the head only`))
     refuse('P7', yield* firstProblem(presentOnBase(task.acceptance), function* (witness) {
@@ -363,6 +366,104 @@ export function runOnTree(run: TreeRun, task: TreeTask): void {
 }
 
 export async function runOnTreeAsync(run: AsyncTreeRun, task: TreeTask): Promise<void> {
-  for (const { commands } of treePhases(run, task))
+  for (const { name, commands } of treePhases(run, task)) {
+    run.phase?.(name)
     await runCommandsAsync(commands, command => run.shell(command, run.tree))
+  }
+}
+
+export interface TestRunner {
+  runs: (command: string) => boolean
+  ranNoTests: (output: string) => boolean
+  isTestFile: (file: string) => boolean
+  retargeted: (command: string, files: readonly string[]) => string | null
+}
+
+const VITEST_NO_TEST = /No test files found|matched no test/
+const VITEST_INVOCATION = /^\S.*?\bvitest\b(?:\s+run\b)?/
+const RUN_VERB = ' run'
+
+function unjudgedRun(command: string): string {
+  return unjudgedCommand(command).trim().replace(NEGATION, '').trim()
+}
+
+const VITEST_RUNNER: TestRunner = {
+  runs: command => VITEST.test(command),
+  ranNoTests: output => VITEST_NO_TEST.test(output),
+  isTestFile: file => TEST_FILE.test(file),
+  retargeted: (command, files) => {
+    const invocation = VITEST_INVOCATION.exec(unjudgedRun(command))?.[0]
+    if (invocation === undefined)
+      return null
+    return [invocation.endsWith(RUN_VERB) ? invocation : `${invocation}${RUN_VERB}`, ...files].join(' ')
+  },
+}
+
+const TEST_RUNNERS: readonly TestRunner[] = [VITEST_RUNNER]
+
+function testRunnerOf(command: string): TestRunner | null {
+  return TEST_RUNNERS.find(runner => runner.runs(command)) ?? null
+}
+
+export interface ReplacementField { id: string, run: string, test: null, head: 'pass', base: 'fail', proves: string }
+
+export interface CardScope { touches: string[], creates: string[] }
+
+export function cardScopeOfAdmitted(cardId: number, text: string, creates: readonly string[]): CardScope | null {
+  const { touches } = admittedReachOf(cardId, text)
+  return touches.length === 0 ? null : { touches, creates: [...creates] }
+}
+
+const NOT_A_PLAIN_PATH = /[:*?$`]/
+const SCOPE_GLOB_TAIL = /\/\*\*$/
+
+function namedPaths(command: string): string[] {
+  const named = pathsNamedBy(unjudgedRun(command), token => token.includes('/') && !NOT_A_PLAIN_PATH.test(token))
+  return [...new Set(named.map(token => token.replace(TRAILING_SLASHES, '')))]
+}
+
+function withinScope(file: string, scope: readonly string[]): boolean {
+  return scope.some((entry) => {
+    const root = entry.replace(SCOPE_GLOB_TAIL, '').replace(TRAILING_SLASHES, '')
+    return file === root || file.startsWith(`${root}/`) || root.startsWith(`${file}/`)
+  })
+}
+
+export function namedOutsideTheCard(tree: string, witness: Witness, scope: CardScope | null, changed: readonly string[]): string[] {
+  if (scope === null)
+    return []
+  const card = [...scope.touches, ...scope.creates, ...changed]
+  return namedPaths(witness.onBase?.command ?? witness.command).filter(file => !existsSync(path.join(tree, file)) && !withinScope(file, card))
+}
+
+function ranNoTests(command: string, output: string): boolean {
+  return testRunnerOf(command)?.ranNoTests(output) === true
+}
+
+export interface BaseRun { command: string, output: string }
+
+export function witnessesFindingNoTest(witnesses: readonly Witness[], onBase: readonly BaseRun[]): Witness[] {
+  const foundNoTest = new Set(onBase.filter(run => ranNoTests(run.command, run.output)).map(run => run.command))
+  return witnesses.filter(witness => foundNoTest.has(witness.command) || (witness.onBase !== undefined && foundNoTest.has(witness.onBase.command)))
+}
+
+export interface RedOnMainProposal { replacement: ReplacementField[] | null, files: string[] }
+
+const RENDERED_ID = /^(W[1-9]\d*): /
+
+function witnessIdOf(witness: Witness, witnesses: readonly Witness[]): string {
+  return RENDERED_ID.exec(witness.criterion.trim())?.[1] ?? `W${witnesses.indexOf(witness) + 1}`
+}
+
+export function redOnMainProposal(unfit: readonly Witness[], witnesses: readonly Witness[], changed: readonly string[]): RedOnMainProposal {
+  const runnable = [...unfit, ...witnesses].flatMap((witness) => {
+    const runner = testRunnerOf(witness.command)
+    return runner === null ? [] : [{ runner, command: witness.command }]
+  })[0]
+  if (runnable === undefined || unfit.length === 0)
+    return { replacement: null, files: [] }
+  const files = changed.filter(file => runnable.runner.isTestFile(file))
+  const run = files.length === 0 ? null : runnable.runner.retargeted(runnable.command, files)
+  const replacement: ReplacementField | null = run === null ? null : { id: witnessIdOf(unfit[0]!, witnesses), run, test: null, head: 'pass', base: 'fail', proves: `the card's own tests ${files.join(', ')} fail on main and pass on its head` }
+  return { replacement: replacement === null ? null : [replacement], files }
 }
