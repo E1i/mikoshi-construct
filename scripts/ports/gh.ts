@@ -152,6 +152,34 @@ export function ghPort(overrides: Partial<GhPortOptions> = {}): GhPort {
 
 export const PROCESS_GH_PORT = ghPort()
 
+export type GhAnswer = string | GhSpawned
+
+export interface GhCalled {
+  args: string[]
+  options: GhSpawnOptions
+}
+
+export class InMemoryGh {
+  readonly calls: GhCalled[] = []
+
+  constructor(private readonly answer: (args: readonly string[]) => GhAnswer) {}
+
+  readonly spawn: GhSpawn = (_command, args, options) => {
+    this.calls.push({ args: [...args], options })
+    const answered = this.answer(args)
+    return typeof answered === 'string' ? { status: 0, stdout: answered, stderr: '' } : answered
+  }
+
+  port(overrides: Partial<GhPortOptions> = {}): GhPort {
+    return ghPort({ spawn: this.spawn, pause: () => {}, environment: {}, budget: new GhBudgetWindow(GH_HOURLY_BUDGET, () => 0), ...overrides })
+  }
+
+  caller(overrides: Partial<GhPortOptions> = {}): GhCaller {
+    const port = this.port(overrides)
+    return args => port.call(args)
+  }
+}
+
 export interface PullRequest {
   number: number
   title?: string

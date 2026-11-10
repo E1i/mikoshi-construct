@@ -4383,10 +4383,12 @@
         ],
         "types": {
           "GhAccountToken": "type GhAccountToken = { kind: 'token'; token: string; } | { kind: 'failed'; reason: string; stderr: string; }",
+          "GhAnswer": "type GhAnswer = string | GhSpawned",
           "GhBudget": "interface GhBudget { calls: number; windowMs: number; }",
           "GhBudgetWindow": "class GhBudgetWindow { constructor(private readonly budget: GhBudget, private readonly now: () => number); spend(): GhSpend }",
           "GhCall": "type GhCall = { kind: 'ran'; stdout: string; attempts: number; } | { kind: 'failed'; cause: GhFailureCause; reason: string; stdout: string; stderr: string; attempts: number; retryAfterSeconds?: number; }",
           "GhCallOptions": "interface GhCallOptions { cwd?: string; input?: string; env?: NodeJS.ProcessEnv; }",
+          "GhCalled": "interface GhCalled { args: string[]; options: GhSpawnOptions; }",
           "GhCaller": "type GhCaller = (args: string[]) => GhCall",
           "GhFailed": "class GhFailed extends Error { stderr: string; constructor(failure: Extract<GhCall, { kind: 'failed'; }>) }",
           "GhFailureCause": "type GhFailureCause = 'timeout' | 'transient' | 'failed' | 'budget'",
@@ -4399,6 +4401,7 @@
           "GhSpawned": "interface GhSpawned { status: number | null; stdout: string; stderr: string; error?: NodeJS.ErrnoException; }",
           "GhSpend": "type GhSpend = { kind: 'spent'; } | { kind: 'spent-out'; reason: string; retryAfterSeconds: number; }",
           "GhTimedOut": "class GhTimedOut extends GhFailed {  }",
+          "InMemoryGh": "class InMemoryGh { calls: GhCalled[]; constructor(private readonly answer: (args: readonly string[]) => GhAnswer); spawn: GhSpawn; port(overrides: Partial<GhPortOptions> = {}): GhPort; caller(overrides: Partial<GhPortOptions> = {}): GhCaller }",
           "PrList": "type PrList = { kind: 'failed'; reason?: string; } | { kind: 'listed'; prs: PullRequest[]; truncated: boolean; }",
           "PrLookup": "type PrLookup = { kind: 'found'; pr: PullRequest; } | { kind: 'none'; } | { kind: 'unknown'; missing: string; }",
           "PullRequest": "interface PullRequest { number: number; title?: string; headRefName: string; headRefOid: string; state: string; mergedAt: string | null; mergeCommit: { oid: string; } | null; }"
@@ -4731,7 +4734,11 @@
           "stdout"
         ],
         "types": {
+          "InMemorySessions": "class InMemorySessions { started: SpawnSessionParams[]; constructor(private readonly answer: (params: SpawnSessionParams) => SessionAnswer); spawn: SessionSpawner; spawnReview: SessionSpawner }",
+          "SessionAnswer": "type SessionAnswer = SessionRun | Error",
           "SessionCeilingReached": "class SessionCeilingReached extends Error { constructor(readonly sessionId: string, readonly ceilingMs: number) }",
+          "SessionRun": "interface SessionRun { code: number; stdout?: string; stderr?: string; }",
+          "SessionSpawner": "type SessionSpawner = (params: SpawnSessionParams) => Promise<number>",
           "SpawnSessionParams": "interface SpawnSessionParams { cwd: string; sessionId: string; prompt: string; stdoutPath: string; stderrPath: string; env?: NodeJS.ProcessEnv; addDirs?: string[]; model?: string; ceilingMs?: number; role?: Extract<Role, 'review' | 'ghost'>; }",
           "WindowMode": "type WindowMode = 'loop' | 'tab'"
         }
@@ -4774,6 +4781,7 @@
         "technologyWords": [],
         "types": {
           "ClosedPr": "interface ClosedPr { pr: number; cardId: number | null; branch?: string | null; merged: boolean; commit: string | null; mergedBy: string | null; mergedAt: string | null; }",
+          "InMemoryPulls": "class InMemoryPulls { asked: string[]; constructor(private readonly bodies: Readonly<Record<string, unknown>>); meter(): Meter }",
           "MainHead": "interface MainHead { sha: string; touchesMechanics: boolean; }",
           "Mergeable": "type Mergeable = 'clean' | 'behind' | 'dirty' | 'blocked'",
           "OpenPr": "interface OpenPr { pr: number; cardId: number | null; base: string; head: string; branch: string | null; mergeable: Mergeable; ciFields: CiObservation; cancelledChecks?: string[]; verdictOnHead: VerdictOnHead | null; autoMerge: boolean; draft: boolean; bodySha: string; }",
@@ -4926,6 +4934,9 @@
           "FreshTree": "type FreshTree = { kind: 'fresh'; base: string; } | { kind: 'kept'; why: string; } | { kind: 'refused'; why: string; }",
           "GitAsync": "type GitAsync = (cwd: string, args: string[]) => Promise<string>",
           "GitRun": "type GitRun = (cwd: string, args: string[]) => string",
+          "InMemoryShell": "class InMemoryShell { ran: { command: string; cwd: string; }[]; constructor(private readonly answer: (command: string, cwd: string) => ShellResult); shell: Shell }",
+          "InMemoryTreeState": "interface InMemoryTreeState { present?: Iterable<string>; held?: Iterable<string>; installRefusal?: string; }",
+          "InMemoryTrees": "class InMemoryTrees implements TreeDeps { installs: { cwd: string; args: string[]; }[]; present: Set<string>; constructor(readonly cwd: string, private readonly runner: GitRunner, private readonly state: InMemoryTreeState = {}); git: GitRun; install; exists; holds }",
           "ReadyTree": "interface ReadyTree { worktree: string; origin?: TreeOrigin; how: string; failedAppend: string; }",
           "RefusedTree": "interface RefusedTree { refused: string; }",
           "SetupTurns": "class SetupTurns { take<T>(step: () => Promise<T>): Promise<T> }",

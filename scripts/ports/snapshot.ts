@@ -1,5 +1,5 @@
 import type { CiObservation } from './ci-reading.js'
-import type { Meter } from './meter.js'
+import type { GitHub } from './github.js'
 import process from 'node:process'
 import { readAttachRecord } from '../../src/commands/attach/record.js'
 import { commitCi } from '../../src/commands/ci/state.js'
@@ -10,6 +10,7 @@ import { cardIdOfDescription, isFullSha, prBodySha } from '../core/identifiers.j
 import { annotationTitles, ciFieldsOfObservation } from './ci-reading.js'
 import { REQUIRED_CHECK } from './gh.js'
 import { REVIEW_STATUS_CONTEXT } from './github-status.js'
+import { Meter } from './meter.js'
 
 export { ciOf } from './ci-reading.js'
 
@@ -191,6 +192,23 @@ function mainOf(meter: Meter, lastMain: string | null): MainHead | null {
     return null
   const files = lastMain === null ? filenames(commit) : filenames(meter.get(`${REPO}/compare/${lastMain}...${sha}`))
   return { sha, touchesMechanics: touchesMechanics(files) }
+}
+
+const NOT_FOUND_STATUS = 404
+
+export class InMemoryPulls {
+  readonly asked: string[] = []
+
+  constructor(private readonly bodies: Readonly<Record<string, unknown>>) {}
+
+  private readonly respond: GitHub = (endpoint) => {
+    this.asked.push(endpoint)
+    return Object.hasOwn(this.bodies, endpoint) ? { status: 200, headers: {}, body: this.bodies[endpoint] } : { status: NOT_FOUND_STATUS, headers: {}, body: { message: 'Not Found' } }
+  }
+
+  meter(): Meter {
+    return new Meter(this.respond, () => 0)
+  }
 }
 
 export function takeSnapshot(meter: Meter, known: number[], lastMain: string | null, requiredCheck = REQUIRED_CHECK): Snapshot {
