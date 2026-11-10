@@ -1,8 +1,10 @@
+import type { CardScope } from '../../src/commands/test-runner.js'
 import type { Shell, ShellResult } from './worktree.js'
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { admittedReachOf, isChangeWitness, unjudgedCommand } from '../../src/commands/intake/check.js'
 import { pathsNamedBy } from '../../src/commands/intake/command-word.js'
+import { namedAbsentOutside, testRunnerOf } from '../../src/commands/test-runner.js'
 import { commandLine, GENERATED_FILES } from '../core/generated-files.js'
 import { gitIn, lastLine, stageSketch, tailLines } from './worktree.js'
 
@@ -372,68 +374,17 @@ export async function runOnTreeAsync(run: AsyncTreeRun, task: TreeTask): Promise
   }
 }
 
-export interface TestRunner {
-  runs: (command: string) => boolean
-  ranNoTests: (output: string) => boolean
-  isTestFile: (file: string) => boolean
-  retargeted: (command: string, files: readonly string[]) => string | null
-}
-
-const VITEST_NO_TEST = /No test files found|matched no test/
-const VITEST_INVOCATION = /^\S.*?\bvitest\b(?:\s+run\b)?/
-const RUN_VERB = ' run'
-
-function unjudgedRun(command: string): string {
-  return unjudgedCommand(command).trim().replace(NEGATION, '').trim()
-}
-
-const VITEST_RUNNER: TestRunner = {
-  runs: command => VITEST.test(command),
-  ranNoTests: output => VITEST_NO_TEST.test(output),
-  isTestFile: file => TEST_FILE.test(file),
-  retargeted: (command, files) => {
-    const invocation = VITEST_INVOCATION.exec(unjudgedRun(command))?.[0]
-    if (invocation === undefined)
-      return null
-    return [invocation.endsWith(RUN_VERB) ? invocation : `${invocation}${RUN_VERB}`, ...files].join(' ')
-  },
-}
-
-const TEST_RUNNERS: readonly TestRunner[] = [VITEST_RUNNER]
-
-function testRunnerOf(command: string): TestRunner | null {
-  return TEST_RUNNERS.find(runner => runner.runs(command)) ?? null
-}
-
 export interface ReplacementField { id: string, run: string, test: null, head: 'pass', base: 'fail', proves: string }
-
-export interface CardScope { touches: string[], creates: string[] }
 
 export function cardScopeOfAdmitted(cardId: number, text: string, creates: readonly string[]): CardScope | null {
   const { touches } = admittedReachOf(cardId, text)
   return touches.length === 0 ? null : { touches, creates: [...creates] }
 }
 
-const NOT_A_PLAIN_PATH = /[:*?$`]/
-const SCOPE_GLOB_TAIL = /\/\*\*$/
-
-function namedPaths(command: string): string[] {
-  const named = pathsNamedBy(unjudgedRun(command), token => token.includes('/') && !NOT_A_PLAIN_PATH.test(token))
-  return [...new Set(named.map(token => token.replace(TRAILING_SLASHES, '')))]
-}
-
-function withinScope(file: string, scope: readonly string[]): boolean {
-  return scope.some((entry) => {
-    const root = entry.replace(SCOPE_GLOB_TAIL, '').replace(TRAILING_SLASHES, '')
-    return file === root || file.startsWith(`${root}/`) || root.startsWith(`${file}/`)
-  })
-}
-
 export function namedOutsideTheCard(tree: string, witness: Witness, scope: CardScope | null, changed: readonly string[]): string[] {
   if (scope === null)
     return []
-  const card = [...scope.touches, ...scope.creates, ...changed]
-  return namedPaths(witness.onBase?.command ?? witness.command).filter(file => !existsSync(path.join(tree, file)) && !withinScope(file, card))
+  return namedAbsentOutside(unjudgedCommand(witness.onBase?.command ?? witness.command), scope, file => !existsSync(path.join(tree, file)), changed)
 }
 
 function ranNoTests(command: string, output: string): boolean {
@@ -463,7 +414,7 @@ export function redOnMainProposal(unfit: readonly Witness[], witnesses: readonly
   if (runnable === undefined || unfit.length === 0)
     return { replacement: null, files: [] }
   const files = changed.filter(file => runnable.runner.isTestFile(file))
-  const run = files.length === 0 ? null : runnable.runner.retargeted(runnable.command, files)
+  const run = files.length === 0 ? null : runnable.runner.retargeted(unjudgedCommand(runnable.command), files)
   const replacement: ReplacementField | null = run === null ? null : { id: witnessIdOf(unfit[0]!, witnesses), run, test: null, head: 'pass', base: 'fail', proves: `the card's own tests ${files.join(', ')} fail on main and pass on its head` }
   return { replacement: replacement === null ? null : [replacement], files }
 }
