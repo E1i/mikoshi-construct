@@ -10,14 +10,14 @@ import { PRIORITIES, WINDOW_WHO } from '../../src/card/parking.js'
 import { AMEND_SOURCE, witnessesOf } from '../../src/commands/intake/admit.js'
 import { launchCandidates } from '../nodes/launch/launch-candidates.js'
 import { cleanUpdatesOf } from '../nodes/update/update-done.js'
-import { CONTINUE_FIXES, continueFixesDecisionOf, mutationsParkedGrantOf, observedHeadsOf, pushedAfterContinueFixes, roundLimitDecisionOf } from '../policy/round-limit-decision.js'
-import { decisionsInForceAt, unspentShardsOf, WINDOW_SHARDS_LIVE_AT } from '../policy/shards.js'
+import { continueFixesDecisionOf, mutationsParkedGrantOf, observedHeadsOf, pushedAfterContinueFixes, roundLimitDecisionOf, sameFindings } from '../policy/round-limit-decision.js'
+import { DECISIONS_SCOPE, decisionsInForceAt, unspentShardsOf, WINDOW_SHARDS_LIVE_AT } from '../policy/shards.js'
 import { MAIN_BRANCH } from '../ports/snapshot.js'
 import { BACKFILL_SOURCE, NOT_A_BACKFILL } from './backfill-source.js'
 import { CARD_BODIES } from './card-bodies.js'
 import { answerDecisionOfKey, decisionSegment, withDecidedContinuations } from './card-decisions.js'
 import { appendEvent, inTransaction, OPEN_WAIT, openOwnerWait, OWNER_WAITS } from './db.js'
-import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, CARD_WAITING, declaredPart, INTAKE_EVENT, INTAKE_MOVE_EVENT, MERGE_DONE, OWNER_WAIT_OPENED, POLICY_DENIED, PR_CLOSED, PR_OPENED, QUESTION_AGENT, QUESTION_OWNER, REVIEW_RECORDED, REVIEW_ROUNDS_SPENT, ROUND_EXTENDED, ROUND_MUTATIONS_PARKED, SESSION_HEARTBEAT, TASK_COMPLETED, TASK_ENQUEUED, TASK_EXPIRED, TASK_FAILED, TASK_LEASED, TASK_RELEASED, TASK_RENEWED, TASK_REQUEUED, TASK_SUPERSEDED, TASK_WITHDRAWN, UPDATE_DONE, WITNESS_DOWNGRADE, WITNESS_RECORDED } from './events.js'
+import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, CARD_WAITING, declaredPart, INTAKE_EVENT, INTAKE_MOVE_EVENT, MERGE_DONE, OWNER_WAIT_OPENED, POLICY_DENIED, PR_CLOSED, PR_OBSERVED, PR_OPENED, QUESTION_AGENT, QUESTION_OWNER, REVIEW_RECORDED, REVIEW_ROUNDS_SPENT, ROUND_EXTENDED, ROUND_MUTATIONS_PARKED, SESSION_HEARTBEAT, SHARD_EXPIRED, SHARD_ISSUED, SHARD_REVOKED, TASK_COMPLETED, TASK_ENQUEUED, TASK_EXPIRED, TASK_FAILED, TASK_LEASED, TASK_RELEASED, TASK_RENEWED, TASK_REQUEUED, TASK_SUPERSEDED, TASK_WITHDRAWN, UPDATE_DONE, WITNESS_DOWNGRADE, WITNESS_RECORDED } from './events.js'
 import { generationOfKey, isFullSha, QUEUES, reviewInputOf, reviewInputOfKey, taskKey } from './identifiers.js'
 import { ownerQuestionAnswered } from './inbox.js'
 import { A_RERUN_DUE, withTheHeadsARerunIsDueOn } from './observations.js'
@@ -444,33 +444,6 @@ function windowWaitText(row: WindowQuestionRow): string {
   return `card #${row.card_id} ${why}: ${question}; the window amends the card, and the answer goes on after its card.admitted`
 }
 
-const REENTRY_ANSWERS = `type = '${CARD_ANSWERED}' AND legacy = 0 AND json_extract(payload, '$.reentry') = 1`
-
-const REENTRY_HEADS_OF_A_PR = `SELECT DISTINCT json_extract(payload, '$.from') AS head FROM events WHERE ${REENTRY_ANSWERS} AND pr = ?`
-
-const REENTRY_LIMITS_WITH_NO_WAIT = `
-  SELECT prs.card_id, prs.pr FROM prs
-  WHERE prs.state = 'open' AND prs.card_id IS NOT NULL
-    AND EXISTS (SELECT 1 FROM events WHERE ${REENTRY_ANSWERS} AND events.pr = prs.pr)
-    AND NOT EXISTS (SELECT 1 FROM events AS spent WHERE spent.type = '${REVIEW_ROUNDS_SPENT}' AND spent.legacy = 0 AND spent.pr = prs.pr)
-    AND NOT EXISTS (
-      SELECT 1 FROM events AS opened WHERE opened.type = '${OWNER_WAIT_OPENED}' AND opened.pr = prs.pr
-        AND opened.id > (SELECT max(id) FROM events WHERE ${REENTRY_ANSWERS} AND events.pr = prs.pr)
-    )
-  ORDER BY prs.pr
-`
-
-export function reentryLimitWaitText(cardId: number, pr: number): string {
-  return `card #${cardId}: PR #${pr} reached the review round limit (D-104) with red CI or red witness answers counted as rounds; the bus answers and merges it no further, so decide it: allow-merge, ${CONTINUE_FIXES} PR #${pr} at its head, a re-cut or a drop`
-}
-
-function openReentryLimitWaits(db: DatabaseSync, ts: string): void {
-  for (const row of db.prepare(REENTRY_LIMITS_WITH_NO_WAIT).all() as { card_id: number, pr: number }[]) {
-    if (changesRoundsOf(db, row.pr) >= REVIEW_ROUNDS)
-      inTransaction(db, () => openOwnerWait(db, ts, QUEUE_ACTOR, { need: 'decision', text: reentryLimitWaitText(row.card_id, row.pr), card: row.card_id, pr: row.pr }))
-  }
-}
-
 export const RECUT_GRACE_MS = 10 * 60 * 1000
 
 const ROUND_LIMITS_WITH_NO_OUTCOME = `
@@ -589,25 +562,50 @@ export function roundsOf(reviews: readonly RoundReview[], ownerAmended: Readonly
   return rounds
 }
 
-function reentryRoundsOf(db: DatabaseSync, pr: number, reviews: readonly RoundReview[]): number {
-  const reviewedForChanges = new Set(reviews.filter(review => review.verdict === 'changes').map(review => review.head))
-  return (db.prepare(REENTRY_HEADS_OF_A_PR).all(pr) as { head: string | null }[]).filter(row => !reviewedForChanges.has(row.head)).length
-}
-
 export { activeDecisionsShard } from '../policy/shards.js'
 export const REPEAT_FINDINGS = 'repeat_findings'
 const REPEAT_STOP_ON_A_HEAD = `SELECT 1 FROM events WHERE type = '${REVIEW_ROUNDS_SPENT}' AND legacy = 0 AND pr = ? AND head IS ? AND json_extract(payload, '$.state') = '${REPEAT_FINDINGS}' LIMIT 1`
 
-const EXTENSIONS_OF_A_PR = `SELECT count(*) AS extensions FROM events WHERE type = '${ROUND_EXTENDED}' AND legacy = 0 AND pr = ?`
+const A_WINDOW_DECISIONS_SHARD_LIVE_AT_THE_EXTENSION = `EXISTS (
+  SELECT 1 FROM events AS issued
+  WHERE issued.type = '${SHARD_ISSUED}' AND issued.id < extended.id AND json_extract(issued.payload, '$.window') = 1
+    AND json_extract(issued.payload, '$.scope') = '${DECISIONS_SCOPE}' AND json_extract(issued.payload, '$.until') > extended.ts
+    AND NOT EXISTS (
+      SELECT 1 FROM events AS ended WHERE ended.type IN ('${SHARD_REVOKED}', '${SHARD_EXPIRED}') AND ended.id < extended.id
+        AND json_extract(ended.payload, '$.id') = json_extract(issued.payload, '$.id')
+    )
+)`
+
+const GREEN_CI_ON_THE_EXTENDED_HEAD = `EXISTS (
+  SELECT 1 FROM events AS seen
+  WHERE seen.id = (SELECT max(latest.id) FROM events AS latest WHERE latest.type = '${PR_OBSERVED}' AND latest.legacy = 0 AND latest.pr = extended.pr AND latest.id < extended.id)
+    AND seen.head = extended.head AND json_extract(seen.payload, '$.ci') = 'green'
+)`
+
+const GRANTED_EXTENSIONS_OF_A_PR = `
+  SELECT json_extract(extended.payload, '$.findings') AS findings, json_extract(extended.payload, '$.previous') AS previous FROM events AS extended
+  WHERE extended.type = '${ROUND_EXTENDED}' AND extended.legacy = 0 AND extended.pr = ?
+    AND ${A_WINDOW_DECISIONS_SHARD_LIVE_AT_THE_EXTENSION} AND ${GREEN_CI_ON_THE_EXTENDED_HEAD}
+`
+
+function findingsIn(json: string | null): string[] {
+  const parsed: unknown = json === null ? [] : JSON.parse(json)
+  return Array.isArray(parsed) ? parsed.filter((finding): finding is string => typeof finding === 'string') : []
+}
+
+function raisesNewFindings(row: { findings: string | null, previous: string | null }): boolean {
+  const findings = findingsIn(row.findings)
+  return findings.length > 0 && !sameFindings(findings, findingsIn(row.previous))
+}
 
 function extensionsOf(db: DatabaseSync, pr: number): number {
-  return (db.prepare(EXTENSIONS_OF_A_PR).get(pr) as { extensions: number }).extensions
+  return (db.prepare(GRANTED_EXTENSIONS_OF_A_PR).all(pr) as { findings: string | null, previous: string | null }[]).filter(raisesNewFindings).length
 }
 
 export function changesRoundsOf(db: DatabaseSync, pr: number, next?: RoundReview): number {
   const ownerAmended = new Set((db.prepare(BODIES_OWNER_AMENDED_FOR_A_PR).all(pr) as { body: string }[]).map(row => row.body))
   const counted = [...db.prepare(REVIEWS_OF_A_PR).all(pr) as unknown as RoundReview[], ...(next === undefined ? [] : [next])]
-  const rounds = roundsOf(counted, ownerAmended) + reentryRoundsOf(db, pr, counted) - extensionsOf(db, pr)
+  const rounds = roundsOf(counted, ownerAmended) - extensionsOf(db, pr)
   return db.prepare(REPEAT_STOP_ON_A_HEAD).get(pr, counted.at(-1)?.head ?? null) === undefined ? rounds : Math.max(rounds, REVIEW_ROUNDS)
 }
 
@@ -1298,7 +1296,6 @@ export function deriveQueues(db: DatabaseSync, ts: string): Derived {
     parkUnderTheDowngradeWait(db, ts, identity(row))
   openWindowWaits(db, ts)
   readmitLiftedLaunchStops(db, ts)
-  openReentryLimitWaits(db, ts)
   openLostRecutWaits(db, ts)
   for (const tasksOf of candidates(db, ts)) {
     for (const task of tasksOf()) {
