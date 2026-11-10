@@ -48,6 +48,8 @@ const LAUNCH_EVENTS = 1767
 const TREE_WAY_BACK = 1764
 const INTAKE_READS_DECISIONS = 1779
 export const PRIORITY_KEPT_ON_READMISSION = 1785
+export const CARD_WAIT_STATES = 1740
+export const NO_HEAD_OF_LINE = 1744
 export const RESTART_KEEPS_SESSION = 'Z1-restart-keeps-session'
 export const SESSION_BEAT_BESIDE_STALE_WINDOW = 'Z7-session-beat-beside-stale-window'
 export const PULSE_BESIDE_CARD_SILENCE = 'Z7-pulse-beside-card-silence'
@@ -125,7 +127,7 @@ export const LAW_CELLS: LawCells = {
     ...beyondNodes('Z2'),
   },
   Z3: { ...everyNode(gap(NO_IN_MEMORY_PORT)), answer: { witness: DIRECT_IMPORTER_WIDENED }, ...beyondNodes('Z3') },
-  Z4: { ...everyNode(gap(...WAIT_RECORDS)), ...beyondNodes('Z4') },
+  Z4: { ...everyNode(gap(...WAIT_RECORDS)), launch: gap(CARD_WAIT_STATES, NO_HEAD_OF_LINE), ...beyondNodes('Z4') },
   Z5: { ...everyNode(gap(LAUNCH_EVENTS)), ...beyondNodes('Z5') },
   Z6: { ...everyNode(gap(TREE_WAY_BACK)), ...beyondNodes('Z6') },
   Z7: {
