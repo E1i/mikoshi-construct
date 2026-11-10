@@ -12,10 +12,10 @@ import type { CardConcept } from './concept-scope.js'
 import type { AnswerDenial, Answering, AnswerOutcome, AnswerTechnicalReason, CardPaths, DecidedRound, ShardDecider, TreeMerge, TreePublishing, Widened } from './duties/index.js'
 import { pathsIn, pathsOutside } from '../../../src/card/covering-tests.js'
 import { riskOf } from '../../../src/card/risk.js'
-import { holdRecheckAt, LIVE_SESSION_IN_THE_TREE } from '../../core/card-hold.js'
-import { appendEvent, openBusWait } from '../../core/db.js'
+import { answersWithdrawnByAClosedHold, holdRecheckAt, LIVE_SESSION_IN_THE_TREE, queueAgain } from '../../core/card-hold.js'
+import { appendEvent, inTransaction, openBusWait } from '../../core/db.js'
 import { messageOf } from '../../core/errors.js'
-import { ANSWER_STEP, CARD_ANSWERED, QUESTION_AGENT, SCOPE_WIDENED } from '../../core/events.js'
+import { ANSWER_STEP, CARD_ANSWERED, CARD_RELEASED, QUESTION_AGENT, SCOPE_WIDENED } from '../../core/events.js'
 import { assertHeld, completeTask, StaleLease, waitTask } from '../../core/lease.js'
 import { answerOnAnOldCardBody, DOWNGRADE_WAIT_OPEN, downgradeWaitOpenOn, LEASED, QUEUED } from '../../core/queue.js'
 import { OWNER_EVEN_UNDER_THE_DECISION } from '../../policy/policy.js'
@@ -114,7 +114,7 @@ export class AnswerExecutor {
         return this.outcomes.denied(lease, { kind: 'technical', reason: 'nothing_to_answer', detail: `card #${lease.cardId} has no open question.agent stop, no changes verdict, no red CI, no red witness and no conflict with ${MAIN_BRANCH} on ${lease.head ?? 'its head'}` })
       const hold = ownerHoldOf(this.parts.db, lease.cardId)
       if (hold !== null)
-        return this.outcomes.heldForTheOwner(lease, hold)
+        return this.withdrawnUnderTheHold(lease, hold)
       let widened: Widened | null = null
       if (source?.kind === 'question' && source.widen !== null) {
         const globs = ownerGlobs(this.parts.ownerMerges())
@@ -157,6 +157,14 @@ export class AnswerExecutor {
         return { kind: 'fenced', taskKey: lease.taskKey }
       throw error
     }
+  }
+
+  private withdrawnUnderTheHold(lease: Lease, hold: string): AnswerOutcome {
+    const outcome = this.outcomes.heldForTheOwner(lease, hold)
+    const requeued = inTransaction(this.parts.db, () => answersQueuedAfterALateRelease(this.parts.db, this.ts(), lease.cardId))
+    if (requeued.length > 0)
+      console.log(`${PREFIX}card #${lease.cardId}: its hold was released while ${lease.taskKey} was withdrawn under it; queued again: ${requeued.join(', ')}`)
+    return outcome
   }
 
   private mainMergedBeforeTheSession(lease: Lease, card: CardSession): void {
@@ -288,6 +296,18 @@ export class AnswerExecutor {
       dirty: () => this.dirty(card),
     }
   }
+}
+
+const LATEST_RELEASE_OF_CARD = `SELECT id, json_extract(payload, '$.request') AS request FROM events WHERE card_id = ? AND legacy = 0 AND type = '${CARD_RELEASED}' ORDER BY id DESC LIMIT 1`
+
+function answersQueuedAfterALateRelease(db: DatabaseSync, ts: string, cardId: number): string[] {
+  const release = db.prepare(LATEST_RELEASE_OF_CARD).get(cardId) as { id: number, request: unknown } | undefined
+  if (release === undefined || ownerHoldOf(db, cardId) !== null)
+    return []
+  const missed = answersWithdrawnByAClosedHold(db, cardId, Number(release.id))
+  const request = typeof release.request === 'number' ? release.request : null
+  missed.forEach(task => queueAgain(db, ts, task, request, `${CARD_RELEASED}-${Number(release.id)}`))
+  return missed.map(task => task.task_key)
 }
 
 const LATEST_ANSWER_OF_CARD = `SELECT task_key, queue, card_id, pr, head, state FROM tasks WHERE card_id = ? AND queue = 'answer' ORDER BY id DESC LIMIT 1`
