@@ -55,7 +55,10 @@ export interface BoardFiles {
   rename: (from: string, to: string) => void
 }
 
-export const DISK_FILES: BoardFiles = { write: (file, text) => writeFileSync(file, text), rename: renameSync }
+export const DISK_FILES: BoardFiles = {
+  write: (file, text) => writeFileSync(file, text),
+  rename: renameSync,
+}
 
 const ESCAPES: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', '\'': '&#39;' }
 
@@ -155,8 +158,6 @@ const BUS_LIVE = 'bus-live'
 const PULSE_ELEMENT_ID = 'bus-pulse'
 const OFFLINE_READING = 'bus offline'
 const FACTORY_LIVE: FactoryState = 'live'
-const BOARD_COMMAND = constructCommand('board')
-const TITLE_PREFIX = `${BOARD_COMMAND} · `
 const BACKLOG = 'backlog'
 const DRILL = 'drill'
 const DRILL_CONTENT = 'drill-content'
@@ -625,7 +626,7 @@ function statusSlot(facts: BusFacts): string {
     `<button type="button"${opener(HANDOFF_DIALOG)}><kbd>H</kbd> handoff ›</button>`,
     `<button type="button"${opener(DECISIONS_DIALOG)}><kbd>D</kbd> decisions ›</button>`,
     '<span>geek mode <b>--geek</b></span>',
-    `<span class="cursor">${BOARD_COMMAND}</span>`,
+    `<span class="cursor">${constructCommand('board')}</span>`,
   ].join('')
 }
 
@@ -935,7 +936,7 @@ export const VIEW_KEY = 'construct-board:view'
 
 const PAGE_ASSETS = path.join(import.meta.dirname, 'board-page')
 const SCRIPT_NAMES_GLOBAL = 'window.BOARD_NAMES'
-const SCRIPT_NAMES = { drill: DRILL, drillContent: DRILL_CONTENT, backlogScroll: BACKLOG_SCROLL, viewKey: VIEW_KEY, dialogPrefix: DIALOG_PREFIX, handoffDialog: HANDOFF_DIALOG, decisionsDialog: DECISIONS_DIALOG, busLive: BUS_LIVE, offlineReading: OFFLINE_READING, pulse: PULSE_ELEMENT_ID, titlePrefix: TITLE_PREFIX, slotPrefix: SLOT_PREFIX, backlog: BACKLOG, staleTicks: STALE_TICKS, staleReading: STALE_READING, dataFile: BOARD_DATA_FILE }
+const SCRIPT_NAMES = { drill: DRILL, drillContent: DRILL_CONTENT, backlogScroll: BACKLOG_SCROLL, viewKey: VIEW_KEY, dialogPrefix: DIALOG_PREFIX, handoffDialog: HANDOFF_DIALOG, decisionsDialog: DECISIONS_DIALOG, busLive: BUS_LIVE, offlineReading: OFFLINE_READING, pulse: PULSE_ELEMENT_ID, titlePrefix: `${constructCommand('board')} · `, slotPrefix: SLOT_PREFIX, backlog: BACKLOG, staleTicks: STALE_TICKS, staleReading: STALE_READING, dataFile: BOARD_DATA_FILE }
 const SCRIPT = `\n${SCRIPT_NAMES_GLOBAL} = ${JSON.stringify(SCRIPT_NAMES)};\n${readFileSync(path.join(PAGE_ASSETS, 'script.js'), 'utf8')}`
 
 function dialogsSlot(page: BoardPage): string {
@@ -1080,7 +1081,7 @@ function busDownWaits(down: BusDown): string {
 }
 
 function pageHead(title: string, body: string): string[] {
-  return ['<!doctype html>', '<html lang="en"><head><meta charset="utf-8">', '<meta name="viewport" content="width=device-width, initial-scale=1">', `<title>${TITLE_PREFIX}${title}</title>`, `<style>${STYLE}</style></head>${body}`]
+  return ['<!doctype html>', '<html lang="en"><head><meta charset="utf-8">', '<meta name="viewport" content="width=device-width, initial-scale=1">', `<title>${constructCommand('board')} · ${title}</title>`, `<style>${STYLE}</style></head>${body}`]
 }
 
 export function renderBusDown(down: BusDown): string {
