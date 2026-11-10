@@ -50,10 +50,10 @@ interface Watch {
   stopped: string[]
 }
 
-function stopping(db: DatabaseSync, life: SessionLife, spend: BudgetLine | null = null): Watch {
+function stopping(db: DatabaseSync, life: SessionLife, spend: BudgetLine | null = null, pulse: string | null = null): Watch {
   let now = at(0)
   const stopped: string[] = []
-  const watch = new StalledSessions(db, () => now, { lifeOf: () => life, stop: session => stopped.push(session), spendOf: () => spend })
+  const watch = new StalledSessions(db, () => now, { lifeOf: () => life, stop: session => stopped.push(session), spendOf: () => spend, pulseOf: () => pulse })
   return {
     stopped,
     sweepAt: (minutes) => {
@@ -146,7 +146,7 @@ describe('the silent card and answer sessions', () => {
     const watch = new StalledSessions(db, () => now, { lifeOf: () => {
       asked += 1
       return 'dead'
-    } })
+    }, pulseOf: () => null })
     now = at(launchLine + 2)
 
     expect(watch.step()).toEqual([expect.stringContaining('no heartbeat names its session')])
@@ -177,7 +177,7 @@ describe('the silent card and answer sessions', () => {
     beat(db, lease, 1, 1000)
     const stopped: string[] = []
     let now = at(2)
-    const watch = new StalledSessions(db, () => now, { lifeOf: () => 'live', stop: session => stopped.push(session) })
+    const watch = new StalledSessions(db, () => now, { lifeOf: () => 'live', stop: session => stopped.push(session), pulseOf: () => null })
 
     expect(watch.step()).toEqual([expect.stringContaining('spent 44 against the Eddies limit 40')])
     expect(stopped).toEqual([SESSION])
@@ -196,11 +196,12 @@ describe('the silent card and answer sessions', () => {
 })
 
 describe('the silent review sessions', () => {
-  it('a review session with no new step and no output past the no-progress line is ended at that line, before its ceiling', () => {
+  it('a review session with no new step, no output and a still process past the no-progress line is ended at that line, before its ceiling', () => {
     const { db, lease } = busWith(REVIEW)
     beat(db, lease, 1, 5000)
-    const watch = stopping(db, 'live')
+    const watch = stopping(db, 'live', null, '4100,4101')
 
+    expect(watch.sweepAt(1)).toEqual([])
     expect(watch.sweepAt(reviewLine)).toEqual([])
     expect(watch.sweepAt(reviewLine + 2)).toEqual([expect.stringContaining('ended before its ceiling')])
     expect(watch.stopped).toEqual([SESSION])
@@ -217,13 +218,15 @@ describe('the silent review sessions', () => {
     expect(watch.stopped).toEqual([])
   })
 
-  it('a review session whose context does not grow past the no-progress line is ended there although its heartbeat is alive', () => {
+  it('a review session whose context and process stand still past the no-progress line is ended there although its heartbeat is alive', () => {
     const { db, lease } = busWith(REVIEW)
-    const watch = stopping(db, 'live')
-    for (let minute = 1; minute <= reviewLine + 1; minute++)
+    const watch = stopping(db, 'live', null, '4100')
+    beat(db, lease, 1, 62659)
+    expect(watch.sweepAt(1)).toEqual([])
+    for (let minute = 2; minute <= reviewLine + 1; minute++)
       beat(db, lease, minute, 62659)
 
-    expect(watch.sweepAt(reviewLine + 1.5)).toEqual([expect.stringContaining('its context did not grow')])
+    expect(watch.sweepAt(reviewLine + 2)).toEqual([expect.stringContaining('context, process stood still')])
     expect(watch.stopped).toEqual([SESSION])
   })
 })
