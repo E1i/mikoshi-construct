@@ -2,6 +2,7 @@ import { realpathSync } from 'node:fs'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
+import { pnpmCommand } from '../core/owner-commands.js'
 import { cloudOn } from './cloud-key.js'
 
 export const ROLES = ['brief', 'scan', 'review'] as const
@@ -21,7 +22,7 @@ function isRole(value: string | undefined): value is Role {
 }
 
 function cloudLine(role: Role, task: string): string {
-  return `cloud: ${role} for ${task} runs as a cloud session; it pushes role/${task}-${role} with role/${task}/${role}.md (and, for review, role/${task}/review.verdict.json); accept with pnpm ghosts:verdict --from <ref> ...`
+  return `cloud: ${role} for ${task} runs as a cloud session; it pushes role/${task}-${role} with role/${task}/${role}.md (and, for review, role/${task}/review.verdict.json); accept with ${pnpmCommand('ghosts:verdict')} --from <ref> ...`
 }
 
 function parsedArgs(argv: string[]): { positionals: string[], task: string | undefined } | undefined {

@@ -206,8 +206,14 @@ const REAL_BUS: PrOpenedBus = { busPath: defaultBusPath(), pid: process.pid, now
 
 const REAL_GIT: TreePrPorts['git'] = (cwd, args) => processGit.read(cwd, args)
 
+function pnpmTwinRebuild(cwd: string, args: readonly string[]): { status: number | null, stderr: string } {
+  const run = spawnSync('pnpm', [...args], { cwd, encoding: 'utf8' })
+  return { status: run.status, stderr: run.error?.message ?? run.stderr }
+}
+
 const REAL_PORTS: TreePrCliPorts = {
   git: REAL_GIT,
+  rebuild: pnpmTwinRebuild,
   gh: stdoutOrThrow(execGh),
   pushPolicy: worktree => pushPolicyOf(REAL_GIT, worktree),
   card: busCardText(REAL_BUS.busPath),

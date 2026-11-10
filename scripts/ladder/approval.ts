@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { journalText } from '../core/journal.js'
+import { pnpmCommand } from '../core/owner-commands.js'
 import { formatTokens } from './expect-sample.js'
 
 export type ApprovalCheck
@@ -91,7 +92,7 @@ export function checkApproval(briefPath: string): ApprovalCheck {
 
   const approvedSketch = extractApprovedSketch(approvedContent)
   if (approvedSketch === undefined)
-    return { ok: false, reason: `${briefPath}: ${path.basename(approvedPath)} names no 'sketch: <40-hex sha|none>': it was written when the Sketch: line was part of the hash; re-approve the brief with pnpm ghosts:hash` }
+    return { ok: false, reason: `${briefPath}: ${path.basename(approvedPath)} names no 'sketch: <40-hex sha|none>': it was written when the Sketch: line was part of the hash; re-approve the brief with ${pnpmCommand('ghosts:hash')}` }
 
   const actual = approvalSha256(text)
   if (actual !== expected) {

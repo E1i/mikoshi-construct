@@ -5,13 +5,14 @@ import type { AdmittedReach, CompanionRow, CompositionRecord, FollowingReach } f
 import type { BusCatalog } from '../../ci/card-runs.js'
 import type { ChangedFile, Prediction } from '../../policy/morse/rules.js'
 import type { GhRunner } from '../../ports/gh.js'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { COVERING_REASON, importersOf, layerMasksOf, pathsOutside, runsCover, runsOf, TEST_ROOTS, TestCoverage, withinTouches } from '../../../src/card/covering-tests.js'
 import { admittedReachOf, COMPANION_TABLE, COMPOSITION_ROOT, FOLLOWING_REASON, followsTouches, neverFollows, OWNER_MERGES, PACKAGE_MANIFEST, publishedRootsOf } from '../../../src/commands/intake/check.js'
 import { readShiftGate } from '../../../src/manifest.js'
 import { busCheckCatalog, cardReadingOf } from '../../ci/card-runs.js'
 import { parseCompositionModel } from '../../composition/model.js'
+import { commandLine, GENERATED_FILES, pathsRebuiltBy } from '../../core/generated-files.js'
 import { VERIFICATION_WORDS } from '../../core/verification.js'
 import { classify, MorseRefusal } from '../../policy/morse/rules.js'
 import { MATRIX_COUNT_LINE, pathWithoutMatrix } from '../../policy/policy.js'
@@ -23,6 +24,7 @@ export const REFUSAL_REASONS = {
   'stale-base': 'a',
   'no-changeset': 'a',
   'no-matrix-line': 'a',
+  'twin-unbuilt': 'a',
   'outside-touches': 'b',
   'no-card-body': 'c',
   'card-unparsed': 'c',
@@ -65,10 +67,13 @@ export function faultGaps(reason: RefusalReason): Gap[] {
   return [{ reason, task: '', paths: [] }]
 }
 
+export type TwinRebuild = (cwd: string, args: readonly string[]) => { status: number | null, stderr: string }
+
 export interface TreePrPorts {
   git: (cwd: string, args: string[]) => string
   gh: GhRunner
   pushPolicy?: (worktree: string) => PushPolicy
+  rebuild?: TwinRebuild
 }
 
 const PR_URL_NUMBER = /\/pull\/(\d+)\s*$/
@@ -338,6 +343,33 @@ export interface FreshBaseGap {
 
 export type Pushed = { kind: 'pushed' } | { kind: 'clean' } | ({ kind: 'conflict' } & FreshBaseGap)
 
+const FACTORY_TWIN = GENERATED_FILES.factory
+const FACTORY_TWIN_PATHS = pathsRebuiltBy(FACTORY_TWIN.rebuild)
+
+class TwinUnbuilt extends Error {}
+
+function rebuildFactoryTwin(git: TreePrPorts['git'], worktree: string, rebuild: TwinRebuild | undefined): boolean {
+  if (rebuild === undefined || !existsSync(path.join(worktree, FACTORY_TWIN.path)))
+    return false
+  const result = rebuild(worktree, FACTORY_TWIN.rebuild)
+  if (result.status !== 0)
+    throw new TwinUnbuilt(`${commandLine(FACTORY_TWIN.rebuild)} exited ${result.status ?? 'without a status'}: ${result.stderr.trim()}`)
+  git(worktree, ['add', '--', ...FACTORY_TWIN_PATHS.filter(file => existsSync(path.join(worktree, file)))])
+  return true
+}
+
+function hasChanges(git: TreePrPorts['git'], worktree: string): boolean {
+  return git(worktree, ['status', '--porcelain']).trim() !== ''
+}
+
+function takeTwinsFromMain(git: TreePrPorts['git'], worktree: string, rebuild: TwinRebuild | undefined): void {
+  if (rebuild === undefined)
+    return
+  const twins = conflictedFiles(git, worktree).filter(file => FACTORY_TWIN_PATHS.includes(file))
+  if (twins.length > 0)
+    git(worktree, ['checkout', MERGE_HEAD, '--', ...twins])
+}
+
 function conflictedFiles(git: TreePrPorts['git'], worktree: string): string[] {
   return git(worktree, ['diff', '--name-only', '--diff-filter=U']).split('\n').filter(file => file !== '')
 }
@@ -397,34 +429,45 @@ function startFreshMerge(git: TreePrPorts['git'], worktree: string): FreshBaseGa
   }
 }
 
-function mergeFreshBase(git: TreePrPorts['git'], worktree: string): FreshBaseGap | null {
+function mergeFreshBase(git: TreePrPorts['git'], worktree: string, rebuild: TwinRebuild | undefined): FreshBaseGap | null {
   const refused = startFreshMerge(git, worktree)
   if (refused !== null || !mergeInProgress(git, worktree))
     return refused
   const replaced = takeOwnerPathsFromMain(git, worktree)
+  takeTwinsFromMain(git, worktree, rebuild)
   const left = conflictedFiles(git, worktree)
   if (left.length > 0)
     return { files: left, failure: null }
+  try {
+    rebuildFactoryTwin(git, worktree, rebuild)
+  }
+  catch (error) {
+    if (!(error instanceof TwinUnbuilt))
+      throw error
+    git(worktree, ['merge', '--abort'])
+    return { files: [], failure: `the bus could not rebuild ${FACTORY_TWIN.path} after the merge: ${error.message}` }
+  }
   git(worktree, ['commit', '-q', '--no-edit', ...(replaced.length === 0 ? [] : ['-m', `Merge ${PR_BASE}: owner paths at main's version over the branch's ${replaced.join(', ')}`])])
   return null
 }
 
-export function commitAndPush(git: TreePrPorts['git'], worktree: string, branch: string, commitMessage: string): Pushed {
+export function commitAndPush(git: TreePrPorts['git'], worktree: string, branch: string, commitMessage: string, rebuild?: TwinRebuild): Pushed {
   git(worktree, ['fetch', '-q', 'origin', 'main'])
   if (mergeInProgress(git, worktree))
     takeOwnerPathsFromMain(git, worktree)
   const leftUnmerged = conflictedFiles(git, worktree)
   if (leftUnmerged.length > 0)
     return { kind: 'conflict', files: leftUnmerged, failure: null }
-  const uncommitted = git(worktree, ['status', '--porcelain']).trim() !== ''
+  const uncommitted = hasChanges(git, worktree)
   const ahead = Number(git(worktree, ['rev-list', '--count', `${PR_BASE}..HEAD`]).trim())
   if (!uncommitted && ahead === 0)
     return { kind: 'clean' }
-  if (uncommitted) {
+  const rebuilt = rebuildFactoryTwin(git, worktree, rebuild)
+  if (uncommitted || (rebuilt && hasChanges(git, worktree))) {
     git(worktree, ['add', '-A'])
     git(worktree, ['commit', '-q', '-m', commitMessage])
   }
-  const gap = mergeFreshBase(git, worktree)
+  const gap = mergeFreshBase(git, worktree, rebuild)
   if (gap !== null)
     return { kind: 'conflict', ...gap }
   git(worktree, ['push', '-q', '-u', 'origin', `HEAD:refs/heads/${branch}`])
@@ -449,7 +492,7 @@ export function treePr(ports: TreePrPorts, card: TreeCard, worktree: string, rep
   try {
     if (ports.pushPolicy?.(worktree) === 'none')
       return { kind: 'kept' }
-    const pushed = commitAndPush(ports.git, worktree, card.branch, card.commitMessage)
+    const pushed = commitAndPush(ports.git, worktree, card.branch, card.commitMessage, ports.rebuild)
     if (pushed.kind === 'clean')
       return { kind: 'clean' }
     if (pushed.kind === 'conflict')
@@ -468,6 +511,8 @@ export function treePr(ports: TreePrPorts, card: TreeCard, worktree: string, rep
     return number === undefined ? { kind: 'problem', why: `gh pr create printed no pull request URL: ${firstLine(created)}`, gaps: faultGaps('no-pr-url') } : { kind: 'pr', number, followed: touched.followed }
   }
   catch (error) {
+    if (error instanceof TwinUnbuilt)
+      return { kind: 'problem', why: `the shift opened no pull request for ${card.branch}: the bus could not rebuild ${FACTORY_TWIN.path} from the card's sources: ${error.message}`, gaps: [{ reason: 'twin-unbuilt', task: `make ${commandLine(FACTORY_TWIN.rebuild)} pass in ${worktree} by fixing the sources it reads, never by editing ${FACTORY_TWIN.path}, which the bus rebuilds and commits itself`, paths: [] }] }
     return { kind: 'problem', why: `the shift could not commit, push or open the pull request of ${card.branch}: ${failureOf(error)}`, gaps: faultGaps('commit-push-failed') }
   }
 }

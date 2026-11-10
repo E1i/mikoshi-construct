@@ -2,6 +2,7 @@ import type { Card } from '../../src/card/grammar.js'
 import type { RiskLevel } from '../../src/card/risk.js'
 import type { ReviewDepth } from './verdict.js'
 import path from 'node:path'
+import { pnpmCommand } from '../core/owner-commands.js'
 import { approvalOf, approvalSha256, canonicalImplementText, revocationOf } from './approval.js'
 
 export type LadderStep
@@ -81,16 +82,18 @@ export function tasksFileText(card: Card, parts: { repo: string, handoffDir: str
 export function briefBody(card: Card, brief: string): string {
   return [
     `Ladder route, step 1 of 3 for card #${card.id} ${card.name}: the design and the brief. Do not implement the card.`,
-    `Work as \`.claude/agents/brief.md\` does: design the change, build the working sketch on \`sketch/${card.name}\`, write the brief to \`${brief}\`, and run \`pnpm ghosts:hash ${brief}\` (no \`--by\`) until it prints an approval line.`,
+    `Work as \`.claude/agents/brief.md\` does: design the change, build the working sketch on \`sketch/${card.name}\`, write the brief to \`${brief}\`, and run \`${pnpmCommand('ghosts:hash', brief)}\` (no \`--by\`) until it prints an approval line.`,
     'Never write an `.approved-sha256` file and never pass `--by` to `ghosts:hash`: the shift asks for the approval itself after you exit.',
     'The report says `no PR`.',
   ].join('\n')
 }
 
+const ACCEPT_THE_VERDICT = pnpmCommand('ghosts:verdict')
+
 const REVIEW_STEP: Record<ReviewDepth, string> = {
-  full: 'Run the blind Design scan (`.claude/agents/scan.md`), then the full review (`.claude/agents/review.md`: witnesses, mutations, the Design walk), then `pnpm ghosts:verdict` on its verdict file, and open the pull request.',
-  diff: 'Run the review (`.claude/agents/review.md`) at depth diff: it reads the diff only, with no Design scan, no mutations and no Design walk; then `pnpm ghosts:verdict` on its verdict file, and open the pull request.',
-  none: 'Launch no review agent and no Design scan: the witnesses and CI decide. Run the brief\'s witnesses and `pnpm run quality`, and open the pull request.',
+  full: `Run the blind Design scan (\`.claude/agents/scan.md\`), then the full review (\`.claude/agents/review.md\`: witnesses, mutations, the Design walk), then \`${ACCEPT_THE_VERDICT}\` on its verdict file, and open the pull request.`,
+  diff: `Run the review (\`.claude/agents/review.md\`) at depth diff: it reads the diff only, with no Design scan, no mutations and no Design walk; then \`${ACCEPT_THE_VERDICT}\` on its verdict file, and open the pull request.`,
+  none: `Launch no review agent and no Design scan: the witnesses and CI decide. Run the brief's witnesses and \`${pnpmCommand('run', 'quality')}\`, and open the pull request.`,
 }
 
 export function reviewBody(card: Card, brief: string, review: { risk: RiskLevel, depth: ReviewDepth }): string {
