@@ -527,7 +527,7 @@ describe('the laws of a node', () => {
   const stallLaw: LawId = 'Z7'
   it(`${stallLaw} x review names the card that ends the single-signal review stall kill`, async () => {
     expect(LAW_CELLS.Z7.review).toEqual({ gap: [NODE_WITNESSES_CALL_THEIR_NODE] })
-    expect(NODE_WITNESSES_CALL_THEIR_NODE).toBe(1811)
+    expect(NODE_WITNESSES_CALL_THEIR_NODE).toBe(1814)
     expect(gapRows().filter(({ law, node }) => law === 'Z7' && node === 'review')).toHaveLength(1)
     expect(recordedLawGaps()[`${LAW_GAP_PREFIX}Z7:review`]).toBe(1)
     expect(await lawOutcome('Z7', 'review', WITNESSES)).toBe(`${SESSION_BEAT_BESIDE_STALE_WINDOW}: passes without calling ${sourceOf('review')}`)
