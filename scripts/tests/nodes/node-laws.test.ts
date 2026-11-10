@@ -29,7 +29,7 @@ import { answerCandidates, keyOf, queueTask, queueTaskWithin, updateCandidates }
 import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
 import { claudeAnswerer } from '../../nodes/answer/answerer.js'
 import { LaunchNode } from '../../nodes/launch/launch-worker.js'
-import { DIRECT_IMPORTER_WIDENED, gapRows, INFRASTRUCTURE_RETRIED, LAW_CELLS, LAW_NODES, LAW_SITES, lawIds, LAWS, PRIORITY_KEPT_ON_READMISSION, RESTART_KEEPS_SESSION, SESSION_BEAT_BESIDE_STALE_WINDOW, sourceOf } from '../../nodes/laws.js'
+import { CARD_WAIT_STATES, DIRECT_IMPORTER_WIDENED, gapRows, INFRASTRUCTURE_RETRIED, LAW_CELLS, LAW_NODES, LAW_SITES, lawIds, LAWS, NO_HEAD_OF_LINE, PRIORITY_KEPT_ON_READMISSION, RESTART_KEEPS_SESSION, SESSION_BEAT_BESIDE_STALE_WINDOW, sourceOf } from '../../nodes/laws.js'
 import { UpdateExecutor } from '../../nodes/update/update-executor.js'
 import { NetWatch, TICK_MS } from '../../ports/netwatch.js'
 import { launchName } from '../../supervisor/bg.js'
@@ -495,6 +495,14 @@ describe('the laws of a node', () => {
     expect(LAW_CELLS[lostOrderLaw].intake).toEqual({ gap: [1779, PRIORITY_KEPT_ON_READMISSION] })
     expect(PRIORITY_KEPT_ON_READMISSION).toBe(1785)
     expect(gapRows().filter(({ law, node }) => law === 'Z3' && node === 'intake')).toHaveLength(1)
+  })
+
+  const laneWaitLaw: LawId = 'Z4'
+  it(`${laneWaitLaw} x launch names the cards that give a card behind an open pull request a wait record and a start`, () => {
+    expect(LAW_CELLS[laneWaitLaw].launch).toEqual({ gap: [CARD_WAIT_STATES, NO_HEAD_OF_LINE] })
+    expect([CARD_WAIT_STATES, NO_HEAD_OF_LINE]).toEqual([1740, 1744])
+    expect(gapRows().filter(({ law, node }) => law === laneWaitLaw && node === 'launch')).toHaveLength(1)
+    expect(LAW_CELLS[laneWaitLaw].answer).toEqual({ gap: [1740, 1754] })
   })
 
   it('a new gap row is a ratchet break', () => {
