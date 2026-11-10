@@ -306,8 +306,8 @@ describe('intake refuses what it cannot number or check', () => {
 
   it('refuses an unknown key rather than dropping it', () => {
     const root = scratch()
-    const draft = { cards: [{ ...SLICED.cards[0], priority: 600 }] }
-    expect(detail(intake(draft, '1', path.join(root, 'parking')))).toEqual(['card 1: unknown key \'priority\'; the keys are name, kind, milestone, size, task, contour, decision, branch, who, continue, whole, item, touches, witnesses, depends, blocks, creates, runs, number, unclear'])
+    const draft = { cards: [{ ...SLICED.cards[0], urgency: 600 }] }
+    expect(detail(intake(draft, '1', path.join(root, 'parking')))).toEqual(['card 1: unknown key \'urgency\'; the keys are name, kind, milestone, size, task, contour, decision, branch, who, continue, whole, item, touches, witnesses, depends, blocks, creates, runs, number, priority, unclear'])
   })
 
   it('refuses a name given to two cards, since depends name cards by it', () => {

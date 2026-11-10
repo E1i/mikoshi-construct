@@ -29,7 +29,7 @@ import { answerCandidates, keyOf, queueTask, queueTaskWithin, updateCandidates }
 import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
 import { claudeAnswerer } from '../../nodes/answer/answerer.js'
 import { LaunchNode } from '../../nodes/launch/launch-worker.js'
-import { CARD_WAIT_STATES, DIRECT_IMPORTER_WIDENED, gapRows, INFRASTRUCTURE_RETRIED, LAW_CELLS, LAW_NODES, LAW_SITES, lawIds, LAWS, NO_HEAD_OF_LINE, PRIORITY_KEPT_ON_READMISSION, RESTART_KEEPS_SESSION, SESSION_BEAT_BESIDE_STALE_WINDOW, sourceOf } from '../../nodes/laws.js'
+import { CARD_WAIT_STATES, DIRECT_IMPORTER_WIDENED, gapRows, INFRASTRUCTURE_RETRIED, LAW_CELLS, LAW_NODES, LAW_SITES, lawIds, LAWS, NO_HEAD_OF_LINE, RESTART_KEEPS_SESSION, SESSION_BEAT_BESIDE_STALE_WINDOW, sourceOf } from '../../nodes/laws.js'
 import { UpdateExecutor } from '../../nodes/update/update-executor.js'
 import { NetWatch, TICK_MS } from '../../ports/netwatch.js'
 import { launchName } from '../../supervisor/bg.js'
@@ -491,9 +491,8 @@ describe('the laws of a node', () => {
   })
 
   const lostOrderLaw: LawId = 'Z3'
-  it(`${lostOrderLaw} x intake names the card that keeps the owner order across a readmission`, () => {
-    expect(LAW_CELLS[lostOrderLaw].intake).toEqual({ gap: [1779, PRIORITY_KEPT_ON_READMISSION] })
-    expect(PRIORITY_KEPT_ON_READMISSION).toBe(1785)
+  it(`${lostOrderLaw} x intake no longer names the card that keeps the owner order across a readmission, which closed it`, () => {
+    expect(LAW_CELLS[lostOrderLaw].intake).toEqual({ gap: [1779] })
     expect(gapRows().filter(({ law, node }) => law === 'Z3' && node === 'intake')).toHaveLength(1)
   })
 
