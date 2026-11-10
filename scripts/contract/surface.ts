@@ -25,6 +25,7 @@ import { DISCOVERY_MARKERS } from '../../src/manifest.js'
 import { blockMarkers, discoveryTags } from '../../src/materialize/strategies.js'
 import { PRESET_LIST } from '../../src/presets/index.js'
 import { main, SAY_EXIT } from '../../src/program.js'
+import { processGit } from '../ports/git.js'
 import { contourSchemaNames, readContourSchema, schemaId } from './contours.js'
 import { commandFromHelp, listsCommands, usageCommands } from './help.js'
 import { cliArgs, cliEnv, failureLine, HEAD_CLI, headJson, tagCli, tagJsonKeys } from './json-samples.js'
@@ -412,7 +413,7 @@ function observedRuns(cli: ObservedCli, presets: string[]): Runs {
 
     const repository = path.join(scratch, 'attach')
     execFileSync('cp', ['-R', ATTACH_SAMPLE, repository])
-    execFileSync('git', ['init', '-q'], { cwd: repository })
+    processGit.read(repository, ['init', '-q'])
     const before = new Set(filesUnder(repository))
     runCli(cli, ['attach', '--yes', '--harness', 'pnpm run quality', '--required-check', 'quality'], repository, home)
     const writes = filesUnder(repository).filter(file => !before.has(file)).sort()
