@@ -1,7 +1,7 @@
 import type { AnswerRun } from '../../nodes/answer/duties/index.js'
 import type { ReadyTree, TreeDeps } from '../../ports/worktree.js'
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -157,6 +157,7 @@ async function roundInAnExistingTree(prepare: (tree: string) => void) {
   const executor = new AnswerExecutor({ db: bench.db, answerer, ownerMerges: () => '', clock: bench.clock.now, trees })
   const outcome = await executor.answer(leaseNext(bench.db, bench.clock.now().toISOString(), 'answer', 'worker:answer:worker-1')!)
   return {
+    tree,
     behind,
     head,
     outcome,
@@ -324,13 +325,40 @@ describe('the card tree', () => {
     round.close()
   })
 
+  it('an answer over a stopped card whose tree holds uncommitted work keeps the work and is not refused forever', async () => {
+    const behindTheHead = await roundInAnExistingTree((tree) => {
+      writeFileSync(path.join(tree, 'main.txt'), 'finished but uncommitted\n')
+      writeFileSync(path.join(tree, 'new-work.txt'), 'new work\n')
+    })
+    expect(behindTheHead.headsAtSpawn).toEqual([behindTheHead.head])
+    expect(behindTheHead.outcome).toMatchObject({ kind: 'answered', resumed: true })
+    expect(behindTheHead.denials).toEqual([])
+    expect(readFileSync(path.join(behindTheHead.tree, 'main.txt'), 'utf8')).toBe('finished but uncommitted\n')
+    expect(readFileSync(path.join(behindTheHead.tree, 'new-work.txt'), 'utf8')).toBe('new work\n')
+    behindTheHead.close()
+
+    let local = ''
+    const aheadOfTheHead = await roundInAnExistingTree((tree) => {
+      git(tree, 'fetch', '-q', 'origin', BRANCH)
+      git(tree, 'merge', '-q', '--ff-only', `origin/${BRANCH}`)
+      commit(tree, 'unpushed-answer.txt')
+      local = git(tree, 'rev-parse', 'HEAD')
+      writeFileSync(path.join(tree, 'new-work.txt'), 'new work\n')
+    })
+    expect({ headsAtSpawn: aheadOfTheHead.headsAtSpawn, outcome: aheadOfTheHead.outcome.kind, denials: aheadOfTheHead.denials }).toEqual({ headsAtSpawn: [local], outcome: 'answered', denials: [] })
+    expect(readFileSync(path.join(aheadOfTheHead.tree, 'new-work.txt'), 'utf8')).toBe('new work\n')
+    aheadOfTheHead.close()
+  })
+
   it.each([
-    { gap: 'commits the task head lacks', prepare: (tree: string) => commit(tree, 'local.txt'), detail: /^the card tree \S+ at [0-9a-f]{40} is not behind the task head [0-9a-f]{40}, it has commits the head lacks; it is not brought to it$/ },
-    { gap: 'uncommitted changes', prepare: (tree: string) => writeFileSync(path.join(tree, 'stray.txt'), 'a stray edit\n'), detail: /^the card tree \S+ at [0-9a-f]{40} has uncommitted changes; it is not brought to the task head [0-9a-f]{40}$/ },
-    { gap: 'another branch checked out', prepare: (tree: string) => git(tree, 'checkout', '-q', '-b', 'feat/elsewhere'), detail: /^the card tree \S+ is on feat\/elsewhere, not feat\/card-1199; it is not brought to the task head [0-9a-f]{40}$/ },
-  ])('an existing card tree with $gap is refused, the detail naming that gap alone, and no session runs', async ({ prepare, detail }) => {
+    { gap: 'commits the task head lacks', prepare: (tree: string) => commit(tree, 'local.txt'), detail: /^the card tree \S+ at [0-9a-f]{40} is not behind the task head [0-9a-f]{40}, it has commits the head lacks; it is not brought to it$/, kept: {} },
+    { gap: 'uncommitted changes the head would overwrite', prepare: (tree: string) => writeFileSync(path.join(tree, 'round-1.txt'), 'uncommitted work\n'), detail: /^the card tree \S+ at [0-9a-f]{40} has uncommitted changes the task head [0-9a-f]{40} would overwrite; they are kept and the tree is not brought to it$/, kept: { 'round-1.txt': 'uncommitted work\n' } },
+    { gap: 'another branch checked out', prepare: (tree: string) => git(tree, 'checkout', '-q', '-b', 'feat/elsewhere'), detail: /^the card tree \S+ is on feat\/elsewhere, not feat\/card-1199; it is not brought to the task head [0-9a-f]{40}$/, kept: {} },
+  ])('an existing card tree with $gap is refused, the detail naming that gap alone, and no session runs', async ({ prepare, detail, kept }) => {
     const round = await roundInAnExistingTree(prepare)
     expect(round.headsAtSpawn).toEqual([])
+    for (const [file, text] of Object.entries(kept))
+      expect(readFileSync(path.join(round.tree, file), 'utf8')).toBe(text)
     expect(round.outcome).toMatchObject({ kind: 'denied', denial: { reason: 'answer_failed' } })
     expect(String(round.denials[0]?.detail)).toMatch(detail)
     expect(String(round.denials[0]?.detail)).toContain(round.head)

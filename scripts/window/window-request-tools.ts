@@ -3,9 +3,10 @@ import type { PushPolicy } from '../../src/commands/attach/record.js'
 import type { GitHub, GitHubPut } from '../ports/github.js'
 import type { CardTask, RequestTools } from './window-requests.js'
 import { execFileSync } from 'node:child_process'
-import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, realpathSync, unlinkSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import { busDirOf, decisionsFileOf } from '../core/bus-path.js'
+import { CARD_BODIES } from '../core/card-bodies.js'
 import { reportPath } from '../core/places.js'
 import { pushPolicyAt } from '../core/push-policy.js'
 import { reduce } from '../core/reducer.js'
@@ -42,16 +43,35 @@ export function worktreesHolding(porcelain: string, branch: string): string[] {
   })
 }
 
-function causeHoldsIn(db: DatabaseSync, repo: string): (task: CardTask) => string | null {
+function branchOfBody(db: DatabaseSync, cardId: number): string | null {
+  const row = db.prepare(`SELECT branch FROM ${CARD_BODIES} WHERE card_id = ?`).get(cardId) as { branch: string | null } | undefined
+  return row?.branch ?? null
+}
+
+function standingTreeOf(db: DatabaseSync, cardId: number, treeOf: (cardId: number) => string): { worktree: string, branch: string } | null {
+  const recorded = cardSessionOf(db, cardId)
+  if (recorded !== null)
+    return recorded
+  const worktree = treeOf(cardId)
+  const branch = branchOfBody(db, cardId)
+  return branch === null || !existsSync(worktree) ? null : { worktree, branch }
+}
+
+function canonical(tree: string): string {
+  return existsSync(tree) ? realpathSync(tree) : tree
+}
+
+function causeHoldsIn(db: DatabaseSync, repo: string, treeOf: (cardId: number) => string): (task: CardTask) => string | null {
   return (task) => {
-    const card = cardSessionOf(db, task.cardId)
+    const card = standingTreeOf(db, task.cardId, treeOf)
     if (card === null)
       return null
+    const own = canonical(card.worktree)
     const holders = worktreesHolding(git(repo, ['worktree', 'list', '--porcelain']), card.branch)
-    const other = holders.find(tree => tree !== card.worktree)
+    const other = holders.find(tree => canonical(tree) !== own)
     if (other !== undefined)
       return `${card.branch} is checked out at ${other}`
-    if (holders.includes(card.worktree) && git(card.worktree, ['status', '--porcelain']).trim() !== '')
+    if (holders.some(tree => canonical(tree) === own) && git(card.worktree, ['status', '--porcelain']).trim() !== '')
       return `the card tree ${card.worktree} has uncommitted changes`
     return null
   }
@@ -76,7 +96,7 @@ export function realRequestTools(db: DatabaseSync, busPath: string, repo: string
     dryRunOf: dryRunIn(dryRunReviewsDir(busDirOf(busPath))),
     addDecision: decisionsAdder(db, decisionsFileOf(busPath), () => new Date()),
     settleDecisions: decisionsSettler(db, decisionsFileOf(busPath), () => new Date()),
-    causeHolds: causeHoldsIn(db, repo),
+    causeHolds: causeHoldsIn(db, repo, treeOf),
     closePr: request => closer.close(request),
     closeDropped: () => closer.closeDropped(),
     appendCountLine: countLineAppender(gitHub, patch, launchDirOf(os.homedir(), busPath), pushPolicy),

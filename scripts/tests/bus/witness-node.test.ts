@@ -6,7 +6,6 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
-import { setTimeout as sleep } from 'node:timers/promises'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { parkingFileText } from '../../../src/card/parking.js'
 import { textSha } from '../../../src/card/text-sha.js'
@@ -18,13 +17,14 @@ import { gitWitnessTrees, realTimedShell } from '../../nodes/witness/witness-exe
 import { WitnessNode } from '../../nodes/witness/witness-worker.js'
 import { GREEN, RED, witnessDenial, witnessRecordOf, witnessSubjectOf } from '../../policy/policy.js'
 import { gitInAsync, SetupTurns, withWorktreeAsync } from '../../ports/worktree.js'
+import { waitFor } from '../wait-for.js'
 
 const CARD = 1301
 const PR = 1201
 const OTHER_CARD = 1302
 const OTHER_PR = 1202
-const MEETING_PATIENCE_MS = 5_000
-const SETUP_COMMAND_MS = 30
+const GRANDCHILD_GONE_WITHIN_MS = 3_000
+const TURNS_A_SETUP_COMMAND_HOLDS = 20
 const roots: string[] = []
 const dbs: DatabaseSync[] = []
 
@@ -112,11 +112,9 @@ function alive(pid: number): boolean {
   }
 }
 
-function survivesWithin(pid: number, ms: number): boolean {
-  const deadline = Date.now() + ms
-  while (alive(pid) && Date.now() < deadline)
-    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50)
-  return alive(pid)
+async function heldForTurns(turns: number): Promise<void> {
+  for (let turn = 0; turn < turns; turn += 1)
+    await new Promise(resolve => setImmediate(resolve))
 }
 
 function recorded(w: World): string[] {
@@ -286,7 +284,7 @@ describe('the witness node', () => {
 
       expect(result.timedOut).toBe(true)
       const grandchild = Number(readFileSync(pidFile, 'utf8').trim())
-      expect(survivesWithin(grandchild, 3_000)).toBe(false)
+      await waitFor(() => !alive(grandchild), () => `the grandchild ${grandchild} of the timed-out command to exit`, GRANDCHILD_GONE_WITHIN_MS)
     }
     finally {
       rmSync(dir, { recursive: true, force: true })
@@ -310,7 +308,6 @@ describe('the witness node', () => {
     const w = world([], 'done.txt')
     const otherHead = otherCardOn(w)
     const treesInShell = new Set<string>()
-    const patience = sleep(MEETING_PATIENCE_MS)
     let met = false
     let meet = (): void => {}
     const meeting = new Promise<void>((resolve) => {
@@ -322,7 +319,7 @@ describe('the witness node', () => {
         met = true
         meet()
       }
-      await Promise.race([meeting, patience])
+      await meeting
       const result = await realTimedShell(command, cwd, timeoutMs)
       treesInShell.delete(cwd)
       return result
@@ -343,7 +340,7 @@ describe('the witness node', () => {
       commands.push(args[0]!)
       running += 1
       peak = Math.max(peak, running)
-      await sleep(SETUP_COMMAND_MS)
+      await heldForTurns(TURNS_A_SETUP_COMMAND_HOLDS)
       const output = args[0] === 'fetch' ? '' : await gitInAsync(cwd, args)
       running -= 1
       return output
