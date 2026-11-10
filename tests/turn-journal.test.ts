@@ -474,6 +474,53 @@ describe('the turn journal hook checks each subagent\'s model against the role d
   })
 })
 
+function sessionLine(request: string, tools: string[] = [], session = 'sess-1'): string {
+  return `${JSON.stringify({ type: 'assistant', sessionId: session, requestId: request, message: { role: 'assistant', model: 'm-1', usage: USAGE, content: tools.map(name => ({ type: 'tool_use', id: 't', name, input: {} })) } })}\n`
+}
+
+describe('the turn journal hook, in a session whose first hook is not a prompt before any line', () => {
+  it('measures the session from its first line when its stop is the first hook it fires', () => {
+    const { root, transcript } = project()
+    appendFileSync(transcript, sessionLine('r1', ['Bash']))
+    appendFileSync(transcript, sessionLine('r2', ['Read', 'Edit']))
+    fire(root, transcript, 'Stop')
+    const [late, ...rest] = journal(root)
+    expect(rest).toEqual([])
+    expect(late).toMatchObject({ kind: 'late', from: 0, to: statSync(transcript).size, usage: { calls: 2 }, toolCalls: { Bash: 1, Read: 1, Edit: 1 } })
+    expect(late.partial).toBeUndefined()
+  })
+
+  it('starts at the session\'s first line, not at the history of another session before it', () => {
+    const { root, transcript } = project()
+    appendFileSync(transcript, sessionLine('r0', ['Bash'], 'earlier'))
+    const start = statSync(transcript).size
+    appendFileSync(transcript, sessionLine('r1', ['Read']))
+    fire(root, transcript, 'SessionEnd', { reason: 'other' })
+    expect(journal(root)[0]).toMatchObject({ kind: 'late', from: start, usage: { calls: 1 }, toolCalls: { Read: 1 } })
+  })
+
+  it('measures the first turn from the session\'s first line when its prompt is the first hook', () => {
+    const { root, transcript } = project()
+    appendFileSync(transcript, sessionLine('r1', ['Bash']))
+    fire(root, transcript, 'UserPromptSubmit', { prompt_id: 'p-1' })
+    appendFileSync(transcript, sessionLine('r2'))
+    fire(root, transcript, 'Stop', { prompt_id: 'p-1' })
+    expect(journal(root)).toMatchObject([{ kind: 'turn', prompt: 'p-1', from: 0, usage: { calls: 2 }, toolCalls: { Bash: 1 } }])
+  })
+
+  it('marks the first line whose range does not start at the session\'s start, and only that one', () => {
+    const { root, transcript } = project()
+    appendFileSync(transcript, assistant('r0', USAGE))
+    fire(root, transcript, 'UserPromptSubmit', { prompt_id: 'p-1' })
+    appendFileSync(transcript, assistant('r1', USAGE))
+    fire(root, transcript, 'Stop', { prompt_id: 'p-1' })
+    fire(root, transcript, 'UserPromptSubmit', { prompt_id: 'p-2' })
+    appendFileSync(transcript, assistant('r2', USAGE))
+    fire(root, transcript, 'Stop', { prompt_id: 'p-2' })
+    expect(journal(root).map(line => [line.prompt, line.partial])).toEqual([['p-1', true], ['p-2', undefined]])
+  })
+})
+
 describe('turn-journal registration', () => {
   it('the repository settings run the hook on every event it handles', async () => {
     const { HANDLERS } = await import(pathToFileURL(HOOK).href) as { HANDLERS: Record<string, unknown> }

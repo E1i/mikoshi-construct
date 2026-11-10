@@ -197,10 +197,10 @@ function loadState(file) {
   try {
     const state = JSON.parse(readFileSync(file, 'utf8'))
     if (state != null && typeof state === 'object')
-      return { transcript: null, cursor: null, open: null, lastPrompt: null, counted: [], agents: {}, starts: {}, ...state }
+      return { transcript: null, cursor: null, open: null, lastPrompt: null, counted: [], partial: false, agents: {}, starts: {}, ...state }
   }
   catch {}
-  return { transcript: null, cursor: null, open: null, lastPrompt: null, counted: [], agents: {}, starts: {} }
+  return { transcript: null, cursor: null, open: null, lastPrompt: null, counted: [], partial: false, agents: {}, starts: {} }
 }
 
 function saveState(file, state) {
@@ -223,6 +223,31 @@ function resetCursor(state, transcript) {
   state.counted = []
 }
 
+function sessionStartOf(transcript, session) {
+  let offset = 0
+  for (const line of readRange(transcript, 0, boundaryOf(transcript)).split('\n')) {
+    const entry = parsed(line)?.entry
+    if (entry != null && typeof entry === 'object' && entry.sessionId === session)
+      return offset
+    offset += Buffer.byteLength(line) + 1
+  }
+  return null
+}
+
+function startCursor(session, state, transcript) {
+  const start = sessionStartOf(transcript, session)
+  resetCursor(state, transcript)
+  if (start != null)
+    state.cursor = start
+  state.partial = start == null && state.cursor > 0
+}
+
+function takePartial(state) {
+  const mark = state.partial === true ? { partial: true } : {}
+  state.partial = false
+  return mark
+}
+
 function measureRange(state, transcript, to) {
   const reading = measure(readRange(transcript, state.cursor, to), state.counted)
   if (reading.requestIds.length > 0)
@@ -236,8 +261,13 @@ function reading(range) {
 }
 
 function flushLate(session, state, transcript, out, at) {
-  if (cursorStatus(state, transcript) !== 'ok') {
+  const status = cursorStatus(state, transcript)
+  if (status === 'fresh') {
+    startCursor(session, state, transcript)
+  }
+  else if (status !== 'ok') {
     resetCursor(state, transcript)
+    state.partial = true
     return
   }
   const to = boundaryOf(transcript)
@@ -245,7 +275,7 @@ function flushLate(session, state, transcript, out, at) {
   if (to <= from)
     return
   const range = measureRange(state, transcript, to)
-  out.push({ v: JOURNAL_VERSION, kind: 'late', session, prompt: state.lastPrompt, at, from, to, ...reading(range) })
+  out.push({ v: JOURNAL_VERSION, kind: 'late', session, prompt: state.lastPrompt, at, from, to, ...reading(range), ...takePartial(state) })
 }
 
 function closeTurn(session, state, transcript, out, end, endedAt) {
@@ -261,7 +291,7 @@ function closeTurn(session, state, transcript, out, end, endedAt) {
   }
   const from = state.cursor
   const to = boundaryOf(transcript)
-  out.push({ ...head, from, to, ...reading(measureRange(state, transcript, to)) })
+  out.push({ ...head, from, to, ...reading(measureRange(state, transcript, to)), ...takePartial(state) })
 }
 
 function transcriptOf(input, state) {
@@ -277,6 +307,8 @@ function onPrompt(session, input, state, out, at) {
     return
   if (state.open != null)
     closeTurn(session, state, transcript, out, 'superseded', at)
+  else if (cursorStatus(state, transcript) === 'fresh')
+    startCursor(session, state, transcript)
   else
     flushLate(session, state, transcript, out, at)
   state.open = { prompt: plainId(input.prompt_id), startedAt: at, from: state.cursor }
