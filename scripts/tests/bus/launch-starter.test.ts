@@ -116,6 +116,7 @@ function heldTree(changed: string[], overrides: Partial<StarterPorts> = {}): { s
     cardSessions: () => [SESSION],
     readTranscript: (worktree, session) => worktree === TREE && session === SESSION ? SESSION_JOURNAL : null,
     treeFile: file => TREE_FILES[path.relative(TREE, file)] ?? null,
+    freshen: () => ({ kind: 'kept', why: 'the fake tree is not a git tree' }),
     ...overrides,
   }
   const starter = new ShiftCardStarter({ launchDir: LAUNCH_DIR, claude: 'claude', treePr: 'true' }, ports)

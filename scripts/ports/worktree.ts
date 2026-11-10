@@ -212,6 +212,7 @@ export interface TreeDeps {
   exists: (target: string) => boolean
   worktreeHome?: string
   treeOf?: (id: string) => string
+  holds?: (tree: string) => boolean
 }
 
 export type TreeOrigin = 'reused' | 'cut'
@@ -345,6 +346,59 @@ function reuseFreeTree(deps: TreeDeps, repo: string, worktree: string, branch: s
   }
 }
 
+export type FreshTree = { kind: 'fresh', base: string } | { kind: 'kept', why: string } | { kind: 'refused', why: string }
+
+function commitsOverMain(git: GitRun, worktree: string): number {
+  return Number(git(worktree, ['rev-list', '--count', 'origin/main..HEAD']).trim())
+}
+
+function trackedChanges(git: GitRun, worktree: string): boolean {
+  return git(worktree, ['status', '--porcelain', '--untracked-files=no']).trim() !== ''
+}
+
+export function freshenCardTree(git: GitRun, worktree: string): FreshTree {
+  try {
+    git(worktree, FETCH_MAIN_OVER_HTTPS)
+  }
+  catch (error) {
+    return { kind: 'refused', why: `origin/main could not be fetched into ${worktree}: ${firstLine(error)}` }
+  }
+  try {
+    const ahead = commitsOverMain(git, worktree)
+    if (ahead > 0)
+      return { kind: 'kept', why: `${worktree} carries ${ahead} commit(s) over origin/main, so it was not brought to it` }
+    if (trackedChanges(git, worktree))
+      return { kind: 'kept', why: `${worktree} has uncommitted changes, so it was not brought to origin/main` }
+    git(worktree, ['merge', '-q', '--ff-only', 'origin/main'])
+    return { kind: 'fresh', base: git(worktree, ['rev-parse', 'HEAD']).trim() }
+  }
+  catch (error) {
+    return { kind: 'kept', why: `${worktree} was not brought to origin/main: ${gitMessage(error)}` }
+  }
+}
+
+function heldTreeKept(deps: TreeDeps, repo: string, worktree: string, branch: string): string | null {
+  try {
+    const current = deps.git(worktree, ['branch', '--show-current']).trim()
+    if (current !== branch)
+      return `it is on ${current === '' ? 'no branch' : current}, not on ${branch}`
+    if (deps.git(worktree, ['status', '--porcelain', '--untracked-files=all']).trim() !== '')
+      return 'it has uncommitted changes'
+    deps.git(repo, FETCH_MAIN_OVER_HTTPS)
+    const ahead = commitsOverMain(deps.git, worktree)
+    if (ahead > 0)
+      return `${branch} carries ${ahead} commit(s) over origin/main`
+    if ((deps.holds ?? liveSessionHolds)(worktree))
+      return 'a live session works in it'
+    deps.git(repo, ['worktree', 'remove', '--force', worktree])
+    deps.git(repo, ['branch', '-D', branch])
+    return null
+  }
+  catch (error) {
+    return firstLine(error)
+  }
+}
+
 export function cutTree(deps: TreeDeps, id: string, branch: string): ReadyTree | RefusedTree {
   let repo: string
   try {
@@ -354,8 +408,11 @@ export function cutTree(deps: TreeDeps, id: string, branch: string): ReadyTree |
     return { refused: `not inside a git repository: ${firstLine(error)}` }
   }
   const worktree = deps.treeOf?.(id) ?? taskWorktree(deps.worktreeHome ?? path.dirname(repo), id)
-  if (deps.exists(worktree))
-    return { refused: `${worktree} already exists; nothing written` }
+  if (deps.exists(worktree)) {
+    const kept = heldTreeKept(deps, repo, worktree, branch)
+    if (kept !== null)
+      return { refused: `${worktree} already exists and is kept (${kept}); nothing written` }
+  }
   if (branchExists(deps, repo, branch))
     return { refused: `branch ${branch} already exists; nothing written` }
   let absent: string[] = []

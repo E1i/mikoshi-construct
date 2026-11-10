@@ -214,7 +214,7 @@ function cardLives(db: DatabaseSync): Map<number, CardLife> {
       continue
     }
     if (life !== undefined && row.type === TASK_REQUEUED) {
-      if (life.stoppedByFault && payloadOf(row).generation === life.generation) {
+      if (life.stoppedByFault) {
         life.started = false
         life.closed = false
         life.stoppedByFault = false

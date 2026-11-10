@@ -4865,6 +4865,7 @@
           "adoptTree": "(deps: TreeDeps, tree: string, branch: string): ReadyTree | RefusedTree",
           "cutTree": "(deps: TreeDeps, id: string, branch: string): ReadyTree | RefusedTree",
           "freeTreeHome": "(tree: string): string",
+          "freshenCardTree": "(git: GitRun, worktree: string): FreshTree",
           "gitIn": "(cwd: string, args: string[]): string",
           "gitInAsync": "(cwd, args)",
           "lastLine": "(output: string): string",
@@ -4888,6 +4889,7 @@
           "shell"
         ],
         "types": {
+          "FreshTree": "type FreshTree = { kind: 'fresh'; base: string; } | { kind: 'kept'; why: string; } | { kind: 'refused'; why: string; }",
           "GitAsync": "type GitAsync = (cwd: string, args: string[]) => Promise<string>",
           "GitRun": "type GitRun = (cwd: string, args: string[]) => string",
           "ReadyTree": "interface ReadyTree { worktree: string; origin?: TreeOrigin; how: string; failedAppend: string; }",
@@ -4895,7 +4897,7 @@
           "SetupTurns": "class SetupTurns { take<T>(step: () => Promise<T>): Promise<T> }",
           "Shell": "type Shell = (command: string, cwd: string) => ShellResult",
           "ShellResult": "interface ShellResult { status: number | null; output: string; }",
-          "TreeDeps": "interface TreeDeps { cwd: string; git: (cwd: string, args: string[]) => string; install: (cwd: string, args: string[]) => void; exists: (target: string) => boolean; worktreeHome?: string; treeOf?: (id: string) => string; }",
+          "TreeDeps": "interface TreeDeps { cwd: string; git: (cwd: string, args: string[]) => string; install: (cwd: string, args: string[]) => void; exists: (target: string) => boolean; worktreeHome?: string; treeOf?: (id: string) => string; holds?: (tree: string) => boolean; }",
           "TreeOrigin": "type TreeOrigin = 'reused' | 'cut'"
         }
       }

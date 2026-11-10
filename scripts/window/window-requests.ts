@@ -465,8 +465,6 @@ export class WindowRequests {
     if (cardLine === null || branch === null)
       return { done: false, why: `card #${cardId} has no admitted card line and branch in card_bodies` }
     const tree = this.tools.treeOf(cardId)
-    if (this.tools.exists(tree))
-      return { done: false, why: `${tree} already exists` }
     try {
       this.tools.cutTree(branch, cardLine)
     }

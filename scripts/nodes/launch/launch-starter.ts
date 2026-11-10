@@ -1,6 +1,7 @@
 import type { ShiftTask } from '../../../src/card/task-file.js'
 import type { SessionSpec } from '../../ports/client/contract.js'
 import type { ProcessTable } from '../../ports/process-table.js'
+import type { FreshTree } from '../../ports/worktree.js'
 import type { CardStart, CardStarter, HeldTree, QueuedCard, StartedCard } from './launch-executor.js'
 import type { PromptPlaces } from './prompt.js'
 import type { SessionJournal, TreeFile } from './session-journal.js'
@@ -18,6 +19,7 @@ import { processGit } from '../../ports/git.js'
 import { OsProcessTable, rowsOf } from '../../ports/process-table.js'
 import { clientInvocation } from '../../ports/session.js'
 import { restoreReport, shellWord } from '../../ports/tree-publish.js'
+import { freshenCardTree, gitIn } from '../../ports/worktree.js'
 import { HELD_TREE_CHANGED, technical } from './launch-executor.js'
 import { continuationBody } from './prompt.js'
 import { journalDoubt, parseSessionJournal } from './session-journal.js'
@@ -46,6 +48,7 @@ export interface StarterPorts {
   cardSessions: (cardId: number) => string[]
   readTranscript: (worktree: string, session: string) => string | null
   treeFile: (file: string) => TreeFile | null
+  freshen?: (worktree: string) => FreshTree
 }
 
 export interface StarterPlaces {
@@ -99,6 +102,10 @@ export function launchEnv(session: NodeJS.ProcessEnv, launching: NodeJS.ProcessE
   return { ...onBus, GH_TOKEN: token.token }
 }
 
+export function staleTreeLine(why: string): string {
+  return `The bus did not bring this card tree to a fresh origin/main before the session: ${why}. Merge origin/main into the branch before the checks if the change needs what main holds.`
+}
+
 export function unreadableCard(cardId: number): string {
   return `the bus holds no card body of card #${cardId}`
 }
@@ -126,7 +133,7 @@ export class ShiftCardStarter implements CardStarter, SessionContinuer {
 
   start(card: QueuedCard): CardStart {
     if (card.continueIn !== undefined)
-      return this.continueIn(card, card.continueIn)
+      return this.relaunchIn(card, card.continueIn)
     return this.session(card, (task) => {
       const worktree = this.ports.cut(task)
       return { worktree, base: this.ports.base(worktree), body: each => each.body }
@@ -137,13 +144,32 @@ export class ShiftCardStarter implements CardStarter, SessionContinuer {
     return this.continueIn(card, { worktree: from.worktree, base: from.base }, from.session)
   }
 
-  private continueIn(card: QueuedCard, held: HeldTree, session?: string): CardStart {
+  private relaunchIn(card: QueuedCard, held: HeldTree): CardStart {
+    const refusal = this.unnamedChanges(card.cardId, held.worktree, undefined)
+    if (refusal !== null)
+      return refusal
+    const fresh = (this.ports.freshen ?? (tree => freshenCardTree(gitIn, tree)))(held.worktree)
+    switch (fresh.kind) {
+      case 'refused':
+        return { kind: 'refused', denial: technical('start_failed', fresh.why) }
+      case 'fresh':
+        return this.sessionIn(card, { worktree: held.worktree, base: fresh.base }, continuationBody)
+      case 'kept':
+        return this.sessionIn(card, held, (task, places) => `${staleTreeLine(fresh.why)}\n\n${continuationBody(task, places)}`)
+    }
+  }
+
+  private continueIn(card: QueuedCard, held: HeldTree, session: string): CardStart {
     const refusal = this.unnamedChanges(card.cardId, held.worktree, session)
     if (refusal !== null)
       return refusal
+    return this.sessionIn(card, held, continuationBody)
+  }
+
+  private sessionIn(card: QueuedCard, held: HeldTree, body: SessionTree['body']): CardStart {
     return this.session(card, () => {
       restoreReport(this.reportOf(card.cardId), held.worktree)
-      return { worktree: held.worktree, base: held.base ?? this.ports.base(held.worktree), body: continuationBody }
+      return { worktree: held.worktree, base: held.base ?? this.ports.base(held.worktree), body }
     })
   }
 

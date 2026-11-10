@@ -668,6 +668,7 @@ describe('the launch queue', () => {
       cardSessions: () => [],
       readTranscript: () => null,
       treeFile: () => null,
+      freshen: () => ({ kind: 'kept', why: 'the fake tree is not a git tree' }),
     }
     return { starter: new ShiftCardStarter({ launchDir, claude: 'claude', treePr: 'true' }, ports), cuts, spawned }
   }

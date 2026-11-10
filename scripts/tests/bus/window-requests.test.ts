@@ -217,8 +217,8 @@ describe('requests from the sandboxed window, executed by the bus outside it', (
     expect(answerOf(made, request).type).toBe(REQUEST_DONE)
 
     const again = ask(made, { kind: 'tree.cut', card: CARD })
-    expect(made.requests().run()).toEqual([{ kind: 'refused', request: again, detail: `${tree} already exists` }])
-    expect(made.cut).toHaveLength(1)
+    expect(made.requests().run()).toEqual([{ kind: 'done', request: again, detail: `cut ${tree} on feat/card-${CARD}` }])
+    expect(made.cut).toHaveLength(2)
     const unknownCard = ask(made, { kind: 'tree.cut', card: CARD + 1 })
     expect(made.requests().run()[0]).toMatchObject({ kind: 'refused', request: unknownCard })
     expect(made.requests().run()).toEqual([])
