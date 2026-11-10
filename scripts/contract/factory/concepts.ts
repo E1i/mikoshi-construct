@@ -2,7 +2,7 @@ import type { Detector } from './detectors.js'
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import path from 'node:path'
 import ts from 'typescript'
-import { FACTORY_RUNTIME } from '../../core/factory-paths.js'
+import { FACTORY_NAMED, FACTORY_RUNTIME } from '../../core/factory-paths.js'
 import { GENERATED_FILES, GENERATED_PATHS } from '../../core/generated-files.js'
 import { clientAdapter } from '../../ports/client/index.js'
 import {
@@ -335,7 +335,7 @@ export const CONCEPTS: readonly Concept[] = [
   {
     id: 'git',
     title: 'running git',
-    owner: 'scripts/ports/git.ts',
+    owner: FACTORY_NAMED.gitPort,
     ownerExists: true,
     ownerExport: 'processGit',
     axis: 'architecture',
