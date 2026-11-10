@@ -89,7 +89,7 @@ function recordMove(options: MoveOptions, number: number, moved: Moved, slicing:
 
 interface Repointing extends Repointed { admission: RecordedIntake, text: string }
 
-type DependentsReading = { kind: 'repoint', repointings: Repointing[] } | { kind: 'refused', orphans: number[] }
+type DependentsReading = { kind: 'repoint', repointings: Repointing[] } | { kind: 'refused', orphans: number[] } | { kind: 'lagging', cards: number[] }
 
 function openInBus(states: ReadonlyMap<string, string> | undefined, card: number): boolean {
   const state = states?.get(String(card))
@@ -117,8 +117,13 @@ function dependentsOf(options: MoveOptions, dropped: number, slicing: Slicing): 
   const states = options.cardStates?.()
   const repointings: Repointing[] = []
   const orphans: number[] = []
+  const lagging: number[] = []
   for (const card of candidatesOf(options, dropped, slicing, states)) {
     const admission = options.admissions?.(card)
+    if (admission !== null && admission !== undefined && (admission.text === undefined || projectionLagsTheJournal(admission))) {
+      lagging.push(card)
+      continue
+    }
     const depends = admission?.text === undefined ? [] : admittedCardOf(admission.text)?.depends ?? []
     if (admission?.text === undefined || !depends.includes(dropped))
       continue
@@ -129,6 +134,8 @@ function dependentsOf(options: MoveOptions, dropped: number, slicing: Slicing): 
     else
       repointings.push({ card, dropped, children, admission, text })
   }
+  if (lagging.length > 0)
+    return { kind: 'lagging', cards: lagging }
   return orphans.length > 0 ? { kind: 'refused', orphans } : { kind: 'repoint', repointings }
 }
 
@@ -141,6 +148,11 @@ function repointedRecord(repointing: Repointing, at: Date): CardEvent {
 
 function repointedOnly(repointings: readonly Repointing[]): { repointed?: Repointed[] } {
   return repointings.length === 0 ? {} : { repointed: repointings.map(({ card, dropped, children }) => ({ card, dropped, children })) }
+}
+
+function laggingDependentsRefusal(dropped: number, cards: readonly number[]): MoveResult {
+  const named = cards.map(card => `#${card}`).join(', ')
+  return refused(ui => ui.lore.intakeRefusedUnreadable(`${named}: the card_bodies projection holds an older body than the latest card.admitted, and dropping #${dropped} would re-admit it while re-pointing its depends; run it again once the reducer has folded that admission`))
 }
 
 function orphansRefusal(dropped: number, orphans: readonly number[]): MoveResult {
@@ -205,6 +217,8 @@ export function runMove(options: MoveOptions, now: () => Date = () => new Date()
   if (stale !== null)
     return stale
   const dependents = slicing === null ? { kind: 'repoint' as const, repointings: [] } : dependentsOf(options, number, slicing)
+  if (dependents.kind === 'lagging')
+    return laggingDependentsRefusal(number, dependents.cards)
   if (dependents.kind === 'refused')
     return orphansRefusal(number, dependents.orphans)
   const repointed = repointedOnly(dependents.repointings)

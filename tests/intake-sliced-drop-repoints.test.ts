@@ -4,12 +4,12 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { openBus } from '../scripts/core/db.js'
-import { CARD_ADMITTED, CARD_DROPPED } from '../scripts/core/events.js'
+import { appendEvent, openBus } from '../scripts/core/db.js'
+import { CARD_ADMITTED, CARD_DROPPED, FACTORY_MODE } from '../scripts/core/events.js'
 import { reduce } from '../scripts/core/reducer.js'
 import { busIntakePorts } from '../scripts/intake/intake.js'
 import { AMEND_SOURCE, runAdmit } from '../src/commands/intake/admit.js'
-import { admittedCardOf } from '../src/commands/intake/amend.js'
+import { admittedCardOf, runAmend } from '../src/commands/intake/amend.js'
 import { printMove, runMove } from '../src/commands/intake/move.js'
 import { createUi } from '../src/ui/console.js'
 import { resolveTheme } from '../src/ui/theme.js'
@@ -29,7 +29,7 @@ afterEach(() => {
 
 interface World { parking: string, repo: string, db: DatabaseSync, ports: ReturnType<typeof busIntakePorts> }
 
-function world(): World {
+function world(lanes = 1): World {
   const root = mkdtempSync(path.join(tmpdir(), 'sliced-drop-'))
   roots.push(root)
   const parking = path.join(root, 'parking')
@@ -38,7 +38,7 @@ function world(): World {
   mkdirSync(path.join(repo, 'src'), { recursive: true })
   writeFileSync(path.join(repo, 'src', 'a.ts'), '')
   const db = openBus(path.join(root, 'bus.db'))
-  return { parking, repo, db, ports: busIntakePorts(db, 'by-hand', () => 1) }
+  return { parking, repo, db, ports: busIntakePorts(db, 'by-hand', () => lanes) }
 }
 
 function ids(cards: readonly number[]): string {
@@ -131,20 +131,49 @@ describe('a sliced drop and the cards that depend on the dropped card', () => {
     }
   })
 
-  it('a re-pointed dependent keeps the lane its earlier admission carried', () => {
-    const w = world()
+  it('a re-pointed dependent keeps its own lane in parallel mode, not the lane of the slice it now depends on', () => {
+    const w = world(4)
     try {
+      appendEvent(w.db, { ts: AT.toISOString(), type: FACTORY_MODE, actor: 'owner', cardId: null, pr: null, head: null, dedupeKey: `${FACTORY_MODE}:parallel`, payload: { mode: 'parallel' }, legacy: false })
       admit(w, PARENT)
-      admit(w, DEPENDENT, { depends: [PARENT] }, 'lane-1')
+      admit(w, DEPENDENT, { depends: [PARENT] })
       admit(w, TAKER, { blocks: [DEPENDENT] })
       admit(w, SIBLING)
       slicedStub(w)
       const lane = latestAdmission(w, DEPENDENT).lane
       expect(typeof lane).toBe('string')
+      expect(latestAdmission(w, TAKER).lane).not.toBe(lane)
       expect(drop(w).status).toBe('recordedInPlace')
       expect(reduce(w.db).rejected).toBe(0)
       expect(latestAdmission(w, DEPENDENT)).toMatchObject({ source: AMEND_SOURCE, depends: [TAKER], lane })
       expect(w.db.prepare('SELECT lane FROM card_bodies WHERE card_id = ?').get(DEPENDENT)).toEqual({ lane })
+    }
+    finally {
+      w.db.close()
+    }
+  })
+
+  it('a sliced drop is refused while a dependent holds an amend the reducer has not folded, and re-points it from the amended body once folded', () => {
+    const w = world()
+    try {
+      admit(w, PARENT)
+      admit(w, DEPENDENT, { depends: [PARENT] })
+      admit(w, TAKER, { blocks: [DEPENDENT] })
+      admit(w, SIBLING)
+      const amended = runAmend({ card: `#${DEPENDENT}`, flags: { note: 'The amended line.' }, dir: w.repo, dryRun: false, autoConfirm: true, parkingRoot: w.parking, events: w.ports.cardEvents, cardStates: w.ports.cardStates, admissions: w.ports.cardAdmissions }, () => AT)
+      expect(amended.status).toBe('admitted')
+      slicedStub(w)
+      const before = eventCount(w)
+      const lagging = drop(w)
+      expect(lagging.status).toBe('refused')
+      expect(printed(lagging)).toEqual({ lines: [expect.stringContaining(`#${DEPENDENT}: the card_bodies projection holds an older body`)], exit: 1 })
+      expect(eventCount(w)).toEqual(before)
+      reduce(w.db)
+      expect(drop(w)).toMatchObject({ status: 'recordedInPlace', repointed: [{ card: DEPENDENT, children: [TAKER] }] })
+      expect(reduce(w.db).rejected).toBe(0)
+      const text = w.ports.cardAdmissions!(DEPENDENT)!.text!
+      expect(admittedCardOf(text)?.depends).toEqual([TAKER])
+      expect(text).toContain('The amended line.')
     }
     finally {
       w.db.close()
