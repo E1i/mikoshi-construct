@@ -60,8 +60,8 @@ const TRANSCRIPT_BEATS = `
 `
 
 const REVIEW_ENDS_ON_HEAD = `
-  SELECT count(*) AS ends FROM events
-  WHERE type = '${SESSION_STALLED}' AND legacy = 0 AND card_id = ? AND head IS ? AND dedupe_key LIKE '%:${REVIEW_ENDED_MARK}'
+  SELECT coalesce(sum(json_extract(payload, '$.lease_gen') IS ?), 0) AS this_run, coalesce(sum(json_extract(payload, '$.lease_gen') IS NOT ?), 0) AS earlier_runs FROM events
+  WHERE type = '${SESSION_STALLED}' AND legacy = 0 AND card_id = ? AND head IS ? AND dedupe_key LIKE '%:${REVIEW_ENDED_MARK}' AND json_valid(payload)
 `
 
 const CARD_TREE = `
@@ -312,8 +312,10 @@ export class StalledSessions {
     const stale = this.staleSignals(signals, 'review', nowMs)
     if (stale.length < STALE_SIGNALS_TO_STOP)
       return this.raise(lease, nowMs, { session, life, since, reason: `the review session ${session} of card #${lease.cardId} is alive and only ${stale.join(', ') || 'no signal'} stood still for ${minutes} min; one stale signal stops nothing, the session runs on to its ceiling` }, since)
-    const endedBefore = (this.db.prepare(REVIEW_ENDS_ON_HEAD).get(lease.cardId, lease.head) as { ends: number }).ends
-    if (endedBefore > 0)
+    const ends = this.db.prepare(REVIEW_ENDS_ON_HEAD).get(lease.leaseGen, lease.leaseGen, lease.cardId, lease.head) as { this_run: number, earlier_runs: number }
+    if (ends.this_run > 0)
+      return []
+    if (ends.earlier_runs > 0)
       return this.endAgain({ lease, session, since, stale, minutes, life }, nowMs)
     this.stop(session)
     return this.raise(lease, nowMs, { session, life, since, reason: `the review session ${session} of card #${lease.cardId} made no step and no output: ${stale.join(', ')} stood still for ${minutes} min; it was ended before its ceiling` }, REVIEW_ENDED_MARK)
