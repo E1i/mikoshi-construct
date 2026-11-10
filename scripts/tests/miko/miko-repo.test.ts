@@ -20,7 +20,6 @@ const MIKO = fileURLToPath(new URL('../../window/miko.ts', import.meta.url))
 const TSX_LOADER = pathToFileURL(path.resolve(import.meta.dirname, '..', '..', '..', 'node_modules', 'tsx', 'dist', 'esm', 'index.mjs')).href
 const DECISIONS = fileURLToPath(import.meta.url)
 const FOREIGN_REMOTE = 'git@github.com:someone/foreign.git'
-const WATCHING_DEADLINE_MS = 15_000
 const STUB_CLAUDE = '#!/bin/sh\nprintf \'%s\' "$1" > "$STUB_DIR/prompt"\nexit 0\n'
 
 interface World {
@@ -97,18 +96,12 @@ function watchUntilWatching(w: World): Promise<string> {
   let stderr = ''
   child.stderr.setEncoding('utf8')
   return new Promise((resolve) => {
-    const deadline = setTimeout(resolve, WATCHING_DEADLINE_MS, stderr)
     child.stderr.on('data', (chunk: string) => {
       stderr += chunk
-      if (stderr.includes('watching')) {
-        clearTimeout(deadline)
+      if (stderr.includes('watching'))
         resolve(stderr)
-      }
     })
-    child.on('close', () => {
-      clearTimeout(deadline)
-      resolve(stderr)
-    })
+    child.on('close', () => resolve(stderr))
   })
 }
 

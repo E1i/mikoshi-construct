@@ -17,6 +17,8 @@ const lease = { taskKey: `review:1050:950:${sha('a')}`, queue: 'review' as const
 const full = fullReview('a fixed plan')
 const cleanTree: Pick<TreeTools, 'prepare' | 'state'> = { prepare: () => {}, state: () => ({ head: sha('a'), status: [] }) }
 const unprepared: TreeTools = { ...GIT_TREE_TOOLS, prepare: () => {} }
+const BEAT_MS = 50
+const theTickerStarts = async (): Promise<void> => Promise.resolve()
 const WORKAROUNDS = [/\b(?:pnpm|npm|yarn) (?:i|install|add)\b/, /\bln -s\b/, /symlink/i, /git archive/]
 
 function gitRun(cwd: string, ...args: string[]): string {
@@ -99,11 +101,13 @@ describe('reviewer', () => {
   it('a pulse that throws costs one heartbeat and a named line, never the review or the worker', async () => {
     const dir = mkdtempSync(path.join(tmpdir(), 'bus-reviewer-beat-fails-'))
     const said = vi.spyOn(console, 'error').mockImplementation(() => {})
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
     try {
       const working = async (params: SpawnSessionParams): Promise<number> => {
-        await new Promise(resolve => setTimeout(resolve, 60))
+        await theTickerStarts()
         writeFileSync(params.stdoutPath, '{"type":"assistant"}\n')
-        await new Promise(resolve => setTimeout(resolve, 150))
+        vi.advanceTimersByTime(BEAT_MS)
+        vi.advanceTimersByTime(BEAT_MS)
         writeFileSync(path.join(dir, `${params.sessionId}.verdict.json`), '{"verdict":"pass","findings":[]}')
         return 0
       }
@@ -111,12 +115,13 @@ describe('reviewer', () => {
       const locked = (): void => {
         throw new Error('database is locked')
       }
-      const review = await claudeReviewer(trees, working, locked, 50)(lease, full)
+      const review = await claudeReviewer(trees, working, locked, BEAT_MS)(lease, full)
       expect(review.verdict).toBe('pass')
       expect(said.mock.calls.map(call => call[0])).toEqual([missedBeatLine(review.session, new Error('database is locked'))])
       expect(missedBeatLine('s-1', new Error('database is locked'))).toBe('[bus:review] the heartbeat of review session s-1 was not recorded, the review goes on: database is locked')
     }
     finally {
+      vi.useRealTimers()
       said.mockRestore()
       rmSync(dir, { recursive: true, force: true })
     }
@@ -124,23 +129,35 @@ describe('reviewer', () => {
 
   it('the worker beats for a review session on each interval its transcript grew, and not on one it stood still', async () => {
     const dir = mkdtempSync(path.join(tmpdir(), 'bus-reviewer-beat-'))
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
     try {
       const beats: string[] = []
-      const pause = async (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms))
+      const beatsAt: number[] = []
       const working = async (params: SpawnSessionParams): Promise<number> => {
-        await pause(80)
+        await theTickerStarts()
+        writeFileSync(params.stdoutPath, '')
+        vi.advanceTimersByTime(BEAT_MS)
+        beatsAt.push(beats.length)
         writeFileSync(params.stdoutPath, '{"type":"assistant"}\n')
-        await pause(200)
+        vi.advanceTimersByTime(BEAT_MS)
+        beatsAt.push(beats.length)
+        vi.advanceTimersByTime(BEAT_MS)
+        beatsAt.push(beats.length)
         writeFileSync(params.stdoutPath, '{"type":"assistant"}\n{"type":"user"}\n')
-        await pause(120)
+        vi.advanceTimersByTime(BEAT_MS)
+        beatsAt.push(beats.length)
+        vi.advanceTimersByTime(BEAT_MS)
+        beatsAt.push(beats.length)
         writeFileSync(path.join(dir, `${params.sessionId}.verdict.json`), '{"verdict":"pass","findings":[]}')
         return 0
       }
       const trees = new ReviewTrees('/repo', dir, { git: () => {}, worktrees: () => [], ...cleanTree })
-      const review = await claudeReviewer(trees, working, (beaten, session) => beats.push(`${beaten.taskKey} ${session}`), 50)(lease, full)
+      const review = await claudeReviewer(trees, working, (beaten, session) => beats.push(`${beaten.taskKey} ${session}`), BEAT_MS)(lease, full)
+      expect(beatsAt).toEqual([0, 1, 1, 2, 2])
       expect(beats).toEqual([`${lease.taskKey} ${review.session}`, `${lease.taskKey} ${review.session}`])
     }
     finally {
+      vi.useRealTimers()
       rmSync(dir, { recursive: true, force: true })
     }
   })
