@@ -1,6 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { CardAdmissionsPort, CardEvent, CardEventPort, RecordedIntake } from '../../src/commands/intake/index.js'
 import type { CardsOfTheBus } from '../../src/commands/intake/numbers.js'
+import type { LadderRunPort } from '../../src/commands/run-record.js'
 import type { BusPorts } from '../../src/program.js'
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import path from 'node:path'
@@ -19,7 +20,7 @@ import { resolveTheme } from '../../src/ui/theme.js'
 import { BUS_DB_VARIABLE, ForeignBusRefused } from '../core/bus-path.js'
 import { appendCardEvent, cardBodyText, laid } from '../core/card-bodies.js'
 import { appendEvent, BUSY_TIMEOUT_MS, defaultBusPath, inTransaction, openBus } from '../core/db.js'
-import { CARD_ADMITTED, CARD_MOVED, CARD_PLANNED, CARD_UNPLANNED, NUMBERS_FOREIGN, PLAN_CLOSED, PLAN_OPENED } from '../core/events.js'
+import { CARD_ADMITTED, CARD_MOVED, CARD_PLANNED, CARD_UNPLANNED, LADDER_RUN, NUMBERS_FOREIGN, PLAN_CLOSED, PLAN_OPENED } from '../core/events.js'
 import { OWNER } from '../core/inbox.js'
 import { openDatabase } from '../core/sqlite.js'
 import { assignMovedLane, layLanes, repositoryLanes } from '../nodes/launch/lane-assign.js'
@@ -30,6 +31,7 @@ import { windowSessionOf } from '../window/window-heartbeat.js'
 import { INTAKE_ACTOR_PREFIX } from './admissions.js'
 
 const INTAKE_SUBCOMMAND = 'intake'
+const RUN_RECORD_SUBCOMMAND = 'run-record'
 const SESSION_BY_HAND = 'by-hand'
 const EXPORT_FLAG = '--export'
 const PLAIN_FLAG = '--plain'
@@ -270,7 +272,25 @@ export function windowShardOfRun(db: DatabaseSync, env: NodeJS.ProcessEnv, now: 
   return activeWindowShards(db, now)[0]?.id ?? null
 }
 
-async function main(): Promise<void> {
+export const busLadderRun: LadderRunPort = (busPath, event) => {
+  const db = openBus(busPath)
+  try {
+    return appendEvent(db, { ...event, type: LADDER_RUN, pr: null, head: null, legacy: false })
+  }
+  finally {
+    db.close()
+  }
+}
+
+async function runRunRecord(argv: readonly string[]): Promise<void> {
+  await runMain(createMain({ ladderRun: busLadderRun }), { rawArgs: [...argv] })
+}
+
+export async function intakeMain(argv: readonly string[]): Promise<void> {
+  if (argv[0] === RUN_RECORD_SUBCOMMAND) {
+    await runRunRecord(argv)
+    return
+  }
   const busPath = intakeBusPath()
   if (busPath === null)
     return
@@ -279,7 +299,7 @@ async function main(): Promise<void> {
     const shard = windowShardOfRun(db, process.env, new Date())
     if (shard !== null)
       process.env[WINDOW_SHARD_VARIABLE] = shard
-    await runBusIntake(db, process.argv.slice(2), clientAdapter().ownSession(process.env) ?? undefined)
+    await runBusIntake(db, argv, clientAdapter().ownSession(process.env) ?? undefined)
   }
   finally {
     db.close()
@@ -287,4 +307,4 @@ async function main(): Promise<void> {
 }
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url))
-  await main()
+  await intakeMain(process.argv.slice(2))

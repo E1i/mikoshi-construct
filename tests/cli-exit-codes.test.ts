@@ -171,6 +171,13 @@ describe.concurrent('every command exits with the code it exits with today, as a
     expect(await say()).toBe(2)
   })
 
+  it('run-record: recorded 0, refused 2', async () => {
+    const w = world()
+    const record = async (text: string): Promise<number | null> => (await runCli(['run-record', text, '--dir', w.dir], w.home, { CONSTRUCT_BUS_DB: path.join(w.home, 'no-bus.db') })).status
+    expect(await record(JSON.stringify({ run: 'wf_1', at: '2026-11-10T11:00:00.000Z', task: 'a task', effort: 'low', status: 'done', rung: 'low', attempts: [{ rung: 1, effort: 'low', outcome: 'passed', reason: '' }], agents: 1, tokens: 10, toolUses: 2, seconds: 30 }))).toBe(0)
+    expect(await record('{"undeclared":true}')).toBe(2)
+  })
+
   it('soulkill and its aliases: 0, with and without --json', async () => {
     const w = (await initialised())
     for (const command of ['soulkill', 'inspect', 'capture'])
