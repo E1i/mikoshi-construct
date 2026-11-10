@@ -22,7 +22,9 @@ const TRAILING_QUOTES = /['");]+$/
 const HOME_REFERENCE = /^~(?:\/|$)|\$\{?HOME\b/
 const NOT_A_PLAIN_PATH = /[:*?$`()|[\]+^\\'"]/
 const PATTERN_FLAG = /^-[a-zA-Z]*[eEF]$/
-const QUOTE_LED = /^(?:[\w-]+=)?(?:['"]\\?['"]|\\['"])/
+const QUOTE_LED = /^(?:[\w-]+=)?['"]['"]/
+const GREP = /^[ef]?grep$/
+const COMMAND_SEPARATOR = /^(?:&&|\|\||;|\|)$/
 const CURRENT_DIRECTORY = /^\.\//
 const SCOPE_GLOB_TAIL = /\/\*\*$/
 const TRAILING_SLASHES = /\/+$/
@@ -53,13 +55,24 @@ function isPlainRelativePath(token: string): boolean {
   return token.includes('/') && !token.startsWith('-') && !path.isAbsolute(token) && !HOME_REFERENCE.test(token) && !NOT_A_PLAIN_PATH.test(token)
 }
 
-function followsPatternFlag(index: number, tokens: readonly string[]): boolean {
-  return index > 0 && PATTERN_FLAG.test(tokens[index - 1] ?? '')
+function grepPatternIndexes(tokens: readonly string[]): Set<number> {
+  const patterns = new Set<number>()
+  let inGrep = false
+  tokens.forEach((token, index) => {
+    if (COMMAND_SEPARATOR.test(token))
+      inGrep = false
+    else if (GREP.test(token))
+      inGrep = true
+    else if (inGrep && PATTERN_FLAG.test(token))
+      patterns.add(index + 1)
+  })
+  return patterns
 }
 
 export function namedPaths(run: string): string[] {
   const tokens = unnegated(run).replace(TEST_NAME_ARGUMENT, ' ').replace(OUTPUT_REDIRECT, ' ').split(/\s+/)
-  const operands = tokens.filter((token, index) => !followsPatternFlag(index, tokens) && !QUOTE_LED.test(token))
+  const patterns = grepPatternIndexes(tokens)
+  const operands = tokens.filter((token, index) => !patterns.has(index) && !QUOTE_LED.test(token))
   const named = operands.map(token => token.replace(ARGUMENT_PREFIX, '').replace(TRAILING_QUOTES, '')).filter(isPlainRelativePath)
   return [...new Set(named.map(token => token.replace(CURRENT_DIRECTORY, '').replace(TRAILING_SLASHES, '')))]
 }
