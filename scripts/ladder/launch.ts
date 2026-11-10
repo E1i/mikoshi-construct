@@ -13,6 +13,7 @@ import { createInterface } from 'node:readline'
 import { renderSignal, terminalStyle } from '../../src/ui/signal.js'
 import { ENTRY_RESULT, entryEvent } from '../core/entry.js'
 import { journalText, recordGhostLine } from '../core/journal.js'
+import { constructCommand, pnpmCommand } from '../core/owner-commands.js'
 import { readTasksFile, startedTree } from '../core/tasks.js'
 import { processGit } from '../ports/git.js'
 import { approvedHashPath, approverOf, cardNumberOf, checkApproval, fallsOf, journalEvents, MORSE, morseApprovalOf, revocationOf, revokeEvent, sha256Hex } from './approval.js'
@@ -66,7 +67,7 @@ function changedPathCount(worktree: string): number {
 function treeRefusal(task: Task, tree: StartedTree | undefined, journalPath: string, startSha: string | undefined, baseSha: string): string | undefined {
   const card = `card #${task.card.id}`
   if (tree === undefined)
-    return `${card} has no task:start line in ${journalPath}; start it with pnpm task:start <branch> --card "${task.card.line}" before a Ghost runs on it`
+    return `${card} has no task:start line in ${journalPath}; start it with ${pnpmCommand('task:start', '<branch>', '--card', `"${task.card.line}"`)} before a Ghost runs on it`
   const cut = `the tree ${tree.worktree} that task:start cut for ${card}`
   if (!existsSync(tree.worktree))
     return `${cut} does not exist`
@@ -149,7 +150,7 @@ function twoFallsRefusals(journalPath: string, tasks: Task[], ownerAllows: numbe
     const falls = fallsOf(events, task.card.id)
     return falls.length < FALLS_BEFORE_CUT
       ? []
-      : [`task ${task.id}: card #${task.card.id} fell ${falls.length} times (${falls.join(', ')}); cut the task into sub-cards with construct intake instead of a third Ghost, or relaunch with --owner-allows ${task.card.id} on the owner's explicit decision`]
+      : [`task ${task.id}: card #${task.card.id} fell ${falls.length} times (${falls.join(', ')}); cut the task into sub-cards with ${constructCommand('intake')} instead of a third Ghost, or relaunch with --owner-allows ${task.card.id} on the owner's explicit decision`]
   })
 }
 
