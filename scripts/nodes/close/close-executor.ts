@@ -5,7 +5,6 @@ import type { CardFileStep } from '../../intake/card-archive.js'
 import type { ProcessCwds } from '../../ports/client/contract.js'
 import type { CardSession } from '../answer/answer-source.js'
 import { Buffer } from 'node:buffer'
-import { execFileSync } from 'node:child_process'
 import { existsSync, realpathSync } from 'node:fs'
 import process from 'node:process'
 import { STOPPED_CARD } from '../../core/card-automaton.js'
@@ -16,6 +15,7 @@ import { VERIFICATION_WORDS } from '../../core/verification.js'
 import { archiveCardFile } from '../../intake/card-archive.js'
 import { cardContract, NOT_MINE, notMine } from '../../intake/card-contract.js'
 import { closeWitnessDenial, MERGE_RECORD, WITNESS_REASON } from '../../policy/policy.js'
+import { processGit } from '../../ports/git.js'
 import { FREE_TREE_CAPACITY, liveSessionHolds, parkTree } from '../../ports/worktree.js'
 import { cardSessionOf } from '../answer/answer-source.js'
 
@@ -66,7 +66,7 @@ export interface CloseParts {
 }
 
 function git(repo: string, args: string[]): string {
-  return execFileSync('git', ['-C', repo, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+  return processGit.read(repo, args)
 }
 
 export function failureOf(error: unknown): string {

@@ -3,7 +3,6 @@ import type { ParkedTask, Priority } from '../../../src/card/parking.js'
 import type { ShiftTask } from '../../../src/card/task-file.js'
 import type { Assignment } from '../../core/bus-readings.js'
 import type { LaunchCatch } from './launch-candidates.js'
-import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { parseParkingFile, PRIORITIES, WINDOW_WHO } from '../../../src/card/parking.js'
@@ -14,6 +13,7 @@ import { DEFERRED_CARD, RUNNING_CARD } from '../../core/card-automaton.js'
 import { appendEvent } from '../../core/db.js'
 import { BOARD_ALARM, CARD_ADMITTED, CARD_DROPPED, LANE_ASSIGNED, LANE_OVERLAP, POLICY_DENIED } from '../../core/events.js'
 import { prOf } from '../../core/identifiers.js'
+import { processGit } from '../../ports/git.js'
 import { taskConflicts } from './overlap.js'
 import { sharedAppendFiles } from './shared-files.js'
 
@@ -125,7 +125,7 @@ export function laneCount(root: string): number {
 
 export function mainCheckoutOf(cwd: string): string {
   try {
-    return path.dirname(execFileSync('git', ['-C', cwd, 'rev-parse', '--path-format=absolute', '--git-common-dir'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim())
+    return path.dirname(processGit.read(cwd, ['rev-parse', '--path-format=absolute', '--git-common-dir']).trim())
   }
   catch {
     return cwd

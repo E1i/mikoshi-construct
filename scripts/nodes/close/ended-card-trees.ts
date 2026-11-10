@@ -1,12 +1,12 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { ProcessCwds } from '../../ports/client/contract.js'
-import { execFileSync } from 'node:child_process'
 import { existsSync, realpathSync, rmSync } from 'node:fs'
 import path from 'node:path'
 import { CLOSED_CARD, MERGED_CARD } from '../../core/card-automaton.js'
 import { appendEvent } from '../../core/db.js'
 import { ARTIFACT_REMOVED, BOARD_ALARM } from '../../core/events.js'
 import { LEASED } from '../../core/queue.js'
+import { processGit } from '../../ports/git.js'
 import { cardTreeRoots } from '../../ports/worktree-home.js'
 import { FREE_TREE_CAPACITY } from '../../ports/worktree.js'
 import { cardSessionOf } from '../answer/answer-source.js'
@@ -35,7 +35,7 @@ export interface EndedTree {
 }
 
 function git(repo: string, args: string[]): string {
-  return execFileSync('git', ['-C', repo, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+  return processGit.read(repo, args)
 }
 
 export function gitWorktrees(repo: string, capacity = FREE_TREE_CAPACITY): WorktreeGit {
