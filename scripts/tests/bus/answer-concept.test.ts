@@ -142,7 +142,7 @@ function widenedKeys(made: MergeBench): string[] {
   return (made.db.prepare('SELECT dedupe_key FROM events WHERE type = ?').all(SCOPE_WIDENED) as { dedupe_key: string }[]).map(row => row.dedupe_key)
 }
 
-describe('an answer under a window shard widens within the card\'s concept (D-360, D-371)', () => {
+describe('an answer widens within the card\'s concept (D-360, D-371, D-441 (1))', () => {
   it('under a window shard the Q211 shape commits, pushes and records scope.widened without a stop', async () => {
     const { outcome, published, made } = await answerLeaving(Q211_SHAPE, true)
 
@@ -185,12 +185,21 @@ describe('an answer under a window shard widens within the card\'s concept (D-36
     }
   })
 
-  it('without a window shard the Q211 shape stops as before', async () => {
+  it('without a window shard the Q211 shape widens the same way (D-441 (1))', async () => {
     const { outcome, published, made } = await answerLeaving(Q211_SHAPE, false)
 
-    expect(outcome).toMatchObject({ kind: 'stopped', reason: 'question.owner' })
-    expect((outcome as { detail: string }).detail).toContain(`left changes to ${Q211_SHAPE.join(', ')}, outside`)
-    expect(published).toEqual([])
-    expect(eventsOf(made.db, SCOPE_WIDENED)).toEqual([])
+    expect(outcome).toMatchObject({ kind: 'answered', head: sha('e') })
+    expect(published).toEqual([`feat/card-${CARD_ID}`])
+    expect(eventsOf(made.db, SCOPE_WIDENED)).toEqual([{ paths: Q211_SHAPE, admission: expect.any(Number) as unknown, detail: CONCEPT_WIDENING_REASON }])
+  })
+
+  it('without a window shard a .claude file, an owner path or a file that imports no touch still stops the answer', async () => {
+    for (const refused of [CLAUDE_FILE, OWNER_IMPORTER, R1_IMPORTER, UNRELATED]) {
+      const { outcome, published } = await answerLeaving([IMPORTER, refused], false)
+
+      expect(outcome).toMatchObject({ kind: 'stopped', reason: 'question.owner' })
+      expect((outcome as { detail: string }).detail).toContain(`left changes to ${refused}, outside`)
+      expect(published).toEqual([])
+    }
   })
 })

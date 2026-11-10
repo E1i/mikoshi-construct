@@ -3,7 +3,7 @@ import { SANDBOX_FAILING_LIST } from '../../ci/sandbox-failing.js'
 
 const REPOSITORY_ROOT = path.resolve(import.meta.dirname, '../../..')
 const TEST_KEYED_RECORDS: ReadonlySet<string> = new Set([path.relative(REPOSITORY_ROOT, SANDBOX_FAILING_LIST)])
-export const CONCEPT_WIDENING_REASON = 'within the card\'s concept under a window shard (D-360): a direct importer of a touched file, a file under a test root or a test-keyed record'
+export const CONCEPT_WIDENING_REASON = 'within the card\'s concept, the way launch follows its touches (D-360, D-441 (1)), with no window shard and no owner wait: a direct importer of a touched file, a file under a test root or a test-keyed record'
 
 export interface CardConcept {
   touches: readonly string[]

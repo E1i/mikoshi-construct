@@ -63,6 +63,7 @@ export interface Answered {
   input?: AnswerInput
   steps?: StepSeconds
   widenedInConcept?: string[]
+  noViolationFreePath?: boolean
 }
 
 export function tokensOf(usage: Usage | null): number | null {
@@ -183,6 +184,25 @@ export function unmergedQuestion(card: CardSession, gap: FreshBaseGap): string {
 }
 
 export const MERGE_STEP = '.merge'
+const VIOLATION_STEP = '.violation'
+export const KNOWN_VIOLATIONS = '.dependency-cruiser-known-violations.json'
+
+function onlyAGrownViolationBaseline(outside: readonly string[]): boolean {
+  return outside.length === 1 && outside[0] === KNOWN_VIOLATIONS
+}
+
+function grownBaselineLine(cardId: number): string {
+  return `card #${cardId}: the answer grew ${KNOWN_VIOLATIONS}, its only change outside the touches; the bus dropped that change and sent the answer back to find a path without the new dependency violation (owner s591, Q269)`
+}
+
+function violationPrompt(lease: Lease, card: CardSession, ownerQuestion: string): string {
+  return [
+    `[answer:${lease.taskKey}]`,
+    `Your answer added an entry to ${KNOWN_VIOLATIONS}: a new dependency violation, and that file is outside the touches of card #${lease.cardId}. The bus dropped that change in ${card.worktree} and pushed nothing.`,
+    `Your part: find a path without the violation — move the code, invert the import, or reach the dependency through a module the policy allows — and leave ${KNOWN_VIOLATIONS} as it is.`,
+    `Then repeat the window gate of D-194 in ${card.worktree} and end the session; the bus pushes. Only if no path without the violation exists, write that for the owner, one line naming the import that cannot be avoided, to ${ownerQuestion}; the bus then pushes nothing.`,
+  ].join('\n')
+}
 
 function measuredOf(stdoutPaths: readonly string[]): { tokens?: number | null } {
   const results = stdoutPaths.map(streamReading).filter(result => result.end !== 'missing')
@@ -476,18 +496,38 @@ function sessionAnswerer(dir: string, tools: AnswererTools): Answerer {
     const steps = ['']
     const ownerAfter = (step: string): string | null => ownerQuestionIn(ownerQuestion) ?? refusedOwnerQuestionIn(stdoutOf(step), ownerQuestion)
     const widenedInConcept = new Set<string>()
-    const followedOrRefused = (): { followed: string[], widened: string[] } => {
+    let noViolationFreePath = false
+    const scopeOfTheTree = (): { followed: string[], widened: string[], outside: string[] } => {
       const outside = request.outsideTouches?.(tools.pending?.(card) ?? []) ?? []
       if (outside.length === 0)
-        return { followed: [], widened: [] }
+        return { followed: [], widened: [], outside: [] }
       const touched = answerFollowed(git, card.worktree, outside, request.lease.cardId, cardBody, (tools.coverage ?? (tree => worktreeCoverage(git, tree.worktree)))(card))
       const concept = request.concept
       const within = concept === undefined || concept === null
         ? { widened: [], outside: touched.outside }
         : conceptWidening(touched.outside, concept, CONCEPT_RULES, () => (tools.importers ?? (tree => worktreeImporters(git, tree.worktree)))(card))
-      if (within.outside.length > 0)
-        throw new AnswerOutsideTouches(request.lease, within.outside)
-      return { followed: touched.followed, widened: within.widened }
+      return { followed: touched.followed, widened: within.widened, outside: within.outside }
+    }
+    const followedOrRefused = (): { followed: string[], widened: string[] } => {
+      const { followed, widened, outside } = scopeOfTheTree()
+      if (outside.length > 0)
+        throw new AnswerOutsideTouches(request.lease, outside)
+      return { followed, widened }
+    }
+    const withoutTheNewViolation = async (): Promise<string | null> => {
+      if (!onlyAGrownViolationBaseline(scopeOfTheTree().outside))
+        return null
+      git(card.worktree, ['checkout', 'HEAD', '--', KNOWN_VIOLATIONS])
+      console.log(`${PREFIX}${grownBaselineLine(request.lease.cardId)}`)
+      steps.push(VIOLATION_STEP)
+      const code = await run(invocationOf('resume', violationPrompt(request.lease, card, ownerQuestion)), VIOLATION_STEP)
+      const owner = ownerAfter(VIOLATION_STEP)
+      noViolationFreePath = owner !== null
+      if (owner !== null)
+        return owner
+      if (code !== 0)
+        throw new Error(`the answer session ${session} exited ${code} looking for a path without the new dependency violation`)
+      return null
     }
     const pushTree = (): FreshBaseGap | null => {
       const { followed, widened } = followedOrRefused()
@@ -499,6 +539,9 @@ function sessionAnswerer(dir: string, tools: AnswererTools): Answerer {
       return gap
     }
     const publish = async (): Promise<string | null> => {
+      const noPath = await withoutTheNewViolation()
+      if (noPath !== null)
+        return noPath
       const gap = pushTree()
       if (gap === null)
         return null
@@ -518,7 +561,7 @@ function sessionAnswerer(dir: string, tools: AnswererTools): Answerer {
       const atLine = atContextWarn(tools, session, size)
       const owner = askedUnlessRetried(request, ownerAfter('')) ?? (kept || atLine ? null : await publish())
       const measured = measuredOf(steps.map(stdoutOf))
-      return { session, resumed, atContextWarn: atLine, before, after: tools.remoteHead(card), owner, ...measured, input: { prompt, cardBody }, steps: timer.steps(), ...(widenedInConcept.size === 0 ? {} : { widenedInConcept: [...widenedInConcept] }) }
+      return { session, resumed, atContextWarn: atLine, before, after: tools.remoteHead(card), owner, ...measured, input: { prompt, cardBody }, steps: timer.steps(), ...(widenedInConcept.size === 0 ? {} : { widenedInConcept: [...widenedInConcept] }), ...(noViolationFreePath ? { noViolationFreePath } : {}) }
     }
     finally {
       request.stepped?.(timer.steps())

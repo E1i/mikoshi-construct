@@ -20,7 +20,6 @@ import { assertHeld, completeTask, StaleLease, waitTask } from '../../core/lease
 import { timeoutUnderLoadOutside } from '../../core/observations.js'
 import { answerOnAnOldCardBody, DOWNGRADE_WAIT_OPEN, downgradeWaitOpenOn, LEASED, QUEUED } from '../../core/queue.js'
 import { OWNER_EVEN_UNDER_THE_DECISION } from '../../policy/policy.js'
-import { activeWindowShards } from '../../policy/shards.js'
 import { matchGlob } from '../../policy/shredder/glob.js'
 import { ownerGlobs } from '../../policy/widening.js'
 import { cardTreeOf, CardTreeRefused, realCardTrees } from '../../ports/card-tree.js'
@@ -238,7 +237,7 @@ export class AnswerExecutor {
 
   private conceptOf(lease: Lease): CardConcept | null {
     const scope = admittedScopeOf(this.parts.db, lease.cardId)
-    if (scope === null || activeWindowShards(this.parts.db, this.parts.clock()).length === 0)
+    if (scope === null)
       return null
     return { touches: scope.touches, creates: scope.creates, ownerPath: file => this.outcomes.namesAnOwnerPath([file]) }
   }
@@ -269,6 +268,8 @@ export class AnswerExecutor {
   private async settled(lease: Lease, source: Answering, widened: Widened | null, card: CardSession, answered: Answered, minutes: number): Promise<AnswerOutcome> {
     const scope = [...(widened === null ? [] : [widened.event]), ...this.widenedInConcept(lease, answered)]
     if (answered.after === null || answered.after === answered.before) {
+      if (answered.owner !== null && answered.noViolationFreePath === true)
+        return this.outcomes.ownersStop(lease, answered.owner, scope)
       if (answered.owner !== null && !timeoutUnderLoadOutside(answered.owner, this.outsideTouchesOf(lease, widened)))
         return this.questions.staleQuestion(lease, answered.owner) ?? this.askedTwiceInARow(lease, source, answered.owner, scope) ?? await this.questions.asked(lease, answered.owner, widened, card, this.decidedRound(lease, widened, card))
       if (this.dirty(card))

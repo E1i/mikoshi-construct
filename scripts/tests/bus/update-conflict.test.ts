@@ -116,20 +116,21 @@ describe('the update node on a pull request in conflict with main', () => {
     bench.close()
   })
 
-  it('a conflict inside the card touches stops the card with question.owner', () => {
+  it('a conflict with main inside the touches of the card goes to the answer and opens no owner wait', () => {
     const { bench, conflict, cardId, lease, executor } = conflictBench(OWN, 1094)
     const leased = lease()!
 
     const outcome = executor.update(leased)
 
-    expect(outcome).toMatchObject({ kind: 'stopped', reason: 'question.owner', detail: expect.stringContaining(OWN) })
-    expect(eventsOf(bench.db, CARD_STOPPED)).toMatchObject([{ reason: 'question.owner', detail: expect.stringContaining(OWN) }])
-    expect(eventsOf(bench.db, OWNER_WAIT_OPENED)).toMatchObject([{ need: 'decision', card: cardId, pr: 1094 }])
+    expect(outcome).toMatchObject({ kind: 'denied', denial: { reason: 'merge_refused', detail: expect.stringContaining(`inside the card's own touches: ${OWN}`) } })
+    expect(eventsOf(bench.db, CARD_STOPPED)).toEqual([])
+    expect(eventsOf(bench.db, OWNER_WAIT_OPENED)).toEqual([])
     expect(eventsOf(bench.db, UPDATE_DONE)).toEqual([])
     expect(git(conflict.tree, ['rev-parse', 'HEAD'])).toBe(conflict.head)
     expect(git(conflict.tree, ['status', '--porcelain'])).toBe('')
     expect(git(conflict.origin, ['rev-parse', `refs/heads/${conflict.branch}`])).toBe(conflict.head)
-    expect(taskState(bench.db, leased.taskKey).state).toBe('completed')
+    expect(taskState(bench.db, leased.taskKey).state).toBe('withdrawn')
+    expect(answerCandidates(bench.db, bench.clock.now().toISOString())).toMatchObject([{ queue: 'answer', cardId, pr: 1094, head: conflict.head }])
     bench.close()
   })
 
