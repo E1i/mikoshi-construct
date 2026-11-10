@@ -17,11 +17,11 @@ import { readMilestones } from '../../src/manifest.js'
 import { PLAIN_STYLE, renderSignal, terminalStyle } from '../../src/ui/signal.js'
 import { NOT_A_BACKFILL } from '../core/backfill-source.js'
 import { unsatisfiedDependencies } from '../core/card-automaton.js'
+import { busAdmittedBodies } from '../core/card-bodies.js'
 import { appendEvent, defaultBusPath, inTransaction, openBus } from '../core/db.js'
 import { ENTRY_RESULT, ENTRY_SCHEMA } from '../core/entry.js'
 import { CARD_ADMITTED, CARD_STARTED } from '../core/events.js'
 import { cardBodyAdmissionOf, LEASED } from '../core/queue.js'
-import { busCardBodies } from '../intake/parking-reads.js'
 import { slotsOf, slotsVariable } from '../supervisor/scheduler.js'
 import { STARTER_ACTOR, windowOpenPrs } from '../window/window-prs.js'
 import { SESSION_VARIABLE } from './client/claude/adapter.js'
@@ -404,7 +404,7 @@ export function realDeps(): TaskStartDeps {
     now: () => new Date(),
     session: clientAdapter().ownSession(process.env) ?? undefined,
     treeOf: id => cardTree(process.env, defaultBusPath(), id),
-    cardBody: busCardBodies(defaultBusPath()),
+    cardBody: busAdmittedBodies(defaultBusPath()),
     style: terminalStyle(process.stdout.isTTY, process.env.NO_COLOR),
     windowLimit: () => slotsOf(WINDOW_LIMIT_SLOTS, process.env),
   }
