@@ -27,7 +27,7 @@ import { conflictingCardOf, mainKeptInTheTree } from '../../ports/main-merge.js'
 import { prepareBeforeSession, prepareTree } from '../../ports/prepare-tree.js'
 import { MAIN_BRANCH } from '../../ports/snapshot.js'
 import { admittedScopeOf, decisionAnsweringRepeat, ownerHoldOf } from './answer-source.js'
-import { AnswerOutsideTouches, CardTreeGone, liveSessionIn, PREFIX, secondsOf } from './answerer.js'
+import { AnswerOutsideTouches, CardTreeGone, liveSessionIn, PREFIX, secondsOf, unprovedFindings } from './answerer.js'
 import { CONCEPT_WIDENING_REASON } from './concept-scope.js'
 import { AnswerOutcomes, AnswerPublishing, AnswerSources, leftNoNewHead, OwnerQuestions, treeDirtyOf, treeMergeOf } from './duties/index.js'
 
@@ -83,6 +83,16 @@ export function questionAskedTwiceLine(cardId: number, question: string): string
 }
 
 const CARD_PATHS: CardPaths = { pathsIn, ownerBoundary: ownersEvenUnderTheDecision, wideningAsked: scopeWideningAsked }
+
+export function findingsGivenByAReview(source: Answering | null): string[] {
+  return source?.kind === 'changes' && source.reentry !== true ? source.findings : []
+}
+
+export function unprovedFindingsLine(cardId: number, answered: Pick<Answered, 'before' | 'after'>, unproved: readonly string[]): string {
+  const pushed = answered.after !== null && answered.after !== answered.before
+  const fate = pushed ? `its head ${answered.after} was pushed without them and stays on the pull request for the next review` : `the bus pushed nothing from it, so the answer goes again on ${answered.before ?? 'the same head'}`
+  return `card #${cardId}: the answer leaves ${unproved.length} given finding${unproved.length === 1 ? '' : 's'} unproved, so it is refused; ${fate}: ${unproved.join('; ')}`
+}
 
 export class AnswerExecutor {
   private readonly outcomes: AnswerOutcomes
@@ -143,14 +153,15 @@ export class AnswerExecutor {
         return this.waiting(lease, card, merge.why)
       const answering = source ?? this.sources.conflict(lease, card, merge)
       const sessionStart = this.parts.clock().getTime()
-      let answered = await this.session(lease, answering, widened, card, false, leased)
+      const prove = findingsGivenByAReview(source)
+      let answered = await this.session(lease, answering, widened, card, false, leased, prove)
       for (let restarts = 0; endedOnContextWarn(answered) && restarts < ANSWER_RESTARTS; restarts += 1)
-        answered = await this.session(lease, answering, widened, card, true, this.parts.clock().getTime())
+        answered = await this.session(lease, answering, widened, card, true, this.parts.clock().getTime(), prove)
       if ('kind' in answered)
         return this.refusedOrDenied(lease, answered, widened)
       if (endedOnContextWarn(answered))
         return this.outcomes.stopped(lease, 'fault', `continuation-limit: card #${lease.cardId} answer session ${answered.session} stopped at the context warn; ${ANSWER_RESTARTS} of ${ANSWER_RESTARTS} continuations used (D-104), the card is not continued again and the bus pushed nothing from it`, { code: 'continuation-limit' }, widened === null ? [] : [widened.event])
-      return await this.settled(lease, answering, widened, card, answered, minutesSince(sessionStart, this.parts.clock().getTime()))
+      return await this.settled(lease, answering, widened, card, answered, minutesSince(sessionStart, this.parts.clock().getTime()), prove)
     }
     catch (error) {
       if (error instanceof StaleLease)
@@ -201,7 +212,7 @@ export class AnswerExecutor {
     }
   }
 
-  private async session(lease: Lease, source: AnswerSource, widened: Widened | null, card: CardSession, fresh: boolean, leased: number): Promise<Answered | AnswerDenial> {
+  private async session(lease: Lease, source: AnswerSource, widened: Widened | null, card: CardSession, fresh: boolean, leased: number, prove: readonly string[]): Promise<Answered | AnswerDenial> {
     const preparing = this.parts.clock().getTime()
     const unprepared = prepareBeforeSession(card.worktree, this.parts.prepare ?? prepareTree)
     if (unprepared !== null)
@@ -210,7 +221,7 @@ export class AnswerExecutor {
     const beforeTheSession = { lease: secondsOf(preparing - leased), tree: secondsOf(prepared - preparing) }
     this.recordSteps(lease, preparing, beforeTheSession)
     try {
-      const answered = await this.parts.answerer({ lease, source, widened: widened?.reason ?? null, card, fresh, outsideTouches: this.outsideTouchesOf(lease, widened), concept: this.conceptOf(lease), stepped: steps => this.recordSteps(lease, preparing, steps) })
+      const answered = await this.parts.answerer({ lease, source, widened: widened?.reason ?? null, card, fresh, outsideTouches: this.outsideTouchesOf(lease, widened), concept: this.conceptOf(lease), findingsToProve: prove, stepped: steps => this.recordSteps(lease, preparing, steps) })
       return answered.steps === undefined ? answered : { ...answered, steps: { ...beforeTheSession, ...answered.steps } }
     }
     catch (error) {
@@ -265,13 +276,16 @@ export class AnswerExecutor {
     return (this.parts.dirty ?? treeDirtyOf)(card)
   }
 
-  private async settled(lease: Lease, source: Answering, widened: Widened | null, card: CardSession, answered: Answered, minutes: number): Promise<AnswerOutcome> {
+  private async settled(lease: Lease, source: Answering, widened: Widened | null, card: CardSession, answered: Answered, minutes: number, prove: readonly string[]): Promise<AnswerOutcome> {
+    const unproved = answered.owner === null ? unprovedFindings(prove, answered.proofs) : []
+    if (unproved.length > 0)
+      return this.outcomes.denied(lease, { kind: 'technical', reason: 'answer_failed', detail: unprovedFindingsLine(lease.cardId, answered, unproved) })
     const scope = [...(widened === null ? [] : [widened.event]), ...this.widenedInConcept(lease, answered)]
     if (answered.after === null || answered.after === answered.before) {
       if (answered.owner !== null && answered.noViolationFreePath === true)
         return this.outcomes.ownersStop(lease, answered.owner, scope)
       if (answered.owner !== null && !timeoutUnderLoadOutside(answered.owner, this.outsideTouchesOf(lease, widened)))
-        return this.questions.staleQuestion(lease, answered.owner) ?? this.askedTwiceInARow(lease, source, answered.owner, scope) ?? await this.questions.asked(lease, answered.owner, widened, card, this.decidedRound(lease, widened, card))
+        return this.questions.staleQuestion(lease, answered.owner) ?? this.askedTwiceInARow(lease, source, answered.owner, scope) ?? await this.questions.asked(lease, answered.owner, widened, card, this.decidedRound(lease, widened, card, prove))
       if (this.dirty(card))
         return this.publishing.leftDirty(lease, card, answered.session)
       return this.publishing.published(lease, source, card, answered, minutes, scope) ?? this.publishing.leftNothing(lease, answered, scope)
@@ -290,11 +304,11 @@ export class AnswerExecutor {
     return this.outcomes.ownersStop(lease, question, scope, questionAskedTwiceLine(lease.cardId, question))
   }
 
-  private decidedRound(lease: Lease, widened: Widened | null, card: CardSession): DecidedRound {
+  private decidedRound(lease: Lease, widened: Widened | null, card: CardSession, prove: readonly string[]): DecidedRound {
     return {
-      run: async source => this.session(lease, source, widened, card, false, this.parts.clock().getTime()),
+      run: async source => this.session(lease, source, widened, card, false, this.parts.clock().getTime(), prove),
       refusedOrDenied: denial => this.refusedOrDenied(lease, denial, widened),
-      settled: async (source, answered) => this.settled(lease, source, widened, card, answered, 0),
+      settled: async (source, answered) => this.settled(lease, source, widened, card, answered, 0, prove),
       dirty: () => this.dirty(card),
     }
   }

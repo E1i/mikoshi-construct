@@ -50,6 +50,8 @@ import { startStillOpen, windowSessionEndGround } from './window-session-end.js'
 export { SESSION_VARIABLE } from '../ports/client/claude/adapter.js'
 
 const AMEND_WITNESS_SEPARATOR = '\n'
+export const HEAD_WORD = 'head'
+const AT_HEAD_OF_A_PR = new RegExp(`\\bPR #(\\d+) at ${HEAD_WORD}(?![\\w-])`, 'g')
 const HELD_WITHOUT_STATE = 'held'
 const CARD_STATES = `
   SELECT card_id, state FROM cards WHERE state IS NOT NULL
@@ -73,7 +75,7 @@ export const ALLOW_MERGE_RECORD = 'architecture/decisions/window-allow-merge.md'
 const RULE_ACCEPTED = /^Status: accepted\b/m
 export const REQUEST_RULE = 'window_request'
 export const PREFIX = '[bus:request] '
-export const USAGE = `usage: pnpm bus:request tree.cut --card <N> | amend --card <N> [--touches +<path>,-<path>] [--add-witness <witness>]... [--remove-witness <witness>]... [--owner-words <the owner's words>] [--depends +#<N>,-#<N>] [--priority p0|p1|p2|none] [--auto-confirm] | allow-merge --pr <N> --head <sha> --dry-run <reviewer session> | close-pr|reopen-pr --pr <N> --card <N> --reason <text> | pr.body --pr <N> [--file <absolute path in the card tree>] | ci.rerun --pr <N> | requeue --task <task_key> [--keep-tree] | mode --set ${FACTORY_MODES.join('|')} | plan --op ${[...PLAN_OPS.keys()].join('|')} [--plan <id>] [--title <text>] [--goal <text>] [--file <absolute plan file>] [--gate <word>] [--card <N>] | owner.wait --need ${OWNER_WAIT_NEEDS.join('|')} --text <what the owner decides> [--command <line>] [--card <N>] [--pr <N>] | owner.wait.close --id Q<N> --answer <answer> [--from ${ANSWER_SOURCE}] | owner.wait.close --id Q<N> --from ${ANSWER_SOURCE} | decisions:add --from ${ANSWER_SOURCE} [--supersedes D-M]... [--card #N]... [--until <YYYY-MM-DDTHH:MMZ>] "[owner] <decision>" | hold --card <N> --reason <why the owner holds it> | release --card <N> | takeover --card <N> --reason <why the bus has no route for it> | drop --card <N> --reason <why a card with no body is dropped> | numbers.foreign --ids <card ids of another factory's row, comma separated>`
+export const USAGE = `usage: pnpm bus:request tree.cut --card <N> | amend --card <N> [--touches +<path>,-<path>] [--add-witness <witness>]... [--remove-witness <witness>]... [--owner-words <the owner's words>] [--depends +#<N>,-#<N>] [--priority p0|p1|p2|none] [--auto-confirm] | allow-merge --pr <N> --head <sha>|${HEAD_WORD} --dry-run <reviewer session> | close-pr|reopen-pr --pr <N> --card <N> --reason <text> | pr.body --pr <N> [--file <absolute path in the card tree>] | ci.rerun --pr <N> | requeue --task <task_key> [--keep-tree] | mode --set ${FACTORY_MODES.join('|')} | plan --op ${[...PLAN_OPS.keys()].join('|')} [--plan <id>] [--title <text>] [--goal <text>] [--file <absolute plan file>] [--gate <word>] [--card <N>] | owner.wait --need ${OWNER_WAIT_NEEDS.join('|')} --text <what the owner decides> [--command <line>] [--card <N>] [--pr <N>] | owner.wait.close --id Q<N> --answer <answer> [--from ${ANSWER_SOURCE}] | owner.wait.close --id Q<N> --from ${ANSWER_SOURCE} | decisions:add --from ${ANSWER_SOURCE} [--supersedes D-M]... [--card #N]... [--until <YYYY-MM-DDTHH:MMZ>] "[owner] <decision>" | hold --card <N> --reason <why the owner holds it> | release --card <N> | takeover --card <N> --reason <why the bus has no route for it> | drop --card <N> --reason <why a card with no body is dropped> | numbers.foreign --ids <card ids of another factory's row, comma separated>`
 
 const BY_HAND = 'by-hand'
 const noTool = (what: string): Executed => ({ done: false, why: `this bus was built with no tool to ${what}` })
@@ -324,13 +326,14 @@ export class WindowRequests {
     if (from !== ANSWER_SOURCE)
       return { done: false, why: `decisions:add --from ${from} is not ${ANSWER_SOURCE}; a decision comes only from the owner's word that pnpm owner:say put into the owner channel, never from an owner order file` }
     const words = decision.startsWith(OWNER_SOURCE) ? decision.slice(OWNER_SOURCE.length).trim() : decision
-    if (words === '')
-      return { done: false, why: `decisions:add: an empty decision; the bus writes only the owner's own words` }
+    const filled = [...decision.matchAll(AT_HEAD_OF_A_PR)].some(match => this.observed(Number(match[1]))?.head == null) ? null : decision.replace(AT_HEAD_OF_A_PR, (_, pr: string) => `PR #${pr} at ${this.observed(Number(pr))!.head!}`)
+    if (words === '' || filled === null)
+      return { done: false, why: words === '' ? `decisions:add: an empty decision; the bus writes only the owner's own words` : `decisions:add: the decision names a PR at ${HEAD_WORD} whose head the bus has not observed, so the bus has no sha to put in` }
     const word = consumeOwnerWord(this.ownerChannel, words)
     if (word === null)
       return { done: false, why: OWNER_WORD_NOT_FOUND }
     const settled = [...settledCards(legacyHistory(this.db), cardStatesOf(this.db))].map(card => `#${card}`)
-    const written = this.writtenDecision([...flagsOf('--supersedes', payload.supersedes), ...flagsOf('--card', payload.cards), ...flagsOf('--until', payload.until), ...flagsOf('--settled', settled), decision])
+    const written = this.writtenDecision([...flagsOf('--supersedes', payload.supersedes), ...flagsOf('--card', payload.cards), ...flagsOf('--until', payload.until), ...flagsOf('--settled', settled), filled])
     const done = written.code === 0
     const fate = done ? 'used' : word.release() ? 'left unused' : unreleasedWord(word.file)
     return { done, why: [...written.lines, `owner word ${word.file} ${fate}`].join('; ') }
@@ -475,11 +478,10 @@ export class WindowRequests {
   }
 
   private allowMerge(payload: Record<string, unknown>): Executed {
-    const pr = prOf(payload.pr)
-    const head = isFullSha(payload.head) ? payload.head : null
-    const session = text(payload.dry_run)
+    const [pr, session] = [prOf(payload.pr), text(payload.dry_run)]
+    const head = payload.head === HEAD_WORD && pr !== null ? this.observed(pr)?.head ?? null : isFullSha(payload.head) ? payload.head : null
     if (pr === null || head === null || session === null)
-      return { done: false, why: 'allow-merge needs a pr, a full head sha and the reviewer session of its dry run' }
+      return { done: false, why: `allow-merge needs a pr, a full head sha or ${HEAD_WORD} on an observed head, and the reviewer session of its dry run` }
     const now = this.clock()
     const inForce = decisionsInForceAt(this.db, now)
     if (!allowMergeRuleInForce(this.repository))
@@ -849,10 +851,8 @@ export function requestOf(argv: readonly string[]): Record<string, unknown> | nu
   if (kind === 'amend')
     return amendRequestOf(argv)
   if (kind === 'allow-merge') {
-    const pr = prOf(Number(flag(argv, '--pr')))
-    const head = flag(argv, '--head')
-    const dryRun = flag(argv, '--dry-run')
-    return pr === null || !isFullSha(head) || dryRun === undefined ? null : { kind, pr, head, dry_run: dryRun }
+    const [pr, head, dryRun] = [prOf(Number(flag(argv, '--pr'))), flag(argv, '--head'), flag(argv, '--dry-run')]
+    return pr === null || (head !== HEAD_WORD && !isFullSha(head)) || dryRun === undefined ? null : { kind, pr, head, dry_run: dryRun }
   }
   if (kind === 'close-pr' || kind === 'reopen-pr') {
     const [pr, card, reason] = [prOf(Number(flag(argv, '--pr'))), cardIdOf(flag(argv, '--card')), flag(argv, '--reason')]
