@@ -1,5 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import type { CardEventPort } from '../src/commands/intake/index.js'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -44,8 +45,9 @@ function ids(cards: readonly number[]): string {
   return cards.length === 0 ? '—' : cards.map(card => `#${card}`).join(' ')
 }
 
-function admit(w: World, id: number, links: { depends?: number[], blocks?: number[] } = {}): void {
-  const file = path.join(w.parking, `${id}.md`)
+function admit(w: World, id: number, links: { depends?: number[], blocks?: number[] } = {}, lane = '.'): void {
+  mkdirSync(path.join(w.parking, lane), { recursive: true })
+  const file = path.join(w.parking, lane, `${id}.md`)
   writeFileSync(file, `card: #${id} card-${id} [implement/black-ice/S/cheap/owner] · depends ${ids(links.depends ?? [])} · blocks ${ids(links.blocks ?? [])}\nbranch: feat/card-${id}\ntouches: src/a.ts\ncontinue: stop\nwho: window\n\nDo the thing.\n`)
   const result = runAdmit({ file, dir: w.repo, dryRun: false, autoConfirm: true, parkingRoot: w.parking, events: w.ports.cardEvents, cardStates: w.ports.cardStates, admissions: w.ports.cardAdmissions }, () => AT)
   expect(result.status).toBe('admitted')
@@ -58,8 +60,8 @@ function slicedStub(w: World): void {
   writeFileSync(path.join(w.parking, 'sliced', `${PARENT}.md`), `sliced into #${TAKER}, #${SIBLING}\n`)
 }
 
-function drop(w: World, dryRun = false) {
-  return runMove({ move: `#${PARENT}`, to: 'sliced', draft: undefined, taken: undefined, admit: undefined, parking: w.parking, dryRun, events: w.ports.cardEvents, admissions: w.ports.cardAdmissions, cardStates: w.ports.cardStates }, () => DROPPED_AT)
+function drop(w: World, dryRun = false, events: CardEventPort = w.ports.cardEvents) {
+  return runMove({ move: `#${PARENT}`, to: 'sliced', draft: undefined, taken: undefined, admit: undefined, parking: w.parking, dryRun, events, admissions: w.ports.cardAdmissions, cardStates: w.ports.cardStates }, () => DROPPED_AT)
 }
 
 function printed(result: ReturnType<typeof runMove>): { lines: string[], exit: number } {
@@ -70,6 +72,15 @@ function printed(result: ReturnType<typeof runMove>): { lines: string[], exit: n
 
 function eventCount(w: World): unknown {
   return w.db.prepare('SELECT count(*) AS n FROM events').get()
+}
+
+function latestAdmission(w: World, card: number): Record<string, unknown> {
+  const row = w.db.prepare(`SELECT payload FROM events WHERE type = '${CARD_ADMITTED}' AND card_id = ? ORDER BY id DESC LIMIT 1`).get(card) as { payload: string }
+  return JSON.parse(row.payload) as Record<string, unknown>
+}
+
+function admissionCount(w: World, card: number): unknown {
+  return w.db.prepare(`SELECT count(*) AS n FROM events WHERE type = '${CARD_ADMITTED}' AND card_id = ?`).get(card)
 }
 
 describe('a sliced drop and the cards that depend on the dropped card', () => {
@@ -114,6 +125,75 @@ describe('a sliced drop and the cards that depend on the dropped card', () => {
       expect(printed(result)).toEqual({ lines: [expect.stringContaining(`#${DEPENDENT} depend on #${PARENT}`)], exit: 1 })
       expect(eventCount(w)).toEqual(before)
       expect(w.db.prepare(`SELECT state FROM cards WHERE card_id = ?`).get(PARENT)).not.toEqual({ state: 'dropped' })
+    }
+    finally {
+      w.db.close()
+    }
+  })
+
+  it('a re-pointed dependent keeps the lane its earlier admission carried', () => {
+    const w = world()
+    try {
+      admit(w, PARENT)
+      admit(w, DEPENDENT, { depends: [PARENT] }, 'lane-1')
+      admit(w, TAKER, { blocks: [DEPENDENT] })
+      admit(w, SIBLING)
+      slicedStub(w)
+      const lane = latestAdmission(w, DEPENDENT).lane
+      expect(typeof lane).toBe('string')
+      expect(drop(w).status).toBe('recordedInPlace')
+      expect(reduce(w.db).rejected).toBe(0)
+      expect(latestAdmission(w, DEPENDENT)).toMatchObject({ source: AMEND_SOURCE, depends: [TAKER], lane })
+      expect(w.db.prepare('SELECT lane FROM card_bodies WHERE card_id = ?').get(DEPENDENT)).toEqual({ lane })
+    }
+    finally {
+      w.db.close()
+    }
+  })
+
+  it('a slice that blocks a dependent but also depends on it does not take it over, so the drop is refused', () => {
+    const w = world()
+    try {
+      admit(w, PARENT)
+      admit(w, DEPENDENT, { depends: [PARENT] })
+      admit(w, TAKER, { depends: [DEPENDENT], blocks: [DEPENDENT] })
+      admit(w, SIBLING)
+      slicedStub(w)
+      const before = eventCount(w)
+      const result = drop(w)
+      expect(result.status).toBe('refused')
+      expect(printed(result).lines.join('')).toContain(`#${DEPENDENT} depend on #${PARENT}`)
+      expect(eventCount(w)).toEqual(before)
+    }
+    finally {
+      w.db.close()
+    }
+  })
+
+  it('a drop whose own record fails puts the stub back, and a re-run drops it without re-pointing twice', () => {
+    const w = world()
+    try {
+      admit(w, PARENT)
+      admit(w, DEPENDENT, { depends: [PARENT] })
+      admit(w, TAKER, { blocks: [DEPENDENT] })
+      admit(w, SIBLING)
+      rmSync(path.join(w.parking, `${PARENT}.md`))
+      writeFileSync(path.join(w.parking, `${PARENT}.md`), `sliced into #${TAKER}, #${SIBLING}\n`)
+      const failingDrop: CardEventPort = (event) => {
+        if (event.type === CARD_DROPPED)
+          throw new Error('the bus refused the drop')
+        w.ports.cardEvents!(event)
+      }
+      expect(() => drop(w, false, failingDrop)).toThrow('the bus refused the drop')
+      expect(existsSync(path.join(w.parking, `${PARENT}.md`))).toBe(true)
+      expect(existsSync(path.join(w.parking, 'sliced'))).toBe(false)
+      reduce(w.db)
+      expect(admittedCardOf(w.ports.cardAdmissions!(DEPENDENT)!.text!)?.depends).toEqual([TAKER])
+      const admissions = admissionCount(w, DEPENDENT)
+      expect(drop(w)).toMatchObject({ status: 'moved', event: CARD_DROPPED })
+      expect(admissionCount(w, DEPENDENT)).toEqual(admissions)
+      expect(reduce(w.db).rejected).toBe(0)
+      expect(w.db.prepare('SELECT state FROM cards WHERE card_id = ?').get(PARENT)).toEqual({ state: 'dropped' })
     }
     finally {
       w.db.close()

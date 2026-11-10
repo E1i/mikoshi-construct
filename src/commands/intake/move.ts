@@ -96,14 +96,20 @@ function openInBus(states: ReadonlyMap<string, string> | undefined, card: number
   return state === undefined || (!ENDED_IN_BUS.has(state) && state !== DROPPED_IN_BUS)
 }
 
-function blocksOf(options: MoveOptions, card: number): number[] {
+function linksOf(options: MoveOptions, card: number): { blocks: number[], depends: number[] } {
   const text = options.admissions?.(card)?.text
-  return text === undefined ? [] : admittedCardOf(text)?.blocks ?? []
+  const admitted = text === undefined ? null : admittedCardOf(text)
+  return { blocks: admitted?.blocks ?? [], depends: admitted?.depends ?? [] }
+}
+
+function takesOver(options: MoveOptions, child: number, card: number): boolean {
+  const links = linksOf(options, child)
+  return links.blocks.includes(card) && !links.depends.includes(card)
 }
 
 function candidatesOf(options: MoveOptions, dropped: number, slicing: Slicing, states: ReadonlyMap<string, string> | undefined): number[] {
   const held = [...(states ?? new Map<string, string>()).keys()].flatMap(card => CARD_IN_BUS.test(card) ? [Number(card)] : [])
-  const named = slicing.children.flatMap(child => blocksOf(options, child))
+  const named = slicing.children.flatMap(child => linksOf(options, child).blocks)
   return [...new Set([...held, ...named])].filter(card => card !== dropped && !slicing.children.includes(card) && openInBus(states, card)).sort((a, b) => a - b)
 }
 
@@ -116,7 +122,7 @@ function dependentsOf(options: MoveOptions, dropped: number, slicing: Slicing): 
     const depends = admission?.text === undefined ? [] : admittedCardOf(admission.text)?.depends ?? []
     if (admission?.text === undefined || !depends.includes(dropped))
       continue
-    const children = slicing.children.filter(child => blocksOf(options, child).includes(card))
+    const children = slicing.children.filter(child => takesOver(options, child, card))
     const text = children.length === 0 ? null : withRepointedDepends(admission.text, dropped, children)
     if (text === null)
       orphans.push(card)
@@ -205,7 +211,6 @@ export function runMove(options: MoveOptions, now: () => Date = () => new Date()
   if (options.dryRun === true)
     return { status: 'dryRun', parking: options.parking, from, to: target, event: moveType(options.parking, targetDir, slicing), ...repointed }
   const at = now()
-  recordIntake(dependents.repointings.map(repointing => repointedRecord(repointing, at)), options.events)
   const inPlace = path.resolve(from) === target
   const createdDir = inPlace ? undefined : mkdirSync(targetDir, { recursive: true })
   if (!inPlace)
@@ -214,6 +219,7 @@ export function runMove(options: MoveOptions, now: () => Date = () => new Date()
   const moved = { from: path.dirname(from), to: targetDir, bodySha: latestAdmittedSha(options, number, text) }
   const type = moveType(options.parking, targetDir, slicing)
   try {
+    recordIntake(dependents.repointings.map(repointing => repointedRecord(repointing, at)), options.events)
     recordMove(options, number, moved, slicing, ts)
   }
   catch (error) {
