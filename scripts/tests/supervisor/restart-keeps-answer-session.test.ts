@@ -88,6 +88,7 @@ function bench() {
     { pid: ANSWER_PID, args: `node --import tsx scripts/nodes/answer/answer-worker.ts --on` },
   ]
   const stopped: number[] = []
+  const freedFor: string[] = []
   const whileStopping: { close: () => Promise<void> } = { close: async () => {} }
   let head = OLD_MAIN
   const processes = withoutRetiring(() => alive, db)
@@ -105,7 +106,10 @@ function bench() {
       stopped.push(instance.pid)
       alive = alive.filter(each => each.pid !== instance.pid)
     },
-    freeLeases: list => freeLeasesOf(db, ts(), list),
+    freeLeases: (list) => {
+      freedFor.push(...list.map(launchName))
+      return freeLeasesOf(db, ts(), list)
+    },
     drain: busDrain(db, ts),
     processes,
     mainSince: () => [{ id: 1, sha: NEW_MAIN }],
@@ -123,7 +127,7 @@ function bench() {
   }, 0)
   const commit = (lease: Lease): void => completeTask(db, ts(), lease, [{ ts: ts(), type: CARD_ANSWERED, actor: lease.actor, cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${CARD_ANSWERED}:${lease.taskKey}`, payload: { head: 'the-push' }, legacy: false }])
   recordWorkerStarted(db, ts(), 'worker:answer:old', { pid: ANSWER_PID, started: ts() })
-  return { db, ts, date, stopped, supervisor, commit, whileStopping }
+  return { db, ts, date, stopped, freedFor, close, supervisor, commit, whileStopping }
 }
 
 function outcomesOn(db: DatabaseSync, date: () => Date): AnswerOutcomes {
@@ -132,7 +136,7 @@ function outcomesOn(db: DatabaseSync, date: () => Date): AnswerOutcomes {
 
 describe('a restart after merge.done keeps a live answer session', () => {
   it('merge.done while an answer session is live lets the session reach push', async () => {
-    const { db, ts, date, stopped, supervisor, commit, whileStopping } = bench()
+    const { db, ts, date, stopped, freedFor, close, supervisor, commit, whileStopping } = bench()
     const task: QueuedTask = { queue: 'answer', cardId: 1753 }
     const session = new AnswerSession(db, date, commit)
     const controller = new AbortController()
@@ -148,6 +152,7 @@ describe('a restart after merge.done keeps a live answer session', () => {
     await running
 
     expect(stopped).toEqual([CLOSE_PID])
+    expect(freedFor).toEqual([launchName(close)])
     expect(lines).toContain(`finishes the rounds it holds on ${OLD_MAIN} and exits`)
     expect(db.prepare('SELECT state FROM tasks WHERE task_key = ?').get(keyOf(task))).toEqual({ state: 'completed' })
     expect(eventsOf(db, CARD_ANSWERED)).toBe(1)

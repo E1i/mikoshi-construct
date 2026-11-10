@@ -31,7 +31,7 @@ import { CARD_PROCESS, lastProcessBeats, recordProcessHeartbeat } from './heartb
 import { beatsLive, SILENT_MS } from './liveness-sites.js'
 import { busShadowProblems, startReviewWorker } from './review-bg.js'
 import { stampLogOutput } from './stamp.js'
-import { busLaunches, isBusWorker, switchDetection, switchWorker, wantedLaunches, WORKERS } from './workers.js'
+import { busLaunches, isBusWorker, ROUND_WORKERS, switchDetection, switchWorker, wantedLaunches, WORKERS } from './workers.js'
 
 export const SUPERVISE_FLAG = '--supervise'
 export const ON_FLAG = '--on'
@@ -422,7 +422,7 @@ export class BusSupervisor {
     const drain = this.parts.drain
     if (drain === undefined)
       return []
-    return launches.filter(launch => workerKindsOf([launch]).some(kind => ['launch', 'review', 'answer', 'witness'].includes(kind))).flatMap((launch) => {
+    return launches.filter(launch => workerKindsOf([launch]).some(kind => ROUND_WORKERS.includes(kind))).flatMap((launch) => {
       const pids = instancesOf(this.parts.processes(), launch.markers).map(each => each.pid)
       const rounds = drain.retire(launch, pids, head, this.codeSha)
       return rounds.length === 0 ? [] : [`${PREFIX}${launchName(launch)} (pid ${pids.join(', ')}) finishes the rounds it holds on ${this.codeSha} and exits, and new leases go to the worker on ${head}: ${rounds.join(', ')}`]
@@ -493,15 +493,15 @@ export class BusSupervisor {
       const instance = runningInstance(processes, launch.markers)
       return instance === undefined ? [] : [{ launch, instance }]
     })
-    const kept: string[] = []
+    const retired: { launch: DetachedLaunch, rounds: string[] }[] = []
     for (const { launch, instance } of running) {
-      const handedOver = this.retireRounds([launch], head)
-      kept.push(...handedOver)
-      if (handedOver.length === 0)
+      const rounds = this.retireRounds([launch], head)
+      retired.push({ launch, rounds })
+      if (rounds.length === 0)
         await this.parts.stop(instance, launch)
     }
-    const stopped = running.map(({ launch }) => launch)
-    const freed = [...kept, ...this.parts.freeLeases?.(stopped) ?? []]
+    const stopped = retired.filter(each => each.rounds.length === 0).map(each => each.launch)
+    const freed = [...retired.flatMap(each => each.rounds), ...this.parts.freeLeases?.(stopped) ?? []]
     beforeStart()
     const down: string[] = []
     const lines = wanted.flatMap((launch) => {
