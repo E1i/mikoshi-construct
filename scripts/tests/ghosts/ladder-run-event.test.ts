@@ -1,15 +1,20 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { describe, expect, it } from 'vitest'
+import process from 'node:process'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { parseCard } from '../../../src/card/grammar.js'
 import { LEDGER_FILE } from '../../../src/commands/cost/ledger.js'
-import { RUN_RECORD_CARD_VARIABLE, runRecord } from '../../../src/commands/run-record.js'
+import { ladderRunEventOf, RUN_RECORD_CARD_VARIABLE, runRecord } from '../../../src/commands/run-record.js'
 import { BUS_DB_VARIABLE, busPathOf } from '../../core/bus-path.js'
 import { openBus } from '../../core/db.js'
 import { EVENT_PAYLOADS, LADDER_RUN } from '../../core/events.js'
-import { busLadderRun } from '../../intake/intake.js'
+import { busLadderRun, intakeMain } from '../../intake/intake.js'
+import { readHandoff } from '../../ladder/handoff.js'
 import { ladderRunMark, NO_LADDER_RUN, readLadderOutcome, readLadderStage, runSourceOf } from '../../ladder/ledger.js'
+import { treeStageField } from '../../ladder/watch.js'
 import { CARD_VARIABLE } from '../../ports/session.js'
+import { busWithCardStarted } from './card-started-bus.js'
 
 const CARD = 1750
 const NOW = new Date('2026-11-10T12:00:00.000Z')
@@ -35,6 +40,18 @@ function ladderRuns(busPath: string): { type: string, card_id: number | null, ac
   finally {
     db.close()
   }
+}
+
+afterEach(() => {
+  vi.unstubAllEnvs()
+  process.exitCode = undefined
+})
+
+function cardOfLine(id: number) {
+  const parsed = parseCard(`#${id} ladder-run-event-writer [implement/construct/M/cheap/owner] · depends — · blocks —`)
+  if (parsed.kind === 'refused')
+    throw new Error(parsed.reason)
+  return parsed.card
 }
 
 describe('the run record of the /implement ladder', () => {
@@ -111,5 +128,60 @@ describe('the run record of the /implement ladder', () => {
     expect(runRecord(JSON.stringify(STEP_FOUR), { dir: tree, env, home, now: () => NOW })).toEqual({ kind: 'needsBus', busPath })
     expect(ladderRuns(busPath)).toEqual([])
     expect(existsSync(path.join(tree, LEDGER_FILE))).toBe(false)
+  })
+
+  it('the factory bin construct-intake run-record appends one ladder.run event on a wired bus', async () => {
+    const { tree, busPath } = wiredBus()
+    vi.stubEnv(BUS_DB_VARIABLE, busPath)
+    vi.stubEnv(RUN_RECORD_CARD_VARIABLE, String(CARD))
+    vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
+    await intakeMain(['run-record', JSON.stringify(STEP_FOUR), '--dir', tree, '--plain'])
+    vi.restoreAllMocks()
+
+    expect(process.exitCode).toBe(0)
+    const rows = ladderRuns(busPath)
+    expect(rows.map(row => row.card_id)).toEqual([CARD])
+    expect(JSON.parse(rows[0]!.payload)).toEqual(STEP_FOUR)
+    expect(existsSync(path.join(tree, LEDGER_FILE))).toBe(false)
+  })
+
+  it('names the run in the actor with every colon and blank replaced, so the actor keeps one prefix', () => {
+    const event = ladderRunEventOf({ ...STEP_FOUR, run: 'wf:17 50\tb' }, { env: {}, now: () => NOW })
+    expect(event.actor).toBe('worker:ladder:wf-17-50-b')
+  })
+
+  it('leaves the card empty for a task that leads with card zero and no card in the session', () => {
+    for (const task of ['#0 a task', '0 a task'])
+      expect(ladderRunEventOf({ ...STEP_FOUR, task }, { env: {}, now: () => NOW }).cardId).toBeNull()
+    expect(ladderRunEventOf({ ...STEP_FOUR, task: '#17 a task' }, { env: {}, now: () => NOW }).cardId).toBe(17)
+  })
+
+  it('watch shows the stage of the run the bus holds for the card of the task', () => {
+    const { tree, home, busPath, env } = wiredBus()
+    vi.stubEnv(BUS_DB_VARIABLE, busPath)
+    runRecord(JSON.stringify({ ...STEP_FOUR, run: 'wf_other', status: 'failed' }), { dir: tree, env: { ...env, [RUN_RECORD_CARD_VARIABLE]: '9' }, home, now: () => NOW }, busLadderRun)
+    runRecord(JSON.stringify(STEP_FOUR), { dir: tree, env, home, now: () => NOW }, busLadderRun)
+    const journal = `${JSON.stringify({ event: 'path', task: String(CARD), worktree: tree, branch: 'feat/ladder-run-event-writer' })}\n`
+
+    expect(treeStageField({ id: 'g1', brief: 'brief.md', card: cardOfLine(CARD) }, journal)).toBe('stage done wf_1750')
+  })
+
+  it('handoff reads the ledger stage of an attempt from the run the bus holds for its card', () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'ladder-run-handoff-'))
+    const tree = path.join(dir, 'mc-1750')
+    const bus = busWithCardStarted([{ cardId: CARD, ts: '2026-11-10T10:00:00.000Z', payload: { worktree: tree, branch: 'feat/ladder-run-event-writer' } }])
+    try {
+      const env = { [BUS_DB_VARIABLE]: bus.file, [RUN_RECORD_CARD_VARIABLE]: String(CARD) }
+      runRecord(JSON.stringify({ ...STEP_FOUR, run: 'wf_other', status: 'failed' }), { dir: tree, env: { ...env, [RUN_RECORD_CARD_VARIABLE]: '9' }, home: dir, now: () => NOW }, busLadderRun)
+      runRecord(JSON.stringify(STEP_FOUR), { dir: tree, env, home: dir, now: () => NOW }, busLadderRun)
+      vi.stubEnv(BUS_DB_VARIABLE, bus.file)
+      writeFileSync(path.join(dir, 'ghosts.jsonl'), '')
+
+      const attempt = readHandoff(dir, undefined, bus.file).attempts.find(candidate => candidate.id === String(CARD))
+      expect(attempt!.ledger).toEqual({ kind: 'entry', status: 'done', run: 'wf_1750' })
+    }
+    finally {
+      bus.remove()
+    }
   })
 })

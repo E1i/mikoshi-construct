@@ -1,8 +1,9 @@
 import type { Task, TasksFile } from '../core/tasks.js'
 import type { ProcessSnapshot } from '../ports/process-table.js'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
+import { fileURLToPath } from 'node:url'
 import { parseEverySeconds, sleep } from '../core/every.js'
 import { journalText } from '../core/journal.js'
 import { readTasksFile, startedTree } from '../core/tasks.js'
@@ -58,7 +59,7 @@ function stageField(worktree: string, card: number): string {
   return stage.kind === 'writing' ? 'ledger: writing' : `stage ${stage.status} ${stage.run}`
 }
 
-function treeStageField(task: Task, journalText: string): string {
+export function treeStageField(task: Task, journalText: string): string {
   const tree = startedTree(journalText, task.card)
   return tree === undefined ? `stage no task:start line for card #${task.card.id}` : stageField(tree.worktree, task.card.id)
 }
@@ -102,10 +103,15 @@ async function main(): Promise<void> {
   }
 }
 
-try {
-  await main()
+async function runWatch(): Promise<void> {
+  try {
+    await main()
+  }
+  catch (error) {
+    printError(error instanceof Error ? error.message : String(error))
+    process.exitCode = 1
+  }
 }
-catch (error) {
-  printError(error instanceof Error ? error.message : String(error))
-  process.exitCode = 1
-}
+
+if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url))
+  await runWatch()

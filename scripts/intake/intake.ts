@@ -282,13 +282,13 @@ export const busLadderRun: LadderRunPort = (busPath, event) => {
   }
 }
 
-export async function runRunRecord(argv: readonly string[]): Promise<void> {
+async function runRunRecord(argv: readonly string[]): Promise<void> {
   await runMain(createMain({ ladderRun: busLadderRun }), { rawArgs: [...argv] })
 }
 
-async function main(): Promise<void> {
-  if (process.argv[2] === RUN_RECORD_SUBCOMMAND) {
-    await runRunRecord(process.argv.slice(2))
+export async function intakeMain(argv: readonly string[]): Promise<void> {
+  if (argv[0] === RUN_RECORD_SUBCOMMAND) {
+    await runRunRecord(argv)
     return
   }
   const busPath = intakeBusPath()
@@ -299,7 +299,7 @@ async function main(): Promise<void> {
     const shard = windowShardOfRun(db, process.env, new Date())
     if (shard !== null)
       process.env[WINDOW_SHARD_VARIABLE] = shard
-    await runBusIntake(db, process.argv.slice(2), clientAdapter().ownSession(process.env) ?? undefined)
+    await runBusIntake(db, argv, clientAdapter().ownSession(process.env) ?? undefined)
   }
   finally {
     db.close()
@@ -307,4 +307,4 @@ async function main(): Promise<void> {
 }
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url))
-  await main()
+  await intakeMain(process.argv.slice(2))
