@@ -455,7 +455,7 @@ export const CREATED_PATHS_ARE_THE_CHANGE = 'a witness that checks paths the car
 
 export function createdPathsAreTheChange(decisionsFile: string, now: Date): boolean {
   return standingDecisions(decisionsFile, now)
-    .some(decision => decision.cards.length === 0 && decision.body.startsWith(OWNER_SOURCE) && decision.body.toLowerCase().includes(CREATED_PATHS_ARE_THE_CHANGE))
+    .some(decision => decision.written && decision.cards.length === 0 && decision.body.startsWith(OWNER_SOURCE) && decision.body.toLowerCase().includes(CREATED_PATHS_ARE_THE_CHANGE))
 }
 
 export interface BaseScope {

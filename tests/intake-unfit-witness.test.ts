@@ -85,8 +85,10 @@ function replacing(witness: Record<string, unknown>): AmendFlags {
   return { witness: `W1=${JSON.stringify(witness)}` }
 }
 
-function standingDecision(w: World): void {
-  writeFileSync(w.decisions, `# Owner decisions\n\n- D-41 · 2026-11-01 — [owner] ${CREATED_PATHS_ARE_THE_CHANGE[0]!.toUpperCase()}${CREATED_PATHS_ARE_THE_CHANGE.slice(1)}\n`)
+const WRITTEN_BY_DECISIONS_ADD = ' · decisions:add'
+
+function standingDecision(w: World, marker = WRITTEN_BY_DECISIONS_ADD): void {
+  writeFileSync(w.decisions, `# Owner decisions\n\n- D-41 · 2026-11-01 — [owner] ${CREATED_PATHS_ARE_THE_CHANGE[0]!.toUpperCase()}${CREATED_PATHS_ARE_THE_CHANGE.slice(1)}${marker}\n`)
 }
 
 describe('intake counts replacing an unfit witness with a red-on-main one as a refinement', () => {
@@ -129,8 +131,22 @@ describe('intake counts replacing an unfit witness with a red-on-main one as a r
 
   it('a decision bound to another card is not a standing general decision', () => {
     const w = world()
-    writeFileSync(w.decisions, `# Owner decisions\n\n- D-41 · 2026-11-01 — [owner] ${CREATED_PATHS_ARE_THE_CHANGE} · card #7\n`)
+    writeFileSync(w.decisions, `# Owner decisions\n\n- D-41 · 2026-11-01 — [owner] ${CREATED_PATHS_ARE_THE_CHANGE} · card #7${WRITTEN_BY_DECISIONS_ADD}\n`)
     admit(w, OVER_CREATED)
+    expect(amend(w, replacing(RED_ON_MAIN))).toMatchObject({ status: 'ownerWait' })
+  })
+
+  it('a standing general decision written into the file by hand, not through decisions:add, waives nothing', () => {
+    const w = world()
+    standingDecision(w, '')
+    admit(w, OVER_CREATED)
+    expect(amend(w, replacing(RED_ON_MAIN))).toMatchObject({ status: 'ownerWait' })
+  })
+
+  it('under the standing decision, a witness naming a created path and a path on the base is not refined', () => {
+    const w = world()
+    standingDecision(w)
+    admit(w, field(`test -f ${CREATED_FILE} && test -f src/board/run.ts`, 'fail'))
     expect(amend(w, replacing(RED_ON_MAIN))).toMatchObject({ status: 'ownerWait' })
   })
 
@@ -140,5 +156,10 @@ describe('intake counts replacing an unfit witness with a red-on-main one as a r
     expect(unfitOnTheBase('pnpm exec vitest run tests/other/b.test.ts', scope)).toBe(true)
     expect(unfitOnTheBase(`pnpm exec vitest run ${ADDED_TEST}`, scope)).toBe(false)
     expect(unfitOnTheBase('pnpm exec vitest run src/board/run.ts', scope)).toBe(false)
+  })
+
+  it('a witness naming an absent directory that holds a path of the card is within the card', () => {
+    const scope = { dir: world().repo, card: { touches: [ADDED_TEST], creates: [] }, createdAreTheChange: false }
+    expect(unfitOnTheBase('test -d tests/newdir', scope)).toBe(false)
   })
 })

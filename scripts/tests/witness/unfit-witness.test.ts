@@ -13,6 +13,7 @@ import { reduce } from '../../core/reducer.js'
 import { UNFIT, WITNESS_UNFIT } from '../../nodes/witness/witness-executor.js'
 import { WitnessNode } from '../../nodes/witness/witness-worker.js'
 import { GREEN, RED, witnessDenial } from '../../policy/policy.js'
+import { cardScopeOfAdmitted, namedOutsideTheCard, redOnMainProposal, witnessesFindingNoTest } from '../../ports/witnesses.js'
 import { SetupTurns, withWorktreeAsync } from '../../ports/worktree.js'
 
 const CARD = 1759
@@ -63,12 +64,16 @@ interface World { db: DatabaseSync, repo: string, base: string, head: string }
 
 const OUTSIDE_THE_TOUCHES = 'tests/other/c.test.ts'
 
-function world(witnesses: readonly object[], headFiles: Record<string, string> = {}): World {
+interface Trees { headFiles?: Record<string, string>, baseFiles?: Record<string, string>, headRemoves?: readonly string[] }
+
+function world(witnesses: readonly object[], { headFiles = {}, baseFiles = {}, headRemoves = [] }: Trees = {}): World {
   const root = mkdtempSync(path.join(tmpdir(), 'unfit-witness-'))
   roots.push(root)
   const repo = path.join(root, 'repo')
   execFileSync('git', ['init', '-q', repo])
-  const base = commit(repo, { 'README.md': 'base\n' }, 'base')
+  const base = commit(repo, { 'README.md': 'base\n', ...baseFiles }, 'base')
+  for (const file of headRemoves)
+    git(repo, 'rm', '-q', file)
   const head = commit(repo, { [ADDED_TEST]: 'it passes\n', ...headFiles }, 'head')
   const db = openBus(path.join(root, 'bus.db'))
   dbs.push(db)
@@ -124,13 +129,21 @@ describe('the witness node tells unfit from green and red on the base', () => {
   })
 
   it('a witness naming a file the head adds outside the touches is not unfit', async () => {
-    const w = world([{ ...FOREIGN_WITNESS, run: `pnpm exec vitest run ${OUTSIDE_THE_TOUCHES}` }], { [OUTSIDE_THE_TOUCHES]: 'it passes\n' })
+    const w = world([{ ...FOREIGN_WITNESS, run: `pnpm exec vitest run ${OUTSIDE_THE_TOUCHES}` }], { headFiles: { [OUTSIDE_THE_TOUCHES]: 'it passes\n' } })
     await witnessRun(w)
     expect(payloadsOf(w, WITNESS_RECORDED).map(payload => payload.verdict)).toEqual([GREEN])
   })
 
+  it('a witness that finds no test only on the head is red on its positive control, not unfit', async () => {
+    const w = world([{ id: 'W1', run: `pnpm exec vitest run ${OUTSIDE_THE_TOUCHES}`, test: null, head: 'fail', base: 'pass', proves: 'the head removes the old test' }], { baseFiles: { [OUTSIDE_THE_TOUCHES]: 'it passes\n' }, headRemoves: [OUTSIDE_THE_TOUCHES] })
+    await witnessRun(w)
+    const recorded = payloadsOf(w, WITNESS_RECORDED)
+    expect(recorded.map(payload => payload.verdict)).toEqual([RED])
+    expect(String(recorded[0]!.detail)).toContain('positive control')
+  })
+
   it('a diff of the head that cannot be read leaves the witness unjudged, not unfit', async () => {
-    const w = world([{ ...FOREIGN_WITNESS, run: `pnpm exec vitest run ${OUTSIDE_THE_TOUCHES}` }], { [OUTSIDE_THE_TOUCHES]: 'it passes\n' })
+    const w = world([{ ...FOREIGN_WITNESS, run: `pnpm exec vitest run ${OUTSIDE_THE_TOUCHES}` }], { headFiles: { [OUTSIDE_THE_TOUCHES]: 'it passes\n' } })
     await witnessRun(w, 'fails')
     expect(payloadsOf(w, WITNESS_RECORDED).map(payload => payload.verdict)).not.toContain(UNFIT)
     expect(payloadsOf(w, CARD_STOPPED).filter(payload => payload.code === WITNESS_UNFIT)).toEqual([])
@@ -148,5 +161,46 @@ describe('the witness node tells unfit from green and red on the base', () => {
     await witnessRun(w)
     expect(payloadsOf(w, WITNESS_RECORDED).map(payload => payload.verdict)).not.toContain(UNFIT)
     expect(payloadsOf(w, WITNESS_RECORDED).map(payload => payload.verdict)).toEqual([RED])
+  })
+})
+
+describe('the witness port reads a witness against the card and the base', () => {
+  const SCOPE = { touches: [ADDED_TEST], creates: [] }
+
+  function baseTree(files: readonly string[]): string {
+    const tree = mkdtempSync(path.join(tmpdir(), 'unfit-witness-base-'))
+    roots.push(tree)
+    for (const file of files) {
+      mkdirSync(path.dirname(path.join(tree, file)), { recursive: true })
+      writeFileSync(path.join(tree, file), '')
+    }
+    return tree
+  }
+
+  it('a witness naming a file present on the base outside the touches is not unfit', () => {
+    const tree = baseTree([OUTSIDE_THE_TOUCHES])
+    expect(namedOutsideTheCard(tree, { criterion: 'W1', command: `pnpm exec vitest run ${OUTSIDE_THE_TOUCHES}` }, SCOPE, [])).toEqual([])
+    expect(namedOutsideTheCard(baseTree([]), { criterion: 'W1', command: `pnpm exec vitest run ${OUTSIDE_THE_TOUCHES}` }, SCOPE, [])).toEqual([OUTSIDE_THE_TOUCHES])
+  })
+
+  it('a witness naming an absent directory that holds a path of the card is within the card', () => {
+    expect(namedOutsideTheCard(baseTree([]), { criterion: 'W1', command: 'pnpm exec vitest run tests/newdir' }, SCOPE, [])).toEqual([])
+  })
+
+  it('an admitted card with no touches has no scope to judge a witness against', () => {
+    const text = parkingFileText({ card: `#${CARD} unfit [implement/construct/S/cheap/auto] · depends — · blocks —`, branch: 'feat/unfit', touches: [], continue: 'stop', who: 'shift', body: 'Add the tests.' })
+    expect(cardScopeOfAdmitted(CARD, text, [])).toBeNull()
+  })
+
+  it('a witness whose own base command finds no test is found by that command', () => {
+    const witness = { criterion: 'W1', command: `pnpm exec vitest run ${ADDED_TEST}`, onBase: { command: 'pnpm exec vitest run tests/newdir', stated: 'pass' } }
+    expect(witnessesFindingNoTest([witness], [{ command: 'pnpm exec vitest run tests/newdir', output: 'No test files found, exiting with code 1\n' }])).toEqual([witness])
+  })
+
+  it('the proposed replacement runs only the test files of the diff', () => {
+    const unfit = { criterion: 'W1', command: 'pnpm exec vitest run tests/newdir' }
+    const proposal = redOnMainProposal([unfit], [unfit], [ADDED_TEST, 'src/board/new.ts'])
+    expect(proposal.files).toEqual([ADDED_TEST])
+    expect(proposal.replacement?.[0]?.run).toBe(`pnpm exec vitest run ${ADDED_TEST}`)
   })
 })
