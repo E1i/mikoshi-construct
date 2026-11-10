@@ -76,6 +76,10 @@ describe('no real-time waits in tests', () => {
     expect(EXCEPTED.filter(file => busLayer.some(layer => file.startsWith(layer)))).toEqual([])
   })
 
+  it('no miko test is excepted from the real-time rule', () => {
+    expect(EXCEPTED.filter(file => file.startsWith('scripts/tests/miko/'))).toEqual([])
+  })
+
   it('every excepted file still waits on real time', async () => {
     const fixed: string[] = []
     for (const file of EXCEPTED) {
