@@ -20,6 +20,7 @@ import { pathsIn, pathsOutside } from '../../card/covering-tests.js'
 import { cardLine, parseCard } from '../../card/grammar.js'
 import { createdPaths, parseParkingFile } from '../../card/parking.js'
 import { PREFIX_SUFFIX } from '../../card/task-file.js'
+import { priorityLineOf, withKeptPriority } from '../../card/text-sha.js'
 import { fieldCommand, isAcceptanceField, isWitnessFieldLine, judgedCommand, namedAbsentOutside, namedPaths, renderedWitness, runsFieldLine, runsFieldOf, statesAnExit, testRunnerOf, withinScope, witnessFieldsOf, witnessText } from '../../card/witness-fields.js'
 import { readMilestones } from '../../manifest.js'
 import { CARD_REFERENCE, checkDraft, correctionText, invalidTestPatterns, isChangeWitness, nonPathTouchRefusals, OWNER_MERGES, ownerPathsOf, PACKAGE_MANIFEST, publishedRootsOf } from './check.js'
@@ -153,6 +154,7 @@ export interface AdmitOptions {
   admissions?: CardAdmissionsPort
   decisions?: string
   writeRuns?: boolean
+  priorityEdited?: boolean
 }
 
 type RefusedWithReasons = 'invalidTestPattern' | 'sharedCodeMask'
@@ -641,6 +643,9 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
   if (parsed.kind === 'refused')
     return { status: 'refused', why: parsed.reason }
   const { card } = parsed.parked.task
+  const recorded = latestIntake(card, options.admissions)
+  if (options.priorityEdited !== true)
+    text = withKeptPriority(text, recorded?.text)
   const listed = parseCard(card.line, readMilestones(options.dir))
   if (listed.kind === 'refused')
     return { status: 'refused', why: listed.reason }
@@ -683,7 +688,6 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
     corrections: checked.corrections,
     text: admittedText(options.writeRuns === true ? withRunsLine(text, checked.runs ?? []) : text, line, checked),
   }
-  const recorded = latestIntake(card, options.admissions)
   const source: AdmitSource = recorded === null ? ADMIT_SOURCE : AMEND_SOURCE
   const base = { file: options.file, card: admitted, autoConfirm: options.autoConfirm, source, inBus: options.events !== undefined, event: null, windowShard: windowShard() }
   const inJournal = (status: 'admitted' | 'alreadyAdmitted'): AdmitResult => {
@@ -693,7 +697,7 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
     return event === null ? { status: 'refused', why: lostWrite(card.id) } : { ...base, status, event }
   }
   const lane = laneOf(options.parkingRoot ?? defaultParking(), path.dirname(options.file))
-  if (recorded !== null && sameCardLine(recorded.card, line) && sameBody(recorded.bodySha, admitted.text) && sameHeader(recorded.text, admitted.text, CARD_HEADER)) {
+  if (recorded !== null && sameCardLine(recorded.card, line) && sameBody(recorded.bodySha, admitted.text) && sameHeader(recorded.text, admitted.text, CARD_HEADER) && priorityLineOf(recorded.text ?? '') === priorityLineOf(admitted.text)) {
     if (!options.dryRun)
       options.events?.(admittedRecord(admitted, recordedConfirmation(recorded, admitted, options.autoConfirm), admittedAt(recorded, now), lane, recordedSource(recorded)))
     return inJournal('alreadyAdmitted')

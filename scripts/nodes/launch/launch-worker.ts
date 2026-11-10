@@ -223,15 +223,36 @@ export const AMENDED_AFTER_START = 'amended-after-start'
 export const WITHDRAWN_TO_CHEAP = 'withdrawn-to-cheap'
 
 const BODY_AMENDED_SINCE = `
-  SELECT b.text_sha AS amended, (SELECT json_extract(e.payload, '$.textSha') FROM events AS e
-    WHERE e.type = '${CARD_ADMITTED}' AND e.legacy = 0 AND e.card_id = b.card_id AND e.id < ? AND json_valid(e.payload) AND json_type(e.payload, '$.textSha') = 'text'
-    ORDER BY e.id DESC LIMIT 1) AS started
-  FROM ${CARD_BODIES} AS b WHERE b.card_id = ? AND b.admission_event_id > ?
+  SELECT b.text_sha AS amended, b.text AS amended_text, started.sha AS started, started.text AS started_text FROM ${CARD_BODIES} AS b
+  LEFT JOIN (SELECT json_extract(e.payload, '$.textSha') AS sha, json_extract(e.payload, '$.text') AS text FROM events AS e
+    WHERE e.type = '${CARD_ADMITTED}' AND e.legacy = 0 AND e.card_id = ? AND e.id < ? AND json_valid(e.payload) AND json_type(e.payload, '$.textSha') = 'text'
+    ORDER BY e.id DESC LIMIT 1) AS started ON 1 = 1
+  WHERE b.card_id = ? AND b.admission_event_id > ?
 `
+
+interface BodyAmendRow {
+  started: unknown
+  started_text: unknown
+  amended: string
+  amended_text: string
+}
 
 interface BodyAmend {
   started: string
   amended: string
+}
+
+const HEADER_PRIORITY = /^priority:/
+
+function withoutHeaderPriority(text: string): string {
+  const lines = text.split('\n')
+  const blank = lines.findIndex(line => line.trim() === '')
+  const headerEnd = blank === -1 ? lines.length : blank
+  return lines.filter((line, index) => index >= headerEnd || !HEADER_PRIORITY.test(line.trim())).join('\n')
+}
+
+function onlyThePriorityMoved(row: BodyAmendRow): boolean {
+  return typeof row.started_text === 'string' && withoutHeaderPriority(row.started_text) === withoutHeaderPriority(row.amended_text)
 }
 
 function shortSha(sha: string): string {
@@ -537,8 +558,8 @@ export class LaunchNode extends Node<LaunchStep> {
   }
 
   private amendSince(start: RunningStart): BodyAmend | null {
-    const row = this.db.prepare(BODY_AMENDED_SINCE).get(start.id, start.card_id, start.id) as { started: unknown, amended: string } | undefined
-    if (row === undefined || typeof row.started !== 'string' || row.started === row.amended)
+    const row = this.db.prepare(BODY_AMENDED_SINCE).get(start.card_id, start.id, start.card_id, start.id) as BodyAmendRow | undefined
+    if (row === undefined || typeof row.started !== 'string' || row.started === row.amended || onlyThePriorityMoved(row))
       return null
     return { started: row.started, amended: row.amended }
   }

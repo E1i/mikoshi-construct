@@ -3,7 +3,7 @@ import type { AdmitOptions, AdmitResult } from './admit.js'
 import type { CardAdmissionsPort } from './index.js'
 import process from 'node:process'
 import { cardLine, parseCard } from '../../card/grammar.js'
-import { SHIFT_WHO, WINDOW_WHO } from '../../card/parking.js'
+import { PRIORITIES, SHIFT_WHO, WINDOW_WHO } from '../../card/parking.js'
 import { RISK_PREFIX, riskLines, riskReading } from '../../card/risk.js'
 import { parseWitnessList, replaceWitnessFieldsLine, runsFieldOf, witnessFieldsOf } from '../../card/witness-fields.js'
 import { admittedCardFile, blocksTail, CARD_HEADER, runAdmit, withRunsLine, witnessesOf } from './admit.js'
@@ -24,6 +24,7 @@ export interface AmendFlags {
   removeWitnesses?: readonly string[]
   ownerWords?: string
   depends?: string
+  priority?: string
 }
 
 export interface AmendOptions extends Omit<AdmitOptions, 'file' | 'body' | 'admissions'> {
@@ -36,6 +37,9 @@ type Edited = { kind: 'edited', text: string } | { kind: 'refused', why: string 
 
 const CREATES_HEADER = 'creates: '
 const WHO_HEADER = 'who: '
+const PRIORITY_HEADER = 'priority: '
+export const NO_PRIORITY = 'none'
+const PRIORITY_VALUES: readonly string[] = [...PRIORITIES, NO_PRIORITY]
 const LIST_SEPARATOR = ','
 const LIST_ENTRY_SEPARATOR = /,|\s+(?=[+-])/
 const PROSE_WITNESS_ID = /^W([1-9]\d*)$/
@@ -102,6 +106,19 @@ function withWho(lines: string[], who: string): string[] | string {
     return `--who ${who} is one of ${WHO_VALUES.join(', ')}`
   const at = headerIndex(lines, WHO_HEADER)
   return at === -1 ? `the card has no ${WHO_HEADER.trim()} line` : lines.map((entry, index) => (index === at ? `${WHO_HEADER}${who}` : entry))
+}
+
+function withPriority(lines: string[], priority: string): string[] | string {
+  if (!PRIORITY_VALUES.includes(priority))
+    return `--priority ${priority} is one of ${PRIORITY_VALUES.join(', ')}`
+  const at = headerIndex(lines, PRIORITY_HEADER)
+  if (priority === NO_PRIORITY)
+    return at === -1 ? lines : lines.filter((_, index) => index !== at)
+  const line = `${PRIORITY_HEADER}${priority}`
+  if (at !== -1)
+    return lines.map((entry, index) => (index === at ? line : entry))
+  const end = headerEnd(lines)
+  return [...lines.slice(0, end), line, ...lines.slice(end)]
 }
 
 function witnessSplit(change: string, witnesses: readonly string[]): [string, string] | null {
@@ -257,10 +274,17 @@ function noteEditsOf(flags: AmendFlags): Edit[] {
   return edits
 }
 
+function priorityEditsOf(flags: AmendFlags): Edit[] {
+  return flags.priority === undefined ? [] : [lines => withPriority(lines, flags.priority!.trim())]
+}
+
 function editsOf(flags: AmendFlags): Edit[] {
   const fields = fieldEditsOf(flags)
   const notes = noteEditsOf(flags)
-  return fields.length + notes.length === 0 ? [] : [...fields, withRecomputedRisk, ...notes]
+  const priority = priorityEditsOf(flags)
+  if (fields.length + notes.length === 0)
+    return priority
+  return [...fields, ...priority, withRecomputedRisk, ...notes]
 }
 
 export function listFlagOf(rawArgs: readonly string[], flag: string, separator: string = LIST_SEPARATOR): string | undefined {
@@ -284,7 +308,7 @@ export function listFlagOf(rawArgs: readonly string[], flag: string, separator: 
 export function amendedText(text: string, flags: AmendFlags): Edited {
   const edits = editsOf(flags)
   if (edits.length === 0)
-    return refused('an amend takes at least one of --touches, --creates, --note, --witness, --who, --add-witness, --remove-witness, --owner-words, --depends')
+    return refused('an amend takes at least one of --touches, --creates, --note, --witness, --who, --add-witness, --remove-witness, --owner-words, --depends, --priority')
   let lines = text.split('\n')
   for (const edit of edits) {
     const next = edit(lines)
@@ -317,6 +341,6 @@ export function runAmend(options: AmendOptions, now: () => Date = () => new Date
   if (edited.kind === 'refused')
     return { status: 'refused', why: `#${id}: ${edited.why}` }
   const body = flags.touches === undefined ? edited.text : withoutStaleRuns(exported.text, edited.text, admit.dir)
-  const result = runAdmit({ ...admit, file: admittedCardFile(id, admit.parkingRoot), body, writeRuns: flags.touches !== undefined, admissions }, now)
+  const result = runAdmit({ ...admit, file: admittedCardFile(id, admit.parkingRoot), body, writeRuns: flags.touches !== undefined, priorityEdited: flags.priority !== undefined, admissions }, now)
   return 'file' in result ? { ...result, file: `#${id}` } : result
 }

@@ -51,6 +51,7 @@ export interface ParkingFileFields {
   creates?: readonly string[]
   continue: string
   who: string
+  priority?: Priority
   body: string
 }
 
@@ -120,6 +121,7 @@ export function parkingFileText(fields: ParkingFileFields): string {
     ...(fields.creates === undefined || fields.creates.length === 0 ? [] : [`creates: ${fields.creates.join(', ')}`]),
     `continue: ${fields.continue}`,
     `who: ${fields.who}`,
+    ...(fields.priority === undefined ? [] : [`priority: ${fields.priority}`]),
     '',
     fields.body.trim(),
     '',

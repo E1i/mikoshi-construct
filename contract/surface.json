@@ -270,6 +270,9 @@
         "plain": {
           "type": "boolean"
         },
+        "priority": {
+          "type": "string"
+        },
         "taken": {
           "type": "string"
         },
@@ -1853,6 +1856,7 @@
         "need",
         "owner-words",
         "pr",
+        "priority",
         "reason",
         "set",
         "settled",

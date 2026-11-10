@@ -1,5 +1,6 @@
+import type { Priority } from '../../card/parking.js'
 import type { WitnessField, WitnessKind } from '../../card/witness-fields.js'
-import { parseCreatesEntry } from '../../card/parking.js'
+import { parseCreatesEntry, PRIORITIES } from '../../card/parking.js'
 import { parseWitnessList, withWitnessKind, WITNESS_KINDS, witnessText } from '../../card/witness-fields.js'
 
 export interface UnclearField {
@@ -22,6 +23,7 @@ export interface DraftCard {
   continue?: string
   whole?: string
   item?: string
+  priority?: Priority
   number?: number
   creates: string[]
   task: string
@@ -44,7 +46,7 @@ const REQUIRED_TEXT = ['name', 'kind', 'milestone', 'size', 'task'] as const
 const OPTIONAL_TEXT = ['contour', 'decision', 'branch', 'who', 'continue', 'whole', 'item'] as const
 const REQUIRED_LISTS = ['touches'] as const
 const OPTIONAL_LISTS = ['depends', 'blocks', 'creates', 'runs'] as const
-const KEYS: readonly string[] = [...REQUIRED_TEXT, ...OPTIONAL_TEXT, ...REQUIRED_LISTS, 'witnesses', ...OPTIONAL_LISTS, 'number', 'unclear']
+const KEYS: readonly string[] = [...REQUIRED_TEXT, ...OPTIONAL_TEXT, ...REQUIRED_LISTS, 'witnesses', ...OPTIONAL_LISTS, 'number', 'priority', 'unclear']
 const PLAN_KEYS = ['id', 'title', 'goal', 'file'] as const
 const DRAFT_KEYS = ['cards', 'plan']
 const WITNESS_KIND_FIELD = new RegExp(` · (${WITNESS_KINDS.join('|')})$`)
@@ -134,6 +136,8 @@ function draftCard(entry: unknown, at: string, reasons: string[]): DraftCard | n
     reasons.push(`${at}: '${key}' must be a list of text when given`)
   if (entry.number !== undefined && !(Number.isInteger(entry.number) && (entry.number as number) > 0))
     reasons.push(`${at}: 'number' must be a positive integer when given`)
+  if (entry.priority !== undefined && !(PRIORITIES as readonly unknown[]).includes(entry.priority))
+    reasons.push(`${at}: 'priority' is one of ${PRIORITIES.join(', ')} when given`)
   if (isTextList(entry.creates)) {
     const touches = isTextList(entry.touches) ? entry.touches : []
     for (const parsed of entry.creates.map(parseCreatesEntry)) {

@@ -1188,6 +1188,7 @@
           "owner_words",
           "plan",
           "pr",
+          "priority",
           "reason",
           "remove_witness",
           "supersedes",
@@ -1537,6 +1538,7 @@
       "draft.plan.goal": "string",
       "draft.plan.id": "string",
       "draft.plan.title": "string",
+      "draft.priority": "Priority",
       "draft.runs": "string[]",
       "draft.size": "string",
       "draft.task": "string",
@@ -1558,7 +1560,7 @@
       "name": "string",
       "path": "string | null",
       "priority": "string | null",
-      "priority:": "body line read by src/card/parking.ts",
+      "priority:": "body line read by src/card/parking.ts, src/card/text-sha.ts, src/commands/intake/amend.ts",
       "prose": "string",
       "release": "string | null",
       "release:": "body line read by src/card/parking.ts",
@@ -2791,8 +2793,7 @@
           },
           "intake": {
             "gap": [
-              1779,
-              1785
+              1779
             ]
           },
           "launch": {
@@ -3796,7 +3797,7 @@
         },
         "reexports": [],
         "types": {
-          "AmendFlags": "interface AmendFlags { touches?: string; creates?: string; note?: string; witness?: string; who?: string; addWitnesses?: readonly string[]; removeWitnesses?: readonly string[]; ownerWords?: string; depends?: string; }"
+          "AmendFlags": "interface AmendFlags { touches?: string; creates?: string; note?: string; witness?: string; who?: string; addWitnesses?: readonly string[]; removeWitnesses?: readonly string[]; ownerWords?: string; depends?: string; priority?: string; }"
         }
       },
       "src/commands/intake/check.ts": {
