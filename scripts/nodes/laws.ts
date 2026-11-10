@@ -57,6 +57,7 @@ export const WINDOW_BESIDE_SESSIONS = 'Z7-window-beside-sessions'
 export const INFRASTRUCTURE_RETRIED = 'Z2-infrastructure-retried'
 export const ABANDONED_READ_AS_RERUN = 'Z2-abandoned-read-as-rerun'
 export const DIRECT_IMPORTER_WIDENED = 'Z3-direct-importer-widened'
+export const MERGE_OUTSIDE_TOUCHES_REFUSED = 'Z3-merge-outside-touches-refused'
 const NO_INFRASTRUCTURE_TO_FAIL = 'the node starts no session, runs no test and judges no CI run, so no timeout under load, abandoned run or usage limit reaches it as its own failure'
 const STARTS_NO_SESSION = 'the node starts no session, so no child process of its own outlives it'
 const NO_SESSION_TO_READ = 'the node starts no session, so the factory reading holds no beat of its own to weigh'
@@ -126,7 +127,7 @@ export const LAW_CELLS: LawCells = {
     witness: gap(NODE_CONTRACT_SUITE),
     ...beyondNodes('Z2'),
   },
-  Z3: { ...everyNode(gap(NO_IN_MEMORY_PORT)), answer: { witness: DIRECT_IMPORTER_WIDENED }, ...beyondNodes('Z3') },
+  Z3: { ...everyNode(gap(NO_IN_MEMORY_PORT)), answer: { witness: DIRECT_IMPORTER_WIDENED }, merge: { witness: MERGE_OUTSIDE_TOUCHES_REFUSED }, ...beyondNodes('Z3') },
   Z4: { ...everyNode(gap(...WAIT_RECORDS)), launch: gap(CARD_WAIT_STATES, NO_HEAD_OF_LINE), ...beyondNodes('Z4') },
   Z5: { ...everyNode(gap(LAUNCH_EVENTS)), ...beyondNodes('Z5') },
   Z6: { ...everyNode(gap(TREE_WAY_BACK)), ...beyondNodes('Z6') },

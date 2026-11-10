@@ -1923,6 +1923,34 @@
   {
     "type": "dependency",
     "from": "scripts/nodes/merge/merge-executor.ts",
+    "to": "src/card/covering-tests.ts",
+    "unresolvedTo": "../../../src/card/covering-tests.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/merge/merge-executor.ts",
+    "to": "src/commands/intake/check.ts",
+    "unresolvedTo": "../../../src/commands/intake/check.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/merge/merge-executor.ts",
     "to": "scripts/cli/check-catalog.ts",
     "unresolvedTo": "../../cli/check-catalog.js",
     "dependencyTypes": [

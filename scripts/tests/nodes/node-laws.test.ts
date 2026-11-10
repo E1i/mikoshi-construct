@@ -20,6 +20,7 @@ import { ABANDONED_TITLE } from '../../ci/required.js'
 import { printBoard } from '../../cli/board-page.js'
 import { NODE_DECLARATIONS } from '../../contract/factory/nodes.js'
 import { LAW_GAP_PREFIX, lawGapNumbers, ratchetBreaks, readRatchet } from '../../contract/ratchet.js'
+import { HOLD_RECHECK_MS } from '../../core/card-hold.js'
 import { appendEvent, openBus } from '../../core/db.js'
 import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, CARD_WAITING, CI_RERUN_REQUESTED, OWNER_WAIT_OPENED, PR_OPENED, SCOPE_WIDENED, SESSION_HEARTBEAT, WINDOW_HEARTBEAT } from '../../core/events.js'
 import { completeTask, leaseNext, recordWorkerStarted } from '../../core/lease.js'
@@ -29,7 +30,8 @@ import { answerCandidates, keyOf, queueTask, queueTaskWithin, updateCandidates }
 import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
 import { claudeAnswerer } from '../../nodes/answer/answerer.js'
 import { LaunchNode } from '../../nodes/launch/launch-worker.js'
-import { CARD_WAIT_STATES, DIRECT_IMPORTER_WIDENED, gapRows, INFRASTRUCTURE_RETRIED, LAW_CELLS, LAW_NODES, LAW_SITES, lawIds, LAWS, NO_HEAD_OF_LINE, RESTART_KEEPS_SESSION, SESSION_BEAT_BESIDE_STALE_WINDOW, SLICED_DROP_REPOINTS_DEPENDS, sourceOf } from '../../nodes/laws.js'
+import { CARD_WAIT_STATES, DIRECT_IMPORTER_WIDENED, gapRows, INFRASTRUCTURE_RETRIED, LAW_CELLS, LAW_NODES, LAW_SITES, lawIds, LAWS, MERGE_OUTSIDE_TOUCHES_REFUSED, NO_HEAD_OF_LINE, RESTART_KEEPS_SESSION, SESSION_BEAT_BESIDE_STALE_WINDOW, SLICED_DROP_REPOINTS_DEPENDS, sourceOf } from '../../nodes/laws.js'
+import { OUTSIDE_TOUCHES } from '../../nodes/merge/merge-executor.js'
 import { UpdateExecutor } from '../../nodes/update/update-executor.js'
 import { NetWatch, TICK_MS } from '../../ports/netwatch.js'
 import { launchName } from '../../supervisor/bg.js'
@@ -38,7 +40,7 @@ import { slotsVariable } from '../../supervisor/scheduler.js'
 import { busDrain, BusSupervisor, freeLeasesOf, withoutRetiring } from '../../supervisor/supervisor.js'
 import { workerLaunches } from '../../supervisor/workers.js'
 import { Clock, FakeGitHub, sha } from '../bus/github-fake.js'
-import { eventsOf, mergeBench } from '../bus/merge-bench.js'
+import { eventsOf, liveBench, mergeBench } from '../bus/merge-bench.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')
 const OWNER_LAWS = ['Z1', 'Z2', 'Z3', 'Z4', 'Z5', 'Z6', 'Z7']
@@ -394,10 +396,42 @@ async function directImporterWidened(node: LawNode): Promise<void> {
   }
 }
 
+const OUTSIDE_CARD = 1796
+const OUTSIDE_PR = OUTSIDE_CARD - 100
+
+function admittedTouching(made: ReturnType<typeof mergeBench>, touches: string, generation: string): void {
+  const text = `card: #${OUTSIDE_CARD} merge-scope [implement/construct/S/cheap/auto] · depends — · blocks —\nbranch: feat/merge-scope\ntouches: ${touches}\ncontinue: stop\nwho: shift\n\nMerge it.\n`
+  appendEvent(made.db, { ts: made.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'worker:intake:window', cardId: OUTSIDE_CARD, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${OUTSIDE_CARD}:${generation}`, payload: { card: `#${OUTSIDE_CARD}`, lane: 'lane-a', decision: 'auto', contour: 'cheap', depends: [], admission: `admission-${generation}`, text, textSha: textSha(text), bodySha: generation }, legacy: false })
+}
+
+async function mergeRefusesOutsideTouches(node: LawNode): Promise<void> {
+  if (node !== 'merge')
+    throw new Error(`no merge scope check is wired on ${node}`)
+  const made = liveBench()
+  try {
+    admittedTouching(made, 'scripts/a.ts', 'body-1')
+    made.gitHub.open({ number: OUTSIDE_PR, review: 'success', files: ['scripts/a.ts', 'package.json', 'scripts/tests/a.test.ts'] })
+    made.tick()
+    const refused = made.merge(made.lease()!)
+    if (refused.kind !== 'denied' || refused.denial.kind !== 'technical' || refused.denial.reason !== OUTSIDE_TOUCHES || !refused.denial.detail.includes('package.json') || refused.denial.detail.includes('scripts/tests/a.test.ts'))
+      throw new Error(`a head with package.json outside the touches was not refused for it alone: ${JSON.stringify(refused)}`)
+    admittedTouching(made, 'scripts/a.ts, package.json', 'body-2')
+    made.clock.advance(HOLD_RECHECK_MS)
+    made.tick()
+    const amended = made.merge(made.lease()!)
+    if (amended.kind !== 'merged')
+      throw new Error(`the amend that covers package.json did not let the head merge: ${JSON.stringify(amended)}`)
+  }
+  finally {
+    made.close()
+  }
+}
+
 const WITNESSES: Witnesses = {
   [RESTART_KEEPS_SESSION]: { law: 'Z1', run: restartKeepsSession },
   [INFRASTRUCTURE_RETRIED]: { law: 'Z2', run: infrastructureFailureIsRetried },
   [DIRECT_IMPORTER_WIDENED]: { law: 'Z3', run: directImporterWidened },
+  [MERGE_OUTSIDE_TOUCHES_REFUSED]: { law: 'Z3', run: mergeRefusesOutsideTouches },
   [SESSION_BEAT_BESIDE_STALE_WINDOW]: { law: 'Z7', run: sessionBeatBesideStaleWindow },
 }
 

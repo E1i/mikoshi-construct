@@ -8,11 +8,13 @@ import type { StatusPublisher } from '../../ports/github-status.js'
 import type { CommandResult, GitHub, GitHubPut } from '../../ports/github.js'
 import type { TechnicalReason } from '../review/record-verdict.js'
 import { Buffer } from 'node:buffer'
+import { pathsOutside, runsCover } from '../../../src/card/covering-tests.js'
+import { followsTouches } from '../../../src/commands/intake/check.js'
 import { changedFiles, REFUSED_NOT_UP_TO_DATE, rerunOf, upToDateRequired } from '../../cli/check-catalog.js'
 import { cardHoldOf, HOLD_RECHECK_MS } from '../../core/card-hold.js'
 import { appendEvent, openBusWait } from '../../core/db.js'
 import { messageOf } from '../../core/errors.js'
-import { BOARD_ALARM, COMMAND_EXECUTED, MERGE_DONE, POLICY_ALLOWED, POLICY_DENIED, SHARD_USED } from '../../core/events.js'
+import { BOARD_ALARM, COMMAND_EXECUTED, MERGE_DONE, POLICY_ALLOWED, POLICY_DENIED, SCOPE_WIDENED, SHARD_USED } from '../../core/events.js'
 import { isFullSha } from '../../core/identifiers.js'
 import { assertHeld, completeTask, failTask, releaseTask, StaleLease, waitTask } from '../../core/lease.js'
 import { KEPT_BY_PUSH_POLICY } from '../../core/push-policy.js'
@@ -32,14 +34,16 @@ export const STALE_HEAD_STATUS = 409
 export const NOT_ALLOWED_STATUS = 405
 const NOT_UP_TO_DATE = /not up.to.date/i
 export const HELD_FOR_OWNER = 'held_for_owner'
-const WAIT_REASONS: ReadonlySet<MergeTechnicalReason> = new Set(['version_pr_open', 'not_mergeable', 'not_a_candidate', NEEDS_UPDATE, HELD_FOR_OWNER])
+export const OUTSIDE_TOUCHES = 'outside_touches'
+const WAIT_REASONS: ReadonlySet<MergeTechnicalReason> = new Set(['version_pr_open', 'not_mergeable', 'not_a_candidate', NEEDS_UPDATE, HELD_FOR_OWNER, OUTSIDE_TOUCHES])
+const WIDENED_ON_THE_ADMISSION = `SELECT json_extract(payload, '$.paths') AS paths FROM events WHERE card_id = ? AND legacy = 0 AND type = '${SCOPE_WIDENED}' AND json_extract(payload, '$.admission') = ? AND json_type(payload, '$.paths') = 'array'`
 const OPEN_QUESTIONS_OF_CARD = `${openDecisionWaitsOf('?')} ORDER BY opened_at, id`
 const REVIEWS_IN_FLIGHT = `SELECT task_key FROM tasks WHERE queue = 'review' AND pr = ? AND head = ? AND state IN ('queued', 'leased') ORDER BY id`
 const WITHDRAWN_ON_THE_BODY: ReadonlySet<AuthorityRule> = new Set(['decision_unread', 'no_matrix_count_line'])
 const FILES_PAGE = 100
 const REPO = 'repos/{owner}/{repo}'
 
-export type MergeTechnicalReason = TechnicalReason | 'not_mergeable' | 'no_pass_on_head' | 'version_pr_open' | 'wrong_base' | 'not_a_candidate' | 'not_mine' | typeof HELD_FOR_OWNER | typeof QUESTION_OPEN | typeof WITNESS_REASON | typeof NEEDS_UPDATE | typeof KEPT_BY_PUSH_POLICY
+export type MergeTechnicalReason = TechnicalReason | 'not_mergeable' | 'no_pass_on_head' | 'version_pr_open' | 'wrong_base' | 'not_a_candidate' | 'not_mine' | typeof HELD_FOR_OWNER | typeof OUTSIDE_TOUCHES | typeof QUESTION_OPEN | typeof WITNESS_REASON | typeof NEEDS_UPDATE | typeof KEPT_BY_PUSH_POLICY
 
 export type ParkedUntil = 'new_head' | 'wait_closed'
 
@@ -77,6 +81,7 @@ interface Pull {
   head?: { sha?: string, ref?: string }
 }
 
+type AddedFile = PatchedFile & { status?: string }
 type Checked = { kind: 'ready', facts: MergeFacts, mergedCommit: string | null, base: string | null, shard: string | null, decidedPastRoundLimit: number | null } | { kind: 'denied', denial: MergeDenial }
 
 function technical(reason: MergeTechnicalReason, detail: string): Checked {
@@ -134,6 +139,9 @@ export class MergeExecutor {
       const asked = checked.mergedCommit === null ? this.heldByAnOpenQuestion(lease) : null
       if (asked !== null)
         return this.denied(lease, asked)
+      const outside = checked.mergedCommit === null ? this.outsideTouches(lease, checked.facts.patched) : null
+      if (outside !== null)
+        return this.denied(lease, outside)
       const gated = checked.mergedCommit === null && witnessSubjectOf(this.parts.db, lease.cardId) !== null
       const unwitnessed = gated ? witnessDenial(this.parts.db, lease.cardId, lease.head, checked.base) : null
       if (unwitnessed !== null)
@@ -192,6 +200,19 @@ export class MergeExecutor {
       return null
     const questions = open.map(wait => `${wait.id} (${wait.text})`).join(', ')
     return { kind: 'technical', reason: QUESTION_OPEN, detail: `card #${lease.cardId} waits for the owner's answer to ${questions}; #${lease.pr} merges once it is answered`, parkedUntil: 'wait_closed' }
+  }
+
+  private outsideTouches(lease: Lease, patched: readonly PatchedFile[]): MergeDenial | null {
+    const card = cardContract(this.parts.db, lease.cardId)
+    if (card === null)
+      return null
+    const widened = (this.parts.db.prepare(WIDENED_ON_THE_ADMISSION).all(lease.cardId, card.admissionEventId) as { paths: string }[]).flatMap(row => JSON.parse(row.paths) as string[])
+    const touches = [...card.touches, ...widened]
+    const reach = { touches, added: new Set(patched.filter(file => (file as AddedFile).status === 'added').map(file => file.filename)), compositionRecords: [] }
+    const outside = pathsOutside(touches, card.creates, patched.map(file => file.filename)).filter(file => !runsCover(file, card.runs) && !followsTouches(file, reach))
+    if (outside.length === 0)
+      return null
+    return { kind: 'technical', reason: OUTSIDE_TOUCHES, detail: `#${lease.pr} changes ${outside.join(', ')}, outside the touches and creates card #${lease.cardId} was admitted with; it merges once an amend of the card covers them or the head drops them` }
   }
 
   private noLongerACandidate(lease: Lease): MergeDenial | null {
@@ -381,7 +402,7 @@ export class MergeExecutor {
     if (parked)
       return { kind: 'denied', taskKey: lease.taskKey, denial, next: failTask(this.parts.db, ts, lease, { reason, withdraw: true }, [event]) }
     if (waits) {
-      const until = reason === HELD_FOR_OWNER ? new Date(this.parts.clock().getTime() + HOLD_RECHECK_MS).toISOString() : reason === NEEDS_UPDATE ? updateTurnHeldUntil(this.parts.db, ts, lease.pr!) : null
+      const until = reason === HELD_FOR_OWNER || reason === OUTSIDE_TOUCHES ? new Date(this.parts.clock().getTime() + HOLD_RECHECK_MS).toISOString() : reason === NEEDS_UPDATE ? updateTurnHeldUntil(this.parts.db, ts, lease.pr!) : null
       if (until === null)
         releaseTask(this.parts.db, ts, lease, reason, [event])
       else

@@ -164,6 +164,7 @@ export const SESSION_DEATH_CAP = 3
 
 const SESSION_DEATHS = `SELECT count(*) AS n FROM events WHERE type = '${CARD_STOPPED}' AND legacy = 0 AND card_id = ? AND dedupe_key LIKE '${CARD_STOPPED}:session-end:%'`
 
+export const HELD_AT_THE_EXIT = 'held'
 const USAGE_LIMIT_WAIT_PREFIX = `${CARD_WAITING}:${USAGE_LIMIT}:`
 
 const CONTINUATIONS = `SELECT count(*) AS n FROM events AS c WHERE c.type = '${CARD_CONTINUED}' AND c.legacy = 0 AND c.card_id = ?
@@ -573,8 +574,17 @@ export class LaunchNode extends Node<LaunchStep> {
     appendEvent(this.db, { ts: this.ts(), type: CARD_WAITING, actor: this.actor, cardId: start.card_id, pr: null, head: null, dedupeKey: `${CARD_WAITING}:${AMENDED_AFTER_START}:${start.dedupe_key}:${amend.amended}`, payload: { reason: AMENDED_AFTER_START, session: card.session, started: amend.started, amended: amend.amended, detail }, legacy: false })
   }
 
+  private heldAtTheExit(start: RunningStart, card: StartedCard, exited: string, hold: string): boolean {
+    const detail = `${exited}; ${hold}, so no session continues from it until the hold is released`
+    appendEvent(this.db, { ts: this.ts(), type: CARD_WAITING, actor: this.actor, cardId: start.card_id, pr: null, head: null, dedupeKey: `${CARD_WAITING}:${HELD_AT_THE_EXIT}:${start.dedupe_key}`, payload: { reason: HELD_AT_THE_EXIT, session: card.session, detail }, legacy: false })
+    return false
+  }
+
   private continueSession(start: RunningStart, card: StartedCard, continuer: SessionContinuer, exited: string): boolean {
-    if (cardHoldOf(this.db, start.card_id) !== null || bodyNotFoldedYet(this.db, start.card_id) || this.usageLimitResetPending() !== null)
+    const hold = cardHoldOf(this.db, start.card_id)
+    if (hold !== null)
+      return this.heldAtTheExit(start, card, exited, hold)
+    if (bodyNotFoldedYet(this.db, start.card_id) || this.usageLimitResetPending() !== null)
       return false
     const used = this.continuationsUsed(start)
     if (used >= MAX_RESTARTS)
