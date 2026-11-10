@@ -3955,6 +3955,17 @@
         ],
         "types": {}
       },
+      "src/commands/test-runner.ts": {
+        "constants": [],
+        "functions": {
+          "namedAbsentOutside": "(run: string, scope: CardScope, absent: (file: string) => boolean, changed: readonly string[] = []): string[]",
+          "testRunnerOf": "(command: string): TestRunner | null"
+        },
+        "reexports": [],
+        "types": {
+          "CardScope": "interface CardScope { touches: readonly string[]; creates: readonly string[]; }"
+        }
+      },
       "src/detect/index.ts": {
         "constants": [],
         "functions": {
@@ -4867,11 +4878,9 @@
         "types": {
           "AsyncTreeRun": "interface AsyncTreeRun extends TreeContext { shell: (command: string, cwd: string) => Promise<ShellResult>; phase?: (name: string) => void; }",
           "BaseRun": "interface BaseRun { command: string; output: string; }",
-          "CardScope": "interface CardScope { touches: string[]; creates: string[]; }",
           "RedOnMainProposal": "interface RedOnMainProposal { replacement: ReplacementField[] | null; files: string[]; }",
           "Refuse": "type Refuse = (step: string, problem: string | null) => void",
           "ReplacementField": "interface ReplacementField { id: string; run: string; test: null; head: 'pass'; base: 'fail'; proves: string; }",
-          "TestRunner": "interface TestRunner { runs: (command: string) => boolean; ranNoTests: (output: string) => boolean; isTestFile: (file: string) => boolean; retargeted: (command: string, files: readonly string[]) => string | null; }",
           "TestTarget": "interface TestTarget { file: string; name: string | null; }",
           "Timer": "type Timer = <T>(name: string, run: () => T) => T",
           "TreeRun": "interface TreeRun extends TreeContext { shell: Shell; time: Timer; }",

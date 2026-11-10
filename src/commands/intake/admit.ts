@@ -1,9 +1,10 @@
 import type { BusCardStates } from '../../card/closed.js'
 import type { Card, Decision } from '../../card/grammar.js'
 import type { ParkedTask } from '../../card/parking.js'
-import type { CardScope, WitnessExpectation, WitnessField } from '../../card/witness-fields.js'
+import type { WitnessExpectation, WitnessField } from '../../card/witness-fields.js'
 import type { Ui } from '../../ui/console.js'
 import type { Lore } from '../../ui/lore.js'
+import type { CardScope } from '../test-runner.js'
 import type { CheckedCard } from './check.js'
 import type { Confirmation } from './confirm.js'
 import type { DraftCard } from './draft.js'
@@ -21,8 +22,9 @@ import { cardLine, parseCard } from '../../card/grammar.js'
 import { createdPaths, parseParkingFile } from '../../card/parking.js'
 import { PREFIX_SUFFIX } from '../../card/task-file.js'
 import { priorityLineOf, withKeptPriority } from '../../card/text-sha.js'
-import { fieldCommand, isAcceptanceField, isWitnessFieldLine, judgedCommand, namedAbsentOutside, namedPaths, renderedWitness, runsFieldLine, runsFieldOf, statesAnExit, testRunnerOf, withinScope, witnessFieldsOf, witnessText } from '../../card/witness-fields.js'
+import { fieldCommand, isAcceptanceField, isWitnessFieldLine, judgedCommand, renderedWitness, runsFieldLine, runsFieldOf, statesAnExit, witnessFieldsOf, witnessText } from '../../card/witness-fields.js'
 import { readMilestones } from '../../manifest.js'
+import { findsNoTest, namedAbsentOutside, namedPaths, withinScope } from '../test-runner.js'
 import { CARD_REFERENCE, checkDraft, correctionText, invalidTestPatterns, isChangeWitness, nonPathTouchRefusals, OWNER_MERGES, ownerPathsOf, PACKAGE_MANIFEST, publishedRootsOf } from './check.js'
 import { TEST_NAME_ARGUMENT } from './command-word.js'
 import { admitCorrectionsNeedPerson, bodySha, bodyShaWithoutTouches, confirmationOf, confirmationToken, isConfirmation, sameHeader, tokenConfirmation, TOUCHES_HEADER, windowShard } from './confirm.js'
@@ -471,10 +473,8 @@ function absentFrom(scope: BaseScope, file: string): boolean {
 }
 
 export function unfitOnTheBase(command: string, scope: BaseScope): boolean {
-  const named = namedPaths(command)
-  const runner = testRunnerOf(command)
-  const findsNoTest = runner !== null && named.length > 0 && named.every(file => absentFrom(scope, file)) && !named.some(runner.isTestFile)
-  return findsNoTest || namedAbsentOutside(command, scope.card, file => absentFrom(scope, file)).length > 0
+  const absent = (file: string): boolean => absentFrom(scope, file)
+  return findsNoTest(command, absent) || namedAbsentOutside(command, scope.card, absent).length > 0
 }
 
 function checksOnlyCreatedPaths(command: string, scope: BaseScope): boolean {
