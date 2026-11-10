@@ -18,6 +18,13 @@ const READINGS = [
   { name: 'a test -e operand stays a named path', command: `! test -e ${ABSENT}`, named: [ABSENT] },
   { name: 'a [ -e ] operand stays a named path', command: `[ -e ${ABSENT} ]`, named: [ABSENT] },
   { name: 'a path after a grep and a separator stays a named path', command: `grep -E x ${FILE} && test -e ${ABSENT}`, named: [FILE, ABSENT] },
+  { name: 'a test -e after a grep and a semicolon stays a named path', command: `grep -q x ${FILE}; test -e ${ABSENT}`, named: [FILE, ABSENT] },
+  { name: 'a test -e after a grep and a glued semicolon stays a named path', command: `grep -q x ${FILE};test -e ${ABSENT}`, named: [FILE, ABSENT] },
+  { name: 'a test -e after a grep and an or stays a named path', command: `grep -q x ${FILE} || test -e ${ABSENT}`, named: [FILE, ABSENT] },
+  { name: 'a test -e after a grep and a glued or stays a named path', command: `grep -q x ${FILE}||test -e ${ABSENT}`, named: [FILE, ABSENT] },
+  { name: 'a test -e after a grep and a glued and stays a named path', command: `grep -q x ${FILE}&&test -e ${ABSENT}`, named: [FILE, ABSENT] },
+  { name: 'a test -e after a grep and a pipe stays a named path', command: `grep -q x ${FILE} | xargs test -e ${ABSENT}`, named: [FILE, ABSENT] },
+  { name: 'a grep after a glued semicolon reads its -e pattern as no path', command: `test -e ${ABSENT};grep -e scripts/core/x ${FILE}`, named: [ABSENT, FILE] },
   { name: 'a quoted vitest path stays a named path', command: `pnpm exec vitest run 'tests/test-runner.test.ts'`, named: ['tests/test-runner.test.ts'] },
 ]
 
