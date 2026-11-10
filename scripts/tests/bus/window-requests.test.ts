@@ -3,7 +3,7 @@ import type { CardStarter, LaunchOutcome } from '../../nodes/launch/launch-execu
 import type { GitHubPut } from '../../ports/github.js'
 import type { RequestTools } from '../../window/window-requests.js'
 import type { MergeBench } from './merge-bench.js'
-import { execFile } from 'node:child_process'
+import { execFile, execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -31,6 +31,7 @@ import { roundLimitDecisionOf } from '../../policy/round-limit-decision.js'
 import { decisionsInForceAt } from '../../policy/shards.js'
 import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
 import { NetWatch } from '../../ports/netwatch.js'
+import { WORKTREE_HOME_VARIABLE } from '../../ports/worktree-home.js'
 import { BusTick } from '../../supervisor/run.js'
 import { productionDeps, STALL_MS } from '../../window/watch.js'
 import { countLineAppender, decisionsAdder, realRequestTools, worktreesHolding } from '../../window/window-request-tools.js'
@@ -371,6 +372,49 @@ describe('requests from the sandboxed window, executed by the bus outside it', (
     bench.tick()
     expect(bench.db.prepare('SELECT state FROM cards WHERE card_id = ?').get(cardId)).toEqual({ state: 'running' })
     expect(eventsOf(bench.db, CARD_ADMITTED).filter(admitted => admitted.admission === `admission-${cardId}`)).toHaveLength(1)
+  })
+
+  it('a keep-tree requeue of a card that fell at its start with no session record takes its existing tree as it stands', () => {
+    const made = room()
+    const { bench } = made
+    const cardId = CARD + 116
+    const branch = `feat/card-${cardId}`
+    const repo = path.join(made.root, 'repo')
+    const home = path.join(made.root, 'trees')
+    const tree = path.join(home, `mc-${cardId}`)
+    const gitIn = (cwd: string, ...args: string[]): string => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...args], { cwd, encoding: 'utf8' })
+    mkdirSync(repo, { recursive: true })
+    gitIn(repo, 'init', '-q', '-b', 'main')
+    writeFileSync(path.join(repo, 'main.txt'), 'main\n')
+    gitIn(repo, 'add', '.')
+    gitIn(repo, 'commit', '-q', '-m', 'main')
+    gitIn(repo, 'worktree', 'add', '-q', '-b', branch, tree)
+    writeFileSync(path.join(tree, 'finished.txt'), 'finished but uncommitted\n')
+    const starter: CardStarter = {
+      start: card => ({ kind: 'refused', denial: technical('start_failed', `task:start for card #${card.cardId} found ${tree} standing`) }),
+      stop: () => {},
+    }
+    const executor = new LaunchExecutor({ db: bench.db, starter, clock: bench.clock.now, disk: () => ({ bavail: 1, bsize: DISK_FLOOR_BYTES }), isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }) })
+    const text = `card: #${cardId} fell-at-start [implement/construct/S/cheap/auto] · depends — · blocks —\nbranch: ${branch}\ntouches: scripts/a.ts\ncontinue: stop\nwho: shift\n\nFinish it.\n`
+    appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'policy', cardId, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${cardId}`, payload: { lane: 'lane-a', decision: 'auto', contour: 'cheap', depends: [], admission: `admission-${cardId}`, text, textSha: textSha(text) }, legacy: false })
+    bench.tick()
+    const key = taskKey({ queue: 'launch', cardId, generation: `admission-${cardId}` })
+    for (let failure = 0; failure < FAILURES_TO_STOP; failure += 1)
+      executor.launch(leaseNext(bench.db, bench.clock.now().toISOString(), 'launch', 'worker:launch:worker-1')!)
+    bench.tick()
+    expect(taskState(bench.db, key).state).toBe('stopped')
+    const { causeHolds } = realRequestTools(bench.db, bench.busPath, repo, { [WORKTREE_HOME_VARIABLE]: home })
+
+    const plain = ask(made, { kind: 'requeue', task_key: key })
+    expect(made.requests({ causeHolds }).run()[0]).toMatchObject({ kind: 'refused', request: plain, detail: expect.stringContaining(`the card tree ${tree} has uncommitted changes; a requeue with keep_tree: true`) })
+    bench.tick()
+    expect(taskState(bench.db, key).state).toBe('stopped')
+
+    const kept = ask(made, { kind: 'requeue', task_key: key, keep_tree: true })
+    expect(made.requests({ causeHolds }).run()[0]).toMatchObject({ kind: 'done', request: kept, detail: expect.stringContaining(`its session starts on the tree as it stands: the card tree ${tree} has uncommitted changes`) })
+    bench.tick()
+    expect(taskState(bench.db, key).state).toBe('queued')
+    expect(readFileSync(path.join(tree, 'finished.txt'), 'utf8')).toBe('finished but uncommitted\n')
   })
 
   it('a requeue request is refused past the D-104 limit of requeues after one board.alarm', () => {
