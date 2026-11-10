@@ -21,8 +21,13 @@ const LAST_EVENT_ID = 'SELECT coalesce(max(id), 0) AS id FROM events'
 const LAST_RUN_OF_CARD = 'SELECT id, payload FROM events WHERE type = ? AND card_id = ? AND id > ? ORDER BY id DESC LIMIT 1'
 
 export type RunSource
-  = | { kind: 'bus', busPath: string, card: number }
+  = | { kind: 'bus', busPath: string, card: number, runsPath: string }
     | { kind: 'file', runsPath: string }
+
+export interface RunMark {
+  event: number
+  line: number
+}
 
 interface RunRow {
   id: number
@@ -59,24 +64,31 @@ export function ledgerPathOf(root: string): string {
 
 export function runSourceOf(worktree: string, card: number, env: NodeJS.ProcessEnv = process.env, home: string = os.homedir()): RunSource {
   const busPath = wiredBusOf({ dir: worktree, env, home })
-  return busPath === null ? { kind: 'file', runsPath: ledgerPathOf(worktree) } : { kind: 'bus', busPath, card }
+  const runsPath = ledgerPathOf(worktree)
+  return busPath === null ? { kind: 'file', runsPath } : { kind: 'bus', busPath, card, runsPath }
 }
 
-export function ladderRunMark(source: RunSource): number {
+export function ladderRunMark(source: RunSource): RunMark {
+  const line = ledgerLines(source.runsPath).length
   if (source.kind === 'file')
-    return ledgerLines(source.runsPath).length
-  return withReadOnlyBus(source.busPath, db => Number((db.prepare(LAST_EVENT_ID).get() as { id: number }).id))
+    return { event: 0, line }
+  return { event: withReadOnlyBus(source.busPath, db => Number((db.prepare(LAST_EVENT_ID).get() as { id: number }).id)), line }
 }
 
-function lastRunOf(source: RunSource, after: number): RunRow | null {
-  if (source.kind === 'file') {
-    const lines = ledgerLines(source.runsPath)
-    return lines.length > after ? { id: lines.length, payload: lines[lines.length - 1]! } : null
-  }
+function lastLineOf(runsPath: string, after: number): RunRow | null {
+  const lines = ledgerLines(runsPath)
+  return lines.length > after ? { id: lines.length, payload: lines[lines.length - 1]! } : null
+}
+
+function lastEventOf(source: Extract<RunSource, { kind: 'bus' }>, after: number): RunRow | null {
   return withReadOnlyBus(source.busPath, db => (db.prepare(LAST_RUN_OF_CARD).get(LADDER_RUN, source.card, after) as RunRow | undefined) ?? null)
 }
 
-export function readLadderOutcome(source: RunSource, after: number): LadderOutcome {
+function lastRunOf(source: RunSource, after: RunMark): RunRow | null {
+  return (source.kind === 'bus' ? lastEventOf(source, after.event) : null) ?? lastLineOf(source.runsPath, after.line)
+}
+
+export function readLadderOutcome(source: RunSource, after: RunMark): LadderOutcome {
   const row = lastRunOf(source, after)
   if (row === null)
     return { status: NO_LADDER_RUN, run: null, iterations: null, actual: null }
@@ -94,11 +106,9 @@ export function readLadderOutcome(source: RunSource, after: number): LadderOutco
 }
 
 export function readLadderStage(source: RunSource): LedgerStage | null {
-  if (source.kind === 'file')
+  const row = source.kind === 'bus' ? lastEventOf(source, 0) : null
+  if (source.kind === 'file' || row === null)
     return readLedgerStage(source.runsPath)
-  const row = lastRunOf(source, 0)
-  if (row === null)
-    return null
   const entry = parseLedgerLine(row.payload)
   if (typeof entry !== 'string' && entry.run !== null)
     return { kind: 'entry', status: entry.status, run: entry.run }

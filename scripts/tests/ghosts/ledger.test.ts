@@ -1,4 +1,4 @@
-import type { RunSource } from '../../ladder/ledger.js'
+import type { RunMark, RunSource } from '../../ladder/ledger.js'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -14,17 +14,18 @@ function runsPath(): { dir: string, runs: string } {
 const ROW = { run: 'run-1', at: '2026-09-27T20:00:00.000Z', task: 'a run', effort: 'low', status: 'done', rung: 'low', attempts: [{ rung: 1, effort: 'low', outcome: 'done', reason: '' }], agents: 3, tokens: 100, toolUses: 4, seconds: 10 }
 const row = (fields: Record<string, unknown>): string => JSON.stringify({ ...ROW, ...fields })
 const file = (runs: string): RunSource => ({ kind: 'file', runsPath: runs })
+const lines = (line: number): RunMark => ({ event: 0, line })
 
 describe('ladderRunMark of a tree with no bus', () => {
   it('is 0 when the ledger is absent', () => {
     const { runs } = runsPath()
-    expect(ladderRunMark(file(runs))).toBe(0)
+    expect(ladderRunMark(file(runs))).toEqual(lines(0))
   })
 
   it('counts the existing non-empty lines', () => {
     const { runs } = runsPath()
     writeFileSync(runs, '{"a":1}\n{"a":2}\n')
-    expect(ladderRunMark(file(runs))).toBe(2)
+    expect(ladderRunMark(file(runs))).toEqual(lines(2))
   })
 })
 
@@ -32,12 +33,12 @@ describe('readLadderOutcome', () => {
   it('is "no ladder run" when there is no new line', () => {
     const { runs } = runsPath()
     writeFileSync(runs, '{"a":1}\n')
-    expect(readLadderOutcome(file(runs), 1)).toEqual({ status: 'no ladder run', run: null, iterations: null, actual: null })
+    expect(readLadderOutcome(file(runs), lines(1))).toEqual({ status: 'no ladder run', run: null, iterations: null, actual: null })
   })
 
   it('is "no ladder run" when the ledger is absent', () => {
     const { runs } = runsPath()
-    expect(readLadderOutcome(file(runs), 0)).toEqual({ status: 'no ladder run', run: null, iterations: null, actual: null })
+    expect(readLadderOutcome(file(runs), lines(0))).toEqual({ status: 'no ladder run', run: null, iterations: null, actual: null })
   })
 
   it('reads the status, run and attempts length of the last new line', () => {
@@ -53,15 +54,15 @@ describe('readLadderOutcome', () => {
   it('reads the actual tokens and minutes of the last new line, unknown tokens kept as unknown', () => {
     const { runs } = runsPath()
     writeFileSync(runs, `${row({ tokens: 166_000, seconds: 720 })}\n${row({ tokens: 'unknown', seconds: 90 })}\n`)
-    expect(readLadderOutcome(file(runs), 0).actual).toEqual({ tokens: 'unknown', minutes: 1.5 })
+    expect(readLadderOutcome(file(runs), lines(0)).actual).toEqual({ tokens: 'unknown', minutes: 1.5 })
     writeFileSync(runs, `${row({ tokens: 166_000, seconds: 720 })}\n`)
-    expect(readLadderOutcome(file(runs), 0).actual).toEqual({ tokens: 166_000, minutes: 12 })
+    expect(readLadderOutcome(file(runs), lines(0)).actual).toEqual({ tokens: 166_000, minutes: 12 })
   })
 
   it('carries the args hash the last new line names', () => {
     const { runs } = runsPath()
     writeFileSync(runs, `${row({ argsSha256: 'b'.repeat(64) })}\n`)
-    expect(readLadderOutcome(file(runs), 0)).toEqual({ status: 'done', run: 'run-1', iterations: 1, actual: { tokens: 100, minutes: 10 / 60 }, argsSha256: 'b'.repeat(64) })
+    expect(readLadderOutcome(file(runs), lines(0))).toEqual({ status: 'done', run: 'run-1', iterations: 1, actual: { tokens: 100, minutes: 10 / 60 }, argsSha256: 'b'.repeat(64) })
   })
 
   it.each([
@@ -72,7 +73,7 @@ describe('readLadderOutcome', () => {
   ])('reads $name as a malformed ledger line with the reader\'s reason and no run', ({ text, reason }) => {
     const { runs } = runsPath()
     writeFileSync(runs, `${row({ run: 'run-old' })}\n${text}\n`)
-    expect(readLadderOutcome(file(runs), 1)).toEqual({ status: `${MALFORMED_LEDGER_LINE}: ${reason}`, run: null, iterations: null, actual: null })
+    expect(readLadderOutcome(file(runs), lines(1))).toEqual({ status: `${MALFORMED_LEDGER_LINE}: ${reason}`, run: null, iterations: null, actual: null })
   })
 })
 

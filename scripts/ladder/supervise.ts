@@ -222,7 +222,7 @@ async function launchTask(ctx: TaskContext, task: PreparedTask): Promise<TaskOut
   }
 
   const ladder = readLadderOutcome(runs, runsMark)
-  const carryFailure = runs.kind === 'file' ? carryIntoMainLedger(runs.runsPath, ctx.repo) : ''
+  const carryFailure = carryIntoMainLedger(runs.runsPath, ctx.repo)
   const resultFields = readResultFields(task.reportPath)
   const outcome = sessionOutcome(code, ladder.status, task.reportPath, task.sessionId)
   await closeOut(ctx, task, start, outcome, {

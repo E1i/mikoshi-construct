@@ -13,8 +13,9 @@ description: >-
   through the `ladderRun` port that the factory bin `construct-intake run-record` wires in
   (`busLadderRun` in `scripts/intake/intake.ts`), so a repeated call adds no second event; with no
   port the command refuses and names the bus. The readers follow the same choice: `runSourceOf` in
-  `scripts/ladder/ledger.ts` reads the bus where one is wired and the tree's file where none is, so no
-  reader stays on a file nobody writes. `printRunRecord` names the adapter and the target; a refusal
+  `scripts/ladder/ledger.ts` reads the card's `ladder.run` event where a bus is wired, and the tree's
+  file line where none is or where the bus holds no run of the card after the mark, so a step 4 that
+  still writes the file is read too and no reader misses a run. `printRunRecord` names the adapter and the target; a refusal
   exits 2.
 doc: architecture/run-record.md
 boundaries:

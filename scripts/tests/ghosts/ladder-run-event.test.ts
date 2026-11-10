@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -53,7 +53,7 @@ describe('the run record of the /implement ladder', () => {
   it('the supervisor reads the ladder outcome of a run from its ladder.run event', () => {
     const { tree, home, busPath, env } = wiredBus()
     const source = runSourceOf(tree, CARD, env, home)
-    expect(source).toEqual({ kind: 'bus', busPath, card: CARD })
+    expect(source).toEqual({ kind: 'bus', busPath, card: CARD, runsPath: path.join(tree, LEDGER_FILE) })
 
     runRecord(JSON.stringify({ ...STEP_FOUR, run: 'wf_before', status: 'failed', cause: 'task' }), { dir: tree, env, home, now: () => NOW }, busLadderRun)
     const mark = ladderRunMark(source)
@@ -92,6 +92,18 @@ describe('the run record of the /implement ladder', () => {
     expect(runRecord(record, { dir: tree, env, home, now: () => NOW }, busLadderRun)).toMatchObject({ fresh: true })
     expect(runRecord(record, { dir: tree, env, home, now: () => NOW }, busLadderRun)).toMatchObject({ fresh: false })
     expect(ladderRuns(busPath).map(row => row.card_id)).toEqual([1751])
+  })
+
+  it('with a bus wired, reads a run the tree\'s file holds when the bus holds none for the card after the mark', () => {
+    const { tree, home, env } = wiredBus()
+    const source = runSourceOf(tree, CARD, env, home)
+    const mark = ladderRunMark(source)
+    const file = path.join(tree, LEDGER_FILE)
+    mkdirSync(path.dirname(file), { recursive: true })
+    writeFileSync(file, `${JSON.stringify({ ...STEP_FOUR, run: 'wf_file', status: 'base-moved' })}\n`)
+
+    expect(readLadderOutcome(source, mark)).toMatchObject({ status: 'base-moved', run: 'wf_file' })
+    expect(readLadderStage(source)).toEqual({ kind: 'entry', status: 'base-moved', run: 'wf_file' })
   })
 
   it('with a bus wired and no factory port the published command writes nothing and names the bus', () => {
