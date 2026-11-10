@@ -3,10 +3,11 @@ import type { Meter } from './meter.js'
 import process from 'node:process'
 import { readAttachRecord } from '../../src/commands/attach/record.js'
 import { commitCi } from '../../src/commands/ci/state.js'
+import { ABANDONED_TITLE } from '../ci/required.js'
 import { repositoryRoot } from '../core/bus-path.js'
 import { FACTORY_FORMER_FOLDERS, inScopes } from '../core/factory-paths.js'
 import { cardIdOfDescription, isFullSha, prBodySha } from '../core/identifiers.js'
-import { ciFieldsOfObservation } from './ci-reading.js'
+import { annotationTitles, ciFieldsOfObservation } from './ci-reading.js'
 import { REQUIRED_CHECK } from './gh.js'
 import { REVIEW_STATUS_CONTEXT } from './github-status.js'
 
@@ -88,6 +89,7 @@ interface Pull {
 interface ConcludedCheck {
   name?: string
   conclusion?: string | null
+  output?: { annotations_count?: number, annotations_url?: string } | null
 }
 
 interface CiOnHead {
@@ -129,7 +131,15 @@ function ciOnHead(meter: Meter, sha: string, requiredCheck: string): CiOnHead {
     bodies.push(body)
     return body
   } }, sha, requiredCheck)
-  return { ciFields: ciFieldsOfObservation(commit), cancelledChecks: cancelledAmong(bodies, commit.failedChecks) }
+  const cancelledChecks = cancelledAmong(bodies, commit.failedChecks)
+  const onlyRerunnable = commit.state === 'red' && cancelledChecks.length === commit.failedChecks.length
+  if (onlyRerunnable && annotationTitles(meter, requiredRunOf(bodies, requiredCheck)).includes(ABANDONED_TITLE))
+    return { ciFields: ciFieldsOfObservation({ ...commit, failedChecks: [...commit.failedChecks, requiredCheck] }), cancelledChecks: [...cancelledChecks, requiredCheck] }
+  return { ciFields: ciFieldsOfObservation(commit), cancelledChecks }
+}
+
+function requiredRunOf(bodies: readonly unknown[], requiredCheck: string): ConcludedCheck | undefined {
+  return bodies.flatMap(body => (body as { check_runs?: ConcludedCheck[] } | null)?.check_runs ?? []).find(check => check.name === requiredCheck)
 }
 
 function openPrOf(meter: Meter, pull: Pull, requiredCheck: string): OpenPr | null {

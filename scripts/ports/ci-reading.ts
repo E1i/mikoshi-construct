@@ -7,6 +7,22 @@ import { GH_QUERY_FAILED, PROCESS_GH_PORT, readGhJson } from './gh.js'
 export { CI_LOG_CEILING, ciFieldsOfObservation, ciLogForPrompt, ciOf, ciWord, failedJobLinkIn, rerunFailedJobsEndpoint, runsOnHeadEndpoint } from '../../src/commands/ci/state.js'
 export type { ArtifactRequest, CheckRun, CiObservation, CiReading, CiState, CommitCi, FailedJobLog, PrDetails, RollupCheck, RunIdentity } from '../../src/commands/ci/state.js'
 
+export interface AnnotatedCheck {
+  conclusion?: string | null
+  output?: { annotations_count?: number, annotations_url?: string } | null
+}
+
+const API_PATH_OF_URL = /^https:\/\/[^/]+\/(?:api\/v3\/)?(repos\/[^?#]+)$/
+
+export function annotationTitles(meter: Meter, check: AnnotatedCheck | undefined): string[] {
+  const url = check?.output?.annotations_url
+  const path = url === undefined ? undefined : API_PATH_OF_URL.exec(url)?.[1]
+  if (check?.conclusion !== 'failure' || (check.output?.annotations_count ?? 0) === 0 || path === undefined)
+    return []
+  const annotations = meter.get(path)
+  return (Array.isArray(annotations) ? annotations as { title?: unknown }[] : []).flatMap(annotation => typeof annotation.title === 'string' ? [annotation.title] : [])
+}
+
 export interface RunOnMain {
   databaseId: number
   headSha: string
