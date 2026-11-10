@@ -49,6 +49,7 @@ export interface AnswerRequest {
   fresh?: boolean
   outsideTouches?: (paths: readonly string[]) => string[]
   concept?: CardConcept | null
+  findingsToProve?: readonly string[]
   stepped?: (steps: StepSeconds) => void
 }
 
@@ -64,6 +65,12 @@ export interface Answered {
   steps?: StepSeconds
   widenedInConcept?: string[]
   noViolationFreePath?: boolean
+  proofs?: FindingProof[]
+}
+
+export interface FindingProof {
+  finding: string
+  proof: string
 }
 
 export function tokensOf(usage: Usage | null): number | null {
@@ -185,6 +192,7 @@ export function unmergedQuestion(card: CardSession, gap: FreshBaseGap): string {
 
 export const MERGE_STEP = '.merge'
 const VIOLATION_STEP = '.violation'
+const PROOFS_STEP = '.proofs'
 export const KNOWN_VIOLATIONS = '.dependency-cruiser-known-violations.json'
 
 function onlyAGrownViolationBaseline(outside: readonly string[]): boolean {
@@ -214,6 +222,36 @@ function measuredOf(stdoutPaths: readonly string[]): { tokens?: number | null } 
 
 export function ownerQuestionPath(dir: string, session: string, leaseGen: number): string {
   return path.join(dir, `${session}.${leaseGen}.owner.txt`)
+}
+
+export function proofsPath(dir: string, session: string, leaseGen: number): string {
+  return path.join(dir, `${session}.${leaseGen}.proofs.json`)
+}
+
+export function proofsRule(findings: readonly string[], file: string): string[] {
+  if (findings.length === 0)
+    return []
+  return [`Prove every finding before the session ends: write ${file} as one JSON object whose keys are the finding numbers below and whose values each name the proof of that finding, such as the test that fails without the fix. The bus refuses an answer that leaves a finding without a proof.`, ...findings.map((finding, at) => `${at + 1}. ${finding}`)]
+}
+
+export function proofsIn(file: string, findings: readonly string[]): FindingProof[] {
+  try {
+    const written = existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) as unknown : null
+    const byNumber = typeof written === 'object' && written !== null && !Array.isArray(written) ? written as Record<string, unknown> : {}
+    return findings.flatMap((finding, at) => typeof byNumber[String(at + 1)] === 'string' ? [{ finding, proof: byNumber[String(at + 1)] as string }] : [])
+  }
+  catch {
+    return []
+  }
+}
+
+export function unprovedFindings(given: readonly string[], proofs: readonly FindingProof[] | undefined): string[] {
+  const proved = new Set((proofs ?? []).filter(each => each.proof.trim() !== '').map(each => each.finding.trim()))
+  return [...new Set(given.map(finding => finding.trim()))].filter(finding => finding !== '' && !proved.has(finding))
+}
+
+export function missingProofsPrompt(unproved: readonly string[], file: string): string {
+  return [`The bus pushes nothing until every finding has its proof in ${file}. These findings have none yet:`, ...unproved.map(finding => `- ${finding}`), 'Prove each one, or fix what keeps it from being proved, and write its proof under its number; then end the session.'].join('\n')
 }
 
 function ownerQuestionIn(file: string): string | null {
@@ -440,16 +478,19 @@ function sessionAnswerer(dir: string, tools: AnswererTools): Answerer {
     const resumed = request.fresh !== true && tools.available(card) && !atContextWarn(tools, card.session, size)
     const session = resumed ? card.session : tools.newSession()
     const ownerQuestion = ownerQuestionPath(dir, session, request.lease.leaseGen)
+    const proofs = proofsPath(dir, session, request.lease.leaseGen)
+    const prove = request.findingsToProve ?? []
     const gate = roundGateOf(readShiftGate(card.worktree), tools.localHead?.(card) ?? null)
     const timer = new RoundTimer(tools.now ?? Date.now, gate.prepush)
     const ciLog = asksAboutRedCi(request.source) && request.lease.head !== null ? tools.ciLog?.(card, request.lease.head) : undefined
     const handoff = answerHandoffPath(card.worktree)
     if (request.fresh !== true)
       rmSync(handoff, { force: true })
-    const prompt = [answerPrompt(request, cardBody, windowGateRule(card, gate, ownerQuestion), resumed ? undefined : tools.diff?.(card), ciLog), ...handoffLines(handoff, request.fresh === true)].join('\n')
-    const invocationOf = (kind: 'start' | 'resume', text: string): Invocation => clientInvocation({ kind, role: 'answer', session, cwd: card.worktree, prompt: text, addDirs: [dir], pick: { model: null }, policy: { profile: 'sandboxed', gateCommands: gate.prepush, writePaths: [ownerQuestion], mcpOff: true, tools: tools.cardTools?.(request.lease.cardId, cardBody) } })
+    const prompt = [answerPrompt(request, cardBody, windowGateRule(card, gate, ownerQuestion), resumed ? undefined : tools.diff?.(card), ciLog), ...proofsRule(prove, proofs), ...handoffLines(handoff, request.fresh === true)].join('\n')
+    const invocationOf = (kind: 'start' | 'resume', text: string): Invocation => clientInvocation({ kind, role: 'answer', session, cwd: card.worktree, prompt: text, addDirs: [dir], pick: { model: null }, policy: { profile: 'sandboxed', gateCommands: gate.prepush, writePaths: prove.length === 0 ? [ownerQuestion] : [ownerQuestion, proofs], mcpOff: true, tools: tools.cardTools?.(request.lease.cardId, cardBody) } })
     mkdirSync(dir, { recursive: true })
     rmSync(ownerQuestion, { force: true })
+    rmSync(proofs, { force: true })
     const before = tools.remoteHead(card)
     const stdoutOf = (step: string): string => path.join(dir, `${session}.${request.lease.leaseGen}${step}.out.jsonl`)
     const withdrawn = new AbortController()
@@ -559,9 +600,18 @@ function sessionAnswerer(dir: string, tools: AnswererTools): Answerer {
         throw new Error(`the answer session ${session} exited ${code}`)
       const kept = tools.pushPolicy?.(card) === 'none'
       const atLine = atContextWarn(tools, session, size)
-      const owner = askedUnlessRetried(request, ownerAfter('')) ?? (kept || atLine ? null : await publish())
+      const unprovedNow = (): string[] => unprovedFindings(prove, proofsIn(proofs, prove))
+      const asked = askedUnlessRetried(request, ownerAfter(''))
+      const reasked = asked !== null || kept || atLine || unprovedNow().length === 0
+        ? asked
+        : await (async () => {
+            steps.push(PROOFS_STEP)
+            await run(invocationOf('resume', missingProofsPrompt(unprovedNow(), proofs)), PROOFS_STEP)
+            return ownerAfter(PROOFS_STEP)
+          })()
+      const owner = reasked ?? (kept || atLine || unprovedNow().length > 0 ? null : await publish())
       const measured = measuredOf(steps.map(stdoutOf))
-      return { session, resumed, atContextWarn: atLine, before, after: tools.remoteHead(card), owner, ...measured, input: { prompt, cardBody }, steps: timer.steps(), ...(widenedInConcept.size === 0 ? {} : { widenedInConcept: [...widenedInConcept] }), ...(noViolationFreePath ? { noViolationFreePath } : {}) }
+      return { session, resumed, atContextWarn: atLine, before, after: tools.remoteHead(card), owner, ...measured, input: { prompt, cardBody }, steps: timer.steps(), ...(widenedInConcept.size === 0 ? {} : { widenedInConcept: [...widenedInConcept] }), ...(noViolationFreePath ? { noViolationFreePath } : {}), ...(prove.length === 0 ? {} : { proofs: proofsIn(proofs, prove) }) }
     }
     finally {
       request.stepped?.(timer.steps())
