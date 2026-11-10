@@ -4185,7 +4185,9 @@
       },
       "scripts/ports/ci-reading.ts": {
         "constants": [],
-        "functions": {},
+        "functions": {
+          "annotationTitles": "(meter: Meter, check: AnnotatedCheck | undefined): string[]"
+        },
         "language": "technology",
         "reexports": [
           "ArtifactRequest",
@@ -4214,6 +4216,7 @@
           "git"
         ],
         "types": {
+          "AnnotatedCheck": "interface AnnotatedCheck { conclusion?: string | null; output?: { annotations_count?: number; annotations_url?: string; } | null; }",
           "CiAct": "type CiAct = { done: true; } | { done: false; reason: string; }",
           "CiOfCommits": "interface CiOfCommits { onCommit: (sha: string, requiredCheck?: string) => CommitCi; approvedRunOn: (head: string | undefined) => boolean; }",
           "CiRead": "type CiRead<T> = GhRead<T>",
