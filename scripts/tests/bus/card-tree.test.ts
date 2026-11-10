@@ -1,4 +1,5 @@
 import type { AnswerRun } from '../../nodes/answer/duties/index.js'
+import type { ReadyTree, TreeDeps } from '../../ports/worktree.js'
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -13,6 +14,7 @@ import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
 import { claudeAnswerer } from '../../nodes/answer/answerer.js'
 import { cardlessTreeName, cardlessTreeOf, cardTreeOf, gitCardTrees, realCardTrees } from '../../ports/card-tree.js'
 import { taskWorktree } from '../../ports/worktree-home.js'
+import { cutTree } from '../../ports/worktree.js'
 import { sha } from './github-fake.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
 
@@ -278,6 +280,27 @@ describe('the card tree', () => {
     expect(eventsOf(bench.db, CARD_STOPPED)).toEqual([])
     expect(eventsOf(bench.db, CARD_ANSWERED)).toMatchObject([{ from: head }])
     bench.close()
+    rmSync(root, { recursive: true, force: true })
+  })
+
+  it('tree.cut over an existing clean card tree recreates it', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'bus-card-tree-recut-'))
+    const { repo } = origin(root)
+    const branch = 'feat/card-1200'
+    const deps: TreeDeps = { cwd: repo, git: (cwd, args) => git(cwd, ...args), install: () => {}, exists: existsSync, treeOf: id => path.join(root, 'bus', 'worktrees', id), holds: () => false }
+    const first = cutTree(deps, '1200', branch)
+    expect(first).toMatchObject({ worktree: path.join(root, 'bus', 'worktrees', '1200') })
+    const tree = (first as ReadyTree).worktree
+    commit(repo, 'landed-on-main.txt')
+    git(repo, 'push', '-q', 'origin', 'main')
+
+    expect(cutTree(deps, '1200', branch)).toMatchObject({ worktree: tree })
+    expect(git(tree, 'branch', '--show-current')).toBe(branch)
+    expect(git(tree, 'rev-parse', 'HEAD')).toBe(git(repo, 'rev-parse', 'HEAD'))
+
+    commit(tree, 'card-work.txt')
+    expect(cutTree(deps, '1200', branch)).toEqual({ refused: `${tree} already exists and is kept (${branch} carries 1 commit(s) over origin/main); nothing written` })
+    expect(existsSync(path.join(tree, 'card-work.txt'))).toBe(true)
     rmSync(root, { recursive: true, force: true })
   })
 
