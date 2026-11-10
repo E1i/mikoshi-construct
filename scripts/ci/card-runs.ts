@@ -153,14 +153,31 @@ export interface BusCatalog extends CheckCatalog {
 
 export type BranchCardRuns = { kind: 'no-card' } | { kind: 'unreadable', why: string } | { kind: 'card', reading: CardRuns }
 
-export function branchCardRuns(branch: string, busPath: string = defaultBusPath()): BranchCardRuns {
+export interface BranchTests {
+  tests: readonly string[]
+  folders: readonly (readonly [string, string])[]
+}
+
+export const NO_BRANCH_TESTS: BranchTests = { tests: [], folders: [] }
+
+export function withBranchTests<T extends CheckCatalog>(catalog: T, { tests, folders }: BranchTests): T {
+  const testLayers = new Map(catalog.testLayers)
+  for (const test of tests) {
+    const own = folders.filter(([folder]) => test.startsWith(folder)).map(([, layer]) => layer)
+    if (own.length > 0)
+      testLayers.set(test, sortedUnique([...(testLayers.get(test) ?? []), ...own]))
+  }
+  return { ...catalog, testLayers }
+}
+
+export function branchCardRuns(branch: string, busPath: string = defaultBusPath(), branchTests: BranchTests = NO_BRANCH_TESTS): BranchCardRuns {
   if (!existsSync(busPath))
     return { kind: 'no-card' }
   let db: DatabaseSync | undefined
   try {
     db = openDatabase(busPath, { readOnly: true, timeout: BUSY_TIMEOUT_MS })
     const source = runsSourceOfBranch(db, branch)
-    return source === null ? { kind: 'no-card' } : { kind: 'card', reading: cardRunsOf(source, { testLayers: catalogLayersByTest(db), moduleLayers: catalogModuleLayers(db) }) }
+    return source === null ? { kind: 'no-card' } : { kind: 'card', reading: cardRunsOf(source, withBranchTests({ testLayers: catalogLayersByTest(db), moduleLayers: catalogModuleLayers(db) }, branchTests)) }
   }
   catch (error) {
     if (error instanceof LayerWithoutTests)
