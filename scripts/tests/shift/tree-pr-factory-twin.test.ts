@@ -214,6 +214,18 @@ describe('the bus rebuilds the factory contract in the card tree', () => {
     expect(git(tree, ['status', '--porcelain'])).toBe('')
   })
 
+  it('a session that committed its port change with a current twin gets no empty bus commit and its pull request opens', () => {
+    const tree = cardTree()
+    write(tree, PORT, 'export const port = 7\n')
+    write(tree, FACTORY_TWIN, contractOf(tree))
+    git(tree, ['commit', '-q', '-am', 'session commit with its twin'])
+    const sessionHead = git(tree, ['rev-parse', 'HEAD']).trim()
+    const outcome = treePr(ports(regenerate, []), CARD, tree, null)
+    expect(outcome).toEqual({ kind: 'pr', number: '7', followed: [FACTORY_TWIN] })
+    expect(git(tree, ['rev-parse', `origin/${BRANCH}`]).trim()).toBe(sessionHead)
+    expect(git(tree, ['status', '--porcelain'])).toBe('')
+  })
+
   it('a tree that carries no contract/factory.json is never rebuilt', () => {
     const tree = cardTree()
     git(tree, ['rm', '-q', FACTORY_TWIN])
