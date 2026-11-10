@@ -6,9 +6,7 @@ import type { Queue } from './identifiers.js'
 import type { HolderStart, Lease, LeaseOrder } from './lease.js'
 import type { QueuedTask } from './queue.js'
 import type { StoredEvent } from './stored.js'
-import { execFileSync } from 'node:child_process'
 import { setImmediate as nextTurn } from 'node:timers/promises'
-import { fileURLToPath } from 'node:url'
 import { RateLimited } from '../ports/meter.js'
 import { CHECK_MS, TICK_MS } from '../ports/netwatch.js'
 import { ownStart, recordProcessHeartbeat } from '../supervisor/heartbeat.js'
@@ -73,10 +71,15 @@ export interface NodeSnapshot {
   startedAt: string | null
 }
 
+export type CodeShaReader = () => string | null
+
 export interface NodeContext {
   pause: (ms: number) => Promise<unknown>
   signal?: AbortSignal
+  codeSha?: CodeShaReader
 }
+
+export type ComposedNodeContext = NodeContext & { codeSha: CodeShaReader }
 
 export interface NodeParts {
   db: DatabaseSync
@@ -85,16 +88,6 @@ export interface NodeParts {
   mode: DetectionMode
   env: NodeJS.ProcessEnv
   self?: HolderStart
-  codeSha?: () => string | null
-}
-
-export function loadedCodeSha(): string | null {
-  try {
-    return execFileSync('git', ['rev-parse', 'HEAD'], { cwd: fileURLToPath(new URL('.', import.meta.url)), encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim()
-  }
-  catch {
-    return null
-  }
 }
 
 export interface Equivalence {
@@ -328,7 +321,7 @@ export abstract class Node<S extends NodeStep> {
   async run(ctx: NodeContext): Promise<void> {
     this.refuseForeignBus()
     this.before()
-    this.codeSha = (this.parts.codeSha ?? loadedCodeSha)()
+    this.codeSha = ctx.codeSha?.() ?? null
     this.startedAt = this.ts()
     this.recordStart()
     this.openCursor()
@@ -573,7 +566,7 @@ export abstract class Node<S extends NodeStep> {
   }
 }
 
-export async function runNode(argv: readonly string[], kind: NodeKind, busPath: string, build: (db: DatabaseSync, mode: DetectionMode) => Node<NodeStep>, ctx: NodeContext): Promise<number> {
+export async function runNode(argv: readonly string[], kind: NodeKind, busPath: string, build: (db: DatabaseSync, mode: DetectionMode) => Node<NodeStep>, ctx: ComposedNodeContext): Promise<number> {
   const prefix = prefixOf(kind)
   if (!argv.includes(SWITCH_FLAG)) {
     console.log(`${prefix}switched off; start it with ${SWITCH_FLAG}`)

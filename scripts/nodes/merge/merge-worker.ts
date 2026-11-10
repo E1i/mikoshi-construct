@@ -18,8 +18,9 @@ import { appendEvent, defaultBusPath } from '../../core/db.js'
 import { messageOf } from '../../core/errors.js'
 import { BOARD_ALARM, CARD_ADMITTED, DECISION_RECORDED, DECISIONS_IMPORTED, MERGE_DONE, PR_CLOSED, PR_OBSERVED, PR_OPENED, REDUCED, REVIEW_RECORDED } from '../../core/events.js'
 import { Node, NodeRefused, runNode, UNDERSTOOD_NOW } from '../../core/node.js'
-import { pushPolicyAt } from '../../core/push-policy.js'
+import { pushPolicyOf } from '../../core/push-policy.js'
 import { closedByRounds, MERGE_CANDIDATES, MERGE_CANDIDATES_BEHIND, MERGE_CANDIDATES_WITHOUT_PASS, mergeCandidates, mergeDecidedPastRoundLimit } from '../../core/queue.js'
+import { loadedCodeSha, readThroughPort } from '../../ports/git.js'
 import { ghStatusPublisher } from '../../ports/github-status.js'
 import { ghApi, ghApiPut } from '../../ports/github.js'
 import { Meter } from '../../ports/meter.js'
@@ -176,13 +177,13 @@ export interface MergeRun {
 }
 
 export async function runMergeWorker(argv: string[], run: MergeRun): Promise<number> {
-  return runNode(argv, 'merge', run.busPath, (db, mode) => new MergeNode({ db, gitHub: run.gitHub, put: run.put, publish: run.publish, clock: () => new Date(), session: run.session, run: null, pushPolicy: run.pushPolicy, rebuildCatalog: run.rebuildCatalog, mode, env: process.env }), { pause: run.pause })
+  return runNode(argv, 'merge', run.busPath, (db, mode) => new MergeNode({ db, gitHub: run.gitHub, put: run.put, publish: run.publish, clock: () => new Date(), session: run.session, run: null, pushPolicy: run.pushPolicy, rebuildCatalog: run.rebuildCatalog, mode, env: process.env }), { pause: run.pause, codeSha: loadedCodeSha })
 }
 
 async function main(): Promise<number> {
   const cwd = process.cwd()
   const busPath = defaultBusPath()
-  return runMergeWorker(process.argv.slice(2), { busPath, rebuildCatalog: ref => rebuildCatalogAt(ref, busPath), gitHub: ghApi(cwd), put: ghApiPut(cwd), publish: ghStatusPublisher(cwd), session: randomUUID(), pause: sleep, pushPolicy: () => pushPolicyAt(cwd) })
+  return runMergeWorker(process.argv.slice(2), { busPath, rebuildCatalog: ref => rebuildCatalogAt(ref, busPath), gitHub: ghApi(cwd), put: ghApiPut(cwd), publish: ghStatusPublisher(cwd), session: randomUUID(), pause: sleep, pushPolicy: () => pushPolicyOf(readThroughPort, cwd) })
 }
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {

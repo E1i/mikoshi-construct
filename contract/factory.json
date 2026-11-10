@@ -1658,8 +1658,8 @@
       "axis": "interface",
       "lore": null,
       "owner": "scripts/core/owner-commands.ts",
-      "ownerExists": false,
-      "ownerExport": null,
+      "ownerExists": true,
+      "ownerExport": "pnpmCommand",
       "status": "proposed",
       "title": "the command lines the owner is told to run"
     },
@@ -4442,7 +4442,9 @@
           "processGit: GitRunner"
         ],
         "functions": {
-          "parseWorktrees": "(porcelain: string): WorktreeEntry[]"
+          "loadedCodeSha": "(): string | null",
+          "parseWorktrees": "(porcelain: string): WorktreeEntry[]",
+          "readThroughPort": "(tree: string, args: readonly string[]): string"
         },
         "language": "technology",
         "reexports": [],

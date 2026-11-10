@@ -13,8 +13,6 @@ const GIT_CONCEPT = CONCEPTS.filter(concept => concept.id === 'git')
 
 const CALLS_BEYOND_THE_PORT = {
   'scripts/construct/check-acceptance.mjs': 1,
-  'scripts/core/node.ts': 1,
-  'scripts/core/push-policy.ts': 1,
   'src/detect/git.ts': 1,
 }
 
@@ -44,7 +42,7 @@ const PLANTED: readonly (readonly [string, string, string])[] = [
   ['a spawnSync of git in ci', 'scripts/ci/planted.ts', 'import { spawnSync } from \'node:child_process\'\nexport const diff = spawnSync(\'git\', [\'diff\', \'--name-only\'])'],
   ['an execFile of git in a port', 'scripts/ports/planted.ts', 'import { execFile } from \'node:child_process\'\nexport const later = execFile(\'git\', [\'status\'])'],
   ['a spawnSync of git in src beside detect', 'src/detect/planted.ts', 'import { spawnSync } from \'node:child_process\'\nexport const files = spawnSync(\'git\', [\'ls-files\'])'],
-  ['an execFileSync of git in core beside the named two', 'scripts/core/planted.ts', 'import { execFileSync } from \'node:child_process\'\nexport const sha = execFileSync(\'git\', [\'rev-parse\', \'HEAD\'])'],
+  ['an execFileSync of git in core', 'scripts/core/planted.ts', 'import { execFileSync } from \'node:child_process\'\nexport const sha = execFileSync(\'git\', [\'rev-parse\', \'HEAD\'])'],
 ]
 
 const roots: string[] = []
@@ -89,17 +87,16 @@ describe('the seal of git in the window and the rest', () => {
     expect(GIT_BEYOND_THE_PORT_BY_REASON).toEqual({
       'src-imports-no-scripts': ['src/detect/git.ts'],
       'a-template-carrier-runs-without-the-factory': ['scripts/construct/check-acceptance.mjs'],
-      'core-imports-nothing-to-its-right': ['scripts/core/node.ts', 'scripts/core/push-policy.ts'],
     })
   })
 
   it('a second git call planted in a file the port cannot reach is counted', () => {
     const unexempted = GIT_CONCEPT.map(concept => ({ ...concept, detectors: [programCall(['git'])] }))
     const twice = 'import { execFileSync } from \'node:child_process\'\nexport const a = execFileSync(\'git\', [\'status\'])\nexport const b = execFileSync(\'git\', [\'log\'])'
-    const root = treeWith({ 'scripts/core/push-policy.ts': twice })
+    const root = treeWith({ 'src/detect/git.ts': twice })
 
     expect(filesCallingGit(root)).toEqual([])
-    expect(overlapsSection(findSites(root, unexempted), unexempted).git).toEqual({ 'scripts/core/push-policy.ts': 2 })
+    expect(overlapsSection(findSites(root, unexempted), unexempted).git).toEqual({ 'src/detect/git.ts': 2 })
   })
 
   it('the in-memory port answers the asynchronous read the trees use', async () => {

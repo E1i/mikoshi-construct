@@ -136,7 +136,6 @@ const COMMANDS_A_GENERATED_REPOSITORY_RUNS = new Set(['scripts/harness-command/r
 export const GIT_BEYOND_THE_PORT_BY_REASON = {
   'src-imports-no-scripts': ['src/detect/git.ts'],
   'a-template-carrier-runs-without-the-factory': ['scripts/construct/check-acceptance.mjs'],
-  'core-imports-nothing-to-its-right': [FACTORY_NAMED.busNode, 'scripts/core/push-policy.ts'],
 } as const
 export const GIT_BEYOND_THE_PORT: ReadonlySet<string> = new Set(Object.values(GIT_BEYOND_THE_PORT_BY_REASON).flat())
 const SURFACE_FILE = path.resolve(import.meta.dirname, '../../..', GENERATED_FILES.surface.path)
@@ -324,8 +323,8 @@ export const CONCEPTS: readonly Concept[] = [
     id: 'owner-commands',
     title: 'the command lines the owner is told to run',
     owner: 'scripts/core/owner-commands.ts',
-    ownerExists: false,
-    ownerExport: null,
+    ownerExists: true,
+    ownerExport: 'pnpmCommand',
     axis: 'interface',
     lore: null,
     detectors: [
@@ -336,7 +335,7 @@ export const CONCEPTS: readonly Concept[] = [
   {
     id: 'git',
     title: 'running git',
-    owner: 'scripts/ports/git.ts',
+    owner: FACTORY_NAMED.gitPort,
     ownerExists: true,
     ownerExport: 'processGit',
     axis: 'architecture',
