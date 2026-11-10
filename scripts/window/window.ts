@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url'
 import { defaultBusPath, openBus } from '../core/db.js'
 import { CARD_CLOSED, MERGE_DONE, NODE_DETECTED, NODE_EQUIVALENCE, REVIEW_RECORDED, UPDATE_DONE } from '../core/events.js'
 import { FACTORY_RUNTIME } from '../core/factory-paths.js'
+import { BusRead } from '../ports/bus-read.js'
 
 export const PREFIX = '[bus:window] '
 export const COMPLETION_OF = { merge: MERGE_DONE, update: UPDATE_DONE, close: CARD_CLOSED, review: REVIEW_RECORDED } as const
@@ -70,10 +71,10 @@ function keyOfCompletion(db: DatabaseSync, queue: WindowQueue, completion: Compl
 
 function equivalenceTicks(db: DatabaseSync, queue: WindowQueue, since: number): { ticks: number, oneSided: OneSidedTick[] } {
   const actor = `worker:${queue}:`
-  const rows = db.prepare('SELECT id, payload FROM events WHERE type = ? AND substr(actor, 1, ?) = ? AND id >= ? ORDER BY id').all(NODE_EQUIVALENCE, actor.length, actor, since) as { id: number, payload: string }[]
+  const rows = new BusRead(db).where({ actor, from: since }).slice(NODE_EQUIVALENCE, ['only_node', 'only_derive'])
   const oneSided = rows.map((row) => {
-    const payload = JSON.parse(row.payload) as Partial<Equivalence>
-    return { id: Number(row.id), only_node: payload.only_node ?? [], only_derive: payload.only_derive ?? [] }
+    const fields = row.fields as Partial<Pick<Equivalence, 'only_node' | 'only_derive'>>
+    return { id: row.id, only_node: fields.only_node ?? [], only_derive: fields.only_derive ?? [] }
   }).filter(tick => tick.only_node.length > 0 || tick.only_derive.length > 0)
   return { ticks: rows.length, oneSided }
 }

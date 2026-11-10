@@ -17,6 +17,7 @@ import { replayDifferences } from '../core/report.js'
 import { cardContract } from '../intake/card-contract.js'
 import { roleReadings } from '../nodes/restart/role.js'
 import { activeWindowShards } from '../policy/shards.js'
+import { ANY, BusRead } from '../ports/bus-read.js'
 import { stillSilent } from '../supervisor/supervisor.js'
 
 export const BOARD_FILE = 'board.html'
@@ -228,25 +229,6 @@ const LEASED_TASKS = `
 
 const SHOWN_SHARD_DECISIONS = 20
 
-const WINDOW_SHARD_DECISIONS = `
-  SELECT card_id, ts, json_extract(payload, '$.shard') AS shard, json_extract(payload, '$.wait') AS wait, json_extract(payload, '$.answer') AS answer FROM events
-  WHERE type = '${SHARD_DECIDED}' AND legacy = 0 AND card_id IS NOT NULL AND json_extract(payload, '$.stop') IS NOT NULL
-  ORDER BY id DESC LIMIT ${SHOWN_SHARD_DECISIONS}
-`
-
-const LAST_GAUGES = `
-  SELECT card_id, ts, json_extract(payload, '$.context') AS context, json_extract(payload, '$.spent') AS spent, json_extract(payload, '$.model') AS model FROM events
-  WHERE id IN (SELECT max(id) FROM events WHERE type = '${SESSION_HEARTBEAT}' AND legacy = 0 AND card_id IS NOT NULL GROUP BY card_id)
-    AND json_valid(payload)
-  ORDER BY card_id
-`
-
-const LAST_WINDOW_GAUGES = `
-  SELECT ts, json_extract(payload, '$.session') AS session, json_extract(payload, '$.context') AS context, json_extract(payload, '$.spent') AS spent, json_extract(payload, '$.model') AS model FROM events
-  WHERE type = '${WINDOW_HEARTBEAT}' AND legacy = 0 AND json_valid(payload)
-  ORDER BY id DESC LIMIT 1
-`
-
 function count(db: DatabaseSync, sql: string, ...params: (string | number)[]): number {
   return Number((db.prepare(sql).get(...params) as { n: number }).n)
 }
@@ -449,8 +431,9 @@ function activeShard(db: DatabaseSync, now: Date): ActiveShard | null {
 }
 
 export function shardDecisions(db: DatabaseSync): ShardDecision[] {
-  return (db.prepare(WINDOW_SHARD_DECISIONS).all() as { card_id: number, ts: string, shard: unknown, wait: unknown, answer: unknown }[])
-    .map(row => ({ card: row.card_id, shard: String(row.shard), wait: String(row.wait), answer: String(row.answer), ts: row.ts }))
+  const decided = new BusRead(db).where({ card: ANY }).slice(SHARD_DECIDED, ['shard', 'wait', 'answer', 'stop'])
+  const stopped = decided.filter(row => row.fields.stop !== undefined && row.fields.stop !== null)
+  return stopped.slice(-SHOWN_SHARD_DECISIONS).reverse().map(row => ({ card: row.card!, shard: String(row.fields.shard), wait: String(row.fields.wait), answer: String(row.fields.answer), ts: row.ts! }))
 }
 
 function taskQueues(db: DatabaseSync, orders: LeaseOrders): TaskQueue[] {
@@ -471,16 +454,16 @@ function textOrNull(value: unknown): string | null {
 }
 
 export function cardGauges(db: DatabaseSync): CardGauges[] {
-  return (db.prepare(LAST_GAUGES).all() as { card_id: number, ts: string, context: unknown, spent: unknown, model: unknown }[])
-    .map(row => ({ card: row.card_id, ts: row.ts, context: numberOrNull(row.context), spent: numberOrNull(row.spent), model: textOrNull(row.model) }))
-    .filter(row => row.context !== null || row.spent !== null)
+  const beats = new BusRead(db).where({ card: ANY }).slice(SESSION_HEARTBEAT, ['context', 'spent', 'model'], 'last-per-card')
+  const gauges = beats.map(row => ({ card: row.card!, ts: row.ts!, context: numberOrNull(row.fields.context), spent: numberOrNull(row.fields.spent), model: textOrNull(row.fields.model) }))
+  return gauges.filter(row => row.context !== null || row.spent !== null)
 }
 
 export function windowGauges(db: DatabaseSync): WindowGauges | null {
-  const row = db.prepare(LAST_WINDOW_GAUGES).get() as { ts: string, session: unknown, context: unknown, spent: unknown, model: unknown } | undefined
+  const row = new BusRead(db).slice(WINDOW_HEARTBEAT, ['session', 'context', 'spent', 'model'], 'last')[0]
   if (row === undefined)
     return null
-  const gauges = { session: textOrNull(row.session), ts: row.ts, context: numberOrNull(row.context), spent: numberOrNull(row.spent), model: textOrNull(row.model) }
+  const gauges = { session: textOrNull(row.fields.session), ts: row.ts!, context: numberOrNull(row.fields.context), spent: numberOrNull(row.fields.spent), model: textOrNull(row.fields.model) }
   return gauges.context === null && gauges.spent === null ? null : gauges
 }
 
