@@ -1,0 +1,11 @@
+Record one /implement ladder run: one line in .construct/runs.jsonl where no bus is wired, a bus ladder event through construct-intake run-record where one is; the record is the JSON argument, or stdin with - (construct run-record v<version>)
+
+USAGE construct run-record [OPTIONS] 
+
+OPTIONS
+
+  --dir=<dir>    Target directory (Default: .)                    
+      --plain    No colors, no lore (CI-friendly) (Default: false)
+     --johnny    Wake up, Netrunner. (Default: false)             
+
+
