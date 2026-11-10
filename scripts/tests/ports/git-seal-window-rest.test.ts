@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
-import { CONCEPTS, GIT_BEYOND_THE_PORT } from '../../contract/factory/concepts.js'
+import { CONCEPTS, GIT_BEYOND_THE_PORT, GIT_BEYOND_THE_PORT_BY_REASON } from '../../contract/factory/concepts.js'
 import { programCall } from '../../contract/factory/detectors.js'
 import { findSites, overlapsSection } from '../../contract/factory/overlaps.js'
 import { InMemoryGit } from '../../ports/git.js'
@@ -83,6 +83,14 @@ describe('the seal of git in the window and the rest', () => {
 
     expect(exempted).toEqual(CALLS_BEYOND_THE_PORT)
     expect(Object.keys(section).filter(file => !GIT_BEYOND_THE_PORT.has(file))).toEqual([])
+  })
+
+  it('each file the port cannot reach is named under the boundary that keeps the port out', () => {
+    expect(GIT_BEYOND_THE_PORT_BY_REASON).toEqual({
+      'src-imports-no-scripts': ['src/detect/git.ts'],
+      'a-template-carrier-runs-without-the-factory': ['scripts/construct/check-acceptance.mjs'],
+      'core-imports-nothing-to-its-right': ['scripts/core/node.ts', 'scripts/core/push-policy.ts'],
+    })
   })
 
   it('a second git call planted in a file the port cannot reach is counted', () => {

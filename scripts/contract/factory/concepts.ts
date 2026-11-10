@@ -133,7 +133,12 @@ const GENERATED_PATH_SET = new Set(GENERATED_PATHS)
 const HANDOFF_STATUS_LINE = /\^STATUS:/
 const PNPM_COMMAND = /\bpnpm (?!(?:at|in|is|monorepo|on)\b)(?:--[\w-]+ )*(?:run |exec )?[a-z][\w:-]*/
 const COMMANDS_A_GENERATED_REPOSITORY_RUNS = new Set(['scripts/harness-command/render.ts', 'src/model/write.ts', 'src/presets/index.ts'])
-export const GIT_BEYOND_THE_PORT = new Set(['scripts/construct/check-acceptance.mjs', FACTORY_NAMED.busNode, 'scripts/core/push-policy.ts', 'src/detect/git.ts'])
+export const GIT_BEYOND_THE_PORT_BY_REASON = {
+  'src-imports-no-scripts': ['src/detect/git.ts'],
+  'a-template-carrier-runs-without-the-factory': ['scripts/construct/check-acceptance.mjs'],
+  'core-imports-nothing-to-its-right': [FACTORY_NAMED.busNode, 'scripts/core/push-policy.ts'],
+} as const
+export const GIT_BEYOND_THE_PORT: ReadonlySet<string> = new Set(Object.values(GIT_BEYOND_THE_PORT_BY_REASON).flat())
 const SURFACE_FILE = path.resolve(import.meta.dirname, '../../..', GENERATED_FILES.surface.path)
 const GH_RUN_VERBS = new Set(['view', 'list', 'cancel', 'download', 'watch', 'rerun'])
 
