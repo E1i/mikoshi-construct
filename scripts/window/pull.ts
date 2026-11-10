@@ -1,7 +1,7 @@
-import { execFileSync } from 'node:child_process'
 import { realpathSync } from 'node:fs'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import { processGit } from '../ports/git.js'
 import { PREFIX } from './loop.js'
 
 export const SANDBOX_UNWRITABLE_PREFIX = '.claude/'
@@ -36,7 +36,7 @@ export function runMikoPull(deps: MikoPullDeps): number {
 
 export function realMikoPullDeps(cwd: string): MikoPullDeps {
   return {
-    git: args => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'] }),
+    git: args => processGit.read(cwd, args, { errorsShown: true }),
     out: line => console.log(line),
     err: line => console.error(line),
   }

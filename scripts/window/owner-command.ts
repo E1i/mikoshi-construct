@@ -1,4 +1,3 @@
-import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -9,6 +8,7 @@ import { withinTouches } from '../../src/card/covering-tests.js'
 import { BUSY_TIMEOUT_MS, defaultBusPath } from '../core/db.js'
 import { openDatabase } from '../core/sqlite.js'
 import { cardContract } from '../intake/card-contract.js'
+import { processGit } from '../ports/git.js'
 
 export const PREFIX = '[owner:command] '
 export const USAGE = 'usage: pnpm owner:command --tree <worktree> --card <id> --message <commit message>'
@@ -107,7 +107,7 @@ function busTouches(busPath: string): OwnerCommandPorts['touches'] {
 
 function realPorts(): OwnerCommandPorts {
   return {
-    git: (cwd, args) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 256 * 1024 * 1024 }),
+    git: (cwd, args) => processGit.read(cwd, args, { maxBuffer: 256 * 1024 * 1024 }),
     touches: busTouches(defaultBusPath()),
     probesDir: path.join(os.homedir(), '.construct', 'probes'),
     out: line => process.stdout.write(`${line}\n`),

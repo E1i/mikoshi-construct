@@ -1,11 +1,11 @@
 import type { ChangedFile, FileStatus } from '../policy/morse/rules.js'
-import { execFileSync } from 'node:child_process'
 import { MorseRefusal } from '../policy/morse/rules.js'
+import { processGit } from './git.js'
 
 export const TECHNOLOGY_WORDS = ['git'] as const
 
 function git(repo: string, args: string[]): string {
-  return execFileSync('git', ['-C', repo, ...args], { encoding: 'utf8' })
+  return processGit.read(repo, args)
 }
 
 export function resolveRevision(repo: string, revision: string): string {

@@ -4,7 +4,7 @@ import type { InForceDecision } from '../policy/decisions.js'
 import type { ProcessTable } from '../ports/process-table.js'
 import type { BgResult, DetachedLaunch, ProcessList, RunningProcess } from './bg.js'
 import type { ProcessBeat } from './heartbeat.js'
-import { execFileSync, spawnSync } from 'node:child_process'
+import { spawnSync } from 'node:child_process'
 import { appendFileSync, readFileSync, realpathSync, statSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -21,6 +21,7 @@ import { closeDrain, expireLeasesHeldBy, HOLDER_DEAD, HOLDER_UNPROVEN, judgeHold
 import { LIVE_FLAG } from '../core/node.js'
 import { inForceDecisions } from '../policy/decisions.js'
 import { allowLiveCommand, liveDecisionOf } from '../policy/live-decision.js'
+import { processGit } from '../ports/git.js'
 import { CHECK_MS } from '../ports/netwatch.js'
 import { OsProcessTable, rowOf, rowsOf } from '../ports/process-table.js'
 import { WindowSessionEnds } from '../window/window-session-end.js'
@@ -151,18 +152,14 @@ function readable(cwd: string): (file: string) => string | null {
 }
 
 export function gitCode(cwd: string): BusCode {
-  const git = (args: string[]): number => spawnSync('git', args, { cwd, stdio: 'ignore' }).status ?? -1
   return {
-    head: () => execFileSync('git', ['rev-parse', 'HEAD'], { cwd, encoding: 'utf8' }).trim(),
-    localMain: () => {
-      const read = spawnSync('git', ['rev-parse', '--verify', '--quiet', LOCAL_MAIN_REF], { cwd, encoding: 'utf8' })
-      return read.status === 0 ? read.stdout.trim() : null
-    },
-    holds: sha => git(['merge-base', '--is-ancestor', sha, 'HEAD']) === 0,
+    head: () => processGit.read(cwd, ['rev-parse', 'HEAD']).trim(),
+    localMain: () => processGit.readOrNull(cwd, ['rev-parse', '--verify', '--quiet', LOCAL_MAIN_REF])?.trim() ?? null,
+    holds: sha => processGit.succeeds(cwd, ['merge-base', '--is-ancestor', sha, 'HEAD']),
     pull: () => {
-      execFileSync('git', ['pull', '--ff-only', '--quiet'], { cwd, stdio: 'pipe', timeout: GIT_PULL_TIMEOUT_MS, killSignal: 'SIGKILL' })
+      processGit.read(cwd, ['pull', '--ff-only', '--quiet'], { timeoutMs: GIT_PULL_TIMEOUT_MS })
     },
-    changedSince: sha => execFileSync('git', ['diff', '--name-only', sha, 'HEAD'], { cwd, encoding: 'utf8' }).split('\n').filter(file => file !== ''),
+    changedSince: sha => processGit.read(cwd, ['diff', '--name-only', sha, 'HEAD']).split('\n').filter(file => file !== ''),
     runs: entry => new Set([...importClosure(entry, readable(cwd)), ...SHARED_BUS_CODE]),
   }
 }

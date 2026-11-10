@@ -1,5 +1,4 @@
 import type { DatabaseSync } from 'node:sqlite'
-import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
@@ -7,6 +6,7 @@ import { WINDOW_WHO } from '../../src/card/parking.js'
 import { CLOSED_CARD, DROPPED_CARD, MERGED_CARD } from '../core/card-automaton.js'
 import { openBus } from '../core/db.js'
 import { findTranscript, stoppedTasksOf } from '../ports/client/claude/adapter.js'
+import { processGit } from '../ports/git.js'
 import { cardTree } from '../ports/worktree-home.js'
 import { SESSION_VARIABLE } from './window-requests.js'
 
@@ -82,7 +82,7 @@ export function liveAgentsOf(root: string, env: NodeJS.ProcessEnv = process.env,
 
 function dirtinessOf(tree: string): string | null {
   try {
-    const status = execFileSync('git', ['-C', tree, 'status', '--porcelain'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
+    const status = processGit.read(tree, ['status', '--porcelain'])
     return status.trim() === '' ? null : tree
   }
   catch {

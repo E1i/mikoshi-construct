@@ -6,7 +6,6 @@ import type { Signal, SignalStyle } from '../../src/ui/signal.js'
 import type { BusEvent } from '../core/db.js'
 import type { BodyAdmission } from '../core/queue.js'
 import type { CardBodyReader } from '../intake/parking-reads.js'
-import { execFileSync } from 'node:child_process'
 import { existsSync, realpathSync } from 'node:fs'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
@@ -27,6 +26,7 @@ import { slotsOf, slotsVariable } from '../supervisor/scheduler.js'
 import { STARTER_ACTOR, windowOpenPrs } from '../window/window-prs.js'
 import { SESSION_VARIABLE } from './client/claude/adapter.js'
 import { clientAdapter } from './client/index.js'
+import { processGit } from './git.js'
 import { windowModeOf } from './session.js'
 import { cardTree } from './worktree-home.js'
 import { adoptTree, cutTree, pnpmInstall, treeOriginLine } from './worktree.js'
@@ -386,7 +386,7 @@ export function runTaskStart(argv: string[], deps: TaskStartDeps, handed?: Hande
 
 export function gitIn(cwd: string, args: string[]): string {
   try {
-    return execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+    return processGit.read(cwd, args)
   }
   catch (error) {
     const stderr = String((error as { stderr?: unknown }).stderr ?? '').trim()

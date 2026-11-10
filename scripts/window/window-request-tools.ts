@@ -21,6 +21,7 @@ import { busProjectsDecisions, decisionRows, expireDecisions, recordDecision, re
 import { ARCHIVE_HEADER, runDecisionsAdd } from '../policy/decisions/add.js'
 import { PREFIX, projectDecisions } from '../policy/decisions/decisions.js'
 import { archiveOf } from '../policy/decisions/read.js'
+import { processGit } from '../ports/git.js'
 import { ghApi, ghApiPatch, ghApiPost } from '../ports/github.js'
 import { EXIT_REQUEST_VARIABLE, LOOP_PID_VARIABLE, WINDOW_VARIABLE } from '../ports/session.js'
 import { cardTree } from '../ports/worktree-home.js'
@@ -29,7 +30,7 @@ const WORKTREE_LINE = /^worktree (.+)$/
 const BRANCH_LINE = /^branch refs\/heads\/(.+)$/
 
 function git(repo: string, args: string[]): string {
-  return execFileSync('git', ['-C', repo, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+  return processGit.read(repo, args)
 }
 
 export function worktreesHolding(porcelain: string, branch: string): string[] {

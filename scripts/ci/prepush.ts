@@ -11,6 +11,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { withinTouches } from '../../src/card/covering-tests.js'
 import { GhCiRuns } from '../ports/ci-reading.js'
+import { processGit } from '../ports/git.js'
 import { heavyStep } from '../quality/lock.js'
 import { branchCardRuns } from './card-runs.js'
 import { isTest, reverseGraph, selectRun } from './layers.js'
@@ -203,10 +204,7 @@ export function prepushGate(changed: readonly string[], tests: () => Verdict, li
 export type { Git } from './select.js'
 
 function git(args: readonly string[]): string {
-  const run = spawnSync('git', args, { cwd: REPO_ROOT, encoding: 'utf8' })
-  if (run.status !== 0)
-    throw new Error(`git ${args.join(' ')} failed: ${run.stderr}`)
-  return run.stdout
+  return processGit.read(REPO_ROOT, args)
 }
 
 export function cleanTreeGate(read: Git): Gate | null {

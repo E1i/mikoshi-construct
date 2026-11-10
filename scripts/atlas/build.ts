@@ -1,16 +1,16 @@
 import type { AtlasBuild } from './gates.js'
-import { execFileSync } from 'node:child_process'
 import { cpSync, mkdtempSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { runAtlas } from '../../src/atlas/index.js'
 import { docsFileOf } from '../../src/atlas/switch.js'
 import { readModel } from '../../src/model/write.js'
+import { processGit } from '../ports/git.js'
 
 export const ATLAS_FIXTURE = path.resolve(import.meta.dirname, '../../tests/fixtures/atlas/orchard')
 
 function git(dir: string, ...args: string[]): void {
-  execFileSync('git', ['-c', 'user.email=atlas@construct', '-c', 'user.name=atlas', ...args], { cwd: dir, stdio: 'ignore' })
+  processGit.read(dir, ['-c', 'user.email=atlas@construct', '-c', 'user.name=atlas', ...args])
 }
 
 export function copyFixture(fixture: string = ATLAS_FIXTURE): string {
