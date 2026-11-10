@@ -7,11 +7,8 @@
   "scripts/tests/bus/reviewer.test.ts",
   "scripts/tests/bus/witness-node.test.ts",
   "scripts/tests/bus/witness-serve.test.ts",
-  "scripts/tests/ci/cpubudget.test.ts",
   "scripts/tests/miko/loop.test.ts",
   "scripts/tests/miko/miko-repo.test.ts",
-  "scripts/tests/shift/fixtures/settled.ts",
-  "scripts/tests/shift/settled.test.ts",
   "scripts/tests/supervisor/review-drain-slots.test.ts",
   "scripts/tests/wait-for.ts"
 ]

@@ -51,6 +51,14 @@ function lockCli(dir: string, script: string, env: NodeJS.ProcessEnv = {}): Prom
   return new Promise(resolve => child.on('exit', resolve))
 }
 
+function opened(): { promise: Promise<void>, resolve: () => void } {
+  let resolve = (): void => {}
+  const promise = new Promise<void>((settle) => {
+    resolve = settle
+  })
+  return { promise, resolve }
+}
+
 function gitIn(tree: string, ...args: string[]): void {
   execFileSync('git', ['-c', 'user.name=fixture', '-c', 'user.email=fixture@example.invalid', '-C', tree, ...args], { stdio: 'ignore' })
 }
@@ -187,14 +195,24 @@ describe('heavy steps', () => {
     const dir = scratch()
     let running = 0
     let most = 0
+    const started = [opened(), opened()]
+    const released = [opened(), opened()]
+    let starts = 0
     const step = async (): Promise<number> => {
+      const turn = starts++
       running += 1
       most = Math.max(most, running)
-      await new Promise(resolve => setTimeout(resolve, 50))
+      started[turn]!.resolve()
+      await released[turn]!.promise
       running -= 1
       return 0
     }
-    expect(await Promise.all([heavyStep(step, dir), heavyStep(step, dir)])).toEqual([0, 0])
+    const both = Promise.all([heavyStep(step, dir), heavyStep(step, dir)])
+    await started[0]!.promise
+    released[0]!.resolve()
+    await started[1]!.promise
+    released[1]!.resolve()
+    expect(await both).toEqual([0, 0])
     expect(most).toBe(1)
     expect(logEvents(dir).filter(event => event !== 'wait')).toEqual(['start', 'end', 'start', 'end'])
   })

@@ -66,6 +66,11 @@ describe('no real-time waits in tests', () => {
     expect(EXCEPTED.filter(file => file.startsWith('tests/'))).toEqual([])
   })
 
+  it('no ci, quality or shift test is excepted from the real-time rule', () => {
+    const fixedLayers = ['ci', 'quality', 'shift'].map(layer => `scripts/tests/${layer}/`)
+    expect(EXCEPTED.filter(file => fixedLayers.some(layer => file.startsWith(layer)))).toEqual([])
+  })
+
   it('every excepted file still waits on real time', async () => {
     const fixed: string[] = []
     for (const file of EXCEPTED) {
