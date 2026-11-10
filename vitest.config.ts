@@ -12,10 +12,11 @@ import { LOCK_DIR_VARIABLE, sessionWorkers } from './scripts/quality/lock.js'
 
 const SUITE_MACHINE_DIR = path.join(tmpdir(), 'construct-test-machine')
 const SUITE_SESSION_LIMIT = 1000
+const SUITE_LOAD_PER_CORE = 1000
 
 const weights = JSON.parse(readFileSync(path.join(import.meta.dirname, 'scripts/ci/test-weights.json'), 'utf8')) as TestWeights
 
-setMachineLimit(SUITE_MACHINE_DIR, SUITE_SESSION_LIMIT)
+setMachineLimit(SUITE_MACHINE_DIR, SUITE_SESSION_LIMIT, SUITE_LOAD_PER_CORE)
 
 class WeightedShardSequencer extends BaseSequencer {
   override async shard(files: TestSpecification[]): Promise<TestSpecification[]> {

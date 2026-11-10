@@ -4,16 +4,18 @@ import type { SessionStart } from '../../nodes/launch/launch-worker.js'
 import type { ProcessTable } from '../../nodes/restart/chain-process.js'
 import type { MergeBench } from '../bus/merge-bench.js'
 import { mkdtempSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import os, { tmpdir } from 'node:os'
 import path from 'node:path'
+import process from 'node:process'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { parkingFileText } from '../../../src/card/parking.js'
 import { textSha } from '../../../src/card/text-sha.js'
 import { appendEvent } from '../../core/db.js'
 import { BOARD_ALARM, CARD_ADMITTED, CARD_CONTINUED, CARD_SESSION_ENDED, CARD_STOPPED, CARD_WAITING, OWNER_WAIT_OPENED, PR_OPENED } from '../../core/events.js'
-import { MachineSessions } from '../../core/machine-sessions.js'
+import { MACHINE_DIR_VARIABLE, MACHINE_POLL_MS, MachineSessions, setMachineLimit } from '../../core/machine-sessions.js'
 import { MACHINE_OVERLOADED, MACHINE_OVERLOADED_MARK, timeoutUnderLoadOutside } from '../../core/observations.js'
 import { LaunchNode } from '../../nodes/launch/launch-worker.js'
+import { LOCK_DIR_VARIABLE, sessionWorkers } from '../../quality/lock.js'
 import { eventsOf, mergeBench } from '../bus/merge-bench.js'
 
 const CARD = 1768
@@ -29,6 +31,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  vi.unstubAllEnvs()
   vi.restoreAllMocks()
   for (const made of benches.splice(0))
     made.close()
@@ -148,5 +151,69 @@ describe('a timeout under machine load', () => {
     expect(timeoutUnderLoadOutside('prepush timed out in scripts/tests/ci/select.test.ts', outside)).toBe(false)
     expect(timeoutUnderLoadOutside('the machine is under load; scripts/tests/ci/select.test.ts fails an assertion', outside)).toBe(false)
     expect(timeoutUnderLoadOutside('prepush timed out under machine load', outside)).toBe(false)
+  })
+})
+
+const CORES = 16
+const SESSIONS = 2
+const BUSY_FROM_OUTSIDE = 12
+
+function scratch(): string {
+  const root = mkdtempSync(path.join(tmpdir(), 'machine-load-'))
+  roots.push(root)
+  return root
+}
+
+describe('the worker budget and the starts read the load of the machine', () => {
+  it('cores busy from outside shrink sessionWorkers below cores over sessions', () => {
+    vi.spyOn(os, 'availableParallelism').mockReturnValue(CORES)
+    vi.stubEnv(LOCK_DIR_VARIABLE, scratch())
+    const machineDir = scratch()
+    setMachineLimit(machineDir, SESSIONS)
+    vi.stubEnv(MACHINE_DIR_VARIABLE, machineDir)
+
+    const workers = sessionWorkers(`/tree/loaded-${process.pid}`, { read: () => ({ busy: BUSY_FROM_OUTSIDE, cores: CORES }) })
+
+    expect(workers).toBeLessThan(CORES / SESSIONS)
+    expect(workers).toBe(CORES - 1 - BUSY_FROM_OUTSIDE)
+  })
+
+  it('launch does not start a session while the load is over the threshold', async () => {
+    const made = mergeBench()
+    benches.push(made)
+    const text = parkingFileText({ card: `#${CARD} a-card [implement/construct/S/cheap/auto] · depends — · blocks —`, branch: `feat/card-${CARD}`, touches: TOUCHES, continue: 'auto', who: 'shift', body: 'the card' })
+    appendEvent(made.db, { ts: made.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'policy', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${CARD}`, payload: { lane: 'lane-a', decision: 'auto', contour: 'cheap', depends: [], admission: `admission-${CARD}`, text, textSha: textSha(text) }, legacy: false })
+    made.tick()
+    let busy = CORES * 2
+    const machine = new MachineSessions(scratch(), () => false, CORES, made.clock.now, { read: () => ({ busy, cores: CORES }) })
+    const starter = new RetryingStarter()
+    const node = new LaunchNode({
+      db: made.db,
+      starter,
+      continuer: starter,
+      clock: made.clock.now,
+      session: 'node-1',
+      mode: 'live',
+      env: {},
+      processes: { commandLine: () => null, signalGroup: () => {} },
+      machine,
+      lanes: () => 4,
+      disk: () => ({ bavail: 1, bsize: 1024 ** 4 }),
+      isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }),
+    })
+    const once = async (): Promise<void> => {
+      const controller = new AbortController()
+      await node.run({ pause: async () => controller.abort(), signal: controller.signal })
+      made.tick()
+    }
+
+    await once()
+    expect(starter.starts).toEqual([])
+    expect(machine.held()).toEqual(expect.objectContaining({ load: { busy, cores: CORES } }))
+
+    busy = 1
+    made.clock.advance(MACHINE_POLL_MS + 1)
+    await once()
+    expect(starter.starts.map(card => card.cardId)).toEqual([CARD])
   })
 })

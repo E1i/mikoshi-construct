@@ -1,7 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { ParkedTask, Priority } from '../../../src/card/parking.js'
 import type { ShiftTask } from '../../../src/card/task-file.js'
-import type { MachineSessions } from '../../core/machine-sessions.js'
+import type { MachineHold, MachineSessions } from '../../core/machine-sessions.js'
 import { existsSync } from 'node:fs'
 import process from 'node:process'
 import { parseParkingFile, WINDOW_WHO } from '../../../src/card/parking.js'
@@ -333,7 +333,7 @@ export type StartableHold
     | { kind: 'session', cardId: number, path: string }
     | { kind: 'lane', cardId: number, lane: string }
     | { kind: 'slots' }
-    | { kind: 'machine', live: number, limit: number }
+    | ({ kind: 'machine' } & MachineHold)
     | { kind: 'lane-outside', lane: string, lanes: number }
 
 export type MachineReader = Pick<MachineSessions, 'free' | 'held' | 'waiting'>

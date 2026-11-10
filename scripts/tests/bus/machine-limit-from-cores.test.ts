@@ -4,7 +4,7 @@ import os, { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { afterEach, expect, it, vi } from 'vitest'
-import { MACHINE_DIR_VARIABLE, MACHINE_LIMIT_FILE, machineSessions, MachineSessions, setMachineLimit } from '../../core/machine-sessions.js'
+import { idleLoad, MACHINE_DIR_VARIABLE, MACHINE_LIMIT_FILE, machineSessions, MachineSessions, setMachineLimit } from '../../core/machine-sessions.js'
 import { joinSession, LOCK_DIR_VARIABLE, sessionWorkers } from '../../quality/lock.js'
 
 const CORES = 16
@@ -106,8 +106,15 @@ it('the session workers of a tree read the limit of the machine', () => {
   vi.spyOn(os, 'availableParallelism').mockReturnValue(CORES)
   vi.stubEnv(LOCK_DIR_VARIABLE, scratch())
   vi.stubEnv(MACHINE_DIR_VARIABLE, scratch())
-  expect(sessionWorkers(`/tree/default-${process.pid}`)).toBe(QUARTER_OF_THE_CORES)
+  expect(sessionWorkers(`/tree/default-${process.pid}`, idleLoad(CORES))).toBe(QUARTER_OF_THE_CORES)
   vi.stubEnv(LOCK_DIR_VARIABLE, scratch())
   vi.stubEnv(MACHINE_DIR_VARIABLE, withLimitFile('{"sessions":2}'))
-  expect(sessionWorkers(`/tree/chosen-${process.pid}`)).toBe(CORES / 2)
+  expect(sessionWorkers(`/tree/chosen-${process.pid}`, idleLoad(CORES))).toBe(CORES / 2)
+})
+
+it('a load per core in the limit file moves the overload threshold, and an invalid one gives one per core', () => {
+  const busy = (load: number): MachineSessions => new MachineSessions(withLimitFile(`{"sessions":9,"loadPerCore":${load}}`), () => true, CORES, () => new Date(), { read: () => ({ busy: CORES * 1.5, cores: CORES }) })
+  expect(busy(2).overload()).toBeNull()
+  expect(busy(1).overload()).toEqual({ busy: CORES * 1.5, cores: CORES })
+  expect(busy(-1).overload()).toEqual({ busy: CORES * 1.5, cores: CORES })
 })

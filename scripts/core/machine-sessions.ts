@@ -11,6 +11,7 @@ export const MACHINE_LIMIT_FILE = 'limit.json'
 export const MACHINE_POLL_MS = 30_000
 
 const CORES_PER_DEFAULT_SESSION = 4
+const DEFAULT_LOAD_PER_CORE = 1
 const CLAIM_PREFIX = 'claim-'
 const WAIT_PREFIX = 'wait-'
 const RECORD_SUFFIX = '.json'
@@ -36,9 +37,29 @@ export interface MachineWaiter extends MachineRecord {
   since: string
 }
 
+export interface LoadReading {
+  busy: number
+  cores: number
+}
+
+export interface MachineLoad {
+  read: () => LoadReading
+}
+
+export const MEASURED_LOAD: MachineLoad = { read: () => ({ busy: os.loadavg()[0] ?? 0, cores: os.availableParallelism() }) }
+
+export function idleLoad(cores: number): MachineLoad {
+  return { read: () => ({ busy: 0, cores }) }
+}
+
+export function freeCores(reading: LoadReading): number {
+  return Math.max(0, reading.cores - Math.ceil(reading.busy))
+}
+
 export interface MachineHold {
   live: number
   limit: number
+  load?: LoadReading
 }
 
 export type MachineClaim = { kind: 'claimed' } | { kind: 'refused', hold: MachineHold }
@@ -78,16 +99,28 @@ function defaultSessionLimit(cores: number): number {
   return Math.max(1, Math.floor(cores / CORES_PER_DEFAULT_SESSION))
 }
 
-export function setMachineLimit(dir: string, sessions: number): void {
-  writeAtomically(path.join(dir, MACHINE_LIMIT_FILE), { sessions })
+interface LimitFile { sessions?: unknown, loadPerCore?: unknown }
+
+export function setMachineLimit(dir: string, sessions: number, loadPerCore?: number): void {
+  writeAtomically(path.join(dir, MACHINE_LIMIT_FILE), { sessions, ...(loadPerCore === undefined ? {} : { loadPerCore }) })
+}
+
+function positive(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0
 }
 
 export class MachineSessions {
-  constructor(private readonly dir: string, private readonly isLive: SessionLive, private readonly cores: number, private readonly now: () => Date = () => new Date()) {}
+  constructor(private readonly dir: string, private readonly isLive: SessionLive, private readonly cores: number, private readonly now: () => Date = () => new Date(), private readonly load: MachineLoad = idleLoad(cores)) {}
 
   limit(): number {
-    const sessions = readJson<{ sessions?: unknown }>(path.join(this.dir, MACHINE_LIMIT_FILE))?.sessions
+    const sessions = this.limitFile()?.sessions
     return typeof sessions === 'number' && Number.isInteger(sessions) && sessions > 0 ? sessions : defaultSessionLimit(this.cores)
+  }
+
+  overload(): LoadReading | null {
+    const loadPerCore = this.limitFile()?.loadPerCore
+    const reading = this.load.read()
+    return reading.busy >= reading.cores * (positive(loadPerCore) ? loadPerCore : DEFAULT_LOAD_PER_CORE) ? reading : null
   }
 
   live(): number {
@@ -97,11 +130,14 @@ export class MachineSessions {
   held(): MachineHold | null {
     const limit = this.limit()
     const live = this.live()
+    const load = this.overload()
+    if (load !== null)
+      return { live, limit, load }
     return live >= limit ? { live, limit } : null
   }
 
   free(): number {
-    return Math.max(0, this.limit() - this.live())
+    return this.overload() === null ? Math.max(0, this.limit() - this.live()) : 0
   }
 
   claim(claimant: MachineClaimant, pid: number = process.pid): MachineClaim {
@@ -149,6 +185,9 @@ export class MachineSessions {
     this.sweep()
     const limit = this.limit()
     const before = this.live()
+    const load = this.overload()
+    if (load !== null)
+      return { kind: 'refused', hold: { live: before, limit, load } }
     if (before >= limit)
       return { kind: 'refused', hold: { live: before, limit } }
     writeAtomically(file, { ...claimant, pid } satisfies MachineRecord)
@@ -159,6 +198,10 @@ export class MachineSessions {
     }
     removeQuietly(this.fileOf(WAIT_PREFIX, claimant))
     return { kind: 'claimed' }
+  }
+
+  private limitFile(): LimitFile | null {
+    return readJson<LimitFile>(path.join(this.dir, MACHINE_LIMIT_FILE))
   }
 
   private sweep(): void {
@@ -204,8 +247,8 @@ export function machineDir(env: NodeJS.ProcessEnv = process.env, home: string = 
   return env[MACHINE_DIR_VARIABLE] ?? path.join(home, '.construct', 'machine')
 }
 
-export function machineSessions(exists: ProcessExists, env: NodeJS.ProcessEnv = process.env, home: string = os.homedir()): MachineSessions {
-  return new MachineSessions(machineDir(env, home), sessionLiveness(exists), os.availableParallelism())
+export function machineSessions(exists: ProcessExists, env: NodeJS.ProcessEnv = process.env, home: string = os.homedir(), load: MachineLoad = MEASURED_LOAD): MachineSessions {
+  return new MachineSessions(machineDir(env, home), sessionLiveness(exists), os.availableParallelism(), () => new Date(), load)
 }
 
 export function busNameOf(busPath: string): string {
@@ -223,6 +266,8 @@ export function busNameOfDb(db: DatabaseSync): string {
 }
 
 export function machineHoldLine(hold: MachineHold): string {
+  if (hold.load !== undefined)
+    return `machine overloaded: load ${hold.load.busy.toFixed(1)} on ${hold.load.cores} cores across every process on this machine; the start waits in the queue until the load falls`
   return `machine session limit: ${hold.live} of ${hold.limit} live sessions across every bus on this machine; the start waits until one ends`
 }
 

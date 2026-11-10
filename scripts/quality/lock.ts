@@ -1,3 +1,4 @@
+import type { MachineLoad } from '../core/machine-sessions.js'
 import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { appendFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs'
@@ -6,7 +7,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { sleep } from '../core/every.js'
-import { machineSessions } from '../core/machine-sessions.js'
+import { machineSessions, MEASURED_LOAD } from '../core/machine-sessions.js'
 import { CLIENT_SANDBOX_DIRECTORY } from '../ports/client/claude/adapter.js'
 
 export const LOCK_DIR_VARIABLE = 'CONSTRUCT_QUALITY_LOCK_DIR'
@@ -32,6 +33,7 @@ export interface BudgetDeps {
   tree: string
   pid: number
   cores: number
+  busy?: number
   sessionLimit: number
   isAlive: (pid: number) => boolean
 }
@@ -243,7 +245,8 @@ export function runGrant(deps: BudgetDeps, runsToLeaveRoomFor = 0): number {
   const fair = workerBudget(deps.cores, trees.size + runsToLeaveRoomFor)
   const grants = largestGrantByTree(runs.filter(run => run.tree !== deps.tree), fair)
   const taken = [...grants.values()].reduce((sum, workers) => sum + workers, 0)
-  return Math.max(1, Math.min(fair, deps.cores - 1 - taken, workersPerSession(deps)))
+  const occupied = Math.max(taken, Math.ceil(deps.busy ?? 0))
+  return Math.max(1, Math.min(fair, deps.cores - 1 - occupied, workersPerSession(deps)))
 }
 
 export function joinSession(deps: BudgetDeps, runsToLeaveRoomFor = 0): number {
@@ -262,20 +265,21 @@ export function leaveSession(deps: BudgetDeps): void {
   removeIfAble(sessionFile(path.join(deps.dir, SESSIONS_DIR), deps.tree, deps.pid))
 }
 
-function machineRun(tree: string): BudgetDeps {
-  return { dir: queueDir(), reads: budgetDirs(), tree, pid: process.pid, cores: os.availableParallelism(), sessionLimit: machineSessions(isAlive).limit(), isAlive }
+function machineRun(tree: string, load: MachineLoad): BudgetDeps {
+  const { busy, cores } = load.read()
+  return { dir: queueDir(), reads: budgetDirs(), tree, pid: process.pid, cores, busy, sessionLimit: machineSessions(isAlive).limit(), isAlive }
 }
 
-export function joinReviewTree(tree: string): number {
-  return joinSession(machineRun(tree), RUNS_A_REVIEW_LEAVES_ROOM_FOR)
+export function joinReviewTree(tree: string, load: MachineLoad = MEASURED_LOAD): number {
+  return joinSession(machineRun(tree, load), RUNS_A_REVIEW_LEAVES_ROOM_FOR)
 }
 
-export function leaveReviewTree(tree: string): void {
-  leaveSession(machineRun(tree))
+export function leaveReviewTree(tree: string, load: MachineLoad = MEASURED_LOAD): void {
+  leaveSession(machineRun(tree, load))
 }
 
-export function sessionWorkers(tree: string): number {
-  return joinSession(machineRun(tree))
+export function sessionWorkers(tree: string, load: MachineLoad = MEASURED_LOAD): number {
+  return joinSession(machineRun(tree, load))
 }
 
 export function heavyStep(run: () => Promise<number>, dir: string = queueDir()): Promise<number> {
