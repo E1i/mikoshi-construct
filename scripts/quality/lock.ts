@@ -1,3 +1,4 @@
+import type { LoadReading, MachineLoad } from '../core/machine-sessions.js'
 import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { appendFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs'
@@ -6,7 +7,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { sleep } from '../core/every.js'
-import { machineSessions } from '../core/machine-sessions.js'
+import { machineSessions, MEASURED_LOAD } from '../core/machine-sessions.js'
 import { CLIENT_SANDBOX_DIRECTORY } from '../ports/client/claude/adapter.js'
 
 export const LOCK_DIR_VARIABLE = 'CONSTRUCT_QUALITY_LOCK_DIR'
@@ -17,6 +18,7 @@ const RUNS_A_REVIEW_LEAVES_ROOM_FOR = 1
 const HELD = 'held'
 const HOLDER_FILE = 'holder.json'
 const POLL_MS = 1000
+export const OVERLOAD_WAIT_MS = 5 * 60_000
 const PREFIX = '[quality-lock] '
 const SESSIONS_DIR = 'sessions'
 const SESSION_FILE_SUFFIX = '.json'
@@ -32,6 +34,7 @@ export interface BudgetDeps {
   tree: string
   pid: number
   cores: number
+  busy?: number
   sessionLimit: number
   isAlive: (pid: number) => boolean
 }
@@ -41,6 +44,7 @@ export type LockEvent
     | { event: 'stale', pid: number, cwd: string, at: string, holder: Holder }
     | { event: 'start', pid: number, cwd: string, at: string }
     | { event: 'end', pid: number, cwd: string, at: string, exitCode: number }
+    | { event: 'overload', pid: number, cwd: string, at: string, load: LoadReading }
 
 export interface LockDeps {
   dir: string
@@ -51,6 +55,7 @@ export interface LockDeps {
   sleep: (ms: number) => Promise<void>
   say: (line: string) => void
   run: () => Promise<number>
+  overload?: () => LoadReading | null
 }
 
 function log(dir: string, entry: LockEvent): void {
@@ -88,6 +93,23 @@ function releaseStale(dir: string, holder: Holder): void {
   catch {}
 }
 
+async function waitOutOverload(deps: LockDeps, me: { pid: number, cwd: string }, at: () => string): Promise<void> {
+  const since = deps.now().getTime()
+  let told = false
+  for (let load = deps.overload?.() ?? null; load !== null; load = deps.overload?.() ?? null) {
+    if (deps.now().getTime() - since >= OVERLOAD_WAIT_MS) {
+      deps.say(`${PREFIX}the machine is still overloaded after ${OVERLOAD_WAIT_MS / 60_000} minutes; the run starts with the workers the load leaves`)
+      return
+    }
+    if (!told) {
+      told = true
+      log(deps.dir, { event: 'overload', ...me, at: at(), load })
+      deps.say(`${PREFIX}machine overloaded: load ${load.busy.toFixed(1)} on ${load.cores} cores; the run waits in the queue until the load falls`)
+    }
+    await deps.sleep(POLL_MS)
+  }
+}
+
 export async function withQualityLock(deps: LockDeps): Promise<number> {
   mkdirSync(deps.dir, { recursive: true })
   const at = (): string => deps.now().toISOString()
@@ -111,6 +133,7 @@ export async function withQualityLock(deps: LockDeps): Promise<number> {
     }
     await deps.sleep(POLL_MS)
   }
+  await waitOutOverload(deps, me, at)
   log(deps.dir, { event: 'start', ...me, at: at() })
   let exitCode = 1
   try {
@@ -243,7 +266,8 @@ export function runGrant(deps: BudgetDeps, runsToLeaveRoomFor = 0): number {
   const fair = workerBudget(deps.cores, trees.size + runsToLeaveRoomFor)
   const grants = largestGrantByTree(runs.filter(run => run.tree !== deps.tree), fair)
   const taken = [...grants.values()].reduce((sum, workers) => sum + workers, 0)
-  return Math.max(1, Math.min(fair, deps.cores - 1 - taken, workersPerSession(deps)))
+  const occupied = Math.max(taken, Math.ceil(deps.busy ?? 0))
+  return Math.max(1, Math.min(fair, deps.cores - 1 - occupied, workersPerSession(deps)))
 }
 
 export function joinSession(deps: BudgetDeps, runsToLeaveRoomFor = 0): number {
@@ -262,20 +286,21 @@ export function leaveSession(deps: BudgetDeps): void {
   removeIfAble(sessionFile(path.join(deps.dir, SESSIONS_DIR), deps.tree, deps.pid))
 }
 
-function machineRun(tree: string): BudgetDeps {
-  return { dir: queueDir(), reads: budgetDirs(), tree, pid: process.pid, cores: os.availableParallelism(), sessionLimit: machineSessions(isAlive).limit(), isAlive }
+function machineRun(tree: string, load: MachineLoad): BudgetDeps {
+  const { busy, cores } = load.read()
+  return { dir: queueDir(), reads: budgetDirs(), tree, pid: process.pid, cores, busy, sessionLimit: machineSessions(isAlive).limit(), isAlive }
 }
 
-export function joinReviewTree(tree: string): number {
-  return joinSession(machineRun(tree), RUNS_A_REVIEW_LEAVES_ROOM_FOR)
+export function joinReviewTree(tree: string, load: MachineLoad = MEASURED_LOAD): number {
+  return joinSession(machineRun(tree, load), RUNS_A_REVIEW_LEAVES_ROOM_FOR)
 }
 
-export function leaveReviewTree(tree: string): void {
-  leaveSession(machineRun(tree))
+export function leaveReviewTree(tree: string, load: MachineLoad = MEASURED_LOAD): void {
+  leaveSession(machineRun(tree, load))
 }
 
-export function sessionWorkers(tree: string): number {
-  return joinSession(machineRun(tree))
+export function sessionWorkers(tree: string, load: MachineLoad = MEASURED_LOAD): number {
+  return joinSession(machineRun(tree, load))
 }
 
 export function heavyStep(run: () => Promise<number>, dir: string = queueDir()): Promise<number> {
@@ -290,6 +315,7 @@ export function heavyStep(run: () => Promise<number>, dir: string = queueDir()):
     sleep,
     say: line => process.stderr.write(`${line}\n`),
     run,
+    overload: () => machineSessions(isAlive).overload(),
   })
 }
 
