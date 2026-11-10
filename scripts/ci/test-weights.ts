@@ -6,6 +6,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import config from '../../vitest.config.js'
+import { pnpmCommand } from '../core/owner-commands.js'
 import { GhCiRuns } from '../ports/ci-reading.js'
 import { processGit } from '../ports/git.js'
 import { updateWeights, weightsFromVitestReport } from './shard.js'
@@ -22,7 +23,7 @@ export const CI_REPORT_ARTIFACT = 'vitest-report'
 export const WEIGHTS_PATH = 'scripts/ci/test-weights.json'
 const RUNS_LISTED = 60
 const SHARD_JOB = /^vitest (\d+)\/(\d+)$/
-const TEST_STEP = 'Run pnpm test'
+const TEST_STEP = `Run ${pnpmCommand('test')}`
 const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..')
 const CI = new GhCiRuns()
 
@@ -160,9 +161,9 @@ function main(argv: string[]): void {
     return at === -1 ? undefined : argv[at + 1]
   }
   if (argv.includes('--spread'))
-    return flag('--spread') === 'main' ? spreadOnMain(flag('--boundary')) : failWith('usage: pnpm test:weights --spread main [--boundary <sha>]')
+    return flag('--spread') === 'main' ? spreadOnMain(flag('--boundary')) : failWith(`usage: ${pnpmCommand('test:weights', '--spread', 'main', '[--boundary <sha>]')}`)
   if (argv.includes('--from'))
-    return flag('--from') === 'main' ? rewriteFrom(reportFromMain()) : failWith('usage: pnpm test:weights --from main')
+    return flag('--from') === 'main' ? rewriteFrom(reportFromMain()) : failWith(`usage: ${pnpmCommand('test:weights', '--from', 'main')}`)
   rewriteFrom(argv[0] ?? '.construct/reports/vitest.json')
 }
 

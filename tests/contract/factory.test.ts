@@ -64,7 +64,6 @@ const SITES_OF_THE_RECONNAISSANCE: Record<string, readonly string[]> = {
   'owner-commands': [
     'scripts/ports/task-start.ts',
     'src/commands/board/screens.ts',
-    'scripts/cli/card.ts',
     'scripts/window/window-requests.ts',
     'scripts/window/loop.ts',
     'src/commands/doctor/factory.ts',

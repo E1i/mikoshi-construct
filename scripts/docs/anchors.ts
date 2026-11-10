@@ -2,6 +2,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import config from '../../docs/.vitepress/config.js'
+import { pnpmCommand } from '../core/owner-commands.js'
 import { REPO_ROOT } from '../release-notes/changelog.js'
 import { brokenFileLinks } from './file-links.js'
 
@@ -34,7 +35,7 @@ function idsOn(page: string): string[] {
 }
 
 if (!existsSync(DIST)) {
-  console.error('[docs:anchors] no build at docs/.vitepress/dist: run `pnpm docs:build` first, or this would check nothing')
+  console.error(`[docs:anchors] no build at docs/.vitepress/dist: run \`${pnpmCommand('docs:build')}\` first, or this would check nothing`)
   process.exit(1)
 }
 

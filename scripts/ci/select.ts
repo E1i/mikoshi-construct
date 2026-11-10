@@ -4,6 +4,7 @@ import { spawnSync } from 'node:child_process'
 import { appendFileSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
+import { pnpmCommand } from '../core/owner-commands.js'
 import { GhCiRuns } from '../ports/ci-reading.js'
 import { processGit } from '../ports/git.js'
 import { selectRun, windowGate } from './layers.js'
@@ -58,8 +59,8 @@ export function changedPathsOf(diff: string, untracked: string): string[] {
 }
 
 export function windowLines(run: Run): string {
-  const tests = run.kind === 'layers' ? `pnpm exec vitest run ${run.tests.join(' ')}` : 'pnpm test'
-  return `${runSummary(run)}\nWindow gate (D-194): the card's witnesses, then ${tests}, pnpm typecheck and pnpm lint, each as its own command.`
+  const tests = run.kind === 'layers' ? pnpmCommand('exec', 'vitest', 'run', ...run.tests) : pnpmCommand('test')
+  return `${runSummary(run)}\nWindow gate (D-194): the card's witnesses, then ${tests}, ${pnpmCommand('typecheck')} and ${pnpmCommand('lint')}, each as its own command.`
 }
 
 export type Git = (args: readonly string[]) => string

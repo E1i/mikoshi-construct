@@ -8,11 +8,12 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { defaultBusPath, openBus } from '../core/db.js'
 import { cardIdOf, HEAVY_RUNS } from '../core/identifiers.js'
+import { pnpmCommand } from '../core/owner-commands.js'
 import { PREFIX, SlotScheduler, slotsOf } from '../supervisor/scheduler.js'
 
 export const CARD_FLAG = '--card'
 const SEPARATOR = '--'
-const USAGE = `pnpm bus:slot <${HEAVY_RUNS.join(' | ')}> ${CARD_FLAG} <card> -- <command>`
+const USAGE = pnpmCommand('bus:slot', `<${HEAVY_RUNS.join(' | ')}>`, CARD_FLAG, '<card>', '--', '<command>')
 const SIGNALLED = 128
 
 export type SlotCall

@@ -3,6 +3,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { PICTURE_PROSE } from '../../src/model/graph.js'
 import { GENERATED_FILES } from '../core/generated-files.js'
+import { pnpmCommand } from '../core/owner-commands.js'
 
 export const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 export const PICTURE_DOC = GENERATED_FILES.model.path
@@ -39,5 +40,5 @@ export function extractEmbedded(doc: string, docName: string): string {
 export function staleProblems(doc: string, picture: ModelPicture, docName: string): string[] {
   if (extractEmbedded(doc, docName) === renderEmbedded(picture))
     return []
-  return [`${docName}: the picture of construct.model.json is out of date; run pnpm model:render`]
+  return [`${docName}: the picture of construct.model.json is out of date; run ${pnpmCommand('model:render')}`]
 }

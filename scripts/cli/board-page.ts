@@ -29,6 +29,7 @@ import { BUSY_TIMEOUT_MS, defaultBusPath } from '../core/db.js'
 import { defaultHandoffDir } from '../core/handoff-dir.js'
 import { statusLineOf } from '../core/handoff-status.js'
 import { readLayerMap } from '../core/layer-map.js'
+import { constructCommand, pnpmCommand } from '../core/owner-commands.js'
 import { openDatabase } from '../core/sqlite.js'
 import { cardContract } from '../intake/card-contract.js'
 import { recordedWitnessFieldsBackfill, witnessTableOf } from '../intake/witness-fields-backfill.js'
@@ -54,10 +55,7 @@ export interface BoardFiles {
   rename: (from: string, to: string) => void
 }
 
-export const DISK_FILES: BoardFiles = {
-  write: (file, text) => writeFileSync(file, text),
-  rename: renameSync,
-}
+export const DISK_FILES: BoardFiles = { write: (file, text) => writeFileSync(file, text), rename: renameSync }
 
 const ESCAPES: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', '\'': '&#39;' }
 
@@ -157,7 +155,8 @@ const BUS_LIVE = 'bus-live'
 const PULSE_ELEMENT_ID = 'bus-pulse'
 const OFFLINE_READING = 'bus offline'
 const FACTORY_LIVE: FactoryState = 'live'
-const TITLE_PREFIX = 'construct board · '
+const BOARD_COMMAND = constructCommand('board')
+const TITLE_PREFIX = `${BOARD_COMMAND} · `
 const BACKLOG = 'backlog'
 const DRILL = 'drill'
 const DRILL_CONTENT = 'drill-content'
@@ -626,7 +625,7 @@ function statusSlot(facts: BusFacts): string {
     `<button type="button"${opener(HANDOFF_DIALOG)}><kbd>H</kbd> handoff ›</button>`,
     `<button type="button"${opener(DECISIONS_DIALOG)}><kbd>D</kbd> decisions ›</button>`,
     '<span>geek mode <b>--geek</b></span>',
-    '<span class="cursor">construct board</span>',
+    `<span class="cursor">${BOARD_COMMAND}</span>`,
   ].join('')
 }
 
@@ -849,7 +848,7 @@ function chainEntries(chain: CardChain): [number, string][] {
 }
 
 function cardChainHtml(card: BusCard, detail: CardDetail): string {
-  const command = `<code>pnpm card ${card.id} --chain</code>`
+  const command = `<code>${pnpmCommand('card', `${card.id} --chain`)}</code>`
   if (detail.chain === null)
     return note(`No chain: the bus holds no admitted text for this card (${command}).`)
   const entries = chainEntries(detail.chain).map(([event, what]) => `<li><span class="when">event ${event}</span><span class="dot"></span><span class="ev">${escaped(what)}</span></li>`)

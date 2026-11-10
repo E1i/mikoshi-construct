@@ -8,6 +8,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { parseArgs } from 'node:util'
 import { GENERATED_FILES } from '../core/generated-files.js'
+import { pnpmCommand } from '../core/owner-commands.js'
 import { processGit } from '../ports/git.js'
 import { BUMP_LEVELS, declaredLevel, headVersion } from './declared.js'
 import { factoryVerdicts } from './factory-bump.js'
@@ -84,7 +85,7 @@ function failedStep(worktree: string, observer: TagObserver): string | null {
     observer.install(worktree)
   }
   catch (error) {
-    return `the tag's CLI did not install (pnpm install --frozen-lockfile): ${failureLine(error)}`
+    return `the tag's CLI did not install (${pnpmCommand('install', '--frozen-lockfile')}): ${failureLine(error)}`
   }
   try {
     observer.run(worktree)
