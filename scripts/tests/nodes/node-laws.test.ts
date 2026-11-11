@@ -685,6 +685,36 @@ async function answerStopSpendsNoRestart(node: LawNode): Promise<void> {
   finally {
     made.close()
   }
+  await answerRoundWaitsForTheOwnersDecision()
+}
+
+async function answerRoundWaitsForTheOwnersDecision(): Promise<void> {
+  const made = mergeBench()
+  try {
+    const trees = scratchDir('z8-answer-question-')
+    const ts = made.clock.now().toISOString()
+    const text = stoppedCardBody()
+    appendEvent(made.db, { ts, type: CARD_ADMITTED, actor: 'worker:intake:by-hand', cardId: STOPPED_CARD, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:body:${STOPPED_CARD}`, payload: { card: `#${STOPPED_CARD}`, lane: 'lane-1', text, textSha: textSha(text) }, legacy: false })
+    appendEvent(made.db, { ts, type: CARD_STARTED, actor: 'worker:launch:launch-1', cardId: STOPPED_CARD, pr: null, head: null, dedupeKey: `${CARD_STARTED}:${STOPPED_CARD}`, payload: { session: 'card-session-1', worktree: path.join(trees, `mc-${STOPPED_CARD}`), branch: `feat/card-${STOPPED_CARD}`, base: sha('1') }, legacy: false })
+    appendEvent(made.db, { ts, type: CARD_STOPPED, actor: 'worker:launch:launch-1', cardId: STOPPED_CARD, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:${STOPPED_CARD}`, payload: { reason: 'question.agent', detail: 'the owner decides the card version' }, legacy: false })
+    made.tick()
+    const stop = Number((made.db.prepare('SELECT max(id) AS id FROM events WHERE type = ?').get(CARD_STOPPED) as { id: number }).id)
+    queueTask(made.db, ts, { queue: 'answer', cardId: STOPPED_CARD, stop })
+    let sessions = 0
+    const answerer = async (): Promise<{ session: string, resumed: boolean, before: string, after: string, owner: null }> => {
+      sessions += 1
+      return { session: `answer-${sessions}`, resumed: false, before: sha('a'), after: sha('a'), owner: null }
+    }
+    for (let round = 0; round < 2; round += 1) {
+      await runAnswerNode({ db: made.db, answerer, ownerMerges: () => '', cardText: () => text, clock: made.clock.now, session: 'answer-node-1', mode: 'live', env: { [slotsVariable('answer')]: '1' }, trees: { home: trees, exists: () => true, branchOf: pr => `feat/card-${pr}`, recreate: () => {}, bringTo: () => {} }, dirty: () => false, liveSession: () => null, prepare: () => {} })
+      made.tick()
+    }
+    if (sessions !== 1)
+      throw new Error(`an answer round started on an open question with no decision since its empty round: ${sessions} sessions`)
+  }
+  finally {
+    made.close()
+  }
 }
 
 const WITNESSES: Witnesses = {

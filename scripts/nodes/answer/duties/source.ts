@@ -3,7 +3,11 @@ import type { Lease } from '../../../core/lease.js'
 import type { AnswerSource, CardSession } from '../answer-source.js'
 import type { TreeMerge } from './tree.js'
 import { CLOSED_WAIT, OWNER_WAITS } from '../../../core/bus-readings.js'
-import { WITNESS_RECORDED } from '../../../core/events.js'
+import { inTransaction, openBusWait } from '../../../core/db.js'
+import { CARD_ADMITTED, CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, DECISION_RECORDED, OWNER_WAIT_CLOSED, POLICY_DENIED, QUESTION_AGENT, QUESTION_OWNER, WITNESS_RECORDED } from '../../../core/events.js'
+import { openDecisionWaitsOf } from '../../../core/queue.js'
+import { cardDecisionCommand, decisionsInForceAt } from '../../../policy/shards.js'
+import { BusRead } from '../../../ports/bus-read.js'
 import { MAIN_BRANCH } from '../../../ports/snapshot.js'
 import { answerSourceOf, boundDecisionLines } from '../answer-source.js'
 
@@ -15,6 +19,18 @@ export interface SourceParts {
 }
 
 const CLOSED_WAITS_OF_THE_CARD = `SELECT id, answer FROM ${OWNER_WAITS} WHERE card_id = ? AND state = '${CLOSED_WAIT}' ORDER BY event_id`
+
+const EMPTY_ROUND = 'left_nothing'
+
+const AMENDED_ADMISSION = 'amend'
+
+const QUESTION_STOPS: readonly unknown[] = [QUESTION_AGENT, QUESTION_OWNER]
+
+export interface AwaitedStop {
+  id: number
+  reason: string
+  emptyRound: number
+}
 
 const DIRTY_ON_HEAD = `SELECT 1 FROM prs WHERE pr = ? AND head = ? AND state = 'open' AND mergeable = 'dirty'`
 
@@ -29,6 +45,11 @@ export class AnswerSources {
 
   sourceOf(lease: Lease): Answering | null {
     const source = answerSourceOf(this.parts.db, lease, this.parts.clock())
+    const awaited = source?.kind === 'decision' ? null : this.awaitedStop(lease)
+    if (awaited !== null) {
+      this.holdForTheOwner(lease, awaited)
+      return null
+    }
     if (source?.kind === 'question')
       return { ...source, decisions: [...source.decisions, ...this.closedWaitLines(lease)] }
     if (source !== null && source.kind !== 'ci')
@@ -43,7 +64,51 @@ export class AnswerSources {
     return boundDecisionLines(this.parts.db, lease.cardId, this.parts.clock())
   }
 
+  awaitedStop(lease: Lease): AwaitedStop | null {
+    const card = new BusRead(this.parts.db).where({ card: lease.cardId })
+    const stop = this.standingQuestionStop(card)
+    if (stop === null)
+      return null
+    const round = card.where({ from: stop.id + 1 }).slice(POLICY_DENIED, ['command', 'reason']).filter(denied => denied.fields.command === 'answer' && denied.fields.reason === EMPTY_ROUND).at(-1)
+    if (round === undefined)
+      return null
+    const since = card.where({ from: round.id + 1 })
+    const lifted = this.decidedSince(lease, round.id) || this.waitClosedSince(lease, round.id)
+      || since.slice(CARD_ADMITTED, ['source']).some(admitted => admitted.fields.source === AMENDED_ADMISSION)
+      || (lease.head !== null && lease.head !== round.head)
+    return lifted ? null : { id: stop.id, reason: stop.reason, emptyRound: round.id }
+  }
+
+  private standingQuestionStop(card: BusRead): { id: number, reason: string } | null {
+    const stop = card.slice(CARD_STOPPED, ['reason'], 'last')[0]
+    if (stop === undefined || !QUESTION_STOPS.includes(stop.fields.reason))
+      return null
+    const later = ([CARD_ANSWERED, CARD_STARTED] as const).some(type => card.where({ from: stop.id + 1 }).slice(type, [], 'last').length > 0)
+    return later ? null : { id: stop.id, reason: String(stop.fields.reason) }
+  }
+
+  private decidedSince(lease: Lease, eventId: number): boolean {
+    const recorded = new BusRead(this.parts.db).where({ from: eventId + 1 }).slice(DECISION_RECORDED, ['decision_id']).map(each => Number(each.fields.decision_id))
+    return decisionsInForceAt(this.parts.db, this.parts.clock()).some(each => each.cards.includes(lease.cardId) && recorded.includes(each.decisionId))
+  }
+
+  private waitClosedSince(lease: Lease, eventId: number): boolean {
+    const ofTheCard = new Set((this.parts.db.prepare(CLOSED_WAITS_OF_THE_CARD).all(lease.cardId) as { id: string }[]).map(wait => wait.id))
+    return new BusRead(this.parts.db).where({ from: eventId + 1 }).slice(OWNER_WAIT_CLOSED, ['id']).some(closed => ofTheCard.has(String(closed.fields.id)))
+  }
+
+  private holdForTheOwner(lease: Lease, stop: AwaitedStop): void {
+    const db = this.parts.db
+    if (db.prepare(openDecisionWaitsOf('?')).get(lease.cardId) !== undefined)
+      return
+    const text = `card #${lease.cardId} waits for the owner: an answer round after its ${stop.reason} stop left nothing, so no answer round runs until a decision bound to the card, an amend or a new head`
+    const ask = { need: 'decision' as const, text, command: cardDecisionCommand(lease.cardId), card: lease.cardId, ...(lease.pr === null ? {} : { pr: lease.pr }) }
+    inTransaction(db, () => openBusWait(db, this.parts.clock().toISOString(), lease.actor, ask))
+  }
+
   dirtyOnHead(lease: Lease): boolean {
+    if (this.awaitedStop(lease) !== null)
+      return false
     return lease.pr !== null && lease.head !== null && this.parts.db.prepare(DIRTY_ON_HEAD).get(lease.pr, lease.head) !== undefined
   }
 
