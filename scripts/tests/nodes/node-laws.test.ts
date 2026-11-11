@@ -2,6 +2,8 @@ import type { SeedEvent } from '../../../tests/board/bus-fixture.js'
 import type { Lease } from '../../core/lease.js'
 import type { NodeContext, NodeKind, NodeStep } from '../../core/node.js'
 import type { QueuedTask } from '../../core/queue.js'
+import type { AnswerParts } from '../../nodes/answer/answer-executor.js'
+import type { AnswerNodeParts } from '../../nodes/answer/answer-worker.js'
 import type { CardStart, CardStarter, QueuedCard, StartedCard } from '../../nodes/launch/launch-executor.js'
 import type { SessionContinuer } from '../../nodes/launch/launch-starter.js'
 import type { LawCell, LawCells, LawId, LawNode, LawSite } from '../../nodes/laws.js'
@@ -25,16 +27,17 @@ import { NODE_DECLARATIONS } from '../../contract/factory/nodes.js'
 import { LAW_GAP_PREFIX, lawGapNumbers, ratchetBreaks, readRatchet } from '../../contract/ratchet.js'
 import { cardBodyText } from '../../core/card-bodies.js'
 import { appendEvent, openBus } from '../../core/db.js'
-import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, CARD_WAITING, CI_RERUN_REQUESTED, OWNER_WAIT_OPENED, PR_OPENED, SCOPE_WIDENED, SESSION_HEARTBEAT, WINDOW_HEARTBEAT } from '../../core/events.js'
+import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_CONTINUED, CARD_STARTED, CARD_STOPPED, CARD_WAITING, CI_RERUN_REQUESTED, OUTSIDE_TOUCHES, OWNER_WAIT_OPENED, PR_OPENED, SCOPE_WIDENED, SESSION_HEARTBEAT, WINDOW_HEARTBEAT } from '../../core/events.js'
 import { completeTask, leaseNext, recordWorkerStarted } from '../../core/lease.js'
 import { MachineSessions } from '../../core/machine-sessions.js'
 import { Node } from '../../core/node.js'
 import { answerCandidates, keyOf, queueTask, queueTaskWithin, updateCandidates } from '../../core/queue.js'
 import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
+import { AnswerNode } from '../../nodes/answer/answer-worker.js'
 import { claudeAnswerer } from '../../nodes/answer/answerer.js'
-import { handoffBuilder } from '../../nodes/launch/launch-root.js'
+import { handoffBuilder, handoffWrittenSince, reportSince } from '../../nodes/launch/launch-root.js'
 import { LaunchNode } from '../../nodes/launch/launch-worker.js'
-import { CARD_WAIT_STATES, DIRECT_IMPORTER_WIDENED, gapRows, INFRASTRUCTURE_RETRIED, LAUNCH_BODY_FROM_LATEST_ADMISSION, LAW_CELLS, LAW_NODES, LAW_SITES, lawIds, LAWS, NO_HEAD_OF_LINE, NODE_WITNESSES_CALL_THEIR_NODE, RESTART_KEEPS_SESSION, REVIEW_KEEPS_SESSION_AND_LEAVES_NO_DESCENDANT, SESSION_BEAT_BESIDE_STALE_WINDOW, SLICED_DROP_REPOINTS_DEPENDS, sourceOf } from '../../nodes/laws.js'
+import { ANSWER_STOP_SPENDS_NO_RESTART, CARD_WAIT_STATES, DIRECT_IMPORTER_WIDENED, gapRows, INFRASTRUCTURE_RETRIED, LAUNCH_BODY_FROM_LATEST_ADMISSION, LAUNCH_STOP_SPENDS_NO_CONTINUATION, LAW_CELLS, LAW_NODES, LAW_SITES, lawIds, LAWS, NO_HEAD_OF_LINE, NODE_WITNESSES_CALL_THEIR_NODE, RESTART_KEEPS_SESSION, REVIEW_KEEPS_SESSION_AND_LEAVES_NO_DESCENDANT, SESSION_BEAT_BESIDE_STALE_WINDOW, SLICED_DROP_REPOINTS_DEPENDS, sourceOf } from '../../nodes/laws.js'
 import { fullReview } from '../../nodes/review/review-depth.js'
 import { dryRun } from '../../nodes/review/review-worker.js'
 import { claudeReviewer, ReviewTrees } from '../../nodes/review/reviewer.js'
@@ -51,7 +54,7 @@ import { eventsOf, mergeBench } from '../bus/merge-bench.js'
 import { reachesSite } from './law-reach.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')
-const OWNER_LAWS = ['Z1', 'Z2', 'Z3', 'Z4', 'Z5', 'Z6', 'Z7']
+const OWNER_LAWS = ['Z1', 'Z2', 'Z3', 'Z4', 'Z5', 'Z6', 'Z7', 'Z8']
 
 interface Witness {
   law: LawId
@@ -531,6 +534,79 @@ async function launchBodyFromLatestAdmission(node: LawNode): Promise<void> {
   }
 }
 
+const STOPPED_CARD = 1791
+const STOP_READER = 'scripts/core/layer-map.ts'
+const STOP_QUESTION = `the touches do not cover ${STOP_READER}; widen them`
+
+function stoppedCardBody(): string {
+  return `card: #${STOPPED_CARD} a-card [implement/construct/S/cheap/auto] · depends — · blocks —\nbranch: feat/card-${STOPPED_CARD}\ntouches: scripts/a.ts\ncontinue: auto\nwho: shift\n\nDo it.\n`
+}
+
+async function launchStopSpendsNoContinuation(node: LawNode): Promise<void> {
+  if (node !== 'launch')
+    throw new Error(`no launch stop reason is wired on ${node}`)
+  const made = mergeBench()
+  try {
+    const worktree = scratchDir('z8-launch-')
+    mkdirSync(path.join(worktree, path.dirname(STOP_READER)), { recursive: true })
+    writeFileSync(path.join(worktree, STOP_READER), 'export const map = {}\n')
+    const text = stoppedCardBody()
+    appendEvent(made.db, { ts: made.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'worker:intake:by-hand', cardId: STOPPED_CARD, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:admission-1`, payload: { card: `#${STOPPED_CARD}`, lane: 'lane-1', decision: 'auto', contour: 'cheap', depends: [], admission: 'admission-1', text, textSha: textSha(text) }, legacy: false })
+    made.tick()
+    const starter = new RelaunchingStarter()
+    const started: CardStarter = { start: card => ({ kind: 'started', card: { session: `s-${card.cardId}`, worktree, branch: `feat/card-${card.cardId}`, base: 'f'.repeat(40), pid: 4242, pgid: 4242 } }), stop: () => {} }
+    const launchDir = scratchDir('z8-launch-dir-')
+    const handoff = ['current card: #1791', 'queue: #1791', 'done: x', 'not done: x', 'delegation: none', 'next task: x', 'local decisions: none', 'owner waits: none', 'decisions: none', 'intake tokens: none', 'stop reason: the touches miss a reader', 'continue when: now'].join('\n')
+    writeFileSync(path.join(launchDir, `report-${STOPPED_CARD}.md`), `${handoff}\nquestion: ${STOP_QUESTION}\n`)
+    const launch = new LaunchNode({ db: made.db, starter: started, continuer: starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes: { commandLine: () => null, signalGroup: () => {} }, pidAlive: () => false, collected: () => null, atContextLine: () => true, handedOff: handoffWrittenSince(launchDir), reportOf: reportSince(launchDir), machine: new MachineSessions(scratchDir('z8-launch-machine-'), () => false, 16), lanes: () => 4, disk: () => ({ bavail: 1, bsize: 1024 ** 4 }), isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }) })
+    const controller = new AbortController()
+    await launch.run({ pause: async () => controller.abort(), signal: controller.signal })
+    made.tick()
+    launch.stopOverdue()
+    const stops = eventsOf(made.db, CARD_STOPPED)
+    if (starter.continued !== 0 || eventsOf(made.db, CARD_CONTINUED).length > 0)
+      throw new Error('a session that stopped on a path outside the touches was continued')
+    if (stops.length !== 1 || stops[0]!.code !== OUTSIDE_TOUCHES || JSON.stringify(stops[0]!.paths) !== JSON.stringify([STOP_READER]) || stops[0]!.stop_reason !== 'the touches miss a reader')
+      throw new Error(`the stop outside the touches did not record its reason and paths: ${JSON.stringify(stops)}`)
+  }
+  finally {
+    made.close()
+  }
+}
+
+async function answerStopSpendsNoRestart(node: LawNode): Promise<void> {
+  if (node !== 'answer')
+    throw new Error(`no answer stop reason is wired on ${node}`)
+  const made = mergeBench()
+  try {
+    const trees = scratchDir('z8-answer-')
+    const ts = made.clock.now().toISOString()
+    const text = stoppedCardBody()
+    appendEvent(made.db, { ts, type: CARD_ADMITTED, actor: 'worker:intake:by-hand', cardId: STOPPED_CARD, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:body:${STOPPED_CARD}`, payload: { card: `#${STOPPED_CARD}`, lane: 'lane-1', text, textSha: textSha(text) }, legacy: false })
+    appendEvent(made.db, { ts, type: CARD_STARTED, actor: 'worker:launch:launch-1', cardId: STOPPED_CARD, pr: null, head: null, dedupeKey: `${CARD_STARTED}:${STOPPED_CARD}`, payload: { session: 'card-session-1', worktree: path.join(trees, `mc-${STOPPED_CARD}`), branch: `feat/card-${STOPPED_CARD}`, base: sha('1') }, legacy: false })
+    appendEvent(made.db, { ts, type: CARD_STOPPED, actor: 'worker:launch:launch-1', cardId: STOPPED_CARD, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:${STOPPED_CARD}`, payload: { reason: 'question.agent', detail: 'a question' }, legacy: false })
+    made.tick()
+    const stop = Number((made.db.prepare('SELECT max(id) AS id FROM events WHERE type = ?').get(CARD_STOPPED) as { id: number }).id)
+    queueTask(made.db, ts, { queue: 'answer', cardId: STOPPED_CARD, stop })
+    let sessions = 0
+    const answerer = async (): Promise<{ session: string, resumed: boolean, atContextWarn: boolean, before: string, after: string, owner: string }> => {
+      sessions += 1
+      return { session: `answer-${sessions}`, resumed: false, atContextWarn: true, before: sha('a'), after: sha('a'), owner: STOP_QUESTION }
+    }
+    const parts: AnswerNodeParts & Pick<AnswerParts, 'dirty' | 'liveSession' | 'prepare'> = { db: made.db, answerer, ownerMerges: () => '', cardText: () => text, clock: made.clock.now, session: 'answer-node-1', mode: 'live', env: { [slotsVariable('answer')]: '1' }, trees: { home: trees, exists: () => true, branchOf: pr => `feat/card-${pr}`, recreate: () => {}, bringTo: () => {} }, dirty: () => false, liveSession: () => null, prepare: () => {} }
+    const answering = new AnswerNode(parts)
+    const controller = new AbortController()
+    await answering.run({ pause: async () => controller.abort(), signal: controller.signal })
+    if (sessions !== 1)
+      throw new Error(`an answer session that stopped outside the touches was restarted: ${sessions} sessions`)
+    if (eventsOf(made.db, CARD_STOPPED).at(-1)?.code !== OUTSIDE_TOUCHES)
+      throw new Error('the answer stop outside the touches did not record its code')
+  }
+  finally {
+    made.close()
+  }
+}
+
 const WITNESSES: Witnesses = {
   [RESTART_KEEPS_SESSION]: { law: 'Z1', run: restartKeepsSession },
   [REVIEW_KEEPS_SESSION_AND_LEAVES_NO_DESCENDANT]: { law: 'Z1', run: reviewKeepsSessionAndLeavesNoDescendant },
@@ -538,6 +614,8 @@ const WITNESSES: Witnesses = {
   [DIRECT_IMPORTER_WIDENED]: { law: 'Z3', run: directImporterWidened },
   [LAUNCH_BODY_FROM_LATEST_ADMISSION]: { law: 'Z3', run: launchBodyFromLatestAdmission },
   [SESSION_BEAT_BESIDE_STALE_WINDOW]: { law: 'Z7', run: sessionBeatBesideStaleWindow },
+  [LAUNCH_STOP_SPENDS_NO_CONTINUATION]: { law: 'Z8', run: launchStopSpendsNoContinuation },
+  [ANSWER_STOP_SPENDS_NO_RESTART]: { law: 'Z8', run: answerStopSpendsNoRestart },
 }
 
 function cellKinds(cell: LawCell): string[] {

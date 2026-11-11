@@ -694,7 +694,7 @@ describe('the launch node', () => {
   it('a question.agent no-PR stop whose widen holds only non-paths names them dropped and starts again once the owner closes its question, with no window', async () => {
     const { made, node, starter } = await stoppedOnAQuestion(1484, 'the server needs @types/express from registry.npmjs.org, served at / and answering /health', [])
 
-    expect(eventsOf(made.db, CARD_STOPPED)).toEqual([{ reason: 'question.agent', detail: expect.stringContaining('not a repository path, dropped from the widen: @types/express, registry.npmjs.org, /, /health') as unknown, widen: [], dropped: ['@types/express', 'registry.npmjs.org', '/', '/health'] }])
+    expect(eventsOf(made.db, CARD_STOPPED)).toEqual([{ reason: 'question.agent', code: 'open-question', blocker: 'the server needs @types/express from registry.npmjs.org, served at / and answering /health', paths: [], detail: expect.stringContaining('not a repository path, dropped from the widen: @types/express, registry.npmjs.org, /, /health') as unknown, widen: [], dropped: ['@types/express', 'registry.npmjs.org', '/', '/health'] }])
     const waits = eventsOf(made.db, OWNER_WAIT_OPENED) as { id: string, need: string }[]
     expect(waits.map(wait => wait.need)).toEqual(['decision'])
     expect(answerTasksOf(made, 1484)).toBe(0)
@@ -714,7 +714,7 @@ describe('the launch node', () => {
   it('a launch stop with a question naming no path is question.agent and closing the question admits the card again', async () => {
     const { made, node, starter } = await stoppedOnAQuestion(1534, 'which port does the service answer on?', [])
 
-    expect(eventsOf(made.db, CARD_STOPPED)).toEqual([{ reason: 'question.agent', detail: expect.stringContaining('asks: which port does the service answer on?') as unknown, widen: [] }])
+    expect(eventsOf(made.db, CARD_STOPPED)).toEqual([{ reason: 'question.agent', code: 'open-question', blocker: 'which port does the service answer on?', paths: [], detail: expect.stringContaining('asks: which port does the service answer on?') as unknown, widen: [] }])
     expect(eventsOf(made.db, BOARD_ALARM)).toEqual([])
     const waits = eventsOf(made.db, OWNER_WAIT_OPENED) as { id: string }[]
     expect(waits).toHaveLength(1)

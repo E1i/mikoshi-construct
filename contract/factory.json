@@ -137,6 +137,7 @@
           "prompt_unstored",
           "session",
           "step",
+          "stop_reason",
           "worktree"
         ]
       },
@@ -252,11 +253,13 @@
       "card.stopped": {
         "complete": true,
         "keys": [
+          "blocker",
           "code",
           "detail",
           "dropped",
           "paths",
           "reason",
+          "stop_reason",
           "touches",
           "widen"
         ]
@@ -3105,6 +3108,47 @@
           }
         },
         "text": "liveness is read from more than one signal"
+      },
+      "Z8": {
+        "cells": {
+          "answer": {
+            "witness": "Z8-answer-stop-spends-no-restart"
+          },
+          "close": {
+            "notApplicable": "the node continues no session of a card, so no stop of one decides a continuation here"
+          },
+          "intake": {
+            "notApplicable": "intake continues no card session; it is where a card stopped outside its touches goes to have them widened"
+          },
+          "launch": {
+            "witness": "Z8-launch-stop-spends-no-continuation"
+          },
+          "merge": {
+            "notApplicable": "the node continues no session of a card, so no stop of one decides a continuation here"
+          },
+          "netwatch": {
+            "notApplicable": "netwatch continues no card session; it records what GitHub shows"
+          },
+          "restart": {
+            "notApplicable": "the node continues no session of a card, so no stop of one decides a continuation here"
+          },
+          "review": {
+            "notApplicable": "the node continues no session of a card, so no stop of one decides a continuation here"
+          },
+          "supervisor": {
+            "notApplicable": "StalledSessions continues no card session; it ends or requeues a stalled one and reads no stop reason"
+          },
+          "update": {
+            "notApplicable": "the node continues no session of a card, so no stop of one decides a continuation here"
+          },
+          "window": {
+            "notApplicable": "miko:watch continues no card session; the launch and answer nodes decide a continuation from the stop they record"
+          },
+          "witness": {
+            "notApplicable": "the node continues no session of a card, so no stop of one decides a continuation here"
+          }
+        },
+        "text": "the reason a session stops is recorded in the bus and decides whether its card is continued or goes to intake: a stop on paths outside the touches or on an open question spends no continuation, and the card is not launched again while its touches miss those paths or the question stays open"
       }
     },
     "lawsVersion": 2
