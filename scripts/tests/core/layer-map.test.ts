@@ -1,9 +1,11 @@
 import { spawnSync } from 'node:child_process'
 import path from 'node:path'
+import { DatabaseSync } from 'node:sqlite'
 import { describe, expect, it } from 'vitest'
 import { cardRunsOf } from '../../ci/card-runs.js'
 import { BUS_CORE, BUS_SERVICE, fullRunReason, selectRun } from '../../ci/layers.js'
 import { cruise, readTest } from '../../ci/select.js'
+import { overlapWithMain, writeCatalog } from '../../cli/check-catalog.js'
 import * as layerMap from '../../core/layer-map.js'
 import { isCheckPipeline, layersIn, readLayerMap, recordsOf } from '../../core/layer-map.js'
 
@@ -80,6 +82,25 @@ describe('the layer map gives every source file one layer', () => {
   it('a file entry wins over the folder that holds it', () => {
     expect(layersIn({ files: { 'scripts/core/queue.ts': 'core' }, folders: { 'scripts/bus/': 'bus' } }, 'scripts/core/queue.ts')).toEqual(['core'])
     expect(layersIn({ files: {}, folders: { 'scripts/release/': 'release', 'scripts/release-notes/': 'release-notes' } }, 'scripts/release-notes/render.ts')).toEqual(['release-notes'])
+  })
+
+  it('a fixture under the tests folder takes the layers of the tests beside it', () => {
+    const fixture = 'scripts/tests/core/owner-commands-pending.json'
+    const db = new DatabaseSync(':memory:')
+    writeCatalog(db, { tests: [
+      { test: 'scripts/tests/core/owner-commands.test.ts', layer: 'core', kind: 'unit', what: '', witness: '' },
+      { test: 'scripts/tests/bus/queue.test.ts', layer: 'bus', kind: 'unit', what: '', witness: '' },
+    ], mutations: [] })
+    const overlap = overlapWithMain(db, [], [fixture], () => null, { map })
+    expect(overlap ?? '').not.toContain('belongs to no layer')
+    expect(overlapWithMain(db, ['scripts/tests/core/owner-commands.test.ts'], [fixture], () => null, { map })).toBe('main changed the layer core since the base')
+    expect(overlapWithMain(db, ['scripts/tests/bus/queue.test.ts'], [fixture], () => null, { map })).toBeNull()
+    expect(layerMap.isTestFixture(fixture)).toBe(true)
+    expect(layerMap.isTestFixture('scripts/tests/core/owner-commands.test.ts')).toBe(false)
+    const testLayers = new Map([['scripts/tests/core/owner-commands.test.ts', ['core']], ['scripts/tests/bus/queue.test.ts', ['bus']]])
+    expect(layerMap.layersOfTestFixture('scripts/tests/core/fixtures/pending.json', testLayers)).toEqual(['core'])
+    expect(layerMap.layersOfTestFixture('scripts/tests/ghosts/pending.json', testLayers)).toEqual([])
+    db.close()
   })
 
   it('names the bus core and each bus service the way the dependency rules see them', () => {
