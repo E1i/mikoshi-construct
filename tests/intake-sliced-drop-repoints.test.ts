@@ -153,7 +153,7 @@ describe('a sliced drop and the cards that depend on the dropped card', () => {
     }
   })
 
-  it('a sliced drop is refused while a dependent holds an amend the reducer has not folded, and re-points it from the amended body once folded', () => {
+  it('a sliced drop re-points a dependent from its latest card.admitted while the reducer has not folded that amend yet', () => {
     const w = world()
     try {
       admit(w, PARENT)
@@ -163,12 +163,7 @@ describe('a sliced drop and the cards that depend on the dropped card', () => {
       const amended = runAmend({ card: `#${DEPENDENT}`, flags: { note: 'The amended line.' }, dir: w.repo, dryRun: false, autoConfirm: true, parkingRoot: w.parking, events: w.ports.cardEvents, cardStates: w.ports.cardStates, admissions: w.ports.cardAdmissions }, () => AT)
       expect(amended.status).toBe('admitted')
       slicedStub(w)
-      const before = eventCount(w)
-      const lagging = drop(w)
-      expect(lagging.status).toBe('refused')
-      expect(printed(lagging)).toEqual({ lines: [expect.stringContaining(`#${DEPENDENT}: the card_bodies projection holds an older body`)], exit: 1 })
-      expect(eventCount(w)).toEqual(before)
-      reduce(w.db)
+      expect(w.db.prepare('SELECT text FROM card_bodies WHERE card_id = ?').get(DEPENDENT)).not.toEqual({ text: expect.stringContaining('The amended line.') })
       expect(drop(w)).toMatchObject({ status: 'recordedInPlace', repointed: [{ card: DEPENDENT, children: [TAKER] }] })
       expect(reduce(w.db).rejected).toBe(0)
       const text = w.ports.cardAdmissions!(DEPENDENT)!.text!

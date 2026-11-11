@@ -18,7 +18,7 @@ import { createMain } from '../../src/program.js'
 import { createUi } from '../../src/ui/console.js'
 import { resolveTheme } from '../../src/ui/theme.js'
 import { BUS_DB_VARIABLE, ForeignBusRefused } from '../core/bus-path.js'
-import { appendCardEvent, cardBodyText, laid } from '../core/card-bodies.js'
+import { admittedBodyText, appendCardEvent, laid } from '../core/card-bodies.js'
 import { appendEvent, BUSY_TIMEOUT_MS, defaultBusPath, inTransaction, openBus } from '../core/db.js'
 import { CARD_ADMITTED, CARD_MOVED, CARD_PLANNED, CARD_UNPLANNED, LADDER_RUN, NUMBERS_FOREIGN, PLAN_CLOSED, PLAN_OPENED } from '../core/events.js'
 import { OWNER } from '../core/inbox.js'
@@ -58,8 +58,6 @@ const HELD_WITHOUT_STATE = 'held'
 
 const FOREIGN_NUMBERS = `SELECT DISTINCT listed.value AS id FROM events, json_each(events.payload, '$.ids') AS listed WHERE events.legacy = 0 AND events.type = '${NUMBERS_FOREIGN}'`
 
-const LATEST_ADMITTED_TEXT = `SELECT json_extract(payload, '$.text') AS text, json_extract(payload, '$.textSha') AS sha FROM events WHERE legacy = 0 AND type = '${CARD_ADMITTED}' AND card_id = ? AND json_type(payload, '$.text') = 'text' ORDER BY id DESC`
-
 export interface IntakeAdmission extends RecordedIntake {
   task: string
   corrections: unknown
@@ -96,21 +94,12 @@ export function busIntakeAdmissions(busPath: string): IntakeAdmission[] {
   }
 }
 
-function unfoldedText(db: DatabaseSync, cardId: number): string | null {
-  const rows = db.prepare(LATEST_ADMITTED_TEXT).all(cardId) as { text: string, sha: unknown }[]
-  return rows.find(row => row.sha === textSha(row.text))?.text ?? null
-}
-
-function admittedText(db: DatabaseSync, cardId: number): string | null {
-  return cardBodyText(db, cardId) ?? unfoldedText(db, cardId)
-}
-
 export function busCardAdmissions(db: DatabaseSync): CardAdmissionsPort {
   return (cardId) => {
     const admission = intakeAdmissions(db).filter(entry => entry.task === String(cardId)).at(-1)
     if (admission === undefined)
       return null
-    const text = admittedText(db, cardId)
+    const text = admittedBodyText(db, cardId)
     return text === null ? admission : { ...admission, text }
   }
 }
@@ -124,7 +113,7 @@ function admissionOfMove(db: DatabaseSync, move: CardEvent): CardEvent | null {
   const { lane, to } = move.payload
   if (typeof lane !== 'string' || !isLaneName(lane) || typeof to !== 'string')
     return null
-  const text = admittedText(db, move.cardId) ?? parkedText(to, move.cardId)
+  const text = admittedBodyText(db, move.cardId) ?? parkedText(to, move.cardId)
   if (text === null)
     return null
   const parsed = parseParkingFile(`${move.cardId}.md`, text)

@@ -38,7 +38,7 @@ const roots: string[] = []
 const CARDS_MERGED_ON_MAIN: readonly number[] = [1672, 1754, 1764, 1767, 1777, 1792]
 const CARDS_Q284_RETIRED: readonly number[] = [1777, 1792]
 const CELLS_AWAITING_THEIR_CARD = [
-  ...['close', 'launch', 'merge', 'restart', 'review', 'update', 'witness'].map(site => `Z3 × ${site} → #1672`),
+  ...['close', 'merge', 'restart', 'review', 'update', 'witness'].map(site => `Z3 × ${site} → #1672`),
   ...['answer', 'close', 'merge', 'restart', 'review', 'update', 'witness', 'window', 'intake'].map(site => `Z4 × ${site} → #1754`),
   ...['answer', 'close', 'launch', 'merge', 'restart', 'review', 'update', 'witness'].map(site => `Z5 × ${site} → #1767`),
   ...['answer', 'close', 'launch', 'merge', 'restart', 'review', 'update', 'witness'].map(site => `Z6 × ${site} → #1764`),
@@ -268,13 +268,13 @@ describe('law sites beyond the bus nodes', () => {
     expect(witnessCells.map(({ law, site }) => `${law} × ${site}`)).toEqual(['Z2 × netwatch', 'Z7 × window', 'Z7 × supervisor'])
     expect(unreached).toEqual([])
     expect(await reachesSite('netwatch', () => WITNESSES[PULSE_BESIDE_CARD_SILENCE]!.run('netwatch'))).toBe(false)
-    expect(lawIds().flatMap(law => LAW_SITES.filter(site => 'witness' in LAW_CELLS[law][site]).map(site => `${law} × ${site}`))).toEqual(['Z1 × review', 'Z2 × netwatch', 'Z7 × window', 'Z7 × supervisor'])
+    expect(lawIds().flatMap(law => LAW_SITES.filter(site => 'witness' in LAW_CELLS[law][site]).map(site => `${law} × ${site}`))).toEqual(['Z1 × review', 'Z2 × netwatch', 'Z3 × launch', 'Z7 × window', 'Z7 × supervisor'])
   })
 
   it('a gap names only a card that is still open', () => {
     expect(closedGapFaults(LAW_CELLS, CARDS_Q284_RETIRED)).toEqual([])
     expect(closedGapFaults(LAW_CELLS, CARDS_MERGED_ON_MAIN)).toEqual(CELLS_AWAITING_THEIR_CARD)
-    expect(CELLS_AWAITING_THEIR_CARD).toHaveLength(32)
+    expect(CELLS_AWAITING_THEIR_CARD).toHaveLength(31)
     expect(closedGapFaults({ ...LAW_CELLS, Z1: { ...LAW_CELLS.Z1, close: { gap: [1777] } } }, CARDS_MERGED_ON_MAIN)).toContain('Z1 × close → #1777')
     expect(closedGapFaults({ ...LAW_CELLS, Z3: { ...LAW_CELLS.Z3, intake: { gap: [1792] } } }, CARDS_MERGED_ON_MAIN)).toContain('Z3 × intake → #1792')
   })

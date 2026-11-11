@@ -11,7 +11,7 @@ import type { InMemoryProcesses, ProcessRow } from '../../ports/process-table.js
 import type { BgResult, DetachedLaunch, RunningProcess } from '../../supervisor/bg.js'
 import type { BusWorker } from '../../supervisor/workers.js'
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -23,6 +23,7 @@ import { ABANDONED_TITLE } from '../../ci/required.js'
 import { printBoard } from '../../cli/board-page.js'
 import { NODE_DECLARATIONS } from '../../contract/factory/nodes.js'
 import { LAW_GAP_PREFIX, lawGapNumbers, ratchetBreaks, readRatchet } from '../../contract/ratchet.js'
+import { cardBodyText } from '../../core/card-bodies.js'
 import { appendEvent, openBus } from '../../core/db.js'
 import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, CARD_WAITING, CI_RERUN_REQUESTED, OWNER_WAIT_OPENED, PR_OPENED, SCOPE_WIDENED, SESSION_HEARTBEAT, WINDOW_HEARTBEAT } from '../../core/events.js'
 import { completeTask, leaseNext, recordWorkerStarted } from '../../core/lease.js'
@@ -31,8 +32,9 @@ import { Node } from '../../core/node.js'
 import { answerCandidates, keyOf, queueTask, queueTaskWithin, updateCandidates } from '../../core/queue.js'
 import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
 import { claudeAnswerer } from '../../nodes/answer/answerer.js'
+import { handoffBuilder } from '../../nodes/launch/launch-root.js'
 import { LaunchNode } from '../../nodes/launch/launch-worker.js'
-import { CARD_WAIT_STATES, DIRECT_IMPORTER_WIDENED, gapRows, INFRASTRUCTURE_RETRIED, LAW_CELLS, LAW_NODES, LAW_SITES, lawIds, LAWS, NO_HEAD_OF_LINE, NODE_WITNESSES_CALL_THEIR_NODE, RESTART_KEEPS_SESSION, REVIEW_KEEPS_SESSION_AND_LEAVES_NO_DESCENDANT, SESSION_BEAT_BESIDE_STALE_WINDOW, SLICED_DROP_REPOINTS_DEPENDS, sourceOf } from '../../nodes/laws.js'
+import { CARD_WAIT_STATES, DIRECT_IMPORTER_WIDENED, gapRows, INFRASTRUCTURE_RETRIED, LAUNCH_BODY_FROM_LATEST_ADMISSION, LAW_CELLS, LAW_NODES, LAW_SITES, lawIds, LAWS, NO_HEAD_OF_LINE, NODE_WITNESSES_CALL_THEIR_NODE, RESTART_KEEPS_SESSION, REVIEW_KEEPS_SESSION_AND_LEAVES_NO_DESCENDANT, SESSION_BEAT_BESIDE_STALE_WINDOW, SLICED_DROP_REPOINTS_DEPENDS, sourceOf } from '../../nodes/laws.js'
 import { fullReview } from '../../nodes/review/review-depth.js'
 import { dryRun } from '../../nodes/review/review-worker.js'
 import { claudeReviewer, ReviewTrees } from '../../nodes/review/reviewer.js'
@@ -490,11 +492,51 @@ async function reviewKeepsSessionAndLeavesNoDescendant(node: LawNode): Promise<v
   await finishedReviewLeavesNoDescendant()
 }
 
+const AMENDED_CARD = 1781
+const ADMITTED_PROSE = 'The text admitted at 14:59.'
+const AMENDED_PROSE = 'The widening amended at 15:35.'
+
+function amendedCardBody(prose: string): string {
+  return `card: #${AMENDED_CARD} a-card [implement/construct/S/cheap/auto] · depends — · blocks —\nbranch: feat/card-${AMENDED_CARD}\ntouches: scripts/a.ts\ncontinue: stop\nwho: shift\n\n${prose}\n`
+}
+
+function admitBody(made: ReturnType<typeof mergeBench>, key: string, text: string): void {
+  appendEvent(made.db, { ts: made.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'worker:intake:by-hand', cardId: AMENDED_CARD, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${key}`, payload: { card: `#${AMENDED_CARD}`, lane: 'lane-1', decision: 'auto', contour: 'cheap', depends: [], admission: key, text, textSha: textSha(text) }, legacy: false })
+}
+
+async function launchBodyFromLatestAdmission(node: LawNode): Promise<void> {
+  if (node !== 'launch')
+    throw new Error(`no read of the card body from the latest admission is wired on ${node}`)
+  const made = mergeBench()
+  try {
+    admitBody(made, 'admission-1', amendedCardBody(ADMITTED_PROSE))
+    made.tick()
+    const starter = new RelaunchingStarter()
+    const launchDir = scratchDir('z3-launch-dir-')
+    const handoff = path.join(launchDir, `report-${AMENDED_CARD}.md`)
+    const build = handoffBuilder(launchDir)
+    const launch = new LaunchNode({ db: made.db, starter, continuer: starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes: { commandLine: () => null, signalGroup: () => {} }, pidAlive: () => false, collected: () => null, atContextLine: () => true, handedOff: () => existsSync(handoff), buildHandoff: build, machine: new MachineSessions(scratchDir('z3-launch-machine-'), () => false, 16), lanes: () => 4, disk: () => ({ bavail: 1, bsize: 1024 ** 4 }), isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }) })
+    const controller = new AbortController()
+    await launch.run({ pause: async () => controller.abort(), signal: controller.signal })
+    made.tick()
+    admitBody(made, 'admission-2', amendedCardBody(AMENDED_PROSE))
+    if (cardBodyText(made.db, AMENDED_CARD)?.includes(AMENDED_PROSE) === true)
+      throw new Error('the fold already holds the amend, so the witness proves nothing about a fold behind it')
+    launch.stopOverdue()
+    if (!existsSync(handoff) || !readFileSync(handoff, 'utf8').includes(AMENDED_PROSE))
+      throw new Error('a launch after an amend continued from the folded body, not the latest admission')
+  }
+  finally {
+    made.close()
+  }
+}
+
 const WITNESSES: Witnesses = {
   [RESTART_KEEPS_SESSION]: { law: 'Z1', run: restartKeepsSession },
   [REVIEW_KEEPS_SESSION_AND_LEAVES_NO_DESCENDANT]: { law: 'Z1', run: reviewKeepsSessionAndLeavesNoDescendant },
   [INFRASTRUCTURE_RETRIED]: { law: 'Z2', run: infrastructureFailureIsRetried },
   [DIRECT_IMPORTER_WIDENED]: { law: 'Z3', run: directImporterWidened },
+  [LAUNCH_BODY_FROM_LATEST_ADMISSION]: { law: 'Z3', run: launchBodyFromLatestAdmission },
   [SESSION_BEAT_BESIDE_STALE_WINDOW]: { law: 'Z7', run: sessionBeatBesideStaleWindow },
 }
 

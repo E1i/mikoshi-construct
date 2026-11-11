@@ -308,20 +308,14 @@ describe('intake --move', () => {
     return file
   }
 
-  it('a move never reverts the amended body: refused while the projection lags, and the moved card keeps the amended body after the fold', () => {
+  it('a move never reverts the amended body: while the projection lags it re-admits the latest card.admitted, and the moved card keeps the amended body after the fold', () => {
     const w = world()
     const db = openBus(path.join(path.dirname(w.parking), 'bus.db'))
     try {
       const ports = busIntakePorts(db, 'by-hand', () => 1)
-      const file = admittedAndAmended(w, db, ports)
-      const eventsBefore = db.prepare('SELECT count(*) AS n FROM events').get()
+      admittedAndAmended(w, db, ports)
+      expect(cardBodyText(db, 1462)).not.toContain('The amended line.')
       const request = { move: '#1462', to: 'lane-3', draft: undefined, taken: undefined, admit: undefined, parking: w.parking, events: ports.cardEvents, admissions: ports.cardAdmissions }
-      const lagging = runMove(request, () => AFTER_THE_CUTOFF)
-      expect(lagging.status).toBe('refused')
-      expect(printed(lagging)).toEqual({ lines: [expect.stringContaining('older body than the latest card.admitted')], exit: 1 })
-      expect(db.prepare('SELECT count(*) AS n FROM events').get()).toEqual(eventsBefore)
-      expect(existsSync(file)).toBe(true)
-      reduce(db)
       expect(runMove(request, () => AFTER_THE_CUTOFF).status).toBe('moved')
       expect(reduce(db).rejected).toBe(0)
       expect(cardBodyText(db, 1462)).toContain('The amended line.')

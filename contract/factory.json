@@ -2830,9 +2830,7 @@
             ]
           },
           "launch": {
-            "gap": [
-              1672
-            ]
+            "witness": "Z3-launch-body-from-latest-admission"
           },
           "merge": {
             "gap": [
@@ -3315,7 +3313,7 @@
       "scripts/core/watermark.ts": 2,
       "scripts/intake/admissions.ts": 3,
       "scripts/intake/card-contract.ts": 1,
-      "scripts/intake/intake.ts": 8,
+      "scripts/intake/intake.ts": 7,
       "scripts/intake/parking-reads.ts": 1,
       "scripts/intake/runs-layers-backfill.ts": 3,
       "scripts/intake/witness-fields-backfill.ts": 2,
@@ -3334,7 +3332,7 @@
       "scripts/nodes/launch/launch-executor.ts": 1,
       "scripts/nodes/launch/launch-root.ts": 1,
       "scripts/nodes/launch/launch-withdraw.ts": 1,
-      "scripts/nodes/launch/launch-worker.ts": 15,
+      "scripts/nodes/launch/launch-worker.ts": 14,
       "scripts/nodes/launch/tree-pr-cli.ts": 3,
       "scripts/nodes/merge/merge-executor.ts": 1,
       "scripts/nodes/merge/merge-worker.ts": 1,
