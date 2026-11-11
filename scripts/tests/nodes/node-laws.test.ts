@@ -32,16 +32,15 @@ import { completeTask, leaseNext, recordWorkerStarted } from '../../core/lease.j
 import { MachineSessions } from '../../core/machine-sessions.js'
 import { Node } from '../../core/node.js'
 import { answerCandidates, keyOf, queueTask, queueTaskWithin, updateCandidates } from '../../core/queue.js'
-import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
 import { AnswerNode } from '../../nodes/answer/answer-worker.js'
 import { claudeAnswerer } from '../../nodes/answer/answerer.js'
 import { handoffBuilder, handoffWrittenSince, reportSince } from '../../nodes/launch/launch-root.js'
 import { LaunchNode } from '../../nodes/launch/launch-worker.js'
-import { ANSWER_STOP_SPENDS_NO_RESTART, CARD_WAIT_STATES, DIRECT_IMPORTER_WIDENED, gapRows, INFRASTRUCTURE_RETRIED, LAUNCH_BODY_FROM_LATEST_ADMISSION, LAUNCH_STOP_SPENDS_NO_CONTINUATION, LAW_CELLS, LAW_NODES, LAW_SITES, lawIds, LAWS, NO_HEAD_OF_LINE, NODE_WITNESSES_CALL_THEIR_NODE, RESTART_KEEPS_SESSION, REVIEW_KEEPS_SESSION_AND_LEAVES_NO_DESCENDANT, SESSION_BEAT_BESIDE_STALE_WINDOW, SLICED_DROP_REPOINTS_DEPENDS, sourceOf } from '../../nodes/laws.js'
+import { ANSWER_STOP_SPENDS_NO_RESTART, CARD_WAIT_STATES, DIRECT_IMPORTER_WIDENED, gapRows, INFRASTRUCTURE_RETRIED, LAUNCH_BODY_FROM_LATEST_ADMISSION, LAUNCH_STOP_SPENDS_NO_CONTINUATION, LAW_CELLS, LAW_NODES, LAW_SITES, lawIds, LAWS, NO_HEAD_OF_LINE, NODE_WITNESSES_CALL_THEIR_NODE, RESTART_KEEPS_SESSION, REVIEW_KEEPS_SESSION_AND_LEAVES_NO_DESCENDANT, SESSION_BEAT_BESIDE_STALE_WINDOW, sourceOf } from '../../nodes/laws.js'
 import { fullReview } from '../../nodes/review/review-depth.js'
 import { dryRun } from '../../nodes/review/review-worker.js'
 import { claudeReviewer, ReviewTrees } from '../../nodes/review/reviewer.js'
-import { UpdateExecutor } from '../../nodes/update/update-executor.js'
+import { UpdateNode } from '../../nodes/update/update-worker.js'
 import { NetWatch, TICK_MS } from '../../ports/netwatch.js'
 import { InMemoryProcessTable } from '../../ports/process-table.js'
 import { launchName } from '../../supervisor/bg.js'
@@ -253,6 +252,19 @@ class RelaunchingStarter implements CardStarter, SessionContinuer {
   }
 }
 
+type AnswerNodeRun = AnswerNodeParts & Pick<AnswerParts, 'dirty' | 'liveSession' | 'prepare'>
+
+async function runAnswerNode(parts: AnswerNodeRun): Promise<void> {
+  const controller = new AbortController()
+  await new AnswerNode(parts).run({ pause: async () => controller.abort(), signal: controller.signal })
+}
+
+class UpdateNodeUnderWitness extends UpdateNode {
+  handleUnderWitness(lease: Lease): void {
+    this.handle(lease)
+  }
+}
+
 async function usageLimitWaitsForItsReset(): Promise<void> {
   const made = mergeBench()
   try {
@@ -260,7 +272,8 @@ async function usageLimitWaitsForItsReset(): Promise<void> {
     made.tick()
     const starter = new RelaunchingStarter()
     const reset = new Date(made.clock.now().getTime() + 3_600_000).toISOString()
-    const node = new LaunchNode({ db: made.db, starter, continuer: starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes: { commandLine: () => null, signalGroup: () => {} }, resulted: () => false, handedOff: () => false, collected: () => 'report-missing: no report was written', usageLimitedUntil: () => reset, machine: new MachineSessions(scratchDir('z2-machine-'), () => false, 16), lanes: () => 4, disk: () => ({ bavail: 1, bsize: 1024 ** 4 }), isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }) })
+    const launchDir = scratchDir('z2-launch-dir-')
+    const node = new LaunchNode({ db: made.db, starter, continuer: starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes: { commandLine: () => null, signalGroup: () => {} }, resulted: () => false, handedOff: handoffWrittenSince(launchDir), reportOf: reportSince(launchDir), collected: () => 'report-missing: no report was written', usageLimitedUntil: () => reset, machine: new MachineSessions(scratchDir('z2-machine-'), () => false, 16), lanes: () => 4, disk: () => ({ bavail: 1, bsize: 1024 ** 4 }), isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }) })
     const controller = new AbortController()
     await node.run({ pause: async () => controller.abort(), signal: controller.signal })
     made.tick()
@@ -295,8 +308,7 @@ async function loadTimeoutIsPushed(): Promise<void> {
       pushed += 1
       appendEvent(made.db, { ts: made.clock.now().toISOString(), type: PR_OPENED, actor: 'worker:shift:1', cardId: 1775, pr: 9775, head: null, dedupeKey: `${PR_OPENED}:1775:9775`, payload: { pr: 9775 }, legacy: false })
     }
-    const executor = new AnswerExecutor({ db: made.db, answerer: async () => ({ session: 'answer-1', resumed: true, before: sha('a'), after: sha('a'), owner }), ownerMerges: () => '', clock: made.clock.now, trees: { home: trees, exists: () => true, branchOf: pr => `feat/card-${pr}`, recreate: () => {}, bringTo: () => {} }, dirty: () => false, liveSession: () => null, publishing: { committed: () => true, publish } })
-    await executor.answer(leaseNext(made.db, made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1') as Lease)
+    await runAnswerNode({ db: made.db, answerer: async () => ({ session: 'answer-1', resumed: true, before: sha('a'), after: sha('a'), owner }), ownerMerges: () => '', cardText: () => text, clock: made.clock.now, session: 'answer-node-1', mode: 'live', env: { [slotsVariable('answer')]: '1' }, trees: { home: trees, exists: () => true, branchOf: pr => `feat/card-${pr}`, recreate: () => {}, bringTo: () => {} }, dirty: () => false, liveSession: () => null, publishing: { committed: () => true, publish } })
     if (pushed !== 1 || eventsOf(made.db, OWNER_WAIT_OPENED).length > 0 || eventsOf(made.db, CARD_STOPPED).length !== 1)
       throw new Error('a timeout under load outside the touches was asked of the owner instead of pushed')
   }
@@ -334,7 +346,7 @@ function abandonedRunIsRerun(): void {
     const lease = leaseNext(db, ts, 'update', 'worker:update:worker-1')
     if (lease === null)
       throw new Error('a required red only from abandoned jobs queued no rerun')
-    new UpdateExecutor({ db, gitHub: client, put: gitHub.put, post: gitHub.post, publish: gitHub.publish, clock: clock.now, settle: () => {} }).update(lease)
+    new UpdateNodeUnderWitness({ db, gitHub: client, put: gitHub.put, post: gitHub.post, publish: gitHub.publish, clock: clock.now, settle: () => {}, session: 'update-node-1', mode: 'live', env: {} }).handleUnderWitness(lease)
     if (gitHub.reruns.join() !== '4343' || db.prepare('SELECT 1 FROM events WHERE type = ?').get(CI_RERUN_REQUESTED) === undefined)
       throw new Error('the abandoned run was not re-run')
   }
@@ -403,8 +415,7 @@ async function directImporterWidened(node: LawNode): Promise<void> {
       publish: () => {},
       pending: () => [IMPORTED, IMPORTER],
     })
-    const executor = new AnswerExecutor({ db: made.db, answerer, ownerMerges: () => '', clock: made.clock.now, trees: { home, exists: existsSync, branchOf: pr => `feat/card-${pr}`, recreate: () => {}, bringTo: () => {} }, dirty: () => false, liveSession: () => null, prepare: () => {} })
-    await executor.answer(leaseNext(made.db, made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1') as Lease)
+    await runAnswerNode({ db: made.db, answerer, ownerMerges: () => '', cardText: () => text, clock: made.clock.now, session: 'answer-node-1', mode: 'live', env: { [slotsVariable('answer')]: '1' }, trees: { home, exists: existsSync, branchOf: pr => `feat/card-${pr}`, recreate: () => {}, bringTo: () => {} }, dirty: () => false, liveSession: () => null, prepare: () => {} })
     if (eventsOf(made.db, CARD_ANSWERED).length !== 1 || eventsOf(made.db, OWNER_WAIT_OPENED).length > 0 || eventsOf(made.db, SCOPE_WIDENED).length !== 1)
       throw new Error('an answer that edits a direct importer of a touched file was stopped for the owner instead of widened')
   }
@@ -593,10 +604,7 @@ async function answerStopSpendsNoRestart(node: LawNode): Promise<void> {
       sessions += 1
       return { session: `answer-${sessions}`, resumed: false, atContextWarn: true, before: sha('a'), after: sha('a'), owner: STOP_QUESTION }
     }
-    const parts: AnswerNodeParts & Pick<AnswerParts, 'dirty' | 'liveSession' | 'prepare'> = { db: made.db, answerer, ownerMerges: () => '', cardText: () => text, clock: made.clock.now, session: 'answer-node-1', mode: 'live', env: { [slotsVariable('answer')]: '1' }, trees: { home: trees, exists: () => true, branchOf: pr => `feat/card-${pr}`, recreate: () => {}, bringTo: () => {} }, dirty: () => false, liveSession: () => null, prepare: () => {} }
-    const answering = new AnswerNode(parts)
-    const controller = new AbortController()
-    await answering.run({ pause: async () => controller.abort(), signal: controller.signal })
+    await runAnswerNode({ db: made.db, answerer, ownerMerges: () => '', cardText: () => text, clock: made.clock.now, session: 'answer-node-1', mode: 'live', env: { [slotsVariable('answer')]: '1' }, trees: { home: trees, exists: () => true, branchOf: pr => `feat/card-${pr}`, recreate: () => {}, bringTo: () => {} }, dirty: () => false, liveSession: () => null, prepare: () => {} })
     if (sessions !== 1)
       throw new Error(`an answer session that stopped outside the touches was restarted: ${sessions} sessions`)
     if (eventsOf(made.db, CARD_STOPPED).at(-1)?.code !== OUTSIDE_TOUCHES)
@@ -724,14 +732,23 @@ describe('the laws of a node', () => {
     expect(LAW_CELLS[laneWaitLaw].launch).toEqual({ gap: [CARD_WAIT_STATES, NO_HEAD_OF_LINE] })
     expect([CARD_WAIT_STATES, NO_HEAD_OF_LINE]).toEqual([1740, 1744])
     expect(gapRows().filter(({ law, node }) => law === laneWaitLaw && node === 'launch')).toHaveLength(1)
-    expect(LAW_CELLS[laneWaitLaw].answer).toEqual({ gap: [1740, 1754] })
+    expect(LAW_CELLS[laneWaitLaw].answer).toEqual({ gap: [CARD_WAIT_STATES, NODE_WITNESSES_CALL_THEIR_NODE] })
   })
 
-  it(`${laneWaitLaw} x intake names the card that re-points the dependents of a sliced drop onto its slices`, () => {
-    expect(LAW_CELLS[laneWaitLaw].intake).toEqual({ gap: [1740, 1754, SLICED_DROP_REPOINTS_DEPENDS] })
-    expect(SLICED_DROP_REPOINTS_DEPENDS).toBe(1789)
-    expect(LAW_CELLS[laneWaitLaw].window).toEqual({ gap: [1740, 1754] })
+  it(`${laneWaitLaw} x intake and window name no merged card, only the wait states card and the card that writes their witness`, () => {
+    expect(LAW_CELLS[laneWaitLaw].intake).toEqual({ gap: [CARD_WAIT_STATES, NODE_WITNESSES_CALL_THEIR_NODE] })
+    expect(LAW_CELLS[laneWaitLaw].window).toEqual({ gap: [CARD_WAIT_STATES, NODE_WITNESSES_CALL_THEIR_NODE] })
     expect(gapRows().filter(({ law, node }) => law === laneWaitLaw && node === 'intake')).toHaveLength(1)
+  })
+
+  it('an infrastructure retry and a direct importer widening are witnessed through the node module itself', async () => {
+    for (const node of ['answer', 'launch', 'update'] as const) {
+      expect(LAW_CELLS.Z2[node]).toEqual({ witness: INFRASTRUCTURE_RETRIED })
+      expect(await lawOutcome('Z2', node, WITNESSES), node).toBeNull()
+    }
+    expect(LAW_CELLS.Z3.answer).toEqual({ witness: DIRECT_IMPORTER_WIDENED })
+    expect(await lawOutcome('Z3', 'answer', WITNESSES)).toBeNull()
+    expect(Object.keys(recordedLawGaps()).filter(key => ['Z2:answer', 'Z2:launch', 'Z2:update', 'Z3:answer'].some(cell => key === `${LAW_GAP_PREFIX}${cell}`))).toEqual([])
   })
 
   const sessionLaw: LawId = 'Z1'

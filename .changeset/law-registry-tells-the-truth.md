@@ -1,0 +1,5 @@
+---
+'mikoshi-construct': patch
+---
+
+The law registry no longer has a cell that names a merged card. Four cells now have a witness that calls the code of its own node, measured by V8 coverage: Z2 × answer, Z2 × launch, Z2 × update and Z3 × answer. The answer witnesses run through `AnswerNode` and the update witness through `UpdateNode`, not their executors. The launch witness reads the handoff and the report through `launch-root.ts`. Their gap rows leave `contract/ratchet.json`. No merged card's witness (#1672, #1754, #1764, #1767, #1789) calls its node, so every cell that named one of those cards is now a gap of #1814, law-registry-tells-the-truth. The Z4 cells keep #1740 beside it. The frozen list of 31 cells that were allowed to name a merged card is gone. A single list of the closed cards judged today now decides whether a gap is legal, and the law-sites suite checks that no cell names a card on it. The laws section of the factory contract moves to version 3.
