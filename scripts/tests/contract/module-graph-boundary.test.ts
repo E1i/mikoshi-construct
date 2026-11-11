@@ -62,19 +62,23 @@ describe('module graph imports', () => {
         'type F = typeof import(\'./f.js\')',
         'import { type G } from \'./g.js\'',
         'import pkg from \'node:path\'',
+        'import h = require(\'./h.js\')',
+        'import { root } from \'@root\'',
       ].join('\n'),
-      ...Object.fromEntries(['b', 'c', 'd', 'f', 'g'].map(name => [`scripts/${name}.ts`, 'export {}\n'])),
+      ...Object.fromEntries(['b', 'c', 'd', 'f', 'g', 'h', 'root'].map(name => [`scripts/${name}.ts`, 'export {}\n'])),
       'scripts/lib/e.ts': 'export {}\n',
     })
-    const files = ['scripts/a.ts', 'scripts/b.ts', 'scripts/c.ts', 'scripts/d.ts', 'scripts/f.ts', 'scripts/g.ts', 'scripts/lib/e.ts']
+    const files = ['scripts/a.ts', 'scripts/b.ts', 'scripts/c.ts', 'scripts/d.ts', 'scripts/f.ts', 'scripts/g.ts', 'scripts/h.ts', 'scripts/lib/e.ts', 'scripts/root.ts']
 
-    expect(buildImportGraph(root, files, ['scripts/a.ts'], { '@lib/*': ['scripts/lib/*'] })).toEqual([
+    expect(buildImportGraph(root, files, ['scripts/a.ts'], { '@lib/*': ['scripts/lib/*'], '@root': ['scripts/root.ts'] })).toEqual([
       { from: 'scripts/a.ts', to: 'scripts/b.ts', kinds: ['type'] },
       { from: 'scripts/a.ts', to: 'scripts/c.ts', kinds: ['re-export'] },
       { from: 'scripts/a.ts', to: 'scripts/d.ts', kinds: ['dynamic'] },
       { from: 'scripts/a.ts', to: 'scripts/f.ts', kinds: ['type'] },
       { from: 'scripts/a.ts', to: 'scripts/g.ts', kinds: ['type'] },
+      { from: 'scripts/a.ts', to: 'scripts/h.ts', kinds: ['import'] },
       { from: 'scripts/a.ts', to: 'scripts/lib/e.ts', kinds: ['import'] },
+      { from: 'scripts/a.ts', to: 'scripts/root.ts', kinds: ['import'] },
     ])
   })
 })
@@ -104,6 +108,16 @@ describe('module graph boundary (law 3)', () => {
   it('an import out of an undecided module is red', () => {
     expect(linesFor({ ...LAWFUL, 'scripts/gamma/use.ts': 'import \'../alpha/index.js\'\n' }))
       .toEqual(['scripts/gamma/use.ts -> scripts/alpha/index.ts: from-undecided, not-in-may-use'])
+  })
+
+  it('an import from a module into an exclusion is red', () => {
+    expect(linesFor({ ...LAWFUL, 'scripts/tests/helper.ts': 'export {}\n', 'scripts/alpha/use.ts': 'import \'../tests/helper.js\'\n' }))
+      .toEqual(['scripts/alpha/use.ts -> scripts/tests/helper.ts: into-exclusion'])
+  })
+
+  it('an import from a module into a file no module holds is red', () => {
+    expect(linesFor({ ...LAWFUL, 'scripts/stray.ts': 'export {}\n', 'scripts/alpha/use.ts': 'import \'../stray.js\'\n' }))
+      .toEqual(['scripts/alpha/use.ts -> scripts/stray.ts: into-unowned'])
   })
 
   it('an import from a module into a composition root is red', () => {
