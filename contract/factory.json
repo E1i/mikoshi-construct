@@ -2738,9 +2738,7 @@
             "notApplicable": "the node starts no session, so no child process of its own outlives it"
           },
           "review": {
-            "gap": [
-              1814
-            ]
+            "witness": "Z1-review-keeps-session-and-leaves-no-descendant"
           },
           "supervisor": {
             "notApplicable": "StalledSessions starts no process; a session it ends it ends by name, which Z7 judges, not a child left behind"

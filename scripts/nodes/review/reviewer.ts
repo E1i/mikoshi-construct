@@ -1,6 +1,7 @@
 import type { Lease } from '../../core/lease.js'
 import type { MachineGate } from '../../core/machine-sessions.js'
 import type { SessionReading } from '../../ports/client/contract.js'
+import type { ProcessRow, ProcessTable } from '../../ports/process-table.js'
 import type { SessionInput } from '../../ports/prompt-store.js'
 import type { SpawnSessionParams } from '../../ports/session.js'
 import type { TreeOrigin } from '../../ports/worktree.js'
@@ -11,11 +12,13 @@ import { randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, realpathSync, statSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
+import { setTimeout as sleep } from 'node:timers/promises'
 import { defaultBusPath, openBus } from '../../core/db.js'
 import { RENEW_MS, renewLease, StaleLease } from '../../core/lease.js'
 import { busNameOf, machineGate, machineSessions } from '../../core/machine-sessions.js'
 import { processGit } from '../../ports/git.js'
 import { prepareTree } from '../../ports/prepare-tree.js'
+import { OsProcessTable } from '../../ports/process-table.js'
 import { reviewModelOf, spawnSession, streamReading, withoutCard } from '../../ports/session.js'
 import { FREE_TREE_CAPACITY, FREE_TREES, gitIn, parkTree, takeFreeTree } from '../../ports/worktree.js'
 import { isAlive, joinReviewTree, leaveReviewTree, WORKER_LIMIT_VARIABLE } from '../../quality/lock.js'
@@ -388,11 +391,125 @@ export type PrBodyOf = (pr: number) => string | null
 
 const NO_PR_BODY: PrBodyOf = () => null
 
+export interface SessionDescendants {
+  table: ProcessTable
+  end: (pid: number, signal: NodeJS.Signals) => void
+  pause: (ms: number) => Promise<unknown>
+  every: (tick: () => void, ms: number) => () => void
+  sampleMs: number
+  graceMs: number
+}
+
 export interface ReviewStart {
   gate: MachineGate
   keep: (lease: Lease) => boolean
   joinWorkers: (tree: string) => number
   leaveWorkers: (tree: string) => void
+  descendants?: SessionDescendants
+}
+
+export const DESCENDANT_SAMPLE_MS = 1_000
+
+export const DESCENDANT_GRACE_MS = 10_000
+
+function everyInterval(tick: () => void, ms: number): () => void {
+  const ticker = setInterval(tick, ms)
+  return () => clearInterval(ticker)
+}
+
+function endProcess(pid: number, signal: NodeJS.Signals): void {
+  try {
+    process.kill(pid, signal)
+  }
+  catch {}
+}
+
+export function osDescendants(table: ProcessTable = new OsProcessTable()): SessionDescendants {
+  return { table, end: endProcess, pause: ms => sleep(ms), every: everyInterval, sampleMs: DESCENDANT_SAMPLE_MS, graceMs: DESCENDANT_GRACE_MS }
+}
+
+function identityOf(row: Pick<ProcessRow, 'pid' | 'started'>): string {
+  return `${row.pid}@${row.started}`
+}
+
+export function leftDescendantsLine(session: string, pids: readonly number[]): string {
+  return `${PREFIX}review session ${session} ended with descendants still running after the wait for them; ended them before the review tree is removed: ${pids.join(', ')}`
+}
+
+export function unreadableDescendantsLine(session: string, reason: string): string {
+  return `${PREFIX}the descendants of review session ${session} could not be read before its tree is removed: ${reason}`
+}
+
+export class DescendantWatch {
+  private readonly known = new Set<string>()
+
+  constructor(private readonly session: string, private readonly parts: SessionDescendants) {}
+
+  sample(): void {
+    const snapshot = this.parts.table.snapshot()
+    if (snapshot.readable)
+      this.closure(snapshot.rows, snapshot.rows.filter(row => row.command.split(/\s+/).includes(this.session)))
+  }
+
+  async settle(): Promise<number[]> {
+    const polls = Math.max(1, Math.ceil(this.parts.graceMs / this.parts.sampleMs))
+    for (let poll = 0; poll < polls; poll++) {
+      const running = this.running()
+      if (running === null || running.length === 0)
+        return []
+      await this.parts.pause(this.parts.sampleMs)
+    }
+    const left = this.running() ?? []
+    for (const pid of left)
+      this.parts.end(pid, 'SIGTERM')
+    if (left.length > 0)
+      await this.parts.pause(this.parts.sampleMs)
+    for (const pid of this.running() ?? [])
+      this.parts.end(pid, 'SIGKILL')
+    return left
+  }
+
+  private running(): number[] | null {
+    const snapshot = this.parts.table.snapshot()
+    if (!snapshot.readable) {
+      console.error(unreadableDescendantsLine(this.session, snapshot.reason))
+      return null
+    }
+    return this.closure(snapshot.rows, snapshot.rows.filter(row => this.known.has(identityOf(row))))
+  }
+
+  private closure(rows: readonly ProcessRow[], roots: readonly ProcessRow[]): number[] {
+    const found = new Map(roots.map(row => [row.pid, row]))
+    let grew = true
+    while (grew) {
+      grew = false
+      for (const row of rows) {
+        if (!found.has(row.pid) && found.has(row.ppid)) {
+          found.set(row.pid, row)
+          grew = true
+        }
+      }
+    }
+    for (const row of found.values())
+      this.known.add(identityOf(row))
+    return [...found.keys()].sort((left, right) => left - right)
+  }
+}
+
+async function watchingDescendants<T>(run: () => Promise<T>, session: string, parts: SessionDescendants | undefined): Promise<T> {
+  if (parts === undefined)
+    return run()
+  const watch = new DescendantWatch(session, parts)
+  const stop = parts.every(() => watch.sample(), parts.sampleMs)
+  try {
+    return await run()
+  }
+  finally {
+    stop()
+    const ended = await watch.settle()
+    if (ended.length > 0)
+      console.error(leftDescendantsLine(session, ended))
+  }
 }
 
 function renewedWhileHeld(busPath: string, now: () => number = Date.now): (lease: Lease) => boolean {
@@ -420,7 +537,7 @@ function renewedWhileHeld(busPath: string, now: () => number = Date.now): (lease
 }
 
 export function realReviewStart(busPath: string = defaultBusPath()): ReviewStart {
-  return { gate: machineGate(busNameOf(busPath), 'review', { machine: machineSessions(isAlive) }), keep: renewedWhileHeld(busPath), joinWorkers: joinReviewTree, leaveWorkers: leaveReviewTree }
+  return { gate: machineGate(busNameOf(busPath), 'review', { machine: machineSessions(isAlive) }), keep: renewedWhileHeld(busPath), joinWorkers: joinReviewTree, leaveWorkers: leaveReviewTree, descendants: osDescendants() }
 }
 
 export function claudeReviewer(trees: ReviewTrees, spawn: (params: SpawnSessionParams) => Promise<number> = spawnSession, pulse: SessionPulse = () => {}, beatMs = REVIEW_BEAT_MS, prBodyOf: PrBodyOf = NO_PR_BODY, start: ReviewStart = realReviewStart()): Reviewer {
@@ -447,7 +564,7 @@ function reviewerOfTree(trees: ReviewTrees, spawn: (params: SpawnSessionParams) 
     const underTheBudget = async (): Promise<number> => {
       const workers = start.joinWorkers(tree)
       try {
-        return await spawn({ ...params, env: { ...params.env, [WORKER_LIMIT_VARIABLE]: String(workers) } })
+        return await watchingDescendants(async () => spawn({ ...params, env: { ...params.env, [WORKER_LIMIT_VARIABLE]: String(workers) } }), session, start.descendants)
       }
       finally {
         start.leaveWorkers(tree)
