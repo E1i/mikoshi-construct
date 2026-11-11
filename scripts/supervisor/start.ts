@@ -14,6 +14,7 @@ import { fileURLToPath } from 'node:url'
 import { agentLabel, BUS_DB_VARIABLE, busDirOf, decisionsFileOf, GH_ACCOUNT_VARIABLE, isOwnerCheckout, LAUNCH_AGENTS, OWNER_AGENT, OWNER_AGENT_FILE, pinBus, remoteUrlOf, repoSlugOfUrl } from '../core/bus-path.js'
 import { appendEvent, openBus } from '../core/db.js'
 import { SHARD_ISSUED, SHARD_REVOKED } from '../core/events.js'
+import { constructCommand } from '../core/owner-commands.js'
 import { consumeOwnerWord, ownerChannelOfBus, USED_WORD } from '../owner/channel.js'
 import { inForce, OWNER_SOURCE, parseDecisions } from '../policy/decisions/decisions.js'
 import { allowLiveText, namesQueueLive } from '../policy/live-decision.js'
@@ -38,7 +39,7 @@ export const MODE_FLAG = '--mode'
 export const HOURS_FLAG = '--hours'
 export const LIVE_SWITCH = '--live'
 export const SHADOW_SWITCH = '--shadow'
-export const SAY_COMMAND = 'construct say'
+export const SAY_COMMAND = constructCommand('say')
 export const MODE_SHARD_SCOPE = DECISIONS_SCOPE
 export const SHARD_DECIDES_LIVE: readonly BusWorker[] = ['merge', 'update']
 export const USAGE = `usage: ${START_BIN} — starts the factory for the git repository in the current directory and installs its keep-alive; ${START_BIN} ${HOLD_FLAG} — does the same, then stays up while the supervisor of its bus runs and exits once it is gone, as the keep-alive runs it; ${START_BIN} ${MODE_FLAG} ${FACTORY_MODES[0]} | ${MODE_FLAG} ${FACTORY_MODES[1]} [${HOURS_FLAG} <n>] | ${LIVE_SWITCH} <worker> | ${SHADOW_SWITCH} <worker> — switches its mode or a worker's queue and writes bus/workers.json`
