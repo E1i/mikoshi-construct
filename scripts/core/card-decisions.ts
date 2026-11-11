@@ -139,7 +139,7 @@ export function decidedContinuations(db: DatabaseSync, how: DecidedContinuations
 const CARDS_WITH_A_LIVE_ANSWER = `SELECT DISTINCT card_id FROM tasks WHERE queue = 'answer' AND state IN ('queued', 'leased')`
 
 const AN_ENDED_ANSWER_OF_THE_STOP = `SELECT 1 FROM tasks, (SELECT CAST(? AS INTEGER) AS stop) AS named WHERE queue = 'answer' AND card_id = ? AND state NOT IN ('queued', 'leased')
-  AND (task_key LIKE '%:stop-' || named.stop OR task_key LIKE '%:stop-' || named.stop || ':%') LIMIT 1`
+  AND task_key LIKE '%:stop-' || named.stop LIMIT 1`
 
 function anAnswerTheStopAlreadySpent(db: DatabaseSync, task: QueuedTask): boolean {
   return task.stop !== undefined && db.prepare(AN_ENDED_ANSWER_OF_THE_STOP).get(task.stop, task.cardId) !== undefined

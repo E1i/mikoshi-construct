@@ -12,7 +12,7 @@ import { completeTask, leaseNext } from '../../core/lease.js'
 import { QUEUE_ACTOR } from '../../core/queue.js'
 import { reduce } from '../../core/reducer.js'
 import { heldSessionStop } from '../../nodes/launch/launch-worker.js'
-import { sayToOwnerChannel } from '../../owner/channel.js'
+import { sameDecisionWords, sayToOwnerChannel } from '../../owner/channel.js'
 import { recordDecision } from '../../policy/decisions/index.js'
 import { cardDecisionCommand } from '../../policy/shards.js'
 import { decisionsAdder } from '../../window/window-request-tools.js'
@@ -47,21 +47,22 @@ function body(): string {
   return `card: #${CARD} a-card [implement/construct/M/cheap/auto] · depends — · blocks —\nbranch: feat/card-${CARD}\ntouches: ${TOUCHED}\ncontinue: auto\nwho: shift\n\nDo it.\n`
 }
 
-function stoppedByItsAgent(stop: Record<string, unknown> = { reason: QUESTION_AGENT, detail: QUESTION }): Card {
+function stoppedByItsAgent(stop: Record<string, unknown> = { reason: QUESTION_AGENT, detail: QUESTION }, withAPr = true): Card {
   const made = mergeBench()
   const root = mkdtempSync(path.join(tmpdir(), 'card-decision-closes-its-wait-'))
   const ts = made.clock.now().toISOString()
   const text = body()
   appendEvent(made.db, { ts, type: CARD_ADMITTED, actor: 'worker:intake:by-hand', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${CARD}`, payload: { card: `#${CARD}`, lane: 'lane-1', decision: 'auto', contour: 'cheap', depends: [], admission: `admission-${CARD}`, text, textSha: textSha(text) }, legacy: false })
   appendEvent(made.db, { ts, type: CARD_STARTED, actor: 'worker:launch:launch-1', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_STARTED}:${CARD}`, payload: { session: 'card-session-1', worktree: path.join(root, `mc-${CARD}`), branch: `feat/card-${CARD}`, base: sha('1') }, legacy: false })
-  made.gitHub.open({ number: PR, head: sha('a'), review: 'success' })
+  if (withAPr)
+    made.gitHub.open({ number: PR, head: sha('a'), review: 'success' })
   made.tick()
-  appendEvent(made.db, { ts: made.clock.now().toISOString(), type: CARD_STOPPED, actor: 'worker:launch:launch-1', cardId: CARD, pr: PR, head: sha('a'), dedupeKey: `${CARD_STOPPED}:${CARD}`, payload: stop, legacy: false })
+  appendEvent(made.db, { ts: made.clock.now().toISOString(), type: CARD_STOPPED, actor: 'worker:launch:launch-1', cardId: CARD, pr: withAPr ? PR : null, head: withAPr ? sha('a') : null, dedupeKey: `${CARD_STOPPED}:${CARD}`, payload: stop, legacy: false })
   made.tick()
   const round = leaseNext(made.db, made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1')
   if (round !== null)
     completeTask(made.db, made.clock.now().toISOString(), round, [])
-  const wait = openOwnerWait(made.db, made.clock.now().toISOString(), 'worker:answer:worker-1', { need: 'decision', text: `card #${CARD} waits for the owner: an answer round after its ${QUESTION_AGENT} stop left nothing`, command: cardDecisionCommand(CARD), card: CARD, pr: PR })
+  const wait = openOwnerWait(made.db, made.clock.now().toISOString(), 'worker:answer:worker-1', { need: 'decision', text: `card #${CARD} waits for the owner: an answer round after its ${QUESTION_AGENT} stop left nothing`, command: cardDecisionCommand(CARD), card: CARD, ...(withAPr ? { pr: PR } : {}) })
   made.tick()
   const card = { made, root, wait }
   cards.push(card)
@@ -168,5 +169,58 @@ describe('one owner word on a card is one act', () => {
     closeOwnerWait(byWord.made.db, byWord.made.clock.now().toISOString(), QUEUE_ACTOR, byWord.wait, 'расширение не нужно', 1)
     reduce(byWord.made.db)
     expect(heldSessionStop(byWord.made.db, CARD)).toBeNull()
+  })
+
+  it('the owner channel word closing a command wait of the card binds a decision to the card', () => {
+    const card = stoppedByItsAgent()
+    const command = openOwnerWait(card.made.db, card.made.clock.now().toISOString(), QUEUE_ACTOR, { need: 'command', text: 'widen the touches?', command: 'pnpm intake --admit <draft>', card: CARD })
+    reduce(card.made.db)
+    const window = windowOf(card)
+    sayToOwnerChannel(window.channel, `${command}: ${ANSWERED}`, card.made.clock.now())
+
+    expect(window.run('owner.wait.close', '--id', command, '--from', ANSWER_SOURCE).kind).toBe('done')
+
+    expect(waitOf(card.made.db, command).state).toBe('closed')
+    expect(eventsOf(card.made.db, DECISION_RECORDED)).toEqual([expect.objectContaining({ scope: [CARD], text: `${command}: ${ANSWERED}` })])
+  })
+
+  it('the same words for the card and another card write a new decision when the bound one names only the card', () => {
+    const card = stoppedByItsAgent()
+    const window = windowOf(card)
+    sayToOwnerChannel(window.channel, `${card.wait}: ${ANSWERED}`, card.made.clock.now())
+    expect(window.run('owner.wait.close', '--id', card.wait, '--from', ANSWER_SOURCE).kind).toBe('done')
+    expect(eventsOf(card.made.db, DECISION_RECORDED)).toEqual([expect.objectContaining({ scope: [CARD] })])
+
+    sayToOwnerChannel(window.channel, `${card.wait}: ${ANSWERED}`, card.made.clock.now())
+    expect(window.run('decisions:add', '--from', ANSWER_SOURCE, '--supersedes', 'D-2', '--card', `#${CARD}`, '--card', `#${CARD + 1}`, `[owner] ${card.wait}: ${ANSWERED}`).kind).toBe('done')
+
+    expect(eventsOf(card.made.db, DECISION_RECORDED)).toEqual([expect.objectContaining({ scope: [CARD] }), expect.objectContaining({ scope: [CARD, CARD + 1] })])
+  })
+
+  it('a wait of the card closed before an outside touches stop does not lift that stop', () => {
+    const outside = { reason: QUESTION_AGENT, detail: `the touches do not cover ${OUTSIDE}; widen them`, code: OUTSIDE_TOUCHES, paths: [OUTSIDE] }
+    const card = stoppedByItsAgent(outside)
+    closeOwnerWait(card.made.db, card.made.clock.now().toISOString(), QUEUE_ACTOR, card.wait, 'расширение не нужно', 1)
+    reduce(card.made.db)
+    expect(heldSessionStop(card.made.db, CARD)).toBeNull()
+    card.made.tick()
+
+    appendEvent(card.made.db, { ts: card.made.clock.now().toISOString(), type: CARD_STOPPED, actor: 'worker:launch:launch-1', cardId: CARD, pr: PR, head: sha('a'), dedupeKey: `${CARD_STOPPED}:${CARD}:again`, payload: outside, legacy: false })
+    reduce(card.made.db)
+
+    expect(heldSessionStop(card.made.db, CARD)).toMatchObject({ code: OUTSIDE_TOUCHES, paths: [OUTSIDE] })
+  })
+
+  it('a --card decision on a question.agent stop of a card with no open pull request queues no answer task', () => {
+    const card = stoppedByItsAgent({ reason: QUESTION_AGENT, detail: QUESTION }, false)
+
+    decided(card)
+
+    expect(waitOf(card.made.db, card.wait)).toEqual({ state: 'closed', answer: `D-${DECISION}` })
+    expect(answerTasks(card.made.db)).toEqual([])
+  })
+
+  it('two different named waits with no words of their own are not the same decision words', () => {
+    expect(sameDecisionWords('Q1:', '[owner] Q2')).toBe(false)
   })
 })
