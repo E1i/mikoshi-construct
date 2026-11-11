@@ -103,20 +103,23 @@ describe('the merge head and the holder of the update turn', () => {
     expect(leased()).toHaveLength(2)
   })
 
-  it('a holder sent to its own update is released with no wait, so its update is not held back', async () => {
+  it('a holder sent to its own update waits instead of holding the merge head, and its update is not held back', async () => {
     const { made, node, released } = inversion()
     updateDone(made, MERGE_HEAD, HEAD_OF_THE_MERGE_HEAD)
     await once(node)
 
-    expect(released()).toEqual([expect.not.objectContaining({ until: expect.anything() })])
+    expect(released()).toEqual([expect.objectContaining({ until: expect.any(String) })])
+    made.clock.advance(AN_UPDATED_PR_HOLDS_MS + 1)
+    expect(updateCandidates(made.db, made.clock.now().toISOString(), 'by-layers').map(task => task.pr)).toContain(MERGE_HEAD)
   })
 
-  it('a merge head with no holder of the turn is released with no wait', async () => {
+  it('a merge head with no holder of the turn waits instead of being leased again at once, and its update is a candidate', async () => {
     const { made, node, released } = inversion()
     made.clock.advance(AN_UPDATED_PR_HOLDS_MS + 1)
     await once(node)
 
-    expect(released()).toEqual([expect.not.objectContaining({ until: expect.anything() })])
+    expect(released()).toEqual([expect.objectContaining({ until: expect.any(String) })])
+    expect(updateCandidates(made.db, made.clock.now().toISOString(), 'by-layers').map(task => task.pr)).toContain(MERGE_HEAD)
   })
 
   it('the turn is held until the hold of its latest update runs out', () => {

@@ -39,7 +39,7 @@ export const STOPPED = 'stopped'
 const SUPERSEDED = 'superseded'
 const FAULT = 'fault'
 const REQUEUABLE = new Set([STOPPED, WITHDRAWN, SUPERSEDED])
-const REQUEUABLE_ANSWER = new Set([...REQUEUABLE, COMPLETED])
+const REQUEUABLE_AFTER_COMPLETION = new Set([...REQUEUABLE, COMPLETED])
 const UNFINISHED = new Set([QUEUED, LEASED, STOPPED])
 const AFTER_A_LEASE = new Set([QUEUED, WITHDRAWN, STOPPED])
 const NO_CARD_TREE = 'no_card_tree'
@@ -209,14 +209,10 @@ const CONFLICTING_BY_CARD_PRIORITY = `
 `
 
 const GREEN_CLEAN_A_MERGE_SENT_TO_UPDATE = `
-  SELECT prs.pr, prs.card_id, prs.head, prs.verdict_on_head FROM prs
+  SELECT prs.pr, prs.card_id, prs.head, prs.verdict_on_head, (SELECT max(denied.id) FROM events AS denied WHERE denied.type = '${POLICY_DENIED}' AND denied.legacy = 0 AND denied.pr = prs.pr
+    AND denied.head = prs.head AND json_extract(denied.payload, '$.command') = 'merge' AND json_extract(denied.payload, '$.reason') = '${NEEDS_UPDATE}') AS sent_at FROM prs
   LEFT JOIN ${CARD_BODIES} AS body ON body.card_id = prs.card_id
-  WHERE prs.state = 'open' AND prs.base = '${MAIN_BRANCH}' AND prs.mergeable = 'clean' AND prs.draft = 0 AND prs.card_id IS NOT NULL AND prs.head IS NOT NULL
-    AND prs.ci = 'green'
-    AND EXISTS (
-      SELECT 1 FROM events AS denied WHERE denied.type = '${POLICY_DENIED}' AND denied.legacy = 0 AND denied.pr = prs.pr AND denied.head = prs.head
-        AND json_extract(denied.payload, '$.command') = 'merge' AND json_extract(denied.payload, '$.reason') = '${NEEDS_UPDATE}'
-    )
+  WHERE prs.state = 'open' AND prs.base = '${MAIN_BRANCH}' AND prs.mergeable = 'clean' AND prs.draft = 0 AND prs.card_id IS NOT NULL AND prs.head IS NOT NULL AND prs.ci = 'green' AND sent_at IS NOT NULL
   ORDER BY body.priority IS NOT '${TOP_PRIORITY}', prs.pr
 `
 
@@ -967,8 +963,8 @@ export function identityOf(event: StoredEvent): { key: string, queue: Queue } {
   return { key, queue }
 }
 
-function taskRow(db: DatabaseSync, key: string): { state: string } | undefined {
-  return db.prepare('SELECT state FROM tasks WHERE task_key = ?').get(key) as { state: string } | undefined
+function taskRow(db: DatabaseSync, key: string): { state: string, event_id: number } | undefined {
+  return db.prepare('SELECT state, event_id FROM tasks WHERE task_key = ?').get(key) as { state: string, event_id: number } | undefined
 }
 
 function foldEnqueued(db: DatabaseSync, event: StoredEvent): void {
@@ -990,7 +986,7 @@ function foldSuperseded(db: DatabaseSync, event: StoredEvent): void {
 function foldRequeued(db: DatabaseSync, event: StoredEvent): void {
   const { key, queue } = identityOf(event)
   const task = taskRow(db, key) ?? reject(`task ${key} was never queued`)
-  const requeuable = queue === 'answer' ? REQUEUABLE_ANSWER : REQUEUABLE
+  const requeuable = queue === 'answer' || queue === 'update' ? REQUEUABLE_AFTER_COMPLETION : REQUEUABLE
   if (!requeuable.has(task.state))
     reject(`task ${key} is ${task.state}, not ${[...requeuable].join(' or ')}`)
   const failures = payloadOf(event).fault === true ? 'failures + 1' : '0'
@@ -1231,6 +1227,14 @@ function mergesAndUpdatesDueAgain(db: DatabaseSync, ts: string): StoppedRow[] {
   return (db.prepare(SUPERSEDED_MERGES_AND_UPDATES_ON_THE_CURRENT_HEAD).all() as unknown as StoppedRow[]).filter(row => due.has(row.task_key))
 }
 
+function updatesSpentBeforeAMergeSentThem(db: DatabaseSync, ts: string): StoppedRow[] {
+  return (candidateRows(db, GREEN_CLEAN_A_MERGE_SENT_TO_UPDATE, aMergeCandidate(db, ts)) as (Candidate & { sent_at: number })[]).flatMap((row) => {
+    const spent: StoppedRow = { task_key: keyOf({ queue: 'update', cardId: row.card_id, pr: row.pr ?? undefined, head: row.head ?? undefined }), queue: 'update', card_id: row.card_id, pr: row.pr, head: row.head, failure: Number(row.sent_at) }
+    const task = taskRow(db, spent.task_key)
+    return task?.state === COMPLETED && Number(task.event_id) < spent.failure ? [spent] : []
+  })
+}
+
 function underCurrentInput(row: ReviewRow): boolean {
   const current: QueuedTask = { queue: 'review', cardId: row.card_id, pr: row.pr ?? undefined, head: row.head ?? undefined, input: reviewInputOf(row.body_sha, row.card_body) }
   return current.input === undefined || keyOf(current) === row.task_key
@@ -1280,7 +1284,7 @@ export function deriveQueues(db: DatabaseSync, ts: string): Derived {
         derived.queued.push(row.task_key)
     }
   }
-  for (const row of [...reviewsOfTheCurrentInputAgain(db), ...mergesAndUpdatesDueAgain(db, ts)]) {
+  for (const row of [...reviewsOfTheCurrentInputAgain(db), ...mergesAndUpdatesDueAgain(db, ts), ...updatesSpentBeforeAMergeSentThem(db, ts)]) {
     if (requeueTask(db, ts, row))
       derived.queued.push(row.task_key)
   }
@@ -1297,15 +1301,11 @@ export function deriveQueues(db: DatabaseSync, ts: string): Derived {
   openWindowWaits(db, ts)
   readmitLiftedLaunchStops(db, ts)
   openLostRecutWaits(db, ts)
-  for (const tasksOf of candidates(db, ts)) {
+  for (const tasksOf of [...candidates(db, ts), () => launchTasks(db)]) {
     for (const task of tasksOf()) {
       if (queueTask(db, ts, task))
         derived.queued.push(keyOf(task))
     }
-  }
-  for (const task of launchTasks(db)) {
-    if (queueTask(db, ts, task))
-      derived.queued.push(keyOf(task))
   }
   return derived
 }
