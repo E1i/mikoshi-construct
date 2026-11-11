@@ -281,17 +281,8 @@ export class WindowRequests {
       return { done: false, why: `#${cardId}: the bus has not folded its latest body yet; ask again on the next tick` }
     const lane = (this.db.prepare(`SELECT lane FROM ${CARD_BODIES} WHERE card_id = ?`).get(cardId) as { lane: string | null } | undefined)?.lane ?? null
     const stop = this.db.prepare(OPEN_OWNER_STOP_OF_CARD).get(cardId) as { id: number, payload: string } | undefined
-    const result = runAmend({
-      card: `#${cardId}`,
-      flags: amendFlagsOf(payload),
-      dir: this.repository,
-      dryRun: false,
-      autoConfirm: payload.auto_confirm === true,
-      events: this.amendEvents(request),
-      admissions: latestAdmissionOf(this.db),
-      decisions: new BusDecisions(this.db),
-      cardStates: () => new Map((this.db.prepare(CARD_STATES).all() as unknown as { card_id: number, state: string | null }[]).map(row => [String(row.card_id), row.state ?? HELD_WITHOUT_STATE])),
-    }, this.clock)
+    const cardStates = (): Map<string, string> => new Map((this.db.prepare(CARD_STATES).all() as unknown as { card_id: number, state: string | null }[]).map(row => [String(row.card_id), row.state ?? HELD_WITHOUT_STATE]))
+    const result = runAmend({ card: `#${cardId}`, flags: amendFlagsOf(payload), dir: this.repository, dryRun: false, autoConfirm: payload.auto_confirm === true, events: this.amendEvents(request), admissions: latestAdmissionOf(this.db), decisions: new BusDecisions(this.db), cardStates }, this.clock)
     const answered = amendAnswer(cardId, result, lane)
     return stop === undefined || result.status !== 'admitted' ? answered : { done: true, why: `${answered.why}; ${this.resumeAfterAmend(request, cardId, stop, payload)}` }
   }
