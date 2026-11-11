@@ -107,5 +107,8 @@ describe('the decisions seal', () => {
     const held = [projected.file, projected.archive].flatMap(text => parseDecisions(text).decisions).filter(decision => decision.number === 342)
     expect(held).toHaveLength(1)
     expect(parseDecisions(projected.file).decisions.map(decision => decision.number)).toEqual([342])
+    const older = '- D-342 · 2026-09-01 — [owner] an older word under a reused number · decisions:add'
+    const reused = projectDecisions([row], `# Owner decisions\n\n${line}\n`, `${archiveHeader}${spent}${older}\n${line}\n`, archiveHeader)
+    expect(reused.archive.split('\n')).toContain(older)
   })
 })
