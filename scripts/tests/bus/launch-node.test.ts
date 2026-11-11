@@ -633,6 +633,16 @@ describe('the launch node', () => {
     expect(made.db.prepare(`SELECT count(*) AS n FROM ${OWNER_WAITS} WHERE card_id = 1225 AND state = '${OPEN_WAIT}'`).get()).toEqual({ n: 2 })
   })
 
+  it('a question followed by its options opens one wait that carries them', async () => {
+    const report = '#1226 a-card\nresult: stopped before PR\nno PR\nquestion: decide one of these three:\n(a) widen the touches\n(b) split the card\n(c) drop the card\n\nverification: code-reading\n'
+    const { made, node } = await endedWithReport(1226, report)
+
+    expect(node.stopOverdue()).toEqual([1226])
+    expect(eventsOf(made.db, OWNER_WAIT_OPENED)).toEqual([
+      { id: 'Q1', need: 'decision', text: 'card #1226 session s-1226 asks: decide one of these three:\n(a) widen the touches\n(b) split the card\n(c) drop the card', command: cardDecisionCommand(1226), card: 1226 },
+    ])
+  })
+
   class TreeStarter extends FakeStarter {
     constructor(private readonly tree: string) {
       super()
