@@ -116,6 +116,22 @@ function layersOfTheCodeBeside(map: LayerMap, asset: string): string[] {
   return beside.length > 0 ? beside : layersIn(map, asset)
 }
 
+export function isTestFixture(file: string): boolean {
+  return file.startsWith(FACTORY_TESTS) && !SOURCE_FILE.test(file)
+}
+
+export function layersOfTestFixture(fixture: string, testLayers: ReadonlyMap<string, readonly string[]>): string[] {
+  const testsRoot = FACTORY_TESTS.slice(0, -1)
+  for (let directory = directoryOf(fixture); directory === testsRoot || directory.startsWith(FACTORY_TESTS); directory = directoryOf(directory)) {
+    const beside = [...testLayers].filter(([test]) => directoryOf(test) === directory).flatMap(([, layers]) => layers)
+    if (beside.length > 0)
+      return [...new Set(beside)].sort()
+    if (directory === testsRoot)
+      break
+  }
+  return []
+}
+
 function isPlaced(map: LayerMap, file: string): boolean {
   return isRecord(map, file) || isAsset(map, file) || (!file.startsWith(FACTORY_TESTS) && SOURCE_FILE.test(file))
 }
