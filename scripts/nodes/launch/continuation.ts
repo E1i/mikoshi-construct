@@ -106,11 +106,11 @@ export function stoppedOnSpend(worktree: string, session: string): boolean {
   return existsSync(journal) && entriesOf(readFileSync(journal, 'utf8')).some(entry => entry.session_id === session && entry.event === 'budget-stop' && entry.level === SPEND_LEVEL)
 }
 
-const QUESTION_TEXT = /^question:[ \t]*(\S.*)$/gm
+const QUESTION_WITH_ITS_LINES = /^question:[ \t]*(\S.*(?:\n(?!question:)[ \t]*\S.*)*)/gm
 const STOP_REASON_TEXT = /^stop reason:[ \t]*(\S.*)$/m
 
 export function reportedQuestions(report: string | null): string[] {
-  return report === null ? [] : [...sessionWrittenPart(report).matchAll(QUESTION_TEXT)].map(found => found[1].trim())
+  return report === null ? [] : [...sessionWrittenPart(report).matchAll(QUESTION_WITH_ITS_LINES)].map(found => found[1].split('\n').map(line => line.trim()).join('\n'))
 }
 
 export function reportedStopReason(report: string | null): string | null {
