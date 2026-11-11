@@ -49,7 +49,7 @@
   "law-gaps:Z7:review": 1,
   "law-gaps:Z7:witness": 1,
   "lines-scope:non-test-code-in-scripts-and-src": 1,
-  "lines:scripts/cli/board-page.ts": 1280,
+  "lines:scripts/cli/board-page.ts": 1277,
   "lines:scripts/construct/browser-lab.mjs": 809,
   "lines:scripts/core/queue.ts": 1311,
   "lines:scripts/supervisor/supervisor.ts": 1187,
