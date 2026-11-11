@@ -317,7 +317,7 @@ export interface ProjectedDecisions {
   archive: string
 }
 
-function withoutSource(text: string): string {
+export function withoutSource(text: string): string {
   return text.startsWith(`${OWNER_SOURCE} `) ? text.slice(OWNER_SOURCE.length + 1) : text
 }
 
@@ -350,7 +350,19 @@ export function projectDecisions(rows: readonly DecisionRow[], file: string, arc
   return decisionsRefusals(projected.file, projected.archive).length === 0 ? projected : { file, archive }
 }
 
-function projectionOf(rows: readonly DecisionRow[], file: string, archive: string, archiveHeader: string): ProjectedDecisions {
+function sameWords(decision: Decision, row: DecisionRow | undefined): boolean {
+  return row !== undefined && withoutSource(boundText(decision)) === withoutSource(row.text)
+}
+
+function archiveWithout(archive: string, inForce: ReadonlyMap<number, DecisionRow>): string {
+  return archive.split('\n').filter((line) => {
+    const [decision] = parseDecisions(line).decisions
+    return decision === undefined || !sameWords(decision, inForce.get(decision.number))
+  }).join('\n')
+}
+
+function projectionOf(rows: readonly DecisionRow[], file: string, heldArchive: string, archiveHeader: string): ProjectedDecisions {
+  const archive = archiveWithout(heldArchive, new Map(rows.filter(row => row.inForce).map(row => [row.number, row])))
   const { decisions: lines, offFormat } = parseDecisions(file)
   const fileLines = file.split(/\r?\n/)
   const held = new Map(lines.map(decision => [decision.number, decision]))
@@ -384,4 +396,35 @@ export function decisionsFindings(text: string): string[] {
 
 export function decisionCommand(words: string, cards: readonly number[] = []): string {
   return pnpmCommand(WRITER_MARKER, ...cards.map(card => `--card #${card}`), `"${OWNER_SOURCE} ${words}"`)
+}
+
+export interface OwnerWords {
+  decisionId: number
+  words: string
+  cards: readonly number[]
+  written: boolean
+}
+
+export interface DecisionsPort {
+  inForce: () => readonly OwnerWords[]
+}
+
+export class InMemoryDecisions implements DecisionsPort {
+  constructor(private readonly held: readonly OwnerWords[]) {}
+
+  inForce(): readonly OwnerWords[] {
+    return this.held
+  }
+}
+
+export function inForceInText(text: string, now: Date): Decision[] {
+  return inForce(parseDecisions(text).decisions, now)
+}
+
+export function inForceInProjection(busPath: string, read: (file: string) => string | null, now: Date): Decision[] {
+  return inForceInText(read(decisionsFileOf(busPath)) ?? '', now)
+}
+
+export function decisionsOfProjection(text: string, now: Date): InMemoryDecisions {
+  return new InMemoryDecisions(inForceInText(text, now).map(decision => ({ decisionId: decision.number, words: withoutSource(decision.body), cards: decision.cards, written: decision.written })))
 }

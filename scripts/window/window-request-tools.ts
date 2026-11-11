@@ -3,13 +3,12 @@ import type { PushPolicy } from '../../src/commands/attach/record.js'
 import type { GitHub, GitHubPut } from '../ports/github.js'
 import type { CardTask, RequestTools } from './window-requests.js'
 import { execFileSync } from 'node:child_process'
-import { existsSync, readFileSync, realpathSync, unlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import os from 'node:os'
 import { busDirOf } from '../core/bus-path.js'
 import { CARD_BODIES } from '../core/card-bodies.js'
 import { reportPath } from '../core/places.js'
 import { pushPolicyOf } from '../core/push-policy.js'
-import { reduce } from '../core/reducer.js'
 import { cardSessionOf } from '../nodes/answer/answer-source.js'
 import { launchDirOf } from '../nodes/launch/launch-worker.js'
 import { matrixCountLineOf } from '../nodes/launch/tree-pr.js'
@@ -17,11 +16,7 @@ import { dryRunIn, dryRunReviewsDir } from '../nodes/review/dry-run-record.js'
 import { PrCloser } from '../nodes/review/pr-close.js'
 import { PrReopener } from '../nodes/review/pr-reopen.js'
 import { CiRerunner, PrBodyFileAppender } from '../nodes/review/pr-rerun.js'
-import { ARCHIVE_HEADER, runDecisionsAdd } from '../policy/decisions/add.js'
-import { decisionsFileOf, PREFIX, projectDecisions } from '../policy/decisions/decisions.js'
-import { decisionsIntake } from '../policy/decisions/import.js'
-import { busProjectsDecisions, decisionRows, expireDecisions, recordDecision, recordedNumbers, startProjectingDecisions } from '../policy/decisions/index.js'
-import { archiveOf } from '../policy/decisions/read.js'
+import { decisionsAdderOfBus, decisionsSettlerOfBus } from '../policy/decisions/projection.js'
 import { processGit, readThroughPort } from '../ports/git.js'
 import { ghApi, ghApiPatch, ghApiPost } from '../ports/github.js'
 import { EXIT_REQUEST_VARIABLE, LOOP_PID_VARIABLE, WINDOW_VARIABLE } from '../ports/session.js'
@@ -94,8 +89,8 @@ export function realRequestTools(db: DatabaseSync, busPath: string, repo: string
       execFileSync('pnpm', ['--silent', 'task:start', branch, '--card', cardLine], { cwd: repo, env: { ...env, [WINDOW_VARIABLE]: '', [LOOP_PID_VARIABLE]: '', [EXIT_REQUEST_VARIABLE]: '' }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
     },
     dryRunOf: dryRunIn(dryRunReviewsDir(busDirOf(busPath))),
-    addDecision: decisionsAdder(db, decisionsFileOf(busPath), () => new Date()),
-    settleDecisions: decisionsSettler(db, decisionsFileOf(busPath), () => new Date()),
+    addDecision: decisionsAdderOfBus(db, busPath, () => new Date()),
+    settleDecisions: decisionsSettlerOfBus(db, busPath, () => new Date()),
     causeHolds: causeHoldsIn(db, repo, treeOf),
     closePr: request => closer.close(request),
     closeDropped: () => closer.closeDropped(),
@@ -131,56 +126,5 @@ export function countLineAppender(gitHub: GitHub, patch: GitHubPut, launchDir: s
     return written.status === 200
       ? { done: true, why: `appended ${countLine} from ${report} to PR #${pr}` }
       : { done: false, why: `GitHub answered ${written.status} to the write of the body of PR #${pr}` }
-  }
-}
-
-function readIfThere(file: string): string {
-  return existsSync(file) ? readFileSync(file, 'utf8') : ''
-}
-
-function writeIfChanged(file: string, before: string, after: string): void {
-  if (after !== before)
-    writeFileSync(file, after)
-}
-
-export function decisionsSettler(db: DatabaseSync, decisions: string, now: () => Date): NonNullable<RequestTools['settleDecisions']> {
-  return () => {
-    if (!busProjectsDecisions(db)) {
-      decisionsIntake(db, decisions, now)()
-      startProjectingDecisions(db, now())
-    }
-    reduce(db)
-    expireDecisions(db, now())
-    reduce(db)
-    const archive = archiveOf(decisions)
-    const [file, archived] = [readIfThere(decisions), readIfThere(archive)]
-    const projected = projectDecisions(decisionRows(db), file, archived, ARCHIVE_HEADER)
-    try {
-      writeIfChanged(archive, archived, projected.archive)
-      writeIfChanged(decisions, file, projected.file)
-    }
-    catch (error) {
-      console.error(`${PREFIX}${decisions} not rebuilt: ${error instanceof Error ? error.message : String(error)}; the next tick tries again`)
-    }
-  }
-}
-
-export function decisionsAdder(db: DatabaseSync, decisions: string, now: () => Date): RequestTools['addDecision'] {
-  return (args) => {
-    const lines: string[] = []
-    const code = runDecisionsAdd(args, {
-      decisions,
-      now,
-      exists: existsSync,
-      read: file => readFileSync(file, 'utf8'),
-      write: (file, text) => writeFileSync(file, text),
-      remove: unlinkSync,
-      record: decision => recordDecision(db, decision),
-      held: () => recordedNumbers(db),
-      settled: () => false,
-      out: line => lines.push(line),
-      err: line => lines.push(line),
-    })
-    return { code, lines }
   }
 }

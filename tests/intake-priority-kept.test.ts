@@ -1,3 +1,4 @@
+import type { DecisionsPort } from '../scripts/policy/decisions/decisions.js'
 import type { AdmitResult } from '../src/commands/intake/admit.js'
 import type { AmendFlags } from '../src/commands/intake/amend.js'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
@@ -8,6 +9,7 @@ import { BUS_DB_VARIABLE, openBus } from '../scripts/core/db.js'
 import { CARD_ADMITTED } from '../scripts/core/events.js'
 import { reduce } from '../scripts/core/reducer.js'
 import { busCardAdmissions, busCardEvents, runBusIntake } from '../scripts/intake/intake.js'
+import { InMemoryDecisions } from '../scripts/policy/decisions/decisions.js'
 import { parseParkingFile } from '../src/card/parking.js'
 import { runAdmit } from '../src/commands/intake/admit.js'
 import { amendedText, runAmend } from '../src/commands/intake/amend.js'
@@ -31,7 +33,7 @@ afterEach(() => {
     rmSync(root, { recursive: true, force: true })
 })
 
-interface World { parking: string, repo: string, bus: string, decisions: string }
+interface World { parking: string, repo: string, bus: string, decisions: DecisionsPort }
 
 function world(): World {
   const root = mkdtempSync(path.join(tmpdir(), 'intake-priority-'))
@@ -41,7 +43,7 @@ function world(): World {
   writeFileSync(path.join(repo, 'src', 'board', 'run.ts'), '')
   const parking = path.join(root, 'parking')
   mkdirSync(parking, { recursive: true })
-  return { parking, repo, bus: path.join(root, 'bus.db'), decisions: path.join(root, 'owner-decisions.md') }
+  return { parking, repo, bus: path.join(root, 'bus.db'), decisions: new InMemoryDecisions([]) }
 }
 
 function cardText(body: string, priority?: string): string {

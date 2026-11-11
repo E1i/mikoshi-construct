@@ -19,8 +19,7 @@ import { DATABASE_LOCKED, isDatabaseLocked } from '../core/node.js'
 import { deriveQueues, QUEUE_ACTOR } from '../core/queue.js'
 import { closeWaitsOfEndedCards, reduce } from '../core/reducer.js'
 import { ownerChannelOfBus } from '../owner/channel.js'
-import { decisionsFileOf } from '../policy/decisions/decisions.js'
-import { decisionsIntake } from '../policy/decisions/import.js'
+import { decisionsIntakeOfBus } from '../policy/decisions/import.js'
 import { ghApi } from '../ports/github.js'
 import { CHECK_MS, NetWatch, pollLine, TICK_MS } from '../ports/netwatch.js'
 import { ghApiPost, setStepStatuses, STATUS_CONTEXT, STATUS_OFF_FILE, statusesSwitchedOff, statusFailureLine, statusLine } from '../ports/pr-status.js'
@@ -236,7 +235,7 @@ export function composeBusTick(db: DatabaseSync, busPath: string, gitHub: GitHub
     for (const line of silent.step())
       console.log(line)
   }
-  return { busTick: new BusTick(db, new NetWatch(db, gitHub, clock), clock, decisionsIntake(db, decisionsFileOf(busPath), clock), board.project, answer, statuses, stalled), boardFile: board.file, boardDataFile: board.dataFile }
+  return { busTick: new BusTick(db, new NetWatch(db, gitHub, clock), clock, decisionsIntakeOfBus(db, busPath, clock), board.project, answer, statuses, stalled), boardFile: board.file, boardDataFile: board.dataFile }
 }
 
 export function startBus(db: DatabaseSync, clock: () => Date): string[] {

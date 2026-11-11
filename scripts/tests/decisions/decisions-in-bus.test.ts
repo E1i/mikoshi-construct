@@ -8,11 +8,11 @@ import { reduce } from '../../core/reducer.js'
 import { boundDecisionLines } from '../../nodes/answer/answer-source.js'
 import { requestDecision, requestFromOwnerShell } from '../../policy/decisions/add.js'
 import { expireDecisions, inForceDecisions, recordDecision } from '../../policy/decisions/index.js'
+import { decisionsAdder, decisionsSettler } from '../../policy/decisions/projection.js'
 import { archiveOf, runDecisionsRead, sessionCardOf } from '../../policy/decisions/read.js'
 import { liveDecisionOf } from '../../policy/live-decision.js'
 import { reservationOf } from '../../policy/policy.js'
 import { decisionsInForceAt, unspentShard } from '../../policy/shards.js'
-import { decisionsAdder, decisionsSettler } from '../../window/window-request-tools.js'
 import { pendingRequests } from '../../window/window-requests.js'
 
 const NOW = new Date('2026-11-05T10:00:00Z')
