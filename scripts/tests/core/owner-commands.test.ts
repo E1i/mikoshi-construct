@@ -13,7 +13,7 @@ const CONCEPT_ID = 'owner-commands'
 const OWNER = 'scripts/core/owner-commands.ts'
 const PENDING_FILE = path.join(import.meta.dirname, 'owner-commands-pending.json')
 const FACTORY_FILE = path.join(REPO_ROOT, 'contract', 'factory.json')
-const LAYERS_TOLD_THROUGH_THE_OWNER = /^scripts\/(?:core|intake|release-notes|release)\//
+const LAYERS_TOLD_THROUGH_THE_OWNER = /^scripts\/(?:ci|cli|composition|contract|core|docs|intake|model|release-notes|release)\//
 const TOLD_TO_THE_OWNER = `export const told = 'run pnpm lint yourself'\n`
 
 type Counts = Readonly<Record<string, number>>
@@ -101,7 +101,7 @@ describe('the owner-commands seal', () => {
     expect(pastTheOwner(factory.overlaps[CONCEPT_ID]!, pending())).toEqual([])
   })
 
-  it('the layers core, intake, release-notes and release hold no pending row', () => {
+  it('the layers ci, cli, composition, contract, core, docs, intake, model, release-notes and release hold no pending row', () => {
     expect(Object.keys(pending()).filter(file => LAYERS_TOLD_THROUGH_THE_OWNER.test(file))).toEqual([])
   })
 

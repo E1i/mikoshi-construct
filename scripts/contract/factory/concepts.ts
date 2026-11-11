@@ -133,7 +133,7 @@ const LEADING_PARENTS = /^(?:\.\.\/)+/
 const GENERATED_PATH_SET = new Set(GENERATED_PATHS)
 const HANDOFF_STATUS_LINE = /\^STATUS:/
 const PNPM_COMMAND = /\bpnpm (?!(?:at|in|is|monorepo|on)\b)(?:--[\w-]+ )*(?:run |exec )?[a-z][\w:-]*/
-const COMMANDS_A_GENERATED_REPOSITORY_RUNS = new Set(['scripts/harness-command/render.ts', 'src/model/write.ts', 'src/presets/index.ts'])
+const COMMANDS_A_GENERATED_REPOSITORY_RUNS = new Set(['scripts/composition/check.ts', 'scripts/harness-command/render.ts', 'src/model/write.ts', 'src/presets/index.ts'])
 export const GIT_BEYOND_THE_PORT_BY_REASON = {
   'src-imports-no-scripts': ['src/detect/git.ts'],
   'a-template-carrier-runs-without-the-factory': ['scripts/construct/check-acceptance.mjs'],

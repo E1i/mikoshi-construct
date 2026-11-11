@@ -6,13 +6,14 @@ import { fileURLToPath } from 'node:url'
 import { parseParkingFile } from '../../src/card/parking.js'
 import { CARD_BODIES } from '../core/card-bodies.js'
 import { BUSY_TIMEOUT_MS, defaultBusPath } from '../core/db.js'
+import { ADMIT_COMMAND, pnpmCommand } from '../core/owner-commands.js'
 import { openDatabase } from '../core/sqlite.js'
 import { cardFields, contractOf, CONTRACTS, isContract } from '../intake/card-contract.js'
 import { lastHeartbeat } from '../supervisor/heartbeat.js'
 import { cardChain } from './card-chain.js'
 
 export const PREFIX = '[card] '
-export const USAGE = `usage: pnpm card <N> (--contract <${CONTRACTS.join('|')}> | --md | --chain)`
+export const USAGE = `usage: ${pnpmCommand('card', '<N>', `(--contract <${CONTRACTS.join('|')}> | --md | --chain)`)}`
 
 const CARD_NUMBER = /^#?([1-9]\d*)$/
 const BODY_OF_CARD = `
@@ -81,7 +82,7 @@ export function runCard(args: string[], deps: CardDeps): number {
   }
   const body = bodyOf(deps.bus, request.card)
   if (body === null) {
-    deps.err(`${PREFIX}card #${request.card} has no admitted text in ${CARD_BODIES} of ${deps.bus}; admit it through pnpm intake --admit, then run pnpm bus:reduce`)
+    deps.err(`${PREFIX}card #${request.card} has no admitted text in ${CARD_BODIES} of ${deps.bus}; admit it through ${ADMIT_COMMAND}, then run ${pnpmCommand('bus:reduce')}`)
     return 1
   }
   if (request.kind !== 'contract') {

@@ -12,6 +12,7 @@ import process from 'node:process'
 import { withinTouches } from '../../src/card/covering-tests.js'
 import { testFoldersOfLayers } from '../cli/check-catalog.js'
 import { readLayerMap } from '../core/layer-map.js'
+import { pnpmCommand } from '../core/owner-commands.js'
 import { GhCiRuns } from '../ports/ci-reading.js'
 import { processGit } from '../ports/git.js'
 import { heavyStep } from '../quality/lock.js'
@@ -24,9 +25,9 @@ import { PASS_WITH_NO_TESTS, REPO_ROOT, RETRY, runVitest } from './test-command.
 import { outcomesOf, testKey } from './vitest-report.js'
 
 export const CI_DIFF = ['diff', '--name-only', '--no-renames', '-z']
-export const PREPUSH_COMMAND = 'pnpm exec node --import tsx scripts/ci/prepush.ts'
+export const PREPUSH_COMMAND = pnpmCommand('exec', 'node', '--import', 'tsx', 'scripts/ci/prepush.ts')
 export const ROUND_FLAG = '--round'
-export const LINT_COMMAND = 'pnpm lint'
+export const LINT_COMMAND = pnpmCommand('lint')
 const ESLINT_BIN = path.join(REPO_ROOT, 'node_modules', 'eslint', 'bin', 'eslint.js')
 const LINT_FOUND_PROBLEMS = 1
 

@@ -29,6 +29,7 @@ import { BUSY_TIMEOUT_MS, defaultBusPath } from '../core/db.js'
 import { defaultHandoffDir } from '../core/handoff-dir.js'
 import { statusLineOf } from '../core/handoff-status.js'
 import { readLayerMap } from '../core/layer-map.js'
+import { constructCommand, pnpmCommand } from '../core/owner-commands.js'
 import { openDatabase } from '../core/sqlite.js'
 import { cardContract } from '../intake/card-contract.js'
 import { recordedWitnessFieldsBackfill, witnessTableOf } from '../intake/witness-fields-backfill.js'
@@ -157,7 +158,6 @@ const BUS_LIVE = 'bus-live'
 const PULSE_ELEMENT_ID = 'bus-pulse'
 const OFFLINE_READING = 'bus offline'
 const FACTORY_LIVE: FactoryState = 'live'
-const TITLE_PREFIX = 'construct board · '
 const BACKLOG = 'backlog'
 const DRILL = 'drill'
 const DRILL_CONTENT = 'drill-content'
@@ -626,7 +626,7 @@ function statusSlot(facts: BusFacts): string {
     `<button type="button"${opener(HANDOFF_DIALOG)}><kbd>H</kbd> handoff ›</button>`,
     `<button type="button"${opener(DECISIONS_DIALOG)}><kbd>D</kbd> decisions ›</button>`,
     '<span>geek mode <b>--geek</b></span>',
-    '<span class="cursor">construct board</span>',
+    `<span class="cursor">${constructCommand('board')}</span>`,
   ].join('')
 }
 
@@ -849,7 +849,7 @@ function chainEntries(chain: CardChain): [number, string][] {
 }
 
 function cardChainHtml(card: BusCard, detail: CardDetail): string {
-  const command = `<code>pnpm card ${card.id} --chain</code>`
+  const command = `<code>${pnpmCommand('card', `${card.id} --chain`)}</code>`
   if (detail.chain === null)
     return note(`No chain: the bus holds no admitted text for this card (${command}).`)
   const entries = chainEntries(detail.chain).map(([event, what]) => `<li><span class="when">event ${event}</span><span class="dot"></span><span class="ev">${escaped(what)}</span></li>`)
@@ -936,7 +936,7 @@ export const VIEW_KEY = 'construct-board:view'
 
 const PAGE_ASSETS = path.join(import.meta.dirname, 'board-page')
 const SCRIPT_NAMES_GLOBAL = 'window.BOARD_NAMES'
-const SCRIPT_NAMES = { drill: DRILL, drillContent: DRILL_CONTENT, backlogScroll: BACKLOG_SCROLL, viewKey: VIEW_KEY, dialogPrefix: DIALOG_PREFIX, handoffDialog: HANDOFF_DIALOG, decisionsDialog: DECISIONS_DIALOG, busLive: BUS_LIVE, offlineReading: OFFLINE_READING, pulse: PULSE_ELEMENT_ID, titlePrefix: TITLE_PREFIX, slotPrefix: SLOT_PREFIX, backlog: BACKLOG, staleTicks: STALE_TICKS, staleReading: STALE_READING, dataFile: BOARD_DATA_FILE }
+const SCRIPT_NAMES = { drill: DRILL, drillContent: DRILL_CONTENT, backlogScroll: BACKLOG_SCROLL, viewKey: VIEW_KEY, dialogPrefix: DIALOG_PREFIX, handoffDialog: HANDOFF_DIALOG, decisionsDialog: DECISIONS_DIALOG, busLive: BUS_LIVE, offlineReading: OFFLINE_READING, pulse: PULSE_ELEMENT_ID, titlePrefix: `${constructCommand('board')} · `, slotPrefix: SLOT_PREFIX, backlog: BACKLOG, staleTicks: STALE_TICKS, staleReading: STALE_READING, dataFile: BOARD_DATA_FILE }
 const SCRIPT = `\n${SCRIPT_NAMES_GLOBAL} = ${JSON.stringify(SCRIPT_NAMES)};\n${readFileSync(path.join(PAGE_ASSETS, 'script.js'), 'utf8')}`
 
 function dialogsSlot(page: BoardPage): string {
@@ -1081,7 +1081,7 @@ function busDownWaits(down: BusDown): string {
 }
 
 function pageHead(title: string, body: string): string[] {
-  return ['<!doctype html>', '<html lang="en"><head><meta charset="utf-8">', '<meta name="viewport" content="width=device-width, initial-scale=1">', `<title>${TITLE_PREFIX}${title}</title>`, `<style>${STYLE}</style></head>${body}`]
+  return ['<!doctype html>', '<html lang="en"><head><meta charset="utf-8">', '<meta name="viewport" content="width=device-width, initial-scale=1">', `<title>${constructCommand('board')} · ${title}</title>`, `<style>${STYLE}</style></head>${body}`]
 }
 
 export function renderBusDown(down: BusDown): string {
