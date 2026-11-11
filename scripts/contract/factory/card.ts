@@ -20,7 +20,8 @@ const FIELDS_INTERFACE = 'CardFields'
 const DRAFT_MODULE = 'src/commands/intake/draft.ts'
 const DRAFT_INTERFACES: Record<string, string> = { DraftCard: 'draft.', DraftPlan: 'draft.plan.' }
 
-export const CARD_GRAMMAR_TREES = ['src/card', 'src/commands/intake']
+export const CARD_GRAMMAR_TREES = ['src/card', 'src/commands/intake', 'scripts/policy/touch-scope.ts']
+const GRAMMAR_FILE = /\.ts$/
 export const BODY_LABEL = /^[A-Z]?[a-z]+(?:,? [a-z]+)*: ?$/
 export const LABEL_CONSTANT = /_(?:PREFIX|HEADER|HEADING|FIELD)$/
 const LABELLED_LINE = /^\^\(?([a-z|]+)\)?:/
@@ -62,6 +63,18 @@ export function bodyLabels(files: readonly ParsedFile[]): Record<string, string>
   return Object.fromEntries([...readers].map(([label, files]) => [label, `${BODY_LINE_READ_BY} ${[...files].sort().join(', ')}`]))
 }
 
+function scannedTreeOf(tree: string): string {
+  return GRAMMAR_FILE.test(tree) ? path.posix.dirname(tree) : tree
+}
+
+function inCardGrammar(file: string): boolean {
+  return CARD_GRAMMAR_TREES.some(tree => file === tree || file.startsWith(`${tree}/`))
+}
+
+export function cardGrammarFiles(root: string): ParsedFile[] {
+  return parsedFiles(root, [...new Set(CARD_GRAMMAR_TREES.map(scannedTreeOf))]).filter(({ file }) => inCardGrammar(file))
+}
+
 function draftFields(root: string): Record<string, string> {
   const source = ts.createSourceFile(DRAFT_MODULE, readFileSync(path.join(root, DRAFT_MODULE), 'utf8'), ts.ScriptTarget.Latest, true)
   return Object.fromEntries(Object.entries(DRAFT_INTERFACES).flatMap(([name, prefix]) =>
@@ -70,6 +83,6 @@ function draftFields(root: string): Record<string, string> {
 
 export function cardSection(root: string): CardSection {
   const source = ts.createSourceFile(CARD_CONTRACT_MODULE, readFileSync(path.join(root, CARD_CONTRACT_MODULE), 'utf8'), ts.ScriptTarget.Latest, true)
-  const fields = { ...interfaceFields(source, FIELDS_INTERFACE, CARD_CONTRACT_MODULE), ...bodyLabels(parsedFiles(root, CARD_GRAMMAR_TREES)), ...draftFields(root) }
+  const fields = { ...interfaceFields(source, FIELDS_INTERFACE, CARD_CONTRACT_MODULE), ...bodyLabels(cardGrammarFiles(root)), ...draftFields(root) }
   return { cardVersion: CARD_VERSION, versionRecord: `${CARD_ADMITTED} payload.${CARD_VERSION_KEY}`, fields, contracts: CONTRACT_FIELDS }
 }

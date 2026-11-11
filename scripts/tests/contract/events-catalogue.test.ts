@@ -9,6 +9,7 @@ import ts from 'typescript'
 import { afterAll, describe, expect, it } from 'vitest'
 import { catalogueOf, typedReading, writtenEvents } from '../../contract/factory/payloads.js'
 import { parsedFiles } from '../../contract/factory/walk.js'
+import { CARD_VERSION } from '../../core/bus-version.js'
 import { appendCardEvent } from '../../core/card-bodies.js'
 import { appendEvent } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_STOPPED, declaredPayload, EVENT_PAYLOADS } from '../../core/events.js'
@@ -162,8 +163,8 @@ describe('the typed catalogue of bus events', () => {
     made.tick()
     made.tick()
     expect(eventsOf(made.db, CARD_ADMITTED)).toEqual([
-      expect.objectContaining({ cardVersion: 1, prevAdmissionId: null, prevTextSha: null }),
-      expect.objectContaining({ cardVersion: 1, plan: { plan: 'P-1', item: 'a' }, admission: `${LIFTED_ADMISSION}:${stop}` }),
+      expect.objectContaining({ cardVersion: CARD_VERSION, prevAdmissionId: null, prevTextSha: null }),
+      expect.objectContaining({ cardVersion: CARD_VERSION, plan: { plan: 'P-1', item: 'a' }, admission: `${LIFTED_ADMISSION}:${stop}` }),
     ])
   })
 

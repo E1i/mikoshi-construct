@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { FACTORY_FOLDERS } from '../../../scripts/core/factory-paths.js'
-import { PREFIX_SUFFIX } from '../../card/task-file.js'
+import { PREFIX_SUFFIX } from '../../../scripts/policy/touch-scope.js'
 
 export const SHARED_CODE_DIRECTORIES = [
   ...FACTORY_FOLDERS.sharedCode,

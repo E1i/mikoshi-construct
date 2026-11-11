@@ -1,6 +1,6 @@
 import { readdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
-import { CREATES_KINDS, parseCreatesEntry } from '../../../src/card/parking.js'
+import { CREATES_KINDS, parseCreatesEntry } from '../touch-scope.js'
 
 export class MissingSnapshotFileError extends Error {}
 

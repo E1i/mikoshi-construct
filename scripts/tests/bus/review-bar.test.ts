@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs'
 import { afterEach, describe, expect, it } from 'vitest'
 import { parkingFileText, parseParkingFile } from '../../../src/card/parking.js'
 import { RISK_LEVELS } from '../../../src/card/risk.js'
-import { cardRiskOf, followsTouches, neverFollows } from '../../../src/commands/intake/check.js'
+import { cardRiskOf } from '../../../src/commands/intake/check.js'
 import { admittedRecord } from '../../../src/commands/intake/index.js'
 import { appendCardEvent, WINDOW_LANE } from '../../core/card-bodies.js'
 import { REVIEW_RECORDED } from '../../core/events.js'
@@ -14,6 +14,7 @@ import { passOnSurvivingMutations } from '../../nodes/review/review-executor.js'
 import { ReviewWorker } from '../../nodes/review/review-worker.js'
 import { ADVICE_LINE, REVIEW_BAR_LINE, reviewOf, reviewPrompt } from '../../nodes/review/reviewer.js'
 import { classify } from '../../policy/morse/rules.js'
+import { followsTouches, neverFollows } from '../../policy/touch-scope.js'
 import { cardBody, sha } from './github-fake.js'
 import { eventsOf, liveBench } from './merge-bench.js'
 
@@ -117,7 +118,6 @@ describe('a file outside the touches, first bar', () => {
   })
 
   it.each([
-    'src/materialize/factory-manifest.ts',
     'templates/attach/earlier-carriers.json',
   ])('the generated %s on an R1 path never follows and stays a finding', (file) => {
     const plan = firstPlan(file)

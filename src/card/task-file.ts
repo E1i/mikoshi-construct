@@ -1,4 +1,5 @@
 import type { Card } from './grammar.js'
+import { PREFIX_SUFFIX } from '../../scripts/policy/touch-scope.js'
 import { parseCard } from './grammar.js'
 
 export const CONTINUE_MODES = ['auto', 'stop'] as const
@@ -23,7 +24,6 @@ const REQUIRED_KEYS = ['card', 'branch', 'touches'] as const
 const KEYS = [...REQUIRED_KEYS, 'continue'] as const
 const DEFAULT_CONTINUE: ContinueMode = 'stop'
 const HEADER_LINE = /^([a-z]+):(.*)$/
-export const PREFIX_SUFFIX = '/**'
 
 function refused(file: string, reason: string): ParsedTaskFile {
   return { kind: 'refused', reason: `${file}: ${reason}` }

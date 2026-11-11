@@ -1,8 +1,9 @@
 import type { LayerMap } from '../core/layer-map.js'
 import path from 'node:path'
-import { DECLARED_PATH_READERS, EVERY_CHANGE_READERS, isTest, NAMED_READERS, PACKAGE_MANIFEST, PACKAGE_SCRIPT_READERS, SCANNED_TREES, TEST_ROOTS } from '../../src/card/covering-tests.js'
+import { DECLARED_PATH_READERS, EVERY_CHANGE_READERS, NAMED_READERS, PACKAGE_MANIFEST, PACKAGE_SCRIPT_READERS, SCANNED_TREES } from '../../src/card/covering-tests.js'
 import { FACTORY_FOLDERS, FACTORY_NAMED } from '../core/factory-paths.js'
 import { declaredLayersIn, globalRunReason, isCheckPipeline, isDocument, isRecord, layersInOf, repositoryLayerMap } from '../core/layer-map.js'
+import { isTest, TEST_ROOTS } from '../policy/touch-scope.js'
 import { scansATree } from './tree-scanners.js'
 
 export { isTest }

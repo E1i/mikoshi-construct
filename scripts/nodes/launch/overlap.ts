@@ -1,6 +1,6 @@
 import type { ShiftTask } from '../../../src/card/task-file.js'
 import { touchesWithoutRuns } from '../../../src/card/covering-tests.js'
-import { PREFIX_SUFFIX } from '../../../src/card/task-file.js'
+import { PREFIX_SUFFIX } from '../../policy/touch-scope.js'
 
 export interface OpenPr {
   number: number

@@ -5,14 +5,14 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { pathsOutside, runsLine, TestCoverage } from '../../../src/card/covering-tests.js'
+import { runsLine, TestCoverage } from '../../../src/card/covering-tests.js'
 import { parkingFileText } from '../../../src/card/parking.js'
 import { riskOf } from '../../../src/card/risk.js'
-import { followsTouches, neverFollows, rootCopyOf } from '../../../src/commands/intake/check.js'
 import { TOUCHES_FOLLOWED } from '../../core/events.js'
 import { AnswerOutsideTouches, claudeAnswerer, followedEvent } from '../../nodes/answer/answerer.js'
 import { runTreePr } from '../../nodes/launch/tree-pr-cli.js'
 import { touchesFollowed, treePr } from '../../nodes/launch/tree-pr.js'
+import { followsTouches, neverFollows, pathsOutside, rootCopyOf } from '../../policy/touch-scope.js'
 
 const CARD_ID = 1207
 const TOUCHED_MODULE = 'src/widget.ts'
@@ -392,7 +392,7 @@ describe('the following table', () => {
     ['.github/workflows/ci.yml', true],
     ['.changeset/config.json', true],
     [INTAKE_RECORD, true],
-    ['src/materialize/factory-manifest.ts', true],
+    ['src/materialize/plan.ts', true],
     [SURFACE, false],
     [COVERING_TEST, false],
   ])('%s never follows the touches: %s', (file, never) => {

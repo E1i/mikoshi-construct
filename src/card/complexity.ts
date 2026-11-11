@@ -1,7 +1,7 @@
 import type { SliceSources } from './slice-depends.js'
 import { FACTORY_FORMER_FOLDERS } from '../../scripts/core/factory-paths.js'
+import { PREFIX_SUFFIX } from '../../scripts/policy/touch-scope.js'
 import { GENERATED_WITH, groupsOf, riskReading, SEAM_PREFIX, sliceLine } from './risk.js'
-import { PREFIX_SUFFIX } from './task-file.js'
 
 export const AREAS = ['mechanism', 'prompts', 'templates', 'documents', 'generated'] as const
 export const SIGNALS = ['touches', 'self', 'generated', 'unclear'] as const

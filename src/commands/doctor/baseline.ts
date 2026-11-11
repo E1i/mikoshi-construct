@@ -1,15 +1,22 @@
 import type { Manifest } from '../../manifest.js'
+import type { AiTarget } from '../../presets/index.js'
 import { existsSync } from 'node:fs'
 import path from 'node:path'
+import { FACTORY_MANIFEST } from '../../../scripts/policy/touch-scope.js'
 import { recordedShas, sha256 } from '../../manifest.js'
-import { factoryTargetsFor } from '../../materialize/factory-manifest.js'
-import { SUCCESSORS } from '../../presets/index.js'
+import { aiGroups, SUCCESSORS } from '../../presets/index.js'
 import { FileReadings } from './readings.js'
 
 export interface BaselineVerdict {
   missingFiles: string[]
   movedFiles: string[]
   modifiedFiles: string[]
+}
+
+const FACTORY_RUNTIME_GROUP = 'ai/claude'
+
+export function factoryTargetsFor(ai: AiTarget): string[] {
+  return aiGroups(ai).includes(FACTORY_RUNTIME_GROUP) ? [...FACTORY_MANIFEST] : []
 }
 
 export function baselineVerdict(root: string, manifest: Manifest, readings: FileReadings = new FileReadings(root)): BaselineVerdict {

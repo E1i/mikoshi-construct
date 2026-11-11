@@ -16,7 +16,7 @@ const ADDED_TEST = 'tests/widget-more.test.ts'
 const UNRELATED_TEST = 'tests/other.test.ts'
 const TEST_HELPER = 'tests/helper.ts'
 const IMPORTS_THE_TOUCH = 'import { widget } from \'../src/widget.js\'\n\nexport const twice = widget * 2\n'
-const GUARDED_TWIN = 'src/materialize/factory-manifest.ts'
+const GUARDED_TWIN = 'scripts/policy/touch-scope.ts'
 const GUARDED_TWIN_SOURCE = 'architecture/decisions/window-allow-merge.md'
 
 const roots: string[] = []
@@ -124,7 +124,7 @@ describe('the fence and the review reach one verdict on what follows the touches
     expect(reviewFindings(tree, [TOUCHED_MODULE, TEST_HELPER], [TOUCHED_MODULE])).toEqual([`${TEST_HELPER} is outside the touches of card #${CARD_ID} (${TOUCHED_MODULE})`])
   })
 
-  it('a twin the table generates but the fence guards stays outside in both readers', () => {
+  it('the home of the factory manifest does not follow a card that touches a path it lists, in both readers', () => {
     const tree = treeWithHead({ [GUARDED_TWIN]: 'export const manifest = 2\n' })
 
     expect(fenceAtHead(tree, [GUARDED_TWIN], [GUARDED_TWIN_SOURCE])).toEqual({ followed: [], outside: [GUARDED_TWIN] })
