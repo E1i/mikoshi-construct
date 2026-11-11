@@ -8,7 +8,7 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { textSha } from '../../../src/card/text-sha.js'
 import { appendEvent } from '../../core/db.js'
-import { BOARD_ALARM, CARD_ADMITTED, CARD_STARTED, CARD_STOPPED, OWNER_WAIT_OPENED, QUESTION_OWNER } from '../../core/events.js'
+import { BOARD_ALARM, CARD_ADMITTED, CARD_STARTED, CARD_STOPPED, DECISION_RECORDED, OWNER_WAIT_OPENED, QUESTION_OWNER } from '../../core/events.js'
 import { leaseNext } from '../../core/lease.js'
 import { FAILURES_TO_STOP, queueTask, REVIEW_ROUNDS } from '../../core/queue.js'
 import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
@@ -31,6 +31,7 @@ afterEach(() => {
 interface Card {
   made: MergeBench
   executor: AnswerExecutor
+  decide: () => void
   lease: () => Lease | null
 }
 
@@ -55,7 +56,13 @@ function cardWhoseAnswerLeavesNothing(ends: AnswerEnd[] = []): Card {
   const answerer: Answerer = async () => ({ session: SESSION, resumed: true, before: sha('a'), after: sha('a'), owner: null })
   const dirty = (): boolean => ends.shift() === 'dirty'
   const executor = new AnswerExecutor({ db: made.db, answerer, ownerMerges: () => '', clock: made.clock.now, trees: cardTrees, dirty, liveSession: () => null })
-  return { made, executor, lease: () => leaseNext(made.db, made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1') }
+  let decided = 0
+  const decide = (): void => {
+    decided += 1
+    appendEvent(made.db, { ts: made.clock.now().toISOString(), type: DECISION_RECORDED, actor: 'owner', cardId: null, pr: null, head: null, dedupeKey: `${DECISION_RECORDED}:${decided}`, payload: { source: 'owner', decision_id: 900 + decided, text: `#${CARD}: answer it again`, scope: [CARD] }, legacy: false })
+    made.tick()
+  }
+  return { made, executor, decide, lease: () => leaseNext(made.db, made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1') }
 }
 
 function answerTask(made: MergeBench): { state: string, failures: number } {
@@ -74,12 +81,14 @@ describe('an answer that ends with no new commit, no owner question and a clean 
     expect(card.lease()).not.toBeNull()
   })
 
-  it('past the round limit a faulted answer opens an owner wait with its cause', async () => {
+  it('past the round limit, with the owner deciding between empty rounds, a faulted answer opens an owner wait with its cause', async () => {
     const card = cardWhoseAnswerLeavesNothing()
 
     const outcomes = []
-    for (let attempt = 1; attempt <= REVIEW_ROUNDS; attempt++)
+    for (let attempt = 1; attempt <= REVIEW_ROUNDS; attempt++) {
       outcomes.push(await card.executor.answer(card.lease()!))
+      card.decide()
+    }
 
     expect(outcomes.map(outcome => outcome.kind)).toEqual([...Array.from({ length: REVIEW_ROUNDS - 1 }).fill('denied'), 'stopped'])
     expect(outcomes.at(-1)).toMatchObject({ kind: 'stopped', reason: QUESTION_OWNER, detail: expect.stringContaining('review round limit') as unknown })
@@ -100,6 +109,7 @@ describe('an answer that ends with no new commit, no owner question and a clean 
     const card = cardWhoseAnswerLeavesNothing(['empty', 'dirty', 'empty'])
 
     expect(await card.executor.answer(card.lease()!)).toMatchObject({ kind: 'denied', denial: { reason: 'left_nothing', detail: expect.stringContaining(`empty answer 1 of the review round limit ${REVIEW_ROUNDS}`) as unknown } })
+    card.decide()
     expect(await card.executor.answer(card.lease()!)).toMatchObject({ kind: 'denied', denial: { reason: 'answer_failed' } })
     const last = await card.executor.answer(card.lease()!)
 
