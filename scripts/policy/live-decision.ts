@@ -1,4 +1,4 @@
-import type { InForceDecision } from './decisions.js'
+import type { InForceDecision } from './decisions/index.js'
 import { decisionCommand, OWNER_SOURCE } from './decisions/decisions.js'
 
 const OWNER_PREFIX = `${OWNER_SOURCE.replace(/[[\]]/g, '\\$&')} `

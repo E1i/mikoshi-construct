@@ -1,5 +1,5 @@
-import type { OwnerDecision } from '../../policy/decisions.js'
 import type { DecisionRow } from '../../policy/decisions/decisions.js'
+import type { OwnerDecision } from '../../policy/decisions/index.js'
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'

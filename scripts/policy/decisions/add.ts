@@ -1,6 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
-import type { OwnerDecision } from '../decisions.js'
 import type { Decision } from './decisions.js'
+import type { OwnerDecision } from './index.js'
 import { closeSync, openSync, readFileSync, realpathSync, rmSync, writeSync } from 'node:fs'
 import os from 'node:os'
 import process from 'node:process'

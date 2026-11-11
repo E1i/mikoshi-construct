@@ -58,7 +58,6 @@ const SITES_OF_THE_RECONNAISSANCE: Record<string, readonly string[]> = {
     'scripts/supervisor/start.ts',
     'src/commands/doctor/factory.ts',
     'scripts/nodes/close/task-close.ts',
-    'scripts/policy/decisions/read.ts',
     'scripts/core/bus-path.ts',
   ],
   'handoff-status': ['src/commands/doctor/factory.ts'],

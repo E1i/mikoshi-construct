@@ -1,4 +1,4 @@
-import type { InForceDecision } from '../../policy/decisions.js'
+import type { InForceDecision } from '../../policy/decisions/index.js'
 import type { BgResult, DetachedLaunch, ProcessList, RunningProcess } from '../../supervisor/bg.js'
 import type { BusCode, MainAdvance, SupervisingParts } from '../../supervisor/supervisor.js'
 import { once } from 'node:events'

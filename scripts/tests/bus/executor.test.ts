@@ -7,7 +7,7 @@ import { assertHeld, completeTask, expireLeases, failTask, LEASE_MS, leaseNext, 
 import { FAILURES_TO_STOP, keyOf, queueTask } from '../../core/queue.js'
 import { projectionDump, reduce } from '../../core/reducer.js'
 import { importJournal } from '../../intake/import.js'
-import { recordDecision } from '../../policy/decisions.js'
+import { recordDecision } from '../../policy/decisions/index.js'
 import { cardBody, MAIN_2, sha } from './github-fake.js'
 import { eventCount, eventsOf, liveBench, spendReviewRounds, taskState } from './merge-bench.js'
 

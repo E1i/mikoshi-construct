@@ -27,7 +27,7 @@ import { answerSourceOf, NO_RECORDED_SESSION } from '../../nodes/answer/answer-s
 import { AnswerNode, runAnswerWorker, VERDICT_NOT_RECORDED } from '../../nodes/answer/answer-worker.js'
 import { claudeAnswerer, ownerQuestionPath } from '../../nodes/answer/answerer.js'
 import { treeMergeOf } from '../../nodes/answer/duties/index.js'
-import { recordDecision } from '../../policy/decisions.js'
+import { recordDecision } from '../../policy/decisions/index.js'
 import { cardDecisionCommand, cardDecisionLines } from '../../policy/shards.js'
 import { transcriptFile } from '../../ports/client/claude/adapter.js'
 import { readBoard } from '../../window/board.js'

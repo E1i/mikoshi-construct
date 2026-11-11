@@ -1,9 +1,9 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { BusEvent } from '../core/db.js'
-import type { InForceDecision } from './decisions.js'
+import type { InForceDecision } from './decisions/index.js'
 import { SHARD_EXPIRED, SHARD_ISSUED, SHARD_REVOKED, SHARD_USED } from '../core/events.js'
-import { inForceDecisions } from './decisions.js'
 import { decisionCommand, lapsed, termOf, visibleToCard } from './decisions/decisions.js'
+import { inForceDecisions } from './decisions/index.js'
 
 export const WINDOW_SHARD_HOURS = 6
 export const DECISIONS_SCOPE = 'merge+decisions'

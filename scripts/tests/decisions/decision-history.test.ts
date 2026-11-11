@@ -2,7 +2,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import { afterEach, describe, expect, it } from 'vitest'
 import { appendEvent, openBus } from '../../core/db.js'
 import { reduce } from '../../core/reducer.js'
-import { decisionHistory, decisionRows, inForceDecisions, recordDecision, recordedNumbers, startProjectingDecisions } from '../../policy/decisions.js'
+import { decisionHistory, decisionRows, inForceDecisions, recordDecision, recordedNumbers, startProjectingDecisions } from '../../policy/decisions/index.js'
 
 const RECORDED_AT = '2026-10-11T16:48:41.490Z'
 const SECOND_AT = '2026-10-12T04:27:41.909Z'

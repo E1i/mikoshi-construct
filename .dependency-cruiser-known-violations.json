@@ -415,8 +415,8 @@
   {
     "type": "dependency",
     "from": "scripts/core/reducer.ts",
-    "to": "scripts/policy/decisions.ts",
-    "unresolvedTo": "../policy/decisions.js",
+    "to": "scripts/policy/decisions/index.ts",
+    "unresolvedTo": "../policy/decisions/index.js",
     "dependencyTypes": [
       "local",
       "import"
