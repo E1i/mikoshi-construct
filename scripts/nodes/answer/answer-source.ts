@@ -1,6 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { Lease } from '../../core/lease.js'
-import type { InForceDecision } from '../../policy/decisions.js'
+import type { InForceDecision } from '../../policy/decisions/index.js'
 import { CARD_BODIES } from '../../core/card-bodies.js'
 import { decisionOfKey } from '../../core/card-decisions.js'
 import { cardHoldOf } from '../../core/card-hold.js'

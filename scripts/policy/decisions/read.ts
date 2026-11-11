@@ -4,13 +4,12 @@ import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { closedFromBus, mergedFromBus } from '../../../src/card/closed.js'
-import { decisionsFileOf } from '../../core/bus-path.js'
 import { defaultBusPath } from '../../core/db.js'
 import { busHistory } from '../../core/journal.js'
 import { pnpmCommand } from '../../core/owner-commands.js'
 import { busCardStates } from '../../core/tasks.js'
 import { CARD_VARIABLE } from '../../ports/session.js'
-import { calendarTerm, decisionsFindings, decisionsRefusals, inForce, parseDecisions, PREFIX, settleSupersedes, spentByCards, visibleToCard } from './decisions.js'
+import { calendarTerm, decisionsFileOf, decisionsFindings, decisionsRefusals, inForce, parseDecisions, PREFIX, settleSupersedes, spentByCards, visibleToCard } from './decisions.js'
 
 export const USAGE = `usage: ${pnpmCommand('decisions', '[<owner-decisions.md>]')}`
 

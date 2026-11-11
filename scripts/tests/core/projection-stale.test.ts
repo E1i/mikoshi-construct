@@ -10,7 +10,7 @@ import { CARD_STARTED, CARD_STOPPED, DECISION_RECORDED, OWNER_WAIT_OPENED, QUEST
 import { runInbox } from '../../core/inbox.js'
 import { OWNER_WAIT_FOLDS, reduce, REDUCED_TYPES, SNAPSHOT } from '../../core/reducer.js'
 import { watermarkOf } from '../../core/watermark.js'
-import { currentDecisions, DECISION_FOLDS, inForceDecisions, recordDecision } from '../../policy/decisions.js'
+import { currentDecisions, DECISION_FOLDS, inForceDecisions, recordDecision } from '../../policy/decisions/index.js'
 
 const TS = '2026-11-09T08:02:45.000Z'
 const CARD = 7

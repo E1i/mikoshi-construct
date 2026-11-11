@@ -8,7 +8,7 @@ import { CARD_ADMITTED, CARD_STARTED, CARD_STOPPED, OWNER_WAIT_OPENED, POLICY_DE
 import { leaseNext } from '../../core/lease.js'
 import { AnswerExecutor, questionAskedTwiceLine } from '../../nodes/answer/answer-executor.js'
 import { claudeAnswerer, ownerQuestionPath } from '../../nodes/answer/answerer.js'
-import { recordDecision } from '../../policy/decisions.js'
+import { recordDecision } from '../../policy/decisions/index.js'
 import { sha } from './github-fake.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
 

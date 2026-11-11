@@ -1,4 +1,4 @@
-import type { InForceDecision } from '../../policy/decisions.js'
+import type { InForceDecision } from '../../policy/decisions/index.js'
 import type { MergeFacts } from '../../policy/policy.js'
 import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'

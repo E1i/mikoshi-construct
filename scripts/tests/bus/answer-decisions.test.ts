@@ -15,7 +15,7 @@ import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
 import { answerSourceOf } from '../../nodes/answer/answer-source.js'
 import { claudeAnswerer, ownerQuestionPath, windowGateRule } from '../../nodes/answer/answerer.js'
 import { answerPrompt } from '../../nodes/answer/duties/index.js'
-import { recordDecision } from '../../policy/decisions.js'
+import { recordDecision } from '../../policy/decisions/index.js'
 import { sha } from './github-fake.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
 
