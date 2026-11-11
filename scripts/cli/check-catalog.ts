@@ -18,7 +18,7 @@ import { scansATree, walksATree } from '../ci/tree-scanners.js'
 import { BUS_DB_VARIABLE, BUSY_TIMEOUT_MS, defaultBusPath } from '../core/db.js'
 import { GHOST_LINE, POLICY_DENIED } from '../core/events.js'
 import { FACTORY_FOLDERS } from '../core/factory-paths.js'
-import { DOCS_LAYER, isTestInfrastructure, LAYER_MAP, layerOf, layersInOf, layersOf, layersReachedByImports, readLayerMap, recordsOf } from '../core/layer-map.js'
+import { DOCS_LAYER, isTestFixture, isTestInfrastructure, LAYER_MAP, layerOf, layersInOf, layersOf, layersOfTestFixture, layersReachedByImports, readLayerMap, recordsOf } from '../core/layer-map.js'
 import { legacyHistory } from '../core/legacy-history.js'
 import { openDatabase } from '../core/sqlite.js'
 import { cardBodies } from '../intake/parking-reads.js'
@@ -400,7 +400,7 @@ export function rebuildCatalogAt(ref: string, busPath: string, repo: string = RE
 }
 
 function placedLayers(file: string, byTest: ReadonlyMap<string, readonly string[]>, map: LayerMap): readonly string[] | null {
-  const layers = isTest(file) ? byTest.get(file) ?? [] : layersInOf(map, file)
+  const layers = isTest(file) ? byTest.get(file) ?? [] : isTestFixture(file) ? layersOfTestFixture(file, byTest) : layersInOf(map, file)
   return layers.length === 0 ? null : layers
 }
 
