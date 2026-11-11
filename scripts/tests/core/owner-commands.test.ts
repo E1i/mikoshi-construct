@@ -5,7 +5,7 @@ import path from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
 import { CONCEPTS } from '../../contract/factory/concepts.js'
 import { findSites } from '../../contract/factory/overlaps.js'
-import { ADMIT_COMMAND, constructCommand, pnpmCommand } from '../../core/owner-commands.js'
+import { ADMIT_COMMAND, constructCommand, npxConstructCommand, pnpmCommand, QUALITY_COMMAND } from '../../core/owner-commands.js'
 import { admitCommandOf } from '../../core/queue.js'
 
 const REPO_ROOT = path.join(import.meta.dirname, '..', '..', '..')
@@ -63,6 +63,8 @@ describe('the owner of owner commands', () => {
     expect(pnpmCommand('board')).toBe('pnpm board')
     expect(constructCommand('doctor', '--dir', '.')).toBe('construct doctor --dir .')
     expect(constructCommand('intake', '--admit', 1797)).toBe('construct intake --admit 1797')
+    expect(npxConstructCommand('attach', '--dir', '\'/tmp/a b\'')).toBe('npx mikoshi-construct attach --dir \'/tmp/a b\'')
+    expect(QUALITY_COMMAND).toBe('pnpm run quality')
   })
 
   it('holds the admit command the queue tells the owner to run, with or without a lane', () => {
