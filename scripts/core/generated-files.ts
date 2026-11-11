@@ -69,14 +69,6 @@ export const GENERATED_FILES = {
     seamSources: null,
     followSources: ['templates'],
   },
-  factoryManifest: {
-    path: 'src/materialize/factory-manifest.ts',
-    rebuild: null,
-    check: null,
-    rebuiltOnUpdate: false,
-    seamSources: null,
-    followSources: null,
-  },
 } as const satisfies Record<string, GeneratedFile>
 
 export const RATCHET_FILE = {

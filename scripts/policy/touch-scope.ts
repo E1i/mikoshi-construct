@@ -238,7 +238,6 @@ export const FOLLOWING_TABLE: readonly FollowingRow[] = [
   { kind: 'the factory contract', follows: generatedFrom(GENERATED_FILES.factory.path, GENERATED_FILES.factory.followSources) },
   { kind: 'the add population', follows: generatedFrom(GENERATED_FILES.addPopulation.path, GENERATED_FILES.addPopulation.followSources) },
   { kind: 'the self-hosting drift list', follows: generatedFrom(GENERATED_FILES.selfHostingDrift.path, GENERATED_FILES.selfHostingDrift.followSources) },
-  { kind: 'the factory manifest', follows: generatedFrom(GENERATED_FILES.factoryManifest.path, FACTORY_MANIFEST) },
   { kind: 'a root self-hosting copy', follows: (file, reach) => reach.touches.some((touch) => {
     const copy = rootCopyOf(touch)
     return copy !== null && entryCovers(copy, file)

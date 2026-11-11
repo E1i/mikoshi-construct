@@ -392,7 +392,7 @@ describe('the following table', () => {
     ['.github/workflows/ci.yml', true],
     ['.changeset/config.json', true],
     [INTAKE_RECORD, true],
-    ['src/materialize/factory-manifest.ts', true],
+    ['src/materialize/plan.ts', true],
     [SURFACE, false],
     [COVERING_TEST, false],
   ])('%s never follows the touches: %s', (file, never) => {

@@ -118,7 +118,6 @@ describe('a file outside the touches, first bar', () => {
   })
 
   it.each([
-    'src/materialize/factory-manifest.ts',
     'templates/attach/earlier-carriers.json',
   ])('the generated %s on an R1 path never follows and stays a finding', (file) => {
     const plan = firstPlan(file)

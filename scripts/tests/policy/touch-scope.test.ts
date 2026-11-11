@@ -1,9 +1,10 @@
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import * as coveringTests from '../../../src/card/covering-tests.js'
 import * as intakeCheck from '../../../src/commands/intake/check.js'
-import { followsTouches, narrowestMask, pathsIn, pathsOutside, runsCover } from '../../policy/touch-scope.js'
+import { GENERATED_FILES } from '../../core/generated-files.js'
+import { FACTORY_MANIFEST, FOLLOWING_TABLE, followsTouches, narrowestMask, pathsIn, pathsOutside, runsCover } from '../../policy/touch-scope.js'
 
 const REPOSITORY = path.resolve(import.meta.dirname, '..', '..', '..')
 const TOUCH_SCOPE = path.join(REPOSITORY, 'scripts', 'policy', 'touch-scope.ts')
@@ -36,5 +37,11 @@ describe('the touch scope of a card is decided in scripts/policy/touch-scope.ts,
   it('names the narrowest mask that holds a file, and none when no mask holds it', () => {
     expect(narrowestMask('scripts/tests/bus/a.test.ts', ['scripts/tests/**', 'scripts/tests/bus/**'])).toBe('scripts/tests/bus/**')
     expect(narrowestMask('tests/a.test.ts', ['scripts/tests/**'])).toBeUndefined()
+  })
+
+  it('lets no path follow the touches that the repository does not hold, and the manifest list follows no card', () => {
+    expect(Object.values(GENERATED_FILES).map(row => row.path).filter(file => !existsSync(path.join(REPOSITORY, file)))).toEqual([])
+    expect(FOLLOWING_TABLE.map(row => row.kind)).not.toContain('the factory manifest')
+    expect(FACTORY_MANIFEST.some(listed => followsTouches(path.relative(REPOSITORY, TOUCH_SCOPE), { ...NO_REACH, touches: [listed] }))).toBe(false)
   })
 })

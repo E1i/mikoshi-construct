@@ -433,12 +433,10 @@ describe('intake fact check', () => {
     expect(Object.keys(companionCases).sort()).toEqual(COMPANION_TABLE.filter(row => 'companions' in row).map(row => row.kind).sort())
   })
 
-  it('the factory manifest follows a card whose touches reach a path it lists', () => {
-    const followsWith = (touches: string[]): boolean => followsTouches('src/materialize/factory-manifest.ts', { touches, added: new Set(), compositionRecords: [] })
-    expect(FACTORY_MANIFEST.every(listed => followsWith([listed]))).toBe(true)
-    expect(followsWith(['scripts/construct/**'])).toBe(true)
-    expect(followsWith(['scripts/construct/other.mjs'])).toBe(false)
-    expect(followsWith(['src/commands/intake/check.ts'])).toBe(false)
+  it('the home of the factory manifest follows no card, whatever path of the list its touches reach', () => {
+    const followsWith = (touches: string[]): boolean => followsTouches('scripts/policy/touch-scope.ts', { touches, added: new Set(), compositionRecords: [] })
+    expect(FACTORY_MANIFEST.some(listed => followsWith([listed]))).toBe(false)
+    expect(followsWith(['scripts/construct/**'])).toBe(false)
   })
 
   it('the fence and intake read one table: a following row adds nothing to a card at intake', () => {
@@ -447,7 +445,7 @@ describe('intake fact check', () => {
     const [checked] = checkDraft([draftCard({ touches })], [2], facts({ repository: new DirectoryFacts(dir, '') }))
     expect(followsTouches('contract/surface.json', { touches, added: new Set(), compositionRecords: [] })).toBe(true)
     expect(checked!.touches).toEqual(touches)
-    expect(COMPANION_TABLE.map(row => row.kind)).toEqual(expect.arrayContaining(['source code', 'the factory manifest']))
+    expect(COMPANION_TABLE.map(row => row.kind)).toEqual(expect.arrayContaining(['source code', 'the factory contract']))
   })
 
   for (const [kind, { repository: files, touches, added }] of Object.entries(companionCases)) {
