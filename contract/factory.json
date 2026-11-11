@@ -2717,7 +2717,7 @@
         "cells": {
           "answer": {
             "gap": [
-              1814
+              1823
             ]
           },
           "close": {
@@ -2728,7 +2728,7 @@
           },
           "launch": {
             "gap": [
-              1814
+              1823
             ]
           },
           "merge": {
@@ -2754,7 +2754,7 @@
           },
           "witness": {
             "gap": [
-              1814
+              1823
             ]
           }
         },
@@ -2785,12 +2785,12 @@
           },
           "review": {
             "gap": [
-              1814
+              1823
             ]
           },
           "supervisor": {
             "gap": [
-              1814
+              1823
             ]
           },
           "update": {
@@ -2798,12 +2798,12 @@
           },
           "window": {
             "gap": [
-              1814
+              1823
             ]
           },
           "witness": {
             "gap": [
-              1814
+              1823
             ]
           }
         },
@@ -2816,7 +2816,7 @@
           },
           "close": {
             "gap": [
-              1814
+              1823
             ]
           },
           "intake": {
@@ -2829,7 +2829,7 @@
           },
           "merge": {
             "gap": [
-              1814
+              1784
             ]
           },
           "netwatch": {
@@ -2837,12 +2837,12 @@
           },
           "restart": {
             "gap": [
-              1814
+              1823
             ]
           },
           "review": {
             "gap": [
-              1814
+              1823
             ]
           },
           "supervisor": {
@@ -2850,7 +2850,7 @@
           },
           "update": {
             "gap": [
-              1814
+              1823
             ]
           },
           "window": {
@@ -2858,7 +2858,7 @@
           },
           "witness": {
             "gap": [
-              1814
+              1823
             ]
           }
         },
@@ -2867,21 +2867,18 @@
       "Z4": {
         "cells": {
           "answer": {
-            "gap": [
-              1740,
-              1814
-            ]
+            "witness": "Z4-live-session-wait-lifted"
           },
           "close": {
             "gap": [
               1740,
-              1814
+              1823
             ]
           },
           "intake": {
             "gap": [
               1740,
-              1814
+              1823
             ]
           },
           "launch": {
@@ -2893,7 +2890,7 @@
           "merge": {
             "gap": [
               1740,
-              1814
+              1823
             ]
           },
           "netwatch": {
@@ -2902,13 +2899,13 @@
           "restart": {
             "gap": [
               1740,
-              1814
+              1823
             ]
           },
           "review": {
             "gap": [
               1740,
-              1814
+              1823
             ]
           },
           "supervisor": {
@@ -2917,19 +2914,19 @@
           "update": {
             "gap": [
               1740,
-              1814
+              1823
             ]
           },
           "window": {
             "gap": [
               1740,
-              1814
+              1823
             ]
           },
           "witness": {
             "gap": [
               1740,
-              1814
+              1823
             ]
           }
         },
@@ -2939,25 +2936,23 @@
         "cells": {
           "answer": {
             "gap": [
-              1814
+              1823
             ]
           },
           "close": {
             "gap": [
-              1814
+              1823
             ]
           },
           "intake": {
             "notApplicable": "intake launches nothing; it admits a card the launch node later starts"
           },
           "launch": {
-            "gap": [
-              1814
-            ]
+            "witness": "Z5-every-launch-writes-its-event"
           },
           "merge": {
             "gap": [
-              1814
+              1823
             ]
           },
           "netwatch": {
@@ -2965,12 +2960,12 @@
           },
           "restart": {
             "gap": [
-              1814
+              1823
             ]
           },
           "review": {
             "gap": [
-              1814
+              1823
             ]
           },
           "supervisor": {
@@ -2978,7 +2973,7 @@
           },
           "update": {
             "gap": [
-              1814
+              1823
             ]
           },
           "window": {
@@ -2986,7 +2981,7 @@
           },
           "witness": {
             "gap": [
-              1814
+              1823
             ]
           }
         },
@@ -2996,12 +2991,12 @@
         "cells": {
           "answer": {
             "gap": [
-              1814
+              1823
             ]
           },
           "close": {
             "gap": [
-              1814
+              1823
             ]
           },
           "intake": {
@@ -3009,12 +3004,12 @@
           },
           "launch": {
             "gap": [
-              1814
+              1823
             ]
           },
           "merge": {
             "gap": [
-              1814
+              1823
             ]
           },
           "netwatch": {
@@ -3022,12 +3017,12 @@
           },
           "restart": {
             "gap": [
-              1814
+              1823
             ]
           },
           "review": {
             "gap": [
-              1814
+              1823
             ]
           },
           "supervisor": {
@@ -3035,7 +3030,7 @@
           },
           "update": {
             "gap": [
-              1814
+              1823
             ]
           },
           "window": {
@@ -3043,7 +3038,7 @@
           },
           "witness": {
             "gap": [
-              1814
+              1823
             ]
           }
         },
@@ -3053,7 +3048,7 @@
         "cells": {
           "answer": {
             "gap": [
-              1814
+              1823
             ]
           },
           "close": {
@@ -3064,7 +3059,7 @@
           },
           "launch": {
             "gap": [
-              1814
+              1823
             ]
           },
           "merge": {
@@ -3072,7 +3067,7 @@
           },
           "netwatch": {
             "gap": [
-              1814
+              1823
             ]
           },
           "restart": {
@@ -3080,7 +3075,7 @@
           },
           "review": {
             "gap": [
-              1814
+              1823
             ]
           },
           "supervisor": {
@@ -3094,7 +3089,7 @@
           },
           "witness": {
             "gap": [
-              1814
+              1823
             ]
           }
         },

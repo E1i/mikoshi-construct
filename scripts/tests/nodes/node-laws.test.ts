@@ -26,8 +26,9 @@ import { printBoard } from '../../cli/board-page.js'
 import { NODE_DECLARATIONS } from '../../contract/factory/nodes.js'
 import { LAW_GAP_PREFIX, lawGapNumbers, ratchetBreaks, readRatchet } from '../../contract/ratchet.js'
 import { cardBodyText } from '../../core/card-bodies.js'
+import { HOLD_RECHECK_MS, LIVE_SESSION_IN_THE_TREE } from '../../core/card-hold.js'
 import { appendEvent, openBus } from '../../core/db.js'
-import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_CONTINUED, CARD_STARTED, CARD_STOPPED, CARD_WAITING, CI_RERUN_REQUESTED, OUTSIDE_TOUCHES, OWNER_WAIT_OPENED, PR_OPENED, SCOPE_WIDENED, SESSION_HEARTBEAT, WINDOW_HEARTBEAT } from '../../core/events.js'
+import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_CONTINUED, CARD_STARTED, CARD_STOPPED, CARD_WAITING, CI_RERUN_REQUESTED, OUTSIDE_TOUCHES, OWNER_WAIT_OPENED, PR_OPENED, REVIEW_RECORDED, SCOPE_WIDENED, SESSION_HEARTBEAT, TASK_RELEASED, WINDOW_HEARTBEAT } from '../../core/events.js'
 import { completeTask, leaseNext, recordWorkerStarted } from '../../core/lease.js'
 import { MachineSessions } from '../../core/machine-sessions.js'
 import { Node } from '../../core/node.js'
@@ -36,7 +37,7 @@ import { AnswerNode } from '../../nodes/answer/answer-worker.js'
 import { claudeAnswerer } from '../../nodes/answer/answerer.js'
 import { handoffBuilder, handoffWrittenSince, reportSince } from '../../nodes/launch/launch-root.js'
 import { LaunchNode } from '../../nodes/launch/launch-worker.js'
-import { ANSWER_STOP_SPENDS_NO_RESTART, CARD_WAIT_STATES, DIRECT_IMPORTER_WIDENED, gapRows, INFRASTRUCTURE_RETRIED, LAUNCH_BODY_FROM_LATEST_ADMISSION, LAUNCH_STOP_SPENDS_NO_CONTINUATION, LAW_CELLS, LAW_NODES, LAW_SITES, lawIds, LAWS, NO_HEAD_OF_LINE, NODE_WITNESSES_CALL_THEIR_NODE, RESTART_KEEPS_SESSION, REVIEW_KEEPS_SESSION_AND_LEAVES_NO_DESCENDANT, SESSION_BEAT_BESIDE_STALE_WINDOW, sourceOf } from '../../nodes/laws.js'
+import { ANSWER_STOP_SPENDS_NO_RESTART, CARD_WAIT_STATES, DIRECT_IMPORTER_WIDENED, EVERY_LAUNCH_WRITES_ITS_EVENT, gapRows, INFRASTRUCTURE_RETRIED, LAUNCH_BODY_FROM_LATEST_ADMISSION, LAUNCH_STOP_SPENDS_NO_CONTINUATION, LAW_CELLS, LAW_CELLS_WITNESSES, LAW_NODES, LAW_SITES, lawIds, LAWS, LIVE_SESSION_WAIT_LIFTED, MERGE_KEEPS_TO_THE_TOUCHES, NO_HEAD_OF_LINE, RESTART_KEEPS_SESSION, REVIEW_KEEPS_SESSION_AND_LEAVES_NO_DESCENDANT, SESSION_BEAT_BESIDE_STALE_WINDOW, sourceOf } from '../../nodes/laws.js'
 import { fullReview } from '../../nodes/review/review-depth.js'
 import { dryRun } from '../../nodes/review/review-worker.js'
 import { claudeReviewer, ReviewTrees } from '../../nodes/review/reviewer.js'
@@ -238,9 +239,11 @@ function scratchDir(prefix: string): string {
 }
 
 class RelaunchingStarter implements CardStarter, SessionContinuer {
+  started = 0
   continued = 0
 
   start(card: QueuedCard): CardStart {
+    this.started += 1
     return { kind: 'started', card: { session: `s-${card.cardId}`, worktree: `/trees/mc-${card.cardId}`, branch: `feat/card-${card.cardId}`, base: 'f'.repeat(40), pid: 4242, pgid: 4242 } }
   }
 
@@ -252,7 +255,7 @@ class RelaunchingStarter implements CardStarter, SessionContinuer {
   }
 }
 
-type AnswerNodeRun = AnswerNodeParts & Pick<AnswerParts, 'dirty' | 'liveSession' | 'prepare'>
+type AnswerNodeRun = AnswerNodeParts & Pick<AnswerParts, 'dirty' | 'liveSession' | 'prepare' | 'mergeMain'>
 
 async function runAnswerNode(parts: AnswerNodeRun): Promise<void> {
   const controller = new AbortController()
@@ -265,7 +268,9 @@ class UpdateNodeUnderWitness extends UpdateNode {
   }
 }
 
-async function usageLimitWaitsForItsReset(): Promise<void> {
+type LaunchCheck = (made: ReturnType<typeof mergeBench>, starter: RelaunchingStarter) => void
+
+async function usageLimitWaitsForItsReset(check: LaunchCheck = () => {}): Promise<void> {
   const made = mergeBench()
   try {
     appendEvent(made.db, { ts: made.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'policy', cardId: 1711, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:1711`, payload: { lane: 'lane-a', decision: 'auto', contour: 'cheap', depends: [], admission: 'admission-1711' }, legacy: false })
@@ -284,6 +289,7 @@ async function usageLimitWaitsForItsReset(): Promise<void> {
       throw new Error('a session that ended on the usage limit stopped as a fault')
     if (!eventsOf(made.db, CARD_WAITING).some(wait => wait.reason === 'usage-limit') || starter.continued !== 1)
       throw new Error('a session that ended on the usage limit was not launched again after its reset')
+    check(made, starter)
   }
   finally {
     made.close()
@@ -352,6 +358,72 @@ function abandonedRunIsRerun(): void {
   }
   finally {
     db.close()
+  }
+}
+
+async function everyLaunchWritesItsEvent(node: LawNode): Promise<void> {
+  if (node !== 'launch')
+    throw new Error(`no launch of the ${node} node is counted against its events`)
+  return usageLimitWaitsForItsReset((made, starter) => {
+    const starts = eventsOf(made.db, CARD_STARTED).length
+    const continuations = eventsOf(made.db, CARD_CONTINUED).length
+    if (starter.started !== 1 || starts !== starter.started || continuations !== starter.continued)
+      throw new Error(`launches and their events differ: ${starter.started} starts wrote ${starts} ${CARD_STARTED}, ${starter.continued} continuations wrote ${continuations} ${CARD_CONTINUED}`)
+  })
+}
+
+const HELD_CARD = 1754
+const HELD_PR = 1654
+
+async function liveSessionWaitIsRecordedAndLifted(node: LawNode): Promise<void> {
+  if (node !== 'answer')
+    throw new Error(`no wait of the ${node} node is wired to its record and the one who lifts it`)
+  const made = mergeBench()
+  try {
+    const trees = scratchDir('z4-answer-')
+    const worktree = path.join(trees, `mc-${HELD_CARD}`)
+    mkdirSync(worktree, { recursive: true })
+    const text = `card: #${HELD_CARD} a-held-card [implement/construct/S/cheap/auto] · depends — · blocks —\nbranch: feat/card-${HELD_CARD}\ntouches: scripts/a.ts\ncontinue: stop\nwho: shift\n\nAnswer it.\n`
+    const ts = (): string => made.clock.now().toISOString()
+    appendEvent(made.db, { ts: ts(), type: CARD_ADMITTED, actor: 'policy', cardId: HELD_CARD, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${HELD_CARD}`, payload: { lane: 'lane-a', decision: 'auto', contour: 'cheap', depends: [], admission: `admission-${HELD_CARD}` }, legacy: false })
+    appendEvent(made.db, { ts: ts(), type: CARD_STARTED, actor: 'worker:launch:launch-1', cardId: HELD_CARD, pr: null, head: null, dedupeKey: `${CARD_STARTED}:${HELD_CARD}`, payload: { session: 'card-session-1', worktree, branch: `feat/card-${HELD_CARD}`, base: sha('1') }, legacy: false })
+    made.gitHub.open({ number: HELD_PR, review: 'failure' })
+    appendEvent(made.db, { ts: ts(), type: REVIEW_RECORDED, actor: 'worker:review:worker-1', cardId: HELD_CARD, pr: HELD_PR, head: sha('a'), dedupeKey: `${REVIEW_RECORDED}:${HELD_CARD}:${sha('a')}`, payload: { head: sha('a'), verdict: 'changes', findings: [] }, legacy: false })
+    made.tick()
+    let live: string | null = `a live session runs in ${worktree}`
+    const answers: string[] = []
+    const answered = (): number => answers.length
+    const parts: AnswerNodeRun = {
+      db: made.db,
+      answerer: async () => {
+        answers.push('answer-session')
+        return { session: 'card-session-1', resumed: true, before: sha('a'), after: sha('e'), owner: null }
+      },
+      ownerMerges: () => '',
+      cardText: () => text,
+      clock: made.clock.now,
+      session: 'answer-node-1',
+      mode: 'live',
+      env: { [slotsVariable('answer')]: '1' },
+      trees: { home: path.join(trees, 'worktrees'), exists: existsSync, branchOf: () => `feat/card-${HELD_CARD}`, recreate: () => {}, bringTo: () => {} },
+      dirty: () => false,
+      liveSession: () => live,
+      prepare: () => {},
+      mergeMain: () => () => ({ kind: 'refused', why: 'no main in the bench' }),
+    }
+    await runAnswerNode(parts)
+    const record = eventsOf(made.db, TASK_RELEASED).find(wait => wait.reason === LIVE_SESSION_IN_THE_TREE)
+    if (answered() !== 0 || record === undefined || typeof record.until !== 'string')
+      throw new Error('an answer held by a live session in the card tree left no wait record with its until')
+    live = null
+    made.clock.advance(HOLD_RECHECK_MS)
+    made.tick()
+    await runAnswerNode(parts)
+    if (answered() !== 1 || eventsOf(made.db, CARD_ANSWERED).length !== 1)
+      throw new Error('the answer wait was not lifted once the live session in the card tree ended')
+  }
+  finally {
+    made.close()
   }
 }
 
@@ -620,6 +692,8 @@ const WITNESSES: Witnesses = {
   [REVIEW_KEEPS_SESSION_AND_LEAVES_NO_DESCENDANT]: { law: 'Z1', run: reviewKeepsSessionAndLeavesNoDescendant },
   [INFRASTRUCTURE_RETRIED]: { law: 'Z2', run: infrastructureFailureIsRetried },
   [DIRECT_IMPORTER_WIDENED]: { law: 'Z3', run: directImporterWidened },
+  [LIVE_SESSION_WAIT_LIFTED]: { law: 'Z4', run: liveSessionWaitIsRecordedAndLifted },
+  [EVERY_LAUNCH_WRITES_ITS_EVENT]: { law: 'Z5', run: everyLaunchWritesItsEvent },
   [LAUNCH_BODY_FROM_LATEST_ADMISSION]: { law: 'Z3', run: launchBodyFromLatestAdmission },
   [SESSION_BEAT_BESIDE_STALE_WINDOW]: { law: 'Z7', run: sessionBeatBesideStaleWindow },
   [LAUNCH_STOP_SPENDS_NO_CONTINUATION]: { law: 'Z8', run: launchStopSpendsNoContinuation },
@@ -727,17 +801,22 @@ describe('the laws of a node', () => {
     expect(gapRows().filter(({ law, node }) => law === 'Z3' && node === 'intake')).toHaveLength(1)
   })
 
+  it('z3 x merge names the open card that keeps a merge inside the touches of its card, as D-460 rules', () => {
+    expect(LAW_CELLS.Z3.merge).toEqual({ gap: [MERGE_KEEPS_TO_THE_TOUCHES] })
+    expect(MERGE_KEEPS_TO_THE_TOUCHES).toBe(1784)
+  })
+
   const laneWaitLaw: LawId = 'Z4'
   it(`${laneWaitLaw} x launch names the cards that give a card behind an open pull request a wait record and a start`, () => {
     expect(LAW_CELLS[laneWaitLaw].launch).toEqual({ gap: [CARD_WAIT_STATES, NO_HEAD_OF_LINE] })
     expect([CARD_WAIT_STATES, NO_HEAD_OF_LINE]).toEqual([1740, 1744])
     expect(gapRows().filter(({ law, node }) => law === laneWaitLaw && node === 'launch')).toHaveLength(1)
-    expect(LAW_CELLS[laneWaitLaw].answer).toEqual({ gap: [CARD_WAIT_STATES, NODE_WITNESSES_CALL_THEIR_NODE] })
+    expect(LAW_CELLS[laneWaitLaw].answer).toEqual({ witness: LIVE_SESSION_WAIT_LIFTED })
   })
 
-  it(`${laneWaitLaw} x intake and window name no merged card, only the wait states card and the card that writes their witness`, () => {
-    expect(LAW_CELLS[laneWaitLaw].intake).toEqual({ gap: [CARD_WAIT_STATES, NODE_WITNESSES_CALL_THEIR_NODE] })
-    expect(LAW_CELLS[laneWaitLaw].window).toEqual({ gap: [CARD_WAIT_STATES, NODE_WITNESSES_CALL_THEIR_NODE] })
+  it(`${laneWaitLaw} x intake and window name no merged card, only the open cards that give a card its wait states and write their witnesses`, () => {
+    expect(LAW_CELLS[laneWaitLaw].intake).toEqual({ gap: [CARD_WAIT_STATES, LAW_CELLS_WITNESSES] })
+    expect(LAW_CELLS[laneWaitLaw].window).toEqual({ gap: [CARD_WAIT_STATES, LAW_CELLS_WITNESSES] })
     expect(gapRows().filter(({ law, node }) => law === laneWaitLaw && node === 'intake')).toHaveLength(1)
   })
 
@@ -761,8 +840,8 @@ describe('the laws of a node', () => {
 
   const stallLaw: LawId = 'Z7'
   it(`${stallLaw} x review names the card that ends the single-signal review stall kill`, async () => {
-    expect(LAW_CELLS.Z7.review).toEqual({ gap: [NODE_WITNESSES_CALL_THEIR_NODE] })
-    expect(NODE_WITNESSES_CALL_THEIR_NODE).toBe(1814)
+    expect(LAW_CELLS.Z7.review).toEqual({ gap: [LAW_CELLS_WITNESSES] })
+    expect(LAW_CELLS_WITNESSES).toBe(1823)
     expect(gapRows().filter(({ law, node }) => law === 'Z7' && node === 'review')).toHaveLength(1)
     expect(recordedLawGaps()[`${LAW_GAP_PREFIX}Z7:review`]).toBe(1)
     expect(await lawOutcome('Z7', 'review', WITNESSES)).toBe(`${SESSION_BEAT_BESIDE_STALE_WINDOW}: passes without calling ${sourceOf('review')}`)
