@@ -3127,9 +3127,54 @@
           }
         },
         "text": "the reason a session stops is recorded in the bus and decides whether its card is continued or goes to intake: a stop on paths outside the touches or on an open question spends no continuation, and the card is not launched again while its touches miss those paths or the question stays open"
+      },
+      "Z9": {
+        "cells": {
+          "answer": {
+            "gap": [
+              1823
+            ]
+          },
+          "close": {
+            "notApplicable": "the node continues no session of a card, so no stop of one decides a continuation here"
+          },
+          "intake": {
+            "notApplicable": "intake lifts no stop and queues no answer; it admits and widens cards"
+          },
+          "launch": {
+            "gap": [
+              1823
+            ]
+          },
+          "merge": {
+            "notApplicable": "the node continues no session of a card, so no stop of one decides a continuation here"
+          },
+          "netwatch": {
+            "notApplicable": "netwatch records no decision and queues no answer; it records what GitHub shows"
+          },
+          "restart": {
+            "notApplicable": "the node continues no session of a card, so no stop of one decides a continuation here"
+          },
+          "review": {
+            "notApplicable": "the node continues no session of a card, so no stop of one decides a continuation here"
+          },
+          "supervisor": {
+            "notApplicable": "StalledSessions reads no decision and queues no answer to one"
+          },
+          "update": {
+            "notApplicable": "the node continues no session of a card, so no stop of one decides a continuation here"
+          },
+          "window": {
+            "notApplicable": "miko:watch queues no answer; the decision the window records reaches the answer and launch nodes through the bus"
+          },
+          "witness": {
+            "notApplicable": "the node continues no session of a card, so no stop of one decides a continuation here"
+          }
+        },
+        "text": "a decision that lifts an awaited stop also queues its answer"
       }
     },
-    "lawsVersion": 3
+    "lawsVersion": 4
   },
   "nodes": {
     "declared": {
@@ -3324,7 +3369,7 @@
       "scripts/core/bus-readings.ts": 4,
       "scripts/core/card-automaton.ts": 12,
       "scripts/core/card-bodies.ts": 7,
-      "scripts/core/card-decisions.ts": 4,
+      "scripts/core/card-decisions.ts": 5,
       "scripts/core/card-hold.ts": 2,
       "scripts/core/chain.ts": 3,
       "scripts/core/db.ts": 3,
@@ -3361,7 +3406,7 @@
       "scripts/nodes/launch/launch-executor.ts": 1,
       "scripts/nodes/launch/launch-root.ts": 1,
       "scripts/nodes/launch/launch-withdraw.ts": 1,
-      "scripts/nodes/launch/launch-worker.ts": 14,
+      "scripts/nodes/launch/launch-worker.ts": 15,
       "scripts/nodes/launch/tree-pr-cli.ts": 3,
       "scripts/nodes/merge/merge-executor.ts": 1,
       "scripts/nodes/merge/merge-worker.ts": 1,

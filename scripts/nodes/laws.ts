@@ -26,6 +26,7 @@ export const LAWS = {
   Z6: 'a dirty tree has a way back',
   Z7: 'liveness is read from more than one signal',
   Z8: 'the reason a session stops is recorded in the bus and decides whether its card is continued or goes to intake: a stop on paths outside the touches or on an open question spends no continuation, and the card is not launched again while its touches miss those paths or the question stays open',
+  Z9: 'a decision that lifts an awaited stop also queues its answer',
 } as const
 
 export type LawId = keyof typeof LAWS
@@ -85,6 +86,7 @@ const NETWATCH: Record<LawId, LawCell> = {
   Z6: { notApplicable: 'netwatch writes no tree, only bus events and its heartbeat' },
   Z7: gap(LAW_CELLS_WITNESSES),
   Z8: { notApplicable: 'netwatch continues no card session; it records what GitHub shows' },
+  Z9: { notApplicable: 'netwatch records no decision and queues no answer; it records what GitHub shows' },
 }
 
 const WINDOW: Record<LawId, LawCell> = {
@@ -96,6 +98,7 @@ const WINDOW: Record<LawId, LawCell> = {
   Z6: { notApplicable: 'miko:watch writes no card tree, only its cursor beside the handoff' },
   Z7: { witness: WINDOW_BESIDE_SESSIONS },
   Z8: { notApplicable: 'miko:watch continues no card session; the launch and answer nodes decide a continuation from the stop they record' },
+  Z9: { notApplicable: 'miko:watch queues no answer; the decision the window records reaches the answer and launch nodes through the bus' },
 }
 
 const INTAKE: Record<LawId, LawCell> = {
@@ -107,6 +110,7 @@ const INTAKE: Record<LawId, LawCell> = {
   Z6: { notApplicable: 'intake writes the parking lane and the bus, never a card tree' },
   Z7: { notApplicable: 'intake reads no liveness: it admits from the card text, the decisions in force and the bus card states' },
   Z8: { notApplicable: 'intake continues no card session; it is where a card stopped outside its touches goes to have them widened' },
+  Z9: { notApplicable: 'intake lifts no stop and queues no answer; it admits and widens cards' },
 }
 
 const SUPERVISOR: Record<LawId, LawCell> = {
@@ -118,6 +122,7 @@ const SUPERVISOR: Record<LawId, LawCell> = {
   Z6: { notApplicable: 'StalledSessions writes bus events and task releases, never a card tree' },
   Z7: { witness: REVIEW_LIVE_ON_ONE_STALE_SIGNAL },
   Z8: { notApplicable: 'StalledSessions continues no card session; it ends or requeues a stalled one and reads no stop reason' },
+  Z9: { notApplicable: 'StalledSessions reads no decision and queues no answer to one' },
 }
 
 function beyondNodes(law: LawId): Record<SiteBeyondNodes, LawCell> {
@@ -173,6 +178,12 @@ export const LAW_CELLS: LawCells = {
     answer: { witness: ANSWER_STOP_SPENDS_NO_RESTART },
     launch: { witness: LAUNCH_STOP_SPENDS_NO_CONTINUATION },
     ...beyondNodes('Z8'),
+  },
+  Z9: {
+    ...everyNode({ notApplicable: CONTINUES_NO_CARD_SESSION }),
+    answer: gap(LAW_CELLS_WITNESSES),
+    launch: gap(LAW_CELLS_WITNESSES),
+    ...beyondNodes('Z9'),
   },
 }
 

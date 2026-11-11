@@ -3,7 +3,7 @@ import type { Queue } from './identifiers.js'
 import type { QueuedTask } from './queue.js'
 import { existsSync } from 'node:fs'
 import { BUSY_TIMEOUT_MS } from './db.js'
-import { CARD_STOPPED, DECISION_RECORDED, QUESTION_OWNER, REVIEW_RECORDED } from './events.js'
+import { CARD_STOPPED, DECISION_RECORDED, QUESTION_AGENT, QUESTION_OWNER, REVIEW_RECORDED } from './events.js'
 import { openDatabase } from './sqlite.js'
 
 export const CARD_DECISIONS_HEADING = 'Owner decisions in force for this card. They are the owner\'s answer: follow them, and do not ask the owner again what they settle.'
@@ -75,13 +75,18 @@ const A_LIVE_TASK_OF_THE_DECISION = `EXISTS (
     AND continued.task_key LIKE '%:decision-' || named.decision_id AND continued.state NOT IN (${ENDED_WITHOUT_RUNNING})
 )`
 
+const A_QUESTION_A_DECISION_ANSWERS = `(
+  (json_extract(stop.payload, '$.reason') = '${QUESTION_OWNER}' AND NOT ${A_STOP_AN_ANSWER_TASK_WROTE_ON_A_PR})
+  OR (json_extract(stop.payload, '$.reason') = '${QUESTION_AGENT}' AND prs.pr IS NOT NULL)
+)`
+
 export function cardDecisionTurnQuery(sql: CardSql): string {
   return `
   SELECT named.decision_id AS decision, decided.id AS decided_at, named.card_id AS card_id, prs.pr AS pr, prs.head AS head,
     ${sql.cardBody('named.card_id')} AS card_body,
     (SELECT max(reviewed.id) FROM events AS reviewed WHERE reviewed.type = '${REVIEW_RECORDED}' AND reviewed.legacy = 0 AND reviewed.pr = prs.pr) AS last_review,
     (SELECT stop.id FROM events AS stop WHERE stop.id = ${sql.latestTurn('named.card_id')} AND stop.type = '${CARD_STOPPED}'
-      AND json_extract(stop.payload, '$.reason') = '${QUESTION_OWNER}' AND stop.id < decided.id AND NOT ${A_STOP_AN_ANSWER_TASK_WROTE_ON_A_PR}) AS owner_stop
+      AND ${A_QUESTION_A_DECISION_ANSWERS} AND stop.id < decided.id) AS owner_stop
   FROM (SELECT CAST(? AS INTEGER) AS decision_id, CAST(? AS INTEGER) AS card_id) AS named
   JOIN events AS decided ON decided.type = '${DECISION_RECORDED}' AND decided.legacy = 0 AND decided.dedupe_key = '${DECISION_RECORDED}:' || named.decision_id
   LEFT JOIN prs ON prs.pr = (SELECT max(open.pr) FROM prs AS open WHERE open.card_id = named.card_id AND open.state = 'open')
@@ -133,8 +138,16 @@ export function decidedContinuations(db: DatabaseSync, how: DecidedContinuations
 
 const CARDS_WITH_A_LIVE_ANSWER = `SELECT DISTINCT card_id FROM tasks WHERE queue = 'answer' AND state IN ('queued', 'leased')`
 
+const AN_ENDED_ANSWER_OF_THE_STOP = `SELECT 1 FROM tasks, (SELECT CAST(? AS INTEGER) AS stop) AS named WHERE queue = 'answer' AND card_id = ? AND state NOT IN ('queued', 'leased')
+  AND task_key LIKE '%:stop-' || named.stop LIMIT 1`
+
+function anAnswerTheStopAlreadySpent(db: DatabaseSync, task: QueuedTask): boolean {
+  return task.stop !== undefined && db.prepare(AN_ENDED_ANSWER_OF_THE_STOP).get(task.stop, task.cardId) !== undefined
+}
+
 export function oneContinuationPerCard(db: DatabaseSync, planned: readonly QueuedTask[], decided: readonly QueuedTask[]): QueuedTask[] {
-  const answered = new Set([...planned.map(task => task.cardId), ...(db.prepare(CARDS_WITH_A_LIVE_ANSWER).all() as { card_id: number }[]).map(row => Number(row.card_id))])
+  const answering = planned.filter(task => !anAnswerTheStopAlreadySpent(db, task))
+  const answered = new Set([...answering.map(task => task.cardId), ...(db.prepare(CARDS_WITH_A_LIVE_ANSWER).all() as { card_id: number }[]).map(row => Number(row.card_id))])
   const first = new Map<number, QueuedTask>()
   for (const task of decided) {
     if (!answered.has(task.cardId) && !first.has(task.cardId))

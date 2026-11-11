@@ -34,7 +34,7 @@ import { answerToResumeAfterAmend } from '../nodes/answer/answer-executor.js'
 import { openPrOfCard, ownerHoldOf } from '../nodes/answer/answer-source.js'
 import { layLanes, repositoryLanes } from '../nodes/launch/lane-assign.js'
 import { cleanUpdatesOf } from '../nodes/update/update-done.js'
-import { consumeOwnerWord, consumeOwnerWordClosing, OWNER_WORD_NOT_FOUND, ownerChannelOf, ownerWordAwaited, USED_WORD } from '../owner/channel.js'
+import { consumeOwnerWord, consumeOwnerWordClosing, decisionOnAWait, OWNER_WORD_NOT_FOUND, ownerChannelOf, ownerWordAwaited, sameDecisionWords, USED_WORD } from '../owner/channel.js'
 import { OWNER_SOURCE } from '../policy/decisions/decisions.js'
 import { BusDecisions } from '../policy/decisions/index.js'
 import { settledCards } from '../policy/decisions/read.js'
@@ -81,6 +81,14 @@ export const USAGE = `usage: pnpm bus:request tree.cut --card <N> | amend --card
 const BY_HAND = 'by-hand'
 const noTool = (what: string): Executed => ({ done: false, why: `this bus was built with no tool to ${what}` })
 const OWNER_ANSWER_USAGE = `an owner's word from the channel closes a wait with: pnpm bus:request owner.wait.close --id Q<N> --answer <the owner's word> --from ${ANSWER_SOURCE}`
+interface WaitToClose {
+  state: string
+  card_id: number | null
+  need: string
+}
+
+const WAITS_A_DECISION_ANSWERS: ReadonlySet<string> = new Set(['decision', 'command'])
+
 export const OWNER_WORD_NEEDED = `closing an owner wait needs the owner's word from the channel or a recorded decision`
 const HELP_FLAGS = ['--help', '-h']
 
@@ -325,11 +333,32 @@ export class WindowRequests {
     const word = consumeOwnerWord(this.ownerChannel, words)
     if (word === null)
       return { done: false, why: OWNER_WORD_NOT_FOUND }
-    const settled = [...settledCards(legacyHistory(this.db), cardStatesOf(this.db))].map(card => `#${card}`)
-    const written = this.writtenDecision([...flagsOf('--supersedes', payload.supersedes), ...flagsOf('--card', payload.cards), ...flagsOf('--until', payload.until), ...flagsOf('--settled', settled), filled])
+    const already = this.sameWordsBoundTo(words, (Array.isArray(payload.cards) ? payload.cards : []).map(card => cardIdOf(card)).filter((card): card is number => card !== null))
+    if (already !== null)
+      return { done: true, why: `D-${already} already holds these words of the owner for the same cards, so no second decision is written and no second answer is queued; owner word ${word.file} used` }
+    const written = this.writtenDecision([...flagsOf('--supersedes', payload.supersedes), ...flagsOf('--card', payload.cards), ...flagsOf('--until', payload.until), ...this.settledFlags(), filled])
     const done = written.code === 0
     const fate = done ? 'used' : word.release() ? 'left unused' : unreleasedWord(word.file)
     return { done, why: [...written.lines, `owner word ${word.file} ${fate}`].join('; ') }
+  }
+
+  private settledFlags(): string[] {
+    return flagsOf('--settled', [...settledCards(legacyHistory(this.db), cardStatesOf(this.db))].map(card => `#${card}`))
+  }
+
+  private sameWordsBoundTo(words: string, cards: readonly number[]): number | null {
+    if (cards.length === 0)
+      return null
+    const same = decisionsInForceAt(this.db, this.clock()).find(decision => sameDecisionWords(decision.text, words) && cards.every(card => decision.cards.includes(card)))
+    return same?.decisionId ?? null
+  }
+
+  private boundToTheCard(id: string, cardId: number, answer: string): string {
+    const words = decisionOnAWait(id, answer)
+    if (this.sameWordsBoundTo(words, [cardId]) !== null)
+      return `a decision with these words is bound to card #${cardId} already`
+    const written = this.writtenDecision([...flagsOf('--card', `#${cardId}`), ...this.settledFlags(), `${OWNER_SOURCE} ${words}`])
+    return written.code === 0 ? `bound to card #${cardId} as a decision: ${written.lines.join('; ')}` : `the decision binding it to card #${cardId} is not written: ${written.lines.join('; ')}`
   }
 
   private writtenDecision(args: string[]): { code: number, lines: string[] } {
@@ -404,7 +433,7 @@ export class WindowRequests {
       return { done: false, why: 'owner.wait.close needs an id Q<N> and an answer, or --from the owner channel' }
     if (from !== null && from !== ANSWER_SOURCE)
       return { done: false, why: `owner.wait.close --from ${from} is not ${ANSWER_SOURCE}; only the owner's word that pnpm owner:say put into the owner channel closes a wait as the owner's answer` }
-    const wait = this.db.prepare(`SELECT state, card_id FROM ${OWNER_WAITS} WHERE id = ?`).get(id) as { state: string, card_id: number | null } | undefined
+    const wait = this.db.prepare(`SELECT state, card_id, need FROM ${OWNER_WAITS} WHERE id = ?`).get(id) as WaitToClose | undefined
     if (wait === undefined)
       return { done: false, why: `${id} is not an owner wait the bus has reduced` }
     const stop = wait.card_id === null ? undefined : this.db.prepare(OPEN_OWNER_STOP_OF_CARD).get(wait.card_id) as { id: number, payload: string } | undefined
@@ -427,7 +456,7 @@ export class WindowRequests {
     return { done: true, why: `closed ${id} and lifted the card #${wait.card_id} stop ${stop!.id} as a decision under shard ${shard.id}: ${answer}` }
   }
 
-  private closeWaitOnOwnerWord(request: number, id: string, wait: { state: string, card_id: number | null }, asked: string | null, stop: number | null): Executed {
+  private closeWaitOnOwnerWord(request: number, id: string, wait: WaitToClose, asked: string | null, stop: number | null): Executed {
     if (wait.state !== OPEN_WAIT)
       return { done: false, why: `${id} is closed already` }
     const verbatim = asked === null ? null : consumeOwnerWord(this.ownerChannel, asked)
@@ -439,7 +468,8 @@ export class WindowRequests {
     if (refusal !== null)
       return { done: false, why: `${refusal}; owner word ${word.file} ${word.release() ? 'left unused' : unreleasedWord(word.file)}` }
     const stillOpen = this.db.prepare(OPEN_OWNER_STOP_OF_CARD).get(wait.card_id) as { id: number } | undefined
-    return { done: true, why: stop === null || stillOpen?.id === stop ? `closed ${id} on the owner's word ${word.file}: ${answer}` : `closed ${id} and lifted the card #${wait.card_id} stop ${stop} on the owner's word ${word.file}: ${answer}` }
+    const closed = stop === null || stillOpen?.id === stop ? `closed ${id} on the owner's word ${word.file}: ${answer}` : `closed ${id} and lifted the card #${wait.card_id} stop ${stop} on the owner's word ${word.file}: ${answer}`
+    return { done: true, why: wait.card_id !== null && WAITS_A_DECISION_ANSWERS.has(wait.need) ? `${closed}; ${this.boundToTheCard(id, wait.card_id, answer)}` : closed }
   }
 
   private refusalToClose(request: number, id: string, answer: string): string | null {
