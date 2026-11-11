@@ -21,14 +21,17 @@ const ALLOWED_INTERNAL_IMPORTS = {
   'src/cli.ts': ['program'],
 }
 
-const CORE_FILES_SRC_MAY_IMPORT = ['bus-path', 'bus-readings', 'eddies', 'events', 'factory-paths', 'gh-callers', 'handoff-dir', 'layer-map', 'merge-event', 'verification'].map(name => `core/${name}.js`)
+const CORE_FILES_SRC_MAY_IMPORT = ['bus-path', 'bus-readings', 'eddies', 'events', 'factory-paths', 'gh-callers', 'handoff-dir', 'layer-map', 'merge-event', 'owner-commands', 'verification'].map(name => `core/${name}.js`)
+const OWNER_COMMANDS = 'core/owner-commands.js'
 
 const ALLOWED_FACTORY_IMPORTS = {
+  'src/atlas': [OWNER_COMMANDS],
   'src/card': ['core/factory-paths.js', 'policy/touch-scope.js'],
   'src/commands': CORE_FILES_SRC_MAY_IMPORT,
   'src/commands/doctor': [...CORE_FILES_SRC_MAY_IMPORT, 'policy/decisions/decisions.js', 'policy/live-decision.js', 'policy/touch-scope.js'],
   'src/commands/intake': [...CORE_FILES_SRC_MAY_IMPORT, 'policy/decisions/decisions.js', 'policy/touch-scope.js'],
   'src/program.ts': [...CORE_FILES_SRC_MAY_IMPORT, 'owner/channel.js'],
+  'src/ui': [OWNER_COMMANDS],
 }
 
 function factoryReach(target) {
