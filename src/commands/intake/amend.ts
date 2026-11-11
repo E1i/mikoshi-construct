@@ -1,3 +1,4 @@
+import type { Card } from '../../card/grammar.js'
 import type { WitnessField } from '../../card/witness-fields.js'
 import type { AdmitOptions, AdmitResult } from './admit.js'
 import type { CardAdmissionsPort } from './index.js'
@@ -226,6 +227,18 @@ function withDepends(lines: string[], change: string): string[] | string {
     return `--depends ${change}: ${malformed} is not a card, #<id>`
   const depends = next.map(reference => Number(CARD_REFERENCE.exec(reference)![1]))
   return lines.map((entry, index) => (index === at ? `${CARD_HEADER}${cardLine({ ...parsed.card, depends })}${blocksTail(parsed.card.line)}` : entry))
+}
+
+export function admittedCardOf(text: string): Card | null {
+  const lines = text.split('\n')
+  const parsed = parseCard(lines[headerIndex(lines, CARD_HEADER)]?.slice(CARD_HEADER.length) ?? '')
+  return parsed.kind === 'card' ? parsed.card : null
+}
+
+export function withRepointedDepends(text: string, dropped: number, children: readonly number[]): string | null {
+  const change = [`-#${dropped}`, ...children.map(child => `+#${child}`)].join(LIST_SEPARATOR)
+  const next = withDepends(text.split('\n'), change)
+  return typeof next === 'string' ? null : next.join('\n')
 }
 
 function withNote(lines: string[], note: string): string[] {
