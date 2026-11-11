@@ -36,6 +36,7 @@ import { layLanes, repositoryLanes } from '../nodes/launch/lane-assign.js'
 import { cleanUpdatesOf } from '../nodes/update/update-done.js'
 import { consumeOwnerWord, consumeOwnerWordClosing, OWNER_WORD_NOT_FOUND, ownerChannelOf, ownerWordAwaited, USED_WORD } from '../owner/channel.js'
 import { OWNER_SOURCE } from '../policy/decisions/decisions.js'
+import { BusDecisions } from '../policy/decisions/index.js'
 import { settledCards } from '../policy/decisions/read.js'
 import { mergePolicy, OWNER_MERGES } from '../policy/policy.js'
 import { dryRunHoldsAt, observedHeadsOf, roundLimitDecisionOf } from '../policy/round-limit-decision.js'
@@ -288,6 +289,7 @@ export class WindowRequests {
       autoConfirm: payload.auto_confirm === true,
       events: this.amendEvents(request),
       admissions: latestAdmissionOf(this.db),
+      decisions: new BusDecisions(this.db),
       cardStates: () => new Map((this.db.prepare(CARD_STATES).all() as unknown as { card_id: number, state: string | null }[]).map(row => [String(row.card_id), row.state ?? HELD_WITHOUT_STATE])),
     }, this.clock)
     const answered = amendAnswer(cardId, result, lane)

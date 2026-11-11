@@ -10,6 +10,7 @@ import { BUS_DB_VARIABLE, openBus } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_MOVED, REQUEST_DONE, REQUEST_REFUSED } from '../../core/events.js'
 import { reduce } from '../../core/reducer.js'
 import { busCardAdmissions, busCardEvents, busHeldCards } from '../../intake/intake.js'
+import { recordDecision } from '../../policy/decisions/index.js'
 import { requestFromWindow, requestOf, WindowRequests } from '../../window/window-requests.js'
 
 const NOW = new Date('2026-11-05T09:00:00.000Z')
@@ -58,6 +59,11 @@ function admitted(w: World, id: number, text: string = body(id)): void {
 function inLane(w: World, id: number): void {
   admitted(w, id)
   busCardEvents(w.db)({ type: CARD_MOVED, cardId: id, ts: NOW.toISOString(), dedupeKey: `${CARD_MOVED}:${id}:test`, payload: { lane: LANE, to: path.join(w.root, LANE) } })
+  reduce(w.db)
+}
+
+function ownerAllows(w: World, cardId: number): void {
+  recordDecision(w.db, { ts: NOW.toISOString(), decisionId: cardId, text: `[owner] разрешить понижение свидетеля #${cardId} W2`, cards: [cardId] })
   reduce(w.db)
 }
 
@@ -136,7 +142,7 @@ describe('bus:request amend edits a card in the bus with no file', () => {
     expect(held.type).toBe(REQUEST_REFUSED)
     expect(held.detail).toContain('разрешить понижение свидетеля #80 W2')
     expect(latest(w, 80).text).toContain('"id":"W2"')
-    writeFileSync(path.join(w.root, 'owner-decisions.md'), '- D-1 · 2026-11-05 — [owner] разрешить понижение свидетеля #80 W2 · card #80\n')
+    ownerAllows(w, 80)
     expect(asked(w, { card: 80, remove_witness: ['W2'] }).type).toBe(REQUEST_DONE)
     expect(latest(w, 80).text).not.toContain('"id":"W2"')
     expect(asked(w, { card: 80, remove_witness: ['W1'] })).toMatchObject({ type: REQUEST_REFUSED, detail: expect.stringContaining('leaves the card no witness') })
@@ -151,7 +157,7 @@ describe('bus:request amend edits a card in the bus with no file', () => {
     expect(asked(w, { card: 81, add_witness: [added] }).type).toBe(REQUEST_DONE)
     expect(latest(w, 81).text).toContain(`- ${added}\n`)
     expect(asked(w, { card: 81, add_witness: [added] }).type).toBe(REQUEST_REFUSED)
-    writeFileSync(path.join(w.root, 'owner-decisions.md'), '- D-1 · 2026-11-05 — [owner] разрешить понижение свидетеля #81 W2 · card #81\n')
+    ownerAllows(w, 81)
     expect(asked(w, { card: 81, remove_witness: ['W2'] }).type).toBe(REQUEST_DONE)
     expect(latest(w, 81).text).not.toContain(`- ${added}\n`)
     w.db.close()

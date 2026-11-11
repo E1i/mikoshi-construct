@@ -2,7 +2,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { Reading } from '../../core/bus-readings.js'
 import type { EventPayload } from '../../core/events.js'
 import type { Fold, StoredEvent } from '../../core/stored.js'
-import type { DecisionRow } from './decisions.js'
+import type { DecisionRow, DecisionsPort, OwnerWords } from './decisions.js'
 import { DECISIONS_FILE } from '../../core/bus-path.js'
 import { DECISIONS, readCurrent } from '../../core/bus-readings.js'
 import { cardReleased, CLOSED_CARD, DROPPED_CARD, MERGED_CARD, STOPPED_CARD } from '../../core/card-automaton.js'
@@ -11,7 +11,7 @@ import { CARD_STOPPED, DECISION_EXPIRED, DECISION_RECORDED, DECISIONS_IMPORTED, 
 import { OWNER } from '../../core/inbox.js'
 import { NETWATCH } from '../../core/observations.js'
 import { payloadOf, reject, Rejection, STORED_COLUMNS } from '../../core/stored.js'
-import { inForceRows, termOf } from './decisions.js'
+import { termOf, withoutSource } from './decisions.js'
 
 export interface InForceDecision {
   decisionId: number
@@ -311,4 +311,24 @@ export const DECISION_FOLDS: Record<string, Fold> = {
   [DECISION_RECORDED]: foldDecisionRecorded,
   [DECISIONS_IMPORTED]: foldDecisionsImported,
   [DECISION_EXPIRED]: foldDecisionExpired,
+}
+
+interface InForceRow {
+  decisionId: number
+  text: string
+  cards: number[]
+  source: string | undefined
+}
+
+function inForceRows(db: DatabaseSync): InForceRow[] {
+  return (db.prepare('SELECT * FROM decisions WHERE state = ? ORDER BY decision_id').all(DECISION_IN_FORCE) as { decision_id: number, text: string, scope: string | null, source?: string }[])
+    .map(row => ({ decisionId: Number(row.decision_id), text: row.text, cards: JSON.parse(row.scope ?? '[]') as number[], source: row.source }))
+}
+
+export class BusDecisions implements DecisionsPort {
+  constructor(private readonly db: DatabaseSync) {}
+
+  inForce(): readonly OwnerWords[] {
+    return inForceRows(this.db).map(row => ({ decisionId: row.decisionId, words: withoutSource(row.text), cards: row.cards, written: row.source === OWNER }))
+  }
 }

@@ -14,9 +14,8 @@ import type { SlicedCard } from './slice.js'
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
-import { defaultBusPath } from '../../../scripts/core/bus-path.js'
 import { CARD_ADMITTED, CARD_WAITING, WITNESS_DOWNGRADE } from '../../../scripts/core/events.js'
-import { BusDecisions, decisionCommand } from '../../../scripts/policy/decisions/decisions.js'
+import { decisionCommand, InMemoryDecisions } from '../../../scripts/policy/decisions/decisions.js'
 import { createdPaths, OWNER_MERGES, pathsIn, pathsOutside, PREFIX_SUFFIX } from '../../../scripts/policy/touch-scope.js'
 import { endedCards } from '../../card/closed.js'
 import { cardLine, parseCard } from '../../card/grammar.js'
@@ -185,10 +184,7 @@ const CARD_SEPARATOR = /,\s*|\s+и\s+/
 const ALLOWED_CARDS = new RegExp(`^#[1-9]\\d*(?:(?:${CARD_SEPARATOR.source})#[1-9]\\d*)*`)
 const DROPPED_CARD = 'dropped'
 const REGEX_SPECIAL = /[.*+?^${}()|[\]\\]/g
-
-export function defaultDecisions(): DecisionsPort {
-  return new BusDecisions(defaultBusPath())
-}
+const NO_DECISIONS = new InMemoryDecisions([])
 
 function allowanceById(cardId: number, witnessId: string): string {
   return `${DOWNGRADE_ALLOWANCE} #${cardId} ${witnessId}`
@@ -699,7 +695,7 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
       options.events?.(waitingEvent(card.id, waitingOn, now()))
     return { status: 'waiting', file: options.file, card: admitted, waitingOn, inBus: base.inBus, dryRun: options.dryRun }
   }
-  const decisions = options.decisions ?? defaultDecisions()
+  const decisions = options.decisions ?? NO_DECISIONS
   const previous = recorded?.text === undefined ? [] : witnessesOf(recorded.text)
   const lowered = recorded?.text === undefined ? [] : unreplacedFieldDowngrades(witnessDowngrades(previous, witnessesOf(admitted.text)), previous, witnessesOf(admitted.text))
   const unreplaced = lowered.length > 0 && standingReplacementAllowed(decisions) ? unreplacedDowngrades(lowered, previous, witnessesOf(admitted.text)) : lowered

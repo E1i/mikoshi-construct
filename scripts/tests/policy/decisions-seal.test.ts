@@ -8,11 +8,10 @@ import { ownerAllowed } from '../../../src/commands/intake/admit.js'
 import { CONCEPTS } from '../../contract/factory/concepts.js'
 import { findSites } from '../../contract/factory/overlaps.js'
 import { openBus } from '../../core/db.js'
-import { OWNER } from '../../core/inbox.js'
 import { reduce } from '../../core/reducer.js'
-import { BusDecisions, OWNER_ROW, parseDecisions, projectDecisions } from '../../policy/decisions/decisions.js'
+import { parseDecisions, projectDecisions } from '../../policy/decisions/decisions.js'
 import { decisionsIntake } from '../../policy/decisions/import.js'
-import { recordDecision } from '../../policy/decisions/index.js'
+import { BusDecisions, recordDecision } from '../../policy/decisions/index.js'
 
 const REPO_ROOT = path.join(import.meta.dirname, '..', '..', '..')
 const CONCEPT = CONCEPTS.find(concept => concept.id === 'owner-decisions')!
@@ -84,17 +83,19 @@ describe('the decisions seal', () => {
     const file = path.join(root, 'owner-decisions.md')
     writeFileSync(file, `# Owner decisions\n\n- D-7 · 2026-11-11 — [owner] ${ALLOWANCE} · card #80 · decisions:add\n`)
     const db = openBus(bus)
-    decisionsIntake(db, file, () => AT)()
-    reduce(db)
-    db.close()
-    const handAdded = new BusDecisions(bus)
-    expect(handAdded.inForce()).toMatchObject([{ decisionId: 7, words: ALLOWANCE, cards: [80], written: false }])
-    expect(ownerAllowed(handAdded, 80, [WITNESS], [WITNESS])).toBe(false)
-    const owners = openBus(bus)
-    recordDecision(owners, { ts: AT.toISOString(), decisionId: 8, text: `[owner] ${ALLOWANCE}`, cards: [80] })
-    reduce(owners)
-    owners.close()
-    expect(ownerAllowed(new BusDecisions(bus), 80, [WITNESS], [WITNESS])).toBe(true)
+    try {
+      decisionsIntake(db, file, () => AT)()
+      reduce(db)
+      const decisions = new BusDecisions(db)
+      expect(decisions.inForce()).toMatchObject([{ decisionId: 7, words: ALLOWANCE, cards: [80], written: false }])
+      expect(ownerAllowed(decisions, 80, [WITNESS], [WITNESS])).toBe(false)
+      recordDecision(db, { ts: AT.toISOString(), decisionId: 8, text: `[owner] ${ALLOWANCE}`, cards: [80] })
+      reduce(db)
+      expect(ownerAllowed(decisions, 80, [WITNESS], [WITNESS])).toBe(true)
+    }
+    finally {
+      db.close()
+    }
   })
 
   it('a rebuild does not duplicate a line between the file and the archive', () => {
@@ -106,9 +107,5 @@ describe('the decisions seal', () => {
     const held = [projected.file, projected.archive].flatMap(text => parseDecisions(text).decisions).filter(decision => decision.number === 342)
     expect(held).toHaveLength(1)
     expect(parseDecisions(projected.file).decisions.map(decision => decision.number)).toEqual([342])
-  })
-
-  it('the bus adapter reads the row states the bus writes', () => {
-    expect(OWNER_ROW).toBe(OWNER)
   })
 })

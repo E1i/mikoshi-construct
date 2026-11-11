@@ -2205,7 +2205,6 @@
           "src/commands/cost/index.ts",
           "src/commands/cost/ledger.ts",
           "src/commands/doctor/factory.ts",
-          "src/commands/intake/admit.ts",
           "src/commands/run-record.ts",
           "src/program.ts"
         ],
@@ -3377,9 +3376,8 @@
       "scripts/nodes/update/update-done.ts": 1,
       "scripts/nodes/update/update-executor.ts": 2,
       "scripts/nodes/witness/witness-executor.ts": 3,
-      "scripts/policy/decisions/decisions.ts": 1,
       "scripts/policy/decisions/import.ts": 1,
-      "scripts/policy/decisions/index.ts": 15,
+      "scripts/policy/decisions/index.ts": 16,
       "scripts/policy/policy.ts": 3,
       "scripts/policy/round-limit-decision.ts": 1,
       "scripts/policy/shards.ts": 3,
@@ -4214,7 +4212,7 @@
         },
         "reexports": [],
         "types": {
-          "BusPorts": "interface BusPorts { cardEvents: CardEventPort; cardStates: CardStatesPort; cardAdmissions: CardAdmissionsPort; mutationJudged?: MutationJudgedPort; ladderRun?: LadderRunPort; }"
+          "BusPorts": "interface BusPorts { cardEvents: CardEventPort; cardStates: CardStatesPort; cardAdmissions: CardAdmissionsPort; mutationJudged?: MutationJudgedPort; ladderRun?: LadderRunPort; decisions?: AdmitOptions['decisions']; }"
         }
       },
       "src/ui/console.ts": {

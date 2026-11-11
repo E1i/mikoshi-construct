@@ -25,6 +25,7 @@ import { OWNER } from '../core/inbox.js'
 import { constructCommand, pnpmCommand } from '../core/owner-commands.js'
 import { openDatabase } from '../core/sqlite.js'
 import { assignMovedLane, layLanes, repositoryLanes } from '../nodes/launch/lane-assign.js'
+import { BusDecisions } from '../policy/decisions/index.js'
 import { activeWindowShards } from '../policy/shards.js'
 import { clientAdapter } from '../ports/client/index.js'
 import { tabWindowOf } from '../window/tab.js'
@@ -212,7 +213,7 @@ export function busHeldCards(db: DatabaseSync): CardsOfTheBus {
 }
 
 export function busIntakePorts(db: DatabaseSync, session?: string, lanes?: () => number, release?: string): BusPorts {
-  return { cardEvents: busCardEvents(db, session, lanes, release), cardStates: () => busHeldCards(db), cardAdmissions: busCardAdmissions(db) }
+  return { cardEvents: busCardEvents(db, session, lanes, release), cardStates: () => busHeldCards(db), cardAdmissions: busCardAdmissions(db), decisions: new BusDecisions(db) }
 }
 
 export async function runBusIntake(db: DatabaseSync, argv: readonly string[], session?: string): Promise<void> {
