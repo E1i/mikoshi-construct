@@ -15,7 +15,7 @@ import { riskOf } from '../../../src/card/risk.js'
 import { answersWithdrawnByAClosedHold, holdRecheckAt, LIVE_SESSION_IN_THE_TREE, queueAgain } from '../../core/card-hold.js'
 import { appendEvent, inTransaction, openBusWait } from '../../core/db.js'
 import { messageOf } from '../../core/errors.js'
-import { ANSWER_STEP, CARD_ANSWERED, CARD_RELEASED, QUESTION_AGENT, SCOPE_WIDENED } from '../../core/events.js'
+import { ANSWER_STEP, CARD_ANSWERED, CARD_RELEASED, OUTSIDE_TOUCHES, QUESTION_AGENT, SCOPE_WIDENED, sessionStopOf } from '../../core/events.js'
 import { assertHeld, completeTask, StaleLease, waitTask } from '../../core/lease.js'
 import { timeoutUnderLoadOutside } from '../../core/observations.js'
 import { answerOnAnOldCardBody, DOWNGRADE_WAIT_OPEN, downgradeWaitOpenOn, LEASED, QUEUED } from '../../core/queue.js'
@@ -58,8 +58,12 @@ function minutesSince(start: number, end: number): number {
   return Math.round((end - start) / MS_PER_MINUTE * 10) / 10
 }
 
-function endedOnContextWarn(answered: Answered | AnswerDenial): boolean {
-  return !('kind' in answered) && answered.atContextWarn === true && answered.owner === null && leftNoNewHead(answered)
+function endedOnContextWarn(answered: Answered | AnswerDenial): answered is Answered {
+  return !('kind' in answered) && answered.atContextWarn === true && leftNoNewHead(answered)
+}
+
+function restartsAfter(answered: Answered | AnswerDenial): boolean {
+  return endedOnContextWarn(answered) && answered.owner === null
 }
 
 function reasonOfFailure(error: unknown): AnswerTechnicalReason {
@@ -155,11 +159,14 @@ export class AnswerExecutor {
       const sessionStart = this.parts.clock().getTime()
       const prove = findingsGivenByAReview(source)
       let answered = await this.session(lease, answering, widened, card, false, leased, prove)
-      for (let restarts = 0; endedOnContextWarn(answered) && restarts < ANSWER_RESTARTS; restarts += 1)
+      for (let restarts = 0; restartsAfter(answered) && restarts < ANSWER_RESTARTS; restarts += 1)
         answered = await this.session(lease, answering, widened, card, true, this.parts.clock().getTime(), prove)
       if ('kind' in answered)
         return this.refusedOrDenied(lease, answered, widened)
-      if (endedOnContextWarn(answered))
+      const outside = this.stoppedOutsideTheTouches(lease, widened, answered)
+      if (outside !== null)
+        return outside
+      if (restartsAfter(answered))
         return this.outcomes.stopped(lease, 'fault', `continuation-limit: card #${lease.cardId} answer session ${answered.session} stopped at the context warn; ${ANSWER_RESTARTS} of ${ANSWER_RESTARTS} continuations used (D-104), the card is not continued again and the bus pushed nothing from it`, { code: 'continuation-limit' }, widened === null ? [] : [widened.event])
       return await this.settled(lease, answering, widened, card, answered, minutesSince(sessionStart, this.parts.clock().getTime()), prove)
     }
@@ -168,6 +175,23 @@ export class AnswerExecutor {
         return { kind: 'fenced', taskKey: lease.taskKey }
       throw error
     }
+  }
+
+  private sessionStop(lease: Lease, widened: Widened | null, answered: Answered): ReturnType<typeof sessionStopOf> {
+    const outside = this.outsideTouchesOf(lease, widened)
+    if (answered.owner === null || timeoutUnderLoadOutside(answered.owner, outside))
+      return null
+    return sessionStopOf([answered.owner], text => outside(pathsIn(text)))
+  }
+
+  private stoppedOutsideTheTouches(lease: Lease, widened: Widened | null, answered: Answered): AnswerOutcome | null {
+    if (!endedOnContextWarn(answered))
+      return null
+    const stop = this.sessionStop(lease, widened, answered)
+    if (stop?.code !== OUTSIDE_TOUCHES)
+      return null
+    const detail = `card #${lease.cardId} answer session ${answered.session} stopped at the context warn on ${stop.paths.join(', ')}, outside the touches the card was admitted with; no answer restart is spent and the card waits for intake to widen its touches: ${stop.blocker}`
+    return this.outcomes.stopped(lease, QUESTION_AGENT, detail, { code: OUTSIDE_TOUCHES, blocker: stop.blocker, paths: stop.paths, widen: stop.paths }, widened === null ? [] : [widened.event])
   }
 
   private withdrawnUnderTheHold(lease: Lease, hold: string): AnswerOutcome {

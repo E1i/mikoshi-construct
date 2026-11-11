@@ -124,6 +124,25 @@ export const DROPPED_LANE = 'dropped'
 export const TERMINAL_LANES: ReadonlySet<string> = new Set(['archive', DROPPED_LANE, 'superseded'])
 export const OPEN_PLAN = 'open'
 export const CLOSED_PLAN = 'closed'
+export const OUTSIDE_TOUCHES = 'outside-touches'
+export const OPEN_QUESTION = 'open-question'
+
+export type SessionStopCode = typeof OUTSIDE_TOUCHES | typeof OPEN_QUESTION
+
+export const SESSION_STOP_CODES: readonly SessionStopCode[] = [OUTSIDE_TOUCHES, OPEN_QUESTION]
+
+export interface SessionStop {
+  code: SessionStopCode
+  blocker: string
+  paths: string[]
+}
+
+export function sessionStopOf(questions: readonly string[], outsideTheTouches: (text: string) => string[]): SessionStop | null {
+  if (questions.length === 0)
+    return null
+  const paths = outsideTheTouches(questions.join('\n'))
+  return { code: paths.length > 0 ? OUTSIDE_TOUCHES : OPEN_QUESTION, blocker: questions.join('; '), paths }
+}
 
 export const EVENT_PAYLOADS = {
   [ANSWER_STEP]: ['seconds', 'step'],
@@ -137,7 +156,7 @@ export const EVENT_PAYLOADS = {
   [CARD_ADMITTED]: ['admission', 'bodySha', 'card', 'cardVersion', 'confirmation', 'contour', 'corrections', 'decision', 'depends', 'lane', 'moved', 'plan', 'prevAdmissionId', 'prevTextSha', 'source', 'text', 'textSha'],
   [CARD_ANSWERED]: ['card_body_sha', 'from', 'head', 'minutes', 'pr', 'prompt_path', 'prompt_sha', 'prompt_unstored', 'published', 'reentry', 'resumed', 'session', 'source', 'steps', 'to', 'tokens', 'worktree'],
   [CARD_CLOSED]: ['report', 'verification', 'witnessedOnMain'],
-  [CARD_CONTINUED]: ['base', 'branch', 'continuation', 'contour', 'from', 'pgid', 'pid', 'prompt_path', 'prompt_sha', 'prompt_unstored', 'session', 'step', 'worktree'],
+  [CARD_CONTINUED]: ['base', 'branch', 'continuation', 'contour', 'from', 'pgid', 'pid', 'prompt_path', 'prompt_sha', 'prompt_unstored', 'session', 'step', 'stop_reason', 'worktree'],
   [CARD_DEFERRED]: ['bodySha', 'from', 'lane', 'to'],
   [CARD_DROPPED]: ['bodySha', 'from', 'lane', 'reason', 'recut', 'request', 'to'],
   [CARD_FELL]: ['kind'],
@@ -148,7 +167,7 @@ export const EVENT_PAYLOADS = {
   [CARD_RELEASED]: ['reason', 'request', 'takeover'],
   [CARD_SESSION_ENDED]: ['detail', 'pgid', 'published', 'session', 'stopped'],
   [CARD_STARTED]: ['admission', 'adopts', 'base', 'branch', 'card', 'contour', 'entry', 'forecast', 'isolation', 'isolationGaps', 'lease_gen', 'path', 'pgid', 'pid', 'prompt_path', 'prompt_sha', 'prompt_unstored', 'risk', 'session', 'shift', 'started', 'step', 'tree_origin', 'who', 'worktree'],
-  [CARD_STOPPED]: ['code', 'detail', 'dropped', 'paths', 'reason', 'touches', 'widen'],
+  [CARD_STOPPED]: ['blocker', 'code', 'detail', 'dropped', 'paths', 'reason', 'stop_reason', 'touches', 'widen'],
   [CARD_TAKEOVER]: ['ground', 'reason', 'request'],
   [CARD_UNPLANNED]: ['card', 'request'],
   [CARD_VERIFIED]: ['actual', 'detail', 'ended', 'override', 'path', 'pr', 'report', 'session', 'sessions', 'sharedBy', 'verification'],

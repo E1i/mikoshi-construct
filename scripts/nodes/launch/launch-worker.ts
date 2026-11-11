@@ -1,5 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { BusEvent } from '../../core/db.js'
+import type { SessionStop, SessionStopCode } from '../../core/events.js'
 import type { Lease } from '../../core/lease.js'
 import type { MachineClaimant, MachineSessions } from '../../core/machine-sessions.js'
 import type { DetectionMode, NodeDeclaration, WaitStep } from '../../core/node.js'
@@ -19,15 +20,16 @@ import { DROPPED_CARD, RUNNING_CARD } from '../../core/card-automaton.js'
 import { admittedBodies, admittedBodyText, bodyNotFoldedYet, pathsOutsideTheBody } from '../../core/card-bodies.js'
 import { cardHoldOf, HOLD_RECHECK_MS } from '../../core/card-hold.js'
 import { appendEvent, inTransaction, openOwnerWait } from '../../core/db.js'
-import { BOARD_ALARM, CARD_ADMITTED, CARD_CLOSED, CARD_CONTINUED, CARD_HELD, CARD_PULSE, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, CARD_WAITING, GHOST_ROW, LADDER_APPROVAL, MERGE_DONE, PR_CLOSED, PR_OBSERVED, PR_OPENED, QUESTION_AGENT, REDUCED, TASK_COMPLETED, TASK_ENQUEUED, TASK_EXPIRED, TASK_FAILED, TASK_LEASED, TASK_RELEASED, TASK_REQUEUED, TASK_SUPERSEDED } from '../../core/events.js'
+import { BOARD_ALARM, CARD_ADMITTED, CARD_CLOSED, CARD_CONTINUED, CARD_HELD, CARD_PULSE, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, CARD_WAITING, DECISION_RECORDED, GHOST_ROW, LADDER_APPROVAL, MERGE_DONE, OPEN_QUESTION, OUTSIDE_TOUCHES, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PR_CLOSED, PR_OBSERVED, PR_OPENED, QUESTION_AGENT, REDUCED, SESSION_STOP_CODES, sessionStopOf, TASK_COMPLETED, TASK_ENQUEUED, TASK_EXPIRED, TASK_FAILED, TASK_LEASED, TASK_RELEASED, TASK_REQUEUED, TASK_SUPERSEDED } from '../../core/events.js'
 import { generationOfKey } from '../../core/identifiers.js'
 import { failTask } from '../../core/lease.js'
 import { busNameOfDb, MACHINE_POLL_MS, machineSessions } from '../../core/machine-sessions.js'
-import { Node, UNDERSTOOD_NOW } from '../../core/node.js'
+import { Node, prefixOf, UNDERSTOOD_NOW } from '../../core/node.js'
 import { MACHINE_OVERLOADED, machineOverloadedLine, timeoutUnderLoadOutside } from '../../core/observations.js'
 import { COMPLETED, generationField, LAUNCH_STOP_WITH_NO_PULL_REQUEST, launchTasks, LEASED, TASK_FOLDS } from '../../core/queue.js'
 import { storedByKey } from '../../core/stored.js'
 import { cardDecisionCommand } from '../../policy/shards.js'
+import { BusRead } from '../../ports/bus-read.js'
 import { clientTranscript } from '../../ports/client/claude/adapter.js'
 import { TICK_MS } from '../../ports/netwatch.js'
 import { lacksItsPackages } from '../../ports/prepare-tree.js'
@@ -36,7 +38,7 @@ import { launchDirOf } from '../../ports/tree-publish.js'
 import { isAlive } from '../../quality/lock.js'
 import { lastHeartbeat } from '../../supervisor/heartbeat.js'
 import { launchProcess, REAL_PROCESSES } from '../restart/chain-process.js'
-import { MAX_RESTARTS } from './continuation.js'
+import { MAX_RESTARTS, reportedQuestions, reportedStopReason } from './continuation.js'
 import { laneOverlapRecorder, layLanes, repositoryLanes } from './lane-assign.js'
 import { holdReason, startHold } from './launch-candidates.js'
 import { LaunchExecutor } from './launch-executor.js'
@@ -210,10 +212,45 @@ export function splitByRepository(worktree: string, asked: readonly string[]): A
   return { widen: asked.filter(file => isRepositoryPath(worktree, file)), dropped: asked.filter(file => !isRepositoryPath(worktree, file)) }
 }
 
-const QUESTION_TEXT = /^question:[ \t]*(\S.*)$/gm
+export interface HeldSessionStop {
+  code: SessionStopCode
+  stop: number
+  paths: string[]
+}
 
-function reportQuestions(report: string | null): string[] {
-  return report === null ? [] : [...report.matchAll(QUESTION_TEXT)].map(found => found[1].trim())
+function stopCodeOf(value: unknown): SessionStopCode | null {
+  return SESSION_STOP_CODES.find(code => code === value) ?? null
+}
+
+function strings(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((each): each is string => typeof each === 'string') : []
+}
+
+function questionStillOpen(bus: BusRead, cardId: number, stop: number): boolean {
+  const since = bus.where({ from: stop + 1 })
+  if (since.slice(DECISION_RECORDED, ['scope']).some(decided => Array.isArray(decided.fields.scope) && decided.fields.scope.includes(cardId)))
+    return false
+  const closed = new Set(since.slice(OWNER_WAIT_CLOSED, ['id']).map(each => each.fields.id))
+  return since.where({ card: cardId }).slice(OWNER_WAIT_OPENED, ['id']).some(opened => !closed.has(opened.fields.id))
+}
+
+export function heldSessionStop(db: DatabaseSync, cardId: number): HeldSessionStop | null {
+  const bus = new BusRead(db)
+  const latest = bus.where({ card: cardId }).slice(CARD_STOPPED, ['code', 'paths'], 'last')[0]
+  const stopCode = stopCodeOf(latest?.fields.code)
+  if (latest === undefined || stopCode === null)
+    return null
+  const named = strings(latest.fields.paths)
+  if (stopCode === OUTSIDE_TOUCHES) {
+    const uncovered = pathsOutsideTheBody(db, cardId, named.join('\n'))
+    return uncovered.length === 0 ? null : { code: stopCode, stop: latest.id, paths: uncovered }
+  }
+  return questionStillOpen(bus, cardId, latest.id) ? { code: stopCode, stop: latest.id, paths: named } : null
+}
+
+export function heldStopLine(cardId: number, held: HeldSessionStop): string {
+  const why = held.code === OUTSIDE_TOUCHES ? `its touches still miss ${held.paths.join(', ')}, so it waits for intake to widen them` : 'the question it stopped on is still open, so it waits for the decision or the owner wait to close'
+  return `${held.code}: card #${cardId} is not launched again since stop ${held.stop}: ${why}`
 }
 
 const LATEST_ADMISSION = `SELECT payload FROM events WHERE type = '${CARD_ADMITTED}' AND legacy = 0 AND card_id = ? AND ${NOT_A_BACKFILL} ORDER BY id DESC LIMIT 1`
@@ -404,6 +441,8 @@ export class LaunchNode extends Node<LaunchStep> {
       return this.faultStop(this.ts(), start, `${CARD_STOPPED}:${REPORT_MISSING}:${start.dedupe_key}`, missing, REPORT_MISSING)
     }
     const handedOff = this.launchParts.handedOff?.(session) ?? false
+    if ((atLine || handedOff) && this.sessionStopOf(start, session) !== null)
+      return this.stopWithoutPullRequest(start, card, session, null)
     if (atLine)
       return this.continueAtContextLine(start, card, session, handedOff)
     const amend = this.amendSince(start)
@@ -463,13 +502,20 @@ export class LaunchNode extends Node<LaunchStep> {
       return this.stopContinuation(start, 'continuation-refused', `${exited}; no continuer is wired, so no session continues from it`)
     if (handedOff)
       return this.continueSession(start, card, continuer, exited)
-    if (reportQuestions(this.launchParts.reportOf?.(session) ?? null).length > 0)
-      return this.stopWithoutPullRequest(start, card, session, null)
     if (this.launchParts.spendStopped?.(card) ?? false)
       return this.stopContinuation(start, 'eddies-stop', `${exited}; it also hit the session spend stop and left no valid handoff, so no fresh session spends past that stop`)
+    const reported = this.reportedStopReason(start)
     if (this.continuationsUsed(start) < MAX_RESTARTS)
       this.launchParts.buildHandoff?.(card, session, admittedBodyText(this.db, start.card_id))
-    return this.continueSession(start, card, continuer, exited)
+    return this.continueSession(start, card, continuer, exited, reported)
+  }
+
+  private sessionStopOf(start: RunningStart, session: SessionStart): SessionStop | null {
+    return sessionStopOf(reportedQuestions(this.launchParts.reportOf?.(session) ?? null), text => pathsOutsideTheBody(this.db, start.card_id, text))
+  }
+
+  private reportedStopReason(start: RunningStart): string | null {
+    return reportedStopReason(this.launchParts.reportOf?.({ cardId: start.card_id, ts: start.ts }) ?? null)
   }
 
   private continuationsUsed(start: RunningStart): number {
@@ -565,7 +611,7 @@ export class LaunchNode extends Node<LaunchStep> {
     appendEvent(this.db, { ts: this.ts(), type: CARD_WAITING, actor: this.actor, cardId: start.card_id, pr: null, head: null, dedupeKey: `${CARD_WAITING}:${AMENDED_AFTER_START}:${start.dedupe_key}:${amend.amended}`, payload: { reason: AMENDED_AFTER_START, session: card.session, started: amend.started, amended: amend.amended, detail }, legacy: false })
   }
 
-  private continueSession(start: RunningStart, card: StartedCard, continuer: SessionContinuer, exited: string): boolean {
+  private continueSession(start: RunningStart, card: StartedCard, continuer: SessionContinuer, exited: string, reported: string | null = this.reportedStopReason(start)): boolean {
     if (cardHoldOf(this.db, start.card_id) !== null || bodyNotFoldedYet(this.db, start.card_id) || this.usageLimitResetPending() !== null)
       return false
     const used = this.continuationsUsed(start)
@@ -586,7 +632,7 @@ export class LaunchNode extends Node<LaunchStep> {
     const { input, ...launched } = begun.card
     const next: StartedCard = { ...launched, contour: card.contour }
     this.machine.started(claimant, next)
-    const payload = { ...next, continuation: used + 1, from: card.session, ...storedInput(this.launchParts.prompts, input) }
+    const payload = { ...next, continuation: used + 1, from: card.session, ...(reported === null ? {} : { stop_reason: reported }), ...storedInput(this.launchParts.prompts, input) }
     if (!appendEvent(this.db, { ts: this.ts(), type: CARD_CONTINUED, actor: this.actor, cardId: start.card_id, pr: null, head: null, dedupeKey: `${CARD_CONTINUED}:${start.dedupe_key}`, payload, legacy: false }))
       this.starters[card.contour]?.stop(next)
     return false
@@ -615,11 +661,11 @@ export class LaunchNode extends Node<LaunchStep> {
   }
 
   private stopWithoutPullRequest(start: RunningStart, card: StartedCard, session: SessionStart, refusal: string | null): boolean {
-    const questions = reportQuestions(this.launchParts.reportOf?.(session) ?? null)
+    const questions = reportedQuestions(this.launchParts.reportOf?.(session) ?? null)
     if (questions.length > 0 && questions.every(question => timeoutUnderLoadOutside(question, paths => pathsOutsideTheBody(this.db, start.card_id, paths.join('\n')))))
       return this.retryUnderLoad(start, card, session, questions)
     if (questions.length > 0)
-      return this.launchParts.continuer !== undefined && this.continuationsUsed(start) < MAX_RESTARTS && lacksItsPackages(card.worktree) ? this.continueSession(start, card, this.launchParts.continuer, `card #${start.card_id} session ${card.session} asked a question from ${card.worktree}, whose lockfile names packages the tree lacks; the bus prepares the tree for the next session`) : this.stopOnQuestions(start, card, questions, splitByRepository(card.worktree, pathsOutsideTheBody(this.db, start.card_id, questions.join('\n'))), refusal)
+      return this.launchParts.continuer !== undefined && this.continuationsUsed(start) < MAX_RESTARTS && lacksItsPackages(card.worktree) ? this.continueSession(start, card, this.launchParts.continuer, `card #${start.card_id} session ${card.session} asked a question from ${card.worktree}, whose lockfile names packages the tree lacks; the bus prepares the tree for the next session`) : this.stopOnQuestions(start, card, questions, splitByRepository(card.worktree, pathsOutsideTheBody(this.db, start.card_id, questions.join('\n'))), refusal, reportedStopReason(this.launchParts.reportOf?.(session) ?? null))
     const ended = noPullRequestDetail(start.card_id, card.session, this.launchParts.endedWith?.(session) ?? null)
     const detail = refusal === null ? ended : `${ended}; ${refusal}`
     return inTransaction(this.db, () => this.faultStop(this.ts(), start, `${LAUNCH_STOP_WITH_NO_PULL_REQUEST}${start.dedupe_key}`, detail))
@@ -648,7 +694,7 @@ export class LaunchNode extends Node<LaunchStep> {
       openOwnerWait(this.db, ts, this.actor, { need: 'decision', text: `card #${start.card_id} session ${card.session} asks: ${question}`, command: cardDecisionCommand(start.card_id), card: start.card_id })
   }
 
-  private stopOnQuestions(start: RunningStart, card: StartedCard, questions: readonly string[], asked: AskedPaths, refusal: string | null): boolean {
+  private stopOnQuestions(start: RunningStart, card: StartedCard, questions: readonly string[], asked: AskedPaths, refusal: string | null, reported: string | null): boolean {
     const { widen, dropped } = asked
     const ended = `card #${start.card_id} session ${card.session} ended with no pull request`
     const asks = widen.length === 0 ? `${ended} and asks: ${questions.join('; ')}` : `${ended} and asks to widen its touches to ${widen.join(', ')}: ${questions.join('; ')}`
@@ -656,7 +702,7 @@ export class LaunchNode extends Node<LaunchStep> {
     const detail = refusal === null ? named : `${named}; ${refusal}`
     return inTransaction(this.db, () => {
       const ts = this.ts()
-      const recorded = appendEvent(this.db, { ts, type: CARD_STOPPED, actor: this.actor, cardId: start.card_id, pr: null, head: null, dedupeKey: `${LAUNCH_STOP_WITH_NO_PULL_REQUEST}${start.dedupe_key}`, payload: { reason: QUESTION_AGENT, detail, widen: [...widen], ...(dropped.length === 0 ? {} : { dropped: [...dropped] }) }, legacy: false })
+      const recorded = appendEvent(this.db, { ts, type: CARD_STOPPED, actor: this.actor, cardId: start.card_id, pr: null, head: null, dedupeKey: `${LAUNCH_STOP_WITH_NO_PULL_REQUEST}${start.dedupe_key}`, payload: { reason: QUESTION_AGENT, code: widen.length === 0 ? OPEN_QUESTION : OUTSIDE_TOUCHES, blocker: questions.join('; '), paths: [...widen], detail, widen: [...widen], ...(dropped.length === 0 ? {} : { dropped: [...dropped] }), ...(reported === null ? {} : { stop_reason: reported }) }, legacy: false })
       const task = this.db.prepare(LAUNCH_TASK_OF_CARD).get(start.card_id) as LaunchTaskRow | undefined
       if (recorded && task?.state === COMPLETED)
         this.supersedeTheStoppedLaunch(ts, start.card_id, task)
@@ -703,6 +749,11 @@ export class LaunchNode extends Node<LaunchStep> {
       return this.waitOn(lease, BODY_NOT_FOLDED, new Date(this.parts.clock().getTime() + TICK_MS).toISOString())
     if (cardHoldOf(this.db, lease.cardId) !== null)
       return this.waitOn(lease, CARD_HELD, new Date(this.parts.clock().getTime() + HOLD_RECHECK_MS).toISOString())
+    const held = heldSessionStop(this.db, lease.cardId)
+    if (held !== null) {
+      console.log(`${prefixOf('launch')}${lease.taskKey}: ${heldStopLine(lease.cardId, held)}`)
+      return this.waitOn(lease, held.code, new Date(this.parts.clock().getTime() + HOLD_RECHECK_MS).toISOString())
+    }
     const usageReset = this.usageLimitResetPending()
     if (usageReset !== null)
       return this.waitOn(lease, USAGE_LIMIT, usageReset)

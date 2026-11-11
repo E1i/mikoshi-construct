@@ -25,6 +25,7 @@ export const LAWS = {
   Z5: 'every launch writes its own event',
   Z6: 'a dirty tree has a way back',
   Z7: 'liveness is read from more than one signal',
+  Z8: 'the reason a session stops is recorded in the bus and decides whether its card is continued or goes to intake: a stop on paths outside the touches or on an open question spends no continuation, and the card is not launched again while its touches miss those paths or the question stays open',
 } as const
 
 export type LawId = keyof typeof LAWS
@@ -61,6 +62,9 @@ export const INFRASTRUCTURE_RETRIED = 'Z2-infrastructure-retried'
 export const ABANDONED_READ_AS_RERUN = 'Z2-abandoned-read-as-rerun'
 export const DIRECT_IMPORTER_WIDENED = 'Z3-direct-importer-widened'
 export const LAUNCH_BODY_FROM_LATEST_ADMISSION = 'Z3-launch-body-from-latest-admission'
+export const LAUNCH_STOP_SPENDS_NO_CONTINUATION = 'Z8-launch-stop-spends-no-continuation'
+export const ANSWER_STOP_SPENDS_NO_RESTART = 'Z8-answer-stop-spends-no-restart'
+const CONTINUES_NO_CARD_SESSION = 'the node continues no session of a card, so no stop of one decides a continuation here'
 const NO_INFRASTRUCTURE_TO_FAIL = 'the node starts no session, runs no test and judges no CI run, so no timeout under load, abandoned run or usage limit reaches it as its own failure'
 const STARTS_NO_SESSION = 'the node starts no session, so no child process of its own outlives it'
 const NO_SESSION_TO_READ = 'the node starts no session, so the factory reading holds no beat of its own to weigh'
@@ -81,6 +85,7 @@ const NETWATCH: Record<LawId, LawCell> = {
   Z5: { notApplicable: 'netwatch launches nothing' },
   Z6: { notApplicable: 'netwatch writes no tree, only bus events and its heartbeat' },
   Z7: gap(NODE_WITNESSES_CALL_THEIR_NODE),
+  Z8: { notApplicable: 'netwatch continues no card session; it records what GitHub shows' },
 }
 
 const WINDOW: Record<LawId, LawCell> = {
@@ -91,6 +96,7 @@ const WINDOW: Record<LawId, LawCell> = {
   Z5: { notApplicable: 'miko:watch launches nothing; a card the window starts is launched by the launch node, which writes the event' },
   Z6: { notApplicable: 'miko:watch writes no card tree, only its cursor beside the handoff' },
   Z7: { witness: WINDOW_BESIDE_SESSIONS },
+  Z8: { notApplicable: 'miko:watch continues no card session; the launch and answer nodes decide a continuation from the stop they record' },
 }
 
 const INTAKE: Record<LawId, LawCell> = {
@@ -101,6 +107,7 @@ const INTAKE: Record<LawId, LawCell> = {
   Z5: { notApplicable: 'intake launches nothing; it admits a card the launch node later starts' },
   Z6: { notApplicable: 'intake writes the parking lane and the bus, never a card tree' },
   Z7: { notApplicable: 'intake reads no liveness: it admits from the card text, the decisions in force and the bus card states' },
+  Z8: { notApplicable: 'intake continues no card session; it is where a card stopped outside its touches goes to have them widened' },
 }
 
 const SUPERVISOR: Record<LawId, LawCell> = {
@@ -111,6 +118,7 @@ const SUPERVISOR: Record<LawId, LawCell> = {
   Z5: { notApplicable: 'StalledSessions launches nothing' },
   Z6: { notApplicable: 'StalledSessions writes bus events and task releases, never a card tree' },
   Z7: { witness: REVIEW_LIVE_ON_ONE_STALE_SIGNAL },
+  Z8: { notApplicable: 'StalledSessions continues no card session; it ends or requeues a stalled one and reads no stop reason' },
 }
 
 function beyondNodes(law: LawId): Record<SiteBeyondNodes, LawCell> {
@@ -154,6 +162,12 @@ export const LAW_CELLS: LawCells = {
     update: { notApplicable: NO_SESSION_TO_READ },
     witness: gap(NODE_WITNESSES_CALL_THEIR_NODE),
     ...beyondNodes('Z7'),
+  },
+  Z8: {
+    ...everyNode({ notApplicable: CONTINUES_NO_CARD_SESSION }),
+    answer: { witness: ANSWER_STOP_SPENDS_NO_RESTART },
+    launch: { witness: LAUNCH_STOP_SPENDS_NO_CONTINUATION },
+    ...beyondNodes('Z8'),
   },
 }
 

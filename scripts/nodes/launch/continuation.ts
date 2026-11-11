@@ -106,6 +106,17 @@ export function stoppedOnSpend(worktree: string, session: string): boolean {
   return existsSync(journal) && entriesOf(readFileSync(journal, 'utf8')).some(entry => entry.session_id === session && entry.event === 'budget-stop' && entry.level === SPEND_LEVEL)
 }
 
+const QUESTION_TEXT = /^question:[ \t]*(\S.*)$/gm
+const STOP_REASON_TEXT = /^stop reason:[ \t]*(\S.*)$/m
+
+export function reportedQuestions(report: string | null): string[] {
+  return report === null ? [] : [...sessionWrittenPart(report).matchAll(QUESTION_TEXT)].map(found => found[1].trim())
+}
+
+export function reportedStopReason(report: string | null): string | null {
+  return report === null ? null : STOP_REASON_TEXT.exec(sessionWrittenPart(report))?.[1].trim() ?? null
+}
+
 export const BUILT_HANDOFF_HEADING = '## the handoff the bus built'
 
 const SESSION_REPORT_BYTES = 800
