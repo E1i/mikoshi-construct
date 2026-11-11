@@ -27,8 +27,7 @@ import { ghInRepositoryOf } from '../../core/places.js'
 import { openDatabase } from '../../core/sqlite.js'
 import { cardStartedLines, prCardOf } from '../../core/tasks.js'
 import { VERIFICATION_WORDS } from '../../core/verification.js'
-import { decisionsFileOf, parseDecisions } from '../../policy/decisions/decisions.js'
-import { archiveOf } from '../../policy/decisions/read.js'
+import { archiveOf, decisionsNumbered, defaultDecisionsFile } from '../../policy/decisions/read.js'
 import { closeWitnessDenial } from '../../policy/policy.js'
 import { SESSION_VARIABLE } from '../../ports/client/claude/adapter.js'
 import { clientAdapter } from '../../ports/client/index.js'
@@ -426,7 +425,7 @@ function sharingRefusal(deps: TaskCloseDeps, reference: string, cards: number[])
   if (deps.decisionsFile === undefined)
     return `--shared-by ${reference} is checked against the owner decisions, and no decisions file is given; nothing written`
   const files = [deps.decisionsFile, archiveOf(deps.decisionsFile)]
-  const found = files.flatMap(file => parseDecisions(deps.read(file) ?? '').decisions).filter(decision => decision.number === Number(reference.slice(2)))
+  const found = decisionsNumbered(deps.decisionsFile, deps.read, Number(reference.slice(2)))
   const named = cards.map(card => `#${card}`).join(' and ')
   if (found.length === 0)
     return `--shared-by ${reference}: no decision ${reference} in ${files.join(' or ')}; nothing written`
@@ -620,7 +619,7 @@ function realDeps(): TaskCloseDeps {
     forecast: taskClass => cheapForecastOf(defaultShiftRoot(), taskClass, claudeProjectsDir(), defaultBusPath()),
     style: terminalStyle(process.stdout.isTTY, process.env.NO_COLOR),
     prBody: prBodyOf(gh),
-    decisionsFile: decisionsFileOf(defaultBusPath()),
+    decisionsFile: defaultDecisionsFile(),
     openIssue: (issue) => {
       const open = readGhJson<(OpenIssue & { number: number })[]>(gh, ['issue', 'list', '--state', 'open', '--limit', String(OPEN_ISSUE_LIMIT), '--json', 'number,title,body'])
       return open.kind === 'read' ? { kind: 'read', value: open.value.find(candidate => candidate.number === issue) ?? null } : open

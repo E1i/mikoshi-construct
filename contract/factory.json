@@ -2554,8 +2554,7 @@
           "scripts/core/bus-path.ts",
           "scripts/policy/decisions/decisions.ts",
           "scripts/policy/decisions/index.ts",
-          "src/commands/attach/index.ts",
-          "src/commands/doctor/factory.ts"
+          "src/commands/attach/index.ts"
         ],
         "owner": "scripts/policy/decisions/index.ts",
         "source": "table:decisions",
@@ -3378,8 +3377,9 @@
       "scripts/nodes/update/update-done.ts": 1,
       "scripts/nodes/update/update-executor.ts": 2,
       "scripts/nodes/witness/witness-executor.ts": 3,
+      "scripts/policy/decisions/decisions.ts": 1,
       "scripts/policy/decisions/import.ts": 1,
-      "scripts/policy/decisions/index.ts": 16,
+      "scripts/policy/decisions/index.ts": 15,
       "scripts/policy/policy.ts": 3,
       "scripts/policy/round-limit-decision.ts": 1,
       "scripts/policy/shards.ts": 3,
@@ -3460,13 +3460,7 @@
       "scripts/core/inbox.ts": 1,
       "scripts/core/reducer.ts": 1,
       "scripts/nodes/answer/answer-source.ts": 1,
-      "scripts/nodes/close/task-close.ts": 2,
-      "scripts/nodes/launch/launch-candidates.ts": 1,
-      "scripts/supervisor/run.ts": 1,
-      "scripts/supervisor/start.ts": 3,
-      "scripts/window/window-request-tools.ts": 2,
-      "src/commands/doctor/factory.ts": 2,
-      "src/commands/intake/admit.ts": 4
+      "scripts/nodes/launch/launch-candidates.ts": 1
     },
     "pid-liveness": {
       "scripts/ladder/cleanup.ts": 1,

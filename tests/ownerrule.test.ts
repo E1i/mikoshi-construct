@@ -1,14 +1,21 @@
+import type { DecisionsPort } from '../scripts/policy/decisions/decisions.js'
 import type { AdmitOptions, AdmitResult } from '../src/commands/intake/admit.js'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { openBus } from '../scripts/core/db.js'
 import { reduce } from '../scripts/core/reducer.js'
 import { busCardAdmissions, busCardEvents } from '../scripts/intake/intake.js'
+import { decisionsOfProjection } from '../scripts/policy/decisions/decisions.js'
+
 import { runAdmit } from '../src/commands/intake/admit.js'
 
 const AT = new Date('2026-10-13T09:00:00.000Z')
+
+function heldIn(file: string): DecisionsPort {
+  return { inForce: () => decisionsOfProjection(existsSync(file) ? readFileSync(file, 'utf8') : '', AT).inForce() }
+}
 const FIRST = '`pnpm exec vitest run tests/a.test.ts` exits 0; red on main'
 const SECOND = '`pnpm exec vitest run tests/b.test.ts` exits 0; red on main'
 const INVARIANT = '`pnpm exec vitest run tests/c.test.ts` exits 0'
@@ -49,7 +56,7 @@ function ownerSays(w: World, text: string, cards: readonly number[], tail = ''):
 function admit(w: World, file: string, options: Partial<AdmitOptions> = {}): AdmitResult {
   const db = openBus(path.join(w.root, 'bus.db'))
   try {
-    const result = runAdmit({ file, dir: w.repo, dryRun: false, autoConfirm: false, parkingRoot: w.parking, events: busCardEvents(db), admissions: busCardAdmissions(db), cardStates: () => new Map(), decisions: decisionsOf(w), ...options }, () => AT)
+    const result = runAdmit({ file, dir: w.repo, dryRun: false, autoConfirm: false, parkingRoot: w.parking, events: busCardEvents(db), admissions: busCardAdmissions(db), cardStates: () => new Map(), decisions: heldIn(decisionsOf(w)), ...options }, () => AT)
     reduce(db)
     return result
   }

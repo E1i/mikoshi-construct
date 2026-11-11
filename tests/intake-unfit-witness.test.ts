@@ -1,16 +1,23 @@
+import type { DecisionsPort } from '../scripts/policy/decisions/decisions.js'
 import type { AdmitResult } from '../src/commands/intake/admit.js'
 import type { AmendFlags } from '../src/commands/intake/amend.js'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { openBus } from '../scripts/core/db.js'
 import { reduce } from '../scripts/core/reducer.js'
 import { busCardAdmissions, busCardEvents } from '../scripts/intake/intake.js'
+import { decisionsOfProjection } from '../scripts/policy/decisions/decisions.js'
 import { CREATED_PATHS_ARE_THE_CHANGE, runAdmit, unfitOnTheBase } from '../src/commands/intake/admit.js'
+
 import { runAmend } from '../src/commands/intake/amend.js'
 
 const NOW = new Date('2026-11-10T09:00:00.000Z')
+
+function heldIn(file: string): DecisionsPort {
+  return { inForce: () => decisionsOfProjection(existsSync(file) ? readFileSync(file, 'utf8') : '', NOW).inForce() }
+}
 const CARD = '#91 unfit-card [implement/runner/S/cheap/owner] · depends — · blocks —'
 const ADDED_TEST = 'tests/newdir/a.test.ts'
 const CREATED_FILE = 'src/board/new.ts'
@@ -62,13 +69,13 @@ function withBus<T>(w: World, run: (ports: { events: ReturnType<typeof busCardEv
 function admit(w: World, witness: Record<string, unknown>): AdmitResult {
   const file = path.join(w.parking, '91.md')
   writeFileSync(file, cardText(witness))
-  const result = withBus(w, ({ events, admissions }) => runAdmit({ file, dir: w.repo, dryRun: false, autoConfirm: true, parkingRoot: w.parking, decisions: w.decisions, events, admissions, cardStates: () => new Map() }, () => NOW))
+  const result = withBus(w, ({ events, admissions }) => runAdmit({ file, dir: w.repo, dryRun: false, autoConfirm: true, parkingRoot: w.parking, decisions: heldIn(w.decisions), events, admissions, cardStates: () => new Map() }, () => NOW))
   rmSync(file)
   return result
 }
 
 function amend(w: World, flags: AmendFlags): AdmitResult {
-  return withBus(w, ({ events, admissions }) => runAmend({ card: '#91', flags, dir: w.repo, dryRun: false, autoConfirm: true, parkingRoot: w.parking, decisions: w.decisions, events, admissions, cardStates: () => new Map() }, () => NOW))
+  return withBus(w, ({ events, admissions }) => runAmend({ card: '#91', flags, dir: w.repo, dryRun: false, autoConfirm: true, parkingRoot: w.parking, decisions: heldIn(w.decisions), events, admissions, cardStates: () => new Map() }, () => NOW))
 }
 
 function ownerWaits(w: World): number {

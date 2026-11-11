@@ -36,6 +36,7 @@ import { withdrawLegacyLaunchTasks } from '../../nodes/launch/launch-withdraw.js
 import { LAUNCH_LIMIT_MINUTES, LaunchNode } from '../../nodes/launch/launch-worker.js'
 import { taskConflicts } from '../../nodes/launch/overlap.js'
 import { renderPrompt } from '../../nodes/launch/prompt.js'
+import { InMemoryDecisions } from '../../policy/decisions/decisions.js'
 import { recordDecision } from '../../policy/decisions/index.js'
 import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
 import { sessionEnv } from '../../ports/session.js'
@@ -222,7 +223,7 @@ describe('the launch queue', () => {
     mkdirSync(parking)
     const file = path.join(parking, '1124.md')
     writeFileSync(file, parkingFileText({ card: '#1124 waiting-card [implement/netwatch/S/cheap/auto] · depends #900 #901 · blocks —', branch: 'feat/waiting-card', touches: ['scripts/nodes/launch/launch-candidates.ts'], continue: 'stop', who: 'shift', body: 'Do the card.' }))
-    const admitted = runAdmit({ file, dir: process.cwd(), dryRun: false, autoConfirm: true, parkingRoot: parking, contourMap: path.join(root, 'contour-map.json'), decisions: path.join(root, 'owner-decisions.md'), events: busCardEvents(bench.db), cardStates: () => busHeldCards(bench.db), admissions: busCardAdmissions(bench.db) })
+    const admitted = runAdmit({ file, dir: process.cwd(), dryRun: false, autoConfirm: true, parkingRoot: parking, contourMap: path.join(root, 'contour-map.json'), decisions: new InMemoryDecisions([]), events: busCardEvents(bench.db), cardStates: () => busHeldCards(bench.db), admissions: busCardAdmissions(bench.db) })
     expect(admitted.status).toBe('admitted')
     expect(eventsOf(bench.db, 'card.waiting')).toEqual([{ depends: [900, 901] }])
     const candidate = (): boolean => launchCandidates(bench.db, () => false).some(each => each.cardId === 1124)

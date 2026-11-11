@@ -1,6 +1,10 @@
+import type { DatabaseSync } from 'node:sqlite'
+import { existsSync } from 'node:fs'
 import path from 'node:path'
 import { DECISIONS_FILE } from '../../core/bus-path.js'
+import { BUSY_TIMEOUT_MS, DECISION_IN_FORCE } from '../../core/db.js'
 import { pnpmCommand } from '../../core/owner-commands.js'
+import { openDatabase } from '../../core/sqlite.js'
 
 export function decisionsFileOf(busPath: string): string {
   return path.join(path.dirname(busPath), DECISIONS_FILE)
@@ -350,7 +354,15 @@ export function projectDecisions(rows: readonly DecisionRow[], file: string, arc
   return decisionsRefusals(projected.file, projected.archive).length === 0 ? projected : { file, archive }
 }
 
-function projectionOf(rows: readonly DecisionRow[], file: string, archive: string, archiveHeader: string): ProjectedDecisions {
+function archiveWithout(archive: string, inForceNumbers: ReadonlySet<number>): string {
+  return archive.split('\n').filter((line) => {
+    const [decision] = parseDecisions(line).decisions
+    return decision === undefined || !inForceNumbers.has(decision.number)
+  }).join('\n')
+}
+
+function projectionOf(rows: readonly DecisionRow[], file: string, heldArchive: string, archiveHeader: string): ProjectedDecisions {
+  const archive = archiveWithout(heldArchive, new Set(rows.filter(row => row.inForce).map(row => row.number)))
   const { decisions: lines, offFormat } = parseDecisions(file)
   const fileLines = file.split(/\r?\n/)
   const held = new Map(lines.map(decision => [decision.number, decision]))
@@ -384,4 +396,69 @@ export function decisionsFindings(text: string): string[] {
 
 export function decisionCommand(words: string, cards: readonly number[] = []): string {
   return pnpmCommand(WRITER_MARKER, ...cards.map(card => `--card #${card}`), `"${OWNER_SOURCE} ${words}"`)
+}
+
+export const OWNER_ROW = 'owner'
+
+export interface OwnerWords {
+  decisionId: number
+  words: string
+  cards: readonly number[]
+  written: boolean
+}
+
+export interface DecisionsPort {
+  inForce: () => readonly OwnerWords[]
+}
+
+export interface InForceRow {
+  decisionId: number
+  text: string
+  cards: number[]
+  source: string | undefined
+}
+
+export function inForceRows(db: DatabaseSync): InForceRow[] {
+  return (db.prepare('SELECT * FROM decisions WHERE state = ? ORDER BY decision_id').all(DECISION_IN_FORCE) as { decision_id: number, text: string, scope: string | null, source?: string }[])
+    .map(row => ({ decisionId: Number(row.decision_id), text: row.text, cards: JSON.parse(row.scope ?? '[]') as number[], source: row.source }))
+}
+
+export function ownerWordsIn(db: DatabaseSync): OwnerWords[] {
+  return inForceRows(db).map(row => ({ decisionId: row.decisionId, words: withoutSource(row.text), cards: row.cards, written: row.source === OWNER_ROW }))
+}
+
+export class BusDecisions implements DecisionsPort {
+  constructor(private readonly busPath: string) {}
+
+  inForce(): readonly OwnerWords[] {
+    if (!existsSync(this.busPath))
+      return []
+    const db = openDatabase(this.busPath, { readOnly: true, timeout: BUSY_TIMEOUT_MS })
+    try {
+      return ownerWordsIn(db)
+    }
+    finally {
+      db.close()
+    }
+  }
+}
+
+export class InMemoryDecisions implements DecisionsPort {
+  constructor(private readonly held: readonly OwnerWords[]) {}
+
+  inForce(): readonly OwnerWords[] {
+    return this.held
+  }
+}
+
+export function inForceInText(text: string, now: Date): Decision[] {
+  return inForce(parseDecisions(text).decisions, now)
+}
+
+export function inForceInProjection(busPath: string, read: (file: string) => string | null, now: Date): Decision[] {
+  return inForceInText(read(decisionsFileOf(busPath)) ?? '', now)
+}
+
+export function decisionsOfProjection(text: string, now: Date): InMemoryDecisions {
+  return new InMemoryDecisions(inForceInText(text, now).map(decision => ({ decisionId: decision.number, words: withoutSource(decision.body), cards: decision.cards, written: decision.written })))
 }

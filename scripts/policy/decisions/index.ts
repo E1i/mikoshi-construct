@@ -11,7 +11,7 @@ import { CARD_STOPPED, DECISION_EXPIRED, DECISION_RECORDED, DECISIONS_IMPORTED, 
 import { OWNER } from '../../core/inbox.js'
 import { NETWATCH } from '../../core/observations.js'
 import { payloadOf, reject, Rejection, STORED_COLUMNS } from '../../core/stored.js'
-import { termOf } from './decisions.js'
+import { inForceRows, termOf } from './decisions.js'
 
 export interface InForceDecision {
   decisionId: number
@@ -227,8 +227,7 @@ function foldDecisionExpired(db: DatabaseSync, event: StoredEvent): void {
 }
 
 export function inForceDecisions(db: DatabaseSync): InForceDecision[] {
-  return (db.prepare(`SELECT decision_id, text, scope FROM decisions WHERE state = '${DECISION_IN_FORCE}' ORDER BY decision_id`).all() as { decision_id: number, text: string, scope: string | null }[])
-    .map(row => ({ decisionId: Number(row.decision_id), text: row.text, cards: JSON.parse(row.scope ?? '[]') as number[] }))
+  return inForceRows(db).map(({ decisionId, text, cards }) => ({ decisionId, text, cards }))
 }
 
 export function currentDecisions(db: DatabaseSync): Reading<InForceDecision[]> {

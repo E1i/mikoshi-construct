@@ -1,18 +1,25 @@
+import type { DecisionsPort } from '../scripts/policy/decisions/decisions.js'
 import type { AdmitOptions, AdmitResult } from '../src/commands/intake/admit.js'
 import type { IntakeResult } from '../src/commands/intake/index.js'
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { decisionsOfProjection } from '../scripts/policy/decisions/decisions.js'
 import { OWNER_MERGES } from '../scripts/policy/touch-scope.js'
 import { riskOf } from '../src/card/risk.js'
 import { printAdmit, runAdmit } from '../src/commands/intake/admit.js'
 import { NO_OWNER_PATH, ownerPathsOf } from '../src/commands/intake/check.js'
 import { INTAKE_EXIT, runIntake } from '../src/commands/intake/index.js'
 import { createUi } from '../src/ui/console.js'
+
 import { resolveTheme } from '../src/ui/theme.js'
 
 const NOW = new Date('2026-10-09T09:00:00.000Z')
+
+function heldIn(file: string): DecisionsPort {
+  return { inForce: () => decisionsOfProjection(existsSync(file) ? readFileSync(file, 'utf8') : '', NOW).inForce() }
+}
 const roots: string[] = []
 
 afterEach(() => {
@@ -168,7 +175,7 @@ describe('a refused witness downgrade hands the owner the decision admit accepts
     const line = cardOf(file).slice('card: '.length)
     writeFileSync(file, `${readFileSync(file, 'utf8').replace('Do the thing.\n', '')}${body(KEPT)}\n`)
     const previous = readFileSync(file, 'utf8').replace(body(KEPT), body(FIRST, SECOND, KEPT))
-    return admit(w, file, { decisions, admissions: () => ({ card: line, bodySha: null, ts: null, confirmation: null, source: 'admit', text: previous }) })
+    return admit(w, file, { decisions: heldIn(decisions), admissions: () => ({ card: line, bodySha: null, ts: null, confirmation: null, source: 'admit', text: previous }) })
   }
 
   function decided(w: World, words: string, cards = '#90'): string {

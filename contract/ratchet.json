@@ -58,7 +58,7 @@
   "overlaps:layers": 0,
   "overlaps:live-session": 4,
   "overlaps:owner-commands": 118,
-  "overlaps:owner-decisions": 19,
+  "overlaps:owner-decisions": 5,
   "overlaps:pid-liveness": 4,
   "overlaps:process-table": 0,
   "overlaps:window-requests": 18,
