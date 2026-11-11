@@ -9,9 +9,10 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { textSha } from '../../../src/card/text-sha.js'
 import { cardBodyText } from '../../core/card-bodies.js'
 import { appendEvent } from '../../core/db.js'
-import { CARD_ADMITTED, CARD_STARTED } from '../../core/events.js'
+import { CARD_ADMITTED, CARD_STARTED, CARD_VERIFIED, CARD_WAITING } from '../../core/events.js'
 import { MachineSessions } from '../../core/machine-sessions.js'
 import { LaunchNode } from '../../nodes/launch/launch-worker.js'
+import { TICK_MS } from '../../ports/netwatch.js'
 import { eventsOf, mergeBench } from '../bus/merge-bench.js'
 
 const CARD = 1781
@@ -31,8 +32,8 @@ function scratchDir(prefix: string): string {
   return root
 }
 
-function bodyOf(prose: string): string {
-  return `card: #${CARD} a-card [implement/construct/S/cheap/auto] · depends — · blocks —\nbranch: feat/card-${CARD}\ntouches: scripts/a.ts\ncontinue: stop\nwho: shift\n\n${prose}\n`
+function bodyOf(prose: string, kind = 'implement', decision = 'auto'): string {
+  return `card: #${CARD} a-card [${kind}/construct/S/cheap/${decision}] · depends — · blocks —\nbranch: feat/card-${CARD}\ntouches: scripts/a.ts\ncontinue: stop\nwho: shift\n\n${prose}\n`
 }
 
 function admit(made: MergeBench, key: string, text?: string): void {
@@ -103,6 +104,52 @@ describe('launch takes the card body from the latest card.admitted, never from a
       await runOnce(launchNode(made, starter))
       expect(eventsOf(made.db, CARD_STARTED)).toHaveLength(1)
       expect(cardBodyText(made.db, CARD)).toContain(`${AMENDED} Again.`)
+    }
+    finally {
+      made.close()
+    }
+  })
+
+  it('a relaunch after the usage limit reset starts on the body amended while the session waited', async () => {
+    const made = mergeBench()
+    try {
+      admit(made, 'admission-1', bodyOf(ADMITTED))
+      made.tick()
+      const starter = new Starter()
+      const handoffs: (string | null)[] = []
+      const reset = new Date(made.clock.now().getTime() + 3_600_000).toISOString()
+      const node = launchNode(made, starter, { resulted: () => false, collected: () => 'report-missing: no report was written', usageLimitedUntil: () => reset, handedOff: () => handoffs.length > 0, buildHandoff: (_card, _start, body) => handoffs.push(body) })
+      await runOnce(node)
+      expect(eventsOf(made.db, CARD_STARTED)).toHaveLength(1)
+      made.tick()
+      node.stopOverdue()
+      expect(eventsOf(made.db, CARD_WAITING).some(wait => wait.reason === 'usage-limit')).toBe(true)
+      admit(made, 'admission-2', bodyOf(AMENDED))
+      expect(cardBodyText(made.db, CARD)).toContain(ADMITTED)
+      made.clock.advance(3_600_000 + TICK_MS)
+      node.stopOverdue()
+      expect(handoffs).toHaveLength(1)
+      expect(handoffs[0]).toContain(AMENDED)
+    }
+    finally {
+      made.close()
+    }
+  })
+
+  it('a session closes as a probe when the latest admission made the card a probe and the fold still holds the older kind', async () => {
+    const made = mergeBench()
+    try {
+      admit(made, 'admission-1', bodyOf(ADMITTED))
+      made.tick()
+      const starter = new Starter()
+      const node = launchNode(made, starter, { continuer: undefined, collected: () => null, atContextLine: () => false, handedOff: () => false, resulted: () => true, reportOf: () => '#1781 a-probe\nno PR\nverification: run\nReport: /probes/r.md\n' })
+      await runOnce(node)
+      expect(eventsOf(made.db, CARD_STARTED)).toHaveLength(1)
+      made.tick()
+      admit(made, 'admission-2', bodyOf(AMENDED, 'probe', 'none'))
+      expect(cardBodyText(made.db, CARD)).toContain('[implement/')
+      node.stopOverdue()
+      expect(eventsOf(made.db, CARD_VERIFIED)).toHaveLength(1)
     }
     finally {
       made.close()
