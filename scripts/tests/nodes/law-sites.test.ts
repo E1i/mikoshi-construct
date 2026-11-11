@@ -12,15 +12,19 @@ import { ABANDONED_TITLE } from '../../ci/required.js'
 import { printBoard } from '../../cli/board-page.js'
 import { lawsSection } from '../../contract/factory/laws.js'
 import { lawGapNumbers, readRatchet } from '../../contract/ratchet.js'
-import { openBus } from '../../core/db.js'
+import { appendEvent, openBus } from '../../core/db.js'
 import { CARD_STARTED, SESSION_HEARTBEAT, WINDOW_HEARTBEAT } from '../../core/events.js'
 import { FACTORY_WORKERS } from '../../core/factory-paths.js'
+import { leaseQueued } from '../../core/lease.js'
 import { rerunDueOn } from '../../core/observations.js'
-import { ABANDONED_READ_AS_RERUN, LAW_CELLS, LAW_NODES, LAW_SITES, lawIds, PULSE_BESIDE_CARD_SILENCE, SITES_BEYOND_NODES, sourceOf, WINDOW_BESIDE_SESSIONS } from '../../nodes/laws.js'
+import { keyOf, queueTask } from '../../core/queue.js'
+import { ABANDONED_READ_AS_RERUN, gapRows, LAW_CELLS, LAW_NODES, LAW_SITES, lawIds, NODE_WITNESSES_CALL_THEIR_NODE, PULSE_BESIDE_CARD_SILENCE, REVIEW_LIVE_ON_ONE_STALE_SIGNAL, SITES_BEYOND_NODES, sourceOf, WINDOW_BESIDE_SESSIONS } from '../../nodes/laws.js'
 import { NetWatch, TICK_MS } from '../../ports/netwatch.js'
 import { BusTick } from '../../supervisor/run.js'
+import { NO_PROGRESS_LINES, StalledSessions } from '../../supervisor/stalled-sessions.js'
 import { BUS_ALIVE_MS, STALL_MS, stalledOf } from '../../window/watch.js'
 import { Clock, FakeGitHub, sha } from '../bus/github-fake.js'
+import { reachesSite } from './law-reach.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')
 const NOW = new Date('2026-11-09T15:40:00.000Z')
@@ -29,8 +33,16 @@ const STALE_WINDOW_BEAT = '2026-11-07T14:39:00.000Z'
 const LIVE_HEADER = 'id="bus-live">bus live<'
 const SILENT_SESSION_MINUTES = 120
 const INTAKE_READS_DECISIONS = 1779
-const BEYOND: readonly SiteBeyondNodes[] = ['netwatch', 'window', 'intake']
+const BEYOND: readonly SiteBeyondNodes[] = ['netwatch', 'window', 'intake', 'supervisor']
 const roots: string[] = []
+const CARDS_MERGED_ON_MAIN: readonly number[] = [1672, 1754, 1764, 1767, 1777, 1792]
+const CARDS_Q284_RETIRED: readonly number[] = [1777, 1792]
+const CELLS_AWAITING_THEIR_CARD = [
+  ...['close', 'launch', 'merge', 'restart', 'review', 'update', 'witness'].map(site => `Z3 × ${site} → #1672`),
+  ...['answer', 'close', 'merge', 'restart', 'review', 'update', 'witness', 'window', 'intake'].map(site => `Z4 × ${site} → #1754`),
+  ...['answer', 'close', 'launch', 'merge', 'restart', 'review', 'update', 'witness'].map(site => `Z5 × ${site} → #1767`),
+  ...['answer', 'close', 'launch', 'merge', 'restart', 'review', 'update', 'witness'].map(site => `Z6 × ${site} → #1764`),
+]
 
 beforeEach(() => {
   vi.stubEnv('BUS_RERUN', '')
@@ -130,10 +142,36 @@ function abandonedReadAsRerun(): void {
   }
 }
 
+function reviewLiveOnOneStaleSignal(): void {
+  const root = mkdtempSync(path.join(tmpdir(), 'law-sites-z7-'))
+  roots.push(root)
+  const db = openBus(path.join(root, 'bus.db'))
+  try {
+    const leasedAt = NOW.getTime()
+    const minuteAt = (minutes: number): string => new Date(leasedAt + minutes * MINUTE).toISOString()
+    const review = { queue: 'review', cardId: 1787, pr: 1527, head: 'c'.repeat(40) } as const
+    queueTask(db, minuteAt(0), review)
+    const lease = leaseQueued(db, minuteAt(0), keyOf(review), 'worker:review:worker-1')!
+    const line = NO_PROGRESS_LINES.review / MINUTE
+    for (let minute = 1; minute <= line + 1; minute++)
+      appendEvent(db, { ts: minuteAt(minute), type: SESSION_HEARTBEAT, actor: 'worker:review:worker-1', cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${SESSION_HEARTBEAT}:${lease.taskKey}:${lease.leaseGen}:${minute}`, payload: { task_key: lease.taskKey, lease_gen: lease.leaseGen, session: 'review-under-watch', context: 62659 }, legacy: false })
+    const stopped: string[] = []
+    new StalledSessions(db, () => new Date(leasedAt + (line + 1.5) * MINUTE), { lifeOf: () => 'live', stop: session => stopped.push(session), spendOf: () => null, pulseOf: () => null }).step()
+    if (stopped.length > 0)
+      throw new Error('a live review session whose only stale signal is the context reading was sent SIGTERM')
+    if ((db.prepare('SELECT state FROM tasks WHERE task_key = ?').get(lease.taskKey) as { state: string }).state !== 'leased')
+      throw new Error('a live review session whose only stale signal is the context reading lost its lease')
+  }
+  finally {
+    db.close()
+  }
+}
+
 const WITNESSES: Readonly<Record<string, Witness>> = {
   [ABANDONED_READ_AS_RERUN]: { law: 'Z2', run: abandonedReadAsRerun },
   [WINDOW_BESIDE_SESSIONS]: { law: 'Z7', run: windowBesideSessions },
   [PULSE_BESIDE_CARD_SILENCE]: { law: 'Z7', run: pulseBesideCardSilence },
+  [REVIEW_LIVE_ON_ONE_STALE_SIGNAL]: { law: 'Z7', run: reviewLiveOnOneStaleSignal },
 }
 
 function cellFault(law: LawId, site: SiteBeyondNodes, cell: LawCell | undefined): string | null {
@@ -146,6 +184,10 @@ function cellFault(law: LawId, site: SiteBeyondNodes, cell: LawCell | undefined)
   if ('notApplicable' in cell)
     return cell.notApplicable.trim() === '' ? `${law} × ${site}: not applicable without its reason` : null
   return cell.gap.length > 0 && cell.gap.every(card => Number.isInteger(card) && card > 0) ? null : `${law} × ${site}: a gap names the card that closes it`
+}
+
+function closedGapFaults(cells: typeof LAW_CELLS, closed: readonly number[]): string[] {
+  return gapRows(cells).flatMap(({ law, node, cards }) => cards.filter(card => closed.includes(card)).map(card => `${law} × ${node} → #${card}`))
 }
 
 function siteFaults(site: SiteBeyondNodes, cells: typeof LAW_CELLS = LAW_CELLS): string[] {
@@ -166,15 +208,15 @@ describe('law sites beyond the bus nodes', () => {
     expect(LAW_NODES.map(sourceOf)).toEqual(LAW_NODES.map(node => FACTORY_WORKERS[node]))
   })
 
-  it('liveness is witnessed on netwatch and on the window', () => {
-    for (const site of ['netwatch', 'window'] as const) {
-      const cell = LAW_CELLS.Z7[site]
+  it('liveness is witnessed on the window, and on netwatch only as a gap while its witness calls the window instead', () => {
+    const cell = LAW_CELLS.Z7.window
 
-      expect('witness' in cell, `Z7 × ${site}`).toBe(true)
-      const witness = WITNESSES[(cell as { witness: string }).witness]
-      expect(witness?.law).toBe('Z7')
-      witness!.run(site)
-    }
+    expect('witness' in cell).toBe(true)
+    const witness = WITNESSES[(cell as { witness: string }).witness]
+    expect(witness?.law).toBe('Z7')
+    witness!.run('window')
+    expect(LAW_CELLS.Z7.netwatch).toEqual({ gap: [NODE_WITNESSES_CALL_THEIR_NODE] })
+    pulseBesideCardSilence()
   })
 
   it('intake is a law site with a cell for every law', () => {
@@ -193,6 +235,50 @@ describe('law sites beyond the bus nodes', () => {
     expect(siteFaults('intake', unwitnessed)).toEqual([expect.stringContaining('Z7 × intake: witness Z7-unwritten')])
   })
 
+  it('supervisor is a law site and Z7 x supervisor names the card that ends the single-signal stall kill', async () => {
+    expect(sourceOf('supervisor')).toBe('scripts/supervisor/stalled-sessions.ts')
+    expect(siteFaults('supervisor')).toEqual([])
+    expect(LAW_CELLS.Z7.supervisor).toEqual({ witness: REVIEW_LIVE_ON_ONE_STALE_SIGNAL })
+    expect(await reachesSite('supervisor', reviewLiveOnOneStaleSignal)).toBe(true)
+    expect(await reachesSite('review', reviewLiveOnOneStaleSignal)).toBe(false)
+    expect(LAW_CELLS.Z7.review).toEqual({ gap: [NODE_WITNESSES_CALL_THEIR_NODE] })
+    expect(LAW_CELLS.Z2.supervisor).toEqual({ gap: [NODE_WITNESSES_CALL_THEIR_NODE] })
+    expect(readRatchet(REPO_ROOT)['law-gaps:Z7:supervisor']).toBeUndefined()
+    expect(Object.keys(lawsSection().laws.Z7.cells)).toContain('supervisor')
+  })
+
+  it('a witness run reaches a site only when it calls a function of the site module', async () => {
+    expect(await reachesSite('netwatch', abandonedReadAsRerun)).toBe(true)
+    expect(await reachesSite('netwatch', () => TICK_MS)).toBe(false)
+    expect(await reachesSite('netwatch', () => stalledOf([], undefined, NOW.getTime()))).toBe(false)
+    expect(await reachesSite('window', () => stalledOf([], undefined, NOW.getTime()))).toBe(true)
+  })
+
+  it('a law cell is green only when its witness calls the code of its own site', async () => {
+    const witnessCells = lawIds().flatMap(law => BEYOND.flatMap((site) => {
+      const cell = LAW_CELLS[law][site]
+      return 'witness' in cell ? [{ law, site, witness: cell.witness }] : []
+    }))
+    const unreached: string[] = []
+    for (const { law, site, witness } of witnessCells) {
+      if (!await reachesSite(site, () => WITNESSES[witness]!.run(site)))
+        unreached.push(`${law} × ${site}`)
+    }
+
+    expect(witnessCells.map(({ law, site }) => `${law} × ${site}`)).toEqual(['Z2 × netwatch', 'Z7 × window', 'Z7 × supervisor'])
+    expect(unreached).toEqual([])
+    expect(await reachesSite('netwatch', () => WITNESSES[PULSE_BESIDE_CARD_SILENCE]!.run('netwatch'))).toBe(false)
+    expect(lawIds().flatMap(law => LAW_SITES.filter(site => 'witness' in LAW_CELLS[law][site]).map(site => `${law} × ${site}`))).toEqual(['Z1 × review', 'Z2 × netwatch', 'Z7 × window', 'Z7 × supervisor'])
+  })
+
+  it('a gap names only a card that is still open', () => {
+    expect(closedGapFaults(LAW_CELLS, CARDS_Q284_RETIRED)).toEqual([])
+    expect(closedGapFaults(LAW_CELLS, CARDS_MERGED_ON_MAIN)).toEqual(CELLS_AWAITING_THEIR_CARD)
+    expect(CELLS_AWAITING_THEIR_CARD).toHaveLength(32)
+    expect(closedGapFaults({ ...LAW_CELLS, Z1: { ...LAW_CELLS.Z1, close: { gap: [1777] } } }, CARDS_MERGED_ON_MAIN)).toContain('Z1 × close → #1777')
+    expect(closedGapFaults({ ...LAW_CELLS, Z3: { ...LAW_CELLS.Z3, intake: { gap: [1792] } } }, CARDS_MERGED_ON_MAIN)).toContain('Z3 × intake → #1792')
+  })
+
   it('every cell of a site beyond the nodes is a witness, a reasoned not applicable or a gap the ratchet records', () => {
     const recorded = readRatchet(REPO_ROOT)
 
@@ -207,8 +293,8 @@ describe('law sites beyond the bus nodes', () => {
       for (const site of BEYOND) {
         const cell = LAW_CELLS[law][site]
         if ('witness' in cell) {
-          it(`${law} × ${site}`, () => {
-            WITNESSES[cell.witness]!.run(site)
+          it(`${law} × ${site}`, async () => {
+            expect(await reachesSite(site, () => WITNESSES[cell.witness]!.run(site)), `${cell.witness} does not call ${sourceOf(site)}`).toBe(true)
           })
         }
       }

@@ -8,8 +8,9 @@ import path from 'node:path'
 import process from 'node:process'
 import { describe, expect, it, vi } from 'vitest'
 import { fullReview } from '../../nodes/review/review-depth.js'
-import { claudeReviewer, commandMayWrite, GIT_TREE_TOOLS, HEAD_MOVED, missedBeatLine, mutatedPaths, PREPARED_TREE_LINE, REVIEW_CEILING_MS, ReviewFailed, reviewOf, reviewPrompt, reviewSession, ReviewTrees } from '../../nodes/review/reviewer.js'
+import { claudeReviewer, commandMayWrite, DescendantWatch, GIT_TREE_TOOLS, HEAD_MOVED, missedBeatLine, mutatedPaths, osDescendants, PREPARED_TREE_LINE, realReviewStart, REVIEW_CEILING_MS, ReviewFailed, reviewOf, reviewPrompt, reviewSession, ReviewTrees, unreadableDescendantsLine } from '../../nodes/review/reviewer.js'
 import { PREPARE_TREE, prepareEnv } from '../../ports/prepare-tree.js'
+import { InMemoryProcessTable } from '../../ports/process-table.js'
 import { headlessInvocation, SessionCeilingReached } from '../../ports/session.js'
 import { sha } from './github-fake.js'
 
@@ -98,6 +99,22 @@ describe('reviewer', () => {
     }
   })
 
+  it('a process table that cannot be read names the session and signals nothing', async () => {
+    const said = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const signalled: number[] = []
+    try {
+      const watch = new DescendantWatch('s-1', { ...osDescendants(new InMemoryProcessTable({ rows: { unreadable: 'ps refused' } })), end: pid => signalled.push(pid), pause: async () => {} })
+      watch.sample()
+
+      expect(await watch.settle()).toEqual([])
+      expect(signalled).toEqual([])
+      expect(said.mock.calls.map(call => call[0])).toEqual([unreadableDescendantsLine('s-1', 'ps refused')])
+    }
+    finally {
+      said.mockRestore()
+    }
+  })
+
   it('a pulse that throws costs one heartbeat and a named line, never the review or the worker', async () => {
     const dir = mkdtempSync(path.join(tmpdir(), 'bus-reviewer-beat-fails-'))
     const said = vi.spyOn(console, 'error').mockImplementation(() => {})
@@ -115,7 +132,7 @@ describe('reviewer', () => {
       const locked = (): void => {
         throw new Error('database is locked')
       }
-      const review = await claudeReviewer(trees, working, locked, BEAT_MS)(lease, full)
+      const review = await claudeReviewer(trees, working, locked, BEAT_MS, () => null, { ...realReviewStart(), descendants: osDescendants(new InMemoryProcessTable({})) })(lease, full)
       expect(review.verdict).toBe('pass')
       expect(said.mock.calls.map(call => call[0])).toEqual([missedBeatLine(review.session, new Error('database is locked'))])
       expect(missedBeatLine('s-1', new Error('database is locked'))).toBe('[bus:review] the heartbeat of review session s-1 was not recorded, the review goes on: database is locked')

@@ -36,6 +36,7 @@ const CONCEPT_IDS = [
   'generated-files',
   'owner-commands',
   'git',
+  'bus-read',
   'window-requests',
   'answer-duties',
 ]
@@ -62,13 +63,10 @@ const SITES_OF_THE_RECONNAISSANCE: Record<string, readonly string[]> = {
   ],
   'handoff-status': ['src/commands/doctor/factory.ts'],
   'owner-commands': [
-    'scripts/core/reducer.ts',
-    'scripts/core/queue.ts',
     'scripts/ports/task-start.ts',
     'src/commands/board/screens.ts',
     'scripts/cli/card.ts',
     'scripts/window/window-requests.ts',
-    'scripts/intake/intake.ts',
     'scripts/window/loop.ts',
     'src/commands/doctor/factory.ts',
     'scripts/window/compact-start.ts',
