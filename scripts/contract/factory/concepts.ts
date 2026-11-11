@@ -4,6 +4,7 @@ import path from 'node:path'
 import ts from 'typescript'
 import { FACTORY_NAMED, FACTORY_RUNTIME } from '../../core/factory-paths.js'
 import { GENERATED_FILES, GENERATED_PATHS } from '../../core/generated-files.js'
+import { BUS_TABLES } from '../../ports/bus-read.js'
 import { clientAdapter } from '../../ports/client/index.js'
 import {
   adjacentLiterals,
@@ -140,6 +141,14 @@ export const GIT_BEYOND_THE_PORT_BY_REASON = {
 export const GIT_BEYOND_THE_PORT: ReadonlySet<string> = new Set(Object.values(GIT_BEYOND_THE_PORT_BY_REASON).flat())
 const SURFACE_FILE = path.resolve(import.meta.dirname, '../../..', GENERATED_FILES.surface.path)
 const GH_RUN_VERBS = new Set(['view', 'list', 'cancel', 'download', 'watch', 'rerun'])
+
+const BUS_READ_PORT = 'scripts/ports/bus-read.ts'
+const READ_OF_A_BUS_TABLE = new RegExp(`\\b(?:FROM|JOIN)\\s+"?(?:${BUS_TABLES.join('|')})\\b`)
+const SQL_WRITE = /\b(?:INSERT|UPDATE|DELETE|REPLACE|CREATE|DROP|ALTER)\b/
+
+export function readsABusTable(text: string): boolean {
+  return READ_OF_A_BUS_TABLE.test(text) && !SQL_WRITE.test(text)
+}
 
 const RUNNING_FUNCTION = /^(?:exec|spawn|run|shell)/
 const RUNNING_METHOD = /^(?:exec|spawn|shell)/
@@ -341,6 +350,16 @@ export const CONCEPTS: readonly Concept[] = [
     axis: 'architecture',
     lore: null,
     detectors: [outside(GIT_BEYOND_THE_PORT, programCall(['git']))],
+  },
+  {
+    id: 'bus-read',
+    title: 'a read of a bus table by SQL, which the bus read port answers with a slice in the event contract',
+    owner: BUS_READ_PORT,
+    ownerExists: true,
+    ownerExport: 'BusRead',
+    axis: 'architecture',
+    lore: null,
+    detectors: [literal(readsABusTable, 'SQL reading a bus table')],
   },
   {
     id: 'window-requests',

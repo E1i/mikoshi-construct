@@ -36,6 +36,7 @@ const CONCEPT_IDS = [
   'generated-files',
   'owner-commands',
   'git',
+  'bus-read',
   'window-requests',
   'answer-duties',
 ]

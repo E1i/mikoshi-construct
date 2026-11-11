@@ -3,7 +3,7 @@ import { IN_ORDER_MARK } from '../../scripts/core/bus-readings.js'
 import { LANE_ASSIGNED } from '../../scripts/core/events.js'
 
 const BUS_SCHEMA = `
-CREATE TABLE events (id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT, type TEXT NOT NULL, card_id INTEGER, pr INTEGER, head TEXT, dedupe_key TEXT, legacy INTEGER NOT NULL DEFAULT 0, payload TEXT NOT NULL);
+CREATE TABLE events (id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT, type TEXT NOT NULL, actor TEXT, card_id INTEGER, pr INTEGER, head TEXT, dedupe_key TEXT, legacy INTEGER NOT NULL DEFAULT 0, payload TEXT NOT NULL);
 CREATE TABLE cards (card_id INTEGER PRIMARY KEY, state TEXT, pr INTEGER, event_id INTEGER);
 CREATE TABLE card_bodies (card_id INTEGER PRIMARY KEY, lane TEXT, card_line TEXT, text TEXT NOT NULL DEFAULT '');
 CREATE TABLE prs (pr INTEGER PRIMARY KEY, card_id INTEGER, state TEXT, verdict_on_head TEXT);
