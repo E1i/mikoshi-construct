@@ -2,7 +2,6 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { Witness } from '../ports/witnesses.js'
 import type { InForceDecision } from './decisions.js'
 import { readBodyCard } from '../../src/card/grammar.js'
-import { createdPaths } from '../../src/card/parking.js'
 import { RISK_LEVELS, riskOf } from '../../src/card/risk.js'
 import { judgedFieldWitnessesOf, witnessesOf } from '../../src/commands/intake/admit.js'
 import { isChangeWitness, ownerPathsOf } from '../../src/commands/intake/check.js'
@@ -11,6 +10,7 @@ import { CARD_ADMITTED, MERGE_DONE, PR_CLOSED, WITNESS_RECORDED } from '../core/
 import { GENERATED_PATHS } from '../core/generated-files.js'
 import { matchGlob } from './shredder/glob.js'
 import { readOwnerMergeKinds } from './shredder/reader.js'
+import { createdPaths } from './touch-scope.js'
 
 export const OWNER_MERGES = 'architecture/owner-merges.md'
 export const VERSION_BRANCH = /^changeset-release\//

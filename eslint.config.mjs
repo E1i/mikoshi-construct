@@ -24,10 +24,10 @@ const ALLOWED_INTERNAL_IMPORTS = {
 const CORE_FILES_SRC_MAY_IMPORT = ['bus-path', 'bus-readings', 'eddies', 'events', 'factory-paths', 'gh-callers', 'handoff-dir', 'layer-map', 'merge-event', 'verification'].map(name => `core/${name}.js`)
 
 const ALLOWED_FACTORY_IMPORTS = {
-  'src/card': ['core/factory-paths.js'],
+  'src/card': ['core/factory-paths.js', 'policy/touch-scope.js'],
   'src/commands': CORE_FILES_SRC_MAY_IMPORT,
-  'src/commands/doctor': [...CORE_FILES_SRC_MAY_IMPORT, 'policy/decisions/decisions.js', 'policy/live-decision.js'],
-  'src/commands/intake': [...CORE_FILES_SRC_MAY_IMPORT, 'policy/decisions/decisions.js'],
+  'src/commands/doctor': [...CORE_FILES_SRC_MAY_IMPORT, 'policy/decisions/decisions.js', 'policy/live-decision.js', 'policy/touch-scope.js'],
+  'src/commands/intake': [...CORE_FILES_SRC_MAY_IMPORT, 'policy/decisions/decisions.js', 'policy/touch-scope.js'],
   'src/program.ts': [...CORE_FILES_SRC_MAY_IMPORT, 'owner/channel.js'],
 }
 

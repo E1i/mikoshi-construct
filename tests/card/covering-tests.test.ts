@@ -1,7 +1,8 @@
 import type { RepositoryFacts } from '../../src/commands/intake/facts.js'
 import { describe, expect, it } from 'vitest'
 import { isTest as layersIsTest } from '../../scripts/ci/layers.js'
-import { COVERING_REASON, coveringTests, importersOf, isTest, layerMasksOf, PACKAGE_SCRIPT_READERS, pathsIn, pathsOutside, RISK_RULE, RISK_RULE_READERS, runsCover, runsLine, runsOf, SCANNED_TREES, TestCoverage, touchesWithoutRuns, withinTouches } from '../../src/card/covering-tests.js'
+import { isTest, pathsIn, pathsOutside, runsCover, withinTouches } from '../../scripts/policy/touch-scope.js'
+import { COVERING_REASON, coveringTests, importersOf, layerMasksOf, PACKAGE_SCRIPT_READERS, RISK_RULE, RISK_RULE_READERS, runsLine, runsOf, SCANNED_TREES, TestCoverage, touchesWithoutRuns } from '../../src/card/covering-tests.js'
 import { checkDraft } from '../../src/commands/intake/check.js'
 
 const FILES: Record<string, string> = {

@@ -1,3 +1,4 @@
+import type { FollowingRow } from '../../../scripts/policy/touch-scope.js'
 import type { Kind } from '../../card/grammar.js'
 import type { RiskLevel } from '../../card/risk.js'
 import type { DraftCard, DraftPlan, UnclearField } from './draft.js'
@@ -5,13 +6,13 @@ import type { RepositoryFacts } from './facts.js'
 import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { GENERATED_FILES } from '../../../scripts/core/factory-paths.js'
-import { isTestScope, runsOf, withinTouches } from '../../card/covering-tests.js'
+import { CHANGESET_COMPANION, createdPaths, entryCovers, entryUnder, FOLLOWING_TABLE, isTestScope, OWNER_MERGES, parseCreatesEntry, PREFIX_SUFFIX, scopePath, withinTouches } from '../../../scripts/policy/touch-scope.js'
+import { runsOf } from '../../card/covering-tests.js'
 import { CONTOURS, decisionsOf, KINDS } from '../../card/grammar.js'
-import { createdPaths, parseCreatesEntry, parseParkingFile } from '../../card/parking.js'
-import { CHANGESET_COMPANION, RISK_LEVELS, riskOf, riskReading, touchedOrCreated } from '../../card/risk.js'
-import { PREFIX_SUFFIX, touchError } from '../../card/task-file.js'
+import { parseParkingFile } from '../../card/parking.js'
+import { RISK_LEVELS, riskOf, riskReading, touchedOrCreated } from '../../card/risk.js'
+import { touchError } from '../../card/task-file.js'
 import { commandInsideJudgedWrap } from '../../card/witness-fields.js'
-import { FACTORY_MANIFEST } from '../../materialize/factory-manifest.js'
 import { globToRegExp } from '../../model/glob.js'
 import { bashSyntaxProblem } from './bash-syntax.js'
 import { commandArguments, commandWord, HOME_REFERENCE, namesATest, pathsNamedBy, TEST_NAME_ARGUMENT } from './command-word.js'
@@ -40,7 +41,6 @@ const HARNESS_MEMBERSHIP_TEST = 'tests/harness-membership.test.ts'
 const TESTS_ROOT = 'tests'
 const SOURCE_MODULE = /^src\/(.+)\.ts$/
 
-export const OWNER_MERGES = 'architecture/owner-merges.md'
 const OWNER_KINDS_HEADER = '| kind |'
 const OWNER_BY_RISK_HEADER = '| by risk |'
 const OWNER_DECISION = 'owner'
@@ -59,17 +59,8 @@ export interface CompanionRow {
   companions: (entry: string, touches: readonly string[], repository: RepositoryFacts) => string[]
 }
 
-function scopeOf(entry: string): string {
-  return entry.endsWith(PREFIX_SUFFIX) ? entry.slice(0, -PREFIX_SUFFIX.length) : entry
-}
-
-function under(entry: string, root: string): boolean {
-  const scope = scopeOf(entry)
-  return scope === root || scope.startsWith(`${root}/`)
-}
-
 function testBeside(entry: string, touches: readonly string[], repository: RepositoryFacts): string[] {
-  if (touches.some(touch => under(touch, TESTS_ROOT)))
+  if (touches.some(touch => entryUnder(touch, TESTS_ROOT)))
     return []
   const module = SOURCE_MODULE.exec(entry)?.[1]
   const mirrored = `${TESTS_ROOT}/${module}.test.ts`
@@ -78,78 +69,14 @@ function testBeside(entry: string, touches: readonly string[], repository: Repos
 
 export const COMPANION_REASON = 'every change of this kind carries it: the companion table in src/commands/intake/check.ts'
 
-export interface CompositionRecord {
-  id: string
-  doc: string
-  nodes: readonly { path?: string }[]
-}
-
-export interface FollowingReach {
-  touches: readonly string[]
-  added: ReadonlySet<string>
-  compositionRecords: readonly CompositionRecord[]
-}
-
-export interface FollowingRow {
-  kind: string
-  follows: (file: string, reach: FollowingReach) => boolean
-}
-
-const TEMPLATE_GROUP_FILE = /^templates\/(?:base|harness|attach|ai\/[^/]+|stacks\/[^/]+|presets\/[^/]+\/[^/]+)\/(.+)$/
-const DOT_SEGMENT = /(^|\/)_/g
-const RENDERED_SUFFIX = /(?:\.existing)?\.eta$/
-const CHANGESET_FILE = /^\.changeset\/(?!readme\.md$)[^/]+\.md$/i
-const SECURITY_PATHS = ['architecture/security-invariants.md', '.gitleaks.toml', '.github/workflows']
-const NEVER_FOLLOWING = ['.claude', OWNER_MERGES, ...SECURITY_PATHS]
-export const COMPOSITION_ROOT = 'architecture/composition'
-
-function reachesAny(touches: readonly string[], roots: readonly string[]): boolean {
-  return touches.some(touch => roots.some(root => under(touch, root) || (touch.endsWith(PREFIX_SUFFIX) && under(root, scopeOf(touch)))))
-}
-
-export function rootCopyOf(entry: string): string | null {
-  const copy = TEMPLATE_GROUP_FILE.exec(scopeOf(entry))?.[1]
-  if (copy === undefined)
-    return null
-  const rendered = copy.replace(DOT_SEGMENT, '$1.')
-  return entry.endsWith(PREFIX_SUFFIX) ? `${rendered}${PREFIX_SUFFIX}` : rendered.replace(RENDERED_SUFFIX, '')
-}
-
-function generatedFrom(generated: string, sources: readonly string[]): FollowingRow['follows'] {
-  return (file, reach) => file === generated && reachesAny(reach.touches, sources)
-}
-
-function reachedRecordFollows(file: string, reach: FollowingReach): boolean {
-  return reach.compositionRecords.some(record => (file === `${COMPOSITION_ROOT}/${record.id}.yaml` || file === record.doc)
-    && reachesAny(reach.touches, record.nodes.flatMap(node => node.path ?? [])))
-}
-
 export const COMPANION_TABLE: readonly (CompanionRow | FollowingRow)[] = [
   { kind: 'the scripts manifest', keptBy: HARNESS_MEMBERSHIP_TEST, touched: entry => entry === 'package.json', companions: () => ['CONTRIBUTING.md', HARNESS_MEMBERSHIP_TEST] },
   { kind: 'the command definitions', keptBy: 'tests/readme-commands.test.ts', touched: entry => entry === 'src/program.ts', companions: () => ['README.md', 'docs/cli.md', `docs/guide${PREFIX_SUFFIX}`] },
-  { kind: 'published code', keptBy: '.changeset/config.json', touched: (entry, published) => published.some(root => under(entry, SOURCE_OF_BUILT_ROOT[root] ?? root)), companions: () => [CHANGESET_COMPANION] },
-  { kind: 'source code', keptBy: TESTS_ROOT, touched: entry => under(entry, 'src'), companions: testBeside },
-  { kind: 'the card\'s changeset', follows: (file, reach) => CHANGESET_FILE.test(file) && reach.added.has(file) },
-  { kind: 'the command surface', follows: generatedFrom(GENERATED_FILES.surface.path, GENERATED_FILES.surface.followSources) },
-  { kind: 'the factory contract', follows: generatedFrom(GENERATED_FILES.factory.path, GENERATED_FILES.factory.followSources) },
-  { kind: 'the add population', follows: generatedFrom(GENERATED_FILES.addPopulation.path, GENERATED_FILES.addPopulation.followSources) },
-  { kind: 'the self-hosting drift list', follows: generatedFrom(GENERATED_FILES.selfHostingDrift.path, GENERATED_FILES.selfHostingDrift.followSources) },
-  { kind: 'the factory manifest', follows: generatedFrom(GENERATED_FILES.factoryManifest.path, FACTORY_MANIFEST) },
-  { kind: 'a root self-hosting copy', follows: (file, reach) => reach.touches.some((touch) => {
-    const copy = rootCopyOf(touch)
-    return copy !== null && covers(copy, file)
-  }) },
-  { kind: 'a composition record and its document', follows: reachedRecordFollows },
-  { kind: 'a test or a generated file', follows: (file, reach) => isTestOrGenerated(file) && !neverFollows(file, reach) },
+  { kind: 'published code', keptBy: '.changeset/config.json', touched: (entry, published) => published.some(root => entryUnder(entry, SOURCE_OF_BUILT_ROOT[root] ?? root)), companions: () => [CHANGESET_COMPANION] },
+  { kind: 'source code', keptBy: TESTS_ROOT, touched: entry => entryUnder(entry, 'src'), companions: testBeside },
+  ...FOLLOWING_TABLE,
 ]
 export const FOLLOWING_REASON = 'a test or a generated file off the guarded paths, a generated twin of a touched file, a composition record and its document whose node the touches reach, or a changeset the card adds, follows the touches: the companion table in src/commands/intake/check.ts'
-
-const RATCHET_RECORD = 'contract/ratchet.json'
-const GENERATED_PATHS: readonly string[] = [RATCHET_RECORD, ...Object.values(GENERATED_FILES).map(row => row.path)]
-
-export function isTestOrGenerated(file: string): boolean {
-  return isTestScope(file) || GENERATED_PATHS.includes(file)
-}
 
 export function cardRiskOf(cardId: number, card: string | null): RiskLevel | null {
   const parsed = card === null ? null : parseParkingFile(`${cardId}.md`, card)
@@ -157,12 +84,6 @@ export function cardRiskOf(cardId: number, card: string | null): RiskLevel | nul
     return null
   const reached = touchedOrCreated(parsed.parked.task.touches, createdPaths(parsed.parked.creates))
   return reached.length === 0 ? null : riskReading(reached, false).level
-}
-
-export function neverFollows(file: string, reach: FollowingReach): boolean {
-  if (under(file, COMPOSITION_ROOT) && reachedRecordFollows(file, reach))
-    return false
-  return NEVER_FOLLOWING.some(root => under(file, root)) || riskOf(file).level === OWNER_RISK
 }
 
 export interface AdmittedReach {
@@ -175,9 +96,6 @@ export function admittedReachOf(cardId: number, cardBody: string | null): Admitt
   return parsed?.kind === 'parked' ? { touches: parsed.parked.task.touches, runs: runsOf(parsed.parked.task.body) } : { touches: [], runs: [] }
 }
 
-export function followsTouches(file: string, reach: FollowingReach): boolean {
-  return COMPANION_TABLE.some(row => 'follows' in row && row.follows(file, reach))
-}
 const MAX_LISTED_TESTS_PER_DIRECTORY = 6
 export { COVERING_REASON } from '../../card/covering-tests.js'
 
@@ -277,7 +195,7 @@ function meets(touch: string, glob: string): boolean {
   const pattern = globToRegExp(glob)
   if (!touch.endsWith(PREFIX_SUFFIX))
     return pattern.test(touch)
-  const scope = scopeOf(touch)
+  const scope = scopePath(touch)
   return glob.split('*')[0]!.startsWith(`${scope}/`) || pattern.test(`${scope}/${UNDER_PREFIX}`)
 }
 
@@ -387,7 +305,7 @@ const HOST_TOUCH = /^(?:localhost|(?:[a-z0-9-]+\.)+(?:ai|app|cloud|co|com|dev|ed
 function nonPathShape(entry: string, repository: RepositoryFacts, created: readonly string[]): string | null {
   if (ROUTE_TOUCH.test(entry))
     return 'a route'
-  if (withinTouches(entry, created) || repository.exists(scopeOf(entry)))
+  if (withinTouches(entry, created) || repository.exists(scopePath(entry)))
     return null
   if (PACKAGE_TOUCH.test(entry))
     return 'a package name'
@@ -446,10 +364,6 @@ function touchesChecked(card: DraftCard, repository: RepositoryFacts): Touched {
   return touched
 }
 
-function covers(touch: string, companion: string): boolean {
-  return touch === companion || (touch.endsWith(PREFIX_SUFFIX) && under(companion, scopeOf(touch)))
-}
-
 function withCompanions<T extends Touched>(touched: T, runs: readonly string[], repository: RepositoryFacts, published: readonly string[]): T {
   const missing: string[] = []
   for (const row of COMPANION_TABLE) {
@@ -458,7 +372,7 @@ function withCompanions<T extends Touched>(touched: T, runs: readonly string[], 
     for (const entry of touched.touches.filter(touch => row.touched(touch, published))) {
       const touches = [...touched.touches, ...missing]
       for (const companion of row.companions(entry, [...touches, ...runs], repository)) {
-        if (repository.exists(scopeOf(companion)) && !touches.some(touch => covers(touch, companion)))
+        if (repository.exists(scopePath(companion)) && !touches.some(touch => entryCovers(touch, companion)))
           missing.push(companion)
       }
     }
@@ -482,7 +396,7 @@ function listedCovering(tests: readonly string[]): string[] {
 }
 
 function coveringRuns(touches: readonly string[], repository: RepositoryFacts): string[] {
-  return listedCovering(repository.testsCovering(touches).filter(test => !touches.some(touch => covers(touch, test))))
+  return listedCovering(repository.testsCovering(touches).filter(test => !touches.some(touch => entryCovers(touch, test))))
 }
 
 interface Linked {
@@ -623,7 +537,7 @@ function checkCard(card: DraftCard, assigned: number, facts: CheckFacts): Checke
   const checked = touchesChecked(card, facts.repository)
   const covering = coveringRuns(checked.touches, facts.repository)
   const touched = withCompanions(checked, [...covering, ...(card.runs ?? [])], facts.repository, facts.published ?? [])
-  const runs = covering.filter(test => !touched.touches.some(touch => covers(touch, test)))
+  const runs = covering.filter(test => !touched.touches.some(touch => entryCovers(touch, test)))
   const depends = referencesChecked('depends', card.depends, facts)
   const blocks = referencesChecked('blocks', card.blocks, facts)
   const contour = contourCorrection(card)

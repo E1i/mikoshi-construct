@@ -1,8 +1,7 @@
 import path from 'node:path'
 import { FACTORY_FOLDERS, FACTORY_FORMER_FOLDERS, FACTORY_NAMED, FACTORY_ROOT, GENERATED_FILES, RATCHET_FILE, scopeOf } from '../../scripts/core/factory-paths.js'
-import { createdPaths } from './parking.js'
-import { PREFIX_SUFFIX } from './task-file.js'
-import { isLayerEntry, layerNamedBy, runsFieldOf } from './witness-fields.js'
+import { coversByImport, isLayerEntry, isTest, isTestScope, layerNamedBy, withinTouches } from '../../scripts/policy/touch-scope.js'
+import { runsFieldOf } from './witness-fields.js'
 
 function scannedBy(groups: readonly (readonly [readonly string[], readonly string[]])[]): Record<string, readonly string[]> {
   const trees: Record<string, string[]> = {}
@@ -13,7 +12,6 @@ function scannedBy(groups: readonly (readonly [readonly string[], readonly strin
   return trees
 }
 
-export const TEST_ROOTS = ['tests', FACTORY_FOLDERS.tests[0]]
 export const PACKAGE_MANIFEST = 'package.json'
 export const PACKAGE_SCRIPT_READERS = ['tests/contributing-scripts.test.ts', 'tests/harness-membership.test.ts']
 export const RISK_RULE = 'src/card/risk.ts'
@@ -119,11 +117,6 @@ export const TRACED_TREE_SPAWNERS: readonly string[] = [
 export const EVERY_CHANGE_READERS: readonly string[] = [...TRACED_TREE_WALKERS, ...TRACED_TREE_SPAWNERS]
 const LINT_CONFIG = /^eslint\.config\.[cm]?[jt]s$/
 const LINT_RUN = /\bnew\s+ESLint\s*\(|\bcalculateConfigForFile\s*\(/
-const WORD_BOUNDARY = /[\s,;:()[\]"'`?!<>]+/
-const TRAILING_DOTS = /\.+$/
-const FILE_EXTENSION = /\.[a-z][\w-]*$/i
-const TEST_FILE = /\.test\.ts$/
-const WORKSPACE_TEST_ROOT = /^(?:apps|packages)\/[^/]+\/tests\//
 const MODULE_FILE = /\.[cm]?[jt]s$/
 const RELATIVE_SPECIFIER = /\bfrom\s*['"](\.{1,2}\/[^'"]+)['"]|\b(?:import|require|vi\.(?:mock|doMock|importActual|importMock))\s*(?:\(\s*)?['"](\.{1,2}\/[^'"]+)['"]/g
 const COMPILED_TO_SOURCE: readonly (readonly [RegExp, string])[] = [[/\.js$/, '.ts'], [/\.mjs$/, '.mts'], [/\.cjs$/, '.cts']]
@@ -132,23 +125,6 @@ export const RUNS_PREFIX = 'Runs: '
 const RUNS_SEPARATOR = ', '
 const COVERING_TOUCH_CORRECTION_PREFIX = 'corrected: touches — (absent) → '
 const COVERING_TOUCH_CORRECTION_SUFFIX = ` — ${COVERING_REASON}`
-
-export function isTest(file: string): boolean {
-  return TEST_FILE.test(file) && TEST_ROOTS.some(root => file.startsWith(`${root}/`))
-}
-
-function coversByImport(file: string): boolean {
-  return isTest(file) || (TEST_FILE.test(file) && WORKSPACE_TEST_ROOT.test(file))
-}
-
-export function isTestScope(entry: string): boolean {
-  if (isLayerEntry(entry))
-    return true
-  if (!entry.endsWith(PREFIX_SUFFIX))
-    return coversByImport(entry)
-  const scope = `${entry.slice(0, -PREFIX_SUFFIX.length)}/`
-  return TEST_ROOTS.some(root => scope.startsWith(`${root}/`)) || WORKSPACE_TEST_ROOT.test(scope)
-}
 
 export function runsLine(runs: readonly string[]): string {
   return `${RUNS_PREFIX}${runs.join(RUNS_SEPARATOR)}`
@@ -178,19 +154,9 @@ export function layerMasksOf(body: string): string[] {
   return runsEntriesOf(body).filter(isLayerEntry).map(layerNamedBy)
 }
 
-export function runsCover(file: string, runs: readonly string[]): boolean {
-  return coversByImport(file) && withinTouches(file, runs)
-}
-
 export function touchesWithoutRuns(touches: readonly string[], body: string): string[] {
   const runs = new Set(runsOf(body))
   return touches.filter(entry => !runs.has(entry))
-}
-
-export function withinTouches(file: string, touches: readonly string[]): boolean {
-  return touches.some(entry => entry.endsWith(PREFIX_SUFFIX)
-    ? file.startsWith(`${entry.slice(0, -PREFIX_SUFFIX.length)}/`)
-    : file === entry)
 }
 
 function resolvedImport(file: string, specifier: string, known: ReadonlySet<string>): string | undefined {
@@ -245,15 +211,6 @@ export function coveringTests(touches: readonly string[], files: readonly string
     .filter(([file]) => touches.includes(file) || touched.includes(file))
     .flatMap(([, named]) => named.filter(reader => known.has(reader)))
   return [...new Set([...[...reached].filter(coversByImport), ...readers, ...scanning(touched, known), ...spawning(touched, files, read), ...linting(touched, files, read)])].sort()
-}
-
-export function pathsIn(text: string): string[] {
-  return [...new Set(text.split(WORD_BOUNDARY).map(word => word.replace(TRAILING_DOTS, '')).filter(word => word.includes('/') || FILE_EXTENSION.test(word)))]
-}
-
-export function pathsOutside(touches: readonly string[], creates: readonly string[], paths: readonly string[]): string[] {
-  const reach = [...touches, ...createdPaths(creates)]
-  return paths.filter(file => !withinTouches(file, reach))
 }
 
 export class TestCoverage {

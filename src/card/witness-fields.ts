@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { FACTORY_RUNTIME } from '../../scripts/core/factory-paths.js'
+import { isLayerEntry, LAYER_ENTRY_PREFIX, layerNamedBy } from '../../scripts/policy/touch-scope.js'
 import { touchError } from './task-file.js'
 
 export const WITNESS_KINDS = ['acceptance', 'invariant'] as const
@@ -28,7 +29,6 @@ export type ParsedWitnessList = { kind: 'fields', fields: WitnessField[] } | { k
 
 const WITNESSES_FIELD = 'witnesses: '
 const RUNS_FIELD = 'runs: '
-const LAYER_ENTRY_PREFIX = 'layer:'
 const LAYER_MAP = FACTORY_RUNTIME.layerMap
 const LAYER_MAP_ROOTS = [import.meta.dirname, path.resolve(import.meta.dirname, '..', '..')]
 const LIST_OPENING = '['
@@ -129,14 +129,6 @@ function listOfJson(json: string): unknown {
   catch {
     return null
   }
-}
-
-export function isLayerEntry(entry: string): boolean {
-  return entry.startsWith(LAYER_ENTRY_PREFIX)
-}
-
-export function layerNamedBy(entry: string): string {
-  return entry.slice(LAYER_ENTRY_PREFIX.length)
 }
 
 export function layerEntryRefusals(entries: readonly string[], roots: readonly string[] = LAYER_MAP_ROOTS): string[] {

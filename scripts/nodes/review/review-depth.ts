@@ -1,13 +1,12 @@
-import type { CompositionRecord, FollowingReach } from '../../../src/commands/intake/check.js'
 import type { Lease } from '../../core/lease.js'
 import type { Prediction, RuleId } from '../../policy/morse/rules.js'
+import type { CompositionRecord, FollowingReach } from '../../policy/touch-scope.js'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
-import { runsCover, TestCoverage } from '../../../src/card/covering-tests.js'
-import { PREFIX_SUFFIX } from '../../../src/card/task-file.js'
-import { COMPOSITION_ROOT, followsTouches, isTestOrGenerated, neverFollows } from '../../../src/commands/intake/check.js'
+import { TestCoverage } from '../../../src/card/covering-tests.js'
 import { loadCompositionModels } from '../../composition/files.js'
+import { COMPOSITION_ROOT, followsTouches, isTestOrGenerated, neverFollows, runsCover, withinTouches } from '../../policy/touch-scope.js'
 import { gitIn } from '../../ports/worktree.js'
 
 export { cardRiskOf } from '../../../src/commands/intake/check.js'
@@ -57,12 +56,6 @@ export type ReviewPlanner = (lease: Lease, earlier: EarlierVerdict | null) => Re
 
 export function fullReview(why: string, prediction: Prediction | null = null): ReviewPlan {
   return { depth: 'full', why, prediction }
-}
-
-export function withinTouches(file: string, touches: readonly string[]): boolean {
-  return touches.some(entry => entry.endsWith(PREFIX_SUFFIX)
-    ? file.startsWith(`${entry.slice(0, -PREFIX_SUFFIX.length)}/`)
-    : file === entry)
 }
 
 function namedByFindings(file: string, findings: readonly string[]): boolean {

@@ -15,7 +15,7 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { RUNS_PREFIX, withinTouches } from '../../src/card/covering-tests.js'
+import { RUNS_PREFIX } from '../../src/card/covering-tests.js'
 import { fieldCommand } from '../../src/card/witness-fields.js'
 import { busFacts, CARD_STAGES, latestCardEvents, openTasks } from '../../src/commands/board/bus.js'
 import { DROPPED, droppedLine, goalOf, MARK_WORDS, planLine } from '../../src/commands/board/goal.js'
@@ -35,6 +35,7 @@ import { cardContract } from '../intake/card-contract.js'
 import { recordedWitnessFieldsBackfill, witnessTableOf } from '../intake/witness-fields-backfill.js'
 import { currentDecisions } from '../policy/decisions.js'
 import { GREEN, RED, UNCHECKED } from '../policy/policy.js'
+import { narrowestMask } from '../policy/touch-scope.js'
 import { ghApi } from '../ports/github.js'
 import { cardSizeIn } from '../ports/session.js'
 import { BOARD_FILE, FRESH_MS, windowGauges } from '../window/board.js'
@@ -746,10 +747,6 @@ function headsItsLane(entry: string): boolean {
 function folderOf(file: string): string {
   const slash = file.lastIndexOf('/')
   return slash === -1 ? ROOT_FOLDER : file.slice(0, slash)
-}
-
-function narrowestMask(file: string, masks: readonly string[]): string | undefined {
-  return masks.filter(mask => withinTouches(file, [mask])).sort((a, b) => b.length - a.length)[0]
 }
 
 function runsLanesOf(entries: readonly string[]): RunsLane[] {

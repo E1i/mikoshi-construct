@@ -3,8 +3,9 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { FACTORY_FOLDERS } from '../scripts/core/factory-paths.js'
+import { FACTORY_MANIFEST } from '../scripts/policy/touch-scope.js'
 import { runInit } from '../src/commands/init.js'
-import { FACTORY_MANIFEST, factoryTargetsFor } from '../src/materialize/factory-manifest.js'
+import { factoryTargetsFor } from '../src/materialize/factory-manifest.js'
 import { getPreset, PRESET_IDS } from '../src/presets/index.js'
 import { createUi, silentWriter } from '../src/ui/console.js'
 import { resolveTheme } from '../src/ui/theme.js'
@@ -37,6 +38,8 @@ const NAMED_NOT_CARRIED = {
   'architecture/add-population.md': 'matched against a changed path by the intake check, which lets it follow its sources, never read',
   'architecture/self-hosting-drift.yaml': 'matched against a changed path by the intake check, which lets it follow its sources, never read',
   'architecture/security-invariants.md': 'matched against a changed path to classify instructions, never read',
+  'architecture/decisions/0053-morse-approves-a-brief-the-risk-matrix-does-not-reserve-for-the-owner.md': 'matched against a changed path to classify its risk, never read',
+  'architecture/decisions/0058-morse-approves-a-brief-of-every-risk.md': 'matched against a changed path to classify its risk, never read',
   'scripts/construct/browser-lab.mjs': 'carried by the Claude templates, not this manifest; the browser preinstall reads it only where a tree has it, and a repository without it has no lab to preinstall',
 } as const
 
