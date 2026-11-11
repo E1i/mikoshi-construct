@@ -1428,7 +1428,7 @@
     "versionRecord": "PRAGMA application_id"
   },
   "card": {
-    "cardVersion": 1,
+    "cardVersion": 2,
     "contracts": {
       "board": [
         "id",
@@ -1557,6 +1557,7 @@
       "ladder:": "body line read by src/commands/intake/check.ts",
       "lane": "string | null",
       "lastHeartbeat": "LastHeartbeat | null",
+      "layer:": "body line read by scripts/policy/touch-scope.ts",
       "masks": "string[]",
       "milestone": "string",
       "name": "string",
@@ -3176,7 +3177,8 @@
             3
           ],
           "card": [
-            1
+            1,
+            2
           ]
         }
       },
@@ -3195,7 +3197,8 @@
             3
           ],
           "card": [
-            1
+            1,
+            2
           ]
         }
       },
@@ -3228,7 +3231,8 @@
             3
           ],
           "card": [
-            1
+            1,
+            2
           ]
         }
       },
@@ -3251,7 +3255,8 @@
             3
           ],
           "card": [
-            1
+            1,
+            2
           ]
         }
       },
@@ -3278,7 +3283,8 @@
             3
           ],
           "card": [
-            1
+            1,
+            2
           ]
         }
       },
@@ -3298,7 +3304,8 @@
             3
           ],
           "card": [
-            1
+            1,
+            2
           ]
         }
       },
@@ -3316,7 +3323,8 @@
             3
           ],
           "card": [
-            1
+            1,
+            2
           ]
         }
       }
