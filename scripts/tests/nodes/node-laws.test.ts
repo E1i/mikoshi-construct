@@ -5,13 +5,16 @@ import type { QueuedTask } from '../../core/queue.js'
 import type { CardStart, CardStarter, QueuedCard, StartedCard } from '../../nodes/launch/launch-executor.js'
 import type { SessionContinuer } from '../../nodes/launch/launch-starter.js'
 import type { LawCell, LawCells, LawId, LawNode, LawSite } from '../../nodes/laws.js'
+import type { ReviewStart, SessionDescendants } from '../../nodes/review/reviewer.js'
 import type { GitHub } from '../../ports/github.js'
+import type { InMemoryProcesses, ProcessRow } from '../../ports/process-table.js'
 import type { BgResult, DetachedLaunch, RunningProcess } from '../../supervisor/bg.js'
 import type { BusWorker } from '../../supervisor/workers.js'
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import process from 'node:process'
 import { DatabaseSync } from 'node:sqlite'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { textSha } from '../../../src/card/text-sha.js'
@@ -29,9 +32,13 @@ import { answerCandidates, keyOf, queueTask, queueTaskWithin, updateCandidates }
 import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
 import { claudeAnswerer } from '../../nodes/answer/answerer.js'
 import { LaunchNode } from '../../nodes/launch/launch-worker.js'
-import { CARD_WAIT_STATES, DIRECT_IMPORTER_WIDENED, gapRows, INFRASTRUCTURE_RETRIED, LAW_CELLS, LAW_NODES, LAW_SITES, lawIds, LAWS, NO_HEAD_OF_LINE, NODE_WITNESSES_CALL_THEIR_NODE, RESTART_KEEPS_SESSION, SESSION_BEAT_BESIDE_STALE_WINDOW, SLICED_DROP_REPOINTS_DEPENDS, sourceOf } from '../../nodes/laws.js'
+import { CARD_WAIT_STATES, DIRECT_IMPORTER_WIDENED, gapRows, INFRASTRUCTURE_RETRIED, LAW_CELLS, LAW_NODES, LAW_SITES, lawIds, LAWS, NO_HEAD_OF_LINE, NODE_WITNESSES_CALL_THEIR_NODE, RESTART_KEEPS_SESSION, REVIEW_KEEPS_SESSION_AND_LEAVES_NO_DESCENDANT, SESSION_BEAT_BESIDE_STALE_WINDOW, SLICED_DROP_REPOINTS_DEPENDS, sourceOf } from '../../nodes/laws.js'
+import { fullReview } from '../../nodes/review/review-depth.js'
+import { dryRun } from '../../nodes/review/review-worker.js'
+import { claudeReviewer, ReviewTrees } from '../../nodes/review/reviewer.js'
 import { UpdateExecutor } from '../../nodes/update/update-executor.js'
 import { NetWatch, TICK_MS } from '../../ports/netwatch.js'
+import { InMemoryProcessTable } from '../../ports/process-table.js'
 import { launchName } from '../../supervisor/bg.js'
 import { BusTick } from '../../supervisor/run.js'
 import { slotsVariable } from '../../supervisor/scheduler.js'
@@ -401,8 +408,91 @@ async function directImporterWidened(node: LawNode): Promise<void> {
   }
 }
 
+const REVIEW_SESSION_PID = 900
+const OBEDIENT_PNPM_PID = 901
+const LINGERING_PNPM_PID = 902
+const STARTED = 'Wed Nov 11 00:00:00 2026'
+const REVIEW_PR = 1810
+
+async function finishedReviewLeavesNoDescendant(): Promise<void> {
+  const dir = scratchDir('z1-review-')
+  const held: InMemoryProcesses = { rows: [] }
+  const rowsNow = (): ProcessRow[] => held.rows as ProcessRow[]
+  const row = (pid: number, ppid: number, command: string): ProcessRow => ({ pid, ppid, pgid: pid, started: STARTED, command })
+  const without = (pid: number): void => {
+    held.rows = rowsNow().filter(each => each.pid !== pid)
+  }
+  const ticks: (() => void)[] = []
+  const signalled: string[] = []
+  let polls = 0
+  const descendants: SessionDescendants = {
+    table: new InMemoryProcessTable(held),
+    end: (pid, signal) => {
+      signalled.push(`${pid}:${signal}`)
+      without(pid)
+    },
+    pause: async () => {
+      polls += 1
+      if (polls === 1)
+        without(OBEDIENT_PNPM_PID)
+    },
+    every: (tick) => {
+      ticks.push(tick)
+      return () => ticks.splice(0)
+    },
+    sampleMs: 1,
+    graceMs: 3,
+  }
+  const aliveAtRemoval: number[][] = []
+  const trees = new ReviewTrees('/repo', dir, {
+    git: (_cwd, args) => {
+      if (args[1] === 'remove')
+        aliveAtRemoval.push(rowsNow().map(each => each.pid))
+    },
+    worktrees: () => [],
+    prepare: () => {},
+    state: () => ({ head: sha('a'), status: [] }),
+  })
+  const start: ReviewStart = { gate: { start: async () => true, release: () => {} }, keep: () => true, joinWorkers: () => 1, leaveWorkers: () => {}, descendants }
+  const reviewer = claudeReviewer(trees, async (params) => {
+    held.rows = [
+      row(REVIEW_SESSION_PID, process.pid, `agent ${params.sessionId}`),
+      row(OBEDIENT_PNPM_PID, REVIEW_SESSION_PID, 'node pnpm.cjs install'),
+      row(LINGERING_PNPM_PID, OBEDIENT_PNPM_PID, 'node pnpm.cjs install --lockfile-only'),
+    ]
+    for (const tick of ticks)
+      tick()
+    writeFileSync(path.join(dir, `${params.sessionId}.verdict.json`), '{"verdict":"pass","findings":[]}')
+    held.rows = rowsNow().filter(each => each.pid !== REVIEW_SESSION_PID).map(each => each.pid === OBEDIENT_PNPM_PID ? { ...each, ppid: 1 } : each)
+    return 0
+  }, () => {}, MINUTE, () => null, start)
+  const gitHub = new FakeGitHub()
+  gitHub.open({ number: REVIEW_PR })
+  const quiet = vi.spyOn(console, 'error').mockImplementation(() => {})
+  try {
+    await dryRun(gitHub.client, reviewer, () => fullReview('a law witness'), REVIEW_PR)
+  }
+  finally {
+    quiet.mockRestore()
+  }
+  if (aliveAtRemoval.length !== 1)
+    throw new Error(`the finished review removed its tree ${aliveAtRemoval.length} times, not once`)
+  if (aliveAtRemoval[0]!.length > 0)
+    throw new Error(`descendants of the finished review session were alive when its tree was removed: ${aliveAtRemoval[0]!.join(', ')}`)
+  if (signalled.some(each => each.startsWith(`${OBEDIENT_PNPM_PID}:`)) || !signalled.includes(`${LINGERING_PNPM_PID}:SIGTERM`))
+    throw new Error(`the review did not wait for a descendant that ended in time, or left one that did not: ${signalled.join(', ')}`)
+}
+
+async function reviewKeepsSessionAndLeavesNoDescendant(node: LawNode): Promise<void> {
+  if (node !== 'review')
+    throw new Error(`no wait for the descendants of a finished session is wired on ${node}`)
+  await restartKeepsSession(node)
+  await finishedReviewLeavesNoDescendant()
+}
+
 const WITNESSES: Witnesses = {
   [RESTART_KEEPS_SESSION]: { law: 'Z1', run: restartKeepsSession },
+  [REVIEW_KEEPS_SESSION_AND_LEAVES_NO_DESCENDANT]: { law: 'Z1', run: reviewKeepsSessionAndLeavesNoDescendant },
   [INFRASTRUCTURE_RETRIED]: { law: 'Z2', run: infrastructureFailureIsRetried },
   [DIRECT_IMPORTER_WIDENED]: { law: 'Z3', run: directImporterWidened },
   [SESSION_BEAT_BESIDE_STALE_WINDOW]: { law: 'Z7', run: sessionBeatBesideStaleWindow },
@@ -522,6 +612,14 @@ describe('the laws of a node', () => {
     expect(SLICED_DROP_REPOINTS_DEPENDS).toBe(1789)
     expect(LAW_CELLS[laneWaitLaw].window).toEqual({ gap: [1740, 1754] })
     expect(gapRows().filter(({ law, node }) => law === laneWaitLaw && node === 'intake')).toHaveLength(1)
+  })
+
+  const sessionLaw: LawId = 'Z1'
+  it(`${sessionLaw} x review: no descendant of a finished review session is alive when its tree is removed`, async () => {
+    expect(LAW_CELLS.Z1.review).toEqual({ witness: REVIEW_KEEPS_SESSION_AND_LEAVES_NO_DESCENDANT })
+    expect(recordedLawGaps()[`${LAW_GAP_PREFIX}Z1:review`]).toBeUndefined()
+    expect(await lawOutcome('Z1', 'review', WITNESSES)).toBeNull()
+    expect(await lawOutcome('Z1', 'answer', WITNESSES)).not.toBeNull()
   })
 
   const stallLaw: LawId = 'Z7'

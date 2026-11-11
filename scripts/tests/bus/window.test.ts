@@ -59,9 +59,9 @@ function stopOf(detection: Detection, queue: WindowQueue = 'merge'): string | un
   return count.stop?.why
 }
 
-function tick(db: DatabaseSync, actor: string, onlyNode: string[], onlyDerive: string[]): number {
+function tick(db: DatabaseSync, actor: string, onlyNode: string[], onlyDerive: string[], legacy = false): number {
   sequence += 1
-  appendEvent(db, { ts: TS, type: NODE_EQUIVALENCE, actor, cardId: null, pr: null, head: null, dedupeKey: `${NODE_EQUIVALENCE}:test-${sequence}`, payload: { same: [], only_node: onlyNode, only_derive: onlyDerive, event_id: sequence }, legacy: false })
+  appendEvent(db, { ts: TS, type: NODE_EQUIVALENCE, actor, cardId: null, pr: null, head: null, dedupeKey: `${NODE_EQUIVALENCE}:test-${sequence}`, payload: { same: [], only_node: onlyNode, only_derive: onlyDerive, event_id: sequence }, legacy })
   return Number((db.prepare('SELECT max(id) AS id FROM events').get() as { id: number }).id)
 }
 
@@ -131,6 +131,17 @@ describe('bus:window', () => {
     expect(count.ticks).toBe(3)
     expect(count.oneSided.map(entry => entry.id)).toEqual([nodeSide, deriveSide])
     expect(windowLines(count).at(-1)).toContain(`bus id ${nodeSide} (only node close:7), bus id ${deriveSide} (only derive close:8)`)
+    db.close()
+  })
+
+  it('counts a legacy equivalence tick in the run as it counts any other', () => {
+    const db = newBus()
+    complete(db, 'close', 7, 'event')
+    tick(db, 'worker:close:s1', [], [])
+    const legacySide = tick(db, 'worker:close:s1', ['close:7'], [], true)
+    const count = windowOf(db, 'close')
+    expect(count.ticks).toBe(2)
+    expect(count.oneSided.map(entry => entry.id)).toEqual([legacySide])
     db.close()
   })
 })

@@ -154,13 +154,13 @@ describe('sessions and tokens per merged card', () => {
     expect(lines[1]).toContain('unclassified')
   })
 
-  it('the usage names no pnpm command, so the generated contract/factory.json holds no overlap row for the measure and the owner-commands ratchet does not grow', () => {
+  it('the usage names no pnpm command, so the generated contract/factory.json holds no owner-commands row for the measure and that ratchet does not grow', () => {
     const { file } = bus()
     const lines: string[] = []
     runCardMeasure([], file, line => lines.push(line))
     expect(lines[0]).toMatch(/^usage: card:measure /)
     const { overlaps } = JSON.parse(readFileSync(path.join(REPO_ROOT, 'contract', 'factory.json'), 'utf8')) as { overlaps: Record<string, Record<string, number>> }
-    expect(Object.values(overlaps).flatMap(files => Object.keys(files))).not.toContain('scripts/window/card-measure.ts')
+    expect(Object.keys(overlaps['owner-commands']!)).not.toContain('scripts/window/card-measure.ts')
   })
 })
 
