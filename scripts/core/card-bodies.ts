@@ -127,11 +127,21 @@ export function cardBodyText(db: DatabaseSync, cardId: number): string | null {
   return (db.prepare(`SELECT text FROM ${CARD_BODIES} WHERE card_id = ?`).get(cardId) as { text: string } | undefined)?.text ?? null
 }
 
-const ADMITTED_TEXTS = `SELECT json_extract(payload, '$.text') AS text, json_extract(payload, '$.textSha') AS sha FROM events WHERE legacy = 0 AND type = '${CARD_ADMITTED}' AND card_id = ? AND json_type(payload, '$.text') = 'text' ORDER BY id DESC`
+const ADMITTED_TEXTS = `SELECT id, json_extract(payload, '$.text') AS text, json_extract(payload, '$.textSha') AS sha FROM events WHERE legacy = 0 AND type = '${CARD_ADMITTED}' AND card_id = ? AND json_valid(payload) AND json_type(payload, '$.text') = 'text' ORDER BY id DESC`
+
+export interface AdmittedBody {
+  id: number
+  text: string
+  sha: string
+}
+
+export function admittedBodies(db: DatabaseSync, cardId: number): AdmittedBody[] {
+  const rows = db.prepare(ADMITTED_TEXTS).all(cardId) as { id: number, text: string, sha: unknown }[]
+  return rows.filter(row => row.sha === textSha(row.text)).map(row => ({ id: Number(row.id), text: row.text, sha: String(row.sha) }))
+}
 
 export function admittedBodyText(db: DatabaseSync, cardId: number): string | null {
-  const rows = db.prepare(ADMITTED_TEXTS).all(cardId) as { text: string, sha: unknown }[]
-  return rows.find(row => row.sha === textSha(row.text))?.text ?? null
+  return admittedBodies(db, cardId)[0]?.text ?? null
 }
 
 export function busAdmittedBodies(busPath: string): (cardId: number) => string | null {
@@ -178,10 +188,10 @@ export function foldCardBody(db: DatabaseSync, event: StoredEvent): void {
   `).run(event.card_id, event.id, text, payload.textSha, lane, columns.who, columns.priority, columns.branch, columns.touches, columns.creates, columns.card_line, columns.contour, columns.decision, columns.depends)
 }
 
-const LATEST_ADMISSION = `
+const ADMISSIONS_WITH_TEXT = `
   SELECT id, payload FROM events
-  WHERE legacy = 0 AND type = '${CARD_ADMITTED}' AND card_id = ? AND ${NOT_A_BACKFILL}
-  ORDER BY id DESC LIMIT 1
+  WHERE legacy = 0 AND type = '${CARD_ADMITTED}' AND card_id = ? AND ${NOT_A_BACKFILL} AND json_valid(payload) AND json_type(payload, '$.text') = 'text'
+  ORDER BY id DESC
 `
 
 const FOLDED_ADMISSION = `SELECT admission_event_id FROM ${CARD_BODIES} WHERE card_id = ?`
@@ -191,8 +201,9 @@ function carriesABody(payload: Record<string, unknown>): boolean {
 }
 
 export function bodyNotFoldedYet(db: DatabaseSync, cardId: number): boolean {
-  const admission = db.prepare(LATEST_ADMISSION).get(cardId) as { id: number, payload: string } | undefined
-  if (admission === undefined || !carriesABody(JSON.parse(admission.payload) as Record<string, unknown>))
+  const admissions = db.prepare(ADMISSIONS_WITH_TEXT).all(cardId) as { id: number, payload: string }[]
+  const admission = admissions.find(row => carriesABody(JSON.parse(row.payload) as Record<string, unknown>))
+  if (admission === undefined)
     return false
   const folded = db.prepare(FOLDED_ADMISSION).get(cardId) as { admission_event_id: number } | undefined
   return folded === undefined || Number(folded.admission_event_id) < Number(admission.id)

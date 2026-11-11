@@ -16,7 +16,7 @@ import process from 'node:process'
 import { parseParkingFile } from '../../../src/card/parking.js'
 import { NOT_A_BACKFILL } from '../../core/backfill-source.js'
 import { DROPPED_CARD, RUNNING_CARD } from '../../core/card-automaton.js'
-import { bodyNotFoldedYet, CARD_BODIES, cardBodyText, pathsOutsideTheBody } from '../../core/card-bodies.js'
+import { admittedBodies, admittedBodyText, bodyNotFoldedYet, pathsOutsideTheBody } from '../../core/card-bodies.js'
 import { cardHoldOf, HOLD_RECHECK_MS } from '../../core/card-hold.js'
 import { appendEvent, inTransaction, openOwnerWait } from '../../core/db.js'
 import { BOARD_ALARM, CARD_ADMITTED, CARD_CLOSED, CARD_CONTINUED, CARD_HELD, CARD_PULSE, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, CARD_WAITING, GHOST_ROW, LADDER_APPROVAL, MERGE_DONE, PR_CLOSED, PR_OBSERVED, PR_OPENED, QUESTION_AGENT, REDUCED, TASK_COMPLETED, TASK_ENQUEUED, TASK_EXPIRED, TASK_FAILED, TASK_LEASED, TASK_RELEASED, TASK_REQUEUED, TASK_SUPERSEDED } from '../../core/events.js'
@@ -222,18 +222,8 @@ export const AMENDED_AFTER_START = 'amended-after-start'
 
 export const WITHDRAWN_TO_CHEAP = 'withdrawn-to-cheap'
 
-const BODY_AMENDED_SINCE = `
-  SELECT b.text_sha AS amended, b.text AS amended_text, started.sha AS started, started.text AS started_text FROM ${CARD_BODIES} AS b
-  LEFT JOIN (SELECT json_extract(e.payload, '$.textSha') AS sha, json_extract(e.payload, '$.text') AS text FROM events AS e
-    WHERE e.type = '${CARD_ADMITTED}' AND e.legacy = 0 AND e.card_id = ? AND e.id < ? AND json_valid(e.payload) AND json_type(e.payload, '$.textSha') = 'text'
-    ORDER BY e.id DESC LIMIT 1) AS started ON 1 = 1
-  WHERE b.card_id = ? AND b.admission_event_id > ?
-`
-
 interface BodyAmendRow {
-  started: unknown
-  started_text: unknown
-  amended: string
+  started_text: string
   amended_text: string
 }
 
@@ -252,7 +242,7 @@ function withoutHeaderPriority(text: string): string {
 }
 
 function onlyThePriorityMoved(row: BodyAmendRow): boolean {
-  return typeof row.started_text === 'string' && withoutHeaderPriority(row.started_text) === withoutHeaderPriority(row.amended_text)
+  return withoutHeaderPriority(row.started_text) === withoutHeaderPriority(row.amended_text)
 }
 
 function shortSha(sha: string): string {
@@ -455,7 +445,7 @@ export class LaunchNode extends Node<LaunchStep> {
     if (continuer === undefined)
       return this.stopContinuation(start, 'continuation-refused', `${exited}; no continuer is wired, so no session continues from it`)
     if (!(this.launchParts.handedOff?.(session) ?? false))
-      this.launchParts.buildHandoff?.(card, session, cardBodyText(this.db, start.card_id))
+      this.launchParts.buildHandoff?.(card, session, admittedBodyText(this.db, start.card_id))
     return this.continueSession(start, card, continuer, exited)
   }
 
@@ -478,7 +468,7 @@ export class LaunchNode extends Node<LaunchStep> {
     if (this.launchParts.spendStopped?.(card) ?? false)
       return this.stopContinuation(start, 'eddies-stop', `${exited}; it also hit the session spend stop and left no valid handoff, so no fresh session spends past that stop`)
     if (this.continuationsUsed(start) < MAX_RESTARTS)
-      this.launchParts.buildHandoff?.(card, session, cardBodyText(this.db, start.card_id))
+      this.launchParts.buildHandoff?.(card, session, admittedBodyText(this.db, start.card_id))
     return this.continueSession(start, card, continuer, exited)
   }
 
@@ -487,7 +477,7 @@ export class LaunchNode extends Node<LaunchStep> {
   }
 
   private kindOf(cardId: number): string | null {
-    const text = cardBodyText(this.db, cardId)
+    const text = admittedBodyText(this.db, cardId)
     const parsed = text === null ? null : parseParkingFile(`${cardId}.md`, text)
     return parsed?.kind === 'parked' ? parsed.parked.task.card.kind : null
   }
@@ -558,10 +548,12 @@ export class LaunchNode extends Node<LaunchStep> {
   }
 
   private amendSince(start: RunningStart): BodyAmend | null {
-    const row = this.db.prepare(BODY_AMENDED_SINCE).get(start.card_id, start.id, start.card_id, start.id) as BodyAmendRow | undefined
-    if (row === undefined || typeof row.started !== 'string' || row.started === row.amended || onlyThePriorityMoved(row))
+    const bodies = admittedBodies(this.db, start.card_id)
+    const amended = bodies[0]
+    const started = bodies.find(body => body.id < start.id)
+    if (amended === undefined || started === undefined || amended.id <= start.id || started.sha === amended.sha || onlyThePriorityMoved({ started_text: started.text, amended_text: amended.text }))
       return null
-    return { started: row.started, amended: row.amended }
+    return { started: started.sha, amended: amended.sha }
   }
 
   private waitOnAmend(start: RunningStart, card: StartedCard): void {

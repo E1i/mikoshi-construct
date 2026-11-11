@@ -60,6 +60,7 @@ export const REVIEW_LIVE_ON_ONE_STALE_SIGNAL = 'Z7-review-live-on-one-stale-sign
 export const INFRASTRUCTURE_RETRIED = 'Z2-infrastructure-retried'
 export const ABANDONED_READ_AS_RERUN = 'Z2-abandoned-read-as-rerun'
 export const DIRECT_IMPORTER_WIDENED = 'Z3-direct-importer-widened'
+export const LAUNCH_BODY_FROM_LATEST_ADMISSION = 'Z3-launch-body-from-latest-admission'
 const NO_INFRASTRUCTURE_TO_FAIL = 'the node starts no session, runs no test and judges no CI run, so no timeout under load, abandoned run or usage limit reaches it as its own failure'
 const STARTS_NO_SESSION = 'the node starts no session, so no child process of its own outlives it'
 const NO_SESSION_TO_READ = 'the node starts no session, so the factory reading holds no beat of its own to weigh'
@@ -139,7 +140,7 @@ export const LAW_CELLS: LawCells = {
     witness: gap(NODE_WITNESSES_CALL_THEIR_NODE),
     ...beyondNodes('Z2'),
   },
-  Z3: { ...everyNode(gap(NO_IN_MEMORY_PORT)), answer: gap(NODE_WITNESSES_CALL_THEIR_NODE), ...beyondNodes('Z3') },
+  Z3: { ...everyNode(gap(NO_IN_MEMORY_PORT)), answer: gap(NODE_WITNESSES_CALL_THEIR_NODE), launch: { witness: LAUNCH_BODY_FROM_LATEST_ADMISSION }, ...beyondNodes('Z3') },
   Z4: { ...everyNode(gap(...WAIT_RECORDS)), launch: gap(CARD_WAIT_STATES, NO_HEAD_OF_LINE), ...beyondNodes('Z4') },
   Z5: { ...everyNode(gap(LAUNCH_EVENTS)), ...beyondNodes('Z5') },
   Z6: { ...everyNode(gap(TREE_WAY_BACK)), ...beyondNodes('Z6') },
