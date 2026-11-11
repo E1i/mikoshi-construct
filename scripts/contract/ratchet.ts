@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url'
 import { gapRows, LAW_CELLS } from '../nodes/laws.js'
 import { findSites, overlapsSection } from './factory/overlaps.js'
 import { parsedFiles } from './factory/walk.js'
+import { boundaryNumbers, boundaryReport } from './module-graph/boundary.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../..')
 const THRESHOLD_KEY = 'threshold'
@@ -34,7 +35,7 @@ export function lawGapNumbers(cells: LawCells = LAW_CELLS): RatchetNumbers {
 }
 
 export function generateNumbers(root: string, threshold: number): RatchetNumbers {
-  return { [THRESHOLD_KEY]: threshold, [LINE_SCOPE_KEY]: 1, ...overlapNumbers(overlapsSection(findSites(root))), ...bigFileNumbers(root, threshold), ...lawGapNumbers() }
+  return { [THRESHOLD_KEY]: threshold, [LINE_SCOPE_KEY]: 1, ...overlapNumbers(overlapsSection(findSites(root))), ...bigFileNumbers(root, threshold), ...lawGapNumbers(), ...boundaryNumbers(boundaryReport(root).violations) }
 }
 
 export function ratchetBreaks(recorded: RatchetNumbers, generated: RatchetNumbers): string[] {
