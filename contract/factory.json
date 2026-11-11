@@ -3176,6 +3176,627 @@
     },
     "lawsVersion": 4
   },
+  "modules": {
+    "composition_roots": [
+      "src/cli.ts",
+      "src/program.ts",
+      "scripts/window/miko.ts",
+      "scripts/intake/intake.ts",
+      "scripts/supervisor/start.ts"
+    ],
+    "exclusions": {
+      "fixtures": [],
+      "generated": [],
+      "templates": [
+        "scripts/construct/**"
+      ],
+      "tests": [
+        "scripts/tests/**"
+      ],
+      "tooling": [
+        "scripts/scratch/**"
+      ]
+    },
+    "modules": {
+      "atlas": {
+        "concepts": [],
+        "contract": [],
+        "may_use": [],
+        "owns": [
+          "src/atlas/**",
+          "scripts/atlas/**"
+        ],
+        "status": "undecided"
+      },
+      "board": {
+        "concepts": [],
+        "contract": [],
+        "may_use": [],
+        "owns": [
+          "scripts/cli/board-page.ts",
+          "scripts/cli/board-page/**",
+          "scripts/cli/board-warnings.ts",
+          "src/commands/board/**"
+        ],
+        "status": "undecided"
+      },
+      "bus": {
+        "concepts": [],
+        "contract": [
+          "scripts/core/db.ts",
+          "scripts/core/sqlite.ts",
+          "scripts/core/queue.ts",
+          "scripts/core/lease.ts",
+          "scripts/core/node.ts",
+          "scripts/core/stored.ts",
+          "scripts/core/errors.ts",
+          "scripts/core/bus-path.ts",
+          "scripts/core/bus-readings.ts",
+          "scripts/core/bus-version.ts",
+          "scripts/core/reducer.ts",
+          "scripts/core/every.ts",
+          "scripts/core/watermark.ts",
+          "scripts/core/entry.ts",
+          "scripts/core/observations.ts"
+        ],
+        "may_use": [],
+        "owns": [
+          "scripts/core/db.ts",
+          "scripts/core/sqlite.ts",
+          "scripts/core/queue.ts",
+          "scripts/core/lease.ts",
+          "scripts/core/node.ts",
+          "scripts/core/stored.ts",
+          "scripts/core/errors.ts",
+          "scripts/core/bus-path.ts",
+          "scripts/core/bus-readings.ts",
+          "scripts/core/bus-version.ts",
+          "scripts/core/reducer.ts",
+          "scripts/core/every.ts",
+          "scripts/core/watermark.ts",
+          "scripts/core/entry.ts",
+          "scripts/core/observations.ts",
+          "scripts/core/projection-writes.ts",
+          "scripts/core/projection-writes.known.json",
+          "scripts/core/rejection.ts"
+        ],
+        "status": "decided"
+      },
+      "card-model": {
+        "concepts": [],
+        "contract": [
+          "src/card/grammar.ts",
+          "src/card/parking.ts",
+          "src/card/task-file.ts",
+          "src/card/risk.ts",
+          "src/card/complexity.ts",
+          "scripts/intake/card-contract.ts",
+          "scripts/core/identifiers.ts"
+        ],
+        "may_use": [],
+        "owns": [
+          "src/card/grammar.ts",
+          "src/card/parking.ts",
+          "src/card/task-file.ts",
+          "src/card/risk.ts",
+          "src/card/complexity.ts",
+          "scripts/intake/card-contract.ts",
+          "scripts/core/identifiers.ts"
+        ],
+        "status": "decided"
+      },
+      "card-record": {
+        "concepts": [],
+        "contract": [
+          "scripts/core/card-bodies.ts",
+          "scripts/core/backfill-source.ts",
+          "src/card/text-sha.ts",
+          "src/card/witness-fields.ts",
+          "scripts/intake/admissions.ts",
+          "scripts/intake/card-archive.ts",
+          "scripts/intake/witness-fields-backfill.ts",
+          "scripts/cli/card.ts"
+        ],
+        "may_use": [
+          "bus",
+          "card-model"
+        ],
+        "owns": [
+          "scripts/core/card-bodies.ts",
+          "scripts/core/backfill-source.ts",
+          "src/card/text-sha.ts",
+          "src/card/witness-fields.ts",
+          "scripts/intake/admissions.ts",
+          "scripts/intake/card-archive.ts",
+          "scripts/intake/witness-fields-backfill.ts",
+          "scripts/cli/card.ts"
+        ],
+        "status": "decided"
+      },
+      "command-registry": {
+        "concepts": [
+          "owner-commands"
+        ],
+        "contract": [
+          "scripts/core/owner-commands.ts"
+        ],
+        "may_use": [],
+        "owns": [
+          "scripts/core/owner-commands.ts"
+        ],
+        "status": "decided"
+      },
+      "cost": {
+        "concepts": [],
+        "contract": [],
+        "may_use": [],
+        "owns": [
+          "scripts/ladder/**",
+          "scripts/done/**",
+          "src/commands/cost/**"
+        ],
+        "status": "undecided"
+      },
+      "decisions": {
+        "concepts": [
+          "owner-decisions"
+        ],
+        "contract": [],
+        "may_use": [],
+        "owns": [
+          "scripts/core/inbox.ts",
+          "scripts/core/card-decisions.ts",
+          "scripts/policy/live-decision.ts",
+          "scripts/policy/decisions/**",
+          "scripts/owner/**"
+        ],
+        "status": "undecided"
+      },
+      "events": {
+        "concepts": [],
+        "contract": [],
+        "may_use": [],
+        "owns": [
+          "scripts/core/events.ts"
+        ],
+        "status": "undecided"
+      },
+      "factory-contract": {
+        "concepts": [],
+        "contract": [],
+        "may_use": [],
+        "owns": [
+          "scripts/contract/**"
+        ],
+        "status": "undecided"
+      },
+      "intake": {
+        "concepts": [],
+        "contract": [],
+        "may_use": [],
+        "owns": [
+          "scripts/intake/**",
+          "src/commands/intake/**",
+          "!scripts/intake/admissions.ts",
+          "!scripts/intake/card-archive.ts",
+          "!scripts/intake/card-contract.ts",
+          "!scripts/intake/intake.ts",
+          "!scripts/intake/witness-fields-backfill.ts"
+        ],
+        "status": "undecided"
+      },
+      "layout": {
+        "concepts": [
+          "generated-files"
+        ],
+        "contract": [],
+        "may_use": [],
+        "owns": [
+          "scripts/core/factory-paths.ts",
+          "scripts/core/generated-files.ts"
+        ],
+        "status": "undecided"
+      },
+      "model": {
+        "concepts": [],
+        "contract": [],
+        "may_use": [],
+        "owns": [
+          "src/model/**",
+          "scripts/model/**"
+        ],
+        "status": "undecided"
+      },
+      "node-answer": {
+        "concepts": [
+          "answer-duties"
+        ],
+        "contract": [
+          "scripts/nodes/answer/answer-worker.ts"
+        ],
+        "may_use": [
+          "bus",
+          "session",
+          "card-model",
+          "card-record",
+          "pr-record",
+          "plan",
+          "command-registry"
+        ],
+        "owns": [
+          "scripts/nodes/answer/**"
+        ],
+        "status": "decided"
+      },
+      "node-close": {
+        "concepts": [],
+        "contract": [
+          "scripts/nodes/close/close-worker.ts"
+        ],
+        "may_use": [
+          "bus",
+          "session",
+          "card-model",
+          "card-record",
+          "pr-record",
+          "plan",
+          "command-registry"
+        ],
+        "owns": [
+          "scripts/nodes/close/**"
+        ],
+        "status": "decided"
+      },
+      "node-launch": {
+        "concepts": [],
+        "contract": [
+          "scripts/nodes/launch/launch-worker.ts"
+        ],
+        "may_use": [
+          "bus",
+          "session",
+          "card-model",
+          "card-record",
+          "pr-record",
+          "plan",
+          "command-registry"
+        ],
+        "owns": [
+          "scripts/nodes/launch/**"
+        ],
+        "status": "decided"
+      },
+      "node-laws": {
+        "concepts": [],
+        "contract": [],
+        "may_use": [],
+        "owns": [
+          "scripts/nodes/laws.ts"
+        ],
+        "status": "undecided"
+      },
+      "node-merge": {
+        "concepts": [],
+        "contract": [
+          "scripts/nodes/merge/merge-worker.ts"
+        ],
+        "may_use": [
+          "bus",
+          "session",
+          "card-model",
+          "card-record",
+          "pr-record",
+          "plan",
+          "command-registry"
+        ],
+        "owns": [
+          "scripts/nodes/merge/**"
+        ],
+        "status": "decided"
+      },
+      "node-restart": {
+        "concepts": [],
+        "contract": [
+          "scripts/nodes/restart/restart-worker.ts"
+        ],
+        "may_use": [
+          "bus",
+          "session",
+          "card-model",
+          "card-record",
+          "pr-record",
+          "plan",
+          "command-registry"
+        ],
+        "owns": [
+          "scripts/nodes/restart/**"
+        ],
+        "status": "decided"
+      },
+      "node-review": {
+        "concepts": [],
+        "contract": [
+          "scripts/nodes/review/review-worker.ts"
+        ],
+        "may_use": [
+          "bus",
+          "session",
+          "card-model",
+          "card-record",
+          "pr-record",
+          "plan",
+          "command-registry"
+        ],
+        "owns": [
+          "scripts/nodes/review/**",
+          "!scripts/nodes/review/dry-run-record.ts",
+          "!scripts/nodes/review/pr-close.ts",
+          "!scripts/nodes/review/pr-reopen.ts",
+          "!scripts/nodes/review/pr-rerun.ts",
+          "!scripts/nodes/review/record-verdict.ts"
+        ],
+        "status": "decided"
+      },
+      "node-update": {
+        "concepts": [],
+        "contract": [
+          "scripts/nodes/update/update-worker.ts"
+        ],
+        "may_use": [
+          "bus",
+          "session",
+          "card-model",
+          "card-record",
+          "pr-record",
+          "plan",
+          "command-registry"
+        ],
+        "owns": [
+          "scripts/nodes/update/**"
+        ],
+        "status": "decided"
+      },
+      "node-witness": {
+        "concepts": [],
+        "contract": [
+          "scripts/nodes/witness/witness-worker.ts"
+        ],
+        "may_use": [
+          "bus",
+          "session",
+          "card-model",
+          "card-record",
+          "pr-record",
+          "plan",
+          "command-registry"
+        ],
+        "owns": [
+          "scripts/nodes/witness/**"
+        ],
+        "status": "decided"
+      },
+      "plan": {
+        "concepts": [],
+        "contract": [
+          "scripts/window/plan-export.ts",
+          "scripts/cli/card-chain.ts",
+          "src/card/slice-depends.ts"
+        ],
+        "may_use": [
+          "card-model",
+          "card-record"
+        ],
+        "owns": [
+          "scripts/window/plan-export.ts",
+          "scripts/cli/card-chain.ts",
+          "src/card/slice-depends.ts"
+        ],
+        "status": "decided"
+      },
+      "ports": {
+        "concepts": [
+          "bus-read",
+          "git",
+          "process-table"
+        ],
+        "contract": [],
+        "may_use": [],
+        "owns": [
+          "scripts/ports/**",
+          "scripts/core/gh-callers.ts",
+          "scripts/core/gh-callers.known.json"
+        ],
+        "status": "undecided"
+      },
+      "pr-record": {
+        "concepts": [],
+        "contract": [
+          "scripts/nodes/review/pr-close.ts",
+          "scripts/nodes/review/pr-reopen.ts",
+          "scripts/nodes/review/pr-rerun.ts",
+          "scripts/nodes/review/record-verdict.ts",
+          "scripts/nodes/review/dry-run-record.ts",
+          "scripts/core/merge-event.ts"
+        ],
+        "may_use": [
+          "bus"
+        ],
+        "owns": [
+          "scripts/nodes/review/pr-close.ts",
+          "scripts/nodes/review/pr-reopen.ts",
+          "scripts/nodes/review/pr-rerun.ts",
+          "scripts/nodes/review/record-verdict.ts",
+          "scripts/nodes/review/dry-run-record.ts",
+          "scripts/core/merge-event.ts"
+        ],
+        "status": "decided"
+      },
+      "project": {
+        "concepts": [],
+        "contract": [],
+        "may_use": [],
+        "owns": [
+          "src/commands/attach/**",
+          "src/commands/detach/**",
+          "src/commands/doctor/**",
+          "src/commands/sync/**",
+          "src/commands/graph.ts",
+          "src/commands/init.ts",
+          "src/commands/soulkill.ts",
+          "src/detect/**",
+          "src/manifest.ts",
+          "src/materialize/**",
+          "src/presets/**",
+          "src/record-ahead.ts",
+          "src/sync/**",
+          "src/failure.ts",
+          "src/known-flags.ts",
+          "src/version.ts",
+          "scripts/composition/**",
+          "scripts/harness-command/**",
+          "scripts/attach/**"
+        ],
+        "status": "undecided"
+      },
+      "quality": {
+        "concepts": [
+          "ci-reading",
+          "layers"
+        ],
+        "contract": [],
+        "may_use": [],
+        "owns": [
+          "scripts/core/layer-map.ts",
+          "scripts/core/layer-map.json",
+          "scripts/core/verification.ts",
+          "scripts/cli/check-catalog.ts",
+          "scripts/cli/check-matrix.ts",
+          "scripts/cli/mutate.ts",
+          "scripts/cli/no-layer-recount.ts",
+          "scripts/ci/**",
+          "scripts/quality/**",
+          "scripts/privacy/**",
+          "src/commands/ci/**",
+          "src/commands/mutate/**",
+          "src/commands/test-runner.ts",
+          "src/card/covering-tests.ts"
+        ],
+        "status": "undecided"
+      },
+      "release": {
+        "concepts": [],
+        "contract": [],
+        "may_use": [],
+        "owns": [
+          "scripts/release/**",
+          "scripts/release-notes/**",
+          "scripts/docs/**",
+          "src/commands/run-record.ts"
+        ],
+        "status": "undecided"
+      },
+      "rules": {
+        "concepts": [],
+        "contract": [],
+        "may_use": [],
+        "owns": [
+          "scripts/policy/policy.ts",
+          "scripts/policy/morse/**",
+          "scripts/policy/repeat-finding.ts",
+          "scripts/policy/round-limit-decision.ts",
+          "scripts/policy/shard.ts",
+          "scripts/policy/shards.ts",
+          "scripts/policy/shredder/**",
+          "scripts/policy/widening.ts",
+          "scripts/policy/touch-scope.ts",
+          "scripts/morse/**",
+          "scripts/core/push-policy.ts"
+        ],
+        "status": "undecided"
+      },
+      "session": {
+        "concepts": [
+          "handoff-status",
+          "live-session",
+          "pid-liveness"
+        ],
+        "contract": [
+          "scripts/core/machine-sessions.ts",
+          "scripts/core/eddies.ts",
+          "scripts/core/journal.ts",
+          "scripts/core/tasks.ts",
+          "scripts/core/handoff-dir.ts",
+          "scripts/core/handoff-fields.ts",
+          "scripts/core/handoff-status.ts",
+          "scripts/core/card-automaton.ts",
+          "scripts/core/card-hold.ts",
+          "scripts/core/chain.ts",
+          "scripts/core/places.ts",
+          "scripts/core/report.ts",
+          "scripts/core/legacy-history.ts",
+          "src/card/closed.ts",
+          "scripts/cli/slot.ts",
+          "src/commands/liveness.ts",
+          "scripts/supervisor/bg.ts",
+          "scripts/supervisor/heartbeat.ts",
+          "scripts/supervisor/liveness-sites.ts",
+          "scripts/supervisor/scheduler.ts",
+          "scripts/supervisor/stamp.ts",
+          "scripts/supervisor/supervisor.ts",
+          "scripts/supervisor/workers.ts"
+        ],
+        "may_use": [
+          "bus",
+          "card-model",
+          "card-record",
+          "command-registry"
+        ],
+        "owns": [
+          "scripts/core/machine-sessions.ts",
+          "scripts/core/eddies.ts",
+          "scripts/core/journal.ts",
+          "scripts/core/tasks.ts",
+          "scripts/core/handoff-dir.ts",
+          "scripts/core/handoff-fields.ts",
+          "scripts/core/handoff-status.ts",
+          "scripts/core/card-automaton.ts",
+          "scripts/core/card-hold.ts",
+          "scripts/core/chain.ts",
+          "scripts/core/places.ts",
+          "scripts/core/report.ts",
+          "scripts/core/legacy-history.ts",
+          "src/card/closed.ts",
+          "scripts/cli/slot.ts",
+          "src/commands/liveness.ts",
+          "scripts/supervisor/**",
+          "!scripts/supervisor/start.ts"
+        ],
+        "status": "decided"
+      },
+      "ui": {
+        "concepts": [],
+        "contract": [],
+        "may_use": [],
+        "owns": [
+          "src/ui/**"
+        ],
+        "status": "undecided"
+      },
+      "window": {
+        "concepts": [
+          "window-requests"
+        ],
+        "contract": [],
+        "may_use": [],
+        "owns": [
+          "scripts/window/**",
+          "!scripts/window/miko.ts",
+          "!scripts/window/plan-export.ts"
+        ],
+        "status": "undecided"
+      }
+    }
+  },
   "nodes": {
     "declared": {
       "answer": {
