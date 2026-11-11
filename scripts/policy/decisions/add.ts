@@ -7,15 +7,17 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { defaultBusPath, openBus } from '../../core/db.js'
 import { REQUEST_DONE, REQUEST_REFUSED } from '../../core/events.js'
+import { pnpmCommand } from '../../core/owner-commands.js'
 import { ownerChannelOfBus, sayToOwnerChannel } from '../../owner/channel.js'
 import { runRequest, SESSION_VARIABLE } from '../../window/window-requests.js'
 import { continueFixesDecisionOf, namesPrAtHead, observedHeadsOf } from '../round-limit-decision.js'
 import { boundText, calendarTerm, cardTail, decisionsRefusals, outOfForceLines, OWNER_SOURCE, parseDecisions, PREFIX, settleSupersedes, stampOf, untilTail, WRITER_MARKER } from './decisions.js'
 import { archiveOf } from './read.js'
 
-export const USAGE = 'usage: pnpm decisions:add [--file <owner-decisions.md>] [--supersedes D-M]... [--card #N]... [--until <YYYY-MM-DDTHH:MMZ>] [--settled #N]... "[owner] <decision>"'
-export const OWNER_SHELL_USAGE = 'usage: pnpm decisions:add [--supersedes D-M]... [--card #N]... [--creates <path>]... [--until <YYYY-MM-DDTHH:MMZ>] "[owner] <decision>"'
-export const ARCHIVE_HEADER = '# Owner decisions archive\n\nSuperseded decisions, moved here from the decisions file by pnpm decisions:add.\n\n'
+const ADD_COMMAND = pnpmCommand('decisions:add')
+export const USAGE = `usage: ${ADD_COMMAND} [--file <owner-decisions.md>] [--supersedes D-M]... [--card #N]... [--until <YYYY-MM-DDTHH:MMZ>] [--settled #N]... "[owner] <decision>"`
+export const OWNER_SHELL_USAGE = `usage: ${ADD_COMMAND} [--supersedes D-M]... [--card #N]... [--creates <path>]... [--until <YYYY-MM-DDTHH:MMZ>] "[owner] <decision>"`
+export const ARCHIVE_HEADER = `# Owner decisions archive\n\nSuperseded decisions, moved here from the decisions file by ${ADD_COMMAND}.\n\n`
 
 const SOURCE_TAG = /^\[[^\]]*\]/
 const DECISION_REFERENCE = /^D-([1-9]\d*)$/

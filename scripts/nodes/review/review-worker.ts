@@ -28,6 +28,7 @@ import { CARD_ADMITTED, PR_CLOSED, PR_OBSERVED, PR_OPENED, REDUCED, REVIEW_RECOR
 import { cardIdOfDescription, isFullSha, prBodySha, prOf, reviewInputOf, reviewInputOfKey, taskKey } from '../../core/identifiers.js'
 import { expireLeases, leaseNext, leaseQueued } from '../../core/lease.js'
 import { Node, runNode, SWITCH_FLAG, UNDERSTOOD_NOW } from '../../core/node.js'
+import { pnpmCommand } from '../../core/owner-commands.js'
 import { pushPolicyOf } from '../../core/push-policy.js'
 import { cardBodyShaOfCard, LEASED, reviewCandidates } from '../../core/queue.js'
 import { shadowReading } from '../../core/report.js'
@@ -386,7 +387,7 @@ export async function runReview(argv: string[], run: ReviewRun): Promise<number>
     return 1
   }
   if (mode.kind === 'off') {
-    console.log(`${PREFIX}switched off; start it with ${SWITCH_FLAG} once pnpm bus:report is clean`)
+    console.log(`${PREFIX}switched off; start it with ${SWITCH_FLAG} once ${pnpmCommand('bus:report')} is clean`)
     return 0
   }
   if (mode.kind === 'dry-run') {

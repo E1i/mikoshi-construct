@@ -8,6 +8,7 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
 import { OWNER_AGENT } from '../../core/bus-path.js'
+import { pnpmCommand } from '../../core/owner-commands.js'
 import { printBg } from '../bg.js'
 import { LAUNCH_AGENTS } from '../start.js'
 
@@ -17,7 +18,7 @@ export const TOKEN_SOURCE_FLAG = 'token-source'
 export const APPLY_FLAG = 'apply'
 export const FACTORY_DIR_VARIABLE = 'CONSTRUCT_FACTORY_DIR'
 export const TOKEN_SOURCE_VARIABLE = 'CONSTRUCT_BUS_TOKEN_SOURCE'
-export const USAGE = `usage: pnpm bus:agent [--${FACTORY_DIR_FLAG} <absolute path>] [--${TOKEN_SOURCE_FLAG} <command that prints the GitHub token>] [--${APPLY_FLAG}] — renders the bus agent from its template and prints a diff against the installed file; --${APPLY_FLAG} replaces the file and reloads the agent. A value not given as a flag is read from ${FACTORY_DIR_VARIABLE} or ${TOKEN_SOURCE_VARIABLE}`
+export const USAGE = `usage: ${pnpmCommand('bus:agent')} [--${FACTORY_DIR_FLAG} <absolute path>] [--${TOKEN_SOURCE_FLAG} <command that prints the GitHub token>] [--${APPLY_FLAG}] — renders the bus agent from its template and prints a diff against the installed file; --${APPLY_FLAG} replaces the file and reloads the agent. A value not given as a flag is read from ${FACTORY_DIR_VARIABLE} or ${TOKEN_SOURCE_VARIABLE}`
 
 const TEMPLATE = path.join(import.meta.dirname, 'dev.mikoshi.bus.plist')
 const PLACEHOLDER = /\{\{(\w+)\}\}/g
