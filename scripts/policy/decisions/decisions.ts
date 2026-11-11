@@ -350,15 +350,19 @@ export function projectDecisions(rows: readonly DecisionRow[], file: string, arc
   return decisionsRefusals(projected.file, projected.archive).length === 0 ? projected : { file, archive }
 }
 
-function archiveWithout(archive: string, inForceNumbers: ReadonlySet<number>): string {
+function sameWords(decision: Decision, row: DecisionRow | undefined): boolean {
+  return row !== undefined && withoutSource(boundText(decision)) === withoutSource(row.text)
+}
+
+function archiveWithout(archive: string, inForce: ReadonlyMap<number, DecisionRow>): string {
   return archive.split('\n').filter((line) => {
     const [decision] = parseDecisions(line).decisions
-    return decision === undefined || !inForceNumbers.has(decision.number)
+    return decision === undefined || !sameWords(decision, inForce.get(decision.number))
   }).join('\n')
 }
 
 function projectionOf(rows: readonly DecisionRow[], file: string, heldArchive: string, archiveHeader: string): ProjectedDecisions {
-  const archive = archiveWithout(heldArchive, new Set(rows.filter(row => row.inForce).map(row => row.number)))
+  const archive = archiveWithout(heldArchive, new Map(rows.filter(row => row.inForce).map(row => [row.number, row])))
   const { decisions: lines, offFormat } = parseDecisions(file)
   const fileLines = file.split(/\r?\n/)
   const held = new Map(lines.map(decision => [decision.number, decision]))
