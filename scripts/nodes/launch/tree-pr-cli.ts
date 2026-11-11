@@ -9,6 +9,7 @@ import { cardToolsOf, parseParkingFile } from '../../../src/card/parking.js'
 import { readShiftGate } from '../../../src/manifest.js'
 import { appendEvent, BUSY_TIMEOUT_MS, defaultBusPath, openBus } from '../../core/db.js'
 import { CARD_CONTINUED, CARD_STARTED, CARD_STOPPED, CARD_WAITING, PR_OPENED, QUESTION_AGENT, TOUCHES_FOLLOWED } from '../../core/events.js'
+import { pnpmCommand } from '../../core/owner-commands.js'
 import { treeReportPath } from '../../core/places.js'
 import { pushPolicyOf } from '../../core/push-policy.js'
 import { openDatabase } from '../../core/sqlite.js'
@@ -279,7 +280,7 @@ export function returnPrompt(cardId: number, why: string, refusal: Refusal, plac
     `${PREFIX}card #${cardId}: ${why}.`,
     `The card returns to you once for ${refusal.code}. In ${places.worktree}, without changing the card's touches or its body:`,
     ...refusal.tasks.map(task => `- ${task}`),
-    `Then repeat the card's witnesses, pnpm typecheck and pnpm lint, each as its own command, write the shift report ${treeReportPath(places.worktree)} again, and end the session: the shift checks the tree again and opens the pull request. The same refusal a second time is a wait for the window.`,
+    `Then repeat the card's witnesses, ${pnpmCommand('typecheck')} and ${pnpmCommand('lint')}, each as its own command, write the shift report ${treeReportPath(places.worktree)} again, and end the session: the shift checks the tree again and opens the pull request. The same refusal a second time is a wait for the window.`,
   ].join('\n')
 }
 

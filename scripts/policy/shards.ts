@@ -3,7 +3,7 @@ import type { BusEvent } from '../core/db.js'
 import type { InForceDecision } from './decisions.js'
 import { SHARD_EXPIRED, SHARD_ISSUED, SHARD_REVOKED, SHARD_USED } from '../core/events.js'
 import { inForceDecisions } from './decisions.js'
-import { lapsed, OWNER_SOURCE, termOf, visibleToCard } from './decisions/decisions.js'
+import { decisionCommand, lapsed, termOf, visibleToCard } from './decisions/decisions.js'
 
 export const WINDOW_SHARD_HOURS = 6
 export const DECISIONS_SCOPE = 'merge+decisions'
@@ -80,7 +80,7 @@ export function ownersOfAStop(question: string): string | null {
 }
 
 export function cardDecisionCommand(cardId: number): string {
-  return `pnpm decisions:add --card #${cardId} "${OWNER_SOURCE} <decision>"`
+  return decisionCommand('<decision>', [cardId])
 }
 
 export function windowShardEnded(type: typeof SHARD_REVOKED | typeof SHARD_EXPIRED, actor: string, id: string, now: Date): BusEvent {
