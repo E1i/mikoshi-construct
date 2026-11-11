@@ -1,16 +1,20 @@
 import type { Ui } from '../../ui/console.js'
-import type { CardAdmissionsPort, CardEvent, CardEventPort, RecordedIntake } from './index.js'
+import type { CardAdmissionsPort, CardEvent, CardEventPort, CardStatesPort, RecordedIntake } from './index.js'
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmdirSync } from 'node:fs'
 import path from 'node:path'
 import { CARD_DEFERRED, CARD_DROPPED, CARD_MOVED, DEFERRED_TARGET } from '../../../scripts/core/events.js'
+import { ENDED_IN_BUS } from '../../card/closed.js'
 import { parseParkingFile } from '../../card/parking.js'
-import { laneOf } from './admit.js'
-import { bodySha, bodyShaWithoutTouches } from './confirm.js'
-import { INTAKE_EXIT, recordIntake } from './index.js'
+import { AMEND_SOURCE, laneOf } from './admit.js'
+import { admittedCardOf, withRepointedDepends } from './amend.js'
+import { bodySha, bodyShaWithoutTouches, isConfirmation } from './confirm.js'
+import { admittedRecord, INTAKE_EXIT, recordIntake } from './index.js'
 
 export const CARD_NUMBER = /^#?(\d+)$/
 const SLICED_STUB = /^sliced into (#\d+(?:,\s*#\d+)*)$/
 const DATED_PARKING = /^\d{4}-\d{2}-\d{2}-[a-z]{2,}$/
+const DROPPED_IN_BUS = 'dropped'
+const CARD_IN_BUS = /^\d+$/
 
 export interface MoveOptions {
   move: string | undefined
@@ -22,13 +26,16 @@ export interface MoveOptions {
   dryRun?: boolean
   events?: CardEventPort
   admissions?: CardAdmissionsPort
+  cardStates?: CardStatesPort
 }
+
+export interface Repointed { card: number, dropped: number, children: number[] }
 
 export type MoveResult
   = | { status: 'refused', why: (ui: Ui) => string }
-    | { status: 'moved', from: string, to: string, event: string }
-    | { status: 'dryRun', parking: string, from: string, to: string, event: string }
-    | { status: 'recordedInPlace', file: string, event: string }
+    | { status: 'moved', from: string, to: string, event: string, repointed?: Repointed[] }
+    | { status: 'dryRun', parking: string, from: string, to: string, event: string, repointed?: Repointed[] }
+    | { status: 'recordedInPlace', file: string, event: string, repointed?: Repointed[] }
 
 function refused(why: (ui: Ui) => string): MoveResult {
   return { status: 'refused', why }
@@ -78,6 +85,79 @@ function recordMove(options: MoveOptions, number: number, moved: Moved, slicing:
   const type = moveType(options.parking, moved.to, slicing)
   const lane = path.basename(moved.to)
   recordIntake([{ type, cardId: number, ts, dedupeKey: `${type}:${number}:${lane}:${ts}`, payload: { ...moved, lane, ...slicing } } as CardEvent], options.events)
+}
+
+interface Repointing extends Repointed { admission: RecordedIntake, text: string }
+
+type DependentsReading = { kind: 'repoint', repointings: Repointing[] } | { kind: 'refused', orphans: number[] } | { kind: 'lagging', cards: number[] }
+
+function openInBus(states: ReadonlyMap<string, string> | undefined, card: number): boolean {
+  const state = states?.get(String(card))
+  return state === undefined || (!ENDED_IN_BUS.has(state) && state !== DROPPED_IN_BUS)
+}
+
+function linksOf(options: MoveOptions, card: number): { blocks: number[], depends: number[] } {
+  const text = options.admissions?.(card)?.text
+  const admitted = text === undefined ? null : admittedCardOf(text)
+  return { blocks: admitted?.blocks ?? [], depends: admitted?.depends ?? [] }
+}
+
+function takesOver(options: MoveOptions, child: number, card: number): boolean {
+  const links = linksOf(options, child)
+  return links.blocks.includes(card) && !links.depends.includes(card)
+}
+
+function candidatesOf(options: MoveOptions, dropped: number, slicing: Slicing, states: ReadonlyMap<string, string> | undefined): number[] {
+  const held = [...(states ?? new Map<string, string>()).keys()].flatMap(card => CARD_IN_BUS.test(card) ? [Number(card)] : [])
+  const named = slicing.children.flatMap(child => linksOf(options, child).blocks)
+  return [...new Set([...held, ...named])].filter(card => card !== dropped && !slicing.children.includes(card) && openInBus(states, card)).sort((a, b) => a - b)
+}
+
+function dependentsOf(options: MoveOptions, dropped: number, slicing: Slicing): DependentsReading {
+  const states = options.cardStates?.()
+  const repointings: Repointing[] = []
+  const orphans: number[] = []
+  const lagging: number[] = []
+  for (const card of candidatesOf(options, dropped, slicing, states)) {
+    const admission = options.admissions?.(card)
+    if (admission !== null && admission !== undefined && (admission.text === undefined || projectionLagsTheJournal(admission))) {
+      lagging.push(card)
+      continue
+    }
+    const depends = admission?.text === undefined ? [] : admittedCardOf(admission.text)?.depends ?? []
+    if (admission?.text === undefined || !depends.includes(dropped))
+      continue
+    const children = slicing.children.filter(child => takesOver(options, child, card))
+    const text = children.length === 0 ? null : withRepointedDepends(admission.text, dropped, children)
+    if (text === null)
+      orphans.push(card)
+    else
+      repointings.push({ card, dropped, children, admission, text })
+  }
+  if (lagging.length > 0)
+    return { kind: 'lagging', cards: lagging }
+  return orphans.length > 0 ? { kind: 'refused', orphans } : { kind: 'repoint', repointings }
+}
+
+function repointedRecord(repointing: Repointing, at: Date): CardEvent {
+  const card = admittedCardOf(repointing.text)!
+  const { confirmation } = repointing.admission
+  const sliced = { id: repointing.card, file: `${repointing.card}.md`, line: card.line, who: '', unclear: [], corrections: [], seam: [], risk: [], slices: [], text: repointing.text }
+  return admittedRecord(sliced, isConfirmation(confirmation) ? confirmation : 'auto', at, null, AMEND_SOURCE)
+}
+
+function repointedOnly(repointings: readonly Repointing[]): { repointed?: Repointed[] } {
+  return repointings.length === 0 ? {} : { repointed: repointings.map(({ card, dropped, children }) => ({ card, dropped, children })) }
+}
+
+function laggingDependentsRefusal(dropped: number, cards: readonly number[]): MoveResult {
+  const named = cards.map(card => `#${card}`).join(', ')
+  return refused(ui => ui.lore.intakeRefusedUnreadable(`${named}: the card_bodies projection holds an older body than the latest card.admitted, and dropping #${dropped} would re-admit it while re-pointing its depends; run it again once the reducer has folded that admission`))
+}
+
+function orphansRefusal(dropped: number, orphans: readonly number[]): MoveResult {
+  const cards = orphans.map(card => `#${card}`).join(', ')
+  return refused(ui => ui.lore.intakeDropLeavesDependents(dropped, cards))
 }
 
 function projectionLagsTheJournal(admission: RecordedIntake | null | undefined): boolean {
@@ -136,16 +216,24 @@ export function runMove(options: MoveOptions, now: () => Date = () => new Date()
   const stale = staleBodyRefusal(options, number, targetDir, slicing)
   if (stale !== null)
     return stale
+  const dependents = slicing === null ? { kind: 'repoint' as const, repointings: [] } : dependentsOf(options, number, slicing)
+  if (dependents.kind === 'lagging')
+    return laggingDependentsRefusal(number, dependents.cards)
+  if (dependents.kind === 'refused')
+    return orphansRefusal(number, dependents.orphans)
+  const repointed = repointedOnly(dependents.repointings)
   if (options.dryRun === true)
-    return { status: 'dryRun', parking: options.parking, from, to: target, event: moveType(options.parking, targetDir, slicing) }
+    return { status: 'dryRun', parking: options.parking, from, to: target, event: moveType(options.parking, targetDir, slicing), ...repointed }
+  const at = now()
   const inPlace = path.resolve(from) === target
   const createdDir = inPlace ? undefined : mkdirSync(targetDir, { recursive: true })
   if (!inPlace)
     renameSync(from, target)
-  const ts = now().toISOString()
+  const ts = at.toISOString()
   const moved = { from: path.dirname(from), to: targetDir, bodySha: latestAdmittedSha(options, number, text) }
   const type = moveType(options.parking, targetDir, slicing)
   try {
+    recordIntake(dependents.repointings.map(repointing => repointedRecord(repointing, at)), options.events)
     recordMove(options, number, moved, slicing, ts)
   }
   catch (error) {
@@ -155,7 +243,12 @@ export function runMove(options: MoveOptions, now: () => Date = () => new Date()
       rmdirSync(createdDir)
     throw error
   }
-  return inPlace ? { status: 'recordedInPlace', file: target, event: type } : { status: 'moved', from, to: target, event: type }
+  return inPlace ? { status: 'recordedInPlace', file: target, event: type, ...repointed } : { status: 'moved', from, to: target, event: type, ...repointed }
+}
+
+function printRepointed(ui: Ui, repointed: readonly Repointed[] | undefined): void {
+  for (const { card, dropped, children } of repointed ?? [])
+    ui.line(ui.lore.intakeDropRepointed(card, dropped, children.map(child => `#${child}`).join(', ')))
 }
 
 export function printMove(ui: Ui, result: MoveResult): number {
@@ -165,9 +258,11 @@ export function printMove(ui: Ui, result: MoveResult): number {
   }
   if (result.status === 'dryRun') {
     ui.line(`${result.from} -> ${result.to} (${result.event})`)
+    printRepointed(ui, result.repointed)
     ui.line(ui.lore.intakeDryRun(result.parking))
     return INTAKE_EXIT.dryRun
   }
   ui.ok(result.status === 'moved' ? ui.lore.intakeMoved(result.from, result.to, result.event) : ui.lore.intakeMoveRecordedInPlace(result.file, result.event))
+  printRepointed(ui, result.repointed)
   return INTAKE_EXIT.admitted
 }

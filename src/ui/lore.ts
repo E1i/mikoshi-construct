@@ -195,6 +195,8 @@ export interface Lore extends Omit<ExpectLore, 'expectRoleForecast'> {
   intakeMoveRecordedInPlace: (file: string, event: string) => string
   intakeMoveNotFound: (id: number) => string
   intakeMoveAmbiguous: (id: number, paths: string) => string
+  intakeDropRepointed: (card: number, dropped: number, children: string) => string
+  intakeDropLeavesDependents: (dropped: number, cards: string) => string
   intakeMoveNeedsBoth: string
   intakeMoveNeedsTheBus: string
   intakeMoveTargetOutside: (to: string) => string
@@ -422,6 +424,20 @@ function andMore(rest: readonly string[]): string {
   return rest.length === 0 ? '' : `, and ${rest.length} more ${rest.length === 1 ? 'fact' : 'facts'}`
 }
 
+const BOARD_TABS_LORE = {
+  boardTabFlow: 'Flow',
+  boardTabBacklog: 'Backlog',
+  boardTabServices: 'Services',
+  boardFlowColumns: ['planned', 'in work', 'in review', 'ready to merge'],
+  boardColumnLine: (title: string, cards: string[]) => `${title} (${cards.length}): ${cards.length === 0 ? '\u2014' : cards.join(' \u00B7 ')}`,
+  boardLaneLine: (lane: string | undefined, count: number) => `${lane ?? 'no lane'} (${count})`,
+  boardBacklogRow: (card: string, state: string) => `  ${card} \u00B7 ${state}`,
+  boardServiceLine: (role: string, task: string, tree: string | undefined, step: string) => `${role} \u00B7 ${task} \u00B7 ${tree ?? '\u2014'} \u00B7 ${step}`,
+  boardNoServices: 'no session is running',
+  boardReleaseDropped: (cards: string[]) => `dropped ${cards.length}: ${cards.join(', ')}`,
+  boardFlowEmpty: (hint: string) => `nothing in the flow \u00B7 ${hint}`,
+} satisfies Partial<Lore>
+
 export const LORE: Lore = {
   ...EXPECT_LORE,
   boardWindowAgentsStep: 'subagents at work',
@@ -639,6 +655,8 @@ export const LORE: Lore = {
   intakeMoveRecordedInPlace: (file: string, event: string) => `MOVE RECORDED // ${file} is already there; the bus holds it as ${event}, the file stays put`,
   intakeMoveNotFound: (id: number) => `INTAKE REFUSED // NO CARD: #${id} is in no parking directory under the root`,
   intakeMoveAmbiguous: (id: number, paths: string) => `INTAKE REFUSED // AMBIGUOUS: #${id} is parked in more than one place: ${paths}`,
+  intakeDropRepointed: (card: number, dropped: number, children: string) => `REWIRED // #${card} depends on ${children} where it waited on #${dropped}`,
+  intakeDropLeavesDependents: (dropped: number, cards: string) => `INTAKE REFUSED // ORPHANS: ${cards} depend on #${dropped} and no slice of it takes them over (names them in its blocks without depending on them); re-point their depends first`,
   intakeMoveNeedsBoth: 'INTAKE REFUSED // --move and --to go together, with no --draft, --taken or --admit',
   intakeMoveNeedsTheBus: 'INTAKE REFUSED // NO BUS: a move is held only by the bus, and this entry has none; run construct-intake --move; nothing moved',
   intakeMoveTargetOutside: (to: string) => `INTAKE REFUSED // OUTSIDE: --to ${to} is not the parking root (.) or one directory directly under it; nothing moved`,
@@ -858,19 +876,9 @@ export const LORE: Lore = {
   boardStart: 'Miko chooses how each task runs: herself in the window, handed to the Operator, or through Ghost Protocol. With autonomy and delegation on, ask in chat and the mechanism does the rest.',
   boardNoImplement: 'This repository has no /implement, so the board lists pull requests only.',
   boardHeader: (version: string, mode: string | undefined) => `construct ${version}${mode === undefined ? '' : ` \u00B7 ${mode.toUpperCase()}`}`,
-  boardTabFlow: 'Flow',
-  boardTabBacklog: 'Backlog',
-  boardTabServices: 'Services',
-  boardFlowColumns: ['planned', 'in work', 'in review', 'ready to merge'],
-  boardColumnLine: (title: string, cards: string[]) => `${title} (${cards.length}): ${cards.length === 0 ? '\u2014' : cards.join(' \u00B7 ')}`,
-  boardLaneLine: (lane: string | undefined, count: number) => `${lane ?? 'no lane'} (${count})`,
-  boardBacklogRow: (card: string, state: string) => `  ${card} \u00B7 ${state}`,
-  boardServiceLine: (role: string, task: string, tree: string | undefined, step: string) => `${role} \u00B7 ${task} \u00B7 ${tree ?? '\u2014'} \u00B7 ${step}`,
-  boardNoServices: 'no session is running',
+  ...BOARD_TABS_LORE,
   boardHint: (who: string, command: string) => `${who} runs: ${command}`,
   boardNoPlan: (hint: string) => `plan not registered \u00B7 ${hint}`,
-  boardReleaseDropped: (cards: string[]) => `dropped ${cards.length}: ${cards.join(', ')}`,
-  boardFlowEmpty: (hint: string) => `nothing in the flow \u00B7 ${hint}`,
   boardFooter: (agents: number, failure: string | undefined, queue: number) => `agents at work: ${agents} \u00B7 last failure: ${failure ?? 'none'} \u00B7 review queue: ${queue} \u00B7 geek mode: --geek`,
   boardBusAbsent: (file: string) => `bus ${file}: absent`,
   boardBusUnreadable: (file: string, reason: string) => `bus ${file}: unreadable (${reason})`,
@@ -1097,6 +1105,8 @@ export const PLAIN_LORE: Lore = {
   intakeMoveRecordedInPlace: (file: string, event: string) => `${file} is already in that directory. The bus holds the move as ${event}; the file was not moved.`,
   intakeMoveNotFound: (id: number) => `Refused: #${id} is in no parking directory under the root. Nothing was written.`,
   intakeMoveAmbiguous: (id: number, paths: string) => `Refused: #${id} is parked in more than one place: ${paths}. Nothing was written.`,
+  intakeDropRepointed: (card: number, dropped: number, children: string) => `#${card} now depends on ${children} instead of the dropped #${dropped}.`,
+  intakeDropLeavesDependents: (dropped: number, cards: string) => `Refused: ${cards} depend on #${dropped}, and no slice of #${dropped} takes them over (names them in its blocks without depending on them), so they would wait for a card that never merges. Re-point their depends with an amend first. Nothing was written.`,
   intakeMoveNeedsBoth: 'Refused: --move and --to go together, with no --draft, --taken or --admit. Nothing was written.',
   intakeMoveNeedsTheBus: 'Refused: a move is held only by the bus, and this entry has none; run construct-intake --move. Nothing was moved.',
   intakeMoveTargetOutside: (to: string) => `Refused: --to ${to} is not the parking root (.) or one directory directly under it. Nothing was moved.`,
@@ -1314,19 +1324,9 @@ export const PLAIN_LORE: Lore = {
   boardStart: 'Miko chooses how each task runs: herself in the window, handed to the Operator, or through Ghost Protocol. With autonomy and delegation on, ask in chat and the mechanism does the rest.',
   boardNoImplement: 'This repository has no /implement, so the board lists pull requests only.',
   boardHeader: (version: string, mode: string | undefined) => `construct ${version}${mode === undefined ? '' : ` \u00B7 ${mode.toUpperCase()}`}`,
-  boardTabFlow: 'Flow',
-  boardTabBacklog: 'Backlog',
-  boardTabServices: 'Services',
-  boardFlowColumns: ['planned', 'in work', 'in review', 'ready to merge'],
-  boardColumnLine: (title: string, cards: string[]) => `${title} (${cards.length}): ${cards.length === 0 ? '\u2014' : cards.join(' \u00B7 ')}`,
-  boardLaneLine: (lane: string | undefined, count: number) => `${lane ?? 'no lane'} (${count})`,
-  boardBacklogRow: (card: string, state: string) => `  ${card} \u00B7 ${state}`,
-  boardServiceLine: (role: string, task: string, tree: string | undefined, step: string) => `${role} \u00B7 ${task} \u00B7 ${tree ?? '\u2014'} \u00B7 ${step}`,
-  boardNoServices: 'no session is running',
+  ...BOARD_TABS_LORE,
   boardHint: (who: string, command: string) => `${who} runs: ${command}`,
   boardNoPlan: (hint: string) => `plan not registered \u00B7 ${hint}`,
-  boardReleaseDropped: (cards: string[]) => `dropped ${cards.length}: ${cards.join(', ')}`,
-  boardFlowEmpty: (hint: string) => `nothing in the flow \u00B7 ${hint}`,
   boardFooter: (agents: number, failure: string | undefined, queue: number) => `agents at work: ${agents} \u00B7 last failure: ${failure ?? 'none'} \u00B7 review queue: ${queue} \u00B7 geek mode: --geek`,
   boardBusAbsent: (file: string) => `bus ${file}: absent`,
   boardBusUnreadable: (file: string, reason: string) => `bus ${file}: unreadable (${reason})`,
