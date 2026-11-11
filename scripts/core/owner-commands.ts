@@ -13,3 +13,9 @@ export const ADMIT_COMMAND = pnpmCommand('intake', '--admit')
 export function constructCommand(command: string, ...args: readonly OwnerCommandArgument[]): string {
   return commandLine('construct', command, args)
 }
+
+export function npxConstructCommand(command: string, ...args: readonly OwnerCommandArgument[]): string {
+  return commandLine('npx', 'mikoshi-construct', [command, ...args])
+}
+
+export const QUALITY_COMMAND = pnpmCommand('run', 'quality')

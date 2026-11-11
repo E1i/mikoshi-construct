@@ -3,6 +3,7 @@ import type { Ui } from '../../ui/console.js'
 import { createHash } from 'node:crypto'
 import { lstatSync, readFileSync, realpathSync } from 'node:fs'
 import path from 'node:path'
+import { npxConstructCommand } from '../../../scripts/core/owner-commands.js'
 import { templatesRoot } from '../../materialize/templates.js'
 import { ATTACH_CARRIERS } from '../../presets/index.js'
 import { shellWord } from './shell-word.js'
@@ -66,7 +67,7 @@ export function classifyCollisions(root: string, paths: string[]): Array<Earlier
 }
 
 function rerunCommand(root: string, flags: CollisionFlags): string {
-  const base = `npx mikoshi-construct attach --dir ${shellWord(root)}`
+  const base = npxConstructCommand('attach', '--dir', shellWord(root))
   if (flags.harness == null)
     return base
   const requiredCheck = flags.requiredCheck == null ? '' : ` --required-check ${shellWord(flags.requiredCheck)}`
