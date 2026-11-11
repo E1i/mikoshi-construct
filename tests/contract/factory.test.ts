@@ -120,7 +120,7 @@ describe('contract/factory.json', () => {
     const { laws } = JSON.parse(readFileSync(RECORDED, 'utf8')) as FactoryWithLaws
 
     expect(laws).toEqual(JSON.parse(JSON.stringify(lawsSection())))
-    expect(Object.keys(laws.laws)).toEqual(['Z1', 'Z2', 'Z3', 'Z4', 'Z5', 'Z6', 'Z7', 'Z8'])
+    expect(Object.keys(laws.laws)).toEqual(['Z1', 'Z2', 'Z3', 'Z4', 'Z5', 'Z6', 'Z7', 'Z8', 'Z9'])
     expect(laws.lawsVersion).toBeGreaterThan(0)
   })
 

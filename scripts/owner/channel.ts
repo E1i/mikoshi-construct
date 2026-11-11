@@ -93,6 +93,22 @@ export function consumeOwnerWordClosing(channel: string, id: string): ClosingWor
   return null
 }
 
+const OWNER_MARK = /^\[owner\]\s*/
+const A_NAMED_WAIT = /^Q\d+(?=[:\s]|$):?\s*/
+
+export function decisionOnAWait(id: string, answer: string): string {
+  return `${id}: ${answer}`
+}
+
+export function decisionWordsOf(text: string): string {
+  return text.trim().replace(OWNER_MARK, '').replace(A_NAMED_WAIT, '').trim()
+}
+
+export function sameDecisionWords(one: string, other: string): boolean {
+  const words = decisionWordsOf(one)
+  return words !== '' && words === decisionWordsOf(other)
+}
+
 export function ownerWordAwaited(id: string): string {
   return `${id} waits for the owner's word naming ${id}: the owner lifts it by saying "${id}: <the answer>" into the owner channel, or the answer verbatim`
 }

@@ -226,10 +226,25 @@ function strings(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((each): each is string => typeof each === 'string') : []
 }
 
+function decidedOnTheCardSince(bus: BusRead, cardId: number, stop: number): boolean {
+  return bus.where({ from: stop + 1 }).slice(DECISION_RECORDED, ['scope']).some(decided => Array.isArray(decided.fields.scope) && decided.fields.scope.includes(cardId))
+}
+
+const WAITS_OF_THE_CARD = 'SELECT id FROM owner_waits WHERE card_id = ?'
+
+function aWaitOfTheCardClosedSince(db: DatabaseSync, bus: BusRead, cardId: number, stop: number): boolean {
+  const ofTheCard = new Set((db.prepare(WAITS_OF_THE_CARD).all(cardId) as { id: string }[]).map(wait => wait.id))
+  return bus.where({ from: stop + 1 }).slice(OWNER_WAIT_CLOSED, ['id']).some(closed => ofTheCard.has(String(closed.fields.id)))
+}
+
+function ownerAnsweredSince(db: DatabaseSync, bus: BusRead, cardId: number, stop: number): boolean {
+  return decidedOnTheCardSince(bus, cardId, stop) || aWaitOfTheCardClosedSince(db, bus, cardId, stop)
+}
+
 function questionStillOpen(bus: BusRead, cardId: number, stop: number): boolean {
-  const since = bus.where({ from: stop + 1 })
-  if (since.slice(DECISION_RECORDED, ['scope']).some(decided => Array.isArray(decided.fields.scope) && decided.fields.scope.includes(cardId)))
+  if (decidedOnTheCardSince(bus, cardId, stop))
     return false
+  const since = bus.where({ from: stop + 1 })
   const closed = new Set(since.slice(OWNER_WAIT_CLOSED, ['id']).map(each => each.fields.id))
   return since.where({ card: cardId }).slice(OWNER_WAIT_OPENED, ['id']).some(opened => !closed.has(opened.fields.id))
 }
@@ -243,13 +258,13 @@ export function heldSessionStop(db: DatabaseSync, cardId: number): HeldSessionSt
   const named = strings(latest.fields.paths)
   if (stopCode === OUTSIDE_TOUCHES) {
     const uncovered = pathsOutsideTheBody(db, cardId, named.join('\n'))
-    return uncovered.length === 0 ? null : { code: stopCode, stop: latest.id, paths: uncovered }
+    return uncovered.length === 0 || ownerAnsweredSince(db, bus, cardId, latest.id) ? null : { code: stopCode, stop: latest.id, paths: uncovered }
   }
   return questionStillOpen(bus, cardId, latest.id) ? { code: stopCode, stop: latest.id, paths: named } : null
 }
 
 export function heldStopLine(cardId: number, held: HeldSessionStop): string {
-  const why = held.code === OUTSIDE_TOUCHES ? `its touches still miss ${held.paths.join(', ')}, so it waits for intake to widen them` : 'the question it stopped on is still open, so it waits for the decision or the owner wait to close'
+  const why = held.code === OUTSIDE_TOUCHES ? `its touches still miss ${held.paths.join(', ')}, so it waits for intake to widen them, or for a decision bound to the card or the owner's word closing its wait that no widening is needed` : 'the question it stopped on is still open, so it waits for the decision or the owner wait to close'
   return `${held.code}: card #${cardId} is not launched again since stop ${held.stop}: ${why}`
 }
 
