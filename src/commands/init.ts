@@ -7,6 +7,7 @@ import type { Prompter } from '../ui/prompts.js'
 import { existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import path from 'node:path'
+import { QUALITY_COMMAND } from '../../scripts/core/owner-commands.js'
 import { DEFAULT_COMPOSITION_DIR, detect } from '../detect/index.js'
 import { buildManifest, DEFAULT_LANES, isLaneCount, readManifest, recordedShas, recordedVariants, writeManifest } from '../manifest.js'
 import { applyPlan } from '../materialize/apply.js'
@@ -322,7 +323,7 @@ export async function runInit(ui: Ui, options: InitOptions, prompter?: Prompter)
     ui.line(ui.theme.dim(`  ${ui.lore.recordAnswered(answeredByTheRecord)}`))
   ui.line()
 
-  const harnessCommand = options.harness ?? previous?.harness?.command ?? 'pnpm run quality'
+  const harnessCommand = options.harness ?? previous?.harness?.command ?? QUALITY_COMMAND
 
   const recordedPolicy = previous?.policy?.workspaceImports ?? null
   const policy = preset.policy?.(report, projectName, recordedPolicy) ?? null
