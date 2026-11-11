@@ -3401,7 +3401,6 @@
       "scripts/ports/worktree.ts": 1
     },
     "owner-commands": {
-      "scripts/composition/check.ts": 1,
       "scripts/nodes/close/task-close.ts": 2,
       "scripts/nodes/launch/tree-pr-cli.ts": 1,
       "scripts/nodes/restart/role.ts": 1,
