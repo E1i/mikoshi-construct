@@ -38,7 +38,7 @@ import { launchDirOf } from '../../ports/tree-publish.js'
 import { isAlive } from '../../quality/lock.js'
 import { lastHeartbeat } from '../../supervisor/heartbeat.js'
 import { launchProcess, REAL_PROCESSES } from '../restart/chain-process.js'
-import { MAX_RESTARTS, reportedQuestions, reportedStopReason } from './continuation.js'
+import { MAX_RESTARTS, reportedStopReason, sessionWrittenPart } from './continuation.js'
 import { laneOverlapRecorder, layLanes, repositoryLanes } from './lane-assign.js'
 import { holdReason, startHold } from './launch-candidates.js'
 import { LaunchExecutor } from './launch-executor.js'
@@ -56,6 +56,12 @@ export const HEARTBEAT_SILENCE_MINUTES = 20
 const HEARTBEAT_SILENCE_MS = HEARTBEAT_SILENCE_MINUTES * 60_000
 
 const LEGACY_MERGE = 'merge'
+
+const QUESTION_WITH_ITS_LINES = /^question:[ \t]*(\S.*(?:\n(?!question:)[ \t]*\S.*)*)/gm
+
+export function reportedQuestions(report: string | null): string[] {
+  return report === null ? [] : [...sessionWrittenPart(report).matchAll(QUESTION_WITH_ITS_LINES)].map(found => found[1].split('\n').map(line => line.trim()).join('\n'))
+}
 
 export type PidAlive = (pid: number) => boolean
 
