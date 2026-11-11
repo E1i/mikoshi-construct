@@ -23,6 +23,7 @@ import { ENTRY_EVENT, entryOf, startedEntryOf } from '../../core/entry.js'
 import { CARD_VERIFIED } from '../../core/events.js'
 import { ghostLines } from '../../core/journal.js'
 import { legacyHistory } from '../../core/legacy-history.js'
+import { pnpmCommand } from '../../core/owner-commands.js'
 import { ghInRepositoryOf } from '../../core/places.js'
 import { openDatabase } from '../../core/sqlite.js'
 import { cardStartedLines, prCardOf } from '../../core/tasks.js'
@@ -35,7 +36,7 @@ import { clientAdapter } from '../../ports/client/index.js'
 import { execGh, readGhJson } from '../../ports/gh.js'
 
 export const PREFIX = '[task:close] '
-export const USAGE = 'usage: pnpm task:close <id> (--pr <N> | --report <path>) --verification <word> [--override-report <reason>] [--shared-by D-<N>]'
+export const USAGE = `usage: ${pnpmCommand('task:close', '<id> (--pr <N> | --report <path>) --verification <word> [--override-report <reason>] [--shared-by D-<N>]')}`
 const FLAGS = ['--pr', '--report', '--verification', '--override-report', '--shared-by'] as const
 const PR_NUMBER = /^[1-9]\d*$/
 const DECISION_REFERENCE = /^D-[1-9]\d*$/
@@ -522,7 +523,7 @@ export function runTaskClose(argv: string[], deps: TaskCloseDeps): TaskCloseResu
   const lines = [...legacyLines(deps.busPath), ...ghostLines(deps.busPath), ...cardStartedLines(deps.busPath)]
   const start = startLineOf(lines, id) ?? launchStartOf(lines, id) ?? launchNodeStartOf(lines, deps.busPath, id)
   if (start === undefined)
-    return refuse(`the journal lines in the bus ${deps.busPath} have no task:start line with a card for #${id}, no ghosts:launch entry line with one, and the bus ${deps.busPath} has no card.started with one; start the task with pnpm task:start <branch> --card "<card>"; nothing written`)
+    return refuse(`the journal lines in the bus ${deps.busPath} have no task:start line with a card for #${id}, no ghosts:launch entry line with one, and the bus ${deps.busPath} has no card.started with one; start the task with ${pnpmCommand('task:start', '<branch> --card "<card>"')}; nothing written`)
   const unproven = verification === 'mutation' ? mutationRefusal(lines, id, `the bus ${deps.busPath}`) : null
   if (unproven !== null)
     return refuse(unproven)

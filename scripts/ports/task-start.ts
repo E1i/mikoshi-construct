@@ -21,6 +21,7 @@ import { busAdmittedBodies } from '../core/card-bodies.js'
 import { appendEvent, defaultBusPath, inTransaction, openBus } from '../core/db.js'
 import { ENTRY_RESULT, ENTRY_SCHEMA } from '../core/entry.js'
 import { CARD_ADMITTED, CARD_STARTED } from '../core/events.js'
+import { ADMIT_COMMAND, pnpmCommand } from '../core/owner-commands.js'
 import { cardBodyAdmissionOf, LEASED } from '../core/queue.js'
 import { slotsOf, slotsVariable } from '../supervisor/scheduler.js'
 import { STARTER_ACTOR, windowOpenPrs } from '../window/window-prs.js'
@@ -34,7 +35,7 @@ import { adoptTree, cutTree, pnpmInstall, treeOriginLine } from './worktree.js'
 export const TECHNOLOGY_WORDS = ['database'] as const
 
 export const PREFIX = '[task:start] '
-const START_USAGE = 'usage: pnpm task:start <branch> --card "<card>"'
+const START_USAGE = `usage: ${pnpmCommand('task:start', '<branch> --card "<card>"')}`
 const WITHOUT_INTAKE_USAGE = '[--without-intake "<reason>"]'
 export const USAGE = `${START_USAGE} ${WITHOUT_INTAKE_USAGE}`
 const CARD_FLAG = '--card'
@@ -127,8 +128,6 @@ function windowAtLimit(deps: TaskStartDeps, id: string, cardFile: CardFile): str
     return null
   return `the window holds ${held.length} open pull requests (${held.map(pr => `PR #${pr}`).join(', ')}), at its limit of ${limit} from ${slotsVariable(WINDOW_LIMIT_SLOTS)}: move one to its merge or close before starting #${id}; nothing written`
 }
-
-const ADMIT_COMMAND = 'pnpm intake --admit'
 
 function sameCard(recorded: string, card: Card): boolean {
   const parsed = parseCard(recorded)
@@ -322,7 +321,7 @@ function whoAndRisk(cardFile: CardFile): { who?: string, risk?: WrittenRisk } {
 
 function windowRefusal(argv: string[]): string {
   const id = CARD_ID.exec(flagValue(argv, CARD_FLAG).value ?? '')?.[1] ?? '<N>'
-  return `a window does not start a task itself: the bus cuts its tree, ask it with pnpm bus:request tree.cut --card ${id}; nothing written`
+  return `a window does not start a task itself: the bus cuts its tree, ask it with ${pnpmCommand('bus:request', 'tree.cut', '--card', id)}; nothing written`
 }
 
 export function runTaskStart(argv: string[], deps: TaskStartDeps, handed?: HandedContract): TaskStartResult {
