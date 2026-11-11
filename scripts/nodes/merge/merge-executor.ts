@@ -23,13 +23,15 @@ import { mergePolicy, OWNER_MERGES, OWNER_MERGES_RULES, underOwnerDecision, VERS
 import { activeWindowShards, decisionsInForceAt, expiredWindowShards, shardActive, unspentShard } from '../../policy/shards.js'
 import { ciOf, GitHubCommitCi } from '../../ports/ci-reading.js'
 import { REVIEW_STATUS_CONTEXT } from '../../ports/github-status.js'
-import { Meter } from '../../ports/meter.js'
+import { Meter, RateLimited, retryAfterSeconds } from '../../ports/meter.js'
 import { MAIN_BRANCH, MERGEABLE_OF_STATE, OPEN_PULLS_PAGE, requiredCheckOf, verdictOf } from '../../ports/snapshot.js'
 
 export const MERGE_METHOD = 'squash'
 export const MERGE_QUEUE = 'merge'
 export const STALE_HEAD_STATUS = 409
 export const NOT_ALLOWED_STATUS = 405
+const RATE_LIMITED_STATUS = 429
+const A_MERGE_SENT_TO_UPDATE_WAITS_MS = 5 * 60_000
 const NOT_UP_TO_DATE = /not up.to.date/i
 export const HELD_FOR_OWNER = 'held_for_owner'
 const WAIT_REASONS: ReadonlySet<MergeTechnicalReason> = new Set(['version_pr_open', 'not_mergeable', 'not_a_candidate', NEEDS_UPDATE, HELD_FOR_OWNER])
@@ -83,6 +85,10 @@ function technical(reason: MergeTechnicalReason, detail: string): Checked {
   return { kind: 'denied', denial: { kind: 'technical', reason, detail } }
 }
 
+function mergeSentToUpdateWaitsUntil(db: DatabaseSync, ts: string, pr: number): string {
+  return updateTurnHeldUntil(db, ts, pr) ?? new Date(Date.parse(ts) + A_MERGE_SENT_TO_UPDATE_WAITS_MS).toISOString()
+}
+
 function ownerMergesText(meter: Meter): string {
   const file = meter.get(`${REPO}/contents/${OWNER_MERGES}?ref=${MAIN_BRANCH}`) as { content?: string }
   if (typeof file.content !== 'string')
@@ -127,7 +133,7 @@ export class MergeExecutor {
         appendEvent(this.parts.db, expired)
       const checked = this.fresh(lease)
       if (checked.kind === 'denied')
-        return this.denied(lease, checked.denial)
+        return this.denied(lease, this.heldInsteadOfAWait(lease, checked.denial))
       const hold = checked.mergedCommit === null ? cardHoldOf(this.parts.db, lease.cardId) : null
       if (hold !== null)
         return this.denied(lease, { kind: 'technical', reason: HELD_FOR_OWNER, detail: hold })
@@ -184,6 +190,13 @@ export class MergeExecutor {
     if (denial.kind !== 'authority' || !OWNER_MERGES_RULES.has(denial.rule) || lease.pr === null)
       return
     openBusWait(this.parts.db, this.ts(), QUEUE_ACTOR, { need: 'merge', text: denial.detail, card: lease.cardId, pr: lease.pr })
+  }
+
+  private heldInsteadOfAWait(lease: Lease, denial: MergeDenial): MergeDenial {
+    if (denial.kind !== 'technical' || !WAIT_REASONS.has(denial.reason) || denial.parkedUntil !== undefined)
+      return denial
+    const hold = cardHoldOf(this.parts.db, lease.cardId)
+    return hold === null ? denial : { kind: 'technical', reason: HELD_FOR_OWNER, detail: hold }
   }
 
   private heldByAnOpenQuestion(lease: Lease): MergeDenial | null {
@@ -349,6 +362,8 @@ export class MergeExecutor {
       return this.denied(lease, { kind: 'technical', reason: NEEDS_UPDATE, refusal: REFUSED_NOT_UP_TO_DATE, detail: `GitHub answered ${response.status} to the merge of #${lease.pr}, so it is updated onto ${MAIN_BRANCH} first: ${refusedWith}` })
     if (refusedWith !== null)
       return this.denied(lease, { kind: 'technical', reason: 'github_error', detail: `GitHub answered ${response.status} to the merge of #${lease.pr}: ${refusedWith}` })
+    if (response.status === RATE_LIMITED_STATUS)
+      return this.denied(lease, { kind: 'technical', reason: 'github_error', detail: `${new RateLimited(response.status, retryAfterSeconds(response, this.parts.clock().getTime())).message} to the merge of #${lease.pr}` })
     if (response.status === STALE_HEAD_STATUS)
       return this.denied(lease, { kind: 'technical', reason: 'stale_head', detail: `GitHub answered ${response.status}: the head of #${lease.pr} is no longer ${lease.head}` })
     if (response.status !== 200 || !isFullSha(commit))
@@ -381,7 +396,7 @@ export class MergeExecutor {
     if (parked)
       return { kind: 'denied', taskKey: lease.taskKey, denial, next: failTask(this.parts.db, ts, lease, { reason, withdraw: true }, [event]) }
     if (waits) {
-      const until = reason === HELD_FOR_OWNER ? new Date(this.parts.clock().getTime() + HOLD_RECHECK_MS).toISOString() : reason === NEEDS_UPDATE ? updateTurnHeldUntil(this.parts.db, ts, lease.pr!) : null
+      const until = reason === HELD_FOR_OWNER ? new Date(this.parts.clock().getTime() + HOLD_RECHECK_MS).toISOString() : reason === NEEDS_UPDATE ? mergeSentToUpdateWaitsUntil(this.parts.db, ts, lease.pr!) : null
       if (until === null)
         releaseTask(this.parts.db, ts, lease, reason, [event])
       else
