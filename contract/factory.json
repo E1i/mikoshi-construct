@@ -1678,7 +1678,7 @@
     "owner-decisions": {
       "axis": "architecture",
       "lore": null,
-      "owner": "scripts/policy/decisions.ts",
+      "owner": "scripts/policy/decisions/",
       "ownerExists": true,
       "ownerExport": "inForceDecisions",
       "status": "proposed",
@@ -2552,20 +2552,14 @@
         "directory": false,
         "namedIn": [
           "scripts/core/bus-path.ts",
-          "scripts/nodes/close/task-close.ts",
-          "scripts/policy/decisions.ts",
-          "scripts/policy/decisions/read.ts",
-          "scripts/supervisor/run.ts",
-          "scripts/supervisor/start.ts",
-          "scripts/window/window-request-tools.ts",
+          "scripts/policy/decisions/decisions.ts",
+          "scripts/policy/decisions/index.ts",
           "src/commands/attach/index.ts",
-          "src/commands/doctor/factory.ts",
-          "src/commands/intake/admit.ts"
+          "src/commands/doctor/factory.ts"
         ],
-        "owner": "scripts/policy/decisions.ts",
+        "owner": "scripts/policy/decisions/index.ts",
         "source": "table:decisions",
         "writers": [
-          "scripts/supervisor/start.ts",
           "src/commands/attach/index.ts"
         ]
       },
@@ -3384,8 +3378,8 @@
       "scripts/nodes/update/update-done.ts": 1,
       "scripts/nodes/update/update-executor.ts": 2,
       "scripts/nodes/witness/witness-executor.ts": 3,
-      "scripts/policy/decisions-import.ts": 1,
-      "scripts/policy/decisions.ts": 16,
+      "scripts/policy/decisions/import.ts": 1,
+      "scripts/policy/decisions/index.ts": 16,
       "scripts/policy/policy.ts": 3,
       "scripts/policy/round-limit-decision.ts": 1,
       "scripts/policy/shards.ts": 3,
@@ -3468,10 +3462,6 @@
       "scripts/nodes/answer/answer-source.ts": 1,
       "scripts/nodes/close/task-close.ts": 2,
       "scripts/nodes/launch/launch-candidates.ts": 1,
-      "scripts/policy/decisions-import.ts": 1,
-      "scripts/policy/decisions/add.ts": 4,
-      "scripts/policy/decisions/decisions.ts": 7,
-      "scripts/policy/decisions/read.ts": 2,
       "scripts/supervisor/run.ts": 1,
       "scripts/supervisor/start.ts": 3,
       "scripts/window/window-request-tools.ts": 2,

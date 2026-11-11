@@ -1,4 +1,10 @@
+import path from 'node:path'
+import { DECISIONS_FILE } from '../../core/bus-path.js'
 import { pnpmCommand } from '../../core/owner-commands.js'
+
+export function decisionsFileOf(busPath: string): string {
+  return path.join(path.dirname(busPath), DECISIONS_FILE)
+}
 
 export const PREFIX = '[decisions] '
 export const WRITER_MARKER = 'decisions:add'

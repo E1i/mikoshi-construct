@@ -1,4 +1,4 @@
-import type { OwnerDecision } from '../../policy/decisions.js'
+import type { OwnerDecision } from '../../policy/decisions/index.js'
 import type { RequestTools } from '../../window/window-requests.js'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'

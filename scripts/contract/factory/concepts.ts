@@ -273,7 +273,7 @@ export const CONCEPTS: readonly Concept[] = [
   {
     id: 'owner-decisions',
     title: 'the owner decisions, read from the markdown file or the bus table',
-    owner: 'scripts/policy/decisions.ts',
+    owner: 'scripts/policy/decisions/',
     ownerExists: true,
     ownerExport: 'inForceDecisions',
     axis: 'architecture',

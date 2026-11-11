@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { answerDecisionOfKey, busCardDecisions, CARD_DECISIONS_HEADING, cardDecisionBlock, cardDecisionTurnQuery, continuesTheCard, decisionOfKey, decisionSegment, oneContinuationPerCard, withCardDecisions } from '../../core/card-decisions.js'
 import { openBus } from '../../core/db.js'
 import { reduce } from '../../core/reducer.js'
-import { recordDecision } from '../../policy/decisions.js'
+import { recordDecision } from '../../policy/decisions/index.js'
 import { cardDecisionLines } from '../../policy/shards.js'
 
 const NOW = new Date('2026-11-08T10:00:00Z')

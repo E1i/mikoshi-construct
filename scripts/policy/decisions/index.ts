@@ -1,18 +1,17 @@
 import type { DatabaseSync } from 'node:sqlite'
-import type { Reading } from '../core/bus-readings.js'
-import type { EventPayload } from '../core/events.js'
-import type { Fold, StoredEvent } from '../core/stored.js'
-import type { DecisionRow } from './decisions/decisions.js'
-import { DECISIONS, readCurrent } from '../core/bus-readings.js'
-import { cardReleased, CLOSED_CARD, DROPPED_CARD, MERGED_CARD, STOPPED_CARD } from '../core/card-automaton.js'
-import { appendEvent, DECISION_ARCHIVED, DECISION_IN_FORCE, OPEN_WAIT } from '../core/db.js'
-import { CARD_STOPPED, DECISION_EXPIRED, DECISION_RECORDED, DECISIONS_IMPORTED, DECISIONS_PROJECTED, QUESTION_OWNER } from '../core/events.js'
-import { OWNER } from '../core/inbox.js'
-import { NETWATCH } from '../core/observations.js'
-import { payloadOf, reject, Rejection, STORED_COLUMNS } from '../core/stored.js'
-import { termOf } from './decisions/decisions.js'
-
-export const OWNER_DECISIONS_FILE = 'owner-decisions.md'
+import type { Reading } from '../../core/bus-readings.js'
+import type { EventPayload } from '../../core/events.js'
+import type { Fold, StoredEvent } from '../../core/stored.js'
+import type { DecisionRow } from './decisions.js'
+import { DECISIONS_FILE } from '../../core/bus-path.js'
+import { DECISIONS, readCurrent } from '../../core/bus-readings.js'
+import { cardReleased, CLOSED_CARD, DROPPED_CARD, MERGED_CARD, STOPPED_CARD } from '../../core/card-automaton.js'
+import { appendEvent, DECISION_ARCHIVED, DECISION_IN_FORCE, OPEN_WAIT } from '../../core/db.js'
+import { CARD_STOPPED, DECISION_EXPIRED, DECISION_RECORDED, DECISIONS_IMPORTED, DECISIONS_PROJECTED, QUESTION_OWNER } from '../../core/events.js'
+import { OWNER } from '../../core/inbox.js'
+import { NETWATCH } from '../../core/observations.js'
+import { payloadOf, reject, Rejection, STORED_COLUMNS } from '../../core/stored.js'
+import { termOf } from './decisions.js'
 
 export interface InForceDecision {
   decisionId: number
@@ -211,7 +210,7 @@ function foldDecisionsImported(db: DatabaseSync, event: StoredEvent): void {
     db.prepare(`
       INSERT INTO decisions (decision_id, text, scope, source, event_id, until, state) VALUES (?, ?, ?, ?, ?, ?, '${DECISION_IN_FORCE}')
       ON CONFLICT (decision_id) DO UPDATE SET text = excluded.text, scope = excluded.scope, source = excluded.source, event_id = excluded.event_id, until = excluded.until, state = excluded.state
-    `).run(decision.decisionId, decision.text, JSON.stringify(decision.cards), OWNER_DECISIONS_FILE, event.id, termOf(decision.text).until)
+    `).run(decision.decisionId, decision.text, JSON.stringify(decision.cards), DECISIONS_FILE, event.id, termOf(decision.text).until)
     answerQuestions(db, decision.cards, decision.text, event.id)
   }
   archiveSpentDecisions(db)

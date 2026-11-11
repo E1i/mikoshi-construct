@@ -172,10 +172,6 @@ export function snapshotPathOf(busPath: string): string {
   return path.join(path.dirname(busPath), SNAPSHOT_FILE)
 }
 
-export function decisionsFileOf(busPath: string): string {
-  return path.join(path.dirname(busPath), DECISIONS_FILE)
-}
-
 export function isMachineBus(home: string, busPath: string): boolean {
   return path.resolve(busPath) === machineBusPath(home)
 }

@@ -15,7 +15,7 @@ import { closeWaitsOfEndedCards, DIRTY_ROWS, projectionDump, reduce, REDUCE_BATC
 import { WATERMARKS } from '../../core/watermark.js'
 import { recordFall } from '../../ladder/supervise.js'
 import { sayToOwnerChannel } from '../../owner/channel.js'
-import { recordDecision } from '../../policy/decisions.js'
+import { recordDecision } from '../../policy/decisions/index.js'
 import { allowLiveCommand } from '../../policy/live-decision.js'
 import { requestFromWindow, WindowRequests } from '../../window/window-requests.js'
 

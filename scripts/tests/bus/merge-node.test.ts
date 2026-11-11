@@ -15,7 +15,7 @@ import { deriveQueues, keyOf, MERGE_CANDIDATES, mergeCandidates, NEEDS_UPDATE, q
 import { HELD_FOR_OWNER, MERGE_QUEUE, MergeExecutor } from '../../nodes/merge/merge-executor.js'
 import { MergeNode } from '../../nodes/merge/merge-worker.js'
 import { UpdateNode } from '../../nodes/update/update-worker.js'
-import { recordDecision } from '../../policy/decisions.js'
+import { recordDecision } from '../../policy/decisions/index.js'
 import { allowLiveCommand } from '../../policy/live-decision.js'
 import { SECRET_SCAN_CHECK } from '../../ports/gh.js'
 import { cardBody, MAIN_1, MAIN_2, REPO, sha } from './github-fake.js'

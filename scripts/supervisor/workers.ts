@@ -1,4 +1,4 @@
-import type { InForceDecision } from '../policy/decisions.js'
+import type { InForceDecision } from '../policy/decisions/index.js'
 import type { DetachedLaunch } from './bg.js'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'

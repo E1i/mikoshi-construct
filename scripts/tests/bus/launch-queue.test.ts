@@ -36,7 +36,7 @@ import { withdrawLegacyLaunchTasks } from '../../nodes/launch/launch-withdraw.js
 import { LAUNCH_LIMIT_MINUTES, LaunchNode } from '../../nodes/launch/launch-worker.js'
 import { taskConflicts } from '../../nodes/launch/overlap.js'
 import { renderPrompt } from '../../nodes/launch/prompt.js'
-import { recordDecision } from '../../policy/decisions.js'
+import { recordDecision } from '../../policy/decisions/index.js'
 import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
 import { sessionEnv } from '../../ports/session.js'
 import { TSX_PIPE_DIRECTORY } from '../../ports/shift-settings.js'

@@ -33,7 +33,7 @@ nodes:
     boundary: observe
   - id: decisions
     label: decisionsIntake · the owner decisions import
-    path: scripts/policy/decisions-import.ts
+    path: scripts/policy/decisions/import.ts
     boundary: fold
   - id: requests
     label: WindowRequests.run · the window requests
