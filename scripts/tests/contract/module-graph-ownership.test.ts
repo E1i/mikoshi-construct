@@ -71,6 +71,15 @@ describe('module graph ownership (law 2)', () => {
     ])
   })
 
+  it('a contract glob that matches no file is a fault', () => {
+    const vanished: ModuleGraphSpec = {
+      ...SMALL,
+      modules: { ...SMALL.modules, alpha: { ...SMALL.modules.alpha!, contract: ['scripts/alpha/gone.ts'] } },
+    }
+
+    expect(linesOf(vanished, SMALL_TREE)).toEqual(['alpha: contract scripts/alpha/gone.ts is not inside its owns'])
+  })
+
   it('an undecided module carries no contract and no may_use', () => {
     const undecided = Object.entries(MODULE_GRAPH.modules).filter(([, spec]) => spec.status === 'undecided' && (spec.contract.length > 0 || spec.may_use.length > 0))
 
