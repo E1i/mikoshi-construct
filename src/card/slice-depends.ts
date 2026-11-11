@@ -1,6 +1,6 @@
 import path from 'node:path'
+import { PREFIX_SUFFIX } from '../../scripts/policy/touch-scope.js'
 import { covers } from './risk.js'
-import { PREFIX_SUFFIX } from './task-file.js'
 
 export interface SliceSources {
   read: (relative: string) => string | null

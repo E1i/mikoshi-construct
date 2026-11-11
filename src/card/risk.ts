@@ -1,12 +1,11 @@
-import { FACTORY_FOLDERS, FACTORY_FORMER_FOLDERS, FACTORY_NAMED, FACTORY_ROOT, SEAM_SOURCES } from '../../scripts/core/factory-paths.js'
-import { PREFIX_SUFFIX } from './task-file.js'
+import { FACTORY_FOLDERS, FACTORY_FORMER_FOLDERS, FACTORY_ROOT, SEAM_SOURCES } from '../../scripts/core/factory-paths.js'
+import { coreReasonOf, entryScope, FACTORY_REASON, PREFIX_SUFFIX, reaches, SECURITY_REASON, under } from '../../scripts/policy/touch-scope.js'
 
 export const RISK_LEVELS = ['R1', 'R2', 'R3', 'R4'] as const
 export const RISK_PREFIX = 'risk: '
 export const SEAM_PREFIX = 'seam: '
 export const SLICE_PREFIX = 'slice: '
 export const SLICE_DEPENDS = '· depends '
-export const CHANGESET_COMPANION = `.changeset${PREFIX_SUFFIX}`
 
 export type RiskLevel = typeof RISK_LEVELS[number]
 
@@ -17,59 +16,15 @@ export const RISK_MEANING: Record<RiskLevel, string> = {
   R4: 'low: tests close it',
 }
 
-const LADDER = 'the ladder mechanism a task runs on'
-const APPROVAL_RULES = 'the rules by which a brief is approved'
-const FOREIGN_WRITE = 'what attach, sync or detach write into another repository'
-const CARRIERS = 'the registration of the carriers attach delivers'
-const SECURITY = 'a security invariant'
 const CONTRACT = 'a contract or a recorded shape that others read'
-const FACTORY = 'the factory mechanism that decides on closing, merging and admitting a task'
-const PUBLISH = 'a publish, which cannot be unpublished'
-const ALWAYS_HIGH = 'always high: the composition models, the lint policy and who merges'
 const LOW = 'documentation, a log, a test or a script outside the gate'
 const ELSEWHERE = 'no path of the core, of a contract, or of the low list'
 
-const CORE: readonly (readonly [string, string])[] = [
-  ['.claude/skills/implement', LADDER],
-  ['.claude/agents', LADDER],
-  ['scripts/construct', LADDER],
-  [FACTORY_NAMED.ghostsApproval, LADDER],
-  [FACTORY_NAMED.ghostsHashing, LADDER],
-  [FACTORY_NAMED.ghostsLaunch, LADDER],
-  [FACTORY_NAMED.ghostsApprove, APPROVAL_RULES],
-  ['architecture/decisions/0053-morse-approves-a-brief-the-risk-matrix-does-not-reserve-for-the-owner.md', APPROVAL_RULES],
-  ['architecture/decisions/0058-morse-approves-a-brief-of-every-risk.md', APPROVAL_RULES],
-  ['templates/ai/claude/_claude/skills/implement', LADDER],
-  ['templates/ai/claude/_claude/agents', LADDER],
-  ['templates/ai/claude/scripts/construct', LADDER],
-  ['templates', FOREIGN_WRITE],
-  ['src/materialize', FOREIGN_WRITE],
-  ['src/sync', FOREIGN_WRITE],
-  ['src/manifest.ts', FOREIGN_WRITE],
-  ['src/presets', CARRIERS],
-  ['src/commands/attach', FOREIGN_WRITE],
-  ['src/commands/sync', FOREIGN_WRITE],
-  ['src/commands/detach', FOREIGN_WRITE],
-  ['scripts/attach', CARRIERS],
-  ['architecture/security-invariants.md', SECURITY],
-  ['.changeset/config.json', PUBLISH],
-  ['scripts/release', PUBLISH],
-  ['.github/workflows', PUBLISH],
-  ['architecture/composition', ALWAYS_HIGH],
-  ['eslint.config.mjs', ALWAYS_HIGH],
-  ['architecture/owner-merges.md', ALWAYS_HIGH],
-  [FACTORY_NAMED.busQueue, FACTORY],
-  [FACTORY_NAMED.busAdmissions, FACTORY],
-  [FACTORY_NAMED.busCloseExecutor, FACTORY],
-  [FACTORY_NAMED.busMergeExecutor, FACTORY],
-  [FACTORY_NAMED.busRoundLimitDecision, FACTORY],
-  [FACTORY_NAMED.busUpdateDone, FACTORY],
-]
 const HIGH: readonly (readonly [string, string])[] = [
   ['contract', CONTRACT],
   ['src/detect', CONTRACT],
   ['src/model/schema.ts', CONTRACT],
-  ...[...FACTORY_FORMER_FOLDERS.ghosts, ...FACTORY_FORMER_FOLDERS.shift].map(root => [root, FACTORY] as const),
+  ...[...FACTORY_FORMER_FOLDERS.ghosts, ...FACTORY_FORMER_FOLDERS.shift].map(root => [root, FACTORY_REASON] as const),
 ]
 const LOW_ROOTS = ['docs', 'architecture', 'tests', '.changeset', '.construct', 'scripts']
 const GATE_SCRIPTS = ['scripts/composition', 'scripts/model', 'scripts/privacy', 'scripts/docs']
@@ -113,36 +68,23 @@ export interface RiskReading {
   capabilityDelivery: boolean
 }
 
-function scopeOf(entry: string): { path: string, prefix: boolean } {
-  return entry.endsWith(PREFIX_SUFFIX) ? { path: entry.slice(0, -PREFIX_SUFFIX.length), prefix: true } : { path: entry, prefix: false }
-}
-
-function under(path: string, root: string): boolean {
-  return path === root || path.startsWith(`${root}/`)
-}
-
-function reaches(entry: string, root: string): boolean {
-  const scope = scopeOf(entry)
-  return under(scope.path, root) || (scope.prefix && under(root, scope.path))
-}
-
 export function covers(entry: string, file: string): boolean {
-  return under(file, scopeOf(entry).path)
+  return under(file, entryScope(entry).path)
 }
 
 function overlaps(a: string, b: string): boolean {
-  return reaches(a, scopeOf(b).path) || reaches(b, scopeOf(a).path)
+  return reaches(a, entryScope(b).path) || reaches(b, entryScope(a).path)
 }
 
 function relativeTo(entry: string, root: string): string | null {
-  const scope = scopeOf(entry)
+  const scope = entryScope(entry)
   if (under(scope.path, root))
     return `.${entry.slice(root.length)}`
   return scope.prefix && under(root, scope.path) ? `.${PREFIX_SUFFIX}` : null
 }
 
 function isLow(entry: string): boolean {
-  const scope = scopeOf(entry).path
+  const scope = entryScope(entry).path
   if (GATE_SCRIPTS.some(root => reaches(entry, root)))
     return false
   return LOW_ROOTS.some(root => under(scope, root)) || (!scope.includes('/') && scope.endsWith('.md'))
@@ -153,9 +95,9 @@ export function touchedOrCreated(touches: readonly string[], created: readonly s
 }
 
 export function riskOf(touch: string): RiskOfTouch {
-  const core = touch === CHANGESET_COMPANION ? undefined : CORE.find(([root]) => reaches(touch, root))
+  const core = coreReasonOf(touch)
   if (core !== undefined)
-    return { touch, level: 'R1', why: core[1] }
+    return { touch, level: 'R1', why: core }
   const high = HIGH.find(([root]) => reaches(touch, root))
   if (high !== undefined)
     return { touch, level: 'R2', why: high[1] }
@@ -186,15 +128,15 @@ function splitPath(path: string): { directory: string, name: string } {
 }
 
 function isLockFile(entry: string): boolean {
-  const scope = scopeOf(entry)
+  const scope = entryScope(entry)
   return !scope.prefix && LOCK_FILES.includes(splitPath(scope.path).name)
 }
 
 function lockedWith(lock: string, manifest: string): boolean {
-  const scope = scopeOf(manifest)
+  const scope = entryScope(manifest)
   if (!isLockFile(lock) || scope.prefix || !LOCK_SOURCES.includes(splitPath(scope.path).name))
     return false
-  const { directory } = splitPath(scopeOf(lock).path)
+  const { directory } = splitPath(entryScope(lock).path)
   return directory === '' || under(scope.path, directory)
 }
 
@@ -226,24 +168,24 @@ function criticalSide(touches: readonly RiskOfTouch[]): boolean[] {
 
 function isCapabilityDelivery(critical: readonly RiskOfTouch[], rest: readonly RiskOfTouch[]): boolean {
   return critical.filter(entry => !accompanies(entry.touch)).every(entry => DELIVERY.some(root => reaches(entry.touch, root)) || critical.some(other => twins(entry.touch, other.touch)))
-    && rest.some(entry => CAPABILITY.some(root => under(scopeOf(entry.touch).path, root)))
+    && rest.some(entry => CAPABILITY.some(root => under(entryScope(entry.touch).path, root)))
 }
 
 function accompanies(touch: string): boolean {
-  return ACCOMPANYING.some(root => under(scopeOf(touch).path, root))
+  return ACCOMPANYING.some(root => under(entryScope(touch).path, root))
 }
 
 function witnessRootOf(touch: string): readonly [string, string | null] | undefined {
-  const scope = scopeOf(touch).path
+  const scope = entryScope(touch).path
   return WITNESS_ROOTS.find(([root]) => under(scope, root) && scope !== root)
 }
 
 function witnessedNames(test: string, root: string): string[] {
-  return scopeOf(test).path.slice(root.length + 1).split('/').map(segment => segment.replace(TEST_SUFFIX, ''))
+  return entryScope(test).path.slice(root.length + 1).split('/').map(segment => segment.replace(TEST_SUFFIX, ''))
 }
 
 function codeName(code: string): string | undefined {
-  const names = scopeOf(code).path.split('/').slice(1).map(segment => segment.replace(EXTENSION, ''))
+  const names = entryScope(code).path.split('/').slice(1).map(segment => segment.replace(EXTENSION, ''))
   return names.at(-1) === MODULE_INDEX ? names.at(-2) : names.at(-1)
 }
 
@@ -252,7 +194,7 @@ function witnesses(test: string, code: string): boolean {
   if (witnessRoot === undefined || witnessRootOf(code) !== undefined)
     return false
   const [root, codeRoot] = witnessRoot
-  if (codeRoot !== null && !under(scopeOf(code).path, codeRoot))
+  if (codeRoot !== null && !under(entryScope(code).path, codeRoot))
     return false
   const own = codeName(code)
   return own !== undefined && witnessedNames(test, root).some(name => name === own || name.startsWith(`${own}-`))
@@ -288,7 +230,7 @@ export function riskWholeReason(reading: RiskReading, size: string): string | nu
   if (size === UNSLICED_SIZE)
     return WHOLE_XS
   const core = critical.touches.map(riskOf).filter(entry => entry.level === 'R1')
-  return core.length > 0 && core.every(entry => entry.why === SECURITY) ? WHOLE_SECURITY : null
+  return core.length > 0 && core.every(entry => entry.why === SECURITY_REASON) ? WHOLE_SECURITY : null
 }
 
 export function sliceLine(index: number, label: string, touches: readonly string[], depends: readonly number[] = []): string {

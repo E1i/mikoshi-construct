@@ -1428,7 +1428,7 @@
     "versionRecord": "PRAGMA application_id"
   },
   "card": {
-    "cardVersion": 1,
+    "cardVersion": 2,
     "contracts": {
       "board": [
         "id",
@@ -1557,7 +1557,7 @@
       "ladder:": "body line read by src/commands/intake/check.ts",
       "lane": "string | null",
       "lastHeartbeat": "LastHeartbeat | null",
-      "layer:": "body line read by src/card/witness-fields.ts",
+      "layer:": "body line read by scripts/policy/touch-scope.ts",
       "masks": "string[]",
       "milestone": "string",
       "name": "string",
@@ -3163,7 +3163,8 @@
             3
           ],
           "card": [
-            1
+            1,
+            2
           ]
         }
       },
@@ -3182,7 +3183,8 @@
             3
           ],
           "card": [
-            1
+            1,
+            2
           ]
         }
       },
@@ -3215,7 +3217,8 @@
             3
           ],
           "card": [
-            1
+            1,
+            2
           ]
         }
       },
@@ -3238,7 +3241,8 @@
             3
           ],
           "card": [
-            1
+            1,
+            2
           ]
         }
       },
@@ -3265,7 +3269,8 @@
             3
           ],
           "card": [
-            1
+            1,
+            2
           ]
         }
       },
@@ -3285,7 +3290,8 @@
             3
           ],
           "card": [
-            1
+            1,
+            2
           ]
         }
       },
@@ -3303,7 +3309,8 @@
             3
           ],
           "card": [
-            1
+            1,
+            2
           ]
         }
       }
@@ -3527,19 +3534,13 @@
           "PACKAGE_MANIFEST",
           "PACKAGE_SCRIPT_READERS",
           "RUNS_PREFIX",
-          "SCANNED_TREES: Readonly<Record<string, readonly string[]>>",
-          "TEST_ROOTS"
+          "SCANNED_TREES: Readonly<Record<string, readonly string[]>>"
         ],
         "functions": {
           "importersOf": "(files: readonly string[], read: (file: string) => string | null): Map<string, string[]>",
-          "isTest": "(file: string): boolean",
           "layerMasksOf": "(body: string): string[]",
-          "pathsIn": "(text: string): string[]",
-          "pathsOutside": "(touches: readonly string[], creates: readonly string[], paths: readonly string[]): string[]",
-          "runsCover": "(file: string, runs: readonly string[]): boolean",
           "runsOf": "(body: string): string[]",
-          "touchesWithoutRuns": "(touches: readonly string[], body: string): string[]",
-          "withinTouches": "(file: string, touches: readonly string[]): boolean"
+          "touchesWithoutRuns": "(touches: readonly string[], body: string): string[]"
         },
         "reexports": [],
         "types": {
@@ -3564,16 +3565,13 @@
       },
       "src/card/parking.ts": {
         "constants": [
-          "CREATES_KINDS",
           "PRIORITIES",
           "SHIFT_WHO",
           "WINDOW_WHO"
         ],
         "functions": {
           "cardToolsOf": "(file: string, text: string | null): CardTool[]",
-          "createdPaths": "(entries: readonly string[]): string[]",
           "parkingFileText": "(fields: ParkingFileFields): string",
-          "parseCreatesEntry": "(entry: string): ParsedCreatesEntry",
           "parseParkingFile": "(file: string, text: string): ParsedParkingFile"
         },
         "reexports": [],
@@ -3600,9 +3598,7 @@
         }
       },
       "src/card/task-file.ts": {
-        "constants": [
-          "PREFIX_SUFFIX"
-        ],
+        "constants": [],
         "functions": {},
         "reexports": [],
         "types": {
@@ -3956,9 +3952,7 @@
       "src/commands/intake/check.ts": {
         "constants": [
           "COMPANION_TABLE: readonly (CompanionRow | FollowingRow)[]",
-          "COMPOSITION_ROOT",
           "FOLLOWING_REASON",
-          "OWNER_MERGES",
           "PACKAGE_MANIFEST",
           "PLAN_FIELD"
         ],
@@ -3966,11 +3960,8 @@
           "admittedReachOf": "(cardId: number, cardBody: string | null): AdmittedReach",
           "cardRiskOf": "(cardId: number, card: string | null): RiskLevel | null",
           "correctionText": "(correction: Correction): string",
-          "followsTouches": "(file: string, reach: FollowingReach): boolean",
           "isChangeWitness": "(witness: string): boolean",
-          "isTestOrGenerated": "(file: string): boolean",
           "movingRefRefusal": "(witnesses: readonly NamedCommand[]): string | null",
-          "neverFollows": "(file: string, reach: FollowingReach): boolean",
           "ownerPathsOf": "(ownerMergesText: string): OwnerPaths",
           "publishedRootsOf": "(packageManifestText: string): string[] | undefined",
           "unjudgedCommand": "(command: string): string"
@@ -3978,9 +3969,7 @@
         "reexports": [],
         "types": {
           "AdmittedReach": "interface AdmittedReach { touches: string[]; runs: string[]; }",
-          "CompanionRow": "interface CompanionRow { kind: string; keptBy: string; touched: (entry: string, published: readonly string[]) => boolean; companions: (entry: string, touches: readonly string[], repository: RepositoryFacts) => string[]; }",
-          "CompositionRecord": "interface CompositionRecord { id: string; doc: string; nodes: readonly { path?: string; }[]; }",
-          "FollowingReach": "interface FollowingReach { touches: readonly string[]; added: ReadonlySet<string>; compositionRecords: readonly CompositionRecord[]; }"
+          "CompanionRow": "interface CompanionRow { kind: string; keptBy: string; touched: (entry: string, published: readonly string[]) => boolean; companions: (entry: string, touches: readonly string[], repository: RepositoryFacts) => string[]; }"
         }
       },
       "src/commands/intake/command-word.ts": {

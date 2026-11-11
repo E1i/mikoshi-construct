@@ -1,7 +1,7 @@
 import type { DraftCard } from '../src/commands/intake/draft.js'
 import type { SlicedCard } from '../src/commands/intake/slice.js'
 import { describe, expect, it } from 'vitest'
-import { pathsOutside } from '../src/card/covering-tests.js'
+import { pathsOutside } from '../scripts/policy/touch-scope.js'
 import { checkDraft, nonPathTouchRefusals } from '../src/commands/intake/check.js'
 import { cutSlices } from '../src/commands/intake/slice.js'
 

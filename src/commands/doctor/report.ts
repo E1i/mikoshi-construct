@@ -7,8 +7,8 @@ import type { ClaimPlacement, HypothesisReading } from './projection.js'
 import type { MarkerAuthorship, MarkerReading } from './provenance.js'
 import type { CheckVerdict } from './verdict.js'
 import type { VersionGap } from './version-gap.js'
+import { FACTORY_MANIFEST } from '../../../scripts/policy/touch-scope.js'
 import { CLIENT_IDS } from '../../manifest.js'
-import { FACTORY_MANIFEST } from '../../materialize/factory-manifest.js'
 import { MARKER_AUTHORSHIP, readingsBy } from './provenance.js'
 
 const FACTORY_TARGETS = new Set(FACTORY_MANIFEST)

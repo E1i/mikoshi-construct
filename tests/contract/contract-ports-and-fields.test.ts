@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import ts from 'typescript'
 import { describe, expect, it } from 'vitest'
+import { cardGrammarFiles } from '../../scripts/contract/factory/card.js'
 import { boundarySection, namesImportedAcross } from '../../scripts/contract/factory/ports.js'
 import { parsedFiles } from '../../scripts/contract/factory/walk.js'
 import { EVENT_PAYLOADS, RESTART_MISSED } from '../../scripts/core/events.js'
@@ -16,7 +17,6 @@ const LABELLED_LINE = /^(?:export )?const [A-Z_]+ = \/\^\(?([a-z|]+)\)?:/gm
 const VERDICT_NOT_FIELD = 'exit:'
 const OWNER_NAMED_FIELDS = ['tools:', 'corrected:', 'whole:', 'import:', 'ladder:', 'layer:', 'Owner, verbatim:']
 const DRAFT_FIELDS = ['draft.whole', 'draft.item', 'draft.number', 'draft.task', 'draft.plan.id', 'draft.plan.title', 'draft.plan.goal', 'draft.plan.file']
-const CARD_GRAMMAR_TREES = ['src/card', 'src/commands/intake']
 
 interface PortModule {
   functions: Record<string, string>
@@ -74,7 +74,7 @@ function describedNames(module: PortModule): string[] {
 
 function grammarLabels(): Map<string, string> {
   const labels = new Map<string, string>()
-  for (const { file, source } of parsedFiles(REPO_ROOT, CARD_GRAMMAR_TREES)) {
+  for (const { file, source } of cardGrammarFiles(REPO_ROOT)) {
     const text = source.getFullText()
     for (const [, label] of text.matchAll(LABEL_CONSTANT))
       labels.set(`${label}:`, file)

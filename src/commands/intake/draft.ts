@@ -1,6 +1,7 @@
 import type { Priority } from '../../card/parking.js'
 import type { WitnessField, WitnessKind } from '../../card/witness-fields.js'
-import { parseCreatesEntry, PRIORITIES } from '../../card/parking.js'
+import { parseCreatesEntry } from '../../../scripts/policy/touch-scope.js'
+import { PRIORITIES } from '../../card/parking.js'
 import { parseWitnessList, withWitnessKind, WITNESS_KINDS, witnessText } from '../../card/witness-fields.js'
 
 export interface UnclearField {

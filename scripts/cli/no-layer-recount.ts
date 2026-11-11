@@ -1,9 +1,9 @@
 import type { LayerMap } from '../core/layer-map.js'
 import process from 'node:process'
-import { isTest } from '../../src/card/covering-tests.js'
 import { BUSY_TIMEOUT_MS, defaultBusPath } from '../core/db.js'
 import { isDocument, layersInOf, readLayerMap } from '../core/layer-map.js'
 import { openDatabase } from '../core/sqlite.js'
+import { isTest } from '../policy/touch-scope.js'
 
 export const NO_LAYER_SINCE = '2026-11-03'
 

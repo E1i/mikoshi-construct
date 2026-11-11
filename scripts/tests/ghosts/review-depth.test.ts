@@ -7,11 +7,11 @@ import process from 'node:process'
 import { describe, expect, it, vi } from 'vitest'
 import { parseCard } from '../../../src/card/grammar.js'
 import { RISK_LEVELS } from '../../../src/card/risk.js'
-import { COMPOSITION_ROOT } from '../../../src/commands/intake/check.js'
 import { isLadder, reviewBody } from '../../ladder/ladder.js'
 import { REVIEW_DEPTHS, reviewDepth, reviewOf } from '../../ladder/verdict.js'
 import { REVIEW_DEPTHS as BUS_REVIEW_DEPTHS, FULL_DEPTH_RULE, planReview } from '../../nodes/review/review-depth.js'
 import { classify } from '../../policy/morse/rules.js'
+import { COMPOSITION_ROOT } from '../../policy/touch-scope.js'
 
 function cardOf(line: string): Card {
   const parsed = parseCard(line)

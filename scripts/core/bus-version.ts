@@ -2,7 +2,8 @@ import type { DatabaseSync } from 'node:sqlite'
 
 export const BUS_VERSION = 3
 export const BUS_VERSION_BEFORE_LADDER_RUN = 2
-export const CARD_VERSION = 1
+export const CARD_VERSION_BEFORE_TOUCH_SCOPE = 1
+export const CARD_VERSION = 2
 export const UNRECORDED_VERSION = 1
 export const CARD_VERSION_KEY = 'cardVersion'
 export const BUS_VERSION_RECORD = 'PRAGMA application_id'
