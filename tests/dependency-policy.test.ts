@@ -107,6 +107,21 @@ describe('dependency policy in eslint.config.mjs', () => {
     expect(await violations('src/model/probe.ts', 'import { defaultBusPath } from \'../../scripts/core/bus-path.js\'\n\nexport const probe = defaultBusPath\n')).toEqual(['no-restricted-imports'])
   })
 
+  it('src modules may import core/owner-commands as dependency-cruiser allows', async () => {
+    const ownerCommands = (base: string) => `import { constructCommand } from '${base}/scripts/core/owner-commands.js'\n\nexport const probe = constructCommand\n`
+    expect(await violations('src/atlas/probe.ts', ownerCommands('../..'))).toEqual([])
+    expect(await violations('src/ui/probe.ts', ownerCommands('../..'))).toEqual([])
+    expect(await violations('src/program.ts', ownerCommands('..'))).toEqual([])
+    expect(await violations('src/commands/probe.ts', ownerCommands('../..'))).toEqual([])
+    expect(await violations('src/commands/board/probe.ts', ownerCommands('../../..'))).toEqual([])
+    expect(await violations('src/commands/doctor/probe.ts', ownerCommands('../../..'))).toEqual([])
+    expect(await violations('src/commands/intake/probe.ts', ownerCommands('../../..'))).toEqual([])
+    expect(await violations('src/commands/attach/probe.ts', ownerCommands('../../..'))).toEqual([])
+    expect(await violations('src/atlas/probe.ts', 'import { defaultBusPath } from \'../../scripts/core/bus-path.js\'\n\nexport const probe = defaultBusPath\n')).toEqual(['no-restricted-imports'])
+    expect(await violations('src/ui/probe.ts', 'import { openBus } from \'../../scripts/core/db.js\'\n\nexport const probe = openBus\n')).toEqual(['no-restricted-imports'])
+    expect(await violations('src/model/probe.ts', ownerCommands('../..'))).toEqual(['no-restricted-imports'])
+  })
+
   it('lets the card module read the factory path registry and nothing else under scripts', async () => {
     expect(await violations('src/card/probe.ts', 'import { FACTORY_ROOT } from \'../../scripts/core/factory-paths.js\'\n\nexport const probe = FACTORY_ROOT\n')).toEqual([])
     expect(await violations('src/card/probe.ts', 'import { defaultBusPath } from \'../../scripts/core/bus-path.js\'\n\nexport const probe = defaultBusPath\n')).toEqual(['no-restricted-imports'])
