@@ -1,3 +1,4 @@
+import type { DecisionsPort, OwnerWords } from '../../../scripts/policy/decisions/decisions.js'
 import type { BusCardStates } from '../../card/closed.js'
 import type { Card, Decision } from '../../card/grammar.js'
 import type { ParkedTask } from '../../card/parking.js'
@@ -13,9 +14,8 @@ import type { SlicedCard } from './slice.js'
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
-import { defaultBusPath } from '../../../scripts/core/bus-path.js'
 import { CARD_ADMITTED, CARD_WAITING, WITNESS_DOWNGRADE } from '../../../scripts/core/events.js'
-import { decisionCommand, decisionsFileOf, inForce, OWNER_SOURCE, parseDecisions } from '../../../scripts/policy/decisions/decisions.js'
+import { decisionCommand, InMemoryDecisions } from '../../../scripts/policy/decisions/decisions.js'
 import { createdPaths, OWNER_MERGES, pathsIn, pathsOutside, PREFIX_SUFFIX } from '../../../scripts/policy/touch-scope.js'
 import { endedCards } from '../../card/closed.js'
 import { cardLine, parseCard } from '../../card/grammar.js'
@@ -153,7 +153,7 @@ export interface AdmitOptions {
   events?: CardEventPort
   cardStates?: CardStatesPort
   admissions?: CardAdmissionsPort
-  decisions?: string
+  decisions?: DecisionsPort
   writeRuns?: boolean
   priorityEdited?: boolean
 }
@@ -182,16 +182,9 @@ const DOWNGRADE_WORD = 'понижение'
 export const EQUIVALENT_REPLACEMENT_ALLOWANCE = 'разрешить равноценную замену свидетеля:'
 const CARD_SEPARATOR = /,\s*|\s+и\s+/
 const ALLOWED_CARDS = new RegExp(`^#[1-9]\\d*(?:(?:${CARD_SEPARATOR.source})#[1-9]\\d*)*`)
-const DECISION_LINE = /^- D-[1-9]\d* · /
-const DECISION_HEAD = /^- D-[1-9]\d* · [^—]*— /
-const DECISION_CARDS = / · card (#[1-9]\d*(?: #[1-9]\d*)*)/
-const SUPERSEDED_BY = ' · superseded-by D-'
 const DROPPED_CARD = 'dropped'
 const REGEX_SPECIAL = /[.*+?^${}()|[\]\\]/g
-
-export function defaultDecisions(): string {
-  return decisionsFileOf(defaultBusPath())
-}
+const NO_DECISIONS = new InMemoryDecisions([])
 
 function allowanceById(cardId: number, witnessId: string): string {
   return `${DOWNGRADE_ALLOWANCE} #${cardId} ${witnessId}`
@@ -422,11 +415,13 @@ function downgradeEvent(cardId: number, downgrades: readonly string[], actions: 
   return { type: CARD_WAITING, cardId, ts: at.toISOString(), dedupeKey: `${CARD_WAITING}:${WITNESS_DOWNGRADE}:${cardId}:${sha}`, payload: { reason: WITNESS_DOWNGRADE, witnesses: downgrades, actions, bodySha: sha } }
 }
 
-function ownerAllowed(decisionsFile: string, cardId: number, downgrades: readonly string[], admitted: readonly string[]): boolean {
-  if (!existsSync(decisionsFile))
-    return false
-  const allowing = readFileSync(decisionsFile, 'utf8').split('\n').filter(line => DECISION_LINE.test(line) && !line.includes(SUPERSEDED_BY) && (DECISION_CARDS.exec(line)?.[1]?.split(' ').includes(`#${cardId}`) ?? false))
-  return downgrades.every(witness => allowing.some(line => namesTheWitness(line, witness, cardId, admitted) || phraseNamesCard(line, GENERAL_DOWNGRADE_ALLOWANCE, cardId)))
+function writtenByTheOwner(decisions: DecisionsPort): OwnerWords[] {
+  return decisions.inForce().filter(decision => decision.written)
+}
+
+export function ownerAllowed(decisions: DecisionsPort, cardId: number, downgrades: readonly string[], admitted: readonly string[]): boolean {
+  const allowing = writtenByTheOwner(decisions).filter(decision => decision.cards.includes(cardId)).map(decision => decision.words)
+  return downgrades.every(witness => allowing.some(words => namesTheWitness(words, witness, cardId, admitted) || phraseNamesCard(words, GENERAL_DOWNGRADE_ALLOWANCE, cardId)))
 }
 
 function namesTheWitness(line: string, witness: string, cardId: number, admitted: readonly string[]): boolean {
@@ -434,31 +429,21 @@ function namesTheWitness(line: string, witness: string, cardId: number, admitted
   return proseNamed || namesTheId(line, cardId, witnessIdIn(admitted, witness))
 }
 
-function decisionWords(line: string): string {
-  return line.replace(DECISION_HEAD, '').replace(DECISION_CARDS, '')
-}
-
-function namesTheId(line: string, cardId: number, witnessId: string): boolean {
-  const words = decisionWords(line)
+function namesTheId(words: string, cardId: number, witnessId: string): boolean {
   const card = new RegExp(`(?<![\\w#])#${cardId}(?!\\d)`, 'u')
   const witness = new RegExp(`(?<!\\w)${witnessId.replace(REGEX_SPECIAL, '\\$&')}(?!\\w)`, 'u')
   return words.toLowerCase().includes(DOWNGRADE_WORD) && card.test(words) && witness.test(words)
 }
 
-function standingDecisions(decisionsFile: string, now: Date): ReturnType<typeof inForce> {
-  return existsSync(decisionsFile) ? inForce(parseDecisions(readFileSync(decisionsFile, 'utf8')).decisions, now) : []
-}
-
-function standingReplacementAllowed(decisionsFile: string, now: Date): boolean {
-  const kind = `${OWNER_SOURCE} ${EQUIVALENT_REPLACEMENT_ALLOWANCE}`
-  return standingDecisions(decisionsFile, now).some(decision => decision.written && decision.body.startsWith(kind))
+function standingReplacementAllowed(decisions: DecisionsPort): boolean {
+  return writtenByTheOwner(decisions).some(decision => decision.words.startsWith(EQUIVALENT_REPLACEMENT_ALLOWANCE))
 }
 
 export const CREATED_PATHS_ARE_THE_CHANGE = 'a witness that checks paths the card itself creates is a witness of the change'
 
-export function createdPathsAreTheChange(decisionsFile: string, now: Date): boolean {
-  return standingDecisions(decisionsFile, now)
-    .some(decision => decision.written && decision.cards.length === 0 && decision.body.startsWith(OWNER_SOURCE) && decision.body.toLowerCase().includes(CREATED_PATHS_ARE_THE_CHANGE))
+export function createdPathsAreTheChange(decisions: DecisionsPort): boolean {
+  return writtenByTheOwner(decisions)
+    .some(decision => decision.cards.length === 0 && decision.words.toLowerCase().includes(CREATED_PATHS_ARE_THE_CHANGE))
 }
 
 export interface BaseScope {
@@ -710,13 +695,13 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
       options.events?.(waitingEvent(card.id, waitingOn, now()))
     return { status: 'waiting', file: options.file, card: admitted, waitingOn, inBus: base.inBus, dryRun: options.dryRun }
   }
-  const decisionsFile = options.decisions ?? defaultDecisions()
+  const decisions = options.decisions ?? NO_DECISIONS
   const previous = recorded?.text === undefined ? [] : witnessesOf(recorded.text)
   const lowered = recorded?.text === undefined ? [] : unreplacedFieldDowngrades(witnessDowngrades(previous, witnessesOf(admitted.text)), previous, witnessesOf(admitted.text))
-  const unreplaced = lowered.length > 0 && standingReplacementAllowed(decisionsFile, now()) ? unreplacedDowngrades(lowered, previous, witnessesOf(admitted.text)) : lowered
-  const scope: BaseScope = { dir: options.dir, card: { touches: checked.touches, creates: createdPaths(checked.creates) }, createdAreTheChange: unreplaced.length > 0 && createdPathsAreTheChange(decisionsFile, now()) }
+  const unreplaced = lowered.length > 0 && standingReplacementAllowed(decisions) ? unreplacedDowngrades(lowered, previous, witnessesOf(admitted.text)) : lowered
+  const scope: BaseScope = { dir: options.dir, card: { touches: checked.touches, creates: createdPaths(checked.creates) }, createdAreTheChange: unreplaced.length > 0 && createdPathsAreTheChange(decisions) }
   const downgrades = unreplaced.length > 0 ? withoutRefinements(unreplaced, previous, witnessesOf(admitted.text), scope) : unreplaced
-  if (downgrades.length > 0 && !ownerAllowed(decisionsFile, card.id, downgrades, previous)) {
+  if (downgrades.length > 0 && !ownerAllowed(decisions, card.id, downgrades, previous)) {
     const actions = downgrades.map(witness => downgradeAction(card.id, witness, previous))
     if (!options.dryRun)
       options.events?.(downgradeEvent(card.id, downgrades, actions, bodySha(admitted.text), now()))

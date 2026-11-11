@@ -5,7 +5,7 @@ import type { BgResult, ProcessList, RunningProcess } from './bg.js'
 import type { BusWorker, FactoryMode } from './workers.js'
 import { spawnSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -16,11 +16,11 @@ import { appendEvent, openBus } from '../core/db.js'
 import { SHARD_ISSUED, SHARD_REVOKED } from '../core/events.js'
 import { constructCommand } from '../core/owner-commands.js'
 import { consumeOwnerWord, ownerChannelOfBus, USED_WORD } from '../owner/channel.js'
-import { decisionsFileOf, inForce, OWNER_SOURCE, parseDecisions } from '../policy/decisions/decisions.js'
+import { inForceInText, OWNER_SOURCE } from '../policy/decisions/decisions.js'
+import { decisionsAdderOpeningTheBus, projectionText } from '../policy/decisions/projection.js'
 import { allowLiveText, namesQueueLive } from '../policy/live-decision.js'
 import { activeWindowShards, DECISIONS_SCOPE, WINDOW_SHARD_HOURS, windowShardEnded } from '../policy/shards.js'
 import { ghPort, readGhJson, recordedAccount } from '../ports/gh.js'
-import { decisionsAdder } from '../window/window-request-tools.js'
 import { installedPackage, instancesOf, printBg, provenOnBus, psList } from './bg.js'
 import { startBus, SUPERVISOR_LAUNCH } from './supervisor.js'
 import { DEFAULT_MODE, FACTORY_MODES, isBusWorker, isFactoryMode, MODE_LIVE, MODE_WORKERS, startingMode, switchDetection, switchMode } from './workers.js'
@@ -384,7 +384,7 @@ function decisionTerm(until: string): string {
 
 function liveDecisionsOfShard(parts: ModeParts, shard: WindowShard, now: Date): number[] {
   const term = decisionTerm(shard.until)
-  return inForce(parseDecisions(parts.decisionsText()).decisions, now)
+  return inForceInText(parts.decisionsText(), now)
     .filter(decision => decision.term.until === term && SHARD_DECIDES_LIVE.some(worker => namesQueueLive(decision.body, worker)))
     .map(decision => decision.number)
 }
@@ -457,16 +457,11 @@ function withBus<T>(busDb: string, read: (db: ReturnType<typeof openBus>) => T):
 }
 
 export function busDecisionsText(busDb: string): ModeParts['decisionsText'] {
-  return () => readOrNull(decisionsFileOf(busDb)) ?? ''
+  return () => projectionText(busDb)
 }
 
 export function busDecisionsAdder(busDb: string, now: () => Date): ModeParts['addDecision'] {
-  return (args) => {
-    const file = decisionsFileOf(busDb)
-    if (!existsSync(file))
-      writeFileSync(file, '')
-    return withBus(busDb, db => decisionsAdder(db, file, now)(args))
-  }
+  return decisionsAdderOpeningTheBus(busDb, now)
 }
 
 async function main(): Promise<void> {

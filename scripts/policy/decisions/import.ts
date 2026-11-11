@@ -4,7 +4,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { appendEvent } from '../../core/db.js'
 import { DECISIONS_IMPORTED } from '../../core/events.js'
 import { NETWATCH } from '../../core/observations.js'
-import { boundText, decisionsRefusals, inForce, parseDecisions } from './decisions.js'
+import { boundText, decisionsFileOf, decisionsRefusals, inForce, parseDecisions } from './decisions.js'
 import { archiveOf, withTermInWords } from './read.js'
 
 const LAST_IMPORTED = `SELECT json_extract(payload, '$.sha256') AS sha FROM events WHERE type = '${DECISIONS_IMPORTED}' ORDER BY id DESC LIMIT 1`
@@ -32,4 +32,8 @@ export function decisionsIntake(db: DatabaseSync, file: string, clock: () => Dat
     const archive = archiveOf(file)
     importOwnerDecisions(db, readFileSync(file, 'utf8'), clock().toISOString(), existsSync(archive) ? readFileSync(archive, 'utf8') : '')
   }
+}
+
+export function decisionsIntakeOfBus(db: DatabaseSync, busPath: string, clock: () => Date): () => void {
+  return decisionsIntake(db, decisionsFileOf(busPath), clock)
 }

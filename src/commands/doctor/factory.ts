@@ -1,9 +1,9 @@
 import { homedir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
-import { agentLabel, busPathOf, DECISIONS_FILE, GH_ACCOUNT_VARIABLE, isOwnerCheckout, LAUNCH_AGENTS } from '../../../scripts/core/bus-path.js'
+import { agentLabel, busPathOf, GH_ACCOUNT_VARIABLE, isOwnerCheckout, LAUNCH_AGENTS } from '../../../scripts/core/bus-path.js'
 import { handoffDirOf } from '../../../scripts/core/handoff-dir.js'
-import { decisionsFileOf, inForce, parseDecisions } from '../../../scripts/policy/decisions/decisions.js'
+import { inForceInProjection } from '../../../scripts/policy/decisions/decisions.js'
 import { namesQueueLive } from '../../../scripts/policy/live-decision.js'
 import { FACTORY_MANIFEST } from '../../../scripts/policy/touch-scope.js'
 import { readManifest, recordedShas } from '../../manifest.js'
@@ -147,8 +147,8 @@ function writeContinueCommand(root: string, handoff: string): string {
   return `${isOwnerCheckout(root) ? 'pnpm handoff:write' : 'miko handoff write'} ${handoff} <draft ending STATUS: ${CONTINUE}>`
 }
 
-function liveQueues(decisionsFile: string, now: Date): (queue: string) => boolean {
-  const decisions = inForce(parseDecisions(new FileReadings(path.dirname(decisionsFile)).read(DECISIONS_FILE) ?? '').decisions, now)
+function liveQueues(bus: string, now: Date): (queue: string) => boolean {
+  const decisions = inForceInProjection(bus, file => new FileReadings(path.dirname(file)).read(path.basename(file)), now)
   return queue => decisions.some(decision => namesQueueLive(decision.body, queue))
 }
 
@@ -198,7 +198,7 @@ function item(name: FactoryItemName, goes: boolean, command: string): FactoryIte
 export function factoryChecklist(root: string, situation: FactorySituation = { env: process.env, home: homedir(), now: new Date() }): FactoryChecklist {
   const readings = new FileReadings(root)
   const bus = busPathOf(situation.env, situation.home, root, isOwnerCheckout(root))
-  const live = liveQueues(decisionsFileOf(bus), situation.now)
+  const live = liveQueues(bus, situation.now)
   const handoff = windowHandoffOf(situation, root)
   const missing = FACTORY_MANIFEST.filter(file => readings.read(file) === null)
   const items = [

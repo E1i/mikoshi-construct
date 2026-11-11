@@ -49,6 +49,14 @@ export function archiveOf(file: string): string {
   return file.replace(/(?:\.md)?$/, '.archive.md')
 }
 
+export function defaultDecisionsFile(): string {
+  return decisionsFileOf(defaultBusPath())
+}
+
+export function decisionsNumbered(file: string, read: (file: string) => string | null, number: number): Decision[] {
+  return [file, archiveOf(file)].flatMap(each => parseDecisions(read(each) ?? '').decisions).filter(decision => decision.number === number)
+}
+
 export function settledCards(history: readonly JournalEntry[], bus: BusCardStates): Set<number> {
   const settled = [...closedFromBus(history, bus).keys(), ...mergedFromBus(history, bus)]
   return new Set(settled.filter(task => /^[1-9]\d*$/.test(task)).map(Number))
@@ -87,7 +95,7 @@ export function runDecisionsRead(args: string[], deps: DecisionsReadDeps): numbe
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
   process.exitCode = runDecisionsRead(process.argv.slice(2), {
-    decisions: decisionsFileOf(defaultBusPath()),
+    decisions: defaultDecisionsFile(),
     history: busHistory(defaultBusPath()),
     bus: busCardStates(defaultBusPath()),
     exists: existsSync,
