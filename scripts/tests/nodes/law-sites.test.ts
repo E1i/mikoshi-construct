@@ -18,7 +18,7 @@ import { FACTORY_WORKERS } from '../../core/factory-paths.js'
 import { leaseQueued } from '../../core/lease.js'
 import { rerunDueOn } from '../../core/observations.js'
 import { keyOf, queueTask } from '../../core/queue.js'
-import { ABANDONED_READ_AS_RERUN, gapRows, LAW_CELLS, LAW_NODES, LAW_SITES, lawIds, NODE_WITNESSES_CALL_THEIR_NODE, PULSE_BESIDE_CARD_SILENCE, REVIEW_LIVE_ON_ONE_STALE_SIGNAL, SITES_BEYOND_NODES, sourceOf, WINDOW_BESIDE_SESSIONS } from '../../nodes/laws.js'
+import { ABANDONED_READ_AS_RERUN, gapRows, LAW_CELLS, LAW_CELLS_WITNESSES, LAW_NODES, LAW_SITES, lawIds, PULSE_BESIDE_CARD_SILENCE, REVIEW_LIVE_ON_ONE_STALE_SIGNAL, SITES_BEYOND_NODES, sourceOf, WINDOW_BESIDE_SESSIONS } from '../../nodes/laws.js'
 import { NetWatch, TICK_MS } from '../../ports/netwatch.js'
 import { BusTick } from '../../supervisor/run.js'
 import { NO_PROGRESS_LINES, StalledSessions } from '../../supervisor/stalled-sessions.js'
@@ -35,14 +35,8 @@ const SILENT_SESSION_MINUTES = 120
 const INTAKE_READS_DECISIONS = 1779
 const BEYOND: readonly SiteBeyondNodes[] = ['netwatch', 'window', 'intake', 'supervisor']
 const roots: string[] = []
-const CARDS_MERGED_ON_MAIN: readonly number[] = [1672, 1754, 1764, 1767, 1777, 1792]
-const CARDS_Q284_RETIRED: readonly number[] = [1777, 1792]
-const CELLS_AWAITING_THEIR_CARD = [
-  ...['close', 'merge', 'restart', 'review', 'update', 'witness'].map(site => `Z3 × ${site} → #1672`),
-  ...['answer', 'close', 'merge', 'restart', 'review', 'update', 'witness', 'window', 'intake'].map(site => `Z4 × ${site} → #1754`),
-  ...['answer', 'close', 'launch', 'merge', 'restart', 'review', 'update', 'witness'].map(site => `Z5 × ${site} → #1767`),
-  ...['answer', 'close', 'launch', 'merge', 'restart', 'review', 'update', 'witness'].map(site => `Z6 × ${site} → #1764`),
-]
+const LAW_REGISTRY_TELLS_THE_TRUTH = 1814
+const CARDS_JUDGED_CLOSED: readonly number[] = [1672, 1754, 1764, 1767, 1777, 1789, 1792, 1794, LAW_REGISTRY_TELLS_THE_TRUTH]
 
 beforeEach(() => {
   vi.stubEnv('BUS_RERUN', '')
@@ -215,7 +209,7 @@ describe('law sites beyond the bus nodes', () => {
     const witness = WITNESSES[(cell as { witness: string }).witness]
     expect(witness?.law).toBe('Z7')
     witness!.run('window')
-    expect(LAW_CELLS.Z7.netwatch).toEqual({ gap: [NODE_WITNESSES_CALL_THEIR_NODE] })
+    expect(LAW_CELLS.Z7.netwatch).toEqual({ gap: [LAW_CELLS_WITNESSES] })
     pulseBesideCardSilence()
   })
 
@@ -241,8 +235,8 @@ describe('law sites beyond the bus nodes', () => {
     expect(LAW_CELLS.Z7.supervisor).toEqual({ witness: REVIEW_LIVE_ON_ONE_STALE_SIGNAL })
     expect(await reachesSite('supervisor', reviewLiveOnOneStaleSignal)).toBe(true)
     expect(await reachesSite('review', reviewLiveOnOneStaleSignal)).toBe(false)
-    expect(LAW_CELLS.Z7.review).toEqual({ gap: [NODE_WITNESSES_CALL_THEIR_NODE] })
-    expect(LAW_CELLS.Z2.supervisor).toEqual({ gap: [NODE_WITNESSES_CALL_THEIR_NODE] })
+    expect(LAW_CELLS.Z7.review).toEqual({ gap: [LAW_CELLS_WITNESSES] })
+    expect(LAW_CELLS.Z2.supervisor).toEqual({ gap: [LAW_CELLS_WITNESSES] })
     expect(readRatchet(REPO_ROOT)['law-gaps:Z7:supervisor']).toBeUndefined()
     expect(Object.keys(lawsSection().laws.Z7.cells)).toContain('supervisor')
   })
@@ -268,15 +262,28 @@ describe('law sites beyond the bus nodes', () => {
     expect(witnessCells.map(({ law, site }) => `${law} × ${site}`)).toEqual(['Z2 × netwatch', 'Z7 × window', 'Z7 × supervisor'])
     expect(unreached).toEqual([])
     expect(await reachesSite('netwatch', () => WITNESSES[PULSE_BESIDE_CARD_SILENCE]!.run('netwatch'))).toBe(false)
-    expect(lawIds().flatMap(law => LAW_SITES.filter(site => 'witness' in LAW_CELLS[law][site]).map(site => `${law} × ${site}`))).toEqual(['Z1 × review', 'Z2 × netwatch', 'Z3 × launch', 'Z7 × window', 'Z7 × supervisor', 'Z8 × answer', 'Z8 × launch'])
+    expect(lawIds().flatMap(law => LAW_SITES.filter(site => 'witness' in LAW_CELLS[law][site]).map(site => `${law} × ${site}`))).toEqual(['Z1 × review', 'Z2 × answer', 'Z2 × launch', 'Z2 × update', 'Z2 × netwatch', 'Z3 × answer', 'Z3 × launch', 'Z4 × answer', 'Z5 × launch', 'Z7 × window', 'Z7 × supervisor', 'Z8 × answer', 'Z8 × launch'])
   })
 
-  it('a gap names only a card that is still open', () => {
-    expect(closedGapFaults(LAW_CELLS, CARDS_Q284_RETIRED)).toEqual([])
-    expect(closedGapFaults(LAW_CELLS, CARDS_MERGED_ON_MAIN)).toEqual(CELLS_AWAITING_THEIR_CARD)
-    expect(CELLS_AWAITING_THEIR_CARD).toHaveLength(31)
-    expect(closedGapFaults({ ...LAW_CELLS, Z1: { ...LAW_CELLS.Z1, close: { gap: [1777] } } }, CARDS_MERGED_ON_MAIN)).toContain('Z1 × close → #1777')
-    expect(closedGapFaults({ ...LAW_CELLS, Z3: { ...LAW_CELLS.Z3, intake: { gap: [1792] } } }, CARDS_MERGED_ON_MAIN)).toContain('Z3 × intake → #1792')
+  it('every law cell holds a witness that calls its node or a gap on an open card', async () => {
+    expect(closedGapFaults(LAW_CELLS, CARDS_JUDGED_CLOSED)).toEqual([])
+    expect(CARDS_JUDGED_CLOSED, 'the card that moves the cells off merged cards counts as merged, so no cell may wait on it').toContain(LAW_REGISTRY_TELLS_THE_TRUTH)
+    expect(closedGapFaults(LAW_CELLS, [LAW_REGISTRY_TELLS_THE_TRUTH])).toEqual([])
+    expect(CARDS_JUDGED_CLOSED).not.toContain(LAW_CELLS_WITNESSES)
+    expect(lawIds().flatMap(law => LAW_SITES.flatMap((site) => {
+      const cell = LAW_CELLS[law][site]
+      return 'gap' in cell || 'witness' in cell || 'notApplicable' in cell ? [] : [`${law} × ${site}`]
+    }))).toEqual([])
+    for (const law of lawIds()) {
+      for (const site of BEYOND) {
+        const cell = LAW_CELLS[law][site]
+        if ('witness' in cell)
+          expect(await reachesSite(site, () => WITNESSES[cell.witness]!.run(site)), `${law} × ${site}`).toBe(true)
+      }
+    }
+    expect(closedGapFaults({ ...LAW_CELLS, Z1: { ...LAW_CELLS.Z1, close: { gap: [1777] } } }, CARDS_JUDGED_CLOSED)).toEqual(['Z1 × close → #1777'])
+    expect(closedGapFaults({ ...LAW_CELLS, Z3: { ...LAW_CELLS.Z3, intake: { gap: [1792] } } }, CARDS_JUDGED_CLOSED)).toEqual(['Z3 × intake → #1792'])
+    expect(closedGapFaults({ ...LAW_CELLS, Z5: { ...LAW_CELLS.Z5, launch: { gap: [1767] } } }, CARDS_JUDGED_CLOSED)).toEqual(['Z5 × launch → #1767'])
   })
 
   it('every cell of a site beyond the nodes is a witness, a reasoned not applicable or a gap the ratchet records', () => {

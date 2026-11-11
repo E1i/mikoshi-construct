@@ -2,7 +2,7 @@ import type { LawCell, LawCells, LawId, LawSite } from '../../nodes/laws.js'
 import type { Factory } from '../factory.js'
 import { LAW_CELLS, LAW_SITES, lawIds, LAWS } from '../../nodes/laws.js'
 
-export const LAWS_VERSION = 2
+export const LAWS_VERSION = 3
 
 export interface LawRow {
   text: string
