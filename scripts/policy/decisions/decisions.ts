@@ -1,9 +1,11 @@
+import { pnpmCommand } from '../../core/owner-commands.js'
+
 export const PREFIX = '[decisions] '
 export const WRITER_MARKER = 'decisions:add'
 export const OWNER_SOURCE = '[owner]'
 export const DECISION_FORMAT = `- D-N · <date> — <decision> [· supersedes D-K D-L] [· card #A #B] [· until <YYYY-MM-DDTHH:MMZ>] [· ${WRITER_MARKER}] [· superseded-by D-M]`
 export const SPENT_MARK_OF_THE_OLD_FILES = 54
-export const NEW_FILE_HEADER = `# Owner decisions\n\nA projection of the decisions table in the bus, rebuilt by the bus. Add a decision with pnpm ${WRITER_MARKER}.\n`
+export const NEW_FILE_HEADER = `# Owner decisions\n\nA projection of the decisions table in the bus, rebuilt by the bus. Add a decision with ${pnpmCommand(WRITER_MARKER)}.\n`
 
 const TERM = '\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(?::\\d{2})?Z'
 const FIELD_PATTERNS: Record<string, string> = {
@@ -375,5 +377,5 @@ export function decisionsFindings(text: string): string[] {
 }
 
 export function decisionCommand(words: string, cards: readonly number[] = []): string {
-  return `pnpm decisions:add ${cards.map(card => `--card #${card} `).join('')}"${OWNER_SOURCE} ${words}"`
+  return pnpmCommand(WRITER_MARKER, ...cards.map(card => `--card #${card}`), `"${OWNER_SOURCE} ${words}"`)
 }

@@ -7,11 +7,12 @@ import { closedFromBus, mergedFromBus } from '../../../src/card/closed.js'
 import { decisionsFileOf } from '../../core/bus-path.js'
 import { defaultBusPath } from '../../core/db.js'
 import { busHistory } from '../../core/journal.js'
+import { pnpmCommand } from '../../core/owner-commands.js'
 import { busCardStates } from '../../core/tasks.js'
 import { CARD_VARIABLE } from '../../ports/session.js'
 import { calendarTerm, decisionsFindings, decisionsRefusals, inForce, parseDecisions, PREFIX, settleSupersedes, spentByCards, visibleToCard } from './decisions.js'
 
-export const USAGE = 'usage: pnpm decisions [<owner-decisions.md>]'
+export const USAGE = `usage: ${pnpmCommand('decisions', '[<owner-decisions.md>]')}`
 
 const TERM_IN_WORDS = /(?<![\p{L}\p{N}])до\s+(?<until>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?Z)(?![\p{L}\p{N}])/gu
 

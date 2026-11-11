@@ -6,6 +6,7 @@ import type { IncrementalProjection } from '../../core/watermark.js'
 import { appendEvent, CLOSED_WAIT, inTransaction, openBusWait, OWNER_WAITS } from '../../core/db.js'
 import { OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, ROLE_LEASED, ROLE_RAISE_FAILED, ROLE_RAISED, ROLE_RETURNED, ROLE_STOPPED, ROLE_TO_OWNER, WINDOW_HEARTBEAT } from '../../core/events.js'
 import { LEASE_MS } from '../../core/lease.js'
+import { pnpmCommand } from '../../core/owner-commands.js'
 import { payloadOf, reject } from '../../core/stored.js'
 import { reduceProjection } from '../../core/watermark.js'
 import { windowLive } from '../../window/window-heartbeat.js'
@@ -197,7 +198,7 @@ export function observeRoleStop(db: DatabaseSync, ts: string, actor: string, sto
   return inTransaction(db, () => reduced(db, { ts, type: ROLE_STOPPED, actor, cardId: null, pr: null, head: null, dedupeKey: `${ROLE_STOPPED}:${stop.role}:${ts}`, payload: { ...stop }, legacy: false }))
 }
 
-const ROLE_STARTS: Record<Role, string | null> = { miko: 'pnpm miko', operator: null }
+const ROLE_STARTS: Record<Role, string | null> = { miko: pnpmCommand('miko'), operator: null }
 
 function ownerDetail(row: RoleRow, start: string | null): string {
   const stopped = `${row.role} stopped at its ${row.reason} threshold on ${row.handoff}; the bus raises no role`

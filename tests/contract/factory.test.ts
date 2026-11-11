@@ -63,7 +63,6 @@ const SITES_OF_THE_RECONNAISSANCE: Record<string, readonly string[]> = {
   ],
   'handoff-status': ['src/commands/doctor/factory.ts'],
   'owner-commands': [
-    'scripts/ports/task-start.ts',
     'src/commands/board/screens.ts',
     'scripts/window/window-requests.ts',
     'scripts/window/loop.ts',

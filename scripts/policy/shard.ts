@@ -6,11 +6,12 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { appendEvent, defaultBusPath, openBus } from '../core/db.js'
 import { SHARD_ISSUED, SHARD_REVOKED } from '../core/events.js'
+import { pnpmCommand } from '../core/owner-commands.js'
 import { processGit } from '../ports/git.js'
 import { activeWindowShards, decisionsInForceAt, isWindowScope, WINDOW_SHARD_HOURS, windowShardEnded } from './shards.js'
 
 export const PREFIX = '[shard] '
-export const USAGE = 'usage: pnpm shard --card <n> | --pr <n> [--under D-<id>] | --window [--hours <n>] [--scope merge|merge+decisions] | --stop [--by <name>]'
+export const USAGE = `usage: ${pnpmCommand('shard', '--card <n> | --pr <n> [--under D-<id>] | --window [--hours <n>] [--scope merge|merge+decisions] | --stop [--by <name>]')}`
 const VALUED_FLAGS = ['--by', '--card', '--pr', '--under', '--hours', '--scope']
 const WINDOW_FLAG = '--window'
 const STOP_FLAG = '--stop'
@@ -82,7 +83,7 @@ function issueWindow(deps: ShardDeps, by: string, order: WindowOrder): number {
   const ts = now.toISOString()
   const until = new Date(now.getTime() + order.hours * HOUR_MS).toISOString()
   deps.record({ ts, type: SHARD_ISSUED, actor: 'owner', cardId: null, pr: null, head: null, dedupeKey: `${SHARD_ISSUED}:${id}`, payload: { id, by, run: null, window: true, scope: order.scope, until }, legacy: false })
-  deps.out(`${PREFIX}shard ${id} issued by ${by} for the window, scope ${order.scope}, until ${until}; pnpm shard ${STOP_FLAG} revokes it`)
+  deps.out(`${PREFIX}shard ${id} issued by ${by} for the window, scope ${order.scope}, until ${until}; ${pnpmCommand('shard', STOP_FLAG)} revokes it`)
   return 0
 }
 

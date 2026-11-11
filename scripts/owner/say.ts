@@ -3,10 +3,11 @@ import os from 'node:os'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { defaultBusPath } from '../core/bus-path.js'
+import { pnpmCommand } from '../core/owner-commands.js'
 import { ownerChannelOfBus, sayToOwnerChannel } from './channel.js'
 
 export const PREFIX = '[owner:say] '
-export const USAGE = 'usage: pnpm owner:say "<the owner\'s words>"'
+export const USAGE = `usage: ${pnpmCommand('owner:say', '"<the owner\'s words>"')}`
 
 export function runOwnerSay(args: readonly string[], channel: string, now: Date, out: (line: string) => void): number {
   if (args.length !== 1 || args[0]!.trim() === '' || args[0]!.startsWith('--')) {
