@@ -1,13 +1,14 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { PushPolicy } from '../../../src/commands/attach/record.js'
 import type { RerunMode } from '../../cli/check-catalog.js'
+import type { BusEvent } from '../../core/db.js'
 import type { Lease } from '../../core/lease.js'
 import type { DetectionMode, NodeDeclaration, Scope } from '../../core/node.js'
 import type { QueuedTask } from '../../core/queue.js'
 import type { StoredEvent } from '../../core/stored.js'
 import type { StatusPublisher } from '../../ports/github-status.js'
 import type { GitHub, GitHubPut } from '../../ports/github.js'
-import type { MergeOutcome } from './merge-executor.js'
+import type { MergeDenial, MergeOutcome } from './merge-executor.js'
 import { randomUUID } from 'node:crypto'
 import { realpathSync } from 'node:fs'
 import process from 'node:process'
@@ -16,10 +17,11 @@ import { fileURLToPath } from 'node:url'
 import { catalogIsEmpty, changedPaths, changesTheCatalog, MAIN_TIP, rebuildCatalogAt, rerunModeOf } from '../../cli/check-catalog.js'
 import { appendEvent, defaultBusPath } from '../../core/db.js'
 import { messageOf } from '../../core/errors.js'
-import { BOARD_ALARM, CARD_ADMITTED, DECISION_RECORDED, DECISIONS_IMPORTED, MERGE_DONE, PR_CLOSED, PR_OBSERVED, PR_OPENED, REDUCED, REVIEW_RECORDED } from '../../core/events.js'
+import { BOARD_ALARM, CARD_ADMITTED, DECISION_RECORDED, DECISIONS_IMPORTED, MERGE_DONE, POLICY_DENIED, PR_CLOSED, PR_OBSERVED, PR_OPENED, REDUCED, REVIEW_RECORDED } from '../../core/events.js'
+import { failTask } from '../../core/lease.js'
 import { Node, NodeRefused, runNode, UNDERSTOOD_NOW } from '../../core/node.js'
 import { pushPolicyOf } from '../../core/push-policy.js'
-import { closedByRounds, MERGE_CANDIDATES, MERGE_CANDIDATES_BEHIND, MERGE_CANDIDATES_WITHOUT_PASS, mergeCandidates, mergeDecidedPastRoundLimit } from '../../core/queue.js'
+import { closedByRounds, MERGE_CANDIDATES, MERGE_CANDIDATES_BEHIND, MERGE_CANDIDATES_WITHOUT_PASS, mergeCandidates, mergeDecidedPastRoundLimit, NEEDS_UPDATE } from '../../core/queue.js'
 import { loadedCodeSha, readThroughPort } from '../../ports/git.js'
 import { ghStatusPublisher } from '../../ports/github-status.js'
 import { ghApi, ghApiPut } from '../../ports/github.js'
@@ -33,6 +35,8 @@ export const CATALOG_REBUILD_FAILED = 'catalog_rebuild_failed'
 export const MERGE_ON = [REDUCED, PR_OBSERVED, PR_CLOSED, PR_OPENED, CARD_ADMITTED, MERGE_DONE, REVIEW_RECORDED, DECISION_RECORDED, DECISIONS_IMPORTED] as const
 
 export const MERGE_NODE: NodeDeclaration = { kind: 'merge', on: MERGE_ON, understands: UNDERSTOOD_NOW }
+export const NEEDS_UPDATE_UNCURED = 'needs_update_uncured'
+export const NEEDS_UPDATE_REPEATS_ON_ONE_HEAD = 3
 
 const WHOLE_QUEUE_ON: ReadonlySet<string> = new Set([REDUCED, MERGE_DONE, DECISION_RECORDED, DECISIONS_IMPORTED])
 
@@ -90,6 +94,7 @@ export class MergeNode extends Node<MergeStep> {
   private readonly rerun: RerunMode
   private readonly gitHub: GitHub
   private readonly rebuildCatalog: CatalogRebuild | undefined
+  private readonly sentToUpdate = new Map<string, number>()
 
   constructor(parts: MergeNodeParts) {
     super('merge', { db: parts.db, clock: parts.clock, session: parts.session, mode: parts.mode, env: parts.env })
@@ -124,10 +129,35 @@ export class MergeNode extends Node<MergeStep> {
   }
 
   protected handle(lease: Lease): MergeStep {
+    const uncured = this.uncuredOnTheSameHead(lease)
+    if (uncured !== null)
+      return uncured
     const step = this.executor.merge(lease)
+    this.countSentToUpdate(lease, step)
     if (step.kind === 'merged')
       this.refreshCatalog(step.commit, lease)
     return step
+  }
+
+  private countSentToUpdate(lease: Lease, step: MergeStep): void {
+    if (step.kind === 'denied' && step.denial.kind === 'technical' && step.denial.reason === NEEDS_UPDATE && step.denial.parkedUntil === undefined)
+      this.sentToUpdate.set(lease.taskKey, (this.sentToUpdate.get(lease.taskKey) ?? 0) + 1)
+    else
+      this.sentToUpdate.delete(lease.taskKey)
+  }
+
+  private uncuredOnTheSameHead(lease: Lease): MergeStep | null {
+    const denials = this.sentToUpdate.get(lease.taskKey) ?? 0
+    if (denials < NEEDS_UPDATE_REPEATS_ON_ONE_HEAD)
+      return null
+    this.sentToUpdate.delete(lease.taskKey)
+    const ts = this.ts()
+    const detail = `#${lease.pr} was sent to its update ${denials} times on ${lease.head} and the head never moved; its merge task yields the head until a new head arrives`
+    const denial: MergeDenial = { kind: 'technical', reason: NEEDS_UPDATE, detail, parkedUntil: 'new_head' }
+    const denied: BusEvent = { ts, type: POLICY_DENIED, actor: 'policy', cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${POLICY_DENIED}:${lease.taskKey}:${lease.leaseGen}`, payload: { command: 'merge', ...denial }, legacy: false }
+    const next = failTask(this.db, ts, lease, { reason: NEEDS_UPDATE_UNCURED, withdraw: true }, [denied])
+    appendEvent(this.db, { ts, type: BOARD_ALARM, actor: this.actor, cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${BOARD_ALARM}:${NEEDS_UPDATE_UNCURED}:${lease.pr}:${lease.head}`, payload: { reason: NEEDS_UPDATE_UNCURED, task_key: lease.taskKey, detail }, legacy: false })
+    return { kind: 'denied', taskKey: lease.taskKey, denial, next }
   }
 
   private refreshCatalog(commit: string, lease: Lease): void {

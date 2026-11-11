@@ -7,13 +7,13 @@ import { textSha } from '../../../src/card/text-sha.js'
 import { RERUN_VARIABLE, writeCatalog } from '../../cli/check-catalog.js'
 import { DROPPED_LANE } from '../../core/card-automaton.js'
 import { appendEvent } from '../../core/db.js'
-import { CARD_ADMITTED, CARD_CLOSED, CARD_HELD, CARD_MOVED, COMMAND_EXECUTED, MERGE_DONE, NODE_DETECTED, NODE_EQUIVALENCE, OWNER_WAIT_OPENED, POLICY_ALLOWED, POLICY_DENIED, REVIEW_RECORDED, TASK_ENQUEUED, WITNESS_RECORDED } from '../../core/events.js'
+import { BOARD_ALARM, CARD_ADMITTED, CARD_CLOSED, CARD_HELD, CARD_MOVED, COMMAND_EXECUTED, MERGE_DONE, NODE_DETECTED, NODE_EQUIVALENCE, OWNER_WAIT_OPENED, POLICY_ALLOWED, POLICY_DENIED, REVIEW_RECORDED, TASK_ENQUEUED, WITNESS_RECORDED } from '../../core/events.js'
 import { prBodySha } from '../../core/identifiers.js'
 import { completeTask, leaseNext } from '../../core/lease.js'
 import { NODE_CURSORS } from '../../core/node.js'
 import { deriveQueues, keyOf, MERGE_CANDIDATES, mergeCandidates, NEEDS_UPDATE, queueTask } from '../../core/queue.js'
 import { HELD_FOR_OWNER, MERGE_QUEUE, MergeExecutor } from '../../nodes/merge/merge-executor.js'
-import { MergeNode } from '../../nodes/merge/merge-worker.js'
+import { MergeNode, NEEDS_UPDATE_REPEATS_ON_ONE_HEAD, NEEDS_UPDATE_UNCURED } from '../../nodes/merge/merge-worker.js'
 import { UpdateNode } from '../../nodes/update/update-worker.js'
 import { recordDecision } from '../../policy/decisions.js'
 import { allowLiveCommand } from '../../policy/live-decision.js'
@@ -597,6 +597,7 @@ describe('the re-run mode of the merge node', () => {
 
 describe('a denial that names a cure', () => {
   const UNPLACED_ON_MAIN = 'scripts/tests/core/owner-commands-pending.json'
+  const A_MERGE_SENT_TO_UPDATE_WAIT_PASSED_MS = 6 * 60_000
 
   function theUpdateKeySpent(made: MergeBench): void {
     const ts = made.clock.now().toISOString()
@@ -622,14 +623,63 @@ describe('a denial that names a cure', () => {
     return made.gitHub.puts.map(each => `${each.endpoint.replace(`${REPO}/pulls/`, '')} ${each.fields.sha ?? each.fields.expected_head_sha}`)
   }
 
-  it('needs_update that no node performs yields the head', async () => {
+  async function roundsPastEachWait(made: MergeBench, rounds: number): Promise<string[]> {
+    const merge = nodeOf(made, 'live', BY_LAYERS)
+    const update = updateNodeOf(made, BY_LAYERS)
+    for (let round = 0; round < rounds; round += 1) {
+      await once(merge)
+      await once(update)
+      made.clock.advance(A_MERGE_SENT_TO_UPDATE_WAIT_PASSED_MS)
+      made.tick()
+    }
+    return made.gitHub.puts.map(each => `${each.endpoint.replace(`${REPO}/pulls/`, '')} ${each.fields.sha ?? each.fields.expected_head_sha}`)
+  }
+
+  function mergeTaskOn(made: MergeBench, pr: number, head: string): string {
+    return String((made.db.prepare(`SELECT task_key FROM tasks WHERE queue = 'merge' AND pr = ? AND head = ?`).get(pr, head) as { task_key: string }).task_key)
+  }
+
+  function uncuredAlarms(made: MergeBench): Record<string, unknown>[] {
+    return eventsOf(made.db, BOARD_ALARM).filter(each => each.reason === NEEDS_UPDATE_UNCURED)
+  }
+
+  it('a needs_update denial the update node performs merges the updated head', async () => {
     const made = bench()
     theUnplacedCase(made)
 
     const puts = await threeRounds(made)
     expect(eventsOf(made.db, POLICY_DENIED)).toContainEqual(expect.objectContaining({ reason: NEEDS_UPDATE, detail: expect.stringContaining(`${UNPLACED_ON_MAIN} belongs to no layer`) }))
-    expect(puts.slice(0, 2)).toEqual([`971/merge ${sha('b')}`, `970/update-branch ${sha('a')}`])
-    expect(puts.filter(each => each.startsWith('970/merge')).length).toBeLessThanOrEqual(1)
+    expect(puts).toEqual([`971/merge ${sha('b')}`, `970/update-branch ${sha('a')}`, `970/merge ${sha('d')}`])
+    expect(uncuredAlarms(made)).toEqual([])
+  })
+
+  it('needs_update that no node performs yields the head', async () => {
+    const made = bench()
+    theUnplacedCase(made)
+    made.gitHub.updateStatus = 422
+
+    const puts = await roundsPastEachWait(made, 12)
+    const sentToUpdate = eventsOf(made.db, POLICY_DENIED).filter(each => each.command === 'merge' && each.reason === NEEDS_UPDATE && each.parkedUntil === undefined)
+    expect(sentToUpdate).toHaveLength(NEEDS_UPDATE_REPEATS_ON_ONE_HEAD)
+    expect(sentToUpdate[0]).toMatchObject({ detail: expect.stringContaining(`${UNPLACED_ON_MAIN} belongs to no layer`) })
+    expect(puts).toContain(`971/merge ${sha('b')}`)
+    expect(puts.filter(each => each.startsWith('970/merge'))).toEqual([])
+    expect(uncuredAlarms(made)).toEqual([expect.objectContaining({ task_key: mergeTaskOn(made, 970, sha('a')) })])
+    expect(taskState(made.db, mergeTaskOn(made, 970, sha('a'))).state).toBe('withdrawn')
+  })
+
+  it('a merge task stopped on an uncured head merges again once a new head arrives', async () => {
+    const made = bench()
+    theUnplacedCase(made)
+    made.gitHub.updateStatus = 422
+    await roundsPastEachWait(made, 12)
+
+    made.gitHub.updateStatus = 202
+    made.gitHub.open({ ...made.gitHub.pulls.get(970)!, head: sha('d'), baseSha: MAIN_2, mergeable_state: 'clean', review: 'success' })
+    appendEvent(made.db, { ts: made.clock.now().toISOString(), type: REVIEW_RECORDED, actor: 'worker:review:reviewer-1', cardId: 1070, pr: 970, head: sha('d'), dedupeKey: `${REVIEW_RECORDED}:live:d`, payload: { head: sha('d'), verdict: 'pass', reviewer_session: 'reviewer-1', findings: [] }, legacy: false })
+    made.tick()
+
+    expect(await roundsPastEachWait(made, 2)).toContain(`970/merge ${sha('d')}`)
   })
 
   it('a held card merge task yields the merge slot', async () => {
