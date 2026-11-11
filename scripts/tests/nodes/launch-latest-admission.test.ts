@@ -11,7 +11,7 @@ import { cardBodyText } from '../../core/card-bodies.js'
 import { appendEvent } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_STARTED, CARD_VERIFIED, CARD_WAITING } from '../../core/events.js'
 import { MachineSessions } from '../../core/machine-sessions.js'
-import { LaunchNode } from '../../nodes/launch/launch-worker.js'
+import { AMENDED_AFTER_START, LaunchNode } from '../../nodes/launch/launch-worker.js'
 import { TICK_MS } from '../../ports/netwatch.js'
 import { eventsOf, mergeBench } from '../bus/merge-bench.js'
 
@@ -83,6 +83,48 @@ describe('launch takes the card body from the latest card.admitted, never from a
       expect(handoffs.length).toBeGreaterThan(0)
       expect(handoffs.every(body => body?.includes(AMENDED) === true)).toBe(true)
       expect(starter.continued).toBe(0)
+    }
+    finally {
+      made.close()
+    }
+  })
+
+  it('a session amended twice after its start waits naming the body it started on, not the first amend', async () => {
+    const made = mergeBench()
+    try {
+      admit(made, 'admission-1', bodyOf(ADMITTED))
+      made.tick()
+      const starter = new Starter()
+      const node = launchNode(made, starter, { pidAlive: () => true, processes: { commandLine: () => `session s-${CARD}`, signalGroup: () => {} } })
+      await runOnce(node)
+      expect(eventsOf(made.db, CARD_STARTED)).toHaveLength(1)
+      made.tick()
+      admit(made, 'admission-2', bodyOf(AMENDED))
+      made.tick()
+      admit(made, 'admission-3', bodyOf(`${AMENDED} Again.`))
+      node.stopOverdue()
+      expect(eventsOf(made.db, CARD_WAITING)).toMatchObject([{ reason: AMENDED_AFTER_START, started: textSha(bodyOf(ADMITTED)), amended: textSha(bodyOf(`${AMENDED} Again.`)) }])
+    }
+    finally {
+      made.close()
+    }
+  })
+
+  it('a session whose two amends after its start differ only in the header priority does not wait', async () => {
+    const made = mergeBench()
+    try {
+      admit(made, 'admission-1', bodyOf(ADMITTED))
+      made.tick()
+      const starter = new Starter()
+      const node = launchNode(made, starter, { pidAlive: () => true, processes: { commandLine: () => `session s-${CARD}`, signalGroup: () => {} } })
+      await runOnce(node)
+      expect(eventsOf(made.db, CARD_STARTED)).toHaveLength(1)
+      made.tick()
+      admit(made, 'admission-2', bodyOf(AMENDED))
+      made.tick()
+      admit(made, 'admission-3', bodyOf(ADMITTED).replace('who: shift\n', 'who: shift\npriority: p0\n'))
+      node.stopOverdue()
+      expect(eventsOf(made.db, CARD_WAITING)).toEqual([])
     }
     finally {
       made.close()
