@@ -2185,6 +2185,7 @@
           "scripts/nodes/launch/tree-pr-cli.ts",
           "scripts/nodes/merge/merge-worker.ts",
           "scripts/nodes/restart/restart-worker.ts",
+          "scripts/nodes/review/depth-sources.ts",
           "scripts/nodes/review/review-worker.ts",
           "scripts/nodes/review/reviewer.ts",
           "scripts/nodes/update/update-worker.ts",

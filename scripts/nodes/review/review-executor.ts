@@ -18,6 +18,7 @@ import { appendEvent } from '../../core/db.js'
 import { ARTIFACT_REMOVED, BOARD_ALARM, POLICY_DENIED, REVIEW_RECORDED, REVIEW_ROUNDS_SPENT, REVIEW_TREE_ORPHANED, ROUND_EXTENDED } from '../../core/events.js'
 import { reviewInputOfKey } from '../../core/identifiers.js'
 import { completeTask, failTask, releaseTask, StaleLease, supersedeLease } from '../../core/lease.js'
+import { pnpmCommand } from '../../core/owner-commands.js'
 import { activeDecisionsShard, BODIES_OWNER_AMENDED_FOR_A_PR, changesRoundsOf, ownerAmendedSinceThePreviousReview, REPEAT_FINDINGS, REVIEW_ROUNDS, REVIEWS_OF_A_PR } from '../../core/queue.js'
 import { allFindingsRepeat } from '../../policy/repeat-finding.js'
 import { limitRuleOf } from '../../policy/round-limit-decision.js'
@@ -25,9 +26,17 @@ import { NO_ISOLATION } from '../../ports/isolation.js'
 import { storedInput } from '../../ports/prompt-store.js'
 import { freshDenial, recordVerdict } from './record-verdict.js'
 import { cardRiskOf, fullReview } from './review-depth.js'
-import { PREFIX, REVIEW_BAR_LINE, ReviewFailed } from './reviewer.js'
+import { PREFIX, REVIEW_BAR_LINE, REVIEW_CEILING, REVIEW_CEILING_MINUTES, ReviewFailed } from './reviewer.js'
 
 const CI_NOT_READY = 'ci_not_ready'
+export const REVIEW_FAILED = 'review_failed'
+
+export type ReviewDenial = Denial | { kind: 'technical', reason: typeof REVIEW_CEILING, detail: string }
+
+export function windowRouteLine({ cardId, pr, head }: Pick<Lease, 'cardId' | 'pr' | 'head'>): string {
+  return `The review of PR #${pr} (card #${cardId}) at head ${head} reached its ${REVIEW_CEILING_MINUTES}-minute ceiling with no verdict, and the bus starts no second session on it. The window takes it: ${pnpmCommand('bus:review', '--dry-run', String(pr))}, then, when that run is clean, ${pnpmCommand('bus:request', 'allow-merge', '--pr', String(pr), '--head', String(head), '--dry-run', '<reviewer session>')}.`
+}
+
 const STALE_HEAD = 'stale_head'
 export const TREE_LEFT = 'tree_left'
 export { REVIEW_ROUNDS_SPENT }
@@ -45,7 +54,7 @@ export const RULES_VERSION_KEY = 'rules_version'
 export type Step
   = | { kind: 'idle' }
     | { kind: 'recorded', taskKey: string, verdict: VerdictWord, depth: ReviewDepth, model?: string }
-    | { kind: 'denied', taskKey: string, denial: Denial, next: AfterFailure | typeof SUPERSEDED_LEASE }
+    | { kind: 'denied', taskKey: string, denial: ReviewDenial, next: AfterFailure | typeof SUPERSEDED_LEASE }
     | { kind: 'fenced', taskKey: string }
     | { kind: 'waiting', taskKey: string, detail: string }
 
@@ -80,7 +89,7 @@ function isolationFields(isolation: Held | null): EventPayload<typeof REVIEW_REC
 const RELEASE_REASONS: ReadonlySet<string> = new Set([NO_ISOLATION])
 
 interface Attempt {
-  outcome: Reviewed | Denial
+  outcome: Reviewed | ReviewDenial
   held: HeldTree | null
 }
 
@@ -248,8 +257,13 @@ export class ReviewExecutor {
       return { outcome: { review, plan, ms: clock().getTime() - started, isolation, card }, held: review.tree ?? null }
     }
     catch (error) {
-      return { outcome: { kind: 'technical', reason: 'review_failed', detail: error instanceof Error ? error.message : String(error) }, held: error instanceof ReviewFailed ? error.held : null }
+      const reason = error instanceof ReviewFailed && error.ceiling ? REVIEW_CEILING : REVIEW_FAILED
+      return { outcome: { kind: 'technical', reason, detail: error instanceof Error ? error.message : String(error) }, held: error instanceof ReviewFailed ? error.held : null }
     }
+  }
+
+  private ceilingAlarm(lease: Lease, ts: string): BusEvent {
+    return { ts, type: BOARD_ALARM, actor: lease.actor, cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${BOARD_ALARM}:${REVIEW_CEILING}:${lease.taskKey}`, payload: { reason: REVIEW_CEILING, task_key: lease.taskKey, detail: windowRouteLine(lease) }, legacy: false }
   }
 
   private released(lease: Lease, held: HeldTree): void {
@@ -258,7 +272,7 @@ export class ReviewExecutor {
       appendEvent(this.parts.db, orphaned(this.ts(), lease.actor, lease, held.path, left))
   }
 
-  private settle(lease: Lease, reviewed: Reviewed | Denial): Step {
+  private settle(lease: Lease, reviewed: Reviewed | ReviewDenial): Step {
     const { db, gitHub, publish, clock } = this.parts
     if ('kind' in reviewed)
       return this.denied(lease, reviewed)
@@ -390,7 +404,7 @@ export class ReviewExecutor {
     return { kind: 'waiting', taskKey: lease.taskKey, detail }
   }
 
-  private denied(lease: Lease, denial: Denial): Step {
+  private denied(lease: Lease, denial: ReviewDenial): Step {
     const ts = this.ts()
     const reason = denial.kind === 'technical' ? denial.reason : denial.rule
     const event: BusEvent = {
@@ -410,7 +424,8 @@ export class ReviewExecutor {
     }
     if (reason === STALE_HEAD)
       return { kind: 'denied', taskKey: lease.taskKey, denial, next: supersedeLease(this.parts.db, ts, lease, [event]) }
-    const next = failTask(this.parts.db, ts, lease, { reason, withdraw: denial.kind === 'authority' }, [event])
+    const atTheCeiling = reason === REVIEW_CEILING
+    const next = failTask(this.parts.db, ts, lease, { reason, withdraw: denial.kind === 'authority' || atTheCeiling }, [event, ...(atTheCeiling ? [this.ceilingAlarm(lease, ts)] : [])])
     return { kind: 'denied', taskKey: lease.taskKey, denial, next }
   }
 }
