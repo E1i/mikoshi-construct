@@ -19,7 +19,7 @@ const READ_BY: Record<string, string> = {
   '.claude/skills/probe/SKILL.md': 'scripts/nodes/launch/prompt.ts',
   '.claude/eddies.json': 'scripts/cli/board-page.ts',
   '.claude/settings.json': 'scripts/ports/isolation.ts',
-  'architecture/decisions/window-allow-merge.md': 'scripts/window/window-requests.ts',
+  'architecture/decisions/window-allow-merge.md': 'scripts/window/requests/allow-merge.ts',
   'architecture/owner-merges.md': 'scripts/policy/policy.ts',
   'scripts/construct/check-acceptance.mjs': 'scripts/ladder/hash.ts',
   'scripts/construct/eddies.mjs': '.claude/settings.json',

@@ -13,9 +13,13 @@ const ASKED = 7
 const PAYLOAD = { kind: 'seeded' }
 
 describe('the window requests: one file per kind, one dispatcher over REQUEST_KINDS', () => {
-  it('every request kind has its own file under scripts/window/requests', () => {
-    for (const kind of REQUEST_KINDS)
-      expect(existsSync(path.join(REQUESTS_DIR, requestFileOf(kind))), kind).toBe(true)
+  it('every request kind has its own file and the dispatcher reaches it', async () => {
+    for (const kind of REQUEST_KINDS) {
+      const kindFile = path.join(REQUESTS_DIR, requestFileOf(kind))
+      expect(existsSync(kindFile), kind).toBe(true)
+      const file = await import(pathToFileURL(kindFile).href) as { execute: unknown }
+      expect(REQUEST_EXECUTORS[kind], kind).toBe(file.execute)
+    }
   })
 
   it('no two kinds share a file, and every file there is a kind or a named shared part', () => {
@@ -26,13 +30,6 @@ describe('the window requests: one file per kind, one dispatcher over REQUEST_KI
 
   it('the dispatcher names exactly the kinds of REQUEST_KINDS', () => {
     expect(Object.keys(REQUEST_EXECUTORS).sort()).toEqual([...REQUEST_KINDS].sort())
-  })
-
-  it('the dispatcher reaches the executor its kind file exports', async () => {
-    for (const kind of REQUEST_KINDS) {
-      const file = await import(pathToFileURL(path.join(REQUESTS_DIR, requestFileOf(kind))).href) as { execute: unknown }
-      expect(REQUEST_EXECUTORS[kind], kind).toBe(file.execute)
-    }
   })
 
   it('dispatchRequest answers with the executor of the kind it is given', () => {
