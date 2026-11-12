@@ -17,7 +17,7 @@ import { CI_RERUN_REQUESTED, COMMAND_EXECUTED, POLICY_ALLOWED, POLICY_DENIED, RE
 import { assertHeld, completeTask, failTask, releaseTask, StaleLease } from '../../core/lease.js'
 import { rerunDueOn } from '../../core/observations.js'
 import { KEPT_BY_PUSH_POLICY } from '../../core/push-policy.js'
-import { COMPLETED, MERGE_REFUSED, updateTurnHeldFrom } from '../../core/queue.js'
+import { COMPLETED, dependencyUpdateDueOn, MERGE_REFUSED, updateTurnHeldFrom } from '../../core/queue.js'
 import { cardContract, NOT_MINE, notMine } from '../../intake/card-contract.js'
 import { rerunFailedJobsEndpoint, runsOnHeadEndpoint } from '../../ports/ci-reading.js'
 import { REVIEW_STATUS_CONTEXT } from '../../ports/github-status.js'
@@ -293,7 +293,7 @@ export class UpdateExecutor {
         return { kind: 'denied', denial: technical('not_mergeable', `#${lease.pr} is ${pull.mergeable_state ?? 'not computed yet'}`) }
       if (mergeable === 'dirty' && this.parts.mergeMain !== undefined)
         return { kind: 'conflicting' }
-      const refused = this.parts.rerun === 'by-layers' ? this.byLayers(meter, pull, lease, mergeable) : this.notBehind(lease, mergeable)
+      const refused = this.refusal(meter, pull, lease, mergeable)
       if (refused !== null)
         return { kind: 'denied', denial: refused }
       return { kind: 'ready', before: { verdict: verdictOf(meter, lease.head!), files: diffOf(meter, lease.pr!) } }
@@ -301,6 +301,12 @@ export class UpdateExecutor {
     catch (error) {
       return { kind: 'denied', denial: technical('github_error', messageOf(error)) }
     }
+  }
+
+  private refusal(meter: Meter, pull: Pull, lease: Lease, mergeable: string): UpdateDenial | null {
+    if (mergeable !== 'dirty' && dependencyUpdateDueOn(this.parts.db, { card: lease.cardId, pr: lease.pr!, head: lease.head! }))
+      return null
+    return this.parts.rerun === 'by-layers' ? this.byLayers(meter, pull, lease, mergeable) : this.notBehind(lease, mergeable)
   }
 
   private notBehind(lease: Lease, mergeable: string): UpdateDenial | null {
