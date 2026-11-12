@@ -83,6 +83,29 @@ function draftFields(root: string): Record<string, string> {
     Object.entries(interfaceFields(source, name, DRAFT_MODULE)).map(([field, type]) => [`${prefix}${field}`, type])))
 }
 
+export const GENERATED_WAITS_FROM = 'export const WAIT_LIFTERS = '
+
+export function cardWaitsCode(waits: Readonly<Record<string, WaitTerm>>): string {
+  const lifters = [...new Set(Object.values(waits).map(term => term.lifter))]
+  return [
+    `${GENERATED_WAITS_FROM}[${lifters.map(lifter => `'${lifter}'`).join(', ')}] as const`,
+    '',
+    'export type WaitLifter = typeof WAIT_LIFTERS[number]',
+    '',
+    'export interface WaitTerm {',
+    '  lifter: WaitLifter',
+    '  deadlineMinutes: number',
+    '}',
+    '',
+    'export const CARD_WAITS = {',
+    ...Object.entries(waits).map(([kind, term]) => `  ${kind}: { lifter: '${term.lifter}', deadlineMinutes: ${term.deadlineMinutes} },`),
+    '} as const satisfies Record<string, WaitTerm>',
+    '',
+    'export type WaitKind = keyof typeof CARD_WAITS',
+    '',
+  ].join('\n')
+}
+
 export function cardSection(root: string): CardSection {
   const source = ts.createSourceFile(CARD_CONTRACT_MODULE, readFileSync(path.join(root, CARD_CONTRACT_MODULE), 'utf8'), ts.ScriptTarget.Latest, true)
   const fields = { ...interfaceFields(source, FIELDS_INTERFACE, CARD_CONTRACT_MODULE), ...bodyLabels(cardGrammarFiles(root)), ...draftFields(root) }

@@ -364,6 +364,60 @@ export function typedReading(root: string, files: readonly ParsedFile[]): { file
   }
 }
 
+export const GENERATED_EVENTS_FROM = `export const ${THE_DECLARATION} = {`
+
+const EVENT_ACCESS_CODE = [
+  `} as const satisfies Record<string, readonly string[]>`,
+  '',
+  `export type EventType = keyof typeof ${THE_DECLARATION}`,
+  '',
+  `export type PayloadKey<T extends EventType> = (typeof ${THE_DECLARATION})[T][number]`,
+  '',
+  'export type EventPayload<T extends EventType> = { readonly [K in PayloadKey<T>]?: unknown }',
+  '',
+  'export type Declared<T extends EventType, P> = P & { readonly [K in Exclude<keyof P, PayloadKey<T>>]: never }',
+  '',
+  `export function ${REFUSED_AT_WRITE_TIME}<T extends EventType>(type: T, payload: object): EventPayload<T> {`,
+  `  const declared: readonly string[] = ${THE_DECLARATION}[type]`,
+  '  const undeclared = Object.keys(payload).filter(key => !declared.includes(key))',
+  '  if (undeclared.length > 0)',
+  `    throw new Error(\`\${type} declares no payload key \${undeclared.join(', ')} in ${THE_DECLARATION} of scripts/core/events.ts; nothing written\`)`,
+  '  return payload as EventPayload<T>',
+  '}',
+  '',
+  'export function declaredPart<T extends EventType>(type: T, stored: object): EventPayload<T> {',
+  `  const declared: readonly string[] = ${THE_DECLARATION}[type]`,
+  '  return Object.fromEntries(Object.entries(stored).filter(([key]) => declared.includes(key))) as EventPayload<T>',
+  '}',
+  '',
+  'export function catalogued(type: string): EventType {',
+  `  if (!Object.hasOwn(${THE_DECLARATION}, type))`,
+  `    throw new Error(\`\${type} declares no payload in ${THE_DECLARATION} of scripts/core/events.ts, so nothing may write or fold it\`)`,
+  '  return type as EventType',
+  '}',
+  '',
+]
+
+function constantsByType(names: ReadonlyMap<string, string>): Map<string, string> {
+  const constants = new Map<string, string>()
+  names.forEach((type, constant) => {
+    if (!constants.has(type))
+      constants.set(type, constant)
+  })
+  return constants
+}
+
+export function eventsCode(events: Readonly<Record<string, { keys: readonly string[] }>>, names: ReadonlyMap<string, string>): string {
+  const constants = constantsByType(names)
+  const rows = Object.entries(events).map(([type, { keys }]) => {
+    const constant = constants.get(type)
+    if (constant === undefined)
+      throw new Error(`the contract declares event ${type}, which no constant of scripts/core/events.ts names`)
+    return `  [${constant}]: [${keys.map(key => `'${key}'`).join(', ')}],`
+  })
+  return [GENERATED_EVENTS_FROM, ...rows, ...EVENT_ACCESS_CODE].join('\n')
+}
+
 export function writtenEvents(files: readonly ParsedFile[], catalogue: Catalogue, checker: ts.TypeChecker | null = null): WrittenEvents {
   const values = new Set(catalogue.payloads.keys())
   const tallies = new Map<string, Tally>()
