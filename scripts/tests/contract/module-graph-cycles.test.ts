@@ -17,6 +17,7 @@ function specOf(mayUse: Record<string, string[]>): ModuleGraphSpec {
   return {
     modules: carvedOut(Object.fromEntries(Object.entries(mayUse).map(([name, uses]) => [name, moduleOf(name, uses)]))),
     composition_roots: [],
+    composition_imports: {},
     exclusions: { tests: [], fixtures: [], templates: [], generated: [], tooling: [] },
   }
 }

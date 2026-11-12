@@ -11,6 +11,8 @@ export type OwnershipFault
     | { kind: 'contract-outside-owns', module: string, glob: string }
     | { kind: 'glob-matches-nothing', holder: string, glob: string }
     | { kind: 'unknown-may-use', module: string, target: string }
+    | { kind: 'composition-import-not-root', root: string }
+    | { kind: 'composition-importer-missing', root: string, importer: string }
 
 export function sourceFiles(root: string, trees: readonly string[] = SOURCE_TREES): string[] {
   return trees
@@ -62,8 +64,15 @@ function mayUseFaults(spec: ModuleGraphSpec): OwnershipFault[] {
     .map((target): OwnershipFault => ({ kind: 'unknown-may-use', module, target })))
 }
 
+function compositionImportFaults(spec: ModuleGraphSpec, files: readonly string[]): OwnershipFault[] {
+  return Object.entries(spec.composition_imports).flatMap(([root, importers]): OwnershipFault[] => [
+    ...(spec.composition_roots.includes(root) ? [] : [{ kind: 'composition-import-not-root', root } as const]),
+    ...importers.filter(importer => !files.includes(importer)).map((importer): OwnershipFault => ({ kind: 'composition-importer-missing', root, importer })),
+  ])
+}
+
 export function ownershipFaults(spec: ModuleGraphSpec, files: readonly string[]): OwnershipFault[] {
-  return [...fileFaults(spec, files), ...staleGlobs(spec, files), ...contractFaults(spec, files), ...mayUseFaults(spec)]
+  return [...fileFaults(spec, files), ...staleGlobs(spec, files), ...contractFaults(spec, files), ...mayUseFaults(spec), ...compositionImportFaults(spec, files)]
 }
 
 export function faultLine(fault: OwnershipFault): string {
@@ -78,5 +87,9 @@ export function faultLine(fault: OwnershipFault): string {
       return `${fault.holder}: ${fault.glob} matches no file`
     case 'unknown-may-use':
       return `${fault.module}: may_use names ${fault.target}, which is not another module`
+    case 'composition-import-not-root':
+      return `composition_imports: ${fault.root} is not a composition root`
+    case 'composition-importer-missing':
+      return `composition_imports: ${fault.root} lists ${fault.importer}, which matches no file`
   }
 }
