@@ -119,6 +119,12 @@ describe('intake reads the decisions in force: a witness moved to another card i
     admitted(merged, SLICE_TWO, cardText(SLICE_TWO, 'slice-two', MOVING), 'merged')
     expect(amendSliceOne(merged, [STAYING])).toMatchObject({ status: 'ownerWait', actions: MOVING.map(each => `разрешить понижение свидетеля #${SLICE_ONE} ${each.id}`) })
 
+    const dropped = bench()
+    admitted(dropped, SLICE_ONE, cardText(SLICE_ONE, 'slice-one', [...MOVING, STAYING]))
+    admitted(dropped, SLICE_TWO, cardText(SLICE_TWO, 'slice-two', MOVING), 'dropped')
+    expect(amendSliceOne(dropped, [STAYING])).toMatchObject({ status: 'ownerWait', actions: MOVING.map(each => `разрешить понижение свидетеля #${SLICE_ONE} ${each.id}`) })
+    expect(downgradeWaits(dropped)).toHaveLength(1)
+
     const unruled = bench()
     unruled.decisions = []
     admitted(unruled, SLICE_ONE, cardText(SLICE_ONE, 'slice-one', [...MOVING, STAYING]))
