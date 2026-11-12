@@ -15,7 +15,7 @@ import { fileURLToPath } from 'node:url'
 import { defaultBusPath } from '../../core/db.js'
 import { CARD_VERIFIED, PR_CLOSED, PR_OPENED, REDUCED, WITNESS_RECORDED } from '../../core/events.js'
 import { Node, prefixOf, runNode, UNDERSTOOD_NOW } from '../../core/node.js'
-import { closeCandidates, reportCloseTask } from '../../core/queue.js'
+import { answerCardBodyOf, cardBodyShaOfCard, closeCandidates } from '../../core/queue.js'
 import { loadedCodeSha } from '../../ports/git.js'
 import { stampLogOutput } from '../../supervisor/stamp.js'
 import { cardClosed, CloseExecutor, failureOf, probeClosingCardIds } from './close-executor.js'
@@ -45,7 +45,12 @@ export interface CloseNodeParts {
 }
 
 function probeCandidates(db: DatabaseSync): QueuedTask[] {
-  return probeClosingCardIds(db).map(cardId => reportCloseTask(db, cardId, cardClosed(db, cardId)))
+  return probeClosingCardIds(db).map(cardId => reportCloseTask(db, cardId))
+}
+
+function reportCloseTask(db: DatabaseSync, cardId: number): QueuedTask {
+  const cardBody = cardClosed(db, cardId) ? answerCardBodyOf({ card_body: cardBodyShaOfCard(db, cardId) }) : undefined
+  return cardBody === undefined ? { queue: 'close', cardId } : { queue: 'close', cardId, cardBody }
 }
 
 function scopeOf(event: StoredEvent): Scope | undefined {

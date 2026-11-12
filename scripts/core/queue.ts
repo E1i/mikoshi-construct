@@ -916,11 +916,6 @@ export function closeCandidates(db: DatabaseSync, ts: string): QueuedTask[] {
   return openCandidates(db, ts, 'close', candidateRows(db, CLOSE_CANDIDATES, everyRow))
 }
 
-export function reportCloseTask(db: DatabaseSync, cardId: number, closedOnceAlready: boolean): QueuedTask {
-  const cardBody = closedOnceAlready ? answerCardBodyOf({ card_body: cardBodyShaOfCard(db, cardId) }) : undefined
-  return cardBody === undefined ? { queue: 'close', cardId } : { queue: 'close', cardId, cardBody }
-}
-
 const ANSWER_CANDIDATES = [QUESTION_CANDIDATES, CHANGES_CANDIDATES, RED_CI_CANDIDATES, DIRTY_THE_UPDATE_COULD_NOT_MERGE, RED_WITNESS_CANDIDATES] as const
 
 const ANSWERS_LEASED_NOW = `SELECT card_id, task_key FROM tasks WHERE queue = 'answer' AND state = '${LEASED}'`
