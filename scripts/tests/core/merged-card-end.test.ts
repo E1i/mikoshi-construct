@@ -83,7 +83,7 @@ function stopLate(bench: Bench): void {
 }
 
 function board(bench: Bench): ReturnType<typeof readBoard> {
-  return readBoard({ db: bench.db, now: BOARD_READ_AT, watched: [], leaseOrders: {} })
+  return readBoard({ db: bench.db, now: BOARD_READ_AT, watched: [], leaseOrders: {}, projections: busProjections() })
 }
 
 function closedEvent(bench: Bench): number {

@@ -11,6 +11,7 @@ import { CARDS, copyEvent, IN_ORDER_MARK, OWNER_WAITS, readCurrent } from '../..
 import { appendEvent, openBus, openOwnerWait } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_STOPPED, CARD_WAITS, PR_OPENED, WAIT_LIFTERS } from '../../core/events.js'
 import { markReduced } from '../../core/watermark.js'
+import { busProjections } from '../../supervisor/composition.js'
 import { cardWaits, readAtLine, readBoard, waitText } from '../../window/board.js'
 import { stateLines } from '../../window/handoff-write.js'
 
@@ -135,7 +136,7 @@ describe('card wait states', () => {
   it('the board and the handoff print the wait the contract record holds and nothing else', () => {
     const { db } = standingCards()
     const records = byCard(cardWaits(db, NOW).waits)
-    const board = readBoard({ db, now: NOW, watched: [], leaseOrders: {} })
+    const board = readBoard({ db, now: NOW, watched: [], leaseOrders: {}, projections: busProjections() })
     const queued = [...board.ready, ...board.waiting, ...board.blocked]
 
     expect(queued.map(card => Number(card.card)).sort()).toEqual([...records.keys()].sort())
@@ -158,7 +159,7 @@ describe('card wait states', () => {
   it('a reading from a copy names the event it was taken at', () => {
     const { db } = standingCards()
     const last = Number((db.prepare('SELECT max(id) AS id FROM events').get() as { id: number }).id)
-    const boardAt = (): number => readBoard({ db, now: NOW, watched: [], leaseOrders: {} }).waitsAt
+    const boardAt = (): number => readBoard({ db, now: NOW, watched: [], leaseOrders: {}, projections: busProjections() }).waitsAt
 
     expect(readCurrent(db, [CARDS], () => 'rows').stale).toMatchObject({ through: 0 })
     expect(cardWaits(db, NOW).at).toBe(0)
@@ -171,7 +172,7 @@ describe('card wait states', () => {
     const fresh = readCurrent(db, [CARDS], () => 'rows')
     expect(fresh.stale === null ? fresh.at : null).toBe(copyEvent(db, [CARDS]))
 
-    const board = readBoard({ db, now: NOW, watched: [], leaseOrders: {} })
+    const board = readBoard({ db, now: NOW, watched: [], leaseOrders: {}, projections: busProjections() })
     expect(stateLines(board).find(line => line.startsWith('blocked:'))).toMatch(new RegExp(`\\(${readAtLine(last)}\\)$`))
     for (const card of [...board.ready, ...board.waiting, ...board.blocked])
       expect(card.wait.event, `#${card.card}`).toBeGreaterThan(0)

@@ -161,7 +161,7 @@ describe('the factory board', () => {
     const bench = boardBench()
     conflictingSources()
     seedProjections(bench)
-    const board = readBoard({ db: bench.db, now: bench.clock.now(), watched: [], leaseOrders: {} })
+    const board = readBoard({ db: bench.db, now: bench.clock.now(), watched: [], leaseOrders: {}, projections: busProjections() })
     const shown = (cards: Board['ready']): string[] => cards.map(card => `${card.card} ${card.lane} ${card.wait.kind} ${card.wait.lifter} ${card.reason}`)
     expect(shown(board.ready)).toEqual([expect.stringMatching(/^861 lane-1 launch bus launch startable, the bus lifts it by /), expect.stringMatching(/^860 lane-1 launch bus /)])
     expect(shown(board.waiting)).toEqual([expect.stringMatching(/^862 lane-2 depends bus depends #860 not merged, the bus lifts it by /)])
@@ -180,7 +180,7 @@ describe('the factory board', () => {
     expect(printed.join('')).not.toContain('#999')
 
     bench.db.prepare('UPDATE cards SET state = ? WHERE card_id = ?').run('merged', 860)
-    expect(readBoard({ db: bench.db, now: bench.clock.now(), watched: [], leaseOrders: {} }).waiting).toEqual([])
+    expect(readBoard({ db: bench.db, now: bench.clock.now(), watched: [], leaseOrders: {}, projections: busProjections() }).waiting).toEqual([])
   })
 
   function liveBusCopy(): string {
@@ -302,7 +302,7 @@ describe('the factory board', () => {
     ]
     const bench = boardBench()
     cases.forEach((each, index) => bodyRow(bench, 900 + index, each.columns))
-    const board = readBoard({ db: bench.db, now: bench.clock.now(), watched: [], leaseOrders: {} })
+    const board = readBoard({ db: bench.db, now: bench.clock.now(), watched: [], leaseOrders: {}, projections: busProjections() })
     const found = (queue: 'ready' | 'waiting' | 'blocked'): string[] => board[queue].map(card => cases[Number(card.card) - 900]!.name)
     expect(found('ready')).toEqual(cases.filter(each => each.queue === 'ready').map(each => each.name))
     expect(found('blocked')).toEqual(['stopped without a stop event'])
@@ -316,7 +316,7 @@ describe('the factory board', () => {
     bodyRow(bench, 911, { lane: 'lane-1' })
     bodyRow(bench, 912, { lane: 'lane-2', priority: 'p0' })
     bodyRow(bench, 913, { lane: 'lane-1' })
-    expect(readBoard({ db: bench.db, now: bench.clock.now(), watched: [], leaseOrders: {} }).ready.map(card => card.card)).toEqual(['912', '911', '913', '910'])
+    expect(readBoard({ db: bench.db, now: bench.clock.now(), watched: [], leaseOrders: {}, projections: busProjections() }).ready.map(card => card.card)).toEqual(['912', '911', '913', '910'])
   })
 
   it('the answer queue lists its leased task with holder, lease_gen and since, and its waiting tasks #849, #837, #847 in grant order', () => {
@@ -413,7 +413,7 @@ describe('the factory board', () => {
 
   it('the board shows the active shard, its scope and the time left', () => {
     const bench = boardBench()
-    const read = (at: string): Board => readBoard({ db: bench.db, now: new Date(at), watched: [], leaseOrders: {} })
+    const read = (at: string): Board => readBoard({ db: bench.db, now: new Date(at), watched: [], leaseOrders: {}, projections: busProjections() })
     expect(read('2026-10-18T09:00:00.000Z').shard).toBeNull()
     appendEvent(bench.db, { ts: '2026-10-18T09:00:00.000Z', type: SHARD_ISSUED, actor: 'owner', cardId: null, pr: null, head: null, dedupeKey: `${SHARD_ISSUED}:w1`, payload: { id: 'w1', by: 'Eli', run: null, window: true, scope: 'merge+decisions', until: '2026-10-18T15:00:00.000Z' }, legacy: false })
     const board = read('2026-10-18T10:30:00.000Z')
@@ -560,12 +560,6 @@ describe('the factory board', () => {
     expect(contract.get('replay')?.fact).toBe('matches')
   })
 
-  it('a board read given no projection list reads the replay link red and says it did not replay', () => {
-    const bench = boardBench()
-    const replay = readBoard({ db: bench.db, now: bench.clock.now(), watched: [], leaseOrders: {} }).contract.find(link => link.link === 'replay')
-    expect(replay).toEqual(expect.objectContaining({ green: false, fact: 'not replayed: this reading was given no projection list' }))
-  })
-
   it('a missed supervisor restart reads red on the contract row', () => {
     const bench = boardBench()
     expect(bench.tick().contract.find(link => link.link === RESTART_MISSED)).toMatchObject({ green: true })
@@ -658,7 +652,7 @@ describe('the factory board', () => {
 
   it('the header goal comes from the cards of the open release, never from a decision or a Path line', () => {
     const bench = boardBench()
-    const read = (): Board => readBoard({ db: bench.db, now: bench.clock.now(), watched: [], leaseOrders: {} })
+    const read = (): Board => readBoard({ db: bench.db, now: bench.clock.now(), watched: [], leaseOrders: {}, projections: busProjections() })
     bodyRow(bench, 920, { lane: 'lane-1', state: MERGED_CARD, text: 'do it\n\nPath (D-76): cheap — 0.44, slice S\n' })
     bodyRow(bench, 921, { lane: 'lane-1', state: 'queued' })
     bodyRow(bench, 922, { lane: 'lane-1', state: 'queued' })

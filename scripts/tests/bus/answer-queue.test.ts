@@ -917,7 +917,7 @@ describe('the answer queue', () => {
     expect(eventsOf(bench.db, CARD_STOPPED)).toEqual([])
     bench.tick()
 
-    const row = readBoard({ db: bench.db, now: bench.clock.now(), watched: [], leaseOrders: {} }).execution.find(each => each.card === 1171)
+    const row = readBoard({ db: bench.db, now: bench.clock.now(), watched: [], leaseOrders: {}, projections: busProjections() }).execution.find(each => each.card === 1171)
     expect(row).toMatchObject({ pr: 1071, stage: 'fixes', markers: [] })
     bench.close()
   })

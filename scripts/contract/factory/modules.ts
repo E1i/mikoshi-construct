@@ -176,7 +176,7 @@ export const EXCLUSIONS: Readonly<Record<ExclusionKind, readonly string[]>> = {
 
 const WORKER_ENTRIES = [...['answer', 'close', 'merge', 'restart', 'review', 'update', 'witness'].map(name => factory(`nodes/${name}/${name}-worker.ts`)), factory('nodes/launch/launch-root.ts')]
 
-const PROCESS_ROOTS = [...supervisor('start', 'run', 'supervisor', 'review-bg'), ...core('report.ts', 'reducer.ts'), ...WORKER_ENTRIES]
+const PROCESS_ROOTS = [...supervisor('start', 'run', 'supervisor', 'review-bg'), ...core('report.ts', 'reducer.ts'), ...WORKER_ENTRIES, factory('window/handoff-write.ts')]
 
 export const COMPOSITION_IMPORTS: Readonly<Record<string, readonly string[]>> = { [COMPOSITION_MODULE]: PROCESS_ROOTS }
 

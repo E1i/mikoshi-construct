@@ -93,7 +93,7 @@ function eventId(bench: Bench, type: string): number {
 }
 
 function stalled(bench: Bench): boolean {
-  return readBoard({ db: bench.db, now: BOARD_READ_AT, watched: [], leaseOrders: {} }).progress.stalled
+  return readBoard({ db: bench.db, now: BOARD_READ_AT, watched: [], leaseOrders: {}, projections: busProjections() }).progress.stalled
 }
 
 function verificationLine(bench: Bench): string {

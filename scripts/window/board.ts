@@ -46,7 +46,7 @@ export interface BoardSources {
   now: Date
   watched: readonly Watched[]
   leaseOrders: LeaseOrders
-  projections?: Projections
+  projections: Projections
 }
 
 export type LeaseOrders = Partial<Record<Queue, LeaseOrder>>
@@ -506,14 +506,12 @@ function judgedSilentLink(db: DatabaseSync): ContractLink {
   return link(SILENT_PROCESS, silent.length === 0, silent.length === 0 ? 'no process judged silent' : `judged silent, no heartbeat since: ${silent.map(judged => `${judged.process} (last beat ${judged.lastBeat})`).join(', ')}`)
 }
 
-function replayLink(db: DatabaseSync, projections: Projections | undefined): ContractLink {
-  if (projections === undefined)
-    return link('replay', false, 'not replayed: this reading was given no projection list')
+function replayLink(db: DatabaseSync, projections: Projections): ContractLink {
   const replayed = replayDifferences(db, projections).differences.length === 0
   return link('replay', replayed, replayed ? 'matches' : 'differs')
 }
 
-function contractRow(db: DatabaseSync, projections: Projections | undefined): ContractLink[] {
+function contractRow(db: DatabaseSync, projections: Projections): ContractLink[] {
   const started = count(db, `SELECT count(*) AS n FROM events WHERE type = '${CARD_STARTED}' AND legacy = 0`)
   const answered = count(db, `SELECT count(*) AS n FROM events WHERE type = '${TASK_COMPLETED}' AND legacy = 0 AND json_extract(payload, '$.queue') = 'answer'`)
   const shards = count(db, `SELECT count(*) AS n FROM events WHERE type = '${MERGE_DONE}' AND legacy = 0 AND json_extract(payload, '$.rule') != 'auto'`)
