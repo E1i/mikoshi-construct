@@ -185,20 +185,6 @@
   },
   {
     "type": "dependency",
-    "from": "scripts/core/node.ts",
-    "to": "scripts/window/operator-work.ts",
-    "unresolvedTo": "../window/operator-work.js",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "core-imports-nothing-to-its-right"
-    }
-  },
-  {
-    "type": "dependency",
     "from": "scripts/core/observations.ts",
     "to": "scripts/ports/snapshot.ts",
     "unresolvedTo": "../ports/snapshot.js",

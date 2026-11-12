@@ -23,9 +23,13 @@ export function markReduced(db: DatabaseSync, table: string, through: number): v
   `).run(table, through)
 }
 
+export function lastEventId(db: DatabaseSync): number {
+  return Number((db.prepare('SELECT coalesce(max(id), 0) AS id FROM events').get() as { id: number }).id)
+}
+
 export function reduceProjection(db: DatabaseSync, projection: IncrementalProjection): void {
   const from = watermarkOf(db, projection.table)
-  const through = Number((db.prepare('SELECT coalesce(max(id), 0) AS id FROM events').get() as { id: number }).id)
+  const through = lastEventId(db)
   const types = Object.keys(projection.folds)
   const events = db.prepare(`SELECT ${STORED_COLUMNS} FROM events WHERE id > ? AND id <= ? AND legacy = 0 AND type IN (${types.map(() => '?').join(', ')}) ORDER BY id`)
     .all(from, through, ...types) as unknown as StoredEvent[]
