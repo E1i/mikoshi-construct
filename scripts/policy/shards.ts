@@ -28,10 +28,9 @@ const SENTENCE_END = /(?<=[.?!;])\s+/
 const DROPS_A_WITNESS = /\b(?:drop|dropp(?:ed|ing)|remov(?:e|ed|ing))\s[^.?!]*witness|witness(?:es)?\s[^.?!]*\b(?:dropped|removed)\b/i
 const WITNESS_REF = String.raw`(?:(?:the\s+)?witness(?:es)?(?:\s+W\d+)?|W\d+)`
 const TO_ANOTHER_CARD = String.raw`(?:to|into)\s+(?:another\s+card|(?:card\s+)?#\d+|(?:the\s+)?node-contract-suite)\b`
-const OFF_THIS_CARD = String.raw`(?:(?:removed|dropped|taken)\s+(?:from|off)\s+(?:this|the)\s+card\s+and\s+)?`
 const BEING = String.raw`(?:(?:is|was|are|were|gets|got|has\s+been|have\s+been)\s+)?`
 const MOVES_THE_WITNESS = new RegExp(String.raw`\b(?:mov(?:e|es|ing)|transfer(?:s|ring)?|carr(?:y|ies|ying))\s+${WITNESS_REF}\s+${TO_ANOTHER_CARD}`, 'i')
-const THE_WITNESS_IS_MOVED = new RegExp(String.raw`\b${WITNESS_REF}\s+${BEING}${OFF_THIS_CARD}(?:moved|transferred|carried)\s+${TO_ANOTHER_CARD}`, 'i')
+const THE_WITNESS_IS_MOVED = new RegExp(String.raw`\b${WITNESS_REF}\s+${BEING}(?:moved|transferred|carried)\s+${TO_ANOTHER_CARD}`, 'i')
 const NEGATES = /\b(?:not|never|no|nor|cannot)\b|n't\b/i
 const WITNESS_ID = /\bW\d+\b/g
 const WITNESS_WORD = /\bwitness(?:es)?\b/gi
@@ -46,11 +45,11 @@ function sentencesOf(question: string): string[] {
 }
 
 function movesAWitness(sentence: string): boolean {
-  return (MOVES_THE_WITNESS.test(sentence) || THE_WITNESS_IS_MOVED.test(sentence)) && !NEGATES.test(sentence) && namesOneWitness(sentence)
+  return !DROPS_A_WITNESS.test(sentence) && (MOVES_THE_WITNESS.test(sentence) || THE_WITNESS_IS_MOVED.test(sentence)) && !NEGATES.test(sentence) && namesOneWitness(sentence)
 }
 
 export function witnessDropped(question: string): boolean {
-  return sentencesOf(question).some(sentence => DROPS_A_WITNESS.test(sentence) && !movesAWitness(sentence))
+  return sentencesOf(question).some(sentence => DROPS_A_WITNESS.test(sentence))
 }
 
 export function witnessMoved(question: string): boolean {

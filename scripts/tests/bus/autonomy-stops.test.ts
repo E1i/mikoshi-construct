@@ -8,7 +8,7 @@ import { appendEvent, openBusWait } from '../../core/db.js'
 import { CARD_STOPPED, QUESTION_OWNER, SHARD_ISSUED } from '../../core/events.js'
 import { reduce } from '../../core/reducer.js'
 import { OWNER_EVEN_UNDER_THE_DECISION } from '../../policy/policy.js'
-import { AGENT_QUESTION, cardDecisionCommand, deciderUnderAShard, DECISIONS_SCOPE, DROPPED_WITNESS, OWNER_DECIDES, OWNERS_OF_A_STOP, OWNERS_UNDER_ANY_SHARD, STOP_DECIDERS_UNDER_A_SHARD, STOP_KINDS, stopKindOf, WINDOW_DECIDES, WITNESS_MOVED } from '../../policy/shards.js'
+import { AGENT_QUESTION, cardDecisionCommand, deciderUnderAShard, DECISIONS_SCOPE, DROPPED_WITNESS, OWNER_DECIDES, OWNERS_OF_A_STOP, OWNERS_UNDER_ANY_SHARD, STOP_DECIDERS_UNDER_A_SHARD, STOP_KINDS, stopKindOf, WINDOW_DECIDES, WITNESS_MOVED, witnessMoved } from '../../policy/shards.js'
 import { runRequest, WindowRequests } from '../../window/window-requests.js'
 import { mergeBench } from './merge-bench.js'
 
@@ -70,8 +70,9 @@ describe('autonomy stops under a shard', () => {
   it('a witness moved to another card is not held as a downgrade', () => {
     for (const moved of [
       'the witness W2 moved to card #1775 with law 2; may this card go on without it?',
-      'witness W2 is removed from this card and moved to #1775.',
-      'W3 was dropped here: the witness is carried into the node-contract-suite.',
+      'move the witness W2 to card #1775 with law 2.',
+      'the witness is carried into the node-contract-suite.',
+      'the witness W2 moved to card #1775; the witness W3 stays here.',
     ]) {
       expect(stopKindOf(moved)).toBe(WITNESS_MOVED)
       expect(deciderUnderAShard(moved)).toBe(WINDOW_DECIDES)
@@ -83,10 +84,20 @@ describe('autonomy stops under a shard', () => {
       'drop the witness W2 and move the code to card #1775',
       'drop the witness W2 and move the tests to card #1775',
       'the witness W2 is dropped and the code moved to card #1775.',
+      'witness W2 is removed from this card and moved to #1775.',
+      'W3 was dropped here: the witness is carried into the node-contract-suite.',
     ]) {
       expect(stopKindOf(dropped)).toBe(DROPPED_WITNESS)
+      expect(witnessMoved(dropped)).toBe(false)
       expect(deciderUnderAShard(dropped)).toBe(OWNER_DECIDES)
       expect(windowClosesTheStopOn(dropped).kind).toBe('refused')
+    }
+    for (const elsewhere of [
+      'the witness W2 moved to the end of the list; may the card go on?',
+      'move the witness W2 to the top of the file.',
+    ]) {
+      expect(stopKindOf(elsewhere)).toBe(AGENT_QUESTION)
+      expect(deciderUnderAShard(elsewhere)).toBe(WINDOW_DECIDES)
     }
     const lost = 'may I drop the witness W2 of this card? Its law moved to card #1775.'
     expect(stopKindOf(lost)).toBe(DROPPED_WITNESS)
