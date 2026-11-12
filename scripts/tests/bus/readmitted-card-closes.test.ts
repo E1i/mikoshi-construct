@@ -116,3 +116,9 @@ describe('a re-admitted card closes again', () => {
     expect(closeTasks(made)).toEqual([{ task_key: keyOf({ queue: 'close', cardId: CARD }), state: 'completed' }])
   })
 })
+
+describe('a card body sha outside its queues', () => {
+  it('names the refused queue after a colon and a space', () => {
+    expect(() => keyOf({ queue: 'review', cardId: CARD, cardBody: 'ec61c8323d8b' })).toThrow('or a witness or a close task: review, ec61c8323d8b')
+  })
+})

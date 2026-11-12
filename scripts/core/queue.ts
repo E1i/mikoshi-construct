@@ -825,7 +825,7 @@ function cardBodySegment(task: QueuedTask): string {
   if (task.cardBody === undefined)
     return ''
   if (!CARD_BODY_QUEUES.includes(task.queue) || !BODY_SHA.test(task.cardBody))
-    throw new Error(`only an answer task carries a card body sha, or a witness or a close task:${task.queue}, ${task.cardBody}`)
+    throw new Error(`only an answer task carries a card body sha, or a witness or a close task: ${task.queue}, ${task.cardBody}`)
   return `:card-body-${task.cardBody}`
 }
 
