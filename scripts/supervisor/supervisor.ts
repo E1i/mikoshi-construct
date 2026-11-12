@@ -1164,10 +1164,9 @@ export async function startBus(busDir: string = pinnedBusDir(), everyProcess: Pr
 
 async function main(): Promise<void> {
   const busDir = pinnedBusDir()
-  const cwd = process.cwd()
   const command = bgCommand(process.argv.slice(2))
   if (command.kind === 'supervise') {
-    process.exitCode = await supervise(busDir, cwd, reviewPreflight)
+    process.exitCode = await supervise(busDir, process.cwd(), reviewPreflight)
     return
   }
   if (command.kind === 'switch') {

@@ -1,3 +1,22 @@
+import { execFileSync } from 'node:child_process'
+import process from 'node:process'
+
+const MODULE_SPEC = './scripts/contract/factory/modules.ts'
+const SPEC_READER = `import { COMPOSITION_MODULE, MODULE_GRAPH } from '${MODULE_SPEC}'
+process.stdout.write(JSON.stringify({ module: COMPOSITION_MODULE, importers: MODULE_GRAPH.composition_imports[COMPOSITION_MODULE] ?? [], tests: MODULE_GRAPH.exclusions.tests }))`
+const COMPOSITION = JSON.parse(execFileSync(process.execPath, ['--import', 'tsx', '--input-type=module', '--eval', SPEC_READER], { cwd: import.meta.dirname, encoding: 'utf8' }))
+
+function exactly(file) {
+  return `^${file.replaceAll('.', '\\.')}$`
+}
+
+function folder(glob) {
+  return `^${glob.replace(/\/\*\*$/, '/')}`
+}
+
+const COMPOSITION_MODULE = exactly(COMPOSITION.module)
+const COMPOSITION_IMPORTERS = [...COMPOSITION.importers.map(exactly), ...COMPOSITION.tests.map(folder)]
+
 const BUS_CORE = '^scripts/core/(db|reducer|sqlite|stored|identifiers)\\.ts$'
 const BUS_SERVICE = '^scripts/(?:nodes/[a-z]+|ladder)/([a-z]+)-(worker|executor|starter)\\.ts$'
 const NODE = '^scripts/nodes/([^/]+)/'
@@ -30,7 +49,7 @@ const nothingToTheRight = CONTOURS.filter(contour => pathsRightOf(contour).lengt
   name: `${contour.name}-imports-nothing-to-its-right`,
   severity: 'error',
   from: { path: contour.paths },
-  to: { path: pathsRightOf(contour) },
+  to: { path: pathsRightOf(contour), pathNot: COMPOSITION_MODULE },
 }))
 
 export default {
@@ -82,7 +101,13 @@ export default {
       name: 'no-circular-bus-core',
       severity: 'error',
       from: { path: BUS_CORE },
-      to: { circular: true },
+      to: { circular: true, pathNot: COMPOSITION_MODULE },
+    },
+    {
+      name: 'composition-module-only-from-its-listed-roots',
+      severity: 'error',
+      from: { pathNot: COMPOSITION_IMPORTERS },
+      to: { path: COMPOSITION_MODULE },
     },
   ],
   options: {
