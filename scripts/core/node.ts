@@ -18,16 +18,13 @@ import { drainOpen, expireLeases, failTask, leasedByRetiring, leaseNext, recordW
 import { keyOf, LEASED, queueTaskWithin } from './queue.js'
 import { STORED_COLUMNS } from './stored.js'
 import { mustWait } from './task-must-wait.js'
+import { lastEventId } from './watermark.js'
 
 export const SWITCH_FLAG = '--on'
 export const LIVE_FLAG = '--live'
 export const NODE_CURSORS = 'node_cursors'
 
 const WILDCARD = '*'
-
-function lastEventId(db: DatabaseSync): number {
-  return Number((db.prepare('SELECT coalesce(max(id), 0) AS id FROM events').get() as { id: number }).id)
-}
 
 export type NodeKind = Queue & SlotKind
 export type EventPattern = readonly string[]

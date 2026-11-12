@@ -35,7 +35,7 @@
   "boundary:bus->rules": 3,
   "boundary:bus->session": 6,
   "boundary:bus->ui": 1,
-  "boundary:bus->window": 1,
+  "boundary:bus->window": 0,
   "boundary:card-model->card-record": 3,
   "boundary:card-model->intake": 2,
   "boundary:card-model->layout": 2,
