@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { parkingFileText } from '../../../src/card/parking.js'
-import { gitDepthSources, gitReviewPlanner } from '../../nodes/review/depth-sources.js'
+import { gitDepthSources, gitReviewPlanner, NOTHING_WIDENED } from '../../nodes/review/depth-sources.js'
 
 const roots: string[] = []
 
@@ -85,7 +85,7 @@ describe('git depth sources', () => {
       return ''
     }
 
-    const plan = gitReviewPlanner(repo, path.join(root, 'morse.jsonl'), cardId => cardId === 1971 ? body : null, run)({ taskKey: 'review:1971:1233:x', queue: 'review', cardId: 1971, pr: 1233, head, leaseGen: 1, actor: 'worker:review:x' }, null)
+    const plan = gitReviewPlanner(repo, path.join(root, 'morse.jsonl'), cardId => cardId === 1971 ? body : null, run, NOTHING_WIDENED)({ taskKey: 'review:1971:1233:x', queue: 'review', cardId: 1971, pr: 1233, head, leaseGen: 1, actor: 'worker:review:x' }, null)
 
     expect(fetches).toEqual([['fetch', '--quiet', 'origin', 'main', 'pull/1233/head'], ['fetch', '--quiet', 'origin', 'main', 'pull/1233/head']])
     expect(plan).toMatchObject({ depth: 'diff', round: 'first', since: main, touchFindings: [] })
@@ -109,7 +109,7 @@ describe('git depth sources', () => {
     const run = (dir: string, args: string[]): string => args[0] === 'fetch' ? '' : git(dir, args)
     const lease = { taskKey: `review:1971:1233:${head}`, queue: 'review' as const, cardId: 1971, pr: 1233, head, leaseGen: 1, actor: 'worker:review:x' }
 
-    const plan = gitReviewPlanner(repo, path.join(root, 'morse.jsonl'), () => null, run)(lease, { head: reviewed, verdict: 'changes', findings: ['docs/guide.md: the heading is wrong'] })
+    const plan = gitReviewPlanner(repo, path.join(root, 'morse.jsonl'), () => null, run, NOTHING_WIDENED)(lease, { head: reviewed, verdict: 'changes', findings: ['docs/guide.md: the heading is wrong'] })
 
     expect(git(repo, ['diff', '--name-only', reviewed, head]).split('\n')).toContain('scripts/ports/prepare-tree.ts')
     expect(plan).toEqual({ depth: 'diff', round: 'again', why: `${reviewed}..${head} changes only files the earlier changes verdict's findings name`, since: main, reviewed, findings: ['docs/guide.md: the heading is wrong'] })
@@ -123,7 +123,7 @@ describe('git depth sources', () => {
       throw new Error('fatal: could not read from remote repository')
     }
 
-    expect(() => gitReviewPlanner('/nowhere', '/nowhere/morse.jsonl', () => null, run)({ taskKey: 'review:1:2:x', queue: 'review', cardId: 1, pr: 2, head: 'abc', leaseGen: 1, actor: 'worker:review:x' }, null)).toThrow('could not read from remote')
+    expect(() => gitReviewPlanner('/nowhere', '/nowhere/morse.jsonl', () => null, run, NOTHING_WIDENED)({ taskKey: 'review:1:2:x', queue: 'review', cardId: 1, pr: 2, head: 'abc', leaseGen: 1, actor: 'worker:review:x' }, null)).toThrow('could not read from remote')
     expect(fetches).toBe(1)
   })
 })
