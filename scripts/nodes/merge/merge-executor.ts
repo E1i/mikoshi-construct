@@ -4,11 +4,13 @@ import type { RerunMode } from '../../cli/check-catalog.js'
 import type { BusEvent } from '../../core/db.js'
 import type { AfterFailure, Lease } from '../../core/lease.js'
 import type { AllowedRule, AuthorityRule, MergeFacts, PatchedFile } from '../../policy/policy.js'
+import type { CompositionRecord } from '../../policy/touch-scope.js'
 import type { StatusPublisher } from '../../ports/github-status.js'
 import type { CommandResult, GitHub, GitHubPut } from '../../ports/github.js'
 import type { TechnicalReason } from '../review/record-verdict.js'
 import { Buffer } from 'node:buffer'
 import { changedFiles, REFUSED_NOT_UP_TO_DATE, rerunOf, upToDateRequired } from '../../cli/check-catalog.js'
+import { loadCompositionModels } from '../../composition/files.js'
 import { cardHoldOf, HOLD_RECHECK_MS } from '../../core/card-hold.js'
 import { appendEvent, openBusWait } from '../../core/db.js'
 import { messageOf } from '../../core/errors.js'
@@ -107,6 +109,15 @@ function patchedFiles(meter: Meter, pr: number): PatchedFile[] {
     files.push(...listed)
     if (listed.length < FILES_PAGE)
       return files
+  }
+}
+
+function compositionRecordsOfTheCheckout(): CompositionRecord[] {
+  try {
+    return loadCompositionModels().map(loaded => loaded.model)
+  }
+  catch {
+    return []
   }
 }
 
@@ -220,7 +231,7 @@ export class MergeExecutor {
       return null
     const widened = (this.parts.db.prepare(WIDENED_ON_THE_ADMISSION).all(lease.cardId, card.admissionEventId) as { paths: string }[]).flatMap(row => JSON.parse(row.paths) as string[])
     const touches = [...card.touches, ...widened]
-    const reach = { touches, added: new Set(patched.filter(file => (file as AddedFile).status === 'added').map(file => file.filename)), compositionRecords: [] }
+    const reach = { touches, added: new Set(patched.filter(file => (file as AddedFile).status === 'added').map(file => file.filename)), compositionRecords: compositionRecordsOfTheCheckout() }
     const outside = pathsOutside(touches, card.creates, patched.map(file => file.filename)).filter(file => !followsTouches(file, reach))
     if (outside.length === 0)
       return null

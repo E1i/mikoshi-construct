@@ -191,6 +191,11 @@ describe('the merge node keeps a head inside the touches of its card', () => {
     expect(mergeOf({ touches: 'scripts/a.ts', files: ['scripts/a.ts', '.changeset/x.md'] })).toMatchObject(REFUSED_AT_MERGE)
   })
 
+  it('a composition record whose node the touches reach follows them at merge, as at intake', () => {
+    expect(mergeOf({ touches: 'scripts/ports/netwatch.ts', files: ['scripts/ports/netwatch.ts', 'architecture/composition/bus.yaml'] })).toMatchObject({ kind: 'merged' })
+    expect(mergeOf({ touches: 'scripts/a.ts', files: ['scripts/a.ts', 'architecture/composition/bus.yaml'] })).toMatchObject(REFUSED_AT_MERGE)
+  })
+
   it('a refused head waits the hold recheck before the merge node takes it again', () => {
     const made = liveBench()
     try {
