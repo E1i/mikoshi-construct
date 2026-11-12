@@ -2,23 +2,27 @@ import type { SeedEvent } from '../../../tests/board/bus-fixture.js'
 import type { LawCell, LawId, SiteBeyondNodes } from '../../nodes/laws.js'
 import type { GitHub } from '../../ports/github.js'
 import type { CardActivity } from '../../window/watch.js'
-import { existsSync, mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { witnessFieldsLine, witnessText } from '../../../src/card/witness-fields.js'
+import { runAdmit, untransferred, WITNESS_TRANSFER_IS_NO_DOWNGRADE, witnessTransferIsNoDowngrade } from '../../../src/commands/intake/admit.js'
+import { waitRecordText } from '../../../src/commands/intake/index.js'
 import { writeBus } from '../../../tests/board/bus-fixture.js'
 import { ABANDONED_TITLE } from '../../ci/required.js'
 import { printBoard } from '../../cli/board-page.js'
 import { lawsSection } from '../../contract/factory/laws.js'
 import { lawGapNumbers, readRatchet } from '../../contract/ratchet.js'
 import { appendEvent, openBus } from '../../core/db.js'
-import { CARD_STARTED, SESSION_HEARTBEAT, WINDOW_HEARTBEAT } from '../../core/events.js'
+import { CARD_STARTED, CARD_WAITING, CARD_WAITS, SESSION_HEARTBEAT, WINDOW_HEARTBEAT } from '../../core/events.js'
 import { FACTORY_WORKERS } from '../../core/factory-paths.js'
 import { leaseQueued } from '../../core/lease.js'
 import { rerunDueOn } from '../../core/observations.js'
 import { keyOf, queueTask } from '../../core/queue.js'
-import { ABANDONED_READ_AS_RERUN, gapRows, LAW_CELLS, LAW_CELLS_WITNESSES, LAW_NODES, LAW_SITES, lawIds, PULSE_BESIDE_CARD_SILENCE, REVIEW_LIVE_ON_ONE_STALE_SIGNAL, SITES_BEYOND_NODES, sourceOf, WINDOW_BESIDE_SESSIONS } from '../../nodes/laws.js'
+import { ABANDONED_READ_AS_RERUN, gapRows, INTAKE_WAIT_RECORD, INTAKE_WITNESS_TRANSFER, LAW_CELLS, LAW_CELLS_WITNESSES, LAW_NODES, LAW_SITES, lawIds, PULSE_BESIDE_CARD_SILENCE, REVIEW_LIVE_ON_ONE_STALE_SIGNAL, SITES_BEYOND_NODES, sourceOf, WINDOW_BESIDE_SESSIONS } from '../../nodes/laws.js'
+import { InMemoryDecisions } from '../../policy/decisions/decisions.js'
 import { NetWatch, TICK_MS } from '../../ports/netwatch.js'
 import { BusTick } from '../../supervisor/run.js'
 import { NO_PROGRESS_LINES, StalledSessions } from '../../supervisor/stalled-sessions.js'
@@ -32,7 +36,6 @@ const MINUTE = 60_000
 const STALE_WINDOW_BEAT = '2026-11-07T14:39:00.000Z'
 const LIVE_HEADER = 'id="bus-live">bus live<'
 const SILENT_SESSION_MINUTES = 120
-const INTAKE_READS_DECISIONS = 1779
 const BEYOND: readonly SiteBeyondNodes[] = ['netwatch', 'window', 'intake', 'supervisor']
 const roots: string[] = []
 const LAW_REGISTRY_TELLS_THE_TRUTH = 1814
@@ -161,8 +164,38 @@ function reviewLiveOnOneStaleSignal(): void {
   }
 }
 
+function intakeWitnessTransfer(): void {
+  const moved = { id: 'W1', run: 'pnpm exec vitest run tests/slice.test.ts', test: 'moved', head: 'pass', base: 'fail', proves: 'a law' } as const
+  const previous = `card: #1651 slice-one [implement/black-ice/S/cheap/owner] · depends — · blocks —\n\n${witnessFieldsLine([moved])}\n`
+  const standing = new InMemoryDecisions([{ decisionId: 447, words: `Постоянно: ${WITNESS_TRANSFER_IS_NO_DOWNGRADE} — не понижение, решает окно.`, cards: [], written: true }])
+  if (!witnessTransferIsNoDowngrade(standing) || witnessTransferIsNoDowngrade(new InMemoryDecisions([])))
+    throw new Error('intake does not read the standing decision that a witness moved to another card is no downgrade')
+  if (untransferred([witnessText(moved)], previous, [moved]).length !== 0)
+    throw new Error('a witness another admitted card holds still waits for the owner')
+  if (untransferred([witnessText(moved)], previous, []).length !== 1)
+    throw new Error('a witness no card holds any more no longer waits for the owner')
+}
+
+function intakeWaitRecord(): void {
+  const root = mkdtempSync(path.join(tmpdir(), 'law-sites-z4-'))
+  roots.push(root)
+  mkdirSync(path.join(root, 'repo', 'src'), { recursive: true })
+  writeFileSync(path.join(root, 'repo', 'src', 'a.ts'), '')
+  const events: { type: string, ts: string, payload: Record<string, unknown> }[] = []
+  const body = 'card: #84 window-card [implement/black-ice/S/cheap/owner] · depends — · blocks —\nbranch: feat/window-card\ntouches: src/a.ts\ncontinue: stop\nwho: window\n\nAsk the window.\n'
+  runAdmit({ file: path.join(root, 'parking', '84.md'), body, dir: path.join(root, 'repo'), dryRun: false, autoConfirm: true, parkingRoot: path.join(root, 'parking'), events: event => events.push(event) }, () => NOW)
+  const waits = events.filter(event => event.type === CARD_WAITING)
+  if (waits.length !== 1 || waits[0]!.payload.code !== 'stopped')
+    throw new Error(`a card intake gives to the window leaves no wait record: ${JSON.stringify(waits)}`)
+  const deadline = new Date(NOW.getTime() + CARD_WAITS.stopped.deadlineMinutes * MINUTE).toISOString()
+  if (!String(waits[0]!.payload.detail).endsWith(`, the window lifts it by ${deadline}`) || !waitRecordText({ kind: 'stopped', lifter: 'window', detail: 'x', since: '', deadline }).endsWith(deadline))
+    throw new Error(`the wait record of a window card names no lifter and deadline: ${String(waits[0]!.payload.detail)}`)
+}
+
 const WITNESSES: Readonly<Record<string, Witness>> = {
   [ABANDONED_READ_AS_RERUN]: { law: 'Z2', run: abandonedReadAsRerun },
+  [INTAKE_WITNESS_TRANSFER]: { law: 'Z3', run: intakeWitnessTransfer },
+  [INTAKE_WAIT_RECORD]: { law: 'Z4', run: intakeWaitRecord },
   [WINDOW_BESIDE_SESSIONS]: { law: 'Z7', run: windowBesideSessions },
   [PULSE_BESIDE_CARD_SILENCE]: { law: 'Z7', run: pulseBesideCardSilence },
   [REVIEW_LIVE_ON_ONE_STALE_SIGNAL]: { law: 'Z7', run: reviewLiveOnOneStaleSignal },
@@ -216,8 +249,10 @@ describe('law sites beyond the bus nodes', () => {
   it('intake is a law site with a cell for every law', () => {
     expect(sourceOf('intake')).toBe('src/commands/intake/admit.ts')
     expect(siteFaults('intake')).toEqual([])
-    expect(LAW_CELLS.Z3.intake).toEqual({ gap: [INTAKE_READS_DECISIONS] })
-    expect(readRatchet(REPO_ROOT)['law-gaps:Z3:intake']).toBe(1)
+    expect(LAW_CELLS.Z3.intake).toEqual({ witness: INTAKE_WITNESS_TRANSFER })
+    expect(LAW_CELLS.Z4.intake).toEqual({ witness: INTAKE_WAIT_RECORD })
+    expect(readRatchet(REPO_ROOT)['law-gaps:Z3:intake']).toBeUndefined()
+    expect(readRatchet(REPO_ROOT)['law-gaps:Z4:intake']).toBeUndefined()
     expect(Object.keys(lawsSection().laws.Z3.cells)).toContain('intake')
 
     const missing = { ...LAW_CELLS, Z5: Object.fromEntries(Object.entries(LAW_CELLS.Z5).filter(([site]) => site !== 'intake')) } as unknown as typeof LAW_CELLS
@@ -259,10 +294,10 @@ describe('law sites beyond the bus nodes', () => {
         unreached.push(`${law} × ${site}`)
     }
 
-    expect(witnessCells.map(({ law, site }) => `${law} × ${site}`)).toEqual(['Z2 × netwatch', 'Z7 × window', 'Z7 × supervisor'])
+    expect(witnessCells.map(({ law, site }) => `${law} × ${site}`)).toEqual(['Z2 × netwatch', 'Z3 × intake', 'Z4 × intake', 'Z7 × window', 'Z7 × supervisor'])
     expect(unreached).toEqual([])
     expect(await reachesSite('netwatch', () => WITNESSES[PULSE_BESIDE_CARD_SILENCE]!.run('netwatch'))).toBe(false)
-    expect(lawIds().flatMap(law => LAW_SITES.filter(site => 'witness' in LAW_CELLS[law][site]).map(site => `${law} × ${site}`))).toEqual(['Z1 × review', 'Z2 × answer', 'Z2 × launch', 'Z2 × update', 'Z2 × netwatch', 'Z3 × answer', 'Z3 × launch', 'Z3 × merge', 'Z4 × answer', 'Z5 × launch', 'Z7 × window', 'Z7 × supervisor', 'Z8 × answer', 'Z8 × launch', 'Z10 × launch'])
+    expect(lawIds().flatMap(law => LAW_SITES.filter(site => 'witness' in LAW_CELLS[law][site]).map(site => `${law} × ${site}`))).toEqual(['Z1 × review', 'Z2 × answer', 'Z2 × launch', 'Z2 × update', 'Z2 × netwatch', 'Z3 × answer', 'Z3 × launch', 'Z3 × merge', 'Z3 × intake', 'Z4 × answer', 'Z4 × intake', 'Z5 × launch', 'Z7 × window', 'Z7 × supervisor', 'Z8 × answer', 'Z8 × launch', 'Z10 × launch'])
   })
 
   it('every law cell holds a witness that calls its node or a gap on an open card', async () => {

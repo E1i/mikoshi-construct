@@ -40,7 +40,7 @@ import { AnswerNode } from '../../nodes/answer/answer-worker.js'
 import { claudeAnswerer } from '../../nodes/answer/answerer.js'
 import { handoffBuilder, handoffWrittenSince, reportSince } from '../../nodes/launch/launch-root.js'
 import { LaunchNode } from '../../nodes/launch/launch-worker.js'
-import { ANSWER_STOP_SPENDS_NO_RESTART, CARD_WAIT_STATES, DIRECT_IMPORTER_WIDENED, EVERY_LAUNCH_WRITES_ITS_EVENT, gapRows, INFRASTRUCTURE_RETRIED, LAUNCH_BODY_FROM_LATEST_ADMISSION, LAUNCH_STOP_SPENDS_NO_CONTINUATION, LAW_CELLS, LAW_CELLS_WITNESSES, LAW_NODES, LAW_SITES, lawIds, LAWS, LIVE_SESSION_WAIT_LIFTED, MERGE_OUTSIDE_TOUCHES_REFUSED, NO_HEAD_OF_LINE, OWNER_LAUNCH_PAST_CONDITIONS, RESTART_KEEPS_SESSION, REVIEW_KEEPS_SESSION_AND_LEAVES_NO_DESCENDANT, SESSION_BEAT_BESIDE_STALE_WINDOW, sourceOf } from '../../nodes/laws.js'
+import { ANSWER_STOP_SPENDS_NO_RESTART, CARD_WAIT_STATES, DIRECT_IMPORTER_WIDENED, EVERY_LAUNCH_WRITES_ITS_EVENT, gapRows, INFRASTRUCTURE_RETRIED, INTAKE_WAIT_RECORD, INTAKE_WITNESS_TRANSFER, LAUNCH_BODY_FROM_LATEST_ADMISSION, LAUNCH_STOP_SPENDS_NO_CONTINUATION, LAW_CELLS, LAW_CELLS_WITNESSES, LAW_NODES, LAW_SITES, lawIds, LAWS, LIVE_SESSION_WAIT_LIFTED, MERGE_OUTSIDE_TOUCHES_REFUSED, NO_HEAD_OF_LINE, OWNER_LAUNCH_PAST_CONDITIONS, RESTART_KEEPS_SESSION, REVIEW_KEEPS_SESSION_AND_LEAVES_NO_DESCENDANT, SESSION_BEAT_BESIDE_STALE_WINDOW, sourceOf } from '../../nodes/laws.js'
 import { HEAD_OUTSIDE_TOUCHES } from '../../nodes/merge/merge-executor.js'
 import { fullReview } from '../../nodes/review/review-depth.js'
 import { dryRun } from '../../nodes/review/review-worker.js'
@@ -892,10 +892,10 @@ describe('the laws of a node', () => {
     expect(registryFaults({ ...LAW_CELLS, Z5: { ...LAW_CELLS.Z5, launch: { witness: 'Z5-seeded' } } }, { ...WITNESSES, ...passing })).toEqual([])
   })
 
-  const lostOrderLaw: LawId = 'Z3'
-  it(`${lostOrderLaw} x intake no longer names the card that keeps the owner order across a readmission, which closed it`, () => {
-    expect(LAW_CELLS[lostOrderLaw].intake).toEqual({ gap: [1779] })
-    expect(gapRows().filter(({ law, node }) => law === 'Z3' && node === 'intake')).toHaveLength(1)
+  const intakeDecisionsLaw: LawId = 'Z3'
+  it(`${intakeDecisionsLaw} x intake is witnessed by intake reading the decisions in force and holds no gap row`, () => {
+    expect(LAW_CELLS[intakeDecisionsLaw].intake).toEqual({ witness: INTAKE_WITNESS_TRANSFER })
+    expect(gapRows().filter(({ law, node }) => law === intakeDecisionsLaw && node === 'intake')).toEqual([])
   })
 
   it('z3 x merge is witnessed by the merge node refusing a head outside the touches of its card, as D-460 rules', () => {
@@ -910,10 +910,10 @@ describe('the laws of a node', () => {
     expect(LAW_CELLS[laneWaitLaw].answer).toEqual({ witness: LIVE_SESSION_WAIT_LIFTED })
   })
 
-  it(`${laneWaitLaw} x intake and window name no merged card, only the open cards that give a card its wait states and write their witnesses`, () => {
-    expect(LAW_CELLS[laneWaitLaw].intake).toEqual({ gap: [CARD_WAIT_STATES, LAW_CELLS_WITNESSES] })
+  it(`${laneWaitLaw} x intake is witnessed by the wait record of every wait intake leaves, and window names only open cards`, () => {
+    expect(LAW_CELLS[laneWaitLaw].intake).toEqual({ witness: INTAKE_WAIT_RECORD })
+    expect(gapRows().filter(({ law, node }) => law === laneWaitLaw && node === 'intake')).toEqual([])
     expect(LAW_CELLS[laneWaitLaw].window).toEqual({ gap: [CARD_WAIT_STATES, LAW_CELLS_WITNESSES] })
-    expect(gapRows().filter(({ law, node }) => law === laneWaitLaw && node === 'intake')).toHaveLength(1)
   })
 
   it('an infrastructure retry and a direct importer widening are witnessed through the node module itself', async () => {

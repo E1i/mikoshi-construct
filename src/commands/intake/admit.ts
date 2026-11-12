@@ -9,12 +9,12 @@ import type { CardScope } from '../test-runner.js'
 import type { CheckedCard } from './check.js'
 import type { Confirmation } from './confirm.js'
 import type { DraftCard } from './draft.js'
-import type { CardAdmissionsPort, CardEvent, CardEventPort, CardStatesPort, RecordedIntake } from './index.js'
+import type { CardAdmissionsPort, CardEventPort, CardStatesPort, RecordedIntake } from './index.js'
 import type { SlicedCard } from './slice.js'
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
-import { CARD_ADMITTED, CARD_WAITING, WITNESS_DOWNGRADE } from '../../../scripts/core/events.js'
+import { CARD_ADMITTED } from '../../../scripts/core/events.js'
 import { decisionCommand, InMemoryDecisions } from '../../../scripts/policy/decisions/decisions.js'
 import { createdPaths, OWNER_MERGES, pathsIn, pathsOutside, PREFIX_SUFFIX } from '../../../scripts/policy/touch-scope.js'
 import { endedCards } from '../../card/closed.js'
@@ -29,7 +29,7 @@ import { TEST_NAME_ARGUMENT } from './command-word.js'
 import { admitCorrectionsNeedPerson, bodySha, bodyShaWithoutTouches, confirmationOf, confirmationToken, isConfirmation, sameHeader, tokenConfirmation, TOUCHES_HEADER, windowShard } from './confirm.js'
 import { withoutWitnessKind } from './draft.js'
 import { DirectoryFacts } from './facts.js'
-import { admittedRecord, defaultParking, INTAKE_EXIT, knownCards, recordIntake } from './index.js'
+import { admittedRecord, defaultParking, downgradeEvent, heldEvent, INTAKE_EXIT, knownCards, openCardTextsBeside, recordIntake, waitingEvent, windowEvent } from './index.js'
 import { parkedNumbers } from './numbers.js'
 import { isWithin, parkingTree } from './parking-tree.js'
 import { defaultContourMap, readContourMap, sharedCodeMaskRefusals } from './shared-code-masks.js'
@@ -182,7 +182,7 @@ const DOWNGRADE_WORD = 'понижение'
 export const EQUIVALENT_REPLACEMENT_ALLOWANCE = 'разрешить равноценную замену свидетеля:'
 const CARD_SEPARATOR = /,\s*|\s+и\s+/
 const ALLOWED_CARDS = new RegExp(`^#[1-9]\\d*(?:(?:${CARD_SEPARATOR.source})#[1-9]\\d*)*`)
-const DROPPED_CARD = 'dropped'
+export const DROPPED_CARD = 'dropped'
 const REGEX_SPECIAL = /[.*+?^${}()|[\]\\]/g
 const NO_DECISIONS = new InMemoryDecisions([])
 
@@ -407,14 +407,6 @@ function dependsOnDropped(cardId: number, dropped: readonly number[]): string {
   return `#${cardId} depends on ${named}, dropped in the bus and never merging, so it would wait for ever; take ${named} out of its depends`
 }
 
-function waitingEvent(cardId: number, waitingOn: readonly number[], at: Date): CardEvent {
-  return { type: CARD_WAITING, cardId, ts: at.toISOString(), dedupeKey: `${CARD_WAITING}:${cardId}:${waitingOn.join(',')}`, payload: { depends: waitingOn } }
-}
-
-function downgradeEvent(cardId: number, downgrades: readonly string[], actions: readonly string[], sha: string, at: Date): CardEvent {
-  return { type: CARD_WAITING, cardId, ts: at.toISOString(), dedupeKey: `${CARD_WAITING}:${WITNESS_DOWNGRADE}:${cardId}:${sha}`, payload: { reason: WITNESS_DOWNGRADE, witnesses: downgrades, actions, bodySha: sha } }
-}
-
 function writtenByTheOwner(decisions: DecisionsPort): OwnerWords[] {
   return decisions.inForce().filter(decision => decision.written)
 }
@@ -433,6 +425,21 @@ function namesTheId(words: string, cardId: number, witnessId: string): boolean {
   const card = new RegExp(`(?<![\\w#])#${cardId}(?!\\d)`, 'u')
   const witness = new RegExp(`(?<!\\w)${witnessId.replace(REGEX_SPECIAL, '\\$&')}(?!\\w)`, 'u')
   return words.toLowerCase().includes(DOWNGRADE_WORD) && card.test(words) && witness.test(words)
+}
+
+export const WITNESS_TRANSFER_IS_NO_DOWNGRADE = 'перенос свидетеля в другую карту'
+
+export function witnessTransferIsNoDowngrade(decisions: DecisionsPort): boolean {
+  return writtenByTheOwner(decisions)
+    .some(decision => decision.cards.length === 0 && decision.words.toLowerCase().includes(WITNESS_TRANSFER_IS_NO_DOWNGRADE))
+}
+
+export function untransferred(downgrades: readonly string[], previousText: string, held: readonly Pick<WitnessField, 'run' | 'test'>[]): string[] {
+  const fields = witnessFieldsOf(previousText) ?? []
+  return downgrades.filter((witness) => {
+    const field = fields.find(each => witnessText(each) === witness)
+    return field === undefined || !held.some(other => other.run === field.run && other.test === field.test)
+  })
 }
 
 function standingReplacementAllowed(decisions: DecisionsPort): boolean {
@@ -700,7 +707,8 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
   const lowered = recorded?.text === undefined ? [] : unreplacedFieldDowngrades(witnessDowngrades(previous, witnessesOf(admitted.text)), previous, witnessesOf(admitted.text))
   const unreplaced = lowered.length > 0 && standingReplacementAllowed(decisions) ? unreplacedDowngrades(lowered, previous, witnessesOf(admitted.text)) : lowered
   const scope: BaseScope = { dir: options.dir, card: { touches: checked.touches, creates: createdPaths(checked.creates) }, createdAreTheChange: unreplaced.length > 0 && createdPathsAreTheChange(decisions) }
-  const downgrades = unreplaced.length > 0 ? withoutRefinements(unreplaced, previous, witnessesOf(admitted.text), scope) : unreplaced
+  const unrefined = unreplaced.length > 0 ? withoutRefinements(unreplaced, previous, witnessesOf(admitted.text), scope) : unreplaced
+  const downgrades = unrefined.length > 0 && witnessTransferIsNoDowngrade(decisions) ? untransferred(unrefined, recorded?.text ?? '', openCardTextsBeside(card.id, cards, options.admissions).flatMap(other => witnessFieldsOf(other) ?? [])) : unrefined
   if (downgrades.length > 0 && !ownerAllowed(decisions, card.id, downgrades, previous)) {
     const actions = downgrades.map(witness => downgradeAction(card.id, witness, previous))
     if (!options.dryRun)
@@ -710,14 +718,18 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
   if (options.dryRun)
     return { ...base, status: 'dryRun' }
   const token = confirmationToken([admitted])
-  if (!options.autoConfirm && admitCorrectionsNeedPerson(admitted) && options.confirm !== token)
+  if (!options.autoConfirm && admitCorrectionsNeedPerson(admitted) && options.confirm !== token) {
+    options.events?.(heldEvent(admitted, token, now()))
     return { status: 'awaiting', file: options.file, card: admitted, token, stale: options.confirm !== undefined }
+  }
   if (busBody === null && options.events === undefined && admitted.text !== text)
     writeFileSync(options.file, admitted.text)
   recordIntake([admittedRecord(admitted, admitConfirmation(admitted, options.autoConfirm), now(), lane, source)], options.events)
   const result = inJournal('admitted')
   if (result.status === 'admitted' && waitingOn.length > 0)
     options.events?.(waitingEvent(card.id, waitingOn, now()))
+  if (result.status === 'admitted')
+    recordIntake(windowEvent(admitted, now()), options.events)
   return result
 }
 

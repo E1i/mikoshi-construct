@@ -225,7 +225,7 @@ describe('the launch queue', () => {
     writeFileSync(file, parkingFileText({ card: '#1124 waiting-card [implement/netwatch/S/cheap/auto] · depends #900 #901 · blocks —', branch: 'feat/waiting-card', touches: ['scripts/nodes/launch/launch-candidates.ts'], continue: 'stop', who: 'shift', body: 'Do the card.' }))
     const admitted = runAdmit({ file, dir: process.cwd(), dryRun: false, autoConfirm: true, parkingRoot: parking, contourMap: path.join(root, 'contour-map.json'), decisions: new InMemoryDecisions([]), events: busCardEvents(bench.db), cardStates: () => busHeldCards(bench.db), admissions: busCardAdmissions(bench.db) })
     expect(admitted.status).toBe('admitted')
-    expect(eventsOf(bench.db, 'card.waiting')).toEqual([{ depends: [900, 901] }])
+    expect(eventsOf(bench.db, 'card.waiting')).toEqual([{ depends: [900, 901], code: 'depends', detail: expect.stringContaining('#900, #901 not merged, the bus lifts it by') }])
     const candidate = (): boolean => launchCandidates(bench.db, () => false).some(each => each.cardId === 1124)
     const launchQueued = (): boolean => bench.db.prepare(`SELECT 1 FROM tasks WHERE queue = 'launch' AND card_id = 1124 AND state = 'queued'`).get() !== undefined
     bench.tick()
