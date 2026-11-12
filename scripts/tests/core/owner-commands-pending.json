@@ -7,9 +7,13 @@
   "scripts/window/operator-boundary.ts": 1,
   "scripts/window/owner-command.ts": 1,
   "scripts/window/pre-compact.ts": 2,
+  "scripts/window/requests/decisions-add.ts": 1,
+  "scripts/window/requests/drop.ts": 1,
+  "scripts/window/requests/owner-wait-close.ts": 1,
+  "scripts/window/requests/request.ts": 1,
   "scripts/window/turn-watch.ts": 4,
   "scripts/window/watch.ts": 1,
-  "scripts/window/window-requests.ts": 5,
+  "scripts/window/window-requests.ts": 1,
   "scripts/window/window-subagents.ts": 1,
   "scripts/window/window.ts": 1
 }

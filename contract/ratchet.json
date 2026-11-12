@@ -309,7 +309,6 @@
   "lines:scripts/core/queue.ts": 1300,
   "lines:scripts/nodes/launch/launch-worker.ts": 815,
   "lines:scripts/supervisor/supervisor.ts": 1186,
-  "lines:scripts/window/window-requests.ts": 1013,
   "lines:src/ui/lore.ts": 1334,
   "overlaps:answer-duties": 1,
   "overlaps:bus-read": 471,
@@ -323,6 +322,6 @@
   "overlaps:owner-decisions": 5,
   "overlaps:pid-liveness": 4,
   "overlaps:process-table": 0,
-  "overlaps:window-requests": 18,
+  "overlaps:window-requests": 0,
   "threshold": 800
 }
