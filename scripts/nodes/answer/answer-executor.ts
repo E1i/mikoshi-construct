@@ -29,7 +29,7 @@ import { MAIN_BRANCH } from '../../ports/snapshot.js'
 import { admittedScopeOf, decisionAnsweringRepeat, ownerHoldOf } from './answer-source.js'
 import { AnswerOutsideTouches, CardTreeGone, liveSessionIn, PREFIX, secondsOf, unprovedFindings } from './answerer.js'
 import { CONCEPT_WIDENING_REASON } from './concept-scope.js'
-import { AnswerOutcomes, AnswerPublishing, AnswerSources, leftNoNewHead, OwnerQuestions, treeDirtyOf, treeMergeOf } from './duties/index.js'
+import { AnswerOutcomes, AnswerPublishing, AnswerSources, leftNoNewHead, OwnerQuestions, pendingPathsOf, treeDirtyOf, treeMergeOf } from './duties/index.js'
 
 export interface AnswerParts {
   db: DatabaseSync
@@ -46,6 +46,7 @@ export interface AnswerParts {
   prepare?: TreePreparer
   publishing?: TreePublishing
   mergeMain?: (tree: string) => MergeMain
+  changedInTheTree?: (card: CardSession) => string[]
 }
 
 const REENTRY_SOURCES: ReadonlySet<AnswerSource['kind']> = new Set(['ci'])
@@ -104,7 +105,9 @@ export function ratchetGrowthLine(cardId: number, rows: readonly string[], quest
   return `card #${cardId} asks to grow the ratchet row${rows.length === 1 ? '' : 's'} ${rows.join(', ')} of contract/ratchet.json; the merge policy denies ratchet growth under every shard and every decision, so only the owner answers it and no answer round runs until this wait closes: ${question}`
 }
 
-const CARD_PATHS: CardPaths = { pathsIn, ownerBoundary: ownersEvenUnderTheDecision, wideningAsked: scopeWideningAsked }
+export function changedInTheTreeOf(named: readonly string[], changed: ReadonlySet<string>): string[] {
+  return named.filter(file => changed.has(file))
+}
 
 export function findingsGivenByAReview(source: Answering | null): string[] {
   return source?.kind === 'changes' && source.reentry !== true ? source.findings : []
@@ -121,12 +124,19 @@ export class AnswerExecutor {
   private readonly sources: AnswerSources
   private readonly publishing: AnswerPublishing
   private readonly questions: OwnerQuestions
+  private readonly treesByAdmission = new Map<number, CardSession>()
 
   constructor(private readonly parts: AnswerParts) {
-    this.outcomes = new AnswerOutcomes(parts, CARD_PATHS)
+    const paths: CardPaths = { pathsIn, ownerBoundary: ownersEvenUnderTheDecision, wideningAsked: (question, scope, underAShard) => this.wideningInTheTree(question, scope, underAShard) }
+    this.outcomes = new AnswerOutcomes(parts, paths)
     this.sources = new AnswerSources(parts)
     this.publishing = new AnswerPublishing(parts, this.outcomes)
-    this.questions = new OwnerQuestions(parts, CARD_PATHS, this.outcomes, this.sources, this.publishing)
+    this.questions = new OwnerQuestions(parts, paths, this.outcomes, this.sources, this.publishing)
+  }
+
+  private wideningInTheTree(question: string, scope: AdmittedScope | null, underAShard: boolean): string[] {
+    const asked = scopeWideningAsked(question, scope, underAShard)
+    return scope === null || asked.length === 0 ? [] : changedInTheTreeOf(asked, this.changedIn(this.treesByAdmission.get(scope.admission)))
   }
 
   private ts(): string {
@@ -135,6 +145,7 @@ export class AnswerExecutor {
 
   async answer(lease: Lease): Promise<AnswerOutcome> {
     const leased = this.parts.clock().getTime()
+    let admission: number | null = null
     try {
       assertHeld(this.parts.db, lease)
       if (answerOnAnOldCardBody(this.parts.db, lease))
@@ -169,6 +180,9 @@ export class AnswerExecutor {
         return this.outcomes.denied(lease, { kind: 'technical', reason: 'no_card_tree', detail: `card #${lease.cardId} has no card.started, no start line with a worktree and a branch, and no open pull request` })
       if ('kind' in card)
         return this.outcomes.denied(lease, card)
+      admission = admittedScopeOf(this.parts.db, lease.cardId)?.admission ?? null
+      if (admission !== null)
+        this.treesByAdmission.set(admission, card)
       const live = (this.parts.liveSession ?? liveSessionIn)(card)
       if (live !== null)
         return this.outcomes.waitingForTheSupersededSession(lease) ?? this.waitingForTheLiveSession(lease, live)
@@ -185,7 +199,7 @@ export class AnswerExecutor {
         answered = await this.session(lease, answering, widened, card, true, this.parts.clock().getTime(), prove)
       if ('kind' in answered)
         return this.refusedOrDenied(lease, answered, widened)
-      const outside = this.stoppedOutsideTheTouches(lease, widened, answered)
+      const outside = this.stoppedOutsideTheTouches(lease, widened, card, answered)
       if (outside !== null)
         return outside
       if (restartsAfter(answered))
@@ -197,19 +211,34 @@ export class AnswerExecutor {
         return { kind: 'fenced', taskKey: lease.taskKey }
       throw error
     }
+    finally {
+      if (admission !== null)
+        this.treesByAdmission.delete(admission)
+    }
   }
 
-  private sessionStop(lease: Lease, widened: Widened | null, answered: Answered): ReturnType<typeof sessionStopOf> {
+  private changedIn(card: CardSession | undefined): ReadonlySet<string> {
+    if (card === undefined)
+      return new Set()
+    try {
+      return new Set((this.parts.changedInTheTree ?? pendingPathsOf)(card))
+    }
+    catch {
+      return new Set()
+    }
+  }
+
+  private sessionStop(lease: Lease, widened: Widened | null, card: CardSession, answered: Answered): ReturnType<typeof sessionStopOf> {
     const outside = this.outsideTouchesOf(lease, widened)
     if (answered.owner === null || timeoutUnderLoadOutside(answered.owner, outside))
       return null
-    return sessionStopOf([answered.owner], text => outside(pathsIn(text)))
+    return sessionStopOf([answered.owner], text => changedInTheTreeOf(outside(pathsIn(text)), this.changedIn(card)))
   }
 
-  private stoppedOutsideTheTouches(lease: Lease, widened: Widened | null, answered: Answered): AnswerOutcome | null {
+  private stoppedOutsideTheTouches(lease: Lease, widened: Widened | null, card: CardSession, answered: Answered): AnswerOutcome | null {
     if (!endedOnContextWarn(answered))
       return null
-    const stop = this.sessionStop(lease, widened, answered)
+    const stop = this.sessionStop(lease, widened, card, answered)
     if (stop?.code !== OUTSIDE_TOUCHES)
       return null
     const detail = `card #${lease.cardId} answer session ${answered.session} stopped at the context warn on ${stop.paths.join(', ')}, outside the touches the card was admitted with; no answer restart is spent and the card waits for intake to widen its touches: ${stop.blocker}`
