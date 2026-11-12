@@ -80,15 +80,19 @@ function reasonsFor(spec: ModuleGraphSpec, fromModule: string, toHolder: string,
   return reasons
 }
 
+function judged(spec: ModuleGraphSpec, { from, to }: ImportEdge): Violation {
+  const fromModule = holderOf(spec, from)
+  const toHolder = holderOf(spec, to)
+  const crossesBoundary = isGraphModule(spec, fromModule) && fromModule !== toHolder
+  return { from, to, fromModule, toHolder, reasons: crossesBoundary ? reasonsFor(spec, fromModule, toHolder, from, to) : [] }
+}
+
+function isViolating(violation: Violation): boolean {
+  return violation.reasons.length > 0
+}
+
 export function boundaryViolations(spec: ModuleGraphSpec, graph: readonly ImportEdge[]): Violation[] {
-  return graph.flatMap(({ from, to }): Violation[] => {
-    const fromModule = holderOf(spec, from)
-    const toHolder = holderOf(spec, to)
-    if (!isGraphModule(spec, fromModule) || fromModule === toHolder)
-      return []
-    const reasons = reasonsFor(spec, fromModule, toHolder, from, to)
-    return reasons.length === 0 ? [] : [{ from, to, fromModule, toHolder, reasons }]
-  })
+  return graph.map(edge => judged(spec, edge)).filter(isViolating)
 }
 
 function moduleEdges(spec: ModuleGraphSpec, graph: readonly ImportEdge[]): Map<string, Set<string>> {
@@ -164,13 +168,13 @@ export function boundaryNumbers(violations: readonly Violation[]): Record<string
   return numbers
 }
 
-export interface IdentifiedViolation extends Violation {
+export interface IdentifiedImport extends Violation {
   symbols: string[]
 }
 
 export interface BoundarySide {
   spec: ModuleGraphSpec
-  violations: IdentifiedViolation[]
+  violations: IdentifiedImport[]
 }
 
 export type Renames = ReadonlyMap<string, string>
@@ -206,7 +210,7 @@ function namedImportsOf(root: string, from: string, files: ReadonlySet<string>, 
   return byTarget
 }
 
-export function identifiedViolations(root: string, spec: ModuleGraphSpec = MODULE_GRAPH, aliases: PathAliases = readAliases(root)): IdentifiedViolation[] {
+export function identifiedViolations(root: string, spec: ModuleGraphSpec = MODULE_GRAPH, aliases: PathAliases = readAliases(root)): IdentifiedImport[] {
   const known = new Set(sourceFiles(root))
   const bySource = new Map<string, Map<string, Set<string>>>()
   const symbolsOf = (from: string): Map<string, Set<string>> => {
@@ -214,7 +218,7 @@ export function identifiedViolations(root: string, spec: ModuleGraphSpec = MODUL
     bySource.set(from, held)
     return held
   }
-  return boundaryReport(root, spec, aliases).violations.map(violation => ({ ...violation, symbols: [...symbolsOf(violation.from).get(violation.to) ?? []].sort(byText) }))
+  return boundaryReport(root, spec, aliases).graph.map(edge => ({ ...judged(spec, edge), symbols: [...symbolsOf(edge.from).get(edge.to) ?? []].sort(byText) }))
 }
 
 function ownershipOf(spec: ModuleGraphSpec): string {
@@ -226,16 +230,17 @@ function carriesMovedSymbols(now: readonly string[], was: readonly string[]): bo
   return now.length > 0 && now.every(symbol => was.includes(symbol))
 }
 
-function heldOnBase(violation: IdentifiedViolation, base: readonly IdentifiedViolation[], renames: Renames): boolean {
+function heldOnBase(violation: IdentifiedImport, base: readonly IdentifiedImport[], renames: Renames): boolean {
   const moved = (file: string): string => renames.get(file) ?? file
   return base.some(was => moved(was.from) === violation.from
     && (moved(was.to) === violation.to || carriesMovedSymbols(violation.symbols, was.symbols)))
 }
 
 export function movedRows(base: BoundarySide, head: BoundarySide, grown: readonly string[], renames: Renames = new Map()): string[] {
-  if (ownershipOf(base.spec) === ownershipOf(head.spec) || head.violations.length > base.violations.length)
+  const violating = head.violations.filter(isViolating)
+  if (ownershipOf(base.spec) === ownershipOf(head.spec) || violating.length > base.violations.filter(isViolating).length)
     return []
-  return grown.filter(row => head.violations
+  return grown.filter(row => violating
     .filter(violation => boundaryKey(violation) === row)
     .every(violation => heldOnBase(violation, base.violations, renames)))
 }
