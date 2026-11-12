@@ -24,12 +24,12 @@ import { CLOSED_CARD, DROPPED_CARD, MERGED_CARD } from '../core/card-automaton.j
 import { appendCardEvent, bodyNotFoldedYet, CARD_BODIES, cardBodyText, FACTORY_MODES, isFactoryMode, laid } from '../core/card-bodies.js'
 import { answersWithdrawnByAClosedHold, holdLayersOf, holdThatStays, ownerHoldGround, queueAgain } from '../core/card-hold.js'
 import { appendEvent, CLOSED_WAIT, closeOwnerWait, defaultBusPath, inTransaction, isOwnerWaitNeed, OPEN_WAIT, openBus, openOwnerWait, OWNER_WAIT_NEEDS, OWNER_WAITS } from '../core/db.js'
-import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_CONTINUED, CARD_DROPPED, CARD_HELD, CARD_PLANNED, CARD_RELEASED, CARD_STARTED, CARD_STOPPED, CARD_TAKEOVER, CARD_UNPLANNED, COMMAND_EXECUTED, declaredPayload, FACTORY_MODE, NUMBERS_FOREIGN, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PLAN_BACKFILLED, PLAN_CLOSED, PLAN_OPENED, POLICY_DENIED, PR_OBSERVED, REQUEST_DONE, REQUEST_REFUSED, SHARD_DECIDED, TASK_REQUEUED, WINDOW_REQUEST, WITNESS_RECORDED } from '../core/events.js'
+import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_CONTINUED, CARD_DROPPED, CARD_HELD, CARD_PLANNED, CARD_RELEASED, CARD_STARTED, CARD_STOPPED, CARD_TAKEOVER, CARD_UNPLANNED, COMMAND_EXECUTED, declaredPayload, FACTORY_MODE, NUMBERS_FOREIGN, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PLAN_BACKFILLED, PLAN_CLOSED, PLAN_OPENED, POLICY_DENIED, PR_OBSERVED, REJECTED, REQUEST_DONE, REQUEST_REFUSED, SHARD_DECIDED, TASK_REQUEUED, WINDOW_REQUEST, WITNESS_RECORDED } from '../core/events.js'
 import { cardIdOf, isFullSha, prOf } from '../core/identifiers.js'
 import { ANSWER_SOURCE, OPEN_OWNER_STOP_OF_CARD, OWNER } from '../core/inbox.js'
 import { legacyHistory } from '../core/legacy-history.js'
 import { isOwnerMoveRequest, OWNER_MOVE_REQUESTS, ownerMoveCommand, ownerMoveOf, ownerMoveRequestOf, ownerMoveUsage } from '../core/owner-commands.js'
-import { changesRoundsOf, closedByRounds, FAILURES_TO_STOP, latestTurnOf, LEASED, QUEUE_ACTOR, QUEUED, queueTaskWithin, REVIEW_ROUNDS } from '../core/queue.js'
+import { changesRoundsOf, closedByRounds, FAILURES_TO_STOP, LEASED, QUEUE_ACTOR, QUEUED, queueTaskWithin, REVIEW_ROUNDS } from '../core/queue.js'
 import { storedByKey } from '../core/stored.js'
 import { INTAKE_ACTOR_PREFIX } from '../intake/admissions.js'
 import { answerToResumeAfterAmend } from '../nodes/answer/answer-executor.js'
@@ -165,7 +165,7 @@ const UNCLOSED_QUESTION = `
 
 const ENDED_CARDS: ReadonlySet<string | null | undefined> = new Set([MERGED_CARD, CLOSED_CARD, DROPPED_CARD])
 
-const LATEST_TURN = `SELECT id, type FROM events WHERE id = ${latestTurnOf('?')}`
+const LATEST_TURN = `SELECT id, type FROM events AS turn WHERE turn.card_id = ? AND turn.legacy = 0 AND turn.type IN ('${CARD_STOPPED}', '${CARD_ANSWERED}', '${CARD_STARTED}') AND (? = 0 OR NOT EXISTS (SELECT 1 FROM events AS rejection WHERE rejection.type = '${REJECTED}' AND rejection.card_id = turn.card_id AND json_extract(rejection.payload, '$.event_id') = turn.id)) ORDER BY turn.id DESC LIMIT 1`
 
 const DIRTY_TREE_CAUSE = /has uncommitted changes$/
 
@@ -319,7 +319,7 @@ export class WindowRequests {
   }
 
   private openSessionOf(cardId: number): number | null {
-    const turn = this.latestTurn(cardId)
+    const turn = this.latestTurn(cardId, true)
     return (turn?.type === CARD_STARTED || turn?.type === CARD_CONTINUED) && startStillOpen(this.db, cardId, turn.id) ? turn.id : null
   }
 
@@ -724,8 +724,8 @@ export class WindowRequests {
     return null
   }
 
-  private latestTurn(cardId: number): { id: number, type: string } | undefined {
-    return this.db.prepare(LATEST_TURN).get(cardId) as { id: number, type: string } | undefined
+  private latestTurn(cardId: number, skipRejectedStarts = false): { id: number, type: string } | undefined {
+    return this.db.prepare(LATEST_TURN).get(cardId, Number(skipRejectedStarts)) as { id: number, type: string } | undefined
   }
 
   private noRouteGround(cardId: number): { named: string } | string {
