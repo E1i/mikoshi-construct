@@ -21,6 +21,8 @@ export const MIN_RUNS_PER_SIDE = 3
 export const RUNS_PER_SIDE = 6
 export const CI_REPORT_ARTIFACT = 'vitest-report'
 export const WEIGHTS_PATH = 'scripts/ci/test-weights.json'
+export const MAX_UNWEIGHTED_SHARE = 0.1
+export const RECOMPUTE_COMMAND = pnpmCommand('test:weights', '--from', 'main')
 const RUNS_LISTED = 60
 const SHARD_JOB = /^vitest (\d+)\/(\d+)$/
 const TEST_STEP = `Run ${pnpmCommand('test')}`
@@ -49,6 +51,20 @@ export function shardSpread(jobs: readonly RunJob[]): { shards: number, spread: 
 export function testSetOf(files: readonly string[]): string {
   const included = (file: string): boolean => config.test!.include!.some(glob => path.matchesGlob(file, glob)) && !config.test!.exclude!.some(glob => path.matchesGlob(file, glob))
   return files.filter(included).sort().join('\n')
+}
+
+export interface WeightsFreshness { tests: number, unweighted: string[], stale: boolean, line: string }
+
+export function weightsFreshness(files: readonly string[], weights: TestWeights, threshold = MAX_UNWEIGHTED_SHARE): WeightsFreshness {
+  const tests = testSetOf(files).split('\n').filter(file => file !== '')
+  const unweighted = tests.filter(file => weights[file] === undefined)
+  const share = tests.length === 0 ? 0 : unweighted.length / tests.length
+  const stale = share > threshold
+  const counted = `${unweighted.length} of ${tests.length} test files (${(share * 100).toFixed(1)}%) have no weight in ${WEIGHTS_PATH}`
+  const line = stale
+    ? `${counted}, above the ${(threshold * 100).toFixed(0)}% threshold; recompute the table with ${RECOMPUTE_COMMAND}`
+    : `${counted}, within the ${(threshold * 100).toFixed(0)}% threshold`
+  return { tests: tests.length, unweighted, stale, line }
 }
 
 export function comparableSpreads(before: readonly SpreadReading[], after: readonly SpreadReading[], testSet: string): { before: number[], after: number[], excluded: number } {
@@ -163,7 +179,7 @@ function main(argv: string[]): void {
   if (argv.includes('--spread'))
     return flag('--spread') === 'main' ? spreadOnMain(flag('--boundary')) : failWith(`usage: ${pnpmCommand('test:weights', '--spread', 'main', '[--boundary <sha>]')}`)
   if (argv.includes('--from'))
-    return flag('--from') === 'main' ? rewriteFrom(reportFromMain()) : failWith(`usage: ${pnpmCommand('test:weights', '--from', 'main')}`)
+    return flag('--from') === 'main' ? rewriteFrom(reportFromMain()) : failWith(`usage: ${RECOMPUTE_COMMAND}`)
   rewriteFrom(argv[0] ?? '.construct/reports/vitest.json')
 }
 
