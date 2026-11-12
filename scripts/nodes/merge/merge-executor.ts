@@ -21,7 +21,7 @@ import { cardContract, NOT_MINE, notMine } from '../../intake/card-contract.js'
 import { allowLiveCommand, liveDecisionOf } from '../../policy/live-decision.js'
 import { mergePolicy, OWNER_MERGES, OWNER_MERGES_RULES, underOwnerDecision, VERSION_BRANCH, WITNESS_REASON, witnessDenial, witnessSubjectOf } from '../../policy/policy.js'
 import { activeWindowShards, decisionsInForceAt, expiredWindowShards, shardActive, unspentShard } from '../../policy/shards.js'
-import { followsTouches, pathsOutside, runsCover } from '../../policy/touch-scope.js'
+import { followsTouches, pathsOutside } from '../../policy/touch-scope.js'
 import { ciOf, GitHubCommitCi } from '../../ports/ci-reading.js'
 import { REVIEW_STATUS_CONTEXT } from '../../ports/github-status.js'
 import { Meter, RateLimited, retryAfterSeconds } from '../../ports/meter.js'
@@ -221,7 +221,7 @@ export class MergeExecutor {
     const widened = (this.parts.db.prepare(WIDENED_ON_THE_ADMISSION).all(lease.cardId, card.admissionEventId) as { paths: string }[]).flatMap(row => JSON.parse(row.paths) as string[])
     const touches = [...card.touches, ...widened]
     const reach = { touches, added: new Set(patched.filter(file => (file as AddedFile).status === 'added').map(file => file.filename)), compositionRecords: [] }
-    const outside = pathsOutside(touches, card.creates, patched.map(file => file.filename)).filter(file => !runsCover(file, card.runs) && !followsTouches(file, reach))
+    const outside = pathsOutside(touches, card.creates, patched.map(file => file.filename)).filter(file => !followsTouches(file, reach))
     if (outside.length === 0)
       return null
     return { kind: 'technical', reason: HEAD_OUTSIDE_TOUCHES, detail: `#${lease.pr} changes ${outside.join(', ')}, outside the touches and creates card #${lease.cardId} was admitted with; it merges once an amend of the card covers them or the head drops them` }
