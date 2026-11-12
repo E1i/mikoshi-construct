@@ -55,11 +55,12 @@ const SESSION_CONTRACT = [...SESSION_FILES, ...supervisor('bg', 'heartbeat', 'li
 const CARD_MODEL = [...card('grammar', 'parking', 'task-file', 'risk', 'complexity'), ...intake('card-contract'), ...core('identifiers.ts')]
 const CARD_RECORD = [...core('card-bodies.ts', 'backfill-source.ts'), ...card('text-sha', 'witness-fields'), ...intake('admissions', 'card-archive', 'witness-fields-backfill'), ...cli('card.ts')]
 const PLAN = [factory('window/plan-export.ts'), ...cli('card-chain.ts'), ...card('slice-depends')]
+const PORTS_ADAPTERS = within(factory('ports'), 'git.ts', 'disk.ts', 'prompt-store.ts', 'client/contract.ts', 'client/codex/adapter.ts')
 const PR_RECORD = [...review('pr-close', 'pr-reopen', 'pr-rerun', 'record-verdict', 'dry-run-record'), ...core('merge-event.ts')]
 
 export const COMPOSITION_ROOTS: readonly string[] = ['src/cli.ts', 'src/program.ts', factory('window/miko.ts'), factory('intake/intake.ts'), factory('supervisor/start.ts')]
 
-const NODE_MAY_USE = ['bus', 'session', 'card-model', 'card-record', 'pr-record', 'plan', 'command-registry']
+const NODE_MAY_USE = ['bus', 'session', 'card-model', 'card-record', 'pr-record', 'plan', 'command-registry', 'ports-adapters']
 
 function node(name: string): ModuleSpec {
   const folder = factory(`nodes/${name}`)
@@ -86,12 +87,13 @@ const OWNER_COMMANDS_READER = ['command-registry']
 
 const DRAWN: Readonly<Record<string, ModuleSpec>> = {
   'bus': { owns: [...BUS_CONTRACT, ...BUS_IMPL], contract: BUS_CONTRACT, may_use: [], status: 'decided' },
-  'session': { owns: [...SESSION_FILES, tree('supervisor')], contract: SESSION_CONTRACT, may_use: ['bus', 'card-model', 'card-record', 'command-registry'], status: 'decided' },
+  'session': { owns: [...SESSION_FILES, tree('supervisor')], contract: SESSION_CONTRACT, may_use: ['bus', 'card-model', 'card-record', 'command-registry', 'ports-adapters'], status: 'decided' },
   'card-model': decided(CARD_MODEL, []),
   'card-record': decided(CARD_RECORD, ['bus', 'card-model']),
   'plan': decided(PLAN, ['card-model', 'card-record']),
   'pr-record': decided(PR_RECORD, ['bus']),
   'command-registry': decided(core('owner-commands.ts'), []),
+  'ports-adapters': decided(PORTS_ADAPTERS, []),
   'node-answer': node('answer'),
   'node-close': node('close'),
   'node-launch': node('launch'),
