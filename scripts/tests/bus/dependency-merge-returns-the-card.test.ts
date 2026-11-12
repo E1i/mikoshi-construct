@@ -4,10 +4,10 @@ import type { MergeBench } from './merge-bench.js'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { openOwnerWaits } from '../../core/bus-readings.js'
 import { appendEvent } from '../../core/db.js'
-import { CARD_ADMITTED, CARD_STARTED, CARD_STOPPED, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, POLICY_DENIED, PR_CLOSED, QUESTION_AGENT } from '../../core/events.js'
+import { CARD_ADMITTED, CARD_STARTED, CARD_STOPPED, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, POLICY_DENIED, PR_CLOSED, QUESTION_AGENT, UPDATE_DONE } from '../../core/events.js'
 import { taskKey } from '../../core/identifiers.js'
-import { leaseNext } from '../../core/lease.js'
-import { answerCandidates, queueTask, updateCandidates } from '../../core/queue.js'
+import { completeTask, leaseNext } from '../../core/lease.js'
+import { answerCandidates, queueTask, updateCandidates, updateTurnHeldFrom } from '../../core/queue.js'
 import { AnswerSources } from '../../nodes/answer/duties/source.js'
 import { UpdateExecutor } from '../../nodes/update/update-executor.js'
 import { cardBody, MAIN_2, sha } from './github-fake.js'
@@ -184,6 +184,40 @@ describe('a dependency merge returns the dependent card (owner s631)', () => {
     const card = openDependent(depends, { required: 'failure' })
 
     expect(card.answersOfTheCard()).toEqual(answers)
+  })
+
+  it.each([
+    { depends: [DEPENDENCY], sourced: false },
+    { depends: [], sourced: true },
+  ])('an answer leased on a red open PR with no stop gets its source only when no dependency of the card is unmerged (depends $depends)', ({ depends, sourced }) => {
+    const card = openDependent(depends, { required: 'failure' })
+    const lease = card.answerLease(OLD_HEAD)
+
+    expect(card.sources.awaitedStop(lease)).toBeNull()
+    expect(card.sources.sourceOf(lease) !== null).toBe(sourced)
+  })
+
+  it('an update settled on the head before the dependency merged does not stand in for the update the merge makes due', () => {
+    const card = openDependent([DEPENDENCY])
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+    const ts = card.bench.clock.now().toISOString()
+    queueTask(card.bench.db, ts, { queue: 'update', cardId: CARD, pr: PR, head: OLD_HEAD })
+    completeTask(card.bench.db, ts, leaseNext(card.bench.db, ts, 'update', 'worker:update:worker-1')!, [])
+    expect(taskState(card.bench.db, taskKey({ queue: 'update', cardId: CARD, pr: PR, head: OLD_HEAD }))).toMatchObject({ state: 'completed' })
+
+    mergeTheDependency(card.bench)
+
+    expect(updatesOfThePr(card.bench)).toEqual([OLD_HEAD])
+  })
+
+  it('a dependent that holds the update turn itself gets the update its dependency merge makes due', () => {
+    const card = openDependent([DEPENDENCY], { mergeable_state: 'clean', review: 'success' })
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+    mergeTheDependency(card.bench)
+    appendEvent(card.bench.db, { ts: card.bench.clock.now().toISOString(), type: UPDATE_DONE, actor: 'worker:update:worker-0', cardId: CARD, pr: PR, head: OLD_HEAD, dedupeKey: `${UPDATE_DONE}:${PR}:${OLD_HEAD}`, payload: { from: sha('b'), to: OLD_HEAD, carried: 'pass', clean: true, task_key: `update-of-${PR}`, lease_gen: 1 }, legacy: false })
+
+    expect(updateTurnHeldFrom(card.bench.db, card.bench.clock.now().toISOString(), PR + 1)).toBe(true)
+    expect(updatesOfThePr(card.bench)).toEqual([OLD_HEAD])
   })
 
   it('an update that leaves the head where it was is not queued again on that head', () => {
