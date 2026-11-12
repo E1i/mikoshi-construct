@@ -208,18 +208,27 @@ function boardEvents(db: BusDb): BoardEvents {
   return { of: type => rows.filter(row => row.type === type) }
 }
 
-function runningWindowAgents(events: BoardEvents, now: Date): SubagentReading[] {
-  const running = new Map<string, SubagentReading>()
+const WINDOW_SUBAGENT_AGENT_KEY = /^(.+):(?:started|ended)$/
+
+interface WindowAgents {
+  session: string | null
+  agents: SubagentReading[]
+}
+
+function runningWindowAgents(events: BoardEvents, now: Date): WindowAgents {
+  const running = new Map<string, { session: string | null, reading: SubagentReading }>()
   for (const row of events.of(WINDOW_SUBAGENT_EVENT)) {
     const payload = payloadOf(row.payload)
     const role = text(payload.role) ?? 'agent'
-    const session = text(payload.session) ?? `${role}:${text(payload.task) ?? '—'}`
+    const session = text(payload.session)
+    const agent = row.dedupe_key?.match(WINDOW_SUBAGENT_AGENT_KEY)?.[1] ?? session ?? `${role}:${text(payload.task) ?? '—'}`
     if (payload.phase === 'ended' || isSilent(row, now))
-      running.delete(session)
+      running.delete(agent)
     else
-      running.set(session, { name: role, context: null, spent: null, at: row.ts })
+      running.set(agent, { session, reading: { name: role, context: null, spent: null, at: row.ts } })
   }
-  return [...running.values()]
+  const live = [...running.values()]
+  return { session: live.at(-1)?.session ?? null, agents: live.map(each => each.reading) }
 }
 
 function positiveOrNull(value: unknown): number | null {
@@ -251,11 +260,13 @@ function windowTiles(db: BusDb, events: BoardEvents, now: Date): BusService[] {
   const tiles = windowRoles(db)
   const beat = lastWindowBeat(db, now)
   const measured = new Set(beat.subagents.map(reading => reading.name))
-  const subagents = [...beat.subagents, ...runningWindowAgents(events, now).filter(agent => !measured.has(agent.name))]
+  const running = runningWindowAgents(events, now)
+  const subagents = [...beat.subagents, ...running.agents.filter(agent => !measured.has(agent.name))]
   if (subagents.length === 0)
     return tiles
   const held = tiles.find(tile => tile.task === WINDOW_TILE_TASK) ?? tiles[0] ?? { role: WINDOW_TILE_ROLE, task: WINDOW_TILE_TASK, tree: null, step: PLAIN_LORE.boardWindowAgentsStep }
-  const withAgents: BusService = { ...held, ...(beat.session === null ? {} : { session: beat.session }), subagents }
+  const session = beat.session ?? running.session
+  const withAgents: BusService = { ...held, ...(session === null ? {} : { session }), subagents }
   return tiles.includes(held) ? tiles.map(tile => tile === held ? withAgents : tile) : [withAgents]
 }
 

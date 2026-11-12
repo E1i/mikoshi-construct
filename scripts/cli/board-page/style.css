@@ -166,6 +166,9 @@ header.panel::before { --_sweep: oklch(from var(--wire) l c h / 0.5); animation:
   color: var(--_fg);
   font-size: 0.72rem;
   text-align: start;
+  &::before { content: "\25B8"; display: inline-block; margin-inline-end: var(--space-xs); transition: transform 160ms ease-out; }
+  &[aria-expanded="true"]::before { transform: rotate(90deg); }
+  &[data-hot] { --_fg: var(--amber); }
   &[data-over] { --_fg: var(--signal); }
   &[aria-expanded="false"] + .svc-agent-list { display: none; }
 }
@@ -178,6 +181,8 @@ header.panel::before { --_sweep: oklch(from var(--wire) l c h / 0.5); animation:
   color: var(--dim);
   font-size: 0.72rem;
   & li { display: flex; flex-wrap: wrap; gap: var(--space-s); }
+  & li[data-hot] { color: var(--amber); }
+  & li[data-over] { color: var(--signal); }
 }
 .svc-agent-name { font-weight: 700; }
 .edd-k { text-transform: uppercase; letter-spacing: 0.08em; }
@@ -537,5 +542,6 @@ code { padding: 0 0.25rem; background: var(--panel-raised); color: var(--text); 
 @keyframes --animation-bevel-pass { from { --a: 0deg; --_sweep: var(--wire); } 80% { --_sweep: var(--wire); } to { --a: 360deg; --_sweep: transparent; } }
 @media (prefers-reduced-motion: reduce) {
   .banner, .live::before, .statusline .cursor::after { animation: none; }
+  .svc .svc-agents::before { transition: none; }
   header.panel::before, .warning-strip::before, .owner-strip::before, dialog.drill[open]::before { --_sweep: transparent; animation: none; }
 }

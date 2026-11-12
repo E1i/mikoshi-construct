@@ -244,7 +244,7 @@ describe('the board bus reader', () => {
       subagent(ago(HOUR), { session: 's9', role: 'brief', task: '#1', phase: 'ended' }),
       subagent(ago(HOUR / 2), { session: 's2', role: 'review', task: '#1072', phase: 'ended' }),
     ] }).services
-    expect(services).toEqual([{ role: 'window', task: 'miko', tree: null, step: 'subagents at work', subagents: [{ name: 'implementer', context: null, spent: null, at: ago(HOUR) }] }])
+    expect(services).toEqual([{ role: 'window', task: 'miko', tree: null, step: 'subagents at work', session: 's1', subagents: [{ name: 'implementer', context: null, spent: null, at: ago(HOUR) }] }])
   })
 
   it('a window subagent with no session, role or task falls back to role:task, agent and —, and a corrupt payload reads as an empty one', () => {

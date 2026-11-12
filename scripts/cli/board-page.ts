@@ -350,25 +350,25 @@ function tileDialog(service: BusService, page: BoardPage): string | null {
   return card !== undefined && page.details.has(Number(card)) ? cardDialog(Number(card)) : null
 }
 
-function compactOrNone(value: number | null): string {
-  return value === null ? NONE : compact(value)
-}
+const compactOrNone = (value: number | null): string => value === null ? NONE : compact(value)
+const AGENT_HEAT = ['', ' data-hot', ' data-over'] as const
+const heatOf = (value: number | null, limit: number | null, warn: number | null): number => value === null || limit === null ? 0 : value >= limit ? 2 : Number(warn !== null && value >= limit * warn)
+const agentHeat = (agent: SubagentReading, limits: EddiesLimits): number => Math.max(heatOf(agent.context, limits.contextLimit, limits.warnRatio), heatOf(agent.spent, limits.agentSpend, limits.warnRatio))
 
-function agentRow(agent: SubagentReading, at: string): string {
+function agentRow(agent: SubagentReading, at: string, limits: EddiesLimits): string {
   const pulse = agent.at === null ? NONE : PLAIN_LORE.boardAgentPulse(Math.max(0, Math.round((Date.parse(at) - Date.parse(agent.at)) / MINUTE_MS)))
-  return `<li><span class="svc-agent-name">${escaped(agent.name)}</span><span>CTX ${compactOrNone(agent.context)}</span><span>SPENT ${compactOrNone(agent.spent)}</span><span>${escaped(pulse)}</span></li>`
+  return `<li${AGENT_HEAT[agentHeat(agent, limits)]}><span class="svc-agent-name">${escaped(agent.name)}</span><span>CTX ${compactOrNone(agent.context)}</span><span>SPENT ${compactOrNone(agent.spent)}</span><span>${escaped(pulse)}</span></li>`
 }
 
 function agentsLine(service: BusService, page: BoardPage): string {
   const agents = service.subagents ?? []
   if (agents.length === 0)
     return ''
-  const { agentSpend, warnRatio } = page.limits
   const largest = Math.max(...agents.map(agent => agent.spent ?? 0))
-  const over = agentSpend !== null && warnRatio !== null && largest >= agentSpend * warnRatio
+  const heaviest = Math.max(...agents.map(agent => agentHeat(agent, page.limits)))
   return [
-    `<button type="button" class="svc-agents" data-agents="${escaped(service.session ?? service.task)}" aria-expanded="false"${over ? ' data-over' : ''}>${escaped(PLAIN_LORE.boardAgentsLine(agents.length, compact(largest), compactOrNone(agentSpend)))}</button>`,
-    `<ul class="svc-agent-list" data-agents-list>${agents.map(agent => agentRow(agent, page.facts.at)).join('')}</ul>`,
+    `<button type="button" class="svc-agents" data-agents="${escaped(service.session ?? service.task)}" aria-expanded="false"${AGENT_HEAT[heaviest]}>${escaped(PLAIN_LORE.boardAgentsLine(agents.length, compact(largest), compactOrNone(page.limits.agentSpend)))}</button>`,
+    `<ul class="svc-agent-list" data-agents-list>${agents.map(agent => agentRow(agent, page.facts.at, page.limits)).join('')}</ul>`,
   ].join('')
 }
 
