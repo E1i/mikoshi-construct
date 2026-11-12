@@ -16,7 +16,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { parseParkingFile } from '../../../src/card/parking.js'
 import { NOT_A_BACKFILL } from '../../core/backfill-source.js'
-import { DROPPED_CARD, RUNNING_CARD } from '../../core/card-automaton.js'
+import { CLOSED_CARD, DROPPED_CARD, MERGED_CARD, RUNNING_CARD } from '../../core/card-automaton.js'
 import { admittedBodies, admittedBodyText, bodyNotFoldedYet, pathsOutsideTheBody } from '../../core/card-bodies.js'
 import { cardHoldOf, HOLD_RECHECK_MS } from '../../core/card-hold.js'
 import { appendEvent, inTransaction, openOwnerWait } from '../../core/db.js'
@@ -118,23 +118,24 @@ interface RunningStart {
   ts: string
   dedupe_key: string
   payload: string
+  state: string
 }
 
 const SESSION_STARTS = `'${CARD_STARTED}', '${CARD_CONTINUED}'`
 
-function latestStartsOf(state: string, condition = ''): string {
+function latestStartsOf(where: string, condition = ''): string {
   return `
-  SELECT e.id, e.card_id, e.ts, e.dedupe_key, e.payload FROM cards AS c
+  SELECT e.id, e.card_id, e.ts, e.dedupe_key, e.payload, c.state FROM cards AS c
   JOIN events AS e ON e.card_id = c.card_id AND e.type IN (${SESSION_STARTS}) AND e.legacy = 0
     AND e.id = (SELECT MAX(id) FROM events WHERE card_id = c.card_id AND type IN (${SESSION_STARTS}) AND legacy = 0)
-  WHERE c.state = '${state}'${condition}
+  WHERE ${where}${condition}
   ORDER BY c.card_id
 `
 }
 
-const RUNNING_STARTS = latestStartsOf(RUNNING_CARD)
+const RUNNING_STARTS = latestStartsOf(`c.state = '${RUNNING_CARD}'`)
 
-const DROPPED_STARTS = latestStartsOf(DROPPED_CARD, `
+const OUT_OF_RUNNING_STARTS = latestStartsOf(`c.state NOT IN ('${RUNNING_CARD}', '${MERGED_CARD}', '${CLOSED_CARD}')`, `
     AND NOT EXISTS (SELECT 1 FROM events WHERE card_id = c.card_id AND id > e.id AND legacy = 0 AND type IN ('${CARD_STOPPED}', '${CARD_SESSION_ENDED}'))`)
 
 export const LAUNCH_START_MINUTES = 10
@@ -383,9 +384,9 @@ export class LaunchNode extends Node<LaunchStep> {
           stopped.push(start.card_id)
       }
     }
-    for (const start of this.db.prepare(DROPPED_STARTS).all() as unknown as RunningStart[]) {
+    for (const start of this.db.prepare(OUT_OF_RUNNING_STARTS).all() as unknown as RunningStart[]) {
       const card = startedCardOf(start.payload)
-      if (card !== null && this.endDropped(start, card))
+      if (card !== null && (start.state === DROPPED_CARD || ownerMovedSince(this.db, start.card_id, 'stop', start.id)) && this.endOutOfRunning(start, card))
         stopped.push(start.card_id)
     }
     return stopped
@@ -399,16 +400,15 @@ export class LaunchNode extends Node<LaunchStep> {
     return lapsed.map(row => row.task_key)
   }
 
-  private endDropped(start: RunningStart, card: StartedCard): boolean {
+  private endOutOfRunning(start: RunningStart, card: StartedCard): boolean {
     const live = this.sessionProcess(card) === 'live'
     if (live)
       this.starters[card.contour]?.stop(card)
     if (this.sessionProcess(card) !== 'gone')
       return false
     this.launchParts.collected?.(card, { cardId: start.card_id, ts: start.ts })
-    const end = live ? 'was stopped at the drop' : 'ended on its own'
-    const detail = `card #${start.card_id} is dropped; its session ${card.session} ${end}`
-    return appendEvent(this.db, { ts: this.ts(), type: CARD_SESSION_ENDED, actor: this.actor, cardId: start.card_id, pr: null, head: null, dedupeKey: `${CARD_SESSION_ENDED}:${start.dedupe_key}`, payload: { session: card.session, pgid: card.pgid, stopped: live, detail }, legacy: false })
+    const [moved, at, gone] = start.state === DROPPED_CARD ? ['is dropped', 'the drop', 'ended on its own'] : [`was stopped by the owner while ${start.state}`, 'the owner stop', 'had no process left, so the bus records its end']
+    return appendEvent(this.db, { ts: this.ts(), type: CARD_SESSION_ENDED, actor: this.actor, cardId: start.card_id, pr: null, head: null, dedupeKey: `${CARD_SESSION_ENDED}:${start.dedupe_key}`, payload: { session: card.session, pgid: card.pgid, stopped: live, detail: `card #${start.card_id} ${moved}; its session ${card.session} ${live ? `was stopped at ${at}` : gone}` }, legacy: false })
   }
 
   private pulse(start: RunningStart, card: StartedCard): void {
