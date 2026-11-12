@@ -16,7 +16,7 @@ import { busParkedDepends } from '../intake/parking-reads.js'
 import { activeDecisionsShard, OWNERS_OF_A_STOP } from '../policy/shards.js'
 import { execGh, readGhJson } from '../ports/gh.js'
 import { CARD_VARIABLE } from '../ports/session.js'
-import { MERGE_PAST_THE_BUS, readBoard } from './board.js'
+import { MERGE_PAST_THE_BUS, readAtLine, readBoard, waitText } from './board.js'
 import { appended, archiveOfDay, DAY_FILE_LIMIT, dayBytes, dayFileNamedIn, splitDay } from './day-archive.js'
 import { projectRoot, realExitReadings, UNKNOWN } from './eddies-measure.js'
 import { stopReasonOf } from './exit.js'
@@ -53,7 +53,7 @@ const QUESTION_LABEL = 'question'
 const OPEN_WAIT_ENTRY = /^Q\d+ open\b/
 const WAIT_ID_ROOM = 'Q99999'
 
-export type HandoffState = Pick<Board, 'ready' | 'blocked' | 'lanes' | 'execution'>
+export type HandoffState = Pick<Board, 'ready' | 'blocked' | 'waitsAt' | 'lanes' | 'execution'>
 export type StateReading = { kind: 'read', state: HandoffState } | { kind: 'unread', why: string }
 export type QuestionReading = { kind: 'read', id: string } | { kind: 'unread', why: string }
 export type MergedReading = { kind: 'read', cards: number[], merges: number, updates: number } | { kind: 'unread', why: string }
@@ -122,7 +122,7 @@ export function stateLines(state: HandoffState): string[] {
     `current card: ${joinedOrNothing(current, '; ')}`,
     `queue: ${joinedOrNothing(state.ready.map(card => `#${card.card}`), ' → ')}`,
     ...(inFlight.length === 0 ? [`${IN_FLIGHT_LABEL}: ${NOTHING}`] : [`${IN_FLIGHT_LABEL}:`, ...inFlight.map(inFlightEntry)]),
-    `${BLOCKED_LABEL}: ${joinedOrNothing(state.blocked.map(card => `#${card.card} ${card.reason}`), '; ')}`,
+    `${BLOCKED_LABEL}: ${joinedOrNothing(state.blocked.map(card => `#${card.card} ${waitText(card.wait)}`), '; ')} (${readAtLine(state.waitsAt)})`,
   ]
 }
 

@@ -93,8 +93,9 @@ describe('the bus read port', () => {
     expect(read).toBe(0)
     expect(reading.stale).not.toBeNull()
     expect(staleLine(reading.stale!)).toMatch(/^cards is stale: reduced through event 0, behind card\.started \d+$/)
+    const started = reading.stale!.latest
     reduce(db)
-    expect(new BusRead(db).current([CARDS], () => ++read)).toEqual({ stale: null, rows: 1 })
+    expect(new BusRead(db).current([CARDS], () => ++read)).toEqual({ stale: null, rows: 1, at: started })
   })
 
   it('reads only: a read-only bus answers, and the port holds no SQL that writes', () => {

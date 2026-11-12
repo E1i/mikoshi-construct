@@ -40,7 +40,7 @@ export interface StaleProjection {
   through: number
 }
 
-export type Reading<T> = { stale: StaleProjection } | { stale: null, rows: T }
+export type Reading<T> = { stale: StaleProjection } | { stale: null, rows: T, at: number }
 
 export function staleLine(stale: StaleProjection): string {
   return `${stale.projection} is stale: reduced through event ${stale.through}, behind ${stale.type} ${stale.latest}`
@@ -63,13 +63,20 @@ export function staleProjection(db: DatabaseSync, projection: ReadProjection): S
   return behind === undefined ? null : { projection, type: behind.type, latest: behind.latest, through: reach(behind.type) }
 }
 
+export function copyEvent(db: DatabaseSync, projections: readonly ReadProjection[]): number {
+  const types = [...new Set(projections.flatMap(projection => PROJECTION_TYPES[projection]))]
+  const held = latestOfEachType(db, types).map(each => each.latest)
+  return Math.max(0, ...held)
+}
+
 export function readCurrent<T>(db: DatabaseSync, projections: readonly ReadProjection[], read: () => T): Reading<T> {
   for (const projection of projections) {
     const stale = staleProjection(db, projection)
     if (stale !== null)
       return { stale }
   }
-  return { stale: null, rows: read() }
+  const at = copyEvent(db, projections)
+  return { stale: null, rows: read(), at }
 }
 export const OWNER_WAIT_NEEDS = ['decision', 'merge', 'command'] as const
 export const OPEN_WAIT = 'open'
