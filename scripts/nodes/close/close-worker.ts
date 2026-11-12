@@ -15,10 +15,10 @@ import { fileURLToPath } from 'node:url'
 import { defaultBusPath } from '../../core/db.js'
 import { CARD_VERIFIED, PR_CLOSED, PR_OPENED, REDUCED, WITNESS_RECORDED } from '../../core/events.js'
 import { Node, prefixOf, runNode, UNDERSTOOD_NOW } from '../../core/node.js'
-import { closeCandidates } from '../../core/queue.js'
+import { closeCandidates, reportCloseTask } from '../../core/queue.js'
 import { loadedCodeSha } from '../../ports/git.js'
 import { stampLogOutput } from '../../supervisor/stamp.js'
-import { CloseExecutor, failureOf, probeClosingCardIds } from './close-executor.js'
+import { cardClosed, CloseExecutor, failureOf, probeClosingCardIds } from './close-executor.js'
 import { cardTreeSweep, gitWorktrees, recordEndedTrees } from './ended-card-trees.js'
 import { cardVerifiedClosings, closingVerificationOf, legacyLines } from './task-close.js'
 
@@ -45,7 +45,7 @@ export interface CloseNodeParts {
 }
 
 function probeCandidates(db: DatabaseSync): QueuedTask[] {
-  return probeClosingCardIds(db).map(cardId => ({ queue: 'close', cardId }))
+  return probeClosingCardIds(db).map(cardId => reportCloseTask(db, cardId, cardClosed(db, cardId)))
 }
 
 function scopeOf(event: StoredEvent): Scope | undefined {

@@ -814,7 +814,7 @@ export interface QueuedTask extends TaskIdentity {
   decision?: number
 }
 
-const CARD_BODY_QUEUES: readonly Queue[] = ['answer', 'witness']
+const CARD_BODY_QUEUES: readonly Queue[] = ['answer', 'witness', 'close']
 const STOP_SUFFIX = /:stop-([1-9]\d*)$/
 const BODY_SHA = /^[0-9a-f]{8,64}$/
 const ANSWER_CARD_BODY = /:card-body-([0-9a-f]{8,64})(?::base-[0-9a-f]{40})?(?::decision-[1-9]\d*)?(?::stop-[1-9]\d*)?$/
@@ -825,7 +825,7 @@ function cardBodySegment(task: QueuedTask): string {
   if (task.cardBody === undefined)
     return ''
   if (!CARD_BODY_QUEUES.includes(task.queue) || !BODY_SHA.test(task.cardBody))
-    throw new Error(`only an answer task carries a card body sha, or a witness task: ${task.queue}, ${task.cardBody}`)
+    throw new Error(`only an answer task carries a card body sha, or a witness or a close task:${task.queue}, ${task.cardBody}`)
   return `:card-body-${task.cardBody}`
 }
 
@@ -914,6 +914,11 @@ export function updateCandidates(db: DatabaseSync, ts: string, rerun: RerunMode 
 
 export function closeCandidates(db: DatabaseSync, ts: string): QueuedTask[] {
   return openCandidates(db, ts, 'close', candidateRows(db, CLOSE_CANDIDATES, everyRow))
+}
+
+export function reportCloseTask(db: DatabaseSync, cardId: number, closedOnceAlready: boolean): QueuedTask {
+  const cardBody = closedOnceAlready ? answerCardBodyOf({ card_body: cardBodyShaOfCard(db, cardId) }) : undefined
+  return cardBody === undefined ? { queue: 'close', cardId } : { queue: 'close', cardId, cardBody }
 }
 
 const ANSWER_CANDIDATES = [QUESTION_CANDIDATES, CHANGES_CANDIDATES, RED_CI_CANDIDATES, DIRTY_THE_UPDATE_COULD_NOT_MERGE, RED_WITNESS_CANDIDATES] as const
