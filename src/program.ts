@@ -10,6 +10,7 @@ import process from 'node:process'
 import { isTTY } from '@clack/prompts'
 import { defineCommand, showUsage } from 'citty'
 import { busExpected, busPathOf } from '../scripts/core/bus-path.js'
+import { pnpmCommand } from '../scripts/core/owner-commands.js'
 import { ownerChannelOfBus, sayToOwnerChannel } from '../scripts/owner/channel.js'
 import { printAtlas, runAtlas } from './atlas/index.js'
 import { attachExitOf, printEntryProtocol, readAttachRecord, runAttach, runAttachUpgrade } from './commands/attach/index.js'
@@ -532,7 +533,7 @@ function mutateJudgeCommand(record: MutationJudgedPort | undefined) {
       baseline: { type: 'boolean', description: 'Record a green report as the baseline apply requires', default: false },
       report: { type: 'string', description: 'The test report the runner wrote, in the format named by --format' },
       format: { type: 'enum', options: [...REPORT_FORMATS], description: 'The report format: vitest-json (the runner\'s json reporter) or junit-xml', default: 'vitest-json' },
-      card: { type: 'string', description: 'The card the mutation verifies (#<n> or <n>): after the verdict, record a mutation-judged line for it in the bus; pnpm mutate judge wires the bus in' },
+      card: { type: 'string', description: `The card the mutation verifies (#<n> or <n>): after the verdict, record a mutation-judged line for it in the bus; ${pnpmCommand('mutate', 'judge')} wires the bus in` },
       json: { type: 'boolean', description: 'Machine-readable report', default: false },
     },
     run({ args }) {
