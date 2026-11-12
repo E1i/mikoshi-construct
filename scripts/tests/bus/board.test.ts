@@ -161,9 +161,10 @@ describe('the factory board', () => {
     conflictingSources()
     seedProjections(bench)
     const board = readBoard({ db: bench.db, now: bench.clock.now(), watched: [], leaseOrders: {} })
-    expect(board.ready).toEqual([{ card: '861', lane: 'lane-1', reason: null }, { card: '860', lane: 'lane-1', reason: null }])
-    expect(board.waiting).toEqual([{ card: '862', lane: 'lane-2', reason: 'depends #860 not merged' }])
-    expect(board.blocked).toEqual([{ card: '863', lane: 'lane-2', reason: 'waits question' }])
+    const shown = (cards: Board['ready']): string[] => cards.map(card => `${card.card} ${card.lane} ${card.wait.kind} ${card.wait.lifter} ${card.reason}`)
+    expect(shown(board.ready)).toEqual([expect.stringMatching(/^861 lane-1 launch bus launch startable, the bus lifts it by /), expect.stringMatching(/^860 lane-1 launch bus /)])
+    expect(shown(board.waiting)).toEqual([expect.stringMatching(/^862 lane-2 depends bus depends #860 not merged, the bus lifts it by /)])
+    expect(shown(board.blocked)).toEqual([expect.stringMatching(/^863 lane-2 stopped window stopped question, the window lifts it by /)])
 
     const busPath = bench.db.location()!
     const projection = boardProjection(bench.db, busPath, TICK_MS)
@@ -304,7 +305,7 @@ describe('the factory board', () => {
     const found = (queue: 'ready' | 'waiting' | 'blocked'): string[] => board[queue].map(card => cases[Number(card.card) - 900]!.name)
     expect(found('ready')).toEqual(cases.filter(each => each.queue === 'ready').map(each => each.name))
     expect(found('blocked')).toEqual(['stopped without a stop event'])
-    expect(board.blocked[0]?.reason).toBe('waits fault')
+    expect(board.blocked[0]?.reason).toMatch(/^stopped fault, the window lifts it by /)
     expect(board.waiting).toEqual([])
   })
 
@@ -406,7 +407,7 @@ describe('the factory board', () => {
     expect(stalled.progress).toMatchObject({ stalled: true, cause: 'down: review' })
     bench.watched = [reviewWorker(REVIEW_PID)]
     stopCard(bench, 850)
-    expect(bench.tick().progress.cause).toBe('queue blocked: #850 waits question.agent')
+    expect(bench.tick().progress.cause).toMatch(/^queue blocked: #850 stopped question\.agent, the window lifts it by /)
   })
 
   it('the board shows the active shard, its scope and the time left', () => {
@@ -433,7 +434,7 @@ describe('the factory board', () => {
       working.tick()
     expect(working.tick().progress).toMatchObject({ stalled: true, cause: 'cause unknown' })
     stopCard(working, 850)
-    expect(working.tick().progress.cause).toBe('queue blocked: #850 waits question.agent')
+    expect(working.tick().progress.cause).toMatch(/^queue blocked: #850 stopped question\.agent, the window lifts it by /)
   })
 
   it('the projection beside pulse gives the latest context and spent of each card', () => {
@@ -509,7 +510,7 @@ describe('the factory board', () => {
     stopCard(idle, 851)
     for (let minute = 1; minute < 30; minute++)
       expect(idle.tick().progress.stalled).toBe(false)
-    expect(idle.tick().progress).toMatchObject({ stalled: true, cause: 'queue blocked: #851 waits question.agent' })
+    expect(idle.tick().progress).toMatchObject({ stalled: true, cause: expect.stringMatching(/^queue blocked: #851 stopped question\.agent, the window lifts it by /) })
     idle.watched = [reviewWorker(null)]
     expect(idle.tick().progress).toMatchObject({ stalled: true, cause: 'down: review' })
     idle.watched = [reviewWorker(REVIEW_PID)]

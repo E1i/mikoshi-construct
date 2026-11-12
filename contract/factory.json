@@ -1591,7 +1591,29 @@
       "witnesses": "string[]",
       "witnesses:": "body line read by src/card/witness-fields.ts"
     },
-    "versionRecord": "card.admitted payload.cardVersion"
+    "versionRecord": "card.admitted payload.cardVersion",
+    "waits": {
+      "depends": {
+        "deadlineMinutes": 1440,
+        "lifter": "bus"
+      },
+      "lane": {
+        "deadlineMinutes": 120,
+        "lifter": "bus"
+      },
+      "launch": {
+        "deadlineMinutes": 30,
+        "lifter": "bus"
+      },
+      "owner": {
+        "deadlineMinutes": 720,
+        "lifter": "owner"
+      },
+      "stopped": {
+        "deadlineMinutes": 60,
+        "lifter": "window"
+      }
+    }
   },
   "concepts": {
     "answer-duties": {
@@ -3480,7 +3502,8 @@
           "card-record",
           "pr-record",
           "plan",
-          "command-registry"
+          "command-registry",
+          "ports-adapters"
         ],
         "owns": [
           "scripts/nodes/answer/**"
@@ -3499,7 +3522,8 @@
           "card-record",
           "pr-record",
           "plan",
-          "command-registry"
+          "command-registry",
+          "ports-adapters"
         ],
         "owns": [
           "scripts/nodes/close/**"
@@ -3518,7 +3542,8 @@
           "card-record",
           "pr-record",
           "plan",
-          "command-registry"
+          "command-registry",
+          "ports-adapters"
         ],
         "owns": [
           "scripts/nodes/launch/**"
@@ -3546,7 +3571,8 @@
           "card-record",
           "pr-record",
           "plan",
-          "command-registry"
+          "command-registry",
+          "ports-adapters"
         ],
         "owns": [
           "scripts/nodes/merge/**"
@@ -3565,7 +3591,8 @@
           "card-record",
           "pr-record",
           "plan",
-          "command-registry"
+          "command-registry",
+          "ports-adapters"
         ],
         "owns": [
           "scripts/nodes/restart/**"
@@ -3584,7 +3611,8 @@
           "card-record",
           "pr-record",
           "plan",
-          "command-registry"
+          "command-registry",
+          "ports-adapters"
         ],
         "owns": [
           "scripts/nodes/review/**",
@@ -3608,7 +3636,8 @@
           "card-record",
           "pr-record",
           "plan",
-          "command-registry"
+          "command-registry",
+          "ports-adapters"
         ],
         "owns": [
           "scripts/nodes/update/**"
@@ -3627,7 +3656,8 @@
           "card-record",
           "pr-record",
           "plan",
-          "command-registry"
+          "command-registry",
+          "ports-adapters"
         ],
         "owns": [
           "scripts/nodes/witness/**"
@@ -3655,7 +3685,6 @@
       "ports": {
         "concepts": [
           "bus-read",
-          "git",
           "process-table"
         ],
         "contract": [],
@@ -3663,9 +3692,35 @@
         "owns": [
           "scripts/ports/**",
           "scripts/core/gh-callers.ts",
-          "scripts/core/gh-callers.known.json"
+          "scripts/core/gh-callers.known.json",
+          "!scripts/ports/client/codex/adapter.ts",
+          "!scripts/ports/client/contract.ts",
+          "!scripts/ports/disk.ts",
+          "!scripts/ports/git.ts",
+          "!scripts/ports/prompt-store.ts"
         ],
         "status": "undecided"
+      },
+      "ports-adapters": {
+        "concepts": [
+          "git"
+        ],
+        "contract": [
+          "scripts/ports/git.ts",
+          "scripts/ports/disk.ts",
+          "scripts/ports/prompt-store.ts",
+          "scripts/ports/client/contract.ts",
+          "scripts/ports/client/codex/adapter.ts"
+        ],
+        "may_use": [],
+        "owns": [
+          "scripts/ports/git.ts",
+          "scripts/ports/disk.ts",
+          "scripts/ports/prompt-store.ts",
+          "scripts/ports/client/contract.ts",
+          "scripts/ports/client/codex/adapter.ts"
+        ],
+        "status": "decided"
       },
       "pr-record": {
         "concepts": [],
@@ -3810,7 +3865,8 @@
           "bus",
           "card-model",
           "card-record",
-          "command-registry"
+          "command-registry",
+          "ports-adapters"
         ],
         "owns": [
           "scripts/core/machine-sessions.ts",

@@ -23,7 +23,7 @@ import { cardContract, NOT_MINE, notMine } from '../../intake/card-contract.js'
 import { allowLiveCommand, liveDecisionOf } from '../../policy/live-decision.js'
 import { mergePolicy, OWNER_MERGES, OWNER_MERGES_RULES, underOwnerDecision, VERSION_BRANCH, WITNESS_REASON, witnessDenial, witnessSubjectOf } from '../../policy/policy.js'
 import { activeWindowShards, decisionsInForceAt, expiredWindowShards, shardActive, unspentShard } from '../../policy/shards.js'
-import { followsTouches, pathsOutside } from '../../policy/touch-scope.js'
+import { followsTouches, pathsOutside, removesEntriesOnly, textBeforePatch } from '../../policy/touch-scope.js'
 import { ciOf, GitHubCommitCi } from '../../ports/ci-reading.js'
 import { REVIEW_STATUS_CONTEXT } from '../../ports/github-status.js'
 import { Meter, RateLimited, retryAfterSeconds } from '../../ports/meter.js'
@@ -109,6 +109,26 @@ function patchedFiles(meter: Meter, pr: number): PatchedFile[] {
     files.push(...listed)
     if (listed.length < FILES_PAGE)
       return files
+  }
+}
+
+function contentAt(meter: Meter, file: string, ref: string): string | null {
+  try {
+    const read = meter.get(`${REPO}/contents/${file}?ref=${ref}`) as { content?: string }
+    return typeof read.content === 'string' ? Buffer.from(read.content, 'base64').toString('utf8') : null
+  }
+  catch {
+    return null
+  }
+}
+
+function entriesOnlyRemovedByThePatch(meter: Meter, patched: readonly PatchedFile[], head: string): (file: string) => boolean {
+  return (file) => {
+    const patch = patched.find(changed => changed.filename === file)?.patch
+    if (patch === undefined)
+      return false
+    const after = contentAt(meter, file, head)
+    return after !== null && removesEntriesOnly(textBeforePatch(after, patch), after)
   }
 }
 
@@ -231,7 +251,8 @@ export class MergeExecutor {
       return null
     const widened = (this.parts.db.prepare(WIDENED_ON_THE_ADMISSION).all(lease.cardId, card.admissionEventId) as { paths: string }[]).flatMap(row => JSON.parse(row.paths) as string[])
     const touches = [...card.touches, ...widened]
-    const reach = { touches, added: new Set(patched.filter(file => (file as AddedFile).status === 'added').map(file => file.filename)), compositionRecords: compositionRecordsOfTheCheckout() }
+    const meter = new Meter(this.parts.gitHub, () => this.parts.clock().getTime())
+    const reach = { touches, added: new Set(patched.filter(file => (file as AddedFile).status === 'added').map(file => file.filename)), compositionRecords: compositionRecordsOfTheCheckout(), entriesOnlyRemoved: entriesOnlyRemovedByThePatch(meter, patched, lease.head!) }
     const outside = pathsOutside(touches, card.creates, patched.map(file => file.filename)).filter(file => !followsTouches(file, reach))
     if (outside.length === 0)
       return null
