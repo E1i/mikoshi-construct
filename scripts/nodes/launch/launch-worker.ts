@@ -41,7 +41,7 @@ import { lastHeartbeat } from '../../supervisor/heartbeat.js'
 import { launchProcess, REAL_PROCESSES } from '../restart/chain-process.js'
 import { MAX_RESTARTS, reportedQuestions, reportedStopReason } from './continuation.js'
 import { laneOverlapRecorder, layLanes, repositoryLanes } from './lane-assign.js'
-import { holdReason, startHold } from './launch-candidates.js'
+import { holdReason, startHold, waitHeldAtTheExit } from './launch-candidates.js'
 import { LaunchExecutor } from './launch-executor.js'
 import { REPORT_MISSING, USAGE_LIMIT, usageLimitDetail, usageLimitResetIn, usageLimitResetOf } from './report-collect.js'
 import { reportClosingOf } from './tree-pr.js'
@@ -634,7 +634,7 @@ export class LaunchNode extends Node<LaunchStep> {
   }
 
   private continueSession(start: RunningStart, card: StartedCard, continuer: SessionContinuer, exited: string, reported: string | null = this.reportedStopReason(start)): boolean {
-    if (cardHoldOf(this.db, start.card_id) !== null || bodyNotFoldedYet(this.db, start.card_id) || this.usageLimitResetPending() !== null)
+    if (waitHeldAtTheExit(this.db, this.ts(), this.actor, { cardId: start.card_id, startKey: start.dedupe_key, session: card.session, exited }) || bodyNotFoldedYet(this.db, start.card_id) || this.usageLimitResetPending() !== null)
       return false
     const used = this.continuationsUsed(start)
     if (used >= MAX_RESTARTS)
