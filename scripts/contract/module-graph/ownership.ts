@@ -1,7 +1,7 @@
 import type { ModuleGraphSpec } from '../factory/modules.js'
 import { readdirSync } from 'node:fs'
 import path from 'node:path'
-import { CARVED_OUT, heldBy, matchesGlob, SOURCE_TREES } from '../factory/modules.js'
+import { CARVED_OUT, heldBy, isTool, matchesGlob, SOURCE_TREES } from '../factory/modules.js'
 
 const COMPOSITION_ROOT = 'composition root'
 
@@ -58,7 +58,7 @@ function contractFaults(spec: ModuleGraphSpec, files: readonly string[]): Owners
 
 function mayUseFaults(spec: ModuleGraphSpec): OwnershipFault[] {
   return Object.entries(spec.modules).flatMap(([module, { may_use }]) => may_use
-    .filter(target => target === module || spec.modules[target] === undefined)
+    .filter(target => target === module || spec.modules[target] === undefined || isTool(spec.modules[target]))
     .map((target): OwnershipFault => ({ kind: 'unknown-may-use', module, target })))
 }
 

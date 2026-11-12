@@ -5,7 +5,7 @@ import { realpathSync } from 'node:fs'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { MODULE_GRAPH } from '../factory/modules.js'
-import { boundaryReport, stronglyConnected, VIOLATION_REASONS } from './boundary.js'
+import { boundaryReport, graphModules, stronglyConnected, VIOLATION_REASONS } from './boundary.js'
 import { byText } from './imports.js'
 import { ownerOf } from './ownership.js'
 
@@ -29,6 +29,8 @@ export interface CyclesReport {
 
 export interface ModuleGraphSummary {
   modules: number
+  tools: number
+  violatingImports: number
   violations: Record<ViolationReason, number>
   cycles: CyclesReport
 }
@@ -36,7 +38,7 @@ export interface ModuleGraphSummary {
 type Edges = ReadonlyMap<string, readonly string[]>
 
 function mayUseEdges(spec: ModuleGraphSpec): Edges {
-  return new Map(Object.keys(spec.modules).sort(byText).map(id => [id, [...spec.modules[id]!.may_use].sort(byText)]))
+  return new Map(graphModules(spec).map(id => [id, [...spec.modules[id]!.may_use].sort(byText)]))
 }
 
 function components(edges: Edges): string[][] {
@@ -160,7 +162,8 @@ function violationsByReason(report: BoundaryReport): Record<ViolationReason, num
 }
 
 export function moduleGraphSummary(spec: ModuleGraphSpec = MODULE_GRAPH, report: BoundaryReport = boundaryReport(undefined, spec)): ModuleGraphSummary {
-  return { modules: Object.keys(spec.modules).length, violations: violationsByReason(report), cycles: cyclesReport(spec, report.graph) }
+  const modules = graphModules(spec).length
+  return { modules, tools: Object.keys(spec.modules).length - modules, violatingImports: report.violations.length, violations: violationsByReason(report), cycles: cyclesReport(spec, report.graph) }
 }
 
 export function renderSummary(summary: ModuleGraphSummary): string {

@@ -73,7 +73,8 @@ describe('module graph cycles (law 4)', () => {
     const summary = moduleGraphSummary(MODULE_GRAPH, boundaryReport(REPO_ROOT))
 
     expect(summary.cycles.mayUse.map(mayUseCycleLine)).toEqual([])
-    expect(summary.modules).toBe(Object.keys(MODULE_GRAPH.modules).length)
+    expect(summary.modules + summary.tools).toBe(Object.keys(MODULE_GRAPH.modules).length)
+    expect(summary.tools).toBeGreaterThan(0)
     for (const { scc, chain } of summary.cycles.source) {
       expect(chain.length).toBeGreaterThan(1)
       expect(chain[0]!.from).toBe(scc[0])

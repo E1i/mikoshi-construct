@@ -4,7 +4,7 @@ import { realpathSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { heldBy, MODULE_GRAPH } from '../factory/modules.js'
+import { heldBy, isTool, MODULE_GRAPH } from '../factory/modules.js'
 import { buildImportGraph, byText, isCodeFile, readAliases } from './imports.js'
 import { ownerOf, sourceFiles } from './ownership.js'
 
@@ -15,7 +15,7 @@ const UNOWNED = 'unowned'
 
 export const BOUNDARY_PREFIX = 'boundary:'
 
-export const VIOLATION_REASONS = ['from-undecided', 'into-undecided', 'not-in-may-use', 'outside-contract', 'into-composition-root', 'into-exclusion', 'into-unowned'] as const
+export const VIOLATION_REASONS = ['from-undecided', 'into-undecided', 'not-in-may-use', 'outside-contract', 'into-composition-root', 'into-exclusion', 'into-unowned', 'into-tool'] as const
 
 export type ViolationReason = typeof VIOLATION_REASONS[number]
 
@@ -41,6 +41,14 @@ function isModule(spec: ModuleGraphSpec, holder: string): boolean {
   return spec.modules[holder] !== undefined
 }
 
+export function isGraphModule(spec: ModuleGraphSpec, holder: string): boolean {
+  return isModule(spec, holder) && !isTool(spec.modules[holder])
+}
+
+export function graphModules(spec: ModuleGraphSpec): string[] {
+  return Object.keys(spec.modules).filter(id => isGraphModule(spec, id)).sort(byText)
+}
+
 function reasonsFor(spec: ModuleGraphSpec, fromModule: string, toHolder: string, to: string): ViolationReason[] {
   if (toHolder === COMPOSITION_ROOT)
     return ['into-composition-root']
@@ -50,6 +58,8 @@ function reasonsFor(spec: ModuleGraphSpec, fromModule: string, toHolder: string,
   const target = spec.modules[toHolder]
   if (target === undefined)
     return ['into-unowned']
+  if (isTool(target))
+    return ['into-tool']
   const reasons: ViolationReason[] = []
   const written = source.may_use.includes(toHolder)
   const intoContract = heldBy(target.contract, to)
@@ -69,7 +79,7 @@ export function boundaryViolations(spec: ModuleGraphSpec, graph: readonly Import
   return graph.flatMap(({ from, to }): Violation[] => {
     const fromModule = holderOf(spec, from)
     const toHolder = holderOf(spec, to)
-    if (!isModule(spec, fromModule) || fromModule === toHolder)
+    if (!isGraphModule(spec, fromModule) || fromModule === toHolder)
       return []
     const reasons = reasonsFor(spec, fromModule, toHolder, to)
     return reasons.length === 0 ? [] : [{ from, to, fromModule, toHolder, reasons }]
@@ -77,10 +87,10 @@ export function boundaryViolations(spec: ModuleGraphSpec, graph: readonly Import
 }
 
 function moduleEdges(spec: ModuleGraphSpec, graph: readonly ImportEdge[]): Map<string, Set<string>> {
-  const edges = new Map<string, Set<string>>(Object.keys(spec.modules).sort(byText).map(id => [id, new Set<string>()]))
+  const edges = new Map<string, Set<string>>(graphModules(spec).map(id => [id, new Set<string>()]))
   for (const { from, to } of graph) {
     const [source, target] = [holderOf(spec, from), holderOf(spec, to)]
-    if (source !== target && isModule(spec, source) && isModule(spec, target))
+    if (source !== target && isGraphModule(spec, source) && isGraphModule(spec, target))
       edges.get(source)!.add(target)
   }
   return edges
