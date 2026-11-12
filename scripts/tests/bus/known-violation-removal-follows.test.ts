@@ -1,5 +1,6 @@
 import type { Lease } from '../../core/lease.js'
 import type { AnswerOutcome } from '../../nodes/answer/duties/index.js'
+import type { TreeCard, TreePrPorts } from '../../nodes/launch/tree-pr.js'
 import type { CardTreeTools } from '../../ports/card-tree.js'
 import type { MergeBench } from './merge-bench.js'
 import { Buffer } from 'node:buffer'
@@ -7,6 +8,7 @@ import { execFileSync, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import process from 'node:process'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { textSha } from '../../../src/card/text-sha.js'
 import { appendEvent } from '../../core/db.js'
@@ -16,7 +18,10 @@ import { queueTask } from '../../core/queue.js'
 import { reduce } from '../../core/reducer.js'
 import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
 import { claudeAnswerer } from '../../nodes/answer/answerer.js'
+import { treePr } from '../../nodes/launch/tree-pr.js'
 import { HEAD_OUTSIDE_TOUCHES } from '../../nodes/merge/merge-executor.js'
+import { planReview } from '../../nodes/review/review-depth.js'
+import { classify } from '../../policy/morse/rules.js'
 import { KNOWN_VIOLATIONS, removesEntriesOnly, textBeforePatch } from '../../policy/touch-scope.js'
 import { sha } from './github-fake.js'
 import { eventsOf, liveBench, mergeBench } from './merge-bench.js'
@@ -202,5 +207,76 @@ describe('a known-violation entry the card made stale follows its touches, growt
     expect(textBeforePatch(REMOVED, patchOf(BASELINE, REMOVED))).toBe(BASELINE)
     expect(textBeforePatch(REMOVED_LAST, patchOf(BASELINE, REMOVED_LAST))).toBe(BASELINE)
     expect(textBeforePatch(GROWN, patchOf(BASELINE, REMOVED))).toBeNull()
+  })
+})
+
+function gitIn(cwd: string, args: string[]): string {
+  return execFileSync('git', ['-C', cwd, '-c', 'user.name=shift', '-c', 'user.email=shift@example.invalid', '-c', 'commit.gpgsign=false', ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+}
+
+function reviewFindingsOf(known: string): string[] {
+  const root = path.join(room(), 'review')
+  cardTree(root)
+  const base = gitIn(root, ['rev-parse', 'HEAD']).trim()
+  dropsTheImportAnd(known)(root)
+  gitIn(root, ['commit', '-q', '-am', 'card'])
+  const head = gitIn(root, ['rev-parse', 'HEAD']).trim()
+  gitIn(root, ['checkout', '-q', base])
+  vi.spyOn(process, 'cwd').mockReturnValue(root)
+  const files = [TOUCHED, KNOWN_VIOLATIONS]
+  const plan = planReview({ taskKey: `review:${CARD}:${PR}:${head}`, queue: 'review', cardId: CARD, pr: PR, head, leaseGen: 1, actor: 'worker:review:w' }, null, {
+    base: () => base,
+    changed: () => files,
+    predict: () => ({ prediction: classify(files.map(file => ({ path: file, status: 'M', additions: 1, deletions: 1 }))), files, added: [] }),
+    scope: () => ({ touches: [TOUCHED], creates: [], runs: [] }),
+  })
+  return plan.depth === 'diff' && plan.round === 'first' ? plan.touchFindings : [`the plan is ${plan.depth}`]
+}
+
+const OPENED_PR = 1588
+const SHIFT_CARD: TreeCard = { branch: `feat/card-${CARD}`, title: `known-violation-removal-follows (#${CARD})`, commitMessage: `known-violation-removal-follows (#${CARD})`, cardLine: CARD_TEXT.split('\n')[0]!, contour: 'cheap', touches: [TOUCHED], runs: [], namedPathReason: null }
+
+function launchOf(known: string): { opened: ReturnType<typeof treePr>, bodies: string[] } {
+  const worktree = path.join(room(), `mc-${CARD}`)
+  cardTree(worktree)
+  const origin = path.join(path.dirname(worktree), 'origin.git')
+  execFileSync('git', ['init', '-q', '--bare', origin])
+  gitIn(worktree, ['remote', 'add', 'origin', origin])
+  gitIn(worktree, ['push', '-q', 'origin', 'HEAD:refs/heads/main'])
+  gitIn(worktree, ['fetch', '-q', 'origin'])
+  gitIn(worktree, ['checkout', '-q', '-b', SHIFT_CARD.branch])
+  dropsTheImportAnd(known)(worktree)
+  const bodies: string[] = []
+  const ports: TreePrPorts = {
+    git: gitIn,
+    gh: (args) => {
+      if (args[1] === 'list')
+        return '[]'
+      bodies.push(args[args.indexOf('--body') + 1]!)
+      return `https://github.com/o/r/pull/${OPENED_PR}\n`
+    },
+  }
+  return { opened: treePr(ports, SHIFT_CARD, worktree, null), bodies }
+}
+
+describe('the review and the launch let the same removal follow and keep growth outside (D-514)', () => {
+  it('the review shows a removed known-violation entry inside the touches and a grown or altered list outside them', () => {
+    const outside = `${KNOWN_VIOLATIONS} is outside the touches of card #${CARD} (${TOUCHED})`
+
+    expect(reviewFindingsOf(REMOVED)).toEqual([])
+    expect(reviewFindingsOf(GROWN)).toEqual([outside])
+    expect(reviewFindingsOf(ALTERED)).toEqual([outside])
+  })
+
+  it('the launch opens the pull request with a removed entry followed, and opens none for a grown or altered list', () => {
+    const removed = launchOf(REMOVED)
+    expect(removed.opened).toEqual({ kind: 'pr', number: String(OPENED_PR), followed: [KNOWN_VIOLATIONS] })
+    expect(removed.bodies[0]).toContain(`Touches followed: ${KNOWN_VIOLATIONS}`)
+
+    for (const known of [GROWN, ALTERED]) {
+      const refused = launchOf(known)
+      expect(refused.opened).toMatchObject({ kind: 'problem', gaps: [{ reason: 'outside-touches', paths: [KNOWN_VIOLATIONS] }] })
+      expect(refused.bodies).toEqual([])
+    }
   })
 })
