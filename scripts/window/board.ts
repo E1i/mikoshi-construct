@@ -1,5 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { Goal } from '../../src/commands/board/goal.js'
+import type { WaitKind, WaitLifter } from '../core/events.js'
 import type { Queue } from '../core/identifiers.js'
 import type { LeaseOrder } from '../core/lease.js'
 import type { WindowShard } from '../policy/shards.js'
@@ -8,7 +9,7 @@ import { goalOf } from '../../src/commands/board/goal.js'
 import { isLaneName } from '../../src/commands/intake/admit.js'
 import { DROPPED_CARD, FALLEN_CARD, MERGED_CARD, QUEUED_CARD, STOPPED_CARD } from '../core/card-automaton.js'
 import { WAITING } from '../core/chain.js'
-import { CARD_ADMITTED, CARD_CLOSED, CARD_STARTED, CARD_STOPPED, CHAIN_OBSERVED, CUTOVER, MERGE_DONE, PR_OPENED, REJECTED, RESTARTED, REVIEW_RECORDED, SESSION_HEARTBEAT, SHARD_DECIDED, TASK_COMPLETED, TASK_LEASED, WINDOW_HEARTBEAT } from '../core/events.js'
+import { CARD_ADMITTED, CARD_CLOSED, CARD_STARTED, CARD_STOPPED, CARD_WAITS, CHAIN_OBSERVED, CUTOVER, MERGE_DONE, OWNER_WAIT_CLOSED, PR_OPENED, REJECTED, RESTARTED, REVIEW_RECORDED, SESSION_HEARTBEAT, SHARD_DECIDED, TASK_COMPLETED, TASK_LEASED, WINDOW_HEARTBEAT } from '../core/events.js'
 import { QUEUES } from '../core/identifiers.js'
 import { RESTART_MISSED } from '../core/inbox.js'
 import { grantOrder, RENEW_MS } from '../core/lease.js'
@@ -47,10 +48,27 @@ export interface BoardSources {
 
 export type LeaseOrders = Partial<Record<Queue, LeaseOrder>>
 
+export interface CardWait {
+  card: number
+  lane: string
+  kind: WaitKind
+  lifter: WaitLifter
+  detail: string
+  since: string
+  deadline: string
+  event: number
+}
+
+export interface WaitsReading {
+  at: number
+  waits: CardWait[]
+}
+
 export interface QueueCard {
   card: string
   lane: string
-  reason: string | null
+  reason: string
+  wait: CardWait
 }
 
 export interface LaneRow {
@@ -136,6 +154,7 @@ export interface Board {
   ready: QueueCard[]
   waiting: QueueCard[]
   blocked: QueueCard[]
+  waitsAt: number
   lanes: LaneRow[]
   window: ComponentHealth
   shard: ActiveShard | null
@@ -209,12 +228,29 @@ const MERGED_PAST_THE_BUS = `
 `
 
 const PROJECTED_QUEUE = `
+  WITH stop AS (SELECT card_id, id, ts, json_extract(payload, '$.reason') AS reason FROM events
+      WHERE id IN (SELECT max(id) FROM events WHERE type = '${CARD_STOPPED}' AND legacy = 0 AND card_id IS NOT NULL GROUP BY card_id)),
+    standing AS (SELECT card_id, id, ts FROM events WHERE id IN (SELECT max(id) FROM events WHERE legacy = 0 AND card_id IS NOT NULL GROUP BY card_id)),
+    owner AS (SELECT wait.card_id, wait.id, wait.need, wait.opened_at, wait.event_id FROM owner_waits AS wait
+      WHERE wait.state = 'open' AND wait.card_id IS NOT NULL
+        AND NOT EXISTS (SELECT 1 FROM events AS closed WHERE closed.type = '${OWNER_WAIT_CLOSED}' AND closed.legacy = 0 AND json_valid(closed.payload) AND json_extract(closed.payload, '$.id') = wait.id)),
+    ahead AS (SELECT other.lane, other.card_id, prs.pr, opened.id, opened.ts FROM card_bodies AS other
+      JOIN prs ON prs.card_id = other.card_id AND prs.state = 'open' JOIN events AS opened ON opened.id = prs.event_id)
   SELECT body.card_id, body.lane, cards.state,
     (SELECT group_concat('#' || dep.value, ', ') FROM json_each(body.depends) AS dep
       WHERE NOT EXISTS (SELECT 1 FROM cards AS done WHERE done.card_id = dep.value AND done.state = '${MERGED_CARD}')) AS unmet,
-    (SELECT json_extract(stop.payload, '$.reason') FROM events AS stop
-      WHERE stop.card_id = body.card_id AND stop.type = '${CARD_STOPPED}' AND stop.legacy = 0 ORDER BY stop.id DESC LIMIT 1) AS stop_reason
+    stop.id AS stop_id, stop.ts AS stop_ts, stop.reason AS stop_reason,
+    standing.id AS standing_id, standing.ts AS standing_ts,
+    (SELECT owner.id FROM owner WHERE owner.card_id = body.card_id ORDER BY owner.event_id LIMIT 1) AS owner_id,
+    (SELECT owner.need FROM owner WHERE owner.card_id = body.card_id ORDER BY owner.event_id LIMIT 1) AS owner_need,
+    (SELECT owner.opened_at FROM owner WHERE owner.card_id = body.card_id ORDER BY owner.event_id LIMIT 1) AS owner_since,
+    (SELECT owner.event_id FROM owner WHERE owner.card_id = body.card_id ORDER BY owner.event_id LIMIT 1) AS owner_event,
+    (SELECT ahead.card_id FROM ahead WHERE ahead.lane = body.lane AND ahead.card_id != body.card_id ORDER BY ahead.pr LIMIT 1) AS ahead_card,
+    (SELECT ahead.pr FROM ahead WHERE ahead.lane = body.lane AND ahead.card_id != body.card_id ORDER BY ahead.pr LIMIT 1) AS ahead_pr,
+    (SELECT ahead.id FROM ahead WHERE ahead.lane = body.lane AND ahead.card_id != body.card_id ORDER BY ahead.pr LIMIT 1) AS ahead_event,
+    (SELECT ahead.ts FROM ahead WHERE ahead.lane = body.lane AND ahead.card_id != body.card_id ORDER BY ahead.pr LIMIT 1) AS ahead_since
   FROM card_bodies AS body LEFT JOIN cards ON cards.card_id = body.card_id
+  LEFT JOIN stop ON stop.card_id = body.card_id LEFT JOIN standing ON standing.card_id = body.card_id
   WHERE body.who = 'shift' AND (cards.state IS NULL OR cards.state IN ('${QUEUED_CARD}', '${FALLEN_CARD}', '${STOPPED_CARD}'))
     AND NOT EXISTS (SELECT 1 FROM chains WHERE chains.card_id = body.card_id AND chains.state != 'stopped')
     AND NOT ${mergedSinceItsLastStart('body.card_id')}
@@ -237,20 +273,84 @@ function ageMs(now: Date, ts: string | null): number {
   return ts === null ? Number.POSITIVE_INFINITY : now.getTime() - Date.parse(ts)
 }
 
-function projectedQueue(db: DatabaseSync): Pick<Board, 'ready' | 'waiting' | 'blocked'> {
-  const rows = (db.prepare(PROJECTED_QUEUE).all() as { card_id: number, lane: string | null, state: string | null, unmet: string | null, stop_reason: string | null }[])
-    .filter(row => row.lane !== null && isLaneName(row.lane))
-  const queue: Pick<Board, 'ready' | 'waiting' | 'blocked'> = { ready: [], waiting: [], blocked: [] }
-  for (const row of rows) {
-    const card = String(row.card_id)
-    const lane = row.lane!
-    if (row.state === STOPPED_CARD)
-      queue.blocked.push({ card, lane, reason: `waits ${row.stop_reason ?? 'fault'}` })
-    else if (row.unmet !== null)
-      queue.waiting.push({ card, lane, reason: `depends ${row.unmet} not merged` })
-    else
-      queue.ready.push({ card, lane, reason: null })
-  }
+const WAIT_PROJECTIONS = ['cards', 'owner_waits'] as const
+
+const WAIT_COLUMN: Record<WaitKind, keyof Pick<Board, 'ready' | 'waiting' | 'blocked'>> = { launch: 'ready', depends: 'waiting', lane: 'waiting', stopped: 'blocked', owner: 'blocked' }
+
+const MINUTE_MS = 60_000
+
+interface StandingRow {
+  card_id: number
+  lane: string | null
+  state: string | null
+  unmet: string | null
+  stop_id: number | null
+  stop_ts: string | null
+  stop_reason: string | null
+  standing_id: number | null
+  standing_ts: string | null
+  owner_id: string | null
+  owner_need: string | null
+  owner_since: string | null
+  owner_event: number | null
+  ahead_card: number | null
+  ahead_pr: number | null
+  ahead_event: number | null
+  ahead_since: string | null
+}
+
+interface Opened {
+  kind: WaitKind
+  detail: string
+  event: number
+  since: string
+}
+
+function waitOf(card: number, lane: string, opened: Opened): CardWait {
+  const term = CARD_WAITS[opened.kind]
+  const deadline = new Date(Date.parse(opened.since) + term.deadlineMinutes * MINUTE_MS).toISOString()
+  return { card, lane, kind: opened.kind, lifter: term.lifter, detail: opened.detail, since: opened.since, deadline, event: opened.event }
+}
+
+function openedWait(row: StandingRow, now: Date): Opened {
+  if (row.owner_id !== null && row.owner_since !== null)
+    return { kind: 'owner', detail: `${row.owner_id} ${row.owner_need ?? ''}`.trim(), event: Number(row.owner_event ?? 0), since: row.owner_since }
+  if (row.state === STOPPED_CARD && row.stop_id !== null && row.stop_ts !== null)
+    return { kind: 'stopped', detail: row.stop_reason ?? 'fault', event: Number(row.stop_id), since: row.stop_ts }
+  const standing = { event: Number(row.standing_id ?? 0), since: row.standing_ts ?? now.toISOString() }
+  if (row.state === STOPPED_CARD)
+    return { kind: 'stopped', detail: 'fault', ...standing }
+  if (row.unmet !== null)
+    return { kind: 'depends', detail: `${row.unmet} not merged`, ...standing }
+  if (row.ahead_card !== null && row.ahead_since !== null)
+    return { kind: 'lane', detail: `behind #${row.ahead_card} PR #${row.ahead_pr}`, event: Number(row.ahead_event ?? 0), since: row.ahead_since }
+  return { kind: 'launch', detail: 'startable', ...standing }
+}
+
+function copyEventOf(db: DatabaseSync): number {
+  const reading = new BusRead(db).current(WAIT_PROJECTIONS, () => null)
+  return reading.stale === null ? reading.at : reading.stale.through
+}
+
+export function cardWaits(db: DatabaseSync, now: Date): WaitsReading {
+  const at = copyEventOf(db)
+  const rows = (db.prepare(PROJECTED_QUEUE).all() as unknown as StandingRow[]).filter(row => row.lane !== null && isLaneName(row.lane))
+  return { at, waits: rows.map(row => waitOf(Number(row.card_id), row.lane!, openedWait(row, now))) }
+}
+
+export function readAtLine(at: number): string {
+  return `read at event ${at}`
+}
+
+export function waitText(wait: CardWait): string {
+  return `${wait.kind} ${wait.detail}, the ${wait.lifter} lifts it by ${wait.deadline}`
+}
+
+function projectedQueue(db: DatabaseSync, now: Date): Pick<Board, 'ready' | 'waiting' | 'blocked' | 'waitsAt'> {
+  const reading = cardWaits(db, now)
+  const queue: Pick<Board, 'ready' | 'waiting' | 'blocked' | 'waitsAt'> = { ready: [], waiting: [], blocked: [], waitsAt: reading.at }
+  for (const wait of reading.waits)
+    queue[WAIT_COLUMN[wait.kind]].push({ card: String(wait.card), lane: wait.lane, reason: waitText(wait), wait })
   return queue
 }
 
@@ -476,7 +576,7 @@ export function readBoard(sources: BoardSources): Board {
     roleHealth(db, now, 'miko', 'Miko'),
   ]
   const down = new Set(health.filter(component => component.health === 'down').map(component => component.name))
-  const queue = projectedQueue(db)
+  const queue = projectedQueue(db, now)
   return {
     at: now.toISOString(),
     goal: goalOf(db, now),
