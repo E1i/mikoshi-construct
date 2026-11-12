@@ -7,6 +7,7 @@ import type { ClaimPlacement, HypothesisReading } from './projection.js'
 import type { MarkerAuthorship, MarkerReading } from './provenance.js'
 import type { CheckVerdict } from './verdict.js'
 import type { VersionGap } from './version-gap.js'
+import { constructCommand } from '../../../scripts/core/owner-commands.js'
 import { FACTORY_MANIFEST } from '../../../scripts/policy/touch-scope.js'
 import { CLIENT_IDS } from '../../manifest.js'
 import { MARKER_AUTHORSHIP, readingsBy } from './provenance.js'
@@ -200,7 +201,7 @@ function printYouAreHere(ui: Ui, placement: ClaimPlacement): void {
 
 export function printDoctor(ui: Ui, result: DoctorResult | AttachedReport | null): number {
   if (result == null) {
-    ui.flatline('No construct.json here. Run `construct init` first.')
+    ui.flatline(`No construct.json here. Run \`${constructCommand('init')}\` first.`)
     return DOCTOR_EXIT.noManifest
   }
   if ('state' in result) {
