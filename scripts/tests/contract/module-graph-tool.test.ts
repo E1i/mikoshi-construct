@@ -33,6 +33,7 @@ const SPEC: ModuleGraphSpec = {
     gen: { owns: ['scripts/gen/**'], contract: [], may_use: [], status: 'tool' },
   }),
   composition_roots: ['scripts/main.ts'],
+  composition_imports: {},
   exclusions: { tests: [], fixtures: [], templates: [], generated: [], tooling: [] },
 }
 

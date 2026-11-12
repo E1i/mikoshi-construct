@@ -14,6 +14,7 @@ const SMALL: ModuleGraphSpec = {
     beta: { owns: ['scripts/alpha/borrowed.ts', 'scripts/beta.ts'], contract: ['scripts/beta.ts'], may_use: [], status: 'undecided' },
   }),
   composition_roots: ['scripts/main.ts'],
+  composition_imports: {},
   exclusions: { tests: ['scripts/tests/**'], fixtures: [], templates: [], generated: [], tooling: [] },
 }
 const SMALL_TREE = ['scripts/alpha/borrowed.ts', 'scripts/alpha/inner.ts', 'scripts/alpha/index.ts', 'scripts/beta.ts', 'scripts/main.ts', 'scripts/tests/alpha.test.ts']
@@ -68,6 +69,15 @@ describe('module graph ownership (law 2)', () => {
       'alpha: contract scripts/beta.ts is not inside its owns',
       'alpha: may_use names gamma, which is not another module',
       'alpha: may_use names alpha, which is not another module',
+    ])
+  })
+
+  it('composition_imports keyed by a file that is no composition root, or listing a missing importer, is red', () => {
+    const listed: ModuleGraphSpec = { ...SMALL, composition_imports: { 'scripts/main.ts': ['scripts/alpha/inner.ts', 'scripts/alpha/gone.ts'], 'scripts/beta.ts': [] } }
+
+    expect(linesOf(listed, SMALL_TREE)).toEqual([
+      'composition_imports: scripts/main.ts lists scripts/alpha/gone.ts, which matches no file',
+      'composition_imports: scripts/beta.ts is not a composition root',
     ])
   })
 
