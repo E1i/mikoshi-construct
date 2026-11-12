@@ -64,7 +64,6 @@ const SITES_OF_THE_RECONNAISSANCE: Record<string, readonly string[]> = {
     'src/commands/doctor/factory.ts',
     'scripts/window/compact-start.ts',
     'scripts/window/exit.ts',
-    'src/ui/lore.ts',
   ],
   'window-requests': ['scripts/window/window-requests.ts'],
 }
