@@ -6,7 +6,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { TestCoverage } from '../../../src/card/covering-tests.js'
 import { loadCompositionModels } from '../../composition/files.js'
-import { COMPOSITION_ROOT, followsTouches, isTestOrGenerated, neverFollows, runsCover, withinTouches } from '../../policy/touch-scope.js'
+import { COMPOSITION_ROOT, followsTouches, isTestOrGenerated, neverFollows, removesEntriesOnly, runsCover, withinTouches } from '../../policy/touch-scope.js'
 import { gitIn } from '../../ports/worktree.js'
 
 export { cardRiskOf } from '../../../src/commands/intake/check.js'
@@ -100,6 +100,12 @@ function coverageAt(head: string, changed: readonly string[]): TestCoverage {
   )
 }
 
+function entriesOnlyRemovedBetween(base: string, head: string): (file: string) => boolean {
+  const repository = process.cwd()
+  const at = (ref: string, file: string): string | null => orNull(() => gitIn(repository, ['show', `${ref}:${file}`]))
+  return file => removesEntriesOnly(at(base, file), at(head, file))
+}
+
 function stillOutside(files: readonly string[], reach: FollowingReach, coverage: TestCoverage): string[] {
   if (files.length === 0)
     return []
@@ -109,12 +115,12 @@ function stillOutside(files: readonly string[], reach: FollowingReach, coverage:
 
 type TouchReading = Pick<Extract<ReviewPlan, { round: 'first' }>, 'touchFindings' | 'touchNotes'>
 
-function touchReading(cardId: number, head: string, { files, added }: Predicted, sources: DepthSources): TouchReading {
+function touchReading(cardId: number, base: string, head: string, { files, added }: Predicted, sources: DepthSources): TouchReading {
   const scope = sources.scope(cardId)
   if (scope === null)
     return { touchFindings: [`the touches of card #${cardId} could not be read, so no changed file is shown inside them`], touchNotes: [] }
   const { touches, creates, runs, fullReading } = scope
-  const reach = { touches, added: new Set(added), compositionRecords: compositionRecords() }
+  const reach = { touches, added: new Set(added), compositionRecords: compositionRecords(), entriesOnlyRemoved: entriesOnlyRemovedBetween(base, head) }
   const readingNote = fullReading === undefined ? '' : `; ${fullReadingLine(fullReading)}`
   const named = files.filter(file => !withinTouches(file, touches) && !creates.includes(file) && !runsCover(file, runs))
   const outside = stillOutside(named, reach, coverageAt(head, files))
@@ -129,7 +135,7 @@ function firstReview(lease: Lease, head: string, sources: DepthSources): ReviewP
   const rule = `MORSE predicts ${prediction.verdict} by rule ${prediction.rule}`
   if (prediction.rule === FULL_DEPTH_RULE)
     return fullReview(rule, prediction)
-  return { depth: 'diff', round: 'first', why: `${rule}, and only the ${FULL_DEPTH_RULE} rule takes the full review`, since: base, ...touchReading(lease.cardId, head, predicted, sources) }
+  return { depth: 'diff', round: 'first', why: `${rule}, and only the ${FULL_DEPTH_RULE} rule takes the full review`, since: base, ...touchReading(lease.cardId, base, head, predicted, sources) }
 }
 
 export function planReview(lease: Lease, earlier: EarlierVerdict | null, sources: DepthSources): ReviewPlan {
