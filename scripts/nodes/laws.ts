@@ -50,7 +50,6 @@ export const LAW_CELLS_WITNESSES = 1823
 export const CARD_WAIT_STATES = 1740
 const WAIT_STATES_AND_THEIR_WITNESSES = [CARD_WAIT_STATES, LAW_CELLS_WITNESSES]
 export const NO_HEAD_OF_LINE = 1744
-export const MERGE_KEEPS_TO_THE_TOUCHES = 1784
 export const RESTART_KEEPS_SESSION = 'Z1-restart-keeps-session'
 export const REVIEW_KEEPS_SESSION_AND_LEAVES_NO_DESCENDANT = 'Z1-review-keeps-session-and-leaves-no-descendant'
 export const SESSION_BEAT_BESIDE_STALE_WINDOW = 'Z7-session-beat-beside-stale-window'
@@ -63,6 +62,7 @@ export const LIVE_SESSION_WAIT_LIFTED = 'Z4-live-session-wait-lifted'
 export const EVERY_LAUNCH_WRITES_ITS_EVENT = 'Z5-every-launch-writes-its-event'
 export const DIRECT_IMPORTER_WIDENED = 'Z3-direct-importer-widened'
 export const LAUNCH_BODY_FROM_LATEST_ADMISSION = 'Z3-launch-body-from-latest-admission'
+export const MERGE_OUTSIDE_TOUCHES_REFUSED = 'Z3-merge-outside-touches-refused'
 export const LAUNCH_STOP_SPENDS_NO_CONTINUATION = 'Z8-launch-stop-spends-no-continuation'
 export const ANSWER_STOP_SPENDS_NO_RESTART = 'Z8-answer-stop-spends-no-restart'
 export const OWNER_LAUNCH_PAST_CONDITIONS = 'Z10-owner-launch-past-conditions'
@@ -163,7 +163,7 @@ export const LAW_CELLS: LawCells = {
     ...everyNode(gap(LAW_CELLS_WITNESSES)),
     answer: { witness: DIRECT_IMPORTER_WIDENED },
     launch: { witness: LAUNCH_BODY_FROM_LATEST_ADMISSION },
-    merge: gap(MERGE_KEEPS_TO_THE_TOUCHES),
+    merge: { witness: MERGE_OUTSIDE_TOUCHES_REFUSED },
     ...beyondNodes('Z3'),
   },
   Z4: { ...everyNode(gap(...WAIT_STATES_AND_THEIR_WITNESSES)), answer: { witness: LIVE_SESSION_WAIT_LIFTED }, launch: gap(CARD_WAIT_STATES, NO_HEAD_OF_LINE), ...beyondNodes('Z4') },

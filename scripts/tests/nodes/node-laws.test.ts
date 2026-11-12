@@ -40,7 +40,8 @@ import { AnswerNode } from '../../nodes/answer/answer-worker.js'
 import { claudeAnswerer } from '../../nodes/answer/answerer.js'
 import { handoffBuilder, handoffWrittenSince, reportSince } from '../../nodes/launch/launch-root.js'
 import { LaunchNode } from '../../nodes/launch/launch-worker.js'
-import { ANSWER_STOP_SPENDS_NO_RESTART, CARD_WAIT_STATES, DIRECT_IMPORTER_WIDENED, EVERY_LAUNCH_WRITES_ITS_EVENT, gapRows, INFRASTRUCTURE_RETRIED, LAUNCH_BODY_FROM_LATEST_ADMISSION, LAUNCH_STOP_SPENDS_NO_CONTINUATION, LAW_CELLS, LAW_CELLS_WITNESSES, LAW_NODES, LAW_SITES, lawIds, LAWS, LIVE_SESSION_WAIT_LIFTED, MERGE_KEEPS_TO_THE_TOUCHES, NO_HEAD_OF_LINE, OWNER_LAUNCH_PAST_CONDITIONS, RESTART_KEEPS_SESSION, REVIEW_KEEPS_SESSION_AND_LEAVES_NO_DESCENDANT, SESSION_BEAT_BESIDE_STALE_WINDOW, sourceOf } from '../../nodes/laws.js'
+import { ANSWER_STOP_SPENDS_NO_RESTART, CARD_WAIT_STATES, DIRECT_IMPORTER_WIDENED, EVERY_LAUNCH_WRITES_ITS_EVENT, gapRows, INFRASTRUCTURE_RETRIED, LAUNCH_BODY_FROM_LATEST_ADMISSION, LAUNCH_STOP_SPENDS_NO_CONTINUATION, LAW_CELLS, LAW_CELLS_WITNESSES, LAW_NODES, LAW_SITES, lawIds, LAWS, LIVE_SESSION_WAIT_LIFTED, MERGE_OUTSIDE_TOUCHES_REFUSED, NO_HEAD_OF_LINE, OWNER_LAUNCH_PAST_CONDITIONS, RESTART_KEEPS_SESSION, REVIEW_KEEPS_SESSION_AND_LEAVES_NO_DESCENDANT, SESSION_BEAT_BESIDE_STALE_WINDOW, sourceOf } from '../../nodes/laws.js'
+import { HEAD_OUTSIDE_TOUCHES } from '../../nodes/merge/merge-executor.js'
 import { fullReview } from '../../nodes/review/review-depth.js'
 import { dryRun } from '../../nodes/review/review-worker.js'
 import { claudeReviewer, ReviewTrees } from '../../nodes/review/reviewer.js'
@@ -53,7 +54,7 @@ import { slotsVariable } from '../../supervisor/scheduler.js'
 import { busDrain, BusSupervisor, freeLeasesOf, withoutRetiring } from '../../supervisor/supervisor.js'
 import { workerLaunches } from '../../supervisor/workers.js'
 import { Clock, FakeGitHub, sha } from '../bus/github-fake.js'
-import { eventsOf, mergeBench } from '../bus/merge-bench.js'
+import { eventsOf, liveBench, mergeBench } from '../bus/merge-bench.js'
 import { reachesSite } from './law-reach.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')
@@ -750,6 +751,37 @@ async function answerRoundWaitsForTheOwnersDecision(): Promise<void> {
   }
 }
 
+const OUTSIDE_CARD = 1796
+const OUTSIDE_PR = OUTSIDE_CARD - 100
+
+function admittedTouching(made: ReturnType<typeof mergeBench>, touches: string, generation: string): void {
+  const text = `card: #${OUTSIDE_CARD} merge-scope [implement/construct/S/cheap/auto] · depends — · blocks —\nbranch: feat/merge-scope\ntouches: ${touches}\ncontinue: stop\nwho: shift\n\nMerge it.\n`
+  appendEvent(made.db, { ts: made.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'worker:intake:window', cardId: OUTSIDE_CARD, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${OUTSIDE_CARD}:${generation}`, payload: { card: `#${OUTSIDE_CARD}`, lane: 'lane-a', decision: 'auto', contour: 'cheap', depends: [], admission: `admission-${generation}`, text, textSha: textSha(text), bodySha: generation }, legacy: false })
+}
+
+async function mergeRefusesOutsideTouches(node: LawNode): Promise<void> {
+  if (node !== 'merge')
+    throw new Error(`no merge scope check is wired on ${node}`)
+  const made = liveBench()
+  try {
+    admittedTouching(made, 'scripts/a.ts', 'body-1')
+    made.gitHub.open({ number: OUTSIDE_PR, review: 'success', files: ['scripts/a.ts', 'package.json', 'scripts/tests/a.test.ts'] })
+    made.tick()
+    const refused = made.merge(made.lease()!)
+    if (refused.kind !== 'denied' || refused.denial.kind !== 'technical' || refused.denial.reason !== HEAD_OUTSIDE_TOUCHES || !refused.denial.detail.includes('package.json') || refused.denial.detail.includes('scripts/tests/a.test.ts'))
+      throw new Error(`a head with package.json outside the touches was not refused for it alone: ${JSON.stringify(refused)}`)
+    admittedTouching(made, 'scripts/a.ts, package.json', 'body-2')
+    made.clock.advance(HOLD_RECHECK_MS)
+    made.tick()
+    const amended = made.merge(made.lease()!)
+    if (amended.kind !== 'merged')
+      throw new Error(`the amend that covers package.json did not let the head merge: ${JSON.stringify(amended)}`)
+  }
+  finally {
+    made.close()
+  }
+}
+
 const WITNESSES: Witnesses = {
   [RESTART_KEEPS_SESSION]: { law: 'Z1', run: restartKeepsSession },
   [REVIEW_KEEPS_SESSION_AND_LEAVES_NO_DESCENDANT]: { law: 'Z1', run: reviewKeepsSessionAndLeavesNoDescendant },
@@ -758,6 +790,7 @@ const WITNESSES: Witnesses = {
   [LIVE_SESSION_WAIT_LIFTED]: { law: 'Z4', run: liveSessionWaitIsRecordedAndLifted },
   [EVERY_LAUNCH_WRITES_ITS_EVENT]: { law: 'Z5', run: everyLaunchWritesItsEvent },
   [LAUNCH_BODY_FROM_LATEST_ADMISSION]: { law: 'Z3', run: launchBodyFromLatestAdmission },
+  [MERGE_OUTSIDE_TOUCHES_REFUSED]: { law: 'Z3', run: mergeRefusesOutsideTouches },
   [SESSION_BEAT_BESIDE_STALE_WINDOW]: { law: 'Z7', run: sessionBeatBesideStaleWindow },
   [LAUNCH_STOP_SPENDS_NO_CONTINUATION]: { law: 'Z8', run: launchStopSpendsNoContinuation },
   [ANSWER_STOP_SPENDS_NO_RESTART]: { law: 'Z8', run: answerStopSpendsNoRestart },
@@ -865,9 +898,8 @@ describe('the laws of a node', () => {
     expect(gapRows().filter(({ law, node }) => law === 'Z3' && node === 'intake')).toHaveLength(1)
   })
 
-  it('z3 x merge names the open card that keeps a merge inside the touches of its card, as D-460 rules', () => {
-    expect(LAW_CELLS.Z3.merge).toEqual({ gap: [MERGE_KEEPS_TO_THE_TOUCHES] })
-    expect(MERGE_KEEPS_TO_THE_TOUCHES).toBe(1784)
+  it('z3 x merge is witnessed by the merge node refusing a head outside the touches of its card, as D-460 rules', () => {
+    expect(LAW_CELLS.Z3.merge).toEqual({ witness: MERGE_OUTSIDE_TOUCHES_REFUSED })
   })
 
   const laneWaitLaw: LawId = 'Z4'
