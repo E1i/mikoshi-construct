@@ -6,7 +6,7 @@ import { afterAll, describe, expect, it } from 'vitest'
 import { carvedOut, MODULE_GRAPH } from '../../contract/factory/modules.js'
 import { BOUNDARY_PREFIX, boundaryNumbers, boundaryReport, renderBoundaryReport, violationLine } from '../../contract/module-graph/boundary.js'
 import { buildImportGraph } from '../../contract/module-graph/imports.js'
-import { ratchetBreaks, readRatchet } from '../../contract/ratchet.js'
+import { checkRatchet, ratchetBreaks, readRatchet } from '../../contract/ratchet.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')
 const REPO_RUN_TIMEOUT = 180_000
@@ -235,6 +235,6 @@ describe('module graph baseline (law 5)', () => {
   it('the violation ledger does not grow and holds no vanished row', { timeout: REPO_RUN_TIMEOUT }, () => {
     const ledger = Object.fromEntries(Object.entries(readRatchet(REPO_ROOT)).filter(([key]) => key.startsWith(BOUNDARY_PREFIX)))
 
-    expect(ratchetBreaks(ledger, boundaryNumbers(boundaryReport(REPO_ROOT).violations))).toEqual([])
+    expect(checkRatchet(REPO_ROOT, ledger, boundaryNumbers(boundaryReport(REPO_ROOT).violations))).toEqual([])
   })
 })

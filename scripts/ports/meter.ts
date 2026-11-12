@@ -4,6 +4,7 @@ import { RATE_LIMIT_STATUSES } from './github.js'
 export const DEFAULT_RETRY_AFTER_S = 60
 
 export class RateLimited extends Error {
+  readonly taskMustWait = true
   constructor(readonly status: number, readonly retryAfterSeconds: number) {
     super(`GitHub answered ${status}; retry after ${retryAfterSeconds} s`)
   }
