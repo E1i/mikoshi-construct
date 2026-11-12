@@ -217,6 +217,46 @@ describe('a dependency merge returns the dependent card (owner s631)', () => {
     expect(updatesOfThePr(card.bench)).toEqual([])
   })
 
+  it('a question stop with no PR still gets its answer source while a dependency is unmerged', () => {
+    const bench = liveBench()
+    benches.push(bench)
+    bench.gitHub.open({ number: DEPENDENCY_PR, head: sha('b') })
+    admitted(bench, [DEPENDENCY], 'admission-1')
+    const ts = bench.clock.now().toISOString()
+    appendEvent(bench.db, { ts, type: CARD_STARTED, actor: 'worker:launch:launch-1', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_STARTED}:${CARD}`, payload: { session: 'card-session-1', worktree: `/trees/mc-${CARD}`, branch: `feat/card-${CARD}`, base: sha('1') }, legacy: false })
+    appendEvent(bench.db, { ts, type: CARD_STOPPED, actor: 'worker:launch:launch-1', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:${CARD}`, payload: { reason: QUESTION_AGENT, detail: `card #${CARD} asks a question` }, legacy: false })
+    bench.tick()
+    const sources = new AnswerSources({ db: bench.db, clock: bench.clock.now })
+
+    expect(sources.sourceOf({ taskKey: `answer:${CARD}`, queue: 'answer', cardId: CARD, pr: null, head: null, leaseGen: 1, actor: 'worker:answer:worker-1' })).toMatchObject({ kind: 'question' })
+  })
+
+  it('an update queued after the dependency merge is refused when a re-admission adds an open dependency before the lease', () => {
+    const card = openDependent([DEPENDENCY])
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+    mergeTheDependency(card.bench)
+    expect(updatesOfThePr(card.bench)).toEqual([OLD_HEAD])
+
+    admitted(card.bench, [DEPENDENCY, OTHER_DEPENDENCY], 'admission-2')
+    const lease = leaseNext(card.bench.db, card.bench.clock.now().toISOString(), 'update', 'worker:update:worker-1')
+
+    expect(updateExecutor(card.bench).update(lease!)).toMatchObject({ kind: 'denied' })
+    expect(card.bench.gitHub.pulls.get(PR)!.head).toBe(OLD_HEAD)
+  })
+
+  it('a dependency-due update on a PR that turned dirty is refused when no main merge is configured', () => {
+    const card = openDependent([DEPENDENCY])
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+    mergeTheDependency(card.bench)
+    expect(updatesOfThePr(card.bench)).toEqual([OLD_HEAD])
+
+    card.bench.gitHub.pulls.get(PR)!.mergeable_state = 'dirty'
+    const lease = leaseNext(card.bench.db, card.bench.clock.now().toISOString(), 'update', 'worker:update:worker-1')
+
+    expect(updateExecutor(card.bench).update(lease!)).toMatchObject({ kind: 'denied' })
+    expect(card.bench.gitHub.pulls.get(PR)!.head).toBe(OLD_HEAD)
+  })
+
   it('a dependency PR closed without merging does not update its dependents', () => {
     const bench = liveBench()
     benches.push(bench)
