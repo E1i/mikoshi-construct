@@ -3371,6 +3371,16 @@
         ],
         "status": "decided"
       },
+      "contract-generator": {
+        "concepts": [],
+        "contract": [],
+        "may_use": [],
+        "owns": [
+          "scripts/contract/**",
+          "!scripts/contract/contours.ts"
+        ],
+        "status": "tool"
+      },
       "cost": {
         "concepts": [],
         "contract": [],
@@ -3411,7 +3421,7 @@
         "contract": [],
         "may_use": [],
         "owns": [
-          "scripts/contract/**"
+          "scripts/contract/contours.ts"
         ],
         "status": "undecided"
       },
