@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
-import { carvedOut } from '../../contract/factory/modules.js'
+import { carvedOut, MODULE_GRAPH } from '../../contract/factory/modules.js'
 import { BOUNDARY_PREFIX, boundaryNumbers, boundaryReport, renderBoundaryReport, violationLine } from '../../contract/module-graph/boundary.js'
 import { buildImportGraph } from '../../contract/module-graph/imports.js'
 import { ratchetBreaks, readRatchet } from '../../contract/ratchet.js'
@@ -123,6 +123,58 @@ describe('module graph boundary (law 3)', () => {
   it('an import from a module into a composition root is red', () => {
     expect(linesFor({ ...LAWFUL, 'scripts/alpha/use.ts': 'import \'../main.js\'\n' }))
       .toEqual(['scripts/alpha/use.ts -> scripts/main.ts: into-composition-root'])
+  })
+})
+
+describe('module graph boundary: the status of each side of an edge', () => {
+  const DELTA_INDEX = 'scripts/delta/index.ts'
+  const withModules = (modules: ModuleGraphSpec['modules']): ModuleGraphSpec => ({
+    ...SPEC,
+    modules: carvedOut({ ...SPEC.modules, delta: { owns: ['scripts/delta/**'], contract: [], may_use: [], status: 'undecided' }, ...modules }),
+  })
+  const gammaUsing = (...may_use: string[]): ModuleGraphSpec => withModules({ gamma: { ...SPEC.modules.gamma!, may_use } })
+  const linesUnder = (spec: ModuleGraphSpec, use: string, target: string): string[] =>
+    boundaryReport(treeOf({ ...LAWFUL, [DELTA_INDEX]: 'export const delta = 1\n', [use]: `import '../${target.split('/').slice(1).join('/').replace(/\.ts$/, '.js')}'\n` }), spec, {}).violations.map(violationLine)
+
+  it('case 1: undecided to decided written in may_use into the contract is lawful', () => {
+    expect(linesUnder(gammaUsing('alpha'), 'scripts/gamma/use.ts', 'scripts/alpha/index.ts')).toEqual([])
+  })
+
+  it('case 2: undecided to decided not written in may_use is a violation', () => {
+    expect(linesUnder(gammaUsing(), 'scripts/gamma/use.ts', 'scripts/alpha/index.ts'))
+      .toEqual(['scripts/gamma/use.ts -> scripts/alpha/index.ts: from-undecided, not-in-may-use'])
+  })
+
+  it('case 3: decided to undecided is a violation', () => {
+    const alphaUsingGamma = withModules({ alpha: { ...SPEC.modules.alpha!, may_use: ['beta', 'gamma'] } })
+
+    expect(linesUnder(alphaUsingGamma, 'scripts/alpha/use.ts', 'scripts/gamma/index.ts'))
+      .toEqual(['scripts/alpha/use.ts -> scripts/gamma/index.ts: into-undecided, outside-contract'])
+  })
+
+  it('case 4: undecided to undecided written in may_use is still a violation', () => {
+    expect(linesUnder(gammaUsing('delta'), 'scripts/gamma/use.ts', DELTA_INDEX))
+      .toEqual([`scripts/gamma/use.ts -> ${DELTA_INDEX}: from-undecided, into-undecided, outside-contract`])
+  })
+
+  it('may_use never makes an import into internals lawful', () => {
+    expect(linesUnder(gammaUsing('beta'), 'scripts/gamma/use.ts', 'scripts/beta/impl.ts'))
+      .toEqual(['scripts/gamma/use.ts -> scripts/beta/impl.ts: from-undecided, outside-contract'])
+    expect(linesUnder(SPEC, 'scripts/alpha/use.ts', 'scripts/beta/impl.ts'))
+      .toEqual(['scripts/alpha/use.ts -> scripts/beta/impl.ts: outside-contract'])
+  })
+
+  it('an owner-commands reader imports the command-registry contract with no violation', () => {
+    const readers = ['src/atlas/chrome.ts', 'src/commands/board/screens.ts', 'src/commands/doctor/factory.ts', 'src/commands/intake/check.ts', 'src/ui/lore.ts']
+    const registry = 'scripts/core/owner-commands.ts'
+    const root = treeOf({
+      [registry]: 'export const commands = 1\n',
+      ...Object.fromEntries(readers.map(reader => [reader, `import '${path.relative(path.dirname(reader), registry).replace(/\.ts$/, '.js')}'\n`])),
+    })
+    const report = boundaryReport(root, MODULE_GRAPH, {})
+
+    expect(report.graph.filter(({ to }) => to === registry).map(({ from }) => from)).toEqual(readers)
+    expect(report.violations.map(violationLine)).toEqual([])
   })
 })
 

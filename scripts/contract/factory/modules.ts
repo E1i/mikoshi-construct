@@ -69,9 +69,11 @@ function decided(owns: readonly string[], may_use: readonly string[]): ModuleSpe
   return { owns, contract: owns, may_use, status: 'decided' }
 }
 
-function undecided(owns: readonly string[]): ModuleSpec {
-  return { owns, contract: [], may_use: [], status: 'undecided' }
+function undecided(owns: readonly string[], may_use: readonly string[] = []): ModuleSpec {
+  return { owns, contract: [], may_use, status: 'undecided' }
 }
+
+const OWNER_COMMANDS_READER = ['command-registry']
 
 const DRAWN: Readonly<Record<string, ModuleSpec>> = {
   'bus': { owns: [...BUS_CONTRACT, ...BUS_IMPL], contract: BUS_CONTRACT, may_use: [], status: 'decided' },
@@ -95,11 +97,11 @@ const DRAWN: Readonly<Record<string, ModuleSpec>> = {
   'decisions': undecided([...core('inbox.ts', 'card-decisions.ts'), ...within(factory('policy'), 'live-decision.ts', `decisions${ANY_DEPTH}`), tree('owner')]),
   'rules': undecided([...within(factory('policy'), 'policy.ts', `morse${ANY_DEPTH}`, 'repeat-finding.ts', 'round-limit-decision.ts', 'shard.ts', 'shards.ts', `shredder${ANY_DEPTH}`, 'widening.ts', 'touch-scope.ts'), tree('morse'), ...core('push-policy.ts')]),
   'quality': undecided([...core('layer-map.ts', 'layer-map.json', 'verification.ts'), ...cli('check-catalog.ts', 'check-matrix.ts', 'mutate.ts', 'no-layer-recount.ts'), tree('ci'), tree('quality'), tree('privacy'), `src/commands/ci${ANY_DEPTH}`, `src/commands/mutate${ANY_DEPTH}`, 'src/commands/test-runner.ts', ...card('covering-tests')]),
-  'intake': undecided([tree('intake'), `src/commands/intake${ANY_DEPTH}`]),
+  'intake': undecided([tree('intake'), `src/commands/intake${ANY_DEPTH}`], OWNER_COMMANDS_READER),
   'cost': undecided([tree('ladder'), tree('done'), `src/commands/cost${ANY_DEPTH}`]),
   'ports': undecided([tree('ports'), ...core('gh-callers.ts', 'gh-callers.known.json')]),
   'window': undecided([tree('window')]),
-  'board': undecided([...cli('board-page.ts', `board-page${ANY_DEPTH}`, 'board-warnings.ts'), `src/commands/board${ANY_DEPTH}`]),
+  'board': undecided([...cli('board-page.ts', `board-page${ANY_DEPTH}`, 'board-warnings.ts'), `src/commands/board${ANY_DEPTH}`], OWNER_COMMANDS_READER),
   'release': undecided([tree('release'), tree('release-notes'), tree('docs'), 'src/commands/run-record.ts']),
   'factory-contract': undecided([tree('contract')]),
   'project': undecided([
@@ -108,10 +110,10 @@ const DRAWN: Readonly<Record<string, ModuleSpec>> = {
     tree('composition'),
     tree('harness-command'),
     tree('attach'),
-  ]),
+  ], OWNER_COMMANDS_READER),
   'model': undecided([`src/model${ANY_DEPTH}`, tree('model')]),
-  'atlas': undecided([`src/atlas${ANY_DEPTH}`, tree('atlas')]),
-  'ui': undecided([`src/ui${ANY_DEPTH}`]),
+  'atlas': undecided([`src/atlas${ANY_DEPTH}`, tree('atlas')], OWNER_COMMANDS_READER),
+  'ui': undecided([`src/ui${ANY_DEPTH}`], OWNER_COMMANDS_READER),
 }
 
 function isFolderGlob(glob: string): boolean {

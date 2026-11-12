@@ -51,13 +51,16 @@ function reasonsFor(spec: ModuleGraphSpec, fromModule: string, toHolder: string,
   if (target === undefined)
     return ['into-unowned']
   const reasons: ViolationReason[] = []
-  if (source.status === 'undecided')
+  const written = source.may_use.includes(toHolder)
+  const intoContract = heldBy(target.contract, to)
+  const intoDecidedContractItNames = target.status === 'decided' && written && intoContract
+  if (source.status === 'undecided' && !intoDecidedContractItNames)
     reasons.push('from-undecided')
   if (target.status === 'undecided')
     reasons.push('into-undecided')
-  if (!source.may_use.includes(toHolder))
+  if (!written)
     reasons.push('not-in-may-use')
-  if (!heldBy(target.contract, to))
+  if (!intoContract)
     reasons.push('outside-contract')
   return reasons
 }
