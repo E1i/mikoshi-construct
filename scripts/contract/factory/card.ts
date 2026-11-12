@@ -1,10 +1,11 @@
+import type { WaitKind, WaitTerm } from '../../core/events.js'
 import type { Contract } from '../../intake/card-contract.js'
 import type { ParsedFile } from './walk.js'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import ts from 'typescript'
 import { CARD_VERSION, CARD_VERSION_KEY } from '../../core/bus-version.js'
-import { CARD_ADMITTED } from '../../core/events.js'
+import { CARD_ADMITTED, CARD_WAITS } from '../../core/events.js'
 import { CONTRACT_FIELDS } from '../../intake/card-contract.js'
 import { parsedFiles } from './walk.js'
 
@@ -13,6 +14,7 @@ export interface CardSection {
   versionRecord: string
   fields: Record<string, string>
   contracts: Record<Contract, readonly string[]>
+  waits: Record<WaitKind, WaitTerm>
 }
 
 const CARD_CONTRACT_MODULE = 'scripts/intake/card-contract.ts'
@@ -84,5 +86,5 @@ function draftFields(root: string): Record<string, string> {
 export function cardSection(root: string): CardSection {
   const source = ts.createSourceFile(CARD_CONTRACT_MODULE, readFileSync(path.join(root, CARD_CONTRACT_MODULE), 'utf8'), ts.ScriptTarget.Latest, true)
   const fields = { ...interfaceFields(source, FIELDS_INTERFACE, CARD_CONTRACT_MODULE), ...bodyLabels(cardGrammarFiles(root)), ...draftFields(root) }
-  return { cardVersion: CARD_VERSION, versionRecord: `${CARD_ADMITTED} payload.${CARD_VERSION_KEY}`, fields, contracts: CONTRACT_FIELDS }
+  return { cardVersion: CARD_VERSION, versionRecord: `${CARD_ADMITTED} payload.${CARD_VERSION_KEY}`, fields, contracts: CONTRACT_FIELDS, waits: CARD_WAITS }
 }

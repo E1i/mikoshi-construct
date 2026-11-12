@@ -1,4 +1,6 @@
+import type { WaitKind } from '../../core/events.js'
 import type { WindowShard } from '../../policy/shards.js'
+import type { CardWait, QueueCard } from '../../window/board.js'
 import type { ExitReadings } from '../../window/eddies-measure.js'
 import type { HandoffState, MergedReading, PrState, QuestionReading, StateReading } from '../../window/handoff-write.js'
 import { Buffer } from 'node:buffer'
@@ -10,12 +12,13 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { appendEvent, closeOwnerWait, OPEN_WAIT, openBus, OWNER_WAITS } from '../../core/db.js'
-import { NODE_DETECTED, OWNER_WAIT_OPENED, WINDOW_REQUEST } from '../../core/events.js'
+import { CARD_WAITS, NODE_DETECTED, OWNER_WAIT_OPENED, WINDOW_REQUEST } from '../../core/events.js'
 import { HANDOFF_FIELDS } from '../../core/handoff-fields.js'
 import { statusOf } from '../../core/handoff-status.js'
 import { keyOf, queueTask } from '../../core/queue.js'
 import { reduce } from '../../core/reducer.js'
 import { OWNERS_OF_A_STOP } from '../../policy/shards.js'
+import { waitText } from '../../window/board.js'
 import { archiveOfDay, DAY_FILE_LIMIT, QUESTIONS_HEADING } from '../../window/day-archive.js'
 import { UNREAD } from '../../window/eddies-measure.js'
 import { stopReasonOf } from '../../window/exit.js'
@@ -39,9 +42,18 @@ const DECISIONS = fileURLToPath(import.meta.url)
 const PARKED = new Map<number, number[]>([[650, []], [652, [650]]])
 const NO_BUS: StateReading = { kind: 'unread', why: 'no bus at /nowhere/bus.db' }
 const STATE_FIELDS = ['current card', 'queue', 'in-flight', 'blocked']
+const WAITS_AT = 7
+const STOP_DEADLINE = '2026-10-17T11:00:00.000Z'
+function queued(card: number, lane: string, kind: WaitKind, detail: string): QueueCard {
+  const wait: CardWait = { card, lane, kind, lifter: CARD_WAITS[kind].lifter, detail, since: '2026-10-17T10:00:00.000Z', deadline: STOP_DEADLINE, event: card }
+  return { card: String(card), lane, reason: waitText(wait), wait }
+}
+const HELD_ON_A_QUESTION = queued(653, 'lane-2', 'stopped', 'question')
+const BLOCKED_LINE = `blocked: #653 stopped question, the window lifts it by ${STOP_DEADLINE} (read at event ${WAITS_AT})\n`
 const BUS_STATE: HandoffState = {
-  ready: [{ card: '650', lane: 'lane-1', reason: null }, { card: '652', lane: 'lane-1', reason: null }],
-  blocked: [{ card: '653', lane: 'lane-2', reason: 'waits question' }],
+  ready: [queued(650, 'lane-1', 'launch', 'startable'), queued(652, 'lane-1', 'launch', 'startable')],
+  blocked: [HELD_ON_A_QUESTION],
+  waitsAt: WAITS_AT,
   lanes: [{ lane: 'lane-1', card: 648, state: 'running', since: null }, { lane: 'lane-2', card: null, state: null, since: null }],
   execution: [{ card: 648, pr: null, stage: 'writing', since: null, review: null, markers: [] }, { card: 640, pr: 701, stage: 'awaiting merge', since: null, review: null, markers: [] }],
 }
@@ -333,7 +345,7 @@ describe('handoff:write', () => {
 
   it('writes STATUS: OWNER when no card can be taken without the owner', () => {
     const nothingQueued: HandoffState = { ...BUS_STATE, ready: [] }
-    const heldForOwner: HandoffState = { ...nothingQueued, blocked: [{ card: '653', lane: 'lane-2', reason: 'waits question' }] }
+    const heldForOwner: HandoffState = { ...nothingQueued, blocked: [HELD_ON_A_QUESTION] }
     for (const state of [nothingQueued, heldForOwner]) {
       const { handoff, draft: file } = world()
       writeFileSync(file, withoutStateFields(draft()).replace('STATUS: CONTINUE', 'STATUS: OWNER — boundary: owner-question'))
@@ -471,7 +483,7 @@ describe('handoff:write', () => {
     expect(result.err).toEqual([])
     expect(result.code).toBe(0)
     const written = readFileSync(handoff, 'utf8')
-    expect(written).toContain('## STOP — window, 2026-10-17, session 2, boundary: none\nprev: none\ncurrent card: #648 lane-1 running\nqueue: #650 → #652\nin-flight:\n- #648 writing\n- #640 awaiting-merge PR #701\nblocked: #653 waits question\n')
+    expect(written).toContain(`## STOP — window, 2026-10-17, session 2, boundary: none\nprev: none\ncurrent card: #648 lane-1 running\nqueue: #650 → #652\nin-flight:\n- #648 writing\n- #640 awaiting-merge PR #701\n${BLOCKED_LINE}`)
     expect(written).toContain('stop reason: none\n')
     expect(written).toContain('continue when: continue-when value\n')
     expect(result.out[0]).toContain(`${STATE_FIELDS.join(', ')} from the bus state`)
@@ -481,9 +493,9 @@ describe('handoff:write', () => {
     const { handoff, draft: file } = world()
     writeFileSync(file, withoutStateFields(draft()))
     expect(write([handoff, file]).code).toBe(1)
-    busState = { kind: 'read', state: { ready: [], blocked: [], lanes: [], execution: [] } }
+    busState = { kind: 'read', state: { ready: [], blocked: [], waitsAt: WAITS_AT, lanes: [], execution: [] } }
     expect(write([handoff, file]).code).toBe(0)
-    expect(readFileSync(handoff, 'utf8')).toContain('current card: none\nqueue: none\nin-flight: none\nblocked: none\n')
+    expect(readFileSync(handoff, 'utf8')).toContain(`current card: none\nqueue: none\nin-flight: none\nblocked: none (read at event ${WAITS_AT})\n`)
   })
 
   it.each([
@@ -512,7 +524,7 @@ describe('handoff:write', () => {
     expect(result.code).toBe(0)
     const written = readFileSync(handoff, 'utf8')
     expect(written).toContain('owner waits: Q3 open PR #900\n')
-    expect(written).toContain('blocked: #653 waits question\n')
+    expect(written).toContain(BLOCKED_LINE)
   })
 
   it('keeps the draft fields and names why when no bus state is read', () => {
