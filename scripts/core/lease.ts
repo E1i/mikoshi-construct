@@ -1,7 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { BusEvent } from './db.js'
 import type { Queue, TaskIdentity } from './identifiers.js'
-import { RateLimited } from '../ports/meter.js'
 import { SILENT_MS } from '../supervisor/liveness-sites.js'
 import { appendedOnCard } from './card-automaton.js'
 import { appendEvent, inTransaction } from './db.js'
@@ -9,6 +8,7 @@ import { BOARD_ALARM, CARD_STOPPED, LEASES_DRAINING, RESTARTED, SESSION_HEARTBEA
 import { generationOfKey, taskKey } from './identifiers.js'
 import { appendedAndReduced, FAILURES_TO_STOP, generationField, LEASE_MS, LEASED, QUEUE_ACTOR, QUEUED, queueTaskWithin, STOPPED, WITHDRAWN } from './queue.js'
 import { reject } from './stored.js'
+import { retryAfterSecondsIn } from './task-must-wait.js'
 
 export { SESSION_HELD_QUEUES as HEARTBEAT_QUEUES, LEASE_FOLDS, LEASE_MS } from './queue.js'
 
@@ -85,16 +85,6 @@ const LAST_BEAT_OF_THE_TASK = `
 `
 
 const QUEUES_THAT_RUN_A_CARD_SESSION: ReadonlySet<Queue> = new Set(['answer', 'launch'])
-
-const STATUS_MARK = 111
-const SECONDS_MARK = 222222
-
-function retryAfterPattern(): RegExp {
-  const message = new RateLimited(STATUS_MARK, SECONDS_MARK).message.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  return new RegExp(message.replace(String(SECONDS_MARK), '(\\d+)').replace(String(STATUS_MARK), '\\d+'))
-}
-
-const RETRY_AFTER = retryAfterPattern()
 
 const LEASABLE_IN_GRANT_ORDER = `SELECT tasks.task_key, tasks.card_id, ${HELD_CARD} AS held ${LEASABLE_FROM} ${GRANT_ORDER}`
 
@@ -295,9 +285,9 @@ function failed(db: DatabaseSync, ts: string, type: string, actor: string, row: 
 function retryAfterIn(ts: string, context: readonly BusEvent[]): string | null {
   for (const event of context) {
     const detail = (event.payload as Record<string, unknown> | null)?.detail
-    const match = typeof detail === 'string' ? RETRY_AFTER.exec(detail) : null
-    if (match !== null)
-      return new Date(Date.parse(ts) + Number(match[1]) * 1000).toISOString()
+    const seconds = typeof detail === 'string' ? retryAfterSecondsIn(detail) : null
+    if (seconds !== null)
+      return new Date(Date.parse(ts) + seconds * 1000).toISOString()
   }
   return null
 }
