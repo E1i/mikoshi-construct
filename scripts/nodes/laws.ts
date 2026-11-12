@@ -45,7 +45,6 @@ export interface GapRow {
   cards: readonly number[]
 }
 
-const INTAKE_READS_DECISIONS = 1779
 export const LAW_CELLS_WITNESSES = 1823
 export const CARD_WAIT_STATES = 1740
 const WAIT_STATES_AND_THEIR_WITNESSES = [CARD_WAIT_STATES, LAW_CELLS_WITNESSES]
@@ -63,6 +62,8 @@ export const EVERY_LAUNCH_WRITES_ITS_EVENT = 'Z5-every-launch-writes-its-event'
 export const DIRECT_IMPORTER_WIDENED = 'Z3-direct-importer-widened'
 export const LAUNCH_BODY_FROM_LATEST_ADMISSION = 'Z3-launch-body-from-latest-admission'
 export const MERGE_OUTSIDE_TOUCHES_REFUSED = 'Z3-merge-outside-touches-refused'
+export const INTAKE_WITNESS_TRANSFER = 'Z3-intake-witness-transfer'
+export const INTAKE_WAIT_RECORD = 'Z4-intake-wait-record'
 export const LAUNCH_STOP_SPENDS_NO_CONTINUATION = 'Z8-launch-stop-spends-no-continuation'
 export const ANSWER_STOP_SPENDS_NO_RESTART = 'Z8-answer-stop-spends-no-restart'
 export const OWNER_LAUNCH_PAST_CONDITIONS = 'Z10-owner-launch-past-conditions'
@@ -109,8 +110,8 @@ const WINDOW: Record<LawId, LawCell> = {
 const INTAKE: Record<LawId, LawCell> = {
   Z1: { notApplicable: 'intake starts no session and no child process' },
   Z2: { notApplicable: 'intake admits from the card text and the bus; it starts no session, runs no test and reads no CI run' },
-  Z3: gap(INTAKE_READS_DECISIONS),
-  Z4: gap(...WAIT_STATES_AND_THEIR_WITNESSES),
+  Z3: { witness: INTAKE_WITNESS_TRANSFER },
+  Z4: { witness: INTAKE_WAIT_RECORD },
   Z5: { notApplicable: 'intake launches nothing; it admits a card the launch node later starts' },
   Z6: { notApplicable: 'intake writes the parking lane and the bus, never a card tree' },
   Z7: { notApplicable: 'intake reads no liveness: it admits from the card text, the decisions in force and the bus card states' },
