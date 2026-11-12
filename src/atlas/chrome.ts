@@ -2,6 +2,7 @@ import type { MapState } from './components.js'
 import type { DescriptionSource, NameSource, RepoIdentity } from './identity.js'
 import type { AtlasMode } from './switch.js'
 import type { AtlasTally } from './tally.js'
+import { constructCommand } from '../../scripts/core/owner-commands.js'
 import { escaped } from '../model/page.js'
 import { MAP_STATES } from './components.js'
 import { switchHtml } from './switch.js'
@@ -24,7 +25,7 @@ const WORDS = {
   source: 'source',
   derived: 'states derived on read, never stored',
   offline: 'offline · no network calls',
-  command: 'construct atlas',
+  command: constructCommand('atlas'),
   nameFrom: { 'package.json': 'name from package.json', 'README': 'name from the README heading', 'folder': 'name from the folder', 'none': 'no name found' } satisfies Record<NameSource, string>,
   descriptionFrom: { 'package.json': 'description from package.json', 'README': 'description from the README' } satisfies Record<DescriptionSource, string>,
   noDescription: 'no description found',
