@@ -86,6 +86,24 @@ export function questionAskedTwiceLine(cardId: number, question: string): string
   return `card #${cardId} asks twice in a row, its answer session repeating the question its ${QUESTION_AGENT} stop already carried; another answer round would ask it again, so the card waits for the owner: ${question}`
 }
 
+const RATCHET_ROW = /\b(?:boundary|law-gaps|lines-scope|lines|overlaps):[^\s,;'"`()[\]]+/g
+const NUMERIC_GROWTH = /(\d+)\s*(?:→|->|=>|⟶)\s*(\d+)/g
+const GROWTH_WORD = /\b(?:grow|grows|growing|grown|growth|raise|raises|raising|bump|bumps|increase|increases|lift)\b|рост|подн/i
+const TRAILING_PUNCTUATION = /[.:]+$/
+
+function asksForGrowth(question: string): boolean {
+  return GROWTH_WORD.test(question) || [...question.matchAll(NUMERIC_GROWTH)].some(([, from, to]) => Number(to) > Number(from))
+}
+
+export function ratchetRowsAskedToGrow(question: string): string[] {
+  const rows = [...new Set([...question.matchAll(RATCHET_ROW)].map(([row]) => row.replace(TRAILING_PUNCTUATION, '')))]
+  return rows.length === 0 || !asksForGrowth(question) ? [] : rows
+}
+
+export function ratchetGrowthLine(cardId: number, rows: readonly string[], question: string): string {
+  return `card #${cardId} asks to grow the ratchet row${rows.length === 1 ? '' : 's'} ${rows.join(', ')} of contract/ratchet.json; the merge policy denies ratchet growth under every shard and every decision, so only the owner answers it and no answer round runs until this wait closes: ${question}`
+}
+
 const CARD_PATHS: CardPaths = { pathsIn, ownerBoundary: ownersEvenUnderTheDecision, wideningAsked: scopeWideningAsked }
 
 export function findingsGivenByAReview(source: Answering | null): string[] {
@@ -130,6 +148,9 @@ export class AnswerExecutor {
       const hold = ownerHoldOf(this.parts.db, lease.cardId)
       if (hold !== null)
         return this.withdrawnUnderTheHold(lease, hold)
+      const ratchet = source?.kind === 'question' ? this.ratchetGrowthAsked(lease, source.detail, []) : null
+      if (ratchet !== null)
+        return ratchet
       let widened: Widened | null = null
       if (source?.kind === 'question' && source.widen !== null) {
         const globs = ownerGlobs(this.parts.ownerMerges())
@@ -310,7 +331,7 @@ export class AnswerExecutor {
       if (answered.owner !== null && answered.noViolationFreePath === true)
         return this.outcomes.ownersStop(lease, answered.owner, scope)
       if (answered.owner !== null && !timeoutUnderLoadOutside(answered.owner, this.outsideTouchesOf(lease, widened)))
-        return this.questions.staleQuestion(lease, answered.owner) ?? this.askedTwiceInARow(lease, source, answered.owner, scope) ?? await this.questions.asked(lease, answered.owner, widened, card, this.decidedRound(lease, widened, card, prove))
+        return this.questions.staleQuestion(lease, answered.owner) ?? this.ratchetGrowthAsked(lease, answered.owner, scope) ?? this.askedTwiceInARow(lease, source, answered.owner, scope) ?? await this.questions.asked(lease, answered.owner, widened, card, this.decidedRound(lease, widened, card, prove))
       if (this.dirty(card))
         return this.publishing.leftDirty(lease, card, answered.session)
       return this.publishing.published(lease, source, card, answered, minutes, scope) ?? this.publishing.leftNothing(lease, answered, scope)
@@ -319,6 +340,13 @@ export class AnswerExecutor {
     const payload = this.publishing.answeredPayload(source, card, answered, minutes, reentry ? { reentry: true } : {})
     completeTask(this.parts.db, this.ts(), lease, [...scope, this.outcomes.event(lease, CARD_ANSWERED, payload)])
     return { kind: 'answered', taskKey: lease.taskKey, session: answered.session, resumed: answered.resumed, head: answered.after }
+  }
+
+  private ratchetGrowthAsked(lease: Lease, question: string, scope: BusEvent[]): AnswerOutcome | null {
+    const rows = ratchetRowsAskedToGrow(question)
+    if (rows.length === 0 || decisionAnsweringRepeat(this.parts.db, lease.cardId, question, this.parts.clock()) !== null)
+      return null
+    return this.outcomes.ownersStopOnce(lease, question, ratchetGrowthLine(lease.cardId, rows, question), rows, scope)
   }
 
   private askedTwiceInARow(lease: Lease, source: Answering, question: string, scope: BusEvent[]): AnswerOutcome | null {
