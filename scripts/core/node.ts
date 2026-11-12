@@ -10,7 +10,6 @@ import { setImmediate as nextTurn } from 'node:timers/promises'
 import { CHECK_MS, TICK_MS } from '../ports/netwatch.js'
 import { ownStart, recordProcessHeartbeat } from '../supervisor/heartbeat.js'
 import { slotsOf } from '../supervisor/scheduler.js'
-import { lastEventId } from '../window/operator-work.js'
 import { BUS_VERSION, BUS_VERSION_BEFORE_LADDER_RUN, CARD_VERSION, CARD_VERSION_BEFORE_TOUCH_SCOPE, recordBusVersion, UNRECORDED_VERSION } from './bus-version.js'
 import { admittedCardVersion } from './card-bodies.js'
 import { appendEvent, inTransaction, openBus } from './db.js'
@@ -25,6 +24,10 @@ export const LIVE_FLAG = '--live'
 export const NODE_CURSORS = 'node_cursors'
 
 const WILDCARD = '*'
+
+function lastEventId(db: DatabaseSync): number {
+  return Number((db.prepare('SELECT coalesce(max(id), 0) AS id FROM events').get() as { id: number }).id)
+}
 
 export type NodeKind = Queue & SlotKind
 export type EventPattern = readonly string[]

@@ -4059,7 +4059,7 @@
       "scripts/core/journal.ts": 1,
       "scripts/core/lease.ts": 17,
       "scripts/core/legacy-history.ts": 1,
-      "scripts/core/node.ts": 4,
+      "scripts/core/node.ts": 5,
       "scripts/core/observations.ts": 6,
       "scripts/core/queue.ts": 67,
       "scripts/core/reducer.ts": 17,
