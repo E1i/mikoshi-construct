@@ -2875,9 +2875,7 @@
             ]
           },
           "intake": {
-            "gap": [
-              1779
-            ]
+            "witness": "Z3-intake-witness-transfer"
           },
           "launch": {
             "witness": "Z3-launch-body-from-latest-admission"
@@ -2929,10 +2927,7 @@
             ]
           },
           "intake": {
-            "gap": [
-              1740,
-              1823
-            ]
+            "witness": "Z4-intake-wait-record"
           },
           "launch": {
             "gap": [

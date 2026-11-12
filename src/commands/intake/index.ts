@@ -1,4 +1,4 @@
-import type { CARD_DROPPED, CARD_MOVED, CARD_WAITING } from '../../../scripts/core/events.js'
+import type { CARD_DROPPED, CARD_MOVED, WaitKind, WaitLifter } from '../../../scripts/core/events.js'
 import type { BusCardStates } from '../../card/closed.js'
 import type { Ui } from '../../ui/console.js'
 import type { Lore } from '../../ui/lore.js'
@@ -11,13 +11,13 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, readSync, writeFileSy
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
-import { CARD_ADMITTED } from '../../../scripts/core/events.js'
+import { CARD_ADMITTED, CARD_WAITING, CARD_WAITS, WITNESS_DOWNGRADE } from '../../../scripts/core/events.js'
 import { createdPaths, OWNER_MERGES } from '../../../scripts/policy/touch-scope.js'
-import { endedCards } from '../../card/closed.js'
+import { ENDED_IN_BUS, endedCards } from '../../card/closed.js'
 import { parseCard } from '../../card/grammar.js'
-import { parseParkingFile } from '../../card/parking.js'
+import { parseParkingFile, WINDOW_WHO } from '../../card/parking.js'
 import { textSha } from '../../card/text-sha.js'
-import { laneOf, layLane } from './admit.js'
+import { DROPPED_CARD, laneOf, layLane } from './admit.js'
 import { checkDraft, checkPlan, correctionText, invalidTestPatterns, nonPathTouchRefusals, ownerPathsOf, PACKAGE_MANIFEST, PLAN_FIELD, publishedRootsOf } from './check.js'
 import { awaitsConfirmation, bodySha, confirmationOf, confirmationToken, tokenConfirmation, windowShard } from './confirm.js'
 import { parseDraft } from './draft.js'
@@ -92,6 +92,65 @@ export type CardStatesPort = () => CardsOfTheBus
 export interface RecordedIntake { card: string, bodySha: unknown, ts: unknown, confirmation: unknown, source: unknown, text?: string }
 
 export type CardAdmissionsPort = (cardId: number) => RecordedIntake | null
+
+export interface IntakeWait {
+  kind: WaitKind
+  lifter: WaitLifter
+  detail: string
+  since: string
+  deadline: string
+}
+
+const MINUTE_MS = 60_000
+export const HELD_FOR_CONFIRMATION = 'held.for.confirmation'
+export const ASKS_THE_WINDOW = 'asks.the.window'
+
+export function intakeWait(kind: WaitKind, detail: string, at: Date): IntakeWait {
+  const term = CARD_WAITS[kind]
+  return { kind, lifter: term.lifter, detail, since: at.toISOString(), deadline: new Date(at.getTime() + term.deadlineMinutes * MINUTE_MS).toISOString() }
+}
+
+export function waitRecordText(wait: IntakeWait): string {
+  return `${wait.kind} ${wait.detail}, the ${wait.lifter} lifts it by ${wait.deadline}`
+}
+
+export function waitRecord(wait: IntakeWait): { code: WaitKind, detail: string } {
+  return { code: wait.kind, detail: waitRecordText(wait) }
+}
+
+function confirmationWaitKind(): WaitKind {
+  return windowShard() === null ? 'owner' : 'stopped'
+}
+
+export function heldEvent(card: Pick<SlicedCard, 'id'>, token: string, at: Date): CardEvent {
+  const wait = intakeWait(confirmationWaitKind(), `#${card.id} held until its corrections are confirmed with --confirm ${token}`, at)
+  return { type: CARD_WAITING, cardId: card.id, ts: wait.since, dedupeKey: `${CARD_WAITING}:${HELD_FOR_CONFIRMATION}:${card.id}:${token}`, payload: { reason: HELD_FOR_CONFIRMATION, ...waitRecord(wait) } }
+}
+
+export function windowEvent(card: Pick<SlicedCard, 'id' | 'who' | 'text'>, at: Date): CardEvent[] {
+  if (card.who !== WINDOW_WHO)
+    return []
+  const wait = intakeWait('stopped', `#${card.id} given to the window: its unclear fields and slices are a question to the window`, at)
+  return [{ type: CARD_WAITING, cardId: card.id, ts: wait.since, dedupeKey: `${CARD_WAITING}:${ASKS_THE_WINDOW}:${card.id}:${bodySha(card.text)}`, payload: { reason: ASKS_THE_WINDOW, ...waitRecord(wait) } }]
+}
+
+export function waitingEvent(cardId: number, waitingOn: readonly number[], at: Date): CardEvent {
+  const wait = intakeWait('depends', `${waitingOn.map(id => `#${id}`).join(', ')} not merged`, at)
+  return { type: CARD_WAITING, cardId, ts: wait.since, dedupeKey: `${CARD_WAITING}:${cardId}:${waitingOn.join(',')}`, payload: { depends: waitingOn, ...waitRecord(wait) } }
+}
+
+export function downgradeEvent(cardId: number, downgrades: readonly string[], actions: readonly string[], sha: string, at: Date): CardEvent {
+  const wait = intakeWait('owner', actions.join('; '), at)
+  return { type: CARD_WAITING, cardId, ts: wait.since, dedupeKey: `${CARD_WAITING}:${WITNESS_DOWNGRADE}:${cardId}:${sha}`, payload: { reason: WITNESS_DOWNGRADE, witnesses: downgrades, actions, bodySha: sha, ...waitRecord(wait) } }
+}
+
+export function openCardTextsBeside(cardId: number, cards: BusCardStates | undefined, admissions: CardAdmissionsPort | undefined): string[] {
+  if (cards === undefined || admissions === undefined)
+    return []
+  return [...cards]
+    .filter(([id, state]) => Number(id) !== cardId && !ENDED_IN_BUS.has(state) && state !== DROPPED_CARD)
+    .flatMap(([id]) => admissions(Number(id))?.text ?? [])
+}
 
 export function recordIntake(records: readonly CardEvent[], events: CardEventPort | undefined): void {
   for (const record of records)
@@ -256,6 +315,7 @@ export function runIntake(options: IntakeOptions): IntakeResult {
   const written = options.events === undefined ? parkCards(parkedSlice.cards, options.parking, root, at) : parkedSlice.cards.map(card => ({ card, lane: laneOf(root, options.parking) }))
   const confirmation = (card: SlicedCard): Confirmation => (cutBySlices && !options.autoConfirm ? tokenConfirmation() : confirmationOf(card, options.autoConfirm))
   recordIntake(written.map(({ card, lane }, index) => withPlan(admittedRecord(card, confirmation(card), at, lane), plan?.link, cut[index]?.item)), options.events)
+  recordIntake(written.flatMap(({ card }) => windowEvent(card, at)), options.events)
   return { status: 'written', parking: options.parking, cards: written.map(({ card }) => card), autoConfirm: options.autoConfirm, inBus: options.events !== undefined, windowShard: windowShard() }
 }
 

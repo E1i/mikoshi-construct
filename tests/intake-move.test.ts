@@ -5,7 +5,7 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { cardBodyText } from '../scripts/core/card-bodies.js'
 import { openBus } from '../scripts/core/db.js'
-import { CARD_ADMITTED, CARD_DROPPED, CARD_MOVED } from '../scripts/core/events.js'
+import { CARD_ADMITTED, CARD_DROPPED, CARD_MOVED, CARD_WAITING } from '../scripts/core/events.js'
 import { reduce } from '../scripts/core/reducer.js'
 import { busCardEvents, busIntakePorts } from '../scripts/intake/intake.js'
 import { launchCandidates } from '../scripts/nodes/launch/launch-candidates.js'
@@ -103,7 +103,7 @@ describe('intake --move', () => {
     const w = world()
     const bus: CardEvent[] = []
     admitThenMove(w, event => bus.push(event))
-    expect(bus.map(event => event.type)).toEqual([CARD_ADMITTED, CARD_MOVED])
+    expect(bus.map(event => event.type)).toEqual([CARD_ADMITTED, CARD_WAITING, CARD_MOVED])
     expect(journalLines(w.journal)).toEqual([])
   })
 

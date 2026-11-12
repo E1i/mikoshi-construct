@@ -417,7 +417,7 @@ describe('pnpm intake writes card events to bus.db', () => {
       db.close()
     }
     expect(cardEvents(w).filter(event => event.type === CARD_ADMITTED).map(event => (event.payload as { card: string }).card)).toEqual([card(91, '—'), card(92, '#81')])
-    expect(cardEvents(w).filter(event => event.type === CARD_WAITING).map(event => [event.cardId, event.payload])).toEqual([[92, { depends: [81] }]])
+    expect(cardEvents(w).filter(event => event.type === CARD_WAITING).map(event => [event.cardId, event.payload])).toEqual([[92, { depends: [81], code: 'depends', detail: expect.stringContaining('the bus lifts it by') }]])
   })
 })
 
