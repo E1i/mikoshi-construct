@@ -113,22 +113,57 @@ const A_SUPERSEDED_ANSWER_WITHIN_ITS_LEASE = `
   LIMIT 1
 `
 
-const LATEST_ADMISSION_DEPENDS = `
+function latestAdmissionDepends(card: string): string {
+  return `
   SELECT depends.value AS card_id FROM json_each((
     SELECT admitted.payload FROM events AS admitted
-    WHERE admitted.legacy = 0 AND admitted.type = '${CARD_ADMITTED}' AND admitted.card_id = prs.card_id
+    WHERE admitted.legacy = 0 AND admitted.type = '${CARD_ADMITTED}' AND admitted.card_id = ${card}
       AND json_extract(admitted.payload, '$.source') IS NOT '${BACKFILL_SOURCE}'
     ORDER BY admitted.id DESC LIMIT 1
   ), '$.depends') AS depends
   WHERE depends.type = 'integer'
 `
+}
 
-const A_DEPENDENCY_UNMERGED = `EXISTS (
-  SELECT 1 FROM (${LATEST_ADMISSION_DEPENDS}) AS dependency
+function unmergedDependenciesWhere(card: string): string {
+  return `
+  SELECT dependency.card_id FROM (${latestAdmissionDepends(card)}) AS dependency
   WHERE NOT EXISTS (SELECT 1 FROM events AS done WHERE done.type = '${MERGE_DONE}' AND done.legacy = 0 AND done.card_id = dependency.card_id)
     AND NOT EXISTS (SELECT 1 FROM prs AS merged WHERE merged.card_id = dependency.card_id AND merged.state = 'merged')
     AND NOT EXISTS (SELECT 1 FROM events AS legacy WHERE legacy.type = 'merge' AND legacy.legacy = 1 AND legacy.card_id = dependency.card_id)
+  ORDER BY dependency.card_id
+`
+}
+
+const A_DEPENDENCY_UNMERGED = `EXISTS (${unmergedDependenciesWhere('prs.card_id')})`
+
+const UNMERGED_DEPENDENCIES_OF_A_CARD = unmergedDependenciesWhere('?')
+
+export function unmergedDependenciesOf(db: DatabaseSync, cardId: number): number[] {
+  return (db.prepare(UNMERGED_DEPENDENCIES_OF_A_CARD).all(cardId) as { card_id: number }[]).map(row => Number(row.card_id))
+}
+
+const THE_HEAD_FIRST_SEEN = `(
+  SELECT min(seen.id) FROM events AS seen WHERE seen.pr = prs.pr AND seen.head = prs.head AND seen.type IN ('${PR_OPENED}', '${PR_OBSERVED}')
 )`
+
+const A_MERGE_OF_THE_DEPENDENCY = `dependency_merge.card_id = dependency.card_id
+  AND ((dependency_merge.type = '${MERGE_DONE}' AND dependency_merge.legacy = 0) OR (dependency_merge.type = '${PR_CLOSED}' AND json_extract(dependency_merge.payload, '$.merged') = 1))`
+
+const AN_UPDATE_SETTLED_AFTER_THE_MERGE = `EXISTS (
+  SELECT 1 FROM tasks AS tried WHERE tried.queue = 'update' AND tried.pr = prs.pr AND tried.head = prs.head
+    AND tried.state IN ('${COMPLETED}', '${WITHDRAWN}', '${STOPPED}') AND tried.event_id > dependency_merge.id
+)`
+
+const A_DEPENDENCY_MERGED_UNDER_THE_HEAD = `EXISTS (
+  SELECT 1 FROM (${latestAdmissionDepends('prs.card_id')}) AS dependency
+  JOIN events AS dependency_merge ON ${A_MERGE_OF_THE_DEPENDENCY}
+  WHERE dependency_merge.id > ${THE_HEAD_FIRST_SEEN} AND NOT ${AN_UPDATE_SETTLED_AFTER_THE_MERGE}
+)`
+
+const A_DEPENDENCY_UPDATE_DUE = `(NOT ${A_DEPENDENCY_UNMERGED} AND ${A_DEPENDENCY_MERGED_UNDER_THE_HEAD})`
+
+const HELD_BY_A_DEPENDENCY = `(${A_DEPENDENCY_UNMERGED} OR ${A_DEPENDENCY_UPDATE_DUE})`
 
 const A_REVIEW_IN_FLIGHT = `EXISTS (
   SELECT 1 FROM tasks AS reviewing WHERE reviewing.queue = 'review' AND reviewing.pr = prs.pr AND reviewing.head = prs.head
@@ -205,6 +240,14 @@ const CONFLICTING_BY_CARD_PRIORITY = `
   LEFT JOIN ${CARD_BODIES} AS body ON body.card_id = prs.card_id
   WHERE prs.state = 'open' AND prs.base = '${MAIN_BRANCH}' AND prs.mergeable = 'dirty' AND prs.draft = 0 AND prs.card_id IS NOT NULL AND prs.head IS NOT NULL
     AND NOT ${AN_ANSWER_IN_FLIGHT}
+  ORDER BY body.priority IS NOT '${TOP_PRIORITY}', prs.pr
+`
+
+const DEPENDENTS_OF_A_MERGED_CARD_BY_CARD_PRIORITY = `
+  SELECT prs.pr, prs.card_id, prs.head, prs.verdict_on_head FROM prs
+  LEFT JOIN ${CARD_BODIES} AS body ON body.card_id = prs.card_id
+  WHERE prs.state = 'open' AND prs.base = '${MAIN_BRANCH}' AND prs.mergeable IS NOT 'dirty' AND prs.draft = 0 AND prs.card_id IS NOT NULL AND prs.head IS NOT NULL
+    AND ${A_DEPENDENCY_UPDATE_DUE}
   ORDER BY body.priority IS NOT '${TOP_PRIORITY}', prs.pr
 `
 
@@ -391,7 +434,8 @@ const ANSWERS_PARKED_ON_A_DOWNGRADE_WAIT_NOW_CLOSED = `
 
 const QUESTION_CANDIDATES = latestQuestionStops(
   `stop.card_id, coalesce(stop.pr, cards.pr) AS pr, coalesce(prs.head, stop.head) AS head, stop.id AS stop, ${cardBodyShaOf('stop.card_id')} AS card_body`,
-  `NOT ${THE_WINDOW_AMENDS_THE_CARD_FIRST} AND NOT ${A_LAUNCH_STOP_WITH_NO_PULL_REQUEST} AND ${notAWindowCard('stop.card_id')} AND NOT ${aDowngradeWaitOpenOn('stop.card_id')}`,
+  `NOT ${THE_WINDOW_AMENDS_THE_CARD_FIRST} AND NOT ${A_LAUNCH_STOP_WITH_NO_PULL_REQUEST} AND ${notAWindowCard('stop.card_id')} AND NOT ${aDowngradeWaitOpenOn('stop.card_id')}
+    AND (prs.pr IS NULL OR NOT ${HELD_BY_A_DEPENDENCY})`,
 )
 
 const LAUNCH_STOPS_LIFTED = latestQuestionStops(
@@ -481,6 +525,7 @@ function answerCandidatesWhere(condition: string): string {
   WHERE state = 'open' AND ${condition} AND card_id IS NOT NULL AND head IS NOT NULL
     AND ${notAWindowCard('prs.card_id')}
     AND NOT ${aDowngradeWaitOpenOn('prs.card_id')}
+    AND NOT ${HELD_BY_A_DEPENDENCY}
     AND NOT EXISTS (
       SELECT 1 FROM events AS stop WHERE stop.id = ${latestTurnOf('prs.card_id')}
         AND stop.type = '${CARD_STOPPED}' AND ${AN_OPEN_QUESTION}
@@ -907,8 +952,9 @@ export function updateCandidates(db: DatabaseSync, ts: string, rerun: RerunMode 
   const sent = rerun === 'by-layers' ? candidateRows(db, GREEN_CLEAN_A_MERGE_SENT_TO_UPDATE, aMergeCandidate(db, ts)) : []
   const conflicting = candidateRows(db, CONFLICTING_BY_CARD_PRIORITY, everyRow)
   const green = [...candidateRows(db, GREEN_BEHIND_BY_CARD_PRIORITY, aMergeCandidate(db, ts)), ...sent]
+  const dependents = candidateRows(db, DEPENDENTS_OF_A_MERGED_CARD_BY_CARD_PRIORITY, everyRow)
   const holders = new Set(holdsOfTheUpdateTurn(db, ts).map(row => row.pr))
-  const inTurn = holders.size === 0 ? green : green.filter(row => holders.has(row.pr))
+  const inTurn = holders.size === 0 ? [...green, ...dependents] : [...green, ...dependents].filter(row => holders.has(row.pr))
   return openCandidates(db, ts, 'update', withTheHeadsARerunIsDueOn(db, [...inTurn, ...conflicting].slice(0, 1)))
 }
 
