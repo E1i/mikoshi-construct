@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url'
 import { defaultBusPath } from '../core/db.js'
 import { handoffDirOf } from '../core/handoff-dir.js'
 import { HANDOFF_FIELDS } from '../core/handoff-fields.js'
+import { HANDOFF_WRITE_COMMAND, PNPM_FORM_LABEL } from '../core/owner-commands.js'
 import { busParkedDepends } from '../intake/parking-reads.js'
 
 export const PREFIX = '[handoff:check] '
@@ -64,7 +65,7 @@ export function refusal(missing: readonly HandoffField[]): string[] {
 
 export const HANDOFF_LIMIT = 6000
 export const NEXT_TASK_LIMIT = 300
-export const STATIC_FIELDS = ['journal', 'card paths', 'cloud runs', 'probe results', 'judge format', 'gates', 'pnpm form', 'denials'] as const
+export const STATIC_FIELDS = ['journal', 'card paths', 'cloud runs', 'probe results', 'judge format', 'gates', PNPM_FORM_LABEL, 'denials'] as const
 const NEXT_TASK_LABEL = 'next task'
 const HANDOFF_CONSTANTS = 'architecture/window.md § Handoff constants'
 export const OWNER_DECISIONS_LABEL = 'owner decisions'
@@ -143,7 +144,7 @@ function blockSize(block: Block): number {
 
 function stopRefusals(text: string, allowed: StopSections): string[] {
   const stops = text.split(/\r?\n/).filter(line => STOP_HEADING.test(line)).length
-  return stops === 1 || (stops === 0 && allowed === 'at-most-one') ? [] : [`${PREFIX}STOP sections: ${stops}; a handoff holds exactly one, the older ones go to the archive through pnpm handoff:write`]
+  return stops === 1 || (stops === 0 && allowed === 'at-most-one') ? [] : [`${PREFIX}STOP sections: ${stops}; a handoff holds exactly one, the older ones go to the archive through ${HANDOFF_WRITE_COMMAND}`]
 }
 
 function sizeRefusals(text: string, blocks: readonly Block[]): string[] {
@@ -182,7 +183,7 @@ function queueRefusals(blocks: readonly Block[], parked: ParkedDepends | null): 
 function prevRefusals(blocks: readonly Block[], context: HandoffContext): string[] {
   const prev = blockOf(blocks, PREV_LABEL)?.lines.join(' ').trim() ?? ''
   if (prev === '')
-    return [`${PREFIX}missing: ${PREV_LABEL} (the archive the previous handoff went to, or ${NO_PREV}); pnpm handoff:write writes it`]
+    return [`${PREFIX}missing: ${PREV_LABEL} (the archive the previous handoff went to, or ${NO_PREV}); ${HANDOFF_WRITE_COMMAND} writes it`]
   if (prev === NO_PREV)
     return []
   if (!ARCHIVED_PREV.test(prev))

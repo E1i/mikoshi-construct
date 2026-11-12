@@ -6,6 +6,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { defaultBusPath } from '../core/db.js'
+import { HANDOFF_WRITE_COMMAND } from '../core/owner-commands.js'
 import { FRESH_MS } from './exit.js'
 import { PREV_LABEL, STATE_LABELS } from './handoff-check.js'
 import { sessionHandoffOf } from './handoff-write.js'
@@ -15,7 +16,7 @@ import { cardTreeHomes, tabWindowIn } from './tab.js'
 export const PRE_COMPACT = 'pre-compact:'
 export const NOT_A_TAB = `${PRE_COMPACT} not a tab window; nothing insured`
 export const FRESH = `${PRE_COMPACT} the handoff was written within ${FRESH_MS / 1000}s; nothing insured`
-export const INSURED = `${PRE_COMPACT} insurance handoff written through pnpm handoff:write`
+export const INSURED = `${PRE_COMPACT} insurance handoff written through ${HANDOFF_WRITE_COMMAND}`
 export const HANDOFF_WRITE_SCRIPT = fileURLToPath(new URL('./handoff-write.ts', import.meta.url))
 const REPO_ROOT = fileURLToPath(new URL('../..', import.meta.url))
 
@@ -66,7 +67,7 @@ export function runPreCompact(deps: PreCompactDeps): number {
   }
   const mtime = deps.mtime(deps.handoff)
   if (mtime === undefined) {
-    deps.err(`${PRE_COMPACT} no handoff at ${deps.handoff}; nothing to insure from, write it with pnpm handoff:write`)
+    deps.err(`${PRE_COMPACT} no handoff at ${deps.handoff}; nothing to insure from, write it with ${HANDOFF_WRITE_COMMAND}`)
     return 0
   }
   if (deps.now() - mtime <= FRESH_MS) {

@@ -1,5 +1,6 @@
 import type { RequestContext, RequestExecutor } from './context.js'
 import type { Executed } from './request.js'
+import { OWNER_SAY_COMMAND } from '../../core/owner-commands.js'
 import { activeDecisionsShard, ANSWER_SOURCE, appendEvent, closeOwnerWait, consumeOwnerWord, consumeOwnerWordClosing, deciderUnderAShard, decisionOnAWait, inTransaction, OPEN_OWNER_STOP_OF_CARD, OPEN_WAIT, OWNER_DECIDES, OWNER_SOURCE, OWNER_WAITS, OWNER_WORD_NOT_FOUND, ownerWordAwaited, QUEUE_ACTOR, SHARD_DECIDED, stopKindOf } from './reach.js'
 import { flagsOf, messageOf, OWNER_ANSWER_USAGE, OWNER_WORD_NEEDED, text, unreleasedWord } from './request.js'
 
@@ -52,7 +53,7 @@ export const execute: RequestExecutor = (context, request, payload) => {
   if (id === null || (answer === null && from === null))
     return { done: false, why: 'owner.wait.close needs an id Q<N> and an answer, or --from the owner channel' }
   if (from !== null && from !== ANSWER_SOURCE)
-    return { done: false, why: `owner.wait.close --from ${from} is not ${ANSWER_SOURCE}; only the owner's word that pnpm owner:say put into the owner channel closes a wait as the owner's answer` }
+    return { done: false, why: `owner.wait.close --from ${from} is not ${ANSWER_SOURCE}; only the owner's word that ${OWNER_SAY_COMMAND} put into the owner channel closes a wait as the owner's answer` }
   const wait = db.prepare(`SELECT state, card_id, need FROM ${OWNER_WAITS} WHERE id = ?`).get(id) as WaitToClose | undefined
   if (wait === undefined)
     return { done: false, why: `${id} is not an owner wait the bus has reduced` }
