@@ -1,11 +1,12 @@
 import type { ModuleGraphSpec } from '../factory/modules.js'
 import type { ImportEdge, PathAliases } from './imports.js'
-import { realpathSync } from 'node:fs'
+import { readFileSync, realpathSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import ts from 'typescript'
 import { heldBy, isTool, MODULE_GRAPH } from '../factory/modules.js'
-import { buildImportGraph, byText, isCodeFile, readAliases } from './imports.js'
+import { buildImportGraph, byText, isCodeFile, readAliases, resolveSpecifier } from './imports.js'
 import { ownerOf, sourceFiles } from './ownership.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')
@@ -150,13 +151,93 @@ export function boundaryReport(root: string = REPO_ROOT, spec: ModuleGraphSpec =
   return { graph, violations: boundaryViolations(spec, graph), scc: stronglyConnected(spec, graph) }
 }
 
+export function boundaryKey({ fromModule, toHolder }: Pick<Violation, 'fromModule' | 'toHolder'>): string {
+  return `${BOUNDARY_PREFIX}${fromModule}->${toHolder.replaceAll(' ', '-')}`
+}
+
 export function boundaryNumbers(violations: readonly Violation[]): Record<string, number> {
   const numbers: Record<string, number> = {}
-  for (const { fromModule, toHolder } of violations) {
-    const key = `${BOUNDARY_PREFIX}${fromModule}->${toHolder.replaceAll(' ', '-')}`
+  for (const violation of violations) {
+    const key = boundaryKey(violation)
     numbers[key] = (numbers[key] ?? 0) + 1
   }
   return numbers
+}
+
+export interface IdentifiedViolation extends Violation {
+  symbols: string[]
+}
+
+export interface BoundarySide {
+  spec: ModuleGraphSpec
+  violations: IdentifiedViolation[]
+}
+
+export type Renames = ReadonlyMap<string, string>
+
+type NamedBinding = ts.ImportSpecifier | ts.ExportSpecifier
+
+function bindingNames(elements: ts.NodeArray<NamedBinding>): string[] {
+  return elements.map(element => (element.propertyName ?? element.name).text)
+}
+
+function namedBindingsOf(node: ts.Node): { specifier: string, names: string[] } | undefined {
+  if (ts.isImportDeclaration(node) && ts.isStringLiteralLike(node.moduleSpecifier)) {
+    const named = node.importClause?.namedBindings
+    return { specifier: node.moduleSpecifier.text, names: named !== undefined && ts.isNamedImports(named) ? bindingNames(named.elements) : [] }
+  }
+  if (ts.isExportDeclaration(node) && node.moduleSpecifier !== undefined && ts.isStringLiteralLike(node.moduleSpecifier)) {
+    const clause = node.exportClause
+    return { specifier: node.moduleSpecifier.text, names: clause !== undefined && ts.isNamedExports(clause) ? bindingNames(clause.elements) : [] }
+  }
+  return undefined
+}
+
+function namedImportsOf(root: string, from: string, files: ReadonlySet<string>, aliases: PathAliases): Map<string, Set<string>> {
+  const byTarget = new Map<string, Set<string>>()
+  const visit = (node: ts.Node): void => {
+    const found = namedBindingsOf(node)
+    const to = found === undefined ? undefined : resolveSpecifier(from, found.specifier, files, aliases)
+    if (found !== undefined && to !== undefined)
+      byTarget.set(to, new Set([...byTarget.get(to) ?? [], ...found.names]))
+    ts.forEachChild(node, visit)
+  }
+  visit(ts.createSourceFile(from, readFileSync(path.join(root, from), 'utf8'), ts.ScriptTarget.Latest, true))
+  return byTarget
+}
+
+export function identifiedViolations(root: string, spec: ModuleGraphSpec = MODULE_GRAPH, aliases: PathAliases = readAliases(root)): IdentifiedViolation[] {
+  const known = new Set(sourceFiles(root))
+  const bySource = new Map<string, Map<string, Set<string>>>()
+  const symbolsOf = (from: string): Map<string, Set<string>> => {
+    const held = bySource.get(from) ?? namedImportsOf(root, from, known, aliases)
+    bySource.set(from, held)
+    return held
+  }
+  return boundaryReport(root, spec, aliases).violations.map(violation => ({ ...violation, symbols: [...symbolsOf(violation.from).get(violation.to) ?? []].sort(byText) }))
+}
+
+function ownershipOf(spec: ModuleGraphSpec): string {
+  const owns = Object.fromEntries(Object.entries(spec.modules).map(([id, { owns }]) => [id, [...owns].sort(byText)]))
+  return JSON.stringify({ owns, roots: spec.composition_roots, exclusions: spec.exclusions })
+}
+
+function carriesMovedSymbols(now: readonly string[], was: readonly string[]): boolean {
+  return now.length > 0 && now.every(symbol => was.includes(symbol))
+}
+
+function heldOnBase(violation: IdentifiedViolation, base: readonly IdentifiedViolation[], renames: Renames): boolean {
+  const moved = (file: string): string => renames.get(file) ?? file
+  return base.some(was => moved(was.from) === violation.from
+    && (moved(was.to) === violation.to || carriesMovedSymbols(violation.symbols, was.symbols)))
+}
+
+export function movedRows(base: BoundarySide, head: BoundarySide, grown: readonly string[], renames: Renames = new Map()): string[] {
+  if (ownershipOf(base.spec) === ownershipOf(head.spec) || head.violations.length > base.violations.length)
+    return []
+  return grown.filter(row => head.violations
+    .filter(violation => boundaryKey(violation) === row)
+    .every(violation => heldOnBase(violation, base.violations, renames)))
 }
 
 export function violationLine({ from, to, reasons }: Violation): string {
