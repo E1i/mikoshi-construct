@@ -5,7 +5,7 @@ import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import vm from 'node:vm'
 import { afterEach, describe, expect, it } from 'vitest'
-import { PLAIN_LORE } from '../../../src/ui/lore.js'
+import { LORE, PLAIN_LORE } from '../../../src/ui/lore.js'
 import { writeBus } from '../../../tests/board/bus-fixture.js'
 import { printBoard, VIEW_KEY } from '../../cli/board-page.js'
 import { SESSION_HEARTBEAT, WINDOW_HEARTBEAT } from '../../core/events.js'
@@ -40,8 +40,10 @@ function beat(minutes: number, session: string, step: string, fields: object = {
   return { ts: minutesAgo(minutes), type: SESSION_HEARTBEAT, card, payload: JSON.stringify({ step, session, ...fields }) }
 }
 
-function reading(name: string, spent: number): object {
-  return { name, context: 50_000, spent, at: minutesAgo(2) }
+const CONTEXT_LIMIT = 1_000_000
+
+function reading(name: string, spent: number, context = 50_000): object {
+  return { name, context, spent, at: minutesAgo(2) }
 }
 
 function pageOf(events: SeedEvent[], roles: { role: string, status: string, state: string }[] = []): string {
@@ -54,7 +56,7 @@ function pageOf(events: SeedEvent[], roles: { role: string, status: string, stat
   db.exec('UPDATE card_bodies SET admission_event_id = (SELECT event_id FROM cards WHERE cards.card_id = card_bodies.card_id)')
   db.close()
   const eddiesFile = path.join(root, 'eddies.json')
-  writeFileSync(eddiesFile, JSON.stringify({ contextLimit: 1_000_000, cardContextLine: 900_000, sessionSpend: 10_000_000, agentSpend: AGENT_SPEND, warnRatio: WARN_RATIO }))
+  writeFileSync(eddiesFile, JSON.stringify({ contextLimit: CONTEXT_LIMIT, cardContextLine: 900_000, sessionSpend: 10_000_000, agentSpend: AGENT_SPEND, warnRatio: WARN_RATIO }))
   let html = ''
   expect(printBoard(busPath, NOW, (text) => {
     html += text
@@ -74,8 +76,17 @@ function lineOf(tile: string): string {
   return /<button [^>]*data-agents="[^>]*>/.exec(tile)![0]
 }
 
-function lineUnder(spent: number): string {
-  return lineOf(tilesOf(pageOf([beat(1, SESSION, 'launch', { subagents: [reading('implementer', spent)] })]), 'launch')[0]!)
+function heatOf(tag: string): 'over' | 'hot' | 'calm' {
+  if (/\sdata-over[\s>]/.test(tag))
+    return 'over'
+  return /\sdata-hot[\s>]/.test(tag) ? 'hot' : 'calm'
+}
+
+function heatUnder(spent: number, context: number): { line: string, row: string } {
+  const tile = tilesOf(pageOf([beat(1, SESSION, 'launch', { subagents: [reading('calm', 1), reading('implementer', spent, context)] })]), 'launch')[0]!
+  const rows = [...tile.matchAll(/<li[^>]*>/g)].map(match => match[0])
+  expect(heatOf(rows[0]!)).toBe('calm')
+  return { line: heatOf(lineOf(tile)), row: heatOf(rows[1]!) }
 }
 
 interface FakeEvent {
@@ -208,13 +219,61 @@ describe('the subagent line of a session tile', () => {
     const html = pageOf([beat(1, SESSION, 'launch', { subagents: [reading('implementer', 100_000), reading('scan', 500_000), reading('review', 300_000)] })])
     const tiles = tilesOf(html, 'launch')
     expect(tiles).toHaveLength(1)
-    expect(tiles[0]).toContain('субагенты 3 · макс 500k / 1M')
+    expect(tiles[0]).toContain(PLAIN_LORE.boardAgentsLine(3, '500k', '1M'))
   })
 
-  it('the subagent line is red at agentSpend times warnRatio and not below it', () => {
-    const line = AGENT_SPEND * WARN_RATIO
-    expect(lineUnder(line)).toContain('data-over')
-    expect(lineUnder(line - 1)).not.toContain('data-over')
+  it('both lore pairs read CRAWLERS for the agents line and pulse for the agent pulse', () => {
+    for (const lore of [LORE, PLAIN_LORE]) {
+      expect(lore.boardAgentsLine(3, '500k', '1M')).toBe('CRAWLERS 3 · top spend 500k / 1M cap')
+      expect(lore.boardAgentPulse(4)).toBe('pulse 4 min ago')
+    }
+  })
+
+  it('the board agents line and agent rows carry no Cyrillic letter', () => {
+    const tile = tilesOf(pageOf([beat(1, SESSION, 'launch', { subagents: [reading('implementer', 100_000), reading('scan', 500_000)] })]), 'launch')[0]!
+    const agents = /<button [^>]*data-agents=[\s\S]*?<\/ul>/.exec(tile)![0]
+    expect(agents).toContain('CRAWLERS 2')
+    expect(agents).toContain('pulse 2 min ago')
+    expect(agents).not.toMatch(/\p{Script=Cyrillic}/u)
+  })
+
+  it('the agents arrow is drawn from aria-expanded and turns by rotation', () => {
+    const html = pageOf([beat(1, SESSION, 'launch', { subagents: [reading('scan', 100_000)] })])
+    const line = /<button [^>]*data-agents="[^>]*>([^<]*)<\/button>/.exec(html)!
+    expect(line[1]).not.toMatch(/[▸▾►▼]/)
+    expect(html).toContain('&::before { content: "\\25B8"; display: inline-block; margin-inline-end: var(--space-xs); transition: transform 160ms ease-out; }')
+    expect(html).toContain('&[aria-expanded="true"]::before { transform: rotate(90deg); }')
+    expect(html).toContain('.svc .svc-agents::before { transition: none; }')
+    expect(html.indexOf('.svc .svc-agents::before { transition: none; }')).toBeGreaterThan(html.indexOf('@media (prefers-reduced-motion: reduce)'))
+    const page = pageWindow(html, new MemoryStorage())
+    expect(page.expanded()).toBe('false')
+    page.click(page.line)
+    expect(page.expanded()).toBe('true')
+  })
+
+  it('agent context at the warn ratio is yellow and at the limit red on the row and the CRAWLERS line', () => {
+    const warn = CONTEXT_LIMIT * WARN_RATIO
+    expect(heatUnder(1, warn - 1)).toEqual({ line: 'calm', row: 'calm' })
+    expect(heatUnder(1, warn)).toEqual({ line: 'hot', row: 'hot' })
+    expect(heatUnder(1, CONTEXT_LIMIT - 1)).toEqual({ line: 'hot', row: 'hot' })
+    expect(heatUnder(1, CONTEXT_LIMIT)).toEqual({ line: 'over', row: 'over' })
+    expect(heatUnder(1, CONTEXT_LIMIT + 1)).toEqual({ line: 'over', row: 'over' })
+  })
+
+  it('agent spend at the warn ratio is yellow and at the limit red on the row and the CRAWLERS line', () => {
+    const warn = AGENT_SPEND * WARN_RATIO
+    expect(heatUnder(warn - 1, 1)).toEqual({ line: 'calm', row: 'calm' })
+    expect(heatUnder(warn, 1)).toEqual({ line: 'hot', row: 'hot' })
+    expect(heatUnder(AGENT_SPEND - 1, 1)).toEqual({ line: 'hot', row: 'hot' })
+    expect(heatUnder(AGENT_SPEND, 1)).toEqual({ line: 'over', row: 'over' })
+  })
+
+  it('the board paints the agent row and the line yellow and red by the tile gauge colours', () => {
+    const html = pageOf([beat(1, SESSION, 'launch', { subagents: [reading('scan', 100_000)] })])
+    expect(html).toContain('&[data-hot] { --_fg: var(--amber); }')
+    expect(html).toContain('&[data-over] { --_fg: var(--signal); }')
+    expect(html).toContain('& li[data-hot] { color: var(--amber); }')
+    expect(html).toContain('& li[data-over] { color: var(--signal); }')
   })
 
   it('the subagent dialog lists type or name CTX SPENT and pulse per subagent', () => {
