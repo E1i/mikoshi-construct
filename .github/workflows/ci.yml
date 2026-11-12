@@ -8,7 +8,8 @@
 #              On a pull request that is not changeset-release/* the vitest job runs only the tests that
 #              scripts/ci/select.ts reaches: the touched layers and every layer that depends on them,
 #              by the dependency-cruiser graph. A path in no layer, push, merge_group and
-#              changeset-release/* run them all.
+#              changeset-release/* run them all. It checks out at depth 2 so the boundary ratchet in
+#              scripts/contract/ratchet.ts reads the pull request merge commit's first parent as the base.
 # sandbox-list — on a pull request that changes the selector or scripts/ci/sandbox-failing.jsonl, red when
 #              a test on that list is no longer collected, so the session would leave out a test CI no
 #              longer runs (scripts/ci/sandbox-liveness.ts --ci). On any other change it runs no check.
@@ -149,6 +150,8 @@ jobs:
     name: vitest ${{ matrix.shard }}/4
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v7
         with:
