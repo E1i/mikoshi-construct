@@ -29,13 +29,21 @@ const DROPS_A_WITNESS = /\b(?:drop|dropp(?:ed|ing)|remov(?:e|ed|ing))\s[^.?!]*wi
 const NAMES_A_WITNESS = /\bwitness(?:es)?\b/i
 const MOVES = /\b(?:mov(?:e|es|ed|ing)|transferr?(?:ed|ing|s)?|carr(?:y|ies|ied|ying))\b/i
 const TO_ANOTHER_CARD = /\b(?:to|into)\s+(?:another\s+card|(?:card\s+)?#\d+|(?:the\s+)?node-contract-suite)/i
+const NEGATES = /\b(?:not|never|no|nor|cannot)\b|n't\b/i
+const WITNESS_ID = /\bW\d+\b/g
+const WITNESS_WORD = /\bwitness(?:es)?\b/gi
+
+function namesOneWitness(sentence: string): boolean {
+  const ids = new Set(sentence.match(WITNESS_ID) ?? [])
+  return ids.size === 1 || (ids.size === 0 && (sentence.match(WITNESS_WORD) ?? []).length === 1)
+}
 
 function sentencesOf(question: string): string[] {
   return question.split(SENTENCE_END)
 }
 
 function movesAWitness(sentence: string): boolean {
-  return NAMES_A_WITNESS.test(sentence) && MOVES.test(sentence) && TO_ANOTHER_CARD.test(sentence)
+  return NAMES_A_WITNESS.test(sentence) && MOVES.test(sentence) && TO_ANOTHER_CARD.test(sentence) && !NEGATES.test(sentence) && namesOneWitness(sentence)
 }
 
 export function witnessDropped(question: string): boolean {

@@ -76,6 +76,15 @@ describe('autonomy stops under a shard', () => {
       expect(stopKindOf(moved)).toBe(WITNESS_MOVED)
       expect(deciderUnderAShard(moved)).toBe(WINDOW_DECIDES)
     }
+    for (const dropped of [
+      'may I drop the witness W2 and move the witness W3 to card #1775?',
+      'may I drop the witness W2, and it will not move to card #9?',
+      'may I drop the witness and move the other witness to card #1775?',
+    ]) {
+      expect(stopKindOf(dropped)).toBe(DROPPED_WITNESS)
+      expect(deciderUnderAShard(dropped)).toBe(OWNER_DECIDES)
+      expect(windowClosesTheStopOn(dropped).kind).toBe('refused')
+    }
     const lost = 'may I drop the witness W2 of this card? Its law moved to card #1775.'
     expect(stopKindOf(lost)).toBe(DROPPED_WITNESS)
     expect(windowClosesTheStopOn(lost)).toMatchObject({ kind: 'refused', detail: expect.stringContaining(`on ${DROPPED_WITNESS}, which stays the owner's under any shard`) as unknown })
