@@ -442,8 +442,8 @@ const BOARD_TABS_LORE = {
 export const LORE: Lore = {
   ...EXPECT_LORE,
   boardWindowAgentsStep: 'subagents at work',
-  boardAgentsLine: (count: number, largest: string, limit: string) => `▸ субагенты ${count} · макс ${largest} / ${limit}`,
-  boardAgentPulse: (minutes: number) => `пульс ${minutes} мин`,
+  boardAgentsLine: (count: number, largest: string, limit: string) => `CRAWLERS ${count} · top spend ${largest} / ${limit} cap`,
+  boardAgentPulse: (minutes: number) => `pulse ${minutes} min ago`,
   boardWindowRole: 'FIXER',
   boardWindowName: 'MIKO',
   expectNoneRaisedBy,
@@ -888,8 +888,8 @@ export const LORE: Lore = {
 export const PLAIN_LORE: Lore = {
   ...EXPECT_LORE,
   boardWindowAgentsStep: 'subagents at work',
-  boardAgentsLine: (count: number, largest: string, limit: string) => `▸ субагенты ${count} · макс ${largest} / ${limit}`,
-  boardAgentPulse: (minutes: number) => `пульс ${minutes} мин`,
+  boardAgentsLine: (count: number, largest: string, limit: string) => `CRAWLERS ${count} · top spend ${largest} / ${limit} cap`,
+  boardAgentPulse: (minutes: number) => `pulse ${minutes} min ago`,
   boardWindowRole: 'window',
   boardWindowName: 'Miko',
   expectNoneRaisedBy,

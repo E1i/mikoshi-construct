@@ -19,15 +19,20 @@ interface AgentLine {
   id: string
   type: string | null
   session: string | null
+  at: string | null
 }
 
-function agentLines(text: string): AgentLine[] {
+function stringOrNull(value: unknown): string | null {
+  return typeof value === 'string' ? value : null
+}
+
+export function agentLines(text: string): AgentLine[] {
   return text.split('\n').flatMap((line) => {
     try {
-      const entry = JSON.parse(line) as Partial<AgentLine> | null
+      const entry = JSON.parse(line) as Partial<Record<keyof AgentLine, unknown>> | null
       if (typeof entry?.event !== 'string' || typeof entry.id !== 'string')
         return []
-      return [{ event: entry.event, id: entry.id, type: typeof entry.type === 'string' ? entry.type : null, session: typeof entry.session === 'string' ? entry.session : null }]
+      return [{ event: entry.event, id: entry.id, type: stringOrNull(entry.type), session: stringOrNull(entry.session), at: stringOrNull(entry.at) }]
     }
     catch {
       return []
@@ -56,6 +61,17 @@ export function stoppedTasksIn(transcript: string | null): Set<string> {
   }
   catch {
     return new Set()
+  }
+}
+
+export function agentsFileText(root: string): string {
+  try {
+    return readFileSync(path.join(root, AGENTS_FILE), 'utf8')
+  }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT')
+      return ''
+    throw error
   }
 }
 
