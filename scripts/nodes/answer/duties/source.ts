@@ -5,7 +5,7 @@ import type { TreeMerge } from './tree.js'
 import { CLOSED_WAIT, OWNER_WAITS } from '../../../core/bus-readings.js'
 import { closeOwnerWait, inTransaction, openBusWait } from '../../../core/db.js'
 import { CARD_ADMITTED, CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, DECISION_RECORDED, OWNER_WAIT_CLOSED, POLICY_DENIED, QUESTION_AGENT, QUESTION_OWNER, WITNESS_RECORDED } from '../../../core/events.js'
-import { openDecisionWaitsOf } from '../../../core/queue.js'
+import { openDecisionWaitsOf, unmergedDependenciesOf } from '../../../core/queue.js'
 import { cardDecisionCommand, decisionsInForceAt } from '../../../policy/shards.js'
 import { BusRead } from '../../../ports/bus-read.js'
 import { MAIN_BRANCH } from '../../../ports/snapshot.js'
@@ -50,6 +50,8 @@ export class AnswerSources {
   constructor(private readonly parts: SourceParts) {}
 
   sourceOf(lease: Lease): Answering | null {
+    if (this.heldByADependency(lease))
+      return null
     const source = answerSourceOf(this.parts.db, lease, this.parts.clock())
     const awaited = source?.kind === 'decision' ? null : this.awaitedStop(lease)
     if (awaited !== null) {
@@ -79,7 +81,7 @@ export class AnswerSources {
     if (round === undefined)
       return null
     const exit = this.exitTaken(lease, card.where({ from: round.id + 1 }), round)
-    if (exit === null)
+    if (exit === null || this.heldByADependency(lease))
       return { id: stop.id, reason: stop.reason, emptyRound: round.id }
     this.closeTheEmptyRoundWait(lease, exit, round.id)
     return null
@@ -141,8 +143,12 @@ export class AnswerSources {
     inTransaction(db, () => openBusWait(db, this.parts.clock().toISOString(), lease.actor, ask))
   }
 
+  heldByADependency(lease: Lease): boolean {
+    return lease.pr !== null && unmergedDependenciesOf(this.parts.db, lease.cardId).length > 0
+  }
+
   dirtyOnHead(lease: Lease): boolean {
-    if (this.awaitedStop(lease) !== null)
+    if (this.heldByADependency(lease) || this.awaitedStop(lease) !== null)
       return false
     return lease.pr !== null && lease.head !== null && this.parts.db.prepare(DIRTY_ON_HEAD).get(lease.pr, lease.head) !== undefined
   }

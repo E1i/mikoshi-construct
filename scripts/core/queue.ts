@@ -17,6 +17,7 @@ import { BACKFILL_SOURCE, NOT_A_BACKFILL } from './backfill-source.js'
 import { CARD_BODIES } from './card-bodies.js'
 import { answerDecisionOfKey, decisionSegment, withDecidedContinuations } from './card-decisions.js'
 import { appendEvent, inTransaction, OPEN_WAIT, openOwnerWait, OWNER_WAITS } from './db.js'
+import { dependencyWaitOf } from './dependency-wait.js'
 import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, CARD_WAITING, declaredPart, INTAKE_EVENT, INTAKE_MOVE_EVENT, MERGE_DONE, OWNER_WAIT_OPENED, POLICY_DENIED, PR_CLOSED, PR_OBSERVED, PR_OPENED, QUESTION_AGENT, QUESTION_OWNER, REVIEW_RECORDED, REVIEW_ROUNDS_SPENT, ROUND_EXTENDED, ROUND_MUTATIONS_PARKED, SESSION_HEARTBEAT, SHARD_EXPIRED, SHARD_ISSUED, SHARD_REVOKED, TASK_COMPLETED, TASK_ENQUEUED, TASK_EXPIRED, TASK_FAILED, TASK_LEASED, TASK_RELEASED, TASK_RENEWED, TASK_REQUEUED, TASK_SUPERSEDED, TASK_WITHDRAWN, UPDATE_DONE, WITNESS_DOWNGRADE, WITNESS_RECORDED } from './events.js'
 import { generationOfKey, isFullSha, QUEUES, reviewInputOf, reviewInputOfKey, taskKey } from './identifiers.js'
 import { ownerQuestionAnswered } from './inbox.js'
@@ -113,22 +114,11 @@ const A_SUPERSEDED_ANSWER_WITHIN_ITS_LEASE = `
   LIMIT 1
 `
 
-const LATEST_ADMISSION_DEPENDS = `
-  SELECT depends.value AS card_id FROM json_each((
-    SELECT admitted.payload FROM events AS admitted
-    WHERE admitted.legacy = 0 AND admitted.type = '${CARD_ADMITTED}' AND admitted.card_id = prs.card_id
-      AND json_extract(admitted.payload, '$.source') IS NOT '${BACKFILL_SOURCE}'
-    ORDER BY admitted.id DESC LIMIT 1
-  ), '$.depends') AS depends
-  WHERE depends.type = 'integer'
-`
+const DEPENDENCY_WAIT = dependencyWaitOf({ admitted: CARD_ADMITTED, backfillSource: BACKFILL_SOURCE, mergeDone: MERGE_DONE, prClosed: PR_CLOSED, prOpened: PR_OPENED, prObserved: PR_OBSERVED, settledUpdateStates: [COMPLETED, WITHDRAWN, STOPPED] })
 
-const A_DEPENDENCY_UNMERGED = `EXISTS (
-  SELECT 1 FROM (${LATEST_ADMISSION_DEPENDS}) AS dependency
-  WHERE NOT EXISTS (SELECT 1 FROM events AS done WHERE done.type = '${MERGE_DONE}' AND done.legacy = 0 AND done.card_id = dependency.card_id)
-    AND NOT EXISTS (SELECT 1 FROM prs AS merged WHERE merged.card_id = dependency.card_id AND merged.state = 'merged')
-    AND NOT EXISTS (SELECT 1 FROM events AS legacy WHERE legacy.type = 'merge' AND legacy.legacy = 1 AND legacy.card_id = dependency.card_id)
-)`
+const { unmerged: A_DEPENDENCY_UNMERGED, updateDue: A_DEPENDENCY_UPDATE_DUE, held: HELD_BY_A_DEPENDENCY } = DEPENDENCY_WAIT
+
+export const { unmergedDependenciesOf, updateDueOn: dependencyUpdateDueOn } = DEPENDENCY_WAIT
 
 const A_REVIEW_IN_FLIGHT = `EXISTS (
   SELECT 1 FROM tasks AS reviewing WHERE reviewing.queue = 'review' AND reviewing.pr = prs.pr AND reviewing.head = prs.head
@@ -170,13 +160,17 @@ const MERGES_PARKED_ON_A_QUESTION_NOW_CLOSED = `
   ORDER BY tasks.task_key
 `
 
-const GREEN_BEHIND_BY_CARD_PRIORITY = `
-  SELECT prs.pr, prs.card_id, prs.head, prs.verdict_on_head FROM prs
+function openPrsByCardPriority(condition: string, column = ''): string {
+  return `
+  SELECT prs.pr, prs.card_id, prs.head, prs.verdict_on_head${column} FROM prs
   LEFT JOIN ${CARD_BODIES} AS body ON body.card_id = prs.card_id
-  WHERE prs.state = 'open' AND prs.base = '${MAIN_BRANCH}' AND prs.mergeable = 'behind' AND prs.draft = 0 AND prs.card_id IS NOT NULL AND prs.head IS NOT NULL
-    AND prs.ci = 'green'
+  WHERE prs.state = 'open' AND prs.base = '${MAIN_BRANCH}' AND prs.draft = 0 AND prs.card_id IS NOT NULL AND prs.head IS NOT NULL
+    AND ${condition}
   ORDER BY body.priority IS NOT '${TOP_PRIORITY}', prs.pr
 `
+}
+
+const GREEN_BEHIND_BY_CARD_PRIORITY = openPrsByCardPriority(`prs.mergeable = 'behind' AND prs.ci = 'green'`)
 
 export const AN_UPDATED_PR_HOLDS_MS = LEASE_MS
 
@@ -200,21 +194,13 @@ const AN_ANSWER_IN_FLIGHT = `EXISTS (
     AND answering.state IN ('${QUEUED}', '${LEASED}')
 )`
 
-const CONFLICTING_BY_CARD_PRIORITY = `
-  SELECT prs.pr, prs.card_id, prs.head, prs.verdict_on_head FROM prs
-  LEFT JOIN ${CARD_BODIES} AS body ON body.card_id = prs.card_id
-  WHERE prs.state = 'open' AND prs.base = '${MAIN_BRANCH}' AND prs.mergeable = 'dirty' AND prs.draft = 0 AND prs.card_id IS NOT NULL AND prs.head IS NOT NULL
-    AND NOT ${AN_ANSWER_IN_FLIGHT}
-  ORDER BY body.priority IS NOT '${TOP_PRIORITY}', prs.pr
-`
+const CONFLICTING_BY_CARD_PRIORITY = openPrsByCardPriority(`prs.mergeable = 'dirty' AND NOT ${AN_ANSWER_IN_FLIGHT}`)
 
-const GREEN_CLEAN_A_MERGE_SENT_TO_UPDATE = `
-  SELECT prs.pr, prs.card_id, prs.head, prs.verdict_on_head, (SELECT max(denied.id) FROM events AS denied WHERE denied.type = '${POLICY_DENIED}' AND denied.legacy = 0 AND denied.pr = prs.pr
-    AND denied.head = prs.head AND json_extract(denied.payload, '$.command') = 'merge' AND json_extract(denied.payload, '$.reason') = '${NEEDS_UPDATE}') AS sent_at FROM prs
-  LEFT JOIN ${CARD_BODIES} AS body ON body.card_id = prs.card_id
-  WHERE prs.state = 'open' AND prs.base = '${MAIN_BRANCH}' AND prs.mergeable = 'clean' AND prs.draft = 0 AND prs.card_id IS NOT NULL AND prs.head IS NOT NULL AND prs.ci = 'green' AND sent_at IS NOT NULL
-  ORDER BY body.priority IS NOT '${TOP_PRIORITY}', prs.pr
-`
+const DEPENDENTS_OF_A_MERGED_CARD_BY_CARD_PRIORITY = openPrsByCardPriority(`prs.mergeable IS NOT 'dirty' AND ${A_DEPENDENCY_UPDATE_DUE}`)
+
+const GREEN_CLEAN_A_MERGE_SENT_TO_UPDATE = openPrsByCardPriority(`prs.mergeable = 'clean' AND prs.ci = 'green' AND sent_at IS NOT NULL`, `, (SELECT max(denied.id) FROM events AS denied
+    WHERE denied.type = '${POLICY_DENIED}' AND denied.legacy = 0 AND denied.pr = prs.pr AND denied.head = prs.head
+    AND json_extract(denied.payload, '$.command') = 'merge' AND json_extract(denied.payload, '$.reason') = '${NEEDS_UPDATE}') AS sent_at`)
 
 const LAST_MECHANICS = `SELECT sha, event_id FROM mains WHERE touches_mechanics = 1 ORDER BY event_id DESC LIMIT 1`
 
@@ -391,7 +377,8 @@ const ANSWERS_PARKED_ON_A_DOWNGRADE_WAIT_NOW_CLOSED = `
 
 const QUESTION_CANDIDATES = latestQuestionStops(
   `stop.card_id, coalesce(stop.pr, cards.pr) AS pr, coalesce(prs.head, stop.head) AS head, stop.id AS stop, ${cardBodyShaOf('stop.card_id')} AS card_body`,
-  `NOT ${THE_WINDOW_AMENDS_THE_CARD_FIRST} AND NOT ${A_LAUNCH_STOP_WITH_NO_PULL_REQUEST} AND ${notAWindowCard('stop.card_id')} AND NOT ${aDowngradeWaitOpenOn('stop.card_id')}`,
+  `NOT ${THE_WINDOW_AMENDS_THE_CARD_FIRST} AND NOT ${A_LAUNCH_STOP_WITH_NO_PULL_REQUEST} AND ${notAWindowCard('stop.card_id')} AND NOT ${aDowngradeWaitOpenOn('stop.card_id')}
+    AND (prs.pr IS NULL OR NOT ${HELD_BY_A_DEPENDENCY})`,
 )
 
 const LAUNCH_STOPS_LIFTED = latestQuestionStops(
@@ -481,6 +468,7 @@ function answerCandidatesWhere(condition: string): string {
   WHERE state = 'open' AND ${condition} AND card_id IS NOT NULL AND head IS NOT NULL
     AND ${notAWindowCard('prs.card_id')}
     AND NOT ${aDowngradeWaitOpenOn('prs.card_id')}
+    AND NOT ${HELD_BY_A_DEPENDENCY}
     AND NOT EXISTS (
       SELECT 1 FROM events AS stop WHERE stop.id = ${latestTurnOf('prs.card_id')}
         AND stop.type = '${CARD_STOPPED}' AND ${AN_OPEN_QUESTION}
@@ -907,8 +895,9 @@ export function updateCandidates(db: DatabaseSync, ts: string, rerun: RerunMode 
   const sent = rerun === 'by-layers' ? candidateRows(db, GREEN_CLEAN_A_MERGE_SENT_TO_UPDATE, aMergeCandidate(db, ts)) : []
   const conflicting = candidateRows(db, CONFLICTING_BY_CARD_PRIORITY, everyRow)
   const green = [...candidateRows(db, GREEN_BEHIND_BY_CARD_PRIORITY, aMergeCandidate(db, ts)), ...sent]
+  const dependents = candidateRows(db, DEPENDENTS_OF_A_MERGED_CARD_BY_CARD_PRIORITY, everyRow)
   const holders = new Set(holdsOfTheUpdateTurn(db, ts).map(row => row.pr))
-  const inTurn = holders.size === 0 ? green : green.filter(row => holders.has(row.pr))
+  const inTurn = holders.size === 0 ? [...green, ...dependents] : [...green, ...dependents].filter(row => holders.has(row.pr))
   return openCandidates(db, ts, 'update', withTheHeadsARerunIsDueOn(db, [...inTurn, ...conflicting].slice(0, 1)))
 }
 
