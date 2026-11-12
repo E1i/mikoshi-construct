@@ -5,13 +5,14 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
 import { BUSY_TIMEOUT_MS, defaultBusPath } from '../core/db.js'
+import { OWNER_COMMAND_COMMAND } from '../core/owner-commands.js'
 import { openDatabase } from '../core/sqlite.js'
 import { cardContract } from '../intake/card-contract.js'
 import { withinTouches } from '../policy/touch-scope.js'
 import { processGit } from '../ports/git.js'
 
 export const PREFIX = '[owner:command] '
-export const USAGE = 'usage: pnpm owner:command --tree <worktree> --card <id> --message <commit message>'
+export const USAGE = `usage: ${OWNER_COMMAND_COMMAND} --tree <worktree> --card <id> --message <commit message>`
 export const PATCH_FILE = 'claude.patch'
 export const COMMAND_FILE = 'command.txt'
 

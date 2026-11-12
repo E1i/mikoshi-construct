@@ -57,12 +57,6 @@ const SITES_OF_THE_RECONNAISSANCE: Record<string, readonly string[]> = {
     'scripts/core/bus-path.ts',
   ],
   'handoff-status': ['src/commands/doctor/factory.ts'],
-  'owner-commands': [
-    'scripts/window/window-requests.ts',
-    'scripts/window/loop.ts',
-    'scripts/window/compact-start.ts',
-    'scripts/window/exit.ts',
-  ],
   'window-requests': ['scripts/window/window-requests.ts'],
 }
 
@@ -194,6 +188,7 @@ describe('contract/factory.json', () => {
     for (const [concept, files] of Object.entries(SITES_OF_THE_RECONNAISSANCE))
       expect(Object.keys(overlaps[concept]!), concept).toEqual(expect.arrayContaining([...files]))
     expect(overlaps['process-table']).toEqual({})
+    expect(overlaps['owner-commands']).toEqual({})
     expect(overlaps['window-requests']!['scripts/window/window-requests.ts']).toBeGreaterThan(1)
     expect(overlaps.layers).toEqual({})
   }, GENERATION_TIMEOUT)

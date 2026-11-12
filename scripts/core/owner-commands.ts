@@ -20,6 +20,24 @@ export function npxConstructCommand(command: string, ...args: readonly OwnerComm
 
 export const QUALITY_COMMAND = pnpmCommand('run', 'quality')
 
+export const INTAKE_COMMAND = pnpmCommand('intake')
+
+export const HANDOFF_WRITE_COMMAND = pnpmCommand('handoff:write')
+
+export const MIKO_COMMAND = pnpmCommand('miko')
+
+export const MIKO_WATCH_COMMAND = pnpmCommand('miko:watch')
+
+export const MIKO_EXIT_COMMAND = pnpmCommand('miko:exit')
+
+export const OWNER_SAY_COMMAND = pnpmCommand('owner:say')
+
+export const OWNER_COMMAND_COMMAND = pnpmCommand('owner:command')
+
+export const TSX_COMMAND = pnpmCommand('exec', 'tsx')
+
+export const PNPM_FORM_LABEL = 'pnpm form'
+
 export const OWNER_MOVES = ['stop', 'launch', 'takeover', 'requeue'] as const
 
 export type OwnerMove = typeof OWNER_MOVES[number]
@@ -31,6 +49,8 @@ export type OwnerMoveRequest = typeof OWNER_MOVE_REQUESTS[number]
 const REQUEST_SCRIPT = 'bus:request'
 const CARD_FLAG = '--card'
 const TASK_FLAG = '--task'
+
+export const BUS_REQUEST_COMMAND = pnpmCommand(REQUEST_SCRIPT)
 
 export function isOwnerMoveRequest(kind: unknown): kind is OwnerMoveRequest {
   return typeof kind === 'string' && (OWNER_MOVE_REQUESTS as readonly string[]).includes(kind)

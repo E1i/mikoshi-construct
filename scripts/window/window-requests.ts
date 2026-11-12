@@ -28,7 +28,7 @@ import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_CONTINUED, CARD_DROPPED
 import { cardIdOf, isFullSha, prOf } from '../core/identifiers.js'
 import { ANSWER_SOURCE, OPEN_OWNER_STOP_OF_CARD, OWNER } from '../core/inbox.js'
 import { legacyHistory } from '../core/legacy-history.js'
-import { isOwnerMoveRequest, OWNER_MOVE_REQUESTS, ownerMoveCommand, ownerMoveOf, ownerMoveRequestOf, ownerMoveUsage } from '../core/owner-commands.js'
+import { BUS_REQUEST_COMMAND, INTAKE_COMMAND, isOwnerMoveRequest, OWNER_MOVE_REQUESTS, OWNER_SAY_COMMAND, ownerMoveCommand, ownerMoveOf, ownerMoveRequestOf, ownerMoveUsage } from '../core/owner-commands.js'
 import { changesRoundsOf, closedByRounds, FAILURES_TO_STOP, LEASED, QUEUE_ACTOR, QUEUED, queueTaskWithin, REVIEW_ROUNDS } from '../core/queue.js'
 import { storedByKey } from '../core/stored.js'
 import { INTAKE_ACTOR_PREFIX } from '../intake/admissions.js'
@@ -78,11 +78,11 @@ export const ALLOW_MERGE_RECORD = 'architecture/decisions/window-allow-merge.md'
 const RULE_ACCEPTED = /^Status: accepted\b/m
 export const REQUEST_RULE = 'window_request'
 export const PREFIX = '[bus:request] '
-export const USAGE = `usage: pnpm bus:request tree.cut --card <N> | amend --card <N> [--touches +<path>,-<path>] [--add-witness <witness>]... [--remove-witness <witness>]... [--owner-words <the owner's words>] [--depends +#<N>,-#<N>] [--priority p0|p1|p2|none] [--auto-confirm] | allow-merge --pr <N> --head <sha>|${HEAD_WORD} --dry-run <reviewer session> | close-pr|reopen-pr --pr <N> --card <N> --reason <text> | pr.body --pr <N> [--file <absolute path in the card tree>] | ci.rerun --pr <N> | requeue --task <task_key> [--keep-tree] | mode --set ${FACTORY_MODES.join('|')} | plan --op ${[...PLAN_OPS.keys()].join('|')} [--plan <id>] [--title <text>] [--goal <text>] [--file <absolute plan file>] [--gate <word>] [--card <N>] | owner.wait --need ${OWNER_WAIT_NEEDS.join('|')} --text <what the owner decides> [--command <line>] [--card <N>] [--pr <N>] | owner.wait.close --id Q<N> --answer <answer> [--from ${ANSWER_SOURCE}] | owner.wait.close --id Q<N> --from ${ANSWER_SOURCE} | decisions:add --from ${ANSWER_SOURCE} [--supersedes D-M]... [--card #N]... [--until <YYYY-MM-DDTHH:MMZ>] "[owner] <decision>" | hold --card <N> --reason <why the owner holds it> | release --card <N> | takeover --card <N> --reason <why the bus has no route for it> | drop --card <N> --reason <why a card with no body is dropped> | numbers.foreign --ids <card ids of another factory's row, comma separated> | ${ownerMoveUsage()}`
+export const USAGE = `usage: ${BUS_REQUEST_COMMAND} tree.cut --card <N> | amend --card <N> [--touches +<path>,-<path>] [--add-witness <witness>]... [--remove-witness <witness>]... [--owner-words <the owner's words>] [--depends +#<N>,-#<N>] [--priority p0|p1|p2|none] [--auto-confirm] | allow-merge --pr <N> --head <sha>|${HEAD_WORD} --dry-run <reviewer session> | close-pr|reopen-pr --pr <N> --card <N> --reason <text> | pr.body --pr <N> [--file <absolute path in the card tree>] | ci.rerun --pr <N> | requeue --task <task_key> [--keep-tree] | mode --set ${FACTORY_MODES.join('|')} | plan --op ${[...PLAN_OPS.keys()].join('|')} [--plan <id>] [--title <text>] [--goal <text>] [--file <absolute plan file>] [--gate <word>] [--card <N>] | owner.wait --need ${OWNER_WAIT_NEEDS.join('|')} --text <what the owner decides> [--command <line>] [--card <N>] [--pr <N>] | owner.wait.close --id Q<N> --answer <answer> [--from ${ANSWER_SOURCE}] | owner.wait.close --id Q<N> --from ${ANSWER_SOURCE} | decisions:add --from ${ANSWER_SOURCE} [--supersedes D-M]... [--card #N]... [--until <YYYY-MM-DDTHH:MMZ>] "[owner] <decision>" | hold --card <N> --reason <why the owner holds it> | release --card <N> | takeover --card <N> --reason <why the bus has no route for it> | drop --card <N> --reason <why a card with no body is dropped> | numbers.foreign --ids <card ids of another factory's row, comma separated> | ${ownerMoveUsage()}`
 
 const BY_HAND = 'by-hand'
 const noTool = (what: string): Executed => ({ done: false, why: `this bus was built with no tool to ${what}` })
-const OWNER_ANSWER_USAGE = `an owner's word from the channel closes a wait with: pnpm bus:request owner.wait.close --id Q<N> --answer <the owner's word> --from ${ANSWER_SOURCE}`
+const OWNER_ANSWER_USAGE = `an owner's word from the channel closes a wait with: ${BUS_REQUEST_COMMAND} owner.wait.close --id Q<N> --answer <the owner's word> --from ${ANSWER_SOURCE}`
 interface WaitToClose {
   state: string
   card_id: number | null
@@ -367,7 +367,7 @@ export class WindowRequests {
     if (decision === null || from === null)
       return { done: false, why: `decisions:add needs the owner's text and --from ${ANSWER_SOURCE}` }
     if (from !== ANSWER_SOURCE)
-      return { done: false, why: `decisions:add --from ${from} is not ${ANSWER_SOURCE}; a decision comes only from the owner's word that pnpm owner:say put into the owner channel, never from an owner order file` }
+      return { done: false, why: `decisions:add --from ${from} is not ${ANSWER_SOURCE}; a decision comes only from the owner's word that ${OWNER_SAY_COMMAND} put into the owner channel, never from an owner order file` }
     const words = decision.startsWith(OWNER_SOURCE) ? decision.slice(OWNER_SOURCE.length).trim() : decision
     const filled = [...decision.matchAll(AT_HEAD_OF_A_PR)].some(match => this.observed(Number(match[1]))?.head == null) ? null : decision.replace(AT_HEAD_OF_A_PR, (_, pr: string) => `PR #${pr} at ${this.observed(Number(pr))!.head!}`)
     if (words === '' || filled === null)
@@ -474,7 +474,7 @@ export class WindowRequests {
     if (id === null || (answer === null && from === null))
       return { done: false, why: 'owner.wait.close needs an id Q<N> and an answer, or --from the owner channel' }
     if (from !== null && from !== ANSWER_SOURCE)
-      return { done: false, why: `owner.wait.close --from ${from} is not ${ANSWER_SOURCE}; only the owner's word that pnpm owner:say put into the owner channel closes a wait as the owner's answer` }
+      return { done: false, why: `owner.wait.close --from ${from} is not ${ANSWER_SOURCE}; only the owner's word that ${OWNER_SAY_COMMAND} put into the owner channel closes a wait as the owner's answer` }
     const wait = this.db.prepare(`SELECT state, card_id, need FROM ${OWNER_WAITS} WHERE id = ?`).get(id) as WaitToClose | undefined
     if (wait === undefined)
       return { done: false, why: `${id} is not an owner wait the bus has reduced` }
@@ -692,7 +692,7 @@ export class WindowRequests {
     if (ENDED_CARDS.has(card.state))
       return { done: false, why: `card #${cardId} is ${card.state}; there is nothing to drop` }
     if (cardBodyText(this.db, cardId) !== null)
-      return { done: false, why: `card #${cardId} has an admitted body; it drops with pnpm intake --move '#${cardId}' --to ${DROPPED_CARD}` }
+      return { done: false, why: `card #${cardId} has an admitted body; it drops with ${INTAKE_COMMAND} --move '#${cardId}' --to ${DROPPED_CARD}` }
     appendEvent(this.db, { ts: this.clock().toISOString(), type: CARD_DROPPED, actor: this.actorOf(request), cardId, pr: null, head: null, dedupeKey: `${CARD_DROPPED}:request-${request}`, payload: { request, reason }, legacy: false })
     return { done: true, why: `${CARD_DROPPED} #${cardId}: ${reason}` }
   }
