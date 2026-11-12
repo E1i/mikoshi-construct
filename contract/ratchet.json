@@ -304,7 +304,7 @@
   "lines-scope:non-test-code-in-scripts-and-src": 1,
   "lines:scripts/cli/board-page.ts": 1277,
   "lines:scripts/construct/browser-lab.mjs": 809,
-  "lines:scripts/core/queue.ts": 1311,
+  "lines:scripts/core/queue.ts": 1300,
   "lines:scripts/nodes/launch/launch-worker.ts": 815,
   "lines:scripts/supervisor/supervisor.ts": 1187,
   "lines:scripts/window/window-requests.ts": 1013,
