@@ -38,12 +38,17 @@ function observed(db: DatabaseSync, head: string, extra: Record<string, unknown>
   appendEvent(db, { ts: TS, type: PR_OBSERVED, actor: 'netwatch', cardId: CARD, pr: PR, head, dedupeKey: `${PR_OBSERVED}:${PR}:${head}:${JSON.stringify(extra)}`, payload: { card_id: CARD, base: 'main', head, mergeable: 'clean', ci: 'green', verdict_on_head: null, auto_merge: false, draft: false, branch: `feat/card-${CARD}`, ...extra }, legacy: false })
 }
 
-function held(db: DatabaseSync, request: number, takeover: boolean): void {
-  appendEvent(db, { ts: TS, type: CARD_HELD, actor: 'worker:window:s642', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_HELD}:request-${request}`, payload: { request, reason: 'the bus has no route for the card', ...(takeover ? { takeover: true } : {}) }, legacy: false })
+interface Recorded {
+  cardId?: number
+  legacy?: boolean
 }
 
-function released(db: DatabaseSync, request: number, cardId = CARD): void {
-  appendEvent(db, { ts: TS, type: CARD_RELEASED, actor: 'worker:window:s642', cardId, pr: null, head: null, dedupeKey: `${CARD_RELEASED}:request-${request}`, payload: { request }, legacy: false })
+function held(db: DatabaseSync, request: number, takeover: boolean, { cardId = CARD, legacy = false }: Recorded = {}): void {
+  appendEvent(db, { ts: TS, type: CARD_HELD, actor: 'worker:window:s642', cardId, pr: null, head: null, dedupeKey: `${CARD_HELD}:request-${request}`, payload: { request, reason: 'the bus has no route for the card', ...(takeover ? { takeover: true } : {}) }, legacy })
+}
+
+function released(db: DatabaseSync, request: number, { cardId = CARD, legacy = false }: Recorded = {}): void {
+  appendEvent(db, { ts: TS, type: CARD_RELEASED, actor: 'worker:window:s642', cardId, pr: null, head: null, dedupeKey: `${CARD_RELEASED}:request-${request}`, payload: { request }, legacy })
 }
 
 function cardStoppedAskingToWiden(beforeTheStop: (db: DatabaseSync) => void = () => {}): DatabaseSync {
@@ -132,7 +137,31 @@ describe('a card stopped on a question, then taken over and released by the wind
 
   it('the release of another card does not answer this card\'s question', () => {
     const db = cardStoppedAskingToWidenThenHeld()
-    released(db, 2, CARD + 1)
+    released(db, 2, { cardId: CARD + 1 })
+
+    expect(answersAfter(db, () => changesVerdict(db))).toBe(0)
+  })
+
+  it('another card\'s takeover after the stop, then a release of this card, does not answer this card\'s question', () => {
+    const db = cardStoppedAskingToWidenThenHeld(false)
+    held(db, 2, true, { cardId: CARD + 1 })
+    released(db, 3)
+
+    expect(answersAfter(db, () => changesVerdict(db))).toBe(0)
+  })
+
+  it('a legacy takeover released after the stop does not answer the question', () => {
+    const db = cardStoppedAskingToWiden()
+    held(db, 1, true, { legacy: true })
+    observed(db, HEAD_THE_WINDOW_PUSHED)
+    released(db, 2)
+
+    expect(answersAfter(db, () => changesVerdict(db))).toBe(0)
+  })
+
+  it('a legacy release of a takeover leaves the question open', () => {
+    const db = cardStoppedAskingToWidenThenHeld()
+    released(db, 2, { legacy: true })
 
     expect(answersAfter(db, () => changesVerdict(db))).toBe(0)
   })
