@@ -80,6 +80,9 @@ describe('autonomy stops under a shard', () => {
       'may I drop the witness W2 and move the witness W3 to card #1775?',
       'may I drop the witness W2, and it will not move to card #9?',
       'may I drop the witness and move the other witness to card #1775?',
+      'drop the witness W2 and move the code to card #1775',
+      'drop the witness W2 and move the tests to card #1775',
+      'the witness W2 is dropped and the code moved to card #1775.',
     ]) {
       expect(stopKindOf(dropped)).toBe(DROPPED_WITNESS)
       expect(deciderUnderAShard(dropped)).toBe(OWNER_DECIDES)
