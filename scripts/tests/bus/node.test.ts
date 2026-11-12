@@ -2,6 +2,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { Lease } from '../../core/lease.js'
 import type { DetectionMode, NodeKind, NodeStep, Scope } from '../../core/node.js'
 import type { QueuedTask } from '../../core/queue.js'
+import type { TaskMustWait } from '../../core/task-must-wait.js'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -13,7 +14,6 @@ import { completeTask } from '../../core/lease.js'
 import { Node, NODE_CURSORS, nodeProcess, SecondSubscription } from '../../core/node.js'
 import { keyOf, queueTask } from '../../core/queue.js'
 import { projectionDump, reduce } from '../../core/reducer.js'
-import { TaskMustWait } from '../../core/task-must-wait.js'
 import { RateLimited } from '../../ports/meter.js'
 import { TICK_MS } from '../../ports/netwatch.js'
 import { lastProcessBeats } from '../../supervisor/heartbeat.js'
@@ -456,9 +456,13 @@ describe('a node', () => {
     const clock = new Clock()
     appendEvent(db, { ts: clock.now().toISOString(), type: 'pr.observed', actor: 'netwatch', cardId: 1071, pr: 971, head: sha('a'), dedupeKey: 'pr.observed:971', payload: { pr: 971, head: sha('a'), state: 'open', base: 'main', ci: 'green', mergeable: 'clean', auto_merge: false, draft: false }, legacy: false })
     reduce(db)
+    class PortPause extends Error implements TaskMustWait {
+      readonly taskMustWait = true
+      readonly retryAfterSeconds = 30
+    }
     class WaitingNode extends FakeNode {
       protected override handle(): NodeStep {
-        throw new TaskMustWait('the port asks for a pause', 30)
+        throw new PortPause('the port asks for a pause')
       }
     }
     const node = new WaitingNode(db, clock, 'live')

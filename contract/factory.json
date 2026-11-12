@@ -3280,7 +3280,8 @@
           "scripts/core/every.ts",
           "scripts/core/watermark.ts",
           "scripts/core/entry.ts",
-          "scripts/core/observations.ts"
+          "scripts/core/observations.ts",
+          "scripts/core/task-must-wait.ts"
         ],
         "may_use": [],
         "owns": [
@@ -3299,6 +3300,7 @@
           "scripts/core/watermark.ts",
           "scripts/core/entry.ts",
           "scripts/core/observations.ts",
+          "scripts/core/task-must-wait.ts",
           "scripts/core/projection-writes.ts",
           "scripts/core/projection-writes.known.json",
           "scripts/core/rejection.ts"
@@ -5439,7 +5441,7 @@
         "types": {
           "GitHubFailed": "class GitHubFailed extends Error { constructor(readonly status: number, endpoint: string, cause?: string) }",
           "Meter": "class Meter { calls; remaining: number | null; constructor(private readonly gitHub: GitHub, private readonly nowMs: () => number); get(endpoint: string): unknown }",
-          "RateLimited": "class RateLimited extends TaskMustWait { constructor(readonly status: number, retryAfterSeconds: number) }"
+          "RateLimited": "class RateLimited extends Error { taskMustWait; constructor(readonly status: number, readonly retryAfterSeconds: number) }"
         }
       },
       "scripts/ports/netwatch.ts": {

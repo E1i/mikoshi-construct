@@ -18,7 +18,7 @@ import { CARD_STOPPED, NODE_DETECTED, NODE_EQUIVALENCE, TASK_LEASED } from './ev
 import { drainOpen, expireLeases, failTask, leasedByRetiring, leaseNext, recordWorkerStarted, RENEW_MS, renewLease, StaleLease, waitTask, workerRetiring } from './lease.js'
 import { keyOf, LEASED, queueTaskWithin } from './queue.js'
 import { STORED_COLUMNS } from './stored.js'
-import { TaskMustWait } from './task-must-wait.js'
+import { mustWait } from './task-must-wait.js'
 
 export const SWITCH_FLAG = '--on'
 export const LIVE_FLAG = '--live'
@@ -532,7 +532,7 @@ export abstract class Node<S extends NodeStep> {
       return await this.handle(lease)
     }
     catch (error) {
-      if (!(error instanceof TaskMustWait))
+      if (!mustWait(error))
         throw error
       const until = new Date(this.parts.clock().getTime() + error.retryAfterSeconds * 1000).toISOString()
       return this.waitOn(lease, error.message, until)
