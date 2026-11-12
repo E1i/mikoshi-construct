@@ -15,6 +15,7 @@ export interface DependencyWait {
   updateDue: string
   held: string
   unmergedDependenciesOf: (db: DatabaseSync, cardId: number) => number[]
+  updateDueOn: (db: DatabaseSync, head: { card: number, pr: number, head: string }) => boolean
 }
 
 function latestAdmissionDepends(names: DependencyWaitNames, card: string): string {
@@ -39,25 +40,39 @@ function unmergedDependenciesWhere(names: DependencyWaitNames, card: string): st
 `
 }
 
-function aDependencyMergedUnderTheHead(names: DependencyWaitNames): string {
+interface HeadRef {
+  card: string
+  pr: string
+  head: string
+}
+
+const THE_PRS_ROW: HeadRef = { card: 'prs.card_id', pr: 'prs.pr', head: 'prs.head' }
+
+const BOUND_PARAMETERS: HeadRef = { card: ':card', pr: ':pr', head: ':head' }
+
+function aDependencyMergedUnderTheHead(names: DependencyWaitNames, at: HeadRef): string {
   return `EXISTS (
-  SELECT 1 FROM (${latestAdmissionDepends(names, 'prs.card_id')}) AS dependency
+  SELECT 1 FROM (${latestAdmissionDepends(names, at.card)}) AS dependency
   JOIN events AS dependency_merge ON dependency_merge.card_id = dependency.card_id
     AND ((dependency_merge.type = '${names.mergeDone}' AND dependency_merge.legacy = 0) OR (dependency_merge.type = '${names.prClosed}' AND json_extract(dependency_merge.payload, '$.merged') = 1))
-  WHERE dependency_merge.id > (SELECT min(seen.id) FROM events AS seen WHERE seen.pr = prs.pr AND seen.head = prs.head AND seen.type IN ('${names.prOpened}', '${names.prObserved}'))
-    AND NOT EXISTS (SELECT 1 FROM tasks AS tried WHERE tried.queue = 'update' AND tried.pr = prs.pr AND tried.head = prs.head
+  WHERE dependency_merge.id > (SELECT min(seen.id) FROM events AS seen WHERE seen.pr = ${at.pr} AND seen.head = ${at.head} AND seen.type IN ('${names.prOpened}', '${names.prObserved}'))
+    AND NOT EXISTS (SELECT 1 FROM tasks AS tried WHERE tried.queue = 'update' AND tried.pr = ${at.pr} AND tried.head = ${at.head}
       AND tried.state IN (${names.settledUpdateStates.map(state => `'${state}'`).join(', ')}) AND tried.event_id > dependency_merge.id)
 )`
 }
 
 export function dependencyWaitOf(names: DependencyWaitNames): DependencyWait {
   const unmerged = `EXISTS (${unmergedDependenciesWhere(names, 'prs.card_id')})`
-  const updateDue = `(NOT ${unmerged} AND ${aDependencyMergedUnderTheHead(names)})`
+  const updateDue = `(NOT ${unmerged} AND ${aDependencyMergedUnderTheHead(names, THE_PRS_ROW)})`
   const ofACard = unmergedDependenciesWhere(names, '?')
+  const mergedUnderABoundHead = `SELECT ${aDependencyMergedUnderTheHead(names, BOUND_PARAMETERS)} AS merged`
+  const unmergedDependenciesOf = (db: DatabaseSync, cardId: number): number[] => (db.prepare(ofACard).all(cardId) as { card_id: number }[]).map(row => Number(row.card_id))
   return {
     unmerged,
     updateDue,
     held: `(${unmerged} OR ${updateDue})`,
-    unmergedDependenciesOf: (db, cardId) => (db.prepare(ofACard).all(cardId) as { card_id: number }[]).map(row => Number(row.card_id)),
+    unmergedDependenciesOf,
+    updateDueOn: (db, head) => unmergedDependenciesOf(db, head.card).length === 0
+      && (db.prepare(mergedUnderABoundHead).get({ card: head.card, pr: head.pr, head: head.head }) as { merged: number }).merged === 1,
   }
 }

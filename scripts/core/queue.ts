@@ -118,7 +118,7 @@ const DEPENDENCY_WAIT = dependencyWaitOf({ admitted: CARD_ADMITTED, backfillSour
 
 const { unmerged: A_DEPENDENCY_UNMERGED, updateDue: A_DEPENDENCY_UPDATE_DUE, held: HELD_BY_A_DEPENDENCY } = DEPENDENCY_WAIT
 
-export const unmergedDependenciesOf = DEPENDENCY_WAIT.unmergedDependenciesOf
+export const { unmergedDependenciesOf, updateDueOn: dependencyUpdateDueOn } = DEPENDENCY_WAIT
 
 const A_REVIEW_IN_FLIGHT = `EXISTS (
   SELECT 1 FROM tasks AS reviewing WHERE reviewing.queue = 'review' AND reviewing.pr = prs.pr AND reviewing.head = prs.head
