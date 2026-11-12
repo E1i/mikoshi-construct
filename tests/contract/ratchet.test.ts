@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
-import { bigFileNumbers, generateNumbers, lawGapNumbers, overlapNumbers, ratchetBreaks, readRatchet, renderRatchet, thresholdOf } from '../../scripts/contract/ratchet.js'
+import { bigFileNumbers, checkRatchet, generateNumbers, lawGapNumbers, overlapNumbers, ratchetBreaks, readRatchet, renderRatchet, thresholdOf } from '../../scripts/contract/ratchet.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../..')
 const GENERATION_TIMEOUT = 180_000
@@ -101,7 +101,7 @@ describe('the ratchet', () => {
 
   it('the recorded baseline matches this tree', { timeout: GENERATION_TIMEOUT }, () => {
     const recorded = readRatchet(REPO_ROOT)
-    expect(ratchetBreaks(recorded, generateNumbers(REPO_ROOT, thresholdOf(recorded)))).toEqual([])
+    expect(checkRatchet(REPO_ROOT, recorded, generateNumbers(REPO_ROOT, thresholdOf(recorded)))).toEqual([])
   })
 
   it('the record holds one key and one number on a line, the shape the merge policy reads from a diff', () => {
