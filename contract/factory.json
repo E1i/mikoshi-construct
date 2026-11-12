@@ -3242,7 +3242,9 @@
       "atlas": {
         "concepts": [],
         "contract": [],
-        "may_use": [],
+        "may_use": [
+          "command-registry"
+        ],
         "owns": [
           "src/atlas/**",
           "scripts/atlas/**"
@@ -3252,7 +3254,9 @@
       "board": {
         "concepts": [],
         "contract": [],
-        "may_use": [],
+        "may_use": [
+          "command-registry"
+        ],
         "owns": [
           "scripts/cli/board-page.ts",
           "scripts/cli/board-page/**",
@@ -3414,7 +3418,9 @@
       "intake": {
         "concepts": [],
         "contract": [],
-        "may_use": [],
+        "may_use": [
+          "command-registry"
+        ],
         "owns": [
           "scripts/intake/**",
           "src/commands/intake/**",
@@ -3675,7 +3681,9 @@
       "project": {
         "concepts": [],
         "contract": [],
-        "may_use": [],
+        "may_use": [
+          "command-registry"
+        ],
         "owns": [
           "src/commands/attach/**",
           "src/commands/detach/**",
@@ -3817,7 +3825,9 @@
       "ui": {
         "concepts": [],
         "contract": [],
-        "may_use": [],
+        "may_use": [
+          "command-registry"
+        ],
         "owns": [
           "src/ui/**"
         ],

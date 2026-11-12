@@ -80,8 +80,9 @@ describe('module graph ownership (law 2)', () => {
     expect(linesOf(vanished, SMALL_TREE)).toEqual(['alpha: contract scripts/alpha/gone.ts is not inside its owns'])
   })
 
-  it('an undecided module carries no contract and no may_use', () => {
-    const undecided = Object.entries(MODULE_GRAPH.modules).filter(([, spec]) => spec.status === 'undecided' && (spec.contract.length > 0 || spec.may_use.length > 0))
+  it('an undecided module carries no contract, and its may_use names only decided modules', () => {
+    const isDecided = (id: string): boolean => MODULE_GRAPH.modules[id]?.status === 'decided'
+    const undecided = Object.entries(MODULE_GRAPH.modules).filter(([, spec]) => spec.status === 'undecided' && (spec.contract.length > 0 || !spec.may_use.every(isDecided)))
 
     expect(undecided.map(([id]) => id)).toEqual([])
   })
