@@ -4,23 +4,79 @@ import type { InForceDecision } from './decisions/index.js'
 import { SHARD_EXPIRED, SHARD_ISSUED, SHARD_REVOKED, SHARD_USED } from '../core/events.js'
 import { decisionCommand, lapsed, termOf, visibleToCard } from './decisions/decisions.js'
 import { inForceDecisions } from './decisions/index.js'
+import { OWNER_EVEN_UNDER_THE_DECISION } from './policy.js'
 
 export const WINDOW_SHARD_HOURS = 6
 export const DECISIONS_SCOPE = 'merge+decisions'
 export const WINDOW_SCOPES = ['merge', DECISIONS_SCOPE] as const
 export const VERSION_PR_RESERVATION = 'version-pr'
-export const OWNERS_UNDER_ANY_SHARD: Readonly<Record<string, RegExp>> = {
-  [VERSION_PR_RESERVATION]: /version pull request|changeset-release|chore: version packages/i,
-  'npm-stage': /\bnpm\b/i,
-  'security-invariants': /security-invariants/i,
+export const DROPPED_WITNESS = 'dropped-witness'
+export const WITNESS_MOVED = 'witness-moved'
+export const AGENT_QUESTION = 'agent-question'
+export const OWNER_DECIDES = 'owner'
+export const WINDOW_DECIDES = 'window'
+
+export type StopDecider = typeof OWNER_DECIDES | typeof WINDOW_DECIDES
+
+export interface StopKind {
+  risk: string
+  underAnyShard: boolean
+  asks: (question: string) => boolean
 }
-export const OWNERS_OF_A_STOP: Readonly<Record<string, RegExp>> = {
-  ...OWNERS_UNDER_ANY_SHARD,
-  'claude-config': /(?:^|[^\w.])\.claude\//,
-  'owner-merges': /owner-merges/i,
-  'workflows': /\.github\/workflows/i,
-  'dropped-witness': /\b(?:drop|dropp(?:ed|ing)|remov(?:e|ed|ing))\s[^.?!]*witness|witness(?:es)?\s[^.?!]*\b(?:dropped|removed)\b/i,
+
+const SENTENCE_END = /(?<=[.?!;])\s+/
+const DROPS_A_WITNESS = /\b(?:drop|dropp(?:ed|ing)|remov(?:e|ed|ing))\s[^.?!]*witness|witness(?:es)?\s[^.?!]*\b(?:dropped|removed)\b/i
+const NAMES_A_WITNESS = /\bwitness(?:es)?\b/i
+const MOVES = /\b(?:mov(?:e|es|ed|ing)|transferr?(?:ed|ing|s)?|carr(?:y|ies|ied|ying))\b/i
+const TO_ANOTHER_CARD = /\b(?:to|into)\s+(?:another\s+card|(?:card\s+)?#\d+|(?:the\s+)?node-contract-suite)/i
+
+function sentencesOf(question: string): string[] {
+  return question.split(SENTENCE_END)
 }
+
+function movesAWitness(sentence: string): boolean {
+  return NAMES_A_WITNESS.test(sentence) && MOVES.test(sentence) && TO_ANOTHER_CARD.test(sentence)
+}
+
+export function witnessDropped(question: string): boolean {
+  return sentencesOf(question).some(sentence => DROPS_A_WITNESS.test(sentence) && !movesAWitness(sentence))
+}
+
+export function witnessMoved(question: string): boolean {
+  return sentencesOf(question).some(movesAWitness)
+}
+
+function says(words: RegExp): (question: string) => boolean {
+  return question => words.test(question)
+}
+
+export const STOP_KINDS: Readonly<Record<string, StopKind>> = {
+  [VERSION_PR_RESERVATION]: { risk: 'R1', underAnyShard: true, asks: says(/version pull request|changeset-release|chore: version packages/i) },
+  'npm-stage': { risk: 'R1', underAnyShard: true, asks: says(/\bnpm\b/i) },
+  'security-invariants': { risk: 'R1', underAnyShard: true, asks: says(/security-invariants/i) },
+  'claude-config': { risk: 'R1', underAnyShard: false, asks: says(/(?:^|[^\w.])\.claude\//) },
+  'owner-merges': { risk: 'R1', underAnyShard: false, asks: says(/owner-merges/i) },
+  'workflows': { risk: 'R1', underAnyShard: false, asks: says(/\.github\/workflows/i) },
+  [DROPPED_WITNESS]: { risk: 'R1', underAnyShard: false, asks: witnessDropped },
+  [WITNESS_MOVED]: { risk: 'R4', underAnyShard: false, asks: witnessMoved },
+  'outside-touches': { risk: 'R3', underAnyShard: false, asks: says(/\b(?:outside|not in) the touches\b/i) },
+  [AGENT_QUESTION]: { risk: 'R3', underAnyShard: false, asks: () => true },
+}
+
+export function deciderOf(kind: StopKind): StopDecider {
+  return kind.risk === OWNER_EVEN_UNDER_THE_DECISION ? OWNER_DECIDES : WINDOW_DECIDES
+}
+
+export const STOP_DECIDERS_UNDER_A_SHARD: Readonly<Record<string, StopDecider>> = Object.fromEntries(
+  Object.entries(STOP_KINDS).map(([name, kind]) => [name, deciderOf(kind)]),
+)
+
+function kindsWhere(keep: (kind: StopKind) => boolean): Readonly<Record<string, StopKind>> {
+  return Object.fromEntries(Object.entries(STOP_KINDS).filter(([, kind]) => keep(kind)))
+}
+
+export const OWNERS_OF_A_STOP = kindsWhere(kind => deciderOf(kind) === OWNER_DECIDES)
+export const OWNERS_UNDER_ANY_SHARD = kindsWhere(kind => deciderOf(kind) === OWNER_DECIDES && kind.underAnyShard)
 
 export type WindowScope = typeof WINDOW_SCOPES[number]
 
@@ -67,8 +123,8 @@ export function activeDecisionsShard(db: DatabaseSync, now: Date): WindowShard |
   return activeWindowShards(db, now).find(shard => shard.scope === DECISIONS_SCOPE) ?? null
 }
 
-function reservedBy(reservations: Readonly<Record<string, RegExp>>, question: string): string | null {
-  return Object.entries(reservations).find(([, words]) => words.test(question))?.[0] ?? null
+function reservedBy(kinds: Readonly<Record<string, StopKind>>, question: string): string | null {
+  return Object.entries(kinds).find(([, kind]) => kind.asks(question))?.[0] ?? null
 }
 
 export function ownersUnderAnyShard(question: string): string | null {
@@ -77,6 +133,14 @@ export function ownersUnderAnyShard(question: string): string | null {
 
 export function ownersOfAStop(question: string): string | null {
   return reservedBy(OWNERS_OF_A_STOP, question)
+}
+
+export function stopKindOf(question: string): string {
+  return ownersOfAStop(question) ?? reservedBy(STOP_KINDS, question) ?? AGENT_QUESTION
+}
+
+export function deciderUnderAShard(question: string): StopDecider {
+  return STOP_DECIDERS_UNDER_A_SHARD[stopKindOf(question)] ?? WINDOW_DECIDES
 }
 
 export function cardDecisionCommand(cardId: number): string {
