@@ -7,9 +7,8 @@ import { layerMasksOf, runsOf } from '../../../src/card/covering-tests.js'
 import { parseParkingFile } from '../../../src/card/parking.js'
 import { busCheckCatalog, cardReadingOf } from '../../ci/card-runs.js'
 import { BUSY_TIMEOUT_MS, defaultBusPath } from '../../core/db.js'
-import { SCOPE_WIDENED } from '../../core/events.js'
+import { CARD_ADMITTED, SCOPE_WIDENED } from '../../core/events.js'
 import { openDatabase } from '../../core/sqlite.js'
-import { cardContract } from '../../intake/card-contract.js'
 import { predict } from '../../policy/morse/predict.js'
 import { createdPaths } from '../../policy/touch-scope.js'
 import { BusRead } from '../../ports/bus-read.js'
@@ -52,11 +51,18 @@ function pathsOf(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((file): file is string => typeof file === 'string') : []
 }
 
+function latestAdmissionWithBody(read: BusRead): number | null {
+  const admissions = read.slice(CARD_ADMITTED, ['text', 'textSha'])
+  const withBody = admissions.filter(({ fields }) => typeof fields.text === 'string' && typeof fields.textSha === 'string')
+  return withBody.at(-1)?.id ?? null
+}
+
 export function widenedOnTheLatestAdmission(db: DatabaseSync, cardId: number): string[] {
-  const card = cardContract(db, cardId)
-  if (card === null)
+  const read = new BusRead(db).where({ card: cardId })
+  const admission = latestAdmissionWithBody(read)
+  if (admission === null)
     return []
-  return new BusRead(db).where({ card: cardId }).slice(SCOPE_WIDENED, ['paths', 'admission']).filter(event => event.fields.admission === card.admissionEventId).flatMap(event => pathsOf(event.fields.paths))
+  return read.slice(SCOPE_WIDENED, ['paths', 'admission']).filter(event => event.fields.admission === admission).flatMap(event => pathsOf(event.fields.paths))
 }
 
 export function busWidenedPaths(busPath: string): WidenedReader {
