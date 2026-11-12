@@ -42,19 +42,25 @@ function held(db: DatabaseSync, request: number, takeover: boolean): void {
   appendEvent(db, { ts: TS, type: CARD_HELD, actor: 'worker:window:s642', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_HELD}:request-${request}`, payload: { request, reason: 'the bus has no route for the card', ...(takeover ? { takeover: true } : {}) }, legacy: false })
 }
 
-function released(db: DatabaseSync, request: number): void {
-  appendEvent(db, { ts: TS, type: CARD_RELEASED, actor: 'worker:window:s642', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_RELEASED}:request-${request}`, payload: { request }, legacy: false })
+function released(db: DatabaseSync, request: number, cardId = CARD): void {
+  appendEvent(db, { ts: TS, type: CARD_RELEASED, actor: 'worker:window:s642', cardId, pr: null, head: null, dedupeKey: `${CARD_RELEASED}:request-${request}`, payload: { request }, legacy: false })
 }
 
-function cardStoppedAskingToWidenThenHeld(takeover = true): DatabaseSync {
+function cardStoppedAskingToWiden(beforeTheStop: (db: DatabaseSync) => void = () => {}): DatabaseSync {
   const root = mkdtempSync(path.join(tmpdir(), 'bus-released-takeover-'))
   const db = openBus(path.join(root, 'bus.db'))
   opened.push({ db, root })
   admitted(db, 'body', 'scripts/a.ts')
   appendEvent(db, { ts: TS, type: CARD_STARTED, actor: 'worker:launch:launch-1', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_STARTED}:${CARD}`, payload: { session: 'card-session-1', worktree: 'unused', branch: `feat/card-${CARD}`, base: sha('1') }, legacy: false })
   observed(db, HEAD_OF_THE_SESSION)
+  beforeTheStop(db)
   appendEvent(db, { ts: TS, type: CARD_STOPPED, actor: 'worker:launch:launch-1', cardId: CARD, pr: null, head: null, dedupeKey: `${LAUNCH_STOP_WITH_NO_PULL_REQUEST}${CARD}`, payload: { reason: QUESTION_AGENT, detail: 'outside-touches', widen: ['contract/factory.json'] }, legacy: false })
   admitted(db, 'amend', 'scripts/a.ts, scripts/b.ts')
+  return db
+}
+
+function cardStoppedAskingToWidenThenHeld(takeover = true): DatabaseSync {
+  const db = cardStoppedAskingToWiden()
   held(db, 1, takeover)
   observed(db, HEAD_THE_WINDOW_PUSHED)
   return db
@@ -101,6 +107,32 @@ describe('a card stopped on a question, then taken over and released by the wind
   it('a plain hold released after the stop does not answer the question', () => {
     const db = cardStoppedAskingToWidenThenHeld(false)
     released(db, 2)
+
+    expect(answersAfter(db, () => changesVerdict(db))).toBe(0)
+  })
+
+  it('a takeover taken and released before the stop does not answer the question', () => {
+    const db = cardStoppedAskingToWiden((before) => {
+      held(before, 1, true)
+      released(before, 2)
+    })
+    observed(db, HEAD_THE_WINDOW_PUSHED)
+
+    expect(answersAfter(db, () => changesVerdict(db))).toBe(0)
+  })
+
+  it('a release that precedes the takeover leaves the question open while the takeover holds the card', () => {
+    const db = cardStoppedAskingToWiden()
+    released(db, 1)
+    held(db, 2, true)
+    observed(db, HEAD_THE_WINDOW_PUSHED)
+
+    expect(answersAfter(db, () => changesVerdict(db))).toBe(0)
+  })
+
+  it('the release of another card does not answer this card\'s question', () => {
+    const db = cardStoppedAskingToWidenThenHeld()
+    released(db, 2, CARD + 1)
 
     expect(answersAfter(db, () => changesVerdict(db))).toBe(0)
   })
