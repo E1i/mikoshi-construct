@@ -127,6 +127,27 @@ export const CLOSED_PLAN = 'closed'
 export const OUTSIDE_TOUCHES = 'outside-touches'
 export const OPEN_QUESTION = 'open-question'
 
+export const WAIT_LIFTERS = ['bus', 'window', 'owner'] as const
+
+export type WaitLifter = typeof WAIT_LIFTERS[number]
+
+export interface WaitTerm {
+  lifter: WaitLifter
+  deadlineMinutes: number
+}
+
+const MINUTES_IN_AN_HOUR = 60
+
+export const CARD_WAITS = {
+  launch: { lifter: 'bus', deadlineMinutes: 30 },
+  depends: { lifter: 'bus', deadlineMinutes: 24 * MINUTES_IN_AN_HOUR },
+  lane: { lifter: 'bus', deadlineMinutes: 2 * MINUTES_IN_AN_HOUR },
+  stopped: { lifter: 'window', deadlineMinutes: MINUTES_IN_AN_HOUR },
+  owner: { lifter: 'owner', deadlineMinutes: 12 * MINUTES_IN_AN_HOUR },
+} as const satisfies Record<string, WaitTerm>
+
+export type WaitKind = keyof typeof CARD_WAITS
+
 export type SessionStopCode = typeof OUTSIDE_TOUCHES | typeof OPEN_QUESTION
 
 export const SESSION_STOP_CODES: readonly SessionStopCode[] = [OUTSIDE_TOUCHES, OPEN_QUESTION]

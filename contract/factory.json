@@ -1591,7 +1591,29 @@
       "witnesses": "string[]",
       "witnesses:": "body line read by src/card/witness-fields.ts"
     },
-    "versionRecord": "card.admitted payload.cardVersion"
+    "versionRecord": "card.admitted payload.cardVersion",
+    "waits": {
+      "depends": {
+        "deadlineMinutes": 1440,
+        "lifter": "bus"
+      },
+      "lane": {
+        "deadlineMinutes": 120,
+        "lifter": "bus"
+      },
+      "launch": {
+        "deadlineMinutes": 30,
+        "lifter": "bus"
+      },
+      "owner": {
+        "deadlineMinutes": 720,
+        "lifter": "owner"
+      },
+      "stopped": {
+        "deadlineMinutes": 60,
+        "lifter": "window"
+      }
+    }
   },
   "concepts": {
     "answer-duties": {
