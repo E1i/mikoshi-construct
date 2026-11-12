@@ -100,6 +100,25 @@ describe('a start the reducer rejected opens no session', () => {
     expect(outcome.detail).not.toContain('a second session cannot share its tree')
   })
 
+  it('a rejected duplicate start leaves the earlier accepted session open', () => {
+    const made = room()
+    const accepted = started(made, 'accepted')
+    expect(rejected(made, accepted)).toBe(false)
+    const duplicate = started(made, 'duplicate')
+    expect(rejected(made, duplicate)).toBe(true)
+    const acceptedId = (made.bench.db.prepare(`SELECT id FROM events WHERE dedupe_key = ?`).get(accepted) as { id: number }).id
+
+    sayToOwnerChannel(channel(made), ownerMoveCommand('launch', CARD), made.bench.clock.now())
+    const launch = asked(made, ['owner.launch', '--card', String(CARD)])
+    expect(launch).toMatchObject({ kind: 'refused' })
+    expect(launch.detail).toContain(`runs the session started at event ${acceptedId}; a second session cannot share its tree`)
+
+    sayToOwnerChannel(channel(made), ownerMoveCommand('stop', CARD), made.bench.clock.now())
+    const stop = asked(made, ['owner.stop', '--card', String(CARD)])
+    expect(stop).toMatchObject({ kind: 'done' })
+    expect(stop.detail).toContain(`started at event ${acceptedId}`)
+  })
+
   it('an owner stop of a session with no process records its end', () => {
     const made = room()
     started(made, 'accepted')
