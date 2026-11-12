@@ -7,7 +7,7 @@ import type { AdmittedScope } from '../answer-source.js'
 import { openBusWait } from '../../../core/db.js'
 import { CARD_STOPPED, POLICY_DENIED, QUESTION_OWNER } from '../../../core/events.js'
 import { completeTask, cutByRestart, failTask, releaseTask, RESTART_CUT, supersedeLease, waitTask } from '../../../core/lease.js'
-import { DOWNGRADE_WAIT_OPEN, QUEUED, supersededAnswerWithinItsLease } from '../../../core/queue.js'
+import { DOWNGRADE_WAIT_OPEN, openDecisionWaitsOf, QUEUED, supersededAnswerWithinItsLease } from '../../../core/queue.js'
 import { cardDecisionCommand, decisionsInForceAt, unspentShard } from '../../../policy/shards.js'
 import { TICK_MS } from '../../../ports/netwatch.js'
 import { admittedScopeOf } from '../answer-source.js'
@@ -76,6 +76,13 @@ export class AnswerOutcomes {
   ownersStop(lease: Lease, detail: string, scope: BusEvent[] = [], text = `card #${lease.cardId} asks: ${detail}`, widen = this.windowWidens(lease, detail)): AnswerOutcome {
     const ask = { need: 'decision' as const, text, command: cardDecisionCommand(lease.cardId), card: lease.cardId, ...(lease.pr === null ? {} : { pr: lease.pr }) }
     return this.stopped(lease, QUESTION_OWNER, detail, widen.length === 0 ? {} : { widen }, scope, db => openBusWait(db, this.ts(), lease.actor, ask))
+  }
+
+  ownersStopOnce(lease: Lease, detail: string, text: string, sameAsk: readonly string[], scope: BusEvent[] = []): AnswerOutcome {
+    const waits = this.parts.db.prepare(openDecisionWaitsOf('?')).all(lease.cardId) as { text: string }[]
+    if (waits.some(wait => sameAsk.every(key => wait.text.includes(key))))
+      return this.stopped(lease, QUESTION_OWNER, detail, {}, scope)
+    return this.ownersStop(lease, detail, scope, text, [])
   }
 
   private windowWidens(lease: Lease, question: string): string[] {
