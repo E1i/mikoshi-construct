@@ -11,6 +11,7 @@ import { nodeProcess } from '../core/node.js'
 import { shadowReading } from '../core/report.js'
 import { REVIEW_READS, SWITCH_FLAG } from '../nodes/review/review-worker.js'
 import { printBg, psList, startDetached, thisBus } from './bg.js'
+import { busProjections } from './composition.js'
 import { recordedWorker } from './recorded-worker.js'
 
 export const PREFIX = '[bus:review:bg] '
@@ -25,7 +26,7 @@ export function busShadowProblems(busPath: string): string[] {
     return [`there is no bus.db at ${busPath}; the shadow has not run there`]
   const db = openBus(busPath)
   try {
-    return shadowReading(db, REVIEW_READS).problems
+    return shadowReading(db, busProjections(), REVIEW_READS).problems
   }
   catch (error) {
     return [`the shadow report could not be read: ${error instanceof Error ? error.message : String(error)}`]

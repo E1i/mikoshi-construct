@@ -15,6 +15,7 @@ import { reduce } from '../../core/reducer.js'
 import { LaunchNode } from '../../nodes/launch/launch-worker.js'
 import { sayToOwnerChannel } from '../../owner/channel.js'
 import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
+import { busProjections } from '../../supervisor/composition.js'
 import { requestFromWindow, requestOf, WindowRequests } from '../../window/window-requests.js'
 import { mergeBench } from '../bus/merge-bench.js'
 
@@ -59,14 +60,14 @@ function asked(made: Room, argv: string[]): RequestOutcome {
   }
   requestFromWindow(made.bench.db, now(made), 'window-1', requestOf(argv)!)
   const [outcome] = new WindowRequests(made.bench.db, made.bench.clock.now, { treeOf: refuse, exists: existsSync, cutTree: refuse, dryRunOf: refuse, addDecision: refuse, causeHolds: () => null, closePr: refuse, closeDropped: () => [] }, channel(made), () => null, made.root, made.bench.gitHub.client).run()
-  reduce(made.bench.db)
+  reduce(made.bench.db, 'pending', busProjections())
   return outcome!
 }
 
 function started(made: Room, key: string): string {
   const dedupeKey = `${CARD_STARTED}:${key}`
   appendEvent(made.bench.db, { ts: now(made), type: CARD_STARTED, actor: 'worker:launch:node-1', cardId: CARD, pr: null, head: null, dedupeKey, payload: { session: SESSION, worktree: `/trees/mc-${CARD}`, branch: `feat/card-${CARD}`, base: 'f'.repeat(40), pid: SESSION_PID, pgid: SESSION_PID, contour: 'cheap' }, legacy: false })
-  reduce(made.bench.db)
+  reduce(made.bench.db, 'pending', busProjections())
   return dedupeKey
 }
 
@@ -124,7 +125,7 @@ describe('a start the reducer rejected opens no session', () => {
     const made = room()
     started(made, 'accepted')
     appendEvent(made.bench.db, { ts: now(made), type: CARD_DEFERRED, actor: 'policy', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_DEFERRED}:rejected-start`, payload: { from: 'lane-a', to: 'lane-b', lane: 'lane-b', bodySha: textSha(BODY) }, legacy: false })
-    reduce(made.bench.db)
+    reduce(made.bench.db, 'pending', busProjections())
 
     sayToOwnerChannel(channel(made), ownerMoveCommand('stop', CARD), made.bench.clock.now())
     expect(asked(made, ['owner.stop', '--card', String(CARD)])).toMatchObject({ kind: 'done' })
@@ -141,7 +142,7 @@ describe('a start the reducer rejected opens no session', () => {
     started(made, 'accepted')
     appendEvent(made.bench.db, { ts: now(made), type: CARD_DEFERRED, actor: 'policy', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_DEFERRED}:left-running`, payload: { from: 'lane-a', to: 'lane-b', lane: 'lane-b', bodySha: textSha(BODY) }, legacy: false })
     appendEvent(made.bench.db, { ts: now(made), type: CARD_MOVED, actor: 'policy', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_MOVED}:left-running`, payload: { from: 'lane-b', to: 'lane-a', lane: 'lane-a', bodySha: textSha(BODY) }, legacy: false })
-    reduce(made.bench.db)
+    reduce(made.bench.db, 'pending', busProjections())
     expect(made.bench.db.prepare(`SELECT state FROM cards WHERE card_id = ?`).get(CARD)).toEqual({ state: QUEUED_CARD })
 
     expect(launchNode(made).stopOverdue()).toEqual([])

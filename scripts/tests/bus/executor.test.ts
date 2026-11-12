@@ -8,6 +8,7 @@ import { FAILURES_TO_STOP, keyOf, queueTask } from '../../core/queue.js'
 import { projectionDump, reduce } from '../../core/reducer.js'
 import { importJournal } from '../../intake/import.js'
 import { recordDecision } from '../../policy/decisions/index.js'
+import { busProjections } from '../../supervisor/composition.js'
 import { cardBody, MAIN_2, sha } from './github-fake.js'
 import { eventCount, eventsOf, liveBench, spendReviewRounds, taskState } from './merge-bench.js'
 
@@ -24,7 +25,7 @@ describe('the merge executor', () => {
   it('a pass on a green, clean head is queued for merge and merged with its sha', () => {
     const bench = liveBench()
     recordDecision(bench.db, { ts: bench.clock.now().toISOString(), decisionId: 121, text: '[owner] allow-live merge', cards: [] })
-    reduce(bench.db)
+    reduce(bench.db, 'pending', busProjections())
     bench.gitHub.open({ number: 960, review: 'success' })
     bench.tick()
 
@@ -33,7 +34,7 @@ describe('the merge executor', () => {
     expect(eventsOf(bench.db, 'merge.done')).toEqual([{ commit: MAIN_2, rule: 'auto', task_key: merge(960), lease_gen: 1 }])
     expect(taskState(bench.db, merge(960))).toEqual({ state: 'completed', lease_gen: 1, failures: 0 })
     const live = projectionDump(bench.db)
-    reduce(bench.db)
+    reduce(bench.db, 'pending', busProjections())
     expect(projectionDump(bench.db)).toBe(live)
     bench.close()
   })

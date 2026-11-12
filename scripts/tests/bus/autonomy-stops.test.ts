@@ -9,6 +9,7 @@ import { CARD_STOPPED, QUESTION_OWNER, SHARD_ISSUED } from '../../core/events.js
 import { reduce } from '../../core/reducer.js'
 import { OWNER_EVEN_UNDER_THE_DECISION } from '../../policy/policy.js'
 import { AGENT_QUESTION, cardDecisionCommand, deciderUnderAShard, DECISIONS_SCOPE, DROPPED_WITNESS, OWNER_DECIDES, OWNERS_OF_A_STOP, OWNERS_UNDER_ANY_SHARD, STOP_DECIDERS_UNDER_A_SHARD, STOP_KINDS, stopKindOf, WINDOW_DECIDES, WITNESS_MOVED, witnessMoved } from '../../policy/shards.js'
+import { busProjections } from '../../supervisor/composition.js'
 import { runRequest, WindowRequests } from '../../window/window-requests.js'
 import { mergeBench } from './merge-bench.js'
 
@@ -44,7 +45,7 @@ function windowClosesTheStopOn(question: string): { kind: string, detail: string
   appendEvent(made.db, { ts, type: SHARD_ISSUED, actor: 'owner', cardId: null, pr: null, head: null, dedupeKey: `${SHARD_ISSUED}:ws-1`, payload: { id: 'ws-1', by: 'owner', scope: DECISIONS_SCOPE, until: new Date(made.clock.now().getTime() + 3_600_000).toISOString(), window: 1 }, legacy: false })
   const wait = openBusWait(made.db, ts, 'worker:answer:s1', { need: 'decision', text: `card #${CARD} asks: ${question}`, command: cardDecisionCommand(CARD), card: CARD })
   appendEvent(made.db, { ts, type: CARD_STOPPED, actor: 'worker:answer:s1', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:${CARD}:first`, payload: { reason: QUESTION_OWNER, detail: question }, legacy: false })
-  reduce(made.db)
+  reduce(made.db, 'pending', busProjections())
   const refuse = (): never => {
     throw new Error('not this request')
   }

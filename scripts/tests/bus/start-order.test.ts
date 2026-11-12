@@ -11,6 +11,7 @@ import { reduce } from '../../core/reducer.js'
 import { busCardEvents } from '../../intake/intake.js'
 import { startOrder } from '../../nodes/launch/lane-assign.js'
 import { launchCandidates } from '../../nodes/launch/launch-candidates.js'
+import { busProjections } from '../../supervisor/composition.js'
 
 const TS = '2026-11-07T10:00:00.000Z'
 const LANES = 2
@@ -31,12 +32,12 @@ function admit(db: DatabaseSync, id: number, touches: string, priority: string |
   const line = priority === null ? '' : `priority: ${priority}\n`
   const text = `card: #${id} card-${id} [implement/netwatch/S/cheap/auto] · depends — · blocks —\nbranch: feat/card-${id}\ntouches: ${touches}\ncontinue: stop\nwho: shift\n${line}\nDo the thing.\n`
   busCardEvents(db, 's1', () => LANES)({ type: CARD_ADMITTED, cardId: id, ts: TS, dedupeKey: `admit-${id}`, payload: { card: text.split('\n')[0]!.slice('card: '.length), lane: null, depends: [], decision: 'auto', contour: 'cheap', text, textSha: textSha(text) } })
-  reduce(db)
+  reduce(db, 'pending', busProjections())
 }
 
 function start(db: DatabaseSync, id: number): void {
   appendEvent(db, { ts: TS, type: CARD_STARTED, actor: 'policy', cardId: id, pr: null, head: null, dedupeKey: `${CARD_STARTED}:${id}`, payload: {}, legacy: false })
-  reduce(db)
+  reduce(db, 'pending', busProjections())
 }
 
 function card(cardId: number, shape: Partial<OrderedCard> = {}): OrderedCard {

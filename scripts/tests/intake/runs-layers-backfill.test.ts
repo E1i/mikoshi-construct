@@ -10,6 +10,7 @@ import { BUS_DB_VARIABLE, openBus } from '../../core/db.js'
 import { reduce } from '../../core/reducer.js'
 import { busCardAdmissions, busCardEvents, busHeldCards } from '../../intake/intake.js'
 import { backfillRunsLayers, collapseOf } from '../../intake/runs-layers-backfill.js'
+import { busProjections } from '../../supervisor/composition.js'
 
 const NOW = new Date('2026-11-05T09:00:00.000Z')
 const TOUCH = 'src/board/run.ts'
@@ -55,7 +56,7 @@ function world(): World {
 function admitted(w: World, id: number, text: string): void {
   const result = runAdmit({ file: path.join(w.root, `${id}.md`), body: text, dir: w.repo, dryRun: false, autoConfirm: true, events: busCardEvents(w.db), admissions: busCardAdmissions(w.db), cardStates: () => busHeldCards(w.db) }, () => NOW)
   expect(result.status).toBe('admitted')
-  reduce(w.db)
+  reduce(w.db, 'pending', busProjections())
 }
 
 function bodyOf(w: World, id: number): string {
@@ -131,7 +132,7 @@ describe('backfillRunsLayers', () => {
       { card: 12, kind: 'skipped', why: 'pull request #40 is open' },
       { card: 13, kind: 'skipped', why: 'its session is running' },
     ])
-    reduce(w.db)
+    reduce(w.db, 'pending', busProjections())
     expect([10, 11, 12, 13].map(id => bodyOf(w, id))).toEqual(before)
   })
 
@@ -142,7 +143,7 @@ describe('backfillRunsLayers', () => {
     const events = w.db.prepare('SELECT count(*) AS n FROM events').get()
 
     expect(backfilled(w, false)).toEqual([{ card: 20, kind: 'would write', layers: ['src'], dropped: [ONE, TWO], runs: ['layer:src'], corrections: [] }])
-    reduce(w.db)
+    reduce(w.db, 'pending', busProjections())
     expect(bodyOf(w, 20)).toBe(before)
     expect(w.db.prepare('SELECT count(*) AS n FROM events').get()).toEqual(events)
   })
@@ -152,7 +153,7 @@ describe('backfillRunsLayers', () => {
     admitted(w, 21, body(21, [ONE, TWO]))
 
     expect(backfilled(w, true)).toMatchObject([{ card: 21, kind: 'written', runs: ['layer:src'] }])
-    reduce(w.db)
+    reduce(w.db, 'pending', busProjections())
     expect(bodyOf(w, 21)).toContain('runs: ["layer:src"]')
     expect(busCardAdmissions(w.db)(21)?.text).toContain('runs: ["layer:src"]')
     expect(readdirSync(path.join(w.root, '.construct', 'parking'))).toEqual([])

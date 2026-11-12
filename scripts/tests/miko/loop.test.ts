@@ -11,6 +11,7 @@ import { HANDOFF_FIELDS } from '../../core/handoff-fields.js'
 import { reduce } from '../../core/reducer.js'
 import { observeRoleStop, roleToOwner } from '../../nodes/restart/role.js'
 import { WINDOW_MARK, WINDOW_VARIABLE } from '../../ports/session.js'
+import { busProjections } from '../../supervisor/composition.js'
 import { lastProcessBeats, recordProcessHeartbeat } from '../../supervisor/heartbeat.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { LOADED_CORE_VARIABLE, PROJECT_VARIABLE } from '../../window/eddies-measure.js'
@@ -500,7 +501,7 @@ function roleWithTheOwner(file: string): void {
   const db = openBus(file)
   const at = (ms: number): string => new Date(Date.parse('2026-10-20T10:00:00.000Z') + ms).toISOString()
   observeRoleStop(db, at(0), 'worker:miko:7', { role: 'miko', handoff: '/handoff/miko.md', status: 'CONTINUE', reason: 'context', raised: false })
-  reduce(db)
+  reduce(db, 'pending', busProjections())
   roleToOwner(db, at(10), 'worker:restart:w')
   db.close()
 }

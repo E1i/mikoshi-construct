@@ -12,6 +12,7 @@ import { CARD_ADMITTED } from '../scripts/core/events.js'
 import { ghInRepositoryOf, noGitRemoteReason } from '../scripts/core/places.js'
 import { keepDryRun } from '../scripts/nodes/review/dry-run-record.js'
 import { reviewsDir } from '../scripts/nodes/review/review-worker.js'
+import { busProjections } from '../scripts/supervisor/composition.js'
 import { renderAgent } from '../scripts/supervisor/launchd/install.js'
 import { gitCode, recordStarted, switchCommand } from '../scripts/supervisor/supervisor.js'
 import { switchedOn } from '../scripts/supervisor/workers.js'
@@ -230,7 +231,7 @@ describe('per-repository bus home', () => {
     keepDryRun(dir)('session-1', record)
     const db = openBus(busPath)
     try {
-      expect(realRequestTools(db, busPath, repo, env).dryRunOf('session-1')).toEqual(record)
+      expect(realRequestTools(db, busPath, repo, env, busProjections()).dryRunOf('session-1')).toEqual(record)
     }
     finally {
       db.close()

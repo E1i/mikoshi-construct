@@ -11,6 +11,7 @@ import { CARD_ADMITTED, REJECTED, WITNESS_FIELDS_BACKFILLED } from '../../core/e
 import { reduce } from '../../core/reducer.js'
 import { backfillWitnessFields, recordedWitnessFieldsBackfill, witnessFieldsBackfillOf, witnessFieldsOfCard } from '../../intake/witness-fields-backfill.js'
 import { cardWitnessesOf } from '../../policy/policy.js'
+import { busProjections } from '../../supervisor/composition.js'
 
 const NOW = '2026-11-04T12:00:00.000Z'
 const NAMED_RUN = 'pnpm exec vitest run tests/a.test.ts -t \'the thing is done\''
@@ -46,7 +47,7 @@ function freshBus(): DatabaseSync {
 
 function admitted(db: DatabaseSync, id: number, text: string): void {
   appendEvent(db, { ts: NOW, type: CARD_ADMITTED, actor: 'worker:intake:test', cardId: id, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${id}:${textSha(text)}`, payload: { card: text.split('\n')[0]!.slice('card: '.length), lane: 'lane-window', text, textSha: textSha(text) }, legacy: false })
-  reduce(db)
+  reduce(db, 'pending', busProjections())
 }
 
 function bodies(db: DatabaseSync): { card_id: number, text: string, text_sha: string, admission_event_id: number }[] {
@@ -97,7 +98,7 @@ describe('the witness fields backfill', () => {
     expect(Object.keys(first.backfill.cards)).toEqual(['90'])
     expect(first.backfill.unparsed).toEqual([{ card: 91, line: 'the owner reads the page' }, { card: 92, line: 'Runs: src/board/run.ts' }])
     expect(backfillWitnessFields(db, NOW)).toEqual({ recorded: false, backfill: first.backfill })
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     expect(countOf(db, WITNESS_FIELDS_BACKFILLED)).toBe(1)
     expect(countOf(db, REJECTED)).toBe(0)
     expect(countOf(db, CARD_ADMITTED)).toBe(admissions)

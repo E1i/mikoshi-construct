@@ -20,6 +20,7 @@ import { claudeAnswerer, liveSessionIn, refusedOwnerQuestionIn } from '../../nod
 import { pendingPathsOf } from '../../nodes/answer/duties/index.js'
 import { codexAdapter } from '../../ports/client/codex/adapter.js'
 import { clientAdapter } from '../../ports/client/index.js'
+import { busProjections } from '../../supervisor/composition.js'
 import { requestFromWindow, requestOf, WindowRequests } from '../../window/window-requests.js'
 import { sha } from './github-fake.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
@@ -216,13 +217,13 @@ describe('the answer node and a card held for the owner', () => {
 
 function openDowngradeWait(made: MergeBench): string {
   appendEvent(made.db, { ts: made.clock.now().toISOString(), type: CARD_WAITING, actor: 'worker:intake:s1', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_WAITING}:${WITNESS_DOWNGRADE}:${CARD}`, payload: { reason: WITNESS_DOWNGRADE, witnesses: ['w'], actions: [`allow the downgrade of witness w on #${CARD}`] }, legacy: false })
-  reduce(made.db)
+  reduce(made.db, 'pending', busProjections())
   return (made.db.prepare(`SELECT id FROM owner_waits WHERE card_id = ? AND state = 'open'`).get(CARD) as { id: string }).id
 }
 
 function closeWait(made: MergeBench, wait: string): void {
   appendEvent(made.db, { ts: made.clock.now().toISOString(), type: OWNER_WAIT_CLOSED, actor: 'owner', cardId: CARD, pr: null, head: null, dedupeKey: `${OWNER_WAIT_CLOSED}:${wait}`, payload: { id: wait, answer: 'allowed' }, legacy: false })
-  reduce(made.db)
+  reduce(made.db, 'pending', busProjections())
 }
 
 function stopAgain(made: MergeBench): void {

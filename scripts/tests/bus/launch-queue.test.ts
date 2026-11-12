@@ -41,6 +41,7 @@ import { recordDecision } from '../../policy/decisions/index.js'
 import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
 import { sessionEnv } from '../../ports/session.js'
 import { TSX_PIPE_DIRECTORY } from '../../ports/shift-settings.js'
+import { busProjections } from '../../supervisor/composition.js'
 import { recordHeartbeat } from '../../supervisor/heartbeat.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { busLaunches } from '../../supervisor/workers.js'
@@ -787,7 +788,7 @@ describe('the launch queue', () => {
       const db = openBus(busPath)
       try {
         appendEvent(db, { ts: '2026-10-20T00:00:00.000Z', type: CARD_ADMITTED, actor: 'policy', cardId: 931, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:931`, payload: { lane: 'lane-x', decision: 'auto', contour: 'cheap', depends: [], admission: admission(931), text: BUS_TEXT, textSha: textSha(BUS_TEXT) }, legacy: false })
-        reduce(db)
+        reduce(db, 'pending', busProjections())
       }
       finally {
         db.close()
@@ -825,7 +826,7 @@ describe('the launch queue', () => {
       try {
         recordDecision(db, { ts: '2026-10-20T00:00:00.000Z', decisionId: 4931, text: 'launch reads this decision.', cards: [931] })
         recordDecision(db, { ts: '2026-10-20T00:00:00.000Z', decisionId: 4932, text: 'another card decision.', cards: [932] })
-        reduce(db)
+        reduce(db, 'pending', busProjections())
       }
       finally {
         db.close()

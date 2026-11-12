@@ -18,6 +18,7 @@ import { recordDecision } from '../../policy/decisions/index.js'
 import { Meter } from '../../ports/meter.js'
 import { NetWatch, NETWATCH_SCRIPT } from '../../ports/netwatch.js'
 import { ciOf, requiredCheckOf } from '../../ports/snapshot.js'
+import { busProjections } from '../../supervisor/composition.js'
 import { Clock, FakeGitHub, sha } from '../bus/github-fake.js'
 import { liveBench } from '../bus/merge-bench.js'
 
@@ -164,7 +165,7 @@ describe('the bus reads the recorded job from the root of the repository it watc
       const bench = liveBench()
       bench.gitHub.checkName = 'Build and test'
       recordDecision(bench.db, { ts: bench.clock.now().toISOString(), decisionId: 121, text: '[owner] allow-live merge', cards: [] })
-      reduce(bench.db)
+      reduce(bench.db, 'pending', busProjections())
       bench.gitHub.open({ number: 960, review: 'success' })
       bench.tick()
       const lease = bench.lease()!

@@ -18,6 +18,7 @@ import { statusOf } from '../../core/handoff-status.js'
 import { keyOf, queueTask } from '../../core/queue.js'
 import { reduce } from '../../core/reducer.js'
 import { OWNERS_OF_A_STOP } from '../../policy/shards.js'
+import { busProjections } from '../../supervisor/composition.js'
 import { waitText } from '../../window/board.js'
 import { archiveOfDay, DAY_FILE_LIMIT, QUESTIONS_HEADING } from '../../window/day-archive.js'
 import { UNREAD } from '../../window/eddies-measure.js'
@@ -371,7 +372,7 @@ describe('handoff:write', () => {
         path: bus,
         opened: () => db.prepare(`SELECT payload FROM events WHERE type = ?`).all(OWNER_WAIT_OPENED).map(row => JSON.parse(String(row.payload)) as Record<string, unknown>),
         open: () => {
-          reduce(db)
+          reduce(db, 'pending', busProjections())
           return db.prepare(`SELECT id, need, text FROM ${OWNER_WAITS} WHERE state = ?`).all(OPEN_WAIT).map(row => ({ ...row }))
         },
         close: () => db.close(),

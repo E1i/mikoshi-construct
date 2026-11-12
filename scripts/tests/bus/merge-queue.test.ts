@@ -22,6 +22,7 @@ import { decisionsIntake } from '../../policy/decisions/import.js'
 import { recordDecision } from '../../policy/decisions/index.js'
 import { runShard } from '../../policy/shard.js'
 import { activeWindowShards, decisionsInForceAt, unspentShard } from '../../policy/shards.js'
+import { busProjections } from '../../supervisor/composition.js'
 import { cardBody, sha } from './github-fake.js'
 import { eventCount, eventsOf, liveBench, mergeBench, spendReviewRounds, taskState } from './merge-bench.js'
 import { detectUpdate } from './update-detection.js'
@@ -433,7 +434,7 @@ function tasksOfPr(bench: MergeBench, pr: number, head = sha('a')): Record<strin
 function expectNoStop(bench: MergeBench): void {
   expect(bench.db.prepare(`SELECT type FROM events WHERE type IN (?, ?)`).all(CARD_STOPPED, BOARD_ALARM)).toEqual([])
   const live = projectionDump(bench.db)
-  reduce(bench.db)
+  reduce(bench.db, 'pending', busProjections())
   expect(projectionDump(bench.db)).toBe(live)
 }
 
@@ -498,7 +499,7 @@ describe('a head that moves under the queues', () => {
 
     expect(tasksOfPr(bench, 955)).toEqual(Object.fromEntries(FOUR_QUEUES.map(queue => [queue, 'superseded'])))
     const live = projectionDump(bench.db)
-    reduce(bench.db)
+    reduce(bench.db, 'pending', busProjections())
     expect(projectionDump(bench.db)).toBe(live)
     bench.close()
   })
@@ -518,7 +519,7 @@ describe('a head that moves under the queues', () => {
 
       expect(tasksOfPr(bench, 956), `merged ${String(merged)}`).toEqual({ answer: 'withdrawn', review: 'withdrawn', update: 'withdrawn' })
       const live = projectionDump(bench.db)
-      reduce(bench.db)
+      reduce(bench.db, 'pending', busProjections())
       expect(projectionDump(bench.db)).toBe(live)
       bench.close()
     }

@@ -9,6 +9,7 @@ import { projectionDump, reduce } from '../../core/reducer.js'
 import { runDecisionsAdd } from '../../policy/decisions/add.js'
 import { decisionsIntake } from '../../policy/decisions/import.js'
 import { recordDecision } from '../../policy/decisions/index.js'
+import { busProjections } from '../../supervisor/composition.js'
 
 const FILE = '/d/owner-decisions.md'
 const ARCHIVE = '/d/owner-decisions.archive.md'
@@ -93,9 +94,9 @@ describe('owner decisions on the bus', () => {
       payload: JSON.stringify({ decision_id: 2, text: '#807 stays owner-merged.', scope: [807], source: 'owner' }),
     }])
     expect(rows(db, 'SELECT * FROM decisions')).toEqual([])
-    expect(reduce(db)).toEqual({ applied: 1, rejected: 0 })
+    expect(reduce(db, 'pending', busProjections())).toEqual({ applied: 1, rejected: 0 })
     expect(rows(db, 'SELECT * FROM decisions')).toEqual([{ decision_id: 2, text: '#807 stays owner-merged.', scope: '[807]', source: 'owner', event_id: 1, until: null, supersedes: '[]', state: 'in-force' }])
-    expect(reduce(db)).toEqual({ applied: 0, rejected: 0 })
+    expect(reduce(db, 'pending', busProjections())).toEqual({ applied: 0, rejected: 0 })
     expect(rows(db, 'SELECT decision_id FROM decisions')).toEqual([{ decision_id: 2 }])
   })
 
@@ -104,7 +105,7 @@ describe('owner decisions on the bus', () => {
     for (const actor of ['policy', 'worker:answer:s1'])
       appendEvent(db, recorded(1, [807], actor))
     appendEvent(db, event('decision.recorded', { payload: { decision_id: 2, text: 'two', scope: [], source: 'operator' } }))
-    expect(reduce(db)).toEqual({ applied: 0, rejected: 3 })
+    expect(reduce(db, 'pending', busProjections())).toEqual({ applied: 0, rejected: 3 })
     expect(rows(db, 'SELECT * FROM decisions')).toEqual([])
     expect(rows(db, `SELECT json_extract(payload, '$.reason') AS reason FROM events WHERE type = '${REJECTED}' ORDER BY id`).map(row => row.reason)).toEqual([
       'decision.recorded is the owner\'s, not policy\'s',
@@ -135,15 +136,15 @@ describe('owner decisions on the bus', () => {
     roots.push(path.dirname(file))
     writeFileSync(file, OWNER_FILE)
     decisionsIntake(db, file, () => NOW)()
-    expect(reduce(db)).toEqual({ applied: 1, rejected: 0 })
+    expect(reduce(db, 'pending', busProjections())).toEqual({ applied: 1, rejected: 0 })
     expect(rows(db, 'SELECT decision_id, text, scope, source FROM decisions ORDER BY decision_id')).toEqual([
       { decision_id: 2, text: '#807 stays owner-merged.', scope: '[807]', source: 'owner-decisions.md' },
       { decision_id: 77, text: 'Owner-PR мержится шиной по pass ревью воркера и зелёному CI.', scope: '[]', source: 'owner-decisions.md' },
     ])
     const projection = projectionDump(db)
-    expect(reduce(db)).toEqual({ applied: 0, rejected: 0 })
+    expect(reduce(db, 'pending', busProjections())).toEqual({ applied: 0, rejected: 0 })
     expect(projectionDump(db)).toBe(projection)
-    expect(reduce(db, 'rebuild')).toEqual({ applied: 1, rejected: 0 })
+    expect(reduce(db, 'rebuild', busProjections())).toEqual({ applied: 1, rejected: 0 })
     expect(projectionDump(db)).toBe(projection)
   })
 
@@ -155,7 +156,7 @@ describe('owner decisions on the bus', () => {
     const intake = decisionsIntake(db, file, () => NOW)
     const held = (): unknown[] => {
       intake()
-      reduce(db)
+      reduce(db, 'pending', busProjections())
       return rows(db, `SELECT decision_id FROM decisions WHERE state = 'in-force' ORDER BY decision_id`).map(row => row.decision_id)
     }
     writeFileSync(file, clean)
@@ -178,7 +179,7 @@ describe('owner decisions on the bus', () => {
     intake()
     appendEvent(db, stopped(809, 'question.owner'))
     expect(rows(db, `SELECT count(*) AS n FROM events WHERE type = 'decisions.imported'`)).toEqual([{ n: 1 }])
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     const [firstImport] = rows(db, `SELECT id FROM events WHERE type = 'decisions.imported'`)
     const before = statSync(file).mtimeMs
 
@@ -187,7 +188,7 @@ describe('owner decisions on the bus', () => {
     const written = statSync(file).mtimeMs
     intake()
     expect(rows(db, `SELECT count(*) AS n FROM events WHERE type = 'decisions.imported'`)).toEqual([{ n: 2 }])
-    expect(reduce(db)).toEqual({ applied: 1, rejected: 0 })
+    expect(reduce(db, 'pending', busProjections())).toEqual({ applied: 1, rejected: 0 })
     expect(rows(db, `SELECT decision_id, scope FROM decisions WHERE state = 'in-force' ORDER BY decision_id`)).toEqual([{ decision_id: 77, scope: '[]' }, { decision_id: 78, scope: '[809]' }])
     expect(rows(db, 'SELECT event_id FROM decisions WHERE decision_id = 77')).toEqual([{ event_id: firstImport!.id }])
     expect(rows(db, 'SELECT card_id, state FROM cards')).toEqual([{ card_id: 809, state: 'queued' }])
@@ -200,7 +201,7 @@ describe('owner decisions on the bus', () => {
     const db = newBus()
     appendEvent(db, event('decisions.imported', { actor: 'owner', payload: { decisions: [] } }))
     appendEvent(db, event('decisions.imported', { actor: 'netwatch', payload: { decisions: [{ decision_id: 1, text: 'a', scope: [] }, { decision_id: 1, text: 'b', scope: [] }] } }))
-    expect(reduce(db)).toEqual({ applied: 0, rejected: 2 })
+    expect(reduce(db, 'pending', busProjections())).toEqual({ applied: 0, rejected: 2 })
     expect(rows(db, `SELECT json_extract(payload, '$.reason') AS reason FROM events WHERE type = '${REJECTED}' ORDER BY id`).map(row => row.reason)).toEqual([
       'decisions.imported is netwatch\'s, not owner\'s',
       'a decision_id is listed twice',
@@ -216,7 +217,7 @@ describe('owner decisions on the bus', () => {
     appendEvent(db, stopped(810, 'question.owner'))
     appendEvent(db, recorded(2, [807, 808, 811], 'policy'))
     appendEvent(db, recorded(3, [807, 808, 811]))
-    expect(reduce(db)).toEqual({ applied: 6, rejected: 1 })
+    expect(reduce(db, 'pending', busProjections())).toEqual({ applied: 6, rejected: 1 })
     expect(rows(db, 'SELECT card_id, state FROM cards ORDER BY card_id')).toEqual([
       { card_id: 807, state: 'queued' },
       { card_id: 808, state: 'stopped' },

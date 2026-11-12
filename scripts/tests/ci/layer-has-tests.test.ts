@@ -14,6 +14,7 @@ import { openBus } from '../../core/db.js'
 import { CARD_ADMITTED } from '../../core/events.js'
 import { readLayerMap } from '../../core/layer-map.js'
 import { reduce } from '../../core/reducer.js'
+import { busProjections } from '../../supervisor/composition.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..', '..')
 const CATALOG_BUILD_MS = 300_000
@@ -60,7 +61,7 @@ function catalogBus(): { db: DatabaseSync, file: string } {
 function admitUntested(db: DatabaseSync): void {
   const text = parkingFileText({ card: CARD_LINE, branch: BRANCH, touches: [CORE], continue: 'stop', who: 'shift', body: `Do it.\n\n${runsLine([`layer:${UNTESTED}`])}` })
   appendCardEvent(db, 'owner', { ts: '2026-11-05T00:00:00.000Z', type: CARD_ADMITTED, cardId: CARD_ID, dedupeKey: `${CARD_ADMITTED}:${CARD_ID}`, payload: { text, textSha: textSha(text) } })
-  reduce(db)
+  reduce(db, 'pending', busProjections())
 }
 
 describe('the law: every layer of the check catalog has a test', () => {

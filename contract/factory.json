@@ -3239,7 +3239,8 @@
       "src/program.ts",
       "scripts/window/miko.ts",
       "scripts/intake/intake.ts",
-      "scripts/supervisor/start.ts"
+      "scripts/supervisor/start.ts",
+      "scripts/supervisor/composition.ts"
     ],
     "exclusions": {
       "fixtures": [],
@@ -3882,6 +3883,7 @@
           "scripts/cli/slot.ts",
           "src/commands/liveness.ts",
           "scripts/supervisor/**",
+          "!scripts/supervisor/composition.ts",
           "!scripts/supervisor/start.ts"
         ],
         "status": "decided"

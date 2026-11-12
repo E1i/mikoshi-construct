@@ -26,6 +26,7 @@ import { answerLeaseOrder } from '../../nodes/answer/answer-worker.js'
 import { busReviewPulse } from '../../nodes/review/review-worker.js'
 import { windowShardEnded } from '../../policy/shards.js'
 import { NetWatch, TICK_MS } from '../../ports/netwatch.js'
+import { busProjections } from '../../supervisor/composition.js'
 import { busSessionPulse, recordHeartbeat, recordProcessHeartbeat } from '../../supervisor/heartbeat.js'
 import { BusTick } from '../../supervisor/run.js'
 import { recordJudged } from '../../supervisor/supervisor.js'
@@ -77,7 +78,7 @@ function boardBench(): BoardBench {
   const gitHub = new FakeGitHub()
   const clock = new Clock()
   const bench: BoardBench = { db, gitHub, clock, watched: [reviewWorker(REVIEW_PID)], leaseOrders: {}, boards: [], tick: () => bench.boards.at(-1)!, ts: () => clock.now().toISOString() }
-  const busTick = new BusTick(db, new NetWatch(db, gitHub.client, clock.now), clock.now, () => {}, now => bench.boards.push(readBoard({ db, now, watched: bench.watched, leaseOrders: bench.leaseOrders })))
+  const busTick = new BusTick(db, busProjections(), new NetWatch(db, gitHub.client, clock.now), clock.now, () => {}, now => bench.boards.push(readBoard({ db, now, watched: bench.watched, leaseOrders: bench.leaseOrders, projections: busProjections() })))
   bench.tick = () => {
     const before = bench.boards.length
     busTick.run()
@@ -557,6 +558,12 @@ describe('the factory board', () => {
     expect(contract.get('one writer')?.fact).toBe('no bus.cutover recorded')
     expect(contract.get('automaton')?.fact).toBe('0 pr.opened, 0 cards without state')
     expect(contract.get('replay')?.fact).toBe('matches')
+  })
+
+  it('a board read given no projection list reads the replay link red and says it did not replay', () => {
+    const bench = boardBench()
+    const replay = readBoard({ db: bench.db, now: bench.clock.now(), watched: [], leaseOrders: {} }).contract.find(link => link.link === 'replay')
+    expect(replay).toEqual(expect.objectContaining({ green: false, fact: 'not replayed: this reading was given no projection list' }))
   })
 
   it('a missed supervisor restart reads red on the contract row', () => {

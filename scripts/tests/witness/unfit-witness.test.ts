@@ -15,6 +15,7 @@ import { WitnessNode } from '../../nodes/witness/witness-worker.js'
 import { GREEN, RED, witnessDenial } from '../../policy/policy.js'
 import { cardScopeOfAdmitted, namedOutsideTheCard, redOnMainProposal, witnessesFindingNoTest } from '../../ports/witnesses.js'
 import { SetupTurns, withWorktreeAsync } from '../../ports/worktree.js'
+import { busProjections } from '../../supervisor/composition.js'
 
 const CARD = 1759
 const PR = 2759
@@ -81,7 +82,7 @@ function world(witnesses: readonly object[], { headFiles = {}, baseFiles = {}, h
   const text = parkingFileText({ card: `#${CARD} unfit [implement/construct/S/cheap/auto] · depends — · blocks —`, branch: 'feat/unfit', touches: ['tests/newdir/**'], continue: 'stop', who: 'shift', body })
   appendEvent(db, { ts: '2026-11-10T10:00:00.000Z', type: CARD_ADMITTED, actor: 'worker:intake:by-hand', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${CARD}`, payload: { card: `#${CARD}`, lane: 'lane-1', text, textSha: textSha(text), bodySha: textSha(text).slice(0, 12) }, legacy: false })
   appendEvent(db, { ts: '2026-11-10T10:01:00.000Z', type: PR_OBSERVED, actor: 'netwatch', cardId: CARD, pr: PR, head, dedupeKey: `${PR_OBSERVED}:${PR}:${head}`, payload: { card_id: CARD, base: 'main', head, mergeable: 'clean', ci: 'green', auto_merge: false, draft: false, body_sha: 'a'.repeat(64) }, legacy: false })
-  reduce(db)
+  reduce(db, 'pending', busProjections())
   return { db, repo, base, head }
 }
 

@@ -1,5 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { EventPayload } from '../core/events.js'
+import type { Projections } from '../core/reducer.js'
 import type { BgResult, DetachedLaunch } from './bg.js'
 import { Buffer } from 'node:buffer'
 import { createHash } from 'node:crypto'
@@ -256,7 +257,7 @@ export interface HealParts {
   busPath: string
   nodes: NodeControl
   now: () => Date
-  reduce?: (db: DatabaseSync) => void
+  projections: Projections
 }
 
 export type HealOutcome
@@ -360,7 +361,7 @@ function recordHeld(busPath: string, at: string, failure: string, backup: string
 
 export async function healBus(parts: HealParts, cause: string): Promise<HealOutcome> {
   const { busPath, nodes } = parts
-  const reduceBus = parts.reduce ?? ((db: DatabaseSync) => void reduce(db))
+  const reduceBus = (db: DatabaseSync): void => void reduce(db, 'pending', parts.projections)
   const at = parts.now()
   const lines = [`${PREFIX}SQLITE_CORRUPT on ${busPath}: ${cause.trim()}; healing it`, ...await nodes.stop()]
   const unrecorded = nodes.stillRunning()

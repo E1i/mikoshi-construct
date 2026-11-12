@@ -9,6 +9,7 @@ import { CARD_ADMITTED, CARD_PLANNED, CARD_UNPLANNED, PLAN_BACKFILLED, PLAN_CLOS
 import { OWNER } from '../../core/inbox.js'
 import { reduce } from '../../core/reducer.js'
 import { runBusIntake } from '../../intake/intake.js'
+import { busProjections } from '../../supervisor/composition.js'
 import { runRequest, WindowRequests } from '../../window/window-requests.js'
 
 const RELEASE = 'factory-0.45.2'
@@ -103,7 +104,7 @@ describe('the release is a field of the card', () => {
     await runBusIntake(db, [...draftIn(root), '--release', RELEASE], SESSION)
     const admitted = db.prepare('SELECT card_id FROM events WHERE type = ?').all(CARD_ADMITTED) as { card_id: number }[]
     expect(admitted).toHaveLength(1)
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     expect(releases(db)).toEqual([{ card_id: admitted[0]!.card_id, release: RELEASE }])
     expect(count(db, CARD_PLANNED)).toBe(1)
 
@@ -122,7 +123,7 @@ describe('the release is a field of the card', () => {
     openRelease(db)
     await runBusIntake(db, admitting(root, `release: ${RELEASE}`), SESSION)
     expect(count(db, CARD_ADMITTED)).toBe(1)
-    expect(reduce(db).rejected).toBe(0)
+    expect(reduce(db, 'pending', busProjections()).rejected).toBe(0)
     expect(releases(db)).toEqual([{ card_id: BODY_CARD, release: RELEASE }])
     expect(count(db, CARD_PLANNED)).toBe(1)
     db.close()
@@ -140,7 +141,7 @@ describe('the release is a field of the card', () => {
     const root = scratch()
     const db = openBus(path.join(root, 'bus.db'))
     openRelease(db)
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     owner(db, PLAN_CLOSED, null, { plan: RELEASE })
     process.exitCode = 0
     await runBusIntake(db, admitting(root, `release: ${RELEASE}`), SESSION)
@@ -171,7 +172,7 @@ describe('the release is a field of the card', () => {
     expect(process.exitCode).toBe(0)
     expect(count(db, CARD_ADMITTED)).toBe(1)
     expect(count(db, CARD_PLANNED)).toBe(1)
-    expect(reduce(db).rejected).toBe(0)
+    expect(reduce(db, 'pending', busProjections()).rejected).toBe(0)
     expect(releases(db)).toEqual([{ card_id: BODY_CARD, release: RELEASE }])
     db.close()
   })
@@ -182,16 +183,16 @@ describe('the release is a field of the card', () => {
     openRelease(db)
     const argv = admitting(root, `release: ${RELEASE}`)
     await runBusIntake(db, argv, SESSION)
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     owner(db, PLAN_CLOSED, null, { plan: RELEASE })
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     process.exitCode = 0
     writeCard(root, `release: ${RELEASE}`, 'Change a, amended.')
     await runBusIntake(db, argv, SESSION)
     expect(process.exitCode).toBe(0)
     expect(count(db, CARD_ADMITTED)).toBe(2)
     expect(count(db, CARD_PLANNED)).toBe(1)
-    expect(reduce(db).rejected).toBe(0)
+    expect(reduce(db, 'pending', busProjections()).rejected).toBe(0)
     db.close()
   })
 
@@ -201,11 +202,11 @@ describe('the release is a field of the card', () => {
     openRelease(db)
     const argv = admitting(root, `release: ${RELEASE}`)
     await runBusIntake(db, argv, SESSION)
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     expect(asked(db, '--op', 'remove', '--card', `#${BODY_CARD}`)).toEqual([`done: ${CARD_UNPLANNED} #${BODY_CARD}`])
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     await runBusIntake(db, argv, SESSION)
-    expect(reduce(db).rejected).toBe(0)
+    expect(reduce(db, 'pending', busProjections()).rejected).toBe(0)
     expect(releases(db)).toEqual([])
     expect(count(db, CARD_PLANNED)).toBe(1)
     db.close()
@@ -216,10 +217,10 @@ describe('the release is a field of the card', () => {
     const db = openBus(path.join(root, 'bus.db'))
     openRelease(db)
     expect(asked(db, '--op', 'add', '--plan', RELEASE, '--card', '#901')).toEqual([`done: ${CARD_PLANNED} ${RELEASE} #901`])
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     expect(releases(db)).toEqual([{ card_id: 901, release: RELEASE }])
     expect(asked(db, '--op', 'remove', '--card', '#901')).toEqual([`done: ${CARD_UNPLANNED} #901`])
-    expect(reduce(db).rejected).toBe(0)
+    expect(reduce(db, 'pending', busProjections()).rejected).toBe(0)
     expect(releases(db)).toEqual([])
     expect(count(db, CARD_UNPLANNED)).toBe(1)
     db.close()
@@ -231,15 +232,15 @@ describe('the release is a field of the card', () => {
     expect(asked(db, '--op', 'add', '--plan', 'no-such-release', '--card', '#901')).toEqual([`refused: ${CARD_PLANNED}: release no-such-release is not open`])
 
     openRelease(db)
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     owner(db, PLAN_CLOSED, null, { plan: RELEASE })
     expect(asked(db, '--op', 'add', '--plan', RELEASE, '--card', '#902')).toEqual([`refused: ${CARD_PLANNED}: release ${RELEASE} is not open`])
 
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     owner(db, PLAN_OPENED, null, { id: RELEASE, title: 'opened a second time', goal: 'the reducer rejects it', plan_file: '/plans/0.45.2.md' })
     expect(asked(db, '--op', 'add', '--plan', RELEASE, '--card', '#903')).toEqual([`refused: ${CARD_PLANNED}: release ${RELEASE} is not open`])
 
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     expect(count(db, CARD_PLANNED)).toBe(0)
     expect(releases(db)).toEqual([])
     db.close()
@@ -254,10 +255,10 @@ describe('the release is a field of the card', () => {
       for (const card of cards)
         owner(db, PLAN_ITEM_LINKED, card, { plan: RELEASE, item, card })
     }
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     expect(asked(db, '--op', 'backfill', '--plan', RELEASE, '--gate', GATE)).toEqual([`done: ${PLAN_BACKFILLED} ${RELEASE}`])
     expect(count(db, PLAN_BACKFILLED)).toBe(1)
-    expect(reduce(db).rejected).toBe(0)
+    expect(reduce(db, 'pending', busProjections()).rejected).toBe(0)
     expect(releases(db)).toEqual([1473, 1474, 1480].map(card_id => ({ card_id, release: RELEASE })))
     expect(db.prepare('SELECT gate FROM plans WHERE plan_id = ?').get(RELEASE)).toEqual({ gate: GATE })
     expect(asked(db, '--op', 'backfill', '--plan', RELEASE)).toEqual([`refused: ${PLAN_BACKFILLED} needs a --gate and a plan whose items link cards`])

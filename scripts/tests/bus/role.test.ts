@@ -10,6 +10,7 @@ import { projectionDump, reduce } from '../../core/reducer.js'
 import * as restartExecutor from '../../nodes/restart/restart-executor.js'
 import * as restartWorker from '../../nodes/restart/restart-worker.js'
 import * as role from '../../nodes/restart/role.js'
+import { busProjections } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { claimLoop, recordLoopEnded } from '../../window/loop.js'
 import { recordWindowHeartbeat } from '../../window/window-heartbeat.js'
@@ -64,12 +65,12 @@ describe('a role stopped at a threshold', () => {
     expect(step).toMatchObject({ kind: 'to_owner', role: 'miko', handoff: MIKO_HANDOFF, wait: 'Q1' })
     expect(restartWorker.restartStepLine(step)).toContain('as owner wait Q1')
     expect(bus.worker.step()).toEqual({ kind: 'idle' })
-    reduce(bus.db)
+    reduce(bus.db, 'pending', busProjections())
     expect(waits(bus.db)).toEqual([{ id: 'Q1', need: 'command', command: 'pnpm miko', state: 'open' }])
     expect(countOf(bus.db, RAISE_EVENTS)).toBe(0)
     expect(bus.db.prepare(`SELECT count(*) AS n FROM events WHERE type = 'reducer.rejected'`).get()).toEqual({ n: 0 })
     const live = projectionDump(bus.db)
-    reduce(bus.db)
+    reduce(bus.db, 'pending', busProjections())
     expect(projectionDump(bus.db)).toBe(live)
     bus.close()
   })
@@ -91,7 +92,7 @@ describe('a role stopped at a threshold', () => {
       bus.advance(LEASE_MS + 1)
       bus.worker.step()
     }
-    reduce(bus.db)
+    reduce(bus.db, 'pending', busProjections())
     expect(countOf(bus.db, RAISE_EVENTS)).toBe(0)
     expect(waits(bus.db)).toEqual([{ id: 'Q1', need: 'command', command: 'pnpm miko', state: 'closed' }, { id: 'Q2', need: 'command', command: 'pnpm miko', state: 'open' }])
     bus.close()
@@ -107,7 +108,7 @@ describe('a role stopped at a threshold', () => {
     bus.advance(1_000)
 
     expect(bus.worker.step()).toEqual({ kind: 'idle' })
-    reduce(bus.db)
+    reduce(bus.db, 'pending', busProjections())
     expect(bus.db.prepare('SELECT id, state, answer FROM owner_waits').all()).toEqual([{ id: 'Q1', state: 'closed', answer: `the window beat again at ${beat}` }])
     expect(bus.worker.step()).toEqual({ kind: 'idle' })
     expect(countOf(bus.db, ['owner.wait.closed'])).toBe(1)
@@ -121,7 +122,7 @@ describe('a role stopped at a threshold', () => {
     const step = bus.worker.step()
     expect(step).toMatchObject({ kind: 'to_owner', role: 'operator', wait: null })
     expect(restartWorker.restartStepLine(step)).toContain('with no wait')
-    reduce(bus.db)
+    reduce(bus.db, 'pending', busProjections())
     expect(waits(bus.db)).toEqual([])
     expect(countOf(bus.db, RAISE_EVENTS)).toBe(0)
     bus.close()
@@ -134,7 +135,7 @@ describe('a role stopped at a threshold', () => {
     bus.stopMiko()
 
     expect(bus.worker.step()).toEqual({ kind: 'idle' })
-    reduce(bus.db)
+    reduce(bus.db, 'pending', busProjections())
     expect(waits(bus.db)).toEqual([])
     expect(countOf(bus.db, [ROLE_TO_OWNER])).toBe(0)
     bus.close()
@@ -147,7 +148,7 @@ describe('a role stopped at a threshold', () => {
     bus.stopMiko()
 
     expect(bus.worker.step()).toEqual({ kind: 'idle' })
-    reduce(bus.db)
+    reduce(bus.db, 'pending', busProjections())
     expect(waits(bus.db)).toEqual([])
     expect(countOf(bus.db, [ROLE_TO_OWNER])).toBe(0)
     bus.close()
@@ -162,7 +163,7 @@ describe('a role stopped at a threshold', () => {
     bus.stopMiko()
 
     expect(bus.worker.step()).toMatchObject({ kind: 'to_owner', role: 'miko', wait: 'Q1' })
-    reduce(bus.db)
+    reduce(bus.db, 'pending', busProjections())
     expect(waits(bus.db)).toEqual([{ id: 'Q1', need: 'command', command: 'pnpm miko', state: 'open' }])
     bus.close()
   })

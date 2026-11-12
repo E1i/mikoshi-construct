@@ -8,6 +8,7 @@ import { openBus } from '../../core/db.js'
 import { reduce } from '../../core/reducer.js'
 import { EXIT_CRITERIA, PREFIX, shadowReading, shadowReport } from '../../core/report.js'
 import { NetWatch, TICK_MS } from '../../ports/netwatch.js'
+import { busProjections } from '../../supervisor/composition.js'
 import { BusTick } from '../../supervisor/run.js'
 import { Clock, FakeGitHub, sha } from './github-fake.js'
 import { detectMerge } from './merge-detection.js'
@@ -27,7 +28,7 @@ describe('shadow report', () => {
     const db = openBus(path.join(root, 'bus.db'))
     const gitHub = new FakeGitHub()
     const clock = new Clock()
-    const busTick = new BusTick(db, new NetWatch(db, gitHub.client, clock.now), clock.now)
+    const busTick = new BusTick(db, busProjections(), new NetWatch(db, gitHub.client, clock.now), clock.now)
     const tick = (): void => {
       busTick.run()
       detectReview({ db, gitHub, clock })
@@ -47,7 +48,7 @@ describe('shadow report', () => {
     tick()
 
     const calls = gitHub.calls.length
-    const lines = shadowReport(db, '')
+    const lines = shadowReport(db, '', busProjections())
     expect(gitHub.calls).toHaveLength(calls)
     for (const line of lines)
       expect(line.startsWith(PREFIX)).toBe(true)
@@ -83,7 +84,7 @@ describe('shadow report', () => {
   it('after a reduce by pnpm bus:reduce a correct projection is not a replay divergence', () => {
     const { db, clock } = reducedBus()
     db.prepare(`INSERT INTO events (ts, type, actor, pr, dedupe_key, payload) VALUES (?, 'pr.closed', 'netwatch', 930, 'pr:930:closed', '{"merged":true}')`).run(clock.now().toISOString())
-    reduce(db)
+    reduce(db, 'pending', busProjections())
 
     expect(replayProblems(db)).toEqual([])
     db.close()
@@ -133,13 +134,13 @@ function reducedBus(): { db: DatabaseSync, clock: Clock } {
   const clock = new Clock()
   gitHub.open({ number: 930 })
   gitHub.open({ number: 931 })
-  new BusTick(db, new NetWatch(db, gitHub.client, clock.now), clock.now).run()
+  new BusTick(db, busProjections(), new NetWatch(db, gitHub.client, clock.now), clock.now).run()
   clock.advance(TICK_MS)
   return { db, clock }
 }
 
 function replayProblems(db: DatabaseSync): string[] {
-  return shadowReading(db).problems
+  return shadowReading(db, busProjections()).problems
 }
 
 function ciOf(db: DatabaseSync, pr: number): unknown {

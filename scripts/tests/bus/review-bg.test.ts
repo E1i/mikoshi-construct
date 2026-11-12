@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { openBus } from '../../core/db.js'
 import { NetWatch } from '../../ports/netwatch.js'
 import { PREFIX as BG_PREFIX, processBeatsOn, psList, runBusBg, runningBus, runningInstance, startDetached } from '../../supervisor/bg.js'
+import { busProjections } from '../../supervisor/composition.js'
 import { recordProcessHeartbeat } from '../../supervisor/heartbeat.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { busShadowProblems, PREFIX, REVIEW_INSTANCE_FILE, REVIEW_LOG, REVIEW_START_LOCK, REVIEW_WORKER_MARKERS, reviewLaunch, startReviewWorker } from '../../supervisor/review-bg.js'
@@ -292,7 +293,7 @@ describe('pnpm bus:review:bg', () => {
     const busPath = path.join(w.busDir, 'bus.db')
     const db = openBus(busPath)
     gitHub.open({ number: 966 })
-    new BusTick(db, new NetWatch(db, gitHub.client, clock.now), clock.now).run()
+    new BusTick(db, busProjections(), new NetWatch(db, gitHub.client, clock.now), clock.now).run()
     db.close()
     gitHub.open({ number: 966, head: sha('c') })
     gitHub.failing = true

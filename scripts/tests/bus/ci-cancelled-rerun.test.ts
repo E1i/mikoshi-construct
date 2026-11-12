@@ -13,6 +13,7 @@ import { leaseNext } from '../../core/lease.js'
 import { answerCandidates, queueTaskWithin, updateCandidates } from '../../core/queue.js'
 import { UpdateExecutor } from '../../nodes/update/update-executor.js'
 import { NetWatch, TICK_MS } from '../../ports/netwatch.js'
+import { busProjections } from '../../supervisor/composition.js'
 import { BusTick } from '../../supervisor/run.js'
 import { Clock, FakeGitHub, sha } from './github-fake.js'
 
@@ -58,7 +59,7 @@ function cancelBench(): CancelBench {
       return { ...check, id, output: { annotations_count: 1, annotations_url: `https://api.github.com/repos/{owner}/{repo}/check-runs/${id}/annotations` } }
     }) } }
   }
-  const busTick = new BusTick(db, new NetWatch(db, client, clock.now), clock.now, () => {})
+  const busTick = new BusTick(db, busProjections(), new NetWatch(db, client, clock.now), clock.now, () => {})
   const executor = new UpdateExecutor({ db, gitHub: client, put: gitHub.put, post: gitHub.post, publish: gitHub.publish, clock: clock.now, settle: () => {} })
   const ts = (): string => clock.now().toISOString()
   const tick = (): void => {

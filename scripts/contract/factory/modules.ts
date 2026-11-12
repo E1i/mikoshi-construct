@@ -58,7 +58,9 @@ const PLAN = [factory('window/plan-export.ts'), ...cli('card-chain.ts'), ...card
 const PORTS_ADAPTERS = within(factory('ports'), 'git.ts', 'disk.ts', 'prompt-store.ts', 'client/contract.ts', 'client/codex/adapter.ts')
 const PR_RECORD = [...review('pr-close', 'pr-reopen', 'pr-rerun', 'record-verdict', 'dry-run-record'), ...core('merge-event.ts')]
 
-export const COMPOSITION_ROOTS: readonly string[] = ['src/cli.ts', 'src/program.ts', factory('window/miko.ts'), factory('intake/intake.ts'), factory('supervisor/start.ts')]
+export const COMPOSITION_MODULE = factory('supervisor/composition.ts')
+
+export const COMPOSITION_ROOTS: readonly string[] = ['src/cli.ts', 'src/program.ts', factory('window/miko.ts'), factory('intake/intake.ts'), factory('supervisor/start.ts'), COMPOSITION_MODULE]
 
 const NODE_MAY_USE = ['bus', 'session', 'card-model', 'card-record', 'pr-record', 'plan', 'command-registry', 'ports-adapters']
 
@@ -172,7 +174,11 @@ export const EXCLUSIONS: Readonly<Record<ExclusionKind, readonly string[]>> = {
   tooling: [tree('scratch')],
 }
 
-export const COMPOSITION_IMPORTS: Readonly<Record<string, readonly string[]>> = {}
+const WORKER_ENTRIES = [...['answer', 'close', 'merge', 'restart', 'review', 'update', 'witness'].map(name => factory(`nodes/${name}/${name}-worker.ts`)), factory('nodes/launch/launch-root.ts')]
+
+const PROCESS_ROOTS = [...supervisor('start', 'run', 'supervisor', 'review-bg'), ...core('report.ts', 'reducer.ts'), ...WORKER_ENTRIES]
+
+export const COMPOSITION_IMPORTS: Readonly<Record<string, readonly string[]>> = { [COMPOSITION_MODULE]: PROCESS_ROOTS }
 
 export const MODULE_GRAPH: ModuleGraphSpec = { modules: MODULES, composition_roots: COMPOSITION_ROOTS, composition_imports: COMPOSITION_IMPORTS, exclusions: EXCLUSIONS }
 

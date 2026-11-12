@@ -20,6 +20,7 @@ import { HELD_AT_THE_EXIT, launchCandidates, startableCards } from '../../nodes/
 import { LaunchNode } from '../../nodes/launch/launch-worker.js'
 import { HELD_FOR_OWNER } from '../../nodes/merge/merge-executor.js'
 import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
+import { busProjections } from '../../supervisor/composition.js'
 import { eventsOf, liveBench, mergeBench } from './merge-bench.js'
 
 const TS = '2026-11-05T10:00:00.000Z'
@@ -55,25 +56,25 @@ function admit(db: DatabaseSync, id: number, depends: number[]): void {
   const dependsOn = depends.length === 0 ? '—' : depends.map(parent => `#${parent}`).join(', ')
   const text = `card: #${id} card-${id} [implement/netwatch/S/cheap/auto] · depends ${dependsOn} · blocks —\nbranch: feat/card-${id}\ntouches: src/card-${id}.ts\ncontinue: stop\nwho: shift\n\nDo the thing.\n`
   busCardEvents(db, 's1', () => LANES)({ type: CARD_ADMITTED, cardId: id, ts: TS, dedupeKey: `admit-${id}`, payload: { card: text.split('\n')[0]!.slice('card: '.length), lane: null, depends, decision: 'auto', contour: 'cheap', text, textSha: textSha(text) } })
-  reduce(db)
+  reduce(db, 'pending', busProjections())
 }
 
 function parentMerged(db: DatabaseSync): void {
   const pr = PARENT + 1000
   appendEvent(db, { ts: TS, type: PR_OBSERVED, actor: 'policy', cardId: PARENT, pr, head: HEAD, dedupeKey: `${PR_OBSERVED}:${pr}`, payload: { card_id: PARENT, base: 'main', head: HEAD, mergeable: 'clean', ci: 'green', auto_merge: false, draft: false }, legacy: false })
   appendEvent(db, { ts: TS, type: MERGE_DONE, actor: 'worker:merge:worker-1', cardId: PARENT, pr, head: HEAD, dedupeKey: `${MERGE_DONE}:${pr}`, payload: { commit: 'c'.repeat(40), rule: 'auto', task_key: `merge:${pr}`, lease_gen: 1 }, legacy: false })
-  reduce(db)
+  reduce(db, 'pending', busProjections())
 }
 
 function draftPr(db: DatabaseSync, cardId: number): void {
   const pr = cardId + 2000
   appendEvent(db, { ts: TS, type: PR_OBSERVED, actor: 'policy', cardId, pr, head: HEAD, dedupeKey: `${PR_OBSERVED}:draft-${pr}`, payload: { card_id: cardId, base: 'main', head: HEAD, mergeable: 'clean', ci: 'green', auto_merge: false, draft: true }, legacy: false })
-  reduce(db)
+  reduce(db, 'pending', busProjections())
 }
 
 function holdEvent(db: DatabaseSync, ts: string, type: string, cardId: number, key: string, payload: Record<string, unknown>): void {
   appendEvent(db, { ts, type, actor: 'owner', cardId, pr: null, head: null, dedupeKey: `${type}:${key}`, payload, legacy: false })
-  reduce(db)
+  reduce(db, 'pending', busProjections())
 }
 
 function candidates(db: DatabaseSync): number[] {
@@ -310,7 +311,7 @@ describe('a continuation and an admission that has not folded', () => {
     expect(bodiesAtContinuation).toEqual([])
     expect(eventsOf(made.db, CARD_STOPPED)).toEqual([])
 
-    reduce(made.db)
+    reduce(made.db, 'pending', busProjections())
     expect(node.stopOverdue()).toEqual([])
 
     expect(bodiesAtContinuation).toEqual([AMENDED_BODY])

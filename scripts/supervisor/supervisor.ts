@@ -28,6 +28,7 @@ import { WindowSessionEnds } from '../window/window-session-end.js'
 import { BUILD_DIR, BUILT_MODULE, flagsInArgs, installedPackage, instancesOf, launchName, PREFIX, printBg, provenOnBus, psList, runBusBg, runningInstance, stampedOtherwise, startDetached, thisBus, withBuses } from './bg.js'
 import { BusHealer, CorruptionWatch, RecordedNodes } from './bus-heal.js'
 import { BusSnapshot } from './bus-snapshot.js'
+import { busProjections } from './composition.js'
 import { CARD_PROCESS, lastProcessBeats, recordProcessHeartbeat } from './heartbeat.js'
 import { beatsLive, SILENT_MS } from './liveness-sites.js'
 import { busShadowProblems, startReviewWorker } from './review-bg.js'
@@ -1064,7 +1065,7 @@ async function supervise(busDir: string, cwd: string, reviewPreflight: () => str
       judge: new LivenessJudge(db, () => Date.now(), () => expectedRunning(db, wanted()), restartJudged, psStartOf),
       windowEnds: new WindowSessionEnds(db, cwd, () => Date.now(), PREFIX),
       windowSubagents: new WindowSubagentTick(db, cwd, () => Date.now(), PREFIX),
-      heal: new BusHealer({ busPath, nodes, now: () => new Date(), watch: new CorruptionWatch(busLaunches(reviewPreflight).map(launch => path.join(busDir, launch.log))) }),
+      heal: new BusHealer({ busPath, nodes, now: () => new Date(), projections: busProjections(), watch: new CorruptionWatch(busLaunches(reviewPreflight).map(launch => path.join(busDir, launch.log))) }),
       snapshot: new BusSnapshot({ db, busPath, file: snapshotPathOf(busPath), now: () => Date.now(), paused: () => nodes.held() }),
       relaunch: () => startDetached(SUPERVISOR_LAUNCH, busDir, process.env, outsideOwnGroup()),
       print: line => console.log(line),

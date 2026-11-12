@@ -44,6 +44,7 @@ import { realIsolationReader } from '../../ports/isolation.js'
 import { CHECK_MS, TICK_MS } from '../../ports/netwatch.js'
 import { promptsDirOf } from '../../ports/prompt-store.js'
 import { spawnReviewSession } from '../../ports/session.js'
+import { busProjections } from '../../supervisor/composition.js'
 import { busSessionPulse, measureCardSession } from '../../supervisor/heartbeat.js'
 import { slotsOf, slotsVariable } from '../../supervisor/scheduler.js'
 import { stampLogOutput } from '../../supervisor/stamp.js'
@@ -133,7 +134,7 @@ export class ReviewNode extends Node<Step> {
 
   protected override before(): void {
     const { db, clearLeftovers } = this.reviewParts
-    const { problems, foreign } = shadowReading(db, REVIEW_READS)
+    const { problems, foreign } = shadowReading(db, busProjections(), REVIEW_READS)
     recordForeignDivergences(db, this.actor, this.ts(), foreign)
     if (problems.length > 0)
       throw new ShadowNotClean(problems)
@@ -190,7 +191,7 @@ export class ReviewWorker {
 }
 
 export function startReviewWorkers(parts: WorkerParts, slots: number): ReviewWorker[] {
-  const { problems } = shadowReading(parts.db)
+  const { problems } = shadowReading(parts.db, busProjections())
   if (problems.length > 0)
     throw new ShadowNotClean(problems)
   return Array.from({ length: slots }, (_, slot) => new ReviewWorker({ ...parts, session: `${parts.session}-${slot + 1}` }))

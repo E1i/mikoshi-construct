@@ -18,6 +18,7 @@ import { OWNER_MERGES } from '../../policy/policy.js'
 import { runShard, USAGE } from '../../policy/shard.js'
 import { activeWindowShards, cardDecisionCommand, DECISIONS_SCOPE, expiredWindowShards } from '../../policy/shards.js'
 import { readOwnerMergeKinds } from '../../policy/shredder/reader.js'
+import { busProjections } from '../../supervisor/composition.js'
 import { OWNER_BOUNDARIES } from '../../window/handoff-write.js'
 
 const REPO = path.resolve(import.meta.dirname, '../../..')
@@ -79,7 +80,7 @@ async function askedUnderADecisionsShard(question: string): Promise<Asked> {
   const trees: CardTreeTools = { home: world.handoff, exists: existsSync, branchOf: pr => `feat/card-${pr}`, recreate: () => {}, bringTo: () => {} }
   const executor = new AnswerExecutor({ db, answerer, ownerMerges: () => readFileSync('architecture/owner-merges.md', 'utf8'), clock: () => now, trees, isolation: () => ({ level: 'partial', mechanism: 'claude-code-sandbox', gaps: [] }), shardDecider: () => ({ answer: 'finish inside the touches' }) })
   const outcome = await executor.answer(leaseNext(db, ts, 'answer', 'worker:answer:worker-1')!)
-  reduce(db)
+  reduce(db, 'pending', busProjections())
   const decided = Number((db.prepare('SELECT count(*) AS n FROM events WHERE type = ?').get(SHARD_DECIDED) as { n: number }).n)
   const waits = db.prepare(`SELECT need, text, command, card_id, state FROM ${OWNER_WAITS}`).all().map(row => ({ ...row }))
   db.close()

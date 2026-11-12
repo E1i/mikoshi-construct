@@ -1,14 +1,16 @@
 import type { DatabaseSync, SQLOutputValue } from 'node:sqlite'
+import type { Projections } from './reducer.js'
 import { Buffer } from 'node:buffer'
 import { realpathSync } from 'node:fs'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import { busProjections } from '../supervisor/composition.js'
 import { CARD_FOLDED_ON_APPEND } from './card-automaton.js'
 import { defaultBusPath, openBus } from './db.js'
 import { CHAIN_OBSERVED, REDUCED, REJECTED, TASK_ENQUEUED, TASK_SUPERSEDED } from './events.js'
 import { LEASE_FOLDS } from './lease.js'
 import { TASK_FOLDS } from './queue.js'
-import { INCREMENTAL_PROJECTIONS, PROJECTION_KEYS, projectionDump, reduce, reducedThrough } from './reducer.js'
+import { PROJECTION_KEYS, projectionDump, reduce, reducedThrough } from './reducer.js'
 import { watermarkOf } from './watermark.js'
 
 export const PREFIX = '[bus:report] '
@@ -134,8 +136,8 @@ function replayCutOff(db: DatabaseSync): number {
   return through === NO_REDUCE_MARKER ? Number.POSITIVE_INFINITY : through
 }
 
-function incrementalCutOffs(db: DatabaseSync, through: number): Map<string, number> {
-  return new Map(INCREMENTAL_PROJECTIONS.flatMap((projection) => {
+function incrementalCutOffs(db: DatabaseSync, through: number, projections: Projections): Map<string, number> {
+  return new Map(projections.incremental.flatMap((projection) => {
     const watermark = Math.max(watermarkOf(db, projection.table), through)
     return Object.keys(projection.folds).map(type => [type, watermark] as const)
   }))
@@ -187,12 +189,12 @@ interface Snapshot {
   events: Record<string, SQLOutputValue>[]
 }
 
-function oneSnapshot(db: DatabaseSync): Snapshot {
+function oneSnapshot(db: DatabaseSync, projections: Projections): Snapshot {
   db.exec('BEGIN')
   try {
     const liveDump = projectionDump(db)
     const through = replayCutOff(db)
-    const incremental = incrementalCutOffs(db, through)
+    const incremental = incrementalCutOffs(db, through, projections)
     const events = db.prepare(`SELECT ${ALL_EVENT_COLUMNS} FROM events ORDER BY id`).all()
     return { liveDump, through, incremental, events }
   }
@@ -201,8 +203,8 @@ function oneSnapshot(db: DatabaseSync): Snapshot {
   }
 }
 
-export function replayDifferences(db: DatabaseSync): { live: number, differences: ReplayDifference[] } {
-  const { liveDump, through, incremental, events } = oneSnapshot(db)
+export function replayDifferences(db: DatabaseSync, projections: Projections): { live: number, differences: ReplayDifference[] } {
+  const { liveDump, through, incremental, events } = oneSnapshot(db, projections)
   const live = Buffer.from(liveDump)
   const replay = openBus(':memory:')
   try {
@@ -211,7 +213,7 @@ export function replayDifferences(db: DatabaseSync): { live: number, differences
       if (Number(row.id) <= (incremental.get(String(row.type)) ?? through) || FOLDED_ON_APPEND.has(String(row.type)))
         insert.run(row.id, row.ts, row.type, row.actor, row.card_id, row.pr, row.head, row.dedupe_key, row.payload, row.legacy)
     }
-    reduce(replay)
+    reduce(replay, 'pending', projections)
     const replayDump = projectionDump(replay)
     const replayed = Buffer.from(replayDump)
     if (replayed.equals(live))
@@ -227,8 +229,8 @@ export function replayDifferences(db: DatabaseSync): { live: number, differences
   }
 }
 
-function replayLine(db: DatabaseSync): string {
-  const { live, differences } = replayDifferences(db)
+function replayLine(db: DatabaseSync, projections: Projections): string {
+  const { live, differences } = replayDifferences(db, projections)
   return `${EXIT_CRITERIA.replay}: ${differences.length === 0 ? `none, ${live} bytes identical` : differences.map(difference => difference.line).join(' | ')}`
 }
 
@@ -243,13 +245,13 @@ function readBy(readSet: ReadSet | undefined, difference: ReplayDifference): boo
   return readSet === undefined || difference.table === null || readSet.has(difference.table)
 }
 
-export function shadowReading(db: DatabaseSync, readSet?: ReadSet): ShadowReading {
-  const { differences } = replayDifferences(db)
+export function shadowReading(db: DatabaseSync, projections: Projections, readSet?: ReadSet): ShadowReading {
+  const { differences } = replayDifferences(db, projections)
   const replayLines = (read: boolean): string[] => differences.filter(difference => readBy(readSet, difference) === read).map(difference => `${EXIT_CRITERIA.replay}: ${difference.line}`)
   return { problems: replayLines(true), foreign: replayLines(false) }
 }
 
-export function shadowReport(db: DatabaseSync, since: string): string[] {
+export function shadowReport(db: DatabaseSync, since: string, projections: Projections): string[] {
   const period = new Period(db, since)
   const ticks = period.events('netwatch.tick').length
   const skipped = period.events('netwatch.skipped').length
@@ -260,7 +262,7 @@ export function shadowReport(db: DatabaseSync, since: string): string[] {
     supersededLine(db, period),
     lagLine(period),
     rejectedLine(period),
-    replayLine(db),
+    replayLine(db, projections),
   ].map(line => `${PREFIX}${line}`)
 }
 
@@ -272,7 +274,7 @@ function sinceOf(argv: string[]): string {
 function main(): number {
   const db = openBus(defaultBusPath())
   try {
-    console.log(shadowReport(db, sinceOf(process.argv)).join('\n'))
+    console.log(shadowReport(db, sinceOf(process.argv), busProjections()).join('\n'))
     return 0
   }
   finally {

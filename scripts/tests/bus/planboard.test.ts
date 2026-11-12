@@ -12,6 +12,7 @@ import { CARD_ADMITTED, CARD_PLANNED, PLAN_OPENED } from '../../core/events.js'
 import { OWNER } from '../../core/inbox.js'
 import { reduce } from '../../core/reducer.js'
 import { runBusIntake } from '../../intake/intake.js'
+import { busProjections } from '../../supervisor/composition.js'
 
 const RELEASE = 'factory-0.45.2'
 const GATE = 'VEDETIRUN'
@@ -60,7 +61,7 @@ function releaseBench(states: Record<number, string>): DatabaseSync {
   openRelease(db)
   for (const card of Object.keys(states).map(Number))
     owner(db, CARD_PLANNED, card, { release: RELEASE })
-  expect(reduce(db).rejected).toBe(0)
+  expect(reduce(db, 'pending', busProjections()).rejected).toBe(0)
   for (const [card, state] of Object.entries(states))
     db.prepare('INSERT OR REPLACE INTO cards (card_id, state, pr, event_id) VALUES (?, ?, NULL, 1)').run(Number(card), state)
   return db
@@ -80,7 +81,7 @@ describe('the release board is a filter of cards by their release', () => {
     await runBusIntake(db, [...draftIn(root), '--release', RELEASE], SESSION)
     const admitted = (db.prepare('SELECT card_id FROM events WHERE type = ?').all(CARD_ADMITTED) as { card_id: number }[]).map(row => row.card_id)
     expect(admitted).toHaveLength(1)
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     const release = releaseOf(db)
     expect(release.cards).toEqual([{ card: admitted[0], mark: 'queued' }])
     expect(release).toMatchObject({ total: 1, remainder: 1, stages: { queued: 1 } })
@@ -113,7 +114,7 @@ describe('the release board is a filter of cards by their release', () => {
     expect(releaseOf(db).gate).toEqual({ word: GATE, status: GATE_DUE })
     const ungated = openBus(path.join(scratch(), 'bus.db'))
     openRelease(ungated, null)
-    reduce(ungated)
+    reduce(ungated, 'pending', busProjections())
     expect(planLine(releaseOf(ungated), 0)).toContain('gate: not set')
     db.close()
     ungated.close()
@@ -136,7 +137,7 @@ describe('the release board is a filter of cards by their release', () => {
     const db = openBus(busFile)
     openRelease(db)
     await runBusIntake(db, [...draftIn(root), '--release', RELEASE], SESSION)
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     const [card] = releaseOf(db).cards
     db.close()
     let written = ''

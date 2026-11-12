@@ -20,6 +20,7 @@ import { ghApi } from '../../ports/github.js'
 import { Meter } from '../../ports/meter.js'
 import { CHECK_MS } from '../../ports/netwatch.js'
 import { BUS_RUN_LAUNCH, launchName, PREFIX, runningInstance, startDetached } from '../../supervisor/bg.js'
+import { busProjections } from '../../supervisor/composition.js'
 import { CARD_PROCESS, lastProcessBeats, recordHeartbeat, recordProcessHeartbeat, WINDOW_PROCESS } from '../../supervisor/heartbeat.js'
 import { LIVENESS_JUDGE, livenessSources, SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { reviewLaunch } from '../../supervisor/review-bg.js'
@@ -1173,7 +1174,7 @@ describe('the supervisor judges liveness from heartbeats alone', () => {
     const cardId = 1160
     appendEvent(db, { ts: at(0), type: CARD_ADMITTED, actor: 'worker:intake:window', cardId, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${cardId}`, payload: { card: `#${cardId} part [implement/netwatch/S/cheap/auto] · depends — · blocks —`, lane: null, decision: 'auto', contour: 'cheap', depends: [] }, legacy: false })
     appendEvent(db, { ts: at(0), type: CARD_STARTED, actor: 'worker:launch:earlier', cardId, pr: null, head: null, dedupeKey: `${CARD_STARTED}:earlier-${cardId}`, payload: { session: `s-${cardId}`, worktree: root, branch: `feat/card-${cardId}`, base: 'f'.repeat(40), pid: 1, pgid: 1 }, legacy: false })
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     expect(db.prepare('SELECT state FROM cards WHERE card_id = ?').get(cardId)).toEqual({ state: RUNNING_CARD })
     recordHeartbeat(db, at(0), { card: cardId, pr: null, head: null, step: 'launch', session: `s-${cardId}`, lease: null })
     const judge = new LivenessJudge(db, () => BEAT_AT + SILENT_MS + 1, () => expectedRunning(db, []))
@@ -1196,7 +1197,7 @@ describe('the supervisor judges liveness from heartbeats alone', () => {
     started(0, 's-old')
     recordHeartbeat(db, at(0), { card: cardId, pr: null, head: null, step: 'launch', session: 's-old', lease: null })
     started(NEW_LIFE_MS, 's-new')
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     expect(db.prepare('SELECT state FROM cards WHERE card_id = ?').get(cardId)).toEqual({ state: RUNNING_CARD })
     const clock = { now: BEAT_AT + NEW_LIFE_MS + 10_000 }
     const judge = new LivenessJudge(db, () => clock.now, () => expectedRunning(db, []))

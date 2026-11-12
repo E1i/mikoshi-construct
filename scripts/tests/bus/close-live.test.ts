@@ -11,6 +11,7 @@ import { keyOf } from '../../core/queue.js'
 import { reduce } from '../../core/reducer.js'
 import { CloseNode } from '../../nodes/close/close-worker.js'
 import { NetWatch, TICK_MS } from '../../ports/netwatch.js'
+import { busProjections } from '../../supervisor/composition.js'
 import { bgCommand, detectionCommand } from '../../supervisor/supervisor.js'
 import { liveWorkers, switchDetection, switchWorker, wantedLaunches, WORKERS, WORKERS_FILE } from '../../supervisor/workers.js'
 import { detectClose } from './close-detection.js'
@@ -126,7 +127,7 @@ describe('close live', () => {
       const node = liveNode(made)
       if (order === 'node first') {
         new NetWatch(made.db, made.gitHub.client, made.clock.now).poll()
-        reduce(made.db)
+        reduce(made.db, 'pending', busProjections())
         made.clock.advance(TICK_MS)
         await once(node)
         made.tick()

@@ -16,6 +16,7 @@ import { decisionsFileOf } from '../../policy/decisions/decisions.js'
 import { decisionsIntake } from '../../policy/decisions/import.js'
 import { allowLiveCommand, liveDecisionOf } from '../../policy/live-decision.js'
 import { activeWindowShards, decisionsInForceAt, windowShardEnded } from '../../policy/shards.js'
+import { busProjections } from '../../supervisor/composition.js'
 import { busDecisionsAdder, busDecisionsText, ghostProtocolWord, runMode, startCommandOf } from '../../supervisor/start.js'
 import { liveWorkers, returnToWindowAtTermEnd, switchDetection, switchedOn, switchWorker, termEndOf, wantedLaunches } from '../../supervisor/workers.js'
 import { sha } from '../bus/github-fake.js'
@@ -98,7 +99,7 @@ describe('oneword: the ghost-protocol word is the only owner word', () => {
     expect(onBus(db => activeWindowShards(db, NOW)).map(shard => shard.id)).toEqual(['shard-1'])
     expect(liveWorkers(parts.busDir)).toEqual(expect.arrayContaining(['merge', 'update']))
     expect(liveScripts(parts.busDir)).toEqual(expect.arrayContaining(['bus:merge', 'bus:update']))
-    onBus(db => reduce(db))
+    onBus(db => reduce(db, 'pending', busProjections()))
     const decisions = onBus(db => decisionsInForceAt(db, NOW))
     expect(liveDecisionOf(decisions, 'merge')).not.toBeNull()
     expect(liveDecisionOf(decisions, 'update')).not.toBeNull()
@@ -120,7 +121,7 @@ describe('oneword: the ghost-protocol word is the only owner word', () => {
     ghostProtocol(parts)
     const liveAfterImport = (): (number | null)[] => onBus((db) => {
       decisionsIntake(db, decisionsFileOf(busDb), () => NOW)()
-      reduce(db)
+      reduce(db, 'pending', busProjections())
       const decisions = decisionsInForceAt(db, NOW)
       return [liveDecisionOf(decisions, 'merge'), liveDecisionOf(decisions, 'update')]
     })

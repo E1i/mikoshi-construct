@@ -8,6 +8,7 @@ import { appendEvent, openBus } from '../../core/db.js'
 import { CARD_STARTED } from '../../core/events.js'
 import { handoffLadderSteps, realStarterPorts } from '../../nodes/launch/launch-root.js'
 import { cardTree, cardTreeRoots, DEFAULT_WORKTREE_HOME, WORKTREE_HOME_VARIABLE } from '../../ports/worktree-home.js'
+import { busProjections } from '../../supervisor/composition.js'
 import { realRequestTools } from '../../window/window-request-tools.js'
 
 const roots: string[] = []
@@ -100,7 +101,7 @@ describe('card trees per bus', () => {
     const root = newRoot()
     const bus = path.join(root, '.construct', 'a--one', 'bus.db')
     const db = openBus(bus)
-    const tools = realRequestTools(db, bus, path.join(root, 'repo'), {})
+    const tools = realRequestTools(db, bus, path.join(root, 'repo'), {}, busProjections())
     expect(tools.treeOf(987654)).toBe(path.join(busDirOf(bus), 'worktrees', '987654'))
     db.close()
   })

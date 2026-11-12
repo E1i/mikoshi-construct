@@ -19,6 +19,7 @@ import { openBus } from '../../core/db.js'
 import { CARD_ADMITTED } from '../../core/events.js'
 import { reduce } from '../../core/reducer.js'
 import { Meter } from '../../ports/meter.js'
+import { busProjections } from '../../supervisor/composition.js'
 import { cardBody, MAIN_1, MAIN_2 } from '../bus/github-fake.js'
 import { mergeBench } from '../bus/merge-bench.js'
 
@@ -137,7 +138,7 @@ function mergeOf(db: DatabaseSync, pr: string[], main: string[], card: CardRunsS
 function admit(db: DatabaseSync, masks: string[], touches: string[] = [WORKER]): void {
   const text = parkingFileText({ card: CARD_LINE, branch: BRANCH, touches, continue: 'stop', who: 'shift', body: `Do it.\n\n${runsLine(masks.map(mask => `layer:${mask}`))}` })
   appendCardEvent(db, 'owner', { ts: '2026-11-05T00:00:00.000Z', type: CARD_ADMITTED, cardId: CARD_ID, dedupeKey: `${CARD_ADMITTED}:${CARD_ID}`, payload: { text, textSha: textSha(text) } })
-  reduce(db)
+  reduce(db, 'pending', busProjections())
 }
 
 function liveBenchOf(files: string[], mainFiles: string[]): MergeBench {

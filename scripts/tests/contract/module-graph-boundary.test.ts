@@ -147,8 +147,8 @@ describe('module graph boundary: composition_imports', () => {
     ])
   })
 
-  it('the repository spec carries composition_imports empty and admits no importer', () => {
-    expect(MODULE_GRAPH.composition_imports).toEqual({})
+  it('the repository spec admits importers only into the composition module', () => {
+    expect(Object.keys(MODULE_GRAPH.composition_imports)).toEqual(['scripts/supervisor/composition.ts'])
   })
 })
 

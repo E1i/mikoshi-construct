@@ -8,6 +8,7 @@ import { currentLane, openOwnerWaits } from '../../scripts/core/bus-readings.js'
 import { closeOwnerWait, openBus, openOwnerWait } from '../../scripts/core/db.js'
 import { reduce } from '../../scripts/core/reducer.js'
 import { busCardEvents } from '../../scripts/intake/intake.js'
+import { busProjections } from '../../scripts/supervisor/composition.js'
 import { busReaderAt } from '../../src/commands/board/bus.js'
 import { withReadOnlyBus } from '../../src/commands/cost/bus.js'
 import { runAdmit } from '../../src/commands/intake/admit.js'
@@ -58,7 +59,7 @@ function openTwoWaits(db: DatabaseSync): [string, string] {
   const ts = NOW.toISOString()
   const first = openOwnerWait(db, ts, 'policy', { need: 'decision', text: 'which path for #1500?', card: 1500, request: 1 })
   const second = openOwnerWait(db, ts, 'policy', { need: 'command', text: 'run the release check', command: 'pnpm release:verify', request: 2 })
-  reduce(db)
+  reduce(db, 'pending', busProjections())
   return [first, second]
 }
 
@@ -76,7 +77,7 @@ describe('the board reads the bus through the bus readers', () => {
       for (const card of cards)
         expect(runAdmit({ file: parkedCard(parking, card, `src/${card}.ts`), dir: repo, dryRun: false, autoConfirm: true, parkingRoot: parking, events }, () => NOW).status).toBe('admitted')
       expect(runMove({ move: '#1504', to: 'lane-2', draft: undefined, taken: undefined, admit: undefined, parking, events }, () => NOW).status).toBe('moved')
-      reduce(db)
+      reduce(db, 'pending', busProjections())
       const board = factsOf(file).cards
       const bus = withReadOnlyBus(file, read => cards.map(card => [card, currentLane(read, card)]))
       expect(board.map(card => [card.id, card.lane])).toEqual(bus)
@@ -88,7 +89,7 @@ describe('the board reads the bus through the bus readers', () => {
     withBus((db, file) => {
       const [first, second] = openTwoWaits(db)
       closeOwnerWait(db, NOW.toISOString(), 'owner', first, 'the first path', 3)
-      reduce(db)
+      reduce(db, 'pending', busProjections())
       const bus = withReadOnlyBus(file, openOwnerWaits)
       expect(bus.map(wait => wait.id)).toEqual([second])
       expect(factsOf(file).waits).toEqual(bus)
@@ -101,7 +102,7 @@ describe('the board reads the bus through the bus readers', () => {
       expect(factsOf(file).waits.map(wait => wait.id)).toEqual([first, second])
       expect(closeOwnerWait(db, NOW.toISOString(), 'owner', first, 'the first path', 3)).toBe(true)
       expect(factsOf(file)).toMatchObject({ waits: [], waitsStale: expect.stringMatching(/^owner_waits is stale: reduced through event \d+, behind owner\.wait\.closed \d+$/) })
-      reduce(db)
+      reduce(db, 'pending', busProjections())
       expect(factsOf(file).waits.map(wait => wait.id)).toEqual([second])
     })
   })

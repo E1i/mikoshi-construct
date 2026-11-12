@@ -16,6 +16,7 @@ import { sameDecisionWords, sayToOwnerChannel } from '../../owner/channel.js'
 import { recordDecision } from '../../policy/decisions/index.js'
 import { decisionsAdder } from '../../policy/decisions/projection.js'
 import { cardDecisionCommand } from '../../policy/shards.js'
+import { busProjections } from '../../supervisor/composition.js'
 import { runRequest, WindowRequests } from '../../window/window-requests.js'
 import { sha } from './github-fake.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
@@ -70,7 +71,7 @@ function stoppedByItsAgent(stop: Record<string, unknown> = { reason: QUESTION_AG
 }
 
 function waitOf(db: DatabaseSync, wait: string): { state: string, answer: string | null } {
-  reduce(db)
+  reduce(db, 'pending', busProjections())
   return db.prepare('SELECT state, answer FROM owner_waits WHERE id = ?').get(wait) as { state: string, answer: string | null }
 }
 
@@ -117,7 +118,7 @@ describe('one owner word on a card is one act', () => {
   it('a --card decision closes only the wait it names when it names one', () => {
     const card = stoppedByItsAgent()
     const other = openOwnerWait(card.made.db, card.made.clock.now().toISOString(), QUEUE_ACTOR, { need: 'command', text: 'which lane?', command: 'pnpm lanes:check', card: CARD })
-    reduce(card.made.db)
+    reduce(card.made.db, 'pending', busProjections())
 
     decided(card, `${card.wait}: ${ANSWERED}`)
 
@@ -167,14 +168,14 @@ describe('one owner word on a card is one act', () => {
     const byWord = stoppedByItsAgent(outside)
     expect(heldSessionStop(byWord.made.db, CARD)).not.toBeNull()
     closeOwnerWait(byWord.made.db, byWord.made.clock.now().toISOString(), QUEUE_ACTOR, byWord.wait, 'расширение не нужно', 1)
-    reduce(byWord.made.db)
+    reduce(byWord.made.db, 'pending', busProjections())
     expect(heldSessionStop(byWord.made.db, CARD)).toBeNull()
   })
 
   it('the owner channel word closing a command wait of the card binds a decision to the card', () => {
     const card = stoppedByItsAgent()
     const command = openOwnerWait(card.made.db, card.made.clock.now().toISOString(), QUEUE_ACTOR, { need: 'command', text: 'widen the touches?', command: 'pnpm intake --admit <draft>', card: CARD })
-    reduce(card.made.db)
+    reduce(card.made.db, 'pending', busProjections())
     const window = windowOf(card)
     sayToOwnerChannel(window.channel, `${command}: ${ANSWERED}`, card.made.clock.now())
 
@@ -201,12 +202,12 @@ describe('one owner word on a card is one act', () => {
     const outside = { reason: QUESTION_AGENT, detail: `the touches do not cover ${OUTSIDE}; widen them`, code: OUTSIDE_TOUCHES, paths: [OUTSIDE] }
     const card = stoppedByItsAgent(outside)
     closeOwnerWait(card.made.db, card.made.clock.now().toISOString(), QUEUE_ACTOR, card.wait, 'расширение не нужно', 1)
-    reduce(card.made.db)
+    reduce(card.made.db, 'pending', busProjections())
     expect(heldSessionStop(card.made.db, CARD)).toBeNull()
     card.made.tick()
 
     appendEvent(card.made.db, { ts: card.made.clock.now().toISOString(), type: CARD_STOPPED, actor: 'worker:launch:launch-1', cardId: CARD, pr: PR, head: sha('a'), dedupeKey: `${CARD_STOPPED}:${CARD}:again`, payload: outside, legacy: false })
-    reduce(card.made.db)
+    reduce(card.made.db, 'pending', busProjections())
 
     expect(heldSessionStop(card.made.db, CARD)).toMatchObject({ code: OUTSIDE_TOUCHES, paths: [OUTSIDE] })
   })

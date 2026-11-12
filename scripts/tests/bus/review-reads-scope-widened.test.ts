@@ -9,6 +9,7 @@ import { cardContract } from '../../intake/card-contract.js'
 import { busCardBodies } from '../../intake/parking-reads.js'
 import { busWidenedPaths, gitDepthSources } from '../../nodes/review/depth-sources.js'
 import { planReview } from '../../nodes/review/review-depth.js'
+import { busProjections } from '../../supervisor/composition.js'
 import { mergeBench } from './merge-bench.js'
 
 const CARD = 1778
@@ -31,7 +32,7 @@ function body(generation: string): string {
 function admit(made: MergeBench, generation: string): void {
   const text = body(generation)
   appendEvent(made.db, { ts: made.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'worker:intake:window', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${CARD}:${generation}`, payload: { card: `#${CARD}`, lane: 'lane-a', decision: 'auto', contour: 'cheap', depends: [], admission: `admission-${generation}`, text, textSha: textSha(text), bodySha: generation }, legacy: false })
-  reduce(made.db)
+  reduce(made.db, 'pending', busProjections())
 }
 
 function widen(made: MergeBench): void {

@@ -15,6 +15,7 @@ import { CARD_ADMITTED, CARD_STARTED } from '../../core/events.js'
 import { reduce } from '../../core/reducer.js'
 import { busIntakePorts } from '../../intake/intake.js'
 import { realDeps, runTaskStart } from '../../ports/task-start.js'
+import { busProjections } from '../../supervisor/composition.js'
 
 const CARD = 1783
 const LINE = `#${CARD} card-${CARD} [implement/ghosts/S/cheap/owner] · depends — · blocks —`
@@ -75,7 +76,7 @@ function admitThenAmend(w: World): void {
     const ports = busIntakePorts(db, 'by-hand', () => 1)
     const intake = { dir: w.repo, dryRun: false, autoConfirm: true, parkingRoot: path.dirname(w.parked), events: ports.cardEvents, cardStates: ports.cardStates, admissions: ports.cardAdmissions }
     expect(runAdmit({ ...intake, file: w.parked }, () => AT).status).toBe('admitted')
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     expect(runAmend({ ...intake, card: `#${CARD}`, flags: { note: AMENDED } }, () => AMENDED_AT).status).toBe('admitted')
   })
 }
@@ -123,7 +124,7 @@ describe('the card body is read from card.* events; the parking file is a projec
     expect(read(CARD)).not.toContain('A parking body nobody admitted.')
     inBus(w, (db) => {
       expect(cardBodyText(db, CARD)).not.toContain(AMENDED)
-      reduce(db)
+      reduce(db, 'pending', busProjections())
       expect(cardBodyText(db, CARD)).toBe(admittedBodyText(db, CARD))
     })
   })

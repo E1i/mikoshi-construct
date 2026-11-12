@@ -45,6 +45,7 @@ import { cardDecisionCommand } from '../../policy/shards.js'
 import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
 import { TICK_MS } from '../../ports/netwatch.js'
 import { WORKTREE_HOME_VARIABLE } from '../../ports/worktree-home.js'
+import { busProjections } from '../../supervisor/composition.js'
 import { recordHeartbeat } from '../../supervisor/heartbeat.js'
 import { requestFromWindow, WindowRequests } from '../../window/window-requests.js'
 import { sha } from './github-fake.js'
@@ -156,7 +157,7 @@ function startedEarlier(made: MergeBench, cardId: number): void {
 
 function mergedWithoutDerive(made: MergeBench, pr: number): number {
   appendEvent(made.db, { ts: made.clock.now().toISOString(), type: PR_CLOSED, actor: 'netwatch', cardId: pr + 100, pr, head: null, dedupeKey: `${PR_CLOSED}:${pr}:merged`, payload: { merged: true }, legacy: false })
-  reduce(made.db)
+  reduce(made.db, 'pending', busProjections())
   return lastEventOf(made, PR_CLOSED)
 }
 
@@ -327,7 +328,7 @@ describe('the launch node', () => {
     expect(eventsOf(made.db, TASK_FAILED)).toEqual([])
     expect(eventsOf(made.db, TASK_RELEASED)).toMatchObject([{ task_key: launchKey(975), reason: BODY_NOT_FOLDED }])
 
-    reduce(made.db)
+    reduce(made.db, 'pending', busProjections())
     made.clock.advance(TICK_MS)
     await once(node)
     expect(starter.starts.map(card => card.cardId)).toEqual([975])
@@ -341,7 +342,7 @@ describe('the launch node', () => {
     const node = nodeOf(made)
     expect(node.found()).toEqual([launchKey(979)])
 
-    reduce(made.db)
+    reduce(made.db, 'pending', busProjections())
     expect(node.found()).toEqual([launchKey(978)])
   })
 

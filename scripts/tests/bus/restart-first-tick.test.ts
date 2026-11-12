@@ -18,6 +18,7 @@ import { WATERMARKS } from '../../core/watermark.js'
 import { runRestartWorker } from '../../nodes/restart/restart-worker.js'
 import { CHECK_MS, NetWatch, TICK_MS } from '../../ports/netwatch.js'
 import { launchName } from '../../supervisor/bg.js'
+import { busProjections } from '../../supervisor/composition.js'
 import { BusTick, tickOrLocked } from '../../supervisor/run.js'
 import { recordWorkerDown, WorkerKeeper } from '../../supervisor/supervisor.js'
 import { workerLaunches } from '../../supervisor/workers.js'
@@ -124,7 +125,7 @@ class NetWatchWithNothingNew extends NetWatch {
 }
 
 function busTickOn(db: Bus, clock: Clock): BusTick {
-  return new BusTick(db, new NetWatchWithNothingNew(db, new FakeGitHub().client, clock.now), clock.now)
+  return new BusTick(db, busProjections(), new NetWatchWithNothingNew(db, new FakeGitHub().client, clock.now), clock.now)
 }
 
 function threadWorkMs(since?: NodeJS.CpuUsage): number {
@@ -221,7 +222,7 @@ describe('a bus:run restart holds no write longer than a node waits', () => {
     const file = scratch('bus-restart-no-snapshot-')
     await copyOfTheLiveBus(file)
     const old = openBus(file)
-    reduce(old, 'rebuild')
+    reduce(old, 'rebuild', busProjections())
     old.prepare(`DELETE FROM ${WATERMARKS} WHERE projection = ?`).run(SNAPSHOT)
     nodeWritesWhileDown(old, 0)
     const through = reducedThrough(old)

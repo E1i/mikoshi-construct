@@ -7,6 +7,7 @@ import { openBus } from '../../core/db.js'
 import { queueTask } from '../../core/queue.js'
 import { reduce } from '../../core/reducer.js'
 import { replayDifferences } from '../../core/report.js'
+import { busProjections } from '../../supervisor/composition.js'
 
 const TS = '2026-10-11T12:00:00.000Z'
 const roots: string[] = []
@@ -53,10 +54,10 @@ describe('replayDifferences reads one snapshot of bus.db', () => {
     const writer = openBus(file)
     try {
       queueTask(db, TS, { queue: 'answer', cardId: 856 })
-      reduce(db)
+      reduce(db, 'pending', busProjections())
       const interleaved = appendingBeforeEventRead(db, () => queueTask(writer, TS, { queue: 'answer', cardId: 857 }))
 
-      expect(replayDifferences(interleaved).differences).toEqual([])
+      expect(replayDifferences(interleaved, busProjections()).differences).toEqual([])
       expect(enqueuedCount(db)).toBe(1)
     }
     finally {

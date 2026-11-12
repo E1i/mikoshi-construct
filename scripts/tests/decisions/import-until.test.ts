@@ -8,6 +8,7 @@ import { reduce } from '../../core/reducer.js'
 import { importOwnerDecisions } from '../../policy/decisions/import.js'
 import { expireDecisions, inForceDecisions } from '../../policy/decisions/index.js'
 import { termInWords } from '../../policy/decisions/read.js'
+import { busProjections } from '../../supervisor/composition.js'
 
 const TERM = '2026-11-06T17:04Z'
 const BEFORE = '2026-11-06T10:00:00.000Z'
@@ -38,20 +39,20 @@ describe('a decision imported with a term in its words', () => {
   it('importing a decision with «до <date>» puts until into the column and it is not in force after the date', () => {
     const db = bus()
     expect(importOwnerDecisions(db, FILE, BEFORE)).toBe(true)
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     expect(inForceNumbers(db)).toEqual([1, 2])
     expect(untilOf(db, 2)).toBe(TERM)
     expect(untilOf(db, 1)).toBeNull()
 
     expireDecisions(db, AFTER)
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     expect(inForceNumbers(db)).toEqual([1])
   })
 
   it('an import after the date carries the decision no more', () => {
     const db = bus()
     importOwnerDecisions(db, FILE, AFTER.toISOString())
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     expect(inForceNumbers(db)).toEqual([1])
   })
 

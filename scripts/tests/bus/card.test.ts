@@ -11,6 +11,7 @@ import { CARD_ADMITTED } from '../../core/events.js'
 import { reduce } from '../../core/reducer.js'
 import { CONTRACT_FIELDS, CONTRACTS } from '../../intake/card-contract.js'
 import { busIntakePorts } from '../../intake/intake.js'
+import { busProjections } from '../../supervisor/composition.js'
 
 const AFTER_THE_CUTOFF = new Date('2026-10-13T09:00:00.000Z')
 const CARD = '#90 contract-card [implement/netwatch/S/cheap/auto] · depends — · blocks —'
@@ -50,7 +51,7 @@ function busWithAdmittedCard(): { bus: string, text: string } {
   try {
     const ports = busIntakePorts(db, 's1')
     runAdmit({ file, dir: repo, dryRun: false, autoConfirm: false, parkingRoot: parking, events: ports.cardEvents, cardStates: ports.cardStates, admissions: ports.cardAdmissions }, () => AFTER_THE_CUTOFF)
-    reduce(db)
+    reduce(db, 'pending', busProjections())
   }
   finally {
     db.close()
@@ -186,7 +187,7 @@ describe('pnpm card reads a card from card_bodies', () => {
     const db = openBus(bus)
     try {
       db.prepare(`INSERT INTO events (ts, type, actor, card_id, dedupe_key, payload, legacy) VALUES ('2026-10-13T10:00:00.000Z', '${CARD_ADMITTED}', 'test', 90, 'refused', ?, 0)`).run(JSON.stringify({ card: CARD, text: refused, textSha: createHash('sha256').update(refused).digest('hex') }))
-      reduce(db)
+      reduce(db, 'pending', busProjections())
     }
     finally {
       db.close()

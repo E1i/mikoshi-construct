@@ -14,6 +14,7 @@ import { keyOf, queueTask } from '../../core/queue.js'
 import { reduce } from '../../core/reducer.js'
 import { realTimedShell, WitnessExecutor } from '../../nodes/witness/witness-executor.js'
 import { SetupTurns, withWorktreeAsync } from '../../ports/worktree.js'
+import { busProjections } from '../../supervisor/composition.js'
 
 const CARD = 1601
 const PR = 1602
@@ -47,7 +48,7 @@ function greenOnTheBase(): World {
   dbs.push(db)
   const text = parkingFileText({ card: `#${CARD} earlyclose [implement/netwatch/S/cheap/auto] · depends — · blocks —`, branch: 'feat/earlyclose', touches: ['README.md'], continue: 'stop', who: 'shift', body: 'Touch README.md.\n\nWitnesses:\n- `test -f README.md` exits 0' })
   appendEvent(db, { ts: TS, type: CARD_ADMITTED, actor: 'worker:intake:by-hand', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${CARD}`, payload: { card: `#${CARD}`, lane: 'lane-1', text, textSha: textSha(text), bodySha: textSha(text).slice(0, 12) }, legacy: false })
-  reduce(db)
+  reduce(db, 'pending', busProjections())
   return { repo, db, main: git(repo, 'rev-parse', 'HEAD') }
 }
 
@@ -55,32 +56,32 @@ interface Mark { legacy?: boolean, at?: number }
 
 function started(w: World, { legacy = false, at = 1 }: Mark = {}): void {
   appendEvent(w.db, { ts: TS, type: CARD_STARTED, actor: 'worker:launch:launch-1', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_STARTED}:${CARD}:${SESSION}:${at}`, payload: { session: SESSION, branch: 'feat/earlyclose' }, legacy })
-  reduce(w.db)
+  reduce(w.db, 'pending', busProjections())
 }
 
 function continued(w: World): void {
   appendEvent(w.db, { ts: TS, type: CARD_CONTINUED, actor: 'worker:launch:launch-1', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_CONTINUED}:${CARD}:${SESSION}`, payload: { session: SESSION }, legacy: false })
-  reduce(w.db)
+  reduce(w.db, 'pending', busProjections())
 }
 
 function sessionEnded(w: World, { legacy = false, at = 1 }: Mark = {}): void {
   appendEvent(w.db, { ts: TS, type: CARD_SESSION_ENDED, actor: 'worker:launch:launch-1', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_SESSION_ENDED}:${CARD}:${SESSION}:${at}`, payload: { session: SESSION, stopped: false, detail: 'the session exited' }, legacy })
-  reduce(w.db)
+  reduce(w.db, 'pending', busProjections())
 }
 
 function stopped(w: World): void {
   appendEvent(w.db, { ts: TS, type: CARD_STOPPED, actor: 'worker:answer:s1', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:${CARD}`, payload: { reason: 'question_owner', detail: 'the owner decides' }, legacy: false })
-  reduce(w.db)
+  reduce(w.db, 'pending', busProjections())
 }
 
 function prOpened(w: World): void {
   appendEvent(w.db, { ts: TS, type: PR_OBSERVED, actor: 'netwatch', cardId: CARD, pr: PR, head: w.main, dedupeKey: `${PR_OBSERVED}:${PR}:${w.main}`, payload: { card_id: CARD, base: 'main', head: w.main, mergeable: 'clean', ci: 'green', auto_merge: false, draft: false, body_sha: 'a'.repeat(64) }, legacy: false })
-  reduce(w.db)
+  reduce(w.db, 'pending', busProjections())
 }
 
 function prClosed(w: World, merged: boolean): void {
   appendEvent(w.db, { ts: TS, type: PR_CLOSED, actor: 'netwatch', cardId: CARD, pr: PR, head: w.main, dedupeKey: `${PR_CLOSED}:${PR}`, payload: { merged }, legacy: false })
-  reduce(w.db)
+  reduce(w.db, 'pending', busProjections())
 }
 
 function prState(db: DatabaseSync): string | undefined {
@@ -93,7 +94,7 @@ async function witnessOnMain(w: World): Promise<void> {
   const lease = leaseQueued(w.db, TS, keyOf(task), 'worker:witness:earlyclose')!
   const turns = new SetupTurns()
   await new WitnessExecutor({ db: w.db, clock: () => new Date(TS), shell: realTimedShell, log: () => {}, trees: { baseOf: async () => w.main, withTree: (base, run) => withWorktreeAsync(w.repo, base, run, turns) } }).run(lease)
-  reduce(w.db)
+  reduce(w.db, 'pending', busProjections())
 }
 
 function closes(db: DatabaseSync): number {

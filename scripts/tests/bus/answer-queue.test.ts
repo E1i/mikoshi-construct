@@ -30,6 +30,7 @@ import { treeMergeOf } from '../../nodes/answer/duties/index.js'
 import { recordDecision } from '../../policy/decisions/index.js'
 import { cardDecisionCommand, cardDecisionLines } from '../../policy/shards.js'
 import { transcriptFile } from '../../ports/client/claude/adapter.js'
+import { busProjections } from '../../supervisor/composition.js'
 import { readBoard } from '../../window/board.js'
 import { sha } from './github-fake.js'
 import { eventCount, eventsOf, mergeBench, taskState } from './merge-bench.js'
@@ -154,7 +155,7 @@ describe('the answer queue', () => {
     expect(bench.leaseAnswer()).toMatchObject({ taskKey: answer(1090, 990, sha('a')), leaseGen: 1 })
 
     const live = projectionDump(bench.db)
-    reduce(bench.db)
+    reduce(bench.db, 'pending', busProjections())
     expect(projectionDump(bench.db)).toBe(live)
     bench.close()
   })
@@ -300,7 +301,7 @@ describe('the answer queue', () => {
     expect(bench.leaseAnswer()).toBeNull()
     expect(admitCommandOf(910, 'lane-a')).toBe('pnpm intake --admit <parking>/lane-a/910.md')
     expect(eventsOf(bench.db, OWNER_WAIT_OPENED)).toEqual([{ id: 'Q1', need: 'command', text: expect.stringContaining('card #910 asks to widen its touches: the lease query must admit a card with no pull request'), command: 'pnpm intake --admit <parking>/lane-a/910.md', card: 910 }])
-    reduce(bench.db)
+    reduce(bench.db, 'pending', busProjections())
     expect(bench.db.prepare('SELECT id, need, command, card_id, state FROM owner_waits').all().map(row => ({ ...row }))).toEqual([{ id: 'Q1', need: 'command', command: 'pnpm intake --admit <parking>/lane-a/910.md', card_id: 910, state: 'open' }])
     bench.close()
   })
@@ -472,7 +473,7 @@ describe('the answer queue', () => {
     bench.tick()
     expect(bench.leaseAnswer()).toBeNull()
     const live = projectionDump(bench.db)
-    reduce(bench.db)
+    reduce(bench.db, 'pending', busProjections())
     expect(projectionDump(bench.db)).toBe(live)
     bench.close()
   })
@@ -501,7 +502,7 @@ describe('the answer queue', () => {
 
     expect(answerTasks('queued')).toEqual([expect.stringMatching(new RegExp(`^${answer(1146, 1046, sha('a'))}:card-body-bbbb2222:stop-\\d+$`))])
     const live = projectionDump(bench.db)
-    reduce(bench.db)
+    reduce(bench.db, 'pending', busProjections())
     expect(projectionDump(bench.db)).toBe(live)
     bench.close()
   })
@@ -523,7 +524,7 @@ describe('the answer queue', () => {
     expect(liveAnswerTasks(bench)).toEqual([{ task_key: `${answer(1146, 1046, sha('a'))}:card-body-bbbb2222`, state: 'queued' }])
     expect(taskState(bench.db, `${answer(1146, 1046, sha('a'))}:card-body-aaaa1111`).state).toBe('superseded')
     const live = projectionDump(bench.db)
-    reduce(bench.db)
+    reduce(bench.db, 'pending', busProjections())
     expect(projectionDump(bench.db)).toBe(live)
     bench.close()
   })
@@ -541,7 +542,7 @@ describe('the answer queue', () => {
 
     expect(liveAnswerTasks(bench)).toEqual([{ task_key: answer(1147, 1047, sha('a')), state: 'leased' }])
     const live = projectionDump(bench.db)
-    reduce(bench.db)
+    reduce(bench.db, 'pending', busProjections())
     expect(projectionDump(bench.db)).toBe(live)
     bench.close()
   })
@@ -577,7 +578,7 @@ describe('the answer queue', () => {
 
     expect(liveAnswerTasks(bench)).toEqual([{ task_key: key, state: 'queued' }])
     const live = projectionDump(bench.db)
-    reduce(bench.db)
+    reduce(bench.db, 'pending', busProjections())
     expect(projectionDump(bench.db)).toBe(live)
     bench.close()
   })
@@ -741,7 +742,7 @@ describe('the answer queue', () => {
     bench.tick()
     expect(bench.leaseAnswer()).toBeNull()
     const live = projectionDump(bench.db)
-    reduce(bench.db)
+    reduce(bench.db, 'pending', busProjections())
     expect(projectionDump(bench.db)).toBe(live)
     bench.close()
   })
@@ -789,7 +790,7 @@ describe('the answer queue', () => {
     bench.tools.during = () => {}
     expect(await bench.answer(released)).toMatchObject({ kind: 'answered', head: PUSHED })
     bench.tick()
-    expect(reduce(bench.db)).toMatchObject({ rejected: 0 })
+    expect(reduce(bench.db, 'pending', busProjections())).toMatchObject({ rejected: 0 })
     expect(eventsOf(bench.db, REJECTED)).toEqual([])
     expect(bench.db.prepare('SELECT state FROM cards WHERE card_id = 1170').get()).toEqual({ state: 'in_review' })
     bench.close()
@@ -1014,7 +1015,7 @@ describe('a decision on a card is an event, and the card body stays as admitted'
     expect(answerTasks(bench.db)).toEqual([decided])
     expect(taskState(bench.db, decided)).toEqual({ state: 'queued', lease_gen: 0, failures: 0 })
     expect(admissions(bench.db)).toBe(2)
-    expect(reduce(bench.db)).toMatchObject({ rejected: 0 })
+    expect(reduce(bench.db, 'pending', busProjections())).toMatchObject({ rejected: 0 })
     bench.close()
   })
 

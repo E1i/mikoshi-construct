@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { appendEvent, openBus } from '../../core/db.js'
 import { reduce } from '../../core/reducer.js'
 import { decisionHistory, decisionRows, inForceDecisions, recordDecision, recordedNumbers, startProjectingDecisions } from '../../policy/decisions/index.js'
+import { busProjections } from '../../supervisor/composition.js'
 
 const RECORDED_AT = '2026-10-11T16:48:41.490Z'
 const SECOND_AT = '2026-10-12T04:27:41.909Z'
@@ -23,7 +24,7 @@ function bus(): DatabaseSync {
 
 function imported(db: DatabaseSync, key: string, decisions: readonly { decision_id: number, text: string, scope: number[] }[]): void {
   appendEvent(db, { ts: IMPORTED_AT, type: 'decisions.imported', actor: 'netwatch', cardId: null, pr: null, head: null, dedupeKey: `decisions.imported:${key}`, payload: { decisions }, legacy: false })
-  reduce(db)
+  reduce(db, 'pending', busProjections())
 }
 
 function eventIdOf(db: DatabaseSync, decisionId: number): number {
@@ -41,7 +42,7 @@ function tableRows(db: DatabaseSync): Record<string, unknown>[] {
 function recordTwo(db: DatabaseSync): void {
   recordDecision(db, { ts: RECORDED_AT, decisionId: 84, text: 'first.', cards: [] })
   recordDecision(db, { ts: SECOND_AT, decisionId: 90, text: 'second.', cards: [841], supersedes: [84] })
-  reduce(db)
+  reduce(db, 'pending', busProjections())
 }
 
 describe('the history of decisions reads the events', () => {
@@ -59,7 +60,7 @@ describe('the history of decisions reads the events', () => {
   it('an import leaves the date of a recorded decision as its event wrote it', () => {
     const db = bus()
     recordDecision(db, { ts: RECORDED_AT, decisionId: 84, text: 'first.', cards: [] })
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     const before = decisionHistory(db)
 
     imported(db, 'reworded', [{ decision_id: 84, text: 'first, reworded in the file.', scope: [] }])
@@ -91,7 +92,7 @@ describe('the history of decisions reads the events', () => {
     imported(db, 'without-both', [{ decision_id: 54, text: 'only in the file.', scope: [] }])
     const table = tableRows(db)
 
-    reduce(db, 'rebuild')
+    reduce(db, 'rebuild', busProjections())
 
     expect(table.map(row => row.decision_id)).toEqual([54, 84, 90])
     expect(tableRows(db)).toEqual(table)
@@ -104,7 +105,7 @@ describe('the history of decisions reads the events', () => {
     const inForce = inForceDecisions(db)
     removeAsTheFoldBefore1604Did(db, 84)
 
-    reduce(db, 'rebuild')
+    reduce(db, 'rebuild', busProjections())
 
     expect(inForceDecisions(db)).toEqual(inForce)
     expect(tableRows(db).map(row => row.decision_id)).toEqual([84, 90])
@@ -122,7 +123,7 @@ describe('the history of decisions reads the events', () => {
     const db = bus()
     recordTwo(db)
     startProjectingDecisions(db, AFTER_THE_CUT)
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     const history = decisionHistory(db)
     const rows = decisionRows(db)
 
@@ -145,7 +146,7 @@ describe('the history of decisions reads the events', () => {
     const db = bus()
     recordDecision(db, { ts: RECORDED_AT, decisionId: 84, text: 'first.', cards: [] })
     appendEvent(db, { ts: SECOND_AT, type: 'decision.recorded', actor: 'owner', cardId: null, pr: null, head: null, dedupeKey: 'decision.recorded:84:again', payload: { decision_id: 84, text: 'again.', scope: [], source: 'owner' }, legacy: false })
-    reduce(db)
+    reduce(db, 'pending', busProjections())
 
     expect(decisionHistory(db)).toEqual([
       { decisionId: 84, text: 'first.', cards: [], supersedes: [], eventId: eventIdOf(db, 84), recordedAt: RECORDED_AT },
@@ -174,7 +175,7 @@ describe('the history of decisions reads the events', () => {
     appendEvent(db, { ts: RECORDED_AT, type: 'decision.recorded', actor, cardId: null, pr: null, head: null, dedupeKey: 'decision.recorded:7', payload, legacy: false })
 
     expect(decisionHistory(db)).toEqual([])
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     expect(decisionHistory(db)).toEqual([])
     expect(db.prepare(`SELECT count(*) AS n FROM events WHERE type = 'reducer.rejected'`).get()).toEqual({ n: 1 })
   })

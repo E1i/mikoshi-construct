@@ -11,6 +11,7 @@ import { FAILURES_TO_STOP } from '../../core/queue.js'
 import { reduce } from '../../core/reducer.js'
 import { LaunchExecutor } from '../../nodes/launch/launch-executor.js'
 import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
+import { busProjections } from '../../supervisor/composition.js'
 import { mergeBench } from './merge-bench.js'
 
 const benches: MergeBench[] = []
@@ -40,7 +41,7 @@ function stoppedByFault(made: MergeBench, cardId: number): number {
     leaseGen = lease.leaseGen
     failTask(made.db, ts(), lease, { reason: 'start_failed', withdraw: false })
   }
-  reduce(made.db)
+  reduce(made.db, 'pending', busProjections())
   expect(stateOf(made, cardId)).toBe('stopped')
   return leaseGen
 }
@@ -70,7 +71,7 @@ function launchedUnder(made: MergeBench, actor: string): Lease {
   const executor = new LaunchExecutor({ db: made.db, starter: sessionStarter, clock: made.clock.now, disk: roomy, isolation: sandboxed })
   const outcome = executor.launch(lease)
   expect(outcome.kind === 'denied' ? outcome.denial : outcome.kind).toBe('started')
-  reduce(made.db)
+  reduce(made.db, 'pending', busProjections())
   return lease
 }
 
@@ -83,7 +84,7 @@ function requeuedAfterFaultStop(made: MergeBench, cardId: number): Lease {
   appendEvent(made.db, { ts: ts(), type: CARD_STOPPED, actor: 'worker:shift:1', cardId, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:fault-${cardId}`, payload: { reason: 'fault', detail: 'the session died' }, legacy: false })
   appendEvent(made.db, { ts: ts(), type: TASK_SUPERSEDED, actor: 'policy', cardId, pr: null, head: null, dedupeKey: `${TASK_SUPERSEDED}:${first.taskKey}`, payload: { task_key: first.taskKey, queue: 'launch', generation: `admission-${cardId}` }, legacy: false })
   appendEvent(made.db, { ts: ts(), type: TASK_REQUEUED, actor: 'policy', cardId, pr: null, head: null, dedupeKey: `${TASK_REQUEUED}:${first.taskKey}:request-1`, payload: { task_key: first.taskKey, queue: 'launch', generation: `admission-${cardId}`, request: 1 }, legacy: false })
-  reduce(made.db)
+  reduce(made.db, 'pending', busProjections())
   expect(stateOf(made, cardId)).toBe('stopped')
   const second = launchedUnder(made, 'worker:launch:worker-2')
   expect(second.taskKey).toBe(first.taskKey)
@@ -103,7 +104,7 @@ function stoppedByQuestion(made: MergeBench, cardId: number): void {
   const ts = made.clock.now().toISOString()
   appendEvent(made.db, { ts, type: CARD_ADMITTED, actor: 'policy', cardId, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${cardId}`, payload: { lane: `lane-${cardId}`, decision: 'auto', contour: 'cheap', depends: [], admission: `admission-${cardId}` }, legacy: false })
   appendEvent(made.db, { ts, type: CARD_STOPPED, actor: 'worker:shift:1', cardId, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:${cardId}`, payload: { reason: 'question.owner', detail: 'which pull request' }, legacy: false })
-  reduce(made.db)
+  reduce(made.db, 'pending', busProjections())
   expect(stateOf(made, cardId)).toBe('stopped')
 }
 
@@ -121,7 +122,7 @@ function verifiedOn(made: MergeBench, cardId: number, pr: number, shared: Record
 function closedOn(made: MergeBench, cardId: number, pr: number): string {
   const dedupeKey = `${CARD_CLOSED}:${cardId}`
   appendEvent(made.db, { ts: made.clock.now().toISOString(), type: CARD_CLOSED, actor: 'worker:close:worker-1', cardId, pr, head: null, dedupeKey, payload: { verification: 'run' }, legacy: false })
-  reduce(made.db)
+  reduce(made.db, 'pending', busProjections())
   return dedupeKey
 }
 
@@ -165,7 +166,7 @@ describe('a card never admitted', () => {
   it('a card never admitted is dropped', () => {
     const made = bench()
     appendEvent(made.db, { ts: made.clock.now().toISOString(), type: CARD_DROPPED, actor: 'worker:intake:s1', cardId: 1304, pr: null, head: null, dedupeKey: `${CARD_DROPPED}:1304`, payload: { lane: 'dropped' }, legacy: false })
-    reduce(made.db)
+    reduce(made.db, 'pending', busProjections())
 
     expect(stateOf(made, 1304)).toBe('dropped')
     expect(made.db.prepare(`SELECT count(*) AS n FROM events WHERE type = '${CARD_ADMITTED}' AND card_id = 1304`).get()).toEqual({ n: 0 })
@@ -177,7 +178,7 @@ describe('a card stopped by fault', () => {
     const made = bench()
     const started = startedUnder(made, 1201, stoppedByFault(made, 1201))
     const opened = openedUnder(made, 1202, 9202, stoppedByFault(made, 1202))
-    reduce(made.db)
+    reduce(made.db, 'pending', busProjections())
 
     expect(stateOf(made, 1201)).toBe('running')
     expect(stateOf(made, 1202)).toBe('in_review')
@@ -189,7 +190,7 @@ describe('a card stopped by fault', () => {
     const made = bench()
     const started = startedUnder(made, 1203, stoppedByFault(made, 1203) - 1)
     const opened = openedUnder(made, 1204, 9204, stoppedByFault(made, 1204) - 1)
-    reduce(made.db)
+    reduce(made.db, 'pending', busProjections())
 
     expect(stateOf(made, 1203)).toBe('stopped')
     expect(stateOf(made, 1204)).toBe('stopped')
@@ -202,7 +203,7 @@ describe('a card stopped by fault', () => {
     stoppedByFault(made, 1205)
     const dedupeKey = `${CARD_STARTED}:earlier-1205`
     appendEvent(made.db, { ts: made.clock.now().toISOString(), type: CARD_STARTED, actor: 'worker:launch:earlier', cardId: 1205, pr: null, head: null, dedupeKey, payload: { session: 'earlier' }, legacy: false })
-    reduce(made.db)
+    reduce(made.db, 'pending', busProjections())
 
     expect(stateOf(made, 1205)).toBe('stopped')
     expect(rejected(made, dedupeKey)).toBe(true)
@@ -221,7 +222,7 @@ describe('a card stopped by fault', () => {
     requeuedAfterFaultStop(made, 1208)
     const opened = `${PR_OPENED}:1208:9208`
     appendEvent(made.db, { ts: made.clock.now().toISOString(), type: PR_OPENED, actor: 'worker:shift:1', cardId: 1208, pr: 9208, head: null, dedupeKey: opened, payload: { pr: 9208 }, legacy: false })
-    reduce(made.db)
+    reduce(made.db, 'pending', busProjections())
 
     expect(rejected(made, opened)).toBe(false)
     expect(stateOf(made, 1208)).toBe('in_review')
@@ -232,9 +233,9 @@ describe('a card stopped by fault', () => {
     const made = bench()
     const lease = requeuedAfterFaultStop(made, 1209)
     appendEvent(made.db, { ts: made.clock.now().toISOString(), type: CARD_STOPPED, actor: 'worker:shift:1', cardId: 1209, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:fault-again-1209`, payload: { reason: 'fault', detail: 'the session died again' }, legacy: false })
-    reduce(made.db)
+    reduce(made.db, 'pending', busProjections())
     const opened = openedUnder(made, 1209, 9209, lease.leaseGen - 1)
-    reduce(made.db)
+    reduce(made.db, 'pending', busProjections())
 
     expect(rejected(made, opened)).toBe(true)
     expect(stateOf(made, 1209)).toBe('stopped')
@@ -245,7 +246,7 @@ describe('a card stopped by fault', () => {
     const leaseGen = stoppedByFault(made, 1206)
     appendEvent(made.db, { ts: made.clock.now().toISOString(), type: CARD_STOPPED, actor: 'worker:shift:1', cardId: 1206, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:question-1206`, payload: { reason: 'question.owner', detail: 'which lane' }, legacy: false })
     const started = startedUnder(made, 1206, leaseGen)
-    reduce(made.db)
+    reduce(made.db, 'pending', busProjections())
 
     expect(stateOf(made, 1206)).toBe('stopped')
     expect(rejected(made, started)).toBe(true)

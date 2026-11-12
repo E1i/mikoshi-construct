@@ -16,6 +16,7 @@ import { busCardBodies, busParkedDepends } from '../../intake/parking-reads.js'
 import { realAnswererTools } from '../../nodes/answer/answerer.js'
 import { gitDepthSources } from '../../nodes/review/depth-sources.js'
 import { realDeps } from '../../ports/task-start.js'
+import { busProjections } from '../../supervisor/composition.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')
 const RUNTIME_ROOTS = ['scripts', 'src']
@@ -86,10 +87,10 @@ function admitAndMove(w: World, between: () => void = () => {}): void {
   try {
     const ports = busIntakePorts(db, 's1')
     expect(runAdmit({ file: path.join(w.parking, 'lane-1', '90.md'), dir: w.repo, dryRun: false, autoConfirm: false, parkingRoot: w.parking, events: ports.cardEvents, cardStates: ports.cardStates, admissions: ports.cardAdmissions }, () => ADMITTED_AT).status).toBe('admitted')
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     between()
     expect(runMove({ move: '#90', to: 'lane-2', draft: undefined, taken: undefined, admit: undefined, parking: w.parking, events: ports.cardEvents }, () => MOVED_AT).status).toBe('moved')
-    reduce(db)
+    reduce(db, 'pending', busProjections())
   }
   finally {
     db.close()
@@ -108,7 +109,7 @@ function tasksDump(bus: string): string {
   try {
     for (const task of launchTasks(db))
       queueTask(db, MOVED_AT.toISOString(), task)
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     return JSON.stringify(db.prepare('SELECT * FROM tasks ORDER BY task_key').all())
   }
   finally {
@@ -135,7 +136,7 @@ describe('no runtime reader opens the parking directory; the card body comes fro
       const db = openBus(w.bus)
       try {
         appendEvent(db, { ts: ADMITTED_AT.toISOString(), type: CARD_STARTED, actor: 'policy', cardId: 90, pr: null, head: null, dedupeKey: `${CARD_STARTED}:90`, payload: {}, legacy: false })
-        reduce(db)
+        reduce(db, 'pending', busProjections())
       }
       finally {
         db.close()
@@ -164,7 +165,7 @@ describe('no runtime reader opens the parking directory; the card body comes fro
       const ports = busIntakePorts(db, 's1')
       const intake = { dir: w.repo, dryRun: false, autoConfirm: false, parkingRoot: w.parking, events: ports.cardEvents, cardStates: ports.cardStates, admissions: ports.cardAdmissions }
       expect(runAdmit({ ...intake, file: path.join(w.parking, 'lane-1', '90.md') }, () => ADMITTED_AT).status).toBe('admitted')
-      reduce(db)
+      reduce(db, 'pending', busProjections())
       expect(runAmend({ ...intake, card: '#90', flags: { note: AMENDED_NOTE } }, () => MOVED_AT).status).toBe('admitted')
     }
     finally {

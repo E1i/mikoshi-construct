@@ -11,6 +11,7 @@ import { admittedBodyText, cardBodyText } from '../../core/card-bodies.js'
 import { openBus } from '../../core/db.js'
 import { reduce } from '../../core/reducer.js'
 import { busCardAdmissions, busIntakePorts } from '../../intake/intake.js'
+import { busProjections } from '../../supervisor/composition.js'
 
 const CARD = 1784
 const LINE = `#${CARD} card-${CARD} [implement/ghosts/S/cheap/owner] · depends — · blocks —`
@@ -66,7 +67,7 @@ function intakeOf(w: World, db: DatabaseSync) {
 function admitThenWidenUnfolded(w: World, db: DatabaseSync): void {
   const intake = intakeOf(w, db)
   expect(runAdmit({ ...intake, file: w.parked }, () => AT).status).toBe('admitted')
-  reduce(db)
+  reduce(db, 'pending', busProjections())
   expect(runAmend({ ...intake, card: `#${CARD}`, flags: { note: WIDENED } }, () => WIDENED_AT).status).toBe('admitted')
   expect(cardBodyText(db, CARD)).not.toContain(WIDENED)
 }
@@ -80,7 +81,7 @@ describe('--amend and --export read the body from the latest card.admitted, not 
       const latest = admittedBodyText(db, CARD)
       expect(latest).toContain(WIDENED)
       expect(latest).toContain(SECOND)
-      reduce(db)
+      reduce(db, 'pending', busProjections())
       expect(cardBodyText(db, CARD)).toBe(latest)
     })
   })

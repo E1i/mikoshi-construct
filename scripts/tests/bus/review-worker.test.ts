@@ -30,6 +30,7 @@ import { withinTouches } from '../../policy/touch-scope.js'
 import { GhBudgetWindow, GhFailed, ghPort } from '../../ports/gh.js'
 import { NetWatch, TICK_MS } from '../../ports/netwatch.js'
 import { headlessInvocation } from '../../ports/session.js'
+import { busProjections } from '../../supervisor/composition.js'
 import { recordHeartbeat } from '../../supervisor/heartbeat.js'
 import { BusTick } from '../../supervisor/run.js'
 import { cardBody, Clock, FakeGitHub, sha } from './github-fake.js'
@@ -66,7 +67,7 @@ function setUp(): Bench {
   const db = openBus(busPath)
   const gitHub = new FakeGitHub()
   const clock = new Clock()
-  const busTick = new BusTick(db, new NetWatch(db, gitHub.client, clock.now), clock.now)
+  const busTick = new BusTick(db, busProjections(), new NetWatch(db, gitHub.client, clock.now), clock.now)
   const statuses: ReviewStatus[] = []
   const posted: StatusPublisher = (status) => {
     statuses.push(status)
@@ -139,7 +140,7 @@ function eventCount(db: DatabaseSync): number {
 
 function expectReplayIdentical(db: DatabaseSync): void {
   const live = projectionDump(db)
-  reduce(db)
+  reduce(db, 'pending', busProjections())
   expect(projectionDump(db)).toBe(live)
 }
 

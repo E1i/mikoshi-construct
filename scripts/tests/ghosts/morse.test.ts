@@ -15,6 +15,7 @@ import { reduce } from '../../core/reducer.js'
 import { busCardBodies } from '../../intake/parking-reads.js'
 import { approverOf, revokeEvent } from '../../ladder/approval.js'
 import { hashBrief, morseApprove } from '../../ladder/hash.js'
+import { busProjections } from '../../supervisor/composition.js'
 import { busWithCardStarted } from './card-started-bus.js'
 import { ownBusPerTest } from './own-bus.js'
 
@@ -50,7 +51,7 @@ function admitBody(busPath: string, text: string): void {
   const db = openBus(busPath)
   try {
     appendEvent(db, { ts: NOW.toISOString(), type: CARD_ADMITTED, actor: 'worker:intake:by-hand', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:body:${CARD}`, payload: { card: CARD_LINE, lane: 'lane-1', depends: [], text, textSha: textSha(text) }, legacy: false })
-    reduce(db)
+    reduce(db, 'pending', busProjections())
   }
   finally {
     db.close()

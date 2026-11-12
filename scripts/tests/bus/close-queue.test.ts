@@ -21,6 +21,7 @@ import { CloseExecutor } from '../../nodes/close/close-executor.js'
 import { CloseNode, closingVerification, runCloseWorker } from '../../nodes/close/close-worker.js'
 import { runTaskClose } from '../../nodes/close/task-close.js'
 import { launchCandidates } from '../../nodes/launch/launch-candidates.js'
+import { busProjections } from '../../supervisor/composition.js'
 import { read } from '../core/gh-fake.js'
 import { detectClose } from './close-detection.js'
 import { MAIN_2, sha } from './github-fake.js'
@@ -236,7 +237,7 @@ describe('the close queue', () => {
     bench.tick()
     expect(bench.db.prepare(`SELECT task_key FROM tasks WHERE queue = 'close' AND state = 'queued'`).all()).toEqual([])
     const live = projectionDump(bench.db)
-    reduce(bench.db)
+    reduce(bench.db, 'pending', busProjections())
     expect(projectionDump(bench.db)).toBe(live)
     bench.close()
   })
@@ -539,7 +540,7 @@ describe('the close queue', () => {
     const worker = closeNode({ db: bench.db, reported: closingVerification(bench.busPath), clock: bench.clock.now, session: 'window', parking: bench.parking })
     expect(await step(worker)).toMatchObject({ kind: 'closed', taskKey: close(1014), verification: 'code-reading' })
     expect(eventsOf(bench.db, CARD_CLOSED)).toEqual([{ verification: 'code-reading' }])
-    expect(reduce(bench.db).rejected).toBe(0)
+    expect(reduce(bench.db, 'pending', busProjections()).rejected).toBe(0)
     bench.close()
   })
 

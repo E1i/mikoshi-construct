@@ -10,6 +10,7 @@ import { prBodySha, taskKey } from '../../core/identifiers.js'
 import { completeTask, leaseNext } from '../../core/lease.js'
 import { deriveQueues, queueTask, reviewCandidates, reviewKeysOfAnOldInput, reviewKeysOfTheCurrentInputAgain } from '../../core/queue.js'
 import { projectionDump, reduce } from '../../core/reducer.js'
+import { busProjections } from '../../supervisor/composition.js'
 
 const HEADS = ['0123456789abcdef0123456789abcdef01234567', '89abcdef0123456789abcdef0123456789abcdef']
 const MAIN = 'fedcba9876543210fedcba9876543210fedcba98'
@@ -55,17 +56,17 @@ function replayedFromEmpty(log: readonly { [key: string]: unknown }[]): string {
     db.prepare(`INSERT INTO events (id, ts, type, actor, card_id, pr, head, dedupe_key, payload, legacy) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
       .run(row.id as number, row.ts as string | null, row.type as string, row.actor as string | null, row.card_id as number | null, row.pr as number | null, row.head as string | null, row.dedupe_key as string, row.payload as string, row.legacy as number)
   }
-  reduce(db)
+  reduce(db, 'pending', busProjections())
   const dump = projectionDump(db)
   db.close()
   return dump
 }
 
 function expectReplayKeepsOldReviews(copy: DatabaseSync): void {
-  reduce(copy)
+  reduce(copy, 'pending', busProjections())
   const folded = projectionDump(copy)
   const oldReviews = copy.prepare(`SELECT tasks.task_key, tasks.state, tasks.head, prs.head AS pr_head FROM tasks LEFT JOIN prs ON prs.pr = tasks.pr WHERE tasks.queue = 'review' ORDER BY tasks.task_key`).all() as { task_key: string, state: string, head: string | null, pr_head: string | null }[]
-  reduce(copy)
+  reduce(copy, 'pending', busProjections())
   expect(projectionDump(copy)).toBe(folded)
 
   const ofAnOldInput = new Set(reviewKeysOfAnOldInput(copy))
@@ -85,7 +86,7 @@ describe('replay determinism', () => {
     const source = newBus()
     for (const each of LOG)
       appendEvent(source, each)
-    reduce(source)
+    reduce(source, 'pending', busProjections())
     const live = projectionDump(source)
     const log = source.prepare('SELECT * FROM events ORDER BY id').all()
     source.close()
@@ -103,7 +104,7 @@ describe('replay determinism', () => {
     const source = newBus()
     for (const each of LOG)
       appendEvent(source, each)
-    reduce(source)
+    reduce(source, 'pending', busProjections())
     const live = projectionDump(source)
     const log = source.prepare(`SELECT * FROM events WHERE type != 'reducer.rejected' ORDER BY id`).all()
     expect(log.length).toBeLessThan((source.prepare('SELECT count(*) AS n FROM events').get() as { n: number }).n)
@@ -122,7 +123,7 @@ describe('replay determinism', () => {
     const prs = [930, 931, 932]
     for (const pr of prs)
       appendEvent(source, observed(pr, pr - 100, HEADS[0]!, 'green'))
-    reduce(source)
+    reduce(source, 'pending', busProjections())
     const oldKeys = prs.map(pr => taskKey({ queue: 'review', cardId: pr - 100, pr, head: HEADS[0]! }))
     queueTask(source, '2026-10-09T12:00:30.000Z', { queue: 'review', cardId: 832, pr: 932, head: HEADS[0]! })
     completeTask(source, '2026-10-09T12:00:40.000Z', leaseNext(source, '2026-10-09T12:00:35.000Z', 'review', 'worker:review:s0')!, [])
@@ -136,12 +137,12 @@ describe('replay determinism', () => {
 
     const copy = openBus(copyFile)
     const before = projectionDump(copy)
-    reduce(copy)
+    reduce(copy, 'pending', busProjections())
     expect(projectionDump(copy)).toBe(before)
 
     for (const pr of prs)
       appendEvent(copy, { ...observed(pr, pr - 100, HEADS[0]!, 'green'), dedupeKey: `pr:${pr}:${HEADS[0]!}:green:body`, payload: { base: 'main', head: HEADS[0]!, mergeable: 'clean', ci: 'green', auto_merge: false, draft: false, body_sha: prBodySha(`card: #${pr - 100}`) } })
-    reduce(copy)
+    reduce(copy, 'pending', busProjections())
     deriveQueues(copy, '2026-10-09T12:03:00.000Z')
     const live = copy.prepare(`SELECT pr, head, count(*) AS n FROM tasks WHERE queue = 'review' AND state IN ('queued', 'leased') GROUP BY pr, head HAVING n > 1`).all()
     expect(live).toEqual([])
@@ -152,7 +153,7 @@ describe('replay determinism', () => {
       { task_key: oldKeys[2], pr: 932, state: 'completed' },
     ])
     const settled = projectionDump(copy)
-    reduce(copy)
+    reduce(copy, 'pending', busProjections())
     expect(projectionDump(copy)).toBe(settled)
     copy.close()
   })
@@ -160,7 +161,7 @@ describe('replay determinism', () => {
   it(`${WITNESS}, on a VACUUM INTO snapshot of a bus that holds events`, () => {
     const source = newBus()
     appendEvent(source, observed(960, 860, HEADS[0]!, 'green'))
-    reduce(source)
+    reduce(source, 'pending', busProjections())
     const root = mkdtempSync(path.join(tmpdir(), 'bus-replay-snapshot-'))
     roots.push(root)
     const snapshot = path.join(root, 'bus.db')
@@ -178,13 +179,13 @@ describe('replay determinism', () => {
     const head = HEADS[0]!
     const body = (text: string): BusEvent => ({ ...observed(950, 850, head, 'green'), dedupeKey: `pr:950:${text}`, payload: { base: 'main', head, mergeable: 'clean', ci: 'green', auto_merge: false, draft: false, body_sha: prBodySha(text) } })
     appendEvent(copy, body('card: #850'))
-    reduce(copy)
+    reduce(copy, 'pending', busProjections())
     for (const task of reviewCandidates(copy, '2026-10-11T17:00:00.000Z'))
       queueTask(copy, '2026-10-11T17:00:00.000Z', task)
     const first = taskKey({ queue: 'review', cardId: 850, pr: 950, head, input: { prBody: prBodySha('card: #850'), cardBody: null } })
     expect(copy.prepare(`SELECT state FROM tasks WHERE task_key = ?`).get(first)).toEqual({ state: 'queued' })
     appendEvent(copy, body('card: #850 edited'))
-    reduce(copy)
+    reduce(copy, 'pending', busProjections())
 
     expectReplayKeepsOldReviews(copy)
     expect(copy.prepare(`SELECT state FROM tasks WHERE task_key = ?`).get(first)).toEqual({ state: 'superseded' })

@@ -13,6 +13,7 @@ import { projectionDump, reduce } from '../../core/reducer.js'
 import { NoLiveVerdict } from '../../nodes/merge/merge-worker.js'
 import { cleanUpdate, HEAD_READS, UpdateExecutor } from '../../nodes/update/update-executor.js'
 import { runUpdateWorker, UpdateNode } from '../../nodes/update/update-worker.js'
+import { busProjections } from '../../supervisor/composition.js'
 import { cardBody, MAIN_2, sha } from './github-fake.js'
 import { eventCount, eventsOf, liveBench, taskState } from './merge-bench.js'
 import { detectUpdate } from './update-detection.js'
@@ -178,7 +179,7 @@ describe('the update queue', () => {
     expect(bench.db.prepare(`SELECT task_key FROM tasks WHERE queue = 'review'`).all()).toEqual([])
     expect(bench.lease()).toMatchObject({ queue: 'merge', head: NEW_HEAD })
     const live = projectionDump(bench.db)
-    reduce(bench.db)
+    reduce(bench.db, 'pending', busProjections())
     expect(projectionDump(bench.db)).toBe(live)
     bench.close()
   })

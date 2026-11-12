@@ -9,6 +9,7 @@ import { appendEvent, openBus } from '../../core/db.js'
 import { BUS_PULSE, CARD_ADMITTED, CARD_ANSWERED, CARD_HELD, CARD_STARTED, CARD_STOPPED } from '../../core/events.js'
 import { prClosed, prObserved } from '../../core/observations.js'
 import { reduce } from '../../core/reducer.js'
+import { busProjections } from '../../supervisor/composition.js'
 import { productionDeps, STALL_MS } from '../../window/watch.js'
 
 const CARD = 1703
@@ -63,7 +64,7 @@ function readingAfter(story: (db: DatabaseSync) => void): Reading {
   try {
     story(db)
     appendEvent(db, { ts: new Date().toISOString(), type: BUS_PULSE, actor: ACTOR, cardId: null, pr: null, head: null, dedupeKey: `${BUS_PULSE}:alive`, payload: {}, legacy: false })
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     const card = db.prepare('SELECT state FROM cards WHERE card_id = ?').get(CARD) as { state: string }
     const prs = db.prepare('SELECT state FROM prs WHERE card_id = ?').all(CARD) as unknown as Array<{ state: string }>
     return { cardState: card.state, prStates: prs.map(row => row.state), stalled: productionDeps(root, bus).stalls().map(stall => stall.cardId) }

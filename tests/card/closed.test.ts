@@ -7,6 +7,7 @@ import { unsatisfiedDependencies } from '../../scripts/core/card-automaton.js'
 import { appendEvent, openBus } from '../../scripts/core/db.js'
 import { CARD_VERIFIED } from '../../scripts/core/events.js'
 import { reduce } from '../../scripts/core/reducer.js'
+import { busProjections } from '../../scripts/supervisor/composition.js'
 import { closedFromBus, closedTasks, endedCards, JOURNAL_HISTORY_ENDS, mergedTasks, writtenBeforeHistoryEnds } from '../../src/card/closed.js'
 
 const busRoots: string[] = []
@@ -22,7 +23,7 @@ function unsatisfiedIn(events: Omit<BusEvent, 'ts' | 'head' | 'dedupeKey'>[], de
   const db = openBus(path.join(root, 'bus.db'))
   try {
     events.forEach((event, at) => appendEvent(db, { ...event, ts: `2026-10-11T00:00:0${at}.000Z`, head: null, dedupeKey: `${event.type}:${event.cardId}:${at}` }))
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     return unsatisfiedDependencies(db)(depends)
   }
   finally {

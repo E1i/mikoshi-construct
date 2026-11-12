@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { appendEvent, openBus } from '../../core/db.js'
 import { runInbox } from '../../core/inbox.js'
 import { reduce } from '../../core/reducer.js'
+import { busProjections } from '../../supervisor/composition.js'
 
 const HEAD = '0123456789abcdef0123456789abcdef01234567'
 const TS = '2026-10-10T08:00:00.000Z'
@@ -44,7 +45,7 @@ function inbox(...events: BusEvent[]): string[] {
   const db = newBus()
   for (const each of events)
     appendEvent(db, each)
-  reduce(db)
+  reduce(db, 'pending', busProjections())
   const out: string[] = []
   expect(runInbox(db, line => out.push(line))).toBe(0)
   return out

@@ -12,6 +12,7 @@ import { leaseNext } from '../../core/lease.js'
 import { reduce } from '../../core/reducer.js'
 import { cardTreeSweep, DIRTY, EndedCardTrees, gitWorktrees, recordEndedTrees } from '../../nodes/close/ended-card-trees.js'
 import { TREE_LEFT } from '../../nodes/review/review-worker.js'
+import { busProjections } from '../../supervisor/composition.js'
 import { detectClose } from './close-detection.js'
 import { cardVerified, eventsOf, mergeBench } from './merge-bench.js'
 
@@ -43,7 +44,7 @@ function started(cardId: number, worktree: string): void {
   const ts = bench.clock.now().toISOString()
   appendEvent(bench.db, { ts, type: CARD_ADMITTED, actor: 'worker:intake:window', cardId, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${cardId}`, payload: { card: `#${cardId} part [implement/netwatch/S/cheap/auto] · depends — · blocks —`, lane: null, decision: 'auto', contour: 'cheap', depends: [] }, legacy: false })
   appendEvent(bench.db, { ts, type: CARD_STARTED, actor: 'worker:launch:earlier', cardId, pr: null, head: null, dedupeKey: `${CARD_STARTED}:earlier-${cardId}`, payload: { session: `s-${cardId}`, worktree, branch: `feat/card-${cardId}`, base: 'f'.repeat(40), pid: 1, pgid: 1 }, legacy: false })
-  reduce(bench.db)
+  reduce(bench.db, 'pending', busProjections())
 }
 
 function closeLeased(cardId: number): void {

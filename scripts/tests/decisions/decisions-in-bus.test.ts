@@ -13,6 +13,7 @@ import { archiveOf, runDecisionsRead, sessionCardOf } from '../../policy/decisio
 import { liveDecisionOf } from '../../policy/live-decision.js'
 import { reservationOf } from '../../policy/policy.js'
 import { decisionsInForceAt, unspentShard } from '../../policy/shards.js'
+import { busProjections } from '../../supervisor/composition.js'
 import { pendingRequests } from '../../window/window-requests.js'
 
 const NOW = new Date('2026-11-05T10:00:00Z')
@@ -41,27 +42,27 @@ function bench(fileText?: string): Bench {
   const file = path.join(root, 'owner-decisions.md')
   if (fileText !== undefined)
     writeFileSync(file, fileText)
-  return { root, db, file, settle: (now = NOW) => decisionsSettler(db, file, () => now)() }
+  return { root, db, file, settle: (now = NOW) => decisionsSettler(db, file, () => now, busProjections())() }
 }
 
 function record(made: Bench, decisionId: number, text: string, cards: number[] = [], supersedes?: number[]): void {
   recordDecision(made.db, { ts: NOW.toISOString(), decisionId, text, cards, ...(supersedes === undefined ? {} : { supersedes }) })
-  reduce(made.db)
+  reduce(made.db, 'pending', busProjections())
 }
 
 function mergeDone(made: Bench, card: number): void {
   appendEvent(made.db, { ts: NOW.toISOString(), type: 'merge.done', actor: 'worker:merge:s1', cardId: card, pr: 9000 + card, head: 'a'.repeat(40), dedupeKey: `merge.done:${card}`, payload: {}, legacy: false })
-  reduce(made.db)
+  reduce(made.db, 'pending', busProjections())
 }
 
 function admit(made: Bench, card: number): void {
   appendEvent(made.db, { ts: NOW.toISOString(), type: 'card.admitted', actor: 'netwatch', cardId: card, pr: null, head: null, dedupeKey: `card.admitted:${card}`, payload: {}, legacy: false })
-  reduce(made.db)
+  reduce(made.db, 'pending', busProjections())
 }
 
 function drop(made: Bench, card: number): void {
   appendEvent(made.db, { ts: NOW.toISOString(), type: 'card.dropped', actor: 'owner', cardId: card, pr: null, head: null, dedupeKey: `card.dropped:${card}`, payload: {}, legacy: false })
-  reduce(made.db)
+  reduce(made.db, 'pending', busProjections())
 }
 
 function inForceNumbers(db: DatabaseSync): number[] {
@@ -185,7 +186,7 @@ describe('owner decisions live in the bus', () => {
     writeFileSync(made.file, '# Owner decisions\n')
     expect(adder([`[owner] ${word}`]).code).toBe(0)
     expect(adder([`[owner] ${word} again`]).code).toBe(0)
-    reduce(made.db)
+    reduce(made.db, 'pending', busProjections())
     expect(inForceNumbers(made.db)).toEqual([1, 2])
     expect(sessionRead(made.file, null)).toHaveLength(2)
   })
@@ -234,7 +235,7 @@ describe('owner decisions live in the bus', () => {
     const rebuilt = readFileSync(made.file, 'utf8')
     writeFileSync(made.file, `${rebuilt}- D-2 · 2026-10-08 — [owner] allow-live merge\n`)
     made.settle()
-    reduce(made.db)
+    reduce(made.db, 'pending', busProjections())
     expect(inForceNumbers(made.db)).toEqual([1])
     expect(readFileSync(made.file, 'utf8')).toBe(rebuilt)
     expect(readFileSync(archiveOf(made.file), 'utf8')).toContain('allow-live merge')
@@ -266,7 +267,7 @@ describe('owner decisions live in the bus', () => {
     made.settle()
     const adder = decisionsAdder(made.db, made.file, () => NOW)
     expect(adder(['[owner] second. · supersedes D-1']).code).toBe(0)
-    reduce(made.db)
+    reduce(made.db, 'pending', busProjections())
     expect(inForceNumbers(made.db)).toEqual([2])
     made.settle()
     const rebuilt = readFileSync(made.file, 'utf8')
@@ -281,7 +282,7 @@ describe('owner decisions live in the bus', () => {
     const adder = decisionsAdder(made.db, made.file, () => NOW)
     expect(adder([`[owner] one. · card #${CARD}`]).code).toBe(0)
     expect(adder([`[owner] two. · until ${TERM}`]).code).toBe(0)
-    reduce(made.db)
+    reduce(made.db, 'pending', busProjections())
     expect(inForceDecisions(made.db)).toEqual([
       { decisionId: 1, text: 'one.', cards: [CARD] },
       { decisionId: 2, text: `two. · until ${TERM}`, cards: [] },
@@ -309,10 +310,10 @@ describe('owner decisions live in the bus', () => {
     const termed = `delegated. · until ${TERM}`
     record(made, 3, termed)
     expireDecisions(made.db, LATER)
-    reduce(made.db)
+    reduce(made.db, 'pending', busProjections())
     const imported = [{ decision_id: 1, text: 'first.', scope: [] }, { decision_id: 2, text: 'second, replacing the first.', scope: [] }, { decision_id: 3, text: termed, scope: [] }]
     appendEvent(made.db, { ts: NOW.toISOString(), type: 'decisions.imported', actor: 'netwatch', cardId: null, pr: null, head: null, dedupeKey: 'decisions.imported:test', payload: { decisions: imported }, legacy: false })
-    reduce(made.db)
+    reduce(made.db, 'pending', busProjections())
     expect(inForceNumbers(made.db)).toEqual([2])
     expect(stateOf(made.db, 1)).toBe('archived')
     expect(stateOf(made.db, 3)).toBe('archived')
@@ -324,7 +325,7 @@ describe('owner decisions live in the bus', () => {
     record(made, 2, 'delegation for a shard.', [CARD])
     record(made, 3, `#${OTHER_CARD} reserved for the owner.`, [OTHER_CARD])
     appendEvent(made.db, { ts: NOW.toISOString(), type: 'shard.issued', actor: 'owner', cardId: CARD, pr: null, head: null, dedupeKey: 'shard.issued:under-2', payload: { id: 'under-2', under: 2 }, legacy: false })
-    reduce(made.db)
+    reduce(made.db, 'pending', busProjections())
     const inForce = (): ReturnType<typeof decisionsInForceAt> => decisionsInForceAt(made.db, NOW)
     expect(liveDecisionOf(inForce(), 'merge')).toBe(1)
     expect(unspentShard(made.db, CARD, null, inForce())?.under).toBe(2)

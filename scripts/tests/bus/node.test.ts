@@ -16,6 +16,7 @@ import { keyOf, queueTask } from '../../core/queue.js'
 import { projectionDump, reduce } from '../../core/reducer.js'
 import { RateLimited } from '../../ports/meter.js'
 import { TICK_MS } from '../../ports/netwatch.js'
+import { busProjections } from '../../supervisor/composition.js'
 import { lastProcessBeats } from '../../supervisor/heartbeat.js'
 import { SLOTS, slotsOf, slotsVariable } from '../../supervisor/scheduler.js'
 import { COMPLETION_OF, windowOf } from '../../window/window.js'
@@ -279,7 +280,7 @@ describe('a node', () => {
     const db = newBus()
     const clock = new Clock()
     appendEvent(db, { ts: clock.now().toISOString(), type: 'pr.observed', actor: 'netwatch', cardId: 1070, pr: 970, head: sha('a'), dedupeKey: 'pr.observed:970', payload: { pr: 970, head: sha('a'), state: 'open', base: 'main', ci: 'green', mergeable: 'clean', draft: false }, legacy: false })
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     const before = projectionDump(db)
     const node = new FakeNode(db, clock, 'shadow')
     node.found = [task(970)]
@@ -288,7 +289,7 @@ describe('a node', () => {
     expect(detections(db)).toHaveLength(1)
     expect(count(db, 'SELECT count(*) AS n FROM events WHERE type = ?', NODE_EQUIVALENCE)).toBe(1)
 
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     expect(projectionDump(db)).toBe(before)
   })
 
@@ -296,7 +297,7 @@ describe('a node', () => {
     const db = newBus()
     const clock = new Clock()
     appendEvent(db, { ts: clock.now().toISOString(), type: 'pr.observed', actor: 'netwatch', cardId: 1070, pr: 970, head: sha('a'), dedupeKey: 'pr.observed:970', payload: { pr: 970, head: sha('a'), state: 'open', base: 'main', ci: 'green', mergeable: 'clean', auto_merge: false, draft: false }, legacy: false })
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     let release: () => void = () => {}
     const handled = new Promise<void>((resolve) => {
       release = resolve
@@ -404,7 +405,7 @@ describe('a node', () => {
     }
     for (const pr of [970, 971])
       appendEvent(db, { ts: clock.now().toISOString(), type: 'pr.observed', actor: 'netwatch', cardId: pr + 100, pr, head: sha('a'), dedupeKey: `pr.observed:${pr}`, payload: { pr, head: sha('a'), state: 'open', base: 'main', ci: 'green', mergeable: 'clean', auto_merge: false, draft: false }, legacy: false })
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     const node = new LockedTake(db, clock, 'live', [PROBE_SEEN], { [slotsVariable('merge')]: '2' })
     node.found = [task(970), task(971)]
     await once(node)
@@ -430,7 +431,7 @@ describe('a node', () => {
     const db = newBus()
     const clock = new Clock()
     appendEvent(db, { ts: clock.now().toISOString(), type: 'pr.observed', actor: 'netwatch', cardId: 1070, pr: 970, head: sha('a'), dedupeKey: 'pr.observed:970', payload: { pr: 970, head: sha('a'), state: 'open', base: 'main', ci: 'green', mergeable: 'clean', auto_merge: false, draft: false }, legacy: false })
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     class LimitedNode extends FakeNode {
       protected override handle(): NodeStep {
         throw new RateLimited(403, 120)
@@ -455,7 +456,7 @@ describe('a node', () => {
     const db = newBus()
     const clock = new Clock()
     appendEvent(db, { ts: clock.now().toISOString(), type: 'pr.observed', actor: 'netwatch', cardId: 1071, pr: 971, head: sha('a'), dedupeKey: 'pr.observed:971', payload: { pr: 971, head: sha('a'), state: 'open', base: 'main', ci: 'green', mergeable: 'clean', auto_merge: false, draft: false }, legacy: false })
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     class PortPause extends Error implements TaskMustWait {
       readonly taskMustWait = true
       readonly retryAfterSeconds = 30

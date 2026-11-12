@@ -17,6 +17,7 @@ import { recordFall } from '../../ladder/supervise.js'
 import { sayToOwnerChannel } from '../../owner/channel.js'
 import { recordDecision } from '../../policy/decisions/index.js'
 import { allowLiveCommand } from '../../policy/live-decision.js'
+import { busProjections } from '../../supervisor/composition.js'
 import { requestFromWindow, WindowRequests } from '../../window/window-requests.js'
 
 const HEAD = '0123456789abcdef0123456789abcdef01234567'
@@ -105,31 +106,31 @@ function rejections(db: ReturnType<typeof openBus>): Record<string, unknown>[] {
 describe('the reducer of the prs projection', () => {
   it('pr.observed writes the pr as open with the observed fields', () => {
     const db = busWith(observed(800, 793))
-    expect(reduce(db)).toEqual({ applied: 1, rejected: 0 })
+    expect(reduce(db, 'pending', busProjections())).toEqual({ applied: 1, rejected: 0 })
     expect(prs(db)).toEqual([{ pr: 800, card_id: 793, head: HEAD, state: 'open', mergeable: 'clean', ci: 'green' }])
     db.close()
   })
 
   it('a later pr.observed with a new head replaces the earlier reading', () => {
     const db = busWith(observed(800, 793), observed(800, null, { head: NEXT_HEAD, ci: 'pending' }))
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     expect(prs(db)).toEqual([{ pr: 800, card_id: 793, head: NEXT_HEAD, state: 'open', mergeable: 'clean', ci: 'pending' }])
     db.close()
   })
 
   it('pr.closed with merged moves the pr projection to merged', () => {
     const db = busWith(observed(800, 793), closed(800, true))
-    expect(reduce(db)).toEqual({ applied: 2, rejected: 0 })
+    expect(reduce(db, 'pending', busProjections())).toEqual({ applied: 2, rejected: 0 })
     expect(prs(db)).toEqual([{ pr: 800, card_id: 793, head: HEAD, state: 'merged', mergeable: 'clean', ci: 'green' }])
     db.close()
   })
 
   it('pr.closed without merged moves the pr to closed, and a later observation reopens it', () => {
     const db = busWith(observed(800, 793), closed(800, false))
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     expect(prs(db)[0]?.state).toBe('closed')
     appendEvent(db, observed(800, 793, { head: NEXT_HEAD }))
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     expect(prs(db)[0]?.state).toBe('open')
     db.close()
   })
@@ -137,7 +138,7 @@ describe('the reducer of the prs projection', () => {
   it('main.advanced keeps the mergeable reading of every open pr until a new observation replaces it', () => {
     const db = busWith(observed(800, 793, { mergeable: 'behind' }), observed(801, 794, { base: 'release' }), observed(802, 795), closed(802, true))
     appendEvent(db, event('main.advanced', { payload: { sha: MAIN, touches_mechanics: false } }))
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     expect(prs(db).map(row => [row.pr, row.state, row.mergeable])).toEqual([[800, 'open', 'behind'], [801, 'open', 'clean'], [802, 'merged', 'clean']])
     db.close()
   })
@@ -151,7 +152,7 @@ describe('the reducer of the prs projection', () => {
       observed(800, 793, { head: NEXT_HEAD }),
       event('main.advanced', { payload: { sha: 'abc', touches_mechanics: false } }),
     )
-    expect(reduce(db)).toEqual({ applied: 2, rejected: 4 })
+    expect(reduce(db, 'pending', busProjections())).toEqual({ applied: 2, rejected: 4 })
     expect(prs(db)).toEqual([{ pr: 800, card_id: 793, head: HEAD, state: 'merged', mergeable: 'clean', ci: 'green' }])
     expect(rejections(db).map(row => (row.payload as { reason: string }).reason)).toEqual([
       'pr 801 was never observed',
@@ -165,11 +166,11 @@ describe('the reducer of the prs projection', () => {
 
   it('reducing again folds nothing new, a rebuild gives the same projections, and no rejection is recorded twice', () => {
     const db = busWith(observed(800, 793), closed(801, true), closed(800, true))
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     const first = { prs: prs(db), cards: cards(db) }
-    expect(reduce(db)).toEqual({ applied: 0, rejected: 0 })
+    expect(reduce(db, 'pending', busProjections())).toEqual({ applied: 0, rejected: 0 })
     expect({ prs: prs(db), cards: cards(db) }).toEqual(first)
-    expect(reduce(db, 'rebuild')).toEqual({ applied: 2, rejected: 1 })
+    expect(reduce(db, 'rebuild', busProjections())).toEqual({ applied: 2, rejected: 1 })
     expect({ prs: prs(db), cards: cards(db) }).toEqual(first)
     expect(rejections(db)).toHaveLength(1)
     db.close()
@@ -178,19 +179,19 @@ describe('the reducer of the prs projection', () => {
   it('events past one batch fold in batches to the projections a rebuild gives, and a later reduce folds only the new ones', () => {
     const pulls = REDUCE_BATCH
     const db = busWith(observed(800, 793))
-    expect(reduce(db)).toEqual({ applied: 1, rejected: 0 })
+    expect(reduce(db, 'pending', busProjections())).toEqual({ applied: 1, rejected: 0 })
     for (let n = 0; n < pulls; n += 1) {
       appendEvent(db, observed(1000 + n, null))
       appendEvent(db, closed(1000 + n, n % 2 === 0))
     }
-    expect(reduce(db)).toEqual({ applied: 2 * pulls, rejected: 0 })
+    expect(reduce(db, 'pending', busProjections())).toEqual({ applied: 2 * pulls, rejected: 0 })
     expect(reducedThrough(db)).toBe(2 * pulls + 1)
     const batched = projectionDump(db)
     appendEvent(db, closed(800, true))
-    expect(reduce(db)).toEqual({ applied: 1, rejected: 0 })
+    expect(reduce(db, 'pending', busProjections())).toEqual({ applied: 1, rejected: 0 })
     const incremental = projectionDump(db)
     expect(incremental).not.toBe(batched)
-    reduce(db, 'rebuild')
+    reduce(db, 'rebuild', busProjections())
     expect(projectionDump(db)).toBe(incremental)
     db.close()
   })
@@ -202,12 +203,12 @@ describe('the reducer of the prs projection', () => {
       appendEvent(db, observed(1000 + n, null))
       appendEvent(db, closed(1000 + n, true))
     }
-    reduce(db, 'rebuild')
+    reduce(db, 'rebuild', busProjections())
     db.prepare(`DELETE FROM ${WATERMARKS} WHERE projection = ?`).run(SNAPSHOT)
     appendEvent(db, closed(800, true))
     const exec = vi.spyOn(db, 'exec')
 
-    expect(reduce(db)).toEqual({ applied: 2 * pulls + 2, rejected: 0 })
+    expect(reduce(db, 'pending', busProjections())).toEqual({ applied: 2 * pulls + 2, rejected: 0 })
     const writes = exec.mock.calls.filter(([sql]) => sql === 'BEGIN IMMEDIATE').length
     exec.mockRestore()
     expect(writes).toBeGreaterThan(Math.ceil((2 * pulls + 2) / REDUCE_BATCH))
@@ -215,25 +216,25 @@ describe('the reducer of the prs projection', () => {
     expect(prs(db).find(row => row.pr === 800)).toMatchObject({ state: 'merged' })
     expect(db.prepare(`SELECT name FROM sqlite_temp_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'`).all()).toEqual([])
     const built = projectionDump(db)
-    reduce(db, 'rebuild')
+    reduce(db, 'rebuild', busProjections())
     expect(projectionDump(db)).toBe(built)
     db.close()
   })
 
   it('a row another writer folded on append before the reduce is restored from the snapshot and folded again in event order, as a rebuild folds it', () => {
     const db = busWith(admitted(793))
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     appendEvent(db, started(793))
     expect(appendedOnCard(db, event('card.stopped', { actor: 'worker:answer:a1', cardId: 793, payload: { reason: 'review', detail: 'x' } }))).toBe(true)
     appendEvent(db, admitted(794))
     expect(db.prepare(`SELECT tbl, k1 FROM ${DIRTY_ROWS}`).all()).toEqual([{ tbl: 'cards', k1: 793 }])
 
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     expect(db.prepare(`SELECT count(*) AS n FROM ${DIRTY_ROWS}`).get()).toEqual({ n: 0 })
     const incremental = projectionDump(db)
     expect(cards(db).map(row => [row.card_id, row.state])).toEqual([[793, 'stopped'], [794, 'queued']])
     expect(rejections(db)).toEqual([])
-    reduce(db, 'rebuild')
+    reduce(db, 'rebuild', busProjections())
     expect(projectionDump(db)).toBe(incremental)
     db.close()
   })
@@ -243,7 +244,7 @@ describe('the reducer of the prs projection', () => {
       { ...observed(800, 793), actor: null, legacy: true },
       event('card.noted', { actor: 'worker:launch:s1', cardId: 793, payload: { from: 'lane-1', to: 'lane-2' } }),
     )
-    expect(reduce(db)).toEqual({ applied: 0, rejected: 0 })
+    expect(reduce(db, 'pending', busProjections())).toEqual({ applied: 0, rejected: 0 })
     expect(prs(db)).toEqual([])
     expect(cards(db)).toEqual([])
     db.close()
@@ -259,7 +260,7 @@ describe('the card automaton', () => {
       observed(801, 794),
       closed(801, true),
     )
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     expect(cards(db)).toEqual([
       { card_id: 793, state: 'in_review', pr: 800, event_id: 1 },
       { card_id: 794, state: 'merged', pr: 801, event_id: 5 },
@@ -269,7 +270,7 @@ describe('the card automaton', () => {
 
   it('an invalid card transition writes reducer.rejected and leaves the card unchanged', () => {
     const db = busWith(observed(800, 793), opened(793, 805), observed(806, 793, { head: NEXT_HEAD }), started(793), event('card.closed', { actor: 'worker:close:s1', cardId: 793, payload: { verification: 'run' } }))
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     expect(cards(db)).toEqual([{ card_id: 793, state: 'in_review', pr: 800, event_id: 1 }])
     expect(prs(db).map(row => row.pr)).toEqual([800])
     expect(rejections(db)).toEqual([
@@ -283,7 +284,7 @@ describe('the card automaton', () => {
 
   it('a card whose pr closed unmerged links to its next pr, and a card whose pr merged does not', () => {
     const db = busWith(observed(800, 793), closed(800, false), opened(793, 805), observed(810, 794), closed(810, true), opened(794, 811))
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     expect(cards(db).map(row => [row.card_id, row.pr])).toEqual([[793, 805], [794, 810]])
     expect(rejections(db).map(row => (row.payload as { reason: string }).reason)).toEqual(['card 794 is linked to pr 810, which is merged'])
     db.close()
@@ -291,7 +292,7 @@ describe('the card automaton', () => {
 
   it('a pr observed under one card is not claimed by another', () => {
     const db = busWith(observed(800, 793), observed(800, 794, { ci: 'red' }))
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     expect(prs(db)).toEqual([{ pr: 800, card_id: 793, head: HEAD, state: 'open', mergeable: 'clean', ci: 'green' }])
     expect(cards(db).map(row => row.card_id)).toEqual([793])
     expect(rejections(db).map(row => (row.payload as { reason: string }).reason)).toEqual(['pr 800 belongs to card 793, not 794'])
@@ -303,7 +304,7 @@ describe('the card automaton', () => {
       observed(753, cardIdOfDescription('card: #764 lane-guard [implement/bus/S/cheap/auto]\nbranch: feat/x')),
       observed(754, cardIdOfDescription('#765 lane-guard [implement/bus/S/cheap/auto]')),
     )
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     expect(cards(db).map(row => [row.card_id, row.pr])).toEqual([[764, 753], [765, 754]])
     expect(prs(db).map(row => [row.pr, row.card_id])).toEqual([[753, 764], [754, 765]])
     db.close()
@@ -313,11 +314,11 @@ describe('the card automaton', () => {
     const db = busWith(admitted(793))
     const states: unknown[] = []
     for (const next of [started(793), opened(793, 800)]) {
-      reduce(db)
+      reduce(db, 'pending', busProjections())
       states.push(cards(db)[0]?.state)
       appendEvent(db, next)
     }
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     states.push(cards(db)[0]?.state)
     expect(states).toEqual(['queued', 'running', 'in_review'])
     expect(rejections(db)).toEqual([])
@@ -345,7 +346,7 @@ describe('the card automaton', () => {
     const db = newBus()
     const states = steps.map(([next]) => {
       appendEvent(db, next)
-      reduce(db)
+      reduce(db, 'pending', busProjections())
       return cards(db)[0]?.state
     })
     expect(states).toEqual(steps.map(([, state]) => state))
@@ -357,19 +358,19 @@ describe('the card automaton', () => {
     const verifiedBy = (cardId: number, payload: Record<string, unknown>): BusEvent => event('card.verified', { actor: 'worker:task-close:window', cardId, payload })
     const closing = (cardId: number): BusEvent => event('card.closed', { actor: 'worker:close:c1', cardId, payload: { verification: 'run' } })
     const db = busWith(admitted(793), started(793), verifiedBy(793, { verification: 'run', report: '/shift/report-793.md' }), closing(793), admitted(794), started(794), verifiedBy(794, { verification: 'run' }), closing(794))
-    expect(reduce(db).rejected).toBe(1)
+    expect(reduce(db, 'pending', busProjections()).rejected).toBe(1)
     expect(cards(db).map(row => [row.card_id, row.state])).toEqual([[793, 'closed'], [794, 'running']])
   })
 
   it('card.closed carrying a pull request is rejected for a card only verified by a report', () => {
     const db = busWith(admitted(795), started(795), event('card.verified', { actor: 'worker:task-close:window', cardId: 795, payload: { verification: 'run', report: '/shift/report-795.md' } }), event('card.closed', { actor: 'worker:close:c1', cardId: 795, pr: 820, payload: { verification: 'run' } }))
-    expect(reduce(db).rejected).toBe(1)
+    expect(reduce(db, 'pending', busProjections()).rejected).toBe(1)
     expect(cards(db).map(row => [row.card_id, row.state])).toEqual([[795, 'running']])
   })
 
   it('a pull request netwatch links never leaves its card state null', () => {
     const db = busWith(observed(800, 793), observed(801, 794), closed(801, true), observed(802, cardIdOfDescription('#795 x [implement/bus/S/cheap/auto]')))
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     expect(cards(db).map(row => [row.card_id, row.state])).toEqual([[793, 'in_review'], [794, 'merged'], [795, 'in_review']])
     expect(db.prepare('SELECT count(*) AS n FROM cards WHERE state IS NULL').get()).toEqual({ n: 0 })
     db.close()
@@ -377,7 +378,7 @@ describe('the card automaton', () => {
 
   it('pr.opened from a worker links card and pull request without parsing the body', () => {
     const db = busWith(opened(793, 800), observed(800, null))
-    expect(reduce(db)).toEqual({ applied: 2, rejected: 0 })
+    expect(reduce(db, 'pending', busProjections())).toEqual({ applied: 2, rejected: 0 })
     expect(cards(db)).toEqual([{ card_id: 793, state: 'in_review', pr: 800, event_id: 1 }])
     expect(prs(db)).toEqual([{ pr: 800, card_id: 793, head: HEAD, state: 'open', mergeable: 'clean', ci: 'green' }])
     db.close()
@@ -387,7 +388,7 @@ describe('the card automaton', () => {
     const journalMerge = event('merge', { actor: null as unknown as string, cardId: 795, dedupeKey: 'legacy:1:merge', payload: { event: 'merge', task: '795', by: 'owner' }, legacy: true })
     const admission = (cardId: number): BusEvent => event('card.admitted', { actor: 'reducer', cardId, payload: { lane: 'archive', depends: [], admission: `legacy:${cardId}:sha` } })
     const db = busWith(journalMerge, admission(795), admission(796))
-    expect(reduce(db)).toEqual({ applied: 2, rejected: 0 })
+    expect(reduce(db, 'pending', busProjections())).toEqual({ applied: 2, rejected: 0 })
     expect(cards(db).map(row => [row.card_id, row.state])).toEqual([[795, 'merged'], [796, 'queued']])
     db.close()
   })
@@ -409,7 +410,7 @@ describe('the card automaton', () => {
       process.env[BUS_DB_VARIABLE] = isolated
     }
     const db = openBus(file)
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     expect(cards(db).map(row => [row.card_id, row.state])).toEqual([[890, 'fallen']])
     expect(db.prepare(`SELECT actor, json_extract(payload, '$.kind') AS kind FROM events WHERE type = 'card.fell'`).all()).toEqual([{ actor: 'worker:ladder:s890', kind: 'ladder-not-done' }])
     expect(rejections(db)).toEqual([])
@@ -419,7 +420,7 @@ describe('the card automaton', () => {
 
   it('a started card moved to dropped through the intake port is dropped', () => {
     const db = busWith(admitted(916), started(916), event('card.moved', { actor: 'worker:intake:by-hand', cardId: 916, payload: { lane: 'dropped' } }))
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     expect(cards(db).map(row => [row.card_id, row.state])).toEqual([[916, 'dropped']])
     expect(rejections(db)).toEqual([])
     db.close()
@@ -428,7 +429,7 @@ describe('the card automaton', () => {
   it('card.dropped moves the automaton to dropped from a started card, a queued card and a card the bus never admitted, and leaves a merged card merged', () => {
     const dropped = (cardId: number): BusEvent => event('card.dropped', { actor: 'worker:intake:by-hand', cardId, payload: { lane: 'dropped' } })
     const db = busWith(admitted(930), started(930), dropped(930), admitted(931), dropped(931), dropped(932), admitted(933), event('merge.done', { actor: 'worker:merge:s1', cardId: 933, pr: 933, payload: {} }), dropped(933))
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     expect(cards(db).map(row => [row.card_id, row.state])).toEqual([[930, 'dropped'], [931, 'dropped'], [932, 'dropped'], [933, 'merged']])
     expect(rejections(db)).toEqual([])
     db.close()
@@ -445,7 +446,7 @@ describe('the card automaton', () => {
       dropped(937, { children: ['938'], reason: 'sliced into #938' }),
       dropped(937, { children: [], reason: 'sliced into nothing' }),
     )
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     expect(cards(db).map(row => [row.card_id, row.state])).toEqual([[934, 'dropped'], [937, 'queued']])
     expect(rejections(db)).toHaveLength(4)
     db.close()
@@ -455,7 +456,7 @@ describe('the card automaton', () => {
     const backfilled = event('card.admitted', { actor: 'worker:backfill:window', cardId: 918, payload: { source: 'backfill' } })
     const moved = (cardId: number): BusEvent => event('card.moved', { actor: 'worker:intake:by-hand', cardId, payload: { lane } })
     const db = busWith(admitted(917), moved(917), backfilled, moved(918))
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     expect(cards(db).map(row => [row.card_id, row.state])).toEqual([[917, 'dropped'], [918, 'dropped']])
     expect(rejections(db)).toEqual([])
     db.close()
@@ -463,10 +464,10 @@ describe('the card automaton', () => {
 
   it('a move into a terminal folder keeps a merged card merged, and a repeated move makes no new transition', () => {
     const db = busWith(admitted(919), event('merge.done', { actor: 'worker:merge:s1', cardId: 919, pr: 919, payload: {} }), event('card.moved', { actor: 'worker:intake:by-hand', cardId: 919, payload: { lane: 'archive' } }), admitted(920), event('card.moved', { actor: 'worker:intake:by-hand', cardId: 920, payload: { lane: 'archive' } }))
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     const once = cards(db)
     appendEvent(db, event('card.moved', { actor: 'worker:intake:by-hand', cardId: 920, payload: { lane: 'archive' } }))
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     expect(once.map(row => [row.card_id, row.state])).toEqual([[919, 'merged'], [920, 'dropped']])
     expect(cards(db)).toEqual(once)
     expect(rejections(db)).toEqual([])
@@ -475,14 +476,14 @@ describe('the card automaton', () => {
 
   it('a move into a lane or the root changes no state', () => {
     const db = busWith(admitted(921), event('card.moved', { actor: 'worker:intake:by-hand', cardId: 921, payload: { lane: 'lane-2' } }), event('card.moved', { actor: 'worker:intake:by-hand', cardId: 921, payload: { lane: 'parking' } }))
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     expect(cards(db).map(row => [row.card_id, row.state])).toEqual([[921, 'queued']])
     db.close()
   })
 
   it('a fall written after the card was dropped leaves it dropped without a rejection', () => {
     const db = busWith(admitted(916), started(916), event('card.moved', { actor: 'worker:intake:by-hand', cardId: 916, payload: { lane: 'dropped' } }), event('card.fell', { actor: 'worker:ladder:s916', cardId: 916, payload: { kind: 'ladder-not-done' } }))
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     expect(cards(db).map(row => [row.card_id, row.state])).toEqual([[916, 'dropped']])
     expect(rejections(db)).toEqual([])
     db.close()
@@ -490,7 +491,7 @@ describe('the card automaton', () => {
 
   it('facts imported after the card moved on are folded without a rejection', () => {
     const db = busWith(observed(800, 793), closed(800, true), event('card.closed', { actor: 'worker:close:c1', cardId: 793, payload: { verification: 'run' } }), admitted(793), event('review.recorded', { actor: 'worker:review:r1', cardId: 794, payload: { verdict: 'pass' } }))
-    expect(reduce(db)).toEqual({ applied: 5, rejected: 0 })
+    expect(reduce(db, 'pending', busProjections())).toEqual({ applied: 5, rejected: 0 })
     expect(cards(db).map(row => [row.card_id, row.state])).toEqual([[793, 'queued']])
     db.close()
   })
@@ -510,7 +511,7 @@ describe('the reducer of the owner_waits projection', () => {
     expect(openBusWait(db, ts, 'policy', { need: 'command', text: 'again', command: allowLiveCommand('merge') })).toBe(live)
     recordDecision(db, { ts, decisionId: 900, text: '[owner] allow-live merge', cards: [] })
     recordDecision(db, { ts, decisionId: 901, text: '[owner] the first path', cards: [1213] })
-    expect(reduce(db)).toEqual({ applied: 5, rejected: 0 })
+    expect(reduce(db, 'pending', busProjections())).toEqual({ applied: 5, rejected: 0 })
     expect(waits(db)).toEqual([
       { id: live, need: 'command', command: 'pnpm decisions:add "[owner] allow-live merge"', card_id: null, pr: null, state: 'closed', answer: 'D-900' },
       { id: question, need: 'decision', command: null, card_id: 1213, pr: null, state: 'closed', answer: 'D-901' },
@@ -526,7 +527,7 @@ describe('the reducer of the owner_waits projection', () => {
     const live = openBusWait(db, ts, 'policy', { need: 'command', text: 'the merge queue merges unswitched', command: allowLiveCommand('merge') })
     const review = openBusWait(db, ts, 'policy', { need: 'command', text: 'the review queue runs unswitched', command: allowLiveCommand('review') })
     recordDecision(db, { ts, decisionId: 902, text: '  allow-live merge ', cards: [] })
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     expect(waits(db).map(wait => [wait.id, wait.state, wait.answer])).toEqual([[live, 'closed', 'D-902'], [review, 'open', null]])
     db.close()
   })
@@ -537,7 +538,7 @@ describe('the reducer of the owner_waits projection', () => {
     const live = openBusWait(db, ts, 'policy', { need: 'command', text: 'the merge queue merges unswitched', command: allowLiveCommand('merge') })
     recordDecision(db, { ts, decisionId: 903, text: '[owner] see (', cards: [] })
     recordDecision(db, { ts, decisionId: 904, text: '[owner] tags: [a', cards: [] })
-    expect(reduce(db)).toEqual({ applied: 3, rejected: 0 })
+    expect(reduce(db, 'pending', busProjections())).toEqual({ applied: 3, rejected: 0 })
     expect(waits(db).map(wait => [wait.id, wait.state, wait.answer])).toEqual([[live, 'open', null]])
     db.close()
   })
@@ -546,7 +547,7 @@ describe('the reducer of the owner_waits projection', () => {
     const finding = event(OWNER_WAIT_OPENED, { actor: 'policy', payload: { id: 'Q1', need: 'decision', text: 'main went red after PR #900' } })
     const unnamedMerge = event(OWNER_WAIT_OPENED, { actor: 'policy', payload: { id: 'Q2', need: 'merge', text: 'the owner merges something' } })
     const db = busWith(finding, unnamedMerge)
-    expect(reduce(db)).toEqual({ applied: 0, rejected: 2 })
+    expect(reduce(db, 'pending', busProjections())).toEqual({ applied: 0, rejected: 2 })
     expect(waits(db)).toEqual([])
     expect(rejections(db).map(row => (row.payload as { reason?: string }).reason)).toEqual([
       'the bus names no owner action for this decision: a finding for the backlog, not an owner wait',
@@ -559,7 +560,7 @@ describe('the reducer of the owner_waits projection', () => {
     const db = busWith(observed(800, 793))
     const id = openBusWait(db, '2026-10-09T12:00:00.000Z', 'policy', { need: 'merge', text: 'changes architecture/security-invariants.md', card: 793, pr: 800 })
     appendEvent(db, closed(800, true))
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     expect(waits(db)).toEqual([{ id, need: 'merge', command: null, card_id: 793, pr: 800, state: 'closed', answer: 'PR #800 merged' }])
     db.close()
   })
@@ -569,12 +570,12 @@ describe('the reducer of the owner_waits projection', () => {
     const depends = event(CARD_WAITING, { actor: 'worker:intake:s1', cardId: 1217, payload: { depends: [1216] } })
     const db = busWith(downgrade, depends)
     const ts = '2026-10-09T12:00:00.000Z'
-    expect(reduce(db)).toEqual({ applied: 2, rejected: 0 })
+    expect(reduce(db, 'pending', busProjections())).toEqual({ applied: 2, rejected: 0 })
     const id = waits(db)[0]!.id as string
     expect(waits(db)).toEqual([{ id: expect.stringMatching(/^W\d+$/), need: 'decision', command: null, card_id: 1216, pr: null, state: 'open', answer: null }])
     expect(openOwnerWait(db, ts, 'policy', { need: 'decision', text: 'which path?', card: 1300, request: 7 })).toBe('Q1')
     recordDecision(db, { ts, decisionId: 905, text: '[owner] разрешить понижение свидетеля w; red on main у #1216', cards: [1216] })
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     expect(waits(db).map(wait => [wait.id, wait.state, wait.answer])).toEqual([['Q1', 'open', null], [id, 'closed', 'D-905']])
     db.close()
   })
@@ -594,7 +595,7 @@ describe('the reducer of the owner_waits projection', () => {
   it('a decision naming one wait of a card closes that wait and leaves the other wait of the card open', () => {
     const { db, first, second } = twoQuestionsOnAStoppedCard(1400)
     recordDecision(db, { ts: '2026-10-09T12:00:00.000Z', decisionId: 910, text: `[owner] ${first}: the first path`, cards: [1400] })
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     expect(waits(db).map(wait => [wait.id, wait.state, wait.answer])).toEqual([[first, 'closed', 'D-910'], [second, 'open', null]])
     db.close()
   })
@@ -603,10 +604,10 @@ describe('the reducer of the owner_waits projection', () => {
     const { db, first, second } = twoQuestionsOnAStoppedCard(1401)
     const ts = '2026-10-09T12:00:00.000Z'
     recordDecision(db, { ts, decisionId: 911, text: `[owner] ${first}: the first path`, cards: [1401] })
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     expect(cardState(db, 1401)).toBe('stopped')
     recordDecision(db, { ts, decisionId: 912, text: `[owner] ${second}: the short name`, cards: [1401] })
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     expect(waits(db).map(wait => [wait.id, wait.state, wait.answer])).toEqual([[first, 'closed', 'D-911'], [second, 'closed', 'D-912']])
     expect(cardState(db, 1401)).not.toBe('stopped')
     db.close()
@@ -615,7 +616,7 @@ describe('the reducer of the owner_waits projection', () => {
   it('a decision naming every open wait of a card closes them and releases the card', () => {
     const { db, first, second } = twoQuestionsOnAStoppedCard(1402)
     recordDecision(db, { ts: '2026-10-09T12:00:00.000Z', decisionId: 913, text: `[owner] ${first} and ${second}: both as proposed`, cards: [1402] })
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     expect(waits(db).map(wait => [wait.id, wait.state])).toEqual([[first, 'closed'], [second, 'closed']])
     expect(cardState(db, 1402)).not.toBe('stopped')
     db.close()
@@ -624,7 +625,7 @@ describe('the reducer of the owner_waits projection', () => {
   it('a decision naming no wait closes every wait of its scope and releases the card', () => {
     const { db, first, second } = twoQuestionsOnAStoppedCard(1403)
     recordDecision(db, { ts: '2026-10-09T12:00:00.000Z', decisionId: 914, text: '[owner] both as proposed', cards: [1403] })
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     expect(waits(db).map(wait => [wait.id, wait.state, wait.answer])).toEqual([[first, 'closed', 'D-914'], [second, 'closed', 'D-914']])
     expect(cardState(db, 1403)).not.toBe('stopped')
     db.close()
@@ -635,7 +636,7 @@ describe('the reducer of the owner_waits projection', () => {
     const ts = '2026-10-09T12:00:00.000Z'
     const elsewhere = openOwnerWait(db, ts, 'policy', { need: 'decision', text: 'which lane?', card: 1405, request: 9 })
     recordDecision(db, { ts, decisionId: 915, text: `[owner] ${elsewhere}: the first lane`, cards: [1404] })
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     expect(waits(db).map(wait => [wait.id, wait.state])).toEqual([[first, 'open'], [second, 'open'], [elsewhere, 'open']])
     expect(cardState(db, 1404)).toBe('stopped')
     db.close()
@@ -644,9 +645,9 @@ describe('the reducer of the owner_waits projection', () => {
   it('a witness id in a decision is not a wait id, so the decision closes the waits of its scope', () => {
     const witnessNoWaitIsNamedAfter = 'W999999'
     const db = busWith(downgradeOf(1406))
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     recordDecision(db, { ts: '2026-10-09T12:00:00.000Z', decisionId: 916, text: `[owner] разрешить понижение свидетеля ${witnessNoWaitIsNamedAfter} у #1406`, cards: [1406] })
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     expect(waits(db).map(wait => [wait.card_id, wait.state, wait.answer])).toEqual([[1406, 'closed', 'D-916']])
     db.close()
   })
@@ -654,10 +655,10 @@ describe('the reducer of the owner_waits projection', () => {
   it('a downgrade wait named by its id closes alone, and an imported decision reads names the same way', () => {
     const { db, first, second } = twoQuestionsOnAStoppedCard(1407)
     appendEvent(db, downgradeOf(1407))
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     const downgrade = waits(db).find(wait => wait.need === 'decision' && wait.id !== first && wait.id !== second)!.id as string
     appendEvent(db, event(DECISIONS_IMPORTED, { payload: { decisions: [{ decision_id: 917, text: `[owner] ${downgrade}: allowed`, scope: [1407] }] } }))
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     expect(waits(db).map(wait => [wait.id, wait.state, wait.answer])).toEqual([[first, 'open', null], [second, 'open', null], [downgrade, 'closed', 'D-917']])
     expect(cardState(db, 1407)).toBe('stopped')
     db.close()
@@ -672,10 +673,10 @@ describe('the reducer of the owner_waits projection', () => {
     const db = busWith(admitted(1262), downgradeOf(1262))
     const question = openOwnerWait(db, ts, 'policy', { need: 'decision', text: 'which path?', card: 1262, request: 7 })
     const other = openOwnerWait(db, ts, 'policy', { need: 'decision', text: 'which path?', card: 1263, request: 8 })
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     expect(waits(db).filter(wait => wait.state === 'open')).toHaveLength(3)
     appendEvent(db, event('card.dropped', { actor: 'owner', cardId: 1262, payload: { replaced_by: 1263 } }))
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     expect(waits(db).map(wait => [wait.id, wait.card_id, wait.state, wait.answer])).toEqual([
       [question, 1262, 'closed', 'card #1262 dropped'],
       [other, 1263, 'open', null],
@@ -690,7 +691,7 @@ describe('the reducer of the owner_waits projection', () => {
     const question = openOwnerWait(db, ts, 'policy', { need: 'decision', text: 'which path?', card: 1262, request: 7 })
     appendEvent(db, event('card.dropped', { actor: 'owner', cardId: 1262, payload: { replaced_by: 1263 } }))
     appendEvent(db, downgradeOf(1262))
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     expect(waits(db).map(wait => [wait.id, wait.state, wait.answer])).toEqual([
       [question, 'closed', 'card #1262 dropped'],
       [expect.stringMatching(/^W\d+$/), 'closed', 'card #1262 dropped'],
@@ -700,17 +701,17 @@ describe('the reducer of the owner_waits projection', () => {
 
   it('a closed card closes a witness-downgrade wait that arrives after it', () => {
     const db = busWith(admitted(1274), started(1274), opened(1274, 903), observed(903, 1274), closed(903, true), event('card.closed', { actor: 'owner', cardId: 1274, pr: 903 }), downgradeOf(1274))
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     expect(waits(db).map(wait => [wait.card_id, wait.state, wait.answer])).toEqual([[1274, 'closed', 'card #1274 closed']])
     db.close()
   })
 
   it('a merged card closes its witness-downgrade wait', () => {
     const db = busWith(admitted(1216), started(1216), opened(1216, 900), observed(900, 1216), downgradeOf(1216))
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     expect(waits(db).map(wait => wait.state)).toEqual(['open'])
     appendEvent(db, closed(900, true))
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     expect(waits(db).map(wait => [wait.card_id, wait.state, wait.answer])).toEqual([[1216, 'closed', 'card #1216 merged']])
     db.close()
   })
@@ -722,9 +723,9 @@ describe('the reducer of the owner_waits projection', () => {
   it('a merge.done with no pr.closed closes the owner waits of its card', () => {
     const db = busWith(admitted(1264), started(1264), opened(1264, 901))
     const wait = openOwnerWait(db, '2026-10-09T12:00:00.000Z', 'policy', { need: 'command', text: 'run the release check', command: 'pnpm release:verify', card: 1264, request: 9 })
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     appendEvent(db, event('merge.done', { actor: 'worker:merge:s1', cardId: 1264, pr: 901, head: HEAD, payload: { commit: MAIN, rule: 'auto' } }))
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     expect(waits(db).map(each => [each.id, each.state, each.answer])).toEqual([[wait, 'closed', 'card #1264 merged']])
     db.close()
   })
@@ -732,28 +733,28 @@ describe('the reducer of the owner_waits projection', () => {
   it('a decision wait closes when its card is merged', () => {
     const db = busWith(admitted(1274), started(1274), opened(1274, 903), observed(903, 1274))
     const question = openWaitOn(db, 1274, 13)
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     appendEvent(db, closed(903, true))
     appendEvent(db, event('merge.done', { actor: 'worker:merge:s1', cardId: 1274, pr: 903, head: HEAD, payload: { commit: MAIN, rule: 'auto' } }))
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     expect(waits(db).map(each => [each.id, each.need, each.state, each.answer])).toEqual([[question, 'decision', 'closed', 'card #1274 merged']])
     db.close()
   })
 
   it('the tick closes a decision wait opened on a card that is already merged', () => {
     const db = busWith(admitted(1265), started(1265), opened(1265, 902), event('merge.done', { actor: 'worker:merge:s1', cardId: 1265, pr: 902, head: HEAD, payload: { commit: MAIN, rule: 'auto' } }))
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     const wait = openWaitOn(db, 1265, 10)
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     expect(closeWaitsOfEndedCards(db, '2026-10-09T12:01:00.000Z')).toEqual([wait])
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     expect(waits(db).map(each => [each.id, each.state, each.answer])).toEqual([[wait, 'closed', 'card #1265 merged']])
     db.close()
   })
 
   it('a done owner.wait.close closes the W wait', () => {
     const db = busWith(admitted(1280), downgradeOf(1280))
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     const id = waits(db)[0]!.id as string
     expect(id).toMatch(/^W\d+$/)
     const refuse = (): never => {
@@ -764,17 +765,17 @@ describe('the reducer of the owner_waits projection', () => {
     requestFromWindow(db, '2026-10-09T12:00:00.000Z', 'test', { kind: 'owner.wait.close', id, answer: 'the downgrade is withdrawn', from: ANSWER_SOURCE })
     const tools = { treeOf: refuse, exists: refuse, cutTree: refuse, dryRunOf: refuse, addDecision: refuse, causeHolds: refuse, closePr: refuse, closeDropped: () => [] }
     expect(new WindowRequests(db, () => new Date('2026-10-09T12:00:00.000Z'), tools, channel).run()).toMatchObject([{ kind: 'refused' }, { kind: 'done' }])
-    expect(reduce(db).rejected).toBe(0)
+    expect(reduce(db, 'pending', busProjections()).rejected).toBe(0)
     expect(waits(db).map(each => [each.id, each.state, each.answer])).toEqual([[id, 'closed', 'the downgrade is withdrawn']])
     db.close()
   })
 
   it('a done owner.wait.close leaves the W wait closed in the owner_waits projection', () => {
     const db = busWith(admitted(1262), downgradeOf(1262))
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     const id = waits(db)[0]!.id as string
     appendEvent(db, event(OWNER_WAIT_CLOSED, { actor: null, legacy: true, dedupeKey: `${OWNER_WAIT_CLOSED}:${id}`, payload: { id, answer: 'a close the projection never applied' } }))
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     expect(waits(db).map(each => each.state)).toEqual(['open'])
     const refuse = (): never => {
       throw new Error('closing a wait uses no tool')
@@ -785,7 +786,7 @@ describe('the reducer of the owner_waits projection', () => {
     requestFromWindow(db, '2026-10-09T12:00:00.000Z', 'test', { kind: 'owner.wait.close', id, answer: 'card #1262 dropped, the wait is void', from: ANSWER_SOURCE })
     requestFromWindow(db, '2026-10-09T12:00:01.000Z', 'test', { kind: 'owner.wait.close', id, answer: 'the same close again', from: ANSWER_SOURCE })
     expect(requests.run().map(outcome => outcome.kind)).toEqual(['done', 'refused'])
-    expect(reduce(db).rejected).toBe(0)
+    expect(reduce(db, 'pending', busProjections()).rejected).toBe(0)
     expect(waits(db).map(each => [each.id, each.state, each.answer])).toEqual([[id, 'closed', 'card #1262 dropped, the wait is void']])
     db.close()
   })
@@ -793,19 +794,19 @@ describe('the reducer of the owner_waits projection', () => {
   it('the round limit wait of a lost re-cut is opened, not rejected', () => {
     const db = newBus()
     const id = openOwnerWait(db, '2026-10-09T12:00:00.000Z', 'policy', { need: 'decision', text: lostRecutWaitText(1290, 904), card: 1290, pr: 904 })
-    expect(reduce(db)).toEqual({ applied: 1, rejected: 0 })
+    expect(reduce(db, 'pending', busProjections())).toEqual({ applied: 1, rejected: 0 })
     expect(waits(db)).toEqual([{ id, need: 'decision', command: null, card_id: 1290, pr: 904, state: 'open', answer: null }])
     db.close()
   })
 
   it('a card.closed closes an owner wait opened on its card after the merge', () => {
     const db = busWith(admitted(1265), started(1265), opened(1265, 902), event('merge.done', { actor: 'worker:merge:s1', cardId: 1265, pr: 902, head: HEAD, payload: { commit: MAIN, rule: 'auto' } }))
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     const wait = openWaitOn(db, 1265, 10)
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     expect(waits(db).map(each => each.state)).toEqual(['open'])
     appendEvent(db, event('card.closed', { actor: 'owner', cardId: 1265, pr: 902 }))
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     expect(waits(db).map(each => [each.id, each.state, each.answer])).toEqual([[wait, 'closed', 'card #1265 closed']])
     db.close()
   })
@@ -814,27 +815,27 @@ describe('the reducer of the owner_waits projection', () => {
     const db = busWith(admitted(1266), admitted(1267))
     const kept = openWaitOn(db, 1266, 11)
     const ended = openWaitOn(db, 1267, 12)
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     appendEvent(db, event('card.moved', { actor: 'owner', cardId: 1266, payload: { lane: 'lane-2' } }))
     appendEvent(db, event('card.moved', { actor: 'owner', cardId: 1267, payload: { lane: 'archive' } }))
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     expect(waits(db).map(each => [each.id, each.state, each.answer])).toEqual([[kept, 'open', null], [ended, 'closed', 'card #1267 dropped']])
     db.close()
   })
 
   it('a card admitted after its held downgrade closes the downgrade wait as admitted, and a later downgrade opens a new one', () => {
     const db = busWith(admitted(1216), downgradeOf(1216), admitted(1216))
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     expect(waits(db).map(wait => [wait.state, wait.answer])).toEqual([['closed', 'card #1216 admitted']])
     appendEvent(db, downgradeOf(1216))
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     expect(waits(db).map(wait => wait.state)).toEqual(['closed', 'open'])
     db.close()
   })
 
   it('a witness downgrade that names no action for the owner is rejected', () => {
     const db = busWith(event(CARD_WAITING, { cardId: 1216, payload: { reason: WITNESS_DOWNGRADE, actions: [] } }), event(CARD_WAITING, { payload: { reason: WITNESS_DOWNGRADE, actions: ['a'] } }))
-    expect(reduce(db)).toEqual({ applied: 0, rejected: 2 })
+    expect(reduce(db, 'pending', busProjections())).toEqual({ applied: 0, rejected: 2 })
     expect(waits(db)).toEqual([])
     db.close()
   })
@@ -854,14 +855,14 @@ describe('the plan journal', () => {
       plan('plan.item.linked', { plan: 'p-045', item: 'S1', card: 902 }),
       plan('plan.item.removed', { plan: 'p-045', item: 'S3' }),
     )
-    expect(reduce(db)).toEqual({ applied: 7, rejected: 0 })
+    expect(reduce(db, 'pending', busProjections())).toEqual({ applied: 7, rejected: 0 })
     const rows = (): unknown => [db.prepare('SELECT plan_id, title, goal, plan_file, state FROM plans').all(), db.prepare('SELECT plan_id, item_id, title, cards FROM plan_items ORDER BY item_id').all()]
     expect(rows()).toEqual([
       [{ plan_id: 'p-045', title: 'Plan 0.45', goal: 'explicit journals', plan_file: '/plans/0.45.md', state: 'open' }],
       [{ plan_id: 'p-045', item_id: 'S1', title: 'slice one', cards: '[901,902]' }, { plan_id: 'p-045', item_id: 'S2', title: 'slice two', cards: '[]' }],
     ])
     const first = rows()
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     expect(rows()).toEqual(first)
     db.close()
   })
@@ -879,7 +880,7 @@ describe('the plan journal', () => {
       plan('plan.item.added', { plan: 'p-045', item: 'S2', title: 'late' }),
       plan('plan.closed', { plan: 'p-045' }),
     )
-    expect(reduce(db)).toEqual({ applied: 4, rejected: 6 })
+    expect(reduce(db, 'pending', busProjections())).toEqual({ applied: 4, rejected: 6 })
     expect(rejections(db).map(row => (row.payload as { reason: string }).reason)).toEqual([
       'plan.opened is the owner\'s, not netwatch\'s',
       'plan p-045 was opened before',
@@ -903,7 +904,7 @@ describe('the plan journal', () => {
       event('card.unplanned', { actor: 'owner', cardId: 902, payload: { card: 902 } }),
       event('card.unplanned', { actor: 'owner', cardId: 902, payload: { card: 902 } }),
     )
-    expect(reduce(db)).toEqual({ applied: 4, rejected: 4 })
+    expect(reduce(db, 'pending', busProjections())).toEqual({ applied: 4, rejected: 4 })
     expect(rejections(db).map(row => (row.payload as { reason: string }).reason)).toEqual([
       'card 902 is already in release p-045',
       'plan p-999 is not open',
@@ -913,7 +914,7 @@ describe('the plan journal', () => {
     const rows = (): unknown => [db.prepare('SELECT plan_id, gate FROM plans').all(), db.prepare('SELECT card_id, release FROM card_releases ORDER BY card_id').all()]
     expect(rows()).toEqual([[{ plan_id: 'p-045', gate: 'VEDETIRUN' }], [{ card_id: 901, release: 'p-045' }]])
     const first = rows()
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     expect(rows()).toEqual(first)
     db.close()
   })

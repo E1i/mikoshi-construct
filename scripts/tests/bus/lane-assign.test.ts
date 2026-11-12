@@ -19,6 +19,7 @@ import { busCardEvents, busIntakePorts } from '../../intake/intake.js'
 import { chainLaneNumber, currentLane, DEFAULT_LANE_COUNT, laneCount, laneOverlapRecorder, layLanes, liveLanes, OWNER_MERGE, repositoryLanes, STALLED } from '../../nodes/launch/lane-assign.js'
 import { launchCandidates } from '../../nodes/launch/launch-candidates.js'
 import { LaunchNode } from '../../nodes/launch/launch-worker.js'
+import { busProjections } from '../../supervisor/composition.js'
 
 const TS = '2026-10-22T10:00:00.000Z'
 const HEAD = 'a'.repeat(40)
@@ -57,7 +58,7 @@ class Bench {
     const text = cardText(id, touches, depends)
     this.admissions += 1
     busCardEvents(this.db, 's1', () => this.lanes)({ type: CARD_ADMITTED, cardId: id, ts: TS, dedupeKey: `admit-${id}-${this.admissions}`, payload: { card: text.split('\n')[0]!.slice('card: '.length), lane: null, depends, decision: 'auto', contour: 'cheap', text, textSha: textSha(text) } })
-    reduce(this.db)
+    reduce(this.db, 'pending', busProjections())
     return this
   }
 
@@ -70,13 +71,13 @@ class Bench {
 
   start(id: number): this {
     appendEvent(this.db, { ts: TS, type: CARD_STARTED, actor: 'policy', cardId: id, pr: null, head: null, dedupeKey: `${CARD_STARTED}:${id}`, payload: {}, legacy: false })
-    reduce(this.db)
+    reduce(this.db, 'pending', busProjections())
     return this
   }
 
   drop(id: number): this {
     appendEvent(this.db, { ts: TS, type: CARD_DROPPED, actor: 'policy', cardId: id, pr: null, head: null, dedupeKey: `${CARD_DROPPED}:${id}`, payload: {}, legacy: false })
-    reduce(this.db)
+    reduce(this.db, 'pending', busProjections())
     return this
   }
 
@@ -97,20 +98,20 @@ class Bench {
   openPr(id: number, head = HEAD): number {
     const pr = id + 1000
     appendEvent(this.db, { ts: TS, type: PR_OBSERVED, actor: 'netwatch', cardId: id, pr, head, dedupeKey: `${PR_OBSERVED}:${pr}:${head}`, payload: { card_id: id, base: 'main', head, mergeable: 'clean', ci: 'green', auto_merge: false, draft: false }, legacy: false })
-    reduce(this.db)
+    reduce(this.db, 'pending', busProjections())
     return pr
   }
 
   admitWithoutBody(id: number): this {
     appendEvent(this.db, { ts: TS, type: CARD_ADMITTED, actor: 'policy', cardId: id, pr: null, head: null, dedupeKey: `bodiless-${id}`, payload: { lane: null, depends: [] }, legacy: false })
-    reduce(this.db)
+    reduce(this.db, 'pending', busProjections())
     layLanes(this.db, this.lanes, TS, 'policy')
     return this
   }
 
   queued(task: QueuedTask): this {
     queueTask(this.db, TS, task)
-    reduce(this.db)
+    reduce(this.db, 'pending', busProjections())
     return this
   }
 
@@ -118,21 +119,21 @@ class Bench {
     queueTask(this.db, TS, task)
     const lease = leaseQueued(this.db, TS, taskKey(task), `worker:${task.queue}:w1`)!
     failTask(this.db, TS, lease, { reason, withdraw: true }, context)
-    reduce(this.db)
+    reduce(this.db, 'pending', busProjections())
     return this
   }
 
   leased(task: QueuedTask): this {
     queueTask(this.db, TS, task)
     leaseQueued(this.db, TS, taskKey(task), `worker:${task.queue}:w1`)
-    reduce(this.db)
+    reduce(this.db, 'pending', busProjections())
     return this
   }
 
   superseded(task: QueuedTask): this {
     queueTask(this.db, TS, task)
     supersedeTask(this.db, TS, task)
-    reduce(this.db)
+    reduce(this.db, 'pending', busProjections())
     return this
   }
 
@@ -157,14 +158,14 @@ class Bench {
     const wait = openOwnerWait(this.db, TS, 'policy', { need, text: 'over to the owner', card: id, pr })
     if (closed)
       closeOwnerWait(this.db, TS, 'owner', wait, 'done', 1)
-    reduce(this.db)
+    reduce(this.db, 'pending', busProjections())
     return this
   }
 
   closedPr(id: number, merged: boolean): this {
     const pr = id + 1000
     appendEvent(this.db, { ts: TS, type: PR_CLOSED, actor: 'netwatch', cardId: id, pr, head: null, dedupeKey: `${PR_CLOSED}:${pr}`, payload: { merged }, legacy: false })
-    reduce(this.db)
+    reduce(this.db, 'pending', busProjections())
     return this
   }
 
@@ -210,7 +211,7 @@ function repositoryWithLanes(lanes: number): string {
 function admittedWithoutLane(db: DatabaseSync, id: number): void {
   const text = cardText(id, `src/${id}.ts`)
   appendEvent(db, { ts: TS, type: CARD_ADMITTED, actor: 'policy', cardId: id, pr: null, head: null, dedupeKey: `bare-${id}`, payload: { lane: null, depends: [], text, textSha: textSha(text) }, legacy: false })
-  reduce(db)
+  reduce(db, 'pending', busProjections())
 }
 
 function assignedCounts(db: DatabaseSync): number[] {
@@ -220,7 +221,7 @@ function assignedCounts(db: DatabaseSync): number[] {
 function admitThroughPort(db: DatabaseSync, events: ReturnType<typeof busCardEvents>, id: number): void {
   const text = cardText(id, `src/${id}.ts`)
   events({ type: CARD_ADMITTED, cardId: id, ts: TS, dedupeKey: `port-${id}`, payload: { card: text.split('\n')[0]!.slice('card: '.length), lane: null, depends: [], decision: 'auto', contour: 'cheap', text, textSha: textSha(text) } })
-  reduce(db)
+  reduce(db, 'pending', busProjections())
 }
 
 describe('the bus reads N where it assigns', () => {
@@ -345,7 +346,7 @@ describe('a lane is a chain written by lane.assigned', () => {
       const text = cardText(id, `src/${id}.ts`)
       appendEvent(bench.db, { ts: TS, type: CARD_ADMITTED, actor: 'policy', cardId: id, pr: null, head: null, dedupeKey: `legacy-${id}`, payload: { lane: `lane-0${id + 4}`, depends: [], text, textSha: textSha(text) }, legacy: false })
     }
-    reduce(bench.db)
+    reduce(bench.db, 'pending', busProjections())
     bench.drop(5)
     expect(layLanes(bench.db, 2, TS, 'policy')).toBe(4)
     expect(layLanes(bench.db, 2, TS, 'policy')).toBe(0)
@@ -382,7 +383,7 @@ describe('a lane is a chain written by lane.assigned', () => {
       const text = cardText(id, `src/${id}.ts`, depends)
       appendEvent(bench.db, { ts: TS, type: CARD_ADMITTED, actor: 'policy', cardId: id, pr: null, head: null, dedupeKey: `legacy-${id}`, payload: { lane: null, depends, text, textSha: textSha(text) }, legacy: false })
     }
-    reduce(bench.db)
+    reduce(bench.db, 'pending', busProjections())
     layLanes(bench.db, 3, TS, 'policy')
     expect(bench.lane(3)).toBe(bench.lane(1))
     expect(bench.lane(2)).not.toBe(bench.lane(1))
@@ -392,14 +393,14 @@ describe('a lane is a chain written by lane.assigned', () => {
     const bench = new Bench(3).admit(1, 'src/a.ts').admit(2, 'src/b.ts').amendAround(2, 'src/a.ts')
     expect([bench.lane(1), bench.lane(2)]).toEqual(['lane-1', 'lane-2'])
     expect(bench.overlapsCaught()).toEqual([])
-    reduce(bench.db)
+    reduce(bench.db, 'pending', busProjections())
     expect(bench.overlapsCaught()).toEqual([2])
     expect(bench.launchable()).toEqual([1])
   })
 
   it('the safety net records one lane.overlap per generation', () => {
     const bench = new Bench(3).admit(1, 'src/a.ts').admit(2, 'src/b.ts').amendAround(2, 'src/a.ts')
-    reduce(bench.db)
+    reduce(bench.db, 'pending', busProjections())
     const record = laneOverlapRecorder(bench.db, TS, 'policy')
     launchCandidates(bench.db, () => false, Date.now, record)
     launchCandidates(bench.db, () => false, Date.now, record)
