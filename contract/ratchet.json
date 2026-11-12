@@ -30,7 +30,7 @@
   "boundary:bus->node-launch": 1,
   "boundary:bus->node-restart": 1,
   "boundary:bus->node-update": 1,
-  "boundary:bus->ports": 4,
+  "boundary:bus->ports": 3,
   "boundary:bus->quality": 1,
   "boundary:bus->rules": 3,
   "boundary:bus->session": 6,
