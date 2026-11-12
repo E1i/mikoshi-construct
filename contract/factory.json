@@ -4173,7 +4173,6 @@
       "src/commands/doctor/factory.ts": 3,
       "src/commands/doctor/report.ts": 1,
       "src/commands/intake/check.ts": 3,
-      "src/program.ts": 1,
       "src/ui/lore.ts": 67
     },
     "owner-decisions": {
