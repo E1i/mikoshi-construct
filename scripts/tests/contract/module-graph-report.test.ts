@@ -33,6 +33,7 @@ function specOf(modules: Record<string, ModuleSpec>): ModuleGraphSpec {
   return {
     modules: carvedOut(modules),
     composition_roots: ['scripts/main.ts'],
+    composition_imports: {},
     exclusions: { tests: ['scripts/tests/**'], fixtures: [], templates: [], generated: [], tooling: [] },
   }
 }

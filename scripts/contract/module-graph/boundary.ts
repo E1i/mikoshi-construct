@@ -49,9 +49,13 @@ export function graphModules(spec: ModuleGraphSpec): string[] {
   return Object.keys(spec.modules).filter(id => isGraphModule(spec, id)).sort(byText)
 }
 
-function reasonsFor(spec: ModuleGraphSpec, fromModule: string, toHolder: string, to: string): ViolationReason[] {
+function admittedIntoCompositionRoot(spec: ModuleGraphSpec, from: string, to: string): boolean {
+  return spec.composition_imports[to]?.includes(from) === true
+}
+
+function reasonsFor(spec: ModuleGraphSpec, fromModule: string, toHolder: string, from: string, to: string): ViolationReason[] {
   if (toHolder === COMPOSITION_ROOT)
-    return ['into-composition-root']
+    return admittedIntoCompositionRoot(spec, from, to) ? [] : ['into-composition-root']
   if (toHolder.startsWith(EXCLUSION))
     return ['into-exclusion']
   const source = spec.modules[fromModule]!
@@ -81,7 +85,7 @@ export function boundaryViolations(spec: ModuleGraphSpec, graph: readonly Import
     const toHolder = holderOf(spec, to)
     if (!isGraphModule(spec, fromModule) || fromModule === toHolder)
       return []
-    const reasons = reasonsFor(spec, fromModule, toHolder, to)
+    const reasons = reasonsFor(spec, fromModule, toHolder, from, to)
     return reasons.length === 0 ? [] : [{ from, to, fromModule, toHolder, reasons }]
   })
 }
