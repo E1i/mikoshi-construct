@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
 import { appendEvent, defaultBusPath, openBus } from '../core/db.js'
 import { WINDOW_SUBAGENT_EVENT } from '../core/events.js'
+import { TSX_COMMAND } from '../core/owner-commands.js'
 import { agentLines, agentsFileText } from './window-agents.js'
 
 export const WINDOW_ACTOR = 'owner'
@@ -56,7 +57,7 @@ export function hookSubagentsIn(root: string): HookSubagent[] {
   })
 }
 
-const USAGE = 'pnpm exec tsx scripts/window/window-subagents.ts --session <id> --role <role> --task <#card> --phase <started|ended> [--tree <path>] [--step <text>]'
+const USAGE = `${TSX_COMMAND} scripts/window/window-subagents.ts --session <id> --role <role> --task <#card> --phase <started|ended> [--tree <path>] [--step <text>]`
 
 export type WindowSubagentCall
   = | { kind: 'record', subagent: WindowSubagent }

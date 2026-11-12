@@ -1,5 +1,6 @@
 import type { CloseOutcome, CloseRequest, DryRunRecord } from './reach.js'
 import path from 'node:path'
+import { BUS_REQUEST_COMMAND } from '../../core/owner-commands.js'
 import { ANSWER_SOURCE, CARD_PLANNED, CARD_UNPLANNED, CLOSED_CARD, DROPPED_CARD, LEASED, MERGED_CARD, OWNER_MOVE_REQUESTS, PLAN_BACKFILLED, PLAN_CLOSED, PLAN_OPENED, prOf, QUEUED, USED_WORD } from './reach.js'
 
 export const REQUEST_KINDS = ['tree.cut', 'amend', 'allow-merge', 'close-pr', 'reopen-pr', 'pr.body', 'ci.rerun', 'requeue', 'mode', 'plan', 'owner.wait', 'owner.wait.close', 'decisions:add', 'hold', 'release', 'takeover', 'drop', 'numbers.foreign', ...OWNER_MOVE_REQUESTS] as const
@@ -12,7 +13,7 @@ export const HEAD_WORD = 'head'
 export const TAKEOVER_AFTER_MINUTES = 30
 export const PLAN_OPS: ReadonlyMap<string, string> = new Map([['open', PLAN_OPENED], ['add', CARD_PLANNED], ['remove', CARD_UNPLANNED], ['backfill', PLAN_BACKFILLED], ['close', PLAN_CLOSED]])
 export const OWNER_WORD_NEEDED = `closing an owner wait needs the owner's word from the channel or a recorded decision`
-export const OWNER_ANSWER_USAGE = `an owner's word from the channel closes a wait with: pnpm bus:request owner.wait.close --id Q<N> --answer <the owner's word> --from ${ANSWER_SOURCE}`
+export const OWNER_ANSWER_USAGE = `an owner's word from the channel closes a wait with: ${BUS_REQUEST_COMMAND} owner.wait.close --id Q<N> --answer <the owner's word> --from ${ANSWER_SOURCE}`
 export const ENDED_CARDS: ReadonlySet<string | null | undefined> = new Set([MERGED_CARD, CLOSED_CARD, DROPPED_CARD])
 export const LIVE_TASK_OF_CARD = `SELECT task_key, queue, state FROM tasks WHERE card_id = ? AND state IN ('${QUEUED}', '${LEASED}') ORDER BY id DESC LIMIT 1`
 

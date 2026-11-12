@@ -13,6 +13,7 @@ import { defaultBusPath, openBus } from '../core/db.js'
 import { BOARD_ALARM, BUS_PULSE, CARD_CLOSED, CARD_STOPPED, CARD_WAITING, GHOST_LINE, MERGE_DONE, OWNER_WAIT_OPENED, POLICY_DENIED, PR_CLOSED, PR_OBSERVED, PROCESS_JUDGED, REQUEST_DONE, REQUEST_REFUSED, REVIEW_RECORDED, TASK_EXPIRED, WINDOW_REQUEST, WITNESS_RECORDED, WORKER_DOWN } from '../core/events.js'
 import { defaultHandoffDir } from '../core/handoff-dir.js'
 import { HEARTBEAT_QUEUES } from '../core/lease.js'
+import { MIKO_WATCH_COMMAND } from '../core/owner-commands.js'
 import { REVIEW_ROUNDS_SPENT } from '../nodes/review/review-executor.js'
 import { ciWord } from '../ports/ci-reading.js'
 import { USER_SETTINGS } from '../ports/client/claude/adapter.js'
@@ -43,7 +44,7 @@ export const IN_FLIGHT_CARDS = [RUNNING_CARD, IN_REVIEW_CARD]
 const OPEN_PR = 'open'
 const CLOSED_PR = 'closed'
 export const POLL_MS = 500
-export const USAGE = 'usage: pnpm miko:watch [--once [--card <N>] | --tail]'
+export const USAGE = `usage: ${MIKO_WATCH_COMMAND} [--once [--card <N>] | --tail]`
 export const ONCE = '--once'
 export const CARD = '--card'
 export const TAIL = '--tail'

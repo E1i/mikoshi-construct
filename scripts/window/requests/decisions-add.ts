@@ -1,4 +1,5 @@
 import type { RequestExecutor } from './context.js'
+import { OWNER_SAY_COMMAND } from '../../core/owner-commands.js'
 import { ANSWER_SOURCE, cardIdOf, consumeOwnerWord, OWNER_SOURCE, OWNER_WORD_NOT_FOUND } from './reach.js'
 import { flagsOf, HEAD_WORD, text, unreleasedWord } from './request.js'
 
@@ -10,7 +11,7 @@ export const execute: RequestExecutor = (context, _request, payload) => {
   if (decision === null || from === null)
     return { done: false, why: `decisions:add needs the owner's text and --from ${ANSWER_SOURCE}` }
   if (from !== ANSWER_SOURCE)
-    return { done: false, why: `decisions:add --from ${from} is not ${ANSWER_SOURCE}; a decision comes only from the owner's word that pnpm owner:say put into the owner channel, never from an owner order file` }
+    return { done: false, why: `decisions:add --from ${from} is not ${ANSWER_SOURCE}; a decision comes only from the owner's word that ${OWNER_SAY_COMMAND} put into the owner channel, never from an owner order file` }
   const words = decision.startsWith(OWNER_SOURCE) ? decision.slice(OWNER_SOURCE.length).trim() : decision
   const filled = [...decision.matchAll(AT_HEAD_OF_A_PR)].some(match => context.observed(Number(match[1]))?.head == null) ? null : decision.replace(AT_HEAD_OF_A_PR, (_, pr: string) => `PR #${pr} at ${context.observed(Number(pr))!.head!}`)
   if (words === '' || filled === null)

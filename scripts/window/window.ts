@@ -6,11 +6,12 @@ import { fileURLToPath } from 'node:url'
 import { defaultBusPath, openBus } from '../core/db.js'
 import { CARD_CLOSED, MERGE_DONE, NODE_DETECTED, NODE_EQUIVALENCE, REVIEW_RECORDED, UPDATE_DONE } from '../core/events.js'
 import { FACTORY_RUNTIME } from '../core/factory-paths.js'
+import { TSX_COMMAND } from '../core/owner-commands.js'
 import { BusRead } from '../ports/bus-read.js'
 
 export const PREFIX = '[bus:window] '
 export const COMPLETION_OF = { merge: MERGE_DONE, update: UPDATE_DONE, close: CARD_CLOSED, review: REVIEW_RECORDED } as const
-export const USAGE = `usage: pnpm exec tsx ${FACTORY_RUNTIME.busWindow} <${Object.keys(COMPLETION_OF).join('|')}>`
+export const USAGE = `usage: ${TSX_COMMAND} ${FACTORY_RUNTIME.busWindow} <${Object.keys(COMPLETION_OF).join('|')}>`
 
 const DETECTED_OUTCOMES = new Set(['already', 'queued'])
 const DETECTED_VIA = 'event'
