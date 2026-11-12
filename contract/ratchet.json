@@ -131,7 +131,7 @@
   "boundary:node-merge->events": 2,
   "boundary:node-merge->node-review": 1,
   "boundary:node-merge->ports": 9,
-  "boundary:node-merge->project": 2,
+  "boundary:node-merge->project": 3,
   "boundary:node-merge->quality": 2,
   "boundary:node-merge->rules": 5,
   "boundary:node-restart->events": 2,
