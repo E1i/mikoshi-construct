@@ -196,6 +196,7 @@ describe('z8: a session stop is recorded in the bus and decides the continuation
       dirty: () => false,
       liveSession: () => null,
       prepare: () => {},
+      changedInTheTree: () => [TOUCHED, READER],
     })
 
     const outcome = await executor.answer(leaseNext(made.db, made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1') as Lease)

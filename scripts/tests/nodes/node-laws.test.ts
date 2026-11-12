@@ -259,7 +259,7 @@ class RelaunchingStarter implements CardStarter, SessionContinuer {
   }
 }
 
-type AnswerNodeRun = AnswerNodeParts & Pick<AnswerParts, 'dirty' | 'liveSession' | 'prepare' | 'mergeMain'>
+type AnswerNodeRun = AnswerNodeParts & Pick<AnswerParts, 'dirty' | 'liveSession' | 'prepare' | 'mergeMain' | 'changedInTheTree'>
 
 async function runAnswerNode(parts: AnswerNodeRun): Promise<void> {
   const controller = new AbortController()
@@ -710,7 +710,7 @@ async function answerStopSpendsNoRestart(node: LawNode): Promise<void> {
       sessions += 1
       return { session: `answer-${sessions}`, resumed: false, atContextWarn: true, before: sha('a'), after: sha('a'), owner: STOP_QUESTION }
     }
-    await runAnswerNode({ db: made.db, answerer, ownerMerges: () => '', cardText: () => text, clock: made.clock.now, session: 'answer-node-1', mode: 'live', env: { [slotsVariable('answer')]: '1' }, trees: { home: trees, exists: () => true, branchOf: pr => `feat/card-${pr}`, recreate: () => {}, bringTo: () => {} }, dirty: () => false, liveSession: () => null, prepare: () => {} })
+    await runAnswerNode({ db: made.db, answerer, ownerMerges: () => '', cardText: () => text, clock: made.clock.now, session: 'answer-node-1', mode: 'live', env: { [slotsVariable('answer')]: '1' }, trees: { home: trees, exists: () => true, branchOf: pr => `feat/card-${pr}`, recreate: () => {}, bringTo: () => {} }, dirty: () => false, liveSession: () => null, prepare: () => {}, changedInTheTree: () => [STOP_READER] })
     if (sessions !== 1)
       throw new Error(`an answer session that stopped outside the touches was restarted: ${sessions} sessions`)
     if (eventsOf(made.db, CARD_STOPPED).at(-1)?.code !== OUTSIDE_TOUCHES)
