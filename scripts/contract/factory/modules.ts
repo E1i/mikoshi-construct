@@ -41,7 +41,7 @@ const review = (...names: string[]): string[] => within(factory('nodes/review'),
 const supervisor = (...names: string[]): string[] => within(factory('supervisor'), ...names.map(name => `${name}.ts`))
 const cli = (...names: string[]): string[] => within(factory('cli'), ...names)
 
-const BUS_CONTRACT = core('db.ts', 'sqlite.ts', 'queue.ts', 'lease.ts', 'node.ts', 'stored.ts', 'errors.ts', 'bus-path.ts', 'bus-readings.ts', 'bus-version.ts', 'reducer.ts', 'every.ts', 'watermark.ts', 'entry.ts', 'observations.ts', 'task-must-wait.ts')
+const BUS_CONTRACT = core('db.ts', 'sqlite.ts', 'queue.ts', 'dependency-wait.ts', 'lease.ts', 'node.ts', 'stored.ts', 'errors.ts', 'bus-path.ts', 'bus-readings.ts', 'bus-version.ts', 'reducer.ts', 'every.ts', 'watermark.ts', 'entry.ts', 'observations.ts', 'task-must-wait.ts')
 const BUS_IMPL = core('projection-writes.ts', 'projection-writes.known.json', 'rejection.ts')
 
 const SESSION_FILES = [
