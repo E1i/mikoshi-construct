@@ -6,6 +6,7 @@ import type { RepositoryFacts } from './facts.js'
 import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { GENERATED_FILES } from '../../../scripts/core/factory-paths.js'
+import { constructCommand } from '../../../scripts/core/owner-commands.js'
 import { CHANGESET_COMPANION, createdPaths, entryCovers, entryUnder, FOLLOWING_TABLE, isTestScope, OWNER_MERGES, parseCreatesEntry, PREFIX_SUFFIX, scopePath, withinTouches } from '../../../scripts/policy/touch-scope.js'
 import { runsOf } from '../../card/covering-tests.js'
 import { CONTOURS, decisionsOf, KINDS } from '../../card/grammar.js'
@@ -228,15 +229,17 @@ function includes(values: readonly string[], value: string): boolean {
   return values.includes(value)
 }
 
+const NUMBERS_ASSIGNED = `numbers are assigned by ${constructCommand('intake')}`
+
 function numberCorrection(card: DraftCard, assigned: number, facts: CheckFacts): Correction[] {
   const named = card.number
   if (named === undefined || named === assigned)
     return []
   const reason = facts.taken.has(named)
-    ? `#${named} is taken by a pull request or issue listed in --taken; numbers are assigned by construct intake`
+    ? `#${named} is taken by a pull request or issue listed in --taken; ${NUMBERS_ASSIGNED}`
     : facts.parked.has(named)
-      ? `#${named} is taken by the parked card ${named}.md; numbers are assigned by construct intake`
-      : 'numbers are assigned by construct intake, the next free after every number taken; a named number is never used'
+      ? `#${named} is taken by the parked card ${named}.md; ${NUMBERS_ASSIGNED}`
+      : `${NUMBERS_ASSIGNED}, the next free after every number taken; a named number is never used`
   return [{ field: 'number', was: `#${named}`, now: `#${assigned}`, reason }]
 }
 

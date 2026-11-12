@@ -4222,11 +4222,7 @@
       "scripts/window/watch.ts": 1,
       "scripts/window/window-requests.ts": 5,
       "scripts/window/window-subagents.ts": 1,
-      "scripts/window/window.ts": 1,
-      "src/commands/board/screens.ts": 5,
-      "src/commands/doctor/factory.ts": 3,
-      "src/commands/doctor/report.ts": 1,
-      "src/commands/intake/check.ts": 3
+      "scripts/window/window.ts": 1
     },
     "owner-decisions": {
       "scripts/core/bus-path.ts": 1,

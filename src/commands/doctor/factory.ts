@@ -3,6 +3,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { agentLabel, busPathOf, GH_ACCOUNT_VARIABLE, isOwnerCheckout, LAUNCH_AGENTS } from '../../../scripts/core/bus-path.js'
 import { handoffDirOf } from '../../../scripts/core/handoff-dir.js'
+import { constructCommand, pnpmCommand } from '../../../scripts/core/owner-commands.js'
 import { inForceInProjection } from '../../../scripts/policy/decisions/decisions.js'
 import { namesQueueLive } from '../../../scripts/policy/live-decision.js'
 import { FACTORY_MANIFEST } from '../../../scripts/policy/touch-scope.js'
@@ -29,7 +30,7 @@ export const FACTORY_ITEMS = {
 } as const satisfies Record<string, FactorySlice>
 export type FactoryItemName = keyof typeof FACTORY_ITEMS
 
-export const SYNC_APPLY = 'construct sync --apply'
+export const SYNC_APPLY = constructCommand('sync', '--apply')
 export const RESTORE_FROM_GIT = 'git restore --'
 export const PIN_PNPM_FLOOR = `corepack use pnpm@${MIKOSHI_PNPM}`
 export const IGNORE_PNPM_STORE = `printf '.pnpm-store/\\n' >> .gitignore`
@@ -38,7 +39,7 @@ export const SWITCH_GH_ACCOUNT = 'gh auth switch --user'
 export const EDIT_LOCAL_SETTINGS = '$EDITOR .claude/settings.local.json'
 export const GHOST_PROTOCOL_HOURS = 6
 export const OWNER_WORD = `ghost-protocol ${GHOST_PROTOCOL_HOURS}h`
-export const SWITCH_TO_GHOST_PROTOCOL = `construct say "${OWNER_WORD}" && construct-factory --mode ghost-protocol`
+export const SWITCH_TO_GHOST_PROTOCOL = `${constructCommand('say', `"${OWNER_WORD}"`)} && construct-factory --mode ghost-protocol`
 
 const SETTINGS = '.claude/settings.json'
 const LOCAL_SETTINGS = '.claude/settings.local.json'
@@ -144,7 +145,7 @@ function lastStatus(handoff: string): string | null {
 }
 
 function writeContinueCommand(root: string, handoff: string): string {
-  return `${isOwnerCheckout(root) ? 'pnpm handoff:write' : 'miko handoff write'} ${handoff} <draft ending STATUS: ${CONTINUE}>`
+  return `${isOwnerCheckout(root) ? pnpmCommand('handoff:write') : 'miko handoff write'} ${handoff} <draft ending STATUS: ${CONTINUE}>`
 }
 
 function liveQueues(bus: string, now: Date): (queue: string) => boolean {
