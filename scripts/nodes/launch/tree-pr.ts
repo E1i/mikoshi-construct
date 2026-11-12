@@ -18,7 +18,7 @@ import { VERIFICATION_WORDS } from '../../core/verification.js'
 import { classify, MorseRefusal } from '../../policy/morse/rules.js'
 import { MATRIX_COUNT_LINE, pathWithoutMatrix } from '../../policy/policy.js'
 import { matchGlob } from '../../policy/shredder/glob.js'
-import { COMPOSITION_ROOT, followsTouches, neverFollows, OWNER_MERGES, pathsOutside, runsCover, TEST_ROOTS, withinTouches } from '../../policy/touch-scope.js'
+import { COMPOSITION_ROOT, followsTouches, neverFollows, OWNER_MERGES, pathsOutside, removesEntriesOnly, runsCover, TEST_ROOTS, withinTouches } from '../../policy/touch-scope.js'
 import { ownerGlobs } from '../../policy/widening.js'
 import { changedFilesFrom } from '../../ports/diff.js'
 
@@ -252,6 +252,19 @@ export function compositionRecordsAtBase(git: TreePrPorts['git'], worktree: stri
     .flatMap(file => recordAtBase(git, worktree, file))
 }
 
+function shownAtBase(git: TreePrPorts['git'], worktree: string, file: string): string | null {
+  try {
+    return git(worktree, ['show', `${PR_BASE}:${file}`])
+  }
+  catch {
+    return null
+  }
+}
+
+function entriesOnlyRemovedSinceBase(git: TreePrPorts['git'], worktree: string): (file: string) => boolean {
+  return file => removesEntriesOnly(shownAtBase(git, worktree, file), readOrNull(path.join(worktree, file)))
+}
+
 export function touchesFollowed(outside: readonly string[], reach: FollowingReach, coverage: TestCoverage): TouchesFollowed {
   if (outside.length === 0)
     return { followed: [], outside: [] }
@@ -270,7 +283,7 @@ export function answerFollowed(git: TreePrPorts['git'], worktree: string, outsid
   const unrun = outside.filter(file => !runsCover(file, runs))
   if (unrun.length === 0)
     return { followed: [], outside: [] }
-  return touchesFollowed(unrun, { touches: reach.touches, added: addedSinceBase(git, worktree, unrun), compositionRecords: compositionRecordsAtBase(git, worktree) }, coverage)
+  return touchesFollowed(unrun, { touches: reach.touches, added: addedSinceBase(git, worktree, unrun), compositionRecords: compositionRecordsAtBase(git, worktree), entriesOnlyRemoved: entriesOnlyRemovedSinceBase(git, worktree) }, coverage)
 }
 
 export function followedLine(followed: readonly string[]): string {
@@ -281,7 +294,7 @@ function changedOutsideTouches(git: TreePrPorts['git'], worktree: string, files:
   const outside = files.map(file => file.path).filter(file => !withinTouches(file, touches) && !runsCover(file, runs))
   const added = new Set(files.filter(file => file.status === 'A').map(file => file.path))
   const compositionRecords = outside.length === 0 ? [] : compositionRecordsAtBase(git, worktree)
-  return touchesFollowed(outside, { touches, added, compositionRecords }, worktreeCoverage(git, worktree))
+  return touchesFollowed(outside, { touches, added, compositionRecords, entriesOnlyRemoved: entriesOnlyRemovedSinceBase(git, worktree) }, worktreeCoverage(git, worktree))
 }
 
 interface FormatGap extends Gap {
