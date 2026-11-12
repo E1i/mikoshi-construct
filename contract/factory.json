@@ -1728,8 +1728,8 @@
       "axis": "architecture",
       "lore": null,
       "owner": "scripts/window/requests/",
-      "ownerExists": false,
-      "ownerExport": null,
+      "ownerExists": true,
+      "ownerExport": "dispatchRequest",
       "status": "proposed",
       "title": "one class for every kind of window request"
     }
@@ -4180,12 +4180,20 @@
       "scripts/window/eddies-measure.ts": 1,
       "scripts/window/handoff-write.ts": 1,
       "scripts/window/operator-work.ts": 2,
+      "scripts/window/requests/amend.ts": 2,
+      "scripts/window/requests/context.ts": 6,
+      "scripts/window/requests/drop.ts": 1,
+      "scripts/window/requests/plan.ts": 2,
+      "scripts/window/requests/request.ts": 1,
+      "scripts/window/requests/requeue.ts": 5,
+      "scripts/window/requests/takeover.ts": 3,
+      "scripts/window/requests/tree-cut.ts": 1,
       "scripts/window/turn-watch.ts": 2,
       "scripts/window/watch.ts": 10,
       "scripts/window/window-agents.ts": 1,
       "scripts/window/window-heartbeat.ts": 3,
       "scripts/window/window-prs.ts": 1,
-      "scripts/window/window-requests.ts": 23,
+      "scripts/window/window-requests.ts": 2,
       "scripts/window/window-session-end.ts": 7,
       "scripts/window/window.ts": 3,
       "src/commands/board/bus.ts": 13,
@@ -4218,9 +4226,13 @@
       "scripts/window/operator-boundary.ts": 1,
       "scripts/window/owner-command.ts": 1,
       "scripts/window/pre-compact.ts": 2,
+      "scripts/window/requests/decisions-add.ts": 1,
+      "scripts/window/requests/drop.ts": 1,
+      "scripts/window/requests/owner-wait-close.ts": 1,
+      "scripts/window/requests/request.ts": 1,
       "scripts/window/turn-watch.ts": 4,
       "scripts/window/watch.ts": 1,
-      "scripts/window/window-requests.ts": 5,
+      "scripts/window/window-requests.ts": 1,
       "scripts/window/window-subagents.ts": 1,
       "scripts/window/window.ts": 1
     },
@@ -4238,9 +4250,7 @@
       "scripts/supervisor/bg.ts": 1
     },
     "process-table": {},
-    "window-requests": {
-      "scripts/window/window-requests.ts": 18
-    }
+    "window-requests": {}
   },
   "ports": {
     "boundary": {
