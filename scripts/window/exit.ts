@@ -10,6 +10,7 @@ import { defaultBusPath } from '../core/db.js'
 import { FACTORY_RUNTIME } from '../core/factory-paths.js'
 import { defaultHandoffDir } from '../core/handoff-dir.js'
 import { statusOfFile } from '../core/handoff-status.js'
+import { HANDOFF_WRITE_COMMAND, MIKO_COMMAND, MIKO_WATCH_COMMAND } from '../core/owner-commands.js'
 import { RAISED_STATUS, raisedByTheBus } from '../nodes/restart/role.js'
 import { ownerMessagesOf } from '../ports/client/claude/adapter.js'
 import { clientAdapter } from '../ports/client/index.js'
@@ -28,9 +29,9 @@ export { ownerMessagesOf }
 export const FRESH_MS = 2 * 60 * 1000
 export const LOOP_SCRIPT = path.normalize(FACTORY_RUNTIME.mikoLoopEntry)
 export const BUILT_LOOP_SCRIPT = LOOP_SCRIPT.replace(/\.ts$/, '.js')
-export const NOT_AT_A_STOP_CONDITION = 'not at a stop condition: wait with pnpm miko:watch --once --card <N> or take the next card'
+export const NOT_AT_A_STOP_CONDITION = `not at a stop condition: wait with ${MIKO_WATCH_COMMAND} --once --card <N> or take the next card`
 export const TAB_THRESHOLD = 'in a tab window a threshold ends no session: continue in this session; compaction carries it on from the handoff (PreCompact insures it, SessionStart compact returns the continue prompt); nothing ended'
-export const SANDBOX_REFUSAL = 'outside the pnpm miko loop the sandbox lets this command neither find nor signal any process: nothing ended; run the session under pnpm miko'
+export const SANDBOX_REFUSAL = `outside the ${MIKO_COMMAND} loop the sandbox lets this command neither find nor signal any process: nothing ended; run the session under ${MIKO_COMMAND}`
 const MESSAGES_BEFORE_THE_OWNER_SPOKE = 1
 
 export type StopReason = typeof THRESHOLDS[number] | 'done' | 'core'
@@ -158,7 +159,7 @@ function freshHandoff(handoffMtime: number | undefined, now: number): boolean {
 }
 
 function missingHandoffRefusal(): string {
-  return `${MIKO_HANDOFF_NAME} does not exist: write it with pnpm handoff:write first; nothing ended`
+  return `${MIKO_HANDOFF_NAME} does not exist: write it with ${HANDOFF_WRITE_COMMAND} first; nothing ended`
 }
 
 function missingHandoffDecision(handoffMtime: number | undefined, status: string | null): ExitDecision | null {
@@ -169,7 +170,7 @@ function staleHandoffRefusal(handoffMtime: number | undefined, now: number): str
   if (handoffMtime === undefined)
     return missingHandoffRefusal()
   const age = now - handoffMtime
-  return age > FRESH_MS ? `${MIKO_HANDOFF_NAME} was written ${Math.round(age / 1000)}s ago, more than ${FRESH_MS / 1000}s: write it with pnpm handoff:write first; nothing ended` : null
+  return age > FRESH_MS ? `${MIKO_HANDOFF_NAME} was written ${Math.round(age / 1000)}s ago, more than ${FRESH_MS / 1000}s: write it with ${HANDOFF_WRITE_COMMAND} first; nothing ended` : null
 }
 
 export function loopExitDecision(handoffMtime: number | undefined, now: number, status: string | null, readings: ExitReadings): ExitDecision {
@@ -181,7 +182,7 @@ export function loopExitDecision(handoffMtime: number | undefined, now: number, 
   const stale = staleHandoffRefusal(handoffMtime, now)
   if (stale !== null)
     return { refuse: stale }
-  return { kill: null, reason, line: `the loop ends the session ${atTheStop(reason, readings)}: the pnpm miko loop starts the next session` }
+  return { kill: null, reason, line: `the loop ends the session ${atTheStop(reason, readings)}: the ${MIKO_COMMAND} loop starts the next session` }
 }
 
 export function tabThresholdDecision(handoffMtime: number | undefined, now: number, status: string | null, readings: ExitReadings): ExitDecision | null {
@@ -233,13 +234,13 @@ export function exitDecision(chain: ProcessRow[], handoffMtime: number | undefin
   const nextClaude = above.findIndex(isClaude)
   const underLoop = (nextClaude === -1 ? above : above.slice(0, nextClaude)).some(isMikoLoop)
   if (!underLoop && reason !== 'core' && status === RAISED_STATUS && freshHandoff(handoffMtime, now))
-    return { kill: claude.pid, reason, line: `ending claude ${claude.pid} at the ${reason} limit: no pnpm miko loop stands above it, so role.stopped goes to the bus for the restart queue`, stopped: true }
+    return { kill: claude.pid, reason, line: `ending claude ${claude.pid} at the ${reason} limit: no ${MIKO_COMMAND} loop stands above it, so role.stopped goes to the bus for the restart queue`, stopped: true }
   if (!underLoop)
-    return { refuse: `claude ${claude.pid} does not run under the pnpm miko loop (${LOOP_SCRIPT}): nothing ended` }
+    return { refuse: `claude ${claude.pid} does not run under the ${MIKO_COMMAND} loop (${LOOP_SCRIPT}): nothing ended` }
   const stale = staleHandoffRefusal(handoffMtime, now)
   if (stale !== null)
     return { refuse: stale }
-  return { kill: claude.pid, reason, line: `ending claude ${claude.pid} ${atTheStop(reason, readings)}: the pnpm miko loop starts the next session` }
+  return { kill: claude.pid, reason, line: `ending claude ${claude.pid} ${atTheStop(reason, readings)}: the ${MIKO_COMMAND} loop starts the next session` }
 }
 
 function unfinishedWork(deps: MikoExitDeps): string | null {

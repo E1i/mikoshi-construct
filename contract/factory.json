@@ -3904,7 +3904,9 @@
           "window-requests"
         ],
         "contract": [],
-        "may_use": [],
+        "may_use": [
+          "command-registry"
+        ],
         "owns": [
           "scripts/window/**",
           "!scripts/window/miko.ts",
@@ -4219,25 +4221,7 @@
       "scripts/nodes/answer/answerer.ts": 1,
       "scripts/ports/worktree.ts": 1
     },
-    "owner-commands": {
-      "scripts/window/compact-start.ts": 1,
-      "scripts/window/exit.ts": 8,
-      "scripts/window/handoff-check.ts": 3,
-      "scripts/window/handoff-write.ts": 1,
-      "scripts/window/loop.ts": 4,
-      "scripts/window/operator-boundary.ts": 1,
-      "scripts/window/owner-command.ts": 1,
-      "scripts/window/pre-compact.ts": 2,
-      "scripts/window/requests/decisions-add.ts": 1,
-      "scripts/window/requests/drop.ts": 1,
-      "scripts/window/requests/owner-wait-close.ts": 1,
-      "scripts/window/requests/request.ts": 1,
-      "scripts/window/turn-watch.ts": 4,
-      "scripts/window/watch.ts": 1,
-      "scripts/window/window-requests.ts": 1,
-      "scripts/window/window-subagents.ts": 1,
-      "scripts/window/window.ts": 1
-    },
+    "owner-commands": {},
     "owner-decisions": {
       "scripts/core/bus-path.ts": 1,
       "scripts/core/inbox.ts": 1,

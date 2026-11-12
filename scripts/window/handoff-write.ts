@@ -12,6 +12,7 @@ import { defaultBusPath, openBus } from '../core/db.js'
 import { MERGE_DONE } from '../core/events.js'
 import { handoffDirOf } from '../core/handoff-dir.js'
 import { statusLineOf as lastStatusLineOf, statusOf } from '../core/handoff-status.js'
+import { pnpmCommand } from '../core/owner-commands.js'
 import { busParkedDepends } from '../intake/parking-reads.js'
 import { activeDecisionsShard, OWNERS_OF_A_STOP } from '../policy/shards.js'
 import { execGh, readGhJson } from '../ports/gh.js'
@@ -27,7 +28,7 @@ import { openWindowQuestion, requestSession } from './window-requests.js'
 import { windowOf } from './window.js'
 
 export const PREFIX = '[handoff:write] '
-export const USAGE = 'usage: pnpm handoff:write <handoff.md> <draft.md>'
+export const USAGE = `usage: ${pnpmCommand('handoff:write', '<handoff.md>', '<draft.md>')}`
 export const ARCHIVE_DIR = 'archive'
 export const ROUND_LIMIT_BOUNDARY = 'round-limit'
 const BOUNDARIES_THE_BUS_KEEPS = [...Object.keys(OWNERS_OF_A_STOP), ROUND_LIMIT_BOUNDARY]

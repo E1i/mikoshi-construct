@@ -14,6 +14,7 @@ import { appendEvent, defaultBusPath, inTransaction, openBus } from '../core/db.
 import { PROCESS_ENDED, PROCESS_HEARTBEAT, PROCESS_REFUSED } from '../core/events.js'
 import { defaultHandoffDir } from '../core/handoff-dir.js'
 import { statusOfFile } from '../core/handoff-status.js'
+import { HANDOFF_WRITE_COMMAND, MIKO_COMMAND, MIKO_EXIT_COMMAND, MIKO_WATCH_COMMAND } from '../core/owner-commands.js'
 import { WINDOW_COMMAND_VARIABLE, windowCommand } from '../ports/client/claude/adapter.js'
 import { OsProcessTable } from '../ports/process-table.js'
 import { EXIT_REQUEST_VARIABLE, LOOP_PID_VARIABLE, WINDOW_MARK, WINDOW_VARIABLE } from '../ports/session.js'
@@ -35,7 +36,7 @@ export interface WindowCommands {
   exit: string
 }
 
-export const OWNER_COMMANDS: WindowCommands = { write: 'pnpm handoff:write', watch: 'pnpm miko:watch --once', exit: 'pnpm miko:exit' }
+export const OWNER_COMMANDS: WindowCommands = { write: HANDOFF_WRITE_COMMAND, watch: `${MIKO_WATCH_COMMAND} --once`, exit: MIKO_EXIT_COMMAND }
 export const PACKAGE_COMMANDS: WindowCommands = { write: 'miko handoff write', watch: 'miko watch --once', exit: 'miko exit' }
 
 export function continuePrompt(handoff: string, commands: WindowCommands): string {
@@ -147,7 +148,7 @@ export function claimLoop(db: DatabaseSync, pid: number, now: Date): string | nu
       return null
     }
     appendEvent(db, { ts, type: PROCESS_REFUSED, actor: loopActor(pid), cardId: null, pr: null, head: null, dedupeKey: `${PROCESS_REFUSED}:${own}:${ts}`, payload: { process: own, live: live.process, last_beat: live.lastBeat }, legacy: false })
-    return `${PREFIX}another pnpm miko loop is alive as ${live.process} (last heartbeat ${live.lastBeat}, within ${SILENT_MS / 60_000} min): ${PROCESS_REFUSED}, this one starts no session`
+    return `${PREFIX}another ${MIKO_COMMAND} loop is alive as ${live.process} (last heartbeat ${live.lastBeat}, within ${SILENT_MS / 60_000} min): ${PROCESS_REFUSED}, this one starts no session`
   })
 }
 

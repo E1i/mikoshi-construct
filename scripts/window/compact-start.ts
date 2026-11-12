@@ -3,12 +3,13 @@ import os from 'node:os'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { defaultBusPath } from '../core/db.js'
+import { MIKO_WATCH_COMMAND } from '../core/owner-commands.js'
 import { sessionHandoffOf } from './handoff-write.js'
 import { repositoryContinuePrompt } from './loop.js'
 import { cardTreeHomes, tabWindowIn, tabWindowOf } from './tab.js'
 
 export const COMPACT_SOURCE = 'compact'
-export const WAKE_UP = 'wake-up: when the last STATUS: of the handoff is CONTINUE, set your own wake-up now, nothing by hand — CronCreate on */15 * * * * with the prompt "D-275 pass", and Monitor on pnpm miko:watch of this repository\'s bus with a 20-minute idle timeout; each wake-up is one D-275 pass: the highest-priority stuck open PR first, then the next card by priority'
+export const WAKE_UP = `wake-up: when the last STATUS: of the handoff is CONTINUE, set your own wake-up now, nothing by hand — CronCreate on */15 * * * * with the prompt "D-275 pass", and Monitor on ${MIKO_WATCH_COMMAND} of this repository's bus with a 20-minute idle timeout; each wake-up is one D-275 pass: the highest-priority stuck open PR first, then the next card by priority`
 
 export function sourceOf(input: string): string | null {
   try {

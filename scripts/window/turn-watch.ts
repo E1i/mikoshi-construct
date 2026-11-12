@@ -11,17 +11,18 @@ import { RUNNING_CARD } from '../core/card-automaton.js'
 import { CARD_BODIES } from '../core/card-bodies.js'
 import { defaultBusPath, openBus } from '../core/db.js'
 import { WINDOW_HEARTBEAT } from '../core/events.js'
+import { MIKO_WATCH_COMMAND } from '../core/owner-commands.js'
 import { sessionHandoffOf } from './handoff-write.js'
 import { PREFIX } from './loop.js'
 import { cardTreeHomes, handoffStatusOf, tabWindowIn } from './tab.js'
 import { WINDOW_BEAT_MS, windowSessionOf } from './window-heartbeat.js'
 
 export const NOT_A_WINDOW = 'turn-watch: not a window session; no watch is required'
-export const NO_LIVE_WATCH = `turn-watch: this window session has no window.heartbeat newer than ${WINDOW_BEAT_MS / 60_000} minutes; start pnpm miko:watch before ending the turn`
-export const LIVE_WATCH = 'turn-watch: a live pnpm miko:watch beats for this window session'
-export const TAB_CONTINUE = 'turn-watch: the handoff of this tab window ends STATUS: CONTINUE; run pnpm miko:watch --once and take the next move in this session'
+export const NO_LIVE_WATCH = `turn-watch: this window session has no window.heartbeat newer than ${WINDOW_BEAT_MS / 60_000} minutes; start ${MIKO_WATCH_COMMAND} before ending the turn`
+export const LIVE_WATCH = `turn-watch: a live ${MIKO_WATCH_COMMAND} beats for this window session`
+export const TAB_CONTINUE = `turn-watch: the handoff of this tab window ends STATUS: CONTINUE; run ${MIKO_WATCH_COMMAND} --once and take the next move in this session`
 export const TAB_STOPS = 'turn-watch: the handoff of this tab window ends neither STATUS: CONTINUE nor STATUS: OWNER; the turn ends'
-export const OWNER_QUESTION_WAITS = `turn-watch: the handoff of this tab window ends STATUS: OWNER and no window.heartbeat is newer than ${WINDOW_BEAT_MS / 60_000} minutes; the owner question is an owner wait on the board, not a turn end: run pnpm miko:watch --once and settle every other card while it waits`
+export const OWNER_QUESTION_WAITS = `turn-watch: the handoff of this tab window ends STATUS: OWNER and no window.heartbeat is newer than ${WINDOW_BEAT_MS / 60_000} minutes; the owner question is an owner wait on the board, not a turn end: run ${MIKO_WATCH_COMMAND} --once and settle every other card while it waits`
 
 export function ownCardHasNoPr(card: number): string {
   return `turn-watch: window card #${card} is running with no PR and no open owner wait; take its next step, no watch`
