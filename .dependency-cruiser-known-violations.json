@@ -158,20 +158,6 @@
   {
     "type": "dependency",
     "from": "scripts/core/node.ts",
-    "to": "scripts/ports/meter.ts",
-    "unresolvedTo": "../ports/meter.js",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "core-imports-nothing-to-its-right"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "scripts/core/node.ts",
     "to": "scripts/ports/netwatch.ts",
     "unresolvedTo": "../ports/netwatch.js",
     "dependencyTypes": [
