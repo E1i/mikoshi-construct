@@ -9,6 +9,7 @@ const GIT_IDENTITY = ['-c', 'user.name=fixture', '-c', 'user.email=fixture', '-c
 const GROWN_ROW = 'boundary:app->ports'
 const ABSENT_MAIN = ['refs/heads/absent']
 const ON_PULL_REQUEST = { GITHUB_EVENT_NAME: 'pull_request' }
+const ON_MERGE_QUEUE = { GITHUB_EVENT_NAME: 'merge_group' }
 const OUTSIDE_CI = {}
 const roots: string[] = []
 
@@ -89,6 +90,18 @@ describe('the base the boundary ratchet reads a grown row against', () => {
 
     expect(git(root, 'rev-parse', 'HEAD^1')).toBe(mainTip)
     expect(branchBase(root, { mainRefs: ABSENT_MAIN, env: ON_PULL_REQUEST })).toBe(mainTip)
+  })
+
+  it('on a merge queue commit the base is its first parent', () => {
+    const { root, mainTip } = pullRequestMergeCommit()
+
+    expect(branchBase(root, { mainRefs: ABSENT_MAIN, env: ON_MERGE_QUEUE })).toBe(mainTip)
+  })
+
+  it('an unreachable base outside CI names that it ran outside CI', () => {
+    const root = singleCommitCheckout()
+
+    expect(() => branchBase(root, { mainRefs: ABSENT_MAIN, env: OUTSIDE_CI })).toThrow(/no base for this branch outside CI: /)
   })
 
   it('outside CI a merge of main into the card reads the merge-base, not the first parent', () => {
