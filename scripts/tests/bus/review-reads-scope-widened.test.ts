@@ -76,6 +76,25 @@ describe('the review reads the scope the answer node widened', () => {
     expect(touchFindings(made)).toEqual([expect.stringContaining(`${WIDENED} is outside the touches of card #${CARD}`)])
   })
 
+  it('an admission without a body is not the latest admission the widening is bound to', () => {
+    const made = bench()
+    admit(made, 'first')
+    widen(made)
+    appendEvent(made.db, { ts: made.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'worker:intake:window', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${CARD}:bodiless`, payload: { card: `#${CARD}`, lane: 'lane-a', decision: 'auto', contour: 'cheap', depends: [], admission: 'admission-bodiless' }, legacy: false })
+
+    expect(busWidenedPaths(made.busPath)(CARD)).toEqual([WIDENED])
+  })
+
+  it('a paths value that is not an array of strings widens nothing beyond its strings', () => {
+    const made = bench()
+    admit(made, 'first')
+    const admission = cardContract(made.db, CARD)!.admissionEventId
+    appendEvent(made.db, { ts: made.clock.now().toISOString(), type: SCOPE_WIDENED, actor: 'worker:answer:worker-1', cardId: CARD, pr: null, head: null, dedupeKey: `${SCOPE_WIDENED}:${CARD}:${admission}:scalar`, payload: { paths: 'scripts/nodes/merge/merge-executor.ts', admission, detail: 'a scalar' }, legacy: false })
+    appendEvent(made.db, { ts: made.clock.now().toISOString(), type: SCOPE_WIDENED, actor: 'worker:answer:worker-1', cardId: CARD, pr: null, head: null, dedupeKey: `${SCOPE_WIDENED}:${CARD}:${admission}:mixed`, payload: { paths: [WIDENED, 7, null], admission, detail: 'mixed' }, legacy: false })
+
+    expect(busWidenedPaths(made.busPath)(CARD)).toEqual([WIDENED])
+  })
+
   it('a bus that does not exist widens nothing', () => {
     expect(busWidenedPaths('/nowhere/bus.db')(CARD)).toEqual([])
   })
