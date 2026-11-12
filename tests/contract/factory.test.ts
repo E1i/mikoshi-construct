@@ -65,7 +65,6 @@ const SITES_OF_THE_RECONNAISSANCE: Record<string, readonly string[]> = {
     'scripts/window/compact-start.ts',
     'scripts/window/exit.ts',
   ],
-  'window-requests': ['scripts/window/window-requests.ts'],
 }
 
 let generatedFactory: FactoryWithLaws | undefined
@@ -196,7 +195,7 @@ describe('contract/factory.json', () => {
     for (const [concept, files] of Object.entries(SITES_OF_THE_RECONNAISSANCE))
       expect(Object.keys(overlaps[concept]!), concept).toEqual(expect.arrayContaining([...files]))
     expect(overlaps['process-table']).toEqual({})
-    expect(overlaps['window-requests']!['scripts/window/window-requests.ts']).toBeGreaterThan(1)
+    expect(overlaps['window-requests']).toEqual({})
     expect(overlaps.layers).toEqual({})
   }, GENERATION_TIMEOUT)
 
