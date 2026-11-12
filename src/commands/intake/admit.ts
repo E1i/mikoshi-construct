@@ -442,8 +442,9 @@ export function untransferred(downgrades: readonly string[], previousText: strin
   })
 }
 
-function standingReplacementAllowed(decisions: DecisionsPort): boolean {
-  return writtenByTheOwner(decisions).some(decision => decision.words.startsWith(EQUIVALENT_REPLACEMENT_ALLOWANCE))
+function standingReplacementAllowed(decisions: DecisionsPort, cardId: number): boolean {
+  return writtenByTheOwner(decisions)
+    .some(decision => (decision.cards.length === 0 || decision.cards.includes(cardId)) && decision.words.startsWith(EQUIVALENT_REPLACEMENT_ALLOWANCE))
 }
 
 export const CREATED_PATHS_ARE_THE_CHANGE = 'a witness that checks paths the card itself creates is a witness of the change'
@@ -705,7 +706,7 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
   const decisions = options.decisions ?? NO_DECISIONS
   const previous = recorded?.text === undefined ? [] : witnessesOf(recorded.text)
   const lowered = recorded?.text === undefined ? [] : unreplacedFieldDowngrades(witnessDowngrades(previous, witnessesOf(admitted.text)), previous, witnessesOf(admitted.text))
-  const unreplaced = lowered.length > 0 && standingReplacementAllowed(decisions) ? unreplacedDowngrades(lowered, previous, witnessesOf(admitted.text)) : lowered
+  const unreplaced = lowered.length > 0 && standingReplacementAllowed(decisions, card.id) ? unreplacedDowngrades(lowered, previous, witnessesOf(admitted.text)) : lowered
   const scope: BaseScope = { dir: options.dir, card: { touches: checked.touches, creates: createdPaths(checked.creates) }, createdAreTheChange: unreplaced.length > 0 && createdPathsAreTheChange(decisions) }
   const unrefined = unreplaced.length > 0 ? withoutRefinements(unreplaced, previous, witnessesOf(admitted.text), scope) : unreplaced
   const downgrades = unrefined.length > 0 && witnessTransferIsNoDowngrade(decisions) ? untransferred(unrefined, recorded?.text ?? '', openCardTextsBeside(card.id, cards, options.admissions).flatMap(other => witnessFieldsOf(other) ?? [])) : unrefined

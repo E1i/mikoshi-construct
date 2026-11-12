@@ -844,6 +844,13 @@ describe('construct intake --admit takes an equivalent witness replacement under
     expect(amended(w, superseded, [IN_A], [MOVED_TO_B])).toMatchObject({ status: 'ownerWait', downgrades: [IN_A] })
   })
 
+  it('a standing replacement decision bound to another card authorises nothing here, and one bound to this card does', () => {
+    const other = world()
+    expect(amended(other, decisions(other, `- D-7 · 2026-10-12 — ${STANDING} · card #81 · decisions:add`), [IN_A], [MOVED_TO_B])).toMatchObject({ status: 'ownerWait', downgrades: [IN_A] })
+    const own = world()
+    expect(amended(own, decisions(own, `- D-7 · 2026-10-12 — ${STANDING} · card #80 · decisions:add`), [IN_A], [MOVED_TO_B])).toMatchObject({ status: 'admitted', source: 'amend' })
+  })
+
   it('a replacement that changes the checked fact waits for the owner under a standing decision', () => {
     const renamed = world()
     const renamedTo = `\`${run('tests/b.test.ts', 'another thing')}\` exits 0 on head and fails on base`
