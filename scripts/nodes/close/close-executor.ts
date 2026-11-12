@@ -7,9 +7,10 @@ import type { CardSession } from '../answer/answer-source.js'
 import { Buffer } from 'node:buffer'
 import { existsSync, realpathSync } from 'node:fs'
 import process from 'node:process'
+import { BACKFILL_SOURCE } from '../../core/backfill-source.js'
 import { STOPPED_CARD } from '../../core/card-automaton.js'
 import { appendEvent } from '../../core/db.js'
-import { ARTIFACT_KEPT, ARTIFACT_REMOVED, CARD_CLOSED, CARD_VERIFIED, POLICY_DENIED } from '../../core/events.js'
+import { ARTIFACT_KEPT, ARTIFACT_REMOVED, CARD_ADMITTED, CARD_CLOSED, CARD_VERIFIED, POLICY_DENIED } from '../../core/events.js'
 import { assertHeld, completeTask, failTask, StaleLease } from '../../core/lease.js'
 import { VERIFICATION_WORDS } from '../../core/verification.js'
 import { archiveCardFile } from '../../intake/card-archive.js'
@@ -136,11 +137,18 @@ export function cardClosed(db: DatabaseSync, cardId: number): boolean {
 }
 
 const PROBE_CLOSINGS = `
-  SELECT card_id, payload FROM events
-  WHERE type = '${CARD_VERIFIED}' AND legacy = 0 AND pr IS NULL AND card_id IS NOT NULL
-    AND json_extract(payload, '$.report') IS NOT NULL
-    AND NOT EXISTS (SELECT 1 FROM events AS closed WHERE closed.type = '${CARD_CLOSED}' AND closed.card_id = events.card_id)
-  ORDER BY id
+  SELECT verified.card_id, verified.payload FROM events AS verified
+  WHERE verified.type = '${CARD_VERIFIED}' AND verified.legacy = 0 AND verified.pr IS NULL AND verified.card_id IS NOT NULL
+    AND json_extract(verified.payload, '$.report') IS NOT NULL
+    AND NOT EXISTS (
+      SELECT 1 FROM events AS closed WHERE closed.type = '${CARD_CLOSED}' AND closed.card_id = verified.card_id
+        AND closed.id > coalesce((
+          SELECT max(admitted.id) FROM events AS admitted
+          WHERE admitted.type = '${CARD_ADMITTED}' AND admitted.legacy = 0 AND admitted.card_id = verified.card_id AND admitted.id < verified.id
+            AND json_extract(admitted.payload, '$.source') IS NOT '${BACKFILL_SOURCE}'
+        ), 0)
+    )
+  ORDER BY verified.id
 `
 
 interface ProbeClosing {
@@ -158,6 +166,16 @@ function probeClosingOf(db: DatabaseSync, cardId: number): ProbeClosing {
   const row = rows.filter(each => each.card_id === cardId).at(-1)
   const payload = row === undefined ? {} : JSON.parse(row.payload) as { verification?: unknown, report?: unknown }
   return { verification: typeof payload.verification === 'string' ? payload.verification : null, report: typeof payload.report === 'string' ? payload.report : '' }
+}
+
+function closedForThisLease(db: DatabaseSync, lease: Lease): boolean {
+  if (!cardClosed(db, lease.cardId))
+    return false
+  return lease.pr !== null || !probeClosingCardIds(db).includes(lease.cardId)
+}
+
+function closedEventKey(lease: Lease, closedOnceAlready: boolean): string {
+  return closedOnceAlready ? `${CARD_CLOSED}:${lease.taskKey}` : `${CARD_CLOSED}:${lease.cardId}`
 }
 
 function isVerificationWord(word: string | null): word is string {
@@ -178,7 +196,7 @@ export class CloseExecutor {
   close(lease: Lease): CloseOutcome {
     try {
       assertHeld(this.parts.db, lease)
-      if (cardClosed(this.parts.db, lease.cardId))
+      if (closedForThisLease(this.parts.db, lease))
         return this.denied(lease, technical('card_closed', `card ${lease.cardId} is already closed`))
       const foreign = notMine(cardContract(this.parts.db, lease.cardId), 'close')
       if (foreign !== null)
@@ -214,9 +232,9 @@ export class CloseExecutor {
   private closed(lease: Lease, verification: string, report?: string): CloseOutcome {
     const cardFile = archiveCardFile(this.parts.parking, lease.cardId)
     const ts = this.ts()
-    const event: BusEvent = { ts, type: CARD_CLOSED, actor: lease.actor, cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${CARD_CLOSED}:${lease.cardId}`, payload: report === undefined ? { verification } : { verification, report }, legacy: false }
+    const event: BusEvent = { ts, type: CARD_CLOSED, actor: lease.actor, cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: closedEventKey(lease, cardClosed(this.parts.db, lease.cardId)), payload: report === undefined ? { verification } : { verification, report }, legacy: false }
     completeTask(this.parts.db, ts, lease, [event], (db) => {
-      if (cardClosed(db, lease.cardId))
+      if (closedForThisLease(db, lease))
         throw new CardAlreadyClosed(`card ${lease.cardId} was closed before this close was recorded`)
     })
     const treeLeft = this.removeCardTree(lease)
