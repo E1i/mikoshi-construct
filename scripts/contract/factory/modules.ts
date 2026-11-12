@@ -2,7 +2,7 @@ import type { Concept } from './concepts.js'
 import { FACTORY_ROOT } from '../../core/factory-paths.js'
 import { CONCEPTS } from './concepts.js'
 
-export const MODULE_STATUSES = ['decided', 'undecided'] as const
+export const MODULE_STATUSES = ['decided', 'undecided', 'tool'] as const
 
 export type ModuleStatus = typeof MODULE_STATUSES[number]
 
@@ -73,6 +73,14 @@ function undecided(owns: readonly string[], may_use: readonly string[] = []): Mo
   return { owns, contract: [], may_use, status: 'undecided' }
 }
 
+function tool(owns: readonly string[]): ModuleSpec {
+  return { owns, contract: [], may_use: [], status: 'tool' }
+}
+
+export function isTool(spec: ModuleSpec | undefined): boolean {
+  return spec?.status === 'tool'
+}
+
 const OWNER_COMMANDS_READER = ['command-registry']
 
 const DRAWN: Readonly<Record<string, ModuleSpec>> = {
@@ -103,7 +111,8 @@ const DRAWN: Readonly<Record<string, ModuleSpec>> = {
   'window': undecided([tree('window')]),
   'board': undecided([...cli('board-page.ts', `board-page${ANY_DEPTH}`, 'board-warnings.ts'), `src/commands/board${ANY_DEPTH}`], OWNER_COMMANDS_READER),
   'release': undecided([tree('release'), tree('release-notes'), tree('docs'), 'src/commands/run-record.ts']),
-  'factory-contract': undecided([tree('contract')]),
+  'factory-contract': undecided([factory('contract/contours.ts')]),
+  'contract-generator': tool([tree('contract')]),
   'project': undecided([
     ...within('src/commands', `attach${ANY_DEPTH}`, `detach${ANY_DEPTH}`, `doctor${ANY_DEPTH}`, `sync${ANY_DEPTH}`, 'graph.ts', 'init.ts', 'soulkill.ts'),
     ...within('src', `detect${ANY_DEPTH}`, 'manifest.ts', `materialize${ANY_DEPTH}`, `presets${ANY_DEPTH}`, 'record-ahead.ts', `sync${ANY_DEPTH}`, 'failure.ts', 'known-flags.ts', 'version.ts'),
