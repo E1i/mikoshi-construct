@@ -2752,6 +2752,47 @@
         },
         "text": "a process that leaves does not kill its children"
       },
+      "Z10": {
+        "cells": {
+          "answer": {
+            "notApplicable": "the owner's moves run as window requests the bus answers (scripts/window/window-requests.ts); this node holds no timer or condition an owner move passes"
+          },
+          "close": {
+            "notApplicable": "the owner's moves run as window requests the bus answers (scripts/window/window-requests.ts); this node holds no timer or condition an owner move passes"
+          },
+          "intake": {
+            "notApplicable": "intake admits and widens cards and moves none on the owner's word"
+          },
+          "launch": {
+            "witness": "Z10-owner-launch-past-conditions"
+          },
+          "merge": {
+            "notApplicable": "the owner's moves run as window requests the bus answers (scripts/window/window-requests.ts); this node holds no timer or condition an owner move passes"
+          },
+          "netwatch": {
+            "notApplicable": "netwatch moves no card; it records what GitHub shows"
+          },
+          "restart": {
+            "notApplicable": "the owner's moves run as window requests the bus answers (scripts/window/window-requests.ts); this node holds no timer or condition an owner move passes"
+          },
+          "review": {
+            "notApplicable": "the owner's moves run as window requests the bus answers (scripts/window/window-requests.ts); this node holds no timer or condition an owner move passes"
+          },
+          "supervisor": {
+            "notApplicable": "StalledSessions ends or requeues a stalled session by its stall lines and moves no card on the owner's word"
+          },
+          "update": {
+            "notApplicable": "the owner's moves run as window requests the bus answers (scripts/window/window-requests.ts); this node holds no timer or condition an owner move passes"
+          },
+          "window": {
+            "notApplicable": "miko:watch moves no card; the owner's moves are window requests scripts/window/window-requests.ts answers, witnessed by scripts/tests/window/owner-moves-a-card.test.ts"
+          },
+          "witness": {
+            "notApplicable": "the owner's moves run as window requests the bus answers (scripts/window/window-requests.ts); this node holds no timer or condition an owner move passes"
+          }
+        },
+        "text": "the owner's word moves any card past every timer and automatic condition — stop its live session, launch it now, give it to the window now, queue its task again without a board alarm — each an owner command given through the owner channel and recorded as one bus event naming the owner, refused only when the move is physically impossible, with that cause named"
+      },
       "Z2": {
         "cells": {
           "answer": {
@@ -3174,7 +3215,7 @@
         "text": "a decision that lifts an awaited stop also queues its answer"
       }
     },
-    "lawsVersion": 4
+    "lawsVersion": 5
   },
   "modules": {
     "composition_roots": [

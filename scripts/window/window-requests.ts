@@ -3,6 +3,7 @@ import type { AdmitResult } from '../../src/commands/intake/admit.js'
 import type { AmendFlags } from '../../src/commands/intake/amend.js'
 import type { CardAdmissionsPort, CardEventPort } from '../../src/commands/intake/index.js'
 import type { QueueTaskRow as TaskRow } from '../core/card-hold.js'
+import type { OwnerMoveRequest } from '../core/owner-commands.js'
 import type { StoredEvent } from '../core/stored.js'
 import type { AmendedStop } from '../nodes/answer/answer-executor.js'
 import type { DryRunRecord } from '../nodes/review/dry-run-record.js'
@@ -23,18 +24,19 @@ import { CLOSED_CARD, DROPPED_CARD, MERGED_CARD } from '../core/card-automaton.j
 import { appendCardEvent, bodyNotFoldedYet, CARD_BODIES, cardBodyText, FACTORY_MODES, isFactoryMode, laid } from '../core/card-bodies.js'
 import { answersWithdrawnByAClosedHold, holdLayersOf, holdThatStays, ownerHoldGround, queueAgain } from '../core/card-hold.js'
 import { appendEvent, CLOSED_WAIT, closeOwnerWait, defaultBusPath, inTransaction, isOwnerWaitNeed, OPEN_WAIT, openBus, openOwnerWait, OWNER_WAIT_NEEDS, OWNER_WAITS } from '../core/db.js'
-import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_DROPPED, CARD_HELD, CARD_PLANNED, CARD_RELEASED, CARD_STARTED, CARD_STOPPED, CARD_TAKEOVER, CARD_UNPLANNED, declaredPayload, FACTORY_MODE, NUMBERS_FOREIGN, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PLAN_BACKFILLED, PLAN_CLOSED, PLAN_OPENED, POLICY_DENIED, PR_OBSERVED, REQUEST_DONE, REQUEST_REFUSED, SHARD_DECIDED, TASK_REQUEUED, WINDOW_REQUEST, WITNESS_RECORDED } from '../core/events.js'
+import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_CONTINUED, CARD_DROPPED, CARD_HELD, CARD_PLANNED, CARD_RELEASED, CARD_STARTED, CARD_STOPPED, CARD_TAKEOVER, CARD_UNPLANNED, COMMAND_EXECUTED, declaredPayload, FACTORY_MODE, NUMBERS_FOREIGN, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PLAN_BACKFILLED, PLAN_CLOSED, PLAN_OPENED, POLICY_DENIED, PR_OBSERVED, REQUEST_DONE, REQUEST_REFUSED, SHARD_DECIDED, TASK_REQUEUED, WINDOW_REQUEST, WITNESS_RECORDED } from '../core/events.js'
 import { cardIdOf, isFullSha, prOf } from '../core/identifiers.js'
 import { ANSWER_SOURCE, OPEN_OWNER_STOP_OF_CARD, OWNER } from '../core/inbox.js'
 import { legacyHistory } from '../core/legacy-history.js'
-import { changesRoundsOf, closedByRounds, FAILURES_TO_STOP, latestTurnOf, LEASED, QUEUE_ACTOR, QUEUED, REVIEW_ROUNDS } from '../core/queue.js'
+import { isOwnerMoveRequest, OWNER_MOVE_REQUESTS, ownerMoveCommand, ownerMoveOf, ownerMoveRequestOf, ownerMoveUsage } from '../core/owner-commands.js'
+import { changesRoundsOf, closedByRounds, FAILURES_TO_STOP, latestTurnOf, LEASED, QUEUE_ACTOR, QUEUED, queueTaskWithin, REVIEW_ROUNDS } from '../core/queue.js'
 import { storedByKey } from '../core/stored.js'
 import { INTAKE_ACTOR_PREFIX } from '../intake/admissions.js'
 import { answerToResumeAfterAmend } from '../nodes/answer/answer-executor.js'
 import { openPrOfCard, ownerHoldOf } from '../nodes/answer/answer-source.js'
 import { layLanes, repositoryLanes } from '../nodes/launch/lane-assign.js'
 import { cleanUpdatesOf } from '../nodes/update/update-done.js'
-import { consumeOwnerWord, consumeOwnerWordClosing, decisionOnAWait, OWNER_WORD_NOT_FOUND, ownerChannelOf, ownerWordAwaited, sameDecisionWords, USED_WORD } from '../owner/channel.js'
+import { consumeOwnerWord, consumeOwnerWordClosing, decisionOnAWait, OWNER_WORD_NOT_FOUND, ownerChannelOf, ownerMoveUnsaid, ownerWordAwaited, sameDecisionWords, USED_WORD } from '../owner/channel.js'
 import { OWNER_SOURCE } from '../policy/decisions/decisions.js'
 import { BusDecisions } from '../policy/decisions/index.js'
 import { settledCards } from '../policy/decisions/read.js'
@@ -60,7 +62,7 @@ const CARD_STATES = `
   SELECT DISTINCT card_id, NULL FROM events WHERE card_id IS NOT NULL AND card_id NOT IN (SELECT card_id FROM cards WHERE state IS NOT NULL)
 `
 const LATEST_INTAKE_ADMISSION = `SELECT id, ts, payload FROM events WHERE legacy = 0 AND type = '${CARD_ADMITTED}' AND actor LIKE '${INTAKE_ACTOR_PREFIX}%' AND card_id = ? AND json_type(payload, '$.card') = 'text' AND json_extract(payload, '$.bodySha') IS NOT NULL ORDER BY id DESC LIMIT 1`
-export const REQUEST_KINDS = ['tree.cut', 'amend', 'allow-merge', 'close-pr', 'reopen-pr', 'pr.body', 'ci.rerun', 'requeue', 'mode', 'plan', 'owner.wait', 'owner.wait.close', 'decisions:add', 'hold', 'release', 'takeover', 'drop', 'numbers.foreign'] as const
+export const REQUEST_KINDS = ['tree.cut', 'amend', 'allow-merge', 'close-pr', 'reopen-pr', 'pr.body', 'ci.rerun', 'requeue', 'mode', 'plan', 'owner.wait', 'owner.wait.close', 'decisions:add', 'hold', 'release', 'takeover', 'drop', 'numbers.foreign', ...OWNER_MOVE_REQUESTS] as const
 export const TAKEOVER_AFTER_MINUTES = 30
 export const PLAN_OPS: ReadonlyMap<string, string> = new Map([['open', PLAN_OPENED], ['add', CARD_PLANNED], ['remove', CARD_UNPLANNED], ['backfill', PLAN_BACKFILLED], ['close', PLAN_CLOSED]])
 const PLAN_FLAGS = ['op', 'plan', 'title', 'goal', 'file', 'gate', 'card'] as const
@@ -76,7 +78,7 @@ export const ALLOW_MERGE_RECORD = 'architecture/decisions/window-allow-merge.md'
 const RULE_ACCEPTED = /^Status: accepted\b/m
 export const REQUEST_RULE = 'window_request'
 export const PREFIX = '[bus:request] '
-export const USAGE = `usage: pnpm bus:request tree.cut --card <N> | amend --card <N> [--touches +<path>,-<path>] [--add-witness <witness>]... [--remove-witness <witness>]... [--owner-words <the owner's words>] [--depends +#<N>,-#<N>] [--priority p0|p1|p2|none] [--auto-confirm] | allow-merge --pr <N> --head <sha>|${HEAD_WORD} --dry-run <reviewer session> | close-pr|reopen-pr --pr <N> --card <N> --reason <text> | pr.body --pr <N> [--file <absolute path in the card tree>] | ci.rerun --pr <N> | requeue --task <task_key> [--keep-tree] | mode --set ${FACTORY_MODES.join('|')} | plan --op ${[...PLAN_OPS.keys()].join('|')} [--plan <id>] [--title <text>] [--goal <text>] [--file <absolute plan file>] [--gate <word>] [--card <N>] | owner.wait --need ${OWNER_WAIT_NEEDS.join('|')} --text <what the owner decides> [--command <line>] [--card <N>] [--pr <N>] | owner.wait.close --id Q<N> --answer <answer> [--from ${ANSWER_SOURCE}] | owner.wait.close --id Q<N> --from ${ANSWER_SOURCE} | decisions:add --from ${ANSWER_SOURCE} [--supersedes D-M]... [--card #N]... [--until <YYYY-MM-DDTHH:MMZ>] "[owner] <decision>" | hold --card <N> --reason <why the owner holds it> | release --card <N> | takeover --card <N> --reason <why the bus has no route for it> | drop --card <N> --reason <why a card with no body is dropped> | numbers.foreign --ids <card ids of another factory's row, comma separated>`
+export const USAGE = `usage: pnpm bus:request tree.cut --card <N> | amend --card <N> [--touches +<path>,-<path>] [--add-witness <witness>]... [--remove-witness <witness>]... [--owner-words <the owner's words>] [--depends +#<N>,-#<N>] [--priority p0|p1|p2|none] [--auto-confirm] | allow-merge --pr <N> --head <sha>|${HEAD_WORD} --dry-run <reviewer session> | close-pr|reopen-pr --pr <N> --card <N> --reason <text> | pr.body --pr <N> [--file <absolute path in the card tree>] | ci.rerun --pr <N> | requeue --task <task_key> [--keep-tree] | mode --set ${FACTORY_MODES.join('|')} | plan --op ${[...PLAN_OPS.keys()].join('|')} [--plan <id>] [--title <text>] [--goal <text>] [--file <absolute plan file>] [--gate <word>] [--card <N>] | owner.wait --need ${OWNER_WAIT_NEEDS.join('|')} --text <what the owner decides> [--command <line>] [--card <N>] [--pr <N>] | owner.wait.close --id Q<N> --answer <answer> [--from ${ANSWER_SOURCE}] | owner.wait.close --id Q<N> --from ${ANSWER_SOURCE} | decisions:add --from ${ANSWER_SOURCE} [--supersedes D-M]... [--card #N]... [--until <YYYY-MM-DDTHH:MMZ>] "[owner] <decision>" | hold --card <N> --reason <why the owner holds it> | release --card <N> | takeover --card <N> --reason <why the bus has no route for it> | drop --card <N> --reason <why a card with no body is dropped> | numbers.foreign --ids <card ids of another factory's row, comma separated> | ${ownerMoveUsage()}`
 
 const BY_HAND = 'by-hand'
 const noTool = (what: string): Executed => ({ done: false, why: `this bus was built with no tool to ${what}` })
@@ -258,7 +260,9 @@ export class WindowRequests {
   }
 
   private executorOf(kind: RequestKind): (request: number, payload: Record<string, unknown>) => Executed {
-    const executors: Record<RequestKind, (request: number, payload: Record<string, unknown>) => Executed> = {
+    if (isOwnerMoveRequest(kind))
+      return (request, payload) => this.ownerMove(request, kind, payload)
+    const executors: Record<Exclude<RequestKind, OwnerMoveRequest>, (request: number, payload: Record<string, unknown>) => Executed> = {
       'tree.cut': (_, payload) => this.treeCut(payload),
       'amend': (request, payload) => this.amend(request, payload),
       'allow-merge': (_, payload) => this.allowMerge(payload),
@@ -279,6 +283,44 @@ export class WindowRequests {
       'numbers.foreign': (request, payload) => this.recordForeignNumbers(request, payload),
     }
     return executors[kind]
+  }
+
+  private ownerMove(request: number, kind: OwnerMoveRequest, payload: Record<string, unknown>): Executed {
+    const [move, cardId, taskKey] = [ownerMoveOf(kind), cardIdOf(payload.card), text(payload.task_key)]
+    const target = move === 'requeue' ? taskKey : cardId
+    if (target === null)
+      return { done: false, why: `${kind} names no ${move === 'requeue' ? 'task' : 'card'}` }
+    const command = ownerMoveCommand(move, target)
+    const word = consumeOwnerWord(this.ownerChannel, command)
+    if (word === null)
+      return { done: false, why: ownerMoveUnsaid(command) }
+    const ts = this.clock().toISOString()
+    const moved = move === 'stop' ? this.ownerStop(cardId!) : move === 'launch' ? this.ownerLaunch(request, cardId!, ts) : move === 'takeover' ? this.takeover(request, payload, true) : this.requeue(request, payload, true)
+    if (!moved.done)
+      return { done: false, why: `${moved.why}; owner word ${word.file} ${word.release() ? 'left unused' : unreleasedWord(word.file)}` }
+    appendEvent(this.db, { ts, type: COMMAND_EXECUTED, actor: OWNER, cardId, pr: null, head: null, dedupeKey: `${COMMAND_EXECUTED}:${kind}:request-${request}`, payload: { command, event_id: request, ok: true, text: moved.why, ...(taskKey === null ? {} : { task_key: taskKey }) }, legacy: false })
+    return { done: true, why: `${moved.why}; owner word ${word.file} used` }
+  }
+
+  private ownerStop(cardId: number): Executed {
+    const session = this.openSessionOf(cardId)
+    return session === null ? { done: false, why: `card #${cardId} has no live session to stop: the bus holds no session of it that started and has not ended` } : { done: true, why: `the launch node stops the session of card #${cardId} started at event ${session} on its next pass` }
+  }
+
+  private ownerLaunch(request: number, cardId: number, ts: string): Executed {
+    const session = this.openSessionOf(cardId)
+    const refusal = this.routeOf(cardId, true) ?? (cardBodyText(this.db, cardId) === null ? `card #${cardId} has no admitted body in the bus, so there is nothing to launch` : session === null ? null : `card #${cardId} runs the session started at event ${session}; a second session cannot share its tree`)
+    if (refusal !== null)
+      return { done: false, why: refusal }
+    if ((this.db.prepare(LIVE_TASK_OF_CARD).get(cardId) as { queue: string } | undefined)?.queue !== 'launch')
+      queueTaskWithin(this.db, ts, { queue: 'launch', cardId, generation: `owner-${request}` })
+    const task = this.db.prepare(LIVE_TASK_OF_CARD).get(cardId) as { task_key: string, queue: string, state: string } | undefined
+    return task?.queue === 'launch' ? { done: true, why: `the launch task ${task.task_key} of card #${cardId} is ${task.state}: the launch node starts it on its next lease, past its launch conditions` } : { done: false, why: `the bus rejected a launch task for card #${cardId}` }
+  }
+
+  private openSessionOf(cardId: number): number | null {
+    const turn = this.latestTurn(cardId)
+    return (turn?.type === CARD_STARTED || turn?.type === CARD_CONTINUED) && startStillOpen(this.db, cardId, turn.id) ? turn.id : null
   }
 
   private amend(request: number, payload: Record<string, unknown>): Executed {
@@ -559,12 +601,12 @@ export class WindowRequests {
     return { ...row, head: fresh.head, state: typeof fresh.state === 'string' ? fresh.state : row.state }
   }
 
-  private requeue(request: number, payload: Record<string, unknown>): Executed {
+  private requeue(request: number, payload: Record<string, unknown>, owner = false): Executed {
     const key = text(payload.task_key)
     if (key === null)
       return { done: false, why: 'requeue names no task_key' }
-    const alarm = this.db.prepare(LAST_ALARM).get(key) as { id: number } | undefined
-    if (alarm === undefined)
+    const alarm = owner ? undefined : this.db.prepare(LAST_ALARM).get(key) as { id: number } | undefined
+    if (alarm === undefined && !owner)
       return { done: false, why: `no ${BOARD_ALARM} names ${key}` }
     const task = this.db.prepare('SELECT task_key, queue, card_id, pr, head, state FROM tasks WHERE task_key = ?').get(key) as TaskRow | undefined
     if (task === undefined)
@@ -577,15 +619,15 @@ export class WindowRequests {
         return { done: false, why: `PR #${task.pr} is not open at ${task.head ?? 'its head'}; a task of its current head is derived anew` }
     }
     const ts = this.clock().toISOString()
-    if (closedByRounds(this.db, ts, task.queue, task.pr, task.head))
+    if (!owner && closedByRounds(this.db, ts, task.queue, task.pr, task.head))
       return { done: false, why: `PR #${task.pr} is past the review round limit of D-104` }
-    const requeues = Number((this.db.prepare(REQUEUES_SINCE).get(alarm.id, key) as { n: number }).n)
+    const requeues = alarm === undefined ? 0 : Number((this.db.prepare(REQUEUES_SINCE).get(alarm.id, key) as { n: number }).n)
     if (requeues >= FAILURES_TO_STOP)
-      return { done: false, why: `${key} was requeued ${requeues} times since ${BOARD_ALARM} ${alarm.id}, the D-104 limit` }
-    const holds = this.tools.causeHolds({ taskKey: key, cardId: task.card_id })
+      return { done: false, why: `${key} was requeued ${requeues} times since ${BOARD_ALARM} ${alarm!.id}, the D-104 limit` }
+    const holds = owner ? null : this.tools.causeHolds({ taskKey: key, cardId: task.card_id })
     const keepsTheTree = payload.keep_tree === true && task.queue === 'launch' && holds !== null && DIRTY_TREE_CAUSE.test(holds)
     if (holds !== null && !keepsTheTree)
-      return { done: false, why: `the cause of ${BOARD_ALARM} ${alarm.id} holds: ${holds}${task.queue === 'launch' && DIRTY_TREE_CAUSE.test(holds) ? `; a requeue with keep_tree: true launches the session on that tree as it stands, writing nothing in it` : ''}` }
+      return { done: false, why: `the cause of ${BOARD_ALARM} ${alarm!.id} holds: ${holds}${task.queue === 'launch' && DIRTY_TREE_CAUSE.test(holds) ? `; a requeue with keep_tree: true launches the session on that tree as it stands, writing nothing in it` : ''}` }
     try {
       inTransaction(this.db, () => queueAgain(this.db, ts, task, request, `request-${request}`))
     }
@@ -595,7 +637,7 @@ export class WindowRequests {
     const after = this.db.prepare('SELECT state FROM tasks WHERE task_key = ?').get(key) as { state: string }
     if (after.state !== QUEUED)
       return { done: false, why: `${key} stays ${after.state}: the bus rejected its ${TASK_REQUEUED}` }
-    return { done: true, why: `${key} queued again after ${BOARD_ALARM} ${alarm.id}, requeue ${requeues + 1} of ${FAILURES_TO_STOP}${keepsTheTree ? `; its session starts on the tree as it stands: ${holds}` : ''}` }
+    return { done: true, why: alarm === undefined ? `${key} queued again on the owner's word, with no ${BOARD_ALARM} and no automatic condition` : `${key} queued again after ${BOARD_ALARM} ${alarm.id}, requeue ${requeues + 1} of ${FAILURES_TO_STOP}${keepsTheTree ? `; its session starts on the tree as it stands: ${holds}` : ''}` }
   }
 
   private holdFor(request: number, payload: Record<string, unknown>, type: typeof CARD_HELD | typeof CARD_RELEASED): Executed {
@@ -615,20 +657,19 @@ export class WindowRequests {
     return { done: true, why: `${type} #${cardId}${reason === null ? '' : `: ${reason}`}${stays ?? (requeued.length === 0 ? '' : `; queued again: ${requeued.join(', ')}`)}` }
   }
 
-  private takeover(request: number, payload: Record<string, unknown>): Executed {
+  private takeover(request: number, payload: Record<string, unknown>, owner = false): Executed {
     const cardId = cardIdOf(payload.card)
-    const reason = text(payload.reason)
+    const reason = text(payload.reason) ?? (owner ? `the owner's move` : null)
     if (cardId === null || reason === null)
       return { done: false, why: 'takeover needs a card and the reason the bus has no route for it' }
-    const route = this.routeOf(cardId)
+    const route = this.routeOf(cardId, owner)
     if (route !== null)
       return { done: false, why: route }
-    const sessionEnded = windowSessionEndGround(this.db, cardId)
-    const ground = sessionEnded ?? ownerHoldGround(this.db, cardId) ?? this.noRouteGround(cardId)
+    const ground = owner ? { named: `the owner's word, with no ${TAKEOVER_AFTER_MINUTES} minutes and no route to wait out` } : windowSessionEndGround(this.db, cardId) ?? ownerHoldGround(this.db, cardId) ?? this.noRouteGround(cardId)
     if (typeof ground !== 'object')
       return { done: false, why: ground }
     const ts = this.clock().toISOString()
-    const actor = this.actorOf(request)
+    const actor = owner ? OWNER : this.actorOf(request)
     inTransaction(this.db, () => {
       appendEvent(this.db, { ts, type: CARD_HELD, actor, cardId, pr: null, head: null, dedupeKey: `${CARD_HELD}:request-${request}`, payload: { request, reason, takeover: true }, legacy: false })
       appendEvent(this.db, { ts, type: CARD_TAKEOVER, actor, cardId, pr: null, head: null, dedupeKey: `${CARD_TAKEOVER}:request-${request}`, payload: { request, reason, ground: ground.named }, legacy: false })
@@ -664,10 +705,12 @@ export class WindowRequests {
     return { done: true, why: `${NUMBERS_FOREIGN} ${ids.map(id => `#${id}`).join(', ')}: the next card number no longer follows them` }
   }
 
-  private routeOf(cardId: number): string | null {
+  private routeOf(cardId: number, owner = false): string | null {
     const card = this.db.prepare('SELECT state FROM cards WHERE card_id = ?').get(cardId) as { state: string | null } | undefined
-    if (ENDED_CARDS.has(card?.state))
-      return `card #${cardId} is ${card!.state}; there is nothing to take over`
+    if (ENDED_CARDS.has(card?.state) || (owner && card === undefined))
+      return card === undefined ? `the bus holds no card #${cardId}; there is nothing to move` : `card #${cardId} is ${card.state}; there is nothing to ${owner ? 'move' : 'take over'}`
+    if (owner)
+      return null
     const layers = holdLayersOf(this.db, cardId)
     const hold = layers.owner === null || layers.takeover !== null ? ownerHoldOf(this.db, cardId) : null
     if (hold !== null)
@@ -926,7 +969,7 @@ export function requestOf(argv: readonly string[]): Record<string, unknown> | nu
     const given = PLAN_FLAGS.flatMap(name => flag(argv, `--${name}`) === undefined ? [] : [[name, flag(argv, `--${name}`)] as const])
     return { kind, ...Object.fromEntries(given) }
   }
-  return { kind }
+  return isOwnerMoveRequest(kind) ? ownerMoveRequestOf(kind, argv) : { kind }
 }
 
 function printUsage(out: (line: string) => void): void {

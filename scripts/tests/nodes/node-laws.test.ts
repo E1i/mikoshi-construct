@@ -28,16 +28,19 @@ import { LAW_GAP_PREFIX, lawGapNumbers, ratchetBreaks, readRatchet } from '../..
 import { cardBodyText } from '../../core/card-bodies.js'
 import { HOLD_RECHECK_MS, LIVE_SESSION_IN_THE_TREE } from '../../core/card-hold.js'
 import { appendEvent, openBus } from '../../core/db.js'
-import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_CONTINUED, CARD_STARTED, CARD_STOPPED, CARD_WAITING, CI_RERUN_REQUESTED, OUTSIDE_TOUCHES, OWNER_WAIT_OPENED, PR_OPENED, REVIEW_RECORDED, SCOPE_WIDENED, SESSION_HEARTBEAT, TASK_RELEASED, WINDOW_HEARTBEAT } from '../../core/events.js'
+import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_CONTINUED, CARD_HELD, CARD_STARTED, CARD_STOPPED, CARD_WAITING, CI_RERUN_REQUESTED, COMMAND_EXECUTED, OUTSIDE_TOUCHES, OWNER_WAIT_OPENED, PR_OPENED, REVIEW_RECORDED, SCOPE_WIDENED, SESSION_HEARTBEAT, TASK_RELEASED, WINDOW_HEARTBEAT } from '../../core/events.js'
+import { OWNER } from '../../core/inbox.js'
 import { completeTask, leaseNext, recordWorkerStarted } from '../../core/lease.js'
 import { MachineSessions } from '../../core/machine-sessions.js'
 import { Node } from '../../core/node.js'
+import { ownerMoveCommand } from '../../core/owner-commands.js'
 import { answerCandidates, keyOf, queueTask, queueTaskWithin, updateCandidates } from '../../core/queue.js'
+import { reduce } from '../../core/reducer.js'
 import { AnswerNode } from '../../nodes/answer/answer-worker.js'
 import { claudeAnswerer } from '../../nodes/answer/answerer.js'
 import { handoffBuilder, handoffWrittenSince, reportSince } from '../../nodes/launch/launch-root.js'
 import { LaunchNode } from '../../nodes/launch/launch-worker.js'
-import { ANSWER_STOP_SPENDS_NO_RESTART, CARD_WAIT_STATES, DIRECT_IMPORTER_WIDENED, EVERY_LAUNCH_WRITES_ITS_EVENT, gapRows, INFRASTRUCTURE_RETRIED, LAUNCH_BODY_FROM_LATEST_ADMISSION, LAUNCH_STOP_SPENDS_NO_CONTINUATION, LAW_CELLS, LAW_CELLS_WITNESSES, LAW_NODES, LAW_SITES, lawIds, LAWS, LIVE_SESSION_WAIT_LIFTED, MERGE_KEEPS_TO_THE_TOUCHES, NO_HEAD_OF_LINE, RESTART_KEEPS_SESSION, REVIEW_KEEPS_SESSION_AND_LEAVES_NO_DESCENDANT, SESSION_BEAT_BESIDE_STALE_WINDOW, sourceOf } from '../../nodes/laws.js'
+import { ANSWER_STOP_SPENDS_NO_RESTART, CARD_WAIT_STATES, DIRECT_IMPORTER_WIDENED, EVERY_LAUNCH_WRITES_ITS_EVENT, gapRows, INFRASTRUCTURE_RETRIED, LAUNCH_BODY_FROM_LATEST_ADMISSION, LAUNCH_STOP_SPENDS_NO_CONTINUATION, LAW_CELLS, LAW_CELLS_WITNESSES, LAW_NODES, LAW_SITES, lawIds, LAWS, LIVE_SESSION_WAIT_LIFTED, MERGE_KEEPS_TO_THE_TOUCHES, NO_HEAD_OF_LINE, OWNER_LAUNCH_PAST_CONDITIONS, RESTART_KEEPS_SESSION, REVIEW_KEEPS_SESSION_AND_LEAVES_NO_DESCENDANT, SESSION_BEAT_BESIDE_STALE_WINDOW, sourceOf } from '../../nodes/laws.js'
 import { fullReview } from '../../nodes/review/review-depth.js'
 import { dryRun } from '../../nodes/review/review-worker.js'
 import { claudeReviewer, ReviewTrees } from '../../nodes/review/reviewer.js'
@@ -54,7 +57,7 @@ import { eventsOf, mergeBench } from '../bus/merge-bench.js'
 import { reachesSite } from './law-reach.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')
-const OWNER_LAWS = ['Z1', 'Z2', 'Z3', 'Z4', 'Z5', 'Z6', 'Z7', 'Z8', 'Z9']
+const OWNER_LAWS = ['Z1', 'Z2', 'Z3', 'Z4', 'Z5', 'Z6', 'Z7', 'Z8', 'Z9', 'Z10']
 
 interface Witness {
   law: LawId
@@ -370,6 +373,36 @@ async function everyLaunchWritesItsEvent(node: LawNode): Promise<void> {
     if (starter.started !== 1 || starts !== starter.started || continuations !== starter.continued)
       throw new Error(`launches and their events differ: ${starter.started} starts wrote ${starts} ${CARD_STARTED}, ${starter.continued} continuations wrote ${continuations} ${CARD_CONTINUED}`)
   })
+}
+
+const OWNER_LAUNCHED_CARD = 1819
+
+async function ownerLaunchPastConditions(node: LawNode): Promise<void> {
+  if (node !== 'launch')
+    throw new Error(`no owner launch is wired on ${node}`)
+  const made = mergeBench()
+  try {
+    const ts = (): string => made.clock.now().toISOString()
+    const text = `card: #${OWNER_LAUNCHED_CARD} held [implement/construct/S/cheap/auto] · depends — · blocks —\n\nLaunch it.\n`
+    appendEvent(made.db, { ts: ts(), type: CARD_ADMITTED, actor: 'policy', cardId: OWNER_LAUNCHED_CARD, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:z10`, payload: { lane: 'lane-a', decision: 'auto', contour: 'cheap', depends: [], admission: 'z10', text, textSha: textSha(text) }, legacy: false })
+    made.tick()
+    appendEvent(made.db, { ts: ts(), type: CARD_HELD, actor: OWNER, cardId: OWNER_LAUNCHED_CARD, pr: null, head: null, dedupeKey: `${CARD_HELD}:z10`, payload: { request: 1, reason: 'held' }, legacy: false })
+    appendEvent(made.db, { ts: ts(), type: COMMAND_EXECUTED, actor: OWNER, cardId: OWNER_LAUNCHED_CARD, pr: null, head: null, dedupeKey: `${COMMAND_EXECUTED}:z10`, payload: { command: ownerMoveCommand('launch', OWNER_LAUNCHED_CARD), event_id: 1, ok: true }, legacy: false })
+    reduce(made.db)
+    let started = 0
+    const starter: CardStarter = { start: (card) => {
+      started += 1
+      return { kind: 'started', card: { session: `s-${card.cardId}`, worktree: `/trees/mc-${card.cardId}`, branch: `feat/card-${card.cardId}`, base: 'f'.repeat(40), pid: 4242, pgid: 4242 } }
+    }, stop: () => {} }
+    const launch = new LaunchNode({ db: made.db, starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes: { commandLine: () => null, signalGroup: () => {} }, reportOf: reportSince(scratchDir('z10-launch-dir-')), machine: new MachineSessions(scratchDir('z10-launch-machine-'), () => false, 16), lanes: () => 4, disk: () => ({ bavail: 1, bsize: 1024 ** 4 }), isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }) })
+    const controller = new AbortController()
+    await launch.run({ pause: async () => controller.abort(), signal: controller.signal })
+    if (started !== 1 || eventsOf(made.db, CARD_STARTED).length !== 1)
+      throw new Error(`the owner's launch of held card #${OWNER_LAUNCHED_CARD} started ${started} sessions`)
+  }
+  finally {
+    made.close()
+  }
 }
 
 const HELD_CARD = 1754
@@ -728,6 +761,7 @@ const WITNESSES: Witnesses = {
   [SESSION_BEAT_BESIDE_STALE_WINDOW]: { law: 'Z7', run: sessionBeatBesideStaleWindow },
   [LAUNCH_STOP_SPENDS_NO_CONTINUATION]: { law: 'Z8', run: launchStopSpendsNoContinuation },
   [ANSWER_STOP_SPENDS_NO_RESTART]: { law: 'Z8', run: answerStopSpendsNoRestart },
+  [OWNER_LAUNCH_PAST_CONDITIONS]: { law: 'Z10', run: ownerLaunchPastConditions },
 }
 
 function cellKinds(cell: LawCell): string[] {

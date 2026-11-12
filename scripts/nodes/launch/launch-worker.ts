@@ -20,12 +20,13 @@ import { DROPPED_CARD, RUNNING_CARD } from '../../core/card-automaton.js'
 import { admittedBodies, admittedBodyText, bodyNotFoldedYet, pathsOutsideTheBody } from '../../core/card-bodies.js'
 import { cardHoldOf, HOLD_RECHECK_MS } from '../../core/card-hold.js'
 import { appendEvent, inTransaction, openOwnerWait } from '../../core/db.js'
-import { BOARD_ALARM, CARD_ADMITTED, CARD_CLOSED, CARD_CONTINUED, CARD_HELD, CARD_PULSE, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, CARD_WAITING, DECISION_RECORDED, GHOST_ROW, LADDER_APPROVAL, MERGE_DONE, OPEN_QUESTION, OUTSIDE_TOUCHES, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PR_CLOSED, PR_OBSERVED, PR_OPENED, QUESTION_AGENT, REDUCED, SESSION_STOP_CODES, sessionStopOf, TASK_COMPLETED, TASK_ENQUEUED, TASK_EXPIRED, TASK_FAILED, TASK_LEASED, TASK_RELEASED, TASK_REQUEUED, TASK_SUPERSEDED } from '../../core/events.js'
+import { BOARD_ALARM, CARD_ADMITTED, CARD_CLOSED, CARD_CONTINUED, CARD_HELD, CARD_PULSE, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, CARD_WAITING, COMMAND_EXECUTED, DECISION_RECORDED, GHOST_ROW, LADDER_APPROVAL, MERGE_DONE, OPEN_QUESTION, OUTSIDE_TOUCHES, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PR_CLOSED, PR_OBSERVED, PR_OPENED, QUESTION_AGENT, REDUCED, SESSION_STOP_CODES, sessionStopOf, TASK_COMPLETED, TASK_ENQUEUED, TASK_EXPIRED, TASK_FAILED, TASK_LEASED, TASK_RELEASED, TASK_REQUEUED, TASK_SUPERSEDED } from '../../core/events.js'
 import { generationOfKey } from '../../core/identifiers.js'
 import { failTask } from '../../core/lease.js'
 import { busNameOfDb, MACHINE_POLL_MS, machineSessions } from '../../core/machine-sessions.js'
 import { Node, prefixOf, UNDERSTOOD_NOW } from '../../core/node.js'
 import { MACHINE_OVERLOADED, machineOverloadedLine, timeoutUnderLoadOutside } from '../../core/observations.js'
+import { ownerMoveCommand } from '../../core/owner-commands.js'
 import { COMPLETED, generationField, LAUNCH_STOP_WITH_NO_PULL_REQUEST, launchTasks, LEASED, TASK_FOLDS } from '../../core/queue.js'
 import { storedByKey } from '../../core/stored.js'
 import { cardDecisionCommand } from '../../policy/shards.js'
@@ -61,6 +62,11 @@ export type PidAlive = (pid: number) => boolean
 
 function recordedPidLivesIn(pid: number, pidAlive: PidAlive): boolean {
   return Number.isInteger(pid) && pid > 0 && pidAlive(pid)
+}
+
+function ownerMovedSince(db: DatabaseSync, cardId: number, move: 'stop' | 'launch', since?: number): boolean {
+  const ofTheCard = new BusRead(db).where({ card: cardId })
+  return ofTheCard.where({ from: (since ?? ofTheCard.slice(CARD_STARTED, ['session'], 'last')[0]?.id ?? 0) + 1 }).slice(COMMAND_EXECUTED, ['command']).some(moved => moved.fields.command === ownerMoveCommand(move, cardId))
 }
 
 const LEGACY_PATH = 'path'
@@ -365,8 +371,9 @@ export class LaunchNode extends Node<LaunchStep> {
       this.waitOnAmend(start, card)
       this.pulse(start, card)
       const now = this.parts.clock().getTime()
-      if (now - Date.parse(start.ts) >= LAUNCH_LIMIT_MS) {
-        if (this.stopLive(start, card, 'time-limit', `card #${start.card_id} ran past ${LAUNCH_LIMIT_MINUTES} minutes since ${start.ts}`))
+      const ownerStop = ownerMovedSince(this.db, start.card_id, 'stop', start.id)
+      if (ownerStop || now - Date.parse(start.ts) >= LAUNCH_LIMIT_MS) {
+        if (this.stopLive(start, card, ownerStop ? 'owner-stop' : 'time-limit', ownerStop ? `the owner stopped card #${start.card_id} session ${card.session} (pid ${card.pid})` : `card #${start.card_id} ran past ${LAUNCH_LIMIT_MINUTES} minutes since ${start.ts}`))
           stopped.push(start.card_id)
         continue
       }
@@ -762,22 +769,23 @@ export class LaunchNode extends Node<LaunchStep> {
   protected handle(lease: Lease): LaunchStep {
     if (bodyNotFoldedYet(this.db, lease.cardId))
       return this.waitOn(lease, BODY_NOT_FOLDED, new Date(this.parts.clock().getTime() + TICK_MS).toISOString())
-    if (cardHoldOf(this.db, lease.cardId) !== null)
+    const ownerSaid = ownerMovedSince(this.db, lease.cardId, 'launch')
+    if (!ownerSaid && cardHoldOf(this.db, lease.cardId) !== null)
       return this.waitOn(lease, CARD_HELD, new Date(this.parts.clock().getTime() + HOLD_RECHECK_MS).toISOString())
-    const held = heldSessionStop(this.db, lease.cardId)
+    const held = ownerSaid ? null : heldSessionStop(this.db, lease.cardId)
     if (held !== null) {
       console.log(`${prefixOf('launch')}${lease.taskKey}: ${heldStopLine(lease.cardId, held)}`)
       return this.waitOn(lease, held.code, new Date(this.parts.clock().getTime() + HOLD_RECHECK_MS).toISOString())
     }
-    const usageReset = this.usageLimitResetPending()
+    const usageReset = ownerSaid ? null : this.usageLimitResetPending()
     if (usageReset !== null)
       return this.waitOn(lease, USAGE_LIMIT, usageReset)
-    const hold = startHold(this.db, lease.cardId, this.lanes(), this.machine)
+    const hold = ownerSaid ? null : startHold(this.db, lease.cardId, this.lanes(), this.machine)
     if (hold !== null)
       return this.waitOn(lease, holdReason(hold), new Date(this.parts.clock().getTime() + MACHINE_POLL_MS).toISOString())
     const claimant = this.machineClaimant(lease.cardId)
     const claim = this.machine.claim(claimant)
-    if (claim.kind === 'refused')
+    if (claim.kind === 'refused' && !ownerSaid)
       return this.waitOn(lease, holdReason({ kind: 'machine', ...claim.hold }), new Date(this.parts.clock().getTime() + MACHINE_POLL_MS).toISOString())
     return this.launchClaimed(lease, claimant)
   }
