@@ -262,7 +262,7 @@ describe('law sites beyond the bus nodes', () => {
     expect(witnessCells.map(({ law, site }) => `${law} × ${site}`)).toEqual(['Z2 × netwatch', 'Z7 × window', 'Z7 × supervisor'])
     expect(unreached).toEqual([])
     expect(await reachesSite('netwatch', () => WITNESSES[PULSE_BESIDE_CARD_SILENCE]!.run('netwatch'))).toBe(false)
-    expect(lawIds().flatMap(law => LAW_SITES.filter(site => 'witness' in LAW_CELLS[law][site]).map(site => `${law} × ${site}`))).toEqual(['Z1 × review', 'Z2 × answer', 'Z2 × launch', 'Z2 × update', 'Z2 × netwatch', 'Z3 × answer', 'Z3 × launch', 'Z4 × answer', 'Z5 × launch', 'Z7 × window', 'Z7 × supervisor', 'Z8 × answer', 'Z8 × launch'])
+    expect(lawIds().flatMap(law => LAW_SITES.filter(site => 'witness' in LAW_CELLS[law][site]).map(site => `${law} × ${site}`))).toEqual(['Z1 × review', 'Z2 × answer', 'Z2 × launch', 'Z2 × update', 'Z2 × netwatch', 'Z3 × answer', 'Z3 × launch', 'Z4 × answer', 'Z5 × launch', 'Z7 × window', 'Z7 × supervisor', 'Z8 × answer', 'Z8 × launch', 'Z10 × launch'])
   })
 
   it('every law cell holds a witness that calls its node or a gap on an open card', async () => {

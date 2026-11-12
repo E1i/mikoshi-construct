@@ -109,6 +109,10 @@ export function sameDecisionWords(one: string, other: string): boolean {
   return words !== '' && words === decisionWordsOf(other)
 }
 
+export function ownerMoveUnsaid(command: string): string {
+  return `${OWNER_WORD_NOT_FOUND}: an owner move runs only on the owner's word, the line "${command}" said into the owner channel`
+}
+
 export function ownerWordAwaited(id: string): string {
   return `${id} waits for the owner's word naming ${id}: the owner lifts it by saying "${id}: <the answer>" into the owner channel, or the answer verbatim`
 }

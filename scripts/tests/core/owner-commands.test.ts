@@ -5,8 +5,9 @@ import path from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
 import { CONCEPTS } from '../../contract/factory/concepts.js'
 import { findSites } from '../../contract/factory/overlaps.js'
-import { ADMIT_COMMAND, constructCommand, npxConstructCommand, pnpmCommand, QUALITY_COMMAND } from '../../core/owner-commands.js'
+import { ADMIT_COMMAND, constructCommand, isOwnerMoveRequest, npxConstructCommand, OWNER_MOVE_REQUESTS, OWNER_MOVES, ownerMoveCommand, ownerMoveOf, ownerMoveRequestOf, ownerMoveUsage, pnpmCommand, QUALITY_COMMAND } from '../../core/owner-commands.js'
 import { admitCommandOf } from '../../core/queue.js'
+import { isRequestKind, requestOf, USAGE } from '../../window/window-requests.js'
 
 const REPO_ROOT = path.join(import.meta.dirname, '..', '..', '..')
 const CONCEPT_ID = 'owner-commands'
@@ -72,6 +73,29 @@ describe('the owner of owner commands', () => {
     expect(admitCommandOf(1802, 'lane-2')).toBe('pnpm intake --admit <parking>/lane-2/1802.md')
     expect(admitCommandOf(1802, '')).toBe('pnpm intake --admit <parking>/1802.md')
     expect(admitCommandOf(1802, null)).toBe('pnpm intake --admit <parking>/1802.md')
+  })
+
+  it('the four owner moves are commands of the owner-commands contract', () => {
+    expect(OWNER_MOVES).toEqual(['stop', 'launch', 'takeover', 'requeue'])
+    expect(OWNER_MOVES.map(move => ownerMoveCommand(move, move === 'requeue' ? 'launch:1784' : 1828))).toEqual([
+      'pnpm bus:request owner.stop --card 1828',
+      'pnpm bus:request owner.launch --card 1828',
+      'pnpm bus:request owner.takeover --card 1828',
+      'pnpm bus:request owner.requeue --task launch:1784',
+    ])
+    expect(OWNER_MOVE_REQUESTS.every(kind => isRequestKind(kind) && isOwnerMoveRequest(kind))).toBe(true)
+    expect(OWNER_MOVE_REQUESTS.map(ownerMoveOf)).toEqual([...OWNER_MOVES])
+    expect(OWNER_MOVES.map(move => requestOf(ownerMoveCommand(move, move === 'requeue' ? 'launch:1784' : 1828).split(' ').slice(2)))).toEqual([
+      { kind: 'owner.stop', card: 1828 },
+      { kind: 'owner.launch', card: 1828 },
+      { kind: 'owner.takeover', card: 1828 },
+      { kind: 'owner.requeue', task_key: 'launch:1784' },
+    ])
+    expect(ownerMoveRequestOf('owner.stop', ['owner.stop', '--card', '#1828'])).toEqual({ kind: 'owner.stop', card: 1828 })
+    expect(ownerMoveRequestOf('owner.stop', ['owner.stop', '--card', 'none'])).toBeNull()
+    expect(ownerMoveRequestOf('owner.requeue', ['owner.requeue'])).toBeNull()
+    expect(USAGE).toContain(ownerMoveUsage())
+    expect(isOwnerMoveRequest('takeover')).toBe(false)
   })
 
   it('is the owner the factory contract names', () => {

@@ -27,6 +27,7 @@ export const LAWS = {
   Z7: 'liveness is read from more than one signal',
   Z8: 'the reason a session stops is recorded in the bus and decides whether its card is continued or goes to intake: a stop on paths outside the touches or on an open question spends no continuation, and the card is not launched again while its touches miss those paths or the question stays open',
   Z9: 'a decision that lifts an awaited stop also queues its answer',
+  Z10: 'the owner\'s word moves any card past every timer and automatic condition — stop its live session, launch it now, give it to the window now, queue its task again without a board alarm — each an owner command given through the owner channel and recorded as one bus event naming the owner, refused only when the move is physically impossible, with that cause named',
 } as const
 
 export type LawId = keyof typeof LAWS
@@ -64,6 +65,8 @@ export const DIRECT_IMPORTER_WIDENED = 'Z3-direct-importer-widened'
 export const LAUNCH_BODY_FROM_LATEST_ADMISSION = 'Z3-launch-body-from-latest-admission'
 export const LAUNCH_STOP_SPENDS_NO_CONTINUATION = 'Z8-launch-stop-spends-no-continuation'
 export const ANSWER_STOP_SPENDS_NO_RESTART = 'Z8-answer-stop-spends-no-restart'
+export const OWNER_LAUNCH_PAST_CONDITIONS = 'Z10-owner-launch-past-conditions'
+const MOVES_NO_CARD_ON_THE_OWNERS_WORD = 'the owner\'s moves run as window requests the bus answers (scripts/window/window-requests.ts); this node holds no timer or condition an owner move passes'
 const CONTINUES_NO_CARD_SESSION = 'the node continues no session of a card, so no stop of one decides a continuation here'
 const NO_INFRASTRUCTURE_TO_FAIL = 'the node starts no session, runs no test and judges no CI run, so no timeout under load, abandoned run or usage limit reaches it as its own failure'
 const STARTS_NO_SESSION = 'the node starts no session, so no child process of its own outlives it'
@@ -87,6 +90,7 @@ const NETWATCH: Record<LawId, LawCell> = {
   Z7: gap(LAW_CELLS_WITNESSES),
   Z8: { notApplicable: 'netwatch continues no card session; it records what GitHub shows' },
   Z9: { notApplicable: 'netwatch records no decision and queues no answer; it records what GitHub shows' },
+  Z10: { notApplicable: 'netwatch moves no card; it records what GitHub shows' },
 }
 
 const WINDOW: Record<LawId, LawCell> = {
@@ -99,6 +103,7 @@ const WINDOW: Record<LawId, LawCell> = {
   Z7: { witness: WINDOW_BESIDE_SESSIONS },
   Z8: { notApplicable: 'miko:watch continues no card session; the launch and answer nodes decide a continuation from the stop they record' },
   Z9: { notApplicable: 'miko:watch queues no answer; the decision the window records reaches the answer and launch nodes through the bus' },
+  Z10: { notApplicable: 'miko:watch moves no card; the owner\'s moves are window requests scripts/window/window-requests.ts answers, witnessed by scripts/tests/window/owner-moves-a-card.test.ts' },
 }
 
 const INTAKE: Record<LawId, LawCell> = {
@@ -111,6 +116,7 @@ const INTAKE: Record<LawId, LawCell> = {
   Z7: { notApplicable: 'intake reads no liveness: it admits from the card text, the decisions in force and the bus card states' },
   Z8: { notApplicable: 'intake continues no card session; it is where a card stopped outside its touches goes to have them widened' },
   Z9: { notApplicable: 'intake lifts no stop and queues no answer; it admits and widens cards' },
+  Z10: { notApplicable: 'intake admits and widens cards and moves none on the owner\'s word' },
 }
 
 const SUPERVISOR: Record<LawId, LawCell> = {
@@ -123,6 +129,7 @@ const SUPERVISOR: Record<LawId, LawCell> = {
   Z7: { witness: REVIEW_LIVE_ON_ONE_STALE_SIGNAL },
   Z8: { notApplicable: 'StalledSessions continues no card session; it ends or requeues a stalled one and reads no stop reason' },
   Z9: { notApplicable: 'StalledSessions reads no decision and queues no answer to one' },
+  Z10: { notApplicable: 'StalledSessions ends or requeues a stalled session by its stall lines and moves no card on the owner\'s word' },
 }
 
 function beyondNodes(law: LawId): Record<SiteBeyondNodes, LawCell> {
@@ -184,6 +191,11 @@ export const LAW_CELLS: LawCells = {
     answer: gap(LAW_CELLS_WITNESSES),
     launch: gap(LAW_CELLS_WITNESSES),
     ...beyondNodes('Z9'),
+  },
+  Z10: {
+    ...everyNode({ notApplicable: MOVES_NO_CARD_ON_THE_OWNERS_WORD }),
+    launch: { witness: OWNER_LAUNCH_PAST_CONDITIONS },
+    ...beyondNodes('Z10'),
   },
 }
 
