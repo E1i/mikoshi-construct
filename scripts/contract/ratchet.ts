@@ -23,14 +23,22 @@ const SPEC_MODULE = 'scripts/contract/factory/modules.ts'
 const DEPENDENCIES = 'node_modules'
 const OUTPUT_LIMIT = 1 << 30
 const RENAMED = /^R\d*$/
+const CI_EVENT = 'GITHUB_EVENT_NAME'
+const MERGE_COMMIT_EVENTS = new Set(['pull_request', 'merge_group'])
+const FIRST_PARENT = 'HEAD^1'
+const SECOND_PARENT = 'HEAD^2'
 
 export type SpecReader = (tree: string) => ModuleGraphSpec
 
-export interface MoveSources {
-  headSpec?: ModuleGraphSpec
-  readSpec?: SpecReader
+export interface BaseSources {
   mainRefs?: readonly string[]
   git?: GitRunner
+  env?: Readonly<Record<string, string | undefined>>
+}
+
+export interface MoveSources extends BaseSources {
+  headSpec?: ModuleGraphSpec
+  readSpec?: SpecReader
 }
 
 export const LAW_GAP_PREFIX = 'law-gaps:'
@@ -77,8 +85,33 @@ export function grownBoundaryRows(recorded: RatchetNumbers, generated: RatchetNu
   return Object.keys(generated).filter(key => key.startsWith(BOUNDARY_PREFIX) && generated[key]! > (recorded[key] ?? 0)).sort()
 }
 
-export function branchBase(root: string, mainRefs: readonly string[] = MAIN_REFS, git: GitRunner = processGit): string | undefined {
+function commitOf(root: string, revision: string, git: GitRunner): string | undefined {
+  const commit = git.readOrNull(root, ['rev-parse', '--verify', '--quiet', `${revision}^{commit}`])?.trim()
+  return commit === '' ? undefined : commit
+}
+
+function firstParentOfMergeCommit(root: string, git: GitRunner): string | undefined {
+  return commitOf(root, SECOND_PARENT, git) === undefined ? undefined : commitOf(root, FIRST_PARENT, git)
+}
+
+function mergeBaseWith(root: string, mainRefs: readonly string[], git: GitRunner): string | undefined {
   return mainRefs.map(ref => git.readOrNull(root, ['merge-base', 'HEAD', ref])?.trim()).find(base => base !== undefined && base !== '')
+}
+
+function unreachableBase(mainRefs: readonly string[], event: string | undefined): string {
+  const where = event === undefined ? 'outside CI' : `on a ${event} run`
+  return `the boundary ratchet finds no base for this branch ${where}: HEAD is not a pull request merge commit with both parents fetched, and it has no merge-base with ${mainRefs.join(' or ')}. A grown boundary row cannot be read as an ownership move without the commit the branch left from — fetch main locally, or check out with fetch-depth 2 in CI`
+}
+
+export function branchBase(root: string, sources: BaseSources = {}): string {
+  const git = sources.git ?? processGit
+  const mainRefs = sources.mainRefs ?? MAIN_REFS
+  const event = (sources.env ?? process.env)[CI_EVENT]
+  const firstParent = event !== undefined && MERGE_COMMIT_EVENTS.has(event) ? firstParentOfMergeCommit(root, git) : undefined
+  const base = firstParent ?? mergeBaseWith(root, mainRefs, git)
+  if (base === undefined)
+    throw new Error(unreachableBase(mainRefs, event))
+  return base
 }
 
 export function renamesSince(root: string, base: string, git: GitRunner = processGit): Map<string, string> {
@@ -105,10 +138,10 @@ function sideOf(root: string, spec: ModuleGraphSpec): BoundarySide {
 }
 
 export function ownershipMoves(root: string, grown: readonly string[], sources: MoveSources = {}): Set<string> {
-  const git = sources.git ?? processGit
-  const base = grown.length === 0 ? undefined : branchBase(root, sources.mainRefs, git)
-  if (base === undefined)
+  if (grown.length === 0)
     return new Set()
+  const git = sources.git ?? processGit
+  const base = branchBase(root, sources)
   const readSpec = sources.readSpec ?? specInTree
   const tree = treeAt(root, base, git)
   try {
