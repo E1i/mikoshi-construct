@@ -18,7 +18,7 @@ import { CARD_BODIES } from './card-bodies.js'
 import { answerDecisionOfKey, decisionSegment, withDecidedContinuations } from './card-decisions.js'
 import { appendEvent, inTransaction, OPEN_WAIT, openOwnerWait, OWNER_WAITS } from './db.js'
 import { dependencyWaitOf } from './dependency-wait.js'
-import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, CARD_WAITING, declaredPart, INTAKE_EVENT, INTAKE_MOVE_EVENT, MERGE_DONE, OWNER_WAIT_OPENED, POLICY_DENIED, PR_CLOSED, PR_OBSERVED, PR_OPENED, QUESTION_AGENT, QUESTION_OWNER, REVIEW_RECORDED, REVIEW_ROUNDS_SPENT, ROUND_EXTENDED, ROUND_MUTATIONS_PARKED, SESSION_HEARTBEAT, SHARD_EXPIRED, SHARD_ISSUED, SHARD_REVOKED, TASK_COMPLETED, TASK_ENQUEUED, TASK_EXPIRED, TASK_FAILED, TASK_LEASED, TASK_RELEASED, TASK_RENEWED, TASK_REQUEUED, TASK_SUPERSEDED, TASK_WITHDRAWN, UPDATE_DONE, WITNESS_DOWNGRADE, WITNESS_RECORDED } from './events.js'
+import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_HELD, CARD_RELEASED, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, CARD_WAITING, declaredPart, INTAKE_EVENT, INTAKE_MOVE_EVENT, MERGE_DONE, OWNER_WAIT_OPENED, POLICY_DENIED, PR_CLOSED, PR_OBSERVED, PR_OPENED, QUESTION_AGENT, QUESTION_OWNER, REVIEW_RECORDED, REVIEW_ROUNDS_SPENT, ROUND_EXTENDED, ROUND_MUTATIONS_PARKED, SESSION_HEARTBEAT, SHARD_EXPIRED, SHARD_ISSUED, SHARD_REVOKED, TASK_COMPLETED, TASK_ENQUEUED, TASK_EXPIRED, TASK_FAILED, TASK_LEASED, TASK_RELEASED, TASK_RENEWED, TASK_REQUEUED, TASK_SUPERSEDED, TASK_WITHDRAWN, UPDATE_DONE, WITNESS_DOWNGRADE, WITNESS_RECORDED } from './events.js'
 import { generationOfKey, isFullSha, QUEUES, reviewInputOf, reviewInputOfKey, taskKey } from './identifiers.js'
 import { ownerQuestionAnswered } from './inbox.js'
 import { A_RERUN_DUE, withTheHeadsARerunIsDueOn } from './observations.js'
@@ -471,7 +471,7 @@ function answerCandidatesWhere(condition: string): string {
     AND NOT ${HELD_BY_A_DEPENDENCY}
     AND NOT EXISTS (
       SELECT 1 FROM events AS stop WHERE stop.id = ${latestTurnOf('prs.card_id')}
-        AND stop.type = '${CARD_STOPPED}' AND ${AN_OPEN_QUESTION}
+        AND stop.type = '${CARD_STOPPED}' AND ${AN_OPEN_QUESTION} AND NOT EXISTS (SELECT 1 FROM events AS taken JOIN events AS released ON released.type = '${CARD_RELEASED}' AND released.legacy = 0 AND released.card_id = stop.card_id AND released.id > taken.id WHERE taken.type = '${CARD_HELD}' AND taken.legacy = 0 AND taken.card_id = stop.card_id AND taken.id > stop.id AND json_extract(taken.payload, '$.takeover') = 1)
     )
   ORDER BY pr
 `
