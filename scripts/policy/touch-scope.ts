@@ -96,10 +96,70 @@ export interface CompositionRecord {
   nodes: readonly { path?: string }[]
 }
 
+export const KNOWN_VIOLATIONS = '.dependency-cruiser-known-violations.json'
+const HUNK_HEADER = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/
+const NO_NEWLINE_MARK = '\\'
+
 export interface FollowingReach {
   touches: readonly string[]
   added: ReadonlySet<string>
   compositionRecords: readonly CompositionRecord[]
+  entriesOnlyRemoved?: (file: string) => boolean
+}
+
+function jsonArrayOrNull(text: string): string[] | null {
+  try {
+    const parsed: unknown = JSON.parse(text)
+    return Array.isArray(parsed) ? parsed.map(entry => JSON.stringify(entry)) : null
+  }
+  catch {
+    return null
+  }
+}
+
+export function removesEntriesOnly(before: string | null, after: string | null): boolean {
+  const was = before === null ? null : jsonArrayOrNull(before)
+  const is = after === null ? null : jsonArrayOrNull(after)
+  if (was === null || is === null || is.length >= was.length)
+    return false
+  const left = [...was]
+  return is.every((entry) => {
+    const at = left.indexOf(entry)
+    if (at === -1)
+      return false
+    left.splice(at, 1)
+    return true
+  })
+}
+
+export function textBeforePatch(after: string, patch: string): string | null {
+  const lines = after.split('\n')
+  const before: string[] = []
+  let next = 0
+  for (const line of patch.split('\n')) {
+    const header = HUNK_HEADER.exec(line)
+    if (header !== null) {
+      const start = Number(header[1]) - (header[2] === '0' ? 0 : 1)
+      if (start < next)
+        return null
+      before.push(...lines.slice(next, start))
+      next = start
+    }
+    else if (line.startsWith('-')) {
+      before.push(line.slice(1))
+    }
+    else if (line.startsWith('+') || line.startsWith(' ')) {
+      if (lines[next] !== line.slice(1))
+        return null
+      if (line.startsWith(' '))
+        before.push(line.slice(1))
+      next += 1
+    }
+    else if (line !== '' && !line.startsWith(NO_NEWLINE_MARK)) {
+      return null
+    }
+  }
+  return [...before, ...lines.slice(next)].join('\n')
 }
 
 export interface FollowingRow {
@@ -243,6 +303,7 @@ export const FOLLOWING_TABLE: readonly FollowingRow[] = [
     return copy !== null && entryCovers(copy, file)
   }) },
   { kind: 'a composition record and its document', follows: reachedRecordFollows },
+  { kind: 'a known violation the card removed (D-514)', follows: (file, reach) => file === KNOWN_VIOLATIONS && reach.entriesOnlyRemoved?.(file) === true },
   { kind: 'a test or a generated file', follows: (file, reach) => isTestOrGenerated(file) && !neverFollows(file, reach) },
 ]
 
