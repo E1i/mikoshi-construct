@@ -14,10 +14,10 @@ import { riskOf } from '../../../src/card/risk.js'
 import { answersWithdrawnByAClosedHold, holdRecheckAt, LIVE_SESSION_IN_THE_TREE, queueAgain } from '../../core/card-hold.js'
 import { appendEvent, inTransaction, openBusWait } from '../../core/db.js'
 import { messageOf } from '../../core/errors.js'
-import { ANSWER_STEP, CARD_ANSWERED, CARD_RELEASED, OUTSIDE_TOUCHES, QUESTION_AGENT, SCOPE_WIDENED, sessionStopOf } from '../../core/events.js'
+import { ANSWER_STEP, CARD_ANSWERED, CARD_RELEASED, CARD_STOPPED, OUTSIDE_TOUCHES, OWNER_WAIT_CLOSED, QUESTION_AGENT, QUESTION_OWNER, SCOPE_WIDENED, sessionStopOf } from '../../core/events.js'
 import { assertHeld, completeTask, StaleLease, waitTask } from '../../core/lease.js'
 import { timeoutUnderLoadOutside } from '../../core/observations.js'
-import { answerOnAnOldCardBody, DOWNGRADE_WAIT_OPEN, downgradeWaitOpenOn, LEASED, QUEUED } from '../../core/queue.js'
+import { answerOnAnOldCardBody, DOWNGRADE_WAIT_OPEN, downgradeWaitOpenOn, LEASED, openDecisionWaitsOf, QUEUED } from '../../core/queue.js'
 import { OWNER_EVEN_UNDER_THE_DECISION } from '../../policy/policy.js'
 import { matchGlob } from '../../policy/shredder/glob.js'
 import { pathsIn, pathsOutside } from '../../policy/touch-scope.js'
@@ -123,6 +123,7 @@ export class AnswerExecutor {
         return this.outcomes.superseded(lease, `the body of card #${lease.cardId} was amended before this lease was taken; no session runs on the old body`)
       if (downgradeWaitOpenOn(this.parts.db, lease.cardId))
         return this.outcomes.denied(lease, { kind: 'technical', reason: DOWNGRADE_WAIT_OPEN, detail: `card #${lease.cardId} waits on the owner's witness downgrade decision; no answer round runs until that wait closes` })
+      closeWaitOfAWidenStopTheAmendLifted(this.parts.db, () => this.ts(), lease.actor, lease.cardId)
       const source = this.sources.sourceOf(lease)
       if (source === null && !this.sources.dirtyOnHead(lease))
         return this.outcomes.denied(lease, { kind: 'technical', reason: 'nothing_to_answer', detail: `card #${lease.cardId} has no open question.agent stop, no changes verdict, no red CI, no red witness and no conflict with ${MAIN_BRANCH} on ${lease.head ?? 'its head'}` })
@@ -348,6 +349,23 @@ function answersQueuedAfterALateRelease(db: DatabaseSync, ts: string, cardId: nu
   const request = typeof release.request === 'number' ? release.request : null
   missed.forEach(task => queueAgain(db, ts, task, request, `${CARD_RELEASED}-${Number(release.id)}`))
   return missed.map(task => task.task_key)
+}
+
+const LATEST_WIDEN_STOP_OF_CARD = `SELECT id, json_extract(payload, '$.detail') AS detail, json_extract(payload, '$.widen') AS widen FROM events WHERE card_id = ? AND legacy = 0 AND type = '${CARD_STOPPED}' AND json_extract(payload, '$.reason') = '${QUESTION_OWNER}' AND json_array_length(json_extract(payload, '$.widen')) > 0 ORDER BY id DESC LIMIT 1`
+
+export function closeWaitOfAWidenStopTheAmendLifted(db: DatabaseSync, ts: () => string, actor: string, cardId: number): string[] {
+  const stop = db.prepare(LATEST_WIDEN_STOP_OF_CARD).get(cardId) as { id: number, detail: unknown, widen: string } | undefined
+  const scope = admittedScopeOf(db, cardId)
+  if (stop === undefined || scope === null || scope.admission <= Number(stop.id))
+    return []
+  const widen = (JSON.parse(stop.widen) as unknown[]).filter((each): each is string => typeof each === 'string')
+  if (pathsOutside(scope.touches, scope.creates, widen).length > 0)
+    return []
+  const asked = `card #${cardId} asks: ${String(stop.detail)}`
+  const waits = (db.prepare(openDecisionWaitsOf('?')).all(cardId) as { id: string, text: string }[]).filter(wait => wait.text === asked)
+  for (const wait of waits)
+    appendEvent(db, { ts: ts(), type: OWNER_WAIT_CLOSED, actor, cardId, pr: null, head: null, dedupeKey: `${OWNER_WAIT_CLOSED}:${wait.id}:widened-${Number(stop.id)}`, payload: { id: wait.id, answer: `the amend admitted as event ${scope.admission} covers ${widen.join(', ')}, the paths stop ${Number(stop.id)} refused` }, legacy: false })
+  return waits.map(wait => wait.id)
 }
 
 const LATEST_ANSWER_OF_CARD = `SELECT task_key, queue, card_id, pr, head, state FROM tasks WHERE card_id = ? AND queue = 'answer' ORDER BY id DESC LIMIT 1`
