@@ -3,7 +3,7 @@ import type { Lease } from '../../../core/lease.js'
 import type { AnswerSource, CardSession } from '../answer-source.js'
 import type { TreeMerge } from './tree.js'
 import { CLOSED_WAIT, OWNER_WAITS } from '../../../core/bus-readings.js'
-import { inTransaction, openBusWait } from '../../../core/db.js'
+import { closeOwnerWait, inTransaction, openBusWait } from '../../../core/db.js'
 import { CARD_ADMITTED, CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, DECISION_RECORDED, OWNER_WAIT_CLOSED, POLICY_DENIED, QUESTION_AGENT, QUESTION_OWNER, WITNESS_RECORDED } from '../../../core/events.js'
 import { openDecisionWaitsOf } from '../../../core/queue.js'
 import { cardDecisionCommand, decisionsInForceAt } from '../../../policy/shards.js'
@@ -25,6 +25,12 @@ const EMPTY_ROUND = 'left_nothing'
 const AMENDED_ADMISSION = 'amend'
 
 const QUESTION_STOPS: readonly unknown[] = [QUESTION_AGENT, QUESTION_OWNER]
+
+function emptyRoundWaitPrefix(cardId: number): string {
+  return `card #${cardId} waits for the owner: an answer round after its `
+}
+
+type EmptyRoundExit = 'decision' | 'closed' | 'amend' | 'new-head'
 
 export interface AwaitedStop {
   id: number
@@ -72,11 +78,40 @@ export class AnswerSources {
     const round = card.where({ from: stop.id + 1 }).slice(POLICY_DENIED, ['command', 'reason']).filter(denied => denied.fields.command === 'answer' && denied.fields.reason === EMPTY_ROUND).at(-1)
     if (round === undefined)
       return null
-    const since = card.where({ from: round.id + 1 })
-    const lifted = this.decidedSince(lease, round.id) || this.waitClosedSince(lease, round.id)
-      || since.slice(CARD_ADMITTED, ['source']).some(admitted => admitted.fields.source === AMENDED_ADMISSION)
-      || (lease.head !== null && lease.head !== round.head)
-    return lifted ? null : { id: stop.id, reason: stop.reason, emptyRound: round.id }
+    const exit = this.exitTaken(lease, card.where({ from: round.id + 1 }), round)
+    if (exit === null)
+      return { id: stop.id, reason: stop.reason, emptyRound: round.id }
+    this.closeTheEmptyRoundWait(lease, exit, round.id)
+    return null
+  }
+
+  private exitTaken(lease: Lease, since: BusRead, round: { id: number, head: string | null }): EmptyRoundExit | null {
+    if (this.decidedSince(lease, round.id))
+      return 'decision'
+    if (this.waitClosedSince(lease, round.id))
+      return 'closed'
+    if (since.slice(CARD_ADMITTED, ['source']).some(admitted => admitted.fields.source === AMENDED_ADMISSION))
+      return 'amend'
+    return lease.head !== null && lease.head !== round.head ? 'new-head' : null
+  }
+
+  private closeTheEmptyRoundWait(lease: Lease, exit: EmptyRoundExit, round: number): void {
+    if (exit === 'closed')
+      return
+    const db = this.parts.db
+    const prefix = emptyRoundWaitPrefix(lease.cardId)
+    const waits = (db.prepare(openDecisionWaitsOf('?')).all(lease.cardId) as { id: string, text: string }[]).filter(wait => wait.text.startsWith(prefix))
+    const answers: Record<Exclude<EmptyRoundExit, 'closed'>, string> = {
+      'decision': `lifted: a decision bound to card #${lease.cardId} was recorded`,
+      'amend': `lifted: card #${lease.cardId} was amended`,
+      'new-head': `lifted: a new head ${lease.head} on ${lease.pr === null ? `card #${lease.cardId}` : `pull request #${lease.pr}`}`,
+    }
+    if (waits.length === 0)
+      return
+    inTransaction(db, () => {
+      for (const wait of waits)
+        closeOwnerWait(db, this.parts.clock().toISOString(), lease.actor, wait.id, answers[exit], round)
+    })
   }
 
   private standingQuestionStop(card: BusRead): { id: number, reason: string } | null {
@@ -101,7 +136,7 @@ export class AnswerSources {
     const db = this.parts.db
     if (db.prepare(openDecisionWaitsOf('?')).get(lease.cardId) !== undefined)
       return
-    const text = `card #${lease.cardId} waits for the owner: an answer round after its ${stop.reason} stop left nothing, so no answer round runs until a decision bound to the card, an amend or a new head`
+    const text = `${emptyRoundWaitPrefix(lease.cardId)}${stop.reason} stop left nothing, so no answer round runs until a decision bound to the card, an amend or a new head`
     const ask = { need: 'decision' as const, text, command: cardDecisionCommand(lease.cardId), card: lease.cardId, ...(lease.pr === null ? {} : { pr: lease.pr }) }
     inTransaction(db, () => openBusWait(db, this.parts.clock().toISOString(), lease.actor, ask))
   }
