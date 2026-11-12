@@ -185,7 +185,8 @@ export function cardReleased(db: DatabaseSync, cardId: number, eventId: number):
 
 function foldAnswered(db: DatabaseSync, event: StoredEvent): void {
   const cardId = event.card_id ?? reject(`${CARD_ANSWERED} needs a card_id`)
-  claimed(db, event, ANSWERED, backInWork(db, cardId))
+  const readmittedWithItsPullRequestOpen = stateOf(db, cardId) === QUEUED_CARD && linkedPrState(db, cardId) === 'open'
+  claimed(db, event, readmittedWithItsPullRequestOpen ? new Set([QUEUED_CARD]) : ANSWERED, backInWork(db, cardId))
 }
 
 const CLOSED_BY_REPORT = `type = '${CARD_VERIFIED}' AND legacy = 0 AND pr IS NULL AND card_id IS NOT NULL AND json_extract(payload, '$.report') IS NOT NULL`

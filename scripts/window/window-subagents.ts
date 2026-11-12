@@ -5,16 +5,23 @@ import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
 import { appendEvent, defaultBusPath, openBus } from '../core/db.js'
 import { WINDOW_SUBAGENT_EVENT } from '../core/events.js'
+import { agentLines, agentsFileText } from './window-agents.js'
 
 export const WINDOW_ACTOR = 'owner'
 
 export interface WindowSubagent {
   session: string
   role: string
-  task: string
+  task?: string
   phase: 'started' | 'ended'
+  agent?: string
   tree?: string
   step?: string
+}
+
+export function windowSubagentKey(subagent: Pick<WindowSubagent, 'session' | 'phase' | 'agent' | 'step'>): string {
+  const { session, phase, agent, step } = subagent
+  return agent === undefined ? `${WINDOW_SUBAGENT_EVENT}:${session}:${phase}:${step ?? ''}` : `${WINDOW_SUBAGENT_EVENT}:${session}:${agent}:${phase}`
 }
 
 export function recordWindowSubagent(db: DatabaseSync, subagent: WindowSubagent, at: Date): boolean {
@@ -26,9 +33,26 @@ export function recordWindowSubagent(db: DatabaseSync, subagent: WindowSubagent,
     cardId: null,
     pr: null,
     head: null,
-    dedupeKey: `${WINDOW_SUBAGENT_EVENT}:${session}:${phase}:${step ?? ''}`,
-    payload: { session, role, task, phase, tree: tree ?? null, step: step ?? null },
+    dedupeKey: windowSubagentKey(subagent),
+    payload: { session, role, task: task ?? null, phase, tree: tree ?? null, step: step ?? null },
     legacy: false,
+  })
+}
+
+const PHASE_OF_HOOK_EVENT: Record<string, WindowSubagent['phase']> = { start: 'started', stop: 'ended' }
+const UNTYPED_AGENT = 'agent'
+
+export interface HookSubagent {
+  subagent: WindowSubagent
+  at: string | null
+}
+
+export function hookSubagentsIn(root: string): HookSubagent[] {
+  return agentLines(agentsFileText(root)).flatMap((line) => {
+    const phase = PHASE_OF_HOOK_EVENT[line.event]
+    if (phase === undefined || line.session === null || line.session === '')
+      return []
+    return [{ subagent: { session: line.session, role: line.type ?? UNTYPED_AGENT, phase, agent: line.id }, at: line.at }]
   })
 }
 

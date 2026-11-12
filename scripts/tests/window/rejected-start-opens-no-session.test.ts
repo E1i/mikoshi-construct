@@ -7,8 +7,9 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { textSha } from '../../../src/card/text-sha.js'
+import { QUEUED_CARD } from '../../core/card-automaton.js'
 import { appendEvent } from '../../core/db.js'
-import { CARD_ADMITTED, CARD_DEFERRED, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, REJECTED } from '../../core/events.js'
+import { CARD_ADMITTED, CARD_DEFERRED, CARD_MOVED, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, REJECTED } from '../../core/events.js'
 import { ownerMoveCommand } from '../../core/owner-commands.js'
 import { reduce } from '../../core/reducer.js'
 import { LaunchNode } from '../../nodes/launch/launch-worker.js'
@@ -133,5 +134,23 @@ describe('a start the reducer rejected opens no session', () => {
 
     sayToOwnerChannel(channel(made), ownerMoveCommand('launch', CARD), made.bench.clock.now())
     expect(asked(made, ['owner.launch', '--card', String(CARD)])).toMatchObject({ kind: 'done' })
+  })
+
+  it('a session whose card left running without an owner stop stays open', () => {
+    const made = room()
+    started(made, 'accepted')
+    appendEvent(made.bench.db, { ts: now(made), type: CARD_DEFERRED, actor: 'policy', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_DEFERRED}:left-running`, payload: { from: 'lane-a', to: 'lane-b', lane: 'lane-b', bodySha: textSha(BODY) }, legacy: false })
+    appendEvent(made.bench.db, { ts: now(made), type: CARD_MOVED, actor: 'policy', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_MOVED}:left-running`, payload: { from: 'lane-b', to: 'lane-a', lane: 'lane-a', bodySha: textSha(BODY) }, legacy: false })
+    reduce(made.bench.db)
+    expect(made.bench.db.prepare(`SELECT state FROM cards WHERE card_id = ?`).get(CARD)).toEqual({ state: QUEUED_CARD })
+
+    expect(launchNode(made).stopOverdue()).toEqual([])
+    expect(sessionEnds(made)).toEqual([])
+
+    sayToOwnerChannel(channel(made), ownerMoveCommand('stop', CARD), made.bench.clock.now())
+    expect(asked(made, ['owner.stop', '--card', String(CARD)])).toMatchObject({ kind: 'done' })
+
+    expect(launchNode(made).stopOverdue()).toEqual([CARD])
+    expect(sessionEnds(made)).toEqual([`card #${CARD} was stopped by the owner while queued; its session ${SESSION} had no process left, so the bus records its end`])
   })
 })

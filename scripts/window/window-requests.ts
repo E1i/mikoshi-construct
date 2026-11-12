@@ -42,7 +42,7 @@ import { BusDecisions } from '../policy/decisions/index.js'
 import { settledCards } from '../policy/decisions/read.js'
 import { mergePolicy, OWNER_MERGES } from '../policy/policy.js'
 import { dryRunHoldsAt, observedHeadsOf, roundLimitDecisionOf } from '../policy/round-limit-decision.js'
-import { activeDecisionsShard, activeWindowShards, decisionsInForceAt, ownersOfAStop } from '../policy/shards.js'
+import { activeDecisionsShard, activeWindowShards, deciderUnderAShard, decisionsInForceAt, OWNER_DECIDES, stopKindOf } from '../policy/shards.js'
 import { clientAdapter } from '../ports/client/index.js'
 import { ghApi } from '../ports/github.js'
 import { Meter } from '../ports/meter.js'
@@ -483,7 +483,7 @@ export class WindowRequests {
       return this.closeWaitOnOwnerWord(request, id, wait, answer, stop?.id ?? null)
     const shard = stop === undefined ? null : activeDecisionsShard(this.db, this.clock())
     const question = stop === undefined ? '' : String((JSON.parse(stop.payload) as Record<string, unknown>).detail ?? '')
-    const reserved = shard === null ? null : ownersOfAStop(question)
+    const reserved = shard !== null && deciderUnderAShard(question) === OWNER_DECIDES ? stopKindOf(question) : null
     if (reserved !== null)
       return { done: false, why: `${id} answers the card #${wait.card_id} stop ${stop!.id} on ${reserved}, which stays the owner's under any shard` }
     const ts = this.clock().toISOString()

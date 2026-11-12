@@ -19,7 +19,7 @@ import { busNameOf, machineGate, machineSessions } from '../../core/machine-sess
 import { processGit } from '../../ports/git.js'
 import { prepareTree } from '../../ports/prepare-tree.js'
 import { OsProcessTable } from '../../ports/process-table.js'
-import { reviewModelOf, spawnSession, streamReading, withoutCard } from '../../ports/session.js'
+import { reviewModelOf, SessionCeilingReached, spawnSession, streamReading, withoutCard } from '../../ports/session.js'
 import { FREE_TREE_CAPACITY, FREE_TREES, gitIn, parkTree, takeFreeTree } from '../../ports/worktree.js'
 import { isAlive, joinReviewTree, leaveReviewTree, WORKER_LIMIT_VARIABLE } from '../../quality/lock.js'
 
@@ -58,10 +58,12 @@ export interface CacheTokens {
 }
 
 export class ReviewFailed extends Error {
-  constructor(message: string, readonly held: HeldTree) {
+  constructor(message: string, readonly held: HeldTree, readonly ceiling = false) {
     super(message)
   }
 }
+
+export const REVIEW_CEILING = 'review_ceiling'
 
 export type Reviewer = (lease: Lease, plan: ReviewPlan, card?: string | null) => Promise<Review>
 
@@ -167,6 +169,10 @@ export const REVIEW_BAR_LINE = 'A test or a generated file outside the touches i
 
 const HANDS_OFF = 'Change nothing, commit nothing, push nothing, and post nothing to GitHub.'
 
+export const WITNESS_RUNS_LINE = 'Run the card\'s witnesses and its mutations, each by the command the card names, and nothing wider: never run vitest over a whole test directory, never move a run to the background, and never wait on a run in a polling loop (until or while with sleep); run each command in the foreground and read its result in the same step.'
+
+export const VERDICT_ENDS_LINE = 'The verdict file ends the review: the bus reads it as soon as it is written and ends this session and every process it started, so write it last, once, complete.'
+
 function cardLines(card: string | null): string[] {
   if (card === null)
     return [`Review it against its card (the first line of the pull request description) and the repository's rules. ${HANDS_OFF}`]
@@ -197,6 +203,8 @@ export function reviewPrompt(lease: Lease, plan: ReviewPlan, tree: string, verdi
     ...cardLines(card),
     ...prBodyLines(prBody),
     ...depthLines(lease, plan),
+    WITNESS_RUNS_LINE,
+    VERDICT_ENDS_LINE,
     `Finish by writing ${verdictPath} as JSON: {"verdict": "pass" | "changes", "findings": ["one finding per string"], "survivingMutations": ["a finding string, repeated exactly"], "advice": ["a finding string, repeated exactly"]}.`,
     SURVIVING_MUTATIONS_LINE,
     REVIEW_BAR_LINE,
@@ -365,7 +373,7 @@ export function missedBeatLine(session: string, error: unknown): string {
   return `${PREFIX}the heartbeat of review session ${session} was not recorded, the review goes on: ${error instanceof Error ? error.message : String(error)}`
 }
 
-async function beatingWhileGrowing(run: Promise<number>, transcript: string, beat: () => void, beatMs: number, missed: (error: unknown) => void): Promise<number> {
+async function beatingWhileGrowing<T>(run: Promise<T>, transcript: string, beat: () => void, beatMs: number, missed: (error: unknown) => void): Promise<T> {
   let seen = 0
   const ticker = setInterval(() => {
     try {
@@ -406,6 +414,54 @@ export interface ReviewStart {
   joinWorkers: (tree: string) => number
   leaveWorkers: (tree: string) => void
   descendants?: SessionDescendants
+  verdictPollMs?: number
+}
+
+export const VERDICT_POLL_MS = 1_000
+
+function writtenVerdict(verdictPath: string, session: string): Review | null {
+  try {
+    return reviewOf(readFileSync(verdictPath, 'utf8'), session)
+  }
+  catch {
+    return null
+  }
+}
+
+type SessionEnd = { code: number } | { error: unknown } | { review: Review }
+
+async function verdictOfTheSession(run: (stop: AbortSignal) => Promise<number>, verdictPath: string, session: string, pollMs: number): Promise<Review> {
+  const ending = new AbortController()
+  let poll: ReturnType<typeof setInterval> | undefined
+  const written = new Promise<SessionEnd>((resolve) => {
+    poll = setInterval(() => {
+      const review = writtenVerdict(verdictPath, session)
+      if (review !== null)
+        resolve({ review })
+    }, pollMs)
+  })
+  const settled: Promise<SessionEnd> = run(ending.signal).then(code => ({ code }), (error: unknown) => ({ error }))
+  let end: SessionEnd
+  try {
+    end = await Promise.race([settled, written])
+  }
+  finally {
+    clearInterval(poll)
+  }
+  if ('review' in end) {
+    ending.abort()
+    await settled
+    return end.review
+  }
+  if ('error' in end) {
+    const onDisk = end.error instanceof SessionCeilingReached ? writtenVerdict(verdictPath, session) : null
+    if (onDisk === null)
+      throw end.error
+    return onDisk
+  }
+  if (end.code !== 0)
+    throw new Error(`the review session ${session} exited ${end.code}`)
+  return reviewOf(readFileSync(verdictPath, 'utf8'), session)
 }
 
 export const DESCENDANT_SAMPLE_MS = 1_000
@@ -449,6 +505,12 @@ export class DescendantWatch {
     const snapshot = this.parts.table.snapshot()
     if (snapshot.readable)
       this.closure(snapshot.rows, snapshot.rows.filter(row => row.command.split(/\s+/).includes(this.session)))
+  }
+
+  endNow(): void {
+    this.sample()
+    for (const pid of this.running() ?? [])
+      this.parts.end(pid, 'SIGKILL')
   }
 
   async settle(): Promise<number[]> {
@@ -496,15 +558,18 @@ export class DescendantWatch {
   }
 }
 
-async function watchingDescendants<T>(run: () => Promise<T>, session: string, parts: SessionDescendants | undefined): Promise<T> {
+async function watchingDescendants<T>(run: () => Promise<T>, session: string, parts: SessionDescendants | undefined, stopped: AbortSignal): Promise<T> {
   if (parts === undefined)
     return run()
   const watch = new DescendantWatch(session, parts)
   const stop = parts.every(() => watch.sample(), parts.sampleMs)
+  const endNow = (): void => watch.endNow()
+  stopped.addEventListener('abort', endNow, { once: true })
   try {
     return await run()
   }
   finally {
+    stopped.removeEventListener('abort', endNow)
     stop()
     const ended = await watch.settle()
     if (ended.length > 0)
@@ -561,10 +626,10 @@ function reviewerOfTree(trees: ReviewTrees, spawn: (params: SpawnSessionParams) 
     mkdirSync(trees.dir, { recursive: true })
     trees.fetch(`pull/${lease.pr}/head`)
     const held: HeldTree = { path: tree, release: () => trees.release(tree) }
-    const underTheBudget = async (): Promise<number> => {
+    const underTheBudget = async (stop: AbortSignal): Promise<number> => {
       const workers = start.joinWorkers(tree)
       try {
-        return await watchingDescendants(async () => spawn({ ...params, env: { ...params.env, [WORKER_LIMIT_VARIABLE]: String(workers) } }), session, start.descendants)
+        return await watchingDescendants(async () => spawn({ ...params, env: { ...params.env, [WORKER_LIMIT_VARIABLE]: String(workers) } }), session, start.descendants, stop)
       }
       finally {
         start.leaveWorkers(tree)
@@ -575,10 +640,7 @@ function reviewerOfTree(trees: ReviewTrees, spawn: (params: SpawnSessionParams) 
       const before = trees.state(tree)
       if (before.status.length > 0)
         throw new Error(`the review tree ${tree} is not clean before the review: ${before.status.join('; ')}`)
-      const code = await beatingWhileGrowing(underTheBudget(), params.stdoutPath, () => pulse(lease, session), beatMs, error => console.error(missedBeatLine(session, error)))
-      if (code !== 0)
-        throw new Error(`the review session ${session} exited ${code}`)
-      const review = reviewOf(readFileSync(verdictPath, 'utf8'), session)
+      const review = await beatingWhileGrowing(verdictOfTheSession(underTheBudget, verdictPath, session, start.verdictPollMs ?? VERDICT_POLL_MS), params.stdoutPath, () => pulse(lease, session), beatMs, error => console.error(missedBeatLine(session, error)))
       const after = trees.state(tree)
       const mutated = mutatedPaths(before, after)
       const reading = streamReading(params.stdoutPath)
@@ -591,7 +653,7 @@ function reviewerOfTree(trees: ReviewTrees, spawn: (params: SpawnSessionParams) 
     catch (error) {
       if (!trees.holds(tree))
         throw error
-      throw new ReviewFailed(error instanceof Error ? error.message : String(error), held)
+      throw new ReviewFailed(error instanceof Error ? error.message : String(error), held, error instanceof SessionCeilingReached)
     }
   }
 }

@@ -153,7 +153,7 @@ describe('the boundary ratchet holds every import the base already had', () => {
     const headSpec = specInTree(head)
     const recorded = boundaryRowsOf(readRatchet(head))
     const generated = boundaryNumbers(boundaryReport(head, headSpec).violations)
-    const sources: MoveSources = { headSpec, readSpec: specInTree, git: gitAsIfCheckedOutAt(HEAD_OF_PR_1578, BRANCHED_FROM) }
+    const sources: MoveSources = { headSpec, readSpec: specInTree, git: gitAsIfCheckedOutAt(HEAD_OF_PR_1578, BRANCHED_FROM), env: {} }
 
     expect(recorded[PORTS_ADAPTERS_ROW] ?? 0).toBe(0)
     expect(generated[PORTS_ADAPTERS_ROW]).toBe(12)

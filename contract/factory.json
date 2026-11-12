@@ -2185,6 +2185,7 @@
           "scripts/nodes/launch/tree-pr-cli.ts",
           "scripts/nodes/merge/merge-worker.ts",
           "scripts/nodes/restart/restart-worker.ts",
+          "scripts/nodes/review/depth-sources.ts",
           "scripts/nodes/review/review-worker.ts",
           "scripts/nodes/review/reviewer.ts",
           "scripts/nodes/update/update-worker.ts",
@@ -2875,9 +2876,7 @@
             ]
           },
           "intake": {
-            "gap": [
-              1779
-            ]
+            "witness": "Z3-intake-witness-transfer"
           },
           "launch": {
             "witness": "Z3-launch-body-from-latest-admission"
@@ -2929,10 +2928,7 @@
             ]
           },
           "intake": {
-            "gap": [
-              1740,
-              1823
-            ]
+            "witness": "Z4-intake-wait-record"
           },
           "launch": {
             "gap": [
