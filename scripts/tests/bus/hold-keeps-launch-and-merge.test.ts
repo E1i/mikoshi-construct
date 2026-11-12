@@ -11,12 +11,12 @@ import { textSha } from '../../../src/card/text-sha.js'
 import { cardBodyText } from '../../core/card-bodies.js'
 import { cardHoldOf, HOLD_RECHECK_MS } from '../../core/card-hold.js'
 import { appendEvent, openBus } from '../../core/db.js'
-import { CARD_ADMITTED, CARD_CONTINUED, CARD_HELD, CARD_RELEASED, CARD_STARTED, CARD_STOPPED, MERGE_DONE, POLICY_DENIED, PR_OBSERVED } from '../../core/events.js'
+import { CARD_ADMITTED, CARD_CONTINUED, CARD_HELD, CARD_RELEASED, CARD_STARTED, CARD_STOPPED, CARD_WAITING, MERGE_DONE, POLICY_DENIED, PR_OBSERVED } from '../../core/events.js'
 import { reduce } from '../../core/reducer.js'
 import { busCardEvents } from '../../intake/intake.js'
 import { ownerHoldOf } from '../../nodes/answer/answer-source.js'
 import { assignMovedLane } from '../../nodes/launch/lane-assign.js'
-import { launchCandidates, startableCards } from '../../nodes/launch/launch-candidates.js'
+import { HELD_AT_THE_EXIT, launchCandidates, startableCards } from '../../nodes/launch/launch-candidates.js'
 import { LaunchNode } from '../../nodes/launch/launch-worker.js'
 import { HELD_FOR_OWNER } from '../../nodes/merge/merge-executor.js'
 import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
@@ -262,6 +262,7 @@ describe('a hold keeps continuations and restarts', () => {
 
     expect(eventsOf(made.db, CARD_CONTINUED)).toEqual([])
     expect(eventsOf(made.db, CARD_STOPPED)).toEqual([])
+    expect(eventsOf(made.db, CARD_WAITING)).toMatchObject([{ reason: HELD_AT_THE_EXIT, session: `s-${SESSION_CARD}`, detail: expect.stringContaining('held for the owner: the owner reads it first') }])
 
     holdEvent(made.db, made.clock.now().toISOString(), CARD_RELEASED, SESSION_CARD, 'release', { request: 2 })
     expect(node.stopOverdue()).toEqual([])

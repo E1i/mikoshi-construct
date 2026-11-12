@@ -9,8 +9,8 @@ import { NOT_A_BACKFILL } from '../../core/backfill-source.js'
 import { DEFERRED_CARD, unsatisfiedDependencies } from '../../core/card-automaton.js'
 import { bodyNotFoldedYet } from '../../core/card-bodies.js'
 import { cardHoldOf } from '../../core/card-hold.js'
-import { DECISION_IN_FORCE } from '../../core/db.js'
-import { CARD_ADMITTED, CARD_CLOSED, CARD_DROPPED, CARD_FELL, CARD_STARTED, CARD_STOPPED, GHOST_ROW, PR_CLOSED, PR_OBSERVED, PR_OPENED, SESSION_HEARTBEAT, TASK_REQUEUED } from '../../core/events.js'
+import { appendEvent, DECISION_IN_FORCE } from '../../core/db.js'
+import { CARD_ADMITTED, CARD_CLOSED, CARD_DROPPED, CARD_FELL, CARD_STARTED, CARD_STOPPED, CARD_WAITING, GHOST_ROW, PR_CLOSED, PR_OBSERVED, PR_OPENED, SESSION_HEARTBEAT, TASK_REQUEUED } from '../../core/events.js'
 import { prOf } from '../../core/identifiers.js'
 import { busNameOfDb, machineHoldLine, machineSessions } from '../../core/machine-sessions.js'
 import { namesQueueLive } from '../../policy/live-decision.js'
@@ -22,6 +22,7 @@ import { sharedAppendFiles } from './shared-files.js'
 
 export const FALLS_BEFORE_CUT = 2
 export const PLANNED_STALL_MINUTES = 15
+export const HELD_AT_THE_EXIT = 'held'
 const MINUTE_MS = 60_000
 
 export type Contour = 'cheap' | 'ladder'
@@ -391,6 +392,22 @@ function holdOf(life: CardLife, holds: Holds, openPrs: ReadonlyMap<number, numbe
   if (keeping !== undefined)
     return { kind: 'lane', cardId: keeping.cardId, lane: life.lane }
   return machineHoldOf(machine) ?? { kind: 'slots' }
+}
+
+export interface HeldExit {
+  cardId: number
+  startKey: string
+  session: string
+  exited: string
+}
+
+export function waitHeldAtTheExit(db: DatabaseSync, ts: string, actor: string, exit: HeldExit): boolean {
+  const hold = cardHoldOf(db, exit.cardId)
+  if (hold === null)
+    return false
+  const detail = `${exit.exited}; ${hold}, so no session continues from it until the hold is released`
+  appendEvent(db, { ts, type: CARD_WAITING, actor, cardId: exit.cardId, pr: null, head: null, dedupeKey: `${CARD_WAITING}:${HELD_AT_THE_EXIT}:${exit.startKey}`, payload: { reason: HELD_AT_THE_EXIT, session: exit.session, detail }, legacy: false })
+  return true
 }
 
 export function startHold(db: DatabaseSync, cardId: number, lanes: number, machine: MachineReader): StartableHold | null {

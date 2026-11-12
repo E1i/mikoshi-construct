@@ -35,6 +35,7 @@ const SPEC: ModuleGraphSpec = {
     gamma: { owns: ['scripts/gamma/**'], contract: [], may_use: [], status: 'undecided' },
   }),
   composition_roots: ['scripts/main.ts'],
+  composition_imports: {},
   exclusions: { tests: ['scripts/tests/**'], fixtures: [], templates: [], generated: [], tooling: [] },
 }
 
@@ -123,6 +124,31 @@ describe('module graph boundary (law 3)', () => {
   it('an import from a module into a composition root is red', () => {
     expect(linesFor({ ...LAWFUL, 'scripts/alpha/use.ts': 'import \'../main.js\'\n' }))
       .toEqual(['scripts/alpha/use.ts -> scripts/main.ts: into-composition-root'])
+  })
+})
+
+describe('module graph boundary: composition_imports', () => {
+  const PROCESS_ROOT = 'scripts/alpha/start.ts'
+  const admitting: ModuleGraphSpec = { ...SPEC, composition_imports: { 'scripts/main.ts': [PROCESS_ROOT] } }
+  const linesAdmitting = (files: Record<string, string>): string[] =>
+    boundaryReport(treeOf({ ...LAWFUL, ...files }), admitting, {}).violations.map(violationLine)
+
+  it('a listed process root imports a composition root without a violation', () => {
+    expect(linesAdmitting({ [PROCESS_ROOT]: 'import \'../main.js\'\n' })).toEqual([])
+  })
+
+  it('an unlisted importer of a composition root is still a violation', () => {
+    expect(linesAdmitting({
+      [PROCESS_ROOT]: 'import \'../main.js\'\nimport \'../beta/impl.js\'\n',
+      'scripts/alpha/use.ts': 'import \'../main.js\'\n',
+    })).toEqual([
+      `${PROCESS_ROOT} -> scripts/beta/impl.ts: outside-contract`,
+      'scripts/alpha/use.ts -> scripts/main.ts: into-composition-root',
+    ])
+  })
+
+  it('the repository spec carries composition_imports empty and admits no importer', () => {
+    expect(MODULE_GRAPH.composition_imports).toEqual({})
   })
 })
 

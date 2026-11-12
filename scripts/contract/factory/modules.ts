@@ -20,6 +20,7 @@ export type ExclusionKind = typeof EXCLUSION_KINDS[number]
 export interface ModuleGraphSpec {
   modules: Readonly<Record<string, ModuleSpec>>
   composition_roots: readonly string[]
+  composition_imports: Readonly<Record<string, readonly string[]>>
   exclusions: Readonly<Record<ExclusionKind, readonly string[]>>
 }
 
@@ -169,13 +170,15 @@ export const EXCLUSIONS: Readonly<Record<ExclusionKind, readonly string[]>> = {
   tooling: [tree('scratch')],
 }
 
-export const MODULE_GRAPH: ModuleGraphSpec = { modules: MODULES, composition_roots: COMPOSITION_ROOTS, exclusions: EXCLUSIONS }
+export const COMPOSITION_IMPORTS: Readonly<Record<string, readonly string[]>> = {}
+
+export const MODULE_GRAPH: ModuleGraphSpec = { modules: MODULES, composition_roots: COMPOSITION_ROOTS, composition_imports: COMPOSITION_IMPORTS, exclusions: EXCLUSIONS }
 
 export interface FactoryModule extends ModuleSpec {
   concepts: string[]
 }
 
-export interface ModulesSection extends Omit<ModuleGraphSpec, 'modules'> {
+export interface ModulesSection extends Omit<ModuleGraphSpec, 'modules' | 'composition_imports'> {
   modules: Record<string, FactoryModule>
 }
 
@@ -185,7 +188,7 @@ function ownerFile(owner: string): string {
   return owner.endsWith('/') ? `${owner}${FOLDER_ENTRY}` : owner
 }
 
-export function modulesSection(graph: ModuleGraphSpec = MODULE_GRAPH, concepts: readonly Pick<Concept, 'id' | 'owner'>[] = CONCEPTS): ModulesSection {
+export function modulesSection({ composition_imports: _publishedByTheGraphReport, ...graph }: ModuleGraphSpec = MODULE_GRAPH, concepts: readonly Pick<Concept, 'id' | 'owner'>[] = CONCEPTS): ModulesSection {
   return {
     ...graph,
     modules: Object.fromEntries(Object.entries(graph.modules).map(([id, spec]) => [

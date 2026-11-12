@@ -2861,9 +2861,7 @@
             "witness": "Z3-launch-body-from-latest-admission"
           },
           "merge": {
-            "gap": [
-              1784
-            ]
+            "witness": "Z3-merge-outside-touches-refused"
           },
           "netwatch": {
             "notApplicable": "netwatch records what GitHub shows as bus events and takes no decision a window decision governs"
@@ -4074,7 +4072,7 @@
       "scripts/intake/runs-layers-backfill.ts": 3,
       "scripts/intake/witness-fields-backfill.ts": 2,
       "scripts/ladder/ledger.ts": 2,
-      "scripts/nodes/answer/answer-executor.ts": 2,
+      "scripts/nodes/answer/answer-executor.ts": 3,
       "scripts/nodes/answer/answer-source.ts": 11,
       "scripts/nodes/answer/answer-worker.ts": 2,
       "scripts/nodes/answer/duties/publishing.ts": 3,
@@ -4090,7 +4088,7 @@
       "scripts/nodes/launch/launch-withdraw.ts": 1,
       "scripts/nodes/launch/launch-worker.ts": 15,
       "scripts/nodes/launch/tree-pr-cli.ts": 3,
-      "scripts/nodes/merge/merge-executor.ts": 1,
+      "scripts/nodes/merge/merge-executor.ts": 2,
       "scripts/nodes/merge/merge-worker.ts": 1,
       "scripts/nodes/restart/restart-executor.ts": 3,
       "scripts/nodes/restart/role.ts": 6,
