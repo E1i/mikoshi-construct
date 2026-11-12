@@ -1,3 +1,4 @@
+import type { WindowSubagent } from '../../window/window-subagents.js'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -5,7 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { busReaderAt } from '../../../src/commands/board/bus.js'
 import { PLAIN_LORE } from '../../../src/ui/lore.js'
 import { openBus } from '../../core/db.js'
-import { recordWindowSubagent, runWindowSubagent, windowSubagentCall } from '../../window/window-subagents.js'
+import { recordWindowSubagent, runWindowSubagent, windowSubagentCall, windowSubagentKey } from '../../window/window-subagents.js'
 
 const AT = new Date('2026-10-19T10:00:00.000Z')
 const roots: string[] = []
@@ -22,7 +23,7 @@ function busFile(): string {
 }
 
 function windowTileOf(name: string): object {
-  return { role: 'window', task: 'miko', tree: null, step: PLAIN_LORE.boardWindowAgentsStep, subagents: [{ name, context: null, spent: null, at: AT.toISOString() }] }
+  return { role: 'window', task: 'miko', tree: null, step: PLAIN_LORE.boardWindowAgentsStep, session: 's1', subagents: [{ name, context: null, spent: null, at: AT.toISOString() }] }
 }
 
 describe('the window subagent event', () => {
@@ -57,6 +58,22 @@ describe('the window subagent event', () => {
     recordWindowSubagent(db, { session: 's1', role: 'implementer', task: '#1071', phase: 'ended' }, AT)
     const ended = busReaderAt(file, () => AT)()
     expect(ended.status === 'read' && ended.facts.services).toEqual([])
+    db.close()
+  })
+
+  it('two agents of one window session are two subagents, keyed and dropped by their agent id', () => {
+    const file = busFile()
+    const db = openBus(file)
+    const of = (agent: string, phase: 'started' | 'ended'): WindowSubagent => ({ session: 's1', role: 'scan', phase, agent })
+    expect(recordWindowSubagent(db, of('a1', 'started'), AT)).toBe(true)
+    expect(recordWindowSubagent(db, of('a2', 'started'), AT)).toBe(true)
+    expect(recordWindowSubagent(db, of('a1', 'started'), AT)).toBe(false)
+    expect(windowSubagentKey(of('a1', 'started'))).toBe('window.subagent:s1:a1:started')
+    const both = busReaderAt(file, () => AT)()
+    expect(both.status === 'read' && both.facts.services[0]!.subagents!.map(agent => agent.name)).toEqual(['scan', 'scan'])
+    recordWindowSubagent(db, of('a1', 'ended'), AT)
+    const one = busReaderAt(file, () => AT)()
+    expect(one.status === 'read' && one.facts.services[0]!.subagents).toHaveLength(1)
     db.close()
   })
 })

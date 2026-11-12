@@ -32,6 +32,7 @@ import { CARD_PROCESS, lastProcessBeats, recordProcessHeartbeat } from './heartb
 import { beatsLive, SILENT_MS } from './liveness-sites.js'
 import { busShadowProblems, startReviewWorker } from './review-bg.js'
 import { stampLogOutput } from './stamp.js'
+import { WindowSubagentTick } from './window-subagent-tick.js'
 import { busLaunches, isBusWorker, ROUND_WORKERS, switchDetection, switchWorker, wantedLaunches, WORKERS } from './workers.js'
 
 export const SUPERVISE_FLAG = '--supervise'
@@ -78,9 +79,7 @@ export function foreignBusLines(processes: readonly RunningProcess[], ownPackage
   })
 }
 
-function ownPackage(): string {
-  return installedPackage() ?? process.cwd()
-}
+const ownPackage = (): string => installedPackage() ?? process.cwd()
 
 export interface MainAdvance {
   id: number
@@ -763,9 +762,7 @@ export type ExpectedRunning = (name: string) => boolean
 
 const RUNNING_CARDS = `SELECT card_id FROM cards WHERE state = '${RUNNING_CARD}'`
 
-export function processName(launch: DetachedLaunch): string {
-  return launch.script
-}
+export const processName = (launch: DetachedLaunch): string => launch.script
 
 export function expectedRunning(db: DatabaseSync, wanted: readonly DetachedLaunch[]): ExpectedRunning {
   const names = new Set([SUPERVISOR_PROCESS, ...wanted.map(processName), ...(db.prepare(RUNNING_CARDS).all() as { card_id: number }[]).map(row => `${CARD_PROCESS}${row.card_id}`)])
@@ -925,6 +922,7 @@ export interface SupervisingParts {
   heal?: BusHealer
   snapshot?: BusSnapshot
   windowEnds?: WindowSessionEnds
+  windowSubagents?: Pick<WindowSubagentTick, 'step'>
   relaunch: () => BgResult
   print: (line: string) => void
   pause: () => Promise<unknown>
@@ -941,7 +939,7 @@ export async function superviseUntilReplaced(parts: SupervisingParts): Promise<v
     const lines = await parts.supervisor.step()
     const head = parts.supervisor.ownCodeBehind
     const replacement = head === null ? { lines: [], replaced: false } : replacedBy(head, parts.relaunch())
-    const ticked = [...lines, ...replacement.lines, ...replacement.replaced ? [] : [...parts.keeper.step(), ...await parts.judge?.step() ?? [], ...parts.windowEnds?.step() ?? []]]
+    const ticked = [...lines, ...replacement.lines, ...replacement.replaced ? [] : [...parts.keeper.step(), ...await parts.judge?.step() ?? [], ...parts.windowEnds?.step() ?? [], ...parts.windowSubagents?.step() ?? []]]
     for (const line of [...ticked, ...await parts.heal?.step(ticked) ?? [], ...parts.snapshot?.step() ?? []])
       parts.print(line)
     if (replacement.replaced)
@@ -1065,6 +1063,7 @@ async function supervise(busDir: string, cwd: string, reviewPreflight: () => str
       keeper,
       judge: new LivenessJudge(db, () => Date.now(), () => expectedRunning(db, wanted()), restartJudged, psStartOf),
       windowEnds: new WindowSessionEnds(db, cwd, () => Date.now(), PREFIX),
+      windowSubagents: new WindowSubagentTick(db, cwd, () => Date.now(), PREFIX),
       heal: new BusHealer({ busPath, nodes, now: () => new Date(), watch: new CorruptionWatch(busLaunches(reviewPreflight).map(launch => path.join(busDir, launch.log))) }),
       snapshot: new BusSnapshot({ db, busPath, file: snapshotPathOf(busPath), now: () => Date.now(), paused: () => nodes.held() }),
       relaunch: () => startDetached(SUPERVISOR_LAUNCH, busDir, process.env, outsideOwnGroup()),
