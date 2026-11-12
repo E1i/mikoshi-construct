@@ -72,11 +72,11 @@ function ownerSays(made: Room, move: OwnerMove, target: string | number): string
   return sayToOwnerChannel(channel(made), ownerMoveCommand(move, target), made.bench.clock.now())
 }
 
-function asked(made: Room, argv: string[]): RequestOutcome {
+function asked(made: Room, argv: string[], causes: (string | null)[] = []): RequestOutcome {
   const request = requestOf(argv)
   expect(request).not.toBeNull()
   requestFromWindow(made.bench.db, now(made), 'window-1', request!)
-  const [outcome] = requests(made).run()
+  const [outcome] = requests(made, causes).run()
   reduce(made.bench.db)
   return outcome!
 }
@@ -119,6 +119,12 @@ function launchNode(made: Room): { node: LaunchNode, started: () => number } {
   const table: ProcessTable = { commandLine: pid => made.live.has(pid) ? `session ${SESSION}` : null, signalGroup: () => {} }
   const node = new LaunchNode({ db: made.bench.db, starter, clock: made.bench.clock.now, session: 'node-1', mode: 'live', env: {}, processes: table, pidAlive: pid => made.live.has(pid), collected: () => null, disk: () => ({ bavail: 1, bsize: DISK_FLOOR_BYTES }), isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }) })
   return { node, started: () => started }
+}
+
+function supersede(made: Room, taskKey: string): void {
+  const superseded = { ts: now(made), type: TASK_SUPERSEDED, actor: 'worker:launch:node-1', cardId: CARD, pr: null, head: null, dedupeKey: `${TASK_SUPERSEDED}:${taskKey}:owner-moves`, payload: { task_key: taskKey, queue: 'launch', ...generationField(generationOfKey(taskKey, { queue: 'launch', cardId: CARD })) }, legacy: false }
+  appendEvent(made.bench.db, superseded)
+  TASK_FOLDS[TASK_SUPERSEDED]!(made.bench.db, storedByKey(made.bench.db, superseded.dedupeKey))
 }
 
 async function oneRound(node: LaunchNode): Promise<void> {
@@ -185,9 +191,7 @@ describe('the owner moves a card', () => {
   it('an owner requeue queues the card task again with no board alarm', () => {
     const made = room()
     const task = launchTask(made)
-    const superseded = { ts: now(made), type: TASK_SUPERSEDED, actor: 'worker:launch:node-1', cardId: CARD, pr: null, head: null, dedupeKey: `${TASK_SUPERSEDED}:${task.task_key}:owner-moves`, payload: { task_key: task.task_key, queue: 'launch', ...generationField(generationOfKey(task.task_key, { queue: 'launch', cardId: CARD })) }, legacy: false }
-    appendEvent(made.bench.db, superseded)
-    TASK_FOLDS[TASK_SUPERSEDED]!(made.bench.db, storedByKey(made.bench.db, superseded.dedupeKey))
+    supersede(made, task.task_key)
     expect(launchTask(made).state).toBe('superseded')
     expect(asked(made, ['requeue', '--task', task.task_key])).toMatchObject({ kind: 'refused', detail: `no ${BOARD_ALARM} names ${task.task_key}` })
 
@@ -199,6 +203,16 @@ describe('the owner moves a card', () => {
     expect(eventsOf(made, TASK_REQUEUED)).toHaveLength(1)
     expect(eventsOf(made, BOARD_ALARM)).toEqual([])
     expect(ownerMoves(made)).toEqual([ownerMoveCommand('requeue', task.task_key)])
+  })
+
+  it('a window requeue past an alarm whose cause holds names that cause, as before the owner moves', () => {
+    const made = room()
+    const task = launchTask(made)
+    supersede(made, task.task_key)
+    appendEvent(made.bench.db, { ts: now(made), type: BOARD_ALARM, actor: 'policy', cardId: CARD, pr: null, head: null, dedupeKey: `${BOARD_ALARM}:owner-moves`, payload: { task_key: task.task_key, reason: 'fault', detail: 'a fault' }, legacy: false })
+    const alarm = (made.bench.db.prepare('SELECT id FROM events WHERE type = ?').get(BOARD_ALARM) as { id: number }).id
+
+    expect(asked(made, ['requeue', '--task', task.task_key], ['the tree is gone'])).toMatchObject({ kind: 'refused', detail: `the cause of ${BOARD_ALARM} ${alarm} holds: the tree is gone` })
   })
 
   it('an owner move is refused only when it is physically impossible and names the cause', () => {

@@ -123,8 +123,13 @@ interface RunningStart {
 const SESSION_STARTS = `'${CARD_STARTED}', '${CARD_CONTINUED}'`
 
 function latestStartsOf(state: string, condition = ''): string {
-  return `SELECT e.id, e.card_id, e.ts, e.dedupe_key, e.payload FROM cards AS c JOIN events AS e ON e.card_id = c.card_id AND e.type IN (${SESSION_STARTS}) AND e.legacy = 0
-    AND e.id = (SELECT MAX(id) FROM events WHERE card_id = c.card_id AND type IN (${SESSION_STARTS}) AND legacy = 0) WHERE c.state = '${state}'${condition} ORDER BY c.card_id`
+  return `
+  SELECT e.id, e.card_id, e.ts, e.dedupe_key, e.payload FROM cards AS c
+  JOIN events AS e ON e.card_id = c.card_id AND e.type IN (${SESSION_STARTS}) AND e.legacy = 0
+    AND e.id = (SELECT MAX(id) FROM events WHERE card_id = c.card_id AND type IN (${SESSION_STARTS}) AND legacy = 0)
+  WHERE c.state = '${state}'${condition}
+  ORDER BY c.card_id
+`
 }
 
 const RUNNING_STARTS = latestStartsOf(RUNNING_CARD)
@@ -138,8 +143,13 @@ const LAUNCH_START_MS = LAUNCH_START_MINUTES * 60_000
 
 export const LAUNCH_UNSTARTED = 'launch_unstarted'
 
-const UNSTARTED_LAUNCH_LEASES = `SELECT tasks.task_key, tasks.card_id, tasks.lease_gen, leased.ts AS leased_at FROM tasks JOIN events AS leased ON leased.dedupe_key = '${TASK_LEASED}:' || tasks.task_key || ':' || tasks.lease_gen
-  WHERE tasks.queue = 'launch' AND tasks.state = '${LEASED}' AND NOT EXISTS (SELECT 1 FROM events WHERE card_id = tasks.card_id AND id > leased.id AND legacy = 0 AND type IN (${SESSION_STARTS})) ORDER BY tasks.id`
+const UNSTARTED_LAUNCH_LEASES = `
+  SELECT tasks.task_key, tasks.card_id, tasks.lease_gen, leased.ts AS leased_at FROM tasks
+  JOIN events AS leased ON leased.dedupe_key = '${TASK_LEASED}:' || tasks.task_key || ':' || tasks.lease_gen
+  WHERE tasks.queue = 'launch' AND tasks.state = '${LEASED}'
+    AND NOT EXISTS (SELECT 1 FROM events WHERE card_id = tasks.card_id AND id > leased.id AND legacy = 0 AND type IN (${SESSION_STARTS}))
+  ORDER BY tasks.id
+`
 
 interface UnstartedLease {
   task_key: string

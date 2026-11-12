@@ -56,14 +56,21 @@ const AMEND_WITNESS_SEPARATOR = '\n'
 export const HEAD_WORD = 'head'
 const AT_HEAD_OF_A_PR = new RegExp(`\\bPR #(\\d+) at ${HEAD_WORD}(?![\\w-])`, 'g')
 const HELD_WITHOUT_STATE = 'held'
-const CARD_STATES = `SELECT card_id, state FROM cards WHERE state IS NOT NULL UNION ALL SELECT DISTINCT card_id, NULL FROM events WHERE card_id IS NOT NULL AND card_id NOT IN (SELECT card_id FROM cards WHERE state IS NOT NULL)`
+const CARD_STATES = `
+  SELECT card_id, state FROM cards WHERE state IS NOT NULL
+  UNION ALL
+  SELECT DISTINCT card_id, NULL FROM events WHERE card_id IS NOT NULL AND card_id NOT IN (SELECT card_id FROM cards WHERE state IS NOT NULL)
+`
 const LATEST_INTAKE_ADMISSION = `SELECT id, ts, payload FROM events WHERE legacy = 0 AND type = '${CARD_ADMITTED}' AND actor LIKE '${INTAKE_ACTOR_PREFIX}%' AND card_id = ? AND json_type(payload, '$.card') = 'text' AND json_extract(payload, '$.bodySha') IS NOT NULL ORDER BY id DESC LIMIT 1`
 export const REQUEST_KINDS = ['tree.cut', 'amend', 'allow-merge', 'close-pr', 'reopen-pr', 'pr.body', 'ci.rerun', 'requeue', 'mode', 'plan', 'owner.wait', 'owner.wait.close', 'decisions:add', 'hold', 'release', 'takeover', 'drop', 'numbers.foreign', ...OWNER_MOVE_REQUESTS] as const
 export const TAKEOVER_AFTER_MINUTES = 30
 export const PLAN_OPS: ReadonlyMap<string, string> = new Map([['open', PLAN_OPENED], ['add', CARD_PLANNED], ['remove', CARD_UNPLANNED], ['backfill', PLAN_BACKFILLED], ['close', PLAN_CLOSED]])
 const PLAN_FLAGS = ['op', 'plan', 'title', 'goal', 'file', 'gate', 'card'] as const
 const LINKED_CARDS = 'SELECT cards FROM plan_items WHERE plan_id = ? ORDER BY item_id'
-const RELEASE_OPEN_IN_THE_LOG = `SELECT 1 FROM events AS opened WHERE opened.id = (SELECT min(id) FROM events WHERE type = '${PLAN_OPENED}' AND actor = '${OWNER}' AND json_extract(payload, '$.id') = ?1) AND NOT EXISTS (SELECT 1 FROM events AS closed WHERE closed.type = '${PLAN_CLOSED}' AND closed.actor = '${OWNER}' AND closed.id > opened.id AND json_extract(closed.payload, '$.plan') = ?1)`
+const RELEASE_OPEN_IN_THE_LOG = `
+  SELECT 1 FROM events AS opened
+  WHERE opened.id = (SELECT min(id) FROM events WHERE type = '${PLAN_OPENED}' AND actor = '${OWNER}' AND json_extract(payload, '$.id') = ?1)
+    AND NOT EXISTS (SELECT 1 FROM events AS closed WHERE closed.type = '${PLAN_CLOSED}' AND closed.actor = '${OWNER}' AND closed.id > opened.id AND json_extract(closed.payload, '$.plan') = ?1)`
 export { ANSWER_SOURCE }
 const DECISION_FLAGS: ReadonlyMap<string, string> = new Map([['--card', 'cards'], ['--supersedes', 'supersedes'], ['--until', 'until'], ['--from', 'from']])
 export const WINDOW_ACTOR = 'worker:window:'
@@ -72,6 +79,7 @@ const RULE_ACCEPTED = /^Status: accepted\b/m
 export const REQUEST_RULE = 'window_request'
 export const PREFIX = '[bus:request] '
 export const USAGE = `usage: pnpm bus:request tree.cut --card <N> | amend --card <N> [--touches +<path>,-<path>] [--add-witness <witness>]... [--remove-witness <witness>]... [--owner-words <the owner's words>] [--depends +#<N>,-#<N>] [--priority p0|p1|p2|none] [--auto-confirm] | allow-merge --pr <N> --head <sha>|${HEAD_WORD} --dry-run <reviewer session> | close-pr|reopen-pr --pr <N> --card <N> --reason <text> | pr.body --pr <N> [--file <absolute path in the card tree>] | ci.rerun --pr <N> | requeue --task <task_key> [--keep-tree] | mode --set ${FACTORY_MODES.join('|')} | plan --op ${[...PLAN_OPS.keys()].join('|')} [--plan <id>] [--title <text>] [--goal <text>] [--file <absolute plan file>] [--gate <word>] [--card <N>] | owner.wait --need ${OWNER_WAIT_NEEDS.join('|')} --text <what the owner decides> [--command <line>] [--card <N>] [--pr <N>] | owner.wait.close --id Q<N> --answer <answer> [--from ${ANSWER_SOURCE}] | owner.wait.close --id Q<N> --from ${ANSWER_SOURCE} | decisions:add --from ${ANSWER_SOURCE} [--supersedes D-M]... [--card #N]... [--until <YYYY-MM-DDTHH:MMZ>] "[owner] <decision>" | hold --card <N> --reason <why the owner holds it> | release --card <N> | takeover --card <N> --reason <why the bus has no route for it> | drop --card <N> --reason <why a card with no body is dropped> | numbers.foreign --ids <card ids of another factory's row, comma separated> | ${ownerMoveUsage()}`
+
 const BY_HAND = 'by-hand'
 const noTool = (what: string): Executed => ({ done: false, why: `this bus was built with no tool to ${what}` })
 const OWNER_ANSWER_USAGE = `an owner's word from the channel closes a wait with: pnpm bus:request owner.wait.close --id Q<N> --answer <the owner's word> --from ${ANSWER_SOURCE}`
@@ -82,10 +90,12 @@ interface WaitToClose {
 }
 
 const WAITS_A_DECISION_ANSWERS: ReadonlySet<string> = new Set(['decision', 'command'])
+
 export const OWNER_WORD_NEEDED = `closing an owner wait needs the owner's word from the channel or a recorded decision`
 const HELP_FLAGS = ['--help', '-h']
 
 export type RequestKind = typeof REQUEST_KINDS[number]
+
 export interface CardTask { taskKey: string, cardId: number }
 
 export interface RequestTools {
@@ -114,9 +124,16 @@ export interface Executed {
   why: string
 }
 
-const PENDING = `SELECT id, ts, type, actor, card_id, pr, head, dedupe_key, payload FROM events AS request WHERE request.type = '${WINDOW_REQUEST}' AND request.legacy = 0
-    AND NOT EXISTS (SELECT 1 FROM events AS answer WHERE answer.dedupe_key = '${WINDOW_REQUEST}:' || request.id || ':answered') ORDER BY request.id`
-const LATEST_OBSERVATION = `SELECT id, head, json_extract(payload, '$.state') AS state FROM events WHERE type = '${PR_OBSERVED}' AND legacy = 0 AND pr = ? AND head IS NOT NULL ORDER BY id DESC LIMIT 1`
+const PENDING = `
+  SELECT id, ts, type, actor, card_id, pr, head, dedupe_key, payload FROM events AS request
+  WHERE request.type = '${WINDOW_REQUEST}' AND request.legacy = 0
+    AND NOT EXISTS (SELECT 1 FROM events AS answer WHERE answer.dedupe_key = '${WINDOW_REQUEST}:' || request.id || ':answered')
+  ORDER BY request.id
+`
+
+const LATEST_OBSERVATION = `
+  SELECT id, head, json_extract(payload, '$.state') AS state FROM events WHERE type = '${PR_OBSERVED}' AND legacy = 0 AND pr = ? AND head IS NOT NULL ORDER BY id DESC LIMIT 1
+`
 
 interface PrAsObserved {
   card_id: number | null
@@ -126,21 +143,47 @@ interface PrAsObserved {
 }
 
 const LAST_ALARM = `SELECT id FROM events WHERE type = '${BOARD_ALARM}' AND json_extract(payload, '$.task_key') = ? ORDER BY id DESC LIMIT 1`
-const REQUEUES_SINCE = `SELECT count(*) AS n FROM events WHERE type = '${TASK_REQUEUED}' AND id > ? AND json_extract(payload, '$.task_key') = ? AND json_type(payload, '$.request') = 'integer'`
+
+const REQUEUES_SINCE = `
+  SELECT count(*) AS n FROM events
+  WHERE type = '${TASK_REQUEUED}' AND id > ? AND json_extract(payload, '$.task_key') = ? AND json_type(payload, '$.request') = 'integer'
+`
+
 const MS_PER_MINUTE = 60_000
+
 const REPO = 'repos/{owner}/{repo}'
 const PULL_FILES_PAGE = 100
-const UNCLOSED_QUESTION = `SELECT json_extract(opened.payload, '$.id') AS id FROM events AS opened WHERE opened.type = '${OWNER_WAIT_OPENED}' AND opened.legacy = 0 AND json_extract(opened.payload, '$.need') = 'decision' AND json_extract(opened.payload, '$.text') = ?
+
+const UNCLOSED_QUESTION = `
+  SELECT json_extract(opened.payload, '$.id') AS id FROM events AS opened
+  WHERE opened.type = '${OWNER_WAIT_OPENED}' AND opened.legacy = 0
+    AND json_extract(opened.payload, '$.need') = 'decision' AND json_extract(opened.payload, '$.text') = ?
     AND NOT EXISTS (SELECT 1 FROM ${OWNER_WAITS} AS wait WHERE wait.id = json_extract(opened.payload, '$.id') AND wait.state = '${CLOSED_WAIT}')
-    AND NOT EXISTS (SELECT 1 FROM events AS closed WHERE closed.type = '${OWNER_WAIT_CLOSED}' AND json_extract(closed.payload, '$.id') = json_extract(opened.payload, '$.id')) ORDER BY opened.id LIMIT 1`
+    AND NOT EXISTS (SELECT 1 FROM events AS closed WHERE closed.type = '${OWNER_WAIT_CLOSED}' AND json_extract(closed.payload, '$.id') = json_extract(opened.payload, '$.id'))
+  ORDER BY opened.id LIMIT 1
+`
+
 const ENDED_CARDS: ReadonlySet<string | null | undefined> = new Set([MERGED_CARD, CLOSED_CARD, DROPPED_CARD])
+
 const LATEST_TURN = `SELECT id, type FROM events WHERE id = ${latestTurnOf('?')}`
+
 const DIRTY_TREE_CAUSE = /has uncommitted changes$/
+
 const LIVE_TASK_OF_CARD = `SELECT task_key, queue, state FROM tasks WHERE card_id = ? AND state IN ('${QUEUED}', '${LEASED}') ORDER BY id DESC LIMIT 1`
+
 const LATEST_WITNESS_OF_CARD = `SELECT head, json_extract(payload, '$.verdict') AS verdict FROM events WHERE card_id = ? AND legacy = 0 AND type = '${WITNESS_RECORDED}' ORDER BY id DESC LIMIT 1`
+
 const OPEN_PR_ANSWER_NEEDED = `SELECT pr FROM prs WHERE card_id = ? AND state = 'open' AND (ci = 'red' OR verdict_on_head = 'changes') ORDER BY pr DESC LIMIT 1`
-const LAST_MOVE_OF_CARD = `SELECT ts FROM events WHERE id = (SELECT max(moved) FROM (SELECT event_id AS moved FROM tasks WHERE card_id = ? AND queue IN ('answer', 'launch')
-  UNION ALL SELECT id AS moved FROM events WHERE card_id = ? AND legacy = 0 AND type IN ('${CARD_ADMITTED}', '${CARD_ANSWERED}', '${CARD_STARTED}', '${CARD_STOPPED}')))`
+
+const LAST_MOVE_OF_CARD = `
+  SELECT ts FROM events WHERE id = (
+    SELECT max(moved) FROM (
+      SELECT event_id AS moved FROM tasks WHERE card_id = ? AND queue IN ('answer', 'launch')
+      UNION ALL
+      SELECT id AS moved FROM events WHERE card_id = ? AND legacy = 0 AND type IN ('${CARD_ADMITTED}', '${CARD_ANSWERED}', '${CARD_STARTED}', '${CARD_STOPPED}')
+    )
+  )
+`
 
 export function isRequestKind(kind: unknown): kind is RequestKind {
   return typeof kind === 'string' && (REQUEST_KINDS as readonly string[]).includes(kind)
@@ -584,7 +627,7 @@ export class WindowRequests {
     const holds = owner ? null : this.tools.causeHolds({ taskKey: key, cardId: task.card_id })
     const keepsTheTree = payload.keep_tree === true && task.queue === 'launch' && holds !== null && DIRTY_TREE_CAUSE.test(holds)
     if (holds !== null && !keepsTheTree)
-      return { done: false, why: `the cause of ${BOARD_ALARM} ${alarm!.id} holds:${holds}${task.queue === 'launch' && DIRTY_TREE_CAUSE.test(holds) ? `; a requeue with keep_tree: true launches the session on that tree as it stands, writing nothing in it` : ''}` }
+      return { done: false, why: `the cause of ${BOARD_ALARM} ${alarm!.id} holds: ${holds}${task.queue === 'launch' && DIRTY_TREE_CAUSE.test(holds) ? `; a requeue with keep_tree: true launches the session on that tree as it stands, writing nothing in it` : ''}` }
     try {
       inTransaction(this.db, () => queueAgain(this.db, ts, task, request, `request-${request}`))
     }
