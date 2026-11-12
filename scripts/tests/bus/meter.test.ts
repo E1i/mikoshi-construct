@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { openBus } from '../../core/db.js'
+import { TaskMustWait } from '../../core/task-must-wait.js'
 import { GhBudgetWindow, ghPort } from '../../ports/gh.js'
 import { BUDGET_SPENT_STATUS, ghApi } from '../../ports/github.js'
 import { DEFAULT_RETRY_AFTER_S, GitHubFailed, Meter, RateLimited } from '../../ports/meter.js'
@@ -53,6 +54,7 @@ describe('the meter over the gh port', () => {
       refused = error
     }
     expect(refused).toBeInstanceOf(RateLimited)
+    expect(refused).toBeInstanceOf(TaskMustWait)
     expect(refused).toMatchObject({ status: BUDGET_SPENT_STATUS, retryAfterSeconds: BUDGET_WINDOW_S })
 
     const root = mkdtempSync(path.join(tmpdir(), 'bus-meter-budget-'))

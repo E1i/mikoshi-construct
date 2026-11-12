@@ -5441,7 +5441,7 @@
         "types": {
           "GitHubFailed": "class GitHubFailed extends Error { constructor(readonly status: number, endpoint: string, cause?: string) }",
           "Meter": "class Meter { calls; remaining: number | null; constructor(private readonly gitHub: GitHub, private readonly nowMs: () => number); get(endpoint: string): unknown }",
-          "RateLimited": "class RateLimited extends Error { constructor(readonly status: number, readonly retryAfterSeconds: number) }"
+          "RateLimited": "class RateLimited extends TaskMustWait { constructor(readonly status: number, retryAfterSeconds: number) }"
         }
       },
       "scripts/ports/netwatch.ts": {

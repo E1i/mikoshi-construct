@@ -13,6 +13,7 @@ import { completeTask } from '../../core/lease.js'
 import { Node, NODE_CURSORS, nodeProcess, SecondSubscription } from '../../core/node.js'
 import { keyOf, queueTask } from '../../core/queue.js'
 import { projectionDump, reduce } from '../../core/reducer.js'
+import { TaskMustWait } from '../../core/task-must-wait.js'
 import { RateLimited } from '../../ports/meter.js'
 import { TICK_MS } from '../../ports/netwatch.js'
 import { lastProcessBeats } from '../../supervisor/heartbeat.js'
@@ -448,6 +449,26 @@ describe('a node', () => {
     clock.advance(60_000)
     await once(node)
     expect(count(db, 'SELECT count(*) AS n FROM events WHERE type = ?', TASK_LEASED)).toBe(1)
+  })
+
+  it('a TaskMustWait from any port ends the task as wait for its retry-after', async () => {
+    const db = newBus()
+    const clock = new Clock()
+    appendEvent(db, { ts: clock.now().toISOString(), type: 'pr.observed', actor: 'netwatch', cardId: 1071, pr: 971, head: sha('a'), dedupeKey: 'pr.observed:971', payload: { pr: 971, head: sha('a'), state: 'open', base: 'main', ci: 'green', mergeable: 'clean', auto_merge: false, draft: false }, legacy: false })
+    reduce(db)
+    class WaitingNode extends FakeNode {
+      protected override handle(): NodeStep {
+        throw new TaskMustWait('the port asks for a pause', 30)
+      }
+    }
+    const node = new WaitingNode(db, clock, 'live')
+    node.found = [task(971)]
+    await once(node)
+
+    const key = keyOf(task(971))
+    const released = (db.prepare('SELECT ts, payload FROM events WHERE type = ?').all(TASK_RELEASED) as { ts: string, payload: string }[]).map(row => ({ ts: row.ts, ...JSON.parse(row.payload) as Record<string, unknown> }))
+    expect(released).toMatchObject([{ task_key: key, reason: 'the port asks for a pause', until: new Date(Date.parse(released[0]!.ts) + 30_000).toISOString() }])
+    expect(count(db, 'SELECT count(*) AS n FROM events WHERE type = ?', TASK_FAILED)).toBe(0)
   })
 
   it('emit sets actor and ts only where the event leaves them out, and getState reads the cursor and the leases', async () => {
