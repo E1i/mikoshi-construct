@@ -318,7 +318,7 @@
   "overlaps:handoff-status": 2,
   "overlaps:layers": 0,
   "overlaps:live-session": 4,
-  "overlaps:owner-commands": 48,
+  "overlaps:owner-commands": 45,
   "overlaps:owner-decisions": 5,
   "overlaps:pid-liveness": 4,
   "overlaps:process-table": 0,

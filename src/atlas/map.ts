@@ -2,6 +2,7 @@ import type { ComponentMap } from './components.js'
 import type { SourceLinks } from './source-link.js'
 import type { AtlasInput } from './view.js'
 import { createHash } from 'node:crypto'
+import { constructCommand } from '../../scripts/core/owner-commands.js'
 import { escaped } from '../model/page.js'
 import { channelMap } from './channels.js'
 import { ATLAS_DATA_MARK, ATLAS_SCRIPT } from './client.js'
@@ -27,7 +28,7 @@ const WORDS = {
   inspectorHint: 'Click a contour, part or file: its facts and edges open here.',
   legend: 'Legend',
   legendKinds: 'file states · edge kinds',
-  noMechanics: (name: string) => `Nothing to draw yet: ${name} holds no mechanics. construct atlas scans the tracked files and draws them here.`,
+  noMechanics: (name: string) => `Nothing to draw yet: ${name} holds no mechanics. ${constructCommand('atlas')} scans the tracked files and draws them here.`,
   states: {
     held: 'read, and its relations found',
     unknown: 'not read: discovery reads no file of this type, or could not read it',
