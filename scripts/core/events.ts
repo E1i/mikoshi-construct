@@ -127,7 +127,7 @@ export const CLOSED_PLAN = 'closed'
 export const OUTSIDE_TOUCHES = 'outside-touches'
 export const OPEN_QUESTION = 'open-question'
 
-export const WAIT_LIFTERS = ['bus', 'window', 'owner'] as const
+export const WAIT_LIFTERS = ['bus', 'owner', 'window'] as const
 
 export type WaitLifter = typeof WAIT_LIFTERS[number]
 
@@ -136,14 +136,12 @@ export interface WaitTerm {
   deadlineMinutes: number
 }
 
-const MINUTES_IN_AN_HOUR = 60
-
 export const CARD_WAITS = {
+  depends: { lifter: 'bus', deadlineMinutes: 1440 },
+  lane: { lifter: 'bus', deadlineMinutes: 120 },
   launch: { lifter: 'bus', deadlineMinutes: 30 },
-  depends: { lifter: 'bus', deadlineMinutes: 24 * MINUTES_IN_AN_HOUR },
-  lane: { lifter: 'bus', deadlineMinutes: 2 * MINUTES_IN_AN_HOUR },
-  stopped: { lifter: 'window', deadlineMinutes: MINUTES_IN_AN_HOUR },
-  owner: { lifter: 'owner', deadlineMinutes: 12 * MINUTES_IN_AN_HOUR },
+  owner: { lifter: 'owner', deadlineMinutes: 720 },
+  stopped: { lifter: 'window', deadlineMinutes: 60 },
 } as const satisfies Record<string, WaitTerm>
 
 export type WaitKind = keyof typeof CARD_WAITS
@@ -195,8 +193,8 @@ export const EVENT_PAYLOADS = {
   [CARD_WAITING]: ['actions', 'amended', 'bodySha', 'code', 'depends', 'detail', 'reason', 'session', 'started', 'step', 'witnesses'],
   [CHAIN_OBSERVED]: ['boundary', 'dir', 'leader', 'parking', 'pid', 'sha', 'state', 'waitingOn'],
   [CHAIN_RESTARTED]: ['dir', 'from', 'from_dir', 'pid', 'to'],
-  [CI_RERUN_REQUESTED]: ['detail', 'lease_gen', 'requested', 'runs', 'task_key'],
   [CHECKS_MATRIX_EVENT]: ['full', 'killed', 'notRun', 'skipped', 'summary', 'survived'],
+  [CI_RERUN_REQUESTED]: ['detail', 'lease_gen', 'requested', 'runs', 'task_key'],
   [COMMAND_EXECUTED]: ['command', 'endpoint', 'error', 'event_id', 'lease_gen', 'ok', 'run', 'runs', 'status', 'task_key', 'text'],
   [DECISION_EXPIRED]: ['decision_id', 'until'],
   [DECISION_RECORDED]: ['decision_id', 'scope', 'source', 'supersedes', 'text'],
@@ -258,8 +256,8 @@ export const EVENT_PAYLOADS = {
   [SHARD_ISSUED]: ['by', 'id', 'run', 'scope', 'under', 'until', 'window'],
   [SHARD_REVOKED]: ['id'],
   [SHARD_USED]: ['commit', 'id'],
-  [RESTARTED]: ['sha'],
   [RESTART_MISSED]: ['limit_ms', 'sha', 'waited_ms'],
+  [RESTARTED]: ['sha'],
   [TASK_COMPLETED]: ['generation', 'lease_gen', 'queue', 'task_key'],
   [TASK_ENQUEUED]: ['failure', 'fault', 'generation', 'queue', 'task_key'],
   [TASK_EXPIRED]: ['detail', 'failures', 'reason', 'task_key', 'withdraw'],

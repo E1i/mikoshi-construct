@@ -21,7 +21,7 @@ import { runsFieldLine, runsFieldOf, witnessFieldsLine, witnessFieldsOf } from '
 import { downgradeAction, EQUIVALENT_REPLACEMENT_ALLOWANCE, printAdmit, runAdmit, witnessDowngrades } from '../src/commands/intake/admit.js'
 import { bodySha, bodyShaWithoutTouches } from '../src/commands/intake/confirm.js'
 import { runExport } from '../src/commands/intake/export.js'
-import { INTAKE_EXIT, runIntake } from '../src/commands/intake/index.js'
+import { HELD_FOR_CONFIRMATION, INTAKE_EXIT, runIntake } from '../src/commands/intake/index.js'
 import { isWithin, parkingTree } from '../src/commands/intake/parking-tree.js'
 import { createMain } from '../src/program.js'
 import { createUi } from '../src/ui/console.js'
@@ -352,7 +352,7 @@ describe('construct intake --admit takes a card parked before the intake door', 
     expect(printed(admitted).exit).toBe(INTAKE_EXIT.admitted)
     expect(readFileSync(file, 'utf8')).toBe(before)
     expect(admittedPayloads(w)).toEqual([expect.objectContaining({ card: WAITING, depends: [80] })])
-    expect(payloadsOf(w, 'card.waiting')).toEqual([{ depends: [80] }])
+    expect(payloadsOf(w, 'card.waiting')).toEqual([{ depends: [80], code: 'depends', detail: expect.stringContaining('the bus lifts it by') }])
 
     expect(admittedEvents(w)).toBe(1)
   })
@@ -414,9 +414,9 @@ describe('construct intake --admit takes a card parked before the intake door', 
       const result = admit(w, park(w, 82, WAITING.replace('depends #80', 'depends #77')), { cardStates: () => new Map([['77', state]]) })
       return { result, waits: payloadsOf(w, 'card.waiting') }
     }
-    expect(admitWithBusState('running')).toMatchObject({ result: { status: 'admitted', card: { unclear: [] } }, waits: [{ depends: [77] }] })
+    expect(admitWithBusState('running')).toMatchObject({ result: { status: 'admitted', card: { unclear: [] } }, waits: [{ depends: [77], code: 'depends', detail: expect.stringContaining('the bus lifts it by') }] })
     for (const ended of ['merged', 'closed'])
-      expect(admitWithBusState(ended), ended).toMatchObject({ result: { status: 'awaiting', card: { unclear: [] } }, waits: [] })
+      expect(admitWithBusState(ended), ended).toMatchObject({ result: { status: 'awaiting', card: { unclear: [] } }, waits: [{ reason: HELD_FOR_CONFIRMATION, code: 'owner' }] })
   })
 
   it('a depends on a dropped card is refused by name at admission', () => {
@@ -1267,7 +1267,7 @@ describe('construct intake --admit across the lanes of the parking', () => {
     const line = '#58 second [implement/runner/S/cheap/owner] · depends #53 · blocks #43'
     const file = parkIn(w, 'lane-2', 58, line)
     expect(admit(w, file)).toMatchObject({ status: 'admitted', card: { line, unclear: [] } })
-    expect(payloadsOf(w, 'card.waiting')).toEqual([{ depends: [53] }])
+    expect(payloadsOf(w, 'card.waiting')).toEqual([{ depends: [53], code: 'depends', detail: expect.stringContaining('the bus lifts it by') }])
     expect(latestText(w, file)).not.toContain('unclear:')
   })
 
