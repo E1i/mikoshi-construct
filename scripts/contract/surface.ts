@@ -1,4 +1,5 @@
 import type { ArgsDef, CommandDef } from 'citty'
+import type { AuthorityRule } from '../policy/policy.js'
 import type { JsonForms, JsonKeys, ObservedCli } from './json-samples.js'
 import type { SurfaceReading, Unbaselined } from './semantic-diff.js'
 import { execFileSync, spawnSync } from 'node:child_process'
@@ -26,6 +27,8 @@ import { DISCOVERY_MARKERS } from '../../src/manifest.js'
 import { blockMarkers, discoveryTags } from '../../src/materialize/strategies.js'
 import { PRESET_LIST } from '../../src/presets/index.js'
 import { main, SAY_EXIT } from '../../src/program.js'
+import { treeReportPath } from '../core/places.js'
+import { MATRIX_COUNT_LINE, pathWithoutMatrix } from '../policy/policy.js'
 import { processGit } from '../ports/git.js'
 import { contourSchemaNames, readContourSchema, schemaId } from './contours.js'
 import { commandFromHelp, listsCommands, usageCommands } from './help.js'
@@ -56,6 +59,14 @@ const FLAG_PREFIX_AT_END = /(?:^|[^\w-])--$/
 const JSON_FLAG = 'json'
 const PARSE_ARGS = 'parseArgs'
 const CONSTANT_DEPTH = 8
+const SYNC_APPLY_FORM = 'sync --apply'
+const REPORT_VERSION = 1
+const COUNT_LINE_REFUSAL: AuthorityRule = 'no_matrix_count_line'
+const COUNT_LINE_READ_FROM = 'pull request description'
+const NOT_A_SOURCE_ROOT = new Set(['.git', 'node_modules'])
+const VERSION_CONSTANT = 'SURFACE_VERSION'
+
+export const GENERATED_SURFACE_FROM = `export const ${VERSION_CONSTANT} = `
 
 export const REFUSED_BY_STRICT_PARSE_ARGS = 'strict parseArgs'
 export const REFUSAL_NOT_READ = 'not read'
@@ -71,6 +82,41 @@ export interface ScriptSurface {
 }
 
 export const SURFACE_VERSION = 3
+
+export const CONTRACT_FORMATS = {
+  manifestVersion: 6,
+  modelVersion: 6,
+  recordVersion: 4,
+} as const
+
+export type ContractFormat = keyof typeof CONTRACT_FORMATS
+
+export const CONTRACT_COMMANDS = [
+  'atlas',
+  'attach',
+  'board',
+  'cost',
+  'detach',
+  'doctor',
+  'graph',
+  'init',
+  'intake',
+  'mutate apply',
+  'mutate judge',
+  'run-record',
+  'say',
+  'soulkill',
+  'sync',
+] as const
+
+export type ContractCommand = typeof CONTRACT_COMMANDS[number]
+
+export function formatVersion(file: string, field: ContractFormat): number {
+  const value = (JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>)[field]
+  if (typeof value !== 'number')
+    throw new Error(`${file} carries no numeric ${field} that contract/surface.json declares in formats`)
+  return value
+}
 
 export const OUTSIDE_THE_CONTRACT = [
   '.construct/turns.jsonl',
@@ -102,6 +148,28 @@ export interface Surface {
   contours: Record<string, string>
   outside: string[]
   scripts: Record<string, ScriptSurface>
+  report?: ReportContract
+}
+
+export interface ReportContract {
+  countLine: string
+  countLineRefusal: AuthorityRule
+  countLineUnder: string[]
+  readFrom: typeof COUNT_LINE_READ_FROM
+  writtenIn: string
+  reportVersion: number
+}
+
+export function reportContract(root = REPO_ROOT): ReportContract {
+  const roots = readdirSync(root, { withFileTypes: true }).filter(entry => entry.isDirectory() && !NOT_A_SOURCE_ROOT.has(entry.name)).map(entry => `${entry.name}/`)
+  return {
+    countLine: MATRIX_COUNT_LINE.source,
+    countLineRefusal: COUNT_LINE_REFUSAL,
+    countLineUnder: roots.filter(candidate => pathWithoutMatrix('', [candidate]) !== undefined).sort(),
+    readFrom: COUNT_LINE_READ_FROM,
+    writtenIn: path.relative(root, treeReportPath(root)),
+    reportVersion: REPORT_VERSION,
+  }
 }
 
 export interface ScriptRegistry {
@@ -348,7 +416,7 @@ function withFailed(table: Record<string, number>): Record<string, number> {
   return { ...table, failed: FAILED_EXIT }
 }
 
-function exits(): Record<string, Record<string, number>> {
+export function exitTables(): Record<ContractCommand | typeof SYNC_APPLY_FORM, Record<string, number>> {
   return {
     'init': withFailed(INIT_EXIT),
     'attach': withFailed(ATTACH_EXIT),
@@ -356,7 +424,7 @@ function exits(): Record<string, Record<string, number>> {
     'soulkill': withFailed(SOULKILL_EXIT),
     'doctor': withFailed(DOCTOR_EXIT),
     'sync': withFailed(SYNC_EXIT),
-    'sync --apply': withFailed(SYNC_APPLY_EXIT),
+    [SYNC_APPLY_FORM]: withFailed(SYNC_APPLY_EXIT),
     'board': withFailed(BOARD_EXIT),
     'cost': withFailed(COST_EXIT),
     'graph': withFailed(GRAPH_EXIT),
@@ -380,17 +448,6 @@ function filesUnder(root: string, relative = ''): string[] {
       return []
     return entry.isDirectory() ? filesUnder(root, child) : [child]
   })
-}
-
-function readJson(file: string): Record<string, unknown> {
-  return JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>
-}
-
-function versionField(file: string, field: string): number {
-  const value = readJson(file)[field]
-  if (typeof value !== 'number')
-    throw new Error(`${file} carries no numeric ${field}`)
-  return value
 }
 
 interface Runs {
@@ -422,9 +479,9 @@ function observedRuns(cli: ObservedCli, presets: string[]): Runs {
 
     return {
       formats: {
-        manifestVersion: versionField(path.join(initialised, 'construct.json'), 'manifestVersion'),
-        modelVersion: versionField(path.join(initialised, 'construct.model.json'), 'modelVersion'),
-        recordVersion: versionField(path.join(repository, '.construct/attach.json'), 'recordVersion'),
+        manifestVersion: formatVersion(path.join(initialised, 'construct.json'), 'manifestVersion'),
+        modelVersion: formatVersion(path.join(initialised, 'construct.model.json'), 'modelVersion'),
+        recordVersion: formatVersion(path.join(repository, '.construct/attach.json'), 'recordVersion'),
       },
       paths: { init, attach: { writes, edits: [GIT_EXCLUDE, SETTINGS_FILE] } },
     }
@@ -518,7 +575,7 @@ export function generateSurface(): Surface {
   return {
     surfaceVersion: SURFACE_VERSION,
     commands,
-    exits: exits(),
+    exits: exitTables(),
     jsonKeys: json.keys,
     jsonForms: json.forms,
     unknownFlag: unknownFlagRefusals(HEAD_CLI, commands),
@@ -528,6 +585,7 @@ export function generateSurface(): Surface {
     contours: contours(),
     outside: [...OUTSIDE_THE_CONTRACT],
     scripts: scriptSurfaces(),
+    report: reportContract(),
   }
 }
 
@@ -593,6 +651,55 @@ function sortedKeys(value: JsonValue): JsonValue {
   if (value != null && typeof value === 'object')
     return Object.fromEntries(Object.keys(value).sort().map(key => [key, sortedKeys(value[key])]))
   return value
+}
+
+export function reportContractRefusals(base: ReportContract | undefined, head: ReportContract | undefined): string[] {
+  if (base === undefined)
+    return []
+  if (head === undefined)
+    return ['report: the report contract was removed']
+  if (head.reportVersion < base.reportVersion)
+    return [`report.reportVersion: ${base.reportVersion} → ${head.reportVersion} goes back`]
+  const { reportVersion: _, ...was } = base
+  const { reportVersion: __, ...is } = head
+  return JSON.stringify(byName(Object.entries(was))) !== JSON.stringify(byName(Object.entries(is))) && head.reportVersion === base.reportVersion
+    ? ['report: the report contract changed without its reportVersion growing']
+    : []
+}
+
+const FORMAT_READER_CODE = [
+  'export function formatVersion(file: string, field: ContractFormat): number {',
+  `  const value = (JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>)[field]`,
+  `  if (typeof value !== 'number')`,
+  `    throw new Error(\`\${file} carries no numeric \${field} that contract/surface.json declares in formats\`)`,
+  '  return value',
+  '}',
+]
+
+function byName<T>(entries: [string, T][]): [string, T][] {
+  return entries.sort(([a], [b]) => a.localeCompare(b))
+}
+
+export function surfaceBoundaryCode(surface: Pick<Surface, 'surfaceVersion' | 'formats' | 'commands'>): string {
+  const own = byName(Object.entries(surface.commands)).filter(([, command]) => 'flags' in command).map(([name]) => name)
+  return [
+    `${GENERATED_SURFACE_FROM}${surface.surfaceVersion}`,
+    '',
+    'export const CONTRACT_FORMATS = {',
+    ...byName(Object.entries(surface.formats)).map(([field, version]) => `  ${field}: ${version},`),
+    '} as const',
+    '',
+    'export type ContractFormat = keyof typeof CONTRACT_FORMATS',
+    '',
+    'export const CONTRACT_COMMANDS = [',
+    ...own.map(name => `  '${name}',`),
+    '] as const',
+    '',
+    'export type ContractCommand = typeof CONTRACT_COMMANDS[number]',
+    '',
+    ...FORMAT_READER_CODE,
+    '',
+  ].join('\n')
 }
 
 export function renderSurface(surface: Surface): string {
