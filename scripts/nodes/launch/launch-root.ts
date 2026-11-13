@@ -20,10 +20,10 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { parseParkingFile } from '../../../src/card/parking.js'
 import { busPathOf, machineBusPath } from '../../core/bus-path.js'
+import { cardSessionsIn } from '../../core/card-bodies.js'
 import { busCardDecisions, withCardDecisions } from '../../core/card-decisions.js'
 import { BUSY_TIMEOUT_MS, defaultBusPath, openBus } from '../../core/db.js'
 import { messageOf } from '../../core/errors.js'
-import { CARD_ANSWERED, CARD_CONTINUED, CARD_STARTED } from '../../core/events.js'
 import { FACTORY_RUNTIME } from '../../core/factory-paths.js'
 import { HANDOFF_DIR_VARIABLE, handoffDirOf } from '../../core/handoff-dir.js'
 import { ghostLinesText } from '../../core/journal.js'
@@ -271,16 +271,6 @@ export function readTreeFile(file: string): TreeFile | null {
   catch {
     return null
   }
-}
-
-const CARD_SESSIONS = `
-  SELECT json_extract(payload, '$.session') AS session FROM events
-  WHERE legacy = 0 AND type IN ('${CARD_STARTED}', '${CARD_CONTINUED}', '${CARD_ANSWERED}') AND card_id = ? AND json_valid(payload) AND json_type(payload, '$.session') = 'text'
-  ORDER BY id
-`
-
-export function cardSessionsIn(db: DatabaseSync, cardId: number): string[] {
-  return (db.prepare(CARD_SESSIONS).all(cardId) as { session: string }[]).map(row => row.session)
 }
 
 export function busCardSessions(busPath: string): (cardId: number) => string[] {

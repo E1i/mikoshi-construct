@@ -1,13 +1,12 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { Lease } from '../../core/lease.js'
 import type { InForceDecision } from '../../policy/decisions/index.js'
-import { CARD_BODIES } from '../../core/card-bodies.js'
+import { CARD_BODIES, cardSessionsIn } from '../../core/card-bodies.js'
 import { decisionOfKey } from '../../core/card-decisions.js'
 import { cardHoldOf } from '../../core/card-hold.js'
 import { CARD_STARTED, CARD_STOPPED, QUESTION_AGENT, QUESTION_OWNER, REVIEW_RECORDED } from '../../core/events.js'
 import { latestTurnOf } from '../../core/queue.js'
 import { cardDecisionLines, decisionsInForceAt } from '../../policy/shards.js'
-import { cardSessionsIn } from '../launch/launch-root.js'
 
 export { cardDecisionLines as boundDecisionLines } from '../../policy/shards.js'
 
