@@ -279,13 +279,17 @@ const CARD_SESSIONS = `
   ORDER BY id
 `
 
+export function cardSessionsIn(db: DatabaseSync, cardId: number): string[] {
+  return (db.prepare(CARD_SESSIONS).all(cardId) as { session: string }[]).map(row => row.session)
+}
+
 export function busCardSessions(busPath: string): (cardId: number) => string[] {
   return (cardId) => {
     if (!existsSync(busPath))
       return []
     const db = openDatabase(busPath, { readOnly: true, timeout: BUSY_TIMEOUT_MS })
     try {
-      return [...new Set((db.prepare(CARD_SESSIONS).all(cardId) as { session: string }[]).map(row => row.session))]
+      return [...new Set(cardSessionsIn(db, cardId))]
     }
     finally {
       db.close()
