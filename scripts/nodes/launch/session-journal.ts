@@ -36,6 +36,8 @@ function changedInACommandRun(journal: SessionJournal, mtimeMs: number): boolean
 export function journalDoubt(journal: SessionJournal, relative: string, file: TreeFile | null): string | null {
   const changes = journal.changes.get(relative) ?? []
   const last = changes.at(-1)
+  if (file === null && journal.commandRuns.length > 0)
+    return null
   if (file !== null && file.mtimeMs > (last?.at ?? Number.NEGATIVE_INFINITY) && changedInACommandRun(journal, file.mtimeMs))
     return null
   if (last === undefined)

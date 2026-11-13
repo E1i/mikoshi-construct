@@ -180,8 +180,30 @@ describe('the session journal', () => {
       expect(journalDoubt(journal, 'g.ts', { content: 'other text', mtimeMs }), String(mtimeMs)).not.toBeNull()
       expect(journalDoubt(journal, 'copied.ts', { content: 'other text', mtimeMs }), String(mtimeMs)).not.toBeNull()
     }
-    expect(journalDoubt(journal, 'copied.ts', null)).not.toBeNull()
-    expect(journalDoubt(journal, 'g.ts', null)).not.toBeNull()
+  })
+
+  it('a path a command run of the session deleted is owned', () => {
+    const removed = parseSessionJournal([
+      use(4, 'b', 'Bash', { command: 'git rm scripts/tests/core/owner-commands-pending.json' }),
+      result(6, 'b'),
+    ].join('\n'), TREE)
+    expect(journalDoubt(removed, 'scripts/tests/core/owner-commands-pending.json', null)).toBeNull()
+
+    const editedThenRemoved = editThenRun({ command: 'git rm g.ts' })
+    expect(journalDoubt(editedThenRemoved, 'g.ts', null)).toBeNull()
+    expect(journalDoubt(editedThenRemoved, 'copied.ts', null)).toBeNull()
+  })
+
+  it('a path deleted by a session that ran no command is still a doubt', () => {
+    const noRun = parseSessionJournal([
+      use(1, 'e', 'Edit', { file_path: `${TREE}/g.ts`, old_string: 'a', new_string: 'session text' }),
+      result(1, 'e'),
+    ].join('\n'), TREE)
+    expect(journalDoubt(noRun, 'g.ts', null)).toBe('it is gone or unreadable, and the session journal holds no deletion of it')
+    expect(journalDoubt(noRun, 'other.ts', null)).toBe('the session journal holds no Write or Edit of it')
+
+    const backgroundOnly = editThenRun({ command: 'git rm g.ts', run_in_background: true })
+    expect(journalDoubt(backgroundOnly, 'g.ts', null)).toBe('it is gone or unreadable, and the session journal holds no deletion of it')
   })
 
   it('a change outside every command run names what it holds against the file', () => {
@@ -193,7 +215,6 @@ describe('the session journal', () => {
     expect(journalDoubt(journal, 'g.ts', { content: 'session text', mtimeMs: T0 + 6 * 60_000 + 1 })).toBe('it changed after the session ended')
     expect(journalDoubt(journal, 'other.ts', { content: 'other text', mtimeMs: T0 + 2 * 60_000 })).toBe('the session journal holds no Write or Edit of it')
     expect(journalDoubt(journal, 'other.ts', { content: 'other text', mtimeMs: T0 + 6 * 60_000 + 1 })).toBe('the session journal holds no Write or Edit of it')
-    expect(journalDoubt(journal, 'g.ts', null)).toBe('it is gone or unreadable, and the session journal holds no deletion of it')
 
     const laterEntry = parseSessionJournal([
       use(1, 'e', 'Edit', { file_path: `${TREE}/g.ts`, old_string: 'a', new_string: 'session text' }),
