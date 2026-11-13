@@ -1,22 +1,20 @@
-import type { Answer } from '../../owner/answer.js'
-import type { RequestTools } from '../../window/window-requests.js'
+import type { RequestOutcome, RequestTools } from '../../window/window-requests.js'
 import type { MergeBench } from '../bus/merge-bench.js'
 import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
-import { PLAIN_LORE } from '../../../src/ui/lore.js'
 import { openOwnerWait } from '../../core/db.js'
 import { closedByRounds } from '../../core/queue.js'
 import { reduce } from '../../core/reducer.js'
-import { ANSWER_SESSION, pollingAnswerOf, runOwnerAnswer, storedAnswerOf } from '../../owner/answer.js'
+import { answerWord, runOwnerAnswer } from '../../owner/answer.js'
+import { sayToOwnerChannel } from '../../owner/channel.js'
 import { decisionsFileOf } from '../../policy/decisions/decisions.js'
 import { decisionsAdderOfBus, decisionsSettlerOfBus } from '../../policy/decisions/projection.js'
-import { CONTINUE_FIXES } from '../../policy/round-limit-decision.js'
 import { decisionsInForceAt } from '../../policy/shards.js'
 import { busProjections } from '../../supervisor/composition.js'
-import { WindowRequests } from '../../window/window-requests.js'
+import { requestFromWindow, WindowRequests } from '../../window/window-requests.js'
 import { sha } from '../bus/github-fake.js'
 import { eventCount, liveBench, spendReviewRounds } from '../bus/merge-bench.js'
 
@@ -79,18 +77,17 @@ function tools(room: Room): RequestTools {
   return { treeOf: refuse, exists: refuse, cutTree: refuse, dryRunOf: refuse, addDecision: decisionsAdderOfBus(room.bench.db, room.bench.busPath, room.bench.clock.now), settleDecisions: decisionsSettlerOfBus(room.bench.db, room.bench.busPath, room.bench.clock.now, busProjections()), causeHolds: refuse, closePr: refuse, closeDropped: () => [] }
 }
 
-function busRunAnswers(room: Room): (request: number) => Answer | null {
-  return (request) => {
-    reduce(room.bench.db, 'pending', busProjections())
-    new WindowRequests(room.bench.db, room.bench.clock.now, tools(room), room.channel, () => null, process.cwd(), room.bench.gitHub.client).run()
-    return storedAnswerOf(room.bench.db, request)
-  }
+function busRun(room: Room): RequestOutcome[] {
+  reduce(room.bench.db, 'pending', busProjections())
+  const outcomes = new WindowRequests(room.bench.db, room.bench.clock.now, tools(room), room.channel, () => null, process.cwd(), room.bench.gitHub.client).run()
+  reduce(room.bench.db, 'pending', busProjections())
+  return outcomes
 }
 
-function answer(room: Room, named: string, words: string, answerOf = busRunAnswers(room)): number {
-  const code = runOwnerAnswer([named, words], { db: room.bench.db, clock: room.bench.clock.now, channel: room.channel, lore: PLAIN_LORE, out: line => room.lines.push(line), answerOf })
-  reduce(room.bench.db, 'pending', busProjections())
-  return code
+function answer(room: Room, named: string, words: string): RequestOutcome {
+  expect(runOwnerAnswer([named, words], room.bench.db, room.channel, room.bench.clock.now(), line => room.lines.push(line))).toBe(0)
+  const [outcome] = busRun(room)
+  return outcome!
 }
 
 function stateOf(room: Room, wait: string): string {
@@ -101,36 +98,25 @@ function decisionsOn(room: Room, card: number): string[] {
   return decisionsInForceAt(room.bench.db, room.bench.clock.now()).filter(decision => decision.cards.includes(card)).map(decision => decision.text.replace(OWNER_MARK, ''))
 }
 
-function answered(room: Room, named: string, words: string): number {
-  const code = answer(room, named, words)
-  expect(code, room.lines.join('\n')).toBe(0)
-  return code
-}
-
-describe('construct answer <Q|#card> "words"', () => {
+describe('owner:answer <Q|#card> "words"', () => {
   it.each(Object.entries(FIXTURES))('the waits of 2026-11-12 close through one command: %s', (_name, fixture) => {
     const room = roomWithPr(fixture.card, fixture.pr)
     const waits = Array.from({ length: fixture.waits }, () => waitOn(room, fixture.card, fixture.pr, fixture.need))
 
     if (waits.length > 1) {
-      const before = eventCount(room.bench.db)
-      expect(answer(room, `#${fixture.card}`, 'the second path')).toBe(1)
-      expect(room.lines.at(-1)).toBe(PLAIN_LORE.answerManyWaits(fixture.card, waits))
-      expect(eventCount(room.bench.db)).toBe(before)
-      expect(existsSync(room.channel)).toBe(false)
-      answered(room, waits[0]!, 'the first path')
-      expect(stateOf(room, waits[0]!)).toBe('closed')
+      const many = answer(room, `#${fixture.card}`, 'the second path')
+      expect(many).toMatchObject({ kind: 'refused', detail: expect.stringContaining(`${waits.length} open waits (${waits.join(', ')})`) })
+      expect(waits.map(wait => stateOf(room, wait))).toEqual(waits.map(() => 'open'))
+      expect(answer(room, waits[0]!, 'the first path').kind).toBe('done')
     }
 
-    answered(room, `#${fixture.card}`, 'the second path')
-    expect(room.lines.at(-1)).toContain(`${waits.at(-1)!} closed:`)
+    const last = answer(room, `#${fixture.card}`, 'the second path')
+    expect(last, last.detail).toMatchObject({ kind: 'done', detail: expect.stringContaining(`closed ${waits.at(-1)!}: the second path`) })
     for (const wait of waits)
       expect(stateOf(room, wait)).toBe('closed')
     expect(decisionsOn(room, fixture.card)).toEqual(waits.map((wait, at) => `${wait}: the ${at === waits.length - 1 ? 'second' : 'first'} path`))
-    expect(readdirSync(room.channel).every(file => file.endsWith('.used'))).toBe(true)
 
-    expect(answer(room, waits.at(-1)!, 'once more')).toBe(1)
-    expect(room.lines.at(-1)).toBe(PLAIN_LORE.answerNoWait(waits.at(-1)!))
+    expect(answer(room, waits.at(-1)!, 'once more')).toMatchObject({ kind: 'refused', detail: `${waits.at(-1)!} is no open owner wait; nothing moves` })
   })
 
   it('an answer past the round limit queues a review on the current head', () => {
@@ -141,16 +127,15 @@ describe('construct answer <Q|#card> "words"', () => {
     const now = (): string => room.bench.clock.now().toISOString()
     expect(closedByRounds(room.bench.db, now(), 'answer', pr, HEAD)).toBe(true)
 
-    answered(room, wait, 'go on with the fixes')
+    const outcome = answer(room, wait, 'go on with the fixes')
 
-    const decided = `${CONTINUE_FIXES} PR #${pr} at ${HEAD}: go on with the fixes`
-    expect(room.lines).toEqual([expect.stringContaining(`continue-fixes written for PR #${pr} at ${HEAD}`), expect.stringContaining(`${wait} closed:`)])
+    const decided = `continue-fixes PR #${pr} at ${HEAD}: go on with the fixes`
+    expect(outcome, outcome.detail).toMatchObject({ kind: 'done', detail: expect.stringContaining(`closed ${wait}: ${decided}`) })
     expect(stateOf(room, wait)).toBe('closed')
     expect(decisionsOn(room, card)).toEqual([decided])
     expect(closedByRounds(room.bench.db, now(), 'answer', pr, HEAD)).toBe(false)
 
-    expect(answer(room, `#${card}`, 'go on with the fixes')).toBe(0)
-    expect(room.lines.at(-1)).toMatch(new RegExp(`^D-\\d+ already holds continue-fixes for PR #${pr} at ${HEAD}`))
+    expect(answer(room, `#${card}`, 'go on with the fixes')).toMatchObject({ kind: 'done', detail: expect.stringContaining('already') })
     expect(decisionsOn(room, card)).toEqual([decided])
 
     const fixed = sha('e')
@@ -162,34 +147,31 @@ describe('construct answer <Q|#card> "words"', () => {
   it('a decision on a card with no open wait names that nothing moves and proposes the move', () => {
     const [card, pr] = [1864, 1586]
     const room = roomWithPr(card, pr)
+    const decisions = decisionsOn(room, card)
+
+    const outcome = answer(room, `#${card}`, 'D-524: back for fixes at the head')
+
+    expect(outcome.kind).toBe('refused')
+    expect(outcome.detail).toContain(`card #${card} has no open wait and is within its round limit`)
+    expect(outcome.detail).toMatch(/nothing moves/)
+    expect(outcome.detail).toMatch(/The move that would act on it: pnpm bus:request owner\.launch --card 1864|reaches its next session/)
+    expect(decisionsOn(room, card)).toEqual(decisions)
+    expect(readdirSync(room.channel).filter(file => file.endsWith('.md'))).toHaveLength(1)
+  })
+
+  it('the command writes one request with the owner word, and a request without the word moves nothing', () => {
+    const room = roomWithPr(1864, 1586)
     const before = eventCount(room.bench.db)
-
-    expect(answer(room, `#${card}`, 'D-524: back for fixes at the head')).toBe(1)
-
-    expect(room.lines).toHaveLength(1)
-    expect(room.lines[0]).toContain(`Card #${card} has no open wait`)
-    expect(room.lines[0]).toContain('The move that would act on it: pnpm bus:request')
+    for (const args of [['Q1'], ['nonsense', 'words'], ['Q1', '  ']])
+      expect(runOwnerAnswer(args, room.bench.db, room.channel, room.bench.clock.now(), line => room.lines.push(line))).toBe(2)
     expect(eventCount(room.bench.db)).toBe(before)
     expect(existsSync(room.channel)).toBe(false)
-    expect(room.bench.db.prepare('SELECT count(*) AS n FROM events WHERE actor LIKE ?').get(`%${ANSWER_SESSION}`)).toEqual({ n: 0 })
-  })
 
-  it('an answer with no words or no target writes nothing and says how to answer', () => {
-    const room = roomWithPr(1864, 1586)
-    expect(runOwnerAnswer(['Q1'], { db: room.bench.db, clock: room.bench.clock.now, channel: room.channel, lore: PLAIN_LORE, out: line => room.lines.push(line), answerOf: busRunAnswers(room) })).toBe(2)
-    expect(answer(room, 'nonsense', 'words')).toBe(1)
-    expect(room.lines).toEqual([PLAIN_LORE.answerUsage, PLAIN_LORE.answerNoWait('nonsense')])
-  })
-
-  it('names the request bus:run left unanswered instead of reporting a close', () => {
-    const room = roomWithPr(1864, 1586)
     const wait = waitOn(room, 1864, 1586, 'decision')
-
-    expect(answer(room, wait, 'the second path', pollingAnswerOf(room.bench.db, 0))).toBe(1)
-
-    expect(room.lines).toEqual([expect.stringMatching(new RegExp(`^${wait} did not close: bus:run did not answer window.request \\d+ within 150 s`))])
+    requestFromWindow(room.bench.db, room.bench.clock.now().toISOString(), 'forged', { kind: 'owner.answer', id: wait, text: 'a forged answer', from: 'answer' })
+    expect(busRun(room)).toMatchObject([{ kind: 'refused', detail: expect.stringContaining(answerWord(wait, 'a forged answer')) }])
     expect(stateOf(room, wait)).toBe('open')
-    expect(busRunAnswers(room)(0)).toBeNull()
-    expect(stateOf(room, wait)).toBe('closed')
+    sayToOwnerChannel(room.channel, answerWord(wait, 'said once'), room.bench.clock.now())
+    expect(answer(room, wait, 'said once').kind).toBe('done')
   })
 })
