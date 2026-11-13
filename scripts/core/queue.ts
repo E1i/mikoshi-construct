@@ -387,7 +387,7 @@ const LAUNCH_STOPS_LIFTED = latestQuestionStops(
       AND ${NOT_A_BACKFILL}
     ORDER BY admitted.id DESC LIMIT 1
   ) AS admission`,
-  `${A_LAUNCH_STOP_WITH_NO_PULL_REQUEST} AND NOT ${ASKS_TO_WIDEN_THE_TOUCHES} AND NOT ${ADMITTED_AFTER_THE_STOP} AND NOT ${A_QUESTION_OF_THE_STOP_STILL_OPEN} AND coalesce(cards.state NOT IN ('closed', 'dropped', 'merged'), 1)`,
+  `${A_LAUNCH_STOP_WITH_NO_PULL_REQUEST} AND NOT ${ASKS_TO_WIDEN_THE_TOUCHES} AND NOT ${ADMITTED_AFTER_THE_STOP} AND NOT ${A_QUESTION_OF_THE_STOP_STILL_OPEN} AND coalesce(cards.state NOT IN ('closed', 'dropped'), 1)`,
 )
 
 export const LIFTED_ADMISSION = 'lifted'
