@@ -3303,7 +3303,9 @@
           "scripts/core/observations.ts",
           "scripts/core/task-must-wait.ts"
         ],
-        "may_use": [],
+        "may_use": [
+          "events"
+        ],
         "owns": [
           "scripts/core/db.ts",
           "scripts/core/sqlite.ts",
@@ -3365,7 +3367,8 @@
         ],
         "may_use": [
           "bus",
-          "card-model"
+          "card-model",
+          "events"
         ],
         "owns": [
           "scripts/core/card-bodies.ts",
@@ -3430,12 +3433,14 @@
       },
       "events": {
         "concepts": [],
-        "contract": [],
+        "contract": [
+          "scripts/core/events.ts"
+        ],
         "may_use": [],
         "owns": [
           "scripts/core/events.ts"
         ],
-        "status": "undecided"
+        "status": "decided"
       },
       "factory-contract": {
         "concepts": [],
@@ -3500,7 +3505,8 @@
           "pr-record",
           "plan",
           "command-registry",
-          "ports-adapters"
+          "ports-adapters",
+          "events"
         ],
         "owns": [
           "scripts/nodes/answer/**"
@@ -3520,7 +3526,8 @@
           "pr-record",
           "plan",
           "command-registry",
-          "ports-adapters"
+          "ports-adapters",
+          "events"
         ],
         "owns": [
           "scripts/nodes/close/**"
@@ -3540,7 +3547,8 @@
           "pr-record",
           "plan",
           "command-registry",
-          "ports-adapters"
+          "ports-adapters",
+          "events"
         ],
         "owns": [
           "scripts/nodes/launch/**"
@@ -3569,7 +3577,8 @@
           "pr-record",
           "plan",
           "command-registry",
-          "ports-adapters"
+          "ports-adapters",
+          "events"
         ],
         "owns": [
           "scripts/nodes/merge/**"
@@ -3589,7 +3598,8 @@
           "pr-record",
           "plan",
           "command-registry",
-          "ports-adapters"
+          "ports-adapters",
+          "events"
         ],
         "owns": [
           "scripts/nodes/restart/**"
@@ -3609,7 +3619,8 @@
           "pr-record",
           "plan",
           "command-registry",
-          "ports-adapters"
+          "ports-adapters",
+          "events"
         ],
         "owns": [
           "scripts/nodes/review/**",
@@ -3634,7 +3645,8 @@
           "pr-record",
           "plan",
           "command-registry",
-          "ports-adapters"
+          "ports-adapters",
+          "events"
         ],
         "owns": [
           "scripts/nodes/update/**"
@@ -3654,7 +3666,8 @@
           "pr-record",
           "plan",
           "command-registry",
-          "ports-adapters"
+          "ports-adapters",
+          "events"
         ],
         "owns": [
           "scripts/nodes/witness/**"
@@ -3670,7 +3683,8 @@
         ],
         "may_use": [
           "card-model",
-          "card-record"
+          "card-record",
+          "events"
         ],
         "owns": [
           "scripts/window/plan-export.ts",
@@ -3730,7 +3744,8 @@
           "scripts/core/merge-event.ts"
         ],
         "may_use": [
-          "bus"
+          "bus",
+          "events"
         ],
         "owns": [
           "scripts/nodes/review/pr-close.ts",
@@ -3863,7 +3878,8 @@
           "card-model",
           "card-record",
           "command-registry",
-          "ports-adapters"
+          "ports-adapters",
+          "events"
         ],
         "owns": [
           "scripts/core/machine-sessions.ts",
