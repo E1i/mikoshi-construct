@@ -13,6 +13,7 @@ import { defaultBusPath, openBus } from '../../core/db.js'
 import { expireLeases, LEASE_MS, leaseNext, recordWorkerStarted } from '../../core/lease.js'
 import { DATABASE_LOCKED, isDatabaseLocked } from '../../core/node.js'
 import { CHECK_MS, TICK_MS } from '../../ports/netwatch.js'
+import { nodeLiveness } from '../../supervisor/composition.js'
 import { ownStart } from '../../supervisor/heartbeat.js'
 import { stampLogOutput } from '../../supervisor/stamp.js'
 import { switchedOn } from '../../supervisor/workers.js'
@@ -30,6 +31,7 @@ export interface RestartWorkerParts {
   launchSwitchedOn: () => boolean
   clock: () => Date
   session: string
+  silentMs: number
   self?: HolderStart
 }
 
@@ -60,7 +62,7 @@ export class RestartWorker {
       recordWorkerStarted(this.parts.db, ts, this.actor, this.parts.self ?? ownStart())
       this.startRecorded = true
     }
-    expireLeases(this.parts.db, ts)
+    expireLeases(this.parts.db, ts, this.parts.silentMs)
     const lease = leaseNext(this.parts.db, ts, 'restart', this.actor)
     if (lease !== null)
       return this.executor.restart(lease)
@@ -110,7 +112,7 @@ export async function runRestartWorker(argv: string[], run: RestartRun): Promise
   }
   const db = openBus(run.busPath)
   try {
-    const worker = new RestartWorker({ db, processes: run.processes, launchSwitchedOn: run.launchSwitchedOn, clock: () => new Date(), session: run.session })
+    const worker = new RestartWorker({ ...nodeLiveness(), db, processes: run.processes, launchSwitchedOn: run.launchSwitchedOn, clock: () => new Date(), session: run.session })
     console.log(`${PREFIX}${run.busPath}: the restart worker ${worker.actor} takes the restart queue`)
     for (;;) {
       const step = worker.step()

@@ -10,6 +10,7 @@ import { appendEvent } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_STARTED, REVIEW_RECORDED } from '../../core/events.js'
 import { leaseNext } from '../../core/lease.js'
 import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { mergeBench } from './merge-bench.js'
 
 const CARD = 1726
@@ -83,7 +84,7 @@ describe('an answer round pulls main into the card tree', () => {
       return { session: 'card-session-1', resumed: true, before: head, after: head, owner: null }
     }
     const cardTrees: CardTreeTools = { home: trees, exists: existsSync, branchOf: () => `feat/card-${CARD}`, recreate: () => {}, bringTo: () => {} }
-    const executor = new AnswerExecutor({ db: made.db, answerer, ownerMerges: () => '', clock: made.clock.now, trees: cardTrees, dirty: () => false, liveSession: () => null, prepare: () => {} })
+    const executor = new AnswerExecutor({ silentMs: SILENT_MS, db: made.db, answerer, ownerMerges: () => '', clock: made.clock.now, trees: cardTrees, dirty: () => false, liveSession: () => null, prepare: () => {} })
 
     await executor.answer(lease)
 

@@ -8,6 +8,7 @@ import { appendEvent } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_CLOSED, CARD_STARTED, CARD_VERIFIED } from '../../core/events.js'
 import { keyOf } from '../../core/queue.js'
 import { CloseNode } from '../../nodes/close/close-worker.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { mergeBench } from './merge-bench.js'
 
 interface Bench extends MergeBench {
@@ -51,7 +52,7 @@ function verifiedByReport(made: Bench, label: string): void {
 }
 
 async function closePasses(made: Bench, passes = 2): Promise<void> {
-  const node = new CloseNode({ db: made.db, reported: () => 'run', clock: made.clock.now, session: 'node-1', parking: path.join(made.root, 'parking'), mode: 'live', env: {}, trees: { remove: () => null } })
+  const node = new CloseNode({ silentMs: SILENT_MS, db: made.db, reported: () => 'run', clock: made.clock.now, session: 'node-1', parking: path.join(made.root, 'parking'), mode: 'live', env: {}, trees: { remove: () => null } })
   for (let pass = 0; pass < passes; pass += 1) {
     const controller = new AbortController()
     await node.run({ pause: async () => controller.abort(), signal: controller.signal })

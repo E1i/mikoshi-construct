@@ -41,6 +41,7 @@ export interface OutcomeParts {
   db: DatabaseSync
   clock: () => Date
   ownerMerges: () => string
+  silentMs: number
 }
 
 export interface CardPaths {
@@ -101,7 +102,7 @@ export class AnswerOutcomes {
       releaseTask(this.parts.db, this.ts(), lease, RESTART_CUT)
       return { kind: 'denied', taskKey: lease.taskKey, denial: { ...denial, detail: `${denial.detail}; a restart of the bus cut the session, so it is queued again and not counted as a failed round` }, next: QUEUED }
     }
-    const next = failTask(this.parts.db, this.ts(), lease, { reason: denial.reason, withdraw: WITHDRAWN_REASONS.has(denial.reason) }, [this.denialEvent(lease, denial)])
+    const next = failTask(this.parts.db, this.ts(), lease, { reason: denial.reason, withdraw: WITHDRAWN_REASONS.has(denial.reason) }, this.parts.silentMs, [this.denialEvent(lease, denial)])
     return { kind: 'denied', taskKey: lease.taskKey, denial, next }
   }
 

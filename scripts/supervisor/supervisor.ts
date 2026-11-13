@@ -585,7 +585,7 @@ export function busDrain(db: DatabaseSync, ts: () => string, startOf?: ProcessSt
   return {
     held: (running) => {
       if (startOf !== undefined)
-        judgeHolders(db, ts(), startOf)
+        judgeHolders(db, ts(), startOf, SILENT_MS)
       return leasesHeldBy(db, workerKindsOf(running))
     },
     retire: (launch, pids, sha, from) => workerKindsOf([launch]).flatMap(node => retireHolders(db, ts(), { node, pids, sha, from })),
@@ -603,7 +603,7 @@ export function busDrain(db: DatabaseSync, ts: () => string, startOf?: ProcessSt
 }
 
 export function freeLeasesOf(db: DatabaseSync, ts: string, stopped: DetachedLaunch[]): string[] {
-  const freed = expireLeasesHeldBy(db, ts, workerKindsOf(stopped))
+  const freed = expireLeasesHeldBy(db, ts, workerKindsOf(stopped), SILENT_MS)
   return freed.length === 0 ? [] : [`${PREFIX}freed the leases of the stopped workers at once as ${TASK_EXPIRED}: ${freed.join(', ')}`]
 }
 
@@ -838,7 +838,7 @@ export class LivenessJudge {
         lines.push(...await this.restartDue(judgement.process, nowMs))
       }
       if (this.startOf !== undefined)
-        lines.push(...holderLines(judgeHolders(this.db, ts, this.startOf)))
+        lines.push(...holderLines(judgeHolders(this.db, ts, this.startOf, SILENT_MS)))
       return lines
     }
     catch (error) {

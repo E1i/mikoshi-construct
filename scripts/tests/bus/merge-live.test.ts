@@ -15,6 +15,7 @@ import { reduce } from '../../core/reducer.js'
 import { MergeNode } from '../../nodes/merge/merge-worker.js'
 import { NetWatch } from '../../ports/netwatch.js'
 import { busProjections } from '../../supervisor/composition.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { switchDetection, switchWorker, wantedLaunches } from '../../supervisor/workers.js'
 import { cardBody, sha } from './github-fake.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
@@ -56,7 +57,7 @@ function bench(): MergeBench {
 }
 
 function nodeOf(made: MergeBench, mode: DetectionMode = 'live'): ProbedMergeNode {
-  const parts: MergeNodeParts = { db: made.db, gitHub: made.gitHub.client, put: made.gitHub.put, publish: made.gitHub.publish, clock: made.clock.now, session: 'node-1', run: null, mode, env: {} }
+  const parts: MergeNodeParts = { silentMs: SILENT_MS, db: made.db, gitHub: made.gitHub.client, put: made.gitHub.put, publish: made.gitHub.publish, clock: made.clock.now, session: 'node-1', run: null, mode, env: {} }
   return new ProbedMergeNode(parts)
 }
 

@@ -17,6 +17,7 @@ import { fullReview } from '../../nodes/review/review-depth.js'
 import { startReviewWorkers } from '../../nodes/review/review-worker.js'
 import { NetWatch, TICK_MS } from '../../ports/netwatch.js'
 import { busProjections } from '../../supervisor/composition.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { BusTick, tickOrLocked } from '../../supervisor/run.js'
 import { SLOT_POLL_MS, SLOTS, SlotScheduler, slotsOf, slotsVariable } from '../../supervisor/scheduler.js'
 import { Clock, FakeGitHub, sha } from './github-fake.js'
@@ -157,7 +158,7 @@ describe('heavy run scheduler', () => {
       await together
       return { verdict: 'pass', findings: [], session: `reviewer-${lease.pr}` }
     }
-    const workers = startReviewWorkers({ db, gitHub: gitHub.client, publish, reviewer, plan: () => fullReview('a fixed plan'), clock: clock.now, session: 'parallel', isolation: sandboxed }, slotsOf('review', {}))
+    const workers = startReviewWorkers({ silentMs: SILENT_MS, db, gitHub: gitHub.client, publish, reviewer, plan: () => fullReview('a fixed plan'), clock: clock.now, session: 'parallel', isolation: sandboxed }, slotsOf('review', {}))
 
     const steps = await Promise.all(workers.map(async worker => worker.step()))
 

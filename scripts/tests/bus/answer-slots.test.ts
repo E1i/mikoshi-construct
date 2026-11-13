@@ -14,6 +14,7 @@ import { openDatabase } from '../../core/sqlite.js'
 import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
 import { AnswerNode, priorityOf } from '../../nodes/answer/answer-worker.js'
 import { claudeAnswerer } from '../../nodes/answer/answerer.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { SLOTS, slotsOf, slotsVariable } from '../../supervisor/scheduler.js'
 import { sha } from './github-fake.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
@@ -56,8 +57,8 @@ function slotsBench() {
     cards,
     inFlight,
     answered,
-    node: (slots: number) => new AnswerNode({ ...parts, answerer, env: { [slotsVariable('answer')]: String(slots) } }),
-    prompted: (runs: AnswerRun[]) => new AnswerNode({ ...parts, env: { [slotsVariable('answer')]: '1' }, answerer: claudeAnswerer(path.join(trees, 'answers'), {
+    node: (slots: number) => new AnswerNode({ silentMs: SILENT_MS, ...parts, answerer, env: { [slotsVariable('answer')]: String(slots) } }),
+    prompted: (runs: AnswerRun[]) => new AnswerNode({ silentMs: SILENT_MS, ...parts, env: { [slotsVariable('answer')]: '1' }, answerer: claudeAnswerer(path.join(trees, 'answers'), {
       cardText,
       available: () => true,
       remoteHead: () => null,
@@ -238,7 +239,7 @@ describe('answer slots', () => {
     expect(eventsOf(bench.db, 'task.renewed')).toHaveLength(1)
 
     bench.clock.advance(LEASE_MS + 1)
-    expect(expireLeases(bench.db, bench.clock.now().toISOString())).toEqual([key])
+    expect(expireLeases(bench.db, bench.clock.now().toISOString(), SILENT_MS)).toEqual([key])
     await beat()
     await beat()
     expect(eventsOf(bench.db, 'task.renewed')).toHaveLength(1)

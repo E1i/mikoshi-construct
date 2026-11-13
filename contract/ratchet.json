@@ -31,7 +31,7 @@
   "boundary:bus->ports": 3,
   "boundary:bus->quality": 1,
   "boundary:bus->rules": 3,
-  "boundary:bus->session": 5,
+  "boundary:bus->session": 4,
   "boundary:bus->ui": 1,
   "boundary:card-model->card-record": 3,
   "boundary:card-model->intake": 2,

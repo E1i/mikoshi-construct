@@ -17,6 +17,7 @@ import { queueTask } from '../../core/queue.js'
 import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
 import { AnswerSources } from '../../nodes/answer/duties/source.js'
 import { cardDecisionCommand } from '../../policy/shards.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { sha } from './github-fake.js'
 import { mergeBench } from './merge-bench.js'
 
@@ -65,7 +66,7 @@ function cardStoppedOnAQuestion(reason: string): Card {
     return { session: `answer-session-${count}`, resumed: true, before: HEAD, after: HEAD, owner: null }
   }
   const cardTrees: CardTreeTools = { home: trees, exists: () => true, branchOf: pr => `feat/card-${pr}`, recreate: () => {}, bringTo: () => {} }
-  const parts = { db: made.db, answerer, ownerMerges: () => '', clock: made.clock.now, trees: cardTrees, dirty: () => false, liveSession: () => null }
+  const parts = { silentMs: SILENT_MS, db: made.db, answerer, ownerMerges: () => '', clock: made.clock.now, trees: cardTrees, dirty: () => false, liveSession: () => null }
   queueTask(made.db, made.clock.now().toISOString(), { queue: 'answer', cardId: CARD, stop })
   made.tick()
   return {

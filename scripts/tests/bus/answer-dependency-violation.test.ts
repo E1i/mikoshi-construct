@@ -14,6 +14,7 @@ import { leaseNext } from '../../core/lease.js'
 import { queueTask } from '../../core/queue.js'
 import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
 import { claudeAnswerer, KNOWN_VIOLATIONS, ownerQuestionPath } from '../../nodes/answer/answerer.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { sha } from './github-fake.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
 
@@ -123,7 +124,7 @@ async function answerWith(rounds: Round[], moves: boolean): Promise<Answering> {
     pending: () => pendingIn(worktree),
   })
   const trees: CardTreeTools = { home, exists: existsSync, branchOf: card => `feat/card-${card}`, recreate: () => {}, bringTo: () => {} }
-  const executor = new AnswerExecutor({ db: made.db, answerer, ownerMerges: () => '', clock: made.clock.now, trees, dirty: () => false, liveSession: () => null, prepare: () => {} })
+  const executor = new AnswerExecutor({ silentMs: SILENT_MS, db: made.db, answerer, ownerMerges: () => '', clock: made.clock.now, trees, dirty: () => false, liveSession: () => null, prepare: () => {} })
   return { made, outcome: await executor.answer(lease), published, prompts, worktree }
 }
 
