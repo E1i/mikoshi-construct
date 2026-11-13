@@ -16,6 +16,12 @@ export interface CardSlice {
   depends: number[]
 }
 
+export interface SliceParent {
+  card: number
+  part: number
+  of: number
+}
+
 export interface SlicedCard {
   id: number
   file: string
@@ -28,6 +34,7 @@ export interface SlicedCard {
   slices: CardSlice[]
   text: string
   whole?: string
+  parent?: SliceParent
 }
 
 export type Slice = { kind: 'sliced', cards: SlicedCard[] } | { kind: 'refused', reasons: string[] }
@@ -40,7 +47,9 @@ export const IMPORT_PREFIX = 'import: '
 const DEFAULT_IMPLEMENT_DECISION = 'owner'
 const PROBE_DECISION = 'none'
 const DEFAULT_CONTINUE = 'stop'
-const SLICE_NAME_INFIX = '-slice-'
+export const SLICE_NAME_INFIX = '-slice-'
+const SLICE_NAME = new RegExp(`^(.+)${SLICE_NAME_INFIX}(\\d+)$`)
+const CARD_LINE_HEAD = /#\d+\s+(\S+)/
 
 function defaulted(card: DraftCard): { contour: string, decision: string, unclear: UnclearField[] } {
   const unclear = [...card.unclear]
@@ -117,7 +126,7 @@ function importNotesOf(cards: readonly CheckedCard[], numbers: readonly number[]
   }))
 }
 
-export function sliceCards(cards: readonly CheckedCard[], numbers: readonly number[], sources: SliceSources): Slice {
+export function sliceCards(cards: readonly CheckedCard[], numbers: readonly number[], sources: SliceSources, parents: readonly (SliceParent | null)[] = []): Slice {
   const ids = new Map(cards.map((card, index) => [card.name, numbers[index]!]))
   const reasons: string[] = []
   const depends = cards.map(card => resolve(card.depends, ids, card.name, reasons))
@@ -180,7 +189,8 @@ export function sliceCards(cards: readonly CheckedCard[], numbers: readonly numb
     const parsed = parseParkingFile(file, text)
     if (parsed.kind === 'refused')
       reasons.push(`${card.name}: ${parsed.reason}`)
-    return { id, file, line, who, unclear, corrections, seam, risk, slices, text, ...(whole === undefined ? {} : { whole: whole.trim() }) }
+    const parent = parents[index] ?? null
+    return { id, file, line, who, unclear, corrections, seam, risk, slices, text, ...(whole === undefined ? {} : { whole: whole.trim() }), ...(parent === null ? {} : { parent }) }
   })
   return reasons.length > 0 ? { kind: 'refused', reasons } : { kind: 'sliced', cards: sliced }
 }
@@ -227,4 +237,49 @@ export function cutSlices(cards: readonly CheckedCard[], sliced: readonly Sliced
       return [{ ...card, depends: card.depends.flatMap(dependents), blocks: card.blocks.flatMap(dependents) }]
     return slices.map((slice, at) => slicedCard(card, slice, at, dependents))
   })
+}
+
+export function sliceParents(sliced: readonly SlicedCard[]): (SliceParent | null)[] {
+  return sliced.flatMap(card => (card.slices.length === 0 ? [null] : card.slices.map((_, at) => ({ card: card.id, part: at + 1, of: card.slices.length }))))
+}
+
+export interface CardLineRow {
+  card: number
+  line: string
+}
+
+export interface TransferredParents {
+  cards: Record<string, SliceParent>
+  unread: number[]
+}
+
+interface NamedSlice {
+  card: number
+  base: string
+  part: number
+}
+
+function nameOnLine(line: string): string | null {
+  return CARD_LINE_HEAD.exec(line)?.[1] ?? null
+}
+
+function namedSlice(row: CardLineRow): NamedSlice | null {
+  const slice = SLICE_NAME.exec(nameOnLine(row.line) ?? '')
+  return slice === null ? null : { card: row.card, base: slice[1]!, part: Number(slice[2]) }
+}
+
+export function parentsFromCardLines(rows: readonly CardLineRow[], among: readonly CardLineRow[]): TransferredParents {
+  const siblings = among.flatMap(row => namedSlice(row) ?? [])
+  const transferred: TransferredParents = { cards: {}, unread: [] }
+  for (const slice of rows.flatMap(row => namedSlice(row) ?? [])) {
+    const group = siblings.filter(other => other.base === slice.base)
+    const parts = group.map(other => other.part)
+    if (parts.filter(part => part === slice.part).length > 1) {
+      transferred.unread.push(slice.card)
+      continue
+    }
+    const stub = among.find(row => nameOnLine(row.line) === slice.base)?.card
+    transferred.cards[String(slice.card)] = { card: stub ?? Math.min(...group.map(other => other.card)), part: slice.part, of: Math.max(new Set(parts).size, ...parts) }
+  }
+  return transferred
 }
