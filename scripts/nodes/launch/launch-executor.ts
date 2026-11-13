@@ -7,9 +7,11 @@ import type { SessionInput } from '../../ports/prompt-store.js'
 import type { TreeOrigin } from '../../ports/worktree.js'
 import type { Contour, TreeReader } from './launch-candidates.js'
 import { existsSync } from 'node:fs'
+import process from 'node:process'
 import { launchStartKey, launchStartLease } from '../../core/card-automaton.js'
 import { CARD_STARTED, CARD_STOPPED, POLICY_DENIED } from '../../core/events.js'
 import { assertHeld, completeTask, failTask, releaseTask, StaleLease } from '../../core/lease.js'
+import { instanceOf, recordChildStarted } from '../../core/node.js'
 import { DISK_LOW, diskLowDetail, statfsReader } from '../../ports/disk.js'
 import { NO_ISOLATION } from '../../ports/isolation.js'
 import { storedInput } from '../../ports/prompt-store.js'
@@ -157,6 +159,7 @@ export class LaunchExecutor {
         if (launchableCard(db, lease.cardId) === null)
           throw new StaleLease(`task ${lease.taskKey} is no longer due`)
       })
+      recordChildStarted(this.parts.db, this.ts(), lease.actor, { mode: 'child', ...instanceOf(process.env), pid: card.pid, pgid: card.pgid, lstart: this.ts(), kind: 'launch', taskKey: lease.taskKey, tree: card.worktree })
     }
     catch (error) {
       starter.stop(card)

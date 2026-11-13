@@ -1,12 +1,13 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { ProcessTable } from '../ports/process-table.js'
-import type { DetachedLaunch, ProcessList, RunningProcess } from './bg.js'
+import type { ProcessIdentity } from '../core/node.js'
+import type { ProcessList, RunningProcess } from './bg.js'
 import { existsSync, readFileSync } from 'node:fs'
 import process from 'node:process'
 import { defaultBusPath, openBus } from '../core/db.js'
 import { childrenNotEnded, GENERATION_VARIABLE, recordedWorkers, UNHANDED } from '../core/node.js'
-import { OsProcessTable, rowsOf, runningAs } from '../ports/process-table.js'
-import { alive, argsBeforeBus, carriesMarker, processBeatsOn, servesBus, withBuses } from './bg.js'
+import { identityOf, OsProcessTable, rowsOf, runningAs } from '../ports/process-table.js'
+import { alive, argsBeforeBus, processBeatsOn, servesBus, withBuses } from './bg.js'
 
 export type PidAlive = (pid: number) => boolean
 
@@ -55,26 +56,29 @@ export interface IdentifiedProcess extends RunningProcess {
   group: number
 }
 
-export function identifiedProcesses(table: ProcessTable, db: DatabaseSync, unrecorded: readonly DetachedLaunch[]): () => IdentifiedProcess[] {
+export function identifiedProcesses(table: ProcessTable, db: DatabaseSync): () => IdentifiedProcess[] {
   return () => {
     const snapshot = table.snapshot()
-    const rows = rowsOf(snapshot)
+    rowsOf(snapshot)
     const children = new Set(childrenNotEnded(db).flatMap(child => runningAs(snapshot, child) === null ? [] : [child.pid]))
     const workers = recordedWorkers(db).flatMap((worker) => {
       const row = runningAs(snapshot, worker)
       return row === null || children.has(row.pid) ? [] : [row]
     })
-    const recorded = new Set(workers.map(row => row.pid))
-    const launched = rows.filter(row => !recorded.has(row.pid) && !children.has(row.pid) && unrecorded.some(launch => carriesMarker(row.command, launch.markers)))
-    return withBuses([...workers, ...launched].map(row => ({ pid: row.pid, group: row.pgid, args: row.command })))
+    const unique = [...new Map(workers.map(row => [row.pid, row])).values()]
+    return withBuses(unique.map(row => ({ pid: row.pid, group: row.pgid, args: row.command })))
   }
 }
 
-export function identifiedOnBus(unrecorded: readonly DetachedLaunch[], table: ProcessTable = new OsProcessTable()): () => IdentifiedProcess[] {
+export function ownIdentity(table: ProcessTable = new OsProcessTable()): ProcessIdentity | null {
+  return identityOf(table.snapshot(), process.pid)
+}
+
+export function identifiedOnBus(table: ProcessTable = new OsProcessTable()): () => IdentifiedProcess[] {
   return () => {
     const db = openBus(defaultBusPath())
     try {
-      return identifiedProcesses(table, db, unrecorded)()
+      return identifiedProcesses(table, db)()
     }
     finally {
       db.close()

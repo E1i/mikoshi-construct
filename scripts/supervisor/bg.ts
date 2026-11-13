@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url'
 import { BUS_DB_VARIABLE, GH_ACCOUNT_VARIABLE } from '../core/bus-path.js'
 import { openBus } from '../core/db.js'
 import { FACTORY_RUNTIME } from '../core/factory-paths.js'
-import { GENERATION_VARIABLE, INSTANCE_VARIABLE, UNHANDED } from '../core/node.js'
+import { GENERATION_VARIABLE, INSTANCE_VARIABLE, recordWorkerIdentity, UNHANDED } from '../core/node.js'
 import { OsProcessTable, rowsOf } from '../ports/process-table.js'
 import { REVIEW_MODEL_VARIABLE } from '../ports/session.js'
 import { lastProcessBeats } from './heartbeat.js'
@@ -222,7 +222,28 @@ function startHolder(lock: string, processes: ProcessList): number | null {
   return readStartLock(lock)?.holder ?? 0
 }
 
-export function startDetached(launch: DetachedLaunch, busDir: string, env: NodeJS.ProcessEnv = process.env, processes: ProcessList = psList()): BgResult {
+export const SPAWNED_WORKER = 'spawn'
+
+export function recordSpawned(env: NodeJS.ProcessEnv, script: string, handed: NodeJS.ProcessEnv, pid: number, at: Date): boolean {
+  const bus = thisBus(env)
+  if (bus === undefined || !existsSync(bus))
+    return false
+  const db = openBus(bus)
+  try {
+    const instance = handed[INSTANCE_VARIABLE] ?? UNHANDED
+    const lstart = at.toISOString()
+    return recordWorkerIdentity(db, lstart, { worker: `${SPAWNED_WORKER}:${script}:${instance}`, pid, started: lstart, instance, generation: handed[GENERATION_VARIABLE] ?? UNHANDED, pgid: pid, lstart })
+  }
+  finally {
+    db.close()
+  }
+}
+
+export interface StartOptions {
+  argv?: readonly string[]
+}
+
+export function startDetached(launch: DetachedLaunch, busDir: string, env: NodeJS.ProcessEnv = process.env, processes: ProcessList = psList(), options: StartOptions = {}): BgResult {
   const { prefix, script } = launch
   const lock = path.join(busDir, launch.startLock)
   const log = path.join(busDir, launch.log)
@@ -237,14 +258,17 @@ export function startDetached(launch: DetachedLaunch, busDir: string, env: NodeJ
     const problems = launch.preflight?.() ?? []
     if (problems.length > 0)
       return { stdout: [], stderr: [`${prefix}refused to start ${script}:`, ...problems.map(problem => `  ${problem}`)], exitCode: 1 }
-    const [command, ...args] = launchArgv(launch, installedPackage(), thisBus(env), env)
+    const [command, ...args] = options.argv ?? launchArgv(launch, installedPackage(), thisBus(env), env)
     const fd = openSync(log, 'a')
     try {
-      const child = spawn(command!, args, { detached: true, stdio: ['ignore', fd, fd], env: { ...env, [STAMP_ENV]: '1', ...handedIdentity(env) } })
+      const handed = handedIdentity(env)
+      const spawnedAt = new Date()
+      const child = spawn(command!, args, { detached: true, stdio: ['ignore', fd, fd], env: { ...env, [STAMP_ENV]: '1', ...handed } })
       child.on('error', () => {})
       child.unref()
       if (child.pid === undefined)
         return { stdout: [], stderr: [`${prefix}${command} did not start`], exitCode: 1 }
+      recordSpawned(env, launch.script, handed, child.pid, spawnedAt)
       if (launch.instanceFile !== undefined)
         writeFileSync(path.join(busDir, launch.instanceFile), `${child.pid}\n`)
       return { stdout: [String(child.pid), `${prefix}${args.join(' ')} · log ${log}`], stderr: [], exitCode: 0 }
