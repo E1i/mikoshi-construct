@@ -71,9 +71,10 @@ function questionLease(card: Card): Lease {
   return leaseNext(card.made.db, ts, 'answer', 'worker:answer:worker-1')!
 }
 
-function resumedSessionOf(argv: readonly string[]): string | null {
-  const at = argv.indexOf('--resume')
-  return at === -1 ? null : argv[at + 1] ?? null
+const KNOWN_SESSIONS = [LAUNCH_SESSION, ANSWER_SESSION, FRESH_SESSION]
+
+function sessionRunIn(argv: readonly string[]): string | null {
+  return KNOWN_SESSIONS.find(session => argv.includes(session)) ?? null
 }
 
 describe('scenario 08: the session carries over between rounds', () => {
@@ -82,7 +83,7 @@ describe('scenario 08: the session carries over between rounds', () => {
     card.record(CARD_ANSWERED, { session: ANSWER_SESSION, worktree: card.worktree, resumed: false, source: 'question', from: sha('a'), to: sha('b') })
     const lease = questionLease(card)
     const contexts = new Map<string, number>([[LAUNCH_SESSION, OVER_THE_WARN], [ANSWER_SESSION, UNDER_THE_WARN]])
-    const resumedIn: (string | null)[] = []
+    const ranIn: (string | null)[] = []
     const heads = [sha('b'), sha('c')]
     const cardTrees: CardTreeTools = { home: card.trees, exists: existsSync, branchOf: pr => `feat/card-${pr}`, recreate: () => {}, bringTo: () => {} }
     const answerer = claudeAnswerer(path.join(card.trees, 'answers'), {
@@ -90,7 +91,7 @@ describe('scenario 08: the session carries over between rounds', () => {
       available: () => true,
       remoteHead: () => heads.shift() ?? null,
       spawn: async (run) => {
-        resumedIn.push(resumedSessionOf(run.argv))
+        ranIn.push(sessionRunIn(run.argv))
         writeFileSync(run.stdoutPath, `${JSON.stringify({ type: 'result', subtype: 'success', result: 'answered' })}\n`)
         return 0
       },
@@ -102,7 +103,7 @@ describe('scenario 08: the session carries over between rounds', () => {
     const executor = new AnswerExecutor({ silentMs: SILENT_MS, db: card.made.db, answerer, ownerMerges: () => readFileSync('architecture/owner-merges.md', 'utf8'), clock: card.made.clock.now, trees: cardTrees })
 
     expect(await executor.answer(lease)).toMatchObject({ kind: 'answered', session: ANSWER_SESSION, resumed: true, head: sha('c') })
-    expect(resumedIn).toEqual([ANSWER_SESSION])
+    expect(ranIn).toEqual([ANSWER_SESSION])
     expect(eventsOf(card.made.db, CARD_ANSWERED).at(-1)).toMatchObject({ session: ANSWER_SESSION, resumed: true })
     expect(taskState(card.made.db, lease.taskKey).state).toBe('completed')
   })

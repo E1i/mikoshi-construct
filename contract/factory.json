@@ -4173,7 +4173,7 @@
       "scripts/intake/witness-fields-backfill.ts": 2,
       "scripts/ladder/ledger.ts": 2,
       "scripts/nodes/answer/answer-executor.ts": 3,
-      "scripts/nodes/answer/answer-source.ts": 12,
+      "scripts/nodes/answer/answer-source.ts": 11,
       "scripts/nodes/answer/answer-worker.ts": 2,
       "scripts/nodes/answer/duties/publishing.ts": 3,
       "scripts/nodes/answer/duties/source.ts": 2,

@@ -154,19 +154,17 @@ export const START_LINE = 'path'
 
 const SESSION_LIST = `'${CARD_STARTED}', '${CARD_CONTINUED}', '${CARD_ANSWERED}'`
 
-const LATEST_LISTED_SESSION = `
-  SELECT json_extract(payload, '$.session') AS session FROM events
-  WHERE legacy = 0 AND type IN (${SESSION_LIST}) AND card_id = ? AND id >= ? AND json_valid(payload) AND json_type(payload, '$.session') = 'text'
-  ORDER BY id DESC LIMIT 1
+const STARTED_WITH_LATEST_SESSION = `
+  SELECT s.payload, (
+    SELECT json_extract(l.payload, '$.session') FROM events AS l
+    WHERE l.legacy = 0 AND l.type IN (${SESSION_LIST}) AND l.card_id = s.card_id AND l.id >= s.id AND json_valid(l.payload) AND json_type(l.payload, '$.session') = 'text'
+    ORDER BY l.id DESC LIMIT 1
+  ) AS latest
+  FROM events AS s WHERE s.card_id = ? AND s.type = '${CARD_STARTED}' AND s.legacy = 0 ORDER BY s.id DESC LIMIT 1
 `
 
-function latestListedSession(db: DatabaseSync, cardId: number, startedId: number): string | null {
-  const row = db.prepare(LATEST_LISTED_SESSION).get(cardId, startedId) as { session: string } | undefined
-  return row === undefined ? null : text(row.session)
-}
-
 function startedOf(db: DatabaseSync, cardId: number): CardSession | null {
-  const row = db.prepare(`SELECT id, payload FROM events WHERE card_id = ? AND type = '${CARD_STARTED}' AND legacy = 0 ORDER BY id DESC LIMIT 1`).get(cardId) as { id: number, payload: string } | undefined
+  const row = db.prepare(STARTED_WITH_LATEST_SESSION).get(cardId) as { payload: string, latest: string | null } | undefined
   if (row === undefined)
     return null
   const payload = parsed(row.payload)
@@ -175,7 +173,7 @@ function startedOf(db: DatabaseSync, cardId: number): CardSession | null {
   const branch = text(payload.branch)
   if (started === null || worktree === null || branch === null)
     return null
-  return { session: latestListedSession(db, cardId, Number(row.id)) ?? started, worktree, branch }
+  return { session: text(row.latest) ?? started, worktree, branch }
 }
 
 function chainSessionOf(payload: Record<string, unknown>): string {
