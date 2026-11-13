@@ -19,6 +19,7 @@ import { runShard, USAGE } from '../../policy/shard.js'
 import { activeWindowShards, cardDecisionCommand, DECISIONS_SCOPE, expiredWindowShards } from '../../policy/shards.js'
 import { readOwnerMergeKinds } from '../../policy/shredder/reader.js'
 import { busProjections } from '../../supervisor/composition.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { OWNER_BOUNDARIES } from '../../window/handoff-write.js'
 
 const REPO = path.resolve(import.meta.dirname, '../../..')
@@ -78,7 +79,7 @@ async function askedUnderADecisionsShard(question: string): Promise<Asked> {
     return { session: 'card-session-1', resumed: true, before: 'a'.repeat(40), after: 'a'.repeat(40), owner }
   }
   const trees: CardTreeTools = { home: world.handoff, exists: existsSync, branchOf: pr => `feat/card-${pr}`, recreate: () => {}, bringTo: () => {} }
-  const executor = new AnswerExecutor({ db, answerer, ownerMerges: () => readFileSync('architecture/owner-merges.md', 'utf8'), clock: () => now, trees, isolation: () => ({ level: 'partial', mechanism: 'claude-code-sandbox', gaps: [] }), shardDecider: () => ({ answer: 'finish inside the touches' }) })
+  const executor = new AnswerExecutor({ silentMs: SILENT_MS, db, answerer, ownerMerges: () => readFileSync('architecture/owner-merges.md', 'utf8'), clock: () => now, trees, isolation: () => ({ level: 'partial', mechanism: 'claude-code-sandbox', gaps: [] }), shardDecider: () => ({ answer: 'finish inside the touches' }) })
   const outcome = await executor.answer(leaseNext(db, ts, 'answer', 'worker:answer:worker-1')!)
   reduce(db, 'pending', busProjections())
   const decided = Number((db.prepare('SELECT count(*) AS n FROM events WHERE type = ?').get(SHARD_DECIDED) as { n: number }).n)

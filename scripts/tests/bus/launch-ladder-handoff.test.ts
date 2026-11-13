@@ -18,6 +18,7 @@ import { handoffJournalPath } from '../../ladder/hash.js'
 import { realStarterPorts, repoHandoffEnv, repoLadderSteps } from '../../nodes/launch/launch-root.js'
 import { LaunchNode, WITHDRAWN_TO_CHEAP } from '../../nodes/launch/launch-worker.js'
 import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
 
 const CARD_ID = 1399
@@ -140,7 +141,7 @@ describe('moving a ladder card to cheap releases it', () => {
     benches.push(made)
     const gone: ProcessTable = { commandLine: () => null, signalGroup: () => {} }
     const ladder = new LadderStarter()
-    const node = new LaunchNode({ db: made.db, starter: new LadderStarter(), ladder, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes: gone, resulted: () => true, disk: roomy, isolation: sandboxed })
+    const node = new LaunchNode({ silentMs: SILENT_MS, db: made.db, starter: new LadderStarter(), ladder, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes: gone, resulted: () => true, disk: roomy, isolation: sandboxed })
     admit(made, 'ladder', 'first')
     made.tick()
     await once(node)
@@ -167,7 +168,7 @@ describe('moving a ladder card to cheap releases it', () => {
     const ladder = new LadderStarter(() => {
       live = false
     })
-    const node = new LaunchNode({ db: made.db, starter: new LadderStarter(), ladder, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, disk: roomy, isolation: sandboxed })
+    const node = new LaunchNode({ silentMs: SILENT_MS, db: made.db, starter: new LadderStarter(), ladder, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, disk: roomy, isolation: sandboxed })
     admit(made, 'ladder', 'first')
     made.tick()
     await once(node)
@@ -188,7 +189,7 @@ describe('moving a ladder card to cheap releases it', () => {
     benches.push(made)
     const processes: ProcessTable = { commandLine: () => `sh -c claude -p --session-id s-${CARD_ID}`, signalGroup: () => {} }
     const ladder = new LadderStarter()
-    const node = new LaunchNode({ db: made.db, starter: new LadderStarter(), ladder, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, disk: roomy, isolation: sandboxed })
+    const node = new LaunchNode({ silentMs: SILENT_MS, db: made.db, starter: new LadderStarter(), ladder, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, disk: roomy, isolation: sandboxed })
     admit(made, 'ladder', 'first')
     made.tick()
     await once(node)

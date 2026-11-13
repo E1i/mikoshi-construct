@@ -27,6 +27,7 @@ import { reviewPrompt } from '../../nodes/review/reviewer.js'
 import { DECISIONS_SCOPE } from '../../policy/shards.js'
 import { NetWatch, TICK_MS } from '../../ports/netwatch.js'
 import { busProjections } from '../../supervisor/composition.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { BusTick } from '../../supervisor/run.js'
 import { cardBody, Clock, FakeGitHub, sha } from './github-fake.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
@@ -80,18 +81,9 @@ function leaseOf(pr: number, head: string, taskKeyText: string): Lease {
 }
 
 function reviewWorker(db: DatabaseSync, gitHub: FakeGitHub, clock: Clock, pr: number, review: () => { verdict: 'changes' | 'pass', findings: string[] }): ReviewWorker {
-  return new ReviewWorker({
-    isolation: sandboxed,
-    db,
-    gitHub: gitHub.client,
-    publish: (status) => {
-      gitHub.pulls.get(pr)!.review = status.state
-    },
-    reviewer: async () => ({ ...review(), session: 'reviewer-1' }),
-    plan: () => fullReview('a fixed plan'),
-    clock: clock.now,
-    session: 'worker-1',
-  })
+  return new ReviewWorker({ silentMs: SILENT_MS, isolation: sandboxed, db, gitHub: gitHub.client, publish: (status) => {
+    gitHub.pulls.get(pr)!.review = status.state
+  }, reviewer: async () => ({ ...review(), session: 'reviewer-1' }), plan: () => fullReview('a fixed plan'), clock: clock.now, session: 'worker-1' })
 }
 
 function queuedReviewKey(db: DatabaseSync): string {
@@ -127,7 +119,7 @@ function questionUnderShard(made: ReturnType<typeof mergeBench>, answerer: Answe
   const stop = Number((made.db.prepare(`SELECT max(id) AS id FROM events WHERE type = ?`).get(CARD_STOPPED) as { id: number }).id)
   queueTask(made.db, ts, { queue: 'answer', cardId: 905, stop })
   const cardTrees: CardTreeTools = { home: trees, exists: existsSync, branchOf: pr => `feat/card-${pr}`, recreate: () => {}, bringTo: () => {} }
-  const executor = new AnswerExecutor({ db: made.db, answerer, ownerMerges: () => OWNER_MERGES, clock: made.clock.now, trees: cardTrees, isolation: () => ({ level: 'partial', mechanism: 'claude-code-sandbox', gaps: [] }), dirty, shardDecider: () => ({ answer: 'finish inside the touches' }) })
+  const executor = new AnswerExecutor({ silentMs: SILENT_MS, db: made.db, answerer, ownerMerges: () => OWNER_MERGES, clock: made.clock.now, trees: cardTrees, isolation: () => ({ level: 'partial', mechanism: 'claude-code-sandbox', gaps: [] }), dirty, shardDecider: () => ({ answer: 'finish inside the touches' }) })
   return async () => executor.answer(leaseNext(made.db, ts, 'answer', 'worker:answer:worker-1')!)
 }
 
@@ -201,18 +193,9 @@ describe('the review loop', () => {
   it('a card on review when the cycle changes finishes without intervention', async () => {
     const { db, gitHub, clock, tick } = reviewBus()
     const verdicts: ('changes' | 'pass')[] = ['changes', 'pass']
-    const worker = new ReviewWorker({
-      isolation: sandboxed,
-      db,
-      gitHub: gitHub.client,
-      publish: (status) => {
-        gitHub.pulls.get(931)!.review = status.state
-      },
-      reviewer: async () => ({ verdict: verdicts.shift()!, findings: [], session: 'reviewer-1' }),
-      plan: () => fullReview('a fixed plan'),
-      clock: clock.now,
-      session: 'worker-1',
-    })
+    const worker = new ReviewWorker({ silentMs: SILENT_MS, isolation: sandboxed, db, gitHub: gitHub.client, publish: (status) => {
+      gitHub.pulls.get(931)!.review = status.state
+    }, reviewer: async () => ({ verdict: verdicts.shift()!, findings: [], session: 'reviewer-1' }), plan: () => fullReview('a fixed plan'), clock: clock.now, session: 'worker-1' })
     gitHub.open({ number: 931, body: cardBody(931) })
     tick()
     expect(await worker.step()).toMatchObject({ kind: 'recorded', verdict: 'changes' })
@@ -295,7 +278,7 @@ describe('the review loop', () => {
       },
     })
     const cardTrees: CardTreeTools = { home: worktree, exists: existsSync, branchOf: () => `feat/card-${cardId}`, recreate: () => {}, bringTo: () => {} }
-    const executor = new AnswerExecutor({ db: made.db, answerer, ownerMerges: () => OWNER_MERGES, clock: made.clock.now, trees: cardTrees })
+    const executor = new AnswerExecutor({ silentMs: SILENT_MS, db: made.db, answerer, ownerMerges: () => OWNER_MERGES, clock: made.clock.now, trees: cardTrees })
     appendEvent(made.db, { ts: made.clock.now().toISOString(), type: CARD_STARTED, actor: 'worker:launch:launch-1', cardId, pr: null, head: null, dedupeKey: `${CARD_STARTED}:${cardId}`, payload: { session: 'card-session-1', worktree, branch: `feat/card-${cardId}`, base: sha('1') }, legacy: false })
     made.gitHub.open({ number: pr, required: 'failure', failed: ['vitest 4/4'], ...review })
     const answer = async (): Promise<AnswerOutcome> => {

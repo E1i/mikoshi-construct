@@ -16,6 +16,7 @@ import { WitnessNode } from '../../nodes/witness/witness-worker.js'
 import { GREEN, UNCHECKED } from '../../policy/policy.js'
 import { SetupTurns, withWorktreeAsync } from '../../ports/worktree.js'
 import { busProjections } from '../../supervisor/composition.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { waitFor } from '../wait-for.js'
 
 const CARD = 1550
@@ -125,7 +126,7 @@ function world({ port, url = `http://127.0.0.1:${port}/`, onBase = {}, onHead = 
 async function witnessRun(w: World): Promise<void> {
   const turns = new SetupTurns()
   const trees = { baseOf: async () => w.base, withTree: <T>(base: string, run: (tree: string) => Promise<T>) => withWorktreeAsync(w.repo, base, run, turns) }
-  const node = new WitnessNode({ db: w.db, clock: () => new Date('2026-10-21T10:02:00.000Z'), session: 'witness-1', mode: 'live', env: {}, shell: realTimedShell, trees })
+  const node = new WitnessNode({ silentMs: SILENT_MS, db: w.db, clock: () => new Date('2026-10-21T10:02:00.000Z'), session: 'witness-1', mode: 'live', env: {}, shell: realTimedShell, trees })
   for (let round = 0; round < 2; round += 1) {
     const controller = new AbortController()
     await node.run({ pause: async () => controller.abort(), signal: controller.signal })

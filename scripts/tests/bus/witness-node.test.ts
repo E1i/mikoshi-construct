@@ -18,6 +18,7 @@ import { WitnessNode } from '../../nodes/witness/witness-worker.js'
 import { GREEN, RED, witnessDenial, witnessRecordOf, witnessSubjectOf } from '../../policy/policy.js'
 import { gitInAsync, SetupTurns, withWorktreeAsync } from '../../ports/worktree.js'
 import { busProjections } from '../../supervisor/composition.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { waitFor } from '../wait-for.js'
 
 const CARD = 1301
@@ -96,7 +97,7 @@ function otherCardOn(w: World): string {
 }
 
 async function witnessRun(w: World, shell: TimedShell = realTimedShell, trees: WitnessTrees = treesOver(w)): Promise<void> {
-  const node = new WitnessNode({ db: w.db, clock: () => new Date('2026-10-21T10:02:00.000Z'), session: 'witness-1', mode: 'live', env: {}, shell, trees })
+  const node = new WitnessNode({ silentMs: SILENT_MS, db: w.db, clock: () => new Date('2026-10-21T10:02:00.000Z'), session: 'witness-1', mode: 'live', env: {}, shell, trees })
   for (let round = 0; round < 2; round += 1) {
     const controller = new AbortController()
     await node.run({ pause: async () => controller.abort(), signal: controller.signal })

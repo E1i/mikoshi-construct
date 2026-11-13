@@ -14,6 +14,7 @@ import { MachineSessions } from '../../core/machine-sessions.js'
 import { queueTask } from '../../core/queue.js'
 import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
 import { LaunchNode } from '../../nodes/launch/launch-worker.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { sha } from './github-fake.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
 
@@ -82,7 +83,7 @@ function launching(): Launching {
   writeFileSync(path.join(worktree, READER), 'export const map = {}\n')
   const starter = new CountingStarter(worktree)
   const report = { text: null as string | null }
-  const node = new LaunchNode({ db: made.db, starter, continuer: starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes: { commandLine: () => null, signalGroup: () => {} }, pidAlive: () => false, collected: () => null, atContextLine: () => true, handedOff: () => report.text !== null, reportOf: () => report.text, machine: new MachineSessions(scratch('z8-machine-'), () => false, 16), lanes: () => 4, disk: () => ({ bavail: 1, bsize: 1024 ** 4 }), isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }) })
+  const node = new LaunchNode({ silentMs: SILENT_MS, db: made.db, starter, continuer: starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes: { commandLine: () => null, signalGroup: () => {} }, pidAlive: () => false, collected: () => null, atContextLine: () => true, handedOff: () => report.text !== null, reportOf: () => report.text, machine: new MachineSessions(scratch('z8-machine-'), () => false, 16), lanes: () => 4, disk: () => ({ bavail: 1, bsize: 1024 ** 4 }), isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }) })
   return { made, starter, node, report }
 }
 
@@ -184,20 +185,10 @@ describe('z8: a session stop is recorded in the bus and decides the continuation
     const stop = Number((made.db.prepare('SELECT max(id) AS id FROM events WHERE type = ?').get(CARD_STOPPED) as { id: number }).id)
     queueTask(made.db, ts, { queue: 'answer', cardId: CARD, stop })
     let sessions = 0
-    const executor = new AnswerExecutor({
-      db: made.db,
-      answerer: async () => {
-        sessions += 1
-        return { session: `answer-${sessions}`, resumed: false, atContextWarn: true, before: sha('a'), after: sha('a'), owner: OUTSIDE_QUESTION }
-      },
-      ownerMerges: () => '',
-      clock: made.clock.now,
-      trees: { home: trees, exists: () => true, branchOf: pr => `feat/card-${pr}`, recreate: () => {}, bringTo: () => {} },
-      dirty: () => false,
-      liveSession: () => null,
-      prepare: () => {},
-      changedInTheTree: () => [TOUCHED, READER],
-    })
+    const executor = new AnswerExecutor({ silentMs: SILENT_MS, db: made.db, answerer: async () => {
+      sessions += 1
+      return { session: `answer-${sessions}`, resumed: false, atContextWarn: true, before: sha('a'), after: sha('a'), owner: OUTSIDE_QUESTION }
+    }, ownerMerges: () => '', clock: made.clock.now, trees: { home: trees, exists: () => true, branchOf: pr => `feat/card-${pr}`, recreate: () => {}, bringTo: () => {} }, dirty: () => false, liveSession: () => null, prepare: () => {}, changedInTheTree: () => [TOUCHED, READER] })
 
     const outcome = await executor.answer(leaseNext(made.db, made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1') as Lease)
 

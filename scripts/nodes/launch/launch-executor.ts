@@ -69,6 +69,7 @@ export interface LaunchParts {
   starter: CardStarter
   ladder?: CardStarter
   clock: () => Date
+  silentMs: number
   disk?: DiskReader
   isolation: IsolationReader
   prompts?: string
@@ -174,7 +175,7 @@ export class LaunchExecutor {
     const stopped: BusEvent[] = denial.reason === HELD_TREE_CHANGED
       ? [{ ts, type: CARD_STOPPED, actor: lease.actor, cardId: lease.cardId, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:${HELD_TREE_CHANGED}:${lease.taskKey}`, payload: { reason: 'fault', detail: `${HELD_TREE_CHANGED}: ${denial.detail}`, paths: denial.paths ?? [] }, legacy: false }]
       : []
-    const next = failTask(this.parts.db, ts, lease, { reason: denial.reason, withdraw: WITHDRAW_REASONS.has(denial.reason) }, [event, ...stopped])
+    const next = failTask(this.parts.db, ts, lease, { reason: denial.reason, withdraw: WITHDRAW_REASONS.has(denial.reason) }, this.parts.silentMs, [event, ...stopped])
     return { kind: 'denied', taskKey: lease.taskKey, denial, next }
   }
 }

@@ -3,6 +3,7 @@ import type { Scope } from '../../core/node.js'
 import type { StoredEvent } from '../../core/stored.js'
 import { STORED_COLUMNS } from '../../core/stored.js'
 import { CloseNode } from '../../nodes/close/close-worker.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 
 class DetectingCloseNode extends CloseNode {
   detect(scope?: Scope): void {
@@ -12,5 +13,5 @@ class DetectingCloseNode extends CloseNode {
 }
 
 export function detectClose(db: DatabaseSync, clock: () => Date, scope?: Scope): void {
-  new DetectingCloseNode({ db, reported: () => null, clock, session: 'detect', parking: '/nonexistent/parking', mode: 'live', env: {} }).detect(scope)
+  new DetectingCloseNode({ silentMs: SILENT_MS, db, reported: () => null, clock, session: 'detect', parking: '/nonexistent/parking', mode: 'live', env: {} }).detect(scope)
 }

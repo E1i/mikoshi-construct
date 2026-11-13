@@ -17,6 +17,7 @@ import { ReviewWorker } from '../../nodes/review/review-worker.js'
 import { claudeReviewer, osDescendants, REVIEW_CEILING, ReviewFailed, reviewPrompt, ReviewTrees, VERDICT_ENDS_LINE, WITNESS_RUNS_LINE } from '../../nodes/review/reviewer.js'
 import { InMemoryProcessTable } from '../../ports/process-table.js'
 import { clientCommand, SessionCeilingReached, spawnSession } from '../../ports/session.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { cardBody, sha } from '../bus/github-fake.js'
 import { eventsOf, liveBench } from '../bus/merge-bench.js'
 
@@ -65,16 +66,7 @@ function benchWith(reviewer: Reviewer): { bench: MergeBench, worker: ReviewWorke
   bench.tick()
   bench.gitHub.open({ number: PR, head: HEAD, ref: `feat/card-${CARD}`, body: cardBody(PR) })
   bench.tick()
-  const worker = new ReviewWorker({
-    isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }),
-    db: bench.db,
-    gitHub: bench.gitHub.client,
-    publish: bench.gitHub.publish,
-    reviewer,
-    plan: () => fullReview('a fixed plan'),
-    clock: bench.clock.now,
-    session: 'worker-1',
-  })
+  const worker = new ReviewWorker({ silentMs: SILENT_MS, isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }), db: bench.db, gitHub: bench.gitHub.client, publish: bench.gitHub.publish, reviewer, plan: () => fullReview('a fixed plan'), clock: bench.clock.now, session: 'worker-1' })
   return { bench, worker }
 }
 

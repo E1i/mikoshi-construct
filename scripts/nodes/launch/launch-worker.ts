@@ -3,7 +3,7 @@ import type { SessionStop, SessionStopCode } from '../../core/card-hold.js'
 import type { BusEvent } from '../../core/db.js'
 import type { Lease } from '../../core/lease.js'
 import type { MachineClaimant, MachineSessions } from '../../core/machine-sessions.js'
-import type { DetectionMode, NodeDeclaration, WaitStep } from '../../core/node.js'
+import type { DetectionMode, NodeDeclaration, NodeParts, WaitStep } from '../../core/node.js'
 import type { QueuedTask } from '../../core/queue.js'
 import type { DiskReader } from '../../ports/disk.js'
 import type { IsolationReader } from '../../ports/isolation.js'
@@ -78,7 +78,7 @@ export type LaunchStep = LaunchOutcome | WaitStep
 
 export const BODY_NOT_FOLDED = 'body_not_folded'
 
-export interface LaunchNodeParts {
+export interface LaunchNodeParts extends Pick<NodeParts, 'silentMs'> {
   db: DatabaseSync
   starter: CardStarter
   ladder?: CardStarter
@@ -333,7 +333,7 @@ export class LaunchNode extends Node<LaunchStep> {
   private readonly usageLimitedUntil: (card: StartedCard) => string | null
 
   constructor(private readonly launchParts: LaunchNodeParts) {
-    super('launch', { db: launchParts.db, clock: launchParts.clock, session: launchParts.session, mode: launchParts.mode, env: launchParts.env })
+    super('launch', { db: launchParts.db, clock: launchParts.clock, session: launchParts.session, mode: launchParts.mode, env: launchParts.env, silentMs: launchParts.silentMs })
     this.executor = new LaunchExecutor(launchParts)
     this.starters = { cheap: launchParts.starter, ladder: launchParts.ladder }
     this.processes = launchParts.processes ?? REAL_PROCESSES
@@ -396,7 +396,7 @@ export class LaunchNode extends Node<LaunchStep> {
     const now = this.parts.clock().getTime()
     const lapsed = (this.db.prepare(UNSTARTED_LAUNCH_LEASES).all() as unknown as UnstartedLease[]).filter(row => now - Date.parse(row.leased_at) >= LAUNCH_START_MS)
     for (const row of lapsed)
-      failTask(this.db, this.ts(), { taskKey: row.task_key, queue: 'launch', cardId: row.card_id, pr: null, head: null, leaseGen: row.lease_gen, actor: this.actor }, { reason: LAUNCH_UNSTARTED, withdraw: false })
+      failTask(this.db, this.ts(), { taskKey: row.task_key, queue: 'launch', cardId: row.card_id, pr: null, head: null, leaseGen: row.lease_gen, actor: this.actor }, { reason: LAUNCH_UNSTARTED, withdraw: false }, this.launchParts.silentMs)
     return lapsed.map(row => row.task_key)
   }
 

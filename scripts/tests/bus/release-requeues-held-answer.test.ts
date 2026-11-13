@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { appendEvent } from '../../core/db.js'
 import { CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, QUESTION_AGENT } from '../../core/events.js'
 import { failTask, leaseNext } from '../../core/lease.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { requestFromWindow, requestOf, WindowRequests } from '../../window/window-requests.js'
 import { sha } from './github-fake.js'
 import { mergeBench } from './merge-bench.js'
@@ -56,7 +57,7 @@ function release(made: MergeBench): RequestOutcome {
 
 function withdrawAnswer(made: MergeBench, reason: string): void {
   const lease = leaseNext(made.db, made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1')!
-  failTask(made.db, made.clock.now().toISOString(), lease, { reason, withdraw: true })
+  failTask(made.db, made.clock.now().toISOString(), lease, { reason, withdraw: true }, SILENT_MS)
 }
 
 function answerStatesOf(made: MergeBench): string[] {

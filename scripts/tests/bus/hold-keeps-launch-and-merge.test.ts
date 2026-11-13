@@ -21,6 +21,7 @@ import { LaunchNode } from '../../nodes/launch/launch-worker.js'
 import { HELD_FOR_OWNER } from '../../nodes/merge/merge-executor.js'
 import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
 import { busProjections } from '../../supervisor/composition.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { eventsOf, liveBench, mergeBench } from './merge-bench.js'
 
 const TS = '2026-11-05T10:00:00.000Z'
@@ -211,24 +212,7 @@ function launchNodeOn(made: MergeBench, options: SessionOptions): Omit<ExitedSes
     },
   }
   const exited: ProcessTable = { commandLine: () => null, signalGroup: () => {} }
-  const node = new LaunchNode({
-    db: made.db,
-    starter,
-    continuer: starter,
-    clock: made.clock.now,
-    session: 'node-1',
-    mode: 'live',
-    env: {},
-    processes: exited,
-    resulted: () => true,
-    handedOff: () => true,
-    atContextLine: () => options.atContextLine ?? false,
-    collected: () => null,
-    reportOf: () => null,
-    buildHandoff: () => {},
-    disk: () => ({ bavail: 1, bsize: DISK_FLOOR_BYTES }),
-    isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }),
-  })
+  const node = new LaunchNode({ silentMs: SILENT_MS, db: made.db, starter, continuer: starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes: exited, resulted: () => true, handedOff: () => true, atContextLine: () => options.atContextLine ?? false, collected: () => null, reportOf: () => null, buildHandoff: () => {}, disk: () => ({ bavail: 1, bsize: DISK_FLOOR_BYTES }), isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }) })
   return { node, started: () => startedSessions, bodiesAtContinuation }
 }
 

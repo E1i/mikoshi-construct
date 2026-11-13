@@ -2,6 +2,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { HeavyRun } from '../core/identifiers.js'
 import type { Lease } from '../core/lease.js'
 import { completeTask, expireLeases, leaseWhileFree, RENEW_MS, renewLease, StaleLease } from '../core/lease.js'
+import { SILENT_MS } from './liveness-sites.js'
 
 export const SLOTS = { quality: 2, vitest: 2, review: 3, answer: 3, merge: 1, update: 1, close: 1, launch: 3, witness: 2 } as const
 export type SlotKind = keyof typeof SLOTS
@@ -53,7 +54,7 @@ export class SlotScheduler {
 
   tryTake(kind: HeavyRun, cardId: number): Lease | null {
     const { db, session, slots } = this.parts
-    expireLeases(db, this.ts())
+    expireLeases(db, this.ts(), SILENT_MS)
     return leaseWhileFree(db, this.ts(), { queue: kind, cardId, generation: session }, this.actor, slots)
   }
 

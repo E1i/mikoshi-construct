@@ -13,6 +13,7 @@ import { failTask, releaseTask } from '../core/lease.js'
 import { LEASED } from '../core/queue.js'
 import { OsProcessTable } from '../ports/process-table.js'
 import { beatsOfLease } from './heartbeat.js'
+import { SILENT_MS } from './liveness-sites.js'
 import { signal } from './supervisor.js'
 
 export const STALLED_AFTER_MS = 30 * 60_000
@@ -324,7 +325,7 @@ export class StalledSessions {
   private endAgain({ lease, session, since, stale, minutes, life }: { lease: Lease, session: string, since: string, stale: Signal[], minutes: number, life: SessionLife }, nowMs: number): string[] {
     const ts = new Date(nowMs).toISOString()
     const reason = `the review of card #${lease.cardId} on head ${lease.head ?? 'none'} was ended by the stall line twice (${stale.join(', ')} stood still for ${minutes} min in session ${session}); it is not queued a third time the same way: ${lease.taskKey} is withdrawn as ${REVIEW_STALLED_TWICE} and waits for the window to review the diff by slices, file groups each under the review budget`
-    failTask(this.db, ts, { ...lease, actor: STALLED_ACTOR }, { reason: REVIEW_STALLED_TWICE, withdraw: true })
+    failTask(this.db, ts, { ...lease, actor: STALLED_ACTOR }, { reason: REVIEW_STALLED_TWICE, withdraw: true }, SILENT_MS)
     this.stop(session)
     return this.raise(lease, nowMs, { session, life, since, reason }, REVIEW_ENDED_MARK)
   }

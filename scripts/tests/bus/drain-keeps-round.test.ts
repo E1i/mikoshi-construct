@@ -13,6 +13,7 @@ import { completeTask, leasedByRetiring, leaseWhileFree, recordWorkerStarted, re
 import { Node } from '../../core/node.js'
 import { keyOf, queueTaskWithin } from '../../core/queue.js'
 import { launchName, PREFIX } from '../../supervisor/bg.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { slotsVariable } from '../../supervisor/scheduler.js'
 import { busDrain, BusSupervisor, DRAIN_LIMIT_MS, freeLeasesOf, withoutRetiring } from '../../supervisor/supervisor.js'
 import { workerLaunches } from '../../supervisor/workers.js'
@@ -41,7 +42,7 @@ class RoundNode extends Node<NodeStep> {
   private readonly awaitingTaken: { count: number, reached: () => void }[] = []
 
   constructor(db: DatabaseSync, clock: () => Date, session: string, private readonly codeOf: string, private readonly commit: (lease: Lease) => void) {
-    super('answer', { db, clock, session, mode: 'live', env: { [slotsVariable('answer')]: '2' }, self: { pid: session === 'old' ? OLD_PID : 701, started: clock().toISOString() } })
+    super('answer', { silentMs: SILENT_MS, db, clock, session, mode: 'live', env: { [slotsVariable('answer')]: '2' }, self: { pid: session === 'old' ? OLD_PID : 701, started: clock().toISOString() } })
   }
 
   override async run(ctx: NodeContext): Promise<void> {

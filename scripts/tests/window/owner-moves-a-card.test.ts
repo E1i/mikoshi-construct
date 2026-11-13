@@ -21,6 +21,7 @@ import { LaunchNode } from '../../nodes/launch/launch-worker.js'
 import { OWNER_WORD_NOT_FOUND, sayToOwnerChannel, USED_WORD } from '../../owner/channel.js'
 import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
 import { busProjections } from '../../supervisor/composition.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { requestFromWindow, requestOf, TAKEOVER_AFTER_MINUTES, WindowRequests } from '../../window/window-requests.js'
 import { mergeBench } from '../bus/merge-bench.js'
 
@@ -118,7 +119,7 @@ function launchNode(made: Room): { node: LaunchNode, started: () => number } {
     },
   }
   const table: ProcessTable = { commandLine: pid => made.live.has(pid) ? `session ${SESSION}` : null, signalGroup: () => {} }
-  const node = new LaunchNode({ db: made.bench.db, starter, clock: made.bench.clock.now, session: 'node-1', mode: 'live', env: {}, processes: table, pidAlive: pid => made.live.has(pid), collected: () => null, disk: () => ({ bavail: 1, bsize: DISK_FLOOR_BYTES }), isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }) })
+  const node = new LaunchNode({ silentMs: SILENT_MS, db: made.bench.db, starter, clock: made.bench.clock.now, session: 'node-1', mode: 'live', env: {}, processes: table, pidAlive: pid => made.live.has(pid), collected: () => null, disk: () => ({ bavail: 1, bsize: DISK_FLOOR_BYTES }), isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }) })
   return { node, started: () => started }
 }
 

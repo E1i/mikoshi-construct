@@ -14,6 +14,7 @@ import { NoLiveVerdict } from '../../nodes/merge/merge-worker.js'
 import { cleanUpdate, HEAD_READS, UpdateExecutor } from '../../nodes/update/update-executor.js'
 import { runUpdateWorker, UpdateNode } from '../../nodes/update/update-worker.js'
 import { busProjections } from '../../supervisor/composition.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { cardBody, MAIN_2, sha } from './github-fake.js'
 import { eventCount, eventsOf, liveBench, taskState } from './merge-bench.js'
 import { detectUpdate } from './update-detection.js'
@@ -31,7 +32,7 @@ function updateBench() {
   const settle = (): void => {
     settled += 1
   }
-  const executor = new UpdateExecutor({ db: bench.db, gitHub: bench.gitHub.client, put: bench.gitHub.put, publish: bench.gitHub.publish, clock: bench.clock.now, settle })
+  const executor = new UpdateExecutor({ silentMs: SILENT_MS, db: bench.db, gitHub: bench.gitHub.client, put: bench.gitHub.put, publish: bench.gitHub.publish, clock: bench.clock.now, settle })
   return {
     ...bench,
     settled: () => settled,
@@ -283,7 +284,7 @@ describe('the update queue', () => {
     detectUpdate(bench)
     const old = bench.leaseUpdate('worker:update:old')!
     bench.clock.advance(LEASE_MS + 1)
-    expect(expireLeases(bench.db, bench.clock.now().toISOString())).toEqual([update(994)])
+    expect(expireLeases(bench.db, bench.clock.now().toISOString(), SILENT_MS)).toEqual([update(994)])
     const current = bench.leaseUpdate('worker:update:new')!
     expect([old.leaseGen, current.leaseGen]).toEqual([1, 2])
 
@@ -307,7 +308,7 @@ describe('the update worker', () => {
     const bench = updateBench()
     bench.gitHub.open({ number: 995, review: 'success', mergeable_state: 'behind' })
     bench.tick()
-    const parts = { db: bench.db, gitHub: bench.gitHub.client, put: bench.gitHub.put, publish: bench.gitHub.publish, clock: bench.clock.now, settle: () => {}, session: 'worker-1', mode: 'live' as const, env: {} }
+    const parts = { silentMs: SILENT_MS, db: bench.db, gitHub: bench.gitHub.client, put: bench.gitHub.put, publish: bench.gitHub.publish, clock: bench.clock.now, settle: () => {}, session: 'worker-1', mode: 'live' as const, env: {} }
     await expect(step(new UpdateNode(parts))).rejects.toThrow(NoLiveVerdict)
 
     appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: REVIEW_RECORDED, actor: 'worker:review:reviewer-1', cardId: 1095, pr: 995, head: sha('a'), dedupeKey: `${REVIEW_RECORDED}:live`, payload: { head: sha('a'), verdict: 'pass', reviewer_session: 'reviewer-1', findings: [] }, legacy: false })

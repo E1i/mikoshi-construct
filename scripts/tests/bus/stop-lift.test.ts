@@ -19,6 +19,7 @@ import { AnswerOutsideTouches } from '../../nodes/answer/answerer.js'
 import { OWNER_WORD_NOT_FOUND, sayToOwnerChannel, USED_WORD } from '../../owner/channel.js'
 import { cardDecisionCommand, DECISIONS_SCOPE } from '../../policy/shards.js'
 import { busProjections } from '../../supervisor/composition.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { requestOf, runRequest, WindowRequests } from '../../window/window-requests.js'
 import { sha } from './github-fake.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
@@ -326,7 +327,7 @@ async function answerRefusedOutsideTouches(refused: readonly string[]) {
     return { session: 'card-session-1', resumed: true, before: sha('a'), after: sha('e'), owner: null }
   }
   const cardTrees: CardTreeTools = { home: root, exists: existsSync, branchOf: () => 'feat/stoplift', recreate: () => {}, bringTo: () => {} }
-  const executor = new AnswerExecutor({ db: made.db, answerer, ownerMerges: () => `- ${OWNER_PATH}\n`, clock: made.clock.now, trees: cardTrees, liveSession: () => null })
+  const executor = new AnswerExecutor({ silentMs: SILENT_MS, db: made.db, answerer, ownerMerges: () => `- ${OWNER_PATH}\n`, clock: made.clock.now, trees: cardTrees, liveSession: () => null })
   const lease = (): Lease | null => leaseNext(made.db, made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1')
   const outcome = await executor.answer(lease()!)
   made.tick()

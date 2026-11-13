@@ -13,6 +13,7 @@ import { NODE_CURSORS } from '../../core/node.js'
 import { FAILURES_TO_STOP, keyOf, NEEDS_UPDATE, updateCandidates } from '../../core/queue.js'
 import { UpdateExecutor } from '../../nodes/update/update-executor.js'
 import { UpdateNode } from '../../nodes/update/update-worker.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { MAIN_2, sha } from './github-fake.js'
 import { eventsOf, liveBench, mergeBench, taskState } from './merge-bench.js'
 import { detectUpdate } from './update-detection.js'
@@ -58,7 +59,7 @@ function bench(): MergeBench {
 }
 
 function nodeOf(made: MergeBench, mode: DetectionMode = 'shadow', env: NodeJS.ProcessEnv = {}): ProbedUpdateNode {
-  const parts: UpdateNodeParts = { db: made.db, gitHub: made.gitHub.client, put: made.gitHub.put, publish: made.gitHub.publish, clock: made.clock.now, settle: () => {}, session: 'node-1', mode, env }
+  const parts: UpdateNodeParts = { silentMs: SILENT_MS, db: made.db, gitHub: made.gitHub.client, put: made.gitHub.put, publish: made.gitHub.publish, clock: made.clock.now, settle: () => {}, session: 'node-1', mode, env }
   return new ProbedUpdateNode(parts)
 }
 
@@ -78,7 +79,7 @@ function behindAndLeased(parts: Partial<ConstructorParameters<typeof UpdateExecu
   made.gitHub.open({ number: 987, review: 'success', mergeable_state: 'behind' })
   made.tick()
   detectUpdate(made)
-  const executor = new UpdateExecutor({ db: made.db, gitHub: made.gitHub.client, put: made.gitHub.put, publish: made.gitHub.publish, clock: made.clock.now, settle: () => {}, ...parts })
+  const executor = new UpdateExecutor({ silentMs: SILENT_MS, db: made.db, gitHub: made.gitHub.client, put: made.gitHub.put, publish: made.gitHub.publish, clock: made.clock.now, settle: () => {}, ...parts })
   return { made, outcome: executor.update(leaseNext(made.db, made.clock.now().toISOString(), 'update', 'worker:update:worker-1')!) }
 }
 

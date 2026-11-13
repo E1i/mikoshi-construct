@@ -17,6 +17,7 @@ export const BUS_SHARED: readonly string[] = [
   FACTORY_NAMED.busNode,
   FACTORY_NAMED.busQueue,
   FACTORY_NAMED.busStamping,
+  FACTORY_NAMED.busComposition,
   FACTORY_NAMED.busStored,
   FACTORY_NAMED.gitPort,
 ]

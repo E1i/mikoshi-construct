@@ -16,6 +16,7 @@ import { MACHINE_DIR_VARIABLE, MACHINE_POLL_MS, MachineSessions, setMachineLimit
 import { MACHINE_OVERLOADED, MACHINE_OVERLOADED_MARK, timeoutUnderLoadOutside } from '../../core/observations.js'
 import { LaunchNode } from '../../nodes/launch/launch-worker.js'
 import { joinSession, LOCK_DIR_VARIABLE, LOG_FILE, OVERLOAD_WAIT_MS, sessionWorkers, withQualityLock } from '../../quality/lock.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { eventsOf, mergeBench } from '../bus/merge-bench.js'
 
 const CARD = 1768
@@ -78,25 +79,7 @@ async function sessionThatAsked(question: string, publishes: boolean): Promise<L
     published.push(start.cardId)
     appendEvent(made.db, { ts: made.clock.now().toISOString(), type: PR_OPENED, actor: 'worker:shift:1', cardId: start.cardId, pr: 9768, head: null, dedupeKey: `${PR_OPENED}:${start.cardId}:9768`, payload: { pr: 9768 }, legacy: false })
   }
-  const node = new LaunchNode({
-    db: made.db,
-    starter,
-    continuer: starter,
-    clock: made.clock.now,
-    session: 'node-1',
-    mode: 'live',
-    env: {},
-    processes: exited,
-    resulted: () => true,
-    handedOff: () => false,
-    reportOf: () => `#${CARD} a-card\nresult: stopped on a timeout\nquestion: ${question}\n`,
-    committed: () => false,
-    ...(publishes ? { publish } : {}),
-    machine: new MachineSessions(machineDir, () => false, 16),
-    lanes: () => 4,
-    disk: () => ({ bavail: 1, bsize: 1024 ** 4 }),
-    isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }),
-  })
+  const node = new LaunchNode({ silentMs: SILENT_MS, db: made.db, starter, continuer: starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes: exited, resulted: () => true, handedOff: () => false, reportOf: () => `#${CARD} a-card\nresult: stopped on a timeout\nquestion: ${question}\n`, committed: () => false, ...(publishes ? { publish } : {}), machine: new MachineSessions(machineDir, () => false, 16), lanes: () => 4, disk: () => ({ bavail: 1, bsize: 1024 ** 4 }), isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }) })
   const controller = new AbortController()
   await node.run({ pause: async () => controller.abort(), signal: controller.signal })
   made.tick()
@@ -187,20 +170,7 @@ describe('the worker budget and the starts read the load of the machine', () => 
     let busy = CORES * 2
     const machine = new MachineSessions(scratch(), () => false, CORES, made.clock.now, { read: () => ({ busy, cores: CORES }) })
     const starter = new RetryingStarter()
-    const node = new LaunchNode({
-      db: made.db,
-      starter,
-      continuer: starter,
-      clock: made.clock.now,
-      session: 'node-1',
-      mode: 'live',
-      env: {},
-      processes: { commandLine: () => null, signalGroup: () => {} },
-      machine,
-      lanes: () => 4,
-      disk: () => ({ bavail: 1, bsize: 1024 ** 4 }),
-      isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }),
-    })
+    const node = new LaunchNode({ silentMs: SILENT_MS, db: made.db, starter, continuer: starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes: { commandLine: () => null, signalGroup: () => {} }, machine, lanes: () => 4, disk: () => ({ bavail: 1, bsize: 1024 ** 4 }), isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }) })
     const once = async (): Promise<void> => {
       const controller = new AbortController()
       await node.run({ pause: async () => controller.abort(), signal: controller.signal })

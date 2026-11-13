@@ -11,6 +11,7 @@ import { CARD_ADMITTED, CARD_STARTED, CARD_STOPPED, QUESTION_AGENT, QUESTION_OWN
 import { leaseNext } from '../../core/lease.js'
 import { queueTask } from '../../core/queue.js'
 import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { sha } from '../bus/github-fake.js'
 import { eventsOf, mergeBench } from '../bus/merge-bench.js'
 
@@ -49,17 +50,7 @@ async function ownersStopWith(changed: readonly string[]): Promise<Record<string
   queueTask(made.db, made.clock.now().toISOString(), { queue: 'answer', cardId: CARD, stop })
   made.tick()
   const asking: Answered = { session: 'answer-1', resumed: false, atContextWarn: false, before: sha('a'), after: sha('a'), owner: QUESTION, noViolationFreePath: true }
-  const executor = new AnswerExecutor({
-    db: made.db,
-    answerer: async () => asking,
-    ownerMerges: () => '',
-    clock: made.clock.now,
-    trees: { home: trees, exists: () => true, branchOf: pr => `feat/card-${pr}`, recreate: () => {}, bringTo: () => {} },
-    dirty: () => false,
-    liveSession: () => null,
-    prepare: () => {},
-    changedInTheTree: () => [...changed],
-  })
+  const executor = new AnswerExecutor({ silentMs: SILENT_MS, db: made.db, answerer: async () => asking, ownerMerges: () => '', clock: made.clock.now, trees: { home: trees, exists: () => true, branchOf: pr => `feat/card-${pr}`, recreate: () => {}, bringTo: () => {} }, dirty: () => false, liveSession: () => null, prepare: () => {}, changedInTheTree: () => [...changed] })
   await executor.answer(leaseNext(made.db, made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1') as Lease)
   return eventsOf(made.db, CARD_STOPPED).at(-1)
 }
