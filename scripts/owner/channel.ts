@@ -32,13 +32,26 @@ export function sayToOwnerChannel(channel: string, text: string, now: Date): str
   return file
 }
 
-function holdsWords(file: string, words: string): boolean {
+export const OWNER_WORD_TERM_MS = 24 * 60 * 60 * 1000
+
+interface Said {
+  at: number
+  lines: string[]
+}
+
+function saidIn(file: string): Said | null {
   try {
-    return readFileSync(file, 'utf8').split('\n').slice(1).some(line => line.trim() === words)
+    const [first = '', ...lines] = readFileSync(file, 'utf8').split('\n')
+    const at = first.startsWith(SAID_PREFIX) ? Date.parse(first.slice(SAID_PREFIX.length).trim()) : Number.NaN
+    return Number.isNaN(at) ? null : { at, lines }
   }
   catch {
-    return false
+    return null
   }
+}
+
+function inTerm(said: Said | null, now: Date): Said | null {
+  return said !== null && now.getTime() - said.at <= OWNER_WORD_TERM_MS ? said : null
 }
 
 function renamed(from: string, to: string): boolean {
@@ -63,8 +76,8 @@ function consumed(file: string): ConsumedWord {
   return { file, release: () => renamed(`${file}${USED_WORD}`, file) }
 }
 
-export function consumeOwnerWord(channel: string, words: string): ConsumedWord | null {
-  const file = unusedWordsOf(channel).find(candidate => holdsWords(candidate, words) && renamed(candidate, `${candidate}${USED_WORD}`))
+export function consumeOwnerWord(channel: string, command: string, now: Date): ConsumedWord | null {
+  const file = unusedWordsOf(channel).find(candidate => inTerm(saidIn(candidate), now)?.lines.some(line => line.trim() === command) === true && renamed(candidate, `${candidate}${USED_WORD}`))
   return file === undefined ? null : consumed(file)
 }
 
@@ -72,21 +85,18 @@ function escaped(literal: string): string {
   return literal.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
-function wordsClosing(file: string, id: string): string | null {
-  const naming = new RegExp(`^(?:close:\\s*)?${escaped(id)}(?=[:\\s]|$):?\\s*`)
-  try {
-    const said = readFileSync(file, 'utf8').split('\n').slice(1).join('\n').trim()
-    const prefix = naming.exec(said)
-    return prefix === null ? null : said.slice(prefix[0].length).trim()
-  }
-  catch {
+function wordsClosing(said: Said | null, id: string): string | null {
+  if (said === null)
     return null
-  }
+  const naming = new RegExp(`^(?:close:\\s*)?${escaped(id)}(?=[:\\s]|$):?\\s*`)
+  const words = said.lines.join('\n').trim()
+  const prefix = naming.exec(words)
+  return prefix === null ? null : words.slice(prefix[0].length).trim()
 }
 
-export function consumeOwnerWordClosing(channel: string, id: string): ClosingWord | null {
+export function consumeOwnerWordClosing(channel: string, id: string, now: Date): ClosingWord | null {
   for (const file of unusedWordsOf(channel)) {
-    const words = wordsClosing(file, id)
+    const words = wordsClosing(inTerm(saidIn(file), now), id)
     if (words !== null && renamed(file, `${file}${USED_WORD}`))
       return { ...consumed(file), words: words === '' ? id : words }
   }
@@ -114,5 +124,5 @@ export function ownerMoveUnsaid(command: string): string {
 }
 
 export function ownerWordAwaited(id: string): string {
-  return `${id} waits for the owner's word naming ${id}: the owner lifts it by saying "${id}: <the answer>" into the owner channel, or the answer verbatim`
+  return `${id} waits for the owner's word naming ${id}: the owner lifts it by saying "${id}: <the answer>" into the owner channel within ${OWNER_WORD_TERM_MS / 3_600_000} h of the close`
 }

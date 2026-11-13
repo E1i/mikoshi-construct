@@ -16,7 +16,7 @@ import { leaseNext } from '../../core/lease.js'
 import { reduce } from '../../core/reducer.js'
 import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
 import { AnswerOutsideTouches } from '../../nodes/answer/answerer.js'
-import { OWNER_WORD_NOT_FOUND, sayToOwnerChannel, USED_WORD } from '../../owner/channel.js'
+import { decisionOnAWait, OWNER_WORD_NOT_FOUND, sayToOwnerChannel, USED_WORD } from '../../owner/channel.js'
 import { cardDecisionCommand, DECISIONS_SCOPE } from '../../policy/shards.js'
 import { busProjections } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
@@ -109,7 +109,7 @@ function amendsWithNote(room: Room, generation: string, note: string): void {
 describe('a question.owner stop has a named lift for each route', () => {
   it('owner answer lifts a reserved stop', () => {
     const room = stoppedRoom()
-    const word = sayToOwnerChannel(room.channel, OWNER_WORDS, room.made.clock.now())
+    const word = sayToOwnerChannel(room.channel, decisionOnAWait(room.wait, OWNER_WORDS), room.made.clock.now())
     expect(openStop(room)).toBe(room.stop)
 
     const outcome = closes(room, OWNER_WORDS, '--from', ANSWER_SOURCE)
@@ -123,7 +123,7 @@ describe('a question.owner stop has a named lift for each route', () => {
 
   it('owner answer lifts a stop with no shard active, where a window close is refused', () => {
     const answered = stoppedRoom('may the retry back off?', false)
-    sayToOwnerChannel(answered.channel, OWNER_WORDS, answered.made.clock.now())
+    sayToOwnerChannel(answered.channel, decisionOnAWait(answered.wait, OWNER_WORDS), answered.made.clock.now())
     expect(closes(answered, OWNER_WORDS, '--from', ANSWER_SOURCE).kind).toBe('done')
     expect(openStop(answered)).toBeNull()
 
@@ -143,7 +143,7 @@ describe('a question.owner stop has a named lift for each route', () => {
 
   it('--from anything but answer is refused even with the word in the channel', () => {
     const room = stoppedRoom()
-    const word = sayToOwnerChannel(room.channel, OWNER_WORDS, room.made.clock.now())
+    const word = sayToOwnerChannel(room.channel, decisionOnAWait(room.wait, OWNER_WORDS), room.made.clock.now())
 
     expect(closes(room, OWNER_WORDS, '--from', 'order-file').kind).toBe('refused')
     expect(waitState(room)).toBe('open')
@@ -153,10 +153,10 @@ describe('a question.owner stop has a named lift for each route', () => {
 
   it('a wait already closed spends no owner word', () => {
     const room = stoppedRoom('may the retry back off?', false)
-    sayToOwnerChannel(room.channel, 'yes', room.made.clock.now())
+    sayToOwnerChannel(room.channel, decisionOnAWait(room.wait, 'yes'), room.made.clock.now())
     expect(closes(room, 'yes', '--from', ANSWER_SOURCE).kind).toBe('done')
     reduce(room.made.db, 'pending', busProjections())
-    const word = sayToOwnerChannel(room.channel, OWNER_WORDS, room.made.clock.now())
+    const word = sayToOwnerChannel(room.channel, decisionOnAWait(room.wait, OWNER_WORDS), room.made.clock.now())
 
     expect(closes(room, OWNER_WORDS, '--from', ANSWER_SOURCE)).toMatchObject({ kind: 'refused', detail: `${room.wait} is closed already` })
     expect(existsSync(word)).toBe(true)
@@ -164,7 +164,7 @@ describe('a question.owner stop has a named lift for each route', () => {
 
   it('a close that fails after the word is claimed leaves the word unused', () => {
     const room = stoppedRoom()
-    const word = sayToOwnerChannel(room.channel, OWNER_WORDS, room.made.clock.now())
+    const word = sayToOwnerChannel(room.channel, decisionOnAWait(room.wait, OWNER_WORDS), room.made.clock.now())
     appendEvent(room.made.db, { ts: room.made.clock.now().toISOString(), type: OWNER_WAIT_CLOSED, actor: 'reducer', cardId: null, pr: null, head: null, dedupeKey: `${OWNER_WAIT_CLOSED}:not-reduced-yet`, payload: { id: room.wait, answer: 'closed elsewhere' }, legacy: false })
 
     const outcome = closes(room, OWNER_WORDS, '--from', ANSWER_SOURCE)
@@ -176,7 +176,7 @@ describe('a question.owner stop has a named lift for each route', () => {
 
   it('an owner answer before the stop does not lift it', () => {
     const room = stoppedRoom('first question', false)
-    sayToOwnerChannel(room.channel, OWNER_WORDS, room.made.clock.now())
+    sayToOwnerChannel(room.channel, decisionOnAWait(room.wait, OWNER_WORDS), room.made.clock.now())
     expect(closes(room, OWNER_WORDS, '--from', ANSWER_SOURCE).kind).toBe('done')
     appendEvent(room.made.db, { ts: room.made.clock.now().toISOString(), type: CARD_STOPPED, actor: 'worker:answer:s1', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:${CARD}:second`, payload: { reason: QUESTION_OWNER, detail: 'second question' }, legacy: false })
 
@@ -185,7 +185,7 @@ describe('a question.owner stop has a named lift for each route', () => {
 
   it('window close of a reserved stop stays refused', () => {
     const room = stoppedRoom()
-    sayToOwnerChannel(room.channel, OWNER_WORDS, room.made.clock.now())
+    sayToOwnerChannel(room.channel, decisionOnAWait(room.wait, OWNER_WORDS), room.made.clock.now())
 
     const outcome = closes(room, OWNER_WORDS)
 
@@ -232,7 +232,7 @@ describe('a question.owner stop has a named lift for each route', () => {
 
   it('an amend naming the card\'s older wait lifts only the stop of that wait', () => {
     const room = stoppedRoom('first question', false)
-    sayToOwnerChannel(room.channel, 'yes', room.made.clock.now())
+    sayToOwnerChannel(room.channel, decisionOnAWait(room.wait, 'yes'), room.made.clock.now())
     expect(closes(room, 'yes', '--from', ANSWER_SOURCE).kind).toBe('done')
     reduce(room.made.db, 'pending', busProjections())
     const later = stopWithItsWait(room.made, 'second question', 'second')
@@ -265,7 +265,7 @@ describe('a question.owner stop has a named lift for each route', () => {
       const room = stoppedRoom()
       const other = openOwnerWait(room.made.db, room.made.clock.now().toISOString(), 'policy', ask)
       reduce(room.made.db, 'pending', busProjections())
-      sayToOwnerChannel(room.channel, OWNER_WORDS, room.made.clock.now())
+      sayToOwnerChannel(room.channel, decisionOnAWait(other, OWNER_WORDS), room.made.clock.now())
 
       const outcome = closes({ ...room, wait: other }, OWNER_WORDS, '--from', ANSWER_SOURCE)
 
@@ -281,7 +281,7 @@ describe('a question.owner stop has a named lift for each route', () => {
     const room = stoppedRoom('first question', false)
     const later = stopWithItsWait(room.made, 'second question', 'second')
     expect(later.wait).toBe(room.wait)
-    sayToOwnerChannel(room.channel, OWNER_WORDS, room.made.clock.now())
+    sayToOwnerChannel(room.channel, decisionOnAWait(room.wait, OWNER_WORDS), room.made.clock.now())
 
     expect(closes(room, OWNER_WORDS, '--from', ANSWER_SOURCE).detail).toContain(`lifted the card #${CARD} stop ${later.stop}`)
 
@@ -368,7 +368,7 @@ describe('the outside-touches stop of the answer node', () => {
     const run = await answerRefusedOutsideTouches(['package.json'])
     const wait = String(eventsOf(run.made.db, OWNER_WAIT_OPENED).at(-1)!.id)
     const room: Room = { made: run.made, channel: path.join(run.root, 'owner-answers'), stop: run.stop.id, wait, body: '' }
-    sayToOwnerChannel(room.channel, OWNER_WORDS, room.made.clock.now())
+    sayToOwnerChannel(room.channel, decisionOnAWait(room.wait, OWNER_WORDS), room.made.clock.now())
 
     expect(closes(room, OWNER_WORDS, '--from', ANSWER_SOURCE).kind).toBe('done')
 

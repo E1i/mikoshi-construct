@@ -708,7 +708,7 @@ describe('construct intake --admit holds an amend that lowers an admitted witnes
     park(w, 80, CLEAN, 'src/board/**', bodyWith(INVARIANT))
     expect(admitThroughBus(w, file, { decisions: heldIn(decisionsOf(w)) }).status).toBe('ownerWait')
     ownerAllows(w, 80, ACCEPTANCE)
-    expect(ownerWaits(w)).toMatchObject([{ state: 'closed', answer: 'D-7' }])
+    expect(ownerWaits(w)).toMatchObject([{ state: 'open', answer: null }])
     expect(admitThroughBus(w, file, { decisions: heldIn(decisionsOf(w)) })).toMatchObject({ status: 'admitted', source: 'amend' })
     expect(admittedEvents(w)).toBe(2)
   })
@@ -903,7 +903,7 @@ describe('construct intake --admit reads the witness fields', () => {
     expect(amended(world(), [field({ test: 'the thing', id: 'W1' }), field({ test: 'the thing exactly', id: 'W2' })], [field({ test: 'the thing exactly', id: 'W2' })])).toMatchObject({ status: 'ownerWait' })
   })
 
-  it('a decision naming the card and W1 lifts the downgrade wait', () => {
+  it('a decision naming the card and W1 admits the downgrade and leaves its wait open', () => {
     const w = world()
     const file = park(w, 80, CLEAN, 'src/board/**', bodyWith(field()))
     admitThroughBus(w, file, { decisions: heldIn(decisionsOf(w)) })
@@ -917,7 +917,7 @@ describe('construct intake --admit reads the witness fields', () => {
     try {
       recordDecision(db, { ts: AFTER_THE_CUTOFF.toISOString(), decisionId: 7, text, cards: [80] })
       reduce(db, 'pending', busProjections())
-      expect(db.prepare('SELECT state, answer FROM owner_waits').all()).toMatchObject([{ state: 'closed', answer: 'D-7' }])
+      expect(db.prepare('SELECT state, answer FROM owner_waits').all()).toMatchObject([{ state: 'open', answer: null }])
     }
     finally {
       db.close()

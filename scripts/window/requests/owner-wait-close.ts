@@ -1,7 +1,7 @@
 import type { RequestContext, RequestExecutor } from './context.js'
 import type { Executed } from './request.js'
 import { OWNER_SAY_COMMAND } from '../../core/owner-commands.js'
-import { activeDecisionsShard, ANSWER_SOURCE, appendEvent, closeOwnerWait, consumeOwnerWord, consumeOwnerWordClosing, deciderUnderAShard, decisionOnAWait, inTransaction, OPEN_OWNER_STOP_OF_CARD, OPEN_WAIT, OWNER_DECIDES, OWNER_SOURCE, OWNER_WAITS, OWNER_WORD_NOT_FOUND, ownerWordAwaited, QUEUE_ACTOR, SHARD_DECIDED, stopKindOf } from './reach.js'
+import { activeDecisionsShard, ANSWER_SOURCE, appendEvent, closeOwnerWait, consumeOwnerWordClosing, deciderUnderAShard, decisionOnAWait, inTransaction, OPEN_OWNER_STOP_OF_CARD, OPEN_WAIT, OWNER_DECIDES, OWNER_SOURCE, OWNER_WAITS, OWNER_WORD_NOT_FOUND, ownerWordAwaited, QUEUE_ACTOR, SHARD_DECIDED, stopKindOf } from './reach.js'
 import { flagsOf, messageOf, OWNER_ANSWER_USAGE, OWNER_WORD_NEEDED, text, unreleasedWord } from './request.js'
 
 interface WaitToClose {
@@ -29,14 +29,13 @@ function refusalToClose(context: RequestContext, request: number, id: string, an
   }
 }
 
-function closeWaitOnOwnerWord(context: RequestContext, request: number, id: string, wait: WaitToClose, asked: string | null, stop: number | null): Executed {
+function closeWaitOnOwnerWord(context: RequestContext, request: number, id: string, wait: WaitToClose, stop: number | null): Executed {
   if (wait.state !== OPEN_WAIT)
     return { done: false, why: `${id} is closed already` }
-  const verbatim = asked === null ? null : consumeOwnerWord(context.ownerChannel, asked)
-  const word = verbatim ?? consumeOwnerWordClosing(context.ownerChannel, id)
+  const word = consumeOwnerWordClosing(context.ownerChannel, id, context.clock())
   if (word === null)
     return { done: false, why: `${OWNER_WORD_NOT_FOUND}: ${ownerWordAwaited(id)}` }
-  const answer = 'words' in word && typeof word.words === 'string' ? word.words : asked!
+  const answer = word.words
   const refusal = refusalToClose(context, request, id, answer)
   if (refusal !== null)
     return { done: false, why: `${refusal}; owner word ${word.file} ${word.release() ? 'left unused' : unreleasedWord(word.file)}` }
@@ -59,7 +58,7 @@ export const execute: RequestExecutor = (context, request, payload) => {
     return { done: false, why: `${id} is not an owner wait the bus has reduced` }
   const stop = wait.card_id === null ? undefined : db.prepare(OPEN_OWNER_STOP_OF_CARD).get(wait.card_id) as { id: number, payload: string } | undefined
   if (from !== null || answer === null)
-    return closeWaitOnOwnerWord(context, request, id, wait, answer, stop?.id ?? null)
+    return closeWaitOnOwnerWord(context, request, id, wait, stop?.id ?? null)
   const shard = stop === undefined ? null : activeDecisionsShard(db, context.clock())
   const question = stop === undefined ? '' : String((JSON.parse(stop.payload) as Record<string, unknown>).detail ?? '')
   const reserved = shard !== null && deciderUnderAShard(question) === OWNER_DECIDES ? stopKindOf(question) : null

@@ -388,6 +388,10 @@
           "text"
         ]
       },
+      "decisions.cut-over": {
+        "complete": true,
+        "keys": []
+      },
       "decisions.imported": {
         "complete": true,
         "keys": [

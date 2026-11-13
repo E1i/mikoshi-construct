@@ -71,7 +71,7 @@ function markOf(db: DatabaseSync, mark: string): number {
   return Number(row?.through_event_id ?? 0)
 }
 
-function latestOfEachType(db: DatabaseSync, types: readonly EventType[], reduced: number = NOTHING_REDUCED): Latest[] {
+export function latestOfEachType(db: DatabaseSync, types: readonly EventType[], reduced: number = NOTHING_REDUCED): Latest[] {
   return (db.prepare(`SELECT type, max(id) AS latest, ts, (SELECT reduced.ts FROM events AS reduced WHERE reduced.id = ?) AS reduced_at FROM events WHERE legacy = 0 AND type IN (SELECT value FROM json_each(?)) GROUP BY type ORDER BY latest DESC`).all(reduced, JSON.stringify(types)) as { type: EventType, latest: number, ts: string | null, reduced_at: string | null }[])
     .map(row => ({ type: row.type, latest: Number(row.latest), at: row.ts, reducedAt: row.reduced_at }))
 }

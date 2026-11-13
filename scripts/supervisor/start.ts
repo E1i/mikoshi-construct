@@ -345,7 +345,7 @@ function windowMode(parts: ModeParts): BgResult {
 
 function ghostProtocol(parts: ModeParts, hours: number): BgResult {
   const words = ghostProtocolWord(hours)
-  const word = consumeOwnerWord(parts.channel, words)
+  const word = consumeOwnerWord(parts.channel, words, parts.now())
   if (word === null)
     return refusedWithoutWord(words, `${START_BIN} ${MODE_FLAG} ${FACTORY_MODES[1]}${hours === WINDOW_SHARD_HOURS ? '' : ` ${HOURS_FLAG} ${hours}`}`, `${FACTORY_MODES[1]} merges under the owner's shard for ${hours} h`)
   const id = parts.uuid()
@@ -424,7 +424,7 @@ function queueSwitch(parts: ModeParts, worker: BusWorker, live: boolean): BgResu
     }
   }
   const words = allowLiveText(worker)
-  const word = consumeOwnerWord(parts.channel, words)
+  const word = consumeOwnerWord(parts.channel, words, parts.now())
   if (word === null)
     return refusedWithoutWord(words, `${START_BIN} ${LIVE_SWITCH} ${worker}`, `the ${worker} queue goes live only on the owner's word`)
   try {

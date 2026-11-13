@@ -7,7 +7,7 @@ import { appendEvent, openBusWait, openOwnerWait } from '../../core/db.js'
 import { CARD_STOPPED, OWNER_WAIT_CLOSED, QUESTION_OWNER, SHARD_DECIDED, SHARD_ISSUED } from '../../core/events.js'
 import { ANSWER_SOURCE, OPEN_OWNER_STOP_OF_CARD } from '../../core/inbox.js'
 import { reduce } from '../../core/reducer.js'
-import { sayToOwnerChannel, USED_WORD } from '../../owner/channel.js'
+import { decisionOnAWait, sayToOwnerChannel, USED_WORD } from '../../owner/channel.js'
 import { cardDecisionCommand, DECISIONS_SCOPE } from '../../policy/shards.js'
 import { busProjections } from '../../supervisor/composition.js'
 import { OWNER_WORD_NEEDED, runRequest, WindowRequests } from '../../window/window-requests.js'
@@ -123,7 +123,7 @@ describe('closing an owner wait needs the owner\'s word', () => {
   it('the owner\'s word from the channel closes the wait', () => {
     const open = room()
     const wait = plainWait(open)
-    const word = sayToOwnerChannel(open.channel, WORDS, open.made.clock.now())
+    const word = sayToOwnerChannel(open.channel, decisionOnAWait(wait, WORDS), open.made.clock.now())
 
     expect(closes(open, wait, '--from', ANSWER_SOURCE).kind).toBe('done')
     expect(stateOf(open, wait)).toBe('closed')
@@ -143,7 +143,7 @@ describe('closing an owner wait needs the owner\'s word', () => {
   it('a wait already closed is reported as closed, not as a missing word', () => {
     const open = room()
     const wait = plainWait(open)
-    sayToOwnerChannel(open.channel, WORDS, open.made.clock.now())
+    sayToOwnerChannel(open.channel, decisionOnAWait(wait, WORDS), open.made.clock.now())
     expect(closes(open, wait, '--from', ANSWER_SOURCE).kind).toBe('done')
     reduce(open.made.db, 'pending', busProjections())
 

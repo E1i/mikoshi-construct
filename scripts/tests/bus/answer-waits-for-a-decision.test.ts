@@ -153,7 +153,7 @@ describe('an answer round on a card whose question waits for the owner (Z8)', ()
     expect(card.sources.awaitedStop(card.lease())).not.toBeNull()
   })
 
-  it('a card held this way opens one owner wait for a decision, and a decision on the card closes it', async () => {
+  it('a card held this way opens one owner wait for a decision, which a decision on the card after the cut-over leaves open', async () => {
     const card = await afterAnEmptyRound(QUESTION_AGENT)
     const waitsOfTheCard = (): OwnerWait[] => openOwnerWaits(card.made.db).filter(wait => wait.card === CARD)
 
@@ -166,6 +166,6 @@ describe('an answer round on a card whose question waits for the owner (Z8)', ()
     expect(waitsOfTheCard()).toMatchObject([{ need: 'decision', command: cardDecisionCommand(CARD), text: expect.stringContaining(`card #${CARD} waits for the owner`) }])
     decide(card, 903)
 
-    expect(waitsOfTheCard()).toEqual([])
+    expect(waitsOfTheCard()).toHaveLength(1)
   })
 })
