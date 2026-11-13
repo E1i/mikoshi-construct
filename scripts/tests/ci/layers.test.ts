@@ -164,6 +164,19 @@ describe('the layer rules of the contours hold over scripts and src', () => {
     expect(depcruise(root, ['--config', LAYER_CONFIG, '--ignore-known', LAYER_BASELINE, 'scripts'])).toEqual({ status: 1, violations: ['nodes-import-no-other-node scripts/nodes/merge/merge-worker.ts -> scripts/nodes/close/close-executor.ts'] })
   }, CRUISE_TIMEOUT_MS)
 
+  it('lets the process roots the module spec lists import the composition module, and refuses every other importer', () => {
+    const result = violationsOf([
+      ['scripts/core/reducer.ts', 'scripts/supervisor/composition.ts'],
+      ['scripts/nodes/review/review-worker.ts', 'scripts/supervisor/composition.ts'],
+      ['scripts/core/events.ts', 'scripts/supervisor/composition.ts'],
+      ['scripts/supervisor/heartbeat.ts', 'scripts/supervisor/composition.ts'],
+    ], 'scripts')
+    expect(result.violations.sort()).toEqual([
+      'composition-module-only-from-its-listed-roots scripts/core/events.ts -> scripts/supervisor/composition.ts',
+      'composition-module-only-from-its-listed-roots scripts/supervisor/heartbeat.ts -> scripts/supervisor/composition.ts',
+    ])
+  }, CRUISE_TIMEOUT_MS)
+
   it('refuses a cycle inside the bus core', () => {
     const root = sampleTree({
       'scripts/core/db.ts': 'import { reduce } from \'./reducer.js\'\nexport const db = () => reduce\n',

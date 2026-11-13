@@ -8,6 +8,7 @@ import { appendEvent, openBus } from '../scripts/core/db.js'
 import { CARD_ADMITTED, CARD_DROPPED, FACTORY_MODE } from '../scripts/core/events.js'
 import { reduce } from '../scripts/core/reducer.js'
 import { busIntakePorts } from '../scripts/intake/intake.js'
+import { busProjections } from '../scripts/supervisor/composition.js'
 import { AMEND_SOURCE, runAdmit } from '../src/commands/intake/admit.js'
 import { admittedCardOf, runAmend } from '../src/commands/intake/amend.js'
 import { printMove, runMove } from '../src/commands/intake/move.js'
@@ -51,7 +52,7 @@ function admit(w: World, id: number, links: { depends?: number[], blocks?: numbe
   writeFileSync(file, `card: #${id} card-${id} [implement/black-ice/S/cheap/owner] · depends ${ids(links.depends ?? [])} · blocks ${ids(links.blocks ?? [])}\nbranch: feat/card-${id}\ntouches: src/a.ts\ncontinue: stop\nwho: window\n\nDo the thing.\n`)
   const result = runAdmit({ file, dir: w.repo, dryRun: false, autoConfirm: true, parkingRoot: w.parking, events: w.ports.cardEvents, cardStates: w.ports.cardStates, admissions: w.ports.cardAdmissions }, () => AT)
   expect(result.status).toBe('admitted')
-  reduce(w.db)
+  reduce(w.db, 'pending', busProjections())
 }
 
 function slicedStub(w: World): void {
@@ -99,7 +100,7 @@ describe('a sliced drop and the cards that depend on the dropped card', () => {
       expect(eventCount(w)).toEqual(before)
       const result = drop(w)
       expect(result).toMatchObject({ status: 'recordedInPlace', event: CARD_DROPPED, repointed: [{ card: DEPENDENT, dropped: PARENT, children: [TAKER] }] })
-      expect(reduce(w.db).rejected).toBe(0)
+      expect(reduce(w.db, 'pending', busProjections()).rejected).toBe(0)
       expect(printed(result).lines.at(-1)).toBe(`#${DEPENDENT} now depends on #${TAKER} instead of the dropped #${PARENT}.\n`)
       const amended = w.db.prepare(`SELECT payload FROM events WHERE type = '${CARD_ADMITTED}' AND card_id = ? ORDER BY id DESC LIMIT 1`).get(DEPENDENT) as { payload: string }
       expect(JSON.parse(amended.payload)).toMatchObject({ source: AMEND_SOURCE, depends: [TAKER] })
@@ -144,7 +145,7 @@ describe('a sliced drop and the cards that depend on the dropped card', () => {
       expect(typeof lane).toBe('string')
       expect(latestAdmission(w, TAKER).lane).not.toBe(lane)
       expect(drop(w).status).toBe('recordedInPlace')
-      expect(reduce(w.db).rejected).toBe(0)
+      expect(reduce(w.db, 'pending', busProjections()).rejected).toBe(0)
       expect(latestAdmission(w, DEPENDENT)).toMatchObject({ source: AMEND_SOURCE, depends: [TAKER], lane })
       expect(w.db.prepare('SELECT lane FROM card_bodies WHERE card_id = ?').get(DEPENDENT)).toEqual({ lane })
     }
@@ -165,7 +166,7 @@ describe('a sliced drop and the cards that depend on the dropped card', () => {
       slicedStub(w)
       expect(w.db.prepare('SELECT text FROM card_bodies WHERE card_id = ?').get(DEPENDENT)).not.toEqual({ text: expect.stringContaining('The amended line.') })
       expect(drop(w)).toMatchObject({ status: 'recordedInPlace', repointed: [{ card: DEPENDENT, children: [TAKER] }] })
-      expect(reduce(w.db).rejected).toBe(0)
+      expect(reduce(w.db, 'pending', busProjections()).rejected).toBe(0)
       const text = w.ports.cardAdmissions!(DEPENDENT)!.text!
       expect(admittedCardOf(text)?.depends).toEqual([TAKER])
       expect(text).toContain('The amended line.')
@@ -211,12 +212,12 @@ describe('a sliced drop and the cards that depend on the dropped card', () => {
       expect(() => drop(w, false, failingDrop)).toThrow('the bus refused the drop')
       expect(existsSync(path.join(w.parking, `${PARENT}.md`))).toBe(true)
       expect(existsSync(path.join(w.parking, 'sliced'))).toBe(false)
-      reduce(w.db)
+      reduce(w.db, 'pending', busProjections())
       expect(admittedCardOf(w.ports.cardAdmissions!(DEPENDENT)!.text!)?.depends).toEqual([TAKER])
       const admissions = admissionCount(w, DEPENDENT)
       expect(drop(w)).toMatchObject({ status: 'moved', event: CARD_DROPPED })
       expect(admissionCount(w, DEPENDENT)).toEqual(admissions)
-      expect(reduce(w.db).rejected).toBe(0)
+      expect(reduce(w.db, 'pending', busProjections()).rejected).toBe(0)
       expect(w.db.prepare('SELECT state FROM cards WHERE card_id = ?').get(PARENT)).toEqual({ state: 'dropped' })
     }
     finally {

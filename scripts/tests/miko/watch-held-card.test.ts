@@ -7,6 +7,7 @@ import { appendEvent, openBus } from '../../core/db.js'
 import { BUS_PULSE, CARD_HELD, CARD_RELEASED, PR_OPENED } from '../../core/events.js'
 import { prClosed, prObserved } from '../../core/observations.js'
 import { reduce } from '../../core/reducer.js'
+import { busProjections } from '../../supervisor/composition.js'
 import { productionDeps, STALL_MS } from '../../window/watch.js'
 
 const CARD = 1631
@@ -49,7 +50,7 @@ function stalledCards(story: (db: DatabaseSync) => void): number[] {
     opened(db, PR)
     story(db)
     appendEvent(db, { ts: new Date().toISOString(), type: BUS_PULSE, actor: ACTOR, cardId: null, pr: null, head: null, dedupeKey: `${BUS_PULSE}:alive`, payload: {}, legacy: false })
-    reduce(db)
+    reduce(db, 'pending', busProjections())
   }
   finally {
     db.close()

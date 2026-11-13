@@ -20,6 +20,7 @@ import { LaunchNode } from '../../nodes/launch/launch-worker.js'
 import { fullReview } from '../../nodes/review/review-depth.js'
 import { claudeReviewer, ReviewTrees } from '../../nodes/review/reviewer.js'
 import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
+import { busProjections } from '../../supervisor/composition.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
 
 const TS = '2026-11-06T10:00:00.000Z'
@@ -78,7 +79,7 @@ class MachineBench {
 function admittedBus(cardId: number): DatabaseSync {
   const db = openBus(path.join(scratch(), 'bus.db'))
   appendEvent(db, { ts: TS, type: CARD_ADMITTED, actor: 'policy', cardId, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${cardId}`, payload: { lane: 'lane-1', decision: 'auto', contour: 'cheap', depends: [], admission: `admission-${cardId}` }, legacy: false })
-  reduce(db)
+  reduce(db, 'pending', busProjections())
   return db
 }
 

@@ -10,6 +10,7 @@ import { openBus } from '../../core/db.js'
 import { reduce } from '../../core/reducer.js'
 import { recordDecision } from '../../policy/decisions/index.js'
 import { cardDecisionLines } from '../../policy/shards.js'
+import { busProjections } from '../../supervisor/composition.js'
 
 const NOW = new Date('2026-11-08T10:00:00Z')
 const CARD = 1719
@@ -29,7 +30,7 @@ function busWithDecisions(): string {
   recordDecision(db, { ts: NOW.toISOString(), decisionId: 1, text: 'every card.', cards: [] })
   recordDecision(db, { ts: NOW.toISOString(), decisionId: 2, text: 'this card.', cards: [CARD] })
   recordDecision(db, { ts: NOW.toISOString(), decisionId: 3, text: 'another card.', cards: [OTHER_CARD] })
-  reduce(db)
+  reduce(db, 'pending', busProjections())
   db.close()
   return file
 }

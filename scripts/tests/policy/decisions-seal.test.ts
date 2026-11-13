@@ -12,6 +12,7 @@ import { reduce } from '../../core/reducer.js'
 import { parseDecisions, projectDecisions } from '../../policy/decisions/decisions.js'
 import { decisionsIntake } from '../../policy/decisions/import.js'
 import { BusDecisions, recordDecision } from '../../policy/decisions/index.js'
+import { busProjections } from '../../supervisor/composition.js'
 
 const REPO_ROOT = path.join(import.meta.dirname, '..', '..', '..')
 const CONCEPT = CONCEPTS.find(concept => concept.id === 'owner-decisions')!
@@ -85,12 +86,12 @@ describe('the decisions seal', () => {
     const db = openBus(bus)
     try {
       decisionsIntake(db, file, () => AT)()
-      reduce(db)
+      reduce(db, 'pending', busProjections())
       const decisions = new BusDecisions(db)
       expect(decisions.inForce()).toMatchObject([{ decisionId: 7, words: ALLOWANCE, cards: [80], written: false }])
       expect(ownerAllowed(decisions, 80, [WITNESS], [WITNESS])).toBe(false)
       recordDecision(db, { ts: AT.toISOString(), decisionId: 8, text: `[owner] ${ALLOWANCE}`, cards: [80] })
-      reduce(db)
+      reduce(db, 'pending', busProjections())
       expect(ownerAllowed(decisions, 80, [WITNESS], [WITNESS])).toBe(true)
     }
     finally {

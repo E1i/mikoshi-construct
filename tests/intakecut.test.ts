@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { openBus } from '../scripts/core/db.js'
 import { reduce } from '../scripts/core/reducer.js'
 import { busCardEvents } from '../scripts/intake/intake.js'
+import { busProjections } from '../scripts/supervisor/composition.js'
 import { parseCard } from '../src/card/grammar.js'
 import { witnessDowngrades } from '../src/commands/intake/admit.js'
 import { parseDraft } from '../src/commands/intake/draft.js'
@@ -103,7 +104,7 @@ describe('intake cuts cards that run without window edits', () => {
     const result = intake(root, draft, files, { events: busCardEvents(db, 's1', () => 3) })
     if (result.status !== 'written')
       throw new Error(detail(result))
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     const ids = result.cards.map(each => each.id)
     expect(db.prepare('SELECT plan_id, state, plan_file FROM plans').all()).toEqual([{ plan_id: 'p1', state: 'open', plan_file: path.join(root, 'repo', 'docs/plan.md') }])
     expect(db.prepare('SELECT card_id, release FROM card_releases ORDER BY card_id').all()).toEqual(ids.map(card_id => ({ card_id, release: 'p1' })))

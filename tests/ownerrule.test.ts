@@ -8,6 +8,7 @@ import { openBus } from '../scripts/core/db.js'
 import { reduce } from '../scripts/core/reducer.js'
 import { busCardAdmissions, busCardEvents } from '../scripts/intake/intake.js'
 import { decisionsOfProjection } from '../scripts/policy/decisions/decisions.js'
+import { busProjections } from '../scripts/supervisor/composition.js'
 
 import { runAdmit } from '../src/commands/intake/admit.js'
 
@@ -57,7 +58,7 @@ function admit(w: World, file: string, options: Partial<AdmitOptions> = {}): Adm
   const db = openBus(path.join(w.root, 'bus.db'))
   try {
     const result = runAdmit({ file, dir: w.repo, dryRun: false, autoConfirm: false, parkingRoot: w.parking, events: busCardEvents(db), admissions: busCardAdmissions(db), cardStates: () => new Map(), decisions: heldIn(decisionsOf(w)), ...options }, () => AT)
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     return result
   }
   finally {

@@ -14,6 +14,7 @@ import { importJournal } from '../../intake/import.js'
 import { fullReview } from '../../nodes/review/review-depth.js'
 import { REVIEW_ROUNDS_SPENT, ReviewWorker, roundLimitLine } from '../../nodes/review/review-worker.js'
 import { NetWatch, TICK_MS } from '../../ports/netwatch.js'
+import { busProjections } from '../../supervisor/composition.js'
 import { BusTick } from '../../supervisor/run.js'
 import { cardBody, Clock, FakeGitHub, sha } from './github-fake.js'
 import { detectMerge } from './merge-detection.js'
@@ -48,7 +49,7 @@ function setUp(file?: string): { db: DatabaseSync, gitHub: FakeGitHub, clock: Cl
   const db = openBus(file ?? onDisk())
   const gitHub = new FakeGitHub()
   const clock = new Clock()
-  const busTick = new BusTick(db, new NetWatch(db, gitHub.client, clock.now), clock.now)
+  const busTick = new BusTick(db, busProjections(), new NetWatch(db, gitHub.client, clock.now), clock.now)
   let first = true
   const tick = (): void => {
     if (!first)
@@ -113,7 +114,7 @@ describe('review queue', () => {
     ])
     expect(taskEvents(db).filter(event => event.type === TASK_SUPERSEDED).map(event => event.dedupe_key)).toEqual([expect.stringMatching(new RegExp(`^${TASK_SUPERSEDED}:${review(921, sha('a'))}:after-\\d+$`))])
     const live = projectionDump(db)
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     expect(projectionDump(db)).toBe(live)
     tick()
     expect(taskEvents(db)).toHaveLength(4)
@@ -209,7 +210,7 @@ describe('review queue', () => {
     ])
     expect(gitHub.pulls.get(925)!.head).toBe(sha('a'))
     const live = projectionDump(db)
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     expect(projectionDump(db)).toBe(live)
     db.close()
   })
@@ -232,7 +233,7 @@ describe('review queue', () => {
     expect(reviews).toEqual([...heads.slice(0, -1).map(head => ({ task_key: keyOf(head), state: 'superseded', failures: 0 })), { task_key: keyOf(heads.at(-1)!), state: 'completed', failures: 0 }])
     expect(db.prepare(`SELECT type FROM events WHERE type IN (?, ?, 'task.failed')`).all(CARD_STOPPED, BOARD_ALARM)).toEqual([])
     const live = projectionDump(db)
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     expect(projectionDump(db)).toBe(live)
     db.close()
   })
@@ -368,7 +369,7 @@ describe('review queue', () => {
     }
     expect(tasks(db)).toHaveLength(2)
     const live = projectionDump(db)
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     expect(projectionDump(db)).toBe(live)
     db.close()
   })
@@ -426,7 +427,7 @@ describe('review queue', () => {
         expectOneLiveReview(sequence.slice(0, index + 1).join(' → '))
       }
       const projection = projectionDump(db)
-      reduce(db)
+      reduce(db, 'pending', busProjections())
       expect(projectionDump(db)).toBe(projection)
       db.close()
     }
@@ -501,7 +502,7 @@ describe('the review round limit of D-104', () => {
     expect(liveTasksOn(db, HEADS[3]!)).toEqual([])
     expect(spentEvents(db)).toHaveLength(1)
     const live = projectionDump(db)
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     expect(projectionDump(db)).toBe(live)
     db.close()
   })

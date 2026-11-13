@@ -26,6 +26,7 @@ import { ReviewWorker } from '../../nodes/review/review-worker.js'
 import { reviewPrompt } from '../../nodes/review/reviewer.js'
 import { DECISIONS_SCOPE } from '../../policy/shards.js'
 import { NetWatch, TICK_MS } from '../../ports/netwatch.js'
+import { busProjections } from '../../supervisor/composition.js'
 import { BusTick } from '../../supervisor/run.js'
 import { cardBody, Clock, FakeGitHub, sha } from './github-fake.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
@@ -58,7 +59,7 @@ function reviewBus(): { db: DatabaseSync, gitHub: FakeGitHub, clock: Clock, tick
   const db = openBus(path.join(scratch('bus-reviewloop-'), 'bus.db'))
   const gitHub = new FakeGitHub()
   const clock = new Clock()
-  const busTick = new BusTick(db, new NetWatch(db, gitHub.client, clock.now), clock.now)
+  const busTick = new BusTick(db, busProjections(), new NetWatch(db, gitHub.client, clock.now), clock.now)
   let first = true
   const tick = (): void => {
     if (!first)
@@ -120,7 +121,7 @@ function questionUnderShard(made: ReturnType<typeof mergeBench>, answerer: Answe
   if (widen.length > 0) {
     const text = parkingFileText({ card: '#905 widened [implement/netwatch/S/cheap/auto] · depends — · blocks —', branch: 'feat/card-905', touches: ['scripts/core/queue.ts', ...widen], continue: 'stop', who: 'shift', body: 'Answer it.' })
     appendEvent(made.db, { ts, type: CARD_ADMITTED, actor: 'worker:intake:by-hand', cardId: 905, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:905`, payload: { card: '#905', lane: 'lane-1', text, textSha: textSha(text), bodySha: textSha(text).slice(0, 12) }, legacy: false })
-    reduce(made.db)
+    reduce(made.db, 'pending', busProjections())
   }
   appendEvent(made.db, { ts, type: CARD_STOPPED, actor: 'worker:launch:launch-1', cardId: 905, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:905`, payload: { reason: 'question.agent', detail: 'a question on card #905', ...(widen.length > 0 ? { widen } : {}) }, legacy: false })
   const stop = Number((made.db.prepare(`SELECT max(id) AS id FROM events WHERE type = ?`).get(CARD_STOPPED) as { id: number }).id)
@@ -353,11 +354,11 @@ describe('the review loop', () => {
     const text = parkingFileText({ card: '#1170 done-on-main [implement/netwatch/S/cheap/auto] · depends — · blocks —', branch: 'feat/done-on-main', touches: ['done.txt'], continue: 'stop', who: 'shift', body: 'Write done.txt.\n\nWitnesses:\n- `test -f done.txt` exits 0; red on main' })
     appendEvent(db, { ts: NOW, type: 'main.advanced', actor: 'netwatch', cardId: null, pr: null, head: null, dedupeKey: 'main.advanced:m', payload: { sha: sha('d'), touches_mechanics: false }, legacy: false })
     appendEvent(db, { ts: NOW, type: CARD_ADMITTED, actor: 'worker:intake:by-hand', cardId: 1170, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:1170`, payload: { card: '#1170', lane: 'lane-1', text, textSha: textSha(text), bodySha: textSha(text).slice(0, 12) }, legacy: false })
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     expect(witnessCandidates(db, NOW).filter(task => task.cardId === 1170)).toEqual([])
 
     appendEvent(db, { ts: NOW, type: CARD_STARTED, actor: 'worker:launch:launch-1', cardId: 1170, pr: null, head: null, dedupeKey: `${CARD_STARTED}:1170`, payload: { session: 's', worktree: '/tree', branch: 'feat/done-on-main', base: sha('1') }, legacy: false })
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     expect(witnessCandidates(db, NOW).filter(task => task.cardId === 1170)).toMatchObject([{ queue: 'witness', cardId: 1170, head: sha('d') }])
     db.close()
   })

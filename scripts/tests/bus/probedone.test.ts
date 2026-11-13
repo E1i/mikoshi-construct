@@ -15,6 +15,7 @@ import { keyOf, queueTask } from '../../core/queue.js'
 import { reduce } from '../../core/reducer.js'
 import { realTimedShell, WitnessExecutor } from '../../nodes/witness/witness-executor.js'
 import { SetupTurns, withWorktreeAsync } from '../../ports/worktree.js'
+import { busProjections } from '../../supervisor/composition.js'
 
 const CARD = 1501
 const PROBE = 1502
@@ -47,7 +48,7 @@ function world(onMain: string): World {
   dbs.push(db)
   const text = parkingFileText({ card: `#${CARD} done-on-main [implement/netwatch/S/cheap/auto] · depends — · blocks —`, branch: 'feat/done-on-main', touches: ['done.txt'], continue: 'stop', who: 'shift', body: 'Write done.txt.\n\nWitnesses:\n- `test -f done.txt` exits 0; red on main' })
   appendEvent(db, { ts: TS, type: CARD_ADMITTED, actor: 'worker:intake:by-hand', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${CARD}`, payload: { card: `#${CARD}`, lane: 'lane-1', text, textSha: textSha(text), bodySha: textSha(text).slice(0, 12) }, legacy: false })
-  reduce(db)
+  reduce(db, 'pending', busProjections())
   return { repo, db, main: git(repo, 'rev-parse', 'HEAD') }
 }
 
@@ -57,7 +58,7 @@ async function witnessOnMain(w: World): Promise<void> {
   const lease = leaseQueued(w.db, TS, keyOf(task), 'worker:witness:probedone')!
   const turns = new SetupTurns()
   await new WitnessExecutor({ db: w.db, clock: () => new Date(TS), shell: realTimedShell, log: () => {}, trees: { baseOf: async () => w.main, withTree: (base, run) => withWorktreeAsync(w.repo, base, run, turns) } }).run(lease)
-  reduce(w.db)
+  reduce(w.db, 'pending', busProjections())
 }
 
 function cardState(db: DatabaseSync, cardId: number): string | undefined {
@@ -91,7 +92,7 @@ describe('a probe closed by report', () => {
   it('is a satisfied dependency from its card.verified on, before the close node folds card.closed', () => {
     const w = world('done.txt')
     appendEvent(w.db, { ts: TS, type: CARD_VERIFIED, actor: 'worker:task-close:by-hand', cardId: PROBE, pr: null, head: null, dedupeKey: `${CARD_VERIFIED}:${PROBE}:${TS}`, payload: { verification: 'run', report: '/reports/1502.md' }, legacy: false })
-    reduce(w.db)
+    reduce(w.db, 'pending', busProjections())
 
     expect(unsatisfiedDependencies(w.db)([PROBE, CARD])).toEqual([CARD])
   })

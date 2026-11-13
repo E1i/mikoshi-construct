@@ -11,6 +11,7 @@ import { FOLDED_ON_APPEND, replayDifferences } from '../../core/report.js'
 import { watermarkOf } from '../../core/watermark.js'
 import { withdrawLegacyLaunchTasks } from '../../nodes/launch/launch-withdraw.js'
 import { observeRoleStop, returnEndedRole, returnSilentRole, ROLE_FOLDS, roleToOwner } from '../../nodes/restart/role.js'
+import { busProjections } from '../../supervisor/composition.js'
 import { recordHeartbeat } from '../../supervisor/heartbeat.js'
 import { recordWindowHeartbeat } from '../../window/window-heartbeat.js'
 import { requestFromWindow } from '../../window/window-requests.js'
@@ -27,7 +28,7 @@ function stop(db: DatabaseSync, ms: number, role: 'miko' | 'operator', handoff: 
 function liveRoles(): DatabaseSync {
   const db = openBus(':memory:')
   stop(db, 0, 'miko', '/handoff/miko.md')
-  reduce(db)
+  reduce(db, 'pending', busProjections())
   roleToOwner(db, at(10), ACTOR)
   requestFromWindow(db, at(20), 'owner-session', { kind: 'status' })
   recordWindowHeartbeat(db, at(30), 'owner-session')
@@ -45,7 +46,7 @@ function liveTasks(): DatabaseSync {
   const db = openBus(':memory:')
   for (const cardId of [1, 2, 3, 4])
     queueTask(db, at(0), { queue: 'launch', cardId, generation: `admission-${cardId}` })
-  reduce(db)
+  reduce(db, 'pending', busProjections())
   const done = leaseNext(db, at(1), 'launch', ACTOR)!
   renewLease(db, at(2), done)
   recordHeartbeat(db, at(3), { card: done.cardId, pr: null, head: null, step: 'launch', session: 'session-1', lease: { taskKey: done.taskKey, leaseGen: done.leaseGen } })
@@ -72,7 +73,7 @@ function liveChainsAndCards(): DatabaseSync {
   observeChain(db, at(0), CHAIN_ACTOR, { dir: '/chains/a', parking: 'lane-1', cardId: 1, sha: SHA_A, pid: 101, leader: null, boundary: false, state: 'running' })
   appendEvent(db, cardEvent(1, PR_OPENED, 1, 11))
   appendEvent(db, cardEvent(2, PR_OPENED, 2, 12))
-  reduce(db)
+  reduce(db, 'pending', busProjections())
   observeChain(db, at(3), CHAIN_ACTOR, { dir: '/chains/a', parking: 'lane-1', cardId: 1, sha: SHA_A, pid: 101, leader: 101, boundary: true, state: 'waiting', waitingOn: [2] })
   queueTask(db, at(4), { queue: 'launch', cardId: 2, generation: 'admission-2' })
   for (let failure = 1; failure <= FAILURES_TO_STOP; failure += 1)
@@ -96,7 +97,7 @@ function rebuiltThrough(live: DatabaseSync, watermark: number): DatabaseSync {
   const insert = clean.prepare(`INSERT INTO events (${EVENT_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
   for (const row of live.prepare(`SELECT ${EVENT_COLUMNS} FROM events WHERE id <= ? ORDER BY id`).all(watermark))
     insert.run(row.id, row.ts, row.type, row.actor, row.card_id, row.pr, row.head, row.dedupe_key, row.payload, row.legacy)
-  reduce(clean)
+  reduce(clean, 'pending', busProjections())
   return clean
 }
 
@@ -117,15 +118,15 @@ describe('roles are a projection the reducer alone writes', () => {
     expect(Object.keys(ROLE_FOLDS).filter(type => FOLDED_ON_APPEND.has(type))).toEqual([])
     const db = liveRoles()
     expect(reducedThrough(db)).toBeLessThan(watermarkOf(db, 'roles'))
-    expect(replayDifferences(db).differences).toEqual([])
+    expect(replayDifferences(db, busProjections()).differences).toEqual([])
     stop(db, 70 + LEASE_MS, 'miko', '/handoff/miko.md')
     returnEndedRole(db, at(80 + LEASE_MS), ACTOR, 'miko', 'close')
     stop(db, 90 + LEASE_MS, 'operator', '/handoff/operator.md')
-    expect(replayDifferences(db).differences).toEqual([])
-    reduce(db)
+    expect(replayDifferences(db, busProjections()).differences).toEqual([])
+    reduce(db, 'pending', busProjections())
     expect(watermarkOf(db, 'roles')).toBe(reducedThrough(db))
     expect(reducedThrough(db)).toBe(db.prepare('SELECT max(id) AS id FROM events').get()!.id)
-    expect(replayDifferences(db).differences).toEqual([])
+    expect(replayDifferences(db, busProjections()).differences).toEqual([])
     db.close()
   })
 })
@@ -139,7 +140,7 @@ describe('tasks are a projection the reducer alone writes', () => {
     expect(clean.prepare(`SELECT count(*) AS n FROM events WHERE type = 'reducer.rejected' AND (json_extract(payload, '$.type') LIKE 'task.%' OR json_extract(payload, '$.type') = 'session.heartbeat')`).get()).toEqual({ n: 0 })
     expect(tasksOf(clean)).toEqual(tasksOf(live))
     expect(tasksOf(live).map(row => (row as { state: string }).state)).toEqual(['completed', 'withdrawn', 'withdrawn', 'withdrawn'])
-    expect(replayDifferences(live).differences).toEqual([])
+    expect(replayDifferences(live, busProjections()).differences).toEqual([])
     clean.close()
     live.close()
   })
@@ -157,7 +158,7 @@ describe('chains and cards are projections the reducer alone writes', () => {
     const { chains, cards } = chainsAndCardsOf(live) as { chains: { state: string }[], cards: { state: string }[] }
     expect(chains.map(row => row.state)).toEqual(['waiting', 'stopped'])
     expect(cards.map(row => row.state)).toEqual(['merged', 'stopped'])
-    expect(replayDifferences(live).differences).toEqual([])
+    expect(replayDifferences(live, busProjections()).differences).toEqual([])
     clean.close()
     live.close()
   })

@@ -14,6 +14,7 @@ import { busCardBodies } from '../../intake/parking-reads.js'
 import { killQuietly, psPgid, shellWord, ShiftCardStarter, spawnDetached } from '../../nodes/launch/launch-starter.js'
 import { renderPrompt } from '../../nodes/launch/prompt.js'
 import { sessionEnv } from '../../ports/session.js'
+import { busProjections } from '../../supervisor/composition.js'
 import { waitFor } from '../wait-for.js'
 
 const ARRIVAL_GUARD_MS = 25_000
@@ -90,7 +91,7 @@ function launchWorld(claudeExit: number, report = claudeExit === 0 ? 'result: do
   const db = openBus(busPath)
   try {
     appendEvent(db, { ts: '2026-10-21T00:00:00.000Z', type: CARD_ADMITTED, actor: 'policy', cardId: CARD_ID, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${CARD_ID}`, payload: { lane: 'lane-x', decision: 'auto', contour: 'cheap', depends: [], admission: `admission-${CARD_ID}`, text: cardText, textSha: textSha(cardText) }, legacy: false })
-    reduce(db)
+    reduce(db, 'pending', busProjections())
   }
   finally {
     db.close()

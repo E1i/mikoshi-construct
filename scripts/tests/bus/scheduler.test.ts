@@ -16,6 +16,7 @@ import { projectionDump, reduce } from '../../core/reducer.js'
 import { fullReview } from '../../nodes/review/review-depth.js'
 import { startReviewWorkers } from '../../nodes/review/review-worker.js'
 import { NetWatch, TICK_MS } from '../../ports/netwatch.js'
+import { busProjections } from '../../supervisor/composition.js'
 import { BusTick, tickOrLocked } from '../../supervisor/run.js'
 import { SLOT_POLL_MS, SLOTS, SlotScheduler, slotsOf, slotsVariable } from '../../supervisor/scheduler.js'
 import { Clock, FakeGitHub, sha } from './github-fake.js'
@@ -51,7 +52,7 @@ function states(db: DatabaseSync): Record<string, string> {
 
 function expectReplayIdentical(db: DatabaseSync): void {
   const live = projectionDump(db)
-  reduce(db)
+  reduce(db, 'pending', busProjections())
   expect(projectionDump(db)).toBe(live)
 }
 
@@ -129,7 +130,7 @@ describe('heavy run scheduler', () => {
     const db = openBus(scratch())
     const gitHub = new FakeGitHub()
     const clock = new Clock()
-    const busTick = new BusTick(db, new NetWatch(db, gitHub.client, clock.now), clock.now)
+    const busTick = new BusTick(db, busProjections(), new NetWatch(db, gitHub.client, clock.now), clock.now)
     const statuses: ReviewStatus[] = []
     const publish: StatusPublisher = (status) => {
       statuses.push(status)
@@ -178,7 +179,7 @@ describe('heavy run scheduler', () => {
     const file = scratch()
     const db = openBus(file)
     const clock = new Clock()
-    const busTick = new BusTick(db, new NetWatch(db, new FakeGitHub().client, clock.now), clock.now)
+    const busTick = new BusTick(db, busProjections(), new NetWatch(db, new FakeGitHub().client, clock.now), clock.now)
     const holder = new DatabaseSync(file)
     db.exec('PRAGMA busy_timeout = 0')
     holder.exec('BEGIN IMMEDIATE')

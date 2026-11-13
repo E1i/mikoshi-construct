@@ -10,6 +10,7 @@ import { CARD_ADMITTED, CARD_MOVED } from '../scripts/core/events.js'
 import { reduce } from '../scripts/core/reducer.js'
 import { busCardAdmissions, busCardEvents, runBusIntake } from '../scripts/intake/intake.js'
 import { InMemoryDecisions } from '../scripts/policy/decisions/decisions.js'
+import { busProjections } from '../scripts/supervisor/composition.js'
 import { runAdmit } from '../src/commands/intake/admit.js'
 import { amendedText, runAmend } from '../src/commands/intake/amend.js'
 import { INTAKE_EXIT } from '../src/commands/intake/index.js'
@@ -49,7 +50,7 @@ function withBus<T>(w: World, run: (ports: { events: ReturnType<typeof busCardEv
   const db = openBus(w.bus)
   try {
     const result = run({ events: busCardEvents(db), admissions: busCardAdmissions(db) })
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     return result
   }
   finally {

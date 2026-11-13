@@ -14,6 +14,7 @@ import { Node } from '../../scripts/core/node.js'
 import { reduce } from '../../scripts/core/reducer.js'
 import { busCardEvents } from '../../scripts/intake/intake.js'
 import { sayToOwnerChannel } from '../../scripts/owner/channel.js'
+import { busProjections } from '../../scripts/supervisor/composition.js'
 import { slotsVariable } from '../../scripts/supervisor/scheduler.js'
 import { requestFromWindow, WindowRequests } from '../../scripts/window/window-requests.js'
 import { busReaderAt, latestCardEvents, openTasks, SESSION_SHOWN_MINUTES, SUBAGENT_SHOWN_HOURS } from '../../src/commands/board/bus.js'
@@ -132,13 +133,13 @@ describe('the board bus reader', () => {
     try {
       requestFromWindow(db, ago(HOUR), 'window-1', { kind: 'owner.wait', need: 'decision', text: 'which path for #1213?', card: 1213 })
       expect(requests.run().map(outcome => outcome.detail)).toEqual(['opened Q1'])
-      reduce(db)
+      reduce(db, 'pending', busProjections())
       expect(waitsOnTheBoard()).toEqual([{ id: 'Q1', need: 'decision', text: 'which path for #1213?', command: null, card: 1213, pr: null, since: NOW.toISOString() }])
       sayToOwnerChannel(channel, 'the first path', NOW)
       requestFromWindow(db, NOW.toISOString(), 'window-1', { kind: 'owner.wait.close', id: 'Q1', answer: 'the first path', from: ANSWER_SOURCE })
       expect(requests.run().map(outcome => outcome.kind)).toEqual(['done'])
       expect(waitsOnTheBoard()).toEqual([])
-      reduce(db)
+      reduce(db, 'pending', busProjections())
       expect(waitsOnTheBoard()).toEqual([])
     }
     finally {
@@ -358,7 +359,7 @@ describe('the board bus reader', () => {
       const events = busCardEvents(db, 'by-hand', () => 1)
       expect(runAdmit({ file, dir: path.join(root, 'repo'), dryRun: false, autoConfirm: true, parkingRoot: parking, events }, () => NOW).status).toBe('admitted')
       expect(runMove({ move: '#1425', to: '2026-10-30-folded', draft: undefined, taken: undefined, admit: undefined, parking, events }, () => NOW).status).toBe('moved')
-      reduce(db)
+      reduce(db, 'pending', busProjections())
     }
     finally {
       db.close()

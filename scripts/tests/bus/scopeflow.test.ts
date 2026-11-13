@@ -16,6 +16,7 @@ import { LaunchNode } from '../../nodes/launch/launch-worker.js'
 import { cardDecisionCommand, DECISIONS_SCOPE } from '../../policy/shards.js'
 import { pathsOutside } from '../../policy/touch-scope.js'
 import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
+import { busProjections } from '../../supervisor/composition.js'
 import { shardDecisions } from '../../window/board.js'
 import { requestFromWindow, WindowRequests } from '../../window/window-requests.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
@@ -53,7 +54,7 @@ function admitWith(made: MergeBench, cardId: number, touches: readonly string[],
 }
 
 function inboxOf(made: MergeBench): string[] {
-  reduce(made.db)
+  reduce(made.db, 'pending', busProjections())
   const out: string[] = []
   runInbox(made.db, line => out.push(line))
   return out
@@ -68,7 +69,7 @@ function ownerStop(made: MergeBench, cardId: number, detail: string): string {
   const ts = made.clock.now().toISOString()
   appendEvent(made.db, { ts, type: CARD_STOPPED, actor: 'worker:answer:s1', cardId, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:${cardId}`, payload: { reason: QUESTION_OWNER, detail }, legacy: false })
   const wait = openBusWait(made.db, ts, 'worker:answer:s1', { need: 'decision', text: `card #${cardId} asks: ${detail}`, command: cardDecisionCommand(cardId), card: cardId })
-  reduce(made.db)
+  reduce(made.db, 'pending', busProjections())
   return wait
 }
 

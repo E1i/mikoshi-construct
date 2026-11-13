@@ -7,6 +7,7 @@ import { appendEvent, openBus } from '../../core/db.js'
 import { CARD_ADMITTED } from '../../core/events.js'
 import { reduce } from '../../core/reducer.js'
 import { NetWatch } from '../../ports/netwatch.js'
+import { busProjections } from '../../supervisor/composition.js'
 import { Clock, FakeGitHub } from './github-fake.js'
 
 const roots: string[] = []
@@ -33,9 +34,9 @@ function admitBody(db: Bus, cardId: number, branch: string): void {
 }
 
 function observe(db: Bus, netWatch: NetWatch): void {
-  reduce(db)
+  reduce(db, 'pending', busProjections())
   netWatch.poll()
-  reduce(db)
+  reduce(db, 'pending', busProjections())
 }
 
 function prCard(db: Bus, pr: number): unknown {

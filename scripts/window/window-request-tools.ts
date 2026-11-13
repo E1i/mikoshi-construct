@@ -72,7 +72,7 @@ function causeHoldsIn(db: DatabaseSync, repo: string, treeOf: (cardId: number) =
   }
 }
 
-export function realRequestTools(db: DatabaseSync, busPath: string, repo: string, env: NodeJS.ProcessEnv): RequestTools {
+export function realRequestTools(db: DatabaseSync, busPath: string, repo: string, env: NodeJS.ProcessEnv, projections: Parameters<typeof decisionsSettlerOfBus>[3]): RequestTools {
   const gitHub = ghApi(repo)
   const patch = ghApiPatch(repo)
   const pushPolicy = (): PushPolicy => pushPolicyOf(readThroughPort, repo)
@@ -90,7 +90,7 @@ export function realRequestTools(db: DatabaseSync, busPath: string, repo: string
     },
     dryRunOf: dryRunIn(dryRunReviewsDir(busDirOf(busPath))),
     addDecision: decisionsAdderOfBus(db, busPath, () => new Date()),
-    settleDecisions: decisionsSettlerOfBus(db, busPath, () => new Date()),
+    settleDecisions: decisionsSettlerOfBus(db, busPath, () => new Date(), projections),
     causeHolds: causeHoldsIn(db, repo, treeOf),
     closePr: request => closer.close(request),
     closeDropped: () => closer.closeDropped(),

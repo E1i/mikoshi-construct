@@ -11,6 +11,7 @@ import { parseIncluded } from '../../ports/github.js'
 import { NetWatch, NETWATCH_SCRIPT, TICK_MS, WAKE_GAP_MS } from '../../ports/netwatch.js'
 import { touchesMechanics } from '../../ports/snapshot.js'
 import { RUN_SCRIPT } from '../../supervisor/bg.js'
+import { busProjections } from '../../supervisor/composition.js'
 import { lastProcessBeats } from '../../supervisor/heartbeat.js'
 import { cardBody, Clock, FakeGitHub, MAIN_1, MAIN_2, MAIN_3, MERGER, REPO, sha } from './github-fake.js'
 
@@ -81,7 +82,7 @@ describe('netwatch', () => {
     expect(observed.map(event => [event.head, event.payload.mergeable])).toEqual([[sha('a'), 'clean'], [sha('a'), 'behind'], [sha('a'), 'clean']])
     const ids = db.prepare(`SELECT id FROM events WHERE type = 'pr.observed' ORDER BY id`).all().map(row => Number(row.id))
     expect(observed.map(event => event.dedupe_key.split(':').at(-1))).toEqual(['-', String(ids[0]), String(ids[1])])
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     expect(db.prepare('SELECT head, mergeable FROM prs WHERE pr = 911').get()).toEqual({ head: sha('a'), mergeable: 'clean' })
     db.close()
   })
@@ -90,7 +91,7 @@ describe('netwatch', () => {
     const { db, gitHub, clock, netWatch } = setUp()
     gitHub.open({ number: 753, body: 'lane-guard witness\nbranch: feat/recorded-lane-guard-witness' })
     netWatch.poll()
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     expect(db.prepare('SELECT card_id FROM prs WHERE pr = 753').get()).toEqual({ card_id: null })
 
     gitHub.open({ number: 753, body: 'card: #764 lane-guard [implement/bus/S/cheap/auto]\nbranch: feat/recorded-lane-guard-witness' })
@@ -99,7 +100,7 @@ describe('netwatch', () => {
     const observed = events(db, 'pr.observed')
     expect(observed.map(event => [event.head, event.card_id, event.payload.card_id])).toEqual([[sha('a'), null, null], [sha('a'), 764, 764]])
 
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     expect(db.prepare('SELECT card_id, head FROM prs WHERE pr = 753').get()).toEqual({ card_id: 764, head: sha('a') })
     expect(db.prepare('SELECT card_id, pr FROM cards WHERE card_id = 764').get()).toEqual({ card_id: 764, pr: 753 })
     db.close()

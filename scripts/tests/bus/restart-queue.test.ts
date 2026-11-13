@@ -16,6 +16,7 @@ import { projectionDump, reduce } from '../../core/reducer.js'
 import { RestartExecutor } from '../../nodes/restart/restart-executor.js'
 import { launchSwitchedOn, restartStepLine, RestartWorker, runRestartWorker } from '../../nodes/restart/restart-worker.js'
 import { observeRoleStop } from '../../nodes/restart/role.js'
+import { busProjections } from '../../supervisor/composition.js'
 import { switchWorker } from '../../supervisor/workers.js'
 import { MIKO_HANDOFF_NAME } from '../../window/loop.js'
 import { requestFromWindow } from '../../window/window-requests.js'
@@ -125,7 +126,7 @@ describe('the restart queue', () => {
     expect(bench.db.prepare('SELECT dir, sha, pid, boundary, state FROM chains').all()).toEqual([{ dir: DIR, sha: MAIN_1, pid: 4242, boundary: 1, state: 'stopped' }])
     expect(restartTasks(bench)).toEqual([{ task_key: restart(), state: 'completed' }])
     const live = projectionDump(bench.db)
-    reduce(bench.db)
+    reduce(bench.db, 'pending', busProjections())
     expect(projectionDump(bench.db)).toBe(live)
     bench.close()
   })
@@ -212,7 +213,7 @@ describe('the restart queue', () => {
     expect(bench.signalled).toEqual([LEADER])
     bench.tick()
     const live = projectionDump(bench.db)
-    reduce(bench.db)
+    reduce(bench.db, 'pending', busProjections())
     expect(projectionDump(bench.db)).toBe(live)
     bench.close()
   })
@@ -263,7 +264,7 @@ describe('a role stopped at a threshold', () => {
     ])
     expect(worker.step()).toEqual({ kind: 'idle' })
     const live = projectionDump(bench.db)
-    reduce(bench.db)
+    reduce(bench.db, 'pending', busProjections())
     expect(projectionDump(bench.db)).toBe(live)
     bench.close()
   })
@@ -365,7 +366,7 @@ describe('a dead chain', () => {
     bench.tick()
     expect(restartTasks(bench)).toEqual([{ task_key: restart(), state: 'withdrawn' }])
     const live = projectionDump(bench.db)
-    reduce(bench.db)
+    reduce(bench.db, 'pending', busProjections())
     expect(projectionDump(bench.db)).toBe(live)
     bench.close()
   })

@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { Projections } from '../../core/reducer.js'
 import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import { openBus } from '../../core/db.js'
 import { reduce } from '../../core/reducer.js'
@@ -21,15 +22,15 @@ function writeIfChanged(file: string, before: string, after: string): void {
     writeFileSync(file, after)
 }
 
-export function decisionsSettler(db: DatabaseSync, decisions: string, now: () => Date): DecisionsSettler {
+export function decisionsSettler(db: DatabaseSync, decisions: string, now: () => Date, projections: Projections): DecisionsSettler {
   return () => {
     if (!busProjectsDecisions(db)) {
       decisionsIntake(db, decisions, now)()
       startProjectingDecisions(db, now())
     }
-    reduce(db)
+    reduce(db, 'pending', projections)
     expireDecisions(db, now())
-    reduce(db)
+    reduce(db, 'pending', projections)
     const archive = archiveOf(decisions)
     const [file, archived] = [readIfThere(decisions), readIfThere(archive)]
     const projected = projectDecisions(decisionRows(db), file, archived, ARCHIVE_HEADER)
@@ -63,8 +64,8 @@ export function decisionsAdder(db: DatabaseSync, decisions: string, now: () => D
   }
 }
 
-export function decisionsSettlerOfBus(db: DatabaseSync, busPath: string, now: () => Date): DecisionsSettler {
-  return decisionsSettler(db, decisionsFileOf(busPath), now)
+export function decisionsSettlerOfBus(db: DatabaseSync, busPath: string, now: () => Date, projections: Projections): DecisionsSettler {
+  return decisionsSettler(db, decisionsFileOf(busPath), now, projections)
 }
 
 export function decisionsAdderOfBus(db: DatabaseSync, busPath: string, now: () => Date): DecisionsAdder {

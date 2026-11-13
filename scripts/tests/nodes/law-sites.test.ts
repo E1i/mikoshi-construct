@@ -24,6 +24,7 @@ import { keyOf, queueTask } from '../../core/queue.js'
 import { ABANDONED_READ_AS_RERUN, gapRows, INTAKE_WAIT_RECORD, INTAKE_WITNESS_TRANSFER, LAW_CELLS, LAW_CELLS_WITNESSES, LAW_NODES, LAW_SITES, lawIds, PULSE_BESIDE_CARD_SILENCE, REVIEW_LIVE_ON_ONE_STALE_SIGNAL, SITES_BEYOND_NODES, sourceOf, WINDOW_BESIDE_SESSIONS } from '../../nodes/laws.js'
 import { InMemoryDecisions } from '../../policy/decisions/decisions.js'
 import { NetWatch, TICK_MS } from '../../ports/netwatch.js'
+import { busProjections } from '../../supervisor/composition.js'
 import { BusTick } from '../../supervisor/run.js'
 import { NO_PROGRESS_LINES, StalledSessions } from '../../supervisor/stalled-sessions.js'
 import { BUS_ALIVE_MS, STALL_MS, stalledOf } from '../../window/watch.js'
@@ -123,7 +124,7 @@ function abandonedReadAsRerun(): void {
       const body = response.body as { check_runs: { name: string, conclusion: string | null }[] }
       return { ...response, body: { check_runs: body.check_runs.map(check => check.name === 'required' && check.conclusion === 'failure' ? { ...check, id, output: { annotations_count: 1, annotations_url: `https://api.github.com/repos/{owner}/{repo}/check-runs/${id}/annotations` } } : check) } }
     }
-    const tick = new BusTick(db, new NetWatch(db, client, clock.now), clock.now, () => {})
+    const tick = new BusTick(db, busProjections(), new NetWatch(db, client, clock.now), clock.now, () => {})
     tick.run()
     clock.advance(TICK_MS)
     gitHub.open({ number: 1493, head: abandonedHead, required: 'failure', failed: [] })

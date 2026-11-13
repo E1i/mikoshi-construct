@@ -49,6 +49,7 @@ import { UpdateNode } from '../../nodes/update/update-worker.js'
 import { NetWatch, TICK_MS } from '../../ports/netwatch.js'
 import { InMemoryProcessTable } from '../../ports/process-table.js'
 import { launchName } from '../../supervisor/bg.js'
+import { busProjections } from '../../supervisor/composition.js'
 import { BusTick } from '../../supervisor/run.js'
 import { slotsVariable } from '../../supervisor/scheduler.js'
 import { busDrain, BusSupervisor, freeLeasesOf, withoutRetiring } from '../../supervisor/supervisor.js'
@@ -342,7 +343,7 @@ function abandonedRunIsRerun(): void {
       const body = response.body as { check_runs: { name: string, conclusion: string | null }[] }
       return { ...response, body: { check_runs: body.check_runs.map(check => check.name === 'required' && check.conclusion === 'failure' ? { ...check, id: 77, output: { annotations_count: 1, annotations_url: url } } : check) } }
     }
-    const busTick = new BusTick(db, new NetWatch(db, client, clock.now), clock.now, () => {})
+    const busTick = new BusTick(db, busProjections(), new NetWatch(db, client, clock.now), clock.now, () => {})
     busTick.run()
     clock.advance(TICK_MS)
     gitHub.open({ number: 1493, required: 'failure', failed: [], runs: [{ id: 4343, run_attempt: 1, status: 'completed', conclusion: 'failure' }] })
@@ -389,7 +390,7 @@ async function ownerLaunchPastConditions(node: LawNode): Promise<void> {
     made.tick()
     appendEvent(made.db, { ts: ts(), type: CARD_HELD, actor: OWNER, cardId: OWNER_LAUNCHED_CARD, pr: null, head: null, dedupeKey: `${CARD_HELD}:z10`, payload: { request: 1, reason: 'held' }, legacy: false })
     appendEvent(made.db, { ts: ts(), type: COMMAND_EXECUTED, actor: OWNER, cardId: OWNER_LAUNCHED_CARD, pr: null, head: null, dedupeKey: `${COMMAND_EXECUTED}:z10`, payload: { command: ownerMoveCommand('launch', OWNER_LAUNCHED_CARD), event_id: 1, ok: true }, legacy: false })
-    reduce(made.db)
+    reduce(made.db, 'pending', busProjections())
     let started = 0
     const starter: CardStarter = { start: (card) => {
       started += 1

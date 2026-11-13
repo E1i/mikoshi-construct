@@ -359,20 +359,6 @@
   {
     "type": "dependency",
     "from": "scripts/core/reducer.ts",
-    "to": "scripts/nodes/restart/role.ts",
-    "unresolvedTo": "../nodes/restart/role.js",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "core-imports-nothing-to-its-right"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "scripts/core/reducer.ts",
     "to": "scripts/policy/decisions/index.ts",
     "unresolvedTo": "../policy/decisions/index.js",
     "dependencyTypes": [

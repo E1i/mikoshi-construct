@@ -18,6 +18,7 @@ import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
 import { AnswerOutsideTouches } from '../../nodes/answer/answerer.js'
 import { OWNER_WORD_NOT_FOUND, sayToOwnerChannel, USED_WORD } from '../../owner/channel.js'
 import { cardDecisionCommand, DECISIONS_SCOPE } from '../../policy/shards.js'
+import { busProjections } from '../../supervisor/composition.js'
 import { requestOf, runRequest, WindowRequests } from '../../window/window-requests.js'
 import { sha } from './github-fake.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
@@ -50,7 +51,7 @@ function lastEventId(made: MergeBench): number {
 
 function admit(made: MergeBench, text: string, generation: string): void {
   appendEvent(made.db, { ts: made.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'worker:intake:window', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${CARD}:${generation}`, payload: { card: `#${CARD}`, lane: 'lane-a', decision: 'auto', contour: 'cheap', depends: [], admission: `admission-${generation}`, text, textSha: textSha(text), bodySha: generation }, legacy: false })
-  reduce(made.db)
+  reduce(made.db, 'pending', busProjections())
 }
 
 function stoppedRoom(question: string = RESERVED_QUESTION, underAShard = true, admittedBefore = true, bodyEnd = 'Do it.'): Room {
@@ -72,17 +73,17 @@ function stopWithItsWait(made: MergeBench, question: string, generation: string)
   const wait = openBusWait(made.db, ts, 'worker:answer:s1', { need: 'decision', text: `card #${CARD} asks: ${question}`, command: cardDecisionCommand(CARD), card: CARD })
   appendEvent(made.db, { ts, type: CARD_STOPPED, actor: 'worker:answer:s1', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:${CARD}:${generation}`, payload: { reason: QUESTION_OWNER, detail: question }, legacy: false })
   const stop = lastEventId(made)
-  reduce(made.db)
+  reduce(made.db, 'pending', busProjections())
   return { stop, wait }
 }
 
 function openStop(room: Room): number | null {
-  reduce(room.made.db)
+  reduce(room.made.db, 'pending', busProjections())
   return (room.made.db.prepare(OPEN_OWNER_STOP_OF_CARD).get(CARD) as { id: number } | undefined)?.id ?? null
 }
 
 function waitState(room: Room): string {
-  reduce(room.made.db)
+  reduce(room.made.db, 'pending', busProjections())
   return (room.made.db.prepare('SELECT state FROM owner_waits WHERE id = ?').get(room.wait) as { state: string }).state
 }
 
@@ -153,7 +154,7 @@ describe('a question.owner stop has a named lift for each route', () => {
     const room = stoppedRoom('may the retry back off?', false)
     sayToOwnerChannel(room.channel, 'yes', room.made.clock.now())
     expect(closes(room, 'yes', '--from', ANSWER_SOURCE).kind).toBe('done')
-    reduce(room.made.db)
+    reduce(room.made.db, 'pending', busProjections())
     const word = sayToOwnerChannel(room.channel, OWNER_WORDS, room.made.clock.now())
 
     expect(closes(room, OWNER_WORDS, '--from', ANSWER_SOURCE)).toMatchObject({ kind: 'refused', detail: `${room.wait} is closed already` })
@@ -232,7 +233,7 @@ describe('a question.owner stop has a named lift for each route', () => {
     const room = stoppedRoom('first question', false)
     sayToOwnerChannel(room.channel, 'yes', room.made.clock.now())
     expect(closes(room, 'yes', '--from', ANSWER_SOURCE).kind).toBe('done')
-    reduce(room.made.db)
+    reduce(room.made.db, 'pending', busProjections())
     const later = stopWithItsWait(room.made, 'second question', 'second')
     expect(later.wait).not.toBe(room.wait)
 
@@ -246,7 +247,7 @@ describe('a question.owner stop has a named lift for each route', () => {
   it('an amend naming another wait of the card does not lift the stop', () => {
     const room = stoppedRoom()
     const other = openOwnerWait(room.made.db, room.made.clock.now().toISOString(), 'policy', { need: 'merge', text: 'merge it', card: CARD, pr: CARD_PR })
-    reduce(room.made.db)
+    reduce(room.made.db, 'pending', busProjections())
 
     amendsWithNote(room, 'names-other', `see ${other}`)
 
@@ -262,7 +263,7 @@ describe('a question.owner stop has a named lift for each route', () => {
     for (const ask of asks) {
       const room = stoppedRoom()
       const other = openOwnerWait(room.made.db, room.made.clock.now().toISOString(), 'policy', ask)
-      reduce(room.made.db)
+      reduce(room.made.db, 'pending', busProjections())
       sayToOwnerChannel(room.channel, OWNER_WORDS, room.made.clock.now())
 
       const outcome = closes({ ...room, wait: other }, OWNER_WORDS, '--from', ANSWER_SOURCE)

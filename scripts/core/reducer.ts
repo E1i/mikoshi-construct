@@ -5,27 +5,24 @@ import type { IncrementalProjection } from './watermark.js'
 import { realpathSync } from 'node:fs'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { ROLE_FOLDS, ROLES_PROJECTION } from '../nodes/restart/role.js'
 import { archiveSpentDecisions, DECISION_FOLDS, waitsTheDecisionNames } from '../policy/decisions/index.js'
 import { allowLiveCommand, namesQueueLive } from '../policy/live-decision.js'
 import { RECUT_ACTOR } from '../policy/round-limit-decision.js'
+import { busProjections } from '../supervisor/composition.js'
 import { IN_ORDER_MARK, REDUCED_IN_ORDER } from './bus-readings.js'
-import { CARD_FOLDS, cardLinkObserved, cardPrMerged, cardPrOpened, CARDS_PROJECTION, CLOSED_CARD, DROPPED_CARD, MERGED_CARD } from './card-automaton.js'
+import { CARD_FOLDS, cardLinkObserved, cardPrMerged, cardPrOpened, CLOSED_CARD, DROPPED_CARD, MERGED_CARD } from './card-automaton.js'
 import { CARD_BODIES, foldCardBody } from './card-bodies.js'
-import { CHAINS_PROJECTION } from './chain.js'
 import { appendEvent, CLOSED_WAIT, defaultBusPath, inTransaction, isOwnerWaitNeed, OPEN_WAIT, openBus, OWNER_WAIT_NEEDS, OWNER_WAITS, WAIT_ID } from './db.js'
 import { CARD_ADMITTED, CARD_CLOSED, CARD_DROPPED, CARD_MOVED, CARD_PLANNED, CARD_UNPLANNED, CARD_WAITING, catalogued, CLOSED_PLAN, DECISION_RECORDED, DECISIONS_IMPORTED, MAIN_ADVANCED, MERGE_DONE, OPEN_PLAN, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PLAN_BACKFILLED, PLAN_CLOSED, PLAN_ITEM_ADDED, PLAN_ITEM_LINKED, PLAN_ITEM_REMOVED, PLAN_OPENED, PR_CLOSED, PR_OBSERVED, PR_OPENED, WITNESS_DOWNGRADE } from './events.js'
 import { cardIdOf, isFullSha, prOf } from './identifiers.js'
 import { OWNER } from './inbox.js'
 import { ADMIT_COMMAND, pnpmCommand } from './owner-commands.js'
-import { TASKS_PROJECTION } from './queue.js'
 import { appliedOrRejected } from './rejection.js'
 import { payloadOf, reject, STORED_COLUMNS } from './stored.js'
 import { markReduced, reduceProjection, watermarkOf } from './watermark.js'
 
 export const PREFIX = '[bus:reduce] '
 export const PROJECTION_KEYS: Readonly<Record<string, string>> = { prs: 'pr', cards: 'card_id', tasks: 'task_key', mains: 'sha', chains: 'dir', roles: 'role', decisions: 'decision_id', [CARD_BODIES]: 'card_id', plans: 'plan_id', card_releases: 'card_id', plan_items: 'plan_id, item_id', [OWNER_WAITS]: 'id' }
-export const INCREMENTAL_PROJECTIONS: readonly IncrementalProjection[] = [ROLES_PROJECTION, TASKS_PROJECTION, CHAINS_PROJECTION, CARDS_PROJECTION]
 
 const DOWNGRADE_WAIT_PREFIX = 'W'
 const DOWNGRADE_WAIT_ID = new RegExp(`^${DOWNGRADE_WAIT_PREFIX}\\d+$`)
@@ -492,23 +489,39 @@ export function reducedTypesOf(folds: Record<string, Fold>): EventType[] {
   return Object.keys(folds).map(catalogued)
 }
 
-const REDUCERS: Record<string, Fold> = {
+export const PR_FOLDS: Record<string, Fold> = {
   [PR_OBSERVED]: prObserved,
   [PR_CLOSED]: prClosed,
   [MAIN_ADVANCED]: mainAdvanced,
   [PR_OPENED]: prOpened,
-  ...TASKS_PROJECTION.folds,
-  ...CHAINS_PROJECTION.folds,
-  ...ROLE_FOLDS,
-  ...DECISION_FOLDS,
-  ...CARD_FOLDS,
-  ...OWNER_WAIT_FOLDS,
-  ...PLAN_FOLDS,
+}
+
+export const CARD_END_FOLDS: Record<string, Fold> = {
   [MERGE_DONE]: foldEndingTheWaitsOfAnEndedCard,
   [CARD_CLOSED]: foldEndingTheWaitsOfAnEndedCard,
   [CARD_MOVED]: foldEndingTheWaitsOfAnEndedCard,
   [CARD_DROPPED]: foldDropNamingItsChildren,
   [CARD_ADMITTED]: foldAdmittedWithBody,
+}
+
+export interface Projections {
+  folds: readonly Readonly<Record<string, Fold>>[]
+  incremental: readonly IncrementalProjection[]
+}
+
+interface Reduction {
+  folds: Readonly<Record<string, Fold>>
+  types: readonly EventType[]
+  incremental: readonly IncrementalProjection[]
+}
+
+function reductionOf(projections: Projections): Reduction {
+  const folds: Record<string, Fold> = Object.assign({}, ...projections.folds)
+  return { folds, types: reducedTypesOf(folds), incremental: projections.incremental }
+}
+
+export function reducedTypes(projections: Projections): EventType[] {
+  return [...reductionOf(projections).types]
 }
 
 export function reducedThrough(db: DatabaseSync): number {
@@ -525,7 +538,6 @@ const NO_SECOND_KEY = `''`
 const PROJECTION_TABLES = Object.keys(PROJECTION_KEYS)
 const PROJECTION_SEQUENCES = `name IN (${PROJECTION_TABLES.map(table => `'${table}'`).join(', ')})`
 const SEQUENCE_SNAPSHOT = 'projection_sequence_snapshot'
-export const REDUCED_TYPES = reducedTypesOf(REDUCERS)
 const ROW_WRITES = { insert: ['NEW'], update: ['OLD', 'NEW'], delete: ['OLD'] } as const
 const FOREIGN_REFERENCE = /\s+REFERENCES\s+\w+\s*\(\w+\)/g
 
@@ -607,30 +619,30 @@ function snapshotDirtyRows(db: DatabaseSync): void {
   db.exec(`DELETE FROM ${DIRTY_ROWS};`)
 }
 
-function foldInOrder(db: DatabaseSync, events: StoredEvent[], count: ReduceCount): void {
+function foldInOrder(db: DatabaseSync, events: StoredEvent[], count: ReduceCount, folds: Reduction['folds']): void {
   for (const event of events) {
-    if (appliedOrRejected(db, event, REDUCERS[event.type]!))
+    if (appliedOrRejected(db, event, folds[event.type]!))
       count.applied += 1
     else
       count.rejected += 1
   }
 }
 
-function eventsAfter(db: DatabaseSync, from: number, through: number): StoredEvent[] {
-  return db.prepare(`SELECT ${STORED_COLUMNS} FROM events WHERE id > ? AND id <= ? AND legacy = 0 AND type IN (${REDUCED_TYPES.map(() => '?').join(', ')}) ORDER BY id LIMIT ?`)
-    .all(from, through, ...REDUCED_TYPES, REDUCE_BATCH) as unknown as StoredEvent[]
+function eventsAfter(db: DatabaseSync, from: number, through: number, types: Reduction['types']): StoredEvent[] {
+  return db.prepare(`SELECT ${STORED_COLUMNS} FROM events WHERE id > ? AND id <= ? AND legacy = 0 AND type IN (${types.map(() => '?').join(', ')}) ORDER BY id LIMIT ?`)
+    .all(from, through, ...types, REDUCE_BATCH) as unknown as StoredEvent[]
 }
 
 function batchThrough(events: StoredEvent[], from: number, target: number): number {
   return events.length < REDUCE_BATCH ? Math.max(from, target) : events.at(-1)!.id
 }
 
-function markInOrderThrough(db: DatabaseSync, through: number): void {
+function markInOrderThrough(db: DatabaseSync, through: number, incremental: Reduction['incremental']): void {
   db.exec(`PRAGMA user_version = ${through}`)
   markReduced(db, SNAPSHOT, through)
   for (const projection of REDUCED_IN_ORDER)
     markReduced(db, projection, through)
-  for (const projection of INCREMENTAL_PROJECTIONS) {
+  for (const projection of incremental) {
     markReduced(db, projection.table, through)
     reduceProjection(db, projection)
   }
@@ -650,57 +662,58 @@ function shadowTheProjections(db: DatabaseSync): void {
   db.exec(`DELETE FROM temp.sqlite_sequence WHERE ${PROJECTION_SEQUENCES};`)
 }
 
-function publishTheShadows(db: DatabaseSync, through: number): void {
+function publishTheShadows(db: DatabaseSync, through: number, incremental: Reduction['incremental']): void {
   for (const table of PROJECTION_TABLES)
     db.exec(`DELETE FROM main.${table}; INSERT INTO main.${table} SELECT * FROM temp.${table};`)
   copySequences(db, 'temp.sqlite_sequence', 'main.sqlite_sequence')
   dropShadows(db)
   takeWholeSnapshot(db)
   trackDirtyRows(db)
-  markInOrderThrough(db, through)
+  markInOrderThrough(db, through, incremental)
 }
 
-function buildBesideTheLiveProjections(db: DatabaseSync, target: number, count: ReduceCount): void {
+function buildBesideTheLiveProjections(db: DatabaseSync, target: number, count: ReduceCount, reduction: Reduction): void {
   shadowTheProjections(db)
   try {
     let from = 0
     while (from < target) {
       from = inTransaction(db, () => {
-        const events = eventsAfter(db, from, target)
-        foldInOrder(db, events, count)
+        const events = eventsAfter(db, from, target, reduction.types)
+        foldInOrder(db, events, count, reduction.folds)
         return batchThrough(events, from, target)
       })
     }
-    inTransaction(db, () => publishTheShadows(db, target))
+    inTransaction(db, () => publishTheShadows(db, target, reduction.incremental))
   }
   finally {
     dropShadows(db)
   }
 }
 
-function reduceBatch(db: DatabaseSync, target: number, count: ReduceCount): boolean {
+function reduceBatch(db: DatabaseSync, target: number, count: ReduceCount, reduction: Reduction): boolean {
   return inTransaction(db, () => {
     const from = reducedThrough(db)
     if (from >= target)
       return false
-    const events = eventsAfter(db, from, target)
+    const events = eventsAfter(db, from, target, reduction.types)
     const through = batchThrough(events, from, target)
     restoreDirtyRows(db)
-    foldInOrder(db, events, count)
+    foldInOrder(db, events, count, reduction.folds)
     snapshotDirtyRows(db)
-    markInOrderThrough(db, through)
+    markInOrderThrough(db, through, reduction.incremental)
     return through < target
   })
 }
 
-export function reduce(db: DatabaseSync, scope: ReduceScope = 'pending'): ReduceCount {
+export function reduce(db: DatabaseSync, scope: ReduceScope, projections: Projections): ReduceCount {
   const count: ReduceCount = { applied: 0, rejected: 0 }
+  const reduction = reductionOf(projections)
   const target = lastEventId(db)
   if (scope === 'rebuild' || !snapshotHolds(db))
-    buildBesideTheLiveProjections(db, target, count)
+    buildBesideTheLiveProjections(db, target, count, reduction)
   let another = true
   while (another)
-    another = reduceBatch(db, target, count)
+    another = reduceBatch(db, target, count, reduction)
   return count
 }
 
@@ -712,7 +725,7 @@ function main(): number {
   const busPath = defaultBusPath()
   const db = openBus(busPath)
   try {
-    const count = reduce(db, 'rebuild')
+    const count = reduce(db, 'rebuild', busProjections())
     console.log(`${PREFIX}${busPath}: applied ${count.applied}, rejected ${count.rejected}`)
     return 0
   }

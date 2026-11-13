@@ -7,6 +7,7 @@ import { prBodySha } from '../../core/identifiers.js'
 import { failTask, LEASE_MS } from '../../core/lease.js'
 import { FAILURES_TO_STOP, keyOf, queueTask } from '../../core/queue.js'
 import { projectionDump, reduce } from '../../core/reducer.js'
+import { busProjections } from '../../supervisor/composition.js'
 import { cardBody, sha } from './github-fake.js'
 import { liveBench, mergeBench, taskState } from './merge-bench.js'
 
@@ -69,7 +70,7 @@ describe('a merge task on a merged pull request', () => {
 
     expect(stateOf(bench, mergeTask)).toBe('withdrawn')
     const live = projectionDump(bench.db)
-    reduce(bench.db)
+    reduce(bench.db, 'pending', busProjections())
     expect(projectionDump(bench.db)).toBe(live)
     bench.close()
   })

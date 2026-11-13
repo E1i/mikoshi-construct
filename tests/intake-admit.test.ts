@@ -17,6 +17,7 @@ import { decisionsOfProjection } from '../scripts/policy/decisions/decisions.js'
 import { recordDecision } from '../scripts/policy/decisions/index.js'
 import { cardWitnessesOf } from '../scripts/policy/policy.js'
 import { runTaskStart } from '../scripts/ports/task-start.js'
+import { busProjections } from '../scripts/supervisor/composition.js'
 import { runsFieldLine, runsFieldOf, witnessFieldsLine, witnessFieldsOf } from '../src/card/witness-fields.js'
 import { downgradeAction, EQUIVALENT_REPLACEMENT_ALLOWANCE, printAdmit, runAdmit, witnessDowngrades } from '../src/commands/intake/admit.js'
 import { bodySha, bodyShaWithoutTouches } from '../src/commands/intake/confirm.js'
@@ -88,7 +89,7 @@ function admitThroughBus(w: World, file: string, options: Partial<AdmitOptions> 
   const db = openBus(busOf(w))
   try {
     const result = runAdmit({ file, dir: w.repo, dryRun: false, autoConfirm: false, parkingRoot: w.parking, events: busCardEvents(db), admissions: busCardAdmissions(db), cardStates: () => w.cards, ...options }, () => AFTER_THE_CUTOFF)
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     return result
   }
   finally {
@@ -666,7 +667,7 @@ describe('construct intake --admit holds an amend that lowers an admitted witnes
     const db = openBus(busOf(w))
     try {
       recordDecision(db, { ts: AFTER_THE_CUTOFF.toISOString(), decisionId: 7, text, cards: [cardId] })
-      reduce(db)
+      reduce(db, 'pending', busProjections())
     }
     finally {
       db.close()
@@ -915,7 +916,7 @@ describe('construct intake --admit reads the witness fields', () => {
     const db = openBus(busOf(w))
     try {
       recordDecision(db, { ts: AFTER_THE_CUTOFF.toISOString(), decisionId: 7, text, cards: [80] })
-      reduce(db)
+      reduce(db, 'pending', busProjections())
       expect(db.prepare('SELECT state, answer FROM owner_waits').all()).toMatchObject([{ state: 'closed', answer: 'D-7' }])
     }
     finally {
@@ -982,7 +983,7 @@ describe('construct intake --admit reads the witness fields', () => {
     const backfilled = park(w, 82, CLEAN.replace('#80', '#82'), 'src/board/**', prose)
     expect(admitThroughBus(w, backfilled, { decisions: heldIn(decisionsOf(w)) })).toMatchObject({ status: 'admitted', source: 'admit' })
     const db2 = openBus(busOf(w))
-    reduce(db2)
+    reduce(db2, 'pending', busProjections())
     const backfill = backfillWitnessFields(db2, '2026-11-04T12:00:00.000Z').backfill
     const shownBefore = witnessFieldsOfCard({ id: 82, witnessFields: [], runs: [], text: latestText(w, backfilled) }, backfill)
     expect(shownBefore).toMatchObject({ witnesses: [{ id: 'W1', run: 'pnpm exec vitest run tests/board/run.test.ts', test: 'the board runs' }], runs: ['tests/board/**'] })
@@ -1169,7 +1170,7 @@ describe('construct intake --admit reports ok only once its card.admitted is in 
     const previousExit = process.exitCode
     try {
       recordDecision(db, { ts: NOW.toISOString(), decisionId: 7, text: '[owner] admit the card', cards: [80] })
-      reduce(db)
+      reduce(db, 'pending', busProjections())
       await runBusIntake(db, ['--plain', '--admit', file, '--dir', w.repo, '--parking', w.parking], 's1')
       expect(process.exitCode ?? 0).toBe(0)
     }

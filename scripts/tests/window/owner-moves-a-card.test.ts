@@ -20,6 +20,7 @@ import { storedByKey } from '../../core/stored.js'
 import { LaunchNode } from '../../nodes/launch/launch-worker.js'
 import { OWNER_WORD_NOT_FOUND, sayToOwnerChannel, USED_WORD } from '../../owner/channel.js'
 import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
+import { busProjections } from '../../supervisor/composition.js'
 import { requestFromWindow, requestOf, TAKEOVER_AFTER_MINUTES, WindowRequests } from '../../window/window-requests.js'
 import { mergeBench } from '../bus/merge-bench.js'
 
@@ -77,7 +78,7 @@ function asked(made: Room, argv: string[], causes: (string | null)[] = []): Requ
   expect(request).not.toBeNull()
   requestFromWindow(made.bench.db, now(made), 'window-1', request!)
   const [outcome] = requests(made, causes).run()
-  reduce(made.bench.db)
+  reduce(made.bench.db, 'pending', busProjections())
   return outcome!
 }
 
@@ -96,12 +97,12 @@ function launchTask(made: Room): { task_key: string, state: string } {
 function sessionStarted(made: Room): void {
   made.live.add(SESSION_PID)
   appendEvent(made.bench.db, { ts: now(made), type: CARD_STARTED, actor: 'worker:launch:node-1', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_STARTED}:owner-moves`, payload: { session: SESSION, worktree: `/trees/mc-${CARD}`, branch: `feat/card-${CARD}`, base: 'f'.repeat(40), pid: SESSION_PID, pgid: SESSION_PID, contour: 'cheap' }, legacy: false })
-  reduce(made.bench.db)
+  reduce(made.bench.db, 'pending', busProjections())
 }
 
 function heldByTheOwner(made: Room): void {
   appendEvent(made.bench.db, { ts: now(made), type: CARD_HELD, actor: OWNER, cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_HELD}:owner-moves`, payload: { request: 1, reason: 'the owner reads it first' }, legacy: false })
-  reduce(made.bench.db)
+  reduce(made.bench.db, 'pending', busProjections())
 }
 
 function launchNode(made: Room): { node: LaunchNode, started: () => number } {

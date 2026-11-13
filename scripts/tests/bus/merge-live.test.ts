@@ -14,6 +14,7 @@ import { keyOf } from '../../core/queue.js'
 import { reduce } from '../../core/reducer.js'
 import { MergeNode } from '../../nodes/merge/merge-worker.js'
 import { NetWatch } from '../../ports/netwatch.js'
+import { busProjections } from '../../supervisor/composition.js'
 import { switchDetection, switchWorker, wantedLaunches } from '../../supervisor/workers.js'
 import { cardBody, sha } from './github-fake.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
@@ -66,7 +67,7 @@ async function once(node: MergeNode): Promise<void> {
 
 function observedWithoutDeriveQueues(made: MergeBench): void {
   new NetWatch(made.db, made.gitHub.client, made.clock.now).poll()
-  reduce(made.db)
+  reduce(made.db, 'pending', busProjections())
 }
 
 function dependsOn(made: MergeBench, cardId: number, dependency: number): void {

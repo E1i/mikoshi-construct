@@ -8,6 +8,7 @@ import { openBus } from '../scripts/core/db.js'
 import { CARD_ADMITTED, CARD_MOVED } from '../scripts/core/events.js'
 import { reduce } from '../scripts/core/reducer.js'
 import { busIntakePorts, runBusIntake } from '../scripts/intake/intake.js'
+import { busProjections } from '../scripts/supervisor/composition.js'
 import { runAdmit } from '../src/commands/intake/admit.js'
 import { runExport } from '../src/commands/intake/export.js'
 import { INTAKE_EXIT, runIntake } from '../src/commands/intake/index.js'
@@ -88,7 +89,7 @@ describe('intake and slicing write only into the bus', () => {
     const admitted = runAdmit({ file: path.join(w.parking, `${second}.md`), dir: w.repo, dryRun: false, autoConfirm: true, parkingRoot: w.parking, events: ports.cardEvents, cardStates: () => new Map(), admissions: ports.cardAdmissions })
     expect(admitted.status).toMatch(/^(?:admitted|alreadyAdmitted)$/)
     expect(runMove({ move: `#${first}`, to: 'lane-01', draft: undefined, taken: undefined, admit: undefined, parking: w.parking, events: ports.cardEvents, admissions: ports.cardAdmissions })).toMatchObject({ status: 'moved', event: CARD_MOVED })
-    reduce(w.db)
+    reduce(w.db, 'pending', busProjections())
     expect(parkedMarkdown(w.parking)).toEqual([])
     expect(admittedTexts(w, first!).at(-1)).toBe(admittedTexts(w, first!)[0])
     w.db.close()
@@ -113,7 +114,7 @@ describe('intake and slicing write only into the bus', () => {
     const [id] = intakeThroughBus(w, [sliced('board-run')])
     const [text] = admittedTexts(w, id!)
     expect(runExport({ card: `#${id}`, admissions: busIntakePorts(w.db).cardAdmissions })).toEqual({ status: 'exported', text })
-    reduce(w.db)
+    reduce(w.db, 'pending', busProjections())
     const { exit, output } = await exportThroughEntry(w, `#${id}`)
     expect(exit).not.toBe(INTAKE_EXIT.refused)
     expect(output).toBe(text)

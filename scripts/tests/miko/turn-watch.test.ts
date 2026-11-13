@@ -13,6 +13,7 @@ import { HANDOFF_DIR_VARIABLE } from '../../core/handoff-dir.js'
 import { reduce } from '../../core/reducer.js'
 import { RAISED_VARIABLE } from '../../nodes/restart/role.js'
 import { WINDOW_MARK, WINDOW_VARIABLE, withoutCard } from '../../ports/session.js'
+import { busProjections } from '../../supervisor/composition.js'
 import { MIKO_HANDOFF_NAME, TAB_MODE } from '../../window/loop.js'
 import { ENTRYPOINT_VARIABLE, HEADLESS_ENTRYPOINT } from '../../window/tab.js'
 import { lastWindowBeat, LIVE_WATCH, NO_LIVE_WATCH, NOT_A_WINDOW, ownCardHasNoPr, ownCardWithoutPr, realTurnWatchDeps, runTurnWatch, TAB_CONTINUE, TAB_STOPS, watchIsLive } from '../../window/turn-watch.js'
@@ -80,7 +81,7 @@ function ownCardAfter(who: string, story: (db: DatabaseSync) => void = () => {},
     cardEvent(db, CARD_ADMITTED, { card: text.split('\n')[0]!.slice('card: '.length), lane: 'lane-1', depends: [], text, textSha: textSha(text) })
     cardEvent(db, CARD_STARTED, { session: 's-window', worktree: `/trees/${OWN_CARD}`, branch: `feat/${OWN_CARD}` })
     story(db)
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     unreduced(db)
     return ownCardWithoutPr(db)
   }

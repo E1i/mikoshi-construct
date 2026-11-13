@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { appendEvent, openBus } from '../../core/db.js'
 import { REJECTED } from '../../core/events.js'
 import { reduce } from '../../core/reducer.js'
+import { busProjections } from '../../supervisor/composition.js'
 
 const CARD = 1843
 const PR = 1601
@@ -43,7 +44,7 @@ const answered = (): BusEvent => event('card.answered', { actor: 'worker:answer:
 function stepThrough(db: Bus, steps: BusEvent[]): unknown[] {
   return steps.map((next) => {
     appendEvent(db, next)
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     return stateOf(db)
   })
 }

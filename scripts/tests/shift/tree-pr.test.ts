@@ -18,6 +18,7 @@ import { collectReport } from '../../nodes/launch/report-collect.js'
 import { busCardReturned, busCardStopped, busCardText, busCardWaited, busLastRefusal, busPrOpened, PREFIX, runTreePr } from '../../nodes/launch/tree-pr-cli.js'
 import { reportClosingOf, treePr } from '../../nodes/launch/tree-pr.js'
 import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
+import { busProjections } from '../../supervisor/composition.js'
 import { eventsOf, mergeBench } from '../bus/merge-bench.js'
 
 const roots: string[] = []
@@ -80,7 +81,7 @@ describe('tree-pr reads its card from the bus', () => {
     const db = openBus(busPath)
     try {
       appendEvent(db, { ts: '2026-10-21T00:00:00.000Z', type: CARD_ADMITTED, actor: 'policy', cardId: 951, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:951`, payload: { lane: 'lane-a', decision: 'auto', contour: 'cheap', depends: [], admission: 'admission-951', text: CARD_TEXT, textSha: textSha(CARD_TEXT) }, legacy: false })
-      reduce(db)
+      reduce(db, 'pending', busProjections())
     }
     finally {
       db.close()

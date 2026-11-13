@@ -9,6 +9,7 @@ import { CARD_ADMITTED, CARD_DROPPED, CARD_MOVED, CARD_WAITING } from '../script
 import { reduce } from '../scripts/core/reducer.js'
 import { busCardEvents, busIntakePorts } from '../scripts/intake/intake.js'
 import { launchCandidates } from '../scripts/nodes/launch/launch-candidates.js'
+import { busProjections } from '../scripts/supervisor/composition.js'
 import { runAdmit } from '../src/commands/intake/admit.js'
 import { runAmend } from '../src/commands/intake/amend.js'
 import { bodySha } from '../src/commands/intake/confirm.js'
@@ -186,11 +187,11 @@ describe('intake --move', () => {
       mkdirSync(path.join(repo, 'src'), { recursive: true })
       writeFileSync(path.join(repo, 'src', 'a.ts'), '')
       expect(runAdmit({ file, dir: repo, dryRun: false, autoConfirm: true, parkingRoot: w.parking, events }, () => AFTER_THE_CUTOFF).status).toBe('admitted')
-      reduce(db)
+      reduce(db, 'pending', busProjections())
       expect(launchCandidates(db, () => false).map(candidate => candidate.cardId)).toEqual([1425])
       const result = runMove({ move: '#1425', to, draft: undefined, taken: undefined, admit: undefined, parking: w.parking, events }, () => AFTER_THE_CUTOFF)
       expect(result).toMatchObject({ status: 'moved', event: CARD_DROPPED })
-      expect(reduce(db).rejected).toBe(0)
+      expect(reduce(db, 'pending', busProjections()).rejected).toBe(0)
       const types = db.prepare('SELECT type FROM events WHERE card_id = 1425 ORDER BY id').all() as { type: string }[]
       expect(types.map(row => row.type).filter(type => type.startsWith('card.'))).toEqual([CARD_ADMITTED, CARD_DROPPED])
       expect(db.prepare('SELECT state FROM cards WHERE card_id = 1425').get()).toEqual({ state: 'dropped' })
@@ -268,7 +269,7 @@ describe('intake --move', () => {
       mkdirSync(path.join(repo, 'src'), { recursive: true })
       writeFileSync(path.join(repo, 'src', 'a.ts'), '')
       expect(runAdmit({ file, dir: repo, dryRun: false, autoConfirm: true, parkingRoot: w.parking, events }, () => AFTER_THE_CUTOFF).status).toBe('admitted')
-      reduce(db)
+      reduce(db, 'pending', busProjections())
       expect(db.prepare('SELECT state FROM cards WHERE card_id = 170').get()).toEqual({ state: 'queued' })
       rmSync(file)
       const stub = path.join(w.parking, 'sliced', '170.md')
@@ -276,7 +277,7 @@ describe('intake --move', () => {
       writeFileSync(stub, 'sliced into #582, #583\n')
       const result = runMove({ move: '#170', to: 'sliced', draft: undefined, taken: undefined, admit: undefined, parking: w.parking, events }, () => AFTER_THE_CUTOFF)
       expect(result).toEqual({ status: 'recordedInPlace', file: stub, event: CARD_DROPPED })
-      expect(reduce(db).rejected).toBe(0)
+      expect(reduce(db, 'pending', busProjections()).rejected).toBe(0)
       expect(db.prepare('SELECT state FROM cards WHERE card_id = 170').get()).toEqual({ state: 'dropped' })
       const dropped = db.prepare(`SELECT payload FROM events WHERE type = '${CARD_DROPPED}' AND card_id = 170`).all() as { payload: string }[]
       expect(dropped.map(row => JSON.parse(row.payload))).toMatchObject([{ lane: 'sliced', children: [582, 583], reason: 'sliced into #582, #583' }])
@@ -303,7 +304,7 @@ describe('intake --move', () => {
     writeFileSync(path.join(repo, 'src', 'a.ts'), '')
     const admit = { dir: repo, dryRun: false, autoConfirm: true, parkingRoot: w.parking, events: ports.cardEvents, cardStates: ports.cardStates, admissions: ports.cardAdmissions }
     expect(runAdmit({ ...admit, file }, () => AFTER_THE_CUTOFF).status).toBe('admitted')
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     expect(runAmend({ ...admit, card: '#1462', flags: { note: 'The amended line.' } }, () => AFTER_THE_CUTOFF).status).toBe('admitted')
     return file
   }
@@ -317,7 +318,7 @@ describe('intake --move', () => {
       expect(cardBodyText(db, 1462)).not.toContain('The amended line.')
       const request = { move: '#1462', to: 'lane-3', draft: undefined, taken: undefined, admit: undefined, parking: w.parking, events: ports.cardEvents, admissions: ports.cardAdmissions }
       expect(runMove(request, () => AFTER_THE_CUTOFF).status).toBe('moved')
-      expect(reduce(db).rejected).toBe(0)
+      expect(reduce(db, 'pending', busProjections()).rejected).toBe(0)
       expect(cardBodyText(db, 1462)).toContain('The amended line.')
     }
     finally {

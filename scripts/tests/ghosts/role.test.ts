@@ -12,6 +12,7 @@ import { reduceProjection } from '../../core/watermark.js'
 import { cloudOn } from '../../ladder/cloud-key.js'
 import { roleOutcome } from '../../ladder/role.js'
 import { observeRoleStop, returnEndedRole, returnSilentRole, ROLES_PROJECTION, roleToOwner, WINDOW_ENDS } from '../../nodes/restart/role.js'
+import { busProjections } from '../../supervisor/composition.js'
 import { windowEndObserver } from '../../window/role-end.js'
 import { recordWindowHeartbeat } from '../../window/window-heartbeat.js'
 import { requestFromWindow } from '../../window/window-requests.js'
@@ -57,9 +58,9 @@ describe('the window role with the owner', () => {
     const file = path.join(root, 'bus.db')
     const db = openBus(file)
     observeRoleStop(db, at(0), 'worker:miko:7', { role: 'miko', handoff: HANDOFF, status: 'CONTINUE', reason: 'context', raised: false })
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     expect(roleToOwner(db, at(10), 'worker:restart:w')).toMatchObject({ role: 'miko' })
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     return { db, file, close: () => {
       db.close()
       rmSync(root, { recursive: true, force: true })
@@ -76,7 +77,7 @@ describe('the window role with the owner', () => {
     expect(returnSilentRole(bus.db, at(1001 + LEASE_MS), 'worker:restart:w')).toEqual({ role: 'miko', handoff: HANDOFF, lastSign: at(1000) })
     expect(roleRow(bus.db)).toEqual({ state: 'stopped', raises: 0, failures: 0 })
     const live = projectionDump(bus.db)
-    reduce(bus.db)
+    reduce(bus.db, 'pending', busProjections())
     expect(projectionDump(bus.db)).toBe(live)
     expect(roleToOwner(bus.db, at(1002 + LEASE_MS), 'worker:restart:w')).toMatchObject({ role: 'miko', handoff: HANDOFF })
     bus.close()
@@ -114,16 +115,16 @@ describe('the window role with the owner', () => {
     const insert = db.prepare(`INSERT INTO events (${INCIDENT_COLUMNS.join(', ')}) VALUES (${INCIDENT_COLUMNS.map(() => '?').join(', ')})`)
     const append = (rows: Record<string, SQLInputValue>[]): void => rows.forEach(row => insert.run(...INCIDENT_COLUMNS.map(column => row[column]!)))
     append(incident.filter(row => (row.id as number) < returnedAt))
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     append(incident.filter(row => (row.id as number) >= returnedAt))
     reduceProjection(db, ROLES_PROJECTION)
     const liveRow = { state: 'stopped', lease_gen: 12, event_id: incident.at(-1)!.id }
     const rolesRow = (): unknown => db.prepare('SELECT state, lease_gen, event_id FROM roles WHERE role = ?').get('miko')
     expect(rolesRow()).toEqual(liveRow)
 
-    expect(replayDifferences(db).differences).toEqual([])
+    expect(replayDifferences(db, busProjections()).differences).toEqual([])
     const live = projectionDump(db)
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     expect(db.prepare(`SELECT count(*) AS n FROM events WHERE type = '${REJECTED}' AND json_extract(payload, '$.type') LIKE 'role.%'`).get()).toEqual({ n: 0 })
     expect(rolesRow()).toEqual(liveRow)
     expect(projectionDump(db)).toBe(live)
@@ -142,7 +143,7 @@ describe('the window role with the owner', () => {
     expect(returnEndedRole(bus.db, at(3001), 'worker:miko:7', 'miko', end)).toBeNull()
 
     const live = projectionDump(bus.db)
-    reduce(bus.db)
+    reduce(bus.db, 'pending', busProjections())
     expect(projectionDump(bus.db)).toBe(live)
     expect(roleToOwner(bus.db, at(3002), 'worker:restart:w')).toMatchObject({ role: 'miko', handoff: HANDOFF })
     bus.close()

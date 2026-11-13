@@ -39,11 +39,14 @@ export interface Watched {
   wanted: boolean
 }
 
+type Projections = Parameters<typeof replayDifferences>[1]
+
 export interface BoardSources {
   db: DatabaseSync
   now: Date
   watched: readonly Watched[]
   leaseOrders: LeaseOrders
+  projections: Projections
 }
 
 export type LeaseOrders = Partial<Record<Queue, LeaseOrder>>
@@ -503,13 +506,17 @@ function judgedSilentLink(db: DatabaseSync): ContractLink {
   return link(SILENT_PROCESS, silent.length === 0, silent.length === 0 ? 'no process judged silent' : `judged silent, no heartbeat since: ${silent.map(judged => `${judged.process} (last beat ${judged.lastBeat})`).join(', ')}`)
 }
 
-function contractRow(db: DatabaseSync): ContractLink[] {
+function replayLink(db: DatabaseSync, projections: Projections): ContractLink {
+  const replayed = replayDifferences(db, projections).differences.length === 0
+  return link('replay', replayed, replayed ? 'matches' : 'differs')
+}
+
+function contractRow(db: DatabaseSync, projections: Projections): ContractLink[] {
   const started = count(db, `SELECT count(*) AS n FROM events WHERE type = '${CARD_STARTED}' AND legacy = 0`)
   const answered = count(db, `SELECT count(*) AS n FROM events WHERE type = '${TASK_COMPLETED}' AND legacy = 0 AND json_extract(payload, '$.queue') = 'answer'`)
   const shards = count(db, `SELECT count(*) AS n FROM events WHERE type = '${MERGE_DONE}' AND legacy = 0 AND json_extract(payload, '$.rule') != 'auto'`)
   const opened = count(db, `SELECT count(*) AS n FROM events WHERE type = '${PR_OPENED}' AND legacy = 0`)
   const stateless = count(db, 'SELECT count(*) AS n FROM cards WHERE state IS NULL')
-  const replayed = replayDifferences(db).differences.length === 0
   const rejected = count(db, `SELECT count(*) AS n FROM events WHERE type = '${REJECTED}'`)
   const missed = count(db, `SELECT count(*) AS n FROM events WHERE type = '${RESTART_MISSED}' AND id > (SELECT coalesce(max(id), 0) FROM events WHERE type = '${RESTARTED}')`)
   return [
@@ -518,7 +525,7 @@ function contractRow(db: DatabaseSync): ContractLink[] {
     link('Shard', shards > 0, `${shards} ${MERGE_DONE} with a rule other than auto`),
     link('automaton', opened > 0 && stateless === 0, `${opened} pr.opened, ${stateless} cards without state`),
     writerLink(db),
-    link('replay', replayed, replayed ? 'matches' : 'differs'),
+    replayLink(db, projections),
     link(REJECTED, rejected === 0, `${rejected}`),
     link(RESTART_MISSED, missed === 0, `${missed} restart${missed === 1 ? '' : 's'} after a merge under scripts/bus did not happen within the limit and no supervisor start on newer code followed`),
     judgedSilentLink(db),
@@ -588,7 +595,7 @@ export function readBoard(sources: BoardSources): Board {
     execution: executionBlock(db, now, chains, down),
     health,
     progress: progressOf(db, now, health, queue.blocked, queue.ready),
-    contract: contractRow(db),
+    contract: contractRow(db, sources.projections),
     queues: taskQueues(db, sources.leaseOrders),
     gauges: cardGauges(db),
     windowGauges: windowGauges(db),

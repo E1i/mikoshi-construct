@@ -8,6 +8,7 @@ import { appendEvent, openBus } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_HELD, CARD_RELEASED, CARD_STARTED, CARD_STOPPED, PR_OBSERVED, QUESTION_AGENT, WITNESS_RECORDED } from '../../core/events.js'
 import { deriveQueues, LAUNCH_STOP_WITH_NO_PULL_REQUEST } from '../../core/queue.js'
 import { reduce } from '../../core/reducer.js'
+import { busProjections } from '../../supervisor/composition.js'
 import { sha } from './github-fake.js'
 
 const CARD = 1825
@@ -73,7 +74,7 @@ function cardStoppedAskingToWidenThenHeld(takeover = true): DatabaseSync {
 
 function answersAfter(db: DatabaseSync, last: () => void): number {
   last()
-  reduce(db)
+  reduce(db, 'pending', busProjections())
   deriveQueues(db, TS)
   return (db.prepare(`SELECT count(*) AS n FROM tasks WHERE queue = 'answer' AND card_id = ? AND head = ?`).get(CARD, HEAD_THE_WINDOW_PUSHED) as { n: number }).n
 }

@@ -18,6 +18,7 @@ import { cardContract } from '../../intake/card-contract.js'
 import { AnswerExecutor, closeWaitOfAWidenStopTheAmendLifted } from '../../nodes/answer/answer-executor.js'
 import { AnswerOutsideTouches } from '../../nodes/answer/answerer.js'
 import { HEAD_OUTSIDE_TOUCHES } from '../../nodes/merge/merge-executor.js'
+import { busProjections } from '../../supervisor/composition.js'
 import { sha } from './github-fake.js'
 import { eventsOf, liveBench, mergeBench } from './merge-bench.js'
 
@@ -44,16 +45,16 @@ function bodyTouching(touches: string, card = CARD, extra = ''): string {
 
 function admit(made: MergeBench, text: string, generation: string, card = CARD): void {
   appendEvent(made.db, { ts: made.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'worker:intake:window', cardId: card, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${card}:${generation}`, payload: { card: `#${card}`, lane: 'lane-a', decision: 'auto', contour: 'cheap', depends: [], admission: `admission-${generation}`, text, textSha: textSha(text), bodySha: generation }, legacy: false })
-  reduce(made.db)
+  reduce(made.db, 'pending', busProjections())
 }
 
 function openStopOf(made: MergeBench): number | null {
-  reduce(made.db)
+  reduce(made.db, 'pending', busProjections())
   return (made.db.prepare(OPEN_OWNER_STOP_OF_CARD).get(CARD) as { id: number } | undefined)?.id ?? null
 }
 
 function openDecisionWaits(made: MergeBench): string[] {
-  reduce(made.db)
+  reduce(made.db, 'pending', busProjections())
   return (made.db.prepare(openDecisionWaitsOf('?')).all(CARD) as { id: string }[]).map(wait => wait.id)
 }
 

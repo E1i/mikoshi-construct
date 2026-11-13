@@ -14,7 +14,8 @@ import { appendCardEvent } from '../../core/card-bodies.js'
 import { appendEvent } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_STOPPED, declaredPayload, EVENT_PAYLOADS } from '../../core/events.js'
 import { LAUNCH_STOP_WITH_NO_PULL_REQUEST, LIFTED_ADMISSION } from '../../core/queue.js'
-import { REDUCED_TYPES, reducedTypesOf } from '../../core/reducer.js'
+import { reducedTypes, reducedTypesOf } from '../../core/reducer.js'
+import { busProjections } from '../../supervisor/composition.js'
 import { eventsOf, mergeBench } from '../bus/merge-bench.js'
 
 const ROOT = process.cwd()
@@ -133,9 +134,9 @@ describe('the typed catalogue of bus events', () => {
   })
 
   it('folds in the reducer only types the catalogue declares', () => {
-    expect(REDUCED_TYPES.length).toBeGreaterThan(0)
-    expect(REDUCED_TYPES.filter(type => !Object.hasOwn(EVENT_PAYLOADS, type))).toEqual([])
-    expect(REDUCED_TYPES).toEqual(expect.arrayContaining(['card.admitted', 'owner.wait.opened', 'pr.observed', 'main.advanced']))
+    expect(reducedTypes(busProjections()).length).toBeGreaterThan(0)
+    expect(reducedTypes(busProjections()).filter(type => !Object.hasOwn(EVENT_PAYLOADS, type))).toEqual([])
+    expect(reducedTypes(busProjections())).toEqual(expect.arrayContaining(['card.admitted', 'owner.wait.opened', 'pr.observed', 'main.advanced']))
   })
 
   it('counts a write of an undeclared type as outside the catalogue', () => {

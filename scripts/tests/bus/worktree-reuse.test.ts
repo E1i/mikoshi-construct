@@ -19,6 +19,7 @@ import { ShiftCardStarter, staleTreeLine } from '../../nodes/launch/launch-start
 import { GIT_TREE_TOOLS, ReviewTrees } from '../../nodes/review/reviewer.js'
 import { gitCardTrees } from '../../ports/card-tree.js'
 import { cutTree, FREE_TREE_CAPACITY, FREE_TREES, pnpmInstall } from '../../ports/worktree.js'
+import { busProjections } from '../../supervisor/composition.js'
 import { detectClose } from './close-detection.js'
 import { cardVerified, eventsOf, mergeBench } from './merge-bench.js'
 
@@ -213,7 +214,7 @@ describe('what never enters the pool', () => {
     expect(treeMayBeReused(bench.db, FIRST, card, () => ({ kind: 'listed', cwds: [`${first.worktree}/scripts`] }))).toBe(false)
     expect(treeMayBeReused(bench.db, FIRST, card, () => ({ kind: 'unreadable', why: 'lsof refused' }))).toBe(false)
     appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'worker:intake:window', cardId: FIRST, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${FIRST}`, payload: { card: `#${FIRST} part [implement/netwatch/S/cheap/auto] · depends — · blocks —`, lane: null, decision: 'auto', contour: 'cheap', depends: [] }, legacy: false })
-    reduce(bench.db)
+    reduce(bench.db, 'pending', busProjections())
     bench.db.prepare('UPDATE cards SET state = ? WHERE card_id = ?').run(STOPPED_CARD, FIRST)
     expect(treeMayBeReused(bench.db, FIRST, card, NO_SESSION)).toBe(false)
   })

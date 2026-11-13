@@ -21,6 +21,7 @@ import { UpdateNode } from '../../nodes/update/update-worker.js'
 import { WitnessNode } from '../../nodes/witness/witness-worker.js'
 import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
 import { TICK_MS } from '../../ports/netwatch.js'
+import { busProjections } from '../../supervisor/composition.js'
 import { startBus } from '../../supervisor/run.js'
 
 const HEAD = '0123456789abcdef0123456789abcdef01234567'
@@ -126,7 +127,7 @@ describe('bus.db', () => {
       append('merge.done', { actor: 'worker:merge:s1', cardId, pr, head: HEAD, payload: { commit: HEAD, rule: 'auto' } })
     append('card.closed', { cardId: 1293, pr: 901 })
     append('card.dropped', { cardId: 1262, payload: { replaced_by: 1263 } })
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     for (const table of [OWNER_WAITS, `${OWNER_WAITS}_${SNAPSHOT}`])
       db.exec(`UPDATE ${table} SET state = 'open', answer = NULL`)
     db.exec(`DELETE FROM ${DIRTY_ROWS}`)
@@ -135,7 +136,7 @@ describe('bus.db', () => {
     const closed = startBus(db, () => new Date(ts))
     expect(closed).toHaveLength(4)
     expect(closed).toContain(question)
-    expect(reduce(db).rejected).toBe(0)
+    expect(reduce(db, 'pending', busProjections()).rejected).toBe(0)
     expect(openWaits()).toEqual([[1300, expect.stringMatching(/^W\d+$/)]])
     expect(db.prepare(`SELECT answer FROM ${OWNER_WAITS} WHERE state = 'closed' ORDER BY card_id`).all().map(row => row.answer)).toEqual(['card #1262 dropped', 'card #1292 merged', 'card #1292 merged', 'card #1293 closed'])
     expect(startBus(db, () => new Date(ts))).toEqual([])

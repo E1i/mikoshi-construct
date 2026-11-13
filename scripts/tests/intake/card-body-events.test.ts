@@ -11,6 +11,7 @@ import { openBus } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_MOVED } from '../../core/events.js'
 import { reduce } from '../../core/reducer.js'
 import { busIntakePorts } from '../../intake/intake.js'
+import { busProjections } from '../../supervisor/composition.js'
 
 const AT = new Date('2026-10-13T09:00:00.000Z')
 const CARD = 1462
@@ -65,10 +66,10 @@ describe('the card body lives only in card.* events', () => {
       const ports = busIntakePorts(w.db, 'by-hand', () => 1)
       const file = park(w, cardText({ who: 'window', priority: 'p2' }))
       expect(admit(w, file).status).toBe('admitted')
-      reduce(w.db)
+      reduce(w.db, 'pending', busProjections())
       const amend = { dir: w.repo, dryRun: false, autoConfirm: true, parkingRoot: w.parking, events: ports.cardEvents, cardStates: ports.cardStates, admissions: ports.cardAdmissions }
       expect(runAmend({ ...amend, card: `#${CARD}`, flags: { note: 'The amended line.' } }, () => AT).status).toBe('admitted')
-      reduce(w.db)
+      reduce(w.db, 'pending', busProjections())
       const amended = payloadsOf(w, CARD_ADMITTED).at(-1)!
       expect(readFileSync(file, 'utf8')).not.toContain('The amended line.')
       const moved = runMove({ move: `#${CARD}`, to: 'lane-3', draft: undefined, taken: undefined, admit: undefined, parking: w.parking, events: ports.cardEvents, admissions: ports.cardAdmissions }, () => AT)
@@ -76,7 +77,7 @@ describe('the card body lives only in card.* events', () => {
       expect(payloadsOf(w, CARD_MOVED)).toMatchObject([{ bodySha: amended.bodySha }])
       expect(amended.bodySha).toBe(bodySha(String(amended.text)))
       expect(String(payloadsOf(w, CARD_ADMITTED).at(-1)!.text)).toContain('The amended line.')
-      reduce(w.db)
+      reduce(w.db, 'pending', busProjections())
       expect(cardBodyText(w.db, CARD)).toContain('The amended line.')
     }
     finally {

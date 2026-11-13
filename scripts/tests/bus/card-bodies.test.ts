@@ -11,6 +11,7 @@ import { CARD_ADMITTED } from '../../core/events.js'
 import { projectionDump, reduce } from '../../core/reducer.js'
 import { replayDifferences } from '../../core/report.js'
 import { busCardAdmissions, busIntakePorts, intakeAdmissions } from '../../intake/intake.js'
+import { busProjections } from '../../supervisor/composition.js'
 
 const AFTER_THE_CUTOFF = new Date('2026-10-13T09:00:00.000Z')
 const CARD = '#90 body-card [implement/netwatch/S/cheap/auto] · depends — · blocks —'
@@ -84,7 +85,7 @@ describe('the reducer folds every admitted text into card_bodies', () => {
     writeFileSync(w.file, amended)
     admit(w)
     withBus(w, (db) => {
-      reduce(db)
+      reduce(db, 'pending', busProjections())
       expect(bodyRow(db)).toEqual({
         card_id: 90,
         admission_event_id: admissionIds(db)[1],
@@ -101,9 +102,9 @@ describe('the reducer folds every admitted text into card_bodies', () => {
         decision: 'auto',
         depends: '[]',
       })
-      expect(replayDifferences(db).differences).toEqual([])
+      expect(replayDifferences(db, busProjections()).differences).toEqual([])
       const before = projectionDump(db)
-      reduce(db)
+      reduce(db, 'pending', busProjections())
       expect(projectionDump(db)).toBe(before)
     })
   })
@@ -112,7 +113,7 @@ describe('the reducer folds every admitted text into card_bodies', () => {
     const w = world()
     withBus(w, (db) => {
       appendAdmission(db, 'forged', { card: CARD, text: 'card: x\n', textSha: sha256('card: y\n') })
-      reduce(db)
+      reduce(db, 'pending', busProjections())
       expect(bodyRow(db)).toBeUndefined()
     })
   })
@@ -121,7 +122,7 @@ describe('the reducer folds every admitted text into card_bodies', () => {
     const w = world()
     withBus(w, (db) => {
       appendAdmission(db, 'refused', { card: CARD, lane: 'lane-7', text: 'not a card\n', textSha: sha256('not a card\n') })
-      reduce(db)
+      reduce(db, 'pending', busProjections())
       expect(bodyRow(db)).toMatchObject({ text: 'not a card\n', lane: 'lane-7', card_line: null, touches: null })
       expect(db.prepare('SELECT state FROM cards WHERE card_id = 90').get()).toEqual({ state: 'queued' })
     })
@@ -132,7 +133,7 @@ describe('the reducer folds every admitted text into card_bodies', () => {
     admit(w)
     withBus(w, (db) => {
       appendAdmission(db, 'without-text', { card: CARD, lane: 'lane-9' })
-      reduce(db)
+      reduce(db, 'pending', busProjections())
       expect(bodyRow(db)).toMatchObject({ admission_event_id: admissionIds(db)[0], lane: WINDOW_LANE })
     })
   })
@@ -143,7 +144,7 @@ describe('the admitted body intake and launch read back from card_bodies', () =>
     const w = world()
     admit(w)
     withBus(w, (db) => {
-      reduce(db)
+      reduce(db, 'pending', busProjections())
       expect(cardBodyText(db, 90)).toBe(readFileSync(w.file, 'utf8'))
       expect(cardBodyText(db, 91)).toBeNull()
     })
@@ -164,7 +165,7 @@ describe('the admitted body intake and launch read back from card_bodies', () =>
     withBus(w, (db) => {
       appendEvent(db, { ts: '2026-10-13T10:00:00.000Z', type: CARD_ADMITTED, actor: 'policy', cardId: 90, pr: null, head: null, dedupeKey: 'policy-forged', payload: { card: CARD, lane: 'lane-7', text: 'forged', textSha: sha256('other') }, legacy: false })
       const unfolded = busCardAdmissions(db)(90)
-      reduce(db)
+      reduce(db, 'pending', busProjections())
       expect(unfolded?.text).toBe(readFileSync(w.file, 'utf8'))
       expect(busCardAdmissions(db)(90)).toEqual(unfolded)
     })
@@ -186,7 +187,7 @@ describe('the admitted body intake and launch read back from card_bodies', () =>
     const later = readFileSync(w.file, 'utf8').replace('Do the thing.', 'Do the later thing.')
     withBus(w, (db) => {
       appendEvent(db, { ts: '2026-10-13T10:00:00.000Z', type: CARD_ADMITTED, actor: 'policy', cardId: 90, pr: null, head: null, dedupeKey: 'policy-later', payload: { card: CARD, lane: 'lane-7', text: later, textSha: sha256(later) }, legacy: false })
-      reduce(db)
+      reduce(db, 'pending', busProjections())
       expect(busCardAdmissions(db)(90)).toMatchObject({ card: CARD, text: later })
       expect(busCardAdmissions(db)(91)).toBeNull()
     })

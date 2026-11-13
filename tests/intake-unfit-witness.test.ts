@@ -9,6 +9,7 @@ import { openBus } from '../scripts/core/db.js'
 import { reduce } from '../scripts/core/reducer.js'
 import { busCardAdmissions, busCardEvents } from '../scripts/intake/intake.js'
 import { decisionsOfProjection } from '../scripts/policy/decisions/decisions.js'
+import { busProjections } from '../scripts/supervisor/composition.js'
 import { CREATED_PATHS_ARE_THE_CHANGE, runAdmit, unfitOnTheBase } from '../src/commands/intake/admit.js'
 
 import { runAmend } from '../src/commands/intake/amend.js'
@@ -58,7 +59,7 @@ function withBus<T>(w: World, run: (ports: { events: ReturnType<typeof busCardEv
   const db = openBus(w.bus)
   try {
     const result = run({ events: busCardEvents(db), admissions: busCardAdmissions(db) })
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     return result
   }
   finally {

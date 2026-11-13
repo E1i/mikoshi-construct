@@ -20,6 +20,7 @@ import { openDatabase } from '../../core/sqlite.js'
 import { answerFollowed, shiftTreeCard, treePr, worktreeCoverage } from '../../nodes/launch/tree-pr.js'
 import { gitDepthSources } from '../../nodes/review/depth-sources.js'
 import { planReview } from '../../nodes/review/review-depth.js'
+import { busProjections } from '../../supervisor/composition.js'
 
 const TREE_TIMEOUT_MS = 120_000
 const CARD_ID = 1128
@@ -288,7 +289,7 @@ describe('a layer the branch assigns tests to', () => {
     })
     const text = cardText('Do it.', [MODULE])
     appendCardEvent(db, 'owner', { ts: '2026-11-10T00:00:00.000Z', type: CARD_ADMITTED, cardId: CARD_ID, dedupeKey: `${CARD_ADMITTED}:${CARD_ID}`, payload: { text, textSha: textSha(text) } })
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     db.close()
     return bus
   }

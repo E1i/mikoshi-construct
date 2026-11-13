@@ -10,6 +10,7 @@ import { reduce } from '../../core/reducer.js'
 import { busCardEvents } from '../../intake/intake.js'
 import { currentLane, layLanes } from '../../nodes/launch/lane-assign.js'
 import { launchCandidates } from '../../nodes/launch/launch-candidates.js'
+import { busProjections } from '../../supervisor/composition.js'
 
 const TS = '2026-10-29T10:00:00.000Z'
 const HEAD = 'a'.repeat(40)
@@ -44,13 +45,13 @@ class Bench {
     const text = cardText(id, touches, depends)
     this.admissions += 1
     this.events()({ type: CARD_ADMITTED, cardId: id, ts: TS, dedupeKey: `admit-${id}-${this.admissions}`, payload: { card: text.split('\n')[0]!.slice('card: '.length), lane: null, depends, decision: 'auto', contour: 'cheap', text, textSha: textSha(text) } })
-    reduce(this.db)
+    reduce(this.db, 'pending', busProjections())
     return this
   }
 
   move(id: number, lane: string): this {
     this.events()({ type: CARD_MOVED, cardId: id, ts: TS, dedupeKey: `${CARD_MOVED}:${id}:${lane}`, payload: { from: null, to: path.join(this.root, lane), bodySha: 'moved', lane } })
-    reduce(this.db)
+    reduce(this.db, 'pending', busProjections())
     return this
   }
 
@@ -100,7 +101,7 @@ class Bench {
 
   private append(type: string, cardId: number, pr: number | null, dedupeKey: string, payload: Record<string, unknown>, head: string | null = null): void {
     appendEvent(this.db, { ts: TS, type, actor: 'policy', cardId, pr, head, dedupeKey, payload, legacy: false })
-    reduce(this.db)
+    reduce(this.db, 'pending', busProjections())
   }
 }
 

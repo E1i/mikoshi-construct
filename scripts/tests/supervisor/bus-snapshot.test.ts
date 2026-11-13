@@ -10,6 +10,7 @@ import { MERGE_DONE } from '../../core/events.js'
 import { reduce } from '../../core/reducer.js'
 import { openDatabase } from '../../core/sqlite.js'
 import { backupInto, BusSnapshot, publishSnapshot, SNAPSHOT_MS } from '../../supervisor/bus-snapshot.js'
+import { busProjections } from '../../supervisor/composition.js'
 
 const START = Date.parse('2026-11-03T12:00:00.000Z')
 const MINUTE = 60_000
@@ -53,7 +54,7 @@ function seededBus(root: string): string {
   const db = openBus(busPath)
   for (let index = 0; index < 60; index++)
     appendEvent(db, { ts: new Date(START).toISOString(), type: `kind${index % 5}`, actor: 'policy', cardId: null, pr: null, head: null, dedupeKey: `seed:${index}`, payload: { index, text: 'x'.repeat(200) }, legacy: false })
-  reduce(db)
+  reduce(db, 'pending', busProjections())
   db.exec('PRAGMA wal_checkpoint(TRUNCATE)')
   db.close()
   return busPath

@@ -7,6 +7,7 @@ import { appendEvent, openBus } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_DROPPED } from '../../core/events.js'
 import { reduce } from '../../core/reducer.js'
 import { busCardBodies, busParkedDepends, cardBodies } from '../../intake/parking-reads.js'
+import { busProjections } from '../../supervisor/composition.js'
 
 const roots: string[] = []
 
@@ -31,7 +32,7 @@ function busWith(cards: { id: number, depends: number[] }[], dropped: number[]):
     }
     for (const id of dropped)
       appendEvent(db, { ts: '2026-10-13T00:01:00.000Z', type: CARD_DROPPED, actor: 'worker:intake:test', cardId: id, pr: null, head: null, dedupeKey: `${CARD_DROPPED}:${id}`, payload: { lane: 'dropped' }, legacy: false })
-    reduce(db)
+    reduce(db, 'pending', busProjections())
   }
   finally {
     db.close()

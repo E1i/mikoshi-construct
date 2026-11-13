@@ -11,6 +11,7 @@ import { CARD_ADMITTED, CARD_CLOSED, CARD_STARTED, CARD_STOPPED, PR_CLOSED } fro
 import { prClosed, prObserved } from '../../core/observations.js'
 import { reduce } from '../../core/reducer.js'
 import { mergesLinkedOnlyThroughThePr } from '../../release/evidence.js'
+import { busProjections } from '../../supervisor/composition.js'
 import { NO_PROGRESS_MS, readBoard } from '../../window/board.js'
 import { sha } from '../bus/github-fake.js'
 
@@ -46,7 +47,7 @@ function admit(db: DatabaseSync, ts: string, ordinal: number): void {
 
 function start(db: DatabaseSync, ts: string, ordinal: number): void {
   appendEvent(db, { ts, type: CARD_STARTED, actor: 'worker:launch:s1', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_STARTED}:${CARD}:${ordinal}`, payload: { session: `s${ordinal}`, worktree: `/trees/${CARD}`, branch: `feat/${CARD}` }, legacy: false })
-  reduce(db)
+  reduce(db, 'pending', busProjections())
 }
 
 function startedCard(): Bench {
@@ -61,12 +62,12 @@ function startedCard(): Bench {
 
 function observedPr(bench: Bench, branch: string): void {
   appendEvent(bench.db, prObserved(STARTED_AT, { pr: PR, cardId: branch === `feat/${CARD}` ? CARD : null, base: 'main', head: HEAD, branch, mergeable: 'clean', ciFields: { ci: 'green' }, verdictOnHead: null, autoMerge: false, draft: false, bodySha: sha('d') }, null))
-  reduce(bench.db)
+  reduce(bench.db, 'pending', busProjections())
 }
 
 function merge(bench: Bench, cardId: number | null): void {
   appendEvent(bench.db, prClosed(MERGED_AT, { pr: PR, cardId, merged: true, commit: COMMIT, mergedBy: 'bus', mergedAt: MERGED_AT }))
-  reduce(bench.db)
+  reduce(bench.db, 'pending', busProjections())
 }
 
 function mergedThroughThePr(): Bench {
@@ -78,11 +79,11 @@ function mergedThroughThePr(): Bench {
 
 function stopLate(bench: Bench): void {
   appendEvent(bench.db, { ts: LATER, type: CARD_STOPPED, actor: 'worker:launch:s1', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:${CARD}`, payload: { reason: 'fault' }, legacy: false })
-  reduce(bench.db)
+  reduce(bench.db, 'pending', busProjections())
 }
 
 function board(bench: Bench): ReturnType<typeof readBoard> {
-  return readBoard({ db: bench.db, now: BOARD_READ_AT, watched: [], leaseOrders: {} })
+  return readBoard({ db: bench.db, now: BOARD_READ_AT, watched: [], leaseOrders: {}, projections: busProjections() })
 }
 
 function closedEvent(bench: Bench): number {
@@ -133,7 +134,7 @@ describe('a card with a merged pull request has ended, for all four readers', ()
   it('a card closed after its merge and started again is back in work', () => {
     const bench = mergedThroughThePr()
     appendEvent(bench.db, { ts: LATER, type: CARD_CLOSED, actor: 'worker:close:s1', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_CLOSED}:${CARD}`, payload: { verification: 'run' }, legacy: false })
-    reduce(bench.db)
+    reduce(bench.db, 'pending', busProjections())
     admit(bench.db, LATER, 2)
     start(bench.db, LATER, 2)
 

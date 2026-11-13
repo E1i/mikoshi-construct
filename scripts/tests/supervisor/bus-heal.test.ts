@@ -12,6 +12,7 @@ import { reduce } from '../../core/reducer.js'
 import { openDatabase } from '../../core/sqlite.js'
 import { BUS_RUN_LAUNCH } from '../../supervisor/bg.js'
 import { BusHealer, CONTROL_FILE, CorruptionWatch, eventsControl, HEAL_FLAG, integrityOf, laggingWatermarks, NODES_RECORD, RecordedNodes } from '../../supervisor/bus-heal.js'
+import { busProjections } from '../../supervisor/composition.js'
 
 const NOW = new Date('2026-11-03T12:00:00.000Z')
 const EVENTS = 60
@@ -38,7 +39,7 @@ function seededBus(root: string, name: string): string {
   const db = openBus(busPath)
   for (let index = 0; index < EVENTS; index++)
     appendEvent(db, { ts: NOW.toISOString(), type: `kind${index % 5}`, actor: 'policy', cardId: null, pr: null, head: null, dedupeKey: `seed:${index}`, payload: { index, text: 'x'.repeat(200) }, legacy: false })
-  reduce(db)
+  reduce(db, 'pending', busProjections())
   db.exec('PRAGMA wal_checkpoint(TRUNCATE)')
   db.close()
   return busPath
@@ -118,7 +119,7 @@ function recordedNodes(busPath: string, signals: Signals, pids: readonly number[
 }
 
 function healer(busPath: string, nodes: RecordedNodes): BusHealer {
-  return new BusHealer({ busPath, nodes, now: () => NOW, watch: new CorruptionWatch([]) })
+  return new BusHealer({ busPath, nodes, now: () => NOW, projections: busProjections(), watch: new CorruptionWatch([]) })
 }
 
 describe('the bus heals a broken events index', () => {

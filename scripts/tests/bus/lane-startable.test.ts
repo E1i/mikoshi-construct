@@ -14,6 +14,7 @@ import { reduce } from '../../core/reducer.js'
 import { busCardEvents } from '../../intake/intake.js'
 import { assignMovedLane, currentLane, layLanes } from '../../nodes/launch/lane-assign.js'
 import { holdReason, launchCandidates, PLANNED_STALL_MINUTES, plannedStalls } from '../../nodes/launch/launch-candidates.js'
+import { busProjections } from '../../supervisor/composition.js'
 
 const TS = '2026-11-05T10:00:00.000Z'
 const HEAD = 'b'.repeat(40)
@@ -55,7 +56,7 @@ class Bench {
   admit(id: number, { touches = `src/card-${id}.ts`, who = 'shift', depends = [], dedupe = 'first' }: AdmitOptions = {}): this {
     const text = cardText(id, touches, who, depends)
     busCardEvents(this.db, 's1', () => LANES)({ type: CARD_ADMITTED, cardId: id, ts: TS, dedupeKey: `admit-${id}-${dedupe}`, payload: { card: text.split('\n')[0]!.slice('card: '.length), lane: null, depends, decision: 'auto', contour: 'cheap', text, textSha: textSha(text) } })
-    reduce(this.db)
+    reduce(this.db, 'pending', busProjections())
     return this
   }
 
@@ -95,7 +96,7 @@ class Bench {
 
   private append(type: string, cardId: number, pr: number | null, dedupeKey: string, payload: Record<string, unknown>, head: string | null = null): void {
     appendEvent(this.db, { ts: TS, type, actor: 'policy', cardId, pr, head, dedupeKey, payload, legacy: false })
-    reduce(this.db)
+    reduce(this.db, 'pending', busProjections())
   }
 }
 

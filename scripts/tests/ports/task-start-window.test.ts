@@ -13,6 +13,7 @@ import { realStarterPorts } from '../../nodes/launch/launch-root.js'
 import { CARD_VARIABLE, EXIT_REQUEST_VARIABLE, LOOP_PID_VARIABLE, WINDOW_MARK, WINDOW_VARIABLE } from '../../ports/session.js'
 import { cardTree, WORKTREE_HOME_VARIABLE } from '../../ports/worktree-home.js'
 import { cutTree } from '../../ports/worktree.js'
+import { busProjections } from '../../supervisor/composition.js'
 import { realRequestTools } from '../../window/window-request-tools.js'
 
 const CARD_ID = 987654
@@ -123,7 +124,7 @@ it('the bus tree.cut path still cuts the tree', () => {
   const db = openBus(world.bus)
   try {
     const bus = envOf(world, { [WINDOW_VARIABLE]: 'tab', [LOOP_PID_VARIABLE]: '4242', [EXIT_REQUEST_VARIABLE]: '/h/miko-exit.4242.request' })
-    const tools = realRequestTools(db, world.bus, world.repo, bus)
+    const tools = realRequestTools(db, world.bus, world.repo, bus, busProjections())
     tools.cutTree(BRANCH, CARD)
     expect(existsSync(tools.treeOf(CARD_ID))).toBe(true)
     expect(branchHeld(world.repo, BRANCH)).toBe(true)

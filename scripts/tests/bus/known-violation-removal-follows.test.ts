@@ -23,6 +23,7 @@ import { HEAD_OUTSIDE_TOUCHES } from '../../nodes/merge/merge-executor.js'
 import { planReview } from '../../nodes/review/review-depth.js'
 import { classify } from '../../policy/morse/rules.js'
 import { KNOWN_VIOLATIONS, removesEntriesOnly, textBeforePatch } from '../../policy/touch-scope.js'
+import { busProjections } from '../../supervisor/composition.js'
 import { sha } from './github-fake.js'
 import { eventsOf, liveBench, mergeBench } from './merge-bench.js'
 
@@ -161,7 +162,7 @@ function mergeOf(known: string): ReturnType<MergeBench['merge']> {
   const made = liveBench()
   benches.push(made)
   appendEvent(made.db, { ts: made.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'worker:intake:window', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${CARD}:merge`, payload: { card: `#${CARD}`, lane: 'lane-a', decision: 'auto', contour: 'cheap', depends: [], admission: 'admission-merge', text: CARD_TEXT, textSha: textSha(CARD_TEXT), bodySha: 'merge' }, legacy: false })
-  reduce(made.db)
+  reduce(made.db, 'pending', busProjections())
   const fake = made.gitHub as unknown as { answer: (endpoint: string) => unknown }
   const answer = fake.answer.bind(made.gitHub)
   fake.answer = endpoint => endpoint.startsWith(`repos/{owner}/{repo}/contents/${KNOWN_VIOLATIONS}?ref=`) ? { content: Buffer.from(known).toString('base64') } : answer(endpoint)

@@ -22,6 +22,7 @@ import { claudeReviewer, GIT_TREE_TOOLS, ReviewTrees } from '../../nodes/review/
 import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
 import { NetWatch, TICK_MS } from '../../ports/netwatch.js'
 import { cutTree, FREE_TREE_CAPACITY, treeOriginIn, treeOriginLine } from '../../ports/worktree.js'
+import { busProjections } from '../../supervisor/composition.js'
 import { BusTick } from '../../supervisor/run.js'
 import { Clock, FakeGitHub } from './github-fake.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
@@ -86,7 +87,7 @@ function reviewBench(root: string): { db: DatabaseSync, gitHub: FakeGitHub, tick
   const db = openBus(path.join(root, 'bus.db'))
   const gitHub = new FakeGitHub()
   const clock = new Clock()
-  const busTick = new BusTick(db, new NetWatch(db, gitHub.client, clock.now), clock.now)
+  const busTick = new BusTick(db, busProjections(), new NetWatch(db, gitHub.client, clock.now), clock.now)
   const publish: StatusPublisher = () => {}
   return {
     db,

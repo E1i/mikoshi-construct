@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { BUS_DB_VARIABLE, openBus } from '../scripts/core/db.js'
 import { reduce } from '../scripts/core/reducer.js'
 import { busCardAdmissions, busCardEvents, runBusIntake } from '../scripts/intake/intake.js'
+import { busProjections } from '../scripts/supervisor/composition.js'
 import { runAdmit } from '../src/commands/intake/admit.js'
 import { amendedText, listFlagOf } from '../src/commands/intake/amend.js'
 
@@ -39,7 +40,7 @@ async function dryRun(form: readonly string[]): Promise<string> {
   })
   try {
     runAdmit({ file: path.join(root, '80.md'), body: TEXT, dir: repo, dryRun: false, autoConfirm: true, events: busCardEvents(db), admissions: busCardAdmissions(db), cardStates: () => new Map() })
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     await runBusIntake(db, ['--plain', '--amend', '#80', ...form, '--dry-run', '--dir', repo])
     return printed.join('')
   }

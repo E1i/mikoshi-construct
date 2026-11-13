@@ -8,6 +8,7 @@ import { appendEvent, openBus } from '../../core/db.js'
 import { CARD_STARTED, EVENT_PAYLOADS, SESSION_HEARTBEAT, SHARD_DECIDED, WINDOW_HEARTBEAT } from '../../core/events.js'
 import { reduce } from '../../core/reducer.js'
 import { ANY, BusRead } from '../../ports/bus-read.js'
+import { busProjections } from '../../supervisor/composition.js'
 import { cardGauges, shardDecisions, windowGauges } from '../../window/board.js'
 
 const TS = '2026-11-09T08:00:00.000Z'
@@ -94,7 +95,7 @@ describe('the bus read port', () => {
     expect(reading.stale).not.toBeNull()
     expect(staleLine(reading.stale!)).toMatch(/^cards is stale: reduced through event 0, behind card\.started \d+$/)
     const started = reading.stale!.latest
-    reduce(db)
+    reduce(db, 'pending', busProjections())
     expect(new BusRead(db).current([CARDS], () => ++read)).toEqual({ stale: null, rows: 1, at: started })
   })
 
@@ -104,7 +105,7 @@ describe('the bus read port', () => {
     const file = path.join(root, 'bus.db')
     const written = bus(file)
     append(written, SESSION_HEARTBEAT, TS, CARD, { context: 10 }, 'only')
-    reduce(written)
+    reduce(written, 'pending', busProjections())
     const readOnly = new DatabaseSync(file, { readOnly: true })
     opened.push(readOnly)
 

@@ -11,6 +11,7 @@ import { reduce } from '../../core/reducer.js'
 import { busCardAdmissions, busCardEvents } from '../../intake/intake.js'
 import { ARCHIVE_HEADER, requestDecision, runDecisionsAdd } from '../../policy/decisions/add.js'
 import { runDecisionsRead } from '../../policy/decisions/read.js'
+import { busProjections } from '../../supervisor/composition.js'
 import { pendingRequests, WindowRequests } from '../../window/window-requests.js'
 
 const FILE = '/d/owner-decisions.md'
@@ -228,13 +229,13 @@ describe('pnpm decisions:add in a window session asks the bus', () => {
     try {
       const text = 'card: #5 card-5 [implement/netwatch/S/cheap/auto] · depends — · blocks —\nbranch: feat/card-5\ntouches: src/a.ts\ncontinue: stop\nwho: shift\n\nDo the thing.\n'
       busCardEvents(db, 's1', () => 3)({ type: CARD_ADMITTED, cardId: 5, ts: NOW.toISOString(), dedupeKey: 'admit-5', payload: { card: text.split('\n')[0]!.slice('card: '.length), lane: null, depends: [], decision: 'auto', contour: 'cheap', bodySha: textSha(text), text, textSha: textSha(text) } })
-      reduce(db)
+      reduce(db, 'pending', busProjections())
       const out: string[] = []
       expect(requestDecision(['--from', 'answer', '--card', '#5', '--creates', 'src/new.ts', '[owner] the card writes src/new.ts.'], db, NOW, 'window-1', line => out.push(line)), out.join('\n')).toBe(0)
       expect(pendingRequests(db).map(request => (JSON.parse(request.payload) as { kind: string }).kind)).toEqual(['amend', 'decisions:add'])
       expect(JSON.parse(pendingRequests(db)[1]!.payload)).toMatchObject({ kind: 'decisions:add', text: '[owner] the card writes src/new.ts.', cards: ['#5'] })
       new WindowRequests(db, () => NOW, { closeDropped: () => [] } as unknown as RequestTools, path.join(root, 'channel'), () => null, repo, {} as never).run()
-      reduce(db)
+      reduce(db, 'pending', busProjections())
       const body = busCardAdmissions(db)(5)!.text!
       expect(body).toMatch(/^touches: src\/a\.ts, src\/new\.ts$/m)
       expect(requestDecision(['--from', 'answer', '--creates', 'src/other.ts', '[owner] no card.'], db, NOW, 'window-1', () => {})).toBe(2)

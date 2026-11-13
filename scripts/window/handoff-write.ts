@@ -17,6 +17,7 @@ import { busParkedDepends } from '../intake/parking-reads.js'
 import { activeDecisionsShard, OWNERS_OF_A_STOP } from '../policy/shards.js'
 import { execGh, readGhJson } from '../ports/gh.js'
 import { CARD_VARIABLE } from '../ports/session.js'
+import { busProjections } from '../supervisor/composition.js'
 import { MERGE_PAST_THE_BUS, readAtLine, readBoard, waitText } from './board.js'
 import { appended, archiveOfDay, DAY_FILE_LIMIT, dayBytes, dayFileNamedIn, splitDay } from './day-archive.js'
 import { projectRoot, realExitReadings, UNKNOWN } from './eddies-measure.js'
@@ -437,7 +438,7 @@ function busState(busPath: string): StateReading {
   try {
     const db = openBus(busPath)
     try {
-      return { kind: 'read', state: readBoard({ db, now: new Date(), watched: [], leaseOrders: {} }) }
+      return { kind: 'read', state: readBoard({ db, now: new Date(), watched: [], leaseOrders: {}, projections: busProjections() }) }
     }
     finally {
       db.close()

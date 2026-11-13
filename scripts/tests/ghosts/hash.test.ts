@@ -16,6 +16,7 @@ import { reduce } from '../../core/reducer.js'
 import { approvalSha256, approvedHashPath, checkApproval } from '../../ladder/approval.js'
 import { approvalLine, checkAcceptanceBuild, hashBrief, NO_WITNESS_FILES, PREFLIGHT_EVENT, rememberedPreflight, resolveApprover, witnessFilesDigest } from '../../ladder/hash.js'
 import { DISK_FLOOR_BYTES, DISK_LOW } from '../../ports/disk.js'
+import { busProjections } from '../../supervisor/composition.js'
 import { ownBusPerTest } from './own-bus.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')
@@ -319,7 +320,7 @@ describe('ghosts:hash from the command line', () => {
     const db = openBus(busOf())
     try {
       appendEvent(db, { ts: new Date().toISOString(), type: CARD_ADMITTED, actor: 'worker:intake:by-hand', cardId: card, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:body:${card}`, payload: { card: cardLine, lane: 'lane-1', depends: [], text, textSha: textSha(text) }, legacy: false })
-      reduce(db)
+      reduce(db, 'pending', busProjections())
     }
     finally {
       db.close()

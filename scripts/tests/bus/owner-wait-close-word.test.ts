@@ -9,6 +9,7 @@ import { ANSWER_SOURCE, OPEN_OWNER_STOP_OF_CARD } from '../../core/inbox.js'
 import { reduce } from '../../core/reducer.js'
 import { sayToOwnerChannel, USED_WORD } from '../../owner/channel.js'
 import { cardDecisionCommand, DECISIONS_SCOPE } from '../../policy/shards.js'
+import { busProjections } from '../../supervisor/composition.js'
 import { OWNER_WORD_NEEDED, runRequest, WindowRequests } from '../../window/window-requests.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
 
@@ -38,7 +39,7 @@ function room(): Room {
 
 function plainWait({ made }: Room): string {
   const wait = openOwnerWait(made.db, made.clock.now().toISOString(), 'policy', { need: 'decision', text: 'which path?', card: CARD, request: 7 })
-  reduce(made.db)
+  reduce(made.db, 'pending', busProjections())
   return wait
 }
 
@@ -46,7 +47,7 @@ function stoppedWait({ made }: Room): string {
   const ts = made.clock.now().toISOString()
   const wait = openBusWait(made.db, ts, 'worker:answer:s1', { need: 'decision', text: `card #${CARD} asks: may the retry back off?`, command: cardDecisionCommand(CARD), card: CARD })
   appendEvent(made.db, { ts, type: CARD_STOPPED, actor: 'worker:answer:s1', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:${CARD}`, payload: { reason: QUESTION_OWNER, detail: 'may the retry back off?' }, legacy: false })
-  reduce(made.db)
+  reduce(made.db, 'pending', busProjections())
   return wait
 }
 
@@ -65,12 +66,12 @@ function closes({ made, channel }: Room, wait: string, ...flags: string[]): { ki
 }
 
 function stateOf({ made }: Room, wait: string): string {
-  reduce(made.db)
+  reduce(made.db, 'pending', busProjections())
   return (made.db.prepare('SELECT state FROM owner_waits WHERE id = ?').get(wait) as { state: string }).state
 }
 
 function openStopOf({ made }: Room): number | null {
-  reduce(made.db)
+  reduce(made.db, 'pending', busProjections())
   return (made.db.prepare(OPEN_OWNER_STOP_OF_CARD).get(CARD) as { id: number } | undefined)?.id ?? null
 }
 
@@ -144,7 +145,7 @@ describe('closing an owner wait needs the owner\'s word', () => {
     const wait = plainWait(open)
     sayToOwnerChannel(open.channel, WORDS, open.made.clock.now())
     expect(closes(open, wait, '--from', ANSWER_SOURCE).kind).toBe('done')
-    reduce(open.made.db)
+    reduce(open.made.db, 'pending', busProjections())
 
     expect(closes(open, wait)).toMatchObject({ kind: 'refused', detail: `${wait} is closed already` })
   })

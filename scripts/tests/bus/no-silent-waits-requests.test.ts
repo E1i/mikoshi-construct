@@ -18,6 +18,7 @@ import { busCardAdmissions, busCardEvents, busHeldCards } from '../../intake/int
 import { sayToOwnerChannel, USED_WORD } from '../../owner/channel.js'
 import { mergePolicy } from '../../policy/policy.js'
 import { cardDecisionCommand } from '../../policy/shards.js'
+import { busProjections } from '../../supervisor/composition.js'
 import { requestFromWindow, requestOf, WindowRequests } from '../../window/window-requests.js'
 import { cardBody, sha } from './github-fake.js'
 import { mergeBench } from './merge-bench.js'
@@ -102,7 +103,7 @@ function amendWorld(): AmendWorld {
   const body = `card: #${CARD} stopped-card [implement/runner/S/cheap/owner] · depends — · blocks —\nbranch: feat/card-${CARD}\ntouches: ${TOUCH}\ncontinue: stop\nwho: shift\n\nDo the thing.\n\nwitnesses: ${JSON.stringify([{ id: 'W1', run: 'pnpm exec vitest run tests/w1.test.ts', test: 'the W1 test', head: 'pass', base: 'fail', proves: 'what W1 proves' }])}\n`
   const admitted = runAdmit({ file: path.join(root, `${CARD}.md`), body, dir: repo, dryRun: false, autoConfirm: true, events: busCardEvents(db), admissions: busCardAdmissions(db), cardStates: () => busHeldCards(db) }, () => NOW)
   expect(admitted.status).toBe('admitted')
-  reduce(db)
+  reduce(db, 'pending', busProjections())
   return { db, repo, root }
 }
 
@@ -113,13 +114,13 @@ function stoppedOutsideTouches(w: AmendWorld): void {
   completeTask(w.db, ts, lease, [])
   openBusWait(w.db, ts, 'worker:answer:a1', { need: 'decision', text: `card #${CARD} asks: may the answer touch ${REFUSED}?`, command: cardDecisionCommand(CARD), card: CARD })
   appendEvent(w.db, { ts, type: CARD_STOPPED, actor: 'worker:answer:a1', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:${CARD}:outside`, payload: { reason: QUESTION_OWNER, detail: `the answer left changes to ${REFUSED}`, widen: [REFUSED] }, legacy: false })
-  reduce(w.db)
+  reduce(w.db, 'pending', busProjections())
 }
 
 function amended(w: AmendWorld, touches: string): { type: string, detail: string } {
   const id = requestFromWindow(w.db, NOW.toISOString(), 'window-1', { kind: 'amend', card: CARD, touches })
   new WindowRequests(w.db, () => new Date(NOW.getTime() + 60_000), UNUSED_REQUEST_TOOLS, path.join(w.root, 'channel'), () => null, w.repo, {} as never).run()
-  reduce(w.db)
+  reduce(w.db, 'pending', busProjections())
   return w.db.prepare(`SELECT type, json_extract(payload, '$.detail') AS detail FROM events WHERE type IN (?, ?) AND json_extract(payload, '$.request') = ?`).get(REQUEST_DONE, REQUEST_REFUSED, id) as { type: string, detail: string }
 }
 
@@ -129,7 +130,7 @@ describe('no silent waits: window requests, the owner channel, the answer node a
     benches.push(made)
     const channel = path.join(temporary('no-silent-waits-channel-'), 'answers')
     const wait = openOwnerWait(made.db, made.clock.now().toISOString(), 'policy', { need: 'decision', text: 'which path?', card: CARD, request: 7 })
-    reduce(made.db)
+    reduce(made.db, 'pending', busProjections())
 
     const missing = request(made, ['owner.wait.close', '--id', wait, '--from', ANSWER_SOURCE], channel)
     expect(missing.kind).toBe('refused')
@@ -142,7 +143,7 @@ describe('no silent waits: window requests, the owner channel, the answer node a
     expect(closed).toMatchObject({ kind: 'done' })
     expect(closed.detail).toContain('take the second path, worded my own way')
     expect(existsSync(`${word}${USED_WORD}`)).toBe(true)
-    reduce(made.db)
+    reduce(made.db, 'pending', busProjections())
     expect((made.db.prepare('SELECT state FROM owner_waits WHERE id = ?').get(wait) as { state: string }).state).toBe('closed')
   })
 

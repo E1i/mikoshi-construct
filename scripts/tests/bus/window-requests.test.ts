@@ -33,6 +33,7 @@ import { decisionsInForceAt } from '../../policy/shards.js'
 import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
 import { NetWatch } from '../../ports/netwatch.js'
 import { WORKTREE_HOME_VARIABLE } from '../../ports/worktree-home.js'
+import { busProjections } from '../../supervisor/composition.js'
 import { BusTick } from '../../supervisor/run.js'
 import { productionDeps, STALL_MS } from '../../window/watch.js'
 import { countLineAppender, realRequestTools, worktreesHolding } from '../../window/window-request-tools.js'
@@ -233,7 +234,7 @@ describe('requests from the sandboxed window, executed by the bus outside it', (
     appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'worker:intake:by-hand', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:body:${CARD}`, payload: { card: `#${CARD}`, lane: 'lane-1', text, textSha: textSha(text) }, legacy: false })
     const request = ask(made, { kind: 'tree.cut', card: CARD })
     const outcomes: unknown[] = []
-    const busTick = new BusTick(bench.db, new NetWatch(bench.db, bench.gitHub.client, bench.clock.now), bench.clock.now, () => {}, () => {}, () => outcomes.push(...made.requests().run()))
+    const busTick = new BusTick(bench.db, busProjections(), new NetWatch(bench.db, bench.gitHub.client, bench.clock.now), bench.clock.now, () => {}, () => {}, () => outcomes.push(...made.requests().run()))
 
     expect(busTick.run()?.poll.kind).toBe('ticked')
     expect(outcomes).toEqual([{ kind: 'done', request, detail: `cut ${path.join(made.root, 'worktrees', `mc-${CARD}`)} on feat/card-${CARD}` }])
@@ -298,7 +299,7 @@ describe('requests from the sandboxed window, executed by the bus outside it', (
     keepDryRun(path.join(made.root, 'dry-run-reviews'))(DRY_RUN, { pr: PR, head: HEAD })
     appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: 'pr.observed', actor: 'netwatch', cardId: CARD, pr: PR, head: HEAD, dedupeKey: `pr.observed:${PR}:again`, payload: { pr: PR, head: HEAD, state: 'open', base: 'main', ci: 'green', mergeable: 'clean', auto_merge: false, draft: false }, legacy: false })
     appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: PR_CLOSED, actor: 'netwatch', cardId: CARD, pr: PR, head: null, dedupeKey: `${PR_CLOSED}:${PR}:merged`, payload: { merged: true }, legacy: false })
-    reduce(bench.db)
+    reduce(bench.db, 'pending', busProjections())
 
     const request = ask(made, { kind: 'allow-merge', pr: PR, head: HEAD, dry_run: DRY_RUN })
     expect(made.requests().run()).toEqual([{ kind: 'refused', request, detail: `PR #${PR} is not open` }])
@@ -404,7 +405,7 @@ describe('requests from the sandboxed window, executed by the bus outside it', (
       executor.launch(leaseNext(bench.db, bench.clock.now().toISOString(), 'launch', 'worker:launch:worker-1')!)
     bench.tick()
     expect(taskState(bench.db, key).state).toBe('stopped')
-    const { causeHolds } = realRequestTools(bench.db, bench.busPath, repo, { [WORKTREE_HOME_VARIABLE]: home })
+    const { causeHolds } = realRequestTools(bench.db, bench.busPath, repo, { [WORKTREE_HOME_VARIABLE]: home }, busProjections())
 
     const plain = ask(made, { kind: 'requeue', task_key: key })
     expect(made.requests({ causeHolds }).run()[0]).toMatchObject({ kind: 'refused', request: plain, detail: expect.stringContaining(`the card tree ${tree} has uncommitted changes; a requeue with keep_tree: true`) })
@@ -517,7 +518,7 @@ describe('requests from the sandboxed window, executed by the bus outside it', (
   it('the real tools read the count line from the report in the launch directory of the bus', () => {
     const made = room()
     const report = path.join(busDirOf(made.bench.busPath), 'launch', `report-${CARD}.md`)
-    expect(realRequestTools(made.bench.db, made.bench.busPath, process.cwd(), {}).appendCountLine!(PR, CARD)).toEqual({ done: false, why: `card #${CARD} has no report at ${report}, so no count line to append to PR #${PR}` })
+    expect(realRequestTools(made.bench.db, made.bench.busPath, process.cwd(), {}, busProjections()).appendCountLine!(PR, CARD)).toEqual({ done: false, why: `card #${CARD} has no report at ${report}, so no count line to append to PR #${PR}` })
   })
 
   it('pnpm bus:request pr.body takes a --pr', () => {
@@ -531,11 +532,11 @@ describe('requests from the sandboxed window, executed by the bus outside it', (
     const made = room()
     const opened = ask(made, { kind: 'owner.wait', need: 'decision', text: 'which path?', card: CARD })
     expect(made.requests().run()).toEqual([{ kind: 'done', request: opened, detail: 'opened Q1' }])
-    reduce(made.bench.db)
+    reduce(made.bench.db, 'pending', busProjections())
     ownerSays(made, 'the first')
     const first = ask(made, { kind: 'owner.wait.close', id: 'Q1', answer: 'the first', from: ANSWER_SOURCE })
     expect(made.requests().run()).toMatchObject([{ kind: 'done', request: first, detail: expect.stringContaining('closed Q1 on the owner\'s word') as unknown }])
-    reduce(made.bench.db)
+    reduce(made.bench.db, 'pending', busProjections())
     const second = ask(made, { kind: 'owner.wait.close', id: 'Q1', answer: 'again' })
     expect(made.requests().run()).toEqual([{ kind: 'refused', request: second, detail: 'Q1 is closed already' }])
   })
@@ -617,7 +618,7 @@ describe('requests from the sandboxed window, executed by the bus outside it', (
       const { db } = made.bench
       appendEvent(db, { ts: new Date(Date.now() - STALE_MS).toISOString(), type: PR_OPENED, actor: 'worker:shift:1', cardId: CARD, pr: PR, head: null, dedupeKey: `${PR_OPENED}:${PR}`, payload: { pr: PR, lease_gen: 0 }, legacy: false })
       appendEvent(db, { ts: new Date().toISOString(), type: BUS_PULSE, actor: 'worker:netwatch:bus', cardId: null, pr: null, head: null, dedupeKey: `${BUS_PULSE}:drop`, payload: {}, legacy: false })
-      reduce(db)
+      reduce(db, 'pending', busProjections())
     }
 
     function stateOfCard(made: Room): unknown {
@@ -633,7 +634,7 @@ describe('requests from the sandboxed window, executed by the bus outside it', (
 
       expect(runRequest(['drop', '--card', String(CARD), '--reason', REASON], made.bench.db, made.bench.clock.now(), SESSION, () => {})).toBe(0)
       expect(made.requests().run()).toMatchObject([{ kind: 'done', detail: `${CARD_DROPPED} #${CARD}: ${REASON}` }])
-      reduce(made.bench.db)
+      reduce(made.bench.db, 'pending', busProjections())
 
       expect(stateOfCard(made)).toBe('dropped')
       expect(stalls()).toEqual([])
@@ -658,7 +659,7 @@ describe('requests from the sandboxed window, executed by the bus outside it', (
       inReviewWithNoBody(made)
       ask(made, { kind: 'drop', card: CARD, reason: REASON })
       made.requests().run()
-      reduce(made.bench.db)
+      reduce(made.bench.db, 'pending', busProjections())
       const again = ask(made, { kind: 'drop', card: CARD, reason: REASON })
       expect(made.requests().run()).toEqual([{ kind: 'refused', request: again, detail: `card #${CARD} is dropped; there is nothing to drop` }])
       expect(eventsOf(made.bench.db, CARD_DROPPED)).toHaveLength(1)
@@ -741,7 +742,7 @@ describe('requests from the sandboxed window, executed by the bus outside it', (
       ['refused', 'plan.opened needs a --title, a --goal and an absolute --file that exists'],
     ])
     expect(made.bench.db.prepare(`SELECT actor, count(*) AS n FROM events WHERE type IN ('plan.opened', 'card.planned', 'card.unplanned') GROUP BY actor`).all()).toEqual([{ actor: 'owner', n: 4 }])
-    expect(reduce(made.bench.db).rejected).toBe(0)
+    expect(reduce(made.bench.db, 'pending', busProjections()).rejected).toBe(0)
     expect(made.bench.db.prepare('SELECT plan_id, gate FROM plans').all()).toEqual([{ plan_id: 'p-045', gate: 'VEDETIRUN' }])
     expect(made.bench.db.prepare('SELECT card_id, release FROM card_releases').all()).toEqual([{ card_id: 901, release: 'p-045' }])
     expect(ownerInbox(made.bench.db)).toEqual([])
@@ -801,7 +802,7 @@ describe('requests from the sandboxed window, executed by the bus outside it', (
     expect(outcomes.map(outcome => [outcome.request, outcome.kind])).toEqual([[first, 'done'], [second, 'done']])
     expect(readFileSync(file, 'utf8')).toContain(`- D-2 · ${stampOf(made.bench.clock.now())} — [owner] allow-live witness for Q13 on card #1214. · card #1214 · decisions:add\n- D-3 · `)
     expect(answerOf(made, first).type).toBe(REQUEST_DONE)
-    reduce(made.bench.db)
+    reduce(made.bench.db, 'pending', busProjections())
     expect(inForceDecisions(made.bench.db)).toEqual([
       { decisionId: 2, text: 'allow-live witness for Q13 on card #1214.', cards: [1214] },
       { decisionId: 3, text: 'Q14: the second path.', cards: [] },
@@ -907,7 +908,7 @@ describe('requests from the sandboxed window, executed by the bus outside it', (
     expect(answerOf(made, request).type).toBe(REQUEST_DONE)
     expect(readFileSync(file, 'utf8')).toContain('- D-8 · ')
     expect(readdirSync(channelOf(made)).some(name => name.endsWith(USED_WORD))).toBe(true)
-    reduce(made.bench.db)
+    reduce(made.bench.db, 'pending', busProjections())
     expect(inForceDecisions(made.bench.db).map(decision => decision.decisionId)).toEqual([8])
   })
 

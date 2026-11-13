@@ -16,6 +16,7 @@ import { cardVerifiedClosings } from '../../nodes/close/task-close.js'
 import { busMerges } from '../../nodes/close/task-merged.js'
 import { GREEN } from '../../policy/policy.js'
 import { greenWitnesses, runEvidence } from '../../release/evidence.js'
+import { busProjections } from '../../supervisor/composition.js'
 import { NO_PROGRESS_MS, readBoard } from '../../window/board.js'
 import { sha } from './github-fake.js'
 
@@ -54,18 +55,18 @@ function startedCard(): Bench {
   const text = `card: ${line}\nbranch: feat/${CARD}\ntouches: scripts/${CARD}/**\nwho: shift\n\ndo ${CARD}\n`
   appendEvent(db, { ts: STARTED_AT, type: CARD_ADMITTED, actor: 'worker:intake:by-hand', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${CARD}`, payload: { card: line, lane: 'lane-1', depends: [], text, textSha: textSha(text) }, legacy: false })
   appendEvent(db, { ts: STARTED_AT, type: CARD_STARTED, actor: 'worker:launch:s1', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_STARTED}:${CARD}`, payload: { session: 's1', worktree: `/trees/${CARD}`, branch: `feat/${CARD}` }, legacy: false })
-  reduce(db)
+  reduce(db, 'pending', busProjections())
   return { db, busPath }
 }
 
 function observe(bench: Bench, head: string): void {
   appendEvent(bench.db, prObserved(STARTED_AT, { pr: PR, cardId: CARD, base: 'main', head, branch: `feat/${CARD}`, mergeable: 'clean', ciFields: { ci: 'green' }, verdictOnHead: null, autoMerge: false, draft: false, bodySha: sha('d') }, null))
-  reduce(bench.db)
+  reduce(bench.db, 'pending', busProjections())
 }
 
 function merge(bench: Bench): void {
   appendEvent(bench.db, prClosed(MERGED_AT, { pr: PR, cardId: CARD, branch: `feat/${CARD}`, merged: true, commit: COMMIT, mergedBy: 'bus', mergedAt: MERGED_AT }))
-  reduce(bench.db)
+  reduce(bench.db, 'pending', busProjections())
 }
 
 function mergedCard(): Bench {
@@ -83,7 +84,7 @@ function closeCard(bench: Bench): number {
   appendEvent(bench.db, { ts: CLOSED_AT, type: CARD_VERIFIED, actor: 'worker:close:s1', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_VERIFIED}:${CARD}`, payload: { verification: 'run' }, legacy: false })
   const verified = eventId(bench, CARD_VERIFIED)
   appendEvent(bench.db, { ts: CLOSED_AT, type: CARD_CLOSED, actor: 'worker:close:s1', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_CLOSED}:${CARD}`, payload: { verification: 'run' }, legacy: false })
-  reduce(bench.db)
+  reduce(bench.db, 'pending', busProjections())
   return verified
 }
 
@@ -92,7 +93,7 @@ function eventId(bench: Bench, type: string): number {
 }
 
 function stalled(bench: Bench): boolean {
-  return readBoard({ db: bench.db, now: BOARD_READ_AT, watched: [], leaseOrders: {} }).progress.stalled
+  return readBoard({ db: bench.db, now: BOARD_READ_AT, watched: [], leaseOrders: {}, projections: busProjections() }).progress.stalled
 }
 
 function verificationLine(bench: Bench): string {
@@ -149,7 +150,7 @@ describe('the end of a card with a pull request is its merge', () => {
     const bench = startedCard()
     observe(bench, HEAD)
     appendEvent(bench.db, prClosed(MERGED_AT, { pr: PR, cardId: CARD, merged: false, commit: null, mergedBy: null, mergedAt: null }))
-    reduce(bench.db)
+    reduce(bench.db, 'pending', busProjections())
 
     expect(readBusTasks(bench.busPath)).toEqual([])
     expect(cardChain(bench.db, CARD)?.proof).toBeNull()

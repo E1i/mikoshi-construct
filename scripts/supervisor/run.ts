@@ -1,6 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { Derived } from '../core/queue.js'
-import type { ReduceCount } from '../core/reducer.js'
+import type { Projections, ReduceCount } from '../core/reducer.js'
 import type { GitHub } from '../ports/github.js'
 import type { Poll } from '../ports/netwatch.js'
 import type { GitHubPost } from '../ports/pr-status.js'
@@ -27,6 +27,7 @@ import { OsProcessTable } from '../ports/process-table.js'
 import { realRequestTools } from '../window/window-request-tools.js'
 import { WindowRequests } from '../window/window-requests.js'
 import { alive, BUS_RUN_MARKERS, instancesOf, processBeatsOn, psList, RUN_SCRIPT } from './bg.js'
+import { busProjections } from './composition.js'
 import { sessionLifeIn } from './recorded-worker.js'
 import { StalledSessions } from './stalled-sessions.js'
 import { stampLogOutput } from './stamp.js'
@@ -160,7 +161,7 @@ function lastEventId(db: DatabaseSync): number {
 }
 
 export class BusTick {
-  constructor(private readonly db: DatabaseSync, private readonly netWatch: NetWatch, private readonly clock: () => Date, private readonly intake: () => void = () => {}, private readonly project: (now: Date) => void = () => {}, private readonly requests: () => void = () => {}, private readonly statuses: () => void = () => {}, private readonly stalled: () => void = () => {}) {}
+  constructor(private readonly db: DatabaseSync, private readonly projections: Projections, private readonly netWatch: NetWatch, private readonly clock: () => Date, private readonly intake: () => void = () => {}, private readonly project: (now: Date) => void = () => {}, private readonly requests: () => void = () => {}, private readonly statuses: () => void = () => {}, private readonly stalled: () => void = () => {}) {}
 
   run(): Tick | null {
     const poll = this.netWatch.poll()
@@ -169,11 +170,11 @@ export class BusTick {
     if (poll.kind !== 'ticked')
       return { poll, reduced: null, derived: null }
     this.intake()
-    const beforeRequests = reduce(this.db)
+    const beforeRequests = reduce(this.db, 'pending', this.projections)
     this.requests()
     const ts = this.clock().toISOString()
     const through = lastEventId(this.db)
-    const afterRequests = reduce(this.db)
+    const afterRequests = reduce(this.db, 'pending', this.projections)
     const reduced = { applied: beforeRequests.applied + afterRequests.applied, rejected: beforeRequests.rejected + afterRequests.rejected }
     appendEvent(this.db, { ts, type: REDUCED, actor: 'reducer', cardId: null, pr: null, head: null, dedupeKey: `${REDUCED}:${ts}`, payload: { through_event_id: through, ...reduced }, legacy: false })
     const derived = deriveQueues(this.db, ts)
@@ -212,8 +213,9 @@ export interface ComposedTick {
 }
 
 export function composeBusTick(db: DatabaseSync, busPath: string, gitHub: GitHub, post: GitHubPost, clock: () => Date, home: string): ComposedTick {
+  const projections = busProjections()
   const board = boardProjection(db, busPath, TICK_MS)
-  const requests = new WindowRequests(db, clock, realRequestTools(db, busPath, process.cwd(), process.env), ownerChannelOfBus(home, busPath))
+  const requests = new WindowRequests(db, clock, realRequestTools(db, busPath, process.cwd(), process.env, projections), ownerChannelOfBus(home, busPath))
   const answer = (): void => {
     for (const outcome of requests.run())
       console.log(`${PREFIX}${WINDOW_REQUEST} ${outcome.request} ${outcome.kind}: ${outcome.detail}`)
@@ -235,7 +237,7 @@ export function composeBusTick(db: DatabaseSync, busPath: string, gitHub: GitHub
     for (const line of silent.step())
       console.log(line)
   }
-  return { busTick: new BusTick(db, new NetWatch(db, gitHub, clock), clock, decisionsIntakeOfBus(db, busPath, clock), board.project, answer, statuses, stalled), boardFile: board.file, boardDataFile: board.dataFile }
+  return { busTick: new BusTick(db, projections, new NetWatch(db, gitHub, clock), clock, decisionsIntakeOfBus(db, busPath, clock), board.project, answer, statuses, stalled), boardFile: board.file, boardDataFile: board.dataFile }
 }
 
 export function startBus(db: DatabaseSync, clock: () => Date): string[] {

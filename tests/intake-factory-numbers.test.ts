@@ -10,6 +10,7 @@ import { openBus } from '../scripts/core/db.js'
 import { reduce } from '../scripts/core/reducer.js'
 import { busHeldCards, busIntakePorts } from '../scripts/intake/intake.js'
 import { RoundLimitRecutter } from '../scripts/nodes/review/pr-close.js'
+import { busProjections } from '../scripts/supervisor/composition.js'
 import { requestFromWindow, runRequest, WindowRequests } from '../scripts/window/window-requests.js'
 import { parkingFileText, parseParkingFile } from '../src/card/parking.js'
 import { admittedRecord, runIntake } from '../src/commands/intake/index.js'
@@ -48,7 +49,7 @@ function admitInto(db: DatabaseSync, cardId: number): void {
   if (parsed.kind === 'refused')
     throw new Error(parsed.reason)
   appendCardEvent(db, 'worker:intake:test', admittedRecord({ id: cardId, file: `${cardId}.md`, line: parsed.parked.task.card.line, who: parsed.parked.who, unclear: [], corrections: [], seam: [], risk: [], slices: [], text }, 'auto', NOW, null))
-  reduce(db)
+  reduce(db, 'pending', busProjections())
 }
 
 function factoryBus(root: string, name: string, cardId: number): DatabaseSync {
@@ -93,7 +94,7 @@ function requests(db: DatabaseSync): WindowRequests {
 function recordForeign(db: DatabaseSync, ids: readonly number[]): void {
   expect(runRequest(['numbers.foreign', '--ids', ids.join(',')], db, NOW, 'test', () => {})).toBe(0)
   expect(requests(db).run()).toMatchObject([{ kind: 'done' }])
-  reduce(db)
+  reduce(db, 'pending', busProjections())
 }
 
 function eventsOfType(db: DatabaseSync, type: string): { actor: string, payload: string }[] {
