@@ -106,7 +106,7 @@ const DRAWN: Readonly<Record<string, ModuleSpec>> = {
   'node-witness': node('witness'),
   'node-laws': undecided([factory('nodes/laws.ts')]),
   'events': decided(core('events.ts'), []),
-  'layout': undecided(core('factory-paths.ts', 'generated-files.ts')),
+  'layout': undecided(core('factory-paths.ts', 'generated-files.ts', 'declarations.ts')),
   'decisions': undecided([...core('inbox.ts', 'card-decisions.ts'), ...within(factory('policy'), 'live-decision.ts', `decisions${ANY_DEPTH}`), tree('owner')]),
   'rules': undecided([...within(factory('policy'), 'policy.ts', `morse${ANY_DEPTH}`, 'repeat-finding.ts', 'round-limit-decision.ts', 'shard.ts', 'shards.ts', `shredder${ANY_DEPTH}`, 'widening.ts', 'touch-scope.ts'), tree('morse'), ...core('push-policy.ts')]),
   'quality': undecided([...core('layer-map.ts', 'layer-map.json', 'verification.ts'), ...cli('check-catalog.ts', 'check-matrix.ts', 'mutate.ts', 'no-layer-recount.ts'), tree('ci'), tree('quality'), tree('privacy'), `src/commands/ci${ANY_DEPTH}`, `src/commands/mutate${ANY_DEPTH}`, 'src/commands/test-runner.ts', ...card('covering-tests')]),
