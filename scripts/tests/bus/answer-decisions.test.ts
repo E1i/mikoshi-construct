@@ -11,11 +11,13 @@ import { appendEvent } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_STARTED, CARD_STOPPED, DECISIONS_IMPORTED, OWNER_WAIT_OPENED, POLICY_DENIED, QUESTION_AGENT, QUESTION_OWNER } from '../../core/events.js'
 import { leaseNext } from '../../core/lease.js'
 import { NETWATCH } from '../../core/observations.js'
+import { reduce } from '../../core/reducer.js'
 import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
 import { answerSourceOf } from '../../nodes/answer/answer-source.js'
 import { claudeAnswerer, ownerQuestionPath, windowGateRule } from '../../nodes/answer/answerer.js'
 import { answerPrompt } from '../../nodes/answer/duties/index.js'
 import { recordDecision } from '../../policy/decisions/index.js'
+import { busProjections } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { sha } from './github-fake.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
@@ -96,6 +98,11 @@ function agentStop(bench: Bench): void {
 function decided(bench: Bench, decisionId: number, text: string, cards: number[]): void {
   recordDecision(bench.made.db, { ts: bench.ts(), decisionId, text, cards })
   bench.made.tick()
+}
+
+function openWaitsOf(bench: Bench): unknown[] {
+  reduce(bench.made.db, 'pending', busProjections())
+  return bench.made.db.prepare(`SELECT id FROM owner_waits WHERE card_id = ? AND state = 'open'`).all(CARD)
 }
 
 function leaseOf(): Lease {
@@ -200,7 +207,7 @@ describe('an owner decision bound to a card reaches its answer session', () => {
     expect(eventsOf(bench.made.db, OWNER_WAIT_OPENED)).toEqual([])
   })
 
-  it('a lapsed decision recorded after the stop does not deny the repeat', async () => {
+  it('a lapsed decision recorded after the stop does not deny the repeat, which stops on the wait still open', async () => {
     const bench = startedCard()
     await stoppedOnTheOwner(bench)
     decided(bench, 902, LAPSED_TEXT, [CARD])
@@ -210,10 +217,11 @@ describe('an owner decision bound to a card reaches its answer session', () => {
 
     expect(prompt).not.toContain(LAPSED_TEXT)
     expect(outcome).toMatchObject({ kind: 'stopped', reason: QUESTION_OWNER })
-    expect(eventsOf(bench.made.db, OWNER_WAIT_OPENED)).toHaveLength(waits + 1)
+    expect(eventsOf(bench.made.db, OWNER_WAIT_OPENED)).toHaveLength(waits)
+    expect(openWaitsOf(bench)).toHaveLength(1)
   })
 
-  it('a different question under a decision still opens a wait', async () => {
+  it('a different question under a decision stops for the owner on the wait the decision left open', async () => {
     const bench = startedCard()
     await stoppedOnTheOwner(bench)
     decided(bench, 901, BOUND_TEXT, [CARD])
@@ -222,7 +230,8 @@ describe('an owner decision bound to a card reaches its answer session', () => {
     const { outcome } = await bench.asks('may the card also drop a line of architecture/owner-merges.md?')
 
     expect(outcome).toMatchObject({ kind: 'stopped', reason: QUESTION_OWNER })
-    expect(eventsOf(bench.made.db, OWNER_WAIT_OPENED)).toHaveLength(waits + 1)
+    expect(eventsOf(bench.made.db, OWNER_WAIT_OPENED)).toHaveLength(waits)
+    expect(openWaitsOf(bench)).toHaveLength(1)
   })
 
   it('the same question with the decision recorded before the stop still opens a wait', async () => {

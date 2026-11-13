@@ -5,10 +5,8 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { openOwnerWait } from '../../core/db.js'
 import { ANSWER_SOURCE } from '../../core/inbox.js'
-import { LAST_EVENT_A_DECISION_CLOSES_WAITS_BY, reduce } from '../../core/reducer.js'
+import { reduce } from '../../core/reducer.js'
 import { consumeOwnerWord, consumeOwnerWordClosing, OWNER_WORD_TERM_MS, sayToOwnerChannel, USED_WORD } from '../../owner/channel.js'
-import { recordDecision } from '../../policy/decisions/index.js'
-import { cardDecisionCommand } from '../../policy/shards.js'
 import { busProjections } from '../../supervisor/composition.js'
 import { runRequest, WindowRequests } from '../../window/window-requests.js'
 import { mergeBench } from '../bus/merge-bench.js'
@@ -112,19 +110,5 @@ describe('a word of the owner is bound to one wait, used once, within its term',
     const later = new Date(open.made.clock.now().getTime() + OWNER_WORD_TERM_MS + HOUR_MS)
     expect(consumeOwnerWord(open.channel, move, later)).toBeNull()
     expect(consumeOwnerWord(open.channel, move, open.made.clock.now())).not.toBeNull()
-  })
-
-  it.each([
-    [false, 'closed'],
-    [true, 'open'],
-  ])('a decision past the cut-over (%s) leaves the wait its card scope names %s', (pastTheCutOver, state) => {
-    const open = room()
-    const wait = openOwnerWait(open.made.db, open.made.clock.now().toISOString(), 'policy', { need: 'decision', text: 'may it?', command: cardDecisionCommand(CARD), card: CARD })
-    reduce(open.made.db, 'pending', busProjections())
-    if (pastTheCutOver)
-      open.made.db.prepare(`INSERT INTO events (id, ts, type, actor, dedupe_key, payload, legacy) VALUES (?, NULL, 'cut-over', NULL, 'cut-over', '{}', 1)`).run(LAST_EVENT_A_DECISION_CLOSES_WAITS_BY)
-    recordDecision(open.made.db, { decisionId: 900, ts: open.made.clock.now().toISOString(), text: `[owner] ${wait}: it may`, cards: [CARD] })
-
-    expect(stateOf(open, wait)).toBe(state)
   })
 })

@@ -14,6 +14,8 @@ import { busProjections } from '../../supervisor/composition.js'
 
 const START = Date.parse('2026-11-03T12:00:00.000Z')
 const MINUTE = 60_000
+const SEEDED_EVENTS = 60
+const CUT_OVER_MARKER = 1
 
 const roots: string[] = []
 
@@ -52,7 +54,7 @@ function seededBus(root: string): string {
   const busPath = path.join(root, 'bus', BUS_FILE)
   mkdirSync(path.dirname(busPath), { recursive: true })
   const db = openBus(busPath)
-  for (let index = 0; index < 60; index++)
+  for (let index = 0; index < SEEDED_EVENTS; index++)
     appendEvent(db, { ts: new Date(START).toISOString(), type: `kind${index % 5}`, actor: 'policy', cardId: null, pr: null, head: null, dedupeKey: `seed:${index}`, payload: { index, text: 'x'.repeat(200) }, legacy: false })
   reduce(db, 'pending', busProjections())
   db.exec('PRAGMA wal_checkpoint(TRUNCATE)')
@@ -119,7 +121,7 @@ describe('the bus snapshot for external readers', () => {
     breakEventsIndex(busPath)
 
     await expect(publishSnapshot(busPath, file)).rejects.toThrow('the last good snapshot is kept')
-    expect(snapshotEvents(file)).toBe(60)
+    expect(snapshotEvents(file)).toBe(SEEDED_EVENTS + CUT_OVER_MARKER)
   })
 
   it('a missing sqlite3 shell is named as the dependency of the backup', async () => {

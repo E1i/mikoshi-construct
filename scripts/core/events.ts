@@ -33,6 +33,7 @@ export const CHECKS_MATRIX_EVENT = 'checks.matrix'
 export const COMMAND_EXECUTED = 'command.executed'
 export const DECISION_EXPIRED = 'decision.expired'
 export const DECISION_RECORDED = 'decision.recorded'
+export const DECISIONS_CUT_OVER = 'decisions.cut-over'
 export const DECISIONS_PROJECTED = 'decisions.projected'
 export const DECISIONS_IMPORTED = 'decisions.imported'
 export const FACTORY_MODE = 'factory.mode'
@@ -181,6 +182,7 @@ export const EVENT_PAYLOADS = {
   [COMMAND_EXECUTED]: ['command', 'endpoint', 'error', 'event_id', 'lease_gen', 'ok', 'run', 'runs', 'status', 'task_key', 'text'],
   [DECISION_EXPIRED]: ['decision_id', 'until'],
   [DECISION_RECORDED]: ['decision_id', 'scope', 'source', 'supersedes', 'text'],
+  [DECISIONS_CUT_OVER]: [],
   [DECISIONS_IMPORTED]: ['decisions', 'sha256'],
   [DECISIONS_PROJECTED]: [],
   [FACTORY_MODE]: ['mode', 'request'],
