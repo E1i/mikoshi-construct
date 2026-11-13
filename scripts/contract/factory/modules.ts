@@ -53,7 +53,7 @@ const SESSION_FILES = [
 const SESSION_CONTRACT = [...SESSION_FILES, ...supervisor('bg', 'heartbeat', 'liveness-sites', 'scheduler', 'stamp', 'supervisor', 'workers')]
 
 const CARD_MODEL = [...card('grammar', 'parking', 'task-file', 'risk', 'complexity'), ...intake('card-contract'), ...core('identifiers.ts')]
-const CARD_RECORD = [...core('card-bodies.ts', 'backfill-source.ts'), ...card('text-sha', 'witness-fields'), ...intake('admissions', 'card-archive', 'witness-fields-backfill'), ...cli('card.ts')]
+const CARD_RECORD = [...core('card-bodies.ts', 'backfill-source.ts'), ...card('text-sha', 'witness-fields'), ...intake('admissions', 'card-archive', 'witness-fields-backfill', 'slice-parent-backfill'), ...cli('card.ts')]
 const PLAN = [factory('window/plan-export.ts'), ...cli('card-chain.ts'), ...card('slice-depends')]
 const PORTS_ADAPTERS = within(factory('ports'), 'git.ts', 'disk.ts', 'prompt-store.ts', 'client/contract.ts', 'client/codex/adapter.ts')
 const PR_RECORD = [...review('pr-close', 'pr-reopen', 'pr-rerun', 'record-verdict', 'dry-run-record'), ...core('merge-event.ts')]

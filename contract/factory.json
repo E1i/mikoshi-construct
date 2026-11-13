@@ -3376,6 +3376,7 @@
           "scripts/intake/admissions.ts",
           "scripts/intake/card-archive.ts",
           "scripts/intake/witness-fields-backfill.ts",
+          "scripts/intake/slice-parent-backfill.ts",
           "scripts/cli/card.ts"
         ],
         "may_use": [
@@ -3391,6 +3392,7 @@
           "scripts/intake/admissions.ts",
           "scripts/intake/card-archive.ts",
           "scripts/intake/witness-fields-backfill.ts",
+          "scripts/intake/slice-parent-backfill.ts",
           "scripts/cli/card.ts"
         ],
         "status": "decided"
@@ -3477,6 +3479,7 @@
           "!scripts/intake/card-archive.ts",
           "!scripts/intake/card-contract.ts",
           "!scripts/intake/intake.ts",
+          "!scripts/intake/slice-parent-backfill.ts",
           "!scripts/intake/witness-fields-backfill.ts"
         ],
         "status": "undecided"
@@ -4821,9 +4824,7 @@
           "UNCLEAR_PREFIX",
           "WITNESSES_HEADING"
         ],
-        "functions": {
-          "parentsFromCardLines": "(rows: readonly CardLineRow[], among: readonly CardLineRow[]): TransferredParents"
-        },
+        "functions": {},
         "reexports": [],
         "types": {}
       },

@@ -47,9 +47,7 @@ export const IMPORT_PREFIX = 'import: '
 const DEFAULT_IMPLEMENT_DECISION = 'owner'
 const PROBE_DECISION = 'none'
 const DEFAULT_CONTINUE = 'stop'
-export const SLICE_NAME_INFIX = '-slice-'
-const SLICE_NAME = new RegExp(`^(.+)${SLICE_NAME_INFIX}(\\d+)$`)
-const CARD_LINE_HEAD = /#\d+\s+(\S+)/
+const SLICE_NAME_INFIX = '-slice-'
 
 function defaulted(card: DraftCard): { contour: string, decision: string, unclear: UnclearField[] } {
   const unclear = [...card.unclear]
@@ -241,45 +239,4 @@ export function cutSlices(cards: readonly CheckedCard[], sliced: readonly Sliced
 
 export function sliceParents(sliced: readonly SlicedCard[]): (SliceParent | null)[] {
   return sliced.flatMap(card => (card.slices.length === 0 ? [null] : card.slices.map((_, at) => ({ card: card.id, part: at + 1, of: card.slices.length }))))
-}
-
-export interface CardLineRow {
-  card: number
-  line: string
-}
-
-export interface TransferredParents {
-  cards: Record<string, SliceParent>
-  unread: number[]
-}
-
-interface NamedSlice {
-  card: number
-  base: string
-  part: number
-}
-
-function nameOnLine(line: string): string | null {
-  return CARD_LINE_HEAD.exec(line)?.[1] ?? null
-}
-
-function namedSlice(row: CardLineRow): NamedSlice | null {
-  const slice = SLICE_NAME.exec(nameOnLine(row.line) ?? '')
-  return slice === null ? null : { card: row.card, base: slice[1]!, part: Number(slice[2]) }
-}
-
-export function parentsFromCardLines(rows: readonly CardLineRow[], among: readonly CardLineRow[]): TransferredParents {
-  const siblings = among.flatMap(row => namedSlice(row) ?? [])
-  const transferred: TransferredParents = { cards: {}, unread: [] }
-  for (const slice of rows.flatMap(row => namedSlice(row) ?? [])) {
-    const group = siblings.filter(other => other.base === slice.base)
-    const parts = group.map(other => other.part)
-    if (parts.filter(part => part === slice.part).length > 1) {
-      transferred.unread.push(slice.card)
-      continue
-    }
-    const stub = among.find(row => nameOnLine(row.line) === slice.base)?.card
-    transferred.cards[String(slice.card)] = { card: stub ?? Math.min(...group.map(other => other.card)), part: slice.part, of: Math.max(new Set(parts).size, ...parts) }
-  }
-  return transferred
 }
