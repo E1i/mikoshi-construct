@@ -50,15 +50,10 @@ import { reportClosingOf } from './tree-pr.js'
 export { launchDirOf }
 
 export const LAUNCH_LIMIT_MINUTES = 600
-
 const LAUNCH_LIMIT_MS = LAUNCH_LIMIT_MINUTES * 60_000
-
 export const HEARTBEAT_SILENCE_MINUTES = 20
-
 const HEARTBEAT_SILENCE_MS = HEARTBEAT_SILENCE_MINUTES * 60_000
-
 const LEGACY_MERGE = 'merge'
-
 export type PidAlive = (pid: number) => boolean
 
 function recordedPidLivesIn(pid: number, pidAlive: PidAlive): boolean {
@@ -73,9 +68,7 @@ function ownerMovedSince(db: DatabaseSync, cardId: number, move: 'stop' | 'launc
 const LEGACY_PATH = 'path'
 export const LAUNCH_ON = [CARD_ADMITTED, CARD_STARTED, CARD_CLOSED, CARD_STOPPED, PR_CLOSED, PR_OBSERVED, PR_OPENED, LEGACY_MERGE, LEGACY_PATH, TASK_ENQUEUED, TASK_REQUEUED, TASK_COMPLETED, TASK_FAILED, TASK_SUPERSEDED, TASK_RELEASED, TASK_EXPIRED, MERGE_DONE, GHOST_ROW, REDUCED] as const
 export const LAUNCH_NODE: NodeDeclaration = { kind: 'launch', on: LAUNCH_ON, understands: UNDERSTOOD_NOW }
-
 export type LaunchStep = LaunchOutcome | WaitStep
-
 export const BODY_NOT_FOLDED = 'body_not_folded'
 
 export interface LaunchNodeParts extends Pick<NodeParts, 'silentMs'> {
@@ -108,10 +101,7 @@ export interface LaunchNodeParts extends Pick<NodeParts, 'silentMs'> {
   machine?: MachineSessions
 }
 
-export interface SessionStart {
-  cardId: number
-  ts: string
-}
+export interface SessionStart { cardId: number, ts: string }
 
 interface RunningStart {
   id: number
@@ -140,9 +130,7 @@ const OUT_OF_RUNNING_STARTS = latestStartsOf(`c.state NOT IN ('${RUNNING_CARD}',
     AND NOT EXISTS (SELECT 1 FROM events WHERE card_id = c.card_id AND id > e.id AND legacy = 0 AND type IN ('${CARD_STOPPED}', '${CARD_SESSION_ENDED}'))`)
 
 export const LAUNCH_START_MINUTES = 10
-
 const LAUNCH_START_MS = LAUNCH_START_MINUTES * 60_000
-
 export const LAUNCH_UNSTARTED = 'launch_unstarted'
 
 const UNSTARTED_LAUNCH_LEASES = `
@@ -169,34 +157,22 @@ interface LaunchTaskRow {
 }
 
 const STOPPED_SINCE = `SELECT 1 FROM events WHERE type = '${CARD_STOPPED}' AND legacy = 0 AND card_id = ? AND id > ? LIMIT 1`
-
 export const SESSION_DEATH_CAP = 3
-
 const SESSION_DEATHS = `SELECT count(*) AS n FROM events WHERE type = '${CARD_STOPPED}' AND legacy = 0 AND card_id = ? AND dedupe_key LIKE '${CARD_STOPPED}:session-end:%'`
-
 const USAGE_LIMIT_WAIT_PREFIX = `${CARD_WAITING}:${USAGE_LIMIT}:`
-
 const CONTINUATIONS = `SELECT count(*) AS n FROM events AS c WHERE c.type = '${CARD_CONTINUED}' AND c.legacy = 0 AND c.card_id = ?
   AND c.id > (SELECT coalesce(MAX(id), 0) FROM events WHERE type = '${CARD_STARTED}' AND legacy = 0 AND card_id = ?)
   AND NOT EXISTS (SELECT 1 FROM events AS w WHERE w.type = '${CARD_WAITING}' AND w.card_id = c.card_id
     AND w.dedupe_key = '${USAGE_LIMIT_WAIT_PREFIX}' || substr(c.dedupe_key, ${CARD_CONTINUED.length + 2}))`
 
 const USAGE_LIMIT_WAIT_OF_START = `SELECT payload FROM events WHERE type = '${CARD_WAITING}' AND card_id = ? AND dedupe_key = ? LIMIT 1`
-
 const LATEST_USAGE_LIMIT_WAIT = `SELECT payload FROM events WHERE type = '${CARD_WAITING}' AND legacy = 0 AND dedupe_key LIKE '${USAGE_LIMIT_WAIT_PREFIX}%' ORDER BY id DESC LIMIT 1`
-
 const PR_SINCE = `SELECT 1 FROM events WHERE card_id = ? AND id > ? AND type IN ('${PR_OPENED}', '${PR_OBSERVED}') LIMIT 1`
-
 const GHOST_ROW_SINCE = `SELECT 1 FROM events WHERE type = '${GHOST_ROW}' AND card_id = ? AND id > ? LIMIT 1`
-
 const VERIFIED_SINCE = `SELECT 1 FROM events WHERE type = '${CARD_VERIFIED}' AND legacy = 0 AND card_id = ? AND id > ? LIMIT 1`
-
 export const PULSE_MINUTES = 5
-
 const PULSE_MS = PULSE_MINUTES * 60_000
-
 const LAST_PULSE = `SELECT ts FROM events WHERE type = '${CARD_PULSE}' AND legacy = 0 AND card_id = ? AND id > ? ORDER BY id DESC LIMIT 1`
-
 export const SESSIONLESS_LADDER_STEP = 'launch'
 
 export function noPullRequestDetail(cardId: number, session: string, result: string | null): string {
@@ -204,30 +180,18 @@ export function noPullRequestDetail(cardId: number, session: string, result: str
 }
 
 export const PREPUSH_TIMEOUT = 'prepush-timeout'
-
 const PREPUSH = /\bpre-?push\b/i
 const TIMED_OUT = /\btim(?:ed|es)?[ -]?out\b|таймаут/i
-const WITNESS_NAMES = String.raw`(?:witness(?:es)?|W\d+(?:(?:\s*,\s*|\s+and\s+)W\d+)*)\s+(?:(?:are|is|all)\s+)?`
-const GREEN_WITNESSES = new RegExp(String.raw`\b${WITNESS_NAMES}(?:pass(?:es|ed)?|green)\b|свидетели\s+зел[её]н`, 'i')
-const RED_WITNESSES = new RegExp(String.raw`\b${WITNESS_NAMES}(?:fail(?:s|ed)?|red)\b|свидетели\s+красн`, 'i')
-const RESULT_LINE = /^result:(.*)$/m
+const WITNESSES_ARE = String.raw`\b(?:witness(?:es)?|W\d+(?:(?:\s*,\s*|\s+and\s+)W\d+)*)\s+(?:(?:are|is|all)\s+)?`
+const aboutThePrepushTimeout = (text: string): boolean => PREPUSH.test(text) && TIMED_OUT.test(text)
 
-export function prepushTimedOutOverGreenWitnesses(result: string | null): boolean {
-  return result !== null && PREPUSH.test(result) && TIMED_OUT.test(result) && GREEN_WITNESSES.test(result) && !RED_WITNESSES.test(result)
+export function prepushTimedOutOverGreenWitnesses(result: string): boolean {
+  return aboutThePrepushTimeout(result) && new RegExp(String.raw`${WITNESSES_ARE}(?:pass(?:es|ed)?|green)\b|свидетели\s+зел[её]н`, 'i').test(result) && !new RegExp(String.raw`${WITNESSES_ARE}(?:fail(?:s|ed)?|red)\b|свидетели\s+красн`, 'i').test(result)
 }
-
-function aboutThePrepushTimeout(question: string): boolean {
-  return PREPUSH.test(question) && TIMED_OUT.test(question)
-}
-
-const PREPUSH_RELAUNCHES = `SELECT count(*) AS n FROM events WHERE type = '${CARD_STOPPED}' AND legacy = 0 AND card_id = ? AND dedupe_key LIKE '${CARD_STOPPED}:${PREPUSH_TIMEOUT}:%'`
 
 export const NOT_A_REPOSITORY_PATH = 'not a repository path, dropped from the widen'
 
-export interface AskedPaths {
-  widen: string[]
-  dropped: string[]
-}
+export interface AskedPaths { widen: string[], dropped: string[] }
 
 export function isRepositoryPath(worktree: string, file: string): boolean {
   const root = path.resolve(worktree)
@@ -295,20 +259,12 @@ export function heldStopLine(cardId: number, held: HeldSessionStop): string {
 }
 
 const LATEST_ADMISSION = `SELECT payload FROM events WHERE type = '${CARD_ADMITTED}' AND legacy = 0 AND card_id = ? AND ${NOT_A_BACKFILL} ORDER BY id DESC LIMIT 1`
-
 export const AMENDED_AFTER_START = 'amended-after-start'
-
 export const WITHDRAWN_TO_CHEAP = 'withdrawn-to-cheap'
 
-interface BodyAmendRow {
-  started_text: string
-  amended_text: string
-}
+interface BodyAmendRow { started_text: string, amended_text: string }
 
-interface BodyAmend {
-  started: string
-  amended: string
-}
+interface BodyAmend { started: string, amended: string }
 
 const HEADER_PRIORITY = /^priority:/
 
@@ -612,8 +568,6 @@ export class LaunchNode extends Node<LaunchStep> {
       this.starters.ladder?.stop(card)
     if (this.sessionProcess(card) !== 'gone')
       return false
-    const admitted = this.db.prepare(LATEST_ADMISSION).get(start.card_id) as { payload: string }
-    const { lane, decision, contour, depends } = JSON.parse(admitted.payload) as Record<string, unknown>
     const detail = `${WITHDRAWN_TO_CHEAP}: card #${start.card_id} was moved to cheap; its ladder session ${card.session} at step ${card.step ?? '-'} is withdrawn and the card queues again on the cheap path`
     return inTransaction(this.db, () => {
       const ts = this.ts()
@@ -623,7 +577,7 @@ export class LaunchNode extends Node<LaunchStep> {
       const task = this.db.prepare(LAUNCH_TASK_OF_CARD).get(start.card_id) as LaunchTaskRow | undefined
       if (task?.state === COMPLETED)
         this.supersedeTheStoppedLaunch(ts, start.card_id, task)
-      appendEvent(this.db, { ts, type: CARD_ADMITTED, actor: this.actor, cardId: start.card_id, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${dedupe}`, payload: { lane, decision, contour, depends, admission: dedupe }, legacy: false })
+      this.readmit(ts, start.card_id, dedupe)
       return true
     })
   }
@@ -683,15 +637,24 @@ export class LaunchNode extends Node<LaunchStep> {
     return this.faultStop(this.ts(), start, `${CARD_STOPPED}:${cause}:${start.dedupe_key}`, `${cause}: ${detail}`)
   }
 
-  private faultStop(ts: string, start: RunningStart, dedupeKey: string, detail: string, code?: string): boolean {
+  private faultStop(ts: string, start: RunningStart, dedupeKey: string, detail: string, code?: string, alarm = true): boolean {
     const recorded = appendEvent(this.db, { ts, type: CARD_STOPPED, actor: this.actor, cardId: start.card_id, pr: null, head: null, dedupeKey, payload: { reason: 'fault', detail, ...(code === undefined ? {} : { code }) }, legacy: false })
     const task = this.db.prepare(LAUNCH_TASK_OF_CARD).get(start.card_id) as LaunchTaskRow | undefined
     if (!recorded || task === undefined)
       return recorded
     if (task.state === COMPLETED)
       this.supersedeTheStoppedLaunch(ts, start.card_id, task)
-    appendEvent(this.db, { ts, type: BOARD_ALARM, actor: this.actor, cardId: start.card_id, pr: null, head: null, dedupeKey: `${BOARD_ALARM}:${dedupeKey}`, payload: { task_key: task.task_key, reason: 'fault', detail }, legacy: false })
+    if (alarm)
+      appendEvent(this.db, { ts, type: BOARD_ALARM, actor: this.actor, cardId: start.card_id, pr: null, head: null, dedupeKey: `${BOARD_ALARM}:${dedupeKey}`, payload: { task_key: task.task_key, reason: 'fault', detail }, legacy: false })
     return recorded
+  }
+
+  private readmit(ts: string, cardId: number, admission: string): void {
+    const admitted = this.db.prepare(LATEST_ADMISSION).get(cardId) as { payload: string } | undefined
+    if (admitted === undefined)
+      return
+    const { lane, decision, contour, depends } = JSON.parse(admitted.payload) as Record<string, unknown>
+    appendEvent(this.db, { ts, type: CARD_ADMITTED, actor: this.actor, cardId, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${admission}`, payload: { lane, decision, contour, depends, admission }, legacy: false })
   }
 
   private supersedeTheStoppedLaunch(ts: string, cardId: number, task: LaunchTaskRow): void {
@@ -705,7 +668,7 @@ export class LaunchNode extends Node<LaunchStep> {
     const questions = reportedQuestions(this.launchParts.reportOf?.(session) ?? null)
     if (questions.length > 0 && questions.every(question => timeoutUnderLoadOutside(question, paths => pathsOutsideTheBody(this.db, start.card_id, paths.join('\n')))))
       return this.retryUnderLoad(start, card, session, questions)
-    const result = this.resultOf(session)
+    const result = this.launchParts.endedWith?.(session) ?? /^result:(.*)$/m.exec(this.launchParts.reportOf?.(session) ?? '')?.[1]?.trim() ?? null
     if (result !== null && prepushTimedOutOverGreenWitnesses(result) && questions.every(aboutThePrepushTimeout) && this.prepushRelaunchesOf(start) < SESSION_DEATH_CAP)
       return this.relaunchOnItsTree(start, card, result)
     if (questions.length > 0)
@@ -733,32 +696,19 @@ export class LaunchNode extends Node<LaunchStep> {
     return this.continueSession(start, card, continuer, detail)
   }
 
-  private resultOf(session: SessionStart): string | null {
-    return this.launchParts.endedWith?.(session) ?? RESULT_LINE.exec(this.launchParts.reportOf?.(session) ?? '')?.[1]?.trim() ?? null
-  }
-
   private prepushRelaunchesOf(start: RunningStart): number {
-    return Number((this.db.prepare(PREPUSH_RELAUNCHES).get(start.card_id) as { n: number }).n)
+    return new BusRead(this.db).where({ card: start.card_id }).slice(CARD_STOPPED, ['code']).filter(stop => stop.fields.code === PREPUSH_TIMEOUT).length
   }
 
   private relaunchOnItsTree(start: RunningStart, card: StartedCard, result: string): boolean {
-    const relaunch = this.prepushRelaunchesOf(start) + 1
-    const detail = `${PREPUSH_TIMEOUT}: card #${start.card_id} session ${card.session} ended with no pull request, its witnesses green and its prepush timed out (D-441(2)); its launch task is queued again on ${card.worktree} as it stands, relaunch ${relaunch} of ${SESSION_DEATH_CAP}: ${result}`
+    const detail = `${PREPUSH_TIMEOUT}: card #${start.card_id} session ${card.session} ended with no pull request, its witnesses green and its prepush timed out (D-441(2)); its launch task is queued again on ${card.worktree} as it stands, relaunch ${this.prepushRelaunchesOf(start) + 1} of ${SESSION_DEATH_CAP}: ${result}`
+    const admission = `${PREPUSH_TIMEOUT}:${start.dedupe_key}`
     return inTransaction(this.db, () => {
       const ts = this.ts()
-      const dedupeKey = `${CARD_STOPPED}:${PREPUSH_TIMEOUT}:${start.dedupe_key}`
-      if (!appendEvent(this.db, { ts, type: CARD_STOPPED, actor: this.actor, cardId: start.card_id, pr: null, head: null, dedupeKey, payload: { reason: 'fault', code: PREPUSH_TIMEOUT, detail }, legacy: false }))
-        return false
-      const task = this.db.prepare(LAUNCH_TASK_OF_CARD).get(start.card_id) as LaunchTaskRow | undefined
-      if (task?.state === COMPLETED)
-        this.supersedeTheStoppedLaunch(ts, start.card_id, task)
-      const admitted = this.db.prepare(LATEST_ADMISSION).get(start.card_id) as { payload: string } | undefined
-      if (admitted !== undefined) {
-        const { lane, decision, contour, depends } = JSON.parse(admitted.payload) as Record<string, unknown>
-        const admission = `${PREPUSH_TIMEOUT}:${start.dedupe_key}`
-        appendEvent(this.db, { ts, type: CARD_ADMITTED, actor: this.actor, cardId: start.card_id, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${admission}`, payload: { lane, decision, contour, depends, admission }, legacy: false })
-      }
-      return true
+      const stopped = this.faultStop(ts, start, `${CARD_STOPPED}:${admission}`, detail, PREPUSH_TIMEOUT, false)
+      if (stopped)
+        this.readmit(ts, start.card_id, admission)
+      return stopped
     })
   }
 
@@ -786,18 +736,14 @@ export class LaunchNode extends Node<LaunchStep> {
   }
 
   private stopDeadSession(start: RunningStart, card: StartedCard): boolean {
-    const admitted = this.db.prepare(LATEST_ADMISSION).get(start.card_id) as { payload: string } | undefined
     const deaths = Number((this.db.prepare(SESSION_DEATHS).get(start.card_id) as { n: number }).n) + 1
     const final = deaths >= SESSION_DEATH_CAP
     const ended = `session-end: card #${start.card_id} session ${card.session} ended with no pull request, commit or handoff`
     const detail = final ? `${ended}; session death ${deaths} of ${SESSION_DEATH_CAP} (D-104), the card is not queued again` : ended
     const ts = this.ts()
     const recorded = this.faultStop(ts, start, `${CARD_STOPPED}:session-end:${start.dedupe_key}`, detail)
-    if (recorded && !final && admitted !== undefined) {
-      const { lane, decision, contour, depends } = JSON.parse(admitted.payload) as Record<string, unknown>
-      const admission = `session-end:${start.dedupe_key}`
-      appendEvent(this.db, { ts, type: CARD_ADMITTED, actor: this.actor, cardId: start.card_id, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${admission}`, payload: { lane, decision, contour, depends, admission }, legacy: false })
-    }
+    if (recorded && !final)
+      this.readmit(ts, start.card_id, `session-end:${start.dedupe_key}`)
     return recorded
   }
 
