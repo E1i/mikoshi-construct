@@ -3,13 +3,15 @@ import type { RunJob } from '../../ci/test-weights.js'
 import { globSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { parse } from 'yaml'
 import config from '../../../vitest.config.js'
 import { balanceShards, MIN_WEIGHT, NO_DATA_WEIGHT, updateWeights, weightOf, weightsFromVitestReport } from '../../ci/shard.js'
-import { comparableSpreads, compareSpreads, MIN_RUNS_PER_SIDE, shardSpread, spreadLines, testSetOf } from '../../ci/test-weights.js'
+import { CI_SHARDS, comparableSpreads, compareSpreads, MAX_SHARD_IMBALANCE, MIN_RUNS_PER_SIDE, shardSpread, spreadLines, testSetOf } from '../../ci/test-weights.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..', '..')
 const committed = JSON.parse(readFileSync(path.join(REPO_ROOT, 'scripts/ci/test-weights.json'), 'utf8')) as TestWeights
-const CI_SHARDS = 4
+interface CiVitestJob { name: string, strategy: { matrix: { shard: number[] } }, steps: { run?: string }[] }
+const ciVitestJob = (): CiVitestJob => (parse(readFileSync(path.join(REPO_ROOT, '.github/workflows/ci.yml'), 'utf8')) as { jobs: { vitest: CiVitestJob } }).jobs.vitest
 
 const total = (files: string[], weights: TestWeights) => files.reduce((sum, file) => sum + weightOf(file, weights), 0)
 const fullTestSet = (): string[] => globSync(config.test!.include!, { cwd: REPO_ROOT, exclude: config.test!.exclude! }).sort()
@@ -21,6 +23,19 @@ describe('the shards CI runs', () => {
     const assigned = balanceShards(files, committed, CI_SHARDS).flat()
     expect(assigned).toHaveLength(new Set(assigned).size)
     expect([...assigned].sort()).toEqual(files)
+  })
+
+  it('the shard count in ci.yml equals the shard count of the weights table', () => {
+    const job = ciVitestJob()
+    expect(CI_SHARDS).toBe(8)
+    expect(job.strategy.matrix.shard).toEqual(Array.from({ length: CI_SHARDS }, (_, at) => at + 1))
+    expect(job.name).toBe(`vitest \${{ matrix.shard }}/${CI_SHARDS}`)
+    expect(job.steps.filter(step => step.run?.includes('--shard=')).map(step => /--shard=[^/]*\/(\d+)/.exec(step.run!)?.[1])).toEqual([String(CI_SHARDS)])
+  })
+
+  it('the committed weights split the full set into shards whose longest is within the allowed imbalance of the shortest', () => {
+    const totals = balanceShards(fullTestSet(), committed, CI_SHARDS).map(shard => total(shard, committed))
+    expect(Math.max(...totals)).toBeLessThanOrEqual(Math.min(...totals) * (1 + MAX_SHARD_IMBALANCE))
   })
 
   it('the committed table weighs no file at zero', () => {
