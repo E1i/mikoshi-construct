@@ -7,6 +7,7 @@ import { MERGE_DONE, POLICY_DENIED, REVIEW_RECORDED } from '../../core/events.js
 import { NEEDS_UPDATE } from '../../core/queue.js'
 import { MergeNode } from '../../nodes/merge/merge-worker.js'
 import { UpdateNode } from '../../nodes/update/update-worker.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { cardBody, MAIN_2, REPO, sha } from './github-fake.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
 
@@ -53,9 +54,9 @@ async function once(node: MergeNode | UpdateNode): Promise<void> {
 }
 
 async function mergeAndUpdate(made: MergeBench): Promise<string[]> {
-  const parts: MergeNodeParts = { db: made.db, gitHub: made.gitHub.client, put: made.gitHub.put, publish: made.gitHub.publish, clock: made.clock.now, session: 'node-1', run: null, mode: 'live', env: BY_LAYERS }
+  const parts: MergeNodeParts = { silentMs: SILENT_MS, db: made.db, gitHub: made.gitHub.client, put: made.gitHub.put, publish: made.gitHub.publish, clock: made.clock.now, session: 'node-1', run: null, mode: 'live', env: BY_LAYERS }
   const merge = new MergeNode(parts)
-  const update = new UpdateNode({ db: made.db, gitHub: made.gitHub.client, put: made.gitHub.put, publish: made.gitHub.publish, clock: made.clock.now, settle: () => {}, session: 'node-2', mode: 'live', env: BY_LAYERS })
+  const update = new UpdateNode({ silentMs: SILENT_MS, db: made.db, gitHub: made.gitHub.client, put: made.gitHub.put, publish: made.gitHub.publish, clock: made.clock.now, settle: () => {}, session: 'node-2', mode: 'live', env: BY_LAYERS })
   for (let round = 0; round < 2; round += 1) {
     await once(merge)
     await once(update)

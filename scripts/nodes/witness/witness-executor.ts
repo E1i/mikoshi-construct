@@ -77,6 +77,7 @@ export interface WitnessTrees {
 export interface WitnessParts {
   db: DatabaseSync
   clock: () => Date
+  silentMs: number
   trees: WitnessTrees
   shell: TimedShell
   log: (line: string) => void
@@ -366,7 +367,7 @@ export class WitnessExecutor {
   }
 
   private unrun(lease: Lease, detail: string): WitnessOutcome {
-    const next = failTask(this.parts.db, this.ts(), lease, { reason: WITNESS_UNRUN, withdraw: false })
+    const next = failTask(this.parts.db, this.ts(), lease, { reason: WITNESS_UNRUN, withdraw: false }, this.parts.silentMs)
     return { kind: 'denied', taskKey: lease.taskKey, denial: { kind: 'technical', reason: WITNESS_UNRUN, detail }, next }
   }
 

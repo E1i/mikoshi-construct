@@ -19,6 +19,7 @@ import { sayToOwnerChannel, USED_WORD } from '../../owner/channel.js'
 import { mergePolicy } from '../../policy/policy.js'
 import { cardDecisionCommand } from '../../policy/shards.js'
 import { busProjections } from '../../supervisor/composition.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { requestFromWindow, requestOf, WindowRequests } from '../../window/window-requests.js'
 import { cardBody, sha } from './github-fake.js'
 import { mergeBench } from './merge-bench.js'
@@ -151,7 +152,7 @@ describe('no silent waits: window requests, the owner channel, the answer node a
     const made = cardWithAQueuedAnswer()
     expect(request(made, ['hold', '--card', String(CARD), '--reason', HOLD_REASON]).kind).toBe('done')
     const lease = leaseNext(made.db, made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1')!
-    failTask(made.db, made.clock.now().toISOString(), lease, { reason: 'held_for_owner', withdraw: true })
+    failTask(made.db, made.clock.now().toISOString(), lease, { reason: 'held_for_owner', withdraw: true }, SILENT_MS)
 
     const takenOver = request(made, ['takeover', '--card', String(CARD), '--reason', TAKEOVER_REASON])
     expect(takenOver).toMatchObject({ kind: 'done' })

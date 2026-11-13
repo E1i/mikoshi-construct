@@ -17,6 +17,7 @@ import { RestartExecutor } from '../../nodes/restart/restart-executor.js'
 import { launchSwitchedOn, restartStepLine, RestartWorker, runRestartWorker } from '../../nodes/restart/restart-worker.js'
 import { observeRoleStop } from '../../nodes/restart/role.js'
 import { busProjections } from '../../supervisor/composition.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { switchWorker } from '../../supervisor/workers.js'
 import { MIKO_HANDOFF_NAME } from '../../window/loop.js'
 import { requestFromWindow } from '../../window/window-requests.js'
@@ -45,12 +46,12 @@ function restartBench() {
     signalGroup: leader => signalled.push(leader),
   }
   const launchSwitchedOn = (): boolean => launchOn()
-  const executor = new RestartExecutor({ db: bench.db, processes, launchSwitchedOn, clock: bench.clock.now })
+  const executor = new RestartExecutor({ silentMs: SILENT_MS, db: bench.db, processes, launchSwitchedOn, clock: bench.clock.now })
   return {
     ...bench,
     signalled,
     processes,
-    worker: (session = 'worker-1') => new RestartWorker({ db: bench.db, processes, launchSwitchedOn, clock: bench.clock.now, session }),
+    worker: (session = 'worker-1') => new RestartWorker({ silentMs: SILENT_MS, db: bench.db, processes, launchSwitchedOn, clock: bench.clock.now, session }),
     die: (pid: number): void => {
       dead.add(pid)
     },
@@ -138,7 +139,7 @@ describe('the restart queue', () => {
     bench.tick()
     const old = bench.leaseRestart('worker:restart:old')!
     bench.clock.advance(LEASE_MS + 1)
-    expect(expireLeases(bench.db, bench.clock.now().toISOString())).toEqual([restart()])
+    expect(expireLeases(bench.db, bench.clock.now().toISOString(), SILENT_MS)).toEqual([restart()])
     const current = bench.leaseRestart('worker:restart:new')!
     expect([old.leaseGen, current.leaseGen]).toEqual([1, 2])
 

@@ -17,6 +17,7 @@ import { GREEN, RED, UNCHECKED, witnessDenial, witnessRecordOf, witnessSubjectOf
 import { SetupTurns, withWorktreeAsync } from '../../ports/worktree.js'
 import { greenWitnesses } from '../../release/evidence.js'
 import { busProjections } from '../../supervisor/composition.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 
 const CARD = 1698
 const PR = 2698
@@ -114,7 +115,7 @@ async function answeringButFailing(): Promise<World> {
 async function witnessRun(w: World): Promise<void> {
   const turns = new SetupTurns()
   const trees = { baseOf: async () => w.base, withTree: <T>(base: string, run: (tree: string) => Promise<T>) => withWorktreeAsync(w.repo, base, run, turns) }
-  const node = new WitnessNode({ db: w.db, clock: () => new Date(NOW), session: 'witness-1', mode: 'live', env: {}, shell: realTimedShell, trees })
+  const node = new WitnessNode({ silentMs: SILENT_MS, db: w.db, clock: () => new Date(NOW), session: 'witness-1', mode: 'live', env: {}, shell: realTimedShell, trees })
   for (let round = 0; round < 2; round += 1) {
     const controller = new AbortController()
     await node.run({ pause: async () => controller.abort(), signal: controller.signal })

@@ -5,6 +5,7 @@ import { appendEvent } from '../../core/db.js'
 import { MERGE_DONE, REVIEW_RECORDED, TASK_LEASED, TASK_RELEASED, UPDATE_DONE } from '../../core/events.js'
 import { AN_UPDATED_PR_HOLDS_MS, NEEDS_UPDATE, updateCandidates, updateTurnHeldUntil } from '../../core/queue.js'
 import { MergeNode } from '../../nodes/merge/merge-worker.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { cardBody, MAIN_2, REPO, sha } from './github-fake.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
 
@@ -43,7 +44,7 @@ function inversion() {
   made.gitHub.pulls.get(HOLDER)!.required = 'pending'
   made.tick()
   updateDone(made, HOLDER, HEAD_OF_THE_HOLDER)
-  const node = new MergeNode({ db: made.db, gitHub: made.gitHub.client, put: made.gitHub.put, publish: made.gitHub.publish, clock: made.clock.now, session: 'node-1', run: null, mode: 'live', env: { [RERUN_VARIABLE]: 'by-layers' }, rebuildCatalog: () => {} })
+  const node = new MergeNode({ silentMs: SILENT_MS, db: made.db, gitHub: made.gitHub.client, put: made.gitHub.put, publish: made.gitHub.publish, clock: made.clock.now, session: 'node-1', run: null, mode: 'live', env: { [RERUN_VARIABLE]: 'by-layers' }, rebuildCatalog: () => {} })
   const holderTurnsGreen = (): void => {
     made.gitHub.pulls.get(HOLDER)!.required = 'success'
     made.tick()

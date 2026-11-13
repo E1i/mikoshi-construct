@@ -87,6 +87,7 @@ export interface NodeParts {
   session: string
   mode: DetectionMode
   env: NodeJS.ProcessEnv
+  silentMs: number
   self?: HolderStart
 }
 
@@ -310,7 +311,7 @@ export abstract class Node<S extends NodeStep> {
     if (refusal === null)
       return false
     const stopped: BusEvent = { ts, type: CARD_STOPPED, actor: this.actor, cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${CARD_STOPPED}:${FOREIGN_CARD}:${lease.taskKey}`, payload: { reason: FOREIGN_CARD_STOP, detail: refusal }, legacy: false }
-    failTask(this.db, ts, lease, { reason: refusal, withdraw: true }, [stopped])
+    failTask(this.db, ts, lease, { reason: refusal, withdraw: true }, this.parts.silentMs, [stopped])
     return true
   }
 
@@ -473,7 +474,7 @@ export abstract class Node<S extends NodeStep> {
     if (!this.executes() || !this.startRecorded)
       return null
     const ts = this.ts()
-    expireLeases(this.db, ts)
+    expireLeases(this.db, ts, this.parts.silentMs)
     if (drainOpen(this.db, ts, this.kind, this.codeSha))
       return null
     const lease = leaseNext(this.db, ts, this.kind, this.actor, this.leaseOrder())

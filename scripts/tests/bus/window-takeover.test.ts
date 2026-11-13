@@ -16,6 +16,7 @@ import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
 import { ownerHoldOf } from '../../nodes/answer/answer-source.js'
 import { claudeAnswerer } from '../../nodes/answer/answerer.js'
 import { recordDecision } from '../../policy/decisions/index.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { STARTER_ACTOR } from '../../window/window-prs.js'
 import { requestFromWindow, requestOf, TAKEOVER_AFTER_MINUTES, WindowRequests } from '../../window/window-requests.js'
 import { sha } from './github-fake.js'
@@ -129,7 +130,7 @@ function answerExecutor({ made, trees }: Card): AnswerExecutor {
     },
     pending: () => [TOUCHED],
   })
-  return new AnswerExecutor({ db: made.db, answerer, ownerMerges: () => '', clock: made.clock.now, trees: cardTrees, dirty: () => false, liveSession: () => null })
+  return new AnswerExecutor({ silentMs: SILENT_MS, db: made.db, answerer, ownerMerges: () => '', clock: made.clock.now, trees: cardTrees, dirty: () => false, liveSession: () => null })
 }
 
 describe('a window takeover of a card the bus has no route for', () => {
@@ -179,7 +180,7 @@ describe('a window takeover of a card the bus has no route for', () => {
     prOpened(made)
     made.gitHub.open({ number: PR_OF_THE_CARD, required: 'failure', failed: ['required'] })
     made.tick()
-    failTask(made.db, made.clock.now().toISOString(), leaseAnswer(made), { reason: 'held_for_owner', withdraw: true })
+    failTask(made.db, made.clock.now().toISOString(), leaseAnswer(made), { reason: 'held_for_owner', withdraw: true }, SILENT_MS)
     expect(answerStatesOf(made)).toEqual(['withdrawn'])
 
     expect(takeover(made)).toMatchObject({ kind: 'refused', detail: expect.stringContaining(`under the ${TAKEOVER_AFTER_MINUTES}`) as unknown })
@@ -219,7 +220,7 @@ describe('a window takeover of a card the bus has no route for', () => {
   it('a takeover release leaves an answer withdrawn before the takeover opened withdrawn', () => {
     const { made } = agentStoppedCard()
     made.tick()
-    failTask(made.db, made.clock.now().toISOString(), leaseAnswer(made), { reason: 'held_for_owner', withdraw: true })
+    failTask(made.db, made.clock.now().toISOString(), leaseAnswer(made), { reason: 'held_for_owner', withdraw: true }, SILENT_MS)
     made.clock.advance(TAKEOVER_AFTER_MINUTES * MINUTE)
     expect(takeover(made)).toMatchObject({ kind: 'done' })
 
@@ -233,7 +234,7 @@ describe('a window takeover of a card the bus has no route for', () => {
     made.clock.advance(TAKEOVER_AFTER_MINUTES * MINUTE)
     expect(takeover(made)).toMatchObject({ kind: 'done' })
     made.tick()
-    failTask(made.db, made.clock.now().toISOString(), leaseAnswer(made), { reason: 'nothing_to_answer', withdraw: true })
+    failTask(made.db, made.clock.now().toISOString(), leaseAnswer(made), { reason: 'nothing_to_answer', withdraw: true }, SILENT_MS)
 
     expect(request(made, ['release', '--card', String(CARD)]).detail).not.toContain('queued again')
 

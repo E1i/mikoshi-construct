@@ -68,6 +68,7 @@ export interface ExecutorParts {
   publish: StatusPublisher
   clock: () => Date
   run: string | null
+  silentMs: number
   rerun?: RerunMode
   pushPolicy?: () => PushPolicy
 }
@@ -446,7 +447,7 @@ export class MergeExecutor {
     const waits = denial.kind === 'technical' && WAIT_REASONS.has(denial.reason)
     const event: BusEvent = { ts, type: POLICY_DENIED, actor: 'policy', cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${POLICY_DENIED}:${lease.taskKey}:${lease.leaseGen}`, payload: { command: 'merge', ...denial, ...(waits || parked ? {} : { refused: true }) }, legacy: false }
     if (parked)
-      return { kind: 'denied', taskKey: lease.taskKey, denial, next: failTask(this.parts.db, ts, lease, { reason, withdraw: true }, [event]) }
+      return { kind: 'denied', taskKey: lease.taskKey, denial, next: failTask(this.parts.db, ts, lease, { reason, withdraw: true }, this.parts.silentMs, [event]) }
     if (waits) {
       const until = reason === HELD_FOR_OWNER || reason === HEAD_OUTSIDE_TOUCHES ? new Date(this.parts.clock().getTime() + HOLD_RECHECK_MS).toISOString() : reason === NEEDS_UPDATE ? mergeSentToUpdateWaitsUntil(this.parts.db, ts, lease.pr!) : null
       if (until === null)
@@ -455,7 +456,7 @@ export class MergeExecutor {
         waitTask(this.parts.db, ts, lease, { reason, until }, [event])
       return { kind: 'denied', taskKey: lease.taskKey, denial, next: 'queued' }
     }
-    const next = failTask(this.parts.db, ts, lease, { reason, withdraw: denial.kind === 'authority' || reason === 'not_mine' || reason === WITNESS_REASON || reason === KEPT_BY_PUSH_POLICY }, [event])
+    const next = failTask(this.parts.db, ts, lease, { reason, withdraw: denial.kind === 'authority' || reason === 'not_mine' || reason === WITNESS_REASON || reason === KEPT_BY_PUSH_POLICY }, this.parts.silentMs, [event])
     this.askTheOwnerToMerge(lease, denial)
     this.alarmOnTheBody(lease, denial)
     return { kind: 'denied', taskKey: lease.taskKey, denial, next }

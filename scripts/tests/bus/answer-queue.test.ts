@@ -31,6 +31,7 @@ import { recordDecision } from '../../policy/decisions/index.js'
 import { cardDecisionCommand, cardDecisionLines } from '../../policy/shards.js'
 import { transcriptFile } from '../../ports/client/claude/adapter.js'
 import { busProjections } from '../../supervisor/composition.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { readBoard } from '../../window/board.js'
 import { sha } from './github-fake.js'
 import { eventCount, eventsOf, mergeBench, taskState } from './merge-bench.js'
@@ -92,7 +93,7 @@ function answerBench(storesPrompts = false) {
       tools.published.push({ branch: card.branch, commitMessage })
     },
   })
-  const executor = new AnswerExecutor({ db: bench.db, answerer, ownerMerges: () => OWNER_MERGES, clock: bench.clock.now, trees: cardTrees, treeMerge: () => tools.merge, ...(storesPrompts ? { prompts: path.join(trees, 'prompts') } : {}) })
+  const executor = new AnswerExecutor({ silentMs: SILENT_MS, db: bench.db, answerer, ownerMerges: () => OWNER_MERGES, clock: bench.clock.now, trees: cardTrees, treeMerge: () => tools.merge, ...(storesPrompts ? { prompts: path.join(trees, 'prompts') } : {}) })
   const ts = (): string => bench.clock.now().toISOString()
   return {
     ...bench,
@@ -260,7 +261,7 @@ describe('the answer queue', () => {
       return { session: CARD_SESSION, resumed: true, before: sha('a'), after: PUSHED, owner: null }
     })
     const trees: CardTreeTools = { home: bench.home, exists: existsSync, branchOf: pr => `feat/card-${pr + 100}`, recreate: () => {}, bringTo: () => {} }
-    const node = new AnswerNode({ db: bench.db, answerer, ownerMerges: () => OWNER_MERGES, clock: bench.clock.now, session: 'node-1', cardText: () => null, mode: 'live', env: {}, trees })
+    const node = new AnswerNode({ silentMs: SILENT_MS, db: bench.db, answerer, ownerMerges: () => OWNER_MERGES, clock: bench.clock.now, session: 'node-1', cardText: () => null, mode: 'live', env: {}, trees })
     const once = async (): Promise<void> => {
       const controller = new AbortController()
       await node.run({ pause: async () => controller.abort(), signal: controller.signal })
@@ -956,7 +957,7 @@ describe('the answer queue', () => {
     bench.tick()
     const old = bench.leaseAnswer('worker:answer:old')!
     bench.clock.advance(LEASE_MS + 1)
-    expect(expireLeases(bench.db, bench.clock.now().toISOString())).toEqual([answer(1096, 996, sha('a'))])
+    expect(expireLeases(bench.db, bench.clock.now().toISOString(), SILENT_MS)).toEqual([answer(1096, 996, sha('a'))])
     const current = bench.leaseAnswer('worker:answer:new')!
     expect([old.leaseGen, current.leaseGen]).toEqual([1, 2])
 
@@ -967,7 +968,7 @@ describe('the answer queue', () => {
 
     bench.tools.during = () => {
       bench.clock.advance(LEASE_MS + 1)
-      expireLeases(bench.db, bench.clock.now().toISOString())
+      expireLeases(bench.db, bench.clock.now().toISOString(), SILENT_MS)
       bench.leaseAnswer('worker:answer:third')
     }
     const during = eventCount(bench.db)
@@ -1395,7 +1396,7 @@ describe('the card tree of every start path', () => {
     bench.tick()
     const stopOn = (reason: string): void => {
       for (let failure = 0; failure < FAILURES_TO_STOP; failure++)
-        failTask(bench.db, bench.clock.now().toISOString(), bench.leaseAnswer()!, { reason, withdraw: false })
+        failTask(bench.db, bench.clock.now().toISOString(), bench.leaseAnswer()!, { reason, withdraw: false }, SILENT_MS)
     }
     stopOn('no_card_tree')
     stopOn('answer_failed')

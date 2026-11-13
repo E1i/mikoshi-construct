@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { leaseNext } from '../../core/lease.js'
 import { deriveQueues } from '../../core/queue.js'
 import { UpdateExecutor } from '../../nodes/update/update-executor.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { cardBody, sha } from './github-fake.js'
 import { liveBench } from './merge-bench.js'
 import { detectUpdate } from './update-detection.js'
@@ -27,7 +28,7 @@ afterEach(() => {
 function updatedPullRequest(): MergeBench {
   const bench = liveBench()
   benches.push(bench)
-  const executor = new UpdateExecutor({ db: bench.db, gitHub: bench.gitHub.client, put: bench.gitHub.put, publish: bench.gitHub.publish, clock: bench.clock.now, settle: () => {} })
+  const executor = new UpdateExecutor({ silentMs: SILENT_MS, db: bench.db, gitHub: bench.gitHub.client, put: bench.gitHub.put, publish: bench.gitHub.publish, clock: bench.clock.now, settle: () => {} })
   bench.gitHub.open({ number: PR, head: BEHIND_HEAD, review: 'success', mergeable_state: 'behind', files: ['scripts/a.ts'], body: cardBody(CARD) })
   bench.tick()
   detectUpdate(bench)

@@ -1,7 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { BusEvent } from './db.js'
 import type { Queue, TaskIdentity } from './identifiers.js'
-import { SILENT_MS } from '../supervisor/liveness-sites.js'
 import { appendedOnCard } from './card-automaton.js'
 import { appendEvent, inTransaction } from './db.js'
 import { BOARD_ALARM, CARD_STOPPED, LEASES_DRAINING, RESTARTED, SESSION_HEARTBEAT, TASK_COMPLETED, TASK_EXPIRED, TASK_FAILED, TASK_LEASED, TASK_RELEASED, TASK_RENEWED, TASK_SUPERSEDED, WORKER_RETIRING, WORKER_STARTED } from './events.js'
@@ -245,12 +244,12 @@ function afterFailure(row: LeaseRow, failure: Failure, uncounted: boolean): Afte
   return !uncounted && row.failures + 1 >= FAILURES_TO_STOP ? STOPPED : QUEUED
 }
 
-function freshBeatUntil(db: DatabaseSync, ts: string, row: LeaseRow): string | null {
+function freshBeatUntil(db: DatabaseSync, ts: string, row: LeaseRow, silentMs: number): string | null {
   const cardSessionBeats = QUEUES_THAT_RUN_A_CARD_SESSION.has(row.queue) ? 1 : 0
   const beat = (db.prepare(LAST_BEAT_OF_THE_TASK).get(row.card_id, row.task_key, cardSessionBeats) as { ts: string | null }).ts
   if (beat === null)
     return null
-  const until = new Date(Date.parse(beat) + SILENT_MS).toISOString()
+  const until = new Date(Date.parse(beat) + silentMs).toISOString()
   return until > ts ? until : null
 }
 
@@ -265,10 +264,10 @@ export function waitTask(db: DatabaseSync, ts: string, lease: Lease, wait: Wait,
   return inTransaction(db, () => waited(db, ts, lease.actor, held(db, lease), wait, context))
 }
 
-function failed(db: DatabaseSync, ts: string, type: string, actor: string, row: LeaseRow, failure: Failure, context: BusEvent[]): AfterFailure {
+function failed(db: DatabaseSync, ts: string, type: string, actor: string, row: LeaseRow, failure: Failure, silentMs: number, context: BusEvent[]): AfterFailure {
   const uncounted = waitsForTheHead(db, row, failure)
   const next = afterFailure(row, failure, uncounted)
-  const beating = next === STOPPED ? freshBeatUntil(db, ts, row) : null
+  const beating = next === STOPPED ? freshBeatUntil(db, ts, row, silentMs) : null
   if (beating !== null)
     return waited(db, ts, actor, row, { reason: failure.reason, until: beating }, context)
   for (const event of context)
@@ -292,13 +291,13 @@ function retryAfterIn(ts: string, context: readonly BusEvent[]): string | null {
   return null
 }
 
-export function failTask(db: DatabaseSync, ts: string, lease: Lease, failure: Failure, context: BusEvent[] = []): AfterFailure {
+export function failTask(db: DatabaseSync, ts: string, lease: Lease, failure: Failure, silentMs: number, context: BusEvent[] = []): AfterFailure {
   if (failure.reason === STALE_HEAD && !failure.withdraw)
     return supersedeLease(db, ts, lease, context)
   const rateLimitedUntil = failure.withdraw ? null : retryAfterIn(ts, context)
   if (rateLimitedUntil !== null)
     return waitTask(db, ts, lease, { reason: failure.reason, until: rateLimitedUntil }, context)
-  return inTransaction(db, () => failed(db, ts, TASK_FAILED, lease.actor, held(db, lease), failure, context))
+  return inTransaction(db, () => failed(db, ts, TASK_FAILED, lease.actor, held(db, lease), failure, silentMs, context))
 }
 
 export function releaseTask(db: DatabaseSync, ts: string, lease: Lease, reason: string, context: BusEvent[] = []): void {
@@ -320,14 +319,14 @@ export function supersedeLease(db: DatabaseSync, ts: string, lease: Lease, conte
   })
 }
 
-function expired(db: DatabaseSync, ts: string, rows: LeaseRow[], reason: string): string[] {
+function expired(db: DatabaseSync, ts: string, rows: LeaseRow[], reason: string, silentMs: number): string[] {
   for (const row of rows)
-    failed(db, ts, TASK_EXPIRED, QUEUE_ACTOR, row, { reason, withdraw: false }, [])
+    failed(db, ts, TASK_EXPIRED, QUEUE_ACTOR, row, { reason, withdraw: false }, silentMs, [])
   return rows.map(row => row.task_key)
 }
 
-export function expireLeases(db: DatabaseSync, ts: string): string[] {
-  return inTransaction(db, () => expired(db, ts, db.prepare(LAPSED).all(ts) as unknown as LeaseRow[], LEASE_EXPIRED))
+export function expireLeases(db: DatabaseSync, ts: string, silentMs: number): string[] {
+  return inTransaction(db, () => expired(db, ts, db.prepare(LAPSED).all(ts) as unknown as LeaseRow[], LEASE_EXPIRED, silentMs))
 }
 
 function heldBy(db: DatabaseSync, workerKinds: readonly string[]): LeaseRow[] {
@@ -338,8 +337,8 @@ export function leasesHeldBy(db: DatabaseSync, workerKinds: readonly string[]): 
   return heldBy(db, workerKinds).map(row => row.task_key)
 }
 
-export function expireLeasesHeldBy(db: DatabaseSync, ts: string, workerKinds: readonly string[]): string[] {
-  return inTransaction(db, () => expired(db, ts, heldBy(db, workerKinds), 'holder_stopped'))
+export function expireLeasesHeldBy(db: DatabaseSync, ts: string, workerKinds: readonly string[], silentMs: number): string[] {
+  return inTransaction(db, () => expired(db, ts, heldBy(db, workerKinds), 'holder_stopped', silentMs))
 }
 
 export const HOLDER_DEAD = 'holder_dead'
@@ -406,16 +405,16 @@ function verdictOn(start: HolderStart | null, startOf: ProcessStartOf): HolderVe
   return running.state === 'running' && sameStart(start.started, running.started) ? 'alive' : 'dead'
 }
 
-function silentSince(row: HeldWithHolder, ts: string): boolean {
-  return Date.parse(row.lease_until) - LEASE_MS + SILENT_MS < Date.parse(ts)
+function silentSince(row: HeldWithHolder, ts: string, silentMs: number): boolean {
+  return Date.parse(row.lease_until) - LEASE_MS + silentMs < Date.parse(ts)
 }
 
-function releasedFromTheDead(db: DatabaseSync, ts: string, row: HeldWithHolder): boolean {
+function releasedFromTheDead(db: DatabaseSync, ts: string, row: HeldWithHolder, silentMs: number): boolean {
   return inTransaction(db, () => {
     const current = rowOf(db, row.task_key)
     if (current === undefined || current.state !== LEASED || current.lease_gen !== row.lease_gen)
       return false
-    failed(db, ts, TASK_EXPIRED, QUEUE_ACTOR, current, { reason: HOLDER_DEAD, withdraw: false }, [])
+    failed(db, ts, TASK_EXPIRED, QUEUE_ACTOR, current, { reason: HOLDER_DEAD, withdraw: false }, silentMs, [])
     return true
   })
 }
@@ -424,16 +423,16 @@ function holderAlarm(db: DatabaseSync, ts: string, row: HeldWithHolder, reason: 
   return appendEvent(db, { ts, type: BOARD_ALARM, actor: QUEUE_ACTOR, cardId: row.card_id, pr: row.pr, head: row.head, dedupeKey: `${BOARD_ALARM}:${reason}:${row.task_key}:${row.lease_gen}`, payload: { reason, lease: row.task_key, lease_gen: row.lease_gen, worker: row.holder, detail }, legacy: false })
 }
 
-export function judgeHolders(db: DatabaseSync, ts: string, startOf: ProcessStartOf): HolderReading {
+export function judgeHolders(db: DatabaseSync, ts: string, startOf: ProcessStartOf, silentMs: number): HolderReading {
   const reading: HolderReading = { freed: [], hung: [], unproven: [] }
   for (const row of db.prepare(LEASES_WITH_THEIR_HOLDER).all() as unknown as HeldWithHolder[]) {
     const start = recordedStart(row.start)
     const verdict = verdictOn(start, startOf)
-    if (verdict === 'dead' && releasedFromTheDead(db, ts, row))
+    if (verdict === 'dead' && releasedFromTheDead(db, ts, row, silentMs))
       reading.freed.push(row.task_key)
-    if (verdict === 'alive' && silentSince(row, ts) && holderAlarm(db, ts, row, WORKER_HUNG, `${row.holder} (pid ${start!.pid}) is running and has not renewed ${row.task_key} for ${SILENT_MS / 60_000} min; the lease stays with it`))
+    if (verdict === 'alive' && silentSince(row, ts, silentMs) && holderAlarm(db, ts, row, WORKER_HUNG, `${row.holder} (pid ${start!.pid}) is running and has not renewed ${row.task_key} for ${silentMs / 60_000} min; the lease stays with it`))
       reading.hung.push(row.task_key)
-    if (verdict === 'unproven' && silentSince(row, ts) && holderAlarm(db, ts, row, HOLDER_UNPROVEN, `${row.holder} holds ${row.task_key} with ${start === null ? 'no worker.started record' : `pid ${start.pid} unreadable`}; whether it is alive cannot be proven, so the lease is not freed`))
+    if (verdict === 'unproven' && silentSince(row, ts, silentMs) && holderAlarm(db, ts, row, HOLDER_UNPROVEN, `${row.holder} holds ${row.task_key} with ${start === null ? 'no worker.started record' : `pid ${start.pid} unreadable`}; whether it is alive cannot be proven, so the lease is not freed`))
       reading.unproven.push(row.task_key)
   }
   return reading

@@ -13,6 +13,7 @@ import { NEEDS_UPDATE } from '../../core/queue.js'
 import { CATALOG_REBUILD_FAILED, MergeNode } from '../../nodes/merge/merge-worker.js'
 import { UpdateNode } from '../../nodes/update/update-worker.js'
 import { Meter } from '../../ports/meter.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { cardBody, MAIN_1, MAIN_2, REPO, sha } from './github-fake.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
 
@@ -63,7 +64,7 @@ interface Wiring {
 }
 
 function nodeOf(made: MergeBench, wiring: Wiring = {}): MergeNode {
-  return new MergeNode({ db: made.db, gitHub: wiring.gitHub ?? made.gitHub.client, put: wiring.put ?? made.gitHub.put, publish: made.gitHub.publish, clock: made.clock.now, session: 'node-1', run: null, mode: 'live', env: wiring.env ?? {}, rebuildCatalog: wiring.rebuildCatalog })
+  return new MergeNode({ silentMs: SILENT_MS, db: made.db, gitHub: wiring.gitHub ?? made.gitHub.client, put: wiring.put ?? made.gitHub.put, publish: made.gitHub.publish, clock: made.clock.now, session: 'node-1', run: null, mode: 'live', env: wiring.env ?? {}, rebuildCatalog: wiring.rebuildCatalog })
 }
 
 async function once(node: MergeNode | UpdateNode): Promise<void> {
@@ -264,7 +265,7 @@ describe('a merge refused with a 405', () => {
     aPullRequestOf(made, [WORKER])
     const meter = new Meter(made.gitHub.client, () => made.clock.now().getTime())
     const merge = nodeOf(made, { put: refusingTheFirstMerge(made, NOT_UP_TO_DATE), env: BY_LAYERS })
-    const update = new UpdateNode({ db: made.db, gitHub: made.gitHub.client, put: made.gitHub.put, publish: made.gitHub.publish, clock: made.clock.now, settle: () => {}, session: 'node-2', mode: 'live', env: BY_LAYERS })
+    const update = new UpdateNode({ silentMs: SILENT_MS, db: made.db, gitHub: made.gitHub.client, put: made.gitHub.put, publish: made.gitHub.publish, clock: made.clock.now, settle: () => {}, session: 'node-2', mode: 'live', env: BY_LAYERS })
 
     expect(rerunOf(made.db, meter, 970, MAIN_1).rerun).toBe(false)
 
@@ -285,7 +286,7 @@ describe('a merge refused with a 405', () => {
     aFullCatalog(made)
     aPullRequestOf(made, [WORKER])
     const merge = nodeOf(made, { put: refusingTheFirstMerge(made, NOT_UP_TO_DATE), env: BY_LAYERS })
-    const update = new UpdateNode({ db: made.db, gitHub: made.gitHub.client, put: made.gitHub.put, publish: made.gitHub.publish, clock: made.clock.now, settle: () => {}, session: 'node-2', mode: 'live', env: BY_LAYERS })
+    const update = new UpdateNode({ silentMs: SILENT_MS, db: made.db, gitHub: made.gitHub.client, put: made.gitHub.put, publish: made.gitHub.publish, clock: made.clock.now, settle: () => {}, session: 'node-2', mode: 'live', env: BY_LAYERS })
 
     for (let round = 0; round < 2; round += 1) {
       await once(merge)
