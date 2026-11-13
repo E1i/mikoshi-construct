@@ -19,10 +19,10 @@ function source(file: string): string {
 }
 
 describe('the composition root of launch holds no node logic', () => {
-  it('the root declares no node and queries no bus table of its own beyond the sessions of a card', () => {
+  it('the root declares no node and queries no bus table of its own: the sessions of a card come from card-record', () => {
     const root = source(ROOT_FILE)
     expect(root).not.toMatch(NODE_SUBCLASS)
-    expect(root.match(new RegExp(EVENT_QUERY, 'g')) ?? []).toHaveLength(1)
+    expect(root.match(new RegExp(EVENT_QUERY, 'g')) ?? []).toHaveLength(0)
     expect(root).toMatch(ENTRY_GUARD)
   })
 
