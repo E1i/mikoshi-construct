@@ -203,6 +203,25 @@ export function noPullRequestDetail(cardId: number, session: string, result: str
   return `session-end: card #${cardId} session ${session} ended with no pull request; ${result ?? 'its shift report names no result'}`
 }
 
+export const PREPUSH_TIMEOUT = 'prepush-timeout'
+
+const PREPUSH = /\bpre-?push\b/i
+const TIMED_OUT = /\btim(?:ed|es)?[ -]?out\b|таймаут/i
+const WITNESS_NAMES = String.raw`(?:witness(?:es)?|W\d+(?:(?:\s*,\s*|\s+and\s+)W\d+)*)\s+(?:(?:are|is|all)\s+)?`
+const GREEN_WITNESSES = new RegExp(String.raw`\b${WITNESS_NAMES}(?:pass(?:es|ed)?|green)\b|свидетели\s+зел[её]н`, 'i')
+const RED_WITNESSES = new RegExp(String.raw`\b${WITNESS_NAMES}(?:fail(?:s|ed)?|red)\b|свидетели\s+красн`, 'i')
+const RESULT_LINE = /^result:(.*)$/m
+
+export function prepushTimedOutOverGreenWitnesses(result: string | null): boolean {
+  return result !== null && PREPUSH.test(result) && TIMED_OUT.test(result) && GREEN_WITNESSES.test(result) && !RED_WITNESSES.test(result)
+}
+
+function aboutThePrepushTimeout(question: string): boolean {
+  return PREPUSH.test(question) && TIMED_OUT.test(question)
+}
+
+const PREPUSH_RELAUNCHES = `SELECT count(*) AS n FROM events WHERE type = '${CARD_STOPPED}' AND legacy = 0 AND card_id = ? AND dedupe_key LIKE '${CARD_STOPPED}:${PREPUSH_TIMEOUT}:%'`
+
 export const NOT_A_REPOSITORY_PATH = 'not a repository path, dropped from the widen'
 
 export interface AskedPaths {
@@ -686,6 +705,9 @@ export class LaunchNode extends Node<LaunchStep> {
     const questions = reportedQuestions(this.launchParts.reportOf?.(session) ?? null)
     if (questions.length > 0 && questions.every(question => timeoutUnderLoadOutside(question, paths => pathsOutsideTheBody(this.db, start.card_id, paths.join('\n')))))
       return this.retryUnderLoad(start, card, session, questions)
+    const result = this.resultOf(session)
+    if (result !== null && prepushTimedOutOverGreenWitnesses(result) && questions.every(aboutThePrepushTimeout) && this.prepushRelaunchesOf(start) < SESSION_DEATH_CAP)
+      return this.relaunchOnItsTree(start, card, result)
     if (questions.length > 0)
       return this.launchParts.continuer !== undefined && this.continuationsUsed(start) < MAX_RESTARTS && lacksItsPackages(card.worktree) ? this.continueSession(start, card, this.launchParts.continuer, `card #${start.card_id} session ${card.session} asked a question from ${card.worktree}, whose lockfile names packages the tree lacks; the bus prepares the tree for the next session`) : this.stopOnQuestions(start, card, questions, splitByRepository(card.worktree, pathsOutsideTheBody(this.db, start.card_id, questions.join('\n'))), refusal, reportedStopReason(this.launchParts.reportOf?.(session) ?? null))
     const ended = noPullRequestDetail(start.card_id, card.session, this.launchParts.endedWith?.(session) ?? null)
@@ -709,6 +731,35 @@ export class LaunchNode extends Node<LaunchStep> {
     if (continuer === undefined)
       return this.stopContinuation(start, 'continuation-refused', `${detail}; no continuer is wired, so the session is not retried`)
     return this.continueSession(start, card, continuer, detail)
+  }
+
+  private resultOf(session: SessionStart): string | null {
+    return this.launchParts.endedWith?.(session) ?? RESULT_LINE.exec(this.launchParts.reportOf?.(session) ?? '')?.[1]?.trim() ?? null
+  }
+
+  private prepushRelaunchesOf(start: RunningStart): number {
+    return Number((this.db.prepare(PREPUSH_RELAUNCHES).get(start.card_id) as { n: number }).n)
+  }
+
+  private relaunchOnItsTree(start: RunningStart, card: StartedCard, result: string): boolean {
+    const relaunch = this.prepushRelaunchesOf(start) + 1
+    const detail = `${PREPUSH_TIMEOUT}: card #${start.card_id} session ${card.session} ended with no pull request, its witnesses green and its prepush timed out (D-441(2)); its launch task is queued again on ${card.worktree} as it stands, relaunch ${relaunch} of ${SESSION_DEATH_CAP}: ${result}`
+    return inTransaction(this.db, () => {
+      const ts = this.ts()
+      const dedupeKey = `${CARD_STOPPED}:${PREPUSH_TIMEOUT}:${start.dedupe_key}`
+      if (!appendEvent(this.db, { ts, type: CARD_STOPPED, actor: this.actor, cardId: start.card_id, pr: null, head: null, dedupeKey, payload: { reason: 'fault', code: PREPUSH_TIMEOUT, detail }, legacy: false }))
+        return false
+      const task = this.db.prepare(LAUNCH_TASK_OF_CARD).get(start.card_id) as LaunchTaskRow | undefined
+      if (task?.state === COMPLETED)
+        this.supersedeTheStoppedLaunch(ts, start.card_id, task)
+      const admitted = this.db.prepare(LATEST_ADMISSION).get(start.card_id) as { payload: string } | undefined
+      if (admitted !== undefined) {
+        const { lane, decision, contour, depends } = JSON.parse(admitted.payload) as Record<string, unknown>
+        const admission = `${PREPUSH_TIMEOUT}:${start.dedupe_key}`
+        appendEvent(this.db, { ts, type: CARD_ADMITTED, actor: this.actor, cardId: start.card_id, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${admission}`, payload: { lane, decision, contour, depends, admission }, legacy: false })
+      }
+      return true
+    })
   }
 
   private openQuestionWaits(ts: string, start: RunningStart, card: StartedCard, questions: readonly string[]): void {

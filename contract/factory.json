@@ -4163,7 +4163,7 @@
       "scripts/nodes/launch/launch-executor.ts": 1,
       "scripts/nodes/launch/launch-root.ts": 1,
       "scripts/nodes/launch/launch-withdraw.ts": 1,
-      "scripts/nodes/launch/launch-worker.ts": 15,
+      "scripts/nodes/launch/launch-worker.ts": 16,
       "scripts/nodes/launch/tree-pr-cli.ts": 3,
       "scripts/nodes/merge/merge-executor.ts": 2,
       "scripts/nodes/merge/merge-worker.ts": 1,
