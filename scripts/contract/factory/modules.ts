@@ -53,7 +53,7 @@ const SESSION_FILES = [
 const SESSION_CONTRACT = [...SESSION_FILES, ...supervisor('bg', 'heartbeat', 'liveness-sites', 'scheduler', 'stamp', 'supervisor', 'workers')]
 
 const CARD_MODEL = [...card('grammar', 'parking', 'task-file', 'risk', 'complexity'), ...intake('card-contract'), ...core('identifiers.ts')]
-const CARD_RECORD = [...core('card-bodies.ts', 'backfill-source.ts'), ...card('text-sha', 'witness-fields'), ...intake('admissions', 'card-archive', 'witness-fields-backfill'), ...cli('card.ts')]
+const CARD_RECORD = [...core('card-bodies.ts', 'backfill-source.ts'), ...card('text-sha', 'witness-fields'), ...intake('admissions', 'card-archive', 'witness-fields-backfill', 'slice-parent-backfill'), ...cli('card.ts')]
 const PLAN = [factory('window/plan-export.ts'), ...cli('card-chain.ts'), ...card('slice-depends')]
 const PORTS_ADAPTERS = within(factory('ports'), 'git.ts', 'disk.ts', 'prompt-store.ts', 'client/contract.ts', 'client/codex/adapter.ts')
 const PR_RECORD = [...review('pr-close', 'pr-reopen', 'pr-rerun', 'record-verdict', 'dry-run-record'), ...core('merge-event.ts')]
@@ -186,9 +186,11 @@ export interface FactoryModule extends ModuleSpec {
   concepts: string[]
 }
 
-export interface ModulesSection extends Omit<ModuleGraphSpec, 'modules' | 'composition_imports'> {
+export interface ModulesSection extends Omit<ModuleGraphSpec, 'modules'> {
   modules: Record<string, FactoryModule>
 }
+
+export const FACTORY_CONTRACT = 'contract/factory.json'
 
 const FOLDER_ENTRY = 'index.ts'
 
@@ -196,7 +198,16 @@ function ownerFile(owner: string): string {
   return owner.endsWith('/') ? `${owner}${FOLDER_ENTRY}` : owner
 }
 
-export function modulesSection({ composition_imports: _publishedByTheGraphReport, ...graph }: ModuleGraphSpec = MODULE_GRAPH, concepts: readonly Pick<Concept, 'id' | 'owner'>[] = CONCEPTS): ModulesSection {
+export function graphOfSection({ modules, composition_roots, composition_imports, exclusions }: ModulesSection): ModuleGraphSpec {
+  return {
+    modules: Object.fromEntries(Object.entries(modules).map(([id, { concepts: _heldInTheSection, ...spec }]) => [id, spec])),
+    composition_roots,
+    composition_imports,
+    exclusions,
+  }
+}
+
+export function modulesSection(graph: ModuleGraphSpec = MODULE_GRAPH, concepts: readonly Pick<Concept, 'id' | 'owner'>[] = CONCEPTS): ModulesSection {
   return {
     ...graph,
     modules: Object.fromEntries(Object.entries(graph.modules).map(([id, spec]) => [
