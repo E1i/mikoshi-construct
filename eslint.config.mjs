@@ -175,6 +175,50 @@ const aHookReadsStdinToItsEnd = {
   },
 }
 
+const AN_EVENT_IS_READ_THROUGH_THE_CONTRACT = 'An event payload crosses the bus boundary through one reader: payloadOf in scripts/core/stored.ts, then declaredPart or catalogued, which scripts/core/events.ts generates from contract/factory.json — never a hand-written JSON.parse of a payload'
+
+const NO_HAND_EVENT_READERS = [
+  { selector: 'CallExpression[callee.object.name="JSON"][callee.property.name="parse"]:matches([arguments.0.name="payload"], [arguments.0.property.name="payload"])', message: AN_EVENT_IS_READ_THROUGH_THE_CONTRACT },
+]
+
+export const HAND_EVENT_READERS_EXCEPTED = [
+  'scripts/cli/card-chain.ts',
+  'scripts/core/bus-version.ts',
+  'scripts/core/card-bodies.ts',
+  'scripts/core/inbox.ts',
+  'scripts/core/journal.ts',
+  'scripts/core/lease.ts',
+  'scripts/core/legacy-history.ts',
+  'scripts/core/report.ts',
+  'scripts/core/stored.ts',
+  'scripts/intake/admissions.ts',
+  'scripts/intake/intake.ts',
+  'scripts/intake/witness-fields-backfill.ts',
+  'scripts/nodes/answer/answer-executor.ts',
+  'scripts/nodes/close/close-executor.ts',
+  'scripts/nodes/launch/lane-assign.ts',
+  'scripts/nodes/launch/launch-candidates.ts',
+  'scripts/nodes/launch/launch-worker.ts',
+  'scripts/nodes/review/review-executor.ts',
+  'scripts/nodes/update/update-executor.ts',
+  'scripts/policy/policy.ts',
+  'scripts/supervisor/heartbeat.ts',
+  'scripts/window/card-measure.ts',
+  'scripts/window/requests/amend.ts',
+  'scripts/window/requests/owner-wait-close.ts',
+  'scripts/window/watch.ts',
+  'scripts/window/window-requests.ts',
+  'scripts/window/window.ts',
+]
+
+const anEventIsReadThroughTheContract = {
+  files: ['scripts/**'],
+  ignores: ['scripts/tests/**', ...HAND_EVENT_READERS_EXCEPTED],
+  rules: {
+    'no-restricted-syntax': ['error', ...ANTFU_RESTRICTED_SYNTAX, ...NO_HAND_EVENT_READERS],
+  },
+}
+
 const ROOT = import.meta.dirname
 const AGENT_WORKTREES = '.claude/worktrees/**'
 
@@ -245,4 +289,5 @@ export default antfu(
   theSurfaceTestNeverWrites,
   aHookReadsStdinToItsEnd,
   aTestWaitsOnAnEvent,
+  anEventIsReadThroughTheContract,
 )
