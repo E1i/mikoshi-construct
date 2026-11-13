@@ -128,38 +128,29 @@ async function answerWith(rounds: Round[], moves: boolean): Promise<Answering> {
   return { made, outcome: await executor.answer(lease), published, prompts, worktree }
 }
 
-describe('an answer that grows the known dependency violations (owner s591, Q269)', () => {
-  it('an answer that grows the known dependency violations goes back to the answer with no owner wait', async () => {
+describe('an answer that grows the known dependency violations follows its touches, and the owner decides at the merge (D-536, project row R-known)', () => {
+  it('an answer that grows the known dependency violations is published as it is, with no second round and no owner wait at the answer', async () => {
     const { made, outcome, published, prompts, worktree } = await answerWith([growsTheBaseline, findsAPath], true)
 
-    expect(prompts).toHaveLength(2)
-    expect(prompts[1]).toContain('find a path without the violation')
-    expect(readFileSync(path.join(worktree, KNOWN_VIOLATIONS), 'utf8')).toBe(BASELINE)
+    expect(prompts).toHaveLength(1)
+    expect(readFileSync(path.join(worktree, KNOWN_VIOLATIONS), 'utf8')).toBe(GROWN)
     expect(published).toBe(1)
     expect(outcome).toMatchObject({ kind: 'answered', head: sha('e') })
     expect(eventsOf(made.db, CARD_ANSWERED)).toHaveLength(1)
     expect(eventsOf(made.db, OWNER_WAIT_OPENED)).toEqual([])
   })
 
-  it('the owner is asked only when the answer session says no path without the violation exists', async () => {
-    const { made, outcome, published, prompts } = await answerWith([growsTheBaseline, saysThereIsNone], false)
-
-    expect(prompts).toHaveLength(2)
-    expect(published).toBe(0)
-    expect(outcome).toMatchObject({ kind: 'stopped', reason: 'question.owner', detail: NO_PATH })
-    expect(eventsOf(made.db, OWNER_WAIT_OPENED)).toMatchObject([{ text: expect.stringContaining(NO_PATH) }])
-  })
-
-  it('a grown baseline beside another change outside the touches is refused as before, with no second round', async () => {
+  it('a grown baseline beside another change outside the touches is refused for that other change alone, with no second round', async () => {
     const both: Round = (worktree) => {
       growsTheBaseline(worktree, '')
       writeFileSync(path.join(worktree, OTHER), 'export const elsewhere = 2\n')
     }
-    const { outcome, published, prompts } = await answerWith([both], false)
+    const { outcome, published, prompts } = await answerWith([both, saysThereIsNone], false)
 
     expect(prompts).toHaveLength(1)
     expect(published).toBe(0)
     expect(outcome).toMatchObject({ kind: 'stopped', reason: 'question.owner' })
-    expect((outcome as { detail: string }).detail).toContain(KNOWN_VIOLATIONS)
+    expect((outcome as { detail: string }).detail).toContain(OTHER)
+    expect((outcome as { detail: string }).detail).not.toContain(KNOWN_VIOLATIONS)
   })
 })
