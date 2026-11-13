@@ -1,0 +1,6 @@
+{
+  "module": "presets",
+  "may_use": ["detect"],
+  "may_use_factory": [],
+  "may_use_factory_within": {}
+}

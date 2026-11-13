@@ -23,10 +23,8 @@ function programCommands(): string[] {
 }
 
 function allowedImportModules(): string[] {
-  const config = read('eslint.config.mjs')
-  const opens = config.indexOf('const ALLOWED_INTERNAL_IMPORTS = {')
-  const body = config.slice(opens, config.indexOf('\n}\n', opens))
-  return [...body.matchAll(/^\s+'src\/([\w-]+)(?:\.ts)?':/gm)].map(match => match[1])
+  const edges = JSON.parse(read('contract/eslint-edges.json')) as { allowedInternalImports: Record<string, string[]> }
+  return Object.keys(edges.allowedInternalImports).map(target => target.replace(/^src\//, '').replace(/\.ts$/, ''))
 }
 
 describe('the always-loaded AGENTS.md names what the code defines', () => {

@@ -1,0 +1,21 @@
+{
+  "module": "commands",
+  "may_use": ["card", "detect", "manifest", "materialize", "model", "presets", "sync", "ui", "version"],
+  "may_use_factory": [
+    "core/bus-path.js",
+    "core/bus-readings.js",
+    "core/eddies.js",
+    "core/events.js",
+    "core/factory-paths.js",
+    "core/gh-callers.js",
+    "core/handoff-dir.js",
+    "core/layer-map.js",
+    "core/merge-event.js",
+    "core/owner-commands.js",
+    "core/verification.js"
+  ],
+  "may_use_factory_within": {
+    "doctor": ["policy/decisions/decisions.js", "policy/live-decision.js", "policy/touch-scope.js"],
+    "intake": ["policy/decisions/decisions.js", "policy/touch-scope.js"]
+  }
+}
