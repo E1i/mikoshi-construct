@@ -547,16 +547,13 @@ function workerKindsOf(launches: DetachedLaunch[]): string[] {
   return launches.map(launch => launch.script.replace(/^bus:/, '')).filter(isBusWorker)
 }
 
-export type MaybeGrouped = RunningProcess & { group?: number }
-
-export function withoutRetiring(processes: () => MaybeGrouped[], db: DatabaseSync, holding: () => boolean = () => false): ProcessList {
+export function withoutRetiring(processes: () => (RunningProcess & Partial<GroupedProcess>)[], db: DatabaseSync, holding: () => boolean = () => false): ProcessList {
   return () => {
     const listed = processes()
     if (holding())
       return listed
     const retiring = retiringPids(db)
-    const inRetiringGroup = (each: MaybeGrouped): boolean => each.group !== undefined && retiring.has(each.group)
-    return listed.filter(each => !retiring.has(each.pid) && !inRetiringGroup(each))
+    return listed.filter(each => !retiring.has(each.pid) && !retiring.has(each.group ?? each.pid))
   }
 }
 
@@ -966,8 +963,7 @@ export function groupedPsList(table: ProcessTable = new OsProcessTable()): () =>
 
 export function outsideOwnGroup(table: ProcessTable = new OsProcessTable(), self: number = process.pid): ProcessList {
   const own = rowOf(table.snapshot(), self)?.pgid ?? self
-  const grouped = groupedPsList(table)
-  return () => outsideGroup(grouped(), own)
+  return () => outsideGroup(groupedPsList(table)(), own)
 }
 
 export function runReducer(cwd: string): string[] {
@@ -1086,14 +1082,18 @@ async function supervise(busDir: string, cwd: string, reviewPreflight: () => str
   }
 }
 
-function decisionsInForce(): InForceDecision[] {
+function onBus<T>(read: (db: DatabaseSync) => T): T {
   const db = openBus(defaultBusPath())
   try {
-    return inForceDecisions(db)
+    return read(db)
   }
   finally {
     db.close()
   }
+}
+
+function decisionsInForce(): InForceDecision[] {
+  return onBus(inForceDecisions)
 }
 
 export function pinnedBusDir(): string {
@@ -1135,28 +1135,14 @@ export async function startUnderAgentEnv(busDir: string, launches: DetachedLaunc
 }
 
 function freeLeasesOnBus(stopped: DetachedLaunch[]): string[] {
-  const db = openBus(defaultBusPath())
-  try {
-    return freeLeasesOf(db, new Date().toISOString(), stopped)
-  }
-  finally {
-    db.close()
-  }
+  return onBus(db => freeLeasesOf(db, new Date().toISOString(), stopped))
 }
 
-function withoutRetiringOnBus(processes: () => MaybeGrouped[]): ProcessList {
-  return () => {
-    const db = openBus(defaultBusPath())
-    try {
-      return withoutRetiring(processes, db)()
-    }
-    finally {
-      db.close()
-    }
-  }
+function withoutRetiringOnBus(processes: () => (RunningProcess & Partial<GroupedProcess>)[]): ProcessList {
+  return () => onBus(db => withoutRetiring(processes, db)())
 }
 
-export async function startBus(busDir: string = pinnedBusDir(), everyProcess: () => MaybeGrouped[] = groupedPsList()): Promise<BgResult> {
+export async function startBus(busDir: string = pinnedBusDir(), everyProcess: () => (RunningProcess & Partial<GroupedProcess>)[] = groupedPsList()): Promise<BgResult> {
   const processes = withoutRetiringOnBus(everyProcess)
   const judged = await restartSilentSupervisorOnBus(busDir, everyProcess)
   const started = await startUnderAgentEnv(busDir, [...wantedLaunches(busDir, reviewPreflight, decisionsInForce()), SUPERVISOR_LAUNCH], {
