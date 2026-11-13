@@ -18,6 +18,7 @@ import { UpdateNode } from '../../nodes/update/update-worker.js'
 import { InMemoryProcessTable } from '../../ports/process-table.js'
 import { AGENT_ENV, alive, BUS_FLAG, BUS_RUN_LAUNCH, BUS_RUN_MARKERS, busInArgs, carriesMarker, flagsInArgs, instancesOf, launchArgv, launchName, PREFIX, psList, RUN_SCRIPT, runBusBg, runningBus, runningInstance, servesBus, SHADOW_LOG, START_LOCK, START_LOCK_LIMIT_MS, startDetached, withBuses } from '../../supervisor/bg.js'
 import { recordProcessHeartbeat } from '../../supervisor/heartbeat.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { REVIEW_WORKER_MARKERS, startReviewWorker } from '../../supervisor/review-bg.js'
 import { factoryBusOf } from '../../supervisor/start.js'
 import { bgCommand, BusSupervisor, entryOf, gitCode, lastMainAdvance, mainAdvancedSince, startUnderAgentEnv, stopInstance, SUPERVISOR_LAUNCH, switchCommand } from '../../supervisor/supervisor.js'
@@ -201,8 +202,8 @@ describe('the rerun mode at a node start', () => {
 
   async function startLinesOfBothNodes(env: NodeJS.ProcessEnv): Promise<string[]> {
     const made = benchWithLiveVerdict()
-    const merge = new MergeNode({ db: made.db, gitHub: made.gitHub.client, put: made.gitHub.put, publish: made.gitHub.publish, clock: made.clock.now, session: 'node-1', run: null, mode: 'shadow', env })
-    const update = new UpdateNode({ db: made.db, gitHub: made.gitHub.client, put: made.gitHub.put, publish: made.gitHub.publish, clock: made.clock.now, settle: () => {}, session: 'node-2', mode: 'live', env })
+    const merge = new MergeNode({ silentMs: SILENT_MS, db: made.db, gitHub: made.gitHub.client, put: made.gitHub.put, publish: made.gitHub.publish, clock: made.clock.now, session: 'node-1', run: null, mode: 'shadow', env })
+    const update = new UpdateNode({ silentMs: SILENT_MS, db: made.db, gitHub: made.gitHub.client, put: made.gitHub.put, publish: made.gitHub.publish, clock: made.clock.now, settle: () => {}, session: 'node-2', mode: 'live', env })
     for (const node of [merge, update]) {
       const controller = new AbortController()
       await node.run({ pause: async () => controller.abort(), signal: controller.signal })

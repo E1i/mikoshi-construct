@@ -19,6 +19,7 @@ import { realStarterPorts } from '../../nodes/launch/launch-root.js'
 import { ShiftCardStarter } from '../../nodes/launch/launch-starter.js'
 import { LaunchNode } from '../../nodes/launch/launch-worker.js'
 import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { sha } from './github-fake.js'
 import { eventsOf, mergeBench, taskState } from './merge-bench.js'
 
@@ -76,7 +77,7 @@ function liveSession(made: MergeBench, root: string): { node: LaunchNode, spawne
   }
   const starter = new ShiftCardStarter({ launchDir: path.join(root, 'launch'), claude: 'agent', treePr: 'tree-pr' }, ports)
   const processes: ProcessTable = { commandLine: () => live.size === 0 ? null : `sh -c agent ${[...live].at(-1)}`, signalGroup: () => {} }
-  const node = new LaunchNode({ db: made.db, starter, continuer: starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, resulted: () => true, handedOff: () => false, disk: roomy, isolation: sandboxed })
+  const node = new LaunchNode({ silentMs: SILENT_MS, db: made.db, starter, continuer: starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, resulted: () => true, handedOff: () => false, disk: roomy, isolation: sandboxed })
   return { node, spawned, live }
 }
 

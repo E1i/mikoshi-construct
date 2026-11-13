@@ -10,6 +10,7 @@ import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_RELEASED, CARD_STARTED,
 import { taskKey } from '../../core/identifiers.js'
 import { leaseNext } from '../../core/lease.js'
 import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { sha } from './github-fake.js'
 import { eventsOf, mergeBench, taskState } from './merge-bench.js'
 
@@ -36,7 +37,7 @@ function heldCard() {
   let live: string | null = `a live session runs in ${worktree}`
   const answerer = vi.fn<Answerer>(async () => ({ session: SESSION, resumed: true, before: sha('a'), after: PUSHED, owner: null }))
   const cardTrees: CardTreeTools = { home: path.join(trees, 'worktrees'), exists: existsSync, branchOf: () => `feat/card-${CARD}`, recreate: () => {}, bringTo: () => {} }
-  const executor = new AnswerExecutor({ db: made.db, answerer, ownerMerges: () => '', clock: made.clock.now, trees: cardTrees, dirty: () => false, liveSession: () => live, prepare: () => {}, mergeMain: () => () => ({ kind: 'refused', why: 'no main in the bench' }) })
+  const executor = new AnswerExecutor({ silentMs: SILENT_MS, db: made.db, answerer, ownerMerges: () => '', clock: made.clock.now, trees: cardTrees, dirty: () => false, liveSession: () => live, prepare: () => {}, mergeMain: () => () => ({ kind: 'refused', why: 'no main in the bench' }) })
   return {
     made,
     answerer,

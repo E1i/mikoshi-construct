@@ -15,6 +15,7 @@ import { ReviewWorker } from '../../nodes/review/review-worker.js'
 import { ADVICE_LINE, REVIEW_BAR_LINE, reviewOf, reviewPrompt } from '../../nodes/review/reviewer.js'
 import { classify } from '../../policy/morse/rules.js'
 import { followsTouches, neverFollows } from '../../policy/touch-scope.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { cardBody, sha } from './github-fake.js'
 import { eventsOf, liveBench } from './merge-bench.js'
 
@@ -78,16 +79,7 @@ async function recordedThroughTheWorker(touches: readonly string[] | null, findi
     appendCardEvent(bench.db, 'worker:intake:test', admittedRecord({ id: REVIEWED_CARD, file: `${REVIEWED_CARD}.md`, line: parsed.parked.task.card.line, who: parsed.parked.who, unclear: [], corrections: [], seam: [], risk: [], slices: [], text }, 'auto', bench.clock.now(), WINDOW_LANE))
     bench.tick()
   }
-  const worker = new ReviewWorker({
-    isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }),
-    db: bench.db,
-    gitHub: bench.gitHub.client,
-    publish: bench.gitHub.publish,
-    reviewer: async () => ({ verdict: 'changes', findings, survivingMutations, session: 'reviewer-1' }),
-    plan: () => fullReview('a fixed plan'),
-    clock: bench.clock.now,
-    session: 'worker-1',
-  })
+  const worker = new ReviewWorker({ silentMs: SILENT_MS, isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }), db: bench.db, gitHub: bench.gitHub.client, publish: bench.gitHub.publish, reviewer: async () => ({ verdict: 'changes', findings, survivingMutations, session: 'reviewer-1' }), plan: () => fullReview('a fixed plan'), clock: bench.clock.now, session: 'worker-1' })
   bench.gitHub.open({ number: REVIEWED_PR, head: sha('b'), ref: `feat/card-${REVIEWED_CARD}`, body: cardBody(REVIEWED_PR) })
   bench.tick()
   await worker.step()

@@ -10,6 +10,7 @@ import { completeTask, leaseNext } from '../../core/lease.js'
 import { answerCandidates, queueTask, updateCandidates, updateTurnHeldFrom } from '../../core/queue.js'
 import { AnswerSources } from '../../nodes/answer/duties/source.js'
 import { UpdateExecutor } from '../../nodes/update/update-executor.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { cardBody, MAIN_2, sha } from './github-fake.js'
 import { eventsOf, liveBench, taskState } from './merge-bench.js'
 import { detectUpdate } from './update-detection.js'
@@ -102,7 +103,7 @@ function mergeTheDependency(bench: MergeBench): void {
 }
 
 function updateExecutor(bench: MergeBench): UpdateExecutor {
-  return new UpdateExecutor({ db: bench.db, gitHub: bench.gitHub.client, put: bench.gitHub.put, publish: bench.gitHub.publish, clock: bench.clock.now, settle: () => {} })
+  return new UpdateExecutor({ silentMs: SILENT_MS, db: bench.db, gitHub: bench.gitHub.client, put: bench.gitHub.put, publish: bench.gitHub.publish, clock: bench.clock.now, settle: () => {} })
 }
 
 describe('a dependency merge returns the dependent card (owner s631)', () => {

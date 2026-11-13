@@ -36,6 +36,7 @@ export interface AnswerParts {
   answerer: Answerer
   ownerMerges: () => string
   clock: () => Date
+  silentMs: number
   shardDecider?: ShardDecider
   trees?: CardTreeTools
   treeMerge?: (card: CardSession) => TreeMerge

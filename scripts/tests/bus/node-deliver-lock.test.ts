@@ -13,6 +13,7 @@ import { NODE_DETECTED, TASK_ENQUEUED } from '../../core/events.js'
 import { NODE_CURSORS } from '../../core/node.js'
 import { keyOf, queueTask } from '../../core/queue.js'
 import { LAUNCH_ON, LaunchNode } from '../../nodes/launch/launch-worker.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { Clock } from './github-fake.js'
 
 const BUSY_EVENTS = 150_000
@@ -88,7 +89,7 @@ class CountingLaunchNode extends LaunchNode {
   computed: () => void = () => {}
 
   constructor(db: DatabaseSync, clock: Clock, mode: DetectionMode = 'shadow', session = 'deliver') {
-    super({ db, starter: noLaunch, clock: clock.now, session, mode, env: {}, isolation: sandboxed, lanes: () => 1 })
+    super({ silentMs: SILENT_MS, db, starter: noLaunch, clock: clock.now, session, mode, env: {}, isolation: sandboxed, lanes: () => 1 })
   }
 
   protected override candidates(): QueuedTask[] {

@@ -22,6 +22,7 @@ import { CloseNode, closingVerification, runCloseWorker } from '../../nodes/clos
 import { runTaskClose } from '../../nodes/close/task-close.js'
 import { launchCandidates } from '../../nodes/launch/launch-candidates.js'
 import { busProjections } from '../../supervisor/composition.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { read } from '../core/gh-fake.js'
 import { detectClose } from './close-detection.js'
 import { MAIN_2, sha } from './github-fake.js'
@@ -39,7 +40,7 @@ function closeBench(reported: Record<number, string> = {}) {
   const bench = mergeBench()
   const root = mkdtempSync(path.join(tmpdir(), 'bus-close-cycle-'))
   const parking = path.join(root, 'parking')
-  const executor = new CloseExecutor({ db: bench.db, reported: cardId => reported[cardId] ?? null, clock: bench.clock.now, parking })
+  const executor = new CloseExecutor({ silentMs: SILENT_MS, db: bench.db, reported: cardId => reported[cardId] ?? null, clock: bench.clock.now, parking })
   return {
     ...bench,
     root,
@@ -160,7 +161,7 @@ describe('the close queue', () => {
     bench.tick()
     detectClose(bench.db, bench.clock.now)
 
-    const worker = closeNode({ db: bench.db, reported: closingVerification(bench.busPath), clock: bench.clock.now, session: 'window', parking: bench.parking })
+    const worker = closeNode({ silentMs: SILENT_MS, db: bench.db, reported: closingVerification(bench.busPath), clock: bench.clock.now, session: 'window', parking: bench.parking })
     expect(await step(worker)).toMatchObject({ kind: 'closed', taskKey: close(988), verification: 'code-reading' })
     expect(eventsOf(bench.db, CARD_CLOSED)).toEqual([{ verification: 'code-reading' }])
     bench.close()
@@ -367,7 +368,7 @@ describe('the close queue', () => {
       bench.merged(1018)
       const ts = bench.clock.now().toISOString()
       for (let failure = 1; failure <= FAILURES_TO_STOP; failure += 1)
-        failTask(bench.db, ts, bench.leaseClose()!, { reason: cause, withdraw: false })
+        failTask(bench.db, ts, bench.leaseClose()!, { reason: cause, withdraw: false }, SILENT_MS)
       bench.tick()
       expect(taskState(bench.db, close(1018)).state, `${cause} before ${cleared}`).toBe('stopped')
       clearing[cleared]!(bench, 1018)
@@ -393,7 +394,7 @@ describe('the close queue', () => {
       const merge = taskKey({ queue: 'merge', cardId: 1119, pr: 1019, head: sha('a') })
       queueTask(bench.db, ts, { queue: 'merge', cardId: 1119, pr: 1019, head: sha('a') })
       for (let failure = 1; failure <= FAILURES_TO_STOP; failure += 1)
-        failTask(bench.db, ts, leaseNext(bench.db, ts, 'merge', 'worker:merge:worker-1')!, { reason: 'no_verification', withdraw: false })
+        failTask(bench.db, ts, leaseNext(bench.db, ts, 'merge', 'worker:merge:worker-1')!, { reason: 'no_verification', withdraw: false }, SILENT_MS)
       bench.tick()
       expect(taskState(bench.db, merge).state, setting).toBe('stopped')
       before(bench)
@@ -411,7 +412,7 @@ describe('the close queue', () => {
     bench.merged(998)
     const stale = bench.leaseClose('worker:close:old')!
     bench.clock.advance(LEASE_MS + 1)
-    expireLeases(bench.db, bench.clock.now().toISOString())
+    expireLeases(bench.db, bench.clock.now().toISOString(), SILENT_MS)
     const current = bench.leaseClose('worker:close:new')!
     expect(current.leaseGen).toBe(stale.leaseGen + 1)
     const before = eventCount(bench.db)
@@ -430,7 +431,7 @@ describe('the close queue', () => {
     bench.merged(1000)
     const calls = bench.gitHub.calls.length
 
-    const worker = closeNode({ db: bench.db, reported: () => 'run', clock: bench.clock.now, session: 'cycle', parking: bench.parking })
+    const worker = closeNode({ silentMs: SILENT_MS, db: bench.db, reported: () => 'run', clock: bench.clock.now, session: 'cycle', parking: bench.parking })
     expect(await step(worker)).toMatchObject({ kind: 'closed', verification: 'run', cycle: { cardFile: 'moved' } })
     expect(bench.gitHub.calls).toHaveLength(calls)
     expect(bench.gitHub.puts).toEqual([])
@@ -498,7 +499,7 @@ describe('the close queue', () => {
     mkdirSync(path.join(bench.parking, 'archive'), { recursive: true })
     renameSync(path.join(bench.parking, 'lane-bus-1', '1102.md'), path.join(bench.parking, 'archive', '1102.md'))
     bench.clock.advance(LEASE_MS + 1)
-    expect(expireLeases(bench.db, bench.clock.now().toISOString())).toEqual(crashed.map(lease => lease.taskKey))
+    expect(expireLeases(bench.db, bench.clock.now().toISOString(), SILENT_MS)).toEqual(crashed.map(lease => lease.taskKey))
 
     expect(bench.closeCard(bench.leaseClose()!)).toMatchObject({ kind: 'closed', taskKey: close(1001), cycle: { cardFile: 'moved' } })
     expect(bench.closeCard(bench.leaseClose()!)).toMatchObject({ kind: 'closed', taskKey: close(1002), cycle: { cardFile: 'archived' } })
@@ -537,7 +538,7 @@ describe('the close queue', () => {
     bench.merged(1014, false)
     reviewed(bench, 1014, sha('a'), 'pass')
 
-    const worker = closeNode({ db: bench.db, reported: closingVerification(bench.busPath), clock: bench.clock.now, session: 'window', parking: bench.parking })
+    const worker = closeNode({ silentMs: SILENT_MS, db: bench.db, reported: closingVerification(bench.busPath), clock: bench.clock.now, session: 'window', parking: bench.parking })
     expect(await step(worker)).toMatchObject({ kind: 'closed', taskKey: close(1014), verification: 'code-reading' })
     expect(eventsOf(bench.db, CARD_CLOSED)).toEqual([{ verification: 'code-reading' }])
     expect(reduce(bench.db, 'pending', busProjections()).rejected).toBe(0)
@@ -558,7 +559,7 @@ describe('the close queue', () => {
     bench.merged(1016, false)
     reviewed(bench, 1016, sha('a'), 'pass')
 
-    const worker = closeNode({ db: bench.db, reported: closingVerification(bench.busPath), clock: bench.clock.now, session: 'window', parking: bench.parking })
+    const worker = closeNode({ silentMs: SILENT_MS, db: bench.db, reported: closingVerification(bench.busPath), clock: bench.clock.now, session: 'window', parking: bench.parking })
     expect(await step(worker)).toMatchObject({ kind: 'closed', taskKey: close(1016), verification: 'code-reading' })
     bench.close()
   })
@@ -579,7 +580,7 @@ describe('the close queue', () => {
     bench.merged(1015, false)
     reviewed(bench, 1015, sha('a'), 'pass')
 
-    const worker = closeNode({ db: bench.db, reported: closingVerification(bench.busPath), clock: bench.clock.now, session: 'window', parking: bench.parking })
+    const worker = closeNode({ silentMs: SILENT_MS, db: bench.db, reported: closingVerification(bench.busPath), clock: bench.clock.now, session: 'window', parking: bench.parking })
     expect(await step(worker)).toEqual({ kind: 'idle' })
     expect(eventsOf(bench.db, CARD_CLOSED)).toEqual([])
     bench.close()
@@ -607,7 +608,7 @@ describe('the close queue', () => {
     reviewed(bench, 1012, sha('a'), 'changes')
     reviewed(bench, 1012, sha('b'), 'pass')
 
-    const worker = closeNode({ db: bench.db, reported: closingVerification(bench.busPath), clock: bench.clock.now, session: 'none', parking: bench.parking })
+    const worker = closeNode({ silentMs: SILENT_MS, db: bench.db, reported: closingVerification(bench.busPath), clock: bench.clock.now, session: 'none', parking: bench.parking })
     expect(await step(worker)).toEqual({ kind: 'idle' })
     expect(eventsOf(bench.db, CARD_CLOSED)).toEqual([])
     bench.close()

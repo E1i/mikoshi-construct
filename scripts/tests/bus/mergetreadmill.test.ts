@@ -13,6 +13,7 @@ import { AN_UPDATED_PR_HOLDS_MS, updateCandidates } from '../../core/queue.js'
 import { MergeNode } from '../../nodes/merge/merge-worker.js'
 import { manualUpdateDone, UpdateExecutor, WAITS_ITS_TURN } from '../../nodes/update/update-executor.js'
 import { Meter } from '../../ports/meter.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { cardBody, MAIN_1, MAIN_2, MAIN_3, REPO, sha } from './github-fake.js'
 import { eventsOf, liveBench, mergeBench, taskState } from './merge-bench.js'
 import { detectUpdate } from './update-detection.js'
@@ -80,7 +81,7 @@ async function once(node: MergeNode): Promise<void> {
 }
 
 function mergeNodeOf(made: MergeBench): MergeNode {
-  return new MergeNode({ db: made.db, gitHub: made.gitHub.client, put: made.gitHub.put, publish: made.gitHub.publish, clock: made.clock.now, session: 'node-1', run: null, mode: 'live', env: { [RERUN_VARIABLE]: 'by-layers' }, rebuildCatalog: () => {} })
+  return new MergeNode({ silentMs: SILENT_MS, db: made.db, gitHub: made.gitHub.client, put: made.gitHub.put, publish: made.gitHub.publish, clock: made.clock.now, session: 'node-1', run: null, mode: 'live', env: { [RERUN_VARIABLE]: 'by-layers' }, rebuildCatalog: () => {} })
 }
 
 function answeringContents(made: MergeBench, files: Record<string, string>): GitHub {
@@ -259,7 +260,7 @@ const SECOND_UPDATED = sha('c')
 function queueBench(firstBody = cardBody(FIRST)) {
   const bench = liveBench()
   benches.push(bench)
-  const executor = new UpdateExecutor({ db: bench.db, gitHub: bench.gitHub.client, put: bench.gitHub.put, publish: bench.gitHub.publish, clock: bench.clock.now, settle: () => {} })
+  const executor = new UpdateExecutor({ silentMs: SILENT_MS, db: bench.db, gitHub: bench.gitHub.client, put: bench.gitHub.put, publish: bench.gitHub.publish, clock: bench.clock.now, settle: () => {} })
   bench.gitHub.open({ number: FIRST, head: FIRST_HEAD, review: 'success', mergeable_state: 'behind', files: ['scripts/a.ts'], body: firstBody })
   bench.gitHub.open({ number: SECOND, head: SECOND_HEAD, review: 'success', mergeable_state: 'behind', files: ['scripts/b.ts'] })
   bench.tick()

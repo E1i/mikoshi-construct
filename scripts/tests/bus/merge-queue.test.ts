@@ -23,6 +23,7 @@ import { recordDecision } from '../../policy/decisions/index.js'
 import { runShard } from '../../policy/shard.js'
 import { activeWindowShards, decisionsInForceAt, unspentShard } from '../../policy/shards.js'
 import { busProjections } from '../../supervisor/composition.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { cardBody, sha } from './github-fake.js'
 import { eventCount, eventsOf, liveBench, mergeBench, spendReviewRounds, taskState } from './merge-bench.js'
 import { detectUpdate } from './update-detection.js'
@@ -85,7 +86,7 @@ function parts(bench: MergeBench): MergeWorkerParts {
 }
 
 function mergeNode(bench: MergeBench, mode: DetectionMode = 'shadow'): MergeNode {
-  return new MergeNode({ ...parts(bench), mode, env: {} })
+  return new MergeNode({ silentMs: SILENT_MS, ...parts(bench), mode, env: {} })
 }
 
 async function step(node: MergeNode): Promise<NodeStep | null> {
@@ -105,7 +106,7 @@ function decidedAndBehind(): MergeBench & { update: () => UpdateOutcome } {
   recordDecision(bench.db, { ts: bench.clock.now().toISOString(), decisionId: 168, text: `[owner] allow-merge PR #${ROUND_LIMITED_PR} at ${DECIDED_HEAD} past the round limit`, cards: [] })
   bench.tick()
   detectUpdate(bench)
-  const executor = new UpdateExecutor({ db: bench.db, gitHub: bench.gitHub.client, put: bench.gitHub.put, publish: bench.gitHub.publish, clock: bench.clock.now, settle: () => {} })
+  const executor = new UpdateExecutor({ silentMs: SILENT_MS, db: bench.db, gitHub: bench.gitHub.client, put: bench.gitHub.put, publish: bench.gitHub.publish, clock: bench.clock.now, settle: () => {} })
   return { ...bench, update: () => executor.update(leaseNext(bench.db, bench.clock.now().toISOString(), 'update', 'worker:update:worker-1')!) }
 }
 
@@ -491,7 +492,7 @@ describe('a head that moves under the queues', () => {
     leaseNext(bench.db, ts, 'merge', 'worker:merge:worker-1')
     const update = taskKey({ queue: 'update', cardId: 1055, pr: 955, head: sha('a') })
     for (let failure = 1; failure <= FAILURES_TO_STOP; failure += 1)
-      failTask(bench.db, ts, leaseQueued(bench.db, ts, update, 'worker:update:worker-1')!, { reason: 'github_error', withdraw: false })
+      failTask(bench.db, ts, leaseQueued(bench.db, ts, update, 'worker:update:worker-1')!, { reason: 'github_error', withdraw: false }, SILENT_MS)
     expect(tasksOfPr(bench, 955)).toEqual({ answer: 'queued', merge: 'leased', review: 'queued', update: 'stopped' })
 
     bench.gitHub.open({ number: 955, head: sha('b'), review: 'failure' })

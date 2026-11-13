@@ -11,6 +11,7 @@ import { failTask, leaseQueued } from '../../core/lease.js'
 import { keyOf, queueTask } from '../../core/queue.js'
 import { REVIEW_CEILING_MS } from '../../nodes/review/reviewer.js'
 import { InMemoryProcessTable } from '../../ports/process-table.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { NO_PROGRESS_LINES, pulseIn, StalledSessions, transcriptMoved } from '../../supervisor/stalled-sessions.js'
 
 const LEASED_AT = Date.parse('2026-11-10T08:00:00.000Z')
@@ -118,7 +119,7 @@ describe('a review session judged on more than one signal', () => {
     expect(watch.stopped).toEqual([SESSION])
     expect(stateOf(db, lease)).toBe('leased')
 
-    failTask(db, at(reviewLine + 3).toISOString(), lease, { reason: 'exit 143', withdraw: false })
+    failTask(db, at(reviewLine + 3).toISOString(), lease, { reason: 'exit 143', withdraw: false }, SILENT_MS)
     const again = leaseQueued(db, at(reviewLine + 4).toISOString(), keyOf(REVIEW), 'worker:review:worker-1')!
     expect(again.leaseGen).toBeGreaterThan(lease.leaseGen)
     beat(db, again, reviewLine + 5, { context: STILL_CONTEXT })

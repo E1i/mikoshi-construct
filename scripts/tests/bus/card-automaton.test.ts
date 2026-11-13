@@ -12,6 +12,7 @@ import { reduce } from '../../core/reducer.js'
 import { LaunchExecutor } from '../../nodes/launch/launch-executor.js'
 import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
 import { busProjections } from '../../supervisor/composition.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { mergeBench } from './merge-bench.js'
 
 const benches: MergeBench[] = []
@@ -39,7 +40,7 @@ function stoppedByFault(made: MergeBench, cardId: number): number {
   for (let failure = 0; failure < FAILURES_TO_STOP; failure += 1) {
     const lease = leaseNext(made.db, ts(), 'launch', 'worker:launch:worker-1')!
     leaseGen = lease.leaseGen
-    failTask(made.db, ts(), lease, { reason: 'start_failed', withdraw: false })
+    failTask(made.db, ts(), lease, { reason: 'start_failed', withdraw: false }, SILENT_MS)
   }
   reduce(made.db, 'pending', busProjections())
   expect(stateOf(made, cardId)).toBe('stopped')
@@ -68,7 +69,7 @@ const sessionStarter: CardStarter = {
 
 function launchedUnder(made: MergeBench, actor: string): Lease {
   const lease = leaseNext(made.db, made.clock.now().toISOString(), 'launch', actor)!
-  const executor = new LaunchExecutor({ db: made.db, starter: sessionStarter, clock: made.clock.now, disk: roomy, isolation: sandboxed })
+  const executor = new LaunchExecutor({ silentMs: SILENT_MS, db: made.db, starter: sessionStarter, clock: made.clock.now, disk: roomy, isolation: sandboxed })
   const outcome = executor.launch(lease)
   expect(outcome.kind === 'denied' ? outcome.denial : outcome.kind).toBe('started')
   reduce(made.db, 'pending', busProjections())

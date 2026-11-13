@@ -15,6 +15,7 @@ import { fullReview } from '../../nodes/review/review-depth.js'
 import { ReviewNode } from '../../nodes/review/review-worker.js'
 import { NetWatch } from '../../ports/netwatch.js'
 import { busProjections } from '../../supervisor/composition.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { switchDetection, switchWorker, wantedLaunches } from '../../supervisor/workers.js'
 import { cardBody } from './github-fake.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
@@ -61,7 +62,7 @@ function bench(): MergeBench {
 }
 
 function nodeOf(made: MergeBench, mode: DetectionMode = 'live'): ProbedReviewNode {
-  return new ProbedReviewNode({ db: made.db, gitHub: made.gitHub.client, publish: made.gitHub.publish, reviewer: passing, plan: () => fullReview('a fixed plan'), clock: made.clock.now, session: 'node-1', mode, env: {}, isolation: sandboxed })
+  return new ProbedReviewNode({ silentMs: SILENT_MS, db: made.db, gitHub: made.gitHub.client, publish: made.gitHub.publish, reviewer: passing, plan: () => fullReview('a fixed plan'), clock: made.clock.now, session: 'node-1', mode, env: {}, isolation: sandboxed })
 }
 
 async function once(node: ReviewNode): Promise<void> {

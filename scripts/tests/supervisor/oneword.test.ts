@@ -17,6 +17,7 @@ import { decisionsIntake } from '../../policy/decisions/import.js'
 import { allowLiveCommand, liveDecisionOf } from '../../policy/live-decision.js'
 import { activeWindowShards, decisionsInForceAt, windowShardEnded } from '../../policy/shards.js'
 import { busProjections } from '../../supervisor/composition.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { busDecisionsAdder, busDecisionsText, ghostProtocolWord, runMode, startCommandOf } from '../../supervisor/start.js'
 import { liveWorkers, returnToWindowAtTermEnd, switchDetection, switchedOn, switchWorker, termEndOf, wantedLaunches } from '../../supervisor/workers.js'
 import { sha } from '../bus/github-fake.js'
@@ -195,7 +196,7 @@ describe('oneword: the merge node asks for no second word under the owner\'s sha
   async function liveMergeRounds(made: MergeBench): Promise<void> {
     made.gitHub.open({ number: 970, review: 'success' })
     made.tick()
-    const node = new MergeNode({ db: made.db, gitHub: made.gitHub.client, put: made.gitHub.put, publish: made.gitHub.publish, clock: made.clock.now, session: 'node-1', run: null, mode: 'live', env: {} })
+    const node = new MergeNode({ silentMs: SILENT_MS, db: made.db, gitHub: made.gitHub.client, put: made.gitHub.put, publish: made.gitHub.publish, clock: made.clock.now, session: 'node-1', run: null, mode: 'live', env: {} })
     for (let round = 0; round < 3; round += 1) {
       const controller = new AbortController()
       await node.run({ pause: async () => controller.abort(), signal: controller.signal })

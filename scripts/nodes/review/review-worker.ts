@@ -44,7 +44,7 @@ import { realIsolationReader } from '../../ports/isolation.js'
 import { CHECK_MS, TICK_MS } from '../../ports/netwatch.js'
 import { promptsDirOf } from '../../ports/prompt-store.js'
 import { spawnReviewSession } from '../../ports/session.js'
-import { busProjections } from '../../supervisor/composition.js'
+import { busProjections, nodeLiveness } from '../../supervisor/composition.js'
 import { busSessionPulse, measureCardSession } from '../../supervisor/heartbeat.js'
 import { slotsOf, slotsVariable } from '../../supervisor/scheduler.js'
 import { stampLogOutput } from '../../supervisor/stamp.js'
@@ -123,7 +123,7 @@ export class ReviewNode extends Node<Step> {
   private readonly executor: ReviewExecutor
 
   constructor(private readonly reviewParts: ReviewNodeParts) {
-    super('review', { db: reviewParts.db, clock: reviewParts.clock, session: reviewParts.session, mode: reviewParts.mode, env: reviewParts.env })
+    super('review', { db: reviewParts.db, clock: reviewParts.clock, session: reviewParts.session, mode: reviewParts.mode, env: reviewParts.env, silentMs: reviewParts.silentMs })
     this.executor = new ReviewExecutor(readingTheKeyedBody(reviewParts))
     this.declare(REVIEW_NODE, scopeOf)
   }
@@ -178,13 +178,13 @@ export class ReviewWorker {
   }
 
   async step(): Promise<Step> {
-    expireLeases(this.parts.db, this.ts())
+    expireLeases(this.parts.db, this.ts(), this.parts.silentMs)
     const lease = leaseNext(this.parts.db, this.ts(), 'review', this.actor)
     return lease === null ? { kind: 'idle' } : this.executor.review(lease)
   }
 
   async stepOn(key: string): Promise<Step> {
-    expireLeases(this.parts.db, this.ts())
+    expireLeases(this.parts.db, this.ts(), this.parts.silentMs)
     const lease = leaseQueued(this.parts.db, this.ts(), key, this.actor)
     return lease === null ? { kind: 'idle' } : this.executor.review(lease)
   }
@@ -403,6 +403,7 @@ export async function runReview(argv: string[], run: ReviewRun): Promise<number>
   }
   const env = { ...process.env, [slotsVariable('review')]: String(run.slots) }
   const build = (db: DatabaseSync, detection: DetectionMode): ReviewNode => new ReviewNode({
+    ...nodeLiveness(),
     db,
     gitHub: run.gitHub,
     publish: run.publish,

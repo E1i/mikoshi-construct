@@ -3,6 +3,7 @@ import type { StoredEvent } from '../../core/stored.js'
 import type { MergeBench } from './merge-bench.js'
 import { STORED_COLUMNS } from '../../core/stored.js'
 import { MergeNode } from '../../nodes/merge/merge-worker.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 
 class DetectingMergeNode extends MergeNode {
   detect(scope?: Scope): void {
@@ -12,5 +13,5 @@ class DetectingMergeNode extends MergeNode {
 }
 
 export function detectMerge(bench: Pick<MergeBench, 'db' | 'gitHub' | 'clock'>, scope?: Scope): void {
-  new DetectingMergeNode({ db: bench.db, gitHub: bench.gitHub.client, put: bench.gitHub.put, publish: bench.gitHub.publish, clock: bench.clock.now, session: 'detect', run: null, mode: 'live', env: {} }).detect(scope)
+  new DetectingMergeNode({ silentMs: SILENT_MS, db: bench.db, gitHub: bench.gitHub.client, put: bench.gitHub.put, publish: bench.gitHub.publish, clock: bench.clock.now, session: 'detect', run: null, mode: 'live', env: {} }).detect(scope)
 }

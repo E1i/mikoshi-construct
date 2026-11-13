@@ -11,6 +11,7 @@ import { REVIEW_ROUNDS } from '../../core/queue.js'
 import { MergeExecutor } from '../../nodes/merge/merge-executor.js'
 import { NetWatch, TICK_MS } from '../../ports/netwatch.js'
 import { busProjections } from '../../supervisor/composition.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { BusTick } from '../../supervisor/run.js'
 import { Clock, FakeGitHub, sha } from './github-fake.js'
 import { detectMerge } from './merge-detection.js'
@@ -52,7 +53,7 @@ export function mergeBench(intake: Intake = () => () => {}, liveNodes: LiveNodes
   const gitHub = new FakeGitHub()
   const clock = new Clock()
   const busTick = new BusTick(db, busProjections(), new NetWatch(db, gitHub.client, clock.now), clock.now, intake(db, clock))
-  const executor = new MergeExecutor({ db, gitHub: gitHub.client, put: gitHub.put, publish: gitHub.publish, clock: clock.now, run: RUN })
+  const executor = new MergeExecutor({ silentMs: SILENT_MS, db, gitHub: gitHub.client, put: gitHub.put, publish: gitHub.publish, clock: clock.now, run: RUN })
   const tick = (): void => {
     busTick.run()
     liveNodes({ db, gitHub, clock })

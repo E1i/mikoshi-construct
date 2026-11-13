@@ -17,6 +17,7 @@ import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
 import { claudeAnswerer, FreshBaseConflict } from '../../nodes/answer/answerer.js'
 import { CONCEPT_WIDENING_REASON } from '../../nodes/answer/concept-scope.js'
 import { DECISIONS_SCOPE } from '../../policy/shards.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { sha } from './github-fake.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
 
@@ -134,7 +135,7 @@ async function answerLeaving(changed: readonly string[], shard: boolean, publish
     pending: () => [TOUCHED, ...changed],
   })
   const trees: CardTreeTools = { home, exists: existsSync, branchOf: card => `feat/card-${card}`, recreate: () => {}, bringTo: () => {} }
-  const executor = new AnswerExecutor({ db: made.db, answerer, ownerMerges: () => OWNER_MERGES, clock: made.clock.now, trees, dirty: () => false, liveSession: () => null, prepare: () => {} })
+  const executor = new AnswerExecutor({ silentMs: SILENT_MS, db: made.db, answerer, ownerMerges: () => OWNER_MERGES, clock: made.clock.now, trees, dirty: () => false, liveSession: () => null, prepare: () => {} })
   return { outcome: await executor.answer(lease), published, made, lease }
 }
 

@@ -62,6 +62,7 @@ export interface CloseParts {
   reported: ReportedVerification
   clock: () => Date
   parking: string
+  silentMs: number
   trees?: CardTreeRemover
   cwds?: () => ProcessCwds
 }
@@ -262,7 +263,7 @@ export class CloseExecutor {
   private denied(lease: Lease, denial: CloseDenial): CloseOutcome {
     const ts = this.ts()
     const event: BusEvent = { ts, type: POLICY_DENIED, actor: 'policy', cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${POLICY_DENIED}:${lease.taskKey}:${lease.leaseGen}`, payload: { command: 'close', ...denial }, legacy: false }
-    const next = failTask(this.parts.db, ts, lease, { reason: denial.reason, withdraw: denial.reason === 'card_closed' || denial.reason === NOT_MINE || denial.reason === WITNESS_REASON }, [event])
+    const next = failTask(this.parts.db, ts, lease, { reason: denial.reason, withdraw: denial.reason === 'card_closed' || denial.reason === NOT_MINE || denial.reason === WITNESS_REASON }, this.parts.silentMs, [event])
     return { kind: 'denied', taskKey: lease.taskKey, denial, next }
   }
 }

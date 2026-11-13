@@ -8,6 +8,7 @@ import { failTask, LEASE_MS } from '../../core/lease.js'
 import { FAILURES_TO_STOP, keyOf, queueTask } from '../../core/queue.js'
 import { projectionDump, reduce } from '../../core/reducer.js'
 import { busProjections } from '../../supervisor/composition.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { cardBody, sha } from './github-fake.js'
 import { liveBench, mergeBench, taskState } from './merge-bench.js'
 
@@ -105,7 +106,7 @@ describe('a merge task on a merged pull request', () => {
   it('a stopped merge task is withdrawn', () => {
     const bench = openedWith([mergeTask])
     for (let failure = 1; failure <= FAILURES_TO_STOP; failure += 1)
-      failTask(bench.db, bench.clock.now().toISOString(), bench.lease()!, { reason: 'no_verification', withdraw: false })
+      failTask(bench.db, bench.clock.now().toISOString(), bench.lease()!, { reason: 'no_verification', withdraw: false }, SILENT_MS)
     expect(stateOf(bench, mergeTask)).toBe('stopped')
 
     ownerMerges(bench)

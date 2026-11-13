@@ -24,6 +24,7 @@ import { planReview } from '../../nodes/review/review-depth.js'
 import { classify } from '../../policy/morse/rules.js'
 import { KNOWN_VIOLATIONS, removesEntriesOnly, textBeforePatch } from '../../policy/touch-scope.js'
 import { busProjections } from '../../supervisor/composition.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { sha } from './github-fake.js'
 import { eventsOf, liveBench, mergeBench } from './merge-bench.js'
 
@@ -145,7 +146,7 @@ async function answerWith(rounds: Round[]): Promise<Answering> {
     pending: () => pendingIn(worktree),
   })
   const trees: CardTreeTools = { home, exists: existsSync, branchOf: card => `feat/card-${card}`, recreate: () => {}, bringTo: () => {} }
-  const executor = new AnswerExecutor({ db: made.db, answerer, ownerMerges: () => '', clock: made.clock.now, trees, dirty: () => false, liveSession: () => null, prepare: () => {} })
+  const executor = new AnswerExecutor({ silentMs: SILENT_MS, db: made.db, answerer, ownerMerges: () => '', clock: made.clock.now, trees, dirty: () => false, liveSession: () => null, prepare: () => {} })
   const outcome = await executor.answer(lease)
   return { made, outcome, published, prompts, known: readFileSync(path.join(worktree, KNOWN_VIOLATIONS), 'utf8') }
 }

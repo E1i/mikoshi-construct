@@ -32,6 +32,7 @@ export interface RestartParts {
   processes: ProcessTable
   launchSwitchedOn: () => boolean
   clock: () => Date
+  silentMs: number
 }
 
 export function relaunchKey(role: Role): string {
@@ -164,7 +165,7 @@ export class RestartExecutor {
   private denied(lease: Lease, reason: RestartReason, detail: string): RestartOutcome {
     const ts = this.ts()
     const event: BusEvent = { ts, type: POLICY_DENIED, actor: 'policy', cardId: lease.cardId, pr: null, head: lease.head, dedupeKey: `${POLICY_DENIED}:${lease.taskKey}:${lease.leaseGen}`, payload: { command: 'restart', kind: 'technical', reason, detail }, legacy: false }
-    const next = failTask(this.parts.db, ts, lease, { reason, withdraw: WITHDRAWN_REASONS.has(reason) }, [event])
+    const next = failTask(this.parts.db, ts, lease, { reason, withdraw: WITHDRAWN_REASONS.has(reason) }, this.parts.silentMs, [event])
     return { kind: 'denied', taskKey: lease.taskKey, reason, detail, next }
   }
 }
