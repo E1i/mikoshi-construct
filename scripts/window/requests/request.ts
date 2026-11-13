@@ -3,7 +3,7 @@ import path from 'node:path'
 import { BUS_REQUEST_COMMAND } from '../../core/owner-commands.js'
 import { ANSWER_SOURCE, CARD_PLANNED, CARD_UNPLANNED, CLOSED_CARD, DROPPED_CARD, LEASED, MERGED_CARD, OWNER_MOVE_REQUESTS, PLAN_BACKFILLED, PLAN_CLOSED, PLAN_OPENED, prOf, QUEUED, USED_WORD } from './reach.js'
 
-export const REQUEST_KINDS = ['tree.cut', 'amend', 'allow-merge', 'close-pr', 'reopen-pr', 'pr.body', 'ci.rerun', 'requeue', 'mode', 'plan', 'owner.wait', 'owner.wait.close', 'decisions:add', 'hold', 'release', 'takeover', 'drop', 'numbers.foreign', ...OWNER_MOVE_REQUESTS] as const
+export const REQUEST_KINDS = ['tree.cut', 'amend', 'allow-merge', 'close-pr', 'reopen-pr', 'pr.body', 'ci.rerun', 'requeue', 'mode', 'plan', 'owner.wait', 'owner.wait.close', 'decisions:add', 'hold', 'release', 'takeover', 'drop', 'numbers.foreign', 'owner.answer', ...OWNER_MOVE_REQUESTS] as const
 
 export type RequestKind = typeof REQUEST_KINDS[number]
 

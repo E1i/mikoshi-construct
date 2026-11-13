@@ -32,6 +32,8 @@ export const MIKO_EXIT_COMMAND = pnpmCommand('miko:exit')
 
 export const OWNER_SAY_COMMAND = pnpmCommand('owner:say')
 
+export const OWNER_ANSWER_COMMAND = pnpmCommand('owner:answer')
+
 export const OWNER_COMMAND_COMMAND = pnpmCommand('owner:command')
 
 export const TSX_COMMAND = pnpmCommand('exec', 'tsx')

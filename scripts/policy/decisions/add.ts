@@ -9,10 +9,10 @@ import { defaultBusPath, openBus } from '../../core/db.js'
 import { REQUEST_DONE, REQUEST_REFUSED } from '../../core/events.js'
 import { pnpmCommand } from '../../core/owner-commands.js'
 import { ownerChannelOfBus, sayToOwnerChannel } from '../../owner/channel.js'
-import { runRequest, SESSION_VARIABLE } from '../../window/window-requests.js'
 import { continueFixesDecisionOf, namesPrAtHead, observedHeadsOf } from '../round-limit-decision.js'
 import { boundText, calendarTerm, cardTail, decisionsRefusals, outOfForceLines, OWNER_SOURCE, parseDecisions, PREFIX, settleSupersedes, stampOf, untilTail, WRITER_MARKER } from './decisions.js'
 import { archiveOf } from './read.js'
+import { runRequest, SESSION_VARIABLE } from './window-door.js'
 
 const ADD_COMMAND = pnpmCommand('decisions:add')
 export const USAGE = `usage: ${ADD_COMMAND} [--file <owner-decisions.md>] [--supersedes D-M]... [--card #N]... [--until <YYYY-MM-DDTHH:MMZ>] [--settled #N]... "[owner] <decision>"`
@@ -390,15 +390,19 @@ export function requestFromOwnerShell(args: string[], channel: string, db: Datab
   return requestDecision(['--from', 'answer', ...args], db, now, OWNER_SHELL_SESSION, out)
 }
 
-function requestFromThisShell(args: string[]): number {
+export function withOwnerShellBus(run: (db: DatabaseSync, channel: string) => number): number {
   const busPath = defaultBusPath()
   const db = openBus(busPath)
   try {
-    return requestFromOwnerShell(args, ownerChannelOfBus(os.homedir(), busPath), db, new Date(), line => console.log(line), line => console.error(line))
+    return run(db, ownerChannelOfBus(os.homedir(), busPath))
   }
   finally {
     db.close()
   }
+}
+
+function requestFromThisShell(args: string[]): number {
+  return withOwnerShellBus((db, channel) => requestFromOwnerShell(args, channel, db, new Date(), line => console.log(line), line => console.error(line)))
 }
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
