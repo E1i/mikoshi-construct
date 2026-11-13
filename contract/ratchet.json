@@ -294,7 +294,7 @@
   "lines:scripts/construct/browser-lab.mjs": 809,
   "lines:scripts/core/queue.ts": 1300,
   "lines:scripts/nodes/launch/launch-worker.ts": 815,
-  "lines:scripts/supervisor/supervisor.ts": 1186,
+  "lines:scripts/supervisor/supervisor.ts": 1180,
   "lines:src/ui/lore.ts": 1334,
   "overlaps:answer-duties": 1,
   "overlaps:bus-read": 471,

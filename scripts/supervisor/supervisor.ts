@@ -25,7 +25,7 @@ import { processGit } from '../ports/git.js'
 import { CHECK_MS } from '../ports/netwatch.js'
 import { OsProcessTable, rowOf, rowsOf } from '../ports/process-table.js'
 import { WindowSessionEnds } from '../window/window-session-end.js'
-import { BUILD_DIR, BUILT_MODULE, flagsInArgs, installedPackage, instancesOf, launchName, PREFIX, printBg, provenOnBus, psList, runBusBg, runningInstance, stampedOtherwise, startDetached, thisBus, withBuses } from './bg.js'
+import { BUILD_DIR, BUILT_MODULE, flagsInArgs, installedPackage, instancesOf, launchName, PREFIX, printBg, provenOnBus, runBusBg, runningInstance, stampedOtherwise, startDetached, thisBus, withBuses } from './bg.js'
 import { BusHealer, CorruptionWatch, RecordedNodes } from './bus-heal.js'
 import { BusSnapshot } from './bus-snapshot.js'
 import { busProjections } from './composition.js'
@@ -547,13 +547,13 @@ function workerKindsOf(launches: DetachedLaunch[]): string[] {
   return launches.map(launch => launch.script.replace(/^bus:/, '')).filter(isBusWorker)
 }
 
-export function withoutRetiring(processes: ProcessList, db: DatabaseSync, holding: () => boolean = () => false): ProcessList {
+export function withoutRetiring(processes: () => (RunningProcess & Partial<GroupedProcess>)[], db: DatabaseSync, holding: () => boolean = () => false): ProcessList {
   return () => {
     const listed = processes()
     if (holding())
       return listed
     const retiring = retiringPids(db)
-    return listed.filter(each => !retiring.has(each.pid))
+    return listed.filter(each => !retiring.has(each.pid) && !retiring.has(each.group ?? each.pid))
   }
 }
 
@@ -957,9 +957,13 @@ export function outsideGroup(processes: GroupedProcess[], group: number): Runnin
   return processes.filter(candidate => candidate.group !== group).map(({ group: _group, ...running }) => running)
 }
 
+export function groupedPsList(table: ProcessTable = new OsProcessTable()): () => GroupedProcess[] {
+  return () => withBuses(rowsOf(table.snapshot()).map(row => ({ pid: row.pid, group: row.pgid, args: row.command })))
+}
+
 export function outsideOwnGroup(table: ProcessTable = new OsProcessTable(), self: number = process.pid): ProcessList {
   const own = rowOf(table.snapshot(), self)?.pgid ?? self
-  return () => outsideGroup(withBuses(rowsOf(table.snapshot()).map(row => ({ pid: row.pid, group: row.pgid, args: row.command }))), own)
+  return () => outsideGroup(groupedPsList(table)(), own)
 }
 
 export function runReducer(cwd: string): string[] {
@@ -1015,7 +1019,7 @@ export interface SwitchControl {
 async function supervise(busDir: string, cwd: string, reviewPreflight: () => string[]): Promise<number> {
   const busPath = defaultBusPath()
   const db = openBus(busPath)
-  const everyProcess = psList()
+  const everyProcess = groupedPsList()
   const journal = (entry: Record<string, unknown>): void => {
     appendFileSync(path.join(busDir, SUPERVISOR_JOURNAL), `${JSON.stringify(entry)}\n`)
   }
@@ -1078,14 +1082,18 @@ async function supervise(busDir: string, cwd: string, reviewPreflight: () => str
   }
 }
 
-function decisionsInForce(): InForceDecision[] {
+function onBus<T>(read: (db: DatabaseSync) => T): T {
   const db = openBus(defaultBusPath())
   try {
-    return inForceDecisions(db)
+    return read(db)
   }
   finally {
     db.close()
   }
+}
+
+function decisionsInForce(): InForceDecision[] {
+  return onBus(inForceDecisions)
 }
 
 export function pinnedBusDir(): string {
@@ -1127,28 +1135,14 @@ export async function startUnderAgentEnv(busDir: string, launches: DetachedLaunc
 }
 
 function freeLeasesOnBus(stopped: DetachedLaunch[]): string[] {
-  const db = openBus(defaultBusPath())
-  try {
-    return freeLeasesOf(db, new Date().toISOString(), stopped)
-  }
-  finally {
-    db.close()
-  }
+  return onBus(db => freeLeasesOf(db, new Date().toISOString(), stopped))
 }
 
-function withoutRetiringOnBus(processes: ProcessList): ProcessList {
-  return () => {
-    const db = openBus(defaultBusPath())
-    try {
-      return withoutRetiring(processes, db)()
-    }
-    finally {
-      db.close()
-    }
-  }
+function withoutRetiringOnBus(processes: () => (RunningProcess & Partial<GroupedProcess>)[]): ProcessList {
+  return () => onBus(db => withoutRetiring(processes, db)())
 }
 
-export async function startBus(busDir: string = pinnedBusDir(), everyProcess: ProcessList = psList()): Promise<BgResult> {
+export async function startBus(busDir: string = pinnedBusDir(), everyProcess: () => (RunningProcess & Partial<GroupedProcess>)[] = groupedPsList()): Promise<BgResult> {
   const processes = withoutRetiringOnBus(everyProcess)
   const judged = await restartSilentSupervisorOnBus(busDir, everyProcess)
   const started = await startUnderAgentEnv(busDir, [...wantedLaunches(busDir, reviewPreflight, decisionsInForce()), SUPERVISOR_LAUNCH], {
