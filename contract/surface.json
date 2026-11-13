@@ -2158,6 +2158,17 @@
       "json": false,
       "unknownFlag": "strict parseArgs"
     },
+    "declarations:update": {
+      "entries": [
+        "scripts/core/declarations.ts"
+      ],
+      "exits": [
+        1
+      ],
+      "flags": [],
+      "json": false,
+      "unknownFlag": "not read"
+    },
     "dev": {
       "entries": [
         "src/cli.ts"

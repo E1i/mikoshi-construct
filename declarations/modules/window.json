@@ -1,0 +1,9 @@
+{
+  "module": "window",
+  "layer": "window",
+  "paths": [
+    "scripts/window/"
+  ],
+  "exclude": [],
+  "shared": []
+}

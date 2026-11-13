@@ -1,0 +1,14 @@
+{
+  "module": "release",
+  "layer": "release",
+  "paths": [
+    "scripts/release/",
+    "scripts/release-notes/",
+    "scripts/docs/",
+    "src/commands/run-record.ts",
+    "docs/release-notes/",
+    ".changeset/"
+  ],
+  "exclude": [],
+  "shared": []
+}

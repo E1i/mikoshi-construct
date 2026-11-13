@@ -1,0 +1,10 @@
+{
+  "module": "intake",
+  "layer": "intake",
+  "paths": [
+    "scripts/intake/",
+    "src/commands/intake/"
+  ],
+  "exclude": [],
+  "shared": []
+}

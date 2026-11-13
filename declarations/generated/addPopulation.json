@@ -1,0 +1,14 @@
+{
+  "id": "addPopulation",
+  "module": "architecture",
+  "path": "architecture/add-population.md",
+  "rebuild": null,
+  "check": null,
+  "rebuiltOnUpdate": false,
+  "seamSources": null,
+  "followSources": [
+    "templates",
+    "src/presets",
+    "src/materialize"
+  ]
+}

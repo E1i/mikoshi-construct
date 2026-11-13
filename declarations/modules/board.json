@@ -1,0 +1,12 @@
+{
+  "module": "board",
+  "layer": "cli",
+  "paths": [
+    "scripts/cli/board-page.ts",
+    "scripts/cli/board-page/",
+    "scripts/cli/board-warnings.ts",
+    "src/commands/board/"
+  ],
+  "exclude": [],
+  "shared": []
+}

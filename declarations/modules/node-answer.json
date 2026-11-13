@@ -1,0 +1,9 @@
+{
+  "module": "node-answer",
+  "layer": "nodes",
+  "paths": [
+    "scripts/nodes/answer/"
+  ],
+  "exclude": [],
+  "shared": []
+}

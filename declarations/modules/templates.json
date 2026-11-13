@@ -1,0 +1,10 @@
+{
+  "module": "templates",
+  "layer": "templates",
+  "paths": [
+    "templates/",
+    "scripts/construct/"
+  ],
+  "exclude": [],
+  "shared": []
+}

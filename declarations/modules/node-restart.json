@@ -1,0 +1,9 @@
+{
+  "module": "node-restart",
+  "layer": "nodes",
+  "paths": [
+    "scripts/nodes/restart/"
+  ],
+  "exclude": [],
+  "shared": []
+}

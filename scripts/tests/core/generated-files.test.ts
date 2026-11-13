@@ -141,12 +141,12 @@ describe('the one list of generated files', () => {
   })
 
   it('the rebuild of the factory contract writes the command surface as well, and nothing else', () => {
-    expect(pathsRebuiltBy(GENERATED_FILES.factory.rebuild)).toEqual([GENERATED_FILES.surface.path, FACTORY])
+    expect(pathsRebuiltBy(GENERATED_FILES.factory.rebuild).sort()).toEqual([FACTORY, GENERATED_FILES.surface.path])
     expect(pathsRebuiltBy(RATCHET_FILE.rebuild)).toEqual([RATCHET_RECORD])
   })
 
   it('the manifest field sharedAppendFiles is the list the owner rebuilds on an update and the append-only logs', () => {
-    expect(sharedAppendFiles(REPO_ROOT)).toEqual([...SHARED_APPEND_PATHS])
+    expect(sharedAppendFiles(REPO_ROOT).sort()).toEqual([...SHARED_APPEND_PATHS].sort())
     expect(SHARED_APPEND_PATHS).toEqual([...REBUILT_ON_UPDATE.map(row => row.path), ...APPEND_ONLY_LOGS])
   })
 

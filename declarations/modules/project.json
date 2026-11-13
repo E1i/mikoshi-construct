@@ -1,0 +1,31 @@
+{
+  "module": "project",
+  "layer": "src",
+  "paths": [
+    "src/commands/attach/",
+    "src/commands/detach/",
+    "src/commands/doctor/",
+    "src/commands/sync/",
+    "src/commands/graph.ts",
+    "src/commands/init.ts",
+    "src/commands/soulkill.ts",
+    "src/detect/",
+    "src/manifest.ts",
+    "src/materialize/",
+    "src/presets/",
+    "src/record-ahead.ts",
+    "src/sync/",
+    "src/failure.ts",
+    "src/known-flags.ts",
+    "src/version.ts",
+    "scripts/composition/",
+    "scripts/harness-command/",
+    "scripts/attach/",
+    "architecture/composition/",
+    "templates/attach/earlier-carriers.json",
+    "src/cli.ts",
+    "src/program.ts"
+  ],
+  "exclude": [],
+  "shared": []
+}

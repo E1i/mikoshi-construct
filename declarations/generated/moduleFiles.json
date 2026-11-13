@@ -1,0 +1,14 @@
+{
+  "id": "moduleFiles",
+  "module": "layout",
+  "path": "contract/module-files.json",
+  "rebuild": [
+    "declarations:update"
+  ],
+  "check": null,
+  "rebuiltOnUpdate": false,
+  "seamSources": null,
+  "followSources": [
+    "declarations"
+  ]
+}

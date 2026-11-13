@@ -1,0 +1,9 @@
+{
+  "module": "product-tests",
+  "layer": "tests",
+  "paths": [
+    "tests/"
+  ],
+  "exclude": [],
+  "shared": []
+}
