@@ -111,6 +111,18 @@ export function formatVersion(file: string, field: ContractFormat): number {
   return value
 }
 
+export const REPORT_CONTRACT = {
+  countLine: '■ \\d+ □ \\d+ · \\d+',
+  countLineRefusal: 'no_matrix_count_line',
+  countLineUnder: ['src/', 'templates/'],
+  file: '.construct/report.md',
+  reportVersion: 1,
+} as const
+
+export function reportWithoutCountLine(report: string, files: readonly string[]): string | undefined {
+  return new RegExp(REPORT_CONTRACT.countLine).test(report) ? undefined : files.find(file => REPORT_CONTRACT.countLineUnder.some(root => file.startsWith(root)))
+}
+
 export const OUTSIDE_THE_CONTRACT = [
   '.construct/turns.jsonl',
   'graph --out HTML',
@@ -141,6 +153,15 @@ export interface Surface {
   contours: Record<string, string>
   outside: string[]
   scripts: Record<string, ScriptSurface>
+  report?: ReportContract
+}
+
+export interface ReportContract {
+  countLine: string
+  countLineRefusal: string
+  countLineUnder: string[]
+  file: string
+  reportVersion: number
 }
 
 export interface ScriptRegistry {
@@ -387,7 +408,7 @@ function withFailed(table: Record<string, number>): Record<string, number> {
   return { ...table, failed: FAILED_EXIT }
 }
 
-function exits(): Record<ContractCommand | typeof SYNC_APPLY_FORM, Record<string, number>> {
+export function exitTables(): Record<ContractCommand | typeof SYNC_APPLY_FORM, Record<string, number>> {
   return {
     'init': withFailed(INIT_EXIT),
     'attach': withFailed(ATTACH_EXIT),
@@ -546,7 +567,7 @@ export function generateSurface(): Surface {
   return {
     surfaceVersion: SURFACE_VERSION,
     commands,
-    exits: exits(),
+    exits: exitTables(),
     jsonKeys: json.keys,
     jsonForms: json.forms,
     unknownFlag: unknownFlagRefusals(HEAD_CLI, commands),
@@ -556,6 +577,7 @@ export function generateSurface(): Surface {
     contours: contours(),
     outside: [...OUTSIDE_THE_CONTRACT],
     scripts: scriptSurfaces(),
+    report: { ...REPORT_CONTRACT, countLineUnder: [...REPORT_CONTRACT.countLineUnder] },
   }
 }
 
@@ -623,6 +645,33 @@ function sortedKeys(value: JsonValue): JsonValue {
   return value
 }
 
+const REPORT_READER_CODE = [
+  'export function reportWithoutCountLine(report: string, files: readonly string[]): string | undefined {',
+  '  return new RegExp(REPORT_CONTRACT.countLine).test(report) ? undefined : files.find(file => REPORT_CONTRACT.countLineUnder.some(root => file.startsWith(root)))',
+  '}',
+]
+
+function quoted(value: string | number): string {
+  return typeof value === 'number' ? String(value) : `'${value.replaceAll('\\', '\\\\').replaceAll('\'', '\\\'')}'`
+}
+
+function reportContractCode(report: ReportContract): string[] {
+  const fields = byName(Object.entries(report)).map(([field, value]) => `  ${field}: ${Array.isArray(value) ? `[${value.map(quoted).join(', ')}]` : quoted(value as string | number)},`)
+  return ['export const REPORT_CONTRACT = {', ...fields, '} as const', '', ...REPORT_READER_CODE]
+}
+
+export function reportContractRefusals(base: ReportContract | undefined, head: ReportContract): string[] {
+  if (base === undefined)
+    return []
+  if (head.reportVersion < base.reportVersion)
+    return [`report.reportVersion: ${base.reportVersion} → ${head.reportVersion} goes back`]
+  const { reportVersion: _, ...was } = base
+  const { reportVersion: __, ...is } = head
+  return JSON.stringify(byName(Object.entries(was))) !== JSON.stringify(byName(Object.entries(is))) && head.reportVersion === base.reportVersion
+    ? ['report: the report contract changed without its reportVersion growing']
+    : []
+}
+
 const FORMAT_READER_CODE = [
   'export function formatVersion(file: string, field: ContractFormat): number {',
   `  const value = (JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>)[field]`,
@@ -636,7 +685,7 @@ function byName<T>(entries: [string, T][]): [string, T][] {
   return entries.sort(([a], [b]) => a.localeCompare(b))
 }
 
-export function surfaceBoundaryCode(surface: Pick<Surface, 'surfaceVersion' | 'formats' | 'commands'>): string {
+export function surfaceBoundaryCode(surface: Pick<Surface, 'surfaceVersion' | 'formats' | 'commands' | 'report'>): string {
   const own = byName(Object.entries(surface.commands)).filter(([, command]) => 'flags' in command).map(([name]) => name)
   return [
     `${GENERATED_SURFACE_FROM}${surface.surfaceVersion}`,
@@ -655,6 +704,7 @@ export function surfaceBoundaryCode(surface: Pick<Surface, 'surfaceVersion' | 'f
     '',
     ...FORMAT_READER_CODE,
     '',
+    ...(surface.report === undefined ? [] : [...reportContractCode(surface.report), '']),
   ].join('\n')
 }
 
