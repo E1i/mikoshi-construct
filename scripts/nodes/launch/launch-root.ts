@@ -46,7 +46,7 @@ import { builtTreePr, HTTPS_ORIGIN_ENV, launchDirOf, TREE_PR_ENTRY, treeHoldsACo
 import { cardTree } from '../../ports/worktree-home.js'
 import { treeOriginIn } from '../../ports/worktree.js'
 import { BUILD_DIR, BUILT_MODULE, builtEntryOf, installedPackage } from '../../supervisor/bg.js'
-import { heartbeatEnv } from '../../supervisor/heartbeat.js'
+import { launchSessionEnv, nodeSupply } from '../../supervisor/composition.js'
 import { stampLogOutput } from '../../supervisor/stamp.js'
 import { builtHandoff, continuationRefusal, CONTINUE_PROMPT, eddiesEvidence, reachedContextLine, sessionWrittenPart, stoppedOnSpend } from './continuation.js'
 import { gitChangedPaths, killQuietly, psPgid, ShiftCardStarter, spawnDetached } from './launch-starter.js'
@@ -203,7 +203,7 @@ export async function runLaunchWorker(argv: string[], run: LaunchRun): Promise<n
     node?.stopOverdue()
     return run.pause(ms)
   }
-  return runNode(argv, 'launch', run.busPath, build, { pause, codeSha: loadedCodeSha })
+  return runNode(argv, 'launch', run.busPath, build, { pause, codeSha: loadedCodeSha, supply: nodeSupply() })
 }
 
 export const CARD_TEXT_HEADING = 'The card text this session runs on:'
@@ -254,7 +254,7 @@ export function realStarterPorts(repo: string, env: NodeJS.ProcessEnv, header: s
     pgidOf: psPgid,
     kill: killQuietly,
     uuid,
-    envOf: cardId => ({ ...sessionEnv(env, cardId, cardSessionOverlay(repo, env, cardSizeIn(bodyOf(cardId)))), ...heartbeatEnv({ cardId, pr: null, head: null, queue: 'launch' }), ...HTTPS_ORIGIN_ENV }),
+    envOf: cardId => ({ ...sessionEnv(env, cardId, cardSessionOverlay(repo, env, cardSizeIn(bodyOf(cardId)))), ...launchSessionEnv(cardId), ...HTTPS_ORIGIN_ENV }),
     prompt: (task, places) => renderPrompt(header, withCardDecisions(continuedOnCardText(task, bodyOf), decisionsOf(task.card.id)), places),
     changedPaths: gitChangedPaths,
     readReport: file => existsSync(file) ? sessionWrittenPart(readFileSync(file, 'utf8')) : null,

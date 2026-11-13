@@ -49,7 +49,7 @@ import { UpdateNode } from '../../nodes/update/update-worker.js'
 import { NetWatch, TICK_MS } from '../../ports/netwatch.js'
 import { InMemoryProcessTable } from '../../ports/process-table.js'
 import { launchName } from '../../supervisor/bg.js'
-import { busProjections } from '../../supervisor/composition.js'
+import { busProjections, nodeSupply } from '../../supervisor/composition.js'
 import { BusTick } from '../../supervisor/run.js'
 import { slotsVariable } from '../../supervisor/scheduler.js'
 import { busDrain, BusSupervisor, freeLeasesOf, withoutRetiring } from '../../supervisor/supervisor.js'
@@ -94,7 +94,7 @@ class LiveSession extends Node<NodeStep> {
   private readonly rounds: (() => void)[] = []
 
   constructor(kind: NodeKind, db: DatabaseSync, clock: () => Date) {
-    super(kind, { db, clock, session: 'old', mode: 'live', env: { [slotsVariable(kind)]: '1' }, self: { pid: SESSION_PID, started: clock().toISOString() } })
+    super(kind, { db, clock, session: 'old', mode: 'live', env: { [slotsVariable(kind)]: '1' }, self: { pid: SESSION_PID, started: clock().toISOString() }, supply: nodeSupply() })
   }
 
   override async run(ctx: NodeContext): Promise<void> {
@@ -285,7 +285,7 @@ async function usageLimitWaitsForItsReset(check: LaunchCheck = () => {}): Promis
     const launchDir = scratchDir('z2-launch-dir-')
     const node = new LaunchNode({ db: made.db, starter, continuer: starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes: { commandLine: () => null, signalGroup: () => {} }, resulted: () => false, handedOff: handoffWrittenSince(launchDir), reportOf: reportSince(launchDir), collected: () => 'report-missing: no report was written', usageLimitedUntil: () => reset, machine: new MachineSessions(scratchDir('z2-machine-'), () => false, 16), lanes: () => 4, disk: () => ({ bavail: 1, bsize: 1024 ** 4 }), isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }) })
     const controller = new AbortController()
-    await node.run({ pause: async () => controller.abort(), signal: controller.signal })
+    await node.run({ pause: async () => controller.abort(), signal: controller.signal, supply: nodeSupply() })
     made.tick()
     node.stopOverdue()
     made.clock.advance(3_600_000 + TICK_MS)
@@ -398,7 +398,7 @@ async function ownerLaunchPastConditions(node: LawNode): Promise<void> {
     }, stop: () => {} }
     const launch = new LaunchNode({ db: made.db, starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes: { commandLine: () => null, signalGroup: () => {} }, reportOf: reportSince(scratchDir('z10-launch-dir-')), machine: new MachineSessions(scratchDir('z10-launch-machine-'), () => false, 16), lanes: () => 4, disk: () => ({ bavail: 1, bsize: 1024 ** 4 }), isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }) })
     const controller = new AbortController()
-    await launch.run({ pause: async () => controller.abort(), signal: controller.signal })
+    await launch.run({ pause: async () => controller.abort(), signal: controller.signal, supply: nodeSupply() })
     if (started !== 1 || eventsOf(made.db, CARD_STARTED).length !== 1)
       throw new Error(`the owner's launch of held card #${OWNER_LAUNCHED_CARD} started ${started} sessions`)
   }
@@ -638,7 +638,7 @@ async function launchBodyFromLatestAdmission(node: LawNode): Promise<void> {
     const build = handoffBuilder(launchDir)
     const launch = new LaunchNode({ db: made.db, starter, continuer: starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes: { commandLine: () => null, signalGroup: () => {} }, pidAlive: () => false, collected: () => null, atContextLine: () => true, handedOff: () => existsSync(handoff), buildHandoff: build, machine: new MachineSessions(scratchDir('z3-launch-machine-'), () => false, 16), lanes: () => 4, disk: () => ({ bavail: 1, bsize: 1024 ** 4 }), isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }) })
     const controller = new AbortController()
-    await launch.run({ pause: async () => controller.abort(), signal: controller.signal })
+    await launch.run({ pause: async () => controller.abort(), signal: controller.signal, supply: nodeSupply() })
     made.tick()
     admitBody(made, 'admission-2', amendedCardBody(AMENDED_PROSE))
     if (cardBodyText(made.db, AMENDED_CARD)?.includes(AMENDED_PROSE) === true)
@@ -678,7 +678,7 @@ async function launchStopSpendsNoContinuation(node: LawNode): Promise<void> {
     writeFileSync(path.join(launchDir, `report-${STOPPED_CARD}.md`), `${handoff}\nquestion: ${STOP_QUESTION}\n`)
     const launch = new LaunchNode({ db: made.db, starter: started, continuer: starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes: { commandLine: () => null, signalGroup: () => {} }, pidAlive: () => false, collected: () => null, atContextLine: () => true, handedOff: handoffWrittenSince(launchDir), reportOf: reportSince(launchDir), machine: new MachineSessions(scratchDir('z8-launch-machine-'), () => false, 16), lanes: () => 4, disk: () => ({ bavail: 1, bsize: 1024 ** 4 }), isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }) })
     const controller = new AbortController()
-    await launch.run({ pause: async () => controller.abort(), signal: controller.signal })
+    await launch.run({ pause: async () => controller.abort(), signal: controller.signal, supply: nodeSupply() })
     made.tick()
     launch.stopOverdue()
     const stops = eventsOf(made.db, CARD_STOPPED)

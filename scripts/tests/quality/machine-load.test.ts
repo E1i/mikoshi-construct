@@ -16,6 +16,7 @@ import { MACHINE_DIR_VARIABLE, MACHINE_POLL_MS, MachineSessions, setMachineLimit
 import { MACHINE_OVERLOADED, MACHINE_OVERLOADED_MARK, timeoutUnderLoadOutside } from '../../core/observations.js'
 import { LaunchNode } from '../../nodes/launch/launch-worker.js'
 import { joinSession, LOCK_DIR_VARIABLE, LOG_FILE, OVERLOAD_WAIT_MS, sessionWorkers, withQualityLock } from '../../quality/lock.js'
+import { nodeSupply } from '../../supervisor/composition.js'
 import { eventsOf, mergeBench } from '../bus/merge-bench.js'
 
 const CARD = 1768
@@ -98,7 +99,7 @@ async function sessionThatAsked(question: string, publishes: boolean): Promise<L
     isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }),
   })
   const controller = new AbortController()
-  await node.run({ pause: async () => controller.abort(), signal: controller.signal })
+  await node.run({ pause: async () => controller.abort(), signal: controller.signal, supply: nodeSupply() })
   made.tick()
   return { made, node, starter, published }
 }
@@ -203,7 +204,7 @@ describe('the worker budget and the starts read the load of the machine', () => 
     })
     const once = async (): Promise<void> => {
       const controller = new AbortController()
-      await node.run({ pause: async () => controller.abort(), signal: controller.signal })
+      await node.run({ pause: async () => controller.abort(), signal: controller.signal, supply: nodeSupply() })
       made.tick()
     }
 

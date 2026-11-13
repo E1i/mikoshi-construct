@@ -14,6 +14,7 @@ import { completeTask, recordWorkerStarted } from '../../core/lease.js'
 import { Node } from '../../core/node.js'
 import { queueTaskWithin } from '../../core/queue.js'
 import { launchName, PREFIX } from '../../supervisor/bg.js'
+import { nodeSupply } from '../../supervisor/composition.js'
 import { slotsVariable } from '../../supervisor/scheduler.js'
 import { busDrain, BusSupervisor, freeLeasesOf, withoutRetiring } from '../../supervisor/supervisor.js'
 import { workerLaunches } from '../../supervisor/workers.js'
@@ -41,7 +42,7 @@ class ReviewRounds extends Node<NodeStep> {
   private readonly rounds: (() => void)[] = []
 
   constructor(db: DatabaseSync, clock: () => Date, session: string, private readonly codeOf: string) {
-    super('review', { db, clock, session, mode: 'live', env: { [slotsVariable('review')]: '3' }, self: { pid: session === 'old' ? OLD_PID : NEW_PID, started: clock().toISOString() } })
+    super('review', { db, clock, session, mode: 'live', env: { [slotsVariable('review')]: '3' }, self: { pid: session === 'old' ? OLD_PID : NEW_PID, started: clock().toISOString() }, supply: nodeSupply() })
   }
 
   override async run(ctx: NodeContext): Promise<void> {

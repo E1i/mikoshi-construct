@@ -143,48 +143,6 @@
   },
   {
     "type": "dependency",
-    "from": "scripts/core/node.ts",
-    "to": "scripts/ports/netwatch.ts",
-    "unresolvedTo": "../ports/netwatch.js",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "core-imports-nothing-to-its-right"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "scripts/core/node.ts",
-    "to": "scripts/supervisor/heartbeat.ts",
-    "unresolvedTo": "../supervisor/heartbeat.js",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "core-imports-nothing-to-its-right"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "scripts/core/node.ts",
-    "to": "scripts/supervisor/scheduler.ts",
-    "unresolvedTo": "../supervisor/scheduler.js",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "core-imports-nothing-to-its-right"
-    }
-  },
-  {
-    "type": "dependency",
     "from": "scripts/core/observations.ts",
     "to": "scripts/ports/snapshot.ts",
     "unresolvedTo": "../ports/snapshot.js",
@@ -1625,20 +1583,6 @@
   {
     "type": "dependency",
     "from": "scripts/nodes/launch/launch-root.ts",
-    "to": "scripts/supervisor/heartbeat.ts",
-    "unresolvedTo": "../../supervisor/heartbeat.js",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "nodes-imports-nothing-to-its-right"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "scripts/nodes/launch/launch-root.ts",
     "to": "src/card/parking.ts",
     "unresolvedTo": "../../../src/card/parking.js",
     "dependencyTypes": [
@@ -2123,34 +2067,6 @@
     "from": "scripts/nodes/review/review-worker.ts",
     "to": "scripts/intake/parking-reads.ts",
     "unresolvedTo": "../../intake/parking-reads.js",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "nodes-imports-nothing-to-its-right"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "scripts/nodes/review/review-worker.ts",
-    "to": "scripts/supervisor/heartbeat.ts",
-    "unresolvedTo": "../../supervisor/heartbeat.js",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "nodes-imports-nothing-to-its-right"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "scripts/nodes/review/review-worker.ts",
-    "to": "scripts/supervisor/scheduler.ts",
-    "unresolvedTo": "../../supervisor/scheduler.js",
     "dependencyTypes": [
       "local",
       "import"

@@ -21,6 +21,7 @@ import { answerHandoffPath, claudeAnswerer, contextWarnOfEddies } from '../../no
 import { reachedContextLine } from '../../nodes/launch/continuation.js'
 import { LaunchNode } from '../../nodes/launch/launch-worker.js'
 import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
+import { nodeSupply } from '../../supervisor/composition.js'
 import { realExitReadings, sessionGauges } from '../../window/eddies-measure.js'
 import { sha } from './github-fake.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
@@ -133,7 +134,7 @@ async function launchedOver(made: MergeBench, cardId: number, tree: string): Pro
     isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }),
   })
   const controller = new AbortController()
-  await node.run({ pause: async () => controller.abort(), signal: controller.signal })
+  await node.run({ pause: async () => controller.abort(), signal: controller.signal, supply: nodeSupply() })
   made.tick()
   return { node, starter, published }
 }

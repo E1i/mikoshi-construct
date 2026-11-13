@@ -20,6 +20,7 @@ import { transcriptFile } from '../../nodes/launch/session-journal.js'
 import { reportClosingOf } from '../../nodes/launch/tree-pr.js'
 import { clientAdapter } from '../../ports/client/index.js'
 import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
+import { nodeSupply } from '../../supervisor/composition.js'
 import { HANDOFF_LIMIT } from '../../window/handoff-check.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
 
@@ -98,7 +99,7 @@ async function sessionAtLine(cardId: number, options: LineOptions = {}): Promise
     isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }),
   })
   const controller = new AbortController()
-  await node.run({ pause: async () => controller.abort(), signal: controller.signal })
+  await node.run({ pause: async () => controller.abort(), signal: controller.signal, supply: nodeSupply() })
   made.tick()
   return { node, made, order, published }
 }

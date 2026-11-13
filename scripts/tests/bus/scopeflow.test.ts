@@ -16,7 +16,7 @@ import { LaunchNode } from '../../nodes/launch/launch-worker.js'
 import { cardDecisionCommand, DECISIONS_SCOPE } from '../../policy/shards.js'
 import { pathsOutside } from '../../policy/touch-scope.js'
 import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
-import { busProjections } from '../../supervisor/composition.js'
+import { busProjections, nodeSupply } from '../../supervisor/composition.js'
 import { shardDecisions } from '../../window/board.js'
 import { requestFromWindow, WindowRequests } from '../../window/window-requests.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
@@ -121,7 +121,7 @@ describe('scope questions settle on the bus', () => {
       isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }),
     })
     const controller = new AbortController()
-    await node.run({ pause: async () => controller.abort(), signal: controller.signal })
+    await node.run({ pause: async () => controller.abort(), signal: controller.signal, supply: nodeSupply() })
     made.tick()
 
     expect(node.stopOverdue()).toEqual([1501])
@@ -254,7 +254,7 @@ describe('scope questions settle on the bus', () => {
           appendEvent(made.db, { ts: made.clock.now().toISOString(), type: PR_OPENED, actor: 'worker:shift:1', cardId, pr: 990, head: null, dedupeKey: `${PR_OPENED}:${cardId}:990`, payload: { pr: 990 }, legacy: false })
       })
       const controller = new AbortController()
-      await node.run({ pause: async () => controller.abort(), signal: controller.signal })
+      await node.run({ pause: async () => controller.abort(), signal: controller.signal, supply: nodeSupply() })
       made.tick()
       return { made, node, published }
     }

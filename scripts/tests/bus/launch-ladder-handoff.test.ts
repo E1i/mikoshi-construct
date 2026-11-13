@@ -18,6 +18,7 @@ import { handoffJournalPath } from '../../ladder/hash.js'
 import { realStarterPorts, repoHandoffEnv, repoLadderSteps } from '../../nodes/launch/launch-root.js'
 import { LaunchNode, WITHDRAWN_TO_CHEAP } from '../../nodes/launch/launch-worker.js'
 import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
+import { nodeSupply } from '../../supervisor/composition.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
 
 const CARD_ID = 1399
@@ -70,7 +71,7 @@ function admit(made: MergeBench, contour: string, admission: string): void {
 
 async function once(node: LaunchNode): Promise<void> {
   const controller = new AbortController()
-  await node.run({ pause: async () => controller.abort(), signal: controller.signal })
+  await node.run({ pause: async () => controller.abort(), signal: controller.signal, supply: nodeSupply() })
 }
 
 function queuedLaunches(made: MergeBench): unknown {

@@ -20,7 +20,7 @@ import { HELD_AT_THE_EXIT, launchCandidates, startableCards } from '../../nodes/
 import { LaunchNode } from '../../nodes/launch/launch-worker.js'
 import { HELD_FOR_OWNER } from '../../nodes/merge/merge-executor.js'
 import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
-import { busProjections } from '../../supervisor/composition.js'
+import { busProjections, nodeSupply } from '../../supervisor/composition.js'
 import { eventsOf, liveBench, mergeBench } from './merge-bench.js'
 
 const TS = '2026-11-05T10:00:00.000Z'
@@ -234,7 +234,7 @@ function launchNodeOn(made: MergeBench, options: SessionOptions): Omit<ExitedSes
 
 async function oneRound(node: LaunchNode): Promise<void> {
   const controller = new AbortController()
-  await node.run({ pause: async () => controller.abort(), signal: controller.signal })
+  await node.run({ pause: async () => controller.abort(), signal: controller.signal, supply: nodeSupply() })
 }
 
 async function sessionThatExited(options: SessionOptions = {}): Promise<ExitedSession> {

@@ -10,6 +10,7 @@ import { appendEvent } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_STOPPED } from '../../core/events.js'
 import { LaunchNode } from '../../nodes/launch/launch-worker.js'
 import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
+import { nodeSupply } from '../../supervisor/composition.js'
 import { recordedPid, recordedPidLives, sessionLifeIn } from '../../supervisor/recorded-worker.js'
 import { eventsOf, mergeBench } from '../bus/merge-bench.js'
 
@@ -60,7 +61,7 @@ async function launchedWith(cardId: number, pidAlive: (pid: number) => boolean):
     isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }),
   })
   const controller = new AbortController()
-  await node.run({ pause: async () => controller.abort(), signal: controller.signal })
+  await node.run({ pause: async () => controller.abort(), signal: controller.signal, supply: nodeSupply() })
   made.tick()
   return { made, node }
 }

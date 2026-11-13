@@ -13,6 +13,7 @@ import { NODE_DETECTED, TASK_ENQUEUED } from '../../core/events.js'
 import { NODE_CURSORS } from '../../core/node.js'
 import { keyOf, queueTask } from '../../core/queue.js'
 import { LAUNCH_ON, LaunchNode } from '../../nodes/launch/launch-worker.js'
+import { nodeSupply } from '../../supervisor/composition.js'
 import { Clock } from './github-fake.js'
 
 const BUSY_EVENTS = 150_000
@@ -108,7 +109,7 @@ class CountingLaunchNode extends LaunchNode {
 
 async function pass(node: LaunchNode): Promise<void> {
   const controller = new AbortController()
-  await node.run({ pause: async () => controller.abort(), signal: controller.signal })
+  await node.run({ pause: async () => controller.abort(), signal: controller.signal, supply: nodeSupply() })
 }
 
 async function opened(node: CountingLaunchNode): Promise<void> {

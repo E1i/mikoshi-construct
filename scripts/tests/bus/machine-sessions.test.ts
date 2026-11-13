@@ -20,7 +20,7 @@ import { LaunchNode } from '../../nodes/launch/launch-worker.js'
 import { fullReview } from '../../nodes/review/review-depth.js'
 import { claudeReviewer, ReviewTrees } from '../../nodes/review/reviewer.js'
 import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
-import { busProjections } from '../../supervisor/composition.js'
+import { busProjections, nodeSupply } from '../../supervisor/composition.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
 
 const TS = '2026-11-06T10:00:00.000Z'
@@ -123,7 +123,7 @@ async function runLaunchNode(machine: MachineSessions, cardId: number): Promise<
   })
   const again = async (): Promise<void> => {
     const controller = new AbortController()
-    await node.run({ pause: async () => controller.abort(), signal: controller.signal })
+    await node.run({ pause: async () => controller.abort(), signal: controller.signal, supply: nodeSupply() })
   }
   await again()
   return {
@@ -181,7 +181,7 @@ async function endedAtTheContextLine(machine: MachineSessions, cardId: number, s
     machine,
   })
   const controller = new AbortController()
-  await node.run({ pause: async () => controller.abort(), signal: controller.signal })
+  await node.run({ pause: async () => controller.abort(), signal: controller.signal, supply: nodeSupply() })
   made.tick()
   return { node, made }
 }

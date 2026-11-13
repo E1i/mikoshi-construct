@@ -16,6 +16,7 @@ import { FACTORY_WORKERS } from '../../core/factory-paths.js'
 import { completeTask } from '../../core/lease.js'
 import { foreignVersion, Node, runNode, SWITCH_FLAG, UNDERSTOOD_NOW } from '../../core/node.js'
 import { queueTaskWithin } from '../../core/queue.js'
+import { nodeSupply } from '../../supervisor/composition.js'
 import { Clock } from './github-fake.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')
@@ -48,7 +49,7 @@ class DeclaredNode extends Node<NodeStep> {
   handled: string[] = []
 
   constructor(db: DatabaseSync, clock: Clock, private readonly found: QueuedTask[] = []) {
-    super('review', { db, clock: clock.now, session: 'versions', mode: 'live', env: {} })
+    super('review', { db, clock: clock.now, session: 'versions', mode: 'live', env: {}, supply: nodeSupply() })
     this.declare(DECLARATION)
   }
 
@@ -132,7 +133,7 @@ describe('the node versions', () => {
     const error = vi.spyOn(console, 'error').mockImplementation(() => {})
     const build = (db: DatabaseSync): Node<NodeStep> => new DeclaredNode(db, new Clock())
 
-    expect(await runNode([SWITCH_FLAG], 'review', foreignBus, build, { pause: async () => {}, codeSha: () => null })).toBe(1)
+    expect(await runNode([SWITCH_FLAG], 'review', foreignBus, build, { pause: async () => {}, codeSha: () => null, supply: nodeSupply() })).toBe(1)
     expect(error).toHaveBeenCalledWith(expect.stringContaining(`stopped on a foreign version: the bus carries bus version ${FOREIGN}`))
 
     const db = openBus(busPath())

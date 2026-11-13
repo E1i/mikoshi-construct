@@ -14,6 +14,7 @@ import { Node } from '../../core/node.js'
 import { keyOf, queueTaskWithin } from '../../core/queue.js'
 import { AnswerOutcomes } from '../../nodes/answer/duties/outcomes.js'
 import { launchName, PREFIX } from '../../supervisor/bg.js'
+import { nodeSupply } from '../../supervisor/composition.js'
 import { slotsVariable } from '../../supervisor/scheduler.js'
 import { busDrain, BusSupervisor, freeLeasesOf, withoutRetiring } from '../../supervisor/supervisor.js'
 import { workerLaunches } from '../../supervisor/workers.js'
@@ -44,7 +45,7 @@ class AnswerSession extends Node<NodeStep> {
   private readonly rounds: (() => void)[] = []
 
   constructor(db: DatabaseSync, clock: () => Date, private readonly commit: (lease: Lease) => void) {
-    super('answer', { db, clock, session: 'old', mode: 'live', env: { [slotsVariable('answer')]: '2' }, self: { pid: ANSWER_PID, started: clock().toISOString() } })
+    super('answer', { db, clock, session: 'old', mode: 'live', env: { [slotsVariable('answer')]: '2' }, self: { pid: ANSWER_PID, started: clock().toISOString() }, supply: nodeSupply() })
   }
 
   override async run(ctx: NodeContext): Promise<void> {

@@ -26,6 +26,7 @@ import { ghApi, ghApiPost, ghApiPut } from '../../ports/github.js'
 import { mainMergeInCardTree } from '../../ports/main-merge.js'
 import { cardTree } from '../../ports/worktree-home.js'
 import { gitIn } from '../../ports/worktree.js'
+import { nodeSupply } from '../../supervisor/composition.js'
 import { stampLogOutput } from '../../supervisor/stamp.js'
 import { firstLiveVerdict, NoLiveVerdict } from '../merge/merge-worker.js'
 import { UpdateExecutor } from './update-executor.js'
@@ -72,7 +73,7 @@ export class UpdateNode extends Node<UpdateStep> {
   private readonly rerun: RerunMode
 
   constructor(parts: UpdateNodeParts) {
-    super('update', { db: parts.db, clock: parts.clock, session: parts.session, mode: parts.mode, env: parts.env })
+    super('update', { db: parts.db, clock: parts.clock, session: parts.session, mode: parts.mode, env: parts.env, supply: nodeSupply() })
     this.rerun = rerunModeOf(parts.env)
     this.executor = new UpdateExecutor({ db: parts.db, gitHub: parts.gitHub, put: parts.put, publish: parts.publish, clock: parts.clock, settle: parts.settle, rerun: this.rerun, pushPolicy: parts.pushPolicy, mergeMain: parts.mergeMain, post: parts.post })
     this.declare(UPDATE_NODE, scopeOf)
@@ -126,7 +127,7 @@ export interface UpdateRun {
 }
 
 export async function runUpdateWorker(argv: string[], run: UpdateRun): Promise<number> {
-  return runNode(argv, 'update', run.busPath, (db, mode) => new UpdateNode({ db, gitHub: run.gitHub, put: run.put, publish: run.publish, clock: () => new Date(), settle: run.settle, session: run.session, mode, env: process.env, pushPolicy: run.pushPolicy, mergeMain: run.mergeMain, post: run.post }), { pause: run.pause, codeSha: loadedCodeSha })
+  return runNode(argv, 'update', run.busPath, (db, mode) => new UpdateNode({ db, gitHub: run.gitHub, put: run.put, publish: run.publish, clock: () => new Date(), settle: run.settle, session: run.session, mode, env: process.env, pushPolicy: run.pushPolicy, mergeMain: run.mergeMain, post: run.post }), { pause: run.pause, codeSha: loadedCodeSha, supply: nodeSupply() })
 }
 
 async function main(): Promise<number> {

@@ -20,7 +20,7 @@ import { storedByKey } from '../../core/stored.js'
 import { LaunchNode } from '../../nodes/launch/launch-worker.js'
 import { OWNER_WORD_NOT_FOUND, sayToOwnerChannel, USED_WORD } from '../../owner/channel.js'
 import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
-import { busProjections } from '../../supervisor/composition.js'
+import { busProjections, nodeSupply } from '../../supervisor/composition.js'
 import { requestFromWindow, requestOf, TAKEOVER_AFTER_MINUTES, WindowRequests } from '../../window/window-requests.js'
 import { mergeBench } from '../bus/merge-bench.js'
 
@@ -130,7 +130,7 @@ function supersede(made: Room, taskKey: string): void {
 
 async function oneRound(node: LaunchNode): Promise<void> {
   const controller = new AbortController()
-  await node.run({ pause: async () => controller.abort(), signal: controller.signal })
+  await node.run({ pause: async () => controller.abort(), signal: controller.signal, supply: nodeSupply() })
 }
 
 describe('the owner moves a card', () => {

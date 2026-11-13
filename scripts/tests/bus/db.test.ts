@@ -21,7 +21,7 @@ import { UpdateNode } from '../../nodes/update/update-worker.js'
 import { WitnessNode } from '../../nodes/witness/witness-worker.js'
 import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
 import { TICK_MS } from '../../ports/netwatch.js'
-import { busProjections } from '../../supervisor/composition.js'
+import { busProjections, nodeSupply } from '../../supervisor/composition.js'
 import { startBus } from '../../supervisor/run.js'
 
 const HEAD = '0123456789abcdef0123456789abcdef01234567'
@@ -245,7 +245,7 @@ describe('bus.db', () => {
       db.prepare = prepare
       controller.abort()
     }
-    await node.run({ pause, signal: controller.signal })
+    await node.run({ pause, signal: controller.signal, supply: nodeSupply() })
     expect(candidatesBefore).toBeGreaterThan(0)
     expect(candidates.mock.calls.length).toBeGreaterThan(candidatesBefore)
     expect([...queries].filter(sql => scansEvents(db, sql))).toEqual([])

@@ -32,11 +32,11 @@ import { OWNER_MERGES } from '../../policy/policy.js'
 import { clientAdapter } from '../../ports/client/index.js'
 import { loadedCodeSha } from '../../ports/git.js'
 import { realIsolationReader } from '../../ports/isolation.js'
-import { TICK_MS } from '../../ports/netwatch.js'
 import { promptsDirOf } from '../../ports/prompt-store.js'
 import { CARD_SESSION_SANDBOX } from '../../ports/shift-settings.js'
 import { MAIN_BRANCH } from '../../ports/snapshot.js'
 import { launchDirOf, restoreReport, savedReportOf, treeHoldsACommit, treePrOfThisBuild, treePrPublisher } from '../../ports/tree-publish.js'
+import { nodeSupply } from '../../supervisor/composition.js'
 import { stampLogOutput } from '../../supervisor/stamp.js'
 import { AnswerExecutor } from './answer-executor.js'
 import { answerSourceOf } from './answer-source.js'
@@ -137,7 +137,7 @@ export class AnswerNode extends Node<AnswerStep> {
   private readonly executor: AnswerExecutor
 
   constructor(private readonly answerParts: AnswerNodeParts) {
-    super('answer', { db: answerParts.db, clock: answerParts.clock, session: answerParts.session, mode: answerParts.mode, env: answerParts.env })
+    super('answer', { db: answerParts.db, clock: answerParts.clock, session: answerParts.session, mode: answerParts.mode, env: answerParts.env, supply: nodeSupply() })
     this.executor = new AnswerExecutor(answerParts)
     this.declare(ANSWER_NODE, scopeOf)
   }
@@ -188,11 +188,11 @@ export class AnswerNode extends Node<AnswerStep> {
   }
 
   private waitingForTheVerdict(lease: Lease): AnswerStep | null {
-    return this.verdictNotRecordedYet(lease) ? this.waitOn(lease, VERDICT_NOT_RECORDED, new Date(this.answerParts.clock().getTime() + TICK_MS).toISOString()) : null
+    return this.verdictNotRecordedYet(lease) ? this.waitOn(lease, VERDICT_NOT_RECORDED, new Date(this.answerParts.clock().getTime() + this.supply.cadence.tickMs).toISOString()) : null
   }
 
   private waitingForTheAmend(lease: Lease): AnswerStep | null {
-    return bodyNotFoldedYet(this.db, lease.cardId) ? this.waitOn(lease, AMEND_NOT_FOLDED, new Date(this.answerParts.clock().getTime() + TICK_MS).toISOString()) : null
+    return bodyNotFoldedYet(this.db, lease.cardId) ? this.waitOn(lease, AMEND_NOT_FOLDED, new Date(this.answerParts.clock().getTime() + this.supply.cadence.tickMs).toISOString()) : null
   }
 
   protected async handle(lease: Lease): Promise<AnswerStep> {
@@ -239,7 +239,7 @@ export function answerNodeOf(run: AnswerRun, db: DatabaseSync, mode: DetectionMo
 }
 
 export async function runAnswerWorker(argv: string[], run: AnswerRun): Promise<number> {
-  return runNode(argv, 'answer', run.busPath, (db, mode) => answerNodeOf(run, db, mode), { pause: run.pause, codeSha: loadedCodeSha })
+  return runNode(argv, 'answer', run.busPath, (db, mode) => answerNodeOf(run, db, mode), { pause: run.pause, codeSha: loadedCodeSha, supply: nodeSupply() })
 }
 
 async function main(): Promise<number> {

@@ -13,6 +13,7 @@ import { completeTask } from '../../core/lease.js'
 import { DATABASE_LOCKED, DERIVE_EVERY_TICKS, Node, nodeProcess } from '../../core/node.js'
 import { keyOf, queueTask } from '../../core/queue.js'
 import { TICK_MS } from '../../ports/netwatch.js'
+import { nodeSupply } from '../../supervisor/composition.js'
 import { Clock, sha } from './github-fake.js'
 
 const BUSY_EVENTS = 150_000
@@ -59,7 +60,7 @@ class ScanningNode extends Node<NodeStep> {
   computed: () => void = () => {}
 
   constructor(db: DatabaseSync, readonly clock: Clock, session = 'scan') {
-    super('merge', { db, clock: clock.now, session, mode: 'live', env: {} })
+    super('merge', { db, clock: clock.now, session, mode: 'live', env: {}, supply: nodeSupply() })
   }
 
   private scan(): number {

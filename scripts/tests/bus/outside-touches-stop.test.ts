@@ -14,6 +14,7 @@ import { MachineSessions } from '../../core/machine-sessions.js'
 import { queueTask } from '../../core/queue.js'
 import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
 import { LaunchNode } from '../../nodes/launch/launch-worker.js'
+import { nodeSupply } from '../../supervisor/composition.js'
 import { sha } from './github-fake.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
 
@@ -88,7 +89,7 @@ function launching(): Launching {
 
 async function round(node: LaunchNode, made: MergeBench): Promise<void> {
   const controller = new AbortController()
-  await node.run({ pause: async () => controller.abort(), signal: controller.signal })
+  await node.run({ pause: async () => controller.abort(), signal: controller.signal, supply: nodeSupply() })
   made.tick()
 }
 
