@@ -1,19 +1,19 @@
 import type { JsonSample } from './json-samples.js'
-import type { CommandSurface, Flag, Surface } from './surface.js'
+import type { CommandSurface, Flag, ReportContract, Surface } from './surface.js'
 
 export interface Unbaselined {
   unbaselined: string
 }
 
-export const SECTIONS = ['commands', 'exits', 'jsonKeys', 'jsonForms', 'unknownFlag', 'formats', 'paths', 'markers', 'contours', 'outside'] as const
+export const SECTIONS = ['commands', 'exits', 'jsonKeys', 'jsonForms', 'unknownFlag', 'formats', 'paths', 'markers', 'contours', 'outside', 'report'] as const
 
 export type Section = typeof SECTIONS[number]
 
 export type JsonKeysReading = Record<string, Record<string, JsonSample | Unbaselined>>
 
-type SectionReadings = Omit<Surface, 'surfaceVersion' | 'jsonKeys'> & { jsonKeys: JsonKeysReading }
+type SectionReadings = Omit<Surface, 'surfaceVersion' | 'jsonKeys' | 'report'> & { jsonKeys: JsonKeysReading, report: ReportContract | undefined }
 
-export type SurfaceReading = { [K in Section]: SectionReadings[K] | Unbaselined }
+export type SurfaceReading = { [K in Exclude<Section, 'report'>]: SectionReadings[K] | Unbaselined } & { report?: ReportContract | Unbaselined }
 
 export type ChangeLevel = 'none' | 'additive' | 'breaking'
 
@@ -120,6 +120,15 @@ function blockPairs(markers: Surface['markers']): string[] {
   return markers.block.map(pair => pair.join(' … '))
 }
 
+function reportDiff(at: string, base: ReportContract | undefined, head: ReportContract | undefined): Change[] {
+  if (base === undefined)
+    return head === undefined ? [] : [additive(`${at}: the report contract added`)]
+  if (head === undefined)
+    return [breaking(`${at}: the report contract removed`)]
+  const fields = (contract: ReportContract): Record<string, string> => Object.fromEntries(Object.entries(contract).map(([field, value]) => [field, JSON.stringify(value)]))
+  return recordDiff(at, fields(base), fields(head), valueDiff)
+}
+
 const SECTION_DIFF: { [K in Section]: Compare<SectionReadings[K]> } = {
   commands: (at, base, head) => recordDiff(at, base, head, commandDiff),
   exits: (at, base, head) => recordDiff(at, base, head, exitTableDiff),
@@ -139,6 +148,7 @@ const SECTION_DIFF: { [K in Section]: Compare<SectionReadings[K]> } = {
   unknownFlag: (at, base, head) => recordDiff(at, base, head, valueDiff),
   contours: (at, base, head) => recordDiff(at, base, head, valueDiff),
   outside: outsideDiff,
+  report: reportDiff,
 }
 
 const SECTIONS_A_BASE_MAY_PREDATE: Partial<{ [K in Section]: SectionReadings[K] }> = { jsonForms: {}, unknownFlag: {} }
