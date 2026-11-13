@@ -346,6 +346,30 @@
           "survived"
         ]
       },
+      "child.ended": {
+        "complete": true,
+        "keys": [
+          "exit",
+          "instance",
+          "pid",
+          "signal",
+          "task_key"
+        ]
+      },
+      "child.started": {
+        "complete": true,
+        "keys": [
+          "generation",
+          "instance",
+          "kind",
+          "lstart",
+          "mode",
+          "pgid",
+          "pid",
+          "task_key",
+          "tree"
+        ]
+      },
       "ci.rerun.requested": {
         "complete": true,
         "keys": [
@@ -1285,6 +1309,10 @@
       "worker.started": {
         "complete": true,
         "keys": [
+          "generation",
+          "instance",
+          "lstart",
+          "pgid",
           "pid",
           "started",
           "worker"
@@ -5640,12 +5668,17 @@
         "constants": [
           "CLIENT_CWDS_COMMAND",
           "CPU_SAMPLE_COMMAND",
+          "SAME_START_MS",
           "TECHNOLOGY_WORDS"
         ],
         "functions": {
+          "identityOf": "(snapshot: ProcessSnapshot, pid: number): RowIdentity | null",
+          "lstartOf": "(row: ProcessRow): string | null",
           "parseListing": "(output: string): ProcessRow[]",
           "rowOf": "(snapshot: ProcessSnapshot, pid: number): ProcessRow | null",
-          "rowsOf": "(snapshot: ProcessSnapshot): readonly ProcessRow[]"
+          "rowsOf": "(snapshot: ProcessSnapshot): readonly ProcessRow[]",
+          "runningAs": "(snapshot: ProcessSnapshot, recorded: { pid: number; lstart: string; }): ProcessRow | null",
+          "sameStart": "(recorded: string, running: string): boolean"
         },
         "language": "factory",
         "reexports": [],
@@ -5656,7 +5689,8 @@
           "OsProcessTable": "class OsProcessTable implements ProcessTable { snapshot(): ProcessSnapshot; clientCwds(): ProcessCwds; cpuSample(): string }",
           "ProcessRow": "interface ProcessRow { pid: number; ppid: number; pgid: number; started: string; command: string; }",
           "ProcessSnapshot": "type ProcessSnapshot = { readable: true; rows: readonly ProcessRow[]; } | { readable: false; reason: string; }",
-          "ProcessTable": "interface ProcessTable { snapshot: () => ProcessSnapshot; clientCwds: () => ProcessCwds; cpuSample: () => string; }"
+          "ProcessTable": "interface ProcessTable { snapshot: () => ProcessSnapshot; clientCwds: () => ProcessCwds; cpuSample: () => string; }",
+          "RowIdentity": "interface RowIdentity { pid: number; pgid: number; lstart: string; }"
         }
       },
       "scripts/ports/prompt-store.ts": {

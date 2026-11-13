@@ -673,7 +673,7 @@ describe('pnpm bus:bg', () => {
   it('a stopped instance is signalled as a group and waited for', async () => {
     const pid = detachedSleep()
     const processes: ProcessList = () => alive(pid) ? [{ pid, args: `sleep 30 marker-${pid}` }] : []
-    await stopInstance({ pid, args: '' }, [`marker-${pid}`], processes)
+    await stopInstance({ pid, args: '' }, processes)
     await waitFor(() => !alive(pid), () => `pid ${pid} gone after stopInstance`, ARRIVAL_GUARD_MS)
   })
 })

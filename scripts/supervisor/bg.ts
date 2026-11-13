@@ -1,5 +1,6 @@
 import type { ProcessTable } from '../ports/process-table.js'
 import { spawn } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
@@ -7,6 +8,7 @@ import { fileURLToPath } from 'node:url'
 import { BUS_DB_VARIABLE, GH_ACCOUNT_VARIABLE } from '../core/bus-path.js'
 import { openBus } from '../core/db.js'
 import { FACTORY_RUNTIME } from '../core/factory-paths.js'
+import { GENERATION_VARIABLE, INSTANCE_VARIABLE, UNHANDED } from '../core/node.js'
 import { OsProcessTable, rowsOf } from '../ports/process-table.js'
 import { REVIEW_MODEL_VARIABLE } from '../ports/session.js'
 import { lastProcessBeats } from './heartbeat.js'
@@ -76,6 +78,11 @@ export function builtEntryOf(root: string, script: string): string {
 }
 
 export const AGENT_ENV = ['BUS_RERUN', REVIEW_MODEL_VARIABLE, GH_ACCOUNT_VARIABLE] as const
+
+export function handedIdentity(env: NodeJS.ProcessEnv, instance: string = randomUUID()): NodeJS.ProcessEnv {
+  const generation = env[GENERATION_VARIABLE]
+  return { [INSTANCE_VARIABLE]: instance, [GENERATION_VARIABLE]: generation === undefined || generation === '' ? UNHANDED : generation }
+}
 
 export function launchArgv(launch: DetachedLaunch = BUS_RUN_LAUNCH, installed: string | null = installedPackage(), bus?: string, env: NodeJS.ProcessEnv = {}): string[] {
   const stamped = [...launch.args, ...agentEnvStamp(AGENT_ENV, env)]
@@ -233,7 +240,7 @@ export function startDetached(launch: DetachedLaunch, busDir: string, env: NodeJ
     const [command, ...args] = launchArgv(launch, installedPackage(), thisBus(env), env)
     const fd = openSync(log, 'a')
     try {
-      const child = spawn(command!, args, { detached: true, stdio: ['ignore', fd, fd], env: { ...env, [STAMP_ENV]: '1' } })
+      const child = spawn(command!, args, { detached: true, stdio: ['ignore', fd, fd], env: { ...env, [STAMP_ENV]: '1', ...handedIdentity(env) } })
       child.on('error', () => {})
       child.unref()
       if (child.pid === undefined)

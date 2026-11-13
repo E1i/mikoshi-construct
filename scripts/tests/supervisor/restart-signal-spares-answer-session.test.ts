@@ -124,7 +124,7 @@ describe('a restart signal spares the session of a retiring answer worker', () =
       known: [BUS_RUN_LAUNCH],
       wanted: () => [BUS_RUN_LAUNCH],
       start: (): BgResult => ({ stdout: [`${PREFIX}started`], stderr: [], exitCode: 0 }),
-      stop: (running, launch) => stopInstance(running, launch.markers, processes),
+      stop: running => stopInstance(running, processes),
       drain,
       processes,
       mainSince: () => [{ id: 1, sha: NEW_MAIN }],
