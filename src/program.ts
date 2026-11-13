@@ -11,6 +11,7 @@ import { isTTY } from '@clack/prompts'
 import { defineCommand, showUsage } from 'citty'
 import { busExpected, busPathOf } from '../scripts/core/bus-path.js'
 import { pnpmCommand } from '../scripts/core/owner-commands.js'
+import { ownerAnswerOf, requestOwnerAnswer } from '../scripts/owner/answer-request.js'
 import { ownerChannelOfBus, sayToOwnerChannel } from '../scripts/owner/channel.js'
 import { printAtlas, runAtlas } from './atlas/index.js'
 import { attachExitOf, printEntryProtocol, readAttachRecord, runAttach, runAttachUpgrade } from './commands/attach/index.js'
@@ -368,6 +369,39 @@ const say = withKnownFlags(defineCommand({
   },
 }), ROOT_META)
 
+export const ANSWER_EXIT = { requested: 0, noTarget: 2, noBus: 3 } as const
+
+const answer = withKnownFlags(defineCommand({
+  meta: { name: 'answer', description: 'Answer one open owner wait, named by its id (Q<N>) or by its card (#<N>): say the words into the owner channel and write one owner.answer request to this repository\'s bus, which closes the wait on its next tick or says why it did not' },
+  args: {
+    plain: commonArgs.plain,
+    johnny: commonArgs.johnny,
+  },
+  run({ args }) {
+    const console = ui(args)
+    const [named, ...said] = args._
+    const ownerAnswer = ownerAnswerOf(named, said.join(' '))
+    if (ownerAnswer === null) {
+      console.flatline(console.lore.ownerAnswer('needsTarget', ''))
+      process.exitCode = ANSWER_EXIT.noTarget
+      return
+    }
+    const failed = reported(console, () => {
+      const busPath = busPathOf(process.env, homedir(), process.cwd())
+      const requested = requestOwnerAnswer(busPath, ownerChannelOfBus(homedir(), busPath), ownerAnswer, new Date())
+      if (requested === null) {
+        console.flatline(console.lore.ownerAnswer('noBus', busPath))
+        process.exitCode = ANSWER_EXIT.noBus
+        return
+      }
+      console.ok(console.lore.ownerAnswer('answered', `window.request ${requested.request} (owner.answer ${requested.label})`))
+      process.exitCode = ANSWER_EXIT.requested
+    })
+    if (failed !== 0)
+      process.exitCode = failed
+  },
+}), ROOT_META)
+
 const RUN_RECORD_FROM_STDIN = '-'
 
 function runRecordCommand(ladderRun: LadderRunPort | undefined) {
@@ -595,6 +629,7 @@ export function createMain(bus?: Partial<BusPorts>) {
       intake,
       mutate,
       say,
+      answer,
       'run-record': runRecordCommand(bus?.ladderRun),
     },
   })

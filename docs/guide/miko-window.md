@@ -8,8 +8,9 @@ The loop is `scripts/window/loop.ts`; its siblings in `scripts/window/` are `pnp
 
 - The owner's decisions reach the factory only through `construct say`, which writes to the
   owner channel of the repository's own bus under `~/.construct-owner/answers/`
-  ([CLI reference](/cli#construct-say)). `pnpm owner:answer <Q|#card> "words"` answers one open wait
-  in one step, and says why when nothing closes ([CLI reference](/cli#pnpm-owner-answer)).
+  ([CLI reference](/cli#construct-say)). `construct answer <Q|#card> "words"` (in this repository
+  also `pnpm owner:answer`) answers one open wait in one step, and says why when nothing closes
+  ([CLI reference](/cli#construct-answer)).
 - `construct board` shows the window beside the bus pulse ([CLI reference](/cli#construct-board)).
 - The window's rules are `architecture/window.md` and `architecture/window-core.md`.
 - In a repository only attached, the window hooks are described under

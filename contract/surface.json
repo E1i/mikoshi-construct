@@ -1,5 +1,15 @@
 {
   "commands": {
+    "answer": {
+      "flags": {
+        "johnny": {
+          "type": "boolean"
+        },
+        "plain": {
+          "type": "boolean"
+        }
+      }
+    },
     "atlas": {
       "flags": {
         "dir": {
@@ -417,6 +427,12 @@
     "review-verdict": "mikoshi-construct/contours/review-verdict/2"
   },
   "exits": {
+    "answer": {
+      "failed": 1,
+      "noBus": 3,
+      "noTarget": 2,
+      "requested": 0
+    },
     "atlas": {
       "failed": 1,
       "written": 0
@@ -2785,6 +2801,7 @@
   },
   "surfaceVersion": 3,
   "unknownFlag": {
+    "answer": 1,
     "atlas": 1,
     "attach": 1,
     "board": 1,

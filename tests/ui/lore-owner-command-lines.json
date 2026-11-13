@@ -3,6 +3,10 @@
     "lore": "DEAD AIR // the owner channel takes words: construct say \"<your words>\"; nothing was written",
     "plain": "No words given: run construct say \"<your words>\"; nothing was written."
   },
+  "answerNeedsTarget": {
+    "lore": "DEAD AIR // an answer names its wait and carries words: construct answer <Q<N>|#<card>> \"<your words>\"; nothing was written",
+    "plain": "No wait named or no words given: run construct answer <Q<N>|#<card>> \"<your words>\"; nothing was written."
+  },
   "initRefusedAttached": {
     "lore": "BREACH FAILED // ALREADY ATTACHED: .construct/attach.json is here; run construct detach first",
     "plain": "Refused: this repository is attached (.construct/attach.json is here); run `construct detach` first."

@@ -1144,6 +1144,28 @@ pnpm owner:answer '#1743' "go on with the fixes"
 Exit `0` when the word and the request are written; `2` when the target or the words are missing, and
 nothing is written.
 
+## construct answer
+
+The same answer in the published package: `construct answer <Q<N>|#<card>> "<words>"` says the word
+and writes the one `owner.answer` request through `scripts/owner/answer-request.ts`, the writer
+`pnpm owner:answer` above uses too, so the bus answers both alike. The bus is the one
+of the repository the command runs in, as for [`construct say`](#construct-say), and the command
+creates none: where no bus is, it writes nothing. This request is the only write the published CLI
+makes into a bus; it imports no bus node and no request executor, and reads the outcome from nothing.
+
+```bash
+construct answer Q336 "close it with D-524"
+construct answer '#1743' go on with the fixes
+```
+
+| Option | Default | What it does |
+|---|---|---|
+| `<Q<N>\|#<card>>` | — | The wait, or the card whose one open wait is answered. |
+| `<words>` | — | The owner's words; several are joined with single spaces. |
+
+Exit `0` when the word and the request are written; `2` when the target or the words are missing;
+`3` when no bus is at the path of this repository. Nothing is written on `2` or `3`.
+
 ## Exit codes
 
 | Code | Meaning |

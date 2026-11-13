@@ -17,7 +17,7 @@ construct — architecture policy, an optional OpenAPI contract, a quality harne
 instructions — into a new or existing repository, hands the repository to the agent for discovery,
 and afterwards reads back what that repository has become. The commands `src/program.ts` lists:
 `init`, `attach` (alias `jack-in`), `detach` (alias `jack-out`), `soulkill` (aliases `inspect`,
-`capture`), `doctor`, `sync`, `cost`, `board`, `graph`, `atlas`, `intake`, `mutate`, `say`, `run-record`. Pitch and lifecycle:
+`capture`), `doctor`, `sync`, `cost`, `board`, `graph`, `atlas`, `intake`, `mutate`, `say`, `answer`, `run-record`. Pitch and lifecycle:
 [README.md § What it does](README.md#what-it-does); every command, its flags and its output:
 [docs/cli.md](docs/cli.md).
 
@@ -103,7 +103,7 @@ here. Before proposing an architecture, answer the questions and name the catego
   <!-- construct:discover:composition-roots -->
   `src/program.ts` wires each command and alias — `init`, `attach`/`jack-in`,
   `detach`/`jack-out`, `soulkill`/`inspect`/`capture`, `doctor`, `sync`, `cost`, `board`, `graph`,
-  `atlas`, `intake`, `mutate`, `say`, `run-record` — to `src/commands/*` and `src/atlas`, `say` straight to `scripts/owner/channel.ts`, creates the `Ui` (theme, lore, writer) and the
+  `atlas`, `intake`, `mutate`, `say`, `answer`, `run-record` — to `src/commands/*` and `src/atlas`, `say` and `answer` to `scripts/owner/channel.ts`, `answer` also to `scripts/owner/answer-request.ts`, the product's one bus write, creates the `Ui` (theme, lore, writer) and the
   clack `Prompter`, and is the only place that reads `process.stdout` / `process.stdin` for a TTY or
   picks `stderrWriter` over `stdoutWriter` so a `--json` run keeps stdout machine-readable.
 

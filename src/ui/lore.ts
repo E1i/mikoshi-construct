@@ -47,6 +47,7 @@ export interface Lore extends Omit<ExpectLore, 'expectRoleForecast'> {
   unknownFlag: (flags: string[]) => string
   sayNeedsWords: string
   ownerSaid: (file: string) => string
+  ownerAnswer: (outcome: 'needsTarget' | 'noBus' | 'answered', detail: string) => string
   runRecorded: (outcome: 'bus' | 'file' | 'present' | 'refused' | 'needsBus', detail: string) => string
   initRefusedForeignStack: (preset: string, stack: string, manifests: string[]) => string
   initRefusedAttached: string
@@ -473,6 +474,7 @@ export const LORE: Lore = {
   needsTerminal: 'No terminal for the interactive flow; pass --yes (and --preset) to run non-interactively.',
   sayNeedsWords: `DEAD AIR // the owner channel takes words: ${constructCommand('say')} "<your words>"; nothing was written`,
   ownerSaid: (file: string) => `WORD BURNED INTO THE OWNER CHANNEL // ${file}`,
+  ownerAnswer: (outcome: 'needsTarget' | 'noBus' | 'answered', detail: string) => ({ needsTarget: `DEAD AIR // an answer names its wait and carries words: ${constructCommand('answer')} <Q<N>|#<card>> "<your words>"; nothing was written`, noBus: `NO SIGNAL // no bus at ${detail}: the answer is a request to the bus of the repository whose wait it answers; run it there. Nothing was written`, answered: `ANSWER JACKED INTO THE BUS // ${detail} carries your word; the bus takes it on its next tick: the wait closes, or window.request.refused says why` })[outcome],
   runRecorded: (outcome: 'bus' | 'file' | 'present' | 'refused' | 'needsBus', detail: string) => ({ bus: `RUN BURNED INTO THE BUS // one ladder.run event in ${detail}`, file: `RUN BURNED INTO THE LEDGER // one line in ${detail}; no bus is wired here`, present: `RUN ALREADY ON THE BUS // ${detail} holds this exact ladder.run; nothing new was written`, refused: `RUN REJECTED // ${detail}; a run record is one JSON object with only the fields step 4 of /implement names; nothing was written`, needsBus: `RUN HELD // a bus is wired at ${detail} and only the factory writes to it; run construct-intake run-record with the same record; nothing was written` })[outcome],
   unknownFlag: (flags: string[]) => `BREACH FAILED // UNKNOWN ICE: ${flags.join(', ')} ${flags.length === 1 ? 'is' : 'are'} not wired into this command; nothing was written`,
   initRefusedForeignStack: (preset: string, stack: string, manifests: string[]) => `BREACH FAILED // WRONG CHROME: --preset ${preset} is a ${stack} preset, and this directory has ${manifests.join(', ')} and no package.json; nothing was written`,
@@ -919,6 +921,7 @@ export const PLAIN_LORE: Lore = {
   needsTerminal: 'No terminal for the interactive flow; pass --yes (and --preset) to run non-interactively.',
   sayNeedsWords: `No words given: run ${constructCommand('say')} "<your words>"; nothing was written.`,
   ownerSaid: (file: string) => `Said into the owner channel: ${file}`,
+  ownerAnswer: (outcome: 'needsTarget' | 'noBus' | 'answered', detail: string) => ({ needsTarget: `No wait named or no words given: run ${constructCommand('answer')} <Q<N>|#<card>> "<your words>"; nothing was written.`, noBus: `No bus at ${detail}: the answer is a request to the bus of the repository whose wait it answers; run it there. Nothing was written.`, answered: `${detail} written with your word; the bus takes it on its next tick: the wait closes (or continue-fixes are written), or window.request.refused says why.` })[outcome],
   runRecorded: (outcome: 'bus' | 'file' | 'present' | 'refused' | 'needsBus', detail: string) => ({ bus: `Run recorded as one ladder.run event in ${detail}.`, file: `Run recorded as one line in ${detail}; no bus is wired here.`, present: `Run already recorded: ${detail} holds this exact ladder.run event; nothing new was written.`, refused: `Run not recorded (${detail}): a run record is one JSON object with only the fields step 4 of /implement names; nothing was written.`, needsBus: `Run not recorded: a bus is wired at ${detail}, and the published CLI does not write to a bus; run construct-intake run-record with the same record. Nothing was written.` })[outcome],
   unknownFlag: (flags: string[]) => `Unknown ${flags.length === 1 ? 'flag' : 'flags'}: ${flags.join(', ')} ${flags.length === 1 ? 'is' : 'are'} not part of this command; nothing was written.`,
   initRefusedForeignStack: (preset: string, stack: string, manifests: string[]) => `Refused: --preset ${preset} is a ${stack} preset, and this directory has ${manifests.join(', ')} and no package.json; nothing was written.`,
