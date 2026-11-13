@@ -9,7 +9,7 @@ import { AMEND_SOURCE, isLaneName, laneName, laneNumber, pathsNamedOutside } fro
 import { NOT_A_BACKFILL } from './backfill-source.js'
 import { CARD_VERSION, CARD_VERSION_KEY, cardVersionIn } from './bus-version.js'
 import { appendEvent, BUSY_TIMEOUT_MS, defaultBusPath, openBus } from './db.js'
-import { CARD_ADMITTED, FACTORY_MODE, SLICE_PARENTS_BACKFILLED } from './events.js'
+import { CARD_ADMITTED, CARD_ANSWERED, CARD_CONTINUED, CARD_STARTED, FACTORY_MODE, SLICE_PARENTS_BACKFILLED } from './events.js'
 import { openDatabase } from './sqlite.js'
 
 export const CARD_BODIES = 'card_bodies'
@@ -129,6 +129,16 @@ export function laid(db: DatabaseSync, event: CardEvent): CardEvent {
 export function appendCardEvent(db: DatabaseSync, actor: string, unversioned: CardEvent): boolean {
   const event = versioned(db, unversioned)
   return appendEvent(db, { ts: event.ts, type: event.type, actor, cardId: event.cardId, pr: null, head: null, dedupeKey: event.dedupeKey, payload: event.payload, legacy: false })
+}
+
+const CARD_SESSIONS = `
+  SELECT json_extract(payload, '$.session') AS session FROM events
+  WHERE legacy = 0 AND type IN ('${CARD_STARTED}', '${CARD_CONTINUED}', '${CARD_ANSWERED}') AND card_id = ? AND json_valid(payload) AND json_type(payload, '$.session') = 'text'
+  ORDER BY id
+`
+
+export function cardSessionsIn(db: DatabaseSync, cardId: number): string[] {
+  return (db.prepare(CARD_SESSIONS).all(cardId) as { session: string }[]).map(row => row.session)
 }
 
 export function cardBodyText(db: DatabaseSync, cardId: number): string | null {

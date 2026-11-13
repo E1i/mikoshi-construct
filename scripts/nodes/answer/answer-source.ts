@@ -1,10 +1,10 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { Lease } from '../../core/lease.js'
 import type { InForceDecision } from '../../policy/decisions/index.js'
-import { CARD_BODIES } from '../../core/card-bodies.js'
+import { CARD_BODIES, cardSessionsIn } from '../../core/card-bodies.js'
 import { decisionOfKey } from '../../core/card-decisions.js'
 import { cardHoldOf } from '../../core/card-hold.js'
-import { CARD_ANSWERED, CARD_CONTINUED, CARD_STARTED, CARD_STOPPED, QUESTION_AGENT, QUESTION_OWNER, REVIEW_RECORDED } from '../../core/events.js'
+import { CARD_STARTED, CARD_STOPPED, QUESTION_AGENT, QUESTION_OWNER, REVIEW_RECORDED } from '../../core/events.js'
 import { latestTurnOf } from '../../core/queue.js'
 import { cardDecisionLines, decisionsInForceAt } from '../../policy/shards.js'
 
@@ -152,19 +152,8 @@ export function admittedScopeOf(db: DatabaseSync, cardId: number): AdmittedScope
 export const NO_RECORDED_SESSION = ''
 export const START_LINE = 'path'
 
-const SESSION_LIST = `'${CARD_STARTED}', '${CARD_CONTINUED}', '${CARD_ANSWERED}'`
-
-const STARTED_WITH_LATEST_SESSION = `
-  SELECT s.payload, (
-    SELECT json_extract(l.payload, '$.session') FROM events AS l
-    WHERE l.legacy = 0 AND l.type IN (${SESSION_LIST}) AND l.card_id = s.card_id AND l.id >= s.id AND json_valid(l.payload) AND json_type(l.payload, '$.session') = 'text'
-    ORDER BY l.id DESC LIMIT 1
-  ) AS latest
-  FROM events AS s WHERE s.card_id = ? AND s.type = '${CARD_STARTED}' AND s.legacy = 0 ORDER BY s.id DESC LIMIT 1
-`
-
 function startedOf(db: DatabaseSync, cardId: number): CardSession | null {
-  const row = db.prepare(STARTED_WITH_LATEST_SESSION).get(cardId) as { payload: string, latest: string | null } | undefined
+  const row = db.prepare(`SELECT payload FROM events WHERE card_id = ? AND type = '${CARD_STARTED}' AND legacy = 0 ORDER BY id DESC LIMIT 1`).get(cardId) as { payload: string } | undefined
   if (row === undefined)
     return null
   const payload = parsed(row.payload)
@@ -173,7 +162,7 @@ function startedOf(db: DatabaseSync, cardId: number): CardSession | null {
   const branch = text(payload.branch)
   if (started === null || worktree === null || branch === null)
     return null
-  return { session: text(row.latest) ?? started, worktree, branch }
+  return { session: cardSessionsIn(db, cardId).at(-1) ?? started, worktree, branch }
 }
 
 function chainSessionOf(payload: Record<string, unknown>): string {
