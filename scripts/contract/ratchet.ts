@@ -1,16 +1,16 @@
 import type { LawCells } from '../nodes/laws.js'
 import type { GitRunner } from '../ports/git.js'
-import type { ModuleGraphSpec } from './factory/modules.js'
+import type { ModuleGraphSpec, ModulesSection } from './factory/modules.js'
 import type { BoundarySide } from './module-graph/boundary.js'
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
-import { fileURLToPath, pathToFileURL } from 'node:url'
+import { fileURLToPath } from 'node:url'
 import { gapRows, LAW_CELLS } from '../nodes/laws.js'
 import { processGit } from '../ports/git.js'
-import { MODULE_GRAPH } from './factory/modules.js'
+import { FACTORY_CONTRACT, graphOfSection, MODULE_GRAPH } from './factory/modules.js'
 import { findSites, overlapsSection } from './factory/overlaps.js'
 import { parsedFiles } from './factory/walk.js'
 import { BOUNDARY_PREFIX, boundaryNumbers, boundaryReport, identifiedViolations, movedRows } from './module-graph/boundary.js'
@@ -19,7 +19,6 @@ const REPO_ROOT = path.resolve(import.meta.dirname, '../..')
 const THRESHOLD_KEY = 'threshold'
 const LINE_SCOPE_KEY = 'lines-scope:non-test-code-in-scripts-and-src'
 const MAIN_REFS = ['origin/main', 'main']
-const SPEC_MODULE = 'scripts/contract/factory/modules.ts'
 const DEPENDENCIES = 'node_modules'
 const OUTPUT_LIMIT = 1 << 30
 const RENAMED = /^R\d*$/
@@ -29,6 +28,8 @@ const FIRST_PARENT = 'HEAD^1'
 const SECOND_PARENT = 'HEAD^2'
 
 export type SpecReader = (tree: string) => ModuleGraphSpec
+
+type PublishedModules = Omit<ModulesSection, 'composition_imports'> & Partial<Pick<ModulesSection, 'composition_imports'>>
 
 export interface BaseSources {
   mainRefs?: readonly string[]
@@ -128,9 +129,8 @@ function treeAt(root: string, commit: string, git: GitRunner): string {
 }
 
 export function specInTree(tree: string): ModuleGraphSpec {
-  const module = pathToFileURL(path.join(tree, SPEC_MODULE)).href
-  const program = `const { MODULE_GRAPH } = await import(${JSON.stringify(module)}); process.stdout.write(JSON.stringify(MODULE_GRAPH))`
-  return JSON.parse(execFileSync(process.execPath, ['--import', 'tsx', '--input-type=module', '--eval', program], { cwd: REPO_ROOT, encoding: 'utf8', maxBuffer: OUTPUT_LIMIT })) as ModuleGraphSpec
+  const { modules } = JSON.parse(readFileSync(path.join(tree, FACTORY_CONTRACT), 'utf8')) as { modules: PublishedModules }
+  return graphOfSection({ ...modules, composition_imports: modules.composition_imports ?? {} })
 }
 
 function sideOf(root: string, spec: ModuleGraphSpec): BoundarySide {
