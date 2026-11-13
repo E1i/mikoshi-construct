@@ -24,6 +24,7 @@ import { ReviewExecutor } from '../../nodes/review/review-executor.js'
 import { DRY_RUN_ACTOR, ReviewNode, ReviewWorker, runReview } from '../../nodes/review/review-worker.js'
 import { reviewPrompt } from '../../nodes/review/reviewer.js'
 import { CHECK_MS, TICK_MS } from '../../ports/netwatch.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { cardBody } from './github-fake.js'
 import { eventCount, eventsOf, mergeBench, taskState } from './merge-bench.js'
 import { detectReview } from './review-detection.js'
@@ -84,7 +85,7 @@ function bench(): MergeBench {
 }
 
 function partsOf(made: MergeBench, mode: DetectionMode = 'shadow', reviewer: Reviewer = passing): ReviewNodeParts {
-  return { db: made.db, gitHub: made.gitHub.client, publish: made.gitHub.publish, reviewer, plan: () => fullReview('a fixed plan'), clock: made.clock.now, session: 'node-1', mode, env: {}, isolation: sandboxed }
+  return { silentMs: SILENT_MS, db: made.db, gitHub: made.gitHub.client, publish: made.gitHub.publish, reviewer, plan: () => fullReview('a fixed plan'), clock: made.clock.now, session: 'node-1', mode, env: {}, isolation: sandboxed }
 }
 
 function nodeOf(made: MergeBench, mode: DetectionMode = 'shadow'): ProbedReviewNode {
@@ -407,7 +408,7 @@ describe('the review node', () => {
     made.tick()
     detectReview(made)
     const reviewed = vi.spyOn(ReviewExecutor.prototype, 'review')
-    const worker = new ReviewWorker({ db: made.db, gitHub: made.gitHub.client, publish: made.gitHub.publish, reviewer: passing, plan: () => fullReview('a fixed plan'), clock: made.clock.now, session: 'worker-1', isolation: sandboxed })
+    const worker = new ReviewWorker({ silentMs: SILENT_MS, db: made.db, gitHub: made.gitHub.client, publish: made.gitHub.publish, reviewer: passing, plan: () => fullReview('a fixed plan'), clock: made.clock.now, session: 'worker-1', isolation: sandboxed })
 
     expect(await worker.stepOn(reviewKey(1096))).toMatchObject({ kind: 'recorded', taskKey: reviewKey(1096), verdict: 'pass' })
     expect(reviewed).toHaveBeenCalledTimes(1)
@@ -431,7 +432,7 @@ describe('the review node', () => {
         given = reviewPrompt(lease, planned, '/trees/review-1097', '/verdicts/1097.json')
         return { verdict: 'pass', findings: [], session: `reviewer-${lease.pr}`, input: { prompt: given } }
       }
-      const worker = new ReviewWorker({ db: made.db, gitHub: made.gitHub.client, publish: made.gitHub.publish, reviewer, plan: () => plan, clock: made.clock.now, session: 'worker-1', isolation: sandboxed, prompts: path.join(root, 'prompts') })
+      const worker = new ReviewWorker({ silentMs: SILENT_MS, db: made.db, gitHub: made.gitHub.client, publish: made.gitHub.publish, reviewer, plan: () => plan, clock: made.clock.now, session: 'worker-1', isolation: sandboxed, prompts: path.join(root, 'prompts') })
 
       expect(await worker.stepOn(reviewKey(1097))).toMatchObject({ kind: 'recorded', verdict: 'pass' })
       const [recorded] = eventsOf(made.db, REVIEW_RECORDED) as { head: string, since: string, prompt_sha: string, prompt_path: string }[]
@@ -467,7 +468,7 @@ describe('the review node', () => {
         made.tick()
         detectReview(made)
         const reviewer = async (lease: Lease): Promise<Review & { input?: SessionInput }> => ({ verdict: 'pass', findings: [], session: `reviewer-${lease.pr}`, ...(each.input ? { input: { prompt: 'the review prompt' } } : {}) })
-        const worker = new ReviewWorker({ db: made.db, gitHub: made.gitHub.client, publish: made.gitHub.publish, reviewer, plan: () => each.plan, clock: made.clock.now, session: 'worker-1', isolation: sandboxed, prompts: each.prompts })
+        const worker = new ReviewWorker({ silentMs: SILENT_MS, db: made.db, gitHub: made.gitHub.client, publish: made.gitHub.publish, reviewer, plan: () => each.plan, clock: made.clock.now, session: 'worker-1', isolation: sandboxed, prompts: each.prompts })
 
         expect(await worker.stepOn(reviewKey(1097)), each.name).toMatchObject({ kind: 'recorded', verdict: 'pass' })
         const [recorded] = eventsOf(made.db, REVIEW_RECORDED)

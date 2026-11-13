@@ -12,6 +12,7 @@ import { BOARD_ALARM, CARD_ADMITTED, CARD_STARTED, CARD_STOPPED, DECISION_RECORD
 import { leaseNext } from '../../core/lease.js'
 import { FAILURES_TO_STOP, queueTask, REVIEW_ROUNDS } from '../../core/queue.js'
 import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { sha } from './github-fake.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
 
@@ -55,7 +56,7 @@ function cardWhoseAnswerLeavesNothing(ends: AnswerEnd[] = []): Card {
   const cardTrees: CardTreeTools = { home: trees, exists: existsSync, branchOf: pr => `feat/card-${pr}`, recreate: () => {}, bringTo: () => {} }
   const answerer: Answerer = async () => ({ session: SESSION, resumed: true, before: sha('a'), after: sha('a'), owner: null })
   const dirty = (): boolean => ends.shift() === 'dirty'
-  const executor = new AnswerExecutor({ db: made.db, answerer, ownerMerges: () => '', clock: made.clock.now, trees: cardTrees, dirty, liveSession: () => null })
+  const executor = new AnswerExecutor({ silentMs: SILENT_MS, db: made.db, answerer, ownerMerges: () => '', clock: made.clock.now, trees: cardTrees, dirty, liveSession: () => null })
   let decided = 0
   const decide = (): void => {
     decided += 1

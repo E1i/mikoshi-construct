@@ -65,6 +65,7 @@ export interface ExecutorParts {
   reviewer: Reviewer
   plan: ReviewPlanner
   clock: () => Date
+  silentMs: number
   prompts?: string
   clearLeftovers?: () => LeftoverTree[]
   notePr?: (pr: number, line: string) => void
@@ -425,7 +426,7 @@ export class ReviewExecutor {
     if (reason === STALE_HEAD)
       return { kind: 'denied', taskKey: lease.taskKey, denial, next: supersedeLease(this.parts.db, ts, lease, [event]) }
     const atTheCeiling = reason === REVIEW_CEILING
-    const next = failTask(this.parts.db, ts, lease, { reason, withdraw: denial.kind === 'authority' || atTheCeiling }, [event, ...(atTheCeiling ? [this.ceilingAlarm(lease, ts)] : [])])
+    const next = failTask(this.parts.db, ts, lease, { reason, withdraw: denial.kind === 'authority' || atTheCeiling }, this.parts.silentMs, [event, ...(atTheCeiling ? [this.ceilingAlarm(lease, ts)] : [])])
     return { kind: 'denied', taskKey: lease.taskKey, denial, next }
   }
 }

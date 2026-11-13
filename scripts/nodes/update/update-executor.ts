@@ -72,6 +72,7 @@ export interface UpdateParts {
   publish: StatusPublisher
   clock: () => Date
   settle: () => void
+  silentMs: number
   rerun?: RerunMode
   pushPolicy?: () => PushPolicy
   mergeMain?: MergeMain
@@ -431,7 +432,7 @@ export class UpdateExecutor {
       releaseTask(this.parts.db, ts, lease, denial.reason, [event])
       return { kind: 'denied', taskKey: lease.taskKey, denial, next: 'queued' }
     }
-    const next = failTask(this.parts.db, ts, lease, { reason: denial.reason, withdraw: WITHDRAWN_REASONS.has(denial.reason) }, [event])
+    const next = failTask(this.parts.db, ts, lease, { reason: denial.reason, withdraw: WITHDRAWN_REASONS.has(denial.reason) }, this.parts.silentMs, [event])
     return { kind: 'denied', taskKey: lease.taskKey, denial, next }
   }
 }

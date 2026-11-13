@@ -12,6 +12,7 @@ import { leaseNext } from '../../core/lease.js'
 import { answerCandidates, updateCandidates } from '../../core/queue.js'
 import { UpdateExecutor } from '../../nodes/update/update-executor.js'
 import { mainMergeInCardTree } from '../../ports/main-merge.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { eventsOf, liveBench, taskState } from './merge-bench.js'
 import { detectUpdate } from './update-detection.js'
 
@@ -85,7 +86,7 @@ function conflictBench(file: string, pr: number) {
   bench.gitHub.open({ number: pr, head: conflict.head, mergeable_state: 'dirty' })
   bench.tick()
   detectUpdate(bench)
-  const executor = new UpdateExecutor({ db: bench.db, gitHub: bench.gitHub.client, put: bench.gitHub.put, publish: bench.gitHub.publish, clock: bench.clock.now, settle: () => {}, mergeMain: mainMergeInCardTree(git, () => conflict.tree) })
+  const executor = new UpdateExecutor({ silentMs: SILENT_MS, db: bench.db, gitHub: bench.gitHub.client, put: bench.gitHub.put, publish: bench.gitHub.publish, clock: bench.clock.now, settle: () => {}, mergeMain: mainMergeInCardTree(git, () => conflict.tree) })
   const lease = (): Lease | null => leaseNext(bench.db, bench.clock.now().toISOString(), 'update', 'worker:update:worker-1')
   return { bench, conflict, cardId, lease, executor }
 }

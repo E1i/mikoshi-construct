@@ -18,6 +18,7 @@ import { closeCandidates, FAILURES_TO_STOP, keyOf, queueTask } from '../../core/
 import { CloseExecutor } from '../../nodes/close/close-executor.js'
 import { CloseNode } from '../../nodes/close/close-worker.js'
 import { TREE_LEFT } from '../../nodes/review/review-worker.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { sha } from './github-fake.js'
 import { cardVerified, eventsOf, mergeBench } from './merge-bench.js'
 import { detectReview } from './review-detection.js'
@@ -74,7 +75,7 @@ interface NodeOptions {
 }
 
 function nodeOf(made: CloseBench, options: NodeOptions = {}): ProbedCloseNode {
-  const parts: CloseNodeParts = { db: made.db, reported: options.reported ?? (() => 'run'), clock: made.clock.now, session: 'node-1', parking: path.join(made.root, 'parking'), mode: options.mode ?? 'shadow', env: {}, trees: options.trees ?? { remove: () => null }, endedTrees: options.endedTrees }
+  const parts: CloseNodeParts = { silentMs: SILENT_MS, db: made.db, reported: options.reported ?? (() => 'run'), clock: made.clock.now, session: 'node-1', parking: path.join(made.root, 'parking'), mode: options.mode ?? 'shadow', env: {}, trees: options.trees ?? { remove: () => null }, endedTrees: options.endedTrees }
   return new ProbedCloseNode(parts)
 }
 
@@ -296,7 +297,7 @@ describe('the close node', () => {
     const held = leaseNext(made.db, ts, 'answer', 'worker:answer:worker-1')!
     queueTask(made.db, ts, { queue: 'merge', cardId: 1080, pr: 980, head: sha('a') })
     for (let failure = 1; failure <= FAILURES_TO_STOP; failure += 1)
-      failTask(made.db, ts, leaseNext(made.db, ts, 'merge', 'worker:merge:worker-1')!, { reason: 'not_mergeable', withdraw: false })
+      failTask(made.db, ts, leaseNext(made.db, ts, 'merge', 'worker:merge:worker-1')!, { reason: 'not_mergeable', withdraw: false }, SILENT_MS)
     expect(taskStatesOf(made, 'review', 980)).toEqual([{ head: sha('a'), state: 'queued' }])
     expect(taskStatesOf(made, 'answer', 980)).toEqual([{ head: sha('a'), state: 'leased' }])
     expect(taskStatesOf(made, 'merge', 980)).toEqual([{ head: sha('a'), state: 'stopped' }])
@@ -422,7 +423,7 @@ describe('the close node', () => {
     const lease = leaseNext(made.db, ts, 'close', 'worker:close:node-1')!
     closedEarlier(made, 1220)
 
-    const outcome = new CloseExecutor({ db: made.db, reported: () => 'run', clock: made.clock.now, parking: path.join(made.root, 'parking'), trees: { remove: () => null } }).close(lease)
+    const outcome = new CloseExecutor({ silentMs: SILENT_MS, db: made.db, reported: () => 'run', clock: made.clock.now, parking: path.join(made.root, 'parking'), trees: { remove: () => null } }).close(lease)
 
     expect(outcome).toMatchObject({ kind: 'denied', denial: { reason: 'card_closed' }, next: 'withdrawn' })
     expect(eventsOf(made.db, CARD_CLOSED)).toHaveLength(1)

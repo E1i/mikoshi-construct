@@ -16,6 +16,7 @@ import { REVIEW_ROUNDS_SPENT, ReviewWorker } from '../../nodes/review/review-wor
 import { reviewOf, reviewPrompt } from '../../nodes/review/reviewer.js'
 import { cardWitnessesOf } from '../../policy/policy.js'
 import { limitRuleOf, mutationsParkedGrantOf, PARKED_MUTATION_PREFIX, RECUT_ACTOR, sameFindings } from '../../policy/round-limit-decision.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { cardBody, sha } from './github-fake.js'
 import { eventsOf, liveBench } from './merge-bench.js'
 
@@ -74,21 +75,11 @@ function fixture(shard = true, text = cardText(CARD)): Fixture {
   }
   const gitHub: GitHub = endpoint => endpoint.includes('/issues?') ? { status: 200, headers: {}, body: [{ number: Math.max(...bench.gitHub.pulls.keys()) }] } : bench.gitHub.client(endpoint)
   const recutter = new RoundLimitRecutter({ db: bench.db, gitHub, post, patch: bench.gitHub.patch, clock: bench.clock.now, cardStates: () => busHeldCards(bench.db) })
-  const worker = new ReviewWorker({
-    isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }),
-    db: bench.db,
-    gitHub: bench.gitHub.client,
-    publish: bench.gitHub.publish,
-    reviewer: async () => ({ verdict: 'changes', findings: reviewer.findings, ...(reviewer.survivingMutations === undefined ? {} : { survivingMutations: reviewer.survivingMutations }), session: 'reviewer-1' }),
-    plan: () => fullReview('a fixed plan'),
-    clock: bench.clock.now,
-    session: 'worker-1',
-    recut: { recut: (at) => {
-      const outcome = recutter.recut(at)
-      outcomes.push(outcome)
-      return outcome
-    } },
-  })
+  const worker = new ReviewWorker({ silentMs: SILENT_MS, isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }), db: bench.db, gitHub: bench.gitHub.client, publish: bench.gitHub.publish, reviewer: async () => ({ verdict: 'changes', findings: reviewer.findings, ...(reviewer.survivingMutations === undefined ? {} : { survivingMutations: reviewer.survivingMutations }), session: 'reviewer-1' }), plan: () => fullReview('a fixed plan'), clock: bench.clock.now, session: 'worker-1', recut: { recut: (at) => {
+    const outcome = recutter.recut(at)
+    outcomes.push(outcome)
+    return outcome
+  } } })
   if (shard)
     appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: SHARD_ISSUED, actor: 'owner', cardId: null, pr: null, head: null, dedupeKey: `${SHARD_ISSUED}:ws-1`, payload: { id: 'ws-1', by: 'Eli', scope: 'merge+decisions', until: new Date(bench.clock.now().getTime() + 6 * 3_600_000).toISOString(), window: 1 }, legacy: false })
   admit(bench, CARD, text)

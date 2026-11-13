@@ -34,6 +34,7 @@ import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
 import { NetWatch } from '../../ports/netwatch.js'
 import { WORKTREE_HOME_VARIABLE } from '../../ports/worktree-home.js'
 import { busProjections } from '../../supervisor/composition.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { BusTick } from '../../supervisor/run.js'
 import { productionDeps, STALL_MS } from '../../window/watch.js'
 import { countLineAppender, realRequestTools, worktreesHolding } from '../../window/window-request-tools.js'
@@ -201,7 +202,7 @@ function failThrice(made: Room): void {
   const { bench } = made
   for (let failure = 0; failure < FAILURES_TO_STOP; failure += 1) {
     const lease = leaseNext(bench.db, bench.clock.now().toISOString(), 'answer', 'worker:answer:answer-1')!
-    failTask(bench.db, bench.clock.now().toISOString(), lease, { reason: 'answer_failed', withdraw: false })
+    failTask(bench.db, bench.clock.now().toISOString(), lease, { reason: 'answer_failed', withdraw: false }, SILENT_MS)
   }
 }
 
@@ -352,7 +353,7 @@ describe('requests from the sandboxed window, executed by the bus outside it', (
         : { kind: 'started', card: { session: `s-${card.cardId}`, worktree: `/trees/mc-${card.cardId}`, branch: `feat/card-${card.cardId}`, base: sha('f'), pid: 4242, pgid: 4242 } },
       stop: () => {},
     }
-    const executor = new LaunchExecutor({ db: bench.db, starter, clock: bench.clock.now, disk: () => ({ bavail: 1, bsize: DISK_FLOOR_BYTES }), isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }) })
+    const executor = new LaunchExecutor({ silentMs: SILENT_MS, db: bench.db, starter, clock: bench.clock.now, disk: () => ({ bavail: 1, bsize: DISK_FLOOR_BYTES }), isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }) })
     const launchNext = (): LaunchOutcome => executor.launch(leaseNext(bench.db, bench.clock.now().toISOString(), 'launch', 'worker:launch:worker-1')!)
     appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'policy', cardId, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${cardId}`, payload: { lane: 'lane-a', decision: 'auto', contour: 'cheap', depends: [], admission: `admission-${cardId}` }, legacy: false })
     bench.tick()
@@ -396,7 +397,7 @@ describe('requests from the sandboxed window, executed by the bus outside it', (
       start: card => ({ kind: 'refused', denial: technical('start_failed', `task:start for card #${card.cardId} found ${tree} standing`) }),
       stop: () => {},
     }
-    const executor = new LaunchExecutor({ db: bench.db, starter, clock: bench.clock.now, disk: () => ({ bavail: 1, bsize: DISK_FLOOR_BYTES }), isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }) })
+    const executor = new LaunchExecutor({ silentMs: SILENT_MS, db: bench.db, starter, clock: bench.clock.now, disk: () => ({ bavail: 1, bsize: DISK_FLOOR_BYTES }), isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }) })
     const text = `card: #${cardId} fell-at-start [implement/construct/S/cheap/auto] · depends — · blocks —\nbranch: ${branch}\ntouches: scripts/a.ts\ncontinue: stop\nwho: shift\n\nFinish it.\n`
     appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'policy', cardId, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${cardId}`, payload: { lane: 'lane-a', decision: 'auto', contour: 'cheap', depends: [], admission: `admission-${cardId}`, text, textSha: textSha(text) }, legacy: false })
     bench.tick()

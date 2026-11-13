@@ -110,7 +110,7 @@ describe('a lease whose holder process is dead is freed at once', () => {
     b.clock.now = 3 * 60 * 60_000
     b.processes.set(DEAD_PID, { state: 'running', started: b.ts() })
 
-    expect(judgeHolders(b.db, b.ts(), b.startOf).freed).toEqual([lease.taskKey])
+    expect(judgeHolders(b.db, b.ts(), b.startOf, SILENT_MS).freed).toEqual([lease.taskKey])
     expect(payloadsOf(b.db, TASK_EXPIRED)).toEqual([expect.objectContaining({ task_key: lease.taskKey, reason: HOLDER_DEAD })])
   })
 
@@ -119,7 +119,7 @@ describe('a lease whose holder process is dead is freed at once', () => {
     b.start(DIED_HOLDER, DEAD_PID)
     const lease = leaseWhileFree(b.db, b.ts(), mergeTask, DIED_HOLDER, 1)!
 
-    expect(judgeHolders(b.db, b.ts(), b.startOf)).toEqual({ freed: [], hung: [], unproven: [] })
+    expect(judgeHolders(b.db, b.ts(), b.startOf, SILENT_MS)).toEqual({ freed: [], hung: [], unproven: [] })
     expect(stateOf(b.db, lease.taskKey)).toEqual({ state: 'leased', lease_gen: lease.leaseGen })
   })
 
@@ -150,7 +150,7 @@ describe('a lease whose holder process is dead is freed at once', () => {
     renewLease(b.db, b.ts(), lease)
     b.clock.now = SILENT_MS + 60_000
 
-    expect(judgeHolders(b.db, b.ts(), b.startOf)).toEqual({ freed: [], hung: [], unproven: [] })
+    expect(judgeHolders(b.db, b.ts(), b.startOf, SILENT_MS)).toEqual({ freed: [], hung: [], unproven: [] })
   })
 
   it('a new worker of the same kind does not take the lease of a live older worker', async () => {
@@ -171,10 +171,10 @@ describe('a lease whose holder process is dead is freed at once', () => {
   it('a holder with no worker.started record keeps its lease and raises an unproven-holder alarm once silent', () => {
     const b = bench()
     const lease = leaseWhileFree(b.db, b.ts(), mergeTask, DIED_HOLDER, 1)!
-    expect(judgeHolders(b.db, b.ts(), b.startOf)).toEqual({ freed: [], hung: [], unproven: [] })
+    expect(judgeHolders(b.db, b.ts(), b.startOf, SILENT_MS)).toEqual({ freed: [], hung: [], unproven: [] })
 
     b.clock.now = SILENT_MS + 1
-    expect(judgeHolders(b.db, b.ts(), b.startOf)).toEqual({ freed: [], hung: [], unproven: [lease.taskKey] })
+    expect(judgeHolders(b.db, b.ts(), b.startOf, SILENT_MS)).toEqual({ freed: [], hung: [], unproven: [lease.taskKey] })
     expect(stateOf(b.db, lease.taskKey).state).toBe('leased')
     expect(payloadsOf(b.db, BOARD_ALARM)).toEqual([expect.objectContaining({ reason: HOLDER_UNPROVEN, lease: lease.taskKey })])
   })
@@ -185,14 +185,14 @@ describe('a lease whose holder process is dead is freed at once', () => {
     b.processes.set(DEAD_PID, { state: 'unreadable' })
     b.clock.now = SILENT_MS + 1
 
-    expect(judgeHolders(b.db, b.ts(), b.startOf)).toEqual({ freed: [], hung: [], unproven: [lease.taskKey] })
+    expect(judgeHolders(b.db, b.ts(), b.startOf, SILENT_MS)).toEqual({ freed: [], hung: [], unproven: [lease.taskKey] })
     expect(payloadsOf(b.db, TASK_EXPIRED)).toEqual([])
   })
 
   it('the old worker with the previous lease_gen gets StaleLease after the release and writes nothing', () => {
     const b = bench()
     const lease = heldByTheDead(b)
-    judgeHolders(b.db, b.ts(), b.startOf)
+    judgeHolders(b.db, b.ts(), b.startOf, SILENT_MS)
     b.start(NEW_HOLDER, NEW_PID)
     const taken = leaseQueued(b.db, b.ts(), lease.taskKey, NEW_HOLDER)!
     const before = eventCount(b.db)
@@ -216,7 +216,7 @@ describe('a lease whose holder process is dead is freed at once', () => {
       return b.startOf(pid)
     }
 
-    expect(judgeHolders(b.db, b.ts(), reissuingStartOf).freed).toEqual([])
+    expect(judgeHolders(b.db, b.ts(), reissuingStartOf, SILENT_MS).freed).toEqual([])
     expect(stateOf(b.db, lease.taskKey)).toEqual({ state: 'leased', lease_gen: lease.leaseGen + 1 })
     expect(payloadsOf(b.db, TASK_EXPIRED)).toEqual([])
   })

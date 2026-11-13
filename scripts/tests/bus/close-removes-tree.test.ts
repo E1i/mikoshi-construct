@@ -13,6 +13,7 @@ import { ARTIFACT_KEPT, ARTIFACT_REMOVED, BOARD_ALARM, CARD_CLOSED, CARD_STARTED
 import { gitTreeRemover } from '../../nodes/close/close-executor.js'
 import { CloseNode } from '../../nodes/close/close-worker.js'
 import { TREE_LEFT } from '../../nodes/review/review-worker.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { detectClose } from './close-detection.js'
 import { cardVerified, eventsOf, mergeBench, taskState } from './merge-bench.js'
 
@@ -66,7 +67,7 @@ async function closeOnce(treesOf: CardTreeRemover | ((db: DatabaseSync) => CardT
     detectClose(bench.db, bench.clock.now)
     if (closedEarlier)
       appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_CLOSED, actor: 'worker:close:earlier', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_CLOSED}:${CARD}`, payload: { verification: 'run' }, legacy: false })
-    const worker = closeNode({ db: bench.db, reported: () => 'run', clock: bench.clock.now, session: SESSION, parking: path.join(root, 'parking'), trees, endedTrees })
+    const worker = closeNode({ silentMs: SILENT_MS, db: bench.db, reported: () => 'run', clock: bench.clock.now, session: SESSION, parking: path.join(root, 'parking'), trees, endedTrees })
     const outcome = await step(worker)
     if (outcome === null || outcome.kind === 'idle' || outcome.taskKey === undefined)
       throw new Error('the close queue held no task')

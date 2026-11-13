@@ -20,6 +20,7 @@ import { MAX_RESTARTS, reachedContextLine } from '../../nodes/launch/continuatio
 import { LaunchNode } from '../../nodes/launch/launch-worker.js'
 import { busAtContextLine, runTreePr } from '../../nodes/launch/tree-pr-cli.js'
 import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { sha } from './github-fake.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
 
@@ -81,24 +82,7 @@ async function launchedAtLine(made: MergeBench, cardId: number, wired = true): P
   const starter = new ContinuingStarter()
   const published: string[] = []
   const exited: ProcessTable = { commandLine: () => null, signalGroup: () => {} }
-  const node = new LaunchNode({
-    db: made.db,
-    starter,
-    ...(wired ? { continuer: starter } : {}),
-    clock: made.clock.now,
-    session: 'node-1',
-    mode: 'live',
-    env: {},
-    processes: exited,
-    resulted: () => true,
-    handedOff: () => true,
-    warned: () => true,
-    atContextLine: () => true,
-    committed: () => true,
-    publish: card => published.push(card.session),
-    disk: () => ({ bavail: 1, bsize: DISK_FLOOR_BYTES }),
-    isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }),
-  })
+  const node = new LaunchNode({ silentMs: SILENT_MS, db: made.db, starter, ...(wired ? { continuer: starter } : {}), clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes: exited, resulted: () => true, handedOff: () => true, warned: () => true, atContextLine: () => true, committed: () => true, publish: card => published.push(card.session), disk: () => ({ bavail: 1, bsize: DISK_FLOOR_BYTES }), isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }) })
   const controller = new AbortController()
   await node.run({ pause: async () => controller.abort(), signal: controller.signal })
   made.tick()
@@ -243,7 +227,7 @@ describe('the answer session at the context warn', () => {
       contextWarn: () => CONTEXT_WARN,
       diff: () => 'diff --git a/x b/x',
     })
-    const executor = new AnswerExecutor({ db: made.db, answerer, ownerMerges: () => '', clock: made.clock.now, trees: treesOf(root), liveSession: () => null, dirty: () => false })
+    const executor = new AnswerExecutor({ silentMs: SILENT_MS, db: made.db, answerer, ownerMerges: () => '', clock: made.clock.now, trees: treesOf(root), liveSession: () => null, dirty: () => false })
 
     expect(await executor.answer(lease)).toMatchObject({ kind: 'answered', session: 'fresh-session', resumed: false })
 
@@ -277,7 +261,7 @@ describe('the answer session at the context warn', () => {
       contextWarn: () => CONTEXT_WARN,
       diff: () => null,
     })
-    const executor = new AnswerExecutor({ db: made.db, answerer, ownerMerges: () => '', clock: made.clock.now, trees: treesOf(root), liveSession: () => null, dirty: () => false })
+    const executor = new AnswerExecutor({ silentMs: SILENT_MS, db: made.db, answerer, ownerMerges: () => '', clock: made.clock.now, trees: treesOf(root), liveSession: () => null, dirty: () => false })
 
     expect(await executor.answer(lease())).toMatchObject({ kind: 'stopped', reason: 'fault' })
 

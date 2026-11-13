@@ -16,6 +16,7 @@ import { appendEvent } from '../../core/db.js'
 import { BOARD_ALARM, MERGE_DONE, REVIEW_RECORDED } from '../../core/events.js'
 import { DOCS_LAYER, isCheckPipeline, isTestInfrastructure, layersInOf } from '../../core/layer-map.js'
 import { CATALOG_REBUILD_FAILED, MergeNode } from '../../nodes/merge/merge-worker.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { cardBody, MAIN_2, sha } from '../bus/github-fake.js'
 import { eventsOf, mergeBench } from '../bus/merge-bench.js'
 
@@ -170,7 +171,7 @@ it('a layer resolver outside the layer map is red', () => {
 it('a failed catalog rebuild writes an event with its reason', async () => {
   const { clone, bus, commit } = aBrokenTree('depcruise is not installed in this tree')
   const made = aMergeOfANewTest()
-  const node = new MergeNode({ db: made.db, gitHub: made.gitHub.client, put: made.gitHub.put, publish: made.gitHub.publish, clock: made.clock.now, session: 'node-1', run: null, mode: 'live', env: {}, rebuildCatalog: () => rebuildCatalogAt(commit, bus, clone) })
+  const node = new MergeNode({ silentMs: SILENT_MS, db: made.db, gitHub: made.gitHub.client, put: made.gitHub.put, publish: made.gitHub.publish, clock: made.clock.now, session: 'node-1', run: null, mode: 'live', env: {}, rebuildCatalog: () => rebuildCatalogAt(commit, bus, clone) })
   const controller = new AbortController()
 
   await node.run({ pause: async () => controller.abort(), signal: controller.signal })

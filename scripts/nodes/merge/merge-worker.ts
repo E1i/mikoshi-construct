@@ -24,6 +24,7 @@ import { loadedCodeSha, readThroughPort } from '../../ports/git.js'
 import { ghStatusPublisher } from '../../ports/github-status.js'
 import { ghApi, ghApiPut } from '../../ports/github.js'
 import { Meter } from '../../ports/meter.js'
+import { nodeLiveness } from '../../supervisor/composition.js'
 import { stampLogOutput } from '../../supervisor/stamp.js'
 import { DRY_RUN_ACTOR } from '../review/review-worker.js'
 import { MergeExecutor } from './merge-executor.js'
@@ -55,6 +56,7 @@ export interface MergeWorkerParts {
 export interface MergeNodeParts extends MergeWorkerParts {
   mode: DetectionMode
   env: NodeJS.ProcessEnv
+  silentMs: number
 }
 
 export class NoLiveVerdict extends NodeRefused {
@@ -92,11 +94,11 @@ export class MergeNode extends Node<MergeStep> {
   private readonly rebuildCatalog: CatalogRebuild | undefined
 
   constructor(parts: MergeNodeParts) {
-    super('merge', { db: parts.db, clock: parts.clock, session: parts.session, mode: parts.mode, env: parts.env })
+    super('merge', { db: parts.db, clock: parts.clock, session: parts.session, mode: parts.mode, env: parts.env, silentMs: parts.silentMs })
     this.rerun = rerunModeOf(parts.env)
     this.gitHub = parts.gitHub
     this.rebuildCatalog = parts.rebuildCatalog
-    this.executor = new MergeExecutor({ db: parts.db, gitHub: parts.gitHub, put: parts.put, publish: parts.publish, clock: parts.clock, run: parts.run, rerun: this.rerun, pushPolicy: parts.pushPolicy })
+    this.executor = new MergeExecutor({ db: parts.db, gitHub: parts.gitHub, put: parts.put, publish: parts.publish, clock: parts.clock, run: parts.run, rerun: this.rerun, silentMs: parts.silentMs, pushPolicy: parts.pushPolicy })
     this.declare(MERGE_NODE, scopeOf)
   }
 
@@ -177,7 +179,7 @@ export interface MergeRun {
 }
 
 export async function runMergeWorker(argv: string[], run: MergeRun): Promise<number> {
-  return runNode(argv, 'merge', run.busPath, (db, mode) => new MergeNode({ db, gitHub: run.gitHub, put: run.put, publish: run.publish, clock: () => new Date(), session: run.session, run: null, pushPolicy: run.pushPolicy, rebuildCatalog: run.rebuildCatalog, mode, env: process.env }), { pause: run.pause, codeSha: loadedCodeSha })
+  return runNode(argv, 'merge', run.busPath, (db, mode) => new MergeNode({ ...nodeLiveness(), db, gitHub: run.gitHub, put: run.put, publish: run.publish, clock: () => new Date(), session: run.session, run: null, pushPolicy: run.pushPolicy, rebuildCatalog: run.rebuildCatalog, mode, env: process.env }), { pause: run.pause, codeSha: loadedCodeSha })
 }
 
 async function main(): Promise<number> {

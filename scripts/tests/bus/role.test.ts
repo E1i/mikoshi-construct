@@ -24,13 +24,7 @@ function roleBus() {
   const root = mkdtempSync(path.join(tmpdir(), 'role-wait-'))
   const db = openBus(path.join(root, 'bus.db'))
   let now = START
-  const worker = new restartWorker.RestartWorker({
-    db,
-    processes: { commandLine: () => null, signalGroup: () => {} },
-    launchSwitchedOn: () => false,
-    clock: () => new Date(now),
-    session: 'worker-1',
-  })
+  const worker = new restartWorker.RestartWorker({ silentMs: SILENT_MS, db, processes: { commandLine: () => null, signalGroup: () => {} }, launchSwitchedOn: () => false, clock: () => new Date(now), session: 'worker-1' })
   return {
     db,
     worker,

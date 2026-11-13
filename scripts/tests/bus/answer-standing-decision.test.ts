@@ -20,6 +20,7 @@ import { claudeAnswerer } from '../../nodes/answer/answerer.js'
 import { UpdateExecutor } from '../../nodes/update/update-executor.js'
 import { NetWatch, TICK_MS } from '../../ports/netwatch.js'
 import { busProjections } from '../../supervisor/composition.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { BusTick } from '../../supervisor/run.js'
 import { Clock, FakeGitHub, sha } from './github-fake.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
@@ -70,7 +71,7 @@ async function answerAsking(question: string): Promise<{ made: MergeBench, outco
     published += 1
     appendEvent(made.db, { ts: made.clock.now().toISOString(), type: PR_OPENED, actor: 'worker:shift:1', cardId: CARD, pr: 9775, head: null, dedupeKey: `${PR_OPENED}:${CARD}:9775`, payload: { pr: 9775 }, legacy: false })
   }
-  const executor = new AnswerExecutor({ db: made.db, answerer, ownerMerges: () => '', clock: made.clock.now, trees: cardTrees, dirty: () => false, liveSession: () => null, publishing: { committed: () => true, publish } })
+  const executor = new AnswerExecutor({ silentMs: SILENT_MS, db: made.db, answerer, ownerMerges: () => '', clock: made.clock.now, trees: cardTrees, dirty: () => false, liveSession: () => null, publishing: { committed: () => true, publish } })
   const lease = leaseNext(made.db, made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1') as Lease
   return { made, outcome: await executor.answer(lease), published }
 }
@@ -125,7 +126,7 @@ async function answerEditing(changed: readonly string[]): Promise<{ made: MergeB
     pending: () => [TOUCHED, ...changed],
   })
   const cardTrees: CardTreeTools = { home, exists: existsSync, branchOf: pr => `feat/card-${pr}`, recreate: () => {}, bringTo: () => {} }
-  const executor = new AnswerExecutor({ db: made.db, answerer, ownerMerges: () => '', clock: made.clock.now, trees: cardTrees, dirty: () => false, liveSession: () => null, prepare: () => {} })
+  const executor = new AnswerExecutor({ silentMs: SILENT_MS, db: made.db, answerer, ownerMerges: () => '', clock: made.clock.now, trees: cardTrees, dirty: () => false, liveSession: () => null, prepare: () => {} })
   const lease = leaseNext(made.db, made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1') as Lease
   return { made, outcome: await executor.answer(lease), published }
 }
@@ -210,7 +211,7 @@ function busReading(failed: readonly string[], abandoned: readonly string[], fai
     queueTaskWithin(db, ts, task)
   const lease = leaseNext(db, ts, 'update', 'worker:update:worker-1')
   if (lease !== null)
-    new UpdateExecutor({ db, gitHub: client, put: gitHub.put, post: gitHub.post, publish: gitHub.publish, clock: clock.now, settle: () => {} }).update(lease)
+    new UpdateExecutor({ silentMs: SILENT_MS, db, gitHub: client, put: gitHub.put, post: gitHub.post, publish: gitHub.publish, clock: clock.now, settle: () => {} }).update(lease)
   const rerunEvents = Number((db.prepare('SELECT count(*) AS n FROM events WHERE type = ? AND pr = ?').get(CI_RERUN_REQUESTED, PR) as { n: number }).n)
   db.close()
   return { blocking, answers, updates: updates.length, reruns: gitHub.reruns, rerunEvents }

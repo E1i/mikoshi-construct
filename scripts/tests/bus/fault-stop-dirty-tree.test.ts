@@ -11,6 +11,7 @@ import { FAILURES_TO_STOP } from '../../core/queue.js'
 import { launchableCard } from '../../nodes/launch/launch-candidates.js'
 import { LaunchExecutor } from '../../nodes/launch/launch-executor.js'
 import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { requestFromWindow, WindowRequests } from '../../window/window-requests.js'
 import { mergeBench, taskState } from './merge-bench.js'
 
@@ -39,7 +40,7 @@ function faultStopped(cardId: number): MergeBench {
   const bench = mergeBench()
   benches.push(bench)
   const ts = (): string => bench.clock.now().toISOString()
-  const executor = new LaunchExecutor({ db: bench.db, starter: new FailingStarter(), clock: bench.clock.now, disk: roomy, isolation: sandboxed })
+  const executor = new LaunchExecutor({ silentMs: SILENT_MS, db: bench.db, starter: new FailingStarter(), clock: bench.clock.now, disk: roomy, isolation: sandboxed })
   appendEvent(bench.db, { ts: ts(), type: CARD_ADMITTED, actor: 'policy', cardId, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${cardId}`, payload: { lane: `lane-card-${cardId}`, decision: 'auto', contour: 'cheap', depends: [], admission: `admission-${cardId}` }, legacy: false })
   bench.tick()
   for (let failure = 0; failure < FAILURES_TO_STOP; failure += 1)

@@ -32,6 +32,7 @@ import { NetWatch, TICK_MS } from '../../ports/netwatch.js'
 import { headlessInvocation } from '../../ports/session.js'
 import { busProjections } from '../../supervisor/composition.js'
 import { recordHeartbeat } from '../../supervisor/heartbeat.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { BusTick } from '../../supervisor/run.js'
 import { cardBody, Clock, FakeGitHub, sha } from './github-fake.js'
 import { detectReview } from './review-detection.js'
@@ -86,7 +87,7 @@ function setUp(): Bench {
       detectReview({ db, gitHub, clock })
       clock.advance(TICK_MS)
     },
-    worker: (reviewer, publish = posted, plan = fixedPlan, clearLeftovers) => new ReviewWorker({ db, gitHub: gitHub.client, publish, reviewer, plan, clock: clock.now, session: 'worker-1', clearLeftovers, isolation: sandboxed }),
+    worker: (reviewer, publish = posted, plan = fixedPlan, clearLeftovers) => new ReviewWorker({ silentMs: SILENT_MS, db, gitHub: gitHub.client, publish, reviewer, plan, clock: clock.now, session: 'worker-1', clearLeftovers, isolation: sandboxed }),
   }
 }
 
@@ -193,7 +194,7 @@ describe('review worker', () => {
     tick()
     const old = leaseNext(db, clock.now().toISOString(), 'review', 'worker:review:old')!
     clock.advance(LEASE_MS + 1)
-    expect(expireLeases(db, clock.now().toISOString())).toEqual([review(941)])
+    expect(expireLeases(db, clock.now().toISOString(), SILENT_MS)).toEqual([review(941)])
     const current = leaseNext(db, clock.now().toISOString(), 'review', 'worker:review:new')!
     expect([old.leaseGen, current.leaseGen]).toEqual([1, 2])
 
@@ -201,7 +202,7 @@ describe('review worker', () => {
     const ts = clock.now().toISOString()
     expect(() => completeTask(db, ts, old, [])).toThrow(StaleLease)
     expect(() => renewLease(db, ts, old)).toThrow(StaleLease)
-    expect(() => failTask(db, ts, old, { reason: 'stale_head', withdraw: false })).toThrow(StaleLease)
+    expect(() => failTask(db, ts, old, { reason: 'stale_head', withdraw: false }, SILENT_MS)).toThrow(StaleLease)
     expect(eventCount(db)).toBe(before)
     expect(task(db, review(941))).toEqual({ state: 'leased', lease_gen: 2, failures: 1 })
 
@@ -318,7 +319,7 @@ describe('review worker', () => {
 
   it('the worker refuses to start while the replay of the projection is not clean', () => {
     const { db, gitHub, clock, tick } = setUp()
-    const parts = { db, gitHub: gitHub.client, publish: unreachable, reviewer: reviewing(), plan: fixedPlan, clock: clock.now, session: 'worker-1', isolation: sandboxed }
+    const parts = { silentMs: SILENT_MS, db, gitHub: gitHub.client, publish: unreachable, reviewer: reviewing(), plan: fixedPlan, clock: clock.now, session: 'worker-1', isolation: sandboxed }
     gitHub.open({ number: 947 })
     tick()
     expect(startReviewWorkers(parts, 3).map(worker => worker.actor)).toEqual(['worker:review:worker-1-1', 'worker:review:worker-1-2', 'worker:review:worker-1-3'])
@@ -359,7 +360,7 @@ describe('review worker', () => {
       if (String(line).includes('the review node worker:review:node-1 takes the review queue'))
         callsAtStart.push(gitHub.calls.length - before)
     })
-    const parts = { db, gitHub: gitHub.client, publish: unreachable, reviewer: reviewing(), plan: fixedPlan, clock: clock.now, session: 'node-1', isolation: sandboxed }
+    const parts = { silentMs: SILENT_MS, db, gitHub: gitHub.client, publish: unreachable, reviewer: reviewing(), plan: fixedPlan, clock: clock.now, session: 'node-1', isolation: sandboxed }
     const controller = new AbortController()
 
     await new ReviewNode({ ...parts, mode: 'shadow', env: {} }).run({ pause: async () => controller.abort(), signal: controller.signal })
@@ -378,7 +379,7 @@ describe('review worker', () => {
     }
     const startOnce = async (bench: Bench): Promise<string[]> => {
       const printed = vi.spyOn(console, 'log').mockImplementation(() => {})
-      const node = new ReviewNode({ db: bench.db, gitHub: bench.gitHub.client, publish: unreachable, reviewer: reviewing(), plan: fixedPlan, clock: bench.clock.now, session: 'node-1', mode: 'shadow', env: {}, isolation: sandboxed })
+      const node = new ReviewNode({ silentMs: SILENT_MS, db: bench.db, gitHub: bench.gitHub.client, publish: unreachable, reviewer: reviewing(), plan: fixedPlan, clock: bench.clock.now, session: 'node-1', mode: 'shadow', env: {}, isolation: sandboxed })
       const controller = new AbortController()
       await node.run({ pause: async () => controller.abort(), signal: controller.signal })
       const lines = printed.mock.calls.map(call => String(call[0]))
@@ -497,7 +498,7 @@ describe('review worker', () => {
     tick()
     const reviewer = vi.fn<Reviewer>(async () => ({ verdict: 'pass', findings: [], session: 'reviewer-1' }))
     const unconfined: IsolationReader = () => ({ level: 'none', why: 'sandbox.enabled is not true' })
-    const worker = new ReviewWorker({ db, gitHub: gitHub.client, publish: () => {}, reviewer, plan: fixedPlan, clock: clock.now, session: 'worker-1', isolation: unconfined })
+    const worker = new ReviewWorker({ silentMs: SILENT_MS, db, gitHub: gitHub.client, publish: () => {}, reviewer, plan: fixedPlan, clock: clock.now, session: 'worker-1', isolation: unconfined })
 
     const step = await worker.step()
     expect(step).toMatchObject({ kind: 'denied', taskKey: review(960), denial: { kind: 'technical', reason: 'no_isolation' }, next: 'queued' })
@@ -516,7 +517,7 @@ describe('review worker', () => {
     tick()
     const gap = 'sandbox.excludedCommands names docker; they run outside the sandbox'
     const partial: IsolationReader = () => ({ level: 'partial', mechanism: 'claude-code-sandbox', gaps: [gap] })
-    const worker = new ReviewWorker({ db, gitHub: gitHub.client, publish: () => {}, reviewer: reviewing(), plan: fixedPlan, clock: clock.now, session: 'worker-1', isolation: partial })
+    const worker = new ReviewWorker({ silentMs: SILENT_MS, db, gitHub: gitHub.client, publish: () => {}, reviewer: reviewing(), plan: fixedPlan, clock: clock.now, session: 'worker-1', isolation: partial })
 
     expect(await worker.step()).toMatchObject({ kind: 'recorded', taskKey: review(962) })
     expect(events(db, 'review.recorded')).toMatchObject([{ isolation: 'partial', isolationGaps: [gap] }])
@@ -592,7 +593,7 @@ describe('review worker', () => {
 
     const step = worker(slow).step()
     clock.advance(LEASE_MS + 1)
-    expect(expireLeases(db, clock.now().toISOString())).toEqual([review(950)])
+    expect(expireLeases(db, clock.now().toISOString(), SILENT_MS)).toEqual([review(950)])
     finish()
     expect(await step).toEqual({ kind: 'fenced', taskKey: review(950) })
     db.close()

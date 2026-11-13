@@ -20,6 +20,7 @@ import { GIT_TREE_TOOLS, ReviewTrees } from '../../nodes/review/reviewer.js'
 import { gitCardTrees } from '../../ports/card-tree.js'
 import { cutTree, FREE_TREE_CAPACITY, FREE_TREES, pnpmInstall } from '../../ports/worktree.js'
 import { busProjections } from '../../supervisor/composition.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { detectClose } from './close-detection.js'
 import { cardVerified, eventsOf, mergeBench } from './merge-bench.js'
 
@@ -250,7 +251,7 @@ describe('the close that frees and the start that takes are one lifecycle', () =
     bench.tick()
     detectClose(bench.db, bench.clock.now)
     const lease = leaseNext(bench.db, bench.clock.now().toISOString(), 'close', 'worker:close:lifecycle')!
-    const executor = new CloseExecutor({ db: bench.db, reported: () => 'run', clock: bench.clock.now, parking: path.join(root, 'parking'), trees: gitTreeRemover(repo, FREE_TREE_CAPACITY), cwds: NO_SESSION })
+    const executor = new CloseExecutor({ silentMs: SILENT_MS, db: bench.db, reported: () => 'run', clock: bench.clock.now, parking: path.join(root, 'parking'), trees: gitTreeRemover(repo, FREE_TREE_CAPACITY), cwds: NO_SESSION })
 
     expect(executor.close(lease)).toMatchObject({ kind: 'closed' })
 

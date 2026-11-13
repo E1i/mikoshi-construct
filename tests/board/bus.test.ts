@@ -15,6 +15,7 @@ import { reduce } from '../../scripts/core/reducer.js'
 import { busCardEvents } from '../../scripts/intake/intake.js'
 import { sayToOwnerChannel } from '../../scripts/owner/channel.js'
 import { busProjections } from '../../scripts/supervisor/composition.js'
+import { SILENT_MS } from '../../scripts/supervisor/liveness-sites.js'
 import { slotsVariable } from '../../scripts/supervisor/scheduler.js'
 import { requestFromWindow, WindowRequests } from '../../scripts/window/window-requests.js'
 import { busReaderAt, latestCardEvents, openTasks, SESSION_SHOWN_MINUTES, SUBAGENT_SHOWN_HOURS } from '../../src/commands/board/bus.js'
@@ -30,7 +31,7 @@ const HOUR = 3_600_000
 
 class IdleMergeNode extends Node<NodeStep> {
   constructor(db: DatabaseSync, clock: () => Date, slots: string) {
-    super('merge', { db, clock, session: 'board', mode: 'shadow', env: { [slotsVariable('merge')]: slots } })
+    super('merge', { silentMs: SILENT_MS, db, clock, session: 'board', mode: 'shadow', env: { [slotsVariable('merge')]: slots } })
     this.subscribe(['probe.seen'])
   }
 

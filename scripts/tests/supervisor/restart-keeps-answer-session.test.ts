@@ -14,6 +14,7 @@ import { Node } from '../../core/node.js'
 import { keyOf, queueTaskWithin } from '../../core/queue.js'
 import { AnswerOutcomes } from '../../nodes/answer/duties/outcomes.js'
 import { launchName, PREFIX } from '../../supervisor/bg.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { slotsVariable } from '../../supervisor/scheduler.js'
 import { busDrain, BusSupervisor, freeLeasesOf, withoutRetiring } from '../../supervisor/supervisor.js'
 import { workerLaunches } from '../../supervisor/workers.js'
@@ -44,7 +45,7 @@ class AnswerSession extends Node<NodeStep> {
   private readonly rounds: (() => void)[] = []
 
   constructor(db: DatabaseSync, clock: () => Date, private readonly commit: (lease: Lease) => void) {
-    super('answer', { db, clock, session: 'old', mode: 'live', env: { [slotsVariable('answer')]: '2' }, self: { pid: ANSWER_PID, started: clock().toISOString() } })
+    super('answer', { silentMs: SILENT_MS, db, clock, session: 'old', mode: 'live', env: { [slotsVariable('answer')]: '2' }, self: { pid: ANSWER_PID, started: clock().toISOString() } })
   }
 
   override async run(ctx: NodeContext): Promise<void> {
@@ -135,7 +136,7 @@ function bench() {
 }
 
 function outcomesOn(db: DatabaseSync, date: () => Date): AnswerOutcomes {
-  return new AnswerOutcomes({ db, clock: date, ownerMerges: () => '' }, { pathsIn: () => [], ownerBoundary: () => undefined, wideningAsked: () => [] })
+  return new AnswerOutcomes({ silentMs: SILENT_MS, db, clock: date, ownerMerges: () => '' }, { pathsIn: () => [], ownerBoundary: () => undefined, wideningAsked: () => [] })
 }
 
 describe('a restart after merge.done keeps a live answer session', () => {

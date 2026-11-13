@@ -14,6 +14,7 @@ import { fullReview } from '../../nodes/review/review-depth.js'
 import { repeatStopLine } from '../../nodes/review/review-executor.js'
 import { REVIEW_ROUNDS_SPENT, ReviewWorker, roundLimitLine } from '../../nodes/review/review-worker.js'
 import { allFindingsRepeat, isNote, jaccard, REPEAT_JACCARD } from '../../policy/repeat-finding.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { cardBody, sha } from './github-fake.js'
 import { eventsOf, liveBench } from './merge-bench.js'
 
@@ -73,22 +74,11 @@ function fixture(decision = 'owner'): Fixture {
   }
   const gitHub: GitHub = endpoint => endpoint.startsWith(ISSUES) ? { status: 200, headers: {}, body: [{ number: Math.max(...bench.gitHub.pulls.keys()) }] } : bench.gitHub.client(endpoint)
   const recutter = new RoundLimitRecutter({ db: bench.db, gitHub, post, patch: bench.gitHub.patch, clock: bench.clock.now, cardStates: () => busHeldCards(bench.db) })
-  const worker = new ReviewWorker({
-    isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }),
-    db: bench.db,
-    gitHub: bench.gitHub.client,
-    publish: bench.gitHub.publish,
-    reviewer: async () => ({ verdict: 'changes', findings: reviewer.findings, session: 'reviewer-1' }),
-    plan: () => fullReview('a fixed plan'),
-    clock: bench.clock.now,
-    session: 'worker-1',
-    notePr: (pr, line) => notes.push([pr, line]),
-    recut: { recut: (at) => {
-      const outcome = recutter.recut(at)
-      recuts.push(outcome)
-      return outcome
-    } },
-  })
+  const worker = new ReviewWorker({ silentMs: SILENT_MS, isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }), db: bench.db, gitHub: bench.gitHub.client, publish: bench.gitHub.publish, reviewer: async () => ({ verdict: 'changes', findings: reviewer.findings, session: 'reviewer-1' }), plan: () => fullReview('a fixed plan'), clock: bench.clock.now, session: 'worker-1', notePr: (pr, line) => notes.push([pr, line]), recut: { recut: (at) => {
+    const outcome = recutter.recut(at)
+    recuts.push(outcome)
+    return outcome
+  } } })
   admit(bench, cardText(decision))
   return { bench, worker, recuts, notes, reviewer, decision }
 }

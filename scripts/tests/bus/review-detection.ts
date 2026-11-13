@@ -5,6 +5,7 @@ import type { MergeBench } from './merge-bench.js'
 import { STORED_COLUMNS } from '../../core/stored.js'
 import { fullReview } from '../../nodes/review/review-depth.js'
 import { ReviewNode } from '../../nodes/review/review-worker.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 
 const sandboxed: IsolationReader = () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] })
 
@@ -16,5 +17,5 @@ class DetectingReviewNode extends ReviewNode {
 }
 
 export function detectReview(bench: Pick<MergeBench, 'db' | 'gitHub' | 'clock'>, scope?: Scope): void {
-  new DetectingReviewNode({ db: bench.db, gitHub: bench.gitHub.client, publish: bench.gitHub.publish, reviewer: async () => ({ verdict: 'pass', findings: [], session: 'detect' }), plan: () => fullReview('detection only'), clock: bench.clock.now, session: 'detect', mode: 'live', env: {}, isolation: sandboxed }).detect(scope)
+  new DetectingReviewNode({ silentMs: SILENT_MS, db: bench.db, gitHub: bench.gitHub.client, publish: bench.gitHub.publish, reviewer: async () => ({ verdict: 'pass', findings: [], session: 'detect' }), plan: () => fullReview('detection only'), clock: bench.clock.now, session: 'detect', mode: 'live', env: {}, isolation: sandboxed }).detect(scope)
 }
