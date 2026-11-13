@@ -3,7 +3,7 @@ import type { BusDb } from '../cost/bus.js'
 import type { Goal } from './goal.js'
 import { existsSync } from 'node:fs'
 import { behindLine, CARDS, currentLane, lastReducedOwnerWaits, readLastReduced } from '../../../scripts/core/bus-readings.js'
-import { BUS_PULSE, CARD_FELL, CARD_STOPPED, CARD_VERIFIED, CHECKS_MATRIX_EVENT, PROCESS_HEARTBEAT, SESSION_HEARTBEAT, TERMINAL_LANES, WINDOW_HEARTBEAT, WINDOW_SUBAGENT_EVENT } from '../../../scripts/core/events.js'
+import { BUS_PULSE, CARD_ADMITTED, CARD_FELL, CARD_STOPPED, CARD_VERIFIED, CHECKS_MATRIX_EVENT, PROCESS_HEARTBEAT, SESSION_HEARTBEAT, SLICE_PARENTS_BACKFILLED, TERMINAL_LANES, WINDOW_HEARTBEAT, WINDOW_SUBAGENT_EVENT } from '../../../scripts/core/events.js'
 import { PLAIN_LORE } from '../../ui/lore.js'
 import { withReadOnlyBus } from '../cost/bus.js'
 import { goalOf } from './goal.js'
@@ -41,6 +41,12 @@ const LANELESS_STATES = new Set(['merged', 'dropped', 'closed'])
 const LEASED = 'leased'
 const OPEN_TASK_STATES = ['queued', LEASED]
 
+export interface SliceParent {
+  card: number
+  part: number
+  of: number
+}
+
 export interface BusCard {
   id: number
   state: string | null
@@ -51,6 +57,7 @@ export interface BusCard {
   body: boolean
   closed: boolean
   closedAt: string | null
+  parent?: SliceParent
 }
 
 export interface CardsAtStage {
@@ -145,6 +152,8 @@ interface CardRow {
   line: string | null
   since: string | null
   body: number
+  admitted_parent: string | null
+  backfilled_parent: string | null
 }
 
 interface RoleRow {
@@ -390,9 +399,27 @@ function laneOf(db: BusDb, row: CardRow): string | null {
   return row.state !== null && LANELESS_STATES.has(row.state) ? null : currentLane(db, row.id)
 }
 
+function share(value: unknown): number | null {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : null
+}
+
+export function sliceParentOf(value: unknown): SliceParent | null {
+  if (value === null || typeof value !== 'object' || Array.isArray(value))
+    return null
+  const fields = value as Record<string, unknown>
+  const [card, part, of] = [share(fields.card), share(fields.part), share(fields.of)]
+  return card === null || part === null || of === null || part > of ? null : { card, part, of }
+}
+
+function sliceParentIn(row: CardRow): SliceParent | null {
+  return sliceParentOf(payloadOf(row.admitted_parent ?? '')) ?? sliceParentOf(payloadOf(row.backfilled_parent ?? ''))
+}
+
 function cardsOf(db: BusDb, events: BoardEvents): BusCard[] {
   const rows = db.prepare(`
-    SELECT c.card_id AS id, c.state, c.pr, b.card_line AS line, e.ts AS since, b.card_id IS NOT NULL AS body
+    SELECT c.card_id AS id, c.state, c.pr, b.card_line AS line, e.ts AS since, b.card_id IS NOT NULL AS body,
+      (SELECT json_extract(a.payload, '$.parent') FROM events a WHERE a.legacy = 0 AND a.type = '${CARD_ADMITTED}' AND a.card_id = c.card_id AND json_valid(a.payload) AND json_type(a.payload, '$.parent') = 'object' ORDER BY a.id DESC LIMIT 1) AS admitted_parent,
+      (SELECT json_extract(f.payload, '$.cards."' || c.card_id || '"') FROM events f WHERE f.legacy = 0 AND f.type = '${SLICE_PARENTS_BACKFILLED}' AND json_valid(f.payload) ORDER BY f.id LIMIT 1) AS backfilled_parent
     FROM cards c LEFT JOIN card_bodies b ON b.card_id = c.card_id LEFT JOIN events e ON e.id = c.event_id
     ORDER BY c.card_id
   `).all() as unknown as CardRow[]
@@ -401,7 +428,8 @@ function cardsOf(db: BusDb, events: BoardEvents): BusCard[] {
   const leased = queuesIn(db, [LEASED])
   return rows.map((row) => {
     const lane = laneOf(db, row)
-    return { id: row.id, state: row.state, stage: TERMINAL_LANES.has(lane ?? '') ? 'dropped' : stageOf(row.state, closed.has(row.id), queues.get(row.id), leased.get(row.id)), lane, line: row.line, since: row.since, body: Boolean(row.body), closed: closed.has(row.id), closedAt: closed.get(row.id) ?? null }
+    const parent = sliceParentIn(row) ?? undefined
+    return { id: row.id, state: row.state, stage: TERMINAL_LANES.has(lane ?? '') ? 'dropped' : stageOf(row.state, closed.has(row.id), queues.get(row.id), leased.get(row.id)), lane, line: row.line, since: row.since, body: Boolean(row.body), closed: closed.has(row.id), closedAt: closed.get(row.id) ?? null, ...(parent === undefined ? {} : { parent }) }
   })
 }
 

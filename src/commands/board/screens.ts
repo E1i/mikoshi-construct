@@ -31,12 +31,50 @@ export interface Hint {
 export const REGISTER_PLAN_HINT: Hint = { who: 'window', command: pnpmCommand(REQUEST_SCRIPT, 'plan', '--op', 'open', '--plan', '<id>', '--title', '<text>', '--goal', '<text>', '--file', '<absolute plan file>') }
 export const ADMIT_CARD_HINT: Hint = { who: 'window', command: `${ADMIT_COMMAND} <parking>/<lane>/<N>.md` }
 
+const SLICE_MARK = '◧'
+const CARD_FORMS = ['карта', 'карты', 'карт'] as const
+const TASK_FORMS = ['задача', 'задачи', 'задач'] as const
+
+export interface TaskTally {
+  cards: number
+  tasks: number
+}
+
+export function sliceMark(card: BusCard): string | null {
+  return card.parent === undefined ? null : `${SLICE_MARK} ${card.parent.part}/${card.parent.of} · из #${card.parent.card}`
+}
+
+export function markedName(name: string, card: BusCard): string {
+  const mark = sliceMark(card)
+  return mark === null ? name : `${name} ${mark}`
+}
+
+export function taskTally(cards: readonly BusCard[]): TaskTally {
+  return { cards: cards.length, tasks: new Set(cards.map(card => card.parent?.card ?? card.id)).size }
+}
+
+function counted(count: number, forms: readonly [string, string, string]): string {
+  const tens = count % 100
+  const units = count % 10
+  const form = tens >= 11 && tens <= 14 ? forms[2] : units === 1 ? forms[0] : units >= 2 && units <= 4 ? forms[1] : forms[2]
+  return `${count} ${form}`
+}
+
+export function tallyLine(tally: TaskTally): string {
+  return `${counted(tally.cards, CARD_FORMS)} = ${counted(tally.tasks, TASK_FORMS)}`
+}
+
 function cardName(card: BusCard): string {
-  return card.line === null ? `#${card.id}` : card.line.replace(CARD_PREFIX, '')
+  return markedName(card.line === null ? `#${card.id}` : card.line.replace(CARD_PREFIX, ''), card)
 }
 
 function flowName(card: BusCard): string {
-  return `#${card.id}`
+  return markedName(`#${card.id}`, card)
+}
+
+function tallyLines(cards: BusCard[]): string[] {
+  const live = cards.filter(isLive)
+  return live.length === 0 ? [] : [tallyLine(taskTally(live))]
 }
 
 export function isLive(card: BusCard): boolean {
@@ -173,7 +211,7 @@ export interface Screens {
 export function boardScreens(facts: BusFacts, lore: Lore, all = false): Screens {
   return {
     screens: [
-      { title: lore.boardTabFlow, lines: [...goalLines(facts, lore), ...waitsLines(facts, lore), ...behindCardsLines(facts, lore), ...flowLines(facts.cards, lore), ...flowHintLines(facts.cards, lore)] },
+      { title: lore.boardTabFlow, lines: [...goalLines(facts, lore), ...waitsLines(facts, lore), ...behindCardsLines(facts, lore), ...tallyLines(facts.cards), ...flowLines(facts.cards, lore), ...flowHintLines(facts.cards, lore)] },
       { title: lore.boardTabBacklog, lines: [...behindCardsLines(facts, lore), ...backlogLines(backlogCards(facts.cards, facts.at, all), lore)] },
       { title: lore.boardTabServices, lines: [...servicesLines(facts, lore), ...pulseLines(facts, lore), ...matrixLines(facts, lore)] },
     ],

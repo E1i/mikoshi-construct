@@ -25,7 +25,7 @@ import { DirectoryFacts } from './facts.js'
 import { admittedNumbers, nextCardNumbers, parkedNumbers, parseTaken } from './numbers.js'
 import { isDirectory, isWithin, parkingTree } from './parking-tree.js'
 import { defaultContourMap, readContourMap, sharedCodeMaskRefusals } from './shared-code-masks.js'
-import { cutSlices, sliceCards } from './slice.js'
+import { cutSlices, sliceCards, sliceParents } from './slice.js'
 
 export const FROM_STDIN = '-'
 
@@ -180,6 +180,7 @@ export function admittedRecord(card: SlicedCard, confirmation: Confirmation, at:
       text: card.text,
       textSha: textSha(card.text),
       ...(source === undefined ? {} : { source }),
+      ...(card.parent === undefined ? {} : { parent: card.parent }),
     },
   }
 }
@@ -307,7 +308,7 @@ export function runIntake(options: IntakeOptions): IntakeResult {
     return { status: 'awaiting', parking: options.parking, cards: slice.cards, token, stale: options.confirm !== undefined }
   const cutBySlices = slice.cards.some(card => card.slices.length > 0)
   const cut = cutBySlices ? cutSlices(checked, slice.cards) : checked
-  const parkedSlice = cutBySlices ? sliceCards(cut, nextCardNumbers(cards, outsideTheBus, cut.length), repository) : slice
+  const parkedSlice = cutBySlices ? sliceCards(cut, nextCardNumbers(cards, outsideTheBus, cut.length), repository, sliceParents(slice.cards)) : slice
   if (parkedSlice.kind === 'refused')
     return refused('invalid', parkedSlice.reasons)
   const at = new Date()
