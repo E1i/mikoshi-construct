@@ -491,7 +491,7 @@ function waitItem(wait: OwnerWait, page: BoardPage): string {
 
 function waitsSlot(page: BoardPage): string {
   const { waits, waitsStale } = page.facts
-  return waits.length === 0 && waitsStale === undefined ? '' : `<section class="owner-strip bevel" aria-label="Waits for you"><span class="lbl">waits for you</span>${waitsStale === undefined ? waits.map(wait => waitItem(wait, page)).join('') : `<span class="ask" data-static>${escaped(waitsStale)}</span>`}</section>`
+  return waits.length === 0 && waitsStale === undefined ? '' : `<section class="owner-strip bevel" aria-label="Waits for you"><span class="lbl">waits for you</span>${waitsStale === undefined ? '' : `<span class="ask" data-static>${escaped(waitsStale)}</span>`}${waits.map(wait => waitItem(wait, page)).join('')}</section>`
 }
 
 function warningsSlot(warnings: readonly BoardWarning[]): string {
