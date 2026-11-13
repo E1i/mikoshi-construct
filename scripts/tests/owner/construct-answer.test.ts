@@ -174,4 +174,29 @@ describe('owner:answer <Q|#card> "words"', () => {
     sayToOwnerChannel(room.channel, answerWord(wait, 'said once'), room.bench.clock.now())
     expect(answer(room, wait, 'said once').kind).toBe('done')
   })
+
+  it('a word naming the wait with other words than the request moves nothing and stays unused', () => {
+    const room = roomWithPr(1864, 1586)
+    const wait = waitOn(room, 1864, 1586, 'decision')
+    const said = sayToOwnerChannel(room.channel, answerWord(wait, 'the words the owner said'), room.bench.clock.now())
+    requestFromWindow(room.bench.db, room.bench.clock.now().toISOString(), 'altered', { kind: 'owner.answer', id: wait, text: 'other words in the request', from: 'answer' })
+
+    expect(busRun(room)).toMatchObject([{ kind: 'refused', detail: expect.stringContaining(answerWord(wait, 'other words in the request')) }])
+    expect(stateOf(room, wait)).toBe('open')
+    expect(decisionsOn(room, 1864)).toEqual([])
+    expect(existsSync(said)).toBe(true)
+  })
+
+  it('a merge wait closes on the answer and binds no decision to its card', () => {
+    const [card, pr] = [1870, 1594]
+    const room = roomWithPr(card, pr)
+    const wait = openOwnerWait(room.bench.db, room.bench.clock.now().toISOString(), 'policy', { need: 'merge', text: `PR #${pr} of card #${card} waits for the owner's merge`, card, pr })
+    reduce(room.bench.db, 'pending', busProjections())
+
+    const outcome = answer(room, wait, 'merged by hand')
+
+    expect(outcome).toMatchObject({ kind: 'done', detail: `closed ${wait}: merged by hand` })
+    expect(stateOf(room, wait)).toBe('closed')
+    expect(decisionsOn(room, card)).toEqual([])
+  })
 })
