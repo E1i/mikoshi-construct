@@ -1,6 +1,6 @@
 # Gates aggregated into the one required check `CI / required`.
 #
-# checks · lint · typecheck · vitest (four shards) · docs — the steps of package.json's `quality`,
+# checks · lint · typecheck · vitest (eight shards) · docs — the steps of package.json's `quality`,
 #              split into parallel jobs; scripts/tests/ci/quality-steps.test.ts holds them to exactly
 #              that list. They run on every change, the fast path included, because most of them read
 #              docs/ and architecture/*.md. checks also runs scripts/release/version-pr-guard.ts, red on a
@@ -31,6 +31,8 @@
 #              repository's harness as checked (decision 0033), in the same job so the tail after
 #              the slowest shard is one job, not two. On a push to main it keeps the merged report as
 #              the vitest-report artifact, which `pnpm test:weights --from main` reads the shard weights from.
+#              The vitest shard count is CI_SHARDS in scripts/ci/test-weights.ts; scripts/tests/ci/shard.test.ts
+#              holds this matrix, its job name and its --shard flag to that one number.
 #
 # The fast path is a pull request whose every changed path is on the allow-list in
 # scripts/ci/fast-path.ts (docs/** and top-level architecture/*.md). Neither the tarball nor a generated
@@ -146,8 +148,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
-    name: vitest ${{ matrix.shard }}/4
+        shard: [1, 2, 3, 4, 5, 6, 7, 8]
+    name: vitest ${{ matrix.shard }}/8
     steps:
       - uses: actions/checkout@v7
         with:
@@ -161,7 +163,7 @@ jobs:
       - env:
           SELECTED_TESTS: ${{ needs.changes.outputs.full == 'false' && needs.changes.outputs.tests || '' }}
           PASS_WITH_NO_TESTS: ${{ needs.changes.outputs.full == 'false' && '--passWithNoTests' || '' }}
-        run: pnpm test --shard=${{ matrix.shard }}/4 $SELECTED_TESTS $PASS_WITH_NO_TESTS --retry=1 --reporter=default --reporter=github-actions --reporter=blob
+        run: pnpm test --shard=${{ matrix.shard }}/8 $SELECTED_TESTS $PASS_WITH_NO_TESTS --retry=1 --reporter=default --reporter=github-actions --reporter=blob
       - uses: actions/upload-artifact@v7
         with:
           name: vitest-blob-${{ matrix.shard }}
