@@ -41,7 +41,7 @@ import { recordDecision } from '../../policy/decisions/index.js'
 import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
 import { sessionEnv } from '../../ports/session.js'
 import { TSX_PIPE_DIRECTORY } from '../../ports/shift-settings.js'
-import { busProjections } from '../../supervisor/composition.js'
+import { busProjections, nodeSupply } from '../../supervisor/composition.js'
 import { recordHeartbeat } from '../../supervisor/heartbeat.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { busLaunches } from '../../supervisor/workers.js'
@@ -1117,7 +1117,7 @@ describe('the launch queue', () => {
     bench.tick()
     const node = new LaunchNode({ silentMs: SILENT_MS, db: bench.db, starter, clock: bench.clock.now, session: 'w1', mode: 'live', env: {}, disk: roomy, isolation: sandboxed })
     const controller = new AbortController()
-    const once = async (): Promise<void> => node.run({ pause: async () => controller.abort(), signal: controller.signal })
+    const once = async (): Promise<void> => node.run({ pause: async () => controller.abort(), signal: controller.signal, supply: nodeSupply() })
     vi.spyOn(console, 'log').mockImplementation(() => {})
 
     await once()

@@ -20,6 +20,7 @@ import { collectReport, REPORT_MISSING } from '../../nodes/launch/report-collect
 import { busCardReturned, busCardStopped, busCardWaited, busLastRefusal, busPrOpened, runTreePr } from '../../nodes/launch/tree-pr-cli.js'
 import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
 import { restoreReport } from '../../ports/tree-publish.js'
+import { nodeSupply } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { eventsOf, mergeBench } from '../bus/merge-bench.js'
 
@@ -162,7 +163,7 @@ describe('the shift report lives in the card tree and the bus collects it', () =
     const node = new LaunchNode({ silentMs: SILENT_MS, db: made.db, starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, resulted: () => true, collected: reportCollector(tree.launchDir), disk: roomy, isolation: sandboxed })
     const controller = new AbortController()
 
-    await node.run({ pause: async () => controller.abort(), signal: controller.signal })
+    await node.run({ pause: async () => controller.abort(), signal: controller.signal, supply: nodeSupply() })
     made.tick()
     node.stopOverdue()
 

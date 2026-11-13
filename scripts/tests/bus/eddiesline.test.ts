@@ -20,6 +20,7 @@ import { MAX_RESTARTS, reachedContextLine } from '../../nodes/launch/continuatio
 import { LaunchNode } from '../../nodes/launch/launch-worker.js'
 import { busAtContextLine, runTreePr } from '../../nodes/launch/tree-pr-cli.js'
 import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
+import { nodeSupply } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { sha } from './github-fake.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
@@ -84,7 +85,7 @@ async function launchedAtLine(made: MergeBench, cardId: number, wired = true): P
   const exited: ProcessTable = { commandLine: () => null, signalGroup: () => {} }
   const node = new LaunchNode({ silentMs: SILENT_MS, db: made.db, starter, ...(wired ? { continuer: starter } : {}), clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes: exited, resulted: () => true, handedOff: () => true, warned: () => true, atContextLine: () => true, committed: () => true, publish: card => published.push(card.session), disk: () => ({ bavail: 1, bsize: DISK_FLOOR_BYTES }), isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }) })
   const controller = new AbortController()
-  await node.run({ pause: async () => controller.abort(), signal: controller.signal })
+  await node.run({ pause: async () => controller.abort(), signal: controller.signal, supply: nodeSupply() })
   made.tick()
   return { node, starter, published }
 }

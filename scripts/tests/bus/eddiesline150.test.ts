@@ -21,6 +21,7 @@ import { answerHandoffPath, claudeAnswerer, contextWarnOfEddies } from '../../no
 import { reachedContextLine } from '../../nodes/launch/continuation.js'
 import { LaunchNode } from '../../nodes/launch/launch-worker.js'
 import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
+import { nodeSupply } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { realExitReadings, sessionGauges } from '../../window/eddies-measure.js'
 import { sha } from './github-fake.js'
@@ -117,7 +118,7 @@ async function launchedOver(made: MergeBench, cardId: number, tree: string): Pro
   const exited: ProcessTable = { commandLine: () => null, signalGroup: () => {} }
   const node = new LaunchNode({ silentMs: SILENT_MS, db: made.db, starter, continuer: starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes: exited, resulted: () => true, handedOff: () => true, warned: () => false, atContextLine: card => reachedContextLine(tree, card.session), committed: () => true, publish: card => published.push(card.session), disk: () => ({ bavail: 1, bsize: DISK_FLOOR_BYTES }), isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }) })
   const controller = new AbortController()
-  await node.run({ pause: async () => controller.abort(), signal: controller.signal })
+  await node.run({ pause: async () => controller.abort(), signal: controller.signal, supply: nodeSupply() })
   made.tick()
   return { node, starter, published }
 }
