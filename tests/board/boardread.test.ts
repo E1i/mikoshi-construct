@@ -96,12 +96,12 @@ describe('the board reads the bus through the bus readers', () => {
     })
   })
 
-  it('a wait closed by owner.wait.closed and not reduced yet reads stale on the board, and is gone once reduced', () => {
+  it('a wait closed by owner.wait.closed and not reduced yet leaves the last reduced waits marked behind, and is gone once reduced', () => {
     withBus((db, file) => {
       const [first, second] = openTwoWaits(db)
       expect(factsOf(file).waits.map(wait => wait.id)).toEqual([first, second])
       expect(closeOwnerWait(db, NOW.toISOString(), 'owner', first, 'the first path', 3)).toBe(true)
-      expect(factsOf(file)).toMatchObject({ waits: [], waitsStale: expect.stringMatching(/^owner_waits is stale: reduced through event \d+, behind owner\.wait\.closed \d+$/) })
+      expect(factsOf(file)).toMatchObject({ waits: [{ id: second }], waitsStale: expect.stringMatching(/^owner_waits shows the last reduced list, behind by \d+ events and 0 s: reduced through event \d+, behind owner\.wait\.closed \d+$/) })
       reduce(db, 'pending', busProjections())
       expect(factsOf(file).waits.map(wait => wait.id)).toEqual([second])
     })
