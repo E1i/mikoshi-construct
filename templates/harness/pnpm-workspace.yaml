@@ -20,6 +20,7 @@ overrides:
   '@typescript-eslint/typescript-estree': 8.71.0
   '@typescript-eslint/utils': 8.71.0
   '@typescript-eslint/visitor-keys': 8.71.0
+  encodeurl: 2.0.0
   typescript-eslint: 8.71.0
   why-is-node-running: 3.2.1
 
