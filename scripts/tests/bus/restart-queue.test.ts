@@ -88,7 +88,7 @@ describe('the restart queue', () => {
     bench.advanceMain(['scripts/ladder/ladder.ts'])
     bench.tick()
 
-    expect(eventsOf(bench.db, 'main.advanced').at(-1)).toEqual({ sha: MAIN_2, touches_mechanics: true })
+    expect(eventsOf(bench.db, 'main.advanced').at(-1)).toEqual({ sha: MAIN_2, touches_mechanics: true, paths: ['scripts/ladder/ladder.ts'], pathsTruncated: false })
     expect(restartTasks(bench)).toEqual([{ task_key: restart(), state: 'queued' }])
     expect(bench.leaseRestart()).toMatchObject({ taskKey: restart(), queue: 'restart', cardId: CARD, pr: null, head: MAIN_2, leaseGen: 1 })
     bench.close()
@@ -100,7 +100,7 @@ describe('the restart queue', () => {
     bench.advanceMain(['scripts/core/queue.ts', 'package.json', '.claude/agents/review.md', 'scripts/ladder.ts'])
     bench.tick()
 
-    expect(eventsOf(bench.db, 'main.advanced').at(-1)).toEqual({ sha: MAIN_2, touches_mechanics: false })
+    expect(eventsOf(bench.db, 'main.advanced').at(-1)).toEqual({ sha: MAIN_2, touches_mechanics: false, paths: ['scripts/core/queue.ts', 'package.json', '.claude/agents/review.md', 'scripts/ladder.ts'], pathsTruncated: false })
     expect(restartTasks(bench)).toEqual([])
     expect(bench.leaseRestart()).toBeNull()
     bench.close()

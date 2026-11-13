@@ -9,7 +9,7 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { appendEvent, defaultBusPath, inTransaction, openBus } from '../core/db.js'
 import { BUS_PULSE, MAIN_ADVANCED, NETWATCH_SKIPPED } from '../core/events.js'
-import { NETWATCH, observationsOf, reopeningOf } from '../core/observations.js'
+import { NETWATCH, observationsOf, pathsOfTheLastObservation, previousObservationOf, reopeningOf } from '../core/observations.js'
 import { RUN_SCRIPT } from '../supervisor/bg.js'
 import { recordProcessHeartbeat } from '../supervisor/heartbeat.js'
 import { ghApi } from './github.js'
@@ -40,11 +40,11 @@ const KNOWN_OPEN_PRS = `
 
 const LAST_MAIN = `SELECT payload FROM events WHERE type = '${MAIN_ADVANCED}' ORDER BY id DESC LIMIT 1`
 
-const LAST_OBSERVED_OR_CLOSED = `SELECT id, dedupe_key, payload FROM events WHERE type IN ('pr.observed', 'pr.closed') AND pr = ? ORDER BY id DESC LIMIT 1`
+const LAST_OBSERVED_OR_CLOSED = `SELECT id, ts, type, card_id, pr, head, dedupe_key, payload FROM events WHERE type IN ('pr.observed', 'pr.closed') AND pr = ? ORDER BY id DESC LIMIT 1`
 
 export function lastObserved(db: DatabaseSync, pr: number): PreviousObservation | null {
   const row = db.prepare(LAST_OBSERVED_OR_CLOSED).get(pr)
-  return row === undefined ? null : { id: Number(row.id), dedupeKey: String(row.dedupe_key), payload: String(row.payload) }
+  return row === undefined ? null : previousObservationOf(row)
 }
 
 export function knownOpenPrs(db: DatabaseSync): number[] {
@@ -92,7 +92,7 @@ export class NetWatch {
       return this.skipped(ts, { kind: 'skipped', reason, cause: 'retry-after', calls: 0, until: new Date(this.blockedUntil).toISOString() })
     const meter = new Meter(this.gitHub, () => this.clock().getTime())
     try {
-      const snapshot = takeSnapshot(meter, knownOpenPrs(this.db), lastMain(this.db), requiredCheckOf(this.root))
+      const snapshot = takeSnapshot(meter, knownOpenPrs(this.db), lastMain(this.db), requiredCheckOf(this.root), (pr, head) => pathsOfTheLastObservation(lastObserved(this.db, pr), head))
       const poll: Poll = { kind: 'ticked', reason, calls: meter.calls, remaining: meter.remaining, written: 0, unsettled: snapshot.unsettled }
       inTransaction(this.db, () => {
         for (const event of observationsOf(ts, snapshot, pr => lastObserved(this.db, pr), reopeningOf(this.db))) {

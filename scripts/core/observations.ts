@@ -1,8 +1,10 @@
 import type { DatabaseSync } from 'node:sqlite'
-import type { ClosedPr, MainHead, OpenPr, Snapshot } from '../ports/snapshot.js'
+import type { ChangedPaths, ClosedPr, MainHead, OpenPr, Snapshot } from '../ports/snapshot.js'
 import type { BusEvent } from './db.js'
+import type { StoredEvent } from './stored.js'
 import { createHash } from 'node:crypto'
-import { CI_RERUN_REQUESTED, PR_CLOSED, PR_OBSERVED } from './events.js'
+import { CI_RERUN_REQUESTED, declaredPart, PR_CLOSED, PR_OBSERVED } from './events.js'
+import { payloadOf } from './stored.js'
 
 export const NETWATCH = 'netwatch'
 
@@ -53,12 +55,36 @@ export interface PreviousObservation {
   id: number
   dedupeKey: string
   payload: string
+  event?: StoredEvent
+}
+
+const nullableNumber = (value: unknown): number | null => value == null ? null : Number(value)
+const nullableText = (value: unknown): string | null => value == null ? null : String(value)
+
+export function previousObservationOf(row: Readonly<Record<string, unknown>>): PreviousObservation {
+  const event: StoredEvent = { id: Number(row.id), ts: String(row.ts), type: String(row.type), card_id: nullableNumber(row.card_id), pr: nullableNumber(row.pr), head: nullableText(row.head), dedupe_key: String(row.dedupe_key), payload: String(row.payload) }
+  return { id: event.id, dedupeKey: event.dedupe_key, payload: event.payload, event }
+}
+
+export function pathsOfTheLastObservation(previous: PreviousObservation | null, head: string): ChangedPaths | null {
+  const event = previous?.event
+  if (event === undefined || event.type !== PR_OBSERVED || event.head !== head)
+    return null
+  const payload = declaredPart(PR_OBSERVED, payloadOf(event))
+  const paths = payload.paths
+  if (!Array.isArray(paths) || !paths.every(path => typeof path === 'string'))
+    return null
+  return { paths, pathsTruncated: payload.pathsTruncated === true }
 }
 
 export type PreviousObservationOf = (pr: number) => PreviousObservation | null
 
 function digestOf(payloadText: string): string {
   return createHash('sha256').update(payloadText).digest('hex')
+}
+
+function pathsFields(changed: ChangedPaths | undefined): { paths?: string[], pathsTruncated?: boolean } {
+  return changed === undefined ? {} : { paths: changed.paths, pathsTruncated: changed.pathsTruncated }
 }
 
 export function prObserved(ts: string, open: OpenPr, previous: PreviousObservation | null): BusEvent {
@@ -74,6 +100,7 @@ export function prObserved(ts: string, open: OpenPr, previous: PreviousObservati
     auto_merge: open.autoMerge,
     draft: open.draft,
     body_sha: open.bodySha,
+    ...pathsFields(open.changed),
   }
   const digest = digestOf(JSON.stringify(payload))
   const repeatsPrevious = previous !== null && digestOf(previous.payload) === digest
@@ -93,7 +120,7 @@ export function prClosed(ts: string, closed: ClosedPr, reopening: number | null 
 }
 
 export function mainAdvanced(ts: string, main: MainHead): BusEvent {
-  return observation(ts, 'main.advanced', { cardId: null, pr: null, head: null, dedupeKey: `main:${main.sha}`, payload: { sha: main.sha, touches_mechanics: main.touchesMechanics } })
+  return observation(ts, 'main.advanced', { cardId: null, pr: null, head: null, dedupeKey: `main:${main.sha}`, payload: { sha: main.sha, touches_mechanics: main.touchesMechanics, ...pathsFields(main.changed) } })
 }
 
 export function observationsOf(ts: string, snapshot: Snapshot, previousOf: PreviousObservationOf, reopening: ReopeningOf = () => null): BusEvent[] {
