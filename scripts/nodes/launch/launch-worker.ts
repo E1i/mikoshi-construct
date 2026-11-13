@@ -16,11 +16,12 @@ import path from 'node:path'
 import process from 'node:process'
 import { parseParkingFile } from '../../../src/card/parking.js'
 import { NOT_A_BACKFILL } from '../../core/backfill-source.js'
+import { CLOSED_WAIT } from '../../core/bus-readings.js'
 import { CLOSED_CARD, DROPPED_CARD, MERGED_CARD, RUNNING_CARD } from '../../core/card-automaton.js'
 import { admittedBodies, admittedBodyText, bodyNotFoldedYet, pathsOutsideTheBody } from '../../core/card-bodies.js'
 import { cardHoldOf, HOLD_RECHECK_MS, SESSION_STOP_CODES, sessionStopOf } from '../../core/card-hold.js'
 import { appendEvent, inTransaction, openOwnerWait } from '../../core/db.js'
-import { BOARD_ALARM, CARD_ADMITTED, CARD_CLOSED, CARD_CONTINUED, CARD_HELD, CARD_PULSE, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, CARD_WAITING, COMMAND_EXECUTED, DECISION_RECORDED, GHOST_ROW, LADDER_APPROVAL, MERGE_DONE, OPEN_QUESTION, OUTSIDE_TOUCHES, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PR_CLOSED, PR_OBSERVED, PR_OPENED, QUESTION_AGENT, REDUCED, TASK_COMPLETED, TASK_ENQUEUED, TASK_EXPIRED, TASK_FAILED, TASK_LEASED, TASK_RELEASED, TASK_REQUEUED, TASK_SUPERSEDED } from '../../core/events.js'
+import { BOARD_ALARM, CARD_ADMITTED, CARD_CLOSED, CARD_CONTINUED, CARD_HELD, CARD_PULSE, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, CARD_WAITING, COMMAND_EXECUTED, DECISION_RECORDED, GHOST_ROW, LADDER_APPROVAL, MERGE_DONE, OPEN_QUESTION, OUTSIDE_TOUCHES, OWNER_WAIT_OPENED, PR_CLOSED, PR_OBSERVED, PR_OPENED, QUESTION_AGENT, REDUCED, TASK_COMPLETED, TASK_ENQUEUED, TASK_EXPIRED, TASK_FAILED, TASK_LEASED, TASK_RELEASED, TASK_REQUEUED, TASK_SUPERSEDED } from '../../core/events.js'
 import { generationOfKey } from '../../core/identifiers.js'
 import { failTask } from '../../core/lease.js'
 import { busNameOfDb, MACHINE_POLL_MS, machineSessions } from '../../core/machine-sessions.js'
@@ -237,23 +238,22 @@ function decidedOnTheCardSince(bus: BusRead, cardId: number, stop: number): bool
   return bus.where({ from: stop + 1 }).slice(DECISION_RECORDED, ['scope']).some(decided => Array.isArray(decided.fields.scope) && decided.fields.scope.includes(cardId))
 }
 
-const WAITS_OF_THE_CARD = 'SELECT id FROM owner_waits WHERE card_id = ?'
+const CLOSED_WAITS_OF_THE_CARD = `SELECT w.id, w.event_id, e.type FROM owner_waits AS w JOIN events AS e ON e.id = w.event_id WHERE w.card_id = ? AND w.state = '${CLOSED_WAIT}'`
 
-function aWaitOfTheCardClosedSince(db: DatabaseSync, bus: BusRead, cardId: number, stop: number): boolean {
-  const ofTheCard = new Set((db.prepare(WAITS_OF_THE_CARD).all(cardId) as { id: string }[]).map(wait => wait.id))
-  return bus.where({ from: stop + 1 }).slice(OWNER_WAIT_CLOSED, ['id']).some(closed => ofTheCard.has(String(closed.fields.id)))
+function closedWaitsOf(db: DatabaseSync, cardId: number): { id: string, event_id: number, type: string }[] {
+  return db.prepare(CLOSED_WAITS_OF_THE_CARD).all(cardId) as unknown as { id: string, event_id: number, type: string }[]
 }
 
 function ownerAnsweredSince(db: DatabaseSync, bus: BusRead, cardId: number, stop: number): boolean {
-  return decidedOnTheCardSince(bus, cardId, stop) || aWaitOfTheCardClosedSince(db, bus, cardId, stop)
+  return decidedOnTheCardSince(bus, cardId, stop) || closedWaitsOf(db, cardId).some(wait => wait.event_id > stop && wait.type !== CARD_ADMITTED)
 }
 
-function questionStillOpen(bus: BusRead, cardId: number, stop: number): boolean {
+function questionStillOpen(db: DatabaseSync, bus: BusRead, cardId: number, stop: number): boolean {
   if (decidedOnTheCardSince(bus, cardId, stop))
     return false
-  const since = bus.where({ from: stop + 1 })
-  const closed = new Set(since.slice(OWNER_WAIT_CLOSED, ['id']).map(each => each.fields.id))
-  return since.where({ card: cardId }).slice(OWNER_WAIT_OPENED, ['id']).some(opened => !closed.has(opened.fields.id))
+  const closed = new Set(closedWaitsOf(db, cardId).map(wait => wait.id))
+  const openedSince = bus.where({ from: stop + 1 }).where({ card: cardId }).slice(OWNER_WAIT_OPENED, ['id'])
+  return openedSince.some(opened => !closed.has(String(opened.fields.id)))
 }
 
 export function heldSessionStop(db: DatabaseSync, cardId: number): HeldSessionStop | null {
@@ -267,7 +267,7 @@ export function heldSessionStop(db: DatabaseSync, cardId: number): HeldSessionSt
     const uncovered = pathsOutsideTheBody(db, cardId, named.join('\n'))
     return uncovered.length === 0 || ownerAnsweredSince(db, bus, cardId, latest.id) ? null : { code: stopCode, stop: latest.id, paths: uncovered }
   }
-  return questionStillOpen(bus, cardId, latest.id) ? { code: stopCode, stop: latest.id, paths: named } : null
+  return questionStillOpen(db, bus, cardId, latest.id) ? { code: stopCode, stop: latest.id, paths: named } : null
 }
 
 export function heldStopLine(cardId: number, held: HeldSessionStop): string {

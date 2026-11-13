@@ -6,7 +6,7 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { textSha } from '../../../src/card/text-sha.js'
 import { appendEvent, closeOwnerWait, openOwnerWait } from '../../core/db.js'
-import { CARD_ADMITTED, CARD_STARTED, CARD_STOPPED, DECISION_RECORDED, OUTSIDE_TOUCHES, QUESTION_AGENT } from '../../core/events.js'
+import { CARD_ADMITTED, CARD_STARTED, CARD_STOPPED, DECISION_RECORDED, OPEN_QUESTION, OUTSIDE_TOUCHES, OWNER_WAIT_CLOSED, QUESTION_AGENT } from '../../core/events.js'
 import { ANSWER_SOURCE } from '../../core/inbox.js'
 import { completeTask, leaseNext } from '../../core/lease.js'
 import { QUEUE_ACTOR } from '../../core/queue.js'
@@ -196,6 +196,19 @@ describe('one owner word on a card is one act', () => {
     expect(window.run('decisions:add', '--from', ANSWER_SOURCE, '--supersedes', 'D-2', '--card', `#${CARD}`, '--card', `#${CARD + 1}`, `[owner] ${card.wait}: ${ANSWERED}`).kind).toBe('done')
 
     expect(eventsOf(card.made.db, DECISION_RECORDED)).toEqual([expect.objectContaining({ scope: [CARD] }), expect.objectContaining({ scope: [CARD, CARD + 1] })])
+  })
+
+  it('an amend that closes the question wait of a card lifts its open-question launch hold', () => {
+    const card = stoppedByItsAgent({ reason: QUESTION_AGENT, detail: QUESTION, code: OPEN_QUESTION }, false)
+    reduce(card.made.db, 'pending', busProjections())
+    expect(heldSessionStop(card.made.db, CARD)).toMatchObject({ code: OPEN_QUESTION })
+
+    const text = `${body()}Amended.\n`
+    appendEvent(card.made.db, { ts: card.made.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'worker:intake:by-hand', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${CARD}:amend`, payload: { card: `#${CARD}`, lane: 'lane-1', decision: 'auto', contour: 'cheap', depends: [], admission: `amend-${CARD}`, source: 'amend', text, textSha: textSha(text) }, legacy: false })
+
+    expect(waitOf(card.made.db, card.wait)).toEqual({ state: 'closed', answer: `card #${CARD} amended` })
+    expect(eventsOf(card.made.db, OWNER_WAIT_CLOSED)).toEqual([])
+    expect(heldSessionStop(card.made.db, CARD)).toBeNull()
   })
 
   it('a wait of the card closed before an outside touches stop does not lift that stop', () => {
