@@ -1,0 +1,25 @@
+{
+  "module": "session",
+  "layer": "supervisor",
+  "paths": [
+    "scripts/core/machine-sessions.ts",
+    "scripts/core/eddies.ts",
+    "scripts/core/journal.ts",
+    "scripts/core/tasks.ts",
+    "scripts/core/handoff-dir.ts",
+    "scripts/core/handoff-fields.ts",
+    "scripts/core/handoff-status.ts",
+    "scripts/core/card-automaton.ts",
+    "scripts/core/card-hold.ts",
+    "scripts/core/chain.ts",
+    "scripts/core/places.ts",
+    "scripts/core/report.ts",
+    "scripts/core/legacy-history.ts",
+    "src/card/closed.ts",
+    "scripts/cli/slot.ts",
+    "src/commands/liveness.ts",
+    "scripts/supervisor/"
+  ],
+  "exclude": [],
+  "shared": []
+}

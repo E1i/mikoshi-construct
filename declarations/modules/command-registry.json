@@ -1,0 +1,9 @@
+{
+  "module": "command-registry",
+  "layer": "core",
+  "paths": [
+    "scripts/core/owner-commands.ts"
+  ],
+  "exclude": [],
+  "shared": []
+}

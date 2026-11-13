@@ -1,0 +1,12 @@
+{
+  "id": "composition",
+  "module": "project",
+  "path": "architecture/composition/",
+  "rebuild": [
+    "composition:render"
+  ],
+  "check": null,
+  "rebuiltOnUpdate": false,
+  "seamSources": null,
+  "followSources": null
+}

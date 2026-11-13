@@ -1,0 +1,18 @@
+{
+  "id": "factory",
+  "module": "contract-generator",
+  "path": "contract/factory.json",
+  "rebuild": [
+    "contract:update"
+  ],
+  "check": null,
+  "rebuiltOnUpdate": true,
+  "seamSources": [
+    "scripts",
+    "src"
+  ],
+  "followSources": [
+    "scripts",
+    "src"
+  ]
+}

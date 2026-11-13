@@ -1,0 +1,11 @@
+{
+  "module": "plan",
+  "layer": "window",
+  "paths": [
+    "scripts/window/plan-export.ts",
+    "scripts/cli/card-chain.ts",
+    "src/card/slice-depends.ts"
+  ],
+  "exclude": [],
+  "shared": []
+}

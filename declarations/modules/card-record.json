@@ -1,0 +1,17 @@
+{
+  "module": "card-record",
+  "layer": "intake",
+  "paths": [
+    "scripts/core/card-bodies.ts",
+    "scripts/core/backfill-source.ts",
+    "src/card/text-sha.ts",
+    "src/card/witness-fields.ts",
+    "scripts/intake/admissions.ts",
+    "scripts/intake/card-archive.ts",
+    "scripts/intake/witness-fields-backfill.ts",
+    "scripts/intake/slice-parent-backfill.ts",
+    "scripts/cli/card.ts"
+  ],
+  "exclude": [],
+  "shared": []
+}

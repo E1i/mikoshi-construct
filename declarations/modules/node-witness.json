@@ -1,0 +1,9 @@
+{
+  "module": "node-witness",
+  "layer": "nodes",
+  "paths": [
+    "scripts/nodes/witness/"
+  ],
+  "exclude": [],
+  "shared": []
+}

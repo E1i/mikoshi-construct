@@ -1,0 +1,13 @@
+{
+  "id": "bus-restart",
+  "module": "session",
+  "paths": [
+    "scripts/core/",
+    "scripts/nodes/",
+    "scripts/policy/",
+    "scripts/ports/",
+    "scripts/supervisor/"
+  ],
+  "why": "a merge that changes code the running bus loads restarts the bus, and two such merges at once cut each other's live rounds; pull requests that touch it advance one at a time",
+  "until": "P-restart"
+}

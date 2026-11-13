@@ -1,0 +1,24 @@
+{
+  "id": "knownViolations",
+  "module": "quality",
+  "path": ".dependency-cruiser-known-violations.json",
+  "rebuild": [
+    "exec",
+    "depcruise",
+    "--config",
+    ".dependency-cruiser.mjs",
+    "--output-type",
+    "baseline",
+    "--output-to",
+    ".dependency-cruiser-known-violations.json",
+    "scripts",
+    "src"
+  ],
+  "check": null,
+  "rebuiltOnUpdate": false,
+  "seamSources": null,
+  "followSources": [
+    "scripts",
+    "src"
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "module": "rules",
+  "layer": "policy",
+  "paths": [
+    "scripts/policy/policy.ts",
+    "scripts/policy/morse/",
+    "scripts/policy/repeat-finding.ts",
+    "scripts/policy/round-limit-decision.ts",
+    "scripts/policy/shard.ts",
+    "scripts/policy/shards.ts",
+    "scripts/policy/shredder/",
+    "scripts/policy/widening.ts",
+    "scripts/policy/touch-scope.ts",
+    "scripts/morse/",
+    "scripts/core/push-policy.ts"
+  ],
+  "exclude": [],
+  "shared": []
+}

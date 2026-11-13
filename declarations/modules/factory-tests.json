@@ -1,0 +1,9 @@
+{
+  "module": "factory-tests",
+  "layer": "tests",
+  "paths": [
+    "scripts/tests/"
+  ],
+  "exclude": [],
+  "shared": []
+}

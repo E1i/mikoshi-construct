@@ -1,3 +1,6 @@
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
+import path from 'node:path'
+
 export interface GeneratedFile {
   path: string
   rebuild: readonly string[] | null
@@ -7,87 +10,131 @@ export interface GeneratedFile {
   followSources: readonly string[] | null
 }
 
-const EARLIER_CARRIERS_SCRIPT = 'scripts/attach/earlier-carriers.ts'
-const CONTRACT_UPDATE = ['contract:update']
-const REBUILD_EARLIER_CARRIERS = ['exec', 'tsx', EARLIER_CARRIERS_SCRIPT]
-const CHECK_EARLIER_CARRIERS = [...REBUILD_EARLIER_CARRIERS, '--check']
-const KNOWN_VIOLATIONS_PATH = '.dependency-cruiser-known-violations.json'
-const CRUISED_ROOTS = ['scripts', 'src']
-const REBUILD_KNOWN_VIOLATIONS = ['exec', 'depcruise', '--config', '.dependency-cruiser.mjs', '--output-type', 'baseline', '--output-to', KNOWN_VIOLATIONS_PATH, ...CRUISED_ROOTS]
+export interface GeneratedRow extends GeneratedFile {
+  id: string
+  module: string
+}
 
-export const GENERATED_FILES = {
-  earlierCarriers: {
-    path: 'templates/attach/earlier-carriers.json',
-    rebuild: REBUILD_EARLIER_CARRIERS,
-    check: CHECK_EARLIER_CARRIERS,
-    rebuiltOnUpdate: true,
-    seamSources: ['templates/ai', EARLIER_CARRIERS_SCRIPT],
-    followSources: null,
-  },
-  surface: {
-    path: 'contract/surface.json',
-    rebuild: CONTRACT_UPDATE,
-    check: null,
-    rebuiltOnUpdate: true,
-    seamSources: ['src/program.ts', 'scripts/contract'],
-    followSources: ['src', 'templates', 'scripts/contract'],
-  },
-  factory: {
-    path: 'contract/factory.json',
-    rebuild: CONTRACT_UPDATE,
-    check: null,
-    rebuiltOnUpdate: true,
-    seamSources: ['scripts', 'src'],
-    followSources: ['scripts', 'src'],
-  },
-  composition: {
-    path: 'architecture/composition/',
-    rebuild: ['composition:render'],
-    check: null,
-    rebuiltOnUpdate: false,
-    seamSources: null,
-    followSources: null,
-  },
-  model: {
-    path: 'architecture/model.md',
-    rebuild: ['model:render'],
-    check: null,
-    rebuiltOnUpdate: false,
-    seamSources: null,
-    followSources: null,
-  },
-  addPopulation: {
-    path: 'architecture/add-population.md',
-    rebuild: null,
-    check: null,
-    rebuiltOnUpdate: false,
-    seamSources: null,
-    followSources: ['templates', 'src/presets', 'src/materialize'],
-  },
-  selfHostingDrift: {
-    path: 'architecture/self-hosting-drift.yaml',
-    rebuild: null,
-    check: null,
-    rebuiltOnUpdate: false,
-    seamSources: null,
-    followSources: ['templates'],
-  },
-  knownViolations: {
-    path: KNOWN_VIOLATIONS_PATH,
-    rebuild: REBUILD_KNOWN_VIOLATIONS,
-    check: null,
-    rebuiltOnUpdate: false,
-    seamSources: null,
-    followSources: CRUISED_ROOTS,
-  },
-} as const satisfies Record<string, GeneratedFile>
+export const DECLARATIONS_FOLDER = 'declarations'
+export const GENERATED_KIND = 'generated'
+export const DECLARATION_SUFFIX = '.json'
+
+const ROWS_IN_THE_SOURCE_TREE = path.join(import.meta.dirname, '..', '..', 'declarations', 'generated')
+const ROWS_FROM_A_PACKAGE_ROOT = [DECLARATIONS_FOLDER, GENERATED_KIND]
+
+const LIST_FIELDS = ['rebuild', 'check', 'seamSources', 'followSources'] as const
+
+type ListField = typeof LIST_FIELDS[number]
+
+const ROWS_THE_CODE_NAMES = {
+  earlierCarriers: ['rebuild', 'check'],
+  surface: ['rebuild', 'followSources'],
+  factory: ['rebuild', 'followSources'],
+  model: ['rebuild'],
+  addPopulation: ['followSources'],
+  selfHostingDrift: ['followSources'],
+  knownViolations: ['rebuild', 'followSources'],
+  moduleFiles: ['rebuild'],
+} as const satisfies Record<string, readonly ListField[]>
+
+export const SCRIPTS_THE_ROWS_RUN: readonly string[] = ['scripts/attach/earlier-carriers.ts']
+
+const SCRIPT_ARGUMENT = /^(?:scripts|src)\/.+\.ts$/
+
+type WithPresent<Field extends ListField> = GeneratedRow & { readonly [Name in Field]: NonNullable<GeneratedRow[Name]> }
+
+type NamedRows = { readonly [Id in keyof typeof ROWS_THE_CODE_NAMES]: WithPresent<typeof ROWS_THE_CODE_NAMES[Id][number]> }
+
+function isTextList(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every(entry => typeof entry === 'string' && entry !== '')
+}
+
+function isText(value: unknown): value is string {
+  return typeof value === 'string' && value !== ''
+}
+
+export function rowProblems(key: string, value: unknown): string[] {
+  if (typeof value !== 'object' || value === null || Array.isArray(value))
+    return ['is not a JSON object']
+  const row = value as Record<string, unknown>
+  const problems: string[] = []
+  if (row.id !== key)
+    problems.push(`its key "${String(row.id)}" differs from its file name "${key}"`)
+  for (const field of ['module', 'path'] as const) {
+    if (!isText(row[field]))
+      problems.push(`${field} is not a non-empty string`)
+  }
+  if (typeof row.rebuiltOnUpdate !== 'boolean')
+    problems.push('rebuiltOnUpdate is not a boolean')
+  for (const field of LIST_FIELDS) {
+    if (row[field] !== null && !isTextList(row[field]))
+      problems.push(`${field} is neither null nor a list of non-empty strings`)
+  }
+  if (row.rebuiltOnUpdate === true && row.rebuild === null)
+    problems.push('rebuiltOnUpdate is true with no rebuild')
+  return problems
+}
+
+export function readGeneratedRows(folder: string): GeneratedRow[] {
+  return readdirSync(folder).filter(file => file.endsWith(DECLARATION_SUFFIX)).sort().map((file) => {
+    const key = file.slice(0, -DECLARATION_SUFFIX.length)
+    const value: unknown = JSON.parse(readFileSync(path.join(folder, file), 'utf8'))
+    const problems = rowProblems(key, value)
+    if (problems.length > 0)
+      throw new Error(`${DECLARATIONS_FOLDER}/${GENERATED_KIND}/${file}: ${problems.join('; ')}`)
+    return value as GeneratedRow
+  })
+}
+
+export function rowsFolderAbove(start: string): string | null {
+  let folder = start
+  while (!existsSync(path.join(folder, ...ROWS_FROM_A_PACKAGE_ROOT))) {
+    const parent = path.dirname(folder)
+    if (parent === folder)
+      return null
+    folder = parent
+  }
+  return path.join(folder, ...ROWS_FROM_A_PACKAGE_ROOT)
+}
+
+function rowsFolder(): string {
+  if (existsSync(ROWS_IN_THE_SOURCE_TREE))
+    return ROWS_IN_THE_SOURCE_TREE
+  const found = rowsFolderAbove(import.meta.dirname)
+  if (found === null)
+    throw new Error(`no ${DECLARATIONS_FOLDER}/${GENERATED_KIND}/ above ${import.meta.dirname}`)
+  return found
+}
+
+export function namedRowProblems(rows: readonly GeneratedRow[]): string[] {
+  const byId = new Map(rows.map(row => [row.id, row]))
+  const named = Object.entries(ROWS_THE_CODE_NAMES).flatMap(([id, fields]) => {
+    const row = byId.get(id)
+    if (row === undefined)
+      return [`${DECLARATIONS_FOLDER}/${GENERATED_KIND}/ has no row ${id}, which the code names`]
+    return fields.filter(field => row[field] === null).map(field => `${DECLARATIONS_FOLDER}/${GENERATED_KIND}/${id}${DECLARATION_SUFFIX}: ${field} is null, and the code reads it`)
+  })
+  const unpacked = rows.flatMap(row => [...(row.rebuild ?? []), ...(row.check ?? [])]
+    .filter(argument => SCRIPT_ARGUMENT.test(argument) && !SCRIPTS_THE_ROWS_RUN.includes(argument))
+    .map(script => `${DECLARATIONS_FOLDER}/${GENERATED_KIND}/${row.id}${DECLARATION_SUFFIX}: runs ${script}, which SCRIPTS_THE_ROWS_RUN does not name, so the factory build does not pack it`))
+  return [...named, ...[...new Set(unpacked)]]
+}
+
+function namedRows(rows: readonly GeneratedRow[]): NamedRows {
+  const problems = namedRowProblems(rows)
+  if (problems.length > 0)
+    throw new Error(problems.join('; '))
+  return Object.fromEntries(rows.map(row => [row.id, row])) as unknown as NamedRows
+}
+
+const ROWS: readonly GeneratedRow[] = readGeneratedRows(rowsFolder())
+
+export const GENERATED_FILES: NamedRows = namedRows(ROWS)
 
 export const RATCHET_FILE = {
   path: 'contract/ratchet.json',
   rebuild: ['exec', 'tsx', 'scripts/contract/ratchet.ts'],
 } as const
-
-const ROWS: readonly GeneratedFile[] = Object.values(GENERATED_FILES)
 
 export const NAMED_BY_THEIR_READERS: readonly string[] = [GENERATED_FILES.knownViolations.path]
 
@@ -122,5 +169,5 @@ export function pathsRebuiltBy(rebuild: readonly string[]): string[] {
 
 export function rebuildsOf(files: readonly string[]): (readonly string[])[] {
   const selected = REBUILT_ON_UPDATE.filter(row => files.includes(row.path)).map(row => row.rebuild)
-  return [...new Set(selected)]
+  return [...new Map(selected.map(rebuild => [commandLine(rebuild), rebuild])).values()]
 }

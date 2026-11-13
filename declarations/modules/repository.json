@@ -1,0 +1,23 @@
+{
+  "module": "repository",
+  "layer": "repository",
+  "paths": [
+    "pnpm-lock.yaml",
+    "pnpm-workspace.yaml",
+    "tsconfig.json",
+    "tsconfig.base.json",
+    "tsup.config.ts",
+    ".editorconfig",
+    ".gitignore",
+    ".gitleaks.toml",
+    ".npmrc",
+    ".nvmrc",
+    ".vscode/",
+    ".github/",
+    "construct.json"
+  ],
+  "exclude": [],
+  "shared": [
+    "package.json"
+  ]
+}

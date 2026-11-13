@@ -1,0 +1,13 @@
+{
+  "module": "layout",
+  "layer": "core",
+  "paths": [
+    "scripts/core/factory-paths.ts",
+    "scripts/core/generated-files.ts",
+    "scripts/core/declarations.ts",
+    "declarations/",
+    "contract/module-files.json"
+  ],
+  "exclude": [],
+  "shared": []
+}
