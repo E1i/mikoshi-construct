@@ -76,31 +76,32 @@ describe('a reader of a projection behind its events', () => {
     expect(out).toEqual(['[bus:inbox] the owner inbox is empty'])
   })
 
-  it('the board names stale owner waits instead of reading none', () => {
+  it('the board marks stale owner waits behind and still reads the last reduced ones', () => {
     const db = bus()
     cardStarted(db)
     reduce(db, 'pending', busProjections())
     waitForTheOwner(db)
-    const line = `owner_waits is stale: reduced through event ${watermarkOf(db, SNAPSHOT)}, behind ${OWNER_WAIT_OPENED} ${lastId(db)}`
+    const through = watermarkOf(db, SNAPSHOT)
+    const line = `owner_waits shows the last reduced list, behind by ${lastId(db) - through} events and 0 s: reduced through event ${through}, behind ${OWNER_WAIT_OPENED} ${lastId(db)}`
     const facts = busFacts(db, new Date(TS))
     expect([facts.waits, facts.waitsStale]).toEqual([[], line])
-    expect(waitsLines(facts, PLAIN_LORE)).toEqual([PLAIN_LORE.boardServiceLine('waits for you', '?', undefined, line)])
+    expect(waitsLines(facts, PLAIN_LORE)).toEqual([PLAIN_LORE.boardServiceLine('waits for you', '0', undefined, line)])
     reduce(db, 'pending', busProjections())
     expect(busFacts(db, new Date(TS)).waitsStale).toBeUndefined()
     expect(waitsLines(busFacts(db, new Date(TS)), PLAIN_LORE)).toHaveLength(1)
   })
 
-  it('the board names stale cards instead of reading them', () => {
+  it('the board marks stale cards behind and still reads the last reduced ones', () => {
     const db = bus()
     cardStarted(db)
     reduce(db, 'pending', busProjections())
     expect(busFacts(db, new Date(TS)).cardsStale).toBeUndefined()
     const reduced = watermarkOf(db, SNAPSHOT)
     appendEvent(db, { ts: TS, type: CARD_STARTED, actor: 'policy', cardId: CARD + 1, pr: null, head: null, dedupeKey: `${CARD_STARTED}:${CARD + 1}`, payload: {}, legacy: false })
-    const line = `cards is stale: reduced through event ${reduced}, behind ${CARD_STARTED} ${lastId(db)}`
+    const line = `cards shows the last reduced list, behind by ${lastId(db) - reduced} events and 0 s: reduced through event ${reduced}, behind ${CARD_STARTED} ${lastId(db)}`
     const facts = busFacts(db, new Date(TS))
     expect([facts.cards, facts.cardsStale]).toEqual([[], line])
-    expect(screenLines(facts, PLAIN_LORE).filter(each => each === PLAIN_LORE.boardServiceLine('cards', '?', undefined, line))).toHaveLength(2)
+    expect(screenLines(facts, PLAIN_LORE).filter(each => each === PLAIN_LORE.boardServiceLine('cards', '0', undefined, line))).toHaveLength(2)
     reduce(db, 'pending', busProjections())
     expect(busFacts(db, new Date(TS)).cardsStale).toBeUndefined()
   })

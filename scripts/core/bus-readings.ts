@@ -46,14 +46,39 @@ export function staleLine(stale: StaleProjection): string {
   return `${stale.projection} is stale: reduced through event ${stale.through}, behind ${stale.type} ${stale.latest}`
 }
 
+interface Latest {
+  type: EventType
+  latest: number
+  at: string | null
+  reducedAt: string | null
+}
+
+export interface Behind extends StaleProjection {
+  events: number
+  seconds: number | null
+}
+
+export interface LastReduced<T> {
+  rows: T
+  behind: Behind | null
+}
+
+const MS_PER_SECOND = 1000
+const NOTHING_REDUCED = 0
+
 function markOf(db: DatabaseSync, mark: string): number {
   const row = db.prepare(`SELECT through_event_id FROM ${WATERMARKS} WHERE projection = ?`).get(mark) as { through_event_id: number } | undefined
   return Number(row?.through_event_id ?? 0)
 }
 
-export function latestOfEachType(db: DatabaseSync, types: readonly EventType[]): { type: EventType, latest: number }[] {
-  return (db.prepare(`SELECT type, max(id) AS latest FROM events WHERE legacy = 0 AND type IN (SELECT value FROM json_each(?)) GROUP BY type ORDER BY latest DESC`).all(JSON.stringify(types)) as { type: EventType, latest: number }[])
-    .map(row => ({ type: row.type, latest: Number(row.latest) }))
+export function latestOfEachType(db: DatabaseSync, types: readonly EventType[], reduced: number = NOTHING_REDUCED): Latest[] {
+  return (db.prepare(`SELECT type, max(id) AS latest, ts, (SELECT reduced.ts FROM events AS reduced WHERE reduced.id = ?) AS reduced_at FROM events WHERE legacy = 0 AND type IN (SELECT value FROM json_each(?)) GROUP BY type ORDER BY latest DESC`).all(reduced, JSON.stringify(types)) as { type: EventType, latest: number, ts: string | null, reduced_at: string | null }[])
+    .map(row => ({ type: row.type, latest: Number(row.latest), at: row.ts, reducedAt: row.reduced_at }))
+}
+
+function secondsBetween(from: string | null, to: string | null): number | null {
+  const lag = from === null || to === null ? Number.NaN : Date.parse(to) - Date.parse(from)
+  return Number.isNaN(lag) ? null : Math.max(0, Math.round(lag / MS_PER_SECOND))
 }
 
 export function staleProjection(db: DatabaseSync, projection: ReadProjection): StaleProjection | null {
@@ -61,6 +86,14 @@ export function staleProjection(db: DatabaseSync, projection: ReadProjection): S
   const reach = (type: EventType): number => Math.max(...marks.filter(each => each.types.includes(type)).map(each => each.through))
   const behind = latestOfEachType(db, PROJECTION_TYPES[projection]).find(each => each.latest > reach(each.type))
   return behind === undefined ? null : { projection, type: behind.type, latest: behind.latest, through: reach(behind.type) }
+}
+
+function behindProjection(db: DatabaseSync, projection: ReadProjection): Behind | null {
+  const stale = staleProjection(db, projection)
+  if (stale === null)
+    return null
+  const latest = latestOfEachType(db, [stale.type], stale.through)[0]
+  return { ...stale, events: stale.latest - stale.through, seconds: secondsBetween(latest?.reducedAt ?? null, latest?.at ?? null) }
 }
 
 export function copyEvent(db: DatabaseSync, projections: readonly ReadProjection[]): number {
@@ -78,6 +111,17 @@ export function readCurrent<T>(db: DatabaseSync, projections: readonly ReadProje
   const at = copyEvent(db, projections)
   return { stale: null, rows: read(), at }
 }
+
+export function behindLine(behind: Behind): string {
+  const seconds = behind.seconds === null ? '' : ` and ${behind.seconds} s`
+  return `${behind.projection} shows the last reduced list, behind by ${behind.events} events${seconds}: reduced through event ${behind.through}, behind ${behind.type} ${behind.latest}`
+}
+
+export function readLastReduced<T>(db: DatabaseSync, projections: readonly ReadProjection[], read: () => T): LastReduced<T> {
+  const behind = projections.map(projection => behindProjection(db, projection)).find(each => each !== null) ?? null
+  return { rows: read(), behind }
+}
+
 export const OWNER_WAIT_NEEDS = ['decision', 'merge', 'command'] as const
 export const OPEN_WAIT = 'open'
 export const CLOSED_WAIT = 'closed'
@@ -105,8 +149,8 @@ export function openOwnerWaits(db: DatabaseSync): OwnerWait[] {
   return (db.prepare(OPEN_OWNER_WAITS).all() as unknown as OwnerWait[]).map(row => ({ ...row }))
 }
 
-export function currentOwnerWaits(db: DatabaseSync): Reading<OwnerWait[]> {
-  return readCurrent(db, [OWNER_WAITS], () => openOwnerWaits(db))
+export function lastReducedOwnerWaits(db: DatabaseSync): LastReduced<OwnerWait[]> {
+  return readLastReduced(db, [OWNER_WAITS], () => openOwnerWaits(db))
 }
 
 const LATEST_ASSIGNMENT = `SELECT id, json_extract(payload, '$.lane') AS lane, json_extract(payload, '$.reason') AS reason, json_extract(payload, '$.after') AS after FROM events WHERE legacy = 0 AND type = '${LANE_ASSIGNED}' AND card_id = ? ORDER BY id DESC LIMIT 1`
