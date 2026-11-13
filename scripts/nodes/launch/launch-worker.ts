@@ -43,7 +43,7 @@ import { launchProcess, REAL_PROCESSES } from '../restart/chain-process.js'
 import { MAX_RESTARTS, reportedQuestions, reportedStopReason } from './continuation.js'
 import { laneOverlapRecorder, layLanes, repositoryLanes } from './lane-assign.js'
 import { holdReason, startHold, waitHeldAtTheExit } from './launch-candidates.js'
-import { LaunchExecutor } from './launch-executor.js'
+import { continuedAndRecorded, LaunchExecutor } from './launch-executor.js'
 import { REPORT_MISSING, USAGE_LIMIT, usageLimitDetail, usageLimitResetIn, usageLimitResetOf } from './report-collect.js'
 import { reportClosingOf } from './tree-pr.js'
 
@@ -619,7 +619,7 @@ export class LaunchNode extends Node<LaunchStep> {
     const claimant = this.machineClaimant(start.card_id)
     if (this.machine.claim(claimant).kind === 'refused')
       return false
-    const begun = continuer.continueFrom({ cardId: start.card_id, lane }, card)
+    const begun = continuedAndRecorded(this.db, this.actor, start.dedupe_key, continuer, { cardId: start.card_id, lane }, card)
     if (begun.kind === 'refused') {
       this.machine.release(claimant)
       return this.stopContinuation(start, 'continuation-refused', `${exited}; the continuation was refused: ${begun.denial.detail}`)

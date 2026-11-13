@@ -132,6 +132,7 @@ export interface NodeSupply {
   slotsOf: NodeSlots
   ownStart: () => HolderStart
   ownIdentity?: () => ProcessIdentity | null
+  identityOf?: IdentityReader
   refuses: CardRefusal
 }
 
@@ -234,6 +235,63 @@ export function recordChildStarted(db: DatabaseSync, ts: string, actor: string, 
 export function recordChildEnded(db: DatabaseSync, ts: string, actor: string, ended: ChildEnd): boolean {
   const { instance, pid, taskKey, exit, signal } = ended
   return appendEvent(db, { ts, type: CHILD_ENDED, actor, cardId: null, pr: null, head: null, dedupeKey: `${CHILD_ENDED}:${instance}:${pid}:${taskKey}`, payload: { instance, pid, task_key: taskKey, exit, signal }, legacy: false })
+}
+
+export interface ChildRun {
+  actor: string
+  taskKey: string
+  kind: string
+  tree: string | null
+}
+
+export function busWriteAt(busPath: string): <T>(write: (db: DatabaseSync) => T) => T {
+  return (write) => {
+    const db = openBus(busPath)
+    try {
+      return write(db)
+    }
+    finally {
+      db.close()
+    }
+  }
+}
+
+export class ChildLog {
+  constructor(private readonly write: <T>(write: (db: DatabaseSync) => T) => T, private readonly identity: IdentityReader, private readonly clock: () => Date = () => new Date(), private readonly env: NodeJS.ProcessEnv = {}) {}
+
+  started(run: ChildRun, pid: number): boolean {
+    try {
+      const identity = this.identity(pid)
+      return identity !== null && this.write(db => recordChildStarted(db, this.clock().toISOString(), run.actor, { mode: 'child', ...instanceOf(this.env), ...identity, kind: run.kind, taskKey: run.taskKey, tree: run.tree }))
+    }
+    catch {
+      return false
+    }
+  }
+
+  ended(run: ChildRun, pid: number, exit: number | null, signal: string | null): boolean {
+    try {
+      return this.write(db => recordChildEnded(db, this.clock().toISOString(), run.actor, { instance: instanceOf(this.env).instance, pid, taskKey: run.taskKey, exit, signal }))
+    }
+    catch {
+      return false
+    }
+  }
+
+  async around(run: ChildRun, spawn: (started: (pid: number) => void) => Promise<number>): Promise<number> {
+    let recorded: number | null = null
+    let code: number | null = null
+    try {
+      code = await spawn((pid) => {
+        recorded = this.started(run, pid) ? pid : null
+      })
+      return code
+    }
+    finally {
+      if (recorded !== null)
+        this.ended(run, recorded, code, null)
+    }
+  }
 }
 
 const WHOLE_QUEUE: ScopeOf = () => undefined

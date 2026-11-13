@@ -17,7 +17,7 @@ import { DECISION_FOLDS } from '../policy/decisions/index.js'
 import { CHECK_MS, TICK_MS } from '../ports/netwatch.js'
 import { busSessionPulse, heartbeatEnv, measureCardSession, ownStart, recordProcessHeartbeat } from './heartbeat.js'
 import { SILENT_MS } from './liveness-sites.js'
-import { ownIdentity } from './recorded-worker.js'
+import { ownIdentity, tableIdentity } from './recorded-worker.js'
 import { slotsOf, slotsVariable } from './scheduler.js'
 
 export interface NodeLiveness {
@@ -57,6 +57,7 @@ export function nodeSupply(): NodeSupply {
     slotsOf: (kind: NodeKind, env: NodeJS.ProcessEnv) => slotsOf(kind, env),
     ownStart,
     ownIdentity: () => ownIdentity(),
+    identityOf: tableIdentity(),
     refuses: refusesForeignCard,
   }
 }

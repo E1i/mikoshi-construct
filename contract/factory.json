@@ -5769,7 +5769,7 @@
           "SessionCeilingReached": "class SessionCeilingReached extends Error { constructor(readonly sessionId: string, readonly ceilingMs: number) }",
           "SessionRun": "interface SessionRun { code: number; stdout?: string; stderr?: string; }",
           "SessionSpawner": "type SessionSpawner = (params: SpawnSessionParams) => Promise<number>",
-          "SpawnSessionParams": "interface SpawnSessionParams { cwd: string; sessionId: string; prompt: string; stdoutPath: string; stderrPath: string; env?: NodeJS.ProcessEnv; addDirs?: string[]; model?: string; ceilingMs?: number; role?: Extract<Role, 'review' | 'ghost'>; }",
+          "SpawnSessionParams": "interface SpawnSessionParams { cwd: string; sessionId: string; prompt: string; stdoutPath: string; stderrPath: string; env?: NodeJS.ProcessEnv; addDirs?: string[]; model?: string; ceilingMs?: number; role?: Extract<Role, 'review' | 'ghost'>; started?: (pid: number) => void; }",
           "WindowMode": "type WindowMode = 'loop' | 'tab'"
         }
       },

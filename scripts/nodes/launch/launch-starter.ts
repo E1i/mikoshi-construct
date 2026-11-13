@@ -121,7 +121,8 @@ export function pathTokens(text: string): Set<string> {
 }
 
 export interface SessionContinuer {
-  continueFrom: (card: QueuedCard, from: StartedCard) => CardStart
+  continueFrom: (card: QueuedCard, from: StartedCard, ended?: ChildExit) => CardStart
+  identify?: (pid: number) => ProcessIdentity | null
 }
 
 interface SessionTree {
@@ -146,8 +147,8 @@ export class ShiftCardStarter implements CardStarter, SessionContinuer {
     return identityOf(new OsProcessTable().snapshot(), pid)
   }
 
-  continueFrom(card: QueuedCard, from: StartedCard): CardStart {
-    return this.continueIn(card, { worktree: from.worktree, base: from.base }, from.session)
+  continueFrom(card: QueuedCard, from: StartedCard, ended?: ChildExit): CardStart {
+    return this.continueIn(card, { worktree: from.worktree, base: from.base }, from.session, ended)
   }
 
   private relaunchIn(card: QueuedCard, held: HeldTree, ended: ChildExit | undefined): CardStart {
@@ -165,11 +166,11 @@ export class ShiftCardStarter implements CardStarter, SessionContinuer {
     }
   }
 
-  private continueIn(card: QueuedCard, held: HeldTree, session: string): CardStart {
+  private continueIn(card: QueuedCard, held: HeldTree, session: string, ended: ChildExit | undefined): CardStart {
     const refusal = this.unnamedChanges(card.cardId, held.worktree, session)
     if (refusal !== null)
       return refusal
-    return this.sessionIn(card, held, continuationBody)
+    return this.sessionIn(card, held, continuationBody, ended)
   }
 
   private sessionIn(card: QueuedCard, held: HeldTree, body: SessionTree['body'], ended?: ChildExit): CardStart {

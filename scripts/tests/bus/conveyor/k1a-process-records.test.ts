@@ -17,12 +17,16 @@ import { BUS_DB_VARIABLE } from '../../../core/bus-path.js'
 import { appendEvent, openBus } from '../../../core/db.js'
 import { CARD_ADMITTED, CARD_STARTED, CHILD_ENDED, CHILD_STARTED, WORKER_STARTED } from '../../../core/events.js'
 import { judgeHolders, leaseNext, leaseQueued } from '../../../core/lease.js'
-import { GENERATION_VARIABLE, INSTANCE_VARIABLE, instanceOf, Node, recordWorkerIdentity, UNHANDED } from '../../../core/node.js'
+import { ChildLog, GENERATION_VARIABLE, INSTANCE_VARIABLE, instanceOf, Node, recordWorkerIdentity, UNHANDED } from '../../../core/node.js'
 import { keyOf, queueTask } from '../../../core/queue.js'
 import { reduce } from '../../../core/reducer.js'
-import { LaunchExecutor } from '../../../nodes/launch/launch-executor.js'
+import { realAnswererTools } from '../../../nodes/answer/answerer.js'
+import { spawnClient } from '../../../nodes/answer/duties/client.js'
+import { continuedAndRecorded, LaunchExecutor } from '../../../nodes/launch/launch-executor.js'
 import { psPgid, ShiftCardStarter, spawnDetached } from '../../../nodes/launch/launch-starter.js'
-import { realTimedShell, WitnessExecutor } from '../../../nodes/witness/witness-executor.js'
+import { realReviewStart } from '../../../nodes/review/reviewer.js'
+import { realTimedShell } from '../../../nodes/witness/witness-executor.js'
+import { WitnessNode } from '../../../nodes/witness/witness-worker.js'
 import { identityOf, OsProcessTable } from '../../../ports/process-table.js'
 import { SetupTurns, withWorktreeAsync } from '../../../ports/worktree.js'
 import { BUS_RUN_LAUNCH, handedIdentity, launchArgv, recordSpawned, runBusBg, runsBusEntryItself, spawnedActor, startDetached } from '../../../supervisor/bg.js'
@@ -122,6 +126,12 @@ describe('k1a [needs ps]: a worker started through startDetached records its ide
 })
 
 const WITNESS_CARD = 1927
+
+class WitnessNodeOnOneLease extends WitnessNode {
+  async handleOne(lease: Lease): Promise<unknown> {
+    return this.handle(lease)
+  }
+}
 const TS = '2026-11-14T10:00:00.000Z'
 
 function git(repo: string, ...args: string[]): string {
@@ -147,19 +157,20 @@ describe('k1a [needs ps]: a witness command records its start and its true exit'
     const lease = leaseQueued(db, TS, keyOf(task), 'worker:witness:k1a')!
     const seen: { identity: RowIdentity | null, tree: string | null } = { identity: null, tree: null }
     const turns = new SetupTurns()
-    await new WitnessExecutor({
-      silentMs: SILENT_MS,
+    await new WitnessNodeOnOneLease({
       db,
       clock: () => new Date(TS),
-      log: () => {},
-      identity: tableIdentity(table),
+      session: 'k1a',
+      mode: 'live',
+      env: process.env,
+      silentMs: SILENT_MS,
       shell: (command, cwd, timeoutMs, onStart) => realTimedShell(command, cwd, timeoutMs, (pid) => {
         seen.identity = identityOf(table.snapshot(), pid)
         seen.tree = cwd
         onStart?.(pid)
       }),
       trees: { baseOf: async () => main, withTree: (base, run) => withWorktreeAsync(repo, base, run, turns) },
-    }).run(lease)
+    }).handleOne(lease)
     const [child] = eventsOf(db, CHILD_STARTED)
     expect(seen.identity).not.toBeNull()
     expect(child).toEqual({ mode: 'child', ...instanceOf(process.env), pid: seen.identity!.pid, pgid: seen.identity!.pgid, lstart: seen.identity!.lstart, kind: 'witness', task_key: lease.taskKey, tree: seen.tree })
@@ -327,4 +338,82 @@ describe('k1a [needs ps]: every record writer', () => {
     expect(workerIdentity('worker:restart:r', { pid: 1, started: TS }, {}, () => own)).toMatchObject({ pgid: null, lstart: TS })
     expect(tableIdentity(table)(process.pid)).toEqual(own)
   })
+})
+
+const FAKE_IDENTITY = (pid: number): ProcessIdentity => ({ pid, pgid: pid, lstart: TS })
+
+function childLogOn(db: DatabaseSync, identity: (pid: number) => ProcessIdentity | null = FAKE_IDENTITY): ChildLog {
+  return new ChildLog(write => write(db), identity, () => new Date(TS), { [INSTANCE_VARIABLE]: 'i-child', [GENERATION_VARIABLE]: GENERATION })
+}
+
+const RUN = { actor: 'worker:answer:k1a', taskKey: 'answer:1927:1:h', kind: 'answer', tree: '/trees/1927' }
+
+describe('k1a: the answer, review and continued sessions record their child', () => {
+  it('childLog.around records the start with its identity and the true exit, and the end even when the spawn throws', async () => {
+    const { db } = bus()
+    expect(await childLogOn(db).around(RUN, async (started) => {
+      started(4242)
+      return 7
+    })).toBe(7)
+    await expect(childLogOn(db).around({ ...RUN, taskKey: 'answer:1927:2:h' }, async (started) => {
+      started(4343)
+      throw new Error('the client broke')
+    })).rejects.toThrow('the client broke')
+    expect(eventsOf(db, CHILD_STARTED)).toEqual([
+      { mode: 'child', instance: 'i-child', generation: GENERATION, pid: 4242, pgid: 4242, lstart: TS, kind: 'answer', task_key: RUN.taskKey, tree: RUN.tree },
+      { mode: 'child', instance: 'i-child', generation: GENERATION, pid: 4343, pgid: 4343, lstart: TS, kind: 'answer', task_key: 'answer:1927:2:h', tree: RUN.tree },
+    ])
+    expect(eventsOf(db, CHILD_ENDED)).toEqual([
+      { instance: 'i-child', pid: 4242, task_key: RUN.taskKey, exit: 7, signal: null },
+      { instance: 'i-child', pid: 4343, task_key: 'answer:1927:2:h', exit: null, signal: null },
+    ])
+  })
+
+  it('a child with no identity in the process table records neither start nor end', async () => {
+    const { db } = bus()
+    await childLogOn(db, () => null).around(RUN, async (started) => {
+      started(4242)
+      return 0
+    })
+    expect([eventsOf(db, CHILD_STARTED), eventsOf(db, CHILD_ENDED)]).toEqual([[], []])
+  })
+
+  it('the real answer and review tools carry a child log, and the node supply carries the identity reader the witness worker hands on', () => {
+    const { busPath } = bus()
+    expect(realAnswererTools(busPath).children).toBeInstanceOf(ChildLog)
+    expect(realReviewStart(busPath).children).toBeInstanceOf(ChildLog)
+    expect(nodeSupply().identityOf).toBeTypeOf('function')
+  })
+
+  it('a continued launch session records its start and its end', () => {
+    const { db } = bus()
+    const ends: ChildExit[] = []
+    const continuer = {
+      continueFrom: (_card: QueuedCard, from: StartedCard, ended?: ChildExit): CardStart => {
+        ends.push(ended!)
+        return { kind: 'started', card: { ...from, session: 'next', pid: 5151, pgid: 5151 } }
+      },
+      identify: FAKE_IDENTITY,
+    }
+    const from: StartedCard = { session: 'first', worktree: '/trees/1927', branch: 'feat/k1a', base: 'f'.repeat(40), pid: 5050, pgid: 5050, contour: 'cheap' }
+    expect(continuedAndRecorded(db, 'worker:launch:k1a', 'card.started:1927:x', continuer, { cardId: 1927, lane: 'lane-a' }, from).kind).toBe('started')
+    ends[0]!(2, null)
+    expect(eventsOf(db, CHILD_STARTED)).toEqual([expect.objectContaining({ pid: 5151, kind: 'launch', task_key: 'continued:card.started:1927:x', tree: '/trees/1927' })])
+    expect(eventsOf(db, CHILD_ENDED)).toEqual([expect.objectContaining({ pid: 5151, task_key: 'continued:card.started:1927:x', exit: 2 })])
+  })
+})
+
+describe('k1a [needs ps]: a real answer session records its child', () => {
+  it('spawnClient hands the pid of a real session, which records its table identity and its true exit', async () => {
+    const { busDir, db } = bus()
+    const log = new ChildLog(write => write(db), tableIdentity(table), () => new Date(TS), {})
+    const seen: { identity: RowIdentity | null } = { identity: null }
+    const code = await log.around(RUN, async started => spawnClient({ cwd: busDir, command: 'sh', argv: ['-c', 'sleep 1; exit 4'], stdoutPath: path.join(busDir, 'out.log'), stderrPath: path.join(busDir, 'err.log'), env: process.env, started: (pid) => {
+      seen.identity = identityOf(table.snapshot(), pid)
+      started(pid)
+    } }))
+    expect(code).toBe(4)
+    expect(eventsOf(db, CHILD_STARTED)).toEqual([expect.objectContaining({ pid: seen.identity!.pid, pgid: seen.identity!.pgid, lstart: seen.identity!.lstart })])
+    expect(eventsOf(db, CHILD_ENDED)).toEqual([expect.objectContaining({ pid: seen.identity!.pid, exit: 4 })])
+  }, 30_000)
 })

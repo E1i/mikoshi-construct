@@ -1,7 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { BusEvent } from '../../core/db.js'
 import type { AfterFailure, Lease } from '../../core/lease.js'
-import type { IdentityReader } from '../../core/node.js'
+import type { ChildRun, IdentityReader } from '../../core/node.js'
 import type { DiskReader } from '../../ports/disk.js'
 import type { Isolation, IsolationReader } from '../../ports/isolation.js'
 import type { SessionInput } from '../../ports/prompt-store.js'
@@ -13,7 +13,7 @@ import { launchStartKey, launchStartLease } from '../../core/card-automaton.js'
 import { messageOf } from '../../core/errors.js'
 import { CARD_STARTED, CARD_STOPPED, POLICY_DENIED } from '../../core/events.js'
 import { assertHeld, completeTask, failTask, releaseTask, StaleLease } from '../../core/lease.js'
-import { instanceOf, recordChildEnded, recordChildStarted } from '../../core/node.js'
+import { ChildLog, instanceOf, recordChildEnded, recordChildStarted } from '../../core/node.js'
 import { DISK_LOW, diskLowDetail, statfsReader } from '../../ports/disk.js'
 import { NO_ISOLATION } from '../../ports/isolation.js'
 import { storedInput } from '../../ports/prompt-store.js'
@@ -99,6 +99,26 @@ const RELEASE_REASONS: ReadonlySet<LaunchTechnicalReason> = new Set([DISK_LOW, N
 
 export function technical(reason: LaunchTechnicalReason, detail: string): LaunchDenial {
   return { kind: 'technical', reason, detail }
+}
+
+export const CONTINUED_CHILD = 'continued'
+
+export interface RecordedContinuer {
+  continueFrom: (card: QueuedCard, from: StartedCard, ended?: ChildExit) => CardStart
+  identify?: IdentityReader
+}
+
+export function continuedAndRecorded(db: DatabaseSync, actor: string, startKey: string, continuer: RecordedContinuer, queued: QueuedCard, from: StartedCard): CardStart {
+  const children = new ChildLog(write => write(db), pid => continuer.identify?.(pid) ?? null, () => new Date(), process.env)
+  const run: ChildRun = { actor, taskKey: `${CONTINUED_CHILD}:${startKey}`, kind: LAUNCH_KIND, tree: from.worktree }
+  const recorded: { pid: number | null } = { pid: null }
+  const begun = continuer.continueFrom(queued, from, (exit, signal) => {
+    if (recorded.pid !== null)
+      children.ended(run, recorded.pid, exit, signal)
+  })
+  if (begun.kind === 'started' && children.started({ ...run, tree: begun.card.worktree }, begun.card.pid))
+    recorded.pid = begun.card.pid
+  return begun
 }
 
 export class LaunchExecutor {
