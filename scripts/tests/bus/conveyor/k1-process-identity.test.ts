@@ -13,10 +13,11 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { appendEvent, openBus } from '../../../core/db.js'
 import { CHILD_STARTED, MAIN_ADVANCED, WORKER_STARTED } from '../../../core/events.js'
 import { FACTORY_WORKERS } from '../../../core/factory-paths.js'
-import { GENERATION_VARIABLE, INSTANCE_VARIABLE, recordChildEnded, recordChildStarted, recordWorkerIdentity } from '../../../core/node.js'
+import { childrenNotEnded, GENERATION_VARIABLE, INSTANCE_VARIABLE, recordChildEnded, recordChildStarted, recordedWorkers, recordWorkerIdentity } from '../../../core/node.js'
 import { identityOf } from '../../../ports/process-table.js'
 import { handedIdentity, PREFIX } from '../../../supervisor/bg.js'
-import { BusSupervisor, childrenNotEnded, identifiedProcesses, mainAdvancedSince, recordedWorkers, stopInstance, withoutRetiring } from '../../../supervisor/supervisor.js'
+import { identifiedProcesses } from '../../../supervisor/recorded-worker.js'
+import { BusSupervisor, mainAdvancedSince, stopInstance, withoutRetiring } from '../../../supervisor/supervisor.js'
 import { workerLaunches } from '../../../supervisor/workers.js'
 import { waitFor } from '../../wait-for.js'
 
@@ -125,7 +126,7 @@ describe('scenario 03 (K1): a restart stops workers by recorded identity only', 
     appendEvent(db, { ts: ts(), type: MAIN_ADVANCED, actor: 'netwatch', cardId: null, pr: null, head: null, dedupeKey: `${MAIN_ADVANCED}:${NEW_MAIN}`, payload: { sha: NEW_MAIN }, legacy: false })
 
     const { launch } = workerLaunches(() => [])
-    const processes = withoutRetiring(identifiedProcesses(table, db), db)
+    const processes = withoutRetiring(identifiedProcesses(table, db, []), db)
     let head = OLD_MAIN
     const started: string[] = []
     const supervisor = new BusSupervisor({
@@ -158,11 +159,11 @@ describe('scenario 03 (K1): a restart stops workers by recorded identity only', 
     expect({ code: workerCode, signal: workerSignal }).toEqual({ code: null, signal: 'SIGTERM' })
     expect(started).toEqual(['bus:launch'])
     expect(handed.pids.every(alive)).toBe(true)
+    const signalsOf = (kind: string): string => existsSync(path.join(root, `${kind}.signals`)) ? readFileSync(path.join(root, `${kind}.signals`), 'utf8') : ''
+    expect(kinds.map(signalsOf)).toEqual(['', ''])
     await waitFor(() => handed.pids.every(pid => !alive(pid)), () => 'the detached children ending on their own', ARRIVAL_MS)
     for (const kind of kinds) {
       expect(readFileSync(path.join(root, `${kind}.ended`), 'utf8')).toBe('0')
-      const signals = path.join(root, `${kind}.signals`)
-      expect(existsSync(signals) ? readFileSync(signals, 'utf8') : '').toBe('')
     }
     for (const [at, pid] of handed.pids.entries())
       recordChildEnded(db, ts(), actor, { instance: handed.instance, pid, taskKey: `${kinds[at]}:1852`, exit: 0, signal: null })

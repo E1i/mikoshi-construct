@@ -11,7 +11,7 @@ import { appendEvent, inTransaction, openBus } from './db.js'
 import { CARD_STOPPED, CHILD_ENDED, CHILD_STARTED, NODE_DETECTED, NODE_EQUIVALENCE, TASK_LEASED, WORKER_STARTED } from './events.js'
 import { drainOpen, expireLeases, failTask, leasedByRetiring, leaseNext, RENEW_MS, renewLease, StaleLease, waitTask, workerRetiring } from './lease.js'
 import { keyOf, LEASED, queueTaskWithin } from './queue.js'
-import { STORED_COLUMNS } from './stored.js'
+import { payloadOf, STORED_COLUMNS } from './stored.js'
 import { mustWait } from './task-must-wait.js'
 import { lastEventId } from './watermark.js'
 
@@ -212,6 +212,60 @@ export function instanceOf(env: NodeJS.ProcessEnv): InstanceOf {
     return value === undefined || value === '' ? UNHANDED : value
   }
   return { instance: handed(INSTANCE_VARIABLE), generation: handed(GENERATION_VARIABLE) }
+}
+
+function positive(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0
+}
+
+function datable(value: unknown): value is string {
+  return typeof value === 'string' && !Number.isNaN(Date.parse(value))
+}
+
+function text(value: unknown, otherwise: string): string {
+  return typeof value === 'string' ? value : otherwise
+}
+
+function recordedOf(db: DatabaseSync, type: string): { id: number, payload: Record<string, unknown> }[] {
+  return matchingEvents(db, [type], 0, lastEventId(db)).flatMap((event) => {
+    try {
+      return [{ id: event.id, payload: payloadOf(event) }]
+    }
+    catch {
+      return []
+    }
+  })
+}
+
+export function recordedWorkers(db: DatabaseSync): WorkerIdentity[] {
+  const latest = new Map<string, WorkerIdentity>()
+  for (const { payload } of recordedOf(db, WORKER_STARTED)) {
+    if (typeof payload.worker !== 'string' || !positive(payload.pid) || !datable(payload.started))
+      continue
+    latest.set(payload.worker, {
+      worker: payload.worker,
+      pid: payload.pid,
+      started: payload.started,
+      instance: text(payload.instance, UNHANDED),
+      generation: text(payload.generation, UNHANDED),
+      pgid: positive(payload.pgid) ? payload.pgid : null,
+      lstart: datable(payload.lstart) ? payload.lstart : payload.started,
+    })
+  }
+  return [...latest.values()]
+}
+
+const childKey = (instance: unknown, pid: unknown, taskKey: unknown): string => JSON.stringify([instance, pid, taskKey])
+
+export function childrenNotEnded(db: DatabaseSync): ChildStart[] {
+  const endedAt = new Map(recordedOf(db, CHILD_ENDED).map(ended => [childKey(ended.payload.instance, ended.payload.pid, ended.payload.task_key), ended.id]))
+  return recordedOf(db, CHILD_STARTED).flatMap(({ id, payload }) => {
+    const mode = EXECUTOR_MODES.find(each => each === payload.mode)
+    const ended = endedAt.get(childKey(payload.instance, payload.pid, payload.task_key))
+    if ((ended !== undefined && ended > id) || mode === undefined || !positive(payload.pid) || !positive(payload.pgid) || !datable(payload.lstart) || typeof payload.instance !== 'string' || typeof payload.task_key !== 'string')
+      return []
+    return [{ mode, instance: payload.instance, generation: text(payload.generation, UNHANDED), pid: payload.pid, pgid: payload.pgid, lstart: payload.lstart, kind: text(payload.kind, ''), taskKey: payload.task_key, tree: typeof payload.tree === 'string' ? payload.tree : null }]
+  })
 }
 
 export function recordWorkerIdentity(db: DatabaseSync, ts: string, identity: WorkerIdentity): boolean {

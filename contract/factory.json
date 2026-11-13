@@ -2249,6 +2249,7 @@
           "scripts/release/evidence.ts",
           "scripts/supervisor/bus-heal.ts",
           "scripts/supervisor/heartbeat.ts",
+          "scripts/supervisor/recorded-worker.ts",
           "scripts/supervisor/review-bg.ts",
           "scripts/supervisor/run.ts",
           "scripts/supervisor/start.ts",

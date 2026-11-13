@@ -1,6 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { HolderProcess, HolderReading, ProcessStartOf } from '../core/lease.js'
-import type { ChildStart, WorkerIdentity } from '../core/node.js'
 import type { InForceDecision } from '../policy/decisions/index.js'
 import type { ProcessTable } from '../ports/process-table.js'
 import type { BgResult, DetachedLaunch, ProcessList, RunningProcess } from './bg.js'
@@ -15,24 +14,24 @@ import { fileURLToPath } from 'node:url'
 import { busDirOf, pinBus, snapshotPathOf } from '../core/bus-path.js'
 import { RUNNING_CARD } from '../core/card-automaton.js'
 import { appendEvent, defaultBusPath, openBus } from '../core/db.js'
-import { CARD_CONTINUED, CARD_STARTED, CHILD_ENDED, CHILD_STARTED, MAIN_ADVANCED, PROCESS_JUDGED, RESTARTED, TASK_EXPIRED, WORKER_DOWN, WORKER_STARTED } from '../core/events.js'
+import { CARD_CONTINUED, CARD_STARTED, MAIN_ADVANCED, PROCESS_JUDGED, RESTARTED, TASK_EXPIRED, WORKER_DOWN } from '../core/events.js'
 import { FACTORY_NAMED, FACTORY_RUNTIME, FACTORY_WORKERS } from '../core/factory-paths.js'
 import { RESTART_MISSED } from '../core/inbox.js'
 import { closeDrain, expireLeasesHeldBy, HOLDER_DEAD, HOLDER_UNPROVEN, judgeHolders, LEASE_MS, leasesHeldBy, openDrain, retireHolders, retiringPids, WORKER_HUNG } from '../core/lease.js'
-import { EXECUTOR_MODES, GENERATION_VARIABLE, LIVE_FLAG, UNHANDED } from '../core/node.js'
+import { LIVE_FLAG } from '../core/node.js'
 import { inForceDecisions } from '../policy/decisions/index.js'
 import { allowLiveCommand, liveDecisionOf } from '../policy/live-decision.js'
-import { BusRead } from '../ports/bus-read.js'
 import { processGit } from '../ports/git.js'
 import { CHECK_MS } from '../ports/netwatch.js'
-import { OsProcessTable, rowOf, rowsOf, runningAs } from '../ports/process-table.js'
+import { OsProcessTable, rowOf, rowsOf } from '../ports/process-table.js'
 import { WindowSessionEnds } from '../window/window-session-end.js'
-import { BUILD_DIR, BUILT_MODULE, BUS_RUN_LAUNCH, carriesMarker, flagsInArgs, installedPackage, instancesOf, launchName, PREFIX, printBg, provenOnBus, runBusBg, runningInstance, stampedOtherwise, startDetached, thisBus, withBuses } from './bg.js'
+import { BUILD_DIR, BUILT_MODULE, BUS_RUN_LAUNCH, flagsInArgs, installedPackage, instancesOf, launchName, PREFIX, printBg, provenOnBus, runBusBg, runningInstance, stampedOtherwise, startDetached, thisBus, withBuses } from './bg.js'
 import { BusHealer, CorruptionWatch, RecordedNodes } from './bus-heal.js'
 import { BusSnapshot } from './bus-snapshot.js'
 import { busProjections } from './composition.js'
 import { CARD_PROCESS, lastProcessBeats, recordProcessHeartbeat } from './heartbeat.js'
 import { beatsLive, SILENT_MS } from './liveness-sites.js'
+import { generationEnv, identifiedOnBus, identifiedProcesses } from './recorded-worker.js'
 import { busShadowProblems, startReviewWorker } from './review-bg.js'
 import { stampLogOutput } from './stamp.js'
 import { WindowSubagentTick } from './window-subagent-tick.js'
@@ -179,15 +178,13 @@ export function signal(pid: number, name: NodeJS.Signals): void {
 }
 
 export async function stopInstance(running: RunningProcess, processes: ProcessList, pause: (ms: number) => Promise<unknown> = sleep): Promise<void> {
-  const stillRunning = (): boolean => processes().some(candidate => candidate.pid === running.pid)
   signal(running.pid, 'SIGTERM')
   for (let waited = 0; waited < STOP_WAIT_MS; waited += STOP_POLL_MS) {
-    if (!stillRunning())
+    if (!processes().some(candidate => candidate.pid === running.pid))
       return
     await pause(STOP_POLL_MS)
   }
-  if (stillRunning())
-    signal(running.pid, 'SIGKILL')
+  signal(running.pid, 'SIGKILL')
   await pause(STOP_POLL_MS)
 }
 
@@ -956,76 +953,6 @@ export interface GroupedProcess extends RunningProcess {
   group: number
 }
 
-function positive(value: unknown): value is number {
-  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0
-}
-
-function datable(value: unknown): value is string {
-  return typeof value === 'string' && !Number.isNaN(Date.parse(value))
-}
-
-function text(value: unknown, otherwise: string): string {
-  return typeof value === 'string' ? value : otherwise
-}
-
-export function recordedWorkers(db: DatabaseSync): WorkerIdentity[] {
-  const latest = new Map<string, WorkerIdentity>()
-  for (const { fields } of new BusRead(db).slice(WORKER_STARTED, ['worker', 'pid', 'started', 'instance', 'generation', 'pgid', 'lstart'])) {
-    if (typeof fields.worker !== 'string' || !positive(fields.pid) || !datable(fields.started))
-      continue
-    latest.set(fields.worker, {
-      worker: fields.worker,
-      pid: fields.pid,
-      started: fields.started,
-      instance: text(fields.instance, UNHANDED),
-      generation: text(fields.generation, UNHANDED),
-      pgid: positive(fields.pgid) ? fields.pgid : null,
-      lstart: datable(fields.lstart) ? fields.lstart : fields.started,
-    })
-  }
-  return [...latest.values()]
-}
-
-const childKey = (instance: unknown, pid: unknown, taskKey: unknown): string => JSON.stringify([instance, pid, taskKey])
-
-export function childrenNotEnded(db: DatabaseSync): ChildStart[] {
-  const read = new BusRead(db)
-  const endedAt = new Map(read.slice(CHILD_ENDED, ['instance', 'pid', 'task_key']).map(ended => [childKey(ended.fields.instance, ended.fields.pid, ended.fields.task_key), ended.id]))
-  return read.slice(CHILD_STARTED, ['mode', 'instance', 'generation', 'pid', 'pgid', 'lstart', 'kind', 'task_key', 'tree']).flatMap(({ id, fields }) => {
-    const mode = EXECUTOR_MODES.find(each => each === fields.mode)
-    const ended = endedAt.get(childKey(fields.instance, fields.pid, fields.task_key))
-    if ((ended !== undefined && ended > id) || mode === undefined || !positive(fields.pid) || !positive(fields.pgid) || !datable(fields.lstart) || typeof fields.instance !== 'string' || typeof fields.task_key !== 'string')
-      return []
-    return [{ mode, instance: fields.instance, generation: text(fields.generation, UNHANDED), pid: fields.pid, pgid: fields.pgid, lstart: fields.lstart, kind: text(fields.kind, ''), taskKey: fields.task_key, tree: typeof fields.tree === 'string' ? fields.tree : null }]
-  })
-}
-
-export const UNRECORDED_LAUNCHES: readonly DetachedLaunch[] = [BUS_RUN_LAUNCH, SUPERVISOR_LAUNCH]
-
-export function identifiedProcesses(table: ProcessTable, db: DatabaseSync, unrecorded: readonly DetachedLaunch[] = UNRECORDED_LAUNCHES): () => GroupedProcess[] {
-  return () => {
-    const snapshot = table.snapshot()
-    const rows = rowsOf(snapshot)
-    const children = new Set(childrenNotEnded(db).flatMap(child => runningAs(snapshot, child) === null ? [] : [child.pid]))
-    const workers = recordedWorkers(db).flatMap((worker) => {
-      const row = runningAs(snapshot, worker)
-      return row === null || children.has(row.pid) ? [] : [row]
-    })
-    const recorded = new Set(workers.map(row => row.pid))
-    const launched = rows.filter(row => !recorded.has(row.pid) && !children.has(row.pid) && unrecorded.some(launch => carriesMarker(row.command, launch.markers)))
-    return withBuses([...workers, ...launched].map(row => ({ pid: row.pid, group: row.pgid, args: row.command })))
-  }
-}
-
-export function generationEnv(code: Pick<BusCode, 'head'>, env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
-  try {
-    return { ...env, [GENERATION_VARIABLE]: code.head() }
-  }
-  catch {
-    return { ...env, [GENERATION_VARIABLE]: UNHANDED }
-  }
-}
-
 export function outsideGroup(processes: GroupedProcess[], group: number): RunningProcess[] {
   return processes.filter(candidate => candidate.group !== group).map(({ group: _group, ...running }) => running)
 }
@@ -1092,7 +1019,7 @@ export interface SwitchControl {
 async function supervise(busDir: string, cwd: string, reviewPreflight: () => string[]): Promise<number> {
   const busPath = defaultBusPath()
   const db = openBus(busPath)
-  const everyProcess = identifiedProcesses(new OsProcessTable(), db)
+  const everyProcess = identifiedProcesses(new OsProcessTable(), db, [BUS_RUN_LAUNCH, SUPERVISOR_LAUNCH])
   const journal = (entry: Record<string, unknown>): void => {
     appendFileSync(path.join(busDir, SUPERVISOR_JOURNAL), `${JSON.stringify(entry)}\n`)
   }
@@ -1215,15 +1142,11 @@ function withoutRetiringOnBus(processes: () => (RunningProcess & Partial<Grouped
   return () => onBus(db => withoutRetiring(processes, db)())
 }
 
-function identifiedOnBus(table: ProcessTable = new OsProcessTable()): () => GroupedProcess[] {
-  return () => onBus(db => identifiedProcesses(table, db)())
-}
-
-export async function startBus(busDir: string = pinnedBusDir(), everyProcess: () => (RunningProcess & Partial<GroupedProcess>)[] = identifiedOnBus()): Promise<BgResult> {
+export async function startBus(busDir: string = pinnedBusDir(), everyProcess: () => (RunningProcess & Partial<GroupedProcess>)[] = identifiedOnBus([BUS_RUN_LAUNCH, SUPERVISOR_LAUNCH])): Promise<BgResult> {
   const processes = withoutRetiringOnBus(everyProcess)
   const judged = await restartSilentSupervisorOnBus(busDir, everyProcess)
   const started = await startUnderAgentEnv(busDir, [...wantedLaunches(busDir, reviewPreflight, decisionsInForce()), SUPERVISOR_LAUNCH], {
-    env: generationEnv(gitCode(process.cwd())),
+    env: process.env,
     processes,
     ownPackage: ownPackage(),
     stop: running => stopInstance(running, processes),

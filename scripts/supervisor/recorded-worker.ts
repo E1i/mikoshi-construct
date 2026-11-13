@@ -1,8 +1,12 @@
+import type { DatabaseSync } from 'node:sqlite'
 import type { ProcessTable } from '../ports/process-table.js'
-import type { ProcessList, RunningProcess } from './bg.js'
+import type { DetachedLaunch, ProcessList, RunningProcess } from './bg.js'
 import { existsSync, readFileSync } from 'node:fs'
 import process from 'node:process'
-import { alive, argsBeforeBus, processBeatsOn, servesBus } from './bg.js'
+import { defaultBusPath, openBus } from '../core/db.js'
+import { childrenNotEnded, GENERATION_VARIABLE, recordedWorkers, UNHANDED } from '../core/node.js'
+import { OsProcessTable, rowsOf, runningAs } from '../ports/process-table.js'
+import { alive, argsBeforeBus, carriesMarker, processBeatsOn, servesBus, withBuses } from './bg.js'
 
 export type PidAlive = (pid: number) => boolean
 
@@ -44,5 +48,45 @@ export function sessionLifeIn(table: ProcessTable): LifeOf {
     if (!snapshot.readable)
       return 'unknown'
     return snapshot.rows.some(row => row.command.split(/\s+/).includes(session)) ? 'live' : 'dead'
+  }
+}
+
+export interface IdentifiedProcess extends RunningProcess {
+  group: number
+}
+
+export function identifiedProcesses(table: ProcessTable, db: DatabaseSync, unrecorded: readonly DetachedLaunch[]): () => IdentifiedProcess[] {
+  return () => {
+    const snapshot = table.snapshot()
+    const rows = rowsOf(snapshot)
+    const children = new Set(childrenNotEnded(db).flatMap(child => runningAs(snapshot, child) === null ? [] : [child.pid]))
+    const workers = recordedWorkers(db).flatMap((worker) => {
+      const row = runningAs(snapshot, worker)
+      return row === null || children.has(row.pid) ? [] : [row]
+    })
+    const recorded = new Set(workers.map(row => row.pid))
+    const launched = rows.filter(row => !recorded.has(row.pid) && !children.has(row.pid) && unrecorded.some(launch => carriesMarker(row.command, launch.markers)))
+    return withBuses([...workers, ...launched].map(row => ({ pid: row.pid, group: row.pgid, args: row.command })))
+  }
+}
+
+export function identifiedOnBus(unrecorded: readonly DetachedLaunch[], table: ProcessTable = new OsProcessTable()): () => IdentifiedProcess[] {
+  return () => {
+    const db = openBus(defaultBusPath())
+    try {
+      return identifiedProcesses(table, db, unrecorded)()
+    }
+    finally {
+      db.close()
+    }
+  }
+}
+
+export function generationEnv(code: { head: () => string }, env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  try {
+    return { ...env, [GENERATION_VARIABLE]: code.head() }
+  }
+  catch {
+    return { ...env, [GENERATION_VARIABLE]: UNHANDED }
   }
 }
