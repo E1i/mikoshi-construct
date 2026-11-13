@@ -1,0 +1,12 @@
+{
+  "id": "selfHostingDrift",
+  "module": "architecture",
+  "path": "architecture/self-hosting-drift.yaml",
+  "rebuild": null,
+  "check": null,
+  "rebuiltOnUpdate": false,
+  "seamSources": null,
+  "followSources": [
+    "templates"
+  ]
+}

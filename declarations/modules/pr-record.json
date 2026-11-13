@@ -1,0 +1,14 @@
+{
+  "module": "pr-record",
+  "layer": "nodes",
+  "paths": [
+    "scripts/nodes/review/pr-close.ts",
+    "scripts/nodes/review/pr-reopen.ts",
+    "scripts/nodes/review/pr-rerun.ts",
+    "scripts/nodes/review/record-verdict.ts",
+    "scripts/nodes/review/dry-run-record.ts",
+    "scripts/core/merge-event.ts"
+  ],
+  "exclude": [],
+  "shared": []
+}

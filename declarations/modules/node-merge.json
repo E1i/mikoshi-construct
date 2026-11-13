@@ -1,0 +1,9 @@
+{
+  "module": "node-merge",
+  "layer": "nodes",
+  "paths": [
+    "scripts/nodes/merge/"
+  ],
+  "exclude": [],
+  "shared": []
+}

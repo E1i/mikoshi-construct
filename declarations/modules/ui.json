@@ -1,0 +1,9 @@
+{
+  "module": "ui",
+  "layer": "src",
+  "paths": [
+    "src/ui/"
+  ],
+  "exclude": [],
+  "shared": []
+}

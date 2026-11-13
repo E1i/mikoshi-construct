@@ -1,0 +1,22 @@
+{
+  "id": "earlierCarriers",
+  "module": "project",
+  "path": "templates/attach/earlier-carriers.json",
+  "rebuild": [
+    "exec",
+    "tsx",
+    "scripts/attach/earlier-carriers.ts"
+  ],
+  "check": [
+    "exec",
+    "tsx",
+    "scripts/attach/earlier-carriers.ts",
+    "--check"
+  ],
+  "rebuiltOnUpdate": true,
+  "seamSources": [
+    "templates/ai",
+    "scripts/attach/earlier-carriers.ts"
+  ],
+  "followSources": null
+}

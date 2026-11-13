@@ -1,0 +1,9 @@
+{
+  "module": "node-close",
+  "layer": "nodes",
+  "paths": [
+    "scripts/nodes/close/"
+  ],
+  "exclude": [],
+  "shared": []
+}

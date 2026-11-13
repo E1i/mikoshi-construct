@@ -1,0 +1,15 @@
+{
+  "module": "card-model",
+  "layer": "intake",
+  "paths": [
+    "src/card/grammar.ts",
+    "src/card/parking.ts",
+    "src/card/task-file.ts",
+    "src/card/risk.ts",
+    "src/card/complexity.ts",
+    "scripts/intake/card-contract.ts",
+    "scripts/core/identifiers.ts"
+  ],
+  "exclude": [],
+  "shared": []
+}

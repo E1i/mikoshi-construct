@@ -1,0 +1,13 @@
+{
+  "module": "decisions",
+  "layer": "policy",
+  "paths": [
+    "scripts/core/inbox.ts",
+    "scripts/core/card-decisions.ts",
+    "scripts/policy/live-decision.ts",
+    "scripts/policy/decisions/",
+    "scripts/owner/"
+  ],
+  "exclude": [],
+  "shared": []
+}

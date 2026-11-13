@@ -1,0 +1,11 @@
+{
+  "module": "contract-generator",
+  "layer": "contract",
+  "paths": [
+    "scripts/contract/",
+    "contract/surface.json",
+    "contract/factory.json"
+  ],
+  "exclude": [],
+  "shared": []
+}

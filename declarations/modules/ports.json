@@ -1,0 +1,11 @@
+{
+  "module": "ports",
+  "layer": "ports",
+  "paths": [
+    "scripts/ports/",
+    "scripts/core/gh-callers.ts",
+    "scripts/core/gh-callers.known.json"
+  ],
+  "exclude": [],
+  "shared": []
+}

@@ -1,0 +1,12 @@
+{
+  "module": "model",
+  "layer": "model",
+  "paths": [
+    "src/model/",
+    "scripts/model/",
+    "architecture/model.md",
+    "construct.model.json"
+  ],
+  "exclude": [],
+  "shared": []
+}

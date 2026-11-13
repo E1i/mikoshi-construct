@@ -1,0 +1,12 @@
+{
+  "id": "model",
+  "module": "model",
+  "path": "architecture/model.md",
+  "rebuild": [
+    "model:render"
+  ],
+  "check": null,
+  "rebuiltOnUpdate": false,
+  "seamSources": null,
+  "followSources": null
+}

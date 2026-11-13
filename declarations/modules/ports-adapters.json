@@ -1,0 +1,13 @@
+{
+  "module": "ports-adapters",
+  "layer": "ports",
+  "paths": [
+    "scripts/ports/git.ts",
+    "scripts/ports/disk.ts",
+    "scripts/ports/prompt-store.ts",
+    "scripts/ports/client/contract.ts",
+    "scripts/ports/client/codex/adapter.ts"
+  ],
+  "exclude": [],
+  "shared": []
+}

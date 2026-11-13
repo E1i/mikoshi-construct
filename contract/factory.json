@@ -3543,7 +3543,8 @@
         "may_use": [],
         "owns": [
           "scripts/core/factory-paths.ts",
-          "scripts/core/generated-files.ts"
+          "scripts/core/generated-files.ts",
+          "scripts/core/declarations.ts"
         ],
         "status": "undecided"
       },
