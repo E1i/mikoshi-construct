@@ -1110,6 +1110,40 @@ construct say "Q14: the second path."
 
 Exit `0` when the file was written; `2` when no words were given, and nothing is written.
 
+## pnpm owner:answer
+
+The owner's answer to one open wait, in this repository: `pnpm owner:answer <Q<N>|#<card>> "<words>"`.
+The command is thin. It says the word `answer <Q<N>|#<card>>: <words>` into the owner channel, as
+[`construct say`](#construct-say) does, writes one `window.request` of kind `owner.answer` naming the
+wait or the card, and prints the request number. bus:run answers that request on its next tick with
+`window.request.done` or `window.request.refused` and the reason, read with `pnpm board` or the bus
+log. The request executor, not the command, reads the bus. It chooses what to do from the kind of the
+wait and the round count of the card's pull request, never from the words:
+
+- Within the review round limit, it closes the wait. A `decision` or `command` wait on a card is also
+  bound to the card as a decision.
+- Past the round limit, it writes `continue-fixes PR #<N> at <head>: <words>` for the head the bus
+  observed last, bound to the card, then closes the wait. A decision in force with the same words
+  is not written twice.
+- A card with several open waits is refused with their ids; answer one by its id.
+- A card with no open wait, within its limit, moves nothing. The refusal names why (the card ended,
+  the bus already moves it, it stands stopped, or nothing of it runs) and the move that would act on
+  it.
+- A request without the matching owner word in the channel is refused and moves nothing.
+
+```bash
+pnpm owner:answer Q336 "close it with D-524"
+pnpm owner:answer '#1743' "go on with the fixes"
+```
+
+| Option | Default | What it does |
+|---|---|---|
+| `<Q<N>\|#<card>>` | — | The wait, or the card whose one open wait is answered. |
+| `<words>` | — | The owner's words, one argument. |
+
+Exit `0` when the word and the request are written; `2` when the target or the words are missing, and
+nothing is written.
+
 ## Exit codes
 
 | Code | Meaning |
