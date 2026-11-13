@@ -1,10 +1,12 @@
 import type { ModuleGraphSpec } from '../../contract/factory/modules.js'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import type { BoundarySide } from '../../contract/module-graph/boundary.js'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { afterAll, describe, expect, it } from 'vitest'
-import { carvedOut, MODULE_GRAPH } from '../../contract/factory/modules.js'
-import { BOUNDARY_PREFIX, boundaryNumbers, boundaryReport, renderBoundaryReport, violationLine } from '../../contract/module-graph/boundary.js'
+import { carvedOut, FACTORY_CONTRACT, MODULE_GRAPH } from '../../contract/factory/modules.js'
+import { BOUNDARY_PREFIX, boundaryKey, boundaryNumbers, boundaryReport, identifiedViolations, movedRows, renderBoundaryReport, violationLine } from '../../contract/module-graph/boundary.js'
 import { buildImportGraph } from '../../contract/module-graph/imports.js'
 import { checkRatchet, ratchetBreaks, readRatchet } from '../../contract/ratchet.js'
 
@@ -149,6 +151,43 @@ describe('module graph boundary: composition_imports', () => {
 
   it('the repository spec admits importers only into the composition module', () => {
     expect(Object.keys(MODULE_GRAPH.composition_imports)).toEqual(['scripts/supervisor/composition.ts'])
+  })
+
+  it('the dependency-cruiser config takes composition_imports from contract/factory.json and spawns no process', async () => {
+    const config = path.join(REPO_ROOT, '.dependency-cruiser.mjs')
+    const { modules: published } = JSON.parse(readFileSync(path.join(REPO_ROOT, FACTORY_CONTRACT), 'utf8')) as { modules: ModuleGraphSpec }
+    const { default: { forbidden } } = await import(pathToFileURL(config).href) as { default: { forbidden: CruiserRule[] } }
+    const [module, importers] = Object.entries(published.composition_imports)[0]!
+    const guard = forbidden.find(rule => rule.name === 'composition-module-only-from-its-listed-roots')
+
+    expect(readFileSync(config, 'utf8')).not.toMatch(/child_process|execFileSync|--eval/)
+    expect(published.composition_imports).toEqual(JSON.parse(JSON.stringify(MODULE_GRAPH.composition_imports)))
+    expect(guard?.to.path).toBe(`^${module.replaceAll('.', '\\.')}$`)
+    expect(guard?.from.pathNot).toEqual(expect.arrayContaining(importers.map(file => `^${file.replaceAll('.', '\\.')}$`)))
+  })
+})
+
+interface CruiserRule {
+  name: string
+  from: { pathNot?: string[] }
+  to: { path?: string }
+}
+
+describe('module graph boundary: an ownership move carries the symbols an import names', () => {
+  const FROM = ['scripts/alpha/a.ts', 'scripts/alpha/b.ts', 'scripts/alpha/c.ts']
+  const GROWN = `${BOUNDARY_PREFIX}alpha->gamma`
+  const moved: ModuleGraphSpec = { ...SPEC, modules: carvedOut({ ...SPEC.modules, epsilon: { owns: ['scripts/epsilon/**'], contract: [], may_use: [], status: 'undecided' } }) }
+  const sideOf = (spec: ModuleGraphSpec, imports: readonly string[]): BoundarySide =>
+    ({ spec, violations: identifiedViolations(treeOf({ ...LAWFUL, ...Object.fromEntries(FROM.map((file, index) => [file, imports[index]!])) }), spec, {}) })
+  const base = sideOf(SPEC, FROM.map(() => 'import { impl } from \'../beta/impl.js\'\n'))
+
+  it('an import with no named symbols carries no moved symbols', () => {
+    const head = sideOf(moved, ['import gamma from \'../gamma/index.js\'\n', 'import * as gamma from \'../gamma/index.js\'\n', 'import \'../gamma/index.js\'\n'])
+    const intoGamma = head.violations.filter(violation => boundaryKey(violation) === GROWN)
+
+    expect(intoGamma.map(({ from, symbols }) => [from, symbols])).toEqual(FROM.map(file => [file, []]))
+    expect(movedRows(base, head, [GROWN])).toEqual([])
+    expect(movedRows(base, { ...head, violations: head.violations.map(violation => ({ ...violation, symbols: ['impl'] })) }, [GROWN])).toEqual([GROWN])
   })
 })
 

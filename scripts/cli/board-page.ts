@@ -19,7 +19,7 @@ import { RUNS_PREFIX } from '../../src/card/covering-tests.js'
 import { fieldCommand } from '../../src/card/witness-fields.js'
 import { busFacts, CARD_STAGES, latestCardEvents, openTasks } from '../../src/commands/board/bus.js'
 import { DROPPED, droppedLine, goalOf, MARK_WORDS, planLine } from '../../src/commands/board/goal.js'
-import { backlogCards, isLive, laneColumns, matrixLines, pulseLines, screenLines, slotsReading, waitAction, waitTarget } from '../../src/commands/board/screens.js'
+import { backlogCards, isLive, laneColumns, markedName, matrixLines, pulseLines, screenLines, sliceMark, slotsReading, tallyLine, taskTally, waitAction, waitTarget } from '../../src/commands/board/screens.js'
 import { factoryLiveness } from '../../src/commands/liveness.js'
 import { BANNER, LORE, PLAIN_LORE } from '../../src/ui/lore.js'
 import { currentVersion } from '../../src/version.js'
@@ -526,7 +526,7 @@ function cardFields(card: BusCard): string[] {
 function cardRow(card: BusCard): string {
   const cells = cardFields(card).map((field, at) => `<td${at === 0 ? ' class="slug"' : ''}>${escaped(field)}</td>`).join('')
   const stage = escaped(card.stage)
-  return `<tr data-card="${card.id}" data-stage="${stage}"${isLive(card) ? ' data-live' : ''}${opener(cardDialog(card.id))}><td class="id">#${card.id}</td>${cells}<td><span class="st" data-stage="${stage}">${stage}</span></td><td>${OPEN_HINT}</td></tr>`
+  return `<tr data-card="${card.id}" data-stage="${stage}"${isLive(card) ? ' data-live' : ''}${opener(cardDialog(card.id))}><td class="id">${escaped(markedName(`#${card.id}`, card))}</td>${cells}<td><span class="st" data-stage="${stage}">${stage}</span></td><td>${OPEN_HINT}</td></tr>`
 }
 
 function laneBody(lane: string | null, cards: BusCard[]): string {
@@ -605,7 +605,7 @@ function headerReadings(page: BoardPage): string {
   const { facts } = page
   return [
     `<span>model <b>${page.modelVersion === null ? NONE : `v${page.modelVersion}`}</b></span>`,
-    `<span>written <b>${escaped(facts.at)}</b></span>`,
+    `<span>written <b>${escaped(facts.at)}</b></span><span>live <b>${escaped(tallyLine(taskTally(facts.cards.filter(isLive))))}</b></span>`,
     `<span>refresh <b>${page.tickMs === null ? NONE : `${page.tickMs / 1000}s`}</b></span>`,
     `<span>load <b>${page.machine.load.toFixed(1)} / ${page.machine.cores} cores</b></span>`,
     `<span class="live" id="${BUS_LIVE}"${page.liveness === FACTORY_LIVE ? '' : ' data-stale'}>${page.liveness === FACTORY_LIVE ? 'bus live' : OFFLINE_READING}</span>`,
@@ -1105,7 +1105,7 @@ export function busJson(db: DatabaseSync, now: Date, liveOnly = false): string {
   const facts = busFacts(db, now)
   const prs = cardPrs(db)
   const events = latestCardEvents(db, EVENTS_PER_CARD)
-  return `${JSON.stringify({ status: 'live', at: facts.at, pulse: facts.pulse, waits: facts.waits, waitsStale: facts.waitsStale ?? null, cardsStale: facts.cardsStale ?? null, cards: (liveOnly ? facts.cards.filter(isLive) : facts.cards).map(card => ({ id: card.id, stage: card.stage, state: card.state, lane: card.lane, pr: prs.get(card.id) ?? null, line: card.line, events: events.get(card.id) ?? [] })), tasks: openTasks(db) }, null, 2)}\n`
+  return `${JSON.stringify({ status: 'live', at: facts.at, pulse: facts.pulse, waits: facts.waits, waitsStale: facts.waitsStale ?? null, cardsStale: facts.cardsStale ?? null, tally: taskTally(facts.cards.filter(isLive)), cards: (liveOnly ? facts.cards.filter(isLive) : facts.cards).map(card => ({ id: card.id, stage: card.stage, state: card.state, lane: card.lane, pr: prs.get(card.id) ?? null, line: card.line, parent: card.parent ?? null, mark: sliceMark(card), events: events.get(card.id) ?? [] })), tasks: openTasks(db) }, null, 2)}\n`
 }
 
 export function renderBoard(page: BoardPage): string {
