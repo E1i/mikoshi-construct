@@ -2557,6 +2557,19 @@
       "json": false,
       "unknownFlag": "not read"
     },
+    "owner:answer": {
+      "entries": [
+        "scripts/owner/answer.ts"
+      ],
+      "exits": [],
+      "flags": [
+        "card",
+        "from",
+        "plain"
+      ],
+      "json": false,
+      "unknownFlag": "not read"
+    },
     "owner:command": {
       "entries": [
         "scripts/window/owner-command.ts"

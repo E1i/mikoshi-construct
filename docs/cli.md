@@ -1110,6 +1110,40 @@ construct say "Q14: the second path."
 
 Exit `0` when the file was written; `2` when no words were given, and nothing is written.
 
+## pnpm owner:answer
+
+The owner's answer to one open wait, in this repository: `pnpm owner:answer <Q<N>|#<card>> "<words>"`.
+It finds the wait by its id, or by the card when the card has exactly one open wait, and chooses what
+to write from the kind of the wait and the round count of the card's pull request, never from the
+words. Each write is the bus's own request, and the command executes none of them itself. It says the
+word into the owner channel, as [`construct say`](#construct-say) does, writes the `window.request`,
+then waits up to 150 s for bus:run's answer and prints it. If bus:run has not answered by then, the
+command says so, and the request stays queued for bus:run's next tick.
+
+- Within the review round limit, it closes the wait with `owner.wait.close --from`. A `decision` or
+  `command` wait on a card is also bound to the card as a decision.
+- Past the round limit, it writes `continue-fixes PR #<N> at <head>: <words>` for the head the bus
+  observed last, with `--card`, then closes the wait. When a decision in force already holds
+  continue-fixes for that head, it writes no second one.
+- A card with no open wait, within its limit, moves nothing. The command names why (the card ended, a
+  task of it is queued or leased, it stands stopped, or nothing of it runs) and prints the move that
+  would act on it.
+
+```bash
+pnpm owner:answer Q336 "close it with D-524"
+pnpm owner:answer '#1743' "go on with the fixes"
+```
+
+| Option | Default | What it does |
+|---|---|---|
+| `<Q<N>\|#<card>>` | — | The wait, or the card whose one open wait is answered. |
+| `<words>` | — | The owner's words, one argument. |
+| `--plain` | off | Prints the plain lines instead of the lore ones. |
+
+Exit `0` when the wait closed or continue-fixes is in force for the head; `1` when nothing closed, with
+the reason printed (no such open wait, several open waits on the card, a refused request, no observed
+head, or nothing to move); `2` when the target or the words are missing, and nothing is written.
+
 ## Exit codes
 
 | Code | Meaning |
