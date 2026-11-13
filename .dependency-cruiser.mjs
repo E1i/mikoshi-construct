@@ -1,10 +1,7 @@
-import { execFileSync } from 'node:child_process'
-import process from 'node:process'
+import { readFileSync } from 'node:fs'
 
-const MODULE_SPEC = './scripts/contract/factory/modules.ts'
-const SPEC_READER = `import { COMPOSITION_MODULE, MODULE_GRAPH } from '${MODULE_SPEC}'
-process.stdout.write(JSON.stringify({ module: COMPOSITION_MODULE, importers: MODULE_GRAPH.composition_imports[COMPOSITION_MODULE] ?? [], tests: MODULE_GRAPH.exclusions.tests }))`
-const COMPOSITION = JSON.parse(execFileSync(process.execPath, ['--import', 'tsx', '--input-type=module', '--eval', SPEC_READER], { cwd: import.meta.dirname, encoding: 'utf8' }))
+const FACTORY_CONTRACT = new URL('./contract/factory.json', import.meta.url)
+const GRAPH = JSON.parse(readFileSync(FACTORY_CONTRACT, 'utf8')).modules
 
 function exactly(file) {
   return `^${file.replaceAll('.', '\\.')}$`
@@ -14,8 +11,9 @@ function folder(glob) {
   return `^${glob.replace(/\/\*\*$/, '/')}`
 }
 
-const COMPOSITION_MODULE = exactly(COMPOSITION.module)
-const COMPOSITION_IMPORTERS = [...COMPOSITION.importers.map(exactly), ...COMPOSITION.tests.map(folder)]
+const TEST_FOLDERS = GRAPH.exclusions.tests.map(folder)
+const COMPOSITION = Object.entries(GRAPH.composition_imports).map(([module, importers]) => ({ module: exactly(module), importers: [...importers.map(exactly), ...TEST_FOLDERS] }))
+const COMPOSITION_MODULES = COMPOSITION.map(({ module }) => module)
 
 const BUS_CORE = '^scripts/core/(db|reducer|sqlite|stored|identifiers)\\.ts$'
 const BUS_SERVICE = '^scripts/(?:nodes/[a-z]+|ladder)/([a-z]+)-(worker|executor|starter)\\.ts$'
@@ -49,7 +47,7 @@ const nothingToTheRight = CONTOURS.filter(contour => pathsRightOf(contour).lengt
   name: `${contour.name}-imports-nothing-to-its-right`,
   severity: 'error',
   from: { path: contour.paths },
-  to: { path: pathsRightOf(contour), pathNot: COMPOSITION_MODULE },
+  to: { path: pathsRightOf(contour), pathNot: COMPOSITION_MODULES },
 }))
 
 export default {
@@ -101,14 +99,14 @@ export default {
       name: 'no-circular-bus-core',
       severity: 'error',
       from: { path: BUS_CORE },
-      to: { circular: true, pathNot: COMPOSITION_MODULE },
+      to: { circular: true, pathNot: COMPOSITION_MODULES },
     },
-    {
+    ...COMPOSITION.map(({ module, importers }) => ({
       name: 'composition-module-only-from-its-listed-roots',
       severity: 'error',
-      from: { pathNot: COMPOSITION_IMPORTERS },
-      to: { path: COMPOSITION_MODULE },
-    },
+      from: { pathNot: importers },
+      to: { path: module },
+    })),
   ],
   options: {
     doNotFollow: { path: 'node_modules' },
