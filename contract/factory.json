@@ -561,6 +561,8 @@
       "main.advanced": {
         "complete": true,
         "keys": [
+          "paths",
+          "pathsTruncated",
           "sha",
           "touches_mechanics"
         ]
@@ -749,6 +751,8 @@
           "failed_checks",
           "head",
           "mergeable",
+          "paths",
+          "pathsTruncated",
           "verdict_on_head"
         ]
       },
@@ -5762,13 +5766,16 @@
         "constants": [
           "CANCELLED",
           "MAIN_BRANCH",
+          "MAIN_FILES_CAP",
           "MECHANICS_PATHS",
           "MERGEABLE_OF_STATE: Record<string, Mergeable>",
-          "OPEN_PULLS_PAGE"
+          "OPEN_PULLS_PAGE",
+          "PULL_FILES_PAGE",
+          "PULL_FILES_PAGES"
         ],
         "functions": {
           "requiredCheckOf": "(root: string = watchedRoot()): string",
-          "takeSnapshot": "(meter: Meter, known: number[], lastMain: string | null, requiredCheck = REQUIRED_CHECK): Snapshot",
+          "takeSnapshot": "(meter: Meter, known: number[], lastMain: string | null, requiredCheck = REQUIRED_CHECK, recordedPathsOf: RecordedPathsOf = () => null): Snapshot",
           "touchesMechanics": "(files: string[]): boolean",
           "verdictOf": "(meter: Meter, sha: string): VerdictOnHead | null",
           "watchedRoot": "(): string"
@@ -5779,11 +5786,13 @@
         ],
         "technologyWords": [],
         "types": {
+          "ChangedPaths": "interface ChangedPaths { paths: string[]; pathsTruncated: boolean; }",
           "ClosedPr": "interface ClosedPr { pr: number; cardId: number | null; branch?: string | null; merged: boolean; commit: string | null; mergedBy: string | null; mergedAt: string | null; }",
           "InMemoryPulls": "class InMemoryPulls { asked: string[]; constructor(private readonly bodies: Readonly<Record<string, unknown>>); meter(): Meter }",
-          "MainHead": "interface MainHead { sha: string; touchesMechanics: boolean; }",
+          "MainHead": "interface MainHead { sha: string; touchesMechanics: boolean; changed?: ChangedPaths; }",
           "Mergeable": "type Mergeable = 'clean' | 'behind' | 'dirty' | 'blocked'",
-          "OpenPr": "interface OpenPr { pr: number; cardId: number | null; base: string; head: string; branch: string | null; mergeable: Mergeable; ciFields: CiObservation; cancelledChecks?: string[]; verdictOnHead: VerdictOnHead | null; autoMerge: boolean; draft: boolean; bodySha: string; }",
+          "OpenPr": "interface OpenPr { pr: number; cardId: number | null; base: string; head: string; branch: string | null; mergeable: Mergeable; ciFields: CiObservation; cancelledChecks?: string[]; verdictOnHead: VerdictOnHead | null; autoMerge: boolean; draft: boolean; bodySha: string; changed?: ChangedPaths; }",
+          "RecordedPathsOf": "type RecordedPathsOf = (pr: number, head: string) => ChangedPaths | null",
           "Snapshot": "interface Snapshot { open: OpenPr[]; closed: ClosedPr[]; unsettled: number[]; main: MainHead | null; }",
           "VerdictOnHead": "type VerdictOnHead = 'pass' | 'changes'"
         }

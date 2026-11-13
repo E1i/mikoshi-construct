@@ -70,7 +70,7 @@ describe('every port has an in-memory adapter that runs without git ps or gh', (
     const snapshot = takeSnapshot(pulls.meter(), [7], null)
     expect(snapshot.unsettled).toEqual([8])
     expect(snapshot.closed).toEqual([{ pr: 7, cardId: 1672, branch: 'feat/x', merged: true, commit: MERGE_SHA, mergedBy: 'owner', mergedAt: '2026-11-10T00:00:00Z' }])
-    expect(snapshot.main).toEqual({ sha: MAIN_SHA, touchesMechanics: false })
+    expect(snapshot.main).toEqual({ sha: MAIN_SHA, touchesMechanics: false, changed: { paths: ['README.md'], pathsTruncated: false } })
     expect(() => takeSnapshot(new InMemoryPulls({}).meter(), [], null)).toThrow('404')
   })
 

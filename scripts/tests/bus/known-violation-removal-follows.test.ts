@@ -19,7 +19,6 @@ import { reduce } from '../../core/reducer.js'
 import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
 import { claudeAnswerer } from '../../nodes/answer/answerer.js'
 import { treePr } from '../../nodes/launch/tree-pr.js'
-import { HEAD_OUTSIDE_TOUCHES } from '../../nodes/merge/merge-executor.js'
 import { planReview } from '../../nodes/review/review-depth.js'
 import { classify } from '../../policy/morse/rules.js'
 import { KNOWN_VIOLATIONS, removesEntriesOnly, textBeforePatch } from '../../policy/touch-scope.js'
@@ -49,7 +48,7 @@ const ALTERED = listed([{ ...STALE, to: 'scripts/ports/github.ts' }, KEPT])
 const ALTERED_WHILE_REMOVING = listed([{ ...KEPT, rule: { ...RULE, severity: 'warn' } }])
 const WITH_THE_IMPORT = 'import { Meter } from \'../ports/meter.js\'\n\nexport const lease = Meter\n'
 const WITHOUT_THE_IMPORT = 'export const lease = 1\n'
-const REFUSED_AT_MERGE = { kind: 'denied', denial: { kind: 'technical', reason: HEAD_OUTSIDE_TOUCHES } }
+const OWNER_MERGES_IT = { kind: 'denied', denial: { kind: 'authority', rule: 'known_violations_grow' } }
 const CARD_TEXT = `card: #${CARD} known-violation-removal-follows [implement/netwatch/S/cheap/auto] · depends — · blocks —\nbranch: feat/card-${CARD}\ntouches: ${TOUCHED}\ncontinue: stop\nwho: shift\n\nDrop the import.\n`
 
 const benches: MergeBench[] = []
@@ -97,10 +96,6 @@ function dropsTheImportAnd(known: string): Round {
     writeFileSync(path.join(worktree, TOUCHED), WITHOUT_THE_IMPORT)
     writeFileSync(path.join(worktree, KNOWN_VIOLATIONS), known)
   }
-}
-
-const leavesTheList: Round = (worktree) => {
-  writeFileSync(path.join(worktree, TOUCHED), WITHOUT_THE_IMPORT)
 }
 
 interface Answering {
@@ -172,7 +167,7 @@ function mergeOf(known: string): ReturnType<MergeBench['merge']> {
   return made.merge(made.lease()!)
 }
 
-describe('a known-violation entry the card made stale follows its touches, growth stays the owner\'s (D-514)', () => {
+describe('a known-violation entry the card made stale follows its touches, growth follows too and stays the owner\'s to merge (D-514, D-536)', () => {
   it('a card that removes an import and deletes its known-violation entry passes the answer and merge guards', async () => {
     const { made, outcome, published, prompts, known } = await answerWith([dropsTheImportAnd(REMOVED)])
 
@@ -185,24 +180,28 @@ describe('a known-violation entry the card made stale follows its touches, growt
     expect(mergeOf(REMOVED_LAST)).toMatchObject({ kind: 'merged' })
   })
 
-  it('a card that adds a known-violation entry is refused', async () => {
-    const { prompts, known, published } = await answerWith([dropsTheImportAnd(GROWN), leavesTheList])
+  it('a card that adds a known-violation entry keeps it through the answer, and its merge waits for the owner', async () => {
+    const { made, outcome, prompts, known, published } = await answerWith([dropsTheImportAnd(GROWN)])
 
-    expect(prompts).toHaveLength(2)
-    expect(prompts[1]).toContain('find a path without the violation')
-    expect(known).toBe(BASELINE)
+    expect(prompts).toHaveLength(1)
+    expect(known).toBe(GROWN)
     expect(published).toBe(1)
-    expect(mergeOf(GROWN)).toMatchObject(REFUSED_AT_MERGE)
+    expect(outcome).toMatchObject({ kind: 'answered' })
+    expect(eventsOf(made.db, OWNER_WAIT_OPENED)).toEqual([])
+    expect(mergeOf(GROWN)).toMatchObject(OWNER_MERGES_IT)
   })
 
-  it('a card that alters a known-violation entry is refused', async () => {
-    const { prompts, known } = await answerWith([dropsTheImportAnd(ALTERED), leavesTheList])
+  it('a card that alters the from or the to of a known-violation entry waits for the owner at the merge', async () => {
+    const { prompts, known } = await answerWith([dropsTheImportAnd(ALTERED)])
 
-    expect(prompts).toHaveLength(2)
-    expect(known).toBe(BASELINE)
-    expect(mergeOf(ALTERED)).toMatchObject(REFUSED_AT_MERGE)
-    expect(mergeOf(ALTERED_WHILE_REMOVING)).toMatchObject(REFUSED_AT_MERGE)
+    expect(prompts).toHaveLength(1)
+    expect(known).toBe(ALTERED)
+    expect(mergeOf(ALTERED)).toMatchObject(OWNER_MERGES_IT)
+  })
+
+  it('a severity the list carries but depcruise does not match on merges with the removal it rides on', () => {
     expect(removesEntriesOnly(BASELINE, ALTERED_WHILE_REMOVING)).toBe(false)
+    expect(mergeOf(ALTERED_WHILE_REMOVING)).toMatchObject({ kind: 'merged' })
   })
 
   it('the text before a patch is the base the patch was taken from, and a patch that does not fit reads as nothing', () => {
@@ -261,24 +260,17 @@ function launchOf(known: string): { opened: ReturnType<typeof treePr>, bodies: s
   return { opened: treePr(ports, SHIFT_CARD, worktree, null), bodies }
 }
 
-describe('the review and the launch let the same removal follow and keep growth outside (D-514)', () => {
-  it('the review shows a removed known-violation entry inside the touches and a grown or altered list outside them', () => {
-    const outside = `${KNOWN_VIOLATIONS} is outside the touches of card #${CARD} (${TOUCHED})`
-
-    expect(reviewFindingsOf(REMOVED)).toEqual([])
-    expect(reviewFindingsOf(GROWN)).toEqual([outside])
-    expect(reviewFindingsOf(ALTERED)).toEqual([outside])
+describe('the review and the launch let the list follow the touches, whatever its diff (D-514, D-536)', () => {
+  it('the review shows no finding outside the touches for a removed, grown or altered list', () => {
+    for (const known of [REMOVED, GROWN, ALTERED])
+      expect(reviewFindingsOf(known)).toEqual([])
   })
 
-  it('the launch opens the pull request with a removed entry followed, and opens none for a grown or altered list', () => {
-    const removed = launchOf(REMOVED)
-    expect(removed.opened).toEqual({ kind: 'pr', number: String(OPENED_PR), followed: [KNOWN_VIOLATIONS] })
-    expect(removed.bodies[0]).toContain(`Touches followed: ${KNOWN_VIOLATIONS}`)
-
-    for (const known of [GROWN, ALTERED]) {
-      const refused = launchOf(known)
-      expect(refused.opened).toMatchObject({ kind: 'problem', gaps: [{ reason: 'outside-touches', paths: [KNOWN_VIOLATIONS] }] })
-      expect(refused.bodies).toEqual([])
+  it('the launch opens the pull request with the list followed for a removed, grown or altered list', () => {
+    for (const known of [REMOVED, GROWN, ALTERED]) {
+      const opened = launchOf(known)
+      expect(opened.opened).toEqual({ kind: 'pr', number: String(OPENED_PR), followed: [KNOWN_VIOLATIONS] })
+      expect(opened.bodies[0]).toContain(`Touches followed: ${KNOWN_VIOLATIONS}`)
     }
   })
 })
