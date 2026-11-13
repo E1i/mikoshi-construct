@@ -8,11 +8,13 @@ import { describe, expect, it } from 'vitest'
 import { ATTACH_RECORD_VERSION } from '../../../src/commands/attach/record.js'
 import { MANIFEST_VERSION } from '../../../src/manifest.js'
 import { MODEL_VERSION } from '../../../src/model/schema.js'
-import { isWeaker, refReading, requiredLevel } from '../../contract/bump.js'
+import { isWeaker, refReading, reportGate, requiredLevel } from '../../contract/bump.js'
 import { declaredFrom } from '../../contract/declared.js'
 import { requiredChange } from '../../contract/semantic-diff.js'
-import { CONTRACT_COMMANDS, CONTRACT_FORMATS, exitTables, formatVersion, GENERATED_SURFACE_FROM, headCommands, REPORT_CONTRACT, reportContractRefusals, reportWithoutCountLine, SURFACE_VERSION, surfaceBoundaryCode } from '../../contract/surface.js'
+import { CONTRACT_COMMANDS, CONTRACT_FORMATS, exitTables, formatVersion, GENERATED_SURFACE_FROM, headCommands, reportContract, SURFACE_VERSION, surfaceBoundaryCode } from '../../contract/surface.js'
+import { treeReportPath } from '../../core/places.js'
 import { MATRIX_COUNT_LINE, pathWithoutMatrix } from '../../policy/policy.js'
+import { processGit } from '../../ports/git.js'
 
 const ROOT = path.resolve(import.meta.dirname, '../../..')
 const SURFACE_MODULE = 'scripts/contract/surface.ts'
@@ -21,7 +23,6 @@ const MINOR_CHANGESET = '---\n\'mikoshi-construct\': minor\n---\n\nseeded by the
 const SEEDED_COMMAND = 'seeded-by-the-compatibility-test'
 const SYNC_APPLY = 'sync --apply'
 const COUNT_LINE = '■ 3 □ 1 · 2'
-const CHANGED_PATHS = [['src/manifest.ts'], ['templates/base/AGENTS.md.eta'], ['scripts/contract/surface.ts'], ['scripts/contract/surface.ts', 'templates/ai/x.md'], []]
 
 const surfaceText = readFileSync(path.join(ROOT, SURFACE_MODULE), 'utf8')
 
@@ -93,38 +94,49 @@ describe('file and command boundary code generated from the contract', () => {
 })
 
 describe('the card report contract', () => {
-  it('the report contract is recorded and its reader is the generated code', () => {
-    const recorded = recordedSurface().report
+  it('the report contract records what the merge enforces, read from the code that enforces it', () => {
+    const contract = reportContract()
+    const tracked = processGit.read(ROOT, ['ls-files']).split('\n').filter(file => file !== '')
 
-    expect(recorded).toEqual({ ...REPORT_CONTRACT, countLineUnder: [...REPORT_CONTRACT.countLineUnder] })
-    expect(surfaceText).toContain('export const REPORT_CONTRACT = {')
-    expect(surfaceBoundaryCode({ ...recordedSurface(), report: undefined })).not.toContain('REPORT_CONTRACT')
+    expect(recordedSurface().report).toEqual(contract)
+    expect(contract.countLine).toBe(MATRIX_COUNT_LINE.source)
+    expect(contract.writtenIn).toBe(path.relative(ROOT, treeReportPath(ROOT)))
+    expect(contract.readFrom).toBe('pull request description')
+    for (const file of tracked)
+      expect(contract.countLineUnder.some(root => file.startsWith(root)), file).toBe(pathWithoutMatrix('', [file]) === file)
   })
 
-  it('a report whose change touches src/ or templates/ requires the count line, as the merge reads it', () => {
-    const refusal: AuthorityRule = REPORT_CONTRACT.countLineRefusal
+  it('the merge withdraws a description without the count line when the change reaches a root the contract names', () => {
+    const contract = reportContract()
+    const refusal: AuthorityRule = contract.countLineRefusal
 
     expect(refusal).toBe('no_matrix_count_line')
-    expect(REPORT_CONTRACT.countLine).toBe(MATRIX_COUNT_LINE.source)
-    for (const files of CHANGED_PATHS) {
-      for (const report of ['result: done', `result: done\n${COUNT_LINE}`])
-        expect(reportWithoutCountLine(report, files), `${files.join(', ')} with ${report}`).toBe(pathWithoutMatrix(report, files))
+    for (const root of contract.countLineUnder) {
+      expect(pathWithoutMatrix('result: done', [`${root}x.ts`])).toBe(`${root}x.ts`)
+      expect(pathWithoutMatrix(`result: done\n${COUNT_LINE}`, [`${root}x.ts`])).toBeUndefined()
     }
-    expect(reportWithoutCountLine('result: done', ['src/manifest.ts'])).toBe('src/manifest.ts')
-    expect(reportWithoutCountLine(`result: done\n${COUNT_LINE}`, ['src/manifest.ts'])).toBeUndefined()
   })
 
   it('the report contract has a version and a compatibility test', () => {
-    const recorded = recordedSurface().report as ReportContract
+    const surface = recordedSurface()
+    const recorded = surface.report as ReportContract
     const dropped: ReportContract = { ...recorded, countLineUnder: ['src/'] }
+    const grown: ReportContract = { ...dropped, reportVersion: recorded.reportVersion + 1 }
+    const { report: _, ...withoutReport } = surface
 
     expect(Number.isInteger(recorded.reportVersion) && recorded.reportVersion >= 1).toBe(true)
-    expect(reportContractRefusals(undefined, recorded)).toEqual([])
-    expect(reportContractRefusals(recorded, recorded)).toEqual([])
-    expect(reportContractRefusals(recorded, dropped)).toEqual(['report: the report contract changed without its reportVersion growing'])
-    expect(reportContractRefusals(recorded, { ...dropped, reportVersion: recorded.reportVersion + 1 })).toEqual([])
-    expect(reportContractRefusals(recorded, { ...recorded, reportVersion: recorded.reportVersion - 1 })).toHaveLength(1)
-    expect(surfaceBoundaryCode({ ...recordedSurface(), report: dropped })).not.toBe(surfaceBoundaryCode(recordedSurface()))
+    expect(gateRefuses(surface, surface, PATCH_CHANGESET)).toBe(false)
+    expect(gateRefuses(surface, { ...surface, report: dropped }, PATCH_CHANGESET), 'a dropped root under a patch changeset').toBe(true)
+    expect(gateRefuses(surface, { ...surface, report: dropped }, MINOR_CHANGESET), 'a dropped root under a minor changeset').toBe(false)
+    expect(gateRefuses(surface, withoutReport, PATCH_CHANGESET), 'the report contract removed under a patch changeset').toBe(true)
+    expect(requiredChange(readingOf(withoutReport), readingOf(surface)).level).toBe('additive')
+
+    expect(reportGate('base', readingOf(surface), readingOf(surface)).red).toBe(false)
+    expect(reportGate('base', readingOf(surface), readingOf({ ...surface, report: dropped })).red, 'changed without its reportVersion growing').toBe(true)
+    expect(reportGate('base', readingOf(surface), readingOf({ ...surface, report: grown })).red, 'changed with its reportVersion grown').toBe(false)
+    expect(reportGate('base', readingOf(surface), readingOf({ ...surface, report: { ...recorded, reportVersion: recorded.reportVersion - 1 } })).red, 'reportVersion going back').toBe(true)
+    expect(reportGate('base', readingOf(surface), readingOf(withoutReport)).red, 'the report contract removed').toBe(true)
+    expect(reportGate('base', readingOf(withoutReport), readingOf(surface)).red, 'a base that predates the report contract').toBe(false)
   })
 })
 

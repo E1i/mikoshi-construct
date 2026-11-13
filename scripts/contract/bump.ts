@@ -13,8 +13,8 @@ import { processGit } from '../ports/git.js'
 import { BUMP_LEVELS, declaredLevel, headVersion } from './declared.js'
 import { factoryVerdicts } from './factory-bump.js'
 import { cliArgs, cliEnv, failureLine, tagCli } from './json-samples.js'
-import { requiredChange, SECTIONS, unbaselined } from './semantic-diff.js'
-import { SURFACE_VERSION, tagSurfaceReading } from './surface.js'
+import { isUnbaselined, requiredChange, SECTIONS, unbaselined } from './semantic-diff.js'
+import { reportContractRefusals, SURFACE_VERSION, tagSurfaceReading } from './surface.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../..')
 const SURFACE_FILE = GENERATED_FILES.surface.path
@@ -61,6 +61,13 @@ export function factoryGate(baseRef: string, base: unknown, head: unknown): { re
     red: verdicts.some(verdict => verdict.red),
     lines: [`[contract:bump] ${FACTORY_FILE} sections against ${baseRef}:`, ...verdicts.map(verdict => `  ${verdict.red ? 'red' : 'ok'} ${verdict.line}`)],
   }
+}
+
+export function reportGate(baseRef: string, base: SurfaceReading, head: SurfaceReading): { red: boolean, lines: string[] } {
+  if (isUnbaselined(base.report) || isUnbaselined(head.report))
+    return { red: false, lines: [`[contract:bump] the report contract of ${baseRef} is not read from a record, so its reportVersion is not compared`] }
+  const refusals = reportContractRefusals(base.report, head.report)
+  return { red: refusals.length > 0, lines: refusals.map(refusal => `  red ${refusal}`) }
 }
 
 function surfaceVersionOf(recorded: object): number {
@@ -165,22 +172,26 @@ function requiredLines(tag: string, reading: RefReading, head: SurfaceReading, v
 function runPair(root: string, baseRef: string, headRef: string): number {
   const head = readingAt(root, headRef, 'head')
   const version = (JSON.parse(gitShow(root, headRef, 'package.json')) as { version: string }).version
-  const { lines } = requiredLines(baseRef, readingAt(root, baseRef, 'base'), head.reading, version)
+  const base = readingAt(root, baseRef, 'base')
+  const { lines } = requiredLines(baseRef, base, head.reading, version)
   const factory = factoryGate(baseRef, recordAt(root, baseRef, FACTORY_FILE), recordAt(root, headRef, FACTORY_FILE))
-  console.warn([...lines, `head ${headRef}: ${head.note}`, `head ${headRef}: the declared level is not compared for an explicit --base/--head pair`, ...factory.lines].join('\n'))
+  const report = reportGate(baseRef, base.reading, head.reading)
+  console.warn([...lines, `head ${headRef}: ${head.note}`, `head ${headRef}: the declared level is not compared for an explicit --base/--head pair`, ...factory.lines, ...report.lines].join('\n'))
   return 0
 }
 
 function run(root: string): number {
   const tag = baseTag(root)
   const head = JSON.parse(readFileSync(path.join(root, SURFACE_FILE), 'utf8')) as Surface
-  const { required, lines } = requiredLines(tag, readingAt(root, tag, 'base'), head, headVersion(root))
+  const base = readingAt(root, tag, 'base')
+  const { required, lines } = requiredLines(tag, base, head, headVersion(root))
   const declared = declaredLevel(root, tag)
   lines.splice(2, 0, `declared: ${declared}`)
   const factory = factoryGate(tag, recordAt(root, tag, FACTORY_FILE), JSON.parse(readFileSync(path.join(root, FACTORY_FILE), 'utf8')) as unknown)
+  const reportContract = reportGate(tag, base.reading, head)
   const weaker = isWeaker(declared, required)
-  const report = [...lines, ...(weaker ? [`declared ${declared} is weaker than required ${required}: add a changeset of level ${required} for mikoshi-construct`] : []), ...factory.lines].join('\n')
-  if (weaker || factory.red) {
+  const report = [...lines, ...(weaker ? [`declared ${declared} is weaker than required ${required}: add a changeset of level ${required} for mikoshi-construct`] : []), ...factory.lines, ...reportContract.lines].join('\n')
+  if (weaker || factory.red || reportContract.red) {
     console.error(report)
     return 1
   }

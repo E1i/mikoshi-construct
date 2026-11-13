@@ -1,4 +1,5 @@
 import type { ArgsDef, CommandDef } from 'citty'
+import type { AuthorityRule } from '../policy/policy.js'
 import type { JsonForms, JsonKeys, ObservedCli } from './json-samples.js'
 import type { SurfaceReading, Unbaselined } from './semantic-diff.js'
 import { execFileSync, spawnSync } from 'node:child_process'
@@ -26,6 +27,8 @@ import { DISCOVERY_MARKERS } from '../../src/manifest.js'
 import { blockMarkers, discoveryTags } from '../../src/materialize/strategies.js'
 import { PRESET_LIST } from '../../src/presets/index.js'
 import { main, SAY_EXIT } from '../../src/program.js'
+import { treeReportPath } from '../core/places.js'
+import { MATRIX_COUNT_LINE, pathWithoutMatrix } from '../policy/policy.js'
 import { processGit } from '../ports/git.js'
 import { contourSchemaNames, readContourSchema, schemaId } from './contours.js'
 import { commandFromHelp, listsCommands, usageCommands } from './help.js'
@@ -57,6 +60,10 @@ const JSON_FLAG = 'json'
 const PARSE_ARGS = 'parseArgs'
 const CONSTANT_DEPTH = 8
 const SYNC_APPLY_FORM = 'sync --apply'
+const REPORT_VERSION = 1
+const COUNT_LINE_REFUSAL: AuthorityRule = 'no_matrix_count_line'
+const COUNT_LINE_READ_FROM = 'pull request description'
+const NOT_A_SOURCE_ROOT = new Set(['.git', 'node_modules'])
 const VERSION_CONSTANT = 'SURFACE_VERSION'
 
 export const GENERATED_SURFACE_FROM = `export const ${VERSION_CONSTANT} = `
@@ -111,18 +118,6 @@ export function formatVersion(file: string, field: ContractFormat): number {
   return value
 }
 
-export const REPORT_CONTRACT = {
-  countLine: '■ \\d+ □ \\d+ · \\d+',
-  countLineRefusal: 'no_matrix_count_line',
-  countLineUnder: ['src/', 'templates/'],
-  file: '.construct/report.md',
-  reportVersion: 1,
-} as const
-
-export function reportWithoutCountLine(report: string, files: readonly string[]): string | undefined {
-  return new RegExp(REPORT_CONTRACT.countLine).test(report) ? undefined : files.find(file => REPORT_CONTRACT.countLineUnder.some(root => file.startsWith(root)))
-}
-
 export const OUTSIDE_THE_CONTRACT = [
   '.construct/turns.jsonl',
   'graph --out HTML',
@@ -158,10 +153,23 @@ export interface Surface {
 
 export interface ReportContract {
   countLine: string
-  countLineRefusal: string
+  countLineRefusal: AuthorityRule
   countLineUnder: string[]
-  file: string
+  readFrom: typeof COUNT_LINE_READ_FROM
+  writtenIn: string
   reportVersion: number
+}
+
+export function reportContract(root = REPO_ROOT): ReportContract {
+  const roots = readdirSync(root, { withFileTypes: true }).filter(entry => entry.isDirectory() && !NOT_A_SOURCE_ROOT.has(entry.name)).map(entry => `${entry.name}/`)
+  return {
+    countLine: MATRIX_COUNT_LINE.source,
+    countLineRefusal: COUNT_LINE_REFUSAL,
+    countLineUnder: roots.filter(candidate => pathWithoutMatrix('', [candidate]) !== undefined).sort(),
+    readFrom: COUNT_LINE_READ_FROM,
+    writtenIn: path.relative(root, treeReportPath(root)),
+    reportVersion: REPORT_VERSION,
+  }
 }
 
 export interface ScriptRegistry {
@@ -577,7 +585,7 @@ export function generateSurface(): Surface {
     contours: contours(),
     outside: [...OUTSIDE_THE_CONTRACT],
     scripts: scriptSurfaces(),
-    report: { ...REPORT_CONTRACT, countLineUnder: [...REPORT_CONTRACT.countLineUnder] },
+    report: reportContract(),
   }
 }
 
@@ -645,24 +653,11 @@ function sortedKeys(value: JsonValue): JsonValue {
   return value
 }
 
-const REPORT_READER_CODE = [
-  'export function reportWithoutCountLine(report: string, files: readonly string[]): string | undefined {',
-  '  return new RegExp(REPORT_CONTRACT.countLine).test(report) ? undefined : files.find(file => REPORT_CONTRACT.countLineUnder.some(root => file.startsWith(root)))',
-  '}',
-]
-
-function quoted(value: string | number): string {
-  return typeof value === 'number' ? String(value) : `'${value.replaceAll('\\', '\\\\').replaceAll('\'', '\\\'')}'`
-}
-
-function reportContractCode(report: ReportContract): string[] {
-  const fields = byName(Object.entries(report)).map(([field, value]) => `  ${field}: ${Array.isArray(value) ? `[${value.map(quoted).join(', ')}]` : quoted(value as string | number)},`)
-  return ['export const REPORT_CONTRACT = {', ...fields, '} as const', '', ...REPORT_READER_CODE]
-}
-
-export function reportContractRefusals(base: ReportContract | undefined, head: ReportContract): string[] {
+export function reportContractRefusals(base: ReportContract | undefined, head: ReportContract | undefined): string[] {
   if (base === undefined)
     return []
+  if (head === undefined)
+    return ['report: the report contract was removed']
   if (head.reportVersion < base.reportVersion)
     return [`report.reportVersion: ${base.reportVersion} → ${head.reportVersion} goes back`]
   const { reportVersion: _, ...was } = base
@@ -685,7 +680,7 @@ function byName<T>(entries: [string, T][]): [string, T][] {
   return entries.sort(([a], [b]) => a.localeCompare(b))
 }
 
-export function surfaceBoundaryCode(surface: Pick<Surface, 'surfaceVersion' | 'formats' | 'commands' | 'report'>): string {
+export function surfaceBoundaryCode(surface: Pick<Surface, 'surfaceVersion' | 'formats' | 'commands'>): string {
   const own = byName(Object.entries(surface.commands)).filter(([, command]) => 'flags' in command).map(([name]) => name)
   return [
     `${GENERATED_SURFACE_FROM}${surface.surfaceVersion}`,
@@ -704,7 +699,6 @@ export function surfaceBoundaryCode(surface: Pick<Surface, 'surfaceVersion' | 'f
     '',
     ...FORMAT_READER_CODE,
     '',
-    ...(surface.report === undefined ? [] : [...reportContractCode(surface.report), '']),
   ].join('\n')
 }
 

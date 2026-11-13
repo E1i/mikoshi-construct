@@ -1693,8 +1693,9 @@
       "src/",
       "templates/"
     ],
-    "file": ".construct/report.md",
-    "reportVersion": 1
+    "readFrom": "pull request description",
+    "reportVersion": 1,
+    "writtenIn": ".construct/report.md"
   },
   "scripts": {
     "approve": {
