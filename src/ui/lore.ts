@@ -1,5 +1,5 @@
 import type { ExpectLore } from './expect-lore.js'
-import { constructCommand, OWNER_ANSWER_COMMAND, pnpmCommand } from '../../scripts/core/owner-commands.js'
+import { constructCommand, pnpmCommand } from '../../scripts/core/owner-commands.js'
 import { EXPECT_LORE } from './expect-lore.js'
 
 const BLOCK_REPLACED_WHOLE = 'block-replaced-whole-discovery-bodies-carried-over'
@@ -47,21 +47,6 @@ export interface Lore extends Omit<ExpectLore, 'expectRoleForecast'> {
   unknownFlag: (flags: string[]) => string
   sayNeedsWords: string
   ownerSaid: (file: string) => string
-  answerUsage: string
-  answerNoWait: (target: string) => string
-  answerManyWaits: (card: number, waits: readonly string[]) => string
-  answerClosed: (wait: string, detail: string) => string
-  answerNotClosed: (wait: string, why: string) => string
-  answerContinueFixes: (pr: number, head: string, detail: string) => string
-  answerContinueFixesHeld: (pr: number, head: string, decision: number) => string
-  answerContinueFixesNot: (pr: number, why: string) => string
-  answerNoHead: (pr: number) => string
-  answerNothingToMove: (card: number, reason: string, move: string) => string
-  answerUnanswered: (request: number, seconds: number) => string
-  answerCardEnded: (card: number, state: string | null) => string
-  answerCardTask: (queue: string, task: string, state: string) => string
-  answerCardStopped: (card: number) => string
-  answerCardIdle: (card: number) => string
   runRecorded: (outcome: 'bus' | 'file' | 'present' | 'refused' | 'needsBus', detail: string) => string
   initRefusedForeignStack: (preset: string, stack: string, manifests: string[]) => string
   initRefusedAttached: string
@@ -488,21 +473,6 @@ export const LORE: Lore = {
   needsTerminal: 'No terminal for the interactive flow; pass --yes (and --preset) to run non-interactively.',
   sayNeedsWords: `DEAD AIR // the owner channel takes words: ${constructCommand('say')} "<your words>"; nothing was written`,
   ownerSaid: (file: string) => `WORD BURNED INTO THE OWNER CHANNEL // ${file}`,
-  answerUsage: `DEAD AIR // an answer names its wait or its card: ${OWNER_ANSWER_COMMAND} <Q<N>|#<card>> "<your words>"; nothing was written`,
-  answerNoWait: (target: string) => `NO SIGNAL // ${target} names no owner wait the bus holds; nothing was written`,
-  answerManyWaits: (card: number, waits: readonly string[]) => `CROSSED WIRES // card #${card} holds ${waits.length} open waits (${waits.join(', ')}); answer one by its id: ${OWNER_ANSWER_COMMAND} <${waits.join('|')}> "<your words>"; nothing was written`,
-  answerClosed: (wait: string, detail: string) => `WAIT FLATLINED // ${wait} closed: ${detail}`,
-  answerNotClosed: (wait: string, why: string) => `WAIT STILL LIVE // ${wait} did not close: ${why}`,
-  answerContinueFixes: (pr: number, head: string, detail: string) => `ROUNDS REOPENED // continue-fixes for PR #${pr} at ${head}; the answer runs on this head: ${detail}`,
-  answerContinueFixesHeld: (pr: number, head: string, decision: number) => `ROUNDS ALREADY OPEN // D-${decision} holds continue-fixes for PR #${pr} at ${head}; no second decision was written`,
-  answerContinueFixesNot: (pr: number, why: string) => `ROUNDS STILL SHUT // PR #${pr} is past its review round limit and continue-fixes was not written: ${why}`,
-  answerNoHead: (pr: number) => `ROUNDS STILL SHUT // PR #${pr} is past its review round limit, and the bus has observed no head of it to name in continue-fixes; nothing was written`,
-  answerNothingToMove: (card: number, reason: string, move: string) => `NOTHING TO MOVE // card #${card} has no open wait and is within its round limit: ${reason}; nothing was written. The move that would act on it: ${move}`,
-  answerUnanswered: (request: number, seconds: number) => `bus:run left window.request ${request} unanswered for ${seconds} s; it stays queued and is answered on the tick after bus:run is back`,
-  answerCardEnded: (card: number, state: string | null) => state === null ? `the bus holds no card #${card}` : `card #${card} is ${state}`,
-  answerCardTask: (queue: string, task: string, state: string) => `its ${queue} task ${task} is ${state}, so the bus is already moving it`,
-  answerCardStopped: (card: number) => `card #${card} is stopped, and no open wait asks the owner anything`,
-  answerCardIdle: (card: number) => `no task of card #${card} is queued or leased`,
   runRecorded: (outcome: 'bus' | 'file' | 'present' | 'refused' | 'needsBus', detail: string) => ({ bus: `RUN BURNED INTO THE BUS // one ladder.run event in ${detail}`, file: `RUN BURNED INTO THE LEDGER // one line in ${detail}; no bus is wired here`, present: `RUN ALREADY ON THE BUS // ${detail} holds this exact ladder.run; nothing new was written`, refused: `RUN REJECTED // ${detail}; a run record is one JSON object with only the fields step 4 of /implement names; nothing was written`, needsBus: `RUN HELD // a bus is wired at ${detail} and only the factory writes to it; run construct-intake run-record with the same record; nothing was written` })[outcome],
   unknownFlag: (flags: string[]) => `BREACH FAILED // UNKNOWN ICE: ${flags.join(', ')} ${flags.length === 1 ? 'is' : 'are'} not wired into this command; nothing was written`,
   initRefusedForeignStack: (preset: string, stack: string, manifests: string[]) => `BREACH FAILED // WRONG CHROME: --preset ${preset} is a ${stack} preset, and this directory has ${manifests.join(', ')} and no package.json; nothing was written`,
@@ -949,21 +919,6 @@ export const PLAIN_LORE: Lore = {
   needsTerminal: 'No terminal for the interactive flow; pass --yes (and --preset) to run non-interactively.',
   sayNeedsWords: `No words given: run ${constructCommand('say')} "<your words>"; nothing was written.`,
   ownerSaid: (file: string) => `Said into the owner channel: ${file}`,
-  answerUsage: `An answer names its wait or its card: run ${OWNER_ANSWER_COMMAND} <Q<N>|#<card>> "<your words>"; nothing was written.`,
-  answerNoWait: (target: string) => `${target} names no owner wait the bus holds; nothing was written.`,
-  answerManyWaits: (card: number, waits: readonly string[]) => `Card #${card} has ${waits.length} open waits (${waits.join(', ')}); answer one by its id: ${OWNER_ANSWER_COMMAND} <${waits.join('|')}> "<your words>". Nothing was written.`,
-  answerClosed: (wait: string, detail: string) => `${wait} closed: ${detail}`,
-  answerNotClosed: (wait: string, why: string) => `${wait} did not close: ${why}`,
-  answerContinueFixes: (pr: number, head: string, detail: string) => `continue-fixes written for PR #${pr} at ${head}; the answer runs on this head: ${detail}`,
-  answerContinueFixesHeld: (pr: number, head: string, decision: number) => `D-${decision} already holds continue-fixes for PR #${pr} at ${head}; no second decision was written.`,
-  answerContinueFixesNot: (pr: number, why: string) => `PR #${pr} is past its review round limit and continue-fixes was not written: ${why}`,
-  answerNoHead: (pr: number) => `PR #${pr} is past its review round limit, and the bus has observed no head of it to name in continue-fixes; nothing was written.`,
-  answerNothingToMove: (card: number, reason: string, move: string) => `Card #${card} has no open wait and is within its round limit: ${reason}; nothing was written. The move that would act on it: ${move}`,
-  answerUnanswered: (request: number, seconds: number) => `bus:run did not answer window.request ${request} within ${seconds} s; the request stays queued, and bus:run answers it on its first tick once it runs`,
-  answerCardEnded: (card: number, state: string | null) => state === null ? `the bus holds no card #${card}` : `card #${card} is ${state}`,
-  answerCardTask: (queue: string, task: string, state: string) => `its ${queue} task ${task} is ${state}, so the bus is already moving it`,
-  answerCardStopped: (card: number) => `card #${card} is stopped, and no open wait asks the owner anything`,
-  answerCardIdle: (card: number) => `no task of card #${card} is queued or leased`,
   runRecorded: (outcome: 'bus' | 'file' | 'present' | 'refused' | 'needsBus', detail: string) => ({ bus: `Run recorded as one ladder.run event in ${detail}.`, file: `Run recorded as one line in ${detail}; no bus is wired here.`, present: `Run already recorded: ${detail} holds this exact ladder.run event; nothing new was written.`, refused: `Run not recorded (${detail}): a run record is one JSON object with only the fields step 4 of /implement names; nothing was written.`, needsBus: `Run not recorded: a bus is wired at ${detail}, and the published CLI does not write to a bus; run construct-intake run-record with the same record. Nothing was written.` })[outcome],
   unknownFlag: (flags: string[]) => `Unknown ${flags.length === 1 ? 'flag' : 'flags'}: ${flags.join(', ')} ${flags.length === 1 ? 'is' : 'are'} not part of this command; nothing was written.`,
   initRefusedForeignStack: (preset: string, stack: string, manifests: string[]) => `Refused: --preset ${preset} is a ${stack} preset, and this directory has ${manifests.join(', ')} and no package.json; nothing was written.`,
