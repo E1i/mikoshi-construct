@@ -19,6 +19,7 @@ import { realStarterPorts } from '../../nodes/launch/launch-root.js'
 import { ShiftCardStarter } from '../../nodes/launch/launch-starter.js'
 import { LaunchNode } from '../../nodes/launch/launch-worker.js'
 import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
+import { nodeSupply } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { sha } from './github-fake.js'
 import { eventsOf, mergeBench, taskState } from './merge-bench.js'
@@ -45,7 +46,7 @@ afterEach(() => {
 
 async function once(node: LaunchNode): Promise<void> {
   const controller = new AbortController()
-  await node.run({ pause: async () => controller.abort(), signal: controller.signal })
+  await node.run({ pause: async () => controller.abort(), signal: controller.signal, supply: nodeSupply() })
 }
 
 function liveSession(made: MergeBench, root: string): { node: LaunchNode, spawned: unknown[], live: Set<string> } {

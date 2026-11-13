@@ -14,7 +14,7 @@ import { CARD_ADMITTED, PR_OBSERVED, PR_OPENED, REDUCED } from '../../core/event
 import { Node, prefixOf, runNode, UNDERSTOOD_NOW } from '../../core/node.js'
 import { witnessCandidates } from '../../core/queue.js'
 import { loadedCodeSha } from '../../ports/git.js'
-import { nodeLiveness } from '../../supervisor/composition.js'
+import { nodeLiveness, nodeSupply } from '../../supervisor/composition.js'
 import { stampLogOutput } from '../../supervisor/stamp.js'
 import { gitWitnessTrees, realTimedShell, WitnessExecutor } from './witness-executor.js'
 
@@ -56,7 +56,7 @@ export class WitnessNode extends Node<WitnessOutcome> {
   private readonly executor: WitnessExecutor
 
   constructor(parts: WitnessNodeParts) {
-    super('witness', { db: parts.db, clock: parts.clock, session: parts.session, mode: parts.mode, env: parts.env, silentMs: parts.silentMs })
+    super('witness', { db: parts.db, clock: parts.clock, session: parts.session, mode: parts.mode, env: parts.env, silentMs: parts.silentMs, supply: nodeSupply() })
     this.executor = new WitnessExecutor({ db: parts.db, clock: parts.clock, silentMs: parts.silentMs, trees: parts.trees, shell: parts.shell, log: line => this.log(line) })
     this.declare(WITNESS_NODE, scopeOf)
   }
@@ -90,7 +90,7 @@ export interface WitnessRun {
 }
 
 export async function runWitnessWorker(argv: string[], run: WitnessRun): Promise<number> {
-  return runNode(argv, 'witness', run.busPath, (db, mode) => new WitnessNode({ ...nodeLiveness(), db, clock: () => new Date(), session: run.session, mode, env: process.env, trees: gitWitnessTrees(run.repo), shell: realTimedShell }), { pause: run.pause, codeSha: loadedCodeSha })
+  return runNode(argv, 'witness', run.busPath, (db, mode) => new WitnessNode({ ...nodeLiveness(), db, clock: () => new Date(), session: run.session, mode, env: process.env, trees: gitWitnessTrees(run.repo), shell: realTimedShell }), { pause: run.pause, codeSha: loadedCodeSha, supply: nodeSupply() })
 }
 
 async function main(): Promise<number> {

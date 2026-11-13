@@ -9,7 +9,7 @@ import type { GhCallOptions, GhPort } from '../../ports/gh.js'
 import type { StatusPublisher } from '../../ports/github-status.js'
 import type { GitHub } from '../../ports/github.js'
 import type { IsolationReader } from '../../ports/isolation.js'
-import type { SessionMeasure } from '../../supervisor/heartbeat.js'
+import type { CardSessionMeasure } from '../../supervisor/composition.js'
 import type { DryRunRecord } from './dry-run-record.js'
 import type { RoundLimitRecut } from './pr-close.js'
 import type { ReviewPlan, ReviewPlanner } from './review-depth.js'
@@ -41,12 +41,9 @@ import { loadedCodeSha, readThroughPort } from '../../ports/git.js'
 import { ghStatusPublisher } from '../../ports/github-status.js'
 import { ghApi, ghApiPatch, ghApiPost } from '../../ports/github.js'
 import { realIsolationReader } from '../../ports/isolation.js'
-import { CHECK_MS, TICK_MS } from '../../ports/netwatch.js'
 import { promptsDirOf } from '../../ports/prompt-store.js'
 import { spawnReviewSession } from '../../ports/session.js'
-import { busProjections, nodeLiveness } from '../../supervisor/composition.js'
-import { busSessionPulse, measureCardSession } from '../../supervisor/heartbeat.js'
-import { slotsOf, slotsVariable } from '../../supervisor/scheduler.js'
+import { busProjections, cardSessionPulse, nodeLiveness, nodeSupply, withSlots } from '../../supervisor/composition.js'
 import { stampLogOutput } from '../../supervisor/stamp.js'
 import { gitReviewPlanner } from './depth-sources.js'
 import { recordForeignDivergences } from './divergence-alarm.js'
@@ -123,7 +120,7 @@ export class ReviewNode extends Node<Step> {
   private readonly executor: ReviewExecutor
 
   constructor(private readonly reviewParts: ReviewNodeParts) {
-    super('review', { db: reviewParts.db, clock: reviewParts.clock, session: reviewParts.session, mode: reviewParts.mode, env: reviewParts.env, silentMs: reviewParts.silentMs })
+    super('review', { db: reviewParts.db, clock: reviewParts.clock, session: reviewParts.session, mode: reviewParts.mode, env: reviewParts.env, silentMs: reviewParts.silentMs, supply: nodeSupply() })
     this.executor = new ReviewExecutor(readingTheKeyedBody(reviewParts))
     this.declare(REVIEW_NODE, scopeOf)
   }
@@ -155,7 +152,7 @@ export class ReviewNode extends Node<Step> {
   }
 
   protected override pauseAfter(step: Step): number {
-    return step.kind === 'recorded' ? 0 : step.kind === 'idle' ? CHECK_MS : TICK_MS
+    return step.kind === 'recorded' ? 0 : super.pauseAfter(step)
   }
 
   protected override stepLine(step: Step): string | null {
@@ -401,7 +398,7 @@ export async function runReview(argv: string[], run: ReviewRun): Promise<number>
       console.log(line)
     return 0
   }
-  const env = { ...process.env, [slotsVariable('review')]: String(run.slots) }
+  const env = withSlots('review', process.env, run.slots)
   const build = (db: DatabaseSync, detection: DetectionMode): ReviewNode => new ReviewNode({
     ...nodeLiveness(),
     db,
@@ -420,7 +417,7 @@ export async function runReview(argv: string[], run: ReviewRun): Promise<number>
     env,
   })
   try {
-    return await runNode(argv, 'review', run.busPath, build, { pause: run.pause, codeSha: loadedCodeSha })
+    return await runNode(argv, 'review', run.busPath, build, { pause: run.pause, codeSha: loadedCodeSha, supply: nodeSupply() })
   }
   catch (error) {
     if (!(error instanceof ShadowNotClean))
@@ -434,8 +431,8 @@ export function reviewBeatLine(lease: Lease, session: string, ts: string): strin
   return `${PREFIX}${lease.taskKey}: reviewer session ${session} is working, heartbeat at ${ts}`
 }
 
-export function busReviewPulse(busPath: string, clock: () => Date, say: (line: string) => void = console.log, measure: SessionMeasure = measureCardSession): SessionPulse {
-  const pulse = busSessionPulse(busPath, clock, measure)
+export function busReviewPulse(busPath: string, clock: () => Date, say: (line: string) => void = console.log, measure?: CardSessionMeasure): SessionPulse {
+  const pulse = cardSessionPulse(busPath, clock, measure)
   return (lease, session) => say(reviewBeatLine(lease, session, pulse(lease, session)))
 }
 
@@ -455,7 +452,7 @@ async function main(): Promise<number> {
     reviewer: claudeReviewer(trees, spawnReviewSession, busReviewPulse(busPath, () => new Date()), REVIEW_BEAT_MS, gitHubPrBody(ghApi(cwd))),
     plan: gitReviewPlanner(cwd, MORSE_JOURNAL, busCardBodies(busPath)),
     session: randomUUID(),
-    slots: slotsOf('review', process.env),
+    slots: nodeSupply().slotsOf('review', process.env),
     pause: sleep,
     clearLeftovers: () => trees.clearLeftovers(),
     notePr: ghNotePr(cwd, PROCESS_GH_PORT, () => pushPolicyOf(readThroughPort, cwd)),

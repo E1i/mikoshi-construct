@@ -1,5 +1,4 @@
 import type { DatabaseSync } from 'node:sqlite'
-import type { SlotKind } from '../supervisor/scheduler.js'
 import type { Understood } from './bus-version.js'
 import type { BusEvent } from './db.js'
 import type { Queue } from './identifiers.js'
@@ -7,9 +6,6 @@ import type { HolderStart, Lease, LeaseOrder } from './lease.js'
 import type { QueuedTask } from './queue.js'
 import type { StoredEvent } from './stored.js'
 import { setImmediate as nextTurn } from 'node:timers/promises'
-import { CHECK_MS, TICK_MS } from '../ports/netwatch.js'
-import { ownStart, recordProcessHeartbeat } from '../supervisor/heartbeat.js'
-import { slotsOf } from '../supervisor/scheduler.js'
 import { BUS_VERSION, BUS_VERSION_BEFORE_LADDER_RUN, CARD_VERSION, CARD_VERSION_BEFORE_TOUCH_SCOPE, recordBusVersion, UNRECORDED_VERSION } from './bus-version.js'
 import { admittedCardVersion } from './card-bodies.js'
 import { appendEvent, inTransaction, openBus } from './db.js'
@@ -26,7 +22,7 @@ export const NODE_CURSORS = 'node_cursors'
 
 const WILDCARD = '*'
 
-export type NodeKind = Queue & SlotKind
+export type NodeKind = Exclude<Queue, 'restart'>
 export type EventPattern = readonly string[]
 export type Unsubscribe = () => void
 export type DetectionMode = 'shadow' | 'live'
@@ -73,13 +69,35 @@ export interface NodeSnapshot {
 
 export type CodeShaReader = () => string | null
 
+export interface NodeCadence {
+  checkMs: number
+  tickMs: number
+}
+
+export interface NodeCapacity {
+  queue: string
+  slots: number
+}
+
+export type ProcessHeartbeat = (db: DatabaseSync, ts: string, process: string, capacity: NodeCapacity) => unknown
+
+export type NodeSlots = (kind: NodeKind, env: NodeJS.ProcessEnv) => number
+
+export interface NodeSupply {
+  cadence: NodeCadence
+  recordProcessHeartbeat: ProcessHeartbeat
+  slotsOf: NodeSlots
+  ownStart: () => HolderStart
+}
+
 export interface NodeContext {
   pause: (ms: number) => Promise<unknown>
   signal?: AbortSignal
   codeSha?: CodeShaReader
+  supply?: NodeSupply
 }
 
-export type ComposedNodeContext = NodeContext & { codeSha: CodeShaReader }
+export type ComposedNodeContext = NodeContext & { codeSha: CodeShaReader, supply: NodeSupply }
 
 export interface NodeParts {
   db: DatabaseSync
@@ -89,6 +107,7 @@ export interface NodeParts {
   env: NodeJS.ProcessEnv
   silentMs: number
   self?: HolderStart
+  supply?: NodeSupply
 }
 
 export interface Equivalence {
@@ -115,6 +134,8 @@ interface Detection {
 }
 
 export class SecondSubscription extends Error {}
+
+export class NodeUnsupplied extends Error {}
 
 export class NodeRefused extends Error {}
 
@@ -240,7 +261,8 @@ function isDenied(step: NodeStep): step is DeniedStep {
 
 export abstract class Node<S extends NodeStep> {
   readonly actor: string
-  readonly slots: number
+  private supplied: NodeSupply | null
+  private slotCount: number | null = null
   private subscription: Subscription | null = null
   private declaration: NodeDeclaration | null = null
   private lastStep: S | WaitStep | IdleStep | null = null
@@ -251,7 +273,18 @@ export abstract class Node<S extends NodeStep> {
 
   constructor(readonly kind: NodeKind, protected readonly parts: NodeParts) {
     this.actor = `worker:${kind}:${parts.session}`
-    this.slots = slotsOf(kind, parts.env)
+    this.supplied = parts.supply ?? null
+  }
+
+  protected get supply(): NodeSupply {
+    if (this.supplied === null)
+      throw new NodeUnsupplied(`the ${this.kind} node was handed no supply (cadence, heartbeat, slots): the composition module fills it, through the node's parts or its run context`)
+    return this.supplied
+  }
+
+  get slots(): number {
+    this.slotCount ??= this.supply.slotsOf(this.kind, this.parts.env)
+    return this.slotCount
   }
 
   protected get db(): DatabaseSync {
@@ -320,6 +353,9 @@ export abstract class Node<S extends NodeStep> {
   }
 
   async run(ctx: NodeContext): Promise<void> {
+    if (ctx.supply !== undefined)
+      this.supplied = ctx.supply
+    const { checkMs, tickMs } = this.supply.cadence
     this.refuseForeignBus()
     this.before()
     this.codeSha = ctx.codeSha?.() ?? null
@@ -331,7 +367,7 @@ export abstract class Node<S extends NodeStep> {
     let lastTick: number | null = null
     let checkWake: Promise<null> | null = null
     const nextCheckWake = async (): Promise<null> => {
-      await ctx.pause(CHECK_MS)
+      await ctx.pause(checkMs)
       checkWake = null
       return null
     }
@@ -339,7 +375,7 @@ export abstract class Node<S extends NodeStep> {
       this.recordStart()
       this.retryWhenLocked('deliver', () => this.deliver())
       const now = this.parts.clock().getTime()
-      if ((lastTick === null || now - lastTick >= TICK_MS) && this.retryWhenLocked('tick', () => this.tick()))
+      if ((lastTick === null || now - lastTick >= tickMs) && this.retryWhenLocked('tick', () => this.tick()))
         lastTick = now
       this.fill(inFlight)
       if (inFlight.size === 0) {
@@ -367,7 +403,7 @@ export abstract class Node<S extends NodeStep> {
 
   private recordStart(): void {
     if (!this.startRecorded)
-      this.startRecorded = this.retryWhenLocked('start record', () => recordWorkerStarted(this.db, this.ts(), this.actor, this.parts.self ?? ownStart()))
+      this.startRecorded = this.retryWhenLocked('start record', () => recordWorkerStarted(this.db, this.ts(), this.actor, this.parts.self ?? this.supply.ownStart()))
   }
 
   protected before(): void {}
@@ -385,7 +421,7 @@ export abstract class Node<S extends NodeStep> {
   }
 
   protected pauseAfter(step: S | WaitStep | IdleStep): number {
-    return step.kind === 'idle' ? CHECK_MS : TICK_MS
+    return step.kind === 'idle' ? this.supply.cadence.checkMs : this.supply.cadence.tickMs
   }
 
   protected stepLine(step: S): string | null {
@@ -455,7 +491,7 @@ export abstract class Node<S extends NodeStep> {
     const equivalence = derived === null ? null : equivalenceOf(found.map(keyOf), derived.map(keyOf))
     inTransaction(this.db, () => {
       const standing = this.cursor() === cursor ? found.filter(task => this.stillStands(task, through)) : []
-      recordProcessHeartbeat(this.db, this.ts(), nodeProcess(this.kind), { queue: this.kind, slots: this.slots })
+      this.supply.recordProcessHeartbeat(this.db, this.ts(), nodeProcess(this.kind), { queue: this.kind, slots: this.slots })
       for (const task of standing)
         this.record(task, 'tick', through)
       if (equivalence !== null) {

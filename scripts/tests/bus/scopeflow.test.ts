@@ -16,7 +16,7 @@ import { LaunchNode } from '../../nodes/launch/launch-worker.js'
 import { cardDecisionCommand, DECISIONS_SCOPE } from '../../policy/shards.js'
 import { pathsOutside } from '../../policy/touch-scope.js'
 import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
-import { busProjections } from '../../supervisor/composition.js'
+import { busProjections, nodeSupply } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { shardDecisions } from '../../window/board.js'
 import { requestFromWindow, WindowRequests } from '../../window/window-requests.js'
@@ -96,7 +96,7 @@ describe('scope questions settle on the bus', () => {
     const tree = treeHolding('scripts/tests/lint/policy.test.ts')
     const node = new LaunchNode({ silentMs: SILENT_MS, db: made.db, starter: { start: card => ({ kind: 'started', card: { session: `s-${card.cardId}`, worktree: tree, branch: `feat/card-${card.cardId}`, base: 'f'.repeat(40), pid: 4242, pgid: 4242 } }), stop: () => {} }, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes: { commandLine: () => null, signalGroup: () => {} }, resulted: () => true, reportOf: () => report, disk: roomy, isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }) })
     const controller = new AbortController()
-    await node.run({ pause: async () => controller.abort(), signal: controller.signal })
+    await node.run({ pause: async () => controller.abort(), signal: controller.signal, supply: nodeSupply() })
     made.tick()
 
     expect(node.stopOverdue()).toEqual([1501])
@@ -229,7 +229,7 @@ describe('scope questions settle on the bus', () => {
           appendEvent(made.db, { ts: made.clock.now().toISOString(), type: PR_OPENED, actor: 'worker:shift:1', cardId, pr: 990, head: null, dedupeKey: `${PR_OPENED}:${cardId}:990`, payload: { pr: 990 }, legacy: false })
       })
       const controller = new AbortController()
-      await node.run({ pause: async () => controller.abort(), signal: controller.signal })
+      await node.run({ pause: async () => controller.abort(), signal: controller.signal, supply: nodeSupply() })
       made.tick()
       return { made, node, published }
     }

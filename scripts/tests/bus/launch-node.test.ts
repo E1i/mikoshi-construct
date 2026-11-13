@@ -45,7 +45,7 @@ import { cardDecisionCommand } from '../../policy/shards.js'
 import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
 import { TICK_MS } from '../../ports/netwatch.js'
 import { WORKTREE_HOME_VARIABLE } from '../../ports/worktree-home.js'
-import { busProjections } from '../../supervisor/composition.js'
+import { busProjections, nodeSupply } from '../../supervisor/composition.js'
 import { recordHeartbeat } from '../../supervisor/heartbeat.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { requestFromWindow, WindowRequests } from '../../window/window-requests.js'
@@ -135,7 +135,7 @@ function nodeOf(made: MergeBench, mode: DetectionMode = 'shadow', starter: CardS
 
 async function once(node: LaunchNode): Promise<void> {
   const controller = new AbortController()
-  await node.run({ pause: async () => controller.abort(), signal: controller.signal })
+  await node.run({ pause: async () => controller.abort(), signal: controller.signal, supply: nodeSupply() })
 }
 
 function launchKey(cardId: number): string {
@@ -302,9 +302,9 @@ describe('the launch node', () => {
     admit(made, 971, 'lane-b')
     made.tick()
     const node = new ProbedLaunchNode({ silentMs: SILENT_MS, db: made.db, starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: { CONSTRUCT_BUS_SLOTS_LAUNCH: '1' }, disk: roomy, isolation: sandboxed })
-    expect(node.slots).toBe(1)
 
     await once(node)
+    expect(node.slots).toBe(1)
     expect(starter.starts.map(card => card.cardId)).toEqual([970])
     expect(taskState(made.db, launchKey(970))).toMatchObject({ state: 'completed' })
     expect(taskState(made.db, launchKey(971))).toMatchObject({ state: 'queued' })

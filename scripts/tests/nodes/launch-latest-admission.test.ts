@@ -13,6 +13,7 @@ import { CARD_ADMITTED, CARD_STARTED, CARD_VERIFIED, CARD_WAITING } from '../../
 import { MachineSessions } from '../../core/machine-sessions.js'
 import { AMENDED_AFTER_START, LaunchNode } from '../../nodes/launch/launch-worker.js'
 import { TICK_MS } from '../../ports/netwatch.js'
+import { nodeSupply } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { eventsOf, mergeBench } from '../bus/merge-bench.js'
 
@@ -63,7 +64,7 @@ function launchNode(made: MergeBench, starter: Starter, extra: Partial<LaunchNod
 
 async function runOnce(node: LaunchNode): Promise<void> {
   const controller = new AbortController()
-  await node.run({ pause: async () => controller.abort(), signal: controller.signal })
+  await node.run({ pause: async () => controller.abort(), signal: controller.signal, supply: nodeSupply() })
 }
 
 describe('launch takes the card body from the latest card.admitted, never from a fold behind it', () => {
