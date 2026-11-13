@@ -37,6 +37,7 @@ export const FACTORY_NAMED = {
   busQueue: 'scripts/core/queue.ts',
   busReducer: 'scripts/core/reducer.ts',
   busStamping: 'scripts/supervisor/stamp.ts',
+  busComposition: 'scripts/supervisor/composition.ts',
   busStored: 'scripts/core/stored.ts',
   busWatermark: 'scripts/core/watermark.ts',
   busAdmissions: 'scripts/intake/admissions.ts',
