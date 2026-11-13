@@ -16,12 +16,22 @@ export { ciOf } from './ci-reading.js'
 
 export const MAIN_BRANCH = 'main'
 export const OPEN_PULLS_PAGE = 100
+export const PULL_FILES_PAGE = 100
+export const PULL_FILES_PAGES = 30
+export const MAIN_FILES_CAP = 300
 export const MECHANICS_PATHS = FACTORY_FORMER_FOLDERS.shift
 
 export const CANCELLED = 'cancelled'
 
 export type Mergeable = 'clean' | 'behind' | 'dirty' | 'blocked'
 export type VerdictOnHead = 'pass' | 'changes'
+
+export interface ChangedPaths {
+  paths: string[]
+  pathsTruncated: boolean
+}
+
+export type RecordedPathsOf = (pr: number, head: string) => ChangedPaths | null
 
 export interface OpenPr {
   pr: number
@@ -36,6 +46,7 @@ export interface OpenPr {
   autoMerge: boolean
   draft: boolean
   bodySha: string
+  changed?: ChangedPaths
 }
 
 export interface ClosedPr {
@@ -51,6 +62,7 @@ export interface ClosedPr {
 export interface MainHead {
   sha: string
   touchesMechanics: boolean
+  changed?: ChangedPaths
 }
 
 export interface Snapshot {
@@ -143,10 +155,22 @@ function requiredRunOf(bodies: readonly unknown[], requiredCheck: string): Concl
   return bodies.flatMap(body => (body as { check_runs?: ConcludedCheck[] } | null)?.check_runs ?? []).find(check => check.name === requiredCheck)
 }
 
-function openPrOf(meter: Meter, pull: Pull, requiredCheck: string): OpenPr | null {
+function pullPathsOf(meter: Meter, pr: number): ChangedPaths {
+  const paths: string[] = []
+  for (let page = 1; page <= PULL_FILES_PAGES; page++) {
+    const listed = meter.get(`${REPO}/pulls/${pr}/files?per_page=${PULL_FILES_PAGE}&page=${page}`) as { filename?: string }[]
+    paths.push(...listed.flatMap(file => file.filename === undefined ? [] : [file.filename]))
+    if (listed.length < PULL_FILES_PAGE)
+      return { paths, pathsTruncated: false }
+  }
+  return { paths, pathsTruncated: true }
+}
+
+function openPrOf(meter: Meter, pull: Pull, requiredCheck: string, recordedPathsOf: RecordedPathsOf): OpenPr | null {
   const mergeable = MERGEABLE_OF_STATE[pull.mergeable_state ?? '']
   if (mergeable === undefined)
     return null
+  const changed = recordedPathsOf(pull.number, pull.head.sha) ?? pullPathsOf(meter, pull.number)
   const ci = ciOnHead(meter, pull.head.sha, requiredCheck)
   return {
     pr: pull.number,
@@ -161,6 +185,7 @@ function openPrOf(meter: Meter, pull: Pull, requiredCheck: string): OpenPr | nul
     autoMerge: pull.auto_merge !== null && pull.auto_merge !== undefined,
     draft: pull.draft === true,
     bodySha: prBodySha(pull.body),
+    changed,
   }
 }
 
@@ -191,7 +216,7 @@ function mainOf(meter: Meter, lastMain: string | null): MainHead | null {
   if (!isFullSha(sha) || sha === lastMain)
     return null
   const files = lastMain === null ? filenames(commit) : filenames(meter.get(`${REPO}/compare/${lastMain}...${sha}`))
-  return { sha, touchesMechanics: touchesMechanics(files) }
+  return { sha, touchesMechanics: touchesMechanics(files), changed: { paths: files, pathsTruncated: files.length >= MAIN_FILES_CAP } }
 }
 
 const NOT_FOUND_STATUS = 404
@@ -211,7 +236,7 @@ export class InMemoryPulls {
   }
 }
 
-export function takeSnapshot(meter: Meter, known: number[], lastMain: string | null, requiredCheck = REQUIRED_CHECK): Snapshot {
+export function takeSnapshot(meter: Meter, known: number[], lastMain: string | null, requiredCheck = REQUIRED_CHECK, recordedPathsOf: RecordedPathsOf = () => null): Snapshot {
   const listed = meter.get(`${REPO}/pulls?state=open&per_page=${OPEN_PULLS_PAGE}`) as Pull[]
   const snapshot: Snapshot = { open: [], closed: [], unsettled: [], main: null }
   const pulls = [...listed]
@@ -223,7 +248,7 @@ export function takeSnapshot(meter: Meter, known: number[], lastMain: string | n
       snapshot.closed.push(closedPrOf(pull))
       continue
     }
-    const open = openPrOf(meter, listedNumbers.has(pull.number) ? meter.get(`${REPO}/pulls/${pull.number}`) as Pull : pull, requiredCheck)
+    const open = openPrOf(meter, listedNumbers.has(pull.number) ? meter.get(`${REPO}/pulls/${pull.number}`) as Pull : pull, requiredCheck, recordedPathsOf)
     if (open === null)
       snapshot.unsettled.push(pull.number)
     else
