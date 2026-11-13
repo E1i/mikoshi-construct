@@ -2,7 +2,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { BusEvent } from './db.js'
 import type { Queue } from './identifiers.js'
 import { appendEvent } from './db.js'
-import { CARD_HELD, CARD_RELEASED, TASK_FAILED, TASK_REQUEUED } from './events.js'
+import { CARD_HELD, CARD_RELEASED, OPEN_QUESTION, OUTSIDE_TOUCHES, TASK_FAILED, TASK_REQUEUED } from './events.js'
 import { generationOfKey } from './identifiers.js'
 import { QUEUE_ACTOR, TASK_FOLDS, WITHDRAWN } from './queue.js'
 import { storedByKey } from './stored.js'
@@ -10,6 +10,23 @@ import { storedByKey } from './stored.js'
 export const HOLD_RECHECK_MS = 5 * 60_000
 
 export const LIVE_SESSION_IN_THE_TREE = 'live_session_in_the_tree'
+
+export type SessionStopCode = typeof OUTSIDE_TOUCHES | typeof OPEN_QUESTION
+
+export const SESSION_STOP_CODES: readonly SessionStopCode[] = [OUTSIDE_TOUCHES, OPEN_QUESTION]
+
+export interface SessionStop {
+  code: SessionStopCode
+  blocker: string
+  paths: string[]
+}
+
+export function sessionStopOf(questions: readonly string[], outsideTheTouches: (text: string) => string[]): SessionStop | null {
+  if (questions.length === 0)
+    return null
+  const paths = outsideTheTouches(questions.join('\n'))
+  return { code: paths.length > 0 ? OUTSIDE_TOUCHES : OPEN_QUESTION, blocker: questions.join('; '), paths }
+}
 
 export function holdRecheckAt(now: Date): string {
   return new Date(now.getTime() + HOLD_RECHECK_MS).toISOString()

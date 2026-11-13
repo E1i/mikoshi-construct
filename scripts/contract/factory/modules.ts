@@ -62,7 +62,7 @@ export const COMPOSITION_MODULE = factory('supervisor/composition.ts')
 
 export const COMPOSITION_ROOTS: readonly string[] = ['src/cli.ts', 'src/program.ts', factory('window/miko.ts'), factory('intake/intake.ts'), factory('supervisor/start.ts'), COMPOSITION_MODULE]
 
-const NODE_MAY_USE = ['bus', 'session', 'card-model', 'card-record', 'pr-record', 'plan', 'command-registry', 'ports-adapters']
+const NODE_MAY_USE = ['bus', 'session', 'card-model', 'card-record', 'pr-record', 'plan', 'command-registry', 'ports-adapters', 'events']
 
 function node(name: string): ModuleSpec {
   const folder = factory(`nodes/${name}`)
@@ -88,12 +88,12 @@ export function isTool(spec: ModuleSpec | undefined): boolean {
 const OWNER_COMMANDS_READER = ['command-registry']
 
 const DRAWN: Readonly<Record<string, ModuleSpec>> = {
-  'bus': { owns: [...BUS_CONTRACT, ...BUS_IMPL], contract: BUS_CONTRACT, may_use: [], status: 'decided' },
-  'session': { owns: [...SESSION_FILES, tree('supervisor')], contract: SESSION_CONTRACT, may_use: ['bus', 'card-model', 'card-record', 'command-registry', 'ports-adapters'], status: 'decided' },
+  'bus': { owns: [...BUS_CONTRACT, ...BUS_IMPL], contract: BUS_CONTRACT, may_use: ['events'], status: 'decided' },
+  'session': { owns: [...SESSION_FILES, tree('supervisor')], contract: SESSION_CONTRACT, may_use: ['bus', 'card-model', 'card-record', 'command-registry', 'ports-adapters', 'events'], status: 'decided' },
   'card-model': decided(CARD_MODEL, []),
-  'card-record': decided(CARD_RECORD, ['bus', 'card-model']),
-  'plan': decided(PLAN, ['card-model', 'card-record']),
-  'pr-record': decided(PR_RECORD, ['bus']),
+  'card-record': decided(CARD_RECORD, ['bus', 'card-model', 'events']),
+  'plan': decided(PLAN, ['card-model', 'card-record', 'events']),
+  'pr-record': decided(PR_RECORD, ['bus', 'events']),
   'command-registry': decided(core('owner-commands.ts'), []),
   'ports-adapters': decided(PORTS_ADAPTERS, []),
   'node-answer': node('answer'),
@@ -105,7 +105,7 @@ const DRAWN: Readonly<Record<string, ModuleSpec>> = {
   'node-update': node('update'),
   'node-witness': node('witness'),
   'node-laws': undecided([factory('nodes/laws.ts')]),
-  'events': undecided(core('events.ts')),
+  'events': decided(core('events.ts'), []),
   'layout': undecided(core('factory-paths.ts', 'generated-files.ts')),
   'decisions': undecided([...core('inbox.ts', 'card-decisions.ts'), ...within(factory('policy'), 'live-decision.ts', `decisions${ANY_DEPTH}`), tree('owner')]),
   'rules': undecided([...within(factory('policy'), 'policy.ts', `morse${ANY_DEPTH}`, 'repeat-finding.ts', 'round-limit-decision.ts', 'shard.ts', 'shards.ts', `shredder${ANY_DEPTH}`, 'widening.ts', 'touch-scope.ts'), tree('morse'), ...core('push-policy.ts')]),
