@@ -44,12 +44,13 @@ describe('a reader of a projection behind its events', () => {
   it('owner waits behind its events reads stale', () => {
     const db = bus()
     reduce(db, 'pending', busProjections())
+    const cutOver = lastId(db)
     waitForTheOwner(db)
     expect(openOwnerWaits(db)).toEqual([])
-    expect(readCurrent(db, [OWNER_WAITS], () => openOwnerWaits(db))).toEqual({ stale: { projection: OWNER_WAITS, type: OWNER_WAIT_OPENED, latest: lastId(db), through: 0 } })
+    expect(readCurrent(db, [OWNER_WAITS], () => openOwnerWaits(db))).toEqual({ stale: { projection: OWNER_WAITS, type: OWNER_WAIT_OPENED, latest: lastId(db), through: cutOver } })
     const out: string[] = []
     expect(runInbox(db, line => out.push(line))).toBe(1)
-    expect(out).toEqual([`[bus:inbox] owner_waits is stale: reduced through event 0, behind ${OWNER_WAIT_OPENED} ${lastId(db)}`])
+    expect(out).toEqual([`[bus:inbox] owner_waits is stale: reduced through event ${cutOver}, behind ${OWNER_WAIT_OPENED} ${lastId(db)}`])
   })
 
   it('decisions and cards behind their events read stale', () => {

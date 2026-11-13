@@ -88,19 +88,19 @@ describe('a card amend closes the waits that asked for it', () => {
 })
 
 describe('an answer or a merge closes the waits it settles', () => {
-  it('an owner decision scoped to the card closes its question and leaves the next reading', () => {
+  it('an owner decision scoped to the card after the cut-over closes neither its question nor another card\'s', () => {
     const db = newBus()
     const question = openOwnerWait(db, TS, 'policy', { need: 'decision', text: 'which path?', card: 1382, request: 3 })
     const other = openOwnerWait(db, TS, 'policy', { need: 'decision', text: 'which release?', card: 1383, request: 4 })
     reduce(db, 'pending', busProjections())
     appendEvent(db, event('decision.recorded', null, null, { source: 'owner', decision_id: 259, text: '#1382 takes the cheap path', scope: [1382] }, OWNER))
     reduce(db, 'pending', busProjections())
-    expect(waits(db)).toEqual([[question, 1382, 'closed', 'D-259'], [other, 1383, 'open', null]])
-    expect((db.prepare(`SELECT id FROM owner_waits WHERE state = 'open'`).all() as { id: string }[]).map(row => row.id)).toEqual([other])
+    expect(waits(db)).toEqual([[question, 1382, 'open', null], [other, 1383, 'open', null]])
+    expect((db.prepare(`SELECT id FROM owner_waits WHERE state = 'open'`).all() as { id: string }[]).map(row => row.id)).toEqual([question, other])
     db.close()
   })
 
-  it('an owner decision scoped to the card closes a command wait of the card and leaves another card\'s wait and a merge wait', () => {
+  it('an owner decision scoped to the card after the cut-over leaves its command wait, another card\'s wait and a merge wait open', () => {
     const db = newBus()
     const command = openOwnerWait(db, TS, 'policy', { need: 'command', text: 'card #1447 asks to widen its touches', command: 'pnpm some-command', card: 1447 })
     const other = openOwnerWait(db, TS, 'policy', { need: 'command', text: 'card #1448 asks to widen its touches', command: 'pnpm other-command', card: 1448 })
@@ -109,7 +109,7 @@ describe('an answer or a merge closes the waits it settles', () => {
     appendEvent(db, event('decision.recorded', null, null, { source: 'owner', decision_id: 296, text: '#1447 takes the wider touches', scope: [1447] }, OWNER))
     reduce(db, 'pending', busProjections())
     expect(waits(db)).toEqual([
-      [command, 1447, 'closed', 'D-296'],
+      [command, 1447, 'open', null],
       [other, 1448, 'open', null],
       [merge, 1447, 'open', null],
     ])

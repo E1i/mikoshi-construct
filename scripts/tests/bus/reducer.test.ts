@@ -185,7 +185,7 @@ describe('the reducer of the prs projection', () => {
       appendEvent(db, closed(1000 + n, n % 2 === 0))
     }
     expect(reduce(db, 'pending', busProjections())).toEqual({ applied: 2 * pulls, rejected: 0 })
-    expect(reducedThrough(db)).toBe(2 * pulls + 1)
+    expect(reducedThrough(db)).toBe(2 * pulls + 2)
     const batched = projectionDump(db)
     appendEvent(db, closed(800, true))
     expect(reduce(db, 'pending', busProjections())).toEqual({ applied: 1, rejected: 0 })
@@ -212,7 +212,7 @@ describe('the reducer of the prs projection', () => {
     const writes = exec.mock.calls.filter(([sql]) => sql === 'BEGIN IMMEDIATE').length
     exec.mockRestore()
     expect(writes).toBeGreaterThan(Math.ceil((2 * pulls + 2) / REDUCE_BATCH))
-    expect(reducedThrough(db)).toBe(2 * pulls + 2)
+    expect(reducedThrough(db)).toBe(2 * pulls + 3)
     expect(prs(db).find(row => row.pr === 800)).toMatchObject({ state: 'merged' })
     expect(db.prepare(`SELECT name FROM sqlite_temp_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'`).all()).toEqual([])
     const built = projectionDump(db)
@@ -565,7 +565,7 @@ describe('the reducer of the owner_waits projection', () => {
     db.close()
   })
 
-  it('a held witness downgrade opens a decision wait on its card, which a decision scoped to the card closes', () => {
+  it('a held witness downgrade opens a decision wait on its card, which a decision scoped to the card after the cut-over leaves open', () => {
     const downgrade = event(CARD_WAITING, { actor: 'worker:intake:s1', cardId: 1216, payload: { reason: WITNESS_DOWNGRADE, witnesses: ['w; red on main'], actions: ['разрешить понижение свидетеля w; red on main у #1216'] } })
     const depends = event(CARD_WAITING, { actor: 'worker:intake:s1', cardId: 1217, payload: { depends: [1216] } })
     const db = busWith(downgrade, depends)
@@ -576,7 +576,7 @@ describe('the reducer of the owner_waits projection', () => {
     expect(openOwnerWait(db, ts, 'policy', { need: 'decision', text: 'which path?', card: 1300, request: 7 })).toBe('Q1')
     recordDecision(db, { ts, decisionId: 905, text: '[owner] разрешить понижение свидетеля w; red on main у #1216', cards: [1216] })
     reduce(db, 'pending', busProjections())
-    expect(waits(db).map(wait => [wait.id, wait.state, wait.answer])).toEqual([['Q1', 'open', null], [id, 'closed', 'D-905']])
+    expect(waits(db).map(wait => [wait.id, wait.state, wait.answer])).toEqual([['Q1', 'open', null], [id, 'open', null]])
     db.close()
   })
 
@@ -600,7 +600,7 @@ describe('the reducer of the owner_waits projection', () => {
     db.close()
   })
 
-  it('a card stays stopped while a wait the decision did not name stays open', () => {
+  it('a decision before the cut-over closes the wait it names, and one after it closes nothing', () => {
     const { db, first, second } = twoQuestionsOnAStoppedCard(1401)
     const ts = '2026-10-09T12:00:00.000Z'
     recordDecision(db, { ts, decisionId: 911, text: `[owner] ${first}: the first path`, cards: [1401] })
@@ -608,8 +608,7 @@ describe('the reducer of the owner_waits projection', () => {
     expect(cardState(db, 1401)).toBe('stopped')
     recordDecision(db, { ts, decisionId: 912, text: `[owner] ${second}: the short name`, cards: [1401] })
     reduce(db, 'pending', busProjections())
-    expect(waits(db).map(wait => [wait.id, wait.state, wait.answer])).toEqual([[first, 'closed', 'D-911'], [second, 'closed', 'D-912']])
-    expect(cardState(db, 1401)).not.toBe('stopped')
+    expect(waits(db).map(wait => [wait.id, wait.state, wait.answer])).toEqual([[first, 'closed', 'D-911'], [second, 'open', null]])
     db.close()
   })
 
@@ -642,24 +641,24 @@ describe('the reducer of the owner_waits projection', () => {
     db.close()
   })
 
-  it('a witness id in a decision is not a wait id, so the decision closes the waits of its scope', () => {
+  it('a decision after the cut-over naming a witness id closes no wait of its scope', () => {
     const witnessNoWaitIsNamedAfter = 'W999999'
     const db = busWith(downgradeOf(1406))
     reduce(db, 'pending', busProjections())
     recordDecision(db, { ts: '2026-10-09T12:00:00.000Z', decisionId: 916, text: `[owner] разрешить понижение свидетеля ${witnessNoWaitIsNamedAfter} у #1406`, cards: [1406] })
     reduce(db, 'pending', busProjections())
-    expect(waits(db).map(wait => [wait.card_id, wait.state, wait.answer])).toEqual([[1406, 'closed', 'D-916']])
+    expect(waits(db).map(wait => [wait.card_id, wait.state, wait.answer])).toEqual([[1406, 'open', null]])
     db.close()
   })
 
-  it('a downgrade wait named by its id closes alone, and an imported decision reads names the same way', () => {
+  it('an imported decision after the cut-over naming a downgrade wait by its id closes nothing', () => {
     const { db, first, second } = twoQuestionsOnAStoppedCard(1407)
     appendEvent(db, downgradeOf(1407))
     reduce(db, 'pending', busProjections())
     const downgrade = waits(db).find(wait => wait.need === 'decision' && wait.id !== first && wait.id !== second)!.id as string
     appendEvent(db, event(DECISIONS_IMPORTED, { payload: { decisions: [{ decision_id: 917, text: `[owner] ${downgrade}: allowed`, scope: [1407] }] } }))
     reduce(db, 'pending', busProjections())
-    expect(waits(db).map(wait => [wait.id, wait.state, wait.answer])).toEqual([[first, 'open', null], [second, 'open', null], [downgrade, 'closed', 'D-917']])
+    expect(waits(db).map(wait => [wait.id, wait.state, wait.answer])).toEqual([[first, 'open', null], [second, 'open', null], [downgrade, 'open', null]])
     expect(cardState(db, 1407)).toBe('stopped')
     db.close()
   })
@@ -760,7 +759,7 @@ describe('the reducer of the owner_waits projection', () => {
     const refuse = (): never => {
       throw new Error('closing a wait uses no tool')
     }
-    const channel = ownerChannelWith('the downgrade is withdrawn')
+    const channel = ownerChannelWith(`${id}: the downgrade is withdrawn`)
     requestFromWindow(db, '2026-10-09T12:00:00.000Z', 'test', { kind: 'owner.wait.close', id, answer: 'the downgrade is withdrawn' })
     requestFromWindow(db, '2026-10-09T12:00:00.000Z', 'test', { kind: 'owner.wait.close', id, answer: 'the downgrade is withdrawn', from: ANSWER_SOURCE })
     const tools = { treeOf: refuse, exists: refuse, cutTree: refuse, dryRunOf: refuse, addDecision: refuse, causeHolds: refuse, closePr: refuse, closeDropped: () => [] }
@@ -781,7 +780,7 @@ describe('the reducer of the owner_waits projection', () => {
       throw new Error('closing a wait uses no tool')
     }
     const tools = { treeOf: refuse, exists: refuse, cutTree: refuse, dryRunOf: refuse, addDecision: refuse, causeHolds: refuse, closePr: refuse, closeDropped: () => [] }
-    const channel = ownerChannelWith('card #1262 dropped, the wait is void', 'the same close again')
+    const channel = ownerChannelWith(`${id}: card #1262 dropped, the wait is void`)
     const requests = new WindowRequests(db, () => new Date('2026-10-09T12:00:00.000Z'), tools, channel)
     requestFromWindow(db, '2026-10-09T12:00:00.000Z', 'test', { kind: 'owner.wait.close', id, answer: 'card #1262 dropped, the wait is void', from: ANSWER_SOURCE })
     requestFromWindow(db, '2026-10-09T12:00:01.000Z', 'test', { kind: 'owner.wait.close', id, answer: 'the same close again', from: ANSWER_SOURCE })

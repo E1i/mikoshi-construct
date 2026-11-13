@@ -106,23 +106,23 @@ function windowOf({ made, root }: Card): { channel: string, run: (...argv: strin
 }
 
 describe('one owner word on a card is one act', () => {
-  it('a --card decision closes the question.agent wait of its card', () => {
+  it('a --card decision after the cut-over leaves the question.agent wait of its card open', () => {
     const card = stoppedByItsAgent()
     expect(waitOf(card.made.db, card.wait).state).toBe('open')
 
     decided(card)
 
-    expect(waitOf(card.made.db, card.wait)).toEqual({ state: 'closed', answer: `D-${DECISION}` })
+    expect(waitOf(card.made.db, card.wait)).toEqual({ state: 'open', answer: null })
   })
 
-  it('a --card decision closes only the wait it names when it names one', () => {
+  it('a --card decision after the cut-over closes neither the wait it names nor another', () => {
     const card = stoppedByItsAgent()
     const other = openOwnerWait(card.made.db, card.made.clock.now().toISOString(), QUEUE_ACTOR, { need: 'command', text: 'which lane?', command: 'pnpm lanes:check', card: CARD })
     reduce(card.made.db, 'pending', busProjections())
 
     decided(card, `${card.wait}: ${ANSWERED}`)
 
-    expect(waitOf(card.made.db, card.wait).state).toBe('closed')
+    expect(waitOf(card.made.db, card.wait).state).toBe('open')
     expect(waitOf(card.made.db, other).state).toBe('open')
   })
 
@@ -230,7 +230,7 @@ describe('one owner word on a card is one act', () => {
 
     decided(card)
 
-    expect(waitOf(card.made.db, card.wait)).toEqual({ state: 'closed', answer: `D-${DECISION}` })
+    expect(waitOf(card.made.db, card.wait)).toEqual({ state: 'open', answer: null })
     expect(answerTasks(card.made.db)).toEqual([])
   })
 

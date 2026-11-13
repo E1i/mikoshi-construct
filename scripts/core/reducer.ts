@@ -9,11 +9,11 @@ import { archiveSpentDecisions, DECISION_FOLDS, waitsTheDecisionNames } from '..
 import { allowLiveCommand, namesQueueLive } from '../policy/live-decision.js'
 import { RECUT_ACTOR } from '../policy/round-limit-decision.js'
 import { busProjections } from '../supervisor/composition.js'
-import { IN_ORDER_MARK, REDUCED_IN_ORDER } from './bus-readings.js'
+import { IN_ORDER_MARK, latestOfEachType, REDUCED_IN_ORDER } from './bus-readings.js'
 import { CARD_FOLDS, cardLinkObserved, cardPrMerged, cardPrOpened, CLOSED_CARD, DROPPED_CARD, MERGED_CARD } from './card-automaton.js'
 import { CARD_BODIES, foldCardBody } from './card-bodies.js'
 import { appendEvent, CLOSED_WAIT, defaultBusPath, inTransaction, isOwnerWaitNeed, OPEN_WAIT, openBus, OWNER_WAIT_NEEDS, OWNER_WAITS, WAIT_ID } from './db.js'
-import { CARD_ADMITTED, CARD_CLOSED, CARD_DROPPED, CARD_MOVED, CARD_PLANNED, CARD_UNPLANNED, CARD_WAITING, catalogued, CLOSED_PLAN, DECISION_RECORDED, DECISIONS_IMPORTED, MAIN_ADVANCED, MERGE_DONE, OPEN_PLAN, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PLAN_BACKFILLED, PLAN_CLOSED, PLAN_ITEM_ADDED, PLAN_ITEM_LINKED, PLAN_ITEM_REMOVED, PLAN_OPENED, PR_CLOSED, PR_OBSERVED, PR_OPENED, WITNESS_DOWNGRADE } from './events.js'
+import { CARD_ADMITTED, CARD_CLOSED, CARD_DROPPED, CARD_MOVED, CARD_PLANNED, CARD_UNPLANNED, CARD_WAITING, catalogued, CLOSED_PLAN, DECISION_RECORDED, DECISIONS_CUT_OVER, DECISIONS_IMPORTED, MAIN_ADVANCED, MERGE_DONE, OPEN_PLAN, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PLAN_BACKFILLED, PLAN_CLOSED, PLAN_ITEM_ADDED, PLAN_ITEM_LINKED, PLAN_ITEM_REMOVED, PLAN_OPENED, PR_CLOSED, PR_OBSERVED, PR_OPENED, WITNESS_DOWNGRADE } from './events.js'
 import { cardIdOf, isFullSha, prOf } from './identifiers.js'
 import { OWNER } from './inbox.js'
 import { ADMIT_COMMAND, pnpmCommand } from './owner-commands.js'
@@ -345,9 +345,19 @@ function closeWaitsTheDecisionsAnswer(db: DatabaseSync, event: StoredEvent): voi
   }
 }
 
+function decisionsCutOverOf(db: DatabaseSync): number | null {
+  return latestOfEachType(db, [DECISIONS_CUT_OVER])[0]?.latest ?? null
+}
+
+function markTheDecisionsCutOver(db: DatabaseSync, ts: string): void {
+  appendEvent(db, { ts, type: DECISIONS_CUT_OVER, actor: 'reducer', cardId: null, pr: null, head: null, dedupeKey: DECISIONS_CUT_OVER, payload: {}, legacy: false })
+}
+
 function foldDecisionClosingWaits(db: DatabaseSync, event: StoredEvent): void {
   DECISION_FOLDS[event.type]!(db, event)
-  closeWaitsTheDecisionsAnswer(db, event)
+  const cutOver = decisionsCutOverOf(db)
+  if (cutOver !== null && event.id < cutOver)
+    closeWaitsTheDecisionsAnswer(db, event)
 }
 
 export const OWNER_WAIT_FOLDS: Record<string, Fold> = {
@@ -708,6 +718,7 @@ function reduceBatch(db: DatabaseSync, target: number, count: ReduceCount, reduc
 export function reduce(db: DatabaseSync, scope: ReduceScope, projections: Projections): ReduceCount {
   const count: ReduceCount = { applied: 0, rejected: 0 }
   const reduction = reductionOf(projections)
+  markTheDecisionsCutOver(db, new Date().toISOString())
   const target = lastEventId(db)
   if (scope === 'rebuild' || !snapshotHolds(db))
     buildBesideTheLiveProjections(db, target, count, reduction)
