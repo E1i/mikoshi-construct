@@ -4,6 +4,7 @@ import type { CardScope } from '../../../src/commands/test-runner.js'
 import type { ServeRecord } from '../../../src/presets/index.js'
 import type { BusEvent } from '../../core/db.js'
 import type { AfterFailure, Lease } from '../../core/lease.js'
+import type { IdentityReader } from '../../core/node.js'
 import type { VERIFICATION_WORDS } from '../../core/verification.js'
 import type { WitnessSubject, WitnessVerdict } from '../../policy/policy.js'
 import type { BaseRun, ReplacementField, Witness } from '../../ports/witnesses.js'
@@ -17,6 +18,7 @@ import { stripVTControlCharacters } from 'node:util'
 import { CARD_ADMITTED, CARD_CLOSED, CARD_CONTINUED, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, POLICY_DENIED, QUESTION_AGENT, WITNESS_RECORDED } from '../../core/events.js'
 import { isFullSha } from '../../core/identifiers.js'
 import { assertHeld, completeTask, failTask, RENEW_MS, StaleLease } from '../../core/lease.js'
+import { instanceOf, recordChildEnded, recordChildStarted } from '../../core/node.js'
 import { baseOfKey, LEASE_MS } from '../../core/queue.js'
 import { GREEN, RED, UNCHECKED, witnessSubjectOf } from '../../policy/policy.js'
 import { execGh, stdoutOrThrow } from '../../ports/gh.js'
@@ -26,6 +28,7 @@ import { BASE_PHASE, cardScopeOfAdmitted, namedOutsideTheCard, redOnMainProposal
 import { gitIn, gitInAsync, SetupTurns, withWorktreeAsync } from '../../ports/worktree.js'
 
 export const WITNESS_UNRUN = 'witness_unrun'
+export const WITNESS_KIND = 'witness'
 export const WITNESS_NO_SERVE = 'witness_no_serve'
 export const WITNESS_BUDGET_MS = LEASE_MS - RENEW_MS
 const SHELL_BUFFER = 1 << 28
@@ -34,7 +37,7 @@ const INSTALL = 'pnpm install --frozen-lockfile'
 const VERIFIED_BY_RUNNING_WITNESSES: typeof VERIFICATION_WORDS[number] = 'run'
 
 export interface TimedShellResult extends ShellResult { timedOut: boolean }
-export type TimedShell = (command: string, cwd: string, timeoutMs: number) => Promise<TimedShellResult>
+export type TimedShell = (command: string, cwd: string, timeoutMs: number, started?: (pid: number) => void) => Promise<TimedShellResult>
 
 const GROUP_KILL_GRACE_MS = 10_000
 const OUTPUT_OVER_BUFFER = 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER'
@@ -60,12 +63,14 @@ function timedResultOf(error: (Error & { code?: number | string | null, signal?:
   return { status, output: `${stdout}${stderr}`, timedOut }
 }
 
-export async function realTimedShell(command: string, cwd: string, timeoutMs: number): Promise<TimedShellResult> {
+export async function realTimedShell(command: string, cwd: string, timeoutMs: number, started?: (pid: number) => void): Promise<TimedShellResult> {
   const budget = String(Math.max(1, Math.floor(timeoutMs)))
   return new Promise((resolve) => {
-    execFile(process.execPath, ['-e', GROUP_RUNNER, budget, command], { cwd, env: witnessEnv(), encoding: 'utf8', maxBuffer: SHELL_BUFFER, timeout: timeoutMs + GROUP_KILL_GRACE_MS, killSignal: 'SIGKILL' }, (error, stdout, stderr) => {
+    const runner = execFile(process.execPath, ['-e', GROUP_RUNNER, budget, command], { cwd, env: witnessEnv(), encoding: 'utf8', maxBuffer: SHELL_BUFFER, timeout: timeoutMs + GROUP_KILL_GRACE_MS, killSignal: 'SIGKILL' }, (error, stdout, stderr) => {
       resolve(timedResultOf(error, stdout, stderr))
     })
+    if (runner.pid !== undefined)
+      started?.(runner.pid)
   })
 }
 
@@ -81,6 +86,7 @@ export interface WitnessParts {
   trees: WitnessTrees
   shell: TimedShell
   log: (line: string) => void
+  identity?: IdentityReader
 }
 
 export const UNFIT = 'unfit'
@@ -314,7 +320,7 @@ export class WitnessExecutor {
       }
       let judgement: BaseJudgement
       try {
-        judgement = await this.judgedOnBase(subject, base, lease.head)
+        judgement = await this.judgedOnBase(lease, subject, base, lease.head)
       }
       catch (error) {
         return this.notJudged(lease, subject, base, error)
@@ -336,7 +342,7 @@ export class WitnessExecutor {
   private async onMain(lease: Lease, subject: WitnessSubject, main: string): Promise<WitnessOutcome> {
     let red: string | null
     try {
-      red = await this.redOnMain(subject, main)
+      red = await this.redOnMain(lease, subject, main)
     }
     catch (error) {
       return this.notJudged(lease, subject, main, error)
@@ -348,9 +354,9 @@ export class WitnessExecutor {
     return { kind: 'recorded', taskKey: lease.taskKey, verdict, base: main, detail }
   }
 
-  private async redOnMain(subject: WitnessSubject, main: string): Promise<string | null> {
+  private async redOnMain(lease: Lease, subject: WitnessSubject, main: string): Promise<string | null> {
     const last: { result: ShellResult | null } = { result: null }
-    const shell = this.budgeted(this.parts.clock().getTime() + WITNESS_BUDGET_MS, last, main)
+    const shell = this.budgeted(this.parts.clock().getTime() + WITNESS_BUDGET_MS, last, main, lease)
     return this.parts.trees.withTree(main, async (tree) => {
       if (existsSync(path.join(tree, LOCKFILE)) && (await shell(INSTALL, tree)).status !== 0)
         return withFailureExcerpt(`${INSTALL} failed on main at ${main}`, last.result)
@@ -392,7 +398,27 @@ export class WitnessExecutor {
     throw error
   }
 
-  private budgeted(deadline: number, last: { result: ShellResult | null }, head: string): (command: string, cwd: string) => Promise<ShellResult> {
+  private childStarted(lease: Lease, pid: number, tree: string): boolean {
+    try {
+      const identity = this.parts.identity?.(pid) ?? null
+      return identity !== null && recordChildStarted(this.parts.db, this.ts(), lease.actor, { mode: 'child', ...instanceOf(process.env), ...identity, kind: WITNESS_KIND, taskKey: lease.taskKey, tree })
+    }
+    catch (error) {
+      this.parts.log(`${lease.taskKey}: the start of witness child ${pid} was not recorded: ${error instanceof Error ? error.message : String(error)}`)
+      return false
+    }
+  }
+
+  private childEnded(lease: Lease, pid: number, result: TimedShellResult): void {
+    try {
+      recordChildEnded(this.parts.db, this.ts(), lease.actor, { instance: instanceOf(process.env).instance, pid, taskKey: lease.taskKey, exit: result.status, signal: result.timedOut ? 'SIGKILL' : null })
+    }
+    catch (error) {
+      this.parts.log(`${lease.taskKey}: the end of witness child ${pid} was not recorded: ${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
+
+  private budgeted(deadline: number, last: { result: ShellResult | null }, head: string, lease: Lease): (command: string, cwd: string) => Promise<ShellResult> {
     const leftOf = (command: string): number => {
       const left = deadline - this.parts.clock().getTime()
       if (left <= 0)
@@ -400,7 +426,12 @@ export class WitnessExecutor {
       return left
     }
     const run = async (command: string, cwd: string): Promise<ShellResult> => {
-      const result = await this.parts.shell(command, cwd, leftOf(command))
+      let recorded: number | null = null
+      const result = await this.parts.shell(command, cwd, leftOf(command), (pid) => {
+        recorded = this.childStarted(lease, pid, cwd) ? pid : null
+      })
+      if (recorded !== null)
+        this.childEnded(lease, recorded, result)
       if (result.timedOut)
         throw new WitnessTimedOut(command)
       last.result = result
@@ -434,7 +465,7 @@ export class WitnessExecutor {
     }
   }
 
-  private async judgedOnBase(subject: WitnessSubject, base: string, head: string): Promise<BaseJudgement> {
+  private async judgedOnBase(lease: Lease, subject: WitnessSubject, base: string, head: string): Promise<BaseJudgement> {
     const deadline = this.parts.clock().getTime() + WITNESS_BUDGET_MS
     const last: { result: ShellResult | null } = { result: null }
     const scope = cardScopeOf(this.parts.db, subject)
@@ -444,7 +475,7 @@ export class WitnessExecutor {
       const outside = witnesses.flatMap(witness => namedOutsideTheCard(tree, witness, scope, changed).map(file => ({ witness, file })))
       if (outside.length > 0)
         return unfitJudgement(outside.map(({ witness, file }) => `witness "${witness.criterion}" names ${file}, absent on the base ${base} and outside the card's touches, creates and diff: a file another card writes`), outside.map(({ witness }) => witness), witnesses, changed)
-      const budgeted = this.budgeted(deadline, last, head)
+      const budgeted = this.budgeted(deadline, last, head, lease)
       const onBase: BaseRun[] = []
       let phase = ''
       const shell = async (command: string, cwd: string): Promise<ShellResult> => {

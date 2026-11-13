@@ -28,6 +28,8 @@ export const CARD_VERIFIED = 'card.verified'
 export const CARD_WAITING = 'card.waiting'
 export const CHAIN_OBSERVED = 'chain.observed'
 export const CHAIN_RESTARTED = 'chain.restarted'
+export const CHILD_ENDED = 'child.ended'
+export const CHILD_STARTED = 'child.started'
 export const CI_RERUN_REQUESTED = 'ci.rerun.requested'
 export const CHECKS_MATRIX_EVENT = 'checks.matrix'
 export const COMMAND_EXECUTED = 'command.executed'
@@ -179,6 +181,8 @@ export const EVENT_PAYLOADS = {
   [CHAIN_OBSERVED]: ['boundary', 'dir', 'leader', 'parking', 'pid', 'sha', 'state', 'waitingOn'],
   [CHAIN_RESTARTED]: ['dir', 'from', 'from_dir', 'pid', 'to'],
   [CHECKS_MATRIX_EVENT]: ['full', 'killed', 'notRun', 'skipped', 'summary', 'survived'],
+  [CHILD_ENDED]: ['exit', 'instance', 'pid', 'signal', 'task_key'],
+  [CHILD_STARTED]: ['generation', 'instance', 'kind', 'lstart', 'mode', 'pgid', 'pid', 'task_key', 'tree'],
   [CI_RERUN_REQUESTED]: ['detail', 'lease_gen', 'requested', 'runs', 'task_key'],
   [COMMAND_EXECUTED]: ['command', 'endpoint', 'error', 'event_id', 'lease_gen', 'ok', 'run', 'runs', 'status', 'task_key', 'text'],
   [DECISION_EXPIRED]: ['decision_id', 'until'],
@@ -266,7 +270,7 @@ export const EVENT_PAYLOADS = {
   [WITNESS_RECORDED]: ['base', 'cardBody', 'detail', 'head', 'verdict'],
   [WORKER_DOWN]: ['cause', 'failures', 'next_attempt_at', 'worker'],
   [WORKER_RETIRING]: ['from', 'node', 'pids', 'sha', 'worker'],
-  [WORKER_STARTED]: ['pid', 'started', 'worker'],
+  [WORKER_STARTED]: ['generation', 'instance', 'lstart', 'pgid', 'pid', 'started', 'worker'],
 } as const satisfies Record<string, readonly string[]>
 
 export type EventType = keyof typeof EVENT_PAYLOADS

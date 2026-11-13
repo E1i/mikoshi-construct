@@ -1,8 +1,9 @@
 import type { ShiftTask } from '../../../src/card/task-file.js'
+import type { ProcessIdentity } from '../../core/node.js'
 import type { SessionSpec } from '../../ports/client/contract.js'
 import type { ProcessTable } from '../../ports/process-table.js'
 import type { FreshTree } from '../../ports/worktree.js'
-import type { CardStart, CardStarter, HeldTree, QueuedCard, StartedCard } from './launch-executor.js'
+import type { CardStart, CardStarter, ChildExit, HeldTree, QueuedCard, StartedCard } from './launch-executor.js'
 import type { PromptPlaces } from './prompt.js'
 import type { SessionJournal, TreeFile } from './session-journal.js'
 import { spawn } from 'node:child_process'
@@ -16,7 +17,7 @@ import { messageOf } from '../../core/errors.js'
 import { exitCodePath, treeReportPath } from '../../core/places.js'
 import { accountToken, recordedAccount } from '../../ports/gh.js'
 import { processGit } from '../../ports/git.js'
-import { OsProcessTable, rowsOf } from '../../ports/process-table.js'
+import { identityOf, OsProcessTable, rowsOf } from '../../ports/process-table.js'
 import { clientInvocation } from '../../ports/session.js'
 import { restoreReport, shellWord } from '../../ports/tree-publish.js'
 import { freshenCardTree, gitIn } from '../../ports/worktree.js'
@@ -31,6 +32,7 @@ export interface DetachedSpawn {
   env: NodeJS.ProcessEnv
   input: string
   log: string
+  ended?: ChildExit
 }
 
 export interface StarterPorts {
@@ -131,20 +133,24 @@ interface SessionTree {
 export class ShiftCardStarter implements CardStarter, SessionContinuer {
   constructor(private readonly places: StarterPlaces, private readonly ports: StarterPorts) {}
 
-  start(card: QueuedCard): CardStart {
+  start(card: QueuedCard, ended?: ChildExit): CardStart {
     if (card.continueIn !== undefined)
-      return this.relaunchIn(card, card.continueIn)
+      return this.relaunchIn(card, card.continueIn, ended)
     return this.session(card, (task) => {
       const worktree = this.ports.cut(task)
       return { worktree, base: this.ports.base(worktree), body: each => each.body }
-    })
+    }, ended)
+  }
+
+  identify(pid: number): ProcessIdentity | null {
+    return identityOf(new OsProcessTable().snapshot(), pid)
   }
 
   continueFrom(card: QueuedCard, from: StartedCard): CardStart {
     return this.continueIn(card, { worktree: from.worktree, base: from.base }, from.session)
   }
 
-  private relaunchIn(card: QueuedCard, held: HeldTree): CardStart {
+  private relaunchIn(card: QueuedCard, held: HeldTree, ended: ChildExit | undefined): CardStart {
     const refusal = this.unnamedChanges(card.cardId, held.worktree, undefined)
     if (refusal !== null)
       return refusal
@@ -153,9 +159,9 @@ export class ShiftCardStarter implements CardStarter, SessionContinuer {
       case 'refused':
         return { kind: 'refused', denial: technical('start_failed', fresh.why) }
       case 'fresh':
-        return this.sessionIn(card, { worktree: held.worktree, base: fresh.base }, continuationBody)
+        return this.sessionIn(card, { worktree: held.worktree, base: fresh.base }, continuationBody, ended)
       case 'kept':
-        return this.sessionIn(card, held, (task, places) => `${staleTreeLine(fresh.why)}\n\n${continuationBody(task, places)}`)
+        return this.sessionIn(card, held, (task, places) => `${staleTreeLine(fresh.why)}\n\n${continuationBody(task, places)}`, ended)
     }
   }
 
@@ -166,11 +172,11 @@ export class ShiftCardStarter implements CardStarter, SessionContinuer {
     return this.sessionIn(card, held, continuationBody)
   }
 
-  private sessionIn(card: QueuedCard, held: HeldTree, body: SessionTree['body']): CardStart {
+  private sessionIn(card: QueuedCard, held: HeldTree, body: SessionTree['body'], ended?: ChildExit): CardStart {
     return this.session(card, () => {
       restoreReport(this.reportOf(card.cardId), held.worktree)
       return { worktree: held.worktree, base: held.base ?? this.ports.base(held.worktree), body }
-    })
+    }, ended)
   }
 
   private unnamedChanges(cardId: number, worktree: string, ended: string | undefined): CardStart | null {
@@ -228,7 +234,7 @@ export class ShiftCardStarter implements CardStarter, SessionContinuer {
     return path.join(this.places.launchDir, `report-${cardId}.md`)
   }
 
-  private session(card: QueuedCard, treeOf: (task: ShiftTask) => SessionTree): CardStart {
+  private session(card: QueuedCard, treeOf: (task: ShiftTask) => SessionTree, ended?: ChildExit): CardStart {
     const text = this.ports.read(card.cardId)
     if (text === null)
       return { kind: 'refused', denial: technical('card_unreadable', unreadableCard(card.cardId)) }
@@ -249,6 +255,7 @@ export class ShiftCardStarter implements CardStarter, SessionContinuer {
         env: { ...launchEnv(this.ports.envOf(card.cardId)), ...client.env },
         input: client.input,
         log: path.join(this.places.launchDir, `log-${card.cardId}.txt`),
+        ended,
       })
       return { kind: 'started', card: { session, worktree, branch: task.branch, base, pid, pgid: this.groupOrKill(pid), input: { prompt } } }
     }
@@ -285,6 +292,8 @@ export function spawnDetached(run: DetachedSpawn): number {
   try {
     const child = spawn(run.command, run.args, { cwd: run.cwd, env: run.env, detached: true, stdio: ['pipe', fd, fd] })
     child.on('error', () => {})
+    if (run.ended !== undefined)
+      child.on('exit', run.ended)
     child.stdin?.on('error', () => {})
     child.stdin?.end(run.input)
     child.unref()

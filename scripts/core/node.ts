@@ -8,8 +8,8 @@ import type { StoredEvent } from './stored.js'
 import { setImmediate as nextTurn } from 'node:timers/promises'
 import { BUS_VERSION, BUS_VERSION_BEFORE_LADDER_RUN, CARD_VERSION, CARD_VERSION_BEFORE_TOUCH_SCOPE, recordBusVersion, UNRECORDED_VERSION } from './bus-version.js'
 import { appendEvent, inTransaction, openBus } from './db.js'
-import { CARD_STOPPED, NODE_DETECTED, NODE_EQUIVALENCE, TASK_LEASED } from './events.js'
-import { drainOpen, expireLeases, failTask, leasedByRetiring, leaseNext, recordWorkerStarted, RENEW_MS, renewLease, StaleLease, waitTask, workerRetiring } from './lease.js'
+import { CARD_STOPPED, CHILD_ENDED, CHILD_STARTED, NODE_DETECTED, NODE_EQUIVALENCE, TASK_LEASED, WORKER_STARTED } from './events.js'
+import { drainOpen, expireLeases, failTask, leasedByRetiring, leaseNext, RENEW_MS, renewLease, StaleLease, waitTask, workerRetiring } from './lease.js'
 import { keyOf, LEASED, queueTaskWithin } from './queue.js'
 import { STORED_COLUMNS } from './stored.js'
 import { mustWait } from './task-must-wait.js'
@@ -18,6 +18,10 @@ import { lastEventId } from './watermark.js'
 export const SWITCH_FLAG = '--on'
 export const LIVE_FLAG = '--live'
 export const NODE_CURSORS = 'node_cursors'
+export const INSTANCE_VARIABLE = 'BUS_INSTANCE'
+export const GENERATION_VARIABLE = 'BUS_GENERATION'
+export const UNHANDED = 'unhanded'
+export const EXECUTOR_MODES = ['child', 'inline'] as const
 
 const WILDCARD = '*'
 
@@ -84,11 +88,50 @@ export type NodeSlots = (kind: NodeKind, env: NodeJS.ProcessEnv) => number
 
 export type CardRefusal = (db: DatabaseSync, lease: Lease, understands: Understood) => string | null
 
+export type ExecutorMode = typeof EXECUTOR_MODES[number]
+
+export interface ProcessIdentity {
+  pid: number
+  pgid: number
+  lstart: string
+}
+
+export type IdentityReader = (pid: number) => ProcessIdentity | null
+
+export interface InstanceOf {
+  instance: string
+  generation: string
+}
+
+export interface WorkerIdentity extends InstanceOf {
+  worker: string
+  pid: number
+  started: string
+  pgid: number | null
+  lstart: string
+}
+
+export interface ChildStart extends InstanceOf, ProcessIdentity {
+  mode: ExecutorMode
+  kind: string
+  taskKey: string
+  tree: string | null
+}
+
+export interface ChildEnd {
+  instance: string
+  pid: number
+  taskKey: string
+  exit: number | null
+  signal: string | null
+}
+
 export interface NodeSupply {
   cadence: NodeCadence
   recordProcessHeartbeat: ProcessHeartbeat
   slotsOf: NodeSlots
   ownStart: () => HolderStart
+  ownIdentity?: () => ProcessIdentity | null
   refuses: CardRefusal
 }
 
@@ -164,6 +207,34 @@ export function foreignVersion(understands: Understood, record: VersionedRecord,
 }
 
 const IDLE: IdleStep = { kind: 'idle' }
+
+export function instanceOf(env: NodeJS.ProcessEnv): InstanceOf {
+  const handed = (name: string): string => {
+    const value = env[name]
+    return value === undefined || value === '' ? UNHANDED : value
+  }
+  return { instance: handed(INSTANCE_VARIABLE), generation: handed(GENERATION_VARIABLE) }
+}
+
+export function provenIdentity(start: HolderStart, own: ProcessIdentity | null): { pgid: number | null, lstart: string } {
+  const proven = own !== null && own.pid === start.pid ? own : null
+  return { pgid: proven?.pgid ?? null, lstart: proven?.lstart ?? start.started }
+}
+
+export function recordWorkerIdentity(db: DatabaseSync, ts: string, identity: WorkerIdentity): boolean {
+  const { worker, pid, started, instance, generation, pgid, lstart } = identity
+  return appendEvent(db, { ts, type: WORKER_STARTED, actor: worker, cardId: null, pr: null, head: null, dedupeKey: `${WORKER_STARTED}:${worker}`, payload: { worker, pid, started, instance, generation, ...(pgid === null ? {} : { pgid }), lstart }, legacy: false })
+}
+
+export function recordChildStarted(db: DatabaseSync, ts: string, actor: string, child: ChildStart): boolean {
+  const { mode, instance, generation, pid, pgid, lstart, kind, taskKey, tree } = child
+  return appendEvent(db, { ts, type: CHILD_STARTED, actor, cardId: null, pr: null, head: null, dedupeKey: `${CHILD_STARTED}:${instance}:${pid}:${lstart}`, payload: { mode, instance, generation, pid, pgid, lstart, kind, task_key: taskKey, tree }, legacy: false })
+}
+
+export function recordChildEnded(db: DatabaseSync, ts: string, actor: string, ended: ChildEnd): boolean {
+  const { instance, pid, taskKey, exit, signal } = ended
+  return appendEvent(db, { ts, type: CHILD_ENDED, actor, cardId: null, pr: null, head: null, dedupeKey: `${CHILD_ENDED}:${instance}:${pid}:${taskKey}`, payload: { instance, pid, task_key: taskKey, exit, signal }, legacy: false })
+}
 
 const WHOLE_QUEUE: ScopeOf = () => undefined
 
@@ -400,7 +471,12 @@ export abstract class Node<S extends NodeStep> {
 
   private recordStart(): void {
     if (!this.startRecorded)
-      this.startRecorded = this.retryWhenLocked('start record', () => recordWorkerStarted(this.db, this.ts(), this.actor, this.parts.self ?? this.supply.ownStart()))
+      this.startRecorded = this.retryWhenLocked('start record', () => recordWorkerIdentity(this.db, this.ts(), this.identity()))
+  }
+
+  identity(): WorkerIdentity {
+    const start = this.parts.self ?? this.supply.ownStart()
+    return { worker: this.actor, pid: start.pid, started: start.started, ...instanceOf(this.parts.env), ...provenIdentity(start, this.supply.ownIdentity?.() ?? null) }
   }
 
   protected before(): void {}
