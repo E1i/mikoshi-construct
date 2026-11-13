@@ -21,7 +21,7 @@
   "boundary:board->ui": 9,
   "boundary:board->window": 4,
   "boundary:bus->card-model": 7,
-  "boundary:bus->card-record": 4,
+  "boundary:bus->card-record": 3,
   "boundary:bus->command-registry": 2,
   "boundary:bus->decisions": 5,
   "boundary:bus->intake": 1,

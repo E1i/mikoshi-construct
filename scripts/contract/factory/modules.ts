@@ -186,9 +186,11 @@ export interface FactoryModule extends ModuleSpec {
   concepts: string[]
 }
 
-export interface ModulesSection extends Omit<ModuleGraphSpec, 'modules' | 'composition_imports'> {
+export interface ModulesSection extends Omit<ModuleGraphSpec, 'modules'> {
   modules: Record<string, FactoryModule>
 }
+
+export const FACTORY_CONTRACT = 'contract/factory.json'
 
 const FOLDER_ENTRY = 'index.ts'
 
@@ -196,7 +198,16 @@ function ownerFile(owner: string): string {
   return owner.endsWith('/') ? `${owner}${FOLDER_ENTRY}` : owner
 }
 
-export function modulesSection({ composition_imports: _publishedByTheGraphReport, ...graph }: ModuleGraphSpec = MODULE_GRAPH, concepts: readonly Pick<Concept, 'id' | 'owner'>[] = CONCEPTS): ModulesSection {
+export function graphOfSection({ modules, composition_roots, composition_imports, exclusions }: ModulesSection): ModuleGraphSpec {
+  return {
+    modules: Object.fromEntries(Object.entries(modules).map(([id, { concepts: _heldInTheSection, ...spec }]) => [id, spec])),
+    composition_roots,
+    composition_imports,
+    exclusions,
+  }
+}
+
+export function modulesSection(graph: ModuleGraphSpec = MODULE_GRAPH, concepts: readonly Pick<Concept, 'id' | 'owner'>[] = CONCEPTS): ModulesSection {
   return {
     ...graph,
     modules: Object.fromEntries(Object.entries(graph.modules).map(([id, spec]) => [

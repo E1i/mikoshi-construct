@@ -7,7 +7,6 @@ import type { QueuedTask } from './queue.js'
 import type { StoredEvent } from './stored.js'
 import { setImmediate as nextTurn } from 'node:timers/promises'
 import { BUS_VERSION, BUS_VERSION_BEFORE_LADDER_RUN, CARD_VERSION, CARD_VERSION_BEFORE_TOUCH_SCOPE, recordBusVersion, UNRECORDED_VERSION } from './bus-version.js'
-import { admittedCardVersion } from './card-bodies.js'
 import { appendEvent, inTransaction, openBus } from './db.js'
 import { CARD_STOPPED, NODE_DETECTED, NODE_EQUIVALENCE, TASK_LEASED } from './events.js'
 import { drainOpen, expireLeases, failTask, leasedByRetiring, leaseNext, recordWorkerStarted, RENEW_MS, renewLease, StaleLease, waitTask, workerRetiring } from './lease.js'
@@ -83,11 +82,14 @@ export type ProcessHeartbeat = (db: DatabaseSync, ts: string, process: string, c
 
 export type NodeSlots = (kind: NodeKind, env: NodeJS.ProcessEnv) => number
 
+export type CardRefusal = (db: DatabaseSync, lease: Lease, understands: Understood) => string | null
+
 export interface NodeSupply {
   cadence: NodeCadence
   recordProcessHeartbeat: ProcessHeartbeat
   slotsOf: NodeSlots
   ownStart: () => HolderStart
+  refuses: CardRefusal
 }
 
 export interface NodeContext {
@@ -328,19 +330,14 @@ export abstract class Node<S extends NodeStep> {
     return this.declaration
   }
 
-  private foreign(record: VersionedRecord, version: number, whose: string): string | null {
-    return this.declaration === null ? null : foreignVersion(this.declaration.understands, record, version, whose)
-  }
-
   private refuseForeignBus(): void {
-    const refusal = this.foreign('bus', recordBusVersion(this.db), 'the bus')
+    const refusal = this.declaration === null ? null : foreignVersion(this.declaration.understands, 'bus', recordBusVersion(this.db), 'the bus')
     if (refusal !== null)
       throw new ForeignVersion(refusal)
   }
 
   private refusedForeignCard(ts: string, lease: Lease): boolean {
-    const version = admittedCardVersion(this.db, lease.cardId)
-    const refusal = version === null ? null : this.foreign('card', version, `card #${lease.cardId} (${lease.taskKey})`)
+    const refusal = this.declaration === null ? null : this.supply.refuses(this.db, lease, this.declaration.understands)
     if (refusal === null)
       return false
     const stopped: BusEvent = { ts, type: CARD_STOPPED, actor: this.actor, cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${CARD_STOPPED}:${FOREIGN_CARD}:${lease.taskKey}`, payload: { reason: FOREIGN_CARD_STOP, detail: refusal }, legacy: false }

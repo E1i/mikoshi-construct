@@ -1,9 +1,13 @@
+import type { DatabaseSync } from 'node:sqlite'
+import type { Understood } from '../core/bus-version.js'
 import type { Lease } from '../core/lease.js'
 import type { NodeKind, NodeSupply } from '../core/node.js'
 import type { Projections } from '../core/reducer.js'
 import type { SessionMeasure } from './heartbeat.js'
 import { CARD_FOLDS, CARDS_PROJECTION } from '../core/card-automaton.js'
+import { admittedCardVersion } from '../core/card-bodies.js'
 import { CHAINS_PROJECTION } from '../core/chain.js'
+import { foreignVersion } from '../core/node.js'
 import { TASKS_PROJECTION } from '../core/queue.js'
 import { CARD_END_FOLDS, OWNER_WAIT_FOLDS, PLAN_FOLDS, PR_FOLDS } from '../core/reducer.js'
 import { ROLES_PROJECTION } from '../nodes/restart/role.js'
@@ -23,12 +27,18 @@ export function nodeLiveness(): NodeLiveness {
 
 export type CardSessionMeasure = SessionMeasure
 
+export function refusesForeignCard(db: DatabaseSync, lease: Lease, understands: Understood): string | null {
+  const version = admittedCardVersion(db, lease.cardId)
+  return version === null ? null : foreignVersion(understands, 'card', version, `card #${lease.cardId} (${lease.taskKey})`)
+}
+
 export function nodeSupply(): NodeSupply {
   return {
     cadence: { checkMs: CHECK_MS, tickMs: TICK_MS },
     recordProcessHeartbeat,
     slotsOf: (kind: NodeKind, env: NodeJS.ProcessEnv) => slotsOf(kind, env),
     ownStart,
+    refuses: refusesForeignCard,
   }
 }
 
