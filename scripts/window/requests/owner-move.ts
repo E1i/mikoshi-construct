@@ -19,7 +19,7 @@ export function ownerMoveExecutor(kind: OwnerMoveRequest, moved: (asked: OwnerMo
     if (target === null)
       return { done: false, why: `${kind} names no ${move === 'requeue' ? 'task' : 'card'}` }
     const command = ownerMoveCommand(move, target)
-    const word = consumeOwnerWord(context.ownerChannel, command)
+    const word = consumeOwnerWord(context.ownerChannel, command, context.clock())
     if (word === null)
       return { done: false, why: ownerMoveUnsaid(command) }
     const ts = context.now()

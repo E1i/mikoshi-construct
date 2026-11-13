@@ -693,7 +693,7 @@ describe('the launch node', () => {
     const root = mkdtempSync(path.join(tmpdir(), 'bus-launch-owner-word-'))
     try {
       const channel = path.join(root, 'owner-answers')
-      sayToOwnerChannel(channel, 'go on without them', made.clock.now())
+      sayToOwnerChannel(channel, `${wait}: go on without them`, made.clock.now())
       requestFromWindow(made.db, made.clock.now().toISOString(), 'test', { kind: 'owner.wait.close', id: wait, answer: 'go on without them', from: ANSWER_SOURCE })
       expect(new WindowRequests(made.db, made.clock.now, { treeOf: refuse, exists: refuse, cutTree: refuse, dryRunOf: refuse, addDecision: refuse, causeHolds: refuse, closePr: refuse, closeDropped: () => [] }, channel).run()).toMatchObject([{ kind: 'done' }])
     }

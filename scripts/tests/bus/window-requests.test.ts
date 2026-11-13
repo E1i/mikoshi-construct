@@ -533,7 +533,7 @@ describe('requests from the sandboxed window, executed by the bus outside it', (
     const opened = ask(made, { kind: 'owner.wait', need: 'decision', text: 'which path?', card: CARD })
     expect(made.requests().run()).toEqual([{ kind: 'done', request: opened, detail: 'opened Q1' }])
     reduce(made.bench.db, 'pending', busProjections())
-    ownerSays(made, 'the first')
+    ownerSays(made, 'Q1: the first')
     const first = ask(made, { kind: 'owner.wait.close', id: 'Q1', answer: 'the first', from: ANSWER_SOURCE })
     expect(made.requests().run()).toMatchObject([{ kind: 'done', request: first, detail: expect.stringContaining('closed Q1 on the owner\'s word') as unknown }])
     reduce(made.bench.db, 'pending', busProjections())
@@ -847,7 +847,7 @@ describe('requests from the sandboxed window, executed by the bus outside it', (
 
   it('two concurrent decisions:add requests on one owner file accept exactly one', async () => {
     const made = room()
-    ownerSays(made, 'Q14: the second path.')
+    sayToOwnerChannel(channelOf(made), 'Q14: the second path.', new Date())
     const fixture = path.join(import.meta.dirname, '..', 'owner', 'request-on-channel.ts')
     const startAt = String(Date.now() + 3000)
     const race = (bus: string): Promise<{ stdout: string }> => promisify(execFile)(process.execPath, ['--import', 'tsx', fixture, path.join(made.root, bus), channelOf(made), 'Q14: the second path.', startAt])

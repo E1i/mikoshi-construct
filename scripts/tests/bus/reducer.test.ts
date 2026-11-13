@@ -760,7 +760,7 @@ describe('the reducer of the owner_waits projection', () => {
     const refuse = (): never => {
       throw new Error('closing a wait uses no tool')
     }
-    const channel = ownerChannelWith('the downgrade is withdrawn')
+    const channel = ownerChannelWith(`${id}: the downgrade is withdrawn`)
     requestFromWindow(db, '2026-10-09T12:00:00.000Z', 'test', { kind: 'owner.wait.close', id, answer: 'the downgrade is withdrawn' })
     requestFromWindow(db, '2026-10-09T12:00:00.000Z', 'test', { kind: 'owner.wait.close', id, answer: 'the downgrade is withdrawn', from: ANSWER_SOURCE })
     const tools = { treeOf: refuse, exists: refuse, cutTree: refuse, dryRunOf: refuse, addDecision: refuse, causeHolds: refuse, closePr: refuse, closeDropped: () => [] }
@@ -781,7 +781,7 @@ describe('the reducer of the owner_waits projection', () => {
       throw new Error('closing a wait uses no tool')
     }
     const tools = { treeOf: refuse, exists: refuse, cutTree: refuse, dryRunOf: refuse, addDecision: refuse, causeHolds: refuse, closePr: refuse, closeDropped: () => [] }
-    const channel = ownerChannelWith('card #1262 dropped, the wait is void', 'the same close again')
+    const channel = ownerChannelWith(`${id}: card #1262 dropped, the wait is void`)
     const requests = new WindowRequests(db, () => new Date('2026-10-09T12:00:00.000Z'), tools, channel)
     requestFromWindow(db, '2026-10-09T12:00:00.000Z', 'test', { kind: 'owner.wait.close', id, answer: 'card #1262 dropped, the wait is void', from: ANSWER_SOURCE })
     requestFromWindow(db, '2026-10-09T12:00:01.000Z', 'test', { kind: 'owner.wait.close', id, answer: 'the same close again', from: ANSWER_SOURCE })

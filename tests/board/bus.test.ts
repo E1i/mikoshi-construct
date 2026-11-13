@@ -135,7 +135,7 @@ describe('the board bus reader', () => {
       expect(requests.run().map(outcome => outcome.detail)).toEqual(['opened Q1'])
       reduce(db, 'pending', busProjections())
       expect(waitsOnTheBoard()).toEqual([{ id: 'Q1', need: 'decision', text: 'which path for #1213?', command: null, card: 1213, pr: null, since: NOW.toISOString() }])
-      sayToOwnerChannel(channel, 'the first path', NOW)
+      sayToOwnerChannel(channel, 'Q1: the first path', NOW)
       requestFromWindow(db, NOW.toISOString(), 'window-1', { kind: 'owner.wait.close', id: 'Q1', answer: 'the first path', from: ANSWER_SOURCE })
       expect(requests.run().map(outcome => outcome.kind)).toEqual(['done'])
       expect(waitsOnTheBoard()).toEqual([])

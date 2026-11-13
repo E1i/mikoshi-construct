@@ -345,9 +345,12 @@ function closeWaitsTheDecisionsAnswer(db: DatabaseSync, event: StoredEvent): voi
   }
 }
 
+export const LAST_EVENT_A_DECISION_CLOSES_WAITS_BY = 12637103
+
 function foldDecisionClosingWaits(db: DatabaseSync, event: StoredEvent): void {
   DECISION_FOLDS[event.type]!(db, event)
-  closeWaitsTheDecisionsAnswer(db, event)
+  if (event.id <= LAST_EVENT_A_DECISION_CLOSES_WAITS_BY)
+    closeWaitsTheDecisionsAnswer(db, event)
 }
 
 export const OWNER_WAIT_FOLDS: Record<string, Fold> = {

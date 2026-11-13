@@ -16,7 +16,7 @@ export const execute: RequestExecutor = (context, _request, payload) => {
   const filled = [...decision.matchAll(AT_HEAD_OF_A_PR)].some(match => context.observed(Number(match[1]))?.head == null) ? null : decision.replace(AT_HEAD_OF_A_PR, (_, pr: string) => `PR #${pr} at ${context.observed(Number(pr))!.head!}`)
   if (words === '' || filled === null)
     return { done: false, why: words === '' ? `decisions:add: an empty decision; the bus writes only the owner's own words` : `decisions:add: the decision names a PR at ${HEAD_WORD} whose head the bus has not observed, so the bus has no sha to put in` }
-  const word = consumeOwnerWord(context.ownerChannel, words)
+  const word = consumeOwnerWord(context.ownerChannel, words, context.clock())
   if (word === null)
     return { done: false, why: OWNER_WORD_NOT_FOUND }
   const already = context.sameWordsBoundTo(words, (Array.isArray(payload.cards) ? payload.cards : []).map(card => cardIdOf(card)).filter((card): card is number => card !== null))
