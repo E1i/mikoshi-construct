@@ -1,0 +1,6 @@
+{
+  "module": "known-flags",
+  "may_use": [],
+  "may_use_factory": [],
+  "may_use_factory_within": {}
+}

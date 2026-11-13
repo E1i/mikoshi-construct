@@ -21,21 +21,45 @@ export interface ContentionArea {
   until: string
 }
 
+export interface MayUse {
+  module: string
+  may_use: readonly string[]
+  may_use_factory: readonly string[]
+  may_use_factory_within: Readonly<Record<string, readonly string[]>>
+}
+
 export interface Declarations {
   modules: readonly ModuleDeclaration[]
   contention: readonly ContentionArea[]
   generated: readonly GeneratedRow[]
+  mayUse: readonly MayUse[]
+  internalModules: readonly string[]
   problems: readonly string[]
+}
+
+export interface EslintEdges {
+  allowedInternalImports: Record<string, string[]>
+  coreFilesSrcMayImport: string[]
+  allowedFactoryImports: Record<string, string[]>
 }
 
 export const MODULES_KIND = 'modules'
 export const CONTENTION_KIND = 'contention'
+export const MAY_USE_KIND = 'may-use'
 
-export const KEY_FIELDS: Readonly<Record<string, string>> = { [MODULES_KIND]: 'module', [CONTENTION_KIND]: 'id', [GENERATED_KIND]: 'id' }
+export const KEY_FIELDS: Readonly<Record<string, string>> = { [MODULES_KIND]: 'module', [CONTENTION_KIND]: 'id', [GENERATED_KIND]: 'id', [MAY_USE_KIND]: 'module' }
 
 export const SLICED_CHECKS: readonly string[] = ['P-restart', 'R-area-drop', 'R-graph', 'R-laws', 'V1', 'V2']
 
 export const MODULE_FILES = GENERATED_FILES.moduleFiles.path
+export const ESLINT_EDGES_ROW = 'eslint-edges'
+export const ESLINT_EDGES = generatedPathOf(ESLINT_EDGES_ROW)
+export const INTERNAL_MODULES_FILE = 'internal-modules.json'
+
+const SOURCE_ROOT = 'src'
+const SOURCE_SUFFIX = '.ts'
+const FACTORY_CORE = 'core/'
+const FACTORY_IMPORT = /^[\w-]+(?:\/[\w-]+)*(?:\.js|\/)$/
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..')
 const WILDCARD = '*'
@@ -43,6 +67,13 @@ const FOLDER_END = '/'
 const EXACT = Number.POSITIVE_INFINITY
 
 type Problem = (problem: string) => void
+
+function generatedPathOf(id: string): string {
+  const row = (Object.values(GENERATED_FILES) as GeneratedRow[]).find(entry => entry.id === id)
+  if (row === undefined)
+    throw new Error(`${DECLARATIONS_FOLDER}/${GENERATED_KIND}/ has no row ${id}, which scripts/core/declarations.ts names`)
+  return row.path
+}
 
 function isText(value: unknown): value is string {
   return typeof value === 'string' && value !== ''
@@ -184,6 +215,41 @@ function areaOf(key: string, value: Record<string, unknown>, problem: Problem): 
   return { id: key, ...(value.module === undefined ? {} : { module: value.module as string }), paths: value.paths as string[], why: value.why as string, until: value.until as string }
 }
 
+function isListRecord(value: unknown): value is Record<string, string[]> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value) && Object.values(value).every(isTextList)
+}
+
+function mayUseOf(key: string, value: Record<string, unknown>, problem: Problem): MayUse | null {
+  let fine = true
+  const report = (text: string): void => {
+    fine = false
+    problem(text)
+  }
+  for (const field of ['may_use', 'may_use_factory'] as const) {
+    if (!isTextList(value[field]))
+      report(`${field} is not a list of non-empty strings`)
+  }
+  if (!isListRecord(value.may_use_factory_within))
+    report('may_use_factory_within is not an object of lists of non-empty strings')
+  return fine
+    ? { module: key, may_use: value.may_use as string[], may_use_factory: value.may_use_factory as string[], may_use_factory_within: value.may_use_factory_within as Record<string, string[]> }
+    : null
+}
+
+function internalModulesAt(root: string, problem: (text: string) => void): string[] {
+  const file = path.join(root, INTERNAL_MODULES_FILE)
+  if (!existsSync(file)) {
+    problem(`${INTERNAL_MODULES_FILE} is missing, and ${DECLARATIONS_FOLDER}/${MAY_USE_KIND} names its modules`)
+    return []
+  }
+  const value: unknown = JSON.parse(readFileSync(file, 'utf8'))
+  if (!isTextList(value)) {
+    problem(`${INTERNAL_MODULES_FILE} is not a list of non-empty strings`)
+    return []
+  }
+  return value
+}
+
 function entriesOf(folder: string, problem: (file: string, text: string) => void): { key: string, file: string, value: Record<string, unknown> }[] {
   return readdirSync(folder).sort().flatMap((name) => {
     if (!name.endsWith(DECLARATION_SUFFIX)) {
@@ -213,6 +279,7 @@ export function readDeclarations(root: string = REPO_ROOT): Declarations {
   const modules: ModuleDeclaration[] = []
   const contention: ContentionArea[] = []
   const generated: GeneratedRow[] = []
+  const mayUse: MayUse[] = []
   const kinds = existsSync(base) ? readdirSync(base).sort() : []
   for (const kind of kinds) {
     if (!(kind in KEY_FIELDS) || !statSync(path.join(base, kind)).isDirectory())
@@ -242,6 +309,11 @@ export function readDeclarations(root: string = REPO_ROOT): Declarations {
         if (module !== null)
           modules.push(module)
       }
+      else if (kind === MAY_USE_KIND) {
+        const edges = mayUseOf(key, value, problem)
+        if (edges !== null)
+          mayUse.push(edges)
+      }
       else {
         const area = areaOf(key, value, problem)
         if (area !== null)
@@ -249,7 +321,8 @@ export function readDeclarations(root: string = REPO_ROOT): Declarations {
       }
     }
   }
-  return { modules, contention, generated, problems }
+  const internalModules = kinds.includes(MAY_USE_KIND) ? internalModulesAt(root, text => problems.push(text)) : []
+  return { modules, contention, generated, mayUse, internalModules, problems }
 }
 
 function filesUnder(entry: string, tracked: readonly string[]): string[] {
@@ -309,13 +382,70 @@ function rowProblemsOver(rows: readonly GeneratedRow[], modules: readonly Module
   })
 }
 
+function targetOf(module: string, tracked: readonly string[]): string | null {
+  const file = `${SOURCE_ROOT}/${module}${SOURCE_SUFFIX}`
+  if (tracked.includes(file))
+    return file
+  const folder = `${SOURCE_ROOT}/${module}`
+  return tracked.some(entry => entry.startsWith(`${folder}/`)) ? folder : null
+}
+
+function factoryImportProblems(at: string, entries: readonly string[], tracked: readonly string[]): string[] {
+  return entries.flatMap((entry) => {
+    if (!FACTORY_IMPORT.test(entry))
+      return [`${at}: factory import "${entry}" is neither a .js module nor a folder ending in /`]
+    const source = `scripts/${entry.endsWith(FOLDER_END) ? entry : entry.replace(/\.js$/, SOURCE_SUFFIX)}`
+    return tracked.some(file => matches(source, file)) ? [] : [`${at}: factory import "${entry}" names no tracked file under scripts/`]
+  })
+}
+
+function mayUseProblems(mayUse: readonly MayUse[], internalModules: readonly string[], tracked: readonly string[]): string[] {
+  return mayUse.flatMap((edges) => {
+    const at = where(MAY_USE_KIND, edges.module)
+    if (!internalModules.includes(edges.module))
+      return [`${at}: module "${edges.module}" is not in ${INTERNAL_MODULES_FILE}`]
+    const target = targetOf(edges.module, tracked)
+    if (target === null)
+      return [`${at}: neither ${SOURCE_ROOT}/${edges.module}${SOURCE_SUFFIX} nor ${SOURCE_ROOT}/${edges.module}/ is tracked`]
+    return [
+      ...edges.may_use.filter(name => !internalModules.includes(name)).map(name => `${at}: may_use names "${name}", which is not in ${INTERNAL_MODULES_FILE}`),
+      ...edges.may_use.filter(name => name === edges.module).map(() => `${at}: may_use names the module itself`),
+      ...factoryImportProblems(at, edges.may_use_factory, tracked),
+      ...Object.entries(edges.may_use_factory_within).flatMap(([within, entries]) => [
+        ...(tracked.some(file => file.startsWith(`${target}/${within}/`)) ? [] : [`${at}: may_use_factory_within names "${within}", and ${target}/${within}/ holds no tracked file`]),
+        ...factoryImportProblems(at, entries, tracked),
+      ]),
+    ]
+  })
+}
+
 export function validateDeclarations(declarations: Declarations, tracked: readonly string[]): string[] {
   return [
     ...declarations.problems,
     ...moduleProblems(declarations.modules, tracked),
     ...areaProblems(declarations.contention, declarations.modules, tracked),
     ...rowProblemsOver(declarations.generated, declarations.modules, tracked),
+    ...mayUseProblems(declarations.mayUse, declarations.internalModules, tracked),
   ]
+}
+
+export function eslintEdgesOf(mayUse: readonly MayUse[], tracked: readonly string[]): EslintEdges {
+  const allowedInternalImports: Record<string, string[]> = {}
+  const allowedFactoryImports: Record<string, string[]> = {}
+  for (const edges of [...mayUse].sort((left, right) => left.module.localeCompare(right.module))) {
+    const target = targetOf(edges.module, tracked) ?? `${SOURCE_ROOT}/${edges.module}`
+    allowedInternalImports[target] = [...edges.may_use]
+    if (edges.may_use_factory.length > 0)
+      allowedFactoryImports[target] = [...edges.may_use_factory]
+    for (const within of Object.keys(edges.may_use_factory_within).sort())
+      allowedFactoryImports[`${target}/${within}`] = [...edges.may_use_factory, ...edges.may_use_factory_within[within]!]
+  }
+  const core = Object.values(allowedFactoryImports).flat().filter(entry => entry.startsWith(FACTORY_CORE))
+  return { allowedInternalImports, coreFilesSrcMayImport: [...new Set(core)].sort(), allowedFactoryImports }
+}
+
+export function renderEslintEdges(edges: EslintEdges): string {
+  return `${JSON.stringify(edges, null, 2)}\n`
 }
 
 export function moduleFilesOf(modules: readonly ModuleDeclaration[], tracked: readonly string[]): Record<string, string[]> {
@@ -344,7 +474,7 @@ async function standardInput(): Promise<string> {
 }
 
 async function main(): Promise<void> {
-  const tracked = [...new Set([...trackedFrom(await standardInput(), file => existsSync(path.join(REPO_ROOT, file))), MODULE_FILES])].sort()
+  const tracked = [...new Set([...trackedFrom(await standardInput(), file => existsSync(path.join(REPO_ROOT, file))), MODULE_FILES, ESLINT_EDGES])].sort()
   const declarations = readDeclarations(REPO_ROOT)
   const problems = validateDeclarations(declarations, tracked)
   if (problems.length > 0) {
@@ -353,6 +483,7 @@ async function main(): Promise<void> {
     return
   }
   writeFileSync(path.join(REPO_ROOT, MODULE_FILES), renderModuleFiles(moduleFilesOf(declarations.modules, tracked)))
+  writeFileSync(path.join(REPO_ROOT, ESLINT_EDGES), renderEslintEdges(eslintEdgesOf(declarations.mayUse, tracked)))
 }
 
 if (realpathSync(process.argv[1] ?? '') === fileURLToPath(import.meta.url))

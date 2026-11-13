@@ -1,0 +1,6 @@
+{
+  "module": "manifest",
+  "may_use": ["detect", "materialize", "presets", "record-ahead"],
+  "may_use_factory": [],
+  "may_use_factory_within": {}
+}

@@ -1,0 +1,6 @@
+{
+  "module": "atlas",
+  "may_use": ["detect", "manifest", "model", "ui"],
+  "may_use_factory": ["core/owner-commands.js"],
+  "may_use_factory_within": {}
+}

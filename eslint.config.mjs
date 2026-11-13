@@ -1,38 +1,12 @@
 import { execFileSync } from 'node:child_process'
 import path from 'node:path'
 import antfu from '@antfu/eslint-config'
+import ESLINT_EDGES from './contract/eslint-edges.json' with { type: 'json' }
 import INTERNAL_MODULES from './internal-modules.json' with { type: 'json' }
 import REAL_TIME_WAITS_EXCEPTED from './scripts/quality/real-time-waits-excepted.json' with { type: 'json' }
 
-const ALLOWED_INTERNAL_IMPORTS = {
-  'src/atlas': ['detect', 'manifest', 'model', 'ui'],
-  'src/card': [],
-  'src/detect': [],
-  'src/manifest.ts': ['detect', 'materialize', 'presets', 'record-ahead'],
-  'src/model': ['detect', 'presets', 'record-ahead'],
-  'src/presets': ['detect'],
-  'src/materialize': ['presets'],
-  'src/sync': ['manifest', 'materialize', 'presets'],
-  'src/ui': ['presets'],
-  'src/failure.ts': ['record-ahead', 'ui'],
-  'src/known-flags.ts': [],
-  'src/commands': ['card', 'detect', 'manifest', 'materialize', 'model', 'presets', 'sync', 'ui', 'version'],
-  'src/program.ts': ['atlas', 'commands', 'detect', 'failure', 'known-flags', 'presets', 'ui', 'version'],
-  'src/cli.ts': ['program'],
-}
-
-const CORE_FILES_SRC_MAY_IMPORT = ['bus-path', 'bus-readings', 'eddies', 'events', 'factory-paths', 'gh-callers', 'handoff-dir', 'layer-map', 'merge-event', 'owner-commands', 'verification'].map(name => `core/${name}.js`)
-const OWNER_COMMANDS = 'core/owner-commands.js'
-
-const ALLOWED_FACTORY_IMPORTS = {
-  'src/atlas': [OWNER_COMMANDS],
-  'src/card': ['core/factory-paths.js', 'policy/touch-scope.js'],
-  'src/commands': CORE_FILES_SRC_MAY_IMPORT,
-  'src/commands/doctor': [...CORE_FILES_SRC_MAY_IMPORT, 'policy/decisions/decisions.js', 'policy/live-decision.js', 'policy/touch-scope.js'],
-  'src/commands/intake': [...CORE_FILES_SRC_MAY_IMPORT, 'policy/decisions/decisions.js', 'policy/touch-scope.js'],
-  'src/program.ts': [...CORE_FILES_SRC_MAY_IMPORT, 'owner/channel.js'],
-  'src/ui': [OWNER_COMMANDS],
-}
+const ALLOWED_INTERNAL_IMPORTS = ESLINT_EDGES.allowedInternalImports
+const ALLOWED_FACTORY_IMPORTS = ESLINT_EDGES.allowedFactoryImports
 
 function factoryReach(target) {
   const allowed = ALLOWED_FACTORY_IMPORTS[target] ?? []
