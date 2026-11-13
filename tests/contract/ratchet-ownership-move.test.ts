@@ -5,12 +5,11 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
-import { carvedOut, MODULE_GRAPH } from '../../scripts/contract/factory/modules.js'
+import { carvedOut, FACTORY_CONTRACT, MODULE_GRAPH, modulesSection } from '../../scripts/contract/factory/modules.js'
 import { boundaryNumbers, boundaryReport } from '../../scripts/contract/module-graph/boundary.js'
 import { checkRatchet, specInTree } from '../../scripts/contract/ratchet.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../..')
-const SPAWN_TIMEOUT = 60_000
 const SPEC_FILE = 'spec.json'
 const MOVED_ROW = 'boundary:app->adapters'
 const PORTS_ROW = 'boundary:app->ports'
@@ -173,7 +172,26 @@ describe('the boundary ratchet under an ownership move', () => {
     expect(movedRowBreaks(breaksAfter(root, recorded))).toEqual([expect.stringContaining(`${MOVED_ROW} grew from 0 to 3`)])
   })
 
-  it('the base spec is read from the module graph the base tree itself declares', { timeout: SPAWN_TIMEOUT }, () => {
+  it('the base spec is read from the module graph the base tree itself declares', () => {
     expect(specInTree(REPO_ROOT)).toEqual(JSON.parse(JSON.stringify(MODULE_GRAPH)))
+  })
+
+  it('the base spec is read from contract/factory.json of the unpacked tree', () => {
+    const tree = mkdtempSync(path.join(tmpdir(), 'ratchet-spec-'))
+    roots.push(tree)
+    mkdirSync(path.join(tree, 'contract'))
+    writeFileSync(path.join(tree, FACTORY_CONTRACT), JSON.stringify({ modules: modulesSection(MOVED, []) }))
+
+    expect(specInTree(tree)).toEqual(MOVED)
+  })
+
+  it('a base contract that predates the published composition_imports reads as admitting no importer', () => {
+    const tree = mkdtempSync(path.join(tmpdir(), 'ratchet-spec-'))
+    roots.push(tree)
+    mkdirSync(path.join(tree, 'contract'))
+    const { composition_imports: _absentOnThatBase, ...older } = modulesSection(MOVED, [])
+    writeFileSync(path.join(tree, FACTORY_CONTRACT), JSON.stringify({ modules: older }))
+
+    expect(specInTree(tree)).toEqual(MOVED)
   })
 })
