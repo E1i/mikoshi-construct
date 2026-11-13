@@ -151,6 +151,43 @@ describe('scenario 15, the validator part: what the validator refuses', () => {
     }, ['scripts/a.ts', 'contract/record.json'])
     expect(problems).toEqual(['declarations/generated/record.json: contract/record.json is not owned by the generator\'s module a'])
   })
+
+  it('reports a shared path that a module other than its owner names in paths or exclude', () => {
+    const problems = problemsOf({
+      modules: {
+        a: module('a', ['scripts/'], { shared: ['package.json'] }),
+        b: module('b', ['docs/', 'package.json']),
+      },
+    }, ['scripts/a.ts', 'docs/b.md', 'package.json'])
+    expect(problems).toContain('shared path "package.json" of a is named by b as well')
+  })
+
+  it('refuses a contention area whose module is not declared', () => {
+    expect(problemsOf({
+      modules: { a: module('a', ['scripts/']) },
+      contention: { area: { id: 'area', module: 'ghost', paths: ['scripts/'], why: 'w', until: RESTART_CHECK } },
+    }, ['scripts/a.ts'])).toEqual(['declarations/contention/area.json: module "ghost" is not declared'])
+  })
+
+  it('refuses a generated row whose module is not declared', () => {
+    expect(problemsOf({
+      modules: { a: module('a', ['scripts/']) },
+      generated: { record: { id: 'record', module: 'ghost', path: 'scripts/a.ts', rebuild: null, check: null, rebuiltOnUpdate: false, seamSources: null, followSources: null } },
+    }, ['scripts/a.ts'])).toEqual(['declarations/generated/record.json: module "ghost" is not declared'])
+  })
+
+  it('refuses a folder under declarations/ that is not a kind the validator reads', () => {
+    expect(problemsOf({
+      modules: { a: module('a', ['scripts/']) },
+      unknown: { thing: { id: 'thing' } },
+    } as Fixture, ['scripts/a.ts'])).toEqual(['declarations/unknown: not a declaration kind this validator reads (modules, contention, generated)'])
+  })
+
+  it('refuses a pattern in shared, which names one file', () => {
+    expect(problemsOf({
+      modules: { a: module('a', ['scripts/'], { shared: ['scripts/*.ts'] }) },
+    }, ['scripts/a.ts'])).toContain('declarations/modules/a.json: shared names "scripts/*.ts", which is a pattern, not one file')
+  })
 })
 
 describe('resolution by specificity', () => {
@@ -172,6 +209,7 @@ describe('resolution by specificity', () => {
     expect(ownershipOf(modules, 'scripts/core/nested/even.ts').owner).toBe('folder')
     expect(ownershipOf(modules, 'scripts/core/data.json').owner).toBe('folder')
     expect(ownershipOf(modules, 'scripts/a/fixtures/b.ts')).toEqual({ owner: null, tied: ['deep', 'folder'] })
+    expect(ownershipOf(modules, 'scripts/a/fixtures/nested/b.ts')).toEqual({ owner: null, tied: ['deep', 'folder'] })
   })
 
   it('an exclude removes a path from its own module and assigns it nowhere', () => {
