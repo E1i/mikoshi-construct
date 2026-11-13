@@ -64,7 +64,8 @@ function timedResultOf(error: (Error & { code?: number | string | null, signal?:
 export async function realTimedShell(command: string, cwd: string, timeoutMs: number, started?: (pid: number) => void): Promise<TimedShellResult> {
   const budget = String(Math.max(1, Math.floor(timeoutMs)))
   return new Promise((resolve) => {
-    const runner = execFile(process.execPath, ['-e', GROUP_RUNNER, budget, command], { cwd, env: witnessEnv(), encoding: 'utf8', maxBuffer: SHELL_BUFFER, timeout: timeoutMs + GROUP_KILL_GRACE_MS, killSignal: 'SIGKILL', detached: true }, (error, stdout, stderr) => {
+    const ownGroup = { cwd, env: witnessEnv(), encoding: 'utf8' as const, maxBuffer: SHELL_BUFFER, timeout: timeoutMs + GROUP_KILL_GRACE_MS, killSignal: 'SIGKILL' as const, detached: true }
+    const runner = execFile(process.execPath, ['-e', GROUP_RUNNER, budget, command], ownGroup, (error, stdout, stderr) => {
       resolve(timedResultOf(error, stdout, stderr))
     })
     if (runner.pid !== undefined)

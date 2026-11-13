@@ -126,7 +126,7 @@ describe('scenario 03 (K1): a restart stops workers by recorded identity only', 
     appendEvent(db, { ts: ts(), type: MAIN_ADVANCED, actor: 'netwatch', cardId: null, pr: null, head: null, dedupeKey: `${MAIN_ADVANCED}:${NEW_MAIN}`, payload: { sha: NEW_MAIN }, legacy: false })
 
     const { launch } = workerLaunches(() => [])
-    const processes = withoutRetiring(identifiedProcesses(table, db, []), db)
+    const processes = withoutRetiring(identifiedProcesses(table, db), db)
     let head = OLD_MAIN
     const started: string[] = []
     const supervisor = new BusSupervisor({
@@ -195,9 +195,9 @@ describe('scenario 03 (K1): a restart stops workers by recorded identity only', 
     const own = identityOf(table.snapshot(), process.pid)!
     const earlier = new Date(Date.parse(own.lstart) - 60_000).toISOString()
     recordWorkerIdentity(db, new Date().toISOString(), { worker: 'worker:launch:reused', pid: own.pid, started: earlier, instance: 'reused', generation: OLD_MAIN, pgid: own.pgid, lstart: earlier })
-    expect(identifiedProcesses(table, db, [])().map(each => each.pid)).toEqual([])
+    expect(identifiedProcesses(table, db)().map(each => each.pid)).toEqual([])
     recordWorkerIdentity(db, new Date().toISOString(), { worker: 'worker:launch:this', pid: own.pid, started: own.lstart, instance: 'this', generation: OLD_MAIN, pgid: own.pgid, lstart: own.lstart })
-    expect(identifiedProcesses(table, db, [])().map(each => each.pid)).toEqual([own.pid])
+    expect(identifiedProcesses(table, db)().map(each => each.pid)).toEqual([own.pid])
     db.close()
   })
 })
