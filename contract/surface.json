@@ -1686,6 +1686,17 @@
       ]
     }
   },
+  "report": {
+    "countLine": "■ \\d+ □ \\d+ · \\d+",
+    "countLineRefusal": "no_matrix_count_line",
+    "countLineUnder": [
+      "src/",
+      "templates/"
+    ],
+    "readFrom": "pull request description",
+    "reportVersion": 1,
+    "writtenIn": ".construct/report.md"
+  },
   "scripts": {
     "approve": {
       "entries": [
