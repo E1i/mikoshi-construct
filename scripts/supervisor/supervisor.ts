@@ -25,7 +25,7 @@ import { processGit } from '../ports/git.js'
 import { CHECK_MS } from '../ports/netwatch.js'
 import { OsProcessTable, rowOf, rowsOf } from '../ports/process-table.js'
 import { WindowSessionEnds } from '../window/window-session-end.js'
-import { BUILD_DIR, BUILT_MODULE, flagsInArgs, installedPackage, instancesOf, launchName, PREFIX, printBg, provenOnBus, psList, runBusBg, runningInstance, stampedOtherwise, startDetached, thisBus, withBuses } from './bg.js'
+import { BUILD_DIR, BUILT_MODULE, flagsInArgs, installedPackage, instancesOf, launchName, PREFIX, printBg, provenOnBus, runBusBg, runningInstance, stampedOtherwise, startDetached, thisBus, withBuses } from './bg.js'
 import { BusHealer, CorruptionWatch, RecordedNodes } from './bus-heal.js'
 import { BusSnapshot } from './bus-snapshot.js'
 import { busProjections } from './composition.js'
@@ -547,13 +547,16 @@ function workerKindsOf(launches: DetachedLaunch[]): string[] {
   return launches.map(launch => launch.script.replace(/^bus:/, '')).filter(isBusWorker)
 }
 
-export function withoutRetiring(processes: ProcessList, db: DatabaseSync, holding: () => boolean = () => false): ProcessList {
+export type MaybeGrouped = RunningProcess & { group?: number }
+
+export function withoutRetiring(processes: () => MaybeGrouped[], db: DatabaseSync, holding: () => boolean = () => false): ProcessList {
   return () => {
     const listed = processes()
     if (holding())
       return listed
     const retiring = retiringPids(db)
-    return listed.filter(each => !retiring.has(each.pid))
+    const inRetiringGroup = (each: MaybeGrouped): boolean => each.group !== undefined && retiring.has(each.group)
+    return listed.filter(each => !retiring.has(each.pid) && !inRetiringGroup(each))
   }
 }
 
@@ -957,9 +960,14 @@ export function outsideGroup(processes: GroupedProcess[], group: number): Runnin
   return processes.filter(candidate => candidate.group !== group).map(({ group: _group, ...running }) => running)
 }
 
+export function groupedPsList(table: ProcessTable = new OsProcessTable()): () => GroupedProcess[] {
+  return () => withBuses(rowsOf(table.snapshot()).map(row => ({ pid: row.pid, group: row.pgid, args: row.command })))
+}
+
 export function outsideOwnGroup(table: ProcessTable = new OsProcessTable(), self: number = process.pid): ProcessList {
   const own = rowOf(table.snapshot(), self)?.pgid ?? self
-  return () => outsideGroup(withBuses(rowsOf(table.snapshot()).map(row => ({ pid: row.pid, group: row.pgid, args: row.command }))), own)
+  const grouped = groupedPsList(table)
+  return () => outsideGroup(grouped(), own)
 }
 
 export function runReducer(cwd: string): string[] {
@@ -1015,7 +1023,7 @@ export interface SwitchControl {
 async function supervise(busDir: string, cwd: string, reviewPreflight: () => string[]): Promise<number> {
   const busPath = defaultBusPath()
   const db = openBus(busPath)
-  const everyProcess = psList()
+  const everyProcess = groupedPsList()
   const journal = (entry: Record<string, unknown>): void => {
     appendFileSync(path.join(busDir, SUPERVISOR_JOURNAL), `${JSON.stringify(entry)}\n`)
   }
@@ -1136,7 +1144,7 @@ function freeLeasesOnBus(stopped: DetachedLaunch[]): string[] {
   }
 }
 
-function withoutRetiringOnBus(processes: ProcessList): ProcessList {
+function withoutRetiringOnBus(processes: () => MaybeGrouped[]): ProcessList {
   return () => {
     const db = openBus(defaultBusPath())
     try {
@@ -1148,7 +1156,7 @@ function withoutRetiringOnBus(processes: ProcessList): ProcessList {
   }
 }
 
-export async function startBus(busDir: string = pinnedBusDir(), everyProcess: ProcessList = psList()): Promise<BgResult> {
+export async function startBus(busDir: string = pinnedBusDir(), everyProcess: () => MaybeGrouped[] = groupedPsList()): Promise<BgResult> {
   const processes = withoutRetiringOnBus(everyProcess)
   const judged = await restartSilentSupervisorOnBus(busDir, everyProcess)
   const started = await startUnderAgentEnv(busDir, [...wantedLaunches(busDir, reviewPreflight, decisionsInForce()), SUPERVISOR_LAUNCH], {
