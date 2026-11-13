@@ -120,16 +120,16 @@ const { unmerged: A_DEPENDENCY_UNMERGED, updateDue: A_DEPENDENCY_UPDATE_DUE, hel
 
 export const { unmergedDependenciesOf, updateDueOn: dependencyUpdateDueOn } = DEPENDENCY_WAIT
 
-const A_REVIEW_IN_FLIGHT = `EXISTS (
-  SELECT 1 FROM tasks AS reviewing WHERE reviewing.queue = 'review' AND reviewing.pr = prs.pr AND reviewing.head = prs.head
-    AND reviewing.state IN ('${QUEUED}', '${LEASED}')
-)`
+function aTaskInFlight(queue: string, match: string): string {
+  return `EXISTS (SELECT 1 FROM tasks AS live WHERE live.queue = '${queue}' AND ${match}
+    AND live.state IN ('${QUEUED}', '${LEASED}'))`
+}
 
 function mergeCandidatesWhere(verdict: string, mergeable: string): string {
   return `
   SELECT pr, card_id, head, body_sha FROM prs
   WHERE state = 'open' AND base = '${MAIN_BRANCH}' AND ci = 'green' AND ${verdict} AND ${mergeable} AND draft = 0 AND card_id IS NOT NULL AND head IS NOT NULL
-    AND NOT ${A_DEPENDENCY_UNMERGED} AND NOT ${A_REVIEW_IN_FLIGHT}
+    AND NOT ${A_DEPENDENCY_UNMERGED} AND NOT ${aTaskInFlight('review', 'live.pr = prs.pr AND live.head = prs.head')}
   ORDER BY pr
 `
 }
@@ -170,7 +170,7 @@ function openPrsByCardPriority(condition: string, column = ''): string {
 `
 }
 
-const GREEN_BEHIND_BY_CARD_PRIORITY = openPrsByCardPriority(`prs.mergeable = 'behind' AND prs.ci = 'green'`)
+const GREEN_BEHIND_AT_ITS_MERGE_TURN = openPrsByCardPriority(`prs.mergeable = 'behind' AND prs.ci = 'green' AND NOT ${aTaskInFlight('merge', 'live.pr != prs.pr')}`)
 
 export const AN_UPDATED_PR_HOLDS_MS = LEASE_MS
 
@@ -894,7 +894,7 @@ export function updateTurnHeldFrom(db: DatabaseSync, ts: string, pr: number): bo
 export function updateCandidates(db: DatabaseSync, ts: string, rerun: RerunMode = 'as-now'): QueuedTask[] {
   const sent = rerun === 'by-layers' ? candidateRows(db, GREEN_CLEAN_A_MERGE_SENT_TO_UPDATE, aMergeCandidate(db, ts)) : []
   const conflicting = candidateRows(db, CONFLICTING_BY_CARD_PRIORITY, everyRow)
-  const green = [...candidateRows(db, GREEN_BEHIND_BY_CARD_PRIORITY, aMergeCandidate(db, ts)), ...sent]
+  const green = [...candidateRows(db, GREEN_BEHIND_AT_ITS_MERGE_TURN, aMergeCandidate(db, ts)), ...sent]
   const dependents = candidateRows(db, DEPENDENTS_OF_A_MERGED_CARD_BY_CARD_PRIORITY, everyRow)
   const holders = new Set(holdsOfTheUpdateTurn(db, ts).map(row => row.pr))
   const inTurn = holders.size === 0 ? [...green, ...dependents] : [...green, ...dependents].filter(row => holders.has(row.pr))
