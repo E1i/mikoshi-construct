@@ -238,30 +238,22 @@ function decidedOnTheCardSince(bus: BusRead, cardId: number, stop: number): bool
   return bus.where({ from: stop + 1 }).slice(DECISION_RECORDED, ['scope']).some(decided => Array.isArray(decided.fields.scope) && decided.fields.scope.includes(cardId))
 }
 
-const CLOSED_WAITS_OF_THE_CARD = `SELECT id, event_id FROM owner_waits WHERE card_id = ? AND state = '${CLOSED_WAIT}'`
+const CLOSED_WAITS_OF_THE_CARD = `SELECT w.id, w.event_id, e.type FROM owner_waits AS w JOIN events AS e ON e.id = w.event_id WHERE w.card_id = ? AND w.state = '${CLOSED_WAIT}'`
 
-interface ClosedWait {
-  id: string
-  event_id: number
-}
-
-function closedWaitsOf(db: DatabaseSync, cardId: number): ClosedWait[] {
-  return db.prepare(CLOSED_WAITS_OF_THE_CARD).all(cardId) as unknown as ClosedWait[]
-}
-
-function aWaitOfTheCardClosedSince(db: DatabaseSync, cardId: number, stop: number): boolean {
-  return closedWaitsOf(db, cardId).some(wait => wait.event_id > stop)
+function closedWaitsOf(db: DatabaseSync, cardId: number): { id: string, event_id: number, type: string }[] {
+  return db.prepare(CLOSED_WAITS_OF_THE_CARD).all(cardId) as unknown as { id: string, event_id: number, type: string }[]
 }
 
 function ownerAnsweredSince(db: DatabaseSync, bus: BusRead, cardId: number, stop: number): boolean {
-  return decidedOnTheCardSince(bus, cardId, stop) || aWaitOfTheCardClosedSince(db, cardId, stop)
+  return decidedOnTheCardSince(bus, cardId, stop) || closedWaitsOf(db, cardId).some(wait => wait.event_id > stop && wait.type !== CARD_ADMITTED)
 }
 
 function questionStillOpen(db: DatabaseSync, bus: BusRead, cardId: number, stop: number): boolean {
   if (decidedOnTheCardSince(bus, cardId, stop))
     return false
   const closed = new Set(closedWaitsOf(db, cardId).map(wait => wait.id))
-  return bus.where({ from: stop + 1 }).where({ card: cardId }).slice(OWNER_WAIT_OPENED, ['id']).some(opened => !closed.has(String(opened.fields.id)))
+  const openedSince = bus.where({ from: stop + 1 }).where({ card: cardId }).slice(OWNER_WAIT_OPENED, ['id'])
+  return openedSince.some(opened => !closed.has(String(opened.fields.id)))
 }
 
 export function heldSessionStop(db: DatabaseSync, cardId: number): HeldSessionStop | null {
