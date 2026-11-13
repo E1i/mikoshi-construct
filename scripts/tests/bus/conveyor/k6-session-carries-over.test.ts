@@ -130,7 +130,7 @@ describe('scenario 08: the session carries over between rounds', () => {
     expect(cardSessionOf(card.made.db, CARD)).toEqual({ session: 'relaunch-session', worktree: relaunched, branch: 'feat/relaunched' })
   })
 
-  it('answer-source.ts reads the card session through launch-root.ts and names no session event type of its own', () => {
+  it('answer-source.ts and launch-root.ts read the card session from card-record and name no session event type of their own', () => {
     const source = readFileSync('scripts/nodes/answer/answer-source.ts', 'utf8')
     const launchRoot = readFileSync('scripts/nodes/launch/launch-root.ts', 'utf8')
     const sharedReading = /import \{[^}]*\bcardSessionsIn\b[^}]*\} from '\.\.\/\.\.\/core\/card-bodies\.js'/
