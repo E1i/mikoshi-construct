@@ -115,20 +115,6 @@
   },
   {
     "type": "dependency",
-    "from": "scripts/core/lease.ts",
-    "to": "scripts/supervisor/liveness-sites.ts",
-    "unresolvedTo": "../supervisor/liveness-sites.js",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "core-imports-nothing-to-its-right"
-    }
-  },
-  {
-    "type": "dependency",
     "from": "scripts/core/legacy-history.ts",
     "to": "src/card/closed.ts",
     "unresolvedTo": "../../src/card/closed.js",

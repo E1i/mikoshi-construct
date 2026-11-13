@@ -12,6 +12,7 @@ import { reduce } from '../../core/reducer.js'
 import { CloseNode } from '../../nodes/close/close-worker.js'
 import { NetWatch, TICK_MS } from '../../ports/netwatch.js'
 import { busProjections } from '../../supervisor/composition.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { bgCommand, detectionCommand } from '../../supervisor/supervisor.js'
 import { liveWorkers, switchDetection, switchWorker, wantedLaunches, WORKERS, WORKERS_FILE } from '../../supervisor/workers.js'
 import { detectClose } from './close-detection.js'
@@ -60,7 +61,7 @@ function bench(): Bench {
 }
 
 function liveNode(made: Bench): ProbedCloseNode {
-  return new ProbedCloseNode({ db: made.db, reported: () => 'run', clock: made.clock.now, session: 'node-1', parking: path.join(made.root, 'parking'), mode: 'live', env: {}, trees: { remove: () => null } })
+  return new ProbedCloseNode({ silentMs: SILENT_MS, db: made.db, reported: () => 'run', clock: made.clock.now, session: 'node-1', parking: path.join(made.root, 'parking'), mode: 'live', env: {}, trees: { remove: () => null } })
 }
 
 async function once(node: CloseNode): Promise<void> {

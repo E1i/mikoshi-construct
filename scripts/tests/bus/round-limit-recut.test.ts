@@ -15,6 +15,7 @@ import { RoundLimitRecutter } from '../../nodes/review/pr-close.js'
 import { fullReview } from '../../nodes/review/review-depth.js'
 import { REVIEW_ROUNDS_SPENT, ReviewWorker } from '../../nodes/review/review-worker.js'
 import { RECUT_ACTOR } from '../../policy/round-limit-decision.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { cardBody, sha } from './github-fake.js'
 import { eventsOf, liveBench } from './merge-bench.js'
 
@@ -98,23 +99,13 @@ function fixture(text: string, options: FixtureOptions = {}): Fixture {
   }
   const gitHub: GitHub = endpoint => endpoint.startsWith(ISSUES) ? options.latestOnGitHub ?? { status: 200, headers: {}, body: [{ number: Math.max(...bench.gitHub.pulls.keys()) }] } : bench.gitHub.client(endpoint)
   const recutter = new RoundLimitRecutter({ db: bench.db, gitHub, post, patch: options.patch ?? bench.gitHub.patch, clock: bench.clock.now, cardStates: () => busHeldCards(bench.db), admit: options.admit })
-  const worker = new ReviewWorker({
-    isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }),
-    db: bench.db,
-    gitHub: bench.gitHub.client,
-    publish: bench.gitHub.publish,
-    reviewer: async () => ({ verdict: reviewer.verdict, findings: reviewer.findings, session: 'reviewer-1' }),
-    plan: () => fullReview('a fixed plan'),
-    clock: bench.clock.now,
-    session: 'worker-1',
-    recut: { recut: (at) => {
-      if (options.recutThrows === true)
-        throw new Error('database is locked')
-      const outcome = recutter.recut(at)
-      outcomes.push(outcome)
-      return outcome
-    } },
-  })
+  const worker = new ReviewWorker({ silentMs: SILENT_MS, isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }), db: bench.db, gitHub: bench.gitHub.client, publish: bench.gitHub.publish, reviewer: async () => ({ verdict: reviewer.verdict, findings: reviewer.findings, session: 'reviewer-1' }), plan: () => fullReview('a fixed plan'), clock: bench.clock.now, session: 'worker-1', recut: { recut: (at) => {
+    if (options.recutThrows === true)
+      throw new Error('database is locked')
+    const outcome = recutter.recut(at)
+    outcomes.push(outcome)
+    return outcome
+  } } })
   admitCard(bench, text)
   return { bench, worker, posts, outcomes, reviewer, decision: options.decision ?? 'auto' }
 }

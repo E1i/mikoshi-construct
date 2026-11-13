@@ -17,7 +17,7 @@ import { CARD_VERIFIED, PR_CLOSED, PR_OPENED, REDUCED, WITNESS_RECORDED } from '
 import { Node, prefixOf, runNode, UNDERSTOOD_NOW } from '../../core/node.js'
 import { answerCardBodyOf, cardBodyShaOfCard, closeCandidates } from '../../core/queue.js'
 import { loadedCodeSha } from '../../ports/git.js'
-import { nodeSupply } from '../../supervisor/composition.js'
+import { nodeLiveness, nodeSupply } from '../../supervisor/composition.js'
 import { stampLogOutput } from '../../supervisor/stamp.js'
 import { cardClosed, CloseExecutor, failureOf, probeClosingCardIds } from './close-executor.js'
 import { cardTreeSweep, gitWorktrees, recordEndedTrees } from './ended-card-trees.js'
@@ -41,6 +41,7 @@ export interface CloseNodeParts {
   parking: string
   mode: DetectionMode
   env: NodeJS.ProcessEnv
+  silentMs: number
   trees?: CardTreeRemover
   endedTrees?: () => EndedTree[]
 }
@@ -70,8 +71,8 @@ export class CloseNode extends Node<CloseStep> {
   private readonly executor: CloseExecutor
 
   constructor(private readonly closeParts: CloseNodeParts) {
-    super('close', { db: closeParts.db, clock: closeParts.clock, session: closeParts.session, mode: closeParts.mode, env: closeParts.env, supply: nodeSupply() })
-    this.executor = new CloseExecutor({ db: closeParts.db, reported: closeParts.reported, clock: closeParts.clock, parking: closeParts.parking, trees: closeParts.trees })
+    super('close', { db: closeParts.db, clock: closeParts.clock, session: closeParts.session, mode: closeParts.mode, env: closeParts.env, silentMs: closeParts.silentMs, supply: nodeSupply() })
+    this.executor = new CloseExecutor({ db: closeParts.db, reported: closeParts.reported, clock: closeParts.clock, parking: closeParts.parking, silentMs: closeParts.silentMs, trees: closeParts.trees })
     this.declare(CLOSE_NODE, scopeOf)
   }
 
@@ -127,7 +128,7 @@ export interface CloseRun {
 }
 
 export async function runCloseWorker(argv: string[], run: CloseRun): Promise<number> {
-  return runNode(argv, 'close', run.busPath, (db, mode) => new CloseNode({ db, reported: run.reported, clock: () => new Date(), session: run.session, parking: run.parking, mode, env: process.env, endedTrees: run.endedTrees?.(db) }), { pause: run.pause, codeSha: loadedCodeSha, supply: nodeSupply() })
+  return runNode(argv, 'close', run.busPath, (db, mode) => new CloseNode({ ...nodeLiveness(), db, reported: run.reported, clock: () => new Date(), session: run.session, parking: run.parking, mode, env: process.env, endedTrees: run.endedTrees?.(db) }), { pause: run.pause, codeSha: loadedCodeSha, supply: nodeSupply() })
 }
 
 async function main(): Promise<number> {

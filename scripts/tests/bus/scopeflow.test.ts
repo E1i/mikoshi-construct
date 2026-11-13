@@ -17,6 +17,7 @@ import { cardDecisionCommand, DECISIONS_SCOPE } from '../../policy/shards.js'
 import { pathsOutside } from '../../policy/touch-scope.js'
 import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
 import { busProjections, nodeSupply } from '../../supervisor/composition.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { shardDecisions } from '../../window/board.js'
 import { requestFromWindow, WindowRequests } from '../../window/window-requests.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
@@ -83,21 +84,7 @@ function windowCloses(made: MergeBench, wait: string, answer: string): string {
 }
 
 function endedSession(made: MergeBench, cardId: number, committed: boolean, publish: () => void): LaunchNode {
-  return new LaunchNode({
-    db: made.db,
-    starter: { start: card => ({ kind: 'started', card: { session: `s-${card.cardId}`, worktree: `/trees/mc-${card.cardId}`, branch: `feat/card-${card.cardId}`, base: 'f'.repeat(40), pid: 4242, pgid: 4242 } }), stop: () => {} },
-    clock: made.clock.now,
-    session: 'node-1',
-    mode: 'live',
-    env: {},
-    processes: { commandLine: () => null, signalGroup: () => {} },
-    resulted: () => true,
-    warned: () => false,
-    committed: () => committed,
-    publish,
-    disk: roomy,
-    isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }),
-  })
+  return new LaunchNode({ silentMs: SILENT_MS, db: made.db, starter: { start: card => ({ kind: 'started', card: { session: `s-${card.cardId}`, worktree: `/trees/mc-${card.cardId}`, branch: `feat/card-${card.cardId}`, base: 'f'.repeat(40), pid: 4242, pgid: 4242 } }), stop: () => {} }, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes: { commandLine: () => null, signalGroup: () => {} }, resulted: () => true, warned: () => false, committed: () => committed, publish, disk: roomy, isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }) })
 }
 
 describe('scope questions settle on the bus', () => {
@@ -107,19 +94,7 @@ describe('scope questions settle on the bus', () => {
     made.tick()
     const report = '#1501 card-1501\nresult: stopped before PR\nquestion: the test needs scripts/tests/lint/policy.test.ts, outside the touches\n'
     const tree = treeHolding('scripts/tests/lint/policy.test.ts')
-    const node = new LaunchNode({
-      db: made.db,
-      starter: { start: card => ({ kind: 'started', card: { session: `s-${card.cardId}`, worktree: tree, branch: `feat/card-${card.cardId}`, base: 'f'.repeat(40), pid: 4242, pgid: 4242 } }), stop: () => {} },
-      clock: made.clock.now,
-      session: 'node-1',
-      mode: 'live',
-      env: {},
-      processes: { commandLine: () => null, signalGroup: () => {} },
-      resulted: () => true,
-      reportOf: () => report,
-      disk: roomy,
-      isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }),
-    })
+    const node = new LaunchNode({ silentMs: SILENT_MS, db: made.db, starter: { start: card => ({ kind: 'started', card: { session: `s-${card.cardId}`, worktree: tree, branch: `feat/card-${card.cardId}`, base: 'f'.repeat(40), pid: 4242, pgid: 4242 } }), stop: () => {} }, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes: { commandLine: () => null, signalGroup: () => {} }, resulted: () => true, reportOf: () => report, disk: roomy, isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }) })
     const controller = new AbortController()
     await node.run({ pause: async () => controller.abort(), signal: controller.signal, supply: nodeSupply() })
     made.tick()

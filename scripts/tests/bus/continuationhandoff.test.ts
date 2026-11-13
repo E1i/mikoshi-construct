@@ -21,6 +21,7 @@ import { reportClosingOf } from '../../nodes/launch/tree-pr.js'
 import { clientAdapter } from '../../ports/client/index.js'
 import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
 import { nodeSupply } from '../../supervisor/composition.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { HANDOFF_LIMIT } from '../../window/handoff-check.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
 
@@ -76,28 +77,7 @@ async function sessionAtLine(cardId: number, options: LineOptions = {}): Promise
     },
   }
   const exited: ProcessTable = { commandLine: () => null, signalGroup: () => {} }
-  const node = new LaunchNode({
-    db: made.db,
-    starter,
-    continuer: starter,
-    clock: made.clock.now,
-    session: 'node-1',
-    mode: 'live',
-    env: {},
-    processes: exited,
-    resulted: () => true,
-    handedOff: () => false,
-    atContextLine: () => true,
-    warned: () => true,
-    committed: () => true,
-    collected: () => options.missing ?? null,
-    reportOf: () => options.report ?? null,
-    spendStopped: () => options.spendStopped ?? false,
-    buildHandoff: () => order.push('built'),
-    publish: card => published.push(card.session),
-    disk: () => ({ bavail: 1, bsize: DISK_FLOOR_BYTES }),
-    isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }),
-  })
+  const node = new LaunchNode({ silentMs: SILENT_MS, db: made.db, starter, continuer: starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes: exited, resulted: () => true, handedOff: () => false, atContextLine: () => true, warned: () => true, committed: () => true, collected: () => options.missing ?? null, reportOf: () => options.report ?? null, spendStopped: () => options.spendStopped ?? false, buildHandoff: () => order.push('built'), publish: card => published.push(card.session), disk: () => ({ bavail: 1, bsize: DISK_FLOOR_BYTES }), isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }) })
   const controller = new AbortController()
   await node.run({ pause: async () => controller.abort(), signal: controller.signal, supply: nodeSupply() })
   made.tick()

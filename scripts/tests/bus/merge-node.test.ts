@@ -18,6 +18,7 @@ import { UpdateNode } from '../../nodes/update/update-worker.js'
 import { recordDecision } from '../../policy/decisions/index.js'
 import { allowLiveCommand } from '../../policy/live-decision.js'
 import { SECRET_SCAN_CHECK } from '../../ports/gh.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { cardBody, MAIN_1, MAIN_2, REPO, sha } from './github-fake.js'
 import { eventsOf, liveBench, mergeBench, spendReviewRounds, taskState } from './merge-bench.js'
 import { detectMerge } from './merge-detection.js'
@@ -48,12 +49,12 @@ function bench(): MergeBench {
 }
 
 function nodeOf(made: MergeBench, mode: DetectionMode = 'shadow', env: NodeJS.ProcessEnv = {}): ProbedMergeNode {
-  const parts: MergeNodeParts = { db: made.db, gitHub: made.gitHub.client, put: made.gitHub.put, publish: made.gitHub.publish, clock: made.clock.now, session: 'node-1', run: null, mode, env }
+  const parts: MergeNodeParts = { silentMs: SILENT_MS, db: made.db, gitHub: made.gitHub.client, put: made.gitHub.put, publish: made.gitHub.publish, clock: made.clock.now, session: 'node-1', run: null, mode, env }
   return new ProbedMergeNode(parts)
 }
 
 function updateNodeOf(made: MergeBench, env: NodeJS.ProcessEnv): UpdateNode {
-  return new UpdateNode({ db: made.db, gitHub: made.gitHub.client, put: made.gitHub.put, publish: made.gitHub.publish, clock: made.clock.now, settle: () => {}, session: 'node-2', mode: 'live', env })
+  return new UpdateNode({ silentMs: SILENT_MS, db: made.db, gitHub: made.gitHub.client, put: made.gitHub.put, publish: made.gitHub.publish, clock: made.clock.now, settle: () => {}, session: 'node-2', mode: 'live', env })
 }
 
 const BY_LAYERS = { [RERUN_VARIABLE]: 'by-layers' }
@@ -115,7 +116,7 @@ function lawOf(made: MergeBench): Record<string, unknown>[] {
 }
 
 function executorOf(made: MergeBench, parts: Partial<ConstructorParameters<typeof MergeExecutor>[0]>): MergeExecutor {
-  return new MergeExecutor({ db: made.db, gitHub: made.gitHub.client, put: made.gitHub.put, publish: made.gitHub.publish, clock: made.clock.now, run: null, ...parts })
+  return new MergeExecutor({ silentMs: SILENT_MS, db: made.db, gitHub: made.gitHub.client, put: made.gitHub.put, publish: made.gitHub.publish, clock: made.clock.now, run: null, ...parts })
 }
 
 function ownerDecided(made: MergeBench, pr: number): void {

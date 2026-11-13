@@ -8,6 +8,7 @@ import { CARD_ADMITTED, CARD_STARTED, CARD_STOPPED, OWNER_WAIT_OPENED, QUESTION_
 import { leaseNext } from '../../core/lease.js'
 import { AnswerExecutor, ratchetGrowthLine, ratchetRowsAskedToGrow } from '../../nodes/answer/answer-executor.js'
 import { claudeAnswerer, ownerQuestionPath } from '../../nodes/answer/answerer.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { sha } from '../bus/github-fake.js'
 import { eventsOf, mergeBench } from '../bus/merge-bench.js'
 
@@ -68,7 +69,7 @@ function startedCard(): Card {
       newSession: () => CARD_SESSION,
       publish: () => {},
     })
-    const executor = new AnswerExecutor({ db: made.db, answerer, ownerMerges: () => '', clock: made.clock.now, trees: { home: trees, exists: existsSync, branchOf: pr => `feat/card-${pr}`, recreate: () => {}, bringTo: () => {} }, dirty: () => false, liveSession: () => null })
+    const executor = new AnswerExecutor({ silentMs: SILENT_MS, db: made.db, answerer, ownerMerges: () => '', clock: made.clock.now, trees: { home: trees, exists: existsSync, branchOf: pr => `feat/card-${pr}`, recreate: () => {}, bringTo: () => {} }, dirty: () => false, liveSession: () => null })
     const outcome = await executor.answer(lease)
     made.tick()
     return outcome

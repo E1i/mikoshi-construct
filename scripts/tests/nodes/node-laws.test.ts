@@ -50,6 +50,7 @@ import { NetWatch, TICK_MS } from '../../ports/netwatch.js'
 import { InMemoryProcessTable } from '../../ports/process-table.js'
 import { launchName } from '../../supervisor/bg.js'
 import { busProjections, nodeSupply } from '../../supervisor/composition.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { BusTick } from '../../supervisor/run.js'
 import { slotsVariable } from '../../supervisor/scheduler.js'
 import { busDrain, BusSupervisor, freeLeasesOf, withoutRetiring } from '../../supervisor/supervisor.js'
@@ -94,7 +95,7 @@ class LiveSession extends Node<NodeStep> {
   private readonly rounds: (() => void)[] = []
 
   constructor(kind: NodeKind, db: DatabaseSync, clock: () => Date) {
-    super(kind, { db, clock, session: 'old', mode: 'live', env: { [slotsVariable(kind)]: '1' }, self: { pid: SESSION_PID, started: clock().toISOString() }, supply: nodeSupply() })
+    super(kind, { silentMs: SILENT_MS, db, clock, session: 'old', mode: 'live', env: { [slotsVariable(kind)]: '1' }, self: { pid: SESSION_PID, started: clock().toISOString() }, supply: nodeSupply() })
   }
 
   override async run(ctx: NodeContext): Promise<void> {
@@ -283,7 +284,7 @@ async function usageLimitWaitsForItsReset(check: LaunchCheck = () => {}): Promis
     const starter = new RelaunchingStarter()
     const reset = new Date(made.clock.now().getTime() + 3_600_000).toISOString()
     const launchDir = scratchDir('z2-launch-dir-')
-    const node = new LaunchNode({ db: made.db, starter, continuer: starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes: { commandLine: () => null, signalGroup: () => {} }, resulted: () => false, handedOff: handoffWrittenSince(launchDir), reportOf: reportSince(launchDir), collected: () => 'report-missing: no report was written', usageLimitedUntil: () => reset, machine: new MachineSessions(scratchDir('z2-machine-'), () => false, 16), lanes: () => 4, disk: () => ({ bavail: 1, bsize: 1024 ** 4 }), isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }) })
+    const node = new LaunchNode({ silentMs: SILENT_MS, db: made.db, starter, continuer: starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes: { commandLine: () => null, signalGroup: () => {} }, resulted: () => false, handedOff: handoffWrittenSince(launchDir), reportOf: reportSince(launchDir), collected: () => 'report-missing: no report was written', usageLimitedUntil: () => reset, machine: new MachineSessions(scratchDir('z2-machine-'), () => false, 16), lanes: () => 4, disk: () => ({ bavail: 1, bsize: 1024 ** 4 }), isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }) })
     const controller = new AbortController()
     await node.run({ pause: async () => controller.abort(), signal: controller.signal, supply: nodeSupply() })
     made.tick()
@@ -319,7 +320,7 @@ async function loadTimeoutIsPushed(): Promise<void> {
       pushed += 1
       appendEvent(made.db, { ts: made.clock.now().toISOString(), type: PR_OPENED, actor: 'worker:shift:1', cardId: 1775, pr: 9775, head: null, dedupeKey: `${PR_OPENED}:1775:9775`, payload: { pr: 9775 }, legacy: false })
     }
-    await runAnswerNode({ db: made.db, answerer: async () => ({ session: 'answer-1', resumed: true, before: sha('a'), after: sha('a'), owner }), ownerMerges: () => '', cardText: () => text, clock: made.clock.now, session: 'answer-node-1', mode: 'live', env: { [slotsVariable('answer')]: '1' }, trees: { home: trees, exists: () => true, branchOf: pr => `feat/card-${pr}`, recreate: () => {}, bringTo: () => {} }, dirty: () => false, liveSession: () => null, publishing: { committed: () => true, publish } })
+    await runAnswerNode({ silentMs: SILENT_MS, db: made.db, answerer: async () => ({ session: 'answer-1', resumed: true, before: sha('a'), after: sha('a'), owner }), ownerMerges: () => '', cardText: () => text, clock: made.clock.now, session: 'answer-node-1', mode: 'live', env: { [slotsVariable('answer')]: '1' }, trees: { home: trees, exists: () => true, branchOf: pr => `feat/card-${pr}`, recreate: () => {}, bringTo: () => {} }, dirty: () => false, liveSession: () => null, publishing: { committed: () => true, publish } })
     if (pushed !== 1 || eventsOf(made.db, OWNER_WAIT_OPENED).length > 0 || eventsOf(made.db, CARD_STOPPED).length !== 1)
       throw new Error('a timeout under load outside the touches was asked of the owner instead of pushed')
   }
@@ -357,7 +358,7 @@ function abandonedRunIsRerun(): void {
     const lease = leaseNext(db, ts, 'update', 'worker:update:worker-1')
     if (lease === null)
       throw new Error('a required red only from abandoned jobs queued no rerun')
-    new UpdateNodeUnderWitness({ db, gitHub: client, put: gitHub.put, post: gitHub.post, publish: gitHub.publish, clock: clock.now, settle: () => {}, session: 'update-node-1', mode: 'live', env: {} }).handleUnderWitness(lease)
+    new UpdateNodeUnderWitness({ silentMs: SILENT_MS, db, gitHub: client, put: gitHub.put, post: gitHub.post, publish: gitHub.publish, clock: clock.now, settle: () => {}, session: 'update-node-1', mode: 'live', env: {} }).handleUnderWitness(lease)
     if (gitHub.reruns.join() !== '4343' || db.prepare('SELECT 1 FROM events WHERE type = ?').get(CI_RERUN_REQUESTED) === undefined)
       throw new Error('the abandoned run was not re-run')
   }
@@ -396,7 +397,7 @@ async function ownerLaunchPastConditions(node: LawNode): Promise<void> {
       started += 1
       return { kind: 'started', card: { session: `s-${card.cardId}`, worktree: `/trees/mc-${card.cardId}`, branch: `feat/card-${card.cardId}`, base: 'f'.repeat(40), pid: 4242, pgid: 4242 } }
     }, stop: () => {} }
-    const launch = new LaunchNode({ db: made.db, starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes: { commandLine: () => null, signalGroup: () => {} }, reportOf: reportSince(scratchDir('z10-launch-dir-')), machine: new MachineSessions(scratchDir('z10-launch-machine-'), () => false, 16), lanes: () => 4, disk: () => ({ bavail: 1, bsize: 1024 ** 4 }), isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }) })
+    const launch = new LaunchNode({ silentMs: SILENT_MS, db: made.db, starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes: { commandLine: () => null, signalGroup: () => {} }, reportOf: reportSince(scratchDir('z10-launch-dir-')), machine: new MachineSessions(scratchDir('z10-launch-machine-'), () => false, 16), lanes: () => 4, disk: () => ({ bavail: 1, bsize: 1024 ** 4 }), isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }) })
     const controller = new AbortController()
     await launch.run({ pause: async () => controller.abort(), signal: controller.signal, supply: nodeSupply() })
     if (started !== 1 || eventsOf(made.db, CARD_STARTED).length !== 1)
@@ -428,24 +429,10 @@ async function liveSessionWaitIsRecordedAndLifted(node: LawNode): Promise<void> 
     let live: string | null = `a live session runs in ${worktree}`
     const answers: string[] = []
     const answered = (): number => answers.length
-    const parts: AnswerNodeRun = {
-      db: made.db,
-      answerer: async () => {
-        answers.push('answer-session')
-        return { session: 'card-session-1', resumed: true, before: sha('a'), after: sha('e'), owner: null }
-      },
-      ownerMerges: () => '',
-      cardText: () => text,
-      clock: made.clock.now,
-      session: 'answer-node-1',
-      mode: 'live',
-      env: { [slotsVariable('answer')]: '1' },
-      trees: { home: path.join(trees, 'worktrees'), exists: existsSync, branchOf: () => `feat/card-${HELD_CARD}`, recreate: () => {}, bringTo: () => {} },
-      dirty: () => false,
-      liveSession: () => live,
-      prepare: () => {},
-      mergeMain: () => () => ({ kind: 'refused', why: 'no main in the bench' }),
-    }
+    const parts: AnswerNodeRun = { silentMs: SILENT_MS, db: made.db, answerer: async () => {
+      answers.push('answer-session')
+      return { session: 'card-session-1', resumed: true, before: sha('a'), after: sha('e'), owner: null }
+    }, ownerMerges: () => '', cardText: () => text, clock: made.clock.now, session: 'answer-node-1', mode: 'live', env: { [slotsVariable('answer')]: '1' }, trees: { home: path.join(trees, 'worktrees'), exists: existsSync, branchOf: () => `feat/card-${HELD_CARD}`, recreate: () => {}, bringTo: () => {} }, dirty: () => false, liveSession: () => live, prepare: () => {}, mergeMain: () => () => ({ kind: 'refused', why: 'no main in the bench' }) }
     await runAnswerNode(parts)
     const record = eventsOf(made.db, TASK_RELEASED).find(wait => wait.reason === LIVE_SESSION_IN_THE_TREE)
     if (answered() !== 0 || record === undefined || typeof record.until !== 'string')
@@ -522,7 +509,7 @@ async function directImporterWidened(node: LawNode): Promise<void> {
       publish: () => {},
       pending: () => [IMPORTED, IMPORTER],
     })
-    await runAnswerNode({ db: made.db, answerer, ownerMerges: () => '', cardText: () => text, clock: made.clock.now, session: 'answer-node-1', mode: 'live', env: { [slotsVariable('answer')]: '1' }, trees: { home, exists: existsSync, branchOf: pr => `feat/card-${pr}`, recreate: () => {}, bringTo: () => {} }, dirty: () => false, liveSession: () => null, prepare: () => {} })
+    await runAnswerNode({ silentMs: SILENT_MS, db: made.db, answerer, ownerMerges: () => '', cardText: () => text, clock: made.clock.now, session: 'answer-node-1', mode: 'live', env: { [slotsVariable('answer')]: '1' }, trees: { home, exists: existsSync, branchOf: pr => `feat/card-${pr}`, recreate: () => {}, bringTo: () => {} }, dirty: () => false, liveSession: () => null, prepare: () => {} })
     if (eventsOf(made.db, CARD_ANSWERED).length !== 1 || eventsOf(made.db, OWNER_WAIT_OPENED).length > 0 || eventsOf(made.db, SCOPE_WIDENED).length !== 1)
       throw new Error('an answer that edits a direct importer of a touched file was stopped for the owner instead of widened')
   }
@@ -636,7 +623,7 @@ async function launchBodyFromLatestAdmission(node: LawNode): Promise<void> {
     const launchDir = scratchDir('z3-launch-dir-')
     const handoff = path.join(launchDir, `report-${AMENDED_CARD}.md`)
     const build = handoffBuilder(launchDir)
-    const launch = new LaunchNode({ db: made.db, starter, continuer: starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes: { commandLine: () => null, signalGroup: () => {} }, pidAlive: () => false, collected: () => null, atContextLine: () => true, handedOff: () => existsSync(handoff), buildHandoff: build, machine: new MachineSessions(scratchDir('z3-launch-machine-'), () => false, 16), lanes: () => 4, disk: () => ({ bavail: 1, bsize: 1024 ** 4 }), isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }) })
+    const launch = new LaunchNode({ silentMs: SILENT_MS, db: made.db, starter, continuer: starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes: { commandLine: () => null, signalGroup: () => {} }, pidAlive: () => false, collected: () => null, atContextLine: () => true, handedOff: () => existsSync(handoff), buildHandoff: build, machine: new MachineSessions(scratchDir('z3-launch-machine-'), () => false, 16), lanes: () => 4, disk: () => ({ bavail: 1, bsize: 1024 ** 4 }), isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }) })
     const controller = new AbortController()
     await launch.run({ pause: async () => controller.abort(), signal: controller.signal, supply: nodeSupply() })
     made.tick()
@@ -676,7 +663,7 @@ async function launchStopSpendsNoContinuation(node: LawNode): Promise<void> {
     const launchDir = scratchDir('z8-launch-dir-')
     const handoff = ['current card: #1791', 'queue: #1791', 'done: x', 'not done: x', 'delegation: none', 'next task: x', 'local decisions: none', 'owner waits: none', 'decisions: none', 'intake tokens: none', 'stop reason: the touches miss a reader', 'continue when: now'].join('\n')
     writeFileSync(path.join(launchDir, `report-${STOPPED_CARD}.md`), `${handoff}\nquestion: ${STOP_QUESTION}\n`)
-    const launch = new LaunchNode({ db: made.db, starter: started, continuer: starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes: { commandLine: () => null, signalGroup: () => {} }, pidAlive: () => false, collected: () => null, atContextLine: () => true, handedOff: handoffWrittenSince(launchDir), reportOf: reportSince(launchDir), machine: new MachineSessions(scratchDir('z8-launch-machine-'), () => false, 16), lanes: () => 4, disk: () => ({ bavail: 1, bsize: 1024 ** 4 }), isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }) })
+    const launch = new LaunchNode({ silentMs: SILENT_MS, db: made.db, starter: started, continuer: starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes: { commandLine: () => null, signalGroup: () => {} }, pidAlive: () => false, collected: () => null, atContextLine: () => true, handedOff: handoffWrittenSince(launchDir), reportOf: reportSince(launchDir), machine: new MachineSessions(scratchDir('z8-launch-machine-'), () => false, 16), lanes: () => 4, disk: () => ({ bavail: 1, bsize: 1024 ** 4 }), isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }) })
     const controller = new AbortController()
     await launch.run({ pause: async () => controller.abort(), signal: controller.signal, supply: nodeSupply() })
     made.tick()
@@ -711,7 +698,7 @@ async function answerStopSpendsNoRestart(node: LawNode): Promise<void> {
       sessions += 1
       return { session: `answer-${sessions}`, resumed: false, atContextWarn: true, before: sha('a'), after: sha('a'), owner: STOP_QUESTION }
     }
-    await runAnswerNode({ db: made.db, answerer, ownerMerges: () => '', cardText: () => text, clock: made.clock.now, session: 'answer-node-1', mode: 'live', env: { [slotsVariable('answer')]: '1' }, trees: { home: trees, exists: () => true, branchOf: pr => `feat/card-${pr}`, recreate: () => {}, bringTo: () => {} }, dirty: () => false, liveSession: () => null, prepare: () => {}, changedInTheTree: () => [STOP_READER] })
+    await runAnswerNode({ silentMs: SILENT_MS, db: made.db, answerer, ownerMerges: () => '', cardText: () => text, clock: made.clock.now, session: 'answer-node-1', mode: 'live', env: { [slotsVariable('answer')]: '1' }, trees: { home: trees, exists: () => true, branchOf: pr => `feat/card-${pr}`, recreate: () => {}, bringTo: () => {} }, dirty: () => false, liveSession: () => null, prepare: () => {}, changedInTheTree: () => [STOP_READER] })
     if (sessions !== 1)
       throw new Error(`an answer session that stopped outside the touches was restarted: ${sessions} sessions`)
     if (eventsOf(made.db, CARD_STOPPED).at(-1)?.code !== OUTSIDE_TOUCHES)
@@ -741,7 +728,7 @@ async function answerRoundWaitsForTheOwnersDecision(): Promise<void> {
       return { session: `answer-${sessions}`, resumed: false, before: sha('a'), after: sha('a'), owner: null }
     }
     for (let round = 0; round < 2; round += 1) {
-      await runAnswerNode({ db: made.db, answerer, ownerMerges: () => '', cardText: () => text, clock: made.clock.now, session: 'answer-node-1', mode: 'live', env: { [slotsVariable('answer')]: '1' }, trees: { home: trees, exists: () => true, branchOf: pr => `feat/card-${pr}`, recreate: () => {}, bringTo: () => {} }, dirty: () => false, liveSession: () => null, prepare: () => {} })
+      await runAnswerNode({ silentMs: SILENT_MS, db: made.db, answerer, ownerMerges: () => '', cardText: () => text, clock: made.clock.now, session: 'answer-node-1', mode: 'live', env: { [slotsVariable('answer')]: '1' }, trees: { home: trees, exists: () => true, branchOf: pr => `feat/card-${pr}`, recreate: () => {}, bringTo: () => {} }, dirty: () => false, liveSession: () => null, prepare: () => {} })
       made.tick()
     }
     if (sessions !== 1)

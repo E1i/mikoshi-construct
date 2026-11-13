@@ -17,6 +17,7 @@ import { completeTask } from '../../core/lease.js'
 import { foreignVersion, Node, runNode, SWITCH_FLAG, UNDERSTOOD_NOW } from '../../core/node.js'
 import { queueTaskWithin } from '../../core/queue.js'
 import { nodeSupply } from '../../supervisor/composition.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { Clock } from './github-fake.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')
@@ -49,7 +50,7 @@ class DeclaredNode extends Node<NodeStep> {
   handled: string[] = []
 
   constructor(db: DatabaseSync, clock: Clock, private readonly found: QueuedTask[] = []) {
-    super('review', { db, clock: clock.now, session: 'versions', mode: 'live', env: {}, supply: nodeSupply() })
+    super('review', { silentMs: SILENT_MS, db, clock: clock.now, session: 'versions', mode: 'live', env: {}, supply: nodeSupply() })
     this.declare(DECLARATION)
   }
 

@@ -11,10 +11,10 @@ import type { Answered, Answerer, StepSeconds } from './answerer.js'
 import type { CardConcept } from './concept-scope.js'
 import type { AnswerDenial, Answering, AnswerOutcome, AnswerTechnicalReason, CardPaths, DecidedRound, ShardDecider, TreeMerge, TreePublishing, Widened } from './duties/index.js'
 import { riskOf } from '../../../src/card/risk.js'
-import { answersWithdrawnByAClosedHold, holdRecheckAt, LIVE_SESSION_IN_THE_TREE, queueAgain } from '../../core/card-hold.js'
+import { answersWithdrawnByAClosedHold, holdRecheckAt, LIVE_SESSION_IN_THE_TREE, queueAgain, sessionStopOf } from '../../core/card-hold.js'
 import { appendEvent, inTransaction, openBusWait } from '../../core/db.js'
 import { messageOf } from '../../core/errors.js'
-import { ANSWER_STEP, CARD_ANSWERED, CARD_RELEASED, CARD_STOPPED, OUTSIDE_TOUCHES, OWNER_WAIT_CLOSED, QUESTION_AGENT, QUESTION_OWNER, SCOPE_WIDENED, sessionStopOf } from '../../core/events.js'
+import { ANSWER_STEP, CARD_ANSWERED, CARD_RELEASED, CARD_STOPPED, OUTSIDE_TOUCHES, OWNER_WAIT_CLOSED, QUESTION_AGENT, QUESTION_OWNER, SCOPE_WIDENED } from '../../core/events.js'
 import { assertHeld, completeTask, StaleLease, waitTask } from '../../core/lease.js'
 import { timeoutUnderLoadOutside } from '../../core/observations.js'
 import { answerOnAnOldCardBody, DOWNGRADE_WAIT_OPEN, downgradeWaitOpenOn, LEASED, openDecisionWaitsOf, QUEUED } from '../../core/queue.js'
@@ -36,6 +36,7 @@ export interface AnswerParts {
   answerer: Answerer
   ownerMerges: () => string
   clock: () => Date
+  silentMs: number
   shardDecider?: ShardDecider
   trees?: CardTreeTools
   treeMerge?: (card: CardSession) => TreeMerge

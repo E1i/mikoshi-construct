@@ -21,6 +21,7 @@ import { pendingPathsOf } from '../../nodes/answer/duties/index.js'
 import { codexAdapter } from '../../ports/client/codex/adapter.js'
 import { clientAdapter } from '../../ports/client/index.js'
 import { busProjections } from '../../supervisor/composition.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { requestFromWindow, requestOf, WindowRequests } from '../../window/window-requests.js'
 import { sha } from './github-fake.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
@@ -112,7 +113,7 @@ async function answered({ made, trees, lease }: Card, pending: string[] = [TOUCH
     },
     pending: () => pending,
   })
-  const executor = new AnswerExecutor({ db: made.db, answerer, ownerMerges: () => '', clock: made.clock.now, trees: cardTrees, dirty: () => false, liveSession: () => liveSession ? `a live session runs in ${trees}` : null })
+  const executor = new AnswerExecutor({ silentMs: SILENT_MS, db: made.db, answerer, ownerMerges: () => '', clock: made.clock.now, trees: cardTrees, dirty: () => false, liveSession: () => liveSession ? `a live session runs in ${trees}` : null })
   return { outcome: await executor.answer(lease()), spawned, published }
 }
 
@@ -252,7 +253,7 @@ async function askedDuringTheSession(card: Card, duringTheSession: () => void = 
     duringTheSession()
     return { session: 'card-session-1', resumed: true, before: sha('a'), after: sha('a'), owner: A_PLAIN_QUESTION }
   }
-  const executor = new AnswerExecutor({ db: card.made.db, answerer, ownerMerges: () => '', clock: card.made.clock.now, trees: cardTrees, dirty: () => false, liveSession: () => null })
+  const executor = new AnswerExecutor({ silentMs: SILENT_MS, db: card.made.db, answerer, ownerMerges: () => '', clock: card.made.clock.now, trees: cardTrees, dirty: () => false, liveSession: () => null })
   return executor.answer(card.lease())
 }
 

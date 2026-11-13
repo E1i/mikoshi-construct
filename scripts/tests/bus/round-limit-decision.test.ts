@@ -17,6 +17,7 @@ import { recordDecision } from '../../policy/decisions/index.js'
 import { pastRoundLimit, underOwnerDecision } from '../../policy/policy.js'
 import { complexitySlicesOf, dryRunHoldsAt, observedHeadsOf, placeOf, recutCardCount, recutOf, recutPlanOf, roundLimitDecisionOf } from '../../policy/round-limit-decision.js'
 import { TICK_MS } from '../../ports/netwatch.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { cardBody, sha } from './github-fake.js'
 import { eventsOf, liveBench, spendReviewRounds } from './merge-bench.js'
 
@@ -58,18 +59,9 @@ describe('a merge past the review round limit by an owner decision', () => {
   it('a card amend on the same head spends no round', async () => {
     const bench = liveBench()
     benches.push(bench)
-    const worker = new ReviewWorker({
-      isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }),
-      db: bench.db,
-      gitHub: bench.gitHub.client,
-      publish: (status) => {
-        bench.gitHub.pulls.get(PR)!.review = status.state
-      },
-      reviewer: async lease => ({ verdict: 'changes', findings: [lease.head === HEAD ? 'a.ts:1 the finding' : 'b.ts:9 an older matter'], session: 'reviewer-1' }),
-      plan: () => fullReview('a fixed plan'),
-      clock: bench.clock.now,
-      session: 'worker-1',
-    })
+    const worker = new ReviewWorker({ silentMs: SILENT_MS, isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }), db: bench.db, gitHub: bench.gitHub.client, publish: (status) => {
+      bench.gitHub.pulls.get(PR)!.review = status.state
+    }, reviewer: async lease => ({ verdict: 'changes', findings: [lease.head === HEAD ? 'a.ts:1 the finding' : 'b.ts:9 an older matter'], session: 'reviewer-1' }), plan: () => fullReview('a fixed plan'), clock: bench.clock.now, session: 'worker-1' })
     const amends = Array.from({ length: REVIEW_ROUNDS }, (_, at) => `${at + 1}123abcd4567ef89`)
     const reviewed = (): { head: string, card_body: unknown }[] => (bench.db.prepare(`SELECT head, json_extract(payload, '$.card_body') AS card_body FROM events WHERE type = ? AND pr = ? ORDER BY id`).all(REVIEW_RECORDED, PR) as { head: string, card_body: unknown }[]).map(row => ({ head: row.head, card_body: row.card_body }))
 

@@ -15,6 +15,7 @@ import { queueTask } from '../../core/queue.js'
 import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
 import { realStarterPorts } from '../../nodes/launch/launch-root.js'
 import { lacksItsPackages, PREPARE_TREE, prepareTree } from '../../ports/prepare-tree.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { sha } from './github-fake.js'
 import { mergeBench } from './merge-bench.js'
 
@@ -147,7 +148,7 @@ function answeringCard(prepare: (tree: string) => void, order: string[]): { made
     order.push('session')
     return { session: 'answer-session-1', resumed: true, before: sha('a'), after: sha('b'), owner: null }
   }
-  const executor = new AnswerExecutor({ db: made.db, answerer, ownerMerges: () => '', clock: made.clock.now, trees: cardTrees, dirty: () => false, liveSession: () => null, prepare })
+  const executor = new AnswerExecutor({ silentMs: SILENT_MS, db: made.db, answerer, ownerMerges: () => '', clock: made.clock.now, trees: cardTrees, dirty: () => false, liveSession: () => null, prepare })
   return { made, executor, tree }
 }
 

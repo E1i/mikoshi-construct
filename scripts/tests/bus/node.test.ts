@@ -18,6 +18,7 @@ import { RateLimited } from '../../ports/meter.js'
 import { TICK_MS } from '../../ports/netwatch.js'
 import { busProjections, nodeSupply } from '../../supervisor/composition.js'
 import { lastProcessBeats } from '../../supervisor/heartbeat.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { SLOTS, slotsOf, slotsVariable } from '../../supervisor/scheduler.js'
 import { COMPLETION_OF, windowOf } from '../../window/window.js'
 import { Clock, sha } from './github-fake.js'
@@ -51,7 +52,7 @@ class FakeNode extends Node<NodeStep> {
   derived: QueuedTask[] | null = null
 
   constructor(db: DatabaseSync, readonly clock: Clock, mode: DetectionMode, pattern: readonly string[] = [PROBE_SEEN, 'ci.*'], env: NodeJS.ProcessEnv = {}) {
-    super('merge', { db, clock: clock.now, session: 'fake', mode, env, supply: nodeSupply() })
+    super('merge', { silentMs: SILENT_MS, db, clock: clock.now, session: 'fake', mode, env, supply: nodeSupply() })
     this.subscribe(pattern, event => ({ pr: event.pr ?? undefined }))
   }
 
@@ -73,7 +74,7 @@ const NODE_KINDS = QUEUES.filter((queue): queue is NodeKind => queue in SLOTS)
 
 class KindNode extends Node<NodeStep> {
   constructor(kind: NodeKind, db: DatabaseSync, clock: Clock, env: NodeJS.ProcessEnv) {
-    super(kind, { db, clock: clock.now, session: 'kind', mode: 'shadow', env, supply: nodeSupply() })
+    super(kind, { silentMs: SILENT_MS, db, clock: clock.now, session: 'kind', mode: 'shadow', env, supply: nodeSupply() })
     this.subscribe([PROBE_SEEN])
   }
 

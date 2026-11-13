@@ -14,6 +14,7 @@ import { DATABASE_LOCKED, DERIVE_EVERY_TICKS, Node, nodeProcess } from '../../co
 import { keyOf, queueTask } from '../../core/queue.js'
 import { TICK_MS } from '../../ports/netwatch.js'
 import { nodeSupply } from '../../supervisor/composition.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { Clock, sha } from './github-fake.js'
 
 const BUSY_EVENTS = 150_000
@@ -60,7 +61,7 @@ class ScanningNode extends Node<NodeStep> {
   computed: () => void = () => {}
 
   constructor(db: DatabaseSync, readonly clock: Clock, session = 'scan') {
-    super('merge', { db, clock: clock.now, session, mode: 'live', env: {}, supply: nodeSupply() })
+    super('merge', { silentMs: SILENT_MS, db, clock: clock.now, session, mode: 'live', env: {}, supply: nodeSupply() })
   }
 
   private scan(): number {

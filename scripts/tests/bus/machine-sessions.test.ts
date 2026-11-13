@@ -21,6 +21,7 @@ import { fullReview } from '../../nodes/review/review-depth.js'
 import { claudeReviewer, ReviewTrees } from '../../nodes/review/reviewer.js'
 import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
 import { busProjections, nodeSupply } from '../../supervisor/composition.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
 
 const TS = '2026-11-06T10:00:00.000Z'
@@ -102,25 +103,7 @@ async function runLaunchNode(machine: MachineSessions, cardId: number): Promise<
   appendEvent(made.db, { ts: made.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'policy', cardId, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${cardId}`, payload: { lane: 'lane-1', decision: 'auto', contour: 'cheap', depends: [], admission: `admission-${cardId}` }, legacy: false })
   made.tick()
   const starter = new CountingStarter()
-  const node = new LaunchNode({
-    db: made.db,
-    starter,
-    clock: made.clock.now,
-    session: 'node-1',
-    mode: 'live',
-    env: {},
-    processes: { commandLine: () => null, signalGroup: () => {} },
-    resulted: () => true,
-    handedOff: () => true,
-    warned: () => true,
-    atContextLine: () => false,
-    committed: () => true,
-    publish: () => {},
-    disk: () => ({ bavail: 1, bsize: DISK_FLOOR_BYTES }),
-    isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }),
-    lanes: () => LANES,
-    machine,
-  })
+  const node = new LaunchNode({ silentMs: SILENT_MS, db: made.db, starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes: { commandLine: () => null, signalGroup: () => {} }, resulted: () => true, handedOff: () => true, warned: () => true, atContextLine: () => false, committed: () => true, publish: () => {}, disk: () => ({ bavail: 1, bsize: DISK_FLOOR_BYTES }), isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }), lanes: () => LANES, machine })
   const again = async (): Promise<void> => {
     const controller = new AbortController()
     await node.run({ pause: async () => controller.abort(), signal: controller.signal, supply: nodeSupply() })
@@ -160,26 +143,7 @@ async function endedAtTheContextLine(machine: MachineSessions, cardId: number, s
   benches.push(made)
   appendEvent(made.db, { ts: made.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'policy', cardId, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${cardId}`, payload: { lane: 'lane-1', decision: 'auto', contour: 'cheap', depends: [], admission: `admission-${cardId}` }, legacy: false })
   made.tick()
-  const node = new LaunchNode({
-    db: made.db,
-    starter,
-    continuer: starter,
-    clock: made.clock.now,
-    session: 'node-1',
-    mode: 'live',
-    env: {},
-    processes: { commandLine: () => null, signalGroup: () => {} },
-    resulted: () => true,
-    handedOff: () => true,
-    warned: () => true,
-    atContextLine: () => true,
-    committed: () => true,
-    publish: () => {},
-    disk: () => ({ bavail: 1, bsize: DISK_FLOOR_BYTES }),
-    isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }),
-    lanes: () => LANES,
-    machine,
-  })
+  const node = new LaunchNode({ silentMs: SILENT_MS, db: made.db, starter, continuer: starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes: { commandLine: () => null, signalGroup: () => {} }, resulted: () => true, handedOff: () => true, warned: () => true, atContextLine: () => true, committed: () => true, publish: () => {}, disk: () => ({ bavail: 1, bsize: DISK_FLOOR_BYTES }), isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }), lanes: () => LANES, machine })
   const controller = new AbortController()
   await node.run({ pause: async () => controller.abort(), signal: controller.signal, supply: nodeSupply() })
   made.tick()

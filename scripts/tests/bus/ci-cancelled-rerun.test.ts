@@ -14,6 +14,7 @@ import { answerCandidates, queueTaskWithin, updateCandidates } from '../../core/
 import { UpdateExecutor } from '../../nodes/update/update-executor.js'
 import { NetWatch, TICK_MS } from '../../ports/netwatch.js'
 import { busProjections } from '../../supervisor/composition.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { BusTick } from '../../supervisor/run.js'
 import { Clock, FakeGitHub, sha } from './github-fake.js'
 
@@ -60,7 +61,7 @@ function cancelBench(): CancelBench {
     }) } }
   }
   const busTick = new BusTick(db, busProjections(), new NetWatch(db, client, clock.now), clock.now, () => {})
-  const executor = new UpdateExecutor({ db, gitHub: client, put: gitHub.put, post: gitHub.post, publish: gitHub.publish, clock: clock.now, settle: () => {} })
+  const executor = new UpdateExecutor({ silentMs: SILENT_MS, db, gitHub: client, put: gitHub.put, post: gitHub.post, publish: gitHub.publish, clock: clock.now, settle: () => {} })
   const ts = (): string => clock.now().toISOString()
   const tick = (): void => {
     busTick.run()

@@ -15,6 +15,7 @@ import { reduce } from '../../core/reducer.js'
 import { realTimedShell, WitnessExecutor } from '../../nodes/witness/witness-executor.js'
 import { SetupTurns, withWorktreeAsync } from '../../ports/worktree.js'
 import { busProjections } from '../../supervisor/composition.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 
 const CARD = 1601
 const PR = 1602
@@ -93,7 +94,7 @@ async function witnessOnMain(w: World): Promise<void> {
   queueTask(w.db, TS, task)
   const lease = leaseQueued(w.db, TS, keyOf(task), 'worker:witness:earlyclose')!
   const turns = new SetupTurns()
-  await new WitnessExecutor({ db: w.db, clock: () => new Date(TS), shell: realTimedShell, log: () => {}, trees: { baseOf: async () => w.main, withTree: (base, run) => withWorktreeAsync(w.repo, base, run, turns) } }).run(lease)
+  await new WitnessExecutor({ silentMs: SILENT_MS, db: w.db, clock: () => new Date(TS), shell: realTimedShell, log: () => {}, trees: { baseOf: async () => w.main, withTree: (base, run) => withWorktreeAsync(w.repo, base, run, turns) } }).run(lease)
   reduce(w.db, 'pending', busProjections())
 }
 

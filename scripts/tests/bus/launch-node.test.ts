@@ -47,6 +47,7 @@ import { TICK_MS } from '../../ports/netwatch.js'
 import { WORKTREE_HOME_VARIABLE } from '../../ports/worktree-home.js'
 import { busProjections, nodeSupply } from '../../supervisor/composition.js'
 import { recordHeartbeat } from '../../supervisor/heartbeat.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { requestFromWindow, WindowRequests } from '../../window/window-requests.js'
 import { sha } from './github-fake.js'
 import { eventsOf, mergeBench, taskState } from './merge-bench.js'
@@ -128,7 +129,7 @@ function bench(): MergeBench {
 }
 
 function nodeOf(made: MergeBench, mode: DetectionMode = 'shadow', starter: CardStarter = new FakeStarter()): ProbedLaunchNode {
-  const parts: LaunchNodeParts = { db: made.db, starter, clock: made.clock.now, session: 'node-1', mode, env: {}, disk: roomy, isolation: sandboxed }
+  const parts: LaunchNodeParts = { silentMs: SILENT_MS, db: made.db, starter, clock: made.clock.now, session: 'node-1', mode, env: {}, disk: roomy, isolation: sandboxed }
   return new DetectingLaunchNode(parts)
 }
 
@@ -300,7 +301,7 @@ describe('the launch node', () => {
     admit(made, 970, 'lane-a')
     admit(made, 971, 'lane-b')
     made.tick()
-    const node = new ProbedLaunchNode({ db: made.db, starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: { CONSTRUCT_BUS_SLOTS_LAUNCH: '1' }, disk: roomy, isolation: sandboxed })
+    const node = new ProbedLaunchNode({ silentMs: SILENT_MS, db: made.db, starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: { CONSTRUCT_BUS_SLOTS_LAUNCH: '1' }, disk: roomy, isolation: sandboxed })
 
     await once(node)
     expect(node.slots).toBe(1)
@@ -319,7 +320,7 @@ describe('the launch node', () => {
     const text = 'the body of card 975'
     appendEvent(made.db, { ts: made.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'policy', cardId: 975, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:975`, payload: { lane: 'lane-a', decision: 'auto', contour: 'cheap', depends: [], admission: 'admission-975', text, textSha: textSha(text) }, legacy: false })
     queueTask(made.db, made.clock.now().toISOString(), { queue: 'launch', cardId: 975, generation: 'admission-975' })
-    const node = new ProbedLaunchNode({ db: made.db, starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, disk: roomy, isolation: sandboxed })
+    const node = new ProbedLaunchNode({ silentMs: SILENT_MS, db: made.db, starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, disk: roomy, isolation: sandboxed })
     expect(node.found()).toEqual([])
 
     await once(node)
@@ -359,7 +360,7 @@ describe('the launch node', () => {
     made.tick()
     const ts = made.clock.now().toISOString()
     queueTask(made.db, ts, { queue: 'launch', cardId: 970, generation: 'admission-970' })
-    const executor = new LaunchExecutor({ db: made.db, starter, clock: made.clock.now, disk: roomy, isolation: sandboxed, prompts: path.join(root, 'prompts') })
+    const executor = new LaunchExecutor({ silentMs: SILENT_MS, db: made.db, starter, clock: made.clock.now, disk: roomy, isolation: sandboxed, prompts: path.join(root, 'prompts') })
 
     expect(executor.launch(leaseNext(made.db, ts, 'launch', 'worker:launch:t')!)).toMatchObject({ kind: 'started' })
     const [started] = eventsOf(made.db, CARD_STARTED) as { prompt_sha: string, prompt_path: string, input?: unknown }[]
@@ -384,7 +385,7 @@ describe('the launch node', () => {
     made.tick()
     const ts = made.clock.now().toISOString()
     queueTask(made.db, ts, { queue: 'launch', cardId: 970, generation: 'admission-970' })
-    const executor = new LaunchExecutor({ db: made.db, starter, clock: made.clock.now, disk: roomy, isolation: sandboxed, prompts: path.join(blocker, 'prompts') })
+    const executor = new LaunchExecutor({ silentMs: SILENT_MS, db: made.db, starter, clock: made.clock.now, disk: roomy, isolation: sandboxed, prompts: path.join(blocker, 'prompts') })
 
     expect(executor.launch(leaseNext(made.db, ts, 'launch', 'worker:launch:t')!)).toMatchObject({ kind: 'started' })
     const [started] = eventsOf(made.db, CARD_STARTED)
@@ -397,7 +398,7 @@ describe('the launch node', () => {
     const starter = new FakeStarter()
     admit(made, 975, 'lane-a')
     made.tick()
-    const node = new ProbedLaunchNode({ db: made.db, starter, clock: made.clock.now, session: 'node-1', mode: 'shadow', env: {}, disk: roomy, isolation: sandboxed })
+    const node = new ProbedLaunchNode({ silentMs: SILENT_MS, db: made.db, starter, clock: made.clock.now, session: 'node-1', mode: 'shadow', env: {}, disk: roomy, isolation: sandboxed })
 
     await once(node)
     await once(node)
@@ -408,7 +409,7 @@ describe('the launch node', () => {
     const detecting = bench()
     admit(detecting, 975, 'lane-a')
     const detectingStarter = new FakeStarter()
-    await once(new ProbedLaunchNode({ db: detecting.db, starter: detectingStarter, clock: detecting.clock.now, session: 'node-1', mode: 'shadow', env: {}, disk: roomy, isolation: sandboxed }))
+    await once(new ProbedLaunchNode({ silentMs: SILENT_MS, db: detecting.db, starter: detectingStarter, clock: detecting.clock.now, session: 'node-1', mode: 'shadow', env: {}, disk: roomy, isolation: sandboxed }))
     expect(detectingStarter.starts).toEqual([])
     expect(eventsOf(detecting.db, NODE_DETECTED)).toEqual([{ key: launchKey(975), via: 'tick', event_id: expect.any(Number) as unknown }])
   })
@@ -420,7 +421,7 @@ describe('the launch node', () => {
     made.tick()
     let alive = true
     const processes: ProcessTable = { commandLine: () => alive ? 'sh -c claude -p --session-id s-976' : null, signalGroup: () => {} }
-    const node = new ProbedLaunchNode({ db: made.db, starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, disk: roomy, isolation: sandboxed })
+    const node = new ProbedLaunchNode({ silentMs: SILENT_MS, db: made.db, starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, disk: roomy, isolation: sandboxed })
 
     await once(node)
     expect(starter.starts).toHaveLength(1)
@@ -445,7 +446,7 @@ describe('the launch node', () => {
     made.tick()
     let alive = true
     const processes: ProcessTable = { commandLine: () => alive ? 'sh -c claude -p --session-id s-978' : null, signalGroup: () => {} }
-    const node = new ProbedLaunchNode({ db: made.db, starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, disk: roomy, isolation: sandboxed })
+    const node = new ProbedLaunchNode({ silentMs: SILENT_MS, db: made.db, starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, disk: roomy, isolation: sandboxed })
 
     for (let death = 1; death <= SESSION_DEATH_CAP; death++) {
       alive = true
@@ -471,7 +472,7 @@ describe('the launch node', () => {
     admit(made, 977, 'lane-a')
     made.tick()
     const processes: ProcessTable = { commandLine: () => null, signalGroup: () => {} }
-    const node = new ProbedLaunchNode({ db: made.db, starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, resulted: () => true, disk: roomy, isolation: sandboxed })
+    const node = new ProbedLaunchNode({ silentMs: SILENT_MS, db: made.db, starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, resulted: () => true, disk: roomy, isolation: sandboxed })
 
     await once(node)
     expect(node.stopOverdue()).toEqual([])
@@ -487,7 +488,7 @@ describe('the launch node', () => {
     const signalled: number[] = []
     const processes: ProcessTable = { commandLine: pid => pid === 979 ? (alive979 ? 'sh -c claude -p --session-id s-979' : null) : 'sh -c claude -p --session-id s-980', signalGroup: pgid => signalled.push(pgid) }
     const starter: CardStarter = { start: card => ({ kind: 'started', card: { session: `s-${card.cardId}`, worktree: `/trees/mc-${card.cardId}`, branch: `feat/card-${card.cardId}`, base: 'f'.repeat(40), pid: card.cardId, pgid: card.cardId } }), stop: card => signalled.push(card.pgid) }
-    const live = new ProbedLaunchNode({ db: made.db, starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, disk: roomy, isolation: sandboxed })
+    const live = new ProbedLaunchNode({ silentMs: SILENT_MS, db: made.db, starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, disk: roomy, isolation: sandboxed })
     await once(live)
     await once(live)
     expect(eventsOf(made.db, CARD_STARTED)).toHaveLength(2)
@@ -495,7 +496,7 @@ describe('the launch node', () => {
 
     alive979 = false
     made.clock.advance(LAUNCH_LIMIT_MINUTES * 60_000 + 1)
-    const shadow = new ProbedLaunchNode({ db: made.db, starter, clock: made.clock.now, session: 'node-2', mode: 'shadow', env: {}, processes, disk: roomy, isolation: sandboxed })
+    const shadow = new ProbedLaunchNode({ silentMs: SILENT_MS, db: made.db, starter, clock: made.clock.now, session: 'node-2', mode: 'shadow', env: {}, processes, disk: roomy, isolation: sandboxed })
     expect(shadow.stopOverdue()).toEqual([])
     expect(eventsOf(made.db, CARD_STOPPED)).toEqual([])
     expect(signalled).toEqual([])
@@ -507,7 +508,7 @@ describe('the launch node', () => {
       admit(made, 981, 'lane-a')
       made.tick()
       const processes: ProcessTable = { commandLine: () => null, signalGroup: () => {} }
-      const node = new ProbedLaunchNode({ db: made.db, starter: new FakeStarter(), clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, resulted: (_card, start) => left === 'pull-request' && start.cardId === 981, disk: roomy, isolation: sandboxed })
+      const node = new ProbedLaunchNode({ silentMs: SILENT_MS, db: made.db, starter: new FakeStarter(), clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, resulted: (_card, start) => left === 'pull-request' && start.cardId === 981, disk: roomy, isolation: sandboxed })
       await once(node)
       made.tick()
       if (left === 'ghost-row')
@@ -526,7 +527,7 @@ describe('the launch node', () => {
     made.tick()
     const result = 'result: stopped at the gate — witnesses green; quality red outside the touches'
     const processes: ProcessTable = { commandLine: () => null, signalGroup: () => {} }
-    const node = new ProbedLaunchNode({ db: made.db, starter: new FakeStarter(), clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, resulted: () => true, endedWith: start => start.cardId === 1077 ? result : null, disk: roomy, isolation: sandboxed })
+    const node = new ProbedLaunchNode({ silentMs: SILENT_MS, db: made.db, starter: new FakeStarter(), clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, resulted: () => true, endedWith: start => start.cardId === 1077 ? result : null, disk: roomy, isolation: sandboxed })
     await once(node)
     made.tick()
 
@@ -543,7 +544,7 @@ describe('the launch node', () => {
     admit(made, 1302, 'lane-a')
     made.tick()
     const processes: ProcessTable = { commandLine: () => null, signalGroup: () => {} }
-    const node = new ProbedLaunchNode({ db: made.db, starter: new FakeStarter(), clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, resulted: () => true, disk: roomy, isolation: sandboxed })
+    const node = new ProbedLaunchNode({ silentMs: SILENT_MS, db: made.db, starter: new FakeStarter(), clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, resulted: () => true, disk: roomy, isolation: sandboxed })
     await once(node)
     made.tick()
 
@@ -566,7 +567,7 @@ describe('the launch node', () => {
     made.tick()
     const starter = new FakeStarter()
     const processes: ProcessTable = { commandLine: () => null, signalGroup: () => {} }
-    const node = new ProbedLaunchNode({ db: made.db, starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, resulted: () => true, disk: roomy, isolation: sandboxed })
+    const node = new ProbedLaunchNode({ silentMs: SILENT_MS, db: made.db, starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, resulted: () => true, disk: roomy, isolation: sandboxed })
     await once(node)
     made.tick()
     appendEvent(made.db, { ts: made.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'policy', cardId: 1304, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:1304:amended`, payload: { lane: 'lane-a', decision: 'auto', contour: 'cheap', depends: [], admission: 'admission-1304-amended' }, legacy: false })
@@ -594,7 +595,7 @@ describe('the launch node', () => {
     const made = bench()
     admit(made, 1303, 'lane-a')
     made.tick()
-    await once(new ProbedLaunchNode({ db: made.db, starter: new FakeStarter(), clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, disk: roomy, isolation: sandboxed }))
+    await once(new ProbedLaunchNode({ silentMs: SILENT_MS, db: made.db, starter: new FakeStarter(), clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, disk: roomy, isolation: sandboxed }))
     made.tick()
     expect(taskState(made.db, launchKey(1303))).toMatchObject({ state: 'completed' })
     appendEvent(made.db, { ts: made.clock.now().toISOString(), type: BOARD_ALARM, actor: 'policy', cardId: 1303, pr: null, head: null, dedupeKey: `${BOARD_ALARM}:by-hand-1303`, payload: { task_key: launchKey(1303), reason: 'fault', detail: 'by hand' }, legacy: false })
@@ -613,7 +614,7 @@ describe('the launch node', () => {
     admit(made, cardId, 'lane-a')
     made.tick()
     const processes: ProcessTable = { commandLine: () => null, signalGroup: () => {} }
-    const node = new ProbedLaunchNode({ db: made.db, starter: new FakeStarter(), clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, resulted: () => true, reportOf: start => start.cardId === cardId ? report : null, disk: roomy, isolation: sandboxed })
+    const node = new ProbedLaunchNode({ silentMs: SILENT_MS, db: made.db, starter: new FakeStarter(), clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, resulted: () => true, reportOf: start => start.cardId === cardId ? report : null, disk: roomy, isolation: sandboxed })
     await once(node)
     made.tick()
     return { made, node }
@@ -673,7 +674,7 @@ describe('the launch node', () => {
     const starter = new TreeStarter(tree)
     const report = `#${cardId} card-${cardId}\nresult: stopped before PR\nno PR\nquestion: ${question}\n`
     const processes: ProcessTable = { commandLine: () => null, signalGroup: () => {} }
-    const node = new ProbedLaunchNode({ db: made.db, starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, resulted: () => true, reportOf: () => report, disk: roomy, isolation: sandboxed })
+    const node = new ProbedLaunchNode({ silentMs: SILENT_MS, db: made.db, starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, resulted: () => true, reportOf: () => report, disk: roomy, isolation: sandboxed })
     await once(node)
     made.tick()
     expect(node.stopOverdue()).toEqual([cardId])
@@ -794,7 +795,7 @@ describe('the launch node', () => {
     made.tick()
     const published: string[] = []
     const processes: ProcessTable = { commandLine: () => null, signalGroup: () => {} }
-    const node = new ProbedLaunchNode({ db: made.db, starter: new FakeStarter(), clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, resulted: () => true, warned: () => warned, publish: (card) => {
+    const node = new ProbedLaunchNode({ silentMs: SILENT_MS, db: made.db, starter: new FakeStarter(), clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, resulted: () => true, warned: () => warned, publish: (card) => {
       published.push(card.worktree)
       publish(made)
     }, disk: roomy, isolation: sandboxed })
@@ -845,7 +846,7 @@ describe('the launch node', () => {
     made.tick()
     let alive = true
     const processes: ProcessTable = { commandLine: () => alive ? 'sh -c claude -p --session-id s-1102' : null, signalGroup: () => {} }
-    const node = new ProbedLaunchNode({ db: made.db, starter: new FakeStarter(), clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, resulted: () => true, disk: roomy, isolation: sandboxed })
+    const node = new ProbedLaunchNode({ silentMs: SILENT_MS, db: made.db, starter: new FakeStarter(), clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, resulted: () => true, disk: roomy, isolation: sandboxed })
     await once(node)
     admitTouching(1103, 'lane-b', ['src/ui/lore.ts', 'tests/lore.test.ts'])
     made.tick()
@@ -872,7 +873,7 @@ describe('the launch node', () => {
     admitRunning(1104, 'lane-a', ['scripts/bus/a.ts', shared], `Do the card.\n\ncorrected: touches — (absent) → ${shared} — ${COVERING_REASON}`)
     made.tick()
     const processes: ProcessTable = { commandLine: () => 'sh -c claude -p --session-id s-1104', signalGroup: () => {} }
-    const node = new ProbedLaunchNode({ db: made.db, starter: new FakeStarter(), clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, resulted: () => true, disk: roomy, isolation: sandboxed })
+    const node = new ProbedLaunchNode({ silentMs: SILENT_MS, db: made.db, starter: new FakeStarter(), clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, resulted: () => true, disk: roomy, isolation: sandboxed })
     await once(node)
     admitRunning(1105, 'lane-b', ['scripts/bus/b.ts', shared], `Do the card.\n\n${runsLine([shared])}`)
     expect(node.found()).toEqual([launchKey(1105)])
@@ -886,7 +887,7 @@ describe('the launch node', () => {
     made.tick()
     let alive = true
     const processes: ProcessTable = { commandLine: () => alive ? 'sh -c claude -p --session-id s-982' : null, signalGroup: () => {} }
-    const node = new ProbedLaunchNode({ db: made.db, starter: new FakeStarter(), clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, disk: roomy, isolation: sandboxed })
+    const node = new ProbedLaunchNode({ silentMs: SILENT_MS, db: made.db, starter: new FakeStarter(), clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, disk: roomy, isolation: sandboxed })
     await once(node)
     made.tick()
     const pulses = (): number => eventsOf(made.db, CARD_PULSE).length
@@ -924,7 +925,7 @@ describe('the launch node', () => {
     admit(made, 985, 'lane-a')
     made.tick()
     const processes: ProcessTable = { commandLine: () => 'sh -c claude -p --session-id someone-else', signalGroup: () => {} }
-    const node = new ProbedLaunchNode({ db: made.db, starter: new FakeStarter(), clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, disk: roomy, isolation: sandboxed })
+    const node = new ProbedLaunchNode({ silentMs: SILENT_MS, db: made.db, starter: new FakeStarter(), clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, disk: roomy, isolation: sandboxed })
     await once(node)
     made.tick()
 
@@ -938,7 +939,7 @@ describe('the launch node', () => {
     made.tick()
     const starter = new ContinuingStarter()
     const exited: ProcessTable = { commandLine: () => null, signalGroup: () => {} }
-    const node = new ProbedLaunchNode({ db: made.db, starter, continuer: starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes: exited, resulted: () => true, handedOff: start => start.cardId === cardId, disk: roomy, isolation: sandboxed })
+    const node = new ProbedLaunchNode({ silentMs: SILENT_MS, db: made.db, starter, continuer: starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes: exited, resulted: () => true, handedOff: start => start.cardId === cardId, disk: roomy, isolation: sandboxed })
     return { node, starter }
   }
 
@@ -994,7 +995,7 @@ describe('the launch node', () => {
     }
     const starter = new ShiftCardStarter({ launchDir: path.join(root, 'launch'), claude: 'claude', treePr: 'tree-pr' }, ports)
     const processes: ProcessTable = { commandLine: () => live.size === 0 ? null : `sh -c claude -p --session-id ${[...live].at(-1)}`, signalGroup: () => {} }
-    const node = new ProbedLaunchNode({ db: made.db, starter, continuer: starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, resulted: () => true, handedOff: () => false, disk: roomy, isolation: sandboxed })
+    const node = new ProbedLaunchNode({ silentMs: SILENT_MS, db: made.db, starter, continuer: starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, resulted: () => true, handedOff: () => false, disk: roomy, isolation: sandboxed })
     return { node, spawned, live }
   }
 
@@ -1128,7 +1129,7 @@ describe('the launch node', () => {
     const starter = new TreeContinuingStarter(tree)
     const report = `#${cardId} a-card\nresult: stopped before PR\nno PR\nquestion: the sandbox cannot reinstall node_modules; may the owner restore it?\n`
     const exited: ProcessTable = { commandLine: () => null, signalGroup: () => {} }
-    const node = new ProbedLaunchNode({ db: made.db, starter, continuer: starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes: exited, resulted: () => true, handedOff: () => false, atContextLine: () => true, reportOf: start => start.cardId === cardId ? report : null, disk: roomy, isolation: sandboxed })
+    const node = new ProbedLaunchNode({ silentMs: SILENT_MS, db: made.db, starter, continuer: starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes: exited, resulted: () => true, handedOff: () => false, atContextLine: () => true, reportOf: start => start.cardId === cardId ? report : null, disk: roomy, isolation: sandboxed })
     await once(node)
     made.tick()
     return { node, starter }
@@ -1180,7 +1181,7 @@ describe('the launch node', () => {
     made.tick()
     const starter = new ContinuingStarter()
     const processes: ProcessTable = { commandLine: () => null, signalGroup: () => {} }
-    const node = new ProbedLaunchNode({ db: made.db, starter, continuer: starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, resulted: () => true, handedOff: () => false, disk: roomy, isolation: sandboxed })
+    const node = new ProbedLaunchNode({ silentMs: SILENT_MS, db: made.db, starter, continuer: starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, resulted: () => true, handedOff: () => false, disk: roomy, isolation: sandboxed })
     await once(node)
     made.tick()
 
@@ -1196,7 +1197,7 @@ describe('the launch node', () => {
     const signalled: number[] = []
     const processes: ProcessTable = { commandLine: () => 'sh -c claude -p --session-id someone-else', signalGroup: pgid => signalled.push(pgid) }
     const starter = new FakeStarter()
-    const node = new ProbedLaunchNode({ db: made.db, starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, disk: roomy, isolation: sandboxed })
+    const node = new ProbedLaunchNode({ silentMs: SILENT_MS, db: made.db, starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, disk: roomy, isolation: sandboxed })
     await once(node)
     made.tick()
 
@@ -1217,7 +1218,7 @@ describe('the launch node', () => {
       alive = false
     } }
     const processes: ProcessTable = { commandLine: () => alive ? `sh -c claude -p --session-id s-${cardId}` : null, signalGroup: () => {} }
-    return { node: new ProbedLaunchNode({ db: made.db, starter: stopping, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, disk: roomy, isolation: sandboxed }), starter }
+    return { node: new ProbedLaunchNode({ silentMs: SILENT_MS, db: made.db, starter: stopping, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, disk: roomy, isolation: sandboxed }), starter }
   }
 
   function beat(made: MergeBench, cardId: number): void {
@@ -1277,7 +1278,7 @@ describe('the launch node', () => {
     const starter = new FakeStarter()
     admit(made, 1251, 'lane-a')
     made.tick()
-    const node = new ProbedLaunchNode({ db: made.db, starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, disk: roomy, isolation: sandboxed })
+    const node = new ProbedLaunchNode({ silentMs: SILENT_MS, db: made.db, starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, disk: roomy, isolation: sandboxed })
     leaseNext(made.db, made.clock.now().toISOString(), 'launch', 'worker:launch:earlier')
     await once(node)
     expect(starter.starts).toEqual([])
@@ -1301,7 +1302,7 @@ describe('the launch node', () => {
     const made = bench()
     admit(made, 1252, 'lane-a')
     made.tick()
-    const node = new ProbedLaunchNode({ db: made.db, starter: new FakeStarter(), clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, disk: roomy, isolation: sandboxed })
+    const node = new ProbedLaunchNode({ silentMs: SILENT_MS, db: made.db, starter: new FakeStarter(), clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, disk: roomy, isolation: sandboxed })
     leaseNext(made.db, made.clock.now().toISOString(), 'launch', 'worker:launch:earlier')
     startedEarlier(made, 1252)
     made.clock.advance((LAUNCH_START_MINUTES + 1) * 60_000)
@@ -1398,7 +1399,7 @@ function ladderWorld(made: MergeBench, handoffState: { brief: string, approved: 
 }
 
 function ladderNode(made: MergeBench, world: LadderWorld, cheap: CardStarter = new FakeStarter()): ProbedLaunchNode {
-  return new ProbedLaunchNode({ db: made.db, starter: cheap, ladder: world.starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, disk: roomy, isolation: sandboxed })
+  return new ProbedLaunchNode({ silentMs: SILENT_MS, db: made.db, starter: cheap, ladder: world.starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, disk: roomy, isolation: sandboxed })
 }
 
 function scriptOf(run: DetachedSpawn): string {
@@ -1437,7 +1438,7 @@ describe('the launch node in ladder mode', () => {
       const world = approved ? approvedWorld(made) : ladderWorld(made, null)
       admit(made, LADDER_CARD, 'lane-x', [], 'ladder')
       made.tick()
-      const node = new ProbedLaunchNode({ db: made.db, starter: new FakeStarter(), ladder: world.starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, resulted: () => false, disk: roomy, isolation: sandboxed })
+      const node = new ProbedLaunchNode({ silentMs: SILENT_MS, db: made.db, starter: new FakeStarter(), ladder: world.starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, resulted: () => false, disk: roomy, isolation: sandboxed })
       await once(node)
       expect(eventsOf(made.db, CARD_STARTED)).toMatchObject([{ step, contour: 'ladder' }])
       made.tick()
@@ -1455,7 +1456,7 @@ describe('the launch node in ladder mode', () => {
     admit(made, LADDER_CARD, 'lane-x', [], 'ladder')
     made.tick()
     const processes: ProcessTable = { commandLine: () => null, signalGroup: () => {} }
-    const node = new ProbedLaunchNode({ db: made.db, starter: new FakeStarter(), ladder: world.starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, resulted: () => true, disk: roomy, isolation: sandboxed })
+    const node = new ProbedLaunchNode({ silentMs: SILENT_MS, db: made.db, starter: new FakeStarter(), ladder: world.starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, resulted: () => true, disk: roomy, isolation: sandboxed })
     await once(node)
     expect(eventsOf(made.db, CARD_STARTED)).toMatchObject([{ step: 'brief', contour: 'ladder' }])
     made.tick()
@@ -1470,7 +1471,7 @@ describe('the launch node in ladder mode', () => {
     admit(made, LADDER_CARD, 'lane-x', [], 'ladder')
     made.tick()
     const processes: ProcessTable = { commandLine: () => null, signalGroup: () => {} }
-    const node = new ProbedLaunchNode({ db: made.db, starter: new FakeStarter(), ladder: world.starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, resulted: () => true, disk: roomy, isolation: sandboxed })
+    const node = new ProbedLaunchNode({ silentMs: SILENT_MS, db: made.db, starter: new FakeStarter(), ladder: world.starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes, resulted: () => true, disk: roomy, isolation: sandboxed })
     await once(node)
     made.tick()
 
@@ -1490,7 +1491,7 @@ describe('the launch node in ladder mode', () => {
       const card = contour === 'cheap' ? 970 : LADDER_CARD
       admit(made, card, 'lane-x', [], contour)
       made.tick()
-      await once(new ProbedLaunchNode({ db: made.db, starter: cheap, ladder, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, disk: roomy, isolation: unconfined }))
+      await once(new ProbedLaunchNode({ silentMs: SILENT_MS, db: made.db, starter: cheap, ladder, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, disk: roomy, isolation: unconfined }))
 
       expect(eventsOf(made.db, CARD_STARTED)).toEqual([])
       expect(cheap.starts).toEqual([])
@@ -1511,7 +1512,7 @@ describe('the launch node in ladder mode', () => {
       const made = bench()
       admit(made, 970, 'lane-a')
       made.tick()
-      await once(new ProbedLaunchNode({ db: made.db, starter: new FakeStarter(), clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, disk: roomy, isolation }))
+      await once(new ProbedLaunchNode({ silentMs: SILENT_MS, db: made.db, starter: new FakeStarter(), clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, disk: roomy, isolation }))
 
       expect(eventsOf(made.db, CARD_STARTED)).toMatchObject([{ isolation: level, isolationGaps: gaps }])
     }
@@ -1805,24 +1806,7 @@ describe('a session that ends on the account usage limit', () => {
     const reset = new Date(Math.ceil((made.clock.now().getTime() + RESET_AFTER_MS) / 1000) * 1000).toISOString()
     const machineDir = mkdtempSync(path.join(tmpdir(), 'usage-limit-machine-'))
     roots.push(machineDir)
-    const node = new ProbedLaunchNode({
-      db: made.db,
-      starter,
-      continuer: starter,
-      clock: made.clock.now,
-      session: 'node-1',
-      mode: 'live',
-      env: {},
-      processes: exited,
-      resulted: () => false,
-      handedOff: () => false,
-      collected: (_card, start) => start.cardId === 1711 ? MISSING : null,
-      usageLimitedUntil: card => limited.includes(Number(card.session.slice(2))) ? reset : null,
-      machine: new MachineSessions(machineDir, () => false, 16),
-      lanes: () => 4,
-      disk: roomy,
-      isolation: sandboxed,
-    })
+    const node = new ProbedLaunchNode({ silentMs: SILENT_MS, db: made.db, starter, continuer: starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes: exited, resulted: () => false, handedOff: () => false, collected: (_card, start) => start.cardId === 1711 ? MISSING : null, usageLimitedUntil: card => limited.includes(Number(card.session.slice(2))) ? reset : null, machine: new MachineSessions(machineDir, () => false, 16), lanes: () => 4, disk: roomy, isolation: sandboxed })
     return { node, starter, reset }
   }
 

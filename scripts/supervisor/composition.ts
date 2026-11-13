@@ -10,7 +10,16 @@ import { ROLES_PROJECTION } from '../nodes/restart/role.js'
 import { DECISION_FOLDS } from '../policy/decisions/index.js'
 import { CHECK_MS, TICK_MS } from '../ports/netwatch.js'
 import { busSessionPulse, heartbeatEnv, measureCardSession, ownStart, recordProcessHeartbeat } from './heartbeat.js'
+import { SILENT_MS } from './liveness-sites.js'
 import { slotsOf, slotsVariable } from './scheduler.js'
+
+export interface NodeLiveness {
+  silentMs: number
+}
+
+export function nodeLiveness(): NodeLiveness {
+  return { silentMs: SILENT_MS }
+}
 
 export type CardSessionMeasure = SessionMeasure
 

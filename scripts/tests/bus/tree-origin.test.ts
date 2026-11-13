@@ -23,6 +23,7 @@ import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
 import { NetWatch, TICK_MS } from '../../ports/netwatch.js'
 import { cutTree, FREE_TREE_CAPACITY, treeOriginIn, treeOriginLine } from '../../ports/worktree.js'
 import { busProjections } from '../../supervisor/composition.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { BusTick } from '../../supervisor/run.js'
 import { Clock, FakeGitHub } from './github-fake.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
@@ -77,7 +78,7 @@ function cardStartedPayload(worktree: string, origin: TreeOrigin): Record<string
   appendEvent(bench.db, { ts, type: CARD_ADMITTED, actor: 'policy', cardId: FIRST, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${FIRST}`, payload: { lane: 'lane-1', decision: 'auto', contour: 'cheap', depends: [], admission: `admission-${FIRST}` }, legacy: false })
   bench.tick()
   const lease = leaseNext(bench.db, bench.clock.now().toISOString(), 'launch', 'worker:launch:worker-1')!
-  new LaunchExecutor({ db: bench.db, starter, clock: bench.clock.now, disk: roomy, isolation: sandboxed, treeOrigin: origins.take }).launch(lease)
+  new LaunchExecutor({ silentMs: SILENT_MS, db: bench.db, starter, clock: bench.clock.now, disk: roomy, isolation: sandboxed, treeOrigin: origins.take }).launch(lease)
   const [started] = eventsOf(bench.db, CARD_STARTED)
   bench.close()
   return started!
@@ -97,7 +98,7 @@ function reviewBench(root: string): { db: DatabaseSync, gitHub: FakeGitHub, tick
       detectReview({ db, gitHub, clock })
       clock.advance(TICK_MS)
     },
-    worker: reviewer => new ReviewWorker({ db, gitHub: gitHub.client, publish, reviewer, plan: () => fullReview('a fixed plan'), clock: clock.now, session: 'worker-1', isolation: sandboxed }),
+    worker: reviewer => new ReviewWorker({ silentMs: SILENT_MS, db, gitHub: gitHub.client, publish, reviewer, plan: () => fullReview('a fixed plan'), clock: clock.now, session: 'worker-1', isolation: sandboxed }),
   }
 }
 

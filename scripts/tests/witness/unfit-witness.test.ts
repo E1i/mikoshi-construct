@@ -16,6 +16,7 @@ import { GREEN, RED, witnessDenial } from '../../policy/policy.js'
 import { cardScopeOfAdmitted, namedOutsideTheCard, redOnMainProposal, witnessesFindingNoTest } from '../../ports/witnesses.js'
 import { SetupTurns, withWorktreeAsync } from '../../ports/worktree.js'
 import { busProjections } from '../../supervisor/composition.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 
 const CARD = 1759
 const PR = 2759
@@ -94,7 +95,7 @@ async function witnessRun(w: World, gitDiff: 'reads' | 'fails' = 'reads'): Promi
     return run(tree)
   }
   const trees = { baseOf: async () => w.base, withTree: <T>(base: string, run: (tree: string) => Promise<T>) => gitDiff === 'fails' ? withoutHeadObjects(run) : withWorktreeAsync(w.repo, base, run, turns) }
-  const node = new WitnessNode({ db: w.db, clock: () => new Date(NOW), session: 'witness-1', mode: 'live', env: {}, shell: vitestLike, trees })
+  const node = new WitnessNode({ silentMs: SILENT_MS, db: w.db, clock: () => new Date(NOW), session: 'witness-1', mode: 'live', env: {}, shell: vitestLike, trees })
   for (let round = 0; round < 2; round += 1) {
     const controller = new AbortController()
     await node.run({ pause: async () => controller.abort(), signal: controller.signal })

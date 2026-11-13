@@ -16,6 +16,7 @@ import { LaunchNode } from '../../nodes/launch/launch-worker.js'
 import { sayToOwnerChannel } from '../../owner/channel.js'
 import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
 import { busProjections } from '../../supervisor/composition.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { requestFromWindow, requestOf, WindowRequests } from '../../window/window-requests.js'
 import { mergeBench } from '../bus/merge-bench.js'
 
@@ -81,7 +82,7 @@ function launchNode(made: Room): LaunchNode {
     stop: () => {},
   }
   const table: ProcessTable = { commandLine: () => null, signalGroup: () => {} }
-  return new LaunchNode({ db: made.bench.db, starter, clock: made.bench.clock.now, session: 'node-1', mode: 'live', env: {}, processes: table, pidAlive: () => false, collected: () => null, disk: () => ({ bavail: 1, bsize: DISK_FLOOR_BYTES }), isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }) })
+  return new LaunchNode({ silentMs: SILENT_MS, db: made.bench.db, starter, clock: made.bench.clock.now, session: 'node-1', mode: 'live', env: {}, processes: table, pidAlive: () => false, collected: () => null, disk: () => ({ bavail: 1, bsize: DISK_FLOOR_BYTES }), isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }) })
 }
 
 function sessionEnds(made: Room): string[] {

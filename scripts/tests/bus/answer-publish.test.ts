@@ -19,6 +19,7 @@ import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
 import { treePublishing } from '../../nodes/answer/answer-worker.js'
 import { publishedTreePr } from '../../nodes/launch/launch-root.js'
 import { launchDirOf, treePrOfThisBuild } from '../../ports/tree-publish.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { sha } from './github-fake.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
 
@@ -67,7 +68,7 @@ function stoppedCardWithoutAPullRequest(): Bench {
   const answerer: Answerer = async () => ({ session: SESSION, resumed: true, before: sha('a'), after: sha('a'), owner: null })
   const lease = (): Lease => leaseNext(made.db, made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1')!
   const answer = async (publish: () => void, committed = true, dirty = false): Promise<AnswerOutcome> => {
-    const executor = new AnswerExecutor({ db: made.db, answerer, ownerMerges: () => '', clock: made.clock.now, trees: cardTrees, dirty: () => dirty, liveSession: () => null, publishing: { committed: () => committed, publish } })
+    const executor = new AnswerExecutor({ silentMs: SILENT_MS, db: made.db, answerer, ownerMerges: () => '', clock: made.clock.now, trees: cardTrees, dirty: () => dirty, liveSession: () => null, publishing: { committed: () => committed, publish } })
     return executor.answer(lease())
   }
   return { made, worktree, lease, answer }

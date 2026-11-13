@@ -14,6 +14,7 @@ import { MachineSessions } from '../../core/machine-sessions.js'
 import { AMENDED_AFTER_START, LaunchNode } from '../../nodes/launch/launch-worker.js'
 import { TICK_MS } from '../../ports/netwatch.js'
 import { nodeSupply } from '../../supervisor/composition.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { eventsOf, mergeBench } from '../bus/merge-bench.js'
 
 const CARD = 1781
@@ -58,7 +59,7 @@ class Starter implements CardStarter, SessionContinuer {
 }
 
 function launchNode(made: MergeBench, starter: Starter, extra: Partial<LaunchNodeParts> = {}): LaunchNode {
-  return new LaunchNode({ db: made.db, starter, continuer: starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes: { commandLine: () => null, signalGroup: () => {} }, pidAlive: () => false, machine: new MachineSessions(scratchDir('launch-latest-machine-'), () => false, 16), lanes: () => 4, disk: () => ({ bavail: 1, bsize: 1024 ** 4 }), isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }), ...extra })
+  return new LaunchNode({ silentMs: SILENT_MS, db: made.db, starter, continuer: starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes: { commandLine: () => null, signalGroup: () => {} }, pidAlive: () => false, machine: new MachineSessions(scratchDir('launch-latest-machine-'), () => false, 16), lanes: () => 4, disk: () => ({ bavail: 1, bsize: 1024 ** 4 }), isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }), ...extra })
 }
 
 async function runOnce(node: LaunchNode): Promise<void> {

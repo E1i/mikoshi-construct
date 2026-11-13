@@ -20,6 +20,7 @@ export function fixtureSurface(): Surface {
     contours: { 'ledger-row': 'mikoshi-construct/contours/ledger-row/1' },
     outside: ['lore strings'],
     scripts: { quality: { entries: ['scripts/quality/lock.ts'], flags: [], json: false, exits: [], unknownFlag: REFUSAL_NOT_READ } },
+    report: { countLine: '■ \\d+ □ \\d+ · \\d+', countLineRefusal: 'no_matrix_count_line', countLineUnder: ['src/'], readFrom: 'pull request description', writtenIn: '.construct/report.md', reportVersion: 1 },
   }
 }
 

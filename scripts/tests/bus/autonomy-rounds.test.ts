@@ -19,6 +19,7 @@ import { sayToOwnerChannel, USED_WORD } from '../../owner/channel.js'
 import { decisionsAdder } from '../../policy/decisions/projection.js'
 import { roundLimitDecisionOf } from '../../policy/round-limit-decision.js'
 import { DECISIONS_SCOPE, decisionsInForceAt } from '../../policy/shards.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { ALLOW_MERGE_RECORD, ANSWER_SOURCE, HEAD_WORD, requestFromWindow, requestOf, WindowRequests } from '../../window/window-requests.js'
 import { sha } from './github-fake.js'
 import { eventsOf, liveBench, mergeBench, spendReviewRounds } from './merge-bench.js'
@@ -118,7 +119,7 @@ function changesOnTheHead(underAShard = false): Changes {
   const trees: CardTreeTools = { home, exists: existsSync, branchOf: pr => `feat/card-${pr + 100}`, recreate: () => {}, bringTo: () => {} }
   return {
     bench,
-    executor: (answerer, shardDecider) => new AnswerExecutor({ db: bench.db, answerer, ownerMerges: () => OWNER_MERGES, clock: bench.clock.now, trees, dirty: () => false, liveSession: () => null, prepare: () => {}, mergeMain: () => () => ({ kind: 'inside', files: [] }), ...(shardDecider === undefined ? {} : { shardDecider, isolation: () => ({ level: 'partial', mechanism: 'claude-code-sandbox', gaps: [] }) }) }),
+    executor: (answerer, shardDecider) => new AnswerExecutor({ silentMs: SILENT_MS, db: bench.db, answerer, ownerMerges: () => OWNER_MERGES, clock: bench.clock.now, trees, dirty: () => false, liveSession: () => null, prepare: () => {}, mergeMain: () => () => ({ kind: 'inside', files: [] }), ...(shardDecider === undefined ? {} : { shardDecider, isolation: () => ({ level: 'partial', mechanism: 'claude-code-sandbox', gaps: [] }) }) }),
     lease: () => leaseNext(bench.db, bench.clock.now().toISOString(), 'answer', 'worker:answer:answer-1')!,
   }
 }

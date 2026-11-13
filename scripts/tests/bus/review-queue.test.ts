@@ -15,6 +15,7 @@ import { fullReview } from '../../nodes/review/review-depth.js'
 import { REVIEW_ROUNDS_SPENT, ReviewWorker, roundLimitLine } from '../../nodes/review/review-worker.js'
 import { NetWatch, TICK_MS } from '../../ports/netwatch.js'
 import { busProjections } from '../../supervisor/composition.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { BusTick } from '../../supervisor/run.js'
 import { cardBody, Clock, FakeGitHub, sha } from './github-fake.js'
 import { detectMerge } from './merge-detection.js'
@@ -168,18 +169,9 @@ describe('review queue', () => {
   it('an edit of the pull request body or of the card body after changes on head X gives a new review.recorded on X with no new commit', async () => {
     const { db, gitHub, clock, tick } = setUp()
     const body = cardBody(925)
-    const worker = new ReviewWorker({
-      isolation: sandboxed,
-      db,
-      gitHub: gitHub.client,
-      publish: (status) => {
-        gitHub.pulls.get(925)!.review = status.state
-      },
-      reviewer: async () => ({ verdict: 'changes', findings: ['the pull request body names no ladder reason'], session: 'reviewer-1' }),
-      plan: () => fullReview('a fixed plan'),
-      clock: clock.now,
-      session: 'worker-1',
-    })
+    const worker = new ReviewWorker({ silentMs: SILENT_MS, isolation: sandboxed, db, gitHub: gitHub.client, publish: (status) => {
+      gitHub.pulls.get(925)!.review = status.state
+    }, reviewer: async () => ({ verdict: 'changes', findings: ['the pull request body names no ladder reason'], session: 'reviewer-1' }), plan: () => fullReview('a fixed plan'), clock: clock.now, session: 'worker-1' })
     const recorded = (): { head: string, task: string }[] => (db.prepare(`SELECT head, dedupe_key FROM events WHERE type = '${REVIEW_RECORDED}' ORDER BY id`).all() as { head: string, dedupe_key: string }[]).map(row => ({ head: row.head, task: row.dedupe_key.split(':').slice(1, -1).join(':') }))
     const keyOf = (prBody: string, card: string | null): string => taskKey({ queue: 'review', cardId: 1025, pr: 925, head: sha('a'), input: { prBody: prBodySha(prBody), cardBody: card } })
 
@@ -239,18 +231,9 @@ describe('review queue', () => {
   })
 
   function passingWorker(db: DatabaseSync, gitHub: FakeGitHub, clock: Clock, pr: number): ReviewWorker {
-    return new ReviewWorker({
-      isolation: sandboxed,
-      db,
-      gitHub: gitHub.client,
-      publish: (status) => {
-        gitHub.pulls.get(pr)!.review = status.state
-      },
-      reviewer: async () => ({ verdict: 'pass', findings: [], session: 'reviewer-1' }),
-      plan: () => fullReview('a fixed plan'),
-      clock: clock.now,
-      session: 'worker-1',
-    })
+    return new ReviewWorker({ silentMs: SILENT_MS, isolation: sandboxed, db, gitHub: gitHub.client, publish: (status) => {
+      gitHub.pulls.get(pr)!.review = status.state
+    }, reviewer: async () => ({ verdict: 'pass', findings: [], session: 'reviewer-1' }), plan: () => fullReview('a fixed plan'), clock: clock.now, session: 'worker-1' })
   }
 
   const inputKey = (pr: number, card: string | null): string => taskKey({ queue: 'review', cardId: pr + 100, pr, head: sha('a'), input: { prBody: prBodySha(cardBody(pr)), cardBody: card } })
@@ -313,18 +296,9 @@ describe('review queue', () => {
     const body = cardBody(930)
     const edited = `${body}\n\nThe ladder: the rule is named in the body.`
     const keyOf = (prBody: string): string => taskKey({ queue: 'review', cardId: 1030, pr: 930, head: sha('a'), input: { prBody: prBodySha(prBody), cardBody: null } })
-    const worker = new ReviewWorker({
-      isolation: sandboxed,
-      db,
-      gitHub: gitHub.client,
-      publish: (status) => {
-        gitHub.pulls.get(930)!.review = status.state
-      },
-      reviewer: async () => ({ verdict: 'changes', findings: ['the body names no rule'], session: 'reviewer-1' }),
-      plan: () => fullReview('a fixed plan'),
-      clock: clock.now,
-      session: 'worker-1',
-    })
+    const worker = new ReviewWorker({ silentMs: SILENT_MS, isolation: sandboxed, db, gitHub: gitHub.client, publish: (status) => {
+      gitHub.pulls.get(930)!.review = status.state
+    }, reviewer: async () => ({ verdict: 'changes', findings: ['the body names no rule'], session: 'reviewer-1' }), plan: () => fullReview('a fixed plan'), clock: clock.now, session: 'worker-1' })
     gitHub.open({ number: 930, body })
     tick()
     expect(await worker.step()).toMatchObject({ kind: 'recorded', verdict: 'changes', taskKey: keyOf(body) })
@@ -443,26 +417,16 @@ describe('the review round limit of D-104', () => {
     const { db, gitHub, clock, tick } = setUp()
     const notes: [number, string][] = []
     let round = 0
-    const worker = new ReviewWorker({
-      isolation: sandboxed,
-      db,
-      gitHub: gitHub.client,
-      publish: (status) => {
-        gitHub.pulls.get(pr)!.review = status.state
-      },
-      reviewer: async () => {
-        round += 1
-        const verdict = verdicts[round - 1]!
-        return { verdict, findings: verdict === 'changes' ? FINDINGS_OF_THE_ROUNDS[round - 1]! : [], session: `reviewer-${round}` }
-      },
-      plan: () => fullReview('a fixed plan'),
-      clock: clock.now,
-      session: 'worker-1',
-      notePr: (number, line) => {
-        notes.push([number, line])
-        gitHub.pulls.get(number)!.body = `${cardBody(number)}\n\n${line}`
-      },
-    })
+    const worker = new ReviewWorker({ silentMs: SILENT_MS, isolation: sandboxed, db, gitHub: gitHub.client, publish: (status) => {
+      gitHub.pulls.get(pr)!.review = status.state
+    }, reviewer: async () => {
+      round += 1
+      const verdict = verdicts[round - 1]!
+      return { verdict, findings: verdict === 'changes' ? FINDINGS_OF_THE_ROUNDS[round - 1]! : [], session: `reviewer-${round}` }
+    }, plan: () => fullReview('a fixed plan'), clock: clock.now, session: 'worker-1', notePr: (number, line) => {
+      notes.push([number, line])
+      gitHub.pulls.get(number)!.body = `${cardBody(number)}\n\n${line}`
+    } })
     for (const [at, verdict] of verdicts.entries()) {
       gitHub.open({ number: pr, head: HEADS[at]! })
       tick()
@@ -522,18 +486,9 @@ describe('the review round limit of D-104', () => {
 
   it('three card-body edits on one head spend no review.rounds_spent', async () => {
     const { db, gitHub, clock, tick } = setUp()
-    const worker = new ReviewWorker({
-      isolation: sandboxed,
-      db,
-      gitHub: gitHub.client,
-      publish: (status) => {
-        gitHub.pulls.get(944)!.review = status.state
-      },
-      reviewer: async () => ({ verdict: 'changes', findings: ['a.ts:1 the finding'], session: 'reviewer-1' }),
-      plan: () => fullReview('a fixed plan'),
-      clock: clock.now,
-      session: 'worker-1',
-    })
+    const worker = new ReviewWorker({ silentMs: SILENT_MS, isolation: sandboxed, db, gitHub: gitHub.client, publish: (status) => {
+      gitHub.pulls.get(944)!.review = status.state
+    }, reviewer: async () => ({ verdict: 'changes', findings: ['a.ts:1 the finding'], session: 'reviewer-1' }), plan: () => fullReview('a fixed plan'), clock: clock.now, session: 'worker-1' })
     gitHub.open({ number: 944, body: cardBody(944) })
     tick()
     expect(await worker.step()).toMatchObject({ kind: 'recorded', verdict: 'changes' })

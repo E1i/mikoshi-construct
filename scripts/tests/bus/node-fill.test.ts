@@ -13,6 +13,7 @@ import { Node } from '../../core/node.js'
 import { keyOf, queueTaskWithin } from '../../core/queue.js'
 import { CHECK_MS } from '../../ports/netwatch.js'
 import { nodeSupply } from '../../supervisor/composition.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { slotsVariable } from '../../supervisor/scheduler.js'
 import { DRAIN_LIMIT_MS, recordRestarted } from '../../supervisor/supervisor.js'
 import { Clock } from './github-fake.js'
@@ -41,7 +42,7 @@ function task(pr: number): QueuedTask {
 
 class ReleasingNode extends Node<NodeStep> {
   constructor(db: DatabaseSync, readonly clock: Clock, slots: number) {
-    super('review', { db, clock: clock.now, session: 'fill', mode: 'live', env: { [slotsVariable('review')]: String(slots) }, supply: nodeSupply() })
+    super('review', { silentMs: SILENT_MS, db, clock: clock.now, session: 'fill', mode: 'live', env: { [slotsVariable('review')]: String(slots) }, supply: nodeSupply() })
   }
 
   protected candidates(_scope?: Scope): QueuedTask[] {
@@ -65,7 +66,7 @@ class BlockingNode extends Node<NodeStep> {
   private releaseFirst: () => void = () => {}
 
   constructor(db: DatabaseSync, clock: Clock, slots: number, private readonly blocked: string) {
-    super('review', { db, clock: clock.now, session: 'fill', mode: 'live', env: { [slotsVariable('review')]: String(slots) }, supply: nodeSupply() })
+    super('review', { silentMs: SILENT_MS, db, clock: clock.now, session: 'fill', mode: 'live', env: { [slotsVariable('review')]: String(slots) }, supply: nodeSupply() })
   }
 
   protected candidates(_scope?: Scope): QueuedTask[] {

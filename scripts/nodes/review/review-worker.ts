@@ -43,7 +43,7 @@ import { ghApi, ghApiPatch, ghApiPost } from '../../ports/github.js'
 import { realIsolationReader } from '../../ports/isolation.js'
 import { promptsDirOf } from '../../ports/prompt-store.js'
 import { spawnReviewSession } from '../../ports/session.js'
-import { busProjections, cardSessionPulse, nodeSupply, withSlots } from '../../supervisor/composition.js'
+import { busProjections, cardSessionPulse, nodeLiveness, nodeSupply, withSlots } from '../../supervisor/composition.js'
 import { stampLogOutput } from '../../supervisor/stamp.js'
 import { gitReviewPlanner } from './depth-sources.js'
 import { recordForeignDivergences } from './divergence-alarm.js'
@@ -120,7 +120,7 @@ export class ReviewNode extends Node<Step> {
   private readonly executor: ReviewExecutor
 
   constructor(private readonly reviewParts: ReviewNodeParts) {
-    super('review', { db: reviewParts.db, clock: reviewParts.clock, session: reviewParts.session, mode: reviewParts.mode, env: reviewParts.env, supply: nodeSupply() })
+    super('review', { db: reviewParts.db, clock: reviewParts.clock, session: reviewParts.session, mode: reviewParts.mode, env: reviewParts.env, silentMs: reviewParts.silentMs, supply: nodeSupply() })
     this.executor = new ReviewExecutor(readingTheKeyedBody(reviewParts))
     this.declare(REVIEW_NODE, scopeOf)
   }
@@ -175,13 +175,13 @@ export class ReviewWorker {
   }
 
   async step(): Promise<Step> {
-    expireLeases(this.parts.db, this.ts())
+    expireLeases(this.parts.db, this.ts(), this.parts.silentMs)
     const lease = leaseNext(this.parts.db, this.ts(), 'review', this.actor)
     return lease === null ? { kind: 'idle' } : this.executor.review(lease)
   }
 
   async stepOn(key: string): Promise<Step> {
-    expireLeases(this.parts.db, this.ts())
+    expireLeases(this.parts.db, this.ts(), this.parts.silentMs)
     const lease = leaseQueued(this.parts.db, this.ts(), key, this.actor)
     return lease === null ? { kind: 'idle' } : this.executor.review(lease)
   }
@@ -400,6 +400,7 @@ export async function runReview(argv: string[], run: ReviewRun): Promise<number>
   }
   const env = withSlots('review', process.env, run.slots)
   const build = (db: DatabaseSync, detection: DetectionMode): ReviewNode => new ReviewNode({
+    ...nodeLiveness(),
     db,
     gitHub: run.gitHub,
     publish: run.publish,
