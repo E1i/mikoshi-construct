@@ -10,6 +10,7 @@ import { appendEvent } from '../../core/db.js'
 import { BOARD_ALARM, CARD_ADMITTED, CARD_STOPPED, OWNER_WAIT_OPENED, WINDOW_REQUEST } from '../../core/events.js'
 import { MachineSessions } from '../../core/machine-sessions.js'
 import { LaunchNode, PREPUSH_TIMEOUT, prepushTimedOutOverGreenWitnesses, SESSION_DEATH_CAP } from '../../nodes/launch/launch-worker.js'
+import { nodeSupply } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
 
@@ -68,7 +69,7 @@ async function sessionThatEnded(result: string, report = `#${CARD} a-card\nresul
   const node = new LaunchNode({ silentMs: SILENT_MS, db: made.db, starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, processes: { commandLine: () => null, signalGroup: () => {} }, resulted: () => true, handedOff: () => false, reportOf: () => report, committed: () => false, machine: new MachineSessions(machineDir, () => false, 16), lanes: () => 4, disk: () => ({ bavail: 1, bsize: 1024 ** 4 }), isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }) })
   const run = async (): Promise<void> => {
     const controller = new AbortController()
-    await node.run({ pause: async () => controller.abort(), signal: controller.signal })
+    await node.run({ pause: async () => controller.abort(), signal: controller.signal, supply: nodeSupply() })
     made.tick()
   }
   await run()
