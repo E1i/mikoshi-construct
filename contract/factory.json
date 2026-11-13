@@ -84,6 +84,7 @@
           "depends",
           "lane",
           "moved",
+          "parent",
           "plan",
           "prevAdmissionId",
           "prevTextSha",
@@ -1013,6 +1014,13 @@
         "keys": [
           "commit",
           "id"
+        ]
+      },
+      "slice.parents.backfilled": {
+        "complete": true,
+        "keys": [
+          "cards",
+          "unread"
         ]
       },
       "supervisor.restart_missed": {
@@ -2161,6 +2169,7 @@
           "scripts/cli/no-layer-recount.ts",
           "scripts/cli/slot.ts",
           "scripts/core/bus-path.ts",
+          "scripts/core/card-bodies.ts",
           "scripts/core/inbox.ts",
           "scripts/core/journal.ts",
           "scripts/core/machine-sessions.ts",
@@ -3386,6 +3395,7 @@
           "scripts/intake/admissions.ts",
           "scripts/intake/card-archive.ts",
           "scripts/intake/witness-fields-backfill.ts",
+          "scripts/intake/slice-parent-backfill.ts",
           "scripts/cli/card.ts"
         ],
         "may_use": [
@@ -3401,6 +3411,7 @@
           "scripts/intake/admissions.ts",
           "scripts/intake/card-archive.ts",
           "scripts/intake/witness-fields-backfill.ts",
+          "scripts/intake/slice-parent-backfill.ts",
           "scripts/cli/card.ts"
         ],
         "status": "decided"
@@ -3487,6 +3498,7 @@
           "!scripts/intake/card-archive.ts",
           "!scripts/intake/card-contract.ts",
           "!scripts/intake/intake.ts",
+          "!scripts/intake/slice-parent-backfill.ts",
           "!scripts/intake/witness-fields-backfill.ts"
         ],
         "status": "undecided"
@@ -4465,7 +4477,7 @@
           "OwnerWait"
         ],
         "types": {
-          "BusCard": "interface BusCard { id: number; state: string | null; stage: CardStage; lane: string | null; line: string | null; since: string | null; body: boolean; closed: boolean; closedAt: string | null; }",
+          "BusCard": "interface BusCard { id: number; state: string | null; stage: CardStage; lane: string | null; line: string | null; since: string | null; body: boolean; closed: boolean; closedAt: string | null; parent?: SliceParent; }",
           "BusFacts": "interface BusFacts { at: string; goal: Goal | null; waits: OwnerWait[]; waitsStale?: string; cardsStale?: string; pulse: string | null; slots: BusSlot[]; cards: BusCard[]; services: BusService[]; matrices: BusMatrix[]; failure: string | null; reviewQueue: number; }",
           "BusMatrix": "interface BusMatrix { pr: number; head: string | null; full: string | null; killed: number; survived: number; notRun: number; }",
           "BusService": "interface BusService { role: string; task: string; tree: string | null; step: string; session?: string; gauges?: ServiceGauges; subagents?: SubagentReading[]; }",
@@ -4506,10 +4518,14 @@
           "backlogCards": "(cards: BusCard[], at: string, all: boolean): BusCard[]",
           "isLive": "(card: BusCard): boolean",
           "laneColumns": "(cards: BusCard[]): (string | null)[]",
+          "markedName": "(name: string, card: BusCard): string",
           "matrixLines": "(facts: BusFacts, lore: Lore): string[]",
           "pulseLines": "(facts: BusFacts, lore: Lore): string[]",
           "screenLines": "(facts: BusFacts, lore: Lore, all = false): string[]",
+          "sliceMark": "(card: BusCard): string | null",
           "slotsReading": "(facts: BusFacts): string",
+          "tallyLine": "(tally: TaskTally): string",
+          "taskTally": "(cards: readonly BusCard[]): TaskTally",
           "waitAction": "(wait: OwnerWait, lore: Lore): string",
           "waitTarget": "(wait: OwnerWait): string | null"
         },

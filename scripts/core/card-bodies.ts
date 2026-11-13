@@ -8,8 +8,8 @@ import { textSha } from '../../src/card/text-sha.js'
 import { AMEND_SOURCE, isLaneName, laneName, laneNumber, pathsNamedOutside } from '../../src/commands/intake/admit.js'
 import { NOT_A_BACKFILL } from './backfill-source.js'
 import { CARD_VERSION, CARD_VERSION_KEY, cardVersionIn } from './bus-version.js'
-import { appendEvent, BUSY_TIMEOUT_MS } from './db.js'
-import { CARD_ADMITTED, FACTORY_MODE } from './events.js'
+import { appendEvent, BUSY_TIMEOUT_MS, defaultBusPath, openBus } from './db.js'
+import { CARD_ADMITTED, FACTORY_MODE, SLICE_PARENTS_BACKFILLED } from './events.js'
 import { openDatabase } from './sqlite.js'
 
 export const CARD_BODIES = 'card_bodies'
@@ -20,8 +20,6 @@ export const WINDOW_LANE = 'lane-window'
 export type FactoryMode = typeof FACTORY_MODES[number]
 
 const MODE_IN_FORCE = `SELECT json_extract(payload, '$.mode') AS mode FROM events WHERE legacy = 0 AND type = '${FACTORY_MODE}' ORDER BY id DESC LIMIT 1`
-
-const LANE_OF_CARD = `SELECT json_extract(payload, '$.lane') AS lane FROM events WHERE legacy = 0 AND type = '${CARD_ADMITTED}' AND card_id = ? ORDER BY id DESC LIMIT 1`
 
 const PREVIOUS_ADMISSION = `SELECT id, payload FROM events WHERE legacy = 0 AND type = '${CARD_ADMITTED}' AND card_id = ? ORDER BY id DESC LIMIT 1`
 
@@ -78,7 +76,8 @@ export function factoryMode(db: DatabaseSync): FactoryMode {
 function laneOfCard(db: DatabaseSync, cardId: unknown): string | null {
   if (typeof cardId !== 'number')
     return null
-  const lane = (db.prepare(LANE_OF_CARD).get(cardId) as { lane: unknown } | undefined)?.lane
+  const previous = db.prepare(PREVIOUS_ADMISSION).get(cardId) as { payload: string } | undefined
+  const lane = previous === undefined ? undefined : laneIn(previous.payload)
   return typeof lane === 'string' && isLaneName(lane) ? lane : null
 }
 
@@ -92,6 +91,15 @@ export function admittedLane(db: DatabaseSync, cardId: number, depends: unknown)
     return WINDOW_LANE
   const parents = Array.isArray(depends) ? depends : []
   return laneOfCard(db, cardId) ?? parents.map(parent => laneOfCard(db, parent)).find(lane => lane !== null) ?? newLane(db)
+}
+
+function laneIn(payload: string): unknown {
+  try {
+    return (JSON.parse(payload) as Record<string, unknown> | null)?.lane
+  }
+  catch {
+    return undefined
+  }
 }
 
 function recordedTextSha(payload: string): string | null {
@@ -198,6 +206,50 @@ const FOLDED_ADMISSION = `SELECT admission_event_id FROM ${CARD_BODIES} WHERE ca
 
 function carriesABody(payload: Record<string, unknown>): boolean {
   return typeof payload.text === 'string' && payload.textSha === textSha(payload.text)
+}
+
+const SLICE_PARENTS_ACTOR = 'worker:slice-parent-backfill:by-hand'
+const CARD_LINES = `
+  SELECT body.card_id, body.card_line, EXISTS (
+    SELECT 1 FROM events admission WHERE admission.legacy = 0 AND admission.type = '${CARD_ADMITTED}' AND admission.card_id = body.card_id
+      AND json_valid(admission.payload) AND json_type(admission.payload, '$.parent') = 'object'
+  ) AS carrying
+  FROM ${CARD_BODIES} body WHERE body.card_line IS NOT NULL ORDER BY body.card_id
+`
+
+export interface CardLine {
+  card: number
+  line: string
+}
+
+export interface SliceParentsTransfer {
+  cards: Record<string, object>
+  unread: number[]
+}
+
+export type TransferOfCardLines = (withoutParent: readonly CardLine[], every: readonly CardLine[]) => SliceParentsTransfer
+
+export interface SliceParentsBackfill {
+  recorded: boolean
+  transfer: SliceParentsTransfer
+}
+
+export function backfillSliceParents(db: DatabaseSync, ts: string, transferOf: TransferOfCardLines): SliceParentsBackfill {
+  const rows = db.prepare(CARD_LINES).all() as { card_id: number, card_line: string, carrying: number }[]
+  const every = rows.map(row => ({ card: Number(row.card_id), line: row.card_line }))
+  const transfer = transferOf(every.filter((_, at) => !rows[at]!.carrying), every)
+  const recorded = appendEvent(db, { ts, type: SLICE_PARENTS_BACKFILLED, actor: SLICE_PARENTS_ACTOR, cardId: null, pr: null, head: null, dedupeKey: SLICE_PARENTS_BACKFILLED, payload: { cards: transfer.cards, unread: transfer.unread }, legacy: false })
+  return { recorded, transfer }
+}
+
+export function backfillSliceParentsOfBus(ts: string, transferOf: TransferOfCardLines, file: string = defaultBusPath()): SliceParentsBackfill {
+  const db = openBus(file)
+  try {
+    return backfillSliceParents(db, ts, transferOf)
+  }
+  finally {
+    db.close()
+  }
 }
 
 export function bodyNotFoldedYet(db: DatabaseSync, cardId: number): boolean {

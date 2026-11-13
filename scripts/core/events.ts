@@ -94,6 +94,7 @@ export const SHARD_EXPIRED = 'shard.expired'
 export const SHARD_ISSUED = 'shard.issued'
 export const SHARD_REVOKED = 'shard.revoked'
 export const SHARD_USED = 'shard.used'
+export const SLICE_PARENTS_BACKFILLED = 'slice.parents.backfilled'
 export const RESTARTED = 'supervisor.restarted'
 export const RESTART_MISSED = 'supervisor.restart_missed'
 export const TASK_COMPLETED = 'task.completed'
@@ -156,7 +157,7 @@ export const EVENT_PAYLOADS = {
   [CUTOVER]: [],
   [BUS_HEAL_HELD]: ['backup', 'failure'],
   [BUS_HEALED]: ['backup', 'broken', 'count', 'max_id', 'steps'],
-  [CARD_ADMITTED]: ['admission', 'bodySha', 'card', 'cardVersion', 'confirmation', 'contour', 'corrections', 'decision', 'depends', 'lane', 'moved', 'plan', 'prevAdmissionId', 'prevTextSha', 'source', 'text', 'textSha'],
+  [CARD_ADMITTED]: ['admission', 'bodySha', 'card', 'cardVersion', 'confirmation', 'contour', 'corrections', 'decision', 'depends', 'lane', 'moved', 'parent', 'plan', 'prevAdmissionId', 'prevTextSha', 'source', 'text', 'textSha'],
   [CARD_ANSWERED]: ['card_body_sha', 'from', 'head', 'minutes', 'pr', 'prompt_path', 'prompt_sha', 'prompt_unstored', 'published', 'reentry', 'resumed', 'session', 'source', 'steps', 'to', 'tokens', 'worktree'],
   [CARD_CLOSED]: ['report', 'verification', 'witnessedOnMain'],
   [CARD_CONTINUED]: ['base', 'branch', 'continuation', 'contour', 'from', 'pgid', 'pid', 'prompt_path', 'prompt_sha', 'prompt_unstored', 'session', 'step', 'stop_reason', 'worktree'],
@@ -241,6 +242,7 @@ export const EVENT_PAYLOADS = {
   [SHARD_ISSUED]: ['by', 'id', 'run', 'scope', 'under', 'until', 'window'],
   [SHARD_REVOKED]: ['id'],
   [SHARD_USED]: ['commit', 'id'],
+  [SLICE_PARENTS_BACKFILLED]: ['cards', 'unread'],
   [RESTART_MISSED]: ['limit_ms', 'sha', 'waited_ms'],
   [RESTARTED]: ['sha'],
   [TASK_COMPLETED]: ['generation', 'lease_gen', 'queue', 'task_key'],
