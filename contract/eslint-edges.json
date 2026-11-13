@@ -1,0 +1,149 @@
+{
+  "allowedInternalImports": {
+    "src/atlas": [
+      "detect",
+      "manifest",
+      "model",
+      "ui"
+    ],
+    "src/card": [],
+    "src/cli.ts": [
+      "program"
+    ],
+    "src/commands": [
+      "card",
+      "detect",
+      "manifest",
+      "materialize",
+      "model",
+      "presets",
+      "sync",
+      "ui",
+      "version"
+    ],
+    "src/detect": [],
+    "src/failure.ts": [
+      "record-ahead",
+      "ui"
+    ],
+    "src/known-flags.ts": [],
+    "src/manifest.ts": [
+      "detect",
+      "materialize",
+      "presets",
+      "record-ahead"
+    ],
+    "src/materialize": [
+      "presets"
+    ],
+    "src/model": [
+      "detect",
+      "presets",
+      "record-ahead"
+    ],
+    "src/presets": [
+      "detect"
+    ],
+    "src/program.ts": [
+      "atlas",
+      "commands",
+      "detect",
+      "failure",
+      "known-flags",
+      "presets",
+      "ui",
+      "version"
+    ],
+    "src/sync": [
+      "manifest",
+      "materialize",
+      "presets"
+    ],
+    "src/ui": [
+      "presets"
+    ]
+  },
+  "coreFilesSrcMayImport": [
+    "core/bus-path.js",
+    "core/bus-readings.js",
+    "core/eddies.js",
+    "core/events.js",
+    "core/factory-paths.js",
+    "core/gh-callers.js",
+    "core/handoff-dir.js",
+    "core/layer-map.js",
+    "core/merge-event.js",
+    "core/owner-commands.js",
+    "core/verification.js"
+  ],
+  "allowedFactoryImports": {
+    "src/atlas": [
+      "core/owner-commands.js"
+    ],
+    "src/card": [
+      "core/factory-paths.js",
+      "policy/touch-scope.js"
+    ],
+    "src/commands": [
+      "core/bus-path.js",
+      "core/bus-readings.js",
+      "core/eddies.js",
+      "core/events.js",
+      "core/factory-paths.js",
+      "core/gh-callers.js",
+      "core/handoff-dir.js",
+      "core/layer-map.js",
+      "core/merge-event.js",
+      "core/owner-commands.js",
+      "core/verification.js"
+    ],
+    "src/commands/doctor": [
+      "core/bus-path.js",
+      "core/bus-readings.js",
+      "core/eddies.js",
+      "core/events.js",
+      "core/factory-paths.js",
+      "core/gh-callers.js",
+      "core/handoff-dir.js",
+      "core/layer-map.js",
+      "core/merge-event.js",
+      "core/owner-commands.js",
+      "core/verification.js",
+      "policy/decisions/decisions.js",
+      "policy/live-decision.js",
+      "policy/touch-scope.js"
+    ],
+    "src/commands/intake": [
+      "core/bus-path.js",
+      "core/bus-readings.js",
+      "core/eddies.js",
+      "core/events.js",
+      "core/factory-paths.js",
+      "core/gh-callers.js",
+      "core/handoff-dir.js",
+      "core/layer-map.js",
+      "core/merge-event.js",
+      "core/owner-commands.js",
+      "core/verification.js",
+      "policy/decisions/decisions.js",
+      "policy/touch-scope.js"
+    ],
+    "src/program.ts": [
+      "core/bus-path.js",
+      "core/bus-readings.js",
+      "core/eddies.js",
+      "core/events.js",
+      "core/factory-paths.js",
+      "core/gh-callers.js",
+      "core/handoff-dir.js",
+      "core/layer-map.js",
+      "core/merge-event.js",
+      "core/owner-commands.js",
+      "core/verification.js",
+      "owner/channel.js"
+    ],
+    "src/ui": [
+      "core/owner-commands.js"
+    ]
+  }
+}

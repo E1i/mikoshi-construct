@@ -6,7 +6,8 @@
     "scripts/core/generated-files.ts",
     "scripts/core/declarations.ts",
     "declarations/",
-    "contract/module-files.json"
+    "contract/module-files.json",
+    "contract/eslint-edges.json"
   ],
   "exclude": [],
   "shared": []

@@ -1,0 +1,14 @@
+{
+  "id": "eslint-edges",
+  "module": "layout",
+  "path": "contract/eslint-edges.json",
+  "rebuild": [
+    "declarations:update"
+  ],
+  "check": null,
+  "rebuiltOnUpdate": false,
+  "seamSources": null,
+  "followSources": [
+    "declarations"
+  ]
+}

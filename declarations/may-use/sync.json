@@ -1,0 +1,6 @@
+{
+  "module": "sync",
+  "may_use": ["manifest", "materialize", "presets"],
+  "may_use_factory": [],
+  "may_use_factory_within": {}
+}

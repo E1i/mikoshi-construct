@@ -1,0 +1,6 @@
+{
+  "module": "model",
+  "may_use": ["detect", "presets", "record-ahead"],
+  "may_use_factory": [],
+  "may_use_factory_within": {}
+}

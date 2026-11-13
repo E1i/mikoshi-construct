@@ -1,0 +1,6 @@
+{
+  "module": "materialize",
+  "may_use": ["presets"],
+  "may_use_factory": [],
+  "may_use_factory_within": {}
+}
