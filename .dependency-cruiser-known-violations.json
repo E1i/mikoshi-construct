@@ -2163,9 +2163,9 @@
   },
   {
     "type": "dependency",
-    "from": "scripts/policy/decisions/add.ts",
-    "to": "scripts/window/window-requests.ts",
-    "unresolvedTo": "../../window/window-requests.js",
+    "from": "scripts/policy/decisions/read.ts",
+    "to": "src/card/closed.ts",
+    "unresolvedTo": "../../../src/card/closed.js",
     "dependencyTypes": [
       "local",
       "import"
@@ -2177,12 +2177,12 @@
   },
   {
     "type": "dependency",
-    "from": "scripts/policy/decisions/read.ts",
-    "to": "src/card/closed.ts",
-    "unresolvedTo": "../../../src/card/closed.js",
+    "from": "scripts/policy/decisions/window-door.ts",
+    "to": "scripts/window/window-requests.ts",
+    "unresolvedTo": "../../window/window-requests.js",
     "dependencyTypes": [
       "local",
-      "import"
+      "export"
     ],
     "rule": {
       "severity": "error",
