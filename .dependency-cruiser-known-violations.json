@@ -1511,35 +1511,6 @@
   },
   {
     "type": "dependency",
-    "from": "scripts/nodes/launch/launch-starter.ts",
-    "to": "src/card/parking.ts",
-    "unresolvedTo": "../../../src/card/parking.js",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "nodes-imports-nothing-to-its-right"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "scripts/nodes/launch/launch-starter.ts",
-    "to": "src/card/task-file.ts",
-    "unresolvedTo": "../../../src/card/task-file.js",
-    "dependencyTypes": [
-      "local",
-      "type-only",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "nodes-imports-nothing-to-its-right"
-    }
-  },
-  {
-    "type": "dependency",
     "from": "scripts/nodes/launch/launch-root.ts",
     "to": "scripts/intake/parking-reads.ts",
     "unresolvedTo": "../../intake/parking-reads.js",
@@ -1569,34 +1540,6 @@
   {
     "type": "dependency",
     "from": "scripts/nodes/launch/launch-root.ts",
-    "to": "src/card/parking.ts",
-    "unresolvedTo": "../../../src/card/parking.js",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "nodes-imports-nothing-to-its-right"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "scripts/nodes/launch/launch-worker.ts",
-    "to": "scripts/supervisor/heartbeat.ts",
-    "unresolvedTo": "../../supervisor/heartbeat.js",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "nodes-imports-nothing-to-its-right"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "scripts/nodes/launch/launch-root.ts",
     "to": "scripts/supervisor/stamp.ts",
     "unresolvedTo": "../../supervisor/stamp.js",
     "dependencyTypes": [
@@ -1610,7 +1553,7 @@
   },
   {
     "type": "dependency",
-    "from": "scripts/nodes/launch/launch-worker.ts",
+    "from": "scripts/nodes/launch/launch-root.ts",
     "to": "src/card/parking.ts",
     "unresolvedTo": "../../../src/card/parking.js",
     "dependencyTypes": [
@@ -1639,6 +1582,63 @@
   },
   {
     "type": "dependency",
+    "from": "scripts/nodes/launch/launch-starter.ts",
+    "to": "src/card/parking.ts",
+    "unresolvedTo": "../../../src/card/parking.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/launch/launch-starter.ts",
+    "to": "src/card/task-file.ts",
+    "unresolvedTo": "../../../src/card/task-file.js",
+    "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/launch/launch-worker.ts",
+    "to": "scripts/supervisor/heartbeat.ts",
+    "unresolvedTo": "../../supervisor/heartbeat.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/nodes/launch/launch-worker.ts",
+    "to": "src/card/parking.ts",
+    "unresolvedTo": "../../../src/card/parking.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "nodes-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
     "from": "scripts/nodes/launch/overlap.ts",
     "to": "src/card/covering-tests.ts",
     "unresolvedTo": "../../../src/card/covering-tests.js",
@@ -1658,6 +1658,7 @@
     "unresolvedTo": "../../../src/card/task-file.js",
     "dependencyTypes": [
       "local",
+      "type-only",
       "import"
     ],
     "rule": {
@@ -2027,7 +2028,7 @@
     "unresolvedTo": "../../../src/commands/intake/check.js",
     "dependencyTypes": [
       "local",
-      "import"
+      "export"
     ],
     "rule": {
       "severity": "error",
@@ -2462,6 +2463,7 @@
     "unresolvedTo": "../intake/parking-reads.js",
     "dependencyTypes": [
       "local",
+      "type-only",
       "import"
     ],
     "rule": {

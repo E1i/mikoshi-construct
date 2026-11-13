@@ -11,6 +11,9 @@ const EARLIER_CARRIERS_SCRIPT = 'scripts/attach/earlier-carriers.ts'
 const CONTRACT_UPDATE = ['contract:update']
 const REBUILD_EARLIER_CARRIERS = ['exec', 'tsx', EARLIER_CARRIERS_SCRIPT]
 const CHECK_EARLIER_CARRIERS = [...REBUILD_EARLIER_CARRIERS, '--check']
+const KNOWN_VIOLATIONS_PATH = '.dependency-cruiser-known-violations.json'
+const CRUISED_ROOTS = ['scripts', 'src']
+const REBUILD_KNOWN_VIOLATIONS = ['exec', 'depcruise', '--config', '.dependency-cruiser.mjs', '--output-type', 'baseline', '--output-to', KNOWN_VIOLATIONS_PATH, ...CRUISED_ROOTS]
 
 export const GENERATED_FILES = {
   earlierCarriers: {
@@ -69,6 +72,14 @@ export const GENERATED_FILES = {
     seamSources: null,
     followSources: ['templates'],
   },
+  knownViolations: {
+    path: KNOWN_VIOLATIONS_PATH,
+    rebuild: REBUILD_KNOWN_VIOLATIONS,
+    check: null,
+    rebuiltOnUpdate: false,
+    seamSources: null,
+    followSources: CRUISED_ROOTS,
+  },
 } as const satisfies Record<string, GeneratedFile>
 
 export const RATCHET_FILE = {
@@ -78,7 +89,9 @@ export const RATCHET_FILE = {
 
 const ROWS: readonly GeneratedFile[] = Object.values(GENERATED_FILES)
 
-export const GENERATED_PATHS: readonly string[] = ROWS.map(row => row.path)
+export const NAMED_BY_THEIR_READERS: readonly string[] = [GENERATED_FILES.knownViolations.path]
+
+export const GENERATED_PATHS: readonly string[] = ROWS.map(row => row.path).filter(file => !NAMED_BY_THEIR_READERS.includes(file))
 
 export const REBUILT_ON_UPDATE: readonly { path: string, rebuild: readonly string[] }[] = [
   ...ROWS.flatMap(row => row.rebuiltOnUpdate && row.rebuild !== null ? [{ path: row.path, rebuild: row.rebuild }] : []),

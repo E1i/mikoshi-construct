@@ -1,5 +1,5 @@
 import type { Site } from '../../contract/factory/overlaps.js'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
@@ -12,12 +12,9 @@ import { isRequestKind, requestOf, USAGE } from '../../window/window-requests.js
 const REPO_ROOT = path.join(import.meta.dirname, '..', '..', '..')
 const CONCEPT_ID = 'owner-commands'
 const OWNER = 'scripts/core/owner-commands.ts'
-const PENDING_FILE = path.join(import.meta.dirname, 'owner-commands-pending.json')
+const RETIRED_PENDING_TABLE = path.join(import.meta.dirname, 'owner-commands-pending.json')
 const FACTORY_FILE = path.join(REPO_ROOT, 'contract', 'factory.json')
-const LAYERS_TOLD_THROUGH_THE_OWNER = /^scripts\/(?:ci|cli|composition|contract|core|docs|intake|model|release-notes|release)\//
 const TOLD_TO_THE_OWNER = `export const told = 'run pnpm lint yourself'\n`
-
-type Counts = Readonly<Record<string, number>>
 
 const concept = CONCEPTS.find(candidate => candidate.id === CONCEPT_ID)!
 
@@ -28,16 +25,8 @@ function countsOf(sites: readonly Site[]): Record<string, number> {
   return counts
 }
 
-function pastTheOwner(counts: Counts, pending: Counts): string[] {
-  return Object.entries(counts).filter(([file, count]) => count > (pending[file] ?? 0)).map(([file, count]) => `${file}: ${count} > ${pending[file] ?? 0}`)
-}
-
 function sitesIn(root: string): Record<string, number> {
   return countsOf(findSites(root, [concept]))
-}
-
-function pending(): Counts {
-  return JSON.parse(readFileSync(PENDING_FILE, 'utf8')) as Counts
 }
 
 const scratchRoots: string[] = []
@@ -105,33 +94,25 @@ describe('the owner of owner commands', () => {
 })
 
 describe('the owner-commands seal', () => {
-  it('an owner command literal outside the owner is red', () => {
+  it('an owner command literal outside the owner is red, whatever file holds it', () => {
     const root = fixtureTree({
       [OWNER]: TOLD_TO_THE_OWNER,
-      'scripts/window/pending.ts': TOLD_TO_THE_OWNER,
-      'scripts/window/grown.ts': `${TOLD_TO_THE_OWNER}${TOLD_TO_THE_OWNER}`,
+      'scripts/window/told.ts': TOLD_TO_THE_OWNER,
+      'scripts/window/told-twice.ts': `${TOLD_TO_THE_OWNER}${TOLD_TO_THE_OWNER}`,
       'src/planted.ts': TOLD_TO_THE_OWNER,
     })
-    const recorded = { 'scripts/window/pending.ts': 1, 'scripts/window/grown.ts': 1 }
 
-    expect(pastTheOwner(sitesIn(root), recorded)).toEqual(['scripts/window/grown.ts: 2 > 1', 'src/planted.ts: 1 > 0'])
+    expect(sitesIn(root)).toEqual({ 'scripts/window/told.ts': 1, 'scripts/window/told-twice.ts': 2, 'src/planted.ts': 1 })
   })
 
-  it('no file holds more owner command literals than the pending table records', () => {
-    expect(pastTheOwner(sitesIn(REPO_ROOT), pending())).toEqual([])
+  it('no file outside the owner holds an owner command literal, and no pending table stands in for one', () => {
+    expect(sitesIn(REPO_ROOT)).toEqual({})
+    expect(existsSync(RETIRED_PENDING_TABLE)).toBe(false)
   })
 
-  it('every overlap of the concept in the factory contract stands in the pending table', () => {
-    const factory = JSON.parse(readFileSync(FACTORY_FILE, 'utf8')) as { overlaps: Record<string, Counts> }
+  it('the factory contract records no overlap of the concept', () => {
+    const factory = JSON.parse(readFileSync(FACTORY_FILE, 'utf8')) as { overlaps: Record<string, Record<string, number>> }
 
-    expect(pastTheOwner(factory.overlaps[CONCEPT_ID]!, pending())).toEqual([])
-  })
-
-  it('the layers ci, cli, composition, contract, core, docs, intake, model, release-notes and release hold no pending row', () => {
-    expect(Object.keys(pending()).filter(file => LAYERS_TOLD_THROUGH_THE_OWNER.test(file))).toEqual([])
-  })
-
-  it('every pending row is a positive count', () => {
-    expect(Object.entries(pending()).filter(([, count]) => !Number.isInteger(count) || count < 1)).toEqual([])
+    expect(factory.overlaps[CONCEPT_ID]).toEqual({})
   })
 })

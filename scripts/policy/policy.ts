@@ -7,7 +7,7 @@ import { judgedFieldWitnessesOf, witnessesOf } from '../../src/commands/intake/a
 import { isChangeWitness, ownerPathsOf } from '../../src/commands/intake/check.js'
 import { CLOSED_CARD, DROPPED_CARD, MERGED_CARD } from '../core/card-automaton.js'
 import { CARD_ADMITTED, MERGE_DONE, PR_CLOSED, WITNESS_RECORDED } from '../core/events.js'
-import { GENERATED_PATHS } from '../core/generated-files.js'
+import { GENERATED_FILES } from '../core/generated-files.js'
 import { matchGlob } from './shredder/glob.js'
 import { readOwnerMergeKinds } from './shredder/reader.js'
 import { createdPaths } from './touch-scope.js'
@@ -35,8 +35,9 @@ export type AuthorityRule
     | 'no_matrix_count_line'
     | 'unsandboxed_command'
     | 'ratchet_grows'
+    | 'known_violations_grow'
 
-export const OWNER_MERGES_RULES: ReadonlySet<AuthorityRule> = new Set(['version_pr', 'no_shard_merge', 'owner_merges_unread', 'owner_by_risk', 'reserved', 'owner_without_shard', 'r1', 'unsandboxed_command', 'ratchet_grows'])
+export const OWNER_MERGES_RULES: ReadonlySet<AuthorityRule> = new Set(['version_pr', 'no_shard_merge', 'owner_merges_unread', 'owner_by_risk', 'reserved', 'owner_without_shard', 'r1', 'unsandboxed_command', 'ratchet_grows', 'known_violations_grow'])
 
 export type AllowedRule = 'auto' | 'owner_under_shard' | 'owner_by_decision' | 'owner_after_round_limit'
 
@@ -145,7 +146,7 @@ function changesOwnerMerges(facts: MergeFacts): MergeVerdict | null {
 }
 
 const RUNS_NOTHING = /^(?:scripts\/tests|tests|e2e)\/|\.md$/
-const GENERATED_PATH_SET: ReadonlySet<string> = new Set(GENERATED_PATHS)
+const GENERATED_PATH_SET: ReadonlySet<string> = new Set(Object.values(GENERATED_FILES).map(row => row.path))
 const HUNK_START = /^(?=@@ )/m
 const EXCLUDED_COMMANDS = 'excludedCommands'
 const EXCLUDED_ENTRY = 'excludedCommands entry'
@@ -339,12 +340,92 @@ function ratchetGrows(facts: MergeFacts): MergeVerdict | null {
   return growth === undefined ? null : denied('ratchet_grows', `the diff of ${RATCHET_RECORD} ${growth}: its growth stays the owner's under every shard and every decision`)
 }
 
+const KNOWN_VIOLATIONS_RECORD = GENERATED_FILES.knownViolations.path
+const VIOLATION_FIELD = /^\s*"(?<field>from|to|name|cycle|via)":\s*(?:"(?<value>[^"]*)")?/
+
+type ViolationField = 'from' | 'to' | 'name'
+
+interface SeenViolation {
+  from?: string
+  to?: string
+  name?: string
+  own: string | undefined
+}
+
+function seenViolationsOf(hunk: string, side: PatchSide): SeenViolation[] | string {
+  const seen: SeenViolation[] = []
+  let current: SeenViolation | undefined
+  const close = (): void => {
+    if (current !== undefined)
+      seen.push(current)
+    current = undefined
+  }
+  for (const line of hunk.split('\n').slice(1)) {
+    if (line[0] !== ' ' && line[0] !== side)
+      continue
+    const groups = VIOLATION_FIELD.exec(line.slice(1))?.groups
+    if (groups === undefined)
+      continue
+    const own = line[0] === side ? line.slice(1).trim() : undefined
+    if (groups.field === 'cycle' || groups.field === 'via') {
+      if (own !== undefined)
+        return `adds the line ${own}, a cycle or a via this rule does not read`
+      continue
+    }
+    const field = groups.field as ViolationField
+    if (current?.[field] !== undefined || (field === 'from' && current !== undefined))
+      close()
+    current = { ...(current ?? { own: undefined }), [field]: groups.value ?? '' }
+    current.own ??= own
+    if (field === 'name')
+      close()
+  }
+  close()
+  return seen
+}
+
+function sameViolation(added: SeenViolation, removed: SeenViolation, nameUnseen: boolean): boolean {
+  return added.from === removed.from && added.to === removed.to && (added.name === removed.name || (nameUnseen && (added.name === undefined || removed.name === undefined)))
+}
+
+function knownViolationGrowthIn(patch: string): string | undefined {
+  const hunks = patch.split(HUNK_START).filter(hunk => hunk.startsWith('@@'))
+  const sides = hunks.map(hunk => ({ removed: seenViolationsOf(hunk, '-'), added: seenViolationsOf(hunk, '+') }))
+  const unread = sides.find(side => typeof side.added === 'string')?.added
+  if (typeof unread === 'string')
+    return unread
+  const removed = sides.flatMap(side => typeof side.removed === 'string' ? [] : side.removed)
+  const added = sides.flatMap(side => typeof side.added === 'string' ? [] : side.added)
+  const partial = added.find(violation => violation.own !== undefined && (violation.from === undefined || violation.to === undefined))
+  if (partial !== undefined)
+    return `adds the line ${partial.own}, whose entry the diff does not show with its from and to`
+  const consume = (violation: SeenViolation, nameUnseen: boolean): boolean => {
+    const at = removed.findIndex(candidate => sameViolation(violation, candidate, nameUnseen))
+    if (at !== -1)
+      removed.splice(at, 1)
+    return at !== -1
+  }
+  const unmatched = added.filter(violation => !consume(violation, false))
+  const grown = unmatched.find(violation => !consume(violation, true))
+  return grown === undefined ? undefined : `adds the known violation ${grown.from} -> ${grown.to} under ${grown.name ?? 'a rule outside the diff'}`
+}
+
+function knownViolationsGrow(facts: MergeFacts): MergeVerdict | null {
+  if (!facts.files.includes(KNOWN_VIOLATIONS_RECORD))
+    return null
+  const patch = facts.patched.find(({ filename }) => filename === KNOWN_VIOLATIONS_RECORD)?.patch
+  if (patch === undefined)
+    return denied('known_violations_grow', `GitHub gives no patch for ${KNOWN_VIOLATIONS_RECORD}, so whether it grows is unknown, and it stays the owner's`)
+  const growth = knownViolationGrowthIn(patch)
+  return growth === undefined ? null : denied('known_violations_grow', `the diff of ${KNOWN_VIOLATIONS_RECORD} ${growth}: a new dependency violation stays the owner's under every shard and every decision (D-536)`)
+}
+
 function reserved(facts: MergeFacts): MergeVerdict | null {
   const kinds = readOwnerMergeKinds(facts.ownerMergesText)
   const releaseTitle = kinds.find(kind => kind.kind === RELEASE_KIND)?.title ?? null
   if (VERSION_BRANCH.test(facts.headRef) || (releaseTitle !== null && facts.title === releaseTitle))
     return denied('version_pr', `${facts.headRef} is a version pull request and stays the owner's`)
-  const ownersUnderEveryShard = reservedCardOf(facts) ?? changesOwnerMerges(facts) ?? noShardMerge(facts) ?? ratchetGrows(facts) ?? unsandboxedCommand(facts)
+  const ownersUnderEveryShard = reservedCardOf(facts) ?? changesOwnerMerges(facts) ?? noShardMerge(facts) ?? ratchetGrows(facts) ?? knownViolationsGrow(facts) ?? unsandboxedCommand(facts)
   if (ownersUnderEveryShard !== null || delegatedByShard(facts) !== null)
     return ownersUnderEveryShard
   if (facts.windowShard !== null)
