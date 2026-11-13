@@ -146,23 +146,6 @@ export const CARD_WAITS = {
 
 export type WaitKind = keyof typeof CARD_WAITS
 
-export type SessionStopCode = typeof OUTSIDE_TOUCHES | typeof OPEN_QUESTION
-
-export const SESSION_STOP_CODES: readonly SessionStopCode[] = [OUTSIDE_TOUCHES, OPEN_QUESTION]
-
-export interface SessionStop {
-  code: SessionStopCode
-  blocker: string
-  paths: string[]
-}
-
-export function sessionStopOf(questions: readonly string[], outsideTheTouches: (text: string) => string[]): SessionStop | null {
-  if (questions.length === 0)
-    return null
-  const paths = outsideTheTouches(questions.join('\n'))
-  return { code: paths.length > 0 ? OUTSIDE_TOUCHES : OPEN_QUESTION, blocker: questions.join('; '), paths }
-}
-
 export const EVENT_PAYLOADS = {
   [ANSWER_STEP]: ['seconds', 'step'],
   [ARTIFACT_KEPT]: ['by', 'parked', 'path'],
