@@ -1,6 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { ProcessTable } from '../../../ports/process-table.js'
 import type { BgResult, DetachedLaunch } from '../../../supervisor/bg.js'
+import type { BusSupervisor, WorkerKeeper } from '../../../supervisor/supervisor.js'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -10,7 +11,7 @@ import { openBus } from '../../../core/db.js'
 import { WORKER_STARTED } from '../../../core/events.js'
 import { GENERATION_VARIABLE, UNHANDED } from '../../../core/node.js'
 import { handedIdentity, recordSpawned, spawnedActor } from '../../../supervisor/bg.js'
-import { relaunchSupervisor, startBus, SUPERVISOR_LAUNCH } from '../../../supervisor/supervisor.js'
+import { gitCode, relaunchSupervisor, startBus, superviseUntilReplaced, SUPERVISOR_LAUNCH } from '../../../supervisor/supervisor.js'
 import { eventsOf } from '../merge-bench.js'
 
 const GENERATION = 'b'.repeat(40)
@@ -55,19 +56,27 @@ function supervisorRecords(db: DatabaseSync): Record<string, unknown>[] {
 }
 
 describe('k1a: the supervisor hands the generation to what it starts itself', () => {
-  it('the supervisor restart of itself starts with a real generation', () => {
+  it('the supervisor restart of itself starts with a real generation', async () => {
     const { busDir, db } = unhandedBus()
-    const result = relaunchSupervisor(busDir, code, recordedStart)
-    expect(result.exitCode, result.stderr.join('\n')).toBe(0)
+    const printed: string[] = []
+    await superviseUntilReplaced({
+      supervisor: { step: async () => [], ownCodeBehind: GENERATION } as unknown as BusSupervisor,
+      keeper: { step: () => [] } as unknown as WorkerKeeper,
+      relaunch: { busDir, code, start: recordedStart },
+      print: line => printed.push(line),
+      pause: async () => {
+        throw new Error(printed.join('\n'))
+      },
+    })
     expect(supervisorRecords(db)).toEqual([expect.objectContaining({ pid: STARTED_PID, generation: GENERATION })])
   })
 
   it('bus:bg starts with a real generation', async () => {
     expect(relaunchSupervisor, 'a build whose startBus takes no start would spawn real bus processes here').toBeTypeOf('function')
     const { busDir, db } = unhandedBus()
-    const result = await startBus(busDir, () => [], code, recordedStart)
+    const result = await startBus(busDir, () => [], undefined, recordedStart)
     expect(result.exitCode, [...result.stdout, ...result.stderr].join('\n')).toBe(0)
-    expect(supervisorRecords(db)).toEqual([expect.objectContaining({ pid: STARTED_PID, generation: GENERATION })])
+    expect(supervisorRecords(db)).toEqual([expect.objectContaining({ pid: STARTED_PID, generation: gitCode(process.cwd()).head() })])
     expect(eventsOf(db, WORKER_STARTED).map(record => record.generation)).not.toContain(UNHANDED)
   })
 })

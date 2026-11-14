@@ -385,7 +385,7 @@ describe('the supervisor tick', () => {
       } } as unknown as BusSupervisor,
       keeper: { step: () => [] } as unknown as WorkerKeeper,
       windowEnds: ends,
-      relaunch: () => replaced,
+      relaunch: { busDir: '', code: { head: () => '' }, start: () => replaced },
       print: line => printed.push(line),
       pause: async () => {},
     })

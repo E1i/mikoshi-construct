@@ -120,7 +120,7 @@ describe('the supervisor tick that publishes the window subagents', () => {
         ticks += 1
         return ['published']
       } },
-      relaunch: () => ({ stdout: [], stderr: [], exitCode: 0 }),
+      relaunch: { busDir: '', code: { head: () => '' }, start: () => ({ stdout: [], stderr: [], exitCode: 0 }) },
       print: line => printed.push(line),
       pause: async () => {},
     })
