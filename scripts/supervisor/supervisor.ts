@@ -906,7 +906,7 @@ export interface SupervisingParts {
   windowEnds?: WindowSessionEnds
   windowSubagents?: Pick<WindowSubagentTick, 'step'>
   order?: { step: () => string[] }
-  relaunch: () => BgResult
+  relaunch: Readonly<{ busDir: string, start?: NonNullable<AgentHand['start']> }>
   print: (line: string) => void
   pause: () => Promise<unknown>
 }
@@ -925,7 +925,7 @@ export async function superviseUntilReplaced(parts: SupervisingParts): Promise<v
   for (;;) {
     const lines = await parts.supervisor.step()
     const head = parts.supervisor.ownCodeBehind
-    const replacement = head === null ? { lines: [], replaced: false } : replacedBy(head, parts.relaunch())
+    const replacement = head === null ? { lines: [], replaced: false } : replacedBy(head, (parts.relaunch.start ?? startDetached)(SUPERVISOR_LAUNCH, parts.relaunch.busDir, generationEnv({ head: () => head }), outsideOwnGroup()))
     const ticked = [...lines, ...replacement.lines, ...replacement.replaced ? [] : [...parts.keeper.step(), ...await parts.judge?.step() ?? [], ...parts.windowEnds?.step() ?? [], ...parts.windowSubagents?.step() ?? [], ...parts.order?.step() ?? []]]
     for (const line of [...ticked, ...await parts.heal?.step(ticked) ?? [], ...parts.snapshot?.step() ?? []])
       parts.print(line)
@@ -1057,7 +1057,7 @@ async function supervise(busDir: string, cwd: string, reviewPreflight: () => str
       order: busOrderTick(db, cwd),
       heal: new BusHealer({ busPath, nodes, now: () => new Date(), projections: busProjections(), watch: new CorruptionWatch(busLaunches(reviewPreflight).map(launch => path.join(busDir, launch.log))) }),
       snapshot: new BusSnapshot({ db, busPath, file: snapshotPathOf(busPath), now: () => Date.now(), paused: () => nodes.held() }),
-      relaunch: () => startDetached(SUPERVISOR_LAUNCH, busDir, process.env, outsideOwnGroup()),
+      relaunch: { busDir },
       print: line => console.log(line),
       pause: () => sleep(CHECK_MS),
     })
@@ -1128,16 +1128,16 @@ function withoutRetiringOnBus(processes: () => (RunningProcess & Partial<Grouped
   return () => onBus(db => withoutRetiring(processes, db)())
 }
 
-export async function startBus(busDir: string = pinnedBusDir(), everyProcess: () => (RunningProcess & Partial<GroupedProcess>)[] = groupedPsList()): Promise<BgResult> {
+export async function startBus(busDir: string = pinnedBusDir(), everyProcess: () => (RunningProcess & Partial<GroupedProcess>)[] = groupedPsList(), code: Pick<BusCode, 'head'> | null = installedPackage() === null ? gitCode(process.cwd()) : null, start: AgentHand['start'] = startReviewWorker): Promise<BgResult> {
   const processes = withoutRetiringOnBus(everyProcess)
   const judged = await restartSilentSupervisorOnBus(busDir, everyProcess)
   const started = await startUnderAgentEnv(busDir, [...wantedLaunches(busDir, reviewPreflight, decisionsInForce()), SUPERVISOR_LAUNCH], {
-    env: process.env,
+    env: code === null ? process.env : generationEnv(code),
     processes,
     ownPackage: ownPackage(),
     stop: (running, launch) => stopInstance(running, launch.markers, processes),
     freeLeases: freeLeasesOnBus,
-    start: startReviewWorker,
+    start,
   })
   return { ...started, stdout: [...foreignBusLines(processes(), ownPackage()), ...judged, ...started.stdout] }
 }

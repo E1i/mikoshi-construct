@@ -389,6 +389,7 @@
     "scripts/tests/bus/close-queue.test.ts",
     "scripts/tests/bus/close-removes-tree.test.ts",
     "scripts/tests/bus/continuationhandoff.test.ts",
+    "scripts/tests/bus/conveyor/k1a-generation-handed.test.ts",
     "scripts/tests/bus/conveyor/k1a-process-records.test.ts",
     "scripts/tests/bus/conveyor/k6-session-carries-over.test.ts",
     "scripts/tests/bus/conveyor/o1-record-paths.test.ts",

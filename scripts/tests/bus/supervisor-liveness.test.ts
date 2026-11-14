@@ -566,11 +566,11 @@ function machine(): Machine {
           journal: () => {},
           now: () => 0,
         }),
-        relaunch: () => {
+        relaunch: { busDir: '', start: () => {
           const fresh = ++pid
           m.alive.push({ pid: fresh, args: SUPERVISOR_ARGS })
           return { stdout: [String(fresh)], stderr: [], exitCode: 0 }
-        },
+        } },
         print: line => m.lines.push(line),
         pause: async () => {
           if (++pauses > PAUSES_ALLOWED)
@@ -625,7 +625,7 @@ describe('the supervisor restarts itself after a merge under scripts/bus', () =>
     let attempts = 0
     await superviseUntilReplaced({
       ...parts,
-      relaunch: () => ++attempts < 2 ? { stdout: [], stderr: [`${PREFIX}spawn failed`], exitCode: 1 } : parts.relaunch(),
+      relaunch: { ...parts.relaunch, start: (...started) => ++attempts < 2 ? { stdout: [], stderr: [`${PREFIX}spawn failed`], exitCode: 1 } : parts.relaunch.start!(...started) },
     })
     expect(attempts).toBe(2)
     expect(m.lines.join('\n')).toContain(`could not start a fresh supervisor on ${NEW_MAIN}`)
@@ -934,10 +934,10 @@ describe('the supervisor restarts itself after a merge under scripts/bus', () =>
     await superviseUntilReplaced({
       supervisor,
       keeper: new WorkerKeeper({ wanted: () => [], start: ok, processes: () => alive, reduce: () => [], journal: () => {}, now: () => 0 }),
-      relaunch: () => {
+      relaunch: { busDir: '', start: () => {
         relaunched.push(500)
         return { stdout: ['501'], stderr: [], exitCode: 0 }
-      },
+      } },
       print: line => lines.push(line),
       pause: async () => {
         throw new Error('the supervisor did not restart on the first tick')
@@ -1310,7 +1310,7 @@ describe('the supervisor judges liveness from heartbeats alone', () => {
     await superviseUntilReplaced({
       ...parts,
       judge,
-      relaunch: () => ++attempts < 2 ? { stdout: [], stderr: [`${PREFIX}spawn failed`], exitCode: 1 } : parts.relaunch(),
+      relaunch: { ...parts.relaunch, start: (...started) => ++attempts < 2 ? { stdout: [], stderr: [`${PREFIX}spawn failed`], exitCode: 1 } : parts.relaunch.start!(...started) },
     })
     expect(m.lines).toContain(`${PREFIX}bus:merge restarted by the judge`)
     db.close()
@@ -1353,7 +1353,7 @@ describe('the supervisor judges liveness from heartbeats alone', () => {
       supervisor,
       keeper,
       judge: new LivenessJudge(db, () => clock.now, expecting(SUPERVISOR_PROCESS)),
-      relaunch: () => ({ stdout: [], stderr: [], exitCode: 1 }),
+      relaunch: { busDir: '', start: () => ({ stdout: [], stderr: [], exitCode: 1 }) },
       print: line => lines.push(line),
       pause: async () => {
         sampleBeat()
@@ -1455,7 +1455,7 @@ describe('the switch is a flag, and the supervisor moves each worker to it', () 
     const lines: string[] = []
     const oneTick = new Error('one tick')
 
-    await expect(superviseUntilReplaced({ supervisor, keeper, relaunch: () => ({ stdout: [], stderr: [], exitCode: 1 }), print: line => lines.push(line), pause: async () => {
+    await expect(superviseUntilReplaced({ supervisor, keeper, relaunch: { busDir: '', start: () => ({ stdout: [], stderr: [], exitCode: 1 }) }, print: line => lines.push(line), pause: async () => {
       throw oneTick
     } })).rejects.toBe(oneTick)
 
