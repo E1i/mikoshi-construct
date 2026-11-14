@@ -870,6 +870,15 @@
           "type"
         ]
       },
+      "review.drip": {
+        "complete": true,
+        "keys": [
+          "card",
+          "finding",
+          "head",
+          "pr"
+        ]
+      },
       "review.recorded": {
         "complete": true,
         "keys": [
@@ -878,6 +887,7 @@
           "card_body",
           "depth",
           "depth_why",
+          "drip",
           "findings",
           "head",
           "isolation",
@@ -4549,7 +4559,7 @@
         ],
         "types": {
           "BusCard": "interface BusCard { id: number; state: string | null; stage: CardStage; lane: string | null; line: string | null; since: string | null; body: boolean; closed: boolean; closedAt: string | null; parent?: SliceParent; }",
-          "BusFacts": "interface BusFacts { at: string; goal: Goal | null; waits: OwnerWait[]; waitsStale?: string; cardsStale?: string; pulse: string | null; slots: BusSlot[]; cards: BusCard[]; services: BusService[]; matrices: BusMatrix[]; failure: string | null; reviewQueue: number; groups?: BusGroup[]; shadow?: BusShadow; }",
+          "BusFacts": "interface BusFacts { at: string; goal: Goal | null; waits: OwnerWait[]; waitsStale?: string; cardsStale?: string; pulse: string | null; slots: BusSlot[]; cards: BusCard[]; services: BusService[]; matrices: BusMatrix[]; failure: string | null; reviewQueue: number; groups?: BusGroup[]; shadow?: BusShadow; tails?: BusTail[]; }",
           "BusMatrix": "interface BusMatrix { pr: number; head: string | null; full: string | null; killed: number; survived: number; notRun: number; }",
           "BusService": "interface BusService { role: string; task: string; tree: string | null; step: string; session?: string; gauges?: ServiceGauges; subagents?: SubagentReading[]; }",
           "CardStage": "type CardStage = typeof CARD_STAGES[number]",
