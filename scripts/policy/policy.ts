@@ -162,10 +162,31 @@ const UNSANDBOXED_LINE_FORMS: readonly { form: string, line: RegExp }[] = [
   { form: 'allowUnsandboxedCommands other than false', line: /allowUnsandboxedCommands(?!["']?\s*[:=]\s*false\b)/ },
   { form: 'dangerouslyDisableSandbox', line: /dangerouslyDisableSandbox/ },
   { form: CHILD_PROCESS_IMPORT, line: /child_process/ },
-  { form: 'a spawn call', line: /(?<![\w$.])(?:execFileSync|execFile|execSync|exec|spawnSync|spawn|fork)\(/ },
 ]
+const SPAWN_CALL = 'a spawn call'
+const COMMAND_NAMES: ReadonlySet<string> = new Set(['execFileSync', 'execFile', 'execSync', 'exec', 'spawnSync', 'spawn', 'fork'])
+const CALL_SITE = /(?<![\w$.])(?<callee>[\w$]+)\s*(?:\.\s*(?<member>[\w$]+)\s*)?\(/g
+const MODULE_BINDINGS: ReadonlySet<string> = new Set(['*', 'default'])
+const DATA_WITHOUT_COMMANDS = /^(?:contract|declarations)\/.+\.json$/
 
 type PatchSide = '-' | '+'
+
+interface ImportBinding {
+  imported: string
+  local: string
+}
+
+function callsCommand(text: string, bindings: readonly ImportBinding[]): boolean {
+  for (const match of text.matchAll(CALL_SITE)) {
+    const { callee, member } = match.groups as { callee: string, member?: string }
+    const binding = bindings.find(entry => entry.local === callee)
+    if (binding === undefined)
+      continue
+    if (member === undefined ? COMMAND_NAMES.has(binding.imported) : MODULE_BINDINGS.has(binding.imported) && COMMAND_NAMES.has(member))
+      return true
+  }
+  return false
+}
 
 interface CommandCall {
   form: string
@@ -189,7 +210,7 @@ function entriesOf(segment: string): string[] {
   return ARRAY_PUNCTUATION_ONLY.test(bare) ? [] : [bare]
 }
 
-function callsOnSide(hunk: string, side: PatchSide): CommandCall[] {
+function callsOnSide(hunk: string, side: PatchSide, bindings: readonly ImportBinding[]): CommandCall[] {
   const calls: CommandCall[] = []
   let depth = 0
   let keyAwaitsArray = false
@@ -203,6 +224,8 @@ function callsOnSide(hunk: string, side: PatchSide): CommandCall[] {
     if (own) {
       const importLine = new RegExp(FROM_CHILD_PROCESS.source).test(text) || BARE_CHILD_PROCESS_IMPORT.test(text)
       calls.push(...UNSANDBOXED_LINE_FORMS.filter(({ form, line: pattern }) => pattern.test(text) && !(importLine && form === CHILD_PROCESS_IMPORT)).map(({ form }) => ({ form, text: trimmed })))
+      if (callsCommand(text, bindings))
+        calls.push({ form: SPAWN_CALL, text: trimmed })
     }
     let inside: string | undefined
     if (depth > 0) {
@@ -239,36 +262,45 @@ function sideText(hunk: string, side: PatchSide): string {
   return hunk.split('\n').slice(1).filter(line => line[0] === ' ' || line[0] === side).map(line => line.slice(1)).join('\n')
 }
 
-function importedSymbolsOf(clause: string): string[] {
-  const symbols: string[] = []
+function importBindingsOf(clause: string): ImportBinding[] {
+  const bindings: ImportBinding[] = []
   const named = /\{(?<names>[^}]*)\}/.exec(clause)
   for (const entry of (named?.groups?.names ?? '').split(',')) {
     const name = entry.trim()
-    if (name !== '' && !name.startsWith('type '))
-      symbols.push(name.split(/\s+as\s+/)[0]!.trim())
+    if (name !== '' && !name.startsWith('type ')) {
+      const [imported, local] = name.split(/\s+as\s+/).map(part => part.trim())
+      bindings.push({ imported: imported!, local: local ?? imported! })
+    }
   }
   const outside = clause.replace(/\{[^}]*\}/, '')
-  if (/\*\s*as\s/.test(outside))
-    symbols.push('*')
-  if (/^\s*[\w$]+\s*(?:,|$)/.test(outside))
-    symbols.push('default')
-  return symbols
+  const namespace = /\*\s*as\s+(?<local>[\w$]+)/.exec(outside)
+  if (namespace !== null)
+    bindings.push({ imported: '*', local: namespace.groups!.local! })
+  const fallback = /^\s*(?<local>[\w$]+)\s*(?:,|$)/.exec(outside)
+  if (fallback !== null)
+    bindings.push({ imported: 'default', local: fallback.groups!.local! })
+  return bindings
 }
 
-function childProcessSymbolsOn(hunks: readonly string[], side: PatchSide): Set<string> {
-  const symbols = new Set<string>()
+function childProcessBindingsOn(hunks: readonly string[], side: PatchSide): ImportBinding[] {
+  const bindings: ImportBinding[] = []
   for (const hunk of hunks) {
     const text = sideText(hunk, side)
-    if (BARE_CHILD_PROCESS_IMPORT.test(text))
-      symbols.add(SIDE_EFFECT_IMPORT)
     for (const match of text.matchAll(FROM_CHILD_PROCESS)) {
       const head = text.slice(0, match.index)
       const start = head.lastIndexOf(IMPORT_KEYWORD)
       const clause = start === -1 ? '' : head.slice(start + IMPORT_KEYWORD.length).trim()
       if (!TYPE_ONLY_CLAUSE.test(clause))
-        importedSymbolsOf(clause).forEach(symbol => symbols.add(symbol))
+        bindings.push(...importBindingsOf(clause))
     }
   }
+  return bindings
+}
+
+function childProcessSymbolsOn(hunks: readonly string[], side: PatchSide): Set<string> {
+  const symbols = new Set(childProcessBindingsOn(hunks, side).map(binding => binding.imported))
+  if (hunks.some(hunk => BARE_CHILD_PROCESS_IMPORT.test(sideText(hunk, side))))
+    symbols.add(SIDE_EFFECT_IMPORT)
   return symbols
 }
 
@@ -284,9 +316,11 @@ function newCommandCallIn(patch: string): CommandCall | undefined {
   if (symbol !== undefined)
     return symbol
   const removed = new Map<string, number>()
-  for (const call of hunks.flatMap(hunk => callsOnSide(hunk, '-')))
+  const removedBindings = childProcessBindingsOn(hunks, '-')
+  const addedBindings = childProcessBindingsOn(hunks, '+')
+  for (const call of hunks.flatMap(hunk => callsOnSide(hunk, '-', removedBindings)))
     removed.set(callKey(call), (removed.get(callKey(call)) ?? 0) + 1)
-  for (const call of hunks.flatMap(hunk => callsOnSide(hunk, '+'))) {
+  for (const call of hunks.flatMap(hunk => callsOnSide(hunk, '+', addedBindings))) {
     const held = removed.get(callKey(call)) ?? 0
     if (held === 0)
       return call
@@ -299,7 +333,7 @@ function unsandboxedCommand(facts: MergeFacts): MergeVerdict | null {
   for (const { filename, patch, additions } of facts.patched) {
     if (RUNS_NOTHING.test(filename) || GENERATED_PATH_SET.has(filename))
       continue
-    if (patch === undefined && additions !== 0)
+    if (patch === undefined && additions !== 0 && !DATA_WITHOUT_COMMANDS.test(filename))
       return denied('unsandboxed_command', `GitHub gives no patch for ${filename}, so whether it adds a command outside the sandbox is unknown, and it stays the owner's`)
     const call = patch === undefined ? undefined : newCommandCallIn(patch)
     if (call !== undefined)
