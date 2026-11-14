@@ -1,5 +1,0 @@
----
-'mikoshi-construct': patch
----
-
-The window's subagents now reach the board. Each supervisor tick reads `.construct/window-agents.jsonl` and publishes every start and stop as a `window.subagent` event. The event carries the window session and the agent id and is keyed `window.subagent:<session>:<agent id>:<phase>`, so rereading the file or restarting the supervisor writes no duplicate and loses no line. The board removes an agent by its id when that agent stops, and it shows the agent even when the window sends no heartbeat. The subagents line now reads `CRAWLERS <n> · top spend <largest> / <limit> cap` and each pulse reads `pulse <n> min ago`, the same in the lore and plain text. Its arrow comes from the button's `aria-expanded` and rotates when the button toggles, without the rotation animation under `prefers-reduced-motion`. A subagent row turns yellow when its context or spend reaches the warn ratio and red at the limit, using the thresholds and colours of the tile's CTX and SPENT bars. The collapsed line takes the colour of the heaviest subagent.

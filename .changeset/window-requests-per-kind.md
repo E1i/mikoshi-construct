@@ -1,5 +1,0 @@
----
-'mikoshi-construct': patch
----
-
-Each kind of window request now runs from its own file under `scripts/window/requests/`, one file for each `REQUEST_KINDS` member (`tree-cut.ts`, `amend.ts`, `owner-wait-close.ts`, `decisions-add.ts`, `owner-stop.ts`, …). `index.ts` holds the dispatcher, `REQUEST_EXECUTORS` keyed by kind, and `dispatchRequest`. `context.ts` holds what several kinds read: an observed pull request, a card's route, its latest turn, writing a decision. `reach.ts` is the only file in the folder that imports from outside the window, so splitting the file adds no boundary import. `window-requests.ts` keeps the public surface: parsing the command line, writing a request, and `WindowRequests`, which answers pending requests through the dispatcher. Behaviour, events and refusal texts are unchanged. The `window-requests` concept's owner exists now (`dispatchRequest`). Its overlaps fall from 18 to 0, and `window-requests.ts` falls from 1013 lines to under the 800-line threshold. `contract/surface.json` no longer lists `settled` among the `bus:request` flags: that was the flag the bus passes to `decisions:add`, and `bus:request` never accepted it.

@@ -1,5 +1,0 @@
----
-'mikoshi-construct': patch
----
-
-No silent waits in window requests, the owner channel and the merge policy. `owner.wait.close --id Q<N> --from owner-channel` closes a wait on the owner's channel word that starts with the question id (`pnpm owner:say "Q<N>: <answer>"`), so the window no longer needs the verbatim line; a refusal names the word it waits for and how the owner gives it. A card held for the owner can be taken over by the window: the hold and the takeover are two layers, a release lifts the latest one, and a release that leaves the owner's hold standing queues no answer and says who still holds the card. An amend whose touches cover the paths an owner stop asked for queues the stopped answer again, and an amend that does not settle the stop names what the card still waits for. The `unsandboxed_command` rule compares the sets of symbols imported from `child_process` instead of the import lines, so a reordered, reformatted or type-only import stays auto and a newly imported symbol is named.

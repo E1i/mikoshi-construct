@@ -1,5 +1,0 @@
----
-'mikoshi-construct': patch
----
-
-The owner's word now moves any card past the bus's timers and automatic conditions. Four owner commands, built in `scripts/core/owner-commands.ts`, are window requests: `owner.stop --card N` ends the card's live session, `owner.launch --card N` starts a standing card on the launch node's next lease even if it is held, stopped on a question, past a usage limit, waiting for its lane or blocked by the machine limit, `owner.takeover --card N` gives the card to the window at once without the 30 minutes, and `owner.requeue --task <key>` queues a task again with no `board.alarm` and no round or requeue limit. Each move runs only after the owner says the exact command line into the owner channel. It is recorded as one `command.executed` event with the owner as actor. It is refused only when it cannot physically happen (no live session, no admitted body, no card, no task, or no open pull request), and the refusal names the cause. The law is registered as Z10 in the laws registry, and the laws version is now 5.
