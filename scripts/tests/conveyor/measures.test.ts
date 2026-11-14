@@ -6,7 +6,7 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { questionClassOf, runMeasures, measures as takeMeasures, USAGE } from '../../conveyor/measures.js'
 import { appendEvent, openBus } from '../../core/db.js'
-import { OWNER_WAIT_OPENED, PR_OBSERVED, REVIEW_RECORDED, TASK_COMPLETED, TASK_FAILED, TASK_LEASED, TASK_RELEASED, UPDATE_DONE, WITNESS_RECORDED, WORKER_RETIRING } from '../../core/events.js'
+import { CHILD_ENDED, OWNER_WAIT_OPENED, PR_OBSERVED, REVIEW_RECORDED, TASK_COMPLETED, TASK_FAILED, TASK_LEASED, TASK_RELEASED, UPDATE_DONE, WITNESS_RECORDED, WORKER_RETIRING } from '../../core/events.js'
 import { RESTART_CUT } from '../../core/lease.js'
 
 const WINDOW = { from: '2026-11-10T00:00:00.000Z', to: '2026-11-13T12:30:00.000Z' }
@@ -55,20 +55,23 @@ function put(db: DatabaseSync, { type, ts = INSIDE, actor = 'policy', pr = null,
 
 interface Episode {
   pr: number
-  clean: boolean
+  clean: boolean | number
   after: [string, string][]
+  staleOnTheOldHead?: [string, string]
   witnessAfter?: string[]
   reviews?: number
   answers?: number
   ts?: string
 }
 
-function episode(db: DatabaseSync, { pr, clean, after, witnessAfter = ['green'], reviews = 0, answers = 0, ts = INSIDE }: Episode): void {
+function episode(db: DatabaseSync, { pr, clean, after, staleOnTheOldHead, witnessAfter = ['green'], reviews = 0, answers = 0, ts = INSIDE }: Episode): void {
   const from = sha(pr * 10)
   const to = sha(pr * 10 + 1)
   put(db, { type: PR_OBSERVED, actor: 'netwatch', pr, head: from, ts, payload: { ci: 'green', mergeable: 'clean' } })
   put(db, { type: WITNESS_RECORDED, pr, head: from, ts, payload: { verdict: 'green', head: from } })
   put(db, { type: UPDATE_DONE, actor: 'worker:update:u', pr, head: from, ts, payload: { from, to, clean } })
+  if (staleOnTheOldHead !== undefined)
+    put(db, { type: PR_OBSERVED, actor: 'netwatch', pr, head: from, payload: { ci: staleOnTheOldHead[0], mergeable: staleOnTheOldHead[1] } })
   for (const [ci, mergeable] of after)
     put(db, { type: PR_OBSERVED, actor: 'netwatch', pr, head: to, payload: { ci, mergeable } })
   for (const verdict of witnessAfter)
@@ -94,10 +97,13 @@ describe('measure 1: idle updates over every update.done in the window', () => {
     episode(db, { pr: 8, clean: true, after: SETTLED_GREEN, answers: 1 })
     episode(db, { pr: 9, clean: true, after: SETTLED_GREEN, ts: BEFORE_THE_WINDOW })
     episode(db, { pr: 10, clean: true, after: SETTLED_GREEN, ts: AFTER_THE_WINDOW })
+    episode(db, { pr: 11, clean: true, after: [['pending', 'blocked'], ['green', 'blocked']] })
+    episode(db, { pr: 12, clean: 1, after: SETTLED_GREEN })
+    episode(db, { pr: 13, clean: true, after: SETTLED_GREEN, staleOnTheOldHead: ['red', 'dirty'] })
 
     const { idleUpdates } = takeMeasures(db, WINDOW)
 
-    expect({ idle: idleUpdates.idle, updates: idleUpdates.updates }).toEqual({ idle: 2, updates: 8 })
+    expect({ idle: idleUpdates.idle, updates: idleUpdates.updates }).toEqual({ idle: 4, updates: 11 })
   })
 })
 
@@ -112,12 +118,16 @@ function leased(db: DatabaseSync, { task, gen = 1, actor = OLD_WORKER, queue = '
   put(db, { type: TASK_LEASED, actor, payload: { queue, task_key: task, lease_gen: gen } })
 }
 
+function childEnded(db: DatabaseSync, task: string, exit: number | null, signal: string | null): void {
+  put(db, { type: CHILD_ENDED, actor: OLD_WORKER, payload: { instance: 'old', pid: 1, task_key: task, exit, signal } })
+}
+
 function ended(db: DatabaseSync, type: string, task: string, reason: string | null = null, gen = 1): void {
   put(db, { type, actor: OLD_WORKER, payload: { task_key: task, lease_gen: gen, ...(reason === null ? {} : { reason }) } })
 }
 
 describe('measure 2: rounds cut by restart over rounds live at restart', () => {
-  it('takes the answer leases the retiring instance held at its worker.retiring, and counts one cut only when a restart released it', () => {
+  it('takes the answer leases the retiring instance held at its worker.retiring, and counts as cut those a restart released or a signal ended', () => {
     const { db } = bus()
     leased(db, { task: 'answer:finished-before' })
     ended(db, TASK_COMPLETED, 'answer:finished-before')
@@ -125,17 +135,23 @@ describe('measure 2: rounds cut by restart over rounds live at restart', () => {
     leased(db, { task: 'answer:signalled' })
     leased(db, { task: 'answer:finished-after' })
     leased(db, { task: 'answer:failed-after' })
+    leased(db, { task: 'answer:child-signalled' })
+    leased(db, { task: 'answer:released-otherwise' })
     leased(db, { task: 'answer:other-instance', actor: OTHER_WORKER })
     leased(db, { task: 'update:not-a-round', queue: 'update' })
     put(db, { type: WORKER_RETIRING, payload: { worker: OLD_WORKER, node: 'answer', pids: [1], sha: 'a', from: 'b' } })
     ended(db, TASK_RELEASED, 'answer:cut', RESTART_CUT)
     ended(db, TASK_FAILED, 'answer:signalled', 'exit 143')
     ended(db, TASK_COMPLETED, 'answer:finished-after')
+    childEnded(db, 'answer:failed-after', 1, null)
     ended(db, TASK_FAILED, 'answer:failed-after', 'answer_failed')
+    childEnded(db, 'answer:child-signalled', null, 'SIGTERM')
+    ended(db, TASK_FAILED, 'answer:child-signalled', 'answer_failed')
+    ended(db, TASK_RELEASED, 'answer:released-otherwise', 'withdrawn')
     ended(db, TASK_RELEASED, 'answer:other-instance', RESTART_CUT)
     put(db, { type: WORKER_RETIRING, ts: AFTER_THE_WINDOW, payload: { worker: OTHER_WORKER, node: 'answer', pids: [2], sha: 'a', from: 'b' } })
 
-    expect(takeMeasures(db, WINDOW).restartCuts).toEqual({ cut: 1, live: 4, retirings: 1 })
+    expect(takeMeasures(db, WINDOW).restartCuts).toEqual({ cut: 3, live: 6, retirings: 1 })
   })
 
   it('reads a later lease generation of the same task as its own round', () => {
@@ -170,11 +186,13 @@ describe('measure 3: owner questions naming a hand-edited shared registry, by cl
     const { db } = bus()
     QUESTIONS.forEach(([text], n) => put(db, { type: OWNER_WAIT_OPENED, payload: { id: `Q${n + 1}`, need: 'decision', text } }))
     put(db, { type: OWNER_WAIT_OPENED, payload: { id: 'Q90', need: 'decision', text: 'hold the bus layer queue until the probe ends?' } })
+    put(db, { type: OWNER_WAIT_OPENED, ts: WINDOW.from, payload: { id: 'Q92', need: 'decision', text: 'opened on the first instant of the window' } })
+    put(db, { type: OWNER_WAIT_OPENED, ts: WINDOW.to, payload: { id: 'Q93', need: 'decision', text: 'opened on the instant the window closes' } })
     put(db, { type: OWNER_WAIT_OPENED, ts: BEFORE_THE_WINDOW, payload: { id: 'Q91', need: 'merge', text: 'the diff of contract/ratchet.json adds a row: its growth stays the owner\'s' } })
 
     const { registryQuestions } = takeMeasures(db, WINDOW)
 
-    expect(registryQuestions.questions).toBe(9)
+    expect(registryQuestions.questions).toBe(10)
     expect(registryQuestions.naming).toBe(8)
     expect(registryQuestions.classes).toEqual({ touches: 3, growth: 3, content: 2 })
     expect(registryQuestions.ids.content).toEqual(['Q7', 'Q8'])

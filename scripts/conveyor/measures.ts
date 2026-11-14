@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
 import { defaultBusPath } from '../core/bus-path.js'
 import { BUSY_TIMEOUT_MS } from '../core/db.js'
-import { OWNER_WAIT_OPENED, PR_OBSERVED, REVIEW_RECORDED, TASK_COMPLETED, TASK_EXPIRED, TASK_FAILED, TASK_LEASED, TASK_RELEASED, TASK_SUPERSEDED, TASK_WITHDRAWN, UPDATE_DONE, WITNESS_RECORDED, WORKER_RETIRING } from '../core/events.js'
+import { CHILD_ENDED, OWNER_WAIT_OPENED, PR_OBSERVED, REVIEW_RECORDED, TASK_COMPLETED, TASK_EXPIRED, TASK_FAILED, TASK_LEASED, TASK_RELEASED, TASK_SUPERSEDED, TASK_WITHDRAWN, UPDATE_DONE, WITNESS_RECORDED, WORKER_RETIRING } from '../core/events.js'
 import { GENERATED_PATHS, NAMED_BY_THEIR_READERS, RATCHET_FILE } from '../core/generated-files.js'
 import { RESTART_CUT } from '../core/lease.js'
 import { openDatabase } from '../core/sqlite.js'
@@ -13,6 +13,7 @@ import { BusRead } from '../ports/bus-read.js'
 
 export const ANSWER_QUEUE = 'answer'
 export const UNSETTLED_CI = 'pending'
+export const SIGNAL_EXIT = 143
 
 export const SHARED_REGISTRIES: readonly string[] = [
   RATCHET_FILE.path,
@@ -35,6 +36,7 @@ export const QUESTION_CLASSES = ['touches', 'growth', 'content'] as const
 
 export type QuestionClass = typeof QUESTION_CLASSES[number]
 
+const SIGNALLED_REASON = /\bexit 143\b|\bSIG(?:TERM|KILL|INT)\b/
 const GROWTH = /\bgrow(?:s|th)?\b/i
 const OUTSIDE_THE_TOUCHES = /outside (?:the |its )?(?:card(?:'s)? )?touches|widen(?:s|ed)? its touches|touches widened|not in the touches/i
 
@@ -163,11 +165,31 @@ function endOf(ends: readonly LeaseEnd[], lease: HeldLease, after: number): Leas
   return ends.find(end => end.id > after && end.task === lease.task && end.gen === lease.gen)
 }
 
+interface SignalEnd {
+  id: number
+  task: unknown
+}
+
+function signalEnds(read: BusRead): SignalEnd[] {
+  return read.slice(CHILD_ENDED, ['task_key', 'exit', 'signal'])
+    .filter(row => (typeof row.fields.signal === 'string' && row.fields.signal !== '') || row.fields.exit === SIGNAL_EXIT)
+    .map(row => ({ id: row.id, task: row.fields.task_key }))
+}
+
+function cutByRestart(ending: LeaseEnd | undefined, signals: readonly SignalEnd[], lease: HeldLease, retiring: number): boolean {
+  if (ending?.type === TASK_RELEASED && ending.reason === RESTART_CUT)
+    return true
+  if (ending?.type === TASK_FAILED && typeof ending.reason === 'string' && SIGNALLED_REASON.test(ending.reason))
+    return true
+  return signals.some(signal => signal.task === lease.task && signal.id > retiring && (ending === undefined || signal.id <= ending.id))
+}
+
 export function restartCuts(read: BusRead, window: MeasureWindow): RestartCuts {
   const all = read.where({ legacy: true })
   const retirings = all.slice(WORKER_RETIRING, ['worker']).filter(retiring => inside(window, retiring.ts))
   const answerLeases = all.slice(TASK_LEASED, ['queue', 'task_key', 'lease_gen']).filter(lease => lease.fields.queue === ANSWER_QUEUE)
   const ends = retirings.length === 0 ? [] : leaseEnds(all)
+  const signals = retirings.length === 0 ? [] : signalEnds(all)
   let live = 0
   let cut = 0
   for (const retiring of retirings) {
@@ -179,10 +201,7 @@ export function restartCuts(read: BusRead, window: MeasureWindow): RestartCuts {
       .map(lease => ({ id: lease.id, task: lease.fields.task_key, gen: lease.fields.lease_gen }))
       .filter(lease => !ends.some(end => end.id > lease.id && end.id < retiring.id && end.task === lease.task && end.gen === lease.gen))
     live += held.length
-    cut += held.filter((lease) => {
-      const ending = endOf(ends, lease, retiring.id)
-      return ending?.type === TASK_RELEASED && ending.reason === RESTART_CUT
-    }).length
+    cut += held.filter(lease => cutByRestart(endOf(ends, lease, retiring.id), signals, lease, retiring.id)).length
   }
   return { cut, live, retirings: retirings.length }
 }
