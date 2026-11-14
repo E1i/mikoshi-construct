@@ -262,7 +262,8 @@
           "reason",
           "stop_reason",
           "touches",
-          "widen"
+          "widen",
+          "window"
         ]
       },
       "card.takeover": {
@@ -660,6 +661,7 @@
         "keys": [
           "card",
           "command",
+          "decision",
           "id",
           "need",
           "pr",
@@ -4264,10 +4266,10 @@
       "scripts/nodes/close/task-close.ts": 4,
       "scripts/nodes/close/task-merged.ts": 1,
       "scripts/nodes/launch/lane-assign.ts": 7,
-      "scripts/nodes/launch/launch-candidates.ts": 14,
+      "scripts/nodes/launch/launch-candidates.ts": 15,
       "scripts/nodes/launch/launch-executor.ts": 1,
       "scripts/nodes/launch/launch-withdraw.ts": 1,
-      "scripts/nodes/launch/launch-worker.ts": 15,
+      "scripts/nodes/launch/launch-worker.ts": 14,
       "scripts/nodes/launch/tree-pr-cli.ts": 3,
       "scripts/nodes/merge/merge-executor.ts": 2,
       "scripts/nodes/merge/merge-worker.ts": 1,
@@ -4582,11 +4584,14 @@
         "types": {}
       },
       "src/commands/board/screens.ts": {
-        "constants": [],
+        "constants": [
+          "WINDOW_WAITS_ROLE"
+        ],
         "functions": {
           "backlogCards": "(cards: BusCard[], at: string, all: boolean): BusCard[]",
           "isLive": "(card: BusCard): boolean",
           "laneColumns": "(cards: BusCard[]): (string | null)[]",
+          "liftedByTheWindow": "(wait: OwnerWait): boolean",
           "markedName": "(name: string, card: BusCard): string",
           "matrixLines": "(facts: BusFacts, lore: Lore): string[]",
           "pulseLines": "(facts: BusFacts, lore: Lore): string[]",

@@ -2,7 +2,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { RecordedVerdict } from '../nodes/update/update-executor.js'
 import type { GitHub } from '../ports/github.js'
 import type { SlotKind } from '../supervisor/scheduler.js'
-import { holdReason, plannedStalls } from '../nodes/launch/launch-candidates.js'
+import { holdReason, plannedStalls, questionReleasedLine, questionReleasedOverlaps } from '../nodes/launch/launch-candidates.js'
 import { REVIEW_RULES_VERSION } from '../nodes/review/review-executor.js'
 import { recordedVerdictOn } from '../nodes/update/update-executor.js'
 import { Meter } from '../ports/meter.js'
@@ -140,7 +140,8 @@ export function stallLines(db: DatabaseSync, pulse: string | null, now: Date): s
 }
 
 export function plannedStallLines(db: DatabaseSync, now: Date): string[] {
-  return readOr(() => plannedStalls(db, now.getTime()), []).map(card => `#${card.cardId} planned and startable, not started for ${card.minutes} minutes: ${holdReason(card.hold)}`)
+  const stalls = readOr(() => plannedStalls(db, now.getTime()), []).map(card => `#${card.cardId} planned and startable, not started for ${card.minutes} minutes: ${holdReason(card.hold)}`)
+  return [...stalls, ...readOr(() => questionReleasedOverlaps(db, now.getTime()), []).map(questionReleasedLine)]
 }
 
 function protectionStrict(meter: Meter): boolean {

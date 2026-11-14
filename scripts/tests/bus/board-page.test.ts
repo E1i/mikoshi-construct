@@ -813,12 +813,17 @@ describe('board.html', () => {
     expect(style).toContain('.waits:empty { display: none; }')
   })
 
-  function withOwnerWaits(busPath: string, waits: { id: string, need: string, text: string, command: string | null, card: number | null, pr: number | null }[]): string {
+  function withOwnerWaits(busPath: string, waits: { id: string, need: string, text: string, command: string | null, card: number | null, pr: number | null, decision?: string }[]): string {
     const db = new DatabaseSync(busPath)
     try {
       const insert = db.prepare('INSERT INTO owner_waits (id, need, text, command, card_id, pr, state, opened_at, event_id) VALUES (?, ?, ?, ?, ?, ?, \'open\', ?, 0)')
-      for (const wait of waits)
+      const opened = db.prepare('INSERT INTO events (ts, type, actor, card_id, dedupe_key, payload, legacy) VALUES (?, \'owner.wait.opened\', \'test\', ?, ?, ?, 0)')
+      for (const wait of waits) {
         insert.run(wait.id, wait.need, wait.text, wait.command, wait.card, wait.pr, minutesAgo(20))
+        if (wait.decision !== undefined)
+          opened.run(minutesAgo(20), wait.card, `owner.wait.opened:${wait.id}`, JSON.stringify({ id: wait.id, decision: wait.decision }))
+      }
+      db.exec('UPDATE projection_watermarks SET through_event_id = (SELECT coalesce(max(id), 0) FROM events)')
     }
     finally {
       db.close()
@@ -851,6 +856,23 @@ describe('board.html', () => {
     expect(templatesOf(html).has('dialog-card-870')).toBe(true)
     const style = /<style>([\s\S]*?)<\/style>/.exec(html)![1]!
     expect(/\n\.ask \{([\s\S]*?)\n\}/.exec(style)![1]).toContain('&[data-static] { --_what: var(--dim); }')
+  })
+
+  it('a wait the window lifts under a decision in force sits in its own strip, not under waits for you', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'bus-board-window-waits-'))
+    roots.push(root)
+    const busPath = withOwnerWaits(busWithRecords(path.join(root, 'bus.db'), { cards: [] }), [
+      { id: 'Q1', need: 'decision', text: 'which path?', command: null, card: null, pr: null },
+      { id: 'Q2', need: 'decision', text: 'widen to the importer?', command: null, card: null, pr: null, decision: 'D-441' },
+    ])
+    expect(slotsOf(pageText(busPath)).get('waits')).toBe([
+      '<section class="owner-strip bevel" aria-label="Waits for you"><span class="lbl">waits for you</span>',
+      '<span class="ask" data-static><span class="kind">D</span><span class="what">Q1 — which path? · owner runs: pnpm decisions:add &quot;[owner] &lt;decision&gt;&quot;</span></span>',
+      '</section>',
+      '<section class="owner-strip bevel" aria-label="Waits for the window"><span class="lbl">waits for the window</span>',
+      '<span class="ask" data-static><span class="kind">D</span><span class="what">Q2 — widen to the importer? · window runs: pnpm decisions:add &quot;[owner] &lt;decision&gt;&quot;</span></span>',
+      '</section>',
+    ].join(''))
   })
 
   it('a bus pulse older than the threshold shows the pulse stale, not blinking', () => {
