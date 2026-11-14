@@ -7,7 +7,7 @@ import { existsSync } from 'node:fs'
 import process from 'node:process'
 import { parseParkingFile, WINDOW_WHO } from '../../../src/card/parking.js'
 import { NOT_A_BACKFILL } from '../../core/backfill-source.js'
-import { CLOSED_WAIT } from '../../core/bus-readings.js'
+import { CLOSED_WAIT, openOwnerWaits } from '../../core/bus-readings.js'
 import { DEFERRED_CARD, unsatisfiedDependencies } from '../../core/card-automaton.js'
 import { bodyNotFoldedYet, pathsOutsideTheBody } from '../../core/card-bodies.js'
 import { cardHoldOf, SESSION_STOP_CODES } from '../../core/card-hold.js'
@@ -515,6 +515,32 @@ export function startableCards(db: DatabaseSync, treeLive: TreeReader = existsSy
   return [...lives.values()]
     .filter(life => !noLongerCandidates.has(life.cardId) && !life.windowsToWork && (falls.get(life.cardId) ?? 0) < FALLS_BEFORE_CUT && isQueued(life, settled) && unsatisfied(life.depends).length === 0 && !heldOutside(life, openPrs, trees, beating) && cardHoldOf(db, life.cardId) === null)
     .map(life => ({ cardId: life.cardId, admittedTs: life.admittedTs, hold: holdOf(life, holds, prNumbers, shared, lanes(), machine) }))
+}
+
+export interface QuestionReleasedOverlap {
+  cardId: number
+  stopped: number
+  path: string
+  waits: string[]
+}
+
+function openWaitsOf(db: DatabaseSync, cardId: number): string[] {
+  return openOwnerWaits(db).filter(wait => wait.card === cardId).map(wait => wait.id)
+}
+
+export function questionReleasedOverlaps(db: DatabaseSync, nowMs: number, shared: readonly string[] = sharedAppendFiles()): QuestionReleasedOverlap[] {
+  const lives = cardLives(db)
+  const beating = cardsBeatingLive(db, nowMs)
+  const settled = settledCards(db, cardSet(db, MERGED_CARDS))
+  const released = [...cardSet(db, OPEN_LAUNCHES)].filter(cardId => launchHeldByItsQuestion(db, cardId, beating)).flatMap(cardId => lives.get(cardId) ?? [])
+  return released.flatMap(stopped => [...lives.values()]
+    .filter(life => life.cardId !== stopped.cardId && isQueued(life, settled) && conflicting(life.task, stopped.task, shared))
+    .map(life => ({ cardId: life.cardId, stopped: stopped.cardId, path: overlappingPath(life.task!, stopped.task, shared), waits: openWaitsOf(db, stopped.cardId) })))
+}
+
+export function questionReleasedLine(overlap: QuestionReleasedOverlap): string {
+  const question = overlap.waits.length === 0 ? 'its question' : `its question ${overlap.waits.join(', ')}`
+  return `#${overlap.cardId} overlaps #${overlap.stopped} on ${overlap.path}: #${overlap.stopped} waits on ${question} with no live session, so its queued launch holds none of its touches`
 }
 
 export interface PlannedStall extends StartableCard {

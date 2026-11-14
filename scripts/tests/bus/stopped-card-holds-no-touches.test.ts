@@ -6,16 +6,19 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { textSha } from '../../../src/card/text-sha.js'
+import { waitsLines } from '../../../src/commands/board/screens.js'
+import { PLAIN_LORE } from '../../../src/ui/lore.js'
 import { plannedStallLines } from '../../cli/board-warnings.js'
 import { openOwnerWaits } from '../../core/bus-readings.js'
 import { appendEvent, openBus, openOwnerWait } from '../../core/db.js'
-import { CARD_ADMITTED, CARD_STARTED, CARD_STOPPED, OPEN_QUESTION, OWNER_WAIT_OPENED, QUESTION_AGENT } from '../../core/events.js'
+import { CARD_ADMITTED, CARD_STARTED, CARD_STOPPED, OPEN_QUESTION, OWNER_WAIT_OPENED, QUESTION_AGENT, SESSION_HEARTBEAT } from '../../core/events.js'
 import { MachineSessions } from '../../core/machine-sessions.js'
 import { queueTask } from '../../core/queue.js'
 import { reduce } from '../../core/reducer.js'
 import { busCardEvents } from '../../intake/intake.js'
 import { launchCandidates } from '../../nodes/launch/launch-candidates.js'
 import { LaunchNode } from '../../nodes/launch/launch-worker.js'
+import { cardDecisionCommand } from '../../policy/shards.js'
 import { busProjections, nodeSupply } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
@@ -66,8 +69,13 @@ class Bench {
 
   stopOnAQuestion(id: number): this {
     appendEvent(this.db, { ts: TS, type: CARD_STOPPED, actor: 'worker:launch:node-1', cardId: id, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:${id}`, payload: { reason: QUESTION_AGENT, code: OPEN_QUESTION, blocker: OWNER_QUESTION, paths: [] }, legacy: false })
-    openOwnerWait(this.db, TS, 'worker:launch:node-1', { need: 'decision', text: `card #${id} asks: ${OWNER_QUESTION}`, card: id })
+    openOwnerWait(this.db, TS, 'worker:launch:node-1', { need: 'decision', text: `card #${id} asks: ${OWNER_QUESTION}`, command: cardDecisionCommand(id), card: id })
     queueTask(this.db, TS, { queue: 'launch', cardId: id, generation: `admit-${id}` })
+    return this.reduced()
+  }
+
+  beat(id: number): this {
+    appendEvent(this.db, { ts: TS, type: SESSION_HEARTBEAT, actor: 'worker:launch:node-1', cardId: id, pr: null, head: null, dedupeKey: `${SESSION_HEARTBEAT}:${id}`, payload: { step: 'launch', session: `s-${id}` }, legacy: false })
     return this.reduced()
   }
 
@@ -118,6 +126,14 @@ describe('a card stopped on a question with no live session', () => {
 
     expect(bench.candidates()).toContain(2)
     expect(bench.linesAfter(20).join('\n')).not.toContain('session of #1')
+    expect(bench.linesAfter(20)).toContain(`#2 overlaps #1 on ${SHARED}: #1 waits on its question Q1 with no live session, so its queued launch holds none of its touches`)
+  })
+
+  it('a card stopped on a question whose session still beats keeps holding its touches', () => {
+    const bench = new Bench().admit(1).start(1).stopOnAQuestion(1).beat(1).admit(2)
+
+    expect(bench.candidates()).not.toContain(2)
+    expect(bench.linesAfter(0).join('\n')).not.toContain('overlaps #1')
   })
 })
 
@@ -128,6 +144,7 @@ describe('a question the window settles under a decision in force', () => {
     expect(eventsOf(made.db, CARD_STOPPED)).toEqual([expect.objectContaining({ reason: QUESTION_AGENT, code: OPEN_QUESTION, window: [{ question: WINDOW_QUESTION, decision: DECISION }] })])
     expect(eventsOf(made.db, OWNER_WAIT_OPENED)).toEqual([expect.objectContaining({ need: 'decision', decision: DECISION })])
     expect(openOwnerWaits(made.db)).toEqual([expect.objectContaining({ card: CARD, lifter: 'window', decision: DECISION })])
+    expect(waitsLines({ waits: openOwnerWaits(made.db) } as Parameters<typeof waitsLines>[0], PLAIN_LORE)).toEqual([expect.stringMatching(/^waits for the window · 1 · /)])
   })
 
   it('a plain question line still opens a wait for the owner', async () => {

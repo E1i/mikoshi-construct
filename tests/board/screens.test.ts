@@ -29,6 +29,18 @@ describe('the board screens', () => {
     expect(screenLines(noFacts(), PLAIN_LORE).slice(0, 2)).toEqual(['Flow', 'planned (0): —'])
   })
 
+  it('the text board lists a wait the window lifts under the window, not under waits for you', () => {
+    const since = '2026-10-02T11:00:00.000Z'
+    const waits = [
+      { id: 'Q1', need: 'decision' as const, text: 'which path?', command: null, card: 10, pr: null, since, ...OWNER_LIFTED },
+      { id: 'Q2', need: 'decision' as const, text: 'widen to the importer?', command: null, card: 11, pr: null, since, lifter: 'window' as const, decision: 'D-441' },
+    ]
+    expect(screenLines(noFacts({ waits }), PLAIN_LORE).slice(1, 3)).toEqual([
+      'waits for you · 1 · — · Q1 decision #10 (which path? · owner runs: pnpm decisions:add --card #10 "[owner] <decision>")',
+      'waits for the window · 1 · — · Q2 decision #11 (widen to the importer? · window runs: pnpm decisions:add --card #11 "[owner] <decision>")',
+    ])
+  })
+
   it('the text board prints the plan line and waits for you only when not empty', () => {
     const goal: Goal = { plans: [plan('Plan 0.45', 2, 7)], backlog: 3 }
     const since = '2026-10-02T11:00:00.000Z'

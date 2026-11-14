@@ -4584,11 +4584,14 @@
         "types": {}
       },
       "src/commands/board/screens.ts": {
-        "constants": [],
+        "constants": [
+          "WINDOW_WAITS_ROLE"
+        ],
         "functions": {
           "backlogCards": "(cards: BusCard[], at: string, all: boolean): BusCard[]",
           "isLive": "(card: BusCard): boolean",
           "laneColumns": "(cards: BusCard[]): (string | null)[]",
+          "liftedByTheWindow": "(wait: OwnerWait): boolean",
           "markedName": "(name: string, card: BusCard): string",
           "matrixLines": "(facts: BusFacts, lore: Lore): string[]",
           "pulseLines": "(facts: BusFacts, lore: Lore): string[]",
