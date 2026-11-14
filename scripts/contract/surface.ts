@@ -26,7 +26,7 @@ import { FAILED_EXIT } from '../../src/failure.js'
 import { DISCOVERY_MARKERS } from '../../src/manifest.js'
 import { blockMarkers, discoveryTags } from '../../src/materialize/strategies.js'
 import { PRESET_LIST } from '../../src/presets/index.js'
-import { ANSWER_EXIT, main, SAY_EXIT } from '../../src/program.js'
+import { main, SAY_EXIT } from '../../src/program.js'
 import { treeReportPath } from '../core/places.js'
 import { MATRIX_COUNT_LINE, pathWithoutMatrix } from '../policy/policy.js'
 import { processGit } from '../ports/git.js'
@@ -92,7 +92,6 @@ export const CONTRACT_FORMATS = {
 export type ContractFormat = keyof typeof CONTRACT_FORMATS
 
 export const CONTRACT_COMMANDS = [
-  'answer',
   'atlas',
   'attach',
   'board',
@@ -434,7 +433,6 @@ export function exitTables(): Record<ContractCommand | typeof SYNC_APPLY_FORM, R
     'mutate judge': withFailed(MUTATE_JUDGE_EXIT),
     'atlas': withFailed(ATLAS_EXIT),
     'say': withFailed(SAY_EXIT),
-    'answer': withFailed(ANSWER_EXIT),
     'run-record': withFailed(RUN_RECORD_EXIT),
   }
 }

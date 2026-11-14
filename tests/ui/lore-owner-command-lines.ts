@@ -2,7 +2,6 @@ import type { Lore } from '../../src/ui/lore.js'
 
 export const OWNER_COMMAND_LINES: Readonly<Record<string, (lore: Lore) => string>> = {
   sayNeedsWords: lore => lore.sayNeedsWords,
-  answerNeedsTarget: lore => lore.ownerAnswer('needsTarget', ''),
   initRefusedAttached: lore => lore.initRefusedAttached,
   doctorAttachedNoHarness: lore => lore.doctorAttachedNoHarness,
   doctorCarriersStale: lore => lore.doctorCarriersStale('0.1.0', '0.2.0'),

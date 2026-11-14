@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest'
 import { runCli, VERSION_PLACEHOLDER, withVersionPlaceholder } from './cli-process.js'
 
 const SNAPSHOTS = path.join(import.meta.dirname, 'fixtures/cli-help')
-const COMMANDS = ['main', 'init', 'attach', 'detach', 'doctor', 'sync', 'cost', 'board', 'graph', 'atlas', 'intake', 'soulkill', 'say', 'answer', 'run-record']
+const COMMANDS = ['main', 'init', 'attach', 'detach', 'doctor', 'sync', 'cost', 'board', 'graph', 'atlas', 'intake', 'soulkill', 'say', 'run-record']
 const SUBCOMMANDS = ['mutate apply', 'mutate judge']
 
 function snapshotOf(command: string): string {

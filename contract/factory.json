@@ -5031,7 +5031,6 @@
       },
       "src/program.ts": {
         "constants": [
-          "ANSWER_EXIT",
           "SAY_EXIT",
           "main"
         ],

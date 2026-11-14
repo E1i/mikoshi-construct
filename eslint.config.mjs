@@ -30,7 +30,7 @@ const ALLOWED_FACTORY_IMPORTS = {
   'src/commands': CORE_FILES_SRC_MAY_IMPORT,
   'src/commands/doctor': [...CORE_FILES_SRC_MAY_IMPORT, 'policy/decisions/decisions.js', 'policy/live-decision.js', 'policy/touch-scope.js'],
   'src/commands/intake': [...CORE_FILES_SRC_MAY_IMPORT, 'policy/decisions/decisions.js', 'policy/touch-scope.js'],
-  'src/program.ts': [...CORE_FILES_SRC_MAY_IMPORT, 'owner/channel.js', 'owner/answer-request.js'],
+  'src/program.ts': [...CORE_FILES_SRC_MAY_IMPORT, 'owner/channel.js'],
   'src/ui': [OWNER_COMMANDS],
 }
 

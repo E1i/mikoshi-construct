@@ -1,76 +1,91 @@
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs'
+import type { ChildProcess, SpawnSyncReturns } from 'node:child_process'
+import { execFileSync, spawn, spawnSync } from 'node:child_process'
+import { chmodSync, closeSync, cpSync, existsSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
-import { fileURLToPath } from 'node:url'
-import { runCommand } from 'citty'
-import { ESLint } from 'eslint'
-import { afterEach, describe, expect, it, vi } from 'vitest'
-import { BUS_DB_VARIABLE } from '../scripts/core/bus-path.js'
-import { openBus } from '../scripts/core/db.js'
-import { WINDOW_REQUEST } from '../scripts/core/events.js'
-import { ANSWER_ACTOR, answerWord } from '../scripts/owner/answer-request.js'
-import { runOwnerAnswer } from '../scripts/owner/answer.js'
+import { build } from 'tsup'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { busPathOf } from '../scripts/core/bus-path.js'
+import { openBus, openOwnerWait } from '../scripts/core/db.js'
+import { QUEUE_ACTOR } from '../scripts/core/queue.js'
+import { openDatabase } from '../scripts/core/sqlite.js'
+import { answerWord, PREFIX } from '../scripts/owner/answer.js'
 import { ownerChannelOfBus } from '../scripts/owner/channel.js'
-import { ANSWER_EXIT, main } from '../src/program.js'
-import { PLAIN_LORE } from '../src/ui/lore.js'
+import { waitFor } from '../scripts/tests/wait-for.js'
+import { copyFactoryAssets, factoryBuild, OUT_DIR, productBuild } from '../tsup.config.js'
 
-interface Room {
+const REPOSITORY = path.resolve(import.meta.dirname, '..')
+const PACKAGE_NAME = 'mikoshi-construct'
+const ANSWER_BIN = 'construct-answer'
+const OWNER_ANSWER_ENTRY = path.join('scripts', 'owner', 'answer.js')
+const BUS_RUN_ENTRY = path.join('scripts', 'supervisor', 'run.js')
+const PACKED_BESIDE_THE_BUILD = ['package.json', 'README.md', 'LICENSE', 'templates']
+const PACK_TIMEOUT_MS = 300_000
+const ANSWERED_WITHIN_MS = 60_000
+const SYSTEM_BIN_DIRS = ['/usr/bin', '/bin', '/usr/sbin', '/sbin']
+const WORDS = 'option c from the package'
+const OWNER_DECIDES = 'pnpm decisions:add "[owner] <decision>"'
+const ANSWERED = ['window.request.done', 'window.request.refused']
+const GITHUB_WITH_NO_PULL_REQUESTS = 'case "$*" in *pulls*) body=\'[]\' ;; *) body=\'{}\' ;; esac\nprintf \'HTTP/2.0 200 OK\\ncontent-type: application/json\\n\\n%s\\n\' "$body"'
+
+interface Foreign {
+  root: string
+  installed: string
+  prefix: string
   home: string
-  busPath: string
+  env: NodeJS.ProcessEnv
 }
 
 interface Request {
   id: number
-  actor: string
-  card_id: number | null
   payload: string
 }
 
-const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
-const rooms: string[] = []
+let foreign: Foreign
 
-afterEach(() => {
-  vi.unstubAllEnvs()
-  for (const made of rooms.splice(0))
-    rmSync(made, { recursive: true, force: true })
-})
-
-function room(withBus = true): Room {
-  const made = mkdtempSync(path.join(tmpdir(), 'construct-answer-cli-'))
-  rooms.push(made)
-  const home = path.join(made, 'home')
-  mkdirSync(home)
-  const busPath = path.join(made, 'repo-bus', 'bus.db')
-  if (withBus)
-    openBus(busPath).close()
-  return { home, busPath }
+function stub(bin: string, name: string, body: string): void {
+  const file = path.join(bin, name)
+  writeFileSync(file, `#!/bin/sh\n${body}\n`)
+  chmodSync(file, 0o755)
 }
 
-async function answerThroughProgram(at: Room, words: string[]): Promise<{ exit: typeof process.exitCode, output: string }> {
-  const written: string[] = []
-  const write = vi.spyOn(process.stdout, 'write').mockImplementation((chunk: string | Uint8Array) => {
-    written.push(String(chunk))
-    return true
-  })
-  const previousExit = process.exitCode
-  vi.stubEnv(BUS_DB_VARIABLE, at.busPath)
-  vi.stubEnv('HOME', at.home)
-  try {
-    process.exitCode = undefined
-    await runCommand(main, { rawArgs: ['answer', '--plain', ...words] })
-    return { exit: process.exitCode, output: written.join('') }
-  }
-  finally {
-    write.mockRestore()
-    process.exitCode = previousExit
-  }
+function git(cwd: string, ...args: string[]): void {
+  execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
 }
 
-function requestsIn(busPath: string): Request[] {
-  const db = openBus(busPath)
+async function packAndInstall(root: string): Promise<{ installed: string, prefix: string }> {
+  const stage = path.join(root, 'stage')
+  for (const file of PACKED_BESIDE_THE_BUILD)
+    cpSync(path.join(REPOSITORY, file), path.join(stage, file), { recursive: true })
+  const outDir = path.join(stage, OUT_DIR)
+  await build({ ...productBuild, outDir, config: false, silent: true })
+  await build({ ...factoryBuild, outDir, config: false, silent: true, onSuccess: async () => copyFactoryAssets(outDir) })
+  const env = { ...process.env, npm_config_cache: path.join(root, 'npm-cache'), npm_config_update_notifier: 'false' }
+  const [tarball] = JSON.parse(execFileSync('npm', ['pack', '--json', '--ignore-scripts', '--pack-destination', root], { cwd: stage, env, encoding: 'utf8' })) as { filename: string }[]
+  const prefix = path.join(root, 'prefix')
+  execFileSync('npm', ['install', '--global', '--prefix', prefix, path.join(root, tarball!.filename), '--ignore-scripts', '--no-audit', '--no-fund'], { cwd: root, env, encoding: 'utf8' })
+  return { installed: path.join(prefix, 'lib', 'node_modules', PACKAGE_NAME), prefix }
+}
+
+function repository(name: string): string {
+  const repo = path.join(foreign.root, name)
+  mkdirSync(repo, { recursive: true })
+  git(repo, 'init', '-q', '-b', 'main')
+  git(repo, 'config', 'user.email', 'user@example.invalid')
+  git(repo, 'config', 'user.name', 'user')
+  git(repo, 'commit', '-q', '--allow-empty', '-m', 'init')
+  return repo
+}
+
+function answerFrom(repo: string, args: string[]): SpawnSyncReturns<string> {
+  return spawnSync(path.join(foreign.prefix, 'bin', ANSWER_BIN), args, { cwd: repo, env: foreign.env, encoding: 'utf8' })
+}
+
+function eventsOf(bus: string, types: string[]): Request[] {
+  const db = openDatabase(bus, { readOnly: true })
   try {
-    return db.prepare('SELECT id, actor, card_id, payload FROM events WHERE type = ? ORDER BY id').all(WINDOW_REQUEST) as unknown as Request[]
+    return db.prepare(`SELECT id, payload FROM events WHERE type IN (${types.map(() => '?').join(', ')}) ORDER BY id`).all(...types) as unknown as Request[]
   }
   finally {
     db.close()
@@ -81,74 +96,59 @@ function wordsIn(channel: string): string[] {
   return existsSync(channel) ? readdirSync(channel).map(file => readFileSync(path.join(channel, file), 'utf8').split('\n')[1]!) : []
 }
 
-describe('construct answer <Q|#card> "words"', () => {
-  it('writes one owner.answer request with the owner word through the writer owner:answer uses, and prints its result', async () => {
-    const at = room()
+beforeAll(async () => {
+  const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'construct-answer-from-package-')))
+  const { installed, prefix } = await packAndInstall(root)
+  const bin = path.join(root, 'stub-bin')
+  const home = path.join(root, 'home')
+  for (const directory of [bin, home])
+    mkdirSync(directory, { recursive: true })
+  stub(bin, 'gh', GITHUB_WITH_NO_PULL_REQUESTS)
+  const env = { PATH: [bin, path.join(prefix, 'bin'), path.dirname(process.execPath), ...SYSTEM_BIN_DIRS].join(path.delimiter), HOME: home }
+  foreign = { root, installed, prefix, home, env }
+}, PACK_TIMEOUT_MS)
 
-    const { exit, output } = await answerThroughProgram(at, ['Q364', 'option', 'c'])
-
-    expect(exit).toBe(ANSWER_EXIT.requested)
-    const [request, ...more] = requestsIn(at.busPath)
-    expect(more).toEqual([])
-    expect(request).toMatchObject({ actor: ANSWER_ACTOR, card_id: null })
-    expect(JSON.parse(request!.payload)).toEqual({ kind: 'owner.answer', id: 'Q364', text: 'option c', from: 'answer' })
-    expect(output).toContain(PLAIN_LORE.ownerAnswer('answered', `window.request ${request!.id} (owner.answer Q364)`))
-    expect(wordsIn(ownerChannelOfBus(at.home, at.busPath))).toEqual([answerWord('Q364', 'option c')])
-  })
-
-  it('names a card the way owner:answer names it, and writes the same request', async () => {
-    const at = room()
-
-    expect((await answerThroughProgram(at, ['#1905', 'go on'])).exit).toBe(ANSWER_EXIT.requested)
-    const db = openBus(at.busPath)
-    try {
-      expect(runOwnerAnswer(['#1905', 'go on'], db, ownerChannelOfBus(at.home, at.busPath), new Date(), () => {})).toBe(0)
-    }
-    finally {
-      db.close()
-    }
-
-    const [fromProgram, fromScript] = requestsIn(at.busPath)
-    expect(fromProgram).toMatchObject({ actor: fromScript!.actor, card_id: 1905, payload: fromScript!.payload })
-    expect(JSON.parse(fromProgram!.payload)).toEqual({ kind: 'owner.answer', card: 1905, text: 'go on', from: 'answer' })
-  })
-
-  it.each([[[]], [['Q1']], [['nonsense', 'words']], [['#0', 'words']]])('refuses %j and writes nothing', async (words) => {
-    const at = room()
-
-    const { exit } = await answerThroughProgram(at, words)
-
-    expect(exit).toBe(ANSWER_EXIT.noTarget)
-    expect(requestsIn(at.busPath)).toEqual([])
-    expect(existsSync(ownerChannelOfBus(at.home, at.busPath))).toBe(false)
-  })
-
-  it('refuses where no bus is, and creates none', async () => {
-    const at = room(false)
-
-    const { exit } = await answerThroughProgram(at, ['Q1', 'the words'])
-
-    expect(exit).toBe(ANSWER_EXIT.noBus)
-    expect(existsSync(at.busPath)).toBe(false)
-    expect(existsSync(ownerChannelOfBus(at.home, at.busPath))).toBe(false)
-  })
+afterAll(() => {
+  if (foreign !== undefined)
+    rmSync(foreign.root, { recursive: true, force: true })
 })
 
-describe('the product reaches the owner answer only through its guard-free writer', () => {
-  const eslint = new ESLint({ cwd: root })
+describe('construct-answer from the installed package, in a repository other than mikoshi-construct', () => {
+  it('construct answer reaches the owner answer command', async () => {
+    const repo = repository('user-repo')
+    const bus = busPathOf({}, foreign.home, repo, false)
+    const db = openBus(bus)
+    const wait = openOwnerWait(db, new Date().toISOString(), QUEUE_ACTOR, { need: 'decision', text: 'which option?', command: OWNER_DECIDES })
+    db.close()
 
-  async function refused(file: string, source: string): Promise<boolean> {
-    const [result] = await eslint.lintText(source, { filePath: path.join(root, file) })
-    return result!.messages.some(message => message.ruleId === 'no-restricted-imports')
-  }
+    const run = answerFrom(repo, [wait, WORDS])
 
-  it('lets src/program.ts import scripts/owner/answer-request.js and not the owner:answer entry', async () => {
-    expect(await refused('src/program.ts', 'import { requestOwnerAnswer } from \'../scripts/owner/answer-request.js\'\n\nexport const probe = requestOwnerAnswer\n')).toBe(false)
-    expect(await refused('src/program.ts', 'import { runOwnerAnswer } from \'../scripts/owner/answer.js\'\n\nexport const probe = runOwnerAnswer\n')).toBe(true)
-  })
+    expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(0)
+    expect(run.stdout.startsWith(PREFIX)).toBe(true)
+    expect(wordsIn(ownerChannelOfBus(foreign.home, bus))).toEqual([answerWord(wait, WORDS)])
+    const [request, ...more] = eventsOf(bus, ['window.request'])
+    expect(more).toEqual([])
+    expect(JSON.parse(request!.payload)).toEqual({ kind: 'owner.answer', id: wait, text: WORDS, from: 'answer' })
 
-  it.each(['src/commands/probe.ts', 'src/commands/doctor/probe.ts', 'src/ui/probe.ts'])('refuses the writer to %s', async (file) => {
-    const base = '../'.repeat(file.split('/').length - 1)
-    expect(await refused(file, `import { requestOwnerAnswer } from '${base}scripts/owner/answer-request.js'\n\nexport const probe = requestOwnerAnswer\n`)).toBe(true)
+    const log = path.join(foreign.root, 'bus-run.log')
+    const output = openSync(log, 'w')
+    let worker: ChildProcess | undefined
+    try {
+      worker = spawn(process.execPath, [path.join(foreign.installed, OUT_DIR, BUS_RUN_ENTRY)], { cwd: repo, env: foreign.env, stdio: ['ignore', output, output] })
+      await waitFor(() => eventsOf(bus, ANSWERED).some(answered => JSON.parse(answered.payload).request === request!.id), () => `window.request.done or window.request.refused for ${request!.id} in ${bus}; bus:run said: ${readFileSync(log, 'utf8')}`, ANSWERED_WITHIN_MS)
+    }
+    finally {
+      worker?.kill('SIGKILL')
+      closeSync(output)
+    }
+    const [answered] = eventsOf(bus, ANSWERED).filter(event => JSON.parse(event.payload).request === request!.id)
+    expect(JSON.parse(answered!.payload)).toMatchObject({ request: request!.id, kind: 'owner.answer', detail: expect.stringContaining(`closed ${wait}: ${WORDS}`) })
+    expect(eventsOf(bus, ['window.request.done']).map(event => JSON.parse(event.payload).request)).toContain(request!.id)
+  }, ANSWERED_WITHIN_MS * 2)
+
+  it('is its own bin, and the published construct imports no owner answer script', () => {
+    const bins = (JSON.parse(readFileSync(path.join(foreign.installed, 'package.json'), 'utf8')) as { bin: Record<string, string> }).bin
+    expect(bins[ANSWER_BIN]).toBe(path.join(OUT_DIR, OWNER_ANSWER_ENTRY))
+    expect(readFileSync(path.join(foreign.installed, OUT_DIR, 'cli.js'), 'utf8')).not.toMatch(/runOwnerAnswer|owner\.answer\b/)
   })
 })
