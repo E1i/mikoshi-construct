@@ -1,5 +1,5 @@
 import type { Lore } from '../../ui/lore.js'
-import type { BusCard, BusFacts, BusGroup, BusMatrix, OwnerWait } from './bus.js'
+import type { BusCard, BusFacts, BusGroup, BusMatrix, BusTail, OwnerWait } from './bus.js'
 import { ADMIT_COMMAND, pnpmCommand } from '../../../scripts/core/owner-commands.js'
 import { FLOW_STAGES, LIVE_STAGES, LIVE_STATES, SHORT_SHA } from './bus.js'
 import { planLine } from './goal.js'
@@ -8,6 +8,7 @@ const CARD_PREFIX = /^card:\s*/
 const MATRIX_ROLE = 'matrix'
 const GROUP_ROLE = 'group'
 const SHADOW_ROLE = 'shadow'
+const TAIL_ROLE = 'tail'
 const BUS_ROLE = 'bus'
 const WAITS_ROLE = 'waits for you'
 export const WINDOW_WAITS_ROLE = 'waits for the window'
@@ -213,6 +214,16 @@ export function waitsLines(facts: BusFacts, lore: Lore): string[] {
   return windows.length === 0 ? ownerLine : [...ownerLine, lore.boardServiceLine(WINDOW_WAITS_ROLE, `${windows.length}`, undefined, windows.map(wait => waitName(wait, lore)).join(' \u00B7 '))]
 }
 
+function tailStep(tail: BusTail): string {
+  const at = tail.head === null ? '' : ` @ ${tail.head.slice(0, SHORT_SHA)}`
+  return `marked drip, not counted in the verdict${tail.pr === null ? '' : ` of PR #${tail.pr}`}${at} · ${tail.finding}`
+}
+
+export function tailLines(facts: BusFacts, lore: Lore, all = false): string[] {
+  const shown = new Set(backlogCards(facts.cards, facts.at, all).map(card => card.id))
+  return (facts.tails ?? []).filter(tail => shown.has(tail.card)).map(tail => lore.boardServiceLine(TAIL_ROLE, `#${tail.card}`, undefined, tailStep(tail)))
+}
+
 function behindCardsLines(facts: BusFacts, lore: Lore): string[] {
   return facts.cardsStale === undefined ? [] : [lore.boardServiceLine(CARDS_ROLE, `${facts.cards.length}`, undefined, facts.cardsStale)]
 }
@@ -234,7 +245,7 @@ export interface Screens {
 export function boardScreens(facts: BusFacts, lore: Lore, all = false): Screens {
   return {
     screens: [
-      { title: lore.boardTabFlow, lines: [...goalLines(facts, lore), ...waitsLines(facts, lore), ...behindCardsLines(facts, lore), ...tallyLines(facts.cards), ...flowLines(facts.cards, lore), ...flowHintLines(facts.cards, lore)] },
+      { title: lore.boardTabFlow, lines: [...goalLines(facts, lore), ...waitsLines(facts, lore), ...tailLines(facts, lore, all), ...behindCardsLines(facts, lore), ...tallyLines(facts.cards), ...flowLines(facts.cards, lore), ...flowHintLines(facts.cards, lore)] },
       { title: lore.boardTabBacklog, lines: [...behindCardsLines(facts, lore), ...backlogLines(backlogCards(facts.cards, facts.at, all), lore)] },
       { title: lore.boardTabServices, lines: [...servicesLines(facts, lore), ...pulseLines(facts, lore), ...matrixLines(facts, lore), ...groupLines(facts, lore)] },
     ],

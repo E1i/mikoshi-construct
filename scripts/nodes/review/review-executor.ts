@@ -13,9 +13,10 @@ import type { Denial, VerdictWord } from './record-verdict.js'
 import type { EarlierVerdict, ReviewDepth, ReviewPlan, ReviewPlanner } from './review-depth.js'
 import type { HeldTree, LeftoverTree, Review, Reviewer } from './reviewer.js'
 import { createHash } from 'node:crypto'
+import process from 'node:process'
 import { cardBodyText } from '../../core/card-bodies.js'
 import { appendEvent } from '../../core/db.js'
-import { ARTIFACT_REMOVED, BOARD_ALARM, POLICY_DENIED, REVIEW_RECORDED, REVIEW_ROUNDS_SPENT, REVIEW_TREE_ORPHANED, ROUND_EXTENDED } from '../../core/events.js'
+import { ARTIFACT_REMOVED, BOARD_ALARM, POLICY_DENIED, REVIEW_DRIP, REVIEW_RECORDED, REVIEW_ROUNDS_SPENT, REVIEW_TREE_ORPHANED, ROUND_EXTENDED } from '../../core/events.js'
 import { reviewInputOfKey } from '../../core/identifiers.js'
 import { completeTask, failTask, releaseTask, StaleLease, supersedeLease } from '../../core/lease.js'
 import { pnpmCommand } from '../../core/owner-commands.js'
@@ -24,6 +25,7 @@ import { allFindingsRepeat } from '../../policy/repeat-finding.js'
 import { limitRuleOf } from '../../policy/round-limit-decision.js'
 import { NO_ISOLATION } from '../../ports/isolation.js'
 import { storedInput } from '../../ports/prompt-store.js'
+import { gitDepthSources } from './depth-sources.js'
 import { freshDenial, recordVerdict } from './record-verdict.js'
 import { cardRiskOf, fullReview } from './review-depth.js'
 import { PREFIX, REVIEW_BAR_LINE, REVIEW_CEILING, REVIEW_CEILING_MINUTES, ReviewFailed } from './reviewer.js'
@@ -71,6 +73,7 @@ export interface ExecutorParts {
   notePr?: (pr: number, line: string) => void
   isolation: IsolationReader | typeof SPAWNS_NO_SESSION
   recut?: RoundLimitRecut
+  dripSources?: DripSources
 }
 
 interface Reviewed {
@@ -140,7 +143,7 @@ function changesUnderTheSameBodies(db: DatabaseSync, lease: Lease): boolean {
     return false
   const rows = db.prepare(`SELECT dedupe_key FROM events WHERE type = ? AND pr = ? AND head = ? AND legacy = 0 AND json_extract(payload, '$.verdict') = 'changes'`).all(REVIEW_RECORDED, lease.pr, lease.head) as { dedupe_key: string }[]
   return rows.some((row) => {
-    const earlier = reviewInputOfKey(row.dedupe_key.split(':').slice(1, -1).join(':'))
+    const earlier = reviewInputOfKey(taskKeyOfVerdict(row.dedupe_key))
     return earlier?.prBody === input.prBody && earlier.cardBody === input.cardBody
   })
 }
@@ -185,11 +188,84 @@ interface RoundLimit {
 
 const EXTENSION_OF_A_CARD = `SELECT 1 FROM events WHERE type = '${ROUND_EXTENDED}' AND legacy = 0 AND card_id = ? LIMIT 1`
 
-const FINDINGS_OF_THE_EARLIER_ROUNDS = `SELECT json_extract(payload, '$.findings') AS findings FROM events WHERE type = '${REVIEW_RECORDED}' AND legacy = 0 AND pr = ? AND head IS NOT ? AND json_extract(payload, '$.verdict') = 'changes' ORDER BY id DESC`
+const EARLIER_CHANGES_ROUNDS = `SELECT head, dedupe_key, json_extract(payload, '$.findings') AS findings FROM events WHERE type = '${REVIEW_RECORDED}' AND legacy = 0 AND pr = ? AND head IS NOT ? AND json_extract(payload, '$.verdict') = 'changes' ORDER BY id DESC`
+
+interface ChangesRound {
+  head: string | null
+  key: string
+  findings: string[]
+}
+
+function earlierChangesRounds(db: DatabaseSync, lease: Lease): ChangesRound[] {
+  const rows = db.prepare(EARLIER_CHANGES_ROUNDS).all(lease.pr, lease.head) as { head: string | null, dedupe_key: string, findings: string | null }[]
+  return rows.map(row => ({ head: row.head, key: row.dedupe_key, findings: row.findings === null ? [] : strings(JSON.parse(row.findings)) }))
+}
 
 function earlierRoundsFindings(db: DatabaseSync, lease: Lease): string[][] {
-  const rows = db.prepare(FINDINGS_OF_THE_EARLIER_ROUNDS).all(lease.pr, lease.head) as { findings: string | null }[]
-  return rows.map(row => row.findings === null ? [] : strings(JSON.parse(row.findings)))
+  return earlierChangesRounds(db, lease).map(round => round.findings)
+}
+
+export interface DripSources {
+  changed: (from: string, to: string) => string[]
+  files: (head: string) => string[]
+}
+
+export const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904'
+
+export function gitDripSources(repo: string): DripSources {
+  const { changed } = gitDepthSources(repo, '', () => null)
+  return { changed, files: head => changed(EMPTY_TREE, head) }
+}
+
+export interface DripRound {
+  changed: ReadonlySet<string>
+  tracked: ReadonlyMap<string, readonly string[]>
+  descriptionChanged: boolean
+}
+
+const DESCRIPTION_FINDING = /\b(?:description|pr body|pull request body)\b/i
+const PATH_TOKEN = /[\w.@/-]+/g
+const LEADING_DOT_SLASH = /^(?:\.\/)+/
+const TRAILING_PUNCTUATION = /[./-]+$/
+const PATH_MARK = /[./]/
+
+export function trackedSuffixes(files: readonly string[]): Map<string, string[]> {
+  const index = new Map<string, string[]>()
+  for (const file of files) {
+    const parts = file.split('/')
+    parts.forEach((_, at) => {
+      const suffix = parts.slice(at).join('/')
+      index.set(suffix, [...index.get(suffix) ?? [], file])
+    })
+  }
+  return index
+}
+
+export function namedPaths(finding: string, tracked: ReadonlyMap<string, readonly string[]>): string[] {
+  const tokens = (finding.match(PATH_TOKEN) ?? []).map(token => token.replace(LEADING_DOT_SLASH, '').replace(TRAILING_PUNCTUATION, '')).filter(token => PATH_MARK.test(token))
+  return [...new Set(tokens.flatMap(token => tracked.get(token) ?? []))]
+}
+
+export function isDrip(finding: string, round: DripRound): boolean {
+  if (round.descriptionChanged && DESCRIPTION_FINDING.test(finding))
+    return false
+  const named = namedPaths(finding, round.tracked)
+  return named.length > 0 && !named.some(file => round.changed.has(file))
+}
+
+interface Marked {
+  review: Review
+  drip: string[]
+}
+
+function taskKeyOfVerdict(dedupeKey: string): string {
+  return dedupeKey.split(':').slice(1, -1).join(':')
+}
+
+function descriptionChangedSince(lease: Lease, previous: ChangesRound): boolean {
+  const now = reviewInputOfKey(lease.taskKey)?.prBody
+  const then = reviewInputOfKey(taskKeyOfVerdict(previous.key))?.prBody
+  return now === undefined || then === undefined || now !== then
 }
 
 export function roundLimitLine(pr: number, rounds: number): string {
@@ -278,19 +354,63 @@ export class ReviewExecutor {
     if ('kind' in reviewed)
       return this.denied(lease, reviewed)
     const { plan } = reviewed
-    const review = keptChanges(db, lease, passOnSurvivingMutations(notReopened(db, lease, reviewed.review), cardRiskOf(lease.cardId, reviewed.card)))
+    const marked = this.markedDrip(lease, reviewed.review)
+    const review = keptChanges(db, lease, passOnSurvivingMutations(notReopened(db, lease, marked.review), cardRiskOf(lease.cardId, reviewed.card)))
     const outcome = recordVerdict(db, gitHub, publish, { lease, verdict: review.verdict, reviewerSession: review.session }, () => clock().getTime())
     if (outcome.kind === 'denied')
       return this.denied(lease, outcome.denial)
     const repeats = this.repeatsAnEarlierRound(lease, review)
     const limit = this.roundLimit(lease, review, repeats)
-    completeTask(db, this.ts(), lease, [this.recorded(lease, { ...reviewed, review }), ...(limit === null ? [] : [limit.event])])
+    completeTask(db, this.ts(), lease, [this.recorded(lease, { ...reviewed, review }, marked.drip), ...this.dripEvents(lease, marked.drip), ...(limit === null ? [] : [limit.event])])
     if (limit !== null && limit.rule.kind !== 'extend' && lease.pr !== null) {
       if (limit.rule.kind !== 'park')
         this.noted(lease.pr, repeats ? repeatStopLine(lease.pr) : roundLimitLine(lease.pr, REVIEW_ROUNDS))
       this.recutAtTheLimit({ cardId: lease.cardId, pr: lease.pr, head: lease.head, findings: review.findings, ...(limit.rule.kind === 'park' ? { mutations: limit.rule.mutations } : {}) })
     }
     return { kind: 'recorded', taskKey: lease.taskKey, verdict: review.verdict, depth: plan.depth, model: review.model }
+  }
+
+  private markedDrip(lease: Lease, review: Review): Marked {
+    const unmarked: Marked = { review, drip: [] }
+    if (review.verdict !== 'changes' || lease.pr === null || lease.head === null)
+      return unmarked
+    const rounds = earlierChangesRounds(this.parts.db, lease)
+    const previous = rounds[0]
+    if (previous === undefined || previous.head === null)
+      return unmarked
+    const earlier = rounds.map(round => round.findings)
+    const fresh = review.findings.filter(finding => finding !== AMEND_KEEPS_CHANGES && !allFindingsRepeat([finding], earlier))
+    const round = fresh.length === 0 ? null : this.dripRound(lease, previous.head, lease.head, previous)
+    const drip = round === null ? [] : fresh.filter(finding => isDrip(finding, round))
+    if (drip.length === 0)
+      return unmarked
+    const findings = review.findings.filter(finding => !drip.includes(finding))
+    return { review: { ...review, findings, verdict: findings.length === 0 ? 'pass' : 'changes' }, drip }
+  }
+
+  private dripRound(lease: Lease, from: string, head: string, previous: ChangesRound): DripRound | null {
+    const sources = this.parts.dripSources ?? gitDripSources(process.cwd())
+    try {
+      return { changed: new Set(sources.changed(from, head)), tracked: trackedSuffixes(sources.files(head)), descriptionChanged: descriptionChangedSince(lease, previous) }
+    }
+    catch (error) {
+      console.error(`${PREFIX}PR #${lease.pr}: the diff since the previous changes round at ${from} could not be read, so every finding of this round counts: ${error instanceof Error ? error.message : String(error)}`)
+      return null
+    }
+  }
+
+  private dripEvents(lease: Lease, drip: readonly string[]): BusEvent[] {
+    return drip.map(finding => ({
+      ts: this.ts(),
+      type: REVIEW_DRIP,
+      actor: lease.actor,
+      cardId: lease.cardId,
+      pr: lease.pr,
+      head: lease.head,
+      dedupeKey: `${REVIEW_DRIP}:${lease.pr}:${lease.head}:${createHash('sha256').update(finding).digest('hex').slice(0, 16)}`,
+      payload: { card: lease.cardId, pr: lease.pr, head: lease.head, finding },
+      legacy: false,
+    }))
   }
 
   private repeatsAnEarlierRound(lease: Lease, review: Review): boolean {
@@ -386,7 +506,7 @@ export class ReviewExecutor {
     }
   }
 
-  private recorded(lease: Lease, { review, plan, ms, isolation }: Reviewed): BusEvent {
+  private recorded(lease: Lease, { review, plan, ms, isolation }: Reviewed, drip: readonly string[]): BusEvent {
     return {
       ts: this.ts(),
       type: REVIEW_RECORDED,
@@ -395,7 +515,7 @@ export class ReviewExecutor {
       pr: lease.pr,
       head: lease.head,
       dedupeKey: `${REVIEW_RECORDED}:${lease.taskKey}:${lease.leaseGen}`,
-      payload: { head: lease.head, card_body: reviewInputOfKey(lease.taskKey)?.cardBody ?? null, verdict: review.verdict, [RULES_VERSION_KEY]: REVIEW_RULES_VERSION, depth: plan.depth, depth_why: plan.why, review_ms: ms, reviewer_session: review.session, model: review.model, ...review.cache, findings: review.findings, ...treeFields(review), ...isolationFields(isolation), ...inputFields(this.parts.prompts, plan, review.input) },
+      payload: { head: lease.head, card_body: reviewInputOfKey(lease.taskKey)?.cardBody ?? null, verdict: review.verdict, [RULES_VERSION_KEY]: REVIEW_RULES_VERSION, depth: plan.depth, depth_why: plan.why, review_ms: ms, reviewer_session: review.session, model: review.model, ...review.cache, findings: review.findings, ...(drip.length === 0 ? {} : { drip }), ...treeFields(review), ...isolationFields(isolation), ...inputFields(this.parts.prompts, plan, review.input) },
       legacy: false,
     }
   }
