@@ -26,6 +26,7 @@
   ],
   "bin": {
     "construct": "dist/cli.js",
+    "construct-answer": "dist/scripts/owner/answer.js",
     "construct-factory": "dist/scripts/supervisor/start.js",
     "construct-intake": "dist/scripts/intake/intake.js",
     "miko": "dist/scripts/window/miko.js",
