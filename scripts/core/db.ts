@@ -282,6 +282,7 @@ export interface OwnerWaitAsk {
   card?: number
   pr?: number
   request?: number
+  decision?: string
 }
 
 export function isOwnerWaitNeed(value: unknown): value is OwnerWaitNeed {

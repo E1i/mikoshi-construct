@@ -664,10 +664,8 @@ export class LaunchNode extends Node<LaunchStep> {
     const asks = `card #${start.card_id} session ${card.session} asks`
     for (const question of questions.filter(each => !windowQuestions.some(asked => asked.question === each)))
       openOwnerWait(this.db, ts, this.actor, { need: 'decision', text: `${asks}: ${question}`, command: cardDecisionCommand(start.card_id), card: start.card_id })
-    for (const { question, decision } of windowQuestions) {
-      const windowAsk = { need: 'decision' as const, text: `${asks} the window, under ${decision}: ${question}`, command: cardDecisionCommand(start.card_id), card: start.card_id, decision }
-      openOwnerWait(this.db, ts, this.actor, windowAsk)
-    }
+    for (const { question, decision } of windowQuestions)
+      openOwnerWait(this.db, ts, this.actor, { need: 'decision', text: `${asks} the window, under ${decision}: ${question}`, command: cardDecisionCommand(start.card_id), card: start.card_id, decision })
   }
 
   private stopOnQuestions(start: RunningStart, card: StartedCard, asked: { questions: readonly string[], windowQuestions: readonly WindowQuestion[] }, paths: AskedPaths, refusal: string | null, reported: string | null): boolean {
