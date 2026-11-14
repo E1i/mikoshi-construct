@@ -80,11 +80,10 @@ describe('k1a: the supervisor hands the generation to what it starts itself', ()
     expect(eventsOf(db, WORKER_STARTED).map(record => record.generation)).not.toContain(UNHANDED)
   })
 
-  it('construct-factory start hands the bus processes the generation of its repository', async () => {
+  it('construct-factory start hands no generation, because git is never spawned across its spawn boundary in security-invariants', async () => {
     expect(relaunchSupervisor, 'a build whose runStart takes no spawn would spawn real bus processes here').toBeTypeOf('function')
     const { busDir, db } = unhandedBus()
-    const repository = process.cwd()
-    const result = await runStart(repository, 'mikoshi-construct', {
+    const result = await runStart(process.cwd(), 'mikoshi-construct', {
       platform: 'linux',
       home: busDir,
       uid: 0,
@@ -98,7 +97,6 @@ describe('k1a: the supervisor hands the generation to what it starts itself', ()
       spawn: recordedStart,
     })
     expect(result.exitCode, [...result.stdout, ...result.stderr].join('\n')).toBe(0)
-    expect(supervisorRecords(db)).toEqual([expect.objectContaining({ pid: STARTED_PID, generation: gitCode(repository).head() })])
-    expect(eventsOf(db, WORKER_STARTED).map(record => record.generation)).not.toContain(UNHANDED)
+    expect(supervisorRecords(db)).toEqual([expect.objectContaining({ pid: STARTED_PID, generation: UNHANDED })])
   })
 })

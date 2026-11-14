@@ -23,7 +23,7 @@ import { allowLiveText, namesQueueLive } from '../policy/live-decision.js'
 import { activeWindowShards, DECISIONS_SCOPE, WINDOW_SHARD_HOURS, windowShardEnded } from '../policy/shards.js'
 import { ghPort, readGhJson, recordedAccount } from '../ports/gh.js'
 import { installedPackage, instancesOf, printBg, provenOnBus, psList } from './bg.js'
-import { gitCode, startBus, SUPERVISOR_LAUNCH } from './supervisor.js'
+import { startBus, SUPERVISOR_LAUNCH } from './supervisor.js'
 import { DEFAULT_MODE, FACTORY_MODES, isBusWorker, isFactoryMode, MODE_LIVE, MODE_WORKERS, startingMode, switchDetection, switchMode } from './workers.js'
 
 export { AGENT_PREFIX, agentLabel, LAUNCH_AGENTS } from '../core/bus-path.js'
@@ -209,7 +209,7 @@ export function recordAccount(repository: string, parts: KeepAliveParts): string
     : `${START_PREFIX}the factory keeps the GitHub account ${account} its keep-alive records: ${found.because}`]
 }
 
-export async function runStart(repository: string, installed: string | null, parts: KeepAliveParts, start: () => Promise<BgResult> = () => startBus(parts.busDir, parts.processes, gitCode(repository), parts.spawn)): Promise<BgResult> {
+export async function runStart(repository: string, installed: string | null, parts: KeepAliveParts, start: () => Promise<BgResult> = () => startBus(parts.busDir, parts.processes, null, parts.spawn)): Promise<BgResult> {
   const account = recordAccount(repository, parts)
   const mode = startingMode(parts.busDir)
   const fresh = mode === null ? [] : [`${START_PREFIX}a fresh factory starts in mode ${mode}: ${MODE_WORKERS[mode].join(', ')} switched on, merge off, a human merges; ${START_BIN} ${MODE_FLAG} ${FACTORY_MODES[1]} switches to ${FACTORY_MODES[1]} on the owner's word`]
