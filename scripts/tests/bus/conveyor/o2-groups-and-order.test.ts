@@ -11,7 +11,7 @@ import { screenLines } from '../../../../src/commands/board/screens.js'
 import { PLAIN_LORE } from '../../../../src/ui/lore.js'
 import { appendEvent, openBus } from '../../../core/db.js'
 import { readDeclarations } from '../../../core/declarations.js'
-import { declaredPayload, MAIN_ADVANCED, PR_OBSERVED, PR_ORDERED, WINDOW_REQUEST } from '../../../core/events.js'
+import { declaredPayload, MAIN_ADVANCED, PR_OBSERVED, PR_OPENED, PR_ORDERED, TASK_ENQUEUED, TASK_LEASED, WINDOW_REQUEST } from '../../../core/events.js'
 import { groupOf } from '../../../core/order/group.js'
 import { overlapDeclarationsOf, overlaps } from '../../../core/order/overlap.js'
 import { BUS_ORDERS, ORDER_ACTOR, orderEventsFrom, orderGroups, PrOrderTick, readOrder, turnOf } from '../../../core/order/turn.js'
@@ -147,6 +147,22 @@ describe('conveyor O2: the order runs in the bus, on the board and through the w
       expect.stringContaining('PR #1003'),
     ])
     expect(lines).toEqual(expect.arrayContaining([expect.stringContaining('needsUpdate counted 0 · needsVerification counted 3')]))
+    db.close()
+  })
+
+  it('on a real bus the tick groups a PR not yet observed by its card\'s touches, and the board shows the member holding a leased merge as the turn', () => {
+    const { db, declarations } = observedBus([
+      { number: 3001, files: ['docs/guide/shared.md'] },
+      { number: 3002, files: ['docs/guide/shared.md'] },
+    ])
+    order(db, 3001)
+    order(db, 3002)
+    appendEvent(db, { ts: '2026-11-14T00:00:02Z', type: PR_OPENED, actor: 'worker:shift:1', cardId: 33, pr: 3003, head: null, dedupeKey: `${PR_OPENED}:33:3003`, payload: { pr: 3003 }, legacy: false })
+    appendEvent(db, { ts: '2026-11-14T00:00:03Z', type: TASK_ENQUEUED, actor: 'policy', cardId: 32, pr: 3002, head: null, dedupeKey: 'o2:merge:enqueued', payload: { task_key: 'merge:32:3002:x', queue: 'merge' }, legacy: false })
+    appendEvent(db, { ts: '2026-11-14T00:00:04Z', type: TASK_LEASED, actor: 'policy', cardId: 32, pr: 3002, head: null, dedupeKey: 'o2:merge:leased', payload: { task_key: 'merge:32:3002:x', queue: 'merge', lease_gen: 1 }, legacy: false })
+    const touches = (card: number): readonly string[] | null => card === 33 ? ['docs/guide/shared.md'] : null
+    new PrOrderTick(db, busEvents(db), () => '2026-11-14T00:00:30Z', () => declarations, '', touches).step()
+    expect(busFacts(db, new Date('2026-11-14T00:01:00Z')).groups).toEqual([{ prs: [3001, 3002, 3003], modules: ['docs'], turn: 3002 }])
     db.close()
   })
 

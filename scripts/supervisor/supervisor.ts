@@ -1,7 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { EventType } from '../core/events.js'
 import type { HolderProcess, HolderReading, ProcessStartOf } from '../core/lease.js'
-import type { PrOrderTick } from '../core/order/turn.js'
 import type { InForceDecision } from '../policy/decisions/index.js'
 import type { ProcessTable } from '../ports/process-table.js'
 import type { BgResult, DetachedLaunch, ProcessList, RunningProcess } from './bg.js'
@@ -23,6 +22,7 @@ import { RESTART_MISSED } from '../core/inbox.js'
 import { closeDrain, expireLeasesHeldBy, HOLDER_DEAD, HOLDER_UNPROVEN, judgeHolders, LEASE_MS, leasesHeldBy, openDrain, retireHolders, retiringPids, WORKER_HUNG } from '../core/lease.js'
 import { LIVE_FLAG } from '../core/node.js'
 import { orderEventsFrom, prOrderTickAt } from '../core/order/turn.js'
+import { cardContract } from '../intake/card-contract.js'
 import { inForceDecisions } from '../policy/decisions/index.js'
 import { allowLiveCommand, liveDecisionOf } from '../policy/live-decision.js'
 import { BusRead } from '../ports/bus-read.js'
@@ -905,7 +905,7 @@ export interface SupervisingParts {
   snapshot?: BusSnapshot
   windowEnds?: WindowSessionEnds
   windowSubagents?: Pick<WindowSubagentTick, 'step'>
-  order?: Pick<PrOrderTick, 'step'>
+  order?: { step: () => string[] }
   relaunch: () => BgResult
   print: (line: string) => void
   pause: () => Promise<unknown>
@@ -917,8 +917,8 @@ function replacedBy(head: string, started: BgResult): { lines: string[], replace
   return { replaced: false, lines: [...started.stdout, ...started.stderr, `${PREFIX}the supervisor could not start a fresh supervisor on ${head}; it keeps running the code it started with and retries on the next tick`] }
 }
 
-export function busOrderTick(db: DatabaseSync, root: string): PrOrderTick {
-  return prOrderTickAt(db, root, PREFIX, orderEventsFrom((type, fields, after) => new BusRead(db, { from: after + 1 }).slice(type as EventType, fields as never)))
+export function busOrderTick(db: DatabaseSync, root: string): ReturnType<typeof prOrderTickAt> {
+  return prOrderTickAt(db, root, PREFIX, orderEventsFrom((type, fields, after) => new BusRead(db, { from: after + 1 }).slice(type as EventType, fields as never)), card => cardContract(db, card)?.touches ?? null)
 }
 
 export async function superviseUntilReplaced(parts: SupervisingParts): Promise<void> {

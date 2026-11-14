@@ -7,10 +7,10 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { appendEvent, openBus } from '../../core/db.js'
-import { MAIN_ADVANCED, PR_CLOSED, PR_OBSERVED, PR_OPENED, PR_ORDERED } from '../../core/events.js'
+import { CARD_HELD, CARD_RELEASED, MAIN_ADVANCED, PR_CLOSED, PR_OBSERVED, PR_OPENED, PR_ORDERED, TASK_COMPLETED, TASK_ENQUEUED, TASK_LEASED } from '../../core/events.js'
 import { groupOf } from '../../core/order/group.js'
 import { NO_DECLARATIONS, overlaps } from '../../core/order/overlap.js'
-import { emptyOrder, foldOrder, foldOrderEvents, membersOf, orderEventsFrom, orderGroups, PrOrderTick, turnOf, WINDOW_ORDERS } from '../../core/order/turn.js'
+import { emptyOrder, foldOrder, foldOrderEvents, groupsWithTurn, membersOf, orderEventsFrom, orderGroups, PrOrderTick, turnOf, turnStateOf, WINDOW_ORDERS } from '../../core/order/turn.js'
 import { BusRead } from '../../ports/bus-read.js'
 
 class Events {
@@ -360,5 +360,74 @@ describe('shadow: needsUpdate and needsVerification are computed and counted, an
 
     order = fold(events)
     expect(order.counted).toEqual({ needsUpdate: 4, needsVerification: 2 })
+  })
+})
+
+describe('needsUpdate holds when CI is red on the PR while green on main (the #1895 case)', () => {
+  it('a red PR with no path overlap and a clean merge state counts needsUpdate once main is green, and not while main is red', () => {
+    const events = new Events()
+    events.head(1, ['a'], { ci: 'red' })
+    events.main(['z'])
+    const order = fold(events)
+    expect(order.needsUpdate.has(1)).toBe(false)
+    order.mainCi = 'green'
+    foldOrder(order, events.main(['y']), NO_DECLARATIONS)
+    expect(order.needsUpdate.has(1)).toBe(true)
+    expect(order.counted.needsUpdate).toBe(1)
+    order.mainCi = 'red'
+    foldOrder(order, events.main(['x']), NO_DECLARATIONS)
+    expect(order.needsUpdate.has(1)).toBe(false)
+  })
+})
+
+describe('the turn the bus records is the turnOf of §1.1, folded from the bus record', () => {
+  let id = 1000
+  const at = (type: string, pr: number | null, card: number | null, payload: Record<string, unknown>): OrderEvent => ({ id: ++id, type, pr, card, payload })
+
+  function threeInOneGroup(): PrOrder {
+    const order = emptyOrder()
+    for (const [pr, card] of [[1, 11], [2, 12], [3, 13]] as const) {
+      foldOrder(order, at(PR_OBSERVED, pr, null, { head: String(pr).padStart(40, '0'), paths: ['shared'], ci: 'green', verdict_on_head: 'pass', mergeable: 'clean', card_id: card }), NO_DECLARATIONS)
+      foldOrder(order, at(PR_ORDERED, pr, null, { by: 'bus' }), NO_DECLARATIONS)
+    }
+    return order
+  }
+
+  const turn = (order: PrOrder, waiting: ReadonlySet<number> = new Set()): number | null => groupsWithTurn(order, NO_DECLARATIONS, { waitingCards: waiting, touchesOf: () => null })[0]!.turn
+
+  it('an answer queued or leased on the card, a card hold and an open owner question each park the member; the turn passes down the rank', () => {
+    const order = threeInOneGroup()
+    expect(turn(order)).toBe(1)
+    foldOrder(order, at(TASK_ENQUEUED, 1, 11, { task_key: 'answer:11:1:x', queue: 'answer' }), NO_DECLARATIONS)
+    expect(turn(order)).toBe(2)
+    foldOrder(order, at(TASK_LEASED, 1, 11, { task_key: 'answer:11:1:x', queue: 'answer' }), NO_DECLARATIONS)
+    expect(turn(order)).toBe(2)
+    foldOrder(order, at(CARD_HELD, null, 12, {}), NO_DECLARATIONS)
+    expect(turn(order)).toBe(3)
+    expect(turn(order, new Set([13]))).toBeNull()
+    foldOrder(order, at(TASK_COMPLETED, 1, 11, { task_key: 'answer:11:1:x', queue: 'answer' }), NO_DECLARATIONS)
+    expect(turn(order, new Set([13]))).toBe(1)
+    foldOrder(order, at(CARD_RELEASED, null, 12, {}), NO_DECLARATIONS)
+    expect(turnStateOf(order, new Set()).parked(2)).toBe(false)
+  })
+
+  it('a member holding a leased update or merge task is the turn even below a lower rank, and gives it back when the task ends', () => {
+    const order = threeInOneGroup()
+    foldOrder(order, at(TASK_ENQUEUED, 3, 13, { task_key: 'merge:13:3:x', queue: 'merge' }), NO_DECLARATIONS)
+    expect(turn(order)).toBe(1)
+    foldOrder(order, at(TASK_LEASED, 3, 13, { task_key: 'merge:13:3:x', queue: 'merge' }), NO_DECLARATIONS)
+    expect(turnStateOf(order, new Set()).holds(3)).toBe(true)
+    expect(turn(order)).toBe(3)
+    foldOrder(order, at(TASK_COMPLETED, 3, 13, { task_key: 'merge:13:3:x', queue: 'merge' }), NO_DECLARATIONS)
+    expect(turn(order)).toBe(1)
+  })
+
+  it('an open PR with no observation yet is grouped by its card\'s declared touches', () => {
+    const order = threeInOneGroup()
+    foldOrder(order, at(PR_OPENED, 4, 14, { pr: 4 }), NO_DECLARATIONS)
+    const touches = (card: number): readonly string[] | null => card === 14 ? ['shared'] : null
+    const groups = groupsWithTurn(order, NO_DECLARATIONS, { waitingCards: new Set(), touchesOf: touches })
+    expect(groups.map(group => group.prs)).toEqual([[1, 2, 3, 4]])
+    expect(groupsWithTurn(order, NO_DECLARATIONS).map(group => group.prs)).toEqual([[1, 2, 3], [4]])
   })
 })

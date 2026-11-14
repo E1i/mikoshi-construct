@@ -1,28 +1,51 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { PrGroup } from './group.js'
 import type { OverlapDeclarations } from './overlap.js'
+import { openOwnerWaits } from '../bus-readings.js'
 import { appendEvent } from '../db.js'
-import { declaredPayload, MAIN_ADVANCED, PR_CLOSED, PR_GROUPS, PR_OBSERVED, PR_OPENED, PR_ORDERED } from '../events.js'
+import { CARD_HELD, CARD_RELEASED, declaredPayload, MAIN_ADVANCED, PR_CLOSED, PR_GROUPS, PR_OBSERVED, PR_OPENED, PR_ORDERED, TASK_COMPLETED, TASK_ENQUEUED, TASK_EXPIRED, TASK_FAILED, TASK_LEASED, TASK_RELEASED, TASK_REQUEUED, TASK_SUPERSEDED, TASK_WITHDRAWN } from '../events.js'
 import { groupsOf } from './group.js'
 import { orderDeclarationsAt, overlaps } from './overlap.js'
 
-export const ORDER_EVENTS: readonly string[] = [PR_OBSERVED, PR_CLOSED, PR_OPENED, PR_ORDERED, MAIN_ADVANCED]
+const TASK_QUEUED_AGAIN = [TASK_ENQUEUED, TASK_REQUEUED, TASK_RELEASED]
+const TASK_ENDED = [TASK_COMPLETED, TASK_SUPERSEDED, TASK_WITHDRAWN]
+const TASK_EVENTS = [...TASK_QUEUED_AGAIN, TASK_LEASED, ...TASK_ENDED, TASK_FAILED, TASK_EXPIRED]
+const HOLD_EVENTS = [CARD_HELD, CARD_RELEASED]
+export const ORDER_EVENTS: readonly string[] = [PR_OBSERVED, PR_CLOSED, PR_OPENED, PR_ORDERED, MAIN_ADVANCED, ...TASK_EVENTS, ...HOLD_EVENTS]
 export const BUS_ORDERS = 'bus'
 export const WINDOW_ORDERS = 'window'
 export const ORDER_ACTOR = 'worker:supervisor:order'
 export const PASS_VERDICT = 'pass'
 export const GREEN_CI = 'green'
 export const DIRTY = 'dirty'
+export const QUEUED_TASK = 'queued'
+export const LEASED_TASK = 'leased'
+export const ANSWER_QUEUE = 'answer'
+export const TURN_QUEUES: readonly string[] = ['update', 'merge']
 
 export interface OrderEvent {
   id: number
   type: string
   pr: number | null
+  card?: number | null
   payload: Readonly<Record<string, unknown>>
+}
+
+export interface OrderTask {
+  queue: string
+  card: number | null
+  pr: number | null
+  state: string
+}
+
+export interface CardHold {
+  owner: number | null
+  takeover: number | null
 }
 
 export interface OrderedPr {
   pr: number
+  card: number | null
   open: boolean
   life: number
   head: string | null
@@ -52,6 +75,9 @@ export interface PrOrder {
   needsVerification: Set<number>
   counted: ShadowCounts
   through: number
+  mainCi: string | null
+  tasks: Map<string, OrderTask>
+  holds: Map<number, CardHold>
 }
 
 export interface TurnState {
@@ -60,7 +86,7 @@ export interface TurnState {
 }
 
 export function emptyOrder(): PrOrder {
-  return { prs: new Map(), ranks: [], mains: [], needsUpdate: new Set(), needsVerification: new Set(), counted: { needsUpdate: 0, needsVerification: 0 }, through: 0 }
+  return { prs: new Map(), ranks: [], mains: [], needsUpdate: new Set(), needsVerification: new Set(), counted: { needsUpdate: 0, needsVerification: 0 }, through: 0, mainCi: null, tasks: new Map(), holds: new Map() }
 }
 
 function textOf(value: unknown): string | null {
@@ -75,8 +101,18 @@ function prNumberOf(value: unknown): number | null {
   return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : null
 }
 
-function newLife(pr: number, id: number, from?: OrderedPr): OrderedPr {
-  return { pr, open: true, life: id, head: from?.head ?? null, headSince: from?.headSince ?? id, paths: from?.paths ?? null, ci: null, verdict: null, mergeable: null }
+function newLife(pr: number, id: number, from?: OrderedPr, card: number | null = null): OrderedPr {
+  return { pr, card: card ?? from?.card ?? null, open: true, life: id, head: from?.head ?? null, headSince: from?.headSince ?? id, paths: from?.paths ?? null, ci: null, verdict: null, mergeable: null }
+}
+
+function cardOf(event: OrderEvent): number | null {
+  return prNumberOf(event.card) ?? prNumberOf(event.payload.card_id)
+}
+
+export const RED_CI = 'red'
+
+export function redWhileMainGreen(order: PrOrder, life: OrderedPr): boolean {
+  return life.ci === RED_CI && order.mainCi === GREEN_CI
 }
 
 function leaveTheOrder(order: PrOrder, pr: number): void {
@@ -99,6 +135,7 @@ function mark(set: Set<number>, pr: number, holds: boolean): boolean {
 function judge(order: PrOrder, life: OrderedPr, declarations: OverlapDeclarations): void {
   const since = order.mains.filter(step => step.id > life.headSince)
   const needsUpdate = life.mergeable === DIRTY
+    || redWhileMainGreen(order, life)
     || since.some(step => step.whole)
     || (life.paths !== null && overlaps(life.paths, since.flatMap(step => step.paths), declarations))
   if (mark(order.needsUpdate, life.pr, needsUpdate))
@@ -123,6 +160,7 @@ function observed(order: PrOrder, event: OrderEvent, pr: number, declarations: O
   const newHead = head !== life.head
   const recorded: OrderedPr = {
     ...life,
+    card: cardOf(event) ?? life.card,
     head,
     headSince: newHead ? event.id : life.headSince,
     paths: pathsOf(event.payload.paths) ?? (newHead ? null : life.paths),
@@ -144,7 +182,58 @@ function closed(order: PrOrder, pr: number): void {
 function opened(order: PrOrder, event: OrderEvent, pr: number): void {
   const known = order.prs.get(pr)
   if (known?.open !== true)
-    order.prs.set(pr, newLife(pr, event.id, known))
+    order.prs.set(pr, newLife(pr, event.id, known, cardOf(event)))
+  else if (known.card === null)
+    order.prs.set(pr, { ...known, card: cardOf(event) })
+}
+
+function taskKeyOf(event: OrderEvent): string | null {
+  return textOf(event.payload.task_key)
+}
+
+function stateAfter(event: OrderEvent): string | null {
+  if (TASK_QUEUED_AGAIN.includes(event.type))
+    return QUEUED_TASK
+  if (event.type === TASK_LEASED)
+    return LEASED_TASK
+  if (event.type === TASK_FAILED)
+    return textOf(event.payload.next) === QUEUED_TASK ? QUEUED_TASK : null
+  if (event.type === TASK_EXPIRED)
+    return event.payload.withdraw === true ? null : QUEUED_TASK
+  return null
+}
+
+function taskMoved(order: PrOrder, event: OrderEvent): void {
+  const key = taskKeyOf(event)
+  if (key === null)
+    return
+  const known = order.tasks.get(key)
+  const state = stateAfter(event)
+  if (state === null) {
+    order.tasks.delete(key)
+    return
+  }
+  const queue = known?.queue ?? textOf(event.payload.queue) ?? key.split(':')[0]!
+  order.tasks.set(key, { queue, card: known?.card ?? cardOf(event), pr: known?.pr ?? event.pr, state })
+}
+
+function holdMoved(order: PrOrder, event: OrderEvent): void {
+  const card = cardOf(event)
+  if (card === null)
+    return
+  const hold = order.holds.get(card) ?? { owner: null, takeover: null }
+  if (event.type === CARD_HELD) {
+    const layer = event.payload.takeover == null ? 'owner' : 'takeover'
+    hold[layer] ??= event.id
+  }
+  else {
+    const latest = hold.owner !== null && (hold.takeover === null || hold.owner > hold.takeover) ? 'owner' : 'takeover'
+    hold[latest] = null
+  }
+  if (hold.owner === null && hold.takeover === null)
+    order.holds.delete(card)
+  else
+    order.holds.set(card, hold)
 }
 
 function ordered(order: PrOrder, event: OrderEvent, pr: number): void {
@@ -173,6 +262,14 @@ export function foldOrder(order: PrOrder, event: OrderEvent, declarations: Overl
   order.through = Math.max(order.through, event.id)
   if (event.type === MAIN_ADVANCED) {
     mainAdvanced(order, event, declarations)
+    return order
+  }
+  if (TASK_EVENTS.includes(event.type)) {
+    taskMoved(order, event)
+    return order
+  }
+  if (HOLD_EVENTS.includes(event.type)) {
+    holdMoved(order, event)
     return order
   }
   const pr = event.pr ?? prNumberOf(event.payload.pr)
@@ -218,6 +315,7 @@ export function readyToOrder(order: PrOrder): number[] {
 export interface OrderSlice {
   id: number
   pr: number | null
+  card?: number | null
   fields: object
 }
 
@@ -225,17 +323,24 @@ export type SliceOf = (type: string, fields: readonly string[], after: number) =
 
 export type OrderEventSource = (after: number) => OrderEvent[]
 
+const TASK_FIELDS = ['task_key', 'queue']
+
 export const ORDER_FIELDS: Readonly<Record<string, readonly string[]>> = {
-  [PR_OBSERVED]: ['head', 'paths', 'ci', 'verdict_on_head', 'mergeable'],
+  [PR_OBSERVED]: ['head', 'paths', 'ci', 'verdict_on_head', 'mergeable', 'card_id'],
   [PR_CLOSED]: ['merged'],
   [PR_OPENED]: ['pr'],
   [PR_ORDERED]: ['before', 'by'],
   [MAIN_ADVANCED]: ['paths', 'pathsTruncated'],
+  ...Object.fromEntries([...TASK_QUEUED_AGAIN, TASK_LEASED, ...TASK_ENDED].map(type => [type, TASK_FIELDS])),
+  [TASK_FAILED]: [...TASK_FIELDS, 'next'],
+  [TASK_EXPIRED]: ['task_key', 'withdraw'],
+  [CARD_HELD]: ['takeover'],
+  [CARD_RELEASED]: ['takeover'],
 }
 
 export function orderEventsFrom(sliceOf: SliceOf): OrderEventSource {
   return after => ORDER_EVENTS
-    .flatMap(type => sliceOf(type, ORDER_FIELDS[type]!, after).map(slice => ({ id: slice.id, type, pr: slice.pr, payload: slice.fields as Record<string, unknown> })))
+    .flatMap(type => sliceOf(type, ORDER_FIELDS[type]!, after).map(slice => ({ id: slice.id, type, pr: slice.pr, card: slice.card ?? null, payload: slice.fields as Record<string, unknown> })))
     .sort((a, b) => a.id - b.id)
 }
 
@@ -244,21 +349,52 @@ export interface GroupWithTurn extends PrGroup {
 }
 
 export const PARKING_VERDICT = 'changes'
-export const PARKING_CI = 'red'
 
-export function parkedByRecord(order: PrOrder): TurnState {
+export type TouchesOf = (card: number) => readonly string[] | null
+
+export interface TurnReadings {
+  waitingCards: ReadonlySet<number>
+  touchesOf: TouchesOf
+}
+
+export const NO_READINGS: TurnReadings = { waitingCards: new Set(), touchesOf: () => null }
+
+function tasksOf(order: PrOrder, match: (task: OrderTask) => boolean): OrderTask[] {
+  return [...order.tasks.values()].filter(match)
+}
+
+export function waitsOnItsOwnWork(order: PrOrder, life: OrderedPr, waitingCards: ReadonlySet<number>): boolean {
+  const { card } = life
+  return life.verdict === PARKING_VERDICT
+    || (life.ci === RED_CI && order.mainCi !== RED_CI)
+    || (card !== null && (order.holds.has(card) || waitingCards.has(card)
+      || tasksOf(order, task => task.queue === ANSWER_QUEUE && task.card === card).length > 0))
+}
+
+export function turnStateOf(order: PrOrder, waitingCards: ReadonlySet<number>): TurnState {
   return {
     parked: (pr) => {
       const life = order.prs.get(pr)
-      return life === undefined || life.verdict === PARKING_VERDICT || life.ci === PARKING_CI
+      return life === undefined || waitsOnItsOwnWork(order, life, waitingCards)
     },
-    holds: () => false,
+    holds: pr => tasksOf(order, task => task.pr === pr && task.state === LEASED_TASK && TURN_QUEUES.includes(task.queue)).length > 0,
   }
 }
 
-export function groupsWithTurn(order: PrOrder, declarations: OverlapDeclarations): GroupWithTurn[] {
-  const state = parkedByRecord(order)
-  return orderGroups(order, declarations).map(group => ({ ...group, turn: turnOf(order, group, state) }))
+function touchesOfPr(order: PrOrder, touchesOf: TouchesOf): (pr: number) => readonly string[] | null {
+  return (pr) => {
+    const card = order.prs.get(pr)?.card ?? null
+    return card === null ? null : touchesOf(card)
+  }
+}
+
+export function groupsWithTurn(order: PrOrder, declarations: OverlapDeclarations, readings: TurnReadings = NO_READINGS): GroupWithTurn[] {
+  const state = turnStateOf(order, readings.waitingCards)
+  return orderGroups(order, declarations, touchesOfPr(order, readings.touchesOf)).map(group => ({ ...group, turn: turnOf(order, group, state) }))
+}
+
+export function waitingCardsOf(db: DatabaseSync): Set<number> {
+  return new Set(openOwnerWaits(db).flatMap(wait => wait.card === null ? [] : [wait.card]))
 }
 
 export function recordGroups(db: DatabaseSync, ts: string, order: PrOrder, groups: readonly GroupWithTurn[]): boolean {
@@ -316,6 +452,7 @@ export class PrOrderTick {
   private readonly order = emptyOrder()
   private shown: ShadowCounts = { needsUpdate: 0, needsVerification: 0 }
   private recorded: string | null = null
+  private read: OverlapDeclarations | null = null
 
   constructor(
     private readonly db: DatabaseSync,
@@ -323,18 +460,18 @@ export class PrOrderTick {
     private readonly now: () => string,
     private readonly declarations: () => OverlapDeclarations,
     private readonly prefix: string,
+    private readonly touchesOf: TouchesOf = () => null,
+    private readonly waitingCards: () => ReadonlySet<number> = () => waitingCardsOf(db),
   ) {}
 
   step(): string[] {
     try {
       const events = this.events(this.order.through)
-      const changed = events.length > 0 || this.recorded === null
-      const declarations = changed ? this.declarations() : null
-      if (declarations !== null && events.length > 0)
-        foldOrderEvents(events, declarations, this.order)
+      const declarations = events.length > 0 || this.read === null ? this.declarations() : this.read
+      this.read = declarations
+      foldOrderEvents(events, declarations, this.order)
       const lines = recordOrdered(this.db, this.now(), this.order).map(pr => `${this.prefix}PR #${pr} reached pass + green: ${PR_ORDERED} puts it at the tail of its group's order`)
-      if (declarations !== null)
-        this.recordGroups(declarations)
+      this.recordGroups(declarations)
       return [...lines, ...this.shadowLine()]
     }
     catch (error) {
@@ -343,7 +480,7 @@ export class PrOrderTick {
   }
 
   private recordGroups(declarations: OverlapDeclarations): void {
-    const groups = groupsWithTurn(this.order, declarations)
+    const groups = groupsWithTurn(this.order, declarations, { waitingCards: this.waitingCards(), touchesOf: this.touchesOf })
     const reading = JSON.stringify({ groups, counted: this.order.counted })
     if (reading === this.recorded)
       return
@@ -360,6 +497,6 @@ export class PrOrderTick {
   }
 }
 
-export function prOrderTickAt(db: DatabaseSync, root: string, prefix: string, events: OrderEventSource): PrOrderTick {
-  return new PrOrderTick(db, events, () => new Date().toISOString(), () => orderDeclarationsAt(root), prefix)
+export function prOrderTickAt(db: DatabaseSync, root: string, prefix: string, events: OrderEventSource, touchesOf: TouchesOf): PrOrderTick {
+  return new PrOrderTick(db, events, () => new Date().toISOString(), () => orderDeclarationsAt(root), prefix, touchesOf)
 }
