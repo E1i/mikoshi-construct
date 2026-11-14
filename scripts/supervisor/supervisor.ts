@@ -1,6 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { HolderProcess, HolderReading, ProcessStartOf } from '../core/lease.js'
-import type { PrOrderTick } from '../core/order/turn.js'
 import type { InForceDecision } from '../policy/decisions/index.js'
 import type { ProcessTable } from '../ports/process-table.js'
 import type { BgResult, DetachedLaunch, ProcessList, RunningProcess } from './bg.js'
@@ -21,7 +20,6 @@ import { importClosure } from '../core/import-closure.js'
 import { RESTART_MISSED } from '../core/inbox.js'
 import { closeDrain, expireLeasesHeldBy, HOLDER_DEAD, HOLDER_UNPROVEN, judgeHolders, LEASE_MS, leasesHeldBy, openDrain, retireHolders, retiringPids, WORKER_HUNG } from '../core/lease.js'
 import { LIVE_FLAG } from '../core/node.js'
-import { prOrderTickAt } from '../core/order/turn.js'
 import { inForceDecisions } from '../policy/decisions/index.js'
 import { allowLiveCommand, liveDecisionOf } from '../policy/live-decision.js'
 import { processGit } from '../ports/git.js'
@@ -903,7 +901,6 @@ export interface SupervisingParts {
   snapshot?: BusSnapshot
   windowEnds?: WindowSessionEnds
   windowSubagents?: Pick<WindowSubagentTick, 'step'>
-  order?: Pick<PrOrderTick, 'step'>
   relaunch: () => BgResult
   print: (line: string) => void
   pause: () => Promise<unknown>
@@ -920,7 +917,7 @@ export async function superviseUntilReplaced(parts: SupervisingParts): Promise<v
     const lines = await parts.supervisor.step()
     const head = parts.supervisor.ownCodeBehind
     const replacement = head === null ? { lines: [], replaced: false } : replacedBy(head, parts.relaunch())
-    const ticked = [...lines, ...replacement.lines, ...replacement.replaced ? [] : [...parts.keeper.step(), ...await parts.judge?.step() ?? [], ...parts.windowEnds?.step() ?? [], ...parts.windowSubagents?.step() ?? [], ...parts.order?.step() ?? []]]
+    const ticked = [...lines, ...replacement.lines, ...replacement.replaced ? [] : [...parts.keeper.step(), ...await parts.judge?.step() ?? [], ...parts.windowEnds?.step() ?? [], ...parts.windowSubagents?.step() ?? []]]
     for (const line of [...ticked, ...await parts.heal?.step(ticked) ?? [], ...parts.snapshot?.step() ?? []])
       parts.print(line)
     if (replacement.replaced)
@@ -1048,7 +1045,6 @@ async function supervise(busDir: string, cwd: string, reviewPreflight: () => str
       judge: new LivenessJudge(db, () => Date.now(), () => expectedRunning(db, wanted()), restartJudged, psStartOf),
       windowEnds: new WindowSessionEnds(db, cwd, () => Date.now(), PREFIX),
       windowSubagents: new WindowSubagentTick(db, cwd, () => Date.now(), PREFIX),
-      order: prOrderTickAt(db, cwd, PREFIX),
       heal: new BusHealer({ busPath, nodes, now: () => new Date(), projections: busProjections(), watch: new CorruptionWatch(busLaunches(reviewPreflight).map(launch => path.join(busDir, launch.log))) }),
       snapshot: new BusSnapshot({ db, busPath, file: snapshotPathOf(busPath), now: () => Date.now(), paused: () => nodes.held() }),
       relaunch: () => startDetached(SUPERVISOR_LAUNCH, busDir, process.env, outsideOwnGroup()),

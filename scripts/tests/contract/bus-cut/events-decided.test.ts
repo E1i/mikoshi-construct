@@ -39,6 +39,6 @@ describe('events is a decided module (D-502)', () => {
     expect(MODULE_GRAPH.modules.events).toEqual({ owns: [EVENTS], contract: [EVENTS], may_use: [], status: 'decided' })
 
     const granted = Object.entries(MODULE_GRAPH.modules).filter(([, spec]) => spec.may_use.includes('events')).map(([id]) => id).sort()
-    expect(granted).toEqual(['bus', 'card-record', 'node-answer', 'node-close', 'node-launch', 'node-merge', 'node-restart', 'node-review', 'node-update', 'node-witness', 'plan', 'pr-record', 'session'])
+    expect(granted).toEqual(['bus', 'card-record', 'node-answer', 'node-close', 'node-launch', 'node-merge', 'node-restart', 'node-review', 'node-update', 'node-witness', 'order', 'plan', 'pr-record', 'session'])
   })
 })

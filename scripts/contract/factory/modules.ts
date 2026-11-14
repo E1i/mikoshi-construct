@@ -45,7 +45,7 @@ const BUS_CONTRACT = core('db.ts', 'sqlite.ts', 'queue.ts', 'dependency-wait.ts'
 const BUS_IMPL = core('projection-writes.ts', 'projection-writes.known.json', 'rejection.ts')
 
 const SESSION_FILES = [
-  ...core('machine-sessions.ts', 'eddies.ts', 'journal.ts', 'tasks.ts', 'handoff-dir.ts', 'handoff-fields.ts', 'handoff-status.ts', 'card-automaton.ts', 'card-hold.ts', 'chain.ts', 'places.ts', 'report.ts', 'legacy-history.ts'),
+  ...core('machine-sessions.ts', 'eddies.ts', 'journal.ts', 'tasks.ts', 'handoff-dir.ts', 'handoff-fields.ts', 'handoff-status.ts', 'card-automaton.ts', 'card-hold.ts', 'chain.ts', 'places.ts', 'report.ts', 'legacy-history.ts', 'import-closure.ts'),
   ...card('closed'),
   ...cli('slot.ts'),
   'src/commands/liveness.ts',
@@ -106,6 +106,7 @@ const DRAWN: Readonly<Record<string, ModuleSpec>> = {
   'node-witness': node('witness'),
   'node-laws': undecided([factory('nodes/laws.ts')]),
   'events': decided(core('events.ts'), []),
+  'order': decided([tree('core/order')], ['layout', 'bus', 'events']),
   'layout': undecided(core('factory-paths.ts', 'generated-files.ts', 'declarations.ts')),
   'decisions': undecided([...core('inbox.ts', 'card-decisions.ts'), ...within(factory('policy'), 'live-decision.ts', `decisions${ANY_DEPTH}`), tree('owner')]),
   'rules': undecided([...within(factory('policy'), 'policy.ts', `morse${ANY_DEPTH}`, 'repeat-finding.ts', 'round-limit-decision.ts', 'shard.ts', 'shards.ts', `shredder${ANY_DEPTH}`, 'widening.ts', 'touch-scope.ts'), tree('morse'), ...core('push-policy.ts')]),

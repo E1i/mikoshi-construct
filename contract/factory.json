@@ -3748,6 +3748,21 @@
         ],
         "status": "decided"
       },
+      "order": {
+        "concepts": [],
+        "contract": [
+          "scripts/core/order/**"
+        ],
+        "may_use": [
+          "layout",
+          "bus",
+          "events"
+        ],
+        "owns": [
+          "scripts/core/order/**"
+        ],
+        "status": "decided"
+      },
       "plan": {
         "concepts": [],
         "contract": [
@@ -3936,6 +3951,7 @@
           "scripts/core/places.ts",
           "scripts/core/report.ts",
           "scripts/core/legacy-history.ts",
+          "scripts/core/import-closure.ts",
           "src/card/closed.ts",
           "scripts/cli/slot.ts",
           "src/commands/liveness.ts",
@@ -3969,6 +3985,7 @@
           "scripts/core/places.ts",
           "scripts/core/report.ts",
           "scripts/core/legacy-history.ts",
+          "scripts/core/import-closure.ts",
           "src/card/closed.ts",
           "scripts/cli/slot.ts",
           "src/commands/liveness.ts",

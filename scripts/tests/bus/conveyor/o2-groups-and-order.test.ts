@@ -1,4 +1,7 @@
+import type { DatabaseSync } from 'node:sqlite'
+import type { EventType } from '../../../core/events.js'
 import type { OverlapDeclarations } from '../../../core/order/overlap.js'
+import type { OrderEventSource } from '../../../core/order/turn.js'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -8,7 +11,8 @@ import { readDeclarations } from '../../../core/declarations.js'
 import { PR_ORDERED } from '../../../core/events.js'
 import { groupOf } from '../../../core/order/group.js'
 import { overlapDeclarationsOf, overlaps } from '../../../core/order/overlap.js'
-import { BUS_ORDERS, ORDER_ACTOR, orderGroups, readOrder, turnOf } from '../../../core/order/turn.js'
+import { BUS_ORDERS, ORDER_ACTOR, orderEventsFrom, orderGroups, readOrder, turnOf } from '../../../core/order/turn.js'
+import { BusRead } from '../../../ports/bus-read.js'
 import { NetWatch } from '../../../ports/netwatch.js'
 import { Clock, FakeGitHub, sha } from '../github-fake.js'
 
@@ -23,6 +27,10 @@ const MODULE_FILES = 'contract/module-files.json'
 const DECLARATIONS = 'declarations/'
 
 type Bus = ReturnType<typeof openBus>
+
+function busEvents(db: DatabaseSync): OrderEventSource {
+  return orderEventsFrom((type, fields, after) => new BusRead(db, { from: after + 1 }).slice(type as EventType, fields as never))
+}
 
 function observedBus(pulls: { number: number, files: string[] }[]): { db: Bus, declarations: OverlapDeclarations } {
   const root = mkdtempSync(path.join(tmpdir(), 'bus-o2-groups-'))
@@ -45,7 +53,7 @@ describe('conveyor O2: groups are computed from the paths the bus recorded', () 
       { number: 1002, files: ['docs/guide/second-new-page.md', MODULE_FILES] },
       { number: 1003, files: ['templates/base/a-new-template.md'] },
     ])
-    const groups = orderGroups(readOrder(db, declarations), declarations)
+    const groups = orderGroups(readOrder(busEvents(db), declarations), declarations)
     expect(groups).toEqual([
       { prs: [1001], modules: ['docs'] },
       { prs: [1002], modules: ['docs'] },
@@ -53,7 +61,7 @@ describe('conveyor O2: groups are computed from the paths the bus recorded', () 
     ])
     expect(declarations.derived).toContain(MODULE_FILES)
     expect(overlaps(['docs/guide/first-new-page.md', MODULE_FILES], ['docs/guide/second-new-page.md', MODULE_FILES], { ...declarations, derived: [] })).toBe(true)
-    const paths = [...readOrder(db, declarations).prs.values()].flatMap(life => life.paths ?? [])
+    const paths = [...readOrder(busEvents(db), declarations).prs.values()].flatMap(life => life.paths ?? [])
     expect(paths.filter(file => file.startsWith(DECLARATIONS))).toEqual([])
     db.close()
   })
@@ -67,7 +75,7 @@ describe('conveyor O2: groups are computed from the paths the bus recorded', () 
     ])
     order(db, 1404)
     order(db, 1403)
-    const folded = readOrder(db, declarations)
+    const folded = readOrder(busEvents(db), declarations)
     const groups = orderGroups(folded, declarations)
     expect(groups.map(group => group.prs)).toEqual([[1401], [1402], [1403, 1404]])
     const shared = groupOf(groups, 1403)!

@@ -1,12 +1,10 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { PrGroup } from './group.js'
 import type { OverlapDeclarations } from './overlap.js'
-import { BusRead } from '../../ports/bus-read.js'
 import { appendEvent } from '../db.js'
-import { readDeclarations } from '../declarations.js'
 import { declaredPayload, MAIN_ADVANCED, PR_CLOSED, PR_OBSERVED, PR_OPENED, PR_ORDERED } from '../events.js'
 import { groupsOf } from './group.js'
-import { overlapDeclarationsOf, overlaps } from './overlap.js'
+import { overlaps } from './overlap.js'
 
 export const ORDER_EVENTS: readonly string[] = [PR_OBSERVED, PR_CLOSED, PR_OPENED, PR_ORDERED, MAIN_ADVANCED]
 export const BUS_ORDERS = 'bus'
@@ -217,20 +215,32 @@ export function readyToOrder(order: PrOrder): number[] {
     .sort((a, b) => a - b)
 }
 
-export function orderEventsAfter(db: DatabaseSync, after: number): OrderEvent[] {
-  const read = new BusRead(db, { from: after + 1 })
-  const as = (type: string) => (slice: { id: number, pr: number | null, fields: object }): OrderEvent => ({ id: slice.id, type, pr: slice.pr, payload: slice.fields as Record<string, unknown> })
-  return [
-    ...read.slice(PR_OBSERVED, ['head', 'paths', 'ci', 'verdict_on_head', 'mergeable']).map(as(PR_OBSERVED)),
-    ...read.slice(PR_CLOSED, ['merged']).map(as(PR_CLOSED)),
-    ...read.slice(PR_OPENED, ['pr']).map(as(PR_OPENED)),
-    ...read.slice(PR_ORDERED, ['by']).map(as(PR_ORDERED)),
-    ...read.slice(MAIN_ADVANCED, ['paths', 'pathsTruncated']).map(as(MAIN_ADVANCED)),
-  ].sort((a, b) => a.id - b.id)
+export interface OrderSlice {
+  id: number
+  pr: number | null
+  fields: object
 }
 
-export function readOrder(db: DatabaseSync, declarations: OverlapDeclarations): PrOrder {
-  return foldOrderEvents(orderEventsAfter(db, 0), declarations)
+export type SliceOf = (type: string, fields: readonly string[], after: number) => OrderSlice[]
+
+export type OrderEventSource = (after: number) => OrderEvent[]
+
+export const ORDER_FIELDS: Readonly<Record<string, readonly string[]>> = {
+  [PR_OBSERVED]: ['head', 'paths', 'ci', 'verdict_on_head', 'mergeable'],
+  [PR_CLOSED]: ['merged'],
+  [PR_OPENED]: ['pr'],
+  [PR_ORDERED]: ['by'],
+  [MAIN_ADVANCED]: ['paths', 'pathsTruncated'],
+}
+
+export function orderEventsFrom(sliceOf: SliceOf): OrderEventSource {
+  return after => ORDER_EVENTS
+    .flatMap(type => sliceOf(type, ORDER_FIELDS[type]!, after).map(slice => ({ id: slice.id, type, pr: slice.pr, payload: slice.fields as Record<string, unknown> })))
+    .sort((a, b) => a.id - b.id)
+}
+
+export function readOrder(events: OrderEventSource, declarations: OverlapDeclarations): PrOrder {
+  return foldOrderEvents(events(0), declarations)
 }
 
 export function orderedKey(pr: number, life: number): string {
@@ -257,6 +267,7 @@ export class PrOrderTick {
 
   constructor(
     private readonly db: DatabaseSync,
+    private readonly events: OrderEventSource,
     private readonly now: () => string,
     private readonly declarations: () => OverlapDeclarations,
     private readonly prefix: string,
@@ -264,7 +275,7 @@ export class PrOrderTick {
 
   step(): string[] {
     try {
-      const events = orderEventsAfter(this.db, this.order.through)
+      const events = this.events(this.order.through)
       if (events.length > 0)
         foldOrderEvents(events, this.declarations(), this.order)
       const lines = recordOrdered(this.db, this.now(), this.order).map(pr => `${this.prefix}PR #${pr} reached pass + green: ${PR_ORDERED} puts it at the tail of its group's order`)
@@ -282,8 +293,4 @@ export class PrOrderTick {
     this.shown = { ...counted }
     return [`${this.prefix}shadow: needsUpdate counted ${counted.needsUpdate}, needsVerification counted ${counted.needsVerification}; nothing acts on them yet`]
   }
-}
-
-export function prOrderTickAt(db: DatabaseSync, root: string, prefix: string): PrOrderTick {
-  return new PrOrderTick(db, () => new Date().toISOString(), () => overlapDeclarationsOf(readDeclarations(root)), prefix)
 }

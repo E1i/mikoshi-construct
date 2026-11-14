@@ -1,3 +1,5 @@
+import type { DatabaseSync } from 'node:sqlite'
+import type { EventType } from '../../core/events.js'
 import type { PrGroup } from '../../core/order/group.js'
 import type { OrderEvent, PrOrder, TurnState } from '../../core/order/turn.js'
 import { mkdtempSync, rmSync } from 'node:fs'
@@ -8,7 +10,8 @@ import { appendEvent, openBus } from '../../core/db.js'
 import { MAIN_ADVANCED, PR_CLOSED, PR_OBSERVED, PR_OPENED, PR_ORDERED } from '../../core/events.js'
 import { groupOf } from '../../core/order/group.js'
 import { NO_DECLARATIONS, overlaps } from '../../core/order/overlap.js'
-import { emptyOrder, foldOrder, foldOrderEvents, membersOf, orderGroups, PrOrderTick, turnOf, WINDOW_ORDERS } from '../../core/order/turn.js'
+import { emptyOrder, foldOrder, foldOrderEvents, membersOf, orderEventsFrom, orderGroups, PrOrderTick, turnOf, WINDOW_ORDERS } from '../../core/order/turn.js'
+import { BusRead } from '../../ports/bus-read.js'
 
 class Events {
   private id = 0
@@ -42,6 +45,10 @@ class Events {
   main(paths: readonly string[], truncated = false): OrderEvent {
     return this.add(MAIN_ADVANCED, null, { sha: 'f'.repeat(40), paths, pathsTruncated: truncated, touches_mechanics: false })
   }
+}
+
+function busEvents(db: DatabaseSync): ReturnType<typeof orderEventsFrom> {
+  return orderEventsFrom((type, fields, after) => new BusRead(db, { from: after + 1 }).slice(type as EventType, fields as never))
 }
 
 class State implements TurnState {
@@ -308,7 +315,7 @@ describe('the bus writes pr.ordered once per life, when a PR first reaches pass 
       appendEvent(db, { ts: '2026-11-14T00:00:00Z', type, actor: 'netwatch', cardId: null, pr: 950, head: null, dedupeKey: `test:${at}`, payload, legacy: false })
     }
     const observed = (ci: string, verdict: string | null): void => write(PR_OBSERVED, { head: 'a'.repeat(40), base: 'main', paths: ['docs/x.md'], ci, verdict_on_head: verdict, mergeable: 'clean' })
-    const tick = new PrOrderTick(db, () => '2026-11-14T00:00:01Z', () => NO_DECLARATIONS, '[test] ')
+    const tick = new PrOrderTick(db, busEvents(db), () => '2026-11-14T00:00:01Z', () => NO_DECLARATIONS, '[test] ')
     const ordered = (): number => db.prepare('SELECT count(*) AS n FROM events WHERE type = ?').get(PR_ORDERED)!.n as number
 
     observed('pending', null)
