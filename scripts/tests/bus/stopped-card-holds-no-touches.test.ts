@@ -16,7 +16,7 @@ import { MachineSessions } from '../../core/machine-sessions.js'
 import { queueTask } from '../../core/queue.js'
 import { reduce } from '../../core/reducer.js'
 import { busCardEvents } from '../../intake/intake.js'
-import { launchCandidates } from '../../nodes/launch/launch-candidates.js'
+import { launchCandidates, reportedWindowQuestions } from '../../nodes/launch/launch-candidates.js'
 import { LaunchNode } from '../../nodes/launch/launch-worker.js'
 import { cardDecisionCommand } from '../../policy/shards.js'
 import { busProjections, nodeSupply } from '../../supervisor/composition.js'
@@ -135,6 +135,12 @@ describe('a card stopped on a question with no live session', () => {
     expect(bench.candidates()).not.toContain(2)
     expect(bench.linesAfter(0).join('\n')).not.toContain('overlaps #1')
   })
+
+  it('only a queued card is reported as overlapping the stopped card, not one already running', () => {
+    const bench = new Bench().admit(1).start(1).stopOnAQuestion(1).admit(2).start(2)
+
+    expect(bench.linesAfter(20).join('\n')).not.toContain('overlaps #1')
+  })
 })
 
 describe('a question the window settles under a decision in force', () => {
@@ -145,6 +151,11 @@ describe('a question the window settles under a decision in force', () => {
     expect(eventsOf(made.db, OWNER_WAIT_OPENED)).toEqual([expect.objectContaining({ need: 'decision', decision: DECISION })])
     expect(openOwnerWaits(made.db)).toEqual([expect.objectContaining({ card: CARD, lifter: 'window', decision: DECISION })])
     expect(waitsLines({ waits: openOwnerWaits(made.db) } as Parameters<typeof waitsLines>[0], PLAIN_LORE)).toEqual([expect.stringMatching(/^waits for the window · 1 · /)])
+  })
+
+  it('a window-question line whose decision tail carries more than the decision id is not a window question', () => {
+    expect(reportedWindowQuestions(`window-question: ${WINDOW_QUESTION} · ${DECISION}`)).toEqual([{ question: WINDOW_QUESTION, decision: DECISION }])
+    expect(reportedWindowQuestions(`window-question: ${WINDOW_QUESTION} · ${DECISION} and more`)).toEqual([])
   })
 
   it('a plain question line still opens a wait for the owner', async () => {
