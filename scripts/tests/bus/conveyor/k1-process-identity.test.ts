@@ -10,6 +10,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { createInterface } from 'node:readline'
 import { afterEach, describe, expect, it } from 'vitest'
+import { BUS_DB_VARIABLE } from '../../../core/bus-path.js'
 import { appendEvent, openBus } from '../../../core/db.js'
 import { CHILD_STARTED, MAIN_ADVANCED, WORKER_STARTED } from '../../../core/events.js'
 import { FACTORY_RUNTIME, FACTORY_WORKERS } from '../../../core/factory-paths.js'
@@ -260,11 +261,53 @@ describe('f2 (K1b): the stop reads the records and never starts a duplicate of a
     db.close()
   })
 
-  it('a process running the bus code with no record of its identity is not taken for a bus process', () => {
+  it('a bus:run of this bus with no record at all is adopted into the record, so a start leaves it alone and a stop signals it', async () => {
+    const { root, busPath, db } = freshBus()
+    const sleeper = detachedSleep()
+    const command = `${BUS_RUN_COMMAND} --bus ${busPath}`
+    const table = spawnedTable([detachedRow(sleeper.pid!, new Date(), command)])
+    expect(identifiedProcesses(table, db)()).toEqual([])
+    const processes = identifiedProcesses(table, db, { bus: busPath, markers: [BUS_RUN_LAUNCH.markers] })
+    expect(processes().map(each => each.pid)).toEqual([sleeper.pid])
+    expect(recordedWorkers(db)).toEqual([expect.objectContaining({ worker: expect.stringMatching(/^worker:adopted:/), pid: sleeper.pid, pgid: sleeper.pid })])
+    expect(identifiedProcesses(table, db)().map(each => each.pid)).toEqual([sleeper.pid])
+
+    const busDir = path.join(root, 'bus')
+    mkdirSync(busDir)
+    const start = startDetached(BUS_RUN_LAUNCH, busDir, { [BUS_DB_VARIABLE]: busPath }, processes)
+    expect(start.alreadyRunning?.pid).toBe(sleeper.pid)
+    const exit = once(sleeper, 'exit')
+    await stopInstance(start.alreadyRunning!, processes, async () => {})
+    expect((await exit)[1]).toBe('SIGTERM')
+    db.close()
+  })
+
+  it('an unrecorded process of another bus, of no named bus, of no bus launch, or a running child is not adopted', () => {
+    const { busPath, db } = freshBus()
+    const [other, unnamed, foreign, child] = [detachedSleep(), detachedSleep(), detachedSleep(), detachedSleep()]
+    const at = new Date()
+    const table = spawnedTable([
+      detachedRow(other.pid!, at, `${BUS_RUN_COMMAND} --bus /elsewhere/bus.db`),
+      detachedRow(unnamed.pid!, at, BUS_RUN_COMMAND),
+      detachedRow(foreign.pid!, at, `sleep 30 --bus ${busPath}`),
+      detachedRow(child.pid!, at, `${BUS_RUN_COMMAND} --bus ${busPath}`),
+    ])
+    const lstart = identityOf(table.snapshot(), child.pid!)!.lstart
+    recordChildStarted(db, new Date().toISOString(), 'worker:launch:k1b', { mode: 'child', instance: 'k1b', generation: OLD_MAIN, pid: child.pid!, pgid: child.pid!, lstart, kind: 'launch', taskKey: 'launch:1', tree: null })
+    expect(identifiedProcesses(table, db, { bus: busPath, markers: [BUS_RUN_LAUNCH.markers] })()).toEqual([])
+    expect(recordedWorkers(db)).toEqual([])
+    db.close()
+  })
+
+  it('one process recorded twice, by its spawner and by itself, is listed once', () => {
     const { db } = freshBus()
     const sleeper = detachedSleep()
     const table = spawnedTable([detachedRow(sleeper.pid!, new Date(), BUS_RUN_COMMAND)])
-    expect(identifiedProcesses(table, db)()).toEqual([])
+    const own = identityOf(table.snapshot(), sleeper.pid!)!
+    for (const worker of ['worker:bus-run:k1b', 'worker:run:k1b'])
+      recordWorkerIdentity(db, new Date().toISOString(), { worker, pid: own.pid, started: own.lstart, instance: 'k1b', generation: OLD_MAIN, pgid: own.pgid, lstart: own.lstart })
+    expect(recordedWorkers(db)).toHaveLength(2)
+    expect(identifiedProcesses(table, db)()).toEqual([{ pid: sleeper.pid, group: sleeper.pid, args: BUS_RUN_COMMAND }])
     db.close()
   })
 })

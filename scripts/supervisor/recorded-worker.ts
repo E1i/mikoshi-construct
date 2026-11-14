@@ -6,10 +6,10 @@ import { existsSync, readFileSync } from 'node:fs'
 import process from 'node:process'
 import { openBus } from '../core/db.js'
 import { CHILD_ENDED, CHILD_STARTED, WORKER_STARTED } from '../core/events.js'
-import { EXECUTOR_MODES, GENERATION_VARIABLE, matchingEvents, UNHANDED } from '../core/node.js'
+import { EXECUTOR_MODES, GENERATION_VARIABLE, matchingEvents, recordWorkerIdentity, UNHANDED } from '../core/node.js'
 import { payloadOf } from '../core/stored.js'
 import { identityOf, lstartOf, OsProcessTable, rowOf, rowsOf } from '../ports/process-table.js'
-import { alive, argsBeforeBus, processBeatsOn, servesBus, withBuses } from './bg.js'
+import { alive, argsBeforeBus, carriesMarker, processBeatsOn, provenOnBus, servesBus, withBuses } from './bg.js'
 
 export type PidAlive = (pid: number) => boolean
 
@@ -127,25 +127,49 @@ export function childrenNotEnded(db: DatabaseSync): ChildStart[] {
   })
 }
 
-export function identifiedProcesses(table: ProcessTable, db: DatabaseSync): () => IdentifiedProcess[] {
+export interface Adoption {
+  bus: string
+  markers: readonly (readonly string[])[]
+}
+
+export const ADOPTED_KIND = 'adopted'
+
+function adoptable(row: ProcessRow, adoption: Adoption): boolean {
+  const [candidate] = withBuses([{ pid: row.pid, args: row.command }])
+  return row.pid !== process.pid && provenOnBus(candidate!, adoption.bus) && adoption.markers.some(markers => carriesMarker(row.command, markers))
+}
+
+function adopt(db: DatabaseSync, snapshot: ProcessSnapshot, row: ProcessRow): ProcessRow | null {
+  const identity = identityOf(snapshot, row.pid)
+  if (identity === null)
+    return null
+  const worker = `worker:${ADOPTED_KIND}:${row.pid}-${Date.parse(identity.lstart)}`
+  recordWorkerIdentity(db, new Date().toISOString(), { worker, pid: row.pid, started: identity.lstart, instance: UNHANDED, generation: UNHANDED, pgid: identity.pgid, lstart: identity.lstart })
+  return row
+}
+
+export function identifiedProcesses(table: ProcessTable, db: DatabaseSync, adoption?: Adoption): () => IdentifiedProcess[] {
   return () => {
     const snapshot = table.snapshot()
-    rowsOf(snapshot)
+    const rows = rowsOf(snapshot)
     const children = new Set(childrenNotEnded(db).flatMap(child => runningAs(snapshot, child) === null ? [] : [child.pid]))
     const workers = recordedWorkers(db).flatMap((worker) => {
       const row = runningAs(snapshot, worker)
       return row === null || children.has(row.pid) ? [] : [row]
     })
-    const unique = [...new Map(workers.map(row => [row.pid, row])).values()]
+    const recorded = new Set(workers.map(row => row.pid))
+    const adopted = adoption === undefined ? [] : rows.filter(row => !recorded.has(row.pid) && !children.has(row.pid) && adoptable(row, adoption)).flatMap(row => adopt(db, snapshot, row) ?? [])
+    const unique = [...new Map([...workers, ...adopted].map(row => [row.pid, row])).values()]
     return withBuses(unique.map(row => ({ pid: row.pid, group: row.pgid, args: row.command })))
   }
 }
 
-export function identifiedOnBus(busPath: () => string, table: ProcessTable = new OsProcessTable()): () => IdentifiedProcess[] {
+export function identifiedOnBus(busPath: () => string, table: ProcessTable = new OsProcessTable(), markers?: Adoption['markers']): () => IdentifiedProcess[] {
   return () => {
-    const db = openBus(busPath())
+    const bus = busPath()
+    const db = openBus(bus)
     try {
-      return identifiedProcesses(table, db)()
+      return identifiedProcesses(table, db, markers === undefined ? undefined : { bus, markers })()
     }
     finally {
       db.close()

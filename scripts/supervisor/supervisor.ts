@@ -1005,7 +1005,7 @@ export interface SwitchControl {
 async function supervise(busDir: string, cwd: string, reviewPreflight: () => string[]): Promise<number> {
   const busPath = defaultBusPath()
   const db = openBus(busPath)
-  const everyProcess = identifiedProcesses(new OsProcessTable(), db)
+  const everyProcess = identifiedProcesses(new OsProcessTable(), db, { bus: busPath, markers: [SUPERVISOR_LAUNCH, ...busLaunches(reviewPreflight)].map(each => each.markers) })
   const journal = (entry: Record<string, unknown>): void => appendFileSync(path.join(busDir, SUPERVISOR_JOURNAL), `${JSON.stringify(entry)}\n`)
   const code = gitCode(cwd)
   const known = busLaunches(reviewPreflight)
@@ -1128,7 +1128,7 @@ function withoutRetiringOnBus(processes: () => (RunningProcess & Partial<Grouped
   return () => onBus(db => withoutRetiring(processes, db)())
 }
 
-export async function startBus(busDir: string = pinnedBusDir(), everyProcess: () => (RunningProcess & Partial<GroupedProcess>)[] = identifiedOnBus(defaultBusPath), code: Pick<BusCode, 'head'> | null = installedPackage() === null ? gitCode(process.cwd()) : null, start: AgentHand['start'] = startReviewWorker, wholeTable: () => RunningProcess[] = readableRows()): Promise<BgResult> {
+export async function startBus(busDir: string = pinnedBusDir(), everyProcess: () => (RunningProcess & Partial<GroupedProcess>)[] = identifiedOnBus(defaultBusPath, undefined, [SUPERVISOR_LAUNCH, ...busLaunches(reviewPreflight)].map(each => each.markers)), code: Pick<BusCode, 'head'> | null = installedPackage() === null ? gitCode(process.cwd()) : null, start: AgentHand['start'] = startReviewWorker, wholeTable: () => RunningProcess[] = readableRows()): Promise<BgResult> {
   const processes = withoutRetiringOnBus(everyProcess)
   const judged = await restartSilentSupervisorOnBus(busDir, everyProcess)
   const started = await startUnderAgentEnv(busDir, [...wantedLaunches(busDir, reviewPreflight, decisionsInForce()), SUPERVISOR_LAUNCH], {
