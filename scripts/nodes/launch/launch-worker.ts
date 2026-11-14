@@ -1,5 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
-import type { SessionStop, SessionStopCode } from '../../core/card-hold.js'
+import type { SessionStop } from '../../core/card-hold.js'
 import type { BusEvent } from '../../core/db.js'
 import type { Lease } from '../../core/lease.js'
 import type { MachineClaimant, MachineSessions } from '../../core/machine-sessions.js'
@@ -8,7 +8,7 @@ import type { QueuedTask } from '../../core/queue.js'
 import type { DiskReader } from '../../ports/disk.js'
 import type { IsolationReader } from '../../ports/isolation.js'
 import type { ProcessTable } from '../restart/chain-process.js'
-import type { Contour } from './launch-candidates.js'
+import type { Contour, WindowQuestion } from './launch-candidates.js'
 import type { CardStarter, LaunchOutcome, StartedCard } from './launch-executor.js'
 import type { SessionContinuer } from './launch-starter.js'
 import { existsSync } from 'node:fs'
@@ -16,12 +16,11 @@ import path from 'node:path'
 import process from 'node:process'
 import { parseParkingFile } from '../../../src/card/parking.js'
 import { NOT_A_BACKFILL } from '../../core/backfill-source.js'
-import { CLOSED_WAIT } from '../../core/bus-readings.js'
 import { CLOSED_CARD, DROPPED_CARD, MERGED_CARD, RUNNING_CARD } from '../../core/card-automaton.js'
 import { admittedBodies, admittedBodyText, bodyNotFoldedYet, pathsOutsideTheBody } from '../../core/card-bodies.js'
-import { cardHoldOf, HOLD_RECHECK_MS, SESSION_STOP_CODES, sessionStopOf } from '../../core/card-hold.js'
+import { cardHoldOf, HOLD_RECHECK_MS, sessionStopOf } from '../../core/card-hold.js'
 import { appendEvent, inTransaction, openOwnerWait } from '../../core/db.js'
-import { BOARD_ALARM, CARD_ADMITTED, CARD_CLOSED, CARD_CONTINUED, CARD_HELD, CARD_PULSE, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, CARD_WAITING, COMMAND_EXECUTED, DECISION_RECORDED, GHOST_ROW, LADDER_APPROVAL, MERGE_DONE, OPEN_QUESTION, OUTSIDE_TOUCHES, OWNER_WAIT_OPENED, PR_CLOSED, PR_OBSERVED, PR_OPENED, QUESTION_AGENT, REDUCED, TASK_COMPLETED, TASK_ENQUEUED, TASK_EXPIRED, TASK_FAILED, TASK_LEASED, TASK_RELEASED, TASK_REQUEUED, TASK_SUPERSEDED } from '../../core/events.js'
+import { BOARD_ALARM, CARD_ADMITTED, CARD_CLOSED, CARD_CONTINUED, CARD_HELD, CARD_PULSE, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, CARD_WAITING, GHOST_ROW, LADDER_APPROVAL, MERGE_DONE, OPEN_QUESTION, OUTSIDE_TOUCHES, PR_CLOSED, PR_OBSERVED, PR_OPENED, QUESTION_AGENT, REDUCED, TASK_COMPLETED, TASK_ENQUEUED, TASK_EXPIRED, TASK_FAILED, TASK_LEASED, TASK_RELEASED, TASK_REQUEUED, TASK_SUPERSEDED } from '../../core/events.js'
 import { generationOfKey } from '../../core/identifiers.js'
 import { failTask } from '../../core/lease.js'
 import { busNameOfDb, MACHINE_POLL_MS, machineSessions } from '../../core/machine-sessions.js'
@@ -31,7 +30,6 @@ import { ownerMoveCommand } from '../../core/owner-commands.js'
 import { COMPLETED, generationField, LAUNCH_STOP_WITH_NO_PULL_REQUEST, launchTasks, LEASED, TASK_FOLDS } from '../../core/queue.js'
 import { storedByKey } from '../../core/stored.js'
 import { cardDecisionCommand } from '../../policy/shards.js'
-import { BusRead } from '../../ports/bus-read.js'
 import { clientTranscript } from '../../ports/client/claude/adapter.js'
 import { TICK_MS } from '../../ports/netwatch.js'
 import { lacksItsPackages } from '../../ports/prepare-tree.js'
@@ -42,12 +40,12 @@ import { lastHeartbeat } from '../../supervisor/heartbeat.js'
 import { launchProcess, REAL_PROCESSES } from '../restart/chain-process.js'
 import { MAX_RESTARTS, reportedQuestions, reportedStopReason } from './continuation.js'
 import { laneOverlapRecorder, layLanes, repositoryLanes } from './lane-assign.js'
-import { holdReason, startHold, waitHeldAtTheExit } from './launch-candidates.js'
+import { commandRanSince, heldSessionStop, heldStopLine, holdReason, reportedWindowQuestions, startHold, stopsWithCode, waitHeldAtTheExit } from './launch-candidates.js'
 import { continuedAndRecorded, LaunchExecutor } from './launch-executor.js'
 import { REPORT_MISSING, USAGE_LIMIT, usageLimitDetail, usageLimitResetIn, usageLimitResetOf } from './report-collect.js'
 import { reportClosingOf } from './tree-pr.js'
 
-export { launchDirOf }
+export { heldSessionStop, launchDirOf }
 
 export const LAUNCH_LIMIT_MINUTES = 600
 const LAUNCH_LIMIT_MS = LAUNCH_LIMIT_MINUTES * 60_000
@@ -61,8 +59,7 @@ function recordedPidLivesIn(pid: number, pidAlive: PidAlive): boolean {
 }
 
 function ownerMovedSince(db: DatabaseSync, cardId: number, move: 'stop' | 'launch', since?: number): boolean {
-  const ofTheCard = new BusRead(db).where({ card: cardId })
-  return ofTheCard.where({ from: (since ?? ofTheCard.slice(CARD_STARTED, ['session'], 'last')[0]?.id ?? 0) + 1 }).slice(COMMAND_EXECUTED, ['command']).some(moved => moved.fields.command === ownerMoveCommand(move, cardId))
+  return commandRanSince(db, cardId, ownerMoveCommand(move, cardId), since)
 }
 
 const LEGACY_PATH = 'path'
@@ -201,61 +198,6 @@ export function isRepositoryPath(worktree: string, file: string): boolean {
 
 export function splitByRepository(worktree: string, asked: readonly string[]): AskedPaths {
   return { widen: asked.filter(file => isRepositoryPath(worktree, file)), dropped: asked.filter(file => !isRepositoryPath(worktree, file)) }
-}
-
-export interface HeldSessionStop {
-  code: SessionStopCode
-  stop: number
-  paths: string[]
-}
-
-function stopCodeOf(value: unknown): SessionStopCode | null {
-  return SESSION_STOP_CODES.find(code => code === value) ?? null
-}
-
-function strings(value: unknown): string[] {
-  return Array.isArray(value) ? value.filter((each): each is string => typeof each === 'string') : []
-}
-
-function decidedOnTheCardSince(bus: BusRead, cardId: number, stop: number): boolean {
-  return bus.where({ from: stop + 1 }).slice(DECISION_RECORDED, ['scope']).some(decided => Array.isArray(decided.fields.scope) && decided.fields.scope.includes(cardId))
-}
-
-const CLOSED_WAITS_OF_THE_CARD = `SELECT w.id, w.event_id, e.type FROM owner_waits AS w JOIN events AS e ON e.id = w.event_id WHERE w.card_id = ? AND w.state = '${CLOSED_WAIT}'`
-
-function closedWaitsOf(db: DatabaseSync, cardId: number): { id: string, event_id: number, type: string }[] {
-  return db.prepare(CLOSED_WAITS_OF_THE_CARD).all(cardId) as unknown as { id: string, event_id: number, type: string }[]
-}
-
-function ownerAnsweredSince(db: DatabaseSync, bus: BusRead, cardId: number, stop: number): boolean {
-  return decidedOnTheCardSince(bus, cardId, stop) || closedWaitsOf(db, cardId).some(wait => wait.event_id > stop && wait.type !== CARD_ADMITTED)
-}
-
-function questionStillOpen(db: DatabaseSync, bus: BusRead, cardId: number, stop: number): boolean {
-  if (decidedOnTheCardSince(bus, cardId, stop))
-    return false
-  const closed = new Set(closedWaitsOf(db, cardId).map(wait => wait.id))
-  const openedSince = bus.where({ from: stop + 1 }).where({ card: cardId }).slice(OWNER_WAIT_OPENED, ['id'])
-  return openedSince.some(opened => !closed.has(String(opened.fields.id)))
-}
-
-export function heldSessionStop(db: DatabaseSync, cardId: number): HeldSessionStop | null {
-  const bus = new BusRead(db)
-  const latest = bus.where({ card: cardId }).slice(CARD_STOPPED, ['code', 'paths'], 'last')[0]
-  const stopCode = stopCodeOf(latest?.fields.code)
-  if (latest === undefined || stopCode === null)
-    return null
-  const named = strings(latest.fields.paths)
-  if (stopCode === OUTSIDE_TOUCHES) {
-    const uncovered = pathsOutsideTheBody(db, cardId, named.join('\n'))
-    return uncovered.length === 0 || ownerAnsweredSince(db, bus, cardId, latest.id) ? null : { code: stopCode, stop: latest.id, paths: uncovered }
-  }
-  return questionStillOpen(db, bus, cardId, latest.id) ? { code: stopCode, stop: latest.id, paths: named } : null
-}
-
-export function heldStopLine(cardId: number, held: HeldSessionStop): string {
-  const why = held.code === OUTSIDE_TOUCHES ? `its touches still miss ${held.paths.join(', ')}, so it waits for intake to widen them, or for a decision bound to the card or the owner's word closing its wait that no widening is needed` : 'the question it stopped on is still open, so it waits for the decision or the owner wait to close'
-  return `${held.code}: card #${cardId} is not launched again since stop ${held.stop}: ${why}`
 }
 
 const LATEST_ADMISSION = `SELECT payload FROM events WHERE type = '${CARD_ADMITTED}' AND legacy = 0 AND card_id = ? AND ${NOT_A_BACKFILL} ORDER BY id DESC LIMIT 1`
@@ -508,7 +450,13 @@ export class LaunchNode extends Node<LaunchStep> {
   }
 
   private sessionStopOf(start: RunningStart, session: SessionStart): SessionStop | null {
-    return sessionStopOf(reportedQuestions(this.launchParts.reportOf?.(session) ?? null), text => pathsOutsideTheBody(this.db, start.card_id, text))
+    return sessionStopOf(this.askedIn(session).questions, text => pathsOutsideTheBody(this.db, start.card_id, text))
+  }
+
+  private askedIn(session: SessionStart): { questions: string[], windowQuestions: WindowQuestion[] } {
+    const report = this.launchParts.reportOf?.(session) ?? null
+    const windowQuestions = reportedWindowQuestions(report)
+    return { questions: [...reportedQuestions(report), ...windowQuestions.map(asked => asked.question)], windowQuestions }
   }
 
   private reportedStopReason(start: RunningStart): string | null {
@@ -665,14 +613,14 @@ export class LaunchNode extends Node<LaunchStep> {
   }
 
   private stopWithoutPullRequest(start: RunningStart, card: StartedCard, session: SessionStart, refusal: string | null): boolean {
-    const questions = reportedQuestions(this.launchParts.reportOf?.(session) ?? null)
+    const { questions, windowQuestions } = this.askedIn(session)
     if (questions.length > 0 && questions.every(question => timeoutUnderLoadOutside(question, paths => pathsOutsideTheBody(this.db, start.card_id, paths.join('\n')))))
       return this.retryUnderLoad(start, card, session, questions)
     const result = this.launchParts.endedWith?.(session) ?? /^result:(.*)$/m.exec(this.launchParts.reportOf?.(session) ?? '')?.[1]?.trim() ?? null
     if (result !== null && prepushTimedOutOverGreenWitnesses(result) && questions.every(aboutThePrepushTimeout) && this.prepushRelaunchesOf(start) < SESSION_DEATH_CAP)
       return this.relaunchOnItsTree(start, card, result)
     if (questions.length > 0)
-      return this.launchParts.continuer !== undefined && this.continuationsUsed(start) < MAX_RESTARTS && lacksItsPackages(card.worktree) ? this.continueSession(start, card, this.launchParts.continuer, `card #${start.card_id} session ${card.session} asked a question from ${card.worktree}, whose lockfile names packages the tree lacks; the bus prepares the tree for the next session`) : this.stopOnQuestions(start, card, questions, splitByRepository(card.worktree, pathsOutsideTheBody(this.db, start.card_id, questions.join('\n'))), refusal, reportedStopReason(this.launchParts.reportOf?.(session) ?? null))
+      return this.launchParts.continuer !== undefined && this.continuationsUsed(start) < MAX_RESTARTS && lacksItsPackages(card.worktree) ? this.continueSession(start, card, this.launchParts.continuer, `card #${start.card_id} session ${card.session} asked a question from ${card.worktree}, whose lockfile names packages the tree lacks; the bus prepares the tree for the next session`) : this.stopOnQuestions(start, card, { questions, windowQuestions }, splitByRepository(card.worktree, pathsOutsideTheBody(this.db, start.card_id, questions.join('\n'))), refusal, reportedStopReason(this.launchParts.reportOf?.(session) ?? null))
     const ended = noPullRequestDetail(start.card_id, card.session, this.launchParts.endedWith?.(session) ?? null)
     const detail = refusal === null ? ended : `${ended}; ${refusal}`
     return inTransaction(this.db, () => this.faultStop(this.ts(), start, `${LAUNCH_STOP_WITH_NO_PULL_REQUEST}${start.dedupe_key}`, detail))
@@ -697,7 +645,7 @@ export class LaunchNode extends Node<LaunchStep> {
   }
 
   private prepushRelaunchesOf(start: RunningStart): number {
-    return new BusRead(this.db).where({ card: start.card_id }).slice(CARD_STOPPED, ['code']).filter(stop => stop.fields.code === PREPUSH_TIMEOUT).length
+    return stopsWithCode(this.db, start.card_id, PREPUSH_TIMEOUT)
   }
 
   private relaunchOnItsTree(start: RunningStart, card: StartedCard, result: string): boolean {
@@ -712,25 +660,31 @@ export class LaunchNode extends Node<LaunchStep> {
     })
   }
 
-  private openQuestionWaits(ts: string, start: RunningStart, card: StartedCard, questions: readonly string[]): void {
-    for (const question of questions)
-      openOwnerWait(this.db, ts, this.actor, { need: 'decision', text: `card #${start.card_id} session ${card.session} asks: ${question}`, command: cardDecisionCommand(start.card_id), card: start.card_id })
+  private openQuestionWaits(ts: string, start: RunningStart, card: StartedCard, { questions, windowQuestions }: { questions: readonly string[], windowQuestions: readonly WindowQuestion[] }): void {
+    const asks = `card #${start.card_id} session ${card.session} asks`
+    for (const question of questions.filter(each => !windowQuestions.some(asked => asked.question === each)))
+      openOwnerWait(this.db, ts, this.actor, { need: 'decision', text: `${asks}: ${question}`, command: cardDecisionCommand(start.card_id), card: start.card_id })
+    for (const { question, decision } of windowQuestions) {
+      const windowAsk = { need: 'decision' as const, text: `${asks} the window, under ${decision}: ${question}`, command: cardDecisionCommand(start.card_id), card: start.card_id, decision }
+      openOwnerWait(this.db, ts, this.actor, windowAsk)
+    }
   }
 
-  private stopOnQuestions(start: RunningStart, card: StartedCard, questions: readonly string[], asked: AskedPaths, refusal: string | null, reported: string | null): boolean {
-    const { widen, dropped } = asked
+  private stopOnQuestions(start: RunningStart, card: StartedCard, asked: { questions: readonly string[], windowQuestions: readonly WindowQuestion[] }, paths: AskedPaths, refusal: string | null, reported: string | null): boolean {
+    const { questions, windowQuestions } = asked
+    const { widen, dropped } = paths
     const ended = `card #${start.card_id} session ${card.session} ended with no pull request`
     const asks = widen.length === 0 ? `${ended} and asks: ${questions.join('; ')}` : `${ended} and asks to widen its touches to ${widen.join(', ')}: ${questions.join('; ')}`
     const named = dropped.length === 0 ? asks : `${asks}; ${NOT_A_REPOSITORY_PATH}: ${dropped.join(', ')}`
     const detail = refusal === null ? named : `${named}; ${refusal}`
     return inTransaction(this.db, () => {
       const ts = this.ts()
-      const recorded = appendEvent(this.db, { ts, type: CARD_STOPPED, actor: this.actor, cardId: start.card_id, pr: null, head: null, dedupeKey: `${LAUNCH_STOP_WITH_NO_PULL_REQUEST}${start.dedupe_key}`, payload: { reason: QUESTION_AGENT, code: widen.length === 0 ? OPEN_QUESTION : OUTSIDE_TOUCHES, blocker: questions.join('; '), paths: [...widen], detail, widen: [...widen], ...(dropped.length === 0 ? {} : { dropped: [...dropped] }), ...(reported === null ? {} : { stop_reason: reported }) }, legacy: false })
+      const recorded = appendEvent(this.db, { ts, type: CARD_STOPPED, actor: this.actor, cardId: start.card_id, pr: null, head: null, dedupeKey: `${LAUNCH_STOP_WITH_NO_PULL_REQUEST}${start.dedupe_key}`, payload: { reason: QUESTION_AGENT, code: widen.length === 0 ? OPEN_QUESTION : OUTSIDE_TOUCHES, blocker: questions.join('; '), paths: [...widen], detail, widen: [...widen], ...(dropped.length === 0 ? {} : { dropped: [...dropped] }), ...(reported === null ? {} : { stop_reason: reported }), ...(windowQuestions.length === 0 ? {} : { window: [...windowQuestions] }) }, legacy: false })
       const task = this.db.prepare(LAUNCH_TASK_OF_CARD).get(start.card_id) as LaunchTaskRow | undefined
       if (recorded && task?.state === COMPLETED)
         this.supersedeTheStoppedLaunch(ts, start.card_id, task)
       if (recorded && widen.length === 0)
-        this.openQuestionWaits(ts, start, card, questions)
+        this.openQuestionWaits(ts, start, card, asked)
       return recorded
     })
   }

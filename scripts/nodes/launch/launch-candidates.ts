@@ -1,19 +1,22 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { ParkedTask, Priority } from '../../../src/card/parking.js'
 import type { ShiftTask } from '../../../src/card/task-file.js'
+import type { SessionStopCode } from '../../core/card-hold.js'
 import type { MachineHold, MachineSessions } from '../../core/machine-sessions.js'
 import { existsSync } from 'node:fs'
 import process from 'node:process'
 import { parseParkingFile, WINDOW_WHO } from '../../../src/card/parking.js'
 import { NOT_A_BACKFILL } from '../../core/backfill-source.js'
+import { CLOSED_WAIT } from '../../core/bus-readings.js'
 import { DEFERRED_CARD, unsatisfiedDependencies } from '../../core/card-automaton.js'
-import { bodyNotFoldedYet } from '../../core/card-bodies.js'
-import { cardHoldOf } from '../../core/card-hold.js'
+import { bodyNotFoldedYet, pathsOutsideTheBody } from '../../core/card-bodies.js'
+import { cardHoldOf, SESSION_STOP_CODES } from '../../core/card-hold.js'
 import { appendEvent, DECISION_IN_FORCE } from '../../core/db.js'
-import { CARD_ADMITTED, CARD_CLOSED, CARD_DROPPED, CARD_FELL, CARD_STARTED, CARD_STOPPED, CARD_WAITING, GHOST_ROW, PR_CLOSED, PR_OBSERVED, PR_OPENED, SESSION_HEARTBEAT, TASK_REQUEUED } from '../../core/events.js'
+import { CARD_ADMITTED, CARD_CLOSED, CARD_DROPPED, CARD_FELL, CARD_STARTED, CARD_STOPPED, CARD_WAITING, COMMAND_EXECUTED, DECISION_RECORDED, GHOST_ROW, OUTSIDE_TOUCHES, OWNER_WAIT_OPENED, PR_CLOSED, PR_OBSERVED, PR_OPENED, SESSION_HEARTBEAT, TASK_REQUEUED } from '../../core/events.js'
 import { prOf } from '../../core/identifiers.js'
 import { busNameOfDb, machineHoldLine, machineSessions } from '../../core/machine-sessions.js'
 import { namesQueueLive } from '../../policy/live-decision.js'
+import { BusRead } from '../../ports/bus-read.js'
 import { isAlive } from '../../quality/lock.js'
 import { beatsLive } from '../../supervisor/liveness-sites.js'
 import { chainLaneNumber, currentLane, heldByStall, repositoryLanes, stalledCards, startOrder } from './lane-assign.js'
@@ -81,6 +84,81 @@ const LAST_SESSION_BEATS = `
 `
 
 export type TreeReader = (worktree: string) => boolean
+
+export interface HeldSessionStop {
+  code: SessionStopCode
+  stop: number
+  paths: string[]
+}
+
+export interface WindowQuestion {
+  question: string
+  decision: string
+}
+
+const WINDOW_QUESTION_LINE = /^window-question:([^·\n]+)·[ \t]*(D-\d+)[ \t]*$/gm
+
+export function reportedWindowQuestions(report: string | null): WindowQuestion[] {
+  return [...(report ?? '').matchAll(WINDOW_QUESTION_LINE)].map(line => ({ question: line[1]!.trim(), decision: line[2]! })).filter(asked => asked.question !== '')
+}
+
+function stopCodeOf(value: unknown): SessionStopCode | null {
+  return SESSION_STOP_CODES.find(code => code === value) ?? null
+}
+
+function strings(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((each): each is string => typeof each === 'string') : []
+}
+
+function decidedOnTheCardSince(bus: BusRead, cardId: number, stop: number): boolean {
+  return bus.where({ from: stop + 1 }).slice(DECISION_RECORDED, ['scope']).some(decided => Array.isArray(decided.fields.scope) && decided.fields.scope.includes(cardId))
+}
+
+const CLOSED_WAITS_OF_THE_CARD = `SELECT w.id, w.event_id, e.type FROM owner_waits AS w JOIN events AS e ON e.id = w.event_id WHERE w.card_id = ? AND w.state = '${CLOSED_WAIT}'`
+
+function closedWaitsOf(db: DatabaseSync, cardId: number): { id: string, event_id: number, type: string }[] {
+  return db.prepare(CLOSED_WAITS_OF_THE_CARD).all(cardId) as unknown as { id: string, event_id: number, type: string }[]
+}
+
+function ownerAnsweredSince(db: DatabaseSync, bus: BusRead, cardId: number, stop: number): boolean {
+  return decidedOnTheCardSince(bus, cardId, stop) || closedWaitsOf(db, cardId).some(wait => wait.event_id > stop && wait.type !== CARD_ADMITTED)
+}
+
+function questionStillOpen(db: DatabaseSync, bus: BusRead, cardId: number, stop: number): boolean {
+  if (decidedOnTheCardSince(bus, cardId, stop))
+    return false
+  const closed = new Set(closedWaitsOf(db, cardId).map(wait => wait.id))
+  const openedSince = bus.where({ from: stop + 1 }).where({ card: cardId }).slice(OWNER_WAIT_OPENED, ['id'])
+  return openedSince.some(opened => !closed.has(String(opened.fields.id)))
+}
+
+export function heldSessionStop(db: DatabaseSync, cardId: number): HeldSessionStop | null {
+  const bus = new BusRead(db)
+  const latest = bus.where({ card: cardId }).slice(CARD_STOPPED, ['code', 'paths'], 'last')[0]
+  const stopCode = stopCodeOf(latest?.fields.code)
+  if (latest === undefined || stopCode === null)
+    return null
+  const named = strings(latest.fields.paths)
+  if (stopCode === OUTSIDE_TOUCHES) {
+    const uncovered = pathsOutsideTheBody(db, cardId, named.join('\n'))
+    return uncovered.length === 0 || ownerAnsweredSince(db, bus, cardId, latest.id) ? null : { code: stopCode, stop: latest.id, paths: uncovered }
+  }
+  return questionStillOpen(db, bus, cardId, latest.id) ? { code: stopCode, stop: latest.id, paths: named } : null
+}
+
+export function commandRanSince(db: DatabaseSync, cardId: number, command: string, since?: number): boolean {
+  const ofTheCard = new BusRead(db).where({ card: cardId })
+  return ofTheCard.where({ from: (since ?? ofTheCard.slice(CARD_STARTED, ['session'], 'last')[0]?.id ?? 0) + 1 }).slice(COMMAND_EXECUTED, ['command']).some(ran => ran.fields.command === command)
+}
+
+export function stopsWithCode(db: DatabaseSync, cardId: number, code: string): number {
+  return new BusRead(db).where({ card: cardId }).slice(CARD_STOPPED, ['code']).filter(stop => stop.fields.code === code).length
+}
+
+export function heldStopLine(cardId: number, held: HeldSessionStop): string {
+  const why = held.code === OUTSIDE_TOUCHES ? `its touches still miss ${held.paths.join(', ')}, so it waits for intake to widen them, or for a decision bound to the card or the owner's word closing its wait that no widening is needed` : 'the question it stopped on is still open, so it waits for the decision or the owner wait to close'
+  return `${held.code}: card #${cardId} is not launched again since stop ${held.stop}: ${why}`
+}
 
 interface LifeRow {
   id: number
@@ -311,14 +389,19 @@ interface Holds {
   heldByStalls: Map<string, CardLife[]>
 }
 
-function holdsOf(db: DatabaseSync, lives: ReadonlyMap<number, CardLife>, merged: ReadonlySet<number>, openPrs: ReadonlySet<number>): Holds {
+function launchHeldByItsQuestion(db: DatabaseSync, cardId: number, beating: ReadonlySet<number>): boolean {
+  return !beating.has(cardId) && heldSessionStop(db, cardId) !== null
+}
+
+function holdsOf(db: DatabaseSync, lives: ReadonlyMap<number, CardLife>, merged: ReadonlySet<number>, openPrs: ReadonlySet<number>, beating: ReadonlySet<number>): Holds {
   const launching = cardSet(db, OPEN_LAUNCHES)
   const ended = cardSet(db, ENDED_CARDS)
   const stalled = new Set(stalledCards(db).map(stall => stall.cardId))
   const holds: Holds = { holding: [], busy: [], heldByStalls: new Map() }
   for (const life of lives.values()) {
     const running = runs(life) && !merged.has(life.cardId) && !ended.has(life.cardId)
-    const holding = running || launching.has(life.cardId) || openPrs.has(life.cardId)
+    const launchHolds = launching.has(life.cardId) && !launchHeldByItsQuestion(db, life.cardId, beating)
+    const holding = running || launchHolds || openPrs.has(life.cardId)
     if (life.lane !== null && stalled.has(life.cardId))
       holds.heldByStalls.set(life.lane, [...(holds.heldByStalls.get(life.lane) ?? []), life])
     else if (life.lane !== null && holding)
@@ -427,7 +510,7 @@ export function startableCards(db: DatabaseSync, treeLive: TreeReader = existsSy
   const beating = cardsBeatingLive(db, now())
   const noLongerCandidates = cardSet(db, NO_LONGER_CANDIDATES)
   const falls = fallCounts(db)
-  const holds = holdsOf(db, lives, merged, openPrs)
+  const holds = holdsOf(db, lives, merged, openPrs, beating)
   const prNumbers = openPrNumbers(db)
   return [...lives.values()]
     .filter(life => !noLongerCandidates.has(life.cardId) && !life.windowsToWork && (falls.get(life.cardId) ?? 0) < FALLS_BEFORE_CUT && isQueued(life, settled) && unsatisfied(life.depends).length === 0 && !heldOutside(life, openPrs, trees, beating) && cardHoldOf(db, life.cardId) === null)
@@ -483,7 +566,7 @@ export function launchCandidates(db: DatabaseSync, treeLive: TreeReader = exists
   const beating = cardsBeatingLive(db, now())
   const noLongerCandidates = cardSet(db, NO_LONGER_CANDIDATES)
   const falls = fallCounts(db)
-  const { holding, busy: busyCards, heldByStalls } = holdsOf(db, lives, merged, openPrs)
+  const { holding, busy: busyCards, heldByStalls } = holdsOf(db, lives, merged, openPrs, beating)
   const busy = new Set(busyCards.map(life => life.lane))
   const taken = holding.flatMap(life => life.task ?? [])
   const chosen: LaunchCandidate[] = []
