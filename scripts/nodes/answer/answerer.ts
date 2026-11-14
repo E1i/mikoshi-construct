@@ -21,6 +21,7 @@ import { appendEvent, defaultBusPath, openBus } from '../../core/db.js'
 import { TOUCHES_FOLLOWED } from '../../core/events.js'
 import { assertHeld, StaleLease } from '../../core/lease.js'
 import { busNameOf, machineGate, machineSessions } from '../../core/machine-sessions.js'
+import { busWriteAt, ChildLog } from '../../core/node.js'
 import { machineOverloadedLine, timeoutUnderLoadOutside } from '../../core/observations.js'
 import { treeReportPath } from '../../core/places.js'
 import { pushPolicyOf } from '../../core/push-policy.js'
@@ -28,7 +29,7 @@ import { busCardBodies } from '../../intake/parking-reads.js'
 import { GhCiRuns } from '../../ports/ci-reading.js'
 import { hasClientTranscript } from '../../ports/client/claude/adapter.js'
 import { processGit } from '../../ports/git.js'
-import { OsProcessTable } from '../../ports/process-table.js'
+import { identityOf, OsProcessTable } from '../../ports/process-table.js'
 import { CARD_SIZE_VARIABLE, CARD_VARIABLE, cardSessionOverlay, cardSizeIn, clientInvocation, sessionEnv, streamReading } from '../../ports/session.js'
 import { MAIN_BRANCH } from '../../ports/snapshot.js'
 import { isAlive } from '../../quality/lock.js'
@@ -80,6 +81,8 @@ export function tokensOf(usage: Usage | null): number | null {
   return counts.length === 0 ? null : counts.reduce((sum, count) => sum + count, 0)
 }
 
+export const ANSWER_CHILD = 'answer'
+
 export type Answerer = (request: AnswerRequest) => Promise<Answered>
 
 export type CardText = (cardId: number) => string | null
@@ -106,6 +109,7 @@ export interface AnswererTools {
   localHead?: (card: CardSession) => string | null
   now?: () => number
   machine?: MachineGate
+  children?: ChildLog
 }
 
 export type AnswerPulse = (lease: Lease, session: string) => void
@@ -435,6 +439,7 @@ export function realAnswererTools(busPath: string = defaultBusPath()): AnswererT
     contextWarn: contextWarnOfEddies,
     diff: diffAgainstBase,
     ciLog: (card, head) => new GhCiRuns().failureLogOn(head, card.worktree),
+    children: new ChildLog(busWriteAt(busPath), pid => identityOf(new OsProcessTable().snapshot(), pid), () => new Date(), process.env),
   }
 }
 
@@ -511,7 +516,7 @@ function sessionAnswerer(dir: string, tools: AnswererTools): Answerer {
         return 1
       timer.spawning()
       try {
-        return await tools.spawn({
+        const spawned = async (started?: (pid: number) => void): Promise<number> => tools.spawn({
           cwd: card.worktree,
           command: invocation.command,
           argv: invocation.args,
@@ -520,7 +525,9 @@ function sessionAnswerer(dir: string, tools: AnswererTools): Answerer {
           env: { ...sessionEnv(process.env, request.lease.cardId, cardSessionOverlay(projectRoot(process.env), process.env, size)), ...invocation.env },
           signal: withdrawn.signal,
           onLine: line => timer.line(line),
+          ...(started === undefined ? {} : { started }),
         })
+        return await (tools.children?.around({ actor: request.lease.actor, taskKey: request.lease.taskKey, kind: ANSWER_CHILD, tree: card.worktree }, spawned) ?? spawned())
       }
       catch (error) {
         if (withdrawn.signal.aborted)

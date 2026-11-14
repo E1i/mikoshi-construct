@@ -16,9 +16,10 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { defaultBusPath, openBus } from '../../core/db.js'
 import { RENEW_MS, renewLease, StaleLease } from '../../core/lease.js'
 import { busNameOf, machineGate, machineSessions } from '../../core/machine-sessions.js'
+import { busWriteAt, ChildLog } from '../../core/node.js'
 import { processGit } from '../../ports/git.js'
 import { prepareTree } from '../../ports/prepare-tree.js'
-import { OsProcessTable } from '../../ports/process-table.js'
+import { OsProcessTable, identityOf as rowIdentityOf } from '../../ports/process-table.js'
 import { reviewModelOf, SessionCeilingReached, spawnSession, streamReading, withoutCard } from '../../ports/session.js'
 import { FREE_TREE_CAPACITY, FREE_TREES, gitIn, parkTree, takeFreeTree } from '../../ports/worktree.js'
 import { isAlive, joinReviewTree, leaveReviewTree, WORKER_LIMIT_VARIABLE } from '../../quality/lock.js'
@@ -415,9 +416,11 @@ export interface ReviewStart {
   leaveWorkers: (tree: string) => void
   descendants?: SessionDescendants
   verdictPollMs?: number
+  children?: ChildLog
 }
 
 export const VERDICT_POLL_MS = 1_000
+export const REVIEW_CHILD = 'review'
 
 function writtenVerdict(verdictPath: string, session: string): Review | null {
   try {
@@ -602,7 +605,7 @@ function renewedWhileHeld(busPath: string, now: () => number = Date.now): (lease
 }
 
 export function realReviewStart(busPath: string = defaultBusPath()): ReviewStart {
-  return { gate: machineGate(busNameOf(busPath), 'review', { machine: machineSessions(isAlive) }), keep: renewedWhileHeld(busPath), joinWorkers: joinReviewTree, leaveWorkers: leaveReviewTree, descendants: osDescendants() }
+  return { gate: machineGate(busNameOf(busPath), 'review', { machine: machineSessions(isAlive) }), keep: renewedWhileHeld(busPath), joinWorkers: joinReviewTree, leaveWorkers: leaveReviewTree, descendants: osDescendants(), children: new ChildLog(busWriteAt(busPath), pid => rowIdentityOf(new OsProcessTable().snapshot(), pid), () => new Date(), process.env) }
 }
 
 export function claudeReviewer(trees: ReviewTrees, spawn: (params: SpawnSessionParams) => Promise<number> = spawnSession, pulse: SessionPulse = () => {}, beatMs = REVIEW_BEAT_MS, prBodyOf: PrBodyOf = NO_PR_BODY, start: ReviewStart = realReviewStart()): Reviewer {
@@ -629,7 +632,8 @@ function reviewerOfTree(trees: ReviewTrees, spawn: (params: SpawnSessionParams) 
     const underTheBudget = async (stop: AbortSignal): Promise<number> => {
       const workers = start.joinWorkers(tree)
       try {
-        return await watchingDescendants(async () => spawn({ ...params, env: { ...params.env, [WORKER_LIMIT_VARIABLE]: String(workers) } }), session, start.descendants, stop)
+        const spawned = async (started?: (pid: number) => void): Promise<number> => spawn({ ...params, env: { ...params.env, [WORKER_LIMIT_VARIABLE]: String(workers) }, ...(started === undefined ? {} : { started }) })
+        return await watchingDescendants(async () => start.children?.around({ actor: lease.actor, taskKey: lease.taskKey, kind: REVIEW_CHILD, tree }, spawned) ?? spawned(), session, start.descendants, stop)
       }
       finally {
         start.leaveWorkers(tree)

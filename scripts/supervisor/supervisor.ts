@@ -28,9 +28,10 @@ import { WindowSessionEnds } from '../window/window-session-end.js'
 import { BUILD_DIR, BUILT_MODULE, flagsInArgs, installedPackage, instancesOf, launchName, PREFIX, printBg, provenOnBus, runBusBg, runningInstance, stampedOtherwise, startDetached, thisBus, withBuses } from './bg.js'
 import { BusHealer, CorruptionWatch, RecordedNodes } from './bus-heal.js'
 import { BusSnapshot } from './bus-snapshot.js'
-import { busProjections } from './composition.js'
+import { busProjections, recordOwnStart } from './composition.js'
 import { CARD_PROCESS, lastProcessBeats, recordProcessHeartbeat } from './heartbeat.js'
 import { beatsLive, SILENT_MS } from './liveness-sites.js'
+import { generationEnv } from './recorded-worker.js'
 import { busShadowProblems, startReviewWorker } from './review-bg.js'
 import { stampLogOutput } from './stamp.js'
 import { WindowSubagentTick } from './window-subagent-tick.js'
@@ -1020,9 +1021,7 @@ async function supervise(busDir: string, cwd: string, reviewPreflight: () => str
   const busPath = defaultBusPath()
   const db = openBus(busPath)
   const everyProcess = groupedPsList()
-  const journal = (entry: Record<string, unknown>): void => {
-    appendFileSync(path.join(busDir, SUPERVISOR_JOURNAL), `${JSON.stringify(entry)}\n`)
-  }
+  const journal = (entry: Record<string, unknown>): void => appendFileSync(path.join(busDir, SUPERVISOR_JOURNAL), `${JSON.stringify(entry)}\n`)
   const code = gitCode(cwd)
   const known = busLaunches(reviewPreflight)
   const nodes = new RecordedNodes(busPath, {
@@ -1033,8 +1032,9 @@ async function supervise(busDir: string, cwd: string, reviewPreflight: () => str
     now: () => new Date(),
   })
   const processes = withoutRetiring(everyProcess, db, () => nodes.held())
-  const start = (launch: DetachedLaunch): BgResult => nodes.started(launch, startReviewWorker(launch, busDir, process.env, processes))
+  const start = (launch: DetachedLaunch): BgResult => nodes.started(launch, startReviewWorker(launch, busDir, generationEnv(code), processes))
   const wanted = (): DetachedLaunch[] => nodes.held() ? [] : wantedLaunches(busDir, reviewPreflight, inForceDecisions(db))
+  recordOwnStart(db, 'supervisor')
   foreignBusLines(everyProcess(), ownPackage()).forEach(line => console.log(line))
   recordStarted(db, new Date().toISOString(), code, line => console.log(line))
   const supervisor = new BusSupervisor({

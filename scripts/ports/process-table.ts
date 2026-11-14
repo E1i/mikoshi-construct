@@ -48,6 +48,23 @@ export function rowOf(snapshot: ProcessSnapshot, pid: number): ProcessRow | null
   return snapshot.readable ? snapshot.rows.find(row => row.pid === pid) ?? null : null
 }
 
+export interface RowIdentity {
+  pid: number
+  pgid: number
+  lstart: string
+}
+
+export function lstartOf(row: ProcessRow): string | null {
+  const ms = Date.parse(row.started)
+  return Number.isNaN(ms) ? null : new Date(ms).toISOString()
+}
+
+export function identityOf(snapshot: ProcessSnapshot, pid: number): RowIdentity | null {
+  const row = rowOf(snapshot, pid)
+  const lstart = row === null ? null : lstartOf(row)
+  return row === null || lstart === null ? null : { pid, pgid: row.pgid, lstart }
+}
+
 export function rowsOf(snapshot: ProcessSnapshot): readonly ProcessRow[] {
   if (!snapshot.readable)
     throw new Error(`the process table could not be read: ${snapshot.reason}`)
