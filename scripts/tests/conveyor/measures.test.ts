@@ -154,6 +154,29 @@ describe('measure 2: rounds cut by restart over rounds live at restart', () => {
     expect(takeMeasures(db, WINDOW).restartCuts).toEqual({ cut: 3, live: 6, retirings: 1 })
   })
 
+  it('counts a signal as a cut only between the retiring and the round\'s own end, by a signal name or exit 143, and only for leases held at the retiring', () => {
+    const { db } = bus()
+    leased(db, { task: 'answer:signalled-before' })
+    childEnded(db, 'answer:signalled-before', null, 'SIGTERM')
+    leased(db, { task: 'answer:signal-after-end' })
+    leased(db, { task: 'answer:still-held' })
+    leased(db, { task: 'answer:exit-143' })
+    leased(db, { task: 'answer:empty-signal' })
+    put(db, { type: WORKER_RETIRING, payload: { worker: OLD_WORKER, node: 'answer', pids: [1], sha: 'a', from: 'b' } })
+    leased(db, { task: 'answer:after-retiring' })
+    childEnded(db, 'answer:after-retiring', null, 'SIGTERM')
+    ended(db, TASK_COMPLETED, 'answer:signalled-before')
+    ended(db, TASK_COMPLETED, 'answer:signal-after-end')
+    childEnded(db, 'answer:signal-after-end', null, 'SIGTERM')
+    childEnded(db, 'answer:still-held', null, 'SIGTERM')
+    childEnded(db, 'answer:exit-143', 143, null)
+    ended(db, TASK_FAILED, 'answer:exit-143', 'answer_failed')
+    childEnded(db, 'answer:empty-signal', 1, '')
+    ended(db, TASK_FAILED, 'answer:empty-signal', 'answer_failed')
+
+    expect(takeMeasures(db, WINDOW).restartCuts).toEqual({ cut: 2, live: 5, retirings: 1 })
+  })
+
   it('reads a later lease generation of the same task as its own round', () => {
     const { db } = bus()
     leased(db, { task: 'answer:again', gen: 1 })
