@@ -12,7 +12,7 @@ export const ANSWER_WORD = 'answer'
 const A_WAIT = /^Q\d+$/
 const A_CARD = /^#?(\d+)$/
 
-export const USAGE = 'usage: owner:answer <Q<N>|#<card>> "<the owner\'s words>"'
+export const USAGE = 'usage: construct-answer <Q<N>|#<card>> "<the owner\'s words>"'
 
 export function answerWord(target: string, words: string): string {
   return `${ANSWER_WORD} ${target}: ${words}`

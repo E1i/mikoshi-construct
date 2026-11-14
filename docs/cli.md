@@ -1144,6 +1144,20 @@ pnpm owner:answer '#1743' "go on with the fixes"
 Exit `0` when the word and the request are written; `2` when the target or the words are missing, and
 nothing is written.
 
+## construct-answer
+
+A bin of its own beside `construct`: `pnpm owner:answer` from the installed package,
+`dist/scripts/owner/answer.js`, as [`construct-intake`](#construct-intake) is `construct intake`
+wired to the bus. It finds the bus of the repository it runs in and its owner channel the way
+`construct-intake` does, and takes the same arguments, writes the same word and request, and exits
+with the same codes as [`pnpm owner:answer`](#pnpm-owneranswer). The published `construct` has no
+answer command and writes nothing into a bus.
+
+```bash
+construct-answer Q336 "close it with D-524"
+construct-answer '#1743' "go on with the fixes"
+```
+
 ## Exit codes
 
 | Code | Meaning |
