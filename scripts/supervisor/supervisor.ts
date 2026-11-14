@@ -36,7 +36,7 @@ import { BusSnapshot } from './bus-snapshot.js'
 import { busProjections, recordOwnStart } from './composition.js'
 import { CARD_PROCESS, lastProcessBeats, recordProcessHeartbeat } from './heartbeat.js'
 import { beatsLive, SILENT_MS } from './liveness-sites.js'
-import { generationEnv } from './recorded-worker.js'
+import { generationEnv, identifiedOnBus, identifiedProcesses, readableRows } from './recorded-worker.js'
 import { busShadowProblems, startReviewWorker } from './review-bg.js'
 import { stampLogOutput } from './stamp.js'
 import { WindowSubagentTick } from './window-subagent-tick.js'
@@ -157,15 +157,15 @@ export function signal(pid: number, name: NodeJS.Signals): void {
   }
 }
 
-export async function stopInstance(running: RunningProcess, markers: readonly string[], processes: ProcessList, pause: (ms: number) => Promise<unknown> = sleep): Promise<void> {
+export async function stopInstance(running: RunningProcess, processes: ProcessList, pause: (ms: number) => Promise<unknown> = sleep): Promise<void> {
   signal(running.pid, 'SIGTERM')
   for (let waited = 0; waited < STOP_WAIT_MS; waited += STOP_POLL_MS) {
-    if (runningInstance(processes(), markers) === undefined)
+    if (!processes().some(candidate => candidate.pid === running.pid))
       return
     await pause(STOP_POLL_MS)
   }
-  for (const left of instancesOf(processes(), markers))
-    signal(left.pid, 'SIGKILL')
+  if (processes().some(candidate => candidate.pid === running.pid))
+    signal(running.pid, 'SIGKILL')
   await pause(STOP_POLL_MS)
 }
 
@@ -887,7 +887,7 @@ function startedAtOf(file: string): number | null {
 async function restartSilentSupervisorOnBus(busDir: string, processes: ProcessList): Promise<string[]> {
   const db = openBus(defaultBusPath())
   try {
-    return await restartSilentSupervisor({ db, now: () => Date.now(), startedAt: () => startedAtOf(path.join(busDir, SUPERVISOR_INSTANCE_FILE)), processes, stop: running => stopInstance(running, SUPERVISOR_LAUNCH.markers, processes) })
+    return await restartSilentSupervisor({ db, now: () => Date.now(), startedAt: () => startedAtOf(path.join(busDir, SUPERVISOR_INSTANCE_FILE)), processes, stop: running => stopInstance(running, processes) })
   }
   catch (error) {
     return [`${PREFIX}judging the supervisor heartbeat failed: ${error instanceof Error ? error.message : String(error)}; judged again on the next start`]
@@ -1005,7 +1005,7 @@ export interface SwitchControl {
 async function supervise(busDir: string, cwd: string, reviewPreflight: () => string[]): Promise<number> {
   const busPath = defaultBusPath()
   const db = openBus(busPath)
-  const everyProcess = groupedPsList()
+  const everyProcess = identifiedProcesses(new OsProcessTable(), db)
   const journal = (entry: Record<string, unknown>): void => appendFileSync(path.join(busDir, SUPERVISOR_JOURNAL), `${JSON.stringify(entry)}\n`)
   const code = gitCode(cwd)
   const known = busLaunches(reviewPreflight)
@@ -1020,13 +1020,13 @@ async function supervise(busDir: string, cwd: string, reviewPreflight: () => str
   const start = (launch: DetachedLaunch): BgResult => nodes.started(launch, startReviewWorker(launch, busDir, generationEnv(code), processes))
   const wanted = (): DetachedLaunch[] => nodes.held() ? [] : wantedLaunches(busDir, reviewPreflight, inForceDecisions(db))
   recordOwnStart(db, 'supervisor')
-  foreignBusLines(everyProcess(), ownPackage()).forEach(line => console.log(line))
+  foreignBusLines(groupedPsList()(), ownPackage()).forEach(line => console.log(line))
   recordStarted(db, new Date().toISOString(), code, line => console.log(line))
   const supervisor = new BusSupervisor({
     known: busLaunches(reviewPreflight),
     wanted,
     start,
-    stop: (running, launch) => stopInstance(running, launch.markers, processes),
+    stop: running => stopInstance(running, processes),
     freeLeases: stopped => freeLeasesOf(db, new Date().toISOString(), stopped),
     drain: busDrain(db, () => new Date().toISOString(), psStartOf),
     processes,
@@ -1045,7 +1045,7 @@ async function supervise(busDir: string, cwd: string, reviewPreflight: () => str
     down: down => recordWorkerDown(db, new Date().toISOString(), down),
     now: () => Date.now(),
   })
-  const restartJudged = (name: string): Promise<string[]> => restartSilent(name, wanted(), { processes, start, stop: (running, launch) => stopInstance(running, launch.markers, processes) })
+  const restartJudged = (name: string): Promise<string[]> => restartSilent(name, wanted(), { processes, start, stop: running => stopInstance(running, processes) })
   console.log(`${PREFIX}supervising the bus processes over ${busPath}: a main.advanced or a move of the local ${LOCAL_MAIN_REF} restarts, once ${cwd} holds it, each bus process whose code it changed, and this supervisor when its own code changed, and each tick starts a switched-on worker that is not running and stops a switched-off one that is`)
   try {
     await superviseUntilReplaced({
@@ -1128,18 +1128,18 @@ function withoutRetiringOnBus(processes: () => (RunningProcess & Partial<Grouped
   return () => onBus(db => withoutRetiring(processes, db)())
 }
 
-export async function startBus(busDir: string = pinnedBusDir(), everyProcess: () => (RunningProcess & Partial<GroupedProcess>)[] = groupedPsList(), code: Pick<BusCode, 'head'> | null = installedPackage() === null ? gitCode(process.cwd()) : null, start: AgentHand['start'] = startReviewWorker): Promise<BgResult> {
+export async function startBus(busDir: string = pinnedBusDir(), everyProcess: () => (RunningProcess & Partial<GroupedProcess>)[] = identifiedOnBus(defaultBusPath), code: Pick<BusCode, 'head'> | null = installedPackage() === null ? gitCode(process.cwd()) : null, start: AgentHand['start'] = startReviewWorker, wholeTable: () => RunningProcess[] = readableRows()): Promise<BgResult> {
   const processes = withoutRetiringOnBus(everyProcess)
   const judged = await restartSilentSupervisorOnBus(busDir, everyProcess)
   const started = await startUnderAgentEnv(busDir, [...wantedLaunches(busDir, reviewPreflight, decisionsInForce()), SUPERVISOR_LAUNCH], {
     env: code === null ? process.env : generationEnv(code),
     processes,
     ownPackage: ownPackage(),
-    stop: (running, launch) => stopInstance(running, launch.markers, processes),
+    stop: running => stopInstance(running, processes),
     freeLeases: freeLeasesOnBus,
     start,
   })
-  return { ...started, stdout: [...foreignBusLines(processes(), ownPackage()), ...judged, ...started.stdout] }
+  return { ...started, stdout: [...foreignBusLines(wholeTable(), ownPackage()), ...judged, ...started.stdout] }
 }
 
 async function main(): Promise<void> {
