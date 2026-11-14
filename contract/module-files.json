@@ -633,6 +633,7 @@
     "scripts/tests/contract/module-graph-tool.test.ts",
     "scripts/tests/contract/owner-commands-detector.test.ts",
     "scripts/tests/contract/port-language.test.ts",
+    "scripts/tests/conveyor/measures.test.ts",
     "scripts/tests/core/card-decisions.test.ts",
     "scripts/tests/core/core-runs-no-git.test.ts",
     "scripts/tests/core/events.test.ts",
@@ -2478,6 +2479,7 @@
     "src/ui/theme.ts"
   ],
   "window": [
+    "scripts/conveyor/measures.ts",
     "scripts/window/board.ts",
     "scripts/window/card-measure.ts",
     "scripts/window/compact-start.ts",
