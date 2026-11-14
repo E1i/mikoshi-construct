@@ -21,7 +21,7 @@ import { BusRead } from '../../../ports/bus-read.js'
 import { identityOf } from '../../../ports/process-table.js'
 import { BUS_RUN_LAUNCH, handedIdentity, PREFIX, startDetached } from '../../../supervisor/bg.js'
 import { childrenNotEnded, identifiedOnBus, identifiedProcesses, readableRows, recordedWorkers, runningAs, SAME_START_MS, sameStart } from '../../../supervisor/recorded-worker.js'
-import { BusSupervisor, mainAdvancedSince, stopInstance, withoutRetiring } from '../../../supervisor/supervisor.js'
+import { BusSupervisor, mainAdvancedSince, stopInstance, SUPERVISOR_LAUNCH, withoutRetiring } from '../../../supervisor/supervisor.js'
 import { workerLaunches } from '../../../supervisor/workers.js'
 import { waitFor } from '../../wait-for.js'
 
@@ -282,13 +282,36 @@ describe('f2 (K1b): the stop reads the records and never starts a duplicate of a
     db.close()
   })
 
-  it('an unrecorded process of another bus, of no named bus, of no bus launch, or a running child is not adopted', () => {
+  it('a bus:run or supervisor started by hand against the default bus, with no --bus and no record, is adopted, so a start leaves it alone and a stop signals it', async () => {
+    const { root, busPath, db } = freshBus()
+    const [run, supervisor] = [detachedSleep(), detachedSleep()]
+    const at = new Date()
+    const table = spawnedTable([
+      detachedRow(run.pid!, at, BUS_RUN_COMMAND),
+      detachedRow(supervisor.pid!, at, `node --import tsx ${SUPERVISOR_LAUNCH.markers[0]} --supervise`),
+    ])
+    const processes = identifiedProcesses(table, db, { bus: busPath, markers: [BUS_RUN_LAUNCH.markers, SUPERVISOR_LAUNCH.markers] })
+    expect(processes().map(each => each.pid).sort()).toEqual([run.pid, supervisor.pid].sort())
+    expect(recordedWorkers(db).map(each => each.pid).sort()).toEqual([run.pid, supervisor.pid].sort())
+
+    const busDir = path.join(root, 'bus')
+    mkdirSync(busDir)
+    for (const [launch, sleeper] of [[BUS_RUN_LAUNCH, run], [SUPERVISOR_LAUNCH, supervisor]] as const) {
+      const start = startDetached(launch, busDir, { [BUS_DB_VARIABLE]: busPath }, processes)
+      expect(start.alreadyRunning?.pid).toBe(sleeper.pid)
+      const exit = once(sleeper, 'exit')
+      await stopInstance(start.alreadyRunning!, processes, async () => {})
+      expect((await exit)[1]).toBe('SIGTERM')
+    }
+    db.close()
+  })
+
+  it('an unrecorded process of another bus, of no bus launch, or a running child is not adopted', () => {
     const { busPath, db } = freshBus()
-    const [other, unnamed, foreign, child] = [detachedSleep(), detachedSleep(), detachedSleep(), detachedSleep()]
+    const [other, foreign, child] = [detachedSleep(), detachedSleep(), detachedSleep()]
     const at = new Date()
     const table = spawnedTable([
       detachedRow(other.pid!, at, `${BUS_RUN_COMMAND} --bus /elsewhere/bus.db`),
-      detachedRow(unnamed.pid!, at, BUS_RUN_COMMAND),
       detachedRow(foreign.pid!, at, `sleep 30 --bus ${busPath}`),
       detachedRow(child.pid!, at, `${BUS_RUN_COMMAND} --bus ${busPath}`),
     ])

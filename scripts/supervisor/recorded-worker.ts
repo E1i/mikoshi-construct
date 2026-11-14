@@ -135,8 +135,9 @@ export interface Adoption {
 export const ADOPTED_KIND = 'adopted'
 
 function adoptable(row: ProcessRow, adoption: Adoption): boolean {
-  const [candidate] = withBuses([{ pid: row.pid, args: row.command }])
-  return row.pid !== process.pid && provenOnBus(candidate!, adoption.bus) && adoption.markers.some(markers => carriesMarker(row.command, markers))
+  const [candidate] = withBuses<RunningProcess>([{ pid: row.pid, args: row.command }])
+  const ofThisBus = candidate!.bus === undefined || provenOnBus(candidate!, adoption.bus)
+  return row.pid !== process.pid && ofThisBus && adoption.markers.some(markers => carriesMarker(row.command, markers))
 }
 
 function adopt(db: DatabaseSync, snapshot: ProcessSnapshot, row: ProcessRow): ProcessRow | null {
