@@ -61,6 +61,9 @@ const SOURCE_SUFFIX = '.ts'
 const FACTORY_CORE = 'core/'
 const FACTORY_IMPORT = /^[\w-]+(?:\/[\w-]+)*(?:\.js|\/)$/
 
+const PENDING_CHANGESETS = '.changeset/*.md'
+const CHANGESETS_README = '.changeset/README.md'
+
 const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..')
 const WILDCARD = '*'
 const FOLDER_END = '/'
@@ -225,8 +228,16 @@ function ownerRefusalOf(modules: readonly ModuleDeclaration[], file: string, cov
   return { path: file, owner, modules: named, add }
 }
 
+export function isPendingChangeset(file: string): boolean {
+  return file !== CHANGESETS_README && matches(PENDING_CHANGESETS, file)
+}
+
+function moduleFilesAmong(tracked: readonly string[]): string[] {
+  return tracked.filter(file => !isPendingChangeset(file))
+}
+
 export function createsOwnerRefusals(modules: readonly ModuleDeclaration[], creates: readonly string[], covered: (file: string) => boolean): CreatesOwnerRefusal[] {
-  return creates.flatMap(file => ownerRefusalOf(modules, file, covered) ?? [])
+  return moduleFilesAmong(creates).flatMap(file => ownerRefusalOf(modules, file, covered) ?? [])
 }
 
 function moduleOf(key: string, value: Record<string, unknown>, problem: Problem): ModuleDeclaration | null {
@@ -478,7 +489,7 @@ function mayUseProblems(mayUse: readonly MayUse[], internalModules: readonly str
 export function validateDeclarations(declarations: Declarations, tracked: readonly string[]): string[] {
   return [
     ...declarations.problems,
-    ...moduleProblems(declarations.modules, tracked),
+    ...moduleProblems(declarations.modules, moduleFilesAmong(tracked)),
     ...areaProblems(declarations.contention, declarations.modules, tracked),
     ...rowProblemsOver(declarations.generated, declarations.modules, tracked),
     ...mayUseProblems(declarations.mayUse, declarations.internalModules, tracked),
@@ -506,7 +517,7 @@ export function renderEslintEdges(edges: EslintEdges): string {
 
 export function moduleFilesOf(modules: readonly ModuleDeclaration[], tracked: readonly string[]): Record<string, string[]> {
   const files: Record<string, string[]> = Object.fromEntries([...modules].map(module => module.module).sort().map(name => [name, []]))
-  for (const file of [...tracked].sort()) {
+  for (const file of moduleFilesAmong(tracked).sort()) {
     const { owner } = ownershipOf(modules, file)
     if (owner !== null)
       files[owner]!.push(file)

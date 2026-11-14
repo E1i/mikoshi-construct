@@ -123,6 +123,12 @@ describe('createsOwnerRefusals', () => {
     expect(nearestModulesOf(modules, 'scripts/y/new.ts')).toEqual([NEIGHBOUR, OWNER])
   })
 
+  it('a card that creates only a changeset is admitted without the registry in its touches', () => {
+    const changeset = '.changeset/a-pending-change.md'
+    expect(createsOwnerRefusals(modules, [changeset], touching([]))).toEqual([])
+    expect(createsOwnerRefusals(modules, [changeset, NEW_FILE], touching([]))).toEqual([{ path: NEW_FILE, owner: OWNER, modules: [OWNER], add: [MODULE_FILES] }])
+  })
+
   it('a refusal of a path that is not an admitted card event is none', () => {
     expect(createsOwnerRefusalOf(modules, { type: 'card.moved', cardId: CARD, ts: TS, dedupeKey: 'm', payload: { text: cardText([]) } })).toBeNull()
   })

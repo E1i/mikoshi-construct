@@ -90,6 +90,43 @@ describe('scenario 15, the validator part: the declaration folder of this reposi
   })
 })
 
+describe('pending changesets are not module files', () => {
+  const NEW_CHANGESET = '.changeset/a-pending-change.md'
+  const NEW_CODE_FILE = 'scripts/release/x.ts'
+  const KEPT_BY_RELEASE = ['.changeset/README.md', '.changeset/config.json']
+
+  function registryOf(tracked: readonly string[]): string {
+    return renderModuleFiles(moduleFilesOf(readDeclarations(REPO_ROOT).modules, tracked))
+  }
+
+  function committedRegistry(): string {
+    return readFileSync(path.join(REPO_ROOT, MODULE_FILES), 'utf8')
+  }
+
+  it('a card that adds only a changeset and an edit of an existing file keeps the registry equal to a rebuild', () => {
+    const tracked = [...repositoryFiles(), NEW_CHANGESET].sort()
+    expect(registryOf(tracked)).toBe(committedRegistry())
+    expect(validateDeclarations(readDeclarations(REPO_ROOT), tracked)).toEqual([])
+  })
+
+  it('deleting every pending changeset keeps the registry equal to a rebuild', () => {
+    const tracked = repositoryFiles().filter(file => !file.startsWith('.changeset/') || !file.endsWith('.md') || file === '.changeset/README.md')
+    expect(registryOf(tracked)).toBe(committedRegistry())
+    expect(validateDeclarations(readDeclarations(REPO_ROOT), tracked)).toEqual([])
+    const { modules } = readDeclarations(REPO_ROOT)
+    for (const file of KEPT_BY_RELEASE)
+      expect(ownershipOf(modules, file).owner).toBe('release')
+    expect(moduleFilesOf(modules, tracked).release).toEqual(expect.arrayContaining(KEPT_BY_RELEASE))
+  })
+
+  it('a new code file still needs its entry in the registry', () => {
+    const { modules } = readDeclarations(REPO_ROOT)
+    const tracked = [...repositoryFiles(), NEW_CODE_FILE].sort()
+    expect(moduleFilesOf(modules, tracked).release).toContain(NEW_CODE_FILE)
+    expect(registryOf(tracked)).not.toBe(committedRegistry())
+  })
+})
+
 describe('scenario 15, the validator part: what the validator refuses', () => {
   it('refuses an area whose until names a check with no slice', () => {
     const problems = problemsOf({
