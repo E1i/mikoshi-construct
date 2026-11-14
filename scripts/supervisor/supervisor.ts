@@ -1057,7 +1057,7 @@ async function supervise(busDir: string, cwd: string, reviewPreflight: () => str
       order: busOrderTick(db, cwd),
       heal: new BusHealer({ busPath, nodes, now: () => new Date(), projections: busProjections(), watch: new CorruptionWatch(busLaunches(reviewPreflight).map(launch => path.join(busDir, launch.log))) }),
       snapshot: new BusSnapshot({ db, busPath, file: snapshotPathOf(busPath), now: () => Date.now(), paused: () => nodes.held() }),
-      relaunch: () => startDetached(SUPERVISOR_LAUNCH, busDir, process.env, outsideOwnGroup()),
+      relaunch: () => relaunchSupervisor(busDir, code),
       print: line => console.log(line),
       pause: () => sleep(CHECK_MS),
     })
@@ -1078,8 +1078,8 @@ function onBus<T>(read: (db: DatabaseSync) => T): T {
   }
 }
 
-function decisionsInForce(): InForceDecision[] {
-  return onBus(inForceDecisions)
+export function relaunchSupervisor(busDir: string, code: Pick<BusCode, 'head'>, start: NonNullable<AgentHand['start']> = startDetached): BgResult {
+  return start(SUPERVISOR_LAUNCH, busDir, generationEnv(code), outsideOwnGroup())
 }
 
 export function pinnedBusDir(): string {
@@ -1128,16 +1128,16 @@ function withoutRetiringOnBus(processes: () => (RunningProcess & Partial<Grouped
   return () => onBus(db => withoutRetiring(processes, db)())
 }
 
-export async function startBus(busDir: string = pinnedBusDir(), everyProcess: () => (RunningProcess & Partial<GroupedProcess>)[] = groupedPsList()): Promise<BgResult> {
+export async function startBus(busDir: string = pinnedBusDir(), everyProcess: () => (RunningProcess & Partial<GroupedProcess>)[] = groupedPsList(), code: Pick<BusCode, 'head'> = gitCode(process.cwd()), start: AgentHand['start'] = startReviewWorker): Promise<BgResult> {
   const processes = withoutRetiringOnBus(everyProcess)
   const judged = await restartSilentSupervisorOnBus(busDir, everyProcess)
-  const started = await startUnderAgentEnv(busDir, [...wantedLaunches(busDir, reviewPreflight, decisionsInForce()), SUPERVISOR_LAUNCH], {
-    env: process.env,
+  const started = await startUnderAgentEnv(busDir, [...wantedLaunches(busDir, reviewPreflight, onBus(inForceDecisions)), SUPERVISOR_LAUNCH], {
+    env: generationEnv(code),
     processes,
     ownPackage: ownPackage(),
     stop: (running, launch) => stopInstance(running, launch.markers, processes),
     freeLeases: freeLeasesOnBus,
-    start: startReviewWorker,
+    start,
   })
   return { ...started, stdout: [...foreignBusLines(processes(), ownPackage()), ...judged, ...started.stdout] }
 }
@@ -1154,7 +1154,7 @@ async function main(): Promise<void> {
     return
   }
   if (command.kind === 'detection') {
-    printBg(detectionCommand(busDir, command.worker, command.live, command.live ? decisionsInForce() : []))
+    printBg(detectionCommand(busDir, command.worker, command.live, command.live ? onBus(inForceDecisions) : []))
     return
   }
   printBg(await startBus(busDir))
