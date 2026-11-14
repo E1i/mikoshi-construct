@@ -1872,6 +1872,7 @@
       "flags": [
         "answer",
         "auto-confirm",
+        "before",
         "card",
         "command",
         "dry-run",

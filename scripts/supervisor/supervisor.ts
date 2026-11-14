@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { EventType } from '../core/events.js'
 import type { HolderProcess, HolderReading, ProcessStartOf } from '../core/lease.js'
 import type { InForceDecision } from '../policy/decisions/index.js'
 import type { ProcessTable } from '../ports/process-table.js'
@@ -16,11 +17,15 @@ import { RUNNING_CARD } from '../core/card-automaton.js'
 import { appendEvent, defaultBusPath, openBus } from '../core/db.js'
 import { CARD_CONTINUED, CARD_STARTED, MAIN_ADVANCED, PROCESS_JUDGED, RESTARTED, TASK_EXPIRED, WORKER_DOWN } from '../core/events.js'
 import { FACTORY_NAMED, FACTORY_RUNTIME, FACTORY_WORKERS } from '../core/factory-paths.js'
+import { importClosure } from '../core/import-closure.js'
 import { RESTART_MISSED } from '../core/inbox.js'
 import { closeDrain, expireLeasesHeldBy, HOLDER_DEAD, HOLDER_UNPROVEN, judgeHolders, LEASE_MS, leasesHeldBy, openDrain, retireHolders, retiringPids, WORKER_HUNG } from '../core/lease.js'
 import { LIVE_FLAG } from '../core/node.js'
+import { orderEventsFrom, prOrderTickAt } from '../core/order/turn.js'
+import { cardContract } from '../intake/card-contract.js'
 import { inForceDecisions } from '../policy/decisions/index.js'
 import { allowLiveCommand, liveDecisionOf } from '../policy/live-decision.js'
+import { BusRead } from '../ports/bus-read.js'
 import { processGit } from '../ports/git.js'
 import { CHECK_MS } from '../ports/netwatch.js'
 import { OsProcessTable, rowOf, rowsOf } from '../ports/process-table.js'
@@ -111,31 +116,6 @@ export interface BusCode {
 export const LOCAL_MAIN_REF = 'refs/heads/main'
 
 export const SHARED_BUS_CODE: readonly string[] = [FACTORY_NAMED.busDatabase, FACTORY_NAMED.busNode, FACTORY_NAMED.busLease, FACTORY_NAMED.busQueue, FACTORY_NAMED.busReducer]
-
-const RELATIVE_IMPORT = /\b(?:import|export)\s[^'"]*?\sfrom\s*'(\.{1,2}\/[^']+)'|\bimport\s*'(\.{1,2}\/[^']+)'/g
-
-export function importClosure(entry: string, readFile: (file: string) => string | null): Set<string> {
-  const texts = new Map<string, string | null>()
-  const read = (file: string): string | null => {
-    if (!texts.has(file))
-      texts.set(file, readFile(file))
-    return texts.get(file) ?? null
-  }
-  const sourceOf = (target: string): string => target.endsWith('.js') && read(`${target.slice(0, -3)}.ts`) !== null ? `${target.slice(0, -3)}.ts` : target
-  const seen = new Set<string>()
-  const next = [entry]
-  for (let file = next.pop(); file !== undefined; file = next.pop()) {
-    if (seen.has(file))
-      continue
-    const text = read(file)
-    if (text === null)
-      continue
-    seen.add(file)
-    for (const match of text.matchAll(RELATIVE_IMPORT))
-      next.push(sourceOf(path.posix.join(path.posix.dirname(file), match[1] ?? match[2]!)))
-  }
-  return seen
-}
 
 export function entryOf(launch: DetachedLaunch): string | null {
   return launch.markers.find(marker => marker.startsWith('scripts/'))?.split(' ')[0] ?? null
@@ -925,6 +905,7 @@ export interface SupervisingParts {
   snapshot?: BusSnapshot
   windowEnds?: WindowSessionEnds
   windowSubagents?: Pick<WindowSubagentTick, 'step'>
+  order?: { step: () => string[] }
   relaunch: () => BgResult
   print: (line: string) => void
   pause: () => Promise<unknown>
@@ -936,12 +917,16 @@ function replacedBy(head: string, started: BgResult): { lines: string[], replace
   return { replaced: false, lines: [...started.stdout, ...started.stderr, `${PREFIX}the supervisor could not start a fresh supervisor on ${head}; it keeps running the code it started with and retries on the next tick`] }
 }
 
+export function busOrderTick(db: DatabaseSync, root: string): ReturnType<typeof prOrderTickAt> {
+  return prOrderTickAt(db, root, PREFIX, orderEventsFrom((type, fields, after) => new BusRead(db, { from: after + 1 }).slice(type as EventType, fields as never)), card => cardContract(db, card)?.touches ?? null)
+}
+
 export async function superviseUntilReplaced(parts: SupervisingParts): Promise<void> {
   for (;;) {
     const lines = await parts.supervisor.step()
     const head = parts.supervisor.ownCodeBehind
     const replacement = head === null ? { lines: [], replaced: false } : replacedBy(head, parts.relaunch())
-    const ticked = [...lines, ...replacement.lines, ...replacement.replaced ? [] : [...parts.keeper.step(), ...await parts.judge?.step() ?? [], ...parts.windowEnds?.step() ?? [], ...parts.windowSubagents?.step() ?? []]]
+    const ticked = [...lines, ...replacement.lines, ...replacement.replaced ? [] : [...parts.keeper.step(), ...await parts.judge?.step() ?? [], ...parts.windowEnds?.step() ?? [], ...parts.windowSubagents?.step() ?? [], ...parts.order?.step() ?? []]]
     for (const line of [...ticked, ...await parts.heal?.step(ticked) ?? [], ...parts.snapshot?.step() ?? []])
       parts.print(line)
     if (replacement.replaced)
@@ -1069,6 +1054,7 @@ async function supervise(busDir: string, cwd: string, reviewPreflight: () => str
       judge: new LivenessJudge(db, () => Date.now(), () => expectedRunning(db, wanted()), restartJudged, psStartOf),
       windowEnds: new WindowSessionEnds(db, cwd, () => Date.now(), PREFIX),
       windowSubagents: new WindowSubagentTick(db, cwd, () => Date.now(), PREFIX),
+      order: busOrderTick(db, cwd),
       heal: new BusHealer({ busPath, nodes, now: () => new Date(), projections: busProjections(), watch: new CorruptionWatch(busLaunches(reviewPreflight).map(launch => path.join(busDir, launch.log))) }),
       snapshot: new BusSnapshot({ db, busPath, file: snapshotPathOf(busPath), now: () => Date.now(), paused: () => nodes.held() }),
       relaunch: () => startDetached(SUPERVISOR_LAUNCH, busDir, process.env, outsideOwnGroup()),

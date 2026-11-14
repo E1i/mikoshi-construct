@@ -392,6 +392,7 @@
     "scripts/tests/bus/conveyor/k1a-process-records.test.ts",
     "scripts/tests/bus/conveyor/k6-session-carries-over.test.ts",
     "scripts/tests/bus/conveyor/o1-record-paths.test.ts",
+    "scripts/tests/bus/conveyor/o2-groups-and-order.test.ts",
     "scripts/tests/bus/conveyor/r-lint.test.ts",
     "scripts/tests/bus/conveyor/r0-declarations.test.ts",
     "scripts/tests/bus/db.test.ts",
@@ -651,6 +652,7 @@
     "scripts/tests/core/merged-card-end.test.ts",
     "scripts/tests/core/no-layer-recount.test.ts",
     "scripts/tests/core/owner-commands.test.ts",
+    "scripts/tests/core/pr-order.test.ts",
     "scripts/tests/core/projection-stale.test.ts",
     "scripts/tests/core/verification.test.ts",
     "scripts/tests/dead-modules.test.ts",
@@ -1103,6 +1105,7 @@
     "declarations/modules/node-review.json",
     "declarations/modules/node-update.json",
     "declarations/modules/node-witness.json",
+    "declarations/modules/order.json",
     "declarations/modules/plan.json",
     "declarations/modules/ports-adapters.json",
     "declarations/modules/ports.json",
@@ -1234,6 +1237,11 @@
   "node-witness": [
     "scripts/nodes/witness/witness-executor.ts",
     "scripts/nodes/witness/witness-worker.ts"
+  ],
+  "order": [
+    "scripts/core/order/group.ts",
+    "scripts/core/order/overlap.ts",
+    "scripts/core/order/turn.ts"
   ],
   "plan": [
     "scripts/cli/card-chain.ts",
@@ -2129,6 +2137,7 @@
     ".changeset/contract-ports-and-fields.md",
     ".changeset/contract-surface-scripts.md",
     ".changeset/contract-surface.md",
+    ".changeset/conveyor-o2-groups-and-order.md",
     ".changeset/conveyor-r-lint.md",
     ".changeset/conveyor-r0-declarations.md",
     ".changeset/core-runs-no-git.md",
@@ -2301,6 +2310,7 @@
     "scripts/core/handoff-dir.ts",
     "scripts/core/handoff-fields.ts",
     "scripts/core/handoff-status.ts",
+    "scripts/core/import-closure.ts",
     "scripts/core/journal.ts",
     "scripts/core/legacy-history.ts",
     "scripts/core/machine-sessions.ts",
@@ -2507,6 +2517,7 @@
     "scripts/window/requests/index.ts",
     "scripts/window/requests/mode.ts",
     "scripts/window/requests/numbers-foreign.ts",
+    "scripts/window/requests/order-move.ts",
     "scripts/window/requests/owner-answer.ts",
     "scripts/window/requests/owner-launch.ts",
     "scripts/window/requests/owner-move.ts",

@@ -761,6 +761,14 @@
           "reason"
         ]
       },
+      "pr.groups": {
+        "complete": true,
+        "keys": [
+          "groups",
+          "needsUpdate",
+          "needsVerification"
+        ]
+      },
       "pr.observed": {
         "complete": true,
         "keys": [
@@ -785,6 +793,13 @@
         "keys": [
           "pr",
           "recut_of"
+        ]
+      },
+      "pr.ordered": {
+        "complete": true,
+        "keys": [
+          "before",
+          "by"
         ]
       },
       "pr.status.refused": {
@@ -1211,6 +1226,7 @@
           "add_witness",
           "answer",
           "auto_confirm",
+          "before",
           "card",
           "cards",
           "command",
@@ -3743,6 +3759,21 @@
         ],
         "status": "decided"
       },
+      "order": {
+        "concepts": [],
+        "contract": [
+          "scripts/core/order/**"
+        ],
+        "may_use": [
+          "layout",
+          "bus",
+          "events"
+        ],
+        "owns": [
+          "scripts/core/order/**"
+        ],
+        "status": "decided"
+      },
       "plan": {
         "concepts": [],
         "contract": [
@@ -3931,6 +3962,7 @@
           "scripts/core/places.ts",
           "scripts/core/report.ts",
           "scripts/core/legacy-history.ts",
+          "scripts/core/import-closure.ts",
           "src/card/closed.ts",
           "scripts/cli/slot.ts",
           "src/commands/liveness.ts",
@@ -3948,7 +3980,8 @@
           "card-record",
           "command-registry",
           "ports-adapters",
-          "events"
+          "events",
+          "order"
         ],
         "owns": [
           "scripts/core/machine-sessions.ts",
@@ -3964,6 +3997,7 @@
           "scripts/core/places.ts",
           "scripts/core/report.ts",
           "scripts/core/legacy-history.ts",
+          "scripts/core/import-closure.ts",
           "src/card/closed.ts",
           "scripts/cli/slot.ts",
           "src/commands/liveness.ts",
@@ -3990,7 +4024,8 @@
         ],
         "contract": [],
         "may_use": [
-          "command-registry"
+          "command-registry",
+          "order"
         ],
         "owns": [
           "scripts/window/**",
@@ -4512,7 +4547,7 @@
         ],
         "types": {
           "BusCard": "interface BusCard { id: number; state: string | null; stage: CardStage; lane: string | null; line: string | null; since: string | null; body: boolean; closed: boolean; closedAt: string | null; parent?: SliceParent; }",
-          "BusFacts": "interface BusFacts { at: string; goal: Goal | null; waits: OwnerWait[]; waitsStale?: string; cardsStale?: string; pulse: string | null; slots: BusSlot[]; cards: BusCard[]; services: BusService[]; matrices: BusMatrix[]; failure: string | null; reviewQueue: number; }",
+          "BusFacts": "interface BusFacts { at: string; goal: Goal | null; waits: OwnerWait[]; waitsStale?: string; cardsStale?: string; pulse: string | null; slots: BusSlot[]; cards: BusCard[]; services: BusService[]; matrices: BusMatrix[]; failure: string | null; reviewQueue: number; groups?: BusGroup[]; shadow?: BusShadow; }",
           "BusMatrix": "interface BusMatrix { pr: number; head: string | null; full: string | null; killed: number; survived: number; notRun: number; }",
           "BusService": "interface BusService { role: string; task: string; tree: string | null; step: string; session?: string; gauges?: ServiceGauges; subagents?: SubagentReading[]; }",
           "CardStage": "type CardStage = typeof CARD_STAGES[number]",
