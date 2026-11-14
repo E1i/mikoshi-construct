@@ -9,7 +9,7 @@ import config from '../../vitest.config.js'
 import { pnpmCommand } from '../core/owner-commands.js'
 import { GhCiRuns } from '../ports/ci-reading.js'
 import { processGit } from '../ports/git.js'
-import { updateWeights, weightsFromVitestReport } from './shard.js'
+import { balanceShards, MIN_WEIGHT, updateWeights, weightsFromVitestReport } from './shard.js'
 
 export type { RunJob, RunStep } from '../ports/ci-reading.js'
 
@@ -24,6 +24,8 @@ export const WEIGHTS_PATH = 'scripts/ci/test-weights.json'
 export const MAX_UNWEIGHTED_SHARE = 0.1
 export const CI_SHARDS = 8
 export const MAX_SHARD_IMBALANCE = 0.2
+export const MAX_DRIFTED_SHARE = 0.05
+export const MAX_WEIGHT_RATIO = 2
 export const RECOMPUTE_COMMAND = pnpmCommand('test:weights', '--from', 'main')
 const RUNS_LISTED = 60
 const SHARD_JOB = /^vitest (\d+)\/(\d+)$/
@@ -67,6 +69,31 @@ export function weightsFreshness(files: readonly string[], weights: TestWeights,
     ? `${counted}, above the ${(threshold * 100).toFixed(0)}% threshold; recompute the table with ${RECOMPUTE_COMMAND}`
     : `${counted}, within the ${(threshold * 100).toFixed(0)}% threshold`
   return { tests: tests.length, unweighted, stale, line }
+}
+
+export interface WeightsDrift { drifted: string[], driftedSeconds: number, longestShardSeconds: number, share: number, stale: boolean, line: string }
+
+function driftsFrom(measuredSeconds: number, weight: number | undefined): boolean {
+  if (weight === undefined)
+    return true
+  const held = Math.max(MIN_WEIGHT, weight)
+  const measured = Math.max(MIN_WEIGHT, measuredSeconds)
+  return measured > held * MAX_WEIGHT_RATIO || held > measured * MAX_WEIGHT_RATIO
+}
+
+export function weightsDrift(measured: TestWeights, weights: TestWeights, threshold = MAX_DRIFTED_SHARE): WeightsDrift {
+  const files = Object.keys(measured)
+  const secondsOf = (list: readonly string[]): number => list.reduce((sum, file) => sum + measured[file]!, 0)
+  const longestShardSeconds = Math.max(0, ...balanceShards(files, weights, CI_SHARDS).map(secondsOf))
+  const drifted = files.filter(file => driftsFrom(measured[file]!, weights[file])).sort()
+  const driftedSeconds = secondsOf(drifted)
+  const share = longestShardSeconds === 0 ? 0 : driftedSeconds / longestShardSeconds
+  const stale = share > threshold
+  const counted = `${drifted.length} measured test files with no weight or a weight more than ${MAX_WEIGHT_RATIO}x off in ${WEIGHTS_PATH} carry ${driftedSeconds.toFixed(1)} s, ${(share * 100).toFixed(1)}% of the longest shard's ${longestShardSeconds.toFixed(1)} s`
+  const line = stale
+    ? `${counted}, above the ${(threshold * 100).toFixed(0)}% threshold; recompute the table with ${RECOMPUTE_COMMAND}`
+    : `${counted}, within the ${(threshold * 100).toFixed(0)}% threshold`
+  return { drifted, driftedSeconds, longestShardSeconds, share, stale, line }
 }
 
 export function comparableSpreads(before: readonly SpreadReading[], after: readonly SpreadReading[], testSet: string): { before: number[], after: number[], excluded: number } {
@@ -158,14 +185,27 @@ function readWeights(): TestWeights {
   return existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) as TestWeights : {}
 }
 
-function rewriteFrom(report: string): void {
+const onDisk = (test: string): boolean => test !== '' && existsSync(path.join(REPO_ROOT, test))
+
+function measurementsIn(report: string): TestWeights {
   const file = path.resolve(REPO_ROOT, report)
   if (!existsSync(file))
     failWith(`test:weights: no report at ${report}; the table is left as it is`)
-  const onDisk = (test: string): boolean => test !== '' && existsSync(path.join(REPO_ROOT, test))
   const measured = weightsFromVitestReport(JSON.parse(readFileSync(file, 'utf8')), onDisk)
   if (Object.keys(measured).length === 0)
     failWith(`test:weights: ${report} measures no passed test file of this repository; the table is left as it is`)
+  return measured
+}
+
+function checkAgainst(report: string): void {
+  const verdict = weightsDrift(measurementsIn(report), readWeights())
+  if (verdict.stale)
+    failWith(`test:weights: ${verdict.line}`)
+  console.log(`test:weights: ${verdict.line}`)
+}
+
+function rewriteFrom(report: string): void {
+  const measured = measurementsIn(report)
   const previous = readWeights()
   const weights = updateWeights(previous, measured, onDisk)
   writeFileSync(path.join(REPO_ROOT, WEIGHTS_PATH), `${JSON.stringify(weights, null, 2)}\n`)
@@ -180,6 +220,8 @@ function main(argv: string[]): void {
   }
   if (argv.includes('--spread'))
     return flag('--spread') === 'main' ? spreadOnMain(flag('--boundary')) : failWith(`usage: ${pnpmCommand('test:weights', '--spread', 'main', '[--boundary <sha>]')}`)
+  if (argv.includes('--check'))
+    return checkAgainst(reportFromMain())
   if (argv.includes('--from'))
     return flag('--from') === 'main' ? rewriteFrom(reportFromMain()) : failWith(`usage: ${RECOMPUTE_COMMAND}`)
   rewriteFrom(argv[0] ?? '.construct/reports/vitest.json')
