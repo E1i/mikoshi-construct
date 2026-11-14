@@ -67,6 +67,7 @@ export const POLICY_DENIED = 'policy.denied'
 export const PR_CLOSED = 'pr.closed'
 export const PR_OBSERVED = 'pr.observed'
 export const PR_OPENED = 'pr.opened'
+export const PR_ORDERED = 'pr.ordered'
 export const PR_STATUS_REFUSED = 'pr.status.refused'
 export const PR_STATUS_SET = 'pr.status.set'
 export const PROCESS_ENDED = 'process.ended'
@@ -219,6 +220,7 @@ export const EVENT_PAYLOADS = {
   [PR_CLOSED]: ['branch', 'by', 'commit', 'merged', 'merged_at', 'merged_by', 'reason'],
   [PR_OBSERVED]: ['auto_merge', 'base', 'body_sha', 'branch', 'cancelled_checks', 'card_id', 'ci', 'draft', 'failed_checks', 'head', 'mergeable', 'paths', 'pathsTruncated', 'verdict_on_head'],
   [PR_OPENED]: ['pr', 'recut_of'],
+  [PR_ORDERED]: ['by'],
   [PR_STATUS_REFUSED]: ['event_id', 'state', 'status', 'step'],
   [PR_STATUS_SET]: ['event_id', 'state', 'status', 'step'],
   [PROCESS_ENDED]: ['process'],

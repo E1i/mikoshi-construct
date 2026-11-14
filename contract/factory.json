@@ -787,6 +787,12 @@
           "recut_of"
         ]
       },
+      "pr.ordered": {
+        "complete": true,
+        "keys": [
+          "by"
+        ]
+      },
       "pr.status.refused": {
         "complete": true,
         "keys": [
