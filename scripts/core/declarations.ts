@@ -218,7 +218,7 @@ export function nearestModulesOf(modules: readonly ModuleDeclaration[], file: st
 function ownerRefusalOf(modules: readonly ModuleDeclaration[], file: string, covered: (file: string) => boolean): CreatesOwnerRefusal | null {
   const { owner, tied } = ownershipOf(modules, file)
   const named = owner !== null ? [owner] : tied.length > 0 ? tied : nearestModulesOf(modules, file)
-  const widened = owner !== null ? covered(declarationFileOf(owner)) : modules.some(module => covered(declarationFileOf(module.module)))
+  const widened = owner !== null || modules.some(module => covered(declarationFileOf(module.module)))
   if (widened && covered(MODULE_FILES))
     return null
   const add = [...(widened ? [] : named.map(declarationFileOf)), ...(covered(MODULE_FILES) ? [] : [MODULE_FILES])]

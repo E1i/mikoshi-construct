@@ -76,9 +76,16 @@ describe('a card is admitted only when its touches reach the owner module of eve
     })
   })
 
-  it('a card whose path has an owner but whose touches miss the owner declaration is refused naming the module and the files', () => {
+  it('a create under an already-covering owner with only module-files.json in touches is admitted', () => {
     inWorld([UNCOVERED, COVERING], (w) => {
-      expect(() => admit(w, [MODULE_FILES])).toThrow(`${NEW_FILE} belongs to module ${OWNER}; add ${OWNER_DECLARATION} to touches`)
+      admit(w, [MODULE_FILES])
+      expect(admissions(w)).toBe(1)
+    })
+  })
+
+  it('a card creating a path an owner already covers is refused without the module files, naming the module and only that file', () => {
+    inWorld([UNCOVERED, COVERING], (w) => {
+      expect(() => admit(w, ['scripts/core/declarations.ts'])).toThrow(`${NEW_FILE} belongs to module ${OWNER}; add ${MODULE_FILES} to touches.`)
       expect(admissions(w)).toBe(0)
     })
   })
@@ -102,8 +109,9 @@ describe('createsOwnerRefusals', () => {
   const modules = [UNCOVERED, COVERING]
   const touching = (touches: readonly string[]) => (file: string) => touches.includes(file)
 
-  it('names only the module files when the owner declaration is already in touches', () => {
-    expect(createsOwnerRefusals(modules, [NEW_FILE], touching([OWNER_DECLARATION]))).toEqual([{ path: NEW_FILE, owner: OWNER, modules: [OWNER], add: [MODULE_FILES] }])
+  it('asks an owned path for the module files only, never for the declaration that already covers it', () => {
+    expect(createsOwnerRefusals(modules, [NEW_FILE], touching([]))).toEqual([{ path: NEW_FILE, owner: OWNER, modules: [OWNER], add: [MODULE_FILES] }])
+    expect(createsOwnerRefusals(modules, [NEW_FILE], touching([MODULE_FILES]))).toEqual([])
   })
 
   it('names no module for a path far from every declared folder', () => {
