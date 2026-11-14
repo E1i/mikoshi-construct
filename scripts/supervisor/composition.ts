@@ -1,13 +1,15 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { Understood } from '../core/bus-version.js'
-import type { Lease } from '../core/lease.js'
-import type { NodeKind, NodeSupply } from '../core/node.js'
+import type { HolderStart, Lease } from '../core/lease.js'
+import type { NodeKind, NodeSupply, ProcessIdentity, WorkerIdentity } from '../core/node.js'
 import type { Projections } from '../core/reducer.js'
 import type { SessionMeasure } from './heartbeat.js'
+import { randomUUID } from 'node:crypto'
+import process from 'node:process'
 import { CARD_FOLDS, CARDS_PROJECTION } from '../core/card-automaton.js'
 import { admittedCardVersion } from '../core/card-bodies.js'
 import { CHAINS_PROJECTION } from '../core/chain.js'
-import { foreignVersion } from '../core/node.js'
+import { foreignVersion, instanceOf, provenIdentity, recordWorkerIdentity, UNHANDED } from '../core/node.js'
 import { TASKS_PROJECTION } from '../core/queue.js'
 import { CARD_END_FOLDS, OWNER_WAIT_FOLDS, PLAN_FOLDS, PR_FOLDS } from '../core/reducer.js'
 import { ROLES_PROJECTION } from '../nodes/restart/role.js'
@@ -15,10 +17,26 @@ import { DECISION_FOLDS } from '../policy/decisions/index.js'
 import { CHECK_MS, TICK_MS } from '../ports/netwatch.js'
 import { busSessionPulse, heartbeatEnv, measureCardSession, ownStart, recordProcessHeartbeat } from './heartbeat.js'
 import { SILENT_MS } from './liveness-sites.js'
+import { ownIdentity, tableIdentity } from './recorded-worker.js'
 import { slotsOf, slotsVariable } from './scheduler.js'
 
 export interface NodeLiveness {
   silentMs: number
+}
+
+export function workerIdentity(worker: string, start: HolderStart, env: NodeJS.ProcessEnv = process.env, own: () => ProcessIdentity | null = ownIdentity): WorkerIdentity {
+  return { worker, pid: start.pid, started: start.started, ...instanceOf(env), ...provenIdentity(start, own()) }
+}
+
+export function recordOwnStart(db: DatabaseSync, kind: string, env: NodeJS.ProcessEnv = process.env, own: () => ProcessIdentity | null = ownIdentity): boolean {
+  try {
+    const { instance } = instanceOf(env)
+    const worker = `worker:${kind}:${instance === UNHANDED ? randomUUID() : instance}`
+    return recordWorkerIdentity(db, new Date().toISOString(), workerIdentity(worker, ownStart(), env, own))
+  }
+  catch {
+    return false
+  }
 }
 
 export function nodeLiveness(): NodeLiveness {
@@ -38,6 +56,8 @@ export function nodeSupply(): NodeSupply {
     recordProcessHeartbeat,
     slotsOf: (kind: NodeKind, env: NodeJS.ProcessEnv) => slotsOf(kind, env),
     ownStart,
+    ownIdentity: () => ownIdentity(),
+    identityOf: tableIdentity(),
     refuses: refusesForeignCard,
   }
 }

@@ -1,21 +1,26 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { BusEvent } from '../../core/db.js'
 import type { AfterFailure, Lease } from '../../core/lease.js'
+import type { ChildRun, IdentityReader } from '../../core/node.js'
 import type { DiskReader } from '../../ports/disk.js'
 import type { Isolation, IsolationReader } from '../../ports/isolation.js'
 import type { SessionInput } from '../../ports/prompt-store.js'
 import type { TreeOrigin } from '../../ports/worktree.js'
 import type { Contour, TreeReader } from './launch-candidates.js'
 import { existsSync } from 'node:fs'
+import process from 'node:process'
 import { launchStartKey, launchStartLease } from '../../core/card-automaton.js'
+import { messageOf } from '../../core/errors.js'
 import { CARD_STARTED, CARD_STOPPED, POLICY_DENIED } from '../../core/events.js'
 import { assertHeld, completeTask, failTask, releaseTask, StaleLease } from '../../core/lease.js'
+import { ChildLog, instanceOf, recordChildEnded, recordChildStarted } from '../../core/node.js'
 import { DISK_LOW, diskLowDetail, statfsReader } from '../../ports/disk.js'
 import { NO_ISOLATION } from '../../ports/isolation.js'
 import { storedInput } from '../../ports/prompt-store.js'
 import { launchableCard } from './launch-candidates.js'
 
 export const HELD_TREE_CHANGED = 'held_tree_changed'
+export const LAUNCH_KIND = 'launch'
 
 export type LaunchTechnicalReason = 'card_not_queued' | 'card_unreadable' | 'start_failed' | 'not_detached' | 'ladder_running' | 'ladder_fault' | typeof HELD_TREE_CHANGED | typeof DISK_LOW | typeof NO_ISOLATION
 
@@ -48,6 +53,8 @@ export interface HeldTree {
   base: string | null
 }
 
+export type ChildExit = (exit: number | null, signal: NodeJS.Signals | null) => void
+
 export interface QueuedCard {
   cardId: number
   lane: string
@@ -55,8 +62,9 @@ export interface QueuedCard {
 }
 
 export interface CardStarter {
-  start: (card: QueuedCard) => CardStart
+  start: (card: QueuedCard, ended?: ChildExit) => CardStart
   stop: (card: StartedCard) => void
+  identify?: IdentityReader
 }
 
 export type LaunchOutcome
@@ -75,6 +83,8 @@ export interface LaunchParts {
   prompts?: string
   treeLive?: TreeReader
   treeOrigin?: (worktree: string) => TreeOrigin | null
+  identity?: IdentityReader
+  log?: (line: string) => void
 }
 
 const WITHDRAW_REASONS: ReadonlySet<LaunchTechnicalReason> = new Set(['card_not_queued', HELD_TREE_CHANGED])
@@ -89,6 +99,26 @@ const RELEASE_REASONS: ReadonlySet<LaunchTechnicalReason> = new Set([DISK_LOW, N
 
 export function technical(reason: LaunchTechnicalReason, detail: string): LaunchDenial {
   return { kind: 'technical', reason, detail }
+}
+
+export const CONTINUED_CHILD = 'continued'
+
+export interface RecordedContinuer {
+  continueFrom: (card: QueuedCard, from: StartedCard, ended?: ChildExit) => CardStart
+  identify?: IdentityReader
+}
+
+export function continuedAndRecorded(db: DatabaseSync, actor: string, startKey: string, continuer: RecordedContinuer, queued: QueuedCard, from: StartedCard): CardStart {
+  const children = new ChildLog(write => write(db), pid => continuer.identify?.(pid) ?? null, () => new Date(), process.env)
+  const run: ChildRun = { actor, taskKey: `${CONTINUED_CHILD}:${startKey}`, kind: LAUNCH_KIND, tree: from.worktree }
+  const recorded: { pid: number | null } = { pid: null }
+  const begun = continuer.continueFrom(queued, from, (exit, signal) => {
+    if (recorded.pid !== null)
+      children.ended(run, recorded.pid, exit, signal)
+  })
+  if (begun.kind === 'started' && children.started({ ...run, tree: begun.card.worktree }, begun.card.pid))
+    recorded.pid = begun.card.pid
+  return begun
 }
 
 export class LaunchExecutor {
@@ -115,7 +145,12 @@ export class LaunchExecutor {
       if (isolation.level === 'none')
         return this.denied(lease, technical(NO_ISOLATION, `card #${lease.cardId} is not started: ${isolation.why}`))
       const starter = this.starterOf(launchable.contour)
-      const start = starter.start({ cardId: lease.cardId, lane: launchable.lane, ...this.heldTreeOf(lease.cardId, launchable.contour) })
+      const child: { recorded: number | null } = { recorded: null }
+      const ended: ChildExit = (exit, signal) => {
+        if (child.recorded !== null)
+          this.childEnded(lease, child.recorded, exit, signal)
+      }
+      const start = starter.start({ cardId: lease.cardId, lane: launchable.lane, ...this.heldTreeOf(lease.cardId, launchable.contour) }, ended)
       if (start.kind === 'refused')
         return this.denied(lease, start.denial)
       const card: StartedCard = { ...start.card, contour: launchable.contour }
@@ -123,7 +158,9 @@ export class LaunchExecutor {
         starter.stop(card)
         return this.denied(lease, technical('not_detached', `card #${lease.cardId} runs as pid ${card.pid} in process group ${card.pgid}, not as its own group leader; it was stopped`))
       }
-      return this.started(lease, card, starter, isolation)
+      const outcome = this.started(lease, card, starter, isolation)
+      child.recorded = this.childStarted(lease, card, starter) ? card.pid : null
+      return outcome
     }
     catch (error) {
       if (error instanceof StaleLease)
@@ -163,6 +200,31 @@ export class LaunchExecutor {
       throw error
     }
     return { kind: 'started', taskKey: lease.taskKey, card }
+  }
+
+  private childStarted(lease: Lease, card: StartedCard, starter: CardStarter): boolean {
+    try {
+      const identify = this.parts.identity ?? starter.identify
+      const identity = identify === undefined ? null : identify(card.pid)
+      if (identity === null) {
+        this.parts.log?.(`${lease.taskKey}: session ${card.session} (pid ${card.pid}) has no identity in the process table, so its start was not recorded`)
+        return false
+      }
+      return recordChildStarted(this.parts.db, this.ts(), lease.actor, { mode: 'child', ...instanceOf(process.env), ...identity, kind: LAUNCH_KIND, taskKey: lease.taskKey, tree: card.worktree })
+    }
+    catch (error) {
+      this.parts.log?.(`${lease.taskKey}: the start of session ${card.session} (pid ${card.pid}) was not recorded: ${messageOf(error)}`)
+      return false
+    }
+  }
+
+  private childEnded(lease: Lease, pid: number, exit: number | null, signal: NodeJS.Signals | null): void {
+    try {
+      recordChildEnded(this.parts.db, this.ts(), lease.actor, { instance: instanceOf(process.env).instance, pid, taskKey: lease.taskKey, exit, signal })
+    }
+    catch (error) {
+      this.parts.log?.(`${lease.taskKey}: the end of pid ${pid} was not recorded: ${messageOf(error)}`)
+    }
   }
 
   private denied(lease: Lease, denial: LaunchDenial): LaunchOutcome {

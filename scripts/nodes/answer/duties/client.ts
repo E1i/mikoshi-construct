@@ -10,6 +10,7 @@ export interface AnswerRun {
   env: NodeJS.ProcessEnv
   signal?: AbortSignal
   onLine?: (line: string) => void
+  started?: (pid: number) => void
 }
 
 export function spawnClient(run: AnswerRun): Promise<number> {
@@ -28,6 +29,8 @@ export function spawnClient(run: AnswerRun): Promise<number> {
   }
   return new Promise((resolve, reject) => {
     const child = spawn(run.command, run.argv, { cwd: run.cwd, env: run.env, stdio: ['ignore', 'pipe', errFd], signal: run.signal })
+    if (child.pid !== undefined)
+      run.started?.(child.pid)
     child.stdout?.setEncoding('utf8')
     child.stdout?.on('data', (chunk: string) => {
       if (closed)

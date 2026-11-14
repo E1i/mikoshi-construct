@@ -10,10 +10,10 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { defaultBusDir } from '../../core/bus-path.js'
 import { defaultBusPath, openBus } from '../../core/db.js'
-import { expireLeases, LEASE_MS, leaseNext, recordWorkerStarted } from '../../core/lease.js'
-import { DATABASE_LOCKED, isDatabaseLocked } from '../../core/node.js'
+import { expireLeases, LEASE_MS, leaseNext } from '../../core/lease.js'
+import { DATABASE_LOCKED, isDatabaseLocked, recordWorkerIdentity } from '../../core/node.js'
 import { CHECK_MS, TICK_MS } from '../../ports/netwatch.js'
-import { nodeLiveness } from '../../supervisor/composition.js'
+import { nodeLiveness, workerIdentity } from '../../supervisor/composition.js'
 import { ownStart } from '../../supervisor/heartbeat.js'
 import { stampLogOutput } from '../../supervisor/stamp.js'
 import { switchedOn } from '../../supervisor/workers.js'
@@ -59,7 +59,7 @@ export class RestartWorker {
   private next(): RestartStep {
     const ts = this.parts.clock().toISOString()
     if (!this.startRecorded) {
-      recordWorkerStarted(this.parts.db, ts, this.actor, this.parts.self ?? ownStart())
+      recordWorkerIdentity(this.parts.db, ts, workerIdentity(this.actor, this.parts.self ?? ownStart()))
       this.startRecorded = true
     }
     expireLeases(this.parts.db, ts, this.parts.silentMs)
