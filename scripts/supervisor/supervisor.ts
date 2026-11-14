@@ -1128,11 +1128,11 @@ function withoutRetiringOnBus(processes: () => (RunningProcess & Partial<Grouped
   return () => onBus(db => withoutRetiring(processes, db)())
 }
 
-export async function startBus(busDir: string = pinnedBusDir(), everyProcess: () => (RunningProcess & Partial<GroupedProcess>)[] = groupedPsList(), code: Pick<BusCode, 'head'> = gitCode(process.cwd()), start: AgentHand['start'] = startReviewWorker): Promise<BgResult> {
+export async function startBus(busDir: string = pinnedBusDir(), everyProcess: () => (RunningProcess & Partial<GroupedProcess>)[] = groupedPsList(), code: Pick<BusCode, 'head'> | null = null, start: AgentHand['start'] = startReviewWorker): Promise<BgResult> {
   const processes = withoutRetiringOnBus(everyProcess)
   const judged = await restartSilentSupervisorOnBus(busDir, everyProcess)
   const started = await startUnderAgentEnv(busDir, [...wantedLaunches(busDir, reviewPreflight, onBus(inForceDecisions)), SUPERVISOR_LAUNCH], {
-    env: generationEnv(code),
+    env: code === null ? process.env : generationEnv(code),
     processes,
     ownPackage: ownPackage(),
     stop: (running, launch) => stopInstance(running, launch.markers, processes),
@@ -1157,7 +1157,7 @@ async function main(): Promise<void> {
     printBg(detectionCommand(busDir, command.worker, command.live, command.live ? onBus(inForceDecisions) : []))
     return
   }
-  printBg(await startBus(busDir))
+  printBg(await startBus(busDir, groupedPsList(), gitCode(process.cwd())))
 }
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
