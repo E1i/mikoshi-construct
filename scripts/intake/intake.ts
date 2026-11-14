@@ -3,6 +3,7 @@ import type { CardAdmissionsPort, CardEvent, CardEventPort, RecordedIntake } fro
 import type { CardsOfTheBus } from '../../src/commands/intake/numbers.js'
 import type { LadderRunPort } from '../../src/commands/run-record.js'
 import type { BusPorts } from '../../src/program.js'
+import type { CreatesOwnerRefusal, ModuleDeclaration } from '../core/declarations.js'
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
@@ -20,13 +21,16 @@ import { resolveTheme } from '../../src/ui/theme.js'
 import { BUS_DB_VARIABLE, ForeignBusRefused } from '../core/bus-path.js'
 import { admittedBodyText, appendCardEvent, laid } from '../core/card-bodies.js'
 import { appendEvent, BUSY_TIMEOUT_MS, defaultBusPath, inTransaction, openBus } from '../core/db.js'
+import { createsOwnerRefusals, MODULE_FILES, MODULES_KIND, readDeclarations } from '../core/declarations.js'
 import { CARD_ADMITTED, CARD_MOVED, CARD_PLANNED, CARD_UNPLANNED, LADDER_RUN, NUMBERS_FOREIGN, PLAN_CLOSED, PLAN_OPENED } from '../core/events.js'
+import { DECLARATION_SUFFIX, DECLARATIONS_FOLDER } from '../core/generated-files.js'
 import { OWNER } from '../core/inbox.js'
 import { constructCommand, pnpmCommand } from '../core/owner-commands.js'
 import { openDatabase } from '../core/sqlite.js'
 import { assignMovedLane, layLanes, repositoryLanes } from '../nodes/launch/lane-assign.js'
 import { BusDecisions } from '../policy/decisions/index.js'
 import { activeWindowShards } from '../policy/shards.js'
+import { createdPaths, withinTouches } from '../policy/touch-scope.js'
 import { clientAdapter } from '../ports/client/index.js'
 import { tabWindowOf } from '../window/tab.js'
 import { windowSessionOf } from '../window/window-heartbeat.js'
@@ -190,11 +194,41 @@ function needsAnAdmission(event: CardEvent): boolean {
   return event.type === CARD_MOVED
 }
 
-export function busCardEvents(db: DatabaseSync, session: string = SESSION_BY_HAND, lanes: () => number = repositoryLanes(process.cwd()), release?: string): CardEventPort {
+function whatLetsItPass(refusal: CreatesOwnerRefusal): string {
+  const add = refusal.add.length === 0 ? '' : `; add ${refusal.add.join(', ')} to touches`
+  if (refusal.owner !== null)
+    return `${refusal.path} belongs to module ${refusal.owner}${add}`
+  if (refusal.modules.length === 0)
+    return `${refusal.path} resolves to no module and no module declares a folder near it; widen a ${DECLARATIONS_FOLDER}/${MODULES_KIND}/<module>${DECLARATION_SUFFIX} to cover it and add that file and ${MODULE_FILES} to touches`
+  return `${refusal.path} resolves to no module; widen ${refusal.modules.join(' or ')} to cover it${add}`
+}
+
+export function createsOwnerRefusalOf(modules: readonly ModuleDeclaration[], event: CardEvent): string | null {
+  const { text } = event.payload
+  if (event.type !== CARD_ADMITTED || typeof text !== 'string' || modules.length === 0)
+    return null
+  const parsed = parseParkingFile(`${event.cardId}.md`, text)
+  if (parsed.kind === 'refused')
+    return null
+  const { touches } = parsed.parked.task
+  const refusals = createsOwnerRefusals(modules, createdPaths(parsed.parked.creates), file => withinTouches(file, touches))
+  if (refusals.length === 0)
+    return null
+  return `Refused: #${event.cardId} creates a file whose owner module its touches do not reach: ${refusals.map(whatLetsItPass).join('; ')}. Nothing was admitted.`
+}
+
+function declaredModules(root: string | undefined): readonly ModuleDeclaration[] {
+  return root === undefined ? [] : readDeclarations(root).modules
+}
+
+export function busCardEvents(db: DatabaseSync, session: string = SESSION_BY_HAND, lanes: () => number = repositoryLanes(process.cwd()), release?: string, declarationsRoot?: string): CardEventPort {
   const actor = `${INTAKE_ACTOR_PREFIX}${session}`
   return event => inTransaction(db, () => {
     if (needsAnAdmission(event) && db.prepare(ANY_ADMISSION).get(event.cardId) === undefined)
       throw new Error(`Refused: #${event.cardId} has no card.admitted in the bus, so the bus cannot hold its move; admit it first. Nothing was moved.`)
+    const unowned = event.type === CARD_ADMITTED ? createsOwnerRefusalOf(declaredModules(declarationsRoot), event) : null
+    if (unowned !== null)
+      throw new Error(unowned)
     appendCardEvent(db, actor, laid(db, event))
     registerPlan(db, event, release)
     const admitted = event.type === CARD_MOVED ? admissionOfMove(db, event) : null
@@ -212,11 +246,11 @@ export function busHeldCards(db: DatabaseSync): CardsOfTheBus {
   return foreign.length === 0 ? held : Object.assign(held, { foreign: new Set(foreign.map(row => row.id)) })
 }
 
-export function busIntakePorts(db: DatabaseSync, session?: string, lanes?: () => number, release?: string): BusPorts {
-  return { cardEvents: busCardEvents(db, session, lanes, release), cardStates: () => busHeldCards(db), cardAdmissions: busCardAdmissions(db), decisions: new BusDecisions(db) }
+export function busIntakePorts(db: DatabaseSync, session?: string, lanes?: () => number, release?: string, declarationsRoot?: string): BusPorts {
+  return { cardEvents: busCardEvents(db, session, lanes, release, declarationsRoot), cardStates: () => busHeldCards(db), cardAdmissions: busCardAdmissions(db), decisions: new BusDecisions(db) }
 }
 
-export async function runBusIntake(db: DatabaseSync, argv: readonly string[], session?: string): Promise<void> {
+export async function runBusIntake(db: DatabaseSync, argv: readonly string[], session?: string, declarationsRoot?: string): Promise<void> {
   const exportAt = argv.indexOf(EXPORT_FLAG)
   if (exportAt !== -1) {
     const ui = createUi(resolveTheme({ plain: argv.includes(PLAIN_FLAG), johnny: argv.includes(JOHNNY_FLAG) }))
@@ -231,7 +265,7 @@ export async function runBusIntake(db: DatabaseSync, argv: readonly string[], se
     return
   }
   const rest = releaseAt === -1 ? argv : [...argv.slice(0, releaseAt), ...argv.slice(releaseAt + 2)]
-  await runMain(createMain(busIntakePorts(db, session, undefined, release)), { rawArgs: [INTAKE_SUBCOMMAND, ...rest] })
+  await runMain(createMain(busIntakePorts(db, session, undefined, release, declarationsRoot)), { rawArgs: [INTAKE_SUBCOMMAND, ...rest] })
 }
 
 function refused(message: string): null {
@@ -291,7 +325,7 @@ export async function intakeMain(argv: readonly string[]): Promise<void> {
     const shard = windowShardOfRun(db, process.env, new Date())
     if (shard !== null)
       process.env[WINDOW_SHARD_VARIABLE] = shard
-    await runBusIntake(db, argv, clientAdapter().ownSession(process.env) ?? undefined)
+    await runBusIntake(db, argv, clientAdapter().ownSession(process.env) ?? undefined, process.cwd())
   }
   finally {
     db.close()

@@ -173,6 +173,62 @@ function where(kind: string, key: string): string {
   return `${DECLARATIONS_FOLDER}/${kind}/${key}${DECLARATION_SUFFIX}`
 }
 
+export function declarationFileOf(module: string): string {
+  return where(MODULES_KIND, module)
+}
+
+export interface CreatesOwnerRefusal {
+  path: string
+  owner: string | null
+  modules: readonly string[]
+  add: readonly string[]
+}
+
+function directoriesOf(entry: string): string[] {
+  const literal = entry.includes(WILDCARD) ? entry.slice(0, entry.indexOf(WILDCARD)) : entry
+  return literal.split(FOLDER_END).slice(0, -1)
+}
+
+function sharedDepth(left: readonly string[], right: readonly string[]): number {
+  let depth = 0
+  while (depth < left.length && depth < right.length && left[depth] === right[depth])
+    depth += 1
+  return depth
+}
+
+export function nearestModulesOf(modules: readonly ModuleDeclaration[], file: string): string[] {
+  const folders = directoriesOf(file)
+  let best = 0
+  let nearest = new Set<string>()
+  for (const module of modules) {
+    for (const entry of module.paths) {
+      const depth = sharedDepth(directoriesOf(entry), folders)
+      if (depth > best) {
+        best = depth
+        nearest = new Set([module.module])
+      }
+      else if (depth === best && depth > 0) {
+        nearest.add(module.module)
+      }
+    }
+  }
+  return [...nearest].sort()
+}
+
+function ownerRefusalOf(modules: readonly ModuleDeclaration[], file: string, covered: (file: string) => boolean): CreatesOwnerRefusal | null {
+  const { owner, tied } = ownershipOf(modules, file)
+  const named = owner !== null ? [owner] : tied.length > 0 ? tied : nearestModulesOf(modules, file)
+  const widened = owner !== null || modules.some(module => covered(declarationFileOf(module.module)))
+  if (widened && covered(MODULE_FILES))
+    return null
+  const add = [...(widened ? [] : named.map(declarationFileOf)), ...(covered(MODULE_FILES) ? [] : [MODULE_FILES])]
+  return { path: file, owner, modules: named, add }
+}
+
+export function createsOwnerRefusals(modules: readonly ModuleDeclaration[], creates: readonly string[], covered: (file: string) => boolean): CreatesOwnerRefusal[] {
+  return creates.flatMap(file => ownerRefusalOf(modules, file, covered) ?? [])
+}
+
 function moduleOf(key: string, value: Record<string, unknown>, problem: Problem): ModuleDeclaration | null {
   let fine = true
   const report = (text: string): void => {
