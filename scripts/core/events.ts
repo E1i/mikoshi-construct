@@ -79,6 +79,7 @@ export const QUESTION_AGENT = 'question.agent'
 export const QUESTION_OWNER = 'question.owner'
 export const REDUCED = 'reducer.reduced'
 export const REJECTED = 'reducer.rejected'
+export const REVIEW_DRIP = 'review.drip'
 export const REVIEW_RECORDED = 'review.recorded'
 export const REVIEW_ROUNDS_SPENT = 'review.rounds_spent'
 export const REVIEW_TREE_ORPHANED = 'review.tree.orphaned'
@@ -231,7 +232,8 @@ export const EVENT_PAYLOADS = {
   [PROCESS_REFUSED]: ['last_beat', 'live', 'process'],
   [REDUCED]: ['applied', 'rejected', 'through_event_id'],
   [REJECTED]: ['event_id', 'reason', 'type'],
-  [REVIEW_RECORDED]: ['cache_r', 'cache_w', 'card_body', 'depth', 'depth_why', 'findings', 'head', 'isolation', 'isolationGaps', 'model', 'prompt_path', 'prompt_sha', 'prompt_unstored', 'review_ms', 'reviewer_session', 'rules_version', 'since', 'treeAfter', 'treeBefore', 'treeMutated', 'tree_origin', 'verdict'],
+  [REVIEW_DRIP]: ['card', 'finding', 'head', 'pr'],
+  [REVIEW_RECORDED]: ['cache_r', 'cache_w', 'card_body', 'depth', 'depth_why', 'drip', 'findings', 'head', 'isolation', 'isolationGaps', 'model', 'prompt_path', 'prompt_sha', 'prompt_unstored', 'review_ms', 'reviewer_session', 'rules_version', 'since', 'treeAfter', 'treeBefore', 'treeMutated', 'tree_origin', 'verdict'],
   [REVIEW_ROUNDS_SPENT]: ['findings', 'pr', 'rounds', 'state'],
   [REVIEW_TREE_ORPHANED]: ['detail', 'path'],
   [ROLE_LEASED]: ['lease_gen', 'role'],

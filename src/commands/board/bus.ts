@@ -3,7 +3,7 @@ import type { BusDb } from '../cost/bus.js'
 import type { Goal } from './goal.js'
 import { existsSync } from 'node:fs'
 import { behindLine, CARDS, currentLane, lastReducedOwnerWaits, readLastReduced } from '../../../scripts/core/bus-readings.js'
-import { BUS_PULSE, CARD_ADMITTED, CARD_FELL, CARD_STOPPED, CARD_VERIFIED, CHECKS_MATRIX_EVENT, PR_GROUPS, PROCESS_HEARTBEAT, SESSION_HEARTBEAT, SLICE_PARENTS_BACKFILLED, TERMINAL_LANES, WINDOW_HEARTBEAT, WINDOW_SUBAGENT_EVENT } from '../../../scripts/core/events.js'
+import { BUS_PULSE, CARD_ADMITTED, CARD_FELL, CARD_STOPPED, CARD_VERIFIED, CHECKS_MATRIX_EVENT, PR_GROUPS, PROCESS_HEARTBEAT, REVIEW_DRIP, SESSION_HEARTBEAT, SLICE_PARENTS_BACKFILLED, TERMINAL_LANES, WINDOW_HEARTBEAT, WINDOW_SUBAGENT_EVENT } from '../../../scripts/core/events.js'
 import { PLAIN_LORE } from '../../ui/lore.js'
 import { withReadOnlyBus } from '../cost/bus.js'
 import { goalOf } from './goal.js'
@@ -120,6 +120,14 @@ export interface BusFacts {
   reviewQueue: number
   groups?: BusGroup[]
   shadow?: BusShadow
+  tails?: BusTail[]
+}
+
+export interface BusTail {
+  card: number
+  pr: number | null
+  head: string | null
+  finding: string
 }
 
 export interface BusGroup {
@@ -219,7 +227,7 @@ function windowRoles(db: BusDb): BusService[] {
   return rows.map(row => ({ role: 'window', task: row.role, tree: null, step: `${row.state} · ${row.status}` }))
 }
 
-const BOARD_EVENT_TYPES = [WINDOW_SUBAGENT_EVENT, SESSION_HEARTBEAT, CARD_FELL, CARD_STOPPED, CARD_VERIFIED, PR_GROUPS]
+const BOARD_EVENT_TYPES = [WINDOW_SUBAGENT_EVENT, SESSION_HEARTBEAT, CARD_FELL, CARD_STOPPED, CARD_VERIFIED, PR_GROUPS, REVIEW_DRIP]
 
 interface BoardEvents {
   of: (type: string) => EventRow[]
@@ -528,6 +536,25 @@ function orderFacts(events: BoardEvents): Pick<BusFacts, 'groups' | 'shadow'> {
   }
 }
 
+function cardTails(events: BoardEvents): BusTail[] {
+  const standing = new Map<string, BusTail>()
+  for (const row of events.of(REVIEW_DRIP)) {
+    const payload = payloadOf(row.payload)
+    const finding = text(payload.finding)
+    if (row.legacy !== 0 || row.card_id === null || finding === null)
+      continue
+    const key = `${row.card_id}\n${finding}`
+    standing.delete(key)
+    standing.set(key, { card: row.card_id, pr: row.pr, head: text(payload.head), finding })
+  }
+  return [...standing.values()].sort((a, b) => a.card - b.card)
+}
+
+function tailFacts(events: BoardEvents): Pick<BusFacts, 'tails'> {
+  const tails = cardTails(events)
+  return tails.length === 0 ? {} : { tails }
+}
+
 export function busFacts(db: BusDb, now: Date): BusFacts {
   const queue = db.prepare(`SELECT count(*) AS n FROM tasks WHERE queue = 'review' AND state IN ('queued', 'leased')`).get() as { n: number }
   const events = boardEvents(db)
@@ -549,6 +576,7 @@ export function busFacts(db: BusDb, now: Date): BusFacts {
     failure: lastFailure(events),
     reviewQueue: Number(queue.n),
     ...orderFacts(events),
+    ...tailFacts(events),
   }
 }
 
