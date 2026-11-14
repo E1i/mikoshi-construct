@@ -3,7 +3,7 @@ import type { BusDb } from '../cost/bus.js'
 import type { Goal } from './goal.js'
 import { existsSync } from 'node:fs'
 import { behindLine, CARDS, currentLane, lastReducedOwnerWaits, readLastReduced } from '../../../scripts/core/bus-readings.js'
-import { BUS_PULSE, CARD_ADMITTED, CARD_FELL, CARD_STOPPED, CARD_VERIFIED, CHECKS_MATRIX_EVENT, PROCESS_HEARTBEAT, SESSION_HEARTBEAT, SLICE_PARENTS_BACKFILLED, TERMINAL_LANES, WINDOW_HEARTBEAT, WINDOW_SUBAGENT_EVENT } from '../../../scripts/core/events.js'
+import { BUS_PULSE, CARD_ADMITTED, CARD_FELL, CARD_STOPPED, CARD_VERIFIED, CHECKS_MATRIX_EVENT, PR_GROUPS, PROCESS_HEARTBEAT, SESSION_HEARTBEAT, SLICE_PARENTS_BACKFILLED, TERMINAL_LANES, WINDOW_HEARTBEAT, WINDOW_SUBAGENT_EVENT } from '../../../scripts/core/events.js'
 import { PLAIN_LORE } from '../../ui/lore.js'
 import { withReadOnlyBus } from '../cost/bus.js'
 import { goalOf } from './goal.js'
@@ -118,6 +118,19 @@ export interface BusFacts {
   matrices: BusMatrix[]
   failure: string | null
   reviewQueue: number
+  groups?: BusGroup[]
+  shadow?: BusShadow
+}
+
+export interface BusGroup {
+  prs: readonly number[]
+  modules: readonly string[]
+  turn: number | null
+}
+
+export interface BusShadow {
+  needsUpdate: number
+  needsVerification: number
 }
 
 export type BusReading
@@ -206,7 +219,7 @@ function windowRoles(db: BusDb): BusService[] {
   return rows.map(row => ({ role: 'window', task: row.role, tree: null, step: `${row.state} · ${row.status}` }))
 }
 
-const BOARD_EVENT_TYPES = [WINDOW_SUBAGENT_EVENT, SESSION_HEARTBEAT, CARD_FELL, CARD_STOPPED, CARD_VERIFIED]
+const BOARD_EVENT_TYPES = [WINDOW_SUBAGENT_EVENT, SESSION_HEARTBEAT, CARD_FELL, CARD_STOPPED, CARD_VERIFIED, PR_GROUPS]
 
 interface BoardEvents {
   of: (type: string) => EventRow[]
@@ -491,6 +504,30 @@ export function latestCardEvents(db: BusDb, perCard: number): Map<number, BusCar
   return events
 }
 
+function numbers(value: unknown): number[] | null {
+  return Array.isArray(value) && value.every(entry => Number.isSafeInteger(entry)) ? value as number[] : null
+}
+
+function groupOf(value: unknown): BusGroup[] {
+  if (value == null || typeof value !== 'object')
+    return []
+  const { prs, modules, turn } = value as Record<string, unknown>
+  const members = numbers(prs)
+  const names = Array.isArray(modules) && modules.every(name => typeof name === 'string') ? modules as string[] : null
+  return members === null || names === null ? [] : [{ prs: members, modules: names, turn: Number.isSafeInteger(turn) ? turn as number : null }]
+}
+
+function orderFacts(events: BoardEvents): Pick<BusFacts, 'groups' | 'shadow'> {
+  const last = events.of(PR_GROUPS).at(-1)
+  if (last === undefined)
+    return {}
+  const payload = payloadOf(last.payload)
+  return {
+    groups: Array.isArray(payload.groups) ? payload.groups.flatMap(groupOf) : [],
+    shadow: { needsUpdate: count(payload.needsUpdate), needsVerification: count(payload.needsVerification) },
+  }
+}
+
 export function busFacts(db: BusDb, now: Date): BusFacts {
   const queue = db.prepare(`SELECT count(*) AS n FROM tasks WHERE queue = 'review' AND state IN ('queued', 'leased')`).get() as { n: number }
   const events = boardEvents(db)
@@ -511,6 +548,7 @@ export function busFacts(db: BusDb, now: Date): BusFacts {
     matrices: checkMatrices(db),
     failure: lastFailure(events),
     reviewQueue: Number(queue.n),
+    ...orderFacts(events),
   }
 }
 

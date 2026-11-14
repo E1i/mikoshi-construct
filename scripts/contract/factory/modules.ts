@@ -45,7 +45,7 @@ const BUS_CONTRACT = core('db.ts', 'sqlite.ts', 'queue.ts', 'dependency-wait.ts'
 const BUS_IMPL = core('projection-writes.ts', 'projection-writes.known.json', 'rejection.ts')
 
 const SESSION_FILES = [
-  ...core('machine-sessions.ts', 'eddies.ts', 'journal.ts', 'tasks.ts', 'handoff-dir.ts', 'handoff-fields.ts', 'handoff-status.ts', 'card-automaton.ts', 'card-hold.ts', 'chain.ts', 'places.ts', 'report.ts', 'legacy-history.ts'),
+  ...core('machine-sessions.ts', 'eddies.ts', 'journal.ts', 'tasks.ts', 'handoff-dir.ts', 'handoff-fields.ts', 'handoff-status.ts', 'card-automaton.ts', 'card-hold.ts', 'chain.ts', 'places.ts', 'report.ts', 'legacy-history.ts', 'import-closure.ts'),
   ...card('closed'),
   ...cli('slot.ts'),
   'src/commands/liveness.ts',
@@ -89,7 +89,7 @@ const OWNER_COMMANDS_READER = ['command-registry']
 
 const DRAWN: Readonly<Record<string, ModuleSpec>> = {
   'bus': { owns: [...BUS_CONTRACT, ...BUS_IMPL], contract: BUS_CONTRACT, may_use: ['events'], status: 'decided' },
-  'session': { owns: [...SESSION_FILES, tree('supervisor')], contract: SESSION_CONTRACT, may_use: ['bus', 'card-model', 'card-record', 'command-registry', 'ports-adapters', 'events'], status: 'decided' },
+  'session': { owns: [...SESSION_FILES, tree('supervisor')], contract: SESSION_CONTRACT, may_use: ['bus', 'card-model', 'card-record', 'command-registry', 'ports-adapters', 'events', 'order'], status: 'decided' },
   'card-model': decided(CARD_MODEL, []),
   'card-record': decided(CARD_RECORD, ['bus', 'card-model', 'events']),
   'plan': decided(PLAN, ['card-model', 'card-record', 'events']),
@@ -106,6 +106,7 @@ const DRAWN: Readonly<Record<string, ModuleSpec>> = {
   'node-witness': node('witness'),
   'node-laws': undecided([factory('nodes/laws.ts')]),
   'events': decided(core('events.ts'), []),
+  'order': decided([tree('core/order')], ['layout', 'bus', 'events']),
   'layout': undecided(core('factory-paths.ts', 'generated-files.ts', 'declarations.ts')),
   'decisions': undecided([...core('inbox.ts', 'card-decisions.ts'), ...within(factory('policy'), 'live-decision.ts', `decisions${ANY_DEPTH}`), tree('owner')]),
   'rules': undecided([...within(factory('policy'), 'policy.ts', `morse${ANY_DEPTH}`, 'repeat-finding.ts', 'round-limit-decision.ts', 'shard.ts', 'shards.ts', `shredder${ANY_DEPTH}`, 'widening.ts', 'touch-scope.ts'), tree('morse'), ...core('push-policy.ts')]),
@@ -113,7 +114,7 @@ const DRAWN: Readonly<Record<string, ModuleSpec>> = {
   'intake': undecided([tree('intake'), `src/commands/intake${ANY_DEPTH}`], OWNER_COMMANDS_READER),
   'cost': undecided([tree('ladder'), tree('done'), `src/commands/cost${ANY_DEPTH}`]),
   'ports': undecided([tree('ports'), ...core('gh-callers.ts', 'gh-callers.known.json')]),
-  'window': undecided([tree('window'), tree('conveyor')], OWNER_COMMANDS_READER),
+  'window': undecided([tree('window'), tree('conveyor')], [...OWNER_COMMANDS_READER, 'order']),
   'board': undecided([...cli('board-page.ts', `board-page${ANY_DEPTH}`, 'board-warnings.ts'), `src/commands/board${ANY_DEPTH}`], OWNER_COMMANDS_READER),
   'release': undecided([tree('release'), tree('release-notes'), tree('docs'), 'src/commands/run-record.ts']),
   'factory-contract': undecided([factory('contract/contours.ts')]),

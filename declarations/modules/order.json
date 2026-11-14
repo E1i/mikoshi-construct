@@ -1,0 +1,9 @@
+{
+  "module": "order",
+  "layer": "core",
+  "paths": [
+    "scripts/core/order/"
+  ],
+  "exclude": [],
+  "shared": []
+}

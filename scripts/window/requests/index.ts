@@ -9,6 +9,7 @@ import { execute as drop } from './drop.js'
 import { execute as hold } from './hold.js'
 import { execute as mode } from './mode.js'
 import { execute as numbersForeign } from './numbers-foreign.js'
+import { execute as orderMove } from './order-move.js'
 import { execute as ownerAnswer } from './owner-answer.js'
 import { execute as ownerLaunch } from './owner-launch.js'
 import { execute as ownerRequeue } from './owner-requeue.js'
@@ -46,6 +47,7 @@ export const REQUEST_EXECUTORS: Readonly<Record<RequestKind, RequestExecutor>> =
   'drop': drop,
   'numbers.foreign': numbersForeign,
   'owner.answer': ownerAnswer,
+  'order.move': orderMove,
   'owner.stop': ownerStop,
   'owner.launch': ownerLaunch,
   'owner.takeover': ownerTakeover,

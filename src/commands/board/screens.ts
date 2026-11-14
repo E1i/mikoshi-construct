@@ -1,11 +1,13 @@
 import type { Lore } from '../../ui/lore.js'
-import type { BusCard, BusFacts, BusMatrix, OwnerWait } from './bus.js'
+import type { BusCard, BusFacts, BusGroup, BusMatrix, OwnerWait } from './bus.js'
 import { ADMIT_COMMAND, pnpmCommand } from '../../../scripts/core/owner-commands.js'
 import { FLOW_STAGES, LIVE_STAGES, LIVE_STATES, SHORT_SHA } from './bus.js'
 import { planLine } from './goal.js'
 
 const CARD_PREFIX = /^card:\s*/
 const MATRIX_ROLE = 'matrix'
+const GROUP_ROLE = 'group'
+const SHADOW_ROLE = 'shadow'
 const BUS_ROLE = 'bus'
 const WAITS_ROLE = 'waits for you'
 const CARDS_ROLE = 'cards'
@@ -125,6 +127,19 @@ export function matrixLines(facts: BusFacts, lore: Lore): string[] {
   return facts.matrices.map(matrix => lore.boardServiceLine(MATRIX_ROLE, `PR #${matrix.pr}`, undefined, matrixStep(matrix)))
 }
 
+function groupStep(group: BusGroup): string {
+  const modules = group.modules.length === 0 ? 'no declared module' : `modules ${group.modules.join(', ')}`
+  return `${modules} \u00B7 ${group.turn === null ? 'no turn: every member parked or unordered' : `turn PR #${group.turn}`}`
+}
+
+export function groupLines(facts: BusFacts, lore: Lore): string[] {
+  if (facts.groups === undefined || facts.groups.length === 0)
+    return []
+  const groups = facts.groups.map(group => lore.boardServiceLine(GROUP_ROLE, group.prs.map(pr => `PR #${pr}`).join(' '), undefined, groupStep(group)))
+  const shadow = facts.shadow === undefined ? [] : [lore.boardServiceLine(SHADOW_ROLE, 'order', undefined, `needsUpdate counted ${facts.shadow.needsUpdate} \u00B7 needsVerification counted ${facts.shadow.needsVerification} \u00B7 nothing acts on them yet`)]
+  return [...groups, ...shadow]
+}
+
 function minutesSince(ts: string, at: string): number {
   return Math.max(0, Math.round((Date.parse(at) - Date.parse(ts)) / MINUTE_MS))
 }
@@ -213,7 +228,7 @@ export function boardScreens(facts: BusFacts, lore: Lore, all = false): Screens 
     screens: [
       { title: lore.boardTabFlow, lines: [...goalLines(facts, lore), ...waitsLines(facts, lore), ...behindCardsLines(facts, lore), ...tallyLines(facts.cards), ...flowLines(facts.cards, lore), ...flowHintLines(facts.cards, lore)] },
       { title: lore.boardTabBacklog, lines: [...behindCardsLines(facts, lore), ...backlogLines(backlogCards(facts.cards, facts.at, all), lore)] },
-      { title: lore.boardTabServices, lines: [...servicesLines(facts, lore), ...pulseLines(facts, lore), ...matrixLines(facts, lore)] },
+      { title: lore.boardTabServices, lines: [...servicesLines(facts, lore), ...pulseLines(facts, lore), ...matrixLines(facts, lore), ...groupLines(facts, lore)] },
     ],
     footer: lore.boardFooter(facts.services.length, facts.failure ?? undefined, facts.reviewQueue),
   }
