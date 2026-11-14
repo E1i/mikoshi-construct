@@ -411,6 +411,18 @@ describe('the turn the bus records is the turnOf of §1.1, folded from the bus r
     expect(turnStateOf(order, new Set()).parked(2)).toBe(false)
   })
 
+  it('red CI parks a member only while main is not red too: a red attributed to a red main leaves the member unparked and its turn stands', () => {
+    const order = threeInOneGroup()
+    foldOrder(order, at(PR_OBSERVED, 1, null, { head: '1'.padStart(40, '0'), paths: ['shared'], ci: 'red', verdict_on_head: 'pass', mergeable: 'clean', card_id: 11 }), NO_DECLARATIONS)
+    expect(turnStateOf(order, new Set()).parked(1)).toBe(true)
+    expect(turn(order)).toBe(2)
+    order.mainCi = 'red'
+    expect(turnStateOf(order, new Set()).parked(1)).toBe(false)
+    expect(turn(order)).toBe(1)
+    order.mainCi = 'green'
+    expect(turn(order)).toBe(2)
+  })
+
   it('a member holding a leased update or merge task is the turn even below a lower rank, and gives it back when the task ends', () => {
     const order = threeInOneGroup()
     foldOrder(order, at(TASK_ENQUEUED, 3, 13, { task_key: 'merge:13:3:x', queue: 'merge' }), NO_DECLARATIONS)
