@@ -65,6 +65,7 @@ export const PLAN_OPENED = 'plan.opened'
 export const POLICY_ALLOWED = 'policy.allowed'
 export const POLICY_DENIED = 'policy.denied'
 export const PR_CLOSED = 'pr.closed'
+export const PR_GROUPS = 'pr.groups'
 export const PR_OBSERVED = 'pr.observed'
 export const PR_OPENED = 'pr.opened'
 export const PR_ORDERED = 'pr.ordered'
@@ -218,9 +219,10 @@ export const EVENT_PAYLOADS = {
   [POLICY_ALLOWED]: ['by', 'command', 'detail', 'lease_gen', 'reason', 'rule', 'task_key'],
   [POLICY_DENIED]: ['base', 'by', 'command', 'detail', 'kind', 'parkedUntil', 'paths', 'reason', 'refusal', 'refused', 'rule'],
   [PR_CLOSED]: ['branch', 'by', 'commit', 'merged', 'merged_at', 'merged_by', 'reason'],
+  [PR_GROUPS]: ['groups', 'needsUpdate', 'needsVerification'],
   [PR_OBSERVED]: ['auto_merge', 'base', 'body_sha', 'branch', 'cancelled_checks', 'card_id', 'ci', 'draft', 'failed_checks', 'head', 'mergeable', 'paths', 'pathsTruncated', 'verdict_on_head'],
   [PR_OPENED]: ['pr', 'recut_of'],
-  [PR_ORDERED]: ['by'],
+  [PR_ORDERED]: ['before', 'by'],
   [PR_STATUS_REFUSED]: ['event_id', 'state', 'status', 'step'],
   [PR_STATUS_SET]: ['event_id', 'state', 'status', 'step'],
   [PROCESS_ENDED]: ['process'],
@@ -264,7 +266,7 @@ export const EVENT_PAYLOADS = {
   [TOUCHES_FOLLOWED]: ['paths', 'reason'],
   [UPDATE_DONE]: ['carried', 'clean', 'from', 'lease_gen', 'rebuilt', 'rules_version', 'task_key', 'to', 'tookMain', 'why'],
   [WINDOW_HEARTBEAT]: ['context', 'error', 'mode', 'model', 'reason', 'root', 'session', 'spent', 'subagents'],
-  [WINDOW_REQUEST]: ['add_witness', 'answer', 'auto_confirm', 'card', 'cards', 'command', 'depends', 'dry_run', 'file', 'from', 'gate', 'goal', 'head', 'id', 'ids', 'keep_tree', 'kind', 'mode', 'need', 'op', 'owner_words', 'plan', 'pr', 'priority', 'reason', 'remove_witness', 'supersedes', 'task_key', 'text', 'title', 'touches', 'until'],
+  [WINDOW_REQUEST]: ['add_witness', 'answer', 'auto_confirm', 'before', 'card', 'cards', 'command', 'depends', 'dry_run', 'file', 'from', 'gate', 'goal', 'head', 'id', 'ids', 'keep_tree', 'kind', 'mode', 'need', 'op', 'owner_words', 'plan', 'pr', 'priority', 'reason', 'remove_witness', 'supersedes', 'task_key', 'text', 'title', 'touches', 'until'],
   [REQUEST_DONE]: ['detail', 'kind', 'request'],
   [REQUEST_REFUSED]: ['detail', 'kind', 'owner', 'request'],
   [WINDOW_SUBAGENT_EVENT]: ['phase', 'role', 'session', 'step', 'task', 'tree'],

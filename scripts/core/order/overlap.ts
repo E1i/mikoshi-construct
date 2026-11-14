@@ -1,5 +1,5 @@
 import type { ContentionArea, Declarations, ModuleDeclaration } from '../declarations.js'
-import { matches, ownershipOf } from '../declarations.js'
+import { matches, ownershipOf, readDeclarations } from '../declarations.js'
 
 export interface OverlapDeclarations {
   modules: readonly ModuleDeclaration[]
@@ -11,6 +11,10 @@ export const NO_DECLARATIONS: OverlapDeclarations = { modules: [], contention: [
 
 export function overlapDeclarationsOf(declarations: Pick<Declarations, 'modules' | 'contention' | 'generated'>): OverlapDeclarations {
   return { modules: declarations.modules, contention: declarations.contention, derived: declarations.generated.map(row => row.path) }
+}
+
+export function orderDeclarationsAt(root: string): OverlapDeclarations {
+  return overlapDeclarationsOf(readDeclarations(root))
 }
 
 export function effectivePaths(paths: Iterable<string>, declarations: OverlapDeclarations): string[] {

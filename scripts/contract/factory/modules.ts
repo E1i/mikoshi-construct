@@ -89,7 +89,7 @@ const OWNER_COMMANDS_READER = ['command-registry']
 
 const DRAWN: Readonly<Record<string, ModuleSpec>> = {
   'bus': { owns: [...BUS_CONTRACT, ...BUS_IMPL], contract: BUS_CONTRACT, may_use: ['events'], status: 'decided' },
-  'session': { owns: [...SESSION_FILES, tree('supervisor')], contract: SESSION_CONTRACT, may_use: ['bus', 'card-model', 'card-record', 'command-registry', 'ports-adapters', 'events'], status: 'decided' },
+  'session': { owns: [...SESSION_FILES, tree('supervisor')], contract: SESSION_CONTRACT, may_use: ['bus', 'card-model', 'card-record', 'command-registry', 'ports-adapters', 'events', 'order'], status: 'decided' },
   'card-model': decided(CARD_MODEL, []),
   'card-record': decided(CARD_RECORD, ['bus', 'card-model', 'events']),
   'plan': decided(PLAN, ['card-model', 'card-record', 'events']),
@@ -114,7 +114,7 @@ const DRAWN: Readonly<Record<string, ModuleSpec>> = {
   'intake': undecided([tree('intake'), `src/commands/intake${ANY_DEPTH}`], OWNER_COMMANDS_READER),
   'cost': undecided([tree('ladder'), tree('done'), `src/commands/cost${ANY_DEPTH}`]),
   'ports': undecided([tree('ports'), ...core('gh-callers.ts', 'gh-callers.known.json')]),
-  'window': undecided([tree('window'), tree('conveyor')], OWNER_COMMANDS_READER),
+  'window': undecided([tree('window'), tree('conveyor')], [...OWNER_COMMANDS_READER, 'order']),
   'board': undecided([...cli('board-page.ts', `board-page${ANY_DEPTH}`, 'board-warnings.ts'), `src/commands/board${ANY_DEPTH}`], OWNER_COMMANDS_READER),
   'release': undecided([tree('release'), tree('release-notes'), tree('docs'), 'src/commands/run-record.ts']),
   'factory-contract': undecided([factory('contract/contours.ts')]),

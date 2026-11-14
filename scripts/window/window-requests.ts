@@ -161,6 +161,10 @@ export function requestOf(argv: readonly string[]): RequestPayload | null {
     const [pr, card, reason] = [prOf(Number(flag(argv, '--pr'))), cardIdOf(flag(argv, '--card')), flag(argv, '--reason')]
     return pr === null || card === null || reason === undefined ? null : { kind, pr, card, reason }
   }
+  if (kind === 'order.move') {
+    const [pr, before] = [prOf(Number(flag(argv, '--pr'))), flag(argv, '--before')]
+    return pr === null ? null : { kind, pr, ...(before === undefined ? {} : { before: Number(before) }) }
+  }
   if (kind === 'pr.body' || kind === 'ci.rerun') {
     const [pr, file] = [prOf(Number(flag(argv, '--pr'))), kind === 'pr.body' ? flag(argv, '--file') : undefined]
     return pr === null ? null : { kind, pr, ...(file === undefined ? {} : { file }) }

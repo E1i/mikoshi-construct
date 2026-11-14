@@ -2,9 +2,9 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { PrGroup } from './group.js'
 import type { OverlapDeclarations } from './overlap.js'
 import { appendEvent } from '../db.js'
-import { declaredPayload, MAIN_ADVANCED, PR_CLOSED, PR_OBSERVED, PR_OPENED, PR_ORDERED } from '../events.js'
+import { declaredPayload, MAIN_ADVANCED, PR_CLOSED, PR_GROUPS, PR_OBSERVED, PR_OPENED, PR_ORDERED } from '../events.js'
 import { groupsOf } from './group.js'
-import { overlaps } from './overlap.js'
+import { orderDeclarationsAt, overlaps } from './overlap.js'
 
 export const ORDER_EVENTS: readonly string[] = [PR_OBSERVED, PR_CLOSED, PR_OPENED, PR_ORDERED, MAIN_ADVANCED]
 export const BUS_ORDERS = 'bus'
@@ -229,7 +229,7 @@ export const ORDER_FIELDS: Readonly<Record<string, readonly string[]>> = {
   [PR_OBSERVED]: ['head', 'paths', 'ci', 'verdict_on_head', 'mergeable'],
   [PR_CLOSED]: ['merged'],
   [PR_OPENED]: ['pr'],
-  [PR_ORDERED]: ['by'],
+  [PR_ORDERED]: ['before', 'by'],
   [MAIN_ADVANCED]: ['paths', 'pathsTruncated'],
 }
 
@@ -237,6 +237,57 @@ export function orderEventsFrom(sliceOf: SliceOf): OrderEventSource {
   return after => ORDER_EVENTS
     .flatMap(type => sliceOf(type, ORDER_FIELDS[type]!, after).map(slice => ({ id: slice.id, type, pr: slice.pr, payload: slice.fields as Record<string, unknown> })))
     .sort((a, b) => a.id - b.id)
+}
+
+export interface GroupWithTurn extends PrGroup {
+  turn: number | null
+}
+
+export const PARKING_VERDICT = 'changes'
+export const PARKING_CI = 'red'
+
+export function parkedByRecord(order: PrOrder): TurnState {
+  return {
+    parked: (pr) => {
+      const life = order.prs.get(pr)
+      return life === undefined || life.verdict === PARKING_VERDICT || life.ci === PARKING_CI
+    },
+    holds: () => false,
+  }
+}
+
+export function groupsWithTurn(order: PrOrder, declarations: OverlapDeclarations): GroupWithTurn[] {
+  const state = parkedByRecord(order)
+  return orderGroups(order, declarations).map(group => ({ ...group, turn: turnOf(order, group, state) }))
+}
+
+export function recordGroups(db: DatabaseSync, ts: string, order: PrOrder, groups: readonly GroupWithTurn[]): boolean {
+  const payload = { groups: groups.map(({ prs, modules, turn }) => ({ prs, modules, turn })), ...order.counted }
+  return appendEvent(db, {
+    ts,
+    type: PR_GROUPS,
+    actor: ORDER_ACTOR,
+    cardId: null,
+    pr: null,
+    head: null,
+    dedupeKey: `${PR_GROUPS}:${order.through}:${JSON.stringify(payload)}`,
+    payload: declaredPayload(PR_GROUPS, payload),
+    legacy: false,
+  })
+}
+
+export function recordMove(db: DatabaseSync, ts: string, actor: string, request: number, pr: number, before: number | null): boolean {
+  return appendEvent(db, {
+    ts,
+    type: PR_ORDERED,
+    actor,
+    cardId: null,
+    pr,
+    head: null,
+    dedupeKey: `${PR_ORDERED}:move:request-${request}`,
+    payload: declaredPayload(PR_ORDERED, before === null ? { by: WINDOW_ORDERS } : { by: WINDOW_ORDERS, before }),
+    legacy: false,
+  })
 }
 
 export function readOrder(events: OrderEventSource, declarations: OverlapDeclarations): PrOrder {
@@ -264,6 +315,7 @@ export function recordOrdered(db: DatabaseSync, ts: string, order: PrOrder): num
 export class PrOrderTick {
   private readonly order = emptyOrder()
   private shown: ShadowCounts = { needsUpdate: 0, needsVerification: 0 }
+  private recorded: string | null = null
 
   constructor(
     private readonly db: DatabaseSync,
@@ -276,14 +328,27 @@ export class PrOrderTick {
   step(): string[] {
     try {
       const events = this.events(this.order.through)
-      if (events.length > 0)
-        foldOrderEvents(events, this.declarations(), this.order)
+      const changed = events.length > 0 || this.recorded === null
+      const declarations = changed ? this.declarations() : null
+      if (declarations !== null && events.length > 0)
+        foldOrderEvents(events, declarations, this.order)
       const lines = recordOrdered(this.db, this.now(), this.order).map(pr => `${this.prefix}PR #${pr} reached pass + green: ${PR_ORDERED} puts it at the tail of its group's order`)
+      if (declarations !== null)
+        this.recordGroups(declarations)
       return [...lines, ...this.shadowLine()]
     }
     catch (error) {
       return [`${this.prefix}folding ${PR_ORDERED} failed: ${error instanceof Error ? error.message : String(error)}; retried on the next tick`]
     }
+  }
+
+  private recordGroups(declarations: OverlapDeclarations): void {
+    const groups = groupsWithTurn(this.order, declarations)
+    const reading = JSON.stringify({ groups, counted: this.order.counted })
+    if (reading === this.recorded)
+      return
+    recordGroups(this.db, this.now(), this.order, groups)
+    this.recorded = reading
   }
 
   private shadowLine(): string[] {
@@ -293,4 +358,8 @@ export class PrOrderTick {
     this.shown = { ...counted }
     return [`${this.prefix}shadow: needsUpdate counted ${counted.needsUpdate}, needsVerification counted ${counted.needsVerification}; nothing acts on them yet`]
   }
+}
+
+export function prOrderTickAt(db: DatabaseSync, root: string, prefix: string, events: OrderEventSource): PrOrderTick {
+  return new PrOrderTick(db, events, () => new Date().toISOString(), () => orderDeclarationsAt(root), prefix)
 }

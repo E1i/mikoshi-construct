@@ -2516,6 +2516,7 @@
     "scripts/window/requests/index.ts",
     "scripts/window/requests/mode.ts",
     "scripts/window/requests/numbers-foreign.ts",
+    "scripts/window/requests/order-move.ts",
     "scripts/window/requests/owner-answer.ts",
     "scripts/window/requests/owner-launch.ts",
     "scripts/window/requests/owner-move.ts",
