@@ -2,6 +2,7 @@ import type { BusEvent } from '../core/db.js'
 import type { WindowShard } from '../policy/shards.js'
 import type { GhCaller } from '../ports/gh.js'
 import type { BgResult, ProcessList, RunningProcess } from './bg.js'
+import type { AgentHand } from './supervisor.js'
 import type { BusWorker, FactoryMode } from './workers.js'
 import { spawnSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
@@ -22,7 +23,7 @@ import { allowLiveText, namesQueueLive } from '../policy/live-decision.js'
 import { activeWindowShards, DECISIONS_SCOPE, WINDOW_SHARD_HOURS, windowShardEnded } from '../policy/shards.js'
 import { ghPort, readGhJson, recordedAccount } from '../ports/gh.js'
 import { installedPackage, instancesOf, printBg, provenOnBus, psList } from './bg.js'
-import { startBus, SUPERVISOR_LAUNCH } from './supervisor.js'
+import { gitCode, startBus, SUPERVISOR_LAUNCH } from './supervisor.js'
 import { DEFAULT_MODE, FACTORY_MODES, isBusWorker, isFactoryMode, MODE_LIVE, MODE_WORKERS, startingMode, switchDetection, switchMode } from './workers.js'
 
 export { AGENT_PREFIX, agentLabel, LAUNCH_AGENTS } from '../core/bus-path.js'
@@ -66,6 +67,8 @@ export interface KeepAliveParts {
   launchctl: (args: string[]) => LaunchctlRun
   env: NodeJS.ProcessEnv
   gh: GhCaller
+  processes?: Parameters<typeof startBus>[1]
+  spawn?: AgentHand['start']
 }
 
 export interface KeepAliveAgent {
@@ -206,7 +209,7 @@ export function recordAccount(repository: string, parts: KeepAliveParts): string
     : `${START_PREFIX}the factory keeps the GitHub account ${account} its keep-alive records: ${found.because}`]
 }
 
-export async function runStart(repository: string, installed: string | null, parts: KeepAliveParts, start: () => Promise<BgResult> = () => startBus(parts.busDir, undefined, null)): Promise<BgResult> {
+export async function runStart(repository: string, installed: string | null, parts: KeepAliveParts, start: () => Promise<BgResult> = () => startBus(parts.busDir, parts.processes, gitCode(repository), parts.spawn)): Promise<BgResult> {
   const account = recordAccount(repository, parts)
   const mode = startingMode(parts.busDir)
   const fresh = mode === null ? [] : [`${START_PREFIX}a fresh factory starts in mode ${mode}: ${MODE_WORKERS[mode].join(', ')} switched on, merge off, a human merges; ${START_BIN} ${MODE_FLAG} ${FACTORY_MODES[1]} switches to ${FACTORY_MODES[1]} on the owner's word`]

@@ -566,7 +566,7 @@ function machine(): Machine {
           journal: () => {},
           now: () => 0,
         }),
-        relaunch: { busDir: '', code: { head: () => '' }, start: () => {
+        relaunch: { busDir: '', start: () => {
           const fresh = ++pid
           m.alive.push({ pid: fresh, args: SUPERVISOR_ARGS })
           return { stdout: [String(fresh)], stderr: [], exitCode: 0 }
@@ -934,7 +934,7 @@ describe('the supervisor restarts itself after a merge under scripts/bus', () =>
     await superviseUntilReplaced({
       supervisor,
       keeper: new WorkerKeeper({ wanted: () => [], start: ok, processes: () => alive, reduce: () => [], journal: () => {}, now: () => 0 }),
-      relaunch: { busDir: '', code: { head: () => '' }, start: () => {
+      relaunch: { busDir: '', start: () => {
         relaunched.push(500)
         return { stdout: ['501'], stderr: [], exitCode: 0 }
       } },
@@ -1353,7 +1353,7 @@ describe('the supervisor judges liveness from heartbeats alone', () => {
       supervisor,
       keeper,
       judge: new LivenessJudge(db, () => clock.now, expecting(SUPERVISOR_PROCESS)),
-      relaunch: { busDir: '', code: { head: () => '' }, start: () => ({ stdout: [], stderr: [], exitCode: 1 }) },
+      relaunch: { busDir: '', start: () => ({ stdout: [], stderr: [], exitCode: 1 }) },
       print: line => lines.push(line),
       pause: async () => {
         sampleBeat()
@@ -1455,7 +1455,7 @@ describe('the switch is a flag, and the supervisor moves each worker to it', () 
     const lines: string[] = []
     const oneTick = new Error('one tick')
 
-    await expect(superviseUntilReplaced({ supervisor, keeper, relaunch: { busDir: '', code: { head: () => '' }, start: () => ({ stdout: [], stderr: [], exitCode: 1 }) }, print: line => lines.push(line), pause: async () => {
+    await expect(superviseUntilReplaced({ supervisor, keeper, relaunch: { busDir: '', start: () => ({ stdout: [], stderr: [], exitCode: 1 }) }, print: line => lines.push(line), pause: async () => {
       throw oneTick
     } })).rejects.toBe(oneTick)
 

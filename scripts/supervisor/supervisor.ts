@@ -906,7 +906,7 @@ export interface SupervisingParts {
   windowEnds?: WindowSessionEnds
   windowSubagents?: Pick<WindowSubagentTick, 'step'>
   order?: { step: () => string[] }
-  relaunch: Readonly<{ busDir: string, code: Pick<BusCode, 'head'>, start?: NonNullable<AgentHand['start']> }>
+  relaunch: Readonly<{ busDir: string, start?: NonNullable<AgentHand['start']> }>
   print: (line: string) => void
   pause: () => Promise<unknown>
 }
@@ -925,7 +925,7 @@ export async function superviseUntilReplaced(parts: SupervisingParts): Promise<v
   for (;;) {
     const lines = await parts.supervisor.step()
     const head = parts.supervisor.ownCodeBehind
-    const replacement = head === null ? { lines: [], replaced: false } : replacedBy(head, relaunchSupervisor(parts.relaunch))
+    const replacement = head === null ? { lines: [], replaced: false } : replacedBy(head, relaunchSupervisor(parts.relaunch, head))
     const ticked = [...lines, ...replacement.lines, ...replacement.replaced ? [] : [...parts.keeper.step(), ...await parts.judge?.step() ?? [], ...parts.windowEnds?.step() ?? [], ...parts.windowSubagents?.step() ?? [], ...parts.order?.step() ?? []]]
     for (const line of [...ticked, ...await parts.heal?.step(ticked) ?? [], ...parts.snapshot?.step() ?? []])
       parts.print(line)
@@ -1057,7 +1057,7 @@ async function supervise(busDir: string, cwd: string, reviewPreflight: () => str
       order: busOrderTick(db, cwd),
       heal: new BusHealer({ busPath, nodes, now: () => new Date(), projections: busProjections(), watch: new CorruptionWatch(busLaunches(reviewPreflight).map(launch => path.join(busDir, launch.log))) }),
       snapshot: new BusSnapshot({ db, busPath, file: snapshotPathOf(busPath), now: () => Date.now(), paused: () => nodes.held() }),
-      relaunch: { busDir, code },
+      relaunch: { busDir },
       print: line => console.log(line),
       pause: () => sleep(CHECK_MS),
     })
@@ -1078,8 +1078,8 @@ function onBus<T>(read: (db: DatabaseSync) => T): T {
   }
 }
 
-export function relaunchSupervisor({ busDir, code, start = startDetached }: SupervisingParts['relaunch']): BgResult {
-  return start(SUPERVISOR_LAUNCH, busDir, generationEnv(code), outsideOwnGroup())
+export function relaunchSupervisor({ busDir, start = startDetached }: SupervisingParts['relaunch'], head: string): BgResult {
+  return start(SUPERVISOR_LAUNCH, busDir, generationEnv({ head: () => head }), outsideOwnGroup())
 }
 
 export function pinnedBusDir(): string {

@@ -11,13 +11,13 @@ import { openBus } from '../../../core/db.js'
 import { WORKER_STARTED } from '../../../core/events.js'
 import { GENERATION_VARIABLE, UNHANDED } from '../../../core/node.js'
 import { handedIdentity, recordSpawned, spawnedActor } from '../../../supervisor/bg.js'
+import { runStart } from '../../../supervisor/start.js'
 import { gitCode, relaunchSupervisor, startBus, superviseUntilReplaced, SUPERVISOR_LAUNCH } from '../../../supervisor/supervisor.js'
 import { eventsOf } from '../merge-bench.js'
 
 const GENERATION = 'b'.repeat(40)
 const STARTED_PID = 4242
 const STARTED_AT = 'Sat Nov 14 10:00:00 2026'
-const code = { head: () => GENERATION }
 const roots: string[] = []
 const dbs: DatabaseSync[] = []
 
@@ -62,7 +62,7 @@ describe('k1a: the supervisor hands the generation to what it starts itself', ()
     await superviseUntilReplaced({
       supervisor: { step: async () => [], ownCodeBehind: GENERATION } as unknown as BusSupervisor,
       keeper: { step: () => [] } as unknown as WorkerKeeper,
-      relaunch: { busDir, code, start: recordedStart },
+      relaunch: { busDir, start: recordedStart },
       print: line => printed.push(line),
       pause: async () => {
         throw new Error(printed.join('\n'))
@@ -77,6 +77,28 @@ describe('k1a: the supervisor hands the generation to what it starts itself', ()
     const result = await startBus(busDir, () => [], undefined, recordedStart)
     expect(result.exitCode, [...result.stdout, ...result.stderr].join('\n')).toBe(0)
     expect(supervisorRecords(db)).toEqual([expect.objectContaining({ pid: STARTED_PID, generation: gitCode(process.cwd()).head() })])
+    expect(eventsOf(db, WORKER_STARTED).map(record => record.generation)).not.toContain(UNHANDED)
+  })
+
+  it('construct-factory start hands the bus processes the generation of its repository', async () => {
+    expect(relaunchSupervisor, 'a build whose runStart takes no spawn would spawn real bus processes here').toBeTypeOf('function')
+    const { busDir, db } = unhandedBus()
+    const repository = process.cwd()
+    const result = await runStart(repository, 'mikoshi-construct', {
+      platform: 'linux',
+      home: busDir,
+      uid: 0,
+      path: '',
+      busDb: path.join(busDir, 'bus.db'),
+      busDir,
+      launchctl: () => ({ status: 1, stderr: '' }),
+      env: {},
+      gh: args => ({ kind: 'failed', cause: 'failed', reason: `no gh in this test: ${args.join(' ')}`, stdout: '', stderr: '', attempts: 1 }),
+      processes: () => [],
+      spawn: recordedStart,
+    })
+    expect(result.exitCode, [...result.stdout, ...result.stderr].join('\n')).toBe(0)
+    expect(supervisorRecords(db)).toEqual([expect.objectContaining({ pid: STARTED_PID, generation: gitCode(repository).head() })])
     expect(eventsOf(db, WORKER_STARTED).map(record => record.generation)).not.toContain(UNHANDED)
   })
 })

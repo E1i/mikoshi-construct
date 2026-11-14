@@ -116,7 +116,7 @@ describe('conveyor O2: the order runs in the bus, on the board and through the w
       } } as never,
       keeper: { step: () => [] } as never,
       order: busOrderTick(db, root),
-      relaunch: { busDir: '', code: { head: () => '' }, start: () => ({ stdout: [], stderr: [], exitCode: 0 }) },
+      relaunch: { busDir: '', start: () => ({ stdout: [], stderr: [], exitCode: 0 }) },
       print: line => printed.push(line),
       pause: async () => {},
     })
