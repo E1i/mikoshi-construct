@@ -1,0 +1,11 @@
+{
+  "module": "instructions",
+  "layer": "instructions",
+  "paths": [
+    ".claude/",
+    "AGENTS.md",
+    "CLAUDE.md"
+  ],
+  "exclude": [],
+  "shared": []
+}

@@ -1,7 +1,10 @@
+import type { IdentityReader, ProcessIdentity } from '../core/node.js'
 import type { ProcessTable } from '../ports/process-table.js'
 import type { ProcessList, RunningProcess } from './bg.js'
 import { existsSync, readFileSync } from 'node:fs'
 import process from 'node:process'
+import { GENERATION_VARIABLE, UNHANDED } from '../core/node.js'
+import { identityOf, OsProcessTable } from '../ports/process-table.js'
 import { alive, argsBeforeBus, processBeatsOn, servesBus } from './bg.js'
 
 export type PidAlive = (pid: number) => boolean
@@ -36,6 +39,23 @@ export function recordedWorker(site: RecordedWorkerSite, processes: ProcessList,
   if (listed === undefined)
     return undefined
   return servesBus(listed, site.bus) && site.markers.some(marker => argsBeforeBus(listed.args).includes(marker)) ? listed : undefined
+}
+
+export function ownIdentity(table: ProcessTable = new OsProcessTable(), pid: number = process.pid): ProcessIdentity | null {
+  return identityOf(table.snapshot(), pid)
+}
+
+export function tableIdentity(table: ProcessTable = new OsProcessTable()): IdentityReader {
+  return pid => identityOf(table.snapshot(), pid)
+}
+
+export function generationEnv(code: { head: () => string }, env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  try {
+    return { ...env, [GENERATION_VARIABLE]: code.head() }
+  }
+  catch {
+    return { ...env, [GENERATION_VARIABLE]: UNHANDED }
+  }
 }
 
 export function sessionLifeIn(table: ProcessTable): LifeOf {

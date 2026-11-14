@@ -33,6 +33,7 @@
     "mikoshi-construct": "dist/cli.js"
   },
   "files": [
+    "declarations/generated",
     "dist",
     "templates"
   ],
@@ -71,6 +72,7 @@
     "ci:select": "node --import tsx scripts/ci/select.ts",
     "ci": "pnpm run quality",
     "contract:bump": "node --import tsx scripts/contract/bump.ts",
+    "conveyor:measures": "node --import tsx scripts/conveyor/measures.ts",
     "contract:overlaps": "node --import tsx scripts/contract/overlaps.ts",
     "contract:update": "node --import tsx scripts/contract/update.ts && node --import tsx scripts/contract/surface.ts",
     "composition:check": "node --import tsx scripts/composition/check.ts",
@@ -88,6 +90,7 @@
     "task:close": "node --import tsx scripts/nodes/close/task-close.ts",
     "decisions": "node --import tsx scripts/policy/decisions/read.ts",
     "decisions:add": "node --import tsx scripts/policy/decisions/add.ts",
+    "declarations:update": "git ls-files --cached --others --exclude-standard | node --import tsx scripts/core/declarations.ts",
     "owner:say": "node --import tsx scripts/owner/say.ts",
     "owner:answer": "node --import tsx scripts/owner/answer.ts",
     "owner:command": "node --import tsx scripts/window/owner-command.ts",
@@ -162,7 +165,9 @@
     "contract:bump": "a gate, deliberately outside: it needs the release tags and full history, so it runs in its own CI job with fetch-depth 0",
     "contract:overlaps": "a read-only print of the sites behind the overlaps of contract/factory.json; tests/contract/factory.test.ts is its gate",
     "contract:update": "a writer; tests/contract/surface.test.ts, tests/contract/factory.test.ts and tests/scripts-registry.test.ts are its gates",
+    "conveyor:measures": "a read-only print of the conveyor measures 1–3 over a window of bus.db, taken at a checkpoint, not a verdict on a change; scripts/tests/conveyor/measures.test.ts is its gate",
     "decisions": "prints the owner decisions in force, refusing a file that breaks the numbered record; its own tests are its gate",
+    "declarations:update": "a writer: checks declarations/ against the tracked files and rebuilds contract/module-files.json; scripts/tests/bus/conveyor/r0-declarations.test.ts is its gate",
     "decisions:add": "appends one owner decision and its decision.recorded event when run by hand, restoring the file on a refusal or a failed event write; its own tests are its gate",
     "dev": "runs the CLI from source",
     "docs:dev": "a local server",

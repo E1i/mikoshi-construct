@@ -1,0 +1,6 @@
+{
+  "module": "card",
+  "may_use": [],
+  "may_use_factory": ["core/factory-paths.js", "policy/touch-scope.js"],
+  "may_use_factory_within": {}
+}

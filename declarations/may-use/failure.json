@@ -1,0 +1,6 @@
+{
+  "module": "failure",
+  "may_use": ["record-ahead", "ui"],
+  "may_use_factory": [],
+  "may_use_factory_within": {}
+}

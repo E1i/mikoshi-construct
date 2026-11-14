@@ -1,0 +1,19 @@
+{
+  "module": "program",
+  "may_use": ["atlas", "commands", "detect", "failure", "known-flags", "presets", "ui", "version"],
+  "may_use_factory": [
+    "core/bus-path.js",
+    "core/bus-readings.js",
+    "core/eddies.js",
+    "core/events.js",
+    "core/factory-paths.js",
+    "core/gh-callers.js",
+    "core/handoff-dir.js",
+    "core/layer-map.js",
+    "core/merge-event.js",
+    "core/owner-commands.js",
+    "core/verification.js",
+    "owner/channel.js"
+  ],
+  "may_use_factory_within": {}
+}

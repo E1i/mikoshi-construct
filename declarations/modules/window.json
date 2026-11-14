@@ -1,0 +1,10 @@
+{
+  "module": "window",
+  "layer": "window",
+  "paths": [
+    "scripts/window/",
+    "scripts/conveyor/"
+  ],
+  "exclude": [],
+  "shared": []
+}

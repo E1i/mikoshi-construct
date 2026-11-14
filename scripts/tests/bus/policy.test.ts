@@ -276,9 +276,33 @@ describe('the merge policy', () => {
       expect(mergePolicy(facts({ patched: [{ filename: ORDINARY, patch }] })), patch).toMatchObject({ kind: 'denied', rule: 'unsandboxed_command' })
   })
 
+  const importsEveryCommand = ' import { execFileSync, execSync, spawnSync, spawn, exec, execFile, fork } from \'node:child_process\''
+
   it('each named form of a command outside the sandbox added by a diff is the owner\'s', () => {
-    for (const line of ['allowUnsandboxedCommands: true', '"allowUnsandboxedCommands": true', 'dangerouslyDisableSandbox: true', 'import { execFileSync } from \'node:child_process\'', 'execFileSync(\'pnpm\', [\'install\'])', 'const out = execSync(command)', 'spawnSync(\'sh\', [\'-c\', line])', 'return spawn(file, args)', 'exec(command)', 'execFile(file)', 'fork(entry)'])
+    for (const line of ['allowUnsandboxedCommands: true', '"allowUnsandboxedCommands": true', 'dangerouslyDisableSandbox: true', 'import { execFileSync } from \'node:child_process\''])
       expect(mergePolicy(facts({ patched: [{ filename: ORDINARY, patch: `@@ -1 +1,2 @@\n x\n+${line}` }] })), line).toMatchObject({ kind: 'denied', rule: 'unsandboxed_command' })
+    for (const line of ['execFileSync(\'pnpm\', [\'install\'])', 'const out = execSync(command)', 'spawnSync(\'sh\', [\'-c\', line])', 'return spawn(file, args)', 'exec(command)', 'execFile(file)', 'fork(entry)'])
+      expect(mergePolicy(facts({ patched: [{ filename: ORDINARY, patch: `@@ -1,2 +1,3 @@\n${importsEveryCommand}\n x\n+${line}` }] })), line).toMatchObject({ kind: 'denied', rule: 'unsandboxed_command', detail: expect.stringContaining('a spawn call') as unknown })
+  })
+
+  it('a call through a namespace, default or renamed import of child_process is the owner\'s', () => {
+    const cases = [
+      [' import * as cp from \'node:child_process\'', '+cp.spawn(file)'],
+      [' import cp from \'child_process\'', '+await cp.execFileSync(\'pnpm\')'],
+      [' import { spawn as run } from \'node:child_process\'', '+run(file)'],
+      [' import {\n   execFile,\n } from \'node:child_process\'', '+execFile(file)'],
+    ]
+    for (const [context, added] of cases)
+      expect(mergePolicy(facts({ patched: [{ filename: ORDINARY, patch: `@@ -1,2 +1,3 @@\n${context}\n x\n${added}` }] })), added).toMatchObject({ kind: 'denied', rule: 'unsandboxed_command' })
+  })
+
+  it('a spawn that is a parameter and not a child_process import stays auto', () => {
+    const parameter = '@@ -10,2 +10,4 @@\n export async function run(spawn: Spawn): Promise<number> {\n+  let code = 0\n+  code = await spawn((pid) => {\n   return code'
+    const elsewhere = '@@ -1,2 +1,3 @@\n import { spawn, exec } from \'./ports/process.js\'\n x\n+spawn(file)\n+exec(command)'
+    const typeOnly = '@@ -1,2 +1,3 @@\n import type { spawn } from \'node:child_process\'\n x\n+spawn(file)'
+    const otherMember = '@@ -1,2 +1,3 @@\n import * as cp from \'node:child_process\'\n x\n+worker.spawn(file)\n+cp.toString()'
+    for (const patch of [parameter, elsewhere, typeOnly, otherMember])
+      expect(mergePolicy(facts({ patched: [{ filename: ORDINARY, patch }] })), patch).toMatchObject({ kind: 'allowed', rule: 'auto' })
   })
 
   it('a diff that names no form as an added line stays auto', () => {
@@ -306,8 +330,8 @@ describe('the merge policy', () => {
   })
 
   it('a call whose text changes, or one more copy of a call, is a new call and the owner\'s', () => {
-    const changed = '@@ -1 +1 @@\n-execFileSync(\'pnpm\', [\'install\'])\n+execFileSync(\'pnpm\', [\'publish\'])'
-    const copied = '@@ -1,2 +1,3 @@\n-spawn(file)\n+spawn(file)\n+spawn(file)'
+    const changed = `@@ -1,2 +1,2 @@\n${importsEveryCommand}\n-execFileSync('pnpm', ['install'])\n+execFileSync('pnpm', ['publish'])`
+    const copied = `@@ -1,2 +1,3 @@\n${importsEveryCommand}\n-spawn(file)\n+spawn(file)\n+spawn(file)`
     const widened = '@@ -1 +1 @@\n-excludedCommands: [\'a\'],\n+excludedCommands: [\'a\', \'b\'],'
     const keyOnNextLine = '@@ -1,2 +1,4 @@\n   "excludedCommands":\n+  [\n+    "pnpm install *"\n+  ]'
     for (const patch of [changed, copied, widened, keyOnNextLine])
@@ -323,6 +347,13 @@ describe('the merge policy', () => {
     expect(mergePolicy(facts({ patched: [{ filename: 'scripts/large.ts', additions: 4000 }] }))).toMatchObject({ kind: 'denied', rule: 'unsandboxed_command', detail: expect.stringContaining('no patch for scripts/large.ts') as unknown })
     expect(mergePolicy(facts({ patched: [{ filename: 'scripts/unknown.ts' }] }))).toMatchObject({ kind: 'denied', rule: 'unsandboxed_command' })
     expect(mergePolicy(facts({ patched: [{ filename: 'assets/logo.bin', additions: 0 }] }))).toMatchObject({ kind: 'allowed', rule: 'auto' })
+    expect(mergePolicy(facts({ patched: [{ filename: 'contract/settings.ts', additions: 40 }] }))).toMatchObject({ kind: 'denied', rule: 'unsandboxed_command' })
+    expect(mergePolicy(facts({ patched: [{ filename: 'scripts/contract/surface.json', additions: 40 }] }))).toMatchObject({ kind: 'denied', rule: 'unsandboxed_command' })
+  })
+
+  it('a contract json GitHub gives no patch for stays auto', () => {
+    for (const filename of ['contract/module-files.json', 'declarations/module/bus.json'])
+      expect(mergePolicy(facts({ files: [filename], patched: [{ filename, additions: 4000 }] })), filename).toMatchObject({ kind: 'allowed', rule: 'auto' })
   })
 
   it('the merge executor reads the diff of the pull request: an excludedCommands line is denied with authority, reaches the inbox and puts no merge', () => {

@@ -1,0 +1,28 @@
+{
+  "module": "bus",
+  "layer": "core",
+  "paths": [
+    "scripts/core/db.ts",
+    "scripts/core/sqlite.ts",
+    "scripts/core/queue.ts",
+    "scripts/core/dependency-wait.ts",
+    "scripts/core/lease.ts",
+    "scripts/core/node.ts",
+    "scripts/core/stored.ts",
+    "scripts/core/errors.ts",
+    "scripts/core/bus-path.ts",
+    "scripts/core/bus-readings.ts",
+    "scripts/core/bus-version.ts",
+    "scripts/core/reducer.ts",
+    "scripts/core/every.ts",
+    "scripts/core/watermark.ts",
+    "scripts/core/entry.ts",
+    "scripts/core/observations.ts",
+    "scripts/core/task-must-wait.ts",
+    "scripts/core/projection-writes.ts",
+    "scripts/core/projection-writes.known.json",
+    "scripts/core/rejection.ts"
+  ],
+  "exclude": [],
+  "shared": []
+}

@@ -1,0 +1,10 @@
+{
+  "module": "atlas",
+  "layer": "atlas",
+  "paths": [
+    "src/atlas/",
+    "scripts/atlas/"
+  ],
+  "exclude": [],
+  "shared": []
+}

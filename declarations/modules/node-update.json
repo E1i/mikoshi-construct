@@ -1,0 +1,9 @@
+{
+  "module": "node-update",
+  "layer": "nodes",
+  "paths": [
+    "scripts/nodes/update/"
+  ],
+  "exclude": [],
+  "shared": []
+}

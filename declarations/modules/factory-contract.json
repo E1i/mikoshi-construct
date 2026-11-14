@@ -1,0 +1,13 @@
+{
+  "module": "factory-contract",
+  "layer": "contract",
+  "paths": [
+    "scripts/contract/contours.ts",
+    "contract/accepted.json",
+    "contract/ratchet.json",
+    "contract/factory-permissions.json",
+    "contract/contours/"
+  ],
+  "exclude": [],
+  "shared": []
+}

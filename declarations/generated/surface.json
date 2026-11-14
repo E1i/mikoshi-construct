@@ -1,0 +1,19 @@
+{
+  "id": "surface",
+  "module": "contract-generator",
+  "path": "contract/surface.json",
+  "rebuild": [
+    "contract:update"
+  ],
+  "check": null,
+  "rebuiltOnUpdate": true,
+  "seamSources": [
+    "src/program.ts",
+    "scripts/contract"
+  ],
+  "followSources": [
+    "src",
+    "templates",
+    "scripts/contract"
+  ]
+}

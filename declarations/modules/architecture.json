@@ -1,0 +1,9 @@
+{
+  "module": "architecture",
+  "layer": "docs",
+  "paths": [
+    "architecture/"
+  ],
+  "exclude": [],
+  "shared": []
+}

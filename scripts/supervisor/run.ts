@@ -27,7 +27,7 @@ import { OsProcessTable } from '../ports/process-table.js'
 import { realRequestTools } from '../window/window-request-tools.js'
 import { WindowRequests } from '../window/window-requests.js'
 import { alive, BUS_RUN_MARKERS, instancesOf, processBeatsOn, psList, RUN_SCRIPT } from './bg.js'
-import { busProjections } from './composition.js'
+import { busProjections, recordOwnStart } from './composition.js'
 import { sessionLifeIn } from './recorded-worker.js'
 import { StalledSessions } from './stalled-sessions.js'
 import { stampLogOutput } from './stamp.js'
@@ -252,6 +252,7 @@ async function main(): Promise<number> {
     return lock.exitCode
   }
   const db = openBus(busPath)
+  recordOwnStart(db, 'run')
   const closed = startBus(db, () => new Date())
   if (closed.length > 0)
     console.log(`${PREFIX}closed the owner waits of ended cards: ${closed.join(', ')}`)

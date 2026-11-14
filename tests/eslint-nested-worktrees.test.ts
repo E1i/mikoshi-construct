@@ -6,7 +6,7 @@ import { ESLint } from 'eslint'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 const ROOT = path.resolve(import.meta.dirname, '..')
-const CONFIG_FILES = ['eslint.config.mjs', 'internal-modules.json', 'scripts/quality/real-time-waits-excepted.json']
+const CONFIG_FILES = ['eslint.config.mjs', 'contract/eslint-edges.json', 'internal-modules.json', 'scripts/quality/real-time-waits-excepted.json']
 const PROBE = 'src/probe.ts'
 const GIT_ENV = { ...process.env, GIT_AUTHOR_NAME: 'probe', GIT_AUTHOR_EMAIL: 'probe@example.invalid', GIT_COMMITTER_NAME: 'probe', GIT_COMMITTER_EMAIL: 'probe@example.invalid' }
 

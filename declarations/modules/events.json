@@ -1,0 +1,9 @@
+{
+  "module": "events",
+  "layer": "core",
+  "paths": [
+    "scripts/core/events.ts"
+  ],
+  "exclude": [],
+  "shared": []
+}

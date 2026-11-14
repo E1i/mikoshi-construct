@@ -1,0 +1,9 @@
+{
+  "module": "node-laws",
+  "layer": "nodes",
+  "paths": [
+    "scripts/nodes/laws.ts"
+  ],
+  "exclude": [],
+  "shared": []
+}

@@ -51,6 +51,7 @@
     "scripts/cli/": "cli",
     "scripts/composition/": "composition",
     "scripts/contract/": "contract",
+    "scripts/conveyor/": "window",
     "scripts/core/": "core",
     "scripts/docs/": "docs",
     "scripts/done/": "done",

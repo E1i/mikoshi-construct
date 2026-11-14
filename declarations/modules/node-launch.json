@@ -1,0 +1,9 @@
+{
+  "module": "node-launch",
+  "layer": "nodes",
+  "paths": [
+    "scripts/nodes/launch/"
+  ],
+  "exclude": [],
+  "shared": []
+}

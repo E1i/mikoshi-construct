@@ -1,0 +1,29 @@
+{
+  "module": "quality",
+  "layer": "quality",
+  "paths": [
+    "scripts/core/layer-map.ts",
+    "scripts/core/layer-map.json",
+    "scripts/core/verification.ts",
+    "scripts/cli/check-catalog.ts",
+    "scripts/cli/check-matrix.ts",
+    "scripts/cli/mutate.ts",
+    "scripts/cli/no-layer-recount.ts",
+    "scripts/ci/",
+    "scripts/quality/",
+    "scripts/privacy/",
+    "src/commands/ci/",
+    "src/commands/mutate/",
+    "src/commands/test-runner.ts",
+    "src/card/covering-tests.ts",
+    ".dependency-cruiser-known-violations.json",
+    ".dependency-cruiser.mjs",
+    "vitest.config.ts",
+    "scripts/scratch/",
+    "internal-modules.json"
+  ],
+  "exclude": [],
+  "shared": [
+    "eslint.config.mjs"
+  ]
+}

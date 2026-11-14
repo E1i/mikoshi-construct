@@ -346,6 +346,30 @@
           "survived"
         ]
       },
+      "child.ended": {
+        "complete": true,
+        "keys": [
+          "exit",
+          "instance",
+          "pid",
+          "signal",
+          "task_key"
+        ]
+      },
+      "child.started": {
+        "complete": true,
+        "keys": [
+          "generation",
+          "instance",
+          "kind",
+          "lstart",
+          "mode",
+          "pgid",
+          "pid",
+          "task_key",
+          "tree"
+        ]
+      },
       "ci.rerun.requested": {
         "complete": true,
         "keys": [
@@ -1285,6 +1309,10 @@
       "worker.started": {
         "complete": true,
         "keys": [
+          "generation",
+          "instance",
+          "lstart",
+          "pgid",
           "pid",
           "started",
           "worker"
@@ -2172,6 +2200,7 @@
           "scripts/cli/mutate.ts",
           "scripts/cli/no-layer-recount.ts",
           "scripts/cli/slot.ts",
+          "scripts/conveyor/measures.ts",
           "scripts/core/bus-path.ts",
           "scripts/core/card-bodies.ts",
           "scripts/core/inbox.ts",
@@ -3515,7 +3544,8 @@
         "may_use": [],
         "owns": [
           "scripts/core/factory-paths.ts",
-          "scripts/core/generated-files.ts"
+          "scripts/core/generated-files.ts",
+          "scripts/core/declarations.ts"
         ],
         "status": "undecided"
       },
@@ -3964,6 +3994,7 @@
         ],
         "owns": [
           "scripts/window/**",
+          "scripts/conveyor/**",
           "!scripts/window/miko.ts",
           "!scripts/window/plan-export.ts"
         ],
@@ -5642,6 +5673,8 @@
           "TECHNOLOGY_WORDS"
         ],
         "functions": {
+          "identityOf": "(snapshot: ProcessSnapshot, pid: number): RowIdentity | null",
+          "lstartOf": "(row: ProcessRow): string | null",
           "parseListing": "(output: string): ProcessRow[]",
           "rowOf": "(snapshot: ProcessSnapshot, pid: number): ProcessRow | null",
           "rowsOf": "(snapshot: ProcessSnapshot): readonly ProcessRow[]"
@@ -5655,7 +5688,8 @@
           "OsProcessTable": "class OsProcessTable implements ProcessTable { snapshot(): ProcessSnapshot; clientCwds(): ProcessCwds; cpuSample(): string }",
           "ProcessRow": "interface ProcessRow { pid: number; ppid: number; pgid: number; started: string; command: string; }",
           "ProcessSnapshot": "type ProcessSnapshot = { readable: true; rows: readonly ProcessRow[]; } | { readable: false; reason: string; }",
-          "ProcessTable": "interface ProcessTable { snapshot: () => ProcessSnapshot; clientCwds: () => ProcessCwds; cpuSample: () => string; }"
+          "ProcessTable": "interface ProcessTable { snapshot: () => ProcessSnapshot; clientCwds: () => ProcessCwds; cpuSample: () => string; }",
+          "RowIdentity": "interface RowIdentity { pid: number; pgid: number; lstart: string; }"
         }
       },
       "scripts/ports/prompt-store.ts": {
@@ -5737,7 +5771,7 @@
           "SessionCeilingReached": "class SessionCeilingReached extends Error { constructor(readonly sessionId: string, readonly ceilingMs: number) }",
           "SessionRun": "interface SessionRun { code: number; stdout?: string; stderr?: string; }",
           "SessionSpawner": "type SessionSpawner = (params: SpawnSessionParams) => Promise<number>",
-          "SpawnSessionParams": "interface SpawnSessionParams { cwd: string; sessionId: string; prompt: string; stdoutPath: string; stderrPath: string; env?: NodeJS.ProcessEnv; addDirs?: string[]; model?: string; ceilingMs?: number; role?: Extract<Role, 'review' | 'ghost'>; }",
+          "SpawnSessionParams": "interface SpawnSessionParams { cwd: string; sessionId: string; prompt: string; stdoutPath: string; stderrPath: string; env?: NodeJS.ProcessEnv; addDirs?: string[]; model?: string; ceilingMs?: number; role?: Extract<Role, 'review' | 'ghost'>; started?: (pid: number) => void; }",
           "WindowMode": "type WindowMode = 'loop' | 'tab'"
         }
       },

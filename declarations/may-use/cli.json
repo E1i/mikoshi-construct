@@ -1,0 +1,6 @@
+{
+  "module": "cli",
+  "may_use": ["program"],
+  "may_use_factory": [],
+  "may_use_factory_within": {}
+}

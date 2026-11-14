@@ -117,6 +117,7 @@ export interface SpawnSessionParams {
   model?: string
   ceilingMs?: number
   role?: Extract<Role, 'review' | 'ghost'>
+  started?: (pid: number) => void
 }
 
 export class SessionCeilingReached extends Error {
@@ -145,6 +146,8 @@ export function spawnSession(params: SpawnSessionParams): Promise<number> {
       stdio: ['ignore', outFd, errFd],
       ...(params.ceilingMs === undefined ? {} : { timeout: params.ceilingMs, killSignal: 'SIGKILL' as const }),
     })
+    if (child.pid !== undefined)
+      params.started?.(child.pid)
     const started = Date.now()
 
     child.on('error', (error) => {

@@ -1,0 +1,9 @@
+{
+  "module": "node-review",
+  "layer": "nodes",
+  "paths": [
+    "scripts/nodes/review/"
+  ],
+  "exclude": [],
+  "shared": []
+}
