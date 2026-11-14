@@ -925,7 +925,7 @@ export async function superviseUntilReplaced(parts: SupervisingParts): Promise<v
   for (;;) {
     const lines = await parts.supervisor.step()
     const head = parts.supervisor.ownCodeBehind
-    const replacement = head === null ? { lines: [], replaced: false } : replacedBy(head, relaunchSupervisor(parts.relaunch, head))
+    const replacement = head === null ? { lines: [], replaced: false } : replacedBy(head, (parts.relaunch.start ?? startDetached)(SUPERVISOR_LAUNCH, parts.relaunch.busDir, generationEnv({ head: () => head }), outsideOwnGroup()))
     const ticked = [...lines, ...replacement.lines, ...replacement.replaced ? [] : [...parts.keeper.step(), ...await parts.judge?.step() ?? [], ...parts.windowEnds?.step() ?? [], ...parts.windowSubagents?.step() ?? [], ...parts.order?.step() ?? []]]
     for (const line of [...ticked, ...await parts.heal?.step(ticked) ?? [], ...parts.snapshot?.step() ?? []])
       parts.print(line)
@@ -1078,8 +1078,8 @@ function onBus<T>(read: (db: DatabaseSync) => T): T {
   }
 }
 
-export function relaunchSupervisor({ busDir, start = startDetached }: SupervisingParts['relaunch'], head: string): BgResult {
-  return start(SUPERVISOR_LAUNCH, busDir, generationEnv({ head: () => head }), outsideOwnGroup())
+function decisionsInForce(): InForceDecision[] {
+  return onBus(inForceDecisions)
 }
 
 export function pinnedBusDir(): string {
@@ -1128,10 +1128,10 @@ function withoutRetiringOnBus(processes: () => (RunningProcess & Partial<Grouped
   return () => onBus(db => withoutRetiring(processes, db)())
 }
 
-export async function startBus(busDir: string = pinnedBusDir(), everyProcess: () => (RunningProcess & Partial<GroupedProcess>)[] = groupedPsList(), code: Pick<BusCode, 'head'> | null = gitCode(process.cwd()), start: AgentHand['start'] = startReviewWorker): Promise<BgResult> {
+export async function startBus(busDir: string = pinnedBusDir(), everyProcess: () => (RunningProcess & Partial<GroupedProcess>)[] = groupedPsList(), code: Pick<BusCode, 'head'> | null = installedPackage() === null ? gitCode(process.cwd()) : null, start: AgentHand['start'] = startReviewWorker): Promise<BgResult> {
   const processes = withoutRetiringOnBus(everyProcess)
   const judged = await restartSilentSupervisorOnBus(busDir, everyProcess)
-  const started = await startUnderAgentEnv(busDir, [...wantedLaunches(busDir, reviewPreflight, onBus(inForceDecisions)), SUPERVISOR_LAUNCH], {
+  const started = await startUnderAgentEnv(busDir, [...wantedLaunches(busDir, reviewPreflight, decisionsInForce()), SUPERVISOR_LAUNCH], {
     env: code === null ? process.env : generationEnv(code),
     processes,
     ownPackage: ownPackage(),
@@ -1154,7 +1154,7 @@ async function main(): Promise<void> {
     return
   }
   if (command.kind === 'detection') {
-    printBg(detectionCommand(busDir, command.worker, command.live, command.live ? onBus(inForceDecisions) : []))
+    printBg(detectionCommand(busDir, command.worker, command.live, command.live ? decisionsInForce() : []))
     return
   }
   printBg(await startBus(busDir))

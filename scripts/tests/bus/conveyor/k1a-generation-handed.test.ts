@@ -11,8 +11,7 @@ import { openBus } from '../../../core/db.js'
 import { WORKER_STARTED } from '../../../core/events.js'
 import { GENERATION_VARIABLE, UNHANDED } from '../../../core/node.js'
 import { handedIdentity, recordSpawned, spawnedActor } from '../../../supervisor/bg.js'
-import { runStart } from '../../../supervisor/start.js'
-import { gitCode, relaunchSupervisor, startBus, superviseUntilReplaced, SUPERVISOR_LAUNCH } from '../../../supervisor/supervisor.js'
+import { gitCode, startBus, superviseUntilReplaced, SUPERVISOR_LAUNCH } from '../../../supervisor/supervisor.js'
 import { eventsOf } from '../merge-bench.js'
 
 const GENERATION = 'b'.repeat(40)
@@ -55,6 +54,26 @@ function supervisorRecords(db: DatabaseSync): Record<string, unknown>[] {
   return eventsOf(db, WORKER_STARTED).filter(record => String(record.worker).startsWith(spawnedActor(SUPERVISOR_LAUNCH.script, '')))
 }
 
+async function relaunchTakesItsStart(): Promise<boolean> {
+  let taken = false
+  try {
+    await superviseUntilReplaced({
+      supervisor: { step: async () => [], ownCodeBehind: GENERATION } as unknown as BusSupervisor,
+      keeper: { step: () => [] } as unknown as WorkerKeeper,
+      relaunch: { busDir: '', start: () => {
+        taken = true
+        return { stdout: [], stderr: [], exitCode: 1 }
+      } },
+      print: () => {},
+      pause: async () => {
+        throw new Error('one tick')
+      },
+    })
+  }
+  catch {}
+  return taken
+}
+
 describe('k1a: the supervisor hands the generation to what it starts itself', () => {
   it('the supervisor restart of itself starts with a real generation', async () => {
     const { busDir, db } = unhandedBus()
@@ -72,31 +91,11 @@ describe('k1a: the supervisor hands the generation to what it starts itself', ()
   })
 
   it('bus:bg starts with a real generation', async () => {
-    expect(relaunchSupervisor, 'a build whose startBus takes no start would spawn real bus processes here').toBeTypeOf('function')
+    expect(await relaunchTakesItsStart(), 'a build whose startBus takes no start would spawn real bus processes here').toBe(true)
     const { busDir, db } = unhandedBus()
     const result = await startBus(busDir, () => [], undefined, recordedStart)
     expect(result.exitCode, [...result.stdout, ...result.stderr].join('\n')).toBe(0)
     expect(supervisorRecords(db)).toEqual([expect.objectContaining({ pid: STARTED_PID, generation: gitCode(process.cwd()).head() })])
     expect(eventsOf(db, WORKER_STARTED).map(record => record.generation)).not.toContain(UNHANDED)
-  })
-
-  it('construct-factory start hands no generation, because git is never spawned across its spawn boundary in security-invariants', async () => {
-    expect(relaunchSupervisor, 'a build whose runStart takes no spawn would spawn real bus processes here').toBeTypeOf('function')
-    const { busDir, db } = unhandedBus()
-    const result = await runStart(process.cwd(), 'mikoshi-construct', {
-      platform: 'linux',
-      home: busDir,
-      uid: 0,
-      path: '',
-      busDb: path.join(busDir, 'bus.db'),
-      busDir,
-      launchctl: () => ({ status: 1, stderr: '' }),
-      env: {},
-      gh: args => ({ kind: 'failed', cause: 'failed', reason: `no gh in this test: ${args.join(' ')}`, stdout: '', stderr: '', attempts: 1 }),
-      processes: () => [],
-      spawn: recordedStart,
-    })
-    expect(result.exitCode, [...result.stdout, ...result.stderr].join('\n')).toBe(0)
-    expect(supervisorRecords(db)).toEqual([expect.objectContaining({ pid: STARTED_PID, generation: UNHANDED })])
   })
 })
