@@ -2130,6 +2130,20 @@
       "json": true,
       "unknownFlag": "not read"
     },
+    "conveyor:measures": {
+      "entries": [
+        "scripts/conveyor/measures.ts"
+      ],
+      "exits": [],
+      "flags": [
+        "bus",
+        "from",
+        "json",
+        "to"
+      ],
+      "json": true,
+      "unknownFlag": "strict parseArgs"
+    },
     "decisions": {
       "entries": [
         "scripts/policy/decisions/read.ts"

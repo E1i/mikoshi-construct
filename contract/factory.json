@@ -2206,6 +2206,7 @@
           "scripts/cli/mutate.ts",
           "scripts/cli/no-layer-recount.ts",
           "scripts/cli/slot.ts",
+          "scripts/conveyor/measures.ts",
           "scripts/core/bus-path.ts",
           "scripts/core/card-bodies.ts",
           "scripts/core/inbox.ts",
@@ -4016,6 +4017,7 @@
         ],
         "owns": [
           "scripts/window/**",
+          "scripts/conveyor/**",
           "!scripts/window/miko.ts",
           "!scripts/window/plan-export.ts"
         ],

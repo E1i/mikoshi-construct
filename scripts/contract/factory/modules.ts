@@ -114,7 +114,7 @@ const DRAWN: Readonly<Record<string, ModuleSpec>> = {
   'intake': undecided([tree('intake'), `src/commands/intake${ANY_DEPTH}`], OWNER_COMMANDS_READER),
   'cost': undecided([tree('ladder'), tree('done'), `src/commands/cost${ANY_DEPTH}`]),
   'ports': undecided([tree('ports'), ...core('gh-callers.ts', 'gh-callers.known.json')]),
-  'window': undecided([tree('window')], OWNER_COMMANDS_READER),
+  'window': undecided([tree('window'), tree('conveyor')], OWNER_COMMANDS_READER),
   'board': undecided([...cli('board-page.ts', `board-page${ANY_DEPTH}`, 'board-warnings.ts'), `src/commands/board${ANY_DEPTH}`], OWNER_COMMANDS_READER),
   'release': undecided([tree('release'), tree('release-notes'), tree('docs'), 'src/commands/run-record.ts']),
   'factory-contract': undecided([factory('contract/contours.ts')]),
