@@ -3966,6 +3966,7 @@
         ],
         "owns": [
           "scripts/window/**",
+          "scripts/conveyor/**",
           "!scripts/window/miko.ts",
           "!scripts/window/plan-export.ts"
         ],
