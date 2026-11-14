@@ -119,6 +119,12 @@ describe('pending changesets are not module files', () => {
     expect(moduleFilesOf(modules, tracked).release).toEqual(expect.arrayContaining(KEPT_BY_RELEASE))
   })
 
+  it('a pending changeset no module owns is no problem, while README.md under .changeset/ still needs an owner', () => {
+    const modules = { a: module('a', ['scripts/']) }
+    expect(problemsOf({ modules }, ['scripts/a.ts', NEW_CHANGESET])).toEqual([])
+    expect(problemsOf({ modules }, ['scripts/a.ts', NEW_CHANGESET, '.changeset/README.md'])).toEqual(['.changeset/README.md: no module owns it'])
+  })
+
   it('a new code file still needs its entry in the registry', () => {
     const { modules } = readDeclarations(REPO_ROOT)
     const tracked = [...repositoryFiles(), NEW_CODE_FILE].sort()
