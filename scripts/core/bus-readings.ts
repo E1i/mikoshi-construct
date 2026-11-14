@@ -1,5 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
-import type { EventType } from './events.js'
+import type { EventType, WaitLifter } from './events.js'
 import { CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_DEFERRED, CARD_DROPPED, CARD_FELL, CARD_MOVED, CARD_STARTED, CARD_STOPPED, CARD_WAITING, DECISION_EXPIRED, DECISION_RECORDED, DECISIONS_IMPORTED, LANE_ASSIGNED, MERGE_DONE, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PR_CLOSED, PR_OBSERVED, PR_OPENED, REVIEW_RECORDED } from './events.js'
 
 export const WATERMARKS = 'projection_watermarks'
@@ -136,17 +136,25 @@ export interface OwnerWait {
   card: number | null
   pr: number | null
   since: string
+  lifter: Extract<WaitLifter, 'owner' | 'window'>
+  decision: string | null
 }
 
 const OPEN_OWNER_WAITS = `
-  SELECT wait.id, wait.need, wait.text, wait.command, wait.card_id AS card, wait.pr, wait.opened_at AS since FROM ${OWNER_WAITS} AS wait
+  SELECT wait.id, wait.need, wait.text, wait.command, wait.card_id AS card, wait.pr, wait.opened_at AS since,
+    (SELECT json_extract(opened.payload, '$.decision') FROM events AS opened WHERE opened.dedupe_key = '${OWNER_WAIT_OPENED}:' || wait.id AND opened.type = '${OWNER_WAIT_OPENED}' AND json_valid(opened.payload)) AS decision
+  FROM ${OWNER_WAITS} AS wait
   WHERE wait.state = '${OPEN_WAIT}'
     AND NOT EXISTS (SELECT 1 FROM events AS closed WHERE closed.type = '${OWNER_WAIT_CLOSED}' AND closed.legacy = 0 AND json_valid(closed.payload) AND json_extract(closed.payload, '$.id') = wait.id)
   ORDER BY CAST(substr(wait.id, 2) AS INTEGER), wait.id
 `
 
+function liftedBy(decision: string | null): OwnerWait['lifter'] {
+  return decision === null ? 'owner' : 'window'
+}
+
 export function openOwnerWaits(db: DatabaseSync): OwnerWait[] {
-  return (db.prepare(OPEN_OWNER_WAITS).all() as unknown as OwnerWait[]).map(row => ({ ...row }))
+  return (db.prepare(OPEN_OWNER_WAITS).all() as unknown as Omit<OwnerWait, 'lifter'>[]).map(row => ({ ...row, lifter: liftedBy(row.decision) }))
 }
 
 export function lastReducedOwnerWaits(db: DatabaseSync): LastReduced<OwnerWait[]> {

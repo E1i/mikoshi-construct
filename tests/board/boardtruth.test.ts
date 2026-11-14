@@ -30,6 +30,7 @@ const GREETING_TWINS = [
   path.join(import.meta.dirname, '../../templates/attach/_construct/window-hooks.mjs'),
 ]
 const NOW = new Date('2026-10-29T12:00:00.000Z')
+const OWNER_LIFTED = { lifter: 'owner', decision: null } as const
 const MINUTE = 60_000
 const roots: string[] = []
 
@@ -134,11 +135,11 @@ describe('the board tells the truth and hints', () => {
   it('every wait carries a hint with a command', () => {
     const since = ago(MINUTE)
     const waits: OwnerWait[] = [
-      { id: 'Q1', need: 'decision', text: 'which path?', command: null, card: 10, pr: null, since },
-      { id: 'Q2', need: 'decision', text: 'which release?', command: null, card: null, pr: null, since },
-      { id: 'Q3', need: 'merge', text: 'changes security invariants', command: null, card: 12, pr: 669, since },
-      { id: 'Q4', need: 'command', text: 'card #1407 asks to widen its touches', command: 'pnpm intake --admit parking/lane-21/1407.md', card: 1407, pr: null, since },
-      { id: 'Q5', need: 'command', text: 'the merge queue runs unswitched', command: 'pnpm decisions:add "[owner] allow-live merge"', card: null, pr: null, since },
+      { id: 'Q1', need: 'decision', text: 'which path?', command: null, card: 10, pr: null, since, ...OWNER_LIFTED },
+      { id: 'Q2', need: 'decision', text: 'which release?', command: null, card: null, pr: null, since, ...OWNER_LIFTED },
+      { id: 'Q3', need: 'merge', text: 'changes security invariants', command: null, card: 12, pr: 669, since, ...OWNER_LIFTED },
+      { id: 'Q4', need: 'command', text: 'card #1407 asks to widen its touches', command: 'pnpm intake --admit parking/lane-21/1407.md', card: 1407, pr: null, since, ...OWNER_LIFTED },
+      { id: 'Q5', need: 'command', text: 'the merge queue runs unswitched', command: 'pnpm decisions:add "[owner] allow-live merge"', card: null, pr: null, since, ...OWNER_LIFTED },
     ]
     expect(waits.map(waitHint)).toEqual([
       { who: 'owner', command: 'pnpm decisions:add --card #10 "[owner] <decision>"' },

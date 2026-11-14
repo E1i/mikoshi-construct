@@ -19,7 +19,7 @@ import { RUNS_PREFIX } from '../../src/card/covering-tests.js'
 import { fieldCommand } from '../../src/card/witness-fields.js'
 import { busFacts, CARD_STAGES, latestCardEvents, openTasks } from '../../src/commands/board/bus.js'
 import { DROPPED, droppedLine, goalOf, MARK_WORDS, planLine } from '../../src/commands/board/goal.js'
-import { backlogCards, isLive, laneColumns, markedName, matrixLines, pulseLines, screenLines, sliceMark, slotsReading, tallyLine, taskTally, waitAction, waitTarget } from '../../src/commands/board/screens.js'
+import { backlogCards, isLive, laneColumns, liftedByTheWindow, markedName, matrixLines, pulseLines, screenLines, sliceMark, slotsReading, tallyLine, taskTally, waitAction, waitTarget, WINDOW_WAITS_ROLE } from '../../src/commands/board/screens.js'
 import { factoryLiveness } from '../../src/commands/liveness.js'
 import { BANNER, LORE, PLAIN_LORE } from '../../src/ui/lore.js'
 import { currentVersion } from '../../src/version.js'
@@ -484,14 +484,16 @@ function waitText(wait: OwnerWait): string {
 
 function waitItem(wait: OwnerWait, page: BoardPage): string {
   const inner = `<span class="kind">${WAIT_NEEDS[wait.need]}</span><span class="what">${escaped(waitText(wait))}</span>`
-  return wait.card !== null && page.details.has(wait.card)
-    ? `<button type="button" class="ask"${opener(cardDialog(wait.card))}>${inner}${OPEN_HINT}</button>`
-    : `<span class="ask" data-static>${inner}</span>`
+  return wait.card !== null && page.details.has(wait.card) ? `<button type="button" class="ask"${opener(cardDialog(wait.card))}>${inner}${OPEN_HINT}</button>` : `<span class="ask" data-static>${inner}</span>`
+}
+
+function waitStrip(label: string, items: readonly string[]): string {
+  return items.length === 0 ? '' : `<section class="owner-strip bevel" aria-label="${label.charAt(0).toUpperCase()}${label.slice(1)}"><span class="lbl">${label}</span>${items.join('')}</section>`
 }
 
 function waitsSlot(page: BoardPage): string {
   const { waits, waitsStale } = page.facts
-  return waits.length === 0 && waitsStale === undefined ? '' : `<section class="owner-strip bevel" aria-label="Waits for you"><span class="lbl">waits for you</span>${waitsStale === undefined ? '' : `<span class="ask" data-static>${escaped(waitsStale)}</span>`}${waits.map(wait => waitItem(wait, page)).join('')}</section>`
+  return `${waitStrip('waits for you', [...waitsStale === undefined ? [] : [`<span class="ask" data-static>${escaped(waitsStale)}</span>`], ...waits.filter(wait => !liftedByTheWindow(wait)).map(wait => waitItem(wait, page))])}${waitStrip(WINDOW_WAITS_ROLE, waits.filter(liftedByTheWindow).map(wait => waitItem(wait, page)))}`
 }
 
 function warningsSlot(warnings: readonly BoardWarning[]): string {
@@ -1072,9 +1074,7 @@ function busDownWaits(down: BusDown): string {
     ...(down.snapshot?.waits ?? []).map(wait => `<span class="ask" data-static><span class="kind">${WAIT_NEEDS[wait.need] ?? '?'}</span><span class="what">${escaped(waitText(wait))}</span></span>`),
     ...(down.handoffStatus === null ? [] : [`<span class="ask" data-static><span class="kind">H</span><span class="what">${escaped(`handoff STATUS: ${down.handoffStatus}`)}</span></span>`]),
   ]
-  return items.length === 0
-    ? note('No open owner wait in the last snapshot or the handoff.')
-    : `<section class="owner-strip bevel" aria-label="Waits for you"><span class="lbl">waits for you</span>${items.join('')}</section>`
+  return items.length === 0 ? note('No open owner wait in the last snapshot or the handoff.') : waitStrip('waits for you', items)
 }
 
 function pageHead(title: string, body: string): string[] {

@@ -5,6 +5,8 @@ import { planLine } from '../../src/commands/board/goal.js'
 import { backlogCards, backlogLines, boardScreens, flowLines, goalLines, matrixLines, progressBar, pulseLines, screenLines, servicesLines } from '../../src/commands/board/screens.js'
 import { LORE, PLAIN_LORE } from '../../src/ui/lore.js'
 
+const OWNER_LIFTED = { lifter: 'owner', decision: null } as const
+
 function card(id: number, state: string | null, lane: string | null = null, line: string | null = null, stage: CardStage = 'planned'): BusCard {
   return { id, state, stage, lane, line, since: null, body: true, closed: false, closedAt: null }
 }
@@ -27,13 +29,25 @@ describe('the board screens', () => {
     expect(screenLines(noFacts(), PLAIN_LORE).slice(0, 2)).toEqual(['Flow', 'planned (0): —'])
   })
 
+  it('the text board lists a wait the window lifts under the window, not under waits for you', () => {
+    const since = '2026-10-02T11:00:00.000Z'
+    const waits = [
+      { id: 'Q1', need: 'decision' as const, text: 'which path?', command: null, card: 10, pr: null, since, ...OWNER_LIFTED },
+      { id: 'Q2', need: 'decision' as const, text: 'widen to the importer?', command: null, card: 11, pr: null, since, lifter: 'window' as const, decision: 'D-441' },
+    ]
+    expect(screenLines(noFacts({ waits }), PLAIN_LORE).slice(1, 3)).toEqual([
+      'waits for you · 1 · — · Q1 decision #10 (which path? · owner runs: pnpm decisions:add --card #10 "[owner] <decision>")',
+      'waits for the window · 1 · — · Q2 decision #11 (widen to the importer? · window runs: pnpm decisions:add --card #11 "[owner] <decision>")',
+    ])
+  })
+
   it('the text board prints the plan line and waits for you only when not empty', () => {
     const goal: Goal = { plans: [plan('Plan 0.45', 2, 7)], backlog: 3 }
     const since = '2026-10-02T11:00:00.000Z'
     const waits = [
-      { id: 'Q1', need: 'decision' as const, text: 'which path?', command: null, card: 10, pr: null, since },
-      { id: 'Q2', need: 'merge' as const, text: 'changes architecture/security-invariants.md', command: null, card: 12, pr: 669, since },
-      { id: 'Q3', need: 'command' as const, text: 'the merge queue runs unswitched', command: 'pnpm decisions:add "[owner] allow-live merge"', card: null, pr: null, since },
+      { id: 'Q1', need: 'decision' as const, text: 'which path?', command: null, card: 10, pr: null, since, ...OWNER_LIFTED },
+      { id: 'Q2', need: 'merge' as const, text: 'changes architecture/security-invariants.md', command: null, card: 12, pr: 669, since, ...OWNER_LIFTED },
+      { id: 'Q3', need: 'command' as const, text: 'the merge queue runs unswitched', command: 'pnpm decisions:add "[owner] allow-live merge"', card: null, pr: null, since, ...OWNER_LIFTED },
     ]
     const goalLine = '[███░░░░░░░] Plan 0.45: merged 2 of 7 · in work 0 · review 0 · queue 5 · remainder 5 · gate VEDETIRUN: open · +1 in 24 h · backlog: 3'
     expect(screenLines(noFacts({ goal, waits }), PLAIN_LORE).slice(0, 3)).toEqual(['Flow', goalLine, 'waits for you · 3 · — · Q1 decision #10 (which path? · owner runs: pnpm decisions:add --card #10 "[owner] <decision>") · Q2 merge PR #669 (changes architecture/security-invariants.md · owner runs: gh pr merge 669) · Q3 command (the merge queue runs unswitched · owner runs: pnpm decisions:add "[owner] allow-live merge")'])

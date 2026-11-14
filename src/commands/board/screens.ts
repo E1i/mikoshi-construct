@@ -10,6 +10,7 @@ const GROUP_ROLE = 'group'
 const SHADOW_ROLE = 'shadow'
 const BUS_ROLE = 'bus'
 const WAITS_ROLE = 'waits for you'
+export const WINDOW_WAITS_ROLE = 'waits for the window'
 const CARDS_ROLE = 'cards'
 const MINUTE_MS = 60_000
 export const ENDED_SHOWN_HOURS = 12
@@ -182,7 +183,11 @@ function impliedCommand(wait: OwnerWait): string {
 
 export function waitHint(wait: OwnerWait): Hint {
   const command = wait.command ?? impliedCommand(wait)
-  return { who: WINDOW_COMMANDS.some(prefix => command.startsWith(prefix)) ? 'window' : 'owner', command }
+  return { who: wait.lifter === 'window' || WINDOW_COMMANDS.some(prefix => command.startsWith(prefix)) ? 'window' : 'owner', command }
+}
+
+export function liftedByTheWindow(wait: OwnerWait): boolean {
+  return wait.lifter === 'window'
 }
 
 export function waitTarget(wait: OwnerWait): string | null {
@@ -201,8 +206,11 @@ function waitName(wait: OwnerWait, lore: Lore): string {
 }
 
 export function waitsLines(facts: BusFacts, lore: Lore): string[] {
-  const parts = [...facts.waitsStale === undefined ? [] : [facts.waitsStale], ...facts.waits.map(wait => waitName(wait, lore))]
-  return parts.length === 0 ? [] : [lore.boardServiceLine(WAITS_ROLE, `${facts.waits.length}`, undefined, parts.join(' \u00B7 '))]
+  const owners = facts.waits.filter(wait => !liftedByTheWindow(wait))
+  const windows = facts.waits.filter(liftedByTheWindow)
+  const parts = [...facts.waitsStale === undefined ? [] : [facts.waitsStale], ...owners.map(wait => waitName(wait, lore))]
+  const ownerLine = parts.length === 0 ? [] : [lore.boardServiceLine(WAITS_ROLE, `${owners.length}`, undefined, parts.join(' \u00B7 '))]
+  return windows.length === 0 ? ownerLine : [...ownerLine, lore.boardServiceLine(WINDOW_WAITS_ROLE, `${windows.length}`, undefined, windows.map(wait => waitName(wait, lore)).join(' \u00B7 '))]
 }
 
 function behindCardsLines(facts: BusFacts, lore: Lore): string[] {

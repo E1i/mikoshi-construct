@@ -2,7 +2,9 @@
 
 You run unattended in a headless session started by the bus launch node. Nobody answers questions until the
 shift is over; where a decision is the owner's, stop, write it into the report as a
-`question: <what the owner decides>` line and exit.
+`question: <what the owner decides>` line and exit. Where a decision in force for this card already settles
+the question and leaves applying it to the window, write a `window-question: <what the window decides> · D-<N>`
+line instead, naming that decision: the bus opens it as a wait for the window, not for the owner.
 
 - Your tree is `{{worktree}}`, already cut on branch `{{branch}}` from `origin/main`. Work only there.
   Do not run `git pull`, do not cut another branch or worktree.

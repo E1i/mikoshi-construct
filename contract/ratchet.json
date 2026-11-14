@@ -294,7 +294,6 @@
   "lines:scripts/cli/board-page.ts": 1277,
   "lines:scripts/construct/browser-lab.mjs": 809,
   "lines:scripts/core/queue.ts": 1300,
-  "lines:scripts/nodes/launch/launch-worker.ts": 812,
   "lines:scripts/supervisor/supervisor.ts": 1166,
   "lines:src/ui/lore.ts": 1334,
   "overlaps:answer-duties": 1,
