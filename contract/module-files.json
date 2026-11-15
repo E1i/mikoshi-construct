@@ -556,6 +556,7 @@
     "scripts/tests/bus/verdict-rules-version.test.ts",
     "scripts/tests/bus/waits-close.test.ts",
     "scripts/tests/bus/watermark.test.ts",
+    "scripts/tests/bus/weights-drift-admits.test.ts",
     "scripts/tests/bus/window-heartbeat.test.ts",
     "scripts/tests/bus/window-prs.test.ts",
     "scripts/tests/bus/window-requests.test.ts",
@@ -1331,7 +1332,8 @@
   ],
   "node-merge": [
     "scripts/nodes/merge/merge-executor.ts",
-    "scripts/nodes/merge/merge-worker.ts"
+    "scripts/nodes/merge/merge-worker.ts",
+    "scripts/nodes/merge/weights-drift.ts"
   ],
   "node-restart": [
     "scripts/nodes/restart/chain-process.ts",

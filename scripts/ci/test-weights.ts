@@ -7,12 +7,14 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import config from '../../vitest.config.js'
 import { pnpmCommand } from '../core/owner-commands.js'
-import { GhCiRuns } from '../ports/ci-reading.js'
+import { GhCiRuns, WEIGHTS_TABLE_PATH } from '../ports/ci-reading.js'
 import { processGit } from '../ports/git.js'
 import { FILE_WEIGHTS_NAME } from './file-weights-reporter.js'
 import { balanceShards, MIN_WEIGHT, updateWeights, weightsFromFileWeights } from './shard.js'
 
-export type { RunJob, RunStep } from '../ports/ci-reading.js'
+export { FILE_WEIGHTS_NAME }
+export type { CiRuns, RunJob, RunOnMain, RunStep } from '../ports/ci-reading.js'
+export type { TestWeights } from './shard.js'
 
 export type SpreadVerdict
   = | { kind: 'not-proven', before: number[], after: number[], needed: number }
@@ -23,11 +25,12 @@ export const RUNS_PER_SIDE = 6
 export const CI_REPORT_ARTIFACT = 'vitest-report'
 export const JSON_REPORT_PATH = '.construct/reports/vitest.json'
 export const FILE_WEIGHTS_PATH = path.join(path.dirname(JSON_REPORT_PATH), FILE_WEIGHTS_NAME)
-export const WEIGHTS_PATH = 'scripts/ci/test-weights.json'
+export const WEIGHTS_PATH = WEIGHTS_TABLE_PATH
 export const MAX_UNWEIGHTED_SHARE = 0.1
 export const CI_SHARDS = 8
 export const MAX_SHARD_IMBALANCE = 0.2
 export const MAX_DRIFTED_SHARE = 0.05
+export const RECOMPUTE_DRIFTED_SHARE = 0.3
 export const MAX_WEIGHT_RATIO = 2
 export const RECOMPUTE_COMMAND = pnpmCommand('test:weights', '--from', 'main')
 const RUNS_LISTED = 60
@@ -230,12 +233,17 @@ function checkAgainst(measurement: Measurement): void {
   console.log(`test:weights: ${verdict.line}`)
 }
 
+export function recomputedTable(previous: TestWeights, measured: TestWeights, exists: (test: string) => boolean): { weights: TestWeights, text: string } {
+  const weights = updateWeights(previous, measured, exists)
+  return { weights, text: `${JSON.stringify(weights, null, 2)}\n` }
+}
+
 function rewriteFrom(measurement: Measurement): void {
   if (leftAsItIs(measurement))
     return
   const previous = readWeights()
-  const weights = updateWeights(previous, measurement.weights, onDisk)
-  writeFileSync(path.join(REPO_ROOT, WEIGHTS_PATH), `${JSON.stringify(weights, null, 2)}\n`)
+  const { weights, text } = recomputedTable(previous, measurement.weights, onDisk)
+  writeFileSync(path.join(REPO_ROOT, WEIGHTS_PATH), text)
   const dropped = Object.keys(previous).filter(test => !(test in weights)).length
   console.log(`${WEIGHTS_PATH}: ${Object.keys(weights).length} files, ${Object.keys(measurement.weights).length} measured whole-file from ${measurement.source}, ${dropped} no longer on disk dropped`)
 }

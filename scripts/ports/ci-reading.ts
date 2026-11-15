@@ -1,6 +1,7 @@
 import type { ArtifactRequest, CheckRun, CommitCi, FailedJobLog, PrDetails, PullRequestView, RollupCheck, RunIdentity } from '../../src/commands/ci/state.js'
 import type { GhPort, GhRead, PullRequest } from './gh.js'
 import type { Meter } from './meter.js'
+import { join } from 'node:path'
 import { artifactDownloadArgs, artifactsOfRunArgs, ciOfRollup, commitCi, commitCiOfRuns, detailsOfPullRequestView, failedJobLog, hasApprovedRun, jobsOfRunArgs, pullRequestViewArgs, REQUIRED_CHECK, runCancelArgs, shortHead, successfulRunsOnMainArgs, unreadPullRequest } from '../../src/commands/ci/state.js'
 import { GH_QUERY_FAILED, PROCESS_GH_PORT, readGhJson } from './gh.js'
 
@@ -10,6 +11,12 @@ export type { ArtifactRequest, CheckRun, CiObservation, CiReading, CiState, Comm
 export interface AnnotatedCheck {
   conclusion?: string | null
   output?: { annotations_count?: number, annotations_url?: string } | null
+}
+
+export const WEIGHTS_TABLE_PATH = 'scripts/ci/test-weights.json'
+
+export function handedTablePath(launchDir: string, cardId: number): string {
+  return join(launchDir, `weights-${cardId}.json`)
 }
 
 const API_PATH_OF_URL = /^https:\/\/[^/]+\/(?:api\/v3\/)?(repos\/[^?#]+)$/
