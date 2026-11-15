@@ -5,8 +5,11 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
-import { openOwnerWait } from '../../core/db.js'
-import { closedByRounds } from '../../core/queue.js'
+import { appendEvent, openOwnerWait } from '../../core/db.js'
+import { CARD_HELD, CARD_RELEASED } from '../../core/events.js'
+import { OWNER } from '../../core/inbox.js'
+import { leaseNext } from '../../core/lease.js'
+import { closedByRounds, queueTask } from '../../core/queue.js'
 import { reduce } from '../../core/reducer.js'
 import { answerWord, runOwnerAnswer } from '../../owner/answer.js'
 import { sayToOwnerChannel } from '../../owner/channel.js'
@@ -16,7 +19,7 @@ import { decisionsInForceAt } from '../../policy/shards.js'
 import { busProjections } from '../../supervisor/composition.js'
 import { requestFromWindow, WindowRequests } from '../../window/window-requests.js'
 import { sha } from '../bus/github-fake.js'
-import { eventCount, liveBench, spendReviewRounds } from '../bus/merge-bench.js'
+import { eventCount, eventsOf, liveBench, spendReviewRounds } from '../bus/merge-bench.js'
 
 interface Room {
   bench: MergeBench
@@ -144,19 +147,47 @@ describe('owner:answer <Q|#card> "words"', () => {
     expect(closedByRounds(room.bench.db, now(), 'review', pr, fixed)).toBe(false)
   })
 
-  it('a decision on a card with no open wait names that nothing moves and proposes the move', () => {
-    const [card, pr] = [1864, 1586]
+  it('owner:answer by card with a leased answer task binds the word as a decision', () => {
+    const [card, pr] = [1950, 1586]
     const room = roomWithPr(card, pr)
-    const decisions = decisionsOn(room, card)
+    const ts = room.bench.clock.now().toISOString()
+    queueTask(room.bench.db, ts, { queue: 'answer', cardId: card, pr, head: HEAD })
+    expect(leaseNext(room.bench.db, ts, 'answer', 'worker:answer:worker-1')).not.toBeNull()
 
-    const outcome = answer(room, `#${card}`, 'D-524: back for fixes at the head')
+    const outcome = answer(room, `#${card}`, 'keep the stop word in the CLI')
 
-    expect(outcome.kind).toBe('refused')
-    expect(outcome.detail).toContain(`card #${card} has no open wait and is within its round limit`)
-    expect(outcome.detail).toMatch(/nothing moves/)
-    expect(outcome.detail).toMatch(/The move that would act on it: pnpm bus:request owner\.launch --card 1864|reaches its next session/)
-    expect(decisionsOn(room, card)).toEqual(decisions)
-    expect(readdirSync(room.channel).filter(file => file.endsWith('.md'))).toHaveLength(1)
+    expect(outcome, outcome.detail).toMatchObject({ kind: 'done', detail: expect.stringContaining(`bound to card #${card} as a decision`) })
+    expect(decisionsOn(room, card)).toEqual(['keep the stop word in the CLI'])
+    expect(readdirSync(room.channel).filter(file => file.endsWith('.md'))).toHaveLength(0)
+    expect(answer(room, `#${card}`, 'keep the stop word in the CLI')).toMatchObject({ kind: 'done', detail: expect.stringContaining('already') })
+    expect(decisionsOn(room, card)).toEqual(['keep the stop word in the CLI'])
+  })
+
+  it('owner:answer by card with an open wait closes it and binds the decision', () => {
+    const [card, pr] = [1870, 1594]
+    const room = roomWithPr(card, pr)
+    const wait = openOwnerWait(room.bench.db, room.bench.clock.now().toISOString(), 'policy', { need: 'merge', text: `PR #${pr} of card #${card} waits for the owner's merge`, card, pr })
+    reduce(room.bench.db, 'pending', busProjections())
+
+    const outcome = answer(room, `#${card}`, 'merged by hand')
+
+    expect(outcome, outcome.detail).toMatchObject({ kind: 'done', detail: expect.stringContaining(`closed ${wait}: merged by hand; bound to card #${card} as a decision`) })
+    expect(stateOf(room, wait)).toBe('closed')
+    expect(decisionsOn(room, card)).toEqual([`${wait}: merged by hand`])
+  })
+
+  it('owner:answer by card on a held card binds the decision and keeps the hold', () => {
+    const [card, pr] = [1916, 1586]
+    const room = roomWithPr(card, pr)
+    appendEvent(room.bench.db, { ts: room.bench.clock.now().toISOString(), type: CARD_HELD, actor: OWNER, cardId: card, pr: null, head: null, dedupeKey: `${CARD_HELD}:${card}`, payload: { request: 1, reason: 'held' }, legacy: false })
+    reduce(room.bench.db, 'pending', busProjections())
+
+    const outcome = answer(room, `#${card}`, 'resume from the handoff')
+
+    expect(outcome, outcome.detail).toMatchObject({ kind: 'done', detail: expect.stringContaining(`bound to card #${card} as a decision`) })
+    expect(decisionsOn(room, card)).toEqual(['resume from the handoff'])
+    expect(eventsOf(room.bench.db, CARD_HELD)).toHaveLength(1)
+    expect(eventsOf(room.bench.db, CARD_RELEASED)).toEqual([])
   })
 
   it('the command writes one request with the owner word, and a request without the word moves nothing', () => {
