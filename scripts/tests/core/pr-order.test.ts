@@ -93,12 +93,14 @@ describe('overlaps on paths only', () => {
         { ...row, id: 'rebuilt', path: 'contract/module-files.json', rebuild: ['declarations:update'], rebuiltOnUpdate: true },
         { ...row, id: 'baseline', path: '.dependency-cruiser-known-violations.json', rebuild: ['known:update'], rebuiltOnUpdate: false },
         { ...row, id: 'unbuilt', path: 'contract/unbuilt.json', rebuild: null, rebuiltOnUpdate: false },
+        { ...row, id: 'flaggedWithoutRebuild', path: 'contract/flagged.json', rebuild: null, rebuiltOnUpdate: true },
       ],
     })
     expect(declarations.derived).toEqual(['contract/module-files.json'])
     expect(overlaps(['m/a.ts', 'contract/module-files.json'], ['m/b.ts', 'contract/module-files.json'], declarations)).toBe(false)
     expect(overlaps(['m/a.ts', '.dependency-cruiser-known-violations.json'], ['m/b.ts', '.dependency-cruiser-known-violations.json'], declarations)).toBe(true)
     expect(overlaps(['m/a.ts', 'contract/unbuilt.json'], ['m/b.ts', 'contract/unbuilt.json'], declarations)).toBe(true)
+    expect(overlaps(['m/a.ts', 'contract/flagged.json'], ['m/b.ts', 'contract/flagged.json'], declarations)).toBe(true)
   })
 })
 
