@@ -16,7 +16,6 @@ import { leaseNext } from '../../core/lease.js'
 import { queueTask } from '../../core/queue.js'
 import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
 import { AnswerSources } from '../../nodes/answer/duties/source.js'
-import { cardDecisionCommand } from '../../policy/shards.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { sha } from './github-fake.js'
 import { mergeBench } from './merge-bench.js'
@@ -163,7 +162,7 @@ describe('an answer round on a card whose question waits for the owner (Z8)', ()
     card.made.tick()
 
     expect(card.sources.sourceOf(lease)).toBeNull()
-    expect(waitsOfTheCard()).toMatchObject([{ need: 'decision', command: cardDecisionCommand(CARD), text: expect.stringContaining(`card #${CARD} waits for the owner`) }])
+    expect(waitsOfTheCard()).toMatchObject([{ need: 'decision', command: 'pnpm owner:answer Q1 "…"', text: expect.stringContaining(`card #${CARD} waits for the owner`) }])
     decide(card, 903)
 
     expect(waitsOfTheCard()).toHaveLength(1)

@@ -1354,6 +1354,7 @@
     "tests/board/goal.test.ts",
     "tests/board/heal.test.ts",
     "tests/board/minors.test.ts",
+    "tests/board/owner-wait-hint.test.ts",
     "tests/board/review-drip-tail.test.ts",
     "tests/board/screens.test.ts",
     "tests/board/slice-mark.test.ts",

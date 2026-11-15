@@ -85,3 +85,37 @@ export function ownerMoveRequestOf(request: OwnerMoveRequest, argv: readonly str
   const card = Number(target.replace(/^#/, ''))
   return Number.isInteger(card) && card > 0 ? { kind: request, card } : null
 }
+
+const OWNER_WORDS = '"…"'
+const ANSWERED_BY_ID = /^Q\d+$/
+const WINDOW_COMMANDS = [INTAKE_COMMAND, BUS_REQUEST_COMMAND].map(head => `${head} `)
+
+export interface OwnerWaitFacts {
+  id: string
+  need: string
+  card: number | null
+  pr: number | null
+}
+
+export function windowCommandOf(command: string | null): string | null {
+  return command !== null && WINDOW_COMMANDS.some(prefix => command.startsWith(prefix)) ? command : null
+}
+
+export function ownerMergeLine(pr: number): string {
+  return `merge PR #${pr} (owner)`
+}
+
+export function ownerAnswerCommand(wait: OwnerWaitFacts): string {
+  if (wait.need === 'merge' && wait.pr !== null)
+    return ownerMergeLine(wait.pr)
+  const target = ANSWERED_BY_ID.test(wait.id) || wait.card === null ? wait.id : `#${wait.card}`
+  return `${OWNER_ANSWER_COMMAND} ${target} ${OWNER_WORDS}`
+}
+
+function standingCommandOf(asked: string | null): string | null {
+  return asked === MIKO_COMMAND ? asked : windowCommandOf(asked)
+}
+
+export function ownerWaitCommand(wait: OwnerWaitFacts, asked: string | null): string {
+  return standingCommandOf(asked) ?? ownerAnswerCommand(wait)
+}
