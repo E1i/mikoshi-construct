@@ -70,14 +70,14 @@ function admittedBody(bench: MergeBench): string {
   return row.body
 }
 
-function witnessRecorded(bench: MergeBench, head: string, verdict: string): void {
-  appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: WITNESS_RECORDED, actor: 'worker:witness:test', cardId: CARD, pr: PR, head, dedupeKey: `${WITNESS_RECORDED}:${CARD}:${head}:${BASE}:${verdict}`, payload: { head, base: BASE, cardBody: admittedBody(bench), verdict, detail: '' }, legacy: false })
+function witnessRecorded(bench: MergeBench, head: string, verdict: string, body: string = admittedBody(bench)): void {
+  appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: WITNESS_RECORDED, actor: 'worker:witness:test', cardId: CARD, pr: PR, head, dedupeKey: `${WITNESS_RECORDED}:${CARD}:${head}:${BASE}:${verdict}`, payload: { head, base: BASE, cardBody: body, verdict, detail: '' }, legacy: false })
 }
 
-async function reviewed(witnesses: readonly ProvenWitness[], records: readonly (readonly [string, string])[]): Promise<readonly ProvenWitness[] | undefined> {
+async function reviewed(witnesses: readonly ProvenWitness[], records: readonly (readonly [string, string, string?])[]): Promise<readonly ProvenWitness[] | undefined> {
   const { bench, worker, proven } = admitted(witnesses)
-  for (const [head, verdict] of records)
-    witnessRecorded(bench, head, verdict)
+  for (const [head, verdict, body] of records)
+    witnessRecorded(bench, head, verdict, body)
   bench.gitHub.open({ number: PR, head: HEAD, ref: `feat/card-${CARD}`, body: cardBody(PR) })
   bench.tick()
   expect(await worker.step()).toMatchObject({ kind: 'recorded', verdict: 'pass' })
@@ -108,6 +108,7 @@ describe('the review takes the witness node\'s record for a declared process-tab
     expect(await reviewed([PROCESS_WITNESS], [[HEAD, 'red']])).toEqual([])
     expect(await reviewed([PROCESS_WITNESS], [[HEAD, 'green'], [HEAD, 'red']])).toEqual([])
     expect(await reviewed([PROCESS_WITNESS], [[OTHER_HEAD, 'green']])).toEqual([])
+    expect(await reviewed([PROCESS_WITNESS], [[HEAD, 'green', 'an-earlier-card-body']])).toEqual([])
 
     const plan = fullReview('a fixed plan')
     const card = cardText([PROCESS_WITNESS])
