@@ -6,7 +6,7 @@ import type { HolderStart, Lease, LeaseOrder } from './lease.js'
 import type { QueuedTask } from './queue.js'
 import type { StoredEvent } from './stored.js'
 import { setImmediate as nextTurn } from 'node:timers/promises'
-import { BUS_VERSION, BUS_VERSION_BEFORE_GATE_RUN, BUS_VERSION_BEFORE_LADDER_RUN, CARD_VERSION, CARD_VERSION_BEFORE_TOUCH_SCOPE, recordBusVersion, UNRECORDED_VERSION } from './bus-version.js'
+import { BUS_VERSION, BUS_VERSION_BEFORE_GATE_RUN, BUS_VERSION_BEFORE_LADDER_RUN, BUS_VERSION_BEFORE_THRESHOLD_SET, CARD_VERSION, CARD_VERSION_BEFORE_TOUCH_SCOPE, recordBusVersion, UNRECORDED_VERSION } from './bus-version.js'
 import { appendEvent, inTransaction, openBus } from './db.js'
 import { CARD_STOPPED, CHILD_ENDED, CHILD_STARTED, NODE_DETECTED, NODE_EQUIVALENCE, TASK_LEASED, WORKER_STARTED } from './events.js'
 import { drainOpen, expireLeases, failTask, leasedByRetiring, leaseNext, RENEW_MS, renewLease, StaleLease, waitTask, workerRetiring } from './lease.js'
@@ -199,7 +199,7 @@ export interface NodeDeclaration {
 
 export type VersionedRecord = keyof Understood
 
-export const UNDERSTOOD_NOW: Understood = { bus: [UNRECORDED_VERSION, BUS_VERSION_BEFORE_LADDER_RUN, BUS_VERSION_BEFORE_GATE_RUN, BUS_VERSION], card: [CARD_VERSION_BEFORE_TOUCH_SCOPE, CARD_VERSION] }
+export const UNDERSTOOD_NOW: Understood = { bus: [UNRECORDED_VERSION, BUS_VERSION_BEFORE_LADDER_RUN, BUS_VERSION_BEFORE_GATE_RUN, BUS_VERSION_BEFORE_THRESHOLD_SET, BUS_VERSION], card: [CARD_VERSION_BEFORE_TOUCH_SCOPE, CARD_VERSION] }
 
 export function foreignVersion(understands: Understood, record: VersionedRecord, version: number, whose: string): string | null {
   if (understands[record].includes(version))

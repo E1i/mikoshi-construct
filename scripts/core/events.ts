@@ -78,6 +78,7 @@ export const PROCESS_JUDGED = 'process.judged'
 export const PROCESS_REFUSED = 'process.refused'
 export const QUESTION_AGENT = 'question.agent'
 export const QUESTION_OWNER = 'question.owner'
+export const RATCHET_THRESHOLD_SET = 'ratchet.threshold.set'
 export const REDUCED = 'reducer.reduced'
 export const REJECTED = 'reducer.rejected'
 export const REVIEW_DRIP = 'review.drip'
@@ -234,6 +235,7 @@ export const EVENT_PAYLOADS = {
   [PROCESS_HEARTBEAT]: ['process', 'queue', 'slots'],
   [PROCESS_JUDGED]: ['last_beat', 'limit_ms', 'process', 'silent_ms', 'verdict'],
   [PROCESS_REFUSED]: ['last_beat', 'live', 'process'],
+  [RATCHET_THRESHOLD_SET]: ['decision', 'row', 'to'],
   [REDUCED]: ['applied', 'rejected', 'through_event_id'],
   [REJECTED]: ['event_id', 'reason', 'type'],
   [REVIEW_DRIP]: ['card', 'finding', 'head', 'pr'],
