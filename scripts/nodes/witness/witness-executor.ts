@@ -9,7 +9,7 @@ import type { VERIFICATION_WORDS } from '../../core/verification.js'
 import type { WitnessSubject, WitnessVerdict } from '../../policy/policy.js'
 import type { BaseRun, ReplacementField, Witness } from '../../ports/witnesses.js'
 import type { GitAsync, ShellResult } from '../../ports/worktree.js'
-import { execFile, spawn } from 'node:child_process'
+import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
@@ -40,7 +40,6 @@ export interface TimedShellResult extends ShellResult { timedOut: boolean }
 export type TimedShell = (command: string, cwd: string, timeoutMs: number, started?: (pid: number) => void) => Promise<TimedShellResult>
 
 const GROUP_KILL_GRACE_MS = 10_000
-const OUTPUT_OVER_BUFFER = 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER'
 const GROUP_RUNNER = [
   `const { spawn } = require('node:child_process')`,
   `const { constants } = require('node:os')`,
@@ -57,17 +56,30 @@ const GROUP_RUNNER = [
   `})`,
 ].join('\n')
 
-function timedResultOf(error: (Error & { code?: number | string | null, signal?: string | null }) | null, stdout: string, stderr: string): TimedShellResult {
-  const status = error === null ? 0 : typeof error.code === 'number' ? error.code : null
-  const timedOut = error?.signal === 'SIGKILL' || error?.code === OUTPUT_OVER_BUFFER
-  return { status, output: `${stdout}${stderr}`, timedOut }
-}
-
 export async function realTimedShell(command: string, cwd: string, timeoutMs: number, started?: (pid: number) => void): Promise<TimedShellResult> {
   const budget = String(Math.max(1, Math.floor(timeoutMs)))
   return new Promise((resolve) => {
-    const runner = execFile(process.execPath, ['-e', GROUP_RUNNER, budget, command], { cwd, env: witnessEnv(), encoding: 'utf8', maxBuffer: SHELL_BUFFER, timeout: timeoutMs + GROUP_KILL_GRACE_MS, killSignal: 'SIGKILL' }, (error, stdout, stderr) => {
-      resolve(timedResultOf(error, stdout, stderr))
+    const runner = spawn(process.execPath, ['-e', GROUP_RUNNER, budget, command], { cwd, env: witnessEnv(), detached: true, stdio: ['ignore', 'pipe', 'pipe'] })
+    const output = { stdout: '', stderr: '', overBuffer: false, unspawned: false }
+    const kill = (): void => {
+      runner.kill('SIGKILL')
+    }
+    const deadline = setTimeout(kill, timeoutMs + GROUP_KILL_GRACE_MS)
+    for (const stream of ['stdout', 'stderr'] as const) {
+      runner[stream].setEncoding('utf8')
+      runner[stream].on('data', (chunk: string) => {
+        output[stream] += chunk
+        output.overBuffer ||= output[stream].length > SHELL_BUFFER
+        if (output.overBuffer)
+          kill()
+      })
+    }
+    runner.on('error', () => {
+      output.unspawned = true
+    })
+    runner.on('close', (code, signal) => {
+      clearTimeout(deadline)
+      resolve({ status: output.overBuffer || output.unspawned ? null : code, output: `${output.stdout}${output.stderr}`, timedOut: signal === 'SIGKILL' || output.overBuffer })
     })
     if (runner.pid !== undefined)
       started?.(runner.pid)
