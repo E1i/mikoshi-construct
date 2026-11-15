@@ -112,6 +112,10 @@ export function ownerAnswerCommand(wait: OwnerWaitFacts): string {
   return `${OWNER_ANSWER_COMMAND} ${target} ${OWNER_WORDS}`
 }
 
+function standingCommandOf(asked: string | null): string | null {
+  return asked === MIKO_COMMAND ? asked : windowCommandOf(asked)
+}
+
 export function ownerWaitCommand(wait: OwnerWaitFacts, asked: string | null): string {
-  return windowCommandOf(asked) ?? ownerAnswerCommand(wait)
+  return standingCommandOf(asked) ?? ownerAnswerCommand(wait)
 }

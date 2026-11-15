@@ -16,7 +16,7 @@ import { reduce } from '../../core/reducer.js'
 import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
 import { OWNER_MERGES } from '../../policy/policy.js'
 import { runShard, USAGE } from '../../policy/shard.js'
-import { activeWindowShards, cardDecisionCommand, DECISIONS_SCOPE, expiredWindowShards } from '../../policy/shards.js'
+import { activeWindowShards, DECISIONS_SCOPE, expiredWindowShards } from '../../policy/shards.js'
 import { readOwnerMergeKinds } from '../../policy/shredder/reader.js'
 import { busProjections } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
@@ -190,7 +190,7 @@ describe('a shard delegates one owner merge', () => {
     const owner = await askedUnderADecisionsShard(r1)
     expect(owner.outcome).toMatchObject({ kind: 'stopped', reason: QUESTION_OWNER, detail: r1Detail })
     expect(owner.decided).toBe(0)
-    expect(owner.waits).toEqual([{ need: 'decision', text: `card #905 asks: ${r1Detail}`, command: cardDecisionCommand(905), card_id: 905, state: OPEN_WAIT }])
+    expect(owner.waits).toEqual([{ need: 'decision', text: `card #905 asks: ${r1Detail}`, command: 'pnpm owner:answer Q1 "…"', card_id: 905, state: OPEN_WAIT }])
     const windowOwn = 'may the card also touch .claude/settings.json?'
     const decided = await askedUnderADecisionsShard(windowOwn)
     expect(decided.outcome).toMatchObject({ kind: 'decided', shard: SHARD, question: windowOwn })

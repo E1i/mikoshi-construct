@@ -1,6 +1,6 @@
 import type { Lore } from '../../ui/lore.js'
 import type { BusCard, BusFacts, BusGroup, BusMatrix, BusTail, OwnerWait } from './bus.js'
-import { ADMIT_COMMAND, ownerAnswerCommand, pnpmCommand, windowCommandOf } from '../../../scripts/core/owner-commands.js'
+import { ADMIT_COMMAND, ownerWaitCommand, pnpmCommand, windowCommandOf } from '../../../scripts/core/owner-commands.js'
 import { FLOW_STAGES, LIVE_STAGES, LIVE_STATES, SHORT_SHA } from './bus.js'
 import { planLine } from './goal.js'
 
@@ -173,10 +173,8 @@ export function goalLines(facts: BusFacts, lore: Lore): string[] {
 }
 
 export function waitHint(wait: OwnerWait): Hint {
-  const windowCommand = windowCommandOf(wait.command)
-  if (windowCommand !== null)
-    return { who: 'window', command: windowCommand }
-  return { who: wait.lifter === 'window' ? 'window' : 'owner', command: ownerAnswerCommand(wait) }
+  const command = ownerWaitCommand(wait, wait.command)
+  return { who: wait.lifter === 'window' || windowCommandOf(command) !== null ? 'window' : 'owner', command }
 }
 
 export function liftedByTheWindow(wait: OwnerWait): boolean {
