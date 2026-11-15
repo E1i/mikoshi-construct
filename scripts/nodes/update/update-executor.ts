@@ -1,6 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { PushPolicy } from '../../../src/commands/attach/record.js'
-import type { RerunMode } from '../../cli/check-catalog.js'
 import type { BusEvent } from '../../core/db.js'
 import type { QUESTION_OWNER } from '../../core/events.js'
 import type { AfterFailure, Lease } from '../../core/lease.js'
@@ -10,14 +9,13 @@ import type { CommandResult, GitHub, GitHubPut } from '../../ports/github.js'
 import type { MergeMain } from '../../ports/main-merge.js'
 import type { VerdictOnHead } from '../../ports/snapshot.js'
 import type { TechnicalReason } from '../review/record-verdict.js'
-import { rerunOf, upToDateRequired } from '../../cli/check-catalog.js'
 import { appendEvent } from '../../core/db.js'
 import { messageOf } from '../../core/errors.js'
 import { CI_RERUN_REQUESTED, COMMAND_EXECUTED, POLICY_ALLOWED, POLICY_DENIED, REVIEW_RECORDED, UPDATE_DONE } from '../../core/events.js'
 import { assertHeld, completeTask, failTask, releaseTask, StaleLease } from '../../core/lease.js'
 import { rerunDueOn } from '../../core/observations.js'
 import { KEPT_BY_PUSH_POLICY } from '../../core/push-policy.js'
-import { COMPLETED, dependencyUpdateDueOn, MERGE_REFUSED, updateTurnHeldFrom } from '../../core/queue.js'
+import { COMPLETED, keyOf, MERGE_REFUSED, updateCandidates } from '../../core/queue.js'
 import { cardContract, NOT_MINE, notMine } from '../../intake/card-contract.js'
 import { rerunFailedJobsEndpoint, runsOnHeadEndpoint } from '../../ports/ci-reading.js'
 import { REVIEW_STATUS_CONTEXT } from '../../ports/github-status.js'
@@ -35,14 +33,12 @@ const FILES_PAGE = 100
 const REPO = 'repos/{owner}/{repo}'
 const STATE_OF_VERDICT: Record<VerdictOnHead, ReviewStatus['state']> = { pass: 'success', changes: 'failure' }
 
-export const MERGES_WITHOUT_UPDATE = 'merges_without_update'
-export const WAITS_ITS_TURN = 'waits_its_turn'
 const UPDATE_COMMAND = 'update_branch'
 const MERGE_MAIN_COMMAND = 'merge_main'
 
 export type UpdateCommand = typeof UPDATE_COMMAND | typeof MERGE_MAIN_COMMAND | 'publish'
 
-export type UpdateTechnicalReason = TechnicalReason | 'not_mergeable' | 'not_behind' | 'wrong_base' | typeof MERGE_REFUSED | typeof NOT_MINE | typeof MERGES_WITHOUT_UPDATE | typeof WAITS_ITS_TURN | typeof KEPT_BY_PUSH_POLICY
+export type UpdateTechnicalReason = TechnicalReason | 'not_mergeable' | 'not_behind' | 'wrong_base' | typeof MERGE_REFUSED | typeof NOT_MINE | typeof KEPT_BY_PUSH_POLICY
 
 export interface UpdateDenial {
   kind: 'technical'
@@ -73,7 +69,6 @@ export interface UpdateParts {
   clock: () => Date
   settle: () => void
   silentMs: number
-  rerun?: RerunMode
   pushPolicy?: () => PushPolicy
   mergeMain?: MergeMain
   post?: GitHubPut
@@ -139,7 +134,7 @@ interface Before {
 
 type Checked = { kind: 'ready', before: Before } | { kind: 'conflicting' } | { kind: 'denied', denial: UpdateDenial }
 
-const WAIT_REASONS: ReadonlySet<UpdateTechnicalReason> = new Set(['not_mergeable', MERGES_WITHOUT_UPDATE, WAITS_ITS_TURN])
+const WAIT_REASONS: ReadonlySet<UpdateTechnicalReason> = new Set(['not_mergeable'])
 const WITHDRAWN_REASONS: ReadonlySet<UpdateTechnicalReason> = new Set([NOT_MINE, KEPT_BY_PUSH_POLICY, MERGE_REFUSED])
 
 function insideTheTouchesLine(lease: Lease, files: readonly string[]): string {
@@ -150,8 +145,14 @@ function technical(reason: UpdateTechnicalReason, detail: string): UpdateDenial 
   return { kind: 'technical', reason, detail }
 }
 
+const HUNK_OFFSETS = /^@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@/gm
+
+export function withoutHunkOffsets(patch: string | null): string | null {
+  return patch === null ? null : patch.replace(HUNK_OFFSETS, '@@')
+}
+
 function sameDiff(before: DiffFile[], after: DiffFile[]): boolean {
-  const key = (files: DiffFile[]): string => JSON.stringify(files.map(file => [file.filename, file.status, file.patch]).sort())
+  const key = (files: DiffFile[]): string => JSON.stringify(files.map(file => [file.filename, file.status, withoutHunkOffsets(file.patch)]).sort())
   return key(before) === key(after)
 }
 
@@ -203,13 +204,14 @@ export class UpdateExecutor {
       const rerun = this.rerunWhenDue(lease)
       if (rerun !== null)
         return rerun
+      const gone = this.noLongerDue(lease)
+      if (gone !== null)
+        return this.denied(lease, gone)
       const checked = this.fresh(lease)
       if (checked.kind === 'denied')
         return this.denied(lease, checked.denial)
       if (checked.kind === 'conflicting')
         return this.conflicting(lease, card)
-      if (updateTurnHeldFrom(this.parts.db, this.ts(), lease.pr!))
-        return this.denied(lease, technical(WAITS_ITS_TURN, `#${lease.pr} waits: an updated pull request is still on its way to merging`))
       this.allowed(lease)
       const refused = this.requested(lease)
       if (refused !== null)
@@ -221,6 +223,12 @@ export class UpdateExecutor {
         return { kind: 'fenced', taskKey: lease.taskKey }
       throw error
     }
+  }
+
+  private noLongerDue(lease: Lease): UpdateDenial | null {
+    if (updateCandidates(this.parts.db, this.ts()).some(task => keyOf(task) === lease.taskKey))
+      return null
+    return technical('not_behind', `${lease.taskKey} is no longer an update candidate: #${lease.pr} is not the turn of its group, or nothing it needs an update for holds any more`)
   }
 
   private rerunDue(lease: Lease): boolean {
@@ -294,38 +302,13 @@ export class UpdateExecutor {
         return { kind: 'denied', denial: technical('not_mergeable', `#${lease.pr} is ${pull.mergeable_state ?? 'not computed yet'}`) }
       if (mergeable === 'dirty' && this.parts.mergeMain !== undefined)
         return { kind: 'conflicting' }
-      const refused = this.refusal(meter, pull, lease, mergeable)
-      if (refused !== null)
-        return { kind: 'denied', denial: refused }
+      if (mergeable === 'dirty')
+        return { kind: 'denied', denial: technical('not_behind', `#${lease.pr} is dirty, and this update node merges no main into a card tree, so an update-branch cannot take it`) }
       return { kind: 'ready', before: { verdict: verdictOf(meter, lease.head!), files: diffOf(meter, lease.pr!) } }
     }
     catch (error) {
       return { kind: 'denied', denial: technical('github_error', messageOf(error)) }
     }
-  }
-
-  private refusal(meter: Meter, pull: Pull, lease: Lease, mergeable: string): UpdateDenial | null {
-    if (mergeable !== 'dirty' && dependencyUpdateDueOn(this.parts.db, { card: lease.cardId, pr: lease.pr!, head: lease.head! }))
-      return null
-    return this.parts.rerun === 'by-layers' ? this.byLayers(meter, pull, lease, mergeable) : this.notBehind(lease, mergeable)
-  }
-
-  private notBehind(lease: Lease, mergeable: string): UpdateDenial | null {
-    return mergeable === 'behind' ? null : technical('not_behind', `#${lease.pr} is ${mergeable}, not behind`)
-  }
-
-  private byLayers(meter: Meter, pull: Pull, lease: Lease, mergeable: string): UpdateDenial | null {
-    if (mergeable !== 'clean')
-      return this.notBehind(lease, mergeable) ?? this.mergesWithoutUpdate(meter, pull, lease)
-    if (upToDateRequired(meter))
-      return technical('not_behind', `#${lease.pr} is clean on a host that requires an up-to-date branch, not behind`)
-    const rerun = rerunOf(this.parts.db, meter, lease.pr!, pull.base?.sha, lease.head!)
-    return rerun.rerun ? null : technical('not_behind', `#${lease.pr} is clean and needs no update: ${rerun.why}`)
-  }
-
-  private mergesWithoutUpdate(meter: Meter, pull: Pull, lease: Lease): UpdateDenial | null {
-    const rerun = rerunOf(this.parts.db, meter, lease.pr!, pull.base?.sha, lease.head!)
-    return rerun.rerun ? null : technical(MERGES_WITHOUT_UPDATE, `#${lease.pr} merges without an update: ${rerun.why}`)
   }
 
   private requested(lease: Lease): UpdateDenial | null {

@@ -4,18 +4,17 @@ import type { UpdateNodeParts } from '../../nodes/update/update-worker.js'
 import type { MergeBench } from './merge-bench.js'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { textSha } from '../../../src/card/text-sha.js'
-import { RERUN_VARIABLE } from '../../cli/check-catalog.js'
 import { DROPPED_LANE } from '../../core/card-automaton.js'
 import { appendEvent } from '../../core/db.js'
-import { CARD_ADMITTED, CARD_CLOSED, CARD_MOVED, CARD_STOPPED, COMMAND_EXECUTED, MERGE_DONE, NODE_DETECTED, NODE_EQUIVALENCE, POLICY_ALLOWED, POLICY_DENIED, REVIEW_RECORDED, TASK_ENQUEUED } from '../../core/events.js'
+import { CARD_ADMITTED, CARD_CLOSED, CARD_MOVED, COMMAND_EXECUTED, MERGE_DONE, NODE_DETECTED, NODE_EQUIVALENCE, POLICY_ALLOWED, POLICY_DENIED, REVIEW_RECORDED, TASK_ENQUEUED } from '../../core/events.js'
 import { leaseNext } from '../../core/lease.js'
 import { NODE_CURSORS } from '../../core/node.js'
-import { FAILURES_TO_STOP, keyOf, NEEDS_UPDATE, updateCandidates } from '../../core/queue.js'
+import { keyOf, updateCandidates } from '../../core/queue.js'
 import { UpdateExecutor } from '../../nodes/update/update-executor.js'
 import { UpdateNode } from '../../nodes/update/update-worker.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { MAIN_2, sha } from './github-fake.js'
-import { eventsOf, liveBench, mergeBench, taskState } from './merge-bench.js'
+import { eventsOf, liveBench, mainMovesPastEveryPr, mergeBench, taskState } from './merge-bench.js'
 import { detectUpdate } from './update-detection.js'
 
 const UPDATE_DONE = 'update.done'
@@ -78,6 +77,7 @@ function behindAndLeased(parts: Partial<ConstructorParameters<typeof UpdateExecu
   made.gitHub.updateStatus = updateStatus
   made.gitHub.open({ number: 987, review: 'success', mergeable_state: 'behind' })
   made.tick()
+  mainMovesPastEveryPr(made)
   detectUpdate(made)
   const executor = new UpdateExecutor({ silentMs: SILENT_MS, db: made.db, gitHub: made.gitHub.client, put: made.gitHub.put, publish: made.gitHub.publish, clock: made.clock.now, settle: () => {}, ...parts })
   return { made, outcome: executor.update(leaseNext(made.db, made.clock.now().toISOString(), 'update', 'worker:update:worker-1')!) }
@@ -142,6 +142,7 @@ describe('the update node', () => {
     const made = bench()
     made.gitHub.open({ number: 980, review: 'success', mergeable_state: 'behind' })
     made.tick()
+    mainMovesPastEveryPr(made)
     const node = nodeOf(made, 'live')
     await once(node)
     expect(eventsOf(made.db, NODE_DETECTED)).toEqual([{ key: updateKey(980), via: 'tick', event_id: expect.any(Number) as unknown, outcome: 'queued' }])
@@ -149,11 +150,12 @@ describe('the update node', () => {
     made.gitHub.close(980, true)
     made.gitHub.open({ number: 981, review: 'success', mergeable_state: 'behind' })
     made.tick()
+    mainMovesPastEveryPr(made)
     await once(node)
     expect(byEvent(made)).toEqual([{ key: updateKey(981), via: 'event', event_id: lastEventOf(made, 'pr.observed', 981), outcome: 'queued' }])
   })
 
-  it('main.advanced alone detects nothing, and the pr.observed that brings behind detects the pull request', async () => {
+  it('main.advanced over nothing the pull request changes and a behind state detect nothing; main moving past it does', async () => {
     const made = bench()
     made.gitHub.open({ number: 970, review: 'success' })
     made.tick()
@@ -169,7 +171,11 @@ describe('the update node', () => {
     made.gitHub.pulls.get(970)!.mergeable_state = 'behind'
     made.tick()
     await once(node)
-    expect(byEvent(made)).toEqual([{ key: updateKey(970), via: 'event', event_id: lastEventOf(made, 'pr.observed', 970) }])
+    expect(byEvent(made)).toEqual([])
+
+    mainMovesPastEveryPr(made)
+    await once(node)
+    expect(byEvent(made)).toEqual([{ key: updateKey(970), via: 'event', event_id: expect.any(Number) as unknown }])
   })
 
   it('a policy.denied of kind authority on a behind pull request without a pass detects nothing', async () => {
@@ -188,17 +194,18 @@ describe('the update node', () => {
     expect(node.found({ cardId: 1082 })).toEqual([])
   })
 
-  it('of two behind pull requests with a pass only the older is detected, scoped by its card', async () => {
+  it('two pass pull requests in different groups are both detected once main moves past them, each scoped by its card', async () => {
     const made = bench()
     made.gitHub.open({ number: 981, review: 'success', mergeable_state: 'behind' })
     made.gitHub.open({ number: 982, review: 'success', mergeable_state: 'behind' })
     made.tick()
+    mainMovesPastEveryPr(made)
     const node = nodeOf(made)
     await once(node)
 
-    expect(node.found()).toEqual([updateKey(981)])
+    expect(node.found()).toEqual([updateKey(981), updateKey(982)])
     expect(node.found({ cardId: 1081 })).toEqual([updateKey(981)])
-    expect(node.found({ cardId: 1082 })).toEqual([])
+    expect(node.found({ cardId: 1082 })).toEqual([updateKey(982)])
   })
 
   it('the node and updateCandidates find one set on one snapshot, and shadow records node.equivalence with nothing on one side only', async () => {
@@ -209,8 +216,9 @@ describe('the update node', () => {
     made.gitHub.open({ number: 984, head: sha('e'), review: 'success' })
     deniedByAuthority(made, 981)
     made.tick()
+    mainMovesPastEveryPr(made)
     const node = nodeOf(made)
-    const keys = [updateKey(980)]
+    const keys = [updateKey(980), updateKey(984, sha('e'))]
 
     expect(node.found()).toEqual(keys)
     expect(node.found()).toEqual(derivedKeys(made))
@@ -228,6 +236,7 @@ describe('the update node', () => {
     made.gitHub.open({ number: 981, review: 'success', mergeable_state: 'behind' })
     made.gitHub.updateStatus = 409
     made.tick()
+    mainMovesPastEveryPr(made)
     const node = nodeOf(made, 'live')
     await once(node)
     expect(enqueuedOf(made, updateKey(981))).toBe(1)
@@ -252,6 +261,7 @@ describe('the update node', () => {
     made.gitHub.pulls.get(981)!.mergeable_state = 'behind'
     made.gitHub.pulls.get(982)!.mergeable_state = 'behind'
     made.tick()
+    mainMovesPastEveryPr(made)
     const first = lastEventOf(made, 'pr.observed', 981)
     node.failOnNextCall(1)
     await expect(once(node)).rejects.toThrow('injected in the middle of a batch')
@@ -260,7 +270,7 @@ describe('the update node', () => {
 
     await once(node)
     await once(node)
-    expect(byEvent(made)).toEqual([{ key: updateKey(981), via: 'event', event_id: first }])
+    expect(byEvent(made)).toEqual([{ key: updateKey(981), via: 'event', event_id: first }, { key: updateKey(982), via: 'event', event_id: first + 1 }])
   })
 
   it('i3: a cursor reset to 0 gives no second detection and no second task', async () => {
@@ -268,6 +278,7 @@ describe('the update node', () => {
       const made = bench()
       made.gitHub.open({ number: 980, review: 'success', mergeable_state: 'behind' })
       made.tick()
+      mainMovesPastEveryPr(made)
       const node = nodeOf(made, mode)
       await once(node)
       await once(node)
@@ -284,13 +295,14 @@ describe('the update node', () => {
     }
   })
 
-  it('a queued update task of an old head is superseded by deriveQueues beside the node as before', async () => {
+  it('a queued update task of an old head is superseded by deriveQueues, and the head pushed after main moved needs no update', async () => {
     const made = bench()
     const node = nodeOf(made, 'live')
     await once(node)
 
     made.gitHub.open({ number: 980, review: 'success', mergeable_state: 'behind' })
     made.tick()
+    mainMovesPastEveryPr(made)
     detectUpdate(made)
     expect(taskState(made.db, updateKey(980)).state).toBe('queued')
     made.gitHub.pulls.get(980)!.head = sha('b')
@@ -299,13 +311,14 @@ describe('the update node', () => {
 
     expect(taskState(made.db, updateKey(980)).state).toBe('superseded')
     expect(detectedKeysBy(made, node)).not.toContain(updateKey(980))
-    expect(made.gitHub.puts.map(put => put.fields.expected_head_sha)).toEqual([sha('b')])
+    expect(made.gitHub.puts).toEqual([])
   })
 
   it('every write to GitHub is followed by command.executed with its result', async () => {
     const made = bench()
     made.gitHub.open({ number: 970, review: 'success', mergeable_state: 'behind' })
     made.tick()
+    mainMovesPastEveryPr(made)
     const node = nodeOf(made, 'live')
     await once(node)
     await once(node)
@@ -354,33 +367,13 @@ describe('the update node', () => {
     ])
   })
 
-  it('three not_behind answers to update_branch write no card.stopped and end the update task as done', async () => {
-    const made = bench()
-    made.gitHub.upToDateRequired = true
-    made.gitHub.open({ number: 970, review: 'success', mergeable_state: 'clean' })
-    made.tick()
-    appendEvent(made.db, { ts: made.clock.now().toISOString(), type: POLICY_DENIED, actor: 'policy', cardId: 1070, pr: 970, head: sha('a'), dedupeKey: `${POLICY_DENIED}:sent-to-update`, payload: { command: 'merge', kind: 'technical', reason: NEEDS_UPDATE, detail: 'updated before it merges' }, legacy: false })
-    const node = nodeOf(made, 'live', { [RERUN_VARIABLE]: 'by-layers' })
-
-    for (let answer = 0; answer < FAILURES_TO_STOP; answer += 1)
-      await once(node)
-    made.tick()
-    const asked = made.gitHub.calls.length
-    await once(node)
-
-    expect(eventsOf(made.db, CARD_STOPPED)).toEqual([])
-    expect(taskState(made.db, updateKey(970))).toMatchObject({ state: 'completed', failures: 0 })
-    expect(eventsOf(made.db, POLICY_DENIED).filter(each => each.reason === 'not_behind')).toHaveLength(1)
-    expect(made.gitHub.calls.slice(asked)).toEqual([])
-    expect(made.gitHub.puts).toEqual([])
-  })
-
   it('update skips a candidate cardContract reads as not mine', async () => {
     for (const [state, endedInTheBus] of Object.entries(NOT_MINE)) {
       const made = bench()
       admitted(made, 1080)
       made.gitHub.open({ number: 980, review: 'success', mergeable_state: 'behind' })
       made.tick()
+      mainMovesPastEveryPr(made)
       detectUpdate(made)
       endedInTheBus(made, 1080)
       made.tick()

@@ -133,16 +133,17 @@ describe('the admission whose depends stand', () => {
   })
 })
 
-describe('the update executor on a head no dependency merge made due', () => {
-  it('a blocked PR of a card with no dependency is refused not_behind', () => {
+describe('a head no dependency merge made due', () => {
+  it('a blocked PR of a card with no dependency gets no update', () => {
     const bench = openDependent([])
 
     expect(dependencyUpdateDueOn(bench.db, { card: CARD, pr: PR, head: OLD_HEAD })).toBe(false)
-    expect(outcomeOf(updateExecutor(bench).update(leasedUpdate(bench, OLD_HEAD)!))).toBe('denied not_behind')
+    detectUpdate(bench)
+    expect(updatesOfThePr(bench)).toEqual([])
     expect(bench.gitHub.pulls.get(PR)!.head).toBe(OLD_HEAD)
   })
 
-  it('a blocked dependent whose dependency merged before its head was seen is refused not_behind', () => {
+  it('a blocked dependent whose dependency merged before its head was seen gets no update', () => {
     const bench = newBench()
     bench.gitHub.open({ number: DEPENDENCY_PR, head: sha('b') })
     settle(bench)
@@ -153,7 +154,8 @@ describe('the update executor on a head no dependency merge made due', () => {
 
     expect(unmergedDependenciesOf(bench.db, CARD)).toEqual([])
     expect(dependencyUpdateDueOn(bench.db, { card: CARD, pr: PR, head: OLD_HEAD })).toBe(false)
-    expect(outcomeOf(updateExecutor(bench).update(leasedUpdate(bench, OLD_HEAD)!))).toBe('denied not_behind')
+    detectUpdate(bench)
+    expect(updatesOfThePr(bench)).toEqual([])
     expect(bench.gitHub.pulls.get(PR)!.head).toBe(OLD_HEAD)
   })
 })
@@ -182,7 +184,7 @@ const REFUSED_NOT_BEHIND = 'denied not_behind'
 const NO_UPDATE = null
 
 const WHAT_THE_BUS_DOES: Record<PrState, Record<DependencyState, typeof UPDATED | typeof REFUSED_NOT_BEHIND | typeof NO_UPDATE>> = {
-  behind: { 'merged': UPDATED, 'open': UPDATED, 'closed unmerged': UPDATED, 'two dependencies': UPDATED },
+  behind: { 'merged': UPDATED, 'open': NO_UPDATE, 'closed unmerged': NO_UPDATE, 'two dependencies': NO_UPDATE },
   blocked: { 'merged': UPDATED, 'open': NO_UPDATE, 'closed unmerged': NO_UPDATE, 'two dependencies': NO_UPDATE },
   clean: { 'merged': UPDATED, 'open': NO_UPDATE, 'closed unmerged': NO_UPDATE, 'two dependencies': NO_UPDATE },
   unstable: { 'merged': UPDATED, 'open': NO_UPDATE, 'closed unmerged': NO_UPDATE, 'two dependencies': NO_UPDATE },

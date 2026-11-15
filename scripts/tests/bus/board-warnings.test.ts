@@ -11,9 +11,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { writeBus } from '../../../tests/board/bus-fixture.js'
 import { readEddiesLimits, renderBoard } from '../../cli/board-page.js'
 import { boardWarnings, LAUNCH_GATE_SLOTS, MAIN_PROTECTION_ENDPOINT, MAIN_RULES_ENDPOINT, MainUpToDate, openPrCountOf, openPrLimitOf, SAVING_OFF_WARNING, savingOff, stallLines, UP_TO_DATE_READ_MS } from '../../cli/board-warnings.js'
-import { upToDateRequired } from '../../cli/check-catalog.js'
 import { BUS_PULSE } from '../../core/events.js'
-import { Meter } from '../../ports/meter.js'
 import { slotsOf, slotsVariable } from '../../supervisor/scheduler.js'
 import { STALL_MS } from '../../window/watch.js'
 
@@ -187,10 +185,8 @@ describe('the saving warning', () => {
     expect(asked).toEqual([])
   })
 
-  it('the protection read asks the endpoint upToDateRequired asks', () => {
-    const asked: string[] = []
-    upToDateRequired(new Meter(gitHubOf(STRICT_PROTECTION, NO_RULES, asked), () => 0))
-    expect(asked).toEqual([MAIN_PROTECTION_ENDPOINT])
+  it('the protection read asks the protection endpoint of main', () => {
+    expect(MAIN_PROTECTION_ENDPOINT).toBe('repos/{owner}/{repo}/branches/main/protection')
     expect(MAIN_RULES_ENDPOINT).toBe('repos/{owner}/{repo}/rules/branches/main')
   })
 

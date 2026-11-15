@@ -9,7 +9,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { afterEach, describe, expect, it } from 'vitest'
 import { isTest, selectRun } from '../../ci/layers.js'
 import { cruise } from '../../ci/select.js'
-import { catalogDocumentReads, catalogModules, catalogTests, overlapWithMain, writeCatalog } from '../../cli/check-catalog.js'
+import { catalogDocumentReads, catalogModules, catalogTests, writeCatalog } from '../../cli/check-catalog.js'
 import { CONCEPTS } from '../../contract/factory/concepts.js'
 import { findSites } from '../../contract/factory/overlaps.js'
 import { RATCHET_RECORD } from '../../contract/ratchet.js'
@@ -29,7 +29,6 @@ const OWN = 'scripts/own.ts'
 const OUTSIDE = '.changeset/shared.md'
 const REBUILT_TEXT = 'rebuilt\n'
 const CONTRACT_LAYER_READER = 'tests/contract/ratchet.test.ts'
-const NEEDS_UPDATE = 'main changed the layer contract since the base'
 
 const roots: string[] = []
 
@@ -236,13 +235,6 @@ describe('an update on a card that carries a generated file', () => {
 })
 
 describe('the layer of the contract records', () => {
-  it('a pull request outside the contract layer needs no update when main changed only contract/ratchet.json', () => {
-    const { db } = catalog()
-    expect(overlapWithMain(db, ['scripts/window/loop.ts'], [RATCHET_RECORD])).toBeNull()
-    expect(overlapWithMain(db, ['src/commands/doctor/factory.ts'], [RATCHET_RECORD])).toBeNull()
-    expect(overlapWithMain(db, ['src/commands/doctor/factory.ts'], [RATCHET_RECORD], () => null, { card: { touches: ['src/commands/doctor/factory.ts'], runs: ['tests/contract/**'], masks: [] } })).toBeNull()
-  }, SLOW)
-
   it('a change to contract/ratchet.json selects its readers, not the full run', () => {
     const { graph, text } = catalog()
     const run = selectRun([RATCHET_RECORD], graph, text)
@@ -257,13 +249,5 @@ describe('the layer of the contract records', () => {
       expect(readers.length).toBeGreaterThan(0)
       expect(recordRun.kind === 'layers' ? recordRun.tests : []).toEqual(expect.arrayContaining(readers))
     }
-  }, SLOW)
-
-  it('a pull request that changes a contract record still updates when main changed one', () => {
-    const { db } = catalog()
-    expect(overlapWithMain(db, [FACTORY], [RATCHET_RECORD])).toBe(NEEDS_UPDATE)
-    expect(overlapWithMain(db, [RATCHET_RECORD], [FACTORY])).toBe(NEEDS_UPDATE)
-    expect(overlapWithMain(db, ['scripts/contract/update.ts'], [RATCHET_RECORD])).toBe(NEEDS_UPDATE)
-    expect(overlapWithMain(db, ['scripts/core/queue.ts'], ['scripts/window/loop.ts'])).not.toBeNull()
   }, SLOW)
 })

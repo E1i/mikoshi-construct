@@ -301,7 +301,7 @@ describe('the merge executor', () => {
     bench.gitHub.open({ number: 975, review: 'success' })
     bench.tick()
     const lease = bench.lease()!
-    bench.gitHub.pulls.get(975)!.mergeable_state = 'behind'
+    bench.gitHub.pulls.get(975)!.mergeable_state = 'blocked'
 
     expect(bench.merge(lease)).toMatchObject({ kind: 'denied', denial: { kind: 'technical', reason: 'not_mergeable' }, next: 'queued' })
     expect(taskState(bench.db, merge(975))).toEqual({ state: 'queued', lease_gen: 1, failures: 0 })
@@ -331,7 +331,7 @@ describe('the merge executor', () => {
     bench.tick()
     const first = bench.lease()!
     expect(first.taskKey).toBe(merge(979))
-    bench.gitHub.pulls.get(979)!.mergeable_state = 'behind'
+    bench.gitHub.pulls.get(979)!.mergeable_state = 'blocked'
     bench.merge(first)
 
     expect(bench.lease()!.taskKey).toBe(merge(979))

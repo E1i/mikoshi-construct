@@ -63,6 +63,7 @@ export interface MainHead {
   sha: string
   touchesMechanics: boolean
   changed?: ChangedPaths
+  ci?: string
 }
 
 export interface Snapshot {
@@ -210,13 +211,23 @@ function filenames(body: unknown): string[] {
   return ((body as { files?: { filename?: string }[] }).files ?? []).flatMap(file => file.filename === undefined ? [] : [file.filename])
 }
 
-function mainOf(meter: Meter, lastMain: string | null): MainHead | null {
+function mainCiOf(meter: Meter, sha: string, requiredCheck: string): string | undefined {
+  try {
+    return ciOnHead(meter, sha, requiredCheck).ciFields.ci
+  }
+  catch {
+    return undefined
+  }
+}
+
+function mainOf(meter: Meter, lastMain: string | null, requiredCheck: string): MainHead | null {
   const commit = meter.get(`${REPO}/commits/${MAIN_BRANCH}`)
   const sha = (commit as { sha?: unknown }).sha
   if (!isFullSha(sha) || sha === lastMain)
     return null
   const files = lastMain === null ? filenames(commit) : filenames(meter.get(`${REPO}/compare/${lastMain}...${sha}`))
-  return { sha, touchesMechanics: touchesMechanics(files), changed: { paths: files, pathsTruncated: files.length >= MAIN_FILES_CAP } }
+  const ci = mainCiOf(meter, sha, requiredCheck)
+  return { sha, touchesMechanics: touchesMechanics(files), changed: { paths: files, pathsTruncated: files.length >= MAIN_FILES_CAP }, ...(ci === undefined ? {} : { ci }) }
 }
 
 const NOT_FOUND_STATUS = 404
@@ -254,6 +265,6 @@ export function takeSnapshot(meter: Meter, known: number[], lastMain: string | n
     else
       snapshot.open.push(open)
   }
-  snapshot.main = mainOf(meter, lastMain)
+  snapshot.main = mainOf(meter, lastMain, requiredCheck)
   return snapshot
 }

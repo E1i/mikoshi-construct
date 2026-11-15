@@ -18,7 +18,7 @@ import { busProjections } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { switchDetection, switchWorker, wantedLaunches } from '../../supervisor/workers.js'
 import { cardBody, sha } from './github-fake.js'
-import { eventsOf, mergeBench } from './merge-bench.js'
+import { benchOrderTick, eventsOf, mergeBench } from './merge-bench.js'
 
 const benches: MergeBench[] = []
 const NO_PREFLIGHT = (): string[] => []
@@ -69,6 +69,7 @@ async function once(node: MergeNode): Promise<void> {
 function observedWithoutDeriveQueues(made: MergeBench): void {
   new NetWatch(made.db, made.gitHub.client, made.clock.now).poll()
   reduce(made.db, 'pending', busProjections())
+  benchOrderTick(made.db, made.clock).step()
 }
 
 function dependsOn(made: MergeBench, cardId: number, dependency: number): void {

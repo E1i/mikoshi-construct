@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { openOwnerWaits } from '../../core/bus-readings.js'
 import { appendEvent, openOwnerWait } from '../../core/db.js'
 import { CARD_STARTED, CARD_STOPPED, OWNER_WAIT_CLOSED, POLICY_DENIED, QUESTION_AGENT } from '../../core/events.js'
+import { completeTask, leaseNext } from '../../core/lease.js'
 import { AnswerSources } from '../../nodes/answer/duties/source.js'
 import { sha } from './github-fake.js'
 import { eventsOf, liveBench } from './merge-bench.js'
@@ -57,15 +58,20 @@ describe('the owner wait an empty answer round opens names its own exits', () =>
     expect(eventsOf(card.bench.db, OWNER_WAIT_CLOSED)).toMatchObject([{ answer: `lifted: a new head ${NEW_HEAD} on pull request #${PR}` }])
   })
 
-  it('the merge of the new head is not denied owner_question_open after an empty-round wait', () => {
+  it('the pull request is parked while the empty-round wait is open and while its answer is queued, then the new head merges, never denied owner_question_open', () => {
     const card = heldAfterAnEmptyRound()
 
-    expect(card.bench.merge(card.bench.lease()!)).toMatchObject({ kind: 'denied', denial: { reason: 'owner_question_open' } })
+    expect(card.bench.lease()).toBeNull()
 
     card.sources.sourceOf(card.answerLease(NEW_HEAD))
     card.bench.tick()
+    expect(card.bench.lease()).toBeNull()
+    const ts = card.bench.clock.now().toISOString()
+    completeTask(card.bench.db, ts, leaseNext(card.bench.db, ts, 'answer', 'worker:answer:worker-1')!, [])
+    card.bench.tick()
 
     expect(card.bench.merge(card.bench.lease()!)).toMatchObject({ kind: 'merged' })
+    expect(eventsOf(card.bench.db, POLICY_DENIED).filter(denied => denied.reason === 'owner_question_open')).toEqual([])
   })
 
   it('a decision wait of the card opened by another path stays open when the new head lifts the empty round', () => {

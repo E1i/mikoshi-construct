@@ -4,10 +4,10 @@ import type { MergeBench } from './merge-bench.js'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { openOwnerWaits } from '../../core/bus-readings.js'
 import { appendEvent } from '../../core/db.js'
-import { CARD_ADMITTED, CARD_STARTED, CARD_STOPPED, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, POLICY_DENIED, PR_CLOSED, QUESTION_AGENT, UPDATE_DONE } from '../../core/events.js'
+import { CARD_ADMITTED, CARD_STARTED, CARD_STOPPED, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, POLICY_DENIED, PR_CLOSED, QUESTION_AGENT } from '../../core/events.js'
 import { taskKey } from '../../core/identifiers.js'
 import { completeTask, leaseNext } from '../../core/lease.js'
-import { answerCandidates, queueTask, updateCandidates, updateTurnHeldFrom } from '../../core/queue.js'
+import { answerCandidates, queueTask, updateCandidates } from '../../core/queue.js'
 import { AnswerSources } from '../../nodes/answer/duties/source.js'
 import { UpdateExecutor } from '../../nodes/update/update-executor.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
@@ -211,13 +211,11 @@ describe('a dependency merge returns the dependent card (owner s631)', () => {
     expect(updatesOfThePr(card.bench)).toEqual([OLD_HEAD])
   })
 
-  it('a dependent that holds the update turn itself gets the update its dependency merge makes due', () => {
+  it('a pass + green dependent, the turn of its group, gets the update its dependency merge makes due', () => {
     const card = openDependent([DEPENDENCY], { mergeable_state: 'clean', review: 'success' })
     vi.spyOn(console, 'log').mockImplementation(() => {})
     mergeTheDependency(card.bench)
-    appendEvent(card.bench.db, { ts: card.bench.clock.now().toISOString(), type: UPDATE_DONE, actor: 'worker:update:worker-0', cardId: CARD, pr: PR, head: OLD_HEAD, dedupeKey: `${UPDATE_DONE}:${PR}:${OLD_HEAD}`, payload: { from: sha('b'), to: OLD_HEAD, carried: 'pass', clean: true, task_key: `update-of-${PR}`, lease_gen: 1 }, legacy: false })
 
-    expect(updateTurnHeldFrom(card.bench.db, card.bench.clock.now().toISOString(), PR + 1)).toBe(true)
     expect(updatesOfThePr(card.bench)).toEqual([OLD_HEAD])
   })
 

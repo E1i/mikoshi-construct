@@ -146,8 +146,8 @@ describe('netwatch', () => {
     expect(events(db, 'pr.observed').filter(event => event.pr === 902).map(event => [event.head, event.payload.ci])).toEqual([[sha('a'), 'pending'], [sha('b'), 'green']])
     expect(events(db, 'pr.closed').map(event => event.pr)).toEqual([903])
     expect(events(db, 'main.advanced').map(event => [event.dedupe_key, event.payload])).toEqual([
-      [`main:${MAIN_1}`, { sha: MAIN_1, touches_mechanics: false, paths: ['README.md'], pathsTruncated: false }],
-      [`main:${MAIN_3}`, { sha: MAIN_3, touches_mechanics: true, paths: ['scripts/ladder/ladder.ts', 'docs/index.md'], pathsTruncated: false }],
+      [`main:${MAIN_1}`, { sha: MAIN_1, touches_mechanics: false, paths: ['README.md'], pathsTruncated: false, ci: 'pending' }],
+      [`main:${MAIN_3}`, { sha: MAIN_3, touches_mechanics: true, paths: ['scripts/ladder/ladder.ts', 'docs/index.md'], pathsTruncated: false, ci: 'pending' }],
     ])
     expect(events(db, 'netwatch.skipped')).toHaveLength(1)
     db.close()
@@ -159,12 +159,12 @@ describe('netwatch', () => {
     gitHub.open({ number: 905 })
     const first = netWatch.poll()
     expect(first).toMatchObject({ kind: 'ticked', calls: gitHub.calls.length, remaining: 5000 - gitHub.calls.length })
-    expect(gitHub.calls).toHaveLength(1 + 2 * 4 + 1)
+    expect(gitHub.calls).toHaveLength(1 + 2 * 4 + 1 + 1)
     clock.advance(TICK_MS)
     netWatch.poll()
     const ticks = events(db, 'netwatch.tick')
-    expect(ticks.map(tick => tick.payload.calls)).toEqual([10, 8])
-    expect(ticks.map(tick => tick.payload.rate_remaining)).toEqual([4990, 4982])
+    expect(ticks.map(tick => tick.payload.calls)).toEqual([11, 8])
+    expect(ticks.map(tick => tick.payload.rate_remaining)).toEqual([4989, 4981])
     db.close()
   })
 
