@@ -30,7 +30,10 @@
 #              is green it merges the vitest shards' reports and checks that doctor reads this
 #              repository's harness as checked (decision 0033), in the same job so the tail after
 #              the slowest shard is one job, not two. On a push to main it keeps the merged report as
-#              the vitest-report artifact, which `pnpm test:weights --from main` reads the shard weights from.
+#              the vitest-report artifact. Beside vitest.json it carries file-weights.json, which
+#              scripts/ci/file-weights-reporter.ts writes during the merge: each passed file's whole wall
+#              time in its shard (environment, prepare, setup, collect and tests), the only measurement
+#              `pnpm test:weights --from main` reads the shard weights from.
 #              The vitest shard count is CI_SHARDS in scripts/ci/test-weights.ts; scripts/tests/ci/shard.test.ts
 #              holds this matrix, its job name and its --shard flag to that one number.
 #
@@ -373,13 +376,15 @@ jobs:
           merge-multiple: true
       - name: doctor reads this repository's harness as checked (decision 0033)
         run: |
-          pnpm vitest run --merge-reports --reporter=json --outputFile=.construct/reports/vitest.json --reporter=github-actions
+          pnpm vitest run --merge-reports --reporter=json --outputFile=.construct/reports/vitest.json --reporter=./scripts/ci/file-weights-reporter.ts --reporter=github-actions
           pnpm --silent dev doctor --json > "$RUNNER_TEMP/doctor.json"
           node -e 'const state = JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")).harness.state; if (state !== "checked") { console.error(`doctor reads harness.state ${state}, not "checked"`); process.exit(1) }' "$RUNNER_TEMP/doctor.json"
       - if: github.event_name == 'push'
         uses: actions/upload-artifact@v7
         with:
           name: vitest-report
-          path: .construct/reports/vitest.json
+          path: |
+            .construct/reports/vitest.json
+            .construct/reports/file-weights.json
           include-hidden-files: true
           retention-days: 30
