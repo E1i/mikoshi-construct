@@ -2175,7 +2175,8 @@
     },
     "declarations:update": {
       "entries": [
-        "scripts/core/declarations.ts"
+        "scripts/core/declarations.ts",
+        "scripts/contract/factory/modules.ts"
       ],
       "exits": [
         1
