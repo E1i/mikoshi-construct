@@ -164,6 +164,13 @@ describe('conveyor R-paths: factory-paths, the layer lists and layer-map are ass
       '"scripts/window/window.ts" is placed by twiceA, twiceB; one entry places it',
     ]))
   })
+
+  it('a list entry carrying a layer is refused', () => {
+    const root = checkout([{ pr: 0, files: [], entries: {
+      layered: { entry: 'layered', group: 'folders', paths: ['scripts/window'], layer: 'window', lists: [] },
+    } }])
+    expect(validateDeclarations(readDeclarations(root), repositoryFiles())).toContain('declarations/entries/layered.json: layer places one path, and this entry holds a list')
+  })
 })
 
 describe('conveyor R-paths: the witnesses', () => {
