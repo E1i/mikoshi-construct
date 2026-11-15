@@ -1,9 +1,11 @@
 import type { TestWeights } from '../../ci/shard.js'
-import { readFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
+import { FILE_WEIGHTS_NAME } from '../../ci/file-weights-reporter.js'
 import { updateWeights } from '../../ci/shard.js'
-import { MAX_DRIFTED_SHARE, MAX_UNWEIGHTED_SHARE, MAX_WEIGHT_RATIO, WEIGHTS_PATH, weightsDrift, weightsFreshness } from '../../ci/test-weights.js'
+import { MAX_DRIFTED_SHARE, MAX_UNWEIGHTED_SHARE, MAX_WEIGHT_RATIO, measurementAt, measurementFromRuns, WEIGHTS_PATH, weightsDrift, weightsFreshness } from '../../ci/test-weights.js'
 import { pnpmCommand } from '../../core/owner-commands.js'
 import { processGit } from '../../ports/git.js'
 
@@ -31,6 +33,52 @@ describe('the shard weight table never goes stale silently', () => {
     const verdict = weightsFreshness(trackedFiles(), committed)
     expect(verdict.tests).toBeGreaterThan(100)
     expect(verdict.unweighted.length / verdict.tests, verdict.line).toBeLessThanOrEqual(MAX_UNWEIGHTED_SHARE)
+  })
+})
+
+describe('the shard weight table is measured by whole file, never by the JSON report', () => {
+  const temporary: string[] = []
+  afterEach(() => {
+    for (const directory of temporary.splice(0))
+      rmSync(directory, { recursive: true, force: true })
+  })
+  const artifact = (files: Record<string, unknown>): string => {
+    const directory = mkdtempSync(path.join(tmpdir(), 'vitest-report-'))
+    temporary.push(directory)
+    for (const [name, content] of Object.entries(files))
+      writeFileSync(path.join(directory, name), JSON.stringify(content))
+    return directory
+  }
+  const inRepo = (file: string): boolean => ['tests/heavy.test.ts', 'tests/light.test.ts'].includes(file)
+  const jsonReport = { testResults: [
+    { name: '/repo/tests/heavy.test.ts', status: 'passed', startTime: 0, endTime: 500 },
+    { name: '/repo/tests/light.test.ts', status: 'passed', startTime: 0, endTime: 3000 },
+  ] }
+  const wholeFile = { 'tests/heavy.test.ts': 21, 'tests/light.test.ts': 3.2 }
+
+  it('test:weights reads the whole-file measurement and never the JSON test span', () => {
+    const both = artifact({ 'vitest.json': jsonReport, [FILE_WEIGHTS_NAME]: wholeFile })
+    const measured = measurementAt(path.join(both, FILE_WEIGHTS_NAME), inRepo)
+    expect(measured).toMatchObject({ kind: 'measured', weights: wholeFile })
+
+    const onlyJson = artifact({ 'vitest.json': jsonReport })
+    const absent = measurementAt(path.join(onlyJson, FILE_WEIGHTS_NAME), inRepo)
+    expect(absent.kind).toBe('absent')
+    expect(absent.kind === 'absent' && absent.line).toContain('left as it is')
+
+    const runs = new Map([[3, onlyJson], [2, onlyJson], [1, both]])
+    const fromMain = measurementFromRuns([4, 3, 2, 1], run => runs.get(run), inRepo)
+    expect(fromMain).toEqual({ kind: 'measured', source: 'run 1', weights: wholeFile })
+
+    const none = measurementFromRuns([3, 2], run => runs.get(run), inRepo)
+    expect(none.kind).toBe('absent')
+    expect(none.kind === 'absent' && none.line).toMatch(/2 carry only the JSON report.*left as it is/)
+
+    if (measured.kind !== 'measured')
+      throw new Error('the whole-file measurement was not read')
+    const table = { 'tests/heavy.test.ts': 0.5, 'tests/light.test.ts': 3 }
+    expect(weightsDrift(measured.weights, table).drifted).toEqual(['tests/heavy.test.ts'])
+    expect(updateWeights(table, measured.weights, inRepo)).toEqual(wholeFile)
   })
 })
 
