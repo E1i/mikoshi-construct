@@ -645,6 +645,7 @@
     "scripts/tests/contract/module-graph-tool.test.ts",
     "scripts/tests/contract/module-ownership-generated.test.ts",
     "scripts/tests/contract/owner-commands-detector.test.ts",
+    "scripts/tests/contract/plan-folds-contour.test.ts",
     "scripts/tests/contract/port-language.test.ts",
     "scripts/tests/conveyor/measures.test.ts",
     "scripts/tests/core/card-decisions.test.ts",
@@ -1370,6 +1371,7 @@
   "plan": [
     "scripts/cli/card-chain.ts",
     "scripts/window/plan-export.ts",
+    "scripts/window/plan-folds.ts",
     "src/card/slice-depends.ts"
   ],
   "ports": [
