@@ -18,6 +18,7 @@ import { claudeAnswerer, FreshBaseConflict } from '../../nodes/answer/answerer.j
 import { CONCEPT_WIDENING_REASON } from '../../nodes/answer/concept-scope.js'
 import { DECISIONS_SCOPE } from '../../policy/shards.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
+import { ranTheGreenGate } from './gate-stream.js'
 import { sha } from './github-fake.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
 
@@ -124,6 +125,7 @@ async function answerLeaving(changed: readonly string[], shard: boolean, publish
     remoteHead: () => heads.shift() ?? null,
     spawn: async (run) => {
       writeInto(worktree, Object.fromEntries([TOUCHED, ...changed].map(file => [file, `${REPOSITORY[file] ?? ''}// answered\n`])))
+      ranTheGreenGate(run)
       writeFileSync(run.stdoutPath, `${JSON.stringify({ type: 'result', subtype: 'success', result: 'answered' })}\n`)
       return 0
     },

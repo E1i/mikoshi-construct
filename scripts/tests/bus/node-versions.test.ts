@@ -9,7 +9,7 @@ import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { NODE_DECLARATIONS, nodesSection } from '../../contract/factory/nodes.js'
-import { BUS_VERSION, BUS_VERSION_BEFORE_LADDER_RUN, BUS_VERSION_RECORD, busVersionOf, CARD_VERSION, CARD_VERSION_BEFORE_TOUCH_SCOPE, CARD_VERSION_KEY, cardVersionIn, stampBusVersion, UNRECORDED_VERSION } from '../../core/bus-version.js'
+import { BUS_VERSION, BUS_VERSION_BEFORE_GATE_RUN, BUS_VERSION_BEFORE_LADDER_RUN, BUS_VERSION_RECORD, busVersionOf, CARD_VERSION, CARD_VERSION_BEFORE_TOUCH_SCOPE, CARD_VERSION_KEY, cardVersionIn, stampBusVersion, UNRECORDED_VERSION } from '../../core/bus-version.js'
 import { admittedCardVersion, appendCardEvent } from '../../core/card-bodies.js'
 import { appendEvent, openBus } from '../../core/db.js'
 import { FACTORY_WORKERS } from '../../core/factory-paths.js'
@@ -180,19 +180,23 @@ describe('the node versions', () => {
     db.close()
   })
 
-  it('a bus stamped before ladder.run keeps its stamp and a node of this build still takes its work', async () => {
+  it.each([
+    ['ladder.run', BUS_VERSION_BEFORE_LADDER_RUN],
+    ['gate.run', BUS_VERSION_BEFORE_GATE_RUN],
+  ])('a bus stamped before %s keeps its stamp and a node of this build still takes its work', async (_event, stamp) => {
     const db = openBus(busPath())
     const clock = new Clock()
     const task: QueuedTask = { queue: 'review', cardId: CARD }
-    stampBusVersion(db, BUS_VERSION_BEFORE_LADDER_RUN)
+    stampBusVersion(db, stamp)
     storeCard(db, CARD, {})
     queueTaskWithin(db, clock.now().toISOString(), task)
     const node = new DeclaredNode(db, clock, [task])
 
-    expect(UNDERSTOOD_NOW.bus).toEqual([UNRECORDED_VERSION, BUS_VERSION_BEFORE_LADDER_RUN, BUS_VERSION])
+    expect(UNDERSTOOD_NOW.bus).toEqual([UNRECORDED_VERSION, BUS_VERSION_BEFORE_LADDER_RUN, BUS_VERSION_BEFORE_GATE_RUN, BUS_VERSION])
+    expect(BUS_VERSION).toBe(BUS_VERSION_BEFORE_GATE_RUN + 1)
     await runOnce(node)
     expect(node.handled).toHaveLength(1)
-    expect(busVersionOf(db)).toBe(BUS_VERSION_BEFORE_LADDER_RUN)
+    expect(busVersionOf(db)).toBe(stamp)
     db.close()
   })
 
@@ -234,7 +238,7 @@ describe('the node versions', () => {
     expect(cardVersionIn(null)).toBe(UNRECORDED_VERSION)
     expect(cardVersionIn(JSON.stringify({ [CARD_VERSION_KEY]: 3 }))).toBe(3)
     expect(foreignVersion(DECLARATION.understands, 'card', CARD_VERSION, 'card #1')).toBeNull()
-    expect(foreignVersion(DECLARATION.understands, 'bus', FOREIGN, 'the bus')).toBe(`the bus carries bus version ${FOREIGN}, and this node understands bus versions ${UNRECORDED_VERSION}, ${BUS_VERSION_BEFORE_LADDER_RUN}, ${BUS_VERSION}; it takes no work from it`)
+    expect(foreignVersion(DECLARATION.understands, 'bus', FOREIGN, 'the bus')).toBe(`the bus carries bus version ${FOREIGN}, and this node understands bus versions ${UNRECORDED_VERSION}, ${BUS_VERSION_BEFORE_LADDER_RUN}, ${BUS_VERSION_BEFORE_GATE_RUN}, ${BUS_VERSION}; it takes no work from it`)
     db.close()
   })
 })
