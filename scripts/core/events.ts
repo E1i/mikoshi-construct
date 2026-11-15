@@ -96,6 +96,7 @@ export const ROLE_TO_OWNER = 'role.to_owner'
 export const SCOPE_WIDENED = 'scope.widened'
 export const SESSION_HEARTBEAT = 'session.heartbeat'
 export const SESSION_STALLED = 'session.stalled'
+export const SIGNAL_SENT = 'signal.sent'
 export const SHARD_DECIDED = 'shard.decided'
 export const SHARD_EXPIRED = 'shard.expired'
 export const SHARD_ISSUED = 'shard.issued'
@@ -258,6 +259,7 @@ export const EVENT_PAYLOADS = {
   [SHARD_ISSUED]: ['by', 'id', 'run', 'scope', 'under', 'until', 'window'],
   [SHARD_REVOKED]: ['id'],
   [SHARD_USED]: ['commit', 'id'],
+  [SIGNAL_SENT]: ['instance', 'lstart', 'pid', 'signal', 'task_key', 'why'],
   [SLICE_PARENTS_BACKFILLED]: ['cards', 'unread'],
   [RESTART_MISSED]: ['limit_ms', 'sha', 'waited_ms'],
   [RESTARTED]: ['sha'],

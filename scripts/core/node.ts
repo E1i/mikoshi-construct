@@ -256,6 +256,8 @@ export function busWriteAt(busPath: string): <T>(write: (db: DatabaseSync) => T)
   }
 }
 
+export type ChildSignalled = (signal: NodeJS.Signals) => void
+
 export class ChildLog {
   constructor(private readonly write: <T>(write: (db: DatabaseSync) => T) => T, private readonly identity: IdentityReader, private readonly clock: () => Date = () => new Date(), private readonly env: NodeJS.ProcessEnv = {}) {}
 
@@ -278,18 +280,22 @@ export class ChildLog {
     }
   }
 
-  async around(run: ChildRun, spawn: (started: (pid: number) => void) => Promise<number>): Promise<number> {
+  async around(run: ChildRun, spawn: (started: (pid: number) => ChildSignalled) => Promise<number>): Promise<number> {
     let recorded: number | null = null
     let code: number | null = null
+    let signalled: NodeJS.Signals | null = null
     try {
       code = await spawn((pid) => {
         recorded = this.started(run, pid) ? pid : null
+        return (name) => {
+          signalled = name
+        }
       })
       return code
     }
     finally {
       if (recorded !== null)
-        this.ended(run, recorded, code, null)
+        this.ended(run, recorded, signalled === null ? code : null, signalled)
     }
   }
 }

@@ -5,6 +5,7 @@ import type { InForceDecision } from '../policy/decisions/index.js'
 import type { ProcessTable } from '../ports/process-table.js'
 import type { BgResult, DetachedLaunch, ProcessList, RunningProcess } from './bg.js'
 import type { ProcessBeat } from './heartbeat.js'
+import type { SignalSent } from './signal-sent.js'
 import { spawnSync } from 'node:child_process'
 import { appendFileSync, readFileSync, realpathSync, statSync } from 'node:fs'
 import os from 'node:os'
@@ -39,6 +40,7 @@ import { beatsLive, SILENT_MS } from './liveness-sites.js'
 import { installedGeneration, ownPackage } from './package-generation.js'
 import { generationEnv, identifiedOnBus, identifiedProcesses, readableRows } from './recorded-worker.js'
 import { busShadowProblems, startReviewWorker } from './review-bg.js'
+import { NOTHING_RECORDED, recordedThenSent, RESTART_WHY, signalLog, stopSending } from './signal-sent.js'
 import { stampLogOutput } from './stamp.js'
 import { WindowSubagentTick } from './window-subagent-tick.js'
 import { busLaunches, isBusWorker, ROUND_WORKERS, switchDetection, switchWorker, wantedLaunches, WORKERS } from './workers.js'
@@ -48,8 +50,6 @@ export const ON_FLAG = '--on'
 export const OFF_FLAG = '--off'
 export const LIVE_ON_FLAG = '--live'
 export const LIVE_OFF_FLAG = '--shadow'
-export const STOP_WAIT_MS = 10_000
-export const STOP_POLL_MS = 100
 export const RESTART_LIMIT_MS = 5 * 60_000
 export const DRAIN_LIMIT_MS = LEASE_MS
 export const GIT_PULL_TIMEOUT_MS = 60_000
@@ -156,16 +156,8 @@ export function signal(pid: number, name: NodeJS.Signals): void {
   }
 }
 
-export async function stopInstance(running: RunningProcess, processes: ProcessList, pause: (ms: number) => Promise<unknown> = sleep): Promise<void> {
-  signal(running.pid, 'SIGTERM')
-  for (let waited = 0; waited < STOP_WAIT_MS; waited += STOP_POLL_MS) {
-    if (!processes().some(candidate => candidate.pid === running.pid))
-      return
-    await pause(STOP_POLL_MS)
-  }
-  if (processes().some(candidate => candidate.pid === running.pid))
-    signal(running.pid, 'SIGKILL')
-  await pause(STOP_POLL_MS)
+export async function stopInstance(running: RunningProcess, processes: ProcessList, pause: (ms: number) => Promise<unknown> = sleep, recorded: SignalSent = NOTHING_RECORDED): Promise<void> {
+  await stopSending(running, processes, pause, recordedThenSent(recorded, signal))
 }
 
 export interface SupervisorParts {
@@ -1026,7 +1018,7 @@ async function supervise(busDir: string, cwd: string, reviewPreflight: () => str
     known: busLaunches(reviewPreflight),
     wanted,
     start,
-    stop: running => stopInstance(running, processes),
+    stop: running => stopInstance(running, processes, sleep, signalLog(db, RESTART_WHY)),
     freeLeases: stopped => freeLeasesOf(db, new Date().toISOString(), stopped),
     drain: busDrain(db, () => new Date().toISOString(), psStartOf),
     processes,
@@ -1045,7 +1037,7 @@ async function supervise(busDir: string, cwd: string, reviewPreflight: () => str
     down: down => recordWorkerDown(db, new Date().toISOString(), down),
     now: () => Date.now(),
   })
-  const restartJudged = (name: string): Promise<string[]> => restartSilent(name, wanted(), { processes, start, stop: running => stopInstance(running, processes) })
+  const restartJudged = (name: string): Promise<string[]> => restartSilent(name, wanted(), { processes, start, stop: running => stopInstance(running, processes, sleep, signalLog(db, RESTART_WHY)) })
   console.log(`${PREFIX}supervising the bus processes over ${busPath}: a main.advanced or a move of the local ${LOCAL_MAIN_REF} restarts, once ${cwd} holds it, each bus process whose code it changed, and this supervisor when its own code changed, and each tick starts a switched-on worker that is not running and stops a switched-off one that is`)
   try {
     await superviseUntilReplaced({
