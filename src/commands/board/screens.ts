@@ -3,6 +3,7 @@ import type { BusCard, BusFacts, BusGroup, BusMatrix, BusTail, OwnerWait } from 
 import { ADMIT_COMMAND, ownerWaitCommand, pnpmCommand, windowCommandOf } from '../../../scripts/core/owner-commands.js'
 import { FLOW_STAGES, LIVE_STAGES, LIVE_STATES, SHORT_SHA } from './bus.js'
 import { planLine } from './goal.js'
+import { queuedLine } from './sessions.js'
 
 const CARD_PREFIX = /^card:\s*/
 const MATRIX_ROLE = 'matrix'
@@ -10,6 +11,7 @@ const GROUP_ROLE = 'group'
 const SHADOW_ROLE = 'shadow'
 const TAIL_ROLE = 'tail'
 const BUS_ROLE = 'bus'
+const QUEUED_ROLE = 'queued'
 const WAITS_ROLE = 'waits for you'
 export const WINDOW_WAITS_ROLE = 'waits for the window'
 const CARDS_ROLE = 'cards'
@@ -146,6 +148,11 @@ export function slotsReading(facts: BusFacts): string {
   return facts.slots.length === 0 ? 'none in use' : facts.slots.map(slot => `${slot.queue} ${slot.used}${slot.total === null ? '' : `/${slot.total}`}`).join(', ')
 }
 
+export function queuedLines(facts: BusFacts, lore: Lore): string[] {
+  const now = new Date(facts.at)
+  return (facts.queued ?? []).map(standing => lore.boardServiceLine(QUEUED_ROLE, `#${standing.card}`, undefined, queuedLine(standing, now)))
+}
+
 export function pulseLines(facts: BusFacts, lore: Lore): string[] {
   const pulse = facts.pulse === null ? 'no pulse recorded' : `pulse ${minutesSince(facts.pulse, facts.at)} min ago`
   return [lore.boardServiceLine(BUS_ROLE, 'pulse', undefined, `${pulse} \u00B7 slots in use: ${slotsReading(facts)}`)]
@@ -237,7 +244,7 @@ export function boardScreens(facts: BusFacts, lore: Lore, all = false): Screens 
     screens: [
       { title: lore.boardTabFlow, lines: [...goalLines(facts, lore), ...waitsLines(facts, lore), ...tailLines(facts, lore, all), ...behindCardsLines(facts, lore), ...tallyLines(facts.cards), ...flowLines(facts.cards, lore), ...flowHintLines(facts.cards, lore)] },
       { title: lore.boardTabBacklog, lines: [...behindCardsLines(facts, lore), ...backlogLines(backlogCards(facts.cards, facts.at, all), lore)] },
-      { title: lore.boardTabServices, lines: [...servicesLines(facts, lore), ...pulseLines(facts, lore), ...matrixLines(facts, lore), ...groupLines(facts, lore)] },
+      { title: lore.boardTabServices, lines: [...servicesLines(facts, lore), ...queuedLines(facts, lore), ...pulseLines(facts, lore), ...matrixLines(facts, lore), ...groupLines(facts, lore)] },
     ],
     footer: lore.boardFooter(facts.services.length, facts.failure ?? undefined, facts.reviewQueue),
   }
