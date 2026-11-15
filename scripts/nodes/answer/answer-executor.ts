@@ -20,7 +20,7 @@ import { timeoutUnderLoadOutside } from '../../core/observations.js'
 import { answerOnAnOldCardBody, DOWNGRADE_WAIT_OPEN, downgradeWaitOpenOn, LEASED, openDecisionWaitsOf, QUEUED } from '../../core/queue.js'
 import { OWNER_EVEN_UNDER_THE_DECISION } from '../../policy/policy.js'
 import { matchGlob } from '../../policy/shredder/glob.js'
-import { pathsIn, pathsOutside } from '../../policy/touch-scope.js'
+import { isRegisteredDerived, pathsIn, pathsOutside } from '../../policy/touch-scope.js'
 import { ownerGlobs } from '../../policy/widening.js'
 import { cardTreeOf, CardTreeRefused, realCardTrees } from '../../ports/card-tree.js'
 import { conflictingCardOf, mainKeptInTheTree } from '../../ports/main-merge.js'
@@ -105,6 +105,11 @@ export function ratchetRowsAskedToGrow(question: string): string[] {
 
 export function ratchetGrowthLine(cardId: number, rows: readonly string[], question: string): string {
   return `card #${cardId} asks to grow the ratchet row${rows.length === 1 ? '' : 's'} ${rows.join(', ')} of contract/ratchet.json; the merge policy denies ratchet growth under every shard and every decision, so only the owner answers it and no answer round runs until this wait closes: ${question}`
+}
+
+export function derivedRefusalNote(refused: readonly string[]): string {
+  const derived = refused.filter(isRegisteredDerived)
+  return derived.length === 0 ? '' : `${derived.join(', ')} ${derived.length === 1 ? 'is a derived file' : 'are derived files'} that the touches never widen to: the rerun of the generator did not reproduce the change, or the change grows the file, and growth is the owner's (D-592); `
 }
 
 export function changedInTheTreeOf(named: readonly string[], changed: ReadonlySet<string>): string[] {
@@ -345,12 +350,12 @@ export class AnswerExecutor {
   private refusedOrDenied(lease: Lease, denial: AnswerDenial, widened: Widened | null): AnswerOutcome {
     if (denial.reason !== 'outside_touches')
       return this.outcomes.denied(lease, denial)
-    return this.outcomes.ownersStop(lease, `${denial.detail}; the refused changes stay uncommitted in the card tree until the touches are widened or the changes are dropped`, widened === null ? [] : [widened.event], undefined, this.refusedPathsToWiden(denial.detail))
+    return this.outcomes.ownersStop(lease, `${denial.detail}; ${derivedRefusalNote(pathsIn(denial.detail))}the refused changes stay uncommitted in the card tree until the touches are widened or the changes are dropped`, widened === null ? [] : [widened.event], undefined, this.refusedPathsToWiden(denial.detail))
   }
 
   private refusedPathsToWiden(refusal: string): string[] {
     const refused = pathsIn(refusal)
-    return this.outcomes.namesAnOwnerPath(refused) ? [] : refused
+    return this.outcomes.namesAnOwnerPath(refused) ? [] : refused.filter(file => !isRegisteredDerived(file))
   }
 
   private leftWorkWithoutAGate(card: CardSession, answered: Answered): boolean {

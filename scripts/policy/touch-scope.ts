@@ -1,4 +1,9 @@
+import type { DerivedReading, DerivedRegistry, DerivedVerdict } from './derived-files.js'
 import { FACTORY_FOLDERS, FACTORY_NAMED, GENERATED_FILES, RATCHET_FILE } from '../core/factory-paths.js'
+import { isDerived, judgeDerived } from './derived-files.js'
+
+export type { DerivedReading, DerivedRerun, DerivedVerdict, GrownDerived, RefusedDerived } from './derived-files.js'
+export { derivedGrowthLine, derivedRefusalLine, removesEntriesOnly } from './derived-files.js'
 
 export const PREFIX_SUFFIX = '/**'
 export const CHANGESET_COMPANION = `.changeset${PREFIX_SUFFIX}`
@@ -104,32 +109,21 @@ export interface FollowingReach {
   touches: readonly string[]
   added: ReadonlySet<string>
   compositionRecords: readonly CompositionRecord[]
-  entriesOnlyRemoved?: (file: string) => boolean
 }
 
-function jsonArrayOrNull(text: string): string[] | null {
-  try {
-    const parsed: unknown = JSON.parse(text)
-    return Array.isArray(parsed) ? parsed.map(entry => JSON.stringify(entry)) : null
-  }
-  catch {
-    return null
-  }
+export const DERIVED_REGISTRY: DerivedRegistry = {
+  rows: [...Object.values(GENERATED_FILES), RATCHET_FILE],
+  moduleDeclarations: 'declarations/modules',
+  declarationSuffix: '.json',
+  moduleFiles: GENERATED_FILES.moduleFiles.path,
 }
 
-export function removesEntriesOnly(before: string | null, after: string | null): boolean {
-  const was = before === null ? null : jsonArrayOrNull(before)
-  const is = after === null ? null : jsonArrayOrNull(after)
-  if (was === null || is === null || is.length >= was.length)
-    return false
-  const left = [...was]
-  return is.every((entry) => {
-    const at = left.indexOf(entry)
-    if (at === -1)
-      return false
-    left.splice(at, 1)
-    return true
-  })
+export function isRegisteredDerived(file: string): boolean {
+  return isDerived(DERIVED_REGISTRY, file)
+}
+
+export function derivedVerdictOf(files: readonly string[], reading: DerivedReading): DerivedVerdict {
+  return judgeDerived(DERIVED_REGISTRY, files, reading)
 }
 
 export function textBeforePatch(after: string, patch: string): string | null {
@@ -303,7 +297,6 @@ export const FOLLOWING_TABLE: readonly FollowingRow[] = [
     return copy !== null && entryCovers(copy, file)
   }) },
   { kind: 'a composition record and its document', follows: reachedRecordFollows },
-  { kind: 'a known violation the card removed (D-514)', follows: (file, reach) => file === KNOWN_VIOLATIONS && reach.entriesOnlyRemoved?.(file) === true },
   { kind: 'a test or a generated file', follows: (file, reach) => isTestOrGenerated(file) && !neverFollows(file, reach) },
 ]
 

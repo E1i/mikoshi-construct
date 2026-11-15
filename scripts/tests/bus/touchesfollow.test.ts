@@ -4,7 +4,7 @@ import { execFileSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { runsLine, TestCoverage } from '../../../src/card/covering-tests.js'
 import { parkingFileText } from '../../../src/card/parking.js'
 import { riskOf } from '../../../src/card/risk.js'
@@ -14,6 +14,11 @@ import { runTreePr } from '../../nodes/launch/tree-pr-cli.js'
 import { touchesFollowed, treePr } from '../../nodes/launch/tree-pr.js'
 import { followsTouches, neverFollows, pathsOutside, rootCopyOf } from '../../policy/touch-scope.js'
 import { ranTheGreenGate } from './gate-stream.js'
+
+vi.mock('../../ports/card-tree.js', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../../ports/card-tree.js')>()
+  return { ...original, pnpmRerun: () => ({ status: 0, stderr: '' }) }
+})
 
 const CARD_ID = 1207
 const TOUCHED_MODULE = 'src/widget.ts'
@@ -234,14 +239,20 @@ describe('a card session follows the touches the same way and the shift records 
     expect(bodies[0]).toContain(`Touches followed: ${SURFACE}, ${COVERING_TEST}`)
   })
 
-  it('the shift opens the pull request with an unrelated test and a generated file of an untouched source, and names them', () => {
+  it('the shift opens the pull request with an unrelated test and names it', () => {
     const bodies: string[] = []
-    const worktree = shiftTree({ [UNRELATED_TEST]: 'export const other = 3\n', 'architecture/model.md': 'the model\n' })
+    const worktree = shiftTree({ [UNRELATED_TEST]: 'export const other = 3\n' })
 
-    expect(treePr(shiftPorts(bodies), SHIFT_CARD, worktree, null)).toEqual({ kind: 'pr', number: String(OPENED_PR), followed: expect.arrayContaining([UNRELATED_TEST, 'architecture/model.md']) })
-    expect(bodies[0]).toContain('Touches followed: ')
-    expect(bodies[0]).toContain(UNRELATED_TEST)
-    expect(bodies[0]).toContain('architecture/model.md')
+    expect(treePr(shiftPorts(bodies), SHIFT_CARD, worktree, null)).toEqual({ kind: 'pr', number: String(OPENED_PR), followed: [UNRELATED_TEST] })
+    expect(bodies[0]).toContain(`Touches followed: ${UNRELATED_TEST}`)
+  })
+
+  it('the shift refuses a new generated output whose owner module has no declaration, even when its rerun reproduces it (D-592)', () => {
+    const bodies: string[] = []
+    const worktree = shiftTree({ 'architecture/model.md': 'the model\n' })
+
+    expect(treePr(shiftPorts(bodies), SHIFT_CARD, worktree, null)).toMatchObject({ kind: 'problem', gaps: [{ reason: 'derived-unreproduced', paths: ['architecture/model.md'] }] })
+    expect(bodies).toEqual([])
   })
 
   it('the shift opens no pull request for a guarded path outside the touches', () => {

@@ -4,7 +4,8 @@ import type { PushPolicy } from '../../../src/commands/attach/record.js'
 import type { AdmittedReach, CompanionRow } from '../../../src/commands/intake/check.js'
 import type { BusCatalog } from '../../ci/card-runs.js'
 import type { ChangedFile, Prediction } from '../../policy/morse/rules.js'
-import type { CompositionRecord, FollowingReach } from '../../policy/touch-scope.js'
+import type { CompositionRecord, FollowingReach, GrownDerived, RefusedDerived } from '../../policy/touch-scope.js'
+import type { OwnerWaitOpener, TreeRun } from '../../ports/card-tree.js'
 import type { GhRunner } from '../../ports/gh.js'
 import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
@@ -19,8 +20,9 @@ import { VERIFICATION_WORDS } from '../../core/verification.js'
 import { classify, MorseRefusal } from '../../policy/morse/rules.js'
 import { MATRIX_COUNT_LINE, pathWithoutMatrix } from '../../policy/policy.js'
 import { matchGlob } from '../../policy/shredder/glob.js'
-import { COMPOSITION_ROOT, followsTouches, neverFollows, OWNER_MERGES, pathsOutside, removesEntriesOnly, runsCover, TEST_ROOTS, withinTouches } from '../../policy/touch-scope.js'
+import { COMPOSITION_ROOT, derivedGrowthLine, derivedRefusalLine, derivedVerdictOf, followsTouches, isRegisteredDerived, neverFollows, OWNER_MERGES, pathsOutside, runsCover, TEST_ROOTS, withinTouches } from '../../policy/touch-scope.js'
 import { ownerGlobs } from '../../policy/widening.js'
+import { busOwnerWait, pnpmRerun, treeReading } from '../../ports/card-tree.js'
 import { changedFilesFrom } from '../../ports/diff.js'
 
 export const REFUSAL_REASONS = {
@@ -28,6 +30,7 @@ export const REFUSAL_REASONS = {
   'no-changeset': 'a',
   'no-matrix-line': 'a',
   'twin-unbuilt': 'a',
+  'derived-unreproduced': 'a',
   'outside-touches': 'b',
   'no-card-body': 'c',
   'card-unparsed': 'c',
@@ -77,6 +80,7 @@ export interface TreePrPorts {
   gh: GhRunner
   pushPolicy?: (worktree: string) => PushPolicy
   rebuild?: TwinRebuild
+  ownerWait?: OwnerWaitOpener
 }
 
 const PR_URL_NUMBER = /\/pull\/(\d+)\s*$/
@@ -95,6 +99,7 @@ export interface TreeCard {
   runs: string[]
   namedPathReason: string | null
   fullReading?: string
+  cardId?: number
 }
 
 export function shiftTreeCard(task: ShiftTask, catalog: BusCatalog = busCheckCatalog()): TreeCard {
@@ -108,6 +113,7 @@ export function shiftTreeCard(task: ShiftTask, catalog: BusCatalog = busCheckCat
     touches: task.touches,
     runs,
     namedPathReason: CARD_PATH_REASON.exec(task.body)?.[1]?.trim() ?? null,
+    ...(Number.isInteger(Number(task.id)) ? { cardId: Number(task.id) } : {}),
     ...(fullReading === undefined ? {} : { fullReading }),
   }
 }
@@ -214,7 +220,7 @@ interface ConceptReach {
 
 export const CONCEPT_RULES = {
   reaches: (file: string, concept: ConceptReach): boolean => pathsOutside(concept.touches, concept.creates, [file]).length === 0,
-  neverFollows: (file: string, concept: ConceptReach): boolean => neverFollows(file, { touches: [...concept.touches], added: new Set(), compositionRecords: [] }),
+  neverFollows: (file: string, concept: ConceptReach): boolean => isRegisteredDerived(file) || neverFollows(file, { touches: [...concept.touches], added: new Set(), compositionRecords: [] }),
   testRoots: TEST_ROOTS,
 }
 
@@ -251,17 +257,28 @@ export function compositionRecordsAtBase(git: TreePrPorts['git'], worktree: stri
     .flatMap(file => recordAtBase(git, worktree, file))
 }
 
-function shownAtBase(git: TreePrPorts['git'], worktree: string, file: string): string | null {
-  try {
-    return git(worktree, ['show', `${PR_BASE}:${file}`])
-  }
-  catch {
-    return null
-  }
+export interface DerivedSplit {
+  followed: string[]
+  refused: RefusedDerived[]
+  grown: GrownDerived[]
+  rest: string[]
 }
 
-function entriesOnlyRemovedSinceBase(git: TreePrPorts['git'], worktree: string): (file: string) => boolean {
-  return file => removesEntriesOnly(shownAtBase(git, worktree, file), readOrNull(path.join(worktree, file)))
+export function derivedSplit(git: TreePrPorts['git'], worktree: string, outside: readonly string[], run: TreeRun): DerivedSplit {
+  const derived = outside.filter(isRegisteredDerived)
+  const rest = outside.filter(file => !isRegisteredDerived(file))
+  if (derived.length === 0)
+    return { followed: [], refused: [], grown: [], rest }
+  return { ...derivedVerdictOf(derived, treeReading(git, worktree, PR_BASE, run)), rest }
+}
+
+function heldBack(split: DerivedSplit): string[] {
+  return [...split.refused.map(each => each.file), ...split.grown.map(each => each.file)]
+}
+
+function inOrderOf(outside: readonly string[], ...lists: (readonly string[])[]): string[] {
+  const kept = new Set(lists.flat())
+  return outside.filter(file => kept.has(file))
 }
 
 export function touchesFollowed(outside: readonly string[], reach: FollowingReach, coverage: TestCoverage): TouchesFollowed {
@@ -276,24 +293,46 @@ function admittedMasksOf(cardBody: string | null, reach: AdmittedReach): string[
   return reach.touches.length === 0 && reach.runs.length === 0 ? [] : layerMasksOf(cardBody ?? '')
 }
 
-export function answerFollowed(git: TreePrPorts['git'], worktree: string, outside: readonly string[], cardId: number, cardBody: string | null, coverage: TestCoverage, catalog: BusCatalog = busCheckCatalog()): TouchesFollowed {
+export function answerFollowed(git: TreePrPorts['git'], worktree: string, outside: readonly string[], cardId: number, cardBody: string | null, coverage: TestCoverage, catalog: BusCatalog = busCheckCatalog(), run: TreeRun = pnpmRerun): TouchesFollowed {
   const reach = admittedReachOf(cardId, cardBody)
   const { runs } = cardReadingOf(reach.touches, reach.runs, admittedMasksOf(cardBody, reach), catalog)
   const unrun = outside.filter(file => !runsCover(file, runs))
   if (unrun.length === 0)
     return { followed: [], outside: [] }
-  return touchesFollowed(unrun, { touches: reach.touches, added: addedSinceBase(git, worktree, unrun), compositionRecords: compositionRecordsAtBase(git, worktree), entriesOnlyRemoved: entriesOnlyRemovedSinceBase(git, worktree) }, coverage)
+  const derived = derivedSplit(git, worktree, unrun, run)
+  const touched = touchesFollowed(derived.rest, { touches: reach.touches, added: addedSinceBase(git, worktree, derived.rest), compositionRecords: compositionRecordsAtBase(git, worktree) }, coverage)
+  return { followed: inOrderOf(unrun, touched.followed, derived.followed), outside: inOrderOf(unrun, touched.outside, heldBack(derived)) }
 }
 
 export function followedLine(followed: readonly string[]): string {
   return `Touches followed: ${followed.join(', ')} (${COVERING_REASON}; ${FOLLOWING_REASON})`
 }
 
-function changedOutsideTouches(git: TreePrPorts['git'], worktree: string, files: readonly ChangedFile[], touches: readonly string[], runs: readonly string[]): TouchesFollowed {
-  const outside = files.map(file => file.path).filter(file => !withinTouches(file, touches) && !runsCover(file, runs))
+interface ChangedOutside extends TouchesFollowed {
+  refused: RefusedDerived[]
+  grown: GrownDerived[]
+}
+
+function changedOutsideTouches(git: TreePrPorts['git'], worktree: string, files: readonly ChangedFile[], card: TreeCard, run: TreeRun): ChangedOutside {
+  const outside = files.map(file => file.path).filter(file => !withinTouches(file, card.touches) && !runsCover(file, card.runs))
+  const derived = derivedSplit(git, worktree, outside, run)
   const added = new Set(files.filter(file => file.status === 'A').map(file => file.path))
-  const compositionRecords = outside.length === 0 ? [] : compositionRecordsAtBase(git, worktree)
-  return touchesFollowed(outside, { touches, added, compositionRecords, entriesOnlyRemoved: entriesOnlyRemovedSinceBase(git, worktree) }, worktreeCoverage(git, worktree))
+  const compositionRecords = derived.rest.length === 0 ? [] : compositionRecordsAtBase(git, worktree)
+  const touched = touchesFollowed(derived.rest, { touches: card.touches, added, compositionRecords }, worktreeCoverage(git, worktree))
+  return { followed: inOrderOf(outside, touched.followed, derived.followed, derived.grown.map(each => each.file)), outside: touched.outside, refused: derived.refused, grown: derived.grown }
+}
+
+function derivedGap(worktree: string, refused: readonly RefusedDerived[]): FormatGap {
+  return { reason: 'derived-unreproduced', lacks: `derived files its generators reproduce: ${derivedRefusalLine(refused)}`, task: `rerun the registered generator of ${refused.map(each => each.file).join(', ')} in ${worktree} and keep exactly what it writes, or undo the change; never edit a derived file by hand (D-592)`, paths: refused.map(each => each.file) }
+}
+
+function grownLine(grown: readonly GrownDerived[]): string {
+  return grown.length === 0 ? '' : `\n\nDerived growth waits for the owner: ${derivedGrowthLine(grown)}`
+}
+
+function openGrowthWait(ports: TreePrPorts, card: TreeCard, pr: string, grown: readonly GrownDerived[]): void {
+  if (grown.length > 0)
+    (ports.ownerWait ?? busOwnerWait())(card.cardId ?? null, `${card.cardLine} · pull request #${pr}: ${derivedGrowthLine(grown)}`)
 }
 
 interface FormatGap extends Gap {
@@ -339,9 +378,9 @@ export function reportClosingOf(report: string | null): ReportClosing | null {
   return { report: written, verification }
 }
 
-function prBodyOf(card: TreeCard, path: string, followed: readonly string[], countLine: string | undefined): string {
-  const followedLines = followed.length === 0 ? '' : `\n\n${followedLine(followed)}`
-  const body = `${card.cardLine}\n\n${path}${followedLines}\n\nOpened by the shift from the card's worktree and branch after its session ended.`
+function prBodyOf(card: TreeCard, path: string, touched: ChangedOutside, countLine: string | undefined): string {
+  const followedLines = touched.followed.length === 0 ? '' : `\n\n${followedLine(touched.followed)}`
+  const body = `${card.cardLine}\n\n${path}${followedLines}${grownLine(touched.grown)}\n\nOpened by the shift from the card's worktree and branch after its session ended.`
   return countLine === undefined ? body : `${body}\n\n${countLine}`
 }
 
@@ -515,14 +554,17 @@ export function treePr(ports: TreePrPorts, card: TreeCard, worktree: string, rep
     if (open !== null)
       return { kind: 'pr', number: open, followed: [] }
     const shifted = shiftedPath(ports.git, worktree, card, report)
-    const touched = changedOutsideTouches(ports.git, worktree, shifted.files, card.touches, card.runs)
-    const body = prBodyOf(card, shifted.line, touched.followed, matrixCountLineOf(report))
-    const gaps = formatGaps(body, shifted, publishedRootsAt(ports.git, worktree), touched.outside, readShiftGate(worktree).codeMatrix, card.fullReading)
+    const touched = changedOutsideTouches(ports.git, worktree, shifted.files, card, ports.rebuild ?? pnpmRerun)
+    const body = prBodyOf(card, shifted.line, touched, matrixCountLineOf(report))
+    const gaps = [...formatGaps(body, shifted, publishedRootsAt(ports.git, worktree), touched.outside, readShiftGate(worktree).codeMatrix, card.fullReading), ...(touched.refused.length === 0 ? [] : [derivedGap(worktree, touched.refused)])]
     if (gaps.length > 0)
       return { kind: 'problem', why: `the shift opened no pull request for ${card.branch}: it lacks ${gaps.map(gap => gap.lacks).join('; ')}`, gaps: gaps.map(({ reason, task, paths }) => ({ reason, task, paths })) }
     const created = ports.gh(['pr', 'create', '--head', card.branch, '--base', 'main', '--title', card.title, '--body', body])
     const number = PR_URL_NUMBER.exec(created.trim())?.[1]
-    return number === undefined ? { kind: 'problem', why: `gh pr create printed no pull request URL: ${firstLine(created)}`, gaps: faultGaps('no-pr-url') } : { kind: 'pr', number, followed: touched.followed }
+    if (number === undefined)
+      return { kind: 'problem', why: `gh pr create printed no pull request URL: ${firstLine(created)}`, gaps: faultGaps('no-pr-url') }
+    openGrowthWait(ports, card, number, touched.grown)
+    return { kind: 'pr', number, followed: touched.followed }
   }
   catch (error) {
     if (error instanceof TwinUnbuilt)

@@ -11,6 +11,7 @@
     "scripts/policy/shredder/",
     "scripts/policy/widening.ts",
     "scripts/policy/touch-scope.ts",
+    "scripts/policy/derived-files.ts",
     "scripts/morse/",
     "scripts/core/push-policy.ts"
   ],

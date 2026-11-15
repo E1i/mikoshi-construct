@@ -3984,6 +3984,7 @@
           "scripts/policy/shredder/**",
           "scripts/policy/widening.ts",
           "scripts/policy/touch-scope.ts",
+          "scripts/policy/derived-files.ts",
           "scripts/morse/**",
           "scripts/core/push-policy.ts"
         ],
@@ -5262,25 +5263,36 @@
       },
       "scripts/ports/card-tree.ts": {
         "constants": [
+          "DERIVED_BASE",
           "TECHNOLOGY_WORDS"
         ],
         "functions": {
+          "busOwnerWait": "(busPath: string = defaultBusPath(), actor = `worker:shift:${process.pid}`): OwnerWaitOpener",
           "cardTreeOf": "(db: DatabaseSync, cardId: number, tools: CardTreeTools): CardSession | null",
+          "cardTreeReading": "(db: DatabaseSync, cardId: number, tools: CardTreeTools = realCardTrees(), run: TreeRun = pnpmRerun): TreeReading | null",
           "cardlessTreeName": "(branch: string): string",
           "cardlessTreeOf": "(branch: string, tools: CardTreeTools): string",
           "gitCardTrees": "(repo: string, home: string, install: (cwd: string) => void, gitHub: GitHub = ghApi(repo), treeOf?: (cardId: string) => string): CardTreeTools",
-          "realCardTrees": "(): CardTreeTools"
+          "pnpmRerun": "(cwd: string, args: readonly string[]): { status: number | null; stderr: string; }",
+          "realCardTrees": "(): CardTreeTools",
+          "treeReading": "(read: (cwd: string, args: string[]) => string, worktree: string, base: string, run: TreeRun = pnpmRerun): TreeReading"
         },
         "language": "technology",
         "reexports": [],
         "technologyWords": [
           "database",
           "gh",
-          "git"
+          "git",
+          "pnpm",
+          "stderr"
         ],
         "types": {
           "CardTreeRefused": "class CardTreeRefused extends Error {  }",
-          "CardTreeTools": "interface CardTreeTools { home: string; treeOf?: (cardId: string) => string; exists: (dir: string) => boolean; branchOf: (pr: number) => string; recreate: (worktree: string, branch: string) => void; bringTo: (worktree: string, branch: string, head: string) => void; }"
+          "CardTreeTools": "interface CardTreeTools { home: string; treeOf?: (cardId: string) => string; exists: (dir: string) => boolean; branchOf: (pr: number) => string; recreate: (worktree: string, branch: string) => void; bringTo: (worktree: string, branch: string, head: string) => void; }",
+          "OwnerWaitOpener": "type OwnerWaitOpener = (cardId: number | null, text: string) => string",
+          "TreeReading": "interface TreeReading { current: (file: string) => string | null; base: (file: string) => string | null; rerun: (command: readonly string[], outputs: readonly string[]) => TreeRerun; }",
+          "TreeRerun": "type TreeRerun = { kind: 'ran'; outputs: ReadonlyMap<string, string | null>; } | { kind: 'failed'; why: string; }",
+          "TreeRun": "type TreeRun = (cwd: string, args: readonly string[]) => { status: number | null; stderr: string; }"
         }
       },
       "scripts/ports/ci-reading.ts": {

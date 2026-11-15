@@ -8,6 +8,7 @@ export interface GeneratedFile {
   rebuiltOnUpdate: boolean
   seamSources: readonly string[] | null
   followSources: readonly string[] | null
+  measure?: boolean
 }
 
 export interface GeneratedRow extends GeneratedFile {
@@ -67,6 +68,10 @@ export function rowProblems(key: string, value: unknown): string[] {
   }
   if (typeof row.rebuiltOnUpdate !== 'boolean')
     problems.push('rebuiltOnUpdate is not a boolean')
+  if (row.measure !== undefined && typeof row.measure !== 'boolean')
+    problems.push('measure is neither absent nor a boolean')
+  if (row.measure === true && row.rebuild === null)
+    problems.push('measure is true with no rebuild to measure by')
   for (const field of LIST_FIELDS) {
     if (row[field] !== null && !isTextList(row[field]))
       problems.push(`${field} is neither null nor a list of non-empty strings`)
@@ -135,6 +140,8 @@ export const GENERATED_FILES: NamedRows = namedRows(ROWS)
 export const RATCHET_FILE = {
   path: 'contract/ratchet.json',
   rebuild: ['exec', 'tsx', 'scripts/contract/ratchet.ts'],
+  module: 'factory-contract',
+  measure: true,
 } as const
 
 export const NAMED_BY_THEIR_READERS: readonly string[] = [GENERATED_FILES.knownViolations.path]
@@ -143,7 +150,7 @@ export const GENERATED_PATHS: readonly string[] = ROWS.map(row => row.path).filt
 
 export const REBUILT_ON_UPDATE: readonly { path: string, rebuild: readonly string[] }[] = [
   ...ROWS.flatMap(row => row.rebuiltOnUpdate && row.rebuild !== null ? [{ path: row.path, rebuild: row.rebuild }] : []),
-  RATCHET_FILE,
+  { path: RATCHET_FILE.path, rebuild: RATCHET_FILE.rebuild },
 ]
 
 export const APPEND_ONLY_LOGS: readonly string[] = ['scripts/ci/sandbox-failing.jsonl']

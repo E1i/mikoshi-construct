@@ -1,23 +1,25 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { PushPolicy } from '../../../src/commands/attach/record.js'
 import type { BusEvent } from '../../core/db.js'
-import type { QUESTION_OWNER } from '../../core/events.js'
 import type { AfterFailure, Lease } from '../../core/lease.js'
 import type { CardFields } from '../../intake/card-contract.js'
+import type { DerivedReading } from '../../policy/touch-scope.js'
 import type { ReviewStatus, StatusPublisher } from '../../ports/github-status.js'
 import type { CommandResult, GitHub, GitHubPut } from '../../ports/github.js'
 import type { MergeMain } from '../../ports/main-merge.js'
 import type { VerdictOnHead } from '../../ports/snapshot.js'
 import type { TechnicalReason } from '../review/record-verdict.js'
 import { Buffer } from 'node:buffer'
-import { appendEvent } from '../../core/db.js'
+import { appendEvent, openBusWait } from '../../core/db.js'
 import { messageOf } from '../../core/errors.js'
-import { CI_RERUN_REQUESTED, COMMAND_EXECUTED, POLICY_ALLOWED, POLICY_DENIED, REVIEW_RECORDED, UPDATE_DONE } from '../../core/events.js'
+import { CI_RERUN_REQUESTED, COMMAND_EXECUTED, POLICY_ALLOWED, POLICY_DENIED, QUESTION_OWNER, REVIEW_RECORDED, UPDATE_DONE } from '../../core/events.js'
 import { assertHeld, completeTask, failTask, releaseTask, StaleLease } from '../../core/lease.js'
 import { rerunDueOn } from '../../core/observations.js'
 import { KEPT_BY_PUSH_POLICY } from '../../core/push-policy.js'
 import { COMPLETED, keyOf, MERGE_REFUSED, updateCandidates } from '../../core/queue.js'
 import { cardContract, NOT_MINE, notMine } from '../../intake/card-contract.js'
+import { derivedGrowthLine, derivedRefusalLine, derivedVerdictOf, isRegisteredDerived, pathsOutside } from '../../policy/touch-scope.js'
+import { cardTreeReading } from '../../ports/card-tree.js'
 import { rerunFailedJobsEndpoint, runsOnHeadEndpoint } from '../../ports/ci-reading.js'
 import { REVIEW_STATUS_CONTEXT } from '../../ports/github-status.js'
 import { conflictingCardOf } from '../../ports/main-merge.js'
@@ -63,7 +65,9 @@ interface RecordedContent {
   sha?: string
 }
 
-export type UpdateTechnicalReason = TechnicalReason | 'not_mergeable' | 'not_behind' | 'wrong_base' | typeof MERGE_REFUSED | typeof NOT_MINE | typeof KEPT_BY_PUSH_POLICY
+export const DERIVED_REFUSED = 'derived_refused'
+
+export type UpdateTechnicalReason = TechnicalReason | 'not_mergeable' | 'not_behind' | 'wrong_base' | typeof MERGE_REFUSED | typeof NOT_MINE | typeof KEPT_BY_PUSH_POLICY | typeof DERIVED_REFUSED
 
 export interface UpdateDenial {
   kind: 'technical'
@@ -98,6 +102,7 @@ export interface UpdateParts {
   mergeMain?: MergeMain
   post?: GitHubPut
   thresholds?: (cardId: number) => readonly ThresholdSet[]
+  derivedReading?: (cardId: number) => DerivedReading | null
 }
 
 export interface ManualUpdate {
@@ -161,7 +166,7 @@ interface Before {
 type Checked = { kind: 'ready', before: Before } | { kind: 'conflicting' } | { kind: 'denied', denial: UpdateDenial }
 
 const WAIT_REASONS: ReadonlySet<UpdateTechnicalReason> = new Set(['not_mergeable'])
-const WITHDRAWN_REASONS: ReadonlySet<UpdateTechnicalReason> = new Set([NOT_MINE, KEPT_BY_PUSH_POLICY, MERGE_REFUSED])
+const WITHDRAWN_REASONS: ReadonlySet<UpdateTechnicalReason> = new Set([NOT_MINE, KEPT_BY_PUSH_POLICY, MERGE_REFUSED, DERIVED_REFUSED])
 
 function insideTheTouchesLine(lease: Lease, files: readonly string[]): string {
   return `pull request #${lease.pr} conflicts with ${MAIN_BRANCH} at ${lease.head} inside the card's own touches: ${files.join(', ')}; the conflict is the card's own (D-441, Q267), so it goes to the answer session to merge ${MAIN_BRANCH} keeping both sides, not to the owner`
@@ -239,6 +244,9 @@ export class UpdateExecutor {
       const checked = this.fresh(lease)
       if (checked.kind === 'denied')
         return this.denied(lease, checked.denial)
+      const derived = card === null ? null : this.derivedHeld(lease, card, checked)
+      if (derived !== null)
+        return derived
       if (checked.kind === 'conflicting')
         return this.conflicting(lease, card)
       this.allowed(lease)
@@ -252,6 +260,33 @@ export class UpdateExecutor {
         return { kind: 'fenced', taskKey: lease.taskKey }
       throw error
     }
+  }
+
+  private derivedHeld(lease: Lease, card: CardFields, checked: Exclude<Checked, { kind: 'denied' }>): UpdateOutcome | null {
+    let files: string[]
+    try {
+      files = (checked.kind === 'ready' ? checked.before.files : diffOf(this.meter(), lease.pr!)).map(file => file.filename)
+    }
+    catch (error) {
+      return this.denied(lease, technical('github_error', messageOf(error)))
+    }
+    const derived = pathsOutside(card.touches, card.creates, files).filter(isRegisteredDerived)
+    if (derived.length === 0)
+      return null
+    const reading = (this.parts.derivedReading ?? (cardId => cardTreeReading(this.parts.db, cardId)))(lease.cardId)
+    if (reading === null)
+      return this.denied(lease, technical(DERIVED_REFUSED, `card #${lease.cardId} has no tree to rerun the generators of ${derived.join(', ')} on, so they are not shown to be derived`))
+    const verdict = derivedVerdictOf(derived, reading)
+    if (verdict.refused.length > 0)
+      return this.denied(lease, technical(DERIVED_REFUSED, `pull request #${lease.pr} at ${lease.head}: ${derivedRefusalLine(verdict.refused)}`))
+    return verdict.grown.length === 0 ? null : this.grownForTheOwner(lease, `pull request #${lease.pr} at ${lease.head}: ${derivedGrowthLine(verdict.grown)}`)
+  }
+
+  private grownForTheOwner(lease: Lease, detail: string): UpdateOutcome {
+    const ts = this.ts()
+    openBusWait(this.parts.db, ts, lease.actor, { need: 'decision', text: `card #${lease.cardId}, ${detail}`, card: lease.cardId, ...(lease.pr === null ? {} : { pr: lease.pr }) })
+    completeTask(this.parts.db, ts, lease, [])
+    return { kind: 'stopped', taskKey: lease.taskKey, reason: QUESTION_OWNER, detail }
   }
 
   private noLongerDue(lease: Lease): UpdateDenial | null {

@@ -199,6 +199,7 @@ export const MODULE_OWNS: Readonly<Record<string, readonly string[]>> = {
     `${FACTORY_ROOT}/policy/shredder/**`,
     `${FACTORY_ROOT}/policy/widening.ts`,
     `${FACTORY_ROOT}/policy/touch-scope.ts`,
+    `${FACTORY_ROOT}/policy/derived-files.ts`,
     `${FACTORY_ROOT}/morse/**`,
     `${FACTORY_ROOT}/core/push-policy.ts`,
   ],
