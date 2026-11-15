@@ -513,9 +513,9 @@ describe('the reducer of the owner_waits projection', () => {
     recordDecision(db, { ts, decisionId: 901, text: '[owner] the first path', cards: [1213] })
     expect(reduce(db, 'pending', busProjections())).toEqual({ applied: 5, rejected: 0 })
     expect(waits(db)).toEqual([
-      { id: live, need: 'command', command: 'pnpm decisions:add "[owner] allow-live merge"', card_id: null, pr: null, state: 'closed', answer: 'D-900' },
-      { id: question, need: 'decision', command: null, card_id: 1213, pr: null, state: 'closed', answer: 'D-901' },
-      { id: other, need: 'decision', command: null, card_id: 1214, pr: null, state: 'open', answer: null },
+      { id: live, need: 'command', command: 'pnpm owner:answer Q1 "…"', card_id: null, pr: null, state: 'closed', answer: 'D-900' },
+      { id: question, need: 'decision', command: 'pnpm owner:answer Q2 "…"', card_id: 1213, pr: null, state: 'closed', answer: 'D-901' },
+      { id: other, need: 'decision', command: 'pnpm owner:answer Q3 "…"', card_id: 1214, pr: null, state: 'open', answer: null },
     ])
     expect([live, question, other]).toEqual(['Q1', 'Q2', 'Q3'])
     db.close()
@@ -561,7 +561,7 @@ describe('the reducer of the owner_waits projection', () => {
     const id = openBusWait(db, '2026-10-09T12:00:00.000Z', 'policy', { need: 'merge', text: 'changes architecture/security-invariants.md', card: 793, pr: 800 })
     appendEvent(db, closed(800, true))
     reduce(db, 'pending', busProjections())
-    expect(waits(db)).toEqual([{ id, need: 'merge', command: null, card_id: 793, pr: 800, state: 'closed', answer: 'PR #800 merged' }])
+    expect(waits(db)).toEqual([{ id, need: 'merge', command: 'merge PR #800 (owner)', card_id: 793, pr: 800, state: 'closed', answer: 'PR #800 merged' }])
     db.close()
   })
 
@@ -572,7 +572,7 @@ describe('the reducer of the owner_waits projection', () => {
     const ts = '2026-10-09T12:00:00.000Z'
     expect(reduce(db, 'pending', busProjections())).toEqual({ applied: 2, rejected: 0 })
     const id = waits(db)[0]!.id as string
-    expect(waits(db)).toEqual([{ id: expect.stringMatching(/^W\d+$/), need: 'decision', command: null, card_id: 1216, pr: null, state: 'open', answer: null }])
+    expect(waits(db)).toEqual([{ id: expect.stringMatching(/^W\d+$/), need: 'decision', command: 'pnpm owner:answer #1216 "…"', card_id: 1216, pr: null, state: 'open', answer: null }])
     expect(openOwnerWait(db, ts, 'policy', { need: 'decision', text: 'which path?', card: 1300, request: 7 })).toBe('Q1')
     recordDecision(db, { ts, decisionId: 905, text: '[owner] разрешить понижение свидетеля w; red on main у #1216', cards: [1216] })
     reduce(db, 'pending', busProjections())
@@ -794,7 +794,7 @@ describe('the reducer of the owner_waits projection', () => {
     const db = newBus()
     const id = openOwnerWait(db, '2026-10-09T12:00:00.000Z', 'policy', { need: 'decision', text: lostRecutWaitText(1290, 904), card: 1290, pr: 904 })
     expect(reduce(db, 'pending', busProjections())).toEqual({ applied: 1, rejected: 0 })
-    expect(waits(db)).toEqual([{ id, need: 'decision', command: null, card_id: 1290, pr: 904, state: 'open', answer: null }])
+    expect(waits(db)).toEqual([{ id, need: 'decision', command: `pnpm owner:answer ${id} "…"`, card_id: 1290, pr: 904, state: 'open', answer: null }])
     db.close()
   })
 
