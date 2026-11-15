@@ -2204,6 +2204,7 @@
     "scripts/supervisor/launchd/install.ts",
     "scripts/supervisor/liveness-sites.known.json",
     "scripts/supervisor/liveness-sites.ts",
+    "scripts/supervisor/package-generation.ts",
     "scripts/supervisor/recorded-worker.ts",
     "scripts/supervisor/review-bg.ts",
     "scripts/supervisor/run.ts",
