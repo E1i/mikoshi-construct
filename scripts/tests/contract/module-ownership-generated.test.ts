@@ -1,9 +1,10 @@
 import type { ModuleDeclaration } from '../../core/declarations.js'
-import { readFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { MODULE_OWNS } from '../../contract/factory/module-owns.js'
-import { DRAWN, MODULE_GRAPH, moduleOwnershipProblems, moduleOwnsOf, renderModuleOwns } from '../../contract/factory/modules.js'
+import { DRAWN, MODULE_GRAPH, moduleOwnershipProblems, moduleOwnsOf, renderModuleOwns, writeModuleOwns } from '../../contract/factory/modules.js'
 import { ownerOf, sourceFiles } from '../../contract/module-graph/ownership.js'
 import { ownershipOf, readDeclarations } from '../../core/declarations.js'
 import { GENERATED_FILES, GENERATED_PATHS } from '../../core/generated-files.js'
@@ -92,5 +93,32 @@ describe('the module ownership of the module graph is generated from declaration
       'declarations/modules/ui.json: exclude entry "src/ui/lore.ts" lies in a source tree, and the module graph carves out only files another module names',
       'declarations/modules/ui.json: "src/ui/*.ts" is a pattern, and the module graph holds only files and whole folders',
     ])
+  })
+
+  it('the writer refuses declarations that carry a problem, names it and leaves the generated file as it was', () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), 'module-owns-'))
+    try {
+      const ui = declarationOf('ui')
+      const target = path.join(root, GENERATED_FILES.moduleOwns.path)
+      const declare = (declaration: ModuleDeclaration): void => {
+        mkdirSync(path.join(root, 'declarations/modules'), { recursive: true })
+        writeFileSync(path.join(root, 'declarations/modules/ui.json'), `${JSON.stringify(declaration, null, 2)}\n`)
+      }
+
+      declare({ ...ui, paths: ['src/ui/*.ts'] })
+      mkdirSync(path.dirname(target), { recursive: true })
+      writeFileSync(target, 'before\n')
+
+      expect(writeModuleOwns(root)).toEqual(['declarations/modules/ui.json: "src/ui/*.ts" is a pattern, and the module graph holds only files and whole folders'])
+      expect(readFileSync(target, 'utf8')).toBe('before\n')
+
+      declare({ ...ui, paths: ['src/ui/'], exclude: [], shared: [] })
+
+      expect(writeModuleOwns(root)).toEqual([])
+      expect(existsSync(target) && readFileSync(target, 'utf8')).toBe(renderModuleOwns({ ui: ['src/ui/**'] }))
+    }
+    finally {
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 })

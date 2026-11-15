@@ -286,17 +286,19 @@ export function modulesSection(graph: ModuleGraphSpec = MODULE_GRAPH, concepts: 
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..', '..')
 
-function writeModuleOwns(): void {
-  const declarations = readDeclarations(REPO_ROOT)
+export function writeModuleOwns(root: string = REPO_ROOT): string[] {
+  const declarations = readDeclarations(root)
   const { owns, problems } = moduleOwnsOf(declarations.modules)
   const found = [...declarations.problems, ...problems]
-  if (found.length > 0) {
-    console.error(found.join('\n'))
-    process.exitCode = 1
-    return
-  }
-  writeFileSync(path.join(REPO_ROOT, GENERATED_FILES.moduleOwns.path), renderModuleOwns(owns))
+  if (found.length === 0)
+    writeFileSync(path.join(root, GENERATED_FILES.moduleOwns.path), renderModuleOwns(owns))
+  return found
 }
 
-if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url))
-  writeModuleOwns()
+if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const refused = writeModuleOwns()
+  if (refused.length > 0) {
+    console.error(refused.join('\n'))
+    process.exitCode = 1
+  }
+}
