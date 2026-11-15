@@ -13,7 +13,7 @@ import { ANSWER_STEP, CARD_STARTED, CARD_STOPPED, QUESTION_AGENT } from '../../c
 import { leaseNext } from '../../core/lease.js'
 import { queueTask } from '../../core/queue.js'
 import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
-import { claudeAnswerer, FreshBaseConflict, ownerQuestionPath, realAnswererTools, RoundTimer } from '../../nodes/answer/answerer.js'
+import { answerHandoffPath, claudeAnswerer, FreshBaseConflict, ownerQuestionPath, realAnswererTools, RoundTimer } from '../../nodes/answer/answerer.js'
 import { TSX_PIPE_DIRECTORY } from '../../ports/shift-settings.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { ranTheGreenGate } from './gate-stream.js'
@@ -23,6 +23,8 @@ import { eventsOf, mergeBench } from './merge-bench.js'
 const CARD_SESSION = 'card-session-1207'
 const NEW_SESSION = 'new-session-1'
 const CONTEXT_WARN = 200_000
+const SPEND_WARN = 2_400_000
+const HANDOFF = 'done: the retry; not done: its test'
 const CARD_BODY = '#1207 answer-starts-fresh [implement/netwatch/S/cheap/owner]\n\nthe card body'
 const DIFF = 'diff --git a/scripts/bus/answerer.ts b/scripts/bus/answerer.ts\n+the change so far'
 const FINDING = 'the retry is missing'
@@ -61,13 +63,20 @@ function treeSettings(worktree: string, ownerQuestion: string): unknown {
   }
 }
 
-async function answerAt(context: number, cardTools?: AnswererTools['cardTools']) {
+interface Spend { spent?: number, handoff?: string }
+
+async function answerAt(context: number, cardTools?: AnswererTools['cardTools'], spend: Spend = {}) {
   const root = mkdtempSync(path.join(tmpdir(), 'bus-answerer-'))
   roots.push(root)
   const runs: AnswerRun[] = []
   const published: string[] = []
   const heads = ['a'.repeat(40), 'e'.repeat(40)]
   const request = requestIn(root)
+  const handoff = answerHandoffPath(request.card.worktree)
+  if (spend.handoff !== undefined) {
+    mkdirSync(path.dirname(handoff), { recursive: true })
+    writeFileSync(handoff, spend.handoff)
+  }
   const answerer = claudeAnswerer(path.join(root, 'answers'), {
     cardText: () => CARD_BODY,
     ...(cardTools === undefined ? {} : { cardTools }),
@@ -83,10 +92,12 @@ async function answerAt(context: number, cardTools?: AnswererTools['cardTools'])
     publish: card => published.push(card.branch),
     context: session => (session === CARD_SESSION ? context : 30_000),
     contextWarn: () => CONTEXT_WARN,
+    spent: session => (session === CARD_SESSION ? spend.spent ?? 0 : 0),
+    spendWarn: () => SPEND_WARN,
     diff: () => DIFF,
   })
   const answered = await answerer(request)
-  return { answered, runs, published, prompt: runs[0]!.argv.at(-1)! }
+  return { answered, runs, published, prompt: runs[0]!.argv.at(-1)!, handoffKept: existsSync(handoff) }
 }
 
 describe('the answerer', () => {
@@ -116,6 +127,31 @@ describe('the answerer', () => {
     expect(answered).toMatchObject({ session: CARD_SESSION, resumed: true, atContextWarn: false })
     expect(runs[0]!.argv).toEqual(expect.arrayContaining(['--resume', CARD_SESSION]))
     expect(prompt).not.toContain(DIFF)
+  })
+
+  it('a resumed session at the spend warn starts the next round fresh', async () => {
+    const atWarn = await answerAt(120_000, undefined, { spent: SPEND_WARN })
+    const belowWarn = await answerAt(120_000, undefined, { spent: SPEND_WARN - 1 })
+
+    expect(atWarn.answered).toMatchObject({ session: NEW_SESSION, resumed: false })
+    expect(atWarn.runs[0]!.argv).not.toContain('--resume')
+    expect(atWarn.runs[0]!.argv).toContain(NEW_SESSION)
+    expect(belowWarn.answered).toMatchObject({ session: CARD_SESSION, resumed: true })
+    expect(belowWarn.runs[0]!.argv).toEqual(expect.arrayContaining(['--resume', CARD_SESSION]))
+  })
+
+  it('a round that starts fresh at a warn keeps and reads the answer handoff', async () => {
+    const rounds = await Promise.all([
+      answerAt(120_000, undefined, { spent: SPEND_WARN, handoff: HANDOFF }),
+      answerAt(CONTEXT_WARN, undefined, { handoff: HANDOFF }),
+      answerAt(120_000, undefined, { handoff: HANDOFF }),
+    ])
+
+    expect(rounds.map(round => ({ resumed: round.answered.resumed, kept: round.handoffKept, read: round.prompt.includes(HANDOFF) }))).toEqual([
+      { resumed: false, kept: true, read: true },
+      { resumed: false, kept: true, read: true },
+      { resumed: true, kept: false, read: false },
+    ])
   })
 
   it.each([[201_662, 'new'], [120_000, 'resumed']])('starts the %s-context %s session with the shift settings of the card tree and its owner-question file', async (context) => {
