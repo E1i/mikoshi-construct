@@ -11,7 +11,9 @@ import { messageOf } from '../core/errors.js'
 import { CARD_SESSION_ENDED, CARD_STARTED, PR_OBSERVED, PR_OPENED, SESSION_HEARTBEAT, SESSION_STALLED, TASK_LEASED } from '../core/events.js'
 import { failTask, releaseTask } from '../core/lease.js'
 import { LEASED } from '../core/queue.js'
+import { actionInCardTree } from '../owner/session.js'
 import { OsProcessTable } from '../ports/process-table.js'
+import { RoundOverTime } from './expected-time.js'
 import { beatsOfLease } from './heartbeat.js'
 import { SILENT_MS } from './liveness-sites.js'
 import { signal } from './supervisor.js'
@@ -99,8 +101,13 @@ interface Silence {
   signals: Readonly<Record<Signal, Moved>>
 }
 
+export interface OverTime {
+  check: () => string[]
+}
+
 export interface StalledSessionPorts {
   lifeOf: LifeOf
+  overTime?: OverTime
   stop?: StopSession
   spendOf?: SpendOf
   lines?: Readonly<Record<SupervisedQueue, number>>
@@ -198,8 +205,10 @@ export class StalledSessions {
   private readonly prefix: string
   private readonly pulseOf: PulseOf
   private readonly pulses = new Map<string, { pulse: string, at: string }>()
+  private readonly overTime: OverTime
 
   constructor(private readonly db: DatabaseSync, private readonly clock: () => Date, private readonly ports: StalledSessionPorts) {
+    this.overTime = ports.overTime ?? new RoundOverTime(db, clock, actionInCardTree(db, clock))
     this.lines = ports.lines ?? NO_PROGRESS_LINES
     this.spendOf = ports.spendOf ?? spendInCardTree(db)
     this.stop = ports.stop ?? stopSessionIn(new OsProcessTable())
@@ -212,11 +221,24 @@ export class StalledSessions {
     if (nowMs - this.lastSweep < STALLED_SWEEP_MS)
       return []
     this.lastSweep = nowMs
+    return [...this.sweepSilent(nowMs), ...this.sweepOverTime()]
+  }
+
+  private sweepSilent(nowMs: number): string[] {
     try {
       return this.sweep(nowMs)
     }
     catch (error) {
       return [`${this.prefix}reading the silent card sessions failed: ${messageOf(error)}; retried on the next sweep`]
+    }
+  }
+
+  private sweepOverTime(): string[] {
+    try {
+      return this.overTime.check().map(line => `${this.prefix}${line}`)
+    }
+    catch (error) {
+      return [`${this.prefix}reading the round times failed: ${messageOf(error)}; retried on the next sweep`]
     }
   }
 
