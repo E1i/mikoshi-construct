@@ -110,12 +110,6 @@ function catalogued(db: DatabaseSync): DatabaseSync {
   return db
 }
 
-function catalogDb(): DatabaseSync {
-  const db = openBus(busPath())
-  buses.push(db)
-  return catalogued(db)
-}
-
 function cardOf(touches: string[], masks: string[] = [], runs: string[] = []): CardRunsSource {
   return { touches, runs, masks }
 }

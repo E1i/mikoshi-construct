@@ -16,7 +16,7 @@ import { UpdateExecutor } from '../../nodes/update/update-executor.js'
 import { GhBudgetWindow, ghPort } from '../../ports/gh.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { cardBody, sha } from '../bus/github-fake.js'
-import { liveBench, mergeBench } from '../bus/merge-bench.js'
+import { liveBench, mainMovesPastEveryPr, mergeBench } from '../bus/merge-bench.js'
 import { detectUpdate } from '../bus/update-detection.js'
 
 const CARD = {
@@ -102,6 +102,7 @@ describe('push policy none', () => {
     try {
       made.gitHub.open({ number: 987, review: 'success', mergeable_state: 'behind' })
       made.tick()
+      mainMovesPastEveryPr(made)
       detectUpdate(made)
       const executor = new UpdateExecutor({ silentMs: SILENT_MS, db: made.db, gitHub: made.gitHub.client, put: made.gitHub.put, publish: made.gitHub.publish, clock: made.clock.now, settle: () => {}, pushPolicy: () => policy })
       const outcome = executor.update(leaseNext(made.db, made.clock.now().toISOString(), 'update', 'worker:update:worker-1')!)

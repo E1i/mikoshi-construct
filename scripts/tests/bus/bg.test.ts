@@ -180,7 +180,7 @@ function handOver(w: World, running: RunningProcess[]): Hand {
   }
 }
 
-describe('the rerun mode at a node start', () => {
+describe('the start line of the merge and update nodes', () => {
   const benches: MergeBench[] = []
 
   beforeEach(() => {
@@ -208,15 +208,14 @@ describe('the rerun mode at a node start', () => {
       const controller = new AbortController()
       await node.run({ pause: async () => controller.abort(), signal: controller.signal })
     }
-    return vi.mocked(console.log).mock.calls.map(call => String(call[0])).filter(line => line.includes('rerun mode'))
+    return vi.mocked(console.log).mock.calls.map(call => String(call[0])).filter(line => line.includes('the turn of each group'))
   }
 
-  it('the merge and update nodes each name by-layers in their start line', async () => {
-    expect(await startLinesOfBothNodes({ [RERUN_VARIABLE]: 'by-layers' })).toEqual([expect.stringContaining('the merge node starts in rerun mode by-layers'), expect.stringContaining('the update node starts in rerun mode by-layers')])
-  })
-
-  it('with no BUS_RERUN the merge and update nodes each name as-now in their start line', async () => {
-    expect(await startLinesOfBothNodes({})).toEqual([expect.stringContaining('the merge node starts in rerun mode as-now'), expect.stringContaining('the update node starts in rerun mode as-now')])
+  it('each names the turn it acts on, whatever BUS_RERUN says', async () => {
+    const lines = [expect.stringContaining('the merge node merges the turn of each group'), expect.stringContaining('the update node updates the turn of each group')]
+    expect(await startLinesOfBothNodes({ [RERUN_VARIABLE]: 'by-layers' })).toEqual(lines)
+    vi.mocked(console.log).mockClear()
+    expect(await startLinesOfBothNodes({})).toEqual(lines)
   })
 })
 

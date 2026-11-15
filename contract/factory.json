@@ -592,7 +592,7 @@
         ]
       },
       "main.advanced": {
-        "complete": false,
+        "complete": true,
         "keys": [
           "ci",
           "paths",

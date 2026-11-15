@@ -27,7 +27,6 @@ const UNTESTED_MESSAGE = `layer ${UNTESTED} meets no test of the check catalog`
 const BRANCH = 'feat/a-card'
 const CARD_ID = 1070
 const CARD_LINE = `#${CARD_ID} a-card [implement/netwatch/S/cheap/auto] · depends — · blocks —`
-const MAP = { files: {}, folders: { 'scripts/core/': 'core', 'scripts/other/': 'other' } }
 const CATALOG = {
   testLayers: new Map([[CORE_TEST, ['core']], [OTHER_TEST, ['other']]]),
   moduleLayers: new Map([[CORE, ['core']], [OTHER, ['other']]]),

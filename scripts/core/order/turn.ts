@@ -15,6 +15,7 @@ export const ORDER_EVENTS: readonly string[] = [PR_OBSERVED, PR_CLOSED, PR_OPENE
 export const BUS_ORDERS = 'bus'
 export const WINDOW_ORDERS = 'window'
 export const ORDER_ACTOR = 'worker:supervisor:order'
+const OWNER_QUESTION = 'decision'
 export const PASS_VERDICT = 'pass'
 export const GREEN_CI = 'green'
 export const DIRTY = 'dirty'
@@ -454,7 +455,7 @@ export function groupsWithTurn(order: PrOrder, declarations: OverlapDeclarations
 }
 
 export function waitingCardsOf(db: DatabaseSync): Set<number> {
-  return new Set(openOwnerWaits(db).flatMap(wait => wait.card === null ? [] : [wait.card]))
+  return new Set(openOwnerWaits(db).flatMap(wait => wait.card === null || wait.need !== OWNER_QUESTION ? [] : [wait.card]))
 }
 
 export function recordGroups(db: DatabaseSync, ts: string, order: PrOrder, groups: readonly GroupWithTurn[]): boolean {

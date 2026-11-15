@@ -199,7 +199,7 @@ function openPrsByCardPriority(condition: string, column = ''): string {
 `
 }
 
-const OPEN_PRS_WITH_THEIR_UPDATE_CAUSES = openPrsByCardPriority('1', `, prs.mergeable, ${A_MERGE_SENT_TO_UPDATE_ON_THE_HEAD} AS sent_at, ${A_DEPENDENCY_UPDATE_DUE} AS dependency_due`)
+const OPEN_PRS_WITH_THEIR_UPDATE_CAUSES = openPrsByCardPriority('1', `, prs.mergeable, ${A_MERGE_SENT_TO_UPDATE_ON_THE_HEAD} AS sent_at, ${A_DEPENDENCY_UPDATE_DUE} AS dependency_due, ${aTaskInFlight('answer', 'live.card_id = prs.card_id')} AS answering`)
 
 const A_MERGE_SENT_TO_UPDATE = openPrsByCardPriority(`sent_at IS NOT NULL`, `, ${A_MERGE_SENT_TO_UPDATE_ON_THE_HEAD} AS sent_at`)
 
@@ -881,19 +881,21 @@ interface UpdateCauses extends Candidate {
   mergeable: string | null
   sent_at: number | null
   dependency_due: number
+  answering: number
 }
 
-function updateDue(order: RecordedOrder): Admits {
+function updateDue(order: RecordedOrder, mayMerge: Admits, decided: Admits): Admits {
   return (candidate) => {
     const row = candidate as UpdateCauses
-    const ownWork = row.mergeable === 'dirty' || row.dependency_due === 1
-    const needsUpdate = ownWork || row.sent_at !== null || order.needUpdate.has(row.pr!)
-    return needsUpdate && (holdsTheTurn(order, row.pr) || (ownWork && noTurnHeldBeside(order, row.pr)))
+    const ownWork = row.mergeable === 'dirty' ? row.answering === 0 : row.dependency_due === 1
+    const turn = holdsTheTurn(order, row.pr) || (decided(row) && noTurnHeldBeside(order, row.pr))
+    const inTurn = turn && mayMerge(row) && (ownWork || row.sent_at !== null || order.needUpdate.has(row.pr!))
+    return inTurn || (ownWork && noTurnHeldBeside(order, row.pr))
   }
 }
 
 export function updateCandidates(db: DatabaseSync, ts: string): QueuedTask[] {
-  return openCandidates(db, ts, 'update', withTheHeadsARerunIsDueOn(db, candidateRows(db, OPEN_PRS_WITH_THEIR_UPDATE_CAUSES, updateDue(recordedOrder(db)))))
+  return openCandidates(db, ts, 'update', withTheHeadsARerunIsDueOn(db, candidateRows(db, OPEN_PRS_WITH_THEIR_UPDATE_CAUSES, updateDue(recordedOrder(db), aMergeCandidate(db, ts), decidedPastRoundLimit(db, ts)))))
 }
 
 export function closeCandidates(db: DatabaseSync, ts: string): QueuedTask[] {

@@ -5,7 +5,7 @@ import { deriveQueues } from '../../core/queue.js'
 import { UpdateExecutor } from '../../nodes/update/update-executor.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { cardBody, sha } from './github-fake.js'
-import { liveBench } from './merge-bench.js'
+import { liveBench, mainMovesPastEveryPr } from './merge-bench.js'
 import { detectUpdate } from './update-detection.js'
 
 const CARD = 952
@@ -31,6 +31,7 @@ function updatedPullRequest(): MergeBench {
   const executor = new UpdateExecutor({ silentMs: SILENT_MS, db: bench.db, gitHub: bench.gitHub.client, put: bench.gitHub.put, publish: bench.gitHub.publish, clock: bench.clock.now, settle: () => {} })
   bench.gitHub.open({ number: PR, head: BEHIND_HEAD, review: 'success', mergeable_state: 'behind', files: ['scripts/a.ts'], body: cardBody(CARD) })
   bench.tick()
+  mainMovesPastEveryPr(bench)
   detectUpdate(bench)
   bench.gitHub.updatedHead = UPDATED_HEAD
   executor.update(leaseNext(bench.db, bench.clock.now().toISOString(), 'update', 'worker:update:worker-1')!)

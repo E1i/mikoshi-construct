@@ -3,7 +3,6 @@ import type { PushPolicy } from '../../../src/commands/attach/record.js'
 import type { BusEvent } from '../../core/db.js'
 import type { QUESTION_OWNER } from '../../core/events.js'
 import type { AfterFailure, Lease } from '../../core/lease.js'
-import type { COMPLETED } from '../../core/queue.js'
 import type { CardFields } from '../../intake/card-contract.js'
 import type { ReviewStatus, StatusPublisher } from '../../ports/github-status.js'
 import type { CommandResult, GitHub, GitHubPut } from '../../ports/github.js'
@@ -16,7 +15,7 @@ import { CI_RERUN_REQUESTED, COMMAND_EXECUTED, POLICY_ALLOWED, POLICY_DENIED, RE
 import { assertHeld, completeTask, failTask, releaseTask, StaleLease } from '../../core/lease.js'
 import { rerunDueOn } from '../../core/observations.js'
 import { KEPT_BY_PUSH_POLICY } from '../../core/push-policy.js'
-import { MERGE_REFUSED } from '../../core/queue.js'
+import { COMPLETED, keyOf, MERGE_REFUSED, updateCandidates } from '../../core/queue.js'
 import { cardContract, NOT_MINE, notMine } from '../../intake/card-contract.js'
 import { rerunFailedJobsEndpoint, runsOnHeadEndpoint } from '../../ports/ci-reading.js'
 import { REVIEW_STATUS_CONTEXT } from '../../ports/github-status.js'
@@ -39,7 +38,7 @@ const MERGE_MAIN_COMMAND = 'merge_main'
 
 export type UpdateCommand = typeof UPDATE_COMMAND | typeof MERGE_MAIN_COMMAND | 'publish'
 
-export type UpdateTechnicalReason = TechnicalReason | 'not_mergeable' | 'wrong_base' | typeof MERGE_REFUSED | typeof NOT_MINE | typeof KEPT_BY_PUSH_POLICY
+export type UpdateTechnicalReason = TechnicalReason | 'not_mergeable' | 'not_behind' | 'wrong_base' | typeof MERGE_REFUSED | typeof NOT_MINE | typeof KEPT_BY_PUSH_POLICY
 
 export interface UpdateDenial {
   kind: 'technical'
@@ -205,6 +204,9 @@ export class UpdateExecutor {
       const rerun = this.rerunWhenDue(lease)
       if (rerun !== null)
         return rerun
+      const gone = this.noLongerDue(lease)
+      if (gone !== null)
+        return this.denied(lease, gone)
       const checked = this.fresh(lease)
       if (checked.kind === 'denied')
         return this.denied(lease, checked.denial)
@@ -221,6 +223,12 @@ export class UpdateExecutor {
         return { kind: 'fenced', taskKey: lease.taskKey }
       throw error
     }
+  }
+
+  private noLongerDue(lease: Lease): UpdateDenial | null {
+    if (updateCandidates(this.parts.db, this.ts()).some(task => keyOf(task) === lease.taskKey))
+      return null
+    return technical('not_behind', `${lease.taskKey} is no longer an update candidate: #${lease.pr} is not the turn of its group, or nothing it needs an update for holds any more`)
   }
 
   private rerunDue(lease: Lease): boolean {
@@ -294,6 +302,8 @@ export class UpdateExecutor {
         return { kind: 'denied', denial: technical('not_mergeable', `#${lease.pr} is ${pull.mergeable_state ?? 'not computed yet'}`) }
       if (mergeable === 'dirty' && this.parts.mergeMain !== undefined)
         return { kind: 'conflicting' }
+      if (mergeable === 'dirty')
+        return { kind: 'denied', denial: technical('not_behind', `#${lease.pr} is dirty, and this update node merges no main into a card tree, so an update-branch cannot take it`) }
       return { kind: 'ready', before: { verdict: verdictOf(meter, lease.head!), files: diffOf(meter, lease.pr!) } }
     }
     catch (error) {
@@ -397,6 +407,10 @@ export class UpdateExecutor {
   private denied(lease: Lease, denial: UpdateDenial): UpdateOutcome {
     const ts = this.ts()
     const event: BusEvent = { ts, type: POLICY_DENIED, actor: 'policy', cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${POLICY_DENIED}:${lease.taskKey}:${lease.leaseGen}`, payload: { command: UPDATE_COMMAND, ...denial }, legacy: false }
+    if (denial.reason === 'not_behind') {
+      completeTask(this.parts.db, ts, lease, [event])
+      return { kind: 'denied', taskKey: lease.taskKey, denial, next: COMPLETED }
+    }
     if (WAIT_REASONS.has(denial.reason)) {
       releaseTask(this.parts.db, ts, lease, denial.reason, [event])
       return { kind: 'denied', taskKey: lease.taskKey, denial, next: 'queued' }

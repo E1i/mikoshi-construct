@@ -12,7 +12,7 @@ import { prBodySha } from '../../core/identifiers.js'
 import { completeTask, leaseNext } from '../../core/lease.js'
 import { NODE_CURSORS } from '../../core/node.js'
 import { deriveQueues, keyOf, MERGE_CANDIDATES, mergeCandidates, NEEDS_UPDATE, queueTask } from '../../core/queue.js'
-import { HELD_FOR_OWNER, MERGE_QUEUE, MergeExecutor } from '../../nodes/merge/merge-executor.js'
+import { MERGE_QUEUE, MergeExecutor } from '../../nodes/merge/merge-executor.js'
 import { MergeNode } from '../../nodes/merge/merge-worker.js'
 import { UpdateNode } from '../../nodes/update/update-worker.js'
 import { recordDecision } from '../../policy/decisions/index.js'
@@ -217,6 +217,11 @@ describe('the merge node', () => {
     expect(derivedKeys(made)).toEqual([])
 
     made.gitHub.open({ number: 970, review: 'success', failed: ['Dependency audit'] })
+    made.tick()
+    expect(nodeOf(made).found()).toEqual([])
+
+    const ts = made.clock.now().toISOString()
+    completeTask(made.db, ts, leaseNext(made.db, ts, 'answer', 'worker:answer:worker-0')!, [])
     made.tick()
     expect(nodeOf(made).found()).toEqual([mergeKey(970)])
   })
@@ -549,55 +554,39 @@ describe('the merge node', () => {
   })
 })
 
-describe('the re-run mode of the merge node', () => {
-  it('the default mode updates and re-runs as now', async () => {
-    const made = bench()
-    mainMovedUnder(made, { mainFiles: ['src/cli.ts'] })
+describe('the turn and the check before merge of the merge node', () => {
+  const MAIN_CHANGED_A_FILE_OF_THE_PR = 'scripts/nodes/merge/merge-worker.ts'
 
-    expect(await mergeAndUpdate(made, {})).toEqual([UPDATED_THE_LEASED_HEAD, MERGED_THE_UPDATED_HEAD])
-    expect(made.gitHub.pulls.get(970)).toEqual(expect.objectContaining({ head: sha('d'), baseSha: MAIN_2 }))
+  it('main moving with a file the pull request does not change merges the leased head with no update, whatever BUS_RERUN says', async () => {
+    for (const env of [{}, BY_LAYERS]) {
+      const made = bench()
+      mainMovedUnder(made, { mainFiles: ['src/cli.ts'] })
+
+      expect(await mergeAndUpdate(made, env)).toEqual([MERGED_THE_LEASED_HEAD])
+      expect(eventsOf(made.db, MERGE_DONE)).toEqual([expect.objectContaining({ rule: 'auto' })])
+    }
   })
 
-  it('by layers, no overlap merges without a re-run', async () => {
-    const made = bench()
-    mainMovedUnder(made, { mainFiles: ['src/cli.ts'] })
+  it('main changing a file of the pull request updates it onto main and does not merge the old head', async () => {
+    for (const mergeable of ['behind', 'clean']) {
+      const made = bench()
+      mainMovedUnder(made, { mainFiles: [MAIN_CHANGED_A_FILE_OF_THE_PR], mergeable })
 
-    expect(await mergeAndUpdate(made, BY_LAYERS)).toEqual([MERGED_THE_LEASED_HEAD])
-    expect(eventsOf(made.db, MERGE_DONE)).toEqual([expect.objectContaining({ rule: 'auto' })])
+      expect(await mergeAndUpdate(made, {})).toEqual([UPDATED_THE_LEASED_HEAD, MERGED_THE_UPDATED_HEAD])
+      expect(made.gitHub.pulls.get(970)).toEqual(expect.objectContaining({ head: sha('d'), baseSha: MAIN_2 }))
+    }
   })
 
-  it('by layers, a change of main in a layer of the pull request updates it onto main and does not merge the old head', async () => {
+  it('a host that requires an up-to-date branch no longer sends a clean pull request to an update by itself', async () => {
     const made = bench()
-    mainMovedUnder(made, { mainFiles: ['scripts/core/db.ts'] })
+    mainMovedUnder(made, { mainFiles: ['src/cli.ts'], mergeable: 'clean', upToDateRequired: true })
 
-    expect(await mergeAndUpdate(made, BY_LAYERS)).toEqual([UPDATED_THE_LEASED_HEAD, MERGED_THE_UPDATED_HEAD])
-    expect(eventsOf(made.db, POLICY_DENIED)).toContainEqual(expect.objectContaining({ command: 'merge', reason: NEEDS_UPDATE, detail: expect.stringContaining('bus-core') }))
-  })
-
-  it('by layers, a clean pull request whose layers main changed is sent to the update node on a host that does not require an up-to-date branch', async () => {
-    const made = bench()
-    mainMovedUnder(made, { mainFiles: ['scripts/core/db.ts'], mergeable: 'clean' })
-
-    expect(await mergeAndUpdate(made, BY_LAYERS)).toEqual([UPDATED_THE_LEASED_HEAD, MERGED_THE_UPDATED_HEAD])
-  })
-
-  it('by layers, a host that requires an up-to-date branch keeps the update as now', async () => {
-    const made = bench()
-    mainMovedUnder(made, { mainFiles: ['src/cli.ts'], upToDateRequired: true })
-
-    expect(await mergeAndUpdate(made, BY_LAYERS)).toEqual([UPDATED_THE_LEASED_HEAD, MERGED_THE_UPDATED_HEAD])
-  })
-
-  it('by layers, a clean pull request on a host that requires an up-to-date branch merges as now', async () => {
-    const made = bench()
-    mainMovedUnder(made, { mainFiles: ['scripts/core/db.ts'], mergeable: 'clean', upToDateRequired: true })
-
-    expect(await mergeAndUpdate(made, BY_LAYERS)).toEqual([MERGED_THE_LEASED_HEAD])
+    expect(await mergeAndUpdate(made, {})).toEqual([MERGED_THE_LEASED_HEAD])
   })
 })
 
 describe('a denial that names a cure', () => {
-  const UNPLACED_ON_MAIN = 'scripts/tests/core/owner-commands-pending.json'
+  const A_FILE_OF_970 = PR_FILES[0]!
 
   function theUpdateKeySpent(made: MergeBench): void {
     const ts = made.clock.now().toISOString()
@@ -605,8 +594,8 @@ describe('a denial that names a cure', () => {
     completeTask(made.db, ts, leaseNext(made.db, ts, 'update', 'worker:update:worker-0')!, [])
   }
 
-  function theUnplacedCase(made: MergeBench): void {
-    mainMovedUnder(made, { mainFiles: [UNPLACED_ON_MAIN], mergeable: 'unstable' })
+  function theUpdateDueCase(made: MergeBench): void {
+    mainMovedUnder(made, { mainFiles: [A_FILE_OF_970], mergeable: 'unstable' })
     made.gitHub.open({ number: 971, head: sha('b'), review: 'success', baseSha: MAIN_2, body: `${cardBody(971)}\n\n${A_MATRIX_COUNT_LINE}` })
     theUpdateKeySpent(made)
     made.tick()
@@ -623,26 +612,26 @@ describe('a denial that names a cure', () => {
     return made.gitHub.puts.map(each => `${each.endpoint.replace(`${REPO}/pulls/`, '')} ${each.fields.sha ?? each.fields.expected_head_sha}`)
   }
 
-  it('needs_update that no node performs yields the head', async () => {
+  it('needs_update that no node performs yields the head: 970 is never merged on the stale base, at most one denial, and 971 merges', async () => {
     const made = bench()
-    theUnplacedCase(made)
+    theUpdateDueCase(made)
 
     const puts = await threeRounds(made)
-    expect(eventsOf(made.db, POLICY_DENIED)).toContainEqual(expect.objectContaining({ reason: NEEDS_UPDATE, detail: expect.stringContaining(`${UNPLACED_ON_MAIN} belongs to no layer`) }))
-    expect(puts.slice(0, 2)).toEqual([`971/merge ${sha('b')}`, `970/update-branch ${sha('a')}`])
-    expect(puts.filter(each => each.startsWith('970/merge')).length).toBeLessThanOrEqual(1)
+    expect(puts).toContain(`971/merge ${sha('b')}`)
+    expect(puts.filter(each => each.startsWith('970/merge'))).toEqual([])
+    expect(eventsOf(made.db, POLICY_DENIED).filter(each => each.reason === NEEDS_UPDATE).length).toBeLessThanOrEqual(1)
   })
 
-  it('a held card merge task yields the merge slot', async () => {
+  it('a held card is parked out of its turn: no merge task is queued for it, so no denial, and 971 merges', async () => {
     const made = bench()
-    theUnplacedCase(made)
+    theUpdateDueCase(made)
     appendEvent(made.db, { ts: made.clock.now().toISOString(), type: CARD_HELD, actor: 'owner', cardId: 1070, pr: null, head: null, dedupeKey: `${CARD_HELD}:hold`, payload: { request: 1, reason: 'the owner reads it first' }, legacy: false })
     made.tick()
 
     const puts = await threeRounds(made)
     expect(puts).toContain(`971/merge ${sha('b')}`)
-    expect(puts.filter(each => each.startsWith('970/merge'))).toEqual([])
-    expect(eventsOf(made.db, POLICY_DENIED).filter(each => each.reason === HELD_FOR_OWNER).length).toBe(1)
+    expect(puts.filter(each => each.startsWith('970/'))).toEqual([])
+    expect(mergeTasks(made, 970)).toBe(0)
   })
 
   it('a merge task denied with 429 waits out the retry-after', () => {
@@ -661,53 +650,50 @@ describe('a denial that names a cure', () => {
   })
 })
 
-describe('what by layers reads of main and of the pull request', () => {
+describe('what the order and the check before merge read of main and of the pull request', () => {
   const UPDATED_THEN_MERGED = [`update ${sha('a')}`, `merge ${sha('d')}`]
   const SOURCE_ONLY = Array.from({ length: 300 }, (_, index) => `src/file-${index}.ts`)
 
-  it('by layers, a compare that lists the 300 files GitHub caps it at counts as an overlap and updates', async () => {
+  it('a main step whose file list GitHub cut at 300 counts as an overlap, so the pull request is updated before it merges', async () => {
     const made = bench()
     mainMovedUnder(made, { mainFiles: SOURCE_ONLY })
 
-    expect(await mergeAndUpdate(made, BY_LAYERS)).toEqual(UPDATED_THEN_MERGED)
-    expect(eventsOf(made.db, POLICY_DENIED)).toContainEqual(expect.objectContaining({ reason: NEEDS_UPDATE, detail: expect.stringContaining('300 files') }))
+    expect(await mergeAndUpdate(made, {})).toEqual(UPDATED_THEN_MERGED)
   })
 
-  it('by layers, 299 files of main outside the layers of the pull request still merge without a re-run', async () => {
+  it('299 files of main that the pull request does not change still merge with no update', async () => {
     const made = bench()
     mainMovedUnder(made, { mainFiles: SOURCE_ONLY.slice(1) })
 
-    expect(await mergeAndUpdate(made, BY_LAYERS)).toEqual([`merge ${sha('a')}`])
+    expect(await mergeAndUpdate(made, {})).toEqual([`merge ${sha('a')}`])
   })
 
-  it('by layers, a compare that lists fewer commits than total_commits counts as an overlap and updates', async () => {
+  it('a compare that lists fewer commits than total_commits counts as an overlap at the check before merge and updates', async () => {
     const made = bench()
     mainMovedUnder(made, { mainFiles: ['src/cli.ts'], commitsBeyondTheCompare: 1 })
 
-    expect(await mergeAndUpdate(made, BY_LAYERS)).toEqual(UPDATED_THEN_MERGED)
-    expect(eventsOf(made.db, POLICY_DENIED)).toContainEqual(expect.objectContaining({ reason: NEEDS_UPDATE, detail: expect.stringContaining('1 of 2 commits') }))
+    expect(await mergeAndUpdate(made, {})).toEqual(UPDATED_THEN_MERGED)
+    expect(eventsOf(made.db, POLICY_DENIED)).toEqual([expect.objectContaining({ reason: NEEDS_UPDATE, detail: expect.stringContaining('1 of 2 commits') })])
   })
 
-  it('by layers, a file main renamed out of a layer of the pull request counts that layer', async () => {
+  it('a file main renamed away from a file of the pull request counts as an overlap', async () => {
     const made = bench()
-    mainMovedUnder(made, { mainFiles: ['src/db.ts'], mainRenamedFrom: { 'src/db.ts': 'scripts/core/db.ts' } })
+    mainMovedUnder(made, { mainFiles: ['src/worker.ts'], mainRenamedFrom: { 'src/worker.ts': 'scripts/nodes/merge/merge-worker.ts' } })
 
-    expect(await mergeAndUpdate(made, BY_LAYERS)).toEqual(UPDATED_THEN_MERGED)
-    expect(eventsOf(made.db, POLICY_DENIED)).toContainEqual(expect.objectContaining({ reason: NEEDS_UPDATE, detail: expect.stringContaining('bus-core') }))
+    expect(await mergeAndUpdate(made, {})).toEqual(UPDATED_THEN_MERGED)
   })
 
-  it('by layers, a file the pull request renamed out of a layer main changed counts that layer', async () => {
+  it('a file the pull request renamed away from a file main changed counts as an overlap', async () => {
     const made = bench()
-    mainMovedUnder(made, { mainFiles: ['scripts/core/reducer.ts'], prFiles: ['src/db.ts'], prRenamedFrom: { 'src/db.ts': 'scripts/core/db.ts' } })
+    mainMovedUnder(made, { mainFiles: ['scripts/core/db.ts'], prFiles: ['src/db.ts'], prRenamedFrom: { 'src/db.ts': 'scripts/core/db.ts' } })
 
-    expect(await mergeAndUpdate(made, BY_LAYERS)).toEqual(UPDATED_THEN_MERGED)
-    expect(eventsOf(made.db, POLICY_DENIED)).toContainEqual(expect.objectContaining({ reason: NEEDS_UPDATE, detail: expect.stringContaining('bus-core') }))
+    expect(await mergeAndUpdate(made, {})).toEqual(UPDATED_THEN_MERGED)
   })
 
-  it('by layers, the same pull request without the rename merges without a re-run', async () => {
+  it('the same pull request without the rename merges with no update', async () => {
     const made = bench()
-    mainMovedUnder(made, { mainFiles: ['scripts/core/reducer.ts'], prFiles: ['src/db.ts'] })
+    mainMovedUnder(made, { mainFiles: ['scripts/core/db.ts'], prFiles: ['src/db.ts'] })
 
-    expect(await mergeAndUpdate(made, BY_LAYERS)).toEqual([`merge ${sha('a')}`])
+    expect(await mergeAndUpdate(made, {})).toEqual([`merge ${sha('a')}`])
   })
 })

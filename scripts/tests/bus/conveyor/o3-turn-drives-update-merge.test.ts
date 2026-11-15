@@ -1,6 +1,7 @@
 import type { GitHubPut } from '../../../ports/github.js'
 import type { MergeBench } from '../merge-bench.js'
 import { execFileSync } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -53,6 +54,10 @@ interface ConveyorOptions {
 
 function git(cwd: string, args: string[]): string {
   return execFileSync('git', ['-C', cwd, '-c', 'user.name=bus', '-c', 'user.email=bus@example.invalid', '-c', 'commit.gpgsign=false', '-c', 'init.defaultBranch=main', ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
+}
+
+function unlistedPath(): string {
+  return `o3-${randomUUID()}/${randomUUID()}.cfg`
 }
 
 function advanceMain(bench: MergeBench, files: readonly string[]): void {
@@ -145,13 +150,15 @@ function latestGroups(bench: MergeBench): { prs: number[], turn: number | null }
 }
 
 describe('conveyor O3: update and merge act on the turn of each group', () => {
-  it('scenario 01: two pass+green PRs with disjoint paths both merge after main moves with a file neither changed and a derived registry both share, with no update', async () => {
+  it('scenario 01: two pass+green PRs with disjoint paths both merge after main moves with a file neither changed, a derived registry both share and a generated path no layer names, with no update', async () => {
     const line = conveyor()
     const { bench } = line
     open(bench, 1601, ['docs/guide/o3-one.md', MODULE_FILES])
     open(bench, 1602, ['docs/guide/o3-two.md', MODULE_FILES])
     bench.tick()
     advanceMain(bench, ['eslint.config.mjs', MODULE_FILES])
+    bench.tick()
+    advanceMain(bench, [unlistedPath()])
     bench.tick()
 
     await rounds(line, 3)

@@ -16,6 +16,7 @@ import { REVIEW_ROUNDS } from '../../core/queue.js'
 import { MergeExecutor } from '../../nodes/merge/merge-executor.js'
 import { BusRead } from '../../ports/bus-read.js'
 import { NetWatch, TICK_MS } from '../../ports/netwatch.js'
+import { MAIN_FILES_CAP } from '../../ports/snapshot.js'
 import { busProjections } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { BusTick } from '../../supervisor/run.js'
@@ -91,6 +92,16 @@ export function mergeBench(intake: Intake = () => () => {}, liveNodes: LiveNodes
       rmSync(root, { recursive: true, force: true })
     },
   }
+}
+
+const MAINS_PAST_EVERY_PR = ['5', '6', '7', '8', '9'].map(sha)
+
+export function mainMovesPastEveryPr(bench: Pick<MergeBench, 'gitHub' | 'tick'>): string {
+  const next = MAINS_PAST_EVERY_PR.find(main => main > bench.gitHub.main)!
+  bench.gitHub.mainFiles[next] = Array.from({ length: MAIN_FILES_CAP }, (_, at) => `docs/moved/${next.slice(0, 1)}-${at}.md`)
+  bench.gitHub.main = next
+  bench.tick()
+  return next
 }
 
 export function cardVerified(db: DatabaseSync, ts: string, cardId: number, pr: number, verification = 'run'): void {
