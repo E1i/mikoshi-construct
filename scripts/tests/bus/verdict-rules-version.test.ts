@@ -14,7 +14,7 @@ import { REVIEW_RULES_FILE, REVIEW_RULES_SHA, REVIEW_RULES_VERSION, ReviewExecut
 import { recordedVerdictOn, UpdateExecutor } from '../../nodes/update/update-executor.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { sha } from './github-fake.js'
-import { eventCount, eventsOf, liveBench } from './merge-bench.js'
+import { eventCount, eventsOf, liveBench, mainMovesPastEveryPr } from './merge-bench.js'
 import { detectUpdate } from './update-detection.js'
 
 const NEW_HEAD = sha('d')
@@ -31,6 +31,7 @@ function carriedVerdict(bench: MergeBench, pr: number, from: string, to: string,
 
 function updated(bench: MergeBench): Record<string, unknown>[] {
   const executor = new UpdateExecutor({ silentMs: SILENT_MS, db: bench.db, gitHub: bench.gitHub.client, put: bench.gitHub.put, publish: bench.gitHub.publish, clock: bench.clock.now, settle: () => {} })
+  mainMovesPastEveryPr(bench)
   detectUpdate(bench)
   executor.update(leaseNext(bench.db, bench.clock.now().toISOString(), 'update', 'worker:update:worker-1')!)
   return eventsOf(bench.db, UPDATE_DONE)

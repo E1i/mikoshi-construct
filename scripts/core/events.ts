@@ -33,6 +33,7 @@ export const CHILD_STARTED = 'child.started'
 export const CI_RERUN_REQUESTED = 'ci.rerun.requested'
 export const CHECKS_MATRIX_EVENT = 'checks.matrix'
 export const COMMAND_EXECUTED = 'command.executed'
+export const CONTENTION_SUSPENDED = 'contention.suspended'
 export const DECISION_EXPIRED = 'decision.expired'
 export const DECISION_RECORDED = 'decision.recorded'
 export const DECISIONS_CUT_OVER = 'decisions.cut-over'
@@ -189,6 +190,7 @@ export const EVENT_PAYLOADS = {
   [CHILD_STARTED]: ['generation', 'instance', 'kind', 'lstart', 'mode', 'pgid', 'pid', 'task_key', 'tree'],
   [CI_RERUN_REQUESTED]: ['detail', 'lease_gen', 'requested', 'runs', 'task_key'],
   [COMMAND_EXECUTED]: ['command', 'endpoint', 'error', 'event_id', 'lease_gen', 'ok', 'run', 'runs', 'status', 'task_key', 'text'],
+  [CONTENTION_SUSPENDED]: ['area', 'prs', 'request'],
   [DECISION_EXPIRED]: ['decision_id', 'until'],
   [DECISION_RECORDED]: ['decision_id', 'scope', 'source', 'supersedes', 'text'],
   [DECISIONS_CUT_OVER]: [],
@@ -204,7 +206,7 @@ export const EVENT_PAYLOADS = {
   [LANE_ASSIGNED]: ['admission', 'after', 'lane', 'lanes', 'reason'],
   [LANE_OVERLAP]: ['generation', 'lane'],
   [LEASES_DRAINING]: ['from', 'node', 'sha', 'until'],
-  [MAIN_ADVANCED]: ['paths', 'pathsTruncated', 'sha', 'touches_mechanics'],
+  [MAIN_ADVANCED]: ['ci', 'paths', 'pathsTruncated', 'sha', 'touches_mechanics'],
   [MERGE_DONE]: ['commit', 'lease_gen', 'rule', 'task_key', 'witnessBase'],
   [NETWATCH_SKIPPED]: ['calls', 'cause', 'detail', 'reason', 'until'],
   [BUS_PULSE]: ['calls', 'gap_s', 'rate_remaining', 'reason', 'unsettled', 'written'],
@@ -222,7 +224,7 @@ export const EVENT_PAYLOADS = {
   [POLICY_ALLOWED]: ['by', 'command', 'detail', 'lease_gen', 'reason', 'rule', 'task_key'],
   [POLICY_DENIED]: ['base', 'by', 'command', 'detail', 'kind', 'parkedUntil', 'paths', 'reason', 'refusal', 'refused', 'rule'],
   [PR_CLOSED]: ['branch', 'by', 'commit', 'merged', 'merged_at', 'merged_by', 'reason'],
-  [PR_GROUPS]: ['groups', 'needsUpdate', 'needsVerification'],
+  [PR_GROUPS]: ['groups', 'needUpdate', 'needsUpdate', 'needsVerification'],
   [PR_OBSERVED]: ['auto_merge', 'base', 'body_sha', 'branch', 'cancelled_checks', 'card_id', 'ci', 'draft', 'failed_checks', 'head', 'mergeable', 'paths', 'pathsTruncated', 'verdict_on_head'],
   [PR_OPENED]: ['pr', 'recut_of'],
   [PR_ORDERED]: ['before', 'by'],
@@ -270,7 +272,7 @@ export const EVENT_PAYLOADS = {
   [TOUCHES_FOLLOWED]: ['paths', 'reason'],
   [UPDATE_DONE]: ['carried', 'clean', 'from', 'lease_gen', 'rebuilt', 'rules_version', 'task_key', 'to', 'tookMain', 'why'],
   [WINDOW_HEARTBEAT]: ['context', 'error', 'mode', 'model', 'reason', 'root', 'session', 'spent', 'subagents'],
-  [WINDOW_REQUEST]: ['add_witness', 'answer', 'auto_confirm', 'before', 'card', 'cards', 'command', 'depends', 'dry_run', 'file', 'from', 'gate', 'goal', 'head', 'id', 'ids', 'keep_tree', 'kind', 'mode', 'need', 'op', 'owner_words', 'plan', 'pr', 'priority', 'reason', 'remove_witness', 'supersedes', 'task_key', 'text', 'title', 'touches', 'until'],
+  [WINDOW_REQUEST]: ['add_witness', 'answer', 'area', 'auto_confirm', 'before', 'card', 'cards', 'command', 'depends', 'dry_run', 'file', 'from', 'gate', 'goal', 'head', 'id', 'ids', 'keep_tree', 'kind', 'mode', 'need', 'op', 'owner_words', 'plan', 'pr', 'priority', 'reason', 'remove_witness', 'supersedes', 'task_key', 'text', 'title', 'touches', 'until'],
   [REQUEST_DONE]: ['detail', 'kind', 'request'],
   [REQUEST_REFUSED]: ['detail', 'kind', 'owner', 'request'],
   [WINDOW_SUBAGENT_EVENT]: ['phase', 'role', 'session', 'step', 'task', 'tree'],

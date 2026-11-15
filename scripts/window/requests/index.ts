@@ -4,6 +4,7 @@ import { execute as allowMerge } from './allow-merge.js'
 import { execute as amend } from './amend.js'
 import { execute as ciRerun } from './ci-rerun.js'
 import { execute as closePr } from './close-pr.js'
+import { execute as contentionSuspend } from './contention-suspend.js'
 import { execute as decisionsAdd } from './decisions-add.js'
 import { execute as drop } from './drop.js'
 import { execute as hold } from './hold.js'
@@ -48,6 +49,7 @@ export const REQUEST_EXECUTORS: Readonly<Record<RequestKind, RequestExecutor>> =
   'numbers.foreign': numbersForeign,
   'owner.answer': ownerAnswer,
   'order.move': orderMove,
+  'contention.suspend': contentionSuspend,
   'owner.stop': ownerStop,
   'owner.launch': ownerLaunch,
   'owner.takeover': ownerTakeover,

@@ -25,7 +25,7 @@ import { activeWindowShards, decisionsInForceAt, unspentShard } from '../../poli
 import { busProjections } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { cardBody, sha } from './github-fake.js'
-import { eventCount, eventsOf, liveBench, mergeBench, spendReviewRounds, taskState } from './merge-bench.js'
+import { eventCount, eventsOf, liveBench, mainMovesPastEveryPr, mergeBench, spendReviewRounds, taskState } from './merge-bench.js'
 import { detectUpdate } from './update-detection.js'
 
 const UNTIL_MS = Date.parse('2026-10-09T13:00:00.000Z')
@@ -105,6 +105,7 @@ function decidedAndBehind(): MergeBench & { update: () => UpdateOutcome } {
   spendReviewRounds(bench, ROUND_LIMITED_PR, DECIDED_HEAD)
   recordDecision(bench.db, { ts: bench.clock.now().toISOString(), decisionId: 168, text: `[owner] allow-merge PR #${ROUND_LIMITED_PR} at ${DECIDED_HEAD} past the round limit`, cards: [] })
   bench.tick()
+  mainMovesPastEveryPr(bench)
   detectUpdate(bench)
   const executor = new UpdateExecutor({ silentMs: SILENT_MS, db: bench.db, gitHub: bench.gitHub.client, put: bench.gitHub.put, publish: bench.gitHub.publish, clock: bench.clock.now, settle: () => {} })
   return { ...bench, update: () => executor.update(leaseNext(bench.db, bench.clock.now().toISOString(), 'update', 'worker:update:worker-1')!) }
@@ -446,7 +447,7 @@ describe('a head that moves under the queues', () => {
     const mergeKey = (head: string): string => keyOf({ queue: 'merge', cardId: 1054, pr: 954, head, prBody: prBodySha(cardBody(954)) })
     bench.gitHub.open({ number: 954, head: heads[0], review: 'success' })
     bench.tick()
-    bench.gitHub.pulls.get(954)!.mergeable_state = 'behind'
+    bench.gitHub.pulls.get(954)!.mergeable_state = 'blocked'
     expect(bench.merge(bench.lease()!)).toMatchObject({ kind: 'denied', taskKey: mergeKey(heads[0]!), denial: { reason: 'not_mergeable' }, next: 'queued' })
 
     for (const [at, head] of heads.slice(0, -1).entries()) {
@@ -544,17 +545,18 @@ describe('a head that moves under the queues', () => {
 })
 
 describe('an open owner question of the card', () => {
-  it('a card with an open decision question does not merge', () => {
+  it('a card with an open decision question is parked out of its turn: no merge task, nothing put, and it merges once the question closes', () => {
     const bench = liveBench()
     bench.gitHub.open({ number: 958, review: 'success' })
     const question = openOwnerWait(bench.db, bench.clock.now().toISOString(), 'policy', { need: 'decision', text: 'which path?', card: 1058, request: 7 })
     openOwnerWait(bench.db, bench.clock.now().toISOString(), 'policy', { need: 'decision', text: 'another card', card: 1059, request: 8 })
     openOwnerWait(bench.db, bench.clock.now().toISOString(), 'policy', { need: 'merge', text: 'merge it', card: 1058, pr: 958 })
     openOwnerWait(bench.db, bench.clock.now().toISOString(), 'policy', { need: 'command', text: 'run it', command: 'pnpm bus:status', card: 1058 })
-    bench.tick()
-
-    expect(bench.merge(bench.lease()!)).toMatchObject({ kind: 'denied', denial: { kind: 'technical', reason: 'owner_question_open', detail: expect.stringContaining(`${question} (which path?)`) as unknown }, next: 'withdrawn' })
-    expect(eventsOf(bench.db, POLICY_DENIED)).toMatchObject([{ reason: 'owner_question_open', parkedUntil: 'wait_closed' }])
+    for (let tick = 0; tick < 3; tick += 1) {
+      bench.tick()
+      expect(bench.lease()).toBeNull()
+    }
+    expect(eventsOf(bench.db, POLICY_DENIED)).toEqual([])
     expect(bench.gitHub.puts).toEqual([])
 
     closeOwnerWait(bench.db, bench.clock.now().toISOString(), 'owner', question, 'the cheap path', 7)
@@ -563,18 +565,19 @@ describe('an open owner question of the card', () => {
     bench.close()
   })
 
-  it('a merge task held by an open owner question parks until the wait closes: denied once, not leased again', () => {
+  it('a merge task queued before the question opened is denied once and parks until the wait closes, not leased again', () => {
     const bench = liveBench()
     bench.gitHub.open({ number: 958, review: 'success' })
+    bench.tick()
     const question = openOwnerWait(bench.db, bench.clock.now().toISOString(), 'policy', { need: 'decision', text: 'which path?', card: 1058, request: 7 })
     bench.tick()
 
-    expect(bench.merge(bench.lease()!)).toMatchObject({ kind: 'denied', denial: { reason: 'owner_question_open' }, next: 'withdrawn' })
+    expect(bench.merge(bench.lease()!)).toMatchObject({ kind: 'denied', denial: { reason: 'owner_question_open', detail: expect.stringContaining(`${question} (which path?)`) as unknown }, next: 'withdrawn' })
     for (let tick = 0; tick < 3; tick += 1) {
       bench.tick()
       expect(bench.lease()).toBeNull()
     }
-    expect(eventsOf(bench.db, POLICY_DENIED)).toHaveLength(1)
+    expect(eventsOf(bench.db, POLICY_DENIED)).toMatchObject([{ reason: 'owner_question_open', parkedUntil: 'wait_closed' }])
     expect(eventsOf(bench.db, POLICY_DENIED)[0]).not.toHaveProperty('refused')
 
     closeOwnerWait(bench.db, bench.clock.now().toISOString(), 'owner', question, 'the cheap path', 7)
@@ -587,9 +590,9 @@ describe('an open owner question of the card', () => {
   it('a pull request GitHub already merged at the leased head is recorded while a decision question of its card is open', () => {
     const bench = liveBench()
     bench.gitHub.open({ number: 959, review: 'success' })
-    openOwnerWait(bench.db, bench.clock.now().toISOString(), 'policy', { need: 'decision', text: 'which path?', card: 1059, request: 7 })
     bench.tick()
     const lease = bench.lease()!
+    openOwnerWait(bench.db, bench.clock.now().toISOString(), 'policy', { need: 'decision', text: 'which path?', card: 1059, request: 7 })
     bench.gitHub.close(959, true)
 
     expect(bench.merge(lease)).toMatchObject({ kind: 'merged' })

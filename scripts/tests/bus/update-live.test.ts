@@ -15,8 +15,8 @@ import { NetWatch } from '../../ports/netwatch.js'
 import { busProjections } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { switchDetection, switchWorker, wantedLaunches } from '../../supervisor/workers.js'
-import { sha } from './github-fake.js'
-import { eventsOf, mergeBench } from './merge-bench.js'
+import { MAIN_2, MAIN_3, sha } from './github-fake.js'
+import { benchOrderTick, eventsOf, mergeBench } from './merge-bench.js'
 
 const benches: MergeBench[] = []
 const NO_PREFLIGHT = (): string[] => []
@@ -66,6 +66,21 @@ async function once(node: UpdateNode): Promise<void> {
 function observedWithoutDeriveQueues(made: MergeBench): void {
   new NetWatch(made.db, made.gitHub.client, made.clock.now).poll()
   reduce(made.db, 'pending', busProjections())
+  benchOrderTick(made.db, made.clock).step()
+}
+
+function fileOf(pr: number): string {
+  return `scripts/changed-by-${pr}.ts`
+}
+
+function mainMovesOver(made: MergeBench, prs: readonly number[], main = MAIN_2): void {
+  made.gitHub.mainFiles[main] = prs.map(fileOf)
+  made.gitHub.main = main
+}
+
+function needsAnUpdate(made: MergeBench, pr: number, main = MAIN_2): void {
+  made.gitHub.open({ number: pr, review: 'success', files: [fileOf(pr)] })
+  mainMovesOver(made, [pr], main)
 }
 
 function updateKey(pr: number): string {
@@ -94,7 +109,7 @@ describe('update live', () => {
   it('a live update node and deriveQueues on one db leave exactly one tasks row, one task.enqueued and one node.detected with outcome queued, in every order', async () => {
     for (const order of ORDERS) {
       const made = bench()
-      made.gitHub.open({ number: 980, review: 'success', mergeable_state: 'behind' })
+      needsAnUpdate(made, 980)
       const node = nodeOf(made)
       if (order === 'node first') {
         observedWithoutDeriveQueues(made)
@@ -125,7 +140,7 @@ describe('update live', () => {
 
   it('deriveQueues alone enqueues no update task', async () => {
     const made = bench()
-    made.gitHub.open({ number: 980, review: 'success', mergeable_state: 'behind' })
+    needsAnUpdate(made, 980)
     made.tick()
     made.tick()
     expect(updateTasks(made, 980)).toBe(0)
@@ -145,12 +160,11 @@ describe('update live', () => {
   it('a live update node restarted mid-batch writes no second task and no second node.detected', async () => {
     const made = bench()
     for (const pr of [981, 982])
-      made.gitHub.open({ number: pr, review: 'success' })
+      made.gitHub.open({ number: pr, review: 'success', files: [fileOf(pr)] })
     made.tick()
     const node = nodeOf(made)
     await once(node)
-    for (const pr of [981, 982])
-      made.gitHub.pulls.get(pr)!.mergeable_state = 'behind'
+    mainMovesOver(made, [981, 982])
     made.tick()
     node.failOnNextCall(1)
     await expect(once(node)).rejects.toThrow('injected in the middle of a batch')
@@ -184,7 +198,7 @@ describe('update live', () => {
       expect(updateMode()).toBe('live')
 
       const made = bench()
-      made.gitHub.open({ number: 980, review: 'success', mergeable_state: 'behind' })
+      needsAnUpdate(made, 980)
       observedWithoutDeriveQueues(made)
       await once(nodeOf(made, updateMode()))
       expect(detectedOf(made, 980).map(payload => payload.outcome)).toEqual(['queued'])
@@ -193,7 +207,7 @@ describe('update live', () => {
       expect(updateMode()).toBe('shadow')
       const shadow = nodeOf(made, updateMode())
       made.gitHub.close(980, true)
-      made.gitHub.open({ number: 981, review: 'success', mergeable_state: 'behind' })
+      needsAnUpdate(made, 981, MAIN_3)
       observedWithoutDeriveQueues(made)
       await once(shadow)
       expect(detectedOf(made, 981).map(payload => payload.via).sort()).toEqual(['event', 'tick'])

@@ -397,6 +397,14 @@
           "text"
         ]
       },
+      "contention.suspended": {
+        "complete": true,
+        "keys": [
+          "area",
+          "prs",
+          "request"
+        ]
+      },
       "decision.expired": {
         "complete": true,
         "keys": [
@@ -598,6 +606,7 @@
       "main.advanced": {
         "complete": true,
         "keys": [
+          "ci",
           "paths",
           "pathsTruncated",
           "sha",
@@ -779,6 +788,7 @@
         "complete": true,
         "keys": [
           "groups",
+          "needUpdate",
           "needsUpdate",
           "needsVerification"
         ]
@@ -1249,6 +1259,7 @@
         "keys": [
           "add_witness",
           "answer",
+          "area",
           "auto_confirm",
           "before",
           "card",
@@ -4158,6 +4169,7 @@
           "pr.observed",
           "pr.closed",
           "pr.opened",
+          "pr.groups",
           "card.admitted",
           "merge.done",
           "review.recorded",
@@ -4211,6 +4223,7 @@
           "reducer.reduced",
           "pr.observed",
           "pr.opened",
+          "pr.groups",
           "card.admitted",
           "policy.denied",
           "card.stopped"
@@ -4261,7 +4274,7 @@
       "scripts/cli/board-warnings.ts": 2,
       "scripts/cli/card-chain.ts": 3,
       "scripts/cli/card.ts": 1,
-      "scripts/cli/check-catalog.ts": 2,
+      "scripts/cli/check-catalog.ts": 1,
       "scripts/cli/no-layer-recount.ts": 1,
       "scripts/core/bus-readings.ts": 4,
       "scripts/core/card-automaton.ts": 12,
@@ -4277,7 +4290,7 @@
       "scripts/core/legacy-history.ts": 1,
       "scripts/core/node.ts": 4,
       "scripts/core/observations.ts": 6,
-      "scripts/core/queue.ts": 64,
+      "scripts/core/queue.ts": 63,
       "scripts/core/reducer.ts": 10,
       "scripts/core/report.ts": 5,
       "scripts/core/stored.ts": 1,
@@ -5904,7 +5917,7 @@
           "ChangedPaths": "interface ChangedPaths { paths: string[]; pathsTruncated: boolean; }",
           "ClosedPr": "interface ClosedPr { pr: number; cardId: number | null; branch?: string | null; merged: boolean; commit: string | null; mergedBy: string | null; mergedAt: string | null; }",
           "InMemoryPulls": "class InMemoryPulls { asked: string[]; constructor(private readonly bodies: Readonly<Record<string, unknown>>); meter(): Meter }",
-          "MainHead": "interface MainHead { sha: string; touchesMechanics: boolean; changed?: ChangedPaths; }",
+          "MainHead": "interface MainHead { sha: string; touchesMechanics: boolean; changed?: ChangedPaths; ci?: string; }",
           "Mergeable": "type Mergeable = 'clean' | 'behind' | 'dirty' | 'blocked'",
           "OpenPr": "interface OpenPr { pr: number; cardId: number | null; base: string; head: string; branch: string | null; mergeable: Mergeable; ciFields: CiObservation; cancelledChecks?: string[]; verdictOnHead: VerdictOnHead | null; autoMerge: boolean; draft: boolean; bodySha: string; changed?: ChangedPaths; }",
           "RecordedPathsOf": "type RecordedPathsOf = (pr: number, head: string) => ChangedPaths | null",
