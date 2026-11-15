@@ -185,9 +185,12 @@ function declarationsAt(root: string): OverlapDeclarations {
   return read
 }
 
+export function withoutDerived(task: ShiftTask): ShiftTask {
+  return { ...task, touches: effectivePaths(task.touches, declarationsAt(process.cwd())) }
+}
+
 function laneTouches(task: ShiftTask): ShiftTask {
-  const touches = task.touches.filter(entry => !REBUILT_ON_REBASE.has(path.posix.basename(entry)))
-  return { ...task, touches: effectivePaths(touches, declarationsAt(process.cwd())) }
+  return withoutDerived({ ...task, touches: task.touches.filter(entry => !REBUILT_ON_REBASE.has(path.posix.basename(entry))) })
 }
 
 function overlaps(a: ShiftTask | null, b: ShiftTask | null, shared: readonly string[]): boolean {

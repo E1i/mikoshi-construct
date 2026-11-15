@@ -19,7 +19,7 @@ import { namesQueueLive } from '../../policy/live-decision.js'
 import { BusRead } from '../../ports/bus-read.js'
 import { isAlive } from '../../quality/lock.js'
 import { beatsLive } from '../../supervisor/liveness-sites.js'
-import { chainLaneNumber, currentLane, heldByStall, repositoryLanes, stalledCards, startOrder } from './lane-assign.js'
+import { chainLaneNumber, currentLane, heldByStall, repositoryLanes, stalledCards, startOrder, withoutDerived } from './lane-assign.js'
 import { taskConflicts } from './overlap.js'
 import { sharedAppendFiles } from './shared-files.js'
 
@@ -236,7 +236,7 @@ function parkedOf(row: LifeRow, payload: Record<string, unknown>): ParkedTask | 
 }
 
 function conflicting(task: ShiftTask | null, other: ShiftTask | null, shared: readonly string[]): boolean {
-  return task !== null && other !== null && taskConflicts([other, task], shared).length > 0
+  return task !== null && other !== null && taskConflicts([withoutDerived(other), withoutDerived(task)], shared).length > 0
 }
 
 function overlappingPath(task: ShiftTask, other: ShiftTask | null, shared: readonly string[]): string {
