@@ -2280,6 +2280,7 @@
           "scripts/supervisor/heartbeat.ts",
           "scripts/supervisor/review-bg.ts",
           "scripts/supervisor/run.ts",
+          "scripts/supervisor/session-view.ts",
           "scripts/supervisor/start.ts",
           "scripts/supervisor/supervisor.ts",
           "scripts/window/card-measure.ts",
@@ -3791,6 +3792,7 @@
         "concepts": [],
         "contract": [
           "scripts/window/plan-export.ts",
+          "scripts/window/plan-folds.ts",
           "scripts/cli/card-chain.ts",
           "src/card/slice-depends.ts"
         ],
@@ -3801,6 +3803,7 @@
         ],
         "owns": [
           "scripts/window/plan-export.ts",
+          "scripts/window/plan-folds.ts",
           "scripts/cli/card-chain.ts",
           "src/card/slice-depends.ts"
         ],
@@ -4044,7 +4047,8 @@
           "scripts/window/**",
           "scripts/conveyor/**",
           "!scripts/window/miko.ts",
-          "!scripts/window/plan-export.ts"
+          "!scripts/window/plan-export.ts",
+          "!scripts/window/plan-folds.ts"
         ],
         "status": "undecided"
       }
@@ -4255,7 +4259,7 @@
       "scripts/core/node.ts": 4,
       "scripts/core/observations.ts": 6,
       "scripts/core/queue.ts": 64,
-      "scripts/core/reducer.ts": 17,
+      "scripts/core/reducer.ts": 10,
       "scripts/core/report.ts": 5,
       "scripts/core/stored.ts": 1,
       "scripts/core/tasks.ts": 3,
@@ -4317,6 +4321,7 @@
       "scripts/window/eddies-measure.ts": 1,
       "scripts/window/handoff-write.ts": 1,
       "scripts/window/operator-work.ts": 2,
+      "scripts/window/plan-folds.ts": 6,
       "scripts/window/requests/amend.ts": 2,
       "scripts/window/requests/context.ts": 6,
       "scripts/window/requests/drop.ts": 1,
@@ -4552,7 +4557,7 @@
           "CARD_STAGES"
         ],
         "functions": {
-          "busFacts": "(db: BusDb, now: Date): BusFacts",
+          "busFacts": "(db: BusDb, now: Date, transcripts: TranscriptReader = clientTranscriptReader): BusFacts",
           "latestCardEvents": "(db: BusDb, perCard: number): Map<number, BusCardEvent[]>",
           "openTasks": "(db: BusDb): BusTask[]"
         },
@@ -4561,7 +4566,7 @@
         ],
         "types": {
           "BusCard": "interface BusCard { id: number; state: string | null; stage: CardStage; lane: string | null; line: string | null; since: string | null; body: boolean; closed: boolean; closedAt: string | null; parent?: SliceParent; }",
-          "BusFacts": "interface BusFacts { at: string; goal: Goal | null; waits: OwnerWait[]; waitsStale?: string; cardsStale?: string; pulse: string | null; slots: BusSlot[]; cards: BusCard[]; services: BusService[]; matrices: BusMatrix[]; failure: string | null; reviewQueue: number; groups?: BusGroup[]; shadow?: BusShadow; tails?: BusTail[]; }",
+          "BusFacts": "interface BusFacts { at: string; goal: Goal | null; waits: OwnerWait[]; waitsStale?: string; cardsStale?: string; pulse: string | null; slots: BusSlot[]; cards: BusCard[]; services: BusService[]; matrices: BusMatrix[]; failure: string | null; reviewQueue: number; groups?: BusGroup[]; shadow?: BusShadow; tails?: BusTail[]; queued?: QueuedStanding[]; }",
           "BusMatrix": "interface BusMatrix { pr: number; head: string | null; full: string | null; killed: number; survived: number; notRun: number; }",
           "BusService": "interface BusService { role: string; task: string; tree: string | null; step: string; session?: string; gauges?: ServiceGauges; subagents?: SubagentReading[]; }",
           "CardStage": "type CardStage = typeof CARD_STAGES[number]",
@@ -4934,13 +4939,23 @@
         "types": {}
       },
       "src/commands/liveness.ts": {
-        "constants": [],
+        "constants": [
+          "SHOWN_ACTIONS"
+        ],
         "functions": {
-          "factoryLiveness": "(busFile: string, nowMs: number): FactoryLiveness"
+          "actionName": "(action: TimedAction): string",
+          "clientTranscriptReader": "(worktree, session)",
+          "clockOf": "(stamp: string): string",
+          "factoryLiveness": "(busFile: string, nowMs: number): FactoryLiveness",
+          "longGaps": "(reading: TranscriptReading, now: Date, live: boolean, gapMs = LONG_GAP_MS): TranscriptGap[]",
+          "minutesBetween": "(from: string, to: string): number",
+          "nowLine": "(reading: TranscriptReading, now: Date): string",
+          "readTranscript": "(text: string): TranscriptReading"
         },
         "reexports": [],
         "types": {
-          "FactoryState": "type FactoryState = 'live' | 'offline'"
+          "FactoryState": "type FactoryState = 'live' | 'offline'",
+          "TranscriptReader": "type TranscriptReader = (worktree: string, session: string) => string | null"
         }
       },
       "src/commands/mutate/index.ts": {
