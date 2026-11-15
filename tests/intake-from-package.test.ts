@@ -7,8 +7,8 @@ import process from 'node:process'
 import { build } from 'tsup'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { busDirOf } from '../scripts/core/bus-path.js'
-import { openBus, openOwnerWait } from '../scripts/core/db.js'
-import { CHILD_STARTED, WORKER_STARTED } from '../scripts/core/events.js'
+import { appendEvent, openBus, openOwnerWait } from '../scripts/core/db.js'
+import { CARD_ADMITTED, CARD_CLOSED, CHILD_STARTED, WORKER_STARTED } from '../scripts/core/events.js'
 import { QUEUE_ACTOR } from '../scripts/core/queue.js'
 import { openDatabase } from '../scripts/core/sqlite.js'
 import { publishedTreePr, taskStartCommand } from '../scripts/nodes/launch/launch-root.js'
@@ -16,6 +16,7 @@ import { PREFIX as ANSWER_PREFIX, answerWord } from '../scripts/owner/answer.js'
 import { ownerChannelOfBus } from '../scripts/owner/channel.js'
 import { DISK_FLOOR_BYTES, DISK_LOW, freeBytes, statfsReader } from '../scripts/ports/disk.js'
 import { TREE_PR_ENTRY } from '../scripts/ports/tree-publish.js'
+import { ADOPTED_KIND } from '../scripts/supervisor/recorded-worker.js'
 import { WORKERS_FILE } from '../scripts/supervisor/workers.js'
 import { waitFor } from '../scripts/tests/wait-for.js'
 import { copyFactoryAssets, factoryBuild, OUT_DIR, productBuild } from '../tsup.config.js'
@@ -27,10 +28,12 @@ const CLI_BIN = 'construct'
 const ANSWER_BIN = 'construct-answer'
 const ANSWER_ENTRY = path.join('scripts', 'owner', 'answer.js')
 const BUS_RUN_ENTRY = path.join('scripts', 'supervisor', 'run.js')
+const REDUCER_ENTRY = path.join('scripts', 'core', 'reducer.js')
 const SUPERVISOR_ENTRY = path.join('scripts', 'supervisor', 'supervisor.js')
 const NEXT_VERSION_TAG = 'next.1'
 const STOPPED_WITHIN_MS = 10_000
 const LAUNCH_WORKER = 'launch'
+const LANE_FREED_BY = 'an earlier test launched it, and the next restart needs its lane'
 const ANSWER_WORDS = 'go on from the package'
 const OWNER_DECIDES = 'pnpm decisions:add "[owner] <decision>"'
 const ANSWERED = ['window.request.done', 'window.request.refused']
@@ -279,6 +282,7 @@ describe('the published construct-answer, from a repository other than mikoshi-c
 
 interface Start {
   type: string
+  worker?: unknown
   generation: unknown
   pid: unknown
   pgid: unknown
@@ -332,16 +336,51 @@ function diskLowSince(bus: string, after: number): boolean {
   }
 }
 
+function admittedCards(): number[] {
+  const db = openDatabase(foreign.bus, { readOnly: true })
+  try {
+    return (db.prepare('SELECT DISTINCT card_id AS card FROM events WHERE type = ?').all(CARD_ADMITTED) as { card: number }[]).map(row => Number(row.card))
+  }
+  finally {
+    db.close()
+  }
+}
+
+function closeSoItsLaneIsFree(cardId: number): void {
+  const db = openBus(foreign.bus)
+  try {
+    appendEvent(db, { ts: new Date().toISOString(), type: CARD_CLOSED, actor: QUEUE_ACTOR, cardId, pr: null, head: null, dedupeKey: `${CARD_CLOSED}:${cardId}`, payload: { report: LANE_FREED_BY }, legacy: false })
+  }
+  finally {
+    db.close()
+  }
+}
+
+function reduced(): void {
+  const reduce = spawnSync(process.execPath, [path.join(foreign.installed, OUT_DIR, REDUCER_ENTRY)], { cwd: foreign.repo, env: foreign.env, encoding: 'utf8' })
+  expect(reduce.status, reduce.stderr).toBe(0)
+}
+
 function admitLaunchableCard(name: string): void {
+  admittedCards().forEach(closeSoItsLaneIsFree)
+  reduced()
   const draft = path.join(foreign.root, `${name}.draft.json`)
   const taken = path.join(foreign.root, `${name}.taken.txt`)
-  writeFileSync(draft, JSON.stringify({ cards: DRAFT.cards.map(card => ({ ...card, name, touches: [`${name}.md`] })) }))
+  writeFileSync(draft, JSON.stringify({ cards: DRAFT.cards.map(card => ({ ...card, name, touches: [`${name}.md`], creates: [`${name}.md`] })) }))
   writeFileSync(taken, '')
   const admitted = spawnSync(path.join(foreign.prefix, 'bin', INTAKE_BIN), ['--draft', draft, '--taken', taken, '--auto-confirm', '--plain'], { cwd: foreign.repo, env: foreign.env, encoding: 'utf8' })
   expect(admitted.status, `${admitted.stdout}\n${admitted.stderr}`).toBe(0)
   const busDir = busDirOf(foreign.bus)
   mkdirSync(busDir, { recursive: true })
   writeFileSync(path.join(busDir, WORKERS_FILE), `${JSON.stringify({ on: [LAUNCH_WORKER], live: [LAUNCH_WORKER] })}\n`)
+  reduced()
+}
+
+const LOG_TAIL_CHARS = 4000
+
+function busLogs(): string {
+  const busDir = busDirOf(foreign.bus)
+  return readdirSync(busDir).filter(file => file.endsWith('.log')).map(file => `${file}: ${readFileSync(path.join(busDir, file), 'utf8').slice(-LOG_TAIL_CHARS)}`).join('\n')
 }
 
 async function restartedFactory(card: string): Promise<{ starts: Start[], childStarted: boolean }> {
@@ -350,7 +389,7 @@ async function restartedFactory(card: string): Promise<{ starts: Start[], childS
   const run = spawnSync(process.execPath, [path.join(foreign.installed, OUT_DIR, SUPERVISOR_ENTRY)], { cwd: foreign.repo, env: foreign.env, encoding: 'utf8', timeout: STARTED_WITHIN_MS })
   try {
     expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(0)
-    await waitFor(() => diskLowSince(foreign.bus, after) || startsSince(foreign.bus, after).some(start => start.type === CHILD_STARTED), () => `a child.started of the launch worker in ${foreign.bus}: ${JSON.stringify(startsSince(foreign.bus, after))}\n${run.stdout}\n${run.stderr}`, STARTED_WITHIN_MS)
+    await waitFor(() => diskLowSince(foreign.bus, after) || startsSince(foreign.bus, after).some(start => start.type === CHILD_STARTED), () => `a child.started of the launch worker in ${foreign.bus}: ${JSON.stringify(startsSince(foreign.bus, after))}\n${run.stdout}\n${run.stderr}\n${busLogs()}`, STARTED_WITHIN_MS)
     return { starts: startsSince(foreign.bus, after), childStarted: !diskLowSince(foreign.bus, after) }
   }
   finally {
@@ -358,9 +397,18 @@ async function restartedFactory(card: string): Promise<{ starts: Start[], childS
   }
 }
 
+const adoptedPrefix = `worker:${ADOPTED_KIND}:`
+
+function adoptedRecord(start: Start): boolean {
+  return start.type === WORKER_STARTED && typeof start.worker === 'string' && start.worker.startsWith(adoptedPrefix)
+}
+
 function expectGeneration(restarted: { starts: Start[], childStarted: boolean }, generation: string): void {
-  expect(generationsOf(restarted.starts, WORKER_STARTED)).toEqual([generation])
-  expect(generationsOf(restarted.starts, CHILD_STARTED)).toEqual(restarted.childStarted ? [generation] : [])
+  const handed = restarted.starts.filter(start => !adoptedRecord(start))
+  const handedPids = new Set(handed.filter(start => start.type === WORKER_STARTED && start.generation === generation).map(start => start.pid))
+  expect(restarted.starts.filter(adoptedRecord).map(start => start.pid).filter(pid => !handedPids.has(pid))).toEqual([])
+  expect(generationsOf(handed, WORKER_STARTED)).toEqual([generation])
+  expect(generationsOf(handed, CHILD_STARTED)).toEqual(restarted.childStarted ? [generation] : [])
 }
 
 function installedVersion(): string {
