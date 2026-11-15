@@ -66,7 +66,13 @@ export class ReviewFailed extends Error {
 
 export const REVIEW_CEILING = 'review_ceiling'
 
-export type Reviewer = (lease: Lease, plan: ReviewPlan, card?: string | null) => Promise<Review>
+export interface ProvenWitness {
+  id: string
+  run: string
+  test: string
+}
+
+export type Reviewer = (lease: Lease, plan: ReviewPlan, card?: string | null, proven?: readonly ProvenWitness[]) => Promise<Review>
 
 export interface TreeTools {
   git: (cwd: string, args: string[]) => void
@@ -172,6 +178,16 @@ const HANDS_OFF = 'Change nothing, commit nothing, push nothing, and post nothin
 
 export const WITNESS_RUNS_LINE = 'Run the card\'s witnesses and its mutations, each by the command the card names, and nothing wider: never run vitest over a whole test directory, never move a run to the background, and never wait on a run in a polling loop (until or while with sleep); run each command in the foreground and read its result in the same step.'
 
+export const ISOLATION_GAP = 'isolation gap proven by the witness node'
+
+export function provenWitnessLine({ id, run, test }: ProvenWitness, head: string | null): string {
+  return `Witness ${id} (${run}, test "${test}") declares [needs ps], which the review sandbox refuses, and the witness node recorded it green on ${head}: do not run it or its mutations. Name it in findings as "${id}: ${ISOLATION_GAP}" and repeat that string exactly in advice; it is no reason for changes on its own.`
+}
+
+function witnessLines(lease: Lease, proven: readonly ProvenWitness[]): string[] {
+  return [WITNESS_RUNS_LINE, ...proven.map(witness => provenWitnessLine(witness, lease.head))]
+}
+
 export const VERDICT_ENDS_LINE = 'The verdict file ends the review: the bus reads it as soon as it is written and ends this session and every process it started, so write it last, once, complete.'
 
 function cardLines(card: string | null): string[] {
@@ -196,7 +212,7 @@ function prBodyLines(prBody: string | null): string[] {
   ]
 }
 
-export function reviewPrompt(lease: Lease, plan: ReviewPlan, tree: string, verdictPath: string, card: string | null = null, prBody: string | null = null): string {
+export function reviewPrompt(lease: Lease, plan: ReviewPlan, tree: string, verdictPath: string, card: string | null = null, prBody: string | null = null, proven: readonly ProvenWitness[] = []): string {
   return [
     `[review:${lease.taskKey}]`,
     `Act as the review role defined in .claude/agents/review.md. Pull request #${lease.pr} of card #${lease.cardId} is checked out at ${tree}, at its head ${lease.head}; read it there.`,
@@ -204,7 +220,7 @@ export function reviewPrompt(lease: Lease, plan: ReviewPlan, tree: string, verdi
     ...cardLines(card),
     ...prBodyLines(prBody),
     ...depthLines(lease, plan),
-    WITNESS_RUNS_LINE,
+    ...witnessLines(lease, proven),
     VERDICT_ENDS_LINE,
     `Finish by writing ${verdictPath} as JSON: {"verdict": "pass" | "changes", "findings": ["one finding per string"], "survivingMutations": ["a finding string, repeated exactly"], "advice": ["a finding string, repeated exactly"]}.`,
     SURVIVING_MUTATIONS_LINE,
@@ -348,14 +364,14 @@ export class ReviewTrees {
   }
 }
 
-export function reviewSession(repo: string, dir: string, session: string, lease: Lease, plan: ReviewPlan, env: NodeJS.ProcessEnv = process.env, card: string | null = null, prBody: string | null = null): SpawnSessionParams & { tree: string, verdictPath: string } {
+export function reviewSession(repo: string, dir: string, session: string, lease: Lease, plan: ReviewPlan, env: NodeJS.ProcessEnv = process.env, card: string | null = null, prBody: string | null = null, proven: readonly ProvenWitness[] = []): SpawnSessionParams & { tree: string, verdictPath: string } {
   const tree = path.join(dir, session)
   const verdictPath = path.join(dir, `${session}.verdict.json`)
   return {
     cwd: repo,
     addDirs: [dir],
     sessionId: session,
-    prompt: reviewPrompt(lease, plan, tree, verdictPath, card, prBody),
+    prompt: reviewPrompt(lease, plan, tree, verdictPath, card, prBody, proven),
     stdoutPath: path.join(dir, `${session}.out.jsonl`),
     stderrPath: path.join(dir, `${session}.err.log`),
     model: reviewModelOf(env),
@@ -610,11 +626,11 @@ export function realReviewStart(busPath: string = defaultBusPath()): ReviewStart
 
 export function claudeReviewer(trees: ReviewTrees, spawn: (params: SpawnSessionParams) => Promise<number> = spawnSession, pulse: SessionPulse = () => {}, beatMs = REVIEW_BEAT_MS, prBodyOf: PrBodyOf = NO_PR_BODY, start: ReviewStart = realReviewStart()): Reviewer {
   const review = reviewerOfTree(trees, spawn, pulse, beatMs, prBodyOf, start)
-  return async (lease, plan, card = null) => {
+  return async (lease, plan, card = null, proven = []) => {
     if (!await start.gate.start(lease.cardId, () => start.keep(lease)))
       throw new Error(`the review task ${lease.taskKey} was superseded or withdrawn while it waited for a session on this machine`)
     try {
-      return await review(lease, plan, card)
+      return await review(lease, plan, card, proven)
     }
     finally {
       start.gate.release(lease.cardId)
@@ -623,9 +639,9 @@ export function claudeReviewer(trees: ReviewTrees, spawn: (params: SpawnSessionP
 }
 
 function reviewerOfTree(trees: ReviewTrees, spawn: (params: SpawnSessionParams) => Promise<number>, pulse: SessionPulse, beatMs: number, prBodyOf: PrBodyOf, start: ReviewStart): Reviewer {
-  return async (lease, plan, card = null) => {
+  return async (lease, plan, card = null, proven = []) => {
     const session = randomUUID()
-    const { tree, verdictPath, ...params } = reviewSession(trees.repo, trees.dir, session, lease, plan, process.env, card, lease.pr === null ? null : prBodyOf(lease.pr))
+    const { tree, verdictPath, ...params } = reviewSession(trees.repo, trees.dir, session, lease, plan, process.env, card, lease.pr === null ? null : prBodyOf(lease.pr), proven)
     mkdirSync(trees.dir, { recursive: true })
     trees.fetch(`pull/${lease.pr}/head`)
     const held: HeldTree = { path: tree, release: () => trees.release(tree) }
