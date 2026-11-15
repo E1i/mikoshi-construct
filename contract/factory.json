@@ -4464,6 +4464,7 @@
       },
       "src/card/risk.ts": {
         "constants": [
+          "CARD_PATH_REASON",
           "RISK_LEVELS",
           "RISK_PREFIX",
           "SEAM_PREFIX",

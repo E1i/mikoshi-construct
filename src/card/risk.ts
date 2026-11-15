@@ -6,6 +6,7 @@ export const RISK_PREFIX = 'risk: '
 export const SEAM_PREFIX = 'seam: '
 export const SLICE_PREFIX = 'slice: '
 export const SLICE_DEPENDS = '· depends '
+export const CARD_PATH_REASON = /^Path \(D-76\):\s*(\S.*)$/m
 
 export type RiskLevel = typeof RISK_LEVELS[number]
 
