@@ -2392,6 +2392,7 @@
     "scripts/window/requests/amend.ts",
     "scripts/window/requests/ci-rerun.ts",
     "scripts/window/requests/close-pr.ts",
+    "scripts/window/requests/contention-suspend.ts",
     "scripts/window/requests/context.ts",
     "scripts/window/requests/decisions-add.ts",
     "scripts/window/requests/drop.ts",

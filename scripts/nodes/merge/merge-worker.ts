@@ -1,25 +1,24 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { PushPolicy } from '../../../src/commands/attach/record.js'
-import type { RerunMode } from '../../cli/check-catalog.js'
 import type { Lease } from '../../core/lease.js'
 import type { DetectionMode, NodeDeclaration, Scope } from '../../core/node.js'
 import type { QueuedTask } from '../../core/queue.js'
 import type { StoredEvent } from '../../core/stored.js'
 import type { StatusPublisher } from '../../ports/github-status.js'
 import type { GitHub, GitHubPut } from '../../ports/github.js'
-import type { MergeOutcome } from './merge-executor.js'
+import type { MainOverlap, MergeOutcome } from './merge-executor.js'
 import { randomUUID } from 'node:crypto'
 import { realpathSync } from 'node:fs'
 import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
-import { catalogIsEmpty, changedPaths, changesTheCatalog, MAIN_TIP, rebuildCatalogAt, rerunModeOf } from '../../cli/check-catalog.js'
+import { catalogIsEmpty, changedPaths, changesTheCatalog, MAIN_TIP, rebuildCatalogAt } from '../../cli/check-catalog.js'
 import { appendEvent, defaultBusPath } from '../../core/db.js'
 import { messageOf } from '../../core/errors.js'
-import { BOARD_ALARM, CARD_ADMITTED, DECISION_RECORDED, DECISIONS_IMPORTED, MERGE_DONE, PR_CLOSED, PR_OBSERVED, PR_OPENED, REDUCED, REVIEW_RECORDED } from '../../core/events.js'
+import { BOARD_ALARM, CARD_ADMITTED, DECISION_RECORDED, DECISIONS_IMPORTED, MERGE_DONE, PR_CLOSED, PR_GROUPS, PR_OBSERVED, PR_OPENED, REDUCED, REVIEW_RECORDED } from '../../core/events.js'
 import { Node, NodeRefused, runNode, UNDERSTOOD_NOW } from '../../core/node.js'
 import { pushPolicyOf } from '../../core/push-policy.js'
-import { closedByRounds, MERGE_CANDIDATES, MERGE_CANDIDATES_BEHIND, MERGE_CANDIDATES_WITHOUT_PASS, mergeCandidates, mergeDecidedPastRoundLimit } from '../../core/queue.js'
+import { mergeCandidates } from '../../core/queue.js'
 import { loadedCodeSha, readThroughPort } from '../../ports/git.js'
 import { ghStatusPublisher } from '../../ports/github-status.js'
 import { ghApi, ghApiPut } from '../../ports/github.js'
@@ -31,11 +30,11 @@ import { MergeExecutor } from './merge-executor.js'
 
 export const LIVE_REVIEWER = 'worker:review:'
 export const CATALOG_REBUILD_FAILED = 'catalog_rebuild_failed'
-export const MERGE_ON = [REDUCED, PR_OBSERVED, PR_CLOSED, PR_OPENED, CARD_ADMITTED, MERGE_DONE, REVIEW_RECORDED, DECISION_RECORDED, DECISIONS_IMPORTED] as const
+export const MERGE_ON = [REDUCED, PR_OBSERVED, PR_CLOSED, PR_OPENED, PR_GROUPS, CARD_ADMITTED, MERGE_DONE, REVIEW_RECORDED, DECISION_RECORDED, DECISIONS_IMPORTED] as const
 
 export const MERGE_NODE: NodeDeclaration = { kind: 'merge', on: MERGE_ON, understands: UNDERSTOOD_NOW }
 
-const WHOLE_QUEUE_ON: ReadonlySet<string> = new Set([REDUCED, MERGE_DONE, DECISION_RECORDED, DECISIONS_IMPORTED])
+const WHOLE_QUEUE_ON: ReadonlySet<string> = new Set([REDUCED, PR_GROUPS, MERGE_DONE, DECISION_RECORDED, DECISIONS_IMPORTED])
 
 export type MergeStep = MergeOutcome
 
@@ -51,6 +50,7 @@ export interface MergeWorkerParts {
   run: string | null
   pushPolicy?: () => PushPolicy
   rebuildCatalog?: CatalogRebuild
+  overlaps?: MainOverlap
 }
 
 export interface MergeNodeParts extends MergeWorkerParts {
@@ -70,17 +70,6 @@ export function firstLiveVerdict(db: DatabaseSync): number | null {
   return row === undefined ? null : Number(row.id)
 }
 
-interface MergeRow {
-  pr: number
-  card_id: number
-  head: string
-  body_sha: string | null
-}
-
-function scoped(query: string): string {
-  return `SELECT pr, card_id, head, body_sha FROM (${query}) WHERE (? IS NULL OR pr = ?) AND (? IS NULL OR card_id = ?) ORDER BY pr`
-}
-
 function scopeOf(event: StoredEvent): Scope | undefined {
   if (WHOLE_QUEUE_ON.has(event.type))
     return undefined
@@ -89,40 +78,31 @@ function scopeOf(event: StoredEvent): Scope | undefined {
 
 export class MergeNode extends Node<MergeStep> {
   private readonly executor: MergeExecutor
-  private readonly rerun: RerunMode
   private readonly gitHub: GitHub
   private readonly rebuildCatalog: CatalogRebuild | undefined
 
   constructor(parts: MergeNodeParts) {
     super('merge', { db: parts.db, clock: parts.clock, session: parts.session, mode: parts.mode, env: parts.env, silentMs: parts.silentMs, supply: nodeSupply() })
-    this.rerun = rerunModeOf(parts.env)
     this.gitHub = parts.gitHub
     this.rebuildCatalog = parts.rebuildCatalog
-    this.executor = new MergeExecutor({ db: parts.db, gitHub: parts.gitHub, put: parts.put, publish: parts.publish, clock: parts.clock, run: parts.run, rerun: this.rerun, silentMs: parts.silentMs, pushPolicy: parts.pushPolicy })
+    this.executor = new MergeExecutor({ db: parts.db, gitHub: parts.gitHub, put: parts.put, publish: parts.publish, clock: parts.clock, run: parts.run, silentMs: parts.silentMs, pushPolicy: parts.pushPolicy, overlaps: parts.overlaps })
     this.declare(MERGE_NODE, scopeOf)
   }
 
   protected override before(): void {
     if (firstLiveVerdict(this.db) === null)
       throw new NoLiveVerdict()
-    this.log(`the merge node starts in rerun mode ${this.rerun}`)
+    this.log('the merge node merges the turn of each group, on a check before merge against actual main')
     if (catalogIsEmpty(this.db))
       this.rebuildAt(MAIN_TIP)
   }
 
   protected candidates(scope: Scope = {}): QueuedTask[] {
-    const ts = this.ts()
-    const filter = [scope.pr ?? null, scope.pr ?? null, scope.cardId ?? null, scope.cardId ?? null]
-    const rows = (query: string): MergeRow[] => this.db.prepare(scoped(query)).all(...filter) as unknown as MergeRow[]
-    const decided = rows(MERGE_CANDIDATES_WITHOUT_PASS).filter(row => mergeDecidedPastRoundLimit(this.db, ts, row.pr, row.head) !== null)
-    const behind = this.rerun === 'by-layers' ? rows(MERGE_CANDIDATES_BEHIND) : []
-    return [...rows(MERGE_CANDIDATES), ...behind, ...decided]
-      .filter(row => !closedByRounds(this.db, ts, 'merge', row.pr, row.head))
-      .map(row => ({ queue: 'merge', cardId: row.card_id, pr: row.pr, head: row.head, prBody: row.body_sha ?? undefined }))
+    return mergeCandidates(this.db, this.ts()).filter(task => (scope.pr === undefined || task.pr === scope.pr) && (scope.cardId === undefined || task.cardId === scope.cardId))
   }
 
   protected override derivedCandidates(ts: string): QueuedTask[] {
-    return mergeCandidates(this.db, ts, this.rerun)
+    return mergeCandidates(this.db, ts)
   }
 
   protected handle(lease: Lease): MergeStep {
@@ -175,11 +155,12 @@ export interface MergeRun {
   session: string
   pushPolicy?: () => PushPolicy
   rebuildCatalog?: CatalogRebuild
+  overlaps?: MainOverlap
   pause: (ms: number) => Promise<unknown>
 }
 
 export async function runMergeWorker(argv: string[], run: MergeRun): Promise<number> {
-  return runNode(argv, 'merge', run.busPath, (db, mode) => new MergeNode({ ...nodeLiveness(), db, gitHub: run.gitHub, put: run.put, publish: run.publish, clock: () => new Date(), session: run.session, run: null, pushPolicy: run.pushPolicy, rebuildCatalog: run.rebuildCatalog, mode, env: process.env }), { pause: run.pause, codeSha: loadedCodeSha, supply: nodeSupply() })
+  return runNode(argv, 'merge', run.busPath, (db, mode) => new MergeNode({ ...nodeLiveness(), db, gitHub: run.gitHub, put: run.put, publish: run.publish, clock: () => new Date(), session: run.session, run: null, pushPolicy: run.pushPolicy, rebuildCatalog: run.rebuildCatalog, overlaps: run.overlaps, mode, env: process.env }), { pause: run.pause, codeSha: loadedCodeSha, supply: nodeSupply() })
 }
 
 async function main(): Promise<number> {

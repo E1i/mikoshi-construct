@@ -1,17 +1,17 @@
 import type { DatabaseSync } from 'node:sqlite'
-import type { PrGroup } from './group.js'
+import type { PrGroup, PrPaths } from './group.js'
 import type { OverlapDeclarations } from './overlap.js'
 import { openOwnerWaits } from '../bus-readings.js'
 import { appendEvent } from '../db.js'
-import { CARD_HELD, CARD_RELEASED, declaredPayload, MAIN_ADVANCED, PR_CLOSED, PR_GROUPS, PR_OBSERVED, PR_OPENED, PR_ORDERED, TASK_COMPLETED, TASK_ENQUEUED, TASK_EXPIRED, TASK_FAILED, TASK_LEASED, TASK_RELEASED, TASK_REQUEUED, TASK_SUPERSEDED, TASK_WITHDRAWN } from '../events.js'
+import { CARD_HELD, CARD_RELEASED, CONTENTION_SUSPENDED, declaredPayload, MAIN_ADVANCED, PR_CLOSED, PR_GROUPS, PR_OBSERVED, PR_OPENED, PR_ORDERED, TASK_COMPLETED, TASK_ENQUEUED, TASK_EXPIRED, TASK_FAILED, TASK_LEASED, TASK_RELEASED, TASK_REQUEUED, TASK_SUPERSEDED, TASK_WITHDRAWN } from '../events.js'
 import { groupsOf } from './group.js'
-import { orderDeclarationsAt, overlaps } from './overlap.js'
+import { modulesOf, orderDeclarationsAt, overlaps } from './overlap.js'
 
 const TASK_QUEUED_AGAIN = [TASK_ENQUEUED, TASK_REQUEUED, TASK_RELEASED]
 const TASK_ENDED = [TASK_COMPLETED, TASK_SUPERSEDED, TASK_WITHDRAWN]
 const TASK_EVENTS = [...TASK_QUEUED_AGAIN, TASK_LEASED, ...TASK_ENDED, TASK_FAILED, TASK_EXPIRED]
 const HOLD_EVENTS = [CARD_HELD, CARD_RELEASED]
-export const ORDER_EVENTS: readonly string[] = [PR_OBSERVED, PR_CLOSED, PR_OPENED, PR_ORDERED, MAIN_ADVANCED, ...TASK_EVENTS, ...HOLD_EVENTS]
+export const ORDER_EVENTS: readonly string[] = [PR_OBSERVED, PR_CLOSED, PR_OPENED, PR_ORDERED, MAIN_ADVANCED, CONTENTION_SUSPENDED, ...TASK_EVENTS, ...HOLD_EVENTS]
 export const BUS_ORDERS = 'bus'
 export const WINDOW_ORDERS = 'window'
 export const ORDER_ACTOR = 'worker:supervisor:order'
@@ -67,6 +67,11 @@ export interface ShadowCounts {
   needsVerification: number
 }
 
+export interface SuspendedPair {
+  prs: readonly [number, number]
+  area: string | null
+}
+
 export interface PrOrder {
   prs: Map<number, OrderedPr>
   ranks: number[]
@@ -78,6 +83,7 @@ export interface PrOrder {
   mainCi: string | null
   tasks: Map<string, OrderTask>
   holds: Map<number, CardHold>
+  suspended: SuspendedPair[]
 }
 
 export interface TurnState {
@@ -86,7 +92,7 @@ export interface TurnState {
 }
 
 export function emptyOrder(): PrOrder {
-  return { prs: new Map(), ranks: [], mains: [], needsUpdate: new Set(), needsVerification: new Set(), counted: { needsUpdate: 0, needsVerification: 0 }, through: 0, mainCi: null, tasks: new Map(), holds: new Map() }
+  return { prs: new Map(), ranks: [], mains: [], needsUpdate: new Set(), needsVerification: new Set(), counted: { needsUpdate: 0, needsVerification: 0 }, through: 0, mainCi: null, tasks: new Map(), holds: new Map(), suspended: [] }
 }
 
 function textOf(value: unknown): string | null {
@@ -251,7 +257,22 @@ function ordered(order: PrOrder, event: OrderEvent, pr: number): void {
     order.ranks.splice(at, 0, pr)
 }
 
+function suspendedPairOf(event: OrderEvent): SuspendedPair | null {
+  const prs = Array.isArray(event.payload.prs) ? event.payload.prs.map(prNumberOf) : []
+  const [first, second] = prs
+  if (prs.length !== 2 || first == null || second == null || first === second)
+    return null
+  return { prs: first < second ? [first, second] : [second, first], area: textOf(event.payload.area) }
+}
+
+function contentionSuspended(order: PrOrder, event: OrderEvent): void {
+  const pair = suspendedPairOf(event)
+  if (pair !== null)
+    order.suspended.push(pair)
+}
+
 function mainAdvanced(order: PrOrder, event: OrderEvent, declarations: OverlapDeclarations): void {
+  order.mainCi = textOf(event.payload.ci) ?? order.mainCi
   order.mains.push({ id: event.id, paths: pathsOf(event.payload.paths) ?? [], whole: event.payload.pathsTruncated === true })
   for (const life of openLives(order))
     judge(order, life, declarations)
@@ -270,6 +291,10 @@ export function foldOrder(order: PrOrder, event: OrderEvent, declarations: Overl
   }
   if (HOLD_EVENTS.includes(event.type)) {
     holdMoved(order, event)
+    return order
+  }
+  if (event.type === CONTENTION_SUSPENDED) {
+    contentionSuspended(order, event)
     return order
   }
   const pr = event.pr ?? prNumberOf(event.payload.pr)
@@ -292,8 +317,42 @@ export function foldOrderEvents(events: readonly OrderEvent[], declarations: Ove
   return order
 }
 
+function suspensionOf(order: PrOrder, a: number, b: number): SuspendedPair | undefined {
+  const [low, high] = a < b ? [a, b] : [b, a]
+  return order.suspended.find(pair => pair.prs[0] === low && pair.prs[1] === high)
+}
+
+function overlapUnder(order: PrOrder, a: PrPaths, b: PrPaths, declarations: OverlapDeclarations): boolean {
+  const suspended = suspensionOf(order, a.pr, b.pr)
+  if (suspended === undefined)
+    return overlaps(a.paths, b.paths, declarations)
+  const contention = suspended.area === null ? [] : declarations.contention.filter(area => area.id !== suspended.area)
+  return overlaps(a.paths, b.paths, { ...declarations, contention })
+}
+
+function rootOf(parents: Map<number, number>, pr: number): number {
+  let root = pr
+  while (parents.get(root) !== root)
+    root = parents.get(root)!
+  return root
+}
+
+function groupsUnderSuspension(order: PrOrder, prs: readonly PrPaths[], declarations: OverlapDeclarations): PrGroup[] {
+  const ordered = [...prs].sort((a, b) => a.pr - b.pr)
+  const parents = new Map(ordered.map(entry => [entry.pr, entry.pr]))
+  ordered.forEach((left, at) => ordered.slice(at + 1).forEach((right) => {
+    if (overlapUnder(order, left, right, declarations))
+      parents.set(rootOf(parents, right.pr), rootOf(parents, left.pr))
+  }))
+  const members = new Map<number, PrPaths[]>()
+  for (const entry of ordered)
+    members.set(rootOf(parents, entry.pr), [...members.get(rootOf(parents, entry.pr)) ?? [], entry])
+  return [...members.values()].map(group => ({ prs: group.map(entry => entry.pr), modules: modulesOf(group.flatMap(entry => entry.paths), declarations) }))
+}
+
 export function orderGroups(order: PrOrder, declarations: OverlapDeclarations, touchesOf: (pr: number) => readonly string[] | null = () => null): PrGroup[] {
-  return groupsOf(openLives(order).map(life => ({ pr: life.pr, paths: life.paths ?? touchesOf(life.pr) ?? [] })), declarations)
+  const prs = openLives(order).map(life => ({ pr: life.pr, paths: life.paths ?? touchesOf(life.pr) ?? [] }))
+  return order.suspended.length === 0 ? groupsOf(prs, declarations) : groupsUnderSuspension(order, prs, declarations)
 }
 
 export function membersOf(order: PrOrder, group: PrGroup): number[] {
@@ -330,7 +389,8 @@ export const ORDER_FIELDS: Readonly<Record<string, readonly string[]>> = {
   [PR_CLOSED]: ['merged'],
   [PR_OPENED]: ['pr'],
   [PR_ORDERED]: ['before', 'by'],
-  [MAIN_ADVANCED]: ['paths', 'pathsTruncated'],
+  [MAIN_ADVANCED]: ['paths', 'pathsTruncated', 'ci'],
+  [CONTENTION_SUSPENDED]: ['prs', 'area'],
   ...Object.fromEntries([...TASK_QUEUED_AGAIN, TASK_LEASED, ...TASK_ENDED].map(type => [type, TASK_FIELDS])),
   [TASK_FAILED]: [...TASK_FIELDS, 'next'],
   [TASK_EXPIRED]: ['task_key', 'withdraw'],
@@ -398,7 +458,7 @@ export function waitingCardsOf(db: DatabaseSync): Set<number> {
 }
 
 export function recordGroups(db: DatabaseSync, ts: string, order: PrOrder, groups: readonly GroupWithTurn[]): boolean {
-  const payload = { groups: groups.map(({ prs, modules, turn }) => ({ prs, modules, turn })), ...order.counted }
+  const payload = { groups: groups.map(({ prs, modules, turn }) => ({ prs, modules, turn })), ...order.counted, needUpdate: [...order.needsUpdate].sort((a, b) => a - b) }
   return appendEvent(db, {
     ts,
     type: PR_GROUPS,
@@ -422,6 +482,20 @@ export function recordMove(db: DatabaseSync, ts: string, actor: string, request:
     head: null,
     dedupeKey: `${PR_ORDERED}:move:request-${request}`,
     payload: declaredPayload(PR_ORDERED, before === null ? { by: WINDOW_ORDERS } : { by: WINDOW_ORDERS, before }),
+    legacy: false,
+  })
+}
+
+export function recordSuspension(db: DatabaseSync, ts: string, actor: string, request: number, prs: readonly [number, number], area: string | null): boolean {
+  return appendEvent(db, {
+    ts,
+    type: CONTENTION_SUSPENDED,
+    actor,
+    cardId: null,
+    pr: null,
+    head: null,
+    dedupeKey: `${CONTENTION_SUSPENDED}:request-${request}`,
+    payload: declaredPayload(CONTENTION_SUSPENDED, { prs: [...prs].sort((a, b) => a - b), area, request }),
     legacy: false,
   })
 }
@@ -471,6 +545,8 @@ export class PrOrderTick {
       this.read = declarations
       foldOrderEvents(events, declarations, this.order)
       const lines = recordOrdered(this.db, this.now(), this.order).map(pr => `${this.prefix}PR #${pr} reached pass + green: ${PR_ORDERED} puts it at the tail of its group's order`)
+      if (lines.length > 0)
+        foldOrderEvents(this.events(this.order.through), declarations, this.order)
       this.recordGroups(declarations)
       return [...lines, ...this.shadowLine()]
     }
@@ -481,7 +557,7 @@ export class PrOrderTick {
 
   private recordGroups(declarations: OverlapDeclarations): void {
     const groups = groupsWithTurn(this.order, declarations, { waitingCards: this.waitingCards(), touchesOf: this.touchesOf })
-    const reading = JSON.stringify({ groups, counted: this.order.counted })
+    const reading = JSON.stringify({ groups, counted: this.order.counted, needUpdate: [...this.order.needsUpdate].sort((a, b) => a - b) })
     if (reading === this.recorded)
       return
     recordGroups(this.db, this.now(), this.order, groups)
@@ -493,7 +569,7 @@ export class PrOrderTick {
     if (counted.needsUpdate === this.shown.needsUpdate && counted.needsVerification === this.shown.needsVerification)
       return []
     this.shown = { ...counted }
-    return [`${this.prefix}shadow: needsUpdate counted ${counted.needsUpdate}, needsVerification counted ${counted.needsVerification}; nothing acts on them yet`]
+    return [`${this.prefix}needsUpdate counted ${counted.needsUpdate}, which update and merge act on; needsVerification counted ${counted.needsVerification}, in shadow: nothing acts on it yet`]
   }
 }
 

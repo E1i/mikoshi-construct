@@ -1,6 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { PushPolicy } from '../../../src/commands/attach/record.js'
-import type { RerunMode } from '../../cli/check-catalog.js'
 import type { BusEvent } from '../../core/db.js'
 import type { AfterFailure, Lease } from '../../core/lease.js'
 import type { AllowedRule, AuthorityRule, MergeFacts, PatchedFile } from '../../policy/policy.js'
@@ -9,7 +8,7 @@ import type { StatusPublisher } from '../../ports/github-status.js'
 import type { CommandResult, GitHub, GitHubPut } from '../../ports/github.js'
 import type { TechnicalReason } from '../review/record-verdict.js'
 import { Buffer } from 'node:buffer'
-import { changedFiles, REFUSED_NOT_UP_TO_DATE, rerunOf, upToDateRequired } from '../../cli/check-catalog.js'
+import { changedFiles, changedPaths, mainFilesSince, REFUSED_NOT_UP_TO_DATE } from '../../cli/check-catalog.js'
 import { loadCompositionModels } from '../../composition/files.js'
 import { cardHoldOf, HOLD_RECHECK_MS } from '../../core/card-hold.js'
 import { appendEvent, openBusWait } from '../../core/db.js'
@@ -18,7 +17,7 @@ import { BOARD_ALARM, COMMAND_EXECUTED, MERGE_DONE, POLICY_ALLOWED, POLICY_DENIE
 import { isFullSha } from '../../core/identifiers.js'
 import { assertHeld, completeTask, failTask, releaseTask, StaleLease, waitTask } from '../../core/lease.js'
 import { KEPT_BY_PUSH_POLICY } from '../../core/push-policy.js'
-import { keyOf, mergeCandidates, mergeDecidedPastRoundLimit, NEEDS_UPDATE, openDecisionWaitsOf, QUESTION_OPEN, QUEUE_ACTOR, updateTurnHeldUntil } from '../../core/queue.js'
+import { keyOf, mergeCandidates, mergeDecidedPastRoundLimit, NEEDS_UPDATE, openDecisionWaitsOf, QUESTION_OPEN, QUEUE_ACTOR } from '../../core/queue.js'
 import { cardContract, NOT_MINE, notMine } from '../../intake/card-contract.js'
 import { allowLiveCommand, liveDecisionOf } from '../../policy/live-decision.js'
 import { mergePolicy, OWNER_MERGES, OWNER_MERGES_RULES, underOwnerDecision, VERSION_BRANCH, WITNESS_REASON, witnessDenial, witnessSubjectOf } from '../../policy/policy.js'
@@ -34,11 +33,12 @@ export const MERGE_QUEUE = 'merge'
 export const STALE_HEAD_STATUS = 409
 export const NOT_ALLOWED_STATUS = 405
 const RATE_LIMITED_STATUS = 429
-const A_MERGE_SENT_TO_UPDATE_WAITS_MS = 5 * 60_000
 const NOT_UP_TO_DATE = /not up.to.date/i
 export const HELD_FOR_OWNER = 'held_for_owner'
 export const HEAD_OUTSIDE_TOUCHES = 'outside_touches'
-const WAIT_REASONS: ReadonlySet<MergeTechnicalReason> = new Set(['version_pr_open', 'not_mergeable', 'not_a_candidate', NEEDS_UPDATE, HELD_FOR_OWNER, HEAD_OUTSIDE_TOUCHES])
+const WAIT_REASONS: ReadonlySet<MergeTechnicalReason> = new Set(['version_pr_open', 'not_mergeable', 'not_a_candidate', HELD_FOR_OWNER, HEAD_OUTSIDE_TOUCHES])
+
+export type MainOverlap = (pr: readonly string[], main: readonly string[]) => boolean
 const WIDENED_ON_THE_ADMISSION = `SELECT json_extract(payload, '$.paths') AS paths FROM events WHERE card_id = ? AND legacy = 0 AND type = '${SCOPE_WIDENED}' AND json_extract(payload, '$.admission') = ? AND json_type(payload, '$.paths') = 'array'`
 const OPEN_QUESTIONS_OF_CARD = `${openDecisionWaitsOf('?')} ORDER BY opened_at, id`
 const REVIEWS_IN_FLIGHT = `SELECT task_key FROM tasks WHERE queue = 'review' AND pr = ? AND head = ? AND state IN ('queued', 'leased') ORDER BY id`
@@ -69,8 +69,8 @@ export interface ExecutorParts {
   clock: () => Date
   run: string | null
   silentMs: number
-  rerun?: RerunMode
   pushPolicy?: () => PushPolicy
+  overlaps?: MainOverlap
 }
 
 interface Pull {
@@ -92,8 +92,8 @@ function technical(reason: MergeTechnicalReason, detail: string): Checked {
   return { kind: 'denied', denial: { kind: 'technical', reason, detail } }
 }
 
-function mergeSentToUpdateWaitsUntil(db: DatabaseSync, ts: string, pr: number): string {
-  return updateTurnHeldUntil(db, ts, pr) ?? new Date(Date.parse(ts) + A_MERGE_SENT_TO_UPDATE_WAITS_MS).toISOString()
+function sharesAFile(pr: readonly string[], main: readonly string[]): boolean {
+  return pr.some(file => main.includes(file))
 }
 
 function ownerMergesText(meter: Meter): string {
@@ -184,6 +184,9 @@ export class MergeExecutor {
       if (unwitnessed !== null)
         return this.denied(lease, { kind: 'technical', reason: WITNESS_REASON, detail: unwitnessed.detail, ...(unwitnessed.base === null ? {} : { base: unwitnessed.base }) })
       const witnessBase = gated ? checked.base : null
+      const overlapping = checked.mergedCommit === null ? this.checkBeforeMerge(lease, checked.base) : null
+      if (overlapping !== null)
+        return this.denied(lease, overlapping)
       const withdrawn = checked.mergedCommit === null ? this.noLongerACandidate(lease) : null
       if (withdrawn !== null)
         return this.denied(lease, withdrawn)
@@ -261,7 +264,7 @@ export class MergeExecutor {
   }
 
   private noLongerACandidate(lease: Lease): MergeDenial | null {
-    if (mergeCandidates(this.parts.db, this.ts(), this.parts.rerun).some(task => keyOf(task) === lease.taskKey))
+    if (mergeCandidates(this.parts.db, this.ts()).some(task => keyOf(task) === lease.taskKey))
       return null
     const reviews = (this.parts.db.prepare(REVIEWS_IN_FLIGHT).all(lease.pr, lease.head) as { task_key: string }[]).map(row => row.task_key)
     const holder = reviews.length === 0 ? 'no review in flight' : `the review ${reviews.join(', ')} in flight`
@@ -283,7 +286,7 @@ export class MergeExecutor {
         const verdict = verdictOf(meter, lease.head!)
         if (verdict !== 'pass')
           decidedPastRoundLimit = mergeDecidedPastRoundLimit(this.parts.db, this.ts(), lease.pr, lease.head)
-        const unmergeable = decidedPastRoundLimit === null ? this.notReady(meter, pull, lease) : null
+        const unmergeable = decidedPastRoundLimit === null ? this.notClean(pull, lease) : null
         if (unmergeable !== null)
           return { kind: 'denied', denial: unmergeable }
         const ci = ciOf(meter, lease.head!, requiredCheckOf())
@@ -355,22 +358,21 @@ export class MergeExecutor {
     return { kind: 'technical', reason: 'stale_head', detail: `#${lease.pr} is ${pull.state ?? 'unknown'} at ${pull.head?.sha ?? 'no head'}, the lease is for ${lease.head}` }
   }
 
-  private notReady(meter: Meter, pull: Pull, lease: Lease): MergeDenial | null {
-    const unclean = this.notClean(pull, lease)
-    const mergeable = MERGEABLE_OF_STATE[pull.mergeable_state ?? '']
-    if (this.parts.rerun !== 'by-layers' || (unclean !== null && mergeable !== 'behind'))
-      return unclean
-    if (unclean === null && upToDateRequired(meter))
+  private checkBeforeMerge(lease: Lease, base: string | null): MergeDenial | null {
+    const meter = new Meter(this.parts.gitHub, () => this.parts.clock().getTime())
+    const main = base === null ? { kind: 'truncated' as const, why: `#${lease.pr} came back with no base sha` } : mainFilesSince(meter, base)
+    const overlaps = this.parts.overlaps ?? sharesAFile
+    const paths = main.kind === 'files' ? changedPaths(meter, lease.pr!) : []
+    const shared = main.kind === 'files' ? main.files.filter(file => overlaps(paths, [file])) : []
+    if (main.kind === 'files' && shared.length === 0)
       return null
-    const rerun = rerunOf(this.parts.db, meter, lease.pr!, pull.base?.sha, lease.head!)
-    if (!rerun.rerun)
-      return null
-    return { kind: 'technical', reason: NEEDS_UPDATE, detail: `#${lease.pr} is updated onto ${MAIN_BRANCH} before it merges: ${rerun.why}` }
+    const why = main.kind === 'truncated' ? `${main.why}, which counts as an overlap` : `${MAIN_BRANCH} changed ${shared.join(', ')} since ${base}, which overlaps #${lease.pr}`
+    return { kind: 'technical', reason: NEEDS_UPDATE, detail: `the check before merge found what needsUpdate had not seen: ${why}; #${lease.pr} is updated once and gives the turn back`, parkedUntil: 'new_head' }
   }
 
   private notClean(pull: Pull, lease: Lease): MergeDenial | null {
     const mergeable = MERGEABLE_OF_STATE[pull.mergeable_state ?? '']
-    if (mergeable === 'clean')
+    if (mergeable === 'clean' || mergeable === 'behind')
       return null
     const detail = `#${lease.pr} is ${pull.mergeable_state ?? 'not computed yet'}, not clean`
     return { kind: 'technical', reason: 'not_mergeable', detail, ...(mergeable === 'dirty' ? { parkedUntil: 'new_head' as const } : {}) }
@@ -412,7 +414,7 @@ export class MergeExecutor {
     const refusedWith = response.status === NOT_ALLOWED_STATUS ? textOf(response.body) : null
     this.executed(lease, 'merge', { ok: response.status === 200 && isFullSha(commit), status: response.status, ...(refusedWith === null ? {} : { text: refusedWith }) })
     if (refusedWith !== null && NOT_UP_TO_DATE.test(refusedWith))
-      return this.denied(lease, { kind: 'technical', reason: NEEDS_UPDATE, refusal: REFUSED_NOT_UP_TO_DATE, detail: `GitHub answered ${response.status} to the merge of #${lease.pr}, so it is updated onto ${MAIN_BRANCH} first: ${refusedWith}` })
+      return this.denied(lease, { kind: 'technical', reason: NEEDS_UPDATE, refusal: REFUSED_NOT_UP_TO_DATE, detail: `GitHub answered ${response.status} to the merge of #${lease.pr}, so it is updated onto ${MAIN_BRANCH} first: ${refusedWith}`, parkedUntil: 'new_head' })
     if (refusedWith !== null)
       return this.denied(lease, { kind: 'technical', reason: 'github_error', detail: `GitHub answered ${response.status} to the merge of #${lease.pr}: ${refusedWith}` })
     if (response.status === RATE_LIMITED_STATUS)
@@ -449,7 +451,7 @@ export class MergeExecutor {
     if (parked)
       return { kind: 'denied', taskKey: lease.taskKey, denial, next: failTask(this.parts.db, ts, lease, { reason, withdraw: true }, this.parts.silentMs, [event]) }
     if (waits) {
-      const until = reason === HELD_FOR_OWNER || reason === HEAD_OUTSIDE_TOUCHES ? new Date(this.parts.clock().getTime() + HOLD_RECHECK_MS).toISOString() : reason === NEEDS_UPDATE ? mergeSentToUpdateWaitsUntil(this.parts.db, ts, lease.pr!) : null
+      const until = reason === HELD_FOR_OWNER || reason === HEAD_OUTSIDE_TOUCHES ? new Date(this.parts.clock().getTime() + HOLD_RECHECK_MS).toISOString() : null
       if (until === null)
         releaseTask(this.parts.db, ts, lease, reason, [event])
       else

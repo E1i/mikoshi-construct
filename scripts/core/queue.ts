@@ -1,5 +1,4 @@
 import type { DatabaseSync } from 'node:sqlite'
-import type { RerunMode } from '../cli/check-catalog.js'
 import type { OverlapCatch } from '../nodes/launch/launch-candidates.js'
 import type { MutationParking } from '../policy/round-limit-decision.js'
 import type { BusEvent } from './db.js'
@@ -18,7 +17,7 @@ import { CARD_BODIES } from './card-bodies.js'
 import { answerDecisionOfKey, decisionSegment, withDecidedContinuations } from './card-decisions.js'
 import { appendEvent, inTransaction, OPEN_WAIT, openOwnerWait, OWNER_WAITS } from './db.js'
 import { dependencyWaitOf } from './dependency-wait.js'
-import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_HELD, CARD_RELEASED, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, CARD_WAITING, declaredPart, INTAKE_EVENT, INTAKE_MOVE_EVENT, MERGE_DONE, OWNER_WAIT_OPENED, POLICY_DENIED, PR_CLOSED, PR_OBSERVED, PR_OPENED, QUESTION_AGENT, QUESTION_OWNER, REVIEW_RECORDED, REVIEW_ROUNDS_SPENT, ROUND_EXTENDED, ROUND_MUTATIONS_PARKED, SESSION_HEARTBEAT, SHARD_EXPIRED, SHARD_ISSUED, SHARD_REVOKED, TASK_COMPLETED, TASK_ENQUEUED, TASK_EXPIRED, TASK_FAILED, TASK_LEASED, TASK_RELEASED, TASK_RENEWED, TASK_REQUEUED, TASK_SUPERSEDED, TASK_WITHDRAWN, UPDATE_DONE, WITNESS_DOWNGRADE, WITNESS_RECORDED } from './events.js'
+import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_HELD, CARD_RELEASED, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, CARD_WAITING, declaredPart, INTAKE_EVENT, INTAKE_MOVE_EVENT, MERGE_DONE, OWNER_WAIT_OPENED, POLICY_DENIED, PR_CLOSED, PR_GROUPS, PR_OBSERVED, PR_OPENED, QUESTION_AGENT, QUESTION_OWNER, REVIEW_RECORDED, REVIEW_ROUNDS_SPENT, ROUND_EXTENDED, ROUND_MUTATIONS_PARKED, SESSION_HEARTBEAT, SHARD_EXPIRED, SHARD_ISSUED, SHARD_REVOKED, TASK_COMPLETED, TASK_ENQUEUED, TASK_EXPIRED, TASK_FAILED, TASK_LEASED, TASK_RELEASED, TASK_RENEWED, TASK_REQUEUED, TASK_SUPERSEDED, TASK_WITHDRAWN, WITNESS_DOWNGRADE, WITNESS_RECORDED } from './events.js'
 import { generationOfKey, isFullSha, QUEUES, reviewInputOf, reviewInputOfKey, taskKey } from './identifiers.js'
 import { ownerQuestionAnswered } from './inbox.js'
 import { A_RERUN_DUE, withTheHeadsARerunIsDueOn } from './observations.js'
@@ -125,22 +124,52 @@ function aTaskInFlight(queue: string, match: string): string {
     AND live.state IN ('${QUEUED}', '${LEASED}'))`
 }
 
+export const NEEDS_UPDATE = 'needs_update'
+
+const A_MERGE_SENT_TO_UPDATE_ON_THE_HEAD = `(SELECT max(denied.id) FROM events AS denied
+    WHERE denied.type = '${POLICY_DENIED}' AND denied.legacy = 0 AND denied.pr = prs.pr AND denied.head = prs.head
+    AND json_extract(denied.payload, '$.command') = 'merge' AND json_extract(denied.payload, '$.reason') = '${NEEDS_UPDATE}')`
+
 function mergeCandidatesWhere(verdict: string, mergeable: string): string {
   return `
   SELECT pr, card_id, head, body_sha FROM prs
   WHERE state = 'open' AND base = '${MAIN_BRANCH}' AND ci = 'green' AND ${verdict} AND ${mergeable} AND draft = 0 AND card_id IS NOT NULL AND head IS NOT NULL
     AND NOT ${A_DEPENDENCY_UNMERGED} AND NOT ${aTaskInFlight('review', 'live.pr = prs.pr AND live.head = prs.head')}
+    AND ${A_MERGE_SENT_TO_UPDATE_ON_THE_HEAD} IS NULL
   ORDER BY pr
 `
 }
 
-export const MERGE_CANDIDATES = mergeCandidatesWhere(`verdict_on_head = 'pass'`, `mergeable = 'clean'`)
+export const MERGE_CANDIDATES = mergeCandidatesWhere(`verdict_on_head = 'pass'`, `mergeable IN ('clean', 'behind')`)
 
 export const MERGE_CANDIDATES_WITHOUT_PASS = mergeCandidatesWhere(`verdict_on_head IS NOT 'pass'`, `mergeable IN ('clean', 'blocked')`)
 
-export const MERGE_CANDIDATES_BEHIND = mergeCandidatesWhere(`verdict_on_head = 'pass'`, `mergeable = 'behind'`)
+const LATEST_ORDER = `SELECT id, ts, type, actor, card_id, pr, head, dedupe_key, payload, legacy FROM events WHERE type = '${PR_GROUPS}' AND legacy = 0 ORDER BY id DESC LIMIT 1`
 
-export const NEEDS_UPDATE = 'needs_update'
+interface RecordedGroup {
+  prs: readonly number[]
+  turn: number | null
+}
+
+export interface RecordedOrder {
+  groups: readonly RecordedGroup[]
+  needUpdate: ReadonlySet<number>
+}
+
+export function recordedOrder(db: DatabaseSync): RecordedOrder {
+  const row = db.prepare(LATEST_ORDER).get() as StoredEvent | undefined
+  const payload: { groups?: unknown, needUpdate?: unknown } = row === undefined ? {} : declaredPart(PR_GROUPS, payloadOf(row))
+  return { groups: Array.isArray(payload.groups) ? payload.groups as RecordedGroup[] : [], needUpdate: new Set(Array.isArray(payload.needUpdate) ? payload.needUpdate as number[] : []) }
+}
+
+export function holdsTheTurn(order: RecordedOrder, pr: number | null): boolean {
+  return pr !== null && order.groups.some(group => group.turn === pr)
+}
+
+function noTurnHeldBeside(order: RecordedOrder, pr: number | null): boolean {
+  const group = order.groups.find(each => pr !== null && each.prs.includes(pr))
+  return pr !== null && (group === undefined || group.turn === null)
+}
 
 export const MERGE_REFUSED = 'merge_refused'
 
@@ -170,37 +199,9 @@ function openPrsByCardPriority(condition: string, column = ''): string {
 `
 }
 
-const GREEN_BEHIND_AT_ITS_MERGE_TURN = openPrsByCardPriority(`prs.mergeable = 'behind' AND prs.ci = 'green' AND NOT ${aTaskInFlight('merge', 'live.pr != prs.pr')}`)
+const OPEN_PRS_WITH_THEIR_UPDATE_CAUSES = openPrsByCardPriority('1', `, prs.mergeable, ${A_MERGE_SENT_TO_UPDATE_ON_THE_HEAD} AS sent_at, ${A_DEPENDENCY_UPDATE_DUE} AS dependency_due`)
 
-export const AN_UPDATED_PR_HOLDS_MS = LEASE_MS
-
-const UPDATED_AND_ON_ITS_WAY_TO_MERGE = `
-  SELECT DISTINCT prs.pr, prs.card_id, prs.head, prs.verdict_on_head, updated.ts AS updated_at FROM prs
-  JOIN events AS updated ON updated.type = '${UPDATE_DONE}' AND updated.legacy = 0 AND updated.pr = prs.pr
-    AND prs.head IN (json_extract(updated.payload, '$.from'), json_extract(updated.payload, '$.to'))
-    AND json_extract(updated.payload, '$.carried') = 'pass' AND json_type(updated.payload, '$.task_key') = 'text'
-    AND updated.ts > ?
-  WHERE prs.state = 'open' AND prs.base = '${MAIN_BRANCH}' AND prs.draft = 0 AND prs.card_id IS NOT NULL AND prs.head IS NOT NULL
-    AND prs.verdict_on_head = 'pass' AND prs.ci IS NOT 'red' AND prs.mergeable IS NOT 'dirty'
-    AND NOT ${A_DEPENDENCY_UNMERGED}
-    AND NOT EXISTS (
-      SELECT 1 FROM tasks AS parked WHERE parked.queue = 'merge' AND parked.pr = prs.pr AND parked.head = prs.head
-        AND parked.state IN ('${WITHDRAWN}', '${STOPPED}')
-    )
-`
-
-const AN_ANSWER_IN_FLIGHT = `EXISTS (
-  SELECT 1 FROM tasks AS answering WHERE answering.queue = 'answer' AND answering.card_id = prs.card_id
-    AND answering.state IN ('${QUEUED}', '${LEASED}')
-)`
-
-const CONFLICTING_BY_CARD_PRIORITY = openPrsByCardPriority(`prs.mergeable = 'dirty' AND NOT ${AN_ANSWER_IN_FLIGHT}`)
-
-const DEPENDENTS_OF_A_MERGED_CARD_BY_CARD_PRIORITY = openPrsByCardPriority(`prs.mergeable IS NOT 'dirty' AND ${A_DEPENDENCY_UPDATE_DUE}`)
-
-const GREEN_CLEAN_A_MERGE_SENT_TO_UPDATE = openPrsByCardPriority(`prs.mergeable = 'clean' AND prs.ci = 'green' AND sent_at IS NOT NULL`, `, (SELECT max(denied.id) FROM events AS denied
-    WHERE denied.type = '${POLICY_DENIED}' AND denied.legacy = 0 AND denied.pr = prs.pr AND denied.head = prs.head
-    AND json_extract(denied.payload, '$.command') = 'merge' AND json_extract(denied.payload, '$.reason') = '${NEEDS_UPDATE}') AS sent_at`)
+const A_MERGE_SENT_TO_UPDATE = openPrsByCardPriority(`sent_at IS NOT NULL`, `, ${A_MERGE_SENT_TO_UPDATE_ON_THE_HEAD} AS sent_at`)
 
 const LAST_MECHANICS = `SELECT sha, event_id FROM mains WHERE touches_mechanics = 1 ORDER BY event_id DESC LIMIT 1`
 
@@ -652,9 +653,11 @@ function candidateRows(db: DatabaseSync, query: string, admits: Admits): Candida
   return (db.prepare(query).all() as unknown as Candidate[]).filter(admits)
 }
 
-function mergeRows(db: DatabaseSync, ts: string, rerun: RerunMode): Candidate[] {
-  const behind = rerun === 'by-layers' ? candidateRows(db, MERGE_CANDIDATES_BEHIND, everyRow) : []
-  return [...candidateRows(db, MERGE_CANDIDATES, everyRow), ...behind, ...candidateRows(db, MERGE_CANDIDATES_WITHOUT_PASS, decidedPastRoundLimit(db, ts))]
+function mergeRows(db: DatabaseSync, ts: string): Candidate[] {
+  const order = recordedOrder(db)
+  const inTurn: Admits = row => holdsTheTurn(order, row.pr) && !order.needUpdate.has(row.pr!)
+  const decided = decidedPastRoundLimit(db, ts)
+  return [...candidateRows(db, MERGE_CANDIDATES, inTurn), ...candidateRows(db, MERGE_CANDIDATES_WITHOUT_PASS, row => decided(row) && (inTurn(row) || noTurnHeldBeside(order, row.pr)))]
 }
 
 function candidates(db: DatabaseSync, ts: string): (() => QueuedTask[])[] {
@@ -874,31 +877,23 @@ export function reviewCandidates(db: DatabaseSync, ts: string): QueuedTask[] {
   return openCandidates(db, ts, 'review', candidateRows(db, REVIEW_CANDIDATES, everyRow))
 }
 
-function holdsOfTheUpdateTurn(db: DatabaseSync, ts: string): (Candidate & { updated_at: string })[] {
-  const since = new Date(Date.parse(ts) - AN_UPDATED_PR_HOLDS_MS).toISOString()
-  const rows = db.prepare(UPDATED_AND_ON_ITS_WAY_TO_MERGE).all(since) as unknown as (Candidate & { updated_at: string })[]
-  return rows.filter(aMergeCandidate(db, ts))
+interface UpdateCauses extends Candidate {
+  mergeable: string | null
+  sent_at: number | null
+  dependency_due: number
 }
 
-export function updateTurnHeldUntil(db: DatabaseSync, ts: string, pr: number): string | null {
-  const holds = holdsOfTheUpdateTurn(db, ts)
-  if (holds.length === 0 || holds.some(row => row.pr === pr))
-    return null
-  return new Date(Math.max(...holds.map(row => Date.parse(row.updated_at))) + AN_UPDATED_PR_HOLDS_MS).toISOString()
+function updateDue(order: RecordedOrder): Admits {
+  return (candidate) => {
+    const row = candidate as UpdateCauses
+    const ownWork = row.mergeable === 'dirty' || row.dependency_due === 1
+    const needsUpdate = ownWork || row.sent_at !== null || order.needUpdate.has(row.pr!)
+    return needsUpdate && (holdsTheTurn(order, row.pr) || (ownWork && noTurnHeldBeside(order, row.pr)))
+  }
 }
 
-export function updateTurnHeldFrom(db: DatabaseSync, ts: string, pr: number): boolean {
-  return updateTurnHeldUntil(db, ts, pr) !== null
-}
-
-export function updateCandidates(db: DatabaseSync, ts: string, rerun: RerunMode = 'as-now'): QueuedTask[] {
-  const sent = rerun === 'by-layers' ? candidateRows(db, GREEN_CLEAN_A_MERGE_SENT_TO_UPDATE, aMergeCandidate(db, ts)) : []
-  const conflicting = candidateRows(db, CONFLICTING_BY_CARD_PRIORITY, everyRow)
-  const green = [...candidateRows(db, GREEN_BEHIND_AT_ITS_MERGE_TURN, aMergeCandidate(db, ts)), ...sent]
-  const dependents = candidateRows(db, DEPENDENTS_OF_A_MERGED_CARD_BY_CARD_PRIORITY, everyRow)
-  const holders = new Set(holdsOfTheUpdateTurn(db, ts).map(row => row.pr))
-  const inTurn = holders.size === 0 ? [...green, ...dependents] : [...green, ...dependents].filter(row => holders.has(row.pr))
-  return openCandidates(db, ts, 'update', withTheHeadsARerunIsDueOn(db, [...inTurn, ...conflicting].slice(0, 1)))
+export function updateCandidates(db: DatabaseSync, ts: string): QueuedTask[] {
+  return openCandidates(db, ts, 'update', withTheHeadsARerunIsDueOn(db, candidateRows(db, OPEN_PRS_WITH_THEIR_UPDATE_CAUSES, updateDue(recordedOrder(db)))))
 }
 
 export function closeCandidates(db: DatabaseSync, ts: string): QueuedTask[] {
@@ -921,8 +916,8 @@ export function answerCandidates(db: DatabaseSync, ts: string): QueuedTask[] {
   return withDecidedContinuations(db, ANSWER_CANDIDATES.flatMap(query => openCandidates(db, ts, 'answer', candidateRows(db, query, everyRow))).filter(task => !answering.has(task.cardId) || leasedKeys.has(keyOf(task))), { decisions: decisionsInForceAt(db, new Date(ts)), sql: { cardBody: cardBodyShaOf, latestTurn: latestTurnOf, notAWindowCard, downgradeWaitOpenOn: aDowngradeWaitOpenOn }, pastTheLimit: (pr, head) => outOfRounds(db, 'answer', pr) && mergeDecidedPastRoundLimit(db, ts, pr, head) === null, cardBodyOf: answerCardBodyOf })
 }
 
-export function mergeCandidates(db: DatabaseSync, ts: string, rerun: RerunMode = 'as-now'): QueuedTask[] {
-  return openCandidates(db, ts, 'merge', mergeRows(db, ts, rerun))
+export function mergeCandidates(db: DatabaseSync, ts: string): QueuedTask[] {
+  return openCandidates(db, ts, 'merge', mergeRows(db, ts))
 }
 
 export function launchTasks(db: DatabaseSync, onOverlap?: OverlapCatch): QueuedTask[] {
@@ -1217,7 +1212,7 @@ function mergesAndUpdatesDueAgain(db: DatabaseSync, ts: string): StoppedRow[] {
 }
 
 function updatesSpentBeforeAMergeSentThem(db: DatabaseSync, ts: string): StoppedRow[] {
-  return (candidateRows(db, GREEN_CLEAN_A_MERGE_SENT_TO_UPDATE, aMergeCandidate(db, ts)) as (Candidate & { sent_at: number })[]).flatMap((row) => {
+  return (candidateRows(db, A_MERGE_SENT_TO_UPDATE, aMergeCandidate(db, ts)) as (Candidate & { sent_at: number })[]).flatMap((row) => {
     const spent: StoppedRow = { task_key: keyOf({ queue: 'update', cardId: row.card_id, pr: row.pr ?? undefined, head: row.head ?? undefined }), queue: 'update', card_id: row.card_id, pr: row.pr, head: row.head, failure: Number(row.sent_at) }
     const task = taskRow(db, spent.task_key)
     return task?.state === COMPLETED && Number(task.event_id) < spent.failure ? [spent] : []

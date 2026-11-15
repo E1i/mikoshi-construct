@@ -8,7 +8,7 @@ import { parkingFileText } from '../../../src/card/parking.js'
 import { textSha } from '../../../src/card/text-sha.js'
 import { branchCardRuns, cardReadingOf, cardRunsOf, LayerWithoutTests } from '../../ci/card-runs.js'
 import { cruise } from '../../ci/select.js'
-import { catalogModules, catalogTests, overlapWithMain, testFoldersOfLayers, writeCatalog } from '../../cli/check-catalog.js'
+import { catalogModules, catalogTests, testFoldersOfLayers, writeCatalog } from '../../cli/check-catalog.js'
 import { appendCardEvent } from '../../core/card-bodies.js'
 import { openBus } from '../../core/db.js'
 import { CARD_ADMITTED } from '../../core/events.js'
@@ -107,11 +107,5 @@ describe('the law: every layer of the check catalog has a test', () => {
   it('the launch and review reading of a card fails on a layer with no test instead of choosing the full run', () => {
     expect(() => cardReadingOf(CARD.touches, [], CARD.masks, CATALOG)).toThrow(LayerWithoutTests)
     expect(() => cardReadingOf(CARD.touches, [], CARD.masks, CATALOG)).toThrow(UNTESTED_MESSAGE)
-  })
-
-  it('the overlap with main names the layer with no test as the reason to rerun', () => {
-    const { db } = catalogBus()
-
-    expect(overlapWithMain(db, [CORE], [OTHER], () => null, { card: CARD, map: MAP })).toBe(UNTESTED_MESSAGE)
   })
 })
