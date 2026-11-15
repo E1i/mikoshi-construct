@@ -1,0 +1,7 @@
+{
+  "entry": "livenessSites",
+  "group": "named",
+  "path": "scripts/supervisor/liveness-sites.ts",
+  "layer": null,
+  "lists": []
+}

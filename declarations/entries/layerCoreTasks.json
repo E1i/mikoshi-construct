@@ -1,0 +1,7 @@
+{
+  "entry": "layerCoreTasks",
+  "group": null,
+  "path": "scripts/core/tasks.ts",
+  "layer": "ghosts",
+  "lists": []
+}

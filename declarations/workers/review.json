@@ -1,0 +1,4 @@
+{
+  "worker": "review",
+  "path": "scripts/nodes/review/review-worker.ts"
+}

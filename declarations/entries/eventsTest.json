@@ -1,0 +1,7 @@
+{
+  "entry": "eventsTest",
+  "group": "named",
+  "path": "scripts/tests/core/events.test.ts",
+  "layer": null,
+  "lists": []
+}

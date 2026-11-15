@@ -1,0 +1,18 @@
+{
+  "entry": "ghosts",
+  "group": "formerFolders",
+  "paths": [
+    "scripts/ladder",
+    "scripts/core/entry.ts",
+    "scripts/core/every.ts",
+    "scripts/core/journal.ts",
+    "scripts/core/tasks.ts",
+    "scripts/nodes/close/task-close.ts",
+    "scripts/nodes/close/task-merged.ts",
+    "scripts/nodes/update/review-carry.ts",
+    "scripts/ports/task-start.ts",
+    "scripts/window/handoff-check.ts"
+  ],
+  "layer": null,
+  "lists": []
+}

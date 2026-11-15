@@ -1,0 +1,7 @@
+{
+  "entry": "layerCi",
+  "group": null,
+  "path": "scripts/ci/",
+  "layer": "ci",
+  "lists": []
+}

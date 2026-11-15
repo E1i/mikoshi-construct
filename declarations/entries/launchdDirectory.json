@@ -1,0 +1,7 @@
+{
+  "entry": "launchdDirectory",
+  "group": "named",
+  "path": "scripts/supervisor/launchd",
+  "layer": null,
+  "lists": []
+}

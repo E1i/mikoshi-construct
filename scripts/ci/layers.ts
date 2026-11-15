@@ -1,31 +1,19 @@
 import type { LayerMap } from '../core/layer-map.js'
 import path from 'node:path'
 import { DECLARED_PATH_READERS, EVERY_CHANGE_READERS, NAMED_READERS, PACKAGE_MANIFEST, PACKAGE_SCRIPT_READERS, SCANNED_TREES } from '../../src/card/covering-tests.js'
-import { FACTORY_FOLDERS, FACTORY_NAMED } from '../core/factory-paths.js'
+import { BUS_CORE, BUS_SERVICE, FACTORY_FOLDERS, FACTORY_LISTS } from '../core/factory-paths.js'
 import { declaredLayersIn, globalRunReason, isCheckPipeline, isDocument, isRecord, layersInOf, repositoryLayerMap } from '../core/layer-map.js'
 import { isTest, TEST_ROOTS } from '../policy/touch-scope.js'
 import { scansATree } from './tree-scanners.js'
 
-export { isTest }
+export { BUS_CORE, BUS_SERVICE, isTest }
 
-export const BUS_CORE = /^scripts\/core\/(?:db|reducer|sqlite|stored|identifiers)\.ts$/
-export const BUS_SERVICE = /^scripts\/(?:nodes\/[a-z]+|ladder)\/([a-z]+)-(?:worker|executor|starter)\.ts$/
-export const BUS_SHARED: readonly string[] = [
-  FACTORY_NAMED.busDatabase,
-  FACTORY_NAMED.busErrors,
-  FACTORY_NAMED.busLease,
-  FACTORY_NAMED.busNode,
-  FACTORY_NAMED.busQueue,
-  FACTORY_NAMED.busStamping,
-  FACTORY_NAMED.busComposition,
-  FACTORY_NAMED.busStored,
-  FACTORY_NAMED.gitPort,
-]
+export const BUS_SHARED: readonly string[] = FACTORY_LISTS.busShared
 export const BUS_TESTS = `${FACTORY_FOLDERS.busTests[0]}/`
 const CHANGESET_NOTE = /^\.changeset\/[^/]+\.md$/
 const CHANGESET_TOUCH = '.changeset/**'
 const CONTRACT_RECORD_TESTS = 'tests/contract/'
-export const CHANGESET_READERS: readonly string[] = ['tests/changesets-one-line.test.ts']
+export const CHANGESET_READERS: readonly string[] = FACTORY_LISTS.changesetReaders
 
 export type Graph = ReadonlyMap<string, readonly string[]>
 

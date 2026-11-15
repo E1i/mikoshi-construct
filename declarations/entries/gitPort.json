@@ -1,0 +1,9 @@
+{
+  "entry": "gitPort",
+  "group": "named",
+  "path": "scripts/ports/git.ts",
+  "layer": null,
+  "lists": [
+    "busShared"
+  ]
+}

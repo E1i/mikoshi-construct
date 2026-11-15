@@ -1,0 +1,9 @@
+{
+  "entry": "busComposition",
+  "group": "named",
+  "path": "scripts/supervisor/composition.ts",
+  "layer": null,
+  "lists": [
+    "busShared"
+  ]
+}

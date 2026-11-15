@@ -28,13 +28,43 @@ export interface MayUse {
   may_use_factory_within: Readonly<Record<string, readonly string[]>>
 }
 
+export const ENTRY_GROUPS = ['runtime', 'named', 'folders', 'formerFolders'] as const
+
+export type EntryGroup = typeof ENTRY_GROUPS[number]
+
+export const ENTRY_LISTS = ['busShared', 'changesetReaders'] as const
+
+export type EntryList = typeof ENTRY_LISTS[number]
+
+const LISTED_GROUPS: readonly EntryGroup[] = ['folders', 'formerFolders']
+
+export interface WorkerDeclaration {
+  worker: string
+  path: string
+}
+
+export interface EntryDeclaration {
+  entry: string
+  group: EntryGroup | null
+  paths: readonly string[]
+  layer: string | null
+  lists: readonly EntryList[]
+}
+
 export interface Declarations {
   modules: readonly ModuleDeclaration[]
   contention: readonly ContentionArea[]
   generated: readonly GeneratedRow[]
   mayUse: readonly MayUse[]
+  workers: readonly WorkerDeclaration[]
+  entries: readonly EntryDeclaration[]
   internalModules: readonly string[]
   problems: readonly string[]
+}
+
+export interface AssembledLayerMap {
+  files: Record<string, string>
+  folders: Record<string, string>
 }
 
 export interface EslintEdges {
@@ -46,14 +76,26 @@ export interface EslintEdges {
 export const MODULES_KIND = 'modules'
 export const CONTENTION_KIND = 'contention'
 export const MAY_USE_KIND = 'may-use'
+export const WORKERS_KIND = 'workers'
+export const ENTRIES_KIND = 'entries'
 
-export const KEY_FIELDS: Readonly<Record<string, string>> = { [MODULES_KIND]: 'module', [CONTENTION_KIND]: 'id', [GENERATED_KIND]: 'id', [MAY_USE_KIND]: 'module' }
+export const KEY_FIELDS: Readonly<Record<string, string>> = { [MODULES_KIND]: 'module', [CONTENTION_KIND]: 'id', [GENERATED_KIND]: 'id', [MAY_USE_KIND]: 'module', [WORKERS_KIND]: 'worker', [ENTRIES_KIND]: 'entry' }
+
+export const BUS_CORE = /^scripts\/core\/(?:db|reducer|sqlite|stored|identifiers)\.ts$/
+export const BUS_SERVICE = /^scripts\/(?:nodes\/[a-z]+|ladder)\/([a-z]+)-(?:worker|executor|starter)\.ts$/
+
+const SERVICE_LAYER = 'bus:'
+const CORE_LAYER = 'bus-core'
 
 export const SLICED_CHECKS: readonly string[] = ['P-restart', 'R-area-drop', 'R-graph', 'R-laws', 'V1', 'V2']
 
 export const MODULE_FILES = GENERATED_FILES.moduleFiles.path
 export const ESLINT_EDGES_ROW = 'eslint-edges'
 export const ESLINT_EDGES = generatedPathOf(ESLINT_EDGES_ROW)
+export const FACTORY_PATHS_ROW = 'factory-paths'
+export const FACTORY_PATHS = generatedPathOf(FACTORY_PATHS_ROW)
+export const LAYER_MAP_ROW = 'layer-map'
+export const ASSEMBLED_LAYER_MAP = generatedPathOf(LAYER_MAP_ROW)
 export const INTERNAL_MODULES_FILE = 'internal-modules.json'
 
 const SOURCE_ROOT = 'src'
@@ -303,6 +345,41 @@ function mayUseOf(key: string, value: Record<string, unknown>, problem: Problem)
     : null
 }
 
+function workerOf(key: string, value: Record<string, unknown>, problem: Problem): WorkerDeclaration | null {
+  if (isText(value.path))
+    return { worker: key, path: value.path }
+  problem('path is not a non-empty string')
+  return null
+}
+
+function isGroup(value: unknown): value is EntryGroup | null {
+  return value === null || ENTRY_GROUPS.includes(value as EntryGroup)
+}
+
+function entryOf(key: string, value: Record<string, unknown>, problem: Problem): EntryDeclaration | null {
+  let fine = true
+  const report = (text: string): void => {
+    fine = false
+    problem(text)
+  }
+  if (!isGroup(value.group))
+    report(`group is neither null nor one of ${ENTRY_GROUPS.join(', ')}`)
+  const listed = LISTED_GROUPS.includes(value.group as EntryGroup)
+  if (listed && (!isTextList(value.paths) || value.path !== undefined))
+    report('paths is not a list of non-empty strings, or path is given beside it, in a group of lists')
+  if (!listed && (!isText(value.path) || value.paths !== undefined))
+    report('path is not a non-empty string, or paths is given beside it')
+  if (value.layer !== null && !isText(value.layer))
+    report('layer is neither null nor a non-empty string')
+  if (listed && value.layer !== null)
+    report('layer places one path, and this entry holds a list')
+  if (!isTextList(value.lists) || value.lists.some(name => !ENTRY_LISTS.includes(name as EntryList)))
+    report(`lists is not a list of ${ENTRY_LISTS.join(', ')}`)
+  if (!fine)
+    return null
+  return { entry: key, group: value.group as EntryGroup | null, paths: listed ? value.paths as string[] : [value.path as string], layer: value.layer as string | null, lists: value.lists as EntryList[] }
+}
+
 function internalModulesAt(root: string, problem: (text: string) => void): string[] {
   const file = path.join(root, INTERNAL_MODULES_FILE)
   if (!existsSync(file)) {
@@ -347,6 +424,8 @@ export function readDeclarations(root: string = REPO_ROOT): Declarations {
   const contention: ContentionArea[] = []
   const generated: GeneratedRow[] = []
   const mayUse: MayUse[] = []
+  const workers: WorkerDeclaration[] = []
+  const entries: EntryDeclaration[] = []
   const kinds = existsSync(base) ? readdirSync(base).sort() : []
   for (const kind of kinds) {
     if (!(kind in KEY_FIELDS) || !statSync(path.join(base, kind)).isDirectory())
@@ -357,8 +436,8 @@ export function readDeclarations(root: string = REPO_ROOT): Declarations {
     if (!existsSync(folder) || !statSync(folder).isDirectory())
       continue
     const keyField = KEY_FIELDS[kind]!
-    const entries = entriesOf(folder, (file, text) => problems.push(`${DECLARATIONS_FOLDER}/${kind}/${file} ${text}`))
-    for (const { key, value } of entries) {
+    const read = entriesOf(folder, (file, text) => problems.push(`${DECLARATIONS_FOLDER}/${kind}/${file} ${text}`))
+    for (const { key, value } of read) {
       const problem: Problem = text => problems.push(`${where(kind, key)}: ${text}`)
       if (kind === GENERATED_KIND) {
         const found = rowProblems(key, value)
@@ -381,6 +460,16 @@ export function readDeclarations(root: string = REPO_ROOT): Declarations {
         if (edges !== null)
           mayUse.push(edges)
       }
+      else if (kind === WORKERS_KIND) {
+        const worker = workerOf(key, value, problem)
+        if (worker !== null)
+          workers.push(worker)
+      }
+      else if (kind === ENTRIES_KIND) {
+        const entry = entryOf(key, value, problem)
+        if (entry !== null)
+          entries.push(entry)
+      }
       else {
         const area = areaOf(key, value, problem)
         if (area !== null)
@@ -389,7 +478,7 @@ export function readDeclarations(root: string = REPO_ROOT): Declarations {
     }
   }
   const internalModules = kinds.includes(MAY_USE_KIND) ? internalModulesAt(root, text => problems.push(text)) : []
-  return { modules, contention, generated, mayUse, internalModules, problems }
+  return { modules, contention, generated, mayUse, workers, entries, internalModules, problems }
 }
 
 function filesUnder(entry: string, tracked: readonly string[]): string[] {
@@ -486,6 +575,38 @@ function mayUseProblems(mayUse: readonly MayUse[], internalModules: readonly str
   })
 }
 
+function isTrackedPlace(place: string, tracked: readonly string[]): boolean {
+  const folder = place.endsWith(FOLDER_END) ? place : `${place}${FOLDER_END}`
+  return tracked.includes(place) || tracked.some(file => file.startsWith(folder))
+}
+
+function derivedPlacements(workers: readonly WorkerDeclaration[], tracked: readonly string[]): Map<string, string> {
+  const placed = new Map<string, string>()
+  for (const file of tracked) {
+    const service = BUS_SERVICE.exec(file)
+    if (service !== null)
+      placed.set(file, `${SERVICE_LAYER}${service[1]}`)
+    else if (BUS_CORE.test(file))
+      placed.set(file, CORE_LAYER)
+  }
+  for (const { worker, path: file } of workers)
+    placed.set(file, `${SERVICE_LAYER}${worker}`)
+  return placed
+}
+
+function pathProblems(workers: readonly WorkerDeclaration[], entries: readonly EntryDeclaration[], tracked: readonly string[]): string[] {
+  const derived = derivedPlacements(workers, tracked)
+  const placedBy = new Map<string, string[]>()
+  for (const entry of entries.filter(entry => entry.layer !== null))
+    placedBy.set(entry.paths[0]!, [...(placedBy.get(entry.paths[0]!) ?? []), entry.entry])
+  return [
+    ...workers.filter(worker => !tracked.includes(worker.path)).map(worker => `${where(WORKERS_KIND, worker.worker)}: path "${worker.path}" is not a tracked file`),
+    ...entries.filter(entry => !LISTED_GROUPS.includes(entry.group as EntryGroup) && !isTrackedPlace(entry.paths[0]!, tracked)).map(entry => `${where(ENTRIES_KIND, entry.entry)}: path "${entry.paths[0]}" is neither a tracked file nor a folder holding one`),
+    ...entries.filter(entry => entry.layer !== null && derived.has(entry.paths[0]!)).map(entry => `${where(ENTRIES_KIND, entry.entry)}: layer places "${entry.paths[0]}", which ${derived.get(entry.paths[0]!)} places already from the worker files`),
+    ...[...placedBy].filter(([, holders]) => holders.length > 1).map(([place, holders]) => `"${place}" is placed by ${holders.join(', ')}; one entry places it`),
+  ]
+}
+
 export function validateDeclarations(declarations: Declarations, tracked: readonly string[]): string[] {
   return [
     ...declarations.problems,
@@ -493,7 +614,102 @@ export function validateDeclarations(declarations: Declarations, tracked: readon
     ...areaProblems(declarations.contention, declarations.modules, tracked),
     ...rowProblemsOver(declarations.generated, declarations.modules, tracked),
     ...mayUseProblems(declarations.mayUse, declarations.internalModules, tracked),
+    ...pathProblems(declarations.workers, declarations.entries, tracked),
   ]
+}
+
+function sortedRecord(values: ReadonlyMap<string, string>): Record<string, string> {
+  return Object.fromEntries([...values.keys()].sort().map(key => [key, values.get(key)!]))
+}
+
+export function layerMapOf(workers: readonly WorkerDeclaration[], entries: readonly EntryDeclaration[], tracked: readonly string[]): AssembledLayerMap {
+  const files = derivedPlacements(workers, tracked)
+  const folders = new Map<string, string>()
+  for (const entry of entries.filter(entry => entry.layer !== null)) {
+    const place = entry.paths[0]!
+    const placing = place.endsWith(FOLDER_END) ? folders : files
+    placing.set(place, entry.layer!)
+  }
+  return { files: sortedRecord(files), folders: sortedRecord(folders) }
+}
+
+export function renderLayerMap(map: AssembledLayerMap): string {
+  return `${JSON.stringify(map, null, 2)}\n`
+}
+
+function quoted(text: string): string {
+  return `'${text}'`
+}
+
+function sortedByKey<Item>(items: readonly Item[], key: (item: Item) => string): Item[] {
+  return [...items].sort((left, right) => key(left) < key(right) ? -1 : key(left) > key(right) ? 1 : 0)
+}
+
+function pathValue(file: string, rows: readonly GeneratedRow[]): string {
+  const row = rows.find(each => each.path === file)
+  return row === undefined ? quoted(file) : `generatedPath(${quoted(row.id)})`
+}
+
+function listValue(paths: readonly string[]): string {
+  return `[${paths.map(quoted).join(', ')}]`
+}
+
+function objectOf(name: string, lines: readonly string[], tail: string): string[] {
+  return [`export const ${name} = {`, ...lines.map(line => `  ${line},`), `}${tail}`, '']
+}
+
+const AS_CONST = ' as const'
+const AS_LISTS = ' as const satisfies Record<string, readonly string[]>'
+
+export function renderFactoryPaths(workers: readonly WorkerDeclaration[], entries: readonly EntryDeclaration[], rows: readonly GeneratedRow[]): string {
+  const sorted = sortedByKey(entries, entry => entry.entry)
+  const single = (group: EntryGroup): string[] => sorted.filter(entry => entry.group === group).map(entry => `${entry.entry}: ${pathValue(entry.paths[0]!, rows)}`)
+  const listed = (group: EntryGroup): string[] => sorted.filter(entry => entry.group === group).map(entry => `${entry.entry}: ${listValue(entry.paths)}`)
+  const lists = ENTRY_LISTS.map(list => `${list}: ${listValue(sorted.filter(entry => entry.lists.includes(list)).map(entry => entry.paths[0]!).sort())}`)
+  return [
+    'import type { GeneratedFile } from \'./generated-files.js\'',
+    'import path from \'node:path\'',
+    'import { GENERATED_FILES } from \'./generated-files.js\'',
+    '',
+    'export { GENERATED_FILES, RATCHET_FILE, SEAM_SOURCES } from \'./generated-files.js\'',
+    '',
+    'export const FACTORY_ROOT = \'scripts\'',
+    '',
+    `export const BUS_CORE = ${BUS_CORE.toString()}`,
+    `export const BUS_SERVICE = ${BUS_SERVICE.toString()}`,
+    '',
+    'function generatedPath(id: string): string {',
+    '  const row = (GENERATED_FILES as Readonly<Record<string, GeneratedFile>>)[id]',
+    '  if (row === undefined)',
+    `    throw new Error(\`${DECLARATIONS_FOLDER}/${GENERATED_KIND}/ has no row \${id}\`)`,
+    '  return row.path',
+    '}',
+    '',
+    ...objectOf('FACTORY_RUNTIME', single('runtime'), AS_CONST),
+    ...objectOf('FACTORY_WORKERS', sortedByKey(workers, worker => worker.worker).map(worker => `${worker.worker}: ${pathValue(worker.path, rows)}`), AS_CONST),
+    ...objectOf('FACTORY_NAMED', single('named'), AS_CONST),
+    ...objectOf('FACTORY_FORMER_FOLDERS', listed('formerFolders'), AS_LISTS),
+    ...objectOf('FACTORY_FOLDERS', listed('folders'), AS_LISTS),
+    ...objectOf('FACTORY_LISTS', lists, AS_LISTS),
+    'export function scopeOf(entry: string): string {',
+    `  return path.posix.extname(entry) === '' ? \`\${entry}/\` : entry`,
+    '}',
+    '',
+    'export function inScopes(file: string, entries: readonly string[]): boolean {',
+    '  return entries.map(scopeOf).some(scope => scope.endsWith(\'/\') ? file.startsWith(scope) : file === scope)',
+    '}',
+    '',
+    'export const FACTORY_PATH_ROOTS = [FACTORY_ROOT] as const',
+    '',
+    'export const FACTORY_PATH_EXCLUSIONS = {',
+    '  modelEvidence: [\'construct.model.json\'],',
+    '  fixtures: [\'tests/**\', \'scripts/tests/**\'],',
+    '  history: [\'docs/release-notes/**\', \'architecture/decisions/**\'],',
+    '  productTwins: [\'scripts/construct/**\', \'templates/**\'],',
+    '  generated: [GENERATED_FILES.surface.path, GENERATED_FILES.factory.path],',
+    '} as const satisfies Record<string, readonly string[]>',
+    '',
+  ].join('\n')
 }
 
 export function eslintEdgesOf(mayUse: readonly MayUse[], tracked: readonly string[]): EslintEdges {
@@ -541,7 +757,7 @@ async function standardInput(): Promise<string> {
 }
 
 async function main(): Promise<void> {
-  const tracked = [...new Set([...trackedFrom(await standardInput(), file => existsSync(path.join(REPO_ROOT, file))), MODULE_FILES, ESLINT_EDGES])].sort()
+  const tracked = [...new Set([...trackedFrom(await standardInput(), file => existsSync(path.join(REPO_ROOT, file))), MODULE_FILES, ESLINT_EDGES, FACTORY_PATHS, ASSEMBLED_LAYER_MAP])].sort()
   const declarations = readDeclarations(REPO_ROOT)
   const problems = validateDeclarations(declarations, tracked)
   if (problems.length > 0) {
@@ -551,6 +767,8 @@ async function main(): Promise<void> {
   }
   writeFileSync(path.join(REPO_ROOT, MODULE_FILES), renderModuleFiles(moduleFilesOf(declarations.modules, tracked)))
   writeFileSync(path.join(REPO_ROOT, ESLINT_EDGES), renderEslintEdges(eslintEdgesOf(declarations.mayUse, tracked)))
+  writeFileSync(path.join(REPO_ROOT, FACTORY_PATHS), renderFactoryPaths(declarations.workers, declarations.entries, declarations.generated))
+  writeFileSync(path.join(REPO_ROOT, ASSEMBLED_LAYER_MAP), renderLayerMap(layerMapOf(declarations.workers, declarations.entries, tracked)))
 }
 
 if (realpathSync(process.argv[1] ?? '') === fileURLToPath(import.meta.url))

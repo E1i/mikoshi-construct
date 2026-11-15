@@ -1,5 +1,5 @@
 import type { Concept } from './concepts.js'
-import { FACTORY_ROOT } from '../../core/factory-paths.js'
+import { FACTORY_ROOT, FACTORY_WORKERS } from '../../core/factory-paths.js'
 import { CONCEPTS } from './concepts.js'
 
 export const MODULE_STATUSES = ['decided', 'undecided', 'tool'] as const
@@ -175,7 +175,8 @@ export const EXCLUSIONS: Readonly<Record<ExclusionKind, readonly string[]>> = {
   tooling: [tree('scratch')],
 }
 
-const WORKER_ENTRIES = [...['answer', 'close', 'merge', 'restart', 'review', 'update', 'witness'].map(name => factory(`nodes/${name}/${name}-worker.ts`)), factory('nodes/launch/launch-root.ts')]
+const WORKER_FILE = /-worker\.ts$/
+const WORKER_ENTRIES = [...Object.values(FACTORY_WORKERS).filter(file => WORKER_FILE.test(file)), ...Object.values(FACTORY_WORKERS).filter(file => !WORKER_FILE.test(file))]
 
 const PROCESS_ROOTS = [...supervisor('start', 'run', 'supervisor', 'review-bg'), ...core('report.ts', 'reducer.ts'), ...WORKER_ENTRIES, factory('window/handoff-write.ts')]
 

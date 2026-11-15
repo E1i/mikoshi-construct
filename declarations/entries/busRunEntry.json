@@ -1,0 +1,7 @@
+{
+  "entry": "busRunEntry",
+  "group": "runtime",
+  "path": "scripts/supervisor/run.ts",
+  "layer": null,
+  "lists": []
+}

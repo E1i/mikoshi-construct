@@ -1,0 +1,18 @@
+{
+  "entry": "entries",
+  "group": "folders",
+  "paths": [
+    "cli",
+    "core",
+    "intake",
+    "ladder",
+    "nodes",
+    "owner",
+    "policy",
+    "ports",
+    "supervisor",
+    "window"
+  ],
+  "layer": null,
+  "lists": []
+}

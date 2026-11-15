@@ -1,0 +1,7 @@
+{
+  "entry": "layerHarnessCommand",
+  "group": null,
+  "path": "scripts/harness-command/",
+  "layer": "harness-command",
+  "lists": []
+}

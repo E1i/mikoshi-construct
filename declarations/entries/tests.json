@@ -1,0 +1,9 @@
+{
+  "entry": "tests",
+  "group": "folders",
+  "paths": [
+    "scripts/tests"
+  ],
+  "layer": null,
+  "lists": []
+}

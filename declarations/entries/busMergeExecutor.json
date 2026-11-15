@@ -1,0 +1,7 @@
+{
+  "entry": "busMergeExecutor",
+  "group": "named",
+  "path": "scripts/nodes/merge/merge-executor.ts",
+  "layer": null,
+  "lists": []
+}
