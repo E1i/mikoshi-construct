@@ -4,11 +4,12 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { textSha } from '../../../src/card/text-sha.js'
+import { latestAssignment } from '../../core/bus-readings.js'
 import { appendEvent, openBus } from '../../core/db.js'
-import { CARD_ADMITTED, CARD_DROPPED, LANE_ASSIGNED, OWNER_WAIT_OPENED } from '../../core/events.js'
+import { CARD_ADMITTED, CARD_DROPPED, CARD_STARTED, LANE_ASSIGNED, OWNER_WAIT_OPENED } from '../../core/events.js'
 import { reduce } from '../../core/reducer.js'
 import { busCardEvents } from '../../intake/intake.js'
-import { cannotLaunch, currentLane, laneOverlapRecorder, layLanes } from '../../nodes/launch/lane-assign.js'
+import { cannotLaunch, currentLane, laneOverlapRecorder, layLanes, relayBehindStalls } from '../../nodes/launch/lane-assign.js'
 import { droppedDependencyWaitText, launchCandidates } from '../../nodes/launch/launch-candidates.js'
 import { busProjections } from '../../supervisor/composition.js'
 
@@ -28,8 +29,9 @@ function cardText(id: number, touches: string, depends: number[]): string {
 
 class Board {
   readonly db: DatabaseSync
+  private admissions = 0
 
-  constructor() {
+  constructor(private readonly lanes: number = LANES) {
     const root = mkdtempSync(path.join(tmpdir(), 'lane-dead-'))
     roots.push(root)
     this.db = openBus(path.join(root, 'bus.db'))
@@ -37,18 +39,52 @@ class Board {
 
   admit(id: number, touches: string, depends: number[] = []): this {
     const text = cardText(id, touches, depends)
-    busCardEvents(this.db, 's1', () => LANES)({ type: CARD_ADMITTED, cardId: id, ts: TS, dedupeKey: `admit-${id}`, payload: { card: text.split('\n')[0]!.slice('card: '.length), lane: null, depends, decision: 'auto', contour: 'cheap', text, textSha: textSha(text) } })
+    this.admissions += 1
+    busCardEvents(this.db, 's1', () => this.lanes)({ type: CARD_ADMITTED, cardId: id, ts: TS, dedupeKey: `admit-${id}-${this.admissions}`, payload: { card: text.split('\n')[0]!.slice('card: '.length), lane: null, depends, decision: 'auto', contour: 'cheap', text, textSha: textSha(text) } })
     return this.lay()
   }
 
   drop(id: number): this {
-    appendEvent(this.db, { ts: TS, type: CARD_DROPPED, actor: 'policy', cardId: id, pr: null, head: null, dedupeKey: `${CARD_DROPPED}:${id}`, payload: {}, legacy: false })
-    return this.lay()
+    return this.dropUnlaid(id).lay()
+  }
+
+  dropUnlaid(id: number): this {
+    return this.append(CARD_DROPPED, id)
+  }
+
+  start(id: number): this {
+    return this.append(CARD_STARTED, id)
+  }
+
+  relayBehind(stalled: number): number {
+    return relayBehindStalls(this.db, [{ cardId: stalled, pr: stalled + 1000, head: null, cause: 'test', detail: 'test' }], this.lanes, TS, 'policy', [])
+  }
+
+  lane(id: number): string | null {
+    return currentLane(this.db, id)
+  }
+
+  reason(id: number): unknown {
+    return latestAssignment(this.db, id)?.reason
+  }
+
+  everyAfter(id: number): number[] {
+    return (this.db.prepare(`SELECT payload FROM events WHERE type = '${LANE_ASSIGNED}' AND card_id = ? ORDER BY id`).all(id) as { payload: string }[])
+      .flatMap((row) => {
+        const after = (JSON.parse(row.payload) as { after?: unknown }).after
+        return Array.isArray(after) ? after as number[] : []
+      })
+  }
+
+  private append(type: string, id: number): this {
+    appendEvent(this.db, { ts: TS, type, actor: 'policy', cardId: id, pr: null, head: null, dedupeKey: `${type}:${id}`, payload: {}, legacy: false })
+    reduce(this.db, 'pending', busProjections())
+    return this
   }
 
   lay(): this {
     reduce(this.db, 'pending', busProjections())
-    layLanes(this.db, LANES, TS, 'policy')
+    layLanes(this.db, this.lanes, TS, 'policy')
     reduce(this.db, 'pending', busProjections())
     return this
   }
@@ -92,6 +128,40 @@ describe('a lane chain orders a card only after cards that can still launch', ()
   it('a card depending on a dropped card through another card cannot launch either', () => {
     const board = new Board().admit(1, 'scripts/a.ts').admit(2, 'scripts/b.ts', [1]).admit(4, 'scripts/c.ts', [2]).drop(1)
     expect(cannotLaunch(board.db)).toEqual(new Set([1, 2, 4]))
+  })
+
+  it('a re-laid card counts no card that cannot launch as an occupant of a lane', () => {
+    const board = new Board(2).admit(1, 'scripts/a.ts').admit(2, 'scripts/a.ts', [1]).admit(5, 'scripts/x.ts').admit(3, 'scripts/a.ts')
+    expect([board.lane(1), board.lane(2), board.lane(5), board.lane(3)]).toEqual(['lane-1', 'lane-1', 'lane-2', 'lane-1'])
+    expect(board.after(3)).toEqual([1, 2])
+    board.drop(1)
+    expect(board.lane(3)).toBe('lane-1')
+    expect(board.reason(3)).toBe('free')
+  })
+
+  it('the reflow counts a lane held only by a card that cannot launch as empty', () => {
+    const board = new Board(2).admit(1, 'scripts/a.ts').start(1).admit(9, 'scripts/z.ts').admit(2, 'scripts/b.ts', [9]).admit(3, 'scripts/c.ts')
+    expect([board.lane(1), board.lane(9), board.lane(2), board.lane(3)]).toEqual(['lane-1', 'lane-2', 'lane-2', 'lane-1'])
+    board.drop(9)
+    expect(board.lane(2)).toBe('lane-2')
+    expect(board.lane(3)).toBe('lane-2')
+    expect(board.reason(3)).toBe('reflowed')
+  })
+
+  it('an amended card is never re-laid behind a card that cannot launch', () => {
+    const board = new Board(2).admit(9, 'scripts/z.ts').admit(2, 'scripts/y.ts', [9]).admit(3, 'scripts/c.ts')
+    expect([board.lane(9), board.lane(2), board.lane(3)]).toEqual(['lane-1', 'lane-1', 'lane-2'])
+    board.dropUnlaid(9).admit(3, 'scripts/y.ts')
+    expect(board.everyAfter(3)).not.toContain(2)
+    expect(board.lane(3)).toBe('lane-2')
+  })
+
+  it('a card behind a stall counts a lane held only by a card that cannot launch as free', () => {
+    const board = new Board(2).admit(1, 'scripts/a.ts').admit(9, 'scripts/z.ts').admit(2, 'scripts/y.ts', [9]).admit(3, 'scripts/c.ts').admit(4, 'scripts/d.ts')
+    expect([board.lane(1), board.lane(9), board.lane(2), board.lane(3), board.lane(4)]).toEqual(['lane-1', 'lane-2', 'lane-2', 'lane-1', 'lane-1'])
+    board.dropUnlaid(9)
+    expect(board.relayBehind(1)).toBeGreaterThan(0)
+    expect(board.lane(3)).toBe('lane-2')
   })
 
   it('a dependency on a dropped card opens one owner wait', () => {
