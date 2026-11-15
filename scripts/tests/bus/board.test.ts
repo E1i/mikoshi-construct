@@ -18,12 +18,13 @@ import { CARD_ADMITTED, CARD_DROPPED, CARD_MOVED, CARD_PLANNED, CARD_STARTED, CA
 import { OWNER, RESTART_MISSED } from '../../core/inbox.js'
 import { completeTask, leaseNext, leaseWhileFree } from '../../core/lease.js'
 import { queueTask } from '../../core/queue.js'
-import { PLAN_FOLDS, SNAPSHOT } from '../../core/reducer.js'
+import { SNAPSHOT } from '../../core/reducer.js'
 import { storedByKey } from '../../core/stored.js'
 import { markReduced } from '../../core/watermark.js'
 import { importJournal } from '../../intake/import.js'
 import { answerLeaseOrder } from '../../nodes/answer/answer-worker.js'
 import { busReviewPulse } from '../../nodes/review/review-worker.js'
+import { RECUT_ACTOR } from '../../policy/round-limit-decision.js'
 import { windowShardEnded } from '../../policy/shards.js'
 import { NetWatch, TICK_MS } from '../../ports/netwatch.js'
 import { busProjections } from '../../supervisor/composition.js'
@@ -32,6 +33,7 @@ import { BusTick } from '../../supervisor/run.js'
 import { recordJudged } from '../../supervisor/supervisor.js'
 import { cardGauges, MERGE_PAST_THE_BUS, readBoard, SILENT_PROCESS, windowGauges } from '../../window/board.js'
 import { stateLines } from '../../window/handoff-write.js'
+import { planFolds } from '../../window/plan-folds.js'
 import { recordWindowHeartbeat } from '../../window/window-heartbeat.js'
 import { Clock, FakeGitHub, sha } from './github-fake.js'
 import { detectReview } from './review-detection.js'
@@ -127,7 +129,7 @@ function stopCard(bench: BoardBench, cardId: number): void {
 function planEvent(bench: BoardBench, type: string, payload: Record<string, unknown>, cardId: number | null = null): void {
   const dedupeKey = `${type}:${cardId}:${JSON.stringify(payload)}`
   appendEvent(bench.db, { ts: bench.ts(), type, actor: OWNER, cardId, pr: null, head: null, dedupeKey, payload, legacy: false })
-  PLAN_FOLDS[type]!(bench.db, storedByKey(bench.db, dedupeKey))
+  planFolds({ owner: OWNER, recut: RECUT_ACTOR })[type]!(bench.db, storedByKey(bench.db, dedupeKey))
 }
 
 function openPlan(bench: BoardBench, cards: number[]): void {
