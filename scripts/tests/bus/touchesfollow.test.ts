@@ -13,6 +13,7 @@ import { AnswerOutsideTouches, claudeAnswerer, followedEvent } from '../../nodes
 import { runTreePr } from '../../nodes/launch/tree-pr-cli.js'
 import { touchesFollowed, treePr } from '../../nodes/launch/tree-pr.js'
 import { followsTouches, neverFollows, pathsOutside, rootCopyOf } from '../../policy/touch-scope.js'
+import { ranTheGreenGate } from './gate-stream.js'
 
 const CARD_ID = 1207
 const TOUCHED_MODULE = 'src/widget.ts'
@@ -111,6 +112,7 @@ function answerChanging(changed: string[], touches: string[], answerCase: Answer
     available: () => true,
     remoteHead: () => heads.shift() ?? null,
     spawn: async (run) => {
+      ranTheGreenGate(run)
       writeFileSync(run.stdoutPath, `${JSON.stringify({ type: 'result', subtype: 'success', result: 'answered' })}\n`)
       return 0
     },

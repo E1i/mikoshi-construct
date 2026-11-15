@@ -1,6 +1,8 @@
 import type { SpawnSyncReturns } from 'node:child_process'
-import type { BranchTests, CardRuns } from './card-runs.js'
-import type { Graph, Run } from './layers.js'
+import type { LayerMap } from '../core/layer-map.js'
+import type { BranchCardRuns, BranchTests, CardLayers } from './card-runs.js'
+import type { GateMode, GateRun } from './gate-runs.js'
+import type { Graph, LayeredRun, Run } from './layers.js'
 import type { Capability, SandboxFailing } from './sandbox-failing.js'
 import type { Stale } from './sandbox-liveness.js'
 import type { GateBase, Git, GreenRuns } from './select.js'
@@ -17,10 +19,11 @@ import { GhCiRuns } from '../ports/ci-reading.js'
 import { processGit } from '../ports/git.js'
 import { heavyStep } from '../quality/lock.js'
 import { branchCardRuns } from './card-runs.js'
-import { isTest, reverseGraph, selectRun } from './layers.js'
+import { modeOfArgs, recordGateRun, sourceOf, touchesModuleFiles } from './gate-runs.js'
+import { isTest, sessionRun } from './layers.js'
 import { CAPABILITIES, normLine, probeCapabilities, SANDBOX_FAILING, sandboxNorm } from './sandbox-failing.js'
 import { listedFiles, livenessApplies, runTraced, staleInSandbox, staleLines } from './sandbox-liveness.js'
-import { cruise, lastGreenMain, readTest, reportedRun, runSummary } from './select.js'
+import { cruise, lastGreenMain, readTest, runSummary } from './select.js'
 import { PASS_WITH_NO_TESTS, REPO_ROOT, RETRY, runVitest } from './test-command.js'
 import { outcomesOf, testKey } from './vitest-report.js'
 
@@ -40,11 +43,9 @@ export interface Gate { lines: string[], code: number }
 
 const RAN = new Set(['passed', 'failed'])
 
-export function withCardRuns(run: Run, reading: CardRuns | null, graph: Graph): Run {
-  if (reading === null || run.kind === 'full')
+export function withCardRuns(run: LayeredRun, reading: CardLayers | null, graph: Graph): LayeredRun {
+  if (reading === null)
     return run
-  if ('full' in reading)
-    return { kind: 'full', why: `the card of the branch reads in full: ${reading.why}` }
   const added = [...graph.keys()].filter(test => isTest(test) && withinTouches(test, reading.tests))
   return { kind: 'layers', layers: [...new Set([...run.layers, ...reading.layers])].sort(), tests: [...new Set([...run.tests, ...added])].sort() }
 }
@@ -53,11 +54,13 @@ export function testsOfBranch(graph: Graph, folders: BranchTests['folders']): Br
   return { tests: [...graph.keys()].filter(isTest), folders }
 }
 
-function readingOfBranch(read: Git, graph: Graph): CardRuns | null {
+type BranchCard = Extract<BranchCardRuns, { kind: 'card' }>
+
+function cardOfBranch(read: Git, graph: Graph): BranchCard | null {
   const found = branchCardRuns(read(['rev-parse', '--abbrev-ref', 'HEAD']).trim(), undefined, testsOfBranch(graph, testFoldersOfLayers(readLayerMap())))
   if (found.kind === 'unreadable')
     console.log(`prepush: the card of the branch could not be read, the selection stays the changed paths': ${found.why}`)
-  return found.kind === 'card' ? found.reading : null
+  return found.kind === 'card' ? found : null
 }
 
 export function ciArgs(run: Run): string[] {
@@ -106,48 +109,13 @@ function brokenGate(why: string): Gate {
 
 export interface Selection {
   changed: readonly string[]
-  run: Run
-  graph: Graph
-  select: (files: readonly string[]) => Run
-  reading: CardRuns | null
+  run: LayeredRun
+  why: string
 }
 
-export function roundRun({ changed, run, graph, select, reading }: Selection): Run {
-  if (run.kind !== 'full')
-    return run
-  const layered = selectEachPath(changed, graph, select)
-  return reading === null || 'full' in reading ? layered : withCardRuns(layered, reading, graph)
-}
-
-function selectEachPath(changed: readonly string[], graph: Graph, select: (files: readonly string[]) => Run): Run {
-  const reverse = reverseGraph(graph)
-  const layers = new Set<string>()
-  const tests = new Set<string>()
-  for (const file of changed) {
-    const one = select([file])
-    if (one.kind === 'layers') {
-      one.layers.forEach(layer => layers.add(layer))
-      one.tests.forEach(test => tests.add(test))
-    }
-    else {
-      testsReaching(file, reverse).forEach(test => tests.add(test))
-    }
-  }
-  return { kind: 'layers', layers: [...layers].sort(), tests: [...tests].sort() }
-}
-
-function testsReaching(file: string, reverse: ReadonlyMap<string, readonly string[]>): string[] {
-  const seen = new Set([file])
-  const queue = [file]
-  for (let next = queue.shift(); next !== undefined; next = queue.shift()) {
-    for (const from of reverse.get(next) ?? []) {
-      if (!seen.has(from)) {
-        seen.add(from)
-        queue.push(from)
-      }
-    }
-  }
-  return [...seen].filter(isTest)
+export function sessionSelection(changed: readonly string[], graph: Graph, testText: (test: string) => string, reading: CardLayers | null, map?: LayerMap): Selection {
+  const session = sessionRun(changed, graph, testText, map)
+  return { changed, run: withCardRuns(session.run, reading, graph), why: session.why }
 }
 
 export const NO_TESTS: Verdict = { kind: 'green', ran: 0 }
@@ -172,20 +140,25 @@ export interface Suite {
   queue: (step: () => Promise<number>) => Promise<number>
   log: (line: string) => void
   capabilities?: () => Promise<ReadonlySet<Capability>>
+  record?: (ran: GateOutcome) => void
 }
 
+export type GateOutcome = Pick<GateRun, 'mode' | 'reason' | 'seconds' | 'tests'>
+
 export async function testStep(selection: Selection, suite: Suite): Promise<number> {
-  const { changed, run: selected } = selection
-  const run = roundRun(selection)
-  if (run !== selected)
-    suite.log(`prepush: the gate runs only the layers its change reaches (${selected.kind === 'full' ? selected.why : 'layered'}); the full suite is CI's.`)
+  const { changed, run, why } = selection
+  suite.log(`prepush: the gate runs ${why}; ${FULL_RUN_IS_CI}.`)
   suite.log(runSummary(run))
   return throughQueue(run, async () => {
     const started = Date.now()
-    const verdict = roundTests(run, () => suite.vitest(sessionArgs(run, SANDBOX_FAILING)))
+    let ran: string[] | null = null
+    const verdict = roundTests(run, () => suite.vitest(ran = sessionArgs(run, SANDBOX_FAILING)))
     const available = verdict.kind === 'red' ? await (suite.capabilities ?? probeCapabilities)() : EVERY_CAPABILITY
     const gate = prepushGate(changed, () => verdict, suite.liveness, available)
-    suite.log([...gate.lines, `prepush: ${Math.round((Date.now() - started) / 1000)} s of local tests`].join('\n'))
+    const seconds = Math.round((Date.now() - started) / 1000)
+    suite.log([...gate.lines, `prepush: ${seconds} s of local tests`].join('\n'))
+    const mode: GateMode = modeOfArgs(ran)
+    suite.record?.({ mode, reason: why, seconds, tests: run.tests.length })
     return gate.code
   }, suite.queue)
 }
@@ -275,12 +248,15 @@ function sandboxLiveness(): Stale[] | null {
   return traced === null ? null : staleInSandbox(SANDBOX_FAILING, traced.outcomes, traced.traced)
 }
 
+export function gateRecorder(round: string | null, head: string, card: BranchCard | null, record: (run: GateRun) => void): (ran: GateOutcome) => void {
+  return ran => record({ ...ran, source: sourceOf(round), round: round ?? head, card: card?.card ?? null, moduleFiles: touchesModuleFiles(card?.touches ?? []) })
+}
+
 async function main(): Promise<number> {
-  let changed: string[]
-  let run: Run
+  let selection: Selection
   let round: string | null
-  let graph: Graph
-  let reading: CardRuns | null
+  let card: BranchCard | null
+  let head: string
   try {
     round = roundOf(process.argv.slice(2))
     const clean = cleanTreeGate(git)
@@ -290,24 +266,26 @@ async function main(): Promise<number> {
     }
     const base = gateBase(git, round, new GhCiRuns())
     console.log(`prepush: the diff from ${base.why}`)
-    changed = changesSince(git, base.sha)
-    graph = changed.length === 0 ? new Map() : cruise()
-    reading = readingOfBranch(git, graph)
-    run = reportedRun(withCardRuns(selectRun(changed, graph, readTest), reading, graph))
+    const changed = changesSince(git, base.sha)
+    const graph: Graph = changed.length === 0 ? new Map() : cruise()
+    card = cardOfBranch(git, graph)
+    selection = sessionSelection(changed, graph, readTest, card?.reading ?? null)
+    head = git(['rev-parse', 'HEAD']).trim()
   }
   catch (error) {
     console.log(brokenGate(`the CI selector did not run: ${error instanceof Error ? error.message : String(error)}`).lines.join('\n'))
     return 2
   }
-  console.log(`prepush: ${changed.length} changed paths`)
+  console.log(`prepush: ${selection.changed.length} changed paths`)
   if (round !== null) {
-    const linted = lintGate(roundLintArgs(changed, existsSync), eslint)
+    const linted = lintGate(roundLintArgs(selection.changed, existsSync), eslint)
     if (linted !== null) {
       console.log(linted.lines.join('\n'))
       return linted.code
     }
   }
-  return testStep({ changed, run, graph, select: files => selectRun(files, graph, readTest), reading }, { vitest: args => runVitest(args), liveness: sandboxLiveness, queue: heavyStep, log: line => console.log(line) })
+  const record = gateRecorder(round, head, card, run => console.log(recordGateRun(run, new Date().toISOString())))
+  return testStep(selection, { vitest: args => runVitest(args), liveness: sandboxLiveness, queue: heavyStep, log: line => console.log(line), record })
 }
 
 if (process.argv[1] === import.meta.filename)

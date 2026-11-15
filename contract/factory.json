@@ -1,6 +1,6 @@
 {
   "bus": {
-    "busVersion": 3,
+    "busVersion": 4,
     "events": {
       "answer.step": {
         "complete": true,
@@ -442,6 +442,18 @@
         "keys": [
           "mode",
           "request"
+        ]
+      },
+      "gate.run": {
+        "complete": true,
+        "keys": [
+          "mode",
+          "moduleFiles",
+          "reason",
+          "round",
+          "seconds",
+          "source",
+          "tests"
         ]
       },
       "ghost.line": {
@@ -4086,7 +4098,8 @@
           "bus": [
             1,
             2,
-            3
+            3,
+            4
           ],
           "card": [
             1,
@@ -4106,7 +4119,8 @@
           "bus": [
             1,
             2,
-            3
+            3,
+            4
           ],
           "card": [
             1,
@@ -4140,7 +4154,8 @@
           "bus": [
             1,
             2,
-            3
+            3,
+            4
           ],
           "card": [
             1,
@@ -4165,7 +4180,8 @@
           "bus": [
             1,
             2,
-            3
+            3,
+            4
           ],
           "card": [
             1,
@@ -4193,7 +4209,8 @@
           "bus": [
             1,
             2,
-            3
+            3,
+            4
           ],
           "card": [
             1,
@@ -4215,7 +4232,8 @@
           "bus": [
             1,
             2,
-            3
+            3,
+            4
           ],
           "card": [
             1,
@@ -4234,7 +4252,8 @@
           "bus": [
             1,
             2,
-            3
+            3,
+            4
           ],
           "card": [
             1,

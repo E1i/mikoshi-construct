@@ -1,11 +1,11 @@
-import type { Graph, Run } from '../../ci/layers.js'
+import type { CardLayers } from '../../ci/card-runs.js'
+import type { Graph } from '../../ci/layers.js'
 import type { Git, Selection, Suite } from '../../ci/prepush.js'
 import type { VitestRun } from '../../ci/test-command.js'
 import path from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { selectRun } from '../../ci/layers.js'
-import { changesSince, gateBase, roundRun, testStep } from '../../ci/prepush.js'
-import { reportedRun } from '../../ci/select.js'
+import { changesSince, gateBase, sessionSelection, testStep } from '../../ci/prepush.js'
 import { InMemoryCi } from '../../ports/ci-reading.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..', '..')
@@ -17,12 +17,8 @@ const PARSE = 'scripts/notes/parse.ts'
 const PARSE_TEST = 'scripts/tests/notes/parse.test.ts'
 const GRAPH: Graph = new Map([[PRINT, []], [PRINT_TEST, [PRINT]], [PARSE, []], [PARSE_TEST, [PARSE]]])
 
-function select(files: readonly string[]): Run {
-  return selectRun(files, GRAPH, () => '')
-}
-
-function selection(changed: string[], reading: Selection['reading'] = null): Selection {
-  return { changed, run: reportedRun(select(changed)), graph: GRAPH, select, reading }
+function selection(changed: string[], reading: CardLayers | null = null, graph: Graph = GRAPH): Selection {
+  return sessionSelection(changed, graph, () => '', reading)
 }
 
 function passing(file: string): VitestRun {
@@ -76,7 +72,7 @@ describe('the window gate reads its base from the last green main and leaves the
 
   it('the window gate never runs the full suite and names CI as the full run', async () => {
     for (const changed of [[NO_LAYER], [NO_LAYER, PRINT]]) {
-      expect(selection(changed).run.kind).toBe('full')
+      expect(selectRun(changed, GRAPH, () => '').kind).toBe('full')
       const gate = suite()
       expect(await testStep(selection(changed), gate)).toBe(0)
       expect(gate.queue).not.toHaveBeenCalled()
@@ -89,7 +85,6 @@ describe('the window gate reads its base from the last green main and leaves the
 
 describe('the gate answer round runs only the layers its change reaches', () => {
   it('a round whose change belongs to no layer runs no full suite and never takes the quality lock', async () => {
-    expect(selection([NO_LAYER]).run.kind).toBe('full')
     const round = suite()
     expect(await testStep(selection([NO_LAYER]), round)).toBe(0)
     expect(round.vitest).not.toHaveBeenCalled()
@@ -97,38 +92,27 @@ describe('the gate answer round runs only the layers its change reaches', () => 
     expect(round.lines.join('\n')).toMatch(/0 tests of the layers this change reaches ran; the full suite is CI's/)
   })
 
-  it('a round that runs in full for one path still runs the tests the rest of its change reaches, outside the lock', async () => {
-    expect(selection([NO_LAYER, PRINT]).run.kind).toBe('full')
-    expect(roundRun(selection([NO_LAYER, PRINT]))).toEqual({ kind: 'layers', layers: ['notes'], tests: [PRINT_TEST] })
+  it('a round that CI runs in full for one path still runs the tests the rest of its change reaches, outside the lock', async () => {
+    expect(selection([NO_LAYER, PRINT]).run).toEqual({ kind: 'layers', layers: ['notes'], tests: [PRINT_TEST] })
     const round = suite()
     expect(await testStep(selection([NO_LAYER, PRINT]), round)).toBe(0)
     expect(round.queue).not.toHaveBeenCalled()
     expect(vi.mocked(round.vitest).mock.calls[0]![0]).toContain(PRINT_TEST)
   })
 
-  it('a full path of a round still runs the tests that import it', () => {
+  it('a path CI runs in full still runs the tests that import it', () => {
     const infra = 'scripts/ci/gate.ts'
     const graph: Graph = new Map([[infra, []], ['scripts/tests/ci/gate.test.ts', [infra]]])
-    const full = selectRun([infra], graph, () => '')
-    expect(full.kind).toBe('full')
-    expect(roundRun({ changed: [infra], run: full, graph, select: files => selectRun(files, graph, () => ''), reading: null })).toEqual({ kind: 'layers', layers: [], tests: ['scripts/tests/ci/gate.test.ts'] })
+    expect(selectRun([infra], graph, () => '').kind).toBe('full')
+    expect(selection([infra], null, graph).run).toEqual({ kind: 'layers', layers: [], tests: ['scripts/tests/ci/gate.test.ts'] })
   })
 
-  it('a layered round keeps the selection it already has', () => {
-    const layered = selection([PRINT])
-    expect(roundRun(layered)).toBe(layered.run)
-  })
-
-  it('a round that would run in full still runs the tests and layers the card names in its Runs', async () => {
+  it('a round that CI would run in full still runs the tests and layers the card names in its Runs', async () => {
     const card = selection([NO_LAYER], { layers: ['parse'], paths: [PARSE_TEST], tests: [PARSE_TEST] })
-    expect(roundRun(card)).toEqual({ kind: 'layers', layers: ['parse'], tests: [PARSE_TEST] })
+    expect(card.run).toEqual({ kind: 'layers', layers: ['parse'], tests: [PARSE_TEST] })
     const round = suite()
     expect(await testStep(card, round)).toBe(0)
     expect(round.queue).not.toHaveBeenCalled()
     expect(vi.mocked(round.vitest).mock.calls[0]![0]).toContain(PARSE_TEST)
-  })
-
-  it('a card that reads in full names no test, so its round runs the layers its change reaches', () => {
-    expect(roundRun(selection([NO_LAYER, PRINT], { full: true, why: 'an unknown folder' }))).toEqual({ kind: 'layers', layers: ['notes'], tests: [PRINT_TEST] })
   })
 })

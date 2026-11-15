@@ -16,6 +16,7 @@ import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
 import { claudeAnswerer, FreshBaseConflict, ownerQuestionPath, realAnswererTools, RoundTimer } from '../../nodes/answer/answerer.js'
 import { TSX_PIPE_DIRECTORY } from '../../ports/shift-settings.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
+import { ranTheGreenGate } from './gate-stream.js'
 import { sha } from './github-fake.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
 
@@ -74,6 +75,7 @@ async function answerAt(context: number, cardTools?: AnswererTools['cardTools'])
     remoteHead: () => heads.shift() ?? null,
     spawn: async (run) => {
       runs.push(run)
+      ranTheGreenGate(run)
       writeFileSync(run.stdoutPath, `${JSON.stringify({ type: 'result', subtype: 'success', result: 'answered' })}\n`)
       return 0
     },
@@ -228,6 +230,7 @@ describe('the answer path publishes on a fresh base', () => {
         remoteHead: () => 'a'.repeat(40),
         spawn: async (run) => {
           runs.push(run)
+          ranTheGreenGate(run)
           writeFileSync(run.stdoutPath, `${JSON.stringify({ type: 'result', subtype: 'success', result: 'answered' })}\n`)
           return 0
         },
@@ -263,6 +266,7 @@ describe('the answer path publishes on a fresh base', () => {
       available: () => true,
       remoteHead: () => 'a'.repeat(40),
       spawn: async (run) => {
+        ranTheGreenGate(run)
         writeFileSync(run.stdoutPath, `${JSON.stringify({ type: 'result', subtype: 'success', result: 'answered', usage: usage.shift() })}\n`)
         if (run.stdoutPath.includes('.merge.'))
           writeFileSync(ownerQuestionPath(dir, CARD_SESSION, 1), `${question}\n`)

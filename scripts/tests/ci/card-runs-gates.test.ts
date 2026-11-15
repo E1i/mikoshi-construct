@@ -10,9 +10,9 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { runsLine } from '../../../src/card/covering-tests.js'
 import { parkingFileText } from '../../../src/card/parking.js'
 import { textSha } from '../../../src/card/text-sha.js'
-import { branchCardRuns, cardRunsOf, runsSourceOfBranch, runsSourceOfPr } from '../../ci/card-runs.js'
-import { CHANGESET_READERS, selectRun } from '../../ci/layers.js'
-import { withCardRuns } from '../../ci/prepush.js'
+import { branchCardRuns, cardRunsOf, runsSourceOfBranch, runsSourceOfPr, sessionCardRunsOf } from '../../ci/card-runs.js'
+import { CHANGESET_READERS, selectRun, sessionRun } from '../../ci/layers.js'
+import { sessionSelection, withCardRuns } from '../../ci/prepush.js'
 import { writeCatalog } from '../../cli/check-catalog.js'
 import { appendCardEvent } from '../../core/card-bodies.js'
 import { openBus } from '../../core/db.js'
@@ -119,7 +119,11 @@ function readingOf(source: CardRunsSource): CardRuns {
 }
 
 function prepushOf(changed: string[], source: CardRunsSource) {
-  return withCardRuns(selectRun(changed, GRAPH, NO_TEXT, MAP), readingOf(source), GRAPH)
+  return sessionSelection(changed, GRAPH, NO_TEXT, sessionCardRunsOf(source, CATALOG, MAP), MAP).run
+}
+
+function layeredOf(changed: string[]) {
+  return sessionRun(changed, GRAPH, NO_TEXT, MAP).run
 }
 
 function admit(db: DatabaseSync, masks: string[], touches: string[] = [WORKER]): void {
@@ -129,11 +133,12 @@ function admit(db: DatabaseSync, masks: string[], touches: string[] = [WORKER]):
 }
 
 it('prepush adds the tests of a masked layer and never removes a selected one', () => {
-  const selected = selectRun([CORE], GRAPH, NO_TEXT, MAP)
+  const selected = layeredOf([CORE])
 
   expect(selected).toEqual({ kind: 'layers', layers: ['core'], tests: [CORE_TEST] })
-  expect(withCardRuns(selected, readingOf(cardOf([], ['other'])), GRAPH)).toEqual({ kind: 'layers', layers: ['core', 'other'], tests: [CORE_TEST, OTHER_TEST] })
+  expect(withCardRuns(selected, sessionCardRunsOf(cardOf([], ['other']), CATALOG, MAP), GRAPH)).toEqual({ kind: 'layers', layers: ['core', 'other'], tests: [CORE_TEST, OTHER_TEST] })
   expect(withCardRuns(selected, { layers: [], paths: [], tests: [] }, GRAPH)).toEqual(selected)
+  expect(sessionCardRunsOf(cardOf([CORE], [], [OTHER_TEST]), { testLayers: new Map(), moduleLayers: new Map() }, MAP)).toEqual({ layers: [], paths: [OTHER_TEST], tests: [OTHER_TEST] })
 })
 
 it('a branch and a pull request with no card select as before', () => {
@@ -150,13 +155,13 @@ it('a new file in a known folder gets the same layers from the card reading and 
   expect(prepushOf([NEW_IN_KNOWN_FOLDER], card)).toEqual({ kind: 'layers', layers: ['core'], tests: [CORE_TEST] })
 })
 
-it('a new file in an unknown folder is a full run with a named reason in the card reading and prepush', () => {
+it('a new file in an unknown folder reads full with a named reason in the card reading, and the prepush runs its covering tests', () => {
   for (const file of [NEW_OUTSIDE_SCRIPTS, NEW_IN_UNKNOWN_SCRIPTS_FOLDER]) {
     const card = cardOf([file])
     const named = expect.stringContaining(file)
 
     expect(readingOf(card)).toEqual({ full: true, why: named })
-    expect(prepushOf([file], card)).toEqual({ kind: 'full', why: named })
+    expect(prepushOf([file], card)).toEqual({ kind: 'layers', layers: [], tests: [] })
   }
   expect(selectRun([NEW_OUTSIDE_SCRIPTS], GRAPH, NO_TEXT, MAP)).toEqual({ kind: 'full', why: expect.stringContaining(NEW_OUTSIDE_SCRIPTS) })
 })
@@ -199,16 +204,17 @@ it('a helper under a test root is no test and no layer, and reads full in the ca
   expect(selectRun([helper], new Map([[helper, []], ...GRAPH]), NO_TEXT, MAP)).toEqual({ kind: 'full', why: expect.stringContaining(helper) })
 })
 
-it('a full selection stays full whatever the card reads, and a full card reading makes the selection full', () => {
-  const full = selectRun([NEW_OUTSIDE_SCRIPTS], GRAPH, NO_TEXT, MAP)
+it('a selection CI would run in full stays layered in the session and still takes what the card reads', () => {
+  const layered = layeredOf([NEW_OUTSIDE_SCRIPTS])
 
-  expect(withCardRuns(full, { layers: ['core'], paths: [], tests: [CORE_TEST] }, GRAPH)).toEqual(full)
-  expect(withCardRuns(selectRun([CORE], GRAPH, NO_TEXT, MAP), null, GRAPH)).toEqual({ kind: 'layers', layers: ['core'], tests: [CORE_TEST] })
-  expect(withCardRuns(selectRun([CORE], GRAPH, NO_TEXT, MAP), { full: true, why: 'a reason' }, GRAPH)).toEqual({ kind: 'full', why: expect.stringContaining('a reason') })
+  expect(selectRun([NEW_OUTSIDE_SCRIPTS], GRAPH, NO_TEXT, MAP).kind).toBe('full')
+  expect(withCardRuns(layered, { layers: ['core'], paths: [], tests: [CORE_TEST] }, GRAPH)).toEqual({ kind: 'layers', layers: ['core'], tests: [CORE_TEST] })
+  expect(withCardRuns(layeredOf([CORE]), null, GRAPH)).toEqual({ kind: 'layers', layers: ['core'], tests: [CORE_TEST] })
+  expect(sessionCardRunsOf(cardOf([CORE, NEW_OUTSIDE_SCRIPTS]), CATALOG, MAP)).toEqual({ layers: ['core'], paths: [], tests: [CORE_TEST] })
 })
 
 it('a glob in the runs of a card expands through the graph, and a name the graph lacks is dropped', () => {
-  const selected = selectRun([CORE], GRAPH, NO_TEXT, MAP)
+  const selected = layeredOf([CORE])
 
   expect(withCardRuns(selected, { layers: [], paths: ['scripts/tests/seam/**', 'scripts/tests/gone.test.ts'], tests: ['scripts/tests/seam/**', 'scripts/tests/gone.test.ts'] }, GRAPH)).toEqual({ kind: 'layers', layers: ['core'], tests: [CORE_TEST, SEAM_A_TEST, SEAM_B_TEST] })
 })

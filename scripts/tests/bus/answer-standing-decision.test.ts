@@ -22,6 +22,7 @@ import { NetWatch, TICK_MS } from '../../ports/netwatch.js'
 import { busProjections } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { BusTick } from '../../supervisor/run.js'
+import { ranTheGreenGate } from './gate-stream.js'
 import { Clock, FakeGitHub, sha } from './github-fake.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
 
@@ -118,6 +119,7 @@ async function answerEditing(changed: readonly string[]): Promise<{ made: MergeB
     spawn: async (run) => {
       for (const file of [TOUCHED, ...changed])
         writeFileSync(path.join(worktree, file), `${CARD_FILES[file] ?? ''}// answered\n`)
+      ranTheGreenGate(run)
       writeFileSync(run.stdoutPath, `${JSON.stringify({ type: 'result', subtype: 'success', result: 'answered' })}\n`)
       return 0
     },
