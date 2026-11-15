@@ -243,6 +243,173 @@ const aTestWaitsOnAnEvent = {
   },
 }
 
+export const COMPOSITION_ROOT = 'scripts/supervisor/composition.ts'
+export const REGISTRATION_LISTS = ['folds', 'incremental']
+export const IMPORT_TIME_REGISTRY_WRITES = ['push', 'unshift', 'splice', 'set', 'add']
+const REGISTERING_CALLEE = /^register/
+
+const REGISTERS_ONLY_IN_COMPOSITION = `Registration happens only in ${COMPOSITION_ROOT} (D-506): a module exports what it defines, and the composition lists it — no list of {{what}} outside it, and no registration at import time`
+const COMPOSITION_HAS_NO_IMPORT_SIDE_EFFECTS = `${COMPOSITION_ROOT} has no side effects on import (D-506): it declares imports, types, functions and constant values, and registers only inside the functions a process root calls`
+
+function runsAtImport(node) {
+  for (let at = node.parent; at != null; at = at.parent) {
+    if (at.type === 'FunctionDeclaration' || at.type === 'FunctionExpression' || at.type === 'ArrowFunctionExpression')
+      return false
+    if (at.type === 'PropertyDefinition' && !at.static)
+      return false
+  }
+  return true
+}
+
+function calleeName(callee) {
+  if (callee.type === 'Identifier')
+    return { name: callee.name, method: null }
+  if (callee.type === 'MemberExpression' && !callee.computed && callee.property.type === 'Identifier')
+    return { name: callee.property.name, method: callee.property.name }
+  return { name: null, method: null }
+}
+
+function receiverOf(callee) {
+  let at = callee.object
+  while (at?.type === 'MemberExpression')
+    at = at.object
+  return at?.type === 'Identifier' ? at.name : null
+}
+
+function variableNamed(scope, name) {
+  for (let at = scope; at != null; at = at.upper) {
+    const found = at.set.get(name)
+    if (found !== undefined)
+      return found
+  }
+  return null
+}
+
+function exportedNames(program) {
+  return new Set(program.body.flatMap((statement) => {
+    if (statement.type !== 'ExportNamedDeclaration')
+      return []
+    if (statement.declaration?.type === 'VariableDeclaration')
+      return statement.declaration.declarations.flatMap(declarator => declarator.id.type === 'Identifier' ? [declarator.id.name] : [])
+    return statement.specifiers.flatMap(specifier => specifier.local.type === 'Identifier' ? [specifier.local.name] : [])
+  }))
+}
+
+function sharedAcrossModules(context, call) {
+  const name = receiverOf(call.callee)
+  if (name === null)
+    return false
+  const variable = variableNamed(context.sourceCode.getScope(call), name)
+  if (variable === null)
+    return false
+  return variable.defs.some(definition => definition.type === 'ImportBinding') || exportedNames(context.sourceCode.ast).has(name)
+}
+
+function writesARegistry(context, call) {
+  const { name, method } = calleeName(call.callee)
+  if (name !== null && REGISTERING_CALLEE.test(name))
+    return true
+  return method !== null && IMPORT_TIME_REGISTRY_WRITES.includes(method) && sharedAcrossModules(context, call)
+}
+
+const registersOnlyInComposition = {
+  meta: {
+    type: 'problem',
+    schema: [{ type: 'object', properties: { anywhere: { type: 'boolean' } }, additionalProperties: false }],
+    messages: { registers: REGISTERS_ONLY_IN_COMPOSITION },
+  },
+  create(context) {
+    const anywhere = context.options[0]?.anywhere === true
+    return {
+      Property(node) {
+        const key = node.key.type === 'Identifier' ? node.key.name : node.key.value
+        if (node.value.type === 'ArrayExpression' && REGISTRATION_LISTS.includes(key) && (anywhere || runsAtImport(node)))
+          context.report({ node, messageId: 'registers', data: { what: key } })
+      },
+      CallExpression(node) {
+        if (runsAtImport(node) && writesARegistry(context, node))
+          context.report({ node, messageId: 'registers', data: { what: calleeName(node.callee).name } })
+      },
+    }
+  },
+}
+
+const SIDE_EFFECT_FREE_STATEMENTS = new Set(['FunctionDeclaration', 'TSInterfaceDeclaration', 'TSTypeAliasDeclaration', 'TSDeclareFunction', 'ExportAllDeclaration'])
+const EFFECTS = new Set(['CallExpression', 'NewExpression', 'AwaitExpression', 'AssignmentExpression', 'UpdateExpression', 'TaggedTemplateExpression', 'ImportExpression', 'YieldExpression'])
+const DEFERRED = new Set(['FunctionExpression', 'ArrowFunctionExpression'])
+
+function effectIn(node) {
+  if (node == null || typeof node.type !== 'string' || DEFERRED.has(node.type))
+    return null
+  if (EFFECTS.has(node.type) || (node.type === 'UnaryExpression' && node.operator === 'delete'))
+    return node
+  for (const [key, value] of Object.entries(node)) {
+    if (key === 'parent')
+      continue
+    for (const child of Array.isArray(value) ? value : [value]) {
+      const found = child != null && typeof child === 'object' ? effectIn(child) : null
+      if (found !== null)
+        return found
+    }
+  }
+  return null
+}
+
+function importTimeEffect(statement) {
+  if (statement.type === 'ImportDeclaration')
+    return statement.specifiers.length === 0 ? statement : null
+  if (SIDE_EFFECT_FREE_STATEMENTS.has(statement.type))
+    return null
+  if (statement.type === 'ExportNamedDeclaration')
+    return statement.declaration == null ? null : importTimeEffect(statement.declaration)
+  if (statement.type === 'ExportDefaultDeclaration')
+    return SIDE_EFFECT_FREE_STATEMENTS.has(statement.declaration.type) ? null : effectIn(statement.declaration)
+  if (statement.type === 'VariableDeclaration')
+    return statement.declarations.map(declarator => effectIn(declarator.init)).find(effect => effect !== null) ?? null
+  return statement
+}
+
+const noSideEffectsOnImport = {
+  meta: {
+    type: 'problem',
+    schema: [],
+    messages: { effect: COMPOSITION_HAS_NO_IMPORT_SIDE_EFFECTS },
+  },
+  create(context) {
+    return {
+      Program(program) {
+        for (const statement of program.body) {
+          const effect = importTimeEffect(statement)
+          if (effect !== null)
+            context.report({ node: effect, messageId: 'effect' })
+        }
+      },
+    }
+  },
+}
+
+const compositionPlugin = { rules: { 'registers-only-in-composition': registersOnlyInComposition, 'no-side-effects-on-import': noSideEffectsOnImport } }
+
+export const REGISTRATION_POLICY = [
+  {
+    files: ['**/*.{ts,mts,cts,js,mjs,cjs}'],
+    ignores: [COMPOSITION_ROOT],
+    plugins: { composition: compositionPlugin },
+    rules: { 'composition/registers-only-in-composition': ['error', { anywhere: false }] },
+  },
+  {
+    files: ['scripts/**/*.{ts,mts,cts,js,mjs,cjs}'],
+    ignores: ['scripts/tests/**', COMPOSITION_ROOT],
+    plugins: { composition: compositionPlugin },
+    rules: { 'composition/registers-only-in-composition': ['error', { anywhere: true }] },
+  },
+  {
+    files: [COMPOSITION_ROOT],
+    plugins: { composition: compositionPlugin },
+    rules: { 'composition/no-side-effects-on-import': 'error' },
+  },
+]
+
 export default antfu(
   {
     isInEditor: false,
@@ -264,4 +431,5 @@ export default antfu(
   aHookReadsStdinToItsEnd,
   aTestWaitsOnAnEvent,
   anEventIsReadThroughTheContract,
+  ...REGISTRATION_POLICY,
 )
