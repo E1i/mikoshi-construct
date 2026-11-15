@@ -10,7 +10,7 @@ import { PRIORITIES } from '../../src/card/parking.js'
 import { IN_REVIEW_CARD, RUNNING_CARD, STOPPED_CARD } from '../core/card-automaton.js'
 import { cardHoldOf } from '../core/card-hold.js'
 import { defaultBusPath, openBus } from '../core/db.js'
-import { BOARD_ALARM, BUS_PULSE, CARD_CLOSED, CARD_STOPPED, CARD_WAITING, GHOST_LINE, MERGE_DONE, OWNER_WAIT_OPENED, POLICY_DENIED, PR_CLOSED, PR_OBSERVED, PROCESS_JUDGED, REQUEST_DONE, REQUEST_REFUSED, REVIEW_RECORDED, TASK_EXPIRED, WINDOW_REQUEST, WITNESS_RECORDED, WORKER_DOWN } from '../core/events.js'
+import { BOARD_ALARM, BUS_PULSE, CARD_CLOSED, CARD_CONTINUED, CARD_DROPPED, CARD_STARTED, CARD_STOPPED, CARD_WAITING, DECISION_RECORDED, GHOST_LINE, MERGE_DONE, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, POLICY_DENIED, PR_CLOSED, PR_OBSERVED, PROCESS_JUDGED, REQUEST_DONE, REQUEST_REFUSED, REVIEW_RECORDED, TASK_EXPIRED, WINDOW_REQUEST, WITNESS_RECORDED, WORKER_DOWN } from '../core/events.js'
 import { defaultHandoffDir } from '../core/handoff-dir.js'
 import { HEARTBEAT_QUEUES } from '../core/lease.js'
 import { MIKO_WATCH_COMMAND } from '../core/owner-commands.js'
@@ -19,6 +19,7 @@ import { ciWord } from '../ports/ci-reading.js'
 import { USER_SETTINGS } from '../ports/client/claude/adapter.js'
 import { CARD_PROCESS } from '../supervisor/heartbeat.js'
 import { noWindowRefusal } from './tab.js'
+import { ownerAnswersOfWaits } from './watch-owner-answer.js'
 import { WatchRefusal } from './watch-refusal.js'
 import { ONCE_STORE, OnceStore, parentGone } from './watch-store.js'
 import { windowBeat, windowOf } from './window-heartbeat.js'
@@ -29,7 +30,8 @@ export { USER_SETTINGS }
 
 export const STOP_EVENT = 'relaunch-stop'
 export const WAKING_EVENTS = ['merge', 'fall', 'relaunch-stop', 'stop']
-export const WAKING_BUS_EVENTS = [GHOST_LINE, STOP_EVENT, REVIEW_RECORDED, MERGE_DONE, PR_CLOSED, CARD_CLOSED, PR_OBSERVED, REVIEW_ROUNDS_SPENT, CARD_STOPPED, CARD_WAITING, POLICY_DENIED, TASK_EXPIRED, WORKER_DOWN, PROCESS_JUDGED, REQUEST_REFUSED, REQUEST_DONE, WITNESS_RECORDED, OWNER_WAIT_OPENED, BOARD_ALARM]
+export const WAKING_BUS_EVENTS = [GHOST_LINE, STOP_EVENT, REVIEW_RECORDED, MERGE_DONE, PR_CLOSED, CARD_CLOSED, PR_OBSERVED, REVIEW_ROUNDS_SPENT, CARD_STOPPED, CARD_WAITING, POLICY_DENIED, TASK_EXPIRED, WORKER_DOWN, PROCESS_JUDGED, REQUEST_REFUSED, REQUEST_DONE, WITNESS_RECORDED, OWNER_WAIT_OPENED, BOARD_ALARM, OWNER_WAIT_CLOSED, DECISION_RECORDED]
+const OWNER_ANSWER_TYPES = { waitOpened: OWNER_WAIT_OPENED, waitClosed: OWNER_WAIT_CLOSED, decided: DECISION_RECORDED, cardWaiting: CARD_WAITING, turns: [CARD_STARTED, CARD_CONTINUED, CARD_CLOSED, CARD_DROPPED], fieldsOf: payloadOf }
 export const HEAD_BOUND_EVENTS = [STOP_EVENT, REVIEW_RECORDED, REVIEW_ROUNDS_SPENT, CARD_STOPPED]
 export const FAILED_CI = 'red'
 export const PASSED_CI = 'green'
@@ -536,9 +538,8 @@ function lastBusId(bus: string): number {
 function busEventsAfter(bus: string, id: number): BusEvent[] {
   const db = openBus(bus)
   try {
-    const types = WAKING_BUS_EVENTS.map(() => '?').join(', ')
-    const rows = db.prepare(`SELECT id, type, card_id, pr, head, payload FROM events WHERE type IN (${types}) AND id > ? ORDER BY id`).all(...WAKING_BUS_EVENTS, id) as unknown as BusRow[]
-    return rows.map(eventOfRow)
+    const ofTypes = (types: readonly string[], after: number): BusEvent[] => (db.prepare(`SELECT id, type, card_id, pr, head, payload FROM events WHERE type IN (${types.map(() => '?').join(', ')}) AND id > ? ORDER BY id`).all(...types, after) as unknown as BusRow[]).map(eventOfRow)
+    return ownerAnswersOfWaits(ofTypes(WAKING_BUS_EVENTS, id), ofTypes, OWNER_ANSWER_TYPES)
   }
   finally {
     db.close()
