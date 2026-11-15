@@ -743,6 +743,7 @@
     "scripts/tests/intake/amend-reads-latest-admission.test.ts",
     "scripts/tests/intake/card-body-events.test.ts",
     "scripts/tests/intake/card-body-readers.test.ts",
+    "scripts/tests/intake/card-contract-no-launch-edge.test.ts",
     "scripts/tests/intake/creates-owner.test.ts",
     "scripts/tests/intake/runs-layers-backfill.test.ts",
     "scripts/tests/intake/slice-parent-backfill.test.ts",
