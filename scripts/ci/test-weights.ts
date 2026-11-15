@@ -9,7 +9,8 @@ import config from '../../vitest.config.js'
 import { pnpmCommand } from '../core/owner-commands.js'
 import { GhCiRuns } from '../ports/ci-reading.js'
 import { processGit } from '../ports/git.js'
-import { balanceShards, MIN_WEIGHT, updateWeights, weightsFromVitestReport } from './shard.js'
+import { FILE_WEIGHTS_NAME } from './file-weights-reporter.js'
+import { balanceShards, MIN_WEIGHT, updateWeights, weightsFromFileWeights } from './shard.js'
 
 export type { RunJob, RunStep } from '../ports/ci-reading.js'
 
@@ -20,6 +21,8 @@ export type SpreadVerdict
 export const MIN_RUNS_PER_SIDE = 3
 export const RUNS_PER_SIDE = 6
 export const CI_REPORT_ARTIFACT = 'vitest-report'
+export const JSON_REPORT_PATH = '.construct/reports/vitest.json'
+export const FILE_WEIGHTS_PATH = path.join(path.dirname(JSON_REPORT_PATH), FILE_WEIGHTS_NAME)
 export const WEIGHTS_PATH = 'scripts/ci/test-weights.json'
 export const MAX_UNWEIGHTED_SHARE = 0.1
 export const CI_SHARDS = 8
@@ -171,13 +174,36 @@ function spreadOnMain(boundaryArgument: string | undefined): void {
   process.exit(verdict.kind === 'smaller' ? 0 : 1)
 }
 
-function reportFromMain(): string {
-  const directory = mkdtempSync(path.join(tmpdir(), 'test-weights-'))
-  for (const run of mainRuns()) {
-    if (CI.downloadArtifact(run.databaseId, { name: CI_REPORT_ARTIFACT, dir: directory }).done)
-      return path.join(directory, 'vitest.json')
+export type Measurement
+  = | { kind: 'measured', source: string, weights: TestWeights }
+    | { kind: 'absent', line: string }
+
+export function measurementAt(file: string, exists: (test: string) => boolean): Measurement {
+  if (!existsSync(file))
+    return { kind: 'absent', line: `no whole-file measurement ${FILE_WEIGHTS_NAME} at ${file}; the test span of ${path.basename(JSON_REPORT_PATH)} is never read, so the table is left as it is` }
+  const weights = weightsFromFileWeights(JSON.parse(readFileSync(file, 'utf8')), exists)
+  return Object.keys(weights).length === 0
+    ? { kind: 'absent', line: `${file} measures no passed test file of this repository; the table is left as it is` }
+    : { kind: 'measured', source: file, weights }
+}
+
+export function measurementFromRuns(runs: readonly number[], download: (run: number) => string | undefined, exists: (test: string) => boolean): Measurement {
+  let predating = 0
+  for (const run of runs) {
+    const directory = download(run)
+    if (directory === undefined)
+      continue
+    const measurement = measurementAt(path.join(directory, FILE_WEIGHTS_NAME), exists)
+    if (measurement.kind === 'measured')
+      return { ...measurement, source: `run ${run}` }
+    predating += 1
   }
-  return failWith(`test:weights: no successful push run on main carries the ${CI_REPORT_ARTIFACT} artifact; the table is left as it is`)
+  return { kind: 'absent', line: `no successful push run on main carries ${FILE_WEIGHTS_NAME} in its ${CI_REPORT_ARTIFACT} artifact (${predating} carry only the JSON report, whose test span is not a file's weight); the table is left as it is until a main run carries the whole-file measurement` }
+}
+
+function downloadReport(run: number): string | undefined {
+  const directory = mkdtempSync(path.join(tmpdir(), 'test-weights-'))
+  return CI.downloadArtifact(run, { name: CI_REPORT_ARTIFACT, dir: directory }).done ? directory : undefined
 }
 
 function readWeights(): TestWeights {
@@ -187,30 +213,31 @@ function readWeights(): TestWeights {
 
 const onDisk = (test: string): boolean => test !== '' && existsSync(path.join(REPO_ROOT, test))
 
-function measurementsIn(report: string): TestWeights {
-  const file = path.resolve(REPO_ROOT, report)
-  if (!existsSync(file))
-    failWith(`test:weights: no report at ${report}; the table is left as it is`)
-  const measured = weightsFromVitestReport(JSON.parse(readFileSync(file, 'utf8')), onDisk)
-  if (Object.keys(measured).length === 0)
-    failWith(`test:weights: ${report} measures no passed test file of this repository; the table is left as it is`)
-  return measured
+const measurementOnMain = (): Measurement => measurementFromRuns(mainRuns().map(run => run.databaseId), downloadReport, onDisk)
+
+function leftAsItIs(measurement: Measurement): measurement is Extract<Measurement, { kind: 'absent' }> {
+  if (measurement.kind === 'absent')
+    console.log(`test:weights: ${measurement.line}`)
+  return measurement.kind === 'absent'
 }
 
-function checkAgainst(report: string): void {
-  const verdict = weightsDrift(measurementsIn(report), readWeights())
+function checkAgainst(measurement: Measurement): void {
+  if (leftAsItIs(measurement))
+    return
+  const verdict = weightsDrift(measurement.weights, readWeights())
   if (verdict.stale)
     failWith(`test:weights: ${verdict.line}`)
   console.log(`test:weights: ${verdict.line}`)
 }
 
-function rewriteFrom(report: string): void {
-  const measured = measurementsIn(report)
+function rewriteFrom(measurement: Measurement): void {
+  if (leftAsItIs(measurement))
+    return
   const previous = readWeights()
-  const weights = updateWeights(previous, measured, onDisk)
+  const weights = updateWeights(previous, measurement.weights, onDisk)
   writeFileSync(path.join(REPO_ROOT, WEIGHTS_PATH), `${JSON.stringify(weights, null, 2)}\n`)
   const dropped = Object.keys(previous).filter(test => !(test in weights)).length
-  console.log(`${WEIGHTS_PATH}: ${Object.keys(weights).length} files, ${Object.keys(measured).length} measured from ${report}, ${dropped} no longer on disk dropped`)
+  console.log(`${WEIGHTS_PATH}: ${Object.keys(weights).length} files, ${Object.keys(measurement.weights).length} measured whole-file from ${measurement.source}, ${dropped} no longer on disk dropped`)
 }
 
 function main(argv: string[]): void {
@@ -221,10 +248,10 @@ function main(argv: string[]): void {
   if (argv.includes('--spread'))
     return flag('--spread') === 'main' ? spreadOnMain(flag('--boundary')) : failWith(`usage: ${pnpmCommand('test:weights', '--spread', 'main', '[--boundary <sha>]')}`)
   if (argv.includes('--check'))
-    return checkAgainst(reportFromMain())
+    return checkAgainst(measurementOnMain())
   if (argv.includes('--from'))
-    return flag('--from') === 'main' ? rewriteFrom(reportFromMain()) : failWith(`usage: ${RECOMPUTE_COMMAND}`)
-  rewriteFrom(argv[0] ?? '.construct/reports/vitest.json')
+    return flag('--from') === 'main' ? rewriteFrom(measurementOnMain()) : failWith(`usage: ${RECOMPUTE_COMMAND}`)
+  rewriteFrom(measurementAt(path.resolve(REPO_ROOT, argv[0] ?? FILE_WEIGHTS_PATH), onDisk))
 }
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url))
