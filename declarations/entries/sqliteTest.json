@@ -1,0 +1,7 @@
+{
+  "entry": "sqliteTest",
+  "group": "named",
+  "path": "scripts/tests/bus/sqlite.test.ts",
+  "layer": null,
+  "lists": []
+}

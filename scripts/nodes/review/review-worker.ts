@@ -107,7 +107,7 @@ export function cardBodyOfKey(db: DatabaseSync, lease: Lease, held: string | nul
 }
 
 function readingTheKeyedBody<P extends ExecutorParts>(parts: P): P {
-  return { ...parts, reviewer: (lease, plan, card) => parts.reviewer(lease, plan, cardBodyOfKey(parts.db, lease, card ?? null)) }
+  return { ...parts, reviewer: (lease, plan, card, proven) => parts.reviewer(lease, plan, cardBodyOfKey(parts.db, lease, card ?? null), proven) }
 }
 
 export interface ReviewNodeParts extends ExecutorParts {

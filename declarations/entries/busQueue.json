@@ -1,0 +1,9 @@
+{
+  "entry": "busQueue",
+  "group": "named",
+  "path": "scripts/core/queue.ts",
+  "layer": "bus",
+  "lists": [
+    "busShared"
+  ]
+}

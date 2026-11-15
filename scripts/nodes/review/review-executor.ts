@@ -25,7 +25,7 @@ import { allFindingsRepeat } from '../../policy/repeat-finding.js'
 import { limitRuleOf } from '../../policy/round-limit-decision.js'
 import { NO_ISOLATION } from '../../ports/isolation.js'
 import { storedInput } from '../../ports/prompt-store.js'
-import { gitDepthSources } from './depth-sources.js'
+import { gitDepthSources, provenWitnesses } from './depth-sources.js'
 import { freshDenial, recordVerdict } from './record-verdict.js'
 import { cardRiskOf, fullReview } from './review-depth.js'
 import { PREFIX, REVIEW_BAR_LINE, REVIEW_CEILING, REVIEW_CEILING_MINUTES, ReviewFailed } from './reviewer.js'
@@ -330,7 +330,7 @@ export class ReviewExecutor {
     try {
       const started = clock().getTime()
       const card = cardBodyText(db, lease.cardId)
-      const review = await this.parts.reviewer(lease, plan, card)
+      const review = await this.parts.reviewer(lease, plan, card, provenWitnesses(db, lease, card))
       return { outcome: { review, plan, ms: clock().getTime() - started, isolation, card }, held: review.tree ?? null }
     }
     catch (error) {

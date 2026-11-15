@@ -1,0 +1,7 @@
+{
+  "entry": "shiftBriefFinish",
+  "group": "runtime",
+  "path": "scripts/ladder/brief-finish-cli.ts",
+  "layer": null,
+  "lists": []
+}

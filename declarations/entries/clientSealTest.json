@@ -1,0 +1,7 @@
+{
+  "entry": "clientSealTest",
+  "group": "named",
+  "path": "scripts/tests/client/seal.test.ts",
+  "layer": null,
+  "lists": []
+}

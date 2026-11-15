@@ -1,0 +1,7 @@
+{
+  "entry": "ghostsApprove",
+  "group": "named",
+  "path": "scripts/ladder/approve.ts",
+  "layer": null,
+  "lists": []
+}

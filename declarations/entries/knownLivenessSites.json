@@ -1,0 +1,7 @@
+{
+  "entry": "knownLivenessSites",
+  "group": "runtime",
+  "path": "scripts/supervisor/liveness-sites.known.json",
+  "layer": null,
+  "lists": []
+}

@@ -1,0 +1,7 @@
+{
+  "entry": "busSupervisor",
+  "group": "runtime",
+  "path": "scripts/supervisor/supervisor.ts",
+  "layer": null,
+  "lists": []
+}

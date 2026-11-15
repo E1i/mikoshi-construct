@@ -1,0 +1,7 @@
+{
+  "entry": "noParkingReadsTest",
+  "group": "named",
+  "path": "scripts/tests/bus/no-parking-reads.test.ts",
+  "layer": null,
+  "lists": []
+}

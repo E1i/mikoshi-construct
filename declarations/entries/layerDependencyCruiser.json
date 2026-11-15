@@ -1,0 +1,7 @@
+{
+  "entry": "layerDependencyCruiser",
+  "group": null,
+  "path": ".dependency-cruiser.mjs",
+  "layer": "ci",
+  "lists": []
+}

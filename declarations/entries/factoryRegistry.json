@@ -1,0 +1,7 @@
+{
+  "entry": "factoryRegistry",
+  "group": "named",
+  "path": "scripts/core/factory-paths.ts",
+  "layer": null,
+  "lists": []
+}

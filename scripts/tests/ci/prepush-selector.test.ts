@@ -14,6 +14,7 @@ import { SANDBOX_FAILING } from '../../ci/sandbox-failing.js'
 import { missingInCi, staleInSandbox } from '../../ci/sandbox-liveness.js'
 import { reportedRun, runSummary } from '../../ci/select.js'
 import { PASS_WITH_NO_TESTS, RETRY, testScript } from '../../ci/test-command.js'
+import { FACTORY_NAMED } from '../../core/factory-paths.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..', '..')
 
@@ -125,7 +126,7 @@ describe('the session pre-push runs the CI selector over the session diff', () =
   })
 
   it('a diff on a shared bus file selects every test under scripts/tests/bus', () => {
-    expect([...BUS_SHARED].sort()).toEqual(importedByMostNodeKinds())
+    expect([...BUS_SHARED].sort()).toEqual([...importedByMostNodeKinds(), FACTORY_NAMED.busReducer].sort())
     const graph: Graph = new Map([
       ['scripts/core/queue.ts', []],
       ['scripts/nodes/merge/merge-worker.ts', []],

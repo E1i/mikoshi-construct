@@ -1,0 +1,7 @@
+{
+  "entry": "ghPort",
+  "group": "named",
+  "path": "scripts/ports/gh.ts",
+  "layer": null,
+  "lists": []
+}

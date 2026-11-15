@@ -1,0 +1,4 @@
+{
+  "worker": "merge",
+  "path": "scripts/nodes/merge/merge-worker.ts"
+}

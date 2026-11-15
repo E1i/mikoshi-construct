@@ -3802,6 +3802,7 @@
         "concepts": [],
         "contract": [
           "scripts/window/plan-export.ts",
+          "scripts/window/plan-folds.ts",
           "scripts/cli/card-chain.ts",
           "src/card/slice-depends.ts"
         ],
@@ -3812,6 +3813,7 @@
         ],
         "owns": [
           "scripts/window/plan-export.ts",
+          "scripts/window/plan-folds.ts",
           "scripts/cli/card-chain.ts",
           "src/card/slice-depends.ts"
         ],
@@ -4055,7 +4057,8 @@
           "scripts/window/**",
           "scripts/conveyor/**",
           "!scripts/window/miko.ts",
-          "!scripts/window/plan-export.ts"
+          "!scripts/window/plan-export.ts",
+          "!scripts/window/plan-folds.ts"
         ],
         "status": "undecided"
       }
@@ -4268,7 +4271,7 @@
       "scripts/core/node.ts": 4,
       "scripts/core/observations.ts": 6,
       "scripts/core/queue.ts": 63,
-      "scripts/core/reducer.ts": 17,
+      "scripts/core/reducer.ts": 10,
       "scripts/core/report.ts": 5,
       "scripts/core/stored.ts": 1,
       "scripts/core/tasks.ts": 3,
@@ -4330,6 +4333,7 @@
       "scripts/window/eddies-measure.ts": 1,
       "scripts/window/handoff-write.ts": 1,
       "scripts/window/operator-work.ts": 2,
+      "scripts/window/plan-folds.ts": 6,
       "scripts/window/requests/amend.ts": 2,
       "scripts/window/requests/context.ts": 6,
       "scripts/window/requests/drop.ts": 1,

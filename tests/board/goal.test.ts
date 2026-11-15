@@ -7,8 +7,9 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { appendEvent, openBus } from '../../scripts/core/db.js'
 import { CARD_PLANNED, CARD_UNPLANNED, PLAN_CLOSED, PLAN_OPENED } from '../../scripts/core/events.js'
 import { OWNER } from '../../scripts/core/inbox.js'
-import { PLAN_FOLDS } from '../../scripts/core/reducer.js'
 import { STORED_COLUMNS, storedByKey } from '../../scripts/core/stored.js'
+import { RECUT_ACTOR } from '../../scripts/policy/round-limit-decision.js'
+import { foldPlanEvent } from '../../scripts/window/plan-folds.js'
 import { droppedLine, goalOf, planLine } from '../../src/commands/board/goal.js'
 import { goalLines } from '../../src/commands/board/screens.js'
 import { LORE, PLAIN_LORE } from '../../src/ui/lore.js'
@@ -53,7 +54,7 @@ class Bench {
 
   plan(type: string, payload: Record<string, unknown>, cardId: number | null = null): this {
     const id = this.event(type, NOW.toISOString(), payload, OWNER, cardId)
-    PLAN_FOLDS[type]!(this.db, this.db.prepare(`SELECT ${STORED_COLUMNS} FROM events WHERE id = ?`).get(id) as unknown as StoredEvent)
+    foldPlanEvent(this.db, this.db.prepare(`SELECT ${STORED_COLUMNS} FROM events WHERE id = ?`).get(id) as unknown as StoredEvent, { owner: OWNER, recut: RECUT_ACTOR })
     return this
   }
 

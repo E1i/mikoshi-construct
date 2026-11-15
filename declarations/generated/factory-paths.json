@@ -1,0 +1,14 @@
+{
+  "id": "factory-paths",
+  "module": "layout",
+  "path": "scripts/core/factory-paths.ts",
+  "rebuild": [
+    "declarations:update"
+  ],
+  "check": null,
+  "rebuiltOnUpdate": true,
+  "seamSources": null,
+  "followSources": [
+    "declarations"
+  ]
+}

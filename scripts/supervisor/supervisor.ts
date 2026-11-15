@@ -16,7 +16,7 @@ import { busDirOf, pinBus, snapshotPathOf } from '../core/bus-path.js'
 import { RUNNING_CARD } from '../core/card-automaton.js'
 import { appendEvent, defaultBusPath, openBus } from '../core/db.js'
 import { CARD_CONTINUED, CARD_STARTED, MAIN_ADVANCED, PROCESS_JUDGED, RESTARTED, TASK_EXPIRED, WORKER_DOWN } from '../core/events.js'
-import { FACTORY_NAMED, FACTORY_RUNTIME, FACTORY_WORKERS } from '../core/factory-paths.js'
+import { FACTORY_LISTS, FACTORY_RUNTIME, FACTORY_WORKERS } from '../core/factory-paths.js'
 import { importClosure } from '../core/import-closure.js'
 import { RESTART_MISSED } from '../core/inbox.js'
 import { closeDrain, expireLeasesHeldBy, HOLDER_DEAD, HOLDER_UNPROVEN, judgeHolders, LEASE_MS, leasesHeldBy, openDrain, retireHolders, retiringPids, WORKER_HUNG } from '../core/lease.js'
@@ -114,7 +114,7 @@ export interface BusCode {
 
 export const LOCAL_MAIN_REF = 'refs/heads/main'
 
-export const SHARED_BUS_CODE: readonly string[] = [FACTORY_NAMED.busDatabase, FACTORY_NAMED.busNode, FACTORY_NAMED.busLease, FACTORY_NAMED.busQueue, FACTORY_NAMED.busReducer]
+export const SHARED_BUS_CODE: readonly string[] = FACTORY_LISTS.busShared
 
 export function entryOf(launch: DetachedLaunch): string | null {
   return launch.markers.find(marker => marker.startsWith('scripts/'))?.split(' ')[0] ?? null

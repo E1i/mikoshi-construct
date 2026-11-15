@@ -1,0 +1,9 @@
+{
+  "entry": "changesetsOneLineTest",
+  "group": null,
+  "path": "tests/changesets-one-line.test.ts",
+  "layer": null,
+  "lists": [
+    "changesetReaders"
+  ]
+}
