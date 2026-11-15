@@ -1,0 +1,7 @@
+{
+  "entry": "busUpdateDone",
+  "group": "named",
+  "path": "scripts/nodes/update/update-done.ts",
+  "layer": null,
+  "lists": []
+}

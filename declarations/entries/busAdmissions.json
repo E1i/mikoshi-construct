@@ -1,0 +1,7 @@
+{
+  "entry": "busAdmissions",
+  "group": "named",
+  "path": "scripts/intake/admissions.ts",
+  "layer": null,
+  "lists": []
+}

@@ -1,0 +1,7 @@
+{
+  "entry": "busCloseExecutor",
+  "group": "named",
+  "path": "scripts/nodes/close/close-executor.ts",
+  "layer": null,
+  "lists": []
+}

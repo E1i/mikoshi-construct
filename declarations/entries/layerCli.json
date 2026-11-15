@@ -1,0 +1,7 @@
+{
+  "entry": "layerCli",
+  "group": null,
+  "path": "scripts/cli/",
+  "layer": "cli",
+  "lists": []
+}

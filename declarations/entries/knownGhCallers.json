@@ -1,0 +1,7 @@
+{
+  "entry": "knownGhCallers",
+  "group": "named",
+  "path": "scripts/core/gh-callers.known.json",
+  "layer": null,
+  "lists": []
+}

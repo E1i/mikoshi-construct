@@ -1,0 +1,7 @@
+{
+  "entry": "busWindow",
+  "group": "runtime",
+  "path": "scripts/window/window.ts",
+  "layer": null,
+  "lists": []
+}

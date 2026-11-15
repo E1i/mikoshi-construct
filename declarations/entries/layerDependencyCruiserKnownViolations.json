@@ -1,0 +1,7 @@
+{
+  "entry": "layerDependencyCruiserKnownViolations",
+  "group": null,
+  "path": ".dependency-cruiser-known-violations.json",
+  "layer": "ci",
+  "lists": []
+}

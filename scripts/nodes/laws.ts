@@ -1,8 +1,8 @@
 import { FACTORY_WORKERS } from '../core/factory-paths.js'
 
-export const LAW_NODES = ['answer', 'close', 'launch', 'merge', 'restart', 'review', 'update', 'witness'] as const
+export type LawNode = keyof typeof FACTORY_WORKERS
 
-export type LawNode = typeof LAW_NODES[number]
+export const LAW_NODES = Object.keys(FACTORY_WORKERS) as LawNode[]
 
 export const SITES_BEYOND_NODES = {
   netwatch: 'scripts/ports/netwatch.ts',

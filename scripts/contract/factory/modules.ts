@@ -5,7 +5,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { declarationFileOf, readDeclarations } from '../../core/declarations.js'
-import { FACTORY_ROOT } from '../../core/factory-paths.js'
+import { FACTORY_ROOT, FACTORY_WORKERS } from '../../core/factory-paths.js'
 import { commandLine, GENERATED_FILES } from '../../core/generated-files.js'
 import { CONCEPTS } from './concepts.js'
 import { MODULE_OWNS } from './module-owns.js'
@@ -241,7 +241,8 @@ export function renderModuleOwns(owns: Readonly<Record<string, readonly string[]
 
 export const MODULES: Readonly<Record<string, ModuleSpec>> = carvedOut(drawnWithOwns(MODULE_OWNS))
 
-const WORKER_ENTRIES = [...['answer', 'close', 'merge', 'restart', 'review', 'update', 'witness'].map(name => factory(`nodes/${name}/${name}-worker.ts`)), factory('nodes/launch/launch-root.ts')]
+const WORKER_FILE = /-worker\.ts$/
+const WORKER_ENTRIES = [...Object.values(FACTORY_WORKERS).filter(file => WORKER_FILE.test(file)), ...Object.values(FACTORY_WORKERS).filter(file => !WORKER_FILE.test(file))]
 
 const PROCESS_ROOTS = [...supervisor('start', 'run', 'supervisor', 'review-bg'), ...core('report.ts', 'reducer.ts'), ...WORKER_ENTRIES, factory('window/handoff-write.ts')]
 

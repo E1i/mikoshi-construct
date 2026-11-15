@@ -1,0 +1,7 @@
+{
+  "entry": "layerWindowHandoffCheck",
+  "group": null,
+  "path": "scripts/window/handoff-check.ts",
+  "layer": "ghosts",
+  "lists": []
+}

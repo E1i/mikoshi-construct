@@ -1,0 +1,9 @@
+{
+  "entry": "busErrors",
+  "group": "named",
+  "path": "scripts/core/errors.ts",
+  "layer": null,
+  "lists": [
+    "busShared"
+  ]
+}

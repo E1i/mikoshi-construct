@@ -1,0 +1,4 @@
+{
+  "worker": "close",
+  "path": "scripts/nodes/close/close-worker.ts"
+}

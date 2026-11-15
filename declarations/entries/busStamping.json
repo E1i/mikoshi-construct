@@ -1,0 +1,9 @@
+{
+  "entry": "busStamping",
+  "group": "named",
+  "path": "scripts/supervisor/stamp.ts",
+  "layer": null,
+  "lists": [
+    "busShared"
+  ]
+}
