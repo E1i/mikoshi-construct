@@ -32,6 +32,7 @@ function memoryDeps(events: BusEvent[], end: () => number, emitted: string[] = [
     observedUpTo: () => [],
     witnessedUpTo: () => [],
     deniedUpTo: () => [],
+    releasedUpTo: () => [],
     windowPrs: () => new Set(),
     ownRequest: () => false,
     observedHeads: () => [],
