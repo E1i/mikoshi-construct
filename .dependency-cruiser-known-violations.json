@@ -330,20 +330,6 @@
   },
   {
     "type": "dependency",
-    "from": "scripts/core/reducer.ts",
-    "to": "scripts/policy/round-limit-decision.ts",
-    "unresolvedTo": "../policy/round-limit-decision.js",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "core-imports-nothing-to-its-right"
-    }
-  },
-  {
-    "type": "dependency",
     "from": "scripts/core/tasks.ts",
     "to": "src/card/closed.ts",
     "unresolvedTo": "../../src/card/closed.js",
