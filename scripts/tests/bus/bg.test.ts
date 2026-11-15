@@ -673,8 +673,16 @@ describe('pnpm bus:bg', () => {
   it('a stopped instance is signalled as a group and waited for', async () => {
     const pid = detachedSleep()
     const processes: ProcessList = () => alive(pid) ? [{ pid, args: `sleep 30 marker-${pid}` }] : []
-    await stopInstance({ pid, args: '' }, [`marker-${pid}`], processes)
+    await stopInstance({ pid, args: '' }, processes)
     await waitFor(() => !alive(pid), () => `pid ${pid} gone after stopInstance`, ARRIVAL_GUARD_MS)
+  })
+
+  it('a stop signals the one process it stops, never another that carries the same command line', async () => {
+    const [pid, twin] = [detachedSleep(), detachedSleep()]
+    const processes: ProcessList = () => [pid, twin].filter(alive).map(each => ({ pid: each, args: 'sleep 30 marker' }))
+    await stopInstance({ pid, args: 'sleep 30 marker' }, processes, async () => {})
+    await waitFor(() => !alive(pid), () => `pid ${pid} gone after stopInstance`, ARRIVAL_GUARD_MS)
+    expect(alive(twin)).toBe(true)
   })
 })
 

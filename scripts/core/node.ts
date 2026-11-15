@@ -342,7 +342,7 @@ function exactAndPrefixes(pattern: EventPattern): { exact: string[], prefixes: s
   return { exact, prefixes }
 }
 
-function matchingEvents(db: DatabaseSync, pattern: EventPattern, after: number, through: number): StoredEvent[] {
+export function matchingEvents(db: DatabaseSync, pattern: EventPattern, after: number, through: number): StoredEvent[] {
   const { exact, prefixes } = exactAndPrefixes(pattern)
   const terms = [
     ...(exact.length === 0 ? [] : [`type IN (${exact.map(() => '?').join(', ')})`]),
