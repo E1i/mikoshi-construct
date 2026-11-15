@@ -11,12 +11,12 @@ import { CLOSED_WAIT, openOwnerWaits } from '../../core/bus-readings.js'
 import { DEFERRED_CARD, unsatisfiedDependencies } from '../../core/card-automaton.js'
 import { bodyNotFoldedYet, pathsOutsideTheBody } from '../../core/card-bodies.js'
 import { cardHoldOf, SESSION_STOP_CODES } from '../../core/card-hold.js'
-import { appendEvent, DECISION_IN_FORCE } from '../../core/db.js'
+import { appendEvent, DECISION_IN_FORCE, openOwnerWait } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_CLOSED, CARD_DROPPED, CARD_FELL, CARD_STARTED, CARD_STOPPED, CARD_WAITING, COMMAND_EXECUTED, DECISION_RECORDED, GHOST_ROW, OUTSIDE_TOUCHES, OWNER_WAIT_OPENED, PR_CLOSED, PR_OBSERVED, PR_OPENED, SESSION_HEARTBEAT, TASK_REQUEUED } from '../../core/events.js'
 import { prOf } from '../../core/identifiers.js'
 import { busNameOfDb, machineHoldLine, machineSessions } from '../../core/machine-sessions.js'
 import { namesQueueLive } from '../../policy/live-decision.js'
-import { BusRead } from '../../ports/bus-read.js'
+import { ANY, BusRead } from '../../ports/bus-read.js'
 import { isAlive } from '../../quality/lock.js'
 import { beatsLive } from '../../supervisor/liveness-sites.js'
 import { chainLaneNumber, currentLane, heldByStall, repositoryLanes, stalledCards, startOrder, withoutDerived } from './lane-assign.js'
@@ -375,6 +375,33 @@ export type OverlapCatch = (cardId: number, generation: string) => void
 export interface LaunchCatch {
   (cardId: number, generation: string): void
   skipped: (cardId: number, reason: string) => void
+  stamp: { ts: string, actor: string }
+}
+
+function lastPerCard(bus: BusRead, type: typeof CARD_ADMITTED | typeof CARD_DROPPED): Map<number, number> {
+  return new Map(bus.slice(type, [], 'last-per-card').map(row => [row.card!, row.id]))
+}
+
+export function droppedCards(db: DatabaseSync): Set<number> {
+  const bus = new BusRead(db).where({ card: ANY })
+  const admitted = lastPerCard(bus, CARD_ADMITTED)
+  return new Set([...lastPerCard(bus, CARD_DROPPED)].filter(([cardId, drop]) => drop > (admitted.get(cardId) ?? 0)).map(([cardId]) => cardId))
+}
+
+export function droppedDependencyWaitText(cardId: number, dropped: number): string {
+  return `card #${cardId} depends on #${dropped}, which is dropped, so #${cardId} can never launch and every lane chain leaves it: amend its depends to the card that replaces #${dropped}, or drop #${cardId}`
+}
+
+function waitOnDroppedDependencies(db: DatabaseSync, queued: readonly CardLife[], stamp: LaunchCatch['stamp']): void {
+  const dropped = droppedCards(db)
+  for (const life of queued) {
+    const asked = new Set(new BusRead(db).where({ card: life.cardId }).slice(OWNER_WAIT_OPENED, ['text']).map(opened => opened.fields.text))
+    for (const parent of life.depends.filter(each => dropped.has(each))) {
+      const text = droppedDependencyWaitText(life.cardId, parent)
+      if (!asked.has(text))
+        openOwnerWait(db, stamp.ts, stamp.actor, { need: 'decision', text, card: life.cardId })
+    }
+  }
 }
 
 function withAssignedLanes(db: DatabaseSync, lives: Map<number, CardLife>): Map<number, CardLife> {
@@ -597,6 +624,8 @@ export function launchCandidates(db: DatabaseSync, treeLive: TreeReader = exists
   const taken = holding.flatMap(life => life.task ?? [])
   const chosen: LaunchCandidate[] = []
   const open = [...lives.values()].filter(life => !noLongerCandidates.has(life.cardId))
+  if ('stamp' in onOverlap)
+    waitOnDroppedDependencies(db, open.filter(life => isQueued(life, settled)), onOverlap.stamp)
   for (const life of open.sort(startOrder(open))) {
     if (life.windowsToWork || (falls.get(life.cardId) ?? 0) >= FALLS_BEFORE_CUT || cardHoldOf(db, life.cardId) !== null)
       continue
