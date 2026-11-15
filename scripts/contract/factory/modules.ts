@@ -1,6 +1,14 @@
+import type { ModuleDeclaration } from '../../core/declarations.js'
 import type { Concept } from './concepts.js'
+import { realpathSync, writeFileSync } from 'node:fs'
+import path from 'node:path'
+import process from 'node:process'
+import { fileURLToPath } from 'node:url'
+import { declarationFileOf, readDeclarations } from '../../core/declarations.js'
 import { FACTORY_ROOT } from '../../core/factory-paths.js'
+import { commandLine, GENERATED_FILES } from '../../core/generated-files.js'
 import { CONCEPTS } from './concepts.js'
+import { MODULE_OWNS } from './module-owns.js'
 
 export const MODULE_STATUSES = ['decided', 'undecided', 'tool'] as const
 
@@ -35,51 +43,45 @@ const tree = (entry: string): string => `${factory(entry)}${ANY_DEPTH}`
 
 const within = (folder: string, ...names: string[]): string[] => names.map(name => `${folder}/${name}`)
 const core = (...names: string[]): string[] => within(factory('core'), ...names)
-const card = (...names: string[]): string[] => within('src/card', ...names.map(name => `${name}.ts`))
-const intake = (...names: string[]): string[] => within(factory('intake'), ...names.map(name => `${name}.ts`))
-const review = (...names: string[]): string[] => within(factory('nodes/review'), ...names.map(name => `${name}.ts`))
 const supervisor = (...names: string[]): string[] => within(factory('supervisor'), ...names.map(name => `${name}.ts`))
-const cli = (...names: string[]): string[] => within(factory('cli'), ...names)
 
 const BUS_CONTRACT = core('db.ts', 'sqlite.ts', 'queue.ts', 'dependency-wait.ts', 'lease.ts', 'node.ts', 'stored.ts', 'errors.ts', 'bus-path.ts', 'bus-readings.ts', 'bus-version.ts', 'reducer.ts', 'every.ts', 'watermark.ts', 'entry.ts', 'observations.ts', 'task-must-wait.ts')
-const BUS_IMPL = core('projection-writes.ts', 'projection-writes.known.json', 'rejection.ts')
 
-const SESSION_FILES = [
+const SESSION_CONTRACT = [
   ...core('machine-sessions.ts', 'eddies.ts', 'journal.ts', 'tasks.ts', 'handoff-dir.ts', 'handoff-fields.ts', 'handoff-status.ts', 'card-automaton.ts', 'card-hold.ts', 'chain.ts', 'places.ts', 'report.ts', 'legacy-history.ts', 'import-closure.ts'),
-  ...card('closed'),
-  ...cli('slot.ts'),
+  'src/card/closed.ts',
+  factory('cli/slot.ts'),
   'src/commands/liveness.ts',
+  ...supervisor('bg', 'heartbeat', 'liveness-sites', 'scheduler', 'stamp', 'supervisor', 'workers'),
 ]
-const SESSION_CONTRACT = [...SESSION_FILES, ...supervisor('bg', 'heartbeat', 'liveness-sites', 'scheduler', 'stamp', 'supervisor', 'workers')]
-
-const CARD_MODEL = [...card('grammar', 'parking', 'task-file', 'risk', 'complexity'), ...intake('card-contract'), ...core('identifiers.ts')]
-const CARD_RECORD = [...core('card-bodies.ts', 'backfill-source.ts'), ...card('text-sha', 'witness-fields'), ...intake('admissions', 'card-archive', 'witness-fields-backfill', 'slice-parent-backfill'), ...cli('card.ts')]
-const PLAN = [factory('window/plan-export.ts'), ...cli('card-chain.ts'), ...card('slice-depends')]
-const PORTS_ADAPTERS = within(factory('ports'), 'git.ts', 'disk.ts', 'prompt-store.ts', 'client/contract.ts', 'client/codex/adapter.ts')
-const PR_RECORD = [...review('pr-close', 'pr-reopen', 'pr-rerun', 'record-verdict', 'dry-run-record'), ...core('merge-event.ts')]
 
 export const COMPOSITION_MODULE = factory('supervisor/composition.ts')
 
 export const COMPOSITION_ROOTS: readonly string[] = ['src/cli.ts', 'src/program.ts', factory('window/miko.ts'), factory('intake/intake.ts'), factory('supervisor/start.ts'), COMPOSITION_MODULE]
 
+export const OWNS_ARE_THE_CONTRACT = 'owns'
+
+export interface DrawnModule {
+  contract: readonly string[] | typeof OWNS_ARE_THE_CONTRACT
+  may_use: readonly string[]
+  status: ModuleStatus
+}
+
 const NODE_MAY_USE = ['bus', 'session', 'card-model', 'card-record', 'pr-record', 'plan', 'command-registry', 'ports-adapters', 'events']
 
-function node(name: string, alsoUses: readonly string[] = []): ModuleSpec {
-  const folder = factory(`nodes/${name}`)
-  return { owns: [`${folder}${ANY_DEPTH}`], contract: [`${folder}/${name}-worker.ts`], may_use: [...NODE_MAY_USE, ...alsoUses], status: 'decided' }
+function node(name: string, alsoUses: readonly string[] = []): DrawnModule {
+  return { contract: [factory(`nodes/${name}/${name}-worker.ts`)], may_use: [...NODE_MAY_USE, ...alsoUses], status: 'decided' }
 }
 
-function decided(owns: readonly string[], may_use: readonly string[]): ModuleSpec {
-  return { owns, contract: owns, may_use, status: 'decided' }
+function decided(may_use: readonly string[]): DrawnModule {
+  return { contract: OWNS_ARE_THE_CONTRACT, may_use, status: 'decided' }
 }
 
-function undecided(owns: readonly string[], may_use: readonly string[] = []): ModuleSpec {
-  return { owns, contract: [], may_use, status: 'undecided' }
+function undecided(may_use: readonly string[] = []): DrawnModule {
+  return { contract: [], may_use, status: 'undecided' }
 }
 
-function tool(owns: readonly string[]): ModuleSpec {
-  return { owns, contract: [], may_use: [], status: 'tool' }
-}
+const TOOL: DrawnModule = { contract: [], may_use: [], status: 'tool' }
 
 export function isTool(spec: ModuleSpec | undefined): boolean {
   return spec?.status === 'tool'
@@ -87,15 +89,15 @@ export function isTool(spec: ModuleSpec | undefined): boolean {
 
 const OWNER_COMMANDS_READER = ['command-registry']
 
-const DRAWN: Readonly<Record<string, ModuleSpec>> = {
-  'bus': { owns: [...BUS_CONTRACT, ...BUS_IMPL], contract: BUS_CONTRACT, may_use: ['events'], status: 'decided' },
-  'session': { owns: [...SESSION_FILES, tree('supervisor')], contract: SESSION_CONTRACT, may_use: ['bus', 'card-model', 'card-record', 'command-registry', 'ports-adapters', 'events', 'order'], status: 'decided' },
-  'card-model': decided(CARD_MODEL, []),
-  'card-record': decided(CARD_RECORD, ['bus', 'card-model', 'events']),
-  'plan': decided(PLAN, ['card-model', 'card-record', 'events']),
-  'pr-record': decided(PR_RECORD, ['bus', 'events']),
-  'command-registry': decided(core('owner-commands.ts'), []),
-  'ports-adapters': decided(PORTS_ADAPTERS, []),
+export const DRAWN: Readonly<Record<string, DrawnModule>> = {
+  'bus': { contract: BUS_CONTRACT, may_use: ['events'], status: 'decided' },
+  'session': { contract: SESSION_CONTRACT, may_use: ['bus', 'card-model', 'card-record', 'command-registry', 'ports-adapters', 'events', 'order'], status: 'decided' },
+  'card-model': decided([]),
+  'card-record': decided(['bus', 'card-model', 'events']),
+  'plan': decided(['card-model', 'card-record', 'events']),
+  'pr-record': decided(['bus', 'events']),
+  'command-registry': decided([]),
+  'ports-adapters': decided([]),
   'node-answer': node('answer'),
   'node-close': node('close'),
   'node-launch': node('launch', ['order']),
@@ -104,31 +106,32 @@ const DRAWN: Readonly<Record<string, ModuleSpec>> = {
   'node-review': node('review'),
   'node-update': node('update'),
   'node-witness': node('witness'),
-  'node-laws': undecided([factory('nodes/laws.ts')]),
-  'events': decided(core('events.ts'), []),
-  'order': decided([tree('core/order')], ['layout', 'bus', 'events']),
-  'layout': undecided(core('factory-paths.ts', 'generated-files.ts', 'declarations.ts')),
-  'decisions': undecided([...core('inbox.ts', 'card-decisions.ts'), ...within(factory('policy'), 'live-decision.ts', `decisions${ANY_DEPTH}`), tree('owner')]),
-  'rules': undecided([...within(factory('policy'), 'policy.ts', `morse${ANY_DEPTH}`, 'repeat-finding.ts', 'round-limit-decision.ts', 'shard.ts', 'shards.ts', `shredder${ANY_DEPTH}`, 'widening.ts', 'touch-scope.ts'), tree('morse'), ...core('push-policy.ts')]),
-  'quality': undecided([...core('layer-map.ts', 'layer-map.json', 'verification.ts'), ...cli('check-catalog.ts', 'check-matrix.ts', 'mutate.ts', 'no-layer-recount.ts'), tree('ci'), tree('quality'), tree('privacy'), `src/commands/ci${ANY_DEPTH}`, `src/commands/mutate${ANY_DEPTH}`, 'src/commands/test-runner.ts', ...card('covering-tests')]),
-  'intake': undecided([tree('intake'), `src/commands/intake${ANY_DEPTH}`], OWNER_COMMANDS_READER),
-  'cost': undecided([tree('ladder'), tree('done'), `src/commands/cost${ANY_DEPTH}`]),
-  'ports': undecided([tree('ports'), ...core('gh-callers.ts', 'gh-callers.known.json')]),
-  'window': undecided([tree('window'), tree('conveyor')], [...OWNER_COMMANDS_READER, 'order']),
-  'board': undecided([...cli('board-page.ts', `board-page${ANY_DEPTH}`, 'board-warnings.ts'), `src/commands/board${ANY_DEPTH}`], OWNER_COMMANDS_READER),
-  'release': undecided([tree('release'), tree('release-notes'), tree('docs'), 'src/commands/run-record.ts']),
-  'factory-contract': undecided([factory('contract/contours.ts')]),
-  'contract-generator': tool([tree('contract')]),
-  'project': undecided([
-    ...within('src/commands', `attach${ANY_DEPTH}`, `detach${ANY_DEPTH}`, `doctor${ANY_DEPTH}`, `sync${ANY_DEPTH}`, 'graph.ts', 'init.ts', 'soulkill.ts'),
-    ...within('src', `detect${ANY_DEPTH}`, 'manifest.ts', `materialize${ANY_DEPTH}`, `presets${ANY_DEPTH}`, 'record-ahead.ts', `sync${ANY_DEPTH}`, 'failure.ts', 'known-flags.ts', 'version.ts'),
-    tree('composition'),
-    tree('harness-command'),
-    tree('attach'),
-  ], OWNER_COMMANDS_READER),
-  'model': undecided([`src/model${ANY_DEPTH}`, tree('model')]),
-  'atlas': undecided([`src/atlas${ANY_DEPTH}`, tree('atlas')], OWNER_COMMANDS_READER),
-  'ui': undecided([`src/ui${ANY_DEPTH}`], OWNER_COMMANDS_READER),
+  'node-laws': undecided(),
+  'events': decided([]),
+  'order': decided(['layout', 'bus', 'events']),
+  'layout': undecided(),
+  'decisions': undecided(),
+  'rules': undecided(),
+  'quality': undecided(),
+  'intake': undecided(OWNER_COMMANDS_READER),
+  'cost': undecided(),
+  'ports': undecided(),
+  'window': undecided([...OWNER_COMMANDS_READER, 'order']),
+  'board': undecided(OWNER_COMMANDS_READER),
+  'release': undecided(),
+  'factory-contract': undecided(),
+  'contract-generator': TOOL,
+  'project': undecided(OWNER_COMMANDS_READER),
+  'model': undecided(),
+  'atlas': undecided(OWNER_COMMANDS_READER),
+  'ui': undecided(OWNER_COMMANDS_READER),
+}
+
+export function drawnWithOwns(owns: Readonly<Record<string, readonly string[]>>, drawn: Readonly<Record<string, DrawnModule>> = DRAWN): Record<string, ModuleSpec> {
+  return Object.fromEntries(Object.entries(drawn).map(([id, { contract, may_use, status }]) => {
+    const held = owns[id] ?? []
+    return [id, { owns: held, contract: contract === OWNS_ARE_THE_CONTRACT ? held : contract, may_use, status }]
+  }))
 }
 
 function isFolderGlob(glob: string): boolean {
@@ -165,8 +168,6 @@ export function carvedOut(modules: Readonly<Record<string, ModuleSpec>>): Record
   }))
 }
 
-export const MODULES: Readonly<Record<string, ModuleSpec>> = carvedOut(DRAWN)
-
 export const EXCLUSIONS: Readonly<Record<ExclusionKind, readonly string[]>> = {
   tests: [tree('tests')],
   fixtures: [],
@@ -174,6 +175,71 @@ export const EXCLUSIONS: Readonly<Record<ExclusionKind, readonly string[]>> = {
   generated: [],
   tooling: [tree('scratch')],
 }
+
+const DECLARED_FOLDER = '/'
+const DECLARED_PATTERN = '*'
+
+function inSourceTree(entry: string): boolean {
+  return SOURCE_TREES.some(root => entry.startsWith(`${root}${DECLARED_FOLDER}`))
+}
+
+function graphGlobOf(entry: string): string {
+  return entry.endsWith(DECLARED_FOLDER) ? `${entry.slice(0, -DECLARED_FOLDER.length)}${ANY_DEPTH}` : entry
+}
+
+function heldByAnExclusion(glob: string): boolean {
+  return Object.values(EXCLUSIONS).flat().some(exclusion => exclusion === glob || (isFolderGlob(exclusion) && insideFolder(exclusion, glob)))
+}
+
+export interface DerivedOwns {
+  owns: Record<string, string[]>
+  problems: string[]
+}
+
+export function moduleOwnsOf(declarations: readonly ModuleDeclaration[]): DerivedOwns {
+  const owns: Record<string, string[]> = {}
+  const problems: string[] = []
+  for (const declared of [...declarations].sort((left, right) => left.module.localeCompare(right.module))) {
+    const at = declarationFileOf(declared.module)
+    for (const entry of declared.exclude.filter(inSourceTree))
+      problems.push(`${at}: exclude entry "${entry}" lies in a source tree, and the module graph carves out only files another module names`)
+    for (const entry of [...declared.paths, ...declared.shared].filter(inSourceTree).filter(entry => entry.includes(DECLARED_PATTERN)))
+      problems.push(`${at}: "${entry}" is a pattern, and the module graph holds only files and whole folders`)
+    const held = [...declared.paths, ...declared.shared]
+      .filter(entry => inSourceTree(entry) && !entry.includes(DECLARED_PATTERN) && !COMPOSITION_ROOTS.includes(entry))
+      .map(graphGlobOf)
+      .filter(glob => !heldByAnExclusion(glob))
+    if (held.length > 0)
+      owns[declared.module] = held
+  }
+  return { owns, problems }
+}
+
+const GRAPH_SOURCE = 'the hand-drawn part of the module graph'
+
+export function moduleOwnershipProblems(generated: Readonly<Record<string, readonly string[]>>, declarations: readonly ModuleDeclaration[], drawn: Readonly<Record<string, DrawnModule>> = DRAWN): string[] {
+  const { owns, problems } = moduleOwnsOf(declarations)
+  const rebuild = commandLine(GENERATED_FILES.moduleOwns.rebuild)
+  const ids = [...new Set([...Object.keys(owns), ...Object.keys(generated)])].sort()
+  const stale = ids
+    .filter(id => JSON.stringify(owns[id] ?? []) !== JSON.stringify(generated[id] ?? []))
+    .map(id => `${GENERATED_FILES.moduleOwns.path}: the owns of ${id} differ from ${declarationFileOf(id)}; run ${rebuild}`)
+  const undrawn = Object.keys(owns).filter(id => !(id in drawn)).map(id => `${declarationFileOf(id)} gives ${id} source files, and ${GRAPH_SOURCE} draws no ${id}`)
+  const undeclared = Object.keys(drawn).filter(id => !(id in owns)).map(id => `${GRAPH_SOURCE} draws ${id}, and no declaration gives it a source file`)
+  return [...problems, ...stale, ...undrawn, ...undeclared]
+}
+
+const QUOTE = '\''
+
+export function renderModuleOwns(owns: Readonly<Record<string, readonly string[]>>): string {
+  const quoted = (text: string): string => `${QUOTE}${text}${QUOTE}`
+  const underFactory = `${FACTORY_ROOT}/`
+  const entry = (glob: string): string => glob.startsWith(underFactory) ? `\`\${FACTORY_ROOT}/${glob.slice(underFactory.length)}\`` : quoted(glob)
+  const rows = Object.keys(owns).sort().map(id => [`  ${quoted(id)}: [`, ...owns[id]!.map(glob => `    ${entry(glob)},`), '  ],'].join('\n'))
+  return `import { FACTORY_ROOT } from '../../core/factory-paths.js'\n\nexport const MODULE_OWNS: Readonly<Record<string, readonly string[]>> = {\n${rows.join('\n')}\n}\n`
+}
+
+export const MODULES: Readonly<Record<string, ModuleSpec>> = carvedOut(drawnWithOwns(MODULE_OWNS))
 
 const WORKER_ENTRIES = [...['answer', 'close', 'merge', 'restart', 'review', 'update', 'witness'].map(name => factory(`nodes/${name}/${name}-worker.ts`)), factory('nodes/launch/launch-root.ts')]
 
@@ -217,3 +283,20 @@ export function modulesSection(graph: ModuleGraphSpec = MODULE_GRAPH, concepts: 
     ])),
   }
 }
+
+const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..', '..')
+
+function writeModuleOwns(): void {
+  const declarations = readDeclarations(REPO_ROOT)
+  const { owns, problems } = moduleOwnsOf(declarations.modules)
+  const found = [...declarations.problems, ...problems]
+  if (found.length > 0) {
+    console.error(found.join('\n'))
+    process.exitCode = 1
+    return
+  }
+  writeFileSync(path.join(REPO_ROOT, GENERATED_FILES.moduleOwns.path), renderModuleOwns(owns))
+}
+
+if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url))
+  writeModuleOwns()
