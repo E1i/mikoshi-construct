@@ -1730,7 +1730,6 @@
     "unresolvedTo": "../../../src/card/grammar.js",
     "dependencyTypes": [
       "local",
-      "type-only",
       "import"
     ],
     "rule": {
