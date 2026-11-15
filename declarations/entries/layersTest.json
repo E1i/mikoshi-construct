@@ -1,0 +1,7 @@
+{
+  "entry": "layersTest",
+  "group": "named",
+  "path": "scripts/tests/ci/layers.test.ts",
+  "layer": null,
+  "lists": []
+}

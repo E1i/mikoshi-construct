@@ -1,0 +1,7 @@
+{
+  "entry": "shiftTreePr",
+  "group": "runtime",
+  "path": "scripts/nodes/launch/tree-pr-cli.ts",
+  "layer": null,
+  "lists": []
+}

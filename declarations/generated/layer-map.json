@@ -1,0 +1,14 @@
+{
+  "id": "layer-map",
+  "module": "quality",
+  "path": "scripts/core/layer-map.json",
+  "rebuild": [
+    "declarations:update"
+  ],
+  "check": null,
+  "rebuiltOnUpdate": true,
+  "seamSources": null,
+  "followSources": [
+    "declarations"
+  ]
+}

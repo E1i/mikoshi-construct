@@ -1,0 +1,7 @@
+{
+  "entry": "layerPortsTaskStart",
+  "group": null,
+  "path": "scripts/ports/task-start.ts",
+  "layer": "ghosts",
+  "lists": []
+}

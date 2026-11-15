@@ -1,0 +1,4 @@
+{
+  "worker": "answer",
+  "path": "scripts/nodes/answer/answer-worker.ts"
+}

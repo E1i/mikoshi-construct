@@ -1,0 +1,17 @@
+{
+  "entry": "sharedCode",
+  "group": "folders",
+  "paths": [
+    "scripts/cli",
+    "scripts/core",
+    "scripts/intake",
+    "scripts/ladder",
+    "scripts/nodes",
+    "scripts/policy",
+    "scripts/ports",
+    "scripts/supervisor",
+    "scripts/window"
+  ],
+  "layer": null,
+  "lists": []
+}

@@ -1,0 +1,9 @@
+{
+  "entry": "busNode",
+  "group": "named",
+  "path": "scripts/core/node.ts",
+  "layer": null,
+  "lists": [
+    "busShared"
+  ]
+}

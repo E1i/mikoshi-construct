@@ -1,0 +1,9 @@
+{
+  "entry": "busReducer",
+  "group": "named",
+  "path": "scripts/core/reducer.ts",
+  "layer": null,
+  "lists": [
+    "busShared"
+  ]
+}
