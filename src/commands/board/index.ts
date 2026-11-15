@@ -9,7 +9,7 @@ import { existsSync } from 'node:fs'
 import path from 'node:path'
 import { LEDGER_FILE, readLedger } from '../cost/ledger.js'
 import { drainLines, drainsAt } from './drain.js'
-import { gateRunsAt, gateRunsLines } from './gate-runs.js'
+import { gateRunsLines, gateRunsOf } from './gate-runs.js'
 import { healAt, healLines } from './heal.js'
 import { ladderItems, prItems } from './items.js'
 import { PRS_COMMAND, readPrs } from './prs.js'
@@ -75,7 +75,7 @@ export function readBoard(dir: string, options: BoardOptions): BoardReading {
     all: options.all,
     bus,
     heal: bus?.status === 'read' ? healAt(bus.file, now) : null,
-    gateRuns: bus?.status === 'read' ? gateRunsAt(bus.file, now) : null,
+    gateRuns: bus?.status === 'read' ? gateRunsOf(bus.gateRuns) : null,
     ledgerPresent: ledger.origin?.kind !== 'absent',
     ledger,
     prs,

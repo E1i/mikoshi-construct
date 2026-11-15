@@ -1,7 +1,3 @@
-import type { BusDb } from '../cost/bus.js'
-import { GATE_RUN } from '../../../scripts/core/events.js'
-import { withReadOnlyBus } from '../cost/bus.js'
-
 export type GateRunsLine = (role: string, task: string, detail: string) => string
 
 export const GATE_RUNS_SHOWN_HOURS = 24
@@ -47,26 +43,37 @@ export interface GateComparison {
   confirmedSpeedup: boolean
 }
 
-const GATE_RUNS_SINCE = `
-  SELECT ts, payload FROM events
-  WHERE type = '${GATE_RUN}' AND json_valid(payload) AND ts >= ? AND ts < ?
-  ORDER BY id
-`
-
 function isSource(value: unknown): value is BoardGateSource {
   return BOARD_GATE_SOURCES.includes(value as BoardGateSource)
 }
 
-function rowOf(row: { ts: string, payload: string }): GateRunRow | null {
-  const { source, mode, seconds, round } = JSON.parse(row.payload) as Record<string, unknown>
+export interface GateRunEvent {
+  ts: string | null
+  payload: string
+}
+
+function payloadOf(text: string): Record<string, unknown> {
+  try {
+    const value = JSON.parse(text) as unknown
+    return value !== null && typeof value === 'object' ? value as Record<string, unknown> : {}
+  }
+  catch {
+    return {}
+  }
+}
+
+function rowOf(row: GateRunEvent & { ts: string }): GateRunRow | null {
+  const { source, mode, seconds, round } = payloadOf(row.payload)
   if (!isSource(source) || typeof seconds !== 'number' || (mode !== 'layered' && mode !== 'full'))
     return null
   return { at: row.ts, source, full: mode === 'full', seconds, round: typeof round === 'string' ? round : '' }
 }
 
-export function gateRunsBetween(db: BusDb,from: Date, to: Date): GateRunRow[] {
-  return (db.prepare(GATE_RUNS_SINCE).all(from.toISOString(), to.toISOString()) as { ts: string, payload: string }[]).flatMap((row) => {
-    const read = rowOf(row)
+export function gateRunsShown(events: readonly GateRunEvent[], now: Date): GateRunRow[] {
+  const from = now.getTime() - GATE_RUNS_SHOWN_HOURS * HOUR_MS
+  return events.flatMap(({ ts, payload }) => {
+    const at = ts === null ? Number.NaN : Date.parse(ts)
+    const read = ts === null || !(at >= from && at < now.getTime()) ? null : rowOf({ ts, payload })
     return read === null ? [] : [read]
   })
 }
@@ -114,14 +121,13 @@ export function compareGateRuns(rows: readonly GateRunRow[], cut: Date, hours: n
   })) as Record<BoardGateSource, GateComparison>
 }
 
-export function gateRunsAt(file: string, now: Date): BoardGateRuns | null {
-  try {
-    const rows = withReadOnlyBus(file, db => gateRunsBetween(db, new Date(now.getTime() - GATE_RUNS_SHOWN_HOURS * HOUR_MS), now))
-    return rows.length === 0 ? null : boardGateRuns(rows)
-  }
-  catch {
-    return null
-  }
+export function gateRunFacts(events: readonly GateRunEvent[], now: Date): { gateRuns?: GateRunRow[] } {
+  const rows = gateRunsShown(events, now)
+  return rows.length === 0 ? {} : { gateRuns: rows }
+}
+
+export function gateRunsOf(rows: readonly GateRunRow[] | undefined): BoardGateRuns | null {
+  return rows === undefined || rows.length === 0 ? null : boardGateRuns(rows)
 }
 
 function seconds(value: number | null): string {

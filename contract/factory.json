@@ -4083,6 +4083,7 @@
           "bus": [
             1,
             2,
+            3,
             4
           ],
           "card": [
@@ -4103,6 +4104,7 @@
           "bus": [
             1,
             2,
+            3,
             4
           ],
           "card": [
@@ -4137,6 +4139,7 @@
           "bus": [
             1,
             2,
+            3,
             4
           ],
           "card": [
@@ -4161,6 +4164,7 @@
           "bus": [
             1,
             2,
+            3,
             4
           ],
           "card": [
@@ -4189,6 +4193,7 @@
           "bus": [
             1,
             2,
+            3,
             4
           ],
           "card": [
@@ -4210,6 +4215,7 @@
           "bus": [
             1,
             2,
+            3,
             4
           ],
           "card": [
@@ -4229,6 +4235,7 @@
           "bus": [
             1,
             2,
+            3,
             4
           ],
           "card": [
@@ -4347,7 +4354,6 @@
       "scripts/window/window.ts": 3,
       "src/commands/board/bus.ts": 13,
       "src/commands/board/drain.ts": 1,
-      "src/commands/board/gate-runs.ts": 1,
       "src/commands/board/goal.ts": 4,
       "src/commands/board/heal.ts": 1,
       "src/commands/cost/bus.ts": 3,

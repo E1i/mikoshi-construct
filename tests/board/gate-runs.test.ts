@@ -7,7 +7,7 @@ import { modeOfArgs, recordGateRun } from '../../scripts/ci/gate-runs.js'
 import { ciArgs } from '../../scripts/ci/prepush.js'
 import { openBus } from '../../scripts/core/db.js'
 import { busReaderAt } from '../../src/commands/board/bus.js'
-import { compareGateRuns, gateRunsAt, gateRunsLines, SMALL_SAMPLE } from '../../src/commands/board/gate-runs.js'
+import { compareGateRuns, gateRunsLines, SMALL_SAMPLE } from '../../src/commands/board/gate-runs.js'
 import { printBoard, readBoard } from '../../src/commands/board/index.js'
 import { createUi } from '../../src/ui/console.js'
 import { resolveTheme } from '../../src/ui/theme.js'
@@ -43,6 +43,10 @@ function run(source: GateRun['source'], args: readonly string[], seconds: number
 
 function record(file: string, runs: readonly GateRun[]): void {
   runs.forEach((each, index) => recordGateRun(each, at(runs.length - index), file))
+}
+
+function gateRunsAt(file: string, now: Date) {
+  return readBoard(path.dirname(file), { all: false, staleHours: 4, prs: undefined, readStdin: () => '', now, bus: busReaderAt(file, () => now) }).gateRuns ?? null
 }
 
 function boardLines(file: string): string[] {
