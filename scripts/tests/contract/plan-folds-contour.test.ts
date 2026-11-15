@@ -23,14 +23,10 @@ function exportedFoldMaps(): object[] {
 }
 
 describe('the plan folds leave the reducer', () => {
-  it.each(NOT_IMPORTED_BY_THE_REDUCER)('core/reducer.ts imports nothing matching %s', (pattern) => {
-    expect(importsOf(REDUCER).filter(specifier => pattern.test(specifier))).toEqual([])
-  })
-
-  it('core/reducer.ts exports no fold of a plan event', () => {
+  it('core/reducer.ts holds no plan fold and imports no inbox or round-limit-decision', () => {
+    const imported = importsOf(REDUCER).filter(specifier => NOT_IMPORTED_BY_THE_REDUCER.some(pattern => pattern.test(specifier)))
     const planned = exportedFoldMaps().flatMap(folds => PLAN_TYPES.filter(type => Object.hasOwn(folds, type)))
-    expect(planned).toEqual([])
-    expect(Object.keys(reducer)).not.toContain('PLAN_FOLDS')
+    expect({ imported, planned, exports: Object.keys(reducer).filter(name => name === 'PLAN_FOLDS') }).toEqual({ imported: [], planned: [], exports: [] })
   })
 
   it('composition lists a fold for every plan event', () => {
