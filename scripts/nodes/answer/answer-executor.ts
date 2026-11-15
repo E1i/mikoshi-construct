@@ -29,7 +29,7 @@ import { MAIN_BRANCH } from '../../ports/snapshot.js'
 import { admittedScopeOf, decisionAnsweringRepeat, ownerHoldOf } from './answer-source.js'
 import { AnswerOutsideTouches, CardTreeGone, liveSessionIn, PREFIX, secondsOf, unprovedFindings } from './answerer.js'
 import { CONCEPT_WIDENING_REASON } from './concept-scope.js'
-import { AnswerOutcomes, AnswerPublishing, AnswerSources, leftNoNewHead, OwnerQuestions, pendingPathsOf, treeDirtyOf, treeMergeOf } from './duties/index.js'
+import { AnswerOutcomes, AnswerPublishing, AnswerSources, leftNoNewHead, localHead, OwnerQuestions, pendingPathsOf, treeDirtyOf, treeMergeOf } from './duties/index.js'
 
 export interface AnswerParts {
   db: DatabaseSync
@@ -48,6 +48,7 @@ export interface AnswerParts {
   publishing?: TreePublishing
   mergeMain?: (tree: string) => MergeMain
   changedInTheTree?: (card: CardSession) => string[]
+  localHead?: (card: CardSession) => string | null
 }
 
 const REENTRY_SOURCES: ReadonlySet<AnswerSource['kind']> = new Set(['ci'])
@@ -118,6 +119,10 @@ export function unprovedFindingsLine(cardId: number, answered: Pick<Answered, 'b
   const pushed = answered.after !== null && answered.after !== answered.before
   const fate = pushed ? `its head ${answered.after} was pushed without them and stays on the pull request for the next review` : `the bus pushed nothing from it, so the answer goes again on ${answered.before ?? 'the same head'}`
   return `card #${cardId}: the answer leaves ${unproved.length} given finding${unproved.length === 1 ? '' : 's'} unproved, so it is refused; ${fate}: ${unproved.join('; ')}`
+}
+
+export function noGateDecisionLine(cardId: number, answered: Pick<Answered, 'session' | 'before'>): string {
+  return `card #${cardId}: the answer session ${answered.session} left work in its tree and recorded no gate decision (no outcome of every gate command, and no gate that could not run), so the bus pushed nothing from it; the answer goes again on ${answered.before ?? 'the same head'} and runs the gate`
 }
 
 export class AnswerExecutor {
@@ -348,6 +353,13 @@ export class AnswerExecutor {
     return this.outcomes.namesAnOwnerPath(refused) ? [] : refused
   }
 
+  private leftWorkWithoutAGate(card: CardSession, answered: Answered): boolean {
+    if (answered.owner !== null || answered.gateDecision !== null || !leftNoNewHead(answered))
+      return false
+    const local = (this.parts.localHead ?? localHead)(card)
+    return this.dirty(card) || (local !== null && local !== answered.before)
+  }
+
   private dirty(card: CardSession): boolean {
     return (this.parts.dirty ?? treeDirtyOf)(card)
   }
@@ -356,6 +368,8 @@ export class AnswerExecutor {
     const unproved = answered.owner === null ? unprovedFindings(prove, answered.proofs) : []
     if (unproved.length > 0)
       return this.outcomes.denied(lease, { kind: 'technical', reason: 'answer_failed', detail: unprovedFindingsLine(lease.cardId, answered, unproved) })
+    if (this.leftWorkWithoutAGate(card, answered))
+      return this.outcomes.denied(lease, { kind: 'technical', reason: 'answer_failed', detail: noGateDecisionLine(lease.cardId, answered) })
     const scope = [...(widened === null ? [] : [widened.event]), ...this.widenedInConcept(lease, answered)]
     if (answered.after === null || answered.after === answered.before) {
       if (answered.owner !== null && answered.noViolationFreePath === true)

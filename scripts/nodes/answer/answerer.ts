@@ -67,6 +67,7 @@ export interface Answered {
   widenedInConcept?: string[]
   noViolationFreePath?: boolean
   proofs?: FindingProof[]
+  gateDecision?: GateDecision | null
 }
 
 export interface FindingProof {
@@ -311,11 +312,37 @@ export interface StepSeconds {
 
 const MS_PER_TENTH = 100
 
+export const GATE_DECISIONS = ['green', 'red', 'unrun', 'undeclared'] as const
+export type GateDecision = typeof GATE_DECISIONS[number]
+type GateRunOutcome = Exclude<GateDecision, 'undeclared'>
+
+const GATE_COULD_NOT_RUN = /timed out|time limit|operation not permitted|sandbox/i
+
+function textOf(content: unknown): string {
+  if (typeof content === 'string')
+    return content
+  return Array.isArray(content) ? content.map(part => typeof part === 'object' && part !== null && typeof (part as { text?: unknown }).text === 'string' ? (part as { text: string }).text : '').join('\n') : ''
+}
+
+export function gateRunOutcome(isError: unknown, content: unknown): GateRunOutcome {
+  if (GATE_COULD_NOT_RUN.test(textOf(content)) && isError === true)
+    return 'unrun'
+  return isError === true ? 'red' : 'green'
+}
+
+export function gateDecisionOf(declared: number, outcomes: readonly GateRunOutcome[]): GateDecision | null {
+  if (declared === 0)
+    return 'undeclared'
+  if (outcomes.length < declared)
+    return null
+  return outcomes.includes('unrun') ? 'unrun' : outcomes.includes('red') ? 'red' : 'green'
+}
+
 export function secondsOf(ms: number): number {
   return Math.round(ms / MS_PER_TENTH) / 10
 }
 
-interface StreamBlock { type?: unknown, id?: unknown, name?: unknown, input?: { command?: unknown }, tool_use_id?: unknown }
+interface StreamBlock { type?: unknown, id?: unknown, name?: unknown, input?: { command?: unknown }, tool_use_id?: unknown, is_error?: unknown, content?: unknown }
 
 function blocksOf(line: string): { type: unknown, blocks: StreamBlock[] } | null {
   try {
@@ -342,7 +369,8 @@ export class RoundTimer {
   private firstTurn: number | null = null
   private gateMs: number | null = null
   private pushMs: number | null = null
-  private readonly running = new Map<string, number>()
+  private readonly running = new Map<string, { at: number, command: string }>()
+  private readonly outcomes = new Map<string, GateRunOutcome>()
 
   constructor(private readonly now: () => number, private readonly gate: readonly string[]) {}
 
@@ -359,13 +387,14 @@ export class RoundTimer {
     if (read.type === 'assistant') {
       this.firstTurn ??= at
       for (const block of read.blocks.filter(each => each.type === 'tool_use' && typeof each.id === 'string' && this.runsTheGate(each.input?.command)))
-        this.running.set(block.id as string, at)
+        this.running.set(block.id as string, { at, command: this.gateCommandOf(block.input?.command as string) })
     }
     for (const block of read.blocks.filter(each => each.type === 'tool_result' && typeof each.tool_use_id === 'string')) {
       const started = this.running.get(block.tool_use_id as string)
       if (started !== undefined) {
         this.running.delete(block.tool_use_id as string)
-        this.gateMs = (this.gateMs ?? 0) + at - started
+        this.gateMs = (this.gateMs ?? 0) + at - started.at
+        this.outcomes.set(started.command, gateRunOutcome(block.is_error, block.content))
       }
     }
   }
@@ -388,6 +417,14 @@ export class RoundTimer {
       gate: this.gateMs === null ? null : secondsOf(this.gateMs),
       push: this.pushMs === null ? null : secondsOf(this.pushMs),
     }
+  }
+
+  decision(): GateDecision | null {
+    return gateDecisionOf(this.gate.length, [...this.outcomes.values()])
+  }
+
+  private gateCommandOf(command: string): string {
+    return this.gate.find(each => inAnyTree(command).startsWith(inAnyTree(each))) ?? command
   }
 
   private runsTheGate(command: unknown): boolean {
@@ -616,9 +653,10 @@ function sessionAnswerer(dir: string, tools: AnswererTools): Answerer {
             await run(invocationOf('resume', missingProofsPrompt(unprovedNow(), proofs)), PROOFS_STEP)
             return ownerAfter(PROOFS_STEP)
           })()
-      const owner = reasked ?? (kept || atLine || unprovedNow().length > 0 ? null : await publish())
+      const gateDecision = timer.decision()
+      const owner = reasked ?? (kept || atLine || unprovedNow().length > 0 || gateDecision === null ? null : await publish())
       const measured = measuredOf(steps.map(stdoutOf))
-      return { session, resumed, atContextWarn: atLine, before, after: tools.remoteHead(card), owner, ...measured, input: { prompt, cardBody }, steps: timer.steps(), ...(widenedInConcept.size === 0 ? {} : { widenedInConcept: [...widenedInConcept] }), ...(noViolationFreePath ? { noViolationFreePath } : {}), ...(prove.length === 0 ? {} : { proofs: proofsIn(proofs, prove) }) }
+      return { session, resumed, atContextWarn: atLine, before, after: tools.remoteHead(card), owner, gateDecision, ...measured, input: { prompt, cardBody }, steps: timer.steps(), ...(widenedInConcept.size === 0 ? {} : { widenedInConcept: [...widenedInConcept] }), ...(noViolationFreePath ? { noViolationFreePath } : {}), ...(prove.length === 0 ? {} : { proofs: proofsIn(proofs, prove) }) }
     }
     finally {
       request.stepped?.(timer.steps())
