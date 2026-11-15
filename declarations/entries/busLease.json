@@ -1,0 +1,9 @@
+{
+  "entry": "busLease",
+  "group": "named",
+  "path": "scripts/core/lease.ts",
+  "layer": null,
+  "lists": [
+    "busShared"
+  ]
+}

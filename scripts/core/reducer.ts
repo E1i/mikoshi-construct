@@ -7,16 +7,14 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { archiveSpentDecisions, DECISION_FOLDS, waitsTheDecisionNames } from '../policy/decisions/index.js'
 import { allowLiveCommand, namesQueueLive } from '../policy/live-decision.js'
-import { RECUT_ACTOR } from '../policy/round-limit-decision.js'
 import { busProjections } from '../supervisor/composition.js'
 import { IN_ORDER_MARK, latestOfEachType, REDUCED_IN_ORDER } from './bus-readings.js'
 import { CARD_FOLDS, cardLinkObserved, cardPrMerged, cardPrOpened, CLOSED_CARD, DROPPED_CARD, MERGED_CARD } from './card-automaton.js'
 import { CARD_BODIES, foldCardBody } from './card-bodies.js'
 import { appendEvent, CLOSED_WAIT, defaultBusPath, inTransaction, isOwnerWaitNeed, OPEN_WAIT, openBus, OWNER_WAIT_NEEDS, OWNER_WAITS, WAIT_ID } from './db.js'
-import { CARD_ADMITTED, CARD_CLOSED, CARD_DROPPED, CARD_MOVED, CARD_PLANNED, CARD_UNPLANNED, CARD_WAITING, catalogued, CLOSED_PLAN, DECISION_RECORDED, DECISIONS_CUT_OVER, DECISIONS_IMPORTED, MAIN_ADVANCED, MERGE_DONE, OPEN_PLAN, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PLAN_BACKFILLED, PLAN_CLOSED, PLAN_ITEM_ADDED, PLAN_ITEM_LINKED, PLAN_ITEM_REMOVED, PLAN_OPENED, PR_CLOSED, PR_OBSERVED, PR_OPENED, WITNESS_DOWNGRADE } from './events.js'
+import { CARD_ADMITTED, CARD_CLOSED, CARD_DROPPED, CARD_MOVED, CARD_WAITING, catalogued, DECISION_RECORDED, DECISIONS_CUT_OVER, DECISIONS_IMPORTED, MAIN_ADVANCED, MERGE_DONE, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PR_CLOSED, PR_OBSERVED, PR_OPENED, WITNESS_DOWNGRADE } from './events.js'
 import { cardIdOf, isFullSha, prOf } from './identifiers.js'
-import { OWNER } from './inbox.js'
-import { ADMIT_COMMAND, pnpmCommand } from './owner-commands.js'
+import { ADMIT_COMMAND, ownerWaitCommand } from './owner-commands.js'
 import { appliedOrRejected } from './rejection.js'
 import { payloadOf, reject, STORED_COLUMNS } from './stored.js'
 import { markReduced, reduceProjection, watermarkOf } from './watermark.js'
@@ -261,10 +259,6 @@ function prOpened(db: DatabaseSync, event: StoredEvent): void {
     db.prepare('UPDATE prs SET card_id = ? WHERE pr = ?').run(cardId, pr)
 }
 
-export function decisionsAddCommand(text: string): string {
-  return pnpmCommand('decisions:add', `"${text}"`)
-}
-
 function filled(value: unknown): string | null {
   return typeof value === 'string' && value.trim() !== '' ? value.trim() : null
 }
@@ -295,7 +289,7 @@ function foldOwnerWaitOpened(db: DatabaseSync, event: StoredEvent): void {
   if (db.prepare('SELECT 1 FROM owner_waits WHERE id = ?').get(id) !== undefined)
     reject(`${id} is already opened`)
   db.prepare(`INSERT INTO owner_waits (id, need, text, command, card_id, pr, state, answer, opened_at, event_id) VALUES (?, ?, ?, ?, ?, ?, '${OPEN_WAIT}', NULL, ?, ?)`)
-    .run(id, need, text, command, card, pr, event.ts, event.id)
+    .run(id, need, text, ownerWaitCommand({ id, need, card, pr }, command), card, pr, event.ts, event.id)
 }
 
 function foldOwnerWaitClosed(db: DatabaseSync, event: StoredEvent): void {
@@ -322,8 +316,9 @@ function foldWitnessDowngradeWait(db: DatabaseSync, event: StoredEvent): void {
   const actions = Array.isArray(payload.actions) ? payload.actions.map(filled) : []
   if (actions.length === 0 || actions.includes(null))
     reject('a witness downgrade names no action for the owner')
-  db.prepare(`INSERT INTO owner_waits (id, need, text, command, card_id, pr, state, answer, opened_at, event_id) VALUES (?, 'decision', ?, NULL, ?, NULL, '${OPEN_WAIT}', NULL, ?, ?)`)
-    .run(downgradeWaitId(event.id), actions.join('; '), cardId, event.ts, event.id)
+  const id = downgradeWaitId(event.id)
+  db.prepare(`INSERT INTO owner_waits (id, need, text, command, card_id, pr, state, answer, opened_at, event_id) VALUES (?, 'decision', ?, ?, ?, NULL, '${OPEN_WAIT}', NULL, ?, ?)`)
+    .run(id, actions.join('; '), ownerWaitCommand({ id, need: 'decision', card: cardId, pr: null }, null), cardId, event.ts, event.id)
   closeWaitsOfAnEndedCard(db, cardId, event.id)
 }
 
@@ -331,7 +326,7 @@ const QUEUE_NAME = /^[\w-]+$/
 
 function commandsTheDecisionAnswers(text: string): string[] {
   const queue = text.trim().split(/\s+/).at(-1) ?? ''
-  return QUEUE_NAME.test(queue) && namesQueueLive(text, queue) ? [decisionsAddCommand(text), allowLiveCommand(queue)] : [decisionsAddCommand(text)]
+  return QUEUE_NAME.test(queue) && namesQueueLive(text, queue) ? [allowLiveCommand(queue)] : []
 }
 
 function closeWaitsTheDecisionsAnswer(db: DatabaseSync, event: StoredEvent): void {
@@ -340,7 +335,7 @@ function closeWaitsTheDecisionsAnswer(db: DatabaseSync, event: StoredEvent): voi
     const named = JSON.stringify(waitsTheDecisionNames(db, decision.text))
     db.prepare(`
       UPDATE owner_waits SET state = '${CLOSED_WAIT}', answer = ?, event_id = ?
-      WHERE state = '${OPEN_WAIT}' AND (command IN (SELECT value FROM json_each(?)) OR (need IN ('decision', 'command') AND card_id IN (SELECT value FROM json_each(?)) AND (json_array_length(?) = 0 OR id IN (SELECT value FROM json_each(?)))))
+      WHERE state = '${OPEN_WAIT}' AND (event_id IN (SELECT id FROM events WHERE type = '${OWNER_WAIT_OPENED}' AND json_extract(payload, '$.command') IN (SELECT value FROM json_each(?))) OR (need IN ('decision', 'command') AND card_id IN (SELECT value FROM json_each(?)) AND (json_array_length(?) = 0 OR id IN (SELECT value FROM json_each(?)))))
     `).run(`D-${decision.decision_id}`, event.id, JSON.stringify(commandsTheDecisionAnswers(decision.text)), decision.scope ?? '[]', named, named)
   }
 }
@@ -366,133 +361,6 @@ export const OWNER_WAIT_FOLDS: Record<string, Fold> = {
   [CARD_WAITING]: foldWitnessDowngradeWait,
   [DECISION_RECORDED]: foldDecisionClosingWaits,
   [DECISIONS_IMPORTED]: foldDecisionClosingWaits,
-}
-
-function planText(payload: Record<string, unknown>, field: string): string {
-  const value = payload[field]
-  return typeof value === 'string' && value.trim() !== '' ? value.trim() : reject(`${field} is empty`)
-}
-
-function ownersPlanPayload(db: DatabaseSync, event: StoredEvent): Record<string, unknown> {
-  const actor = (db.prepare('SELECT actor FROM events WHERE id = ?').get(event.id) as { actor: string | null }).actor
-  return actor === OWNER ? payloadOf(event) : reject(`${event.type} is the owner's, not ${actor}'s`)
-}
-
-function openPlanId(db: DatabaseSync, payload: Record<string, unknown>, field = 'plan'): string {
-  const planId = planText(payload, field)
-  const plan = db.prepare('SELECT state FROM plans WHERE plan_id = ?').get(planId) as { state: string } | undefined
-  if (plan?.state !== OPEN_PLAN)
-    reject(`plan ${planId} is not open`)
-  return planId
-}
-
-function itemCards(db: DatabaseSync, planId: string, itemId: string): number[] {
-  const item = db.prepare('SELECT cards FROM plan_items WHERE plan_id = ? AND item_id = ?').get(planId, itemId) as { cards: string } | undefined
-  return item === undefined ? reject(`plan ${planId} has no item ${itemId}`) : JSON.parse(item.cards) as number[]
-}
-
-function planOpened(db: DatabaseSync, event: StoredEvent): void {
-  const payload = ownersPlanPayload(db, event)
-  const planId = planText(payload, 'id')
-  if (db.prepare('SELECT 1 FROM plans WHERE plan_id = ?').get(planId) !== undefined)
-    reject(`plan ${planId} was opened before`)
-  const gate = payload.gate === undefined ? null : planText(payload, 'gate')
-  db.prepare('INSERT INTO plans (plan_id, title, goal, plan_file, state, event_id, gate) VALUES (?, ?, ?, ?, ?, ?, ?)')
-    .run(planId, planText(payload, 'title'), planText(payload, 'goal'), planText(payload, 'plan_file'), OPEN_PLAN, event.id, gate)
-}
-
-function releaseOf(db: DatabaseSync, cardId: number): string | null {
-  return (db.prepare('SELECT release FROM card_releases WHERE card_id = ?').get(cardId) as { release: string } | undefined)?.release ?? null
-}
-
-function putIntoRelease(db: DatabaseSync, cardId: number, release: string, eventId: number): void {
-  db.prepare('INSERT INTO card_releases (card_id, release, event_id) VALUES (?, ?, ?) ON CONFLICT (card_id) DO UPDATE SET release = excluded.release, event_id = excluded.event_id')
-    .run(cardId, release, eventId)
-}
-
-function cardPlanned(db: DatabaseSync, event: StoredEvent): void {
-  const payload = recutLinkPayload(db, event) ?? ownersPlanPayload(db, event)
-  const release = openPlanId(db, payload, 'release')
-  const cardId = event.card_id ?? reject(`${event.type} needs a card_id`)
-  if (releaseOf(db, cardId) === release)
-    reject(`card ${cardId} is already in release ${release}`)
-  putIntoRelease(db, cardId, release, event.id)
-}
-
-function cardUnplanned(db: DatabaseSync, event: StoredEvent): void {
-  ownersPlanPayload(db, event)
-  const cardId = event.card_id ?? reject(`${event.type} needs a card_id`)
-  if (releaseOf(db, cardId) === null)
-    reject(`card ${cardId} is in no release`)
-  db.prepare('DELETE FROM card_releases WHERE card_id = ?').run(cardId)
-}
-
-function backfilledCards(payload: Record<string, unknown>): number[] {
-  const cards = Array.isArray(payload.cards) ? payload.cards.map(cardIdOf) : []
-  return cards.length > 0 && cards.every(card => card !== null) ? cards as number[] : reject('cards is not a list of card numbers')
-}
-
-function planBackfilled(db: DatabaseSync, event: StoredEvent): void {
-  const payload = ownersPlanPayload(db, event)
-  const planId = openPlanId(db, payload)
-  const gate = planText(payload, 'gate')
-  const cards = backfilledCards(payload)
-  db.prepare('UPDATE plans SET gate = ?, event_id = ? WHERE plan_id = ?').run(gate, event.id, planId)
-  for (const cardId of cards)
-    putIntoRelease(db, cardId, planId, event.id)
-}
-
-function planItemAdded(db: DatabaseSync, event: StoredEvent): void {
-  const payload = ownersPlanPayload(db, event)
-  const planId = openPlanId(db, payload)
-  const itemId = planText(payload, 'item')
-  if (db.prepare('SELECT 1 FROM plan_items WHERE plan_id = ? AND item_id = ?').get(planId, itemId) !== undefined)
-    reject(`plan ${planId} already has item ${itemId}`)
-  db.prepare('INSERT INTO plan_items (plan_id, item_id, title, cards, event_id) VALUES (?, ?, ?, ?, ?)')
-    .run(planId, itemId, planText(payload, 'title'), '[]', event.id)
-}
-
-function recutLinkPayload(db: DatabaseSync, event: StoredEvent): Record<string, unknown> | null {
-  const actor = (db.prepare('SELECT actor FROM events WHERE id = ?').get(event.id) as { actor: string | null }).actor
-  if (actor !== RECUT_ACTOR)
-    return null
-  const payload = payloadOf(event)
-  return cardIdOf(payload.recut_of) === null ? reject(`${event.type} by ${RECUT_ACTOR} names no recut_of card`) : payload
-}
-
-function planItemLinked(db: DatabaseSync, event: StoredEvent): void {
-  const payload = recutLinkPayload(db, event) ?? ownersPlanPayload(db, event)
-  const planId = openPlanId(db, payload)
-  const itemId = planText(payload, 'item')
-  const cardId = cardIdOf(payload.card) ?? reject('card is not a card number')
-  const cards = itemCards(db, planId, itemId)
-  if (cards.includes(cardId))
-    reject(`card ${cardId} is already linked to item ${itemId}`)
-  db.prepare('UPDATE plan_items SET cards = ?, event_id = ? WHERE plan_id = ? AND item_id = ?').run(JSON.stringify([...cards, cardId]), event.id, planId, itemId)
-}
-
-function planItemRemoved(db: DatabaseSync, event: StoredEvent): void {
-  const payload = ownersPlanPayload(db, event)
-  const planId = openPlanId(db, payload)
-  const itemId = planText(payload, 'item')
-  itemCards(db, planId, itemId)
-  db.prepare('DELETE FROM plan_items WHERE plan_id = ? AND item_id = ?').run(planId, itemId)
-}
-
-function planClosed(db: DatabaseSync, event: StoredEvent): void {
-  const planId = openPlanId(db, ownersPlanPayload(db, event))
-  db.prepare('UPDATE plans SET state = ?, event_id = ? WHERE plan_id = ?').run(CLOSED_PLAN, event.id, planId)
-}
-
-export const PLAN_FOLDS: Record<string, Fold> = {
-  [PLAN_OPENED]: planOpened,
-  [PLAN_ITEM_ADDED]: planItemAdded,
-  [PLAN_ITEM_LINKED]: planItemLinked,
-  [PLAN_ITEM_REMOVED]: planItemRemoved,
-  [PLAN_CLOSED]: planClosed,
-  [CARD_PLANNED]: cardPlanned,
-  [CARD_UNPLANNED]: cardUnplanned,
-  [PLAN_BACKFILLED]: planBackfilled,
 }
 
 export function reducedTypesOf(folds: Record<string, Fold>): EventType[] {

@@ -1,0 +1,4 @@
+{
+  "worker": "update",
+  "path": "scripts/nodes/update/update-worker.ts"
+}

@@ -5,7 +5,7 @@ import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { parse } from 'yaml'
 import config from '../../../vitest.config.js'
-import { balanceShards, MIN_WEIGHT, NO_DATA_WEIGHT, updateWeights, weightOf, weightsFromVitestReport } from '../../ci/shard.js'
+import { balanceShards, MIN_WEIGHT, NO_DATA_WEIGHT, updateWeights, weightOf, weightsFromFileWeights } from '../../ci/shard.js'
 import { CI_SHARDS, comparableSpreads, compareSpreads, MAX_SHARD_IMBALANCE, MIN_RUNS_PER_SIDE, shardSpread, spreadLines, testSetOf } from '../../ci/test-weights.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..', '..')
@@ -97,40 +97,22 @@ describe('balanceShards', () => {
   })
 })
 
-describe('weightsFromVitestReport', () => {
+describe('weightsFromFileWeights', () => {
   const inRepo = (...files: string[]) => (file: string): boolean => files.includes(file)
-  const local = inRepo('tests/a.test.ts', 'tests/b.test.ts', 'tests/fast.test.ts', 'tests/broke.test.ts')
 
-  it('records a CI report whose root differs from this clone relative to the repository', () => {
-    const ciRoot = '/home/runner/work/mikoshi-construct/mikoshi-construct'
-    const report = { testResults: [
-      { name: `${ciRoot}/tests/card/task-file.test.ts`, status: 'passed', startTime: 0, endTime: 9000 },
-      { name: `${ciRoot}/scripts/tests/ci/shard.test.ts`, status: 'passed', startTime: 0, endTime: 1500 },
-    ] }
-    const exists = inRepo('tests/card/task-file.test.ts', 'scripts/tests/ci/shard.test.ts')
-    const measured = weightsFromVitestReport(report, exists)
-    expect(measured).toEqual({ 'scripts/tests/ci/shard.test.ts': 1.5, 'tests/card/task-file.test.ts': 9 })
+  it('keeps each measured file of this repository, sorted by path, never below the minimum weight', () => {
+    const exists = inRepo('tests/a.test.ts', 'tests/b.test.ts', 'tests/fast.test.ts')
+    const measured = weightsFromFileWeights({ 'tests/b.test.ts': 2.5, 'tests/fast.test.ts': 0, 'tests/a.test.ts': 9 }, exists)
+    expect(Object.entries(measured)).toEqual([['tests/a.test.ts', 9], ['tests/b.test.ts', 2.5], ['tests/fast.test.ts', MIN_WEIGHT]])
     expect(updateWeights({}, measured, exists)).toEqual(measured)
   })
 
-  it('measures nothing from a report none of whose files is in this repository', () => {
-    expect(weightsFromVitestReport({ testResults: [{ name: '/elsewhere/tests/x.test.ts', status: 'passed', startTime: 0, endTime: 900 }] }, local)).toEqual({})
-  })
-
-  it('records each file relative to the root, in seconds to one decimal, sorted by path', () => {
-    const report = { testResults: [
-      { name: '/repo/tests/b.test.ts', status: 'passed', startTime: 1000, endTime: 3460 },
-      { name: '/repo/tests/a.test.ts', status: 'passed', startTime: 0, endTime: 120 },
-    ] }
-    expect(Object.entries(weightsFromVitestReport(report, local))).toEqual([['tests/a.test.ts', 0.1], ['tests/b.test.ts', 2.5]])
-  })
-
-  it('records a file faster than the rounding at the minimum weight, never zero', () => {
-    expect(weightsFromVitestReport({ testResults: [{ name: '/repo/tests/fast.test.ts', status: 'passed', startTime: 0, endTime: 20 }] }, local)).toEqual({ 'tests/fast.test.ts': MIN_WEIGHT })
-  })
-
-  it('measures no file whose run failed, so its old weight stands', () => {
-    expect(weightsFromVitestReport({ testResults: [{ name: '/repo/tests/broke.test.ts', status: 'failed', startTime: 0, endTime: 900 }] }, local)).toEqual({})
+  it('measures nothing from a file no longer in this repository, or from a record that is not a weight table', () => {
+    expect(weightsFromFileWeights({ 'tests/gone.test.ts': 4 }, inRepo('tests/a.test.ts'))).toEqual({})
+    expect(weightsFromFileWeights({ 'tests/a.test.ts': 'slow' }, inRepo('tests/a.test.ts'))).toEqual({})
+    expect(weightsFromFileWeights({ testResults: [] }, () => true)).toEqual({})
+    expect(weightsFromFileWeights([], () => true)).toEqual({})
+    expect(weightsFromFileWeights(null, () => true)).toEqual({})
   })
 })
 

@@ -1,0 +1,4 @@
+{
+  "worker": "launch",
+  "path": "scripts/nodes/launch/launch-root.ts"
+}

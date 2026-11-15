@@ -2175,7 +2175,8 @@
     },
     "declarations:update": {
       "entries": [
-        "scripts/core/declarations.ts"
+        "scripts/core/declarations.ts",
+        "scripts/contract/factory/modules.ts"
       ],
       "exits": [
         1
@@ -2615,6 +2616,17 @@
       ],
       "exits": [],
       "flags": [],
+      "json": false,
+      "unknownFlag": "not read"
+    },
+    "owner:session": {
+      "entries": [
+        "scripts/owner/session.ts"
+      ],
+      "exits": [],
+      "flags": [
+        "coverage"
+      ],
       "json": false,
       "unknownFlag": "not read"
     },

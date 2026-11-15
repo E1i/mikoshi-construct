@@ -1,41 +1,32 @@
 import { describe, expect, it } from 'vitest'
 import { updateCandidates } from '../../core/queue.js'
-import { MAIN_2, sha } from './github-fake.js'
-import { liveBench } from './merge-bench.js'
+import { sha } from './github-fake.js'
+import { liveBench, mainMovesPastEveryPr } from './merge-bench.js'
 
 function updatesOf(bench: ReturnType<typeof liveBench>): (number | undefined)[] {
   return updateCandidates(bench.db, bench.clock.now().toISOString()).map(task => task.pr)
 }
 
-describe('a green behind pull request is updated only at its merge turn', () => {
-  it('of two green behind PRs only the one at the merge turn gets an update task; the other gets none until the first merges', () => {
+describe('an update goes to the turn of a group that needs one, never to behind alone', () => {
+  it('two green behind PRs that nothing on main overlaps get no update task', () => {
     const bench = liveBench()
-    bench.gitHub.open({ number: 970, head: sha('e'), review: 'success', mergeable_state: 'behind' })
-    bench.gitHub.open({ number: 971, head: sha('f'), review: 'success', mergeable_state: 'behind' })
-    bench.tick()
-    expect(updatesOf(bench)).toEqual([970])
-
-    bench.gitHub.pulls.get(970)!.mergeable_state = 'clean'
-    bench.tick()
-    expect(updatesOf(bench)).toEqual([])
-
-    bench.gitHub.close(970, true)
-    bench.gitHub.main = MAIN_2
-    bench.tick()
-    expect(updatesOf(bench)).toEqual([971])
-    bench.close()
-  })
-
-  it('a green behind PR is not updated while a clean pass PR waits to merge ahead of it', () => {
-    const bench = liveBench()
-    bench.gitHub.open({ number: 972, head: sha('e'), review: 'success' })
-    bench.gitHub.open({ number: 973, head: sha('f'), review: 'success', mergeable_state: 'behind' })
+    bench.gitHub.open({ number: 970, head: sha('e'), review: 'success', mergeable_state: 'behind', files: ['scripts/a.ts'] })
+    bench.gitHub.open({ number: 971, head: sha('f'), review: 'success', mergeable_state: 'behind', files: ['scripts/b.ts'] })
     bench.tick()
     expect(updatesOf(bench)).toEqual([])
     expect(bench.db.prepare(`SELECT task_key FROM tasks WHERE queue = 'update'`).all()).toEqual([])
+    bench.close()
+  })
+
+  it('of two PRs of one group that both need an update only the turn gets an update task; the other gets one once the first merges', () => {
+    const bench = liveBench()
+    bench.gitHub.open({ number: 972, head: sha('e'), review: 'success', files: ['scripts/a.ts'] })
+    bench.gitHub.open({ number: 973, head: sha('f'), review: 'success', files: ['scripts/a.ts'] })
+    bench.tick()
+    mainMovesPastEveryPr(bench)
+    expect(updatesOf(bench)).toEqual([972])
 
     bench.gitHub.close(972, true)
-    bench.gitHub.main = MAIN_2
     bench.tick()
     expect(updatesOf(bench)).toEqual([973])
     bench.close()

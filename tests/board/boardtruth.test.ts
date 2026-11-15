@@ -12,8 +12,9 @@ import { printBoard } from '../../scripts/cli/board-page.js'
 import { appendEvent, openBus } from '../../scripts/core/db.js'
 import { CARD_MOVED, CARD_PLANNED, LANE_ASSIGNED, PLAN_OPENED, SESSION_HEARTBEAT, WINDOW_HEARTBEAT } from '../../scripts/core/events.js'
 import { OWNER } from '../../scripts/core/inbox.js'
-import { PLAN_FOLDS } from '../../scripts/core/reducer.js'
 import { STORED_COLUMNS, storedByKey } from '../../scripts/core/stored.js'
+import { RECUT_ACTOR } from '../../scripts/policy/round-limit-decision.js'
+import { foldPlanEvent } from '../../scripts/window/plan-folds.js'
 import { busReaderAt } from '../../src/commands/board/bus.js'
 import { goalOf } from '../../src/commands/board/goal.js'
 import { backlogLines, boardScreens, flowLines, waitHint, waitsLines } from '../../src/commands/board/screens.js'
@@ -104,7 +105,7 @@ function greeting(template: string, busFile: string): string {
 function planEvent(db: DatabaseSync, type: string, payload: Record<string, unknown>, cardId: number | null = null): void {
   const dedupeKey = `${type}:${cardId}:${JSON.stringify(payload)}`
   appendEvent(db, { ts: NOW.toISOString(), type, actor: OWNER, cardId, pr: null, head: null, dedupeKey, payload, legacy: false })
-  PLAN_FOLDS[type]!(db, db.prepare(`SELECT ${STORED_COLUMNS} FROM events WHERE id = ?`).get(storedByKey(db, dedupeKey).id) as unknown as StoredEvent)
+  foldPlanEvent(db, db.prepare(`SELECT ${STORED_COLUMNS} FROM events WHERE id = ?`).get(storedByKey(db, dedupeKey).id) as unknown as StoredEvent, { owner: OWNER, recut: RECUT_ACTOR })
 }
 
 function seedCard(db: DatabaseSync, card: number, lane: string): void {
@@ -142,11 +143,11 @@ describe('the board tells the truth and hints', () => {
       { id: 'Q5', need: 'command', text: 'the merge queue runs unswitched', command: 'pnpm decisions:add "[owner] allow-live merge"', card: null, pr: null, since, ...OWNER_LIFTED },
     ]
     expect(waits.map(waitHint)).toEqual([
-      { who: 'owner', command: 'pnpm decisions:add --card #10 "[owner] <decision>"' },
-      { who: 'owner', command: 'pnpm decisions:add "[owner] <decision>"' },
-      { who: 'owner', command: 'gh pr merge 669' },
+      { who: 'owner', command: 'pnpm owner:answer Q1 "…"' },
+      { who: 'owner', command: 'pnpm owner:answer Q2 "…"' },
+      { who: 'owner', command: 'merge PR #669 (owner)' },
       { who: 'window', command: 'pnpm intake --admit parking/lane-21/1407.md' },
-      { who: 'owner', command: 'pnpm decisions:add "[owner] allow-live merge"' },
+      { who: 'owner', command: 'pnpm owner:answer Q5 "…"' },
     ])
     const [line] = waitsLines(noFacts({ waits }), PLAIN_LORE)
     for (const wait of waits) {

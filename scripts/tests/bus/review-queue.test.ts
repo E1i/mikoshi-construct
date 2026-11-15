@@ -18,6 +18,7 @@ import { busProjections } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { BusTick } from '../../supervisor/run.js'
 import { cardBody, Clock, FakeGitHub, sha } from './github-fake.js'
+import { benchOrderTick } from './merge-bench.js'
 import { detectMerge } from './merge-detection.js'
 import { detectReview } from './review-detection.js'
 
@@ -51,12 +52,14 @@ function setUp(file?: string): { db: DatabaseSync, gitHub: FakeGitHub, clock: Cl
   const gitHub = new FakeGitHub()
   const clock = new Clock()
   const busTick = new BusTick(db, busProjections(), new NetWatch(db, gitHub.client, clock.now), clock.now)
+  const order = benchOrderTick(db, clock)
   let first = true
   const tick = (): void => {
     if (!first)
       clock.advance(TICK_MS)
     first = false
     busTick.run()
+    order.step()
     detectReview({ db, gitHub, clock })
     detectMerge({ db, gitHub, clock })
   }
@@ -272,7 +275,7 @@ describe('review queue', () => {
     const worker = passingWorker(db, gitHub, clock, 933)
     const merge = mergeKeyOf({ queue: 'merge', cardId: 1033, pr: 933, head: sha('a'), prBody: prBodySha(cardBody(933)) })
     const merges = (): { task_key: string, state: string }[] => tasks(db).filter(task => task.task_key === merge)
-    gitHub.open({ number: 933, body: cardBody(933), mergeable_state: 'behind' })
+    gitHub.open({ number: 933, body: cardBody(933), mergeable_state: 'blocked' })
     tick()
     expect(await worker.step()).toMatchObject({ kind: 'recorded', verdict: 'pass' })
     tick()

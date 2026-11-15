@@ -1,10 +1,11 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { BusEvent } from '../core/db.js'
 import type { LayerMap } from '../core/layer-map.js'
 import { existsSync } from 'node:fs'
 import { layerMasksOf, runsOf } from '../../src/card/covering-tests.js'
 import { parseParkingFile } from '../../src/card/parking.js'
 import { CARD_BODIES } from '../core/card-bodies.js'
-import { BUSY_TIMEOUT_MS, defaultBusPath } from '../core/db.js'
+import { appendEvent, BUSY_TIMEOUT_MS, defaultBusPath } from '../core/db.js'
 import { messageOf } from '../core/errors.js'
 import { globalRunReason, layersOfEntry, readLayerMap } from '../core/layer-map.js'
 import { openDatabase } from '../core/sqlite.js'
@@ -110,6 +111,19 @@ export function cardRunsOf(source: CardRunsSource, catalog: CheckCatalog, map: L
   return { layers, paths, tests }
 }
 
+export type CardLayers = Extract<CardRuns, { layers: string[] }>
+
+function hasNoLayer(touch: string, { testLayers, moduleLayers }: CheckCatalog, map: LayerMap): boolean {
+  return globalRunReason(map, touch) !== null || (touchedLayers(touch, moduleLayers, map).length === 0 && testsOfTouch(touch, testLayers).length === 0 && !isChangesetNote(touch))
+}
+
+export function sessionCardRunsOf(source: CardRunsSource, catalog: CheckCatalog, map: LayerMap = readLayerMap()): CardLayers {
+  if (catalog.testLayers.size === 0 || catalog.moduleLayers.size === 0)
+    return { layers: [], paths: [...source.runs], tests: sortedUnique(source.runs) }
+  const reading = cardRunsOf({ ...source, touches: source.touches.filter(touch => !hasNoLayer(touch, catalog, map)) }, catalog, map)
+  return 'full' in reading ? { layers: [], paths: [], tests: [] } : reading
+}
+
 export function hasTable(db: DatabaseSync, name: string): boolean {
   return db.prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?`).get(name) !== undefined
 }
@@ -138,9 +152,14 @@ function runsSourceOf(row: CardTextRow): CardRunsSource | null {
   return { touches, runs: runsOf(body), masks: layerMasksOf(body) }
 }
 
-export function runsSourceOfBranch(db: DatabaseSync, branch: string): CardRunsSource | null {
+function cardRowOfBranch(db: DatabaseSync, branch: string): CardTextRow | null {
   const rows = hasTable(db, CARD_BODIES) ? db.prepare(CARD_OF_BRANCH).all(branch) as unknown as CardTextRow[] : []
-  return rows.length === 1 ? runsSourceOf(rows[0]!) : null
+  return rows.length === 1 ? rows[0]! : null
+}
+
+export function runsSourceOfBranch(db: DatabaseSync, branch: string): CardRunsSource | null {
+  const row = cardRowOfBranch(db, branch)
+  return row === null ? null : runsSourceOf(row)
 }
 
 export function runsSourceOfPr(db: DatabaseSync, pr: number): CardRunsSource | null {
@@ -152,7 +171,7 @@ export interface BusCatalog extends CheckCatalog {
   unreadable?: string
 }
 
-export type BranchCardRuns = { kind: 'no-card' } | { kind: 'unreadable', why: string } | { kind: 'card', reading: CardRuns }
+export type BranchCardRuns = { kind: 'no-card' } | { kind: 'unreadable', why: string } | { kind: 'card', card: number, touches: readonly string[], reading: CardLayers }
 
 export interface BranchTests {
   tests: readonly string[]
@@ -177,8 +196,11 @@ export function branchCardRuns(branch: string, busPath: string = defaultBusPath(
   let db: DatabaseSync | undefined
   try {
     db = openDatabase(busPath, { readOnly: true, timeout: BUSY_TIMEOUT_MS })
-    const source = runsSourceOfBranch(db, branch)
-    return source === null ? { kind: 'no-card' } : { kind: 'card', reading: cardRunsOf(source, withBranchTests({ testLayers: catalogLayersByTest(db), moduleLayers: catalogModuleLayers(db) }, branchTests)) }
+    const row = cardRowOfBranch(db, branch)
+    const source = row === null ? null : runsSourceOf(row)
+    if (row === null || source === null)
+      return { kind: 'no-card' }
+    return { kind: 'card', card: row.card_id, touches: source.touches, reading: sessionCardRunsOf(source, withBranchTests({ testLayers: catalogLayersByTest(db), moduleLayers: catalogModuleLayers(db) }, branchTests)) }
   }
   catch (error) {
     if (error instanceof LayerWithoutTests)
@@ -187,6 +209,26 @@ export function branchCardRuns(branch: string, busPath: string = defaultBusPath(
   }
   finally {
     db?.close()
+  }
+}
+
+export type { BusEvent }
+
+export class NoBusFile extends Error {
+  constructor(busPath: string) {
+    super(`no bus file at ${busPath}`)
+  }
+}
+
+export function appendBusEvent(event: BusEvent, busPath: string = defaultBusPath()): void {
+  if (!existsSync(busPath))
+    throw new NoBusFile(busPath)
+  const db = openDatabase(busPath, { timeout: BUSY_TIMEOUT_MS })
+  try {
+    appendEvent(db, event)
+  }
+  finally {
+    db.close()
   }
 }
 

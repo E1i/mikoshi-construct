@@ -190,21 +190,6 @@
   {
     "type": "dependency",
     "from": "scripts/core/queue.ts",
-    "to": "scripts/cli/check-catalog.ts",
-    "unresolvedTo": "../cli/check-catalog.js",
-    "dependencyTypes": [
-      "local",
-      "type-only",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "core-imports-nothing-to-its-right"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "scripts/core/queue.ts",
     "to": "scripts/nodes/launch/launch-candidates.ts",
     "unresolvedTo": "../nodes/launch/launch-candidates.js",
     "dependencyTypes": [
@@ -319,20 +304,6 @@
     "from": "scripts/core/reducer.ts",
     "to": "scripts/policy/live-decision.ts",
     "unresolvedTo": "../policy/live-decision.js",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "core-imports-nothing-to-its-right"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "scripts/core/reducer.ts",
-    "to": "scripts/policy/round-limit-decision.ts",
-    "unresolvedTo": "../policy/round-limit-decision.js",
     "dependencyTypes": [
       "local",
       "import"
@@ -1730,7 +1701,6 @@
     "unresolvedTo": "../../../src/card/grammar.js",
     "dependencyTypes": [
       "local",
-      "type-only",
       "import"
     ],
     "rule": {
@@ -2094,36 +2064,8 @@
   {
     "type": "dependency",
     "from": "scripts/nodes/update/update-executor.ts",
-    "to": "scripts/cli/check-catalog.ts",
-    "unresolvedTo": "../../cli/check-catalog.js",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "nodes-imports-nothing-to-its-right"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "scripts/nodes/update/update-executor.ts",
     "to": "scripts/intake/card-contract.ts",
     "unresolvedTo": "../../intake/card-contract.js",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "nodes-imports-nothing-to-its-right"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "scripts/nodes/update/update-worker.ts",
-    "to": "scripts/cli/check-catalog.ts",
-    "unresolvedTo": "../../cli/check-catalog.js",
     "dependencyTypes": [
       "local",
       "import"

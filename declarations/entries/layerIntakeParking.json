@@ -1,0 +1,7 @@
+{
+  "entry": "layerIntakeParking",
+  "group": null,
+  "path": "scripts/intake/parking.ts",
+  "layer": "shift",
+  "lists": []
+}

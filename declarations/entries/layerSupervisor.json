@@ -1,0 +1,7 @@
+{
+  "entry": "layerSupervisor",
+  "group": null,
+  "path": "scripts/supervisor/",
+  "layer": "supervisor",
+  "lists": []
+}

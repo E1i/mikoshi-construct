@@ -1,12 +1,16 @@
 import type { OwnerWait } from '../../../scripts/core/bus-readings.js'
 import type { BusDb } from '../cost/bus.js'
+import type { GateRunRow } from './gate-runs.js'
 import type { Goal } from './goal.js'
+import type { QueuedStanding, TranscriptReader } from './sessions.js'
 import { existsSync } from 'node:fs'
 import { behindLine, CARDS, currentLane, lastReducedOwnerWaits, readLastReduced } from '../../../scripts/core/bus-readings.js'
-import { BUS_PULSE, CARD_ADMITTED, CARD_FELL, CARD_STOPPED, CARD_VERIFIED, CHECKS_MATRIX_EVENT, PR_GROUPS, PROCESS_HEARTBEAT, REVIEW_DRIP, SESSION_HEARTBEAT, SLICE_PARENTS_BACKFILLED, TERMINAL_LANES, WINDOW_HEARTBEAT, WINDOW_SUBAGENT_EVENT } from '../../../scripts/core/events.js'
+import { BUS_PULSE, CARD_ADMITTED, CARD_FELL, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, CHECKS_MATRIX_EVENT, GATE_RUN, PR_GROUPS, PROCESS_HEARTBEAT, REVIEW_DRIP, SESSION_HEARTBEAT, SLICE_PARENTS_BACKFILLED, TERMINAL_LANES, WINDOW_HEARTBEAT, WINDOW_SUBAGENT_EVENT } from '../../../scripts/core/events.js'
 import { PLAIN_LORE } from '../../ui/lore.js'
 import { withReadOnlyBus } from '../cost/bus.js'
+import { gateRunFacts } from './gate-runs.js'
 import { goalOf } from './goal.js'
+import { clientTranscriptReader, sessionRowTime } from './sessions.js'
 
 export const SESSION_DEATH_KEY = `${CARD_STOPPED}:session-end:`
 export const SHORT_SHA = 7
@@ -121,6 +125,7 @@ export interface BusFacts {
   groups?: BusGroup[]
   shadow?: BusShadow
   tails?: BusTail[]
+  queued?: QueuedStanding[]
 }
 
 export interface BusTail {
@@ -142,7 +147,7 @@ export interface BusShadow {
 }
 
 export type BusReading
-  = | { status: 'read', file: string, facts: BusFacts }
+  = | { status: 'read', file: string, facts: BusFacts, gateRuns?: GateRunRow[] }
     | { status: 'absent', file: string }
     | { status: 'unreadable', file: string, reason: string }
 
@@ -227,7 +232,7 @@ function windowRoles(db: BusDb): BusService[] {
   return rows.map(row => ({ role: 'window', task: row.role, tree: null, step: `${row.state} · ${row.status}` }))
 }
 
-const BOARD_EVENT_TYPES = [WINDOW_SUBAGENT_EVENT, SESSION_HEARTBEAT, CARD_FELL, CARD_STOPPED, CARD_VERIFIED, PR_GROUPS, REVIEW_DRIP]
+const BOARD_EVENT_TYPES = [WINDOW_SUBAGENT_EVENT, SESSION_HEARTBEAT, CARD_STARTED, CARD_FELL, CARD_STOPPED, CARD_VERIFIED, PR_GROUPS, REVIEW_DRIP, GATE_RUN]
 
 interface BoardEvents {
   of: (type: string) => EventRow[]
@@ -342,13 +347,27 @@ function gaugesOfBeat(payload: Record<string, unknown>): ServiceGauges {
   return { context: positiveOrNull(payload.context), spent: positiveOrNull(payload.spent), model: text(payload.model) }
 }
 
-function sessionServices(events: BoardEvents, cards: BusCard[], now: Date): BusService[] {
+function cardTrees(events: BoardEvents): Map<number, string> {
+  const trees = new Map<number, string>()
+  for (const row of events.of(CARD_STARTED)) {
+    const worktree = text(payloadOf(row.payload).worktree)
+    if (row.legacy === 0 && row.card_id !== null && worktree !== null)
+      trees.set(row.card_id, worktree)
+  }
+  return trees
+}
+
+function sessionServices(events: BoardEvents, cards: BusCard[], now: Date, transcripts: TranscriptReader): BusService[] {
   const byId = new Map(cards.map(card => [card.id, card] as const))
+  const trees = cardTrees(events)
   const latest = new Map<string, SessionBeat>()
   const measured = new Map<string, Record<string, unknown>>()
+  const firstSeen = new Map<string, string>()
   for (const row of events.of(SESSION_HEARTBEAT)) {
     const payload = payloadOf(row.payload)
     const session = text(payload.session) ?? `#${row.card_id ?? '?'}`
+    if (row.ts !== null && !firstSeen.has(session))
+      firstSeen.set(session, row.ts)
     latest.set(session, { row, step: text(payload.step) ?? 'session' })
     if (row.legacy === 0)
       measured.set(session, payload)
@@ -365,7 +384,18 @@ function sessionServices(events: BoardEvents, cards: BusCard[], now: Date): BusS
   return [...shown.values()].map(({ row, step, session }) => {
     const payload = measured.get(session)
     const subagents = subagentReadings(payload?.subagents)
-    return { role: step.split(' ')[0]!, task: `#${row.card_id ?? '?'}`, tree: null, step: `${step} · pulse ${minutesAgo(row.ts!, now)} min ago`, session, ...(payload === undefined ? {} : { gauges: gaugesOfBeat(payload) }), ...(subagents.length === 0 ? {} : { subagents }) }
+    const time = sessionRowTime(transcripts, session, firstSeen.get(session) ?? row.ts!, row.card_id === null ? null : trees.get(row.card_id) ?? null, now)
+    return { role: step.split(' ')[0]!, task: `#${row.card_id ?? '?'}`, tree: null, step: `${step} · pulse ${minutesAgo(row.ts!, now)} min ago · ${time}`, session, ...(payload === undefined ? {} : { gauges: gaugesOfBeat(payload) }), ...(subagents.length === 0 ? {} : { subagents }) }
+  })
+}
+
+function queuedStandings(db: BusDb): QueuedStanding[] {
+  const rows = openTasks(db)
+  return rows.flatMap((row, index) => {
+    if (row.state === LEASED)
+      return []
+    const behind = rows.slice(0, index).filter(ahead => ahead.queue === row.queue).map(ahead => ahead.card)
+    return [{ card: row.card, queue: row.queue, since: row.since, behind }]
   })
 }
 
@@ -484,6 +514,7 @@ export interface BusTask {
   pr: number | null
   head: string | null
   state: string
+  since: string | null
 }
 
 export interface BusCardEvent {
@@ -493,7 +524,7 @@ export interface BusCardEvent {
   pr: number | null
 }
 
-const OPEN_TASKS = `SELECT id, queue, card_id AS card, pr, head, state FROM tasks WHERE state IN (${OPEN_TASK_STATES.map(() => '?').join(', ')}) ORDER BY id`
+const OPEN_TASKS = `SELECT tasks.id, tasks.queue, tasks.card_id AS card, tasks.pr, tasks.head, tasks.state, events.ts AS since FROM tasks LEFT JOIN events ON events.id = tasks.event_id WHERE tasks.state IN (${OPEN_TASK_STATES.map(() => '?').join(', ')}) ORDER BY tasks.id`
 
 const LATEST_CARD_EVENTS = `
   SELECT id, ts, type, card_id AS card, pr FROM (
@@ -555,12 +586,17 @@ function tailFacts(events: BoardEvents): Pick<BusFacts, 'tails'> {
   return tails.length === 0 ? {} : { tails }
 }
 
-export function busFacts(db: BusDb, now: Date): BusFacts {
+function queuedFacts(db: BusDb): Pick<BusFacts, 'queued'> {
+  const queued = queuedStandings(db)
+  return queued.length === 0 ? {} : { queued }
+}
+
+export function busFacts(db: BusDb, now: Date, transcripts: TranscriptReader = clientTranscriptReader): BusFacts {
   const queue = db.prepare(`SELECT count(*) AS n FROM tasks WHERE queue = 'review' AND state IN ('queued', 'leased')`).get() as { n: number }
   const events = boardEvents(db)
   const cardReading = readLastReduced(db, [CARDS], () => cardsOf(db, events))
   const cards = cardReading.rows
-  const sessions = sessionServices(events, cards, now)
+  const sessions = sessionServices(events, cards, now, transcripts)
   const waits = lastReducedOwnerWaits(db)
   return {
     at: now.toISOString(),
@@ -577,15 +613,19 @@ export function busFacts(db: BusDb, now: Date): BusFacts {
     reviewQueue: Number(queue.n),
     ...orderFacts(events),
     ...tailFacts(events),
+    ...queuedFacts(db),
   }
 }
 
-export function busReaderAt(file: string, clock: () => Date = () => new Date()): BusReader {
+export function busReaderAt(file: string, clock: () => Date = () => new Date(), transcripts: TranscriptReader = clientTranscriptReader): BusReader {
   return () => {
     if (!existsSync(file))
       return { status: 'absent', file }
     try {
-      return { status: 'read', file, facts: withReadOnlyBus(file, db => busFacts(db, clock())) }
+      return withReadOnlyBus(file, (db) => {
+        const now = clock()
+        return { status: 'read', file, facts: busFacts(db, now, transcripts), ...gateRunFacts(boardEvents(db).of(GATE_RUN), now) }
+      })
     }
     catch (error) {
       return { status: 'unreadable', file, reason: error instanceof Error ? error.message : String(error) }

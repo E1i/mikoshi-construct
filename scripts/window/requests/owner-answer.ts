@@ -1,6 +1,6 @@
 import type { RequestContext, RequestExecutor } from './context.js'
 import type { Executed } from './request.js'
-import { ANSWER_SOURCE, CARD_STOPPED, cardIdOf, changesRoundsOf, closeOwnerWait, consumeOwnerWordClosing, decisionOnAWait, inTransaction, OPEN_WAIT, openPrOfCard, OWNER_SOURCE, OWNER_WAITS, OWNER_WORD_NOT_FOUND, ownerMoveCommand, QUEUE_ACTOR, REVIEW_ROUNDS } from './reach.js'
+import { ANSWER_SOURCE, cardIdOf, changesRoundsOf, closeOwnerWait, consumeOwnerWordClosing, decisionOnAWait, inTransaction, OPEN_WAIT, openPrOfCard, OWNER_SOURCE, OWNER_WAITS, OWNER_WORD_NOT_FOUND, QUEUE_ACTOR, REVIEW_ROUNDS } from './reach.js'
 import { flagsOf, text, unreleasedWord } from './request.js'
 
 interface Wait {
@@ -27,17 +27,6 @@ function roundLimitedPr(context: RequestContext, wait: Wait | null, card: number
   return pr !== null && changesRoundsOf(context.db, pr) >= REVIEW_ROUNDS ? pr : null
 }
 
-function nothingToMove(context: RequestContext, card: number): string {
-  const ended = context.routeOf(card, true)
-  if (ended !== null)
-    return `${ended}; no open wait, nothing moves`
-  const route = context.routeOf(card)
-  if (route !== null)
-    return `card #${card} has no open wait and is within its round limit: ${route}, so the bus moves it already; nothing moves on this answer, and a decision bound with --card #${card} reaches its next session`
-  const stopped = context.latestTurn(card, true)?.type === CARD_STOPPED
-  return `card #${card} has no open wait and is within its round limit, and ${stopped ? 'it stands stopped' : 'no task or session of it runs'}; nothing moves on this answer. The move that would act on it: ${ownerMoveCommand('launch', card)}`
-}
-
 function bound(context: RequestContext, words: string, card: number | null): { done: boolean, why: string } {
   if (card === null)
     return { done: true, why: 'bound to no card' }
@@ -47,11 +36,17 @@ function bound(context: RequestContext, words: string, card: number | null): { d
   return { done: written.code === 0, why: written.lines.join('; ') }
 }
 
-function closed(context: RequestContext, request: number, wait: Wait, answer: string, bind: boolean): Executed {
+type Binding = 'by-need' | 'always' | 'never'
+
+function binds(binding: Binding, wait: Wait): boolean {
+  return binding === 'always' || (binding === 'by-need' && NEEDS_A_DECISION_ANSWERS.has(wait.need))
+}
+
+function closed(context: RequestContext, request: number, wait: Wait, answer: string, binding: Binding): Executed {
   const shut = inTransaction(context.db, () => closeOwnerWait(context.db, context.now(), QUEUE_ACTOR, wait.id, answer, request))
   if (!shut)
     return { done: false, why: `${wait.id} is closed already` }
-  if (!bind || !NEEDS_A_DECISION_ANSWERS.has(wait.need))
+  if (!binds(binding, wait))
     return { done: true, why: `closed ${wait.id}: ${answer}` }
   const decision = bound(context, decisionOnAWait(wait.id, answer), wait.card_id)
   return { done: true, why: `closed ${wait.id}: ${answer}; ${decision.done ? `bound to card #${wait.card_id} as a decision: ${decision.why}` : `the decision binding it to card #${wait.card_id} is not written: ${decision.why}`}` }
@@ -89,10 +84,13 @@ export const execute: RequestExecutor = (context, request, payload) => {
     const fixes = `continue-fixes for PR #${pr} at ${head}: ${written.why}`
     if (wait === null)
       return { done: true, why: fixes }
-    const shut = closed(context, request, wait, decided, false)
+    const shut = closed(context, request, wait, decided, 'never')
     return { done: shut.done, why: `${fixes}; ${shut.why}` }
   }
-  if (wait === null)
-    return keepWord(nothingToMove(context, cardId!))
-  return closed(context, request, wait, words, true)
+  if (wait !== null)
+    return closed(context, request, wait, words, id === null ? 'always' : 'by-need')
+  const decision = bound(context, words, cardId)
+  if (!decision.done)
+    return keepWord(`the decision binding the answer to card #${cardId} is not written: ${decision.why}`)
+  return { done: true, why: `card #${cardId} has no open wait; bound to card #${cardId} as a decision: ${decision.why}` }
 }

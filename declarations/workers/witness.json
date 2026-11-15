@@ -1,0 +1,4 @@
+{
+  "worker": "witness",
+  "path": "scripts/nodes/witness/witness-worker.ts"
+}

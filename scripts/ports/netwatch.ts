@@ -8,7 +8,7 @@ import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { appendEvent, defaultBusPath, inTransaction, openBus } from '../core/db.js'
-import { BUS_PULSE, MAIN_ADVANCED, NETWATCH_SKIPPED } from '../core/events.js'
+import { BUS_PULSE, declaredPayload, MAIN_ADVANCED, NETWATCH_SKIPPED, PR_OBSERVED } from '../core/events.js'
 import { NETWATCH, observationsOf, pathsOfTheLastObservation, previousObservationOf, reopeningOf } from '../core/observations.js'
 import { RUN_SCRIPT } from '../supervisor/bg.js'
 import { recordProcessHeartbeat } from '../supervisor/heartbeat.js'
@@ -59,6 +59,24 @@ export function lastMain(db: DatabaseSync): string | null {
   return typeof sha === 'string' ? sha : null
 }
 
+function mainBeforeMovedHeads(events: readonly BusEvent[], headBefore: (pr: number) => string | null | undefined): BusEvent[] {
+  const moved = (event: BusEvent): boolean => event.type === PR_OBSERVED && event.pr !== null && ![undefined, null, event.head].includes(headBefore(event.pr))
+  const rest = events.filter(event => event.type !== MAIN_ADVANCED)
+  const at = rest.findIndex(moved)
+  const main = events.filter(event => event.type === MAIN_ADVANCED)
+  return at === -1 ? [...rest, ...main] : [...rest.slice(0, at), ...main, ...rest.slice(at)]
+}
+
+function mainPayloadWithCi(observed: EventPayload<typeof MAIN_ADVANCED>, ci: string): EventPayload<typeof MAIN_ADVANCED> {
+  return declaredPayload(MAIN_ADVANCED, { ...observed, ci })
+}
+
+function withMainCi(event: BusEvent, ci: string | undefined): BusEvent {
+  if (event.type !== MAIN_ADVANCED || ci === undefined)
+    return event
+  return { ...event, payload: mainPayloadWithCi(event.payload as EventPayload<typeof MAIN_ADVANCED>, ci) }
+}
+
 function record<T extends typeof BUS_PULSE | typeof NETWATCH_SKIPPED>(ts: string, type: T, payload: EventPayload<T>): BusEvent {
   return { ts, type, actor: NETWATCH, cardId: null, pr: null, head: null, dedupeKey: `${type}:${ts}`, payload, legacy: false }
 }
@@ -95,8 +113,9 @@ export class NetWatch {
       const snapshot = takeSnapshot(meter, knownOpenPrs(this.db), lastMain(this.db), requiredCheckOf(this.root), (pr, head) => pathsOfTheLastObservation(lastObserved(this.db, pr), head))
       const poll: Poll = { kind: 'ticked', reason, calls: meter.calls, remaining: meter.remaining, written: 0, unsettled: snapshot.unsettled }
       inTransaction(this.db, () => {
-        for (const event of observationsOf(ts, snapshot, pr => lastObserved(this.db, pr), reopeningOf(this.db))) {
-          if (appendEvent(this.db, event))
+        const observed = observationsOf(ts, snapshot, pr => lastObserved(this.db, pr), reopeningOf(this.db))
+        for (const event of mainBeforeMovedHeads(observed, pr => lastObserved(this.db, pr)?.event?.head)) {
+          if (appendEvent(this.db, withMainCi(event, snapshot.main?.ci)))
             poll.written += 1
         }
         appendEvent(this.db, record(ts, BUS_PULSE, { reason, gap_s: gapSeconds, calls: poll.calls, rate_remaining: poll.remaining, written: poll.written, unsettled: poll.unsettled }))

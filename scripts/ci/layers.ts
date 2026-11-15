@@ -1,31 +1,19 @@
 import type { LayerMap } from '../core/layer-map.js'
 import path from 'node:path'
 import { DECLARED_PATH_READERS, EVERY_CHANGE_READERS, NAMED_READERS, PACKAGE_MANIFEST, PACKAGE_SCRIPT_READERS, SCANNED_TREES } from '../../src/card/covering-tests.js'
-import { FACTORY_FOLDERS, FACTORY_NAMED } from '../core/factory-paths.js'
+import { BUS_CORE, BUS_SERVICE, FACTORY_FOLDERS, FACTORY_LISTS, GENERATED_FILES, RATCHET_FILE } from '../core/factory-paths.js'
 import { declaredLayersIn, globalRunReason, isCheckPipeline, isDocument, isRecord, layersInOf, repositoryLayerMap } from '../core/layer-map.js'
 import { isTest, TEST_ROOTS } from '../policy/touch-scope.js'
 import { scansATree } from './tree-scanners.js'
 
-export { isTest }
+export { BUS_CORE, BUS_SERVICE, isTest }
 
-export const BUS_CORE = /^scripts\/core\/(?:db|reducer|sqlite|stored|identifiers)\.ts$/
-export const BUS_SERVICE = /^scripts\/(?:nodes\/[a-z]+|ladder)\/([a-z]+)-(?:worker|executor|starter)\.ts$/
-export const BUS_SHARED: readonly string[] = [
-  FACTORY_NAMED.busDatabase,
-  FACTORY_NAMED.busErrors,
-  FACTORY_NAMED.busLease,
-  FACTORY_NAMED.busNode,
-  FACTORY_NAMED.busQueue,
-  FACTORY_NAMED.busStamping,
-  FACTORY_NAMED.busComposition,
-  FACTORY_NAMED.busStored,
-  FACTORY_NAMED.gitPort,
-]
+export const BUS_SHARED: readonly string[] = FACTORY_LISTS.busShared
 export const BUS_TESTS = `${FACTORY_FOLDERS.busTests[0]}/`
 const CHANGESET_NOTE = /^\.changeset\/[^/]+\.md$/
 const CHANGESET_TOUCH = '.changeset/**'
 const CONTRACT_RECORD_TESTS = 'tests/contract/'
-export const CHANGESET_READERS: readonly string[] = ['tests/changesets-one-line.test.ts']
+export const CHANGESET_READERS: readonly string[] = FACTORY_LISTS.changesetReaders
 
 export type Graph = ReadonlyMap<string, readonly string[]>
 
@@ -171,6 +159,84 @@ export function selectRun(given: readonly string[], graph: Graph, testText: (tes
   const layers = [...new Set([...closure].flatMap(file => layersInOf(map, file)))].sort()
   const tests = [...closure].filter(isTest).sort()
   return { kind: 'layers', layers, tests }
+}
+
+export type LayeredRun = Extract<Run, { kind: 'layers' }>
+
+export interface SessionRun {
+  run: LayeredRun
+  why: string
+}
+
+const SCRIPT_MODULE = /^(?:scripts|src)\/[\w./-]+\.ts$/
+const WHITESPACE = /\s+/
+
+function scriptModules(command: string): string[] {
+  return command.split(WHITESPACE).filter(token => SCRIPT_MODULE.test(token))
+}
+
+export function packageScriptsOf(manifest: () => string): Readonly<Record<string, string>> {
+  try {
+    const scripts = (JSON.parse(manifest()) as { scripts?: unknown }).scripts
+    return typeof scripts === 'object' && scripts !== null ? scripts as Record<string, string> : {}
+  }
+  catch {
+    return {}
+  }
+}
+
+export const MODULE_FILES = GENERATED_FILES.moduleFiles.path
+
+const GENERATOR_ROWS: readonly { path: string, rebuild: readonly string[] | null }[] = [...Object.values(GENERATED_FILES), RATCHET_FILE]
+
+export function generatorModules(file: string, packageScripts: Readonly<Record<string, string>>): string[] {
+  const rebuilds = GENERATOR_ROWS.flatMap(row => row.path === file && row.rebuild !== null ? [row.rebuild] : [])
+  return [...new Set(rebuilds.flatMap((rebuild) => {
+    const script = packageScripts[rebuild[0] ?? '']
+    return [...rebuild.flatMap(scriptModules), ...(typeof script === 'string' ? scriptModules(script) : [])]
+  }))].sort()
+}
+
+function readersByName(file: string, graph: Graph, moduleText: (module: string) => string): string[] {
+  const own = [...new Set([file, path.basename(file)])]
+  return [...graph.keys()].filter(module => module !== file && READABLE_MODULE.test(module) && own.some(name => names(moduleText(module), name)))
+}
+
+export function coveringTests(file: string, graph: Graph, moduleText: (module: string) => string, packageScripts: Readonly<Record<string, string>>): string[] {
+  const readers = [...(declaredReadersOf(file) ?? []), ...readersByName(file, graph, moduleText), ...generatorModules(file, packageScripts)].filter(module => graph.has(module))
+  return [...dependents([file, ...readers], reverseGraph(graph))].filter(isTest).sort()
+}
+
+function generatorTests(given: readonly string[], graph: Graph, packageScripts: Readonly<Record<string, string>>): string[] {
+  const generators = given.flatMap(file => generatorModules(file, packageScripts)).filter(module => graph.has(module))
+  return generators.length === 0 ? [] : [...dependents(generators, reverseGraph(graph))].filter(isTest)
+}
+
+function withTests(run: LayeredRun, added: readonly string[]): LayeredRun {
+  return added.length === 0 ? run : { kind: 'layers', layers: run.layers, tests: [...new Set([...run.tests, ...added])].sort() }
+}
+
+export function sessionRun(given: readonly string[], graph: Graph, testText: (test: string) => string, map: LayerMap = repositoryLayerMap()): SessionRun {
+  const texts = new Map<string, string>()
+  const moduleText = (module: string): string => texts.get(module) ?? texts.set(module, testText(module)).get(module)!
+  const packageScripts = packageScriptsOf(() => moduleText(PACKAGE_MANIFEST))
+  const derived = generatorTests(given, graph, packageScripts)
+  const whole = selectRun(given, graph, moduleText, map)
+  if (whole.kind === 'layers')
+    return { run: withTests(whole, derived), why: 'the layers the change reaches' }
+  const layers = new Set<string>()
+  const tests = new Set<string>(derived)
+  for (const file of given) {
+    const one = selectRun([file], graph, moduleText, map)
+    if (one.kind === 'layers') {
+      one.layers.forEach(layer => layers.add(layer))
+      one.tests.forEach(test => tests.add(test))
+    }
+    else {
+      coveringTests(file, graph, moduleText, packageScripts).forEach(test => tests.add(test))
+    }
+  }
+  return { run: { kind: 'layers', layers: [...layers].sort(), tests: [...tests].sort() }, why: `the covering tests of each path in place of the full run CI keeps: ${whole.why}` }
 }
 
 export function windowGate(changed: readonly string[], graph: Graph, testText: (test: string) => string): Run {

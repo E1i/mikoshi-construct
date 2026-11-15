@@ -1,0 +1,9 @@
+{
+  "entry": "busDatabase",
+  "group": "named",
+  "path": "scripts/core/db.ts",
+  "layer": null,
+  "lists": [
+    "busShared"
+  ]
+}

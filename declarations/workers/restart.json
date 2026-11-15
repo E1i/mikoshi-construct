@@ -1,0 +1,4 @@
+{
+  "worker": "restart",
+  "path": "scripts/nodes/restart/restart-worker.ts"
+}

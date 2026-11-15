@@ -1,0 +1,9 @@
+{
+  "entry": "busTests",
+  "group": "folders",
+  "paths": [
+    "scripts/tests/bus"
+  ],
+  "layer": null,
+  "lists": []
+}

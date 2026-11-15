@@ -1,0 +1,7 @@
+{
+  "entry": "layerCoreInbox",
+  "group": null,
+  "path": "scripts/core/inbox.ts",
+  "layer": "bus",
+  "lists": []
+}

@@ -1,0 +1,7 @@
+{
+  "entry": "journalGuardTest",
+  "group": "named",
+  "path": "scripts/tests/bus/journal-guard.test.ts",
+  "layer": null,
+  "lists": []
+}

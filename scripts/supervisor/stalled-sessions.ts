@@ -3,6 +3,7 @@ import type { BusEvent } from '../core/db.js'
 import type { BudgetLine } from '../core/eddies.js'
 import type { Lease } from '../core/lease.js'
 import type { ProcessTable } from '../ports/process-table.js'
+import type { ActionOf, LeasedRound } from './expected-time.js'
 import type { LeaseBeat } from './heartbeat.js'
 import type { LifeOf, SessionLife } from './recorded-worker.js'
 import { appendEvent } from '../core/db.js'
@@ -12,8 +13,10 @@ import { CARD_SESSION_ENDED, CARD_STARTED, PR_OBSERVED, PR_OPENED, SESSION_HEART
 import { failTask, releaseTask } from '../core/lease.js'
 import { LEASED } from '../core/queue.js'
 import { OsProcessTable } from '../ports/process-table.js'
+import { RoundOverTime } from './expected-time.js'
 import { beatsOfLease } from './heartbeat.js'
 import { SILENT_MS } from './liveness-sites.js'
+import { transcriptActionIn } from './session-view.js'
 import { signal } from './supervisor.js'
 
 export const STALLED_AFTER_MS = 30 * 60_000
@@ -92,6 +95,7 @@ interface Moved {
 }
 
 interface Silence {
+  leasedAt: string
   lease: Lease
   queue: SupervisedQueue
   session: string | null
@@ -99,8 +103,13 @@ interface Silence {
   signals: Readonly<Record<Signal, Moved>>
 }
 
+export interface OverTime {
+  check: (rounds: readonly LeasedRound[]) => string[]
+}
+
 export interface StalledSessionPorts {
   lifeOf: LifeOf
+  overTime?: OverTime
   stop?: StopSession
   spendOf?: SpendOf
   lines?: Readonly<Record<SupervisedQueue, number>>
@@ -183,10 +192,21 @@ export function stopSessionIn(table: ProcessTable, end: (pid: number) => void = 
   }
 }
 
+function treeOfCard(db: DatabaseSync, cardId: number): string | null {
+  return (db.prepare(CARD_TREE).get(cardId) as { worktree: string } | undefined)?.worktree ?? null
+}
+
 export function spendInCardTree(db: DatabaseSync): SpendOf {
   return (lease, session) => {
-    const tree = (db.prepare(CARD_TREE).get(lease.cardId) as { worktree: string } | undefined)?.worktree
-    return tree === undefined ? null : spendStopOf(tree, session)
+    const tree = treeOfCard(db, lease.cardId)
+    return tree === null ? null : spendStopOf(tree, session)
+  }
+}
+
+export function actionInCardTree(db: DatabaseSync, clock: () => Date, actionIn = transcriptActionIn()): ActionOf {
+  return (cardId, session) => {
+    const tree = treeOfCard(db, cardId)
+    return tree === null || session === null ? null : actionIn(tree, session, clock())
   }
 }
 
@@ -198,8 +218,10 @@ export class StalledSessions {
   private readonly prefix: string
   private readonly pulseOf: PulseOf
   private readonly pulses = new Map<string, { pulse: string, at: string }>()
+  private readonly overTime: OverTime
 
   constructor(private readonly db: DatabaseSync, private readonly clock: () => Date, private readonly ports: StalledSessionPorts) {
+    this.overTime = ports.overTime ?? new RoundOverTime(db, clock, actionInCardTree(db, clock))
     this.lines = ports.lines ?? NO_PROGRESS_LINES
     this.spendOf = ports.spendOf ?? spendInCardTree(db)
     this.stop = ports.stop ?? stopSessionIn(new OsProcessTable())
@@ -220,6 +242,15 @@ export class StalledSessions {
     }
   }
 
+  private sweepOverTime(silences: readonly Silence[]): string[] {
+    try {
+      return this.overTime.check(silences.map(({ lease, session, leasedAt }) => ({ lease, session, leasedAt }))).map(line => `${this.prefix}${line}`)
+    }
+    catch (error) {
+      return [`${this.prefix}reading the round times failed: ${messageOf(error)}; retried on the next sweep`]
+    }
+  }
+
   private sweep(nowMs: number): string[] {
     const rows = this.db.prepare(LEASED_SESSIONS).all() as unknown as LeasedRow[]
     const watched = new Set(rows.map(row => `${row.task_key}:${row.lease_gen}`))
@@ -227,17 +258,20 @@ export class StalledSessions {
       if (!watched.has(key))
         this.pulses.delete(key)
     }
-    return rows.flatMap((row) => {
+    const silences = rows.flatMap((row) => {
       const silence = this.silenceOf(row, nowMs)
-      if (silence === null)
-        return []
-      const overSpend = this.overSpend(silence, nowMs)
-      if (overSpend !== null)
-        return overSpend
-      if (nowMs - Date.parse(silence.since) < this.lines[silence.queue])
-        return []
-      return this.settle(silence, nowMs)
+      return silence === null ? [] : [silence]
     })
+    return [...silences.flatMap(silence => this.judge(silence, nowMs)), ...this.sweepOverTime(silences)]
+  }
+
+  private judge(silence: Silence, nowMs: number): string[] {
+    const overSpend = this.overSpend(silence, nowMs)
+    if (overSpend !== null)
+      return overSpend
+    if (nowMs - Date.parse(silence.since) < this.lines[silence.queue])
+      return []
+    return this.settle(silence, nowMs)
   }
 
   private pulseMoved(key: string, session: string | null, nowMs: number): Moved {
@@ -268,7 +302,7 @@ export class StalledSessions {
       process: row.queue === 'review' ? this.pulseMoved(`${row.task_key}:${row.lease_gen}`, session, nowMs) : { readable: false, at: leased.ts },
     }
     const since = Object.values(signals).filter(signal => signal.readable).map(signal => signal.at).reduce((latest, at) => at > latest ? at : latest, signals.context.at)
-    return { lease, queue: row.queue, session, since, signals }
+    return { lease, queue: row.queue, session, since, signals, leasedAt: leased.ts }
   }
 
   private staleSignals(signals: Readonly<Record<Signal, Moved>>, queue: SupervisedQueue, nowMs: number): Signal[] {

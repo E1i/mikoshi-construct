@@ -1,0 +1,7 @@
+{
+  "entry": "knownProjectionWrites",
+  "group": "named",
+  "path": "scripts/core/projection-writes.known.json",
+  "layer": null,
+  "lists": []
+}

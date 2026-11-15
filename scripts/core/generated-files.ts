@@ -35,6 +35,7 @@ const ROWS_THE_CODE_NAMES = {
   selfHostingDrift: ['followSources'],
   knownViolations: ['rebuild', 'followSources'],
   moduleFiles: ['rebuild'],
+  moduleOwns: ['rebuild'],
 } as const satisfies Record<string, readonly ListField[]>
 
 export const SCRIPTS_THE_ROWS_RUN: readonly string[] = ['scripts/attach/earlier-carriers.ts']
