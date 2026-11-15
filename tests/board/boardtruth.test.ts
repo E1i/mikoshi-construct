@@ -142,11 +142,11 @@ describe('the board tells the truth and hints', () => {
       { id: 'Q5', need: 'command', text: 'the merge queue runs unswitched', command: 'pnpm decisions:add "[owner] allow-live merge"', card: null, pr: null, since, ...OWNER_LIFTED },
     ]
     expect(waits.map(waitHint)).toEqual([
-      { who: 'owner', command: 'pnpm decisions:add --card #10 "[owner] <decision>"' },
-      { who: 'owner', command: 'pnpm decisions:add "[owner] <decision>"' },
-      { who: 'owner', command: 'gh pr merge 669' },
+      { who: 'owner', command: 'pnpm owner:answer Q1 "…"' },
+      { who: 'owner', command: 'pnpm owner:answer Q2 "…"' },
+      { who: 'owner', command: 'merge PR #669 (owner)' },
       { who: 'window', command: 'pnpm intake --admit parking/lane-21/1407.md' },
-      { who: 'owner', command: 'pnpm decisions:add "[owner] allow-live merge"' },
+      { who: 'owner', command: 'pnpm owner:answer Q5 "…"' },
     ])
     const [line] = waitsLines(noFacts({ waits }), PLAIN_LORE)
     for (const wait of waits) {
