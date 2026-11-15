@@ -100,6 +100,8 @@ export interface AnswererTools {
   pulse?: AnswerPulse
   context?: (session: string) => number | null
   contextWarn?: (size: string | null) => number | null
+  spent?: (session: string) => number | null
+  spendWarn?: () => number | null
   diff?: (card: CardSession) => string | null
   ciLog?: (card: CardSession, head: string) => FailedJobLog | null
   held?: (lease: Lease) => boolean
@@ -296,8 +298,17 @@ export function liveSessionIn(card: CardSession, cwds: () => ProcessCwds = () =>
   return inside === undefined ? null : `a live session runs in ${inside}, inside the tree ${card.worktree}`
 }
 
+function answerReadingsOf(size: string | null) {
+  return realExitReadings({ [CARD_VARIABLE]: 'answer', ...(size === null ? {} : { [CARD_SIZE_VARIABLE]: size }) }, os.homedir(), projectRoot(process.env), defaultBusPath())
+}
+
 export function contextWarnOfEddies(size: string | null = null): number | null {
-  const warn = realExitReadings({ [CARD_VARIABLE]: 'answer', ...(size === null ? {} : { [CARD_SIZE_VARIABLE]: size }) }, os.homedir(), projectRoot(process.env), defaultBusPath()).contextWarn
+  const warn = answerReadingsOf(size).contextWarn
+  return warn === UNKNOWN ? null : warn
+}
+
+export function spendWarnOfEddies(): number | null {
+  const warn = answerReadingsOf(null).spendWarn
   return warn === UNKNOWN ? null : warn
 }
 
@@ -474,6 +485,8 @@ export function realAnswererTools(busPath: string = defaultBusPath()): AnswererT
     followed: busTouchesFollowed(busPath),
     context: session => sessionGauges(os.homedir(), projectRoot(process.env), session).context ?? null,
     contextWarn: contextWarnOfEddies,
+    spent: session => sessionGauges(os.homedir(), projectRoot(process.env), session).spent ?? null,
+    spendWarn: spendWarnOfEddies,
     diff: diffAgainstBase,
     ciLog: (card, head) => new GhCiRuns().failureLogOn(head, card.worktree),
     children: new ChildLog(busWriteAt(busPath), pid => identityOf(new OsProcessTable().snapshot(), pid), () => new Date(), process.env),
@@ -484,6 +497,16 @@ function atContextWarn(tools: AnswererTools, session: string, size: string | nul
   const warn = tools.contextWarn?.(size) ?? null
   const context = warn === null ? null : tools.context?.(session) ?? null
   return warn !== null && context !== null && context >= warn
+}
+
+function atSpendWarn(tools: AnswererTools, session: string): boolean {
+  const warn = tools.spendWarn?.() ?? null
+  const spent = warn === null ? null : tools.spent?.(session) ?? null
+  return warn !== null && spent !== null && spent >= warn
+}
+
+function startsFreshAtWarn(tools: AnswererTools, session: string, size: string | null): boolean {
+  return atContextWarn(tools, session, size) || atSpendWarn(tools, session)
 }
 
 export function claudeAnswerer(dir: string, tools: AnswererTools): Answerer {
@@ -517,7 +540,9 @@ function sessionAnswerer(dir: string, tools: AnswererTools): Answerer {
     const { card } = request
     const cardBody = tools.cardText(request.lease.cardId)
     const size = cardSizeIn(cardBody)
-    const resumed = request.fresh !== true && tools.available(card) && !atContextWarn(tools, card.session, size)
+    const atWarn = request.fresh !== true && tools.available(card) && startsFreshAtWarn(tools, card.session, size)
+    const resumed = request.fresh !== true && tools.available(card) && !atWarn
+    const keepsHandoff = request.fresh === true || atWarn
     const session = resumed ? card.session : tools.newSession()
     const ownerQuestion = ownerQuestionPath(dir, session, request.lease.leaseGen)
     const proofs = proofsPath(dir, session, request.lease.leaseGen)
@@ -526,9 +551,9 @@ function sessionAnswerer(dir: string, tools: AnswererTools): Answerer {
     const timer = new RoundTimer(tools.now ?? Date.now, gate.prepush)
     const ciLog = asksAboutRedCi(request.source) && request.lease.head !== null ? tools.ciLog?.(card, request.lease.head) : undefined
     const handoff = answerHandoffPath(card.worktree)
-    if (request.fresh !== true)
+    if (!keepsHandoff)
       rmSync(handoff, { force: true })
-    const prompt = [answerPrompt(request, cardBody, windowGateRule(card, gate, ownerQuestion), resumed ? undefined : tools.diff?.(card), ciLog), ...proofsRule(prove, proofs), ...handoffLines(handoff, request.fresh === true)].join('\n')
+    const prompt = [answerPrompt(request, cardBody, windowGateRule(card, gate, ownerQuestion), resumed ? undefined : tools.diff?.(card), ciLog), ...proofsRule(prove, proofs), ...handoffLines(handoff, keepsHandoff)].join('\n')
     const invocationOf = (kind: 'start' | 'resume', text: string): Invocation => clientInvocation({ kind, role: 'answer', session, cwd: card.worktree, prompt: text, addDirs: [dir], pick: { model: null }, policy: { profile: 'sandboxed', gateCommands: gate.prepush, writePaths: prove.length === 0 ? [ownerQuestion] : [ownerQuestion, proofs], mcpOff: true, tools: tools.cardTools?.(request.lease.cardId, cardBody) } })
     mkdirSync(dir, { recursive: true })
     rmSync(ownerQuestion, { force: true })
