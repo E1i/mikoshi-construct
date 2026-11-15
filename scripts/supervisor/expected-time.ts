@@ -1,6 +1,8 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { Lease } from '../core/lease.js'
 import { appendEvent } from '../core/db.js'
-import { ANSWER_STEP, BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, REVIEW_RECORDED, SESSION_HEARTBEAT, TASK_LEASED } from '../core/events.js'
+import { ANSWER_STEP, BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_STARTED, REVIEW_RECORDED, SESSION_HEARTBEAT } from '../core/events.js'
+import { ANY, BusRead } from '../ports/bus-read.js'
 
 export const MIN_SAMPLES = 3
 export const EXPECTED_PERCENTILE = 0.9
@@ -10,6 +12,7 @@ export const EXPECTED_TIME_ACTOR = 'worker:supervisor:expected-time'
 const UNKNOWN = '?'
 const MINUTE_MS = 60_000
 const SECOND_MS = 1000
+const ROUND_QUEUES: readonly string[] = ['answer', 'review']
 
 export type RoundKind = 'answer' | 'review'
 export type SampleKind = RoundKind | 'answer step'
@@ -36,47 +39,15 @@ export interface RoundReading {
   line: string
 }
 
+export interface LeasedRound {
+  lease: Lease
+  session: string | null
+  leasedAt: string
+}
+
 export type ActionOf = (cardId: number, session: string | null) => string | null
 
 const CARD_LINE_SHAPE = /\[[^/\]]+\/[^/\]]+\/([A-Z]+)\/([a-z-]+)(?:\/|\])/
-
-function cardLineOf(card: string): string {
-  return `coalesce(
-    (SELECT b.card_line FROM card_bodies b WHERE b.card_id = ${card}),
-    (SELECT json_extract(a.payload, '$.text') FROM events a WHERE a.legacy = 0 AND a.type = '${CARD_ADMITTED}' AND a.card_id = ${card} AND json_valid(a.payload) ORDER BY a.id DESC LIMIT 1)
-  )`
-}
-
-const MEASURED = `
-  SELECT e.type, json_extract(e.payload, '$.minutes') AS minutes, json_extract(e.payload, '$.review_ms') AS review_ms, json_extract(e.payload, '$.seconds') AS seconds, ${cardLineOf('e.card_id')} AS line FROM events e
-  WHERE e.legacy = 0 AND e.type IN ('${CARD_ANSWERED}', '${REVIEW_RECORDED}', '${ANSWER_STEP}') AND json_valid(e.payload)
-  ORDER BY e.id
-`
-
-const LEASED_ROUNDS = `
-  SELECT t.task_key, t.queue, t.card_id, t.pr, t.head, t.lease_gen, ${cardLineOf('t.card_id')} AS line FROM tasks t
-  WHERE t.state = 'leased' AND t.queue IN ('answer', 'review')
-  ORDER BY t.id
-`
-
-const LEASED_AT = `SELECT ts FROM events WHERE type = '${TASK_LEASED}' AND dedupe_key = ?`
-
-const ROUND_SESSION = `
-  SELECT json_extract(payload, '$.session') AS session FROM events
-  WHERE type = '${SESSION_HEARTBEAT}' AND legacy = 0 AND json_valid(payload) AND json_extract(payload, '$.task_key') = ? AND json_extract(payload, '$.lease_gen') = ?
-    AND json_type(payload, '$.session') = 'text'
-  ORDER BY id DESC LIMIT 1
-`
-
-interface LeasedRound {
-  task_key: string
-  queue: RoundKind
-  card_id: number
-  pr: number | null
-  head: string | null
-  lease_gen: number
-  line: string | null
-}
 
 export function shapeOf(line: string | null): Shape {
   const found = line === null ? null : CARD_LINE_SHAPE.exec(line)
@@ -87,32 +58,59 @@ function positive(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null
 }
 
-interface MeasuredRow {
-  type: string
-  minutes: unknown
-  review_ms: unknown
-  seconds: unknown
-  line: string | null
+interface CardMinutes {
+  card: number | null
+  kind: SampleKind
+  minutes: number
 }
 
-function minutesOf(type: string, payload: MeasuredRow): { kind: SampleKind, minutes: number } | null {
-  if (type === CARD_ANSWERED) {
-    const minutes = positive(payload.minutes)
-    return minutes === null ? null : { kind: 'answer', minutes }
+function measured(card: number | null, kind: SampleKind, minutes: number | null): CardMinutes[] {
+  return minutes === null ? [] : [{ card, kind, minutes }]
+}
+
+export class RoundMeasures {
+  private readonly lines = new Map<number, string>()
+  private readonly taken: CardMinutes[] = []
+  private from = 0
+
+  constructor(private readonly db: DatabaseSync) {}
+
+  shapeOfCard(card: number): Shape {
+    return shapeOf(this.lines.get(card) ?? null)
   }
-  if (type === REVIEW_RECORDED) {
-    const ms = positive(payload.review_ms)
-    return ms === null ? null : { kind: 'review', minutes: ms / MINUTE_MS }
+
+  samples(): RoundSample[] {
+    this.readNew()
+    return this.taken.map(({ card, kind, minutes }) => ({ kind, minutes, ...shapeOf(card === null ? null : this.lines.get(card) ?? null) }))
   }
-  const seconds = positive(payload.seconds)
-  return seconds === null ? null : { kind: 'answer step', minutes: seconds * SECOND_MS / MINUTE_MS }
+
+  private readNew(): void {
+    const read = new BusRead(this.db).where({ from: this.from })
+    let last = this.from - 1
+    for (const admitted of read.where({ card: ANY }).slice(CARD_ADMITTED, ['text'], 'last-per-card')) {
+      if (typeof admitted.fields.text === 'string')
+        this.lines.set(admitted.card!, admitted.fields.text)
+      last = Math.max(last, admitted.id)
+    }
+    const answered = read.slice(CARD_ANSWERED, ['minutes']).flatMap(event => measured(event.card, 'answer', positive(event.fields.minutes)).map(sample => ({ ...sample, id: event.id })))
+    const reviewed = read.slice(REVIEW_RECORDED, ['review_ms']).flatMap((event) => {
+      const ms = positive(event.fields.review_ms)
+      return measured(event.card, 'review', ms === null ? null : ms / MINUTE_MS).map(sample => ({ ...sample, id: event.id }))
+    })
+    const steps = read.slice(ANSWER_STEP, ['seconds']).flatMap((event) => {
+      const seconds = positive(event.fields.seconds)
+      return measured(event.card, 'answer step', seconds === null ? null : seconds * SECOND_MS / MINUTE_MS).map(sample => ({ ...sample, id: event.id }))
+    })
+    for (const { id, ...sample } of [...answered, ...reviewed, ...steps].sort((a, b) => a.id - b.id)) {
+      this.taken.push(sample)
+      last = Math.max(last, id)
+    }
+    this.from = last + 1
+  }
 }
 
 export function roundSamples(db: DatabaseSync): RoundSample[] {
-  return (db.prepare(MEASURED).all() as unknown as MeasuredRow[]).flatMap((row) => {
-    const measured = minutesOf(row.type, row)
-    return measured === null ? [] : [{ ...measured, ...shapeOf(row.line) }]
-  })
+  return new RoundMeasures(db).samples()
 }
 
 function matching(samples: readonly RoundSample[], kind: SampleKind, shape: Shape): number[] {
@@ -120,10 +118,10 @@ function matching(samples: readonly RoundSample[], kind: SampleKind, shape: Shap
 }
 
 export function expectedMinutes(samples: readonly RoundSample[], kind: RoundKind, shape: Shape): number | null {
-  const measured = matching(samples, kind, shape)
-  if (shape.size === UNKNOWN || shape.contour === UNKNOWN || measured.length < MIN_SAMPLES)
+  const measuredMinutes = matching(samples, kind, shape)
+  if (shape.size === UNKNOWN || shape.contour === UNKNOWN || measuredMinutes.length < MIN_SAMPLES)
     return null
-  return Math.ceil(measured[Math.ceil(measured.length * EXPECTED_PERCENTILE) - 1]!)
+  return Math.ceil(measuredMinutes[Math.ceil(measuredMinutes.length * EXPECTED_PERCENTILE) - 1]!)
 }
 
 function plural(count: number, one: string): string {
@@ -152,32 +150,66 @@ export function roundLine(reading: Omit<RoundReading, 'line'>): string {
 }
 
 export class RoundOverTime {
-  constructor(private readonly db: DatabaseSync, private readonly clock: () => Date, private readonly actionOf: ActionOf) {}
+  private readonly measures: RoundMeasures
 
-  readings(): (RoundReading & { round: LeasedRound })[] {
+  constructor(private readonly db: DatabaseSync, private readonly clock: () => Date, private readonly actionOf: ActionOf) {
+    this.measures = new RoundMeasures(db)
+  }
+
+  readings(rounds: readonly LeasedRound[]): (RoundReading & { round: LeasedRound })[] {
+    const timed = rounds.filter(round => ROUND_QUEUES.includes(round.lease.queue))
+    if (timed.length === 0)
+      return []
     const now = this.clock().getTime()
-    const samples = roundSamples(this.db)
-    return (this.db.prepare(LEASED_ROUNDS).all() as unknown as LeasedRound[]).flatMap((round) => {
-      const leased = this.db.prepare(LEASED_AT).get(`${TASK_LEASED}:${round.task_key}:${round.lease_gen}`) as { ts: string } | undefined
-      if (leased === undefined)
-        return []
-      const shape = shapeOf(round.line)
-      const reading = { card: Number(round.card_id), queue: round.queue, shape, elapsed: Math.floor((now - Date.parse(leased.ts)) / MINUTE_MS), expected: expectedMinutes(samples, round.queue, shape), samples: matching(samples, round.queue, shape).length }
-      return [{ ...reading, line: roundLine(reading), round }]
+    const samples = this.measures.samples()
+    return timed.map((round) => {
+      const queue = round.lease.queue as RoundKind
+      const shape = this.measures.shapeOfCard(round.lease.cardId)
+      const reading = { card: round.lease.cardId, queue, shape, elapsed: Math.floor((now - Date.parse(round.leasedAt)) / MINUTE_MS), expected: expectedMinutes(samples, queue, shape), samples: matching(samples, queue, shape).length }
+      return { ...reading, line: roundLine(reading), round }
     })
   }
 
-  check(): string[] {
+  check(rounds: readonly LeasedRound[]): string[] {
     const ts = this.clock().toISOString()
-    return this.readings().flatMap((reading) => {
+    return this.readings(rounds).flatMap((reading) => {
       if (reading.expected === null || reading.elapsed <= reading.expected)
         return []
-      const { round } = reading
-      const session = (this.db.prepare(ROUND_SESSION).get(round.task_key, Number(round.lease_gen)) as { session: string } | undefined)?.session ?? null
+      const { lease, session } = reading.round
       const action = this.actionOf(reading.card, session) ?? 'what it does now is not read: no transcript of its session was found'
       const detail = `${reading.line}; the session runs on and is not stopped; ${action}`
-      const raised = appendEvent(this.db, { ts, type: BOARD_ALARM, actor: EXPECTED_TIME_ACTOR, cardId: reading.card, pr: round.pr, head: round.head, dedupeKey: `${BOARD_ALARM}:${OVER_TIME}:${round.task_key}:${round.lease_gen}`, payload: { task_key: round.task_key, lease_gen: Number(round.lease_gen), reason: OVER_TIME, detail }, legacy: false })
+      const raised = appendEvent(this.db, { ts, type: BOARD_ALARM, actor: EXPECTED_TIME_ACTOR, cardId: reading.card, pr: lease.pr, head: lease.head, dedupeKey: `${BOARD_ALARM}:${OVER_TIME}:${lease.taskKey}:${lease.leaseGen}`, payload: { task_key: lease.taskKey, lease_gen: lease.leaseGen, reason: OVER_TIME, detail }, legacy: false })
       return raised ? [`${BOARD_ALARM} #${reading.card} ${OVER_TIME}: ${detail}`] : []
     })
   }
+}
+
+export interface CardSession {
+  card: number
+  session: string
+  worktree: string | null
+  startedAt: string
+  lastBeat: string
+}
+
+function text(value: unknown): string | null {
+  return typeof value === 'string' && value !== '' ? value : null
+}
+
+export function cardSessionOf(db: DatabaseSync, card: number): CardSession | null {
+  const read = new BusRead(db).where({ card })
+  const beats = read.where({ present: ['session'] }).slice(SESSION_HEARTBEAT, ['session'])
+  const start = read.slice(CARD_STARTED, ['session', 'worktree'], 'last')[0]
+  const worktree = text(start?.fields.worktree)
+  const beat = beats.at(-1)
+  const session = text(beat?.fields.session)
+  if (beat !== undefined && session !== null && beat.ts !== null) {
+    const first = beats.find(seen => seen.fields.session === session && seen.ts !== null)?.ts ?? beat.ts
+    const startedAt = start?.ts != null && text(start.fields.session) === session && start.ts < first ? start.ts : first
+    return { card, session, worktree, startedAt, lastBeat: beat.ts }
+  }
+  const started = text(start?.fields.session)
+  if (start?.ts == null || started === null)
+    return null
+  return { card, session: started, worktree, startedAt: start.ts, lastBeat: start.ts }
 }

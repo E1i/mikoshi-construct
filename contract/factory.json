@@ -2266,7 +2266,6 @@
           "scripts/nodes/witness/witness-worker.ts",
           "scripts/owner/channel.ts",
           "scripts/owner/say.ts",
-          "scripts/owner/session.ts",
           "scripts/policy/decisions/add.ts",
           "scripts/policy/decisions/read.ts",
           "scripts/policy/shard.ts",
@@ -2281,6 +2280,7 @@
           "scripts/supervisor/heartbeat.ts",
           "scripts/supervisor/review-bg.ts",
           "scripts/supervisor/run.ts",
+          "scripts/supervisor/session-view.ts",
           "scripts/supervisor/start.ts",
           "scripts/supervisor/supervisor.ts",
           "scripts/window/card-measure.ts",
@@ -4296,7 +4296,6 @@
       "scripts/nodes/update/update-done.ts": 1,
       "scripts/nodes/update/update-executor.ts": 2,
       "scripts/nodes/witness/witness-executor.ts": 3,
-      "scripts/owner/session.ts": 4,
       "scripts/policy/decisions/import.ts": 1,
       "scripts/policy/decisions/index.ts": 16,
       "scripts/policy/policy.ts": 3,
@@ -4310,7 +4309,6 @@
       "scripts/release/evidence.ts": 2,
       "scripts/supervisor/bus-heal.ts": 3,
       "scripts/supervisor/bus-snapshot.ts": 2,
-      "scripts/supervisor/expected-time.ts": 5,
       "scripts/supervisor/heartbeat.ts": 3,
       "scripts/supervisor/run.ts": 1,
       "scripts/supervisor/stalled-sessions.ts": 6,
@@ -4323,7 +4321,6 @@
       "scripts/window/requests/amend.ts": 2,
       "scripts/window/requests/context.ts": 6,
       "scripts/window/requests/drop.ts": 1,
-      "scripts/window/requests/owner-stop.ts": 1,
       "scripts/window/requests/plan.ts": 2,
       "scripts/window/requests/request.ts": 1,
       "scripts/window/requests/requeue.ts": 5,
@@ -4337,7 +4334,7 @@
       "scripts/window/window-requests.ts": 2,
       "scripts/window/window-session-end.ts": 7,
       "scripts/window/window.ts": 3,
-      "src/commands/board/bus.ts": 15,
+      "src/commands/board/bus.ts": 13,
       "src/commands/board/drain.ts": 1,
       "src/commands/board/goal.ts": 4,
       "src/commands/board/heal.ts": 1,
@@ -4356,9 +4353,7 @@
       "scripts/core/machine-sessions.ts": 1,
       "scripts/ladder/watch-process.ts": 1,
       "scripts/nodes/answer/answerer.ts": 1,
-      "scripts/ports/worktree.ts": 1,
-      "src/commands/board/bus.ts": 1,
-      "src/commands/board/sessions.ts": 1
+      "scripts/ports/worktree.ts": 1
     },
     "owner-commands": {},
     "owner-decisions": {
@@ -4633,13 +4628,13 @@
           "clientTranscriptReader": "(worktree, session)",
           "clockOf": "(stamp: string): string",
           "longGaps": "(reading: TranscriptReading, now: Date, live: boolean, gapMs = LONG_GAP_MS): TranscriptGap[]",
-          "readTranscript": "(text: string): TranscriptReading",
-          "runningAction": "(reading: TranscriptReading): TimedAction | null"
+          "minutesBetween": "(from: string, to: string): number",
+          "nowLine": "(reading: TranscriptReading, now: Date): string",
+          "readTranscript": "(text: string): TranscriptReading"
         },
         "reexports": [],
         "types": {
-          "TranscriptReader": "type TranscriptReader = (worktree: string, session: string) => string | null",
-          "TranscriptReading": "interface TranscriptReading { actions: TimedAction[]; stamps: string[]; }"
+          "TranscriptReader": "type TranscriptReader = (worktree: string, session: string) => string | null"
         }
       },
       "src/commands/ci/state.ts": {
@@ -4685,14 +4680,6 @@
           "RollupCheck": "interface RollupCheck { name?: string; status?: string; conclusion?: string; state?: string; completedAt?: string; }",
           "RunIdentity": "interface RunIdentity { repository: string; runId: string; }"
         }
-      },
-      "src/commands/cost/bus.ts": {
-        "constants": [],
-        "functions": {
-          "withReadOnlyBus": "<T>(busPath: string, read: (db: BusDb) => T): T"
-        },
-        "reexports": [],
-        "types": {}
       },
       "src/commands/cost/cheap.ts": {
         "constants": [],

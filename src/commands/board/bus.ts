@@ -1,14 +1,14 @@
 import type { OwnerWait } from '../../../scripts/core/bus-readings.js'
 import type { BusDb } from '../cost/bus.js'
 import type { Goal } from './goal.js'
-import type { LiveSession, QueuedStanding, TranscriptReader } from './sessions.js'
+import type { QueuedStanding, TranscriptReader } from './sessions.js'
 import { existsSync } from 'node:fs'
 import { behindLine, CARDS, currentLane, lastReducedOwnerWaits, readLastReduced } from '../../../scripts/core/bus-readings.js'
 import { BUS_PULSE, CARD_ADMITTED, CARD_FELL, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, CHECKS_MATRIX_EVENT, PR_GROUPS, PROCESS_HEARTBEAT, REVIEW_DRIP, SESSION_HEARTBEAT, SLICE_PARENTS_BACKFILLED, TERMINAL_LANES, WINDOW_HEARTBEAT, WINDOW_SUBAGENT_EVENT } from '../../../scripts/core/events.js'
 import { PLAIN_LORE } from '../../ui/lore.js'
 import { withReadOnlyBus } from '../cost/bus.js'
 import { goalOf } from './goal.js'
-import { clientTranscriptReader, liveSessionLine, readTranscript } from './sessions.js'
+import { clientTranscriptReader, sessionRowTime } from './sessions.js'
 
 export const SESSION_DEATH_KEY = `${CARD_STOPPED}:session-end:`
 export const SHORT_SHA = 7
@@ -355,11 +355,6 @@ function cardTrees(events: BoardEvents): Map<number, string> {
   return trees
 }
 
-function liveSessionOf(session: string, startedAt: string, tree: string | undefined, transcripts: TranscriptReader): LiveSession {
-  const written = tree === undefined ? null : transcripts(tree, session)
-  return { startedAt, transcript: written === null ? null : readTranscript(written), wait: null }
-}
-
 function sessionServices(events: BoardEvents, cards: BusCard[], now: Date, transcripts: TranscriptReader): BusService[] {
   const byId = new Map(cards.map(card => [card.id, card] as const))
   const trees = cardTrees(events)
@@ -387,24 +382,13 @@ function sessionServices(events: BoardEvents, cards: BusCard[], now: Date, trans
   return [...shown.values()].map(({ row, step, session }) => {
     const payload = measured.get(session)
     const subagents = subagentReadings(payload?.subagents)
-    const live = liveSessionOf(session, firstSeen.get(session) ?? row.ts!, row.card_id === null ? undefined : trees.get(row.card_id), transcripts)
-    return { role: step.split(' ')[0]!, task: `#${row.card_id ?? '?'}`, tree: null, step: `${step} · pulse ${minutesAgo(row.ts!, now)} min ago · ${liveSessionLine(live, now)}`, session, ...(payload === undefined ? {} : { gauges: gaugesOfBeat(payload) }), ...(subagents.length === 0 ? {} : { subagents }) }
+    const time = sessionRowTime(transcripts, session, firstSeen.get(session) ?? row.ts!, row.card_id === null ? null : trees.get(row.card_id) ?? null, now)
+    return { role: step.split(' ')[0]!, task: `#${row.card_id ?? '?'}`, tree: null, step: `${step} · pulse ${minutesAgo(row.ts!, now)} min ago · ${time}`, session, ...(payload === undefined ? {} : { gauges: gaugesOfBeat(payload) }), ...(subagents.length === 0 ? {} : { subagents }) }
   })
 }
 
-function tasksCarryTheirEvent(db: BusDb): boolean {
-  return (db.prepare(`SELECT count(*) AS n FROM pragma_table_info('tasks') WHERE name = 'event_id'`).get() as { n: number }).n > 0
-}
-
-const QUEUED_STANDING = `
-  SELECT tasks.queue, tasks.card_id AS card, tasks.state, events.ts AS since FROM tasks LEFT JOIN events ON events.id = tasks.event_id
-  WHERE tasks.state IN (${OPEN_TASK_STATES.map(() => '?').join(', ')}) ORDER BY tasks.id
-`
-
-const QUEUED_STANDING_UNTIMED = `SELECT queue, card_id AS card, state, NULL AS since FROM tasks WHERE state IN (${OPEN_TASK_STATES.map(() => '?').join(', ')}) ORDER BY id`
-
 function queuedStandings(db: BusDb): QueuedStanding[] {
-  const rows = db.prepare(tasksCarryTheirEvent(db) ? QUEUED_STANDING : QUEUED_STANDING_UNTIMED).all(...OPEN_TASK_STATES) as unknown as { queue: string, card: number, state: string, since: string | null }[]
+  const rows = openTasks(db)
   return rows.flatMap((row, index) => {
     if (row.state === LEASED)
       return []
@@ -528,6 +512,7 @@ export interface BusTask {
   pr: number | null
   head: string | null
   state: string
+  since: string | null
 }
 
 export interface BusCardEvent {
@@ -537,7 +522,7 @@ export interface BusCardEvent {
   pr: number | null
 }
 
-const OPEN_TASKS = `SELECT id, queue, card_id AS card, pr, head, state FROM tasks WHERE state IN (${OPEN_TASK_STATES.map(() => '?').join(', ')}) ORDER BY id`
+const OPEN_TASKS = `SELECT tasks.id, tasks.queue, tasks.card_id AS card, tasks.pr, tasks.head, tasks.state, events.ts AS since FROM tasks LEFT JOIN events ON events.id = tasks.event_id WHERE tasks.state IN (${OPEN_TASK_STATES.map(() => '?').join(', ')}) ORDER BY tasks.id`
 
 const LATEST_CARD_EVENTS = `
   SELECT id, ts, type, card_id AS card, pr FROM (

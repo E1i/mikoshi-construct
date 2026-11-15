@@ -5,6 +5,10 @@ import { claudeProjectsDir, projectKey } from '../cost/claude-code.js'
 export const LONG_GAP_MS = 5 * 60_000
 export const SHOWN_ACTIONS = 8
 const TRANSCRIPT_SUFFIX = '.jsonl'
+const MINUTE_MS = 60_000
+const DETAIL_CHARS = 80
+const TIME_OF_DAY = { from: 11, to: 19 } as const
+const DETAIL_FIELDS = ['command', 'file_path', 'path', 'pattern', 'url', 'description'] as const
 
 export type TranscriptReader = (worktree: string, session: string) => string | null
 
@@ -16,10 +20,6 @@ export function transcriptReaderIn(projectsDir: string): TranscriptReader {
 }
 
 export const clientTranscriptReader: TranscriptReader = (worktree, session) => transcriptReaderIn(claudeProjectsDir())(worktree, session)
-const MINUTE_MS = 60_000
-const DETAIL_CHARS = 80
-const TIME_OF_DAY = { from: 11, to: 19 } as const
-const DETAIL_FIELDS = ['command', 'file_path', 'path', 'pattern', 'url', 'description'] as const
 
 export interface TimedAction {
   id: string | null
@@ -47,17 +47,17 @@ export interface WaitSource {
   since: string
 }
 
-export interface LiveSession {
-  startedAt: string
-  transcript: TranscriptReading | null
-  wait: WaitSource | null
-}
-
 export interface QueuedStanding {
   card: number
   queue: string
   since: string | null
   behind: number[]
+}
+
+export interface SessionTime {
+  startedAt: string
+  transcript: TranscriptReading | null
+  wait: WaitSource | null
 }
 
 function record(value: unknown): Record<string, unknown> | null {
@@ -125,7 +125,7 @@ export function readTranscript(text: string): TranscriptReading {
   return { actions, stamps: stamps.sort() }
 }
 
-function minutesBetween(from: string, to: string): number {
+export function minutesBetween(from: string, to: string): number {
   return Math.max(0, Math.round((Date.parse(to) - Date.parse(from)) / MINUTE_MS))
 }
 
@@ -156,7 +156,7 @@ export function runningAction(reading: TranscriptReading): TimedAction | null {
   return reading.actions.filter(action => action.endedAt === null).at(-1) ?? null
 }
 
-function waitPart(session: LiveSession, now: Date, gapMs: number): string {
+function waitPart(session: SessionTime, now: Date, gapMs: number): string {
   const { transcript, wait } = session
   if (transcript === null)
     return 'current action not read: no transcript of this session was found'
@@ -169,13 +169,30 @@ function waitPart(session: LiveSession, now: Date, gapMs: number): string {
   const after = lastAction === undefined ? 'no tool run yet' : `last ${actionName(lastAction)} ended at ${clockOf(lastAction.endedAt ?? lastAction.at)}`
   if (wait !== null)
     return `waits on the ${wait.source}: ${wait.reason} for ${minutesBetween(wait.since, now.toISOString())} min · ${after}`
-  if (Date.parse(now.toISOString()) - Date.parse(last) >= gapMs)
+  if (now.getTime() - Date.parse(last) >= gapMs)
     return `waits for an unknown reason for ${idle} min, no line in the transcript since ${clockOf(last)} · ${after}`
   return `between actions for ${idle} min · ${after}`
 }
 
-export function liveSessionLine(session: LiveSession, now: Date, gapMs = LONG_GAP_MS): string {
+export function sessionTimeLine(session: SessionTime, now: Date, gapMs = LONG_GAP_MS): string {
   return `started ${minutesBetween(session.startedAt, now.toISOString())} min ago · ${waitPart(session, now, gapMs)}`
+}
+
+export function sessionTimeIn(transcripts: TranscriptReader, session: string, startedAt: string, tree: string | null): SessionTime {
+  const written = tree === null ? null : transcripts(tree, session)
+  return { startedAt, transcript: written === null ? null : readTranscript(written), wait: null }
+}
+
+export function nowLine(reading: TranscriptReading, now: Date): string {
+  const running = runningAction(reading)
+  if (running !== null)
+    return `now: ${actionName(running)}, running for ${minutesBetween(running.at, now.toISOString())} min`
+  const last = reading.stamps.at(-1)
+  return last === undefined ? 'now: the transcript holds no line yet' : `now: no tool running; the last transcript line is from ${clockOf(last)}, ${minutesBetween(last, now.toISOString())} min ago, and nothing says why it waits`
+}
+
+export function sessionRowTime(transcripts: TranscriptReader, session: string, startedAt: string, tree: string | null, now: Date): string {
+  return sessionTimeLine(sessionTimeIn(transcripts, session, startedAt, tree), now)
 }
 
 export function queuedLine(standing: QueuedStanding, now: Date): string {

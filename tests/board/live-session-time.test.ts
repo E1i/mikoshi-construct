@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { CARD_STARTED, SESSION_HEARTBEAT } from '../../scripts/core/events.js'
 import { busReaderAt } from '../../src/commands/board/bus.js'
 import { screenLines } from '../../src/commands/board/screens.js'
-import { liveSessionLine, queuedLine, readTranscript } from '../../src/commands/board/sessions.js'
+import { queuedLine, readTranscript, sessionTimeLine } from '../../src/commands/board/sessions.js'
 import { PLAIN_LORE } from '../../src/ui/lore.js'
 import { writeBus } from './bus-fixture.js'
 
@@ -83,9 +83,9 @@ describe('the board shows the time of a live session', () => {
   it('names the wait only from a reliable source, and says when no transcript was read', () => {
     const transcript = readTranscript(TRANSCRIPTS['s-silent']!)
     const wait = { source: 'scheduler', reason: 'the heavy-run slot is held by #1937', since: '2026-11-15T10:50:00.000Z' } as const
-    expect(liveSessionLine({ startedAt: '2026-11-15T10:25:00.000Z', transcript, wait }, NOW)).toBe('started 35 min ago · waits on the scheduler: the heavy-run slot is held by #1937 for 10 min · last Edit src/a.ts ended at 10:48:00')
-    expect(liveSessionLine({ startedAt: '2026-11-15T10:25:00.000Z', transcript: null, wait: null }, NOW)).toBe('started 35 min ago · current action not read: no transcript of this session was found')
-    expect(liveSessionLine({ startedAt: '2026-11-15T10:25:00.000Z', transcript, wait: null }, new Date('2026-11-15T10:50:00.000Z'))).toContain('between actions for 2 min')
+    expect(sessionTimeLine({ startedAt: '2026-11-15T10:25:00.000Z', transcript, wait }, NOW)).toBe('started 35 min ago · waits on the scheduler: the heavy-run slot is held by #1937 for 10 min · last Edit src/a.ts ended at 10:48:00')
+    expect(sessionTimeLine({ startedAt: '2026-11-15T10:25:00.000Z', transcript: null, wait: null }, NOW)).toBe('started 35 min ago · current action not read: no transcript of this session was found')
+    expect(sessionTimeLine({ startedAt: '2026-11-15T10:25:00.000Z', transcript, wait: null }, new Date('2026-11-15T10:50:00.000Z'))).toContain('between actions for 2 min')
   })
 
   it('a queued task shows whom it stands behind and how long it waited', () => {

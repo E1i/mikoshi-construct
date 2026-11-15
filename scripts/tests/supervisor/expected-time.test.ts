@@ -44,7 +44,7 @@ function alarms(bench: MergeBench): { card_id: number, payload: Record<string, u
   return (bench.db.prepare('SELECT card_id, payload FROM events WHERE type = ? ORDER BY id').all(BOARD_ALARM) as { card_id: number, payload: string }[]).map(row => ({ card_id: row.card_id, payload: JSON.parse(row.payload) as Record<string, unknown> }))
 }
 
-function room(): { bench: MergeBench, later: () => Date } {
+function room(): { bench: MergeBench, later: () => Date, start: string } {
   const bench = mergeBench()
   benches.push(bench)
   admitted(bench, UNMEASURED, 'S/cheap')
@@ -56,7 +56,7 @@ function room(): { bench: MergeBench, later: () => Date } {
   leased(bench, UNMEASURED)
   leased(bench, MEASURED)
   const start = bench.clock.now().getTime()
-  return { bench, later: () => new Date(start + RUN_MINUTES * MINUTE_MS) }
+  return { bench, later: () => new Date(start + RUN_MINUTES * MINUTE_MS), start: new Date(start).toISOString() }
 }
 
 describe('expected round time from the bus measurements', () => {
@@ -75,7 +75,7 @@ describe('expected round time from the bus measurements', () => {
   })
 
   it('no sample gives not enough data and no alarm while a measured overrun raises over_time and the session runs on', () => {
-    const { bench, later } = room()
+    const { bench, later, start } = room()
     const asked: (string | null)[] = []
     const overTime = new RoundOverTime(bench.db, later, (_card, session) => {
       asked.push(session)
@@ -84,7 +84,8 @@ describe('expected round time from the bus measurements', () => {
     const stopped: string[] = []
     const sessions = new StalledSessions(bench.db, later, { lifeOf: () => 'live', overTime, stop: session => stopped.push(session), spendOf: () => null, pulseOf: () => null })
 
-    const readings = overTime.readings()
+    const rounds = [UNMEASURED, MEASURED].map(card => ({ lease: { taskKey: `answer:${card}:timed`, queue: 'answer' as const, cardId: card, pr: null, head: null, leaseGen: 1, actor: 'worker:answer:node-1' }, session: null, leasedAt: start }))
+    const readings = overTime.readings(rounds)
     expect(readings.find(reading => reading.card === UNMEASURED)?.line).toContain(`${NOT_ENOUGH_DATA} for S/cheap (0 rounds measured), so no expected time and no warning`)
     expect(readings.find(reading => reading.card === MEASURED)?.line).toContain(`has run ${RUN_MINUTES} min past its expected 20 min for M/ladder`)
 
@@ -94,7 +95,7 @@ describe('expected round time from the bus measurements', () => {
     expect(alarms(bench)).toEqual([{ card_id: MEASURED, payload: expect.objectContaining({ reason: OVER_TIME, task_key: `answer:${MEASURED}:timed`, detail: expect.stringContaining(`the session runs on and is not stopped; ${ACTION}`) }) }])
     expect(stopped).toEqual([])
     expect(bench.db.prepare(`SELECT card_id, state FROM tasks WHERE queue = 'answer' ORDER BY card_id`).all()).toEqual([{ card_id: UNMEASURED, state: 'leased' }, { card_id: MEASURED, state: 'leased' }])
-    expect(overTime.check()).toEqual([])
+    expect(overTime.check(rounds)).toEqual([])
     expect(alarms(bench)).toHaveLength(1)
   })
 })

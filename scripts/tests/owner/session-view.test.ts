@@ -2,7 +2,8 @@ import type { MergeBench } from '../bus/merge-bench.js'
 import { afterEach, describe, expect, it } from 'vitest'
 import { appendEvent } from '../../core/db.js'
 import { CARD_STARTED, SESSION_HEARTBEAT } from '../../core/events.js'
-import { cardSessionOf, PREFIX, runOwnerSession, USAGE } from '../../owner/session.js'
+import { cardSessionOf } from '../../supervisor/expected-time.js'
+import { PREFIX, runOwnerSession, USAGE } from '../../supervisor/session-view.js'
 import { mergeBench } from '../bus/merge-bench.js'
 
 const CARD = 1938
@@ -10,6 +11,7 @@ const SESSION = 's-1938-answer'
 const TREE = '/trees/mc-1938'
 const START = '2026-11-15T10:00:00.000Z'
 const NOW = new Date('2026-11-15T10:58:00.000Z')
+const COVERAGE = '--coverage'
 
 const benches: MergeBench[] = []
 
@@ -52,7 +54,7 @@ describe('the owner session view', () => {
     const read: [string, string][] = []
     const out: string[] = []
 
-    expect(runOwnerSession([`#${CARD}`], bench.db, (tree, session) => {
+    expect(runOwnerSession({ args: [`#${CARD}`], coverageFlag: COVERAGE }, bench.db, (tree, session) => {
       read.push([tree, session])
       return TRANSCRIPT
     }, NOW, line => out.push(line))).toBe(0)
@@ -76,11 +78,11 @@ describe('the owner session view', () => {
   it('says where the transcript is missing and refuses a word that names no card', () => {
     const bench = room()
     const out: string[] = []
-    expect(runOwnerSession([String(CARD)], bench.db, () => null, NOW, line => out.push(line))).toBe(0)
+    expect(runOwnerSession({ args: [String(CARD)], coverageFlag: COVERAGE }, bench.db, () => null, NOW, line => out.push(line))).toBe(0)
     expect(out.at(-1)).toBe(`${PREFIX}no transcript of session ${SESSION} was found for the tree ${TREE}`)
     expect(cardSessionOf(bench.db, 4040)).toBeNull()
     const refused: string[] = []
-    expect(runOwnerSession(['stop'], bench.db, () => null, NOW, line => refused.push(line))).toBe(2)
+    expect(runOwnerSession({ args: ['stop'], coverageFlag: COVERAGE }, bench.db, () => null, NOW, line => refused.push(line))).toBe(2)
     expect(refused).toEqual([`${PREFIX}${USAGE}`])
   })
 })
