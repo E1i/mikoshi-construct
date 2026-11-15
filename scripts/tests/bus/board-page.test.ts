@@ -623,7 +623,7 @@ describe('board.html', () => {
     const header = sectionOf(html, '<p class="kv"', '</p>')
     expect(header).toContain(`<span>model <b>v${readModelVersion()}</b></span>`)
     expect(header).toMatch(/<span>written <b>[^<]+<\/b><\/span>/)
-    expect(header).toContain('<span>refresh <b>—</b></span>')
+    expect(header).toContain('<span>refresh <b>—</b><i class="countdown" id="refresh-in"></i></span>')
     expect(header).toMatch(/<span class="live" id="bus-live"( data-stale)?>bus (live|offline)<\/span>/)
     const services = sectionOf(html, '<h2 id="h-services">', '<div class="svc-grid">')
     expect(services).toMatch(/<span class="meta">quickhacks on the subnet · agents at work <b>\d+<\/b> · slots <b>[^<]+<\/b><\/span>/)
@@ -1061,14 +1061,14 @@ describe('board.html', () => {
       expect(dialog).toContain('<table class="mx" data-witnesses><thead><tr><th scope="col">id</th><th scope="col">run</th><th scope="col">test</th><th scope="col">head/base</th><th scope="col">proves</th></tr></thead>')
       expect(dialog).toContain('<tr><th scope="row">W1</th><td><code>pnpm exec vitest run tests/a.test.ts</code></td><td>the &lt;thing&gt;</td><td>pass/fail · last green</td><td>follows <button')
       expect(dialog).toContain('<tr><th scope="row">W2</th><td><code>test -f a.txt</code></td><td>—</td><td>pass/pass · last green</td><td>a stays</td></tr>')
-      expect(dialog).toContain('<p>runs:</p><div class="runs-group" data-lane="tests/board/**" data-glob><p class="runs-name">tests/board/** · вся папка</p></div><div class="runs-group" data-lane="tests"><p class="runs-name">tests</p><p><span class="tag">a.test.ts</span></p></div>')
+      expect(dialog).toContain('<p>runs:</p><div class="runs-group" data-lane="tests/board/**" data-glob><p class="runs-name">tests/board/** · whole folder</p></div><div class="runs-group" data-lane="tests"><p class="runs-name">tests</p><p><span class="tag">a.test.ts</span></p></div>')
       expect(dialog).not.toContain('witnesses: [')
     })
 
     it('a card with three paths in runs renders three separate elements', () => {
       const text = fieldCard(870, runsFieldLine(['tests/a.test.ts', 'tests/b.test.ts', 'tests/other/**']), witnessFieldsLine(FIELDS))
       const dialog = templatesOf(pageText(busOfFields(870, text, []))).get('dialog-card-870')!
-      expect(dialog).toContain('<p>runs:</p><div class="runs-group" data-lane="tests"><p class="runs-name">tests</p><p><span class="tag">a.test.ts</span> <span class="tag">b.test.ts</span></p></div><div class="runs-group" data-lane="tests/other/**" data-glob><p class="runs-name">tests/other/** · вся папка</p></div>')
+      expect(dialog).toContain('<p>runs:</p><div class="runs-group" data-lane="tests"><p class="runs-name">tests</p><p><span class="tag">a.test.ts</span> <span class="tag">b.test.ts</span></p></div><div class="runs-group" data-lane="tests/other/**" data-glob><p class="runs-name">tests/other/** · whole folder</p></div>')
       const style = /<style>([\s\S]*?)<\/style>/.exec(pageText(seededBus()))![1]!
       expect(style).toContain('&[data-glob] { --_accent-style: dashed; }')
     })
@@ -1129,7 +1129,7 @@ describe('board.html', () => {
       const event: SeedEvent = { ts: minutesAgo(1), type: WITNESS_FIELDS_BACKFILLED, card: null, payload: JSON.stringify(backfill) }
       const dialog = templatesOf(pageText(busOfFields(870, text, [event]))).get('dialog-card-870')!
       expect(dialog).toContain('<tr><th scope="row">W1</th><td><code>pnpm exec vitest run tests/a.test.ts</code></td><td>the thing</td><td>pass/fail · last not run</td>')
-      expect(dialog).toContain('<p>runs:</p><div class="runs-group" data-lane="tests/board/**" data-glob><p class="runs-name">tests/board/** · вся папка</p></div>')
+      expect(dialog).toContain('<p>runs:</p><div class="runs-group" data-lane="tests/board/**" data-glob><p class="runs-name">tests/board/** · whole folder</p></div>')
       expect(dialog).not.toContain('Runs: tests/board/**')
       expect(dialog).not.toContain('<ul><li>')
     })
@@ -1167,7 +1167,7 @@ describe('board.html', () => {
     before.scroller.scrollTop = 120
     before.scroller.dispatch('scroll')
     before.click('TR', 'card-862')
-    expect(JSON.parse(storage.getItem(VIEW_KEY)!)).toEqual({ filter: '#show-planned', scroll: 120, open: 'card-862', agents: {} })
+    expect(JSON.parse(storage.getItem(VIEW_KEY)!)).toEqual({ filter: '#show-planned', scroll: 120, open: 'card-862', agents: {}, folds: {} })
     const after = boardWindow(html, storage)
     expect(after.location.hash).toBe('#show-planned')
     expect(after.scroller.scrollTop).toBe(120)
@@ -1331,7 +1331,7 @@ describe('board.html', () => {
     const { html, data } = projectedWithHandoff(NOW, 45_000)
     expect(boardOf(data).tickMs).toBe(45_000)
     expect(html).toContain('data-tick-ms="45000"')
-    expect(html).toContain('<span>refresh <b>45s</b></span>')
+    expect(html).toContain('<span>refresh <b>45s</b><i class="countdown" id="refresh-in"></i></span>')
     const board = boardWindow(html, new MemoryStorage())
     expect(board.timeouts.map(timeout => timeout.ms)).toEqual([45_000])
     const { data: faster } = projectedWithHandoff(LATER, 7_000)
@@ -1341,11 +1341,11 @@ describe('board.html', () => {
     expect(board.timeouts.map(timeout => timeout.ms)).toEqual([7_000])
     const script = /<script>([\s\S]*?)<\/script>/.exec(html)![1]!
     expect(script).not.toMatch(/setInterval|setTimeout\(update, \d/)
-    expect(script).toContain('setTimeout(update, period)')
+    expect(script).toContain('Date.parse(written) + period + WRITE_SLACK_MS - Date.now()')
     const snapshot = boardWindow(pageText(seededBus()), new MemoryStorage())
     expect(snapshot.timeouts).toEqual([])
     const { html: projectedShell } = projectedWithHandoff(NOW, TICK_MS)
-    expect(projectedShell).toContain(`<span>refresh <b>${TICK_MS / 1000}s</b></span>`)
+    expect(projectedShell).toContain(`<span>refresh <b>${TICK_MS / 1000}s</b><i class="countdown" id="refresh-in"></i></span>`)
   })
 
   it('a broken board-data.js keeps the previous data and shows bus offline, the word a silent factory renders', () => {

@@ -85,12 +85,12 @@ describe('the board draws a card\'s runs as lanes', () => {
 
   it('a mask with no explicit file draws one line for the whole folder', () => {
     const dialog = dialogOf(cardText(COVERED_TOUCH, runsFieldLine(['tests/a/**']), ...WITNESSES))
-    expect(dialog).toContain('<div class="runs-group" data-lane="tests/a/**" data-glob><p class="runs-name">tests/a/** · вся папка</p></div>')
+    expect(dialog).toContain('<div class="runs-group" data-lane="tests/a/**" data-glob><p class="runs-name">tests/a/** · whole folder</p></div>')
   })
 
   it('a mask with an explicit file does not read as the whole folder', () => {
     const dialog = dialogOf(cardText(COVERED_TOUCH, runsFieldLine(['tests/a/**', 'tests/a/x.test.ts']), ...WITNESSES))
-    expect(dialog).not.toContain('вся папка')
+    expect(dialog).not.toContain('whole folder')
   })
 
   it('a card with a layer heads its lanes by the layer', () => {

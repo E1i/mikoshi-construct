@@ -3,9 +3,16 @@
   const dialog = document.getElementById(names.drill)
   const content = document.getElementById(names.drillContent)
   const scroller = document.getElementById(names.backlogScroll)
-  const view = { filter: '', scroll: 0, open: null, agents: {} }
+  const view = { filter: '', scroll: 0, open: null, agents: {}, folds: {} }
   let written = document.body.dataset.written
   let period = Number(document.body.dataset.tickMs)
+  let due = null
+  let pending = 0
+  let loading = false
+  let shownLoad = 0
+  const frame = typeof requestAnimationFrame === 'function' ? requestAnimationFrame : null
+  const COUNT_MS = 600
+  const WRITE_SLACK_MS = 1500
   const save = () => {
     try {
       localStorage.setItem(names.viewKey, JSON.stringify(view))
@@ -22,8 +29,55 @@
       view.open = stored.open
     if (stored.agents !== null && typeof stored.agents === 'object')
       view.agents = stored.agents
+    if (stored.folds !== null && typeof stored.folds === 'object')
+      view.folds = stored.folds
   }
   catch {}
+  const stampFolds = () => {
+    document.querySelectorAll('[data-task]').forEach((group) => {
+      const task = group.dataset && group.dataset.task
+      if (!task)
+        return
+      const button = group.querySelector && group.querySelector('[data-fold]')
+      if (view.folds[task])
+        group.removeAttribute('data-collapsed')
+      else
+        group.setAttribute('data-collapsed', '')
+      if (button)
+        button.setAttribute('aria-expanded', view.folds[task] ? 'true' : 'false')
+    })
+  }
+  const toggleFold = (task) => {
+    if (view.folds[task])
+      delete view.folds[task]
+    else
+      view.folds[task] = true
+    stampFolds()
+    save()
+  }
+  const countLoad = () => {
+    const counter = document.querySelector && document.querySelector('[data-count]')
+    const target = counter ? Number(counter.dataset.count) : Number.NaN
+    if (!(target >= 0) || !frame)
+      return
+    const from = shownLoad
+    const started = Date.now()
+    const step = () => {
+      const share = Math.min(1, (Date.now() - started) / COUNT_MS)
+      counter.textContent = (from + (target - from) * (1 - (1 - share) ** 3)).toFixed(1)
+      if (share < 1)
+        frame(step)
+    }
+    shownLoad = target
+    frame(step)
+  }
+  const countdown = () => {
+    const shown = document.getElementById(names.refreshIn)
+    const text = due === null ? '' : ` · next in ${Math.max(0, Math.ceil((due - Date.now()) / 1000))}s`
+    if (shown && shown.textContent !== text)
+      shown.textContent = text
+    frame(countdown)
+  }
   const stampAgents = () => {
     const shown = {}
     document.querySelectorAll('[data-agents]').forEach((line) => {
@@ -65,6 +119,16 @@
       dialog.close()
   })
   document.addEventListener('click', (event) => {
+    const fold = event.target.closest && event.target.closest('[data-fold]')
+    if (fold) {
+      toggleFold(fold.dataset.fold)
+      return
+    }
+    if (event.target.closest && event.target.closest('[data-pull]')) {
+      pending += 1
+      update()
+      return
+    }
     const line = event.target.closest && event.target.closest('[data-agents]')
     if (line) {
       toggleAgents(line)
@@ -148,6 +212,8 @@
       backlog.prepend(target)
     })
     stampAgents()
+    stampFolds()
+    countLoad()
   }
   const markOld = () => {
     if (!(period > 0 && Date.now() - Date.parse(written) > names.staleTicks * period))
@@ -173,24 +239,46 @@
   }
   markOld()
   function update() {
+    if (loading)
+      return
+    loading = true
     window.BOARD = undefined
     const script = document.createElement('script')
-    script.onload = () => {
+    const settled = () => {
       script.remove()
-      receive(window.BOARD)
+      loading = false
       schedule()
     }
+    script.onload = () => {
+      receive(window.BOARD)
+      settled()
+    }
     script.onerror = () => {
-      script.remove()
       stale()
-      schedule()
+      settled()
     }
     script.src = `${names.dataFile}?t=${Date.now()}`
     document.head.appendChild(script)
   }
-  function schedule() {
-    if (period > 0)
-      setTimeout(update, period)
+  const delayFromWritten = () => {
+    const left = Date.parse(written) + period + WRITE_SLACK_MS - Date.now()
+    return left > 0 && left <= period ? left : period
   }
+  function schedule() {
+    if (!(period > 0))
+      return
+    const delay = delayFromWritten()
+    pending += 1
+    const mine = pending
+    due = Date.now() + delay
+    setTimeout(() => {
+      if (mine === pending)
+        update()
+    }, delay)
+  }
+  stampFolds()
+  countLoad()
   schedule()
+  if (frame)
+    frame(countdown)
 })()

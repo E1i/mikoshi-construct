@@ -36,16 +36,53 @@ export const REGISTER_PLAN_HINT: Hint = { who: 'window', command: pnpmCommand(RE
 export const ADMIT_CARD_HINT: Hint = { who: 'window', command: `${ADMIT_COMMAND} <parking>/<lane>/<N>.md` }
 
 const SLICE_MARK = '◧'
-const CARD_FORMS = ['карта', 'карты', 'карт'] as const
-const TASK_FORMS = ['задача', 'задачи', 'задач'] as const
+const CARD_NOUN = 'card'
+const TASK_NOUN = 'task'
+const NO_LANE = 'no lane'
 
 export interface TaskTally {
   cards: number
   tasks: number
 }
 
+export interface TaskGroup {
+  task: number
+  of: number
+  merged: number
+  slices: BusCard[]
+  waits: OwnerWait[]
+}
+
 export function sliceMark(card: BusCard): string | null {
-  return card.parent === undefined ? null : `${SLICE_MARK} ${card.parent.part}/${card.parent.of} · из #${card.parent.card}`
+  return card.parent === undefined ? null : `${SLICE_MARK} ${card.parent.part}/${card.parent.of} · of #${card.parent.card}`
+}
+
+function slicesOf(task: number, cards: readonly BusCard[]): BusCard[] {
+  return cards.filter(card => card.parent?.card === task)
+}
+
+export function taskGroups(shown: readonly BusCard[], every: readonly BusCard[], waits: readonly OwnerWait[]): TaskGroup[] {
+  const tasks = [...new Set(shown.flatMap(card => card.parent === undefined ? [] : [card.parent.card]))].sort((a, b) => a - b)
+  return tasks.map((task) => {
+    const all = slicesOf(task, every)
+    const members = new Set([task, ...all.map(card => card.id)])
+    return {
+      task,
+      of: Math.max(...all.map(card => card.parent!.of)),
+      merged: all.filter(card => card.stage === 'merged').length,
+      slices: slicesOf(task, shown).sort((a, b) => a.parent!.part - b.parent!.part || a.id - b.id),
+      waits: waits.filter(wait => !liftedByTheWindow(wait) && wait.card !== null && members.has(wait.card)),
+    }
+  })
+}
+
+export function taskGroupLine(group: TaskGroup): string {
+  const waits = group.waits.map(wait => `${wait.id} ${wait.need}${wait.card === null ? '' : ` #${wait.card}`}`)
+  return `${TASK_NOUN} #${group.task} · slices merged ${group.merged} of ${group.of}${waits.length === 0 ? '' : ` · ${WAITS_ROLE}: ${waits.join(', ')}`}`
+}
+
+export function sliceRowName(card: BusCard): string {
+  return `${cardName(card)} · ${card.lane ?? NO_LANE}`
 }
 
 export function markedName(name: string, card: BusCard): string {
@@ -57,15 +94,12 @@ export function taskTally(cards: readonly BusCard[]): TaskTally {
   return { cards: cards.length, tasks: new Set(cards.map(card => card.parent?.card ?? card.id)).size }
 }
 
-function counted(count: number, forms: readonly [string, string, string]): string {
-  const tens = count % 100
-  const units = count % 10
-  const form = tens >= 11 && tens <= 14 ? forms[2] : units === 1 ? forms[0] : units >= 2 && units <= 4 ? forms[1] : forms[2]
-  return `${count} ${form}`
+export function counted(count: number, noun: string): string {
+  return `${count} ${noun}${count === 1 ? '' : 's'}`
 }
 
 export function tallyLine(tally: TaskTally): string {
-  return `${counted(tally.cards, CARD_FORMS)} = ${counted(tally.tasks, TASK_FORMS)}`
+  return `${counted(tally.cards, CARD_NOUN)} = ${counted(tally.tasks, TASK_NOUN)}`
 }
 
 function cardName(card: BusCard): string {
@@ -107,11 +141,13 @@ export function backlogCards(cards: BusCard[], at: string, all: boolean): BusCar
   return all ? cards : cards.filter(card => isLive(card) || endedRecently(card, at))
 }
 
-export function backlogLines(cards: BusCard[], lore: Lore): string[] {
-  return laneColumns(cards).flatMap((lane) => {
-    const inLane = cards.filter(card => card.lane === lane)
+export function backlogLines(cards: BusCard[], lore: Lore, every: readonly BusCard[] = cards, waits: readonly OwnerWait[] = []): string[] {
+  const groups = taskGroups(cards, every, waits).flatMap(group => [taskGroupLine(group), ...group.slices.map(card => lore.boardBacklogRow(sliceRowName(card), card.stage))])
+  const whole = cards.filter(card => card.parent === undefined)
+  return [...groups, ...laneColumns(whole).flatMap((lane) => {
+    const inLane = whole.filter(card => card.lane === lane)
     return [lore.boardLaneLine(lane ?? undefined, inLane.length), ...inLane.map(card => lore.boardBacklogRow(cardName(card), card.stage))]
-  })
+  })]
 }
 
 export function servicesLines(facts: BusFacts, lore: Lore): string[] {
@@ -246,7 +282,7 @@ export function boardScreens(facts: BusFacts, lore: Lore, all = false): Screens 
   return {
     screens: [
       { title: lore.boardTabFlow, lines: [...goalLines(facts, lore), ...waitsLines(facts, lore), ...tailLines(facts, lore, all), ...behindCardsLines(facts, lore), ...tallyLines(facts.cards), ...flowLines(facts.cards, lore), ...flowHintLines(facts.cards, lore)] },
-      { title: lore.boardTabBacklog, lines: [...behindCardsLines(facts, lore), ...backlogLines(backlogCards(facts.cards, facts.at, all), lore)] },
+      { title: lore.boardTabBacklog, lines: [...behindCardsLines(facts, lore), ...backlogLines(backlogCards(facts.cards, facts.at, all), lore, facts.cards, facts.waits)] },
       { title: lore.boardTabServices, lines: [...servicesLines(facts, lore), ...pulseLines(facts, lore), ...matrixLines(facts, lore), ...groupLines(facts, lore)] },
     ],
     footer: lore.boardFooter(facts.services.length, facts.failure ?? undefined, facts.reviewQueue),
