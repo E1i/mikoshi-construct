@@ -1,13 +1,17 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { BusCatalog } from '../../ci/card-runs.js'
+import type { Lease } from '../../core/lease.js'
 import type { CardBodyReader } from '../../intake/parking-reads.js'
 import type { CardScope, DepthSources, ReviewPlanner } from './review-depth.js'
+import type { ProvenWitness } from './reviewer.js'
 import { existsSync } from 'node:fs'
 import { layerMasksOf, runsOf } from '../../../src/card/covering-tests.js'
 import { parseParkingFile } from '../../../src/card/parking.js'
 import { busCheckCatalog, cardReadingOf } from '../../ci/card-runs.js'
+import { CAPABILITIES, declaredCapabilities } from '../../ci/sandbox-failing.js'
 import { BUSY_TIMEOUT_MS, defaultBusPath } from '../../core/db.js'
-import { CARD_ADMITTED, SCOPE_WIDENED } from '../../core/events.js'
+import { CARD_ADMITTED, SCOPE_WIDENED, WITNESS_RECORDED } from '../../core/events.js'
+import { reviewInputOfKey } from '../../core/identifiers.js'
 import { openDatabase } from '../../core/sqlite.js'
 import { predict } from '../../policy/morse/predict.js'
 import { createdPaths } from '../../policy/touch-scope.js'
@@ -63,6 +67,46 @@ export function widenedOnTheLatestAdmission(db: DatabaseSync, cardId: number): s
   if (admission === null)
     return []
   return read.slice(SCOPE_WIDENED, ['paths', 'admission']).filter(event => event.fields.admission === admission).flatMap(event => pathsOf(event.fields.paths))
+}
+
+const [, PROCESS_TABLE] = CAPABILITIES
+
+const WITNESS_GREEN = 'green'
+
+const WITNESSES_LINE = 'witnesses: '
+
+function isText(value: unknown): value is string {
+  return typeof value === 'string' && value !== ''
+}
+
+function cardWitnesses(card: string | null): ProvenWitness[] {
+  const line = (card ?? '').split('\n').find(text => text.startsWith(WITNESSES_LINE))
+  if (line === undefined)
+    return []
+  try {
+    const list = JSON.parse(line.slice(WITNESSES_LINE.length)) as unknown
+    return Array.isArray(list)
+      ? list.flatMap((item: Record<string, unknown> | null) => item !== null && isText(item.id) && isText(item.run) && isText(item.test) ? [{ id: item.id, run: item.run, test: item.test }] : [])
+      : []
+  }
+  catch {
+    return []
+  }
+}
+
+function witnessGreenOnHead(db: DatabaseSync, lease: Lease): boolean {
+  if (lease.head === null)
+    return false
+  const latest = new BusRead(db).where({ card: lease.cardId }).slice(WITNESS_RECORDED, ['verdict', 'cardBody']).filter(event => event.head === lease.head).at(-1)
+  if (latest?.fields.verdict !== WITNESS_GREEN)
+    return false
+  const cardBody = reviewInputOfKey(lease.taskKey)?.cardBody ?? null
+  return cardBody === null || latest.fields.cardBody === cardBody
+}
+
+export function provenWitnesses(db: DatabaseSync, lease: Lease, card: string | null): ProvenWitness[] {
+  const needsProcessTable = cardWitnesses(card).filter(({ test }) => declaredCapabilities(test).includes(PROCESS_TABLE))
+  return needsProcessTable.length > 0 && witnessGreenOnHead(db, lease) ? needsProcessTable : []
 }
 
 export function busWidenedPaths(busPath: string): WidenedReader {
