@@ -4431,6 +4431,7 @@
       },
       "src/card/grammar.ts": {
         "constants": [
+          "CARD_PATH_REASON",
           "SIZES"
         ],
         "functions": {

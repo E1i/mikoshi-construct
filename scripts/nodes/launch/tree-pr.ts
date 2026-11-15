@@ -9,6 +9,7 @@ import type { GhRunner } from '../../ports/gh.js'
 import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { COVERING_REASON, importersOf, layerMasksOf, runsOf, TestCoverage } from '../../../src/card/covering-tests.js'
+import { CARD_PATH_REASON } from '../../../src/card/grammar.js'
 import { admittedReachOf, COMPANION_TABLE, FOLLOWING_REASON, PACKAGE_MANIFEST, publishedRootsOf } from '../../../src/commands/intake/check.js'
 import { readShiftGate } from '../../../src/manifest.js'
 import { busCheckCatalog, cardReadingOf } from '../../ci/card-runs.js'
@@ -95,8 +96,6 @@ export interface TreeCard {
   namedPathReason: string | null
   fullReading?: string
 }
-
-export const CARD_PATH_REASON = /^Path \(D-76\):\s*(\S.*)$/m
 
 export function shiftTreeCard(task: ShiftTask, catalog: BusCatalog = busCheckCatalog()): TreeCard {
   const { runs, fullReading } = cardReadingOf(task.touches, runsOf(task.body), layerMasksOf(task.body), catalog)
