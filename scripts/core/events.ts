@@ -125,6 +125,7 @@ export const WITNESS_RECORDED = 'witness.recorded'
 export const WORKER_DOWN = 'worker.down'
 export const WORKER_RETIRING = 'worker.retiring'
 export const WORKER_STARTED = 'worker.started'
+export const GATE_RUN = 'gate.run'
 
 export const DEFERRED_TARGET = 'later'
 export const DROPPED_LANE = 'dropped'
@@ -194,6 +195,7 @@ export const EVENT_PAYLOADS = {
   [DECISIONS_IMPORTED]: ['decisions', 'sha256'],
   [DECISIONS_PROJECTED]: [],
   [FACTORY_MODE]: ['mode', 'request'],
+  [GATE_RUN]: ['mode', 'moduleFiles', 'reason', 'round', 'seconds', 'source', 'tests'],
   [GHOST_LINE]: ['ACTION', 'CONTRACT', 'EXPECT', 'RESULT', 'actual', 'agreedSha256', 'approvedSha256', 'approvedSketch', 'argsSha256', 'base', 'baseSha', 'brief', 'by', 'card', 'carriedFrom', 'class', 'commit', 'contour', 'criterion', 'decision', 'duration_ms', 'event', 'exit', 'expected', 'file', 'followUp', 'forecast', 'from', 'head', 'id', 'install', 'iterations', 'kind', 'ladder', 'line', 'matched', 'merges', 'num_turns', 'ok', 'outcome', 'ownCommits', 'path', 'pr', 'rangeDiff', 'reason', 'regenerated', 'report', 'resultLine', 'review', 'risk', 'run', 'session', 'sha256', 'sketch', 'suggests', 'task', 'tasks', 'to', 'total_cost_usd', 'tree', 'ts', 'usage', 'verdict', 'verification', 'witnesses'],
   [GHOST_ROW]: ['id', 'row', 'state'],
   [INTAKE_EVENT]: ['card', 'event', 'from', 'source', 'task', 'to'],

@@ -1,6 +1,7 @@
 import type { Ui } from '../../ui/console.js'
 import type { LedgerReading } from '../cost/ledger.js'
 import type { BusReader, BusReading } from './bus.js'
+import type { BoardGateRuns } from './gate-runs.js'
 import type { BoardHeal } from './heal.js'
 import type { PrsReading } from './prs.js'
 import type { BoardView } from './view.js'
@@ -8,6 +9,7 @@ import { existsSync } from 'node:fs'
 import path from 'node:path'
 import { LEDGER_FILE, readLedger } from '../cost/ledger.js'
 import { drainLines, drainsAt } from './drain.js'
+import { gateRunsAt, gateRunsLines } from './gate-runs.js'
 import { healAt, healLines } from './heal.js'
 import { ladderItems, prItems } from './items.js'
 import { PRS_COMMAND, readPrs } from './prs.js'
@@ -42,6 +44,7 @@ export interface BoardReading {
   all: boolean
   bus: BusReading | undefined
   heal?: BoardHeal | null
+  gateRuns?: BoardGateRuns | null
   ledgerPresent: boolean
   ledger: LedgerReading
   prs: PrsReading
@@ -72,6 +75,7 @@ export function readBoard(dir: string, options: BoardOptions): BoardReading {
     all: options.all,
     bus,
     heal: bus?.status === 'read' ? healAt(bus.file, now) : null,
+    gateRuns: bus?.status === 'read' ? gateRunsAt(bus.file, now) : null,
     ledgerPresent: ledger.origin?.kind !== 'absent',
     ledger,
     prs,
@@ -138,7 +142,7 @@ export function printBoard(ui: Ui, reading: BoardReading): number {
   if (reading.header !== undefined)
     ui.line(ui.lore.boardHeader(reading.header.version, reading.header.mode))
   if (reading.bus !== undefined && !(reading.geek && reading.bus.status === 'read')) {
-    for (const line of [...busLines(ui, reading.bus, reading.all), ...drainLines(ui.lore, reading.view.drains), ...healLines(ui.lore, reading.heal ?? null)])
+    for (const line of [...busLines(ui, reading.bus, reading.all), ...drainLines(ui.lore, reading.view.drains), ...healLines(ui.lore, reading.heal ?? null), ...gateRunsLines((role, task, detail) => ui.lore.boardServiceLine(role, task, undefined, detail), reading.gateRuns ?? null)])
       ui.line(line)
     if (reading.bus.status === 'read')
       return BOARD_EXIT.shown

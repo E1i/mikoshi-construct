@@ -1,6 +1,6 @@
 {
   "bus": {
-    "busVersion": 3,
+    "busVersion": 4,
     "events": {
       "answer.step": {
         "complete": true,
@@ -434,6 +434,18 @@
         "keys": [
           "mode",
           "request"
+        ]
+      },
+      "gate.run": {
+        "complete": true,
+        "keys": [
+          "mode",
+          "moduleFiles",
+          "reason",
+          "round",
+          "seconds",
+          "source",
+          "tests"
         ]
       },
       "ghost.line": {
@@ -4071,7 +4083,7 @@
           "bus": [
             1,
             2,
-            3
+            4
           ],
           "card": [
             1,
@@ -4091,7 +4103,7 @@
           "bus": [
             1,
             2,
-            3
+            4
           ],
           "card": [
             1,
@@ -4125,7 +4137,7 @@
           "bus": [
             1,
             2,
-            3
+            4
           ],
           "card": [
             1,
@@ -4149,7 +4161,7 @@
           "bus": [
             1,
             2,
-            3
+            4
           ],
           "card": [
             1,
@@ -4177,7 +4189,7 @@
           "bus": [
             1,
             2,
-            3
+            4
           ],
           "card": [
             1,
@@ -4198,7 +4210,7 @@
           "bus": [
             1,
             2,
-            3
+            4
           ],
           "card": [
             1,
@@ -4217,7 +4229,7 @@
           "bus": [
             1,
             2,
-            3
+            4
           ],
           "card": [
             1,
@@ -4335,6 +4347,7 @@
       "scripts/window/window.ts": 3,
       "src/commands/board/bus.ts": 13,
       "src/commands/board/drain.ts": 1,
+      "src/commands/board/gate-runs.ts": 1,
       "src/commands/board/goal.ts": 4,
       "src/commands/board/heal.ts": 1,
       "src/commands/cost/bus.ts": 3,
