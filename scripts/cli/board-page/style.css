@@ -136,10 +136,57 @@ header.panel::before { --_sweep: oklch(from var(--wire) l c h / 0.5); animation:
     box-shadow: none;
   }
   &[data-role="window"] { --_accent: var(--signal); }
-  &[data-role="bus"] { --_accent: var(--ok); }
   &:has([data-hot]) { --_accent: var(--amber); }
   &:has([data-over]) { --_accent: var(--signal); }
+  &[data-strip] { grid-template-columns: minmax(12rem, 1fr) minmax(0, 2fr) minmax(12rem, 1fr); gap: var(--space-m); margin: var(--space-xs); }
 }
+.round {
+  --_round: var(--dim);
+  --_left: 100%;
+  display: grid;
+  gap: var(--space-xs);
+  &[data-phase="over"] { --_round: #ff4d6d; }
+}
+.round-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-s); }
+.round-label { color: var(--dim); font: 700 0.65rem var(--font-display); letter-spacing: 0.14em; }
+.round[data-phase="over"] .round-label { color: var(--_round); }
+.round-clock { padding: 0.1rem 0.4rem; border: var(--edge) solid var(--_round); color: var(--_round); font: 700 1.05rem var(--font-mono); font-variant-numeric: tabular-nums; }
+.round-bar { display: block; block-size: 0.25rem; background: linear-gradient(90deg, var(--_round) var(--_left), var(--line) var(--_left)); }
+.round[data-phase="none"] .round-bar { background: var(--line); }
+.round-meta { color: var(--dim); font-size: 0.65rem; }
+.svc-state {
+  --_state: var(--wire);
+  color: var(--_state);
+  font: 700 0.72rem var(--font-display);
+  letter-spacing: 0.12em;
+  &[data-state="waiting"] { --_state: var(--amber); }
+  &[data-state="over"] { --_state: var(--signal); }
+}
+.term { display: grid; gap: 0.15rem; padding: var(--space-xs) var(--space-s); background: var(--void); border: var(--edge) solid var(--line); }
+.term-cap { color: var(--dim); font-size: 0.6rem; letter-spacing: 0.12em; }
+.term-cmd { margin: 0; color: var(--text); font: 0.72rem var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+.term-cursor::after { content: "\2588"; color: var(--wire); margin-inline-start: 0.2em; }
+.round-steps {
+  display: flex;
+  align-items: center;
+  gap: var(--space-s);
+  color: var(--dim);
+  font-size: 0.65rem;
+  & ol { display: flex; gap: 0.35rem; margin: 0; padding: 0; list-style: none; }
+  & li + li::before { content: "\203A"; margin-inline-end: 0.35rem; color: var(--line); }
+  & li[data-passed] { color: var(--ok); }
+  & li[data-current] { color: var(--wire); }
+}
+.svc:has([data-state="waiting"]) .round-steps li[data-current] { color: var(--amber); }
+.svc:has([data-state="over"]) .round-steps li[data-current] { color: var(--signal); }
+.round-step-now { margin-inline-start: auto; }
+.miko-self, .miko-crawlers, .miko-bus { display: grid; gap: var(--space-xs); align-content: start; min-inline-size: 0; }
+.miko-crawlers .svc-agents[aria-expanded] + .svc-agent-list { display: grid; }
+.miko-crawlers .svc-agent-list li::before { content: "\25CF"; color: var(--ok); }
+.miko-crawlers .svc-agent-list li[data-hot]::before { color: var(--amber); }
+.miko-crawlers .svc-agent-list li[data-over]::before { color: var(--signal); }
+.miko-bus-head { color: var(--ok); font: 700 0.75rem var(--font-display); letter-spacing: 0.14em; }
+.miko-bus[data-stale] .miko-bus-head { color: var(--signal); }
 .svc-top { display: flex; gap: var(--space-s); align-items: baseline; }
 .svc-kind { font: 700 0.8125rem var(--font-display); letter-spacing: 0.16em; text-transform: uppercase; }
 .svc-target { margin-inline-start: auto; }

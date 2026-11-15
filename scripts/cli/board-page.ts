@@ -1,12 +1,14 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { WitnessField } from '../../src/card/witness-fields.js'
-import type { BusCard, BusFacts, BusMatrix, BusService, CardsAtStage, CardStage, OwnerWait, SubagentReading } from '../../src/commands/board/bus.js'
+import type { BusCard, BusFacts, BusMatrix, BusService, CardsAtStage, CardStage, OwnerWait } from '../../src/commands/board/bus.js'
 import type { CardMark, PlanProgress, ReleaseStage } from '../../src/commands/board/goal.js'
-import type { FactoryState } from '../../src/commands/liveness.js'
+import type { FactoryState, TranscriptReader } from '../../src/commands/liveness.js'
 import type { CheckCatalog } from '../ci/card-runs.js'
 import type { LayerMap } from '../core/layer-map.js'
 import type { CardFields } from '../intake/card-contract.js'
 import type { WitnessRecordOnHead, WitnessTable } from '../intake/witness-fields-backfill.js'
+import type { RoundKind, RoundSample } from '../supervisor/expected-time.js'
+import type { AgentWords, EddiesLimits, Gauges, RoundStep, SessionView } from './board-page/session-card.js'
 import type { BoardWarning, SessionContext } from './board-warnings.js'
 import type { CardChain } from './card-chain.js'
 import { createHash } from 'node:crypto'
@@ -20,12 +22,13 @@ import { fieldCommand } from '../../src/card/witness-fields.js'
 import { busFacts, CARD_STAGES, latestCardEvents, openTasks } from '../../src/commands/board/bus.js'
 import { DROPPED, droppedLine, goalOf, MARK_WORDS, planLine } from '../../src/commands/board/goal.js'
 import { backlogCards, isLive, laneColumns, liftedByTheWindow, markedName, matrixLines, pulseLines, screenLines, sliceMark, slotsReading, tallyLine, taskTally, waitAction, waitTarget, WINDOW_WAITS_ROLE } from '../../src/commands/board/screens.js'
-import { factoryLiveness } from '../../src/commands/liveness.js'
+import { clientTranscriptReader, factoryLiveness, readTranscript } from '../../src/commands/liveness.js'
 import { BANNER, LORE, PLAIN_LORE } from '../../src/ui/lore.js'
 import { currentVersion } from '../../src/version.js'
 import { cardRunsOf, catalogLayersByTest, catalogModuleLayers } from '../ci/card-runs.js'
 import { staleLine } from '../core/bus-readings.js'
 import { BUSY_TIMEOUT_MS, defaultBusPath } from '../core/db.js'
+import { ANSWER_STEP, TASK_LEASED } from '../core/events.js'
 import { defaultHandoffDir } from '../core/handoff-dir.js'
 import { statusLineOf } from '../core/handoff-status.js'
 import { readLayerMap } from '../core/layer-map.js'
@@ -36,11 +39,15 @@ import { recordedWitnessFieldsBackfill, witnessTableOf } from '../intake/witness
 import { currentDecisions } from '../policy/decisions/index.js'
 import { GREEN, RED, UNCHECKED } from '../policy/policy.js'
 import { narrowestMask } from '../policy/touch-scope.js'
+import { BusRead } from '../ports/bus-read.js'
 import { ghApi } from '../ports/github.js'
 import { cardSizeIn } from '../ports/session.js'
+import { cardSessionOf, expectedMinutes, roundSamples, shapeOf } from '../supervisor/expected-time.js'
 import { BOARD_FILE, FRESH_MS, windowGauges } from '../window/board.js'
 import { mikoHandoff } from '../window/loop.js'
 import { planMarkdown } from '../window/plan-export.js'
+import { mikoPanel } from './board-page/miko-panel.js'
+import { agentsLine, CARD_TASK, compact, eddiesBar, escaped, NO_SESSION_VIEW, percent, ROUND_COLOURS, ROUND_LABELS, sessionCard, STEPPED_ROLE, terminalOf } from './board-page/session-card.js'
 import { boardWarnings, MainUpToDate, openPrCountOf, openPrLimitOf, plannedStallLines, savingOff, stalePassCountOf, stallLines } from './board-warnings.js'
 import { cardChain } from './card-chain.js'
 
@@ -61,27 +68,8 @@ export const DISK_FILES: BoardFiles = {
   rename: renameSync,
 }
 
-const ESCAPES: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', '\'': '&#39;' }
-
-export function escaped(text: string): string {
-  return text.replace(/[&<>"']/g, char => ESCAPES[char]!)
-}
-
-export interface Gauges {
-  context: number | null
-  spent: number | null
-  model: string | null
-}
-
-export interface EddiesLimits {
-  contextLimit: number | null
-  cardContextLine: number | null
-  cardLineBySize?: ReadonlyMap<string, number>
-  sessionSpend: number | null
-  agentSpend: number | null
-  warnRatio: number | null
-  modelWindows: ReadonlyMap<string, number>
-}
+export { escaped }
+export type { EddiesLimits, Gauges }
 
 export interface CardDetail {
   contract: CardFields | null
@@ -131,20 +119,19 @@ export interface BoardPage {
   repository: string | null
   tickMs: number | null
   warnings: BoardWarning[]
+  sessions?: ReadonlyMap<string, SessionView>
 }
 
 const NO_LIMITS: EddiesLimits = { contextLimit: null, cardContextLine: null, sessionSpend: null, agentSpend: null, warnRatio: null, modelWindows: new Map() }
-const LORE_NAMES: Record<string, string> = { window: LORE.boardWindowName, review: 'ICE', matrix: 'ICE', bus: 'Subnet' }
 const WINDOW_PLAIN_TITLE = ` title="${PLAIN_LORE.boardWindowRole} · ${PLAIN_LORE.boardWindowName}"`
-const RUNNER = 'Runner'
+const AGENT_WORDS: AgentWords = { pulse: PLAIN_LORE.boardAgentPulse, line: PLAIN_LORE.boardAgentsLine }
+const ROUND_QUEUES: Readonly<Partial<Record<string, RoundKind>>> = { answer: 'answer', review: 'review' }
 const WINDOW_ROLE = 'window'
 const CARD_PREFIX = /^card:\s*/
 const FIELD_COUNT = 5
 const NONE = '—'
 const ALL_FILTER = 'all'
 const LIVE_FILTER = 'live'
-const THOUSAND = 1_000
-const MILLION = 1_000_000
 const MINUTE_MS = 60_000
 export const BOARD_DATA_FILE = 'board-data.js'
 const BOARD_DATA_PREFIX = 'window.BOARD = '
@@ -167,7 +154,6 @@ const DIALOG_PREFIX = 'dialog-'
 const HANDOFF_DIALOG = 'handoff'
 const DECISIONS_DIALOG = 'decisions'
 const OPEN_HINT = '<span class="open-hint">open ›</span>'
-const CARD_TASK = /^#(\d+)$/
 const CARD_REFERENCE = /(?<!&|PR )#(\d+)\b/g
 export const FLOW_META = 'live and recently ended cards by stage'
 const CODE_SPAN = /`([^`]+)`/g
@@ -287,33 +273,38 @@ function projectedWindowGauges(db: DatabaseSync): Gauges | null {
   return row === null ? null : { context: positive(row.context), spent: positive(row.spent), model: row.model }
 }
 
-function compact(value: number): string {
-  if (value >= MILLION)
-    return `${Number((value / MILLION).toFixed(1))}M`
-  return value >= THOUSAND ? `${Math.round(value / THOUSAND)}k` : String(value)
-}
-
-function percent(ratio: number): string {
-  return `${Math.min(100, Math.round(ratio * 100))}%`
-}
-
-function eddiesBar(name: string, value: number | null, denominator: number | null, limit: number | null, warnRatio: number | null): string {
-  if (value === null)
-    return ''
-  const reading = denominator === null ? compact(value) : `${compact(value)}/${compact(denominator)}`
-  const over = limit !== null && value > limit
-  const warnAt = limit === null || warnRatio === null ? null : limit * warnRatio
-  const hot = !over && warnAt !== null && value >= warnAt
-  const bar = denominator === null ? '<span></span>' : `<span class="edd-bar" style="--_fill: ${percent(value / denominator)}${warnAt === null ? '' : `; --_warn: ${percent(warnAt / denominator)}`}"></span>`
-  return `<div class="edd"${over ? ' data-over' : hot ? ' data-hot' : ''}><span class="edd-k">${name}</span>${bar}<span class="edd-v">${reading}</span></div>`
-}
-
-type ContextLine = Pick<EddiesLimits, 'contextLimit' | 'warnRatio'>
-
-function cardLineOf(limits: EddiesLimits, task: string, facts: Pick<BusFacts, 'cards'>): ContextLine {
+function cardLineOf(limits: EddiesLimits, task: string, facts: Pick<BusFacts, 'cards'>): Pick<EddiesLimits, 'contextLimit' | 'warnRatio'> {
   const size = cardSizeIn(facts.cards.find(card => card.id === Number(CARD_TASK.exec(task)?.[1]))?.line ?? null)
   const line = (size === null ? undefined : limits.cardLineBySize?.get(size)) ?? limits.cardContextLine
   return line === null ? limits : { contextLimit: line, warnRatio: 1 }
+}
+
+function stepsAfter(read: BusRead, lease: number): RoundStep[] {
+  return read.slice(ANSWER_STEP, ['step', 'seconds']).filter(row => row.id > lease).flatMap(({ fields }) => typeof fields.step === 'string' && typeof fields.seconds === 'number' ? [{ step: fields.step, seconds: fields.seconds }] : [])
+}
+
+function sessionViewOf(db: DatabaseSync, service: BusService, cardLine: string | null, samples: () => readonly RoundSample[], transcripts: TranscriptReader): SessionView {
+  const card = Number(CARD_TASK.exec(service.task)?.[1])
+  const read = new BusRead(db).where({ card })
+  const session = cardSessionOf(db, card)
+  const lease = read.slice(TASK_LEASED, ['queue'], 'last')[0]
+  const kind = ROUND_QUEUES[service.role]
+  const expected = kind === undefined ? null : expectedMinutes(samples(), kind, shapeOf(cardLine))
+  const sessionId = service.session ?? session?.session ?? null
+  const text = session?.worktree == null || sessionId === null ? null : transcripts(session.worktree, sessionId)
+  return {
+    startedAt: lease?.ts ?? session?.startedAt ?? null,
+    expectedMs: expected === null ? null : expected * MINUTE_MS,
+    steps: lease === undefined || service.role !== STEPPED_ROLE ? [] : stepsAfter(read, lease.id),
+    terminal: terminalOf(text, transcript => readTranscript(transcript).actions),
+  }
+}
+
+function sessionViewsOf(db: DatabaseSync, facts: Pick<BusFacts, 'services' | 'cards'>, transcripts: TranscriptReader = clientTranscriptReader): Map<string, SessionView> {
+  let samples: readonly RoundSample[] | null = null
+  const measured = (): readonly RoundSample[] => samples ??= roundSamples(db)
+  const lineOf = (task: string): string | null => facts.cards.find(card => `#${card.id}` === task)?.line ?? null
+  return new Map(facts.services.filter(service => CARD_TASK.test(service.task)).map(service => [`${service.role} ${service.task}`, sessionViewOf(db, service, lineOf(service.task), measured, transcripts)]))
 }
 
 function contextBar(service: BusService, gauges: Gauges, limits: EddiesLimits, facts: Pick<BusFacts, 'cards'>): string {
@@ -350,54 +341,28 @@ function tileDialog(service: BusService, page: BoardPage): string | null {
   return card !== undefined && page.details.has(Number(card)) ? cardDialog(Number(card)) : null
 }
 
-const compactOrNone = (value: number | null): string => value === null ? NONE : compact(value)
-const AGENT_HEAT = ['', ' data-hot', ' data-over'] as const
-const heatOf = (value: number | null, limit: number | null, warn: number | null): number => value === null || limit === null ? 0 : value >= limit ? 2 : Number(warn !== null && value >= limit * warn)
-const agentHeat = (agent: SubagentReading, limits: EddiesLimits): number => Math.max(heatOf(agent.context, limits.contextLimit, limits.warnRatio), heatOf(agent.spent, limits.agentSpend, limits.warnRatio))
-
-function agentRow(agent: SubagentReading, at: string, limits: EddiesLimits): string {
-  const pulse = agent.at === null ? NONE : PLAIN_LORE.boardAgentPulse(Math.max(0, Math.round((Date.parse(at) - Date.parse(agent.at)) / MINUTE_MS)))
-  return `<li${AGENT_HEAT[agentHeat(agent, limits)]}><span class="svc-agent-name">${escaped(agent.name)}</span><span>CTX ${compactOrNone(agent.context)}</span><span>SPENT ${compactOrNone(agent.spent)}</span><span>${escaped(pulse)}</span></li>`
-}
-
-function agentsLine(service: BusService, page: BoardPage): string {
-  const agents = service.subagents ?? []
-  if (agents.length === 0)
-    return ''
-  const largest = Math.max(...agents.map(agent => agent.spent ?? 0))
-  const heaviest = Math.max(...agents.map(agent => agentHeat(agent, page.limits)))
-  return [
-    `<button type="button" class="svc-agents" data-agents="${escaped(service.session ?? service.task)}" aria-expanded="false"${AGENT_HEAT[heaviest]}>${escaped(PLAIN_LORE.boardAgentsLine(agents.length, compact(largest), compactOrNone(page.limits.agentSpend)))}</button>`,
-    `<ul class="svc-agent-list" data-agents-list>${agents.map(agent => agentRow(agent, page.facts.at, page.limits)).join('')}</ul>`,
-  ].join('')
-}
-
-function tileKind(role: string): string {
-  return role === WINDOW_ROLE ? LORE.boardWindowRole : role
-}
-
-function tilePlainTitle(role: string): string {
-  return role === WINDOW_ROLE ? WINDOW_PLAIN_TITLE : ''
+function barsOf(service: BusService, page: BoardPage): string {
+  const gauges = gaugesOf(service, page)
+  return gauges == null ? '' : contextBar(service, gauges, page.limits, page.facts) + eddiesBar('spent', gauges.spent, page.limits.sessionSpend, page.limits.sessionSpend, page.limits.warnRatio)
 }
 
 function serviceTile(service: BusService, page: BoardPage): string {
-  const gauges = gaugesOf(service, page)
-  const bars = gauges == null
-    ? ''
-    : contextBar(service, gauges, page.limits, page.facts) + eddiesBar('spent', gauges.spent, page.limits.sessionSpend, page.limits.sessionSpend, page.limits.warnRatio)
+  const bars = barsOf(service, page)
   const dialog = tileDialog(service, page)
-  return [
-    `<div class="svc bevel" data-role="${escaped(service.role)}"${dialog === null ? '' : `${opener(dialog)} role="button"`}>`,
-    `<div class="svc-top"${tilePlainTitle(service.role)}><span class="svc-kind">${escaped(tileKind(service.role))}</span><span class="lore">${LORE_NAMES[service.role] ?? RUNNER}</span><span class="svc-target">${escaped(service.task)}</span>${dialog === null ? '' : OPEN_HINT}</div>`,
-    `<div class="svc-line">${escaped(PLAIN_LORE.boardServiceLine(service.role, service.task, service.tree ?? undefined, service.step))}</div>`,
-    bars,
-    agentsLine(service, page),
-    '</div>',
-  ].join('')
+  const parts = { opener: dialog === null ? '' : `${opener(dialog)} role="button"`, hint: dialog === null ? '' : OPEN_HINT, bars, agents: agentsLine(service, page.facts.at, page.limits, AGENT_WORDS), over: bars.includes(' data-over'), now: page.facts.at }
+  return sessionCard(service, page.sessions?.get(`${service.role} ${service.task}`) ?? NO_SESSION_VIEW, parts)
 }
 
 function lineTile(role: string, line: string): string {
-  return `<div class="svc bevel" data-role="${role}"><div class="svc-top"${tilePlainTitle(role)}><span class="svc-kind">${tileKind(role)}</span><span class="lore">${LORE_NAMES[role] ?? RUNNER}</span></div><div class="svc-line">${escaped(line)}</div></div>`
+  return `<div class="svc bevel" data-role="${role}"><div class="svc-top"><span class="svc-kind">${role}</span><span class="lore">ICE</span></div><div class="svc-line">${escaped(line)}</div></div>`
+}
+
+function mikoStrip(page: BoardPage): string {
+  const { facts } = page
+  const windows = facts.services.filter(service => service.role === WINDOW_ROLE)
+  const idle = facts.services.length === 0 ? PLAIN_LORE.boardNoServices : null
+  const words = { role: LORE.boardWindowRole, name: LORE.boardWindowName, plainTitle: WINDOW_PLAIN_TITLE, serviceLine: (service: BusService) => PLAIN_LORE.boardServiceLine(service.role, service.task, service.tree ?? undefined, service.step) }
+  return mikoPanel({ windows, bars: service => barsOf(service, page), crawlers: service => agentsLine(service, facts.at, page.limits, AGENT_WORDS), words, busLines: pulseLines(facts, PLAIN_LORE), busLive: busFresh(facts), opener: `${opener(HANDOFF_DIALOG)} role="button"`, hint: OPEN_HINT, idle })
 }
 
 function pulseAgeMs(facts: BusFacts): number | null {
@@ -426,14 +391,13 @@ function servicesMeta(page: BoardPage): string {
 
 function servicesSlot(page: BoardPage): string {
   const { facts } = page
-  const tiles = facts.services.length === 0 ? [lineTile('window', PLAIN_LORE.boardNoServices)] : facts.services.map(service => serviceTile(service, page))
   return [
     `<div class="panel-head"><h2 id="h-services">${PLAIN_LORE.boardTabServices}</h2>${servicesMeta(page)}</div>`,
     '<div class="svc-grid">',
-    ...tiles,
-    ...pulseLines(facts, PLAIN_LORE).map(line => lineTile('bus', line)),
+    ...facts.services.filter(service => service.role !== WINDOW_ROLE).map(service => serviceTile(service, page)),
     ...matrixLines(facts, PLAIN_LORE).map(line => lineTile('matrix', line)),
     '</div>',
+    mikoStrip(page),
   ].join('\n')
 }
 
@@ -897,7 +861,7 @@ function handoffParts(text: string): HandoffParts {
 }
 
 function handoffHead(name: string, state: string): string {
-  return dialogHead('handoff', LORE_NAMES.window!, name, state, WINDOW_PLAIN_TITLE)
+  return dialogHead('handoff', LORE.boardWindowName, name, state, WINDOW_PLAIN_TITLE)
 }
 
 function handoffDialogHtml(page: BoardPage): string {
@@ -935,7 +899,7 @@ export const VIEW_KEY = 'construct-board:view'
 
 const PAGE_ASSETS = path.join(import.meta.dirname, 'board-page')
 const SCRIPT_NAMES_GLOBAL = 'window.BOARD_NAMES'
-const SCRIPT_NAMES = { drill: DRILL, drillContent: DRILL_CONTENT, backlogScroll: BACKLOG_SCROLL, viewKey: VIEW_KEY, dialogPrefix: DIALOG_PREFIX, handoffDialog: HANDOFF_DIALOG, decisionsDialog: DECISIONS_DIALOG, busLive: BUS_LIVE, offlineReading: OFFLINE_READING, pulse: PULSE_ELEMENT_ID, titlePrefix: `${constructCommand('board')} · `, slotPrefix: SLOT_PREFIX, backlog: BACKLOG, staleTicks: STALE_TICKS, staleReading: STALE_READING, dataFile: BOARD_DATA_FILE }
+const SCRIPT_NAMES = { drill: DRILL, drillContent: DRILL_CONTENT, backlogScroll: BACKLOG_SCROLL, viewKey: VIEW_KEY, dialogPrefix: DIALOG_PREFIX, handoffDialog: HANDOFF_DIALOG, decisionsDialog: DECISIONS_DIALOG, busLive: BUS_LIVE, offlineReading: OFFLINE_READING, pulse: PULSE_ELEMENT_ID, titlePrefix: `${constructCommand('board')} · `, slotPrefix: SLOT_PREFIX, backlog: BACKLOG, staleTicks: STALE_TICKS, staleReading: STALE_READING, dataFile: BOARD_DATA_FILE, round: { ...ROUND_COLOURS, ...ROUND_LABELS } }
 const SCRIPT = `\n${SCRIPT_NAMES_GLOBAL} = ${JSON.stringify(SCRIPT_NAMES)};\n${readFileSync(path.join(PAGE_ASSETS, 'script.js'), 'utf8')}`
 
 function dialogsSlot(page: BoardPage): string {
@@ -1158,6 +1122,7 @@ function boardPageOf(db: DatabaseSync, busPath: string, now: Date, handoffFile: 
       }),
     ],
     details: cardDetails(db, facts),
+    sessions: sessionViewsOf(db, facts),
     decisions: currentDecisions(db),
     handoff: readHandoff(handoffFile),
     repository: readRepositoryUrl(),
