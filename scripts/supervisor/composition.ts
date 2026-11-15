@@ -14,6 +14,7 @@ import { CHAINS_PROJECTION } from '../core/chain.js'
 import { CARD_PLANNED, CARD_UNPLANNED, PLAN_BACKFILLED, PLAN_CLOSED, PLAN_ITEM_ADDED, PLAN_ITEM_LINKED, PLAN_ITEM_REMOVED, PLAN_OPENED } from '../core/events.js'
 import { OWNER } from '../core/inbox.js'
 import { foreignVersion, instanceOf, provenIdentity, recordWorkerIdentity, UNHANDED } from '../core/node.js'
+import { orderDeclarationsAt, overlaps } from '../core/order/overlap.js'
 import { TASKS_PROJECTION } from '../core/queue.js'
 import { CARD_END_FOLDS, OWNER_WAIT_FOLDS, PR_FOLDS } from '../core/reducer.js'
 import { ROLES_PROJECTION } from '../nodes/restart/role.js'
@@ -43,6 +44,10 @@ export function recordOwnStart(db: DatabaseSync, kind: string, env: NodeJS.Proce
   catch {
     return false
   }
+}
+
+export function mainOverlapAt(root: string): (pr: readonly string[], main: readonly string[]) => boolean {
+  return (pr, main) => overlaps(pr, main, orderDeclarationsAt(root))
 }
 
 export function nodeLiveness(): NodeLiveness {

@@ -10,7 +10,7 @@ import { appendEvent, openBus } from '../../core/db.js'
 import { readDeclarations } from '../../core/declarations.js'
 import { CARD_VERIFIED, REVIEW_RECORDED, SHARD_USED } from '../../core/events.js'
 import { leaseNext } from '../../core/lease.js'
-import { overlapDeclarationsOf } from '../../core/order/overlap.js'
+import { overlapDeclarationsOf, overlaps } from '../../core/order/overlap.js'
 import { orderEventsFrom, PrOrderTick } from '../../core/order/turn.js'
 import { REVIEW_ROUNDS } from '../../core/queue.js'
 import { MergeExecutor } from '../../nodes/merge/merge-executor.js'
@@ -55,6 +55,10 @@ export function liveBench(intake?: Intake): MergeBench {
 
 export const BENCH_DECLARATIONS: OverlapDeclarations = overlapDeclarationsOf(readDeclarations())
 
+export function benchOverlaps(pr: readonly string[], main: readonly string[]): boolean {
+  return overlaps(pr, main, BENCH_DECLARATIONS)
+}
+
 export function benchOrderTick(db: DatabaseSync, clock: Clock): PrOrderTick {
   const events = orderEventsFrom((type, fields, after) => new BusRead(db, { from: after + 1 }).slice(type as EventType, fields as never))
   return new PrOrderTick(db, events, () => clock.now().toISOString(), () => BENCH_DECLARATIONS, '')
@@ -67,7 +71,7 @@ export function mergeBench(intake: Intake = () => () => {}, liveNodes: LiveNodes
   const gitHub = new FakeGitHub()
   const clock = new Clock()
   const busTick = new BusTick(db, busProjections(), new NetWatch(db, gitHub.client, clock.now), clock.now, intake(db, clock))
-  const executor = new MergeExecutor({ silentMs: SILENT_MS, db, gitHub: gitHub.client, put: gitHub.put, publish: gitHub.publish, clock: clock.now, run: RUN })
+  const executor = new MergeExecutor({ silentMs: SILENT_MS, db, gitHub: gitHub.client, put: gitHub.put, publish: gitHub.publish, clock: clock.now, run: RUN, overlaps: benchOverlaps })
   const order = benchOrderTick(db, clock)
   const tick = (): void => {
     busTick.run()

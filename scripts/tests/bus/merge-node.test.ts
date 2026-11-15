@@ -20,7 +20,7 @@ import { allowLiveCommand } from '../../policy/live-decision.js'
 import { SECRET_SCAN_CHECK } from '../../ports/gh.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { cardBody, MAIN_1, MAIN_2, REPO, sha } from './github-fake.js'
-import { eventsOf, liveBench, mergeBench, spendReviewRounds, taskState } from './merge-bench.js'
+import { benchOverlaps, eventsOf, liveBench, mergeBench, spendReviewRounds, taskState } from './merge-bench.js'
 import { detectMerge } from './merge-detection.js'
 
 const benches: MergeBench[] = []
@@ -116,7 +116,7 @@ function lawOf(made: MergeBench): Record<string, unknown>[] {
 }
 
 function executorOf(made: MergeBench, parts: Partial<ConstructorParameters<typeof MergeExecutor>[0]>): MergeExecutor {
-  return new MergeExecutor({ silentMs: SILENT_MS, db: made.db, gitHub: made.gitHub.client, put: made.gitHub.put, publish: made.gitHub.publish, clock: made.clock.now, run: null, ...parts })
+  return new MergeExecutor({ silentMs: SILENT_MS, db: made.db, gitHub: made.gitHub.client, put: made.gitHub.put, publish: made.gitHub.publish, clock: made.clock.now, run: null, overlaps: benchOverlaps, ...parts })
 }
 
 function ownerDecided(made: MergeBench, pr: number): void {

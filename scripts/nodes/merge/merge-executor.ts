@@ -70,7 +70,7 @@ export interface ExecutorParts {
   run: string | null
   silentMs: number
   pushPolicy?: () => PushPolicy
-  overlaps?: MainOverlap
+  overlaps: MainOverlap
 }
 
 interface Pull {
@@ -90,10 +90,6 @@ type Checked = { kind: 'ready', facts: MergeFacts, mergedCommit: string | null, 
 
 function technical(reason: MergeTechnicalReason, detail: string): Checked {
   return { kind: 'denied', denial: { kind: 'technical', reason, detail } }
-}
-
-function sharesAFile(pr: readonly string[], main: readonly string[]): boolean {
-  return pr.some(file => main.includes(file))
 }
 
 function ownerMergesText(meter: Meter): string {
@@ -361,9 +357,8 @@ export class MergeExecutor {
   private checkBeforeMerge(lease: Lease, base: string | null): MergeDenial | null {
     const meter = new Meter(this.parts.gitHub, () => this.parts.clock().getTime())
     const main = base === null ? { kind: 'truncated' as const, why: `#${lease.pr} came back with no base sha` } : mainFilesSince(meter, base)
-    const overlaps = this.parts.overlaps ?? sharesAFile
     const paths = main.kind === 'files' ? changedPaths(meter, lease.pr!) : []
-    const shared = main.kind === 'files' ? main.files.filter(file => overlaps(paths, [file])) : []
+    const shared = main.kind === 'files' ? main.files.filter(file => this.parts.overlaps(paths, [file])) : []
     if (main.kind === 'files' && shared.length === 0)
       return null
     const why = main.kind === 'truncated' ? `${main.why}, which counts as an overlap` : `${MAIN_BRANCH} changed ${shared.join(', ')} since ${base}, which overlaps #${lease.pr}`

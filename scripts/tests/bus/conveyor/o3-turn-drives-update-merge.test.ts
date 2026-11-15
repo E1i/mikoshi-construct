@@ -10,7 +10,6 @@ import { textSha } from '../../../../src/card/text-sha.js'
 import { appendEvent } from '../../../core/db.js'
 import { readDeclarations } from '../../../core/declarations.js'
 import { CARD_ADMITTED, OWNER_WAIT_OPENED, POLICY_DENIED, PR_GROUPS, REVIEW_RECORDED } from '../../../core/events.js'
-import { overlaps } from '../../../core/order/overlap.js'
 import { answerCandidates, updateCandidates } from '../../../core/queue.js'
 import { MergeNode } from '../../../nodes/merge/merge-worker.js'
 import { UpdateNode } from '../../../nodes/update/update-worker.js'
@@ -19,7 +18,7 @@ import { mainMergeInCardTree } from '../../../ports/main-merge.js'
 import { SILENT_MS } from '../../../supervisor/liveness-sites.js'
 import { dispatchRequest } from '../../../window/requests/index.js'
 import { cardBody, REPO, sha } from '../github-fake.js'
-import { BENCH_DECLARATIONS, eventsOf, mergeBench } from '../merge-bench.js'
+import { eventsOf, mergeBench } from '../merge-bench.js'
 
 const benches: MergeBench[] = []
 const roots: string[] = []
@@ -92,7 +91,7 @@ function conveyor(options: ConveyorOptions = {}): Conveyor {
     return response
   }
   const common = { silentMs: SILENT_MS, db: bench.db, gitHub: bench.gitHub.client, publish: bench.gitHub.publish, clock: bench.clock.now, mode: 'live' as const, env: {} }
-  const merge = new MergeNode({ ...common, put, session: 'merge-1', run: null, overlaps: (pr, main) => overlaps(pr, main, BENCH_DECLARATIONS) })
+  const merge = new MergeNode({ ...common, put, session: 'merge-1', run: null })
   const mergeMain = options.mergeMainIn === undefined ? undefined : mainMergeInCardTree(git, () => options.mergeMainIn!)
   const update = new UpdateNode({ ...common, put: bench.gitHub.put, session: 'update-1', settle: () => {}, mergeMain })
   return { bench, merge, update, followMain }
@@ -361,3 +360,35 @@ function admitted(bench: MergeBench, cardId: number, branch: string, touches: st
   const text = `card: #${cardId} task-${cardId} [implement/construct/S/cheap/owner] · depends — · blocks —\nbranch: ${branch}\ntouches: ${touches}\nwho: shift\n\ndo ${cardId}\n`
   appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'worker:intake:window', cardId, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${cardId}`, payload: { text, textSha: textSha(text), lane: null, decision: 'owner', contour: 'cheap', depends: [] }, legacy: false })
 }
+
+describe('conveyor O3: the merge node as production builds it judges the check before merge by the declarations', () => {
+  function mergeDenials(bench: MergeBench): Record<string, unknown>[] {
+    return eventsOf(bench.db, POLICY_DENIED).filter(denied => denied.command === 'merge' && denied.reason === 'needs_update')
+  }
+
+  it('main moving a derived registry the PR also changes, unseen by the order, is no overlap at the merge lease: merged with no denial', async () => {
+    const line = conveyor()
+    const { bench } = line
+    open(bench, 1801, ['docs/guide/o3-derived.md', MODULE_FILES])
+    bench.tick()
+    advanceMain(bench, [MODULE_FILES])
+
+    await once(line.merge)
+
+    expect(merged(bench)).toEqual([1801])
+    expect(mergeDenials(bench)).toEqual([])
+  })
+
+  it('main moving another file of a declared contention area the PR is in, unseen by the order, is an overlap at the merge lease: denied once, not merged', async () => {
+    const line = conveyor()
+    const { bench } = line
+    open(bench, 1802, ['scripts/core/o3-own-file.ts'])
+    bench.tick()
+    advanceMain(bench, ['scripts/nodes/o3-other-file.ts'])
+
+    await once(line.merge)
+
+    expect(merged(bench)).toEqual([])
+    expect(mergeDenials(bench)).toEqual([expect.objectContaining({ detail: expect.stringContaining('scripts/nodes/o3-other-file.ts') })])
+  })
+})
