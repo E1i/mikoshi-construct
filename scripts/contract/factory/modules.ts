@@ -296,7 +296,7 @@ export function writeModuleOwns(root: string = REPO_ROOT): string[] {
 }
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const refused = writeModuleOwns()
+  const refused = writeModuleOwns(process.argv[2] ?? REPO_ROOT)
   if (refused.length > 0) {
     console.error(refused.join('\n'))
     process.exitCode = 1

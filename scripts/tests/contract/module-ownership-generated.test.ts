@@ -1,4 +1,5 @@
 import type { ModuleDeclaration } from '../../core/declarations.js'
+import { spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -13,6 +14,7 @@ const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')
 const DECLARED = readDeclarations(REPO_ROOT).modules
 const MOVED = 'scripts/cli/board-warnings.ts'
 const STRAY = 'scripts/stray/'
+const WRITER = path.join(REPO_ROOT, 'scripts/contract/factory/modules.ts')
 
 function declarationOf(module: string): ModuleDeclaration {
   return DECLARED.find(declared => declared.module === module)!
@@ -116,6 +118,25 @@ describe('the module ownership of the module graph is generated from declaration
 
       expect(writeModuleOwns(root)).toEqual([])
       expect(existsSync(target) && readFileSync(target, 'utf8')).toBe(renderModuleOwns({ ui: ['src/ui/**'] }))
+    }
+    finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('run as a script, the writer exits non-zero on refused declarations and prints each problem on stderr', () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), 'module-owns-run-'))
+    try {
+      const ui = declarationOf('ui')
+      const target = path.join(root, GENERATED_FILES.moduleOwns.path)
+      mkdirSync(path.join(root, 'declarations/modules'), { recursive: true })
+      writeFileSync(path.join(root, 'declarations/modules/ui.json'), `${JSON.stringify({ ...ui, paths: ['src/ui/*.ts'] }, null, 2)}\n`)
+
+      const run = spawnSync(process.execPath, ['--import', 'tsx', WRITER, root], { cwd: REPO_ROOT, encoding: 'utf8' })
+
+      expect(run.status).toBe(1)
+      expect(run.stderr).toContain('declarations/modules/ui.json: "src/ui/*.ts" is a pattern, and the module graph holds only files and whole folders')
+      expect(existsSync(target)).toBe(false)
     }
     finally {
       rmSync(root, { recursive: true, force: true })
