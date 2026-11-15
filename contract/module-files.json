@@ -895,6 +895,7 @@
     "scripts/tests/nodes/owner-only-question-mutations.test.ts",
     "scripts/tests/nodes/owner-only-question.test.ts",
     "scripts/tests/nodes/review-ceiling-goes-to-the-window.test.ts",
+    "scripts/tests/nodes/review-sandbox-norm.test.ts",
     "scripts/tests/nodes/widen-from-the-tree-question-path.test.ts",
     "scripts/tests/nodes/widen-from-the-tree.test.ts",
     "scripts/tests/owner/channel.test.ts",

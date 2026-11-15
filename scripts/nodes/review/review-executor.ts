@@ -11,12 +11,14 @@ import type { SessionInput } from '../../ports/prompt-store.js'
 import type { RoundLimitAt, RoundLimitRecut } from './pr-close.js'
 import type { Denial, VerdictWord } from './record-verdict.js'
 import type { EarlierVerdict, ReviewDepth, ReviewPlan, ReviewPlanner } from './review-depth.js'
-import type { HeldTree, LeftoverTree, Review, Reviewer } from './reviewer.js'
+import type { HeldTree, LeftoverTree, ProvenWitness, Review, Reviewer } from './reviewer.js'
 import { createHash } from 'node:crypto'
 import process from 'node:process'
+import { witnessFieldsOf } from '../../../src/card/witness-fields.js'
+import { CAPABILITIES, declaredCapabilities } from '../../ci/sandbox-failing.js'
 import { cardBodyText } from '../../core/card-bodies.js'
 import { appendEvent } from '../../core/db.js'
-import { ARTIFACT_REMOVED, BOARD_ALARM, POLICY_DENIED, REVIEW_DRIP, REVIEW_RECORDED, REVIEW_ROUNDS_SPENT, REVIEW_TREE_ORPHANED, ROUND_EXTENDED } from '../../core/events.js'
+import { ARTIFACT_REMOVED, BOARD_ALARM, POLICY_DENIED, REVIEW_DRIP, REVIEW_RECORDED, REVIEW_ROUNDS_SPENT, REVIEW_TREE_ORPHANED, ROUND_EXTENDED, WITNESS_RECORDED } from '../../core/events.js'
 import { reviewInputOfKey } from '../../core/identifiers.js'
 import { completeTask, failTask, releaseTask, StaleLease, supersedeLease } from '../../core/lease.js'
 import { pnpmCommand } from '../../core/owner-commands.js'
@@ -115,6 +117,27 @@ export function earlierVerdict(db: DatabaseSync, lease: Lease): EarlierVerdict |
   return typeof payload.head === 'string' && typeof payload.verdict === 'string'
     ? { head: payload.head, verdict: payload.verdict, findings: strings(payload.findings) }
     : null
+}
+
+const [, PROCESS_TABLE] = CAPABILITIES
+
+const WITNESS_GREEN = 'green'
+
+const LATEST_WITNESS_ON_HEAD = `SELECT json_extract(payload, '$.verdict') AS verdict, json_extract(payload, '$.cardBody') AS card_body FROM events WHERE type = '${WITNESS_RECORDED}' AND legacy = 0 AND card_id = ? AND head = ? ORDER BY id DESC LIMIT 1`
+
+function witnessGreenOnHead(db: DatabaseSync, lease: Lease): boolean {
+  if (lease.head === null)
+    return false
+  const row = db.prepare(LATEST_WITNESS_ON_HEAD).get(lease.cardId, lease.head) as { verdict: unknown, card_body: unknown } | undefined
+  if (row?.verdict !== WITNESS_GREEN)
+    return false
+  const cardBody = reviewInputOfKey(lease.taskKey)?.cardBody ?? null
+  return cardBody === null || row.card_body === cardBody
+}
+
+export function provenWitnesses(db: DatabaseSync, lease: Lease, card: string | null): ProvenWitness[] {
+  const needsProcessTable = (witnessFieldsOf(card ?? '') ?? []).flatMap(({ id, run, test }) => test !== null && declaredCapabilities(test).includes(PROCESS_TABLE) ? [{ id, run, test }] : [])
+  return needsProcessTable.length > 0 && witnessGreenOnHead(db, lease) ? needsProcessTable : []
 }
 
 export function planned(planner: ReviewPlanner, lease: Lease, earlier: EarlierVerdict | null): ReviewPlan {
@@ -330,7 +353,7 @@ export class ReviewExecutor {
     try {
       const started = clock().getTime()
       const card = cardBodyText(db, lease.cardId)
-      const review = await this.parts.reviewer(lease, plan, card)
+      const review = await this.parts.reviewer(lease, plan, card, provenWitnesses(db, lease, card))
       return { outcome: { review, plan, ms: clock().getTime() - started, isolation, card }, held: review.tree ?? null }
     }
     catch (error) {
