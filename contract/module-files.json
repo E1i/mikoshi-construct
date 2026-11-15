@@ -651,6 +651,7 @@
     "scripts/tests/contract/owner-commands-detector.test.ts",
     "scripts/tests/contract/plan-folds-contour.test.ts",
     "scripts/tests/contract/port-language.test.ts",
+    "scripts/tests/contract/ratchet-threshold-set.test.ts",
     "scripts/tests/conveyor/measures.test.ts",
     "scripts/tests/core/card-decisions.test.ts",
     "scripts/tests/core/core-runs-no-git.test.ts",

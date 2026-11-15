@@ -4,6 +4,7 @@ import type { HolderStart, Lease } from '../core/lease.js'
 import type { NodeKind, NodeSupply, ProcessIdentity, WorkerIdentity } from '../core/node.js'
 import type { Projections } from '../core/reducer.js'
 import type { Fold, StoredEvent } from '../core/stored.js'
+import type { ThresholdSet } from '../nodes/update/update-executor.js'
 import type { PlanActors } from '../window/plan-folds.js'
 import type { SessionMeasure } from './heartbeat.js'
 import { randomUUID } from 'node:crypto'
@@ -11,7 +12,7 @@ import process from 'node:process'
 import { CARD_FOLDS, CARDS_PROJECTION } from '../core/card-automaton.js'
 import { admittedCardVersion } from '../core/card-bodies.js'
 import { CHAINS_PROJECTION } from '../core/chain.js'
-import { CARD_PLANNED, CARD_UNPLANNED, PLAN_BACKFILLED, PLAN_CLOSED, PLAN_ITEM_ADDED, PLAN_ITEM_LINKED, PLAN_ITEM_REMOVED, PLAN_OPENED } from '../core/events.js'
+import { CARD_PLANNED, CARD_UNPLANNED, PLAN_BACKFILLED, PLAN_CLOSED, PLAN_ITEM_ADDED, PLAN_ITEM_LINKED, PLAN_ITEM_REMOVED, PLAN_OPENED, RATCHET_THRESHOLD_SET } from '../core/events.js'
 import { OWNER } from '../core/inbox.js'
 import { foreignVersion, instanceOf, provenIdentity, recordWorkerIdentity, UNHANDED } from '../core/node.js'
 import { orderDeclarationsAt, overlaps } from '../core/order/overlap.js'
@@ -20,6 +21,7 @@ import { CARD_END_FOLDS, OWNER_WAIT_FOLDS, PR_FOLDS } from '../core/reducer.js'
 import { ROLES_PROJECTION } from '../nodes/restart/role.js'
 import { DECISION_FOLDS } from '../policy/decisions/index.js'
 import { RECUT_ACTOR } from '../policy/round-limit-decision.js'
+import { BusRead } from '../ports/bus-read.js'
 import { CHECK_MS, TICK_MS } from '../ports/netwatch.js'
 import { foldPlanEvent } from '../window/plan-folds.js'
 import { busSessionPulse, heartbeatEnv, measureCardSession, ownStart, recordProcessHeartbeat } from './heartbeat.js'
@@ -100,6 +102,12 @@ const PLAN_FOLDS: Record<string, Fold> = {
   [CARD_PLANNED]: foldPlanByItsActors,
   [CARD_UNPLANNED]: foldPlanByItsActors,
   [PLAN_BACKFILLED]: foldPlanByItsActors,
+}
+
+export function ratchetThresholdSets(db: DatabaseSync): (cardId: number) => ThresholdSet[] {
+  const read = new BusRead(db)
+  return cardId => read.where({ card: cardId }).slice(RATCHET_THRESHOLD_SET, ['decision', 'row', 'to']).flatMap(({ fields: { decision, row, to } }) =>
+    typeof decision === 'string' && typeof row === 'string' && typeof to === 'number' ? [{ decision, row, to }] : [])
 }
 
 export function busProjections(): Projections {
