@@ -9,7 +9,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { appendEvent, openBus } from '../../core/db.js'
 import { CARD_HELD, CARD_RELEASED, MAIN_ADVANCED, PR_CLOSED, PR_OBSERVED, PR_OPENED, PR_ORDERED, TASK_COMPLETED, TASK_ENQUEUED, TASK_LEASED } from '../../core/events.js'
 import { groupOf } from '../../core/order/group.js'
-import { NO_DECLARATIONS, overlaps } from '../../core/order/overlap.js'
+import { NO_DECLARATIONS, overlapDeclarationsOf, overlaps } from '../../core/order/overlap.js'
 import { emptyOrder, foldOrder, foldOrderEvents, groupsWithTurn, membersOf, orderEventsFrom, orderGroups, PrOrderTick, turnOf, turnStateOf, WINDOW_ORDERS } from '../../core/order/turn.js'
 import { BusRead } from '../../ports/bus-read.js'
 
@@ -82,6 +82,25 @@ describe('overlaps on paths only', () => {
     expect(overlaps(['m/a.ts'], ['m/b.ts'], declarations)).toBe(false)
     expect(overlaps(['bus/a.ts'], ['bus/b.ts'], declarations)).toBe(true)
     expect(overlaps(['m/a.ts', 'contract/module-files.json'], ['m/b.ts', 'contract/module-files.json'], declarations)).toBe(false)
+  })
+
+  it('only a generated row the update rebuilds is derived; a generated row it does not rebuild still overlaps', () => {
+    const row = { module: 'm', check: null, seamSources: null, followSources: null }
+    const declarations = overlapDeclarationsOf({
+      modules: [{ module: 'm', layer: 'core', paths: ['m/'], exclude: [], shared: [] }],
+      contention: [],
+      generated: [
+        { ...row, id: 'rebuilt', path: 'contract/module-files.json', rebuild: ['declarations:update'], rebuiltOnUpdate: true },
+        { ...row, id: 'baseline', path: '.dependency-cruiser-known-violations.json', rebuild: ['known:update'], rebuiltOnUpdate: false },
+        { ...row, id: 'unbuilt', path: 'contract/unbuilt.json', rebuild: null, rebuiltOnUpdate: false },
+        { ...row, id: 'flaggedWithoutRebuild', path: 'contract/flagged.json', rebuild: null, rebuiltOnUpdate: true },
+      ],
+    })
+    expect(declarations.derived).toEqual(['contract/module-files.json'])
+    expect(overlaps(['m/a.ts', 'contract/module-files.json'], ['m/b.ts', 'contract/module-files.json'], declarations)).toBe(false)
+    expect(overlaps(['m/a.ts', '.dependency-cruiser-known-violations.json'], ['m/b.ts', '.dependency-cruiser-known-violations.json'], declarations)).toBe(true)
+    expect(overlaps(['m/a.ts', 'contract/unbuilt.json'], ['m/b.ts', 'contract/unbuilt.json'], declarations)).toBe(true)
+    expect(overlaps(['m/a.ts', 'contract/flagged.json'], ['m/b.ts', 'contract/flagged.json'], declarations)).toBe(true)
   })
 })
 

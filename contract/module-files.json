@@ -417,6 +417,7 @@
     "scripts/tests/bus/first-tick-bound.test.ts",
     "scripts/tests/bus/first-tick-bound.ts",
     "scripts/tests/bus/fixtures/role-returned-incident.json",
+    "scripts/tests/bus/generated-rebuilt-not-overlap.test.ts",
     "scripts/tests/bus/github-fake.ts",
     "scripts/tests/bus/github.test.ts",
     "scripts/tests/bus/head-poll.test.ts",

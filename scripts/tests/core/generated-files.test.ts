@@ -16,6 +16,7 @@ import { RATCHET_RECORD } from '../../contract/ratchet.js'
 import { GENERATED_FILES as REEXPORTED } from '../../core/factory-paths.js'
 import { APPEND_ONLY_LOGS, commandLine, GENERATED_FILES, GENERATED_PATHS, isRebuiltOnUpdate, pathsRebuiltBy, RATCHET_FILE, rebuildsOf, REBUILT_ON_UPDATE, SHARED_APPEND_PATHS } from '../../core/generated-files.js'
 import { readLayerMap, recordsOf } from '../../core/layer-map.js'
+import { orderDeclarationsAt } from '../../core/order/overlap.js'
 import { taskConflicts } from '../../nodes/launch/overlap.js'
 import { sharedAppendFiles } from '../../nodes/launch/shared-files.js'
 import { mainMergeInCardTree } from '../../ports/main-merge.js'
@@ -145,9 +146,13 @@ describe('the one list of generated files', () => {
     expect(pathsRebuiltBy(RATCHET_FILE.rebuild)).toEqual([RATCHET_RECORD])
   })
 
-  it('the manifest field sharedAppendFiles is the list the owner rebuilds on an update and the append-only logs', () => {
-    expect(sharedAppendFiles(REPO_ROOT).sort()).toEqual([...SHARED_APPEND_PATHS].sort())
+  it('every path the owner rebuilds on an update or appends to is either shared in the manifest or derived at launch', () => {
+    const manifest = sharedAppendFiles(REPO_ROOT)
+    const derived = orderDeclarationsAt(REPO_ROOT).derived
     expect(SHARED_APPEND_PATHS).toEqual([...REBUILT_ON_UPDATE.map(row => row.path), ...APPEND_ONLY_LOGS])
+    expect(SHARED_APPEND_PATHS).toEqual(expect.arrayContaining(manifest))
+    expect(SHARED_APPEND_PATHS.filter(file => !manifest.includes(file)).filter(file => !derived.includes(file))).toEqual([])
+    expect(derived.every(file => isRebuiltOnUpdate(file))).toBe(true)
   })
 
   it('an append-only log is shared by cards and never rebuilt on an update', () => {

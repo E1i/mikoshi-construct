@@ -64,9 +64,9 @@ export const COMPOSITION_ROOTS: readonly string[] = ['src/cli.ts', 'src/program.
 
 const NODE_MAY_USE = ['bus', 'session', 'card-model', 'card-record', 'pr-record', 'plan', 'command-registry', 'ports-adapters', 'events']
 
-function node(name: string): ModuleSpec {
+function node(name: string, alsoUses: readonly string[] = []): ModuleSpec {
   const folder = factory(`nodes/${name}`)
-  return { owns: [`${folder}${ANY_DEPTH}`], contract: [`${folder}/${name}-worker.ts`], may_use: NODE_MAY_USE, status: 'decided' }
+  return { owns: [`${folder}${ANY_DEPTH}`], contract: [`${folder}/${name}-worker.ts`], may_use: [...NODE_MAY_USE, ...alsoUses], status: 'decided' }
 }
 
 function decided(owns: readonly string[], may_use: readonly string[]): ModuleSpec {
@@ -98,7 +98,7 @@ const DRAWN: Readonly<Record<string, ModuleSpec>> = {
   'ports-adapters': decided(PORTS_ADAPTERS, []),
   'node-answer': node('answer'),
   'node-close': node('close'),
-  'node-launch': node('launch'),
+  'node-launch': node('launch', ['order']),
   'node-merge': node('merge'),
   'node-restart': node('restart'),
   'node-review': node('review'),
