@@ -673,7 +673,7 @@ export const LORE: Lore = {
     ? `OWNER WAIT // ${file}: ${card}; the amend lowers ${witnesses} admitted witness${witnesses === 1 ? '' : 'es'}, not admitted; an owner wait is in the bus. Admit again once the owner allows it`
     : `OWNER WAIT // ${file}: ${card}; the amend lowers ${witnesses} admitted witness${witnesses === 1 ? '' : 'es'}, not admitted. NO BUS // nothing written. Admit again once the owner allows it`,
   intakeAdmitDowngradeDryRun: (file: string, card: string, witnesses: number) => `DRY RUN // OWNER WAIT // ${file}: ${card}; the amend lowers ${witnesses} admitted witness${witnesses === 1 ? '' : 'es'}, so --admit would not admit it and would open an owner wait. Nothing written`,
-  intakeAdmitDowngradeAction: (cardId: number, action: string) => `OWNER // ${action} — ${pnpmCommand('decisions:add', '--card')} #${cardId} with this text`,
+  intakeAdmitDowngradeAction: (cardId: number, action: string) => `OWNER // ${action} — ${pnpmCommand('owner:answer')} #${cardId} "${action}"`,
   notCarried: 'NOT CLAIMED HERE: this preset can make these and this repository does not carry them. No level, because nothing is enforced by a claim that was never made.',
   notCarriedDoesNotHold: (claimId: string, target: string) => `  ${claimId} \u2014 ${target} does not carry what it would stand on.`,
   notCarriedUnevaluable: (claimId: string, target: string) => `  ${claimId} \u2014 ${target} could not be read, so whether it would stand cannot be determined.`,
@@ -1121,7 +1121,7 @@ export const PLAIN_LORE: Lore = {
     ? `Not admitted ${file}: ${card}. The amend removes, or drops red on main from, ${witnesses} admitted witness${witnesses === 1 ? '' : 'es'}, so the admitted body stands and an owner wait for the downgrade is in the bus. Run --admit again once the owner records the decision below.`
     : `Not admitted ${file}: ${card}. The amend removes, or drops red on main from, ${witnesses} admitted witness${witnesses === 1 ? '' : 'es'}, so the admitted body stands; no bus is wired to this run, so nothing was written. Run --admit again once the owner records the decision below.`,
   intakeAdmitDowngradeDryRun: (file: string, card: string, witnesses: number) => `Dry run: ${file}: ${card} lowers ${witnesses} admitted witness${witnesses === 1 ? '' : 'es'}, so --admit would leave the admitted body standing and open an owner wait. Nothing was written.`,
-  intakeAdmitDowngradeAction: (cardId: number, action: string) => `The owner allows it with ${pnpmCommand('decisions:add', '--card')} #${cardId} naming: ${action}`,
+  intakeAdmitDowngradeAction: (cardId: number, action: string) => `The owner allows it with ${pnpmCommand('owner:answer')} #${cardId} "${action}"`,
   notCarried: 'Not claimed here: this preset can make these and this repository does not carry them. They have no level, because nothing is enforced by a claim that was never made.',
   notCarriedDoesNotHold: (claimId: string, target: string) => `  ${claimId} \u2014 ${target} does not carry what it would stand on.`,
   notCarriedUnevaluable: (claimId: string, target: string) => `  ${claimId} \u2014 ${target} could not be read, so whether it would stand cannot be determined.`,

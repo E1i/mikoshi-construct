@@ -52,8 +52,8 @@
     "plain": "Refused: this repository has neither a construct.json from `construct init` nor an attach record. Run `construct attach` first, then run this again; nothing was written."
   },
   "intakeAdmitDowngradeAction": {
-    "lore": "OWNER // drop W2 — pnpm decisions:add --card #1807 with this text",
-    "plain": "The owner allows it with pnpm decisions:add --card #1807 naming: drop W2"
+    "lore": "OWNER // drop W2 — pnpm owner:answer #1807 \"drop W2\"",
+    "plain": "The owner allows it with pnpm owner:answer #1807 \"drop W2\""
   },
   "notCarriedEveryFactHolds": {
     "lore": "  C1 — every fact it would stand on holds; `construct init` would record it.",
