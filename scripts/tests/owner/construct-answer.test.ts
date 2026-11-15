@@ -1,12 +1,12 @@
 import type { RequestOutcome, RequestTools } from '../../window/window-requests.js'
 import type { MergeBench } from '../bus/merge-bench.js'
-import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
 import { appendEvent, openOwnerWait } from '../../core/db.js'
-import { CARD_HELD, CARD_RELEASED } from '../../core/events.js'
+import { CARD_HELD, CARD_RELEASED, WINDOW_REQUEST } from '../../core/events.js'
 import { OWNER } from '../../core/inbox.js'
 import { leaseNext } from '../../core/lease.js'
 import { closedByRounds, queueTask } from '../../core/queue.js'
@@ -193,7 +193,7 @@ describe('owner:answer <Q|#card> "words"', () => {
   it('the command writes one request with the owner word, and a request without the word moves nothing', () => {
     const room = roomWithPr(1864, 1586)
     const before = eventCount(room.bench.db)
-    for (const args of [['Q1'], ['nonsense', 'words'], ['Q1', '  ']])
+    for (const args of [[], ['Q1'], ['nonsense', 'words'], ['да', 'мержить'], ['Q1', '  '], ['Q1', '“', '”'], ['#1864', '«»']])
       expect(runOwnerAnswer(args, room.bench.db, room.channel, room.bench.clock.now(), line => room.lines.push(line))).toBe(2)
     expect(eventCount(room.bench.db)).toBe(before)
     expect(existsSync(room.channel)).toBe(false)
@@ -204,6 +204,19 @@ describe('owner:answer <Q|#card> "words"', () => {
     expect(stateOf(room, wait)).toBe('open')
     sayToOwnerChannel(room.channel, answerWord(wait, 'said once'), room.bench.clock.now())
     expect(answer(room, wait, 'said once').kind).toBe('done')
+  })
+
+  it('owner:answer Q1 without quotes and with smart quotes writes the same word', () => {
+    const room = roomWithPr(1864, 1586)
+    const said = [['Q1', 'да', 'мержить'], ['Q1', '“да мержить”'], ['Q1', '«да', 'мержить»'], ['Q1', '‘да мержить’'], ['Q1', 'да мержить']]
+    for (const args of said)
+      expect(runOwnerAnswer(args, room.bench.db, room.channel, room.bench.clock.now(), line => room.lines.push(line))).toBe(0)
+
+    expect(eventsOf(room.bench.db, WINDOW_REQUEST)).toEqual(said.map(() => expect.objectContaining({ kind: 'owner.answer', id: 'Q1', text: 'да мержить' })))
+    const words = readdirSync(room.channel).filter(file => file.endsWith('.md')).map(file => readFileSync(path.join(room.channel, file), 'utf8'))
+    expect(words).toHaveLength(said.length)
+    for (const word of words)
+      expect(word).toContain(answerWord('Q1', 'да мержить'))
   })
 
   it('a word naming the wait with other words than the request moves nothing and stays unused', () => {
