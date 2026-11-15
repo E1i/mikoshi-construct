@@ -1,12 +1,14 @@
 import type { OwnerWait } from '../../../scripts/core/bus-readings.js'
 import type { BusDb } from '../cost/bus.js'
+import type { GateRunRow } from './gate-runs.js'
 import type { Goal } from './goal.js'
 import type { QueuedStanding, TranscriptReader } from './sessions.js'
 import { existsSync } from 'node:fs'
 import { behindLine, CARDS, currentLane, lastReducedOwnerWaits, readLastReduced } from '../../../scripts/core/bus-readings.js'
-import { BUS_PULSE, CARD_ADMITTED, CARD_FELL, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, CHECKS_MATRIX_EVENT, PR_GROUPS, PROCESS_HEARTBEAT, REVIEW_DRIP, SESSION_HEARTBEAT, SLICE_PARENTS_BACKFILLED, TERMINAL_LANES, WINDOW_HEARTBEAT, WINDOW_SUBAGENT_EVENT } from '../../../scripts/core/events.js'
+import { BUS_PULSE, CARD_ADMITTED, CARD_FELL, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, CHECKS_MATRIX_EVENT, GATE_RUN, PR_GROUPS, PROCESS_HEARTBEAT, REVIEW_DRIP, SESSION_HEARTBEAT, SLICE_PARENTS_BACKFILLED, TERMINAL_LANES, WINDOW_HEARTBEAT, WINDOW_SUBAGENT_EVENT } from '../../../scripts/core/events.js'
 import { PLAIN_LORE } from '../../ui/lore.js'
 import { withReadOnlyBus } from '../cost/bus.js'
+import { gateRunFacts } from './gate-runs.js'
 import { goalOf } from './goal.js'
 import { clientTranscriptReader, sessionRowTime } from './sessions.js'
 
@@ -145,7 +147,7 @@ export interface BusShadow {
 }
 
 export type BusReading
-  = | { status: 'read', file: string, facts: BusFacts }
+  = | { status: 'read', file: string, facts: BusFacts, gateRuns?: GateRunRow[] }
     | { status: 'absent', file: string }
     | { status: 'unreadable', file: string, reason: string }
 
@@ -230,7 +232,7 @@ function windowRoles(db: BusDb): BusService[] {
   return rows.map(row => ({ role: 'window', task: row.role, tree: null, step: `${row.state} · ${row.status}` }))
 }
 
-const BOARD_EVENT_TYPES = [WINDOW_SUBAGENT_EVENT, SESSION_HEARTBEAT, CARD_STARTED, CARD_FELL, CARD_STOPPED, CARD_VERIFIED, PR_GROUPS, REVIEW_DRIP]
+const BOARD_EVENT_TYPES = [WINDOW_SUBAGENT_EVENT, SESSION_HEARTBEAT, CARD_STARTED, CARD_FELL, CARD_STOPPED, CARD_VERIFIED, PR_GROUPS, REVIEW_DRIP, GATE_RUN]
 
 interface BoardEvents {
   of: (type: string) => EventRow[]
@@ -620,7 +622,10 @@ export function busReaderAt(file: string, clock: () => Date = () => new Date(), 
     if (!existsSync(file))
       return { status: 'absent', file }
     try {
-      return { status: 'read', file, facts: withReadOnlyBus(file, db => busFacts(db, clock(), transcripts)) }
+      return withReadOnlyBus(file, (db) => {
+        const now = clock()
+        return { status: 'read', file, facts: busFacts(db, now, transcripts), ...gateRunFacts(boardEvents(db).of(GATE_RUN), now) }
+      })
     }
     catch (error) {
       return { status: 'unreadable', file, reason: error instanceof Error ? error.message : String(error) }

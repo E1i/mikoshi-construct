@@ -1,6 +1,6 @@
 {
   "bus": {
-    "busVersion": 3,
+    "busVersion": 5,
     "events": {
       "answer.step": {
         "complete": true,
@@ -444,6 +444,18 @@
           "request"
         ]
       },
+      "gate.run": {
+        "complete": true,
+        "keys": [
+          "mode",
+          "moduleFiles",
+          "reason",
+          "round",
+          "seconds",
+          "source",
+          "tests"
+        ]
+      },
       "ghost.line": {
         "complete": true,
         "keys": [
@@ -862,6 +874,14 @@
           "last_beat",
           "live",
           "process"
+        ]
+      },
+      "ratchet.threshold.set": {
+        "complete": true,
+        "keys": [
+          "decision",
+          "row",
+          "to"
         ]
       },
       "reducer.reduced": {
@@ -4086,7 +4106,9 @@
           "bus": [
             1,
             2,
-            3
+            3,
+            4,
+            5
           ],
           "card": [
             1,
@@ -4106,7 +4128,9 @@
           "bus": [
             1,
             2,
-            3
+            3,
+            4,
+            5
           ],
           "card": [
             1,
@@ -4140,7 +4164,9 @@
           "bus": [
             1,
             2,
-            3
+            3,
+            4,
+            5
           ],
           "card": [
             1,
@@ -4165,7 +4191,9 @@
           "bus": [
             1,
             2,
-            3
+            3,
+            4,
+            5
           ],
           "card": [
             1,
@@ -4193,7 +4221,9 @@
           "bus": [
             1,
             2,
-            3
+            3,
+            4,
+            5
           ],
           "card": [
             1,
@@ -4215,7 +4245,9 @@
           "bus": [
             1,
             2,
-            3
+            3,
+            4,
+            5
           ],
           "card": [
             1,
@@ -4234,7 +4266,9 @@
           "bus": [
             1,
             2,
-            3
+            3,
+            4,
+            5
           ],
           "card": [
             1,

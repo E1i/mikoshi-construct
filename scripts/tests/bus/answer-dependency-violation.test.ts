@@ -15,6 +15,7 @@ import { queueTask } from '../../core/queue.js'
 import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
 import { claudeAnswerer, KNOWN_VIOLATIONS, ownerQuestionPath } from '../../nodes/answer/answerer.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
+import { ranTheGreenGate } from './gate-stream.js'
 import { sha } from './github-fake.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
 
@@ -114,6 +115,7 @@ async function answerWith(rounds: Round[], moves: boolean): Promise<Answering> {
     spawn: async (run) => {
       prompts.push(run.argv.join(' '))
       rounds.shift()?.(worktree, ownerQuestionPath(dir, SESSION, lease.leaseGen))
+      ranTheGreenGate(run)
       writeFileSync(run.stdoutPath, `${JSON.stringify({ type: 'result', subtype: 'success', result: 'answered' })}\n`)
       return 0
     },

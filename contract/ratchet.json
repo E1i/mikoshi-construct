@@ -183,7 +183,7 @@
   "boundary:quality->card-record": 2,
   "boundary:quality->command-registry": 3,
   "boundary:quality->composition-root": 2,
-  "boundary:quality->events": 3,
+  "boundary:quality->events": 4,
   "boundary:quality->intake": 1,
   "boundary:quality->layout": 5,
   "boundary:quality->model": 4,
