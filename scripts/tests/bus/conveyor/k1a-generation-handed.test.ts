@@ -2,7 +2,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { ProcessTable } from '../../../ports/process-table.js'
 import type { BgResult, DetachedLaunch } from '../../../supervisor/bg.js'
 import type { BusSupervisor, WorkerKeeper } from '../../../supervisor/supervisor.js'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -11,10 +11,13 @@ import { openBus } from '../../../core/db.js'
 import { WORKER_STARTED } from '../../../core/events.js'
 import { GENERATION_VARIABLE, UNHANDED } from '../../../core/node.js'
 import { handedIdentity, recordSpawned, spawnedActor } from '../../../supervisor/bg.js'
+import { installedGeneration, packageGeneration } from '../../../supervisor/package-generation.js'
+import { generationEnv } from '../../../supervisor/recorded-worker.js'
 import { gitCode, startBus, superviseUntilReplaced, SUPERVISOR_LAUNCH } from '../../../supervisor/supervisor.js'
 import { eventsOf } from '../merge-bench.js'
 
 const GENERATION = 'b'.repeat(40)
+const PACKAGE_VERSION = '0.47.0-test.1'
 const STARTED_PID = 4242
 const STARTED_AT = 'Sat Nov 14 10:00:00 2026'
 const roots: string[] = []
@@ -97,5 +100,40 @@ describe('k1a: the supervisor hands the generation to what it starts itself', ()
     expect(result.exitCode, [...result.stdout, ...result.stderr].join('\n')).toBe(0)
     expect(supervisorRecords(db)).toEqual([expect.objectContaining({ pid: STARTED_PID, generation: gitCode(process.cwd()).head() })])
     expect(eventsOf(db, WORKER_STARTED).map(record => record.generation)).not.toContain(UNHANDED)
+  })
+})
+
+describe('the generation of a factory installed as a package is the package version', () => {
+  function installedRoot(manifest: Record<string, unknown>): string {
+    const root = mkdtempSync(path.join(tmpdir(), 'k1a-package-'))
+    roots.push(root)
+    writeFileSync(path.join(root, 'package.json'), JSON.stringify(manifest))
+    return root
+  }
+
+  it('bus:bg hands the package version to every process it starts, not the HEAD of the repository it runs in', async () => {
+    const { busDir, db } = unhandedBus()
+    const result = await startBus(busDir, () => [], packageGeneration(installedRoot({ version: PACKAGE_VERSION })), recordedStart)
+    expect(result.exitCode, [...result.stdout, ...result.stderr].join('\n')).toBe(0)
+    expect(new Set(eventsOf(db, WORKER_STARTED).map(record => record.generation))).toEqual(new Set([PACKAGE_VERSION]))
+  })
+
+  it('the supervisor restart of itself hands the package version, not the sha it restarts for', async () => {
+    const { busDir, db } = unhandedBus()
+    await superviseUntilReplaced({
+      supervisor: { step: async () => [], ownCodeBehind: GENERATION } as unknown as BusSupervisor,
+      keeper: { step: () => [] } as unknown as WorkerKeeper,
+      relaunch: { busDir, start: recordedStart, generation: installedGeneration(installedRoot({ version: PACKAGE_VERSION })) },
+      print: () => {},
+      pause: async () => {
+        throw new Error('one tick')
+      },
+    })
+    expect(supervisorRecords(db)).toEqual([expect.objectContaining({ pid: STARTED_PID, generation: PACKAGE_VERSION })])
+  })
+
+  it('a package.json without a version hands unhanded, and the checkout has no package generation', () => {
+    expect(generationEnv(packageGeneration(installedRoot({})), {})[GENERATION_VARIABLE]).toBe(UNHANDED)
+    expect(installedGeneration(null)).toBeNull()
   })
 })
