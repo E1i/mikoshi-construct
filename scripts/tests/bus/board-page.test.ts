@@ -848,9 +848,9 @@ describe('board.html', () => {
     expect(html.indexOf('id="slot-waits"')).toBeLessThan(html.indexOf('id="slot-services"'))
     expect(slotsOf(html).get('waits')).toBe([
       '<section class="owner-strip bevel" aria-label="Waits for you"><span class="lbl">waits for you</span>',
-      '<button type="button" class="ask" data-open="card-870" tabindex="0" aria-haspopup="dialog"><span class="kind">D</span><span class="what">Q1 #870 — which path? · owner runs: pnpm decisions:add --card #870 &quot;[owner] &lt;decision&gt;&quot;</span><span class="open-hint">open ›</span></button>',
-      '<span class="ask" data-static><span class="kind">M</span><span class="what">Q2 PR #669 — changes architecture/security-invariants.md · owner runs: gh pr merge 669</span></span>',
-      '<span class="ask" data-static><span class="kind">C</span><span class="what">Q3 — the merge queue merges with no owner decision in force naming it live · owner runs: pnpm decisions:add &quot;[owner] allow-live merge&quot;</span></span>',
+      '<button type="button" class="ask" data-open="card-870" tabindex="0" aria-haspopup="dialog"><span class="kind">D</span><span class="what">Q1 #870 — which path? · owner runs: pnpm owner:answer Q1 &quot;…&quot;</span><span class="open-hint">open ›</span></button>',
+      '<span class="ask" data-static><span class="kind">M</span><span class="what">Q2 PR #669 — changes architecture/security-invariants.md · owner runs: pnpm owner:answer Q2 &quot;…&quot;</span></span>',
+      '<span class="ask" data-static><span class="kind">C</span><span class="what">Q3 — the merge queue merges with no owner decision in force naming it live · owner runs: pnpm owner:answer Q3 &quot;…&quot;</span></span>',
       '</section>',
     ].join(''))
     expect(templatesOf(html).has('dialog-card-870')).toBe(true)
@@ -867,10 +867,10 @@ describe('board.html', () => {
     ])
     expect(slotsOf(pageText(busPath)).get('waits')).toBe([
       '<section class="owner-strip bevel" aria-label="Waits for you"><span class="lbl">waits for you</span>',
-      '<span class="ask" data-static><span class="kind">D</span><span class="what">Q1 — which path? · owner runs: pnpm decisions:add &quot;[owner] &lt;decision&gt;&quot;</span></span>',
+      '<span class="ask" data-static><span class="kind">D</span><span class="what">Q1 — which path? · owner runs: pnpm owner:answer Q1 &quot;…&quot;</span></span>',
       '</section>',
       '<section class="owner-strip bevel" aria-label="Waits for the window"><span class="lbl">waits for the window</span>',
-      '<span class="ask" data-static><span class="kind">D</span><span class="what">Q2 — widen to the importer? · window runs: pnpm decisions:add &quot;[owner] &lt;decision&gt;&quot;</span></span>',
+      '<span class="ask" data-static><span class="kind">D</span><span class="what">Q2 — widen to the importer? · window runs: pnpm owner:answer Q2 &quot;…&quot;</span></span>',
       '</section>',
     ].join(''))
   })

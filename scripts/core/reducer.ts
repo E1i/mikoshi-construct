@@ -16,7 +16,7 @@ import { appendEvent, CLOSED_WAIT, defaultBusPath, inTransaction, isOwnerWaitNee
 import { CARD_ADMITTED, CARD_CLOSED, CARD_DROPPED, CARD_MOVED, CARD_PLANNED, CARD_UNPLANNED, CARD_WAITING, catalogued, CLOSED_PLAN, DECISION_RECORDED, DECISIONS_CUT_OVER, DECISIONS_IMPORTED, MAIN_ADVANCED, MERGE_DONE, OPEN_PLAN, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PLAN_BACKFILLED, PLAN_CLOSED, PLAN_ITEM_ADDED, PLAN_ITEM_LINKED, PLAN_ITEM_REMOVED, PLAN_OPENED, PR_CLOSED, PR_OBSERVED, PR_OPENED, WITNESS_DOWNGRADE } from './events.js'
 import { cardIdOf, isFullSha, prOf } from './identifiers.js'
 import { OWNER } from './inbox.js'
-import { ADMIT_COMMAND, pnpmCommand } from './owner-commands.js'
+import { ADMIT_COMMAND } from './owner-commands.js'
 import { appliedOrRejected } from './rejection.js'
 import { payloadOf, reject, STORED_COLUMNS } from './stored.js'
 import { markReduced, reduceProjection, watermarkOf } from './watermark.js'
@@ -261,10 +261,6 @@ function prOpened(db: DatabaseSync, event: StoredEvent): void {
     db.prepare('UPDATE prs SET card_id = ? WHERE pr = ?').run(cardId, pr)
 }
 
-export function decisionsAddCommand(text: string): string {
-  return pnpmCommand('decisions:add', `"${text}"`)
-}
-
 function filled(value: unknown): string | null {
   return typeof value === 'string' && value.trim() !== '' ? value.trim() : null
 }
@@ -331,7 +327,7 @@ const QUEUE_NAME = /^[\w-]+$/
 
 function commandsTheDecisionAnswers(text: string): string[] {
   const queue = text.trim().split(/\s+/).at(-1) ?? ''
-  return QUEUE_NAME.test(queue) && namesQueueLive(text, queue) ? [decisionsAddCommand(text), allowLiveCommand(queue)] : [decisionsAddCommand(text)]
+  return QUEUE_NAME.test(queue) && namesQueueLive(text, queue) ? [allowLiveCommand(queue)] : []
 }
 
 function closeWaitsTheDecisionsAnswer(db: DatabaseSync, event: StoredEvent): void {

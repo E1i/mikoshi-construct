@@ -1,6 +1,6 @@
 import type { Lore } from '../../ui/lore.js'
 import type { BusCard, BusFacts, BusGroup, BusMatrix, BusTail, OwnerWait } from './bus.js'
-import { ADMIT_COMMAND, pnpmCommand } from '../../../scripts/core/owner-commands.js'
+import { ADMIT_COMMAND, OWNER_ANSWER_COMMAND, pnpmCommand } from '../../../scripts/core/owner-commands.js'
 import { FLOW_STAGES, LIVE_STAGES, LIVE_STATES, SHORT_SHA } from './bus.js'
 import { planLine } from './goal.js'
 
@@ -19,9 +19,8 @@ const HOUR_MS = 3_600_000
 const BAR_CELLS = 10
 const BAR_DONE = '\u2588'
 const BAR_LEFT = '\u2591'
-const MERGE_COMMAND = 'gh pr merge'
-const DECISION_COMMAND = pnpmCommand('decisions:add')
-const OWNER_DECISION = '[owner] <decision>'
+const OWNER_WORDS = '"…"'
+const ANSWERED_BY_ID = /^Q\d+$/
 const REQUEST_SCRIPT = 'bus:request'
 const WINDOW_COMMANDS = [pnpmCommand('intake'), pnpmCommand(REQUEST_SCRIPT)].map(head => `${head} `)
 
@@ -176,15 +175,24 @@ export function goalLines(facts: BusFacts, lore: Lore): string[] {
   return goal === null ? [] : goal.plans.map(plan => `${progressBar(plan.delivered, plan.total)} ${planLine(plan, goal.backlog)}`)
 }
 
-function impliedCommand(wait: OwnerWait): string {
-  if (wait.need === 'merge' && wait.pr !== null)
-    return `${MERGE_COMMAND} ${wait.pr}`
-  return wait.card === null ? `${DECISION_COMMAND} "${OWNER_DECISION}"` : `${DECISION_COMMAND} --card #${wait.card} "${OWNER_DECISION}"`
+function answerTarget(wait: OwnerWait): string {
+  return ANSWERED_BY_ID.test(wait.id) || wait.card === null ? wait.id : `#${wait.card}`
+}
+
+export function ownerAnswerCommand(wait: OwnerWait): string {
+  return `${OWNER_ANSWER_COMMAND} ${answerTarget(wait)} ${OWNER_WORDS}`
+}
+
+function windowCommandOf(wait: OwnerWait): string | null {
+  const { command } = wait
+  return command !== null && WINDOW_COMMANDS.some(prefix => command.startsWith(prefix)) ? command : null
 }
 
 export function waitHint(wait: OwnerWait): Hint {
-  const command = wait.command ?? impliedCommand(wait)
-  return { who: wait.lifter === 'window' || WINDOW_COMMANDS.some(prefix => command.startsWith(prefix)) ? 'window' : 'owner', command }
+  const windowCommand = windowCommandOf(wait)
+  if (windowCommand !== null)
+    return { who: 'window', command: windowCommand }
+  return { who: wait.lifter === 'window' ? 'window' : 'owner', command: ownerAnswerCommand(wait) }
 }
 
 export function liftedByTheWindow(wait: OwnerWait): boolean {
