@@ -144,19 +144,21 @@ describe('conveyor R-paths: factory-paths, the layer lists and layer-map are ass
     expect(renderLayerMap(layerMapOf([...workers].reverse(), [...entries].reverse(), [...tracked].reverse()))).toBe(renderLayerMap(layerMapOf(workers, entries, tracked)))
   })
 
-  it('refuses an entry placed twice, a layer on a path the worker files place, and an entry or worker path that is not tracked', () => {
+  it('refuses an entry placed twice, a layer on a path the worker files place, a layer on an entry of a list group, and an entry or worker path that is not tracked', () => {
     const root = checkout([{ pr: 0, files: [], entries: {
       twiceA: { entry: 'twiceA', group: null, path: 'scripts/window/window.ts', layer: 'window', lists: [] },
       twiceB: { entry: 'twiceB', group: null, path: 'scripts/window/window.ts', layer: 'bus', lists: [] },
       derived: { entry: 'derived', group: null, path: 'scripts/nodes/merge/merge-executor.ts', layer: 'bus', lists: [] },
       gone: { entry: 'gone', group: 'named', path: 'scripts/window/gone.ts', layer: null, lists: [] },
       odd: { entry: 'odd', group: 'folders', path: 'scripts/window', layer: null, lists: ['nothing'] },
+      layered: { entry: 'layered', group: 'formerFolders', paths: ['scripts/window'], layer: 'window', lists: [] },
     } }])
     writeFileSync(path.join(root, DECLARATIONS, 'workers', 'ghost.json'), JSON.stringify({ worker: 'ghost', path: 'scripts/nodes/ghost/ghost-worker.ts' }))
     expect(validateDeclarations(readDeclarations(root), repositoryFiles())).toEqual(expect.arrayContaining([
       'declarations/workers/ghost.json: path "scripts/nodes/ghost/ghost-worker.ts" is not a tracked file',
       'declarations/entries/odd.json: paths is not a list of non-empty strings, or path is given beside it, in a group of lists',
       'declarations/entries/odd.json: lists is not a list of busShared, changesetReaders',
+      'declarations/entries/layered.json: layer places one path, and this entry holds a list',
       'declarations/entries/gone.json: path "scripts/window/gone.ts" is neither a tracked file nor a folder holding one',
       'declarations/entries/derived.json: layer places "scripts/nodes/merge/merge-executor.ts", which bus:merge places already from the worker files',
       '"scripts/window/window.ts" is placed by twiceA, twiceB; one entry places it',
