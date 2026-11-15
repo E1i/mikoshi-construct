@@ -16,7 +16,7 @@ import { appendEvent, CLOSED_WAIT, defaultBusPath, inTransaction, isOwnerWaitNee
 import { CARD_ADMITTED, CARD_CLOSED, CARD_DROPPED, CARD_MOVED, CARD_PLANNED, CARD_UNPLANNED, CARD_WAITING, catalogued, CLOSED_PLAN, DECISION_RECORDED, DECISIONS_CUT_OVER, DECISIONS_IMPORTED, MAIN_ADVANCED, MERGE_DONE, OPEN_PLAN, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PLAN_BACKFILLED, PLAN_CLOSED, PLAN_ITEM_ADDED, PLAN_ITEM_LINKED, PLAN_ITEM_REMOVED, PLAN_OPENED, PR_CLOSED, PR_OBSERVED, PR_OPENED, WITNESS_DOWNGRADE } from './events.js'
 import { cardIdOf, isFullSha, prOf } from './identifiers.js'
 import { OWNER } from './inbox.js'
-import { ADMIT_COMMAND } from './owner-commands.js'
+import { ADMIT_COMMAND, ownerWaitCommand } from './owner-commands.js'
 import { appliedOrRejected } from './rejection.js'
 import { payloadOf, reject, STORED_COLUMNS } from './stored.js'
 import { markReduced, reduceProjection, watermarkOf } from './watermark.js'
@@ -291,7 +291,7 @@ function foldOwnerWaitOpened(db: DatabaseSync, event: StoredEvent): void {
   if (db.prepare('SELECT 1 FROM owner_waits WHERE id = ?').get(id) !== undefined)
     reject(`${id} is already opened`)
   db.prepare(`INSERT INTO owner_waits (id, need, text, command, card_id, pr, state, answer, opened_at, event_id) VALUES (?, ?, ?, ?, ?, ?, '${OPEN_WAIT}', NULL, ?, ?)`)
-    .run(id, need, text, command, card, pr, event.ts, event.id)
+    .run(id, need, text, ownerWaitCommand({ id, need, card, pr }, command), card, pr, event.ts, event.id)
 }
 
 function foldOwnerWaitClosed(db: DatabaseSync, event: StoredEvent): void {
@@ -318,8 +318,9 @@ function foldWitnessDowngradeWait(db: DatabaseSync, event: StoredEvent): void {
   const actions = Array.isArray(payload.actions) ? payload.actions.map(filled) : []
   if (actions.length === 0 || actions.includes(null))
     reject('a witness downgrade names no action for the owner')
-  db.prepare(`INSERT INTO owner_waits (id, need, text, command, card_id, pr, state, answer, opened_at, event_id) VALUES (?, 'decision', ?, NULL, ?, NULL, '${OPEN_WAIT}', NULL, ?, ?)`)
-    .run(downgradeWaitId(event.id), actions.join('; '), cardId, event.ts, event.id)
+  const id = downgradeWaitId(event.id)
+  db.prepare(`INSERT INTO owner_waits (id, need, text, command, card_id, pr, state, answer, opened_at, event_id) VALUES (?, 'decision', ?, ?, ?, NULL, '${OPEN_WAIT}', NULL, ?, ?)`)
+    .run(id, actions.join('; '), ownerWaitCommand({ id, need: 'decision', card: cardId, pr: null }, null), cardId, event.ts, event.id)
   closeWaitsOfAnEndedCard(db, cardId, event.id)
 }
 
@@ -336,7 +337,7 @@ function closeWaitsTheDecisionsAnswer(db: DatabaseSync, event: StoredEvent): voi
     const named = JSON.stringify(waitsTheDecisionNames(db, decision.text))
     db.prepare(`
       UPDATE owner_waits SET state = '${CLOSED_WAIT}', answer = ?, event_id = ?
-      WHERE state = '${OPEN_WAIT}' AND (command IN (SELECT value FROM json_each(?)) OR (need IN ('decision', 'command') AND card_id IN (SELECT value FROM json_each(?)) AND (json_array_length(?) = 0 OR id IN (SELECT value FROM json_each(?)))))
+      WHERE state = '${OPEN_WAIT}' AND (event_id IN (SELECT id FROM events WHERE type = '${OWNER_WAIT_OPENED}' AND json_extract(payload, '$.command') IN (SELECT value FROM json_each(?))) OR (need IN ('decision', 'command') AND card_id IN (SELECT value FROM json_each(?)) AND (json_array_length(?) = 0 OR id IN (SELECT value FROM json_each(?)))))
     `).run(`D-${decision.decision_id}`, event.id, JSON.stringify(commandsTheDecisionAnswers(decision.text)), decision.scope ?? '[]', named, named)
   }
 }

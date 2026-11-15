@@ -849,7 +849,7 @@ describe('board.html', () => {
     expect(slotsOf(html).get('waits')).toBe([
       '<section class="owner-strip bevel" aria-label="Waits for you"><span class="lbl">waits for you</span>',
       '<button type="button" class="ask" data-open="card-870" tabindex="0" aria-haspopup="dialog"><span class="kind">D</span><span class="what">Q1 #870 — which path? · owner runs: pnpm owner:answer Q1 &quot;…&quot;</span><span class="open-hint">open ›</span></button>',
-      '<span class="ask" data-static><span class="kind">M</span><span class="what">Q2 PR #669 — changes architecture/security-invariants.md · owner runs: pnpm owner:answer Q2 &quot;…&quot;</span></span>',
+      '<span class="ask" data-static><span class="kind">M</span><span class="what">Q2 PR #669 — changes architecture/security-invariants.md · owner runs: merge PR #669 (owner)</span></span>',
       '<span class="ask" data-static><span class="kind">C</span><span class="what">Q3 — the merge queue merges with no owner decision in force naming it live · owner runs: pnpm owner:answer Q3 &quot;…&quot;</span></span>',
       '</section>',
     ].join(''))

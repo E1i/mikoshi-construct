@@ -144,7 +144,7 @@ describe('the board tells the truth and hints', () => {
     expect(waits.map(waitHint)).toEqual([
       { who: 'owner', command: 'pnpm owner:answer Q1 "…"' },
       { who: 'owner', command: 'pnpm owner:answer Q2 "…"' },
-      { who: 'owner', command: 'pnpm owner:answer Q3 "…"' },
+      { who: 'owner', command: 'merge PR #669 (owner)' },
       { who: 'window', command: 'pnpm intake --admit parking/lane-21/1407.md' },
       { who: 'owner', command: 'pnpm owner:answer Q5 "…"' },
     ])
