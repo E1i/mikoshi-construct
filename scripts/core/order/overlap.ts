@@ -10,7 +10,11 @@ export interface OverlapDeclarations {
 export const NO_DECLARATIONS: OverlapDeclarations = { modules: [], contention: [], derived: [] }
 
 export function overlapDeclarationsOf(declarations: Pick<Declarations, 'modules' | 'contention' | 'generated'>): OverlapDeclarations {
-  return { modules: declarations.modules, contention: declarations.contention, derived: declarations.generated.map(row => row.path) }
+  return { modules: declarations.modules, contention: declarations.contention, derived: rebuiltOnUpdatePaths(declarations.generated) }
+}
+
+function rebuiltOnUpdatePaths(generated: Declarations['generated']): string[] {
+  return generated.filter(row => row.rebuiltOnUpdate && row.rebuild !== null).map(row => row.path)
 }
 
 export function orderDeclarationsAt(root: string): OverlapDeclarations {
