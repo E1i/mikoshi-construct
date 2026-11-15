@@ -6,7 +6,7 @@
     "model:render"
   ],
   "check": null,
-  "rebuiltOnUpdate": false,
+  "rebuiltOnUpdate": true,
   "seamSources": null,
   "followSources": null
 }

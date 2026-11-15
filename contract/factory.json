@@ -3645,7 +3645,8 @@
           "plan",
           "command-registry",
           "ports-adapters",
-          "events"
+          "events",
+          "order"
         ],
         "owns": [
           "scripts/nodes/launch/**"

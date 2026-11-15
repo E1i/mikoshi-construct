@@ -30,6 +30,7 @@ afterEach(() => {
 })
 
 const MODULE_FILES = 'contract/module-files.json'
+const KNOWN_VIOLATIONS = '.dependency-cruiser-known-violations.json'
 const DECLARATIONS = 'declarations/'
 
 type Bus = ReturnType<typeof openBus>
@@ -66,6 +67,8 @@ describe('conveyor O2: groups are computed from the paths the bus recorded', () 
       { prs: [1003], modules: ['templates'] },
     ])
     expect(declarations.derived).toContain(MODULE_FILES)
+    expect(declarations.derived).not.toContain(KNOWN_VIOLATIONS)
+    expect(overlaps(['docs/guide/first-new-page.md', KNOWN_VIOLATIONS], ['docs/guide/second-new-page.md', KNOWN_VIOLATIONS], declarations)).toBe(true)
     expect(overlaps(['docs/guide/first-new-page.md', MODULE_FILES], ['docs/guide/second-new-page.md', MODULE_FILES], { ...declarations, derived: [] })).toBe(true)
     const paths = [...readOrder(busEvents(db), declarations).prs.values()].flatMap(life => life.paths ?? [])
     expect(paths.filter(file => file.startsWith(DECLARATIONS))).toEqual([])

@@ -6,7 +6,7 @@
     "declarations:update"
   ],
   "check": null,
-  "rebuiltOnUpdate": false,
+  "rebuiltOnUpdate": true,
   "seamSources": null,
   "followSources": [
     "declarations"

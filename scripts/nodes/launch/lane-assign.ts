@@ -2,9 +2,11 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { ParkedTask, Priority } from '../../../src/card/parking.js'
 import type { ShiftTask } from '../../../src/card/task-file.js'
 import type { Assignment } from '../../core/bus-readings.js'
+import type { OverlapDeclarations } from '../../core/order/overlap.js'
 import type { LaunchCatch } from './launch-candidates.js'
 import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
+import process from 'node:process'
 import { parseParkingFile, PRIORITIES, WINDOW_WHO } from '../../../src/card/parking.js'
 import { ATTACH_RECORD_FILE } from '../../../src/commands/attach/record.js'
 import { DEFAULT_LANES, isLaneCount, MANIFEST_FILE } from '../../../src/manifest.js'
@@ -13,6 +15,7 @@ import { DEFERRED_CARD, RUNNING_CARD } from '../../core/card-automaton.js'
 import { appendEvent } from '../../core/db.js'
 import { BOARD_ALARM, CARD_ADMITTED, CARD_DROPPED, LANE_ASSIGNED, LANE_OVERLAP, POLICY_DENIED } from '../../core/events.js'
 import { prOf } from '../../core/identifiers.js'
+import { effectivePaths, orderDeclarationsAt } from '../../core/order/overlap.js'
 import { processGit } from '../../ports/git.js'
 import { taskConflicts } from './overlap.js'
 import { sharedAppendFiles } from './shared-files.js'
@@ -171,8 +174,20 @@ export function heldByStall(card: LaneCard, holders: readonly LaneCard[], shared
 
 const REBUILT_ON_REBASE = new Set(['package.json', 'pnpm-lock.yaml'])
 
+const launchDeclarations = new Map<string, OverlapDeclarations>()
+
+function declarationsAt(root: string): OverlapDeclarations {
+  const known = launchDeclarations.get(root)
+  if (known !== undefined)
+    return known
+  const read = orderDeclarationsAt(root)
+  launchDeclarations.set(root, read)
+  return read
+}
+
 function laneTouches(task: ShiftTask): ShiftTask {
-  return { ...task, touches: task.touches.filter(entry => !REBUILT_ON_REBASE.has(path.posix.basename(entry))) }
+  const touches = task.touches.filter(entry => !REBUILT_ON_REBASE.has(path.posix.basename(entry)))
+  return { ...task, touches: effectivePaths(touches, declarationsAt(process.cwd())) }
 }
 
 function overlaps(a: ShiftTask | null, b: ShiftTask | null, shared: readonly string[]): boolean {
