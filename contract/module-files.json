@@ -401,6 +401,7 @@
     "scripts/tests/bus/conveyor/o1-record-paths.test.ts",
     "scripts/tests/bus/conveyor/o2-groups-and-order.test.ts",
     "scripts/tests/bus/conveyor/o3-turn-drives-update-merge.test.ts",
+    "scripts/tests/bus/conveyor/o4-decision-supersedes-tasks.test.ts",
     "scripts/tests/bus/conveyor/r-lint.test.ts",
     "scripts/tests/bus/conveyor/r-paths.test.ts",
     "scripts/tests/bus/conveyor/r0-declarations.test.ts",
