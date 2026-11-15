@@ -7,13 +7,15 @@ import { appendEvent, openBus } from '../../core/db.js'
 import { SESSION_STALLED, TASK_COMPLETED, TASK_RELEASED } from '../../core/events.js'
 import { RELEASES_IN_A_ROW } from '../../window/release-loop.js'
 import { ONCE_STORE, OnceStore } from '../../window/watch-store.js'
-import { deliverOnce, productionDeps, tick, watchState } from '../../window/watch.js'
+import { CATCHUP_LAG, caughtUpLine, deliverOnce, productionDeps, selectOnce, tick, watchState } from '../../window/watch.js'
 
 const OUTSIDE_TOUCHES = 'outside-touches'
 const CARD = 1903
 const QUEUE = 'launch'
 const TASK = 'launch:1903'
 const FIRST_TS = '2026-11-15T17:05:00.000Z'
+const LOOP_WORDING = `released ${RELEASES_IN_A_ROW} times in a row with reason ${OUTSIDE_TOUCHES}, first at ${FIRST_TS}`
+const FROM_START = { offset: 0, busId: 0 }
 
 const dirs: string[] = []
 
@@ -148,5 +150,49 @@ describe('miko:watch wakes on a stalled session and on a release loop', () => {
     const otherState = watchState(otherDeps)
     release(other)
     expect(loopLines(tick(otherState, otherDeps))).toEqual([])
+  })
+
+  it('a --once watch wakes on a release loop with the loop line', async () => {
+    const bus = aBus()
+    release(bus)
+    release(bus)
+    release(bus)
+    const emitted: string[] = []
+    const store = OnceStore.open(path.join(bus.dir, ONCE_STORE), { file: path.join(bus.dir, 'legacy.json'), text: undefined }, () => FROM_START)
+    try {
+      await deliverOnce(store, depsOf(bus, emitted))
+    }
+    finally {
+      store.close()
+    }
+    expect(emitted).toHaveLength(1)
+    expect(emitted[0]).toContain(LOOP_WORDING)
+  })
+
+  it('selectOnce carries the loop line with and without a card filter, and a filter on another card leaves it out', () => {
+    const bus = aBus()
+    release(bus)
+    release(bus)
+    release(bus)
+    const deps = depsOf(bus)
+    expect(selectOnce(FROM_START, deps)?.line).toContain(LOOP_WORDING)
+    expect(selectOnce(FROM_START, deps, CARD)?.line).toContain(LOOP_WORDING)
+    expect(selectOnce(FROM_START, deps, CARD + 1)?.line ?? null).toBeNull()
+  })
+
+  it('a cursor more than the catch-up lag behind carries the loop line after the caught-up line', () => {
+    const bus = aBus()
+    for (let filler = 0; filler <= CATCHUP_LAG; filler++)
+      write(bus, 'test.filler', {})
+    release(bus)
+    release(bus)
+    release(bus)
+    const deps = depsOf(bus)
+    const end = deps.lastBusId()
+    const lines = selectOnce(FROM_START, deps)?.line?.split('\n') ?? []
+    expect(lines[0]).toBe(caughtUpLine(0, end))
+    expect(lines.filter(line => line.includes(LOOP_WORDING))).toHaveLength(1)
+    expect(selectOnce(FROM_START, deps, CARD)?.line).toContain(LOOP_WORDING)
+    expect(selectOnce(FROM_START, deps, CARD + 1)?.line ?? null).toBeNull()
   })
 })
