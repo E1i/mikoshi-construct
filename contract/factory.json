@@ -4623,24 +4623,6 @@
         "reexports": [],
         "types": {}
       },
-      "src/commands/board/sessions.ts": {
-        "constants": [
-          "SHOWN_ACTIONS"
-        ],
-        "functions": {
-          "actionName": "(action: TimedAction): string",
-          "clientTranscriptReader": "(worktree, session)",
-          "clockOf": "(stamp: string): string",
-          "longGaps": "(reading: TranscriptReading, now: Date, live: boolean, gapMs = LONG_GAP_MS): TranscriptGap[]",
-          "minutesBetween": "(from: string, to: string): number",
-          "nowLine": "(reading: TranscriptReading, now: Date): string",
-          "readTranscript": "(text: string): TranscriptReading"
-        },
-        "reexports": [],
-        "types": {
-          "TranscriptReader": "type TranscriptReader = (worktree: string, session: string) => string | null"
-        }
-      },
       "src/commands/ci/state.ts": {
         "constants": [
           "CI_LOG_CEILING",
@@ -4957,13 +4939,23 @@
         "types": {}
       },
       "src/commands/liveness.ts": {
-        "constants": [],
+        "constants": [
+          "SHOWN_ACTIONS"
+        ],
         "functions": {
-          "factoryLiveness": "(busFile: string, nowMs: number): FactoryLiveness"
+          "actionName": "(action: TimedAction): string",
+          "clientTranscriptReader": "(worktree, session)",
+          "clockOf": "(stamp: string): string",
+          "factoryLiveness": "(busFile: string, nowMs: number): FactoryLiveness",
+          "longGaps": "(reading: TranscriptReading, now: Date, live: boolean, gapMs = LONG_GAP_MS): TranscriptGap[]",
+          "minutesBetween": "(from: string, to: string): number",
+          "nowLine": "(reading: TranscriptReading, now: Date): string",
+          "readTranscript": "(text: string): TranscriptReading"
         },
         "reexports": [],
         "types": {
-          "FactoryState": "type FactoryState = 'live' | 'offline'"
+          "FactoryState": "type FactoryState = 'live' | 'offline'",
+          "TranscriptReader": "type TranscriptReader = (worktree: string, session: string) => string | null"
         }
       },
       "src/commands/mutate/index.ts": {
