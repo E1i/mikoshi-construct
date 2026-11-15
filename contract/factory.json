@@ -4431,6 +4431,7 @@
       },
       "src/card/grammar.ts": {
         "constants": [
+          "CARD_PATH_REASON",
           "SIZES"
         ],
         "functions": {
@@ -4464,7 +4465,6 @@
       },
       "src/card/risk.ts": {
         "constants": [
-          "CARD_PATH_REASON",
           "RISK_LEVELS",
           "RISK_PREFIX",
           "SEAM_PREFIX",

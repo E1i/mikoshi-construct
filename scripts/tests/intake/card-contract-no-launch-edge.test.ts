@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { CARD_PATH_REASON } from '../../../src/card/risk.js'
+import { CARD_PATH_REASON } from '../../../src/card/grammar.js'
 import * as treePr from '../../nodes/launch/tree-pr.js'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..')
@@ -19,7 +19,7 @@ describe('the card contract reads the path reason from the card model, not from 
     expect(importSourcesOf(CARD_CONTRACT).filter(source => source.startsWith(`${launch}${path.sep}`))).toEqual([])
   })
 
-  it('the path reason pattern is exported from src/card/risk.ts and no longer from tree-pr.ts', () => {
+  it('the path reason pattern is exported from src/card/grammar.ts and no longer from tree-pr.ts', () => {
     expect(CARD_PATH_REASON).toBeInstanceOf(RegExp)
     expect('CARD_PATH_REASON' in treePr).toBe(false)
   })
