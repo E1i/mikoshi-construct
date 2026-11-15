@@ -14,7 +14,7 @@ import { CARD_MOVED, CARD_PLANNED, LANE_ASSIGNED, PLAN_OPENED, SESSION_HEARTBEAT
 import { OWNER } from '../../scripts/core/inbox.js'
 import { STORED_COLUMNS, storedByKey } from '../../scripts/core/stored.js'
 import { RECUT_ACTOR } from '../../scripts/policy/round-limit-decision.js'
-import { planFolds } from '../../scripts/window/plan-folds.js'
+import { foldPlanEvent } from '../../scripts/window/plan-folds.js'
 import { busReaderAt } from '../../src/commands/board/bus.js'
 import { goalOf } from '../../src/commands/board/goal.js'
 import { backlogLines, boardScreens, flowLines, waitHint, waitsLines } from '../../src/commands/board/screens.js'
@@ -105,7 +105,7 @@ function greeting(template: string, busFile: string): string {
 function planEvent(db: DatabaseSync, type: string, payload: Record<string, unknown>, cardId: number | null = null): void {
   const dedupeKey = `${type}:${cardId}:${JSON.stringify(payload)}`
   appendEvent(db, { ts: NOW.toISOString(), type, actor: OWNER, cardId, pr: null, head: null, dedupeKey, payload, legacy: false })
-  planFolds({ owner: OWNER, recut: RECUT_ACTOR })[type]!(db, db.prepare(`SELECT ${STORED_COLUMNS} FROM events WHERE id = ?`).get(storedByKey(db, dedupeKey).id) as unknown as StoredEvent)
+  foldPlanEvent(db, db.prepare(`SELECT ${STORED_COLUMNS} FROM events WHERE id = ?`).get(storedByKey(db, dedupeKey).id) as unknown as StoredEvent, { owner: OWNER, recut: RECUT_ACTOR })
 }
 
 function seedCard(db: DatabaseSync, card: number, lane: string): void {

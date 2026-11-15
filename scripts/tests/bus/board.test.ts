@@ -33,7 +33,7 @@ import { BusTick } from '../../supervisor/run.js'
 import { recordJudged } from '../../supervisor/supervisor.js'
 import { cardGauges, MERGE_PAST_THE_BUS, readBoard, SILENT_PROCESS, windowGauges } from '../../window/board.js'
 import { stateLines } from '../../window/handoff-write.js'
-import { planFolds } from '../../window/plan-folds.js'
+import { foldPlanEvent } from '../../window/plan-folds.js'
 import { recordWindowHeartbeat } from '../../window/window-heartbeat.js'
 import { Clock, FakeGitHub, sha } from './github-fake.js'
 import { detectReview } from './review-detection.js'
@@ -129,7 +129,7 @@ function stopCard(bench: BoardBench, cardId: number): void {
 function planEvent(bench: BoardBench, type: string, payload: Record<string, unknown>, cardId: number | null = null): void {
   const dedupeKey = `${type}:${cardId}:${JSON.stringify(payload)}`
   appendEvent(bench.db, { ts: bench.ts(), type, actor: OWNER, cardId, pr: null, head: null, dedupeKey, payload, legacy: false })
-  planFolds({ owner: OWNER, recut: RECUT_ACTOR })[type]!(bench.db, storedByKey(bench.db, dedupeKey))
+  foldPlanEvent(bench.db, storedByKey(bench.db, dedupeKey), { owner: OWNER, recut: RECUT_ACTOR })
 }
 
 function openPlan(bench: BoardBench, cards: number[]): void {
