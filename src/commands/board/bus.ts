@@ -84,6 +84,22 @@ export interface SubagentReading {
   at: string | null
 }
 
+export interface CrawlerReading {
+  id: string
+  kind: string
+  description: string | null
+  startedAt: string | null
+  state: string
+  context: number | null
+  spent: number | null
+}
+
+export interface BusWindow {
+  core: number | null
+  skills: string[]
+  crawlers: CrawlerReading[]
+}
+
 export interface BusService {
   role: string
   task: string
@@ -126,6 +142,7 @@ export interface BusFacts {
   shadow?: BusShadow
   tails?: BusTail[]
   queued?: QueuedStanding[]
+  window?: BusWindow
 }
 
 export interface BusTail {
@@ -280,12 +297,29 @@ function subagentReadings(value: unknown): SubagentReading[] {
   })
 }
 
-function lastWindowBeat(db: BusDb, now: Date): { session: string | null, subagents: SubagentReading[] } {
+function crawlerReadings(value: unknown): CrawlerReading[] {
+  return (Array.isArray(value) ? value as unknown[] : []).flatMap((entry) => {
+    if (entry === null || typeof entry !== 'object')
+      return []
+    const crawler = entry as Record<string, unknown>
+    const [id, kind, state] = [text(crawler.id), text(crawler.kind), text(crawler.state)]
+    return id === null || state === null ? [] : [{ id, kind: kind ?? id, description: text(crawler.description), startedAt: text(crawler.started_at), state, context: positiveOrNull(crawler.ctx), spent: positiveOrNull(crawler.spent) }]
+  })
+}
+
+function windowOfBeat(payload: Record<string, unknown>): BusWindow {
+  const skills = Array.isArray(payload.skills) ? payload.skills.flatMap(skill => text(skill) ?? []) : []
+  return { core: share(payload.core), skills, crawlers: crawlerReadings(payload.crawlers) }
+}
+
+const NO_WINDOW_BEAT: BusWindow = { core: null, skills: [], crawlers: [] }
+
+function lastWindowBeat(db: BusDb, now: Date): { session: string | null, subagents: SubagentReading[], window: BusWindow } {
   const row = db.prepare('SELECT id, ts, type, card_id, pr, dedupe_key, legacy, payload FROM events WHERE type = ? AND legacy = 0 ORDER BY id DESC LIMIT 1').get(WINDOW_HEARTBEAT) as unknown as EventRow | undefined
   if (row === undefined || isSilent(row, now))
-    return { session: null, subagents: [] }
+    return { session: null, subagents: [], window: NO_WINDOW_BEAT }
   const payload = payloadOf(row.payload)
-  return { session: text(payload.session), subagents: subagentReadings(payload.subagents) }
+  return { session: text(payload.session), subagents: subagentReadings(payload.subagents), window: windowOfBeat(payload) }
 }
 
 const WINDOW_TILE_ROLE = 'window'
@@ -501,10 +535,19 @@ function nodeCapacity(db: BusDb): Map<string, number> {
   return new Map(rows.flatMap(row => typeof row.slots === 'number' && Number.isSafeInteger(row.slots) && row.slots > 0 ? [[row.queue, row.slots] as const] : []))
 }
 
-function slotsOf(db: BusDb): BusSlot[] {
-  const used = new Map((db.prepare(`SELECT queue, count(*) AS used FROM tasks WHERE state = 'leased' GROUP BY queue`).all() as unknown as { queue: string, used: number }[]).map(row => [row.queue, Number(row.used)] as const))
+function tilesByRole(tiles: readonly BusService[]): Map<string, number> {
+  const counted = new Map<string, number>()
+  for (const tile of tiles)
+    counted.set(tile.role, (counted.get(tile.role) ?? 0) + 1)
+  return counted
+}
+
+function slotsOf(db: BusDb, sessions: readonly BusService[]): BusSlot[] {
+  const leased = new Map((db.prepare(`SELECT queue, count(*) AS used FROM tasks WHERE state = 'leased' GROUP BY queue`).all() as unknown as { queue: string, used: number }[]).map(row => [row.queue, Number(row.used)] as const))
   const capacity = nodeCapacity(db)
-  return [...new Set([...used.keys(), ...capacity.keys()])].sort().map(queue => ({ queue, used: used.get(queue) ?? 0, total: capacity.get(queue) ?? null }))
+  const tiles = tilesByRole(sessions)
+  const used = (queue: string): number => Math.max(leased.get(queue) ?? 0, tiles.get(queue) ?? 0)
+  return [...new Set([...leased.keys(), ...capacity.keys()])].sort().map(queue => ({ queue, used: used(queue), total: capacity.get(queue) ?? null }))
 }
 
 export interface BusTask {
@@ -604,7 +647,8 @@ export function busFacts(db: BusDb, now: Date, transcripts: TranscriptReader = c
     waits: waits.rows,
     ...waits.behind === null ? {} : { waitsStale: behindLine(waits.behind) },
     pulse: lastPulse(db),
-    slots: slotsOf(db),
+    slots: slotsOf(db, sessions),
+    window: lastWindowBeat(db, now).window,
     cards,
     ...cardReading.behind === null ? {} : { cardsStale: behindLine(cardReading.behind) },
     services: [...windowTiles(db, events, now), ...oneTilePerProcess(taskServices(db), sessions), ...sessions],

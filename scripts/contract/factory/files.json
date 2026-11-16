@@ -9,6 +9,7 @@
   { "path": ".construct/mechanics.json", "names": ["mechanics.json"] },
   { "path": ".construct/runs.jsonl", "names": ["runs.jsonl"], "owner": "src/commands/cost/ledger.ts" },
   { "path": ".construct/turns.jsonl", "names": ["turns.jsonl"], "owner": "src/commands/cost/turns.ts" },
+  { "path": ".construct/gate-runs.jsonl", "names": ["gate-runs.jsonl"], "owner": "scripts/ci/gate-runs.ts" },
   { "path": ".construct/attach.json", "names": [".construct/attach.json"] },
   { "path": ".construct/report.md", "names": [".construct/report.md"] },
   { "path": ".construct/eddies.jsonl", "names": ["eddies.jsonl"] },

@@ -566,7 +566,7 @@ describe('board.html', () => {
     const card = tileOf('implement', '#861')
     expect(card).toContain('<span class="edd-v">31k')
     expect(card).toContain('<span class="edd-v">52k')
-    const window = tileOf('window', 'operator')
+    const window = html.split('<div class="svc bevel" ').find(tile => tile.startsWith('data-role="window"'))
     expect(window).toContain('<span class="edd-k">ctx</span>')
     expect(window).toContain('<span class="edd-v">64k')
     expect(window).toContain('<span class="edd-v">97k')
@@ -594,7 +594,7 @@ describe('board.html', () => {
     const html = pageText(busPath)
     expect(lines).toContain('in work (1): #861')
     expect(html).toContain('<span class="name">in work</span><span class="n">1</span><span class="ids"><button type="button" class="cid" data-open="card-861" tabindex="0" aria-haspopup="dialog">#861 ›</button></span>')
-    for (const line of lines.slice(lines.indexOf('Services') + 1, -1).filter(line => !/^\S+ · #\d+ · /.test(line)))
+    for (const line of lines.slice(lines.indexOf('Services') + 1, -1).filter(line => !/^\S+ · #\d+ · /.test(line) && !line.startsWith('window · ')))
       expect(html).toContain(`<div class="svc-line">${escaped(line)}</div>`)
     const footer = Object.fromEntries(lines.at(-1)!.split(' · ').map(part => part.split(': ') as [string, string]))
     const statusline = html.slice(html.indexOf('<footer class="statusline"'))
@@ -1150,9 +1150,9 @@ describe('board.html', () => {
       expect(dialog).not.toContain('data-witnesses')
     })
 
-    it('the services grid column is 16rem in the rendered css', () => {
+    it('the services grid column is 20rem in the rendered css', () => {
       const style = /<style>([\s\S]*?)<\/style>/.exec(pageText(seededBus()))![1]!
-      expect(style).toContain('.svc-grid { display: grid; gap: var(--space-xs); padding: var(--space-xs); grid-template-columns: repeat(auto-fill, minmax(min(100%, 16rem), 1fr)); }')
+      expect(style).toContain('.svc-grid { display: grid; gap: var(--space-xs); padding: var(--space-xs); grid-template-columns: repeat(auto-fill, minmax(min(100%, 20rem), 1fr)); }')
     })
   })
 

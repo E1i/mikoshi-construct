@@ -27,7 +27,7 @@ const WRITTEN_UNDER_A_TYPE_CHOSEN_AT_RUN_TIME: Record<string, { keys: string[], 
   'card.planned': { keys: ['request'], writer: 'scripts/window/window-requests.ts plan(): the type is PLAN_OPS.get(op)' },
   'plan.opened': { keys: ['gate', 'request', 'version'], writer: 'scripts/window/window-requests.ts plan(): the type is PLAN_OPS.get(op)' },
   'task.expired': { keys: ['withdraw'], writer: 'scripts/core/lease.ts: the type is a parameter passed down two helpers' },
-  'task.failed': { keys: ['uncounted'], writer: 'scripts/core/lease.ts failed(): the type is a parameter passed down two helpers' },
+  'task.failed': { keys: ['tree', 'uncounted'], writer: 'scripts/core/lease.ts failed(): the type is a parameter passed down two helpers' },
 }
 
 interface FactoryBus {

@@ -1,6 +1,6 @@
 import type { BusService } from '../../../src/commands/board/bus.js'
 import type { SeedEvent } from '../../../tests/board/bus-fixture.js'
-import type { MikoPanelParts } from '../../cli/board-page/miko-panel.js'
+import type { MikoPanelParts, MikoPresence } from '../../cli/board-page/miko-panel.js'
 import type { SessionCardParts, SessionView } from '../../cli/board-page/session-card.js'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -10,9 +10,9 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { readTranscript } from '../../../src/commands/liveness.js'
 import { writeBus } from '../../../tests/board/bus-fixture.js'
 import { escaped, printBoard } from '../../cli/board-page.js'
-import { crawlerWorkOf, mikoPanel } from '../../cli/board-page/miko-panel.js'
+import { mikoPanel } from '../../cli/board-page/miko-panel.js'
 import { ROUND_COLOURS, roundColour, sessionCard, terminalOf } from '../../cli/board-page/session-card.js'
-import { ANSWER_STEP, SESSION_HEARTBEAT, TASK_LEASED, WINDOW_HEARTBEAT, WINDOW_SUBAGENT_EVENT } from '../../core/events.js'
+import { ANSWER_STEP, SESSION_HEARTBEAT, TASK_LEASED, WINDOW_HEARTBEAT } from '../../core/events.js'
 
 const NOW = new Date('2026-10-20T08:00:00.000Z')
 const CARD = 861
@@ -20,9 +20,9 @@ const EXPECTED_MS = 20 * 60_000
 const SERVICE: BusService = { role: 'answer', task: `#${CARD}`, tree: null, step: 'answer · pulse 1 min ago · now Bash ls for 2 min', session: 's-one' }
 const PARTS: SessionCardParts = { opener: '', hint: '', bars: '', agents: '', over: false, now: NOW.toISOString() }
 
-const LIMITS = { contextLimit: 1_000_000, cardContextLine: null, sessionSpend: null, agentSpend: 1_000_000, warnRatio: 0.8, modelWindows: new Map() }
 const WINDOW: BusService = { role: 'window', task: 'miko', tree: null, step: 'window · awake' }
-const PANEL: MikoPanelParts = { windows: [WINDOW], bars: () => '', crawlers: () => '', limits: LIMITS, now: NOW.toISOString(), words: { role: 'FIXER', name: 'Miko', plainTitle: '', serviceLine: () => 'window · awake' }, busLines: ['bus · pulse 1 min ago · slots in use 1/3'], busLive: true, opener: '', hint: '', idle: null, work: new Map() }
+const PRESENCE: MikoPresence = { model: null, core: null, status: null, handoffBytes: null, skills: [], crawlers: [] }
+const PANEL: MikoPanelParts = { windows: [WINDOW], bars: () => '', presence: PRESENCE, now: NOW.toISOString(), words: { role: 'FIXER', name: 'Miko', plainTitle: '' }, busLines: ['bus · pulse 1 min ago · slots in use 1/3'], busLive: true, opener: '', hint: '', idle: null }
 
 const roots: string[] = []
 
@@ -123,21 +123,21 @@ describe('the terminal block of a session card', () => {
 })
 
 describe('the Miko strip', () => {
-  it('each crawler of Miko is a row with a state dot, its type, task, current action and time', () => {
-    const subagents = [
-      { name: 'review', context: 100_000, spent: 50_000, at: new Date(NOW.getTime() - 4 * 60_000).toISOString() },
-      { name: 'implementer', context: 900_000, spent: 2_000_000, at: null },
+  it('each crawler of Miko is a numbered row with its kind, state chip, what it does, its age and its usage', () => {
+    const crawlers = [
+      { id: 'a1', kind: 'review', description: 'reading the diff', startedAt: new Date(NOW.getTime() - 4 * 60_000).toISOString(), state: 'CRAWLING', context: 100_000, spent: 50_000 },
+      { id: 'a2', kind: 'implementer', description: null, startedAt: null, state: 'IDLE', context: null, spent: null },
     ]
-    const work = crawlerWorkOf([{ fields: { role: 'review', task: '#1949', step: 'starting' } }, { fields: { role: 'review', task: '#1950', step: 'reading the diff' } }, { fields: { task: '#1' } }])
-    const html = mikoPanel({ ...PANEL, windows: [{ ...WINDOW, subagents }], work })
+    const html = mikoPanel({ ...PANEL, presence: { ...PRESENCE, crawlers } })
     const rows = /<ul class="miko-crawler-rows">([\s\S]*?)<\/ul>/.exec(html)![1]!
     expect(rows).toBe([
-      '<li class="miko-crawler" data-state="calm"><span class="crawler-dot"></span><span>review · #1950 · reading the diff · 4 min</span></li>',
-      '<li class="miko-crawler" data-state="over"><span class="crawler-dot"></span><span>implementer · — · — · —</span></li>',
+      '<li class="miko-crawler" data-state="crawling"><div class="crawler-top"><span class="crawler-name">CRAWLER #01 · review</span><span class="crawler-chip">CRAWLING</span></div><div class="crawler-what">reading the diff · 4 min</div><div class="crawler-use">CTX 100k · SPENT 50k</div></li>',
+      '<li class="miko-crawler" data-state="idle"><div class="crawler-top"><span class="crawler-name">CRAWLER #02 · implementer</span><span class="crawler-chip">IDLE</span></div></li>',
     ].join(''))
     expect(html.indexOf('miko-crawlers')).toBeGreaterThan(html.indexOf('miko-self'))
     expect(html.indexOf('miko-crawlers')).toBeLessThan(html.indexOf('miko-bus'))
     expect(mikoPanel(PANEL)).not.toContain('miko-crawler-rows')
+    expect(mikoPanel(PANEL)).toContain('FLATLINED')
   })
 
   it('a stale bus heads the strip with BUS STALE and marks the column stale', () => {
@@ -163,19 +163,20 @@ describe('the board page', () => {
     ], [{ role: 'miko', status: 'idle', state: 'awake' }])
     expect(html).not.toContain('<div class="svc bevel" data-role="bus"')
     const strip = /<div class="svc bevel" data-role="window"[^>]*data-strip>[\s\S]*?(?=<\/section>)/.exec(html)![0]
-    expect(strip).toContain('<span class="svc-target">miko</span>')
+    expect(strip).toContain('<span class="svc-kind">FIXER</span><span class="lore">MIKO</span>')
     expect(strip).toMatch(/<div class="miko-bus"><div class="miko-bus-head">BUS LIVE<\/div><div class="svc-line">bus · pulse [^<]*slots in use[^<]*<\/div>/)
     const services = html.slice(html.indexOf('id="slot-services"'), html.indexOf('</section>', html.indexOf('id="slot-services"')))
     expect(services.match(/data-role="window"/g)).toHaveLength(1)
     expect(services).not.toMatch(/data-role="bus"|<span class="lore">Subnet<\/span>/)
   })
 
-  it('a window crawler takes its task and current action from its window.subagent event', () => {
+  it('a window crawler takes its kind, description and age from the crawler list of window.heartbeat', () => {
+    const crawlers = [{ id: 'a1', kind: 'review', description: 'reading the diff', started_at: minutesAgo(3), state: 'CRAWLING', ctx: 10_000, spent: 2_000 }]
     const html = pageOf([
       { ts: minutesAgo(1), type: 'netwatch.tick', card: null, payload: '{}' },
-      { ts: minutesAgo(3), type: WINDOW_SUBAGENT_EVENT, card: null, payload: JSON.stringify({ session: 'sub-1', role: 'review', task: '#1950', phase: 'started', step: 'reading the diff' }) },
+      { ts: minutesAgo(2), type: WINDOW_HEARTBEAT, card: null, payload: JSON.stringify({ session: 'w-1', crawlers }) },
     ], [{ role: 'miko', status: 'idle', state: 'awake' }])
-    expect(html).toContain('<span>review · #1950 · reading the diff · 3 min</span>')
+    expect(html).toContain('<div class="crawler-what">reading the diff · 3 min</div>')
   })
 
   it('a live answer round shows its passed steps and the current one from answer.step', () => {

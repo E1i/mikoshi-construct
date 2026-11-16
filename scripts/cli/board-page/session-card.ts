@@ -16,11 +16,6 @@ export interface EddiesLimits {
   modelWindows: ReadonlyMap<string, number>
 }
 
-export interface CrawlerWork {
-  task: string | null
-  action: string | null
-}
-
 export interface RoundStep {
   step: string
   seconds: number
@@ -195,7 +190,22 @@ export function terminalOf(text: string | null, actions: (text: string) => reado
   return { name: action.name, at: action.at, endedAt: action.endedAt, command: fullInputOf(text, action) ?? action.detail ?? '' }
 }
 
-function roundBlock(view: SessionView, step: string, now: string): string {
+const MODEL_VENDOR = /^claude-/
+const VERSION_PART = /^\d{1,2}$/
+
+export function modelLabel(model: string | null | undefined): string | null {
+  const [family, ...rest] = (model ?? '').trim().replace(MODEL_VENDOR, '').split('-').filter(part => part !== '')
+  if (family === undefined)
+    return null
+  const version = rest.filter(part => VERSION_PART.test(part)).join('.')
+  return `${family.toUpperCase()}${version === '' ? '' : ` ${version}`}`
+}
+
+function roundWho(label: string, model: string | null): string {
+  return `<div class="round-who">${model === null ? '' : `<span class="round-model">(${escaped(model)})</span>`}<span class="round-label">${label}</span></div>`
+}
+
+function roundBlock(view: SessionView, step: string, now: string, model: string | null): string {
   const elapsed = view.startedAt === null ? null : Math.max(0, Date.parse(now) - Date.parse(view.startedAt))
   const share = elapsed === null || view.expectedMs === null ? null : elapsed / view.expectedMs
   const phase = roundPhase(share)
@@ -208,7 +218,7 @@ function roundBlock(view: SessionView, step: string, now: string): string {
     `started ${view.startedAt === null ? NONE : clockOf(view.startedAt)}`,
     PULSE_PART.exec(step)?.[0] ?? `pulse ${NONE}`,
   ].join(' · ')
-  return `<div class="round" data-phase="${phase}"${data}${style}><div class="round-head"><span class="round-label">${label}</span><span class="round-clock">${clock}</span></div><span class="round-bar"></span><div class="round-meta">${escaped(meta)}</div></div>`
+  return `<div class="round" data-phase="${phase}"${data}${style}><div class="round-head">${roundWho(label, model)}<span class="round-clock">${clock}</span></div><span class="round-bar"></span><div class="round-meta">${escaped(meta)}</div></div>`
 }
 
 export function stateLine(step: string, over: boolean): string {
@@ -248,7 +258,7 @@ export function sessionCard(service: BusService, view: SessionView, parts: Sessi
   return [
     `<div class="svc bevel" data-role="${escaped(service.role)}"${parts.opener}>`,
     `<div class="svc-top"><span class="svc-kind">${escaped(service.role)}</span><span class="lore">Runner</span><span class="svc-target">${escaped(service.task)}</span>${parts.hint}</div>`,
-    roundBlock(view, service.step, parts.now),
+    roundBlock(view, service.step, parts.now, modelLabel(service.gauges?.model)),
     stateLine(service.step, parts.over),
     terminalBlock(view.terminal, parts.now),
     parts.bars,
