@@ -20,7 +20,7 @@ import { CLOSED_CARD, DROPPED_CARD, MERGED_CARD, RUNNING_CARD } from '../../core
 import { admittedBodies, admittedBodyText, bodyNotFoldedYet, pathsOutsideTheBody } from '../../core/card-bodies.js'
 import { cardHoldOf, HOLD_RECHECK_MS, sessionStopOf } from '../../core/card-hold.js'
 import { appendEvent, inTransaction, openOwnerWait } from '../../core/db.js'
-import { BOARD_ALARM, CARD_ADMITTED, CARD_CLOSED, CARD_CONTINUED, CARD_HELD, CARD_PULSE, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, CARD_WAITING, GHOST_ROW, LADDER_APPROVAL, MERGE_DONE, OPEN_QUESTION, OUTSIDE_TOUCHES, PR_CLOSED, PR_OBSERVED, PR_OPENED, QUESTION_AGENT, REDUCED, TASK_COMPLETED, TASK_ENQUEUED, TASK_EXPIRED, TASK_FAILED, TASK_LEASED, TASK_RELEASED, TASK_REQUEUED, TASK_SUPERSEDED } from '../../core/events.js'
+import { BOARD_ALARM, CARD_ADMITTED, CARD_CLOSED, CARD_CONTINUED, CARD_HELD, CARD_PULSE, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, CARD_WAITING, GHOST_ROW, LADDER_APPROVAL, MERGE_DONE, OPEN_QUESTION, OUTSIDE_TOUCHES, PR_CLOSED, PR_OBSERVED, PR_OPENED, QUESTION_AGENT, REDUCED, SESSION_STALLED, TASK_COMPLETED, TASK_ENQUEUED, TASK_EXPIRED, TASK_FAILED, TASK_LEASED, TASK_RELEASED, TASK_REQUEUED, TASK_SUPERSEDED } from '../../core/events.js'
 import { generationOfKey } from '../../core/identifiers.js'
 import { failTask } from '../../core/lease.js'
 import { busNameOfDb, MACHINE_POLL_MS, machineSessions } from '../../core/machine-sessions.js'
@@ -51,6 +51,15 @@ export const LAUNCH_LIMIT_MINUTES = 600
 const LAUNCH_LIMIT_MS = LAUNCH_LIMIT_MINUTES * 60_000
 export const HEARTBEAT_SILENCE_MINUTES = 20
 const HEARTBEAT_SILENCE_MS = HEARTBEAT_SILENCE_MINUTES * 60_000
+export const OWNER_STOP_CAUSE = 'owner-stop'
+export const TIME_LIMIT_CAUSE = 'time-limit'
+export const NO_HEARTBEAT_CAUSE = 'no-heartbeat'
+
+interface Stall { cause: string, since: string, why: string }
+
+function runsOnUntilTheOwnerStops(cardId: number): string {
+  return `the session runs on and is not stopped; only the owner's stop ends it: ${ownerMoveCommand('stop', cardId)}`
+}
 const LEGACY_MERGE = 'merge'
 export type PidAlive = (pid: number) => boolean
 
@@ -289,17 +298,16 @@ export class LaunchNode extends Node<LaunchStep> {
       this.waitOnAmend(start, card)
       this.pulse(start, card)
       const now = this.parts.clock().getTime()
-      const ownerStop = ownerMovedSince(this.db, start.card_id, 'stop', start.id)
-      if (ownerStop || now - Date.parse(start.ts) >= LAUNCH_LIMIT_MS) {
-        if (this.stopLive(start, card, ownerStop ? 'owner-stop' : 'time-limit', ownerStop ? `the owner stopped card #${start.card_id} session ${card.session} (pid ${card.pid})` : `card #${start.card_id} ran past ${LAUNCH_LIMIT_MINUTES} minutes since ${start.ts}`))
+      if (ownerMovedSince(this.db, start.card_id, 'stop', start.id)) {
+        if (this.stopLive(start, card, OWNER_STOP_CAUSE, `the owner stopped card #${start.card_id} session ${card.session} (pid ${card.pid})`))
           stopped.push(start.card_id)
         continue
       }
+      if (now - Date.parse(start.ts) >= LAUNCH_LIMIT_MS)
+        this.alarmStall(start, card, { cause: TIME_LIMIT_CAUSE, since: start.ts, why: `card #${start.card_id} session ${card.session} ran past ${LAUNCH_LIMIT_MINUTES} minutes since ${start.ts}` })
       const sign = this.lastSignOf(start)
-      if (card.step !== SESSIONLESS_LADDER_STEP && now - Date.parse(sign) >= HEARTBEAT_SILENCE_MS && this.db.prepare(PR_SINCE).get(start.card_id, start.id) === undefined) {
-        if (this.stopLive(start, card, 'no-heartbeat', `card #${start.card_id} session ${card.session} has no pull request and no heartbeat for ${HEARTBEAT_SILENCE_MINUTES} minutes since ${sign}`))
-          stopped.push(start.card_id)
-      }
+      if (card.step !== SESSIONLESS_LADDER_STEP && now - Date.parse(sign) >= HEARTBEAT_SILENCE_MS && this.db.prepare(PR_SINCE).get(start.card_id, start.id) === undefined)
+        this.alarmStall(start, card, { cause: NO_HEARTBEAT_CAUSE, since: sign, why: `card #${start.card_id} session ${card.session} has no pull request and no heartbeat for ${HEARTBEAT_SILENCE_MINUTES} minutes since ${sign}` })
     }
     for (const start of this.db.prepare(OUT_OF_RUNNING_STARTS).all() as unknown as RunningStart[]) {
       const card = startedCardOf(start.payload)
@@ -346,6 +354,17 @@ export class LaunchNode extends Node<LaunchStep> {
     if (!recordedPidLivesIn(card.pid, this.pidAlive))
       return 'gone'
     return launchProcess({ pgid: card.pgid, session: card.session }, this.processes) === 'live' ? 'live' : 'gone'
+  }
+
+  private alarmStall(start: RunningStart, card: StartedCard, stall: Stall): void {
+    const ts = this.ts()
+    const task = this.db.prepare(LAUNCH_TASK_OF_CARD).get(start.card_id) as LaunchTaskRow | undefined
+    const mark = `${stall.cause}:${start.dedupe_key}:${stall.since}`
+    const detail = `${stall.cause}: ${stall.why}; ${runsOnUntilTheOwnerStops(start.card_id)}`
+    inTransaction(this.db, () => {
+      appendEvent(this.db, { ts, type: SESSION_STALLED, actor: this.actor, cardId: start.card_id, pr: null, head: null, dedupeKey: `${SESSION_STALLED}:${mark}`, payload: { task_key: task?.task_key ?? null, queue: 'launch', session: card.session, life: 'live', since: stall.since, reason: detail }, legacy: false })
+      appendEvent(this.db, { ts, type: BOARD_ALARM, actor: this.actor, cardId: start.card_id, pr: null, head: null, dedupeKey: `${BOARD_ALARM}:${mark}`, payload: { task_key: task?.task_key ?? null, reason: stall.cause, detail }, legacy: false })
+    })
   }
 
   private stopLive(start: RunningStart, card: StartedCard, cause: string, why: string): boolean {

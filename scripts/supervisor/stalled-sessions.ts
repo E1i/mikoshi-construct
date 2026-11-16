@@ -9,13 +9,12 @@ import type { LifeOf, SessionLife } from './recorded-worker.js'
 import { appendEvent } from '../core/db.js'
 import { spendStopOf } from '../core/eddies.js'
 import { messageOf } from '../core/errors.js'
-import { CARD_SESSION_ENDED, CARD_STARTED, PR_OBSERVED, PR_OPENED, SESSION_HEARTBEAT, SESSION_STALLED, TASK_LEASED } from '../core/events.js'
-import { failTask, releaseTask } from '../core/lease.js'
+import { BOARD_ALARM, CARD_SESSION_ENDED, CARD_STARTED, PR_OBSERVED, PR_OPENED, SESSION_HEARTBEAT, SESSION_STALLED, TASK_LEASED } from '../core/events.js'
+import { releaseTask } from '../core/lease.js'
 import { LEASED } from '../core/queue.js'
 import { OsProcessTable } from '../ports/process-table.js'
 import { RoundOverTime } from './expected-time.js'
 import { beatsOfLease } from './heartbeat.js'
-import { SILENT_MS } from './liveness-sites.js'
 import { transcriptActionIn } from './session-view.js'
 import { signal } from './supervisor.js'
 
@@ -27,6 +26,8 @@ export const SESSION_STALLED_RELEASE = 'session_stalled'
 export const REVIEW_STALLED_TWICE = 'review_stalled_twice'
 export const STALE_SIGNALS_TO_STOP = 2
 const REVIEW_ENDED_MARK = 'review-ended'
+const REVIEW_STALL_MARK = 'review-stalled'
+export const REVIEW_RUNS_ON = 'the session runs on and is not stopped: no stall line and no ceiling ends a review session, it runs until it exits'
 
 export type PulseOf = (session: string) => string | null
 
@@ -63,9 +64,9 @@ const TRANSCRIPT_BEATS = `
   ORDER BY id
 `
 
-const REVIEW_ENDS_ON_HEAD = `
+const REVIEW_STALLS_ON_HEAD = `
   SELECT coalesce(sum(json_extract(payload, '$.lease_gen') IS ?), 0) AS this_run, coalesce(sum(json_extract(payload, '$.lease_gen') IS NOT ?), 0) AS earlier_runs FROM events
-  WHERE type = '${SESSION_STALLED}' AND legacy = 0 AND card_id = ? AND head IS ? AND dedupe_key LIKE '%:${REVIEW_ENDED_MARK}' AND json_valid(payload)
+  WHERE type = '${SESSION_STALLED}' AND legacy = 0 AND card_id = ? AND head IS ? AND (dedupe_key LIKE '%:${REVIEW_STALL_MARK}' OR dedupe_key LIKE '%:${REVIEW_ENDED_MARK}') AND json_valid(payload)
 `
 
 const CARD_TREE = `
@@ -346,22 +347,22 @@ export class StalledSessions {
       return this.raise(lease, nowMs, { session, life, since, reason: `the review task ${lease.taskKey} of card #${lease.cardId} made no step and no output for ${minutes} min, and no live process names its session` }, since)
     const stale = this.staleSignals(signals, 'review', nowMs)
     if (stale.length < STALE_SIGNALS_TO_STOP)
-      return this.raise(lease, nowMs, { session, life, since, reason: `the review session ${session} of card #${lease.cardId} is alive and only ${stale.join(', ') || 'no signal'} stood still for ${minutes} min; one stale signal stops nothing, the session runs on to its ceiling` }, since)
-    const ends = this.db.prepare(REVIEW_ENDS_ON_HEAD).get(lease.leaseGen, lease.leaseGen, lease.cardId, lease.head) as { this_run: number, earlier_runs: number }
-    if (ends.this_run > 0)
+      return this.raise(lease, nowMs, { session, life, since, reason: `the review session ${session} of card #${lease.cardId} is alive and only ${stale.join(', ') || 'no signal'} stood still for ${minutes} min; one stale signal stops nothing, the session runs on` }, since)
+    const stalls = this.db.prepare(REVIEW_STALLS_ON_HEAD).get(lease.leaseGen, lease.leaseGen, lease.cardId, lease.head) as { this_run: number, earlier_runs: number }
+    if (stalls.this_run > 0)
       return []
-    if (ends.earlier_runs > 0)
-      return this.endAgain({ lease, session, since, stale, minutes, life }, nowMs)
-    this.stop(session)
-    return this.raise(lease, nowMs, { session, life, since, reason: `the review session ${session} of card #${lease.cardId} made no step and no output: ${stale.join(', ')} stood still for ${minutes} min; it was ended before its ceiling` }, REVIEW_ENDED_MARK)
+    const stood = `${stale.join(', ')} stood still for ${minutes} min`
+    const reason = stalls.earlier_runs > 0
+      ? `the review of card #${lease.cardId} on head ${lease.head ?? 'none'} stalled a second time (${stood} in session ${session}); ${REVIEW_STALLED_TWICE}: the window may review the diff by slices, file groups each under the review budget; ${REVIEW_RUNS_ON}`
+      : `the review session ${session} of card #${lease.cardId} made no step and no output: ${stood}; ${REVIEW_RUNS_ON}`
+    return this.alarm(lease, nowMs, { session, life, since, reason }, REVIEW_STALL_MARK)
   }
 
-  private endAgain({ lease, session, since, stale, minutes, life }: { lease: Lease, session: string, since: string, stale: Signal[], minutes: number, life: SessionLife }, nowMs: number): string[] {
-    const ts = new Date(nowMs).toISOString()
-    const reason = `the review of card #${lease.cardId} on head ${lease.head ?? 'none'} was ended by the stall line twice (${stale.join(', ')} stood still for ${minutes} min in session ${session}); it is not queued a third time the same way: ${lease.taskKey} is withdrawn as ${REVIEW_STALLED_TWICE} and waits for the window to review the diff by slices, file groups each under the review budget`
-    failTask(this.db, ts, { ...lease, actor: STALLED_ACTOR }, { reason: REVIEW_STALLED_TWICE, withdraw: true }, SILENT_MS)
-    this.stop(session)
-    return this.raise(lease, nowMs, { session, life, since, reason }, REVIEW_ENDED_MARK)
+  private alarm(lease: Lease, nowMs: number, payload: StalledPayload, mark: string): string[] {
+    const raised = this.raise(lease, nowMs, payload, mark)
+    if (raised.length > 0)
+      appendEvent(this.db, { ts: new Date(nowMs).toISOString(), type: BOARD_ALARM, actor: STALLED_ACTOR, cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${BOARD_ALARM}:${SESSION_STALLED}:${lease.taskKey}:${lease.leaseGen}:${mark}`, payload: { task_key: lease.taskKey, lease_gen: lease.leaseGen, reason: SESSION_STALLED, detail: payload.reason }, legacy: false })
+    return raised
   }
 
   private requeue({ lease, session, since }: Silence, nowMs: number): string[] {

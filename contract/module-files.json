@@ -440,6 +440,7 @@
     "scripts/tests/bus/intake.test.ts",
     "scripts/tests/bus/journal-guard.test.ts",
     "scripts/tests/bus/journal-outside.test.ts",
+    "scripts/tests/bus/kill-on-silence.test.ts",
     "scripts/tests/bus/known-violation-removal-follows.test.ts",
     "scripts/tests/bus/ladder-risks-named.test.ts",
     "scripts/tests/bus/ladder-starter.test.ts",
