@@ -36,7 +36,7 @@ export interface WarningReadings {
   stalePasses?: number
 }
 
-export const SAVING_OFF_WARNING = 'BUS_RERUN=by-layers, но на main strict: true (или ruleset требует up-to-date) — экономия выключена'
+export const SAVING_OFF_WARNING = 'BUS_RERUN=by-layers, but main is strict: true (or a ruleset requires up-to-date) — the saving is off'
 export const LAUNCH_GATE_SLOTS: SlotKind = 'review'
 export const UP_TO_DATE_READ_MS = 10 * 60_000
 const REPO = 'repos/{owner}/{repo}'

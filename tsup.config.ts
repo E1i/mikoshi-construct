@@ -1,4 +1,5 @@
 import type { Options } from 'tsup'
+import { execFileSync } from 'node:child_process'
 import { cpSync, existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { defineConfig } from 'tsup'
@@ -94,8 +95,21 @@ export function copyFactoryAssets(outDir: string): void {
     cpSync(asset, path.join(outDir, asset), { recursive: true })
 }
 
+export const BUILD_SHA_CONSTANT = '__CONSTRUCT_BUILD_SHA__'
+const SHORT_SHA_LENGTH = 7
+
+export function buildSha(): string {
+  try {
+    return execFileSync('git', ['rev-parse', `--short=${SHORT_SHA_LENGTH}`, 'HEAD'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim()
+  }
+  catch {
+    return ''
+  }
+}
+
 const shared = {
   format: ['esm'],
+  define: { [BUILD_SHA_CONSTANT]: JSON.stringify(buildSha()) },
   target: 'node22',
   outDir: OUT_DIR,
   removeNodeProtocol: false,

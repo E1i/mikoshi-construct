@@ -19,10 +19,10 @@ import { RUNS_PREFIX } from '../../src/card/covering-tests.js'
 import { fieldCommand } from '../../src/card/witness-fields.js'
 import { busFacts, CARD_STAGES, latestCardEvents, openTasks } from '../../src/commands/board/bus.js'
 import { DROPPED, droppedLine, goalOf, MARK_WORDS, planLine } from '../../src/commands/board/goal.js'
-import { backlogCards, isLive, laneColumns, liftedByTheWindow, markedName, matrixLines, pulseLines, screenLines, sliceMark, slotsReading, tallyLine, taskTally, waitAction, waitTarget, WINDOW_WAITS_ROLE } from '../../src/commands/board/screens.js'
+import { backlogCards, counted, isLive, laneColumns, liftedByTheWindow, markedName, matrixLines, pulseLines, screenLines, sliceMark, slotsReading, tallyLine, taskGroupLine, taskGroups, taskTally, waitAction, waitTarget, WINDOW_WAITS_ROLE } from '../../src/commands/board/screens.js'
 import { factoryLiveness } from '../../src/commands/liveness.js'
 import { BANNER, LORE, PLAIN_LORE } from '../../src/ui/lore.js'
-import { currentVersion } from '../../src/version.js'
+import { currentVersion, interfaceVersion } from '../../src/version.js'
 import { cardRunsOf, catalogLayersByTest, catalogModuleLayers } from '../ci/card-runs.js'
 import { staleLine } from '../core/bus-readings.js'
 import { BUSY_TIMEOUT_MS, defaultBusPath } from '../core/db.js'
@@ -67,11 +67,7 @@ export function escaped(text: string): string {
   return text.replace(/[&<>"']/g, char => ESCAPES[char]!)
 }
 
-export interface Gauges {
-  context: number | null
-  spent: number | null
-  model: string | null
-}
+export interface Gauges { context: number | null, spent: number | null, model: string | null }
 
 export interface EddiesLimits {
   contextLimit: number | null
@@ -91,11 +87,7 @@ export interface CardDetail {
   runs: RunsReading | null
 }
 
-export interface RunsGroup {
-  name: string
-  files: string[]
-  derived: boolean
-}
+export interface RunsGroup { name: string, files: string[], derived: boolean }
 
 export interface RunsReading {
   full: string | null
@@ -157,6 +149,7 @@ const STALE_READING = 'STALE'
 export const SLOT_PREFIX = 'slot-'
 const BUS_LIVE = 'bus-live'
 const PULSE_ELEMENT_ID = 'bus-pulse'
+const REFRESH_IN = 'refresh-in'
 const OFFLINE_READING = 'bus offline'
 const FACTORY_LIVE: FactoryState = 'live'
 const BACKLOG = 'backlog'
@@ -167,6 +160,7 @@ const DIALOG_PREFIX = 'dialog-'
 const HANDOFF_DIALOG = 'handoff'
 const DECISIONS_DIALOG = 'decisions'
 const OPEN_HINT = '<span class="open-hint">open ›</span>'
+const PULL_TITLE = 'Re-read the board now instead of at the next refresh; the bus catches the list up as it reduces'
 const CARD_TASK = /^#(\d+)$/
 const CARD_REFERENCE = /(?<!&|PR )#(\d+)\b/g
 export const FLOW_META = 'live and recently ended cards by stage'
@@ -493,7 +487,7 @@ function waitStrip(label: string, items: readonly string[]): string {
 
 function waitsSlot(page: BoardPage): string {
   const { waits, waitsStale } = page.facts
-  return `${waitStrip('waits for you', [...waitsStale === undefined ? [] : [`<span class="ask" data-static>${escaped(waitsStale)}</span>`], ...waits.filter(wait => !liftedByTheWindow(wait)).map(wait => waitItem(wait, page))])}${waitStrip(WINDOW_WAITS_ROLE, waits.filter(liftedByTheWindow).map(wait => waitItem(wait, page)))}`
+  return `${waitStrip('waits for you', [...waitsStale === undefined ? [] : [`<button type="button" class="ask" data-pull title="${PULL_TITLE}">${escaped(waitsStale)}<span class="open-hint">re-read now ›</span></button>`], ...waits.filter(wait => !liftedByTheWindow(wait)).map(wait => waitItem(wait, page))])}${waitStrip(WINDOW_WAITS_ROLE, waits.filter(liftedByTheWindow).map(wait => waitItem(wait, page)))}`
 }
 
 function warningsSlot(warnings: readonly BoardWarning[]): string {
@@ -567,16 +561,22 @@ function backlogSlot(facts: BusFacts): string {
   const chip = (filter: string): string => `<a class="chip" href="#${filterId(filter)}">${escaped(filter)}</a>`
   return [
     `<style>${filters.map(filterRule).join('\n')}</style>`,
-    `<div class="panel-head"><h2 id="h-backlog">${PLAIN_LORE.boardTabBacklog}</h2><span class="meta">${cards.length} cards · grouped by lane</span></div>`,
+    `<div class="panel-head"><h2 id="h-backlog">${PLAIN_LORE.boardTabBacklog}</h2><span class="meta">${counted(cards.length, 'card')} · grouped by lane, slices under their task</span></div>`,
     `<nav class="filters" aria-label="Filter by stage">${chip(ALL_FILTER)}${filters.map(chip).join('')}</nav>`,
   ].join('\n')
 }
 
+function taskBody(group: ReturnType<typeof taskGroups>[number]): string {
+  return `<tbody class="task-group" data-task="${group.task}" data-collapsed><tr class="task"${group.waits.length === 0 ? '' : ' data-waits'}><th colspan="11" scope="rowgroup"><button type="button" class="task-fold" data-fold="${group.task}" aria-expanded="false">${escaped(taskGroupLine(group))}</button></th></tr>${group.slices.map(cardRow).join('')}</tbody>`
+}
+
 function rowsSlot(facts: BusFacts): string {
   const cards = backlogCards(facts.cards, facts.at, true)
+  const whole = cards.filter(card => card.parent === undefined)
   return [
     `<thead><tr>${COLUMNS.map(column => `<th scope="col">${column}</th>`).join('')}</tr></thead>`,
-    ...laneColumns(cards).map(lane => laneBody(lane, cards)),
+    ...taskGroups(cards, facts.cards, facts.waits).map(taskBody),
+    ...laneColumns(whole).map(lane => laneBody(lane, whole)),
   ].join('\n')
 }
 
@@ -606,10 +606,10 @@ function headerPanel(page: BoardPage, slots: BoardSlots): string {
 function headerReadings(page: BoardPage): string {
   const { facts } = page
   return [
-    `<span>model <b>${page.modelVersion === null ? NONE : `v${page.modelVersion}`}</b></span>`,
+    `<span>model <b>${page.modelVersion === null ? NONE : `v${page.modelVersion}`}</b></span><span>ui <b>${escaped(interfaceVersion(page.version))}</b></span>`,
     `<span>written <b>${escaped(facts.at)}</b></span><span>live <b>${escaped(tallyLine(taskTally(facts.cards.filter(isLive))))}</b></span>`,
-    `<span>refresh <b>${page.tickMs === null ? NONE : `${page.tickMs / 1000}s`}</b></span>`,
-    `<span>load <b>${page.machine.load.toFixed(1)} / ${page.machine.cores} cores</b></span>`,
+    `<span>refresh <b>${page.tickMs === null ? NONE : `${page.tickMs / 1000}s`}</b><i class="countdown" id="${REFRESH_IN}"></i></span>`,
+    `<span>load <b><span data-count="${page.machine.load.toFixed(1)}">${page.machine.load.toFixed(1)}</span> / ${page.machine.cores} cores</b></span>`,
     `<span class="live" id="${BUS_LIVE}"${page.liveness === FACTORY_LIVE ? '' : ' data-stale'}>${page.liveness === FACTORY_LIVE ? 'bus live' : OFFLINE_READING}</span>`,
   ].join('')
 }
@@ -730,7 +730,7 @@ function witnessRow(field: WitnessField, record: WitnessRecordOnHead | null, pag
 
 const GLOB_SUFFIX = '/**'
 const DERIVED_READING = 'derived from touches'
-const WHOLE_FOLDER = 'вся папка'
+const WHOLE_FOLDER = 'whole folder'
 const ROOT_FOLDER = '.'
 
 interface RunsLane {
@@ -920,7 +920,7 @@ function handoffDialogHtml(page: BoardPage): string {
 function decisionsDialogHtml(page: BoardPage): string {
   const rows = (page.decisions.stale === null ? page.decisions.rows : []).map(decision => `<div><b>D-${decision.decisionId}</b><span>${linked(decision.text, page)}</span></div>`)
   return [
-    dialogHead('decisions', 'in force', page.decisions.stale === null ? `${rows.length} owner decisions` : staleLine(page.decisions.stale), ''),
+    dialogHead('decisions', 'in force', page.decisions.stale === null ? counted(rows.length, 'owner decision') : staleLine(page.decisions.stale), ''),
     '<div class="drill-body">',
     page.decisions.stale !== null ? note(escaped(staleLine(page.decisions.stale))) : rows.length === 0 ? note('The bus holds no owner decision in force.') : `<div class="dec">${rows.join('')}</div>`,
     '</div>',
@@ -935,7 +935,7 @@ export const VIEW_KEY = 'construct-board:view'
 
 const PAGE_ASSETS = path.join(import.meta.dirname, 'board-page')
 const SCRIPT_NAMES_GLOBAL = 'window.BOARD_NAMES'
-const SCRIPT_NAMES = { drill: DRILL, drillContent: DRILL_CONTENT, backlogScroll: BACKLOG_SCROLL, viewKey: VIEW_KEY, dialogPrefix: DIALOG_PREFIX, handoffDialog: HANDOFF_DIALOG, decisionsDialog: DECISIONS_DIALOG, busLive: BUS_LIVE, offlineReading: OFFLINE_READING, pulse: PULSE_ELEMENT_ID, titlePrefix: `${constructCommand('board')} · `, slotPrefix: SLOT_PREFIX, backlog: BACKLOG, staleTicks: STALE_TICKS, staleReading: STALE_READING, dataFile: BOARD_DATA_FILE }
+const SCRIPT_NAMES = { drill: DRILL, drillContent: DRILL_CONTENT, backlogScroll: BACKLOG_SCROLL, viewKey: VIEW_KEY, dialogPrefix: DIALOG_PREFIX, handoffDialog: HANDOFF_DIALOG, decisionsDialog: DECISIONS_DIALOG, busLive: BUS_LIVE, offlineReading: OFFLINE_READING, pulse: PULSE_ELEMENT_ID, titlePrefix: `${constructCommand('board')} · `, slotPrefix: SLOT_PREFIX, backlog: BACKLOG, staleTicks: STALE_TICKS, staleReading: STALE_READING, dataFile: BOARD_DATA_FILE, refreshIn: REFRESH_IN }
 const SCRIPT = `\n${SCRIPT_NAMES_GLOBAL} = ${JSON.stringify(SCRIPT_NAMES)};\n${readFileSync(path.join(PAGE_ASSETS, 'script.js'), 'utf8')}`
 
 function dialogsSlot(page: BoardPage): string {
