@@ -505,6 +505,7 @@
     "scripts/tests/bus/queue.test.ts",
     "scripts/tests/bus/ratchet-merge-policy.test.ts",
     "scripts/tests/bus/readmitted-card-closes.test.ts",
+    "scripts/tests/bus/red-ci-pr-waits-for-nobody.test.ts",
     "scripts/tests/bus/reducer.test.ts",
     "scripts/tests/bus/release-requeues-answer.test.ts",
     "scripts/tests/bus/release-requeues-held-answer.test.ts",

@@ -129,7 +129,6 @@ describe('the admission whose depends stand', () => {
     settle(bench)
 
     expect(unmergedDependenciesOf(bench.db, CARD)).toEqual([DEPENDENCY])
-    expect(answersOfTheCard(bench)).toEqual([])
   })
 })
 

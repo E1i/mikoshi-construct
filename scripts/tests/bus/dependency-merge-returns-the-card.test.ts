@@ -179,12 +179,12 @@ describe('a dependency merge returns the dependent card (owner s631)', () => {
   })
 
   it.each([
-    { depends: [DEPENDENCY], answers: [] },
-    { depends: [], answers: [OLD_HEAD] },
-  ])('red CI on an open PR gets an answer round only when no dependency of the card is unmerged (depends $depends)', ({ depends, answers }) => {
+    { depends: [DEPENDENCY] },
+    { depends: [] },
+  ])('red CI on an open PR gets an answer round on its head whether or not a dependency of the card is unmerged (depends $depends)', ({ depends }) => {
     const card = openDependent(depends, { required: 'failure' })
 
-    expect(card.answersOfTheCard()).toEqual(answers)
+    expect(card.answersOfTheCard()).toEqual([OLD_HEAD])
   })
 
   it.each([
