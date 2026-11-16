@@ -47,7 +47,7 @@ function passing(): VitestRun {
 }
 
 async function ranRound(round: string | null, record: (run: GateRun) => void): Promise<readonly string[]> {
-  const card = { kind: 'card' as const, card: CARD, touches: TOUCHES, reading: sessionCardRunsOf({ touches: TOUCHES, runs: [], masks: [] }, CATALOG, MAP) }
+  const card = { kind: 'card' as const, card: CARD, touches: TOUCHES, reading: sessionCardRunsOf({ touches: TOUCHES, runs: [], masks: [] }, CATALOG, MAP), witnesses: [] }
   const selection = sessionSelection(TOUCHES, GRAPH, () => '', card.reading, MAP)
   const suite: Suite = { vitest: vi.fn(passing), liveness: () => [], queue: vi.fn(async (step: () => Promise<number>) => step()), log: () => {}, record: gateRecorder(round, ROUND, card, record) }
   expect(await testStep(selection, suite)).toBe(0)
