@@ -17,6 +17,8 @@ export const MODULE_OWNS: Readonly<Record<string, readonly string[]>> = {
     `${FACTORY_ROOT}/core/queue.ts`,
     `${FACTORY_ROOT}/core/dependency-wait.ts`,
     `${FACTORY_ROOT}/core/lease.ts`,
+    `${FACTORY_ROOT}/core/handover.ts`,
+    `${FACTORY_ROOT}/core/executor-holds.ts`,
     `${FACTORY_ROOT}/core/node.ts`,
     `${FACTORY_ROOT}/core/stored.ts`,
     `${FACTORY_ROOT}/core/errors.ts`,
