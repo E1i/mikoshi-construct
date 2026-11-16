@@ -1016,6 +1016,7 @@
     "scripts/tests/supervisor/review-stall.test.ts",
     "scripts/tests/supervisor/shardscope.test.ts",
     "scripts/tests/supervisor/stalled-sessions.test.ts",
+    "scripts/tests/supervisor/tick-step-timing.test.ts",
     "scripts/tests/wait-for.test.ts",
     "scripts/tests/wait-for.ts",
     "scripts/tests/window/merge-through-the-bus.test.ts",

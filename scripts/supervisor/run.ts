@@ -150,10 +150,20 @@ export function holdRunLock(busPath: string, processes: ProcessList, self: numbe
   return refusedRun(`${lock} was taken again while this bus:run removed a stale one; this one exits and starts nothing`)
 }
 
+export const TICK_STEPS = ['NetWatch.poll', 'intake', 'reduce', 'WindowRequests', 'second reduce', 'deriveQueues', 'setStepStatuses', 'StalledSessions', 'board'] as const
+
+export type TickStep = typeof TICK_STEPS[number]
+
+export interface StepTiming {
+  step: TickStep
+  ms: number
+}
+
 export interface Tick {
   poll: Poll
   reduced: ReduceCount | null
   derived: Derived | null
+  steps: StepTiming[]
 }
 
 function lastEventId(db: DatabaseSync): number {
@@ -161,32 +171,49 @@ function lastEventId(db: DatabaseSync): number {
 }
 
 export class BusTick {
-  constructor(private readonly db: DatabaseSync, private readonly projections: Projections, private readonly netWatch: NetWatch, private readonly clock: () => Date, private readonly intake: () => void = () => {}, private readonly project: (now: Date) => void = () => {}, private readonly requests: () => void = () => {}, private readonly statuses: () => void = () => {}, private readonly stalled: () => void = () => {}) {}
+  constructor(private readonly db: DatabaseSync, private readonly projections: Projections, private readonly netWatch: NetWatch, private readonly clock: () => Date, private readonly intake: () => void = () => {}, private readonly project: (now: Date) => void = () => {}, private readonly requests: () => void = () => {}, private readonly statuses: () => void = () => {}, private readonly stalled: () => void = () => {}, private readonly elapsedMs: () => number = () => performance.now()) {}
 
   run(): Tick | null {
-    const poll = this.netWatch.poll()
+    const steps: StepTiming[] = []
+    const timed = <T>(step: TickStep, work: () => T): T => {
+      const started = this.elapsedMs()
+      try {
+        return work()
+      }
+      finally {
+        steps.push({ step, ms: this.elapsedMs() - started })
+      }
+    }
+    const poll = timed('NetWatch.poll', () => this.netWatch.poll())
     if (poll === null)
       return null
     if (poll.kind !== 'ticked')
-      return { poll, reduced: null, derived: null }
-    this.intake()
-    const beforeRequests = reduce(this.db, 'pending', this.projections)
-    this.requests()
+      return { poll, reduced: null, derived: null, steps }
+    timed('intake', this.intake)
+    const beforeRequests = timed('reduce', () => reduce(this.db, 'pending', this.projections))
+    timed('WindowRequests', this.requests)
     const ts = this.clock().toISOString()
-    const through = lastEventId(this.db)
-    const afterRequests = reduce(this.db, 'pending', this.projections)
-    const reduced = { applied: beforeRequests.applied + afterRequests.applied, rejected: beforeRequests.rejected + afterRequests.rejected }
-    appendEvent(this.db, { ts, type: REDUCED, actor: 'reducer', cardId: null, pr: null, head: null, dedupeKey: `${REDUCED}:${ts}`, payload: { through_event_id: through, ...reduced }, legacy: false })
-    const derived = deriveQueues(this.db, ts)
-    this.statuses()
-    this.stalled()
-    this.project(this.clock())
-    return { poll, reduced, derived }
+    const reduced = timed('second reduce', () => {
+      const through = lastEventId(this.db)
+      const afterRequests = reduce(this.db, 'pending', this.projections)
+      const both = { applied: beforeRequests.applied + afterRequests.applied, rejected: beforeRequests.rejected + afterRequests.rejected }
+      appendEvent(this.db, { ts, type: REDUCED, actor: 'reducer', cardId: null, pr: null, head: null, dedupeKey: `${REDUCED}:${ts}`, payload: { through_event_id: through, ...both }, legacy: false })
+      return both
+    })
+    const derived = timed('deriveQueues', () => deriveQueues(this.db, ts))
+    timed('setStepStatuses', this.statuses)
+    timed('StalledSessions', this.stalled)
+    timed('board', () => this.project(this.clock()))
+    return { poll, reduced, derived, steps }
   }
 }
 
+export function stepTimingLine(steps: readonly StepTiming[]): string {
+  return `${PREFIX}tick steps: ${steps.map(each => `${each.step} ${(each.ms / 1000).toFixed(2)} s`).join(', ')}`
+}
+
 export function tickLines(tick: Tick): string[] {
-  const lines = [pollLine(tick.poll)]
+  const lines = [pollLine(tick.poll), stepTimingLine(tick.steps)]
   if (tick.reduced !== null)
     lines.push(`${PREFIX}reduced: applied ${tick.reduced.applied}, rejected ${tick.reduced.rejected}`)
   if (tick.derived !== null && tick.derived.superseded.length + tick.derived.queued.length > 0)

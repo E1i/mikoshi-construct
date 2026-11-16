@@ -5752,6 +5752,7 @@
       },
       "scripts/ports/pr-status.ts": {
         "constants": [
+          "LAST_STATUS_SET_ON_HEAD",
           "PREFIX",
           "STATUS_ACTOR",
           "STATUS_BATCH",

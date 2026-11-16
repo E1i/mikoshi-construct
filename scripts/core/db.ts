@@ -38,6 +38,7 @@ CREATE TRIGGER IF NOT EXISTS events_no_delete BEFORE DELETE ON events
 BEGIN SELECT RAISE(ABORT, 'events are append-only'); END;
 CREATE INDEX IF NOT EXISTS events_by_type ON events (type, id);
 CREATE INDEX IF NOT EXISTS events_by_card ON events (card_id, id);
+CREATE INDEX IF NOT EXISTS events_by_pr_head ON events (pr, head, type, id) WHERE pr IS NOT NULL;
 CREATE TABLE IF NOT EXISTS cards (
   card_id INTEGER PRIMARY KEY,
   state TEXT,
