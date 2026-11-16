@@ -885,8 +885,12 @@ describe('construct intake --admit reads the witness fields', () => {
   it('narrowing -t of a witness field is admitted with no decision', () => {
     expect(amended(world(), [field()], [field({ test: 'the thing exactly' })])).toMatchObject({ status: 'admitted', source: 'amend' })
     expect(amended(world(), [field({ test: null })], [field()])).toMatchObject({ status: 'admitted', source: 'amend' })
-    expect(amended(world(), [field({ test: 'the.thing' })], [field({ test: 'the thing' })])).toMatchObject({ status: 'admitted', source: 'amend' })
+    expect(amended(world(), [field({ test: 'the.thing [needs ps]' })], [field({ test: 'the.thing [needs ps] exactly' })])).toMatchObject({ status: 'admitted', source: 'amend' })
     expect(amended(world(), [field({ test: null, base: 'pass' })], [field()])).toMatchObject({ status: 'admitted', source: 'amend' })
+  })
+
+  it('a title is matched literally, so a dot in the old title does not cover a space in the new one', () => {
+    expect(amended(world(), [field({ test: 'the.thing' })], [field({ test: 'the thing' })])).toMatchObject({ status: 'ownerWait' })
   })
 
   it('a moved field and a negated field with the opposite expectation are admitted with no decision', () => {
