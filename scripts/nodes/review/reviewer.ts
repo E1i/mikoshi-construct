@@ -22,7 +22,7 @@ import { busWriteAt, ChildLog } from '../../core/node.js'
 import { processGit } from '../../ports/git.js'
 import { prepareTree } from '../../ports/prepare-tree.js'
 import { OsProcessTable, identityOf as rowIdentityOf } from '../../ports/process-table.js'
-import { reviewModelOf, SessionCeilingReached, spawnSession, streamReading, withoutCard } from '../../ports/session.js'
+import { reviewModelOf, spawnSession, streamReading, withoutCard } from '../../ports/session.js'
 import { FREE_TREE_CAPACITY, FREE_TREES, gitIn, parkTree, takeFreeTree } from '../../ports/worktree.js'
 import { isAlive, joinReviewTree, leaveReviewTree, WORKER_LIMIT_VARIABLE } from '../../quality/lock.js'
 
@@ -488,12 +488,8 @@ async function verdictOfTheSession(run: () => Promise<number>, verdictPath: stri
     await settled
     return end.review
   }
-  if ('error' in end) {
-    const onDisk = end.error instanceof SessionCeilingReached ? writtenVerdict(verdictPath, session) : null
-    if (onDisk === null)
-      throw end.error
-    return onDisk
-  }
+  if ('error' in end)
+    throw end.error
   if (end.code !== 0)
     throw new Error(`the review session ${session} exited ${end.code}`)
   return reviewOf(readFileSync(verdictPath, 'utf8'), session)
@@ -688,7 +684,7 @@ function reviewerOfTree(trees: ReviewTrees, spawn: (params: SpawnSessionParams) 
     catch (error) {
       if (!trees.holds(tree))
         throw error
-      throw new ReviewFailed(error instanceof Error ? error.message : String(error), held, error instanceof SessionCeilingReached)
+      throw new ReviewFailed(error instanceof Error ? error.message : String(error), held)
     }
     finally {
       clearTimeout(ceiling)

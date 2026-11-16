@@ -16,7 +16,7 @@ import { REVIEW_FAILED, windowRouteLine } from '../../nodes/review/review-execut
 import { ReviewWorker } from '../../nodes/review/review-worker.js'
 import { claudeReviewer, osDescendants, REVIEW_CEILING, ReviewFailed, reviewPrompt, ReviewTrees, VERDICT_ENDS_LINE, WITNESS_RUNS_LINE } from '../../nodes/review/reviewer.js'
 import { InMemoryProcessTable } from '../../ports/process-table.js'
-import { clientCommand, SessionCeilingReached, spawnSession } from '../../ports/session.js'
+import { clientCommand, spawnSession } from '../../ports/session.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { cardBody, sha } from '../bus/github-fake.js'
 import { eventsOf, liveBench } from '../bus/merge-bench.js'
@@ -151,23 +151,6 @@ describe('a review ended at its ceiling goes to the window', () => {
     expect([alive(root!), alive(background!)]).toEqual([false, false])
   })
 
-  it('a session ended at the ceiling with a verdict on disk records that verdict and starts no second run', async () => {
-    const started: SpawnSessionParams[] = []
-    const { bench, worker } = benchWith(reviewerOver(async (params) => {
-      started.push(params)
-      writeFileSync(path.join(path.dirname(params.stdoutPath), `${params.sessionId}.verdict.json`), JSON.stringify({ verdict: 'changes', findings: [FINDING] }))
-      throw new SessionCeilingReached(params.sessionId, params.ceilingMs!)
-    }))
-
-    expect(await worker.step()).toMatchObject({ kind: 'recorded', verdict: 'changes' })
-    await afterAllTicks(bench, worker)
-
-    expect(started).toHaveLength(1)
-    expect(leasesOf(bench)).toBe(1)
-    expect(eventsOf(bench.db, REVIEW_RECORDED).map(payload => payload.verdict)).toEqual(['changes'])
-    expect(eventsOf(bench.db, TASK_FAILED)).toEqual([])
-  })
-
   it('the review prompt names the card witnesses and mutations and forbids directory runs and polling loops', () => {
     const lease = { taskKey: `review:${CARD}:${PR}:${HEAD}`, queue: 'review' as const, cardId: CARD, pr: PR, head: HEAD, leaseGen: 1, actor: 'worker:review:w' }
     const prompt = reviewPrompt(lease, fullReview('a fixed plan'), '/tmp/t', '/tmp/v.json', cardText())
@@ -181,17 +164,17 @@ describe('a review ended at its ceiling goes to the window', () => {
     expect(prompt.indexOf(WITNESS_RUNS_LINE)).toBeLessThan(prompt.indexOf('Finish by writing /tmp/v.json'))
   })
 
-  it('a review session ended at the ceiling without a verdict starts no second run and opens the window route', async () => {
-    const started: SpawnSessionParams[] = []
-    const { bench, worker } = benchWith(reviewerOver(async (params) => {
-      started.push(params)
-      throw new SessionCeilingReached(params.sessionId, params.ceilingMs!)
-    }))
+  it('a review that failed at the ceiling starts no second run and opens the window route', async () => {
+    let started = 0
+    const { bench, worker } = benchWith(async () => {
+      started += 1
+      throw new ReviewFailed('the review session ended at its ceiling without a verdict', { path: '/tmp/t', release: () => null }, true)
+    })
 
     expect(await worker.step()).toMatchObject({ kind: 'denied', denial: { reason: REVIEW_CEILING }, next: 'withdrawn' })
     await afterAllTicks(bench, worker)
 
-    expect(started).toHaveLength(1)
+    expect(started).toBe(1)
     expect(leasesOf(bench)).toBe(1)
     expect(eventsOf(bench.db, TASK_FAILED).map(payload => [payload.reason, payload.next])).toEqual([[REVIEW_CEILING, 'withdrawn']])
     const alarms = eventsOf(bench.db, BOARD_ALARM).filter(payload => payload.reason === REVIEW_CEILING)
