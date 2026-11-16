@@ -78,13 +78,15 @@ describe('the header slot counter', () => {
 })
 
 describe('the runner model', () => {
-  it('a heartbeat with model claude-sonnet-5-5 renders (SONNET 5.5)', () => {
-    const html = pageOf([
-      { ts: minutesAgo(8), type: TASK_LEASED, card: CARD, payload: JSON.stringify({ queue: 'answer', task_key: 'k', lease_gen: 1 }) },
-      { ts: minutesAgo(1), type: SESSION_HEARTBEAT, card: CARD, payload: JSON.stringify({ step: 'answer', session: 's-one', context: 100_000, model: 'claude-sonnet-5-5' }) },
-    ])
-    const card = /<div class="svc bevel" data-role="answer"[\s\S]*?(?=<div class="svc bevel" |<\/section>)/.exec(html)![0]
-    expect(card).toContain('<div class="round-who"><span class="round-model">(SONNET 5.5)</span><span class="round-label">')
+  describe('a heartbeat with model claude-sonnet-5-5 renders (SONNET 5.5)', () => {
+    it('a heartbeat with model claude-sonnet-5-5 renders SONNET 5.5 in parentheses', () => {
+      const html = pageOf([
+        { ts: minutesAgo(8), type: TASK_LEASED, card: CARD, payload: JSON.stringify({ queue: 'answer', task_key: 'k', lease_gen: 1 }) },
+        { ts: minutesAgo(1), type: SESSION_HEARTBEAT, card: CARD, payload: JSON.stringify({ step: 'answer', session: 's-one', context: 100_000, model: 'claude-sonnet-5-5' }) },
+      ])
+      const card = /<div class="svc bevel" data-role="answer"[\s\S]*?(?=<div class="svc bevel" |<\/section>)/.exec(html)![0]
+      expect(card).toContain('<div class="round-who"><span class="round-model">(SONNET 5.5)</span><span class="round-label">')
+    })
   })
 
   it('a heartbeat without a model hides the model line', () => {
