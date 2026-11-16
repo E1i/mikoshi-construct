@@ -182,11 +182,13 @@ export async function runMergeWorker(argv: string[], run: MergeRun): Promise<num
   return runNode(argv, 'merge', run.busPath, (db, mode) => new MergeNode({ ...nodeLiveness(), db, gitHub: run.gitHub, put: run.put, publish: run.publish, clock: () => new Date(), session: run.session, run: null, pushPolicy: run.pushPolicy, rebuildCatalog: run.rebuildCatalog, overlaps: run.overlaps, weights: run.weights?.(db), mode, env: process.env }), { pause: run.pause, codeSha: loadedCodeSha, supply: nodeSupply() })
 }
 
-async function main(): Promise<number> {
-  const cwd = process.cwd()
-  const busPath = defaultBusPath()
+export function liveMergeRun(cwd: string, busPath: string): MergeRun {
   const gitHub = ghApi(cwd)
-  return runMergeWorker(process.argv.slice(2), { busPath, rebuildCatalog: ref => rebuildCatalogAt(ref, busPath), gitHub, put: ghApiPut(cwd), publish: ghStatusPublisher(cwd), session: randomUUID(), pause: sleep, pushPolicy: () => pushPolicyOf(readThroughPort, cwd), weights: weightsDriftWatch(gitHub, busPath) })
+  return { busPath, rebuildCatalog: ref => rebuildCatalogAt(ref, busPath), gitHub, put: ghApiPut(cwd), publish: ghStatusPublisher(cwd), session: randomUUID(), pause: sleep, pushPolicy: () => pushPolicyOf(readThroughPort, cwd), weights: weightsDriftWatch(gitHub, busPath) }
+}
+
+async function main(): Promise<number> {
+  return runMergeWorker(process.argv.slice(2), liveMergeRun(process.cwd(), defaultBusPath()))
 }
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {

@@ -6,15 +6,19 @@ import { Buffer } from 'node:buffer'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { FILE_WEIGHTS_NAME } from '../../ci/file-weights-reporter.js'
 import { MAX_DRIFTED_SHARE, RECOMPUTE_COMMAND, RECOMPUTE_DRIFTED_SHARE, recomputedTable, WEIGHTS_PATH } from '../../ci/test-weights.js'
 import { driftOfRun } from '../../ci/weights-law.js'
 import { cardBodyText } from '../../core/card-bodies.js'
-import { BOARD_ALARM, CARD_ADMITTED, OWNER_WAIT_OPENED } from '../../core/events.js'
+import { appendEvent } from '../../core/db.js'
+import { BOARD_ALARM, CARD_ADMITTED, MERGE_DONE, OWNER_WAIT_OPENED, REVIEW_RECORDED } from '../../core/events.js'
 import { BusWeightsRecompute, WEIGHTS_DRIFT_SOURCE, WEIGHTS_DRIFT_UNREAD } from '../../intake/intake.js'
 import { handFile, ShiftCardStarter } from '../../nodes/launch/launch-starter.js'
+import { liveMergeRun, MergeNode } from '../../nodes/merge/merge-worker.js'
 import { WeightsDriftWatch } from '../../nodes/merge/weights-drift.js'
+import { SILENT_MS } from '../../supervisor/liveness-sites.js'
+import { cardBody, sha } from './github-fake.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
 
 const FILES = Array.from({ length: 80 }, (_, at) => `scripts/tests/w/f${String(at).padStart(2, '0')}.test.ts`)
@@ -132,48 +136,91 @@ describe('the drift of a green main run admits one recompute card (D-600)', () =
   })
 })
 
+interface StarterView { table: string | null, prompt: string }
+
+function starterOf(bench: MergeBench, launchDir: string, worktree: string, changed: string[], seen: StarterView): ShiftCardStarter {
+  return new ShiftCardStarter({ launchDir, claude: 'client-binary', treePr: 'true' }, {
+    read: id => cardBodyText(bench.db, id),
+    cut: () => {
+      mkdirSync(worktree, { recursive: true })
+      return worktree
+    },
+    base: () => 'b'.repeat(40),
+    freshen: () => ({ kind: 'fresh', base: 'b'.repeat(40) }),
+    spawnDetached: () => {
+      const file = path.join(worktree, WEIGHTS_PATH)
+      seen.table = existsSync(file) ? readFileSync(file, 'utf8') : null
+      return 4242
+    },
+    pgidOf: pid => pid,
+    kill: () => {},
+    uuid: () => 'sess-weights',
+    envOf: () => ({}),
+    prompt: (task) => {
+      seen.prompt = task.body
+      return task.body
+    },
+    changedPaths: () => changed,
+    readReport: () => null,
+    cardSessions: () => [],
+    readTranscript: () => null,
+    treeFile: () => null,
+  })
+}
+
+function admittedCard(world: World): { bench: MergeBench, launchDir: string, cardId: number, worktree: string } {
+  const { bench, launchDir, watch } = fixture(world)
+  const outcome = watch().watch()
+  expect(outcome.kind).toBe('admitted')
+  bench.tick()
+  const worktree = mkdtempSync(path.join(tmpdir(), 'weights-tree-'))
+  roots.push(worktree)
+  return { bench, launchDir, cardId: outcome.kind === 'admitted' ? outcome.card : 0, worktree }
+}
+
 describe('the recompute card passes without an owner wait (owner s692)', () => {
   it('recompute card passes without an owner wait', () => {
     const measured = measuredWith(5)
-    const { bench, launchDir, watch } = fixture({ runs: [7006], measured: { 7006: measured } })
-    const outcome = watch().watch()
-    expect(outcome.kind).toBe('admitted')
-    const cardId = outcome.kind === 'admitted' ? outcome.card : 0
-    bench.tick()
-    const worktree = mkdtempSync(path.join(tmpdir(), 'weights-tree-'))
-    roots.push(worktree)
-    const seen: { table: string | null, prompt: string } = { table: null, prompt: '' }
-    const starter = new ShiftCardStarter({ launchDir, claude: 'client-binary', treePr: 'true' }, {
-      read: id => cardBodyText(bench.db, id),
-      cut: () => {
-        mkdirSync(worktree, { recursive: true })
-        return worktree
-      },
-      base: () => 'b'.repeat(40),
-      spawnDetached: () => {
-        const file = path.join(worktree, WEIGHTS_PATH)
-        seen.table = existsSync(file) ? readFileSync(file, 'utf8') : null
-        return 4242
-      },
-      pgidOf: pid => pid,
-      kill: () => {},
-      uuid: () => 'sess-weights',
-      envOf: () => ({}),
-      prompt: (task) => {
-        seen.prompt = task.body
-        return task.body
-      },
-      changedPaths: () => [],
-      readReport: () => null,
-      cardSessions: () => [],
-      readTranscript: () => null,
-      treeFile: () => null,
-    })
-    expect(starter.start({ cardId, lane: 'lane-1' }).kind).toBe('started')
+    const { bench, launchDir, cardId, worktree } = admittedCard({ runs: [7006], measured: { 7006: measured } })
+    const seen: StarterView = { table: null, prompt: '' }
+    expect(starterOf(bench, launchDir, worktree, [], seen).start({ cardId, lane: 'lane-1' }).kind).toBe('started')
     expect(seen.table).toBe(recomputedTable(TABLE, measured, () => true).text)
     expect(seen.prompt).not.toContain('test:weights')
     expect(seen.prompt).not.toContain(RECOMPUTE_COMMAND)
     expect(seen.prompt).toContain('needs no network')
     expect(eventsOf(bench.db, OWNER_WAIT_OPENED)).toEqual([])
+  })
+
+  it('a held recompute tree whose only change is the handed table is continued, not refused as an unnamed change', () => {
+    const { bench, launchDir, cardId, worktree } = admittedCard({ runs: [7007], measured: { 7007: measuredWith(5) } })
+    const seen: StarterView = { table: null, prompt: '' }
+    const relaunched = starterOf(bench, launchDir, worktree, [WEIGHTS_PATH], seen).start({ cardId, lane: 'lane-1', continueIn: { worktree, base: 'b'.repeat(40) } })
+    expect(relaunched.kind).toBe('started')
+    const foreign = starterOf(bench, launchDir, worktree, [WEIGHTS_PATH, 'scripts/ci/shard.ts'], seen).start({ cardId, lane: 'lane-1', continueIn: { worktree, base: 'b'.repeat(40) } })
+    expect(foreign).toMatchObject({ kind: 'refused', denial: { paths: ['scripts/ci/shard.ts'] } })
+  })
+})
+
+describe('the merge node watches the weights after main advances (D-600)', () => {
+  it('a merge the node makes measures the latest green main run and admits the recompute card', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+    const { bench, watch } = fixture({ runs: [7008], measured: { 7008: measuredWith(5) } })
+    appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: REVIEW_RECORDED, actor: 'worker:review:reviewer-1', cardId: 1070, pr: 970, head: sha('a'), dedupeKey: `${REVIEW_RECORDED}:live`, payload: { head: sha('a'), verdict: 'pass', reviewer_session: 'reviewer-1', findings: [] }, legacy: false })
+    bench.gitHub.upToDateRequired = false
+    bench.gitHub.open({ number: 970, review: 'success', files: ['scripts/nodes/merge/merge-worker.ts'], body: `${cardBody(970)}\n\n■ 4 □ 1 · 1` })
+    bench.tick()
+    const node = new MergeNode({ silentMs: SILENT_MS, db: bench.db, gitHub: bench.gitHub.client, put: bench.gitHub.put, publish: bench.gitHub.publish, clock: bench.clock.now, session: 'node-1', run: null, mode: 'live', env: {}, weights: watch() })
+    const controller = new AbortController()
+    await node.run({ pause: async () => controller.abort(), signal: controller.signal })
+    expect(eventsOf(bench.db, MERGE_DONE)).toHaveLength(1)
+    expect(admitted(bench)).toHaveLength(1)
+    vi.restoreAllMocks()
+  })
+
+  it('the live merge worker is wired with the weights watch', () => {
+    const { bench } = fixture({ runs: [], measured: {} })
+    const weights = liveMergeRun(bench.busPath, bench.busPath).weights
+    expect(weights).toBeTypeOf('function')
+    expect(weights!(bench.db)).toBeInstanceOf(WeightsDriftWatch)
   })
 })
