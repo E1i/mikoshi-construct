@@ -10,7 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { openBus } from '../../core/db.js'
 import { CARD_ANSWERED, TASK_EXPIRED, WORKER_RETIRING } from '../../core/events.js'
 import { completeTask, leasedByRetiring, leaseWhileFree, recordWorkerStarted, retiringPids, workerRetiring } from '../../core/lease.js'
-import { Node } from '../../core/node.js'
+import { Node, recordChildStarted } from '../../core/node.js'
 import { keyOf, queueTaskWithin } from '../../core/queue.js'
 import { launchName, PREFIX } from '../../supervisor/bg.js'
 import { nodeSupply } from '../../supervisor/composition.js'
@@ -25,6 +25,7 @@ const SHARED_FILE = 'scripts/core/db.ts'
 const MERGED_AT = Date.parse('2026-11-04T06:40:15.000Z')
 const OLD_PID = 600
 const OLD_WRAPPER_PID = 599
+const SESSION_PID = 900
 const roots: string[] = []
 
 beforeEach(() => {
@@ -55,6 +56,8 @@ class RoundNode extends Node<NodeStep> {
   }
 
   protected async handle(lease: Lease): Promise<NodeStep> {
+    const session = SESSION_PID + this.taken.length
+    recordChildStarted(this.db, this.parts.clock().toISOString(), this.actor, { mode: 'child', instance: this.codeOf, generation: this.codeOf, pid: session, pgid: session, lstart: this.parts.clock().toISOString(), kind: 'answer', taskKey: lease.taskKey, tree: null })
     this.taken.push(`${this.codeOf}:${lease.taskKey}`)
     for (const waiting of this.awaitingTaken.filter(each => each.count <= this.taken.length)) {
       this.awaitingTaken.splice(this.awaitingTaken.indexOf(waiting), 1)

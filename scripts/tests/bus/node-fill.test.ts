@@ -13,9 +13,9 @@ import { Node } from '../../core/node.js'
 import { keyOf, queueTaskWithin } from '../../core/queue.js'
 import { CHECK_MS } from '../../ports/netwatch.js'
 import { nodeSupply } from '../../supervisor/composition.js'
+import { DRAIN_LIMIT_MS, recordRestarted } from '../../supervisor/generation-handover.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { slotsVariable } from '../../supervisor/scheduler.js'
-import { DRAIN_LIMIT_MS, recordRestarted } from '../../supervisor/generation-handover.js'
 import { Clock } from './github-fake.js'
 
 const roots: string[] = []

@@ -6,6 +6,7 @@ import { GENERATION_ENDED, RESTARTED, TASK_EXPIRED, WORKER_RETIRING, WORKER_STAR
 import { HOLDER_DEAD, HOLDER_UNPROVEN, LEASE_MS, WORKER_HUNG } from '../core/lease.js'
 import { matchingEvents, UNHANDED } from '../core/node.js'
 import { QUEUE_ACTOR } from '../core/queue.js'
+import { payloadOf } from '../core/stored.js'
 import { PREFIX } from './bg.js'
 import { childrenNotEnded, recordedWorkers } from './recorded-worker.js'
 import { ROUND_WORKERS } from './workers.js'
@@ -36,8 +37,7 @@ export function holderLines(reading: HolderReading): string[] {
 function recorded(db: DatabaseSync, type: string): { ts: string, payload: Record<string, unknown> }[] {
   return matchingEvents(db, [type], 0, EVERY_EVENT).flatMap((event) => {
     try {
-      const payload = JSON.parse(event.payload) as unknown
-      return payload !== null && typeof payload === 'object' ? [{ ts: event.ts, payload: payload as Record<string, unknown> }] : []
+      return [{ ts: event.ts, payload: payloadOf(event) }]
     }
     catch {
       return []

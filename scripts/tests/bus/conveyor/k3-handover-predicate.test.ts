@@ -12,7 +12,7 @@ import { CHILD_ENDED, CHILD_STARTED, GENERATION_ENDED, PR_OBSERVED, SIGNAL_SENT,
 import { taskKey } from '../../../core/identifiers.js'
 import { aliveBy, expireLeases, heldByLiveExecutors, leaseHandedOver, leaseNext, prTree, releaseUnstarted, RETIRED_UNSTARTED, retireHolders } from '../../../core/lease.js'
 import { GENERATION_VARIABLE, INSTANCE_VARIABLE, recordChildEnded, recordChildStarted, recordWorkerIdentity } from '../../../core/node.js'
-import { queueTaskWithin } from '../../../core/queue.js'
+import { queueTask } from '../../../core/queue.js'
 import { reduce } from '../../../core/reducer.js'
 import { BusRead } from '../../../ports/bus-read.js'
 import { InMemoryProcessTable, OsProcessTable } from '../../../ports/process-table.js'
@@ -243,7 +243,7 @@ class World {
 
   queue(queue: Queue, cardId: number, pr?: { pr: number, head: string }): string {
     const task = { queue, cardId, ...pr }
-    queueTaskWithin(this.db, new Date().toISOString(), task)
+    queueTask(this.db, new Date().toISOString(), task)
     return taskKey(task)
   }
 
@@ -330,7 +330,7 @@ describe('k3: the handover predicate over the recorded executors', () => {
   it('a queued task whose registered executor lives is not leased, and is leased once its child.ended is recorded', () => {
     const db = bus()
     const key = taskKey({ queue: 'answer', cardId: 1 })
-    queueTaskWithin(db, ts(), { queue: 'answer', cardId: 1 })
+    queueTask(db, ts(), { queue: 'answer', cardId: 1 })
     register(db, { mode: 'child', kind: 'answer', taskKey: key, pid: 11, tree: '/trees/1' })
     expect(leaseHandedOver(db, ts(), 'answer', NEW_ACTOR, undefined, living(11))).toBeNull()
     ended(db, key, 11)
@@ -340,7 +340,7 @@ describe('k3: the handover predicate over the recorded executors', () => {
   it('an executor whose pid is gone or runs another start holds nothing; without a reader every registered executor holds its task', () => {
     const db = bus()
     const key = taskKey({ queue: 'answer', cardId: 1 })
-    queueTaskWithin(db, ts(), { queue: 'answer', cardId: 1 })
+    queueTask(db, ts(), { queue: 'answer', cardId: 1 })
     register(db, { mode: 'child', kind: 'answer', taskKey: key, pid: 11, tree: '/trees/1' })
     expect(heldByLiveExecutors(db, undefined).tasks).toEqual([key])
     expect(heldByLiveExecutors(db, aliveBy(() => ({ lstart: '2026-11-16T11:00:00.000Z' }))).tasks).toEqual([])
@@ -350,11 +350,11 @@ describe('k3: the handover predicate over the recorded executors', () => {
   it('a live answer session keeps the answer and launch tasks of its card, and a task of another card is leased', () => {
     const db = bus()
     const answer = taskKey({ queue: 'answer', cardId: 1 })
-    queueTaskWithin(db, ts(), { queue: 'answer', cardId: 1 })
+    queueTask(db, ts(), { queue: 'answer', cardId: 1 })
     leaseNext(db, ts(), 'answer', OLD_ACTOR)
     register(db, { mode: 'child', kind: 'answer', taskKey: answer, pid: 11, tree: '/trees/1' })
-    queueTaskWithin(db, ts(), { queue: 'launch', cardId: 1, generation: 'next' })
-    queueTaskWithin(db, ts(), { queue: 'launch', cardId: 2 })
+    queueTask(db, ts(), { queue: 'launch', cardId: 1, generation: 'next' })
+    queueTask(db, ts(), { queue: 'launch', cardId: 2 })
     expect(heldByLiveExecutors(db, living(11)).cards).toEqual([1])
     expect(leaseHandedOver(db, ts(), 'launch', NEW_ACTOR, undefined, living(11))?.cardId).toBe(2)
     expect(leaseHandedOver(db, ts(), 'launch', NEW_ACTOR, undefined, living(11))).toBeNull()
@@ -367,11 +367,11 @@ describe('k3: the handover predicate over the recorded executors', () => {
       appendEvent(db, { ts: ts(), type: PR_OBSERVED, actor: 'netwatch', cardId: card, pr, head: sha, dedupeKey: `${PR_OBSERVED}:${pr}:${sha}`, payload: { card_id: card, base: 'main', head: sha, mergeable: 'clean', ci: 'green', auto_merge: false, draft: false }, legacy: false })
     reduce(db, 'pending', busProjections())
     const update = { queue: 'update', cardId: 1, pr: 17, head } as const
-    queueTaskWithin(db, ts(), update)
+    queueTask(db, ts(), update)
     leaseNext(db, ts(), 'update', 'worker:update:old')
     register(db, { mode: 'inline', kind: 'update', taskKey: taskKey(update), pid: 11, tree: prTree(17) })
-    queueTaskWithin(db, ts(), { queue: 'merge', cardId: 1, pr: 17, head })
-    queueTaskWithin(db, ts(), { queue: 'merge', cardId: 2, pr: 18, head: other })
+    queueTask(db, ts(), { queue: 'merge', cardId: 1, pr: 17, head })
+    queueTask(db, ts(), { queue: 'merge', cardId: 2, pr: 18, head: other })
     expect(heldByLiveExecutors(db, living(11)).prs).toEqual([17])
     expect(leaseHandedOver(db, ts(), 'merge', 'worker:merge:new', undefined, living(11))?.pr).toBe(18)
     expect(leaseHandedOver(db, ts(), 'merge', 'worker:merge:new', undefined, living(11))).toBeNull()
@@ -379,8 +379,8 @@ describe('k3: the handover predicate over the recorded executors', () => {
 
   it('a retiring worker releases retired_unstarted only the leases with no child.started since they were leased', () => {
     const db = bus()
-    queueTaskWithin(db, ts(), { queue: 'answer', cardId: 1 })
-    queueTaskWithin(db, ts(), { queue: 'answer', cardId: 2 })
+    queueTask(db, ts(), { queue: 'answer', cardId: 1 })
+    queueTask(db, ts(), { queue: 'answer', cardId: 2 })
     const started = leaseNext(db, ts(), 'answer', OLD_ACTOR)!
     const deferred = leaseNext(db, ts(), 'answer', OLD_ACTOR)!
     register(db, { mode: 'child', kind: 'answer', taskKey: started.taskKey, pid: 11, tree: '/trees/1' })
