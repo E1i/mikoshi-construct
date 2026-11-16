@@ -354,14 +354,9 @@ export function witnessesOf(body: string): string[] {
   const at = lines.findIndex(line => line.trim() === WITNESSES_HEADING)
   if (at === -1)
     return []
-  const items: string[] = []
-  for (const line of lines.slice(at + 1)) {
-    const item = WITNESS_ITEM.exec(line.trim())?.[1]
-    if (item === undefined)
-      break
-    items.push(item)
-  }
-  return items
+  const after = lines.slice(at + 1).map(line => WITNESS_ITEM.exec(line.trim())?.[1])
+  const end = after.indexOf(undefined)
+  return (end === -1 ? after : after.slice(0, end)) as string[]
 }
 
 function draftOf(parked: ParkedTask): DraftCard {
@@ -438,10 +433,7 @@ function withoutOwnerMoves(decisions: DecisionsPort, cardId: number, downgrades:
   const previousIds = new Set(previous.map(witness => witnessIdIn(previous, witness)))
   const added = next.map(witness => witnessIdIn(next, witness)).filter(id => !previousIds.has(id))
   const words = writtenByTheOwner(decisions).filter(decision => decision.cards.includes(cardId)).map(decision => decision.words)
-  return downgrades.filter((witness) => {
-    const from = witnessIdIn(previous, witness)
-    return !added.some(to => words.some(each => namesTheMove(each, from, to)))
-  })
+  return downgrades.filter(witness => !added.some(to => words.some(each => namesTheMove(each, witnessIdIn(previous, witness), to))))
 }
 
 export const WITNESS_TRANSFER_IS_NO_DOWNGRADE = 'перенос свидетеля в другую карту'
@@ -562,10 +554,6 @@ function admittedText(text: string, line: string, checked: CheckedCard): string 
   return [...rewritten, ...(notes.length === 0 ? [] : ['', ...notes]), ''].join('\n')
 }
 
-function latestIntake(card: Card, admissions: CardAdmissionsPort | undefined): RecordedIntake | null {
-  return admissions?.(card.id) ?? null
-}
-
 function sameCardLine(recorded: string, line: string): boolean {
   const parsed = parseCard(line)
   const wanted = parsed.kind === 'card' ? cardLine(parsed.card) : line
@@ -625,11 +613,7 @@ function lostWrite(cardId: number): string {
 }
 
 function busBodyOf(options: AdmitOptions): string | null {
-  if (options.body !== undefined)
-    return options.body
-  if (existsSync(options.file))
-    return null
-  return options.admissions?.(Number(path.basename(options.file, '.md')))?.text ?? null
+  return options.body ?? (existsSync(options.file) ? null : options.admissions?.(Number(path.basename(options.file, '.md')))?.text ?? null)
 }
 
 export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date()): AdmitResult {
@@ -652,7 +636,7 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
   if (parsed.kind === 'refused')
     return { status: 'refused', why: parsed.reason }
   const { card } = parsed.parked.task
-  const recorded = latestIntake(card, options.admissions)
+  const recorded: RecordedIntake | null = options.admissions?.(card.id) ?? null
   if (options.priorityEdited !== true)
     text = withKeptPriority(text, recorded?.text)
   const listed = parseCard(card.line, readMilestones(options.dir))
