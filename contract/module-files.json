@@ -406,6 +406,7 @@
     "scripts/tests/bus/conveyor/k1a-process-records.test.ts",
     "scripts/tests/bus/conveyor/k2-signal-sent.test.ts",
     "scripts/tests/bus/conveyor/k3-handover-predicate.test.ts",
+    "scripts/tests/bus/conveyor/k4-release-carries-tree.test.ts",
     "scripts/tests/bus/conveyor/k6-session-carries-over.test.ts",
     "scripts/tests/bus/conveyor/o1-record-paths.test.ts",
     "scripts/tests/bus/conveyor/o2-groups-and-order.test.ts",
