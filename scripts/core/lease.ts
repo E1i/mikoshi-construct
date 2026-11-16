@@ -31,9 +31,21 @@ export interface Lease {
   actor: string
 }
 
+export interface CarriedTree {
+  path: string
+  head: string
+  localCommits: string[]
+  dirty: boolean
+}
+
 export interface Failure {
   reason: string
   withdraw: boolean
+  tree?: CarriedTree
+}
+
+function carrying(tree: CarriedTree | undefined): { tree?: CarriedTree } {
+  return tree === undefined ? {} : { tree }
 }
 
 export interface Wait {
@@ -46,6 +58,9 @@ export const SUPERSEDED_LEASE = 'superseded'
 export type AfterFailure = typeof QUEUED | typeof WITHDRAWN | typeof STOPPED | typeof SUPERSEDED_LEASE
 
 const STALE_HEAD = 'stale_head'
+
+export const TREE_CARRIER_QUEUE: Queue = 'answer'
+const UPDATE_AFTER_THE_ANSWER: Queue = 'update'
 
 interface LeaseRow {
   id: number
@@ -70,13 +85,18 @@ const GRANT_ORDER = `ORDER BY tasks.card_id IN (SELECT value FROM json_each(?)) 
 
 const HELD_CARD = `EXISTS (SELECT 1 FROM tasks AS held WHERE held.queue = tasks.queue AND held.state = '${LEASED}' AND held.card_id = tasks.card_id)`
 
-const WAITING_UNTIL_LATER = `EXISTS (
+const HELD_BACK = `(EXISTS (
   SELECT 1 FROM events AS waited WHERE waited.id = tasks.event_id AND waited.type = '${TASK_RELEASED}' AND json_extract(waited.payload, '$.until') > ?
-)`
+) OR (tasks.queue = '${UPDATE_AFTER_THE_ANSWER}' AND EXISTS (
+  SELECT 1 FROM events AS carrier WHERE carrier.card_id = tasks.card_id AND carrier.legacy = 0
+    AND carrier.type IN ('${TASK_FAILED}', '${TASK_RELEASED}') AND json_extract(carrier.payload, '$.queue') = '${TREE_CARRIER_QUEUE}'
+    AND json_type(carrier.payload, '$.tree') = 'object'
+    AND NOT EXISTS (SELECT 1 FROM events AS owned WHERE owned.card_id = carrier.card_id AND owned.id > carrier.id AND owned.legacy = 0
+      AND owned.type IN ('${TASK_COMPLETED}', '${TASK_FAILED}', '${TASK_SUPERSEDED}') AND json_extract(owned.payload, '$.queue') = '${TREE_CARRIER_QUEUE}'))))`
 
 const NEXT_LEASABLE = `
   SELECT tasks.* ${LEASABLE_FROM}
-    AND NOT (? AND ${HELD_CARD}) AND NOT ${WAITING_UNTIL_LATER} AND NOT ${HELD_BY_A_LIVE_EXECUTOR}
+    AND NOT (? AND ${HELD_CARD}) AND NOT ${HELD_BACK} AND NOT ${HELD_BY_A_LIVE_EXECUTOR}
   ${GRANT_ORDER} LIMIT 1
 `
 
@@ -165,7 +185,7 @@ export function leaseNext(db: DatabaseSync, ts: string, queue: Queue, actor: str
 }
 
 function waitsPast(db: DatabaseSync, key: string, ts: string): boolean {
-  return db.prepare(`SELECT 1 FROM tasks WHERE task_key = ? AND ${WAITING_UNTIL_LATER}`).get(key, ts) !== undefined
+  return db.prepare(`SELECT 1 FROM tasks WHERE task_key = ? AND ${HELD_BACK}`).get(key, ts) !== undefined
 }
 
 export function leaseQueued(db: DatabaseSync, ts: string, key: string, actor: string): Lease | null {
@@ -256,15 +276,15 @@ function freshBeatUntil(db: DatabaseSync, ts: string, row: LeaseRow, silentMs: n
   return until > ts ? until : null
 }
 
-function waited(db: DatabaseSync, ts: string, actor: string, row: LeaseRow, wait: Wait, context: BusEvent[]): typeof QUEUED {
+function waited(db: DatabaseSync, ts: string, actor: string, row: LeaseRow, wait: Wait, context: BusEvent[], tree?: CarriedTree): typeof QUEUED {
   for (const event of context)
     appendedOnCard(db, event)
-  appendedAndReduced(db, taskEvent(ts, TASK_RELEASED, actor, row, row.lease_gen, `${TASK_RELEASED}:${row.task_key}:${row.lease_gen}`, { reason: wait.reason, until: wait.until }))
+  appendedAndReduced(db, taskEvent(ts, TASK_RELEASED, actor, row, row.lease_gen, `${TASK_RELEASED}:${row.task_key}:${row.lease_gen}`, { reason: wait.reason, until: wait.until, ...carrying(tree) }))
   return QUEUED
 }
 
-export function waitTask(db: DatabaseSync, ts: string, lease: Lease, wait: Wait, context: BusEvent[] = []): typeof QUEUED {
-  return inTransaction(db, () => waited(db, ts, lease.actor, held(db, lease), wait, context))
+export function waitTask(db: DatabaseSync, ts: string, lease: Lease, wait: Wait, context: BusEvent[] = [], tree?: CarriedTree): typeof QUEUED {
+  return inTransaction(db, () => waited(db, ts, lease.actor, held(db, lease), wait, context, tree))
 }
 
 function failed(db: DatabaseSync, ts: string, type: string, actor: string, row: LeaseRow, failure: Failure, silentMs: number, context: BusEvent[]): AfterFailure {
@@ -272,10 +292,10 @@ function failed(db: DatabaseSync, ts: string, type: string, actor: string, row: 
   const next = afterFailure(row, failure, uncounted)
   const beating = next === STOPPED ? freshBeatUntil(db, ts, row, silentMs) : null
   if (beating !== null)
-    return waited(db, ts, actor, row, { reason: failure.reason, until: beating }, context)
+    return waited(db, ts, actor, row, { reason: failure.reason, until: beating }, context, failure.tree)
   for (const event of context)
     appendedOnCard(db, event)
-  appendedAndReduced(db, taskEvent(ts, type, actor, row, row.lease_gen, `${type}:${row.task_key}:${row.lease_gen}`, { reason: failure.reason, next, ...(uncounted ? { uncounted } : {}) }))
+  appendedAndReduced(db, taskEvent(ts, type, actor, row, row.lease_gen, `${type}:${row.task_key}:${row.lease_gen}`, { reason: failure.reason, next, ...(uncounted ? { uncounted } : {}), ...carrying(failure.tree) }))
   if (next === STOPPED) {
     const detail = `${FAILURES_TO_STOP} failures in a row on ${row.task_key}, the last: ${failure.reason}`
     appendedOnCard(db, { ts, type: CARD_STOPPED, actor, cardId: row.card_id, pr: row.pr, head: row.head, dedupeKey: `${CARD_STOPPED}:${row.task_key}`, payload: { reason: 'fault', detail }, legacy: false })
@@ -299,16 +319,16 @@ export function failTask(db: DatabaseSync, ts: string, lease: Lease, failure: Fa
     return supersedeLease(db, ts, lease, context)
   const rateLimitedUntil = failure.withdraw ? null : retryAfterIn(ts, context)
   if (rateLimitedUntil !== null)
-    return waitTask(db, ts, lease, { reason: failure.reason, until: rateLimitedUntil }, context)
+    return waitTask(db, ts, lease, { reason: failure.reason, until: rateLimitedUntil }, context, failure.tree)
   return inTransaction(db, () => failed(db, ts, TASK_FAILED, lease.actor, held(db, lease), failure, silentMs, context))
 }
 
-export function releaseTask(db: DatabaseSync, ts: string, lease: Lease, reason: string, context: BusEvent[] = []): void {
+export function releaseTask(db: DatabaseSync, ts: string, lease: Lease, reason: string, context: BusEvent[] = [], tree?: CarriedTree): void {
   inTransaction(db, () => {
     const row = held(db, lease)
     for (const event of context)
       appendedOnCard(db, event)
-    appendedAndReduced(db, taskEvent(ts, TASK_RELEASED, lease.actor, row, row.lease_gen, `${TASK_RELEASED}:${row.task_key}:${row.lease_gen}`, { reason }))
+    appendedAndReduced(db, taskEvent(ts, TASK_RELEASED, lease.actor, row, row.lease_gen, `${TASK_RELEASED}:${row.task_key}:${row.lease_gen}`, { reason, ...carrying(tree) }))
   })
 }
 
