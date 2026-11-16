@@ -4,7 +4,7 @@ import type { CardsOfTheBus } from '../../src/commands/intake/numbers.js'
 import type { LadderRunPort } from '../../src/commands/run-record.js'
 import type { BusPorts } from '../../src/program.js'
 import type { CreatesOwnerRefusal, ModuleDeclaration } from '../core/declarations.js'
-import type { RecomputeFigures, RecomputeLedger } from '../nodes/merge/weights-drift.js'
+import type { RecomputeFigures, RecomputeLedger, TableOrder } from '../nodes/merge/weights-drift.js'
 import type { GitHub } from '../ports/github.js'
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import path from 'node:path'
@@ -259,6 +259,28 @@ export const WEIGHTS_DRIFT_UNREAD = 'weights_drift_unread'
 export const RECOMPUTE_WITNESS = pnpmCommand('exec', 'vitest', 'run', 'scripts/tests/ci/test-weights-fresh.test.ts')
 const RECOMPUTE_MILESTONE = 'construct'
 const ENDED_CARD_STATES: ReadonlySet<string> = new Set([MERGED_CARD, CLOSED_CARD, DROPPED_CARD])
+const WEIGHTS_REPO = 'repos/{owner}/{repo}'
+const LAST_TABLE_CHANGE = `${WEIGHTS_REPO}/commits?path=${WEIGHTS_PATH}&per_page=1`
+const AT_OR_AFTER_CHANGE: ReadonlySet<unknown> = new Set(['ahead', 'identical'])
+const BEFORE_CHANGE: ReadonlySet<unknown> = new Set(['behind', 'diverged'])
+
+export function weightsTableOrder(gitHub: GitHub, head: string): TableOrder {
+  const commits = gitHub(LAST_TABLE_CHANGE)
+  if (commits.status !== 200 || !Array.isArray(commits.body))
+    return { kind: 'unread', why: `GitHub answered ${commits.status} to the read of the last change of ${WEIGHTS_PATH} on main` }
+  const change = (commits.body[0] as { sha?: unknown } | undefined)?.sha
+  if (commits.body.length === 0 || change === head)
+    return { kind: 'current' }
+  if (typeof change !== 'string')
+    return { kind: 'unread', why: `GitHub named the last change of ${WEIGHTS_PATH} on main with no sha` }
+  const compared = gitHub(`${WEIGHTS_REPO}/compare/${change}...${head}`)
+  const status = (compared.body as { status?: unknown } | null)?.status
+  if (compared.status === 200 && AT_OR_AFTER_CHANGE.has(status))
+    return { kind: 'current' }
+  if (compared.status === 200 && BEFORE_CHANGE.has(status))
+    return { kind: 'behind', change }
+  return { kind: 'unread', why: `GitHub answered ${compared.status} with status ${String(status)} to the comparison of ${head} with ${change}, the last change of ${WEIGHTS_PATH}` }
+}
 
 function recomputeSlug(run: number): string {
   return `test-weights-recompute-${run}`
@@ -315,6 +337,10 @@ export class BusWeightsRecompute implements RecomputeLedger {
     const slug = ` ${recomputeSlug(run)} `
     return this.read.slice(CARD_ADMITTED, ['card']).some(event => String(event.fields.card).includes(slug))
       || this.read.slice(BOARD_ALARM, ['reason', 'ref']).some(event => event.fields.reason === WEIGHTS_DRIFT_UNREAD && event.fields.ref === String(run))
+  }
+
+  tableOrder(head: string): TableOrder {
+    return weightsTableOrder(this.parts.gitHub, head)
   }
 
   openCard(): number | null {
