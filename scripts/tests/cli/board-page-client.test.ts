@@ -1,0 +1,291 @@
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
+import vm from 'node:vm'
+import { describe, expect, it } from 'vitest'
+
+const SCRIPT = readFileSync(path.resolve(import.meta.dirname, '../../cli/board-page/script.js'), 'utf8')
+const WRITTEN = '2026-11-16T10:00:00.000Z'
+const TICK_MS = 10_000
+const WRITE_SLACK_MS = 1_500
+const NAMES = {
+  drill: 'drill',
+  drillContent: 'drill-content',
+  backlogScroll: 'backlog-scroll',
+  viewKey: 'board:view',
+  dialogPrefix: 'dialog-',
+  handoffDialog: 'handoff',
+  decisionsDialog: 'decisions',
+  busLive: 'bus-live',
+  offlineReading: 'offline',
+  pulse: 'pulse',
+  titlePrefix: 'board · ',
+  slotPrefix: 'slot-',
+  backlog: 'backlog',
+  staleTicks: 3,
+  staleReading: 'stale',
+  dataFile: 'board-data.js',
+  refreshIn: 'refresh-in',
+  round: { over: '#ff0000', warn: '#ffff00', calm: '#00ff00', warnShare: 0.75, overTime: 'over', remaining: 'left' },
+}
+
+type Listener = (event: { target: StubNode, key?: string }) => void
+
+function datasetKey(selector: string): string | null {
+  const match = /^\[data-([\w-]+)\]$/.exec(selector)
+  return match === null ? null : match[1]!.replace(/-(\w)/g, (_, letter: string) => letter.toUpperCase())
+}
+
+class StubNode {
+  readonly dataset: Record<string, string> = {}
+  readonly attributes = new Map<string, string>()
+  readonly listeners = new Map<string, Listener[]>()
+  readonly children: StubNode[] = []
+  parent: StubNode | null = null
+  textContent = ''
+  innerHTML = ''
+  id = ''
+  src = ''
+  open = false
+  removed = false
+  onload: (() => void) | null = null
+  onerror: (() => void) | null = null
+
+  constructor(readonly tagName: string, dataset: Record<string, string> = {}) {
+    Object.assign(this.dataset, dataset)
+  }
+
+  add(child: StubNode): StubNode {
+    child.parent = this
+    this.children.push(child)
+    return child
+  }
+
+  matches(selector: string): boolean {
+    const key = datasetKey(selector)
+    return key !== null && key in this.dataset
+  }
+
+  closest(selector: string): StubNode | null {
+    if (this.matches(selector))
+      return this
+    return this.parent === null ? null : this.parent.closest(selector)
+  }
+
+  descendants(): StubNode[] {
+    return this.children.flatMap(child => [child, ...child.descendants()])
+  }
+
+  querySelector(selector: string): StubNode | null {
+    return this.descendants().find(node => node.matches(selector)) ?? null
+  }
+
+  setAttribute(name: string, value: string): void {
+    this.attributes.set(name, value)
+  }
+
+  removeAttribute(name: string): void {
+    this.attributes.delete(name)
+  }
+
+  addEventListener(type: string, listener: Listener): void {
+    this.listeners.set(type, [...this.listeners.get(type) ?? [], listener])
+  }
+
+  dispatch(type: string, target: StubNode = this): void {
+    for (const listener of this.listeners.get(type) ?? [])
+      listener({ target })
+  }
+
+  remove(): void {
+    this.removed = true
+  }
+
+  showModal(): void {
+    this.open = true
+  }
+
+  close(): void {
+    this.open = false
+  }
+}
+
+class MemoryStorage {
+  readonly items = new Map<string, string>()
+
+  getItem(key: string): string | null {
+    return this.items.get(key) ?? null
+  }
+
+  setItem(key: string, value: string): void {
+    this.items.set(key, value)
+  }
+}
+
+interface BoardPageStub {
+  root: StubNode
+  byId: Map<string, StubNode>
+  storage: MemoryStorage
+  loadedAt: number
+}
+
+function boardPage(storage = new MemoryStorage(), loadedAt = Date.parse(WRITTEN)): BoardPageStub {
+  const root = new StubNode('BODY')
+  const byId = new Map<string, StubNode>()
+  for (const id of [NAMES.drill, NAMES.drillContent, NAMES.refreshIn, NAMES.busLive, NAMES.pulse, NAMES.backlog]) {
+    const node = root.add(new StubNode(id === NAMES.drill ? 'DIALOG' : 'DIV'))
+    node.id = id
+    byId.set(id, node)
+  }
+  return { root, byId, storage, loadedAt }
+}
+
+function withFoldGroup(page: BoardPageStub, task: string): StubNode {
+  const group = page.root.add(new StubNode('SECTION', { task }))
+  group.add(new StubNode('BUTTON', { fold: task }))
+  return group
+}
+
+function withCounter(page: BoardPageStub, count: string): StubNode {
+  const counter = page.root.add(new StubNode('SPAN', { count }))
+  counter.textContent = count
+  return counter
+}
+
+function run(page: BoardPageStub) {
+  let now = page.loadedAt
+  let frames: (() => void)[] = []
+  const timeouts: { run: () => void, ms: number }[] = []
+  const appended: StubNode[] = []
+  const document = Object.assign(new StubNode('DOCUMENT'), {
+    title: '',
+    body: { dataset: { written: WRITTEN, tickMs: String(TICK_MS) } },
+    head: { appendChild: (child: StubNode) => appended.push(child) },
+    getElementById: (id: string) => page.byId.get(id) ?? null,
+    createElement: (tag: string) => new StubNode(tag.toUpperCase()),
+    querySelector: (selector: string) => page.root.querySelector(selector),
+    querySelectorAll: (selector: string) => page.root.descendants().filter(node => node.matches(selector)),
+  })
+  const context: Record<string, unknown> = {
+    BOARD_NAMES: NAMES,
+    document,
+    localStorage: page.storage,
+    location: { hash: '' },
+    addEventListener: () => {},
+    setTimeout: (callback: () => void, ms: number) => timeouts.push({ run: callback, ms }),
+    requestAnimationFrame: (callback: () => void) => frames.push(callback),
+    Date: { now: () => now, parse: Date.parse },
+  }
+  context.window = context
+  vm.createContext(context)
+  vm.runInContext(SCRIPT, context)
+  return {
+    timeouts,
+    appended,
+    context,
+    advance: (ms: number): void => {
+      now += ms
+    },
+    paint: (): void => {
+      const due = frames
+      frames = []
+      for (const frame of due)
+        frame()
+    },
+    click: (target: StubNode): void => document.dispatch('click', target),
+  }
+}
+
+function storedView(storage: MemoryStorage): { folds: Record<string, boolean> } {
+  return JSON.parse(storage.getItem(NAMES.viewKey) ?? '{}') as { folds: Record<string, boolean> }
+}
+
+describe('the board page script', () => {
+  it('a folded section stays folded after a reload', () => {
+    const storage = new MemoryStorage()
+    const first = boardPage(storage)
+    const folded = withFoldGroup(first, '1978')
+    const opened = withFoldGroup(first, '1979')
+    const page = run(first)
+    expect(folded.attributes.has('data-collapsed')).toBe(true)
+    expect(opened.attributes.has('data-collapsed')).toBe(true)
+    page.click(opened.children[0]!)
+    page.click(folded.children[0]!)
+    page.click(folded.children[0]!)
+    expect(storedView(storage).folds).toEqual({ 1979: true })
+
+    const second = boardPage(storage)
+    const foldedAgain = withFoldGroup(second, '1978')
+    const openedAgain = withFoldGroup(second, '1979')
+    run(second)
+    expect(foldedAgain.attributes.has('data-collapsed')).toBe(true)
+    expect(foldedAgain.children[0]!.attributes.get('aria-expanded')).toBe('false')
+    expect(openedAgain.attributes.has('data-collapsed')).toBe(false)
+    expect(openedAgain.children[0]!.attributes.get('aria-expanded')).toBe('true')
+  })
+
+  it('the refresh countdown counts from the written time, not from the load', () => {
+    const fresh = run(boardPage())
+    expect(fresh.timeouts.map(timeout => timeout.ms)).toEqual([TICK_MS])
+
+    const loadedLater = 4_000
+    const reloaded = boardPage(new MemoryStorage(), Date.parse(WRITTEN) + loadedLater)
+    const page = run(reloaded)
+    const left = TICK_MS + WRITE_SLACK_MS - loadedLater
+    expect(page.timeouts.map(timeout => timeout.ms)).toEqual([left])
+    page.paint()
+    expect(reloaded.byId.get(NAMES.refreshIn)!.textContent).toBe(` · next in ${Math.ceil(left / 1000)}s`)
+    page.advance(3_000)
+    page.paint()
+    expect(reloaded.byId.get(NAMES.refreshIn)!.textContent).toBe(` · next in ${Math.ceil((left - 3_000) / 1000)}s`)
+  })
+
+  it('a click on data-pull re-reads the board at once', () => {
+    const stub = boardPage()
+    const pull = stub.root.add(new StubNode('BUTTON', { pull: '' }))
+    const page = run(stub)
+    expect(page.appended).toHaveLength(0)
+    page.advance(1_000)
+    page.click(pull)
+    expect(page.appended).toHaveLength(1)
+    expect(page.appended[0]!.src).toBe(`${NAMES.dataFile}?t=${Date.parse(WRITTEN) + 1_000}`)
+
+    const rewritten = '2026-11-16T10:00:01.000Z'
+    page.context.BOARD = { written: rewritten, tickMs: TICK_MS, slots: {}, filters: [] }
+    page.appended[0]!.onload!()
+    expect(page.appended[0]!.removed).toBe(true)
+    expect((page.context.document as { title: string }).title).toBe(`${NAMES.titlePrefix}${rewritten}`)
+    expect(page.timeouts).toHaveLength(2)
+    page.timeouts[0]!.run()
+    expect(page.appended).toHaveLength(1)
+    page.timeouts[1]!.run()
+    expect(page.appended).toHaveLength(2)
+  })
+
+  it('the load counter animates to the data-count value', () => {
+    const stub = boardPage()
+    const counter = withCounter(stub, '4.5')
+    const page = run(stub)
+    page.paint()
+    expect(counter.textContent).toBe('0.0')
+    page.advance(300)
+    page.paint()
+    expect(counter.textContent).toBe((4.5 * (1 - 0.5 ** 3)).toFixed(1))
+    page.advance(300)
+    page.paint()
+    expect(counter.textContent).toBe('4.5')
+    counter.textContent = 'settled'
+    page.advance(300)
+    page.paint()
+    expect(counter.textContent).toBe('settled')
+
+    counter.dataset.count = '6.0'
+    page.timeouts[0]!.run()
+    page.context.BOARD = { written: '2026-11-16T10:00:11.500Z', slots: {}, filters: [] }
+    page.appended[0]!.onload!()
+    page.paint()
+    expect(counter.textContent).toBe('4.5')
+    page.advance(600)
+    page.paint()
+    expect(counter.textContent).toBe('6.0')
+  })
+})
