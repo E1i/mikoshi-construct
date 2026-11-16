@@ -374,6 +374,7 @@
     "scripts/tests/bus/board-runs-lanes.test.ts",
     "scripts/tests/bus/board-runs.test.ts",
     "scripts/tests/bus/board-session-card-boundaries.test.ts",
+    "scripts/tests/bus/board-session-card-fixes.test.ts",
     "scripts/tests/bus/board-session-card.test.ts",
     "scripts/tests/bus/board-subagent-line.test.ts",
     "scripts/tests/bus/board-warnings.test.ts",

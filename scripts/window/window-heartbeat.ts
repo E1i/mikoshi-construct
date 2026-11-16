@@ -2,12 +2,17 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { WindowMode } from '../ports/session.js'
 import type { SessionMeasure } from '../supervisor/heartbeat.js'
 import type { SessionGauges } from './eddies-measure.js'
+import type { WindowCrawler } from './window-agents.js'
+import os from 'node:os'
+import process from 'node:process'
 import { appendEvent, HEARTBEATS, openBus } from '../core/db.js'
 import { PROCESS_ENDED, PROCESS_HEARTBEAT, WINDOW_HEARTBEAT } from '../core/events.js'
 import { clientAdapter } from '../ports/client/index.js'
 import { windowModeOf } from '../ports/session.js'
 import { measureSession } from '../supervisor/heartbeat.js'
 import { beatsLive } from '../supervisor/liveness-sites.js'
+import { LOADED_CORE_VARIABLE } from './eddies-measure.js'
+import { windowPresenceOf } from './window-agents.js'
 import { WINDOW_ACTOR } from './window-requests.js'
 
 export const WINDOW_BEAT_MS = 5 * 60_000
@@ -70,13 +75,31 @@ export function windowSessionOf(env: NodeJS.ProcessEnv): string | null {
   return window?.mode === 'loop' ? window.session : null
 }
 
-export type WindowBeatFields = SessionGauges & { mode?: WindowMode, root?: string }
+export interface WindowLook {
+  core?: number
+  crawlers: WindowCrawler[]
+  skills: string[]
+}
+
+export type WindowBeatFields = SessionGauges & Partial<WindowLook> & { mode?: WindowMode, root?: string }
+
+export type WindowLooker = (window: WindowSession) => WindowLook
+
+export function loadedCoreOf(env: NodeJS.ProcessEnv): number | null {
+  const core = Number(env[LOADED_CORE_VARIABLE])
+  return Number.isSafeInteger(core) && core > 0 ? core : null
+}
+
+export function lookAtWindow(window: WindowSession, env: NodeJS.ProcessEnv = process.env, home: string = os.homedir()): WindowLook {
+  const core = loadedCoreOf(env)
+  return { ...(core === null ? {} : { core }), ...windowPresenceOf(home, window.root ?? process.cwd(), window.session) }
+}
 
 export function recordWindowHeartbeat(db: DatabaseSync, ts: string, session: string, fields: WindowBeatFields = {}): boolean {
   return appendEvent(db, { ts, type: WINDOW_HEARTBEAT, actor: `${WINDOW_ACTOR}${session}`, cardId: null, pr: null, head: null, dedupeKey: `${WINDOW_HEARTBEAT}:${session}:${ts}`, payload: { session, ...fields }, legacy: false })
 }
 
-export function windowBeat(bus: string, window: WindowSession | null, now: () => number, measure: SessionMeasure = measureSession, say: (line: string) => void = line => console.error(line)): () => void {
+export function windowBeat(bus: string, window: WindowSession | null, now: () => number, measure: SessionMeasure = measureSession, say: (line: string) => void = line => console.error(line), look: WindowLooker = lookAtWindow): () => void {
   let last = Number.NEGATIVE_INFINITY
   const named = new Set<string>()
   return () => {
@@ -91,7 +114,7 @@ export function windowBeat(bus: string, window: WindowSession | null, now: () =>
           say(anotherWindowLine(window.root, others))
           others.forEach(other => named.add(other.session))
         }
-        recordWindowHeartbeat(db, new Date(at).toISOString(), window.session, { mode: window.mode, ...(window.root === undefined ? {} : { root: window.root }), ...measure(window.session) })
+        recordWindowHeartbeat(db, new Date(at).toISOString(), window.session, { mode: window.mode, ...(window.root === undefined ? {} : { root: window.root }), ...measure(window.session), ...look(window) })
       }
       finally {
         db.close()

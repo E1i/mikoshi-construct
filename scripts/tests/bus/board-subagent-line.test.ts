@@ -203,12 +203,13 @@ function storedAgents(storage: MemoryStorage): Record<string, boolean> {
 
 describe('the subagents of the window', () => {
   it('the subagents of the window are the count of its tile and draw no tiles of their own', () => {
+    const crawlers = [{ id: 'a1', kind: 'scan', state: 'CRAWLING' }, { id: 'a2', kind: 'review', state: 'IDLE' }]
     const html = pageOf([
-      { ts: minutesAgo(1), type: WINDOW_HEARTBEAT, card: null, payload: JSON.stringify({ session: 'w-1', context: 100_000, subagents: [reading('scan', 40_000), reading('review', 60_000)] }) },
+      { ts: minutesAgo(1), type: WINDOW_HEARTBEAT, card: null, payload: JSON.stringify({ session: 'w-1', context: 100_000, subagents: [reading('scan', 40_000), reading('review', 60_000)], crawlers }) },
     ], [{ role: 'miko', status: 'idle', state: 'awake' }])
     const tiles = tilesOf(html, 'window')
     expect(tiles).toHaveLength(1)
-    expect(tiles[0]).toContain(PLAIN_LORE.boardAgentsLine(2, '60k', '1M'))
+    expect(tiles[0]).toContain('LIVE · 2')
     expect(tilesOf(html, 'scan')).toEqual([])
     expect(agentsCount(html)).toBe(1)
   })
