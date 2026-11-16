@@ -40,7 +40,7 @@ import { InMemoryDecisions } from '../../policy/decisions/decisions.js'
 import { recordDecision } from '../../policy/decisions/index.js'
 import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
 import { sessionEnv } from '../../ports/session.js'
-import { TSX_PIPE_DIRECTORY } from '../../ports/shift-settings.js'
+import { SESSION_BASH_CAP, TSX_PIPE_DIRECTORY } from '../../ports/shift-settings.js'
 import { busProjections, nodeSupply } from '../../supervisor/composition.js'
 import { recordHeartbeat } from '../../supervisor/heartbeat.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
@@ -933,6 +933,7 @@ describe('the launch queue', () => {
     expect(JSON.parse(settings ?? 'null')).toEqual({
       sandbox: { enabled: true, failIfUnavailable: true, allowUnsandboxedCommands: false, network: { allowLocalBinding: true, allowUnixSockets: [TSX_PIPE_DIRECTORY] } },
       permissions: { allow: [`Bash(${TREE_GATE})`, `Edit(/${tree}/**)`] },
+      env: SESSION_BASH_CAP,
       autoMemoryEnabled: false,
       claudeMdExcludes: [path.join(homedir(), '.claude', 'CLAUDE.md')],
     })

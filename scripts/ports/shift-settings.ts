@@ -11,6 +11,10 @@ export const TSX_PIPE_DIRECTORY = `/tmp/claude-${SANDBOX_UID}/tsx-${SANDBOX_UID}
 
 export const CARD_SESSION_SANDBOX = { enabled: true, failIfUnavailable: true, allowUnsandboxedCommands: false, network: { allowLocalBinding: true, allowUnixSockets: [TSX_PIPE_DIRECTORY] } } as const
 
+const SESSION_BASH_CAP_MS = String(30 * 60 * 1000)
+
+export const SESSION_BASH_CAP = { BASH_MAX_TIMEOUT_MS: SESSION_BASH_CAP_MS, BASH_DEFAULT_TIMEOUT_MS: SESSION_BASH_CAP_MS } as const
+
 const BROWSER_LAB_SCRIPT = 'scripts/construct/browser-lab.mjs'
 
 const REPOSITORY_SETTINGS_FILES = ['.claude/settings.json', SETTINGS_FILE]
@@ -20,6 +24,7 @@ const GITDIR_POINTER = /^gitdir:[ \t]*(\S.*)$/m
 export interface ShiftSettings {
   sandbox: typeof CARD_SESSION_SANDBOX & { excludedCommands?: string[], filesystem?: { denyWrite: string[] } }
   permissions: { allow: string[], deny?: string[] }
+  env: typeof SESSION_BASH_CAP
 }
 
 function excludes(file: string, entry: string): boolean {
@@ -69,12 +74,13 @@ export function shiftSettings(tree: string, gate: ShiftGate, writable: string[] 
   const entry = browserLabExcludedCommand(home)
   const excluded = existsSync(browserLabInstalledScript(home)) && (REPOSITORY_SETTINGS_FILES.some(file => excludes(path.join(tree, file), entry)) || mainCheckoutExcludes(tree, entry))
   if (!excluded)
-    return { sandbox: CARD_SESSION_SANDBOX, permissions: { allow } }
+    return { sandbox: CARD_SESSION_SANDBOX, permissions: { allow }, env: SESSION_BASH_CAP }
   const lab = path.join(tree, BROWSER_LAB_SCRIPT)
   const labHome = path.join(home, '.construct', 'browser-lab')
   return {
     sandbox: { ...CARD_SESSION_SANDBOX, excludedCommands: [entry], filesystem: { denyWrite: [lab, labHome] } },
     permissions: { allow, deny: [`Edit(/${lab})`, `Edit(/${labHome}/**)`] },
+    env: SESSION_BASH_CAP,
   }
 }
 
