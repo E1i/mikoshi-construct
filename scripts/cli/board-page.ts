@@ -8,7 +8,7 @@ import type { LayerMap } from '../core/layer-map.js'
 import type { CardFields } from '../intake/card-contract.js'
 import type { WitnessRecordOnHead, WitnessTable } from '../intake/witness-fields-backfill.js'
 import type { RoundKind, RoundSample } from '../supervisor/expected-time.js'
-import type { AgentWords, CrawlerWork, EddiesLimits, Gauges, RoundStep, SessionView } from './board-page/session-card.js'
+import type { AgentWords, EddiesLimits, Gauges, RoundStep, SessionView } from './board-page/session-card.js'
 import type { BoardWarning, SessionContext } from './board-warnings.js'
 import type { CardChain } from './card-chain.js'
 import { createHash } from 'node:crypto'
@@ -28,7 +28,7 @@ import { currentVersion, interfaceVersion } from '../../src/version.js'
 import { cardRunsOf, catalogLayersByTest, catalogModuleLayers } from '../ci/card-runs.js'
 import { staleLine } from '../core/bus-readings.js'
 import { BUSY_TIMEOUT_MS, defaultBusPath } from '../core/db.js'
-import { ANSWER_STEP, TASK_LEASED, WINDOW_SUBAGENT_EVENT } from '../core/events.js'
+import { ANSWER_STEP, TASK_LEASED } from '../core/events.js'
 import { defaultHandoffDir } from '../core/handoff-dir.js'
 import { statusLineOf } from '../core/handoff-status.js'
 import { readLayerMap } from '../core/layer-map.js'
@@ -46,8 +46,8 @@ import { cardSessionOf, expectedMinutes, roundSamples, shapeOf } from '../superv
 import { BOARD_FILE, FRESH_MS, windowGauges } from '../window/board.js'
 import { mikoHandoff } from '../window/loop.js'
 import { planMarkdown } from '../window/plan-export.js'
-import { crawlerWorkOf, mikoPanel } from './board-page/miko-panel.js'
-import { agentsLine, CARD_TASK, compact, eddiesBar, escaped, NO_SESSION_VIEW, percent, ROUND_COLOURS, ROUND_LABELS, sessionCard, STEPPED_ROLE, terminalOf } from './board-page/session-card.js'
+import { mikoPanel } from './board-page/miko-panel.js'
+import { agentsLine, CARD_TASK, compact, eddiesBar, escaped, modelLabel, NO_SESSION_VIEW, percent, ROUND_COLOURS, ROUND_LABELS, sessionCard, STEPPED_ROLE, terminalOf } from './board-page/session-card.js'
 import { boardWarnings, MainUpToDate, openPrCountOf, openPrLimitOf, plannedStallLines, savingOff, stalePassCountOf, stallLines } from './board-warnings.js'
 import { cardChain } from './card-chain.js'
 
@@ -116,7 +116,6 @@ export interface BoardPage {
   tickMs: number | null
   warnings: BoardWarning[]
   sessions?: ReadonlyMap<string, SessionView>
-  crawlers?: ReadonlyMap<string, CrawlerWork>
 }
 
 const NO_LIMITS: EddiesLimits = { contextLimit: null, cardContextLine: null, sessionSpend: null, agentSpend: null, warnRatio: null, modelWindows: new Map() }
@@ -354,8 +353,10 @@ function lineTile(role: string, line: string): string {
 
 function mikoStrip(page: BoardPage, { facts } = page): string {
   const windows = facts.services.filter(service => service.role === WINDOW_ROLE)
-  const words = { role: LORE.boardWindowRole, name: LORE.boardWindowName, plainTitle: WINDOW_PLAIN_TITLE, serviceLine: (service: BusService) => PLAIN_LORE.boardServiceLine(service.role, service.task, service.tree ?? undefined, service.step) }
-  return mikoPanel({ windows, bars: service => barsOf(service, page), crawlers: service => agentsLine(service, facts.at, page.limits, AGENT_WORDS), limits: page.limits, now: facts.at, work: page.crawlers ?? new Map(), words, busLines: pulseLines(facts, PLAIN_LORE), busLive: busFresh(facts), opener: `${opener(HANDOFF_DIALOG)} role="button"`, hint: OPEN_HINT, idle: facts.services.length === 0 ? PLAIN_LORE.boardNoServices : null })
+  const words = { role: LORE.boardWindowRole, name: LORE.boardWindowName, plainTitle: WINDOW_PLAIN_TITLE }
+  const handoff = page.handoff.text
+  const presence = { model: modelLabel(page.windowGauges?.model), core: facts.window?.core ?? null, status: handoff === null ? null : statusLineOf(handoff)?.status ?? null, handoffBytes: handoff === null ? null : new TextEncoder().encode(handoff).length, skills: facts.window?.skills ?? [], crawlers: facts.window?.crawlers ?? [] }
+  return mikoPanel({ windows, bars: service => barsOf(service, page), presence, now: facts.at, words, busLines: pulseLines(facts, PLAIN_LORE), busLive: busFresh(facts), opener: `${opener(HANDOFF_DIALOG)} role="button"`, hint: OPEN_HINT, idle: facts.services.length === 0 ? PLAIN_LORE.boardNoServices : null })
 }
 
 function pulseAgeMs(facts: BusFacts): number | null {
@@ -1122,7 +1123,6 @@ function boardPageOf(db: DatabaseSync, busPath: string, now: Date, handoffFile: 
     ],
     details: cardDetails(db, facts),
     sessions: sessionViewsOf(db, facts),
-    crawlers: crawlerWorkOf(new BusRead(db).slice(WINDOW_SUBAGENT_EVENT, ['role', 'task', 'step'])),
     decisions: currentDecisions(db),
     handoff: readHandoff(handoffFile),
     repository: readRepositoryUrl(),

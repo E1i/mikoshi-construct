@@ -171,7 +171,29 @@ export interface BusCatalog extends CheckCatalog {
   unreadable?: string
 }
 
-export type BranchCardRuns = { kind: 'no-card' } | { kind: 'unreadable', why: string } | { kind: 'card', card: number, touches: readonly string[], reading: CardLayers }
+export type BranchCardRuns = { kind: 'no-card' } | { kind: 'unreadable', why: string } | { kind: 'card', card: number, touches: readonly string[], reading: CardLayers, witnesses: string[] }
+
+const WHITESPACE = /\s+/
+const WITNESSES_LINE = 'witnesses: ['
+
+function listOfJson(json: string): unknown {
+  try {
+    return JSON.parse(json) as unknown
+  }
+  catch {
+    return null
+  }
+}
+
+function witnessRunsOf(text: string): string[] {
+  const lines = text.split('\n').filter(line => line.startsWith(WITNESSES_LINE))
+  const list = lines.length === 1 ? listOfJson(lines[0]!.slice(WITNESSES_LINE.length - 1)) : null
+  return Array.isArray(list) ? list.flatMap((field: unknown) => typeof field === 'object' && field !== null && 'run' in field && typeof field.run === 'string' ? [field.run] : []) : []
+}
+
+export function witnessTestsOf(text: string): string[] {
+  return sortedUnique(witnessRunsOf(text).flatMap(run => run.split(WHITESPACE).filter(isTest)))
+}
 
 export interface BranchTests {
   tests: readonly string[]
@@ -200,7 +222,7 @@ export function branchCardRuns(branch: string, busPath: string = defaultBusPath(
     const source = row === null ? null : runsSourceOf(row)
     if (row === null || source === null)
       return { kind: 'no-card' }
-    return { kind: 'card', card: row.card_id, touches: source.touches, reading: sessionCardRunsOf(source, withBranchTests({ testLayers: catalogLayersByTest(db), moduleLayers: catalogModuleLayers(db) }, branchTests)) }
+    return { kind: 'card', card: row.card_id, touches: source.touches, reading: sessionCardRunsOf(source, withBranchTests({ testLayers: catalogLayersByTest(db), moduleLayers: catalogModuleLayers(db) }, branchTests)), witnesses: witnessTestsOf(row.text) }
   }
   catch (error) {
     if (error instanceof LayerWithoutTests)

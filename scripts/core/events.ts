@@ -277,7 +277,7 @@ export const EVENT_PAYLOADS = {
   [TASK_WITHDRAWN]: ['failure', 'fault', 'generation', 'queue', 'task_key'],
   [TOUCHES_FOLLOWED]: ['paths', 'reason'],
   [UPDATE_DONE]: ['carried', 'clean', 'from', 'lease_gen', 'rebuilt', 'rules_version', 'task_key', 'to', 'tookMain', 'why'],
-  [WINDOW_HEARTBEAT]: ['context', 'error', 'mode', 'model', 'reason', 'root', 'session', 'spent', 'subagents'],
+  [WINDOW_HEARTBEAT]: ['context', 'core', 'crawlers', 'error', 'mode', 'model', 'reason', 'root', 'session', 'skills', 'spent', 'subagents'],
   [WINDOW_REQUEST]: ['add_witness', 'answer', 'area', 'auto_confirm', 'before', 'card', 'cards', 'command', 'depends', 'dry_run', 'file', 'from', 'gate', 'goal', 'head', 'id', 'ids', 'keep_tree', 'kind', 'mode', 'need', 'op', 'owner_words', 'plan', 'pr', 'priority', 'reason', 'remove_witness', 'supersedes', 'task_key', 'text', 'title', 'touches', 'until'],
   [REQUEST_DONE]: ['detail', 'kind', 'request'],
   [REQUEST_REFUSED]: ['detail', 'kind', 'owner', 'request'],

@@ -1,17 +1,18 @@
-import type { BusService } from '../../../src/commands/board/bus.js'
-import type { MikoPanelParts } from '../../cli/board-page/miko-panel.js'
+import type { BusService, CrawlerReading } from '../../../src/commands/board/bus.js'
+import type { MikoPanelParts, MikoPresence } from '../../cli/board-page/miko-panel.js'
 import type { SessionCardParts, SessionView, TranscriptAction } from '../../cli/board-page/session-card.js'
 import { describe, expect, it } from 'vitest'
-import { crawlerRow, crawlerWorkOf, mikoPanel } from '../../cli/board-page/miko-panel.js'
+import { crawlerRow, handoffSize, mikoPanel, windowLine } from '../../cli/board-page/miko-panel.js'
 import { NO_SESSION_VIEW, roundClock, roundPhase, sessionCard, stateLine, terminalOf } from '../../cli/board-page/session-card.js'
 
 const NOW = new Date('2026-10-20T08:00:00.000Z')
 const EXPECTED_MS = 20 * 60_000
 const ANSWER: BusService = { role: 'answer', task: '#861', tree: null, step: 'answer · pulse 1 min ago', session: 's-one' }
 const PARTS: SessionCardParts = { opener: '', hint: '', bars: '', agents: '', over: false, now: NOW.toISOString() }
-const LIMITS = { contextLimit: 1_000_000, cardContextLine: null, sessionSpend: null, agentSpend: 1_000_000, warnRatio: 0.8, modelWindows: new Map() }
 const WINDOW: BusService = { role: 'window', task: 'miko', tree: null, step: 'window · awake' }
-const PANEL: MikoPanelParts = { windows: [WINDOW], bars: () => '', crawlers: () => '', limits: LIMITS, now: NOW.toISOString(), words: { role: 'FIXER', name: 'Miko', plainTitle: '', serviceLine: () => 'window · awake' }, busLines: [], busLive: true, opener: '', hint: '', idle: null, work: new Map() }
+const PRESENCE: MikoPresence = { model: null, core: null, status: null, handoffBytes: null, skills: [], crawlers: [] }
+const PANEL: MikoPanelParts = { windows: [WINDOW], bars: () => '', presence: PRESENCE, now: NOW.toISOString(), words: { role: 'FIXER', name: 'Miko', plainTitle: '' }, busLines: [], busLive: true, opener: '', hint: '', idle: null }
+const CRAWLER: CrawlerReading = { id: 'a1', kind: 'review', description: null, startedAt: null, state: 'IDLE', context: null, spent: null }
 
 function startedBefore(ms: number, expectedMs: number | null = null): SessionView {
   return { startedAt: new Date(NOW.getTime() - ms).toISOString(), expectedMs, steps: [], terminal: null }
@@ -113,12 +114,16 @@ describe('the terminal block of a session card', () => {
   })
 })
 
-describe('the crawler state dot', () => {
-  it('a crawler exactly at its context or spend limit is over', () => {
-    const atContext = { name: 'review', context: 1_000_000, spent: 0, at: null }
-    const atSpend = { name: 'review', context: 0, spent: 1_000_000, at: null }
-    expect(crawlerRow(atContext, undefined, LIMITS, NOW.toISOString())).toContain('data-state="over"')
-    expect(crawlerRow(atSpend, undefined, LIMITS, NOW.toISOString())).toContain('data-state="over"')
+describe('the crawler row', () => {
+  it('the tenth crawler is numbered #10 and a crawler with only a context shows no SPENT', () => {
+    expect(crawlerRow({ ...CRAWLER, context: 1_000 }, 9, NOW.toISOString())).toContain('CRAWLER #10 · review</span>')
+    expect(crawlerRow({ ...CRAWLER, context: 1_000 }, 9, NOW.toISOString())).toContain('<div class="crawler-use">CTX 1k</div>')
+  })
+
+  it('a crawler with neither description nor start time shows no what line and never a dash', () => {
+    const html = crawlerRow(CRAWLER, 0, NOW.toISOString())
+    expect(html).not.toContain('crawler-what')
+    expect(html).not.toContain('—')
   })
 })
 
@@ -126,16 +131,17 @@ describe('the Miko strip', () => {
   it('the hint sits only on the first window', () => {
     const html = mikoPanel({ ...PANEL, windows: [WINDOW, { ...WINDOW, task: 'second' }], hint: '<i data-hint></i>' })
     expect(html.match(/data-hint/g)).toHaveLength(1)
-    expect(html.indexOf('data-hint')).toBeLessThan(html.indexOf('<span class="svc-target">second</span>'))
+    expect(html.indexOf('data-hint')).toBeLessThan(html.lastIndexOf('miko-self'))
   })
 
-  it('an event with no role or a blank role names no crawler', () => {
-    const work = crawlerWorkOf([{ fields: { task: '#1' } }, { fields: { role: '  ', task: '#2' } }])
-    expect(work.size).toBe(0)
+  it('the window line hides every missing part and is absent when none is known', () => {
+    expect(windowLine(PRESENCE)).toBe('')
+    expect(windowLine({ ...PRESENCE, status: 'CONTINUE' })).toBe('<div class="svc-line miko-window">status [CONTINUE]</div>')
+    expect(windowLine({ ...PRESENCE, core: 7, handoffBytes: 1_023 })).toBe('<div class="svc-line miko-window">window v7 · handoff 1023 B</div>')
   })
 
-  it('a blank task or step reads as none', () => {
-    const work = crawlerWorkOf([{ fields: { role: 'review', task: '  ', step: '' } }])
-    expect(work.get('review')).toEqual({ task: null, action: null })
+  it('a handoff of exactly one kilobyte reads in KB', () => {
+    expect(handoffSize(1_024)).toBe('1 KB')
+    expect(handoffSize(3_584)).toBe('3.5 KB')
   })
 })
