@@ -6,6 +6,7 @@ import { readShiftGate } from '../../../src/manifest.js'
 import { PREPUSH_COMMAND } from '../../ci/prepush.js'
 import { HANDOFF_FIELDS } from '../../core/handoff-fields.js'
 import { renderPrompt } from '../../nodes/launch/prompt.js'
+import { SESSION_BASH_CAP } from '../../ports/shift-settings.js'
 
 const HEADER = readFileSync(path.join(import.meta.dirname, '../../nodes/launch/header.md'), 'utf8')
 const OWN_GATE = readShiftGate(path.join(import.meta.dirname, '../../..'))
@@ -73,5 +74,11 @@ describe('renderPrompt', () => {
     expect(prompt).not.toContain('handoff-check.ts')
     for (const field of HANDOFF_FIELDS)
       expect(prompt).toContain(`\`${field.label}\``)
+  })
+
+  it('the launch header gives the session bash cap as the bash timeout', () => {
+    const prompt = promptOf('implement', 'Do it.')
+    expect(prompt).toContain(`Bash timeout of ${SESSION_BASH_CAP.BASH_MAX_TIMEOUT_MS}.`)
+    expect(prompt).not.toContain('600000')
   })
 })

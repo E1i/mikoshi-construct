@@ -13,7 +13,7 @@ import { ANSWER_STEP, CARD_STARTED, CARD_STOPPED, QUESTION_AGENT } from '../../c
 import { leaseNext } from '../../core/lease.js'
 import { queueTask } from '../../core/queue.js'
 import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
-import { answerHandoffPath, claudeAnswerer, FreshBaseConflict, ownerQuestionPath, realAnswererTools, RoundTimer } from '../../nodes/answer/answerer.js'
+import { answerHandoffPath, claudeAnswerer, FreshBaseConflict, ownerQuestionPath, realAnswererTools, RoundTimer, windowGateRule } from '../../nodes/answer/answerer.js'
 import { SESSION_BASH_CAP, TSX_PIPE_DIRECTORY } from '../../ports/shift-settings.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { ranTheGreenGate } from './gate-stream.js'
@@ -102,6 +102,15 @@ async function answerAt(context: number, cardTools?: AnswererTools['cardTools'],
 }
 
 describe('the answerer', () => {
+  it('the answer prompt gives the session bash cap as the bash timeout', () => {
+    const card = { session: NEW_SESSION, worktree: '/tmp/tree', branch: 'b' }
+    const gate = { prepush: ['pnpm run quality'], handoffWrite: null, codeMatrix: null }
+    const rule = windowGateRule(card, gate, '/tmp/question.txt')
+
+    expect(rule).toContain(`Bash timeout of ${SESSION_BASH_CAP.BASH_MAX_TIMEOUT_MS}.`)
+    expect(rule).not.toContain('600000')
+  })
+
   it('starts a new session in the card tree when the card session context is above warn', async () => {
     const { answered, runs, published, prompt } = await answerAt(201_662)
 

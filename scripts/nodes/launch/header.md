@@ -38,7 +38,7 @@ line instead, naming that decision: the bus opens it as a wait for the window, n
 - Before you end the session, run each as its own command and read its result: the task's witnesses
   and the pre-push checks this repository declares, {{prepush}}. A session that leaves a clean tree and no
   unpushed commit runs none of them. A heavy step waits for its turn in the foreground, so give each a
-  Bash timeout of 600000. A red pre-push run is fixed in this session before you end it. A broken one prints a `finding:` and a `question:` line: copy both into the
+  Bash timeout of 1800000. A red pre-push run is fixed in this session before you end it. A broken one prints a `finding:` and a `question:` line: copy both into the
   report and exit; the bus pushes nothing.
 - On the context warn (the Eddies line on the session's context, `cardContextLineBySize` for the card's size, else `cardContextLine`): finish the step you are in, write the
   report with the handoff in it, exit. The form the bus reads, written in one step to `{{report}}`: the card line, then
