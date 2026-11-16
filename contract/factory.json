@@ -1970,6 +1970,17 @@
         "source": "owner",
         "writers": []
       },
+      ".construct/gate-runs.jsonl": {
+        "derived": false,
+        "directory": false,
+        "namedIn": [
+          "scripts/ci/gate-runs.ts",
+          "scripts/ci/prepush.ts"
+        ],
+        "owner": "scripts/ci/gate-runs.ts",
+        "source": "owner",
+        "writers": []
+      },
       ".construct/implement-agreed.txt": {
         "derived": false,
         "directory": false,
