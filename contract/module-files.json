@@ -2205,6 +2205,7 @@
     "scripts/ci/tree-scanners.ts",
     "scripts/ci/verdict.ts",
     "scripts/ci/vitest-report.ts",
+    "scripts/ci/weights-law.ts",
     "scripts/cli/check-catalog.ts",
     "scripts/cli/check-matrix.ts",
     "scripts/cli/mutate.ts",

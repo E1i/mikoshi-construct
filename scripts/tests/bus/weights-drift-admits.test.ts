@@ -1,4 +1,5 @@
-import type { CiRuns, TestWeights } from '../../ci/test-weights.js'
+import type { TestWeights } from '../../ci/shard.js'
+import type { ArtifactDownload } from '../../ci/weights-law.js'
 import type { GhResponse, GitHub } from '../../ports/github.js'
 import type { MergeBench } from './merge-bench.js'
 import { Buffer } from 'node:buffer'
@@ -6,12 +7,14 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { FILE_WEIGHTS_NAME, MAX_DRIFTED_SHARE, RECOMPUTE_COMMAND, RECOMPUTE_DRIFTED_SHARE, recomputedTable, WEIGHTS_PATH } from '../../ci/test-weights.js'
+import { FILE_WEIGHTS_NAME } from '../../ci/file-weights-reporter.js'
+import { MAX_DRIFTED_SHARE, RECOMPUTE_COMMAND, RECOMPUTE_DRIFTED_SHARE, recomputedTable, WEIGHTS_PATH } from '../../ci/test-weights.js'
+import { driftOfRun } from '../../ci/weights-law.js'
 import { cardBodyText } from '../../core/card-bodies.js'
 import { BOARD_ALARM, CARD_ADMITTED, OWNER_WAIT_OPENED } from '../../core/events.js'
-import { busHeldCards } from '../../intake/intake.js'
-import { ShiftCardStarter } from '../../nodes/launch/launch-starter.js'
-import { WEIGHTS_DRIFT_SOURCE, WEIGHTS_DRIFT_UNREAD, WeightsDriftWatch } from '../../nodes/merge/weights-drift.js'
+import { BusWeightsRecompute, WEIGHTS_DRIFT_SOURCE, WEIGHTS_DRIFT_UNREAD } from '../../intake/intake.js'
+import { handFile, ShiftCardStarter } from '../../nodes/launch/launch-starter.js'
+import { WeightsDriftWatch } from '../../nodes/merge/weights-drift.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
 
 const FILES = Array.from({ length: 80 }, (_, at) => `scripts/tests/w/f${String(at).padStart(2, '0')}.test.ts`)
@@ -50,16 +53,13 @@ interface World {
   measured: Record<number, TestWeights | null>
 }
 
-function ciOf(world: World): Pick<CiRuns, 'successfulRunsOnMain' | 'downloadArtifact'> {
-  return {
-    successfulRunsOnMain: () => ({ kind: 'read', value: world.runs.map(databaseId => ({ databaseId, headSha: HEAD })) }),
-    downloadArtifact: (run, artifact) => {
-      const measured = world.measured[Number(run)]
-      if (measured === null || measured === undefined)
-        return { done: false, reason: `no artifact ${artifact.name} on run ${run}` }
-      writeFileSync(path.join(artifact.dir, FILE_WEIGHTS_NAME), JSON.stringify(measured))
-      return { done: true }
-    },
+function downloadOf(world: World): ArtifactDownload {
+  return (run, artifact) => {
+    const measured = world.measured[run]
+    if (measured === null || measured === undefined)
+      return { done: false, reason: `no artifact ${artifact.name} on run ${run}` }
+    writeFileSync(path.join(artifact.dir, FILE_WEIGHTS_NAME), JSON.stringify(measured))
+    return { done: true }
   }
 }
 
@@ -68,7 +68,12 @@ function fixture(world: World): { bench: MergeBench, launchDir: string, watch: (
   benches.push(bench)
   const launchDir = mkdtempSync(path.join(tmpdir(), 'weights-launch-'))
   roots.push(launchDir)
-  const watch = (): WeightsDriftWatch => new WeightsDriftWatch({ db: bench.db, ci: ciOf(world), gitHub: gitHubAt(TABLE), clock: bench.clock.now, cardStates: () => busHeldCards(bench.db), launchDir })
+  const gitHub = gitHubAt(TABLE)
+  const watch = (): WeightsDriftWatch => new WeightsDriftWatch({
+    latestRuns: () => ({ kind: 'read', value: world.runs.map(databaseId => ({ databaseId, headSha: HEAD })) }),
+    measure: run => driftOfRun(downloadOf(world), gitHub, run),
+    ledger: new BusWeightsRecompute({ db: bench.db, gitHub, hand: (cardId, file, text) => handFile(launchDir, cardId, file, text), clock: bench.clock.now }),
+  })
   return { bench, launchDir, watch }
 }
 
@@ -138,7 +143,7 @@ describe('the recompute card passes without an owner wait (owner s692)', () => {
     const worktree = mkdtempSync(path.join(tmpdir(), 'weights-tree-'))
     roots.push(worktree)
     const seen: { table: string | null, prompt: string } = { table: null, prompt: '' }
-    const starter = new ShiftCardStarter({ launchDir, claude: 'claude', treePr: 'true' }, {
+    const starter = new ShiftCardStarter({ launchDir, claude: 'client-binary', treePr: 'true' }, {
       read: id => cardBodyText(bench.db, id),
       cut: () => {
         mkdirSync(worktree, { recursive: true })

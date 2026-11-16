@@ -25,11 +25,11 @@ import { loadedCodeSha, readThroughPort } from '../../ports/git.js'
 import { ghStatusPublisher } from '../../ports/github-status.js'
 import { ghApi, ghApiPut } from '../../ports/github.js'
 import { Meter } from '../../ports/meter.js'
-import { nodeLiveness, nodeSupply } from '../../supervisor/composition.js'
+import { nodeLiveness, nodeSupply, weightsDriftWatch } from '../../supervisor/composition.js'
 import { stampLogOutput } from '../../supervisor/stamp.js'
 import { DRY_RUN_ACTOR } from '../review/review-worker.js'
 import { MergeExecutor } from './merge-executor.js'
-import { driftLine, liveWeightsDrift } from './weights-drift.js'
+import { driftLine } from './weights-drift.js'
 
 export const LIVE_REVIEWER = 'worker:review:'
 export const CATALOG_REBUILD_FAILED = 'catalog_rebuild_failed'
@@ -205,7 +205,7 @@ async function main(): Promise<number> {
   const cwd = process.cwd()
   const busPath = defaultBusPath()
   const gitHub = ghApi(cwd)
-  return runMergeWorker(process.argv.slice(2), { busPath, rebuildCatalog: ref => rebuildCatalogAt(ref, busPath), gitHub, put: ghApiPut(cwd), publish: ghStatusPublisher(cwd), session: randomUUID(), pause: sleep, pushPolicy: () => pushPolicyOf(readThroughPort, cwd), weights: liveWeightsDrift(gitHub, busPath) })
+  return runMergeWorker(process.argv.slice(2), { busPath, rebuildCatalog: ref => rebuildCatalogAt(ref, busPath), gitHub, put: ghApiPut(cwd), publish: ghStatusPublisher(cwd), session: randomUUID(), pause: sleep, pushPolicy: () => pushPolicyOf(readThroughPort, cwd), weights: weightsDriftWatch(gitHub, busPath) })
 }
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {

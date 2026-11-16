@@ -7,7 +7,7 @@ import type { CardStart, CardStarter, ChildExit, HeldTree, QueuedCard, StartedCa
 import type { PromptPlaces } from './prompt.js'
 import type { SessionJournal, TreeFile } from './session-journal.js'
 import { spawn } from 'node:child_process'
-import { closeSync, copyFileSync, existsSync, mkdirSync, openSync } from 'node:fs'
+import { closeSync, cpSync, existsSync, mkdirSync, openSync, readdirSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { parseParkingFile } from '../../../src/card/parking.js'
@@ -15,7 +15,6 @@ import { readShiftGate } from '../../../src/manifest.js'
 import { BUS_DB_VARIABLE } from '../../core/bus-path.js'
 import { messageOf } from '../../core/errors.js'
 import { exitCodePath, treeReportPath } from '../../core/places.js'
-import { handedTablePath, WEIGHTS_TABLE_PATH } from '../../ports/ci-reading.js'
 import { accountToken, recordedAccount } from '../../ports/gh.js'
 import { processGit } from '../../ports/git.js'
 import { identityOf, OsProcessTable, rowsOf } from '../../ports/process-table.js'
@@ -115,6 +114,16 @@ export function unreadableCard(cardId: number): string {
 
 const TREE_REPORT = treeReportPath('')
 
+function handedFilesDir(launchDir: string, cardId: number): string {
+  return path.join(launchDir, `handed-${cardId}`)
+}
+
+export function handFile(launchDir: string, cardId: number, file: string, text: string): void {
+  const handed = path.join(handedFilesDir(launchDir, cardId), file)
+  mkdirSync(path.dirname(handed), { recursive: true })
+  writeFileSync(handed, text)
+}
+
 const PATH_DELIMITERS = /[\s`'"(),;<>[\]{}]+/
 
 export function pathTokens(text: string): Set<string> {
@@ -140,23 +149,22 @@ export class ShiftCardStarter implements CardStarter, SessionContinuer {
       return this.relaunchIn(card, card.continueIn, ended)
     return this.session(card, (task) => {
       const worktree = this.ports.cut(task)
-      this.handTable(card.cardId, worktree)
+      this.handFiles(card.cardId, worktree)
       return { worktree, base: this.ports.base(worktree), body: each => each.body }
     }, ended)
   }
 
-  private handedTable(cardId: number): string | null {
-    const handed = handedTablePath(this.places.launchDir, cardId)
-    return existsSync(handed) ? handed : null
+  private handedFiles(cardId: number): string[] {
+    const handed = handedFilesDir(this.places.launchDir, cardId)
+    if (!existsSync(handed))
+      return []
+    return readdirSync(handed, { recursive: true, withFileTypes: true }).filter(entry => entry.isFile()).map(entry => path.relative(handed, path.join(entry.parentPath, entry.name)).split(path.sep).join('/'))
   }
 
-  private handTable(cardId: number, worktree: string): void {
-    const handed = this.handedTable(cardId)
-    if (handed === null)
-      return
-    const target = path.join(worktree, WEIGHTS_TABLE_PATH)
-    mkdirSync(path.dirname(target), { recursive: true })
-    copyFileSync(handed, target)
+  private handFiles(cardId: number, worktree: string): void {
+    const handed = handedFilesDir(this.places.launchDir, cardId)
+    if (existsSync(handed))
+      cpSync(handed, worktree, { recursive: true })
   }
 
   identify(pid: number): ProcessIdentity | null {
@@ -199,8 +207,8 @@ export class ShiftCardStarter implements CardStarter, SessionContinuer {
   private unnamedChanges(cardId: number, worktree: string, ended: string | undefined): CardStart | null {
     try {
       const named = pathTokens(this.ports.readReport(this.reportOf(cardId)) ?? '')
-      if (this.handedTable(cardId) !== null)
-        named.add(WEIGHTS_TABLE_PATH)
+      for (const handed of this.handedFiles(cardId))
+        named.add(handed)
       const unnamed = this.ports.changedPaths(worktree).filter(changed => !named.has(changed) && changed !== TREE_REPORT)
       if (unnamed.length === 0)
         return null

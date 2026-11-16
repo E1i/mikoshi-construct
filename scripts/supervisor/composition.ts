@@ -4,10 +4,14 @@ import type { HolderStart, Lease } from '../core/lease.js'
 import type { NodeKind, NodeSupply, ProcessIdentity, WorkerIdentity } from '../core/node.js'
 import type { Projections } from '../core/reducer.js'
 import type { Fold, StoredEvent } from '../core/stored.js'
+import type { DriftWatch } from '../nodes/merge/weights-drift.js'
+import type { GitHub } from '../ports/github.js'
 import type { PlanActors } from '../window/plan-folds.js'
 import type { SessionMeasure } from './heartbeat.js'
 import { randomUUID } from 'node:crypto'
+import { homedir } from 'node:os'
 import process from 'node:process'
+import { driftOfRun } from '../ci/weights-law.js'
 import { CARD_FOLDS, CARDS_PROJECTION } from '../core/card-automaton.js'
 import { admittedCardVersion } from '../core/card-bodies.js'
 import { CHAINS_PROJECTION } from '../core/chain.js'
@@ -16,10 +20,15 @@ import { OWNER } from '../core/inbox.js'
 import { foreignVersion, instanceOf, provenIdentity, recordWorkerIdentity, UNHANDED } from '../core/node.js'
 import { TASKS_PROJECTION } from '../core/queue.js'
 import { CARD_END_FOLDS, OWNER_WAIT_FOLDS, PR_FOLDS } from '../core/reducer.js'
+import { BusWeightsRecompute } from '../intake/intake.js'
+import { handFile } from '../nodes/launch/launch-starter.js'
+import { WeightsDriftWatch } from '../nodes/merge/weights-drift.js'
 import { ROLES_PROJECTION } from '../nodes/restart/role.js'
 import { DECISION_FOLDS } from '../policy/decisions/index.js'
 import { RECUT_ACTOR } from '../policy/round-limit-decision.js'
+import { GhCiRuns } from '../ports/ci-reading.js'
 import { CHECK_MS, TICK_MS } from '../ports/netwatch.js'
+import { launchDirOf } from '../ports/tree-publish.js'
 import { foldPlanEvent } from '../window/plan-folds.js'
 import { busSessionPulse, heartbeatEnv, measureCardSession, ownStart, recordProcessHeartbeat } from './heartbeat.js'
 import { SILENT_MS } from './liveness-sites.js'
@@ -102,4 +111,13 @@ export function busProjections(): Projections {
     folds: [PR_FOLDS, TASKS_PROJECTION.folds, CHAINS_PROJECTION.folds, ROLES_PROJECTION.folds, DECISION_FOLDS, CARD_FOLDS, OWNER_WAIT_FOLDS, PLAN_FOLDS, CARD_END_FOLDS],
     incremental: [ROLES_PROJECTION, TASKS_PROJECTION, CHAINS_PROJECTION, CARDS_PROJECTION],
   }
+}
+
+export function weightsDriftWatch(gitHub: GitHub, busPath: string): (db: DatabaseSync) => DriftWatch {
+  const ci = new GhCiRuns()
+  return db => new WeightsDriftWatch({
+    latestRuns: () => ci.successfulRunsOnMain(1),
+    measure: run => driftOfRun((id, artifact) => ci.downloadArtifact(id, artifact), gitHub, run),
+    ledger: new BusWeightsRecompute({ db, gitHub, hand: (cardId, file, text) => handFile(launchDirOf(homedir(), busPath), cardId, file, text), clock: () => new Date() }),
+  })
 }
