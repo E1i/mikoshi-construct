@@ -16,6 +16,7 @@ import { WINDOW_SILENT_MS } from '../../../src/commands/liveness.js'
 import { createUi } from '../../../src/ui/console.js'
 import { BANNER, LORE } from '../../../src/ui/lore.js'
 import { resolveTheme } from '../../../src/ui/theme.js'
+import { interfaceVersion } from '../../../src/version.js'
 import { checkMatrix, subagent, writeBus } from '../../../tests/board/bus-fixture.js'
 import { BOARD_DATA_FILE, boardProjection, DISK_FILES, escaped, filterRule, FLOW_META, printBoard, PROGRESS_ORDER, readEddiesLimits, readModelVersion, RELEASE_PROGRESS_ORDER, VIEW_KEY, writeBoardPage } from '../../cli/board-page.js'
 import { defaultBusPath } from '../../core/db.js'
@@ -454,6 +455,14 @@ describe('board.html', () => {
     expect(html.indexOf('id="h-services"')).toBeLessThan(html.indexOf('id="h-flow"'))
     expect(html.indexOf('id="h-flow"')).toBeLessThan(html.indexOf('id="h-backlog"'))
     expect(html.indexOf('id="h-backlog"')).toBeLessThan(html.indexOf('<footer class="statusline"'))
+  })
+
+  it('the page header shows the ui version', () => {
+    const html = pageText(seededBus())
+    const version = JSON.parse(readFileSync(path.resolve(import.meta.dirname, '../../../package.json'), 'utf8')) as { version: string }
+    const header = html.slice(html.indexOf('<header'), html.indexOf('</header>'))
+    expect(header).toContain(`<span>ui <b>${escaped(interfaceVersion(version.version))}</b></span>`)
+    expect(interfaceVersion(version.version)).toMatch(new RegExp(`^${version.version.replace(/\./g, '\\.')}(?:\\+\\w+)?$`))
   })
 
   it('the logo wrapper clips the glitch instead of scrolling', () => {

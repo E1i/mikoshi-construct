@@ -614,6 +614,7 @@
     "scripts/tests/ci/shard.test.ts",
     "scripts/tests/ci/test-weights-fresh.test.ts",
     "scripts/tests/ci/weights-drift-step.test.ts",
+    "scripts/tests/cli/board-page-client.test.ts",
     "scripts/tests/cli/board-page-static.test.ts",
     "scripts/tests/client/adapters-one-contract.test.ts",
     "scripts/tests/client/codex-guarantees.test.ts",
