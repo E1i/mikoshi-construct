@@ -31,7 +31,7 @@ import { gitDepthSources, gitTestSource, provenWitnesses } from './depth-sources
 import { freshDenial, recordVerdict } from './record-verdict.js'
 import { fullReview } from './review-depth.js'
 import { PREFIX, REVIEW_BAR_LINE, REVIEW_CEILING, REVIEW_CEILING_MINUTES, ReviewFailed } from './reviewer.js'
-import { BusTailIntake, mutationOnlyFindings } from './tail-card.js'
+import { mutationOnlyFindings } from './tail-card.js'
 
 const CI_NOT_READY = 'ci_not_ready'
 export const REVIEW_FAILED = 'review_failed'
@@ -365,13 +365,13 @@ export class ReviewExecutor {
   }
 
   private withTail(lease: Lease, review: Review): Review {
-    const { db, gitHub, clock } = this.parts
-    const mutations = mutationOnlyFindings(review)
+    const { db, tail } = this.parts
+    const mutations = tail === undefined ? null : mutationOnlyFindings(review)
     const passed = keptChanges(db, lease, mutations === null ? review : { ...review, verdict: 'pass' })
-    if (mutations === null || passed.verdict !== 'pass')
+    if (mutations === null || tail === undefined || passed.verdict !== 'pass')
       return passed
     try {
-      (this.parts.tail ?? new BusTailIntake({ db, gitHub, clock })).file({ parent: lease.cardId, pr: lease.pr, head: lease.head, taskKey: lease.taskKey, findings: mutations })
+      tail.file({ parent: lease.cardId, pr: lease.pr, head: lease.head, taskKey: lease.taskKey, findings: mutations })
       return passed
     }
     catch (error) {

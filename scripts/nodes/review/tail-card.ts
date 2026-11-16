@@ -1,18 +1,13 @@
 import type { DatabaseSync } from 'node:sqlite'
-import type { CardFields } from '../../intake/card-contract.js'
 import type { Review } from './reviewer.js'
 import { createHash } from 'node:crypto'
-import { textSha } from '../../../src/card/text-sha.js'
-import { appendCardEvent, laid } from '../../core/card-bodies.js'
+import { appendCardEvent, cardBodyText, laid } from '../../core/card-bodies.js'
 import { inTransaction } from '../../core/db.js'
-import { CARD_ADMITTED, NUMBERS_FOREIGN, PR_OPENED } from '../../core/events.js'
-import { INTAKE_ACTOR_PREFIX } from '../../intake/admissions.js'
-import { cardContract } from '../../intake/card-contract.js'
-import { ANY, BusRead } from '../../ports/bus-read.js'
+import { CARD_ADMITTED } from '../../core/events.js'
 import { latestGitHubNumber } from './pr-close.js'
 
 export const TAIL_SOURCE = 'review-tail'
-export const TAIL_ACTOR = `${INTAKE_ACTOR_PREFIX}${TAIL_SOURCE}`
+export const TAIL_ACTOR = `worker:intake:${TAIL_SOURCE}`
 export const TAIL_PRIORITY = 'p1'
 const TAIL_SUFFIX = '-tail'
 const TAIL_SIZE = 'S'
@@ -20,6 +15,8 @@ const CARD_HEADER = 'card: '
 const TOUCHES_HEADER = 'touches: '
 const BODY_SHA_LENGTH = 12
 const TEST_PATH = /(?:^|\/)(?:tests?|e2e)\/|\.(?:test|spec)\.[cm]?[jt]sx?$/
+const CARD_LINE = /^#\d+\s+(\S+)\s+\[[^/\]]+\/([^/\]]+)\//
+const HEADER_LINE = /^([a-z]+):(.*)$/
 
 export interface Tail {
   parent: number
@@ -30,7 +27,15 @@ export interface Tail {
 }
 
 export interface TailIntake {
-  file: (tail: Tail) => number
+  file: (tail: Tail) => void
+}
+
+export interface TailParent {
+  name: string
+  milestone: string
+  continue: string
+  who: string
+  touches: readonly string[]
 }
 
 export function mutationOnlyFindings(review: Review): string[] | null {
@@ -40,7 +45,25 @@ export function mutationOnlyFindings(review: Review): string[] | null {
   return review.findings.every(finding => marked.has(finding.trim())) ? [...review.findings] : null
 }
 
-export function tailTouches(parent: Pick<CardFields, 'touches'>): string[] {
+function headerOf(text: string): Map<string, string> {
+  const lines = text.split('\n')
+  const end = lines.findIndex(line => line.trim() === '')
+  return new Map((end === -1 ? lines : lines.slice(0, end)).flatMap((line) => {
+    const match = HEADER_LINE.exec(line.trim())
+    return match === null ? [] : [[match[1]!, match[2]!.trim()] as [string, string]]
+  }))
+}
+
+export function tailParentOf(text: string): TailParent | null {
+  const header = headerOf(text)
+  const line = CARD_LINE.exec(header.get('card') ?? '')
+  const touches = (header.get('touches') ?? '').split(',').map(touch => touch.trim()).filter(touch => touch !== '')
+  if (line === null || touches.length === 0)
+    return null
+  return { name: line[1]!, milestone: line[2]!, continue: header.get('continue') ?? 'stop', who: header.get('who') ?? 'shift', touches }
+}
+
+export function tailTouches(parent: Pick<TailParent, 'touches'>): string[] {
   const tests = parent.touches.filter(touch => TEST_PATH.test(touch))
   return tests.length > 0 ? tests : [...parent.touches]
 }
@@ -49,7 +72,7 @@ export function tailOrigin(tail: Tail): string {
   return `Tail of card #${tail.parent}: the review of PR #${tail.pr ?? '—'} at ${tail.head ?? '—'}`
 }
 
-export function tailCardText(id: number, parent: CardFields, tail: Tail): string {
+export function tailCardText(id: number, parent: TailParent, tail: Tail): string {
   const name = `${parent.name}${TAIL_SUFFIX}`
   return [
     `${CARD_HEADER}#${id} ${name} [implement/${parent.milestone}/${TAIL_SIZE}/cheap/auto] · depends — · blocks —`,
@@ -66,6 +89,10 @@ export function tailCardText(id: number, parent: CardFields, tail: Tail): string
   ].join('\n')
 }
 
+export function tailTextSha(text: string): string {
+  return createHash('sha256').update(text).digest('hex')
+}
+
 export function tailBodySha(text: string): string {
   const lines = text.split('\n')
   const headerEnd = lines.findIndex(line => line.trim() === '')
@@ -75,15 +102,15 @@ export function tailBodySha(text: string): string {
   return createHash('sha256').update(`${touches}\n${body}`).digest('hex').slice(0, BODY_SHA_LENGTH)
 }
 
-export interface HeldNumbers {
-  cards: readonly number[]
-  foreign: ReadonlySet<number>
-  latestPr: number
+export interface HeldCards {
+  keys: () => Iterable<string>
+  readonly foreign?: ReadonlySet<number>
 }
 
-export function nextTailNumber(held: HeldNumbers, onGitHub: number): number {
-  const occupied = new Set(held.cards)
-  let next = Math.max(0, ...held.cards.filter(id => !held.foreign.has(id)), held.latestPr, onGitHub) + 1
+export function nextTailNumber(held: HeldCards, outsideTheBus: readonly number[]): number {
+  const cards = [...held.keys()].flatMap(key => /^\d+$/.test(key) ? [Number(key)] : [])
+  const occupied = new Set(cards)
+  let next = Math.max(0, ...cards.filter(id => held.foreign?.has(id) !== true), ...outsideTheBus) + 1
   while (occupied.has(next))
     next += 1
   return next
@@ -97,44 +124,24 @@ export interface BusTailParts {
   db: DatabaseSync
   gitHub: Parameters<typeof latestGitHubNumber>[0]
   clock: () => Date
+  cardStates: () => HeldCards
 }
 
 export class BusTailIntake implements TailIntake {
   constructor(private readonly parts: BusTailParts) {}
 
-  file(tail: Tail): number {
+  file(tail: Tail): void {
     const { db } = this.parts
-    const filed = this.filedBefore(tail)
-    if (filed !== null)
-      return filed
-    const parent = cardContract(db, tail.parent)
+    const body = cardBodyText(db, tail.parent)
+    const parent = body === null ? null : tailParentOf(body)
     if (parent === null)
       throw new Error(`card #${tail.parent} has no admitted body in the bus, so no tail card is filed`)
     const onGitHub = latestGitHubNumber(this.parts.gitHub)
-    return inTransaction(db, () => {
-      const id = nextTailNumber(this.heldNumbers(), onGitHub)
+    inTransaction(db, () => {
+      const id = nextTailNumber(this.parts.cardStates(), [tail.pr ?? 0, onGitHub])
       const text = tailCardText(id, parent, tail)
       const line = text.split('\n')[0]!.slice(CARD_HEADER.length)
-      if (!appendCardEvent(db, TAIL_ACTOR, laid(db, { type: CARD_ADMITTED, cardId: id, ts: this.parts.clock().toISOString(), dedupeKey: tailKey(tail.taskKey), payload: { card: line, lane: null, depends: [], decision: 'auto', contour: 'cheap', confirmation: 'auto', corrections: [], bodySha: tailBodySha(text), text, textSha: textSha(text), source: TAIL_SOURCE } })))
-        throw new Error(`the card.admitted of tail card #${id} was not appended`)
-      return id
+      appendCardEvent(db, TAIL_ACTOR, laid(db, { type: CARD_ADMITTED, cardId: id, ts: this.parts.clock().toISOString(), dedupeKey: tailKey(tail.taskKey), payload: { card: line, lane: null, depends: [], decision: 'auto', contour: 'cheap', confirmation: 'auto', corrections: [], bodySha: tailBodySha(text), text, textSha: tailTextSha(text), source: TAIL_SOURCE } }))
     })
-  }
-
-  private heldNumbers(): HeldNumbers {
-    const read = new BusRead(this.parts.db)
-    const cards = read.where({ card: ANY }).slice(CARD_ADMITTED, [], 'last-per-card').flatMap(event => event.card === null ? [] : [event.card])
-    const foreign = new Set(read.slice(NUMBERS_FOREIGN, ['ids']).flatMap(event => Array.isArray(event.fields.ids) ? event.fields.ids.map(Number) : []))
-    return { cards, foreign, latestPr: this.latestPrInTheBus() }
-  }
-
-  private filedBefore(tail: Tail): number | null {
-    const origin = `\n${tailOrigin(tail)} `
-    const filed = new BusRead(this.parts.db).where({ actor: TAIL_ACTOR }).slice(CARD_ADMITTED, ['text']).find(event => String(event.fields.text ?? '').includes(origin))
-    return filed?.card ?? null
-  }
-
-  private latestPrInTheBus(): number {
-    return new BusRead(this.parts.db).where({ pr: ANY }).slice(PR_OPENED, [], 'last')[0]?.pr ?? 0
   }
 }
