@@ -2,6 +2,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { BusEvent } from '../core/db.js'
 import type { BudgetLine } from '../core/eddies.js'
 import type { Lease } from '../core/lease.js'
+import type { GitRunner } from '../ports/git.js'
 import type { ProcessTable } from '../ports/process-table.js'
 import type { ActionOf, LeasedRound } from './expected-time.js'
 import type { LeaseBeat } from './heartbeat.js'
@@ -12,6 +13,7 @@ import { messageOf } from '../core/errors.js'
 import { BOARD_ALARM, CARD_SESSION_ENDED, CARD_STARTED, PR_OBSERVED, PR_OPENED, SESSION_HEARTBEAT, SESSION_STALLED, TASK_LEASED } from '../core/events.js'
 import { releaseTask } from '../core/lease.js'
 import { LEASED } from '../core/queue.js'
+import { processGit } from '../ports/git.js'
 import { OsProcessTable } from '../ports/process-table.js'
 import { RoundOverTime } from './expected-time.js'
 import { beatsOfLease } from './heartbeat.js'
@@ -36,6 +38,8 @@ type Signal = 'context' | 'transcript' | 'process'
 export type SpendOf = (lease: Lease, session: string) => BudgetLine | null
 
 export type StopSession = (session: string) => void
+
+export type SaveTree = (lease: Lease, session: string) => string
 
 type SupervisedQueue = 'answer' | 'launch' | 'review'
 
@@ -112,6 +116,7 @@ export interface StalledSessionPorts {
   lifeOf: LifeOf
   overTime?: OverTime
   stop?: StopSession
+  save?: SaveTree
   spendOf?: SpendOf
   lines?: Readonly<Record<SupervisedQueue, number>>
   prefix?: string
@@ -197,6 +202,30 @@ function treeOfCard(db: DatabaseSync, cardId: number): string | null {
   return (db.prepare(CARD_TREE).get(cardId) as { worktree: string } | undefined)?.worktree ?? null
 }
 
+export function overspendCommitMessage(lease: Lease, session: string): string {
+  return `saved at the Eddies spend limit: #${lease.cardId} ${lease.queue} session ${session}\n\nCommitted by the bus supervisor from the card's worktree before it stopped the session; the next round starts a fresh session from this tree.`
+}
+
+export function saveCardTreeIn(db: DatabaseSync, git: GitRunner = processGit): SaveTree {
+  return (lease, session) => {
+    const tree = treeOfCard(db, lease.cardId)
+    if (tree === null)
+      return 'no card tree is recorded, so nothing was saved'
+    try {
+      if (git.succeeds(tree, ['rev-parse', '-q', '--verify', 'MERGE_HEAD']))
+        return `${tree} is mid-merge, so its changes were left uncommitted in the tree`
+      if (git.read(tree, ['status', '--porcelain']).trim() === '')
+        return `${tree} held no uncommitted change`
+      git.read(tree, ['add', '-A'])
+      git.read(tree, ['commit', '-q', '--no-verify', '-m', overspendCommitMessage(lease, session)])
+      return `its uncommitted change in ${tree} was committed on its branch`
+    }
+    catch (error) {
+      return `saving ${tree} failed (${messageOf(error)}), its changes stay uncommitted in the tree`
+    }
+  }
+}
+
 export function spendInCardTree(db: DatabaseSync): SpendOf {
   return (lease, session) => {
     const tree = treeOfCard(db, lease.cardId)
@@ -216,6 +245,7 @@ export class StalledSessions {
   private readonly lines: Readonly<Record<SupervisedQueue, number>>
   private readonly spendOf: SpendOf
   private readonly stop: StopSession
+  private readonly save: SaveTree
   private readonly prefix: string
   private readonly pulseOf: PulseOf
   private readonly pulses = new Map<string, { pulse: string, at: string }>()
@@ -226,6 +256,7 @@ export class StalledSessions {
     this.lines = ports.lines ?? NO_PROGRESS_LINES
     this.spendOf = ports.spendOf ?? spendInCardTree(db)
     this.stop = ports.stop ?? stopSessionIn(new OsProcessTable())
+    this.save = ports.save ?? saveCardTreeIn(db)
     this.prefix = ports.prefix ?? ''
     this.pulseOf = ports.pulseOf ?? pulseIn(new OsProcessTable())
   }
@@ -319,8 +350,9 @@ export class StalledSessions {
     const life = this.lifeOf(session)
     if (life === 'dead')
       return null
+    const saved = this.save(lease, session)
     this.stop(session)
-    const reason = `the ${queue} session ${session} of card #${lease.cardId} spent ${spend.spent} against the Eddies limit ${spend.limit} and was stopped`
+    const reason = `the ${queue} session ${session} of card #${lease.cardId} spent ${spend.spent} against the Eddies limit ${spend.limit} and was stopped; ${saved}; the next round starts a fresh session from that tree`
     return this.raise(lease, nowMs, { session, life, since, reason }, `spend:${session}`)
   }
 

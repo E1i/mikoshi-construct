@@ -390,6 +390,8 @@ export class LaunchNode extends Node<LaunchStep> {
     const usageReset = this.usageLimitWaitOf(start)
     if (usageReset !== null)
       return this.relaunchAfterTheReset(start, card, session, usageReset)
+    if (card.contour === 'cheap' && (this.launchParts.spendStopped?.(card) ?? false))
+      return this.continueAfterOverspend(start, card, session)
     const missing = card.contour === 'cheap' ? this.launchParts.collected?.(card, session) ?? null : null
     const atLine = card.contour === 'cheap' && (this.launchParts.atContextLine?.(card) ?? false)
     if (missing !== null && !atLine) {
@@ -460,12 +462,22 @@ export class LaunchNode extends Node<LaunchStep> {
       return this.stopContinuation(start, 'continuation-refused', `${exited}; no continuer is wired, so no session continues from it`)
     if (handedOff)
       return this.continueSession(start, card, continuer, exited)
-    if (this.launchParts.spendStopped?.(card) ?? false)
-      return this.stopContinuation(start, 'eddies-stop', `${exited}; it also hit the session spend stop and left no valid handoff, so no fresh session spends past that stop`)
     const reported = this.reportedStopReason(start)
     if (this.continuationsUsed(start) < MAX_RESTARTS)
       this.launchParts.buildHandoff?.(card, session, admittedBodyText(this.db, start.card_id))
     return this.continueSession(start, card, continuer, exited, reported)
+  }
+
+  private continueAfterOverspend(start: RunningStart, card: StartedCard, session: SessionStart): boolean {
+    if (this.sessionStopOf(start, session) !== null)
+      return this.stopWithoutPullRequest(start, card, session, null)
+    const exited = `card #${start.card_id} session ${card.session} was stopped at the Eddies spend limit with its tree saved, and the bus pushed nothing from it`
+    const { continuer } = this.launchParts
+    if (continuer === undefined)
+      return this.stopContinuation(start, 'eddies-stop', `${exited}; no continuer is wired, so no session continues from it`)
+    if (!(this.launchParts.handedOff?.(session) ?? false) && this.continuationsUsed(start) < MAX_RESTARTS)
+      this.launchParts.buildHandoff?.(card, session, admittedBodyText(this.db, start.card_id))
+    return this.continueSession(start, card, continuer, exited)
   }
 
   private sessionStopOf(start: RunningStart, session: SessionStart): SessionStop | null {
