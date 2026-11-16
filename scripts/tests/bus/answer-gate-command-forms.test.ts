@@ -112,7 +112,7 @@ describe('a gate command counts only in its declared form (D-627)', () => {
     expect(published).toBe(0)
     expect(eventsOf(made.db, CARD_ANSWERED)).toEqual([])
     expect(outcome).toMatchObject({ kind: 'denied', denial: { reason: 'answer_failed', detail: expect.stringContaining('recorded no gate decision') } })
-    expect(outcome).toMatchObject({ denial: { detail: expect.stringContaining(`not in its declared form, which the bus does not record (D-627): \`${PIPED_FROM_A_CD}\``) } })
+    expect(outcome).toMatchObject({ denial: { detail: expect.stringContaining(`the session ran a gate command not in its declared form, which the bus does not record (D-627): \`${PIPED_FROM_A_CD}\``) } })
   })
 
   it('a gate command started in the background records no outcome from its start line', () => {
@@ -135,6 +135,21 @@ describe('a gate command counts only in its declared form (D-627)', () => {
 
     expect(timer.decision()).toBe('green')
     expect(timer.offFormGateCommands()).toEqual([])
+  })
+
+  it('a gate spelled with pnpm --dir in an off-form command is recognised as that gate', () => {
+    const inATreeFromACd = `cd /t; pnpm --dir /t run typecheck | tail`
+    const timer = timerAfter([{ command: inATreeFromACd }, { command: PREPUSH_ROUND }])
+
+    expect(timer.decision()).toBeNull()
+    expect(timer.offFormGateCommands()).toEqual([inATreeFromACd])
+  })
+
+  it('a denial naming two off-form gate commands counts them and joins both', () => {
+    const backgroundPrepush = `${PREPUSH_ROUND}${IN_THE_BACKGROUND}`
+    const line = noGateDecisionLine(CARD, { session: 's', before: null, offFormGateCommands: [PIPED_FROM_A_CD, backgroundPrepush] })
+
+    expect(line).toContain(`the session ran 2 gate commands not in its declared form, which the bus does not record (D-627): \`${PIPED_FROM_A_CD}\`, \`${backgroundPrepush}\``)
   })
 
   it('a denial with no command off its form reads as before', () => {
