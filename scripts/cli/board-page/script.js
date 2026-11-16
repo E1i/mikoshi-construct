@@ -281,4 +281,51 @@
   schedule()
   if (frame)
     frame(countdown)
+  const round = names.round
+  const channels = hex => [1, 3, 5].map(from => Number.parseInt(hex.slice(from, from + 2), 16))
+  const mixed = (from, to, share) => {
+    const end = channels(to)
+    return `#${channels(from).map((channel, index) => Math.round(channel + (end[index] - channel) * share).toString(16).padStart(2, '0')).join('')}`
+  }
+  const colourOf = (share) => {
+    if (share >= 1)
+      return round.over
+    const bounded = Math.max(0, share)
+    return bounded < round.warnShare ? mixed(round.calm, round.warn, bounded / round.warnShare) : mixed(round.warn, round.over, (bounded - round.warnShare) / (1 - round.warnShare))
+  }
+  const pad = value => String(value).padStart(2, '0')
+  const clockOf = (ms) => {
+    const whole = Math.max(0, Math.floor(ms))
+    return `${pad(Math.floor(whole / 60000))}:${pad(Math.floor(whole % 60000 / 1000))}.${pad(Math.floor(whole % 1000 / 10))}`
+  }
+  const tickRound = (node, now) => {
+    const elapsed = Math.max(0, now - Date.parse(node.dataset.roundStart))
+    const expected = Number(node.dataset.roundExpectedMs)
+    const clock = node.querySelector('.round-clock')
+    const label = node.querySelector('.round-label')
+    if (!(expected > 0)) {
+      if (clock)
+        clock.textContent = clockOf(elapsed)
+      return
+    }
+    const share = elapsed / expected
+    const over = share >= 1
+    node.setAttribute('data-phase', over ? 'over' : share >= round.warnShare ? 'warn' : 'calm')
+    node.style.setProperty('--_round', colourOf(share))
+    node.style.setProperty('--_left', `${Math.round(Math.max(0, 1 - share) * 100)}%`)
+    if (clock)
+      clock.textContent = over ? `+${clockOf(elapsed - expected)}` : clockOf(expected - elapsed)
+    if (label)
+      label.textContent = over ? round.overTime : round.remaining
+  }
+  const ticks = () => {
+    const now = Date.now()
+    document.querySelectorAll('[data-round-start]').forEach((node) => {
+      if (node.dataset && node.dataset.roundStart && node.style && node.querySelector)
+        tickRound(node, now)
+    })
+    requestAnimationFrame(ticks)
+  }
+  if (typeof requestAnimationFrame === 'function')
+    requestAnimationFrame(ticks)
 })()
