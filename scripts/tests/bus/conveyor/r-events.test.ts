@@ -27,6 +27,7 @@ const DECLARATIONS = 'declarations'
 const EVENTS = path.join(DECLARATIONS, 'events')
 const READINGS = path.join(DECLARATIONS, 'readings')
 const DERIVED = [EVENT_CATALOG, READINGS_CATALOG, MODULE_FILES]
+const GIT_ROUND_TRIPS_TIMEOUT = 180_000
 const IDENTITY = ['-c', 'user.name=r-events', '-c', 'user.email=r-events@example.invalid', '-c', 'commit.gpgsign=false']
 
 const roots: string[] = []
@@ -255,7 +256,7 @@ describe('conveyor R-events: EVENT_PAYLOADS and the bus readings are assembled f
 })
 
 describe('conveyor R-events: the witnesses', () => {
-  it('scenario 06: two cards in different modules each add a file and an event; different groups, no owner wait, and main equals a fresh rebuild in either merge order', () => {
+  it('scenario 06: two cards in different modules each add a file and an event; different groups, no owner wait, and main equals a fresh rebuild in either merge order', { timeout: GIT_ROUND_TRIPS_TIMEOUT }, () => {
     const first: Card = { pr: 601, files: ['scripts/ladder/probe-starter.ts'], events: { 'probe.started': event('probe.started', 'PROBE_STARTED', ['card', 'step']) } }
     const second: Card = { pr: 602, files: ['scripts/window/probe-view.ts'], events: { 'probe.viewed': event('probe.viewed', 'PROBE_VIEWED', ['view']) } }
     expect(groupsOf([first, second])).toEqual({ prs: [1, 1], owners: 0 })
@@ -274,7 +275,7 @@ describe('conveyor R-events: the witnesses', () => {
     }
   })
 
-  it('scenario 14: a.json and b.json from two PRs land with no update and the catalog holds both; two PRs adding c.json apart are one group, and the second update stops on the file', () => {
+  it('scenario 14: a.json and b.json from two PRs land with no update and the catalog holds both; two PRs adding c.json apart are one group, and the second update stops on the file', { timeout: GIT_ROUND_TRIPS_TIMEOUT }, () => {
     const a: Card = { pr: 1401, files: [], events: { a: event('a', 'PROBE_A', ['one']) } }
     const b: Card = { pr: 1402, files: [], events: { b: event('b', 'PROBE_B', ['two']) } }
     expect(groupsOf([a, b])).toEqual({ prs: [1, 1], owners: 0 })
