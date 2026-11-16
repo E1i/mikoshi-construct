@@ -2038,9 +2038,11 @@
         "derived": false,
         "directory": false,
         "namedIn": [
-          "scripts/ci/test-weights.ts"
+          "scripts/ci/test-weights.ts",
+          "scripts/ci/weights-law.ts",
+          "scripts/supervisor/composition.ts"
         ],
-        "owner": "scripts/ci/test-weights.ts",
+        "owner": "scripts/ci/weights-law.ts",
         "source": "owner",
         "writers": []
       },
@@ -2319,6 +2321,7 @@
           "scripts/ports/worktree-home.ts",
           "scripts/release/evidence.ts",
           "scripts/supervisor/bus-heal.ts",
+          "scripts/supervisor/composition.ts",
           "scripts/supervisor/heartbeat.ts",
           "scripts/supervisor/review-bg.ts",
           "scripts/supervisor/run.ts",
@@ -2504,6 +2507,7 @@
           "scripts/nodes/launch/launch-root.ts",
           "scripts/nodes/launch/launch-worker.ts",
           "scripts/ports/tree-publish.ts",
+          "scripts/supervisor/composition.ts",
           "scripts/window/window-request-tools.ts"
         ],
         "owner": "scripts/ports/tree-publish.ts",
@@ -2810,9 +2814,11 @@
         "derived": false,
         "directory": true,
         "namedIn": [
-          "scripts/ci/test-weights.ts"
+          "scripts/ci/test-weights.ts",
+          "scripts/ci/weights-law.ts",
+          "scripts/supervisor/composition.ts"
         ],
-        "owner": "scripts/ci/test-weights.ts",
+        "owner": "scripts/ci/weights-law.ts",
         "source": "owner",
         "writers": []
       },
