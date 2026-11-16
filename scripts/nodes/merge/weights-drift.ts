@@ -23,8 +23,14 @@ export interface RecomputeFigures {
   drifted: number
 }
 
+export type TableOrder
+  = | { kind: 'current' }
+    | { kind: 'behind', change: string }
+    | { kind: 'unread', why: string }
+
 export interface RecomputeLedger {
   decided: (run: number) => boolean
+  tableOrder: (head: string) => TableOrder
   openCard: () => number | null
   admit: (figures: RecomputeFigures, table: string) => number
   unread: (run: number, why: string) => void
@@ -41,6 +47,7 @@ export type DriftOutcome
     | { kind: 'fresh', run: number, share: number, line: number }
     | { kind: 'held', run: number, card: number }
     | { kind: 'seen', run: number }
+    | { kind: 'superseded', run: number, change: string }
     | { kind: 'unread', run: number | null, why: string }
     | { kind: 'no-run' }
 
@@ -60,6 +67,8 @@ export function driftLine(outcome: DriftOutcome): string {
       return `test weights: run ${outcome.run} not measured while recompute card #${outcome.card} is unmerged`
     case 'seen':
       return `test weights: run ${outcome.run} was measured already`
+    case 'superseded':
+      return `test weights: run ${outcome.run} ran before ${outcome.change}, the last change of the table on main; recorded as seen, nothing admitted`
     case 'unread':
       return `test weights: nothing admitted: ${outcome.why}`
     case 'no-run':
@@ -93,6 +102,11 @@ export class WeightsDriftWatch implements DriftWatch {
 
   private outcomeOf(run: MainRun): DriftOutcome {
     try {
+      const order = this.parts.ledger.tableOrder(run.headSha)
+      if (order.kind === 'unread')
+        return { kind: 'unread', run: run.databaseId, why: order.why }
+      if (order.kind === 'behind')
+        return { kind: 'superseded', run: run.databaseId, change: order.change }
       const drift = this.parts.measure(run)
       switch (drift.kind) {
         case 'unread':
