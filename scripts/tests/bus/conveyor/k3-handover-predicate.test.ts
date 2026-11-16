@@ -9,9 +9,10 @@ import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
 import { appendEvent, openBus } from '../../../core/db.js'
 import { CHILD_ENDED, CHILD_STARTED, GENERATION_ENDED, PR_OBSERVED, SIGNAL_SENT, TASK_COMPLETED, TASK_LEASED, TASK_RELEASED, WORKER_STARTED } from '../../../core/events.js'
+import { aliveBy, heldByLiveExecutors, leaseHandedOver, prTree, releaseUnstarted, RETIRED_UNSTARTED } from '../../../core/handover.js'
 import { taskKey } from '../../../core/identifiers.js'
-import { aliveBy, expireLeases, heldByLiveExecutors, leaseHandedOver, leaseNext, prTree, releaseUnstarted, RETIRED_UNSTARTED, retireHolders } from '../../../core/lease.js'
-import { GENERATION_VARIABLE, INSTANCE_VARIABLE, recordChildEnded, recordChildStarted, recordWorkerIdentity } from '../../../core/node.js'
+import { expireLeases, leaseNext, retireHolders } from '../../../core/lease.js'
+import { eventsIn, GENERATION_VARIABLE, INSTANCE_VARIABLE, recordChildEnded, recordChildStarted, recordWorkerIdentity } from '../../../core/node.js'
 import { queueTask } from '../../../core/queue.js'
 import { reduce } from '../../../core/reducer.js'
 import { BusRead } from '../../../ports/bus-read.js'
@@ -332,9 +333,9 @@ describe('k3: the handover predicate over the recorded executors', () => {
     const key = taskKey({ queue: 'answer', cardId: 1 })
     queueTask(db, ts(), { queue: 'answer', cardId: 1 })
     register(db, { mode: 'child', kind: 'answer', taskKey: key, pid: 11, tree: '/trees/1' })
-    expect(leaseHandedOver(db, ts(), 'answer', NEW_ACTOR, undefined, living(11))).toBeNull()
+    expect(leaseHandedOver(db, eventsIn(db), ts(), 'answer', NEW_ACTOR, undefined, living(11))).toBeNull()
     ended(db, key, 11)
-    expect(leaseHandedOver(db, ts(), 'answer', NEW_ACTOR, undefined, living(11))?.taskKey).toBe(key)
+    expect(leaseHandedOver(db, eventsIn(db), ts(), 'answer', NEW_ACTOR, undefined, living(11))?.taskKey).toBe(key)
   })
 
   it('an executor whose pid is gone or runs another start holds nothing; without a reader every registered executor holds its task', () => {
@@ -342,9 +343,20 @@ describe('k3: the handover predicate over the recorded executors', () => {
     const key = taskKey({ queue: 'answer', cardId: 1 })
     queueTask(db, ts(), { queue: 'answer', cardId: 1 })
     register(db, { mode: 'child', kind: 'answer', taskKey: key, pid: 11, tree: '/trees/1' })
-    expect(heldByLiveExecutors(db, undefined).tasks).toEqual([key])
-    expect(heldByLiveExecutors(db, aliveBy(() => ({ lstart: '2026-11-16T11:00:00.000Z' }))).tasks).toEqual([])
-    expect(leaseHandedOver(db, ts(), 'answer', NEW_ACTOR, undefined, living())?.taskKey).toBe(key)
+    expect(heldByLiveExecutors(eventsIn(db), undefined).tasks).toEqual([key])
+    expect(heldByLiveExecutors(eventsIn(db), aliveBy(() => ({ lstart: '2026-11-16T11:00:00.000Z' }))).tasks).toEqual([])
+    expect(leaseHandedOver(db, eventsIn(db), ts(), 'answer', NEW_ACTOR, undefined, living())?.taskKey).toBe(key)
+  })
+
+  it('a live witness command keeps its own task, which holds no card tree, and the task is leased once its child.ended is recorded', () => {
+    const db = bus()
+    const key = taskKey({ queue: 'witness', cardId: 1 })
+    queueTask(db, ts(), { queue: 'witness', cardId: 1 })
+    register(db, { mode: 'child', kind: 'witness', taskKey: key, pid: 11, tree: '/trees/1' })
+    expect(heldByLiveExecutors(eventsIn(db), living(11))).toEqual({ tasks: [key], cards: [], prs: [] })
+    expect(leaseHandedOver(db, eventsIn(db), ts(), 'witness', NEW_ACTOR, undefined, living(11))).toBeNull()
+    ended(db, key, 11)
+    expect(leaseHandedOver(db, eventsIn(db), ts(), 'witness', NEW_ACTOR, undefined, living(11))?.taskKey).toBe(key)
   })
 
   it('a live answer session keeps the answer and launch tasks of its card, and a task of another card is leased', () => {
@@ -355,9 +367,9 @@ describe('k3: the handover predicate over the recorded executors', () => {
     register(db, { mode: 'child', kind: 'answer', taskKey: answer, pid: 11, tree: '/trees/1' })
     queueTask(db, ts(), { queue: 'launch', cardId: 1, generation: 'next' })
     queueTask(db, ts(), { queue: 'launch', cardId: 2 })
-    expect(heldByLiveExecutors(db, living(11)).cards).toEqual([1])
-    expect(leaseHandedOver(db, ts(), 'launch', NEW_ACTOR, undefined, living(11))?.cardId).toBe(2)
-    expect(leaseHandedOver(db, ts(), 'launch', NEW_ACTOR, undefined, living(11))).toBeNull()
+    expect(heldByLiveExecutors(eventsIn(db), living(11)).cards).toEqual([1])
+    expect(leaseHandedOver(db, eventsIn(db), ts(), 'launch', NEW_ACTOR, undefined, living(11))?.cardId).toBe(2)
+    expect(leaseHandedOver(db, eventsIn(db), ts(), 'launch', NEW_ACTOR, undefined, living(11))).toBeNull()
   })
 
   it('a live inline executor keeps its pull request from every update, merge and close task, and another pull request is leased', () => {
@@ -372,22 +384,24 @@ describe('k3: the handover predicate over the recorded executors', () => {
     register(db, { mode: 'inline', kind: 'update', taskKey: taskKey(update), pid: 11, tree: prTree(17) })
     queueTask(db, ts(), { queue: 'merge', cardId: 1, pr: 17, head })
     queueTask(db, ts(), { queue: 'merge', cardId: 2, pr: 18, head: other })
-    expect(heldByLiveExecutors(db, living(11)).prs).toEqual([17])
-    expect(leaseHandedOver(db, ts(), 'merge', 'worker:merge:new', undefined, living(11))?.pr).toBe(18)
-    expect(leaseHandedOver(db, ts(), 'merge', 'worker:merge:new', undefined, living(11))).toBeNull()
+    expect(heldByLiveExecutors(eventsIn(db), living(11)).prs).toEqual([17])
+    expect(leaseHandedOver(db, eventsIn(db), ts(), 'merge', 'worker:merge:new', undefined, living(11))?.pr).toBe(18)
+    expect(leaseHandedOver(db, eventsIn(db), ts(), 'merge', 'worker:merge:new', undefined, living(11))).toBeNull()
   })
 
-  it('a retiring worker releases retired_unstarted only the leases with no child.started since they were leased', () => {
+  it('a retiring worker releases retired_unstarted only its own leases with no child.started since they were leased', () => {
     const db = bus()
     queueTask(db, ts(), { queue: 'answer', cardId: 1 })
     queueTask(db, ts(), { queue: 'answer', cardId: 2 })
+    queueTask(db, ts(), { queue: 'answer', cardId: 3 })
     const started = leaseNext(db, ts(), 'answer', OLD_ACTOR)!
     const deferred = leaseNext(db, ts(), 'answer', OLD_ACTOR)!
+    leaseNext(db, ts(), 'answer', NEW_ACTOR)
     register(db, { mode: 'child', kind: 'answer', taskKey: started.taskKey, pid: 11, tree: '/trees/1' })
-    expect(releaseUnstarted(db, ts(), OLD_ACTOR)).toEqual([deferred.taskKey])
+    expect(releaseUnstarted(db, eventsIn(db), ts(), OLD_ACTOR)).toEqual([deferred.taskKey])
     expect(new BusRead(db).slice(TASK_RELEASED, ['task_key', 'reason']).map(each => ({ actor: each.actor, ...each.fields }))).toEqual([{ actor: OLD_ACTOR, task_key: deferred.taskKey, reason: RETIRED_UNSTARTED }])
-    expect(releaseUnstarted(db, ts(), OLD_ACTOR)).toEqual([])
-    expect(leaseHandedOver(db, ts(), 'answer', NEW_ACTOR, undefined, living(11))?.taskKey).toBe(deferred.taskKey)
+    expect(releaseUnstarted(db, eventsIn(db), ts(), OLD_ACTOR)).toEqual([])
+    expect(leaseHandedOver(db, eventsIn(db), ts(), 'answer', NEW_ACTOR, undefined, living(11))?.taskKey).toBe(deferred.taskKey)
   })
 
   it('generation.ended is recorded once, after the last process registered under the leaving generation has ended, and never for the current one', () => {
@@ -426,7 +440,7 @@ describe('k3 [needs ps]: the handover predicate on real processes', () => {
     for (const kind of kinds) {
       expect(pidAlive(Number(world.childStarted(keys[kind])!.fields.pid)), `${kind} session alive`).toBe(true)
       expect(world.leasedBy(keys[kind]), `${kind}: no lease by the new generation while its executor lives`).toEqual([old[kind].actor])
-      expect(heldByLiveExecutors(world.db, alive).tasks).toContain(keys[kind])
+      expect(heldByLiveExecutors(eventsIn(world.db), alive).tasks).toContain(keys[kind])
     }
     expect(world.endGenerations()).toEqual([])
     expect(world.generationEnded()).toEqual([])
@@ -528,7 +542,7 @@ describe('k3 [needs ps]: the handover predicate on real processes', () => {
     expect(world.retire('update', old)).toEqual([key])
 
     expect(world.childStarted(key)!.fields).toMatchObject({ mode: 'inline', kind: 'update', task_key: key, tree: `pr:${pr}`, pid: old.process.pid, generation: OLD_GENERATION, instance: old.instance })
-    const held = heldByLiveExecutors(world.db, alive)
+    const held = heldByLiveExecutors(eventsIn(world.db), alive)
     expect(held.tasks).toContain(key)
     expect(held.prs).toContain(pr)
     expect(world.leasedBy(key)).toEqual([old.actor])
@@ -545,7 +559,7 @@ describe('k3 [needs ps]: the handover predicate on real processes', () => {
     expect(ended.fields).toMatchObject({ exit: 0, signal: null, pid: old.process.pid })
     expect(ended.id).toBeGreaterThan(completed.id)
     expect(world.leasedBy(key)).toEqual([old.actor])
-    expect(heldByLiveExecutors(world.db, alive).tasks).not.toContain(key)
+    expect(heldByLiveExecutors(eventsIn(world.db), alive).tasks).not.toContain(key)
     expect(world.signalsSent()).toBe(0)
   }, SCENARIO_MS)
 })

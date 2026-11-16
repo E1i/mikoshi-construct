@@ -1,13 +1,15 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { BusEvent } from './db.js'
+import type { Handover } from './executor-holds.js'
 import type { Queue, TaskIdentity } from './identifiers.js'
 import type { StoredEvent } from './stored.js'
 import { appendedOnCard } from './card-automaton.js'
 import { appendEvent, inTransaction } from './db.js'
-import { BOARD_ALARM, CARD_STOPPED, CHILD_ENDED, CHILD_STARTED, LEASES_DRAINING, RESTARTED, SESSION_HEARTBEAT, SIGNAL_SENT, TASK_COMPLETED, TASK_EXPIRED, TASK_FAILED, TASK_LEASED, TASK_RELEASED, TASK_RENEWED, TASK_SUPERSEDED, WORKER_RETIRING, WORKER_STARTED } from './events.js'
+import { BOARD_ALARM, CARD_STOPPED, CHILD_STARTED, LEASES_DRAINING, RESTARTED, SESSION_HEARTBEAT, SIGNAL_SENT, TASK_COMPLETED, TASK_EXPIRED, TASK_FAILED, TASK_LEASED, TASK_RELEASED, TASK_RENEWED, TASK_SUPERSEDED, WORKER_RETIRING, WORKER_STARTED } from './events.js'
+import { HELD_BY_A_LIVE_EXECUTOR, heldBindings, NOTHING_HELD } from './executor-holds.js'
 import { generationOfKey, taskKey } from './identifiers.js'
 import { appendedAndReduced, FAILURES_TO_STOP, generationField, LEASE_MS, LEASED, QUEUE_ACTOR, QUEUED, queueTaskWithin, STOPPED, WITHDRAWN } from './queue.js'
-import { reject, STORED_COLUMNS, storedByKey } from './stored.js'
+import { reject, storedByKey } from './stored.js'
 import { retryAfterSecondsIn } from './task-must-wait.js'
 
 export { SESSION_HELD_QUEUES as HEARTBEAT_QUEUES, LEASE_FOLDS, LEASE_MS } from './queue.js'
@@ -72,129 +74,11 @@ const WAITING_UNTIL_LATER = `EXISTS (
   SELECT 1 FROM events AS waited WHERE waited.id = tasks.event_id AND waited.type = '${TASK_RELEASED}' AND json_extract(waited.payload, '$.until') > ?
 )`
 
-export const RETIRED_UNSTARTED = 'retired_unstarted'
-
-export const INLINE_QUEUES: ReadonlySet<string> = new Set<Queue>(['update', 'merge', 'close'])
-
-const CARD_TREE_KINDS: ReadonlySet<string> = new Set(['answer', 'launch'])
-
-const IN_LIST = (list: Iterable<string>): string => [...list].map(each => `'${each}'`).join(', ')
-
-const HELD_BY_A_LIVE_EXECUTOR = `(tasks.task_key IN (SELECT value FROM json_each(?))
-    OR (tasks.queue IN (${IN_LIST(CARD_TREE_KINDS)}) AND tasks.card_id IN (SELECT value FROM json_each(?)))
-    OR (tasks.queue IN (${IN_LIST(INLINE_QUEUES)}) AND tasks.pr IN (SELECT value FROM json_each(?))))`
-
 const NEXT_LEASABLE = `
   SELECT tasks.* ${LEASABLE_FROM}
     AND NOT (? AND ${HELD_CARD}) AND NOT ${WAITING_UNTIL_LATER} AND NOT ${HELD_BY_A_LIVE_EXECUTOR}
   ${GRANT_ORDER} LIMIT 1
 `
-
-export interface Handover {
-  tasks: readonly string[]
-  cards: readonly number[]
-  prs: readonly number[]
-}
-
-export const NOTHING_HELD: Handover = { tasks: [], cards: [], prs: [] }
-
-export interface RegisteredExecutor {
-  mode: string
-  instance: string
-  pid: number
-  lstart: string
-  kind: string
-  taskKey: string
-  tree: string | null
-}
-
-export type ExecutorAlive = (executor: RegisteredExecutor) => boolean
-
-export type StartReader = (pid: number) => { lstart: string } | null
-
-const EVERY_EVENT = Number.MAX_SAFE_INTEGER
-
-export function exactAndPrefixes(pattern: readonly string[]): { exact: string[], prefixes: string[] } {
-  const exact: string[] = []
-  const prefixes: string[] = []
-  for (const type of pattern) {
-    const wildcard = type.indexOf('*')
-    if (type === '' || (wildcard !== -1 && wildcard !== type.length - 1) || type === '*')
-      throw new Error(`an event pattern is an event type, or a type prefix ending in a trailing *: ${JSON.stringify(type)}`)
-    if (wildcard === -1)
-      exact.push(type)
-    else
-      prefixes.push(type.slice(0, -1))
-  }
-  return { exact, prefixes }
-}
-
-export function matchingEvents(db: DatabaseSync, pattern: readonly string[], after: number, through: number): StoredEvent[] {
-  const { exact, prefixes } = exactAndPrefixes(pattern)
-  const terms = [
-    ...(exact.length === 0 ? [] : [`type IN (${exact.map(() => '?').join(', ')})`]),
-    ...prefixes.map(() => 'substr(type, 1, ?) = ?'),
-  ]
-  const query = `SELECT ${STORED_COLUMNS} FROM events WHERE id > ? AND id <= ? AND (${terms.join(' OR ')}) ORDER BY id`
-  return db.prepare(query).all(after, through, ...exact, ...prefixes.flatMap(prefix => [prefix.length, prefix])) as unknown as StoredEvent[]
-}
-
-function payloadFields(event: StoredEvent): Record<string, unknown> {
-  try {
-    const payload = JSON.parse(event.payload) as unknown
-    return payload !== null && typeof payload === 'object' ? payload as Record<string, unknown> : {}
-  }
-  catch {
-    return {}
-  }
-}
-
-function executorOf(payload: Record<string, unknown>): RegisteredExecutor | null {
-  const { mode, instance, pid, lstart, kind, task_key: taskKey, tree } = payload
-  if (typeof pid !== 'number' || typeof lstart !== 'string' || typeof taskKey !== 'string')
-    return null
-  return { mode: String(mode), instance: String(instance), pid, lstart, kind: String(kind), taskKey, tree: typeof tree === 'string' ? tree : null }
-}
-
-export function registeredExecutors(db: DatabaseSync): RegisteredExecutor[] {
-  const open = new Map<string, RegisteredExecutor>()
-  for (const event of matchingEvents(db, [CHILD_STARTED, CHILD_ENDED], 0, EVERY_EVENT)) {
-    const payload = payloadFields(event)
-    const key = JSON.stringify([payload.instance, payload.pid, payload.task_key])
-    const executor = event.type === CHILD_STARTED ? executorOf(payload) : null
-    if (executor === null)
-      open.delete(key)
-    else
-      open.set(key, executor)
-  }
-  return [...open.values()]
-}
-
-export function aliveBy(startOf: StartReader | undefined): ExecutorAlive | undefined {
-  if (startOf === undefined)
-    return undefined
-  return (executor) => {
-    const running = startOf(executor.pid)
-    return running !== null && sameStart(executor.lstart, running.lstart)
-  }
-}
-
-export function heldByLiveExecutors(db: DatabaseSync, alive: ExecutorAlive | undefined): Handover {
-  const live = registeredExecutors(db).filter(executor => alive?.(executor) ?? true)
-  const taskOf = (executor: RegisteredExecutor): LeaseRow[] => {
-    const row = rowOf(db, executor.taskKey)
-    return row === undefined ? [] : [row]
-  }
-  return {
-    tasks: live.map(executor => executor.taskKey),
-    cards: live.filter(executor => CARD_TREE_KINDS.has(executor.kind) && executor.tree !== null).flatMap(taskOf).map(row => row.card_id),
-    prs: live.filter(executor => INLINE_QUEUES.has(executor.kind)).flatMap(taskOf).flatMap(row => row.pr === null ? [] : [row.pr]),
-  }
-}
-
-export function prTree(pr: number | null): string | null {
-  return pr === null ? null : `pr:${pr}`
-}
 
 const LAST_BEAT_OF_THE_TASK = `
   SELECT max(ts) AS ts FROM events
@@ -275,13 +159,9 @@ export function queuedCards(db: DatabaseSync, queue: Queue): number[] {
 
 export function leaseNext(db: DatabaseSync, ts: string, queue: Queue, actor: string, order: LeaseOrder = IN_ARRIVAL_ORDER, held: Handover = NOTHING_HELD): Lease | null {
   return inTransaction(db, () => {
-    const row = db.prepare(NEXT_LEASABLE).get(queue, PR_STATE_OF_QUEUE[queue] ?? 'open', order.onePerCard ? 1 : 0, ts, JSON.stringify(held.tasks), JSON.stringify(held.cards), JSON.stringify(held.prs), JSON.stringify(order.firstCards)) as LeaseRow | undefined
+    const row = db.prepare(NEXT_LEASABLE).get(queue, PR_STATE_OF_QUEUE[queue] ?? 'open', order.onePerCard ? 1 : 0, ts, ...heldBindings(held), JSON.stringify(order.firstCards)) as LeaseRow | undefined
     return row === undefined ? null : leased(db, ts, row, actor)
   })
-}
-
-export function leaseHandedOver(db: DatabaseSync, ts: string, queue: Queue, actor: string, order: LeaseOrder | undefined, alive: ExecutorAlive | undefined): Lease | null {
-  return leaseNext(db, ts, queue, actor, order, heldByLiveExecutors(db, alive))
 }
 
 function waitsPast(db: DatabaseSync, key: string, ts: string): boolean {
@@ -515,7 +395,7 @@ function recordedStart(payload: string | null): HolderStart | null {
   return typeof pid === 'number' && Number.isSafeInteger(pid) && pid > 0 && typeof started === 'string' && !Number.isNaN(Date.parse(started)) ? { pid, started } : null
 }
 
-function sameStart(recorded: string, running: string): boolean {
+export function sameStart(recorded: string, running: string): boolean {
   return Math.abs(Date.parse(recorded) - Date.parse(running)) < SAME_START_MS
 }
 
@@ -581,19 +461,20 @@ export function workerRetiring(db: DatabaseSync, actor: string): boolean {
   return db.prepare('SELECT 1 FROM events WHERE dedupe_key = ?').get(`${WORKER_RETIRING}:${actor}`) !== undefined
 }
 
-export function releaseUnstarted(db: DatabaseSync, ts: string, actor: string): string[] {
+export interface HeldLease {
+  taskKey: string
+  leasedAt: number
+}
+
+export function releaseHeld(db: DatabaseSync, ts: string, actor: string, pick: (held: readonly HeldLease[]) => readonly string[], reason: string): string[] {
   return inTransaction(db, () => {
-    const started = matchingEvents(db, [CHILD_STARTED], 0, EVERY_EVENT)
     const held = (db.prepare(LEASES_WITH_THEIR_HOLDER).all() as unknown as HeldWithHolder[]).filter(row => row.holder === actor)
-    const unstarted = held.filter((row) => {
-      const leasedAt = (storedByKey(db, `${TASK_LEASED}:${row.task_key}:${row.lease_gen}`) as StoredEvent | undefined)?.id ?? 0
-      return !started.some(event => event.id > leasedAt && payloadFields(event).task_key === row.task_key)
-    })
-    for (const { task_key: key } of unstarted) {
+    const picked = pick(held.map(row => ({ taskKey: row.task_key, leasedAt: (storedByKey(db, `${TASK_LEASED}:${row.task_key}:${row.lease_gen}`) as StoredEvent | undefined)?.id ?? 0 })))
+    for (const key of picked) {
       const row = rowOf(db, key)!
-      appendedAndReduced(db, taskEvent(ts, TASK_RELEASED, actor, row, row.lease_gen, `${TASK_RELEASED}:${key}:${row.lease_gen}`, { reason: RETIRED_UNSTARTED }))
+      appendedAndReduced(db, taskEvent(ts, TASK_RELEASED, actor, row, row.lease_gen, `${TASK_RELEASED}:${key}:${row.lease_gen}`, { reason }))
     }
-    return unstarted.map(row => row.task_key)
+    return [...picked]
   })
 }
 

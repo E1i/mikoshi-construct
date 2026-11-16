@@ -143,6 +143,8 @@
     "scripts/core/entry.ts",
     "scripts/core/errors.ts",
     "scripts/core/every.ts",
+    "scripts/core/executor-holds.ts",
+    "scripts/core/handover.ts",
     "scripts/core/lease.ts",
     "scripts/core/node.ts",
     "scripts/core/observations.ts",

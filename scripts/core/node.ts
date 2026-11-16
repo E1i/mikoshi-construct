@@ -1,6 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { Understood } from './bus-version.js'
 import type { BusEvent } from './db.js'
+import type { EventsOf } from './handover.js'
 import type { Queue } from './identifiers.js'
 import type { HolderStart, Lease, LeaseOrder } from './lease.js'
 import type { QueuedTask } from './queue.js'
@@ -8,21 +9,23 @@ import type { StoredEvent } from './stored.js'
 import { setImmediate as nextTurn } from 'node:timers/promises'
 import { BUS_VERSION, BUS_VERSION_BEFORE_GATE_RUN, BUS_VERSION_BEFORE_LADDER_RUN, BUS_VERSION_BEFORE_THRESHOLD_SET, CARD_VERSION, CARD_VERSION_BEFORE_TOUCH_SCOPE, recordBusVersion, UNRECORDED_VERSION } from './bus-version.js'
 import { appendEvent, inTransaction, openBus } from './db.js'
-import { CARD_STOPPED, CHILD_ENDED, CHILD_STARTED, NODE_DETECTED, NODE_EQUIVALENCE, TASK_LEASED, WORKER_STARTED } from './events.js'
-import { aliveBy, drainOpen, exactAndPrefixes, expireLeases, failTask, INLINE_QUEUES, leasedByRetiring, leaseHandedOver, matchingEvents, prTree, releaseUnstarted, RENEW_MS, renewLease, StaleLease, waitTask, workerRetiring } from './lease.js'
+import { CARD_STOPPED, NODE_DETECTED, NODE_EQUIVALENCE, TASK_LEASED } from './events.js'
+import { INLINE_QUEUES } from './executor-holds.js'
+import { aliveBy, instanceOf, leaseHandedOver, provenIdentity, prTree, recordChildEnded, recordChildStarted, recordWorkerIdentity, releaseUnstarted } from './handover.js'
+import { drainOpen, expireLeases, failTask, leasedByRetiring, RENEW_MS, renewLease, StaleLease, waitTask, workerRetiring } from './lease.js'
 import { keyOf, LEASED, queueTaskWithin } from './queue.js'
+import { STORED_COLUMNS } from './stored.js'
 import { mustWait } from './task-must-wait.js'
 import { lastEventId } from './watermark.js'
 
-export { matchingEvents } from './lease.js'
+export { GENERATION_VARIABLE, INSTANCE_VARIABLE, instanceOf, provenIdentity, recordChildEnded, recordChildStarted, recordWorkerIdentity, UNHANDED } from './handover.js'
 
 export const SWITCH_FLAG = '--on'
 export const LIVE_FLAG = '--live'
 export const NODE_CURSORS = 'node_cursors'
-export const INSTANCE_VARIABLE = 'BUS_INSTANCE'
-export const GENERATION_VARIABLE = 'BUS_GENERATION'
-export const UNHANDED = 'unhanded'
 export const EXECUTOR_MODES = ['child', 'inline'] as const
+
+const WILDCARD = '*'
 
 export type NodeKind = Exclude<Queue, 'restart'>
 export type EventPattern = readonly string[]
@@ -208,34 +211,6 @@ export function foreignVersion(understands: Understood, record: VersionedRecord,
 
 const IDLE: IdleStep = { kind: 'idle' }
 
-export function instanceOf(env: NodeJS.ProcessEnv): InstanceOf {
-  const handed = (name: string): string => {
-    const value = env[name]
-    return value === undefined || value === '' ? UNHANDED : value
-  }
-  return { instance: handed(INSTANCE_VARIABLE), generation: handed(GENERATION_VARIABLE) }
-}
-
-export function provenIdentity(start: HolderStart, own: ProcessIdentity | null): { pgid: number | null, lstart: string } {
-  const proven = own !== null && own.pid === start.pid ? own : null
-  return { pgid: proven?.pgid ?? null, lstart: proven?.lstart ?? start.started }
-}
-
-export function recordWorkerIdentity(db: DatabaseSync, ts: string, identity: WorkerIdentity): boolean {
-  const { worker, pid, started, instance, generation, pgid, lstart } = identity
-  return appendEvent(db, { ts, type: WORKER_STARTED, actor: worker, cardId: null, pr: null, head: null, dedupeKey: `${WORKER_STARTED}:${worker}`, payload: { worker, pid, started, instance, generation, ...(pgid === null ? {} : { pgid }), lstart }, legacy: false })
-}
-
-export function recordChildStarted(db: DatabaseSync, ts: string, actor: string, child: ChildStart): boolean {
-  const { mode, instance, generation, pid, pgid, lstart, kind, taskKey, tree } = child
-  return appendEvent(db, { ts, type: CHILD_STARTED, actor, cardId: null, pr: null, head: null, dedupeKey: `${CHILD_STARTED}:${instance}:${pid}:${lstart}${mode === 'inline' ? `:${taskKey}` : ''}`, payload: { mode, instance, generation, pid, pgid, lstart, kind, task_key: taskKey, tree }, legacy: false })
-}
-
-export function recordChildEnded(db: DatabaseSync, ts: string, actor: string, ended: ChildEnd): boolean {
-  const { instance, pid, taskKey, exit, signal } = ended
-  return appendEvent(db, { ts, type: CHILD_ENDED, actor, cardId: null, pr: null, head: null, dedupeKey: `${CHILD_ENDED}:${instance}:${pid}:${taskKey}`, payload: { instance, pid, task_key: taskKey, exit, signal }, legacy: false })
-}
-
 export interface ChildRun {
   actor: string
   taskKey: string
@@ -330,6 +305,35 @@ export function prefixOf(kind: Queue): string {
 
 export function detectionMode(argv: readonly string[]): DetectionMode {
   return argv.includes(LIVE_FLAG) ? 'live' : 'shadow'
+}
+
+function exactAndPrefixes(pattern: EventPattern): { exact: string[], prefixes: string[] } {
+  const exact: string[] = []
+  const prefixes: string[] = []
+  for (const type of pattern) {
+    const wildcard = type.indexOf(WILDCARD)
+    if (type === '' || (wildcard !== -1 && wildcard !== type.length - 1) || type === WILDCARD)
+      throw new Error(`an event pattern is an event type, or a type prefix ending in a trailing ${WILDCARD}: ${JSON.stringify(type)}`)
+    if (wildcard === -1)
+      exact.push(type)
+    else
+      prefixes.push(type.slice(0, -1))
+  }
+  return { exact, prefixes }
+}
+
+export function matchingEvents(db: DatabaseSync, pattern: EventPattern, after: number, through: number): StoredEvent[] {
+  const { exact, prefixes } = exactAndPrefixes(pattern)
+  const terms = [
+    ...(exact.length === 0 ? [] : [`type IN (${exact.map(() => '?').join(', ')})`]),
+    ...prefixes.map(() => 'substr(type, 1, ?) = ?'),
+  ]
+  const query = `SELECT ${STORED_COLUMNS} FROM events WHERE id > ? AND id <= ? AND (${terms.join(' OR ')}) ORDER BY id`
+  return db.prepare(query).all(after, through, ...exact, ...prefixes.flatMap(prefix => [prefix.length, prefix])) as unknown as StoredEvent[]
+}
+
+export function eventsIn(db: DatabaseSync): EventsOf {
+  return pattern => matchingEvents(db, pattern, 0, Number.MAX_SAFE_INTEGER)
 }
 
 function inScope(task: QueuedTask, scope: Scope | undefined): boolean {
@@ -502,7 +506,7 @@ export abstract class Node<S extends NodeStep> {
     this.retryWhenLocked('retirement read', () => {
       retiring = workerRetiring(this.db, this.actor)
       if (retiring)
-        releaseUnstarted(this.db, this.ts(), this.actor)
+        releaseUnstarted(this.db, eventsIn(this.db), this.ts(), this.actor)
     })
     if (retiring)
       this.log(`${this.actor} is retiring: it takes no new lease, finishes the rounds it holds on the code it started with, and exits`)
@@ -626,7 +630,7 @@ export abstract class Node<S extends NodeStep> {
     expireLeases(this.db, ts, this.parts.silentMs)
     if (drainOpen(this.db, ts, this.kind, this.codeSha))
       return null
-    const lease = leaseHandedOver(this.db, ts, this.kind, this.actor, this.leaseOrder(), aliveBy(this.supply.identityOf))
+    const lease = leaseHandedOver(this.db, eventsIn(this.db), ts, this.kind, this.actor, this.leaseOrder(), aliveBy(this.supply.identityOf))
     return lease !== null && this.refusedForeignCard(ts, lease) ? null : lease
   }
 
