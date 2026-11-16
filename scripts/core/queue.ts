@@ -463,13 +463,13 @@ function notAWindowCard(card: string): string {
   return `NOT EXISTS (SELECT 1 FROM ${CARD_BODIES} AS body WHERE body.card_id = ${card} AND body.who = '${WINDOW_WHO}')`
 }
 
-function answerCandidatesWhere(condition: string): string {
+function answerCandidatesWhere(condition: string, { answeredPastAnUnmergedDependency = false } = {}): string {
   return `
   SELECT pr, card_id, head, ${cardBodyShaOf('prs.card_id')} AS card_body FROM prs
   WHERE state = 'open' AND ${condition} AND card_id IS NOT NULL AND head IS NOT NULL
     AND ${notAWindowCard('prs.card_id')}
     AND NOT ${aDowngradeWaitOpenOn('prs.card_id')}
-    AND NOT ${HELD_BY_A_DEPENDENCY}
+    ${answeredPastAnUnmergedDependency ? '' : `AND NOT ${HELD_BY_A_DEPENDENCY}`}
     AND NOT EXISTS (
       SELECT 1 FROM events AS stop WHERE stop.id = ${latestTurnOf('prs.card_id')}
         AND stop.type = '${CARD_STOPPED}' AND ${AN_OPEN_QUESTION} AND NOT EXISTS (SELECT 1 FROM events AS taken JOIN events AS released ON released.type = '${CARD_RELEASED}' AND released.legacy = 0 AND released.card_id = stop.card_id AND released.id > taken.id WHERE taken.type = '${CARD_HELD}' AND taken.legacy = 0 AND taken.card_id = stop.card_id AND taken.id > stop.id AND json_extract(taken.payload, '$.takeover') = 1)
@@ -480,7 +480,7 @@ function answerCandidatesWhere(condition: string): string {
 
 const CHANGES_CANDIDATES = answerCandidatesWhere(`verdict_on_head = 'changes'`)
 
-const RED_CI_CANDIDATES = answerCandidatesWhere(`ci = 'red' AND NOT ${A_RERUN_DUE}`)
+const RED_CI_CANDIDATES = answerCandidatesWhere(`ci = 'red' AND NOT ${A_RERUN_DUE}`, { answeredPastAnUnmergedDependency: true })
 
 const DIRTY_THE_UPDATE_COULD_NOT_MERGE = answerCandidatesWhere(`base = '${MAIN_BRANCH}' AND mergeable = 'dirty' AND draft = 0 AND EXISTS (
     SELECT 1 FROM events AS refused WHERE refused.type = '${POLICY_DENIED}' AND refused.legacy = 0 AND refused.pr = prs.pr AND refused.head = prs.head

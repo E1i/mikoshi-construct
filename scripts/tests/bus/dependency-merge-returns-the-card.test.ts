@@ -179,23 +179,23 @@ describe('a dependency merge returns the dependent card (owner s631)', () => {
   })
 
   it.each([
-    { depends: [DEPENDENCY], answers: [] },
-    { depends: [], answers: [OLD_HEAD] },
-  ])('red CI on an open PR gets an answer round only when no dependency of the card is unmerged (depends $depends)', ({ depends, answers }) => {
+    { depends: [DEPENDENCY] },
+    { depends: [] },
+  ])('red CI on an open PR gets an answer round on its head whether or not a dependency of the card is unmerged (depends $depends)', ({ depends }) => {
     const card = openDependent(depends, { required: 'failure' })
 
-    expect(card.answersOfTheCard()).toEqual(answers)
+    expect(card.answersOfTheCard()).toEqual([OLD_HEAD])
   })
 
   it.each([
-    { depends: [DEPENDENCY], sourced: false },
-    { depends: [], sourced: true },
-  ])('an answer leased on a red open PR with no stop gets its source only when no dependency of the card is unmerged (depends $depends)', ({ depends, sourced }) => {
+    { depends: [DEPENDENCY] },
+    { depends: [] },
+  ])('an answer leased on a red open PR with no stop gets its red-CI source whether or not a dependency of the card is unmerged (depends $depends)', ({ depends }) => {
     const card = openDependent(depends, { required: 'failure' })
     const lease = card.answerLease(OLD_HEAD)
 
     expect(card.sources.awaitedStop(lease)).toBeNull()
-    expect(card.sources.sourceOf(lease) !== null).toBe(sourced)
+    expect(card.sources.sourceOf(lease)).toMatchObject({ kind: 'ci' })
   })
 
   it('an update settled on the head before the dependency merged does not stand in for the update the merge makes due', () => {
