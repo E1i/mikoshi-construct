@@ -13,8 +13,9 @@ export const ANSWER_WORD = 'answer'
 const A_WAIT = /^Q\d+$/
 const A_CARD = /^#?(\d+)$/
 const STOP_WORD = /^stop:\s*(\S[\s\S]*)$/i
+const TYPOGRAPHIC_QUOTES_AT_ENDS = /^[«»“”‘’\s]+|[«»“”‘’\s]+$/g
 
-export const USAGE = 'usage: construct-answer <Q<N>|#<card>> "<the owner\'s words>"'
+export const USAGE = 'usage: construct-answer <Q<N>|#<card>> <the owner\'s words, quotes optional>'
 
 export function answerWord(target: string, words: string): string {
   return `${ANSWER_WORD} ${target}: ${words}`
@@ -39,11 +40,15 @@ function ownerStop(db: DatabaseSync, channel: string, now: Date, out: (line: str
   return 0
 }
 
+export function ownerWordsOf(said: readonly string[]): string {
+  return said.join(' ').replace(TYPOGRAPHIC_QUOTES_AT_ENDS, '')
+}
+
 export function runOwnerAnswer(args: readonly string[], db: DatabaseSync, channel: string, now: Date, out: (line: string) => void): number {
-  const [named, said] = args
+  const [named, ...said] = args
   const target = named === undefined ? null : targetOf(named)
-  const words = said?.trim() ?? ''
-  if (args.length !== 2 || target === null || words === '' || words.startsWith('--')) {
+  const words = ownerWordsOf(said)
+  if (target === null || words === '') {
     out(`${PREFIX}${USAGE}`)
     return 2
   }

@@ -15,8 +15,8 @@ import { cleanUpdate, HEAD_READS, UpdateExecutor } from '../../nodes/update/upda
 import { runUpdateWorker, UpdateNode } from '../../nodes/update/update-worker.js'
 import { busProjections } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
-import { cardBody, MAIN_2, sha } from './github-fake.js'
-import { eventCount, eventsOf, liveBench, taskState } from './merge-bench.js'
+import { cardBody, sha } from './github-fake.js'
+import { eventCount, eventsOf, liveBench, mainMovesPastEveryPr, taskState } from './merge-bench.js'
 import { detectUpdate } from './update-detection.js'
 
 afterEach(() => {
@@ -51,19 +51,19 @@ function admittedWithPriority(bench: ReturnType<typeof liveBench>, cardId: numbe
 }
 
 describe('the update queue', () => {
-  it('a behind PR with a pass on its head enters update', () => {
+  it('a pass PR main moved past enters update', () => {
     const bench = updateBench()
     bench.gitHub.open({ number: 980, review: 'success', mergeable_state: 'behind' })
     bench.tick()
+    mainMovesPastEveryPr(bench)
     detectUpdate(bench)
 
     expect(taskState(bench.db, update(980))).toEqual({ state: 'queued', lease_gen: 0, failures: 0 })
-    expect(bench.lease()).toBeNull()
     expect(bench.leaseUpdate()).toMatchObject({ taskKey: update(980), queue: 'update', head: sha('a'), leaseGen: 1 })
     bench.close()
   })
 
-  it('a merge of another pull request makes a pass pull request behind and queues its update within two ticks', () => {
+  it('a merge of another pull request that moves main past a pass pull request queues its update within two ticks', () => {
     const bench = updateBench()
     bench.gitHub.open({ number: 970, review: 'success' })
     bench.gitHub.open({ number: 971, review: 'success' })
@@ -71,9 +71,8 @@ describe('the update queue', () => {
     expect(bench.leaseUpdate()).toBeNull()
 
     bench.gitHub.close(971, true)
-    bench.gitHub.main = MAIN_2
     bench.gitHub.pulls.get(970)!.mergeable_state = 'behind'
-    bench.tick()
+    mainMovesPastEveryPr(bench)
     bench.tick()
     detectUpdate(bench)
 
@@ -100,29 +99,32 @@ describe('the update queue', () => {
     bench.gitHub.open({ number: 961, head: sha('e'), review: 'success', mergeable_state: 'behind', required: 'failure' })
     bench.gitHub.open({ number: 962, head: sha('f'), review: 'success', mergeable_state: 'behind' })
     bench.tick()
+    mainMovesPastEveryPr(bench)
 
     expect(updateCandidates(bench.db, bench.clock.now().toISOString())).toEqual([expect.objectContaining({ queue: 'update', cardId: 1062, pr: 962, head: sha('f') })])
     bench.close()
   })
 
-  it('of two behind pass PRs with green CI only the older is the update candidate on a priority tie', () => {
+  it('two pass PRs in different groups are both update candidates, the older first on a priority tie', () => {
     const bench = updateBench()
     bench.gitHub.open({ number: 964, head: sha('e'), review: 'success', mergeable_state: 'behind' })
     bench.gitHub.open({ number: 963, head: sha('f'), review: 'success', mergeable_state: 'behind' })
     bench.tick()
+    mainMovesPastEveryPr(bench)
 
-    expect(updateCandidates(bench.db, bench.clock.now().toISOString()).map(task => task.pr)).toEqual([963])
+    expect(updateCandidates(bench.db, bench.clock.now().toISOString()).map(task => task.pr)).toEqual([963, 964])
     bench.close()
   })
 
-  it('of two behind pass PRs with green CI only the one of the higher card priority is the update candidate', () => {
+  it('two pass PRs in different groups are both update candidates, the one of the higher card priority first', () => {
     const bench = updateBench()
     bench.gitHub.open({ number: 965, head: sha('e'), review: 'success', mergeable_state: 'behind' })
     bench.gitHub.open({ number: 966, head: sha('f'), review: 'success', mergeable_state: 'behind' })
     admittedWithPriority(bench, 1066)
     bench.tick()
+    mainMovesPastEveryPr(bench)
 
-    expect(updateCandidates(bench.db, bench.clock.now().toISOString()).map(task => task.pr)).toEqual([966])
+    expect(updateCandidates(bench.db, bench.clock.now().toISOString()).map(task => task.pr)).toEqual([966, 965])
     bench.close()
   })
 
@@ -144,6 +146,7 @@ describe('the update queue', () => {
     for (const round of ['1', '2', '3'])
       appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: REVIEW_RECORDED, actor: 'worker:review:reviewer-1', cardId: 1057, pr: 957, head: sha(round), dedupeKey: `${REVIEW_RECORDED}:957:${round}`, payload: { head: sha(round), verdict: 'changes', reviewer_session: 'reviewer-1', findings: [] }, legacy: false })
     bench.tick()
+    mainMovesPastEveryPr(bench)
 
     expect(updateCandidates(bench.db, bench.clock.now().toISOString()).map(task => task.pr)).toEqual([958])
     bench.close()
@@ -167,6 +170,7 @@ describe('the update queue', () => {
     const bench = updateBench()
     bench.gitHub.open({ number: 987, review: 'success', mergeable_state: 'behind', files: ['scripts/core/queue.ts'] })
     bench.tick()
+    mainMovesPastEveryPr(bench)
     detectUpdate(bench)
 
     expect(bench.update(bench.leaseUpdate()!)).toEqual({ kind: 'updated', taskKey: update(987), from: sha('a'), to: NEW_HEAD, carry: { carried: 'pass', rules_version: null, clean: true } })
@@ -190,6 +194,7 @@ describe('the update queue', () => {
     bench.gitHub.open({ number: 988, review: 'success', mergeable_state: 'behind', files: ['scripts/core/queue.ts'] })
     bench.gitHub.updatedPatches = { 'scripts/core/queue.ts': '@@ -1,2 +1,2 @@ a line main also changed' }
     bench.tick()
+    mainMovesPastEveryPr(bench)
     detectUpdate(bench)
 
     const outcome = bench.update(bench.leaseUpdate()!)
@@ -214,6 +219,7 @@ describe('the update queue', () => {
     const bench = updateBench()
     bench.gitHub.open({ number: 989, review: 'success', mergeable_state: 'behind' })
     bench.tick()
+    mainMovesPastEveryPr(bench)
     detectUpdate(bench)
     bench.gitHub.updatedHead = sha('a')
 
@@ -227,6 +233,7 @@ describe('the update queue', () => {
     const bench = updateBench()
     bench.gitHub.open({ number: 990, review: 'success', mergeable_state: 'behind' })
     bench.tick()
+    mainMovesPastEveryPr(bench)
     detectUpdate(bench)
     bench.gitHub.updateStatus = 422
 
@@ -242,6 +249,7 @@ describe('the update queue', () => {
     const bench = updateBench()
     bench.gitHub.open({ number: 991, review: 'success', mergeable_state: 'behind' })
     bench.tick()
+    mainMovesPastEveryPr(bench)
     detectUpdate(bench)
     const lease = bench.leaseUpdate()!
     bench.gitHub.pulls.get(991)!.head = sha('b')
@@ -255,6 +263,7 @@ describe('the update queue', () => {
     const bench = updateBench()
     bench.gitHub.open({ number: 992, review: 'success', mergeable_state: 'behind' })
     bench.tick()
+    mainMovesPastEveryPr(bench)
     detectUpdate(bench)
     const lease = bench.leaseUpdate()!
     bench.gitHub.pulls.get(992)!.mergeable_state = 'dirty'
@@ -268,6 +277,7 @@ describe('the update queue', () => {
     const bench = updateBench()
     bench.gitHub.open({ number: 993, review: 'success', mergeable_state: 'behind' })
     bench.tick()
+    mainMovesPastEveryPr(bench)
     detectUpdate(bench)
     const lease = bench.leaseUpdate()!
     bench.gitHub.pulls.get(993)!.mergeable_state = 'unknown'
@@ -281,6 +291,7 @@ describe('the update queue', () => {
     const bench = updateBench()
     bench.gitHub.open({ number: 994, review: 'success', mergeable_state: 'behind' })
     bench.tick()
+    mainMovesPastEveryPr(bench)
     detectUpdate(bench)
     const old = bench.leaseUpdate('worker:update:old')!
     bench.clock.advance(LEASE_MS + 1)
@@ -308,6 +319,7 @@ describe('the update worker', () => {
     const bench = updateBench()
     bench.gitHub.open({ number: 995, review: 'success', mergeable_state: 'behind' })
     bench.tick()
+    mainMovesPastEveryPr(bench)
     const parts = { silentMs: SILENT_MS, db: bench.db, gitHub: bench.gitHub.client, put: bench.gitHub.put, publish: bench.gitHub.publish, clock: bench.clock.now, settle: () => {}, session: 'worker-1', mode: 'live' as const, env: {} }
     await expect(step(new UpdateNode(parts))).rejects.toThrow(NoLiveVerdict)
 

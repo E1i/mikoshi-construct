@@ -1,15 +1,22 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { EventType } from '../../core/events.js'
 import type { Lease } from '../../core/lease.js'
+import type { OverlapDeclarations } from '../../core/order/overlap.js'
 import type { MergeOutcome } from '../../nodes/merge/merge-executor.js'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { appendEvent, openBus } from '../../core/db.js'
+import { readDeclarations } from '../../core/declarations.js'
 import { CARD_VERIFIED, REVIEW_RECORDED, SHARD_USED } from '../../core/events.js'
 import { leaseNext } from '../../core/lease.js'
+import { overlapDeclarationsOf, overlaps } from '../../core/order/overlap.js'
+import { orderEventsFrom, PrOrderTick } from '../../core/order/turn.js'
 import { REVIEW_ROUNDS } from '../../core/queue.js'
 import { MergeExecutor } from '../../nodes/merge/merge-executor.js'
+import { BusRead } from '../../ports/bus-read.js'
 import { NetWatch, TICK_MS } from '../../ports/netwatch.js'
+import { MAIN_FILES_CAP } from '../../ports/snapshot.js'
 import { busProjections } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { BusTick } from '../../supervisor/run.js'
@@ -46,6 +53,17 @@ export function liveBench(intake?: Intake): MergeBench {
   return mergeBench(intake, reviewAndMergeNodes)
 }
 
+export const BENCH_DECLARATIONS: OverlapDeclarations = overlapDeclarationsOf(readDeclarations())
+
+export function benchOverlaps(pr: readonly string[], main: readonly string[]): boolean {
+  return overlaps(pr, main, BENCH_DECLARATIONS)
+}
+
+export function benchOrderTick(db: DatabaseSync, clock: Clock): PrOrderTick {
+  const events = orderEventsFrom((type, fields, after) => new BusRead(db, { from: after + 1 }).slice(type as EventType, fields as never))
+  return new PrOrderTick(db, events, () => clock.now().toISOString(), () => BENCH_DECLARATIONS, '')
+}
+
 export function mergeBench(intake: Intake = () => () => {}, liveNodes: LiveNodes = NO_NODES): MergeBench {
   const root = mkdtempSync(path.join(tmpdir(), 'bus-merge-'))
   const busPath = path.join(root, 'bus.db')
@@ -53,9 +71,11 @@ export function mergeBench(intake: Intake = () => () => {}, liveNodes: LiveNodes
   const gitHub = new FakeGitHub()
   const clock = new Clock()
   const busTick = new BusTick(db, busProjections(), new NetWatch(db, gitHub.client, clock.now), clock.now, intake(db, clock))
-  const executor = new MergeExecutor({ silentMs: SILENT_MS, db, gitHub: gitHub.client, put: gitHub.put, publish: gitHub.publish, clock: clock.now, run: RUN })
+  const executor = new MergeExecutor({ silentMs: SILENT_MS, db, gitHub: gitHub.client, put: gitHub.put, publish: gitHub.publish, clock: clock.now, run: RUN, overlaps: benchOverlaps })
+  const order = benchOrderTick(db, clock)
   const tick = (): void => {
     busTick.run()
+    order.step()
     liveNodes({ db, gitHub, clock })
     clock.advance(TICK_MS)
   }
@@ -76,6 +96,16 @@ export function mergeBench(intake: Intake = () => () => {}, liveNodes: LiveNodes
       rmSync(root, { recursive: true, force: true })
     },
   }
+}
+
+const MAINS_PAST_EVERY_PR = ['5', '6', '7', '8', '9'].map(sha)
+
+export function mainMovesPastEveryPr(bench: Pick<MergeBench, 'gitHub' | 'tick'>): string {
+  const next = MAINS_PAST_EVERY_PR.find(main => main > bench.gitHub.main)!
+  bench.gitHub.mainFiles[next] = Array.from({ length: MAIN_FILES_CAP }, (_, at) => `docs/moved/${next.slice(0, 1)}-${at}.md`)
+  bench.gitHub.main = next
+  bench.tick()
+  return next
 }
 
 export function cardVerified(db: DatabaseSync, ts: string, cardId: number, pr: number, verification = 'run'): void {

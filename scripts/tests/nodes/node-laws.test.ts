@@ -55,6 +55,7 @@ import { BusTick } from '../../supervisor/run.js'
 import { slotsVariable } from '../../supervisor/scheduler.js'
 import { busDrain, BusSupervisor, freeLeasesOf, withoutRetiring } from '../../supervisor/supervisor.js'
 import { workerLaunches } from '../../supervisor/workers.js'
+import { ranTheGreenGate } from '../bus/gate-stream.js'
 import { Clock, FakeGitHub, sha } from '../bus/github-fake.js'
 import { eventsOf, liveBench, mergeBench } from '../bus/merge-bench.js'
 import { reachesSite } from './law-reach.js'
@@ -502,6 +503,7 @@ async function directImporterWidened(node: LawNode): Promise<void> {
       spawn: async (run) => {
         writeFileSync(path.join(worktree, IMPORTED), 'export const a = 2\n')
         writeFileSync(path.join(worktree, IMPORTER), 'import { a } from \'./a.js\'\n\nexport const b = a + 1\n')
+        ranTheGreenGate(run)
         writeFileSync(run.stdoutPath, `${JSON.stringify({ type: 'result', subtype: 'success', result: 'answered' })}\n`)
         return 0
       },

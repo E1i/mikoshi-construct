@@ -24,6 +24,7 @@ import { classify } from '../../policy/morse/rules.js'
 import { KNOWN_VIOLATIONS, removesEntriesOnly, textBeforePatch } from '../../policy/touch-scope.js'
 import { busProjections } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
+import { ranTheGreenGate } from './gate-stream.js'
 import { sha } from './github-fake.js'
 import { eventsOf, liveBench, mergeBench } from './merge-bench.js'
 
@@ -131,6 +132,7 @@ async function answerWith(rounds: Round[]): Promise<Answering> {
     spawn: async (run) => {
       prompts.push(run.argv.join(' '))
       rounds.shift()?.(worktree)
+      ranTheGreenGate(run)
       writeFileSync(run.stdoutPath, `${JSON.stringify({ type: 'result', subtype: 'success', result: 'answered' })}\n`)
       return 0
     },

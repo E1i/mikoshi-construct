@@ -67,6 +67,7 @@ export interface Answered {
   widenedInConcept?: string[]
   noViolationFreePath?: boolean
   proofs?: FindingProof[]
+  gateDecision?: GateDecision | null
 }
 
 export interface FindingProof {
@@ -99,6 +100,8 @@ export interface AnswererTools {
   pulse?: AnswerPulse
   context?: (session: string) => number | null
   contextWarn?: (size: string | null) => number | null
+  spent?: (session: string) => number | null
+  spendWarn?: () => number | null
   diff?: (card: CardSession) => string | null
   ciLog?: (card: CardSession, head: string) => FailedJobLog | null
   held?: (lease: Lease) => boolean
@@ -295,8 +298,17 @@ export function liveSessionIn(card: CardSession, cwds: () => ProcessCwds = () =>
   return inside === undefined ? null : `a live session runs in ${inside}, inside the tree ${card.worktree}`
 }
 
+function answerReadingsOf(size: string | null) {
+  return realExitReadings({ [CARD_VARIABLE]: 'answer', ...(size === null ? {} : { [CARD_SIZE_VARIABLE]: size }) }, os.homedir(), projectRoot(process.env), defaultBusPath())
+}
+
 export function contextWarnOfEddies(size: string | null = null): number | null {
-  const warn = realExitReadings({ [CARD_VARIABLE]: 'answer', ...(size === null ? {} : { [CARD_SIZE_VARIABLE]: size }) }, os.homedir(), projectRoot(process.env), defaultBusPath()).contextWarn
+  const warn = answerReadingsOf(size).contextWarn
+  return warn === UNKNOWN ? null : warn
+}
+
+export function spendWarnOfEddies(): number | null {
+  const warn = answerReadingsOf(null).spendWarn
   return warn === UNKNOWN ? null : warn
 }
 
@@ -311,11 +323,37 @@ export interface StepSeconds {
 
 const MS_PER_TENTH = 100
 
+export const GATE_DECISIONS = ['green', 'red', 'unrun', 'undeclared'] as const
+export type GateDecision = typeof GATE_DECISIONS[number]
+type GateRunOutcome = Exclude<GateDecision, 'undeclared'>
+
+const GATE_COULD_NOT_RUN = /timed out|time limit|operation not permitted|sandbox/i
+
+function textOf(content: unknown): string {
+  if (typeof content === 'string')
+    return content
+  return Array.isArray(content) ? content.map(part => typeof part === 'object' && part !== null && typeof (part as { text?: unknown }).text === 'string' ? (part as { text: string }).text : '').join('\n') : ''
+}
+
+export function gateRunOutcome(isError: unknown, content: unknown): GateRunOutcome {
+  if (GATE_COULD_NOT_RUN.test(textOf(content)) && isError === true)
+    return 'unrun'
+  return isError === true ? 'red' : 'green'
+}
+
+export function gateDecisionOf(declared: number, outcomes: readonly GateRunOutcome[]): GateDecision | null {
+  if (declared === 0)
+    return 'undeclared'
+  if (outcomes.length < declared)
+    return null
+  return outcomes.includes('unrun') ? 'unrun' : outcomes.includes('red') ? 'red' : 'green'
+}
+
 export function secondsOf(ms: number): number {
   return Math.round(ms / MS_PER_TENTH) / 10
 }
 
-interface StreamBlock { type?: unknown, id?: unknown, name?: unknown, input?: { command?: unknown }, tool_use_id?: unknown }
+interface StreamBlock { type?: unknown, id?: unknown, name?: unknown, input?: { command?: unknown }, tool_use_id?: unknown, is_error?: unknown, content?: unknown }
 
 function blocksOf(line: string): { type: unknown, blocks: StreamBlock[] } | null {
   try {
@@ -342,7 +380,8 @@ export class RoundTimer {
   private firstTurn: number | null = null
   private gateMs: number | null = null
   private pushMs: number | null = null
-  private readonly running = new Map<string, number>()
+  private readonly running = new Map<string, { at: number, command: string }>()
+  private readonly outcomes = new Map<string, GateRunOutcome>()
 
   constructor(private readonly now: () => number, private readonly gate: readonly string[]) {}
 
@@ -359,13 +398,14 @@ export class RoundTimer {
     if (read.type === 'assistant') {
       this.firstTurn ??= at
       for (const block of read.blocks.filter(each => each.type === 'tool_use' && typeof each.id === 'string' && this.runsTheGate(each.input?.command)))
-        this.running.set(block.id as string, at)
+        this.running.set(block.id as string, { at, command: this.gateCommandOf(block.input?.command as string) })
     }
     for (const block of read.blocks.filter(each => each.type === 'tool_result' && typeof each.tool_use_id === 'string')) {
       const started = this.running.get(block.tool_use_id as string)
       if (started !== undefined) {
         this.running.delete(block.tool_use_id as string)
-        this.gateMs = (this.gateMs ?? 0) + at - started
+        this.gateMs = (this.gateMs ?? 0) + at - started.at
+        this.outcomes.set(started.command, gateRunOutcome(block.is_error, block.content))
       }
     }
   }
@@ -388,6 +428,14 @@ export class RoundTimer {
       gate: this.gateMs === null ? null : secondsOf(this.gateMs),
       push: this.pushMs === null ? null : secondsOf(this.pushMs),
     }
+  }
+
+  decision(): GateDecision | null {
+    return gateDecisionOf(this.gate.length, [...this.outcomes.values()])
+  }
+
+  private gateCommandOf(command: string): string {
+    return this.gate.find(each => inAnyTree(command).startsWith(inAnyTree(each))) ?? command
   }
 
   private runsTheGate(command: unknown): boolean {
@@ -437,6 +485,8 @@ export function realAnswererTools(busPath: string = defaultBusPath()): AnswererT
     followed: busTouchesFollowed(busPath),
     context: session => sessionGauges(os.homedir(), projectRoot(process.env), session).context ?? null,
     contextWarn: contextWarnOfEddies,
+    spent: session => sessionGauges(os.homedir(), projectRoot(process.env), session).spent ?? null,
+    spendWarn: spendWarnOfEddies,
     diff: diffAgainstBase,
     ciLog: (card, head) => new GhCiRuns().failureLogOn(head, card.worktree),
     children: new ChildLog(busWriteAt(busPath), pid => identityOf(new OsProcessTable().snapshot(), pid), () => new Date(), process.env),
@@ -447,6 +497,16 @@ function atContextWarn(tools: AnswererTools, session: string, size: string | nul
   const warn = tools.contextWarn?.(size) ?? null
   const context = warn === null ? null : tools.context?.(session) ?? null
   return warn !== null && context !== null && context >= warn
+}
+
+function atSpendWarn(tools: AnswererTools, session: string): boolean {
+  const warn = tools.spendWarn?.() ?? null
+  const spent = warn === null ? null : tools.spent?.(session) ?? null
+  return warn !== null && spent !== null && spent >= warn
+}
+
+function startsFreshAtWarn(tools: AnswererTools, session: string, size: string | null): boolean {
+  return atContextWarn(tools, session, size) || atSpendWarn(tools, session)
 }
 
 export function claudeAnswerer(dir: string, tools: AnswererTools): Answerer {
@@ -480,7 +540,9 @@ function sessionAnswerer(dir: string, tools: AnswererTools): Answerer {
     const { card } = request
     const cardBody = tools.cardText(request.lease.cardId)
     const size = cardSizeIn(cardBody)
-    const resumed = request.fresh !== true && tools.available(card) && !atContextWarn(tools, card.session, size)
+    const atWarn = request.fresh !== true && tools.available(card) && startsFreshAtWarn(tools, card.session, size)
+    const resumed = request.fresh !== true && tools.available(card) && !atWarn
+    const keepsHandoff = request.fresh === true || atWarn
     const session = resumed ? card.session : tools.newSession()
     const ownerQuestion = ownerQuestionPath(dir, session, request.lease.leaseGen)
     const proofs = proofsPath(dir, session, request.lease.leaseGen)
@@ -489,9 +551,9 @@ function sessionAnswerer(dir: string, tools: AnswererTools): Answerer {
     const timer = new RoundTimer(tools.now ?? Date.now, gate.prepush)
     const ciLog = asksAboutRedCi(request.source) && request.lease.head !== null ? tools.ciLog?.(card, request.lease.head) : undefined
     const handoff = answerHandoffPath(card.worktree)
-    if (request.fresh !== true)
+    if (!keepsHandoff)
       rmSync(handoff, { force: true })
-    const prompt = [answerPrompt(request, cardBody, windowGateRule(card, gate, ownerQuestion), resumed ? undefined : tools.diff?.(card), ciLog), ...proofsRule(prove, proofs), ...handoffLines(handoff, request.fresh === true)].join('\n')
+    const prompt = [answerPrompt(request, cardBody, windowGateRule(card, gate, ownerQuestion), resumed ? undefined : tools.diff?.(card), ciLog), ...proofsRule(prove, proofs), ...handoffLines(handoff, keepsHandoff)].join('\n')
     const invocationOf = (kind: 'start' | 'resume', text: string): Invocation => clientInvocation({ kind, role: 'answer', session, cwd: card.worktree, prompt: text, addDirs: [dir], pick: { model: null }, policy: { profile: 'sandboxed', gateCommands: gate.prepush, writePaths: prove.length === 0 ? [ownerQuestion] : [ownerQuestion, proofs], mcpOff: true, tools: tools.cardTools?.(request.lease.cardId, cardBody) } })
     mkdirSync(dir, { recursive: true })
     rmSync(ownerQuestion, { force: true })
@@ -616,9 +678,10 @@ function sessionAnswerer(dir: string, tools: AnswererTools): Answerer {
             await run(invocationOf('resume', missingProofsPrompt(unprovedNow(), proofs)), PROOFS_STEP)
             return ownerAfter(PROOFS_STEP)
           })()
-      const owner = reasked ?? (kept || atLine || unprovedNow().length > 0 ? null : await publish())
+      const gateDecision = timer.decision()
+      const owner = reasked ?? (kept || atLine || unprovedNow().length > 0 || gateDecision === null ? null : await publish())
       const measured = measuredOf(steps.map(stdoutOf))
-      return { session, resumed, atContextWarn: atLine, before, after: tools.remoteHead(card), owner, ...measured, input: { prompt, cardBody }, steps: timer.steps(), ...(widenedInConcept.size === 0 ? {} : { widenedInConcept: [...widenedInConcept] }), ...(noViolationFreePath ? { noViolationFreePath } : {}), ...(prove.length === 0 ? {} : { proofs: proofsIn(proofs, prove) }) }
+      return { session, resumed, atContextWarn: atLine, before, after: tools.remoteHead(card), owner, gateDecision, ...measured, input: { prompt, cardBody }, steps: timer.steps(), ...(widenedInConcept.size === 0 ? {} : { widenedInConcept: [...widenedInConcept] }), ...(noViolationFreePath ? { noViolationFreePath } : {}), ...(prove.length === 0 ? {} : { proofs: proofsIn(proofs, prove) }) }
     }
     finally {
       request.stepped?.(timer.steps())

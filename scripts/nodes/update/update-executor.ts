@@ -1,6 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { PushPolicy } from '../../../src/commands/attach/record.js'
-import type { RerunMode } from '../../cli/check-catalog.js'
 import type { BusEvent } from '../../core/db.js'
 import type { QUESTION_OWNER } from '../../core/events.js'
 import type { AfterFailure, Lease } from '../../core/lease.js'
@@ -10,14 +9,14 @@ import type { CommandResult, GitHub, GitHubPut } from '../../ports/github.js'
 import type { MergeMain } from '../../ports/main-merge.js'
 import type { VerdictOnHead } from '../../ports/snapshot.js'
 import type { TechnicalReason } from '../review/record-verdict.js'
-import { rerunOf, upToDateRequired } from '../../cli/check-catalog.js'
+import { Buffer } from 'node:buffer'
 import { appendEvent } from '../../core/db.js'
 import { messageOf } from '../../core/errors.js'
 import { CI_RERUN_REQUESTED, COMMAND_EXECUTED, POLICY_ALLOWED, POLICY_DENIED, REVIEW_RECORDED, UPDATE_DONE } from '../../core/events.js'
 import { assertHeld, completeTask, failTask, releaseTask, StaleLease } from '../../core/lease.js'
 import { rerunDueOn } from '../../core/observations.js'
 import { KEPT_BY_PUSH_POLICY } from '../../core/push-policy.js'
-import { COMPLETED, dependencyUpdateDueOn, MERGE_REFUSED, updateTurnHeldFrom } from '../../core/queue.js'
+import { COMPLETED, keyOf, MERGE_REFUSED, updateCandidates } from '../../core/queue.js'
 import { cardContract, NOT_MINE, notMine } from '../../intake/card-contract.js'
 import { rerunFailedJobsEndpoint, runsOnHeadEndpoint } from '../../ports/ci-reading.js'
 import { REVIEW_STATUS_CONTEXT } from '../../ports/github-status.js'
@@ -35,14 +34,36 @@ const FILES_PAGE = 100
 const REPO = 'repos/{owner}/{repo}'
 const STATE_OF_VERDICT: Record<VerdictOnHead, ReviewStatus['state']> = { pass: 'success', changes: 'failure' }
 
-export const MERGES_WITHOUT_UPDATE = 'merges_without_update'
-export const WAITS_ITS_TURN = 'waits_its_turn'
 const UPDATE_COMMAND = 'update_branch'
 const MERGE_MAIN_COMMAND = 'merge_main'
+const RATCHET_THRESHOLD_COMMAND = 'ratchet_threshold'
+export const RATCHET_RECORD_PATH = 'contract/ratchet.json'
+const CONTENT_WRITTEN: ReadonlySet<number> = new Set([200, 201])
 
-export type UpdateCommand = typeof UPDATE_COMMAND | typeof MERGE_MAIN_COMMAND | 'publish'
+export type UpdateCommand = typeof UPDATE_COMMAND | typeof MERGE_MAIN_COMMAND | typeof RATCHET_THRESHOLD_COMMAND | 'publish'
 
-export type UpdateTechnicalReason = TechnicalReason | 'not_mergeable' | 'not_behind' | 'wrong_base' | typeof MERGE_REFUSED | typeof NOT_MINE | typeof MERGES_WITHOUT_UPDATE | typeof WAITS_ITS_TURN | typeof KEPT_BY_PUSH_POLICY
+export interface ThresholdSet {
+  row: string
+  to: number
+  decision: string
+}
+
+export function raisedRatchet(recorded: string, sets: readonly ThresholdSet[]): string | null {
+  const numbers = JSON.parse(recorded) as Record<string, number>
+  const raised = sets.filter(set => (numbers[set.row] ?? 0) < set.to)
+  if (raised.length === 0)
+    return null
+  for (const set of raised)
+    numbers[set.row] = Math.max(numbers[set.row] ?? 0, set.to)
+  return `${JSON.stringify(Object.fromEntries(Object.keys(numbers).sort().map(key => [key, numbers[key]!])), null, 2)}\n`
+}
+
+interface RecordedContent {
+  content?: string
+  sha?: string
+}
+
+export type UpdateTechnicalReason = TechnicalReason | 'not_mergeable' | 'not_behind' | 'wrong_base' | typeof MERGE_REFUSED | typeof NOT_MINE | typeof KEPT_BY_PUSH_POLICY
 
 export interface UpdateDenial {
   kind: 'technical'
@@ -73,10 +94,10 @@ export interface UpdateParts {
   clock: () => Date
   settle: () => void
   silentMs: number
-  rerun?: RerunMode
   pushPolicy?: () => PushPolicy
   mergeMain?: MergeMain
   post?: GitHubPut
+  thresholds?: (cardId: number) => readonly ThresholdSet[]
 }
 
 export interface ManualUpdate {
@@ -139,7 +160,7 @@ interface Before {
 
 type Checked = { kind: 'ready', before: Before } | { kind: 'conflicting' } | { kind: 'denied', denial: UpdateDenial }
 
-const WAIT_REASONS: ReadonlySet<UpdateTechnicalReason> = new Set(['not_mergeable', MERGES_WITHOUT_UPDATE, WAITS_ITS_TURN])
+const WAIT_REASONS: ReadonlySet<UpdateTechnicalReason> = new Set(['not_mergeable'])
 const WITHDRAWN_REASONS: ReadonlySet<UpdateTechnicalReason> = new Set([NOT_MINE, KEPT_BY_PUSH_POLICY, MERGE_REFUSED])
 
 function insideTheTouchesLine(lease: Lease, files: readonly string[]): string {
@@ -150,8 +171,14 @@ function technical(reason: UpdateTechnicalReason, detail: string): UpdateDenial 
   return { kind: 'technical', reason, detail }
 }
 
+const HUNK_OFFSETS = /^@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@/gm
+
+export function withoutHunkOffsets(patch: string | null): string | null {
+  return patch === null ? null : patch.replace(HUNK_OFFSETS, '@@')
+}
+
 function sameDiff(before: DiffFile[], after: DiffFile[]): boolean {
-  const key = (files: DiffFile[]): string => JSON.stringify(files.map(file => [file.filename, file.status, file.patch]).sort())
+  const key = (files: DiffFile[]): string => JSON.stringify(files.map(file => [file.filename, file.status, withoutHunkOffsets(file.patch)]).sort())
   return key(before) === key(after)
 }
 
@@ -200,16 +227,20 @@ export class UpdateExecutor {
       const foreign = notMine(card, 'update')
       if (foreign !== null)
         return this.denied(lease, this.rerunRefused(lease, technical(NOT_MINE, foreign)))
+      const thresholds = card === null ? null : this.thresholdsWritten(lease, card)
+      if (thresholds !== null)
+        return thresholds
       const rerun = this.rerunWhenDue(lease)
       if (rerun !== null)
         return rerun
+      const gone = this.noLongerDue(lease)
+      if (gone !== null)
+        return this.denied(lease, gone)
       const checked = this.fresh(lease)
       if (checked.kind === 'denied')
         return this.denied(lease, checked.denial)
       if (checked.kind === 'conflicting')
         return this.conflicting(lease, card)
-      if (updateTurnHeldFrom(this.parts.db, this.ts(), lease.pr!))
-        return this.denied(lease, technical(WAITS_ITS_TURN, `#${lease.pr} waits: an updated pull request is still on its way to merging`))
       this.allowed(lease)
       const refused = this.requested(lease)
       if (refused !== null)
@@ -221,6 +252,53 @@ export class UpdateExecutor {
         return { kind: 'fenced', taskKey: lease.taskKey }
       throw error
     }
+  }
+
+  private noLongerDue(lease: Lease): UpdateDenial | null {
+    if (updateCandidates(this.parts.db, this.ts()).some(task => keyOf(task) === lease.taskKey))
+      return null
+    return technical('not_behind', `${lease.taskKey} is no longer an update candidate: #${lease.pr} is not the turn of its group, or nothing it needs an update for holds any more`)
+  }
+
+  private thresholdsWritten(lease: Lease, card: CardFields): UpdateOutcome | null {
+    const sets = this.parts.thresholds?.(lease.cardId) ?? []
+    if (sets.length === 0)
+      return null
+    const endpoint = `${REPO}/contents/${RATCHET_RECORD_PATH}`
+    const where = `${RATCHET_RECORD_PATH} on ${card.branch}`
+    let recorded: RecordedContent
+    try {
+      recorded = this.meter().get(`${endpoint}?ref=${card.branch}`) as RecordedContent
+    }
+    catch (error) {
+      return this.denied(lease, technical('github_error', `${where} could not be read: ${messageOf(error)}`))
+    }
+    if (recorded.content === undefined || recorded.sha === undefined)
+      return this.denied(lease, technical('github_error', `${where} came back with no content or sha`))
+    const raised = raisedRatchet(Buffer.from(recorded.content, 'base64').toString('utf8'), sets)
+    if (raised === null)
+      return null
+    const decisions = [...new Set(sets.map(set => set.decision))].join(', ')
+    this.allowed(lease, RATCHET_THRESHOLD_COMMAND)
+    let response
+    try {
+      response = this.parts.put(endpoint, { message: `ratchet: the threshold the owner set in ${decisions}`, content: Buffer.from(raised).toString('base64'), sha: recorded.sha, branch: card.branch })
+    }
+    catch (error) {
+      this.executed(lease, RATCHET_THRESHOLD_COMMAND, { ok: false, error: messageOf(error) })
+      return this.denied(lease, technical('github_error', `${where} could not be written: ${messageOf(error)}`))
+    }
+    const to = CONTENT_WRITTEN.has(response.status) ? (response.body as { commit?: { sha?: string } } | null)?.commit?.sha : undefined
+    this.executed(lease, RATCHET_THRESHOLD_COMMAND, { ok: to !== undefined, status: response.status })
+    if (to === undefined)
+      return this.denied(lease, technical('github_error', `GitHub answered ${response.status} to the write of ${where}`))
+    return this.done(lease, to, { carried: null, why: `${RATCHET_RECORD_PATH} written with the threshold the owner set in ${decisions}`, clean: false })
+  }
+
+  private done(lease: Lease, to: string | null, carry: Carry): UpdateOutcome {
+    const event: BusEvent = { ts: this.ts(), type: UPDATE_DONE, actor: lease.actor, cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${UPDATE_DONE}:${lease.taskKey}`, payload: { from: lease.head, to, ...carry, task_key: lease.taskKey, lease_gen: lease.leaseGen }, legacy: false }
+    completeTask(this.parts.db, this.ts(), lease, [event])
+    return { kind: 'updated', taskKey: lease.taskKey, from: lease.head!, to, carry }
   }
 
   private rerunDue(lease: Lease): boolean {
@@ -294,38 +372,13 @@ export class UpdateExecutor {
         return { kind: 'denied', denial: technical('not_mergeable', `#${lease.pr} is ${pull.mergeable_state ?? 'not computed yet'}`) }
       if (mergeable === 'dirty' && this.parts.mergeMain !== undefined)
         return { kind: 'conflicting' }
-      const refused = this.refusal(meter, pull, lease, mergeable)
-      if (refused !== null)
-        return { kind: 'denied', denial: refused }
+      if (mergeable === 'dirty')
+        return { kind: 'denied', denial: technical('not_behind', `#${lease.pr} is dirty, and this update node merges no main into a card tree, so an update-branch cannot take it`) }
       return { kind: 'ready', before: { verdict: verdictOf(meter, lease.head!), files: diffOf(meter, lease.pr!) } }
     }
     catch (error) {
       return { kind: 'denied', denial: technical('github_error', messageOf(error)) }
     }
-  }
-
-  private refusal(meter: Meter, pull: Pull, lease: Lease, mergeable: string): UpdateDenial | null {
-    if (mergeable !== 'dirty' && dependencyUpdateDueOn(this.parts.db, { card: lease.cardId, pr: lease.pr!, head: lease.head! }))
-      return null
-    return this.parts.rerun === 'by-layers' ? this.byLayers(meter, pull, lease, mergeable) : this.notBehind(lease, mergeable)
-  }
-
-  private notBehind(lease: Lease, mergeable: string): UpdateDenial | null {
-    return mergeable === 'behind' ? null : technical('not_behind', `#${lease.pr} is ${mergeable}, not behind`)
-  }
-
-  private byLayers(meter: Meter, pull: Pull, lease: Lease, mergeable: string): UpdateDenial | null {
-    if (mergeable !== 'clean')
-      return this.notBehind(lease, mergeable) ?? this.mergesWithoutUpdate(meter, pull, lease)
-    if (upToDateRequired(meter))
-      return technical('not_behind', `#${lease.pr} is clean on a host that requires an up-to-date branch, not behind`)
-    const rerun = rerunOf(this.parts.db, meter, lease.pr!, pull.base?.sha, lease.head!)
-    return rerun.rerun ? null : technical('not_behind', `#${lease.pr} is clean and needs no update: ${rerun.why}`)
-  }
-
-  private mergesWithoutUpdate(meter: Meter, pull: Pull, lease: Lease): UpdateDenial | null {
-    const rerun = rerunOf(this.parts.db, meter, lease.pr!, pull.base?.sha, lease.head!)
-    return rerun.rerun ? null : technical(MERGES_WITHOUT_UPDATE, `#${lease.pr} merges without an update: ${rerun.why}`)
   }
 
   private requested(lease: Lease): UpdateDenial | null {
@@ -390,10 +443,7 @@ export class UpdateExecutor {
 
   private updated(lease: Lease, before: Before): UpdateOutcome {
     const to = this.newHead(lease)
-    const carry = this.carry(lease, before, to)
-    const event: BusEvent = { ts: this.ts(), type: UPDATE_DONE, actor: lease.actor, cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${UPDATE_DONE}:${lease.taskKey}`, payload: { from: lease.head, to, ...carry, task_key: lease.taskKey, lease_gen: lease.leaseGen }, legacy: false }
-    completeTask(this.parts.db, this.ts(), lease, [event])
-    return { kind: 'updated', taskKey: lease.taskKey, from: lease.head!, to, carry }
+    return this.done(lease, to, this.carry(lease, before, to))
   }
 
   private conflicting(lease: Lease, card: CardFields | null): UpdateOutcome {

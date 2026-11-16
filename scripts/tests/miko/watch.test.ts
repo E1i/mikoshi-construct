@@ -10,7 +10,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { appendEvent, openBus } from '../../core/db.js'
-import { BOARD_ALARM, CARD_CLOSED, CARD_STOPPED, CARD_WAITING, GHOST_LINE, LADDER_APPROVAL, MERGE_DONE, OWNER_WAIT_OPENED, POLICY_DENIED, PR_CLOSED, PR_OBSERVED, PROCESS_JUDGED, REQUEST_DONE, REQUEST_REFUSED, REVIEW_RECORDED, TASK_EXPIRED, WINDOW_REQUEST, WITNESS_RECORDED, WORKER_DOWN } from '../../core/events.js'
+import { BOARD_ALARM, CARD_CLOSED, CARD_STOPPED, CARD_WAITING, GHOST_LINE, LADDER_APPROVAL, MERGE_DONE, OWNER_WAIT_OPENED, POLICY_DENIED, PR_CLOSED, PR_OBSERVED, PROCESS_JUDGED, REQUEST_DONE, REQUEST_REFUSED, REVIEW_RECORDED, TASK_COMPLETED, TASK_EXPIRED, TASK_RELEASED, WINDOW_REQUEST, WITNESS_RECORDED, WORKER_DOWN } from '../../core/events.js'
 import { recordGhostLine } from '../../core/journal.js'
 import { prClosed } from '../../core/observations.js'
 import { QUEUE_ACTOR } from '../../core/queue.js'
@@ -18,6 +18,7 @@ import { noPullRequestDetail } from '../../nodes/launch/launch-worker.js'
 import { REVIEW_ROUNDS_SPENT } from '../../nodes/review/review-executor.js'
 import { WINDOW_MARK, WINDOW_VARIABLE } from '../../ports/session.js'
 import { recordJudged, recordWorkerDown } from '../../supervisor/supervisor.js'
+import { ReleaseLoops } from '../../window/release-loop.js'
 import { ANOTHER_CONSUMER, ONCE_STORE, OnceStore } from '../../window/watch-store.js'
 import { BUS_ALIVE_MS, cardOfEvent, deliverOnce, LEGACY_CURSOR, ONCE, parseWatchArgs, parseWokenStalls, productionDeps, selectOnce, skippedLine, STALL_MS, stalledOf, STOP_EVENT, stuckOf, tick, USER_SETTINGS, wakesTheWindow, WATCHING, WATCHING_FROM_CURSOR, watchState, withWoken, WOKEN_STALLS } from '../../window/watch.js'
 import { requestActor } from '../../window/window-requests.js'
@@ -68,6 +69,7 @@ function fileDeps(file: string, events: BusEvent[] = [], stalls: CardActivity[] 
     observedUpTo: id => latestPerPr(events, PR_OBSERVED, id),
     witnessedUpTo: id => latestPerPr(events, WITNESS_RECORDED, id),
     deniedUpTo: id => events.filter(event => event.type === POLICY_DENIED && event.id <= id),
+    releasedUpTo: () => [],
     windowPrs: () => windowPrs,
     ownRequest: request => ownRequests.has(request),
     observedHeads: (pr, beforeId) => {
@@ -477,7 +479,7 @@ describe('pnpm miko:watch wakes the foreman on an event and on nothing else', ()
 
   describe('wakesTheWindow wakes the window on what changes on its own card', () => {
     const WINDOW_PR = 1161
-    const memory = (ownRequests: number[] = []): Parameters<typeof wakesTheWindow>[0] => ({ ciByPr: new Map(), witnessByPr: new Map(), deniedByTask: new Map(), windowPrs: new Set([WINDOW_PR]), ownRequest: request => ownRequests.includes(request) })
+    const memory = (ownRequests: number[] = []): Parameters<typeof wakesTheWindow>[0] => ({ ciByPr: new Map(), witnessByPr: new Map(), deniedByTask: new Map(), releaseLoops: new ReleaseLoops({ released: TASK_RELEASED, completed: TASK_COMPLETED, fieldsOf: () => ({}) }), windowPrs: new Set([WINDOW_PR]), ownRequest: request => ownRequests.includes(request) })
     const event = (type: string, payload: object, pr: number | null = WINDOW_PR): BusEvent => ({ id: 1, type, cardId: 1357, pr, head: 'h1', payload: JSON.stringify(payload) })
 
     it('wakes on a window.request.done of a request this window made, and not on one of another', () => {

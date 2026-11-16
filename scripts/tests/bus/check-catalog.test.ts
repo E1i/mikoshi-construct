@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { buildCatalog, kindOf, overlapWithMain, readBriefs, RERUN_VARIABLE, rerunModeOf, writeCatalog } from '../../cli/check-catalog.js'
+import { buildCatalog, kindOf, readBriefs, RERUN_VARIABLE, rerunModeOf, writeCatalog } from '../../cli/check-catalog.js'
 import { openDatabase } from '../../core/sqlite.js'
 
 const roots: string[] = []
@@ -179,79 +179,6 @@ describe('the check catalog is filled mechanically from tests, briefs and the jo
     writeFileSync(path.join(root, 'notes.md'), 'n')
     expect(readBriefs(root)).toEqual([{ card: 12, text: 'b' }])
     expect(readBriefs(path.join(root, 'missing'))).toEqual([])
-  })
-})
-
-describe('the overlap of main\'s changes since the base with the layers of a pull request', () => {
-  function cataloged(): ReturnType<typeof openDatabase> {
-    const db = openDatabase(path.join(scratch(), 'bus.db'))
-    writeCatalog(db, { tests: [
-      { test: 'scripts/tests/bus/merge-node.test.ts', layer: 'bus-core,bus:merge', kind: 'unit', what: '', witness: '' },
-      { test: 'scripts/tests/bus/shared.test.ts', layer: 'bus:merge,bus:update', kind: 'unit', what: '', witness: '' },
-      { test: 'tests/cli.test.ts', layer: 'src', kind: 'unit', what: '', witness: '' },
-      { test: 'tests/orphan.test.ts', layer: 'none', kind: 'unit', what: '', witness: '' },
-    ], mutations: [] })
-    return db
-  }
-  const PR = ['scripts/nodes/merge/merge-worker.ts', 'scripts/tests/bus/merge-node.test.ts']
-
-  it('finds none when main has not moved, and none when no layer and no test is shared', () => {
-    const db = cataloged()
-    expect(overlapWithMain(db, PR, [])).toBeNull()
-    expect(overlapWithMain(db, [...PR, '.changeset/a.md'], [])).toBeNull()
-    expect(overlapWithMain(db, PR, ['src/cli.ts', 'tests/cli.test.ts'])).toBeNull()
-  })
-
-  it.each([
-    'scripts/ci/layers.ts',
-    'scripts/ci/select.ts',
-    'scripts/ci/prepush.ts',
-    'scripts/ci/test-command.ts',
-    'scripts/tests/ci/select-layers.test.ts',
-    'scripts/tests/ci/prepush-selector.test.ts',
-    'vitest.config.ts',
-    'package.json',
-    'pnpm-lock.yaml',
-    '.changeset/config.json',
-    'tests/changesets-one-line.test.ts',
-  ])('counts %s, on either side, as test infrastructure that reaches every layer', (file) => {
-    const db = cataloged()
-    const why = `${file} chooses or runs the tests, so it reaches every layer`
-    expect(overlapWithMain(db, PR, [file])).toBe(why)
-    expect(overlapWithMain(db, [...PR, file], ['src/cli.ts'])).toBe(why)
-  })
-
-  it('reads a card note on neither side, so it neither reaches a layer nor falls outside the catalog', () => {
-    const db = cataloged()
-    expect(overlapWithMain(db, PR, ['.changeset/b.md'])).toBeNull()
-    expect(overlapWithMain(db, ['.changeset/a.md'], ['.changeset/b.md'])).toBeNull()
-    expect(overlapWithMain(db, [...PR, '.changeset/a.md'], ['src/cli.ts'])).toBeNull()
-    expect(overlapWithMain(db, PR, ['src/cli.ts', '.changeset/b.md'])).toBeNull()
-    expect(overlapWithMain(db, ['.changeset/a.md'], ['scripts/ci/layers.ts'])).toBe('scripts/ci/layers.ts chooses or runs the tests, so it reaches every layer')
-  })
-
-  it('reads a file nested under .changeset as no card note', () => {
-    const db = cataloged()
-    expect(overlapWithMain(db, PR, ['.changeset/nested/b.md'])).toBe('.changeset/nested/b.md belongs to no layer of the check catalog')
-  })
-
-  it('does not count a vitest config of a template or a fixture as test infrastructure', () => {
-    const db = cataloged()
-    expect(overlapWithMain(db, PR, ['templates/harness/vitest.config.ts'])).toBe('templates/harness/vitest.config.ts belongs to no layer of the check catalog')
-  })
-
-  it('names the shared layer, or the test that runs for a layer of each side', () => {
-    const db = cataloged()
-    expect(overlapWithMain(db, PR, ['scripts/core/db.ts'])).toBe('main changed the layer bus-core since the base')
-    expect(overlapWithMain(db, PR, ['scripts/nodes/update/update-worker.ts'])).toBe('scripts/tests/bus/shared.test.ts runs for a layer of the pull request and a layer main changed')
-  })
-
-  it('counts a file no layer holds, a test the catalog does not place, or an empty catalog as an overlap', () => {
-    const db = cataloged()
-    expect(overlapWithMain(db, PR, ['CONTRIBUTING.md'])).toBe('CONTRIBUTING.md belongs to no layer of the check catalog')
-    expect(overlapWithMain(db, [...PR, 'tests/orphan.test.ts'], ['src/cli.ts'])).toBe('tests/orphan.test.ts belongs to no layer of the check catalog')
-    expect(overlapWithMain(db, [...PR, 'tests/new.test.ts'], ['src/cli.ts'])).toBe('tests/new.test.ts belongs to no layer of the check catalog')
-    expect(overlapWithMain(openDatabase(path.join(scratch(), 'bus.db')), PR, ['src/cli.ts'])).toBe('the check catalog is empty, so no layer can be told apart')
   })
 })
 

@@ -5,6 +5,7 @@ import type { NodeKind, NodeSupply, ProcessIdentity, WorkerIdentity } from '../c
 import type { Projections } from '../core/reducer.js'
 import type { Fold, StoredEvent } from '../core/stored.js'
 import type { DriftWatch } from '../nodes/merge/weights-drift.js'
+import type { ThresholdSet } from '../nodes/update/update-executor.js'
 import type { GitHub } from '../ports/github.js'
 import type { PlanActors } from '../window/plan-folds.js'
 import type { SessionMeasure } from './heartbeat.js'
@@ -15,9 +16,10 @@ import { driftOfRun } from '../ci/weights-law.js'
 import { CARD_FOLDS, CARDS_PROJECTION } from '../core/card-automaton.js'
 import { admittedCardVersion } from '../core/card-bodies.js'
 import { CHAINS_PROJECTION } from '../core/chain.js'
-import { CARD_PLANNED, CARD_UNPLANNED, PLAN_BACKFILLED, PLAN_CLOSED, PLAN_ITEM_ADDED, PLAN_ITEM_LINKED, PLAN_ITEM_REMOVED, PLAN_OPENED } from '../core/events.js'
+import { CARD_PLANNED, CARD_UNPLANNED, PLAN_BACKFILLED, PLAN_CLOSED, PLAN_ITEM_ADDED, PLAN_ITEM_LINKED, PLAN_ITEM_REMOVED, PLAN_OPENED, RATCHET_THRESHOLD_SET } from '../core/events.js'
 import { OWNER } from '../core/inbox.js'
 import { foreignVersion, instanceOf, provenIdentity, recordWorkerIdentity, UNHANDED } from '../core/node.js'
+import { orderDeclarationsAt, overlaps } from '../core/order/overlap.js'
 import { TASKS_PROJECTION } from '../core/queue.js'
 import { CARD_END_FOLDS, OWNER_WAIT_FOLDS, PR_FOLDS } from '../core/reducer.js'
 import { BusWeightsRecompute } from '../intake/intake.js'
@@ -26,6 +28,7 @@ import { WeightsDriftWatch } from '../nodes/merge/weights-drift.js'
 import { ROLES_PROJECTION } from '../nodes/restart/role.js'
 import { DECISION_FOLDS } from '../policy/decisions/index.js'
 import { RECUT_ACTOR } from '../policy/round-limit-decision.js'
+import { BusRead } from '../ports/bus-read.js'
 import { GhCiRuns } from '../ports/ci-reading.js'
 import { CHECK_MS, TICK_MS } from '../ports/netwatch.js'
 import { launchDirOf } from '../ports/tree-publish.js'
@@ -52,6 +55,10 @@ export function recordOwnStart(db: DatabaseSync, kind: string, env: NodeJS.Proce
   catch {
     return false
   }
+}
+
+export function mainOverlapAt(root: string): (pr: readonly string[], main: readonly string[]) => boolean {
+  return (pr, main) => overlaps(pr, main, orderDeclarationsAt(root))
 }
 
 export function nodeLiveness(): NodeLiveness {
@@ -104,6 +111,12 @@ const PLAN_FOLDS: Record<string, Fold> = {
   [CARD_PLANNED]: foldPlanByItsActors,
   [CARD_UNPLANNED]: foldPlanByItsActors,
   [PLAN_BACKFILLED]: foldPlanByItsActors,
+}
+
+export function ratchetThresholdSets(db: DatabaseSync): (cardId: number) => ThresholdSet[] {
+  const read = new BusRead(db)
+  return cardId => read.where({ card: cardId }).slice(RATCHET_THRESHOLD_SET, ['decision', 'row', 'to']).flatMap(({ fields: { decision, row, to } }) =>
+    typeof decision === 'string' && typeof row === 'string' && typeof to === 'number' ? [{ decision, row, to }] : [])
 }
 
 export function busProjections(): Projections {

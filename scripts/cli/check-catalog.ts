@@ -1,28 +1,25 @@
 import type { DatabaseSync } from 'node:sqlite'
-import type { CardRuns, CardRunsSource } from '../ci/card-runs.js'
 import type { Graph } from '../ci/layers.js'
-import type { LayerMap, ReadFile } from '../core/layer-map.js'
+import type { LayerMap } from '../core/layer-map.js'
 import type { CardBody } from '../intake/parking-reads.js'
 import type { Meter } from '../ports/meter.js'
-import { Buffer } from 'node:buffer'
 import { execFileSync } from 'node:child_process'
 import { existsSync, readdirSync, readFileSync, symlinkSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { parseMutationFile } from '../../src/commands/mutate/lines.js'
-import { cardRunsOf, catalogLayersByTest, catalogModuleLayers, hasTable, LayerWithoutTests, NO_LAYER, runsSourceOfPr } from '../ci/card-runs.js'
-import { BUS_SHARED, BUS_TESTS, isTest, selectRun } from '../ci/layers.js'
+import { catalogLayersByTest, catalogModuleLayers, NO_LAYER } from '../ci/card-runs.js'
+import { isTest, selectRun } from '../ci/layers.js'
 import { cruise } from '../ci/select.js'
-import { scansATree, walksATree } from '../ci/tree-scanners.js'
+import { walksATree } from '../ci/tree-scanners.js'
 import { BUS_DB_VARIABLE, BUSY_TIMEOUT_MS, defaultBusPath } from '../core/db.js'
-import { GHOST_LINE, POLICY_DENIED } from '../core/events.js'
+import { GHOST_LINE } from '../core/events.js'
 import { FACTORY_FOLDERS } from '../core/factory-paths.js'
-import { DOCS_LAYER, isTestFixture, isTestInfrastructure, LAYER_MAP, layerOf, layersInOf, layersOf, layersOfTestFixture, layersReachedByImports, readLayerMap, recordsOf } from '../core/layer-map.js'
+import { DOCS_LAYER, LAYER_MAP, layerOf, layersOf, readLayerMap, recordsOf } from '../core/layer-map.js'
 import { legacyHistory } from '../core/legacy-history.js'
 import { openDatabase } from '../core/sqlite.js'
 import { cardBodies } from '../intake/parking-reads.js'
-import { RateLimited } from '../ports/meter.js'
 import { MAIN_BRANCH } from '../ports/snapshot.js'
 import { gitIn, withWorktree } from '../ports/worktree.js'
 
@@ -37,8 +34,6 @@ const EACH_TOKEN = /(%%)|%[sdifjo#]|\$[a-z_][\w.]*/gi
 const RENDERED_PERCENT = '%'
 const SHELL_QUOTED_APOSTROPHE = /'\\''/g
 const WITNESSES_HEADING = /^Witnesses:/
-const CARD_NOTE = /^\.changeset\/[^/]+\.md$/
-const DOCUMENT = /^(?:architecture|docs)\/.+\.md$/
 const DOCUMENT_READER = /^(?:scripts|src|tests)\/.+\.[cm]?[jt]s$/
 const DOCUMENT_NAME = /(?<![\w./-])(?:[\w.-]+\/)*[\w.-]+\.md\b/g
 const DOCUMENT_TREE = /['"`]((?:\.{1,2}\/)*(?:architecture|docs)(?:\/[\w-]+)*)\/?['"`]/g
@@ -49,10 +44,8 @@ const FACTORY_TESTS = FACTORY_FOLDERS.tests[0]
 export const RERUN_VARIABLE = 'BUS_RERUN'
 export const RERUN_MODES = ['as-now', 'by-layers'] as const
 export type RerunMode = typeof RERUN_MODES[number]
-export type Rerun = { rerun: true, why: string } | { rerun: false, why: string }
 
 const REPO = 'repos/{owner}/{repo}'
-const MAIN_PROTECTION = `${REPO}/branches/${MAIN_BRANCH}/protection`
 const FILES_PAGE = 100
 const COMPARE_FILES_CAP = 300
 const CATALOG_SCRIPT = 'scripts/cli/check-catalog.ts'
@@ -60,11 +53,6 @@ const REBUILD_MS = 5 * 60_000
 
 export const MAIN_TIP = `origin/${MAIN_BRANCH}`
 export const REFUSED_NOT_UP_TO_DATE = 'not_up_to_date'
-const REFUSED_ON_THE_HEAD = `
-  SELECT events.id FROM events JOIN prs ON prs.pr = events.pr AND prs.head = events.head
-  WHERE events.type = '${POLICY_DENIED}' AND events.pr = ? AND json_extract(events.payload, '$.refusal') = '${REFUSED_NOT_UP_TO_DATE}'
-  LIMIT 1
-`
 
 interface ListedFile { filename?: string, previous_filename?: string }
 
@@ -376,13 +364,6 @@ export function rerunModeOf(env: NodeJS.ProcessEnv): RerunMode {
 
 export { catalogLayersByTest, catalogModuleLayers }
 
-function catalogReadsOfDocuments(db: DatabaseSync): DocumentRead[] | null {
-  if (!hasTable(db, 'check_document_reads'))
-    return null
-  const rows = db.prepare('SELECT document, reader, walked FROM check_document_reads ORDER BY document, reader').all() as unknown as { document: string, reader: string, walked: number }[]
-  return rows.map(row => ({ document: row.document, reader: row.reader, walked: row.walked === 1 }))
-}
-
 export function catalogIsEmpty(db: DatabaseSync): boolean {
   return catalogLayersByTest(db).size === 0
 }
@@ -397,100 +378,6 @@ export function rebuildCatalogAt(ref: string, busPath: string, repo: string = RE
     symlinkSync(path.join(repo, 'node_modules'), path.join(tree, 'node_modules'))
     execFileSync(process.execPath, ['--import', 'tsx', CATALOG_SCRIPT], { cwd: tree, env: { ...process.env, [BUS_DB_VARIABLE]: busPath }, timeout: REBUILD_MS, stdio: ['ignore', 'pipe', 'pipe'] })
   })
-}
-
-function placedLayers(file: string, byTest: ReadonlyMap<string, readonly string[]>, map: LayerMap): readonly string[] | null {
-  const layers = isTest(file) ? byTest.get(file) ?? [] : isTestFixture(file) ? layersOfTestFixture(file, byTest) : layersInOf(map, file)
-  return layers.length === 0 ? null : layers
-}
-
-function withoutCardNotes(files: readonly string[]): string[] {
-  return files.filter(file => !CARD_NOTE.test(file))
-}
-
-function readerNaming(file: string, reads: readonly DocumentRead[]): string | undefined {
-  return reads.find(read => !read.walked && (file === read.document || file.endsWith(`/${read.document}`)))?.reader
-}
-
-function documentRead(pr: readonly string[], main: readonly string[], reads: readonly DocumentRead[]): string | null {
-  const prDocuments = pr.filter(file => DOCUMENT.test(file))
-  const mainDocuments = main.filter(file => DOCUMENT.test(file))
-  for (const document of [...prDocuments, ...mainDocuments]) {
-    const reader = readerNaming(document, reads)
-    if (reader !== undefined)
-      return `${document} is read by ${reader}`
-  }
-  const inTree = (tree: string) => (file: string): boolean => file.startsWith(`${tree}/`)
-  const walker = reads.find((read) => {
-    const inPr = prDocuments.some(inTree(read.document))
-    const inMain = mainDocuments.some(inTree(read.document))
-    return read.walked && ((inPr && (inMain || main.includes(read.reader))) || (inMain && pr.includes(read.reader)))
-  })
-  return walker === undefined ? null : `${walker.reader} walks ${walker.document}, and each side changed the walker or a document in it`
-}
-
-function addedTestReach(test: string, modules: ReadonlyMap<string, readonly string[]>, read: ReadFile, map: LayerMap): string[] | null {
-  const text = read(test)
-  if (modules.size === 0 || text === null || scansATree(text))
-    return null
-  const reached = layersReachedByImports(test, modules, read, map)
-  if (reached === null)
-    return null
-  const busWide = test.startsWith(BUS_TESTS) ? BUS_SHARED.flatMap(layersOf) : []
-  return [...new Set([...reached, ...busWide])]
-}
-
-export interface OverlapCard {
-  card?: CardRunsSource | null
-  map?: LayerMap
-}
-
-export function overlapWithMain(db: DatabaseSync, prFiles: readonly string[], mainFiles: readonly string[], readAtHead: ReadFile = () => null, { card = null, map = readLayerMap() }: OverlapCard = {}): string | null {
-  const pr = withoutCardNotes(prFiles)
-  const main = withoutCardNotes(mainFiles)
-  if (main.length === 0)
-    return null
-  const infrastructure = [...pr, ...main].find(isTestInfrastructure)
-  if (infrastructure !== undefined)
-    return `${infrastructure} chooses or runs the tests, so it reaches every layer`
-  const byTest = catalogLayersByTest(db)
-  if (byTest.size === 0)
-    return 'the check catalog is empty, so no layer can be told apart'
-  const reads = catalogReadsOfDocuments(db)
-  const read = reads === null ? null : documentRead(pr, main, reads)
-  if (read !== null)
-    return read
-  const unread = (file: string): boolean => reads === null || !DOCUMENT.test(file)
-  const modules = catalogModuleLayers(db)
-  const placedPr = pr.filter(unread).map(file => [file, placedLayers(file, byTest, map) ?? (isTest(file) && !byTest.has(file) ? addedTestReach(file, modules, readAtHead, map) : null)] as const)
-  const placedMain = main.filter(unread).map(file => [file, placedLayers(file, byTest, map)] as const)
-  const unplaced = [...placedPr, ...placedMain].find(([, layers]) => layers === null)
-  if (unplaced !== undefined)
-    return `${unplaced[0]} belongs to no layer of the check catalog`
-  let reading: CardRuns | null
-  try {
-    reading = card === null ? null : cardRunsOf(card, { testLayers: byTest, moduleLayers: modules }, map)
-  }
-  catch (error) {
-    if (error instanceof LayerWithoutTests)
-      return error.message
-    throw error
-  }
-  if (reading !== null && 'full' in reading)
-    return reading.why
-  const records = recordsOf(map)
-  const recordLayers = new Set(records.flatMap(record => layersInOf(map, record)))
-  const cardLayers = (reading?.layers ?? []).filter(layer => !recordLayers.has(layer))
-  const prLayers = new Set([...placedPr.flatMap(([, layers]) => layers!), ...cardLayers])
-  const mainLayers = new Set(placedMain.flatMap(([, layers]) => layers!))
-  const shared = [...prLayers].sort().find(layer => mainLayers.has(layer))
-  if (shared !== undefined)
-    return `main changed the layer ${shared} since the base`
-  const layersOfCode = (placed: typeof placedMain): Set<string> => new Set(placed.filter(([file]) => !records.includes(file)).flatMap(([, layers]) => layers!))
-  const prCode = new Set([...layersOfCode(placedPr), ...cardLayers])
-  const mainCode = layersOfCode(placedMain)
-  const both = [...byTest].sort(([a], [b]) => a.localeCompare(b)).find(([, layers]) => layers.some(layer => prCode.has(layer)) && layers.some(layer => mainCode.has(layer)))
-  return both === undefined ? null : `${both[0]} runs for a layer of the pull request and a layer main changed`
 }
 
 function listedFiles(meter: Meter, pr: number): ListedFile[] {
@@ -515,27 +402,9 @@ export function changedFiles(meter: Meter, pr: number): string[] {
   return listedFiles(meter, pr).flatMap(file => file.filename === undefined ? [] : [file.filename])
 }
 
-interface RequiredStatusChecks { strict?: boolean, contexts?: unknown, checks?: unknown }
+export type MainSince = { kind: 'files', files: string[] } | { kind: 'truncated', why: string }
 
-function isEmptyList(value: unknown): boolean {
-  return Array.isArray(value) && value.length === 0
-}
-
-export function upToDateRequired(meter: Meter): boolean {
-  try {
-    const required = (meter.get(MAIN_PROTECTION) as { required_status_checks?: RequiredStatusChecks | null }).required_status_checks
-    if (required?.strict === false)
-      return false
-    return !(isEmptyList(required?.contexts) && isEmptyList(required?.checks))
-  }
-  catch {
-    return true
-  }
-}
-
-type MainSince = { kind: 'files', files: string[] } | { kind: 'truncated', why: string }
-
-function mainFilesSince(meter: Meter, base: string): MainSince {
+export function mainFilesSince(meter: Meter, base: string): MainSince {
   const main = (meter.get(`${REPO}/commits/${MAIN_BRANCH}`) as { sha?: string }).sha
   if (main === undefined || main === base)
     return { kind: 'files', files: [] }
@@ -547,34 +416,6 @@ function mainFilesSince(meter: Meter, base: string): MainSince {
   if ((compared.total_commits ?? listedCommits) > listedCommits)
     return { kind: 'truncated', why: `the compare of ${base}...${main} lists ${listedCommits} of ${compared.total_commits} commits, so its files may be missing some` }
   return { kind: 'files', files: pathsOf(files) }
-}
-
-function fileAt(meter: Meter, head: string): ReadFile {
-  return (file) => {
-    try {
-      const found = meter.get(`${REPO}/contents/${file}?ref=${head}`) as { content?: unknown }
-      return typeof found.content === 'string' ? Buffer.from(found.content, 'base64').toString('utf8') : null
-    }
-    catch (error) {
-      if (error instanceof RateLimited)
-        throw error
-      return null
-    }
-  }
-}
-
-export function rerunOf(db: DatabaseSync, meter: Meter, pr: number, base: string | undefined, head?: string): Rerun {
-  if (upToDateRequired(meter))
-    return { rerun: true, why: `${MAIN_BRANCH} requires an up-to-date branch on this host` }
-  if (db.prepare(REFUSED_ON_THE_HEAD).get(pr) !== undefined)
-    return { rerun: true, why: `GitHub refused the merge of this head of #${pr} as not up to date` }
-  if (base === undefined)
-    return { rerun: true, why: `#${pr} came back with no base sha` }
-  const main = mainFilesSince(meter, base)
-  if (main.kind === 'truncated')
-    return { rerun: true, why: main.why }
-  const overlap = overlapWithMain(db, pathsOf(listedFiles(meter, pr)), main.files, head === undefined ? undefined : fileAt(meter, head), { card: runsSourceOfPr(db, pr) })
-  return overlap === null ? { rerun: false, why: `nothing ${MAIN_BRANCH} changed since ${base} reaches a layer of #${pr}` } : { rerun: true, why: overlap }
 }
 
 export function readBriefs(dir: string): Brief[] {

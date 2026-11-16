@@ -153,7 +153,7 @@ describe('the merge policy', () => {
       [{ number: 955, body: `${cardBody(955, 'owner')}\n\n#1055 reserved` }, 'reserved'],
     ]
     for (const [pull] of cases)
-      bench.gitHub.open({ review: 'success', files: ['scripts/policy/policy.ts'], ...pull })
+      bench.gitHub.open({ review: 'success', files: [`docs/case-${pull.number}.md`], ...pull })
     bench.issueShard()
     bench.tick()
 

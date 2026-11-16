@@ -100,7 +100,7 @@ export class AnswerOutcomes {
   denied(lease: Lease, denial: AnswerDenial): AnswerOutcome {
     if (denial.reason === 'answer_failed' && cutByRestart(this.parts.db, lease)) {
       releaseTask(this.parts.db, this.ts(), lease, RESTART_CUT)
-      return { kind: 'denied', taskKey: lease.taskKey, denial: { ...denial, detail: `${denial.detail}; a restart of the bus cut the session, so it is queued again and not counted as a failed round` }, next: QUEUED }
+      return { kind: 'denied', taskKey: lease.taskKey, denial: { ...denial, detail: `${denial.detail}; a restart of the bus signalled the session and recorded signal.sent for it, so it is queued again and not counted as a failed round` }, next: QUEUED }
     }
     const next = failTask(this.parts.db, this.ts(), lease, { reason: denial.reason, withdraw: WITHDRAWN_REASONS.has(denial.reason) }, this.parts.silentMs, [this.denialEvent(lease, denial)])
     return { kind: 'denied', taskKey: lease.taskKey, denial, next }

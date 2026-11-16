@@ -107,7 +107,7 @@ describe('conveyor O1: the bus records the paths a pull request and main changed
     db.close()
   })
 
-  it('main.advanced carries the paths snapshot already fetched beside touches_mechanics, with no new GitHub call', () => {
+  it('main.advanced carries the paths snapshot already fetched beside touches_mechanics, with no new GitHub call for them, and the CI of main read once through the required-check reading (Q382)', () => {
     const many = Array.from({ length: MAIN_FILES_CAP }, (_, index) => `docs/page-${index}.md`)
     const { db, gitHub, tick } = setUp((fake) => {
       fake.mainFiles = { [MAIN_1]: ['README.md'], [MAIN_2]: ['scripts/ladder/ladder.ts'], [MAIN_3]: many }
@@ -116,13 +116,13 @@ describe('conveyor O1: the bus records the paths a pull request and main changed
     gitHub.main = MAIN_2
     gitHub.calls = []
     tick()
-    expect(gitHub.calls).toEqual([`${REPO}/pulls?state=open&per_page=100`, `${REPO}/commits/main`, `${REPO}/compare/${MAIN_1}...${MAIN_2}`])
+    expect(gitHub.calls).toEqual([`${REPO}/pulls?state=open&per_page=100`, `${REPO}/commits/main`, `${REPO}/compare/${MAIN_1}...${MAIN_2}`, `${REPO}/commits/${MAIN_2}/check-runs?per_page=100`])
     gitHub.main = MAIN_3
     tick()
     expect(payloads(db, MAIN_ADVANCED)).toEqual([
-      { sha: MAIN_1, touches_mechanics: false, paths: ['README.md'], pathsTruncated: false },
-      { sha: MAIN_2, touches_mechanics: true, paths: ['scripts/ladder/ladder.ts'], pathsTruncated: false },
-      { sha: MAIN_3, touches_mechanics: false, paths: many, pathsTruncated: true },
+      { sha: MAIN_1, touches_mechanics: false, paths: ['README.md'], pathsTruncated: false, ci: 'pending' },
+      { sha: MAIN_2, touches_mechanics: true, paths: ['scripts/ladder/ladder.ts'], pathsTruncated: false, ci: 'pending' },
+      { sha: MAIN_3, touches_mechanics: false, paths: many, pathsTruncated: true, ci: 'pending' },
     ])
     db.close()
   })

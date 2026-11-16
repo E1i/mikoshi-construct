@@ -10,13 +10,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { openBus } from '../../core/db.js'
 import { CARD_ANSWERED, TASK_EXPIRED, TASK_FAILED, TASK_RELEASED } from '../../core/events.js'
 import { completeTask, leaseWhileFree, recordWorkerStarted, RESTART_CUT } from '../../core/lease.js'
-import { Node } from '../../core/node.js'
+import { ChildLog, INSTANCE_VARIABLE, Node } from '../../core/node.js'
 import { keyOf, queueTaskWithin } from '../../core/queue.js'
 import { AnswerOutcomes } from '../../nodes/answer/duties/outcomes.js'
 import { launchName, PREFIX } from '../../supervisor/bg.js'
 import { nodeSupply } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { slotsVariable } from '../../supervisor/scheduler.js'
+import { RESTART_WHY, signalLog } from '../../supervisor/signal-sent.js'
 import { busDrain, BusSupervisor, freeLeasesOf, withoutRetiring } from '../../supervisor/supervisor.js'
 import { workerLaunches } from '../../supervisor/workers.js'
 
@@ -26,6 +27,7 @@ const SHARED_FILE = 'scripts/core/db.ts'
 const MERGED_AT = Date.parse('2026-11-09T18:45:26.000Z')
 const ANSWER_WRAPPER_PID = 599
 const ANSWER_PID = 600
+const ANSWER_SESSION_PID = 650
 const CLOSE_PID = 610
 const FRESH_PID = 701
 const PROMISE_TURNS = 10_000
@@ -166,11 +168,14 @@ describe('a restart after merge.done keeps a live answer session', () => {
     db.close()
   })
 
-  it('an answer session cut by a restart is requeued without answer_failed', async () => {
+  it('an answer session a restart signalled is requeued without answer_failed', async () => {
     const { db, ts, date, supervisor } = bench()
     const task: QueuedTask = { queue: 'answer', cardId: 1755 }
     const lease = leaseWhileFree(db, ts(), task, 'worker:answer:old', 2)!
+    const log = new ChildLog(write => write(db), pid => ({ pid, pgid: ANSWER_PID, lstart: ts() }), date, { [INSTANCE_VARIABLE]: 'old' })
+    expect(log.started({ actor: lease.actor, taskKey: lease.taskKey, kind: 'answer', tree: null }, ANSWER_SESSION_PID)).toBe(true)
     await supervisor.step()
+    signalLog(db, RESTART_WHY, date)(ANSWER_PID, 'SIGTERM')
 
     const outcome = outcomesOn(db, date).denied(lease, { kind: 'technical', reason: 'answer_failed', detail: 'the session exited 143' })
 
@@ -178,6 +183,19 @@ describe('a restart after merge.done keeps a live answer session', () => {
     expect(db.prepare('SELECT state, failures FROM tasks WHERE task_key = ?').get(keyOf(task))).toEqual({ state: 'queued', failures: 0 })
     expect(eventsOf(db, TASK_FAILED)).toBe(0)
     expect(db.prepare('SELECT json_extract(payload, \'$.reason\') AS reason FROM events WHERE type = ?').all(TASK_RELEASED)).toEqual([{ reason: RESTART_CUT }])
+    db.close()
+  })
+
+  it('an answer session a restart did not signal still counts as a failed round', async () => {
+    const { db, ts, date, supervisor } = bench()
+    const task: QueuedTask = { queue: 'answer', cardId: 1756 }
+    const lease = leaseWhileFree(db, ts(), task, 'worker:answer:old', 2)!
+    await supervisor.step()
+
+    outcomesOn(db, date).denied(lease, { kind: 'technical', reason: 'answer_failed', detail: 'the session exited 143' })
+
+    expect(db.prepare('SELECT state, failures FROM tasks WHERE task_key = ?').get(keyOf(task))).toEqual({ state: 'queued', failures: 1 })
+    expect(eventsOf(db, TASK_RELEASED)).toBe(0)
     db.close()
   })
 

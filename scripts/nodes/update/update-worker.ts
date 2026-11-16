@@ -1,6 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { PushPolicy } from '../../../src/commands/attach/record.js'
-import type { RerunMode } from '../../cli/check-catalog.js'
 import type { Lease } from '../../core/lease.js'
 import type { DetectionMode, NodeDeclaration, Scope } from '../../core/node.js'
 import type { QueuedTask } from '../../core/queue.js'
@@ -8,15 +7,14 @@ import type { StoredEvent } from '../../core/stored.js'
 import type { StatusPublisher } from '../../ports/github-status.js'
 import type { GitHub, GitHubPut } from '../../ports/github.js'
 import type { MergeMain } from '../../ports/main-merge.js'
-import type { UpdateOutcome } from './update-executor.js'
+import type { ThresholdSet, UpdateOutcome } from './update-executor.js'
 import { randomUUID } from 'node:crypto'
 import { realpathSync } from 'node:fs'
 import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
-import { rerunModeOf } from '../../cli/check-catalog.js'
 import { defaultBusPath } from '../../core/db.js'
-import { CARD_ADMITTED, CARD_STOPPED, POLICY_DENIED, PR_OBSERVED, PR_OPENED, REDUCED } from '../../core/events.js'
+import { CARD_ADMITTED, CARD_STOPPED, POLICY_DENIED, PR_GROUPS, PR_OBSERVED, PR_OPENED, REDUCED } from '../../core/events.js'
 import { Node, runNode, UNDERSTOOD_NOW } from '../../core/node.js'
 import { pushPolicyOf } from '../../core/push-policy.js'
 import { updateCandidates } from '../../core/queue.js'
@@ -26,17 +24,17 @@ import { ghApi, ghApiPost, ghApiPut } from '../../ports/github.js'
 import { mainMergeInCardTree } from '../../ports/main-merge.js'
 import { cardTree } from '../../ports/worktree-home.js'
 import { gitIn } from '../../ports/worktree.js'
-import { nodeLiveness, nodeSupply } from '../../supervisor/composition.js'
+import { nodeLiveness, nodeSupply, ratchetThresholdSets } from '../../supervisor/composition.js'
 import { stampLogOutput } from '../../supervisor/stamp.js'
 import { firstLiveVerdict, NoLiveVerdict } from '../merge/merge-worker.js'
 import { UpdateExecutor } from './update-executor.js'
 
 export const SETTLE_MS = 2000
-export const UPDATE_ON = [REDUCED, PR_OBSERVED, PR_OPENED, CARD_ADMITTED, POLICY_DENIED, CARD_STOPPED] as const
+export const UPDATE_ON = [REDUCED, PR_OBSERVED, PR_OPENED, PR_GROUPS, CARD_ADMITTED, POLICY_DENIED, CARD_STOPPED] as const
 
 export const UPDATE_NODE: NodeDeclaration = { kind: 'update', on: UPDATE_ON, understands: UNDERSTOOD_NOW }
 
-const WHOLE_QUEUE_ON: ReadonlySet<string> = new Set([REDUCED, CARD_ADMITTED])
+const WHOLE_QUEUE_ON: ReadonlySet<string> = new Set([REDUCED, PR_GROUPS, CARD_ADMITTED])
 const SCOPED_BY_PR_ON: ReadonlySet<string> = new Set([PR_OBSERVED])
 
 export type UpdateStep = UpdateOutcome
@@ -55,6 +53,7 @@ export interface UpdateNodeParts {
   pushPolicy?: () => PushPolicy
   mergeMain?: MergeMain
   post?: GitHubPut
+  thresholds?: (cardId: number) => readonly ThresholdSet[]
 }
 
 function scopeOf(event: StoredEvent): Scope | undefined {
@@ -71,27 +70,25 @@ function inScope(task: QueuedTask, scope: Scope): boolean {
 
 export class UpdateNode extends Node<UpdateStep> {
   private readonly executor: UpdateExecutor
-  private readonly rerun: RerunMode
 
   constructor(parts: UpdateNodeParts) {
     super('update', { db: parts.db, clock: parts.clock, session: parts.session, mode: parts.mode, env: parts.env, silentMs: parts.silentMs, supply: nodeSupply() })
-    this.rerun = rerunModeOf(parts.env)
-    this.executor = new UpdateExecutor({ db: parts.db, gitHub: parts.gitHub, put: parts.put, publish: parts.publish, clock: parts.clock, settle: parts.settle, rerun: this.rerun, silentMs: parts.silentMs, pushPolicy: parts.pushPolicy, mergeMain: parts.mergeMain, post: parts.post })
+    this.executor = new UpdateExecutor({ db: parts.db, gitHub: parts.gitHub, put: parts.put, publish: parts.publish, clock: parts.clock, settle: parts.settle, silentMs: parts.silentMs, pushPolicy: parts.pushPolicy, mergeMain: parts.mergeMain, post: parts.post, thresholds: parts.thresholds })
     this.declare(UPDATE_NODE, scopeOf)
   }
 
   protected override before(): void {
     if (firstLiveVerdict(this.db) === null)
       throw new NoLiveVerdict('update')
-    this.log(`the update node starts in rerun mode ${this.rerun}`)
+    this.log('the update node updates the turn of each group when it needs an update')
   }
 
   protected candidates(scope: Scope = {}): QueuedTask[] {
-    return updateCandidates(this.db, this.ts(), this.rerun).filter(task => inScope(task, scope))
+    return updateCandidates(this.db, this.ts()).filter(task => inScope(task, scope))
   }
 
   protected override derivedCandidates(ts: string): QueuedTask[] {
-    return updateCandidates(this.db, ts, this.rerun)
+    return updateCandidates(this.db, ts)
   }
 
   protected handle(lease: Lease): UpdateStep {
@@ -128,7 +125,7 @@ export interface UpdateRun {
 }
 
 export async function runUpdateWorker(argv: string[], run: UpdateRun): Promise<number> {
-  return runNode(argv, 'update', run.busPath, (db, mode) => new UpdateNode({ ...nodeLiveness(), db, gitHub: run.gitHub, put: run.put, publish: run.publish, clock: () => new Date(), settle: run.settle, session: run.session, mode, env: process.env, pushPolicy: run.pushPolicy, mergeMain: run.mergeMain, post: run.post }), { pause: run.pause, codeSha: loadedCodeSha, supply: nodeSupply() })
+  return runNode(argv, 'update', run.busPath, (db, mode) => new UpdateNode({ ...nodeLiveness(), db, gitHub: run.gitHub, put: run.put, publish: run.publish, clock: () => new Date(), settle: run.settle, session: run.session, mode, env: process.env, pushPolicy: run.pushPolicy, mergeMain: run.mergeMain, post: run.post, thresholds: ratchetThresholdSets(db) }), { pause: run.pause, codeSha: loadedCodeSha, supply: nodeSupply() })
 }
 
 async function main(): Promise<number> {

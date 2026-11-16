@@ -6,15 +6,14 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { buildCatalog, MAIN_TIP, rebuildCatalogAt, RERUN_VARIABLE, rerunOf, writeCatalog } from '../../cli/check-catalog.js'
+import { buildCatalog, MAIN_TIP, rebuildCatalogAt, writeCatalog } from '../../cli/check-catalog.js'
 import { appendEvent } from '../../core/db.js'
 import { BOARD_ALARM, COMMAND_EXECUTED, MERGE_DONE, POLICY_DENIED, REVIEW_RECORDED } from '../../core/events.js'
-import { NEEDS_UPDATE } from '../../core/queue.js'
+import { NEEDS_UPDATE, updateCandidates } from '../../core/queue.js'
 import { CATALOG_REBUILD_FAILED, MergeNode } from '../../nodes/merge/merge-worker.js'
 import { UpdateNode } from '../../nodes/update/update-worker.js'
-import { Meter } from '../../ports/meter.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
-import { cardBody, MAIN_1, MAIN_2, REPO, sha } from './github-fake.js'
+import { cardBody, MAIN_2, REPO, sha } from './github-fake.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..', '..')
@@ -22,7 +21,6 @@ const WORKER = 'scripts/nodes/merge/merge-worker.ts'
 const NEW_TEST = 'scripts/tests/bus/a-new-one.test.ts'
 const BODY = `${cardBody(970)}\n\n■ 4 □ 1 · 1`
 const MERGE_PUT = `${REPO}/pulls/970/merge`
-const BY_LAYERS = { [RERUN_VARIABLE]: 'by-layers' }
 const NOT_UP_TO_DATE = 'Head branch is not up to date with the base branch'
 const REQUIRED_CHECK = 'Required status check "ci" is expected.'
 const TREE_OF_MAIN: Graph = new Map([[WORKER, []], [NEW_TEST, [WORKER]]])
@@ -259,34 +257,31 @@ describe('rebuildCatalogAt', () => {
 })
 
 describe('a merge refused with a 405', () => {
-  it('a head GitHub refused as not up to date is re-run, and the head after it is not', async () => {
+  it('a head GitHub refused as not up to date is denied once, its update is due at once, and the updated head merges', async () => {
     const made = bench()
     aFullCatalog(made)
     aPullRequestOf(made, [WORKER])
-    const meter = new Meter(made.gitHub.client, () => made.clock.now().getTime())
-    const merge = nodeOf(made, { put: refusingTheFirstMerge(made, NOT_UP_TO_DATE), env: BY_LAYERS })
-    const update = new UpdateNode({ silentMs: SILENT_MS, db: made.db, gitHub: made.gitHub.client, put: made.gitHub.put, publish: made.gitHub.publish, clock: made.clock.now, settle: () => {}, session: 'node-2', mode: 'live', env: BY_LAYERS })
-
-    expect(rerunOf(made.db, meter, 970, MAIN_1).rerun).toBe(false)
+    const merge = nodeOf(made, { put: refusingTheFirstMerge(made, NOT_UP_TO_DATE) })
+    const update = new UpdateNode({ silentMs: SILENT_MS, db: made.db, gitHub: made.gitHub.client, put: made.gitHub.put, publish: made.gitHub.publish, clock: made.clock.now, settle: () => {}, session: 'node-2', mode: 'live', env: {} })
 
     await once(merge)
 
-    expect(rerunOf(made.db, meter, 970, MAIN_1)).toEqual({ rerun: true, why: 'GitHub refused the merge of this head of #970 as not up to date' })
+    expect(updateCandidates(made.db, made.clock.now().toISOString()).map(task => task.pr)).toEqual([970])
 
     await once(update)
     made.tick()
     await once(merge)
 
     expect(eventsOf(made.db, MERGE_DONE)).toEqual([expect.objectContaining({ task_key: expect.stringContaining(sha('d')) })])
-    expect(rerunOf(made.db, meter, 970, MAIN_1).rerun).toBe(false)
+    expect(eventsOf(made.db, POLICY_DENIED).filter(denied => denied.reason === NEEDS_UPDATE)).toHaveLength(1)
   })
 
   it('a 405 keeps the text of GitHub and not up to date goes to update', async () => {
     const made = bench()
     aFullCatalog(made)
     aPullRequestOf(made, [WORKER])
-    const merge = nodeOf(made, { put: refusingTheFirstMerge(made, NOT_UP_TO_DATE), env: BY_LAYERS })
-    const update = new UpdateNode({ silentMs: SILENT_MS, db: made.db, gitHub: made.gitHub.client, put: made.gitHub.put, publish: made.gitHub.publish, clock: made.clock.now, settle: () => {}, session: 'node-2', mode: 'live', env: BY_LAYERS })
+    const merge = nodeOf(made, { put: refusingTheFirstMerge(made, NOT_UP_TO_DATE), env: {} })
+    const update = new UpdateNode({ silentMs: SILENT_MS, db: made.db, gitHub: made.gitHub.client, put: made.gitHub.put, publish: made.gitHub.publish, clock: made.clock.now, settle: () => {}, session: 'node-2', mode: 'live', env: {} })
 
     for (let round = 0; round < 2; round += 1) {
       await once(merge)
@@ -298,7 +293,7 @@ describe('a merge refused with a 405', () => {
     expect(eventsOf(made.db, POLICY_DENIED)).toContainEqual(expect.objectContaining({ command: 'merge', reason: NEEDS_UPDATE, detail: expect.stringContaining(NOT_UP_TO_DATE) }))
     expect(eventsOf(made.db, COMMAND_EXECUTED)).toContainEqual(expect.objectContaining({ command: 'merge', ok: false, status: 405, text: NOT_UP_TO_DATE }))
     expect(eventsOf(made.db, MERGE_DONE)).toHaveLength(1)
-    expect(failuresOfTheFirstHead(made)).toBe(0)
+    expect(made.db.prepare(`SELECT state FROM tasks WHERE queue = 'merge' AND head = ?`).get(sha('a'))).toEqual({ state: 'withdrawn' })
 
     const other = bench()
     aFullCatalog(other)
