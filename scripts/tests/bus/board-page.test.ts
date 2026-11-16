@@ -466,7 +466,7 @@ describe('board.html', () => {
     const silent = pageText(seededBus([
       { ts: minutesAgo(3), type: SESSION_HEARTBEAT, card: 861, payload: JSON.stringify({ step: 'launch', session: 's861' }) },
     ]))
-    expect(silent).toContain('launch · #861 · — · launch · pulse 3 min ago')
+    expect(silent).toMatch(/<div class="svc bevel" data-role="launch"[^>]*><div class="svc-top"><span class="svc-kind">launch<\/span>[\s\S]*?pulse 3 min ago/)
     expect(silent).not.toContain('class="edd')
     const spentOnly = pageText(seededBus([
       { ts: minutesAgo(3), type: SESSION_HEARTBEAT, card: 861, payload: JSON.stringify({ step: 'launch', session: 's861', spent: 2_600_000 }) },
@@ -585,7 +585,7 @@ describe('board.html', () => {
     const html = pageText(busPath)
     expect(lines).toContain('in work (1): #861')
     expect(html).toContain('<span class="name">in work</span><span class="n">1</span><span class="ids"><button type="button" class="cid" data-open="card-861" tabindex="0" aria-haspopup="dialog">#861 ›</button></span>')
-    for (const line of lines.slice(lines.indexOf('Services') + 1, -1))
+    for (const line of lines.slice(lines.indexOf('Services') + 1, -1).filter(line => !/^\S+ · #\d+ · /.test(line)))
       expect(html).toContain(`<div class="svc-line">${escaped(line)}</div>`)
     const footer = Object.fromEntries(lines.at(-1)!.split(' · ').map(part => part.split(': ') as [string, string]))
     const statusline = html.slice(html.indexOf('<footer class="statusline"'))
@@ -751,7 +751,7 @@ describe('board.html', () => {
     const html = pageText(busPath)
     const tiles = html.split('<div class="svc bevel" ').filter(tile => tile.includes('<span class="svc-target">#872</span>'))
     expect(tiles).toHaveLength(1)
-    expect(tiles[0]).toContain('answer · pulse 1 min ago')
+    expect(tiles[0]).toContain('pulse 1 min ago')
     expect(tiles[0]).toContain('<span class="edd-v">169k')
     const facts = liveFacts(busPath)
     expect(new Set(facts.services.map(service => `${service.role} ${service.task}`)).size).toBe(facts.services.length)

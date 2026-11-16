@@ -80,16 +80,16 @@ describe('reviewer', () => {
     expect(reviewSession('/repo', '/reviews', 's-1', lease, full, {}).model).toBeUndefined()
   })
 
-  it('a review session past its ceiling ends with a named failure and an env without CONSTRUCT_CARD', async () => {
+  it('a review session is spawned with no ceiling that kills it, an env without CONSTRUCT_CARD, and a ceiling the client reports still fails by name', async () => {
     const params = reviewSession('/repo', '/reviews', 's-1', lease, full, { CONSTRUCT_CARD: '1146', PATH: '/bin' })
     expect(params.env).toEqual({ PATH: '/bin' })
-    expect(params.ceilingMs).toBe(REVIEW_CEILING_MS)
+    expect(params.ceilingMs).toBeUndefined()
 
     const dir = mkdtempSync(path.join(tmpdir(), 'bus-reviewer-ceiling-'))
     try {
       const trees = new ReviewTrees('/repo', dir, { git: () => {}, worktrees: () => [], ...cleanTree })
       const failed = await claudeReviewer(trees, async (spawned) => {
-        throw new SessionCeilingReached(spawned.sessionId, spawned.ceilingMs!)
+        throw new SessionCeilingReached(spawned.sessionId, REVIEW_CEILING_MS)
       })(lease, full).catch((error: unknown) => error)
       expect(failed).toBeInstanceOf(ReviewFailed)
       expect((failed as Error).message).toMatch(/^the session \S+ ran past its ceiling of 20 minutes and was ended$/)

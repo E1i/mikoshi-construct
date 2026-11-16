@@ -69,6 +69,10 @@ function stalledReasons(db: DatabaseSync): string[] {
   return (db.prepare('SELECT payload FROM events WHERE type = ? ORDER BY id').all(SESSION_STALLED) as { payload: string }[]).map(row => (JSON.parse(row.payload) as { reason: string }).reason)
 }
 
+function failedReasons(db: DatabaseSync): string[] {
+  return (db.prepare('SELECT payload FROM events WHERE type = ? ORDER BY id').all(TASK_FAILED) as { payload: string }[]).map(row => (JSON.parse(row.payload) as { reason: string }).reason)
+}
+
 function stateOf(db: DatabaseSync, lease: Lease): string {
   return (db.prepare('SELECT state FROM tasks WHERE task_key = ?').get(lease.taskKey) as { state: string }).state
 }
@@ -108,15 +112,14 @@ describe('a review session judged on more than one signal', () => {
     expect(watch.stopped).toEqual([])
   })
 
-  it('a review ended by the stall line twice on one head is not requeued the same way', () => {
+  it('a review stalled twice on one head is warned the second time with the window route and keeps its lease', () => {
     const { db, lease } = busWithReview()
     const watch = watching(db, () => '4100')
     beat(db, lease, 1, { context: STILL_CONTEXT })
     expect(watch.sweepAt(1)).toEqual([])
-    expect(watch.sweepAt(reviewLine + 2)).toEqual([expect.stringContaining('ended before its ceiling')])
-    expect(watch.stopped).toEqual([SESSION])
+    expect(watch.sweepAt(reviewLine + 2)).toEqual([expect.stringContaining('the session runs on and is not stopped')])
     expect(watch.sweepAt(reviewLine + 3)).toEqual([])
-    expect(watch.stopped).toEqual([SESSION])
+    expect(watch.stopped).toEqual([])
     expect(stateOf(db, lease)).toBe('leased')
 
     failTask(db, at(reviewLine + 3).toISOString(), lease, { reason: 'exit 143', withdraw: false }, SILENT_MS)
@@ -126,24 +129,24 @@ describe('a review session judged on more than one signal', () => {
     expect(watch.sweepAt(reviewLine + 5)).toEqual([])
     const second = watch.sweepAt(2 * reviewLine + 6)
 
-    expect(second).toEqual([expect.stringContaining('not queued a third time the same way')])
+    expect(second).toEqual([expect.stringContaining('stalled a second time')])
     expect(second[0]).toContain('by slices')
-    expect(watch.stopped).toEqual([SESSION, SESSION])
-    expect(stateOf(db, again)).toBe('withdrawn')
-    const withdrawn = db.prepare('SELECT payload FROM events WHERE type = ? ORDER BY id DESC LIMIT 1').get(TASK_FAILED) as { payload: string } | undefined
-    expect(JSON.parse(withdrawn?.payload ?? '{}')).toMatchObject({ reason: 'review_stalled_twice', next: 'withdrawn' })
+    expect(second[0]).toContain('the session runs on and is not stopped')
+    expect(watch.stopped).toEqual([])
+    expect(stateOf(db, again)).toBe('leased')
+    expect(failedReasons(db)).toEqual(['exit 143'])
   })
 
-  it('a live review session that stays live past the next sweep after its first end is not withdrawn on that one run', () => {
+  it('a live review session that stays live past the next sweep after its first stall is warned once and not withdrawn', () => {
     const { db, lease } = busWithReview()
     const watch = watching(db, () => '4100')
     beat(db, lease, 1, { context: STILL_CONTEXT })
     expect(watch.sweepAt(1)).toEqual([])
-    expect(watch.sweepAt(reviewLine + 2)).toEqual([expect.stringContaining('ended before its ceiling')])
+    expect(watch.sweepAt(reviewLine + 2)).toEqual([expect.stringContaining('the session runs on and is not stopped')])
     for (let minute = reviewLine + 3; minute < reviewCeiling; minute++)
       expect(watch.sweepAt(minute)).toEqual([])
 
-    expect(watch.stopped).toEqual([SESSION])
+    expect(watch.stopped).toEqual([])
     expect(stateOf(db, lease)).toBe('leased')
   })
 
