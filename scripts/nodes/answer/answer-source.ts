@@ -1,10 +1,11 @@
 import type { DatabaseSync } from 'node:sqlite'
-import type { Lease } from '../../core/lease.js'
+import type { CarriedTree, Lease } from '../../core/lease.js'
 import type { InForceDecision } from '../../policy/decisions/index.js'
 import { CARD_BODIES, cardSessionsIn } from '../../core/card-bodies.js'
 import { decisionOfKey } from '../../core/card-decisions.js'
 import { cardHoldOf } from '../../core/card-hold.js'
-import { CARD_STARTED, CARD_STOPPED, QUESTION_AGENT, QUESTION_OWNER, REVIEW_RECORDED } from '../../core/events.js'
+import { CARD_STARTED, CARD_STOPPED, QUESTION_AGENT, QUESTION_OWNER, REVIEW_RECORDED, TASK_COMPLETED, TASK_FAILED, TASK_RELEASED, TASK_SUPERSEDED } from '../../core/events.js'
+import { TREE_CARRIER_QUEUE } from '../../core/lease.js'
 import { latestTurnOf } from '../../core/queue.js'
 import { cardDecisionLines, decisionsInForceAt } from '../../policy/shards.js'
 
@@ -60,8 +61,8 @@ function text(value: unknown): string | null {
   return typeof value === 'string' && value !== '' ? value : null
 }
 
-function latestEvents(db: DatabaseSync, cardId: number): CardEvent[] {
-  const rows = db.prepare(`SELECT id, ts, type, payload FROM events WHERE card_id = ? AND legacy = 0 ORDER BY id DESC LIMIT ${LATEST_EVENTS}`).all(cardId) as unknown as Row[]
+function latestEvents(db: DatabaseSync, cardId: number, narrowedTo = '', limit = LATEST_EVENTS): CardEvent[] {
+  const rows = db.prepare(`SELECT id, ts, type, payload FROM events WHERE card_id = ? AND legacy = 0${narrowedTo} ORDER BY id DESC LIMIT ${limit}`).all(cardId) as unknown as Row[]
   return rows.reverse().map(row => ({ id: Number(row.id), ts: row.ts, type: row.type, payload: parsed(row.payload) }))
 }
 
@@ -192,6 +193,21 @@ export function ownerHoldOf(db: DatabaseSync, cardId: number): string | null {
     return hold
   const draft = db.prepare(DRAFT_PR).get(cardId) as { pr: number } | undefined
   return draft === undefined ? null : `card #${cardId} has the draft pull request #${Number(draft.pr)}, which is the owner's until it is marked ready`
+}
+
+function treeOf(value: unknown): CarriedTree | null {
+  if (value === null || typeof value !== 'object')
+    return null
+  const { path, head, localCommits, dirty } = value as Record<string, unknown>
+  return typeof path === 'string' && typeof head === 'string' && typeof dirty === 'boolean' ? { path, head, localCommits: strings(localCommits), dirty } : null
+}
+
+const CARRIERS_AND_OWNERS_OF_THE_TREE = ` AND json_extract(payload, '$.queue') = '${TREE_CARRIER_QUEUE}'
+  AND (type IN ('${TASK_COMPLETED}', '${TASK_FAILED}', '${TASK_SUPERSEDED}') OR (type = '${TASK_RELEASED}' AND json_type(payload, '$.tree') = 'object'))`
+
+export function carriedTreeOf(db: DatabaseSync, cardId: number): CarriedTree | null {
+  const [last] = latestEvents(db, cardId, CARRIERS_AND_OWNERS_OF_THE_TREE, 1)
+  return last === undefined ? null : treeOf((last.payload as Record<string, unknown>).tree)
 }
 
 export function openPrOfCard(db: DatabaseSync, cardId: number): number | null {

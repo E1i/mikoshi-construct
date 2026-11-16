@@ -7,6 +7,7 @@ import type { QueuedTask } from '../../core/queue.js'
 import type { StoredEvent } from '../../core/stored.js'
 import type { CardTreeTools } from '../../ports/card-tree.js'
 import type { IsolationReader } from '../../ports/isolation.js'
+import type { AnswerParts } from './answer-executor.js'
 import type { Answerer, CardText } from './answerer.js'
 import type { AnswerOutcome, TreePublishing } from './duties/index.js'
 import { randomUUID } from 'node:crypto'
@@ -108,6 +109,7 @@ export interface AnswerNodeParts {
   isolation?: IsolationReader
   prompts?: string
   publishing?: TreePublishing
+  pushPolicy?: AnswerParts['pushPolicy']
 }
 
 export function treePublishing(treePr: string, launchDir: string, env: NodeJS.ProcessEnv): TreePublishing {
@@ -233,10 +235,11 @@ export interface AnswerRun {
   pause: (ms: number) => Promise<unknown>
   isolation: IsolationReader
   publishing?: TreePublishing
+  pushPolicy?: AnswerParts['pushPolicy']
 }
 
 export function answerNodeOf(run: AnswerRun, db: DatabaseSync, mode: DetectionMode): AnswerNode {
-  return new AnswerNode({ ...nodeLiveness(), db, answerer: run.answerer, ownerMerges: run.ownerMerges, cardText: run.cardText, clock: () => new Date(), session: run.session, mode, env: process.env, isolation: run.isolation, prompts: promptsDirOf(run.busPath), publishing: run.publishing })
+  return new AnswerNode({ ...nodeLiveness(), db, answerer: run.answerer, ownerMerges: run.ownerMerges, cardText: run.cardText, clock: () => new Date(), session: run.session, mode, env: process.env, isolation: run.isolation, prompts: promptsDirOf(run.busPath), publishing: run.publishing, pushPolicy: run.pushPolicy })
 }
 
 export async function runAnswerWorker(argv: string[], run: AnswerRun): Promise<number> {
@@ -246,9 +249,11 @@ export async function runAnswerWorker(argv: string[], run: AnswerRun): Promise<n
 async function main(): Promise<number> {
   const cwd = process.cwd()
   const busPath = defaultBusPath()
+  const tools = realAnswererTools(busPath)
   return runAnswerWorker(process.argv.slice(2), {
     busPath,
-    answerer: claudeAnswerer(ANSWERS_DIR, { ...realAnswererTools(busPath), cardTools: (cardId, cardBody) => cardToolsOf(`${cardId}.md`, cardBody) }),
+    answerer: claudeAnswerer(ANSWERS_DIR, { ...tools, cardTools: (cardId, cardBody) => cardToolsOf(`${cardId}.md`, cardBody) }),
+    pushPolicy: tools.pushPolicy,
     ownerMerges: () => readFileSync(path.join(cwd, OWNER_MERGES), 'utf8'),
     cardText: busCardBodies(busPath),
     session: randomUUID(),
