@@ -27,7 +27,7 @@ export interface Tail {
 }
 
 export interface TailIntake {
-  file: (tail: Tail) => void
+  file: (tail: Tail) => number | null
 }
 
 export interface TailParent {
@@ -130,18 +130,18 @@ export interface BusTailParts {
 export class BusTailIntake implements TailIntake {
   constructor(private readonly parts: BusTailParts) {}
 
-  file(tail: Tail): void {
+  file(tail: Tail): number | null {
     const { db } = this.parts
     const body = cardBodyText(db, tail.parent)
     const parent = body === null ? null : tailParentOf(body)
     if (parent === null)
       throw new Error(`card #${tail.parent} has no admitted body in the bus, so no tail card is filed`)
     const onGitHub = latestGitHubNumber(this.parts.gitHub)
-    inTransaction(db, () => {
+    return inTransaction(db, () => {
       const id = nextTailNumber(this.parts.cardStates(), [tail.pr ?? 0, onGitHub])
       const text = tailCardText(id, parent, tail)
       const line = text.split('\n')[0]!.slice(CARD_HEADER.length)
-      appendCardEvent(db, TAIL_ACTOR, laid(db, { type: CARD_ADMITTED, cardId: id, ts: this.parts.clock().toISOString(), dedupeKey: tailKey(tail.taskKey), payload: { card: line, lane: null, depends: [], decision: 'auto', contour: 'cheap', confirmation: 'auto', corrections: [], bodySha: tailBodySha(text), text, textSha: tailTextSha(text), source: TAIL_SOURCE } }))
+      return appendCardEvent(db, TAIL_ACTOR, laid(db, { type: CARD_ADMITTED, cardId: id, ts: this.parts.clock().toISOString(), dedupeKey: tailKey(tail.taskKey), payload: { card: line, lane: null, depends: [], decision: 'auto', contour: 'cheap', confirmation: 'auto', corrections: [], bodySha: tailBodySha(text), text, textSha: tailTextSha(text), source: TAIL_SOURCE } })) ? id : null
     })
   }
 }

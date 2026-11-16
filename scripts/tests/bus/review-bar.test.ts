@@ -212,6 +212,9 @@ describe('one bar', () => {
   it('the prompt and the role line in the template state the same bar', () => {
     const template = readFileSync('templates/ai/claude/_claude/agents/review.md', 'utf8')
     expect(template).toContain(REVIEW_BAR_LINE)
+    expect(REVIEW_BAR_LINE).toContain('on a card of any risk')
+    expect(REVIEW_BAR_LINE).toContain('one tail card at p1')
+    expect(REVIEW_BAR_LINE).not.toContain('R3 or R4')
     expect(reviewPrompt(LEASE, firstPlan(SOURCE), '/tmp/t', '/tmp/v.json')).toContain(REVIEW_BAR_LINE)
     expect(reviewPrompt(LEASE, { depth: 'full', why: 'a fixed plan', prediction: null }, '/tmp/t', '/tmp/v.json')).toContain(REVIEW_BAR_LINE)
     expect(reviewPrompt(LEASE, { depth: 'diff', round: 'again', why: 'after changes', since: BASE, reviewed: BASE, findings: [] }, '/tmp/t', '/tmp/v.json')).toContain(REVIEW_BAR_LINE)

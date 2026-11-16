@@ -52,6 +52,7 @@ interface Reviewed {
   verdict: string
   findings: string[]
   tails: { card_id: number, payload: string }[]
+  tailCard: number | undefined
 }
 
 async function reviewed(touches: readonly string[], findings: string[], survivingMutations: string[]): Promise<Reviewed> {
@@ -67,17 +68,18 @@ async function reviewed(touches: readonly string[], findings: string[], survivin
   bench.gitHub.open({ number: PR, head: sha('b'), ref: `feat/card-${CARD}`, body: cardBody(PR) })
   bench.tick()
   await worker.step()
-  const recorded = eventsOf(bench.db, REVIEW_RECORDED)[0] as { verdict: string, findings: string[] }
+  const recorded = eventsOf(bench.db, REVIEW_RECORDED)[0] as { verdict: string, findings: string[], tail_card?: number }
   const tails = bench.db.prepare('SELECT card_id, payload FROM events WHERE type = ? AND actor = ? ORDER BY id').all(CARD_ADMITTED, TAIL_ACTOR) as { card_id: number, payload: string }[]
-  return { bench, verdict: recorded.verdict, findings: recorded.findings, tails }
+  return { bench, verdict: recorded.verdict, findings: recorded.findings, tails, tailCard: recorded.tail_card }
 }
 
 describe('a review whose every finding is a surviving mutation', () => {
   it.each(['R1', 'R4'] as const)('on an %s card records pass and admits one p1 tail card carrying the findings word for word', async (risk) => {
     expect(cardRiskOf(CARD, parentText(TOUCHES_OF_RISK[risk]))).toBe(risk)
-    const { bench, verdict, findings, tails } = await reviewed(TOUCHES_OF_RISK[risk], [MUTATION, SECOND_MUTATION], [MUTATION, SECOND_MUTATION])
+    const { bench, verdict, findings, tails, tailCard } = await reviewed(TOUCHES_OF_RISK[risk], [MUTATION, SECOND_MUTATION], [MUTATION, SECOND_MUTATION])
     expect({ verdict, findings }).toEqual({ verdict: 'pass', findings: [MUTATION, SECOND_MUTATION] })
     expect(tails).toHaveLength(1)
+    expect(tailCard).toBe(tails[0]!.card_id)
     bench.tick()
     const tail = cardContract(bench.db, tails[0]!.card_id)
     expect(tail).toMatchObject({ id: LATEST_ON_GITHUB + 1, kind: 'implement', priority: TAIL_PRIORITY, depends: [], blocks: [], decision: 'auto', contour: 'cheap', touches: tailTouches({ touches: [...TOUCHES_OF_RISK[risk]] }) })
@@ -90,9 +92,10 @@ describe('a review whose every finding is a surviving mutation', () => {
   })
 
   it('with one finding outside survivingMutations records changes and admits nothing', async () => {
-    const { verdict, findings, tails } = await reviewed(TOUCHES_OF_RISK.R4, [MUTATION, DEFECT], [MUTATION])
+    const { verdict, findings, tails, tailCard } = await reviewed(TOUCHES_OF_RISK.R4, [MUTATION, DEFECT], [MUTATION])
     expect({ verdict, findings }).toEqual({ verdict: 'changes', findings: [MUTATION, DEFECT] })
     expect(tails).toEqual([])
+    expect(tailCard).toBeUndefined()
   })
 })
 
@@ -135,8 +138,8 @@ describe('the tail card', () => {
     appendCardEvent(bench.db, 'worker:intake:test', admittedRecord({ id: CARD, file: `${CARD}.md`, line: parsed.parked.task.card.line, who: parsed.parked.who, unclear: [], corrections: [], seam: [], risk: [], slices: [], text }, 'auto', bench.clock.now(), WINDOW_LANE))
     bench.tick()
     const intake = busTail(bench)
-    intake.file(tail)
-    intake.file(tail)
+    expect(intake.file(tail)).toBe(LATEST_ON_GITHUB + 1)
+    expect(intake.file(tail)).toBeNull()
     expect(bench.db.prepare('SELECT count(*) AS n FROM events WHERE actor = ?').get(TAIL_ACTOR)).toEqual({ n: 1 })
   })
 

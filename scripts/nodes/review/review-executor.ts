@@ -175,6 +175,11 @@ function notReopened(db: DatabaseSync, lease: Lease, review: Review): Review {
   return findings.length === 0 ? { ...review, verdict: 'pass', findings } : { ...review, findings }
 }
 
+interface Tailed {
+  review: Review
+  tailCard: number | null
+}
+
 interface RoundLimit {
   rule: LimitRule
   event: BusEvent
@@ -349,13 +354,13 @@ export class ReviewExecutor {
       return this.denied(lease, reviewed)
     const { plan } = reviewed
     const marked = this.markedDrip(lease, reviewed.review)
-    const review = this.withTail(lease, notReopened(db, lease, marked.review))
+    const { review, tailCard } = this.withTail(lease, notReopened(db, lease, marked.review))
     const outcome = recordVerdict(db, gitHub, publish, { lease, verdict: review.verdict, reviewerSession: review.session }, () => clock().getTime())
     if (outcome.kind === 'denied')
       return this.denied(lease, outcome.denial)
     const repeats = this.repeatsAnEarlierRound(lease, review)
     const limit = this.roundLimit(lease, review, repeats)
-    completeTask(db, this.ts(), lease, [this.recorded(lease, { ...reviewed, review }, marked.drip), ...this.dripEvents(lease, marked.drip), ...(limit === null ? [] : [limit.event])])
+    completeTask(db, this.ts(), lease, [this.recorded(lease, { ...reviewed, review }, marked.drip, tailCard), ...this.dripEvents(lease, marked.drip), ...(limit === null ? [] : [limit.event])])
     if (limit !== null && limit.rule.kind !== 'extend' && lease.pr !== null) {
       if (limit.rule.kind !== 'park')
         this.noted(lease.pr, repeats ? repeatStopLine(lease.pr) : roundLimitLine(lease.pr, REVIEW_ROUNDS))
@@ -364,19 +369,18 @@ export class ReviewExecutor {
     return { kind: 'recorded', taskKey: lease.taskKey, verdict: review.verdict, depth: plan.depth, model: review.model }
   }
 
-  private withTail(lease: Lease, review: Review): Review {
+  private withTail(lease: Lease, review: Review): Tailed {
     const { db, tail } = this.parts
     const mutations = tail === undefined ? null : mutationOnlyFindings(review)
     const passed = keptChanges(db, lease, mutations === null ? review : { ...review, verdict: 'pass' })
     if (mutations === null || tail === undefined || passed.verdict !== 'pass')
-      return passed
+      return { review: passed, tailCard: null }
     try {
-      tail.file({ parent: lease.cardId, pr: lease.pr, head: lease.head, taskKey: lease.taskKey, findings: mutations })
-      return passed
+      return { review: passed, tailCard: tail.file({ parent: lease.cardId, pr: lease.pr, head: lease.head, taskKey: lease.taskKey, findings: mutations }) }
     }
     catch (error) {
       console.error(`${PREFIX}PR #${lease.pr}: every finding is a surviving mutation, but the tail card was not filed, so the verdict stays changes: ${error instanceof Error ? error.message : String(error)}`)
-      return review
+      return { review, tailCard: null }
     }
   }
 
@@ -516,7 +520,7 @@ export class ReviewExecutor {
     }
   }
 
-  private recorded(lease: Lease, { review, plan, ms, isolation }: Reviewed, drip: readonly string[]): BusEvent {
+  private recorded(lease: Lease, { review, plan, ms, isolation }: Reviewed, drip: readonly string[], tailCard: number | null = null): BusEvent {
     return {
       ts: this.ts(),
       type: REVIEW_RECORDED,
@@ -525,7 +529,7 @@ export class ReviewExecutor {
       pr: lease.pr,
       head: lease.head,
       dedupeKey: `${REVIEW_RECORDED}:${lease.taskKey}:${lease.leaseGen}`,
-      payload: { head: lease.head, card_body: reviewInputOfKey(lease.taskKey)?.cardBody ?? null, verdict: review.verdict, [RULES_VERSION_KEY]: REVIEW_RULES_VERSION, depth: plan.depth, depth_why: plan.why, review_ms: ms, reviewer_session: review.session, model: review.model, ...review.cache, findings: review.findings, ...(drip.length === 0 ? {} : { drip }), ...treeFields(review), ...isolationFields(isolation), ...inputFields(this.parts.prompts, plan, review.input) },
+      payload: { head: lease.head, card_body: reviewInputOfKey(lease.taskKey)?.cardBody ?? null, verdict: review.verdict, [RULES_VERSION_KEY]: REVIEW_RULES_VERSION, depth: plan.depth, depth_why: plan.why, review_ms: ms, reviewer_session: review.session, model: review.model, ...review.cache, findings: review.findings, ...(drip.length === 0 ? {} : { drip }), ...(tailCard === null ? {} : { tail_card: tailCard }), ...treeFields(review), ...isolationFields(isolation), ...inputFields(this.parts.prompts, plan, review.input) },
       legacy: false,
     }
   }
