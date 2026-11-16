@@ -456,6 +456,12 @@
           "tests"
         ]
       },
+      "generation.ended": {
+        "complete": true,
+        "keys": [
+          "generation"
+        ]
+      },
       "ghost.line": {
         "complete": true,
         "keys": [
@@ -3456,6 +3462,8 @@
           "scripts/core/queue.ts",
           "scripts/core/dependency-wait.ts",
           "scripts/core/lease.ts",
+          "scripts/core/handover.ts",
+          "scripts/core/executor-holds.ts",
           "scripts/core/node.ts",
           "scripts/core/stored.ts",
           "scripts/core/errors.ts",
@@ -4672,6 +4680,7 @@
         ],
         "functions": {
           "backlogCards": "(cards: BusCard[], at: string, all: boolean): BusCard[]",
+          "counted": "(count: number, noun: string): string",
           "isLive": "(card: BusCard): boolean",
           "laneColumns": "(cards: BusCard[]): (string | null)[]",
           "liftedByTheWindow": "(wait: OwnerWait): boolean",
@@ -4682,6 +4691,8 @@
           "sliceMark": "(card: BusCard): string | null",
           "slotsReading": "(facts: BusFacts): string",
           "tallyLine": "(tally: TaskTally): string",
+          "taskGroupLine": "(group: TaskGroup): string",
+          "taskGroups": "(shown: readonly BusCard[], every: readonly BusCard[], waits: readonly OwnerWait[]): TaskGroup[]",
           "taskTally": "(cards: readonly BusCard[]): TaskTally",
           "waitAction": "(wait: OwnerWait, lore: Lore): string",
           "waitTarget": "(wait: OwnerWait): string | null"
@@ -5250,7 +5261,8 @@
       "src/version.ts": {
         "constants": [],
         "functions": {
-          "currentVersion": "(): string"
+          "currentVersion": "(): string",
+          "interfaceVersion": "(version: string = currentVersion(), sha: string | null = BUILD_SHA): string"
         },
         "reexports": [],
         "types": {}
@@ -5901,10 +5913,9 @@
         "types": {
           "InMemorySessions": "class InMemorySessions { started: SpawnSessionParams[]; constructor(private readonly answer: (params: SpawnSessionParams) => SessionAnswer); spawn: SessionSpawner; spawnReview: SessionSpawner }",
           "SessionAnswer": "type SessionAnswer = SessionRun | Error",
-          "SessionCeilingReached": "class SessionCeilingReached extends Error { constructor(readonly sessionId: string, readonly ceilingMs: number) }",
           "SessionRun": "interface SessionRun { code: number; stdout?: string; stderr?: string; }",
           "SessionSpawner": "type SessionSpawner = (params: SpawnSessionParams) => Promise<number>",
-          "SpawnSessionParams": "interface SpawnSessionParams { cwd: string; sessionId: string; prompt: string; stdoutPath: string; stderrPath: string; env?: NodeJS.ProcessEnv; addDirs?: string[]; model?: string; ceilingMs?: number; role?: Extract<Role, 'review' | 'ghost'>; started?: (pid: number) => void; }",
+          "SpawnSessionParams": "interface SpawnSessionParams { cwd: string; sessionId: string; prompt: string; stdoutPath: string; stderrPath: string; env?: NodeJS.ProcessEnv; addDirs?: string[]; model?: string; role?: Extract<Role, 'review' | 'ghost'>; started?: (pid: number) => void; }",
           "WindowMode": "type WindowMode = 'loop' | 'tab'"
         }
       },

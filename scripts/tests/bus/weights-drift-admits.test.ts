@@ -40,8 +40,16 @@ function measuredWith(heavySeconds: number): TestWeights {
   return { ...TABLE, [HEAVY]: heavySeconds }
 }
 
-function gitHubAt(table: TestWeights): GitHub {
+interface TableHistory { change: string, comparedFromHead: string }
+
+const TABLE_CHANGED_AT_HEAD: TableHistory = { change: HEAD, comparedFromHead: 'identical' }
+
+function gitHubAt(table: TestWeights, history: TableHistory = TABLE_CHANGED_AT_HEAD): GitHub {
   return (endpoint): GhResponse => {
+    if (endpoint.includes(`/commits?path=${WEIGHTS_PATH}`))
+      return { status: 200, headers: {}, body: [{ sha: history.change }] }
+    if (endpoint.endsWith(`/compare/${history.change}...${HEAD}`))
+      return { status: 200, headers: {}, body: { status: history.comparedFromHead } }
     if (endpoint.includes('/issues?'))
       return { status: 200, headers: {}, body: [{ number: LATEST_ON_GITHUB }] }
     if (endpoint.includes(`/contents/${WEIGHTS_PATH}?ref=${HEAD}`))
@@ -55,6 +63,7 @@ function gitHubAt(table: TestWeights): GitHub {
 interface World {
   runs: number[]
   measured: Record<number, TestWeights | null>
+  history?: TableHistory
 }
 
 function downloadOf(world: World): ArtifactDownload {
@@ -72,7 +81,7 @@ function fixture(world: World): { bench: MergeBench, launchDir: string, watch: (
   benches.push(bench)
   const launchDir = mkdtempSync(path.join(tmpdir(), 'weights-launch-'))
   roots.push(launchDir)
-  const gitHub = gitHubAt(TABLE)
+  const gitHub = gitHubAt(TABLE, world.history)
   const watch = (): WeightsDriftWatch => new WeightsDriftWatch({
     latestRuns: () => ({ kind: 'read', value: world.runs.map(databaseId => ({ databaseId, headSha: HEAD })) }),
     measure: run => driftOfRun(downloadOf(world), gitHub, run),
@@ -133,6 +142,29 @@ describe('the drift of a green main run admits one recompute card (D-600)', () =
     world.runs = [7005]
     expect(watch().watch()).toEqual({ kind: 'held', run: 7005, card: LATEST_ON_GITHUB + 1 })
     expect(admitted(bench)).toHaveLength(1)
+  })
+
+  it('a run older than the last change of the weights table admits nothing', () => {
+    const recompute = 'd'.repeat(40)
+    const { bench, watch } = fixture({ runs: [7009], measured: { 7009: measuredWith(5) }, history: { change: recompute, comparedFromHead: 'behind' } })
+    const node = watch()
+    expect(node.watch()).toEqual({ kind: 'superseded', run: 7009, change: recompute })
+    expect(admitted(bench)).toEqual([])
+    expect(node.watch()).toEqual({ kind: 'seen', run: 7009 })
+    expect(watch().watch()).toEqual({ kind: 'superseded', run: 7009, change: recompute })
+    expect(admitted(bench)).toEqual([])
+  })
+
+  it('a run whose head is after the last change of the weights table is measured and admits', () => {
+    const { bench, watch } = fixture({ runs: [7010], measured: { 7010: measuredWith(5) }, history: { change: 'e'.repeat(40), comparedFromHead: 'ahead' } })
+    expect(watch().watch()).toMatchObject({ kind: 'admitted', run: 7010 })
+    expect(admitted(bench)).toHaveLength(1)
+  })
+
+  it('a last change that cannot be read admits nothing and records why', () => {
+    const { bench, watch } = fixture({ runs: [7011], measured: { 7011: measuredWith(5) }, history: { change: 'f'.repeat(40), comparedFromHead: '' } })
+    expect(watch().watch()).toMatchObject({ kind: 'unread', run: 7011 })
+    expect(admitted(bench)).toEqual([])
   })
 })
 

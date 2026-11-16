@@ -50,9 +50,9 @@ export class AnswerSources {
   constructor(private readonly parts: SourceParts) {}
 
   sourceOf(lease: Lease): Answering | null {
-    if (this.heldByADependency(lease))
-      return null
     const source = answerSourceOf(this.parts.db, lease, this.parts.clock())
+    if (this.heldByADependency(lease))
+      return source?.kind === 'ci' ? source : null
     const awaited = source?.kind === 'decision' ? null : this.awaitedStop(lease)
     if (awaited !== null) {
       this.holdForTheOwner(lease, awaited)

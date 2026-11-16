@@ -1,3 +1,4 @@
+import type { DatabaseSync } from 'node:sqlite'
 import type { Lease } from '../../core/lease.js'
 import type { MachineGate } from '../../core/machine-sessions.js'
 import type { SessionReading } from '../../ports/client/contract.js'
@@ -13,14 +14,15 @@ import { existsSync, mkdirSync, readFileSync, realpathSync, statSync } from 'nod
 import path from 'node:path'
 import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
-import { defaultBusPath, openBus } from '../../core/db.js'
+import { appendEvent, defaultBusPath, openBus } from '../../core/db.js'
+import { BOARD_ALARM, SESSION_STALLED } from '../../core/events.js'
 import { RENEW_MS, renewLease, StaleLease } from '../../core/lease.js'
 import { busNameOf, machineGate, machineSessions } from '../../core/machine-sessions.js'
 import { busWriteAt, ChildLog } from '../../core/node.js'
 import { processGit } from '../../ports/git.js'
 import { prepareTree } from '../../ports/prepare-tree.js'
 import { OsProcessTable, identityOf as rowIdentityOf } from '../../ports/process-table.js'
-import { reviewModelOf, SessionCeilingReached, spawnSession, streamReading, withoutCard } from '../../ports/session.js'
+import { reviewModelOf, spawnSession, streamReading, withoutCard } from '../../ports/session.js'
 import { FREE_TREE_CAPACITY, FREE_TREES, gitIn, parkTree, takeFreeTree } from '../../ports/worktree.js'
 import { isAlive, joinReviewTree, leaveReviewTree, WORKER_LIMIT_VARIABLE } from '../../quality/lock.js'
 
@@ -376,7 +378,6 @@ export function reviewSession(repo: string, dir: string, session: string, lease:
     stderrPath: path.join(dir, `${session}.err.log`),
     model: reviewModelOf(env),
     env: withoutCard(env),
-    ceilingMs: REVIEW_CEILING_MS,
     tree,
     verdictPath,
   }
@@ -433,6 +434,23 @@ export interface ReviewStart {
   descendants?: SessionDescendants
   verdictPollMs?: number
   children?: ChildLog
+  atCeiling?: (lease: Lease, session: string) => void
+  ceilingMs?: number
+}
+
+export const REVIEW_AT_CEILING = 'review-at-ceiling'
+
+export function missedCeilingAlarmLine(session: string, error: unknown): string {
+  return `${PREFIX}the ceiling alarm of review session ${session} was not recorded, the review goes on: ${error instanceof Error ? error.message : String(error)}`
+}
+
+export function raiseCeilingAlarm(db: DatabaseSync, ts: string, lease: Lease, session: string): boolean {
+  const mark = `${REVIEW_AT_CEILING}:${lease.taskKey}:${lease.leaseGen}`
+  const detail = `the review session ${session} of card #${lease.cardId} on PR #${lease.pr ?? '-'} at head ${lease.head ?? '-'} reached its ${REVIEW_CEILING_MINUTES}-minute ceiling with no verdict; the session runs on and is not stopped: the ceiling ends no review session, it runs until it exits`
+  const stalled = appendEvent(db, { ts, type: SESSION_STALLED, actor: lease.actor, cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${SESSION_STALLED}:${mark}`, payload: { task_key: lease.taskKey, lease_gen: lease.leaseGen, queue: 'review', session, life: 'live', since: ts, reason: detail }, legacy: false })
+  if (stalled)
+    appendEvent(db, { ts, type: BOARD_ALARM, actor: lease.actor, cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${BOARD_ALARM}:${mark}`, payload: { task_key: lease.taskKey, lease_gen: lease.leaseGen, reason: REVIEW_AT_CEILING, detail }, legacy: false })
+  return stalled
 }
 
 export const VERDICT_POLL_MS = 1_000
@@ -449,8 +467,7 @@ function writtenVerdict(verdictPath: string, session: string): Review | null {
 
 type SessionEnd = { code: number } | { error: unknown } | { review: Review }
 
-async function verdictOfTheSession(run: (stop: AbortSignal) => Promise<number>, verdictPath: string, session: string, pollMs: number): Promise<Review> {
-  const ending = new AbortController()
+async function verdictOfTheSession(run: () => Promise<number>, verdictPath: string, session: string, pollMs: number): Promise<Review> {
   let poll: ReturnType<typeof setInterval> | undefined
   const written = new Promise<SessionEnd>((resolve) => {
     poll = setInterval(() => {
@@ -459,7 +476,7 @@ async function verdictOfTheSession(run: (stop: AbortSignal) => Promise<number>, 
         resolve({ review })
     }, pollMs)
   })
-  const settled: Promise<SessionEnd> = run(ending.signal).then(code => ({ code }), (error: unknown) => ({ error }))
+  const settled: Promise<SessionEnd> = run().then(code => ({ code }), (error: unknown) => ({ error }))
   let end: SessionEnd
   try {
     end = await Promise.race([settled, written])
@@ -468,16 +485,11 @@ async function verdictOfTheSession(run: (stop: AbortSignal) => Promise<number>, 
     clearInterval(poll)
   }
   if ('review' in end) {
-    ending.abort()
     await settled
     return end.review
   }
-  if ('error' in end) {
-    const onDisk = end.error instanceof SessionCeilingReached ? writtenVerdict(verdictPath, session) : null
-    if (onDisk === null)
-      throw end.error
-    return onDisk
-  }
+  if ('error' in end)
+    throw end.error
   if (end.code !== 0)
     throw new Error(`the review session ${session} exited ${end.code}`)
   return reviewOf(readFileSync(verdictPath, 'utf8'), session)
@@ -526,12 +538,6 @@ export class DescendantWatch {
       this.closure(snapshot.rows, snapshot.rows.filter(row => row.command.split(/\s+/).includes(this.session)))
   }
 
-  endNow(): void {
-    this.sample()
-    for (const pid of this.running() ?? [])
-      this.parts.end(pid, 'SIGKILL')
-  }
-
   async settle(): Promise<number[]> {
     const polls = Math.max(1, Math.ceil(this.parts.graceMs / this.parts.sampleMs))
     for (let poll = 0; poll < polls; poll++) {
@@ -577,18 +583,15 @@ export class DescendantWatch {
   }
 }
 
-async function watchingDescendants<T>(run: () => Promise<T>, session: string, parts: SessionDescendants | undefined, stopped: AbortSignal): Promise<T> {
+async function watchingDescendants<T>(run: () => Promise<T>, session: string, parts: SessionDescendants | undefined): Promise<T> {
   if (parts === undefined)
     return run()
   const watch = new DescendantWatch(session, parts)
   const stop = parts.every(() => watch.sample(), parts.sampleMs)
-  const endNow = (): void => watch.endNow()
-  stopped.addEventListener('abort', endNow, { once: true })
   try {
     return await run()
   }
   finally {
-    stopped.removeEventListener('abort', endNow)
     stop()
     const ended = await watch.settle()
     if (ended.length > 0)
@@ -621,7 +624,7 @@ function renewedWhileHeld(busPath: string, now: () => number = Date.now): (lease
 }
 
 export function realReviewStart(busPath: string = defaultBusPath()): ReviewStart {
-  return { gate: machineGate(busNameOf(busPath), 'review', { machine: machineSessions(isAlive) }), keep: renewedWhileHeld(busPath), joinWorkers: joinReviewTree, leaveWorkers: leaveReviewTree, descendants: osDescendants(), children: new ChildLog(busWriteAt(busPath), pid => rowIdentityOf(new OsProcessTable().snapshot(), pid), () => new Date(), process.env) }
+  return { gate: machineGate(busNameOf(busPath), 'review', { machine: machineSessions(isAlive) }), keep: renewedWhileHeld(busPath), joinWorkers: joinReviewTree, leaveWorkers: leaveReviewTree, descendants: osDescendants(), children: new ChildLog(busWriteAt(busPath), pid => rowIdentityOf(new OsProcessTable().snapshot(), pid), () => new Date(), process.env), atCeiling: (lease, session) => busWriteAt(busPath)(db => raiseCeilingAlarm(db, new Date().toISOString(), lease, session)) }
 }
 
 export function claudeReviewer(trees: ReviewTrees, spawn: (params: SpawnSessionParams) => Promise<number> = spawnSession, pulse: SessionPulse = () => {}, beatMs = REVIEW_BEAT_MS, prBodyOf: PrBodyOf = NO_PR_BODY, start: ReviewStart = realReviewStart()): Reviewer {
@@ -645,16 +648,24 @@ function reviewerOfTree(trees: ReviewTrees, spawn: (params: SpawnSessionParams) 
     mkdirSync(trees.dir, { recursive: true })
     trees.fetch(`pull/${lease.pr}/head`)
     const held: HeldTree = { path: tree, release: () => trees.release(tree) }
-    const underTheBudget = async (stop: AbortSignal): Promise<number> => {
+    const underTheBudget = async (): Promise<number> => {
       const workers = start.joinWorkers(tree)
       try {
         const spawned = async (started?: (pid: number) => void): Promise<number> => spawn({ ...params, env: { ...params.env, [WORKER_LIMIT_VARIABLE]: String(workers) }, ...(started === undefined ? {} : { started }) })
-        return await watchingDescendants(async () => start.children?.around({ actor: lease.actor, taskKey: lease.taskKey, kind: REVIEW_CHILD, tree }, spawned) ?? spawned(), session, start.descendants, stop)
+        return await watchingDescendants(async () => start.children?.around({ actor: lease.actor, taskKey: lease.taskKey, kind: REVIEW_CHILD, tree }, spawned) ?? spawned(), session, start.descendants)
       }
       finally {
         start.leaveWorkers(tree)
       }
     }
+    const ceiling = setTimeout(() => {
+      try {
+        start.atCeiling?.(lease, session)
+      }
+      catch (error) {
+        console.error(missedCeilingAlarmLine(session, error))
+      }
+    }, start.ceilingMs ?? REVIEW_CEILING_MS)
     try {
       const origin = trees.add(tree, lease.head!)
       const before = trees.state(tree)
@@ -673,7 +684,10 @@ function reviewerOfTree(trees: ReviewTrees, spawn: (params: SpawnSessionParams) 
     catch (error) {
       if (!trees.holds(tree))
         throw error
-      throw new ReviewFailed(error instanceof Error ? error.message : String(error), held, error instanceof SessionCeilingReached)
+      throw new ReviewFailed(error instanceof Error ? error.message : String(error), held)
+    }
+    finally {
+      clearTimeout(ceiling)
     }
   }
 }

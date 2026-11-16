@@ -8,10 +8,10 @@ import path from 'node:path'
 import process from 'node:process'
 import { describe, expect, it, vi } from 'vitest'
 import { fullReview } from '../../nodes/review/review-depth.js'
-import { claudeReviewer, commandMayWrite, DescendantWatch, GIT_TREE_TOOLS, HEAD_MOVED, missedBeatLine, mutatedPaths, osDescendants, PREPARED_TREE_LINE, realReviewStart, REVIEW_CEILING_MS, ReviewFailed, reviewOf, reviewPrompt, reviewSession, ReviewTrees, unreadableDescendantsLine } from '../../nodes/review/reviewer.js'
+import { claudeReviewer, commandMayWrite, DescendantWatch, GIT_TREE_TOOLS, HEAD_MOVED, missedBeatLine, mutatedPaths, osDescendants, PREPARED_TREE_LINE, realReviewStart, ReviewFailed, reviewOf, reviewPrompt, reviewSession, ReviewTrees, unreadableDescendantsLine } from '../../nodes/review/reviewer.js'
 import { PREPARE_TREE, prepareEnv } from '../../ports/prepare-tree.js'
 import { InMemoryProcessTable } from '../../ports/process-table.js'
-import { headlessInvocation, SessionCeilingReached } from '../../ports/session.js'
+import { headlessInvocation } from '../../ports/session.js'
 import { sha } from './github-fake.js'
 
 const lease = { taskKey: `review:1050:950:${sha('a')}`, queue: 'review' as const, cardId: 1050, pr: 950, head: sha('a'), leaseGen: 1, actor: 'worker:review:w' }
@@ -80,19 +80,19 @@ describe('reviewer', () => {
     expect(reviewSession('/repo', '/reviews', 's-1', lease, full, {}).model).toBeUndefined()
   })
 
-  it('a review session past its ceiling ends with a named failure and an env without CONSTRUCT_CARD', async () => {
+  it('a review session is spawned with an env without CONSTRUCT_CARD, and a session that fails is a review failure by its own message, never a ceiling', async () => {
     const params = reviewSession('/repo', '/reviews', 's-1', lease, full, { CONSTRUCT_CARD: '1146', PATH: '/bin' })
     expect(params.env).toEqual({ PATH: '/bin' })
-    expect(params.ceilingMs).toBe(REVIEW_CEILING_MS)
 
     const dir = mkdtempSync(path.join(tmpdir(), 'bus-reviewer-ceiling-'))
     try {
       const trees = new ReviewTrees('/repo', dir, { git: () => {}, worktrees: () => [], ...cleanTree })
       const failed = await claudeReviewer(trees, async (spawned) => {
-        throw new SessionCeilingReached(spawned.sessionId, spawned.ceilingMs!)
+        throw new Error(`the session ${spawned.sessionId} could not start`)
       })(lease, full).catch((error: unknown) => error)
       expect(failed).toBeInstanceOf(ReviewFailed)
-      expect((failed as Error).message).toMatch(/^the session \S+ ran past its ceiling of 20 minutes and was ended$/)
+      expect((failed as ReviewFailed).ceiling).toBe(false)
+      expect((failed as Error).message).toMatch(/^the session \S+ could not start$/)
     }
     finally {
       rmSync(dir, { recursive: true, force: true })

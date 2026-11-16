@@ -17,7 +17,7 @@ import { runIntake } from '../../../src/commands/intake/index.js'
 import { cardBodyText } from '../../core/card-bodies.js'
 import { CARD_DECISIONS_HEADING } from '../../core/card-decisions.js'
 import { appendEvent, openBus } from '../../core/db.js'
-import { CARD_ADMITTED, CARD_DROPPED, CARD_MOVED, CARD_STARTED, CARD_STOPPED, GHOST_ROW } from '../../core/events.js'
+import { BOARD_ALARM, CARD_ADMITTED, CARD_DROPPED, CARD_MOVED, CARD_STARTED, CARD_STOPPED, GHOST_ROW } from '../../core/events.js'
 import { taskKey } from '../../core/identifiers.js'
 import { leaseNext } from '../../core/lease.js'
 import { FAILURES_TO_STOP } from '../../core/queue.js'
@@ -1046,26 +1046,21 @@ describe('the launch queue', () => {
 
     const timeLimitStops = (bench: ReturnType<typeof launchBench>): unknown[] => eventsOf(bench.db, CARD_STOPPED).filter(payload => String(payload.detail).startsWith('time-limit'))
 
-    it('stops a live session at the limit once and records time-limit once', () => {
+    const timeLimitAlarms = (bench: ReturnType<typeof launchBench>): unknown[] => eventsOf(bench.db, BOARD_ALARM).filter(payload => payload.reason === 'time-limit')
+
+    it('warns a live session at the limit once and leaves it running', () => {
       const { bench, starter, node, advanceToLimitPlus } = runningCard(starter => starter.stops.length > 0 ? null : 'sh -c claude -p --session-id s-947')
-      const stoppedBeforeStop: number[] = []
-      const stop = starter.stop.bind(starter)
-      starter.stop = (card) => {
-        stoppedBeforeStop.push(eventsOf(bench.db, CARD_STOPPED).length)
-        stop(card)
-      }
 
       advanceToLimitPlus(-1)
       expect(node.stopOverdue()).toEqual([])
-      expect(starter.stops).toEqual([])
+      expect(timeLimitAlarms(bench)).toEqual([])
 
       advanceToLimitPlus(0)
-      expect(node.stopOverdue()).toEqual([947])
       expect(node.stopOverdue()).toEqual([])
-      expect(starter.stops.map(card => card.pgid)).toEqual([4242])
-      expect(stoppedBeforeStop).toEqual([0])
-      expect(timeLimitStops(bench)).toHaveLength(1)
-      expect(timeLimitStops(bench)).toMatchObject([{ reason: 'fault' }])
+      expect(node.stopOverdue()).toEqual([])
+      expect(starter.stops).toEqual([])
+      expect(timeLimitStops(bench)).toEqual([])
+      expect(timeLimitAlarms(bench)).toMatchObject([{ reason: 'time-limit', detail: expect.stringContaining('the session runs on and is not stopped') as unknown }])
       bench.close()
     })
 
@@ -1079,14 +1074,16 @@ describe('the launch queue', () => {
       bench.close()
     })
 
-    it('a kill that does not take records nothing and is tried again on the next pause', () => {
+    it('a session past the limit is never signalled on a later pass', () => {
       const { bench, starter, node, advanceToLimitPlus } = runningCard('sh -c claude -p --session-id s-947')
 
       advanceToLimitPlus(0)
       expect(node.stopOverdue()).toEqual([])
+      advanceToLimitPlus(60 * 60_000)
       expect(node.stopOverdue()).toEqual([])
-      expect(starter.stops).toHaveLength(2)
+      expect(starter.stops).toEqual([])
       expect(timeLimitStops(bench)).toEqual([])
+      expect(timeLimitAlarms(bench)).toHaveLength(1)
       bench.close()
     })
 

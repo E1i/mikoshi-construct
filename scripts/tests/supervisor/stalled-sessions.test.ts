@@ -3,12 +3,13 @@ import type { BudgetLine } from '../../core/eddies.js'
 import type { Lease } from '../../core/lease.js'
 import type { QueuedTask } from '../../core/queue.js'
 import type { SessionLife } from '../../supervisor/recorded-worker.js'
+import { execFileSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { appendEvent, openBus } from '../../core/db.js'
-import { CARD_SESSION_ENDED, CARD_STARTED, PR_OPENED, SESSION_HEARTBEAT, SESSION_STALLED } from '../../core/events.js'
+import { BOARD_ALARM, CARD_SESSION_ENDED, CARD_STARTED, PR_OPENED, SESSION_HEARTBEAT, SESSION_STALLED } from '../../core/events.js'
 import { leaseQueued } from '../../core/lease.js'
 import { keyOf, queueTask } from '../../core/queue.js'
 import { REVIEW_CEILING_MS } from '../../nodes/review/reviewer.js'
@@ -76,6 +77,7 @@ function stateOf(db: DatabaseSync, lease: Lease): string {
 }
 
 const LAUNCH: QueuedTask = { queue: 'launch', cardId: 1881, generation: 'g1' }
+const ANSWER: QueuedTask = { queue: 'answer', cardId: 1883, stop: 1 }
 const REVIEW: QueuedTask = { queue: 'review', cardId: 1882, pr: 1882, head: 'b'.repeat(40) }
 const launchLine = NO_PROGRESS_LINES.launch / 60_000
 const reviewLine = NO_PROGRESS_LINES.review / 60_000
@@ -185,6 +187,31 @@ describe('the silent card and answer sessions', () => {
     expect(watch.step()).toEqual([])
   })
 
+  it.each([LAUNCH, ANSWER])('an overspent session has its tree saved before it is stopped ($queue)', (task) => {
+    const { db, lease } = busWith(task)
+    const tree = mkdtempSync(path.join(tmpdir(), 'stalled-sessions-tree-'))
+    roots.push(tree)
+    const git = (...args: string[]): string => execFileSync('git', ['-C', tree, '-c', 'user.name=t', '-c', 'user.email=t@example.invalid', '-c', 'commit.gpgsign=false', ...args], { encoding: 'utf8' }).trim()
+    git('init', '-q', '-b', 'feat/card')
+    git('config', 'user.name', 't')
+    git('config', 'user.email', 't@example.invalid')
+    git('config', 'commit.gpgsign', 'false')
+    writeFileSync(path.join(tree, 'kept.md'), 'base\n')
+    git('add', '-A')
+    git('commit', '-q', '-m', 'base')
+    writeFileSync(path.join(tree, 'kept.md'), 'the session wrote this\n')
+    writeFileSync(path.join(tree, 'new.md'), 'and this\n')
+    appendEvent(db, { ts: at(0).toISOString(), type: CARD_STARTED, actor: `worker:${lease.queue}:worker-1`, cardId: lease.cardId, pr: null, head: null, dedupeKey: `${CARD_STARTED}:${lease.taskKey}`, payload: { worktree: tree }, legacy: false })
+    beat(db, lease, 1, 1000)
+    const atStop: { session: string, dirty: string, saved: string }[] = []
+    const spend: BudgetLine = { event: 'budget-stop', level: 'session-spend', spent: 41.5, limit: 40, tool: null, at: at(2).toISOString(), session: SESSION }
+    const watch = new StalledSessions(db, () => at(2), { lifeOf: () => 'live', spendOf: () => spend, pulseOf: () => null, stop: session => atStop.push({ session, dirty: git('status', '--porcelain'), saved: git('show', 'HEAD:kept.md') + git('show', 'HEAD:new.md') }) })
+
+    expect(watch.step()).toEqual([expect.stringContaining('was committed on its branch')])
+    expect(atStop).toEqual([{ session: SESSION, dirty: '', saved: 'the session wrote thisand this' }])
+    expect(git('rev-parse', '--abbrev-ref', 'HEAD')).toBe('feat/card')
+  })
+
   it('a session under the spend limit is not stopped before its no-progress line', () => {
     const { db, lease } = busWith(LAUNCH)
     beat(db, lease, 1, 1000)
@@ -196,15 +223,16 @@ describe('the silent card and answer sessions', () => {
 })
 
 describe('the silent review sessions', () => {
-  it('a review session with no new step, no output and a still process past the no-progress line is ended at that line, before its ceiling', () => {
+  it('a review session with no new step, no output and a still process past the no-progress line is warned at that line and keeps running', () => {
     const { db, lease } = busWith(REVIEW)
     beat(db, lease, 1, 5000)
     const watch = stopping(db, 'live', null, '4100,4101')
 
     expect(watch.sweepAt(1)).toEqual([])
     expect(watch.sweepAt(reviewLine)).toEqual([])
-    expect(watch.sweepAt(reviewLine + 2)).toEqual([expect.stringContaining('ended before its ceiling')])
-    expect(watch.stopped).toEqual([SESSION])
+    expect(watch.sweepAt(reviewLine + 2)).toEqual([expect.stringContaining('the session runs on and is not stopped')])
+    expect(watch.stopped).toEqual([])
+    expect(payloadsOf(db, BOARD_ALARM)).toMatchObject([{ task_key: lease.taskKey, reason: SESSION_STALLED }])
     expect(reviewLine + 2).toBeLessThan(reviewCeiling)
   })
 
@@ -218,7 +246,7 @@ describe('the silent review sessions', () => {
     expect(watch.stopped).toEqual([])
   })
 
-  it('a review session whose context and process stand still past the no-progress line is ended there although its heartbeat is alive', () => {
+  it('a review session whose context and process stand still past the no-progress line is warned there although its heartbeat is alive', () => {
     const { db, lease } = busWith(REVIEW)
     const watch = stopping(db, 'live', null, '4100')
     beat(db, lease, 1, 62659)
@@ -227,6 +255,6 @@ describe('the silent review sessions', () => {
       beat(db, lease, minute, 62659)
 
     expect(watch.sweepAt(reviewLine + 2)).toEqual([expect.stringContaining('context, process stood still')])
-    expect(watch.stopped).toEqual([SESSION])
+    expect(watch.stopped).toEqual([])
   })
 })

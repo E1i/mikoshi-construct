@@ -18,6 +18,7 @@ import process from 'node:process'
 import { readShiftGate } from '../../../src/manifest.js'
 import { roundGate } from '../../ci/prepush.js'
 import { appendEvent, defaultBusPath, openBus } from '../../core/db.js'
+import { spendStopOf } from '../../core/eddies.js'
 import { TOUCHES_FOLLOWED } from '../../core/events.js'
 import { assertHeld, StaleLease } from '../../core/lease.js'
 import { busNameOf, machineGate, machineSessions } from '../../core/machine-sessions.js'
@@ -103,6 +104,7 @@ export interface AnswererTools {
   contextWarn?: (size: string | null) => number | null
   spent?: (session: string) => number | null
   spendWarn?: () => number | null
+  overspent?: (card: CardSession) => boolean
   diff?: (card: CardSession) => string | null
   ciLog?: (card: CardSession, head: string) => FailedJobLog | null
   held?: (lease: Lease) => boolean
@@ -279,7 +281,7 @@ export function refusedOwnerQuestionIn(stdoutPath: string, file: string): string
 }
 
 export function windowGateRule(card: CardSession, gate: ShiftGate, ownerQuestion: string): string {
-  return `Run the window gate of D-194 in ${card.worktree}, each as its own command: ${gateLine(gate)}. A session that leaves a clean tree and no unpushed commit runs none of them. A heavy step waits for its turn in the foreground, so give it a Bash timeout of 600000. End the session when they are green. A red pre-push run is fixed in this session; a broken one prints its finding and question, and that question goes to the owner as below. Do not commit and do not push: once the session ends the bus commits the tree and pushes it to ${card.branch}. A refused git command is not a question. If the card cannot go on without the owner, write the question for the owner, one line, to ${ownerQuestion}; the bus then pushes nothing.`
+  return `Run the window gate of D-194 in ${card.worktree}, each as its own command: ${gateLine(gate)}. A session that leaves a clean tree and no unpushed commit runs none of them. A heavy step waits for its turn in the foreground, so give it a Bash timeout of 1800000. End the session when they are green. A red pre-push run is fixed in this session; a broken one prints its finding and question, and that question goes to the owner as below. Do not commit and do not push: once the session ends the bus commits the tree and pushes it to ${card.branch}. A refused git command is not a question. If the card cannot go on without the owner, write the question for the owner, one line, to ${ownerQuestion}; the bus then pushes nothing.`
 }
 
 export function answerHandoffPath(worktree: string): string {
@@ -514,6 +516,7 @@ export function realAnswererTools(busPath: string = defaultBusPath()): AnswererT
     contextWarn: contextWarnOfEddies,
     spent: session => sessionGauges(os.homedir(), projectRoot(process.env), session).spent ?? null,
     spendWarn: spendWarnOfEddies,
+    overspent: card => spendStopOf(card.worktree, card.session) !== null,
     diff: diffAgainstBase,
     ciLog: (card, head) => new GhCiRuns().failureLogOn(head, card.worktree),
     children: new ChildLog(busWriteAt(busPath), pid => identityOf(new OsProcessTable().snapshot(), pid), () => new Date(), process.env),
@@ -567,9 +570,10 @@ function sessionAnswerer(dir: string, tools: AnswererTools): Answerer {
     const { card } = request
     const cardBody = tools.cardText(request.lease.cardId)
     const size = cardSizeIn(cardBody)
-    const atWarn = request.fresh !== true && tools.available(card) && startsFreshAtWarn(tools, card.session, size)
-    const resumed = request.fresh !== true && tools.available(card) && !atWarn
-    const keepsHandoff = request.fresh === true || atWarn
+    const overspent = request.fresh !== true && (tools.overspent?.(card) ?? false)
+    const atWarn = request.fresh !== true && !overspent && tools.available(card) && startsFreshAtWarn(tools, card.session, size)
+    const resumed = request.fresh !== true && !overspent && tools.available(card) && !atWarn
+    const keepsHandoff = request.fresh === true || atWarn || overspent
     const session = resumed ? card.session : tools.newSession()
     const ownerQuestion = ownerQuestionPath(dir, session, request.lease.leaseGen)
     const proofs = proofsPath(dir, session, request.lease.leaseGen)
