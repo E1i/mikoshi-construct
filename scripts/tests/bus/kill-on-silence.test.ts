@@ -53,7 +53,7 @@ function runningLaunch(cardId: number) {
   cleanups.push(() => bench.close())
   const starter = new RecordingStarter()
   const signalled: number[] = []
-  const processes: ProcessTable = { commandLine: () => starter.stops.length > 0 ? null : `sh -c claude -p --session-id s-${cardId}`, signalGroup: pgid => signalled.push(pgid) }
+  const processes: ProcessTable = { commandLine: () => starter.stops.length > 0 ? null : `sh -c card-session s-${cardId}`, signalGroup: pgid => signalled.push(pgid) }
   appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'policy', cardId, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${cardId}`, payload: { lane: 'lane-a', decision: 'auto', contour: 'cheap', depends: [], admission: `admission-${cardId}` }, legacy: false })
   bench.tick()
   const executor = new LaunchExecutor({ silentMs: SILENT_MS, db: bench.db, starter, clock: bench.clock.now, disk: roomy, isolation: sandboxed })
