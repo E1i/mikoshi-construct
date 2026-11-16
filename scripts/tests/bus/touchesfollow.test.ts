@@ -15,8 +15,8 @@ import { touchesFollowed, treePr } from '../../nodes/launch/tree-pr.js'
 import { followsTouches, neverFollows, pathsOutside, rootCopyOf } from '../../policy/touch-scope.js'
 import { ranTheGreenGate } from './gate-stream.js'
 
-vi.mock('../../ports/card-tree.js', async (importOriginal) => {
-  const original = await importOriginal<typeof import('../../ports/card-tree.js')>()
+vi.mock('../../ports/git.js', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../../ports/git.js')>()
   return { ...original, pnpmRerun: () => ({ status: 0, stderr: '' }) }
 })
 

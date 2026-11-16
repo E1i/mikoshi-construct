@@ -5,8 +5,8 @@ import type { AdmittedReach, CompanionRow } from '../../../src/commands/intake/c
 import type { BusCatalog } from '../../ci/card-runs.js'
 import type { ChangedFile, Prediction } from '../../policy/morse/rules.js'
 import type { CompositionRecord, FollowingReach, GrownDerived, RefusedDerived } from '../../policy/touch-scope.js'
-import type { OwnerWaitOpener, TreeRun } from '../../ports/card-tree.js'
 import type { GhRunner } from '../../ports/gh.js'
+import type { TreeRun } from '../../ports/git.js'
 import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { COVERING_REASON, importersOf, layerMasksOf, runsOf, TestCoverage } from '../../../src/card/covering-tests.js'
@@ -22,8 +22,8 @@ import { MATRIX_COUNT_LINE, pathWithoutMatrix } from '../../policy/policy.js'
 import { matchGlob } from '../../policy/shredder/glob.js'
 import { COMPOSITION_ROOT, derivedGrowthLine, derivedRefusalLine, derivedVerdictOf, followsTouches, isRegisteredDerived, neverFollows, OWNER_MERGES, pathsOutside, runsCover, TEST_ROOTS, withinTouches } from '../../policy/touch-scope.js'
 import { ownerGlobs } from '../../policy/widening.js'
-import { busOwnerWait, pnpmRerun, treeReading } from '../../ports/card-tree.js'
 import { changedFilesFrom } from '../../ports/diff.js'
+import { pnpmRerun, treeReading } from '../../ports/git.js'
 
 export const REFUSAL_REASONS = {
   'stale-base': 'a',
@@ -82,6 +82,8 @@ export interface TreePrPorts {
   rebuild?: TwinRebuild
   ownerWait?: OwnerWaitOpener
 }
+
+export type OwnerWaitOpener = (cardId: number | null, text: string) => string
 
 const PR_URL_NUMBER = /\/pull\/(\d+)\s*$/
 
@@ -322,8 +324,8 @@ function changedOutsideTouches(git: TreePrPorts['git'], worktree: string, files:
   return { followed: inOrderOf(outside, touched.followed, derived.followed, derived.grown.map(each => each.file)), outside: touched.outside, refused: derived.refused, grown: derived.grown }
 }
 
-function derivedGap(worktree: string, refused: readonly RefusedDerived[]): FormatGap {
-  return { reason: 'derived-unreproduced', lacks: `derived files its generators reproduce: ${derivedRefusalLine(refused)}`, task: `rerun the registered generator of ${refused.map(each => each.file).join(', ')} in ${worktree} and keep exactly what it writes, or undo the change; never edit a derived file by hand (D-592)`, paths: refused.map(each => each.file) }
+function derivedGaps(worktree: string, refused: readonly RefusedDerived[]): FormatGap[] {
+  return refused.length === 0 ? [] : [{ reason: 'derived-unreproduced', lacks: `derived files its generators reproduce: ${derivedRefusalLine(refused)}`, task: `rerun the registered generator of ${refused.map(each => each.file).join(', ')} in ${worktree} and keep exactly what it writes, or undo the change; never edit a derived file by hand (D-592)`, paths: refused.map(each => each.file) }]
 }
 
 function grownLine(grown: readonly GrownDerived[]): string {
@@ -332,7 +334,11 @@ function grownLine(grown: readonly GrownDerived[]): string {
 
 function openGrowthWait(ports: TreePrPorts, card: TreeCard, pr: string, grown: readonly GrownDerived[]): void {
   if (grown.length > 0)
-    (ports.ownerWait ?? busOwnerWait())(card.cardId ?? null, `${card.cardLine} · pull request #${pr}: ${derivedGrowthLine(grown)}`)
+    ports.ownerWait?.(card.cardId ?? null, `${card.cardLine} · pull request #${pr}: ${derivedGrowthLine(grown)}`)
+}
+
+function unwaitedGrowth(ports: TreePrPorts, grown: readonly GrownDerived[]): RefusedDerived[] {
+  return ports.ownerWait === undefined ? grown.map(each => ({ file: each.file, why: `${derivedGrowthLine([each])}, and this shift has no owner wait to open for it` })) : []
 }
 
 interface FormatGap extends Gap {
@@ -556,7 +562,7 @@ export function treePr(ports: TreePrPorts, card: TreeCard, worktree: string, rep
     const shifted = shiftedPath(ports.git, worktree, card, report)
     const touched = changedOutsideTouches(ports.git, worktree, shifted.files, card, ports.rebuild ?? pnpmRerun)
     const body = prBodyOf(card, shifted.line, touched, matrixCountLineOf(report))
-    const gaps = [...formatGaps(body, shifted, publishedRootsAt(ports.git, worktree), touched.outside, readShiftGate(worktree).codeMatrix, card.fullReading), ...(touched.refused.length === 0 ? [] : [derivedGap(worktree, touched.refused)])]
+    const gaps = [...formatGaps(body, shifted, publishedRootsAt(ports.git, worktree), touched.outside, readShiftGate(worktree).codeMatrix, card.fullReading), ...derivedGaps(worktree, [...touched.refused, ...unwaitedGrowth(ports, touched.grown)])]
     if (gaps.length > 0)
       return { kind: 'problem', why: `the shift opened no pull request for ${card.branch}: it lacks ${gaps.map(gap => gap.lacks).join('; ')}`, gaps: gaps.map(({ reason, task, paths }) => ({ reason, task, paths })) }
     const created = ports.gh(['pr', 'create', '--head', card.branch, '--base', 'main', '--title', card.title, '--body', body])

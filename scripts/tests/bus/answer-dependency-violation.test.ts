@@ -27,8 +27,8 @@ const BASELINE = '[]\n'
 const GROWN = '[{"type":"not-allowed","from":"scripts/a.ts","to":"scripts/b.ts"}]\n'
 const NO_PATH = 'no path without the violation: scripts/a.ts must import scripts/b.ts'
 
-vi.mock('../../ports/card-tree.js', async (importOriginal) => {
-  const original = await importOriginal<typeof import('../../ports/card-tree.js')>()
+vi.mock('../../ports/git.js', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../../ports/git.js')>()
   const { readFileSync: read, writeFileSync: write } = await import('node:fs')
   const { join } = await import('node:path')
   return {

@@ -4,7 +4,7 @@ import type { HolderStart, Lease } from '../core/lease.js'
 import type { NodeKind, NodeSupply, ProcessIdentity, WorkerIdentity } from '../core/node.js'
 import type { Projections } from '../core/reducer.js'
 import type { Fold, StoredEvent } from '../core/stored.js'
-import type { ThresholdSet } from '../nodes/update/update-executor.js'
+import type { DerivedHolds, ThresholdSet } from '../nodes/update/update-executor.js'
 import type { PlanActors } from '../window/plan-folds.js'
 import type { SessionMeasure } from './heartbeat.js'
 import { randomUUID } from 'node:crypto'
@@ -21,7 +21,9 @@ import { CARD_END_FOLDS, OWNER_WAIT_FOLDS, PR_FOLDS } from '../core/reducer.js'
 import { ROLES_PROJECTION } from '../nodes/restart/role.js'
 import { DECISION_FOLDS } from '../policy/decisions/index.js'
 import { RECUT_ACTOR } from '../policy/round-limit-decision.js'
+import { derivedHoldOf } from '../policy/touch-scope.js'
 import { BusRead } from '../ports/bus-read.js'
+import { cardTreeReading } from '../ports/card-tree.js'
 import { CHECK_MS, TICK_MS } from '../ports/netwatch.js'
 import { foldPlanEvent } from '../window/plan-folds.js'
 import { busSessionPulse, heartbeatEnv, measureCardSession, ownStart, recordProcessHeartbeat } from './heartbeat.js'
@@ -108,6 +110,10 @@ export function ratchetThresholdSets(db: DatabaseSync): (cardId: number) => Thre
   const read = new BusRead(db)
   return cardId => read.where({ card: cardId }).slice(RATCHET_THRESHOLD_SET, ['decision', 'row', 'to']).flatMap(({ fields: { decision, row, to } }) =>
     typeof decision === 'string' && typeof row === 'string' && typeof to === 'number' ? [{ decision, row, to }] : [])
+}
+
+export function derivedHolds(db: DatabaseSync): DerivedHolds {
+  return (cardId, scope, files) => derivedHoldOf(scope, files, () => cardTreeReading(db, cardId))
 }
 
 export function busProjections(): Projections {

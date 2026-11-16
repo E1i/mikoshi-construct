@@ -37,8 +37,8 @@ const depcruise = vi.hoisted(() => {
   return { TOUCHED, RULE, STALE, KEPT, listed }
 })
 
-vi.mock('../../ports/card-tree.js', async (importOriginal) => {
-  const original = await importOriginal<typeof import('../../ports/card-tree.js')>()
+vi.mock('../../ports/git.js', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../../ports/git.js')>()
   const { readFileSync: read, writeFileSync: write } = await import('node:fs')
   const { join } = await import('node:path')
   return {

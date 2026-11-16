@@ -1,13 +1,12 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { CardSession } from '../nodes/answer/answer-source.js'
+import type { TreeReading, TreeRun } from './git.js'
 import type { GitHub } from './github.js'
-import { spawnSync } from 'node:child_process'
-import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import path from 'node:path'
+import { existsSync } from 'node:fs'
 import process from 'node:process'
-import { defaultBusPath, openBus, openOwnerWait } from '../core/db.js'
+import { defaultBusPath } from '../core/db.js'
 import { cardSessionOf, NO_RECORDED_SESSION, openPrOfCard } from '../nodes/answer/answer-source.js'
-import { processGit } from './git.js'
+import { pnpmRerun, processGit, treeReading } from './git.js'
 import { ghApi } from './github.js'
 import { Meter } from './meter.js'
 import { cardTree, taskWorktree, worktreeHome } from './worktree-home.js'
@@ -112,84 +111,11 @@ export function cardlessTreeOf(branch: string, tools: CardTreeTools): string {
   return worktree
 }
 
-export type TreeRun = (cwd: string, args: readonly string[]) => { status: number | null, stderr: string }
-
-export type TreeRerun = { kind: 'ran', outputs: ReadonlyMap<string, string | null> } | { kind: 'failed', why: string }
-
-export interface TreeReading {
-  current: (file: string) => string | null
-  base: (file: string) => string | null
-  rerun: (command: readonly string[], outputs: readonly string[]) => TreeRerun
-}
-
-export function pnpmRerun(cwd: string, args: readonly string[]): { status: number | null, stderr: string } {
-  const run = spawnSync('pnpm', [...args], { cwd, encoding: 'utf8' })
-  return { status: run.status, stderr: run.error?.message ?? run.stderr }
-}
-
-function textIn(worktree: string, file: string): string | null {
-  try {
-    return readFileSync(path.join(worktree, file), 'utf8')
-  }
-  catch {
-    return null
-  }
-}
-
-function putBack(worktree: string, held: ReadonlyMap<string, string | null>): void {
-  for (const [file, text] of held) {
-    if (text === null)
-      rmSync(path.join(worktree, file), { force: true })
-    else
-      writeFileSync(path.join(worktree, file), text)
-  }
-}
-
-export function treeReading(read: (cwd: string, args: string[]) => string, worktree: string, base: string, run: TreeRun = pnpmRerun): TreeReading {
-  return {
-    current: file => textIn(worktree, file),
-    base: (file) => {
-      try {
-        return read(worktree, ['show', `${base}:${file}`])
-      }
-      catch {
-        return null
-      }
-    },
-    rerun: (command, outputs) => {
-      const held = new Map(outputs.map(file => [file, textIn(worktree, file)]))
-      try {
-        const result = run(worktree, command)
-        if (result.status !== 0)
-          return { kind: 'failed', why: `exited ${result.status ?? 'without a status'}: ${result.stderr.trim()}` }
-        return { kind: 'ran', outputs: new Map(outputs.map(file => [file, textIn(worktree, file)])) }
-      }
-      finally {
-        putBack(worktree, held)
-      }
-    },
-  }
-}
-
 export const DERIVED_BASE = 'origin/main'
 
 export function cardTreeReading(db: DatabaseSync, cardId: number, tools: CardTreeTools = realCardTrees(), run: TreeRun = pnpmRerun): TreeReading | null {
   const card = cardTreeOf(db, cardId, tools)
   return card === null ? null : treeReading(git, card.worktree, DERIVED_BASE, run)
-}
-
-export type OwnerWaitOpener = (cardId: number | null, text: string) => string
-
-export function busOwnerWait(busPath: string = defaultBusPath(), actor = `worker:shift:${process.pid}`): OwnerWaitOpener {
-  return (cardId, text) => {
-    const db = openBus(busPath)
-    try {
-      return openOwnerWait(db, new Date().toISOString(), actor, { need: 'decision', text, ...(cardId === null ? {} : { card: cardId }) })
-    }
-    finally {
-      db.close()
-    }
-  }
 }
 
 export function cardTreeOf(db: DatabaseSync, cardId: number, tools: CardTreeTools): CardSession | null {

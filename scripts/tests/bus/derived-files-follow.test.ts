@@ -2,7 +2,8 @@ import type { Lease } from '../../core/lease.js'
 import type { AnswerOutcome } from '../../nodes/answer/duties/index.js'
 import type { TreeCard, TreePr, TreePrPorts } from '../../nodes/launch/tree-pr.js'
 import type { UpdateOutcome } from '../../nodes/update/update-executor.js'
-import type { CardTreeTools, TreeRun } from '../../ports/card-tree.js'
+import type { CardTreeTools } from '../../ports/card-tree.js'
+import type { TreeRun } from '../../ports/git.js'
 import type { MergeBench } from './merge-bench.js'
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
@@ -20,8 +21,8 @@ import { claudeAnswerer } from '../../nodes/answer/answerer.js'
 import { treePr } from '../../nodes/launch/tree-pr.js'
 import { UpdateExecutor } from '../../nodes/update/update-executor.js'
 import { grownEntries, judgeDerived, removesEntriesOnly } from '../../policy/derived-files.js'
-import { DERIVED_REGISTRY } from '../../policy/touch-scope.js'
-import { treeReading } from '../../ports/card-tree.js'
+import { DERIVED_REGISTRY, derivedHoldOf } from '../../policy/touch-scope.js'
+import { treeReading } from '../../ports/git.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { ranTheGreenGate } from './gate-stream.js'
 import { sha } from './github-fake.js'
@@ -30,8 +31,8 @@ import { detectUpdate } from './update-detection.js'
 
 const runs = vi.hoisted(() => ({ fake: null as null | ((cwd: string, args: readonly string[]) => { status: number | null, stderr: string }) }))
 
-vi.mock('../../ports/card-tree.js', async (importOriginal) => {
-  const original = await importOriginal<typeof import('../../ports/card-tree.js')>()
+vi.mock('../../ports/git.js', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../../ports/git.js')>()
   return { ...original, pnpmRerun: (cwd: string, args: readonly string[]) => runs.fake!(cwd, args) }
 })
 
@@ -309,7 +310,7 @@ function update(name: ScenarioName): Updated {
     clock: made.clock.now,
     settle: () => {},
     mergeMain: () => ({ kind: 'merged', to: sha('m'), tookMain: [], rebuilt: [] }),
-    derivedReading: () => treeReading(gitIn, tree, 'origin/main', fakeRerun),
+    derived: (_cardId, scope, files) => derivedHoldOf(scope, files, () => treeReading(gitIn, tree, 'origin/main', fakeRerun)),
   })
   return { made, outcome: executor.update(lease) }
 }
