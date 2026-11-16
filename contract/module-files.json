@@ -449,6 +449,7 @@
     "scripts/tests/bus/lane-assign-spread.test.ts",
     "scripts/tests/bus/lane-assign.test.ts",
     "scripts/tests/bus/lane-chain-dead-cards.test.ts",
+    "scripts/tests/bus/lane-order-follows-priority.test.ts",
     "scripts/tests/bus/lane-startable.test.ts",
     "scripts/tests/bus/lanereflow.test.ts",
     "scripts/tests/bus/launch-ladder-handoff.test.ts",
