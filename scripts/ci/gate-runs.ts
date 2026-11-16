@@ -1,4 +1,6 @@
 import type { BusEvent } from './card-runs.js'
+import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs'
+import path from 'node:path'
 import process from 'node:process'
 import { GATE_RUN } from '../core/events.js'
 import { appendBusEvent, NoBusFile } from './card-runs.js'
@@ -60,14 +62,52 @@ export function gateRunEvent(run: GateRun, ts: string): BusEvent {
   }
 }
 
-export function recordGateRun(run: GateRun, ts: string, busPath?: string): string {
+export const GATE_RUN_SPOOL = path.join('.construct', 'gate-runs.jsonl')
+
+function spooled(spool: string): BusEvent[] {
+  if (!existsSync(spool))
+    return []
+  return readFileSync(spool, 'utf8').split('\n').filter(line => line.trim() !== '').map(line => JSON.parse(line) as BusEvent)
+}
+
+function keep(spool: string, event: BusEvent): void {
+  mkdirSync(path.dirname(spool), { recursive: true })
+  appendFileSync(spool, `${JSON.stringify(event)}\n`)
+}
+
+export function drainGateRuns(spool: string, busPath?: string): number {
+  const waiting = spooled(spool)
+  for (const event of waiting)
+    appendBusEvent(event, busPath)
+  rmSync(spool, { force: true })
+  return waiting.length
+}
+
+function drainedNote(spool: string | null, busPath: string | undefined): string {
+  if (spool === null)
+    return ''
+  try {
+    const drained = drainGateRuns(spool, busPath)
+    return drained === 0 ? '' : `; ${drained} earlier run${drained === 1 ? '' : 's'} kept in ${GATE_RUN_SPOOL} recorded with it`
+  }
+  catch (error) {
+    return `; the runs kept in ${GATE_RUN_SPOOL} stay there (${messageOf(error)})`
+  }
+}
+
+export function recordGateRun(run: GateRun, ts: string, busPath?: string, spool: string | null = null): string {
   const event = gateRunEvent(run, ts)
   try {
     appendBusEvent(event, busPath)
-    return `prepush: ${GATE_RUN} recorded on the bus — ${run.source}, ${run.mode}, ${run.seconds} s`
+    return `prepush: ${GATE_RUN} recorded on the bus — ${run.source}, ${run.mode}, ${run.seconds} s${drainedNote(spool, busPath)}`
   }
   catch (error) {
-    const why = error instanceof NoBusFile ? 'no bus is reachable from here' : `the bus took no write (${messageOf(error)})`
-    return `prepush: ${GATE_RUN} not recorded, ${why}: ${JSON.stringify(event.payload)}`
+    if (error instanceof NoBusFile)
+      return `prepush: ${GATE_RUN} not recorded, no bus is reachable from here: ${JSON.stringify(event.payload)}`
+    const why = `the bus took no write (${messageOf(error)})`
+    if (spool === null)
+      return `prepush: ${GATE_RUN} not recorded, ${why}: ${JSON.stringify(event.payload)}`
+    keep(spool, event)
+    return `prepush: ${GATE_RUN} kept in ${GATE_RUN_SPOOL}, ${why}; the next run that can write the bus records it: ${JSON.stringify(event.payload)}`
   }
 }
