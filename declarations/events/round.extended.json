@@ -1,0 +1,9 @@
+{
+  "event": "round.extended",
+  "constant": "ROUND_EXTENDED",
+  "payload": [
+    "findings",
+    "pr",
+    "previous"
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "event": "worker.down",
+  "constant": "WORKER_DOWN",
+  "payload": [
+    "cause",
+    "failures",
+    "next_attempt_at",
+    "worker"
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "event": "witness.fields.backfilled",
+  "constant": "WITNESS_FIELDS_BACKFILLED",
+  "payload": [
+    "cards",
+    "unparsed"
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "event": "main.advanced",
+  "constant": "MAIN_ADVANCED",
+  "payload": [
+    "ci",
+    "paths",
+    "pathsTruncated",
+    "sha",
+    "touches_mechanics"
+  ]
+}

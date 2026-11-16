@@ -1,0 +1,12 @@
+{
+  "event": "netwatch.tick",
+  "constant": "BUS_PULSE",
+  "payload": [
+    "calls",
+    "gap_s",
+    "rate_remaining",
+    "reason",
+    "unsettled",
+    "written"
+  ]
+}

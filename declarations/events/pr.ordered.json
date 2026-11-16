@@ -1,0 +1,8 @@
+{
+  "event": "pr.ordered",
+  "constant": "PR_ORDERED",
+  "payload": [
+    "before",
+    "by"
+  ]
+}

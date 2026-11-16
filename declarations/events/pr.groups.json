@@ -1,0 +1,10 @@
+{
+  "event": "pr.groups",
+  "constant": "PR_GROUPS",
+  "payload": [
+    "groups",
+    "needUpdate",
+    "needsUpdate",
+    "needsVerification"
+  ]
+}

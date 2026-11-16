@@ -3467,6 +3467,7 @@
           "scripts/core/errors.ts",
           "scripts/core/bus-path.ts",
           "scripts/core/bus-readings.ts",
+          "scripts/core/projection-types.ts",
           "scripts/core/bus-version.ts",
           "scripts/core/reducer.ts",
           "scripts/core/every.ts",
@@ -3630,7 +3631,8 @@
         "owns": [
           "scripts/core/factory-paths.ts",
           "scripts/core/generated-files.ts",
-          "scripts/core/declarations.ts"
+          "scripts/core/declarations.ts",
+          "scripts/core/declared-events.ts"
         ],
         "status": "undecided"
       },

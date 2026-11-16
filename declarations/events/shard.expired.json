@@ -1,0 +1,7 @@
+{
+  "event": "shard.expired",
+  "constant": "SHARD_EXPIRED",
+  "payload": [
+    "id"
+  ]
+}

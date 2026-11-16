@@ -1,0 +1,11 @@
+{
+  "event": "ci.rerun.requested",
+  "constant": "CI_RERUN_REQUESTED",
+  "payload": [
+    "detail",
+    "lease_gen",
+    "requested",
+    "runs",
+    "task_key"
+  ]
+}

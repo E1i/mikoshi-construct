@@ -1,0 +1,10 @@
+{
+  "event": "pr.status.refused",
+  "constant": "PR_STATUS_REFUSED",
+  "payload": [
+    "event_id",
+    "state",
+    "status",
+    "step"
+  ]
+}

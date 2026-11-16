@@ -1,0 +1,10 @@
+{
+  "event": "role.to_owner",
+  "constant": "ROLE_TO_OWNER",
+  "payload": [
+    "detail",
+    "handoff",
+    "role",
+    "wait"
+  ]
+}

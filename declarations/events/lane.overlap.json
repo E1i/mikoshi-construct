@@ -1,0 +1,8 @@
+{
+  "event": "lane.overlap",
+  "constant": "LANE_OVERLAP",
+  "payload": [
+    "generation",
+    "lane"
+  ]
+}

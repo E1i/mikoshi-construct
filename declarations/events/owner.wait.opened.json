@@ -1,0 +1,14 @@
+{
+  "event": "owner.wait.opened",
+  "constant": "OWNER_WAIT_OPENED",
+  "payload": [
+    "card",
+    "command",
+    "decision",
+    "id",
+    "need",
+    "pr",
+    "request",
+    "text"
+  ]
+}

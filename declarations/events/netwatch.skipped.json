@@ -1,0 +1,11 @@
+{
+  "event": "netwatch.skipped",
+  "constant": "NETWATCH_SKIPPED",
+  "payload": [
+    "calls",
+    "cause",
+    "detail",
+    "reason",
+    "until"
+  ]
+}

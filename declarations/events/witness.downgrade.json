@@ -1,0 +1,5 @@
+{
+  "event": "witness.downgrade",
+  "constant": "WITNESS_DOWNGRADE",
+  "payload": null
+}

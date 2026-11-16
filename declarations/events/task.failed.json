@@ -1,0 +1,15 @@
+{
+  "event": "task.failed",
+  "constant": "TASK_FAILED",
+  "payload": [
+    "detail",
+    "failures",
+    "generation",
+    "lease_gen",
+    "next",
+    "queue",
+    "reason",
+    "task_key",
+    "uncounted"
+  ]
+}

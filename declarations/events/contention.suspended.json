@@ -1,0 +1,9 @@
+{
+  "event": "contention.suspended",
+  "constant": "CONTENTION_SUSPENDED",
+  "payload": [
+    "area",
+    "prs",
+    "request"
+  ]
+}

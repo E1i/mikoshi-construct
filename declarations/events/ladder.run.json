@@ -1,0 +1,22 @@
+{
+  "event": "ladder.run",
+  "constant": "LADDER_RUN",
+  "payload": [
+    "agents",
+    "agreedSha256",
+    "argsSha256",
+    "at",
+    "attempts",
+    "cause",
+    "effort",
+    "run",
+    "rung",
+    "seconds",
+    "sketch",
+    "status",
+    "task",
+    "tokens",
+    "tokensSource",
+    "toolUses"
+  ]
+}

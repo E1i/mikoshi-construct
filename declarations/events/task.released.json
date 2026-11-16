@@ -1,0 +1,12 @@
+{
+  "event": "task.released",
+  "constant": "TASK_RELEASED",
+  "payload": [
+    "generation",
+    "lease_gen",
+    "queue",
+    "reason",
+    "task_key",
+    "until"
+  ]
+}

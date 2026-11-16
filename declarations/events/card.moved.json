@@ -1,0 +1,10 @@
+{
+  "event": "card.moved",
+  "constant": "CARD_MOVED",
+  "payload": [
+    "bodySha",
+    "from",
+    "lane",
+    "to"
+  ]
+}
