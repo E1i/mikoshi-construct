@@ -603,6 +603,7 @@
     "scripts/tests/ci/layer-has-tests.test.ts",
     "scripts/tests/ci/layers.test.ts",
     "scripts/tests/ci/no-match-reporter.test.ts",
+    "scripts/tests/ci/prepush-narrow.test.ts",
     "scripts/tests/ci/prepush-round.test.ts",
     "scripts/tests/ci/prepush-selector.test.ts",
     "scripts/tests/ci/quality-steps.test.ts",

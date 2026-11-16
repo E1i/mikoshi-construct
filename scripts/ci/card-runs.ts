@@ -4,6 +4,7 @@ import type { LayerMap } from '../core/layer-map.js'
 import { existsSync } from 'node:fs'
 import { layerMasksOf, runsOf } from '../../src/card/covering-tests.js'
 import { parseParkingFile } from '../../src/card/parking.js'
+import { witnessFieldsOf } from '../../src/card/witness-fields.js'
 import { CARD_BODIES } from '../core/card-bodies.js'
 import { appendEvent, BUSY_TIMEOUT_MS, defaultBusPath } from '../core/db.js'
 import { messageOf } from '../core/errors.js'
@@ -171,7 +172,13 @@ export interface BusCatalog extends CheckCatalog {
   unreadable?: string
 }
 
-export type BranchCardRuns = { kind: 'no-card' } | { kind: 'unreadable', why: string } | { kind: 'card', card: number, touches: readonly string[], reading: CardLayers }
+export type BranchCardRuns = { kind: 'no-card' } | { kind: 'unreadable', why: string } | { kind: 'card', card: number, touches: readonly string[], reading: CardLayers, witnesses: string[] }
+
+const WHITESPACE = /\s+/
+
+export function witnessTestsOf(text: string): string[] {
+  return sortedUnique((witnessFieldsOf(text) ?? []).flatMap(field => field.run.split(WHITESPACE).filter(isTest)))
+}
 
 export interface BranchTests {
   tests: readonly string[]
@@ -200,7 +207,7 @@ export function branchCardRuns(branch: string, busPath: string = defaultBusPath(
     const source = row === null ? null : runsSourceOf(row)
     if (row === null || source === null)
       return { kind: 'no-card' }
-    return { kind: 'card', card: row.card_id, touches: source.touches, reading: sessionCardRunsOf(source, withBranchTests({ testLayers: catalogLayersByTest(db), moduleLayers: catalogModuleLayers(db) }, branchTests)) }
+    return { kind: 'card', card: row.card_id, touches: source.touches, reading: sessionCardRunsOf(source, withBranchTests({ testLayers: catalogLayersByTest(db), moduleLayers: catalogModuleLayers(db) }, branchTests)), witnesses: witnessTestsOf(row.text) }
   }
   catch (error) {
     if (error instanceof LayerWithoutTests)

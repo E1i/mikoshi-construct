@@ -300,7 +300,7 @@ describe('a layer the branch assigns tests to', () => {
 
     const graph = new Map([[BRANCH_TEST, [MODULE]], [MODULE, []], [MASKED_TEST, []]])
     const branchTests = testsOfBranch(graph, testFoldersOfLayers(readLayerMap()))
-    expect(branchCardRuns(BRANCH, bus, branchTests)).toEqual({ kind: 'card', card: expect.any(Number), touches: [MODULE], reading: { layers: [NEW_LAYER], paths: [], tests: [BRANCH_TEST] } })
+    expect(branchCardRuns(BRANCH, bus, branchTests)).toEqual({ kind: 'card', card: expect.any(Number), touches: [MODULE], reading: { layers: [NEW_LAYER], paths: [], tests: [BRANCH_TEST] }, witnesses: [] })
   })
 
   it('a branch test outside every test folder of the layer map adds no layer', () => {
