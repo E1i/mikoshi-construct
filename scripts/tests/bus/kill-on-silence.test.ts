@@ -143,7 +143,7 @@ describe('a live session is warned on silence or over time and only the owner st
     expect(eventsOf(db, BOARD_ALARM)).toHaveLength(2)
     expect(eventsOf(db, TASK_FAILED).map(payload => payload.next)).toEqual(['queued'])
 
-    expect(reviewSession('/repo', '/reviews', 's-1', again, fullReview('plan')).ceilingMs).toBeUndefined()
+    expect(Object.keys(reviewSession('/repo', '/reviews', 's-1', again, fullReview('plan')))).not.toContain('ceilingMs')
     const dir = mkdtempSync(path.join(tmpdir(), 'kill-on-silence-ceiling-'))
     cleanups.push(() => rmSync(dir, { recursive: true, force: true }))
     const tools: TreeTools = { git: () => {}, worktrees: () => [], prepare: () => {}, state: () => ({ head: again.head!, status: [] }) }

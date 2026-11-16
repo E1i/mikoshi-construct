@@ -522,6 +522,7 @@
     "scripts/tests/bus/restart-queue.test.ts",
     "scripts/tests/bus/review-bar.test.ts",
     "scripts/tests/bus/review-bg.test.ts",
+    "scripts/tests/bus/review-ceiling-alarm-wiring.test.ts",
     "scripts/tests/bus/review-detection.ts",
     "scripts/tests/bus/review-drip-finding.test.ts",
     "scripts/tests/bus/review-live.test.ts",

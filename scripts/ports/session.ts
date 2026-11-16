@@ -115,15 +115,8 @@ export interface SpawnSessionParams {
   env?: NodeJS.ProcessEnv
   addDirs?: string[]
   model?: string
-  ceilingMs?: number
   role?: Extract<Role, 'review' | 'ghost'>
   started?: (pid: number) => void
-}
-
-export class SessionCeilingReached extends Error {
-  constructor(readonly sessionId: string, readonly ceilingMs: number) {
-    super(`the session ${sessionId} ran past its ceiling of ${ceilingMs / 60_000} minutes and was ended`)
-  }
 }
 
 export function spawnSession(params: SpawnSessionParams): Promise<number> {
@@ -144,22 +137,13 @@ export function spawnSession(params: SpawnSessionParams): Promise<number> {
       cwd: params.cwd,
       env: { ...sessionEnv(params.env), ...invocation.env },
       stdio: ['ignore', outFd, errFd],
-      ...(params.ceilingMs === undefined ? {} : { timeout: params.ceilingMs, killSignal: 'SIGKILL' as const }),
     })
     if (child.pid !== undefined)
       params.started?.(child.pid)
-    const started = Date.now()
 
     child.on('error', (error) => {
       closeOnce()
       reject(error)
-    })
-
-    child.on('exit', (_code, signal) => {
-      if (params.ceilingMs !== undefined && signal === 'SIGKILL' && Date.now() - started >= params.ceilingMs) {
-        closeOnce()
-        reject(new SessionCeilingReached(params.sessionId, params.ceilingMs))
-      }
     })
 
     child.on('close', (code) => {
