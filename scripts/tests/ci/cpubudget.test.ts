@@ -303,6 +303,6 @@ describe('the board', () => {
     vi.spyOn(os, 'availableParallelism').mockReturnValue(CORES)
     const pages: string[] = []
     expect(printBoard(busWithCardStarted([]).file, NOW, text => pages.push(text), path.join(scratch(), 'no-handoff.md'), 'html')).toBe(0)
-    expect(pages.join('')).toContain('<span>load <b>92.0 / 16 cores</b></span>')
+    expect(pages.join('')).toContain('<span>load <b><span data-count="92.0">92.0</span> / 16 cores</b></span>')
   })
 })

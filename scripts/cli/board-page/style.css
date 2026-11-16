@@ -400,6 +400,13 @@ tr.lane th {
   text-transform: uppercase;
   text-align: start;
 }
+tr.task th { padding: 0.25rem 0.625rem; background: var(--panel-raised); text-align: start; }
+tr.task[data-waits] th { box-shadow: inset 3px 0 var(--amber); }
+.task-fold { color: var(--text); font: 600 0.75rem var(--font-mono); text-align: start; }
+.task-fold::before { content: '▾ '; color: var(--wire); }
+.task-group[data-collapsed] { & .task-fold::before { content: '▸ '; } & tr[data-card] { display: none; } }
+.countdown { color: var(--dim); font-style: normal; }
+[data-count] { font-variant-numeric: tabular-nums; }
 tr[data-card] {
   & td { padding: 0.3rem 0.625rem; border-block-end: 1px solid var(--panel-raised); white-space: nowrap; color: var(--dim); }
   &:hover td { background: var(--wire-soft); }

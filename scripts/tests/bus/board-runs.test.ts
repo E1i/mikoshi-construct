@@ -53,7 +53,7 @@ function dialogOf(text: string): string {
   return new RegExp(`<template id="dialog-card-${CARD}">([\\s\\S]*?)</template>`).exec(html)![1]!
 }
 
-const RUNS_LANES = '<p>runs:</p><div class="runs-group" data-lane="tests/board/**" data-glob><p class="runs-name">tests/board/** · вся папка</p></div><div class="runs-group" data-lane="tests"><p class="runs-name">tests</p><p><span class="tag">a.test.ts</span></p></div>'
+const RUNS_LANES = '<p>runs:</p><div class="runs-group" data-lane="tests/board/**" data-glob><p class="runs-name">tests/board/** · whole folder</p></div><div class="runs-group" data-lane="tests"><p class="runs-name">tests</p><p><span class="tag">a.test.ts</span></p></div>'
 
 describe('the board draws a card\'s runs from the parsed field', () => {
   it('a card with a prose Runs line and no witness fields shows its runs as a list and no prose Runs line', () => {
