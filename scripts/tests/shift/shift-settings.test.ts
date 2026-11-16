@@ -169,12 +169,18 @@ describe('the browser lab exclusion a card session takes from the settings of it
   })
 
   it('spawned settings carry a 30 min Bash cap', () => {
-    const cap = { BASH_MAX_TIMEOUT_MS: '1800000', BASH_DEFAULT_TIMEOUT_MS: '1800000' }
     const without = settings()
     holdSettings('settings.json', [entry])
     const excluded = settings()
     expect(excluded.sandbox.excludedCommands).toEqual([entry])
-    expect([without, excluded].map(built => JSON.parse(settingsFlag(built).at(-1)!).env)).toEqual([cap, cap])
+    expect([without, excluded].map(built => JSON.parse(settingsFlag(built).at(-1)!).env)).toMatchObject([{ BASH_MAX_TIMEOUT_MS: '1800000', BASH_DEFAULT_TIMEOUT_MS: '1800000' }, { BASH_MAX_TIMEOUT_MS: '1800000', BASH_DEFAULT_TIMEOUT_MS: '1800000' }])
+  })
+
+  it('the session bash cap disables background tasks', () => {
+    const without = settings()
+    holdSettings('settings.json', [entry])
+    const excluded = settings()
+    expect([without, excluded].map(built => JSON.parse(settingsFlag(built).at(-1)!).env.CLAUDE_CODE_DISABLE_BACKGROUND_TASKS)).toEqual(['1', '1'])
   })
 
   it('keeps the entry and the protection across the --settings flag', () => {

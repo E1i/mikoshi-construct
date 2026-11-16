@@ -1225,7 +1225,7 @@ describe('the launch node', () => {
     recordHeartbeat(made.db, made.clock.now().toISOString(), { card: cardId, pr: null, head: null, step: 'PostToolUse', session: `s-${cardId}`, lease: null })
   }
 
-  it('a card.started with no pull request and no heartbeat for 20 minutes gives card.stopped', async () => {
+  it('a card.started with no pull request and no heartbeat for 20 minutes is warned once and keeps running', async () => {
     const made = bench()
     const { node, starter } = silentSession(made, 983)
     await once(node)
@@ -1237,10 +1237,11 @@ describe('the launch node', () => {
     expect(node.stopOverdue()).toEqual([])
 
     made.clock.advance(2 * 60_000)
-    expect(node.stopOverdue()).toEqual([983])
     expect(node.stopOverdue()).toEqual([])
-    expect(starter.stops).toHaveLength(1)
-    expect(eventsOf(made.db, CARD_STOPPED)).toEqual([{ reason: 'fault', detail: expect.stringMatching(/^no-heartbeat: card #983 session s-983 has no pull request and no heartbeat for 20 minutes since /) as unknown }])
+    expect(node.stopOverdue()).toEqual([])
+    expect(starter.stops).toEqual([])
+    expect(eventsOf(made.db, CARD_STOPPED)).toEqual([])
+    expect(eventsOf(made.db, BOARD_ALARM).filter(alarm => alarm.reason === 'no-heartbeat')).toEqual([{ task_key: expect.any(String) as unknown, reason: 'no-heartbeat', detail: expect.stringMatching(/^no-heartbeat: card #983 session s-983 has no pull request and no heartbeat for 20 minutes since .*; the session runs on and is not stopped/) as unknown }])
   })
 
   function drop(made: MergeBench, cardId: number): void {
