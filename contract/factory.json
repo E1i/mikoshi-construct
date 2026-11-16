@@ -1271,12 +1271,15 @@
         "complete": true,
         "keys": [
           "context",
+          "core",
+          "crawlers",
           "error",
           "mode",
           "model",
           "reason",
           "root",
           "session",
+          "skills",
           "spent",
           "subagents"
         ]
@@ -1967,6 +1970,17 @@
           "src/presets/index.ts"
         ],
         "owner": "src/presets/index.ts",
+        "source": "owner",
+        "writers": []
+      },
+      ".construct/gate-runs.jsonl": {
+        "derived": false,
+        "directory": false,
+        "namedIn": [
+          "scripts/ci/gate-runs.ts",
+          "scripts/ci/prepush.ts"
+        ],
+        "owner": "scripts/ci/gate-runs.ts",
         "source": "owner",
         "writers": []
       },
@@ -4642,11 +4656,12 @@
         ],
         "types": {
           "BusCard": "interface BusCard { id: number; state: string | null; stage: CardStage; lane: string | null; line: string | null; since: string | null; body: boolean; closed: boolean; closedAt: string | null; parent?: SliceParent; }",
-          "BusFacts": "interface BusFacts { at: string; goal: Goal | null; waits: OwnerWait[]; waitsStale?: string; cardsStale?: string; pulse: string | null; slots: BusSlot[]; cards: BusCard[]; services: BusService[]; matrices: BusMatrix[]; failure: string | null; reviewQueue: number; groups?: BusGroup[]; shadow?: BusShadow; tails?: BusTail[]; queued?: QueuedStanding[]; }",
+          "BusFacts": "interface BusFacts { at: string; goal: Goal | null; waits: OwnerWait[]; waitsStale?: string; cardsStale?: string; pulse: string | null; slots: BusSlot[]; cards: BusCard[]; services: BusService[]; matrices: BusMatrix[]; failure: string | null; reviewQueue: number; groups?: BusGroup[]; shadow?: BusShadow; tails?: BusTail[]; queued?: QueuedStanding[]; window?: BusWindow; }",
           "BusMatrix": "interface BusMatrix { pr: number; head: string | null; full: string | null; killed: number; survived: number; notRun: number; }",
           "BusService": "interface BusService { role: string; task: string; tree: string | null; step: string; session?: string; gauges?: ServiceGauges; subagents?: SubagentReading[]; }",
           "CardStage": "type CardStage = typeof CARD_STAGES[number]",
           "CardsAtStage": "interface CardsAtStage { stage: CardStage; cards: number[]; }",
+          "CrawlerReading": "interface CrawlerReading { id: string; kind: string; description: string | null; startedAt: string | null; state: string; context: number | null; spent: number | null; }",
           "SubagentReading": "interface SubagentReading { name: string; context: number | null; spent: number | null; at: string | null; }"
         }
       },

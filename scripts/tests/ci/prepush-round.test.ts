@@ -78,7 +78,7 @@ describe('the window gate reads its base from the last green main and leaves the
       expect(gate.queue).not.toHaveBeenCalled()
       for (const [args] of vi.mocked(gate.vitest).mock.calls)
         expect(args).toContain(PRINT_TEST)
-      expect(gate.lines.join('\n')).toMatch(/prepush: green — \d+ tests of the layers this change reaches ran; the full suite is CI's, and the merge waits for its green run; the push may go\./)
+      expect(gate.lines.join('\n')).toMatch(/prepush: green — \d+ tests of the session selection ran; the full suite is CI's, and the merge waits for its green run; the push may go\./)
     }
   })
 })
@@ -89,7 +89,7 @@ describe('the gate answer round runs only the layers its change reaches', () => 
     expect(await testStep(selection([NO_LAYER]), round)).toBe(0)
     expect(round.vitest).not.toHaveBeenCalled()
     expect(round.queue).not.toHaveBeenCalled()
-    expect(round.lines.join('\n')).toMatch(/0 tests of the layers this change reaches ran; the full suite is CI's/)
+    expect(round.lines.join('\n')).toMatch(/0 tests of the session selection ran; the full suite is CI's/)
   })
 
   it('a round that CI runs in full for one path still runs the tests the rest of its change reaches, outside the lock', async () => {
