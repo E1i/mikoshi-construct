@@ -83,6 +83,8 @@ export interface LaneCard {
   depends: readonly number[]
   task: ShiftTask | null
   deferred?: boolean
+  priority?: Priority | null
+  started?: boolean
 }
 
 export interface LiveLane extends LaneCard {
@@ -221,10 +223,22 @@ function laneNumbers(count: number): number[] {
   return Array.from({ length: count }, (_, index) => index + 1)
 }
 
-function chainChoice(chained: readonly LiveLane[], current: string | null): LaneChoice {
+type Precedes = (first: LaneCard, then: LaneCard) => boolean
+
+function releaseOrder(cards: readonly LaneCard[]): Precedes {
+  const ordered = cards.map(card => ({ cardId: card.cardId, depends: card.depends, priority: card.priority ?? null }))
+  const dependents = dependentsOf(ordered)
+  const blocked = new Map(ordered.map(card => [card.cardId, blockedBy(card.cardId, dependents)]))
+  const ownRanks = new Map(ordered.map(card => [card.cardId, priorityRank(card.priority)]))
+  const rankOf = (cardId: number): number => Math.min(ownRanks.get(cardId) ?? PRIORITIES.length, ...[...blocked.get(cardId) ?? []].map(each => ownRanks.get(each) ?? PRIORITIES.length))
+  const before = (first: LaneCard, then: LaneCard): boolean => (blocked.get(first.cardId)?.has(then.cardId) ?? false) || rankOf(first.cardId) < rankOf(then.cardId)
+  return (first, then) => then.started !== true && before(first, then) && !before(then, first)
+}
+
+function chainChoice(card: LaneCard, chained: readonly LiveLane[], current: string | null, precedes: Precedes): LaneChoice {
   const lanes = [...new Set(chained.map(other => other.lane))].sort(byNumber)
   const lane = current !== null && lanes.includes(current) ? current : lanes[0]!
-  return { lane, reason: 'chain', after: chained.filter(other => other.lane === lane).map(other => other.cardId) }
+  return { lane, reason: 'chain', after: chained.filter(other => other.lane === lane && !precedes(card, other)).map(other => other.cardId) }
 }
 
 function binding(card: LaneCard, chained: readonly LiveLane[], others: readonly LiveLane[], shared: readonly string[]): LiveLane[] {
@@ -252,8 +266,9 @@ export function chooseLane(card: LaneCard, live: readonly LiveLane[], count: num
   const occupants = occupying.filter(other => other.cardId !== card.cardId && other.deferred !== true)
   const chained = others.filter(other => withinCount(other.lane, count) && chainedTo(card, other, shared))
   const bound = binding(card, chained, others, shared)
+  const precedes = releaseOrder([card, ...live.filter(other => other.cardId !== card.cardId)])
   if (bound.length > 0)
-    return chainChoice(bound, current)
+    return chainChoice(card, bound, current, precedes)
   if (current !== null && withinCount(current, count))
     return { lane: current, reason: 'kept', after: [] }
   const load = new Map(laneNumbers(count).map(number => [number, occupants.filter(other => other.lane === chainLaneName(number)).length]))
@@ -261,7 +276,7 @@ export function chooseLane(card: LaneCard, live: readonly LiveLane[], count: num
   if (free !== undefined)
     return { lane: chainLaneName(free), reason: 'free', after: [] }
   if (chained.length > 0)
-    return chainChoice(chained, current)
+    return chainChoice(card, chained, current, precedes)
   const clear = lanesClearOfOwnerMerge(count, occupants, waitingOnOwner)
   const least = leastLoaded(load, clear.length > 0 ? clear : laneNumbers(count))
   return { lane: chainLaneName(least), reason: 'least-loaded', after: [] }
@@ -305,11 +320,8 @@ function latestPayload(db: DatabaseSync, cardId: number): Record<string, unknown
 
 function laneCardOf(db: DatabaseSync, cardId: number): LaneCard {
   const payload = latestPayload(db, cardId)
-  return { cardId, depends: dependsOf(payload), task: taskOf(cardId, payload) }
-}
-
-function priorityOf(db: DatabaseSync, cardId: number): Priority | null {
-  return parkedOf(cardId, latestPayload(db, cardId))?.priority ?? null
+  const parked = parkedOf(cardId, payload)
+  return { cardId, depends: dependsOf(payload), task: parked?.task ?? null, priority: parked?.priority ?? null }
 }
 
 type Size = ShiftTask['card']['size']
@@ -396,7 +408,7 @@ function deferredRow(db: DatabaseSync, row: AdmittedRow): boolean {
 export function liveLanes(db: DatabaseSync): LiveLane[] {
   return liveRows(db).flatMap((row) => {
     const lane = row.state === DEFERRED_CARD ? null : currentLane(db, row.card_id)
-    return lane === null ? [] : [{ ...laneCardOf(db, row.card_id), lane, deferred: deferredRow(db, row) }]
+    return lane === null ? [] : [{ ...laneCardOf(db, row.card_id), lane, deferred: deferredRow(db, row), started: !notStarted(row) }]
   })
 }
 
@@ -435,7 +447,7 @@ function chainedOnlyThroughEnded(db: DatabaseSync, row: AdmittedRow, rows: reado
     return false
   const live = new Set(rows.map(each => each.card_id))
   const after = afterOf(assignment)
-  return after.every(parent => !live.has(parent)) || after.some(parent => dead.has(parent))
+  return after.length > 0 && (after.every(parent => !live.has(parent)) || after.some(parent => dead.has(parent)))
 }
 
 function keptWhere(db: DatabaseSync, cardId: number, current: string | null, count: number): boolean {
@@ -474,6 +486,7 @@ export function layOutLanes(db: DatabaseSync, count: number, ts: string, actor: 
 
 interface ReflowCard extends LiveLane, OrderedCard {
   task: ShiftTask | null
+  priority: Priority | null
   admission: number
   waiting: boolean
 }
@@ -482,7 +495,7 @@ function reflowCards(db: DatabaseSync, rows: readonly AdmittedRow[]): ReflowCard
   const byCard = new Map(rows.map(row => [row.card_id, row]))
   return launchableLanes(db).map((card) => {
     const row = byCard.get(card.cardId)!
-    return { ...card, priority: priorityOf(db, card.cardId), admission: Number(row.admission), waiting: notStarted(row) }
+    return { ...card, priority: card.priority ?? null, admission: Number(row.admission), waiting: notStarted(row) }
   })
 }
 
@@ -656,10 +669,39 @@ export function relayBehindStalls(db: DatabaseSync, stalls: readonly Stall[], co
   return stalled.size === 0 ? 0 : liveRows(db).filter(row => relayOne(db, row, stalled, count, ts, actor, shared)).length
 }
 
+function releaseAfter(card: LiveLane, assignment: Assignment, live: readonly LiveLane[], precedes: Precedes, shared: readonly string[]): number[] | null {
+  const after = afterOf(assignment)
+  const byId = new Map(live.map(other => [other.cardId, other]))
+  const kept = after.filter((parent) => {
+    const other = byId.get(parent)
+    return other === undefined || !precedes(card, other)
+  })
+  const missing = live.filter(other => other.cardId !== card.cardId && other.lane === card.lane && !after.includes(other.cardId) && chainedTo(card, other, shared) && precedes(other, card)).map(other => other.cardId)
+  return kept.length === after.length && missing.length === 0 ? null : [...kept, ...missing]
+}
+
+function rechainByRelease(db: DatabaseSync, count: number, ts: string, actor: string, shared: readonly string[]): number {
+  const waiting = new Map(liveRows(db).filter(notStarted).map(row => [row.card_id, Number(row.admission)]))
+  const live = launchableLanes(db)
+  const precedes = releaseOrder(live)
+  let rechained = 0
+  for (const card of live.filter(each => waiting.has(each.cardId) && each.deferred !== true)) {
+    const assignment = latestAssignment(db, card.cardId)
+    const after = assignment === undefined ? null : releaseAfter(card, assignment, live, precedes, shared)
+    if (assignment === undefined || after === null)
+      continue
+    const reason = assignment.reason === 'moved' ? 'moved' : 'chain'
+    if (assign(db, card.cardId, waiting.get(card.cardId)!, { lane: card.lane, reason, after }, count, ts, actor))
+      rechained += 1
+  }
+  return rechained
+}
+
 export function layLanes(db: DatabaseSync, count: number, ts: string, actor: string, amended: number | null = null, shared: readonly string[] = sharedAppendFiles()): number {
   const moved = amended !== null && relayAmended(db, amended, count, ts, actor, shared) ? 1 : 0
   const laid = moved + layOutLanes(db, count, ts, actor, shared)
   const stalls = stalledCards(db)
   raiseStallAlarms(db, stalls, ts, actor)
-  return laid + relayBehindStalls(db, stalls, count, ts, actor, shared)
+  const relaid = relayBehindStalls(db, stalls, count, ts, actor, shared)
+  return laid + relaid + rechainByRelease(db, count, ts, actor, shared)
 }
