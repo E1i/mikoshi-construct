@@ -18,6 +18,7 @@ import process from 'node:process'
 import { readShiftGate } from '../../../src/manifest.js'
 import { roundGate } from '../../ci/prepush.js'
 import { appendEvent, defaultBusPath, openBus } from '../../core/db.js'
+import { spendStopOf } from '../../core/eddies.js'
 import { TOUCHES_FOLLOWED } from '../../core/events.js'
 import { assertHeld, StaleLease } from '../../core/lease.js'
 import { busNameOf, machineGate, machineSessions } from '../../core/machine-sessions.js'
@@ -103,6 +104,7 @@ export interface AnswererTools {
   contextWarn?: (size: string | null) => number | null
   spent?: (session: string) => number | null
   spendWarn?: () => number | null
+  overspent?: (card: CardSession) => boolean
   diff?: (card: CardSession) => string | null
   ciLog?: (card: CardSession, head: string) => FailedJobLog | null
   held?: (lease: Lease) => boolean
@@ -514,6 +516,7 @@ export function realAnswererTools(busPath: string = defaultBusPath()): AnswererT
     contextWarn: contextWarnOfEddies,
     spent: session => sessionGauges(os.homedir(), projectRoot(process.env), session).spent ?? null,
     spendWarn: spendWarnOfEddies,
+    overspent: card => spendStopOf(card.worktree, card.session) !== null,
     diff: diffAgainstBase,
     ciLog: (card, head) => new GhCiRuns().failureLogOn(head, card.worktree),
     children: new ChildLog(busWriteAt(busPath), pid => identityOf(new OsProcessTable().snapshot(), pid), () => new Date(), process.env),
@@ -567,9 +570,10 @@ function sessionAnswerer(dir: string, tools: AnswererTools): Answerer {
     const { card } = request
     const cardBody = tools.cardText(request.lease.cardId)
     const size = cardSizeIn(cardBody)
-    const atWarn = request.fresh !== true && tools.available(card) && startsFreshAtWarn(tools, card.session, size)
-    const resumed = request.fresh !== true && tools.available(card) && !atWarn
-    const keepsHandoff = request.fresh === true || atWarn
+    const overspent = request.fresh !== true && (tools.overspent?.(card) ?? false)
+    const atWarn = request.fresh !== true && !overspent && tools.available(card) && startsFreshAtWarn(tools, card.session, size)
+    const resumed = request.fresh !== true && !overspent && tools.available(card) && !atWarn
+    const keepsHandoff = request.fresh === true || atWarn || overspent
     const session = resumed ? card.session : tools.newSession()
     const ownerQuestion = ownerQuestionPath(dir, session, request.lease.leaseGen)
     const proofs = proofsPath(dir, session, request.lease.leaseGen)
