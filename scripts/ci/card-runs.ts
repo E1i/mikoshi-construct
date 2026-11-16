@@ -4,7 +4,6 @@ import type { LayerMap } from '../core/layer-map.js'
 import { existsSync } from 'node:fs'
 import { layerMasksOf, runsOf } from '../../src/card/covering-tests.js'
 import { parseParkingFile } from '../../src/card/parking.js'
-import { witnessFieldsOf } from '../../src/card/witness-fields.js'
 import { CARD_BODIES } from '../core/card-bodies.js'
 import { appendEvent, BUSY_TIMEOUT_MS, defaultBusPath } from '../core/db.js'
 import { messageOf } from '../core/errors.js'
@@ -175,9 +174,25 @@ export interface BusCatalog extends CheckCatalog {
 export type BranchCardRuns = { kind: 'no-card' } | { kind: 'unreadable', why: string } | { kind: 'card', card: number, touches: readonly string[], reading: CardLayers, witnesses: string[] }
 
 const WHITESPACE = /\s+/
+const WITNESSES_LINE = 'witnesses: ['
+
+function listOfJson(json: string): unknown {
+  try {
+    return JSON.parse(json) as unknown
+  }
+  catch {
+    return null
+  }
+}
+
+function witnessRunsOf(text: string): string[] {
+  const lines = text.split('\n').filter(line => line.startsWith(WITNESSES_LINE))
+  const list = lines.length === 1 ? listOfJson(lines[0]!.slice(WITNESSES_LINE.length - 1)) : null
+  return Array.isArray(list) ? list.flatMap((field: unknown) => typeof field === 'object' && field !== null && 'run' in field && typeof field.run === 'string' ? [field.run] : []) : []
+}
 
 export function witnessTestsOf(text: string): string[] {
-  return sortedUnique((witnessFieldsOf(text) ?? []).flatMap(field => field.run.split(WHITESPACE).filter(isTest)))
+  return sortedUnique(witnessRunsOf(text).flatMap(run => run.split(WHITESPACE).filter(isTest)))
 }
 
 export interface BranchTests {
