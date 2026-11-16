@@ -239,6 +239,17 @@ export function sessionRun(given: readonly string[], graph: Graph, testText: (te
   return { run: { kind: 'layers', layers: [...layers].sort(), tests: [...tests].sort() }, why: `the covering tests of each path in place of the full run CI keeps: ${whole.why}` }
 }
 
+export const NARROW_WHY = 'the tests that import a changed file directly, the changed tests and the card\'s witness tests'
+
+export function narrowRun(changed: readonly string[], graph: Graph, witnesses: readonly string[], map: LayerMap = repositoryLayerMap()): LayeredRun {
+  const reverse = reverseGraph(graph)
+  const importers = changed.flatMap(file => reverse.get(file) ?? []).filter(isTest)
+  const own = changed.filter(file => isTest(file) && graph.has(file))
+  const named = witnesses.filter(test => graph.has(test))
+  const layers = [...new Set(changed.flatMap(file => layersInOf(map, file)))].sort()
+  return { kind: 'layers', layers, tests: [...new Set([...importers, ...own, ...named])].sort() }
+}
+
 export function windowGate(changed: readonly string[], graph: Graph, testText: (test: string) => string): Run {
   if (!changed.includes(PACKAGE_MANIFEST))
     return selectRun(changed, graph, testText)

@@ -19,8 +19,8 @@ import { GhCiRuns } from '../ports/ci-reading.js'
 import { processGit } from '../ports/git.js'
 import { heavyStep } from '../quality/lock.js'
 import { branchCardRuns } from './card-runs.js'
-import { modeOfArgs, recordGateRun, sourceOf, touchesModuleFiles } from './gate-runs.js'
-import { isTest, sessionRun } from './layers.js'
+import { GATE_RUN_SPOOL, modeOfArgs, recordGateRun, sourceOf, touchesModuleFiles } from './gate-runs.js'
+import { isTest, NARROW_WHY, narrowRun, sessionRun } from './layers.js'
 import { CAPABILITIES, normLine, probeCapabilities, SANDBOX_FAILING, sandboxNorm } from './sandbox-failing.js'
 import { listedFiles, livenessApplies, runTraced, staleInSandbox, staleLines } from './sandbox-liveness.js'
 import { cruise, lastGreenMain, readTest, runSummary } from './select.js'
@@ -111,11 +111,35 @@ export interface Selection {
   changed: readonly string[]
   run: LayeredRun
   why: string
+  reach?: number | null
 }
 
 export function sessionSelection(changed: readonly string[], graph: Graph, testText: (test: string) => string, reading: CardLayers | null, map?: LayerMap): Selection {
   const session = sessionRun(changed, graph, testText, map)
   return { changed, run: withCardRuns(session.run, reading, graph), why: session.why }
+}
+
+export function reachCount(reach: () => Selection): number | null {
+  try {
+    return reach().run.tests.length
+  }
+  catch {
+    return null
+  }
+}
+
+export function narrowSelection(changed: readonly string[], graph: Graph, witnesses: readonly string[], reach: number | null, map?: LayerMap): Selection {
+  return { changed, run: narrowRun(changed, graph, witnesses, map), why: NARROW_WHY, reach }
+}
+
+export function gateSelection(changed: readonly string[], graph: Graph, card: Pick<BranchCard, 'reading' | 'witnesses'> | null, testText: (test: string) => string = readTest, map?: LayerMap): Selection {
+  const reach = reachCount(() => sessionSelection(changed, graph, testText, card?.reading ?? null, map))
+  return narrowSelection(changed, graph, card?.witnesses ?? [], reach, map)
+}
+
+export function reachLine(narrow: number, reach: number | null): string {
+  const would = reach === null ? 'the reach selection could not be counted' : `the reach selection would have picked ${reach}`
+  return `prepush: the narrow selection picked ${narrow} test files; ${would}.`
 }
 
 export const NO_TESTS: Verdict = { kind: 'green', ran: 0 }
@@ -127,7 +151,7 @@ export function roundTests(run: Run, vitest: () => VitestRun): Verdict {
 export const FULL_RUN_IS_CI = 'the full suite is CI\'s, and the merge waits for its green run'
 
 export function greenLine(ran: number): string {
-  return `prepush: green — ${ran} tests of the layers this change reaches ran; ${FULL_RUN_IS_CI}; the push may go.`
+  return `prepush: green — ${ran} tests of the session selection ran; ${FULL_RUN_IS_CI}; the push may go.`
 }
 
 export const SANDBOX_NORM_LINE = `prepush: green apart from sandbox norm; ${FULL_RUN_IS_CI}; the push may go.`
@@ -148,7 +172,7 @@ export type GateOutcome = Pick<GateRun, 'mode' | 'reason' | 'seconds' | 'tests'>
 export async function testStep(selection: Selection, suite: Suite): Promise<number> {
   const { changed, run, why } = selection
   suite.log(`prepush: the gate runs ${why}; ${FULL_RUN_IS_CI}.`)
-  suite.log(runSummary(run))
+  suite.log(selection.reach === undefined ? runSummary(run) : reachLine(run.tests.length, selection.reach))
   return throughQueue(run, async () => {
     const started = Date.now()
     let ran: string[] | null = null
@@ -252,6 +276,11 @@ export function gateRecorder(round: string | null, head: string, card: BranchCar
   return ran => record({ ...ran, source: sourceOf(round), round: round ?? head, card: card?.card ?? null, moduleFiles: touchesModuleFiles(card?.touches ?? []) })
 }
 
+export function sessionRecord(log: (line: string) => void, root: string = REPO_ROOT, busPath?: string): (run: GateRun) => void {
+  const spool = path.join(root, GATE_RUN_SPOOL)
+  return run => log(recordGateRun(run, new Date().toISOString(), busPath, spool))
+}
+
 async function main(): Promise<number> {
   let selection: Selection
   let round: string | null
@@ -269,7 +298,7 @@ async function main(): Promise<number> {
     const changed = changesSince(git, base.sha)
     const graph: Graph = changed.length === 0 ? new Map() : cruise()
     card = cardOfBranch(git, graph)
-    selection = sessionSelection(changed, graph, readTest, card?.reading ?? null)
+    selection = gateSelection(changed, graph, card)
     head = git(['rev-parse', 'HEAD']).trim()
   }
   catch (error) {
@@ -284,7 +313,7 @@ async function main(): Promise<number> {
       return linted.code
     }
   }
-  const record = gateRecorder(round, head, card, run => console.log(recordGateRun(run, new Date().toISOString())))
+  const record = gateRecorder(round, head, card, sessionRecord(line => console.log(line)))
   return testStep(selection, { vitest: args => runVitest(args), liveness: sandboxLiveness, queue: heavyStep, log: line => console.log(line), record })
 }
 
