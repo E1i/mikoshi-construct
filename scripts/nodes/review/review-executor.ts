@@ -13,6 +13,7 @@ import type { RoundLimitAt, RoundLimitRecut } from './pr-close.js'
 import type { Denial, VerdictWord } from './record-verdict.js'
 import type { EarlierVerdict, ReviewDepth, ReviewPlan, ReviewPlanner } from './review-depth.js'
 import type { HeldTree, LeftoverTree, Review, Reviewer } from './reviewer.js'
+import type { TailIntake } from './tail-card.js'
 import { createHash } from 'node:crypto'
 import process from 'node:process'
 import { cardBodyText } from '../../core/card-bodies.js'
@@ -28,8 +29,9 @@ import { NO_ISOLATION } from '../../ports/isolation.js'
 import { storedInput } from '../../ports/prompt-store.js'
 import { gitDepthSources, gitTestSource, provenWitnesses } from './depth-sources.js'
 import { freshDenial, recordVerdict } from './record-verdict.js'
-import { cardRiskOf, fullReview } from './review-depth.js'
+import { fullReview } from './review-depth.js'
 import { PREFIX, REVIEW_BAR_LINE, REVIEW_CEILING, REVIEW_CEILING_MINUTES, ReviewFailed } from './reviewer.js'
+import { BusTailIntake, mutationOnlyFindings } from './tail-card.js'
 
 const CI_NOT_READY = 'ci_not_ready'
 export const REVIEW_FAILED = 'review_failed'
@@ -76,6 +78,7 @@ export interface ExecutorParts {
   recut?: RoundLimitRecut
   dripSources?: DripSources
   testSource?: TestSource
+  tail?: TailIntake
 }
 
 interface Reviewed {
@@ -170,17 +173,6 @@ function notReopened(db: DatabaseSync, lease: Lease, review: Review): Review {
   if (findings.length === review.findings.length)
     return review
   return findings.length === 0 ? { ...review, verdict: 'pass', findings } : { ...review, findings }
-}
-
-type CardRisk = ReturnType<typeof cardRiskOf>
-
-const MUTATIONS_PASS_ON: readonly CardRisk[] = ['R3', 'R4']
-
-export function passOnSurvivingMutations(review: Review, risk: CardRisk): Review {
-  if (review.verdict !== 'changes' || review.findings.length === 0 || !MUTATIONS_PASS_ON.includes(risk))
-    return review
-  const marked = new Set((review.survivingMutations ?? []).map(finding => finding.trim()))
-  return review.findings.every(finding => marked.has(finding.trim())) ? { ...review, verdict: 'pass' } : review
 }
 
 interface RoundLimit {
@@ -357,7 +349,7 @@ export class ReviewExecutor {
       return this.denied(lease, reviewed)
     const { plan } = reviewed
     const marked = this.markedDrip(lease, reviewed.review)
-    const review = keptChanges(db, lease, passOnSurvivingMutations(notReopened(db, lease, marked.review), cardRiskOf(lease.cardId, reviewed.card)))
+    const review = this.withTail(lease, notReopened(db, lease, marked.review))
     const outcome = recordVerdict(db, gitHub, publish, { lease, verdict: review.verdict, reviewerSession: review.session }, () => clock().getTime())
     if (outcome.kind === 'denied')
       return this.denied(lease, outcome.denial)
@@ -370,6 +362,22 @@ export class ReviewExecutor {
       this.recutAtTheLimit({ cardId: lease.cardId, pr: lease.pr, head: lease.head, findings: review.findings, ...(limit.rule.kind === 'park' ? { mutations: limit.rule.mutations } : {}) })
     }
     return { kind: 'recorded', taskKey: lease.taskKey, verdict: review.verdict, depth: plan.depth, model: review.model }
+  }
+
+  private withTail(lease: Lease, review: Review): Review {
+    const { db, gitHub, clock } = this.parts
+    const mutations = mutationOnlyFindings(review)
+    const passed = keptChanges(db, lease, mutations === null ? review : { ...review, verdict: 'pass' })
+    if (mutations === null || passed.verdict !== 'pass')
+      return passed
+    try {
+      (this.parts.tail ?? new BusTailIntake({ db, gitHub, clock })).file({ parent: lease.cardId, pr: lease.pr, head: lease.head, taskKey: lease.taskKey, findings: mutations })
+      return passed
+    }
+    catch (error) {
+      console.error(`${PREFIX}PR #${lease.pr}: every finding is a surviving mutation, but the tail card was not filed, so the verdict stays changes: ${error instanceof Error ? error.message : String(error)}`)
+      return review
+    }
   }
 
   private markedDrip(lease: Lease, review: Review): Marked {

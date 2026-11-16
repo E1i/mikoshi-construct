@@ -1,4 +1,5 @@
 import type { Review } from '../../nodes/review/reviewer.js'
+import type { Tail } from '../../nodes/review/tail-card.js'
 import type { MergeBench } from './merge-bench.js'
 import { readFileSync } from 'node:fs'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -10,9 +11,9 @@ import { appendCardEvent, WINDOW_LANE } from '../../core/card-bodies.js'
 import { REVIEW_RECORDED } from '../../core/events.js'
 import { RATCHET_FILE } from '../../core/generated-files.js'
 import { fullReview, planReview } from '../../nodes/review/review-depth.js'
-import { passOnSurvivingMutations } from '../../nodes/review/review-executor.js'
 import { ReviewWorker } from '../../nodes/review/review-worker.js'
 import { ADVICE_LINE, REVIEW_BAR_LINE, reviewOf, reviewPrompt } from '../../nodes/review/reviewer.js'
+import { mutationOnlyFindings } from '../../nodes/review/tail-card.js'
 import { classify } from '../../policy/morse/rules.js'
 import { followsTouches, neverFollows } from '../../policy/touch-scope.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
@@ -68,7 +69,7 @@ function reviewedCardText(touches: readonly string[]): string {
   return parkingFileText({ card: `#${REVIEWED_CARD} a-card [implement/construct/S/cheap/auto] · depends — · blocks —`, branch: `feat/card-${REVIEWED_CARD}`, touches: [...touches], continue: 'stop', who: 'shift', body: 'Make it right.' })
 }
 
-async function recordedThroughTheWorker(touches: readonly string[] | null, findings: string[], survivingMutations: string[]): Promise<{ verdict: string, findings: string[] }> {
+async function recordedThroughTheWorker(touches: readonly string[] | null, findings: string[], survivingMutations: string[], tails: Tail[] | null = []): Promise<{ verdict: string, findings: string[] }> {
   const bench = liveBench()
   benches.push(bench)
   if (touches !== null) {
@@ -79,7 +80,7 @@ async function recordedThroughTheWorker(touches: readonly string[] | null, findi
     appendCardEvent(bench.db, 'worker:intake:test', admittedRecord({ id: REVIEWED_CARD, file: `${REVIEWED_CARD}.md`, line: parsed.parked.task.card.line, who: parsed.parked.who, unclear: [], corrections: [], seam: [], risk: [], slices: [], text }, 'auto', bench.clock.now(), WINDOW_LANE))
     bench.tick()
   }
-  const worker = new ReviewWorker({ silentMs: SILENT_MS, isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }), db: bench.db, gitHub: bench.gitHub.client, publish: bench.gitHub.publish, reviewer: async () => ({ verdict: 'changes', findings, survivingMutations, session: 'reviewer-1' }), plan: () => fullReview('a fixed plan'), clock: bench.clock.now, session: 'worker-1' })
+  const worker = new ReviewWorker({ silentMs: SILENT_MS, isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }), db: bench.db, gitHub: bench.gitHub.client, publish: bench.gitHub.publish, reviewer: async () => ({ verdict: 'changes', findings, survivingMutations, session: 'reviewer-1' }), plan: () => fullReview('a fixed plan'), clock: bench.clock.now, session: 'worker-1', ...(tails === null ? {} : { tail: { file: (tail: Tail) => tails.push(tail) } }) })
   bench.gitHub.open({ number: REVIEWED_PR, head: sha('b'), ref: `feat/card-${REVIEWED_CARD}`, body: cardBody(REVIEWED_PR) })
   bench.tick()
   await worker.step()
@@ -136,35 +137,25 @@ describe('a file outside the touches, first bar', () => {
 })
 
 describe('a surviving mutation, second bar', () => {
-  it('only surviving mutations on an R3 card record pass with the findings kept', async () => {
-    expect(cardRiskOf(CARD_ID, cardOf([...CARD_OF_RISK.R3]))).toBe('R3')
-    expect(await recordedThroughTheWorker(CARD_OF_RISK.R3, [MUTATION], [MUTATION])).toMatchObject({ verdict: 'pass', findings: [MUTATION] })
-    expect(await recordedThroughTheWorker(CARD_OF_RISK.R4, [MUTATION], [MUTATION])).toMatchObject({ verdict: 'pass', findings: [MUTATION] })
+  it.each(['R1', 'R2', 'R3', 'R4'] as const)('only surviving mutations on an %s card record pass with the findings kept and file one tail', async (risk) => {
+    expect(cardRiskOf(CARD_ID, cardOf([...CARD_OF_RISK[risk]]))).toBe(risk)
+    const tails: Tail[] = []
+    expect(await recordedThroughTheWorker(CARD_OF_RISK[risk], [MUTATION], [MUTATION], tails)).toMatchObject({ verdict: 'pass', findings: [MUTATION] })
+    expect(tails).toMatchObject([{ parent: REVIEWED_CARD, pr: REVIEWED_PR, findings: [MUTATION] }])
   })
 
-  it('only surviving mutations on an R1 or R2 card stay changes', async () => {
-    expect(cardRiskOf(CARD_ID, cardOf([...CARD_OF_RISK.R1]))).toBe('R1')
-    expect(cardRiskOf(CARD_ID, cardOf([...CARD_OF_RISK.R2]))).toBe('R2')
-    expect(await recordedThroughTheWorker(CARD_OF_RISK.R1, [MUTATION], [MUTATION])).toMatchObject({ verdict: 'changes', findings: [MUTATION] })
-    expect(await recordedThroughTheWorker(CARD_OF_RISK.R2, [MUTATION], [MUTATION])).toMatchObject({ verdict: 'changes', findings: [MUTATION] })
+  it('a surviving mutation beside a behaviour defect stays changes and files no tail', async () => {
+    const tails: Tail[] = []
+    expect(await recordedThroughTheWorker(CARD_OF_RISK.R3, [MUTATION, DEFECT], [MUTATION], tails)).toMatchObject({ verdict: 'changes', findings: [MUTATION, DEFECT] })
+    expect(tails).toEqual([])
   })
 
-  it('a surviving mutation beside a behaviour defect stays changes on an R3 card', async () => {
-    expect(await recordedThroughTheWorker(CARD_OF_RISK.R3, [MUTATION, DEFECT], [MUTATION])).toMatchObject({ verdict: 'changes', findings: [MUTATION, DEFECT] })
+  it('a card the bus holds no body for files no tail, so it keeps changes through the worker', async () => {
+    expect(await recordedThroughTheWorker(null, [MUTATION], [MUTATION], null)).toMatchObject({ verdict: 'changes' })
   })
 
-  it('a card the bus holds no body for keeps changes through the worker', async () => {
-    expect(await recordedThroughTheWorker(null, [MUTATION], [MUTATION])).toMatchObject({ verdict: 'changes' })
-  })
-
-  it('every risk level reads one way or the other, so a new level cannot pass unread', () => {
-    expect(RISK_LEVELS.map(risk => passOnSurvivingMutations(changes([MUTATION], [MUTATION]), risk).verdict)).toEqual(['changes', 'changes', 'pass', 'pass'])
-  })
-
-  it('a card whose risk cannot be read keeps changes: no body, an unparsable body, no touches', () => {
-    expect(cardRiskOf(CARD_ID, null)).toBeNull()
-    expect(cardRiskOf(CARD_ID, 'no card here')).toBeNull()
-    expect(passOnSurvivingMutations(changes([MUTATION], [MUTATION]), null).verdict).toBe('changes')
+  it('every risk level reads the same, so the risk of a card does not decide the bar', () => {
+    expect(RISK_LEVELS.map(() => mutationOnlyFindings(changes([MUTATION], [MUTATION])))).toEqual(RISK_LEVELS.map(() => [MUTATION]))
   })
 
   it('the deepest touch decides the risk, and a created path counts', () => {
@@ -172,19 +163,19 @@ describe('a surviving mutation, second bar', () => {
     expect(cardRiskOf(CARD_ID, cardOf(['docs/cli.md'], ['eslint.config.mjs']))).toBe('R1')
   })
 
-  it('a changes verdict with no findings, or a mark outside its findings, stays changes', () => {
-    expect(passOnSurvivingMutations(changes([], [MUTATION]), 'R3').verdict).toBe('changes')
-    expect(passOnSurvivingMutations(changes([DEFECT], [MUTATION]), 'R3').verdict).toBe('changes')
-    expect(passOnSurvivingMutations(changes([MUTATION]), 'R3').verdict).toBe('changes')
+  it('a changes verdict with no findings, or a mark outside its findings, files nothing', () => {
+    expect(mutationOnlyFindings(changes([], [MUTATION]))).toBeNull()
+    expect(mutationOnlyFindings(changes([DEFECT], [MUTATION]))).toBeNull()
+    expect(mutationOnlyFindings(changes([MUTATION]))).toBeNull()
   })
 
-  it('a mark compares as the round-limit rule compares it, trimmed', () => {
-    expect(passOnSurvivingMutations(changes([` ${MUTATION} `], [MUTATION]), 'R3')).toMatchObject({ verdict: 'pass', findings: [` ${MUTATION} `] })
+  it('a mark compares as the round-limit rule compares it, trimmed, and the finding is kept word for word', () => {
+    expect(mutationOnlyFindings(changes([` ${MUTATION} `], [MUTATION]))).toEqual([` ${MUTATION} `])
   })
 
-  it('a pass stays what it was', () => {
-    const review: Review = { verdict: 'pass', findings: [], session: 's-1' }
-    expect(passOnSurvivingMutations(review, 'R1')).toBe(review)
+  it('a pass files nothing', () => {
+    const review: Review = { verdict: 'pass', findings: [MUTATION], survivingMutations: [MUTATION], session: 's-1' }
+    expect(mutationOnlyFindings(review)).toBeNull()
   })
 })
 
