@@ -456,6 +456,12 @@
           "tests"
         ]
       },
+      "generation.ended": {
+        "complete": true,
+        "keys": [
+          "generation"
+        ]
+      },
       "ghost.line": {
         "complete": true,
         "keys": [
@@ -3454,6 +3460,8 @@
           "scripts/core/queue.ts",
           "scripts/core/dependency-wait.ts",
           "scripts/core/lease.ts",
+          "scripts/core/handover.ts",
+          "scripts/core/executor-holds.ts",
           "scripts/core/node.ts",
           "scripts/core/stored.ts",
           "scripts/core/errors.ts",
