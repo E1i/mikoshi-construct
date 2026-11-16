@@ -14,7 +14,7 @@ import { leaseNext } from '../../core/lease.js'
 import { queueTask } from '../../core/queue.js'
 import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
 import { answerHandoffPath, claudeAnswerer, FreshBaseConflict, ownerQuestionPath, realAnswererTools, RoundTimer } from '../../nodes/answer/answerer.js'
-import { TSX_PIPE_DIRECTORY } from '../../ports/shift-settings.js'
+import { SESSION_BASH_CAP, TSX_PIPE_DIRECTORY } from '../../ports/shift-settings.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { ranTheGreenGate } from './gate-stream.js'
 import { sha } from './github-fake.js'
@@ -58,6 +58,7 @@ function treeSettings(worktree: string, ownerQuestion: string): unknown {
   return {
     sandbox: { enabled: true, failIfUnavailable: true, allowUnsandboxedCommands: false, network: { allowLocalBinding: true, allowUnixSockets: [TSX_PIPE_DIRECTORY] } },
     permissions: { allow: [`Bash(${TREE_GATE})`, `Edit(/${worktree}/**)`, `Edit(/${ownerQuestion})`] },
+    env: SESSION_BASH_CAP,
     autoMemoryEnabled: false,
     claudeMdExcludes: [path.join(homedir(), '.claude', 'CLAUDE.md')],
   }

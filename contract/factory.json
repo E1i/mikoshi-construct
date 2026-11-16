@@ -5903,6 +5903,7 @@
       "scripts/ports/shift-settings.ts": {
         "constants": [
           "CARD_SESSION_SANDBOX",
+          "SESSION_BASH_CAP",
           "TSX_PIPE_DIRECTORY"
         ],
         "functions": {
@@ -5913,7 +5914,7 @@
         "reexports": [],
         "technologyWords": [],
         "types": {
-          "ShiftSettings": "interface ShiftSettings { sandbox: typeof CARD_SESSION_SANDBOX & { excludedCommands?: string[]; filesystem?: { denyWrite: string[]; }; }; permissions: { allow: string[]; deny?: string[]; }; }"
+          "ShiftSettings": "interface ShiftSettings { sandbox: typeof CARD_SESSION_SANDBOX & { excludedCommands?: string[]; filesystem?: { denyWrite: string[]; }; }; permissions: { allow: string[]; deny?: string[]; }; env: typeof SESSION_BASH_CAP; }"
         }
       },
       "scripts/ports/snapshot.ts": {
