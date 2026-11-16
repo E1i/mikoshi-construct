@@ -47,9 +47,9 @@ export const TREE_LEFT = 'tree_left'
 export { REVIEW_ROUNDS_SPENT }
 export const ROUND_LIMIT_REACHED = 'round_limit_reached'
 export const SPAWNS_NO_SESSION = 'spawns-no-session'
-export const REVIEW_RULES_VERSION = 1
+export const REVIEW_RULES_VERSION = 2
 export const REVIEW_RULES_FILE = '.claude/agents/review.md'
-export const REVIEW_RULES_SHA = '5bc3df6ef4484cecce4ce4e3fe27143be831ee6b16a02340e94991d48014a009'
+export const REVIEW_RULES_SHA = 'edb05eb4bfc4dff057b61daad192fd82ecdcd55b8feba4b764a8120bd417d5a8'
 
 export function reviewRulesSha(rulesFileText: string): string {
   return createHash('sha256').update(`${rulesFileText}\n${REVIEW_BAR_LINE}`).digest('hex')
