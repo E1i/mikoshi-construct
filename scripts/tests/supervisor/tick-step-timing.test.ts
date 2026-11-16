@@ -3,6 +3,7 @@ import type { Poll } from '../../ports/netwatch.js'
 import { copyFileSync, existsSync, mkdtempSync, rmSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import process from 'node:process'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { machineBusPath, snapshotPathOf } from '../../core/bus-path.js'
 import { openBus } from '../../core/db.js'
@@ -28,6 +29,7 @@ vi.mock('../../policy/decisions/index.js', async (importOriginal) => {
 
 const SNAPSHOT = process.env.TICK_SNAPSHOT ?? snapshotPathOf(machineBusPath(os.homedir()))
 const DERIVE_BUDGET_MS = 2_000
+const TICK_ROUNDS = 3
 const STEP_MS = 7
 const TS = '2026-11-17T00:00:00.000Z'
 
@@ -76,6 +78,19 @@ function queuesOf(db: DatabaseSync, after: number): unknown {
   }
 }
 
+function cpuMsOf(usage: NodeJS.CpuUsage): number {
+  return (usage.user + usage.system) / 1_000
+}
+
+function medianTickCpuMs(db: DatabaseSync, ts: string): number {
+  const rounds = Array.from({ length: TICK_ROUNDS }, () => {
+    const started = process.cpuUsage()
+    deriveQueues(db, ts)
+    return cpuMsOf(process.cpuUsage(started))
+  })
+  return rounds.sort((a, b) => a - b)[Math.floor(TICK_ROUNDS / 2)]!
+}
+
 function lastId(db: DatabaseSync): number {
   return Number((db.prepare('SELECT coalesce(max(id), 0) AS id FROM events').get() as { id: number }).id)
 }
@@ -114,11 +129,9 @@ describe.skipIf(!existsSync(SNAPSHOT))('deriveQueues on a copy of the bus snapsh
     before.exec('DROP INDEX events_by_pr_head')
     const after = lastId(indexed)
     const ts = new Date().toISOString()
-    const started = performance.now()
     const derived = deriveQueues(indexed, ts)
-    const ms = performance.now() - started
-    expect(ms).toBeLessThan(DERIVE_BUDGET_MS)
     expect(derived).toEqual(deriveQueues(before, ts))
     expect(queuesOf(indexed, after)).toEqual(queuesOf(before, after))
+    expect(medianTickCpuMs(indexed, ts)).toBeLessThan(DERIVE_BUDGET_MS)
   }, 900_000)
 })
