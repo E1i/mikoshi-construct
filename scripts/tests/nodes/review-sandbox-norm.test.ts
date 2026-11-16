@@ -1,3 +1,4 @@
+import type { TestSource } from '../../nodes/review/depth-sources.js'
 import type { ProvenWitness, Reviewer } from '../../nodes/review/reviewer.js'
 import type { MergeBench } from '../bus/merge-bench.js'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -6,6 +7,7 @@ import { admittedRecord } from '../../../src/commands/intake/index.js'
 import { appendCardEvent, WINDOW_LANE } from '../../core/card-bodies.js'
 import { appendEvent } from '../../core/db.js'
 import { CARD_ADMITTED, WITNESS_RECORDED } from '../../core/events.js'
+import { fullTestNames } from '../../nodes/review/depth-sources.js'
 import { fullReview } from '../../nodes/review/review-depth.js'
 import { ReviewWorker } from '../../nodes/review/review-worker.js'
 import { ISOLATION_GAP, provenWitnessLine, reviewPrompt, WITNESS_RUNS_LINE } from '../../nodes/review/reviewer.js'
@@ -20,6 +22,32 @@ const OTHER_HEAD = sha('b')
 const BASE = sha('c')
 const PROCESS_WITNESS: ProvenWitness = { id: 'W1', run: 'pnpm exec vitest run scripts/tests/a.test.ts', test: 'reads the table [needs ps]' }
 const PLAIN_WITNESS: ProvenWitness = { id: 'W2', run: 'pnpm exec vitest run scripts/tests/b.test.ts', test: 'reads nothing' }
+const SCENARIO_FILE = 'scripts/tests/bus/conveyor/k3.test.ts'
+const SCENARIO_WITNESS: ProvenWitness = { id: 'W3', run: `pnpm exec vitest run ${SCENARIO_FILE}`, test: 'scenario 03' }
+const TAG = 'k3 [needs ps]: the handover predicate on real processes'
+const NO_SOURCE: TestSource = () => null
+
+function scenarioSuite(describeTitle: string): string {
+  return [
+    `describe('k3: the predicate over recorded executors', () => {`,
+    `  it('scenario 01: a queued task (with \\'parens\\') is not leased', () => {})`,
+    `})`,
+    ``,
+    `describe('${describeTitle}', () => {`,
+    `  // it('a comment with ) is not a call', () => {})`,
+    `  it('scenario 03: answer children keep their tasks', async () => {`,
+    `    const line = \`a \${"template"} with } and )\``,
+    `  }, 90_000)`,
+    `})`,
+  ].join('\n')
+}
+
+function sourceAt(head: string, describeTitle: string): TestSource {
+  return (at, file) => at === head && file === SCENARIO_FILE ? scenarioSuite(describeTitle) : null
+}
+
+const TAGGED = sourceAt(HEAD, TAG)
+const UNTAGGED = sourceAt(HEAD, 'k3: the handover predicate on real processes')
 const cleanups: (() => void)[] = []
 
 afterEach(() => {
@@ -45,7 +73,7 @@ interface Asked {
   proven: () => readonly ProvenWitness[] | undefined
 }
 
-function admitted(witnesses: readonly ProvenWitness[]): Asked & { worker: ReviewWorker } {
+function admitted(witnesses: readonly ProvenWitness[], testSource: TestSource): Asked & { worker: ReviewWorker } {
   vi.spyOn(console, 'log').mockImplementation(() => {})
   vi.spyOn(console, 'error').mockImplementation(() => {})
   const bench = liveBench()
@@ -61,7 +89,7 @@ function admitted(witnesses: readonly ProvenWitness[]): Asked & { worker: Review
     asked = proven
     return { verdict: 'pass', findings: [], session: 'review-session' }
   }
-  const worker = new ReviewWorker({ silentMs: SILENT_MS, isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }), db: bench.db, gitHub: bench.gitHub.client, publish: bench.gitHub.publish, reviewer, plan: () => fullReview('a fixed plan'), clock: bench.clock.now, session: 'worker-1' })
+  const worker = new ReviewWorker({ silentMs: SILENT_MS, isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }), db: bench.db, gitHub: bench.gitHub.client, publish: bench.gitHub.publish, reviewer, plan: () => fullReview('a fixed plan'), clock: bench.clock.now, session: 'worker-1', testSource })
   return { bench, worker, proven: () => asked }
 }
 
@@ -74,8 +102,8 @@ function witnessRecorded(bench: MergeBench, head: string, verdict: string, body:
   appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: WITNESS_RECORDED, actor: 'worker:witness:test', cardId: CARD, pr: PR, head, dedupeKey: `${WITNESS_RECORDED}:${CARD}:${head}:${BASE}:${verdict}`, payload: { head, base: BASE, cardBody: body, verdict, detail: '' }, legacy: false })
 }
 
-async function reviewed(witnesses: readonly ProvenWitness[], records: readonly (readonly [string, string, string?])[]): Promise<readonly ProvenWitness[] | undefined> {
-  const { bench, worker, proven } = admitted(witnesses)
+async function reviewed(witnesses: readonly ProvenWitness[], records: readonly (readonly [string, string, string?])[], source: TestSource = NO_SOURCE): Promise<readonly ProvenWitness[] | undefined> {
+  const { bench, worker, proven } = admitted(witnesses, source)
   for (const [head, verdict, body] of records)
     witnessRecorded(bench, head, verdict, body)
   bench.gitHub.open({ number: PR, head: HEAD, ref: `feat/card-${CARD}`, body: cardBody(PR) })
@@ -102,6 +130,15 @@ describe('the review takes the witness node\'s record for a declared process-tab
     expect(prompt).not.toContain('Witness W2 (')
   })
 
+  it('a witness whose describe block declares the process table and is recorded green on the head is not re-run in review', async () => {
+    expect(fullTestNames(scenarioSuite(TAG))).toEqual([
+      'k3: the predicate over recorded executors scenario 01: a queued task (with \'parens\') is not leased',
+      `${TAG} scenario 03: answer children keep their tasks`,
+    ])
+    expect(await reviewed([SCENARIO_WITNESS, PLAIN_WITNESS], [[HEAD, 'green']], TAGGED)).toEqual([SCENARIO_WITNESS])
+    expect(await reviewed([{ ...SCENARIO_WITNESS, test: 'scenario 0' }], [[HEAD, 'green']], TAGGED)).toEqual([])
+  })
+
   it('a witness without [needs ps], or with no green witness record on this head, is still run by the review', async () => {
     expect(await reviewed([PLAIN_WITNESS], [[HEAD, 'green']])).toEqual([])
     expect(await reviewed([PROCESS_WITNESS], [])).toEqual([])
@@ -109,6 +146,13 @@ describe('the review takes the witness node\'s record for a declared process-tab
     expect(await reviewed([PROCESS_WITNESS], [[HEAD, 'green'], [HEAD, 'red']])).toEqual([])
     expect(await reviewed([PROCESS_WITNESS], [[OTHER_HEAD, 'green']])).toEqual([])
     expect(await reviewed([PROCESS_WITNESS], [[HEAD, 'green', 'an-earlier-card-body']])).toEqual([])
+    expect(await reviewed([SCENARIO_WITNESS], [[HEAD, 'green']], UNTAGGED)).toEqual([])
+    expect(await reviewed([SCENARIO_WITNESS], [[HEAD, 'green']], NO_SOURCE)).toEqual([])
+    expect(await reviewed([SCENARIO_WITNESS], [], TAGGED)).toEqual([])
+    expect(await reviewed([SCENARIO_WITNESS], [[HEAD, 'red']], TAGGED)).toEqual([])
+    expect(await reviewed([SCENARIO_WITNESS], [[OTHER_HEAD, 'green']], TAGGED)).toEqual([])
+    expect(await reviewed([SCENARIO_WITNESS], [[HEAD, 'green', 'an-earlier-card-body']], TAGGED)).toEqual([])
+    expect(await reviewed([SCENARIO_WITNESS], [[HEAD, 'green']], sourceAt(OTHER_HEAD, TAG))).toEqual([])
 
     const plan = fullReview('a fixed plan')
     const card = cardText([PROCESS_WITNESS])

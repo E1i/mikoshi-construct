@@ -8,6 +8,7 @@ import type { StatusPublisher } from '../../ports/github-status.js'
 import type { GitHub } from '../../ports/github.js'
 import type { Isolation, IsolationReader } from '../../ports/isolation.js'
 import type { SessionInput } from '../../ports/prompt-store.js'
+import type { TestSource } from './depth-sources.js'
 import type { RoundLimitAt, RoundLimitRecut } from './pr-close.js'
 import type { Denial, VerdictWord } from './record-verdict.js'
 import type { EarlierVerdict, ReviewDepth, ReviewPlan, ReviewPlanner } from './review-depth.js'
@@ -25,7 +26,7 @@ import { allFindingsRepeat } from '../../policy/repeat-finding.js'
 import { limitRuleOf } from '../../policy/round-limit-decision.js'
 import { NO_ISOLATION } from '../../ports/isolation.js'
 import { storedInput } from '../../ports/prompt-store.js'
-import { gitDepthSources, provenWitnesses } from './depth-sources.js'
+import { gitDepthSources, gitTestSource, provenWitnesses } from './depth-sources.js'
 import { freshDenial, recordVerdict } from './record-verdict.js'
 import { cardRiskOf, fullReview } from './review-depth.js'
 import { PREFIX, REVIEW_BAR_LINE, REVIEW_CEILING, REVIEW_CEILING_MINUTES, ReviewFailed } from './reviewer.js'
@@ -74,6 +75,7 @@ export interface ExecutorParts {
   isolation: IsolationReader | typeof SPAWNS_NO_SESSION
   recut?: RoundLimitRecut
   dripSources?: DripSources
+  testSource?: TestSource
 }
 
 interface Reviewed {
@@ -330,7 +332,7 @@ export class ReviewExecutor {
     try {
       const started = clock().getTime()
       const card = cardBodyText(db, lease.cardId)
-      const review = await this.parts.reviewer(lease, plan, card, provenWitnesses(db, lease, card))
+      const review = await this.parts.reviewer(lease, plan, card, provenWitnesses(db, lease, card, this.parts.testSource ?? gitTestSource(process.cwd())))
       return { outcome: { review, plan, ms: clock().getTime() - started, isolation, card }, held: review.tree ?? null }
     }
     catch (error) {

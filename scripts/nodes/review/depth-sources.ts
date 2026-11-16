@@ -104,9 +104,116 @@ function witnessGreenOnHead(db: DatabaseSync, lease: Lease): boolean {
   return cardBody === null || latest.fields.cardBody === cardBody
 }
 
-export function provenWitnesses(db: DatabaseSync, lease: Lease, card: string | null): ProvenWitness[] {
-  const needsProcessTable = cardWitnesses(card).filter(({ test }) => declaredCapabilities(test).includes(PROCESS_TABLE))
-  return needsProcessTable.length > 0 && witnessGreenOnHead(db, lease) ? needsProcessTable : []
+export type TestSource = (head: string, file: string) => string | null
+
+export function gitTestSource(repo: string, run: GitRun = git): TestSource {
+  return (head, file) => {
+    try {
+      return run(repo, ['show', `${head}:${file}`])
+    }
+    catch {
+      return null
+    }
+  }
+}
+
+const TEST_FILE = /^[\w./@-]+\.(?:test|spec)\.[cm]?[jt]sx?$/
+
+const TEST_CALL = /\b(describe|it|test)((?:\.\w+)*)\(\s*(['"`])((?:\\.|(?!\3)[^\\])*)\3/g
+
+const ESCAPED = /\\(.)/g
+
+const QUOTES = new Set(['\'', '"', '`'])
+
+const OPENING = new Set(['(', '[', '{'])
+
+const CLOSING = new Set([')', ']', '}'])
+
+interface TestCall { title: string, suite: boolean, start: number, end: number }
+
+function skipQuoted(source: string, from: number): number {
+  const quote = source[from]
+  let at = from + 1
+  while (at < source.length && source[at] !== quote)
+    at += source[at] === '\\' ? 2 : 1
+  return at + 1
+}
+
+function skipComment(source: string, from: number): number {
+  if (source.startsWith('//', from)) {
+    const end = source.indexOf('\n', from)
+    return end === -1 ? source.length : end
+  }
+  const end = source.indexOf('*/', from + 2)
+  return end === -1 ? source.length : end + 2
+}
+
+function withoutComments(source: string): string {
+  let kept = ''
+  let at = 0
+  while (at < source.length) {
+    const opensComment = source.startsWith('//', at) || source.startsWith('/*', at)
+    const next = QUOTES.has(source[at]!) ? skipQuoted(source, at) : opensComment ? skipComment(source, at) : at + 1
+    const piece = source.slice(at, next)
+    kept += opensComment ? piece.replace(/[^\n]/g, ' ') : piece
+    at = next
+  }
+  return kept
+}
+
+function callEnd(source: string, open: number): number {
+  let depth = 0
+  let at = open
+  while (at < source.length) {
+    const char = source[at]!
+    if (QUOTES.has(char)) {
+      at = skipQuoted(source, at)
+      continue
+    }
+    if (OPENING.has(char))
+      depth += 1
+    else if (CLOSING.has(char) && --depth === 0)
+      return at
+    at += 1
+  }
+  return source.length
+}
+
+function testCalls(text: string): TestCall[] {
+  const source = withoutComments(text)
+  return [...source.matchAll(TEST_CALL)].map((match) => {
+    const start = match.index + match[0].indexOf('(')
+    return { title: match[4]!.replace(ESCAPED, '$1'), suite: match[1] === 'describe', start, end: callEnd(source, start) }
+  })
+}
+
+export function fullTestNames(source: string): string[] {
+  const calls = testCalls(source)
+  return calls.filter(call => !call.suite).map((test) => {
+    const chain = calls.filter(suite => suite.suite && suite.start < test.start && test.end <= suite.end)
+    return [...chain.map(suite => suite.title), test.title].join(' ')
+  })
+}
+
+function testFilesOf(run: string): string[] {
+  return run.split(/\s+/).filter(token => TEST_FILE.test(token))
+}
+
+function namedTestsDeclare(witness: ProvenWitness, head: string, source: TestSource): boolean {
+  const named = testFilesOf(witness.run).flatMap(file => fullTestNames(source(head, file) ?? '')).filter(name => name.includes(witness.test))
+  return named.length > 0 && named.every(name => declaredCapabilities(name).includes(PROCESS_TABLE))
+}
+
+function declaresProcessTable(witness: ProvenWitness, head: string, source: TestSource): boolean {
+  return declaredCapabilities(witness.test).includes(PROCESS_TABLE) || namedTestsDeclare(witness, head, source)
+}
+
+export function provenWitnesses(db: DatabaseSync, lease: Lease, card: string | null, source: TestSource): ProvenWitness[] {
+  const witnesses = cardWitnesses(card)
+  if (witnesses.length === 0 || lease.head === null || !witnessGreenOnHead(db, lease))
+    return []
+  const { head } = lease
+  return witnesses.filter(witness => declaresProcessTable(witness, head, source))
 }
 
 export function busWidenedPaths(busPath: string): WidenedReader {
