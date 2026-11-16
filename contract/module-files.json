@@ -340,6 +340,7 @@
     "scripts/tests/bus/answer-concept.test.ts",
     "scripts/tests/bus/answer-decisions.test.ts",
     "scripts/tests/bus/answer-dependency-violation.test.ts",
+    "scripts/tests/bus/answer-gate-command-forms.test.ts",
     "scripts/tests/bus/answer-held-waits.test.ts",
     "scripts/tests/bus/answer-node.test.ts",
     "scripts/tests/bus/answer-owner-hold.test.ts",

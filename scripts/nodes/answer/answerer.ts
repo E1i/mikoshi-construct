@@ -68,6 +68,7 @@ export interface Answered {
   noViolationFreePath?: boolean
   proofs?: FindingProof[]
   gateDecision?: GateDecision | null
+  offFormGateCommands?: string[]
 }
 
 export interface FindingProof {
@@ -353,7 +354,7 @@ export function secondsOf(ms: number): number {
   return Math.round(ms / MS_PER_TENTH) / 10
 }
 
-interface StreamBlock { type?: unknown, id?: unknown, name?: unknown, input?: { command?: unknown }, tool_use_id?: unknown, is_error?: unknown, content?: unknown }
+interface StreamBlock { type?: unknown, id?: unknown, name?: unknown, input?: { command?: unknown, run_in_background?: unknown }, tool_use_id?: unknown, is_error?: unknown, content?: unknown }
 
 function blocksOf(line: string): { type: unknown, blocks: StreamBlock[] } | null {
   try {
@@ -370,8 +371,19 @@ function blocksOf(line: string): { type: unknown, blocks: StreamBlock[] } | null
 
 const PNPM_IN_A_TREE = /^pnpm (?:--dir \S+ )?(?:run )?/
 
+const PNPM_IN_A_TREE_ANYWHERE = /\bpnpm (?:--dir \S+ )?(?:run )?/g
+export const IN_THE_BACKGROUND = ' (run in the background)'
+
 function inAnyTree(command: string): string {
   return command.trim().replace(PNPM_IN_A_TREE, 'pnpm ')
+}
+
+function mentionsTheGate(command: string, gate: string): boolean {
+  return command.replace(PNPM_IN_A_TREE_ANYWHERE, 'pnpm ').includes(inAnyTree(gate))
+}
+
+function runsInTheBackground(block: StreamBlock): boolean {
+  return block.input?.run_in_background === true
 }
 
 export class RoundTimer {
@@ -382,6 +394,7 @@ export class RoundTimer {
   private pushMs: number | null = null
   private readonly running = new Map<string, { at: number, command: string }>()
   private readonly outcomes = new Map<string, GateRunOutcome>()
+  private readonly offForm = new Set<string>()
 
   constructor(private readonly now: () => number, private readonly gate: readonly string[]) {}
 
@@ -397,8 +410,8 @@ export class RoundTimer {
     this.firstLine ??= at
     if (read.type === 'assistant') {
       this.firstTurn ??= at
-      for (const block of read.blocks.filter(each => each.type === 'tool_use' && typeof each.id === 'string' && this.runsTheGate(each.input?.command)))
-        this.running.set(block.id as string, { at, command: this.gateCommandOf(block.input?.command as string) })
+      for (const block of read.blocks.filter(each => each.type === 'tool_use' && typeof each.id === 'string' && typeof each.input?.command === 'string'))
+        this.used(block.id as string, block.input?.command as string, runsInTheBackground(block), at)
     }
     for (const block of read.blocks.filter(each => each.type === 'tool_result' && typeof each.tool_use_id === 'string')) {
       const started = this.running.get(block.tool_use_id as string)
@@ -432,6 +445,20 @@ export class RoundTimer {
 
   decision(): GateDecision | null {
     return gateDecisionOf(this.gate.length, [...this.outcomes.values()])
+  }
+
+  offFormGateCommands(): string[] {
+    return [...this.offForm]
+  }
+
+  private used(id: string, command: string, inTheBackground: boolean, at: number): void {
+    const declared = this.runsTheGate(command)
+    if (declared && !inTheBackground) {
+      this.running.set(id, { at, command: this.gateCommandOf(command) })
+      return
+    }
+    if (declared || this.gate.some(each => mentionsTheGate(command, each)))
+      this.offForm.add(inTheBackground ? `${command}${IN_THE_BACKGROUND}` : command)
   }
 
   private gateCommandOf(command: string): string {
@@ -679,9 +706,10 @@ function sessionAnswerer(dir: string, tools: AnswererTools): Answerer {
             return ownerAfter(PROOFS_STEP)
           })()
       const gateDecision = timer.decision()
+      const offForm = timer.offFormGateCommands()
       const owner = reasked ?? (kept || atLine || unprovedNow().length > 0 || gateDecision === null ? null : await publish())
       const measured = measuredOf(steps.map(stdoutOf))
-      return { session, resumed, atContextWarn: atLine, before, after: tools.remoteHead(card), owner, gateDecision, ...measured, input: { prompt, cardBody }, steps: timer.steps(), ...(widenedInConcept.size === 0 ? {} : { widenedInConcept: [...widenedInConcept] }), ...(noViolationFreePath ? { noViolationFreePath } : {}), ...(prove.length === 0 ? {} : { proofs: proofsIn(proofs, prove) }) }
+      return { session, resumed, atContextWarn: atLine, before, after: tools.remoteHead(card), owner, gateDecision, ...(offForm.length === 0 ? {} : { offFormGateCommands: offForm }), ...measured, input: { prompt, cardBody }, steps: timer.steps(), ...(widenedInConcept.size === 0 ? {} : { widenedInConcept: [...widenedInConcept] }), ...(noViolationFreePath ? { noViolationFreePath } : {}), ...(prove.length === 0 ? {} : { proofs: proofsIn(proofs, prove) }) }
     }
     finally {
       request.stepped?.(timer.steps())
