@@ -7,6 +7,7 @@ import type { StoredEvent } from '../../core/stored.js'
 import type { StatusPublisher } from '../../ports/github-status.js'
 import type { GitHub, GitHubPut } from '../../ports/github.js'
 import type { MainOverlap, MergeOutcome } from './merge-executor.js'
+import type { DriftWatch } from './weights-drift.js'
 import { randomUUID } from 'node:crypto'
 import { realpathSync } from 'node:fs'
 import process from 'node:process'
@@ -23,10 +24,11 @@ import { loadedCodeSha, readThroughPort } from '../../ports/git.js'
 import { ghStatusPublisher } from '../../ports/github-status.js'
 import { ghApi, ghApiPut } from '../../ports/github.js'
 import { Meter } from '../../ports/meter.js'
-import { mainOverlapAt, nodeLiveness, nodeSupply } from '../../supervisor/composition.js'
+import { mainOverlapAt, nodeLiveness, nodeSupply, weightsDriftWatch } from '../../supervisor/composition.js'
 import { stampLogOutput } from '../../supervisor/stamp.js'
 import { DRY_RUN_ACTOR } from '../review/review-worker.js'
 import { MergeExecutor } from './merge-executor.js'
+import { driftLine } from './weights-drift.js'
 
 export const LIVE_REVIEWER = 'worker:review:'
 export const CATALOG_REBUILD_FAILED = 'catalog_rebuild_failed'
@@ -51,6 +53,7 @@ export interface MergeWorkerParts {
   pushPolicy?: () => PushPolicy
   rebuildCatalog?: CatalogRebuild
   overlaps?: MainOverlap
+  weights?: DriftWatch
 }
 
 export interface MergeNodeParts extends MergeWorkerParts {
@@ -80,11 +83,13 @@ export class MergeNode extends Node<MergeStep> {
   private readonly executor: MergeExecutor
   private readonly gitHub: GitHub
   private readonly rebuildCatalog: CatalogRebuild | undefined
+  private readonly weights: DriftWatch | undefined
 
   constructor(parts: MergeNodeParts) {
     super('merge', { db: parts.db, clock: parts.clock, session: parts.session, mode: parts.mode, env: parts.env, silentMs: parts.silentMs, supply: nodeSupply() })
     this.gitHub = parts.gitHub
     this.rebuildCatalog = parts.rebuildCatalog
+    this.weights = parts.weights
     this.executor = new MergeExecutor({ db: parts.db, gitHub: parts.gitHub, put: parts.put, publish: parts.publish, clock: parts.clock, run: parts.run, silentMs: parts.silentMs, pushPolicy: parts.pushPolicy, overlaps: parts.overlaps ?? mainOverlapAt(process.cwd()) })
     this.declare(MERGE_NODE, scopeOf)
   }
@@ -107,9 +112,22 @@ export class MergeNode extends Node<MergeStep> {
 
   protected handle(lease: Lease): MergeStep {
     const step = this.executor.merge(lease)
-    if (step.kind === 'merged')
+    if (step.kind === 'merged') {
       this.refreshCatalog(step.commit, lease)
+      this.watchWeights()
+    }
     return step
+  }
+
+  private watchWeights(): void {
+    if (this.weights === undefined)
+      return
+    try {
+      this.log(driftLine(this.weights.watch()))
+    }
+    catch (error) {
+      this.log(`test weights: nothing admitted: ${messageOf(error)}`)
+    }
   }
 
   private refreshCatalog(commit: string, lease: Lease): void {
@@ -156,17 +174,21 @@ export interface MergeRun {
   pushPolicy?: () => PushPolicy
   rebuildCatalog?: CatalogRebuild
   overlaps?: MainOverlap
+  weights?: (db: DatabaseSync) => DriftWatch
   pause: (ms: number) => Promise<unknown>
 }
 
 export async function runMergeWorker(argv: string[], run: MergeRun): Promise<number> {
-  return runNode(argv, 'merge', run.busPath, (db, mode) => new MergeNode({ ...nodeLiveness(), db, gitHub: run.gitHub, put: run.put, publish: run.publish, clock: () => new Date(), session: run.session, run: null, pushPolicy: run.pushPolicy, rebuildCatalog: run.rebuildCatalog, overlaps: run.overlaps, mode, env: process.env }), { pause: run.pause, codeSha: loadedCodeSha, supply: nodeSupply() })
+  return runNode(argv, 'merge', run.busPath, (db, mode) => new MergeNode({ ...nodeLiveness(), db, gitHub: run.gitHub, put: run.put, publish: run.publish, clock: () => new Date(), session: run.session, run: null, pushPolicy: run.pushPolicy, rebuildCatalog: run.rebuildCatalog, overlaps: run.overlaps, weights: run.weights?.(db), mode, env: process.env }), { pause: run.pause, codeSha: loadedCodeSha, supply: nodeSupply() })
+}
+
+export function liveMergeRun(cwd: string, busPath: string): MergeRun {
+  const gitHub = ghApi(cwd)
+  return { busPath, rebuildCatalog: ref => rebuildCatalogAt(ref, busPath), gitHub, put: ghApiPut(cwd), publish: ghStatusPublisher(cwd), session: randomUUID(), pause: sleep, pushPolicy: () => pushPolicyOf(readThroughPort, cwd), weights: weightsDriftWatch(gitHub, busPath) }
 }
 
 async function main(): Promise<number> {
-  const cwd = process.cwd()
-  const busPath = defaultBusPath()
-  return runMergeWorker(process.argv.slice(2), { busPath, rebuildCatalog: ref => rebuildCatalogAt(ref, busPath), gitHub: ghApi(cwd), put: ghApiPut(cwd), publish: ghStatusPublisher(cwd), session: randomUUID(), pause: sleep, pushPolicy: () => pushPolicyOf(readThroughPort, cwd) })
+  return runMergeWorker(process.argv.slice(2), liveMergeRun(process.cwd(), defaultBusPath()))
 }
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {

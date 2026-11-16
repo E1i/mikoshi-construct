@@ -41,11 +41,14 @@ export function busCardDecisions(busPath: string, linesOf: CardDecisionLines, no
   }
 }
 
+const KEYED_ON_THE_CARD_DECISION: readonly Queue[] = ['merge', 'update']
+const DECIDED_QUEUES: readonly Queue[] = ['answer', ...KEYED_ON_THE_CARD_DECISION]
+
 export function decisionSegment(task: { queue: Queue, decision?: number }): string {
   if (task.decision === undefined)
     return ''
-  if (task.queue !== 'answer' || !Number.isSafeInteger(task.decision) || task.decision < 1)
-    throw new Error(`only an answer task carries a decision id: ${task.queue}, ${task.decision}`)
+  if (!DECIDED_QUEUES.includes(task.queue) || !Number.isSafeInteger(task.decision) || task.decision < 1)
+    throw new Error(`only an answer task carries a decision id, or a merge or an update task the card's decision withdraws: ${task.queue}, ${task.decision}`)
   return `:decision-${task.decision}`
 }
 
@@ -56,6 +59,87 @@ export function decisionOfKey(key: unknown): number | undefined {
 
 export function answerDecisionOfKey(queue: Queue, key: unknown): number | undefined {
   return queue === 'answer' ? decisionOfKey(key) : undefined
+}
+
+export function decidedTaskDecisionOfKey(queue: Queue, key: unknown): number | undefined {
+  return DECIDED_QUEUES.includes(queue) ? decisionOfKey(key) : undefined
+}
+
+export const A_CARD_DECISION_REOPENS = 'card_decision'
+
+interface RecordedReview {
+  id?: unknown
+  verdict: unknown
+}
+
+export interface CardDecisionReads {
+  decisions: readonly BoundDecision[]
+  decidedAt: (decisionId: number) => number | undefined
+  reviewsOf: (pr: number) => readonly RecordedReview[]
+}
+
+export function cardDecisionReads(db: DatabaseSync, decisions: readonly BoundDecision[], reviewsOfAPr: string, storedByKey: (db: DatabaseSync, dedupeKey: string) => { id: number } | undefined): CardDecisionReads {
+  return { decisions, decidedAt: decisionId => storedByKey(db, `${DECISION_RECORDED}:${decisionId}`)?.id, reviewsOf: pr => db.prepare(reviewsOfAPr).all(pr) as unknown as RecordedReview[] }
+}
+
+interface DecidedRow {
+  card_id: number
+  pr: number | null
+}
+
+interface ReviewTask {
+  cardId: number
+  pr?: number
+  head?: string
+}
+
+export interface ReopenedReview extends DecidedRow {
+  task_key: string
+  queue: Queue
+  head: string | null
+  failure: number
+  cause: string
+}
+
+export function latestCardDecision(decisions: readonly BoundDecision[], cardId: number): number | undefined {
+  return decisions.filter(decision => decision.cards.includes(cardId)).reduce<number | undefined>((latest, decision) => Math.max(latest ?? 0, decision.decisionId), undefined)
+}
+
+export function cardDecisionKeyOf(queue: Queue, cardId: number, decisions: () => readonly BoundDecision[]): number | undefined {
+  return KEYED_ON_THE_CARD_DECISION.includes(queue) ? latestCardDecision(decisions(), cardId) : undefined
+}
+
+export function tasksTheHeadOrTheCardDecisionSupersedes<Row extends { head_moved: unknown }>(rows: readonly Row[], decisions: readonly BoundDecision[], identityOf: (row: Row) => { queue: Queue, cardId: number, decision?: number }): Row[] {
+  return rows.filter((row) => {
+    const task = identityOf(row)
+    return row.head_moved === 1 || (KEYED_ON_THE_CARD_DECISION.includes(task.queue) && task.decision !== latestCardDecision(decisions, task.cardId))
+  })
+}
+
+function cardDecisionUnreviewedAt(reads: CardDecisionReads, cardId: number, pr: number | null | undefined): number | undefined {
+  const latest = latestCardDecision(reads.decisions, cardId)
+  if (latest === undefined || pr === null || pr === undefined)
+    return undefined
+  const decidedAt = reads.decidedAt(latest)
+  return decidedAt === undefined || reads.reviewsOf(pr).some(review => Number(review.id) > decidedAt && review.verdict === 'pass') ? undefined : decidedAt
+}
+
+export function unreviewedUnderTheCardDecision(reads: CardDecisionReads): (row: DecidedRow) => boolean {
+  return row => cardDecisionUnreviewedAt(reads, row.card_id, row.pr) !== undefined
+}
+
+export function reviewedUnderTheCardDecision(reads: CardDecisionReads): (row: DecidedRow) => boolean {
+  return row => cardDecisionUnreviewedAt(reads, row.card_id, row.pr) === undefined
+}
+
+export function reviewsTheCardDecisionReopens<Task extends ReviewTask>(reads: CardDecisionReads, reviews: readonly Task[], keyOf: (review: Task) => string, taskOf: (key: string) => { state: string, event_id: number } | undefined): ReopenedReview[] {
+  return [...new Map(reviews.map(review => [keyOf(review), review])).values()].flatMap((review) => {
+    const decidedAt = cardDecisionUnreviewedAt(reads, review.cardId, review.pr)
+    const task = taskOf(keyOf(review))
+    if (decidedAt === undefined || task?.state !== 'completed' || Number(task.event_id) >= decidedAt || reads.reviewsOf(review.pr!).at(-1)?.verdict === 'changes')
+      return []
+    return [{ task_key: keyOf(review), queue: 'review', card_id: review.cardId, pr: review.pr ?? null, head: review.head ?? null, failure: decidedAt, cause: A_CARD_DECISION_REOPENS }]
+  })
 }
 
 export interface CardSql {

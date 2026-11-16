@@ -67,7 +67,7 @@ function diffLines(card: CardSession, diff: string | null | undefined): string[]
 }
 
 export function gateLine(gate: ShiftGate): string {
-  return gate.prepush.length === 0 ? `the card's witnesses` : `the card's witnesses and the pre-push checks this repository declares, ${gate.prepush.join(', ')}`
+  return gate.prepush.length === 0 ? `the card's witnesses` : `the card's witnesses and the pre-push checks this repository declares, ${gate.prepush.join(', ')}; run each gate command exactly as declared, from the tree as cwd, with no cd prefix, no pipe and no background run, because the bus records a gate command only by its declared form (D-627)`
 }
 
 export function answerPrompt(request: AnswerRequest, cardText: string | null, gateRule: string, diff?: string | null, ciLog?: FailedJobLog | null): string {

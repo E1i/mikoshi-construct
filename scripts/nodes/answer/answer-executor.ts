@@ -121,8 +121,14 @@ export function unprovedFindingsLine(cardId: number, answered: Pick<Answered, 'b
   return `card #${cardId}: the answer leaves ${unproved.length} given finding${unproved.length === 1 ? '' : 's'} unproved, so it is refused; ${fate}: ${unproved.join('; ')}`
 }
 
-export function noGateDecisionLine(cardId: number, answered: Pick<Answered, 'session' | 'before'>): string {
-  return `card #${cardId}: the answer session ${answered.session} left work in its tree and recorded no gate decision (no outcome of every gate command, and no gate that could not run), so the bus pushed nothing from it; the answer goes again on ${answered.before ?? 'the same head'} and runs the gate`
+function offFormLine(commands: readonly string[] | undefined): string {
+  if (commands === undefined || commands.length === 0)
+    return ''
+  return `; the session ran ${commands.length === 1 ? 'a gate command' : `${commands.length} gate commands`} not in its declared form, which the bus does not record (D-627): ${commands.map(command => `\`${command}\``).join(', ')}`
+}
+
+export function noGateDecisionLine(cardId: number, answered: Pick<Answered, 'session' | 'before' | 'offFormGateCommands'>): string {
+  return `card #${cardId}: the answer session ${answered.session} left work in its tree and recorded no gate decision (no outcome of every gate command, and no gate that could not run), so the bus pushed nothing from it; the answer goes again on ${answered.before ?? 'the same head'} and runs the gate${offFormLine(answered.offFormGateCommands)}`
 }
 
 export class AnswerExecutor {

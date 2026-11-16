@@ -78,6 +78,7 @@ export const PROCESS_JUDGED = 'process.judged'
 export const PROCESS_REFUSED = 'process.refused'
 export const QUESTION_AGENT = 'question.agent'
 export const QUESTION_OWNER = 'question.owner'
+export const RATCHET_THRESHOLD_SET = 'ratchet.threshold.set'
 export const REDUCED = 'reducer.reduced'
 export const REJECTED = 'reducer.rejected'
 export const REVIEW_DRIP = 'review.drip'
@@ -95,6 +96,7 @@ export const ROLE_TO_OWNER = 'role.to_owner'
 export const SCOPE_WIDENED = 'scope.widened'
 export const SESSION_HEARTBEAT = 'session.heartbeat'
 export const SESSION_STALLED = 'session.stalled'
+export const SIGNAL_SENT = 'signal.sent'
 export const SHARD_DECIDED = 'shard.decided'
 export const SHARD_EXPIRED = 'shard.expired'
 export const SHARD_ISSUED = 'shard.issued'
@@ -234,6 +236,7 @@ export const EVENT_PAYLOADS = {
   [PROCESS_HEARTBEAT]: ['process', 'queue', 'slots'],
   [PROCESS_JUDGED]: ['last_beat', 'limit_ms', 'process', 'silent_ms', 'verdict'],
   [PROCESS_REFUSED]: ['last_beat', 'live', 'process'],
+  [RATCHET_THRESHOLD_SET]: ['decision', 'row', 'to'],
   [REDUCED]: ['applied', 'rejected', 'through_event_id'],
   [REJECTED]: ['event_id', 'reason', 'type'],
   [REVIEW_DRIP]: ['card', 'finding', 'head', 'pr'],
@@ -256,6 +259,7 @@ export const EVENT_PAYLOADS = {
   [SHARD_ISSUED]: ['by', 'id', 'run', 'scope', 'under', 'until', 'window'],
   [SHARD_REVOKED]: ['id'],
   [SHARD_USED]: ['commit', 'id'],
+  [SIGNAL_SENT]: ['instance', 'lstart', 'pid', 'signal', 'task_key', 'why'],
   [SLICE_PARENTS_BACKFILLED]: ['cards', 'unread'],
   [RESTART_MISSED]: ['limit_ms', 'sha', 'waited_ms'],
   [RESTARTED]: ['sha'],

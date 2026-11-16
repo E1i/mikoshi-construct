@@ -3,7 +3,7 @@ import type { BusEvent } from './db.js'
 import type { Queue, TaskIdentity } from './identifiers.js'
 import { appendedOnCard } from './card-automaton.js'
 import { appendEvent, inTransaction } from './db.js'
-import { BOARD_ALARM, CARD_STOPPED, LEASES_DRAINING, RESTARTED, SESSION_HEARTBEAT, TASK_COMPLETED, TASK_EXPIRED, TASK_FAILED, TASK_LEASED, TASK_RELEASED, TASK_RENEWED, TASK_SUPERSEDED, WORKER_RETIRING, WORKER_STARTED } from './events.js'
+import { BOARD_ALARM, CARD_STOPPED, CHILD_STARTED, LEASES_DRAINING, RESTARTED, SESSION_HEARTBEAT, SIGNAL_SENT, TASK_COMPLETED, TASK_EXPIRED, TASK_FAILED, TASK_LEASED, TASK_RELEASED, TASK_RENEWED, TASK_SUPERSEDED, WORKER_RETIRING, WORKER_STARTED } from './events.js'
 import { generationOfKey, taskKey } from './identifiers.js'
 import { appendedAndReduced, FAILURES_TO_STOP, generationField, LEASE_MS, LEASED, QUEUE_ACTOR, QUEUED, queueTaskWithin, STOPPED, WITHDRAWN } from './queue.js'
 import { reject } from './stored.js'
@@ -472,8 +472,13 @@ export function leasedByRetiring(db: DatabaseSync, queue: Queue): number {
 
 export const RESTART_CUT = 'restart_cut'
 
-const RESTART_SINCE_THE_LEASE = `
+const RESTART_SIGNALLED_A_CHILD_OF_THE_LEASE = `
   SELECT 1 FROM events AS leased JOIN events AS restart ON restart.id > leased.id
+  JOIN events AS child ON child.id > leased.id AND child.type = '${CHILD_STARTED}'
+    AND json_extract(child.payload, '$.task_key') = json_extract(leased.payload, '$.task_key')
+  JOIN events AS sent ON sent.id > child.id AND sent.type = '${SIGNAL_SENT}'
+    AND sent.payload ->> 'pid' = child.payload ->> 'pid'
+    AND sent.payload ->> 'lstart' = child.payload ->> 'lstart'
   WHERE leased.dedupe_key = ?
     AND (restart.dedupe_key = '${WORKER_RETIRING}:' || leased.actor
       OR (restart.type = '${LEASES_DRAINING}' AND json_extract(restart.payload, '$.node') = ?))
@@ -481,7 +486,7 @@ const RESTART_SINCE_THE_LEASE = `
 `
 
 export function cutByRestart(db: DatabaseSync, lease: Lease): boolean {
-  return db.prepare(RESTART_SINCE_THE_LEASE).get(`${TASK_LEASED}:${lease.taskKey}:${lease.leaseGen}`, lease.queue) !== undefined
+  return db.prepare(RESTART_SIGNALLED_A_CHILD_OF_THE_LEASE).get(`${TASK_LEASED}:${lease.taskKey}:${lease.leaseGen}`, lease.queue) !== undefined
 }
 
 export function openDrain(db: DatabaseSync, ts: string, sha: string, until: string, node: string, from: string | null = null): void {

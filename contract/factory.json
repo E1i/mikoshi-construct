@@ -1,6 +1,6 @@
 {
   "bus": {
-    "busVersion": 4,
+    "busVersion": 5,
     "events": {
       "answer.step": {
         "complete": true,
@@ -876,6 +876,14 @@
           "process"
         ]
       },
+      "ratchet.threshold.set": {
+        "complete": true,
+        "keys": [
+          "decision",
+          "row",
+          "to"
+        ]
+      },
       "reducer.reduced": {
         "complete": true,
         "keys": [
@@ -1091,6 +1099,17 @@
         "keys": [
           "commit",
           "id"
+        ]
+      },
+      "signal.sent": {
+        "complete": true,
+        "keys": [
+          "instance",
+          "lstart",
+          "pid",
+          "signal",
+          "task_key",
+          "why"
         ]
       },
       "slice.parents.backfilled": {
@@ -2019,9 +2038,11 @@
         "derived": false,
         "directory": false,
         "namedIn": [
-          "scripts/ci/test-weights.ts"
+          "scripts/ci/test-weights.ts",
+          "scripts/ci/weights-law.ts",
+          "scripts/supervisor/composition.ts"
         ],
-        "owner": "scripts/ci/test-weights.ts",
+        "owner": "scripts/ci/weights-law.ts",
         "source": "owner",
         "writers": []
       },
@@ -2300,6 +2321,7 @@
           "scripts/ports/worktree-home.ts",
           "scripts/release/evidence.ts",
           "scripts/supervisor/bus-heal.ts",
+          "scripts/supervisor/composition.ts",
           "scripts/supervisor/heartbeat.ts",
           "scripts/supervisor/review-bg.ts",
           "scripts/supervisor/run.ts",
@@ -2485,6 +2507,7 @@
           "scripts/nodes/launch/launch-root.ts",
           "scripts/nodes/launch/launch-worker.ts",
           "scripts/ports/tree-publish.ts",
+          "scripts/supervisor/composition.ts",
           "scripts/window/window-request-tools.ts"
         ],
         "owner": "scripts/ports/tree-publish.ts",
@@ -2791,9 +2814,11 @@
         "derived": false,
         "directory": true,
         "namedIn": [
-          "scripts/ci/test-weights.ts"
+          "scripts/ci/test-weights.ts",
+          "scripts/ci/weights-law.ts",
+          "scripts/supervisor/composition.ts"
         ],
-        "owner": "scripts/ci/test-weights.ts",
+        "owner": "scripts/ci/weights-law.ts",
         "source": "owner",
         "writers": []
       },
@@ -4099,7 +4124,8 @@
             1,
             2,
             3,
-            4
+            4,
+            5
           ],
           "card": [
             1,
@@ -4120,7 +4146,8 @@
             1,
             2,
             3,
-            4
+            4,
+            5
           ],
           "card": [
             1,
@@ -4155,7 +4182,8 @@
             1,
             2,
             3,
-            4
+            4,
+            5
           ],
           "card": [
             1,
@@ -4181,7 +4209,8 @@
             1,
             2,
             3,
-            4
+            4,
+            5
           ],
           "card": [
             1,
@@ -4210,7 +4239,8 @@
             1,
             2,
             3,
-            4
+            4,
+            5
           ],
           "card": [
             1,
@@ -4233,7 +4263,8 @@
             1,
             2,
             3,
-            4
+            4,
+            5
           ],
           "card": [
             1,
@@ -4253,7 +4284,8 @@
             1,
             2,
             3,
-            4
+            4,
+            5
           ],
           "card": [
             1,
@@ -5877,6 +5909,7 @@
       "scripts/ports/shift-settings.ts": {
         "constants": [
           "CARD_SESSION_SANDBOX",
+          "SESSION_BASH_CAP",
           "TSX_PIPE_DIRECTORY"
         ],
         "functions": {
@@ -5887,7 +5920,7 @@
         "reexports": [],
         "technologyWords": [],
         "types": {
-          "ShiftSettings": "interface ShiftSettings { sandbox: typeof CARD_SESSION_SANDBOX & { excludedCommands?: string[]; filesystem?: { denyWrite: string[]; }; }; permissions: { allow: string[]; deny?: string[]; }; }"
+          "ShiftSettings": "interface ShiftSettings { sandbox: typeof CARD_SESSION_SANDBOX & { excludedCommands?: string[]; filesystem?: { denyWrite: string[]; }; }; permissions: { allow: string[]; deny?: string[]; }; env: typeof SESSION_BASH_CAP; }"
         }
       },
       "scripts/ports/snapshot.ts": {

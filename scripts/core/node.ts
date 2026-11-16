@@ -6,7 +6,7 @@ import type { HolderStart, Lease, LeaseOrder } from './lease.js'
 import type { QueuedTask } from './queue.js'
 import type { StoredEvent } from './stored.js'
 import { setImmediate as nextTurn } from 'node:timers/promises'
-import { BUS_VERSION, BUS_VERSION_BEFORE_GATE_RUN, BUS_VERSION_BEFORE_LADDER_RUN, CARD_VERSION, CARD_VERSION_BEFORE_TOUCH_SCOPE, recordBusVersion, UNRECORDED_VERSION } from './bus-version.js'
+import { BUS_VERSION, BUS_VERSION_BEFORE_GATE_RUN, BUS_VERSION_BEFORE_LADDER_RUN, BUS_VERSION_BEFORE_THRESHOLD_SET, CARD_VERSION, CARD_VERSION_BEFORE_TOUCH_SCOPE, recordBusVersion, UNRECORDED_VERSION } from './bus-version.js'
 import { appendEvent, inTransaction, openBus } from './db.js'
 import { CARD_STOPPED, CHILD_ENDED, CHILD_STARTED, NODE_DETECTED, NODE_EQUIVALENCE, TASK_LEASED, WORKER_STARTED } from './events.js'
 import { drainOpen, expireLeases, failTask, leasedByRetiring, leaseNext, RENEW_MS, renewLease, StaleLease, waitTask, workerRetiring } from './lease.js'
@@ -199,7 +199,7 @@ export interface NodeDeclaration {
 
 export type VersionedRecord = keyof Understood
 
-export const UNDERSTOOD_NOW: Understood = { bus: [UNRECORDED_VERSION, BUS_VERSION_BEFORE_LADDER_RUN, BUS_VERSION_BEFORE_GATE_RUN, BUS_VERSION], card: [CARD_VERSION_BEFORE_TOUCH_SCOPE, CARD_VERSION] }
+export const UNDERSTOOD_NOW: Understood = { bus: [UNRECORDED_VERSION, BUS_VERSION_BEFORE_LADDER_RUN, BUS_VERSION_BEFORE_GATE_RUN, BUS_VERSION_BEFORE_THRESHOLD_SET, BUS_VERSION], card: [CARD_VERSION_BEFORE_TOUCH_SCOPE, CARD_VERSION] }
 
 export function foreignVersion(understands: Understood, record: VersionedRecord, version: number, whose: string): string | null {
   if (understands[record].includes(version))
@@ -256,6 +256,8 @@ export function busWriteAt(busPath: string): <T>(write: (db: DatabaseSync) => T)
   }
 }
 
+export type ChildSignalled = (signal: NodeJS.Signals) => void
+
 export class ChildLog {
   constructor(private readonly write: <T>(write: (db: DatabaseSync) => T) => T, private readonly identity: IdentityReader, private readonly clock: () => Date = () => new Date(), private readonly env: NodeJS.ProcessEnv = {}) {}
 
@@ -278,18 +280,22 @@ export class ChildLog {
     }
   }
 
-  async around(run: ChildRun, spawn: (started: (pid: number) => void) => Promise<number>): Promise<number> {
+  async around(run: ChildRun, spawn: (started: (pid: number) => ChildSignalled) => Promise<number>): Promise<number> {
     let recorded: number | null = null
     let code: number | null = null
+    let signalled: NodeJS.Signals | null = null
     try {
       code = await spawn((pid) => {
         recorded = this.started(run, pid) ? pid : null
+        return (name) => {
+          signalled = name
+        }
       })
       return code
     }
     finally {
       if (recorded !== null)
-        this.ended(run, recorded, code, null)
+        this.ended(run, recorded, signalled === null ? code : null, signalled)
     }
   }
 }

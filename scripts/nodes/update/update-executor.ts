@@ -9,6 +9,7 @@ import type { CommandResult, GitHub, GitHubPut } from '../../ports/github.js'
 import type { MergeMain } from '../../ports/main-merge.js'
 import type { VerdictOnHead } from '../../ports/snapshot.js'
 import type { TechnicalReason } from '../review/record-verdict.js'
+import { Buffer } from 'node:buffer'
 import { appendEvent } from '../../core/db.js'
 import { messageOf } from '../../core/errors.js'
 import { CI_RERUN_REQUESTED, COMMAND_EXECUTED, POLICY_ALLOWED, POLICY_DENIED, REVIEW_RECORDED, UPDATE_DONE } from '../../core/events.js'
@@ -35,8 +36,32 @@ const STATE_OF_VERDICT: Record<VerdictOnHead, ReviewStatus['state']> = { pass: '
 
 const UPDATE_COMMAND = 'update_branch'
 const MERGE_MAIN_COMMAND = 'merge_main'
+const RATCHET_THRESHOLD_COMMAND = 'ratchet_threshold'
+export const RATCHET_RECORD_PATH = 'contract/ratchet.json'
+const CONTENT_WRITTEN: ReadonlySet<number> = new Set([200, 201])
 
-export type UpdateCommand = typeof UPDATE_COMMAND | typeof MERGE_MAIN_COMMAND | 'publish'
+export type UpdateCommand = typeof UPDATE_COMMAND | typeof MERGE_MAIN_COMMAND | typeof RATCHET_THRESHOLD_COMMAND | 'publish'
+
+export interface ThresholdSet {
+  row: string
+  to: number
+  decision: string
+}
+
+export function raisedRatchet(recorded: string, sets: readonly ThresholdSet[]): string | null {
+  const numbers = JSON.parse(recorded) as Record<string, number>
+  const raised = sets.filter(set => (numbers[set.row] ?? 0) < set.to)
+  if (raised.length === 0)
+    return null
+  for (const set of raised)
+    numbers[set.row] = Math.max(numbers[set.row] ?? 0, set.to)
+  return `${JSON.stringify(Object.fromEntries(Object.keys(numbers).sort().map(key => [key, numbers[key]!])), null, 2)}\n`
+}
+
+interface RecordedContent {
+  content?: string
+  sha?: string
+}
 
 export type UpdateTechnicalReason = TechnicalReason | 'not_mergeable' | 'not_behind' | 'wrong_base' | typeof MERGE_REFUSED | typeof NOT_MINE | typeof KEPT_BY_PUSH_POLICY
 
@@ -72,6 +97,7 @@ export interface UpdateParts {
   pushPolicy?: () => PushPolicy
   mergeMain?: MergeMain
   post?: GitHubPut
+  thresholds?: (cardId: number) => readonly ThresholdSet[]
 }
 
 export interface ManualUpdate {
@@ -201,6 +227,9 @@ export class UpdateExecutor {
       const foreign = notMine(card, 'update')
       if (foreign !== null)
         return this.denied(lease, this.rerunRefused(lease, technical(NOT_MINE, foreign)))
+      const thresholds = card === null ? null : this.thresholdsWritten(lease, card)
+      if (thresholds !== null)
+        return thresholds
       const rerun = this.rerunWhenDue(lease)
       if (rerun !== null)
         return rerun
@@ -229,6 +258,47 @@ export class UpdateExecutor {
     if (updateCandidates(this.parts.db, this.ts()).some(task => keyOf(task) === lease.taskKey))
       return null
     return technical('not_behind', `${lease.taskKey} is no longer an update candidate: #${lease.pr} is not the turn of its group, or nothing it needs an update for holds any more`)
+  }
+
+  private thresholdsWritten(lease: Lease, card: CardFields): UpdateOutcome | null {
+    const sets = this.parts.thresholds?.(lease.cardId) ?? []
+    if (sets.length === 0)
+      return null
+    const endpoint = `${REPO}/contents/${RATCHET_RECORD_PATH}`
+    const where = `${RATCHET_RECORD_PATH} on ${card.branch}`
+    let recorded: RecordedContent
+    try {
+      recorded = this.meter().get(`${endpoint}?ref=${card.branch}`) as RecordedContent
+    }
+    catch (error) {
+      return this.denied(lease, technical('github_error', `${where} could not be read: ${messageOf(error)}`))
+    }
+    if (recorded.content === undefined || recorded.sha === undefined)
+      return this.denied(lease, technical('github_error', `${where} came back with no content or sha`))
+    const raised = raisedRatchet(Buffer.from(recorded.content, 'base64').toString('utf8'), sets)
+    if (raised === null)
+      return null
+    const decisions = [...new Set(sets.map(set => set.decision))].join(', ')
+    this.allowed(lease, RATCHET_THRESHOLD_COMMAND)
+    let response
+    try {
+      response = this.parts.put(endpoint, { message: `ratchet: the threshold the owner set in ${decisions}`, content: Buffer.from(raised).toString('base64'), sha: recorded.sha, branch: card.branch })
+    }
+    catch (error) {
+      this.executed(lease, RATCHET_THRESHOLD_COMMAND, { ok: false, error: messageOf(error) })
+      return this.denied(lease, technical('github_error', `${where} could not be written: ${messageOf(error)}`))
+    }
+    const to = CONTENT_WRITTEN.has(response.status) ? (response.body as { commit?: { sha?: string } } | null)?.commit?.sha : undefined
+    this.executed(lease, RATCHET_THRESHOLD_COMMAND, { ok: to !== undefined, status: response.status })
+    if (to === undefined)
+      return this.denied(lease, technical('github_error', `GitHub answered ${response.status} to the write of ${where}`))
+    return this.done(lease, to, { carried: null, why: `${RATCHET_RECORD_PATH} written with the threshold the owner set in ${decisions}`, clean: false })
+  }
+
+  private done(lease: Lease, to: string | null, carry: Carry): UpdateOutcome {
+    const event: BusEvent = { ts: this.ts(), type: UPDATE_DONE, actor: lease.actor, cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${UPDATE_DONE}:${lease.taskKey}`, payload: { from: lease.head, to, ...carry, task_key: lease.taskKey, lease_gen: lease.leaseGen }, legacy: false }
+    completeTask(this.parts.db, this.ts(), lease, [event])
+    return { kind: 'updated', taskKey: lease.taskKey, from: lease.head!, to, carry }
   }
 
   private rerunDue(lease: Lease): boolean {
@@ -373,10 +443,7 @@ export class UpdateExecutor {
 
   private updated(lease: Lease, before: Before): UpdateOutcome {
     const to = this.newHead(lease)
-    const carry = this.carry(lease, before, to)
-    const event: BusEvent = { ts: this.ts(), type: UPDATE_DONE, actor: lease.actor, cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${UPDATE_DONE}:${lease.taskKey}`, payload: { from: lease.head, to, ...carry, task_key: lease.taskKey, lease_gen: lease.leaseGen }, legacy: false }
-    completeTask(this.parts.db, this.ts(), lease, [event])
-    return { kind: 'updated', taskKey: lease.taskKey, from: lease.head!, to, carry }
+    return this.done(lease, to, this.carry(lease, before, to))
   }
 
   private conflicting(lease: Lease, card: CardFields | null): UpdateOutcome {
