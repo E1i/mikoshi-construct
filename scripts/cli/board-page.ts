@@ -897,10 +897,10 @@ function dialogTemplate(dialog: string, html: string): string {
 
 export const VIEW_KEY = 'construct-board:view'
 
-const PAGE_ASSETS = path.join(import.meta.dirname, 'board-page')
+const PAGE_SCRIPT = path.join(import.meta.dirname, 'board-page', 'script.js')
 const SCRIPT_NAMES_GLOBAL = 'window.BOARD_NAMES'
 const SCRIPT_NAMES = { drill: DRILL, drillContent: DRILL_CONTENT, backlogScroll: BACKLOG_SCROLL, viewKey: VIEW_KEY, dialogPrefix: DIALOG_PREFIX, handoffDialog: HANDOFF_DIALOG, decisionsDialog: DECISIONS_DIALOG, busLive: BUS_LIVE, offlineReading: OFFLINE_READING, pulse: PULSE_ELEMENT_ID, titlePrefix: `${constructCommand('board')} · `, slotPrefix: SLOT_PREFIX, backlog: BACKLOG, staleTicks: STALE_TICKS, staleReading: STALE_READING, dataFile: BOARD_DATA_FILE, round: { ...ROUND_COLOURS, ...ROUND_LABELS } }
-const SCRIPT = `\n${SCRIPT_NAMES_GLOBAL} = ${JSON.stringify(SCRIPT_NAMES)};\n${readFileSync(path.join(PAGE_ASSETS, 'script.js'), 'utf8')}`
+const SCRIPT = `\n${SCRIPT_NAMES_GLOBAL} = ${JSON.stringify(SCRIPT_NAMES)};\n${readFileSync(PAGE_SCRIPT, 'utf8')}`
 
 function dialogsSlot(page: BoardPage): string {
   const cards = page.facts.cards.flatMap((card) => {
@@ -922,7 +922,7 @@ function dialogs(slots: BoardSlots): string {
   ].join('\n')
 }
 
-const STYLE = `\n${readFileSync(path.join(PAGE_ASSETS, 'style.css'), 'utf8')}`
+const STYLE = `\n${readFileSync(path.join(import.meta.dirname, 'board-page', 'style.css'), 'utf8')}`
 
 export interface BoardSlots {
   warnings: string
