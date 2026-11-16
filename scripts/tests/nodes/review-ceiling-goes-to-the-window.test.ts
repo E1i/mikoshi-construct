@@ -125,27 +125,30 @@ async function afterAllTicks(bench: MergeBench, worker: ReviewWorker): Promise<v
 }
 
 describe('a review ended at its ceiling goes to the window', () => {
-  it('a written verdict ends the review and its process group while a background child still runs', async () => {
+  it('a written verdict leaves the session and its background child running until they end on their own', async () => {
     const pids = path.join(temporary('review-ceiling-pids-'), 'pids')
+    const sessionRunsMs = 1_500
     vi.stubEnv(PIDS_VARIABLE, pids)
     vi.stubEnv('PATH', `${stubClient([
       'for last; do :; done',
       'verdict=$(printf \'%s\\n\' "$last" | sed -n \'s/^Finish by writing \\(.*\\) as JSON:.*/\\1/p\')',
-      'sleep 30 &',
+      'sleep 1 &',
       `echo "$$ $! \${@: -2:1}" >"$${PIDS_VARIABLE}"`,
       `printf '{"verdict":"changes","findings":["${FINDING}"]}' >"$verdict"`,
-      'sleep 30',
+      'sleep 1.5',
     ].join('\n'))}:${process.env.PATH}`)
-    const { bench, worker } = benchWith(reviewerOver(spawnSession, { ...osDescendants(writtenTable(pids)), sampleMs: 50 }))
+    const signalled: [number, NodeJS.Signals][] = []
+    const { bench, worker } = benchWith(reviewerOver(spawnSession, { ...osDescendants(writtenTable(pids)), sampleMs: 50, end: (pid, signal) => signalled.push([pid, signal]) }))
     const started = Date.now()
 
     expect(await worker.step()).toMatchObject({ kind: 'recorded', verdict: 'changes' })
 
-    expect(Date.now() - started).toBeLessThan(15_000)
+    expect(Date.now() - started).toBeGreaterThanOrEqual(sessionRunsMs)
+    expect(signalled).toEqual([])
     expect(eventsOf(bench.db, REVIEW_RECORDED).map(payload => payload.findings)).toEqual([[FINDING]])
     expect(existsSync(pids)).toBe(true)
     const [root, background] = readFileSync(pids, 'utf8').trim().split(' ').map(Number)
-    await vi.waitFor(() => expect([alive(root!), alive(background!)]).toEqual([false, false]), { timeout: 2_000, interval: 20 })
+    expect([alive(root!), alive(background!)]).toEqual([false, false])
   })
 
   it('a session ended at the ceiling with a verdict on disk records that verdict and starts no second run', async () => {

@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { appendEvent, openBus } from '../../core/db.js'
-import { CARD_SESSION_ENDED, CARD_STARTED, PR_OPENED, SESSION_HEARTBEAT, SESSION_STALLED } from '../../core/events.js'
+import { BOARD_ALARM, CARD_SESSION_ENDED, CARD_STARTED, PR_OPENED, SESSION_HEARTBEAT, SESSION_STALLED } from '../../core/events.js'
 import { leaseQueued } from '../../core/lease.js'
 import { keyOf, queueTask } from '../../core/queue.js'
 import { REVIEW_CEILING_MS } from '../../nodes/review/reviewer.js'
@@ -196,15 +196,16 @@ describe('the silent card and answer sessions', () => {
 })
 
 describe('the silent review sessions', () => {
-  it('a review session with no new step, no output and a still process past the no-progress line is ended at that line, before its ceiling', () => {
+  it('a review session with no new step, no output and a still process past the no-progress line is warned at that line and keeps running', () => {
     const { db, lease } = busWith(REVIEW)
     beat(db, lease, 1, 5000)
     const watch = stopping(db, 'live', null, '4100,4101')
 
     expect(watch.sweepAt(1)).toEqual([])
     expect(watch.sweepAt(reviewLine)).toEqual([])
-    expect(watch.sweepAt(reviewLine + 2)).toEqual([expect.stringContaining('ended before its ceiling')])
-    expect(watch.stopped).toEqual([SESSION])
+    expect(watch.sweepAt(reviewLine + 2)).toEqual([expect.stringContaining('the session runs on and is not stopped')])
+    expect(watch.stopped).toEqual([])
+    expect(payloadsOf(db, BOARD_ALARM)).toMatchObject([{ task_key: lease.taskKey, reason: SESSION_STALLED }])
     expect(reviewLine + 2).toBeLessThan(reviewCeiling)
   })
 
@@ -218,7 +219,7 @@ describe('the silent review sessions', () => {
     expect(watch.stopped).toEqual([])
   })
 
-  it('a review session whose context and process stand still past the no-progress line is ended there although its heartbeat is alive', () => {
+  it('a review session whose context and process stand still past the no-progress line is warned there although its heartbeat is alive', () => {
     const { db, lease } = busWith(REVIEW)
     const watch = stopping(db, 'live', null, '4100')
     beat(db, lease, 1, 62659)
@@ -227,6 +228,6 @@ describe('the silent review sessions', () => {
       beat(db, lease, minute, 62659)
 
     expect(watch.sweepAt(reviewLine + 2)).toEqual([expect.stringContaining('context, process stood still')])
-    expect(watch.stopped).toEqual([SESSION])
+    expect(watch.stopped).toEqual([])
   })
 })

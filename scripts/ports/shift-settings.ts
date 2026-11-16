@@ -13,7 +13,7 @@ export const CARD_SESSION_SANDBOX = { enabled: true, failIfUnavailable: true, al
 
 const SESSION_BASH_CAP_MS = String(30 * 60 * 1000)
 
-export const SESSION_BASH_CAP = { BASH_MAX_TIMEOUT_MS: SESSION_BASH_CAP_MS, BASH_DEFAULT_TIMEOUT_MS: SESSION_BASH_CAP_MS } as const
+export const SESSION_BASH_CAP = { BASH_MAX_TIMEOUT_MS: SESSION_BASH_CAP_MS, BASH_DEFAULT_TIMEOUT_MS: SESSION_BASH_CAP_MS, CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: '1' } as const
 
 const BROWSER_LAB_SCRIPT = 'scripts/construct/browser-lab.mjs'
 
