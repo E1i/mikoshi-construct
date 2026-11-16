@@ -1180,6 +1180,7 @@
           "queue",
           "reason",
           "task_key",
+          "tree",
           "uncounted"
         ]
       },
@@ -1200,6 +1201,7 @@
           "queue",
           "reason",
           "task_key",
+          "tree",
           "until"
         ]
       },
