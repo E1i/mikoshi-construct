@@ -141,6 +141,10 @@ describe('a gate command counts only in its declared form (D-627)', () => {
     expect(noGateDecisionLine(CARD, { session: 's', before: null })).not.toContain('D-627')
   })
 
+  it('a denial whose round carries an empty list of off-form commands reads as before', () => {
+    expect(noGateDecisionLine(CARD, { session: 's', before: null, offFormGateCommands: [] })).toBe(noGateDecisionLine(CARD, { session: 's', before: null }))
+  })
+
   it('the answer prompt names the gate commands to run as declared from the tree', () => {
     const line = gateLine({ prepush: GATE, handoffWrite: null, codeMatrix: null })
 
