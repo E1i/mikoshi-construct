@@ -1,12 +1,15 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { BusEvent } from './db.js'
+import type { Handover } from './executor-holds.js'
 import type { Queue, TaskIdentity } from './identifiers.js'
+import type { StoredEvent } from './stored.js'
 import { appendedOnCard } from './card-automaton.js'
 import { appendEvent, inTransaction } from './db.js'
 import { BOARD_ALARM, CARD_STOPPED, CHILD_STARTED, LEASES_DRAINING, RESTARTED, SESSION_HEARTBEAT, SIGNAL_SENT, TASK_COMPLETED, TASK_EXPIRED, TASK_FAILED, TASK_LEASED, TASK_RELEASED, TASK_RENEWED, TASK_SUPERSEDED, WORKER_RETIRING, WORKER_STARTED } from './events.js'
+import { HELD_BY_A_LIVE_EXECUTOR, heldBindings, NOTHING_HELD } from './executor-holds.js'
 import { generationOfKey, taskKey } from './identifiers.js'
 import { appendedAndReduced, FAILURES_TO_STOP, generationField, LEASE_MS, LEASED, QUEUE_ACTOR, QUEUED, queueTaskWithin, STOPPED, WITHDRAWN } from './queue.js'
-import { reject } from './stored.js'
+import { reject, storedByKey } from './stored.js'
 import { retryAfterSecondsIn } from './task-must-wait.js'
 
 export { SESSION_HELD_QUEUES as HEARTBEAT_QUEUES, LEASE_FOLDS, LEASE_MS } from './queue.js'
@@ -73,7 +76,7 @@ const WAITING_UNTIL_LATER = `EXISTS (
 
 const NEXT_LEASABLE = `
   SELECT tasks.* ${LEASABLE_FROM}
-    AND NOT (? AND ${HELD_CARD}) AND NOT ${WAITING_UNTIL_LATER}
+    AND NOT (? AND ${HELD_CARD}) AND NOT ${WAITING_UNTIL_LATER} AND NOT ${HELD_BY_A_LIVE_EXECUTOR}
   ${GRANT_ORDER} LIMIT 1
 `
 
@@ -154,9 +157,9 @@ export function queuedCards(db: DatabaseSync, queue: Queue): number[] {
   return (db.prepare(QUEUED_CARDS).all(queue) as { card_id: number }[]).map(row => Number(row.card_id))
 }
 
-export function leaseNext(db: DatabaseSync, ts: string, queue: Queue, actor: string, order: LeaseOrder = IN_ARRIVAL_ORDER): Lease | null {
+export function leaseNext(db: DatabaseSync, ts: string, queue: Queue, actor: string, order: LeaseOrder = IN_ARRIVAL_ORDER, held: Handover = NOTHING_HELD): Lease | null {
   return inTransaction(db, () => {
-    const row = db.prepare(NEXT_LEASABLE).get(queue, PR_STATE_OF_QUEUE[queue] ?? 'open', order.onePerCard ? 1 : 0, ts, JSON.stringify(order.firstCards)) as LeaseRow | undefined
+    const row = db.prepare(NEXT_LEASABLE).get(queue, PR_STATE_OF_QUEUE[queue] ?? 'open', order.onePerCard ? 1 : 0, ts, ...heldBindings(held), JSON.stringify(order.firstCards)) as LeaseRow | undefined
     return row === undefined ? null : leased(db, ts, row, actor)
   })
 }
@@ -392,7 +395,7 @@ function recordedStart(payload: string | null): HolderStart | null {
   return typeof pid === 'number' && Number.isSafeInteger(pid) && pid > 0 && typeof started === 'string' && !Number.isNaN(Date.parse(started)) ? { pid, started } : null
 }
 
-function sameStart(recorded: string, running: string): boolean {
+export function sameStart(recorded: string, running: string): boolean {
   return Math.abs(Date.parse(recorded) - Date.parse(running)) < SAME_START_MS
 }
 
@@ -456,6 +459,23 @@ export function retireHolders(db: DatabaseSync, ts: string, retirement: Retireme
 
 export function workerRetiring(db: DatabaseSync, actor: string): boolean {
   return db.prepare('SELECT 1 FROM events WHERE dedupe_key = ?').get(`${WORKER_RETIRING}:${actor}`) !== undefined
+}
+
+export interface HeldLease {
+  taskKey: string
+  leasedAt: number
+}
+
+export function releaseHeld(db: DatabaseSync, ts: string, actor: string, pick: (held: readonly HeldLease[]) => readonly string[], reason: string): string[] {
+  return inTransaction(db, () => {
+    const held = (db.prepare(LEASES_WITH_THEIR_HOLDER).all() as unknown as HeldWithHolder[]).filter(row => row.holder === actor)
+    const picked = pick(held.map(row => ({ taskKey: row.task_key, leasedAt: (storedByKey(db, `${TASK_LEASED}:${row.task_key}:${row.lease_gen}`) as StoredEvent | undefined)?.id ?? 0 })))
+    for (const key of picked) {
+      const row = rowOf(db, key)!
+      appendedAndReduced(db, taskEvent(ts, TASK_RELEASED, actor, row, row.lease_gen, `${TASK_RELEASED}:${key}:${row.lease_gen}`, { reason }))
+    }
+    return [...picked]
+  })
 }
 
 function heldByRetiring(db: DatabaseSync): { queue: Queue, payload: string }[] {
