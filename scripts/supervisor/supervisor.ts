@@ -1,6 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { EventType } from '../core/events.js'
-import type { HolderProcess, HolderReading, ProcessStartOf } from '../core/lease.js'
+import type { HolderProcess, ProcessStartOf } from '../core/lease.js'
+import type { LivesNow } from './generation-handover.js'
 import type { InForceDecision } from '../policy/decisions/index.js'
 import type { ProcessTable } from '../ports/process-table.js'
 import type { BgResult, DetachedLaunch, ProcessList, RunningProcess } from './bg.js'
@@ -20,7 +21,7 @@ import { CARD_CONTINUED, CARD_STARTED, MAIN_ADVANCED, PROCESS_JUDGED, RESTARTED,
 import { FACTORY_LISTS, FACTORY_RUNTIME, FACTORY_WORKERS } from '../core/factory-paths.js'
 import { importClosure } from '../core/import-closure.js'
 import { RESTART_MISSED } from '../core/inbox.js'
-import { closeDrain, expireLeasesHeldBy, HOLDER_DEAD, HOLDER_UNPROVEN, judgeHolders, LEASE_MS, leasesHeldBy, openDrain, retireHolders, retiringPids, WORKER_HUNG } from '../core/lease.js'
+import { closeDrain, expireLeasesHeldBy, judgeHolders, leasesHeldBy, openDrain, retireHolders, retiringPids } from '../core/lease.js'
 import { LIVE_FLAG } from '../core/node.js'
 import { orderEventsFrom, prOrderTickAt } from '../core/order/turn.js'
 import { cardContract } from '../intake/card-contract.js'
@@ -35,15 +36,16 @@ import { BUILD_DIR, BUILT_MODULE, flagsInArgs, instancesOf, launchName, PREFIX, 
 import { BusHealer, CorruptionWatch, RecordedNodes } from './bus-heal.js'
 import { BusSnapshot } from './bus-snapshot.js'
 import { busProjections, recordOwnStart } from './composition.js'
+import { DRAIN_LIMIT_MS, DRAIN_WHY, GenerationHandover, holderLines, recordRestarted, RETIRING_WORKERS } from './generation-handover.js'
 import { CARD_PROCESS, lastProcessBeats, recordProcessHeartbeat } from './heartbeat.js'
 import { beatsLive, SILENT_MS } from './liveness-sites.js'
 import { installedGeneration, ownPackage } from './package-generation.js'
-import { generationEnv, identifiedOnBus, identifiedProcesses, readableRows } from './recorded-worker.js'
+import { generationEnv, identifiedOnBus, identifiedProcesses, readableRows, runningAs } from './recorded-worker.js'
 import { busShadowProblems, startReviewWorker } from './review-bg.js'
 import { NOTHING_RECORDED, recordedThenSent, RESTART_WHY, signalLog, stopSending } from './signal-sent.js'
 import { stampLogOutput } from './stamp.js'
 import { WindowSubagentTick } from './window-subagent-tick.js'
-import { busLaunches, isBusWorker, ROUND_WORKERS, switchDetection, switchWorker, wantedLaunches, WORKERS } from './workers.js'
+import { busLaunches, isBusWorker, switchDetection, switchWorker, wantedLaunches, WORKERS } from './workers.js'
 
 export const SUPERVISE_FLAG = '--supervise'
 export const ON_FLAG = '--on'
@@ -51,7 +53,7 @@ export const OFF_FLAG = '--off'
 export const LIVE_ON_FLAG = '--live'
 export const LIVE_OFF_FLAG = '--shadow'
 export const RESTART_LIMIT_MS = 5 * 60_000
-export const DRAIN_LIMIT_MS = LEASE_MS
+export { DRAIN_LIMIT_MS }
 export const GIT_PULL_TIMEOUT_MS = 60_000
 
 export const SUPERVISOR_INSTANCE_FILE = 'bus-bg.pid'
@@ -391,7 +393,7 @@ export class BusSupervisor {
     const drain = this.parts.drain
     if (drain === undefined)
       return []
-    return launches.filter(launch => workerKindsOf([launch]).some(kind => ROUND_WORKERS.includes(kind))).flatMap((launch) => {
+    return launches.filter(launch => workerKindsOf([launch]).some(kind => RETIRING_WORKERS.includes(kind))).flatMap((launch) => {
       const pids = instancesOf(this.parts.processes(), launch.markers).map(each => each.pid)
       const rounds = drain.retire(launch, pids, head, this.codeSha)
       return rounds.length === 0 ? [] : [`${PREFIX}${launchName(launch)} (pid ${pids.join(', ')}) finishes the rounds it holds on ${this.codeSha} and exits, and new leases go to the worker on ${head}: ${rounds.join(', ')}`]
@@ -490,10 +492,6 @@ export function recordRestartMissed(db: DatabaseSync, ts: string, sha: string, w
   appendEvent(db, { ts, type: RESTART_MISSED, actor: 'policy', cardId: null, pr: null, head: null, dedupeKey: `${RESTART_MISSED}:${sha}`, payload: { sha, waited_ms: waitedMs, limit_ms: RESTART_LIMIT_MS }, legacy: false })
 }
 
-export function recordRestarted(db: DatabaseSync, ts: string, sha: string): void {
-  appendEvent(db, { ts, type: RESTARTED, actor: 'policy', cardId: null, pr: null, head: null, dedupeKey: `${RESTARTED}:${sha}`, payload: { sha }, legacy: false })
-}
-
 export function recordStarted(db: DatabaseSync, ts: string, code: BusCode, log: (line: string) => void): void {
   try {
     recordRestarted(db, ts, code.head())
@@ -545,12 +543,11 @@ export function psStartOf(pid: number, table: ProcessTable = new OsProcessTable(
   return started === null ? { state: 'unreadable' } : { state: 'running', started }
 }
 
-export function holderLines(reading: HolderReading): string[] {
-  return [
-    ...reading.freed.length === 0 ? [] : [`${PREFIX}the holder process of these leases is gone or its pid now runs another process; freed as ${TASK_EXPIRED} (${HOLDER_DEAD}) and queued again: ${reading.freed.join(', ')}`],
-    ...reading.hung.length === 0 ? [] : [`${PREFIX}the holder of these leases is running and has stopped renewing them; the leases stay, ${WORKER_HUNG} is on the board: ${reading.hung.join(', ')}`],
-    ...reading.unproven.length === 0 ? [] : [`${PREFIX}the holder of these leases has no readable worker.started record, so whether it is alive cannot be proven; the leases stay, ${HOLDER_UNPROVEN} is on the board: ${reading.unproven.join(', ')}`],
-  ]
+export function livesIn(table: ProcessTable = new OsProcessTable()): LivesNow {
+  return () => {
+    const snapshot = table.snapshot()
+    return snapshot.readable ? recorded => runningAs(snapshot, recorded) !== null : null
+  }
 }
 
 export function busDrain(db: DatabaseSync, ts: () => string, startOf?: ProcessStartOf): Drain {
@@ -897,6 +894,7 @@ export interface SupervisingParts {
   windowEnds?: WindowSessionEnds
   windowSubagents?: Pick<WindowSubagentTick, 'step'>
   order?: { step: () => string[] }
+  handover?: Pick<GenerationHandover, 'step'>
   relaunch: Readonly<{ busDir: string, start?: NonNullable<AgentHand['start']>, generation?: Pick<BusCode, 'head'> | null }>
   print: (line: string) => void
   pause: () => Promise<unknown>
@@ -917,7 +915,7 @@ export async function superviseUntilReplaced(parts: SupervisingParts): Promise<v
     const lines = await parts.supervisor.step()
     const head = parts.supervisor.ownCodeBehind
     const replacement = head === null ? { lines: [], replaced: false } : replacedBy(head, (parts.relaunch.start ?? startDetached)(SUPERVISOR_LAUNCH, parts.relaunch.busDir, generationEnv(parts.relaunch.generation ?? { head: () => head }), outsideOwnGroup()))
-    const ticked = [...lines, ...replacement.lines, ...replacement.replaced ? [] : [...parts.keeper.step(), ...await parts.judge?.step() ?? [], ...parts.windowEnds?.step() ?? [], ...parts.windowSubagents?.step() ?? [], ...parts.order?.step() ?? []]]
+    const ticked = [...lines, ...replacement.lines, ...replacement.replaced ? [] : [...parts.keeper.step(), ...await parts.judge?.step() ?? [], ...parts.windowEnds?.step() ?? [], ...parts.windowSubagents?.step() ?? [], ...parts.order?.step() ?? [], ...await parts.handover?.step() ?? []]]
     for (const line of [...ticked, ...await parts.heal?.step(ticked) ?? [], ...parts.snapshot?.step() ?? []])
       parts.print(line)
     if (replacement.replaced)
@@ -1047,6 +1045,7 @@ async function supervise(busDir: string, cwd: string, reviewPreflight: () => str
       windowEnds: new WindowSessionEnds(db, cwd, () => Date.now(), PREFIX),
       windowSubagents: new WindowSubagentTick(db, cwd, () => Date.now(), PREFIX),
       order: busOrderTick(db, cwd),
+      handover: new GenerationHandover(db, livesIn(), () => Date.now(), running => stopInstance(running, readableRows(), sleep, signalLog(db, DRAIN_WHY))),
       heal: new BusHealer({ busPath, nodes, now: () => new Date(), projections: busProjections(), watch: new CorruptionWatch(busLaunches(reviewPreflight).map(launch => path.join(busDir, launch.log))) }),
       snapshot: new BusSnapshot({ db, busPath, file: snapshotPathOf(busPath), now: () => Date.now(), paused: () => nodes.held() }),
       relaunch: { busDir, generation: installedGeneration() },

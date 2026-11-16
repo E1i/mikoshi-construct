@@ -456,6 +456,12 @@
           "tests"
         ]
       },
+      "generation.ended": {
+        "complete": true,
+        "keys": [
+          "generation"
+        ]
+      },
       "ghost.line": {
         "complete": true,
         "keys": [
@@ -4318,9 +4324,9 @@
       "scripts/core/dependency-wait.ts": 3,
       "scripts/core/inbox.ts": 11,
       "scripts/core/journal.ts": 1,
-      "scripts/core/lease.ts": 17,
+      "scripts/core/lease.ts": 18,
       "scripts/core/legacy-history.ts": 1,
-      "scripts/core/node.ts": 4,
+      "scripts/core/node.ts": 3,
       "scripts/core/observations.ts": 6,
       "scripts/core/queue.ts": 63,
       "scripts/core/reducer.ts": 10,
