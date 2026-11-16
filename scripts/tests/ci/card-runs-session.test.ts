@@ -279,7 +279,7 @@ describe('a layer the branch assigns tests to', () => {
   const MODULE = 'scripts/ci/a.ts'
   const BRANCH_TEST = 'scripts/tests/ci/a.test.ts'
 
-  function busOfMain(): string {
+  function busOfMain(body = 'Do it.'): string {
     const bus = path.join(freshRoot(), 'bus.db')
     const db = openBus(bus)
     writeCatalog(db, {
@@ -287,7 +287,7 @@ describe('a layer the branch assigns tests to', () => {
       mutations: [],
       modules: [{ module: MODULE, layers: [NEW_LAYER] }, { module: TOUCHED, layers: ['bus'] }],
     })
-    const text = cardText('Do it.', [MODULE])
+    const text = cardText(body, [MODULE])
     appendCardEvent(db, 'owner', { ts: '2026-11-10T00:00:00.000Z', type: CARD_ADMITTED, cardId: CARD_ID, dedupeKey: `${CARD_ADMITTED}:${CARD_ID}`, payload: { text, textSha: textSha(text) } })
     reduce(db, 'pending', busProjections())
     db.close()
@@ -301,6 +301,14 @@ describe('a layer the branch assigns tests to', () => {
     const graph = new Map([[BRANCH_TEST, [MODULE]], [MODULE, []], [MASKED_TEST, []]])
     const branchTests = testsOfBranch(graph, testFoldersOfLayers(readLayerMap()))
     expect(branchCardRuns(BRANCH, bus, branchTests)).toEqual({ kind: 'card', card: expect.any(Number), touches: [MODULE], reading: { layers: [NEW_LAYER], paths: [], tests: [BRANCH_TEST] }, witnesses: [] })
+  })
+
+  it('the card on the bus names its witness tests to the session gate', () => {
+    const witnesses = `witnesses: ${JSON.stringify([{ id: 'W1', run: `pnpm exec vitest run ${BRANCH_TEST}`, test: 'a', head: 'pass', base: 'fail', proves: 'b' }])}`
+    const bus = busOfMain(`Do it.\n\n${witnesses}`)
+    const graph = new Map([[BRANCH_TEST, [MODULE]], [MODULE, []], [MASKED_TEST, []]])
+    const branchTests = testsOfBranch(graph, testFoldersOfLayers(readLayerMap()))
+    expect(branchCardRuns(BRANCH, bus, branchTests)).toMatchObject({ kind: 'card', witnesses: [BRANCH_TEST] })
   })
 
   it('a branch test outside every test folder of the layer map adds no layer', () => {

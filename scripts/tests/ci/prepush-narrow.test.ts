@@ -1,3 +1,4 @@
+import type { GateRun } from '../../ci/gate-runs.js'
 import type { Graph } from '../../ci/layers.js'
 import type { Suite } from '../../ci/prepush.js'
 import type { VitestRun } from '../../ci/test-command.js'
@@ -9,7 +10,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { witnessTestsOf } from '../../ci/card-runs.js'
 import { GATE_RUN_SPOOL, recordGateRun } from '../../ci/gate-runs.js'
 import { NARROW_WHY } from '../../ci/layers.js'
-import { gateRecorder, narrowSelection, reachCount, reachLine, sessionSelection, testStep } from '../../ci/prepush.js'
+import { gateRecorder, gateSelection, narrowSelection, reachCount, reachLine, sessionRecord, sessionSelection, testStep } from '../../ci/prepush.js'
 import { openBus } from '../../core/db.js'
 import { GATE_RUN } from '../../core/events.js'
 
@@ -51,7 +52,15 @@ const CARD_TEXT = [
   ])}`,
 ].join('\n')
 
+const RUN: GateRun = { source: 'prepush', mode: 'layered', reason: NARROW_WHY, seconds: 4, round: HEAD, card: null, moduleFiles: false, tests: 3 }
+
 const roots: string[] = []
+
+function freshRoot(): string {
+  const root = mkdtempSync(path.join(tmpdir(), 'prepush-narrow-'))
+  roots.push(root)
+  return root
+}
 
 function busFilesMode(root: string, mode: number): void {
   for (const file of readdirSync(root).filter(name => name.startsWith('bus.db')))
@@ -118,8 +127,7 @@ describe('the session prepush runs the narrow selection and records every run', 
   })
 
   it('a gate.run event is written per prepush run', async () => {
-    const root = mkdtempSync(path.join(tmpdir(), 'prepush-narrow-'))
-    roots.push(root)
+    const root = freshRoot()
     const busPath = path.join(root, 'bus.db')
     const spool = path.join(root, GATE_RUN_SPOOL)
     openBus(busPath).close()
@@ -148,5 +156,50 @@ describe('the session prepush runs the narrow selection and records every run', 
 
     expect(await testStep(selection, suiteOf([], record))).toBe(0)
     expect(gateRunsOn(busPath)).toHaveLength(4)
+  })
+
+  it('the session gate selects the direct importers and the witnesses, not the reach of the change', () => {
+    const reach = sessionSelection([LEASE], GRAPH, () => '', null, MAP).run.tests.length
+    const selection = gateSelection([LEASE], GRAPH, { reading: { layers: [], paths: [], tests: [] }, witnesses: [WITNESS] }, () => '', MAP)
+    expect(selection.why).toBe(NARROW_WHY)
+    expect(selection.run.tests).toEqual([WITNESS, LEASE_TAKEN_TEST, LEASE_TEST].sort())
+    expect(selection.run.tests).not.toContain(QUEUE_TEST)
+    expect(selection.run.tests).not.toContain(NODE_TEST)
+    expect(selection.reach).toBe(reach)
+    expect(gateSelection([LEASE], GRAPH, null, () => '', MAP).run.tests).toEqual([LEASE_TAKEN_TEST, LEASE_TEST].sort())
+  })
+
+  it('the session recorder keeps a run the bus refuses in the spool of its repository', () => {
+    const root = freshRoot()
+    const busPath = path.join(root, 'bus.db')
+    openBus(busPath).close()
+    busFilesMode(root, READ_ONLY)
+    const lines: string[] = []
+    sessionRecord(line => lines.push(line), root, busPath)(RUN)
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toMatch(new RegExp(`^prepush: ${GATE_RUN} kept in ${GATE_RUN_SPOOL.replaceAll('.', '\\.')}`))
+    expect(readFileSync(path.join(root, GATE_RUN_SPOOL), 'utf8').trim().split('\n')).toHaveLength(1)
+  })
+
+  it('a run with no bus file is printed and not spooled', () => {
+    const root = freshRoot()
+    const spool = path.join(root, GATE_RUN_SPOOL)
+    const line = recordGateRun(RUN, '2026-11-17T00:00:00.000Z', path.join(root, 'missing.db'), spool)
+    expect(line).toMatch(new RegExp(`^prepush: ${GATE_RUN} not recorded, no bus is reachable from here: `))
+    expect(existsSync(spool)).toBe(false)
+  })
+
+  it('a recorded run with an empty spool names no earlier runs', () => {
+    const root = freshRoot()
+    const busPath = path.join(root, 'bus.db')
+    openBus(busPath).close()
+    expect(recordGateRun(RUN, '2026-11-17T00:00:00.000Z', busPath, path.join(root, GATE_RUN_SPOOL))).toBe(`prepush: ${GATE_RUN} recorded on the bus — prepush, layered, 4 s`)
+    expect(gateRunsOn(busPath)).toHaveLength(1)
+  })
+
+  it('a card text with two witnesses lines names no witness tests', () => {
+    const line = CARD_TEXT.split('\n')[1]!
+    expect(witnessTestsOf(`${CARD_TEXT}\n${line}`)).toEqual([])
+    expect(witnessTestsOf('no witnesses here')).toEqual([])
   })
 })

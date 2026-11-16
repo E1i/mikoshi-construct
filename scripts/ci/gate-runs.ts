@@ -63,7 +63,6 @@ export function gateRunEvent(run: GateRun, ts: string): BusEvent {
 }
 
 export const GATE_RUN_SPOOL = path.join('.construct', 'gate-runs.jsonl')
-export const REPOSITORY_SPOOL = path.join(path.resolve(import.meta.dirname, '..', '..'), GATE_RUN_SPOOL)
 
 function spooled(spool: string): BusEvent[] {
   if (!existsSync(spool))
