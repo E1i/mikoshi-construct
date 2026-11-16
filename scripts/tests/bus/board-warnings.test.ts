@@ -156,7 +156,7 @@ describe('the saving warning', () => {
     expect(warned(NO_PROTECTION, STRICT_RULES)).toEqual([SAVING_OFF_WARNING])
     expect(warned(LOOSE_PROTECTION, LOOSE_RULES)).toEqual([])
     expect(warned(LOOSE_PROTECTION, NO_RULES)).toEqual([])
-    expect(SAVING_OFF_WARNING).toBe('BUS_RERUN=by-layers, но на main strict: true (или ruleset требует up-to-date) — экономия выключена')
+    expect(SAVING_OFF_WARNING).toBe('BUS_RERUN=by-layers, but main is strict: true (or a ruleset requires up-to-date) — the saving is off')
   })
 
   it('a read that fails shows no such warning and does not throw', () => {

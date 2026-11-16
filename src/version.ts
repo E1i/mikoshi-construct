@@ -16,4 +16,12 @@ export function currentVersion(): string {
   return '0.0.0'
 }
 
+declare const __CONSTRUCT_BUILD_SHA__: string | undefined
+
+export const BUILD_SHA: string | null = typeof __CONSTRUCT_BUILD_SHA__ === 'string' && __CONSTRUCT_BUILD_SHA__ !== '' ? __CONSTRUCT_BUILD_SHA__ : null
+
+export function interfaceVersion(version: string = currentVersion(), sha: string | null = BUILD_SHA): string {
+  return sha === null ? version : `${version}+${sha}`
+}
+
 export const VERSION = currentVersion()

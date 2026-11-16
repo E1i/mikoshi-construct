@@ -20,10 +20,10 @@ const CUT_PARENT = 30
 const BACKFILLED_SLICE = 23
 const BACKFILLED_PARENT = 40
 const OTHER_WHOLE = 24
-const FIRST_MARK = `◧ 1/2 · из #${CUT_PARENT}`
-const SECOND_MARK = `◧ 2/2 · из #${CUT_PARENT}`
-const BACKFILLED_MARK = `◧ 1/2 · из #${BACKFILLED_PARENT}`
-const TALLY = '5 карт = 4 задачи'
+const FIRST_MARK = `◧ 1/2 · of #${CUT_PARENT}`
+const SECOND_MARK = `◧ 2/2 · of #${CUT_PARENT}`
+const BACKFILLED_MARK = `◧ 1/2 · of #${BACKFILLED_PARENT}`
+const TALLY = '5 cards = 4 tasks'
 const roots: string[] = []
 
 afterEach(() => {
@@ -120,14 +120,13 @@ describe('a slice card is told apart from a whole card on the board', () => {
     expect(html).toContain(TALLY)
   })
 
-  it('names the counts in Russian plural forms', () => {
-    expect([[1, 1], [2, 2], [5, 5], [11, 11], [14, 6], [21, 22]].map(([cards, tasks]) => tallyLine({ cards: cards!, tasks: tasks! }))).toEqual([
-      '1 карта = 1 задача',
-      '2 карты = 2 задачи',
-      '5 карт = 5 задач',
-      '11 карт = 11 задач',
-      '14 карт = 6 задач',
-      '21 карта = 22 задачи',
+  it('names the counts in English, one card and N cards', () => {
+    expect([[1, 1], [2, 2], [0, 0], [11, 1], [21, 22]].map(([cards, tasks]) => tallyLine({ cards: cards!, tasks: tasks! }))).toEqual([
+      '1 card = 1 task',
+      '2 cards = 2 tasks',
+      '0 cards = 0 tasks',
+      '11 cards = 1 task',
+      '21 cards = 22 tasks',
     ])
   })
 })
