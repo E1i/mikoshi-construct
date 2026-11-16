@@ -181,10 +181,11 @@ header.panel::before { --_sweep: oklch(from var(--wire) l c h / 0.5); animation:
 .svc:has([data-state="over"]) .round-steps li[data-current] { color: var(--signal); }
 .round-step-now { margin-inline-start: auto; }
 .miko-self, .miko-crawlers, .miko-bus { display: grid; gap: var(--space-xs); align-content: start; min-inline-size: 0; }
-.miko-crawlers .svc-agents[aria-expanded] + .svc-agent-list { display: grid; }
-.miko-crawlers .svc-agent-list li::before { content: "\25CF"; color: var(--ok); }
-.miko-crawlers .svc-agent-list li[data-hot]::before { color: var(--amber); }
-.miko-crawlers .svc-agent-list li[data-over]::before { color: var(--signal); }
+.miko-crawler-rows { display: grid; gap: 0.2rem; margin: 0; padding: 0; list-style: none; font-size: 0.7rem; }
+.miko-crawler { --_dot: var(--ok); display: flex; gap: var(--space-xs); align-items: baseline; min-inline-size: 0; overflow-wrap: anywhere; }
+.miko-crawler[data-state="hot"] { --_dot: var(--amber); }
+.miko-crawler[data-state="over"] { --_dot: var(--signal); }
+.crawler-dot::before { content: "\25CF"; color: var(--_dot); }
 .miko-bus-head { color: var(--ok); font: 700 0.75rem var(--font-display); letter-spacing: 0.14em; }
 .miko-bus[data-stale] .miko-bus-head { color: var(--signal); }
 .svc-top { display: flex; gap: var(--space-s); align-items: baseline; }

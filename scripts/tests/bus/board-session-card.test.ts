@@ -1,5 +1,6 @@
 import type { BusService } from '../../../src/commands/board/bus.js'
 import type { SeedEvent } from '../../../tests/board/bus-fixture.js'
+import type { MikoPanelParts } from '../../cli/board-page/miko-panel.js'
 import type { SessionCardParts, SessionView } from '../../cli/board-page/session-card.js'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -9,14 +10,19 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { readTranscript } from '../../../src/commands/liveness.js'
 import { writeBus } from '../../../tests/board/bus-fixture.js'
 import { escaped, printBoard } from '../../cli/board-page.js'
+import { crawlerWorkOf, mikoPanel } from '../../cli/board-page/miko-panel.js'
 import { ROUND_COLOURS, roundColour, sessionCard, terminalOf } from '../../cli/board-page/session-card.js'
-import { ANSWER_STEP, SESSION_HEARTBEAT, TASK_LEASED, WINDOW_HEARTBEAT } from '../../core/events.js'
+import { ANSWER_STEP, SESSION_HEARTBEAT, TASK_LEASED, WINDOW_HEARTBEAT, WINDOW_SUBAGENT_EVENT } from '../../core/events.js'
 
 const NOW = new Date('2026-10-20T08:00:00.000Z')
 const CARD = 861
 const EXPECTED_MS = 20 * 60_000
 const SERVICE: BusService = { role: 'answer', task: `#${CARD}`, tree: null, step: 'answer · pulse 1 min ago · now Bash ls for 2 min', session: 's-one' }
 const PARTS: SessionCardParts = { opener: '', hint: '', bars: '', agents: '', over: false, now: NOW.toISOString() }
+
+const LIMITS = { contextLimit: 1_000_000, cardContextLine: null, sessionSpend: null, agentSpend: 1_000_000, warnRatio: 0.8, modelWindows: new Map() }
+const WINDOW: BusService = { role: 'window', task: 'miko', tree: null, step: 'window · awake' }
+const PANEL: MikoPanelParts = { windows: [WINDOW], bars: () => '', crawlers: () => '', limits: LIMITS, now: NOW.toISOString(), words: { role: 'FIXER', name: 'Miko', plainTitle: '', serviceLine: () => 'window · awake' }, busLines: ['bus · pulse 1 min ago · slots in use 1/3'], busLive: true, opener: '', hint: '', idle: null, work: new Map() }
 
 const roots: string[] = []
 
@@ -87,6 +93,13 @@ describe('the round timer of a session card', () => {
     expect(over).toContain('--_left: 0%')
   })
 
+  it('a session card at exactly 100 percent of the expected round is OVER TIME, not a countdown', () => {
+    const edge = roundOf(sessionCard(SERVICE, viewAt(1), PARTS))
+    expect(edge).toContain('data-phase="over"')
+    expect(edge).toContain('OVER TIME')
+    expect(edge).toContain('<span class="round-clock">+00:00.00</span>')
+  })
+
   it('a session card with no measured round shows the elapsed time and no data without an alarm colour', () => {
     const round = roundOf(sessionCard(SERVICE, viewAt(0.5, null), PARTS))
     expect(round).toContain('data-phase="none"')
@@ -109,6 +122,39 @@ describe('the terminal block of a session card', () => {
   })
 })
 
+describe('the Miko strip', () => {
+  it('each crawler of Miko is a row with a state dot, its type, task, current action and time', () => {
+    const subagents = [
+      { name: 'review', context: 100_000, spent: 50_000, at: new Date(NOW.getTime() - 4 * 60_000).toISOString() },
+      { name: 'implementer', context: 900_000, spent: 2_000_000, at: null },
+    ]
+    const work = crawlerWorkOf([{ fields: { role: 'review', task: '#1949', step: 'starting' } }, { fields: { role: 'review', task: '#1950', step: 'reading the diff' } }, { fields: { task: '#1' } }])
+    const html = mikoPanel({ ...PANEL, windows: [{ ...WINDOW, subagents }], work })
+    const rows = /<ul class="miko-crawler-rows">([\s\S]*?)<\/ul>/.exec(html)![1]!
+    expect(rows).toBe([
+      '<li class="miko-crawler" data-state="calm"><span class="crawler-dot"></span><span>review · #1950 · reading the diff · 4 min</span></li>',
+      '<li class="miko-crawler" data-state="over"><span class="crawler-dot"></span><span>implementer · — · — · —</span></li>',
+    ].join(''))
+    expect(html.indexOf('miko-crawlers')).toBeGreaterThan(html.indexOf('miko-self'))
+    expect(html.indexOf('miko-crawlers')).toBeLessThan(html.indexOf('miko-bus'))
+    expect(mikoPanel(PANEL)).not.toContain('miko-crawler-rows')
+  })
+
+  it('a stale bus heads the strip with BUS STALE and marks the column stale', () => {
+    expect(mikoPanel(PANEL)).toContain('<div class="miko-bus"><div class="miko-bus-head">BUS LIVE</div>')
+    const stale = mikoPanel({ ...PANEL, busLive: false })
+    expect(stale).toContain('<div class="miko-bus" data-stale><div class="miko-bus-head">BUS STALE</div>')
+    expect(stale).not.toContain('BUS LIVE')
+  })
+})
+
+describe('the round steps of a session card', () => {
+  it('a step under a minute old reads in seconds', () => {
+    const view: SessionView = { startedAt: new Date(NOW.getTime() - 75_000).toISOString(), expectedMs: null, steps: [{ step: 'lease', seconds: 30 }], terminal: null }
+    expect(sessionCard(SERVICE, view, PARTS)).toContain('<span class="round-step-now">tree · 45s</span>')
+  })
+})
+
 describe('the board page', () => {
   it('the board has no BUS card and the bus pulse and slots sit in the Miko panel', () => {
     const html = pageOf([
@@ -122,6 +168,14 @@ describe('the board page', () => {
     const services = html.slice(html.indexOf('id="slot-services"'), html.indexOf('</section>', html.indexOf('id="slot-services"')))
     expect(services.match(/data-role="window"/g)).toHaveLength(1)
     expect(services).not.toMatch(/data-role="bus"|<span class="lore">Subnet<\/span>/)
+  })
+
+  it('a window crawler takes its task and current action from its window.subagent event', () => {
+    const html = pageOf([
+      { ts: minutesAgo(1), type: 'netwatch.tick', card: null, payload: '{}' },
+      { ts: minutesAgo(3), type: WINDOW_SUBAGENT_EVENT, card: null, payload: JSON.stringify({ session: 'sub-1', role: 'review', task: '#1950', phase: 'started', step: 'reading the diff' }) },
+    ], [{ role: 'miko', status: 'idle', state: 'awake' }])
+    expect(html).toContain('<span>review · #1950 · reading the diff · 3 min</span>')
   })
 
   it('a live answer round shows its passed steps and the current one from answer.step', () => {

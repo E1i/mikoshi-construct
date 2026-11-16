@@ -16,6 +16,11 @@ export interface EddiesLimits {
   modelWindows: ReadonlyMap<string, number>
 }
 
+export interface CrawlerWork {
+  task: string | null
+  action: string | null
+}
+
 export interface RoundStep {
   step: string
   seconds: number
@@ -108,7 +113,7 @@ export function eddiesBar(name: string, value: number | null, denominator: numbe
 
 const compactOrNone = (value: number | null): string => value === null ? NONE : compact(value)
 const heatOf = (value: number | null, limit: number | null, warn: number | null): number => value === null || limit === null ? 0 : value >= limit ? 2 : Number(warn !== null && value >= limit * warn)
-const agentHeat = (agent: SubagentReading, limits: EddiesLimits): number => Math.max(heatOf(agent.context, limits.contextLimit, limits.warnRatio), heatOf(agent.spent, limits.agentSpend, limits.warnRatio))
+export const agentHeat = (agent: SubagentReading, limits: EddiesLimits): number => Math.max(heatOf(agent.context, limits.contextLimit, limits.warnRatio), heatOf(agent.spent, limits.agentSpend, limits.warnRatio))
 
 export function minutesBetween(from: string, to: string): number {
   return Math.max(0, Math.round((Date.parse(to) - Date.parse(from)) / MINUTE_MS))
