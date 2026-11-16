@@ -1101,6 +1101,17 @@
           "id"
         ]
       },
+      "signal.sent": {
+        "complete": true,
+        "keys": [
+          "instance",
+          "lstart",
+          "pid",
+          "signal",
+          "task_key",
+          "why"
+        ]
+      },
       "slice.parents.backfilled": {
         "complete": true,
         "keys": [

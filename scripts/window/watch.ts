@@ -10,7 +10,7 @@ import { PRIORITIES } from '../../src/card/parking.js'
 import { IN_REVIEW_CARD, RUNNING_CARD, STOPPED_CARD } from '../core/card-automaton.js'
 import { cardHoldOf } from '../core/card-hold.js'
 import { defaultBusPath, openBus } from '../core/db.js'
-import { BOARD_ALARM, BUS_PULSE, CARD_CLOSED, CARD_CONTINUED, CARD_DROPPED, CARD_STARTED, CARD_STOPPED, CARD_WAITING, DECISION_RECORDED, GHOST_LINE, MERGE_DONE, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, POLICY_DENIED, PR_CLOSED, PR_OBSERVED, PROCESS_JUDGED, REQUEST_DONE, REQUEST_REFUSED, REVIEW_RECORDED, TASK_EXPIRED, WINDOW_REQUEST, WITNESS_RECORDED, WORKER_DOWN } from '../core/events.js'
+import { BOARD_ALARM, BUS_PULSE, CARD_CLOSED, CARD_CONTINUED, CARD_DROPPED, CARD_STARTED, CARD_STOPPED, CARD_WAITING, DECISION_RECORDED, GHOST_LINE, MERGE_DONE, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, POLICY_DENIED, PR_CLOSED, PR_OBSERVED, PROCESS_JUDGED, REQUEST_DONE, REQUEST_REFUSED, REVIEW_RECORDED, SESSION_STALLED, TASK_COMPLETED, TASK_EXPIRED, TASK_RELEASED, WINDOW_REQUEST, WITNESS_RECORDED, WORKER_DOWN } from '../core/events.js'
 import { defaultHandoffDir } from '../core/handoff-dir.js'
 import { HEARTBEAT_QUEUES } from '../core/lease.js'
 import { MIKO_WATCH_COMMAND } from '../core/owner-commands.js'
@@ -18,6 +18,7 @@ import { REVIEW_ROUNDS_SPENT } from '../nodes/review/review-executor.js'
 import { ciWord } from '../ports/ci-reading.js'
 import { USER_SETTINGS } from '../ports/client/claude/adapter.js'
 import { CARD_PROCESS } from '../supervisor/heartbeat.js'
+import { ReleaseLoops, textOf } from './release-loop.js'
 import { noWindowRefusal } from './tab.js'
 import { ownerAnswersOfWaits } from './watch-owner-answer.js'
 import { WatchRefusal } from './watch-refusal.js'
@@ -30,8 +31,10 @@ export { USER_SETTINGS }
 
 export const STOP_EVENT = 'relaunch-stop'
 export const WAKING_EVENTS = ['merge', 'fall', 'relaunch-stop', 'stop']
-export const WAKING_BUS_EVENTS = [GHOST_LINE, STOP_EVENT, REVIEW_RECORDED, MERGE_DONE, PR_CLOSED, CARD_CLOSED, PR_OBSERVED, REVIEW_ROUNDS_SPENT, CARD_STOPPED, CARD_WAITING, POLICY_DENIED, TASK_EXPIRED, WORKER_DOWN, PROCESS_JUDGED, REQUEST_REFUSED, REQUEST_DONE, WITNESS_RECORDED, OWNER_WAIT_OPENED, BOARD_ALARM, OWNER_WAIT_CLOSED, DECISION_RECORDED]
+export const WAKING_BUS_EVENTS = [GHOST_LINE, STOP_EVENT, REVIEW_RECORDED, MERGE_DONE, PR_CLOSED, CARD_CLOSED, PR_OBSERVED, REVIEW_ROUNDS_SPENT, CARD_STOPPED, CARD_WAITING, POLICY_DENIED, TASK_EXPIRED, WORKER_DOWN, PROCESS_JUDGED, REQUEST_REFUSED, REQUEST_DONE, WITNESS_RECORDED, OWNER_WAIT_OPENED, BOARD_ALARM, SESSION_STALLED, OWNER_WAIT_CLOSED, DECISION_RECORDED]
 const OWNER_ANSWER_TYPES = { waitOpened: OWNER_WAIT_OPENED, waitClosed: OWNER_WAIT_CLOSED, decided: DECISION_RECORDED, cardWaiting: CARD_WAITING, turns: [CARD_STARTED, CARD_CONTINUED, CARD_CLOSED, CARD_DROPPED], fieldsOf: payloadOf }
+const RELEASE_TYPES = { released: TASK_RELEASED, completed: TASK_COMPLETED, fieldsOf: payloadOf }
+const RELEASE_LOOP_TYPES = [TASK_RELEASED, TASK_COMPLETED]
 export const HEAD_BOUND_EVENTS = [STOP_EVENT, REVIEW_RECORDED, REVIEW_ROUNDS_SPENT, CARD_STOPPED]
 export const FAILED_CI = 'red'
 export const PASSED_CI = 'green'
@@ -74,6 +77,7 @@ export interface WatchState {
   ciByPr: Map<number | null, { head: string | null, ci: CiReading | null }>
   witnessByPr: Map<number | null, unknown>
   deniedByTask: Map<string, DenialRun>
+  releaseLoops: ReleaseLoops
   windowPrs: ReadonlySet<number>
   ownRequest: (request: number) => boolean
   stalls: Set<string>
@@ -102,6 +106,7 @@ export interface BusEvent {
   pr: number | null
   head: string | null
   payload: string
+  ts?: string
 }
 
 export interface WatchDeps {
@@ -111,6 +116,7 @@ export interface WatchDeps {
   observedUpTo: (id: number) => BusEvent[]
   witnessedUpTo: (id: number) => BusEvent[]
   deniedUpTo: (id: number) => BusEvent[]
+  releasedUpTo: (id: number) => BusEvent[]
   windowPrs: () => ReadonlySet<number>
   ownRequest: (request: number) => boolean
   observedHeads: (pr: number, beforeId: number) => string[]
@@ -177,10 +183,6 @@ function payloadOf(payload: string): Record<string, unknown> {
   catch {
     return {}
   }
-}
-
-function textOf(payload: Record<string, unknown>, name: string): string | undefined {
-  return typeof payload[name] === 'string' ? payload[name] : undefined
 }
 
 function denialReason(payload: Record<string, unknown>): string {
@@ -263,7 +265,7 @@ export function wakingEvent(line: string): string | undefined {
 
 export function watchState(deps: WatchDeps): WatchState {
   const busId = deps.lastBusId()
-  return { busId, ciByPr: new Map(), witnessByPr: new Map(), deniedByTask: denialsUpTo(deps, busId), windowPrs: deps.windowPrs(), ownRequest: deps.ownRequest, stalls: new Set(deps.stalls().map(stallKey)), stuck: new Set(deps.stuck().map(stuckKey)) }
+  return { busId, ciByPr: new Map(), witnessByPr: new Map(), deniedByTask: denialsUpTo(deps, busId), releaseLoops: ReleaseLoops.upTo(RELEASE_TYPES, deps.releasedUpTo(busId)), windowPrs: deps.windowPrs(), ownRequest: deps.ownRequest, stalls: new Set(deps.stalls().map(stallKey)), stuck: new Set(deps.stuck().map(stuckKey)) }
 }
 
 function ciInPayload(payload: string): CiReading | null {
@@ -274,12 +276,12 @@ function verdictOf(payload: string): unknown {
   return payloadOf(payload).verdict
 }
 
-type BusMemory = Pick<WatchState, 'ciByPr' | 'witnessByPr' | 'deniedByTask' | 'windowPrs' | 'ownRequest'>
+type BusMemory = Pick<WatchState, 'ciByPr' | 'witnessByPr' | 'deniedByTask' | 'releaseLoops' | 'windowPrs' | 'ownRequest'>
 
 function busMemoryUpTo(deps: WatchDeps, busId: number): BusMemory {
   const ciByPr: BusMemory['ciByPr'] = new Map(deps.observedUpTo(busId).map(event => [event.pr, { head: event.head, ci: ciInPayload(event.payload) }]))
   const witnessByPr: BusMemory['witnessByPr'] = new Map(deps.witnessedUpTo(busId).map(event => [event.pr, verdictOf(event.payload)]))
-  return { ciByPr, witnessByPr, deniedByTask: denialsUpTo(deps, busId), windowPrs: deps.windowPrs(), ownRequest: deps.ownRequest }
+  return { ciByPr, witnessByPr, deniedByTask: denialsUpTo(deps, busId), releaseLoops: ReleaseLoops.upTo(RELEASE_TYPES, deps.releasedUpTo(busId)), windowPrs: deps.windowPrs(), ownRequest: deps.ownRequest }
 }
 
 function ciTurns(state: BusMemory, event: BusEvent): boolean {
@@ -326,6 +328,8 @@ function denialsUpTo(deps: WatchDeps, busId: number): Map<string, DenialRun> {
 }
 
 export function wakesTheWindow(state: BusMemory, event: BusEvent): boolean {
+  if (RELEASE_LOOP_TYPES.includes(event.type))
+    return state.releaseLoops.wakes(event)
   if (!WAKING_BUS_EVENTS.includes(event.type))
     return false
   if (event.type === PR_OBSERVED)
@@ -361,7 +365,7 @@ function busLines(state: WatchState, deps: WatchDeps): string[] {
   const events = deps.busEventsAfter(state.busId)
   for (const event of events)
     state.busId = Math.max(state.busId, event.id)
-  return events.filter(event => wakesTheWindow(state, event) && !ofSupersededHead(event, deps)).map(busLine)
+  return events.filter(event => wakesTheWindow(state, event) && !ofSupersededHead(event, deps)).map(event => state.releaseLoops.wokenLine(event, busLine))
 }
 
 function newStalls(known: Set<string>, deps: WatchDeps): CardActivity[] {
@@ -420,7 +424,7 @@ function catchUp(cursor: WatchCursor, deps: WatchDeps, seen: BusMemory, end: num
   const atEnd = { ...cursor, busId: end }
   if (latest.size === 0)
     return { line: null, cursor: atEnd }
-  const lines = [...latest.values()].sort((a, b) => a.id - b.id).map(busLine)
+  const lines = [...latest.values()].sort((a, b) => a.id - b.id).map(event => seen.releaseLoops.wokenLine(event, busLine))
   return { line: [caughtUpLine(cursor.busId, end), ...lines].join('\n'), cursor: atEnd }
 }
 
@@ -438,7 +442,7 @@ export function selectOnce(cursor: WatchCursor, deps: WatchDeps, card?: number):
     if (!wakesTheWindow(seen, event))
       continue
     if (!ofSupersededHead(event, deps) && (card === undefined || cardOfEvent(event) === card))
-      return { line: busLine(event), cursor: { ...cursor, busId: event.id } }
+      return { line: seen.releaseLoops.wokenLine(event, busLine), cursor: { ...cursor, busId: event.id } }
     skipped = { line: null, cursor: { ...cursor, busId: event.id } }
   }
   return skipped
@@ -511,17 +515,10 @@ function emitLine(line: string): Promise<void> {
   })
 }
 
-interface BusRow {
-  id: number
-  type: string
-  card_id: number | null
-  pr: number | null
-  head: string | null
-  payload: string
-}
+type BusRow = Pick<BusEvent, 'id' | 'type' | 'pr' | 'head' | 'payload' | 'ts'> & { card_id: number | null }
 
 function eventOfRow(row: BusRow): BusEvent {
-  return { id: Number(row.id), type: row.type, cardId: row.card_id === null ? null : Number(row.card_id), pr: row.pr === null ? null : Number(row.pr), head: row.head, payload: row.payload }
+  return { id: Number(row.id), type: row.type, cardId: row.card_id === null ? null : Number(row.card_id), pr: row.pr === null ? null : Number(row.pr), head: row.head, payload: row.payload, ...(row.ts === undefined ? {} : { ts: row.ts }) }
 }
 
 function lastBusId(bus: string): number {
@@ -538,8 +535,8 @@ function lastBusId(bus: string): number {
 function busEventsAfter(bus: string, id: number): BusEvent[] {
   const db = openBus(bus)
   try {
-    const ofTypes = (types: readonly string[], after: number): BusEvent[] => (db.prepare(`SELECT id, type, card_id, pr, head, payload FROM events WHERE type IN (${types.map(() => '?').join(', ')}) AND id > ? ORDER BY id`).all(...types, after) as unknown as BusRow[]).map(eventOfRow)
-    return ownerAnswersOfWaits(ofTypes(WAKING_BUS_EVENTS, id), ofTypes, OWNER_ANSWER_TYPES)
+    const ofTypes = (types: readonly string[], after: number): BusEvent[] => (db.prepare(`SELECT id, type, card_id, pr, head, payload, ts FROM events WHERE type IN (${types.map(() => '?').join(', ')}) AND id > ? ORDER BY id`).all(...types, after) as unknown as BusRow[]).map(eventOfRow)
+    return ownerAnswersOfWaits(ofTypes([...WAKING_BUS_EVENTS, ...RELEASE_LOOP_TYPES], id), ofTypes, OWNER_ANSWER_TYPES)
   }
   finally {
     db.close()
@@ -588,10 +585,10 @@ function ownRequest(bus: string, actor: string, request: number): boolean {
   }
 }
 
-function deniedUpTo(bus: string, id: number): BusEvent[] {
+function ofTypesUpTo(bus: string, types: readonly string[], id: number): BusEvent[] {
   const db = openBus(bus)
   try {
-    const rows = db.prepare('SELECT id, type, card_id, pr, head, payload FROM events WHERE type = ? AND id <= ? ORDER BY id').all(POLICY_DENIED, id) as unknown as BusRow[]
+    const rows = db.prepare(`SELECT id, type, card_id, pr, head, payload, ts FROM events WHERE type IN (${types.map(() => '?').join(', ')}) AND id <= ? ORDER BY id`).all(...types, id) as unknown as BusRow[]
     return rows.map(eventOfRow)
   }
   finally {
@@ -706,7 +703,8 @@ export function productionDeps(handoff: string, bus: string): WatchDeps {
     busEventsAfter: id => busEventsAfter(bus, id),
     observedUpTo: id => observedUpTo(bus, id),
     witnessedUpTo: id => witnessedUpTo(bus, id),
-    deniedUpTo: id => deniedUpTo(bus, id),
+    deniedUpTo: id => ofTypesUpTo(bus, [POLICY_DENIED], id),
+    releasedUpTo: id => ofTypesUpTo(bus, RELEASE_LOOP_TYPES, id),
     windowPrs: () => windowPrs(bus),
     ownRequest: request => ownRequest(bus, actor, request),
     observedHeads: (pr, beforeId) => observedHeads(bus, pr, beforeId),
