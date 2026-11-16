@@ -252,6 +252,7 @@ function sameFact(left: WitnessFact, right: WitnessFact): boolean {
 const VITEST_RUN = /\bvitest\b/
 const TEST_FILE = /\S+\.(?:test|spec)\.[cm]?[jt]sx?(?=\s|$)/g
 const MOVED_TEST_FILE = '<test file>'
+const ESCAPED_CHARACTER = /\\(.)/g
 
 function testNameOf(command: string): string | null {
   const names = [...command.matchAll(TEST_NAME_ARGUMENT)].map(match => match[1] ?? match[2] ?? match[3]!)
@@ -286,7 +287,7 @@ function narrowsTheFilter(original: string, replacement: string): boolean {
   if (name === null || original.replace(TEST_NAME_ARGUMENT, '') !== replacement.replace(TEST_NAME_ARGUMENT, ''))
     return false
   const filters = testNamesOf(original)
-  return filters.length === 0 || (filters.length === 1 && filterMatches(filters[0]!, name))
+  return filters.length === 0 || (filters.length === 1 && filterMatches(filters[0]!, name.replace(ESCAPED_CHARACTER, '$1')))
 }
 
 function equivalentFieldReplacement(original: WitnessFact, replacement: WitnessFact): boolean {
@@ -425,6 +426,22 @@ function namesTheId(words: string, cardId: number, witnessId: string): boolean {
   const card = new RegExp(`(?<![\\w#])#${cardId}(?!\\d)`, 'u')
   const witness = new RegExp(`(?<!\\w)${witnessId.replace(REGEX_SPECIAL, '\\$&')}(?!\\w)`, 'u')
   return words.toLowerCase().includes(DOWNGRADE_WORD) && card.test(words) && witness.test(words)
+}
+
+const MOVE_JOINER = '\\s*(?:→|->|=>)\\s*|\\s+(?:to|в|на)\\s+'
+
+function namesTheMove(words: string, from: string, to: string): boolean {
+  return new RegExp(`(?<![\\p{L}\\d])${from}(?:${MOVE_JOINER})${to}(?![\\p{L}\\d])`, 'iu').test(words)
+}
+
+function withoutOwnerMoves(decisions: DecisionsPort, cardId: number, downgrades: readonly string[], previous: readonly string[], next: readonly string[]): string[] {
+  const previousIds = new Set(previous.map(witness => witnessIdIn(previous, witness)))
+  const added = next.map(witness => witnessIdIn(next, witness)).filter(id => !previousIds.has(id))
+  const words = writtenByTheOwner(decisions).filter(decision => decision.cards.includes(cardId)).map(decision => decision.words)
+  return downgrades.filter((witness) => {
+    const from = witnessIdIn(previous, witness)
+    return !added.some(to => words.some(each => namesTheMove(each, from, to)))
+  })
 }
 
 export const WITNESS_TRANSFER_IS_NO_DOWNGRADE = 'перенос свидетеля в другую карту'
@@ -709,7 +726,8 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
   const unreplaced = lowered.length > 0 && standingReplacementAllowed(decisions, card.id) ? unreplacedDowngrades(lowered, previous, witnessesOf(admitted.text)) : lowered
   const scope: BaseScope = { dir: options.dir, card: { touches: checked.touches, creates: createdPaths(checked.creates) }, createdAreTheChange: unreplaced.length > 0 && createdPathsAreTheChange(decisions) }
   const unrefined = unreplaced.length > 0 ? withoutRefinements(unreplaced, previous, witnessesOf(admitted.text), scope) : unreplaced
-  const downgrades = unrefined.length > 0 && witnessTransferIsNoDowngrade(decisions) ? untransferred(unrefined, recorded?.text ?? '', openCardTextsBeside(card.id, cards, options.admissions).flatMap(other => witnessFieldsOf(other) ?? [])) : unrefined
+  const unmoved = unrefined.length > 0 ? withoutOwnerMoves(decisions, card.id, unrefined, previous, witnessesOf(admitted.text)) : unrefined
+  const downgrades = unmoved.length > 0 && witnessTransferIsNoDowngrade(decisions) ? untransferred(unmoved, recorded?.text ?? '', openCardTextsBeside(card.id, cards, options.admissions).flatMap(other => witnessFieldsOf(other) ?? [])) : unmoved
   if (downgrades.length > 0 && !ownerAllowed(decisions, card.id, downgrades, previous)) {
     const actions = downgrades.map(witness => downgradeAction(card.id, witness, previous))
     if (!options.dryRun)
