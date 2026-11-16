@@ -1,3 +1,4 @@
+import type { CarriedTree } from '../../../core/lease.js'
 import type { CardSession } from '../answer-source.js'
 import { existsSync } from 'node:fs'
 import path from 'node:path'
@@ -94,4 +95,54 @@ export function treeDirtyOf(card: CardSession): boolean {
   catch {
     return false
   }
+}
+
+export type TreeOwned
+  = | { kind: 'clean', head: string }
+    | { kind: 'kept', head: string }
+    | { kind: 'pushed', head: string, commits: string[] }
+    | { kind: 'reset', head: string, dropped: string[], dirty: boolean }
+
+function linesOf(output: string): string[] {
+  return output.split('\n').map(line => line.trim()).filter(line => line !== '')
+}
+
+export function carriedTreeState(card: CardSession, prHead: string): CarriedTree | null {
+  try {
+    const head = git(card.worktree, ['rev-parse', 'HEAD']).trim()
+    return { path: card.worktree, head, localCommits: linesOf(git(card.worktree, ['rev-list', 'HEAD', '--not', prHead, '--remotes'])), dirty: treeDirtyOf(card) }
+  }
+  catch {
+    return null
+  }
+}
+
+function ancestor(worktree: string, commit: string, of: string): boolean {
+  return processGit.succeeds(worktree, ['merge-base', '--is-ancestor', commit, of])
+}
+
+function mergeOfMain(worktree: string, commit: string): boolean {
+  const [, ...merged] = git(worktree, ['rev-list', '--parents', '-n', '1', commit]).trim().split(' ').slice(1)
+  return merged.length > 0 && merged.every(parent => ancestor(worktree, parent, `origin/${MAIN_BRANCH}`))
+}
+
+function onlyMainMergedOver(state: CarriedTree, prHead: string): boolean {
+  return !state.dirty && ancestor(state.path, prHead, 'HEAD') && state.localCommits.every(commit => mergeOfMain(state.path, commit))
+}
+
+export type TreePushPolicy = 'none' | 'bus'
+
+export function ownCarriedTree(card: CardSession, prHead: string, policy: TreePushPolicy): TreeOwned {
+  const state = carriedTreeState(card, prHead)
+  if (state === null)
+    throw new Error(`the tree ${card.worktree} of the card cannot be read against the pull request head ${prHead}`)
+  if (!state.dirty && state.head === prHead)
+    return { kind: 'clean', head: prHead }
+  if (policy === 'none')
+    return { kind: 'kept', head: state.head }
+  if (onlyMainMergedOver(state, prHead) && processGit.succeeds(card.worktree, ['push', 'origin', `HEAD:refs/heads/${card.branch}`]))
+    return { kind: 'pushed', head: state.head, commits: state.localCommits }
+  if (!processGit.succeeds(card.worktree, ['reset', '--hard', prHead]) || !processGit.succeeds(card.worktree, ['clean', '-fd']))
+    throw new Error(`the tree ${card.worktree} of the card could not be reset to the pull request head ${prHead}`)
+  return { kind: 'reset', head: prHead, dropped: state.localCommits, dirty: state.dirty }
 }
