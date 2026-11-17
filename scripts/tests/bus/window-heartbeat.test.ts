@@ -259,6 +259,17 @@ describe('what the window beat sees of the window session', () => {
     expect(look.crawlers[0]!.ctx).toBeGreaterThan(0)
   })
 
+  it('a subagent the window transcript stopped with TaskStop leaves the list though the hook record never wrote its stop', () => {
+    const { home, root, transcript } = windowTree()
+    writeFileSync(transcript, `${JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', name: 'TaskStop', input: { task_id: 'a2' } }] } })}\n`)
+    writeFileSync(path.join(root, '.construct', 'window-agents.jsonl'), [
+      { event: 'start', id: 'a1', type: 'general-purpose', session: 'w-1', at: '2026-10-20T09:58:00.000Z' },
+      { event: 'start', id: 'a2', type: 'explore', session: 'w-1', at: '2026-10-20T09:59:00.000Z' },
+    ].map(line => JSON.stringify(line)).join('\n'))
+    const look = lookAtWindow({ session: 'w-1', mode: 'loop', root }, {}, home)
+    expect(look.crawlers.map(({ id }) => id)).toEqual(['a1'])
+  })
+
   it('a window with no transcript sees no crawler and no skill, and an unset core is left out', () => {
     const { home, root } = windowTree()
     expect(lookAtWindow({ session: 'w-2', mode: 'loop', root }, {}, home)).toEqual({ crawlers: [], skills: [] })

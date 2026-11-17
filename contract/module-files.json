@@ -1663,6 +1663,7 @@
     "tests/board/owner-wait-hint.test.ts",
     "tests/board/review-drip-tail.test.ts",
     "tests/board/screens.test.ts",
+    "tests/board/session-no-pulse.test.ts",
     "tests/board/slice-group.test.ts",
     "tests/board/slice-mark.test.ts",
     "tests/board/snapshot.test.ts",
