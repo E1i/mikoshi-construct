@@ -516,7 +516,7 @@ describe('k3 [needs ps]: the handover predicate on real processes', () => {
     for (const kind of kinds)
       expect(world.retire(kind, old[kind])).toEqual([keys[kind]])
     await waitFor(() => kinds.every(kind => world.leftItsLoop(old[kind])), 'each old worker to leave its lease loop before a task of another card is queued')
-    expireLeases(world.db, FAR_FUTURE, SILENT_MS)
+    expect(expireLeases(world.db, FAR_FUTURE, SILENT_MS), 'no timer frees a lease from a live executor').toEqual([])
     const otherKeys = Object.fromEntries(kinds.map(kind => [kind, world.queue(kind, otherCard[kind])])) as Record<typeof kinds[number], string>
     const fresh = Object.fromEntries(kinds.map(kind => [kind, world.start(NEW_GENERATION, { kind, session: `new-${kind}` })])) as Record<typeof kinds[number], Worker>
     await waitFor(() => kinds.every(kind => world.completedBy(otherKeys[kind]) === fresh[kind].actor), 'the new generation to pass over the held task and take the later task of another card')
@@ -531,15 +531,14 @@ describe('k3 [needs ps]: the handover predicate on real processes', () => {
 
     for (const kind of kinds)
       world.open(String(cardOf[kind]))
-    await waitFor(() => kinds.every(kind => world.completedBy(keys[kind]) === fresh[kind].actor), 'the new generation to take each task once its executor ended')
+    await waitFor(() => kinds.every(kind => world.completedBy(keys[kind]) === old[kind].actor), 'the old generation to complete each task its executor ended')
     const exits = await Promise.all(kinds.map(async kind => old[kind].exited))
     expect(exits).toEqual(kinds.map(() => ({ code: 0, signal: null })))
 
     for (const kind of kinds) {
       const ended = world.childEnded(keys[kind])!
       expect(ended.fields).toMatchObject({ exit: 0, signal: null })
-      const lease = world.read().slice(TASK_LEASED, ['task_key']).find(each => each.fields.task_key === keys[kind] && each.actor === fresh[kind].actor)!
-      expect(lease.id, `${kind}: leased again only after its child.ended`).toBeGreaterThan(ended.id)
+      expect(world.leasedBy(keys[kind]), `${kind}: the lease never left the old worker`).toEqual([old[kind].actor])
       expect(world.remoteHead(`card-${cardOf[kind]}`)).toBe(git(sessions[kind].tree, 'rev-parse', 'HEAD'))
     }
     expect(world.endGenerations()).toEqual([OLD_GENERATION])

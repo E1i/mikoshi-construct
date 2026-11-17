@@ -5,7 +5,7 @@ import type { Queue, TaskIdentity } from './identifiers.js'
 import type { StoredEvent } from './stored.js'
 import { appendedOnCard } from './card-automaton.js'
 import { appendEvent, inTransaction } from './db.js'
-import { BOARD_ALARM, CARD_STOPPED, CHILD_STARTED, LEASES_DRAINING, RESTARTED, SESSION_HEARTBEAT, SIGNAL_SENT, TASK_COMPLETED, TASK_EXPIRED, TASK_FAILED, TASK_LEASED, TASK_RELEASED, TASK_RENEWED, TASK_SUPERSEDED, WORKER_RETIRING, WORKER_STARTED } from './events.js'
+import { BOARD_ALARM, CARD_STOPPED, CHILD_ENDED, CHILD_STARTED, LEASES_DRAINING, RESTARTED, SESSION_HEARTBEAT, SIGNAL_SENT, TASK_COMPLETED, TASK_EXPIRED, TASK_FAILED, TASK_LEASED, TASK_RELEASED, TASK_RENEWED, TASK_SUPERSEDED, WORKER_RETIRING, WORKER_STARTED } from './events.js'
 import { HELD_BY_A_LIVE_EXECUTOR, heldBindings, NOTHING_HELD } from './executor-holds.js'
 import { generationOfKey, taskKey } from './identifiers.js'
 import { appendedAndReduced, FAILURES_TO_STOP, generationField, LEASE_MS, LEASED, QUEUE_ACTOR, QUEUED, queueTaskWithin, STOPPED, WITHDRAWN } from './queue.js'
@@ -16,6 +16,7 @@ export { SESSION_HELD_QUEUES as HEARTBEAT_QUEUES, LEASE_FOLDS, LEASE_MS } from '
 
 export const RENEW_MS = 10 * 60_000
 export const LEASE_EXPIRED = 'lease_expired'
+export const RESTART_CUT = 'restart_cut'
 
 const REQUEUED_TO_THE_BACK: Queue = 'review'
 
@@ -124,6 +125,20 @@ const PR_STATE_OF_QUEUE: Partial<Record<Queue, string>> = { close: 'merged' }
 const UPDATE_DERIVED_FOR_BEHIND = `
   SELECT 1 FROM prs JOIN tasks ON tasks.pr = prs.pr AND tasks.head = prs.head
   WHERE prs.pr = ? AND prs.head = ? AND prs.mergeable = 'behind' AND tasks.queue = 'update' AND tasks.state IN ('${QUEUED}', '${LEASED}')
+`
+
+const OPEN_EXECUTORS_OF_THE_LEASE = `
+  SELECT started.payload ->> 'instance' AS instance, started.payload ->> 'pid' AS pid, started.payload ->> 'lstart' AS lstart,
+    (SELECT sent.payload ->> 'signal' FROM events AS sent WHERE sent.type = '${SIGNAL_SENT}' AND sent.id > started.id
+      AND sent.payload ->> 'pid' = started.payload ->> 'pid' AND sent.payload ->> 'lstart' = started.payload ->> 'lstart'
+      ORDER BY sent.id DESC LIMIT 1) AS signal
+  FROM events AS leased JOIN events AS started ON started.id > leased.id AND started.type = '${CHILD_STARTED}'
+    AND started.payload ->> 'task_key' = leased.payload ->> 'task_key'
+  WHERE leased.dedupe_key = ?
+    AND NOT EXISTS (SELECT 1 FROM events AS ended WHERE ended.type = '${CHILD_ENDED}' AND ended.id > started.id
+      AND ended.payload ->> 'instance' IS started.payload ->> 'instance' AND ended.payload ->> 'pid' = started.payload ->> 'pid'
+      AND ended.payload ->> 'task_key' = started.payload ->> 'task_key')
+  ORDER BY started.id
 `
 
 const LAPSED = `SELECT * FROM tasks WHERE state = '${LEASED}' AND lease_until < ? ORDER BY id`
@@ -344,10 +359,22 @@ export function supersedeLease(db: DatabaseSync, ts: string, lease: Lease, conte
   })
 }
 
+interface OpenExecutor {
+  instance: string | null
+  pid: number
+  lstart: string
+  signal: NodeJS.Signals | null
+}
+
+function openExecutors(db: DatabaseSync, row: { task_key: string, lease_gen: number }): OpenExecutor[] {
+  return db.prepare(OPEN_EXECUTORS_OF_THE_LEASE).all(`${TASK_LEASED}:${row.task_key}:${row.lease_gen}`) as unknown as OpenExecutor[]
+}
+
 function expired(db: DatabaseSync, ts: string, rows: LeaseRow[], reason: string, silentMs: number): string[] {
-  for (const row of rows)
+  const unregistered = rows.filter(row => openExecutors(db, row).length === 0)
+  for (const row of unregistered)
     failed(db, ts, TASK_EXPIRED, QUEUE_ACTOR, row, { reason, withdraw: false }, silentMs, [])
-  return rows.map(row => row.task_key)
+  return unregistered.map(row => row.task_key)
 }
 
 export function expireLeases(db: DatabaseSync, ts: string, silentMs: number): string[] {
@@ -384,6 +411,14 @@ export interface HolderReading {
   freed: string[]
   hung: string[]
   unproven: string[]
+  renewed?: string[]
+  returned?: string[]
+}
+
+export const SUPERVISOR_RENEWS = 'worker:supervisor:executor-'
+
+export function renewedByTheSupervisorFor(executorPid: number): string {
+  return `${SUPERVISOR_RENEWS}${executorPid}`
 }
 
 type HolderVerdict = 'dead' | 'alive' | 'unproven'
@@ -444,23 +479,69 @@ function releasedFromTheDead(db: DatabaseSync, ts: string, row: HeldWithHolder, 
   })
 }
 
+function executorVerdict(executors: readonly OpenExecutor[], startOf: ProcessStartOf): { verdict: HolderVerdict | 'none', executor: OpenExecutor | null } {
+  const judged = executors.map(executor => ({ executor, verdict: verdictOn({ pid: Number(executor.pid), started: executor.lstart }, startOf) }))
+  for (const verdict of ['alive', 'unproven'] as const) {
+    const found = judged.find(each => each.verdict === verdict)
+    if (found !== undefined)
+      return found
+  }
+  return judged.length === 0 ? { verdict: 'none', executor: null } : { verdict: 'dead', executor: judged.find(each => each.executor.signal !== null)?.executor ?? null }
+}
+
+function stillHeld(db: DatabaseSync, row: HeldWithHolder): LeaseRow | null {
+  const current = rowOf(db, row.task_key)
+  return current !== undefined && current.state === LEASED && current.lease_gen === row.lease_gen ? current : null
+}
+
+function renewedForTheExecutor(db: DatabaseSync, ts: string, row: HeldWithHolder, executor: OpenExecutor): boolean {
+  if (Date.parse(row.lease_until) - LEASE_MS + RENEW_MS > Date.parse(ts))
+    return false
+  return inTransaction(db, () => {
+    const current = stillHeld(db, row)
+    if (current !== null)
+      appendedAndReduced(db, taskEvent(ts, TASK_RENEWED, renewedByTheSupervisorFor(Number(executor.pid)), current, current.lease_gen, `${TASK_RENEWED}:${current.task_key}:${current.lease_gen}:${ts}`))
+    return current !== null
+  })
+}
+
+function returnedAfterTheSignal(db: DatabaseSync, ts: string, row: HeldWithHolder, executor: OpenExecutor): boolean {
+  return inTransaction(db, () => {
+    const current = stillHeld(db, row)
+    if (current === null)
+      return false
+    appendEvent(db, { ts, type: CHILD_ENDED, actor: QUEUE_ACTOR, cardId: null, pr: null, head: null, dedupeKey: `${CHILD_ENDED}:${executor.instance}:${executor.pid}:${current.task_key}`, payload: { instance: executor.instance, pid: Number(executor.pid), task_key: current.task_key, exit: null, signal: executor.signal }, legacy: false })
+    appendedAndReduced(db, taskEvent(ts, TASK_RELEASED, QUEUE_ACTOR, current, current.lease_gen, `${TASK_RELEASED}:${current.task_key}:${current.lease_gen}`, { reason: RESTART_CUT }))
+    return true
+  })
+}
+
 function holderAlarm(db: DatabaseSync, ts: string, row: HeldWithHolder, reason: typeof WORKER_HUNG | typeof HOLDER_UNPROVEN, detail: string): boolean {
   return appendEvent(db, { ts, type: BOARD_ALARM, actor: QUEUE_ACTOR, cardId: row.card_id, pr: row.pr, head: row.head, dedupeKey: `${BOARD_ALARM}:${reason}:${row.task_key}:${row.lease_gen}`, payload: { reason, lease: row.task_key, lease_gen: row.lease_gen, worker: row.holder, detail }, legacy: false })
 }
 
 export function judgeHolders(db: DatabaseSync, ts: string, startOf: ProcessStartOf, silentMs: number): HolderReading {
   const reading: HolderReading = { freed: [], hung: [], unproven: [] }
+  const renewed: string[] = []
+  const returned: string[] = []
   for (const row of db.prepare(LEASES_WITH_THEIR_HOLDER).all() as unknown as HeldWithHolder[]) {
     const start = recordedStart(row.start)
     const verdict = verdictOn(start, startOf)
-    if (verdict === 'dead' && releasedFromTheDead(db, ts, row, silentMs))
+    const run = verdict === 'dead' ? executorVerdict(openExecutors(db, row), startOf) : null
+    if (run?.verdict === 'alive' && renewedForTheExecutor(db, ts, row, run.executor!))
+      renewed.push(row.task_key)
+    if (run?.verdict === 'unproven' && holderAlarm(db, ts, row, HOLDER_UNPROVEN, `${row.holder} has ended and the executor pid ${run.executor!.pid} of ${row.task_key} cannot be read in the process table; whether it is alive cannot be proven, so the lease is not freed`))
+      reading.unproven.push(row.task_key)
+    if (run?.verdict === 'dead' && run.executor !== null && returnedAfterTheSignal(db, ts, row, run.executor))
+      returned.push(row.task_key)
+    if ((run?.verdict === 'none' || (run?.verdict === 'dead' && run.executor === null)) && releasedFromTheDead(db, ts, row, silentMs))
       reading.freed.push(row.task_key)
     if (verdict === 'alive' && silentSince(row, ts, silentMs) && holderAlarm(db, ts, row, WORKER_HUNG, `${row.holder} (pid ${start!.pid}) is running and has not renewed ${row.task_key} for ${silentMs / 60_000} min; the lease stays with it`))
       reading.hung.push(row.task_key)
     if (verdict === 'unproven' && silentSince(row, ts, silentMs) && holderAlarm(db, ts, row, HOLDER_UNPROVEN, `${row.holder} holds ${row.task_key} with ${start === null ? 'no worker.started record' : `pid ${start.pid} unreadable`}; whether it is alive cannot be proven, so the lease is not freed`))
       reading.unproven.push(row.task_key)
   }
-  return reading
+  return { ...reading, ...renewed.length === 0 ? {} : { renewed }, ...returned.length === 0 ? {} : { returned } }
 }
 
 export interface Retirement {
@@ -511,8 +592,6 @@ export function retiringPids(db: DatabaseSync): Set<number> {
 export function leasedByRetiring(db: DatabaseSync, queue: Queue): number {
   return heldByRetiring(db).filter(row => row.queue === queue).length
 }
-
-export const RESTART_CUT = 'restart_cut'
 
 const RESTART_SIGNALLED_A_CHILD_OF_THE_LEASE = `
   SELECT 1 FROM events AS leased JOIN events AS restart ON restart.id > leased.id
