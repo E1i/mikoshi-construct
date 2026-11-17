@@ -174,6 +174,13 @@ describe('a gate command is recognised inside any shell line', () => {
     expect(gateInShellLine(`${TYPECHECK} || echo failed | tail`, GATE)).toEqual({ gate: TYPECHECK, piped: true, pipefail: false })
   })
 
+  it('a gate declared with a trailing stream merge and run exactly as declared is recorded as a gate run', () => {
+    const declaredWithMerge = `${TYPECHECK} 2>&1`
+
+    expect(gateInShellLine(declaredWithMerge, [declaredWithMerge, PREPUSH_ROUND])).toEqual({ gate: declaredWithMerge, piped: false, pipefail: false })
+    expect(gateInShellLine(`cd /t; ${declaredWithMerge} | tail`, [declaredWithMerge])).toEqual({ gate: declaredWithMerge, piped: true, pipefail: false })
+  })
+
   it('a line that only mentions the gate is not recorded as a gate run', () => {
     const timer = timerAfter([{ command: 'grep prepush.ts notes.md' }, { command: `echo ${TYPECHECK}` }, { command: TYPECHECK }, { command: PREPUSH_PIPED_FROM_A_CD, background: true, content: BACKGROUND_START }])
 
