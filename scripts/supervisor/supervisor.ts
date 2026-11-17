@@ -38,10 +38,10 @@ import { BusSnapshot } from './bus-snapshot.js'
 import { busProjections, recordOwnStart } from './composition.js'
 import { freeLeasesOf, judgedLeaseLines, workerKindsOf } from './executor-lease.js'
 import { DRAIN_LIMIT_MS, DRAIN_WHY, GenerationHandover, recordRestarted, RETIRING_WORKERS } from './generation-handover.js'
-import { CARD_PROCESS, lastProcessBeats, recordProcessHeartbeat } from './heartbeat.js'
+import { CARD_PROCESS, lastProcessBeats, ownStart, recordProcessHeartbeat, retiredRowsLines, retirePreviousGeneration } from './heartbeat.js'
 import { beatsLive, SILENT_MS } from './liveness-sites.js'
 import { installedGeneration, ownPackage } from './package-generation.js'
-import { generationEnv, identifiedOnBus, identifiedProcesses, readableRows, runningAs } from './recorded-worker.js'
+import { generationEnv, identifiedOnBus, identifiedProcesses, readableRows, recordedPidLives, runningAs } from './recorded-worker.js'
 import { busShadowProblems, startReviewWorker } from './review-bg.js'
 import { NOTHING_RECORDED, recordedThenSent, RESTART_WHY, signalLog, stopSending } from './signal-sent.js'
 import { stampLogOutput } from './stamp.js'
@@ -1002,7 +1002,7 @@ async function supervise(busDir: string, cwd: string, reviewPreflight: () => str
   const start = (launch: DetachedLaunch): BgResult => nodes.started(launch, startReviewWorker(launch, busDir, generationEnv(generation), processes))
   const wanted = (): DetachedLaunch[] => nodes.held() ? [] : wantedLaunches(busDir, reviewPreflight, inForceDecisions(db))
   recordOwnStart(db, 'supervisor')
-  foreignBusLines(groupedPsList()(), ownPackage()).forEach(line => console.log(line))
+  foreignBusLines(groupedPsList()(), ownPackage()).concat(retiredRowsLines(PREFIX, retirePreviousGeneration(db, ownStart().started, new Date().toISOString(), pid => !recordedPidLives(pid)))).forEach(line => console.log(line))
   recordStarted(db, new Date().toISOString(), code, line => console.log(line))
   const supervisor = new BusSupervisor({
     known: busLaunches(reviewPreflight),

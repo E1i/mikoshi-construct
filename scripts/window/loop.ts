@@ -67,7 +67,9 @@ export interface SessionEnd {
   signal: NodeJS.Signals | null
 }
 
-export type PauseEnd = 'elapsed' | 'ctrl-c'
+export type PauseEnd = 'elapsed' | 'ctrl-c' | 'double-ctrl-c'
+
+const DOUBLE_CTRL_C_LINE = `${PREFIX}double Ctrl+C during the session: no next session`
 
 export interface MikoLoopDeps {
   status: () => Status | null | undefined
@@ -233,18 +235,23 @@ export function sessionCtrlCsStillInFlight(end: SessionEnd, pressesSeenDuringSes
 }
 
 export function sessionAndPauseSharingCtrlCs(
-  ctrlC: { presses: () => number },
+  ctrlC: { presses: () => number, seen: () => boolean },
   runSession: (prompt: string | undefined) => Promise<SessionEnd>,
 ): Pick<MikoLoopDeps, 'session' | 'pause'> {
   let sessionCtrlCs = 0
+  let sessionEndedOnItsOwn = false
   return {
     session: async (prompt) => {
       const pressesBefore = ctrlC.presses()
       const end = await runSession(prompt)
       sessionCtrlCs = sessionCtrlCsStillInFlight(end, ctrlC.presses() - pressesBefore)
+      sessionEndedOnItsOwn = end.signal !== 'SIGINT'
       return end
     },
-    pause: ms => pauseUntilCtrlC(ms, sessionCtrlCs),
+    pause: async (ms) => {
+      const end = await pauseUntilCtrlC(ms, sessionCtrlCs)
+      return end === 'ctrl-c' && sessionEndedOnItsOwn && ctrlC.seen() ? 'double-ctrl-c' : end
+    },
   }
 }
 
@@ -265,7 +272,7 @@ async function sessionsUntilTheWindowEnds(deps: MikoLoopDeps): Promise<number> {
     const before = deps.handoffMtime()
     const end = await deps.session(prompt)
     if (deps.doubleCtrlC()) {
-      deps.err(`${PREFIX}double Ctrl+C during the session: no next session`)
+      deps.err(DOUBLE_CTRL_C_LINE)
       return 0
     }
     if (didNotStart(end)) {
@@ -282,7 +289,12 @@ async function sessionsUntilTheWindowEnds(deps: MikoLoopDeps): Promise<number> {
       return 0
     }
     deps.err(`${PREFIX}STATUS: CONTINUE: next session in ${PAUSE_MS / 1000}s, Ctrl+C now stops the loop`)
-    if (await deps.pause(PAUSE_MS) === 'ctrl-c') {
+    const paused = await deps.pause(PAUSE_MS)
+    if (paused === 'double-ctrl-c') {
+      deps.err(DOUBLE_CTRL_C_LINE)
+      return 0
+    }
+    if (paused === 'ctrl-c') {
       deps.err(`${PREFIX}Ctrl+C in the pause: no next session`)
       return 0
     }

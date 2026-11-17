@@ -209,6 +209,78 @@
     })
     return used
   }
+  const replay = (node, name) => {
+    if (typeof node.classList.remove === 'function') {
+      node.classList.remove(name)
+      void node.offsetWidth
+    }
+    node.classList.add(name)
+  }
+  const KEYS = ['id', 'data-card', 'data-agents', 'data-task', 'data-lane', 'data-slot-queue', 'data-family', 'data-event', 'data-node', 'data-cell', 'data-open']
+  const keyOf = (node) => {
+    if (node.nodeType !== 1)
+      return null
+    const name = KEYS.find(attribute => node.hasAttribute(attribute))
+    return name === undefined ? null : `${node.nodeName}|${name}=${node.getAttribute(name)}`
+  }
+  const syncAttributes = (node, next) => {
+    Array.from(node.attributes).forEach((attribute) => {
+      if (!next.hasAttribute(attribute.name))
+        node.removeAttribute(attribute.name)
+    })
+    Array.from(next.attributes).forEach((attribute) => {
+      if (node.getAttribute(attribute.name) !== attribute.value)
+        node.setAttribute(attribute.name, attribute.value)
+    })
+  }
+  const patchNode = (node, next) => {
+    if (node.nodeType !== 1) {
+      if (node.nodeValue !== next.nodeValue)
+        node.nodeValue = next.nodeValue
+      return
+    }
+    syncAttributes(node, next)
+    patchChildren(node, next)
+  }
+  const reusable = (node, next) => node !== null && node.nodeType === next.nodeType && node.nodeName === next.nodeName && keyOf(node) === null
+  function patchChildren(parent, next) {
+    const keyed = new Map()
+    Array.from(parent.childNodes).forEach((child) => {
+      const key = keyOf(child)
+      if (key !== null && !keyed.has(key))
+        keyed.set(key, child)
+    })
+    let cursor = parent.firstChild
+    Array.from(next.childNodes).forEach((incoming) => {
+      const key = keyOf(incoming)
+      const match = key === null ? (reusable(cursor, incoming) ? cursor : null) : keyed.get(key) || null
+      if (key !== null)
+        keyed.delete(key)
+      if (match === null) {
+        parent.insertBefore(incoming, cursor)
+        return
+      }
+      if (match === cursor)
+        cursor = cursor.nextSibling
+      else
+        parent.insertBefore(match, cursor)
+      patchNode(match, incoming)
+    })
+    while (cursor !== null) {
+      const after = cursor.nextSibling
+      cursor.remove()
+      cursor = after
+    }
+  }
+  const patch = (slot, html) => {
+    const template = document.createElement('template')
+    template.innerHTML = html
+    if (!template.content || !slot.childNodes) {
+      slot.innerHTML = html
+      return
+    }
+    patchChildren(slot, template.content)
+  }
   const markSlots = (before) => {
     document.querySelectorAll('[data-slot-queue]').forEach((row) => {
       const was = before[row.dataset.slotQueue]
@@ -217,9 +289,9 @@
         return
       row.querySelectorAll('[data-seg]').forEach((segment, index) => {
         if (index >= was && index < now)
-          segment.classList.add('seg-in')
+          replay(segment, 'seg-in')
         if (index >= now && index < was)
-          segment.classList.add('seg-out')
+          replay(segment, 'seg-out')
       })
     })
   }
@@ -236,10 +308,10 @@
       return
     const bars = strip.querySelectorAll('[data-flow-bar]')
     strip.style.setProperty('--_shift', String(Math.min(shift, bars.length)))
-    strip.classList.add('flow-shift')
+    replay(strip, 'flow-shift')
     const newest = bars[bars.length - 1]
     if (newest)
-      newest.classList.add('flow-new')
+      replay(newest, 'flow-new')
   }
   const familyReadings = () => {
     const ranks = {}
@@ -268,21 +340,11 @@
       const was = before[family]
       seen[family] = true
       if (!was) {
-        row.classList.add('rank-in')
+        replay(row, 'rank-in')
         return
       }
-      const rank = Number(row.dataset.rank)
-      const share = Number(row.dataset.share)
-      if (was.rank !== rank) {
-        row.style.setProperty('--_was-rank', String(was.rank))
-        row.classList.add('rank-move')
-      }
-      if (was.share !== share) {
-        row.style.setProperty('--_was-share', `${was.share}%`)
-        row.classList.add('share-move')
-      }
-      if (share > was.share)
-        row.classList.add('share-up')
+      if (Number(row.dataset.share) > was.share)
+        replay(row, 'share-up')
     })
     Object.keys(before).forEach((family) => {
       if (!seen[family])
@@ -297,7 +359,7 @@
     Object.keys(board.slots).forEach((name) => {
       const slot = document.getElementById(names.slotPrefix + name)
       if (slot && typeof board.slots[name] === 'string')
-        slot.innerHTML = board.slots[name]
+        patch(slot, board.slots[name])
     })
     markSlots(before)
     shiftFlow(minute)
