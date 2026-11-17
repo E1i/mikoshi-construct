@@ -25,6 +25,7 @@
   --edge: 1px;
   --head-block-size: 1.875rem;
   --font-size-gauge: 0.65rem;
+  --dot-pulse: --animation-blink 1.6s steps(1) infinite;
 }
 * { box-sizing: border-box; }
 body {
@@ -162,12 +163,28 @@ header.panel::before { --_sweep: oklch(from var(--wire) l c h / 0.5); animation:
   color: var(--_state);
   font: 700 0.72rem var(--font-display);
   letter-spacing: 0.12em;
+  &::before { content: "\25CF"; display: inline-block; margin-inline-end: 0.35em; animation: var(--dot-pulse); }
   &[data-state="waiting"] { --_state: var(--amber); }
-  &[data-state="over"] { --_state: var(--signal); }
+  &[data-state="over"] { --_state: var(--signal); &::before { animation: none; } }
 }
 .term { display: grid; gap: 0.15rem; padding: var(--space-xs) var(--space-s); background: var(--void); border: var(--edge) solid var(--line); }
 .term-cap { color: var(--dim); font-size: 0.6rem; letter-spacing: 0.12em; }
-.term-cmd { margin: 0; color: var(--text); font: 0.72rem var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; block-size: 6lh; overflow-y: auto; overscroll-behavior: contain; }
+.term-cmd {
+  margin: 0;
+  color: var(--text);
+  font: 0.72rem var(--font-mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  block-size: 6lh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
+  &::-webkit-scrollbar { inline-size: 5px; block-size: 5px; }
+  &::-webkit-scrollbar-track { background: transparent; }
+  &::-webkit-scrollbar-thumb { background: var(--line); }
+  &::-webkit-scrollbar-thumb:hover { background: var(--dim); }
+}
 .term-cursor::after { content: "\2588"; color: var(--wire); margin-inline-start: 0.2em; }
 .round-steps {
   display: flex;
@@ -203,7 +220,14 @@ header.panel::before { --_sweep: oklch(from var(--wire) l c h / 0.5); animation:
 }
 .crawler-top { display: flex; justify-content: space-between; gap: var(--space-xs); min-width: 0; }
 .crawler-name { font-weight: 700; letter-spacing: 0.08em; }
-.crawler-chip { padding: 0 0.3rem; border: 1px solid var(--_chip); color: var(--_chip); font: 700 0.6rem var(--font-display); letter-spacing: 0.12em; }
+.crawler-chip {
+  padding: 0 0.3rem;
+  border: 1px solid var(--_chip);
+  color: var(--_chip);
+  font: 700 0.6rem var(--font-display);
+  letter-spacing: 0.12em;
+  &::before { content: "\25CF"; display: inline-block; margin-inline-end: 0.3em; animation: var(--dot-pulse); }
+}
 .crawler-what, .crawler-use { color: var(--dim); }
 .crawler-use { font-family: var(--font-mono); font-size: 0.65rem; }
 .crawlers-flatline { display: grid; justify-items: center; gap: var(--space-xs); padding: var(--space-m) var(--space-s); }
@@ -225,22 +249,57 @@ header.panel::before { --_sweep: oklch(from var(--wire) l c h / 0.5); animation:
 .bus-title { color: var(--_state); font: 700 0.85rem var(--font-display); letter-spacing: 0.16em; }
 .bus-pulse { color: var(--_state); font-size: 0.7rem; letter-spacing: 0.1em; }
 .bus-meta { margin-inline-start: auto; color: var(--dim); font-size: 0.7rem; }
-.bus-body { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: var(--space-s); }
-.bus-cell { display: grid; align-content: start; gap: var(--space-xs); padding: var(--space-s); font-size: 0.7rem; }
+.bus-body { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); grid-auto-rows: 1fr; gap: var(--space-s); }
+.bus-cell { display: grid; grid-template-rows: auto minmax(0, 1fr); gap: var(--space-xs); padding: var(--space-s); font-size: 0.7rem; }
+.bus-cell[data-cell="flow"] { grid-template-rows: auto auto minmax(2.5rem, 1fr); }
+.bus-cell:is([data-cell="families"], [data-cell="recent"]) > :not(.bus-cell-head) { align-self: center; }
 .bus-cell-head { color: var(--amber); font: 700 0.65rem var(--font-display); letter-spacing: 0.16em; }
 .flow-rate b { color: var(--wire); font: 700 1.1rem var(--font-display); }
-.flow-bars { display: flex; align-items: end; gap: 1px; block-size: 2.5rem; }
+.flow-strip { overflow: clip; min-block-size: 2.5rem; }
+.flow-bars { display: flex; justify-content: end; align-items: end; gap: 1px; block-size: 100%; }
+.flow-bars.flow-shift { animation: --animation-flow-shift 0.7s ease-out 1; }
 .flow-bar { flex: 1; block-size: max(1px, var(--_h)); background: var(--wire); }
-:is(.bus-families, .bus-health, .bus-slots, .bus-recent) { display: grid; gap: 0.2rem; margin: 0; padding: 0; list-style: none; }
+.flow-bar.flow-new { animation: --animation-flow-new 1.4s ease-out 1; }
+:is(.bus-families, .bus-health, .bus-slots, .bus-recent) { display: grid; align-content: start; gap: 0.2rem; margin: 0; padding: 0; list-style: none; }
 :is(.bus-families, .bus-health, .bus-slots, .bus-recent) li { display: flex; gap: var(--space-s); justify-content: space-between; align-items: center; min-inline-size: 0; }
+.bus-families {
+  --_row: 1.35rem;
+  position: relative;
+  display: block;
+  block-size: calc(var(--_rows, 1) * var(--_row));
+  & li {
+    position: absolute;
+    inset-inline: 0;
+    top: calc(var(--_rank) * var(--_row));
+    display: grid;
+    grid-template-columns: minmax(4rem, 1fr) minmax(0, 2fr) 2.75rem;
+    block-size: var(--_row);
+  }
+  & li > span:first-child { min-inline-size: 0; overflow-wrap: anywhere; }
+  & b { text-align: end; }
+  & li.rank-move { animation: --animation-rank-move 0.7s ease-out 1; }
+  & li.rank-in { animation: --animation-rank-in 0.7s ease-out 1; }
+  & li.rank-out { opacity: 0; animation: --animation-rank-out 0.7s ease-in 1; }
+  & li.share-up b { animation: --animation-share-up 1s ease-out 1; }
+}
+.family-bar {
+  position: relative;
+  block-size: 0.4rem;
+  background: var(--line);
+  &::before { content: ""; position: absolute; inset: 0 auto 0 0; inline-size: var(--_share); background: var(--wire); }
+}
+.share-move .family-bar::before { animation: --animation-share-grow 0.7s ease-out 1; }
 :is(.bus-health, .bus-recent) li { --cut: 0.4rem; padding: 0.15rem 0.4rem; }
 .bus-health li {
   --_frame: var(--_health);
   --_health: var(--ok);
   & b { color: var(--_health); font-weight: 600; }
+  & > span::before { content: "\25CF"; margin-inline-end: 0.35em; color: var(--_health); animation: var(--dot-pulse); }
   &[data-health="yellow"] { --_health: var(--amber); }
-  &[data-health="red"] { --_health: var(--signal); }
+  &[data-health="red"] { --_health: var(--signal); & > span::before { animation: none; } }
 }
+.pulse-dot { display: inline-block; animation: var(--dot-pulse); }
+.bus-panel[data-down] .pulse-dot { animation: none; }
 .bus-recent .when { color: var(--dim); }
 .bus-recent li > span:nth-child(2) { flex: 1; min-inline-size: 0; overflow-wrap: anywhere; }
 .bus-slots li {
@@ -663,9 +722,18 @@ code { padding: 0 0.25rem; background: var(--panel-raised); color: var(--text); 
 @keyframes --animation-bus-pulse { from { transform: scale(0.6); opacity: 1; } to { transform: scale(1.4); opacity: 0; } }
 @keyframes --animation-seg-in { 0% { opacity: 0; } 15% { opacity: 0.6; } 22% { opacity: 0.1; } 40% { opacity: 0.8; } 48% { opacity: 0.3; } 100% { opacity: 1; } }
 @keyframes --animation-seg-out { 0% { background: var(--_seg); } 50% { background: var(--line); } }
+@keyframes --animation-flow-shift { from { transform: translateX(calc(100% * var(--_shift, 0) / var(--_bars, 1))); } }
+@keyframes --animation-flow-new { from { background: var(--text); box-shadow: 0 0 0.5rem var(--wire); } }
+@keyframes --animation-rank-move { from { top: calc(var(--_was-rank) * var(--_row)); } }
+@keyframes --animation-rank-in { from { opacity: 0; } }
+@keyframes --animation-rank-out { from { opacity: 1; } }
+@keyframes --animation-share-grow { from { inline-size: var(--_was-share); } }
+@keyframes --animation-share-up { from, 60% { color: var(--ok); text-shadow: 0 0 0.4rem var(--ok); } }
 @media (prefers-reduced-motion: reduce) {
   .banner, .live::before, .statusline .cursor::after { animation: none; }
   .bus-emblem-ring, .slot-segs i.seg-in, .slot-segs i.seg-out { animation: none; }
+  .flow-bars.flow-shift, .flow-bar.flow-new, .bus-families li:is(.rank-move, .rank-in, .rank-out), .bus-families li.share-up b, .share-move .family-bar::before { animation: none; }
+  .pulse-dot, .bus-health li > span::before, .svc-state::before, .crawler-chip::before { animation: none; }
   .svc .svc-agents::before { transition: none; }
   header.panel::before, .warning-strip::before, .owner-strip::before, dialog.drill[open]::before { --_sweep: transparent; animation: none; }
 }
