@@ -1,12 +1,13 @@
 import type { DatabaseSync } from 'node:sqlite'
-import type { StoredEvent } from '../core/stored.js'
+import type { StoredEvent } from '../core/stored-event.js'
 import { CARD_PLANNED, CARD_UNPLANNED, CLOSED_PLAN, OPEN_PLAN, PLAN_BACKFILLED, PLAN_CLOSED, PLAN_ITEM_ADDED, PLAN_ITEM_LINKED, PLAN_ITEM_REMOVED, PLAN_OPENED } from '../core/events.js'
 import { cardIdOf } from '../core/identifiers.js'
-import { payloadOf, reject } from '../core/stored.js'
+import { reject } from '../core/stored-event.js'
 
-export interface PlanActors {
+export interface PlanParts {
   owner: string
   recut: string
+  payloadOf: (event: StoredEvent) => Record<string, unknown>
 }
 
 function planText(payload: Record<string, unknown>, field: string): string {
@@ -18,16 +19,16 @@ function actorOf(db: DatabaseSync, event: StoredEvent): string | null {
   return (db.prepare('SELECT actor FROM events WHERE id = ?').get(event.id) as { actor: string | null }).actor
 }
 
-function ownersPayload(db: DatabaseSync, event: StoredEvent, actors: PlanActors): Record<string, unknown> {
+function ownersPayload(db: DatabaseSync, event: StoredEvent, parts: PlanParts): Record<string, unknown> {
   const actor = actorOf(db, event)
-  return actor === actors.owner ? payloadOf(event) : reject(`${event.type} is the owner's, not ${actor}'s`)
+  return actor === parts.owner ? parts.payloadOf(event) : reject(`${event.type} is the owner's, not ${actor}'s`)
 }
 
-function recutLinkPayload(db: DatabaseSync, event: StoredEvent, actors: PlanActors): Record<string, unknown> | null {
-  if (actorOf(db, event) !== actors.recut)
+function recutLinkPayload(db: DatabaseSync, event: StoredEvent, parts: PlanParts): Record<string, unknown> | null {
+  if (actorOf(db, event) !== parts.recut)
     return null
-  const payload = payloadOf(event)
-  return cardIdOf(payload.recut_of) === null ? reject(`${event.type} by ${actors.recut} names no recut_of card`) : payload
+  const payload = parts.payloadOf(event)
+  return cardIdOf(payload.recut_of) === null ? reject(`${event.type} by ${parts.recut} names no recut_of card`) : payload
 }
 
 function openPlanId(db: DatabaseSync, payload: Record<string, unknown>, field = 'plan'): string {
@@ -57,8 +58,8 @@ function backfilledCards(payload: Record<string, unknown>): number[] {
   return cards.length > 0 && cards.every(card => card !== null) ? cards as number[] : reject('cards is not a list of card numbers')
 }
 
-function planOpened(db: DatabaseSync, event: StoredEvent, actors: PlanActors): void {
-  const payload = ownersPayload(db, event, actors)
+function planOpened(db: DatabaseSync, event: StoredEvent, parts: PlanParts): void {
+  const payload = ownersPayload(db, event, parts)
   const planId = planText(payload, 'id')
   if (db.prepare('SELECT 1 FROM plans WHERE plan_id = ?').get(planId) !== undefined)
     reject(`plan ${planId} was opened before`)
@@ -67,8 +68,8 @@ function planOpened(db: DatabaseSync, event: StoredEvent, actors: PlanActors): v
     .run(planId, planText(payload, 'title'), planText(payload, 'goal'), planText(payload, 'plan_file'), OPEN_PLAN, event.id, gate)
 }
 
-function cardPlanned(db: DatabaseSync, event: StoredEvent, actors: PlanActors): void {
-  const payload = recutLinkPayload(db, event, actors) ?? ownersPayload(db, event, actors)
+function cardPlanned(db: DatabaseSync, event: StoredEvent, parts: PlanParts): void {
+  const payload = recutLinkPayload(db, event, parts) ?? ownersPayload(db, event, parts)
   const release = openPlanId(db, payload, 'release')
   const cardId = event.card_id ?? reject(`${event.type} needs a card_id`)
   if (releaseOf(db, cardId) === release)
@@ -76,16 +77,16 @@ function cardPlanned(db: DatabaseSync, event: StoredEvent, actors: PlanActors): 
   putIntoRelease(db, cardId, release, event.id)
 }
 
-function cardUnplanned(db: DatabaseSync, event: StoredEvent, actors: PlanActors): void {
-  ownersPayload(db, event, actors)
+function cardUnplanned(db: DatabaseSync, event: StoredEvent, parts: PlanParts): void {
+  ownersPayload(db, event, parts)
   const cardId = event.card_id ?? reject(`${event.type} needs a card_id`)
   if (releaseOf(db, cardId) === null)
     reject(`card ${cardId} is in no release`)
   db.prepare('DELETE FROM card_releases WHERE card_id = ?').run(cardId)
 }
 
-function planBackfilled(db: DatabaseSync, event: StoredEvent, actors: PlanActors): void {
-  const payload = ownersPayload(db, event, actors)
+function planBackfilled(db: DatabaseSync, event: StoredEvent, parts: PlanParts): void {
+  const payload = ownersPayload(db, event, parts)
   const planId = openPlanId(db, payload)
   const gate = planText(payload, 'gate')
   const cards = backfilledCards(payload)
@@ -94,8 +95,8 @@ function planBackfilled(db: DatabaseSync, event: StoredEvent, actors: PlanActors
     putIntoRelease(db, cardId, planId, event.id)
 }
 
-function planItemAdded(db: DatabaseSync, event: StoredEvent, actors: PlanActors): void {
-  const payload = ownersPayload(db, event, actors)
+function planItemAdded(db: DatabaseSync, event: StoredEvent, parts: PlanParts): void {
+  const payload = ownersPayload(db, event, parts)
   const planId = openPlanId(db, payload)
   const itemId = planText(payload, 'item')
   if (db.prepare('SELECT 1 FROM plan_items WHERE plan_id = ? AND item_id = ?').get(planId, itemId) !== undefined)
@@ -104,8 +105,8 @@ function planItemAdded(db: DatabaseSync, event: StoredEvent, actors: PlanActors)
     .run(planId, itemId, planText(payload, 'title'), '[]', event.id)
 }
 
-function planItemLinked(db: DatabaseSync, event: StoredEvent, actors: PlanActors): void {
-  const payload = recutLinkPayload(db, event, actors) ?? ownersPayload(db, event, actors)
+function planItemLinked(db: DatabaseSync, event: StoredEvent, parts: PlanParts): void {
+  const payload = recutLinkPayload(db, event, parts) ?? ownersPayload(db, event, parts)
   const planId = openPlanId(db, payload)
   const itemId = planText(payload, 'item')
   const cardId = cardIdOf(payload.card) ?? reject('card is not a card number')
@@ -115,29 +116,29 @@ function planItemLinked(db: DatabaseSync, event: StoredEvent, actors: PlanActors
   db.prepare('UPDATE plan_items SET cards = ?, event_id = ? WHERE plan_id = ? AND item_id = ?').run(JSON.stringify([...cards, cardId]), event.id, planId, itemId)
 }
 
-function planItemRemoved(db: DatabaseSync, event: StoredEvent, actors: PlanActors): void {
-  const payload = ownersPayload(db, event, actors)
+function planItemRemoved(db: DatabaseSync, event: StoredEvent, parts: PlanParts): void {
+  const payload = ownersPayload(db, event, parts)
   const planId = openPlanId(db, payload)
   const itemId = planText(payload, 'item')
   itemCards(db, planId, itemId)
   db.prepare('DELETE FROM plan_items WHERE plan_id = ? AND item_id = ?').run(planId, itemId)
 }
 
-function planClosed(db: DatabaseSync, event: StoredEvent, actors: PlanActors): void {
-  const planId = openPlanId(db, ownersPayload(db, event, actors))
+function planClosed(db: DatabaseSync, event: StoredEvent, parts: PlanParts): void {
+  const planId = openPlanId(db, ownersPayload(db, event, parts))
   db.prepare('UPDATE plans SET state = ?, event_id = ? WHERE plan_id = ?').run(CLOSED_PLAN, event.id, planId)
 }
 
-export function foldPlanEvent(db: DatabaseSync, event: StoredEvent, actors: PlanActors): void {
+export function foldPlanEvent(db: DatabaseSync, event: StoredEvent, parts: PlanParts): void {
   switch (event.type) {
-    case PLAN_OPENED: return planOpened(db, event, actors)
-    case PLAN_ITEM_ADDED: return planItemAdded(db, event, actors)
-    case PLAN_ITEM_LINKED: return planItemLinked(db, event, actors)
-    case PLAN_ITEM_REMOVED: return planItemRemoved(db, event, actors)
-    case PLAN_CLOSED: return planClosed(db, event, actors)
-    case CARD_PLANNED: return cardPlanned(db, event, actors)
-    case CARD_UNPLANNED: return cardUnplanned(db, event, actors)
-    case PLAN_BACKFILLED: return planBackfilled(db, event, actors)
+    case PLAN_OPENED: return planOpened(db, event, parts)
+    case PLAN_ITEM_ADDED: return planItemAdded(db, event, parts)
+    case PLAN_ITEM_LINKED: return planItemLinked(db, event, parts)
+    case PLAN_ITEM_REMOVED: return planItemRemoved(db, event, parts)
+    case PLAN_CLOSED: return planClosed(db, event, parts)
+    case CARD_PLANNED: return cardPlanned(db, event, parts)
+    case CARD_UNPLANNED: return cardUnplanned(db, event, parts)
+    case PLAN_BACKFILLED: return planBackfilled(db, event, parts)
     default: reject(`${event.type} is no plan event`)
   }
 }

@@ -3614,11 +3614,13 @@
       "events": {
         "concepts": [],
         "contract": [
-          "scripts/core/events.ts"
+          "scripts/core/events.ts",
+          "scripts/core/stored-event.ts"
         ],
         "may_use": [],
         "owns": [
-          "scripts/core/events.ts"
+          "scripts/core/events.ts",
+          "scripts/core/stored-event.ts"
         ],
         "status": "decided"
       },
@@ -3942,7 +3944,8 @@
           "scripts/nodes/review/pr-rerun.ts",
           "scripts/nodes/review/record-verdict.ts",
           "scripts/nodes/review/dry-run-record.ts",
-          "scripts/core/merge-event.ts"
+          "scripts/core/merge-event.ts",
+          "scripts/core/pr-folds.ts"
         ],
         "may_use": [
           "bus",
@@ -3954,7 +3957,8 @@
           "scripts/nodes/review/pr-rerun.ts",
           "scripts/nodes/review/record-verdict.ts",
           "scripts/nodes/review/dry-run-record.ts",
-          "scripts/core/merge-event.ts"
+          "scripts/core/merge-event.ts",
+          "scripts/core/pr-folds.ts"
         ],
         "status": "decided"
       },
@@ -4358,8 +4362,9 @@
       "scripts/core/legacy-history.ts": 1,
       "scripts/core/node.ts": 4,
       "scripts/core/observations.ts": 6,
+      "scripts/core/pr-folds.ts": 3,
       "scripts/core/queue.ts": 23,
-      "scripts/core/reducer.ts": 10,
+      "scripts/core/reducer.ts": 4,
       "scripts/core/report.ts": 5,
       "scripts/core/stored.ts": 1,
       "scripts/core/tasks.ts": 3,
@@ -4404,6 +4409,7 @@
       "scripts/nodes/witness/witness-candidates.ts": 5,
       "scripts/nodes/witness/witness-executor.ts": 3,
       "scripts/policy/decisions/index.ts": 16,
+      "scripts/policy/decisions/wait-folds.ts": 1,
       "scripts/policy/policy.ts": 3,
       "scripts/policy/round-limit-decision.ts": 9,
       "scripts/policy/shards.ts": 3,
@@ -4415,6 +4421,7 @@
       "scripts/release/evidence.ts": 2,
       "scripts/supervisor/bus-heal.ts": 3,
       "scripts/supervisor/bus-snapshot.ts": 2,
+      "scripts/supervisor/card-waits.ts": 2,
       "scripts/supervisor/derive-queues.ts": 20,
       "scripts/supervisor/heartbeat.ts": 3,
       "scripts/supervisor/run.ts": 1,
@@ -4468,7 +4475,6 @@
     "owner-decisions": {
       "scripts/core/bus-path.ts": 1,
       "scripts/core/inbox.ts": 1,
-      "scripts/core/reducer.ts": 1,
       "scripts/nodes/answer/answer-source.ts": 1,
       "scripts/nodes/launch/launch-candidates.ts": 1
     },
@@ -5781,7 +5787,11 @@
           "knownOpenPrs": "(db: DatabaseSync): number[]",
           "lastMain": "(db: DatabaseSync): string | null",
           "lastObserved": "(db: DatabaseSync, pr: number): PreviousObservation | null",
-          "pollLine": "(poll: Poll): string"
+          "mainAdvanced": "(ts: string, main: MainHead): BusEvent",
+          "observationsOf": "(ts: string, snapshot: Snapshot, previousOf: PreviousObservationOf, reopening: ReopeningOf = () => null): BusEvent[]",
+          "pollLine": "(poll: Poll): string",
+          "prClosed": "(ts: string, closed: ClosedPr, reopening: number | null = null): BusEvent",
+          "prObserved": "(ts: string, open: OpenPr, previous: PreviousObservation | null): BusEvent"
         },
         "language": "technology",
         "reexports": [],

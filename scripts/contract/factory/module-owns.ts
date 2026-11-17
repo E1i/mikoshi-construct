@@ -76,6 +76,7 @@ export const MODULE_OWNS: Readonly<Record<string, readonly string[]>> = {
   ],
   'events': [
     `${FACTORY_ROOT}/core/events.ts`,
+    `${FACTORY_ROOT}/core/stored-event.ts`,
   ],
   'factory-contract': [
     `${FACTORY_ROOT}/contract/contours.ts`,
@@ -149,6 +150,7 @@ export const MODULE_OWNS: Readonly<Record<string, readonly string[]>> = {
     `${FACTORY_ROOT}/nodes/review/record-verdict.ts`,
     `${FACTORY_ROOT}/nodes/review/dry-run-record.ts`,
     `${FACTORY_ROOT}/core/merge-event.ts`,
+    `${FACTORY_ROOT}/core/pr-folds.ts`,
   ],
   'project': [
     'src/commands/attach/**',

@@ -1,23 +1,9 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { StoredEvent } from './stored-event.js'
+import { reject } from './stored-event.js'
 
-export interface StoredEvent {
-  id: number
-  ts: string
-  type: string
-  card_id: number | null
-  pr: number | null
-  head: string | null
-  dedupe_key: string
-  payload: string
-}
-
-export type Fold = (db: DatabaseSync, event: StoredEvent) => void
-
-export class Rejection extends Error {}
-
-export function reject(reason: string): never {
-  throw new Rejection(reason)
-}
+export type { Fold, StoredEvent } from './stored-event.js'
+export { reject, Rejection } from './stored-event.js'
 
 export function payloadOf(event: StoredEvent): Record<string, unknown> {
   try {

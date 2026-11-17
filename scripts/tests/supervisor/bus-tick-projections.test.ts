@@ -3,8 +3,8 @@ import type { Poll } from '../../ports/netwatch.js'
 import { afterEach, describe, expect, it } from 'vitest'
 import { appendEvent, openBus } from '../../core/db.js'
 import { PR_OBSERVED } from '../../core/events.js'
-import { PR_FOLDS } from '../../core/reducer.js'
 import { NetWatch } from '../../ports/netwatch.js'
+import { busPrFolds } from '../../supervisor/composition.js'
 import { BusTick } from '../../supervisor/run.js'
 import { Clock, FakeGitHub } from '../bus/github-fake.js'
 
@@ -35,7 +35,7 @@ describe('the bus tick folds with the projection list it was given', () => {
     const db = openBus(':memory:')
     buses.push(db)
     const clock = new Clock()
-    const tick = new BusTick(db, { folds: [PR_FOLDS], incremental: [] }, new NetWatchThatTicks(db, new FakeGitHub().client, clock.now), clock.now, prObservedBy(db, clock))
+    const tick = new BusTick(db, { folds: [busPrFolds()], incremental: [] }, new NetWatchThatTicks(db, new FakeGitHub().client, clock.now), clock.now, prObservedBy(db, clock))
     expect(tick.run()?.reduced).toEqual({ applied: 1, rejected: 0 })
     expect(db.prepare('SELECT pr, head FROM prs').all().map(row => ({ ...row }))).toEqual([{ pr: PR, head: HEAD }])
   })

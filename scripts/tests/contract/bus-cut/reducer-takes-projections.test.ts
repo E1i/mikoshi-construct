@@ -9,7 +9,8 @@ import { MODULE_GRAPH } from '../../../contract/factory/modules.js'
 import { repositoryReport } from '../../../contract/module-graph/report.js'
 import { appendEvent, BUS_DB_VARIABLE, openBus } from '../../../core/db.js'
 import { PR_OBSERVED } from '../../../core/events.js'
-import { PR_FOLDS, reduce } from '../../../core/reducer.js'
+import { reduce } from '../../../core/reducer.js'
+import { busPrFolds } from '../../../supervisor/composition.js'
 
 const REDUCER = 'scripts/core/reducer.ts'
 const COMPOSITION = 'scripts/supervisor/composition.ts'
@@ -43,7 +44,7 @@ describe('the reducer takes the projections from its caller', () => {
     db = busWithOnePrObserved()
     expect(reduce(db, 'pending', { folds: [], incremental: [] })).toEqual({ applied: 0, rejected: 0 })
     expect(prRows(db)).toEqual([])
-    expect(reduce(db, 'rebuild', { folds: [PR_FOLDS], incremental: [] })).toEqual({ applied: 1, rejected: 0 })
+    expect(reduce(db, 'rebuild', { folds: [busPrFolds()], incremental: [] })).toEqual({ applied: 1, rejected: 0 })
     expect(prRows(db)).toEqual([{ pr: PR, head: HEAD }])
     const { graph } = repositoryReport()
     expect(graph.imports.filter(({ from, to }) => from === REDUCER && (to === 'scripts/core/chain.ts' || to === 'scripts/nodes/restart/role.ts'))).toEqual([])

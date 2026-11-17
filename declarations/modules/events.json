@@ -2,7 +2,8 @@
   "module": "events",
   "layer": "core",
   "paths": [
-    "scripts/core/events.ts"
+    "scripts/core/events.ts",
+    "scripts/core/stored-event.ts"
   ],
   "exclude": [],
   "shared": []

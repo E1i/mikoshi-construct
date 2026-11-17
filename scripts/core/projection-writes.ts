@@ -5,7 +5,7 @@ import { FACTORY_FOLDERS, FACTORY_NAMED, FACTORY_ROOT } from './factory-paths.js
 import { PROJECTION_KEYS } from './reducer.js'
 
 export const KNOWN_WRITES = FACTORY_NAMED.knownProjectionWrites
-export const REDUCER_ENTRIES: readonly string[] = [`${FACTORY_NAMED.busReducer}#reduce`, `${FACTORY_NAMED.busWatermark}#reduceProjection`]
+export const REDUCER_ENTRIES: readonly string[] = [`${FACTORY_NAMED.busReducer}#reduce`, `${FACTORY_NAMED.busWatermark}#reduceProjection`, `${FACTORY_NAMED.busComposition}#busProjections`]
 
 const SCANNED_ROOT = FACTORY_ROOT
 const UNSCANNED = `${FACTORY_FOLDERS.tests[0]}/`
