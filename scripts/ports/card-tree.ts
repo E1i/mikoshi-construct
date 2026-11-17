@@ -1,11 +1,12 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { CardSession } from '../nodes/answer/answer-source.js'
+import type { TreeReading, TreeRun } from './git.js'
 import type { GitHub } from './github.js'
 import { existsSync } from 'node:fs'
 import process from 'node:process'
 import { defaultBusPath } from '../core/db.js'
 import { cardSessionOf, NO_RECORDED_SESSION, openPrOfCard } from '../nodes/answer/answer-source.js'
-import { processGit } from './git.js'
+import { pnpmRerun, processGit, treeReading } from './git.js'
 import { ghApi } from './github.js'
 import { Meter } from './meter.js'
 import { cardTree, taskWorktree, worktreeHome } from './worktree-home.js'
@@ -108,6 +109,13 @@ export function cardlessTreeOf(branch: string, tools: CardTreeTools): string {
   if (!tools.exists(worktree))
     tools.recreate(worktree, branch)
   return worktree
+}
+
+export const DERIVED_BASE = 'origin/main'
+
+export function cardTreeReading(db: DatabaseSync, cardId: number, tools: CardTreeTools = realCardTrees(), run: TreeRun = pnpmRerun): TreeReading | null {
+  const card = cardTreeOf(db, cardId, tools)
+  return card === null ? null : treeReading(git, card.worktree, DERIVED_BASE, run)
 }
 
 export function cardTreeOf(db: DatabaseSync, cardId: number, tools: CardTreeTools): CardSession | null {

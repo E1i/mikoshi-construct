@@ -7,7 +7,7 @@ import type { StoredEvent } from '../../core/stored.js'
 import type { StatusPublisher } from '../../ports/github-status.js'
 import type { GitHub, GitHubPut } from '../../ports/github.js'
 import type { MergeMain } from '../../ports/main-merge.js'
-import type { ThresholdSet, UpdateOutcome } from './update-executor.js'
+import type { DerivedHolds, ThresholdSet, UpdateOutcome } from './update-executor.js'
 import { randomUUID } from 'node:crypto'
 import { realpathSync } from 'node:fs'
 import process from 'node:process'
@@ -24,7 +24,7 @@ import { ghApi, ghApiPost, ghApiPut } from '../../ports/github.js'
 import { mainMergeInCardTree } from '../../ports/main-merge.js'
 import { cardTree } from '../../ports/worktree-home.js'
 import { gitIn } from '../../ports/worktree.js'
-import { nodeLiveness, nodeSupply, ratchetThresholdSets } from '../../supervisor/composition.js'
+import { derivedHolds, nodeLiveness, nodeSupply, ratchetThresholdSets } from '../../supervisor/composition.js'
 import { stampLogOutput } from '../../supervisor/stamp.js'
 import { firstLiveVerdict, NoLiveVerdict } from '../merge/merge-worker.js'
 import { UpdateExecutor } from './update-executor.js'
@@ -54,6 +54,7 @@ export interface UpdateNodeParts {
   mergeMain?: MergeMain
   post?: GitHubPut
   thresholds?: (cardId: number) => readonly ThresholdSet[]
+  derived?: DerivedHolds
 }
 
 function scopeOf(event: StoredEvent): Scope | undefined {
@@ -73,7 +74,7 @@ export class UpdateNode extends Node<UpdateStep> {
 
   constructor(parts: UpdateNodeParts) {
     super('update', { db: parts.db, clock: parts.clock, session: parts.session, mode: parts.mode, env: parts.env, silentMs: parts.silentMs, supply: nodeSupply() })
-    this.executor = new UpdateExecutor({ db: parts.db, gitHub: parts.gitHub, put: parts.put, publish: parts.publish, clock: parts.clock, settle: parts.settle, silentMs: parts.silentMs, pushPolicy: parts.pushPolicy, mergeMain: parts.mergeMain, post: parts.post, thresholds: parts.thresholds })
+    this.executor = new UpdateExecutor({ db: parts.db, gitHub: parts.gitHub, put: parts.put, publish: parts.publish, clock: parts.clock, settle: parts.settle, silentMs: parts.silentMs, pushPolicy: parts.pushPolicy, mergeMain: parts.mergeMain, post: parts.post, thresholds: parts.thresholds, derived: parts.derived })
     this.declare(UPDATE_NODE, scopeOf)
   }
 
@@ -125,7 +126,7 @@ export interface UpdateRun {
 }
 
 export async function runUpdateWorker(argv: string[], run: UpdateRun): Promise<number> {
-  return runNode(argv, 'update', run.busPath, (db, mode) => new UpdateNode({ ...nodeLiveness(), db, gitHub: run.gitHub, put: run.put, publish: run.publish, clock: () => new Date(), settle: run.settle, session: run.session, mode, env: process.env, pushPolicy: run.pushPolicy, mergeMain: run.mergeMain, post: run.post, thresholds: ratchetThresholdSets(db) }), { pause: run.pause, codeSha: loadedCodeSha, supply: nodeSupply() })
+  return runNode(argv, 'update', run.busPath, (db, mode) => new UpdateNode({ ...nodeLiveness(), db, gitHub: run.gitHub, put: run.put, publish: run.publish, clock: () => new Date(), settle: run.settle, session: run.session, mode, env: process.env, pushPolicy: run.pushPolicy, mergeMain: run.mergeMain, post: run.post, thresholds: ratchetThresholdSets(db), derived: derivedHolds(db) }), { pause: run.pause, codeSha: loadedCodeSha, supply: nodeSupply() })
 }
 
 async function main(): Promise<number> {
