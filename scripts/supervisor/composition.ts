@@ -17,12 +17,14 @@ import type { GitHub } from '../ports/github.js'
 import type { PlanParts } from '../window/plan-folds.js'
 import type { CardWaitParts } from './card-waits.js'
 import type { QueuePass } from './derive-queues.js'
+import type { SpoolPlaces } from './gate-run-spool.js'
 import type { SessionMeasure } from './heartbeat.js'
 import { randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
 import process from 'node:process'
 import { PRIORITIES, WINDOW_WHO } from '../../src/card/parking.js'
 import { witnessesOf } from '../../src/commands/intake/admit.js'
+import { GATE_RUN_SPOOL } from '../ci/gate-runs.js'
 import { driftOfRun } from '../ci/weights-law.js'
 import { CARD_FOLDS, cardLinkObserved, cardPrMerged, cardPrOpened, CARDS_PROJECTION } from '../core/card-automaton.js'
 import { admittedCardVersion, backfillPendingSliceParents, cardOfBranch } from '../core/card-bodies.js'
@@ -57,6 +59,7 @@ import { cardTreeReading } from '../ports/card-tree.js'
 import { GhCiRuns } from '../ports/ci-reading.js'
 import { CHECK_MS, TICK_MS } from '../ports/netwatch.js'
 import { launchDirOf } from '../ports/tree-publish.js'
+import { cardTreeRoots } from '../ports/worktree-home.js'
 import { foldPlanEvent } from '../window/plan-folds.js'
 import { releasingTakeoverOnPush } from '../window/takeover-push-release.js'
 import { cardWaitFolds, closeWaitsOfAnEndedCard, closingTheWaitsOfAClosedPr } from './card-waits.js'
@@ -245,6 +248,10 @@ export function sliceParentsOnce(db: DatabaseSync, ts: string): SliceParentsBack
 export function deriveQueuesOfTheBus(db: DatabaseSync, ts: string): Derived {
   sliceParentsOnce(db, ts)
   return derivedQueues(db, ts, queuePass())
+}
+
+export function gateRunSpoolPlaces(env: NodeJS.ProcessEnv, busPath: string, repo: string): SpoolPlaces {
+  return { homes: cardTreeRoots(env, busPath, repo).homes, spool: GATE_RUN_SPOOL }
 }
 
 export function weightsDriftWatch(gitHub: GitHub, busPath: string): (db: DatabaseSync) => DriftWatch {
