@@ -88,7 +88,7 @@ describe('the bus panel', () => {
     expect(panel).toContain('<li class="bevel" data-node="netwatch" data-health="green"><span>NETWATCH</span><b>rate 4200 left</b></li>')
     expect(panel).toContain('<li class="bevel" data-node="workers" data-health="green"><span>BUS WORKERS</span><b>1/1 alive</b></li>')
     expect(panel).toContain('<li data-slot-queue="launch" data-used="3" data-total="3" data-full><span>LAUNCH</span><span class="slot-segs"><i data-seg data-on></i><i data-seg data-on></i><i data-seg data-on></i></span><b>3/3</b></li>')
-    expect(cellOf(panel, 'families')).toContain('<li data-family="review" data-rank="1" data-share="40" style="--_rank:1;--_share:40%"><span>review</span><span class="family-bar"></span><b>40%</b></li>')
+    expect(cellOf(panel, 'families')).toContain('<li data-family="review" data-rank="1" data-share="40" style="--_rank:1;--_share:40%;--_hue:309"><span>review</span><span class="family-bar"></span><b>40%</b></li>')
   })
 
   it('the bus title reads V and BUS_VERSION', () => {

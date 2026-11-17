@@ -134,8 +134,18 @@ function flowCell(panel: BusPanelFacts, at: string): string {
   return cell('flow', 'EVENT FLOW', `<div class="flow-rate"><b>${panel.minutes.at(-1) ?? 0}</b> events/min</div>${strip}`)
 }
 
+const FNV_OFFSET = 0x811C9DC5
+const FNV_PRIME = 0x01000193
+const GOLDEN_ANGLE = 137.508
+const FULL_TURN = 360
+
+function familyHue(family: string): number {
+  const hash = [...family].reduce((sum, letter) => Math.imul(sum ^ letter.codePointAt(0)!, FNV_PRIME) >>> 0, FNV_OFFSET)
+  return Math.round(hash * GOLDEN_ANGLE % FULL_TURN)
+}
+
 function familyRow(family: string, share: number, rank: number): string {
-  return `<li data-family="${escaped(family)}" data-rank="${rank}" data-share="${share}" style="--_rank:${rank};--_share:${share}%"><span>${escaped(family)}</span><span class="family-bar"></span><b>${share}%</b></li>`
+  return `<li data-family="${escaped(family)}" data-rank="${rank}" data-share="${share}" style="--_rank:${rank};--_share:${share}%;--_hue:${familyHue(family)}"><span>${escaped(family)}</span><span class="family-bar"></span><b>${share}%</b></li>`
 }
 
 function familiesCell(panel: BusPanelFacts): string {
@@ -169,7 +179,13 @@ function recentCell(panel: BusPanelFacts): string {
 }
 
 function emblem(): string {
-  return `<span class="bus-emblem" aria-hidden="true"><span class="bus-emblem-ring"></span><span class="bus-emblem-glyph">&gt;_</span></span>`
+  return [
+    `<svg class="bus-emblem" viewBox="0 0 32 32" aria-hidden="true">`,
+    `<circle class="bus-emblem-ring" cx="16" cy="16" r="15"></circle>`,
+    `<polygon class="bus-emblem-octagon" points="10.5,3 21.5,3 29,10.5 29,21.5 21.5,29 10.5,29 3,21.5 3,10.5"></polygon>`,
+    `<path class="bus-emblem-glyph" d="M10 11.5 L14.5 16 L10 20.5 M16.5 21 H22"></path>`,
+    `</svg>`,
+  ].join('')
 }
 
 function header(parts: BusPanelParts, panel: BusPanelFacts, down: boolean): string {
