@@ -10,7 +10,7 @@ import { AMEND_SOURCE, witnessesOf } from '../../src/commands/intake/admit.js'
 import { launchCandidates } from '../nodes/launch/launch-candidates.js'
 import { cleanUpdatesOf } from '../nodes/update/update-done.js'
 import { continueFixesDecisionOf, mutationsParkedGrantOf, observedHeadsOf, pushedAfterContinueFixes, roundLimitDecisionOf, sameFindings } from '../policy/round-limit-decision.js'
-import { DECISIONS_SCOPE, decisionsInForceAt, unspentShardsOf, WINDOW_SHARDS_LIVE_AT } from '../policy/shards.js'
+import { DECISIONS_SCOPE, decisionsInForceAt, unspentShardsOf, WINDOW_SHARDS_LIVE_AT, withDecisionsHeldAt } from '../policy/shards.js'
 import { MAIN_BRANCH } from '../ports/snapshot.js'
 import { BACKFILL_SOURCE, NOT_A_BACKFILL } from './backfill-source.js'
 import { CARD_BODIES } from './card-bodies.js'
@@ -836,10 +836,6 @@ function prBodySegment(task: QueuedTask): string {
   return `:pr-body-${task.prBody}`
 }
 
-function mergeBodyOfKey(key: string): string | undefined {
-  return MERGE_PR_BODY.exec(key)?.[1]
-}
-
 export function baseOfKey(key: string): string | undefined {
   return WITNESS_BASE.exec(key)?.[1]
 }
@@ -942,7 +938,7 @@ export function identityOf(event: StoredEvent): { key: string, queue: Queue } {
   if (input !== undefined && (event.pr === null || event.head === null))
     reject(`${event.type} of a review input needs a pr and a head`)
   const base = queue === 'witness' ? baseOfKey(String(payload.task_key)) : undefined
-  const prBody = queue === 'merge' ? mergeBodyOfKey(String(payload.task_key)) : undefined
+  const prBody = queue === 'merge' ? MERGE_PR_BODY.exec(String(payload.task_key))?.[1] : undefined
   const key = keyOf({ queue, cardId, pr: event.pr ?? undefined, head: event.head ?? undefined, generation, stop, input, cardBody, base, prBody, decision: decidedTaskDecisionOfKey(queue, payload.task_key) })
   if (payload.task_key !== key)
     reject(`task_key ${String(payload.task_key)} is not ${key}`)
@@ -1155,7 +1151,7 @@ function identity(row: TaskRow): QueuedTask {
   const input = row.queue === 'review' ? reviewInputOfKey(row.task_key) : undefined
   const cardBody = CARD_BODY_QUEUES.includes(row.queue) ? cardBodyIn(row.task_key) : undefined
   const base = row.queue === 'witness' ? baseOfKey(row.task_key) : undefined
-  const prBody = row.queue === 'merge' ? mergeBodyOfKey(row.task_key) : undefined
+  const prBody = row.queue === 'merge' ? MERGE_PR_BODY.exec(row.task_key)?.[1] : undefined
   return { ...plain, generation: generationOfKey(row.task_key, plain), stop: stopIn(row.task_key), input, cardBody, base, prBody, decision: decidedTaskDecisionOfKey(row.queue, row.task_key) }
 }
 
@@ -1253,6 +1249,10 @@ function setAgainAfterItsStop(db: DatabaseSync, ts: string, row: StoppedAnswerRo
 }
 
 export function deriveQueues(db: DatabaseSync, ts: string): Derived {
+  return withDecisionsHeldAt(db, new Date(ts), () => deriveQueuesUnderHeldDecisions(db, ts))
+}
+
+function deriveQueuesUnderHeldDecisions(db: DatabaseSync, ts: string): Derived {
   const derived: Derived = { queued: [], superseded: [] }
   for (const row of tasksTheHeadOrTheCardDecisionSupersedes(db.prepare(TASKS_OF_AN_OLD_HEAD).all() as unknown as (TaskRow & { head_moved: number })[], decisionsInForceAt(db, new Date(ts)), identity)) {
     if (supersedeTask(db, ts, identity(row)))
