@@ -628,6 +628,7 @@
     "scripts/tests/ci/prepush-narrow.test.ts",
     "scripts/tests/ci/prepush-round.test.ts",
     "scripts/tests/ci/prepush-selector.test.ts",
+    "scripts/tests/ci/prepush-session-selection.test.ts",
     "scripts/tests/ci/quality-steps.test.ts",
     "scripts/tests/ci/release-age.test.ts",
     "scripts/tests/ci/required.test.ts",

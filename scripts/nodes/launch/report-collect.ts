@@ -1,20 +1,73 @@
+import type { BusEvent } from '../../core/db.js'
 import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
+import { appendEvent, BUSY_TIMEOUT_MS, defaultBusPath } from '../../core/db.js'
 import { messageOf } from '../../core/errors.js'
 import { exitCodePath, treeReportPath } from '../../core/places.js'
+import { openDatabase } from '../../core/sqlite.js'
 
 export const REPORT_MISSING = 'report-missing'
 
+export const TREE_GATE_RUN_SPOOL = path.join('.construct', 'gate-runs.jsonl')
+
+export type GateRunDrain
+  = | { kind: 'drained', count: number }
+    | { kind: 'kept', reason: string }
+
+export function drainTreeGateRuns(worktree: string, append: (event: BusEvent) => void): GateRunDrain {
+  const spool = path.join(worktree, TREE_GATE_RUN_SPOOL)
+  if (!existsSync(spool))
+    return { kind: 'drained', count: 0 }
+  try {
+    const events = readFileSync(spool, 'utf8').split('\n').filter(line => line.trim() !== '').map(line => JSON.parse(line) as BusEvent)
+    events.forEach(append)
+    rmSync(spool, { force: true })
+    return { kind: 'drained', count: events.length }
+  }
+  catch (error) {
+    return { kind: 'kept', reason: messageOf(error) }
+  }
+}
+
+export function drainTreeGateRunsInto(worktree: string, busPath: string = defaultBusPath()): GateRunDrain {
+  if (!existsSync(path.join(worktree, TREE_GATE_RUN_SPOOL)))
+    return { kind: 'drained', count: 0 }
+  if (!existsSync(busPath))
+    return { kind: 'kept', reason: `no bus file at ${busPath}` }
+  const db = openDatabase(busPath, { timeout: BUSY_TIMEOUT_MS })
+  try {
+    return drainTreeGateRuns(worktree, event => appendEvent(db, event))
+  }
+  finally {
+    db.close()
+  }
+}
+
 export type ReportCollection
-  = | { kind: 'collected', tree: string, saved: string }
-    | { kind: 'absent', tree: string }
-    | { kind: 'unreadable', tree: string, reason: string }
+  = | { kind: 'collected', tree: string, saved: string, gateRuns?: GateRunDrain }
+    | { kind: 'absent', tree: string, gateRuns?: GateRunDrain }
+    | { kind: 'unreadable', tree: string, reason: string, gateRuns?: GateRunDrain }
 
 function removeFromTree(tree: string): void {
   rmSync(tree, { recursive: true, force: true })
 }
 
-export function collectReport(worktree: string, saved: string): ReportCollection {
+function drainedOnCollection(worktree: string, busPath: string | undefined): GateRunDrain {
+  try {
+    return drainTreeGateRunsInto(worktree, busPath)
+  }
+  catch (error) {
+    return { kind: 'kept', reason: messageOf(error) }
+  }
+}
+
+export function collectReport(worktree: string, saved: string, busPath?: string): ReportCollection {
+  const gateRuns = drainedOnCollection(worktree, busPath)
+  const report = reportOf(worktree, saved)
+  return gateRuns.kind === 'drained' && gateRuns.count === 0 ? report : { ...report, gateRuns }
+}
+
+function reportOf(worktree: string, saved: string): ReportCollection {
   const tree = treeReportPath(worktree)
   if (!existsSync(tree))
     return { kind: 'absent', tree }

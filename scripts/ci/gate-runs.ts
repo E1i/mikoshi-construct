@@ -108,6 +108,6 @@ export function recordGateRun(run: GateRun, ts: string, busPath?: string, spool:
     if (spool === null)
       return `prepush: ${GATE_RUN} not recorded, ${why}: ${JSON.stringify(event.payload)}`
     keep(spool, event)
-    return `prepush: ${GATE_RUN} kept in ${GATE_RUN_SPOOL}, ${why}; the next run that can write the bus records it: ${JSON.stringify(event.payload)}`
+    return `prepush: ${GATE_RUN} kept in ${GATE_RUN_SPOOL}, ${why}; the launch or answer node drains it into the bus when the session ends, or the next run that can write the bus records it: ${JSON.stringify(event.payload)}`
   }
 }
