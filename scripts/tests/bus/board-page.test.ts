@@ -19,6 +19,7 @@ import { resolveTheme } from '../../../src/ui/theme.js'
 import { interfaceVersion } from '../../../src/version.js'
 import { checkMatrix, subagent, writeBus } from '../../../tests/board/bus-fixture.js'
 import { BOARD_DATA_FILE, boardProjection, DISK_FILES, escaped, filterRule, FLOW_META, printBoard, PROGRESS_ORDER, readEddiesLimits, readModelVersion, RELEASE_PROGRESS_ORDER, VIEW_KEY, writeBoardPage } from '../../cli/board-page.js'
+import { BUS_VERSION } from '../../core/bus-version.js'
 import { defaultBusPath } from '../../core/db.js'
 import { PROCESS_HEARTBEAT, REVIEW_RECORDED, SESSION_HEARTBEAT, WINDOW_HEARTBEAT, WITNESS_FIELDS_BACKFILLED, WITNESS_RECORDED } from '../../core/events.js'
 import { nodeProcess } from '../../core/node.js'
@@ -613,7 +614,7 @@ describe('board.html', () => {
     for (const line of lines.slice(lines.indexOf('Services') + 1, -1).filter(line => !/^\S+ · #\d+ · /.test(line) && !line.startsWith('window · ') && !line.startsWith('bus · ')))
       expect(html).toContain(`<div class="svc-line">${escaped(line)}</div>`)
     expect(lines).toContain('bus · pulse · — · pulse 1 min ago · slots in use: review 1')
-    expect(html).toContain('<span class="bus-pulse">● PULSE · 1m</span>')
+    expect(html).toContain('<span class="bus-pulse"><span class="pulse-dot">●</span> PULSE · 1m</span>')
     expect(html).toContain('<li data-slot-queue="review" data-used="1"')
     const footer = Object.fromEntries(lines.at(-1)!.split(' · ').map(part => part.split(': ') as [string, string]))
     const statusline = html.slice(html.indexOf('<footer class="statusline"'))
@@ -950,7 +951,7 @@ describe('board.html', () => {
 
   it('the page reads liveness from the bus pulse and lists no process', () => {
     const html = pageText(seededBus())
-    expect(html).toContain('<span class="bus-title">BUS LIVE V1</span><span class="bus-pulse">● PULSE · 1m</span>')
+    expect(html).toContain(`<span class="bus-title">BUS LIVE V${BUS_VERSION}</span><span class="bus-pulse"><span class="pulse-dot">●</span> PULSE · 1m</span>`)
     expect(html).not.toContain('pid ')
     expect(html).not.toContain('<h2>Health</h2>')
   })
