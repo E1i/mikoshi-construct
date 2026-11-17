@@ -6,7 +6,7 @@ import type { Goal } from './goal.js'
 import type { QueuedStanding, TranscriptReader } from './sessions.js'
 import { existsSync } from 'node:fs'
 import { behindLine, CARDS, currentLane, IN_ORDER_MARK, lastReducedOwnerWaits, readLastReduced } from '../../../scripts/core/bus-readings.js'
-import { BOARD_ALARM, BOARD_ALARM_CLEARED, BUS_PULSE, CARD_ADMITTED, CARD_CONTINUED, CARD_FELL, CARD_PULSE, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, CHECKS_MATRIX_EVENT, GATE_RUN, NETWATCH_SKIPPED, PR_GROUPS, PROCESS_HEARTBEAT, REVIEW_DRIP, SESSION_HEARTBEAT, SLICE_PARENTS_BACKFILLED, TASK_RENEWED, TERMINAL_LANES, WINDOW_HEARTBEAT, WINDOW_SUBAGENT_EVENT } from '../../../scripts/core/events.js'
+import { BOARD_ALARM, BOARD_ALARM_CLEARED, BUS_PULSE, CARD_ADMITTED, CARD_CONTINUED, CARD_FELL, CARD_PULSE, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, CHECKS_MATRIX_EVENT, GATE_RUN, LANE_HELD, NETWATCH_SKIPPED, PR_GROUPS, PROCESS_HEARTBEAT, REVIEW_DRIP, SESSION_HEARTBEAT, SLICE_PARENTS_BACKFILLED, TASK_RENEWED, TERMINAL_LANES, WINDOW_HEARTBEAT, WINDOW_SUBAGENT_EVENT } from '../../../scripts/core/events.js'
 import { PLAIN_LORE } from '../../ui/lore.js'
 import { withReadOnlyBus } from '../cost/bus.js'
 import { busPanelFacts, PANEL_READING, panelSince, payloadOf, RECENT_EVENTS, text } from './bus-panel.js'
@@ -145,8 +145,15 @@ export interface BusFacts {
   shadow?: BusShadow
   tails?: BusTail[]
   queued?: QueuedStanding[]
+  laneHeads?: LaneHead[]
   window?: BusWindow
   panel?: BusPanelFacts
+}
+
+export interface LaneHead {
+  lane: string
+  card: number
+  reason: string
 }
 
 export interface BusTail {
@@ -241,7 +248,7 @@ function windowRoles(db: BusDb): BusService[] {
 
 const SESSION_STARTS = [CARD_STARTED, CARD_CONTINUED]
 const SESSION_ENDS = [CARD_STOPPED, CARD_SESSION_ENDED]
-const BOARD_EVENT_TYPES = [WINDOW_SUBAGENT_EVENT, SESSION_HEARTBEAT, CARD_PULSE, ...SESSION_STARTS, CARD_SESSION_ENDED, CARD_FELL, CARD_STOPPED, CARD_VERIFIED, PR_GROUPS, REVIEW_DRIP, GATE_RUN]
+const BOARD_EVENT_TYPES = [WINDOW_SUBAGENT_EVENT, SESSION_HEARTBEAT, CARD_PULSE, ...SESSION_STARTS, CARD_SESSION_ENDED, CARD_FELL, CARD_STOPPED, CARD_VERIFIED, PR_GROUPS, REVIEW_DRIP, GATE_RUN, LANE_HELD]
 
 interface BoardEvents {
   of: (type: string) => EventRow[]
@@ -647,6 +654,23 @@ function tailFacts(events: BoardEvents): Pick<BusFacts, 'tails'> {
   return tails.length === 0 ? {} : { tails }
 }
 
+function laneHeads(events: BoardEvents, cards: readonly BusCard[]): LaneHead[] {
+  const planned = new Set(cards.filter(card => card.stage === 'planned').map(card => card.id))
+  const latest = new Map<string, LaneHead | null>()
+  for (const row of events.of(LANE_HELD).filter(each => each.legacy === 0)) {
+    const payload = payloadOf(row.payload)
+    const [lane, reason] = [text(payload.lane), text(payload.reason)]
+    if (lane !== null)
+      latest.set(lane, row.card_id === null || reason === null ? null : { lane, card: row.card_id, reason })
+  }
+  return [...latest.values()].filter((head): head is LaneHead => head !== null && planned.has(head.card)).sort((a, b) => a.lane.localeCompare(b.lane, undefined, { numeric: true }))
+}
+
+function laneHeadFacts(events: BoardEvents, cards: readonly BusCard[]): Pick<BusFacts, 'laneHeads'> {
+  const heads = laneHeads(events, cards)
+  return heads.length === 0 ? {} : { laneHeads: heads }
+}
+
 function queuedFacts(db: BusDb): Pick<BusFacts, 'queued'> {
   const queued = queuedStandings(db)
   return queued.length === 0 ? {} : { queued }
@@ -693,6 +717,7 @@ export function busFacts(db: BusDb, now: Date, transcripts: TranscriptReader = c
     ...orderFacts(events),
     ...tailFacts(events),
     ...queuedFacts(db),
+    ...laneHeadFacts(events, cards),
     panel,
   }
 }
