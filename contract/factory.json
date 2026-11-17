@@ -4454,9 +4454,7 @@
       "src/commands/cost/ledger.ts": 1,
       "src/commands/liveness.ts": 1
     },
-    "ci-reading": {
-      "scripts/ports/wide-vitest-guard.ts": 1
-    },
+    "ci-reading": {},
     "generated-files": {},
     "git": {},
     "handoff-status": {
