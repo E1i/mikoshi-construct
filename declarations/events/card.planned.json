@@ -1,0 +1,10 @@
+{
+  "event": "card.planned",
+  "constant": "CARD_PLANNED",
+  "payload": [
+    "card",
+    "recut_of",
+    "release",
+    "request"
+  ]
+}

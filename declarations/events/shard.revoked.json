@@ -1,0 +1,7 @@
+{
+  "event": "shard.revoked",
+  "constant": "SHARD_REVOKED",
+  "payload": [
+    "id"
+  ]
+}

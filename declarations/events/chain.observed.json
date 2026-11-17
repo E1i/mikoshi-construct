@@ -1,0 +1,14 @@
+{
+  "event": "chain.observed",
+  "constant": "CHAIN_OBSERVED",
+  "payload": [
+    "boundary",
+    "dir",
+    "leader",
+    "parking",
+    "pid",
+    "sha",
+    "state",
+    "waitingOn"
+  ]
+}

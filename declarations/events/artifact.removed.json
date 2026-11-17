@@ -1,0 +1,9 @@
+{
+  "event": "artifact.removed",
+  "constant": "ARTIFACT_REMOVED",
+  "payload": [
+    "by",
+    "parked",
+    "path"
+  ]
+}

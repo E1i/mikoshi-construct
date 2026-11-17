@@ -14,6 +14,7 @@
     "scripts/core/errors.ts",
     "scripts/core/bus-path.ts",
     "scripts/core/bus-readings.ts",
+    "scripts/core/projection-types.ts",
     "scripts/core/bus-version.ts",
     "scripts/core/reducer.ts",
     "scripts/core/every.ts",

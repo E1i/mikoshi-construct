@@ -1,0 +1,17 @@
+{
+  "event": "board.alarm",
+  "constant": "BOARD_ALARM",
+  "payload": [
+    "cause",
+    "detail",
+    "digest",
+    "failures",
+    "lease",
+    "lease_gen",
+    "path",
+    "reason",
+    "ref",
+    "task_key",
+    "worker"
+  ]
+}

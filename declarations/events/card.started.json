@@ -1,0 +1,31 @@
+{
+  "event": "card.started",
+  "constant": "CARD_STARTED",
+  "payload": [
+    "admission",
+    "adopts",
+    "base",
+    "branch",
+    "card",
+    "contour",
+    "entry",
+    "forecast",
+    "isolation",
+    "isolationGaps",
+    "lease_gen",
+    "path",
+    "pgid",
+    "pid",
+    "prompt_path",
+    "prompt_sha",
+    "prompt_unstored",
+    "risk",
+    "session",
+    "shift",
+    "started",
+    "step",
+    "tree_origin",
+    "who",
+    "worktree"
+  ]
+}

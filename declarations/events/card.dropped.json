@@ -1,0 +1,13 @@
+{
+  "event": "card.dropped",
+  "constant": "CARD_DROPPED",
+  "payload": [
+    "bodySha",
+    "from",
+    "lane",
+    "reason",
+    "recut",
+    "request",
+    "to"
+  ]
+}

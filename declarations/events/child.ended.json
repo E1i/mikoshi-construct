@@ -1,0 +1,11 @@
+{
+  "event": "child.ended",
+  "constant": "CHILD_ENDED",
+  "payload": [
+    "exit",
+    "instance",
+    "pid",
+    "signal",
+    "task_key"
+  ]
+}

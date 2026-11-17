@@ -1,0 +1,11 @@
+{
+  "event": "process.judged",
+  "constant": "PROCESS_JUDGED",
+  "payload": [
+    "last_beat",
+    "limit_ms",
+    "process",
+    "silent_ms",
+    "verdict"
+  ]
+}

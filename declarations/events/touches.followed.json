@@ -1,0 +1,8 @@
+{
+  "event": "touches.followed",
+  "constant": "TOUCHES_FOLLOWED",
+  "payload": [
+    "paths",
+    "reason"
+  ]
+}

@@ -5,6 +5,7 @@
     "scripts/core/factory-paths.ts",
     "scripts/core/generated-files.ts",
     "scripts/core/declarations.ts",
+    "scripts/core/declared-events.ts",
     "declarations/",
     "contract/module-files.json",
     "contract/eslint-edges.json"

@@ -1,0 +1,9 @@
+{
+  "event": "role.raised",
+  "constant": "ROLE_RAISED",
+  "payload": [
+    "lease_gen",
+    "pid",
+    "role"
+  ]
+}

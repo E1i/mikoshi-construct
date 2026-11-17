@@ -1,0 +1,8 @@
+{
+  "event": "factory.mode",
+  "constant": "FACTORY_MODE",
+  "payload": [
+    "mode",
+    "request"
+  ]
+}

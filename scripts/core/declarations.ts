@@ -1,8 +1,10 @@
+import type { EventDeclaration, ReadingDeclaration } from './declared-events.js'
 import type { GeneratedRow } from './generated-files.js'
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import { EVENT_CATALOG, eventOf, eventProblems, EVENTS_KIND, generatedPathOf, readingOf, READINGS_CATALOG, READINGS_KIND, renderEvents, renderReadings } from './declared-events.js'
 import { DECLARATION_SUFFIX, DECLARATIONS_FOLDER, GENERATED_FILES, GENERATED_KIND, rowProblems } from './generated-files.js'
 
 export interface ModuleDeclaration {
@@ -58,6 +60,8 @@ export interface Declarations {
   mayUse: readonly MayUse[]
   workers: readonly WorkerDeclaration[]
   entries: readonly EntryDeclaration[]
+  events: readonly EventDeclaration[]
+  readings: readonly ReadingDeclaration[]
   internalModules: readonly string[]
   problems: readonly string[]
 }
@@ -79,7 +83,7 @@ export const MAY_USE_KIND = 'may-use'
 export const WORKERS_KIND = 'workers'
 export const ENTRIES_KIND = 'entries'
 
-export const KEY_FIELDS: Readonly<Record<string, string>> = { [MODULES_KIND]: 'module', [CONTENTION_KIND]: 'id', [GENERATED_KIND]: 'id', [MAY_USE_KIND]: 'module', [WORKERS_KIND]: 'worker', [ENTRIES_KIND]: 'entry' }
+export const KEY_FIELDS: Readonly<Record<string, string>> = { [MODULES_KIND]: 'module', [CONTENTION_KIND]: 'id', [GENERATED_KIND]: 'id', [MAY_USE_KIND]: 'module', [WORKERS_KIND]: 'worker', [ENTRIES_KIND]: 'entry', [EVENTS_KIND]: 'event', [READINGS_KIND]: 'reading' }
 
 export const BUS_CORE = /^scripts\/core\/(?:db|reducer|sqlite|stored|identifiers)\.ts$/
 export const BUS_SERVICE = /^scripts\/(?:nodes\/[a-z]+|ladder)\/([a-z]+)-(?:worker|executor|starter)\.ts$/
@@ -112,13 +116,6 @@ const FOLDER_END = '/'
 const EXACT = Number.POSITIVE_INFINITY
 
 type Problem = (problem: string) => void
-
-function generatedPathOf(id: string): string {
-  const row = (Object.values(GENERATED_FILES) as GeneratedRow[]).find(entry => entry.id === id)
-  if (row === undefined)
-    throw new Error(`${DECLARATIONS_FOLDER}/${GENERATED_KIND}/ has no row ${id}, which scripts/core/declarations.ts names`)
-  return row.path
-}
 
 function isText(value: unknown): value is string {
   return typeof value === 'string' && value !== ''
@@ -426,6 +423,8 @@ export function readDeclarations(root: string = REPO_ROOT): Declarations {
   const mayUse: MayUse[] = []
   const workers: WorkerDeclaration[] = []
   const entries: EntryDeclaration[] = []
+  const events: EventDeclaration[] = []
+  const readings: ReadingDeclaration[] = []
   const kinds = existsSync(base) ? readdirSync(base).sort() : []
   for (const kind of kinds) {
     if (!(kind in KEY_FIELDS) || !statSync(path.join(base, kind)).isDirectory())
@@ -470,6 +469,16 @@ export function readDeclarations(root: string = REPO_ROOT): Declarations {
         if (entry !== null)
           entries.push(entry)
       }
+      else if (kind === EVENTS_KIND) {
+        const event = eventOf(key, value, problem)
+        if (event !== null)
+          events.push(event)
+      }
+      else if (kind === READINGS_KIND) {
+        const reading = readingOf(key, value, problem)
+        if (reading !== null)
+          readings.push(reading)
+      }
       else {
         const area = areaOf(key, value, problem)
         if (area !== null)
@@ -478,7 +487,7 @@ export function readDeclarations(root: string = REPO_ROOT): Declarations {
     }
   }
   const internalModules = kinds.includes(MAY_USE_KIND) ? internalModulesAt(root, text => problems.push(text)) : []
-  return { modules, contention, generated, mayUse, workers, entries, internalModules, problems }
+  return { modules, contention, generated, mayUse, workers, entries, events, readings, internalModules, problems }
 }
 
 function filesUnder(entry: string, tracked: readonly string[]): string[] {
@@ -615,6 +624,7 @@ export function validateDeclarations(declarations: Declarations, tracked: readon
     ...rowProblemsOver(declarations.generated, declarations.modules, tracked),
     ...mayUseProblems(declarations.mayUse, declarations.internalModules, tracked),
     ...pathProblems(declarations.workers, declarations.entries, tracked),
+    ...eventProblems(declarations.events, declarations.readings),
   ]
 }
 
@@ -757,7 +767,7 @@ async function standardInput(): Promise<string> {
 }
 
 async function main(): Promise<void> {
-  const tracked = [...new Set([...trackedFrom(await standardInput(), file => existsSync(path.join(REPO_ROOT, file))), MODULE_FILES, ESLINT_EDGES, FACTORY_PATHS, ASSEMBLED_LAYER_MAP])].sort()
+  const tracked = [...new Set([...trackedFrom(await standardInput(), file => existsSync(path.join(REPO_ROOT, file))), MODULE_FILES, ESLINT_EDGES, FACTORY_PATHS, ASSEMBLED_LAYER_MAP, EVENT_CATALOG, READINGS_CATALOG])].sort()
   const declarations = readDeclarations(REPO_ROOT)
   const problems = validateDeclarations(declarations, tracked)
   if (problems.length > 0) {
@@ -769,6 +779,8 @@ async function main(): Promise<void> {
   writeFileSync(path.join(REPO_ROOT, ESLINT_EDGES), renderEslintEdges(eslintEdgesOf(declarations.mayUse, tracked)))
   writeFileSync(path.join(REPO_ROOT, FACTORY_PATHS), renderFactoryPaths(declarations.workers, declarations.entries, declarations.generated))
   writeFileSync(path.join(REPO_ROOT, ASSEMBLED_LAYER_MAP), renderLayerMap(layerMapOf(declarations.workers, declarations.entries, tracked)))
+  writeFileSync(path.join(REPO_ROOT, EVENT_CATALOG), renderEvents(declarations.events))
+  writeFileSync(path.join(REPO_ROOT, READINGS_CATALOG), renderReadings(declarations.events, declarations.readings))
 }
 
 if (realpathSync(process.argv[1] ?? '') === fileURLToPath(import.meta.url))

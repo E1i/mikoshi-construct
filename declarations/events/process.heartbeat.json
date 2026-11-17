@@ -1,0 +1,9 @@
+{
+  "event": "process.heartbeat",
+  "constant": "PROCESS_HEARTBEAT",
+  "payload": [
+    "process",
+    "queue",
+    "slots"
+  ]
+}
