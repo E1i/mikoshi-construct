@@ -1041,6 +1041,7 @@
     "scripts/tests/supervisor/recorded-worker.test.ts",
     "scripts/tests/supervisor/restart-keeps-answer-session.test.ts",
     "scripts/tests/supervisor/restart-signal-spares-answer-session.test.ts",
+    "scripts/tests/supervisor/retire-generation-bound.test.ts",
     "scripts/tests/supervisor/retire-previous-generation-workers.test.ts",
     "scripts/tests/supervisor/review-drain-slots.test.ts",
     "scripts/tests/supervisor/review-stall.test.ts",
