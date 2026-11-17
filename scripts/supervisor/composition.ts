@@ -5,7 +5,7 @@ import type { NodeKind, NodeSupply, ProcessIdentity, WorkerIdentity } from '../c
 import type { Projections } from '../core/reducer.js'
 import type { Fold, StoredEvent } from '../core/stored.js'
 import type { DriftWatch } from '../nodes/merge/weights-drift.js'
-import type { ThresholdSet } from '../nodes/update/update-executor.js'
+import type { DerivedHolds, ThresholdSet } from '../nodes/update/update-executor.js'
 import type { GitHub } from '../ports/github.js'
 import type { PlanActors } from '../window/plan-folds.js'
 import type { SessionMeasure } from './heartbeat.js'
@@ -28,7 +28,9 @@ import { WeightsDriftWatch } from '../nodes/merge/weights-drift.js'
 import { ROLES_PROJECTION } from '../nodes/restart/role.js'
 import { DECISION_FOLDS } from '../policy/decisions/index.js'
 import { RECUT_ACTOR } from '../policy/round-limit-decision.js'
+import { derivedHoldOf } from '../policy/touch-scope.js'
 import { BusRead } from '../ports/bus-read.js'
+import { cardTreeReading } from '../ports/card-tree.js'
 import { GhCiRuns } from '../ports/ci-reading.js'
 import { CHECK_MS, TICK_MS } from '../ports/netwatch.js'
 import { launchDirOf } from '../ports/tree-publish.js'
@@ -118,6 +120,10 @@ export function ratchetThresholdSets(db: DatabaseSync): (cardId: number) => Thre
   const read = new BusRead(db)
   return cardId => read.where({ card: cardId }).slice(RATCHET_THRESHOLD_SET, ['decision', 'row', 'to']).flatMap(({ fields: { decision, row, to } }) =>
     typeof decision === 'string' && typeof row === 'string' && typeof to === 'number' ? [{ decision, row, to }] : [])
+}
+
+export function derivedHolds(db: DatabaseSync): DerivedHolds {
+  return (cardId, scope, files) => derivedHoldOf(scope, files, () => cardTreeReading(db, cardId))
 }
 
 export function busProjections(): Projections {

@@ -27,6 +27,20 @@ const BASELINE = '[]\n'
 const GROWN = '[{"type":"not-allowed","from":"scripts/a.ts","to":"scripts/b.ts"}]\n'
 const NO_PATH = 'no path without the violation: scripts/a.ts must import scripts/b.ts'
 
+vi.mock('../../ports/git.js', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../../ports/git.js')>()
+  const { readFileSync: read, writeFileSync: write } = await import('node:fs')
+  const { join } = await import('node:path')
+  return {
+    ...original,
+    pnpmRerun: (cwd: string) => {
+      const grows = read(join(cwd, 'scripts/a.ts'), 'utf8').includes('./b.js')
+      write(join(cwd, '.dependency-cruiser-known-violations.json'), grows ? '[{"type":"not-allowed","from":"scripts/a.ts","to":"scripts/b.ts"}]\n' : '[]\n')
+      return { status: 0, stderr: '' }
+    },
+  }
+})
+
 const FILES: Record<string, string> = {
   'construct.json': `${JSON.stringify({ harness: { command: 'pnpm run quality' }, shift: { prepush: [] } })}\n`,
   [TOUCHED]: 'export const a = 1\n',
@@ -130,19 +144,29 @@ async function answerWith(rounds: Round[], moves: boolean): Promise<Answering> {
   return { made, outcome: await executor.answer(lease), published, prompts, worktree }
 }
 
-describe('an answer that grows the known dependency violations follows its touches, and the owner decides at the merge (D-536, project row R-known)', () => {
-  it('an answer that grows the known dependency violations is published as it is, with no second round and no owner wait at the answer', async () => {
+describe('an answer that grows the known dependency violations does not publish the growth, and the owner decides it (D-592)', () => {
+  it('a grown baseline is dropped and the answer goes back for a path without the violation, which it publishes with no owner wait', async () => {
     const { made, outcome, published, prompts, worktree } = await answerWith([growsTheBaseline, findsAPath], true)
 
-    expect(prompts).toHaveLength(1)
-    expect(readFileSync(path.join(worktree, KNOWN_VIOLATIONS), 'utf8')).toBe(GROWN)
+    expect(prompts).toHaveLength(2)
+    expect(readFileSync(path.join(worktree, KNOWN_VIOLATIONS), 'utf8')).toBe(BASELINE)
     expect(published).toBe(1)
     expect(outcome).toMatchObject({ kind: 'answered', head: sha('e') })
     expect(eventsOf(made.db, CARD_ANSWERED)).toHaveLength(1)
     expect(eventsOf(made.db, OWNER_WAIT_OPENED)).toEqual([])
   })
 
-  it('a grown baseline beside another change outside the touches is refused for that other change alone, with no second round', async () => {
+  it('a grown baseline with no path without the violation waits for the owner under a numbered wait, not a question.agent stop', async () => {
+    const { made, outcome, published, prompts } = await answerWith([growsTheBaseline, saysThereIsNone], false)
+
+    expect(prompts).toHaveLength(2)
+    expect(published).toBe(0)
+    expect(outcome).toMatchObject({ kind: 'stopped', reason: 'question.owner' })
+    expect(eventsOf(made.db, OWNER_WAIT_OPENED).map(wait => wait.id)).toEqual([expect.stringMatching(/^Q\d+$/)])
+    expect(eventsOf(made.db, CARD_STOPPED).filter(stop => stop.reason === 'question.agent')).toHaveLength(1)
+  })
+
+  it('a grown baseline beside another change outside the touches is refused for both, with no second round', async () => {
     const both: Round = (worktree) => {
       growsTheBaseline(worktree, '')
       writeFileSync(path.join(worktree, OTHER), 'export const elsewhere = 2\n')
@@ -153,6 +177,6 @@ describe('an answer that grows the known dependency violations follows its touch
     expect(published).toBe(0)
     expect(outcome).toMatchObject({ kind: 'stopped', reason: 'question.owner' })
     expect((outcome as { detail: string }).detail).toContain(OTHER)
-    expect((outcome as { detail: string }).detail).not.toContain(KNOWN_VIOLATIONS)
+    expect((outcome as { detail: string }).detail).toContain(`${KNOWN_VIOLATIONS} is a derived file`)
   })
 })
