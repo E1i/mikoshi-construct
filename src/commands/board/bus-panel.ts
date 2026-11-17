@@ -86,7 +86,7 @@ export const PANEL_READING = `SELECT
   (SELECT through_event_id FROM projection_watermarks WHERE projection = :mark) AS through,
   (SELECT json_group_array(json_object('id', id, 'ts', ts, 'payload', payload)) FROM (SELECT id, ts, payload FROM events WHERE type = :pulse ORDER BY id DESC LIMIT 2)) AS ticks,
   (SELECT json_group_array(json_object('id', id, 'ts', ts, 'type', type, 'card', card_id, 'payload', payload)) FROM (SELECT id, ts, type, card_id, payload FROM events WHERE type NOT IN (SELECT value FROM json_each(:quiet)) ORDER BY id DESC LIMIT :recent)) AS recent,
-  (SELECT json_group_array(json_object('process', process, 'ts', ts)) FROM heartbeats WHERE type = :heartbeat) AS workers,
+  (SELECT json_group_array(json_object('process', process, 'ts', ts)) FROM heartbeats WHERE type = :heartbeat AND json_extract(payload, '$.retired') IS NULL) AS workers,
   (SELECT json_object('ts', a.ts, 'card', a.card_id, 'payload', a.payload) FROM events a WHERE a.type = :alarm AND NOT EXISTS (SELECT 1 FROM events c WHERE c.type = :cleared AND json_valid(c.payload) AND json_extract(c.payload, '$.alarm') = a.dedupe_key) ORDER BY a.id DESC LIMIT 1) AS alarm`
 
 export interface PanelRow {

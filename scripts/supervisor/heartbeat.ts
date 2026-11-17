@@ -67,6 +67,39 @@ export function lastProcessBeats(db: DatabaseSync): ProcessBeat[] {
   return (db.prepare(LAST_PROCESS_BEATS).all() as { name: string, ts: string }[]).map(row => ({ process: row.name, ts: row.ts }))
 }
 
+export const RETIRED_FIELD = 'retired'
+
+const PID_OF_PROCESS = /:([1-9]\d*)$/
+
+const PREVIOUS_GENERATION_ROWS = `
+  SELECT process, ts FROM ${HEARTBEATS}
+  WHERE type = '${PROCESS_HEARTBEAT}' AND ts < ? AND json_extract(payload, '$.${RETIRED_FIELD}') IS NULL
+  ORDER BY process
+`
+
+const RETIRE_ROW = `
+  UPDATE ${HEARTBEATS} SET payload = json_set(payload, '$.${RETIRED_FIELD}', ?)
+  WHERE process = ? AND type = '${PROCESS_HEARTBEAT}' AND ts = ? AND json_extract(payload, '$.${RETIRED_FIELD}') IS NULL
+`
+
+export function pidOfProcess(name: string): number | null {
+  const found = PID_OF_PROCESS.exec(name)
+  return found === null ? null : Number(found[1])
+}
+
+export function retirePreviousGeneration(db: DatabaseSync, generationStart: string, ts: string, pidGone: (pid: number) => boolean): string[] {
+  const rows = db.prepare(PREVIOUS_GENERATION_ROWS).all(generationStart) as { process: string, ts: string }[]
+  const gone = rows.filter((row) => {
+    const pid = pidOfProcess(row.process)
+    return pid !== null && pidGone(pid)
+  })
+  return gone.filter(row => Number(db.prepare(RETIRE_ROW).run(ts, row.process, row.ts).changes) === 1).map(row => row.process)
+}
+
+export function retiredRowsLines(prefix: string, retired: readonly string[]): string[] {
+  return retired.length === 0 ? [] : [`${prefix}retired the heartbeat rows of a previous generation whose processes are gone: ${retired.join(', ')}; the board no longer counts them, and a fresh beat under the same name counts again`]
+}
+
 export interface HeldLease {
   taskKey: string
   leaseGen: number
