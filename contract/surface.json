@@ -1915,8 +1915,7 @@
       "flags": [
         "body-file",
         "dry-run",
-        "json",
-        "plan"
+        "json"
       ],
       "json": true,
       "unknownFlag": "not read"
