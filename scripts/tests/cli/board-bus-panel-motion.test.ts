@@ -209,31 +209,13 @@ describe('the bus panel motion', () => {
     expect(services.querySelector('[data-flow-minute]')!.props.get('--_shift')).toBe(String(FLOW_MINUTES))
   })
 
-  it('a top events rank change moves the row top', () => {
-    const { services } = refresh(
-      { at: WRITTEN, families: [{ family: 'review', count: 6 }, { family: 'pr', count: 4 }] },
-      { at: minutesLater(1), families: [{ family: 'pr', count: 7 }, { family: 'review', count: 3 }] },
-    )
-    const pr = row(services, 'pr')
-    expect(pr.dataset.rank).toBe('0')
-    expect(pr.classes.has('rank-move')).toBe(true)
-    expect(pr.props.get('--_was-rank')).toBe('1')
-    const review = row(services, 'review')
-    expect(review.classes.has('rank-move')).toBe(true)
-    expect(review.props.get('--_was-rank')).toBe('0')
-    expect(STYLE).toMatch(/@keyframes --animation-rank-move \{ from \{ top: calc\(var\(--_was-rank\) \* var\(--_row\)\); \} \}/)
-  })
-
-  it('a share that rose flashes and animates its bar, a share that fell only animates its bar', () => {
+  it('a share that rose flashes, a share that fell does not', () => {
     const { services } = refresh(
       { at: WRITTEN, families: [{ family: 'review', count: 6 }, { family: 'pr', count: 4 }] },
       { at: minutesLater(1), families: [{ family: 'review', count: 7 }, { family: 'pr', count: 3 }] },
     )
-    const review = row(services, 'review')
-    expect([...review.classes].sort()).toEqual(['share-move', 'share-up'])
-    expect(review.props.get('--_was-share')).toBe('60%')
-    const pr = row(services, 'pr')
-    expect([...pr.classes]).toEqual(['share-move'])
+    expect([...row(services, 'review').classes]).toEqual(['share-up'])
+    expect([...row(services, 'pr').classes]).toEqual([])
   })
 
   it('a family entering the top fades in and one leaving fades out at its old rank', () => {
@@ -253,7 +235,7 @@ describe('the bus panel motion', () => {
 
   it('every new keyframe is a dashed animation ident and stops under reduced motion', () => {
     const reduced = STYLE.slice(STYLE.indexOf('@media (prefers-reduced-motion: reduce)'))
-    for (const selector of ['.flow-bars.flow-shift', '.flow-bar.flow-new', '.bus-families li:is(.rank-move, .rank-in, .rank-out)', '.pulse-dot', '.svc-state::before', '.crawler-chip::before', '.bus-health li > span::before'])
+    for (const selector of ['.flow-bars.flow-shift', '.flow-bar.flow-new', '.bus-families li:is(.rank-in, .rank-out)', '.bus-families li, .family-bar::before { transition: none; }', '.pulse-dot', '.svc-state::before', '.crawler-chip::before', '.bus-health li > span::before'])
       expect(reduced).toContain(selector)
     expect([...STYLE.matchAll(/@keyframes (\S+)/g)].map(match => match[1]).every(name => name!.startsWith('--animation-'))).toBe(true)
   })

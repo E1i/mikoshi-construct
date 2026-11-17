@@ -243,9 +243,19 @@ header.panel::before { --_sweep: oklch(from var(--wire) l c h / 0.5); animation:
   &[data-down] { --_state: var(--signal); }
 }
 .bus-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-s) var(--space-m); }
-.bus-emblem { position: relative; display: grid; place-items: center; inline-size: 2rem; block-size: 2rem; background: var(--_state); clip-path: polygon(30% 0, 70% 0, 100% 30%, 100% 70%, 70% 100%, 30% 100%, 0 70%, 0 30%); }
-.bus-emblem-glyph { color: var(--void); font: 700 0.75rem var(--font-mono); }
-.bus-emblem-ring { position: absolute; inset: 0.2rem; border: 1px solid var(--void); border-radius: 50%; animation: --animation-bus-pulse 2s ease-out infinite; }
+.bus-emblem {
+  --_emblem: var(--wire);
+  inline-size: 2rem;
+  block-size: 2rem;
+  overflow: visible;
+  color: var(--_emblem);
+  filter: drop-shadow(0 0 0.35rem oklch(from var(--_emblem) l c h / 0.55));
+}
+.bus-panel[data-down] .bus-emblem { --_emblem: var(--signal); }
+.bus-emblem-octagon { fill: oklch(from var(--_emblem) l c h / 0.14); stroke: currentcolor; stroke-width: 1.5; }
+.bus-emblem-glyph { fill: none; stroke: currentcolor; stroke-width: 2; stroke-linecap: square; }
+.bus-emblem-ring { fill: none; stroke: currentcolor; stroke-width: 1; transform-box: fill-box; transform-origin: center; animation: --animation-bus-pulse 2s ease-out infinite; }
+.bus-panel[data-down] .bus-emblem-ring { animation: none; opacity: 0.6; }
 .bus-title { color: var(--_state); font: 700 0.85rem var(--font-display); letter-spacing: 0.16em; }
 .bus-pulse { color: var(--_state); font-size: 0.7rem; letter-spacing: 0.1em; }
 .bus-meta { margin-inline-start: auto; color: var(--dim); font-size: 0.7rem; }
@@ -274,10 +284,10 @@ header.panel::before { --_sweep: oklch(from var(--wire) l c h / 0.5); animation:
     display: grid;
     grid-template-columns: minmax(4rem, 1fr) minmax(0, 2fr) 2.75rem;
     block-size: var(--_row);
+    transition: top 0.7s ease-out;
   }
   & li > span:first-child { min-inline-size: 0; overflow-wrap: anywhere; }
   & b { text-align: end; }
-  & li.rank-move { animation: --animation-rank-move 0.7s ease-out 1; }
   & li.rank-in { animation: --animation-rank-in 0.7s ease-out 1; }
   & li.rank-out { opacity: 0; animation: --animation-rank-out 0.7s ease-in 1; }
   & li.share-up b { animation: --animation-share-up 1s ease-out 1; }
@@ -286,9 +296,8 @@ header.panel::before { --_sweep: oklch(from var(--wire) l c h / 0.5); animation:
   position: relative;
   block-size: 0.4rem;
   background: var(--line);
-  &::before { content: ""; position: absolute; inset: 0 auto 0 0; inline-size: var(--_share); background: var(--wire); }
+  &::before { content: ""; position: absolute; inset: 0 auto 0 0; inline-size: var(--_share); background: oklch(0.8 0.15 var(--_hue, 195)); transition: inline-size 0.7s ease-out; }
 }
-.share-move .family-bar::before { animation: --animation-share-grow 0.7s ease-out 1; }
 :is(.bus-health, .bus-recent) li { --cut: 0.4rem; padding: 0.15rem 0.4rem; }
 .bus-health li {
   --_frame: var(--_health);
@@ -724,15 +733,14 @@ code { padding: 0 0.25rem; background: var(--panel-raised); color: var(--text); 
 @keyframes --animation-seg-out { 0% { background: var(--_seg); } 50% { background: var(--line); } }
 @keyframes --animation-flow-shift { from { transform: translateX(calc(100% * var(--_shift, 0) / var(--_bars, 1))); } }
 @keyframes --animation-flow-new { from { background: var(--text); box-shadow: 0 0 0.5rem var(--wire); } }
-@keyframes --animation-rank-move { from { top: calc(var(--_was-rank) * var(--_row)); } }
 @keyframes --animation-rank-in { from { opacity: 0; } }
 @keyframes --animation-rank-out { from { opacity: 1; } }
-@keyframes --animation-share-grow { from { inline-size: var(--_was-share); } }
 @keyframes --animation-share-up { from, 60% { color: var(--ok); text-shadow: 0 0 0.4rem var(--ok); } }
 @media (prefers-reduced-motion: reduce) {
   .banner, .live::before, .statusline .cursor::after { animation: none; }
   .bus-emblem-ring, .slot-segs i.seg-in, .slot-segs i.seg-out { animation: none; }
-  .flow-bars.flow-shift, .flow-bar.flow-new, .bus-families li:is(.rank-move, .rank-in, .rank-out), .bus-families li.share-up b, .share-move .family-bar::before { animation: none; }
+  .flow-bars.flow-shift, .flow-bar.flow-new, .bus-families li:is(.rank-in, .rank-out), .bus-families li.share-up b { animation: none; }
+  .bus-families li, .family-bar::before { transition: none; }
   .pulse-dot, .bus-health li > span::before, .svc-state::before, .crawler-chip::before { animation: none; }
   .svc .svc-agents::before { transition: none; }
   header.panel::before, .warning-strip::before, .owner-strip::before, dialog.drill[open]::before { --_sweep: transparent; animation: none; }
