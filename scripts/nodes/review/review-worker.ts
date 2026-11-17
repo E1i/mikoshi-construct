@@ -14,7 +14,7 @@ import type { DryRunRecord } from './dry-run-record.js'
 import type { RoundLimitRecut } from './pr-close.js'
 import type { ReviewPlan, ReviewPlanner } from './review-depth.js'
 import type { ExecutorParts, Step } from './review-executor.js'
-import type { HeldTree, LeftoverTree, PrBodyOf, Review, Reviewer, SessionPulse, TreeTools } from './reviewer.js'
+import type { CardDecision, HeldTree, LeftoverTree, PrBodyOf, Review, Reviewer, SessionPulse, TreeTools } from './reviewer.js'
 import type { TailIntake } from './tail-card.js'
 import { randomUUID } from 'node:crypto'
 import { existsSync, realpathSync } from 'node:fs'
@@ -36,6 +36,7 @@ import { shadowReading } from '../../core/report.js'
 import { openDatabase } from '../../core/sqlite.js'
 import { busHeldCards } from '../../intake/intake.js'
 import { busCardBodies } from '../../intake/parking-reads.js'
+import { decisionsInForceAt } from '../../policy/shards.js'
 import { clientAdapter } from '../../ports/client/index.js'
 import { GhFailed, PROCESS_GH_PORT } from '../../ports/gh.js'
 import { loadedCodeSha, readThroughPort } from '../../ports/git.js'
@@ -108,8 +109,12 @@ export function cardBodyOfKey(db: DatabaseSync, lease: Lease, held: string | nul
   return admitted !== undefined && admitted.text_sha === textSha(admitted.text) ? admitted.text : null
 }
 
+export function decisionsOnTheCard(db: DatabaseSync, cardId: number, now: Date): CardDecision[] {
+  return decisionsInForceAt(db, now).filter(decision => decision.cards.includes(cardId)).map(({ decisionId, text }) => ({ decisionId, text }))
+}
+
 function readingTheKeyedBody<P extends ExecutorParts>(parts: P): P {
-  return { ...parts, reviewer: (lease, plan, card, proven) => parts.reviewer(lease, plan, cardBodyOfKey(parts.db, lease, card ?? null), proven) }
+  return { ...parts, reviewer: (lease, plan, card, proven) => parts.reviewer(lease, plan, cardBodyOfKey(parts.db, lease, card ?? null), proven, decisionsOnTheCard(parts.db, lease.cardId, parts.clock())) }
 }
 
 export interface ReviewNodeParts extends ExecutorParts {

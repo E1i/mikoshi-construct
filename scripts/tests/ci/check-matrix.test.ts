@@ -10,7 +10,7 @@ import { pathToFileURL } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { busReaderAt } from '../../../src/commands/board/bus.js'
 import { buildCatalog, writeCatalog } from '../../cli/check-catalog.js'
-import { appendMatrix, buildMatrix, matrixArguments, matrixSummary, runMatrix, runMutation } from '../../cli/check-matrix.js'
+import { appendMatrix, buildMatrix, busMatrix, matrixArguments, matrixSummary, runMatrix, runMutation } from '../../cli/check-matrix.js'
 import { openBus } from '../../core/db.js'
 import { CHECKS_MATRIX_EVENT } from '../../core/events.js'
 import { openDatabase } from '../../core/sqlite.js'
@@ -264,5 +264,22 @@ describe('checks:matrix and the bus', () => {
     expect(() => matrixArguments(['--pr', 'x'])).toThrow('--pr is not a positive integer: x')
     expect(() => matrixArguments(['--pr', '1', '--head', 'abc'])).toThrow('--head is not a full sha: abc')
     expect(() => matrixArguments(['--head', BUS_HEAD])).toThrow('--head needs --pr')
+  })
+
+  it('the bus matrix reads the catalog of the bus it names, and a missing bus is an error, not an empty matrix', () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), 'check-matrix-bus-'))
+    try {
+      const busPath = path.join(root, 'bus.db')
+      expect(() => busMatrix(['scripts/notes/print.ts'], GRAPH, () => '', busPath)).toThrow(`no bus at ${busPath}`)
+      const db = openBus(busPath)
+      writeCatalog(db, buildCatalog({ graph: GRAPH, testText: () => '', cards: [], briefs: [{ card: 7, text: BRIEF }], journal: '' }))
+      const read = buildMatrix(['scripts/nodes/merge/merge-worker.ts'], GRAPH, () => '', db)
+      db.close()
+      expect(read.full).toBeNull()
+      expect(busMatrix(['scripts/nodes/merge/merge-worker.ts'], GRAPH, () => '', busPath)).toEqual(read)
+    }
+    finally {
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 })
