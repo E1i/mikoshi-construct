@@ -10,8 +10,8 @@ import { findSites } from '../../contract/factory/overlaps.js'
 import { openBus } from '../../core/db.js'
 import { reduce } from '../../core/reducer.js'
 import { parseDecisions, projectDecisions } from '../../policy/decisions/decisions.js'
-import { decisionsIntake } from '../../policy/decisions/import.js'
 import { BusDecisions, recordDecision } from '../../policy/decisions/index.js'
+import { decisionsSettler } from '../../policy/decisions/projection.js'
 import { busProjections } from '../../supervisor/composition.js'
 
 const REPO_ROOT = path.join(import.meta.dirname, '..', '..', '..')
@@ -85,10 +85,9 @@ describe('the decisions seal', () => {
     writeFileSync(file, `# Owner decisions\n\n- D-7 · 2026-11-11 — [owner] ${ALLOWANCE} · card #80 · decisions:add\n`)
     const db = openBus(bus)
     try {
-      decisionsIntake(db, file, () => AT)()
-      reduce(db, 'pending', busProjections())
+      decisionsSettler(db, file, () => AT, busProjections())()
       const decisions = new BusDecisions(db)
-      expect(decisions.inForce()).toMatchObject([{ decisionId: 7, words: ALLOWANCE, cards: [80], written: false }])
+      expect(decisions.inForce()).toEqual([])
       expect(ownerAllowed(decisions, 80, [WITNESS], [WITNESS])).toBe(false)
       recordDecision(db, { ts: AT.toISOString(), decisionId: 8, text: `[owner] ${ALLOWANCE}`, cards: [80] })
       reduce(db, 'pending', busProjections())

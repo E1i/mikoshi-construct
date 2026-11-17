@@ -1,32 +1,26 @@
 import type { CloseFacts, MergeFacts } from '../../policy/policy.js'
 import type { FakePull } from './github-fake.js'
 import type { MergeBench } from './merge-bench.js'
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import path from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { existsSync, readFileSync } from 'node:fs'
+import { describe, expect, it } from 'vitest'
 import { GENERATED_PATHS } from '../../core/generated-files.js'
 import { ownerInbox } from '../../core/inbox.js'
-import { decisionsIntake } from '../../policy/decisions/import.js'
+import { recordDecision } from '../../policy/decisions/index.js'
 import { closePolicy, mergePolicy, MERGES_UNDER_A_SHARD, OWNER_MERGES_RULES } from '../../policy/policy.js'
 import { cardBody } from './github-fake.js'
 import { liveBench } from './merge-bench.js'
 
 const OWNER_MERGES = readFileSync('architecture/owner-merges.md', 'utf8')
-const D77 = '# Owner decisions\n\n- D-76 · 2026-10-10 ~02:55Z — Путь работы выбирает MORSE.\n- D-77 · 2026-10-10 ~13:35Z — Owner-PR мержится шиной по pass ревью воркера и зелёному CI. Исключения за Эли: R1, security-invariants, version-PR.\n'
-const roots: string[] = []
+const D77 = [
+  { decisionId: 76, text: 'Путь работы выбирает MORSE.' },
+  { decisionId: 77, text: 'Owner-PR мержится шиной по pass ревью воркера и зелёному CI. Исключения за Эли: R1, security-invariants, version-PR.' },
+]
 
-afterEach(() => {
-  for (const root of roots.splice(0))
-    rmSync(root, { recursive: true, force: true })
-})
-
-function underDecisions(text: string): MergeBench {
-  const root = mkdtempSync(path.join(tmpdir(), 'bus-policy-decisions-'))
-  roots.push(root)
-  const file = path.join(root, 'owner-decisions.md')
-  writeFileSync(file, text)
-  return liveBench((db, clock) => decisionsIntake(db, file, clock.now))
+function underDecisions(decisions: readonly { decisionId: number, text: string }[]): MergeBench {
+  const bench = liveBench()
+  for (const decision of decisions)
+    recordDecision(bench.db, { ts: bench.clock.now().toISOString(), ...decision, cards: [] })
+  return bench
 }
 
 function facts(overrides: Partial<MergeFacts> = {}): MergeFacts {

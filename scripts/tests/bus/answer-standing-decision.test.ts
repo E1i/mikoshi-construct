@@ -200,7 +200,7 @@ function busReading(failed: readonly string[], abandoned: readonly string[], fai
     const body = response.body as { check_runs: { name: string, conclusion: string | null }[] }
     return { ...response, body: { check_runs: body.check_runs.map(check => check.name === REQUIRED_JOB && check.conclusion === 'failure' ? { ...check, id: REQUIRED_RUN_ID, output: { annotations_count: 1, annotations_url: `https://api.github.com/repos/{owner}/{repo}/check-runs/${REQUIRED_RUN_ID}/annotations` } } : check) } }
   }
-  const busTick = new BusTick(db, busProjections(), new NetWatch(db, client, clock.now), clock.now, () => {})
+  const busTick = new BusTick(db, busProjections(), new NetWatch(db, client, clock.now), clock.now)
   busTick.run()
   clock.advance(TICK_MS)
   gitHub.open({ number: PR, required: 'failure', failed: failedChecks, runs: [{ id: RUN, run_attempt: 1, status: 'completed', conclusion: 'failure' }] })
