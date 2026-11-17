@@ -13,9 +13,10 @@ import { CARD_VERSION } from '../../core/bus-version.js'
 import { appendCardEvent } from '../../core/card-bodies.js'
 import { appendEvent } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_STOPPED, declaredPayload, EVENT_PAYLOADS } from '../../core/events.js'
-import { LAUNCH_STOP_WITH_NO_PULL_REQUEST, LIFTED_ADMISSION } from '../../core/queue.js'
+import { LAUNCH_STOP_WITH_NO_PULL_REQUEST } from '../../core/queue.js'
 import { reducedTypes, reducedTypesOf } from '../../core/reducer.js'
 import { busProjections } from '../../supervisor/composition.js'
+import { LIFTED_ADMISSION } from '../../supervisor/derive-queues.js'
 import { eventsOf, mergeBench } from '../bus/merge-bench.js'
 
 const ROOT = process.cwd()

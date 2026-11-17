@@ -9,15 +9,15 @@ import path from 'node:path'
 import { appendEvent, openBus } from '../../core/db.js'
 import { readDeclarations } from '../../core/declarations.js'
 import { CARD_VERIFIED, REVIEW_RECORDED, SHARD_USED } from '../../core/events.js'
+import { REVIEW_ROUNDS } from '../../core/identifiers.js'
 import { leaseNext } from '../../core/lease.js'
 import { overlapDeclarationsOf, overlaps } from '../../core/order/overlap.js'
 import { orderEventsFrom, PrOrderTick } from '../../core/order/turn.js'
-import { REVIEW_ROUNDS } from '../../core/queue.js'
 import { MergeExecutor } from '../../nodes/merge/merge-executor.js'
 import { BusRead } from '../../ports/bus-read.js'
 import { NetWatch, TICK_MS } from '../../ports/netwatch.js'
 import { MAIN_FILES_CAP } from '../../ports/snapshot.js'
-import { busProjections } from '../../supervisor/composition.js'
+import { busProjections, candidateRules } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { BusTick } from '../../supervisor/run.js'
 import { Clock, FakeGitHub, sha } from './github-fake.js'
@@ -72,7 +72,7 @@ export function mergeBench(intake: Intake = () => () => {}, liveNodes: LiveNodes
   const clock = new Clock()
   const busTick = new BusTick(db, busProjections(), new NetWatch(db, gitHub.client, clock.now), clock.now)
   const seed = intake(db, clock)
-  const executor = new MergeExecutor({ silentMs: SILENT_MS, db, gitHub: gitHub.client, put: gitHub.put, publish: gitHub.publish, clock: clock.now, run: RUN, overlaps: benchOverlaps })
+  const executor = new MergeExecutor({ rules: candidateRules(), silentMs: SILENT_MS, db, gitHub: gitHub.client, put: gitHub.put, publish: gitHub.publish, clock: clock.now, run: RUN, overlaps: benchOverlaps })
   const order = benchOrderTick(db, clock)
   const tick = (): void => {
     seed()

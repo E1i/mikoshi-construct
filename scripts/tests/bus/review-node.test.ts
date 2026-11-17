@@ -24,6 +24,7 @@ import { ReviewExecutor } from '../../nodes/review/review-executor.js'
 import { DRY_RUN_ACTOR, ReviewNode, ReviewWorker, runReview } from '../../nodes/review/review-worker.js'
 import { reviewPrompt } from '../../nodes/review/reviewer.js'
 import { CHECK_MS, TICK_MS } from '../../ports/netwatch.js'
+import { candidateRules } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { cardBody } from './github-fake.js'
 import { eventCount, eventsOf, mergeBench, taskState } from './merge-bench.js'
@@ -147,7 +148,7 @@ function keysOf(made: MergeBench, via: 'event' | 'tick'): string[] {
 }
 
 function derivedKeys(made: MergeBench): string[] {
-  return reviewCandidates(made.db, made.clock.now().toISOString()).map(keyOf)
+  return reviewCandidates(made.db, made.clock.now().toISOString(), candidateRules()).map(keyOf)
 }
 
 function reviewRows(made: MergeBench, pr: number): number {

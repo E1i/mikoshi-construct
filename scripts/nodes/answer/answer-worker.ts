@@ -26,7 +26,6 @@ import { CARD_ADMITTED, CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, DECISION_RECO
 import { assertHeld, failTask, queuedCards, StaleLease, supersedeLease } from '../../core/lease.js'
 import { Node, runNode, UNDERSTOOD_NOW } from '../../core/node.js'
 import { treeReportPath } from '../../core/places.js'
-import { answerCandidates } from '../../core/queue.js'
 import { cardContract, NOT_MINE, notMine } from '../../intake/card-contract.js'
 import { busCardBodies } from '../../intake/parking-reads.js'
 import { OWNER_MERGES } from '../../policy/policy.js'
@@ -37,8 +36,9 @@ import { promptsDirOf } from '../../ports/prompt-store.js'
 import { CARD_SESSION_SANDBOX } from '../../ports/shift-settings.js'
 import { MAIN_BRANCH } from '../../ports/snapshot.js'
 import { launchDirOf, restoreReport, savedReportOf, treeHoldsACommit, treePrOfThisBuild, treePrPublisher } from '../../ports/tree-publish.js'
-import { nodeLiveness, nodeSupply } from '../../supervisor/composition.js'
+import { answerParts, nodeLiveness, nodeSupply } from '../../supervisor/composition.js'
 import { stampLogOutput } from '../../supervisor/stamp.js'
+import { answerCandidates } from './answer-candidates.js'
 import { AnswerExecutor } from './answer-executor.js'
 import { answerSourceOf } from './answer-source.js'
 import { claudeAnswerer, PREFIX, realAnswererTools } from './answerer.js'
@@ -146,11 +146,11 @@ export class AnswerNode extends Node<AnswerStep> {
   }
 
   protected candidates(scope: Scope = {}): QueuedTask[] {
-    return answerCandidates(this.db, this.ts()).filter(task => inScope(task, scope))
+    return answerCandidates(this.db, this.ts(), answerParts()).filter(task => inScope(task, scope))
   }
 
   protected override derivedCandidates(ts: string): QueuedTask[] {
-    return answerCandidates(this.db, ts)
+    return answerCandidates(this.db, ts, answerParts())
   }
 
   protected override leaseOrder(): LeaseOrder {

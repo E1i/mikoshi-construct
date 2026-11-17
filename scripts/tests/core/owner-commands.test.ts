@@ -6,7 +6,7 @@ import { afterAll, describe, expect, it } from 'vitest'
 import { CONCEPTS } from '../../contract/factory/concepts.js'
 import { findSites } from '../../contract/factory/overlaps.js'
 import { ADMIT_COMMAND, constructCommand, isOwnerMoveRequest, npxConstructCommand, OWNER_MOVE_REQUESTS, OWNER_MOVES, ownerMoveCommand, ownerMoveOf, ownerMoveRequestOf, ownerMoveUsage, pnpmCommand, QUALITY_COMMAND } from '../../core/owner-commands.js'
-import { admitCommandOf } from '../../core/queue.js'
+import { admitCommandOf } from '../../supervisor/derive-queues.js'
 import { isRequestKind, requestOf, USAGE } from '../../window/window-requests.js'
 
 const REPO_ROOT = path.join(import.meta.dirname, '..', '..', '..')

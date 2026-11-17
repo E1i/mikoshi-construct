@@ -17,7 +17,7 @@ import { CARD_VERIFIED, PR_CLOSED, PR_OPENED, REDUCED, WITNESS_RECORDED } from '
 import { Node, prefixOf, runNode, UNDERSTOOD_NOW } from '../../core/node.js'
 import { answerCardBodyOf, cardBodyShaOfCard, closeCandidates } from '../../core/queue.js'
 import { loadedCodeSha } from '../../ports/git.js'
-import { nodeLiveness, nodeSupply } from '../../supervisor/composition.js'
+import { candidateRules, nodeLiveness, nodeSupply } from '../../supervisor/composition.js'
 import { stampLogOutput } from '../../supervisor/stamp.js'
 import { cardClosed, CloseExecutor, failureOf, probeClosingCardIds } from './close-executor.js'
 import { cardTreeSweep, gitWorktrees, recordEndedTrees } from './ended-card-trees.js'
@@ -92,11 +92,11 @@ export class CloseNode extends Node<CloseStep> {
   }
 
   protected candidates(scope: Scope = {}): QueuedTask[] {
-    return [...closeCandidates(this.db, this.ts()), ...probeCandidates(this.db)].filter(task => inScope(task, scope))
+    return [...closeCandidates(this.db, this.ts(), candidateRules()), ...probeCandidates(this.db)].filter(task => inScope(task, scope))
   }
 
   protected override derivedCandidates(ts: string): QueuedTask[] {
-    return [...closeCandidates(this.db, ts), ...probeCandidates(this.db)]
+    return [...closeCandidates(this.db, ts, candidateRules()), ...probeCandidates(this.db)]
   }
 
   protected handle(lease: Lease): CloseStep {

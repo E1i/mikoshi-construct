@@ -9,9 +9,11 @@ import { appendEvent } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_CLOSED, CARD_MOVED, COMMAND_EXECUTED, MERGE_DONE, NODE_DETECTED, NODE_EQUIVALENCE, POLICY_ALLOWED, POLICY_DENIED, REVIEW_RECORDED, TASK_ENQUEUED } from '../../core/events.js'
 import { leaseNext } from '../../core/lease.js'
 import { NODE_CURSORS } from '../../core/node.js'
-import { keyOf, updateCandidates } from '../../core/queue.js'
+import { keyOf } from '../../core/queue.js'
+import { updateCandidates } from '../../nodes/update/update-candidates.js'
 import { UpdateExecutor } from '../../nodes/update/update-executor.js'
 import { UpdateNode } from '../../nodes/update/update-worker.js'
+import { updateParts } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { MAIN_2, sha } from './github-fake.js'
 import { eventsOf, liveBench, mainMovesPastEveryPr, mergeBench, taskState } from './merge-bench.js'
@@ -79,7 +81,7 @@ function behindAndLeased(parts: Partial<ConstructorParameters<typeof UpdateExecu
   made.tick()
   mainMovesPastEveryPr(made)
   detectUpdate(made)
-  const executor = new UpdateExecutor({ silentMs: SILENT_MS, db: made.db, gitHub: made.gitHub.client, put: made.gitHub.put, publish: made.gitHub.publish, clock: made.clock.now, settle: () => {}, ...parts })
+  const executor = new UpdateExecutor({ source: updateParts(), silentMs: SILENT_MS, db: made.db, gitHub: made.gitHub.client, put: made.gitHub.put, publish: made.gitHub.publish, clock: made.clock.now, settle: () => {}, ...parts })
   return { made, outcome: executor.update(leaseNext(made.db, made.clock.now().toISOString(), 'update', 'worker:update:worker-1')!) }
 }
 
@@ -88,7 +90,7 @@ function updateKey(pr: number, head = sha('a')): string {
 }
 
 function derivedKeys(made: MergeBench): string[] {
-  return updateCandidates(made.db, made.clock.now().toISOString()).map(keyOf)
+  return updateCandidates(made.db, made.clock.now().toISOString(), updateParts()).map(keyOf)
 }
 
 function deniedByAuthority(made: MergeBench, pr: number): number {

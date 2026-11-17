@@ -24,13 +24,15 @@ import { appendEvent, openOwnerWait } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_MOVED, CARD_STARTED, CARD_STOPPED, MERGE_DONE, NODE_DETECTED, NODE_EQUIVALENCE, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, POLICY_DENIED, SHARD_DECIDED, SHARD_ISSUED, TASK_ENQUEUED } from '../../core/events.js'
 import { assertHeld, failTask, leaseNext, StaleLease } from '../../core/lease.js'
 import { NODE_CURSORS } from '../../core/node.js'
-import { answerCandidates, FAILURES_TO_STOP, keyOf, queueTask } from '../../core/queue.js'
+import { FAILURES_TO_STOP, keyOf, queueTask } from '../../core/queue.js'
+import { answerCandidates } from '../../nodes/answer/answer-candidates.js'
 import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
 import { AnswerNode, answerNodeOf } from '../../nodes/answer/answer-worker.js'
 import { claudeAnswerer, tokensOf, windowGateRule } from '../../nodes/answer/answerer.js'
 import { answerPrompt } from '../../nodes/answer/duties/index.js'
 import { MAX_RESTARTS } from '../../nodes/launch/continuation.js'
 import { cardDecisionCommand, DECISIONS_SCOPE, OWNERS_UNDER_ANY_SHARD, VERSION_PR_RESERVATION } from '../../policy/shards.js'
+import { answerParts } from '../../supervisor/composition.js'
 import { busSessionPulse, lastHeartbeat } from '../../supervisor/heartbeat.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { sha } from './github-fake.js'
@@ -131,7 +133,7 @@ function keysOf(made: MergeBench, via: 'event' | 'tick'): string[] {
 }
 
 function derivedKeys(made: MergeBench): string[] {
-  return answerCandidates(made.db, made.clock.now().toISOString()).map(keyOf)
+  return answerCandidates(made.db, made.clock.now().toISOString(), answerParts()).map(keyOf)
 }
 
 function answerTasks(made: MergeBench, cardId: number): number {

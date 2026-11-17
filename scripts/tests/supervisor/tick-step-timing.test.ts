@@ -7,11 +7,11 @@ import process from 'node:process'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { machineBusPath, snapshotPathOf } from '../../core/bus-path.js'
 import { openBus } from '../../core/db.js'
-import { deriveQueues } from '../../core/queue.js'
 import { PR_FOLDS } from '../../core/reducer.js'
 import { decisionsInForceAt, withDecisionsHeldAt } from '../../policy/shards.js'
 import { NetWatch } from '../../ports/netwatch.js'
 import { LAST_STATUS_SET_ON_HEAD } from '../../ports/pr-status.js'
+import { deriveQueuesOfTheBus } from '../../supervisor/composition.js'
 import { BusTick, TICK_STEPS, tickLines, tickOrLocked } from '../../supervisor/run.js'
 import { Clock, FakeGitHub } from '../bus/github-fake.js'
 
@@ -86,7 +86,7 @@ function cpuMsOf(usage: NodeJS.CpuUsage): number {
 function medianTickCpuMs(db: DatabaseSync, ts: string): number {
   const rounds = Array.from({ length: TICK_ROUNDS }, () => {
     const started = process.cpuUsage()
-    deriveQueues(db, ts)
+    deriveQueuesOfTheBus(db, ts)
     return cpuMsOf(process.cpuUsage(started))
   })
   return rounds.sort((a, b) => a - b)[Math.floor(TICK_ROUNDS / 2)]!
@@ -130,7 +130,7 @@ describe('the slow steps of the tick', () => {
   it('deriveQueues reads the decisions in force once per tick', () => {
     const db = bus()
     decisionReads.count = 0
-    deriveQueues(db, TS)
+    deriveQueuesOfTheBus(db, TS)
     expect(decisionReads.count).toBe(1)
   })
 
@@ -156,8 +156,8 @@ describe.skipIf(!existsSync(SNAPSHOT))('deriveQueues on a copy of the bus snapsh
     before.exec('DROP INDEX events_by_pr_head')
     const after = lastId(indexed)
     const ts = new Date().toISOString()
-    const derived = deriveQueues(indexed, ts)
-    expect(derived).toEqual(deriveQueues(before, ts))
+    const derived = deriveQueuesOfTheBus(indexed, ts)
+    expect(derived).toEqual(deriveQueuesOfTheBus(before, ts))
     expect(queuesOf(indexed, after)).toEqual(queuesOf(before, after))
     expect(medianTickCpuMs(indexed, ts)).toBeLessThan(DERIVE_BUDGET_MS)
   }, 900_000)
