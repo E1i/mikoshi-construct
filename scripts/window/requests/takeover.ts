@@ -55,8 +55,10 @@ export function takeover(context: RequestContext, request: number, payload: Requ
     return { done: false, why: ground }
   const ts = context.now()
   const actor = owner ? OWNER : context.actorOf(request)
+  const pr = openPrOfCard(db, cardId)
+  const headTaken = pr === null ? null : context.observed(pr)?.head ?? null
   inTransaction(db, () => {
-    appendEvent(db, { ts, type: CARD_HELD, actor, cardId, pr: null, head: null, dedupeKey: `${CARD_HELD}:request-${request}`, payload: { request, reason, takeover: true }, legacy: false })
+    appendEvent(db, { ts, type: CARD_HELD, actor, cardId, pr: null, head: headTaken, dedupeKey: `${CARD_HELD}:request-${request}`, payload: { request, reason, takeover: true }, legacy: false })
     appendEvent(db, { ts, type: CARD_TAKEOVER, actor, cardId, pr: null, head: null, dedupeKey: `${CARD_TAKEOVER}:request-${request}`, payload: { request, reason, ground: ground.named }, legacy: false })
   })
   return { done: true, why: `${CARD_TAKEOVER} #${cardId} (${ground.named}): ${reason}` }

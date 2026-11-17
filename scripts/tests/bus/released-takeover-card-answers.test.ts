@@ -67,8 +67,8 @@ function cardStoppedAskingToWiden(beforeTheStop: (db: DatabaseSync) => void = ()
 
 function cardStoppedAskingToWidenThenHeld(takeover = true): DatabaseSync {
   const db = cardStoppedAskingToWiden()
-  held(db, 1, takeover)
   observed(db, HEAD_THE_WINDOW_PUSHED)
+  held(db, 1, takeover)
   return db
 }
 
@@ -130,8 +130,8 @@ describe('a card stopped on a question, then taken over and released by the wind
   it('a release that precedes the takeover leaves the question open while the takeover holds the card', () => {
     const db = cardStoppedAskingToWiden()
     released(db, 1)
-    held(db, 2, true)
     observed(db, HEAD_THE_WINDOW_PUSHED)
+    held(db, 2, true)
 
     expect(answersAfter(db, () => changesVerdict(db))).toBe(0)
   })
