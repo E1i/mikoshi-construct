@@ -46,6 +46,15 @@ case "$1" in
       if [ "$presses" -gt 0 ]; then echo tick >> "$STUB_DIR/ticks"; fi
     done
     exit 0 ;;
+  once)
+    presses=0
+    trap 'presses=$((presses + 1)); echo "$presses" >> "$STUB_DIR/presses"' INT
+    echo 'STATUS: CONTINUE' > "$HOME/.construct/handoff/miko.md"; : > "$STUB_DIR/ready"
+    while [ "$presses" -lt 1 ]; do
+      sleep 1 </dev/null >/dev/null 2>&1 & wait $!
+    done
+    sleep 1 </dev/null >/dev/null 2>&1
+    exit 0 ;;
   hang) echo 'STATUS: CONTINUE' > "$HOME/.construct/handoff/miko.md"; : > "$STUB_DIR/ready"; exec sleep 30 ;;
   threshold)
     node --disable-warning=ExperimentalWarning --import tsx scripts/window/handoff-write.ts "$HOME/.construct/handoff/miko.md" "$STUB_DIR/draft.md" >> "$STUB_DIR/threshold.log" 2>&1
@@ -229,6 +238,21 @@ describe('pnpm miko restarts Miko in its own terminal while miko.md says STATUS:
 
   it('a double Ctrl-C ends the loop', async () => {
     await doubleCtrlCAfter(0)
+  }, 20_000)
+
+  it('a double Ctrl-C ends the loop when the session ends between the two signals', async () => {
+    const dir = home(['once', 'owner 0'])
+    const loop = startLoop(dir, undefined, { [DOUBLE_CTRL_C_WINDOW_VARIABLE]: String(WINDOW_PAST_THE_TEST_MS) })
+    let stderr = ''
+    loop.stderr.on('data', (chunk: string) => {
+      stderr += chunk
+    })
+    await sessionReady(dir)
+    process.kill(-loop.pid, 'SIGINT')
+    await pauseLine(() => stderr)
+    process.kill(-loop.pid, 'SIGINT')
+    const { code } = await loop.done
+    expect({ code, calls: lines(dir, 'calls'), presses: lines(dir, 'presses'), stderr }).toMatchObject({ code: 0, calls: ['0|'], presses: ['1'], stderr: expect.stringContaining('double Ctrl+C during the session: no next session') })
   }, 20_000)
 
   it('a double Ctrl-C ends the loop even when the second signal lands late in the window', async () => {
@@ -494,6 +518,36 @@ describe('the Ctrl-C that ended the session is not read as a Ctrl+C in the pause
     const paused = pause(SHORT_PAUSE_MS)
     process.emit('SIGINT', 'SIGINT')
     expect(await paused).toBe(end)
+  })
+
+  it.each([
+    { name: 'within the window of the press in a session that then ended on its own', end: { code: 0, signal: null }, secondAt: DOUBLE_CTRL_C_WINDOW_MS, paused: 'double-ctrl-c' },
+    { name: 'past the window of the press in a session that then ended on its own', end: { code: 0, signal: null }, secondAt: DOUBLE_CTRL_C_WINDOW_MS + 1, paused: 'ctrl-c' },
+    { name: 'within the window of the press that ended the session', end: { code: null, signal: 'SIGINT' }, secondAt: DOUBLE_CTRL_C_WINDOW_MS, paused: 'ctrl-c' },
+  ] satisfies { name: string, end: SessionEnd, secondAt: number, paused: PauseEnd }[])('a Ctrl-C in the pause $name ends it $paused', async ({ end, secondAt, paused }) => {
+    const times = [0, secondAt]
+    const ctrlC = doubleCtrlCWatcher(() => times.shift()!)
+    process.on('SIGINT', ctrlC.press)
+    try {
+      const { session, pause } = sessionAndPauseSharingCtrlCs(ctrlC, async () => {
+        ctrlC.press()
+        return end
+      })
+      await session(undefined)
+      const pausing = pause(SHORT_PAUSE_MS)
+      process.emit('SIGINT', 'SIGINT')
+      expect(await pausing).toBe(paused)
+    }
+    finally {
+      process.off('SIGINT', ctrlC.press)
+    }
+  })
+
+  it('a double Ctrl-C reported by the pause ends the loop with no next session, though STATUS says CONTINUE', async () => {
+    const run = await drive({ statuses: [undefined, 'CONTINUE', 'CONTINUE'], pauseEnds: ['double-ctrl-c'] })
+    expect(run.code).toBe(0)
+    expect(run.prompts).toEqual([undefined])
+    expect(run.lines.at(-1)).toBe(`${PREFIX}double Ctrl+C during the session: no next session`)
   })
 })
 
