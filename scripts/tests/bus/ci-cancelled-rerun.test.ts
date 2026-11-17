@@ -15,7 +15,7 @@ import { answerCandidates } from '../../nodes/answer/answer-candidates.js'
 import { updateCandidates } from '../../nodes/update/update-candidates.js'
 import { UpdateExecutor } from '../../nodes/update/update-executor.js'
 import { NetWatch, TICK_MS } from '../../ports/netwatch.js'
-import { answerParts, busProjections, candidateRules } from '../../supervisor/composition.js'
+import { answerParts, busProjections, updateParts } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { BusTick } from '../../supervisor/run.js'
 import { Clock, FakeGitHub, sha } from './github-fake.js'
@@ -63,7 +63,7 @@ function cancelBench(): CancelBench {
     }) } }
   }
   const busTick = new BusTick(db, busProjections(), new NetWatch(db, client, clock.now), clock.now)
-  const executor = new UpdateExecutor({ rules: candidateRules(), silentMs: SILENT_MS, db, gitHub: client, put: gitHub.put, post: gitHub.post, publish: gitHub.publish, clock: clock.now, settle: () => {} })
+  const executor = new UpdateExecutor({ source: updateParts(), silentMs: SILENT_MS, db, gitHub: client, put: gitHub.put, post: gitHub.post, publish: gitHub.publish, clock: clock.now, settle: () => {} })
   const ts = (): string => clock.now().toISOString()
   const tick = (): void => {
     busTick.run()
@@ -77,10 +77,10 @@ function cancelBench(): CancelBench {
     abandoned,
     tick,
     answers: pr => answerCandidates(db, ts(), answerParts()).filter(task => task.pr === pr),
-    updates: pr => updateCandidates(db, ts(), candidateRules()).filter(task => task.pr === pr),
+    updates: pr => updateCandidates(db, ts(), updateParts()).filter(task => task.pr === pr),
     rerunEvents: pr => (db.prepare(`SELECT head, payload FROM events WHERE type = ? AND pr = ? ORDER BY id`).all(CI_RERUN_REQUESTED, pr) as { head: string, payload: string }[]).map(row => ({ head: row.head, payload: JSON.parse(row.payload) as Record<string, unknown> })),
     updateOnce: (pr) => {
-      for (const task of updateCandidates(db, ts(), candidateRules()).filter(each => each.pr === pr))
+      for (const task of updateCandidates(db, ts(), updateParts()).filter(each => each.pr === pr))
         queueTaskWithin(db, ts(), task)
       const lease = leaseNext(db, ts(), 'update', 'worker:update:worker-1')
       return lease === null ? null : executor.update(lease)

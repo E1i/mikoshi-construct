@@ -16,7 +16,7 @@ import { updateCandidates } from '../../../nodes/update/update-candidates.js'
 import { UpdateNode } from '../../../nodes/update/update-worker.js'
 import { recordDecision } from '../../../policy/decisions/index.js'
 import { mainMergeInCardTree } from '../../../ports/main-merge.js'
-import { answerParts, candidateRules } from '../../../supervisor/composition.js'
+import { answerParts, updateParts } from '../../../supervisor/composition.js'
 import { SILENT_MS } from '../../../supervisor/liveness-sites.js'
 import { dispatchRequest } from '../../../window/requests/index.js'
 import { cardBody, REPO, sha } from '../github-fake.js'
@@ -236,7 +236,7 @@ describe('conveyor O3: update and merge act on the turn of each group', () => {
 
     expect(merged(bench)).toEqual([1101, 1103])
     expect(eventsOf(bench.db, POLICY_DENIED)).toEqual([expect.objectContaining({ command: 'merge', reason: 'needs_update', detail: expect.stringContaining(same) })])
-    expect(updateCandidates(bench.db, bench.clock.now().toISOString(), candidateRules()).map(task => task.pr)).toEqual([1102])
+    expect(updateCandidates(bench.db, bench.clock.now().toISOString(), updateParts()).map(task => task.pr)).toEqual([1102])
     expect(bench.db.prepare(`SELECT state FROM tasks WHERE queue = 'update' AND pr = 1102`).all()).toEqual([])
 
     await once(line.update)

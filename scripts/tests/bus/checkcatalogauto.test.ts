@@ -13,7 +13,7 @@ import { NEEDS_UPDATE } from '../../core/queue.js'
 import { CATALOG_REBUILD_FAILED, MergeNode } from '../../nodes/merge/merge-worker.js'
 import { updateCandidates } from '../../nodes/update/update-candidates.js'
 import { UpdateNode } from '../../nodes/update/update-worker.js'
-import { candidateRules } from '../../supervisor/composition.js'
+import { updateParts } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { cardBody, MAIN_2, REPO, sha } from './github-fake.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
@@ -268,7 +268,7 @@ describe('a merge refused with a 405', () => {
 
     await once(merge)
 
-    expect(updateCandidates(made.db, made.clock.now().toISOString(), candidateRules()).map(task => task.pr)).toEqual([970])
+    expect(updateCandidates(made.db, made.clock.now().toISOString(), updateParts()).map(task => task.pr)).toEqual([970])
 
     await once(update)
     made.tick()

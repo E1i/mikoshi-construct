@@ -11,7 +11,7 @@ import { leaseNext } from '../../core/lease.js'
 import { cardContract } from '../../intake/card-contract.js'
 import { raisedRatchet, RATCHET_RECORD_PATH, UpdateExecutor } from '../../nodes/update/update-executor.js'
 import { mergePolicy } from '../../policy/policy.js'
-import { candidateRules, ratchetThresholdSets } from '../../supervisor/composition.js'
+import { ratchetThresholdSets, updateParts } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { cardBody, REPO, sha } from '../bus/github-fake.js'
 import { eventsOf, liveBench, mainMovesPastEveryPr } from '../bus/merge-bench.js'
@@ -72,7 +72,7 @@ function updateBench(sets: (bench: MergeBench) => void, answers: ContentsAnswers
     written.push({ endpoint, fields })
     return answers.write
   }
-  const executor = new UpdateExecutor({ rules: candidateRules(), silentMs: SILENT_MS, db: bench.db, gitHub, put, publish: bench.gitHub.publish, clock: bench.clock.now, settle: () => {}, thresholds: ratchetThresholdSets(bench.db) })
+  const executor = new UpdateExecutor({ source: updateParts(), silentMs: SILENT_MS, db: bench.db, gitHub, put, publish: bench.gitHub.publish, clock: bench.clock.now, settle: () => {}, thresholds: ratchetThresholdSets(bench.db) })
   const outcome = executor.update(leaseNext(bench.db, bench.clock.now().toISOString(), 'update', 'worker:update:worker-1')!)
   return { bench, outcome, reads, written }
 }

@@ -51,7 +51,7 @@ import { UpdateNode } from '../../nodes/update/update-worker.js'
 import { NetWatch, TICK_MS } from '../../ports/netwatch.js'
 import { InMemoryProcessTable } from '../../ports/process-table.js'
 import { launchName } from '../../supervisor/bg.js'
-import { answerParts, busProjections, candidateRules, nodeSupply } from '../../supervisor/composition.js'
+import { answerParts, busProjections, nodeSupply, updateParts } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { BusTick } from '../../supervisor/run.js'
 import { slotsVariable } from '../../supervisor/scheduler.js'
@@ -356,7 +356,7 @@ function abandonedRunIsRerun(): void {
     const ts = clock.now().toISOString()
     if (answerCandidates(db, ts, answerParts()).some(task => task.pr === 1493))
       throw new Error('a required red only from abandoned jobs queued an answer')
-    for (const task of updateCandidates(db, ts, candidateRules()).filter(each => each.pr === 1493))
+    for (const task of updateCandidates(db, ts, updateParts()).filter(each => each.pr === 1493))
       queueTaskWithin(db, ts, task)
     const lease = leaseNext(db, ts, 'update', 'worker:update:worker-1')
     if (lease === null)

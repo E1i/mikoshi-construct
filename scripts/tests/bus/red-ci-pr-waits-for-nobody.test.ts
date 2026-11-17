@@ -9,7 +9,7 @@ import { unmergedDependenciesOf } from '../../core/queue.js'
 import { answerCandidates } from '../../nodes/answer/answer-candidates.js'
 import { mergeCandidates } from '../../nodes/merge/merge-candidates.js'
 import { updateCandidates } from '../../nodes/update/update-candidates.js'
-import { answerParts, candidateRules } from '../../supervisor/composition.js'
+import { answerParts, candidateRules, updateParts } from '../../supervisor/composition.js'
 import { sha } from './github-fake.js'
 import { liveBench } from './merge-bench.js'
 import { detectUpdate } from './update-detection.js'
@@ -48,7 +48,7 @@ function aDependentPrOnAnOpenDependency(pull: Partial<FakePull>): MergeBench {
 const OF_THE_BUS = {
   answer: (db: DatabaseSync, ts: string) => answerCandidates(db, ts, answerParts()),
   merge: (db: DatabaseSync, ts: string) => mergeCandidates(db, ts, candidateRules()),
-  update: (db: DatabaseSync, ts: string) => updateCandidates(db, ts, candidateRules()),
+  update: (db: DatabaseSync, ts: string) => updateCandidates(db, ts, updateParts()),
 }
 
 function tasksOfTheDependent(bench: MergeBench, candidates: (db: DatabaseSync, ts: string) => QueuedTask[]): { pr: number | null | undefined, head: string | undefined }[] {

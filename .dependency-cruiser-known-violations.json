@@ -30,20 +30,6 @@
   },
   {
     "type": "dependency",
-    "from": "scripts/core/queue.ts",
-    "to": "src/commands/intake/admit.ts",
-    "unresolvedTo": "../../src/commands/intake/admit.js",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "core-imports-no-factory"
-    }
-  },
-  {
-    "type": "dependency",
     "from": "scripts/core/card-bodies.ts",
     "to": "src/card/parking.ts",
     "unresolvedTo": "../../src/card/parking.js",
@@ -180,104 +166,6 @@
     "dependencyTypes": [
       "local",
       "type-only",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "core-imports-nothing-to-its-right"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "scripts/core/queue.ts",
-    "to": "scripts/nodes/launch/launch-candidates.ts",
-    "unresolvedTo": "../nodes/launch/launch-candidates.js",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "core-imports-nothing-to-its-right"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "scripts/core/queue.ts",
-    "to": "scripts/nodes/update/update-done.ts",
-    "unresolvedTo": "../nodes/update/update-done.js",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "core-imports-nothing-to-its-right"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "scripts/core/queue.ts",
-    "to": "scripts/policy/round-limit-decision.ts",
-    "unresolvedTo": "../policy/round-limit-decision.js",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "core-imports-nothing-to-its-right"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "scripts/core/queue.ts",
-    "to": "scripts/policy/shards.ts",
-    "unresolvedTo": "../policy/shards.js",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "core-imports-nothing-to-its-right"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "scripts/core/queue.ts",
-    "to": "scripts/ports/snapshot.ts",
-    "unresolvedTo": "../ports/snapshot.js",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "core-imports-nothing-to-its-right"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "scripts/core/queue.ts",
-    "to": "src/card/parking.ts",
-    "unresolvedTo": "../../src/card/parking.js",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "core-imports-nothing-to-its-right"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "scripts/core/queue.ts",
-    "to": "src/commands/intake/admit.ts",
-    "unresolvedTo": "../../src/commands/intake/admit.js",
-    "dependencyTypes": [
-      "local",
       "import"
     ],
     "rule": {

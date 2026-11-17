@@ -10,7 +10,7 @@ import { mergeCandidates } from '../../../nodes/merge/merge-candidates.js'
 import { MergeNode } from '../../../nodes/merge/merge-worker.js'
 import { updateCandidates } from '../../../nodes/update/update-candidates.js'
 import { recordDecision } from '../../../policy/decisions/index.js'
-import { candidateRules } from '../../../supervisor/composition.js'
+import { candidateRules, updateParts } from '../../../supervisor/composition.js'
 import { SILENT_MS } from '../../../supervisor/liveness-sites.js'
 import { cardBody, sha } from '../github-fake.js'
 import { eventsOf, mergeBench } from '../merge-bench.js'
@@ -140,6 +140,6 @@ describe('conveyor O4: a decision scoped to a card supersedes its merge and upda
     bench.tick()
 
     expect(stateOf(bench, keyOf(update))).toBe('superseded')
-    expect(updateCandidates(bench.db, o4.ts(), candidateRules()).every(task => task.decision === DECISION + 1)).toBe(true)
+    expect(updateCandidates(bench.db, o4.ts(), updateParts()).every(task => task.decision === DECISION + 1)).toBe(true)
   })
 })

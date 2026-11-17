@@ -14,7 +14,7 @@ import { PrCloser, RoundLimitRecutter } from '../../nodes/review/pr-close.js'
 import { ghNotePr } from '../../nodes/review/review-worker.js'
 import { UpdateExecutor } from '../../nodes/update/update-executor.js'
 import { GhBudgetWindow, ghPort } from '../../ports/gh.js'
-import { candidateRules } from '../../supervisor/composition.js'
+import { candidateRules, updateParts } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { cardBody, sha } from '../bus/github-fake.js'
 import { benchOverlaps, liveBench, mainMovesPastEveryPr, mergeBench } from '../bus/merge-bench.js'
@@ -105,7 +105,7 @@ describe('push policy none', () => {
       made.tick()
       mainMovesPastEveryPr(made)
       detectUpdate(made)
-      const executor = new UpdateExecutor({ rules: candidateRules(), silentMs: SILENT_MS, db: made.db, gitHub: made.gitHub.client, put: made.gitHub.put, publish: made.gitHub.publish, clock: made.clock.now, settle: () => {}, pushPolicy: () => policy })
+      const executor = new UpdateExecutor({ source: updateParts(), silentMs: SILENT_MS, db: made.db, gitHub: made.gitHub.client, put: made.gitHub.put, publish: made.gitHub.publish, clock: made.clock.now, settle: () => {}, pushPolicy: () => policy })
       const outcome = executor.update(leaseNext(made.db, made.clock.now().toISOString(), 'update', 'worker:update:worker-1')!)
 
       expect({ puts: made.gitHub.puts.length, kind: outcome.kind }).toEqual({ puts, kind })

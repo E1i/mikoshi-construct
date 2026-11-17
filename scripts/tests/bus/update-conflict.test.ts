@@ -13,7 +13,7 @@ import { answerCandidates } from '../../nodes/answer/answer-candidates.js'
 import { updateCandidates } from '../../nodes/update/update-candidates.js'
 import { UpdateExecutor } from '../../nodes/update/update-executor.js'
 import { mainMergeInCardTree } from '../../ports/main-merge.js'
-import { answerParts, candidateRules } from '../../supervisor/composition.js'
+import { answerParts, updateParts } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { eventsOf, liveBench, taskState } from './merge-bench.js'
 import { detectUpdate } from './update-detection.js'
@@ -88,7 +88,7 @@ function conflictBench(file: string, pr: number) {
   bench.gitHub.open({ number: pr, head: conflict.head, mergeable_state: 'dirty' })
   bench.tick()
   detectUpdate(bench)
-  const executor = new UpdateExecutor({ rules: candidateRules(), silentMs: SILENT_MS, db: bench.db, gitHub: bench.gitHub.client, put: bench.gitHub.put, publish: bench.gitHub.publish, clock: bench.clock.now, settle: () => {}, mergeMain: mainMergeInCardTree(git, () => conflict.tree) })
+  const executor = new UpdateExecutor({ source: updateParts(), silentMs: SILENT_MS, db: bench.db, gitHub: bench.gitHub.client, put: bench.gitHub.put, publish: bench.gitHub.publish, clock: bench.clock.now, settle: () => {}, mergeMain: mainMergeInCardTree(git, () => conflict.tree) })
   const lease = (): Lease | null => leaseNext(bench.db, bench.clock.now().toISOString(), 'update', 'worker:update:worker-1')
   return { bench, conflict, cardId, lease, executor }
 }
@@ -96,7 +96,7 @@ function conflictBench(file: string, pr: number) {
 describe('the update node on a pull request in conflict with main', () => {
   it('a conflicting card pull request is routed to the update node and to no answer', () => {
     const { bench, cardId } = conflictBench(CHANGESET, 1092)
-    expect(updateCandidates(bench.db, bench.clock.now().toISOString(), candidateRules()).map(task => task.cardId)).toEqual([cardId])
+    expect(updateCandidates(bench.db, bench.clock.now().toISOString(), updateParts()).map(task => task.cardId)).toEqual([cardId])
     expect(answerCandidates(bench.db, bench.clock.now().toISOString(), answerParts())).toEqual([])
     bench.close()
   })

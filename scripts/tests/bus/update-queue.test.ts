@@ -13,7 +13,7 @@ import { NoLiveVerdict } from '../../nodes/merge/merge-worker.js'
 import { updateCandidates } from '../../nodes/update/update-candidates.js'
 import { cleanUpdate, HEAD_READS, UpdateExecutor } from '../../nodes/update/update-executor.js'
 import { runUpdateWorker, UpdateNode } from '../../nodes/update/update-worker.js'
-import { busProjections, candidateRules } from '../../supervisor/composition.js'
+import { busProjections, updateParts } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { cardBody, sha } from './github-fake.js'
 import { eventCount, eventsOf, liveBench, mainMovesPastEveryPr, taskState } from './merge-bench.js'
@@ -32,7 +32,7 @@ function updateBench() {
   const settle = (): void => {
     settled += 1
   }
-  const executor = new UpdateExecutor({ rules: candidateRules(), silentMs: SILENT_MS, db: bench.db, gitHub: bench.gitHub.client, put: bench.gitHub.put, publish: bench.gitHub.publish, clock: bench.clock.now, settle })
+  const executor = new UpdateExecutor({ source: updateParts(), silentMs: SILENT_MS, db: bench.db, gitHub: bench.gitHub.client, put: bench.gitHub.put, publish: bench.gitHub.publish, clock: bench.clock.now, settle })
   return {
     ...bench,
     settled: () => settled,
@@ -101,7 +101,7 @@ describe('the update queue', () => {
     bench.tick()
     mainMovesPastEveryPr(bench)
 
-    expect(updateCandidates(bench.db, bench.clock.now().toISOString(), candidateRules())).toEqual([expect.objectContaining({ queue: 'update', cardId: 1062, pr: 962, head: sha('f') })])
+    expect(updateCandidates(bench.db, bench.clock.now().toISOString(), updateParts())).toEqual([expect.objectContaining({ queue: 'update', cardId: 1062, pr: 962, head: sha('f') })])
     bench.close()
   })
 
@@ -112,7 +112,7 @@ describe('the update queue', () => {
     bench.tick()
     mainMovesPastEveryPr(bench)
 
-    expect(updateCandidates(bench.db, bench.clock.now().toISOString(), candidateRules()).map(task => task.pr)).toEqual([963, 964])
+    expect(updateCandidates(bench.db, bench.clock.now().toISOString(), updateParts()).map(task => task.pr)).toEqual([963, 964])
     bench.close()
   })
 
@@ -124,7 +124,7 @@ describe('the update queue', () => {
     bench.tick()
     mainMovesPastEveryPr(bench)
 
-    expect(updateCandidates(bench.db, bench.clock.now().toISOString(), candidateRules()).map(task => task.pr)).toEqual([966, 965])
+    expect(updateCandidates(bench.db, bench.clock.now().toISOString(), updateParts()).map(task => task.pr)).toEqual([966, 965])
     bench.close()
   })
 
@@ -135,7 +135,7 @@ describe('the update queue', () => {
     bench.gitHub.open({ number: 969, head: sha('f'), review: 'success', mergeable_state: 'behind', required: 'pending' })
     bench.tick()
 
-    expect(updateCandidates(bench.db, bench.clock.now().toISOString(), candidateRules())).toEqual([])
+    expect(updateCandidates(bench.db, bench.clock.now().toISOString(), updateParts())).toEqual([])
     bench.close()
   })
 
@@ -148,7 +148,7 @@ describe('the update queue', () => {
     bench.tick()
     mainMovesPastEveryPr(bench)
 
-    expect(updateCandidates(bench.db, bench.clock.now().toISOString(), candidateRules()).map(task => task.pr)).toEqual([958])
+    expect(updateCandidates(bench.db, bench.clock.now().toISOString(), updateParts()).map(task => task.pr)).toEqual([958])
     bench.close()
   })
 
