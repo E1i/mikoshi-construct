@@ -185,7 +185,7 @@ describe('the reducer pass and its loop', () => {
         fail = listener
       }, terminate }
     })
-    expect(started!.entry.pathname).toMatch(/reducer-loop-worker\.ts$/)
+    expect(started!.entry.pathname).toMatch(/reducer-thread\.ts$/)
     expect(started!.workerData).toEqual({ [REDUCER_LOOP_BUS_PATH]: '/bus/home/bus.db', [REDUCER_LOOP_HOME]: '/home', [REDUCER_LOOP_PERIOD]: 1234 })
     const { db } = scratchBus()
     const { tick } = slowTick(db, () => true)

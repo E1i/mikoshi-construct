@@ -15,18 +15,22 @@ import { fileURLToPath } from 'node:url'
 import { BOARD_PERIOD_MS, startBoardTimer } from '../cli/board-page.js'
 import { busDirOf } from '../core/bus-path.js'
 import { defaultBusPath, inTransaction, openBus, openBusWait } from '../core/db.js'
+import { WINDOW_REQUEST } from '../core/events.js'
 import { DATABASE_LOCKED, isDatabaseLocked } from '../core/node.js'
 import { QUEUE_ACTOR } from '../core/queue.js'
+import { ownerChannelOfBus } from '../owner/channel.js'
 import { ghApi } from '../ports/github.js'
 import { CHECK_MS, NetWatch, pollLine, TICK_MS } from '../ports/netwatch.js'
 import { ghApiPost, setStepStatuses, STATUS_CONTEXT, STATUS_OFF_FILE, statusesSwitchedOff, statusFailureLine, statusLine } from '../ports/pr-status.js'
 import { OsProcessTable } from '../ports/process-table.js'
+import { realRequestTools } from '../window/window-request-tools.js'
+import { WindowRequests } from '../window/window-requests.js'
 import { alive, BUS_RUN_MARKERS, instancesOf, processBeatsOn, psList, RUN_SCRIPT } from './bg.js'
 import { closeWaitsOfEndedCards } from './card-waits.js'
-import { deriveQueuesOfTheBus, gateRunSpoolPlaces, recordOwnStart } from './composition.js'
+import { busProjections, deriveQueuesOfTheBus, gateRunSpoolPlaces, recordOwnStart } from './composition.js'
 import { GateRunSpool } from './gate-run-spool.js'
 import { sessionLifeIn } from './recorded-worker.js'
-import { composeReducerPass, REDUCER_PERIOD_MS, ReducerPass, startReducerLoop } from './reducer-loop.js'
+import { REDUCER_PERIOD_MS, REDUCER_PREFIX, ReducerPass, startReducerLoop } from './reducer-loop.js'
 import { StalledSessions } from './stalled-sessions.js'
 import { stampLogOutput } from './stamp.js'
 
@@ -230,6 +234,18 @@ export function tickOrLocked(busTick: BusTick): string[] {
 
 export interface ComposedTick {
   busTick: BusTick
+}
+
+export const QUIET_REDUCED_MS = TICK_MS
+
+export function composeReducerPass(db: DatabaseSync, busPath: string, clock: () => Date, home: string, repo: string = process.cwd(), env: NodeJS.ProcessEnv = process.env, log: (line: string) => void = console.log, quietMs: number = QUIET_REDUCED_MS): ReducerPass {
+  const projections = busProjections()
+  const requests = new WindowRequests(db, clock, realRequestTools(db, busPath, repo, env, projections), ownerChannelOfBus(home, busPath))
+  const answer = (): void => {
+    for (const outcome of requests.run())
+      log(`${REDUCER_PREFIX}${WINDOW_REQUEST} ${outcome.request} ${outcome.kind}: ${outcome.detail}`)
+  }
+  return new ReducerPass(db, projections, clock, answer, quietMs)
 }
 
 export type ReducerPlacement = 'inline' | 'own-thread'

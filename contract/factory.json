@@ -2202,7 +2202,7 @@
           "scripts/owner/channel.ts",
           "scripts/owner/say.ts",
           "scripts/policy/decisions/add.ts",
-          "scripts/supervisor/reducer-loop.ts",
+          "scripts/supervisor/run.ts",
           "scripts/supervisor/start.ts",
           "scripts/window/window-requests.ts",
           "src/program.ts"

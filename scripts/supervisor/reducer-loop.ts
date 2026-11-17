@@ -1,16 +1,10 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { Projections, ReduceCount } from '../core/reducer.js'
-import process from 'node:process'
 import { Worker } from 'node:worker_threads'
 import { appendEvent } from '../core/db.js'
-import { REDUCED, WINDOW_REQUEST } from '../core/events.js'
+import { REDUCED } from '../core/events.js'
 import { DATABASE_LOCKED, isDatabaseLocked } from '../core/node.js'
 import { reduce } from '../core/reducer.js'
-import { ownerChannelOfBus } from '../owner/channel.js'
-import { TICK_MS } from '../ports/netwatch.js'
-import { realRequestTools } from '../window/window-request-tools.js'
-import { WindowRequests } from '../window/window-requests.js'
-import { busProjections } from './composition.js'
 
 export const REDUCER_PERIOD_MS = 2_000
 export const REDUCER_PREFIX = '[bus:reducer] '
@@ -18,8 +12,7 @@ export const REDUCER_LOOP_BUS_PATH = 'reducerLoopBusPath'
 export const REDUCER_LOOP_PERIOD = 'reducerLoopPeriodMs'
 export const REDUCER_LOOP_HOME = 'reducerLoopHome'
 export const REDUCER_PASS_DONE = 'reducer.pass.done'
-export const QUIET_REDUCED_MS = TICK_MS
-const REDUCER_LOOP_ENTRY = new URL('./reducer-loop-worker.ts', import.meta.url)
+const REDUCER_LOOP_ENTRY = new URL('./reducer-thread.ts', import.meta.url)
 
 function lastEventId(db: DatabaseSync): number {
   return Number((db.prepare('SELECT coalesce(max(id), 0) AS id FROM events').get() as { id: number }).id)
@@ -74,16 +67,6 @@ export class ReducerLoop {
       return [lockedLine(this.periodMs)]
     }
   }
-}
-
-export function composeReducerPass(db: DatabaseSync, busPath: string, clock: () => Date, home: string, repo: string = process.cwd(), env: NodeJS.ProcessEnv = process.env, log: (line: string) => void = console.log, quietMs: number = QUIET_REDUCED_MS): ReducerPass {
-  const projections = busProjections()
-  const requests = new WindowRequests(db, clock, realRequestTools(db, busPath, repo, env, projections), ownerChannelOfBus(home, busPath))
-  const answer = (): void => {
-    for (const outcome of requests.run())
-      log(`${REDUCER_PREFIX}${WINDOW_REQUEST} ${outcome.request} ${outcome.kind}: ${outcome.detail}`)
-  }
-  return new ReducerPass(db, projections, clock, answer, quietMs)
 }
 
 export interface StartedReducerLoop {

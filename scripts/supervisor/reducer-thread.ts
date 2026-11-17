@@ -2,7 +2,8 @@ import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { isMainThread, parentPort, workerData } from 'node:worker_threads'
 import { openBus } from '../core/db.js'
-import { composeReducerPass, REDUCER_LOOP_BUS_PATH, REDUCER_LOOP_HOME, REDUCER_LOOP_PERIOD, REDUCER_PASS_DONE, ReducerLoop } from './reducer-loop.js'
+import { REDUCER_LOOP_BUS_PATH, REDUCER_LOOP_HOME, REDUCER_LOOP_PERIOD, REDUCER_PASS_DONE, ReducerLoop } from './reducer-loop.js'
+import { composeReducerPass } from './run.js'
 
 export async function runReducerLoop(busPath: string, home: string, periodMs: number, running: () => boolean = () => true, log: (line: string) => void = console.log, passed: () => void = () => parentPort?.postMessage(REDUCER_PASS_DONE)): Promise<void> {
   const db = openBus(busPath)
