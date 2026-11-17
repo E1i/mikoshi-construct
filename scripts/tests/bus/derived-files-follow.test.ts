@@ -198,7 +198,7 @@ interface Launched {
   bodies: string[]
 }
 
-function launch(name: ScenarioName): Launched {
+function launch(name: ScenarioName, waits = true): Launched {
   const scenario = SCENARIOS[name]
   const cardId = 4001
   const made = mergeBench()
@@ -222,7 +222,7 @@ function launch(name: ScenarioName): Launched {
       bodies.push(args[args.indexOf('--body') + 1]!)
       return 'https://github.com/o/r/pull/1588\n'
     },
-    ownerWait: (waiting, text) => openOwnerWait(made.db, made.clock.now().toISOString(), 'worker:shift:test', { need: 'decision', text, ...(waiting === null ? {} : { card: waiting }) }),
+    ...(waits ? { ownerWait: (waiting: number | null, text: string) => openOwnerWait(made.db, made.clock.now().toISOString(), 'worker:shift:test', { need: 'decision', text, ...(waiting === null ? {} : { card: waiting }) }) } : {}),
   }
   return { made, opened: treePr(ports, card, worktree, null), bodies }
 }
@@ -372,6 +372,21 @@ describe('a derived file follows its source on tree-pr, answer and update (D-592
     expect(waitIds(updated.made)).toEqual([expect.stringMatching(/^Q\d+$/)])
     expect(questionAgentStops(updated.made)).toEqual([])
   })
+
+  it('growth on a tree-pr with no owner wait to open is refused, never passed silently', () => {
+    const launched = launch('grows', false)
+    expect(launched.opened).toMatchObject({ kind: 'problem', gaps: [{ reason: 'derived-unreproduced', paths: [KNOWN, RATCHET] }] })
+    expect(launched.bodies).toEqual([])
+    expect(waitIds(launched.made)).toEqual([])
+  })
+
+  it('a refused derived file is never offered to the owner as a path to widen the touches to', async () => {
+    const answered = await answer('handEdits')
+    const stops = eventsOf(answered.made.db, CARD_STOPPED).slice(answered.stopsBefore)
+    expect(stops).not.toEqual([])
+    for (const stop of stops)
+      expect(stop.widen ?? []).not.toContain(KNOWN)
+  })
 })
 
 describe('the judgement of a derived file (D-592, narrowing D-514 to growth)', () => {
@@ -383,6 +398,7 @@ describe('the judgement of a derived file (D-592, narrowing D-514 to growth)', (
     expect(grownEntries(json({ [RATCHET_ROW]: 2 }), json({ [RATCHET_ROW]: 1 }))).toEqual([])
     expect(grownEntries(json({ [RATCHET_ROW]: 2 }), json({ [RATCHET_ROW]: 3 }))).toEqual([`${RATCHET_ROW} (2 → 3)`])
     expect(grownEntries(json({}), json({ [RATCHET_ROW]: 1 }))).toEqual([`${RATCHET_ROW} (new: 1)`])
+    expect(grownEntries(json({ [RATCHET_ROW]: 2, [`lines:${TOUCHED}`]: 40 }), json({ [RATCHET_ROW]: 2, [`lines:${TOUCHED}`]: 39 }))).toEqual([])
     expect(removesEntriesOnly(json([JSON.parse(stale!), JSON.parse(kept!)]), json([JSON.parse(kept!)]))).toBe(true)
   })
 
@@ -394,8 +410,20 @@ describe('the judgement of a derived file (D-592, narrowing D-514 to growth)', (
     const reading = { current: (file: string) => existsSync(path.join(tree, file)) ? read(tree, file) : null, base: () => null, rerun: () => ({ kind: 'ran' as const, outputs: new Map([[RATCHET, read(tree, RATCHET)]]) }) }
     expect(judgeDerived(DERIVED_REGISTRY, [RATCHET], reading)).toMatchObject({ followed: [], grown: [{ file: RATCHET }] })
 
+    const unowned = json({ ...JSON.parse(read(tree, MODULE_FILES)) as Record<string, string[]>, 'factory-contract': [] })
+    const withoutTheOutput = { ...reading, current: (file: string) => file === MODULE_FILES ? unowned : reading.current(file) }
+    expect(judgeDerived(DERIVED_REGISTRY, [RATCHET], withoutTheOutput).refused).toEqual([{ file: RATCHET, why: expect.stringContaining(`${MODULE_FILES} built from the declarations does not give it to its owner module factory-contract`) }])
+
     rmSync(path.join(tree, DECLARATIONS, 'factory-contract.json'))
     expect(judgeDerived(DERIVED_REGISTRY, [RATCHET], reading).refused).toEqual([{ file: RATCHET, why: expect.stringContaining('owner module factory-contract has no declaration') }])
+  })
+
+  it('a derived file not marked measure does not grow, even by a new row', () => {
+    const before = json({ quality: [KNOWN, OTHER] })
+    const after = json({ 'quality': [KNOWN, OTHER], 'card-record': [NEW_GATE] })
+    expect(grownEntries(before, after)).toEqual([`card-record (new: ${JSON.stringify([NEW_GATE])})`])
+    const reading = { current: (file: string) => file === MODULE_FILES ? after : null, base: () => before, rerun: () => ({ kind: 'ran' as const, outputs: new Map([[MODULE_FILES, after]]) }) }
+    expect(judgeDerived(DERIVED_REGISTRY, [MODULE_FILES], reading)).toEqual({ followed: [MODULE_FILES], refused: [], grown: [] })
   })
 
   it('a generator that cannot run on the card\'s tree refuses its output, and the tree is left as it was', () => {
