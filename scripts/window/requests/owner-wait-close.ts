@@ -1,23 +1,59 @@
 import type { RequestContext, RequestExecutor } from './context.js'
 import type { Executed } from './request.js'
 import { OWNER_SAY_COMMAND } from '../../core/owner-commands.js'
-import { activeDecisionsShard, ANSWER_SOURCE, appendEvent, closeOwnerWait, consumeOwnerWordClosing, deciderUnderAShard, decisionOnAWait, inTransaction, OPEN_OWNER_STOP_OF_CARD, OPEN_WAIT, OWNER_DECIDES, OWNER_SOURCE, OWNER_WAITS, OWNER_WORD_NOT_FOUND, ownerWordAwaited, QUEUE_ACTOR, SHARD_DECIDED, stopKindOf } from './reach.js'
+import { activeDecisionsShard, ANSWER_SOURCE, appendEvent, cardBodyShaOfCard, closeOwnerWait, consumeOwnerWordClosing, deciderUnderAShard, decisionOnAWait, inTransaction, OPEN_OWNER_STOP_OF_CARD, OPEN_WAIT, OWNER_DECIDES, OWNER_SOURCE, OWNER_WAITS, OWNER_WORD_NOT_FOUND, ownerWordAwaited, QUEUE_ACTOR, queueTask, SHARD_DECIDED, stopKindOf } from './reach.js'
 import { flagsOf, messageOf, OWNER_ANSWER_USAGE, OWNER_WORD_NEEDED, text, unreleasedWord } from './request.js'
 
 interface WaitToClose {
   state: string
   card_id: number | null
   need: string
+  pr: number | null
 }
 
 const WAITS_A_DECISION_ANSWERS: ReadonlySet<string> = new Set(['decision', 'command'])
+const MERGE_NEED = 'merge'
+const PR_NO_LONGER_REWORKED: ReadonlySet<string | null> = new Set(['merged', 'closed'])
+
+interface Binding {
+  line: string
+  decision: number | null
+}
+
+const WRITTEN_DECISION_ID = /\bD-(\d+)\b/
+
+function decisionIdIn(lines: readonly string[]): number | null {
+  const found = lines.map(line => WRITTEN_DECISION_ID.exec(line)).find(match => match !== null)
+  return found === undefined || found === null ? null : Number(found[1])
+}
+
+function bindingToTheCard(context: RequestContext, id: string, cardId: number, answer: string): Binding {
+  const words = decisionOnAWait(id, answer)
+  const already = context.sameWordsBoundTo(words, [cardId])
+  if (already !== null)
+    return { line: `a decision with these words is bound to card #${cardId} already`, decision: already }
+  const written = context.writtenDecision([...flagsOf('--card', `#${cardId}`), ...context.settledFlags(), `${OWNER_SOURCE} ${words}`])
+  if (written.code !== 0)
+    return { line: `the decision binding it to card #${cardId} is not written: ${written.lines.join('; ')}`, decision: null }
+  return { line: `bound to card #${cardId} as a decision: ${written.lines.join('; ')}`, decision: decisionIdIn(written.lines) }
+}
 
 function boundToTheCard(context: RequestContext, id: string, cardId: number, answer: string): string {
-  const words = decisionOnAWait(id, answer)
-  if (context.sameWordsBoundTo(words, [cardId]) !== null)
-    return `a decision with these words is bound to card #${cardId} already`
-  const written = context.writtenDecision([...flagsOf('--card', `#${cardId}`), ...context.settledFlags(), `${OWNER_SOURCE} ${words}`])
-  return written.code === 0 ? `bound to card #${cardId} as a decision: ${written.lines.join('; ')}` : `the decision binding it to card #${cardId} is not written: ${written.lines.join('; ')}`
+  return bindingToTheCard(context, id, cardId, answer).line
+}
+
+function answerRoundOnARefusedMerge(context: RequestContext, id: string, cardId: number, pr: number | null, answer: string): string {
+  if (pr === null)
+    return `${id} names no PR, so no answer round is queued`
+  const observed = context.observed(pr)
+  if (observed === undefined || PR_NO_LONGER_REWORKED.has(observed.state) || observed.head === null)
+    return `PR #${pr} is ${observed?.state ?? 'not observed'}, so no answer round is queued`
+  const { line: bound, decision } = bindingToTheCard(context, id, cardId, answer)
+  if (decision === null)
+    return `${bound}; no answer round is queued without the decision that carries the answer`
+  const cardBody = cardBodyShaOfCard(context.db, cardId) ?? undefined
+  const queued = queueTask(context.db, context.now(), { queue: 'answer', cardId, pr, head: observed.head, cardBody, decision })
+  return `${bound}; ${queued ? 'queued' : 'already queued'} the answer round on PR #${pr} at ${observed.head} carrying D-${decision}: a merge wait closed while its PR is open refuses the merge`
 }
 
 function refusalToClose(context: RequestContext, request: number, id: string, answer: string): string | null {
@@ -41,6 +77,8 @@ function closeWaitOnOwnerWord(context: RequestContext, request: number, id: stri
     return { done: false, why: `${refusal}; owner word ${word.file} ${word.release() ? 'left unused' : unreleasedWord(word.file)}` }
   const stillOpen = context.db.prepare(OPEN_OWNER_STOP_OF_CARD).get(wait.card_id) as { id: number } | undefined
   const closed = stop === null || stillOpen?.id === stop ? `closed ${id} on the owner's word ${word.file}: ${answer}` : `closed ${id} and lifted the card #${wait.card_id} stop ${stop} on the owner's word ${word.file}: ${answer}`
+  if (wait.card_id !== null && wait.need === MERGE_NEED)
+    return { done: true, why: `${closed}; ${answerRoundOnARefusedMerge(context, id, wait.card_id, wait.pr, answer)}` }
   return { done: true, why: wait.card_id !== null && WAITS_A_DECISION_ANSWERS.has(wait.need) ? `${closed}; ${boundToTheCard(context, id, wait.card_id, answer)}` : closed }
 }
 
@@ -53,7 +91,7 @@ export const execute: RequestExecutor = (context, request, payload) => {
     return { done: false, why: 'owner.wait.close needs an id Q<N> and an answer, or --from the owner channel' }
   if (from !== null && from !== ANSWER_SOURCE)
     return { done: false, why: `owner.wait.close --from ${from} is not ${ANSWER_SOURCE}; only the owner's word that ${OWNER_SAY_COMMAND} put into the owner channel closes a wait as the owner's answer` }
-  const wait = db.prepare(`SELECT state, card_id, need FROM ${OWNER_WAITS} WHERE id = ?`).get(id) as WaitToClose | undefined
+  const wait = db.prepare(`SELECT state, card_id, need, pr FROM ${OWNER_WAITS} WHERE id = ?`).get(id) as WaitToClose | undefined
   if (wait === undefined)
     return { done: false, why: `${id} is not an owner wait the bus has reduced` }
   const stop = wait.card_id === null ? undefined : db.prepare(OPEN_OWNER_STOP_OF_CARD).get(wait.card_id) as { id: number, payload: string } | undefined
