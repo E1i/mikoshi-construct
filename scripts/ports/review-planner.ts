@@ -3,8 +3,8 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 
 export const REVIEW_PLAN_FLAG = '--plan'
-export const REVIEW_WORKER_SCRIPT = fileURLToPath(new URL('../nodes/review/review-worker.ts', import.meta.url))
-export const PLANNER_ARGUMENTS: readonly string[] = Object.freeze(['--import', 'tsx', REVIEW_WORKER_SCRIPT, REVIEW_PLAN_FLAG])
+export const REVIEW_PLANNER_SCRIPT = fileURLToPath(new URL('../nodes/review/review-planner-worker.ts', import.meta.url))
+export const PLANNER_ARGUMENTS: readonly string[] = Object.freeze(['--import', 'tsx', REVIEW_PLANNER_SCRIPT, REVIEW_PLAN_FLAG])
 const PLAN_OUTPUT_LIMIT = 1 << 26
 
 export function plannerProcess(cwd: string, request: string, signal: AbortSignal): Promise<string> {

@@ -25,11 +25,12 @@ vi.mock('node:child_process', async (original) => {
   }
 })
 
-const { PLANNER_ARGUMENTS, plannerProcess, REVIEW_PLAN_FLAG, REVIEW_WORKER_SCRIPT } = await import('../../ports/review-planner.js')
+const { PLANNER_ARGUMENTS, plannerProcess, REVIEW_PLAN_FLAG, REVIEW_PLANNER_SCRIPT } = await import('../../ports/review-planner.js')
 const worker = await import('../../nodes/review/review-worker.js')
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')
 const WORKER_SOURCE = path.join(REPO_ROOT, 'scripts', 'nodes', 'review', 'review-worker.ts')
+const PLANNER_ENTRY = path.join(REPO_ROOT, 'scripts', 'nodes', 'review', 'review-planner-worker.ts')
 const inheritedExecArgv = process.execArgv
 
 afterEach(() => {
@@ -47,9 +48,9 @@ describe('the review planner port', () => {
     expect(plan).toEqual({ depth: 'full', why: 'fake', prediction: null })
     expect(spawned).toHaveLength(1)
     expect(spawned[0]!.program).toBe(process.execPath)
-    expect(spawned[0]!.args).toEqual(['--import', 'tsx', REVIEW_WORKER_SCRIPT, REVIEW_PLAN_FLAG])
+    expect(spawned[0]!.args).toEqual(['--import', 'tsx', REVIEW_PLANNER_SCRIPT, REVIEW_PLAN_FLAG])
     expect(spawned[0]!.args).toEqual(PLANNER_ARGUMENTS)
-    expect(REVIEW_WORKER_SCRIPT).toBe(WORKER_SOURCE)
+    expect(REVIEW_PLANNER_SCRIPT).toBe(PLANNER_ENTRY)
     expect(spawned[0]!.cwd).toBe(REPO_ROOT)
     expect(JSON.parse(spawned[0]!.input)).toEqual({ lease, earlier: null })
     expect(Object.isFrozen(PLANNER_ARGUMENTS)).toBe(true)

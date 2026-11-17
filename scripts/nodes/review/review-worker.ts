@@ -61,7 +61,6 @@ export { SWITCH_FLAG }
 export { earlierVerdict, planned, recordLeftovers, REVIEW_ROUNDS_SPENT, ROUND_LIMIT_REACHED, roundLimitLine, SPAWNS_NO_SESSION, TREE_LEFT } from './review-executor.js'
 export type { Step }
 
-export const PLAN_FLAG = REVIEW_PLAN_FLAG
 const WORKER_SCRIPT = fileURLToPath(import.meta.url)
 
 export interface PlanRequest {
@@ -97,6 +96,18 @@ export const DRY_RUN_FLAG = '--dry-run'
 export const DRY_RUN_ACTOR = 'worker:review:dry-run'
 const BUS_DIR = defaultBusDir()
 const MORSE_JOURNAL = path.join(BUS_DIR, 'morse.jsonl')
+
+function busReviewPlanner(cwd: string, busPath: string): ReviewPlanner {
+  return gitReviewPlanner(cwd, MORSE_JOURNAL, busCardBodies(busPath))
+}
+
+const PLANNER_REFUSED = 2
+
+export async function planLeaseOnStdin(cwd: string, argv: readonly string[]): Promise<number> {
+  if (!argv.includes(REVIEW_PLAN_FLAG))
+    return PLANNER_REFUSED
+  return planInThisProcess(busReviewPlanner(cwd, defaultBusPath()), await stdinText(), text => process.stdout.write(text))
+}
 
 export const REVIEW_ON = [REDUCED, PR_OBSERVED, PR_CLOSED, PR_OPENED, REVIEW_RECORDED, CARD_ADMITTED, TASK_ENQUEUED, TASK_REQUEUED, TASK_SUPERSEDED, TASK_COMPLETED, TASK_FAILED, TASK_RELEASED, TASK_EXPIRED] as const
 
@@ -488,9 +499,6 @@ async function main(): Promise<number> {
   const cwd = process.cwd()
   const argv = process.argv.slice(2)
   const busPath = defaultBusPath()
-  const plan = gitReviewPlanner(cwd, MORSE_JOURNAL, busCardBodies(busPath))
-  if (argv.includes(PLAN_FLAG))
-    return planInThisProcess(plan, await stdinText(), text => process.stdout.write(text))
   stampLogOutput()
   const trees = new ReviewTrees(cwd, reviewsDir(BUS_DIR, reviewMode(argv)), sparingLiveLeases(busPath))
   return runReview(argv, {
@@ -498,7 +506,7 @@ async function main(): Promise<number> {
     gitHub: ghApi(cwd),
     publish: ghStatusPublisher(cwd),
     reviewer: claudeReviewer(trees, spawnReviewSession, busReviewPulse(busPath, () => new Date()), REVIEW_BEAT_MS, gitHubPrBody(ghApi(cwd))),
-    plan,
+    plan: busReviewPlanner(cwd, busPath),
     planLater: childReviewPlanner(cwd),
     session: randomUUID(),
     slots: nodeSupply().slotsOf('review', process.env),

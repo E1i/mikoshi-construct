@@ -5929,8 +5929,8 @@
       "scripts/ports/review-planner.ts": {
         "constants": [
           "PLANNER_ARGUMENTS: readonly string[]",
-          "REVIEW_PLAN_FLAG",
-          "REVIEW_WORKER_SCRIPT"
+          "REVIEW_PLANNER_SCRIPT",
+          "REVIEW_PLAN_FLAG"
         ],
         "functions": {
           "plannerProcess": "(cwd: string, request: string, signal: AbortSignal): Promise<string>"

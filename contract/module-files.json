@@ -1560,6 +1560,7 @@
     "scripts/nodes/review/divergence-alarm.ts",
     "scripts/nodes/review/review-depth.ts",
     "scripts/nodes/review/review-executor.ts",
+    "scripts/nodes/review/review-planner-worker.ts",
     "scripts/nodes/review/review-worker.ts",
     "scripts/nodes/review/reviewer.ts",
     "scripts/nodes/review/tail-card.ts"
