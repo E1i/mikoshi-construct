@@ -192,6 +192,17 @@ function slotsOf(html: string): Map<string, string> {
   }))
 }
 
+const BACKLOG_OPEN = '<section class="panel backlog bevel" id="backlog" aria-labelledby="h-backlog">\n'
+
+function filledPage(shell: string, board: BoardData): string {
+  const page = Object.entries(board.slots).reduce((html, [name, inner]) => {
+    const open = html.indexOf('>', html.indexOf(`id="slot-${name}"`)) + 1
+    const from = html[open] === '\n' ? open + 1 : open
+    return `${html.slice(0, from)}${inner}${html.slice(from)}`
+  }, shell.replace('data-written=""', `data-written="${board.written}"`))
+  return page.replace(BACKLOG_OPEN, `${BACKLOG_OPEN}${board.filters.map(id => `<span class="filter-target" id="${id}"></span>\n`).join('')}`)
+}
+
 function boardWindow(html: string, storage: MemoryStorage | typeof THROWING_STORAGE, hash = '') {
   const shellIds = new Set(idsOf(html))
   const elements = new Map<string, FakeElement>()
@@ -1201,7 +1212,8 @@ describe('board.html', () => {
     try {
       const projection = boardProjection(db, busPath, tickMs, DISK_FILES, handoffBeside(busPath))
       projection.project(now)
-      return { html: readFileSync(projection.file, 'utf8'), data: readFileSync(projection.dataFile, 'utf8') }
+      const data = readFileSync(projection.dataFile, 'utf8')
+      return { html: filledPage(readFileSync(projection.file, 'utf8'), boardOf(data)), data }
     }
     finally {
       db.close()
