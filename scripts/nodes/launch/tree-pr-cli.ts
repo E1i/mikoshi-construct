@@ -1,13 +1,13 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { ReportCollection } from './report-collect.js'
-import type { Refusal, RefusalReason, TreeCard, TreePr, TreePrPorts } from './tree-pr.js'
+import type { OwnerWaitOpener, Refusal, RefusalReason, TreeCard, TreePr, TreePrPorts } from './tree-pr.js'
 import { spawnSync } from 'node:child_process'
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { cardToolsOf, parseParkingFile } from '../../../src/card/parking.js'
 import { readShiftGate } from '../../../src/manifest.js'
-import { appendEvent, BUSY_TIMEOUT_MS, defaultBusPath, openBus } from '../../core/db.js'
+import { appendEvent, BUSY_TIMEOUT_MS, defaultBusPath, openBus, openOwnerWait } from '../../core/db.js'
 import { CARD_CONTINUED, CARD_STARTED, CARD_STOPPED, CARD_WAITING, PR_OPENED, QUESTION_AGENT, TOUCHES_FOLLOWED } from '../../core/events.js'
 import { pnpmCommand } from '../../core/owner-commands.js'
 import { treeReportPath } from '../../core/places.js'
@@ -15,7 +15,7 @@ import { pushPolicyOf } from '../../core/push-policy.js'
 import { openDatabase } from '../../core/sqlite.js'
 import { cardContract } from '../../intake/card-contract.js'
 import { execGh, stdoutOrThrow } from '../../ports/gh.js'
-import { processGit } from '../../ports/git.js'
+import { pnpmRerun, processGit } from '../../ports/git.js'
 import { clientInvocation, sessionEnv } from '../../ports/session.js'
 import { cardSessionOf } from '../answer/answer-source.js'
 import { reachedContextLine } from './continuation.js'
@@ -207,14 +207,22 @@ const REAL_BUS: PrOpenedBus = { busPath: defaultBusPath(), pid: process.pid, now
 
 const REAL_GIT: TreePrPorts['git'] = (cwd, args) => processGit.read(cwd, args)
 
-function pnpmTwinRebuild(cwd: string, args: readonly string[]): { status: number | null, stderr: string } {
-  const run = spawnSync('pnpm', [...args], { cwd, encoding: 'utf8' })
-  return { status: run.status, stderr: run.error?.message ?? run.stderr }
+function busOwnerWait(bus: PrOpenedBus): OwnerWaitOpener {
+  return (cardId, text) => {
+    const db = openBus(bus.busPath)
+    try {
+      return openOwnerWait(db, bus.now().toISOString(), `worker:shift:${bus.pid}`, { need: 'decision', text, ...(cardId === null ? {} : { card: cardId }) })
+    }
+    finally {
+      db.close()
+    }
+  }
 }
 
 const REAL_PORTS: TreePrCliPorts = {
   git: REAL_GIT,
-  rebuild: pnpmTwinRebuild,
+  rebuild: pnpmRerun,
+  ownerWait: busOwnerWait(REAL_BUS),
   gh: stdoutOrThrow(execGh),
   pushPolicy: worktree => pushPolicyOf(REAL_GIT, worktree),
   card: busCardText(REAL_BUS.busPath),
