@@ -48,6 +48,7 @@ export const INTAKE_MOVE_EVENT = 'intake-move'
 export const LADDER_APPROVAL = 'ladder.approval'
 export const LADDER_RUN = 'ladder.run'
 export const LANE_ASSIGNED = 'lane.assigned'
+export const LANE_HELD = 'lane.held'
 export const LANE_OVERLAP = 'lane.overlap'
 export const LEASES_DRAINING = 'leases.draining'
 export const MAIN_ADVANCED = 'main.advanced'
@@ -208,6 +209,7 @@ export const EVENT_PAYLOADS = {
   [INTAKE_MOVE_EVENT]: ['card', 'event', 'from', 'source', 'task', 'to'],
   [LADDER_RUN]: ['agents', 'agreedSha256', 'argsSha256', 'at', 'attempts', 'cause', 'effort', 'run', 'rung', 'seconds', 'sketch', 'status', 'task', 'tokens', 'tokensSource', 'toolUses'],
   [LANE_ASSIGNED]: ['admission', 'after', 'lane', 'lanes', 'reason'],
+  [LANE_HELD]: ['card', 'hold', 'lane', 'reason'],
   [LANE_OVERLAP]: ['generation', 'lane'],
   [LEASES_DRAINING]: ['from', 'node', 'sha', 'until'],
   [MAIN_ADVANCED]: ['ci', 'paths', 'pathsTruncated', 'sha', 'touches_mechanics'],

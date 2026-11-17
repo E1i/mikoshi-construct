@@ -994,7 +994,7 @@ export function busJson(db: DatabaseSync, now: Date, liveOnly = false): string {
   const facts = busFacts(db, now)
   const prs = cardPrs(db)
   const events = latestCardEvents(db, EVENTS_PER_CARD)
-  return `${JSON.stringify({ status: 'live', at: facts.at, pulse: facts.pulse, waits: facts.waits, waitsStale: facts.waitsStale ?? null, cardsStale: facts.cardsStale ?? null, tally: taskTally(facts.cards.filter(isLive)), cards: (liveOnly ? facts.cards.filter(isLive) : facts.cards).map(card => ({ id: card.id, stage: card.stage, state: card.state, lane: card.lane, pr: prs.get(card.id) ?? null, line: card.line, parent: card.parent ?? null, mark: sliceMark(card), events: events.get(card.id) ?? [] })), tasks: openTasks(db) }, null, 2)}\n`
+  return `${JSON.stringify({ status: 'live', at: facts.at, pulse: facts.pulse, waits: facts.waits, waitsStale: facts.waitsStale ?? null, cardsStale: facts.cardsStale ?? null, tally: taskTally(facts.cards.filter(isLive)), cards: (liveOnly ? facts.cards.filter(isLive) : facts.cards).map(card => ({ id: card.id, stage: card.stage, state: card.state, lane: card.lane, pr: prs.get(card.id) ?? null, line: card.line, parent: card.parent ?? null, mark: sliceMark(card), events: events.get(card.id) ?? [] })), laneHeads: facts.laneHeads ?? [], tasks: openTasks(db) }, null, 2)}\n`
 }
 
 export function renderBoard(page: BoardPage): string {
