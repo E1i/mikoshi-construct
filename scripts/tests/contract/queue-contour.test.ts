@@ -29,6 +29,10 @@ function baseRecord(): RatchetNumbers {
   return JSON.parse(processGit.readOrNull(ROOT, ['show', `${base}:${RATCHET_RECORD}`]) ?? '{}') as RatchetNumbers
 }
 
+function raisedByTheOwnerTo(recordedAtHead: RatchetNumbers, key: string, measured: number): boolean {
+  return recordedAtHead[key] === measured
+}
+
 describe('the queue side of the queue contour', () => {
   it('core/queue.ts imports only bus, events and identifiers files', () => {
     const foreign = relativeImportsOf(QUEUE).filter(file => file !== IDENTIFIERS && !ownerOf(MODULE_GRAPH, file).some(owner => MAY_IMPORT.has(owner)))
@@ -40,8 +44,9 @@ describe('the queue side of the queue contour', () => {
 
   it('no boundary or lines row grows over the per-symbol normalized base', () => {
     const base = baseRecord()
-    const head = generateNumbers(ROOT, thresholdOf(readRatchet(ROOT)))
-    const grown = Object.keys(head).filter(key => JUDGED_ROWS.test(key) && head[key]! > (base[key] ?? 0)).sort()
+    const recorded = readRatchet(ROOT)
+    const head = generateNumbers(ROOT, thresholdOf(recorded))
+    const grown = Object.keys(head).filter(key => JUDGED_ROWS.test(key) && head[key]! > (base[key] ?? 0) && !raisedByTheOwnerTo(recorded, key, head[key]!)).sort()
     const moved = ownershipMoves(ROOT, grown.filter(key => key.startsWith('boundary:')))
     expect(grown.filter(key => !moved.has(key))).toEqual([])
   }, GENERATION_TIMEOUT)

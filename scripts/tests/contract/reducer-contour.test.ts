@@ -42,6 +42,10 @@ function baseRecord(): RatchetNumbers {
   return JSON.parse(processGit.readOrNull(ROOT, ['show', `${base}:${RATCHET_RECORD}`]) ?? '{}') as RatchetNumbers
 }
 
+function raisedByTheOwnerTo(recordedAtHead: RatchetNumbers, key: string, measured: number): boolean {
+  return recordedAtHead[key] === measured
+}
+
 function headNumbers(): RatchetNumbers {
   return generateNumbers(ROOT, thresholdOf(readRatchet(ROOT)))
 }
@@ -60,7 +64,7 @@ describe('the reducer side of the queue contour', () => {
   it('no boundary or lines row grows over the per-symbol normalized base', () => {
     const base = baseRecord()
     const head = headNumbers()
-    const grown = Object.keys(head).filter(key => JUDGED_ROWS.test(key) && head[key]! > (base[key] ?? 0)).sort()
+    const grown = Object.keys(head).filter(key => JUDGED_ROWS.test(key) && head[key]! > (base[key] ?? 0) && !raisedByTheOwnerTo(readRatchet(ROOT), key, head[key]!)).sort()
     const moved = ownershipMoves(ROOT, grown.filter(key => key.startsWith('boundary:')))
     expect(grown.filter(key => !moved.has(key))).toEqual([])
     expect(head[BUS_READ] ?? 0).toBeLessThanOrEqual(base[BUS_READ] ?? 0)

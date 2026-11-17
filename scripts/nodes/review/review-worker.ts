@@ -12,10 +12,11 @@ import type { IsolationReader } from '../../ports/isolation.js'
 import type { CardSessionMeasure } from '../../supervisor/composition.js'
 import type { DryRunRecord } from './dry-run-record.js'
 import type { RoundLimitRecut } from './pr-close.js'
-import type { ReviewPlan, ReviewPlanner } from './review-depth.js'
-import type { ExecutorParts, Step } from './review-executor.js'
+import type { EarlierVerdict, ReviewPlan, ReviewPlanner } from './review-depth.js'
+import type { ExecutorParts, ReviewPlannerLater, Step } from './review-executor.js'
 import type { CardDecision, HeldTree, LeftoverTree, PrBodyOf, Review, Reviewer, SessionPulse, TreeTools } from './reviewer.js'
 import type { TailIntake } from './tail-card.js'
+import { Buffer } from 'node:buffer'
 import { randomUUID } from 'node:crypto'
 import { existsSync, realpathSync } from 'node:fs'
 import path from 'node:path'
@@ -44,6 +45,7 @@ import { ghStatusPublisher } from '../../ports/github-status.js'
 import { ghApi, ghApiPatch, ghApiPost } from '../../ports/github.js'
 import { realIsolationReader } from '../../ports/isolation.js'
 import { promptsDirOf } from '../../ports/prompt-store.js'
+import { plannerProcess, REVIEW_PLAN_FLAG } from '../../ports/review-planner.js'
 import { spawnReviewSession } from '../../ports/session.js'
 import { busProjections, candidateRules, cardSessionPulse, nodeLiveness, nodeSupply, withSlots } from '../../supervisor/composition.js'
 import { stampLogOutput } from '../../supervisor/stamp.js'
@@ -59,10 +61,53 @@ export { SWITCH_FLAG }
 export { earlierVerdict, planned, recordLeftovers, REVIEW_ROUNDS_SPENT, ROUND_LIMIT_REACHED, roundLimitLine, SPAWNS_NO_SESSION, TREE_LEFT } from './review-executor.js'
 export type { Step }
 
+const WORKER_SCRIPT = fileURLToPath(import.meta.url)
+
+export interface PlanRequest {
+  lease: Lease
+  earlier: EarlierVerdict | null
+}
+
+function planOfOutput(stdout: string): ReviewPlan {
+  const last = stdout.split('\n').map(line => line.trim()).filter(line => line !== '').at(-1)
+  if (last === undefined)
+    throw new Error('the planning process printed no plan')
+  return JSON.parse(last) as ReviewPlan
+}
+
+export function childReviewPlanner(cwd: string): ReviewPlannerLater {
+  return async (lease, earlier, signal) => planOfOutput(await plannerProcess(cwd, JSON.stringify({ lease, earlier } satisfies PlanRequest), signal))
+}
+
+async function stdinText(): Promise<string> {
+  const chunks: Buffer[] = []
+  for await (const chunk of process.stdin)
+    chunks.push(Buffer.from(chunk as Uint8Array))
+  return Buffer.concat(chunks).toString('utf8')
+}
+
+export function planInThisProcess(planner: ReviewPlanner, request: string, write: (text: string) => void): number {
+  const { lease, earlier } = JSON.parse(request) as PlanRequest
+  write(`\n${JSON.stringify(planner(lease, earlier))}\n`)
+  return 0
+}
+
 export const DRY_RUN_FLAG = '--dry-run'
 export const DRY_RUN_ACTOR = 'worker:review:dry-run'
 const BUS_DIR = defaultBusDir()
 const MORSE_JOURNAL = path.join(BUS_DIR, 'morse.jsonl')
+
+function busReviewPlanner(cwd: string, busPath: string): ReviewPlanner {
+  return gitReviewPlanner(cwd, MORSE_JOURNAL, busCardBodies(busPath))
+}
+
+const PLANNER_REFUSED = 2
+
+export async function planLeaseOnStdin(cwd: string, argv: readonly string[]): Promise<number> {
+  if (!argv.includes(REVIEW_PLAN_FLAG))
+    return PLANNER_REFUSED
+  return planInThisProcess(busReviewPlanner(cwd, defaultBusPath()), await stdinText(), text => process.stdout.write(text))
+}
 
 export const REVIEW_ON = [REDUCED, PR_OBSERVED, PR_CLOSED, PR_OPENED, REVIEW_RECORDED, CARD_ADMITTED, TASK_ENQUEUED, TASK_REQUEUED, TASK_SUPERSEDED, TASK_COMPLETED, TASK_FAILED, TASK_RELEASED, TASK_EXPIRED] as const
 
@@ -359,6 +404,7 @@ export interface ReviewRun {
   publish: StatusPublisher
   reviewer: Reviewer
   plan: ReviewPlanner
+  planLater?: ReviewPlannerLater
   session: string
   slots: number
   pause: (ms: number) => Promise<unknown>
@@ -413,7 +459,7 @@ export async function runReview(argv: string[], run: ReviewRun): Promise<number>
     gitHub: run.gitHub,
     publish: run.publish,
     reviewer: run.reviewer,
-    plan: run.plan,
+    plan: run.planLater ?? run.plan,
     clock: () => new Date(),
     session: run.session,
     clearLeftovers: run.clearLeftovers,
@@ -453,13 +499,15 @@ async function main(): Promise<number> {
   const cwd = process.cwd()
   const argv = process.argv.slice(2)
   const busPath = defaultBusPath()
+  stampLogOutput()
   const trees = new ReviewTrees(cwd, reviewsDir(BUS_DIR, reviewMode(argv)), sparingLiveLeases(busPath))
   return runReview(argv, {
     busPath,
     gitHub: ghApi(cwd),
     publish: ghStatusPublisher(cwd),
     reviewer: claudeReviewer(trees, spawnReviewSession, busReviewPulse(busPath, () => new Date()), REVIEW_BEAT_MS, gitHubPrBody(ghApi(cwd))),
-    plan: gitReviewPlanner(cwd, MORSE_JOURNAL, busCardBodies(busPath)),
+    plan: busReviewPlanner(cwd, busPath),
+    planLater: childReviewPlanner(cwd),
     session: randomUUID(),
     slots: nodeSupply().slotsOf('review', process.env),
     pause: sleep,
@@ -472,7 +520,6 @@ async function main(): Promise<number> {
   })
 }
 
-if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  stampLogOutput()
+if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === WORKER_SCRIPT) {
   process.exitCode = await main()
 }

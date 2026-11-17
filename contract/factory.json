@@ -5928,6 +5928,20 @@
           "ResultFields": "interface ResultFields { resultLine: 'present' | 'missing'; total_cost_usd: number | null; num_turns: number | null; duration_ms: number | null; usage: unknown | null; }"
         }
       },
+      "scripts/ports/review-planner.ts": {
+        "constants": [
+          "PLANNER_ARGUMENTS: readonly string[]",
+          "REVIEW_PLANNER_SCRIPT",
+          "REVIEW_PLAN_FLAG"
+        ],
+        "functions": {
+          "plannerProcess": "(cwd: string, request: string, signal: AbortSignal): Promise<string>"
+        },
+        "language": "factory",
+        "reexports": [],
+        "technologyWords": [],
+        "types": {}
+      },
       "scripts/ports/serve-record.ts": {
         "constants": [],
         "functions": {
