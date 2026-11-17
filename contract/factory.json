@@ -2289,6 +2289,7 @@
         "directory": false,
         "namedIn": [
           "scripts/ci/card-runs.ts",
+          "scripts/ci/gate-mutations.ts",
           "scripts/cli/board-page.ts",
           "scripts/cli/card.ts",
           "scripts/cli/check-catalog.ts",
