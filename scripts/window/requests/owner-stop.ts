@@ -80,7 +80,7 @@ function heldLeasesOf(db: DatabaseSync, cardId: number): HeldLease[] {
 
 function withdrawn(ts: string, lease: HeldLease) {
   const generation = lease.generation === null ? {} : { generation: lease.generation }
-  return { ts, type: TASK_FAILED, actor: OWNER, cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${TASK_FAILED}:${lease.taskKey}:${lease.leaseGen}`, payload: { task_key: lease.taskKey, queue: lease.queue, ...generation, lease_gen: lease.leaseGen, reason: OWNER_STOP_CODE, next: WITHDRAWN, uncounted: true }, legacy: false }
+  return { ts, type: TASK_FAILED, actor: OWNER, cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${TASK_FAILED}:${lease.taskKey}:${lease.leaseGen}`, payload: { task_key: lease.taskKey, queue: lease.queue, ...generation, lease_gen: lease.leaseGen, reason: OWNER_STOP_CODE, next: WITHDRAWN }, legacy: false }
 }
 
 function openChildOf(db: DatabaseSync, taskKey: string, leasedAt: number): { pgid: number, tree: string | null } | null {
