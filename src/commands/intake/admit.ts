@@ -15,6 +15,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import path from 'node:path'
 import process from 'node:process'
 import { CARD_ADMITTED } from '../../../scripts/core/events.js'
+import { GENERATED_FILES } from '../../../scripts/core/factory-paths.js'
 import { decisionCommand, InMemoryDecisions } from '../../../scripts/policy/decisions/decisions.js'
 import { createdPaths, OWNER_MERGES, pathsIn, pathsOutside, PREFIX_SUFFIX } from '../../../scripts/policy/touch-scope.js'
 import { endedCards } from '../../card/closed.js'
@@ -48,7 +49,7 @@ export function isLaneName(name: string): boolean {
 }
 
 export function pathsNamedOutside(parked: ParkedTask, text: string): string[] {
-  return pathsOutside(parked.task.touches, parked.creates, pathsIn(text))
+  return pathsOutside(parked.task.touches, parked.creates, pathsIn(text)).filter(named => named !== GENERATED_FILES.factory.path)
 }
 
 export function laneOf(root: string, dir: string): string | null {
