@@ -8,8 +8,8 @@ import REAL_TIME_WAITS_EXCEPTED from './scripts/quality/real-time-waits-excepted
 const ALLOWED_INTERNAL_IMPORTS = ESLINT_EDGES.allowedInternalImports
 const ALLOWED_FACTORY_IMPORTS = ESLINT_EDGES.allowedFactoryImports
 
-function factoryReach(target, alsoAllowed = []) {
-  const allowed = [...ALLOWED_FACTORY_IMPORTS[target] ?? [], ...alsoAllowed]
+function factoryReach(target) {
+  const allowed = ALLOWED_FACTORY_IMPORTS[target] ?? []
   const kept = allowed.map(name => name.endsWith('/') ? name : `${name}$`).map(name => name.replaceAll('.', '\\.'))
   return {
     regex: kept.length === 0 ? '^(?:\\.\\./)+scripts/' : `^(?:\\.\\./)+scripts/(?!${kept.join('|')})`,
@@ -57,15 +57,6 @@ const intakeReadsDecisionsThroughTheirParser = {
   rules: {
     'no-restricted-imports': ['error', {
       patterns: [dependencyBoundary(['src/commands', ALLOWED_INTERNAL_IMPORTS['src/commands']]).rules['no-restricted-imports'][1].patterns[0], factoryReach('src/commands/intake')],
-    }],
-  },
-}
-
-const theBusPanelTitleReadsTheBusVersion = {
-  files: ['src/commands/board/bus-panel.ts'],
-  rules: {
-    'no-restricted-imports': ['error', {
-      patterns: [dependencyBoundary(['src/commands', ALLOWED_INTERNAL_IMPORTS['src/commands']]).rules['no-restricted-imports'][1].patterns[0], factoryReach('src/commands', ['core/bus-version.js'])],
     }],
   },
 }
@@ -430,7 +421,6 @@ export default antfu(
   ...dependencyBoundaries,
   doctorReadsThroughOneReader,
   intakeReadsDecisionsThroughTheirParser,
-  theBusPanelTitleReadsTheBusVersion,
   attachDecidesWithoutTheStack,
   spawnPolicy,
   thePnpmProbeMaySpawnAndNothingElse,

@@ -1,5 +1,3 @@
-import { BUS_VERSION } from '../../../scripts/core/bus-version.js'
-
 export interface BusEventLine {
   id: number
   ts: string | null
@@ -25,7 +23,6 @@ export interface BusWorker {
 }
 
 export interface BusPanelFacts {
-  version: number
   lastEvent: { id: number, ts: string | null } | null
   minutes: number[]
   families: BusFamily[]
@@ -133,7 +130,6 @@ export function busPanelFacts(row: PanelRow, now: Date): BusPanelFacts {
   const ticks = newestFirst(jsonOf<{ id: number, ts: string | null, payload: string }[]>(row.ticks, []))
   const rate = ticks[0] === undefined ? null : payloadOf(ticks[0].payload).rate_remaining
   return {
-    version: BUS_VERSION,
     lastEvent: last,
     minutes: minuteCounts(halfHour, now),
     families: familiesOf(halfHour),
