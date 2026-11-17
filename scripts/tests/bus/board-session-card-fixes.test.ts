@@ -147,6 +147,7 @@ describe('the crawlers cell', () => {
   it('a window.heartbeat with one general-purpose subagent renders CRAWLER #01 · general-purpose with its description', () => {
     const crawlers = [{ id: 'a1', kind: 'general-purpose', description: 'finds the slot counter', started_at: minutesAgo(4), state: 'CRAWLING', ctx: 50_000, spent: 12_000 }]
     const cell = crawlerCell(pageOf([windowBeat({ crawlers })], { roles: WINDOW_ROLE }))
+    expect(cell).toContain('<span class="crawlers-live" data-live>LIVE · 1</span>')
     expect(cell).toContain('<span class="crawler-name">CRAWLER #01 · general-purpose</span>')
     expect(cell).toContain('<div class="crawler-what">finds the slot counter · 4 min</div>')
   })

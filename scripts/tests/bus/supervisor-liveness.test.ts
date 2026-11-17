@@ -753,7 +753,7 @@ describe('the supervisor restarts itself after a merge under scripts/bus', () =>
 
     clock.now = DRAIN_LIMIT_MS
     const lines = (await supervisor.step()).join('\n')
-    expect(lines).toContain(`the leases in flight did not finish within ${DRAIN_LIMIT_MS / 60_000} min; restarting on ${NEW_MAIN} anyway, and these are freed as ${TASK_EXPIRED}: ${lease.taskKey}`)
+    expect(lines).toContain(`the leases in flight did not finish within ${DRAIN_LIMIT_MS / 60_000} min; restarting on ${NEW_MAIN} anyway; their workers are stopped, and each lease is freed as ${TASK_EXPIRED} unless it has a registered executor, which it follows until that executor's end is proven: ${lease.taskKey}`)
     expect(lines).toContain('restarting every running bus process')
     expect(holderStopped(db)).toEqual([expect.objectContaining({ task_key: lease.taskKey, reason: 'holder_stopped' })])
     db.close()
@@ -826,7 +826,7 @@ describe('the supervisor restarts itself after a merge under scripts/bus', () =>
     clock.now = DRAIN_LIMIT_MS
     expect(drainOpen(db, ts(), 'close')).toBe(false)
     const lines = (await supervisor.step()).join('\n')
-    expect(lines).toContain(`restarting on ${main.sha} anyway, and these are freed as ${TASK_EXPIRED}: ${lease.taskKey}`)
+    expect(lines).toContain(`restarting on ${main.sha} anyway; their workers are stopped, and each lease is freed as ${TASK_EXPIRED} unless it has a registered executor, which it follows until that executor's end is proven: ${lease.taskKey}`)
     expect(lines).toContain('restarting every running bus process')
     db.close()
   })

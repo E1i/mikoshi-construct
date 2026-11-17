@@ -21,7 +21,7 @@ import { CARD_CONTINUED, CARD_STARTED, MAIN_ADVANCED, PROCESS_JUDGED, RESTARTED,
 import { FACTORY_LISTS, FACTORY_RUNTIME, FACTORY_WORKERS } from '../core/factory-paths.js'
 import { importClosure } from '../core/import-closure.js'
 import { RESTART_MISSED } from '../core/inbox.js'
-import { closeDrain, expireLeasesHeldBy, judgeHolders, leasesHeldBy, openDrain, retireHolders, retiringPids } from '../core/lease.js'
+import { closeDrain, judgeHolders, leasesHeldBy, openDrain, retireHolders, retiringPids } from '../core/lease.js'
 import { LIVE_FLAG } from '../core/node.js'
 import { orderEventsFrom, prOrderTickAt } from '../core/order/turn.js'
 import { cardContract } from '../intake/card-contract.js'
@@ -36,7 +36,8 @@ import { BUILD_DIR, BUILT_MODULE, flagsInArgs, instancesOf, launchName, PREFIX, 
 import { BusHealer, CorruptionWatch, RecordedNodes } from './bus-heal.js'
 import { BusSnapshot } from './bus-snapshot.js'
 import { busProjections, recordOwnStart } from './composition.js'
-import { DRAIN_LIMIT_MS, DRAIN_WHY, GenerationHandover, holderLines, recordRestarted, RETIRING_WORKERS } from './generation-handover.js'
+import { freeLeasesOf, judgedLeaseLines, workerKindsOf } from './executor-lease.js'
+import { DRAIN_LIMIT_MS, DRAIN_WHY, GenerationHandover, recordRestarted, RETIRING_WORKERS } from './generation-handover.js'
 import { CARD_PROCESS, lastProcessBeats, recordProcessHeartbeat } from './heartbeat.js'
 import { beatsLive, SILENT_MS } from './liveness-sites.js'
 import { installedGeneration, ownPackage } from './package-generation.js'
@@ -53,7 +54,7 @@ export const OFF_FLAG = '--off'
 export const LIVE_ON_FLAG = '--live'
 export const LIVE_OFF_FLAG = '--shadow'
 export const RESTART_LIMIT_MS = 5 * 60_000
-export { DRAIN_LIMIT_MS }
+export { DRAIN_LIMIT_MS, freeLeasesOf }
 export const GIT_PULL_TIMEOUT_MS = 60_000
 
 export const SUPERVISOR_INSTANCE_FILE = 'bus-bg.pid'
@@ -430,7 +431,7 @@ export class BusSupervisor {
     else if (now - draining.since < DRAIN_LIMIT_MS) {
       return { waits: true, free, lines: [] }
     }
-    return { waits: false, free: [], lines: [`${PREFIX}the leases in flight did not finish within ${DRAIN_LIMIT_MS / 60_000} min; restarting on ${head} anyway, and these are freed as ${TASK_EXPIRED}: ${held.join(', ')}`] }
+    return { waits: false, free: [], lines: [`${PREFIX}the leases in flight did not finish within ${DRAIN_LIMIT_MS / 60_000} min; restarting on ${head} anyway; their workers are stopped, and each lease is freed as ${TASK_EXPIRED} unless it has a registered executor, which it follows until that executor's end is proven: ${held.join(', ')}`] }
   }
 
   private pullFailure(): string | null {
@@ -513,10 +514,6 @@ export function startingBaseline(db: DatabaseSync, code: BusCode): number {
   return readable === undefined ? lastId : baselineAdvance(readable, code)
 }
 
-function workerKindsOf(launches: DetachedLaunch[]): string[] {
-  return launches.map(launch => launch.script.replace(/^bus:/, '')).filter(isBusWorker)
-}
-
 export function withoutRetiring(processes: () => (RunningProcess & Partial<GroupedProcess>)[], db: DatabaseSync, holding: () => boolean = () => false): ProcessList {
   return () => {
     const listed = processes()
@@ -569,11 +566,6 @@ export function busDrain(db: DatabaseSync, ts: () => string, startOf?: ProcessSt
         closeDrain(db, at, sha, node)
     },
   }
-}
-
-export function freeLeasesOf(db: DatabaseSync, ts: string, stopped: DetachedLaunch[]): string[] {
-  const freed = expireLeasesHeldBy(db, ts, workerKindsOf(stopped), SILENT_MS)
-  return freed.length === 0 ? [] : [`${PREFIX}freed the leases of the stopped workers at once as ${TASK_EXPIRED}: ${freed.join(', ')}`]
 }
 
 export const KEEP_BASE_MS = CHECK_MS
@@ -807,7 +799,7 @@ export class LivenessJudge {
         lines.push(...await this.restartDue(judgement.process, nowMs))
       }
       if (this.startOf !== undefined)
-        lines.push(...holderLines(judgeHolders(this.db, ts, this.startOf, SILENT_MS)))
+        lines.push(...judgedLeaseLines(judgeHolders(this.db, ts, this.startOf, SILENT_MS)))
       return lines
     }
     catch (error) {

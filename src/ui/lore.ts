@@ -380,6 +380,7 @@ export interface Lore extends Omit<ExpectLore, 'expectRoleForecast'> {
   boardWindowAgentsStep: string
   boardAgentsLine: (count: number, largest: string, limit: string) => string
   boardAgentPulse: (minutes: number) => string
+  boardSessionNoPulse: (minutes: number) => string
   boardWindowRole: string
   boardWindowName: string
   boardHint: (who: string, command: string) => string
@@ -437,13 +438,14 @@ const BOARD_TABS_LORE = {
   boardNoServices: 'no session is running',
   boardReleaseDropped: (cards: string[]) => `dropped ${cards.length}: ${cards.join(', ')}`,
   boardFlowEmpty: (hint: string) => `nothing in the flow \u00B7 ${hint}`,
+  boardWindowAgentsStep: 'subagents at work',
+  boardAgentPulse: (minutes: number) => `pulse ${minutes} min ago`,
+  boardSessionNoPulse: (minutes: number) => `WAITING \u00B7 NO PULSE ${minutes} min`,
 } satisfies Partial<Lore>
 
 export const LORE: Lore = {
   ...EXPECT_LORE,
-  boardWindowAgentsStep: 'subagents at work',
   boardAgentsLine: (count: number, largest: string, limit: string) => `CRAWLERS ${count} · top spend ${largest} / ${limit} cap`,
-  boardAgentPulse: (minutes: number) => `pulse ${minutes} min ago`,
   boardWindowRole: 'FIXER',
   boardWindowName: 'MIKO',
   expectNoneRaisedBy,
@@ -887,9 +889,7 @@ export const LORE: Lore = {
 
 export const PLAIN_LORE: Lore = {
   ...EXPECT_LORE,
-  boardWindowAgentsStep: 'subagents at work',
   boardAgentsLine: (count: number, largest: string, limit: string) => `CRAWLERS ${count} · top spend ${largest} / ${limit} cap`,
-  boardAgentPulse: (minutes: number) => `pulse ${minutes} min ago`,
   boardWindowRole: 'window',
   boardWindowName: 'Miko',
   expectNoneRaisedBy,

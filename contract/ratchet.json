@@ -292,7 +292,7 @@
   "lines:scripts/cli/board-page.ts": 1224,
   "lines:scripts/construct/browser-lab.mjs": 809,
   "lines:scripts/core/queue.ts": 1297,
-  "lines:scripts/supervisor/supervisor.ts": 1157,
+  "lines:scripts/supervisor/supervisor.ts": 1149,
   "lines:src/ui/lore.ts": 1334,
   "overlaps:answer-duties": 1,
   "overlaps:bus-read": 468,

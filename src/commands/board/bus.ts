@@ -6,7 +6,7 @@ import type { Goal } from './goal.js'
 import type { QueuedStanding, TranscriptReader } from './sessions.js'
 import { existsSync } from 'node:fs'
 import { behindLine, CARDS, currentLane, IN_ORDER_MARK, lastReducedOwnerWaits, readLastReduced } from '../../../scripts/core/bus-readings.js'
-import { BOARD_ALARM, BOARD_ALARM_CLEARED, BUS_PULSE, CARD_ADMITTED, CARD_FELL, CARD_PULSE, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, CHECKS_MATRIX_EVENT, GATE_RUN, NETWATCH_SKIPPED, PR_GROUPS, PROCESS_HEARTBEAT, REVIEW_DRIP, SESSION_HEARTBEAT, SLICE_PARENTS_BACKFILLED, TASK_RENEWED, TERMINAL_LANES, WINDOW_HEARTBEAT, WINDOW_SUBAGENT_EVENT } from '../../../scripts/core/events.js'
+import { BOARD_ALARM, BOARD_ALARM_CLEARED, BUS_PULSE, CARD_ADMITTED, CARD_CONTINUED, CARD_FELL, CARD_PULSE, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, CHECKS_MATRIX_EVENT, GATE_RUN, NETWATCH_SKIPPED, PR_GROUPS, PROCESS_HEARTBEAT, REVIEW_DRIP, SESSION_HEARTBEAT, SLICE_PARENTS_BACKFILLED, TASK_RENEWED, TERMINAL_LANES, WINDOW_HEARTBEAT, WINDOW_SUBAGENT_EVENT } from '../../../scripts/core/events.js'
 import { PLAIN_LORE } from '../../ui/lore.js'
 import { withReadOnlyBus } from '../cost/bus.js'
 import { busPanelFacts, PANEL_READING, panelSince, payloadOf, RECENT_EVENTS, text } from './bus-panel.js'
@@ -239,7 +239,9 @@ function windowRoles(db: BusDb): BusService[] {
   return rows.map(row => ({ role: 'window', task: row.role, tree: null, step: `${row.state} · ${row.status}` }))
 }
 
-const BOARD_EVENT_TYPES = [WINDOW_SUBAGENT_EVENT, SESSION_HEARTBEAT, CARD_STARTED, CARD_FELL, CARD_STOPPED, CARD_VERIFIED, PR_GROUPS, REVIEW_DRIP, GATE_RUN]
+const SESSION_STARTS = [CARD_STARTED, CARD_CONTINUED]
+const SESSION_ENDS = [CARD_STOPPED, CARD_SESSION_ENDED]
+const BOARD_EVENT_TYPES = [WINDOW_SUBAGENT_EVENT, SESSION_HEARTBEAT, CARD_PULSE, ...SESSION_STARTS, CARD_SESSION_ENDED, CARD_FELL, CARD_STOPPED, CARD_VERIFIED, PR_GROUPS, REVIEW_DRIP, GATE_RUN]
 
 interface BoardEvents {
   of: (type: string) => EventRow[]
@@ -381,25 +383,55 @@ function cardTrees(events: BoardEvents): Map<number, string> {
   return trees
 }
 
+const LAUNCH_STEP = 'launch'
+
+function sessionOf(row: EventRow): string {
+  return text(payloadOf(row.payload).session) ?? `#${row.card_id ?? '?'}`
+}
+
+function liveStarts(events: BoardEvents): Map<string, SessionBeat> {
+  const open = new Map<number, EventRow>()
+  const rows = [...SESSION_STARTS, ...SESSION_ENDS].flatMap(type => events.of(type)).filter(row => row.legacy === 0 && row.card_id !== null).sort((a, b) => a.id - b.id)
+  for (const row of rows) {
+    if (SESSION_STARTS.includes(row.type))
+      open.set(row.card_id!, row)
+    else
+      open.delete(row.card_id!)
+  }
+  return new Map([...open.values()].filter(row => row.ts !== null).map(row => [sessionOf(row), { row, step: text(payloadOf(row.payload).step) ?? LAUNCH_STEP }] as const))
+}
+
+function beatsOf(events: BoardEvents): EventRow[] {
+  const pulses = events.of(CARD_PULSE).filter(row => row.legacy === 0 && row.card_id !== null)
+  return [...events.of(SESSION_HEARTBEAT), ...pulses].sort((a, b) => a.id - b.id)
+}
+
+function pulseOf(ts: string, session: string, now: Date): Pick<BusService, 'session'> & { line: string } {
+  const minutes = minutesAgo(ts, now)
+  return isFresh(ts, now) ? { line: `pulse ${minutes} min ago`, session } : { line: PLAIN_LORE.boardSessionNoPulse(minutes) }
+}
+
 function sessionServices(events: BoardEvents, cards: BusCard[], now: Date, transcripts: TranscriptReader): BusService[] {
   const byId = new Map(cards.map(card => [card.id, card] as const))
   const trees = cardTrees(events)
-  const latest = new Map<string, SessionBeat>()
+  const live = liveStarts(events)
+  const latest = new Map<string, SessionBeat>(live)
   const measured = new Map<string, Record<string, unknown>>()
   const firstSeen = new Map<string, string>()
-  for (const row of events.of(SESSION_HEARTBEAT)) {
+  for (const row of beatsOf(events)) {
     const payload = payloadOf(row.payload)
-    const session = text(payload.session) ?? `#${row.card_id ?? '?'}`
+    const session = sessionOf(row)
     if (row.ts !== null && !firstSeen.has(session))
       firstSeen.set(session, row.ts)
-    latest.set(session, { row, step: text(payload.step) ?? 'session' })
-    if (row.legacy === 0)
+    const pulse = row.type === CARD_PULSE
+    latest.set(session, { row, step: (pulse ? latest.get(session)?.step : text(payload.step)) ?? (pulse ? LAUNCH_STEP : 'session') })
+    if (row.legacy === 0 && !pulse)
       measured.set(session, payload)
   }
   const shown = new Map<string, SessionBeat & { session: string }>()
   for (const [session, beat] of latest) {
     const card = beat.row.card_id === null ? undefined : byId.get(beat.row.card_id)
-    if (!isFresh(beat.row.ts, now) || (card !== undefined && isFinished(card)) || !stepMatchesStage(beat.step, card))
+    if (beat.row.ts === null || (!live.has(session) && !isFresh(beat.row.ts, now)) || (card !== undefined && isFinished(card)) || !stepMatchesStage(beat.step, card))
       continue
     const key = `${beat.step.split(' ')[0]!} #${beat.row.card_id ?? '?'}`
     if ((shown.get(key)?.row.id ?? -1) < beat.row.id)
@@ -409,7 +441,8 @@ function sessionServices(events: BoardEvents, cards: BusCard[], now: Date, trans
     const payload = measured.get(session)
     const subagents = subagentReadings(payload?.subagents)
     const time = sessionRowTime(transcripts, session, firstSeen.get(session) ?? row.ts!, row.card_id === null ? null : trees.get(row.card_id) ?? null, now)
-    return { role: step.split(' ')[0]!, task: `#${row.card_id ?? '?'}`, tree: null, step: `${step} · pulse ${minutesAgo(row.ts!, now)} min ago · ${time}`, session, ...(payload === undefined ? {} : { gauges: gaugesOfBeat(payload) }), ...(subagents.length === 0 ? {} : { subagents }) }
+    const { line, ...beating } = pulseOf(row.ts!, session, now)
+    return { role: step.split(' ')[0]!, task: `#${row.card_id ?? '?'}`, tree: null, step: `${step} · ${line} · ${time}`, ...beating, ...(payload === undefined ? {} : { gauges: gaugesOfBeat(payload) }), ...(subagents.length === 0 ? {} : { subagents }) }
   })
 }
 

@@ -16,7 +16,7 @@ import { driftOfRun } from '../ci/weights-law.js'
 import { CARD_FOLDS, CARDS_PROJECTION } from '../core/card-automaton.js'
 import { admittedCardVersion } from '../core/card-bodies.js'
 import { CHAINS_PROJECTION } from '../core/chain.js'
-import { CARD_PLANNED, CARD_UNPLANNED, PLAN_BACKFILLED, PLAN_CLOSED, PLAN_ITEM_ADDED, PLAN_ITEM_LINKED, PLAN_ITEM_REMOVED, PLAN_OPENED, RATCHET_THRESHOLD_SET } from '../core/events.js'
+import { CARD_PLANNED, CARD_UNPLANNED, PLAN_BACKFILLED, PLAN_CLOSED, PLAN_ITEM_ADDED, PLAN_ITEM_LINKED, PLAN_ITEM_REMOVED, PLAN_OPENED, PR_OBSERVED, PR_OPENED, RATCHET_THRESHOLD_SET } from '../core/events.js'
 import { OWNER } from '../core/inbox.js'
 import { foreignVersion, instanceOf, provenIdentity, recordWorkerIdentity, UNHANDED } from '../core/node.js'
 import { orderDeclarationsAt, overlaps } from '../core/order/overlap.js'
@@ -35,6 +35,7 @@ import { GhCiRuns } from '../ports/ci-reading.js'
 import { CHECK_MS, TICK_MS } from '../ports/netwatch.js'
 import { launchDirOf } from '../ports/tree-publish.js'
 import { foldPlanEvent } from '../window/plan-folds.js'
+import { releasingTakeoverOnPush } from '../window/takeover-push-release.js'
 import { busSessionPulse, heartbeatEnv, measureCardSession, ownStart, recordProcessHeartbeat } from './heartbeat.js'
 import { SILENT_MS } from './liveness-sites.js'
 import { ownIdentity, tableIdentity } from './recorded-worker.js'
@@ -127,7 +128,7 @@ export function derivedHolds(db: DatabaseSync): DerivedHolds {
 
 export function busProjections(): Projections {
   return {
-    folds: [PR_FOLDS, TASKS_PROJECTION.folds, CHAINS_PROJECTION.folds, ROLES_PROJECTION.folds, DECISION_FOLDS, CARD_FOLDS, OWNER_WAIT_FOLDS, PLAN_FOLDS, CARD_END_FOLDS],
+    folds: [releasingTakeoverOnPush(PR_FOLDS, [PR_OBSERVED, PR_OPENED], db => new BusRead(db)), TASKS_PROJECTION.folds, CHAINS_PROJECTION.folds, ROLES_PROJECTION.folds, DECISION_FOLDS, CARD_FOLDS, OWNER_WAIT_FOLDS, PLAN_FOLDS, CARD_END_FOLDS],
     incremental: [ROLES_PROJECTION, TASKS_PROJECTION, CHAINS_PROJECTION, CARDS_PROJECTION],
   }
 }
