@@ -1208,15 +1208,15 @@ export interface StartedBoardTimer {
   stop: () => Promise<void>
 }
 
-export function startBoardTimer(busPath: string, periodMs: number = BOARD_PERIOD_MS): StartedBoardTimer {
-  const worker = new Worker(BOARD_TIMER_ENTRY, { workerData: { [BOARD_TIMER_BUS_PATH]: busPath, [BOARD_TIMER_PERIOD]: periodMs } })
+export type BoardTimerSpawn = (entry: URL, workerData: Record<string, unknown>) => { on: (event: 'error', listener: (error: Error) => void) => unknown, terminate: () => Promise<unknown> }
+
+export function startBoardTimer(busPath: string, periodMs: number = BOARD_PERIOD_MS, spawn: BoardTimerSpawn = (entry, workerData) => new Worker(entry, { workerData })): StartedBoardTimer {
+  const worker = spawn(BOARD_TIMER_ENTRY, { [BOARD_TIMER_BUS_PATH]: busPath, [BOARD_TIMER_PERIOD]: periodMs })
   worker.on('error', error => console.error(`${BOARD_TIMER_PREFIX}${error.message.split('\n')[0]}`))
   return {
     file: path.join(path.dirname(busPath), BOARD_FILE),
     dataFile: path.join(path.dirname(busPath), BOARD_DATA_FILE),
-    stop: async () => {
-      await worker.terminate()
-    },
+    stop: async () => void await worker.terminate(),
   }
 }
 

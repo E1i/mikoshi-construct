@@ -285,17 +285,21 @@ async function main(): Promise<number> {
   const { busTick } = composeBusTick(db, busPath, ghApi(process.cwd()), ghApiPost(process.cwd()), () => new Date(), os.homedir())
   const board = startBoardTimer(busPath)
   console.log(`${PREFIX}${busPath}, shadow mode: NetWatch, the owner decisions import, the window requests, the reducer, the queues and the ${STATUS_CONTEXT} status check on each open PR head unless ${STATUS_OFF_FILE} sits beside it every ${TICK_MS / 1000} s; ${board.file} with ${board.dataFile} every ${BOARD_PERIOD_MS / 1000} s on a read-only connection in its own thread; no workers`)
+  return superviseUntilEnd(() => tickOrLocked(busTick), board, () => db.close())
+}
+
+export async function superviseUntilEnd(tick: () => string[], board: { stop: () => Promise<void> }, close: () => void, pause: () => Promise<unknown> = async () => sleep(CHECK_MS)): Promise<never> {
   try {
     for (;;) {
-      const lines = tickOrLocked(busTick)
+      const lines = tick()
       if (lines.length > 0)
         console.log(lines.join('\n'))
-      await sleep(CHECK_MS)
+      await pause()
     }
   }
   finally {
     await board.stop()
-    db.close()
+    close()
   }
 }
 
