@@ -99,7 +99,7 @@ describe('the bus tick names the duration of every step', () => {
   it('a bus tick writes one line with the duration of every step', () => {
     const db = bus()
     const clock = new Clock()
-    const tick = new BusTick(db, { folds: [busPrFolds()], incremental: [] }, new NetWatchThatTicks(db, new FakeGitHub().client, clock.now), clock.now, () => {}, () => {}, () => {}, stepClock()).run()
+    const tick = new BusTick(db, { folds: [busPrFolds()], incremental: [] }, new NetWatchThatTicks(db, new FakeGitHub().client, clock.now), clock.now, () => {}, () => {}, () => {}, () => [], stepClock()).run()
     expect(tick?.steps.map(each => each.step)).toEqual([...TICK_STEPS])
     expect(tick?.steps.every(each => each.ms === STEP_MS)).toBe(true)
     const timing = tickLines(tick!).filter(line => TICK_STEPS.every(step => line.includes(`${step} 0.01 s`)))
@@ -112,7 +112,7 @@ describe('the bus tick names the duration of every step', () => {
     const locked = (): void => {
       throw new Error('database is locked')
     }
-    const busTick = new BusTick(db, { folds: [busPrFolds()], incremental: [] }, new NetWatchThatTicks(db, new FakeGitHub().client, clock.now), clock.now, () => {}, () => {}, locked, stepClock())
+    const busTick = new BusTick(db, { folds: [busPrFolds()], incremental: [] }, new NetWatchThatTicks(db, new FakeGitHub().client, clock.now), clock.now, () => {}, () => {}, locked, () => [], stepClock())
     const lines = tickOrLocked(busTick)
     expect(busTick.lastSteps.map(each => each.step)).toEqual(TICK_STEPS.slice(0, TICK_STEPS.indexOf('StalledSessions') + 1))
     expect(lines.at(-1)).toContain('StalledSessions 0.01 s')

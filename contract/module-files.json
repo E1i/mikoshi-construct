@@ -2554,6 +2554,7 @@
     "scripts/supervisor/derive-queues.ts",
     "scripts/supervisor/executor-lease.ts",
     "scripts/supervisor/expected-time.ts",
+    "scripts/supervisor/gate-run-spool.ts",
     "scripts/supervisor/generation-handover.ts",
     "scripts/supervisor/heartbeat.ts",
     "scripts/supervisor/launchd/dev.mikoshi.bus.plist",
