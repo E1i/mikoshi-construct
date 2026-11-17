@@ -84,7 +84,7 @@ async function roundWith(runs: readonly GateRun[]): Promise<{ outcome: AnswerOut
   const answerer = claudeAnswerer(path.join(trees, 'answers'), {
     cardText: () => null,
     available: () => true,
-    remoteHead: () => sha('a'),
+    remoteHead: () => published === 0 ? sha('a') : sha('e'),
     localHead: () => ROUND,
     spawn: async (run) => {
       const lines = streamOf(runs)
@@ -102,17 +102,58 @@ async function roundWith(runs: readonly GateRun[]): Promise<{ outcome: AnswerOut
   return { outcome: await executor.answer(lease()), published, made }
 }
 
-describe('a gate command counts only in its declared form (D-627)', () => {
-  it('a round with a gate command in an undeclared form is denied naming that command', async () => {
-    const timer = timerAfter([{ command: PIPED_FROM_A_CD }, { command: PREPUSH_ROUND }])
-    expect(timer.decision()).toBeNull()
-    expect(timer.offFormGateCommands()).toEqual([PIPED_FROM_A_CD])
+const PREPUSH_PIPED_FROM_A_CD = `cd /t; ${PREPUSH_ROUND} | tail -20`
 
-    const { outcome, published, made } = await roundWith([{ command: PIPED_FROM_A_CD }, { command: PREPUSH_ROUND }])
+describe('a gate command is recognised inside any shell line', () => {
+  it('a gate run inside a cd-prefixed piped line is recorded as a gate run', async () => {
+    const timer = timerAfter([{ command: PREPUSH_PIPED_FROM_A_CD }, { command: PIPED_FROM_A_CD }])
+    expect(timer.decision()).toBe('unrun')
+    expect(timer.offFormGateCommands()).toEqual([])
+
+    const { outcome, published } = await roundWith([{ command: PREPUSH_PIPED_FROM_A_CD }, { command: PIPED_FROM_A_CD }])
+    expect(published).toBe(1)
+    expect(outcome).toMatchObject({ kind: 'answered' })
+  })
+
+  it.each([
+    [`cd /t && ${TYPECHECK} | tail -15`, 'unrun'],
+    [`cd /t; pnpm --dir /t run typecheck 2>&1 | tail`, 'unrun'],
+    [`pnpm --dir /t typecheck 2>&1`, 'green'],
+    [`cd /t; set -o pipefail; ${TYPECHECK} | tail -15`, 'green'],
+  ])('the line %s records the typecheck run as %s', (command, outcome) => {
+    const timer = timerAfter([{ command }, { command: PREPUSH_ROUND }])
+
+    expect(timer.decision()).toBe(outcome)
+    expect(timer.offFormGateCommands()).toEqual([])
+  })
+
+  it('a piped gate whose output shows its own failure is recorded red', () => {
+    const timer = timerAfter([{ command: PIPED_FROM_A_CD, content: ' ELIFECYCLE  Command failed with exit code 2.' }, { command: PREPUSH_ROUND }])
+
+    expect(timer.decision()).toBe('red')
+  })
+
+  it('a pipefail line takes the gate exit from the line exit', () => {
+    const timer = timerAfter([{ command: `set -o pipefail && ${TYPECHECK} | tail`, isError: true, content: 'Exit code 2' }, { command: PREPUSH_ROUND }])
+
+    expect(timer.decision()).toBe('red')
+  })
+
+  it('a line that only mentions the gate is not recorded as a gate run', () => {
+    const timer = timerAfter([{ command: 'grep prepush.ts notes.md' }, { command: `${TYPECHECK} && rm -rf dist` }, { command: TYPECHECK }, { command: PREPUSH_PIPED_FROM_A_CD, background: true, content: BACKGROUND_START }])
+
+    expect(timer.decision()).toBeNull()
+    expect(timer.offFormGateCommands()).toEqual([`${TYPECHECK} && rm -rf dist`, `${PREPUSH_PIPED_FROM_A_CD}${IN_THE_BACKGROUND}`])
+  })
+})
+
+describe('a gate command counts only in a form the bus reads (D-627)', () => {
+  it('a round with a gate command only in a background run is denied naming that command', async () => {
+    const { outcome, published, made } = await roundWith([{ command: TYPECHECK }, { command: PREPUSH_ROUND, background: true, content: BACKGROUND_START }])
     expect(published).toBe(0)
     expect(eventsOf(made.db, CARD_ANSWERED)).toEqual([])
     expect(outcome).toMatchObject({ kind: 'denied', denial: { reason: 'answer_failed', detail: expect.stringContaining('recorded no gate decision') } })
-    expect(outcome).toMatchObject({ denial: { detail: expect.stringContaining(`the session ran a gate command not in its declared form, which the bus does not record (D-627): \`${PIPED_FROM_A_CD}\``) } })
+    expect(outcome).toMatchObject({ denial: { detail: expect.stringContaining(`\`${PREPUSH_ROUND}${IN_THE_BACKGROUND}\``) } })
   })
 
   it('a gate command started in the background records no outcome from its start line', () => {
@@ -135,14 +176,6 @@ describe('a gate command counts only in its declared form (D-627)', () => {
 
     expect(timer.decision()).toBe('green')
     expect(timer.offFormGateCommands()).toEqual([])
-  })
-
-  it('a gate spelled with pnpm --dir in an off-form command is recognised as that gate', () => {
-    const inATreeFromACd = `cd /t; pnpm --dir /t run typecheck | tail`
-    const timer = timerAfter([{ command: inATreeFromACd }, { command: PREPUSH_ROUND }])
-
-    expect(timer.decision()).toBeNull()
-    expect(timer.offFormGateCommands()).toEqual([inATreeFromACd])
   })
 
   it('a denial naming two off-form gate commands counts them and joins both', () => {

@@ -344,6 +344,12 @@ export function gateRunOutcome(isError: unknown, content: unknown): GateRunOutco
   return isError === true ? 'red' : 'green'
 }
 
+const GATE_FAILED_IN_ITS_OUTPUT = /ELIFECYCLE|ERR_PNPM_|Command failed with exit code [1-9]/
+
+export function pipedGateRunOutcome(content: unknown): GateRunOutcome {
+  return GATE_FAILED_IN_ITS_OUTPUT.test(textOf(content)) ? 'red' : 'unrun'
+}
+
 export function gateDecisionOf(declared: number, outcomes: readonly GateRunOutcome[]): GateDecision | null {
   if (declared === 0)
     return 'undeclared'
@@ -388,13 +394,50 @@ function runsInTheBackground(block: StreamBlock): boolean {
   return block.input?.run_in_background === true
 }
 
+const LEADING_CD = /^cd\s+\S+\s*(?:;|&&)\s*/
+const LEADING_PIPEFAIL = /^set\s+-o\s+pipefail\s*(?:;|&&)\s*/
+const FIRST_PIPE = /(?<!\|)\|(?!\|)/
+const TRAILING_STREAM_MERGE = /(?:\s+\d?>&\d)+\s*$/
+const CHAINED = /[;&|<>`$()]/
+
+export interface ShellLineGate {
+  gate: string
+  piped: boolean
+  pipefail: boolean
+}
+
+function withoutLeadingSetup(command: string): { rest: string, pipefail: boolean } {
+  let rest = command.trim()
+  let pipefail = false
+  for (;;) {
+    const fail = LEADING_PIPEFAIL.exec(rest)
+    const step = LEADING_CD.exec(rest) ?? fail
+    if (step === null)
+      return { rest, pipefail }
+    pipefail ||= fail !== null
+    rest = rest.slice(step[0].length)
+  }
+}
+
+export function gateInShellLine(command: string, gate: readonly string[]): ShellLineGate | null {
+  const { rest, pipefail } = withoutLeadingSetup(command)
+  const pipe = FIRST_PIPE.exec(rest)
+  const head = (pipe === null ? rest : rest.slice(0, pipe.index)).replace(TRAILING_STREAM_MERGE, '').trim()
+  const core = inAnyTree(head)
+  const found = gate.find((each) => {
+    const declared = inAnyTree(each)
+    return core === declared || (core.startsWith(`${declared} `) && !CHAINED.test(core.slice(declared.length)))
+  })
+  return found === undefined ? null : { gate: found, piped: pipe !== null, pipefail }
+}
+
 export class RoundTimer {
   private spawned: number | null = null
   private firstLine: number | null = null
   private firstTurn: number | null = null
   private gateMs: number | null = null
   private pushMs: number | null = null
-  private readonly running = new Map<string, { at: number, command: string }>()
+  private readonly running = new Map<string, { at: number, command: string, outcomeHidden: boolean }>()
   private readonly outcomes = new Map<string, GateRunOutcome>()
   private readonly offForm = new Set<string>()
 
@@ -420,7 +463,7 @@ export class RoundTimer {
       if (started !== undefined) {
         this.running.delete(block.tool_use_id as string)
         this.gateMs = (this.gateMs ?? 0) + at - started.at
-        this.outcomes.set(started.command, gateRunOutcome(block.is_error, block.content))
+        this.outcomes.set(started.command, started.outcomeHidden ? pipedGateRunOutcome(block.content) : gateRunOutcome(block.is_error, block.content))
       }
     }
   }
@@ -454,21 +497,13 @@ export class RoundTimer {
   }
 
   private used(id: string, command: string, inTheBackground: boolean, at: number): void {
-    const declared = this.runsTheGate(command)
-    if (declared && !inTheBackground) {
-      this.running.set(id, { at, command: this.gateCommandOf(command) })
+    const found = gateInShellLine(command, this.gate)
+    if (found !== null && !inTheBackground) {
+      this.running.set(id, { at, command: found.gate, outcomeHidden: found.piped && !found.pipefail })
       return
     }
-    if (declared || this.gate.some(each => mentionsTheGate(command, each)))
+    if (found !== null || this.gate.some(each => mentionsTheGate(command, each)))
       this.offForm.add(inTheBackground ? `${command}${IN_THE_BACKGROUND}` : command)
-  }
-
-  private gateCommandOf(command: string): string {
-    return this.gate.find(each => inAnyTree(command).startsWith(inAnyTree(each))) ?? command
-  }
-
-  private runsTheGate(command: unknown): boolean {
-    return typeof command === 'string' && this.gate.some(each => inAnyTree(command).startsWith(inAnyTree(each)))
   }
 }
 
