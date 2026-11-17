@@ -2,9 +2,7 @@ import type { Matrix, MatrixMutation, MatrixResult, RunTest } from '../cli/check
 import type { Graph } from './layers.js'
 import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
-import { buildMatrix, holdSignalsUntilRestored, MutationGuard, runMatrix, vitestRun } from '../cli/check-matrix.js'
-import { BUSY_TIMEOUT_MS, defaultBusPath } from '../core/db.js'
-import { openDatabase } from '../core/sqlite.js'
+import { busMatrix, holdSignalsUntilRestored, MutationGuard, runMatrix, vitestRun } from '../cli/check-matrix.js'
 
 export const MUTATION_CEILING_MS = 120_000
 export const UNCHECKED = 'mutations unchecked'
@@ -84,18 +82,6 @@ export async function mutationGate(parts: MutationGateParts): Promise<MutationGa
   if (survivors.length > 0)
     return { lines: [SURVIVED_HEADER, ...survivors, ...ceiling], code: 1 }
   return { lines: ceiling, code: 0 }
-}
-
-export function busMatrix(changed: readonly string[], graph: Graph, testText: (test: string) => string, busPath: string = defaultBusPath()): Matrix {
-  if (!existsSync(busPath))
-    throw new Error(`no bus at ${busPath}`)
-  const db = openDatabase(busPath, { readOnly: true, timeout: BUSY_TIMEOUT_MS })
-  try {
-    return buildMatrix(changed, graph, testText, db)
-  }
-  finally {
-    db.close()
-  }
 }
 
 export async function processMutationGate(changed: readonly string[], graph: Graph, witnesses: readonly string[], testText: (test: string) => string, root: string): Promise<MutationGate> {
