@@ -11,6 +11,8 @@ import type { Answered, Answerer, StepSeconds } from './answerer.js'
 import type { CardConcept } from './concept-scope.js'
 import type { AnswerDenial, Answering, AnswerOutcome, AnswerTechnicalReason, CardPaths, DecidedRound, ShardDecider, TreeMerge, TreePublishing, Widened } from './duties/index.js'
 import type { TreeOwned, TreePushPolicy } from './duties/tree.js'
+import { existsSync, readFileSync, rmSync } from 'node:fs'
+import path from 'node:path'
 import { riskOf } from '../../../src/card/risk.js'
 import { answersWithdrawnByAClosedHold, holdRecheckAt, LIVE_SESSION_IN_THE_TREE, queueAgain, sessionStopOf } from '../../core/card-hold.js'
 import { appendEvent, inTransaction, openBusWait } from '../../core/db.js'
@@ -63,6 +65,18 @@ const KEPT_WITHOUT_A_KNOWN_POLICY: TreePushPolicy = 'none'
 const REENTRY_SOURCES: ReadonlySet<AnswerSource['kind']> = new Set(['ci'])
 
 export const ANSWER_RESTARTS = 3
+
+export const ANSWER_TREE_GATE_RUN_SPOOL = path.join('.construct', 'gate-runs.jsonl')
+
+export function drainAnswerTreeGateRuns(db: DatabaseSync, worktree: string): number {
+  const spool = path.join(worktree, ANSWER_TREE_GATE_RUN_SPOOL)
+  if (!existsSync(spool))
+    return 0
+  const events = readFileSync(spool, 'utf8').split('\n').filter(line => line.trim() !== '').map(line => JSON.parse(line) as BusEvent)
+  events.forEach(event => appendEvent(db, event))
+  rmSync(spool, { force: true })
+  return events.length
+}
 
 const MS_PER_MINUTE = 60_000
 
@@ -330,6 +344,20 @@ export class AnswerExecutor {
     }
     catch (error) {
       return { kind: 'technical', reason: reasonOfFailure(error), detail: messageOf(error) }
+    }
+    finally {
+      this.drainGateRuns(lease, card)
+    }
+  }
+
+  private drainGateRuns(lease: Lease, card: CardSession): void {
+    try {
+      const drained = drainAnswerTreeGateRuns(this.parts.db, card.worktree)
+      if (drained > 0)
+        console.log(`${PREFIX}card #${lease.cardId}: ${drained} gate.run event${drained === 1 ? '' : 's'} the session kept in ${ANSWER_TREE_GATE_RUN_SPOOL} recorded on the bus`)
+    }
+    catch (error) {
+      console.error(`${PREFIX}card #${lease.cardId}: the gate runs kept in ${ANSWER_TREE_GATE_RUN_SPOOL} stay there: ${messageOf(error)}`)
     }
   }
 
