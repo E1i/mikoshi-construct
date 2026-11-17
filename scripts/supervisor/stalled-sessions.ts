@@ -7,12 +7,14 @@ import type { ProcessTable } from '../ports/process-table.js'
 import type { ActionOf, LeasedRound } from './expected-time.js'
 import type { LeaseBeat } from './heartbeat.js'
 import type { LifeOf, SessionLife } from './recorded-worker.js'
+import path from 'node:path'
+import { CLOSED_CARD, DROPPED_CARD, MERGED_CARD } from '../core/card-automaton.js'
 import { appendEvent } from '../core/db.js'
 import { spendStopOf } from '../core/eddies.js'
 import { messageOf } from '../core/errors.js'
-import { BOARD_ALARM, CARD_SESSION_ENDED, CARD_STARTED, PR_OBSERVED, PR_OPENED, SESSION_HEARTBEAT, SESSION_STALLED, TASK_LEASED } from '../core/events.js'
+import { BOARD_ALARM, CARD_RELEASED, CARD_SESSION_ENDED, CARD_STARTED, PR_OBSERVED, PR_OPENED, SESSION_HEARTBEAT, SESSION_STALLED, TASK_LEASED } from '../core/events.js'
 import { releaseTask } from '../core/lease.js'
-import { LEASED } from '../core/queue.js'
+import { latestTurnOf, LEASED, QUEUED } from '../core/queue.js'
 import { processGit } from '../ports/git.js'
 import { OsProcessTable } from '../ports/process-table.js'
 import { RoundOverTime } from './expected-time.js'
@@ -79,6 +81,93 @@ const CARD_TREE = `
   ORDER BY id DESC LIMIT 1
 `
 
+export const UNDRIVEN_AFTER_MS = STALLED_AFTER_MS
+
+const UNENDED_STARTS = `
+  SELECT started.id, started.card_id, started.ts, started.dedupe_key,
+    json_extract(started.payload, '$.session') AS session, json_extract(started.payload, '$.worktree') AS worktree, json_extract(started.payload, '$.base') AS base
+  FROM events AS started LEFT JOIN cards ON cards.card_id = started.card_id
+  WHERE started.type = '${CARD_STARTED}' AND started.legacy = 0 AND json_valid(started.payload)
+    AND started.id = ${latestTurnOf('started.card_id')}
+    AND coalesce(cards.state, '') NOT IN ('${MERGED_CARD}', '${CLOSED_CARD}', '${DROPPED_CARD}')
+    AND NOT EXISTS (SELECT 1 FROM events WHERE card_id = started.card_id AND id > started.id AND legacy = 0 AND type = '${CARD_SESSION_ENDED}')
+    AND NOT EXISTS (SELECT 1 FROM tasks WHERE card_id = started.card_id AND state IN ('${QUEUED}', '${LEASED}'))
+  ORDER BY started.card_id
+`
+
+const FIRST_PUSH_AFTER = `
+  SELECT pr, head FROM events WHERE card_id = ? AND id > ? AND legacy = 0 AND type IN ('${PR_OPENED}', '${PR_OBSERVED}') AND head IS NOT NULL AND head IS NOT ?
+  ORDER BY id LIMIT 1
+`
+
+const FIRST_RELEASE_AFTER = `SELECT id FROM events WHERE card_id = ? AND id > ? AND legacy = 0 AND type = '${CARD_RELEASED}' ORDER BY id LIMIT 1`
+
+interface UnendedStart {
+  id: number
+  card_id: number
+  ts: string
+  dedupe_key: string
+  session: string | null
+  worktree: string | null
+  base: string | null
+}
+
+interface SessionEnd {
+  pr: number | null
+  head: string | null
+  detail: string
+}
+
+function insideTree(dir: string, tree: string): boolean {
+  return dir === tree || dir.startsWith(`${tree}${path.sep}`)
+}
+
+export function treeLives(table: ProcessTable, tree: string): boolean | null {
+  const cwds = table.clientCwds()
+  if (cwds.kind === 'unreadable')
+    return null
+  if (cwds.cwds.some(cwd => insideTree(cwd, tree)))
+    return true
+  const snapshot = table.snapshot()
+  if (!snapshot.readable)
+    return null
+  return snapshot.rows.some(row => row.command.split(/\s+/).some(word => insideTree(word, tree)))
+}
+
+export class UndrivenSessions {
+  constructor(private readonly db: DatabaseSync, private readonly trees: ProcessTable, private readonly prefix: string = '', private readonly roundMs: number = UNDRIVEN_AFTER_MS) {}
+
+  sweep(nowMs: number): string[] {
+    const starts = this.db.prepare(UNENDED_STARTS).all() as unknown as UnendedStart[]
+    return starts.flatMap((start) => {
+      const end = this.endOf(start, nowMs)
+      return end !== null && this.record(start, end, nowMs) ? [`${this.prefix}${CARD_SESSION_ENDED} #${start.card_id}: ${end.detail}`] : []
+    })
+  }
+
+  private endOf(start: UnendedStart, nowMs: number): SessionEnd | null {
+    const named = `the session started at event ${start.id}`
+    const push = this.db.prepare(FIRST_PUSH_AFTER).get(start.card_id, start.id, start.base) as { pr: number | null, head: string } | undefined
+    if (push !== undefined)
+      return { pr: push.pr, head: push.head, detail: `${named} pushed ${push.head}${push.pr === null ? '' : ` to PR #${push.pr}`}, over its base ${start.base ?? 'not recorded'}, so the bus records its end` }
+    const release = this.db.prepare(FIRST_RELEASE_AFTER).get(start.card_id, start.id) as { id: number } | undefined
+    if (release !== undefined)
+      return { pr: null, head: null, detail: `${named} was released at event ${release.id}, so the bus records its end` }
+    return this.undriven(start, named, nowMs)
+  }
+
+  private undriven(start: UnendedStart, named: string, nowMs: number): SessionEnd | null {
+    const minutes = Math.floor((nowMs - Date.parse(start.ts)) / 60_000)
+    if (start.worktree === null || nowMs - Date.parse(start.ts) < this.roundMs || treeLives(this.trees, start.worktree) !== false)
+      return null
+    return { pr: null, head: null, detail: `${named} ran ${minutes} min, past its round time of ${Math.floor(this.roundMs / 60_000)} min, and no live process runs in its tree ${start.worktree}, so the bus records its end` }
+  }
+
+  private record(start: UnendedStart, end: SessionEnd, nowMs: number): boolean {
+    return appendEvent(this.db, { ts: new Date(nowMs).toISOString(), type: CARD_SESSION_ENDED, actor: STALLED_ACTOR, cardId: start.card_id, pr: end.pr, head: end.head, dedupeKey: `${CARD_SESSION_ENDED}:${start.dedupe_key}`, payload: { session: start.session, stopped: false, detail: end.detail }, legacy: false })
+  }
+}
+
 interface LeasedRow {
   task_key: string
   queue: SupervisedQueue
@@ -121,6 +210,7 @@ export interface StalledSessionPorts {
   lines?: Readonly<Record<SupervisedQueue, number>>
   prefix?: string
   pulseOf?: PulseOf
+  trees?: ProcessTable
 }
 
 export function lastProgress(leasedAt: string, beats: readonly LeaseBeat[], pushed: string | null): string {
@@ -250,6 +340,7 @@ export class StalledSessions {
   private readonly pulseOf: PulseOf
   private readonly pulses = new Map<string, { pulse: string, at: string }>()
   private readonly overTime: OverTime
+  private readonly undriven: UndrivenSessions
 
   constructor(private readonly db: DatabaseSync, private readonly clock: () => Date, private readonly ports: StalledSessionPorts) {
     this.overTime = ports.overTime ?? new RoundOverTime(db, clock, actionInCardTree(db, clock))
@@ -259,6 +350,7 @@ export class StalledSessions {
     this.save = ports.save ?? saveCardTreeIn(db)
     this.prefix = ports.prefix ?? ''
     this.pulseOf = ports.pulseOf ?? pulseIn(new OsProcessTable())
+    this.undriven = new UndrivenSessions(db, ports.trees ?? new OsProcessTable(), this.prefix)
   }
 
   step(): string[] {
@@ -266,11 +358,24 @@ export class StalledSessions {
     if (nowMs - this.lastSweep < STALLED_SWEEP_MS)
       return []
     this.lastSweep = nowMs
+    return [...this.sweepSilent(nowMs), ...this.sweepUndriven(nowMs)]
+  }
+
+  private sweepSilent(nowMs: number): string[] {
     try {
       return this.sweep(nowMs)
     }
     catch (error) {
       return [`${this.prefix}reading the silent card sessions failed: ${messageOf(error)}; retried on the next sweep`]
+    }
+  }
+
+  private sweepUndriven(nowMs: number): string[] {
+    try {
+      return this.undriven.sweep(nowMs)
+    }
+    catch (error) {
+      return [`${this.prefix}reading the card sessions nobody drives failed: ${messageOf(error)}; retried on the next sweep`]
     }
   }
 
