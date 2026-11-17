@@ -70,10 +70,12 @@ export function mergeBench(intake: Intake = () => () => {}, liveNodes: LiveNodes
   const db = openBus(busPath)
   const gitHub = new FakeGitHub()
   const clock = new Clock()
-  const busTick = new BusTick(db, busProjections(), new NetWatch(db, gitHub.client, clock.now), clock.now, intake(db, clock))
+  const busTick = new BusTick(db, busProjections(), new NetWatch(db, gitHub.client, clock.now), clock.now)
+  const seed = intake(db, clock)
   const executor = new MergeExecutor({ silentMs: SILENT_MS, db, gitHub: gitHub.client, put: gitHub.put, publish: gitHub.publish, clock: clock.now, run: RUN, overlaps: benchOverlaps })
   const order = benchOrderTick(db, clock)
   const tick = (): void => {
+    seed()
     busTick.run()
     order.step()
     liveNodes({ db, gitHub, clock })

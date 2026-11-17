@@ -1,11 +1,10 @@
 import type { DatabaseSync } from 'node:sqlite'
 import { createHash } from 'node:crypto'
-import { existsSync, readFileSync } from 'node:fs'
 import { appendEvent } from '../../core/db.js'
 import { DECISIONS_IMPORTED } from '../../core/events.js'
 import { NETWATCH } from '../../core/observations.js'
-import { boundText, decisionsFileOf, decisionsRefusals, inForce, parseDecisions } from './decisions.js'
-import { archiveOf, withTermInWords } from './read.js'
+import { boundText, decisionsRefusals, inForce, parseDecisions } from './decisions.js'
+import { withTermInWords } from './read.js'
 
 const LAST_IMPORTED = `SELECT json_extract(payload, '$.sha256') AS sha FROM events WHERE type = '${DECISIONS_IMPORTED}' ORDER BY id DESC LIMIT 1`
 
@@ -23,17 +22,4 @@ export function importOwnerDecisions(db: DatabaseSync, text: string, ts: string,
     .filter(decision => !refused || decision.term.until === null)
     .map(decision => ({ decision_id: decision.number, text: boundText(decision), scope: decision.cards }))
   return appendEvent(db, { ts, type: DECISIONS_IMPORTED, actor: NETWATCH, cardId: null, pr: null, head: null, dedupeKey: `${DECISIONS_IMPORTED}:${sha256}:${ts}`, payload: { sha256, decisions }, legacy: false })
-}
-
-export function decisionsIntake(db: DatabaseSync, file: string, clock: () => Date): () => void {
-  return () => {
-    if (!existsSync(file))
-      return
-    const archive = archiveOf(file)
-    importOwnerDecisions(db, readFileSync(file, 'utf8'), clock().toISOString(), existsSync(archive) ? readFileSync(archive, 'utf8') : '')
-  }
-}
-
-export function decisionsIntakeOfBus(db: DatabaseSync, busPath: string, clock: () => Date): () => void {
-  return decisionsIntake(db, decisionsFileOf(busPath), clock)
 }

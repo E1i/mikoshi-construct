@@ -219,7 +219,7 @@
   "boundary:session->board": 1,
   "boundary:session->composition-root": 1,
   "boundary:session->cost": 6,
-  "boundary:session->decisions": 7,
+  "boundary:session->decisions": 6,
   "boundary:session->layout": 5,
   "boundary:session->node-launch": 1,
   "boundary:session->node-review": 2,

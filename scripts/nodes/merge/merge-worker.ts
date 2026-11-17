@@ -16,7 +16,7 @@ import { fileURLToPath } from 'node:url'
 import { catalogIsEmpty, changedPaths, changesTheCatalog, MAIN_TIP, rebuildCatalogAt } from '../../cli/check-catalog.js'
 import { appendEvent, defaultBusPath } from '../../core/db.js'
 import { messageOf } from '../../core/errors.js'
-import { BOARD_ALARM, CARD_ADMITTED, DECISION_RECORDED, DECISIONS_IMPORTED, MERGE_DONE, PR_CLOSED, PR_GROUPS, PR_OBSERVED, PR_OPENED, REDUCED, REVIEW_RECORDED } from '../../core/events.js'
+import { BOARD_ALARM, CARD_ADMITTED, DECISION_RECORDED, MERGE_DONE, PR_CLOSED, PR_GROUPS, PR_OBSERVED, PR_OPENED, REDUCED, REVIEW_RECORDED } from '../../core/events.js'
 import { Node, NodeRefused, runNode, UNDERSTOOD_NOW } from '../../core/node.js'
 import { pushPolicyOf } from '../../core/push-policy.js'
 import { mergeCandidates } from '../../core/queue.js'
@@ -32,11 +32,11 @@ import { driftLine } from './weights-drift.js'
 
 export const LIVE_REVIEWER = 'worker:review:'
 export const CATALOG_REBUILD_FAILED = 'catalog_rebuild_failed'
-export const MERGE_ON = [REDUCED, PR_OBSERVED, PR_CLOSED, PR_OPENED, PR_GROUPS, CARD_ADMITTED, MERGE_DONE, REVIEW_RECORDED, DECISION_RECORDED, DECISIONS_IMPORTED] as const
+export const MERGE_ON = [REDUCED, PR_OBSERVED, PR_CLOSED, PR_OPENED, PR_GROUPS, CARD_ADMITTED, MERGE_DONE, REVIEW_RECORDED, DECISION_RECORDED] as const
 
 export const MERGE_NODE: NodeDeclaration = { kind: 'merge', on: MERGE_ON, understands: UNDERSTOOD_NOW }
 
-const WHOLE_QUEUE_ON: ReadonlySet<string> = new Set([REDUCED, PR_GROUPS, MERGE_DONE, DECISION_RECORDED, DECISIONS_IMPORTED])
+const WHOLE_QUEUE_ON: ReadonlySet<string> = new Set([REDUCED, PR_GROUPS, MERGE_DONE, DECISION_RECORDED])
 
 export type MergeStep = MergeOutcome
 

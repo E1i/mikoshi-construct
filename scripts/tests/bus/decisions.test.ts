@@ -1,5 +1,5 @@
 import type { BusEvent } from '../../core/db.js'
-import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -7,7 +7,7 @@ import { appendEvent, openBus } from '../../core/db.js'
 import { REJECTED } from '../../core/events.js'
 import { projectionDump, reduce } from '../../core/reducer.js'
 import { runDecisionsAdd } from '../../policy/decisions/add.js'
-import { decisionsIntake } from '../../policy/decisions/import.js'
+import { importOwnerDecisions } from '../../policy/decisions/import.js'
 import { recordDecision } from '../../policy/decisions/index.js'
 import { busProjections } from '../../supervisor/composition.js'
 
@@ -130,12 +130,9 @@ describe('owner decisions on the bus', () => {
     expect(closed.err[0]).toMatch(/^\[decisions\] D-3 not recorded in the bus: .+; \/d\/owner-decisions\.md restored as it was$/)
   })
 
-  it('the decisions table equals owner-decisions.md and a replay gives the same', () => {
+  it('a decisions.imported event already in the bus folds to the decisions it lists and a replay gives the same', () => {
     const db = newBus()
-    const file = path.join(mkdtempSync(path.join(tmpdir(), 'bus-owner-decisions-')), 'owner-decisions.md')
-    roots.push(path.dirname(file))
-    writeFileSync(file, OWNER_FILE)
-    decisionsIntake(db, file, () => NOW)()
+    importOwnerDecisions(db, OWNER_FILE, NOW.toISOString())
     expect(reduce(db, 'pending', busProjections())).toEqual({ applied: 1, rejected: 0 })
     expect(rows(db, 'SELECT decision_id, text, scope, source FROM decisions ORDER BY decision_id')).toEqual([
       { decision_id: 2, text: '#807 stays owner-merged.', scope: '[807]', source: 'owner-decisions.md' },
@@ -146,55 +143,6 @@ describe('owner decisions on the bus', () => {
     expect(projectionDump(db)).toBe(projection)
     expect(reduce(db, 'rebuild', busProjections())).toEqual({ applied: 1, rejected: 0 })
     expect(projectionDump(db)).toBe(projection)
-  })
-
-  it('while pnpm decisions refuses the file, a decision with an until is out of force until an import of a file it reads', () => {
-    const db = newBus()
-    const file = path.join(mkdtempSync(path.join(tmpdir(), 'bus-owner-decisions-')), 'owner-decisions.md')
-    roots.push(path.dirname(file))
-    const clean = '# Owner decisions\n\n- D-1 · 2026-10-08 — one.\n- D-2 · 2026-10-08 — delegated. · until 2026-10-12T04:30Z\n'
-    const intake = decisionsIntake(db, file, () => NOW)
-    const held = (): unknown[] => {
-      intake()
-      reduce(db, 'pending', busProjections())
-      return rows(db, `SELECT decision_id FROM decisions WHERE state = 'in-force' ORDER BY decision_id`).map(row => row.decision_id)
-    }
-    writeFileSync(file, clean)
-    expect(held()).toEqual([1, 2])
-    writeFileSync(file, `${clean}- D-3 · 2026-10-08 — one.\n`)
-    expect(held()).toEqual([1, 3])
-    writeFileSync(file, `${clean}- D-3 · 2026-10-08 — three.\n`)
-    expect(held()).toEqual([1, 2, 3])
-  })
-
-  it('a change of owner-decisions.md is imported without writing the file', () => {
-    const db = newBus()
-    const file = path.join(mkdtempSync(path.join(tmpdir(), 'bus-owner-decisions-')), 'owner-decisions.md')
-    roots.push(path.dirname(file))
-    writeFileSync(file, OWNER_FILE)
-    let now = NOW
-    const intake = decisionsIntake(db, file, () => now)
-    intake()
-    now = new Date(NOW.getTime() + 60_000)
-    intake()
-    appendEvent(db, stopped(809, 'question.owner'))
-    expect(rows(db, `SELECT count(*) AS n FROM events WHERE type = 'decisions.imported'`)).toEqual([{ n: 1 }])
-    reduce(db, 'pending', busProjections())
-    const [firstImport] = rows(db, `SELECT id FROM events WHERE type = 'decisions.imported'`)
-    const before = statSync(file).mtimeMs
-
-    const changed = OWNER_FILE.replace('· decisions:add', '· decisions:add · superseded-by D-78').concat('- D-78 · 2026-10-10 — #809 goes to the bus. · card #809\n')
-    writeFileSync(file, changed)
-    const written = statSync(file).mtimeMs
-    intake()
-    expect(rows(db, `SELECT count(*) AS n FROM events WHERE type = 'decisions.imported'`)).toEqual([{ n: 2 }])
-    expect(reduce(db, 'pending', busProjections())).toEqual({ applied: 1, rejected: 0 })
-    expect(rows(db, `SELECT decision_id, scope FROM decisions WHERE state = 'in-force' ORDER BY decision_id`)).toEqual([{ decision_id: 77, scope: '[]' }, { decision_id: 78, scope: '[809]' }])
-    expect(rows(db, 'SELECT event_id FROM decisions WHERE decision_id = 77')).toEqual([{ event_id: firstImport!.id }])
-    expect(rows(db, 'SELECT card_id, state FROM cards')).toEqual([{ card_id: 809, state: 'queued' }])
-    expect(readFileSync(file, 'utf8')).toBe(changed)
-    expect(statSync(file).mtimeMs).toBe(written)
-    expect(written).toBeGreaterThanOrEqual(before)
   })
 
   it('decisions.imported is netwatch\'s and lists each decision once', () => {

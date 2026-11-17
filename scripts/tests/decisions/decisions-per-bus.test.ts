@@ -11,7 +11,7 @@ import { ANSWER_SOURCE } from '../../core/inbox.js'
 import { LIVE_FLAG } from '../../core/node.js'
 import { OWNER_WORD_NOT_FOUND, ownerChannelOf, ownerChannelOfBus, sayToOwnerChannel } from '../../owner/channel.js'
 import { decisionsFileOf } from '../../policy/decisions/decisions.js'
-import { inForceDecisions } from '../../policy/decisions/index.js'
+import { inForceDecisions, recordDecision } from '../../policy/decisions/index.js'
 import { liveDecisionOf } from '../../policy/live-decision.js'
 import { TICK_MS } from '../../ports/netwatch.js'
 import { composeBusTick } from '../../supervisor/run.js'
@@ -19,7 +19,8 @@ import { startingMode, wantedLaunches } from '../../supervisor/workers.js'
 import { requestFromWindow } from '../../window/window-requests.js'
 import { Clock, FakeGitHub } from '../bus/github-fake.js'
 
-const ALLOW_LIVE_LAUNCH = '- D-1 · 2026-10-26 — [owner] allow-live launch · decisions:add'
+const ALLOW_LIVE_WORDS = '[owner] allow-live launch'
+const ALLOW_LIVE_LAUNCH = `- D-1 · 2026-10-26 — ${ALLOW_LIVE_WORDS} · decisions:add`
 const OTHER_REPO = 'E1i--other'
 
 interface Bus {
@@ -86,20 +87,20 @@ describe('owner decisions belong to the bus of their repository', () => {
     expect(ownerChannelOfBus(home, path.join(repoHome(home, OTHER_REPO), 'bus.db'))).toBe(path.join(ownerChannelOf(home), OTHER_REPO))
   })
 
-  it('a decision written into the first bus\'s file never appears in a decisions.imported event of the second', () => {
+  it('a decision written into the first bus\'s file never appears in a decisions.imported event of either bus', () => {
     const { machine, repository } = twoBuses()
     writeFileSync(decisionsFileOf(machine.path), `# Owner decisions\n\n${ALLOW_LIVE_LAUNCH}\n`)
 
     expect(machine.composed.busTick.run()?.poll.kind).toBe('ticked')
     expect(repository.composed.busTick.run()?.poll.kind).toBe('ticked')
 
-    expect(importedTexts(machine.db)).toEqual(['[owner] allow-live launch'])
+    expect(importedTexts(machine.db)).toEqual([])
     expect(importedTexts(repository.db)).toEqual([])
   })
 
   it('an allow-live launch decision of the first bus adds no --live node to the second beyond its own set', () => {
-    const { machine, repository } = twoBuses()
-    writeFileSync(decisionsFileOf(machine.path), `# Owner decisions\n\n${ALLOW_LIVE_LAUNCH}\n`)
+    const { clock, machine, repository } = twoBuses()
+    recordDecision(machine.db, { ts: clock.now().toISOString(), decisionId: 1, text: ALLOW_LIVE_WORDS, cards: [] })
     machine.composed.busTick.run()
     repository.composed.busTick.run()
 

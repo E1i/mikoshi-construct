@@ -4144,7 +4144,6 @@
           "card.started",
           "card.admitted",
           "decision.recorded",
-          "decisions.imported",
           "merge.done"
         ],
         "understands": {
@@ -4229,8 +4228,7 @@
           "card.admitted",
           "merge.done",
           "review.recorded",
-          "decision.recorded",
-          "decisions.imported"
+          "decision.recorded"
         ],
         "understands": {
           "bus": [
@@ -4322,7 +4320,7 @@
         }
       }
     },
-    "nodesVersion": 2
+    "nodesVersion": 3
   },
   "overlaps": {
     "answer-duties": {
