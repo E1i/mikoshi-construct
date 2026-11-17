@@ -22,8 +22,8 @@ function secondsAgo(seconds: number): string {
   return new Date(NOW.getTime() - seconds * 1_000).toISOString()
 }
 
-function tick(seconds: number): SeedEvent {
-  return { ts: secondsAgo(seconds), type: BUS_PULSE, card: null, payload: JSON.stringify({ rate_remaining: 4200 }) }
+function tick(seconds: number, rate = 4200): SeedEvent {
+  return { ts: secondsAgo(seconds), type: BUS_PULSE, card: null, payload: JSON.stringify({ rate_remaining: rate }) }
 }
 
 function event(seconds: number, type: string, card: number | null, payload: Record<string, unknown> = {}): SeedEvent {
@@ -95,6 +95,27 @@ describe('the bus panel', () => {
     expect(panel).toContain('data-node="reducer" data-health="green"><span>REDUCER</span><b>lag 0 events</b>')
     expect(panel).toContain('data-node="snapshot" data-health="green"')
     expect(panel).toContain('<li data-slot-queue="launch" data-used="0" data-total="3"><span>LAUNCH</span>')
+  })
+
+  it('a snapshot between two and three publish intervals old is red', () => {
+    const panel = busPanelOf(pageOf({ beats: [LAUNCH_BEAT], events: [tick(70), tick(10)] }, 2.5).html)
+    expect(panel).toContain('<li class="bevel" data-node="snapshot" data-health="red"><span>SNAPSHOT</span><b>published 3m ago</b></li>')
+  })
+
+  it('top events lists only the four busiest families', () => {
+    const panel = busPanelOf(pageOf({ events: [tick(70), event(60, 'review.verdict', 7), event(50, 'review.verdict', 8), event(40, 'card.stopped', 8), event(30, 'pr.merged', 9), event(20, 'task.leased', 9), tick(10)] }).html)
+    const families = [...cellOf(panel, 'families').matchAll(/<li><span>([^<]+)<\/span>/g)].map(match => match[1])
+    expect(families).toEqual(['netwatch', 'review', 'card', 'pr'])
+  })
+
+  it('a low GitHub rate reads NETWATCH red', () => {
+    const panel = busPanelOf(pageOf({ beats: [LAUNCH_BEAT], events: [tick(70), tick(10, 50)] }).html)
+    expect(panel).toContain('<li class="bevel" data-node="netwatch" data-health="red"><span>NETWATCH</span><b>rate 50 left</b></li>')
+  })
+
+  it('no worker alive reads WORKERS red', () => {
+    const panel = busPanelOf(pageOf({ beats: [{ ...LAUNCH_BEAT, ts: secondsAgo(7200) }], events: [tick(70), tick(10)] }).html)
+    expect(panel).toContain('<li class="bevel" data-node="workers" data-health="red"><span>WORKERS</span><b>0/1 alive</b></li>')
   })
 
   it('recent activity skips session.heartbeat and netwatch.tick', () => {
