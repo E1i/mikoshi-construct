@@ -5,7 +5,6 @@ import { openBus } from '../../core/db.js'
 import { reduce } from '../../core/reducer.js'
 import { ARCHIVE_HEADER, runDecisionsAdd } from './add.js'
 import { decisionsFileOf, PREFIX, projectDecisions } from './decisions.js'
-import { decisionsIntake } from './import.js'
 import { busProjectsDecisions, decisionRows, expireDecisions, recordDecision, recordedNumbers, startProjectingDecisions } from './index.js'
 import { archiveOf } from './read.js'
 
@@ -24,10 +23,8 @@ function writeIfChanged(file: string, before: string, after: string): void {
 
 export function decisionsSettler(db: DatabaseSync, decisions: string, now: () => Date, projections: Projections): DecisionsSettler {
   return () => {
-    if (!busProjectsDecisions(db)) {
-      decisionsIntake(db, decisions, now)()
+    if (!busProjectsDecisions(db))
       startProjectingDecisions(db, now())
-    }
     reduce(db, 'pending', projections)
     expireDecisions(db, now())
     reduce(db, 'pending', projections)

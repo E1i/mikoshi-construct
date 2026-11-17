@@ -3,9 +3,10 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { openBus } from '../../core/db.js'
+import { appendEvent, openBus } from '../../core/db.js'
+import { DECISIONS_IMPORTED } from '../../core/events.js'
+import { NETWATCH } from '../../core/observations.js'
 import { reduce } from '../../core/reducer.js'
-import { importOwnerDecisions } from '../../policy/decisions/import.js'
 import { expireDecisions, inForceDecisions } from '../../policy/decisions/index.js'
 import { termInWords } from '../../policy/decisions/read.js'
 import { busProjections } from '../../supervisor/composition.js'
@@ -13,7 +14,10 @@ import { busProjections } from '../../supervisor/composition.js'
 const TERM = '2026-11-06T17:04Z'
 const BEFORE = '2026-11-06T10:00:00.000Z'
 const AFTER = new Date('2026-11-06T18:00:00Z')
-const FILE = `# Owner decisions\n\n- D-1 · 2026-11-01 — [owner] general.\n- D-2 · 2026-11-05 — [owner] продлеваю D-1 до ${TERM}\n`
+const HISTORICAL = [
+  { decision_id: 1, text: '[owner] general.', scope: [] },
+  { decision_id: 2, text: `[owner] продлеваю D-1 до ${TERM} · until ${TERM}`, scope: [] },
+]
 const roots: string[] = []
 
 afterEach(() => {
@@ -27,6 +31,10 @@ function bus(): DatabaseSync {
   return openBus(path.join(root, 'bus.db'))
 }
 
+function historicalImport(db: DatabaseSync): void {
+  appendEvent(db, { ts: BEFORE, type: DECISIONS_IMPORTED, actor: NETWATCH, cardId: null, pr: null, head: null, dedupeKey: `${DECISIONS_IMPORTED}:historical`, payload: { sha256: 'historical', decisions: HISTORICAL }, legacy: false })
+}
+
 function untilOf(db: DatabaseSync, decisionId: number): unknown {
   return (db.prepare('SELECT until FROM decisions WHERE decision_id = ?').get(decisionId) as { until: unknown } | undefined)?.until
 }
@@ -35,10 +43,10 @@ function inForceNumbers(db: DatabaseSync): number[] {
   return inForceDecisions(db).map(decision => decision.decisionId)
 }
 
-describe('a decision imported with a term in its words', () => {
-  it('importing a decision with «до <date>» puts until into the column and it is not in force after the date', () => {
+describe('a historical decisions.imported event with a term (D-649)', () => {
+  it('folds its until into the column and the decision is not in force after the date', () => {
     const db = bus()
-    expect(importOwnerDecisions(db, FILE, BEFORE)).toBe(true)
+    historicalImport(db)
     reduce(db, 'pending', busProjections())
     expect(inForceNumbers(db)).toEqual([1, 2])
     expect(untilOf(db, 2)).toBe(TERM)
@@ -49,11 +57,13 @@ describe('a decision imported with a term in its words', () => {
     expect(inForceNumbers(db)).toEqual([1])
   })
 
-  it('an import after the date carries the decision no more', () => {
+  it('a rebuild over a historical decisions.imported keeps every decision it carried in force', () => {
     const db = bus()
-    importOwnerDecisions(db, FILE, AFTER.toISOString())
+    historicalImport(db)
     reduce(db, 'pending', busProjections())
-    expect(inForceNumbers(db)).toEqual([1])
+    expect(inForceNumbers(db)).toEqual([1, 2])
+    reduce(db, 'rebuild', busProjections())
+    expect(inForceNumbers(db)).toEqual([1, 2])
   })
 
   it('reads one calendar term after «до» and nothing that is not one', () => {

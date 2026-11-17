@@ -60,7 +60,7 @@ function cancelBench(): CancelBench {
       return { ...check, id, output: { annotations_count: 1, annotations_url: `https://api.github.com/repos/{owner}/{repo}/check-runs/${id}/annotations` } }
     }) } }
   }
-  const busTick = new BusTick(db, busProjections(), new NetWatch(db, client, clock.now), clock.now, () => {})
+  const busTick = new BusTick(db, busProjections(), new NetWatch(db, client, clock.now), clock.now)
   const executor = new UpdateExecutor({ silentMs: SILENT_MS, db, gitHub: client, put: gitHub.put, post: gitHub.post, publish: gitHub.publish, clock: clock.now, settle: () => {} })
   const ts = (): string => clock.now().toISOString()
   const tick = (): void => {

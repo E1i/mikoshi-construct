@@ -124,8 +124,8 @@ its term or by a superseding decision. `pnpm decisions:add` writes a request int
 what is in force has no limit in bytes.
 
 `pnpm decisions` reads what is in force. `~/.construct/owner-decisions.md` and its archive are a projection the bus rebuilds on every tick; a hand edit is
-undone by the next rebuild, and it never reaches a merge, which reads the table. The first rebuild imports the file once,
-so a factory that kept its decisions there loses none and keeps its numbers. The projection is a numbered record: one line
+undone by the next rebuild, and it never reaches a merge, which reads the table. The bus never reads the file back: a
+decision enters only through `pnpm decisions:add`. The projection is a numbered record: one line
 per decision in the shape `DECISION_FORMAT` states, `- D-N · <date> — <decision> [· superseded-by D-M]`. Headings and
 prose before the first list item are the preamble.
 

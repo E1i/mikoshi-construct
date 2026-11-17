@@ -10,7 +10,11 @@ describe('the decisions modules live in one folder', () => {
     expect(existsSync(path.join(POLICY, file))).toBe(false)
   })
 
-  it.each(['index.ts', 'import.ts'])('scripts/policy/decisions/%s is there', (file) => {
-    expect(existsSync(path.join(POLICY, 'decisions', file))).toBe(true)
+  it('scripts/policy/decisions/index.ts is there', () => {
+    expect(existsSync(path.join(POLICY, 'decisions', 'index.ts'))).toBe(true)
+  })
+
+  it('scripts/policy/decisions/import.ts is gone: the bus imports nothing from owner-decisions.md', () => {
+    expect(existsSync(path.join(POLICY, 'decisions', 'import.ts'))).toBe(false)
   })
 })

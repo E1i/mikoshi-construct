@@ -3,8 +3,8 @@ title: bus tick composition
 description: >-
   `composeBusTick` in `scripts/supervisor/run.ts` is the composition root of the bus loop `pnpm bus:run` keeps
   alive. Each tick NetWatch polls GitHub and writes what it observed; a poll that was skipped or refused
-  ends the tick there. A ticked poll runs the rest in sequence on the one `bus.db`: the owner decisions
-  import, the window requests, the reducer and the queues it derives. Then, unless `pr-status.off` sits
+  ends the tick there. A ticked poll runs the rest in sequence on the one `bus.db`: the window
+  requests, the reducer and the queues it derives. Then, unless `pr-status.off` sits
   beside `bus.db`, `setStepStatuses` reads the step events after its cursor in `node_cursors`, which a
   first run opens at the last event of the journal, and posts the status check `mikoshi: <step>` only
   where the `prs` projection holds the pull request open on that head, at most `STATUS_BATCH` posts a
@@ -31,10 +31,6 @@ nodes:
     label: NetWatch.poll → the observed events · a skipped poll ends the tick
     path: scripts/ports/netwatch.ts
     boundary: observe
-  - id: decisions
-    label: decisionsIntake · the owner decisions import
-    path: scripts/policy/decisions/import.ts
-    boundary: fold
   - id: requests
     label: WindowRequests.run · the window requests
     path: scripts/window/window-requests.ts
@@ -57,8 +53,7 @@ nodes:
     boundary: report
 edges:
   - {from: root, to: netwatch, kind: sequence}
-  - {from: netwatch, to: decisions, kind: sequence, label: ticked}
-  - {from: decisions, to: requests, kind: sequence}
+  - {from: netwatch, to: requests, kind: sequence, label: ticked}
   - {from: requests, to: reduce, kind: sequence}
   - {from: reduce, to: queues, kind: sequence}
   - {from: queues, to: statuses, kind: sequence}
