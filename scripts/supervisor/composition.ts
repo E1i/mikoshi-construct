@@ -1,5 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { Understood } from '../core/bus-version.js'
+import type { SliceParentsBackfill } from '../core/card-bodies.js'
 import type { HolderStart, Lease } from '../core/lease.js'
 import type { NodeKind, NodeSupply, ProcessIdentity, WorkerIdentity } from '../core/node.js'
 import type { CandidateRules, Derived, MayRequeue, QueueSource, RequeueRow } from '../core/queue.js'
@@ -24,10 +25,10 @@ import { PRIORITIES, WINDOW_WHO } from '../../src/card/parking.js'
 import { witnessesOf } from '../../src/commands/intake/admit.js'
 import { driftOfRun } from '../ci/weights-law.js'
 import { CARD_FOLDS, cardLinkObserved, cardPrMerged, cardPrOpened, CARDS_PROJECTION } from '../core/card-automaton.js'
-import { admittedCardVersion, cardOfBranch } from '../core/card-bodies.js'
+import { admittedCardVersion, backfillPendingSliceParents, cardOfBranch } from '../core/card-bodies.js'
 import { cardDecisionReads, reviewedUnderTheCardDecision, reviewsTheCardDecisionReopens, withDecidedContinuations } from '../core/card-decisions.js'
 import { CHAINS_PROJECTION } from '../core/chain.js'
-import { CARD_PLANNED, CARD_UNPLANNED, PLAN_BACKFILLED, PLAN_CLOSED, PLAN_ITEM_ADDED, PLAN_ITEM_LINKED, PLAN_ITEM_REMOVED, PLAN_OPENED, PR_OBSERVED, PR_OPENED, RATCHET_THRESHOLD_SET } from '../core/events.js'
+import { CARD_PLANNED, CARD_UNPLANNED, PLAN_BACKFILLED, PLAN_CLOSED, PLAN_ITEM_ADDED, PLAN_ITEM_LINKED, PLAN_ITEM_REMOVED, PLAN_OPENED, PR_OBSERVED, PR_OPENED, RATCHET_THRESHOLD_SET, SLICE_PARENTS_BACKFILLED } from '../core/events.js'
 import { isFullSha, prOf } from '../core/identifiers.js'
 import { OWNER, ownerQuestionAnswered } from '../core/inbox.js'
 import { foreignVersion, instanceOf, provenIdentity, recordWorkerIdentity, UNHANDED } from '../core/node.js'
@@ -235,7 +236,14 @@ export function queuePass(): QueuePass {
   return { sources: queueSources(), mayRequeue: mayRequeue(), decisionsAt, held: (db, ts, work) => withDecisionsHeldAt(db, new Date(ts), work) }
 }
 
+export function sliceParentsOnce(db: DatabaseSync, ts: string): SliceParentsBackfill | null {
+  if (new BusRead(db).slice(SLICE_PARENTS_BACKFILLED, [], 'last').length > 0)
+    return null
+  return backfillPendingSliceParents(db, ts)
+}
+
 export function deriveQueuesOfTheBus(db: DatabaseSync, ts: string): Derived {
+  sliceParentsOnce(db, ts)
   return derivedQueues(db, ts, queuePass())
 }
 

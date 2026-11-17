@@ -4,7 +4,7 @@ The flow below is rendered from [bus.yaml](bus.yaml). Edit the model, then run
 `pnpm composition:render`; `pnpm composition:check` fails when the diagram and the model drift apart.
 
 <!-- composition:bus -->
-`composeBusTick` in `scripts/supervisor/run.ts` is the composition root of the bus loop `pnpm bus:run` keeps alive. Each tick NetWatch polls GitHub and writes what it observed; a poll that was skipped or refused ends the tick there. A ticked poll runs the rest in sequence on the one `bus.db`: the window requests, the reducer and the queues it derives. Then, unless `pr-status.off` sits beside `bus.db`, `setStepStatuses` reads the step events after its cursor in `node_cursors`, which a first run opens at the last event of the journal, and posts the status check `mikoshi: <step>` only where the `prs` projection holds the pull request open on that head, at most `STATUS_BATCH` posts a tick, the rest in later ticks. Each post is recorded as `pr.status.set`, or `pr.status.refused` on a head GitHub refuses for good. A refusal for now records nothing: the root logs it, the tick goes on, and the next tick posts the step again. Last, the board projection is written. The status post is the only write to GitHub the tick makes.
+`composeBusTick` in `scripts/supervisor/run.ts` is the composition root of the bus loop `pnpm bus:run` keeps alive. Each tick NetWatch polls GitHub and writes what it observed; a poll that was skipped or refused ends the tick there. A ticked poll runs the rest in sequence on the one `bus.db`: the window requests, the reducer and the queues it derives. Before the queues, `sliceParentsOnce` runs the slice-parent backfill while the bus holds no `slice.parents.backfilled` event and a slice card without a parent, and never again once that event is written. Then, unless `pr-status.off` sits beside `bus.db`, `setStepStatuses` reads the step events after its cursor in `node_cursors`, which a first run opens at the last event of the journal, and posts the status check `mikoshi: <step>` only where the `prs` projection holds the pull request open on that head, at most `STATUS_BATCH` posts a tick, the rest in later ticks. Each post is recorded as `pr.status.set`, or `pr.status.refused` on a head GitHub refuses for good. A refusal for now records nothing: the root logs it, the tick goes on, and the next tick posts the step again. Last, the board projection is written. The status post is the only write to GitHub the tick makes.
 
 ```mermaid
 flowchart LR
@@ -17,6 +17,7 @@ flowchart LR
   subgraph b_fold["Fold · bus.db"]
     requests["WindowRequests.run · the window requests"]
     reduce["reduce → reducer.reduced"]
+    sliceparents["sliceParentsOnce · slice.parents.backfilled, once"]
     queues["deriveQueues · superseded and queued tasks"]
   end
   subgraph b_report["Report · GitHub status and the board"]
@@ -26,7 +27,8 @@ flowchart LR
   root --> netwatch
   netwatch -->|"ticked"| requests
   requests --> reduce
-  reduce --> queues
+  reduce --> sliceparents
+  sliceparents --> queues
   queues --> statuses
   statuses -->|"a refusal for now is logged and passed"| board
   queues -->|"pr-status.off"| board

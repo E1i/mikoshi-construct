@@ -8,7 +8,7 @@ import { textSha } from '../../../src/card/text-sha.js'
 import { appendCardEvent, backfillSliceParents, foldCardBody } from '../../core/card-bodies.js'
 import { openBus } from '../../core/db.js'
 import { CARD_ADMITTED, SLICE_PARENTS_BACKFILLED } from '../../core/events.js'
-import { backfillLines, parentsFromCardLines, sliceParentBackfill } from '../../intake/slice-parent-backfill.js'
+import { backfillLines, sliceParentBackfill } from '../../intake/slice-parent-backfill.js'
 
 const TS = '2026-11-13T09:00:00.000Z'
 const LATER = '2026-11-13T10:00:00.000Z'
@@ -87,7 +87,7 @@ describe('cards cut before the parent field get it once from their card line', (
       admit(db, 90, 'twice-slice-1')
       admit(db, 91, 'twice-slice-1')
       admit(db, 92, 'twice-slice-2')
-      const { transfer } = backfillSliceParents(db, TS, parentsFromCardLines)
+      const { transfer } = backfillSliceParents(db, TS)
       expect(transfer.unread).toEqual([90, 91])
       expect(transfer.cards).toEqual({ 92: { card: 90, part: 2, of: 2 } })
     }
