@@ -440,6 +440,21 @@ describe('k3: the handover predicate over the recorded executors', () => {
     expect(leaseHandedOver(db, eventsIn(db), ts(), 'answer', NEW_ACTOR, undefined, living(11))?.taskKey).toBe(deferred.taskKey)
   })
 
+  it('the new generation takes the later task while the retiring worker holds its lease-loop pass', () => {
+    const db = bus()
+    queueTask(db, ts(), { queue: 'answer', cardId: 1 })
+    recordWorkerIdentity(db, ts(), { worker: OLD_ACTOR, pid: 21, started: STARTED, instance: 'old', generation: OLD_GENERATION, pgid: 21, lstart: STARTED })
+    const first = leaseNext(db, ts(), 'answer', OLD_ACTOR)!
+    register(db, { mode: 'child', kind: 'answer', taskKey: first.taskKey, pid: 11, tree: '/trees/1' })
+    const retiredMidPass = aliveBy((pid) => {
+      if (retireHolders(db, ts(), { node: 'answer', pids: [21], sha: NEW_GENERATION, from: OLD_GENERATION }).length > 0)
+        queueTask(db, ts(), { queue: 'answer', cardId: 2 })
+      return pid === 11 ? { lstart: STARTED } : null
+    })
+    expect(leaseHandedOver(db, eventsIn(db), ts(), 'answer', OLD_ACTOR, undefined, retiredMidPass)).toBeNull()
+    expect(leaseHandedOver(db, eventsIn(db), ts(), 'answer', NEW_ACTOR, undefined, living(11))?.cardId).toBe(2)
+  })
+
   it('generation.ended is recorded once, after the last process registered under the leaving generation has ended, and never for the current one', () => {
     const db = bus()
     recordWorkerIdentity(db, ts(), { worker: OLD_ACTOR, pid: 21, started: STARTED, instance: 'old', generation: OLD_GENERATION, pgid: 21, lstart: STARTED })
