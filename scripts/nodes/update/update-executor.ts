@@ -15,7 +15,7 @@ import { CI_RERUN_REQUESTED, COMMAND_EXECUTED, POLICY_ALLOWED, POLICY_DENIED, QU
 import { assertHeld, completeTask, failTask, releaseTask, StaleLease } from '../../core/lease.js'
 import { rerunDueOn } from '../../core/observations.js'
 import { KEPT_BY_PUSH_POLICY } from '../../core/push-policy.js'
-import { COMPLETED, keyOf, MERGE_REFUSED, updateCandidates } from '../../core/queue.js'
+import { COMPLETED, keyOf, MERGE_REFUSED } from '../../core/queue.js'
 import { cardContract, NOT_MINE, notMine } from '../../intake/card-contract.js'
 import { rerunFailedJobsEndpoint, runsOnHeadEndpoint } from '../../ports/ci-reading.js'
 import { REVIEW_STATUS_CONTEXT } from '../../ports/github-status.js'
@@ -23,6 +23,8 @@ import { conflictingCardOf } from '../../ports/main-merge.js'
 import { Meter } from '../../ports/meter.js'
 import { CANCELLED, MAIN_BRANCH, MERGEABLE_OF_STATE, verdictOf } from '../../ports/snapshot.js'
 import { pollHead } from './head-poll.js'
+import type { UpdateSourceParts } from './update-candidates.js'
+import { updateCandidates } from './update-candidates.js'
 
 export const UPDATED_STATUS = 202
 export const STALE_HEAD_ON_UPDATE = 422
@@ -107,6 +109,7 @@ export interface UpdateParts {
   post?: GitHubPut
   thresholds?: (cardId: number) => readonly ThresholdSet[]
   derived?: DerivedHolds
+  source: UpdateSourceParts
 }
 
 export interface ManualUpdate {
@@ -291,7 +294,7 @@ export class UpdateExecutor {
   }
 
   private noLongerDue(lease: Lease): UpdateDenial | null {
-    if (updateCandidates(this.parts.db, this.ts()).some(task => keyOf(task) === lease.taskKey))
+    if (updateCandidates(this.parts.db, this.ts(), this.parts.source).some(task => keyOf(task) === lease.taskKey))
       return null
     return technical('not_behind', `${lease.taskKey} is no longer an update candidate: #${lease.pr} is not the turn of its group, or nothing it needs an update for holds any more`)
   }

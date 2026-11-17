@@ -10,11 +10,13 @@ import { textSha } from '../../../../src/card/text-sha.js'
 import { appendEvent } from '../../../core/db.js'
 import { readDeclarations } from '../../../core/declarations.js'
 import { CARD_ADMITTED, OWNER_WAIT_OPENED, POLICY_DENIED, PR_GROUPS, REVIEW_RECORDED } from '../../../core/events.js'
-import { answerCandidates, updateCandidates } from '../../../core/queue.js'
+import { answerCandidates } from '../../../nodes/answer/answer-candidates.js'
 import { MergeNode } from '../../../nodes/merge/merge-worker.js'
+import { updateCandidates } from '../../../nodes/update/update-candidates.js'
 import { UpdateNode } from '../../../nodes/update/update-worker.js'
 import { recordDecision } from '../../../policy/decisions/index.js'
 import { mainMergeInCardTree } from '../../../ports/main-merge.js'
+import { answerParts, candidateRules } from '../../../supervisor/composition.js'
 import { SILENT_MS } from '../../../supervisor/liveness-sites.js'
 import { dispatchRequest } from '../../../window/requests/index.js'
 import { cardBody, REPO, sha } from '../github-fake.js'
@@ -234,7 +236,7 @@ describe('conveyor O3: update and merge act on the turn of each group', () => {
 
     expect(merged(bench)).toEqual([1101, 1103])
     expect(eventsOf(bench.db, POLICY_DENIED)).toEqual([expect.objectContaining({ command: 'merge', reason: 'needs_update', detail: expect.stringContaining(same) })])
-    expect(updateCandidates(bench.db, bench.clock.now().toISOString()).map(task => task.pr)).toEqual([1102])
+    expect(updateCandidates(bench.db, bench.clock.now().toISOString(), candidateRules()).map(task => task.pr)).toEqual([1102])
     expect(bench.db.prepare(`SELECT state FROM tasks WHERE queue = 'update' AND pr = 1102`).all()).toEqual([])
 
     await once(line.update)
@@ -282,7 +284,7 @@ describe('conveyor O3: declarations of one kind, and the bus-restart area', () =
     expect(eventsOf(bench.db, POLICY_DENIED).at(-1)).toMatchObject({ reason: 'merge_refused', detail: expect.stringContaining(shared) })
     expect(git(conflict.origin, ['rev-parse', `refs/heads/${conflict.branch}`])).toBe(conflict.head)
     expect(updatePuts(bench, 1404)).toBe(0)
-    expect(answerCandidates(bench.db, bench.clock.now().toISOString())).toMatchObject([{ queue: 'answer', cardId: 1504, pr: 1404, head: conflict.head }])
+    expect(answerCandidates(bench.db, bench.clock.now().toISOString(), answerParts())).toMatchObject([{ queue: 'answer', cardId: 1504, pr: 1404, head: conflict.head }])
   })
 
   it('scenario 15: two restart-scope PRs with disjoint paths are one group by the bus-restart area and merge one at a time; with contention.suspended for the pair they are two groups', async () => {

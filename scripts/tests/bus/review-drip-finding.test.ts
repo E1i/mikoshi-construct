@@ -6,10 +6,11 @@ import { parkingFileText, parseParkingFile } from '../../../src/card/parking.js'
 import { admittedRecord } from '../../../src/commands/intake/index.js'
 import { appendCardEvent, WINDOW_LANE } from '../../core/card-bodies.js'
 import { REVIEW_DRIP, REVIEW_RECORDED } from '../../core/events.js'
-import { answerCandidates } from '../../core/queue.js'
+import { answerCandidates } from '../../nodes/answer/answer-candidates.js'
 import { fullReview } from '../../nodes/review/review-depth.js'
 import { gitDripSources, isDrip, namedPaths, trackedSuffixes } from '../../nodes/review/review-executor.js'
 import { ReviewWorker } from '../../nodes/review/review-worker.js'
+import { answerParts } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { cardBody, sha } from './github-fake.js'
 import { eventsOf, liveBench } from './merge-bench.js'
@@ -86,7 +87,7 @@ function lastRecorded(fixed: Fixture): Record<string, unknown> {
 
 function answersOfThePr(fixed: Fixture): number {
   fixed.bench.tick()
-  return answerCandidates(fixed.bench.db, fixed.bench.clock.now().toISOString()).filter(task => task.pr === PR).length
+  return answerCandidates(fixed.bench.db, fixed.bench.clock.now().toISOString(), answerParts()).filter(task => task.pr === PR).length
 }
 
 describe('a new finding of a later changes round on code the answer did not touch', () => {

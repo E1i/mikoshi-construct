@@ -45,7 +45,7 @@ import { ghApi, ghApiPatch, ghApiPost } from '../../ports/github.js'
 import { realIsolationReader } from '../../ports/isolation.js'
 import { promptsDirOf } from '../../ports/prompt-store.js'
 import { spawnReviewSession } from '../../ports/session.js'
-import { busProjections, cardSessionPulse, nodeLiveness, nodeSupply, withSlots } from '../../supervisor/composition.js'
+import { busProjections, candidateRules, cardSessionPulse, nodeLiveness, nodeSupply, withSlots } from '../../supervisor/composition.js'
 import { stampLogOutput } from '../../supervisor/stamp.js'
 import { gitReviewPlanner } from './depth-sources.js'
 import { recordForeignDivergences } from './divergence-alarm.js'
@@ -147,11 +147,11 @@ export class ReviewNode extends Node<Step> {
   }
 
   protected candidates(scope: Scope = {}): QueuedTask[] {
-    return reviewCandidates(this.db, this.ts()).filter(task => inScope(task, scope))
+    return reviewCandidates(this.db, this.ts(), candidateRules()).filter(task => inScope(task, scope))
   }
 
   protected override derivedCandidates(ts: string): QueuedTask[] {
-    return reviewCandidates(this.db, ts)
+    return reviewCandidates(this.db, ts, candidateRules())
   }
 
   protected handle(lease: Lease): Promise<Step> {

@@ -1,8 +1,8 @@
 import type { MergeBench } from './merge-bench.js'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { leaseNext } from '../../core/lease.js'
-import { deriveQueues } from '../../core/queue.js'
 import { UpdateExecutor } from '../../nodes/update/update-executor.js'
+import { candidateRules, deriveQueuesOfTheBus } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { cardBody, sha } from './github-fake.js'
 import { liveBench, mainMovesPastEveryPr } from './merge-bench.js'
@@ -28,7 +28,7 @@ afterEach(() => {
 function updatedPullRequest(): MergeBench {
   const bench = liveBench()
   benches.push(bench)
-  const executor = new UpdateExecutor({ silentMs: SILENT_MS, db: bench.db, gitHub: bench.gitHub.client, put: bench.gitHub.put, publish: bench.gitHub.publish, clock: bench.clock.now, settle: () => {} })
+  const executor = new UpdateExecutor({ rules: candidateRules(), silentMs: SILENT_MS, db: bench.db, gitHub: bench.gitHub.client, put: bench.gitHub.put, publish: bench.gitHub.publish, clock: bench.clock.now, settle: () => {} })
   bench.gitHub.open({ number: PR, head: BEHIND_HEAD, review: 'success', mergeable_state: 'behind', files: ['scripts/a.ts'], body: cardBody(CARD) })
   bench.tick()
   mainMovesPastEveryPr(bench)
@@ -44,7 +44,7 @@ describe('the merge after an update', () => {
     const pull = bench.gitHub.pulls.get(PR)!
     pull.required = 'success'
     bench.tick()
-    deriveQueues(bench.db, bench.clock.now().toISOString())
+    deriveQueuesOfTheBus(bench.db, bench.clock.now().toISOString())
 
     expect(pull.head).toBe(UPDATED_HEAD)
     expect(bench.db.prepare(`SELECT state FROM tasks WHERE queue = 'merge' AND pr = ? AND head = ?`).all(PR, UPDATED_HEAD)).toEqual([{ state: 'queued' }])

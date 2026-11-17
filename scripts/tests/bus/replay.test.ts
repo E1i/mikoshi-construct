@@ -8,9 +8,9 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { appendEvent, openBus } from '../../core/db.js'
 import { prBodySha, taskKey } from '../../core/identifiers.js'
 import { completeTask, leaseNext } from '../../core/lease.js'
-import { deriveQueues, queueTask, reviewCandidates, reviewKeysOfAnOldInput, reviewKeysOfTheCurrentInputAgain } from '../../core/queue.js'
+import { queueTask, reviewCandidates, reviewKeysOfAnOldInput, reviewKeysOfTheCurrentInputAgain } from '../../core/queue.js'
 import { projectionDump, reduce } from '../../core/reducer.js'
-import { busProjections } from '../../supervisor/composition.js'
+import { busProjections, candidateRules, deriveQueuesOfTheBus } from '../../supervisor/composition.js'
 
 const HEADS = ['0123456789abcdef0123456789abcdef01234567', '89abcdef0123456789abcdef0123456789abcdef']
 const MAIN = 'fedcba9876543210fedcba9876543210fedcba98'
@@ -71,7 +71,7 @@ function expectReplayKeepsOldReviews(copy: DatabaseSync): void {
 
   const ofAnOldInput = new Set(reviewKeysOfAnOldInput(copy))
   const ofTheCurrentInputAgain = new Set(reviewKeysOfTheCurrentInputAgain(copy))
-  deriveQueues(copy, '2026-10-11T17:30:00.000Z')
+  deriveQueuesOfTheBus(copy, '2026-10-11T17:30:00.000Z')
   const after = new Map((copy.prepare(`SELECT task_key, state FROM tasks WHERE queue = 'review'`).all() as { task_key: string, state: string }[]).map(row => [row.task_key, row.state]))
   for (const old of oldReviews) {
     const leftBehind = (old.state === 'queued' || old.state === 'leased') && (old.head !== old.pr_head || ofAnOldInput.has(old.task_key))
@@ -143,7 +143,7 @@ describe('replay determinism', () => {
     for (const pr of prs)
       appendEvent(copy, { ...observed(pr, pr - 100, HEADS[0]!, 'green'), dedupeKey: `pr:${pr}:${HEADS[0]!}:green:body`, payload: { base: 'main', head: HEADS[0]!, mergeable: 'clean', ci: 'green', auto_merge: false, draft: false, body_sha: prBodySha(`card: #${pr - 100}`) } })
     reduce(copy, 'pending', busProjections())
-    deriveQueues(copy, '2026-10-09T12:03:00.000Z')
+    deriveQueuesOfTheBus(copy, '2026-10-09T12:03:00.000Z')
     const live = copy.prepare(`SELECT pr, head, count(*) AS n FROM tasks WHERE queue = 'review' AND state IN ('queued', 'leased') GROUP BY pr, head HAVING n > 1`).all()
     expect(live).toEqual([])
     const reviews = copy.prepare(`SELECT task_key, pr, state FROM tasks WHERE queue = 'review' AND pr IN (930, 931, 932) ORDER BY pr, id`).all()
@@ -180,7 +180,7 @@ describe('replay determinism', () => {
     const body = (text: string): BusEvent => ({ ...observed(950, 850, head, 'green'), dedupeKey: `pr:950:${text}`, payload: { base: 'main', head, mergeable: 'clean', ci: 'green', auto_merge: false, draft: false, body_sha: prBodySha(text) } })
     appendEvent(copy, body('card: #850'))
     reduce(copy, 'pending', busProjections())
-    for (const task of reviewCandidates(copy, '2026-10-11T17:00:00.000Z'))
+    for (const task of reviewCandidates(copy, '2026-10-11T17:00:00.000Z', candidateRules()))
       queueTask(copy, '2026-10-11T17:00:00.000Z', task)
     const first = taskKey({ queue: 'review', cardId: 850, pr: 950, head, input: { prBody: prBodySha('card: #850'), cardBody: null } })
     expect(copy.prepare(`SELECT state FROM tasks WHERE task_key = ?`).get(first)).toEqual({ state: 'queued' })

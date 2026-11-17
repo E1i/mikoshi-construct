@@ -1,9 +1,15 @@
+import type { DatabaseSync } from 'node:sqlite'
+import type { QueuedTask } from '../../core/queue.js'
 import type { FakePull } from './github-fake.js'
 import type { MergeBench } from './merge-bench.js'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { appendEvent } from '../../core/db.js'
 import { CARD_ADMITTED } from '../../core/events.js'
-import { answerCandidates, mergeCandidates, unmergedDependenciesOf, updateCandidates } from '../../core/queue.js'
+import { unmergedDependenciesOf } from '../../core/queue.js'
+import { answerCandidates } from '../../nodes/answer/answer-candidates.js'
+import { mergeCandidates } from '../../nodes/merge/merge-candidates.js'
+import { updateCandidates } from '../../nodes/update/update-candidates.js'
+import { answerParts, candidateRules } from '../../supervisor/composition.js'
 import { sha } from './github-fake.js'
 import { liveBench } from './merge-bench.js'
 import { detectUpdate } from './update-detection.js'
@@ -39,7 +45,13 @@ function aDependentPrOnAnOpenDependency(pull: Partial<FakePull>): MergeBench {
   return bench
 }
 
-function tasksOfTheDependent(bench: MergeBench, candidates: typeof answerCandidates): { pr: number | null | undefined, head: string | undefined }[] {
+const OF_THE_BUS = {
+  answer: (db: DatabaseSync, ts: string) => answerCandidates(db, ts, answerParts()),
+  merge: (db: DatabaseSync, ts: string) => mergeCandidates(db, ts, candidateRules()),
+  update: (db: DatabaseSync, ts: string) => updateCandidates(db, ts, candidateRules()),
+}
+
+function tasksOfTheDependent(bench: MergeBench, candidates: (db: DatabaseSync, ts: string) => QueuedTask[]): { pr: number | null | undefined, head: string | undefined }[] {
   return candidates(bench.db, now(bench)).filter(task => task.cardId === CARD).map(task => ({ pr: task.pr, head: task.head }))
 }
 
@@ -48,17 +60,17 @@ describe('an unmerged dependency holds the merge and the update, never the answe
     const bench = aDependentPrOnAnOpenDependency({ mergeable_state: 'blocked', required: 'failure' })
 
     expect(unmergedDependenciesOf(bench.db, CARD)).toEqual([DEPENDENCY])
-    expect(tasksOfTheDependent(bench, answerCandidates)).toEqual([{ pr: PR, head: HEAD }])
-    expect(tasksOfTheDependent(bench, mergeCandidates)).toEqual([])
-    expect(tasksOfTheDependent(bench, updateCandidates)).toEqual([])
+    expect(tasksOfTheDependent(bench, OF_THE_BUS.answer)).toEqual([{ pr: PR, head: HEAD }])
+    expect(tasksOfTheDependent(bench, OF_THE_BUS.merge)).toEqual([])
+    expect(tasksOfTheDependent(bench, OF_THE_BUS.update)).toEqual([])
   })
 
   it('a green-CI PR whose dependency is not merged still gets no answer task', () => {
     const bench = aDependentPrOnAnOpenDependency({ mergeable_state: 'clean', review: 'success', required: 'success' })
 
     expect(unmergedDependenciesOf(bench.db, CARD)).toEqual([DEPENDENCY])
-    expect(tasksOfTheDependent(bench, answerCandidates)).toEqual([])
-    expect(tasksOfTheDependent(bench, mergeCandidates)).toEqual([])
-    expect(tasksOfTheDependent(bench, updateCandidates)).toEqual([])
+    expect(tasksOfTheDependent(bench, OF_THE_BUS.answer)).toEqual([])
+    expect(tasksOfTheDependent(bench, OF_THE_BUS.merge)).toEqual([])
+    expect(tasksOfTheDependent(bench, OF_THE_BUS.update)).toEqual([])
   })
 })

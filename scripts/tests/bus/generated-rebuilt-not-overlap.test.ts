@@ -20,6 +20,7 @@ import { LaunchExecutor } from '../../nodes/launch/launch-executor.js'
 import { UpdateExecutor } from '../../nodes/update/update-executor.js'
 import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
 import { mainMergeInCardTree } from '../../ports/main-merge.js'
+import { candidateRules } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { eventsOf, liveBench, mergeBench, taskState } from './merge-bench.js'
 import { detectUpdate } from './update-detection.js'
@@ -174,7 +175,7 @@ describe('a generated file the update rebuilds is no overlap at launch', () => {
       write(cwd, MODULE_FILES, REBUILT_TEXT)
       return { status: 0, stderr: '' }
     }
-    const executor = new UpdateExecutor({ silentMs: SILENT_MS, db: bench.db, gitHub: bench.gitHub.client, put: bench.gitHub.put, publish: bench.gitHub.publish, clock: bench.clock.now, settle: () => {}, mergeMain: mainMergeInCardTree(git, () => second.tree, rebuild) })
+    const executor = new UpdateExecutor({ rules: candidateRules(), silentMs: SILENT_MS, db: bench.db, gitHub: bench.gitHub.client, put: bench.gitHub.put, publish: bench.gitHub.publish, clock: bench.clock.now, settle: () => {}, mergeMain: mainMergeInCardTree(git, () => second.tree, rebuild) })
     const leased: Lease = leaseNext(bench.db, bench.clock.now().toISOString(), 'update', 'worker:update:worker-1')!
     expect(leased).toMatchObject({ queue: 'update', cardId, pr, head: second.head })
 

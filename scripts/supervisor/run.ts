@@ -16,7 +16,7 @@ import { busDirOf } from '../core/bus-path.js'
 import { appendEvent, defaultBusPath, inTransaction, openBus, openBusWait } from '../core/db.js'
 import { REDUCED, WINDOW_REQUEST } from '../core/events.js'
 import { DATABASE_LOCKED, isDatabaseLocked } from '../core/node.js'
-import { deriveQueues, QUEUE_ACTOR } from '../core/queue.js'
+import { QUEUE_ACTOR } from '../core/queue.js'
 import { closeWaitsOfEndedCards, reduce } from '../core/reducer.js'
 import { ownerChannelOfBus } from '../owner/channel.js'
 import { ghApi } from '../ports/github.js'
@@ -26,7 +26,7 @@ import { OsProcessTable } from '../ports/process-table.js'
 import { realRequestTools } from '../window/window-request-tools.js'
 import { WindowRequests } from '../window/window-requests.js'
 import { alive, BUS_RUN_MARKERS, instancesOf, processBeatsOn, psList, RUN_SCRIPT } from './bg.js'
-import { busProjections, recordOwnStart } from './composition.js'
+import { busProjections, deriveQueuesOfTheBus, recordOwnStart } from './composition.js'
 import { sessionLifeIn } from './recorded-worker.js'
 import { StalledSessions } from './stalled-sessions.js'
 import { stampLogOutput } from './stamp.js'
@@ -201,7 +201,7 @@ export class BusTick {
       appendEvent(this.db, { ts, type: REDUCED, actor: 'reducer', cardId: null, pr: null, head: null, dedupeKey: `${REDUCED}:${ts}`, payload: { through_event_id: through, ...both }, legacy: false })
       return both
     })
-    const derived = timed('deriveQueues', () => deriveQueues(this.db, ts))
+    const derived = timed('deriveQueues', () => deriveQueuesOfTheBus(this.db, ts))
     timed('setStepStatuses', this.statuses)
     timed('StalledSessions', this.stalled)
     return { poll, reduced, derived, steps }

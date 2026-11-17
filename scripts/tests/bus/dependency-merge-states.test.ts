@@ -6,8 +6,11 @@ import { appendEvent } from '../../core/db.js'
 import { CARD_ADMITTED } from '../../core/events.js'
 import { taskKey } from '../../core/identifiers.js'
 import { completeTask, failTask, leaseNext, leaseQueued } from '../../core/lease.js'
-import { answerCandidates, dependencyUpdateDueOn, FAILURES_TO_STOP, queueTask, STOPPED, unmergedDependenciesOf, updateCandidates, WITHDRAWN } from '../../core/queue.js'
+import { dependencyUpdateDueOn, FAILURES_TO_STOP, queueTask, STOPPED, unmergedDependenciesOf, WITHDRAWN } from '../../core/queue.js'
+import { answerCandidates } from '../../nodes/answer/answer-candidates.js'
+import { updateCandidates } from '../../nodes/update/update-candidates.js'
 import { UpdateExecutor } from '../../nodes/update/update-executor.js'
+import { answerParts, candidateRules } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { MAIN_2, sha } from './github-fake.js'
 import { liveBench, taskState } from './merge-bench.js'
@@ -67,15 +70,15 @@ function closeTheDependency(bench: MergeBench, merged: boolean): void {
 }
 
 function updatesOfThePr(bench: MergeBench): (string | undefined)[] {
-  return updateCandidates(bench.db, now(bench)).filter(task => task.pr === PR).map(task => task.head)
+  return updateCandidates(bench.db, now(bench), candidateRules()).filter(task => task.pr === PR).map(task => task.head)
 }
 
 function answersOfTheCard(bench: MergeBench): (string | undefined)[] {
-  return answerCandidates(bench.db, now(bench)).filter(task => task.cardId === CARD).map(task => task.head)
+  return answerCandidates(bench.db, now(bench), answerParts()).filter(task => task.cardId === CARD).map(task => task.head)
 }
 
 function updateExecutor(bench: MergeBench): UpdateExecutor {
-  return new UpdateExecutor({ silentMs: SILENT_MS, db: bench.db, gitHub: bench.gitHub.client, put: bench.gitHub.put, publish: bench.gitHub.publish, clock: bench.clock.now, settle: () => {} })
+  return new UpdateExecutor({ rules: candidateRules(), silentMs: SILENT_MS, db: bench.db, gitHub: bench.gitHub.client, put: bench.gitHub.put, publish: bench.gitHub.publish, clock: bench.clock.now, settle: () => {} })
 }
 
 function updateKey(head: string): string {

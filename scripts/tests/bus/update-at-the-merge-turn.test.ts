@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { updateCandidates } from '../../core/queue.js'
+import { updateCandidates } from '../../nodes/update/update-candidates.js'
+import { candidateRules } from '../../supervisor/composition.js'
 import { sha } from './github-fake.js'
 import { liveBench, mainMovesPastEveryPr } from './merge-bench.js'
 
 function updatesOf(bench: ReturnType<typeof liveBench>): (number | undefined)[] {
-  return updateCandidates(bench.db, bench.clock.now().toISOString()).map(task => task.pr)
+  return updateCandidates(bench.db, bench.clock.now().toISOString(), candidateRules()).map(task => task.pr)
 }
 
 describe('an update goes to the turn of a group that needs one, never to behind alone', () => {

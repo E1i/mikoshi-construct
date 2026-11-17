@@ -11,13 +11,15 @@ import { CARD_ADMITTED, CARD_CLOSED, CARD_HELD, CARD_MOVED, COMMAND_EXECUTED, ME
 import { prBodySha } from '../../core/identifiers.js'
 import { completeTask, leaseNext } from '../../core/lease.js'
 import { NODE_CURSORS } from '../../core/node.js'
-import { deriveQueues, keyOf, MERGE_CANDIDATES, mergeCandidates, NEEDS_UPDATE, queueTask } from '../../core/queue.js'
+import { keyOf, MERGE_CANDIDATES, NEEDS_UPDATE, queueTask } from '../../core/queue.js'
+import { mergeCandidates } from '../../nodes/merge/merge-candidates.js'
 import { MERGE_QUEUE, MergeExecutor } from '../../nodes/merge/merge-executor.js'
 import { MergeNode } from '../../nodes/merge/merge-worker.js'
 import { UpdateNode } from '../../nodes/update/update-worker.js'
 import { recordDecision } from '../../policy/decisions/index.js'
 import { allowLiveCommand } from '../../policy/live-decision.js'
 import { SECRET_SCAN_CHECK } from '../../ports/gh.js'
+import { candidateRules, deriveQueuesOfTheBus } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { cardBody, MAIN_1, MAIN_2, REPO, sha } from './github-fake.js'
 import { benchOverlaps, eventsOf, liveBench, mergeBench, spendReviewRounds, taskState } from './merge-bench.js'
@@ -116,7 +118,7 @@ function lawOf(made: MergeBench): Record<string, unknown>[] {
 }
 
 function executorOf(made: MergeBench, parts: Partial<ConstructorParameters<typeof MergeExecutor>[0]>): MergeExecutor {
-  return new MergeExecutor({ silentMs: SILENT_MS, db: made.db, gitHub: made.gitHub.client, put: made.gitHub.put, publish: made.gitHub.publish, clock: made.clock.now, run: null, overlaps: benchOverlaps, ...parts })
+  return new MergeExecutor({ rules: candidateRules(), silentMs: SILENT_MS, db: made.db, gitHub: made.gitHub.client, put: made.gitHub.put, publish: made.gitHub.publish, clock: made.clock.now, run: null, overlaps: benchOverlaps, ...parts })
 }
 
 function ownerDecided(made: MergeBench, pr: number): void {
@@ -131,7 +133,7 @@ function mergeKey(pr: number, head = sha('a')): string {
 }
 
 function derivedKeys(made: MergeBench): string[] {
-  return mergeCandidates(made.db, made.clock.now().toISOString()).map(keyOf)
+  return mergeCandidates(made.db, made.clock.now().toISOString(), candidateRules()).map(keyOf)
 }
 
 function dependsOn(made: MergeBench, cardId: number, dependency: number): void {
@@ -378,7 +380,7 @@ describe('the merge node', () => {
     expect(taskState(made.db, mergeKey(970, sha('b'))).state).toBe('withdrawn')
 
     witnessGreen(made, 1070, 970, sha('b'), cardBody)
-    deriveQueues(made.db, made.clock.now().toISOString())
+    deriveQueuesOfTheBus(made.db, made.clock.now().toISOString())
     await once(node)
 
     expect(eventsOf(made.db, MERGE_DONE)).toEqual([expect.objectContaining({ rule: 'auto' })])
@@ -400,7 +402,7 @@ describe('the merge node', () => {
     expect(taskState(made.db, mergeKey(970)).state).toBe('withdrawn')
 
     witnessGreen(made, 1070, 970, sha('a'), cardBody)
-    deriveQueues(made.db, made.clock.now().toISOString())
+    deriveQueuesOfTheBus(made.db, made.clock.now().toISOString())
     await once(node)
 
     expect(eventsOf(made.db, MERGE_DONE)).toEqual([expect.objectContaining({ rule: 'auto', witnessBase: MAIN_1 })])

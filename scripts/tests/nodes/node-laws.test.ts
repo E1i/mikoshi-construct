@@ -34,8 +34,9 @@ import { completeTask, leaseNext, recordWorkerStarted } from '../../core/lease.j
 import { MachineSessions } from '../../core/machine-sessions.js'
 import { Node } from '../../core/node.js'
 import { ownerMoveCommand } from '../../core/owner-commands.js'
-import { answerCandidates, keyOf, queueTask, queueTaskWithin, updateCandidates } from '../../core/queue.js'
+import { keyOf, queueTask, queueTaskWithin } from '../../core/queue.js'
 import { reduce } from '../../core/reducer.js'
+import { answerCandidates } from '../../nodes/answer/answer-candidates.js'
 import { AnswerNode } from '../../nodes/answer/answer-worker.js'
 import { claudeAnswerer } from '../../nodes/answer/answerer.js'
 import { handoffBuilder, handoffWrittenSince, reportSince } from '../../nodes/launch/launch-root.js'
@@ -45,11 +46,12 @@ import { HEAD_OUTSIDE_TOUCHES } from '../../nodes/merge/merge-executor.js'
 import { fullReview } from '../../nodes/review/review-depth.js'
 import { dryRun } from '../../nodes/review/review-worker.js'
 import { claudeReviewer, ReviewTrees } from '../../nodes/review/reviewer.js'
+import { updateCandidates } from '../../nodes/update/update-candidates.js'
 import { UpdateNode } from '../../nodes/update/update-worker.js'
 import { NetWatch, TICK_MS } from '../../ports/netwatch.js'
 import { InMemoryProcessTable } from '../../ports/process-table.js'
 import { launchName } from '../../supervisor/bg.js'
-import { busProjections, nodeSupply } from '../../supervisor/composition.js'
+import { answerParts, busProjections, candidateRules, nodeSupply } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { BusTick } from '../../supervisor/run.js'
 import { slotsVariable } from '../../supervisor/scheduler.js'
@@ -352,9 +354,9 @@ function abandonedRunIsRerun(): void {
     busTick.run()
     clock.advance(TICK_MS)
     const ts = clock.now().toISOString()
-    if (answerCandidates(db, ts).some(task => task.pr === 1493))
+    if (answerCandidates(db, ts, answerParts()).some(task => task.pr === 1493))
       throw new Error('a required red only from abandoned jobs queued an answer')
-    for (const task of updateCandidates(db, ts).filter(each => each.pr === 1493))
+    for (const task of updateCandidates(db, ts, candidateRules()).filter(each => each.pr === 1493))
       queueTaskWithin(db, ts, task)
     const lease = leaseNext(db, ts, 'update', 'worker:update:worker-1')
     if (lease === null)

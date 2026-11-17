@@ -2,6 +2,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { PushPolicy } from '../../../src/commands/attach/record.js'
 import type { BusEvent } from '../../core/db.js'
 import type { AfterFailure, Lease } from '../../core/lease.js'
+import type { CandidateRules } from '../../core/queue.js'
 import type { AllowedRule, AuthorityRule, MergeFacts, PatchedFile } from '../../policy/policy.js'
 import type { CompositionRecord } from '../../policy/touch-scope.js'
 import type { StatusPublisher } from '../../ports/github-status.js'
@@ -17,7 +18,7 @@ import { BOARD_ALARM, COMMAND_EXECUTED, MERGE_DONE, POLICY_ALLOWED, POLICY_DENIE
 import { isFullSha } from '../../core/identifiers.js'
 import { assertHeld, completeTask, failTask, releaseTask, StaleLease, waitTask } from '../../core/lease.js'
 import { KEPT_BY_PUSH_POLICY } from '../../core/push-policy.js'
-import { keyOf, mergeCandidates, mergeDecidedPastRoundLimit, NEEDS_UPDATE, openDecisionWaitsOf, QUESTION_OPEN, QUEUE_ACTOR } from '../../core/queue.js'
+import { keyOf, NEEDS_UPDATE, openDecisionWaitsOf, QUESTION_OPEN, QUEUE_ACTOR } from '../../core/queue.js'
 import { cardContract, NOT_MINE, notMine } from '../../intake/card-contract.js'
 import { allowLiveCommand, liveDecisionOf } from '../../policy/live-decision.js'
 import { mergePolicy, OWNER_MERGES, OWNER_MERGES_RULES, underOwnerDecision, VERSION_BRANCH, WITNESS_REASON, witnessDenial, witnessSubjectOf } from '../../policy/policy.js'
@@ -27,6 +28,7 @@ import { ciOf, GitHubCommitCi } from '../../ports/ci-reading.js'
 import { REVIEW_STATUS_CONTEXT } from '../../ports/github-status.js'
 import { Meter, RateLimited, retryAfterSeconds } from '../../ports/meter.js'
 import { MAIN_BRANCH, MERGEABLE_OF_STATE, OPEN_PULLS_PAGE, requiredCheckOf, verdictOf } from '../../ports/snapshot.js'
+import { mergeCandidates } from './merge-candidates.js'
 
 export const MERGE_METHOD = 'squash'
 export const MERGE_QUEUE = 'merge'
@@ -71,6 +73,7 @@ export interface ExecutorParts {
   silentMs: number
   pushPolicy?: () => PushPolicy
   overlaps: MainOverlap
+  rules: CandidateRules
 }
 
 interface Pull {
@@ -260,7 +263,7 @@ export class MergeExecutor {
   }
 
   private noLongerACandidate(lease: Lease): MergeDenial | null {
-    if (mergeCandidates(this.parts.db, this.ts()).some(task => keyOf(task) === lease.taskKey))
+    if (mergeCandidates(this.parts.db, this.ts(), this.parts.rules).some(task => keyOf(task) === lease.taskKey))
       return null
     const reviews = (this.parts.db.prepare(REVIEWS_IN_FLIGHT).all(lease.pr, lease.head) as { task_key: string }[]).map(row => row.task_key)
     const holder = reviews.length === 0 ? 'no review in flight' : `the review ${reviews.join(', ')} in flight`
@@ -281,7 +284,7 @@ export class MergeExecutor {
           return { kind: 'denied', denial: moved }
         const verdict = verdictOf(meter, lease.head!)
         if (verdict !== 'pass')
-          decidedPastRoundLimit = mergeDecidedPastRoundLimit(this.parts.db, this.ts(), lease.pr, lease.head)
+          decidedPastRoundLimit = this.parts.rules.mergeDecided(this.parts.db, this.ts(), lease.pr, lease.head)
         const unmergeable = decidedPastRoundLimit === null ? this.notClean(pull, lease) : null
         if (unmergeable !== null)
           return { kind: 'denied', denial: unmergeable }

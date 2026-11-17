@@ -1,22 +1,17 @@
 import type { DatabaseSync } from 'node:sqlite'
-import type { Queue } from './identifiers.js'
+import type { BoundDecision, Queue } from './identifiers.js'
 import type { QueuedTask } from './queue.js'
 import { existsSync } from 'node:fs'
 import { BUSY_TIMEOUT_MS } from './db.js'
 import { CARD_STOPPED, DECISION_RECORDED, QUESTION_AGENT, QUESTION_OWNER, REVIEW_RECORDED } from './events.js'
+import { A_CARD_DECISION_REOPENS, latestCardDecision } from './identifiers.js'
 import { openDatabase } from './sqlite.js'
 
 export const CARD_DECISIONS_HEADING = 'Owner decisions in force for this card. They are the owner\'s answer: follow them, and do not ask the owner again what they settle.'
 
-const DECISION_SUFFIX = /:decision-([1-9]\d*)$/
 const ENDED_WITHOUT_RUNNING = `'superseded', 'withdrawn'`
 
 export type CardDecisionLines = (db: DatabaseSync, cardId: number, now: Date) => string[]
-
-export interface BoundDecision {
-  decisionId: number
-  cards: readonly number[]
-}
 
 export function cardDecisionBlock(decisions: readonly string[]): string[] {
   return decisions.length === 0 ? [] : [CARD_DECISIONS_HEADING, ...decisions]
@@ -40,32 +35,6 @@ export function busCardDecisions(busPath: string, linesOf: CardDecisionLines, no
     }
   }
 }
-
-const KEYED_ON_THE_CARD_DECISION: readonly Queue[] = ['merge', 'update']
-const DECIDED_QUEUES: readonly Queue[] = ['answer', ...KEYED_ON_THE_CARD_DECISION]
-
-export function decisionSegment(task: { queue: Queue, decision?: number }): string {
-  if (task.decision === undefined)
-    return ''
-  if (!DECIDED_QUEUES.includes(task.queue) || !Number.isSafeInteger(task.decision) || task.decision < 1)
-    throw new Error(`only an answer task carries a decision id, or a merge or an update task the card's decision withdraws: ${task.queue}, ${task.decision}`)
-  return `:decision-${task.decision}`
-}
-
-export function decisionOfKey(key: unknown): number | undefined {
-  const match = typeof key === 'string' ? DECISION_SUFFIX.exec(key) : null
-  return match === null ? undefined : Number(match[1])
-}
-
-export function answerDecisionOfKey(queue: Queue, key: unknown): number | undefined {
-  return queue === 'answer' ? decisionOfKey(key) : undefined
-}
-
-export function decidedTaskDecisionOfKey(queue: Queue, key: unknown): number | undefined {
-  return DECIDED_QUEUES.includes(queue) ? decisionOfKey(key) : undefined
-}
-
-export const A_CARD_DECISION_REOPENS = 'card_decision'
 
 interface RecordedReview {
   id?: unknown
@@ -99,21 +68,6 @@ export interface ReopenedReview extends DecidedRow {
   head: string | null
   failure: number
   cause: string
-}
-
-export function latestCardDecision(decisions: readonly BoundDecision[], cardId: number): number | undefined {
-  return decisions.filter(decision => decision.cards.includes(cardId)).reduce<number | undefined>((latest, decision) => Math.max(latest ?? 0, decision.decisionId), undefined)
-}
-
-export function cardDecisionKeyOf(queue: Queue, cardId: number, decisions: () => readonly BoundDecision[]): number | undefined {
-  return KEYED_ON_THE_CARD_DECISION.includes(queue) ? latestCardDecision(decisions(), cardId) : undefined
-}
-
-export function tasksTheHeadOrTheCardDecisionSupersedes<Row extends { head_moved: unknown }>(rows: readonly Row[], decisions: readonly BoundDecision[], identityOf: (row: Row) => { queue: Queue, cardId: number, decision?: number }): Row[] {
-  return rows.filter((row) => {
-    const task = identityOf(row)
-    return row.head_moved === 1 || (KEYED_ON_THE_CARD_DECISION.includes(task.queue) && task.decision !== latestCardDecision(decisions, task.cardId))
-  })
 }
 
 function cardDecisionUnreviewedAt(reads: CardDecisionReads, cardId: number, pr: number | null | undefined): number | undefined {

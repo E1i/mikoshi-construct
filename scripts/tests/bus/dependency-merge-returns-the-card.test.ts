@@ -7,9 +7,12 @@ import { appendEvent } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_STARTED, CARD_STOPPED, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, POLICY_DENIED, PR_CLOSED, QUESTION_AGENT } from '../../core/events.js'
 import { taskKey } from '../../core/identifiers.js'
 import { completeTask, leaseNext } from '../../core/lease.js'
-import { answerCandidates, queueTask, updateCandidates } from '../../core/queue.js'
+import { queueTask } from '../../core/queue.js'
+import { answerCandidates } from '../../nodes/answer/answer-candidates.js'
 import { AnswerSources } from '../../nodes/answer/duties/source.js'
+import { updateCandidates } from '../../nodes/update/update-candidates.js'
 import { UpdateExecutor } from '../../nodes/update/update-executor.js'
+import { answerParts, candidateRules } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { cardBody, MAIN_2, sha } from './github-fake.js'
 import { eventsOf, liveBench, taskState } from './merge-bench.js'
@@ -65,7 +68,7 @@ function dependentCard(bench: MergeBench): DependentCard {
     sources: new AnswerSources({ db: bench.db, clock: bench.clock.now }),
     answerLease: head => ({ taskKey: `answer:${CARD}:${head}`, queue: 'answer', cardId: CARD, pr: PR, head, leaseGen: 1, actor: 'worker:answer:worker-1' }),
     waitsOfTheCard: () => openOwnerWaits(bench.db).filter(wait => wait.card === CARD).map(wait => wait.text),
-    answersOfTheCard: () => answerCandidates(bench.db, bench.clock.now().toISOString()).filter(task => task.cardId === CARD).map(task => task.head),
+    answersOfTheCard: () => answerCandidates(bench.db, bench.clock.now().toISOString(), answerParts()).filter(task => task.cardId === CARD).map(task => task.head),
   }
 }
 
@@ -80,7 +83,7 @@ function heldByAnOpenDependency(): DependentCard {
 }
 
 function updatesOfThePr(bench: MergeBench): (string | undefined)[] {
-  return updateCandidates(bench.db, bench.clock.now().toISOString()).filter(task => task.pr === PR).map(task => task.head)
+  return updateCandidates(bench.db, bench.clock.now().toISOString(), candidateRules()).filter(task => task.pr === PR).map(task => task.head)
 }
 
 function openDependent(depends: number[], pull: Partial<FakePull> = {}): DependentCard {
@@ -103,7 +106,7 @@ function mergeTheDependency(bench: MergeBench): void {
 }
 
 function updateExecutor(bench: MergeBench): UpdateExecutor {
-  return new UpdateExecutor({ silentMs: SILENT_MS, db: bench.db, gitHub: bench.gitHub.client, put: bench.gitHub.put, publish: bench.gitHub.publish, clock: bench.clock.now, settle: () => {} })
+  return new UpdateExecutor({ rules: candidateRules(), silentMs: SILENT_MS, db: bench.db, gitHub: bench.gitHub.client, put: bench.gitHub.put, publish: bench.gitHub.publish, clock: bench.clock.now, settle: () => {} })
 }
 
 describe('a dependency merge returns the dependent card (owner s631)', () => {

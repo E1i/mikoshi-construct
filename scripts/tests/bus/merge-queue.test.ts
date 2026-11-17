@@ -18,7 +18,7 @@ import { UpdateExecutor } from '../../nodes/update/update-executor.js'
 import { recordDecision } from '../../policy/decisions/index.js'
 import { runShard } from '../../policy/shard.js'
 import { activeWindowShards, decisionsInForceAt, unspentShard } from '../../policy/shards.js'
-import { busProjections } from '../../supervisor/composition.js'
+import { busProjections, candidateRules } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { cardBody, sha } from './github-fake.js'
 import { eventCount, eventsOf, liveBench, mainMovesPastEveryPr, mergeBench, spendReviewRounds, taskState } from './merge-bench.js'
@@ -98,7 +98,7 @@ function decidedAndBehind(): MergeBench & { update: () => UpdateOutcome } {
   bench.tick()
   mainMovesPastEveryPr(bench)
   detectUpdate(bench)
-  const executor = new UpdateExecutor({ silentMs: SILENT_MS, db: bench.db, gitHub: bench.gitHub.client, put: bench.gitHub.put, publish: bench.gitHub.publish, clock: bench.clock.now, settle: () => {} })
+  const executor = new UpdateExecutor({ rules: candidateRules(), silentMs: SILENT_MS, db: bench.db, gitHub: bench.gitHub.client, put: bench.gitHub.put, publish: bench.gitHub.publish, clock: bench.clock.now, settle: () => {} })
   return { ...bench, update: () => executor.update(leaseNext(bench.db, bench.clock.now().toISOString(), 'update', 'worker:update:worker-1')!) }
 }
 

@@ -9,14 +9,15 @@ import { parkingFileText } from '../../../src/card/parking.js'
 import { textSha } from '../../../src/card/text-sha.js'
 import { appendEvent, openBus } from '../../core/db.js'
 import { CARD_ADMITTED, POLICY_DENIED, PR_OBSERVED, WITNESS_RECORDED } from '../../core/events.js'
-import { answerCandidates, witnessCandidates } from '../../core/queue.js'
 import { reduce } from '../../core/reducer.js'
+import { answerCandidates } from '../../nodes/answer/answer-candidates.js'
+import { witnessCandidates } from '../../nodes/witness/witness-candidates.js'
 import { realTimedShell } from '../../nodes/witness/witness-executor.js'
 import { WitnessNode } from '../../nodes/witness/witness-worker.js'
 import { GREEN, RED, UNCHECKED, witnessDenial, witnessRecordOf, witnessSubjectOf } from '../../policy/policy.js'
 import { SetupTurns, withWorktreeAsync } from '../../ports/worktree.js'
 import { greenWitnesses } from '../../release/evidence.js'
-import { busProjections } from '../../supervisor/composition.js'
+import { answerParts, busProjections, witnessParts } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 
 const CARD = 1698
@@ -137,7 +138,7 @@ function readVerdict(w: World): unknown {
 
 function answeredCards(w: World): number[] {
   reduce(w.db, 'pending', busProjections())
-  return answerCandidates(w.db, NOW).map(task => task.cardId)
+  return answerCandidates(w.db, NOW, answerParts()).map(task => task.cardId)
 }
 
 describe('the witness tells could not check from failed', () => {
@@ -194,7 +195,7 @@ describe('the witness tells could not check from failed', () => {
     stored(w, UNCHECKED, '2026-11-07T10:01:10.000Z')
     const witnessed = (): number[] => {
       reduce(w.db, 'pending', busProjections())
-      return witnessCandidates(w.db, NOW).map(task => task.cardId)
+      return witnessCandidates(w.db, NOW, witnessParts()).map(task => task.cardId)
     }
     const deniedOn = (base: string, at: string): void => {
       appendEvent(w.db, { ts: at, type: POLICY_DENIED, actor: 'policy', cardId: CARD, pr: PR, head: w.head, dedupeKey: `${POLICY_DENIED}:merge:${at}`, payload: { command: 'merge', reason: 'witness', base, detail: 'denied' }, legacy: false })

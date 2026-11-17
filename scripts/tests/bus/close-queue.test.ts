@@ -13,7 +13,7 @@ import { BOARD_ALARM, CARD_ADMITTED, CARD_CLOSED, CARD_STARTED, CARD_VERIFIED, M
 import { taskKey } from '../../core/identifiers.js'
 import { ownerInbox } from '../../core/inbox.js'
 import { expireLeases, failTask, LEASE_MS, leaseNext } from '../../core/lease.js'
-import { deriveQueues, FAILURES_TO_STOP, queueTask } from '../../core/queue.js'
+import { FAILURES_TO_STOP, queueTask } from '../../core/queue.js'
 import { projectionDump, reduce } from '../../core/reducer.js'
 import { legacyEventOf } from '../../intake/import.js'
 import { writeLaneJson } from '../../intake/lane-json.js'
@@ -21,7 +21,7 @@ import { CloseExecutor } from '../../nodes/close/close-executor.js'
 import { CloseNode, closingVerification, runCloseWorker } from '../../nodes/close/close-worker.js'
 import { runTaskClose } from '../../nodes/close/task-close.js'
 import { launchCandidates } from '../../nodes/launch/launch-candidates.js'
-import { busProjections } from '../../supervisor/composition.js'
+import { busProjections, deriveQueuesOfTheBus } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { read } from '../core/gh-fake.js'
 import { detectClose } from './close-detection.js'
@@ -260,15 +260,15 @@ describe('the close queue', () => {
       appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: WITNESS_RECORDED, actor: 'worker:witness:witness-1', cardId: 1096, pr: 996, head, dedupeKey: `${WITNESS_RECORDED}:1096:${head}:${base}:${cardBody}`, payload: { head, base, cardBody, verdict: 'green', detail: 'green' }, legacy: false })
     }
     witnessed(sha('b'))
-    deriveQueues(bench.db, bench.clock.now().toISOString())
+    deriveQueuesOfTheBus(bench.db, bench.clock.now().toISOString())
     expect(bench.leaseClose()).toBeNull()
 
     witnessed(sha('a'), sha('d'))
-    deriveQueues(bench.db, bench.clock.now().toISOString())
+    deriveQueuesOfTheBus(bench.db, bench.clock.now().toISOString())
     expect(bench.leaseClose()).toBeNull()
 
     witnessed(sha('a'))
-    deriveQueues(bench.db, bench.clock.now().toISOString())
+    deriveQueuesOfTheBus(bench.db, bench.clock.now().toISOString())
     expect(bench.closeCard(bench.leaseClose()!)).toEqual(expect.objectContaining({ kind: 'closed', verification: 'run' }))
     bench.close()
   })

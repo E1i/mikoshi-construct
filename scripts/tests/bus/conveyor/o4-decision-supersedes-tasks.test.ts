@@ -5,9 +5,12 @@ import { appendEvent } from '../../../core/db.js'
 import { MERGE_DONE, REVIEW_RECORDED } from '../../../core/events.js'
 import { reviewInputOf } from '../../../core/identifiers.js'
 import { completeTask, leaseNext } from '../../../core/lease.js'
-import { keyOf, mergeCandidates, queueTask, reviewCandidates, updateCandidates } from '../../../core/queue.js'
+import { keyOf, queueTask, reviewCandidates } from '../../../core/queue.js'
+import { mergeCandidates } from '../../../nodes/merge/merge-candidates.js'
 import { MergeNode } from '../../../nodes/merge/merge-worker.js'
+import { updateCandidates } from '../../../nodes/update/update-candidates.js'
 import { recordDecision } from '../../../policy/decisions/index.js'
+import { candidateRules } from '../../../supervisor/composition.js'
 import { SILENT_MS } from '../../../supervisor/liveness-sites.js'
 import { cardBody, sha } from '../github-fake.js'
 import { eventsOf, mergeBench } from '../merge-bench.js'
@@ -74,7 +77,7 @@ describe('conveyor O4: a decision scoped to a card supersedes its merge and upda
   it('scenario 05: after decision.recorded scope:[card] while a merge is queued with a carried pass, the PR is not merged until a review under the decision key, then merged', async () => {
     const o4 = line()
     const { bench } = o4
-    const [carried] = mergeCandidates(bench.db, o4.ts())
+    const [carried] = mergeCandidates(bench.db, o4.ts(), candidateRules())
     expect(carried).toMatchObject({ queue: 'merge', cardId: CARD, pr: PR, head: HEAD })
     expect(keyOf(carried!)).not.toContain(':decision-')
     expect(queueTask(bench.db, o4.ts(), carried!)).toBe(true)
@@ -83,14 +86,14 @@ describe('conveyor O4: a decision scoped to a card supersedes its merge and upda
     bench.tick()
 
     expect(stateOf(bench, keyOf(carried!))).toBe('superseded')
-    expect(mergeCandidates(bench.db, o4.ts())).toEqual([])
-    expect(reviewCandidates(bench.db, o4.ts())).toEqual([expect.objectContaining({ queue: 'review', pr: PR, head: HEAD })])
+    expect(mergeCandidates(bench.db, o4.ts(), candidateRules())).toEqual([])
+    expect(reviewCandidates(bench.db, o4.ts(), candidateRules())).toEqual([expect.objectContaining({ queue: 'review', pr: PR, head: HEAD })])
     await once(o4.merge)
     expect(merged(bench)).toEqual([])
 
     reviewed(o4)
     bench.tick()
-    expect(mergeCandidates(bench.db, o4.ts()).map(keyOf)).toEqual([`${keyOf(carried!)}:decision-${DECISION}`])
+    expect(mergeCandidates(bench.db, o4.ts(), candidateRules()).map(keyOf)).toEqual([`${keyOf(carried!)}:decision-${DECISION}`])
     await once(o4.merge)
 
     expect(merged(bench)).toEqual([PR])
@@ -118,7 +121,7 @@ describe('conveyor O4: a decision scoped to a card supersedes its merge and upda
     reviewed(o4)
     bench.tick()
     expect(stateOf(bench, keyOf(review))).toBe('completed')
-    const afterThePass = reviewCandidates(bench.db, o4.ts()).filter(task => task.pr === PR)
+    const afterThePass = reviewCandidates(bench.db, o4.ts(), candidateRules()).filter(task => task.pr === PR)
     expect(afterThePass.map(keyOf)).toEqual([keyOf(review)])
     expect(afterThePass.map(task => queueTask(bench.db, o4.ts(), task))).toEqual([false])
     expect(stateOf(bench, keyOf(review))).toBe('completed')
@@ -137,6 +140,6 @@ describe('conveyor O4: a decision scoped to a card supersedes its merge and upda
     bench.tick()
 
     expect(stateOf(bench, keyOf(update))).toBe('superseded')
-    expect(updateCandidates(bench.db, o4.ts()).every(task => task.decision === DECISION + 1)).toBe(true)
+    expect(updateCandidates(bench.db, o4.ts(), candidateRules()).every(task => task.decision === DECISION + 1)).toBe(true)
   })
 })

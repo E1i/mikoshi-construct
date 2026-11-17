@@ -12,6 +12,7 @@ import { leaseNext } from '../../core/lease.js'
 import { fullReview } from '../../nodes/review/review-depth.js'
 import { REVIEW_RULES_FILE, REVIEW_RULES_SHA, REVIEW_RULES_VERSION, ReviewExecutor, reviewRulesSha, SPAWNS_NO_SESSION } from '../../nodes/review/review-executor.js'
 import { recordedVerdictOn, UpdateExecutor } from '../../nodes/update/update-executor.js'
+import { candidateRules } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { sha } from './github-fake.js'
 import { eventCount, eventsOf, liveBench, mainMovesPastEveryPr } from './merge-bench.js'
@@ -30,7 +31,7 @@ function carriedVerdict(bench: MergeBench, pr: number, from: string, to: string,
 }
 
 function updated(bench: MergeBench): Record<string, unknown>[] {
-  const executor = new UpdateExecutor({ silentMs: SILENT_MS, db: bench.db, gitHub: bench.gitHub.client, put: bench.gitHub.put, publish: bench.gitHub.publish, clock: bench.clock.now, settle: () => {} })
+  const executor = new UpdateExecutor({ rules: candidateRules(), silentMs: SILENT_MS, db: bench.db, gitHub: bench.gitHub.client, put: bench.gitHub.put, publish: bench.gitHub.publish, clock: bench.clock.now, settle: () => {} })
   mainMovesPastEveryPr(bench)
   detectUpdate(bench)
   executor.update(leaseNext(bench.db, bench.clock.now().toISOString(), 'update', 'worker:update:worker-1')!)

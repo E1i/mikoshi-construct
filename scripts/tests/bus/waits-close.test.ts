@@ -6,9 +6,9 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { AMEND_SOURCE } from '../../../src/commands/intake/admit.js'
 import { appendEvent, openBus, openOwnerWait } from '../../core/db.js'
 import { OWNER } from '../../core/inbox.js'
-import { admitCommandOf } from '../../core/queue.js'
 import { reduce } from '../../core/reducer.js'
 import { busProjections } from '../../supervisor/composition.js'
+import { admitCommandOf } from '../../supervisor/derive-queues.js'
 
 const TS = '2026-10-29T12:00:00.000Z'
 const roots: string[] = []
