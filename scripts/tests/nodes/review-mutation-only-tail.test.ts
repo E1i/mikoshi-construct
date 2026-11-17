@@ -55,7 +55,7 @@ interface Reviewed {
   tailCard: number | undefined
 }
 
-async function reviewed(touches: readonly string[], findings: string[], survivingMutations: string[]): Promise<Reviewed> {
+async function reviewed(touches: readonly string[], findings: string[], survivingMutations: string[], returned: 'pass' | 'changes' = 'changes'): Promise<Reviewed> {
   const bench = liveBench()
   benches.push(bench)
   const text = parentText(touches)
@@ -64,7 +64,7 @@ async function reviewed(touches: readonly string[], findings: string[], survivin
     throw new Error(parsed.reason)
   appendCardEvent(bench.db, 'worker:intake:test', admittedRecord({ id: CARD, file: `${CARD}.md`, line: parsed.parked.task.card.line, who: parsed.parked.who, unclear: [], corrections: [], seam: [], risk: [], slices: [], text }, 'auto', bench.clock.now(), WINDOW_LANE))
   bench.tick()
-  const worker = new ReviewWorker({ silentMs: SILENT_MS, isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }), db: bench.db, gitHub: withIssues(bench.gitHub.client), publish: bench.gitHub.publish, reviewer: async () => ({ verdict: 'changes', findings, survivingMutations, session: 'reviewer-1' }), plan: () => fullReview('a fixed plan'), clock: bench.clock.now, session: 'worker-1', tail: busTail(bench) })
+  const worker = new ReviewWorker({ silentMs: SILENT_MS, isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }), db: bench.db, gitHub: withIssues(bench.gitHub.client), publish: bench.gitHub.publish, reviewer: async () => ({ verdict: returned, findings, survivingMutations, session: 'reviewer-1' }), plan: () => fullReview('a fixed plan'), clock: bench.clock.now, session: 'worker-1', tail: busTail(bench) })
   bench.gitHub.open({ number: PR, head: sha('b'), ref: `feat/card-${CARD}`, body: cardBody(PR) })
   bench.tick()
   await worker.step()
@@ -96,6 +96,42 @@ describe('a review whose every finding is a surviving mutation', () => {
     expect({ verdict, findings }).toEqual({ verdict: 'changes', findings: [MUTATION, DEFECT] })
     expect(tails).toEqual([])
     expect(tailCard).toBeUndefined()
+  })
+})
+
+describe('a pass the reviewer itself returned', () => {
+  it('a reviewer pass whose every finding is a surviving mutation admits one tail card and names it', async () => {
+    const { bench, verdict, findings, tails, tailCard } = await reviewed(TOUCHES_OF_RISK.R4, [MUTATION, SECOND_MUTATION], [MUTATION, SECOND_MUTATION], 'pass')
+    expect({ verdict, findings }).toEqual({ verdict: 'pass', findings: [MUTATION, SECOND_MUTATION] })
+    expect(tails).toHaveLength(1)
+    expect(tailCard).toBe(tails[0]!.card_id)
+    bench.tick()
+    const tail = cardContract(bench.db, tails[0]!.card_id)
+    expect(tail).toMatchObject({ id: LATEST_ON_GITHUB + 1, priority: TAIL_PRIORITY, touches: tailTouches({ touches: [...TOUCHES_OF_RISK.R4] }) })
+    expect(tail!.text).toContain(`\n- ${MUTATION}\n`)
+    expect(tail!.text).toContain(`\n- ${SECOND_MUTATION}\n`)
+  })
+
+  it('a reviewer pass with no findings admits nothing', async () => {
+    const { verdict, findings, tails, tailCard } = await reviewed(TOUCHES_OF_RISK.R4, [], [], 'pass')
+    expect({ verdict, findings, tails, tailCard }).toEqual({ verdict: 'pass', findings: [], tails: [], tailCard: undefined })
+  })
+
+  it('a reviewer pass with a finding outside survivingMutations admits nothing', async () => {
+    const { verdict, tails, tailCard } = await reviewed(TOUCHES_OF_RISK.R4, [MUTATION, DEFECT], [MUTATION], 'pass')
+    expect({ verdict, tails, tailCard }).toEqual({ verdict: 'pass', tails: [], tailCard: undefined })
+  })
+
+  it('a reviewer pass whose tail cannot be filed records changes', async () => {
+    const bench = liveBench()
+    benches.push(bench)
+    const worker = new ReviewWorker({ silentMs: SILENT_MS, isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }), db: bench.db, gitHub: withIssues(bench.gitHub.client), publish: bench.gitHub.publish, reviewer: async () => ({ verdict: 'pass', findings: [MUTATION], survivingMutations: [MUTATION], session: 'reviewer-1' }), plan: () => fullReview('a fixed plan'), clock: bench.clock.now, session: 'worker-1', tail: busTail(bench) })
+    bench.gitHub.open({ number: PR, head: sha('b'), ref: `feat/card-${CARD}`, body: cardBody(PR) })
+    bench.tick()
+    await worker.step()
+    const recorded = eventsOf(bench.db, REVIEW_RECORDED)[0] as { verdict: string, tail_card?: number }
+    expect(recorded).toMatchObject({ verdict: 'changes' })
+    expect(recorded.tail_card).toBeUndefined()
   })
 })
 

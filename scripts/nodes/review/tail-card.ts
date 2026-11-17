@@ -39,7 +39,7 @@ export interface TailParent {
 }
 
 export function mutationOnlyFindings(review: Review): string[] | null {
-  if (review.verdict !== 'changes' || review.findings.length === 0)
+  if (review.findings.length === 0)
     return null
   const marked = new Set((review.survivingMutations ?? []).map(finding => finding.trim()))
   return review.findings.every(finding => marked.has(finding.trim())) ? [...review.findings] : null
