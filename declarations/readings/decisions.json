@@ -1,0 +1,16 @@
+{
+  "reading": "decisions",
+  "constant": "DECISIONS",
+  "reducedInOrder": true,
+  "types": [
+    "card.closed",
+    "card.dropped",
+    "card.moved",
+    "decision.expired",
+    "decision.recorded",
+    "decisions.imported",
+    "merge.done",
+    "pr.closed"
+  ],
+  "foldedOnAppend": null
+}

@@ -11,7 +11,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
-import { boardProjection } from '../cli/board-page.js'
+import { BOARD_PERIOD_MS, startBoardTimer } from '../cli/board-page.js'
 import { busDirOf } from '../core/bus-path.js'
 import { appendEvent, defaultBusPath, inTransaction, openBus, openBusWait } from '../core/db.js'
 import { REDUCED, WINDOW_REQUEST } from '../core/events.js'
@@ -150,7 +150,7 @@ export function holdRunLock(busPath: string, processes: ProcessList, self: numbe
   return refusedRun(`${lock} was taken again while this bus:run removed a stale one; this one exits and starts nothing`)
 }
 
-export const TICK_STEPS = ['NetWatch.poll', 'intake', 'reduce', 'WindowRequests', 'second reduce', 'deriveQueues', 'setStepStatuses', 'StalledSessions', 'board'] as const
+export const TICK_STEPS = ['NetWatch.poll', 'intake', 'reduce', 'WindowRequests', 'second reduce', 'deriveQueues', 'setStepStatuses', 'StalledSessions'] as const
 
 export type TickStep = typeof TICK_STEPS[number]
 
@@ -173,7 +173,7 @@ function lastEventId(db: DatabaseSync): number {
 export class BusTick {
   lastSteps: readonly StepTiming[] = []
 
-  constructor(private readonly db: DatabaseSync, private readonly projections: Projections, private readonly netWatch: NetWatch, private readonly clock: () => Date, private readonly intake: () => void = () => {}, private readonly project: (now: Date) => void = () => {}, private readonly requests: () => void = () => {}, private readonly statuses: () => void = () => {}, private readonly stalled: () => void = () => {}, private readonly elapsedMs: () => number = () => performance.now()) {}
+  constructor(private readonly db: DatabaseSync, private readonly projections: Projections, private readonly netWatch: NetWatch, private readonly clock: () => Date, private readonly intake: () => void = () => {}, private readonly requests: () => void = () => {}, private readonly statuses: () => void = () => {}, private readonly stalled: () => void = () => {}, private readonly elapsedMs: () => number = () => performance.now()) {}
 
   run(): Tick | null {
     const steps: StepTiming[] = []
@@ -206,7 +206,6 @@ export class BusTick {
     const derived = timed('deriveQueues', () => deriveQueues(this.db, ts))
     timed('setStepStatuses', this.statuses)
     timed('StalledSessions', this.stalled)
-    timed('board', () => this.project(this.clock()))
     return { poll, reduced, derived, steps }
   }
 }
@@ -238,13 +237,10 @@ export function tickOrLocked(busTick: BusTick): string[] {
 
 export interface ComposedTick {
   busTick: BusTick
-  boardFile: string
-  boardDataFile: string
 }
 
 export function composeBusTick(db: DatabaseSync, busPath: string, gitHub: GitHub, post: GitHubPost, clock: () => Date, home: string): ComposedTick {
   const projections = busProjections()
-  const board = boardProjection(db, busPath, TICK_MS)
   const requests = new WindowRequests(db, clock, realRequestTools(db, busPath, process.cwd(), process.env, projections), ownerChannelOfBus(home, busPath))
   const answer = (): void => {
     for (const outcome of requests.run())
@@ -267,7 +263,7 @@ export function composeBusTick(db: DatabaseSync, busPath: string, gitHub: GitHub
     for (const line of silent.step())
       console.log(line)
   }
-  return { busTick: new BusTick(db, projections, new NetWatch(db, gitHub, clock), clock, decisionsIntakeOfBus(db, busPath, clock), board.project, answer, statuses, stalled), boardFile: board.file, boardDataFile: board.dataFile }
+  return { busTick: new BusTick(db, projections, new NetWatch(db, gitHub, clock), clock, decisionsIntakeOfBus(db, busPath, clock), answer, statuses, stalled) }
 }
 
 export function startBus(db: DatabaseSync, clock: () => Date): string[] {
@@ -286,18 +282,24 @@ async function main(): Promise<number> {
   const closed = startBus(db, () => new Date())
   if (closed.length > 0)
     console.log(`${PREFIX}closed the owner waits of ended cards: ${closed.join(', ')}`)
-  const { busTick, boardFile, boardDataFile } = composeBusTick(db, busPath, ghApi(process.cwd()), ghApiPost(process.cwd()), () => new Date(), os.homedir())
-  console.log(`${PREFIX}${busPath}, shadow mode: NetWatch, the owner decisions import, the window requests, the reducer, the queues, the ${STATUS_CONTEXT} status check on each open PR head unless ${STATUS_OFF_FILE} sits beside it, and ${boardFile} with ${boardDataFile} every ${TICK_MS / 1000} s; no workers`)
+  const { busTick } = composeBusTick(db, busPath, ghApi(process.cwd()), ghApiPost(process.cwd()), () => new Date(), os.homedir())
+  const board = startBoardTimer(busPath)
+  console.log(`${PREFIX}${busPath}, shadow mode: NetWatch, the owner decisions import, the window requests, the reducer, the queues and the ${STATUS_CONTEXT} status check on each open PR head unless ${STATUS_OFF_FILE} sits beside it every ${TICK_MS / 1000} s; ${board.file} with ${board.dataFile} every ${BOARD_PERIOD_MS / 1000} s on a read-only connection in its own thread; no workers`)
+  return superviseUntilEnd(() => tickOrLocked(busTick), board, () => db.close())
+}
+
+export async function superviseUntilEnd(tick: () => string[], board: { stop: () => Promise<void> }, close: () => void, pause: () => Promise<unknown> = async () => sleep(CHECK_MS)): Promise<never> {
   try {
     for (;;) {
-      const lines = tickOrLocked(busTick)
+      const lines = tick()
       if (lines.length > 0)
         console.log(lines.join('\n'))
-      await sleep(CHECK_MS)
+      await pause()
     }
   }
   finally {
-    db.close()
+    await board.stop()
+    close()
   }
 }
 

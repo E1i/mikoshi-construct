@@ -1,0 +1,11 @@
+{
+  "event": "merge.done",
+  "constant": "MERGE_DONE",
+  "payload": [
+    "commit",
+    "lease_gen",
+    "rule",
+    "task_key",
+    "witnessBase"
+  ]
+}

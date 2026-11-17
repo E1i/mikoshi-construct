@@ -1,0 +1,10 @@
+{
+  "event": "card.deferred",
+  "constant": "CARD_DEFERRED",
+  "payload": [
+    "bodySha",
+    "from",
+    "lane",
+    "to"
+  ]
+}

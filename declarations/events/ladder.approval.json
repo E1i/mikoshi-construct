@@ -1,0 +1,5 @@
+{
+  "event": "ladder.approval",
+  "constant": "LADDER_APPROVAL",
+  "payload": null
+}

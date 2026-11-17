@@ -1,0 +1,11 @@
+{
+  "event": "bus.healed",
+  "constant": "BUS_HEALED",
+  "payload": [
+    "backup",
+    "broken",
+    "count",
+    "max_id",
+    "steps"
+  ]
+}

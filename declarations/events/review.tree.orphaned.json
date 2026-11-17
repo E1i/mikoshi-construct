@@ -1,0 +1,8 @@
+{
+  "event": "review.tree.orphaned",
+  "constant": "REVIEW_TREE_ORPHANED",
+  "payload": [
+    "detail",
+    "path"
+  ]
+}

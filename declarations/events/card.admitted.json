@@ -1,0 +1,24 @@
+{
+  "event": "card.admitted",
+  "constant": "CARD_ADMITTED",
+  "payload": [
+    "admission",
+    "bodySha",
+    "card",
+    "cardVersion",
+    "confirmation",
+    "contour",
+    "corrections",
+    "decision",
+    "depends",
+    "lane",
+    "moved",
+    "parent",
+    "plan",
+    "prevAdmissionId",
+    "prevTextSha",
+    "source",
+    "text",
+    "textSha"
+  ]
+}

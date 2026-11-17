@@ -1,0 +1,14 @@
+{
+  "event": "shard.decided",
+  "constant": "SHARD_DECIDED",
+  "payload": [
+    "answer",
+    "doneBy",
+    "ground",
+    "options",
+    "question",
+    "shard",
+    "stop",
+    "wait"
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "event": "card.verified",
+  "constant": "CARD_VERIFIED",
+  "payload": [
+    "actual",
+    "detail",
+    "ended",
+    "override",
+    "path",
+    "pr",
+    "report",
+    "session",
+    "sessions",
+    "sharedBy",
+    "verification"
+  ]
+}

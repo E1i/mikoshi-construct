@@ -1,0 +1,10 @@
+{
+  "event": "review.rounds_spent",
+  "constant": "REVIEW_ROUNDS_SPENT",
+  "payload": [
+    "findings",
+    "pr",
+    "rounds",
+    "state"
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "event": "session.stalled",
+  "constant": "SESSION_STALLED",
+  "payload": [
+    "lease_gen",
+    "life",
+    "queue",
+    "reason",
+    "session",
+    "since",
+    "task_key"
+  ]
+}

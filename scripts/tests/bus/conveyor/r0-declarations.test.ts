@@ -223,7 +223,7 @@ describe('scenario 15, the validator part: what the validator refuses', () => {
     expect(problemsOf({
       modules: { a: module('a', ['scripts/']) },
       unknown: { thing: { id: 'thing' } },
-    } as Fixture, ['scripts/a.ts'])).toEqual(['declarations/unknown: not a declaration kind this validator reads (modules, contention, generated, may-use, workers, entries)'])
+    } as Fixture, ['scripts/a.ts'])).toEqual(['declarations/unknown: not a declaration kind this validator reads (modules, contention, generated, may-use, workers, entries, events, readings)'])
   })
 
   it('refuses a pattern in shared, which names one file', () => {

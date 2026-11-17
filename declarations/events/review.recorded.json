@@ -1,0 +1,30 @@
+{
+  "event": "review.recorded",
+  "constant": "REVIEW_RECORDED",
+  "payload": [
+    "cache_r",
+    "cache_w",
+    "card_body",
+    "depth",
+    "depth_why",
+    "drip",
+    "findings",
+    "head",
+    "isolation",
+    "isolationGaps",
+    "model",
+    "prompt_path",
+    "prompt_sha",
+    "prompt_unstored",
+    "review_ms",
+    "reviewer_session",
+    "rules_version",
+    "since",
+    "tail_card",
+    "treeAfter",
+    "treeBefore",
+    "treeMutated",
+    "tree_origin",
+    "verdict"
+  ]
+}

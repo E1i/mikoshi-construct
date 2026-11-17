@@ -1,0 +1,9 @@
+{
+  "event": "supervisor.restart_missed",
+  "constant": "RESTART_MISSED",
+  "payload": [
+    "limit_ms",
+    "sha",
+    "waited_ms"
+  ]
+}

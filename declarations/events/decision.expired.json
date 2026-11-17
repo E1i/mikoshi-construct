@@ -1,0 +1,8 @@
+{
+  "event": "decision.expired",
+  "constant": "DECISION_EXPIRED",
+  "payload": [
+    "decision_id",
+    "until"
+  ]
+}

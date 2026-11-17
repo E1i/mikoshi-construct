@@ -1,0 +1,10 @@
+{
+  "event": "leases.draining",
+  "constant": "LEASES_DRAINING",
+  "payload": [
+    "from",
+    "node",
+    "sha",
+    "until"
+  ]
+}

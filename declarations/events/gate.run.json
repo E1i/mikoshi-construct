@@ -1,0 +1,13 @@
+{
+  "event": "gate.run",
+  "constant": "GATE_RUN",
+  "payload": [
+    "mode",
+    "moduleFiles",
+    "reason",
+    "round",
+    "seconds",
+    "source",
+    "tests"
+  ]
+}

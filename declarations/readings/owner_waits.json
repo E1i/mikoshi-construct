@@ -1,0 +1,19 @@
+{
+  "reading": "owner_waits",
+  "constant": "OWNER_WAITS",
+  "reducedInOrder": true,
+  "types": [
+    "card.admitted",
+    "card.closed",
+    "card.dropped",
+    "card.moved",
+    "card.waiting",
+    "decision.recorded",
+    "decisions.imported",
+    "merge.done",
+    "owner.wait.closed",
+    "owner.wait.opened",
+    "pr.closed"
+  ],
+  "foldedOnAppend": null
+}

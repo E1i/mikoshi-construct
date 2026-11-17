@@ -1,0 +1,8 @@
+{
+  "event": "plan.closed",
+  "constant": "PLAN_CLOSED",
+  "payload": [
+    "plan",
+    "request"
+  ]
+}

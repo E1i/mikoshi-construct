@@ -1,0 +1,11 @@
+{
+  "event": "role.stopped",
+  "constant": "ROLE_STOPPED",
+  "payload": [
+    "handoff",
+    "raised",
+    "reason",
+    "role",
+    "status"
+  ]
+}

@@ -1,0 +1,5 @@
+{
+  "event": "question.owner",
+  "constant": "QUESTION_OWNER",
+  "payload": null
+}

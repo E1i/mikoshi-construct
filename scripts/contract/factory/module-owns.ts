@@ -24,6 +24,7 @@ export const MODULE_OWNS: Readonly<Record<string, readonly string[]>> = {
     `${FACTORY_ROOT}/core/errors.ts`,
     `${FACTORY_ROOT}/core/bus-path.ts`,
     `${FACTORY_ROOT}/core/bus-readings.ts`,
+    `${FACTORY_ROOT}/core/projection-types.ts`,
     `${FACTORY_ROOT}/core/bus-version.ts`,
     `${FACTORY_ROOT}/core/reducer.ts`,
     `${FACTORY_ROOT}/core/every.ts`,
@@ -87,6 +88,7 @@ export const MODULE_OWNS: Readonly<Record<string, readonly string[]>> = {
     `${FACTORY_ROOT}/core/factory-paths.ts`,
     `${FACTORY_ROOT}/core/generated-files.ts`,
     `${FACTORY_ROOT}/core/declarations.ts`,
+    `${FACTORY_ROOT}/core/declared-events.ts`,
   ],
   'model': [
     'src/model/**',

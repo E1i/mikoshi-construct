@@ -1,0 +1,11 @@
+{
+  "event": "task.enqueued",
+  "constant": "TASK_ENQUEUED",
+  "payload": [
+    "failure",
+    "fault",
+    "generation",
+    "queue",
+    "task_key"
+  ]
+}

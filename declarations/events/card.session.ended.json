@@ -1,0 +1,11 @@
+{
+  "event": "card.session.ended",
+  "constant": "CARD_SESSION_ENDED",
+  "payload": [
+    "detail",
+    "pgid",
+    "published",
+    "session",
+    "stopped"
+  ]
+}

@@ -1,8 +1,8 @@
-import type { ChildProcess } from 'node:child_process'
 import type { DatabaseSync } from 'node:sqlite'
 import type { Queue } from '../../../core/identifiers.js'
-import { execFileSync, spawn } from 'node:child_process'
-import { chmodSync, closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import type { Exit, ScenarioGroup } from './scenario-processes.js'
+import { execFileSync } from 'node:child_process'
+import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -23,6 +23,7 @@ import { SILENT_MS } from '../../../supervisor/liveness-sites.js'
 import { tableIdentity } from '../../../supervisor/recorded-worker.js'
 import { livesIn } from '../../../supervisor/supervisor.js'
 import { waitFor as waitWithin } from '../../wait-for.js'
+import { scenarioProcesses, waiterScript } from './scenario-processes.js'
 
 const ROOT = path.resolve(import.meta.dirname, '../../../..')
 const OLD_GENERATION = 'a'.repeat(40)
@@ -30,14 +31,9 @@ const NEW_GENERATION = 'b'.repeat(40)
 const SCENARIO_MS = 90_000
 const WAIT_MS = 45_000
 const FAR_FUTURE = '2999-01-01T00:00:00.000Z'
-const HELPER_PIDS = 'helpers.pids'
-const HELPER_POLL_S = 0.05
-const HELPER_BOUND_TICKS = Math.ceil(SCENARIO_MS / 1000 / HELPER_POLL_S)
-const HELPER_OUT_OF_TIME = 124
 
 const WORKER = `
 import { spawn, spawnSync } from 'node:child_process'
-import { appendFileSync } from 'node:fs'
 import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { openBus } from '${ROOT}/scripts/core/db.ts'
@@ -76,8 +72,7 @@ class StandInNode extends Node {
       return this.completed(lease, 0)
     const log = new ChildLog(busWriteAt(config.bus), tableIdentity(), () => new Date(), process.env)
     const code = await log.around({ actor: this.actor, taskKey: lease.taskKey, kind: config.kind, tree: session.tree }, started => new Promise((resolve) => {
-      const child = spawn(session.command[0], session.command.slice(1), { detached: session.detached, stdio: 'ignore' })
-      appendFileSync(config.helpers, String(child.pid) + '\\n')
+      const child = spawn(session.command[0], session.command.slice(1), { stdio: 'ignore' })
       const signalled = started(child.pid)
       child.on('close', (exit, signal) => {
         if (signal !== null)
@@ -124,40 +119,15 @@ process.exit(0)
 
 const table = new OsProcessTable()
 const alive = aliveBy(tableIdentity(table))
-const spawned: ChildProcess[] = []
 const roots: string[] = []
 const dbs: DatabaseSync[] = []
 
-function killGroup(pid: number): void {
-  for (const target of [-pid, pid]) {
-    try {
-      process.kill(target, 'SIGKILL')
-    }
-    catch {}
-  }
-}
-
-function helperLoop(then: string, ticks = HELPER_BOUND_TICKS): string {
-  return `n=0; while [ ! -f "$0" ]; do n=$((n+1)); [ "$n" -gt ${ticks} ] && exit ${HELPER_OUT_OF_TIME}; sleep ${HELPER_POLL_S}; done; ${then}`
-}
-
-function endHelpers(root: string): void {
-  const listed = path.join(root, HELPER_PIDS)
-  if (!existsSync(listed))
-    return
-  for (const pid of readFileSync(listed, 'utf8').split('\n').filter(line => line !== '').map(Number))
-    killGroup(pid)
-}
-
-function endScenario(): void {
-  for (const child of spawned.splice(0))
-    killGroup(child.pid!)
-  for (const root of roots)
-    endHelpers(root)
+function waiter(then: string): string {
+  return waiterScript(then, SCENARIO_MS / 1000)
 }
 
 afterEach(() => {
-  endScenario()
+  scenarioProcesses.killAll()
   for (const db of dbs.splice(0))
     db.close()
   for (const root of roots.splice(0))
@@ -189,7 +159,6 @@ async function waitFor(ready: () => boolean, what: string): Promise<void> {
 interface Session {
   command: string[]
   tree: string
-  detached: boolean
 }
 
 interface WorkerConfig {
@@ -201,11 +170,11 @@ interface WorkerConfig {
 }
 
 interface Worker {
-  process: ChildProcess
+  pid: number
   actor: string
   instance: string
   log: string
-  exited: Promise<{ code: number | null, signal: NodeJS.Signals | null }>
+  exited: Promise<Exit>
 }
 
 class World {
@@ -215,7 +184,7 @@ class World {
   readonly main = path.join(this.root, 'main')
   readonly pushLog = path.join(this.root, 'pushes.log')
   readonly worker = path.join(this.root, 'worker.mts')
-  readonly helpers = path.join(this.root, HELPER_PIDS)
+  readonly group: ScenarioGroup = scenarioProcesses.open()
   readonly db: DatabaseSync
 
   constructor() {
@@ -248,10 +217,10 @@ class World {
     writeFileSync(this.release(name), '')
   }
 
-  session(card: number, detached = false): Session {
+  session(card: number): Session {
     const tree = this.tree(`card-${card}`)
-    const script = helperLoop('git -C "$1" -c user.name=k3 -c user.email=k3 commit -q --allow-empty -m "round of $2" && git -C "$1" push -q origin HEAD')
-    return { command: ['sh', '-c', script, this.release(String(card)), tree, String(card)], tree, detached }
+    const script = waiter('git -C "$1" -c user.name=k3 -c user.email=k3 commit -q --allow-empty -m "round of $2" && git -C "$1" push -q origin HEAD')
+    return { command: ['sh', '-c', script, this.release(String(card)), tree, String(card)], tree }
   }
 
   pushes(): string[] {
@@ -262,16 +231,12 @@ class World {
     return git(this.root, '--git-dir', this.remote, 'rev-parse', `refs/heads/${branch}`)
   }
 
-  start(generation: string, config: WorkerConfig): Worker {
+  async start(generation: string, config: WorkerConfig): Promise<Worker> {
     const instance = `${config.kind}-${config.session}`
-    const env = { ...process.env, K3_WORKER: JSON.stringify({ defer: [], sessions: {}, inline: {}, ...config, bus: this.bus, helpers: this.helpers }), [INSTANCE_VARIABLE]: instance, [GENERATION_VARIABLE]: generation }
+    const env = { ...process.env, K3_WORKER: JSON.stringify({ defer: [], sessions: {}, inline: {}, ...config, bus: this.bus }), [INSTANCE_VARIABLE]: instance, [GENERATION_VARIABLE]: generation }
     const log = path.join(this.root, `${config.session}.log`)
-    const output = openSync(log, 'a')
-    const child = spawn(process.execPath, ['--import', 'tsx', this.worker], { cwd: ROOT, env, detached: true, stdio: ['ignore', output, output] })
-    closeSync(output)
-    spawned.push(child)
-    const exited = new Promise<{ code: number | null, signal: NodeJS.Signals | null }>(resolve => child.once('exit', (code, signal) => resolve({ code, signal })))
-    return { process: child, actor: `worker:${config.kind}:${config.session}`, instance, log, exited }
+    const child = await this.group.spawn(process.execPath, ['--import', 'tsx', this.worker], { cwd: ROOT, env, log })
+    return { pid: child.pid, actor: `worker:${config.kind}:${config.session}`, instance, log, exited: child.exited }
   }
 
   leftItsLoop(worker: Worker): boolean {
@@ -290,7 +255,7 @@ class World {
   }
 
   retire(node: string, worker: Worker): string[] {
-    return retireHolders(this.db, new Date().toISOString(), { node, pids: [worker.process.pid!], sha: NEW_GENERATION, from: OLD_GENERATION })
+    return retireHolders(this.db, new Date().toISOString(), { node, pids: [worker.pid], sha: NEW_GENERATION, from: OLD_GENERATION })
   }
 
   read(): BusRead {
@@ -332,8 +297,8 @@ class World {
 
 function expectLiveIdentity(world: World, worker: Worker, generation: string): void {
   const started = world.workerStarted(worker.actor)
-  expect(started).toMatchObject({ pid: worker.process.pid, generation, instance: worker.instance })
-  expect(tableIdentity(table)(worker.process.pid!), 'the worker is in the process table').not.toBeNull()
+  expect(started).toMatchObject({ pid: worker.pid, generation, instance: worker.instance })
+  expect(tableIdentity(table)(worker.pid), 'the worker is in the process table').not.toBeNull()
 }
 
 describe('k3: the handover predicate over the recorded executors', () => {
@@ -469,48 +434,16 @@ describe('k3: the handover predicate over the recorded executors', () => {
   })
 })
 
-describe('k3: the helper loops of a scenario', () => {
-  function loop(root: string, ticks: number): { child: ChildProcess, exited: Promise<{ code: number | null, signal: NodeJS.Signals | null }> } {
-    const child = spawn('sh', ['-c', helperLoop('exit 0', ticks), path.join(root, 'never-released')], { detached: true, stdio: 'ignore' })
-    const exited = new Promise<{ code: number | null, signal: NodeJS.Signals | null }>(resolve => child.once('exit', (code, signal) => resolve({ code, signal })))
-    return { child, exited }
-  }
-
-  function groupGone(pid: number): boolean {
-    try {
-      process.kill(-pid, 0)
-      return false
-    }
-    catch {
-      return true
-    }
-  }
-
-  it('no helper loop outlives its scenario: a listed loop dies with its scenario, an unlisted one ends within its own bound', async () => {
-    const root = mkdtempSync(path.join(tmpdir(), 'k3-handover-'))
-    roots.push(root)
-    const listed = loop(root, HELPER_BOUND_TICKS)
-    writeFileSync(path.join(root, HELPER_PIDS), `${listed.child.pid}\n`)
-    const unlisted = loop(root, 4)
-
-    endScenario()
-
-    expect(await listed.exited).toEqual({ code: null, signal: 'SIGKILL' })
-    expect(await unlisted.exited).toEqual({ code: HELPER_OUT_OF_TIME, signal: null })
-    await waitWithin(() => groupGone(listed.child.pid!) && groupGone(unlisted.child.pid!), () => 'the process groups of both loops to empty', 5_000)
-  }, 10_000)
-})
-
 describe('k3 [needs ps]: the handover predicate on real processes', () => {
   it('scenario 03: answer, launch and witness children of a retiring generation keep their tasks and trees until each ends on its own status', async () => {
     const world = new World()
     const [answerCard, launchCard, witnessCard] = [3101, 3102, 3103]
     const otherCard = { answer: 3104, launch: 3105, witness: 3106 }
     const keys = { answer: world.queue('answer', answerCard), launch: world.queue('launch', launchCard), witness: world.queue('witness', witnessCard) }
-    const sessions = { answer: world.session(answerCard), launch: world.session(launchCard, true), witness: world.session(witnessCard, true) }
+    const sessions = { answer: world.session(answerCard), launch: world.session(launchCard), witness: world.session(witnessCard) }
     const cardOf = { answer: answerCard, launch: launchCard, witness: witnessCard }
     const kinds = ['answer', 'launch', 'witness'] as const
-    const old = Object.fromEntries(kinds.map(kind => [kind, world.start(OLD_GENERATION, { kind, session: `old-${kind}`, sessions: { [cardOf[kind]]: sessions[kind] } })])) as Record<typeof kinds[number], Worker>
+    const old = Object.fromEntries(await Promise.all(kinds.map(async kind => [kind, await world.start(OLD_GENERATION, { kind, session: `old-${kind}`, sessions: { [cardOf[kind]]: sessions[kind] } })] as const))) as Record<typeof kinds[number], Worker>
     await waitFor(() => kinds.every(kind => world.childStarted(keys[kind]) !== undefined), 'a child.started for each old round')
 
     for (const kind of kinds)
@@ -518,7 +451,7 @@ describe('k3 [needs ps]: the handover predicate on real processes', () => {
     await waitFor(() => kinds.every(kind => world.leftItsLoop(old[kind])), 'each old worker to leave its lease loop before a task of another card is queued')
     expect(expireLeases(world.db, FAR_FUTURE, SILENT_MS), 'no timer frees a lease from a live executor').toEqual([])
     const otherKeys = Object.fromEntries(kinds.map(kind => [kind, world.queue(kind, otherCard[kind])])) as Record<typeof kinds[number], string>
-    const fresh = Object.fromEntries(kinds.map(kind => [kind, world.start(NEW_GENERATION, { kind, session: `new-${kind}` })])) as Record<typeof kinds[number], Worker>
+    const fresh = Object.fromEntries(await Promise.all(kinds.map(async kind => [kind, await world.start(NEW_GENERATION, { kind, session: `new-${kind}` })] as const))) as Record<typeof kinds[number], Worker>
     await waitFor(() => kinds.every(kind => world.completedBy(otherKeys[kind]) === fresh[kind].actor), 'the new generation to pass over the held task and take the later task of another card')
 
     for (const kind of kinds) {
@@ -552,11 +485,11 @@ describe('k3 [needs ps]: the handover predicate on real processes', () => {
     const world = new World()
     const card = 3701
     const key = world.queue('answer', card)
-    const old = world.start(OLD_GENERATION, { kind: 'answer', session: 'old-answer', defer: [card] })
+    const old = await world.start(OLD_GENERATION, { kind: 'answer', session: 'old-answer', defer: [card] })
     await waitFor(() => world.leasedBy(key).includes(old.actor), 'the old worker to lease the deferred answer')
     const session = world.session(card)
     world.open(String(card))
-    const fresh = world.start(NEW_GENERATION, { kind: 'answer', session: 'new-answer', sessions: { [card]: session } })
+    const fresh = await world.start(NEW_GENERATION, { kind: 'answer', session: 'new-answer', sessions: { [card]: session } })
     await waitFor(() => world.workerStarted(fresh.actor) !== undefined, 'the new worker to record its start')
 
     world.retire('answer', old)
@@ -582,9 +515,9 @@ describe('k3 [needs ps]: the handover predicate on real processes', () => {
     const startedSession = world.session(startedCard)
     const deferredSession = world.session(deferredCard)
     world.open(String(deferredCard))
-    const old = world.start(OLD_GENERATION, { kind: 'answer', session: 'old-answer', defer: [deferredCard], sessions: { [startedCard]: startedSession } })
+    const old = await world.start(OLD_GENERATION, { kind: 'answer', session: 'old-answer', defer: [deferredCard], sessions: { [startedCard]: startedSession } })
     await waitFor(() => world.childStarted(startedKey) !== undefined && world.leasedBy(deferredKey).includes(old.actor), 'one started and one deferred lease on the old worker')
-    const fresh = world.start(NEW_GENERATION, { kind: 'answer', session: 'new-answer', sessions: { [deferredCard]: deferredSession } })
+    const fresh = await world.start(NEW_GENERATION, { kind: 'answer', session: 'new-answer', sessions: { [deferredCard]: deferredSession } })
     await waitFor(() => world.workerStarted(fresh.actor) !== undefined, 'the new worker to record its start')
 
     world.retire('answer', old)
@@ -617,19 +550,19 @@ describe('k3 [needs ps]: the handover predicate on real processes', () => {
     git(tree, 'commit', '-q', '--allow-empty', '-m', 'main merged into the pull request')
     world.observe(card, pr, head)
     const key = world.queue('update', card, { pr, head })
-    const standIn = ['sh', '-c', helperLoop('git -C "$1" push -q origin HEAD'), world.release('update'), tree]
-    const old = world.start(OLD_GENERATION, { kind: 'update', session: 'old-update', inline: { [card]: standIn } })
+    const standIn = ['sh', '-c', waiter('git -C "$1" push -q origin HEAD'), world.release('update'), tree]
+    const old = await world.start(OLD_GENERATION, { kind: 'update', session: 'old-update', inline: { [card]: standIn } })
     await waitFor(() => world.childStarted(key) !== undefined, 'the inline executor record of the old worker')
-    const fresh = world.start(NEW_GENERATION, { kind: 'update', session: 'new-update', inline: { [card]: ['git', '-C', tree, 'push', '-q', 'origin', 'HEAD'] } })
+    const fresh = await world.start(NEW_GENERATION, { kind: 'update', session: 'new-update', inline: { [card]: ['git', '-C', tree, 'push', '-q', 'origin', 'HEAD'] } })
     await waitFor(() => world.workerStarted(fresh.actor) !== undefined, 'the new update worker to record its start')
     expect(world.retire('update', old)).toEqual([key])
 
-    expect(world.childStarted(key)!.fields).toMatchObject({ mode: 'inline', kind: 'update', task_key: key, tree: `pr:${pr}`, pid: old.process.pid, generation: OLD_GENERATION, instance: old.instance })
+    expect(world.childStarted(key)!.fields).toMatchObject({ mode: 'inline', kind: 'update', task_key: key, tree: `pr:${pr}`, pid: old.pid, generation: OLD_GENERATION, instance: old.instance })
     const held = heldByLiveExecutors(eventsIn(world.db), alive)
     expect(held.tasks).toContain(key)
     expect(held.prs).toContain(pr)
     expect(world.leasedBy(key)).toEqual([old.actor])
-    expect(pidAlive(old.process.pid!)).toBe(true)
+    expect(pidAlive(old.pid)).toBe(true)
     expect(world.pushes()).toEqual([])
 
     world.open('update')
@@ -639,7 +572,7 @@ describe('k3 [needs ps]: the handover predicate on real processes', () => {
     expect(world.completedBy(key)).toBe(old.actor)
     const completed = world.read().slice(TASK_COMPLETED, ['task_key']).find(each => each.fields.task_key === key)!
     const ended = world.childEnded(key)!
-    expect(ended.fields).toMatchObject({ exit: 0, signal: null, pid: old.process.pid })
+    expect(ended.fields).toMatchObject({ exit: 0, signal: null, pid: old.pid })
     expect(ended.id).toBeGreaterThan(completed.id)
     expect(world.leasedBy(key)).toEqual([old.actor])
     expect(heldByLiveExecutors(eventsIn(world.db), alive).tasks).not.toContain(key)

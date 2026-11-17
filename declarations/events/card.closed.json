@@ -1,0 +1,9 @@
+{
+  "event": "card.closed",
+  "constant": "CARD_CLOSED",
+  "payload": [
+    "report",
+    "verification",
+    "witnessedOnMain"
+  ]
+}

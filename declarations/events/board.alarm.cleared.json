@@ -1,0 +1,9 @@
+{
+  "event": "board.alarm.cleared",
+  "constant": "BOARD_ALARM_CLEARED",
+  "payload": [
+    "alarm",
+    "digest",
+    "reason"
+  ]
+}

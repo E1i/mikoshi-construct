@@ -1,0 +1,10 @@
+{
+  "event": "plan.item.linked",
+  "constant": "PLAN_ITEM_LINKED",
+  "payload": [
+    "card",
+    "item",
+    "plan",
+    "request"
+  ]
+}

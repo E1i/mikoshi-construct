@@ -1,0 +1,14 @@
+{
+  "id": "bus-readings",
+  "module": "bus",
+  "path": "scripts/core/projection-types.ts",
+  "rebuild": [
+    "declarations:update"
+  ],
+  "check": null,
+  "rebuiltOnUpdate": true,
+  "seamSources": null,
+  "followSources": [
+    "declarations"
+  ]
+}

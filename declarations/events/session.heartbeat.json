@@ -1,0 +1,18 @@
+{
+  "event": "session.heartbeat",
+  "constant": "SESSION_HEARTBEAT",
+  "payload": [
+    "context",
+    "error",
+    "lease_gen",
+    "model",
+    "read_before_edit",
+    "reason",
+    "session",
+    "spent",
+    "start_context",
+    "step",
+    "subagents",
+    "task_key"
+  ]
+}

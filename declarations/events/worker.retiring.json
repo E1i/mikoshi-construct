@@ -1,0 +1,11 @@
+{
+  "event": "worker.retiring",
+  "constant": "WORKER_RETIRING",
+  "payload": [
+    "from",
+    "node",
+    "pids",
+    "sha",
+    "worker"
+  ]
+}

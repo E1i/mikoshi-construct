@@ -1,0 +1,12 @@
+{
+  "event": "task.superseded",
+  "constant": "TASK_SUPERSEDED",
+  "payload": [
+    "failure",
+    "fault",
+    "generation",
+    "lease_gen",
+    "queue",
+    "task_key"
+  ]
+}

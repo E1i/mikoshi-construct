@@ -1,0 +1,9 @@
+{
+  "event": "reducer.reduced",
+  "constant": "REDUCED",
+  "payload": [
+    "applied",
+    "rejected",
+    "through_event_id"
+  ]
+}

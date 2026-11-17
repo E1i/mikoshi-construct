@@ -1,0 +1,13 @@
+{
+  "event": "plan.opened",
+  "constant": "PLAN_OPENED",
+  "payload": [
+    "gate",
+    "goal",
+    "id",
+    "plan_file",
+    "request",
+    "title",
+    "version"
+  ]
+}

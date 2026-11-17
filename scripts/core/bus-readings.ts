@@ -1,36 +1,24 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { EventType, WaitLifter } from './events.js'
-import { CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_DEFERRED, CARD_DROPPED, CARD_FELL, CARD_MOVED, CARD_STARTED, CARD_STOPPED, CARD_WAITING, DECISION_EXPIRED, DECISION_RECORDED, DECISIONS_IMPORTED, LANE_ASSIGNED, MERGE_DONE, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PR_CLOSED, PR_OBSERVED, PR_OPENED, REVIEW_RECORDED } from './events.js'
+import type { ReadProjection } from './projection-types.js'
+import { CARD_CLOSED, CARD_DROPPED, LANE_ASSIGNED, MERGE_DONE, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED } from './events.js'
+import { CARDS, FOLDED_ON_APPEND, OWNER_WAITS, PROJECTION_TYPES } from './projection-types.js'
+
+export { CARDS, DECISIONS, OWNER_WAITS, PROJECTION_TYPES, REDUCED_IN_ORDER } from './projection-types.js'
+export type { ReadProjection } from './projection-types.js'
 
 export const WATERMARKS = 'projection_watermarks'
 export const IN_ORDER_MARK = 'snapshot'
-export const OWNER_WAITS = 'owner_waits'
-export const DECISIONS = 'decisions'
-export const CARDS = 'cards'
 
 interface Mark {
   mark: string
   types: readonly EventType[]
 }
 
-const ENDING_A_CARD: readonly EventType[] = [PR_CLOSED, MERGE_DONE, CARD_CLOSED, CARD_MOVED, CARD_DROPPED]
-const RECORDING_A_DECISION: readonly EventType[] = [DECISION_RECORDED, DECISIONS_IMPORTED]
-export const CARD_TYPES_FOLDED_ON_APPEND: readonly EventType[] = [REVIEW_RECORDED, MERGE_DONE, CARD_STOPPED]
+export const CARD_TYPES_FOLDED_ON_APPEND: readonly EventType[] = FOLDED_ON_APPEND[CARDS] ?? []
 
-export const PROJECTION_TYPES = {
-  [OWNER_WAITS]: [OWNER_WAIT_OPENED, OWNER_WAIT_CLOSED, CARD_WAITING, CARD_ADMITTED, ...RECORDING_A_DECISION, ...ENDING_A_CARD],
-  [DECISIONS]: [...RECORDING_A_DECISION, DECISION_EXPIRED, ...ENDING_A_CARD],
-  [CARDS]: [...CARD_TYPES_FOLDED_ON_APPEND, CARD_ADMITTED, CARD_STARTED, CARD_ANSWERED, CARD_CLOSED, CARD_FELL, CARD_MOVED, CARD_DEFERRED, CARD_DROPPED, PR_OBSERVED, PR_OPENED, PR_CLOSED, ...RECORDING_A_DECISION],
-} as const satisfies Record<string, readonly EventType[]>
-
-export type ReadProjection = keyof typeof PROJECTION_TYPES
-
-export const REDUCED_IN_ORDER: readonly ReadProjection[] = [OWNER_WAITS, DECISIONS]
-
-const MARKS: Record<ReadProjection, readonly Mark[]> = {
-  [OWNER_WAITS]: [{ mark: OWNER_WAITS, types: PROJECTION_TYPES[OWNER_WAITS] }, { mark: IN_ORDER_MARK, types: PROJECTION_TYPES[OWNER_WAITS] }],
-  [DECISIONS]: [{ mark: DECISIONS, types: PROJECTION_TYPES[DECISIONS] }, { mark: IN_ORDER_MARK, types: PROJECTION_TYPES[DECISIONS] }],
-  [CARDS]: [{ mark: IN_ORDER_MARK, types: PROJECTION_TYPES[CARDS] }, { mark: CARDS, types: CARD_TYPES_FOLDED_ON_APPEND }],
+function marksOf(projection: ReadProjection): readonly Mark[] {
+  return [{ mark: projection, types: FOLDED_ON_APPEND[projection] ?? PROJECTION_TYPES[projection] }, { mark: IN_ORDER_MARK, types: PROJECTION_TYPES[projection] }]
 }
 
 export interface StaleProjection {
@@ -82,7 +70,7 @@ function secondsBetween(from: string | null, to: string | null): number | null {
 }
 
 export function staleProjection(db: DatabaseSync, projection: ReadProjection): StaleProjection | null {
-  const marks = MARKS[projection].map(each => ({ types: each.types, through: markOf(db, each.mark) }))
+  const marks = marksOf(projection).map(each => ({ types: each.types, through: markOf(db, each.mark) }))
   const reach = (type: EventType): number => Math.max(...marks.filter(each => each.types.includes(type)).map(each => each.through))
   const behind = latestOfEachType(db, PROJECTION_TYPES[projection]).find(each => each.latest > reach(each.type))
   return behind === undefined ? null : { projection, type: behind.type, latest: behind.latest, through: reach(behind.type) }

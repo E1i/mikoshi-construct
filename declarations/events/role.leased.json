@@ -1,0 +1,8 @@
+{
+  "event": "role.leased",
+  "constant": "ROLE_LEASED",
+  "payload": [
+    "lease_gen",
+    "role"
+  ]
+}

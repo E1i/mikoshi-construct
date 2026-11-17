@@ -1,0 +1,16 @@
+{
+  "event": "update.done",
+  "constant": "UPDATE_DONE",
+  "payload": [
+    "carried",
+    "clean",
+    "from",
+    "lease_gen",
+    "rebuilt",
+    "rules_version",
+    "task_key",
+    "to",
+    "tookMain",
+    "why"
+  ]
+}

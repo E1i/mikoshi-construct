@@ -1,0 +1,12 @@
+{
+  "event": "intake-move",
+  "constant": "INTAKE_MOVE_EVENT",
+  "payload": [
+    "card",
+    "event",
+    "from",
+    "source",
+    "task",
+    "to"
+  ]
+}
