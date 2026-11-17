@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process'
 import path from 'node:path'
 import antfu from '@antfu/eslint-config'
 import ESLINT_EDGES from './contract/eslint-edges.json' with { type: 'json' }
+import SURFACE from './contract/surface.json' with { type: 'json' }
 import INTERNAL_MODULES from './internal-modules.json' with { type: 'json' }
 import REAL_TIME_WAITS_EXCEPTED from './scripts/quality/real-time-waits-excepted.json' with { type: 'json' }
 
@@ -191,6 +192,72 @@ const anEventIsReadThroughTheContract = {
   rules: {
     'no-restricted-syntax': ['error', ...ANTFU_RESTRICTED_SYNTAX, ...NO_HAND_EVENT_READERS],
   },
+}
+
+export const SURFACE_COMMAND_NAMES = Object.entries(SURFACE.commands).filter(([, command]) => 'flags' in command).map(([name]) => name).sort()
+export const SURFACE_FORMAT_FIELDS = Object.keys(SURFACE.formats).sort()
+export const COMMAND_NAMES_THAT_MAKE_A_LIST = 3
+const THE_SURFACE_GENERATOR = 'scripts/contract/**'
+
+const A_COMMAND_CROSSES_THROUGH_THE_CONTRACT = 'A CLI command crosses the boundary through CONTRACT_COMMANDS and ContractCommand, which scripts/contract/surface.ts generates from contract/surface.json — never a hand-written list, table or union of command names'
+const A_FORMAT_VERSION_IS_READ_THROUGH_THE_CONTRACT = 'A contract file\'s version is read through formatVersion and ContractFormat, which scripts/contract/surface.ts generates from contract/surface.json — never a hand-written read of {{field}}'
+
+function jsonParseAt(at) {
+  return `[${at}.callee.object.name="JSON"][${at}.callee.property.name="parse"]`
+}
+
+export const HAND_SURFACE_BOUNDARIES_EXCEPTED = [
+  'scripts/cli/board-page.ts',
+]
+
+function literalName(node) {
+  if (node?.type === 'Literal' && typeof node.value === 'string')
+    return node.value
+  if (node?.type === 'TSLiteralType')
+    return literalName(node.literal)
+  return null
+}
+
+function keyName(node) {
+  if (node.computed)
+    return literalName(node.key)
+  return node.key.type === 'Identifier' ? node.key.name : literalName(node.key)
+}
+
+function commandNamesIn(names) {
+  return new Set(names.filter(name => name !== null && SURFACE_COMMAND_NAMES.includes(name)))
+}
+
+const noHandWrittenSurfaceBoundary = {
+  meta: {
+    type: 'problem',
+    schema: [],
+    messages: { commands: A_COMMAND_CROSSES_THROUGH_THE_CONTRACT, format: A_FORMAT_VERSION_IS_READ_THROUGH_THE_CONTRACT },
+  },
+  create(context) {
+    const reportList = (node, names) => {
+      if (commandNamesIn(names).size >= COMMAND_NAMES_THAT_MAKE_A_LIST)
+        context.report({ node, messageId: 'commands' })
+    }
+    const reportField = (node, field) => {
+      if (field !== null && SURFACE_FORMAT_FIELDS.includes(field))
+        context.report({ node, messageId: 'format', data: { field } })
+    }
+    return {
+      ArrayExpression: node => reportList(node, node.elements.map(literalName)),
+      ObjectExpression: node => reportList(node, node.properties.filter(property => property.type === 'Property').map(keyName)),
+      TSUnionType: node => reportList(node, node.types.map(literalName)),
+      [`TSAsExpression${jsonParseAt('expression')} TSPropertySignature`]: node => reportField(node, keyName(node)),
+      [`MemberExpression:matches(${jsonParseAt('object')}, ${jsonParseAt('object.expression')})`]: node => reportField(node, node.computed ? literalName(node.property) : node.property.name),
+    }
+  },
+}
+
+const aSurfaceBoundaryIsGenerated = {
+  files: ['scripts/**/*.{ts,mts,cts,js,mjs,cjs}'],
+  ignores: ['scripts/tests/**', THE_SURFACE_GENERATOR, ...HAND_SURFACE_BOUNDARIES_EXCEPTED],
+  plugins: { contract: { rules: { 'no-hand-written-surface-boundary': noHandWrittenSurfaceBoundary } } },
+  rules: { 'contract/no-hand-written-surface-boundary': 'error' },
 }
 
 const ROOT = import.meta.dirname
@@ -431,5 +498,6 @@ export default antfu(
   aHookReadsStdinToItsEnd,
   aTestWaitsOnAnEvent,
   anEventIsReadThroughTheContract,
+  aSurfaceBoundaryIsGenerated,
   ...REGISTRATION_POLICY,
 )
