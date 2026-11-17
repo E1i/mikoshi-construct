@@ -235,7 +235,7 @@ describe('requests from the sandboxed window, executed by the bus outside it', (
     appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'worker:intake:by-hand', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:body:${CARD}`, payload: { card: `#${CARD}`, lane: 'lane-1', text, textSha: textSha(text) }, legacy: false })
     const request = ask(made, { kind: 'tree.cut', card: CARD })
     const outcomes: unknown[] = []
-    const busTick = new BusTick(bench.db, busProjections(), new NetWatch(bench.db, bench.gitHub.client, bench.clock.now), bench.clock.now, () => {}, () => outcomes.push(...made.requests().run()))
+    const busTick = new BusTick(bench.db, busProjections(), new NetWatch(bench.db, bench.gitHub.client, bench.clock.now), bench.clock.now, () => outcomes.push(...made.requests().run()))
 
     expect(busTick.run()?.poll.kind).toBe('ticked')
     expect(outcomes).toEqual([{ kind: 'done', request, detail: `cut ${path.join(made.root, 'worktrees', `mc-${CARD}`)} on feat/card-${CARD}` }])

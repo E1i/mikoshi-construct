@@ -19,7 +19,6 @@ import { DATABASE_LOCKED, isDatabaseLocked } from '../core/node.js'
 import { deriveQueues, QUEUE_ACTOR } from '../core/queue.js'
 import { closeWaitsOfEndedCards, reduce } from '../core/reducer.js'
 import { ownerChannelOfBus } from '../owner/channel.js'
-import { decisionsIntakeOfBus } from '../policy/decisions/import.js'
 import { ghApi } from '../ports/github.js'
 import { CHECK_MS, NetWatch, pollLine, TICK_MS } from '../ports/netwatch.js'
 import { ghApiPost, setStepStatuses, STATUS_CONTEXT, STATUS_OFF_FILE, statusesSwitchedOff, statusFailureLine, statusLine } from '../ports/pr-status.js'
@@ -150,7 +149,7 @@ export function holdRunLock(busPath: string, processes: ProcessList, self: numbe
   return refusedRun(`${lock} was taken again while this bus:run removed a stale one; this one exits and starts nothing`)
 }
 
-export const TICK_STEPS = ['NetWatch.poll', 'intake', 'reduce', 'WindowRequests', 'second reduce', 'deriveQueues', 'setStepStatuses', 'StalledSessions'] as const
+export const TICK_STEPS = ['NetWatch.poll', 'reduce', 'WindowRequests', 'second reduce', 'deriveQueues', 'setStepStatuses', 'StalledSessions'] as const
 
 export type TickStep = typeof TICK_STEPS[number]
 
@@ -173,7 +172,7 @@ function lastEventId(db: DatabaseSync): number {
 export class BusTick {
   lastSteps: readonly StepTiming[] = []
 
-  constructor(private readonly db: DatabaseSync, private readonly projections: Projections, private readonly netWatch: NetWatch, private readonly clock: () => Date, private readonly intake: () => void = () => {}, private readonly requests: () => void = () => {}, private readonly statuses: () => void = () => {}, private readonly stalled: () => void = () => {}, private readonly elapsedMs: () => number = () => performance.now()) {}
+  constructor(private readonly db: DatabaseSync, private readonly projections: Projections, private readonly netWatch: NetWatch, private readonly clock: () => Date, private readonly requests: () => void = () => {}, private readonly statuses: () => void = () => {}, private readonly stalled: () => void = () => {}, private readonly elapsedMs: () => number = () => performance.now()) {}
 
   run(): Tick | null {
     const steps: StepTiming[] = []
@@ -192,7 +191,6 @@ export class BusTick {
       return null
     if (poll.kind !== 'ticked')
       return { poll, reduced: null, derived: null, steps }
-    timed('intake', this.intake)
     const beforeRequests = timed('reduce', () => reduce(this.db, 'pending', this.projections))
     timed('WindowRequests', this.requests)
     const ts = this.clock().toISOString()
@@ -263,7 +261,7 @@ export function composeBusTick(db: DatabaseSync, busPath: string, gitHub: GitHub
     for (const line of silent.step())
       console.log(line)
   }
-  return { busTick: new BusTick(db, projections, new NetWatch(db, gitHub, clock), clock, decisionsIntakeOfBus(db, busPath, clock), answer, statuses, stalled) }
+  return { busTick: new BusTick(db, projections, new NetWatch(db, gitHub, clock), clock, answer, statuses, stalled) }
 }
 
 export function startBus(db: DatabaseSync, clock: () => Date): string[] {

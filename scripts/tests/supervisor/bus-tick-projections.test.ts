@@ -35,7 +35,7 @@ describe('the bus tick folds with the projection list it was given', () => {
     const db = openBus(':memory:')
     buses.push(db)
     const clock = new Clock()
-    const tick = new BusTick(db, { folds: [PR_FOLDS], incremental: [] }, new NetWatchThatTicks(db, new FakeGitHub().client, clock.now), clock.now, () => {}, prObservedBy(db, clock))
+    const tick = new BusTick(db, { folds: [PR_FOLDS], incremental: [] }, new NetWatchThatTicks(db, new FakeGitHub().client, clock.now), clock.now, prObservedBy(db, clock))
     expect(tick.run()?.reduced).toEqual({ applied: 1, rejected: 0 })
     expect(db.prepare('SELECT pr, head FROM prs').all().map(row => ({ ...row }))).toEqual([{ pr: PR, head: HEAD }])
   })
