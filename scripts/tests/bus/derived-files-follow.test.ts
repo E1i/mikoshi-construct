@@ -409,3 +409,19 @@ describe('the judgement of a derived file (D-592, narrowing D-514 to growth)', (
     expect(read(tree, KNOWN)).toBe(before)
   })
 })
+
+describe('the rerun runs only a registered derived-file rebuild (D-648)', () => {
+  it('a command off the closed list of rebuilds is refused and never spawned', async () => {
+    const { pnpmRerun } = await vi.importActual<typeof import('../../ports/git.js')>('../../ports/git.js')
+    const tree = room()
+    const marker = path.join(tree, 'spawned')
+    const offList = ['exec', 'node', '-e', `require('node:fs').writeFileSync(${JSON.stringify(marker)}, '')`]
+    const registeredWithAnExtraArgument = [...RATCHET_FILE.rebuild, '--write', marker]
+    for (const args of [offList, registeredWithAnExtraArgument]) {
+      const result = pnpmRerun(tree, args)
+      expect(result.status).toBeNull()
+      expect(result.stderr).toContain('is not a registered derived-file rebuild')
+    }
+    expect(existsSync(marker)).toBe(false)
+  })
+})

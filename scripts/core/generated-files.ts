@@ -153,6 +153,11 @@ export const REBUILT_ON_UPDATE: readonly { path: string, rebuild: readonly strin
   { path: RATCHET_FILE.path, rebuild: RATCHET_FILE.rebuild },
 ]
 
+export const REBUILD_COMMANDS: readonly (readonly string[])[] = [
+  ...ROWS.flatMap(row => row.rebuild === null ? [] : [row.rebuild]),
+  RATCHET_FILE.rebuild,
+]
+
 export const APPEND_ONLY_LOGS: readonly string[] = ['scripts/ci/sandbox-failing.jsonl']
 
 export const SHARED_APPEND_PATHS: readonly string[] = [...REBUILT_ON_UPDATE.map(row => row.path), ...APPEND_ONLY_LOGS]

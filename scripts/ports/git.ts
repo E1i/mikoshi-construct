@@ -3,6 +3,7 @@ import { execFile, execFileSync, spawnSync } from 'node:child_process'
 import { readFileSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { promisify } from 'node:util'
+import { commandLine, REBUILD_COMMANDS } from '../core/generated-files.js'
 
 export const TECHNOLOGY_WORDS = ['exec', 'git', 'porcelain'] as const
 
@@ -182,8 +183,15 @@ export interface TreeReading {
   rerun: (command: readonly string[], outputs: readonly string[]) => TreeRerun
 }
 
+function registeredRebuild(args: readonly string[]): readonly string[] | undefined {
+  return REBUILD_COMMANDS.find(command => command.length === args.length && command.every((word, index) => word === args[index]))
+}
+
 export function pnpmRerun(cwd: string, args: readonly string[]): { status: number | null, stderr: string } {
-  const run = spawnSync('pnpm', [...args], { cwd, encoding: 'utf8' })
+  const rebuild = registeredRebuild(args)
+  if (rebuild === undefined)
+    return { status: null, stderr: `refused: ${commandLine(args)} is not a registered derived-file rebuild` }
+  const run = spawnSync('pnpm', [...rebuild], { cwd, encoding: 'utf8' })
   return { status: run.status, stderr: run.error?.message ?? run.stderr }
 }
 

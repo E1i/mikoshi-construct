@@ -162,6 +162,7 @@
   "boundary:ports->session": 5,
   "boundary:ports->ui": 1,
   "boundary:ports->window": 2,
+  "boundary:ports-adapters->layout": 1,
   "boundary:pr-record->card-model": 2,
   "boundary:pr-record->card-record": 2,
   "boundary:pr-record->intake": 3,
