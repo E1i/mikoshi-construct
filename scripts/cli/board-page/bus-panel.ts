@@ -16,6 +16,7 @@ export interface BusPanelParts {
 }
 
 interface HealthRow {
+  node: string
   name: string
   health: Health
   reading: string
@@ -69,37 +70,39 @@ export function busDown(facts: BusFacts, freshMs: number): boolean {
 
 function reducerRow(lag: number | null): HealthRow {
   if (lag === null)
-    return { name: 'REDUCER', health: 'yellow', reading: 'no watermark' }
-  return { name: 'REDUCER', health: lag === 0 ? 'green' : lag <= REDUCER_LAG_RED ? 'yellow' : 'red', reading: `lag ${lag} events` }
+    return { node: 'reducer', name: 'REDUCER', health: 'yellow', reading: 'no watermark' }
+  return { node: 'reducer', name: 'REDUCER', health: lag === 0 ? 'green' : lag <= REDUCER_LAG_RED ? 'yellow' : 'red', reading: `lag ${lag} events` }
 }
 
 function snapshotRow(snapshot: PublishedSnapshot | null, now: string): HealthRow {
   const age = sinceMs(snapshot?.written, now)
   const tick = snapshot?.tickMs ?? null
   if (age === null)
-    return { name: 'SNAPSHOT', health: 'yellow', reading: 'not published' }
+    return { node: 'snapshot', name: 'SNAPSHOT', health: 'yellow', reading: 'not published' }
   const health: Health = tick === null || age > STALE_PUBLISHES * tick ? 'red' : age > tick ? 'yellow' : 'green'
-  return { name: 'SNAPSHOT', health, reading: `published ${ageOf(age)} ago` }
+  return { node: 'snapshot', name: 'SNAPSHOT', health, reading: `published ${ageOf(age)} ago` }
 }
 
 function netwatchRow(rate: number | null): HealthRow {
   if (rate === null)
-    return { name: 'NETWATCH', health: 'yellow', reading: 'no rate reading' }
-  return { name: 'NETWATCH', health: rate < RATE_RED ? 'red' : rate < RATE_YELLOW ? 'yellow' : 'green', reading: `rate ${rate} left` }
+    return { node: 'netwatch', name: 'NETWATCH', health: 'yellow', reading: 'no rate reading' }
+  return { node: 'netwatch', name: 'NETWATCH', health: rate < RATE_RED ? 'red' : rate < RATE_YELLOW ? 'yellow' : 'green', reading: `rate ${rate} left` }
 }
 
 function workersRow(panel: BusPanelFacts, now: string, freshMs: number): HealthRow {
   const expected = panel.workers.length
-  const alive = panel.workers.filter(worker => (sinceMs(worker.ts, now) ?? Number.POSITIVE_INFINITY) <= freshMs).length
+  const missing = panel.workers.filter(worker => (sinceMs(worker.ts, now) ?? Number.POSITIVE_INFINITY) > freshMs).map(worker => worker.process)
+  const alive = expected - missing.length
   const health: Health = expected > 0 && alive === expected ? 'green' : alive === 0 ? 'red' : 'yellow'
-  return { name: 'WORKERS', health, reading: `${alive}/${expected} alive` }
+  const reading = [`${alive}/${expected} alive`, missing.length === 0 ? null : `missing ${missing.join(', ')}`].filter(part => part !== null).join(' · ')
+  return { node: 'workers', name: 'BUS WORKERS', health, reading }
 }
 
 function alarmRow(panel: BusPanelFacts): HealthRow {
   const alarm = panel.alarm
   if (alarm === null)
-    return { name: 'ALARMS', health: 'green', reading: 'none open' }
-  return { name: 'ALARMS', health: 'red', reading: [alarm.reason ?? 'alarm', alarm.card === null ? null : `#${alarm.card}`].filter(part => part !== null).join(' · ') }
+    return { node: 'alarms', name: 'ALARMS', health: 'green', reading: 'none open' }
+  return { node: 'alarms', name: 'ALARMS', health: 'red', reading: [alarm.reason ?? 'alarm', alarm.card === null ? null : `#${alarm.card}`].filter(part => part !== null).join(' · ') }
 }
 
 function healthRows(parts: BusPanelParts, panel: BusPanelFacts): HealthRow[] {
@@ -110,7 +113,7 @@ function healthRows(parts: BusPanelParts, panel: BusPanelFacts): HealthRow[] {
     snapshotRow(parts.snapshot, facts.at),
     netwatchRow(panel.rateRemaining),
     workersRow(panel, facts.at, freshMs),
-    { name: 'WAITS', health: waits === 0 ? 'green' : 'yellow', reading: `${waits} open` },
+    { node: 'waits', name: 'WAITS', health: waits === 0 ? 'green' : 'yellow', reading: `${waits} open` },
     alarmRow(panel),
   ]
 }
@@ -119,20 +122,29 @@ function cell(name: string, title: string, body: string): string {
   return `<div class="bus-cell bevel" data-cell="${name}"><div class="bus-cell-head">${title}</div>${body}</div>`
 }
 
-function flowCell(panel: BusPanelFacts): string {
+function minuteOf(at: string): number {
+  return Math.floor(Date.parse(at) / MINUTE_MS)
+}
+
+function flowCell(panel: BusPanelFacts, at: string): string {
   const peak = Math.max(1, ...panel.minutes)
-  const bars = panel.minutes.map(count => `<i class="flow-bar" style="--_h:${Math.round(count / peak * PERCENT)}%" title="${count}"></i>`).join('')
-  return cell('flow', 'EVENT FLOW', `<div class="flow-rate"><b>${panel.minutes.at(-1) ?? 0}</b> events/min</div><div class="flow-bars">${bars}</div>`)
+  const bars = panel.minutes.map(count => `<i class="flow-bar" data-flow-bar style="--_h:${Math.round(count / peak * PERCENT)}%" title="${count}"></i>`).join('')
+  const strip = `<div class="flow-strip"><div class="flow-bars" data-flow-minute="${minuteOf(at)}" style="--_bars:${Math.max(1, panel.minutes.length)}">${bars}</div></div>`
+  return cell('flow', 'EVENT FLOW', `<div class="flow-rate"><b>${panel.minutes.at(-1) ?? 0}</b> events/min</div>${strip}`)
+}
+
+function familyRow(family: string, share: number, rank: number): string {
+  return `<li data-family="${escaped(family)}" data-rank="${rank}" data-share="${share}" style="--_rank:${rank};--_share:${share}%"><span>${escaped(family)}</span><span class="family-bar"></span><b>${share}%</b></li>`
 }
 
 function familiesCell(panel: BusPanelFacts): string {
   const total = Math.max(1, panel.familyTotal)
-  const rows = panel.families.map(({ family, count }) => `<li><span>${escaped(family)}</span><b>${Math.round(count / total * PERCENT)}%</b></li>`).join('')
-  return cell('families', 'TOP EVENTS · 30 MIN', rows === '' ? `<div class="svc-line">no events</div>` : `<ul class="bus-families">${rows}</ul>`)
+  const rows = panel.families.map(({ family, count }, rank) => familyRow(family, Math.round(count / total * PERCENT), rank)).join('')
+  return cell('families', 'TOP EVENTS · 30 MIN', rows === '' ? `<div class="svc-line">no events</div>` : `<ul class="bus-families" data-families style="--_rows:${panel.families.length}">${rows}</ul>`)
 }
 
 function healthCell(rows: readonly HealthRow[]): string {
-  return cell('health', 'NODE HEALTH', `<ul class="bus-health">${rows.map(row => `<li class="bevel" data-node="${row.name.toLowerCase()}" data-health="${row.health}"><span>${row.name}</span><b>${escaped(row.reading)}</b></li>`).join('')}</ul>`)
+  return cell('health', 'NODE HEALTH', `<ul class="bus-health">${rows.map(row => `<li class="bevel" data-node="${row.node}" data-health="${row.health}"><span>${row.name}</span><b>${escaped(row.reading)}</b></li>`).join('')}</ul>`)
 }
 
 function slotRow(slot: BusSlot): string {
@@ -166,7 +178,7 @@ function header(parts: BusPanelParts, panel: BusPanelFacts, down: boolean): stri
   return [
     `<div class="bus-head">${emblem()}`,
     `<span class="bus-title">${down ? 'BUS DOWN' : 'BUS LIVE'} V${panel.version}</span>`,
-    `<span class="bus-pulse">● ${down ? 'NO PULSE' : 'PULSE'} · ${age}</span>`,
+    `<span class="bus-pulse"><span class="pulse-dot">●</span> ${down ? 'NO PULSE' : 'PULSE'} · ${age}</span>`,
     `<span class="bus-meta">event ${event} · snapshot ${snapshot}</span></div>`,
   ].join('')
 }
@@ -180,6 +192,6 @@ function flatlined(parts: BusPanelParts, panel: BusPanelFacts): string {
 export function busPanel(parts: BusPanelParts): string {
   const panel = parts.facts.panel ?? NO_PANEL
   const down = busDown(parts.facts, parts.freshMs)
-  const body = down ? flatlined(parts, panel) : `<div class="bus-body">${[flowCell(panel), familiesCell(panel), healthCell(healthRows(parts, panel)), slotsCell(parts.facts.slots), recentCell(panel)].join('')}</div>`
+  const body = down ? flatlined(parts, panel) : `<div class="bus-body">${[flowCell(panel, parts.facts.at), familiesCell(panel), healthCell(healthRows(parts, panel)), slotsCell(parts.facts.slots), recentCell(panel)].join('')}</div>`
   return `<div class="bus-panel bevel"${down ? ' data-down' : ''} role="region" aria-label="bus">${header(parts, panel, down)}${body}</div>`
 }
