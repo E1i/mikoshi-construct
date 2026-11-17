@@ -12,6 +12,7 @@ const SHADOW_ROLE = 'shadow'
 const TAIL_ROLE = 'tail'
 const BUS_ROLE = 'bus'
 const QUEUED_ROLE = 'queued'
+const LANE_HEAD_ROLE = 'lane head'
 const WAITS_ROLE = 'waits for you'
 export const WINDOW_WAITS_ROLE = 'waits for the window'
 const CARDS_ROLE = 'cards'
@@ -189,6 +190,10 @@ export function queuedLines(facts: BusFacts, lore: Lore): string[] {
   return (facts.queued ?? []).map(standing => lore.boardServiceLine(QUEUED_ROLE, `#${standing.card}`, undefined, queuedLine(standing, now)))
 }
 
+export function laneHeadLines(facts: BusFacts, lore: Lore): string[] {
+  return (facts.laneHeads ?? []).map(head => lore.boardServiceLine(LANE_HEAD_ROLE, head.lane, undefined, `#${head.card} held: ${head.reason}`))
+}
+
 export function pulseLines(facts: BusFacts, lore: Lore): string[] {
   const pulse = facts.pulse === null ? 'no pulse recorded' : `pulse ${minutesSince(facts.pulse, facts.at)} min ago`
   return [lore.boardServiceLine(BUS_ROLE, 'pulse', undefined, `${pulse} \u00B7 slots in use: ${slotsReading(facts)}`)]
@@ -278,7 +283,7 @@ export interface Screens {
 export function boardScreens(facts: BusFacts, lore: Lore, all = false): Screens {
   return {
     screens: [
-      { title: lore.boardTabFlow, lines: [...goalLines(facts, lore), ...waitsLines(facts, lore), ...tailLines(facts, lore, all), ...behindCardsLines(facts, lore), ...tallyLines(facts.cards), ...flowLines(facts.cards, lore), ...flowHintLines(facts.cards, lore)] },
+      { title: lore.boardTabFlow, lines: [...goalLines(facts, lore), ...waitsLines(facts, lore), ...tailLines(facts, lore, all), ...laneHeadLines(facts, lore), ...behindCardsLines(facts, lore), ...tallyLines(facts.cards), ...flowLines(facts.cards, lore), ...flowHintLines(facts.cards, lore)] },
       { title: lore.boardTabBacklog, lines: [...behindCardsLines(facts, lore), ...backlogLines(backlogCards(facts.cards, facts.at, all), lore, facts.cards, facts.waits)] },
       { title: lore.boardTabServices, lines: [...servicesLines(facts, lore), ...queuedLines(facts, lore), ...pulseLines(facts, lore), ...matrixLines(facts, lore), ...groupLines(facts, lore)] },
     ],
