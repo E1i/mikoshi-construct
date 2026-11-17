@@ -79,15 +79,28 @@ describe('the bus panel', () => {
     }, 5, REDUCER_LAG)
     const panel = busPanelOf(html)
     expect(panel).toContain('BUS LIVE V1')
-    expect(panel).toContain('● PULSE · 10s')
+    expect(panel).toContain('<span class="pulse-dot">●</span> PULSE · 10s')
     expect(cellOf(panel, 'flow')).toContain('<div class="flow-rate"><b>4</b> events/min</div>')
     expect(cellOf(panel, 'flow').match(/class="flow-bar"/g)).toHaveLength(30)
     expect(panel).toContain(`<li class="bevel" data-node="reducer" data-health="yellow"><span>REDUCER</span><b>lag ${REDUCER_LAG} events</b></li>`)
     expect(panel).toContain('<li class="bevel" data-node="snapshot" data-health="red"><span>SNAPSHOT</span><b>published 5m ago</b></li>')
     expect(panel).toContain('<li class="bevel" data-node="netwatch" data-health="green"><span>NETWATCH</span><b>rate 4200 left</b></li>')
-    expect(panel).toContain('<li class="bevel" data-node="workers" data-health="green"><span>WORKERS</span><b>1/1 alive</b></li>')
+    expect(panel).toContain('<li class="bevel" data-node="workers" data-health="green"><span>BUS WORKERS</span><b>1/1 alive</b></li>')
     expect(panel).toContain('<li data-slot-queue="launch" data-used="3" data-total="3" data-full><span>LAUNCH</span><span class="slot-segs"><i data-seg data-on></i><i data-seg data-on></i><i data-seg data-on></i></span><b>3/3</b></li>')
-    expect(cellOf(panel, 'families')).toContain('<li><span>review</span><b>40%</b></li>')
+    expect(cellOf(panel, 'families')).toContain('<li data-family="review" data-rank="1" data-share="40" style="--_rank:1;--_share:40%"><span>review</span><span class="family-bar"></span><b>40%</b></li>')
+  })
+
+  it('every top events row carries its share bar', () => {
+    const families = cellOf(busPanelOf(pageOf({ events: [tick(70), event(60, 'review.verdict', 7), event(50, 'pr.merged', 9), tick(10)] }).html), 'families')
+    const rows = families.match(/<li data-family=/g) ?? []
+    expect(rows).toHaveLength(3)
+    expect(families.match(/<span class="family-bar"><\/span>/g)).toHaveLength(rows.length)
+    expect(families).toContain('<ul class="bus-families" data-families style="--_rows:3">')
+  })
+
+  it('the event flow strip carries the minute of its newest bar', () => {
+    const flow = cellOf(busPanelOf(pageOf({ events: [tick(70), tick(10)] }).html), 'flow')
+    expect(flow).toContain(`<div class="flow-bars" data-flow-minute="${Math.floor(NOW.getTime() / MINUTE_MS)}" style="--_bars:30">`)
   })
 
   it('a reducer at the last event is green and a snapshot inside one interval is green', () => {
@@ -104,8 +117,8 @@ describe('the bus panel', () => {
 
   it('top events lists only the four busiest families', () => {
     const panel = busPanelOf(pageOf({ events: [tick(70), event(60, 'review.verdict', 7), event(50, 'review.verdict', 8), event(40, 'card.stopped', 8), event(30, 'pr.merged', 9), event(20, 'task.leased', 9), tick(10)] }).html)
-    const families = [...cellOf(panel, 'families').matchAll(/<li><span>([^<]+)<\/span>/g)].map(match => match[1])
-    expect(families).toEqual(['netwatch', 'review', 'card', 'pr'])
+    const families = [...cellOf(panel, 'families').matchAll(/<li data-family="([^"]+)" data-rank="(\d+)"/g)].map(match => [match[1], Number(match[2])])
+    expect(families).toEqual([['netwatch', 0], ['review', 1], ['card', 2], ['pr', 3]])
   })
 
   it('a low GitHub rate reads NETWATCH red', () => {
@@ -113,9 +126,14 @@ describe('the bus panel', () => {
     expect(panel).toContain('<li class="bevel" data-node="netwatch" data-health="red"><span>NETWATCH</span><b>rate 50 left</b></li>')
   })
 
-  it('no worker alive reads WORKERS red', () => {
+  it('no worker alive reads BUS WORKERS red and names the missing one', () => {
     const panel = busPanelOf(pageOf({ beats: [{ ...LAUNCH_BEAT, ts: secondsAgo(7200) }], events: [tick(70), tick(10)] }).html)
-    expect(panel).toContain('<li class="bevel" data-node="workers" data-health="red"><span>WORKERS</span><b>0/1 alive</b></li>')
+    expect(panel).toContain('<li class="bevel" data-node="workers" data-health="red"><span>BUS WORKERS</span><b>0/1 alive · missing launch-node</b></li>')
+  })
+
+  it('one silent worker of two reads BUS WORKERS yellow and names only it', () => {
+    const panel = busPanelOf(pageOf({ beats: [LAUNCH_BEAT, { ...LAUNCH_BEAT, process: 'review-node', ts: secondsAgo(7200) }], events: [tick(70), tick(10)] }).html)
+    expect(panel).toContain('<li class="bevel" data-node="workers" data-health="yellow"><span>BUS WORKERS</span><b>1/2 alive · missing review-node</b></li>')
   })
 
   it('recent activity skips session.heartbeat and netwatch.tick', () => {
@@ -153,7 +171,7 @@ describe('the bus panel', () => {
     const panel = busPanelOf(html)
     expect(panel).toContain('<div class="bus-panel bevel" data-down role="region" aria-label="bus">')
     expect(panel).toContain('BUS DOWN V1')
-    expect(panel).toContain('● NO PULSE · 3m')
+    expect(panel).toContain('●</span> NO PULSE · 3m')
     expect(panel).toContain('<span class="flatline-stamp">FLATLINED</span><span class="flatline-line">NO PULSE · NODES SILENT</span>')
     expect(panel).toContain('last event #2 · 3m · start the bus with pnpm bus:run')
     expect(panel).not.toMatch(/bus-body|NODE HEALTH|EVENT FLOW/)
@@ -162,7 +180,7 @@ describe('the bus panel', () => {
   it('a bus that never pulsed is down', () => {
     const panel = busPanelOf(pageOf({}).html)
     expect(panel).toContain('BUS DOWN V1')
-    expect(panel).toContain('● NO PULSE · —')
+    expect(panel).toContain('●</span> NO PULSE · —')
     expect(panel).toContain('last event — · — · start the bus with pnpm bus:run')
   })
 })
