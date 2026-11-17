@@ -7,6 +7,8 @@ import { CLIENT_ENV_PREFIXES, compactWindowOverlay } from './client/claude/adapt
 import { clientAdapter } from './client/index.js'
 import { PREPARE_ENV_KEYS } from './prepare-tree.js'
 
+export { WIDE_VITEST_RULE } from './wide-vitest-guard.js'
+
 export const TECHNOLOGY_WORDS = ['argv', 'spawn', 'stderr', 'stdout'] as const
 
 export function clientInvocation(spec: SessionSpec): Invocation {

@@ -396,6 +396,7 @@ describe('w1: task:start cuts the tree and writes the start', () => {
       started: NOW.toISOString(),
       session: SESSION,
       worktree,
+      base: git(worktree, ['rev-parse', 'HEAD']).trim(),
       tree_origin: 'cut',
       branch: 'feat/t1',
       card: { id: 101, name: 'task-card', kind: 'implement', milestone: 'ghosts', size: 'M', contour: 'cheap', decision: 'owner', depends: [86], blocks: [124], line },
@@ -642,8 +643,8 @@ describe('task:start --adopt takes an existing tree instead of cutting one', () 
     expect(result.exitCode).toBe(0)
     expect(result.worktree).toBe(tree)
     expect(installs).toEqual([])
-    expect(calls.map(args => args[0])).toEqual(['rev-parse', 'rev-parse'])
-    expect(starts(world)).toMatchObject([{ worktree: tree, adopts: tree, branch: 'feat/a1', admission: { by: 'bus' }, entry: { ACTION: `task:start feat/a1 #51: adopts ${tree}; card.started written to ${world.bus}` } }])
+    expect(calls.map(args => args.join(' '))).toEqual([expect.stringMatching(/^rev-parse /), expect.stringMatching(/^rev-parse /), 'rev-parse HEAD'])
+    expect(starts(world)).toMatchObject([{ worktree: tree, adopts: tree, base: git(tree, ['rev-parse', 'HEAD']).trim(), branch: 'feat/a1', admission: { by: 'bus' }, entry: { ACTION: `task:start feat/a1 #51: adopts ${tree}; card.started written to ${world.bus}` } }])
     expect(result.stdout.join('\n')).toContain(`adopts ${tree}`)
     expect(result.stdout.join('\n')).not.toContain('from origin/main')
   })

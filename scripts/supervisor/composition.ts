@@ -13,7 +13,8 @@ import type { DerivedHolds, ThresholdSet } from '../nodes/update/update-executor
 import type { WitnessParts } from '../nodes/witness/witness-candidates.js'
 import type { InForceDecision } from '../policy/decisions/index.js'
 import type { GitHub } from '../ports/github.js'
-import type { PlanActors } from '../window/plan-folds.js'
+import type { PlanParts } from '../window/plan-folds.js'
+import type { CardWaitParts } from './card-waits.js'
 import type { QueuePass } from './derive-queues.js'
 import type { SessionMeasure } from './heartbeat.js'
 import { randomUUID } from 'node:crypto'
@@ -22,17 +23,20 @@ import process from 'node:process'
 import { PRIORITIES, WINDOW_WHO } from '../../src/card/parking.js'
 import { witnessesOf } from '../../src/commands/intake/admit.js'
 import { driftOfRun } from '../ci/weights-law.js'
-import { CARD_FOLDS, CARDS_PROJECTION } from '../core/card-automaton.js'
-import { admittedCardVersion } from '../core/card-bodies.js'
+import { CARD_FOLDS, cardLinkObserved, cardPrMerged, cardPrOpened, CARDS_PROJECTION } from '../core/card-automaton.js'
+import { admittedCardVersion, cardOfBranch } from '../core/card-bodies.js'
 import { cardDecisionReads, reviewedUnderTheCardDecision, reviewsTheCardDecisionReopens, withDecidedContinuations } from '../core/card-decisions.js'
 import { CHAINS_PROJECTION } from '../core/chain.js'
 import { CARD_PLANNED, CARD_UNPLANNED, PLAN_BACKFILLED, PLAN_CLOSED, PLAN_ITEM_ADDED, PLAN_ITEM_LINKED, PLAN_ITEM_REMOVED, PLAN_OPENED, PR_OBSERVED, PR_OPENED, RATCHET_THRESHOLD_SET } from '../core/events.js'
+import { isFullSha, prOf } from '../core/identifiers.js'
 import { OWNER, ownerQuestionAnswered } from '../core/inbox.js'
 import { foreignVersion, instanceOf, provenIdentity, recordWorkerIdentity, UNHANDED } from '../core/node.js'
 import { orderDeclarationsAt, overlaps } from '../core/order/overlap.js'
+import { ownerWaitCommand } from '../core/owner-commands.js'
+import { prFolds, prRow } from '../core/pr-folds.js'
 import { keyOf, reviewCandidates, taskRow, TASKS_PROJECTION } from '../core/queue.js'
-import { CARD_END_FOLDS, OWNER_WAIT_FOLDS, PR_FOLDS } from '../core/reducer.js'
-import { storedByKey } from '../core/stored.js'
+import { ownerWaitFolds } from '../core/reducer.js'
+import { payloadOf, storedByKey } from '../core/stored.js'
 import { BusWeightsRecompute } from '../intake/intake.js'
 import { answerSource } from '../nodes/answer/answer-candidates.js'
 import { LAUNCH_SOURCE } from '../nodes/launch/launch-candidates.js'
@@ -42,7 +46,8 @@ import { WeightsDriftWatch } from '../nodes/merge/weights-drift.js'
 import { ROLES_PROJECTION } from '../nodes/restart/role.js'
 import { updateCandidates, updateSource } from '../nodes/update/update-candidates.js'
 import { witnessSource } from '../nodes/witness/witness-candidates.js'
-import { DECISION_FOLDS } from '../policy/decisions/index.js'
+import { archiveSpentDecisions, DECISION_FOLDS } from '../policy/decisions/index.js'
+import { answersOfTheDecisions } from '../policy/decisions/wait-folds.js'
 import { mayRequeueUnderTheRounds, mergeDecidedPastRoundLimit, outOfRounds, RECUT_ACTOR, REVIEWS_OF_A_PR } from '../policy/round-limit-decision.js'
 import { decisionsInForceAt, unspentShardsOf, WINDOW_SHARDS_LIVE_AT, withDecisionsHeldAt } from '../policy/shards.js'
 import { derivedHoldOf } from '../policy/touch-scope.js'
@@ -53,6 +58,7 @@ import { CHECK_MS, TICK_MS } from '../ports/netwatch.js'
 import { launchDirOf } from '../ports/tree-publish.js'
 import { foldPlanEvent } from '../window/plan-folds.js'
 import { releasingTakeoverOnPush } from '../window/takeover-push-release.js'
+import { cardWaitFolds, closeWaitsOfAnEndedCard, closingTheWaitsOfAClosedPr } from './card-waits.js'
 import { causeGoneSource, derivedQueues, DOWNGRADE_PARKED_SOURCE, dueAgainSource, NO_CARD_TREE_SOURCE, restartSource, SETTLE_SOURCE, stopNoLongerHoldsSource } from './derive-queues.js'
 import { busSessionPulse, heartbeatEnv, measureCardSession, ownStart, recordProcessHeartbeat } from './heartbeat.js'
 import { SILENT_MS } from './liveness-sites.js'
@@ -117,10 +123,10 @@ export function launchSessionEnv(cardId: number): Record<string, string> {
   return heartbeatEnv({ cardId, pr: null, head: null, queue: 'launch' })
 }
 
-const PLAN_ACTORS: PlanActors = { owner: OWNER, recut: RECUT_ACTOR }
+const PLAN_PARTS: PlanParts = { owner: OWNER, recut: RECUT_ACTOR, payloadOf }
 
 function foldPlanByItsActors(db: DatabaseSync, event: StoredEvent): void {
-  foldPlanEvent(db, event, PLAN_ACTORS)
+  foldPlanEvent(db, event, PLAN_PARTS)
 }
 
 const PLAN_FOLDS: Record<string, Fold> = {
@@ -144,9 +150,26 @@ export function derivedHolds(db: DatabaseSync): DerivedHolds {
   return (cardId, scope, files) => derivedHoldOf(scope, files, () => cardTreeReading(db, cardId))
 }
 
+function cardWaitParts(): CardWaitParts {
+  return { archiveSpentDecisions, prRow }
+}
+
+export function busPrFolds(): Record<string, Fold> {
+  return prFolds({
+    transitions: { linkObserved: cardLinkObserved, prMerged: cardPrMerged, prOpened: cardPrOpened },
+    fields: { isFullSha, prOf },
+    cardOfBranch,
+    closed: closingTheWaitsOfAClosedPr(cardWaitParts()),
+  })
+}
+
+export function busOwnerWaitFolds(): Record<string, Fold> {
+  return ownerWaitFolds({ commandOf: ownerWaitCommand, decisionFolds: DECISION_FOLDS, answersOfTheDecisions, closeWaitsOfAnEndedCard })
+}
+
 export function busProjections(): Projections {
   return {
-    folds: [releasingTakeoverOnPush(PR_FOLDS, [PR_OBSERVED, PR_OPENED], db => new BusRead(db)), TASKS_PROJECTION.folds, CHAINS_PROJECTION.folds, ROLES_PROJECTION.folds, DECISION_FOLDS, CARD_FOLDS, OWNER_WAIT_FOLDS, PLAN_FOLDS, CARD_END_FOLDS],
+    folds: [releasingTakeoverOnPush(busPrFolds(), [PR_OBSERVED, PR_OPENED], db => new BusRead(db)), TASKS_PROJECTION.folds, CHAINS_PROJECTION.folds, ROLES_PROJECTION.folds, DECISION_FOLDS, CARD_FOLDS, busOwnerWaitFolds(), PLAN_FOLDS, cardWaitFolds(cardWaitParts())],
     incremental: [ROLES_PROJECTION, TASKS_PROJECTION, CHAINS_PROJECTION, CARDS_PROJECTION],
   }
 }

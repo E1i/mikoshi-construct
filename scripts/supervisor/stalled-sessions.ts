@@ -4,9 +4,10 @@ import type { BudgetLine } from '../core/eddies.js'
 import type { Lease } from '../core/lease.js'
 import type { GitRunner } from '../ports/git.js'
 import type { ProcessTable } from '../ports/process-table.js'
-import type { ActionOf, LeasedRound } from './expected-time.js'
+import type { ActionOf, LeasedRound, UnendedStart } from './expected-time.js'
 import type { LeaseBeat } from './heartbeat.js'
 import type { LifeOf, SessionLife } from './recorded-worker.js'
+import path from 'node:path'
 import { appendEvent } from '../core/db.js'
 import { spendStopOf } from '../core/eddies.js'
 import { messageOf } from '../core/errors.js'
@@ -15,7 +16,7 @@ import { releaseTask } from '../core/lease.js'
 import { LEASED } from '../core/queue.js'
 import { processGit } from '../ports/git.js'
 import { OsProcessTable } from '../ports/process-table.js'
-import { RoundOverTime } from './expected-time.js'
+import { firstPushAfter, firstReleaseAfter, RoundOverTime, unendedStarts } from './expected-time.js'
 import { beatsOfLease } from './heartbeat.js'
 import { transcriptActionIn } from './session-view.js'
 import { signal } from './supervisor.js'
@@ -79,6 +80,65 @@ const CARD_TREE = `
   ORDER BY id DESC LIMIT 1
 `
 
+export const UNDRIVEN_AFTER_MS = STALLED_AFTER_MS
+
+const UNDRIVEN_MARK = 'session-over'
+
+interface SessionEnd {
+  pr: number | null
+  head: string | null
+  detail: string
+}
+
+function insideTree(dir: string, tree: string): boolean {
+  return dir === tree || dir.startsWith(`${tree}${path.sep}`)
+}
+
+export function treeLives(table: ProcessTable, tree: string): boolean | null {
+  const cwds = table.clientCwds()
+  if (cwds.kind === 'unreadable')
+    return null
+  if (cwds.cwds.some(cwd => insideTree(cwd, tree)))
+    return true
+  const snapshot = table.snapshot()
+  if (!snapshot.readable)
+    return null
+  return snapshot.rows.some(row => row.command.split(/\s+/).some(word => insideTree(word, tree)))
+}
+
+export class UndrivenSessions {
+  constructor(private readonly db: DatabaseSync, private readonly trees: ProcessTable, private readonly prefix: string = '', private readonly roundMs: number = UNDRIVEN_AFTER_MS) {}
+
+  sweep(nowMs: number): string[] {
+    return unendedStarts(this.db).flatMap((start) => {
+      const end = this.endOf(start, nowMs)
+      return end !== null && this.record(start, end, nowMs) ? [`${this.prefix}${CARD_SESSION_ENDED} #${start.card_id}: ${end.detail}`] : []
+    })
+  }
+
+  private endOf(start: UnendedStart, nowMs: number): SessionEnd | null {
+    const named = `the session started at event ${start.id}`
+    const push = firstPushAfter(this.db, start)
+    if (push !== null)
+      return { pr: push.pr, head: push.head, detail: `${named} pushed ${push.head}${push.pr === null ? '' : ` to PR #${push.pr}`}, over its base ${start.base ?? 'not recorded'}, so the bus records its end` }
+    const release = firstReleaseAfter(this.db, start)
+    if (release !== null)
+      return { pr: null, head: null, detail: `${named} was released at event ${release}, so the bus records its end` }
+    return this.undriven(start, named, nowMs)
+  }
+
+  private undriven(start: UnendedStart, named: string, nowMs: number): SessionEnd | null {
+    const minutes = Math.floor((nowMs - Date.parse(start.ts)) / 60_000)
+    if (start.worktree === null || nowMs - Date.parse(start.ts) < this.roundMs || treeLives(this.trees, start.worktree) !== false)
+      return null
+    return { pr: null, head: null, detail: `${named} ran ${minutes} min, past its round time of ${Math.floor(this.roundMs / 60_000)} min, and no live process runs in its tree ${start.worktree}, so the bus records its end` }
+  }
+
+  private record(start: UnendedStart, end: SessionEnd, nowMs: number): boolean {
+    return appendEvent(this.db, { ts: new Date(nowMs).toISOString(), type: CARD_SESSION_ENDED, actor: STALLED_ACTOR, cardId: start.card_id, pr: end.pr, head: end.head, dedupeKey: `${CARD_SESSION_ENDED}:${UNDRIVEN_MARK}:${start.id}`, payload: { session: start.session, stopped: false, detail: end.detail }, legacy: false })
+  }
+}
+
 interface LeasedRow {
   task_key: string
   queue: SupervisedQueue
@@ -121,6 +181,7 @@ export interface StalledSessionPorts {
   lines?: Readonly<Record<SupervisedQueue, number>>
   prefix?: string
   pulseOf?: PulseOf
+  trees?: ProcessTable
 }
 
 export function lastProgress(leasedAt: string, beats: readonly LeaseBeat[], pushed: string | null): string {
@@ -250,6 +311,7 @@ export class StalledSessions {
   private readonly pulseOf: PulseOf
   private readonly pulses = new Map<string, { pulse: string, at: string }>()
   private readonly overTime: OverTime
+  private readonly undriven: UndrivenSessions
 
   constructor(private readonly db: DatabaseSync, private readonly clock: () => Date, private readonly ports: StalledSessionPorts) {
     this.overTime = ports.overTime ?? new RoundOverTime(db, clock, actionInCardTree(db, clock))
@@ -259,6 +321,7 @@ export class StalledSessions {
     this.save = ports.save ?? saveCardTreeIn(db)
     this.prefix = ports.prefix ?? ''
     this.pulseOf = ports.pulseOf ?? pulseIn(new OsProcessTable())
+    this.undriven = new UndrivenSessions(db, ports.trees ?? new OsProcessTable(), this.prefix)
   }
 
   step(): string[] {
@@ -266,11 +329,24 @@ export class StalledSessions {
     if (nowMs - this.lastSweep < STALLED_SWEEP_MS)
       return []
     this.lastSweep = nowMs
+    return [...this.sweepSilent(nowMs), ...this.sweepUndriven(nowMs)]
+  }
+
+  private sweepSilent(nowMs: number): string[] {
     try {
       return this.sweep(nowMs)
     }
     catch (error) {
       return [`${this.prefix}reading the silent card sessions failed: ${messageOf(error)}; retried on the next sweep`]
+    }
+  }
+
+  private sweepUndriven(nowMs: number): string[] {
+    try {
+      return this.undriven.sweep(nowMs)
+    }
+    catch (error) {
+      return [`${this.prefix}reading the card sessions nobody drives failed: ${messageOf(error)}; retried on the next sweep`]
     }
   }
 

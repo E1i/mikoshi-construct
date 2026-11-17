@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { appendEvent, openBus } from '../../scripts/core/db.js'
 import { CARD_PLANNED, CARD_UNPLANNED, PLAN_CLOSED, PLAN_OPENED } from '../../scripts/core/events.js'
 import { OWNER } from '../../scripts/core/inbox.js'
-import { STORED_COLUMNS, storedByKey } from '../../scripts/core/stored.js'
+import { payloadOf, STORED_COLUMNS, storedByKey } from '../../scripts/core/stored.js'
 import { RECUT_ACTOR } from '../../scripts/policy/round-limit-decision.js'
 import { foldPlanEvent } from '../../scripts/window/plan-folds.js'
 import { droppedLine, goalOf, planLine } from '../../src/commands/board/goal.js'
@@ -54,7 +54,7 @@ class Bench {
 
   plan(type: string, payload: Record<string, unknown>, cardId: number | null = null): this {
     const id = this.event(type, NOW.toISOString(), payload, OWNER, cardId)
-    foldPlanEvent(this.db, this.db.prepare(`SELECT ${STORED_COLUMNS} FROM events WHERE id = ?`).get(id) as unknown as StoredEvent, { owner: OWNER, recut: RECUT_ACTOR })
+    foldPlanEvent(this.db, this.db.prepare(`SELECT ${STORED_COLUMNS} FROM events WHERE id = ?`).get(id) as unknown as StoredEvent, { owner: OWNER, recut: RECUT_ACTOR, payloadOf })
     return this
   }
 

@@ -4,6 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { browserLabExcludedCommand, browserLabInstalledScript, SETTINGS_FILE } from '../../src/commands/attach/settings.js'
 import { isJsonObject } from '../../src/materialize/strategies.js'
+import { WIDE_VITEST_HOOKS } from './wide-vitest-guard.js'
 
 const SANDBOX_UID = os.userInfo().uid
 
@@ -25,6 +26,7 @@ export interface ShiftSettings {
   sandbox: typeof CARD_SESSION_SANDBOX & { excludedCommands?: string[], filesystem?: { denyWrite: string[] } }
   permissions: { allow: string[], deny?: string[] }
   env: typeof SESSION_BASH_CAP
+  hooks: typeof WIDE_VITEST_HOOKS
 }
 
 function excludes(file: string, entry: string): boolean {
@@ -74,13 +76,14 @@ export function shiftSettings(tree: string, gate: ShiftGate, writable: string[] 
   const entry = browserLabExcludedCommand(home)
   const excluded = existsSync(browserLabInstalledScript(home)) && (REPOSITORY_SETTINGS_FILES.some(file => excludes(path.join(tree, file), entry)) || mainCheckoutExcludes(tree, entry))
   if (!excluded)
-    return { sandbox: CARD_SESSION_SANDBOX, permissions: { allow }, env: SESSION_BASH_CAP }
+    return { sandbox: CARD_SESSION_SANDBOX, permissions: { allow }, env: SESSION_BASH_CAP, hooks: WIDE_VITEST_HOOKS }
   const lab = path.join(tree, BROWSER_LAB_SCRIPT)
   const labHome = path.join(home, '.construct', 'browser-lab')
   return {
     sandbox: { ...CARD_SESSION_SANDBOX, excludedCommands: [entry], filesystem: { denyWrite: [lab, labHome] } },
     permissions: { allow, deny: [`Edit(/${lab})`, `Edit(/${labHome}/**)`] },
     env: SESSION_BASH_CAP,
+    hooks: WIDE_VITEST_HOOKS,
   }
 }
 

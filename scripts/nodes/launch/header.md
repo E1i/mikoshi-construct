@@ -13,6 +13,8 @@ line instead, naming that decision: the bus opens it as a wait for the window, n
   these paths is not yours to edit, even to fix it.
 - Open the paths this task declares first, and read only those, the tests importing them and the files
   the task names. Do no survey of the repository.
+- Run by hand only the witness tests and the tests of the files you touched; prepush and CI run the rest. Never pass whole test directories to vitest by hand: name the test files.
+  A guard in the session refuses a vitest command that names no test file or more than 3 test directories.
 - Never approve a workflow run and never run `gh pr merge` yourself. The first line of the pull request's
   description is the task's card:
   `{{card}}`
