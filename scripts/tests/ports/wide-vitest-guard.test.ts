@@ -30,6 +30,12 @@ const VERDICTS: Record<string, 'allow' | 'refuse'> = {
   'pnpm --silent run test scripts/tests/bus/answerer.test.ts': 'allow',
   'pnpm test scripts/tests/bus/answerer.test.ts': 'allow',
   'pnpm typecheck': 'allow',
+  'pnpm exec vitest run scripts/tests/bus/*.test.ts': 'refuse',
+  'pnpm exec vitest run scripts/tests/ports/wide-vitest-guard.test.ts scripts/tests/bus/answer?r.test.ts': 'refuse',
+  'pnpm exec vitest run scripts/tests/bus/[a-c]*.test.ts': 'refuse',
+  'pnpm exec vitest run scripts/tests/{bus,core}/x.test.ts': 'refuse',
+  'pnpm test \'scripts/tests/bus/**/*.test.ts\'': 'refuse',
+  'pnpm exec vitest run -t "a* b?" scripts/tests/shift/prompt.test.ts': 'allow',
 }
 
 describe('the wide-vitest guard', () => {
@@ -46,6 +52,12 @@ describe('the wide-vitest guard', () => {
     expect(noFile.kind === 'refuse' && noFile.reason).toContain('names no test file')
     expect(noFile.kind === 'refuse' && noFile.reason).toContain(WIDE_VITEST_RULE)
     expect(fileLevel).toEqual({ kind: 'allow' })
+  })
+
+  it('a test-file glob is refused', () => {
+    const verdict = vitestVerdict('pnpm exec vitest run scripts/tests/bus/*.test.ts')
+    expect(verdict.kind === 'refuse' && verdict.reason).toContain('scripts/tests/bus/*.test.ts')
+    expect(verdict.kind === 'refuse' && verdict.reason).toContain(WIDE_VITEST_RULE)
   })
 
   it('answers a refused Bash call with a PreToolUse deny that names the rule, and stays silent otherwise', () => {

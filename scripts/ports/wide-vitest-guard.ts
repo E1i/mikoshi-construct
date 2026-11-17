@@ -20,6 +20,7 @@ const REDIRECTION_WITHOUT_TARGET = /^\d*(?:<|>>?)$/
 const TEST_SCRIPT = 'test'
 const VITEST_WORD = /(?:^|\/)vitest$/
 const TEST_FILE = /\.(?:test|spec)\.[cm]?[jt]sx?(?::\d+)?$/
+const GLOB_CHARACTER = /[*?[{]/
 const SUBCOMMANDS = new Set(['dev', 'related', 'watch', 'run'])
 const OPTIONS_WITH_A_VALUE = new Set(['-t', '--testNamePattern', '-c', '--config', '--reporter', '-r', '--root', '--dir', '--project', '--shard', '--outputFile', '--pool', '--environment', '--exclude', '--mode', '--maxWorkers', '--minWorkers', '--testTimeout'])
 const LAUNCHERS = new Set(['pnpm', 'npx', 'yarn', 'bunx', 'npm', 'exec', 'run', 'dlx', '--silent', '-s', '--'])
@@ -109,6 +110,9 @@ function segmentVerdict(args: readonly string[]): VitestVerdict {
   if (args.some(arg => ASKS_NO_RUN.has(arg)))
     return { kind: 'allow' }
   const positionals = positionalsOf(args)
+  const glob = positionals.find(arg => GLOB_CHARACTER.test(arg))
+  if (glob !== undefined)
+    return refusal(`this vitest command names the glob ${glob}, which the shell expands to a whole directory`)
   const files = positionals.filter(arg => TEST_FILE.test(arg))
   const directories = positionals.length - files.length
   if (directories > MAX_TEST_DIRECTORIES)
