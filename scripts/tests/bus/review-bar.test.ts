@@ -173,9 +173,12 @@ describe('a surviving mutation, second bar', () => {
     expect(mutationOnlyFindings(changes([` ${MUTATION} `], [MUTATION]))).toEqual([` ${MUTATION} `])
   })
 
-  it('a pass files nothing', () => {
-    const review: Review = { verdict: 'pass', findings: [MUTATION], survivingMutations: [MUTATION], session: 's-1' }
-    expect(mutationOnlyFindings(review)).toBeNull()
+  it('a pass the reviewer returned files its findings as a changes verdict does, and a clean pass files nothing', () => {
+    const pass = (findings: string[], survivingMutations?: string[]): Review => ({ ...changes(findings, survivingMutations), verdict: 'pass' })
+    expect(mutationOnlyFindings(pass([MUTATION], [MUTATION]))).toEqual([MUTATION])
+    expect(mutationOnlyFindings(pass([MUTATION, DEFECT], [MUTATION]))).toBeNull()
+    expect(mutationOnlyFindings(pass([], [MUTATION]))).toBeNull()
+    expect(mutationOnlyFindings(pass([]))).toBeNull()
   })
 })
 

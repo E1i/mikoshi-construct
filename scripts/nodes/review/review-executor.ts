@@ -378,8 +378,8 @@ export class ReviewExecutor {
       return { review: passed, tailCard: tail.file({ parent: lease.cardId, pr: lease.pr, head: lease.head, taskKey: lease.taskKey, findings: mutations }) }
     }
     catch (error) {
-      console.error(`${PREFIX}PR #${lease.pr}: every finding is a surviving mutation, but the tail card was not filed, so the verdict stays changes: ${error instanceof Error ? error.message : String(error)}`)
-      return { review, tailCard: null }
+      console.error(`${PREFIX}PR #${lease.pr}: every finding is a surviving mutation, but the tail card was not filed, so the verdict is changes: ${error instanceof Error ? error.message : String(error)}`)
+      return { review: { ...review, verdict: 'changes' }, tailCard: null }
     }
   }
 
