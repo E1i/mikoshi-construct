@@ -1,0 +1,8 @@
+{
+  "event": "card.unplanned",
+  "constant": "CARD_UNPLANNED",
+  "payload": [
+    "card",
+    "request"
+  ]
+}

@@ -1,0 +1,7 @@
+{
+  "event": "process.ended",
+  "constant": "PROCESS_ENDED",
+  "payload": [
+    "process"
+  ]
+}

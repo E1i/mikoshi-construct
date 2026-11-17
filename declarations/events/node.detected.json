@@ -1,0 +1,10 @@
+{
+  "event": "node.detected",
+  "constant": "NODE_DETECTED",
+  "payload": [
+    "event_id",
+    "key",
+    "outcome",
+    "via"
+  ]
+}

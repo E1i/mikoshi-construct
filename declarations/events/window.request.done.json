@@ -1,0 +1,9 @@
+{
+  "event": "window.request.done",
+  "constant": "REQUEST_DONE",
+  "payload": [
+    "detail",
+    "kind",
+    "request"
+  ]
+}

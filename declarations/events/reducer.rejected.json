@@ -1,0 +1,9 @@
+{
+  "event": "reducer.rejected",
+  "constant": "REJECTED",
+  "payload": [
+    "event_id",
+    "reason",
+    "type"
+  ]
+}

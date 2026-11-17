@@ -1,0 +1,12 @@
+{
+  "event": "checks.matrix",
+  "constant": "CHECKS_MATRIX_EVENT",
+  "payload": [
+    "full",
+    "killed",
+    "notRun",
+    "skipped",
+    "summary",
+    "survived"
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "event": "artifact.kept",
+  "constant": "ARTIFACT_KEPT",
+  "payload": [
+    "by",
+    "parked",
+    "path"
+  ]
+}

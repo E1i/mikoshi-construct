@@ -1,0 +1,11 @@
+{
+  "event": "task.expired",
+  "constant": "TASK_EXPIRED",
+  "payload": [
+    "detail",
+    "failures",
+    "reason",
+    "task_key",
+    "withdraw"
+  ]
+}

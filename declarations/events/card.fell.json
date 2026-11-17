@@ -1,0 +1,7 @@
+{
+  "event": "card.fell",
+  "constant": "CARD_FELL",
+  "payload": [
+    "kind"
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "event": "policy.denied",
+  "constant": "POLICY_DENIED",
+  "payload": [
+    "base",
+    "by",
+    "command",
+    "detail",
+    "kind",
+    "parkedUntil",
+    "paths",
+    "reason",
+    "refusal",
+    "refused",
+    "rule"
+  ]
+}

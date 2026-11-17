@@ -1,0 +1,18 @@
+{
+  "event": "window.heartbeat",
+  "constant": "WINDOW_HEARTBEAT",
+  "payload": [
+    "context",
+    "core",
+    "crawlers",
+    "error",
+    "mode",
+    "model",
+    "reason",
+    "root",
+    "session",
+    "skills",
+    "spent",
+    "subagents"
+  ]
+}

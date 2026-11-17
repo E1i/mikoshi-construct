@@ -1,0 +1,9 @@
+{
+  "event": "plan.item.removed",
+  "constant": "PLAN_ITEM_REMOVED",
+  "payload": [
+    "item",
+    "plan",
+    "request"
+  ]
+}

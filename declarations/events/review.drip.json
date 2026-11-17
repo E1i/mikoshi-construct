@@ -1,0 +1,10 @@
+{
+  "event": "review.drip",
+  "constant": "REVIEW_DRIP",
+  "payload": [
+    "card",
+    "finding",
+    "head",
+    "pr"
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "event": "witness.recorded",
+  "constant": "WITNESS_RECORDED",
+  "payload": [
+    "base",
+    "cardBody",
+    "detail",
+    "head",
+    "verdict"
+  ]
+}

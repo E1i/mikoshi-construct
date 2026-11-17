@@ -1,0 +1,11 @@
+{
+  "event": "task.withdrawn",
+  "constant": "TASK_WITHDRAWN",
+  "payload": [
+    "failure",
+    "fault",
+    "generation",
+    "queue",
+    "task_key"
+  ]
+}

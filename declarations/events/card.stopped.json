@@ -1,0 +1,16 @@
+{
+  "event": "card.stopped",
+  "constant": "CARD_STOPPED",
+  "payload": [
+    "blocker",
+    "code",
+    "detail",
+    "dropped",
+    "paths",
+    "reason",
+    "stop_reason",
+    "touches",
+    "widen",
+    "window"
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "event": "owner.wait.closed",
+  "constant": "OWNER_WAIT_CLOSED",
+  "payload": [
+    "answer",
+    "id",
+    "request"
+  ]
+}

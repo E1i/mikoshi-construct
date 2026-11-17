@@ -24,7 +24,6 @@ export const SHARED_REGISTRIES: readonly string[] = [
   'scripts/ci/layers.ts',
   'factory-paths.ts',
   'factory/modules.ts',
-  'scripts/core/events.ts',
   'bus-readings.ts',
   'accepted.json',
   'nodes/laws.ts',

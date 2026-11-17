@@ -1,0 +1,13 @@
+{
+  "event": "worker.started",
+  "constant": "WORKER_STARTED",
+  "payload": [
+    "generation",
+    "instance",
+    "lstart",
+    "pgid",
+    "pid",
+    "started",
+    "worker"
+  ]
+}

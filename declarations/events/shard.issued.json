@@ -1,0 +1,13 @@
+{
+  "event": "shard.issued",
+  "constant": "SHARD_ISSUED",
+  "payload": [
+    "by",
+    "id",
+    "run",
+    "scope",
+    "under",
+    "until",
+    "window"
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "event": "ghost.row",
+  "constant": "GHOST_ROW",
+  "payload": [
+    "id",
+    "row",
+    "state"
+  ]
+}

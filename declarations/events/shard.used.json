@@ -1,0 +1,8 @@
+{
+  "event": "shard.used",
+  "constant": "SHARD_USED",
+  "payload": [
+    "commit",
+    "id"
+  ]
+}

@@ -1,0 +1,7 @@
+{
+  "event": "generation.ended",
+  "constant": "GENERATION_ENDED",
+  "payload": [
+    "generation"
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "event": "card.answered",
+  "constant": "CARD_ANSWERED",
+  "payload": [
+    "card_body_sha",
+    "from",
+    "head",
+    "minutes",
+    "pr",
+    "prompt_path",
+    "prompt_sha",
+    "prompt_unstored",
+    "published",
+    "reentry",
+    "resumed",
+    "session",
+    "source",
+    "steps",
+    "to",
+    "tokens",
+    "worktree"
+  ]
+}

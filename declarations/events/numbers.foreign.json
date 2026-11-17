@@ -1,0 +1,8 @@
+{
+  "event": "numbers.foreign",
+  "constant": "NUMBERS_FOREIGN",
+  "payload": [
+    "ids",
+    "request"
+  ]
+}

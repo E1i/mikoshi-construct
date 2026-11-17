@@ -1,0 +1,17 @@
+{
+  "event": "card.waiting",
+  "constant": "CARD_WAITING",
+  "payload": [
+    "actions",
+    "amended",
+    "bodySha",
+    "code",
+    "depends",
+    "detail",
+    "reason",
+    "session",
+    "started",
+    "step",
+    "witnesses"
+  ]
+}
