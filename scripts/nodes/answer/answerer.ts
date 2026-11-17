@@ -33,6 +33,7 @@ import { processGit } from '../../ports/git.js'
 import { identityOf, OsProcessTable } from '../../ports/process-table.js'
 import { CARD_SIZE_VARIABLE, CARD_VARIABLE, cardSessionOverlay, cardSizeIn, clientInvocation, sessionEnv, streamReading } from '../../ports/session.js'
 import { MAIN_BRANCH } from '../../ports/snapshot.js'
+import { WIDE_VITEST_RULE } from '../../ports/wide-vitest-guard.js'
 import { isAlive } from '../../quality/lock.js'
 import { busSessionPulse } from '../../supervisor/heartbeat.js'
 import { projectRoot, realExitReadings, sessionGauges, UNKNOWN } from '../../window/eddies-measure.js'
@@ -584,7 +585,7 @@ function sessionAnswerer(dir: string, tools: AnswererTools): Answerer {
     const handoff = answerHandoffPath(card.worktree)
     if (!keepsHandoff)
       rmSync(handoff, { force: true })
-    const prompt = [answerPrompt(request, cardBody, windowGateRule(card, gate, ownerQuestion), resumed ? undefined : tools.diff?.(card), ciLog), ...proofsRule(prove, proofs), ...handoffLines(handoff, keepsHandoff)].join('\n')
+    const prompt = [answerPrompt(request, cardBody, windowGateRule(card, gate, ownerQuestion), resumed ? undefined : tools.diff?.(card), ciLog), WIDE_VITEST_RULE, ...proofsRule(prove, proofs), ...handoffLines(handoff, keepsHandoff)].join('\n')
     const invocationOf = (kind: 'start' | 'resume', text: string): Invocation => clientInvocation({ kind, role: 'answer', session, cwd: card.worktree, prompt: text, addDirs: [dir], pick: { model: null }, policy: { profile: 'sandboxed', gateCommands: gate.prepush, writePaths: prove.length === 0 ? [ownerQuestion] : [ownerQuestion, proofs], mcpOff: true, tools: tools.cardTools?.(request.lease.cardId, cardBody) } })
     mkdirSync(dir, { recursive: true })
     rmSync(ownerQuestion, { force: true })

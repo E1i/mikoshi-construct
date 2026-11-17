@@ -12,6 +12,7 @@ import { createUi, silentWriter } from '../../../src/ui/console.js'
 import { resolveTheme } from '../../../src/ui/theme.js'
 import { treeReportPath } from '../../core/places.js'
 import { CARD_SESSION_SANDBOX, SESSION_BASH_CAP, settingsFlag, shiftSettings } from '../../ports/shift-settings.js'
+import { WIDE_VITEST_HOOKS } from '../../ports/wide-vitest-guard.js'
 
 function editCovers(rule: string, file: string): boolean {
   const pattern = /^Edit\(\/(.+)\)$/.exec(rule)?.[1]
@@ -154,7 +155,7 @@ describe('the browser lab exclusion a card session takes from the settings of it
   })
 
   it('a missing file, an unparsable file or a malformed excludedCommands excludes nothing and leaves the settings as they are without the entry', () => {
-    const plain = { sandbox: CARD_SESSION_SANDBOX, permissions: { allow: ['Bash(pnpm run quality)', `Edit(/${tree}/**)`] }, env: SESSION_BASH_CAP }
+    const plain = { sandbox: CARD_SESSION_SANDBOX, permissions: { allow: ['Bash(pnpm run quality)', `Edit(/${tree}/**)`] }, env: SESSION_BASH_CAP, hooks: WIDE_VITEST_HOOKS }
     const missing = settings()
     writeFileSync(path.join(tree, '.claude', 'settings.json'), '{ not json')
     const unparsable = settings()
@@ -181,6 +182,13 @@ describe('the browser lab exclusion a card session takes from the settings of it
     holdSettings('settings.json', [entry])
     const excluded = settings()
     expect([without, excluded].map(built => JSON.parse(settingsFlag(built).at(-1)!).env.CLAUDE_CODE_DISABLE_BACKGROUND_TASKS)).toEqual(['1', '1'])
+  })
+
+  it('installs the wide-vitest guard on Bash with or without the lab entry', () => {
+    const without = settings()
+    holdSettings('settings.json', [entry])
+    const excluded = settings()
+    expect([without, excluded].map(built => JSON.parse(settingsFlag(built).at(-1)!).hooks)).toEqual([WIDE_VITEST_HOOKS, WIDE_VITEST_HOOKS])
   })
 
   it('keeps the entry and the protection across the --settings flag', () => {

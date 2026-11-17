@@ -41,6 +41,7 @@ import { recordDecision } from '../../policy/decisions/index.js'
 import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
 import { sessionEnv } from '../../ports/session.js'
 import { SESSION_BASH_CAP, TSX_PIPE_DIRECTORY } from '../../ports/shift-settings.js'
+import { WIDE_VITEST_HOOKS } from '../../ports/wide-vitest-guard.js'
 import { busProjections, nodeSupply } from '../../supervisor/composition.js'
 import { recordHeartbeat } from '../../supervisor/heartbeat.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
@@ -934,6 +935,7 @@ describe('the launch queue', () => {
       sandbox: { enabled: true, failIfUnavailable: true, allowUnsandboxedCommands: false, network: { allowLocalBinding: true, allowUnixSockets: [TSX_PIPE_DIRECTORY] } },
       permissions: { allow: [`Bash(${TREE_GATE})`, `Edit(/${tree}/**)`] },
       env: SESSION_BASH_CAP,
+      hooks: WIDE_VITEST_HOOKS,
       autoMemoryEnabled: false,
       claudeMdExcludes: [path.join(homedir(), '.claude', 'CLAUDE.md')],
     })

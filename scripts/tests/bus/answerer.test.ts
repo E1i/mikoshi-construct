@@ -15,6 +15,7 @@ import { queueTask } from '../../core/queue.js'
 import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
 import { answerHandoffPath, claudeAnswerer, FreshBaseConflict, ownerQuestionPath, realAnswererTools, RoundTimer, windowGateRule } from '../../nodes/answer/answerer.js'
 import { SESSION_BASH_CAP, TSX_PIPE_DIRECTORY } from '../../ports/shift-settings.js'
+import { WIDE_VITEST_HOOKS, WIDE_VITEST_RULE } from '../../ports/wide-vitest-guard.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { ranTheGreenGate } from './gate-stream.js'
 import { sha } from './github-fake.js'
@@ -59,6 +60,7 @@ function treeSettings(worktree: string, ownerQuestion: string): unknown {
     sandbox: { enabled: true, failIfUnavailable: true, allowUnsandboxedCommands: false, network: { allowLocalBinding: true, allowUnixSockets: [TSX_PIPE_DIRECTORY] } },
     permissions: { allow: [`Bash(${TREE_GATE})`, `Edit(/${worktree}/**)`, `Edit(/${ownerQuestion})`] },
     env: SESSION_BASH_CAP,
+    hooks: WIDE_VITEST_HOOKS,
     autoMemoryEnabled: false,
     claudeMdExcludes: [path.join(homedir(), '.claude', 'CLAUDE.md')],
   }
@@ -110,6 +112,13 @@ describe('the answerer', () => {
 
     expect(rule).toContain(`Bash timeout of ${SESSION_BASH_CAP.BASH_MAX_TIMEOUT_MS}.`)
     expect(rule).not.toContain('600000')
+  })
+
+  it('the answer prompt forbids wide hand runs of vitest', async () => {
+    const fresh = await answerAt(201_662)
+    const resumed = await answerAt(120_000)
+
+    expect([fresh.prompt, resumed.prompt].map(prompt => prompt.includes(WIDE_VITEST_RULE))).toEqual([true, true])
   })
 
   it('starts a new session in the card tree when the card session context is above warn', async () => {
