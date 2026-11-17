@@ -4029,6 +4029,7 @@
           "scripts/policy/shredder/**",
           "scripts/policy/widening.ts",
           "scripts/policy/touch-scope.ts",
+          "scripts/policy/derived-files.ts",
           "scripts/morse/**",
           "scripts/core/push-policy.ts"
         ],
@@ -5314,10 +5315,12 @@
       },
       "scripts/ports/card-tree.ts": {
         "constants": [
+          "DERIVED_BASE",
           "TECHNOLOGY_WORDS"
         ],
         "functions": {
           "cardTreeOf": "(db: DatabaseSync, cardId: number, tools: CardTreeTools): CardSession | null",
+          "cardTreeReading": "(db: DatabaseSync, cardId: number, tools: CardTreeTools = realCardTrees(), run: TreeRun = pnpmRerun): TreeReading | null",
           "cardlessTreeName": "(branch: string): string",
           "cardlessTreeOf": "(branch: string, tools: CardTreeTools): string",
           "gitCardTrees": "(repo: string, home: string, install: (cwd: string) => void, gitHub: GitHub = ghApi(repo), treeOf?: (cardId: string) => string): CardTreeTools",
@@ -5328,7 +5331,8 @@
         "technologyWords": [
           "database",
           "gh",
-          "git"
+          "git",
+          "pnpm"
         ],
         "types": {
           "CardTreeRefused": "class CardTreeRefused extends Error {  }",
@@ -5609,14 +5613,18 @@
         "functions": {
           "loadedCodeSha": "(): string | null",
           "parseWorktrees": "(porcelain: string): WorktreeEntry[]",
-          "readThroughPort": "(tree: string, args: readonly string[]): string"
+          "pnpmRerun": "(cwd: string, args: readonly string[]): { status: number | null; stderr: string; }",
+          "readThroughPort": "(tree: string, args: readonly string[]): string",
+          "treeReading": "(read: (cwd: string, args: string[]) => string, worktree: string, base: string, run: TreeRun): TreeReading"
         },
         "language": "technology",
         "reexports": [],
         "technologyWords": [
           "exec",
           "git",
-          "porcelain"
+          "pnpm",
+          "porcelain",
+          "stderr"
         ],
         "types": {
           "GitAnswer": "type GitAnswer = string | Buffer | Error",
@@ -5625,6 +5633,9 @@
           "GitReader": "interface GitReader { dirty: (worktree: string) => number | undefined; worktrees: (repoRoot: string) => WorktreeEntry[] | undefined; }",
           "GitRunner": "interface GitRunner { read: (tree: string, args: readonly string[], options?: GitOptions) => string; readOrNull: (tree: string, args: readonly string[], options?: GitOptions) => string | null; readBytes: (tree: string, args: readonly string[], maxBuffer: number, options?: GitOptions) => Buffer; readLater: (tree: string, args: readonly string[], options?: GitOptions) => Promise<string>; succeeds: (tree: string, args: readonly string[], options?: GitOptions) => boolean; }",
           "InMemoryGit": "class InMemoryGit implements GitRunner { calls: GitCall[]; constructor(private readonly answer: (call: GitCall) => GitAnswer); read(tree: string, args: readonly string[]): string; readOrNull(tree: string, args: readonly string[]): string | null; readBytes(tree: string, args: readonly string[]): Buffer; readLater(tree: string, args: readonly string[]): Promise<string>; succeeds(tree: string, args: readonly string[]): boolean }",
+          "TreeReading": "interface TreeReading { current: (file: string) => string | null; base: (file: string) => string | null; rerun: (command: readonly string[], outputs: readonly string[]) => TreeRerun; }",
+          "TreeRerun": "type TreeRerun = { kind: 'ran'; outputs: ReadonlyMap<string, string | null>; } | { kind: 'failed'; why: string; }",
+          "TreeRun": "type TreeRun = (cwd: string, args: readonly string[]) => { status: number | null; stderr: string; }",
           "WorktreeEntry": "interface WorktreeEntry { path: string; branch: string | undefined; }"
         }
       },

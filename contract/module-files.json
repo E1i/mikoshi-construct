@@ -434,6 +434,7 @@
     "scripts/tests/bus/dependency-merge-returns-the-card.test.ts",
     "scripts/tests/bus/dependency-merge-states.test.ts",
     "scripts/tests/bus/depth-sources.test.ts",
+    "scripts/tests/bus/derived-files-follow.test.ts",
     "scripts/tests/bus/disk-guard.test.ts",
     "scripts/tests/bus/divergence-alarm.test.ts",
     "scripts/tests/bus/drain-keeps-round.test.ts",
@@ -2492,6 +2493,7 @@
   "rules": [
     "scripts/core/push-policy.ts",
     "scripts/morse/cli.ts",
+    "scripts/policy/derived-files.ts",
     "scripts/policy/morse/journal.ts",
     "scripts/policy/morse/predict.ts",
     "scripts/policy/morse/rules.ts",

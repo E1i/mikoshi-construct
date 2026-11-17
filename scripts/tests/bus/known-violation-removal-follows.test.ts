@@ -28,18 +28,34 @@ import { ranTheGreenGate } from './gate-stream.js'
 import { sha } from './github-fake.js'
 import { eventsOf, liveBench, mergeBench } from './merge-bench.js'
 
+const depcruise = vi.hoisted(() => {
+  const TOUCHED = 'scripts/core/lease.ts'
+  const RULE = { severity: 'error', name: 'core-imports-nothing-to-its-right' }
+  const STALE = { type: 'dependency', from: TOUCHED, to: 'scripts/ports/meter.ts', rule: RULE }
+  const KEPT = { type: 'dependency', from: 'scripts/core/other.ts', to: 'scripts/ports/meter.ts', rule: RULE }
+  const listed = (entries: readonly object[]): string => `${JSON.stringify(entries, null, 2)}\n`
+  return { TOUCHED, RULE, STALE, KEPT, listed }
+})
+
+vi.mock('../../ports/git.js', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../../ports/git.js')>()
+  const { readFileSync: read, writeFileSync: write } = await import('node:fs')
+  const { join } = await import('node:path')
+  return {
+    ...original,
+    pnpmRerun: (cwd: string) => {
+      const keepsTheImport = read(join(cwd, depcruise.TOUCHED), 'utf8').includes('../ports/meter.js')
+      write(join(cwd, '.dependency-cruiser-known-violations.json'), depcruise.listed(keepsTheImport ? [depcruise.STALE, depcruise.KEPT] : [depcruise.KEPT]))
+      return { status: 0, stderr: '' }
+    },
+  }
+})
+
 const PR = 1766
 const CARD = PR + 100
 const SESSION = 'card-session-1'
-const TOUCHED = 'scripts/core/lease.ts'
-const RULE = { severity: 'error', name: 'core-imports-nothing-to-its-right' }
-const STALE = { type: 'dependency', from: TOUCHED, to: 'scripts/ports/meter.ts', rule: RULE }
-const KEPT = { type: 'dependency', from: 'scripts/core/other.ts', to: 'scripts/ports/meter.ts', rule: RULE }
+const { TOUCHED, RULE, STALE, KEPT, listed } = depcruise
 const GROWN_ENTRY = { type: 'dependency', from: TOUCHED, to: 'scripts/ports/github.ts', rule: RULE }
-
-function listed(entries: readonly object[]): string {
-  return `${JSON.stringify(entries, null, 2)}\n`
-}
 
 const BASELINE = listed([STALE, KEPT])
 const REMOVED = listed([KEPT])
@@ -169,7 +185,7 @@ function mergeOf(known: string): ReturnType<MergeBench['merge']> {
   return made.merge(made.lease()!)
 }
 
-describe('a known-violation entry the card made stale follows its touches, growth follows too and stays the owner\'s to merge (D-514, D-536)', () => {
+describe('a known-violation entry the card made stale follows its touches, and an entry the rerun does not reproduce does not (D-592, narrowing D-514)', () => {
   it('a card that removes an import and deletes its known-violation entry passes the answer and merge guards', async () => {
     const { made, outcome, published, prompts, known } = await answerWith([dropsTheImportAnd(REMOVED)])
 
@@ -182,22 +198,22 @@ describe('a known-violation entry the card made stale follows its touches, growt
     expect(mergeOf(REMOVED_LAST)).toMatchObject({ kind: 'merged' })
   })
 
-  it('a card that adds a known-violation entry keeps it through the answer, and its merge waits for the owner', async () => {
+  it('a card that adds a known-violation entry by hand has it dropped at the answer, and its merge waits for the owner', async () => {
     const { made, outcome, prompts, known, published } = await answerWith([dropsTheImportAnd(GROWN)])
 
-    expect(prompts).toHaveLength(1)
-    expect(known).toBe(GROWN)
+    expect(prompts).toHaveLength(2)
+    expect(known).toBe(BASELINE)
     expect(published).toBe(1)
     expect(outcome).toMatchObject({ kind: 'answered' })
     expect(eventsOf(made.db, OWNER_WAIT_OPENED)).toEqual([])
     expect(mergeOf(GROWN)).toMatchObject(OWNER_MERGES_IT)
   })
 
-  it('a card that alters the from or the to of a known-violation entry waits for the owner at the merge', async () => {
+  it('a card that alters the from or the to of a known-violation entry by hand has it dropped at the answer, and waits for the owner at the merge', async () => {
     const { prompts, known } = await answerWith([dropsTheImportAnd(ALTERED)])
 
-    expect(prompts).toHaveLength(1)
-    expect(known).toBe(ALTERED)
+    expect(prompts).toHaveLength(2)
+    expect(known).toBe(BASELINE)
     expect(mergeOf(ALTERED)).toMatchObject(OWNER_MERGES_IT)
   })
 
@@ -262,17 +278,23 @@ function launchOf(known: string): { opened: ReturnType<typeof treePr>, bodies: s
   return { opened: treePr(ports, SHIFT_CARD, worktree, null), bodies }
 }
 
-describe('the review and the launch let the list follow the touches, whatever its diff (D-514, D-536)', () => {
+describe('the review lets the list follow the touches, and the launch only the list its rerun reproduces (D-592)', () => {
   it('the review shows no finding outside the touches for a removed, grown or altered list', () => {
     for (const known of [REMOVED, GROWN, ALTERED])
       expect(reviewFindingsOf(known)).toEqual([])
   })
 
-  it('the launch opens the pull request with the list followed for a removed, grown or altered list', () => {
-    for (const known of [REMOVED, GROWN, ALTERED]) {
+  it('the launch opens the pull request with the reproduced removal followed', () => {
+    const opened = launchOf(REMOVED)
+    expect(opened.opened).toEqual({ kind: 'pr', number: String(OPENED_PR), followed: [KNOWN_VIOLATIONS] })
+    expect(opened.bodies[0]).toContain(`Touches followed: ${KNOWN_VIOLATIONS}`)
+  })
+
+  it('the launch refuses a grown or altered list the rerun does not reproduce, and opens no pull request', () => {
+    for (const known of [GROWN, ALTERED]) {
       const opened = launchOf(known)
-      expect(opened.opened).toEqual({ kind: 'pr', number: String(OPENED_PR), followed: [KNOWN_VIOLATIONS] })
-      expect(opened.bodies[0]).toContain(`Touches followed: ${KNOWN_VIOLATIONS}`)
+      expect(opened.opened).toMatchObject({ kind: 'problem', gaps: [{ reason: 'derived-unreproduced', paths: [KNOWN_VIOLATIONS] }] })
+      expect(opened.bodies).toEqual([])
     }
   })
 })

@@ -1,6 +1,7 @@
 import type { OwnerMove } from '../../core/owner-commands.js'
 import type { QueuedCard, StartedCard } from '../../nodes/launch/launch-executor.js'
 import type { ProcessTable } from '../../nodes/restart/chain-process.js'
+import type { Executed } from '../../window/requests/request.js'
 import type { RequestOutcome } from '../../window/window-requests.js'
 import type { MergeBench } from '../bus/merge-bench.js'
 import { existsSync, mkdtempSync, rmSync } from 'node:fs'
@@ -10,9 +11,11 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { textSha } from '../../../src/card/text-sha.js'
 import { cardHoldOf } from '../../core/card-hold.js'
 import { appendEvent } from '../../core/db.js'
-import { BOARD_ALARM, CARD_ADMITTED, CARD_HELD, CARD_STARTED, CARD_STOPPED, CARD_TAKEOVER, COMMAND_EXECUTED, TASK_REQUEUED, TASK_SUPERSEDED } from '../../core/events.js'
+import { BOARD_ALARM, CARD_ADMITTED, CARD_HELD, CARD_STARTED, CARD_STOPPED, CARD_TAKEOVER, COMMAND_EXECUTED, TASK_REQUEUED, TASK_SUPERSEDED, WINDOW_REQUEST } from '../../core/events.js'
+import { recordChildEnded, recordChildStarted } from '../../core/handover.js'
 import { generationOfKey } from '../../core/identifiers.js'
 import { OWNER } from '../../core/inbox.js'
+import { leaseWhileFree } from '../../core/lease.js'
 import { ownerMoveCommand } from '../../core/owner-commands.js'
 import { generationField, TASK_FOLDS } from '../../core/queue.js'
 import { reduce } from '../../core/reducer.js'
@@ -22,6 +25,8 @@ import { OWNER_WORD_NOT_FOUND, sayToOwnerChannel, USED_WORD } from '../../owner/
 import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
 import { busProjections, nodeSupply } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
+import { RequestContext } from '../../window/requests/context.js'
+import { OWNER_STOP_CODE, ownerStopExecutor } from '../../window/requests/owner-stop.js'
 import { requestFromWindow, requestOf, TAKEOVER_AFTER_MINUTES, WindowRequests } from '../../window/window-requests.js'
 import { mergeBench } from '../bus/merge-bench.js'
 
@@ -29,6 +34,11 @@ const CARD = 1828
 const BODYLESS_CARD = 1829
 const SESSION_PID = 24039
 const SESSION = 's-1828'
+const ANSWER_PGID = 31907
+const ANSWER_PR = 1681
+const ANSWER_ACTOR = 'worker:answer:node-1'
+const ANSWER_INSTANCE = 'i-1'
+const ANSWER_TREE = `/trees/mc-${CARD}`
 const BODY = `card: #${CARD} owner-moves [implement/construct/S/cheap/owner] · depends — · blocks —\n\nThe owner moves it.\n`
 
 interface Room {
@@ -129,6 +139,33 @@ function supersede(made: Room, taskKey: string): void {
   TASK_FOLDS[TASK_SUPERSEDED]!(made.bench.db, storedByKey(made.bench.db, superseded.dedupeKey))
 }
 
+function answerRoundLeased(made: Room): { taskKey: string } {
+  const lease = leaseWhileFree(made.bench.db, now(made), { queue: 'answer', cardId: CARD, pr: ANSWER_PR, head: 'a'.repeat(40) }, ANSWER_ACTOR, 3)
+  expect(lease).not.toBeNull()
+  recordChildStarted(made.bench.db, now(made), ANSWER_ACTOR, { mode: 'child', instance: ANSWER_INSTANCE, generation: 'g-1', pid: ANSWER_PGID, pgid: ANSWER_PGID, lstart: now(made), kind: 'answer', taskKey: lease!.taskKey, tree: ANSWER_TREE })
+  return { taskKey: lease!.taskKey }
+}
+
+function answerTable(): { processes: ProcessTable, signalled: number[] } {
+  const signalled: number[] = []
+  return { signalled, processes: { commandLine: pid => pid === ANSWER_PGID && signalled.length === 0 ? 'node vitest run' : null, signalGroup: leader => signalled.push(leader) } }
+}
+
+function stopRun(made: Room, processes: ProcessTable): Executed {
+  const request = requestOf(['owner.stop', '--card', String(CARD)])!
+  requestFromWindow(made.bench.db, now(made), 'window-1', request)
+  const id = (made.bench.db.prepare('SELECT id FROM events WHERE type = ? ORDER BY id DESC LIMIT 1').get(WINDOW_REQUEST) as { id: number }).id
+  const refuse = (): never => {
+    throw new Error('the owner stop calls no other tool')
+  }
+  const context = new RequestContext(made.bench.db, made.bench.clock.now, { treeOf: refuse, exists: existsSync, cutTree: refuse, dryRunOf: refuse, addDecision: refuse, causeHolds: () => null, closePr: refuse, closeDropped: () => [] }, channel(made), () => null, made.root, made.bench.gitHub.client)
+  return ownerStopExecutor(processes)(context, id, { card: CARD })
+}
+
+function taskState(made: Room, taskKey: string): string {
+  return (made.bench.db.prepare('SELECT state FROM tasks WHERE task_key = ?').get(taskKey) as { state: string }).state
+}
+
 async function oneRound(node: LaunchNode): Promise<void> {
   const controller = new AbortController()
   await node.run({ pause: async () => controller.abort(), signal: controller.signal, supply: nodeSupply() })
@@ -151,6 +188,38 @@ describe('the owner moves a card', () => {
     expect(node.stopOverdue()).toEqual([CARD])
     expect(made.stopped).toEqual([SESSION_PID])
     expect(eventsOf(made, CARD_STOPPED)).toEqual([expect.objectContaining({ card_id: CARD, payload: expect.objectContaining({ detail: expect.stringContaining(`the owner stopped card #${CARD} session ${SESSION}`) }) })])
+  })
+
+  it('owner.stop stops a live answer session found by its lease and releases the lease', () => {
+    const made = room()
+    const { taskKey } = answerRoundLeased(made)
+    ownerSays(made, 'stop', CARD)
+    const table = answerTable()
+
+    const outcome = stopRun(made, table.processes)
+    reduce(made.bench.db, 'pending', busProjections())
+
+    expect(outcome).toMatchObject({ done: true, why: expect.stringContaining(`answer session of task ${taskKey}`) })
+    expect(table.signalled).toEqual([ANSWER_PGID])
+    expect(taskState(made, taskKey)).toBe('withdrawn')
+    expect(eventsOf(made, CARD_STOPPED)).toEqual([expect.objectContaining({ actor: OWNER, card_id: CARD, payload: expect.objectContaining({ code: OWNER_STOP_CODE, detail: expect.stringContaining(`its lease is released; its tree ${ANSWER_TREE} and its uncommitted changes are kept`) }) })])
+    expect(ownerMoves(made)).toEqual([ownerMoveCommand('stop', CARD)])
+  })
+
+  it('owner.stop still refuses a card with no live session of any kind', () => {
+    const made = room()
+    ownerSays(made, 'stop', CARD)
+    const table = answerTable()
+    expect(stopRun(made, table.processes)).toMatchObject({ done: false, why: expect.stringContaining(`card #${CARD} has no live session to stop`) })
+
+    const { taskKey } = answerRoundLeased(made)
+    recordChildEnded(made.bench.db, now(made), ANSWER_ACTOR, { instance: ANSWER_INSTANCE, pid: ANSWER_PGID, taskKey, exit: 0, signal: null })
+    expect(stopRun(made, table.processes)).toMatchObject({ done: false, why: expect.stringContaining(`card #${CARD} has no live session to stop`) })
+
+    expect(table.signalled).toEqual([])
+    expect(taskState(made, taskKey)).toBe('leased')
+    expect(eventsOf(made, CARD_STOPPED)).toEqual([])
+    expect(ownerMoves(made)).toEqual([])
   })
 
   it('an owner launch starts a standing card now without its launch conditions', async () => {
