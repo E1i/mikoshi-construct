@@ -5961,7 +5961,9 @@
           "witnessEnv": "(base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv"
         },
         "language": "technology",
-        "reexports": [],
+        "reexports": [
+          "WIDE_VITEST_RULE"
+        ],
         "technologyWords": [
           "spawn",
           "stderr",
@@ -5990,7 +5992,7 @@
         "reexports": [],
         "technologyWords": [],
         "types": {
-          "ShiftSettings": "interface ShiftSettings { sandbox: typeof CARD_SESSION_SANDBOX & { excludedCommands?: string[]; filesystem?: { denyWrite: string[]; }; }; permissions: { allow: string[]; deny?: string[]; }; env: typeof SESSION_BASH_CAP; }"
+          "ShiftSettings": "interface ShiftSettings { sandbox: typeof CARD_SESSION_SANDBOX & { excludedCommands?: string[]; filesystem?: { denyWrite: string[]; }; }; permissions: { allow: string[]; deny?: string[]; }; env: typeof SESSION_BASH_CAP; hooks: typeof WIDE_VITEST_HOOKS; }"
         }
       },
       "scripts/ports/snapshot.ts": {
@@ -6078,6 +6080,23 @@
           "shell"
         ],
         "types": {}
+      },
+      "scripts/ports/wide-vitest-guard.ts": {
+        "constants": [
+          "MAX_TEST_DIRECTORIES",
+          "WIDE_VITEST_HOOKS",
+          "WIDE_VITEST_RULE"
+        ],
+        "functions": {
+          "hookAnswer": "(hookInput: string): string | null",
+          "vitestVerdict": "(command: string): VitestVerdict"
+        },
+        "language": "factory",
+        "reexports": [],
+        "technologyWords": [],
+        "types": {
+          "VitestVerdict": "type VitestVerdict = { kind: 'allow'; } | { kind: 'refuse'; reason: string; }"
+        }
       },
       "scripts/ports/witnesses.ts": {
         "constants": [

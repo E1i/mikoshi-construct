@@ -8,6 +8,7 @@ import { CARD_PERMISSION_MODE } from '../../nodes/launch/launch-starter.js'
 import { busCardStopped, busPrOpened, claudeResume, PREFIX, runTreePr } from '../../nodes/launch/tree-pr-cli.js'
 import { CARD_VARIABLE } from '../../ports/session.js'
 import { SESSION_BASH_CAP, TSX_PIPE_DIRECTORY } from '../../ports/shift-settings.js'
+import { WIDE_VITEST_HOOKS } from '../../ports/wide-vitest-guard.js'
 
 const roots: string[] = []
 
@@ -401,6 +402,7 @@ describe('the session a refusal returns the card to', () => {
       sandbox: { enabled: true, failIfUnavailable: true, allowUnsandboxedCommands: false, network: { allowLocalBinding: true, allowUnixSockets: [TSX_PIPE_DIRECTORY] } },
       permissions: { allow: [`Bash(${TREE_GATE})`, `Edit(/${tree}/**)`] },
       env: SESSION_BASH_CAP,
+      hooks: WIDE_VITEST_HOOKS,
       autoMemoryEnabled: false,
       claudeMdExcludes: [path.join(homedir(), '.claude', 'CLAUDE.md')],
     })

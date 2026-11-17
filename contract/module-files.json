@@ -993,6 +993,7 @@
     "scripts/tests/ports/result.test.ts",
     "scripts/tests/ports/session.test.ts",
     "scripts/tests/ports/task-start-window.test.ts",
+    "scripts/tests/ports/wide-vitest-guard.test.ts",
     "scripts/tests/privacy/fixtures/home-paths.md",
     "scripts/tests/privacy/fixtures/unlisted-domain.md",
     "scripts/tests/privacy/package-files.test.ts",
@@ -1610,6 +1611,7 @@
     "scripts/ports/snapshot.ts",
     "scripts/ports/task-start.ts",
     "scripts/ports/tree-publish.ts",
+    "scripts/ports/wide-vitest-guard.ts",
     "scripts/ports/witnesses.ts",
     "scripts/ports/worktree-home.ts",
     "scripts/ports/worktree.ts"
