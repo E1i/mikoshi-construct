@@ -6,12 +6,14 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { appendEvent, openBus } from '../../core/db.js'
-import { CARD_HELD, CARD_RELEASED, MAIN_ADVANCED, PR_CLOSED, PR_OBSERVED, PR_OPENED, PR_ORDERED, TASK_COMPLETED, TASK_ENQUEUED, TASK_LEASED } from '../../core/events.js'
+import { appendEvent, closeOwnerWait, openBus, openBusWait } from '../../core/db.js'
+import { CARD_HELD, CARD_RELEASED, MAIN_ADVANCED, PR_CLOSED, PR_GROUPS, PR_OBSERVED, PR_OPENED, PR_ORDERED, TASK_COMPLETED, TASK_ENQUEUED, TASK_LEASED } from '../../core/events.js'
 import { groupOf } from '../../core/order/group.js'
 import { NO_DECLARATIONS, overlapDeclarationsOf, overlaps } from '../../core/order/overlap.js'
-import { emptyOrder, foldOrder, foldOrderEvents, groupsWithTurn, membersOf, orderEventsFrom, orderGroups, PrOrderTick, turnOf, turnStateOf, WINDOW_ORDERS } from '../../core/order/turn.js'
+import { emptyOrder, foldOrder, foldOrderEvents, groupsWithTurn, membersOf, orderEventsFrom, orderGroups, PrOrderTick, turnOf, turnStateOf, waitingCardsOf, WINDOW_ORDERS, yieldingCardsOf } from '../../core/order/turn.js'
+import { reduce } from '../../core/reducer.js'
 import { BusRead } from '../../ports/bus-read.js'
+import { busProjections } from '../../supervisor/composition.js'
 
 class Events {
   private id = 0
@@ -460,5 +462,68 @@ describe('the turn the bus records is the turnOf of §1.1, folded from the bus r
     const groups = groupsWithTurn(order, NO_DECLARATIONS, { waitingCards: new Set(), touchesOf: touches })
     expect(groups.map(group => group.prs)).toEqual([[1, 2, 3, 4]])
     expect(groupsWithTurn(order, NO_DECLARATIONS).map(group => group.prs)).toEqual([[1, 2, 3], [4]])
+  })
+})
+
+describe('an owner merge wait on a card yields its PR\'s turn, read from the bus', () => {
+  const roots: string[] = []
+  afterEach(() => {
+    for (const root of roots.splice(0))
+      rmSync(root, { recursive: true, force: true })
+  })
+
+  it('an owner merge wait yields the turn to the next member, and the waiting PR takes it back when the wait closes', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'bus-pr-order-'))
+    roots.push(root)
+    const db = openBus(path.join(root, 'bus.db'))
+    const order = emptyOrder()
+    let id = 0
+    for (const [pr, card] of [[1, 11], [2, 12]] as const) {
+      foldOrder(order, { id: ++id, type: PR_OBSERVED, pr, card: null, payload: { head: String(pr).padStart(40, '0'), paths: ['shared'], ci: 'green', verdict_on_head: 'pass', mergeable: 'clean', card_id: card } }, NO_DECLARATIONS)
+      foldOrder(order, { id: ++id, type: PR_ORDERED, pr, card: null, payload: { by: 'bus' } }, NO_DECLARATIONS)
+    }
+    const turn = (): number | null => groupsWithTurn(order, NO_DECLARATIONS, { waitingCards: waitingCardsOf(db), touchesOf: () => null, yieldingCards: yieldingCardsOf(db) })[0]!.turn
+    expect(turn()).toBe(1)
+    const wait = openBusWait(db, '2026-11-16T03:05:59Z', 'worker:merge:1', { need: 'merge', text: 'no_shard_merge', card: 11, pr: 1 })
+    reduce(db, 'pending', busProjections())
+    expect(turn()).toBe(2)
+    closeOwnerWait(db, '2026-11-16T07:59:48Z', 'owner', wait, 'merged', 1)
+    reduce(db, 'pending', busProjections())
+    expect(turn()).toBe(1)
+    db.close()
+  })
+
+  it('the order tick records the turn of the next member while the first waits on an owner merge', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'bus-pr-order-'))
+    roots.push(root)
+    const db = openBus(path.join(root, 'bus.db'))
+    for (const [pr, card] of [[1, 11], [2, 12]] as const)
+      appendEvent(db, { ts: '2026-11-16T03:00:00Z', type: PR_OBSERVED, actor: 'netwatch', cardId: card, pr, head: null, dedupeKey: `test:observed:${pr}`, payload: { head: String(pr).padStart(40, '0'), base: 'main', paths: ['shared'], ci: 'green', verdict_on_head: 'pass', mergeable: 'clean', card_id: card }, legacy: false })
+    const tick = new PrOrderTick(db, busEvents(db), () => '2026-11-16T03:00:01Z', () => NO_DECLARATIONS, '[test] ')
+    const recordedTurn = (): unknown => {
+      const rows = new BusRead(db).slice(PR_GROUPS, ['groups'])
+      return (rows.at(-1)!.fields.groups as { turn: number | null }[])[0]!.turn
+    }
+    tick.step()
+    tick.step()
+    expect(recordedTurn()).toBe(1)
+    openBusWait(db, '2026-11-16T03:05:59Z', 'worker:merge:1', { need: 'merge', text: 'no_shard_merge', card: 11, pr: 1 })
+    reduce(db, 'pending', busProjections())
+    tick.step()
+    expect(recordedTurn()).toBe(2)
+    db.close()
+  })
+
+  it('a PR under an owner merge wait with no other ready member keeps the turn, so the bus can still merge it under a shard', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'bus-pr-order-'))
+    roots.push(root)
+    const db = openBus(path.join(root, 'bus.db'))
+    const order = emptyOrder()
+    foldOrder(order, { id: 1, type: PR_OBSERVED, pr: 1, card: null, payload: { head: '1'.padStart(40, '0'), paths: ['shared'], ci: 'green', verdict_on_head: 'pass', mergeable: 'clean', card_id: 11 } }, NO_DECLARATIONS)
+    foldOrder(order, { id: 2, type: PR_ORDERED, pr: 1, card: null, payload: { by: 'bus' } }, NO_DECLARATIONS)
+    openBusWait(db, '2026-11-16T03:05:59Z', 'worker:merge:1', { need: 'merge', text: 'no_shard_merge', card: 11, pr: 1 })
+    reduce(db, 'pending', busProjections())
+    expect(groupsWithTurn(order, NO_DECLARATIONS, { waitingCards: waitingCardsOf(db), touchesOf: () => null, yieldingCards: yieldingCardsOf(db) })[0]!.turn).toBe(1)
+    db.close()
   })
 })
