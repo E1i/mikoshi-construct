@@ -680,6 +680,7 @@
     "scripts/tests/contract/bus-cut/reducer-takes-projections.test.ts",
     "scripts/tests/contract/codegen-events-cards-lint.test.ts",
     "scripts/tests/contract/codegen-events-cards.test.ts",
+    "scripts/tests/contract/codegen-files-surface-lint.test.ts",
     "scripts/tests/contract/codegen-files-surface.test.ts",
     "scripts/tests/contract/composition-registers-only-in-composition.test.ts",
     "scripts/tests/contract/contours.test.ts",
