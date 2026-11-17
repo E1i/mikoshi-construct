@@ -1,6 +1,7 @@
 import type { SpawnSyncReturns } from 'node:child_process'
 import type { LayerMap } from '../core/layer-map.js'
 import type { BranchCardRuns, BranchTests, CardLayers } from './card-runs.js'
+import type { MutationGate } from './gate-mutations.js'
 import type { GateMode, GateRun } from './gate-runs.js'
 import type { Graph, LayeredRun, Run } from './layers.js'
 import type { Capability, SandboxFailing } from './sandbox-failing.js'
@@ -19,6 +20,7 @@ import { GhCiRuns } from '../ports/ci-reading.js'
 import { processGit } from '../ports/git.js'
 import { heavyStep } from '../quality/lock.js'
 import { branchCardRuns } from './card-runs.js'
+import { processMutationGate } from './gate-mutations.js'
 import { GATE_RUN_SPOOL, modeOfArgs, recordGateRun, sourceOf, touchesModuleFiles } from './gate-runs.js'
 import { isTest, NARROW_WHY, narrowRun, sessionRun } from './layers.js'
 import { CAPABILITIES, normLine, probeCapabilities, SANDBOX_FAILING, sandboxNorm } from './sandbox-failing.js'
@@ -295,6 +297,16 @@ export interface PrepushParts {
   root: string
   busPath?: string
   map?: LayerMap
+  mutations?: (changed: readonly string[], graph: Graph, witnesses: readonly string[]) => Promise<MutationGate>
+}
+
+export async function mutationStep(changed: readonly string[], graph: Graph, card: BranchCard | null, parts: Pick<PrepushParts, 'mutations' | 'log'>): Promise<number> {
+  if (card === null || parts.mutations === undefined)
+    return 0
+  const gate = await parts.mutations(changed, graph, card.witnesses)
+  if (gate.lines.length > 0)
+    parts.log(gate.lines.join('\n'))
+  return gate.code
 }
 
 export async function prepush(parts: PrepushParts): Promise<number> {
@@ -302,6 +314,7 @@ export async function prepush(parts: PrepushParts): Promise<number> {
   let round: string | null
   let card: BranchCard | null
   let head: string
+  let graph: Graph
   try {
     round = roundOf(parts.argv)
     const clean = cleanTreeGate(parts.git)
@@ -312,7 +325,7 @@ export async function prepush(parts: PrepushParts): Promise<number> {
     const base = gateBase(parts.git, round, parts.ci)
     parts.log(`prepush: the diff from ${base.why}`)
     const changed = changesSince(parts.git, base.sha)
-    const graph: Graph = changed.length === 0 ? new Map() : parts.cruise()
+    graph = changed.length === 0 ? new Map() : parts.cruise()
     card = parts.card(parts.git, graph)
     selection = gateSelection(changed, graph, card, parts.testText, parts.map)
     head = parts.git(['rev-parse', 'HEAD']).trim()
@@ -330,7 +343,8 @@ export async function prepush(parts: PrepushParts): Promise<number> {
     }
   }
   const record = gateRecorder(round, head, card, sessionRecord(parts.log, parts.root, parts.busPath))
-  return testStep(selection, { ...parts.suite, log: parts.log, record })
+  const tested = await testStep(selection, { ...parts.suite, log: parts.log, record })
+  return tested === 0 ? mutationStep(selection.changed, graph, card, parts) : tested
 }
 
 function processParts(): PrepushParts {
@@ -346,6 +360,7 @@ function processParts(): PrepushParts {
     suite: { vitest: args => runVitest(args), liveness: sandboxLiveness, queue: heavyStep },
     log: line => console.log(line),
     root: REPO_ROOT,
+    mutations: (changed, graph, witnesses) => processMutationGate(changed, graph, witnesses, readTest, REPO_ROOT),
   }
 }
 

@@ -83,6 +83,18 @@ export function buildMatrix(changed: readonly string[], graph: Graph, testText: 
   return { full: null, layers, skipped }
 }
 
+export function busMatrix(changed: readonly string[], graph: Graph, testText: (test: string) => string, busPath: string = defaultBusPath()): Matrix {
+  if (!existsSync(busPath))
+    throw new Error(`no bus at ${busPath}`)
+  const db = openDatabase(busPath, { readOnly: true, timeout: BUSY_TIMEOUT_MS })
+  try {
+    return buildMatrix(changed, graph, testText, db)
+  }
+  finally {
+    db.close()
+  }
+}
+
 export function vitestRun(root: string, test: string, signal: AbortSignal): Promise<TestRun> {
   return new Promise((resolve) => {
     const child = spawn('pnpm', ['--dir', root, 'exec', 'vitest', 'run', test], { stdio: 'ignore', signal })
