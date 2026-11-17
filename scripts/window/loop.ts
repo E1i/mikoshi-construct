@@ -51,6 +51,7 @@ export function repositoryContinuePrompt(dir: string, handoff: string): string {
 
 export const PAUSE_MS = 3000
 export const DOUBLE_CTRL_C_WINDOW_MS = 1500
+export const DOUBLE_CTRL_C_WINDOW_VARIABLE = 'MIKO_DOUBLE_CTRL_C_MS'
 export const EXIT_REQUEST_PREFIX = 'miko-exit'
 export const EXIT_POLL_MS = 200
 export const LOOP_BEAT_MS = 5 * 60_000
@@ -206,14 +207,19 @@ export function claudeArgv(command: string, prompt: string | undefined): string[
   return ['-c', sessionScript(command), 'miko', ...(prompt === undefined ? [] : [prompt])]
 }
 
-export function doubleCtrlCWatcher(now: () => number = Date.now): { press: () => void, seen: () => boolean, presses: () => number } {
+export function doubleCtrlCWindowOf(env: NodeJS.ProcessEnv): number {
+  const ms = Number(env[DOUBLE_CTRL_C_WINDOW_VARIABLE])
+  return Number.isInteger(ms) && ms > 0 ? ms : DOUBLE_CTRL_C_WINDOW_MS
+}
+
+export function doubleCtrlCWatcher(now: () => number = Date.now, windowMs: number = DOUBLE_CTRL_C_WINDOW_MS): { press: () => void, seen: () => boolean, presses: () => number } {
   let last = Number.NEGATIVE_INFINITY
   let seen = false
   let presses = 0
   return {
     press: () => {
       const at = now()
-      seen ||= at - last <= DOUBLE_CTRL_C_WINDOW_MS
+      seen ||= at - last <= windowMs
       last = at
       presses++
     },
@@ -386,7 +392,7 @@ if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLTo
   }
   const beating = setInterval(instance.beat, LOOP_BEAT_MS)
   beating.unref()
-  const ctrlC = doubleCtrlCWatcher()
+  const ctrlC = doubleCtrlCWatcher(Date.now, doubleCtrlCWindowOf(process.env))
   process.on('SIGINT', ctrlC.press)
   const handoffDir = defaultHandoffDir()
   mkdirSync(handoffDir, { recursive: true })
