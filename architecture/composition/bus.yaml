@@ -4,7 +4,9 @@ description: >-
   `composeBusTick` in `scripts/supervisor/run.ts` is the composition root of the bus loop `pnpm bus:run` keeps
   alive. Each tick NetWatch polls GitHub and writes what it observed; a poll that was skipped or refused
   ends the tick there. A ticked poll runs the rest in sequence on the one `bus.db`: the window
-  requests, the reducer and the queues it derives. Then, unless `pr-status.off` sits
+  requests, the reducer and the queues it derives. Before the queues, `sliceParentsOnce` runs the slice-parent
+  backfill while the bus holds no `slice.parents.backfilled` event and a slice card without a parent, and never
+  again once that event is written. Then, unless `pr-status.off` sits
   beside `bus.db`, `setStepStatuses` reads the step events after its cursor in `node_cursors`, which a
   first run opens at the last event of the journal, and posts the status check `mikoshi: <step>` only
   where the `prs` projection holds the pull request open on that head, at most `STATUS_BATCH` posts a
@@ -39,6 +41,10 @@ nodes:
     label: reduce → reducer.reduced
     path: scripts/core/reducer.ts
     boundary: fold
+  - id: sliceparents
+    label: sliceParentsOnce · slice.parents.backfilled, once
+    path: scripts/supervisor/composition.ts
+    boundary: fold
   - id: queues
     label: deriveQueues · superseded and queued tasks
     path: scripts/core/queue.ts
@@ -55,7 +61,8 @@ edges:
   - {from: root, to: netwatch, kind: sequence}
   - {from: netwatch, to: requests, kind: sequence, label: ticked}
   - {from: requests, to: reduce, kind: sequence}
-  - {from: reduce, to: queues, kind: sequence}
+  - {from: reduce, to: sliceparents, kind: sequence}
+  - {from: sliceparents, to: queues, kind: sequence}
   - {from: queues, to: statuses, kind: sequence}
   - {from: statuses, to: board, kind: sequence, label: a refusal for now is logged and passed}
   - {from: queues, to: board, kind: sequence, label: pr-status.off}

@@ -237,6 +237,50 @@ export function cutSlices(cards: readonly CheckedCard[], sliced: readonly Sliced
   })
 }
 
+const WRITTEN_SLICE_NAME = /^(.+)-slice-(\d+)$/
+const CARD_LINE_NAME = /#\d+\s+(\S+)/
+
+interface CardLine {
+  card: number
+  line: string
+}
+
+interface TransferredParents {
+  cards: Record<string, SliceParent>
+  unread: number[]
+}
+
+interface NamedSlice {
+  card: number
+  base: string
+  part: number
+}
+
+function nameOnLine(line: string): string | null {
+  return CARD_LINE_NAME.exec(line)?.[1] ?? null
+}
+
+function namedSlice(row: CardLine): NamedSlice | null {
+  const slice = WRITTEN_SLICE_NAME.exec(nameOnLine(row.line) ?? '')
+  return slice === null ? null : { card: row.card, base: slice[1]!, part: Number(slice[2]) }
+}
+
+export function parentsFromCardLines(rows: readonly CardLine[], among: readonly CardLine[]): TransferredParents {
+  const siblings = among.flatMap(row => namedSlice(row) ?? [])
+  const transferred: TransferredParents = { cards: {}, unread: [] }
+  for (const slice of rows.flatMap(row => namedSlice(row) ?? [])) {
+    const group = siblings.filter(other => other.base === slice.base)
+    const parts = group.map(other => other.part)
+    if (parts.filter(part => part === slice.part).length > 1) {
+      transferred.unread.push(slice.card)
+      continue
+    }
+    const stub = among.find(row => nameOnLine(row.line) === slice.base)?.card
+    transferred.cards[String(slice.card)] = { card: stub ?? Math.min(...group.map(other => other.card)), part: slice.part, of: Math.max(new Set(parts).size, ...parts) }
+  }
+  return transferred
+}
+
 export function sliceParents(sliced: readonly SlicedCard[]): (SliceParent | null)[] {
   return sliced.flatMap(card => (card.slices.length === 0 ? [null] : card.slices.map((_, at) => ({ card: card.id, part: at + 1, of: card.slices.length }))))
 }

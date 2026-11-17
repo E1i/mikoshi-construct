@@ -35,6 +35,8 @@ import { isWithin, parkingTree } from './parking-tree.js'
 import { defaultContourMap, readContourMap, sharedCodeMaskRefusals } from './shared-code-masks.js'
 import { CORRECTED_PREFIX, UNCLEAR_PREFIX, WITNESSES_HEADING } from './slice.js'
 
+export { parentsFromCardLines } from './slice.js'
+
 const WITNESS_ITEM = /^- (.+)$/
 const BLOCKS_SEPARATOR = ' · blocks '
 const LEADING_BLOCKS = /^(?:—|#\d+(?:,? #\d+)*)/
