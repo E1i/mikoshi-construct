@@ -94,6 +94,45 @@ describe('the Shredder writes the parent on each slice it cuts', () => {
     }
   })
 
+  it('re-admitting a slice the bus already holds writes its parent again, not counting its own earlier line as a sibling', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'slice-parent-'))
+    roots.push(root)
+    const db = openBus(path.join(root, 'bus.db'))
+    const said: string[] = []
+    try {
+      const line = (id: number, part: number): string => `#${id} again-slice-${part} [implement/runner/S/cheap/owner]`
+      appendCardEvent(db, 'worker:intake:test', { type: CARD_ADMITTED, cardId: 90, ts: '2026-11-17T09:00:00.000Z', dedupeKey: `${CARD_ADMITTED}:90`, payload: { card: line(90, 1) } }, entry => said.push(entry))
+      appendCardEvent(db, 'worker:intake:test', { type: CARD_ADMITTED, cardId: 91, ts: '2026-11-17T09:01:00.000Z', dedupeKey: `${CARD_ADMITTED}:91`, payload: { card: line(91, 2) } }, entry => said.push(entry))
+      appendCardEvent(db, 'worker:intake:test', { type: CARD_ADMITTED, cardId: 91, ts: '2026-11-17T09:02:00.000Z', dedupeKey: `${CARD_ADMITTED}:91:amend`, payload: { card: line(91, 2) } }, entry => said.push(entry))
+      const parents = (db.prepare('SELECT card_id, payload FROM events WHERE type = ? ORDER BY id').all(CARD_ADMITTED) as { card_id: number, payload: string }[])
+        .map(row => [Number(row.card_id), (JSON.parse(row.payload) as Record<string, unknown>).parent ?? null])
+      expect(parents).toEqual([
+        [90, { card: 90, part: 1, of: 1 }],
+        [91, { card: 90, part: 2, of: 2 }],
+        [91, { card: 90, part: 2, of: 2 }],
+      ])
+      expect(said).toEqual([])
+    }
+    finally {
+      db.close()
+    }
+  })
+
+  it('a parent the cut already wrote stands over the one the card lines would derive', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'slice-parent-'))
+    roots.push(root)
+    const db = openBus(path.join(root, 'bus.db'))
+    try {
+      const cut = { card: 94, part: 1, of: 2 }
+      appendCardEvent(db, 'worker:intake:test', { type: CARD_ADMITTED, cardId: 95, ts: '2026-11-17T09:00:00.000Z', dedupeKey: `${CARD_ADMITTED}:95`, payload: { card: '#95 cut-slice-1 [implement/runner/S/cheap/owner]', parent: cut } }, () => {})
+      const row = db.prepare('SELECT payload FROM events WHERE type = ? AND card_id = ?').get(CARD_ADMITTED, 95) as { payload: string }
+      expect((JSON.parse(row.payload) as Record<string, unknown>).parent).toEqual(cut)
+    }
+    finally {
+      db.close()
+    }
+  })
+
   it('a card admitted whole carries no parent', () => {
     const w = world(['src/a.ts'])
     expect(intake(w, { autoConfirm: true }).status).toBe('written')
