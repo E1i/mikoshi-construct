@@ -345,7 +345,7 @@ function abandonedRunIsRerun(): void {
       const body = response.body as { check_runs: { name: string, conclusion: string | null }[] }
       return { ...response, body: { check_runs: body.check_runs.map(check => check.name === 'required' && check.conclusion === 'failure' ? { ...check, id: 77, output: { annotations_count: 1, annotations_url: url } } : check) } }
     }
-    const busTick = new BusTick(db, busProjections(), new NetWatch(db, client, clock.now), clock.now, () => {})
+    const busTick = new BusTick(db, busProjections(), new NetWatch(db, client, clock.now), clock.now)
     busTick.run()
     clock.advance(TICK_MS)
     gitHub.open({ number: 1493, required: 'failure', failed: [], runs: [{ id: 4343, run_attempt: 1, status: 'completed', conclusion: 'failure' }] })

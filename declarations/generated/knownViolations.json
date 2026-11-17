@@ -20,5 +20,6 @@
   "followSources": [
     "scripts",
     "src"
-  ]
+  ],
+  "measure": true
 }

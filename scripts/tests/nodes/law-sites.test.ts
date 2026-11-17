@@ -124,7 +124,7 @@ function abandonedReadAsRerun(): void {
       const body = response.body as { check_runs: { name: string, conclusion: string | null }[] }
       return { ...response, body: { check_runs: body.check_runs.map(check => check.name === 'required' && check.conclusion === 'failure' ? { ...check, id, output: { annotations_count: 1, annotations_url: `https://api.github.com/repos/{owner}/{repo}/check-runs/${id}/annotations` } } : check) } }
     }
-    const tick = new BusTick(db, busProjections(), new NetWatch(db, client, clock.now), clock.now, () => {})
+    const tick = new BusTick(db, busProjections(), new NetWatch(db, client, clock.now), clock.now)
     tick.run()
     clock.advance(TICK_MS)
     gitHub.open({ number: 1493, head: abandonedHead, required: 'failure', failed: [] })

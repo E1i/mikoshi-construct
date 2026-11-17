@@ -22,7 +22,7 @@ import { defaultBusDir } from '../../core/bus-path.js'
 import { bodyNotFoldedYet } from '../../core/card-bodies.js'
 import { defaultBusPath } from '../../core/db.js'
 import { messageOf } from '../../core/errors.js'
-import { CARD_ADMITTED, CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, DECISION_RECORDED, DECISIONS_IMPORTED, MERGE_DONE, POLICY_DENIED, PR_CLOSED, PR_OBSERVED, PR_OPENED, REDUCED, REVIEW_RECORDED } from '../../core/events.js'
+import { CARD_ADMITTED, CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, DECISION_RECORDED, MERGE_DONE, POLICY_DENIED, PR_CLOSED, PR_OBSERVED, PR_OPENED, REDUCED, REVIEW_RECORDED } from '../../core/events.js'
 import { assertHeld, failTask, queuedCards, StaleLease, supersedeLease } from '../../core/lease.js'
 import { Node, runNode, UNDERSTOOD_NOW } from '../../core/node.js'
 import { treeReportPath } from '../../core/places.js'
@@ -45,11 +45,11 @@ import { claudeAnswerer, PREFIX, realAnswererTools } from './answerer.js'
 
 const ANSWERS_DIR = path.join(defaultBusDir(), 'answers')
 
-export const ANSWER_ON = [REDUCED, PR_OBSERVED, PR_CLOSED, PR_OPENED, REVIEW_RECORDED, CARD_STOPPED, CARD_ANSWERED, CARD_STARTED, CARD_ADMITTED, DECISION_RECORDED, DECISIONS_IMPORTED, MERGE_DONE] as const
+export const ANSWER_ON = [REDUCED, PR_OBSERVED, PR_CLOSED, PR_OPENED, REVIEW_RECORDED, CARD_STOPPED, CARD_ANSWERED, CARD_STARTED, CARD_ADMITTED, DECISION_RECORDED, MERGE_DONE] as const
 
 export const ANSWER_NODE: NodeDeclaration = { kind: 'answer', on: ANSWER_ON, understands: UNDERSTOOD_NOW }
 
-const WHOLE_QUEUE_ON: ReadonlySet<string> = new Set([REDUCED, DECISION_RECORDED, DECISIONS_IMPORTED, MERGE_DONE])
+const WHOLE_QUEUE_ON: ReadonlySet<string> = new Set([REDUCED, DECISION_RECORDED, MERGE_DONE])
 const SCOPED_BY_PR_ON: ReadonlySet<string> = new Set([PR_OBSERVED, PR_CLOSED, REVIEW_RECORDED])
 
 export function priorityOf(cardText: CardText, cardId: number): Priority | null {

@@ -147,7 +147,8 @@ describe('the factory section versions', () => {
 
     expect(sectionVerdict('card', undefined, recorded.card)).toMatchObject({ red: false, line: `card: new since the base, at cardVersion ${CARD_VERSION}` })
     expect(sectionVerdict('card', recorded.card, undefined).red).toBe(true)
-    expect(sectionVerdict('nodes', { ...recorded.nodes, nodesVersion: 3 }, recorded.nodes).line).toContain('went down from 3')
+    const above = recorded.nodes.nodesVersion + 1
+    expect(sectionVerdict('nodes', { ...recorded.nodes, nodesVersion: above }, recorded.nodes).line).toContain(`went down from ${above}`)
     expect(sectionVerdict('nodes', undefined, undefined).red).toBe(false)
     expect(sectionVerdict('bus', recorded.bus, recorded.bus)).toEqual({ section: 'bus', red: false, line: `bus: unchanged, busVersion ${recorded.bus.busVersion}` })
   })

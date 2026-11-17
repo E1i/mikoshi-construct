@@ -1,0 +1,10 @@
+{
+  "event": "lane.held",
+  "constant": "LANE_HELD",
+  "payload": [
+    "card",
+    "hold",
+    "lane",
+    "reason"
+  ]
+}

@@ -13,7 +13,6 @@ import { MERGE_QUEUE } from '../../nodes/merge/merge-executor.js'
 import { MergeNode } from '../../nodes/merge/merge-worker.js'
 import { sayToOwnerChannel } from '../../owner/channel.js'
 import { decisionsFileOf } from '../../policy/decisions/decisions.js'
-import { decisionsIntake } from '../../policy/decisions/import.js'
 import { allowLiveCommand, liveDecisionOf } from '../../policy/live-decision.js'
 import { activeWindowShards, decisionsInForceAt, windowShardEnded } from '../../policy/shards.js'
 import { busProjections } from '../../supervisor/composition.js'
@@ -118,21 +117,20 @@ describe('oneword: the ghost-protocol word is the only owner word', () => {
   })
 
   it('an early return to window ends the live merge and update decisions with the shard', () => {
-    const { parts, onBus, busDb } = bench()
+    const { parts, onBus } = bench()
     ghostProtocol(parts)
-    const liveAfterImport = (): (number | null)[] => onBus((db) => {
-      decisionsIntake(db, decisionsFileOf(busDb), () => NOW)()
+    const liveAfterReduce = (): (number | null)[] => onBus((db) => {
       reduce(db, 'pending', busProjections())
       const decisions = decisionsInForceAt(db, NOW)
       return [liveDecisionOf(decisions, 'merge'), liveDecisionOf(decisions, 'update')]
     })
-    expect(liveAfterImport()).not.toContain(null)
+    expect(liveAfterReduce()).not.toContain(null)
 
     const result = runMode(command('--mode', 'window'), parts)
 
     expect(result.exitCode, result.stderr.join('\n')).toBe(0)
     expect(onBus(db => activeWindowShards(db, NOW))).toEqual([])
-    expect(liveAfterImport()).toEqual([null, null])
+    expect(liveAfterReduce()).toEqual([null, null])
   })
 
   it('a window to window switch takes a worker it switches off out of live', () => {

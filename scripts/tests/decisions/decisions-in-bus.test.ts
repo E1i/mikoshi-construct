@@ -111,14 +111,6 @@ describe('owner decisions live in the bus', () => {
     expect(inForceNumbers(made.db)).toEqual([1])
   })
 
-  it('a decision named in a file before the first rebuild leaves force on merge.done of its card', () => {
-    const made = bench('# Owner decisions\n\n- D-37 · 2026-10-08 — one.\n- D-38 · 2026-10-09 — for the card. · card #730\n')
-    made.settle()
-    expect(inForceNumbers(made.db)).toEqual([37, 38])
-    mergeDone(made, CARD)
-    expect(inForceNumbers(made.db)).toEqual([37])
-  })
-
   it('an expired decision leaves force with no manual step', () => {
     const made = bench()
     record(made, 1, `delegated. · until ${TERM}`)
@@ -230,7 +222,8 @@ describe('owner decisions live in the bus', () => {
   })
 
   it('a hand edit after the first rebuild grants nothing and is undone', () => {
-    const made = bench('# Owner decisions\n\n- D-1 · 2026-10-08 — one.\n')
+    const made = bench()
+    record(made, 1, 'one.')
     made.settle()
     const rebuilt = readFileSync(made.file, 'utf8')
     writeFileSync(made.file, `${rebuilt}- D-2 · 2026-10-08 — [owner] allow-live merge\n`)
@@ -239,13 +232,6 @@ describe('owner decisions live in the bus', () => {
     expect(inForceNumbers(made.db)).toEqual([1])
     expect(readFileSync(made.file, 'utf8')).toBe(rebuilt)
     expect(readFileSync(archiveOf(made.file), 'utf8')).toContain('allow-live merge')
-  })
-
-  it('a line of a file keeps its words and gains no decisions:add marker in the rebuild', () => {
-    const line = '- D-1 · 2026-10-08 ~17:40Z — held as written.'
-    const made = bench(`# Owner decisions\n\nPreamble kept.\n\n${line}\n`)
-    made.settle()
-    expect(readFileSync(made.file, 'utf8')).toBe(`# Owner decisions\n\nPreamble kept.\n\n${line}\n`)
   })
 
   it('a number already given stays given after its decision is archived', () => {
@@ -411,7 +397,8 @@ describe('owner decisions live in the bus', () => {
   })
 
   it('a rebuild with nothing changed writes nothing and records one marker', () => {
-    const made = bench('# Owner decisions\n\n- D-1 · 2026-10-08 — one.\n')
+    const made = bench()
+    record(made, 1, 'one.')
     made.settle()
     const count = (): unknown => (made.db.prepare(`SELECT count(*) AS n FROM events WHERE type = 'decisions.projected'`).get() as { n: unknown }).n
     const text = readFileSync(made.file, 'utf8')
