@@ -424,6 +424,8 @@
     "scripts/tests/bus/conveyor/r-lint.test.ts",
     "scripts/tests/bus/conveyor/r-paths.test.ts",
     "scripts/tests/bus/conveyor/r0-declarations.test.ts",
+    "scripts/tests/bus/conveyor/scenario-processes.ts",
+    "scripts/tests/bus/conveyor/scenario-waiters-die-with-their-run.test.ts",
     "scripts/tests/bus/db.test.ts",
     "scripts/tests/bus/dead-holder-lease.test.ts",
     "scripts/tests/bus/decisions.test.ts",
