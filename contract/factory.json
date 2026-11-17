@@ -2231,7 +2231,8 @@
         "directory": false,
         "namedIn": [
           "scripts/cli/board-page.ts",
-          "scripts/cli/board-page/timer.ts"
+          "scripts/cli/board-page/timer.ts",
+          "scripts/supervisor/run.ts"
         ],
         "owner": "scripts/cli/board-page.ts",
         "source": "owner",
@@ -2242,7 +2243,6 @@
         "directory": false,
         "namedIn": [
           "scripts/cli/board-page.ts",
-          "scripts/cli/board-page/timer.ts",
           "scripts/window/board.ts"
         ],
         "owner": "scripts/cli/board-page.ts",
