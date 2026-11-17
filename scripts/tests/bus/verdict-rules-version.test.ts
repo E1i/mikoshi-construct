@@ -42,7 +42,7 @@ function projectedPage(bench: MergeBench): string {
   const files: BoardFiles = { write: (file, text) => written.set(file, text), rename: (from, to) => written.set(to, written.get(from)!) }
   const projection = boardProjection(bench.db, bench.busPath, 1_000, files, path.join(path.dirname(bench.busPath), 'handoff.md'), new MainUpToDate(bench.gitHub.client, () => bench.clock.now().getTime()))
   projection.project(bench.clock.now())
-  return written.get(projection.file) ?? ''
+  return written.get(projection.dataFile) ?? ''
 }
 
 function prRows(db: DatabaseSync): unknown[] {

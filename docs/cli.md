@@ -1975,6 +1975,13 @@ and `pull requests` (counting 1 when `--prs` is missing or unreadable), and is e
 was read. The text never prints UNKNOWN. A `--prs` file that cannot be read is named unreadable
 with its reason, and the board still exits `0`.
 
+In this repository the bus also keeps an HTML board beside `bus.db`. `board.html` is a shell with no
+data inside, rewritten only when its template changes; `board-data.js` carries the data and is rewritten
+every 10 seconds by the board timer, which runs outside the bus tick on a read-only connection. The page
+carries only live cards — those not merged, dropped or closed — and the cards merged in the last 24
+hours. History is not on it: `pnpm board --all` writes `board-history.html` beside `bus.db` on demand,
+every card included, and prints its path.
+
 ## construct graph
 
 Draws `construct.model.json` — every claim, every hypothesis and the files each one stands on — as a

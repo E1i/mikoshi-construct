@@ -4,6 +4,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { boardProjection } from '../../cli/board-page.js'
 import { appendEvent, openBus } from '../../core/db.js'
 import { COMMAND_EXECUTED, PR_STATUS_REFUSED, PR_STATUS_SET } from '../../core/events.js'
 import { HANDOFF_DIR_VARIABLE } from '../../core/handoff-dir.js'
@@ -216,18 +217,20 @@ describe('the PR status check the bus sets', () => {
     vi.unstubAllEnvs()
   })
 
-  it('the board a tick writes is projected after the statuses and shows what the same tick posted', () => {
+  it('the board projected after a tick shows what the same tick posted', () => {
     const { db, busPath, root, clock } = tickedBus()
     const post: GitHubPost = () => {
       step(db, 'card.fell', null, { reason: 'posted' }, 'worker:launch:s4')
       return { status: 201, headers: {}, body: null }
     }
-    const { busTick, boardFile } = composeBusTick(db, busPath, openOn(HEAD).client, post, clock.now, root)
+    const { busTick } = composeBusTick(db, busPath, openOn(HEAD).client, post, clock.now, root)
     expect(busTick.run()?.poll.kind).toBe('ticked')
     step(db, 'task.leased', HEAD, { task_key: 'review:1091:950', queue: 'review', lease_gen: 1 })
     clock.advance(TICK_MS)
     expect(busTick.run()?.poll.kind).toBe('ticked')
-    expect(readFileSync(boardFile, 'utf8')).toContain('card #1091 fell')
+    const board = boardProjection(db, busPath, TICK_MS)
+    board.project(clock.now())
+    expect(readFileSync(board.dataFile, 'utf8')).toContain('card #1091 fell')
     db.close()
     vi.unstubAllEnvs()
   })

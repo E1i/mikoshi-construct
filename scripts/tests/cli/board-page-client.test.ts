@@ -151,14 +151,14 @@ function withCounter(page: BoardPageStub, count: string): StubNode {
   return counter
 }
 
-function run(page: BoardPageStub) {
+function run(page: BoardPageStub, written = WRITTEN) {
   let now = page.loadedAt
   let frames: (() => void)[] = []
   const timeouts: { run: () => void, ms: number }[] = []
   const appended: StubNode[] = []
   const document = Object.assign(new StubNode('DOCUMENT'), {
     title: '',
-    body: { dataset: { written: WRITTEN, tickMs: String(TICK_MS) } },
+    body: { dataset: { written, tickMs: String(TICK_MS) } },
     head: { appendChild: (child: StubNode) => appended.push(child) },
     getElementById: (id: string) => page.byId.get(id) ?? null,
     createElement: (tag: string) => new StubNode(tag.toUpperCase()),
@@ -237,6 +237,22 @@ describe('the board page script', () => {
     page.advance(3_000)
     page.paint()
     expect(reloaded.byId.get(NAMES.refreshIn)!.textContent).toBe(` · next in ${Math.ceil((left - 3_000) / 1000)}s`)
+  })
+
+  it('a shell with no data reads board-data.js at once and reopens the saved dialog only once the data is in', () => {
+    const storage = new MemoryStorage()
+    storage.setItem(NAMES.viewKey, JSON.stringify({ open: NAMES.handoffDialog }))
+    const stub = boardPage(storage)
+    const page = run(stub, '')
+    expect(page.appended).toHaveLength(1)
+    expect(page.timeouts).toHaveLength(0)
+    const template = new StubNode('TEMPLATE')
+    stub.byId.set(`${NAMES.dialogPrefix}${NAMES.handoffDialog}`, template)
+    expect(stub.byId.get(NAMES.drill)!.open).toBe(false)
+    page.context.BOARD = { written: WRITTEN, tickMs: TICK_MS, slots: {}, filters: [] }
+    page.appended[0]!.onload!()
+    expect(stub.byId.get(NAMES.drill)!.open).toBe(true)
+    expect(page.timeouts).toHaveLength(1)
   })
 
   it('a click on data-pull re-reads the board at once', () => {
