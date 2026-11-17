@@ -634,6 +634,7 @@
     "scripts/tests/cli/board-live-only.test.ts",
     "scripts/tests/cli/board-page-client.test.ts",
     "scripts/tests/cli/board-page-static.test.ts",
+    "scripts/tests/cli/board-timer-start.test.ts",
     "scripts/tests/client/adapters-one-contract.test.ts",
     "scripts/tests/client/codex-guarantees.test.ts",
     "scripts/tests/client/codex-reading.test.ts",
