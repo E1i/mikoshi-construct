@@ -4941,7 +4941,9 @@
           "withRunsLine": "(text: string, runs: readonly string[]): string",
           "witnessesOf": "(body: string): string[]"
         },
-        "reexports": [],
+        "reexports": [
+          "parentsFromCardLines"
+        ],
         "types": {
           "AdmitResult": "type AdmitResult = { status: 'refused'; why: string; } | { status: 'invalidTestPattern'; reasons: string[]; } | { status: 'sharedCodeMask'; reasons: string[]; } | { status: 'admitted' | 'alreadyAdmitted' | 'dryRun'; file: string; card: SlicedCard; autoConfirm: boolean; source: AdmitSource; inBus: boolean; event: number | null; windowShard: string | null; } | { status: 'awaiting'; file: string; card: SlicedCard; token: string; stale: boolean; } | { status: 'waiting'; file: string; card: SlicedCard; waitingOn: number[]; inBus: boolean; dryRun: boolean; } | { status: 'ownerWait'; file: string; card: SlicedCard; downgrades: string[]; actions: string[]; command: string; inBus: boolean; dryRun: boolean; }"
         }

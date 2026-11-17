@@ -3,8 +3,11 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { appendCardEvent } from '../../scripts/core/card-bodies.js'
+import { openBus } from '../../scripts/core/db.js'
 import { CARD_ADMITTED } from '../../scripts/core/events.js'
 import { runIntake } from '../../src/commands/intake/index.js'
+import { parentsFromCardLines } from '../../src/commands/intake/slice.js'
 
 const TAKEN_THROUGH = '12'
 const PARENT = 13
@@ -50,6 +53,45 @@ describe('the Shredder writes the parent on each slice it cuts', () => {
       [13, { card: PARENT, part: 1, of: 2 }],
       [14, { card: PARENT, part: 2, of: 2 }],
     ])
+  })
+
+  it('derives a slice\'s parent from the card lines: a stub named after the base, else the lowest sibling', () => {
+    const lines = [
+      { card: 50, line: '#50 stub-card [implement/runner/S/cheap/owner]' },
+      { card: 51, line: '#51 stub-card-slice-1 [implement/runner/S/cheap/owner]' },
+      { card: 61, line: '#61 bare-slice-2 [implement/runner/S/cheap/owner]' },
+      { card: 63, line: '#63 bare-slice-3 [implement/runner/S/cheap/owner]' },
+    ]
+    expect(parentsFromCardLines(lines, lines)).toEqual({
+      cards: { 51: { card: 50, part: 1, of: 1 }, 61: { card: 61, part: 2, of: 3 }, 63: { card: 61, part: 3, of: 3 } },
+      unread: [],
+    })
+  })
+
+  it('a slice name two cards share is read two ways and gets no parent', () => {
+    const lines = [
+      { card: 90, line: '#90 twice-slice-1 [implement/runner/S/cheap/owner]' },
+      { card: 91, line: '#91 twice-slice-1 [implement/runner/S/cheap/owner]' },
+    ]
+    expect(parentsFromCardLines([lines[1]!], lines)).toEqual({ cards: {}, unread: [91] })
+  })
+
+  it('admitting a slice whose name and part another card carries writes no parent and says so', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'slice-parent-'))
+    roots.push(root)
+    const db = openBus(path.join(root, 'bus.db'))
+    const said: string[] = []
+    try {
+      for (const id of [90, 91])
+        appendCardEvent(db, 'worker:intake:test', { type: CARD_ADMITTED, cardId: id, ts: '2026-11-17T09:00:00.000Z', dedupeKey: `${CARD_ADMITTED}:${id}`, payload: { card: `#${id} twice-slice-1 [implement/runner/S/cheap/owner]` } }, line => said.push(line))
+      const parents = (db.prepare('SELECT card_id, payload FROM events WHERE type = ? ORDER BY id').all(CARD_ADMITTED) as { card_id: number, payload: string }[])
+        .map(row => [Number(row.card_id), (JSON.parse(row.payload) as Record<string, unknown>).parent ?? null])
+      expect(parents).toEqual([[90, { card: 90, part: 1, of: 1 }], [91, null]])
+      expect(said).toEqual(['#91: another card carries the same slice name and part; admitted without a parent'])
+    }
+    finally {
+      db.close()
+    }
   })
 
   it('a card admitted whole carries no parent', () => {

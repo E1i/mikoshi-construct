@@ -3,9 +3,10 @@ import type { ParkedTask } from '../../src/card/parking.js'
 import type { CardEvent } from '../../src/commands/intake/index.js'
 import type { StoredEvent } from './stored.js'
 import { existsSync } from 'node:fs'
+import process from 'node:process'
 import { parseParkingFile } from '../../src/card/parking.js'
 import { textSha } from '../../src/card/text-sha.js'
-import { AMEND_SOURCE, isLaneName, laneName, laneNumber, pathsNamedOutside } from '../../src/commands/intake/admit.js'
+import { AMEND_SOURCE, isLaneName, laneName, laneNumber, parentsFromCardLines, pathsNamedOutside } from '../../src/commands/intake/admit.js'
 import { NOT_A_BACKFILL } from './backfill-source.js'
 import { CARD_VERSION, CARD_VERSION_KEY, cardVersionIn } from './bus-version.js'
 import { appendEvent, BUSY_TIMEOUT_MS, defaultBusPath, openBus } from './db.js'
@@ -126,8 +127,68 @@ export function laid(db: DatabaseSync, event: CardEvent): CardEvent {
   return { ...event, type: CARD_ADMITTED, payload: { ...event.payload, lane: kept ?? admittedLane(db, event.cardId, event.payload.depends) } }
 }
 
-export function appendCardEvent(db: DatabaseSync, actor: string, unversioned: CardEvent): boolean {
-  const event = versioned(db, unversioned)
+const LATEST_CARD_LINES = `
+  SELECT latest.card_id, coalesce(json_extract(latest.payload, '$.card'), json_extract(latest.payload, '$.text')) AS line, EXISTS (
+    SELECT 1 FROM events admission WHERE admission.legacy = 0 AND admission.type = '${CARD_ADMITTED}' AND admission.card_id = latest.card_id
+      AND json_valid(admission.payload) AND json_type(admission.payload, '$.parent') = 'object'
+  ) AS carrying
+  FROM events latest WHERE latest.id IN (
+    SELECT max(id) FROM events WHERE legacy = 0 AND type = '${CARD_ADMITTED}' AND card_id IS NOT NULL AND json_valid(payload)
+      AND (json_type(payload, '$.card') = 'text' OR json_type(payload, '$.text') = 'text')
+    GROUP BY card_id
+  ) ORDER BY latest.card_id
+`
+
+interface CardLine {
+  card: number
+  line: string
+}
+
+interface AdmittedCardLine extends CardLine {
+  carrying: boolean
+}
+
+type TransferredParents = ReturnType<typeof parentsFromCardLines>
+
+function namesASlice(own: CardLine): boolean {
+  const alone = parentsFromCardLines([own], [own])
+  return Object.keys(alone.cards).length > 0
+}
+
+export type Say = (line: string) => void
+
+function sayOnStderr(line: string): void {
+  process.stderr.write(`${line}\n`)
+}
+
+function latestCardLines(db: DatabaseSync): AdmittedCardLine[] {
+  const rows = db.prepare(LATEST_CARD_LINES).all() as { card_id: number, line: string, carrying: number }[]
+  return rows.map(row => ({ card: Number(row.card_id), line: row.line, carrying: Boolean(row.carrying) }))
+}
+
+function admittedCardLines(db: DatabaseSync, except: number): CardLine[] {
+  return latestCardLines(db).filter(row => row.card !== except)
+}
+
+function withSliceParent(db: DatabaseSync, event: CardEvent, say: Say): CardEvent {
+  const line = event.payload.card
+  if (event.type !== CARD_ADMITTED || event.payload.parent !== undefined || typeof line !== 'string')
+    return event
+  const own = { card: event.cardId, line }
+  if (!namesASlice(own))
+    return event
+  const transfer = parentsFromCardLines([own], [...admittedCardLines(db, event.cardId), own])
+  const parent = transfer.cards[String(event.cardId)]
+  if (parent === undefined) {
+    if (transfer.unread.includes(event.cardId))
+      say(`#${event.cardId}: another card carries the same slice name and part; admitted without a parent`)
+    return event
+  }
+  return { ...event, type: CARD_ADMITTED, payload: { ...event.payload, parent } }
+}
+
+export function appendCardEvent(db: DatabaseSync, actor: string, unversioned: CardEvent, say: Say = sayOnStderr): boolean {
+  const event = withSliceParent(db, versioned(db, unversioned), say)
   return appendEvent(db, { ts: event.ts, type: event.type, actor, cardId: event.cardId, pr: null, head: null, dedupeKey: event.dedupeKey, payload: event.payload, legacy: false })
 }
 
@@ -218,44 +279,39 @@ function carriesABody(payload: Record<string, unknown>): boolean {
   return typeof payload.text === 'string' && payload.textSha === textSha(payload.text)
 }
 
-const SLICE_PARENTS_ACTOR = 'worker:slice-parent-backfill:by-hand'
-const CARD_LINES = `
-  SELECT body.card_id, body.card_line, EXISTS (
-    SELECT 1 FROM events admission WHERE admission.legacy = 0 AND admission.type = '${CARD_ADMITTED}' AND admission.card_id = body.card_id
-      AND json_valid(admission.payload) AND json_type(admission.payload, '$.parent') = 'object'
-  ) AS carrying
-  FROM ${CARD_BODIES} body WHERE body.card_line IS NOT NULL ORDER BY body.card_id
-`
-
-export interface CardLine {
-  card: number
-  line: string
-}
-
-export interface SliceParentsTransfer {
-  cards: Record<string, object>
-  unread: number[]
-}
-
-export type TransferOfCardLines = (withoutParent: readonly CardLine[], every: readonly CardLine[]) => SliceParentsTransfer
-
+export const SLICE_PARENTS_ACTOR = 'worker:slice-parent-backfill:by-hand'
+export const SLICE_PARENTS_BUS_ACTOR = 'worker:slice-parent-backfill:bus'
 export interface SliceParentsBackfill {
   recorded: boolean
-  transfer: SliceParentsTransfer
+  transfer: TransferredParents
 }
 
-export function backfillSliceParents(db: DatabaseSync, ts: string, transferOf: TransferOfCardLines): SliceParentsBackfill {
-  const rows = db.prepare(CARD_LINES).all() as { card_id: number, card_line: string, carrying: number }[]
-  const every = rows.map(row => ({ card: Number(row.card_id), line: row.card_line }))
-  const transfer = transferOf(every.filter((_, at) => !rows[at]!.carrying), every)
-  const recorded = appendEvent(db, { ts, type: SLICE_PARENTS_BACKFILLED, actor: SLICE_PARENTS_ACTOR, cardId: null, pr: null, head: null, dedupeKey: SLICE_PARENTS_BACKFILLED, payload: { cards: transfer.cards, unread: transfer.unread }, legacy: false })
-  return { recorded, transfer }
+function sliceParentTransfer(db: DatabaseSync): TransferredParents {
+  const every = latestCardLines(db)
+  const lines = every.map(({ card, line }) => ({ card, line }))
+  return parentsFromCardLines(lines.filter((_, at) => !every[at]!.carrying), lines)
 }
 
-export function backfillSliceParentsOfBus(ts: string, transferOf: TransferOfCardLines, file: string = defaultBusPath()): SliceParentsBackfill {
+function recordTransfer(db: DatabaseSync, ts: string, actor: string, transfer: TransferredParents): boolean {
+  return appendEvent(db, { ts, type: SLICE_PARENTS_BACKFILLED, actor, cardId: null, pr: null, head: null, dedupeKey: SLICE_PARENTS_BACKFILLED, payload: { cards: transfer.cards, unread: transfer.unread }, legacy: false })
+}
+
+export function backfillSliceParents(db: DatabaseSync, ts: string, actor: string = SLICE_PARENTS_ACTOR): SliceParentsBackfill {
+  const transfer = sliceParentTransfer(db)
+  return { recorded: recordTransfer(db, ts, actor, transfer), transfer }
+}
+
+export function backfillPendingSliceParents(db: DatabaseSync, ts: string): SliceParentsBackfill | null {
+  const transfer = sliceParentTransfer(db)
+  if (Object.keys(transfer.cards).length === 0 && transfer.unread.length === 0)
+    return null
+  return { recorded: recordTransfer(db, ts, SLICE_PARENTS_BUS_ACTOR, transfer), transfer }
+}
+
+export function backfillSliceParentsOfBus(ts: string, file: string = defaultBusPath()): SliceParentsBackfill {
   const db = openBus(file)
   try {
-    return backfillSliceParents(db, ts, transferOf)
+    return backfillSliceParents(db, ts)
   }
   finally {
     db.close()
