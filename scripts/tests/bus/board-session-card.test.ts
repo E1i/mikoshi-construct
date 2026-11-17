@@ -22,7 +22,7 @@ const PARTS: SessionCardParts = { opener: '', hint: '', bars: '', agents: '', ov
 
 const WINDOW: BusService = { role: 'window', task: 'miko', tree: null, step: 'window · awake' }
 const PRESENCE: MikoPresence = { model: null, core: null, status: null, handoffBytes: null, skills: [], crawlers: [] }
-const PANEL: MikoPanelParts = { windows: [WINDOW], bars: () => '', presence: PRESENCE, now: NOW.toISOString(), words: { role: 'FIXER', name: 'Miko', plainTitle: '' }, busLines: ['bus · pulse 1 min ago · slots in use 1/3'], busLive: true, opener: '', hint: '', idle: null }
+const PANEL: MikoPanelParts = { windows: [WINDOW], bars: () => '', presence: PRESENCE, now: NOW.toISOString(), words: { role: 'FIXER', name: 'Miko', plainTitle: '' }, opener: '', hint: '', idle: null }
 
 const roots: string[] = []
 
@@ -135,16 +135,12 @@ describe('the Miko strip', () => {
       '<li class="miko-crawler" data-state="idle"><div class="crawler-top"><span class="crawler-name">CRAWLER #02 · implementer</span><span class="crawler-chip">IDLE</span></div></li>',
     ].join(''))
     expect(html.indexOf('miko-crawlers')).toBeGreaterThan(html.indexOf('miko-self'))
-    expect(html.indexOf('miko-crawlers')).toBeLessThan(html.indexOf('miko-bus'))
     expect(mikoPanel(PANEL)).not.toContain('miko-crawler-rows')
     expect(mikoPanel(PANEL)).toContain('FLATLINED')
   })
 
-  it('a stale bus heads the strip with BUS STALE and marks the column stale', () => {
-    expect(mikoPanel(PANEL)).toContain('<div class="miko-bus"><div class="miko-bus-head">BUS LIVE</div>')
-    const stale = mikoPanel({ ...PANEL, busLive: false })
-    expect(stale).toContain('<div class="miko-bus" data-stale><div class="miko-bus-head">BUS STALE</div>')
-    expect(stale).not.toContain('BUS LIVE')
+  it('the Miko panel carries no bus column', () => {
+    expect(mikoPanel(PANEL)).not.toMatch(/miko-bus|BUS LIVE|BUS STALE/)
   })
 })
 
@@ -156,7 +152,7 @@ describe('the round steps of a session card', () => {
 })
 
 describe('the board page', () => {
-  it('the board has no BUS card and the bus pulse and slots sit in the Miko panel', () => {
+  it('the board has no BUS card and the bus panel sits full width under the Miko panel', () => {
     const html = pageOf([
       { ts: minutesAgo(1), type: 'netwatch.tick', card: null, payload: '{}' },
       { ts: minutesAgo(2), type: WINDOW_HEARTBEAT, card: null, payload: JSON.stringify({ session: 'w-1', context: 64_000, spent: 97_000 }) },
@@ -164,7 +160,9 @@ describe('the board page', () => {
     expect(html).not.toContain('<div class="svc bevel" data-role="bus"')
     const strip = /<div class="svc bevel" data-role="window"[^>]*data-strip>[\s\S]*?(?=<\/section>)/.exec(html)![0]
     expect(strip).toContain('<span class="svc-kind">FIXER</span><span class="lore">MIKO</span>')
-    expect(strip).toMatch(/<div class="miko-bus"><div class="miko-bus-head">BUS LIVE<\/div><div class="svc-line">bus · pulse [^<]*slots in use[^<]*<\/div>/)
+    expect(strip).not.toContain('miko-bus')
+    expect(strip.indexOf('data-strip')).toBeLessThan(strip.indexOf('<div class="bus-panel bevel" role="region" aria-label="bus">'))
+    expect(strip).toContain('BUS LIVE V1')
     const services = html.slice(html.indexOf('id="slot-services"'), html.indexOf('</section>', html.indexOf('id="slot-services"')))
     expect(services.match(/data-role="window"/g)).toHaveLength(1)
     expect(services).not.toMatch(/data-role="bus"|<span class="lore">Subnet<\/span>/)

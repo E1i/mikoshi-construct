@@ -195,13 +195,36 @@
       pulse.setAttribute('data-stale', '')
   }
   const readable = board => board !== null && typeof board === 'object' && typeof board.written === 'string' && board.slots !== null && typeof board.slots === 'object' && Array.isArray(board.filters)
+  const slotReadings = () => {
+    const used = {}
+    document.querySelectorAll('[data-slot-queue]').forEach((row) => {
+      used[row.dataset.slotQueue] = Number(row.dataset.used)
+    })
+    return used
+  }
+  const markSlots = (before) => {
+    document.querySelectorAll('[data-slot-queue]').forEach((row) => {
+      const was = before[row.dataset.slotQueue]
+      const now = Number(row.dataset.used)
+      if (!(was >= 0) || !(now >= 0) || was === now || !row.querySelectorAll)
+        return
+      row.querySelectorAll('[data-seg]').forEach((segment, index) => {
+        if (index >= was && index < now)
+          segment.classList.add('seg-in')
+        if (index >= now && index < was)
+          segment.classList.add('seg-out')
+      })
+    })
+  }
   const apply = (board) => {
+    const before = slotReadings()
     document.title = names.titlePrefix + board.written
     Object.keys(board.slots).forEach((name) => {
       const slot = document.getElementById(names.slotPrefix + name)
       if (slot && typeof board.slots[name] === 'string')
         slot.innerHTML = board.slots[name]
     })
+    markSlots(before)
     const backlog = document.getElementById(names.backlog)
     board.filters.forEach((id) => {
       if (!backlog || typeof id !== 'string' || document.getElementById(id))

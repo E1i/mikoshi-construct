@@ -22,15 +22,11 @@ export interface MikoPanelParts {
   presence: MikoPresence
   now: string
   words: MikoWords
-  busLines: readonly string[]
-  busLive: boolean
   opener: string
   hint: string
   idle: string | null
 }
 
-const BUS_LIVE_HEAD = 'BUS LIVE'
-const BUS_STALE_HEAD = 'BUS STALE'
 const CRAWLERS_HEAD = 'CRAWLERS'
 const FLATLINED = 'FLATLINED'
 const SIGNAL_LOST = 'NO ACTIVE CRAWLERS · SIGNAL LOST'
@@ -105,10 +101,6 @@ export function crawlersCell(crawlers: readonly CrawlerReading[], now: string): 
   return `<div class="miko-crawlers"${live === 0 ? ' data-flatlined' : ''}>${head}${body}</div>`
 }
 
-function busColumn(parts: MikoPanelParts): string {
-  return `<div class="miko-bus"${parts.busLive ? '' : ' data-stale'}><div class="miko-bus-head">${parts.busLive ? BUS_LIVE_HEAD : BUS_STALE_HEAD}</div>${parts.busLines.map(line => `<div class="svc-line">${escaped(line)}</div>`).join('')}</div>`
-}
-
 export function mikoPanel(parts: MikoPanelParts): string {
-  return `<div class="svc bevel" data-role="window"${parts.opener} data-strip>${mikoLeft(parts)}${crawlersCell(parts.presence.crawlers, parts.now)}${busColumn(parts)}</div>`
+  return `<div class="svc bevel" data-role="window"${parts.opener} data-strip>${mikoLeft(parts)}${crawlersCell(parts.presence.crawlers, parts.now)}</div>`
 }

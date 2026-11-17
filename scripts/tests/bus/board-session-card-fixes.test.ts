@@ -47,7 +47,7 @@ function windowBeat(payload: Record<string, unknown>): SeedEvent {
 }
 
 function crawlerCell(html: string): string {
-  return /<div class="miko-crawlers"[\s\S]*?(?=<div class="miko-bus")/.exec(html)![0]
+  return /<div class="miko-crawlers"[\s\S]*?(?=<\/div>\n<div class="bus-panel)/.exec(html)![0]
 }
 
 function rule(css: string, selector: string): string {

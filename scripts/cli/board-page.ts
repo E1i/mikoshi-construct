@@ -21,7 +21,7 @@ import { RUNS_PREFIX } from '../../src/card/covering-tests.js'
 import { fieldCommand } from '../../src/card/witness-fields.js'
 import { busFacts, CARD_STAGES, latestCardEvents, openTasks } from '../../src/commands/board/bus.js'
 import { DROPPED, droppedLine, goalOf, MARK_WORDS, planLine } from '../../src/commands/board/goal.js'
-import { backlogCards, counted, isLive, laneColumns, liftedByTheWindow, markedName, matrixLines, pulseLines, screenLines, sliceMark, slotsReading, tallyLine, taskGroupLine, taskGroups, taskTally, waitAction, waitTarget, WINDOW_WAITS_ROLE } from '../../src/commands/board/screens.js'
+import { backlogCards, counted, isLive, laneColumns, liftedByTheWindow, markedName, matrixLines, screenLines, sliceMark, slotsReading, tallyLine, taskGroupLine, taskGroups, taskTally, waitAction, waitTarget, WINDOW_WAITS_ROLE } from '../../src/commands/board/screens.js'
 import { clientTranscriptReader, factoryLiveness, readTranscript } from '../../src/commands/liveness.js'
 import { BANNER, LORE, PLAIN_LORE } from '../../src/ui/lore.js'
 import { currentVersion, interfaceVersion } from '../../src/version.js'
@@ -46,6 +46,7 @@ import { cardSessionOf, expectedMinutes, roundSamples, shapeOf } from '../superv
 import { BOARD_FILE, FRESH_MS, windowGauges } from '../window/board.js'
 import { mikoHandoff } from '../window/loop.js'
 import { planMarkdown } from '../window/plan-export.js'
+import { busFresh, busPanel, pulseAgeMs } from './board-page/bus-panel.js'
 import { mikoPanel } from './board-page/miko-panel.js'
 import { agentsLine, CARD_TASK, compact, eddiesBar, escaped, modelLabel, NO_SESSION_VIEW, percent, ROUND_COLOURS, ROUND_LABELS, sessionCard, STEPPED_ROLE, terminalOf } from './board-page/session-card.js'
 import { boardWarnings, MainUpToDate, openPrCountOf, openPrLimitOf, plannedStallLines, savingOff, stalePassCountOf, stallLines } from './board-warnings.js'
@@ -116,6 +117,7 @@ export interface BoardPage {
   tickMs: number | null
   warnings: BoardWarning[]
   sessions?: ReadonlyMap<string, SessionView>
+  snapshot?: BoardSnapshot | null
 }
 
 const NO_LIMITS: EddiesLimits = { contextLimit: null, cardContextLine: null, sessionSpend: null, agentSpend: null, warnRatio: null, modelWindows: new Map() }
@@ -356,20 +358,11 @@ function mikoStrip(page: BoardPage, { facts } = page): string {
   const words = { role: LORE.boardWindowRole, name: LORE.boardWindowName, plainTitle: WINDOW_PLAIN_TITLE }
   const handoff = page.handoff.text
   const presence = { model: modelLabel(page.windowGauges?.model), core: facts.window?.core ?? null, status: handoff === null ? null : statusLineOf(handoff)?.status ?? null, handoffBytes: handoff === null ? null : new TextEncoder().encode(handoff).length, skills: facts.window?.skills ?? [], crawlers: facts.window?.crawlers ?? [] }
-  return mikoPanel({ windows, bars: service => barsOf(service, page), presence, now: facts.at, words, busLines: pulseLines(facts, PLAIN_LORE), busLive: busFresh(facts), opener: `${opener(HANDOFF_DIALOG)} role="button"`, hint: OPEN_HINT, idle: facts.services.length === 0 ? PLAIN_LORE.boardNoServices : null })
-}
-
-function pulseAgeMs(facts: BusFacts): number | null {
-  return facts.pulse === null ? null : Math.max(0, Date.parse(facts.at) - Date.parse(facts.pulse))
-}
-
-function busFresh(facts: BusFacts): boolean {
-  const age = pulseAgeMs(facts)
-  return age !== null && age <= FRESH_MS
+  return mikoPanel({ windows, bars: service => barsOf(service, page), presence, now: facts.at, words, opener: `${opener(HANDOFF_DIALOG)} role="button"`, hint: OPEN_HINT, idle: facts.services.length === 0 ? PLAIN_LORE.boardNoServices : null })
 }
 
 function liveAttribute(facts: BusFacts): string {
-  return busFresh(facts) ? '' : ' data-stale'
+  return busFresh(facts, FRESH_MS) ? '' : ' data-stale'
 }
 
 function servicesMeta(page: BoardPage): string {
@@ -392,6 +385,7 @@ function servicesSlot(page: BoardPage): string {
     ...matrixLines(facts, PLAIN_LORE).map(line => lineTile('matrix', line)),
     '</div>',
     mikoStrip(page),
+    busPanel({ facts, freshMs: FRESH_MS, snapshot: page.snapshot ?? null, startCommand: pnpmCommand('bus:run') }),
   ].join('\n')
 }
 
@@ -1127,6 +1121,7 @@ function boardPageOf(db: DatabaseSync, busPath: string, now: Date, handoffFile: 
     handoff: readHandoff(handoffFile),
     repository: readRepositoryUrl(),
     tickMs,
+    snapshot: readSnapshot(path.join(path.dirname(busPath), BOARD_DATA_FILE)),
   }
 }
 

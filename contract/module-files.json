@@ -118,6 +118,7 @@
   ],
   "board": [
     "scripts/cli/board-page.ts",
+    "scripts/cli/board-page/bus-panel.ts",
     "scripts/cli/board-page/miko-panel.ts",
     "scripts/cli/board-page/script.js",
     "scripts/cli/board-page/session-card.ts",
