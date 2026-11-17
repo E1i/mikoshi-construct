@@ -936,6 +936,7 @@
           "reviewer_session",
           "rules_version",
           "since",
+          "tail_card",
           "treeAfter",
           "treeBefore",
           "treeMutated",
