@@ -275,7 +275,7 @@ header.panel::before { --_sweep: oklch(from var(--wire) l c h / 0.5); animation:
     grid-template-columns: minmax(4rem, 1fr) minmax(0, 2fr) 2.75rem;
     block-size: var(--_row);
   }
-  & li > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  & li > span:first-child { min-inline-size: 0; overflow-wrap: anywhere; }
   & b { text-align: end; }
   & li.rank-move { animation: --animation-rank-move 0.7s ease-out 1; }
   & li.rank-in { animation: --animation-rank-in 0.7s ease-out 1; }

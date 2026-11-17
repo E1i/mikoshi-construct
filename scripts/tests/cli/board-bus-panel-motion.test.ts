@@ -122,7 +122,7 @@ class StubNode {
   addEventListener(): void {}
 }
 
-const NO_PANEL: BusPanelFacts = { lastEvent: null, minutes: [], families: [], familyTotal: 0, reducerLag: 0, rateRemaining: null, pulses: [], workers: [], alarm: null, recent: [] }
+const NO_PANEL: BusPanelFacts = { version: 1, lastEvent: null, minutes: [], families: [], familyTotal: 0, reducerLag: 0, rateRemaining: null, pulses: [], workers: [], alarm: null, recent: [] }
 
 function panelHtml(at: string, minutes: number[], families: BusFamily[]): string {
   const panel = { ...NO_PANEL, minutes, families, familyTotal: families.reduce((sum, row) => sum + row.count, 0) }

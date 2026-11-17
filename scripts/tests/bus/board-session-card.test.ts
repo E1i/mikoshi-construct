@@ -12,7 +12,6 @@ import { writeBus } from '../../../tests/board/bus-fixture.js'
 import { escaped, printBoard } from '../../cli/board-page.js'
 import { mikoPanel } from '../../cli/board-page/miko-panel.js'
 import { ROUND_COLOURS, roundColour, sessionCard, terminalOf } from '../../cli/board-page/session-card.js'
-import { BUS_VERSION } from '../../core/bus-version.js'
 import { ANSWER_STEP, SESSION_HEARTBEAT, TASK_LEASED, WINDOW_HEARTBEAT } from '../../core/events.js'
 
 const NOW = new Date('2026-10-20T08:00:00.000Z')
@@ -163,7 +162,7 @@ describe('the board page', () => {
     expect(strip).toContain('<span class="svc-kind">FIXER</span><span class="lore">MIKO</span>')
     expect(strip).not.toContain('miko-bus')
     expect(strip.indexOf('data-strip')).toBeLessThan(strip.indexOf('<div class="bus-panel bevel" role="region" aria-label="bus">'))
-    expect(strip).toContain(`BUS LIVE V${BUS_VERSION}`)
+    expect(strip).toContain('BUS LIVE V1')
     const services = html.slice(html.indexOf('id="slot-services"'), html.indexOf('</section>', html.indexOf('id="slot-services"')))
     expect(services.match(/data-role="window"/g)).toHaveLength(1)
     expect(services).not.toMatch(/data-role="bus"|<span class="lore">Subnet<\/span>/)

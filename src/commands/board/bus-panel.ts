@@ -23,6 +23,7 @@ export interface BusWorker {
 }
 
 export interface BusPanelFacts {
+  version: number
   lastEvent: { id: number, ts: string | null } | null
   minutes: number[]
   families: BusFamily[]
@@ -41,6 +42,7 @@ const TOP_FAMILIES = 4
 export const RECENT_EVENTS = 4
 const DETAIL_CHARS = 48
 const DETAIL_FIELDS = ['reason', 'verdict', 'step', 'queue', 'lane', 'detail']
+const UNRECORDED_BUS_VERSION = 1
 
 export function payloadOf(text: string): Record<string, unknown> {
   try {
@@ -81,6 +83,7 @@ function detailOf(payload: Record<string, unknown>): string | null {
 }
 
 export const PANEL_READING = `SELECT
+  (SELECT application_id FROM pragma_application_id()) AS version,
   (SELECT json_object('id', id, 'ts', ts) FROM events ORDER BY id DESC LIMIT 1) AS last,
   (SELECT json_group_array(json_object('ts', ts, 'type', type)) FROM events WHERE ts >= :since) AS half_hour,
   (SELECT through_event_id FROM projection_watermarks WHERE projection = :mark) AS through,
@@ -90,6 +93,7 @@ export const PANEL_READING = `SELECT
   (SELECT json_object('ts', a.ts, 'card', a.card_id, 'payload', a.payload) FROM events a WHERE a.type = :alarm AND NOT EXISTS (SELECT 1 FROM events c WHERE c.type = :cleared AND json_valid(c.payload) AND json_extract(c.payload, '$.alarm') = a.dedupe_key) ORDER BY a.id DESC LIMIT 1) AS alarm`
 
 export interface PanelRow {
+  version: number
   last: string | null
   half_hour: string
   through: number | null
@@ -125,11 +129,13 @@ export function panelSince(now: Date): string {
 }
 
 export function busPanelFacts(row: PanelRow, now: Date): BusPanelFacts {
+  const stamped = Number(row.version)
   const last = jsonOf<{ id: number, ts: string | null } | null>(row.last, null)
   const halfHour = jsonOf<{ ts: string | null, type: string }[]>(row.half_hour, [])
   const ticks = newestFirst(jsonOf<{ id: number, ts: string | null, payload: string }[]>(row.ticks, []))
   const rate = ticks[0] === undefined ? null : payloadOf(ticks[0].payload).rate_remaining
   return {
+    version: stamped === 0 ? UNRECORDED_BUS_VERSION : stamped,
     lastEvent: last,
     minutes: minuteCounts(halfHour, now),
     families: familiesOf(halfHour),

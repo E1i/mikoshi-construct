@@ -1,5 +1,4 @@
 import type { BusFacts, BusPanelFacts, BusSlot } from '../../../src/commands/board/bus.js'
-import { BUS_VERSION } from '../../core/bus-version.js'
 import { escaped } from './session-card.js'
 
 export type Health = 'green' | 'yellow' | 'red'
@@ -33,7 +32,7 @@ const REDUCER_LAG_RED = 100
 const RATE_YELLOW = 1_000
 const RATE_RED = 100
 const NONE = '—'
-const NO_PANEL: BusPanelFacts = { lastEvent: null, minutes: [], families: [], familyTotal: 0, reducerLag: null, rateRemaining: null, pulses: [], workers: [], alarm: null, recent: [] }
+const NO_PANEL: BusPanelFacts = { version: 1, lastEvent: null, minutes: [], families: [], familyTotal: 0, reducerLag: null, rateRemaining: null, pulses: [], workers: [], alarm: null, recent: [] }
 
 export function ageOf(ms: number | null): string {
   if (ms === null)
@@ -178,7 +177,7 @@ function header(parts: BusPanelParts, panel: BusPanelFacts, down: boolean): stri
   const snapshot = ageOf(sinceMs(parts.snapshot?.written, parts.facts.at))
   return [
     `<div class="bus-head">${emblem()}`,
-    `<span class="bus-title">${down ? 'BUS DOWN' : 'BUS LIVE'} V${BUS_VERSION}</span>`,
+    `<span class="bus-title">${down ? 'BUS DOWN' : 'BUS LIVE'} V${panel.version}</span>`,
     `<span class="bus-pulse"><span class="pulse-dot">●</span> ${down ? 'NO PULSE' : 'PULSE'} · ${age}</span>`,
     `<span class="bus-meta">event ${event} · snapshot ${snapshot}</span></div>`,
   ].join('')
