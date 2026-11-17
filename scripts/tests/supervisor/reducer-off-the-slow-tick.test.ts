@@ -7,13 +7,14 @@ import os from 'node:os'
 import path from 'node:path'
 import { Worker } from 'node:worker_threads'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { factoryGraph } from '../../../tsup.config.js'
 import { appendEvent, openBus, openBusWait } from '../../core/db.js'
 import { CARD_FELL, REDUCED, REQUEST_DONE, REQUEST_REFUSED } from '../../core/events.js'
 import { OWNER_WAITS } from '../../core/projection-types.js'
 import { reducedThrough } from '../../core/reducer.js'
 import { NetWatch } from '../../ports/netwatch.js'
 import { busProjections } from '../../supervisor/composition.js'
-import { lockedLine, REDUCER_LOOP_BUS_PATH, REDUCER_LOOP_HOME, REDUCER_LOOP_PERIOD, REDUCER_PASS_DONE, REDUCER_PERIOD_MS, REDUCER_PREFIX, ReducerLoop, ReducerPass, startReducerLoop } from '../../supervisor/reducer-loop.js'
+import { lockedLine, REDUCER_LOOP_BUS_PATH, REDUCER_LOOP_HOME, REDUCER_LOOP_PERIOD, REDUCER_PASS_DONE, REDUCER_PERIOD_MS, REDUCER_PREFIX, REDUCER_THREAD, ReducerLoop, ReducerPass, reducerThreadBeside, startReducerLoop } from '../../supervisor/reducer-loop.js'
 import { BusTick, TICK_STEPS, tickWhileReducing } from '../../supervisor/run.js'
 import { requestFromWindow } from '../../window/window-requests.js'
 import { Clock, FakeGitHub } from '../bus/github-fake.js'
@@ -196,5 +197,14 @@ describe('the reducer pass and its loop', () => {
     await loop.stop()
     expect(terminate).toHaveBeenCalledOnce()
     logged.mockRestore()
+  })
+
+  it('the thread entry has the extension of the module that starts it, so the compiled package starts its .js', () => {
+    expect(reducerThreadBeside('file:///pkg/dist/scripts/supervisor/reducer-loop.js').href).toBe('file:///pkg/dist/scripts/supervisor/reducer-thread.js')
+    expect(reducerThreadBeside('file:///repo/scripts/supervisor/reducer-loop.ts').href).toBe('file:///repo/scripts/supervisor/reducer-thread.ts')
+  })
+
+  it('the factory build reaches the reducer thread', () => {
+    expect(factoryGraph()).toContain(REDUCER_THREAD)
   })
 })

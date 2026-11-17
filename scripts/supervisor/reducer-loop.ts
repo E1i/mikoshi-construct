@@ -1,5 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { Projections, ReduceCount } from '../core/reducer.js'
+import path from 'node:path'
 import { Worker } from 'node:worker_threads'
 import { appendEvent } from '../core/db.js'
 import { REDUCED } from '../core/events.js'
@@ -12,7 +13,11 @@ export const REDUCER_LOOP_BUS_PATH = 'reducerLoopBusPath'
 export const REDUCER_LOOP_PERIOD = 'reducerLoopPeriodMs'
 export const REDUCER_LOOP_HOME = 'reducerLoopHome'
 export const REDUCER_PASS_DONE = 'reducer.pass.done'
-const REDUCER_LOOP_ENTRY = new URL('./reducer-thread.ts', import.meta.url)
+export const REDUCER_THREAD = 'scripts/supervisor/reducer-thread.ts'
+
+export function reducerThreadBeside(module: string): URL {
+  return new URL(`./${path.posix.basename(REDUCER_THREAD, '.ts')}${path.posix.extname(new URL(module).pathname)}`, module)
+}
 
 function lastEventId(db: DatabaseSync): number {
   return Number((db.prepare('SELECT coalesce(max(id), 0) AS id FROM events').get() as { id: number }).id)
@@ -78,7 +83,7 @@ export type ReducerLoopSpawn = (entry: URL, workerData: Record<string, unknown>)
 
 export function startReducerLoop(busPath: string, home: string, periodMs: number = REDUCER_PERIOD_MS, spawn: ReducerLoopSpawn = (entry, workerData) => new Worker(entry, { workerData })): StartedReducerLoop {
   let failed: Error | null = null
-  const worker = spawn(REDUCER_LOOP_ENTRY, { [REDUCER_LOOP_BUS_PATH]: busPath, [REDUCER_LOOP_PERIOD]: periodMs, [REDUCER_LOOP_HOME]: home })
+  const worker = spawn(reducerThreadBeside(import.meta.url), { [REDUCER_LOOP_BUS_PATH]: busPath, [REDUCER_LOOP_PERIOD]: periodMs, [REDUCER_LOOP_HOME]: home })
   worker.on('error', (error) => {
     failed = error
     console.error(`${REDUCER_PREFIX}${error.message.split('\n')[0]}`)
