@@ -223,8 +223,76 @@
       })
     })
   }
+  const MOTION_MS = 700
+  const first = selector => (document.querySelector ? document.querySelector(selector) : null)
+  const flowMinute = () => {
+    const strip = first('[data-flow-minute]')
+    return strip ? Number(strip.dataset.flowMinute) : Number.NaN
+  }
+  const shiftFlow = (was) => {
+    const strip = first('[data-flow-minute]')
+    const shift = strip ? Number(strip.dataset.flowMinute) - was : Number.NaN
+    if (!(shift > 0) || !strip.querySelectorAll)
+      return
+    const bars = strip.querySelectorAll('[data-flow-bar]')
+    strip.style.setProperty('--_shift', String(Math.min(shift, bars.length)))
+    strip.classList.add('flow-shift')
+    const newest = bars[bars.length - 1]
+    if (newest)
+      newest.classList.add('flow-new')
+  }
+  const familyReadings = () => {
+    const ranks = {}
+    document.querySelectorAll('[data-family]').forEach((row) => {
+      ranks[row.dataset.family] = { rank: Number(row.dataset.rank), share: Number(row.dataset.share), html: row.innerHTML }
+    })
+    return ranks
+  }
+  const fadeOut = (was) => {
+    const list = first('[data-families]')
+    if (!list || !list.appendChild)
+      return
+    const ghost = document.createElement('li')
+    ghost.className = 'rank-out'
+    ghost.setAttribute('aria-hidden', 'true')
+    ghost.style.setProperty('--_rank', String(was.rank))
+    ghost.style.setProperty('--_share', `${was.share}%`)
+    ghost.innerHTML = was.html
+    list.appendChild(ghost)
+    setTimeout(() => ghost.remove(), MOTION_MS)
+  }
+  const moveFamilies = (before) => {
+    const seen = {}
+    document.querySelectorAll('[data-family]').forEach((row) => {
+      const family = row.dataset.family
+      const was = before[family]
+      seen[family] = true
+      if (!was) {
+        row.classList.add('rank-in')
+        return
+      }
+      const rank = Number(row.dataset.rank)
+      const share = Number(row.dataset.share)
+      if (was.rank !== rank) {
+        row.style.setProperty('--_was-rank', String(was.rank))
+        row.classList.add('rank-move')
+      }
+      if (was.share !== share) {
+        row.style.setProperty('--_was-share', `${was.share}%`)
+        row.classList.add('share-move')
+      }
+      if (share > was.share)
+        row.classList.add('share-up')
+    })
+    Object.keys(before).forEach((family) => {
+      if (!seen[family])
+        fadeOut(before[family])
+    })
+  }
   const apply = (board) => {
     const before = slotReadings()
+    const minute = flowMinute()
+    const families = familyReadings()
     document.title = names.titlePrefix + board.written
     Object.keys(board.slots).forEach((name) => {
       const slot = document.getElementById(names.slotPrefix + name)
@@ -232,6 +300,8 @@
         slot.innerHTML = board.slots[name]
     })
     markSlots(before)
+    shiftFlow(minute)
+    moveFamilies(families)
     const backlog = document.getElementById(names.backlog)
     board.filters.forEach((id) => {
       if (!backlog || typeof id !== 'string' || document.getElementById(id))
