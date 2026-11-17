@@ -11,7 +11,7 @@ const ANSWER: BusService = { role: 'answer', task: '#861', tree: null, step: 'an
 const PARTS: SessionCardParts = { opener: '', hint: '', bars: '', agents: '', over: false, now: NOW.toISOString() }
 const WINDOW: BusService = { role: 'window', task: 'miko', tree: null, step: 'window · awake' }
 const PRESENCE: MikoPresence = { model: null, core: null, status: null, handoffBytes: null, skills: [], crawlers: [] }
-const PANEL: MikoPanelParts = { windows: [WINDOW], bars: () => '', presence: PRESENCE, now: NOW.toISOString(), words: { role: 'FIXER', name: 'Miko', plainTitle: '' }, busLines: [], busLive: true, opener: '', hint: '', idle: null }
+const PANEL: MikoPanelParts = { windows: [WINDOW], bars: () => '', presence: PRESENCE, now: NOW.toISOString(), words: { role: 'FIXER', name: 'Miko', plainTitle: '' }, opener: '', hint: '', idle: null }
 const CRAWLER: CrawlerReading = { id: 'a1', kind: 'review', description: null, startedAt: null, state: 'IDLE', context: null, spent: null }
 
 function startedBefore(ms: number, expectedMs: number | null = null): SessionView {

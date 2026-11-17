@@ -4426,7 +4426,8 @@
       "scripts/window/window-requests.ts": 2,
       "scripts/window/window-session-end.ts": 7,
       "scripts/window/window.ts": 3,
-      "src/commands/board/bus.ts": 13,
+      "src/commands/board/bus-panel.ts": 1,
+      "src/commands/board/bus.ts": 12,
       "src/commands/board/drain.ts": 1,
       "src/commands/board/goal.ts": 4,
       "src/commands/board/heal.ts": 1,
@@ -4650,13 +4651,15 @@
           "openTasks": "(db: BusDb): BusTask[]"
         },
         "reexports": [
+          "BusPanelFacts",
           "OwnerWait"
         ],
         "types": {
           "BusCard": "interface BusCard { id: number; state: string | null; stage: CardStage; lane: string | null; line: string | null; since: string | null; body: boolean; closed: boolean; closedAt: string | null; parent?: SliceParent; }",
-          "BusFacts": "interface BusFacts { at: string; goal: Goal | null; waits: OwnerWait[]; waitsStale?: string; cardsStale?: string; pulse: string | null; slots: BusSlot[]; cards: BusCard[]; services: BusService[]; matrices: BusMatrix[]; failure: string | null; reviewQueue: number; groups?: BusGroup[]; shadow?: BusShadow; tails?: BusTail[]; queued?: QueuedStanding[]; window?: BusWindow; }",
+          "BusFacts": "interface BusFacts { at: string; goal: Goal | null; waits: OwnerWait[]; waitsStale?: string; cardsStale?: string; pulse: string | null; slots: BusSlot[]; cards: BusCard[]; services: BusService[]; matrices: BusMatrix[]; failure: string | null; reviewQueue: number; groups?: BusGroup[]; shadow?: BusShadow; tails?: BusTail[]; queued?: QueuedStanding[]; window?: BusWindow; panel?: BusPanelFacts; }",
           "BusMatrix": "interface BusMatrix { pr: number; head: string | null; full: string | null; killed: number; survived: number; notRun: number; }",
           "BusService": "interface BusService { role: string; task: string; tree: string | null; step: string; session?: string; gauges?: ServiceGauges; subagents?: SubagentReading[]; }",
+          "BusSlot": "interface BusSlot { queue: string; used: number; total: number | null; }",
           "CardStage": "type CardStage = typeof CARD_STAGES[number]",
           "CardsAtStage": "interface CardsAtStage { stage: CardStage; cards: number[]; }",
           "CrawlerReading": "interface CrawlerReading { id: string; kind: string; description: string | null; startedAt: string | null; state: string; context: number | null; spent: number | null; }",
@@ -4701,7 +4704,6 @@
           "liftedByTheWindow": "(wait: OwnerWait): boolean",
           "markedName": "(name: string, card: BusCard): string",
           "matrixLines": "(facts: BusFacts, lore: Lore): string[]",
-          "pulseLines": "(facts: BusFacts, lore: Lore): string[]",
           "screenLines": "(facts: BusFacts, lore: Lore, all = false): string[]",
           "sliceMark": "(card: BusCard): string | null",
           "slotsReading": "(facts: BusFacts): string",

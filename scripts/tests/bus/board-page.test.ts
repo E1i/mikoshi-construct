@@ -376,6 +376,11 @@ describe('board.html', () => {
     return html.replace(/<style>[\s\S]*?<\/style>/g, ' ').replace(/<script>[\s\S]*?<\/script>/g, ' ').replace(/<title>[\s\S]*?<\/title>/g, ' ').replace(/<[^>]*>/g, ' ').replace(/&#39;|&quot;|&lt;|&gt;|&amp;/g, ' ')
   }
 
+  function withoutBusPanel(html: string): string {
+    expect(html).toContain('<div class="bus-panel')
+    return html.replace(/<div class="bus-panel[\s\S]*?<\/div>(?=\s*<\/section>)/, ' ')
+  }
+
   function busNumbers(busPath: string): Set<number> {
     const db = new DatabaseSync(busPath, { readOnly: true })
     try {
@@ -436,7 +441,7 @@ describe('board.html', () => {
     const warnLine = limits.warnRatio === null ? [] : [Math.round(limits.warnRatio * 100)]
     const allowed = [load, cores, ...busNumbers(busPath), ...Object.values(limits).filter(value => typeof value === 'number'), ...limits.modelWindows.values(), ...limits.cardLineBySize?.values() ?? [], ...warnLine, readModelVersion() ?? 0, ...version.version.split('.').map(Number), ...NOW.toISOString().split(/\D+/).filter(Boolean).map(Number)]
     const counts = Array.from({ length: 6 }, (_, at) => at)
-    const tokens = [...visibleText(html).matchAll(/(?<![\w.#-])\d+(?:\.\d+)?[kM]?(?![\w.])/g)].map(match => match[0])
+    const tokens = [...visibleText(withoutBusPanel(html)).matchAll(/(?<![\w.#-])\d+(?:\.\d+)?[kM]?(?![\w.])/g)].map(match => match[0])
     expect(tokens).toEqual(expect.arrayContaining(['182k', '1.4M', '3M']))
     for (const token of tokens) {
       const reading = readingOf(token)
@@ -594,8 +599,11 @@ describe('board.html', () => {
     const html = pageText(busPath)
     expect(lines).toContain('in work (1): #861')
     expect(html).toContain('<span class="name">in work</span><span class="n">1</span><span class="ids"><button type="button" class="cid" data-open="card-861" tabindex="0" aria-haspopup="dialog">#861 ›</button></span>')
-    for (const line of lines.slice(lines.indexOf('Services') + 1, -1).filter(line => !/^\S+ · #\d+ · /.test(line) && !line.startsWith('window · ')))
+    for (const line of lines.slice(lines.indexOf('Services') + 1, -1).filter(line => !/^\S+ · #\d+ · /.test(line) && !line.startsWith('window · ') && !line.startsWith('bus · ')))
       expect(html).toContain(`<div class="svc-line">${escaped(line)}</div>`)
+    expect(lines).toContain('bus · pulse · — · pulse 1 min ago · slots in use: review 1')
+    expect(html).toContain('<span class="bus-pulse">● PULSE · 1m</span>')
+    expect(html).toContain('<li data-slot-queue="review" data-used="1"')
     const footer = Object.fromEntries(lines.at(-1)!.split(' · ').map(part => part.split(': ') as [string, string]))
     const statusline = html.slice(html.indexOf('<footer class="statusline"'))
     expect(statusline).toContain(`<span>agents <b>${footer['agents at work']}</b></span>`)
@@ -923,14 +931,15 @@ describe('board.html', () => {
   it('a node under CONSTRUCT_BUS_SLOTS_ANSWER=5 shows answer used/5 from the heartbeat', () => {
     const slots = slotsOfKind('answer', { [slotsVariable('answer')]: '5' })
     const html = pageText(seededBus([], [{ process: nodeProcess('answer'), type: PROCESS_HEARTBEAT, ts: minutesAgo(1), payload: JSON.stringify({ process: nodeProcess('answer'), queue: 'answer', slots }) }]))
-    expect(html).toContain('slots in use: answer 0/5, review 1')
+    expect(html).toContain('<li data-slot-queue="answer" data-used="0" data-total="5"><span>ANSWER</span>')
+    expect(html).toContain('<b>0/5</b>')
     expect(sectionOf(html, '<h2 id="h-services">', '<div class="svc-grid">')).toContain('slots <b>answer 0/5, review 1</b></span>')
     expect(html).not.toContain('records no capacity')
   })
 
   it('the page reads liveness from the bus pulse and lists no process', () => {
     const html = pageText(seededBus())
-    expect(html).toContain('bus · pulse · — · pulse 1 min ago · slots in use: review 1')
+    expect(html).toContain('<span class="bus-title">BUS LIVE V1</span><span class="bus-pulse">● PULSE · 1m</span>')
     expect(html).not.toContain('pid ')
     expect(html).not.toContain('<h2>Health</h2>')
   })
