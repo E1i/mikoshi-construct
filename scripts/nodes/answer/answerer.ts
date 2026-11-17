@@ -398,7 +398,6 @@ const LEADING_CD = /^cd\s+\S+\s*(?:;|&&)\s*/
 const LEADING_PIPEFAIL = /^set\s+-o\s+pipefail\s*(?:;|&&)\s*/
 const FIRST_PIPE = /(?<!\|)\|(?!\|)/
 const TRAILING_STREAM_MERGE = /(?:\s+\d?>&\d)+\s*$/
-const CHAINED = /[;&|<>`$()]/
 
 export interface ShellLineGate {
   gate: string
@@ -424,10 +423,7 @@ export function gateInShellLine(command: string, gate: readonly string[]): Shell
   const pipe = FIRST_PIPE.exec(rest)
   const head = (pipe === null ? rest : rest.slice(0, pipe.index)).replace(TRAILING_STREAM_MERGE, '').trim()
   const core = inAnyTree(head)
-  const found = gate.find((each) => {
-    const declared = inAnyTree(each)
-    return core === declared || (core.startsWith(`${declared} `) && !CHAINED.test(core.slice(declared.length)))
-  })
+  const found = gate.find(each => core.startsWith(inAnyTree(each)))
   return found === undefined ? null : { gate: found, piped: pipe !== null, pipefail }
 }
 

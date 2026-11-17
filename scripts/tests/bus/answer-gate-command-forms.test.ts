@@ -127,23 +127,48 @@ describe('a gate command is recognised inside any shell line', () => {
     expect(timer.offFormGateCommands()).toEqual([])
   })
 
-  it('a piped gate whose output shows its own failure is recorded red', () => {
-    const timer = timerAfter([{ command: PIPED_FROM_A_CD, content: ' ELIFECYCLE  Command failed with exit code 2.' }, { command: PREPUSH_ROUND }])
+  it.each([
+    ' ELIFECYCLE  Typecheck failed.',
+    ' ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL  the gate failed',
+    'Command failed with exit code 2.',
+  ])('a piped gate whose output shows its own failure as %s is recorded red', (content) => {
+    const timer = timerAfter([{ command: PIPED_FROM_A_CD, content }, { command: PREPUSH_ROUND }])
 
     expect(timer.decision()).toBe('red')
   })
 
-  it('a pipefail line takes the gate exit from the line exit', () => {
-    const timer = timerAfter([{ command: `set -o pipefail && ${TYPECHECK} | tail`, isError: true, content: 'Exit code 2' }, { command: PREPUSH_ROUND }])
+  it('a piped gate whose output shows a zero exit code is not recorded red', () => {
+    const timer = timerAfter([{ command: PIPED_FROM_A_CD, content: 'Command failed with exit code 0.' }, { command: PREPUSH_ROUND }])
 
-    expect(timer.decision()).toBe('red')
+    expect(timer.decision()).toBe('unrun')
+  })
+
+  it.each([
+    [`set -o pipefail && ${TYPECHECK} | tail`, true, 'red'],
+    [`set -o pipefail; cd /t; ${TYPECHECK} | tail`, true, 'red'],
+    [`set -o pipefail; cd /t; ${TYPECHECK} | tail`, false, 'green'],
+  ])('the pipefail line %s exiting in error %s takes the gate exit from the line exit as %s', (command, isError, outcome) => {
+    const timer = timerAfter([{ command, isError, content: isError ? 'Exit code 2' : 'ok' }, { command: PREPUSH_ROUND }])
+
+    expect(timer.decision()).toBe(outcome)
+  })
+
+  it.each([
+    `${TYPECHECK} && pnpm lint`,
+    `${TYPECHECK}; echo done`,
+    `cd /t && ${TYPECHECK} && pnpm lint`,
+  ])('a gate chained to another command in %s is recorded as a gate run, as before', (command) => {
+    const timer = timerAfter([{ command }, { command: PREPUSH_ROUND }])
+
+    expect(timer.decision()).toBe('green')
+    expect(timer.offFormGateCommands()).toEqual([])
   })
 
   it('a line that only mentions the gate is not recorded as a gate run', () => {
-    const timer = timerAfter([{ command: 'grep prepush.ts notes.md' }, { command: `${TYPECHECK} && rm -rf dist` }, { command: TYPECHECK }, { command: PREPUSH_PIPED_FROM_A_CD, background: true, content: BACKGROUND_START }])
+    const timer = timerAfter([{ command: 'grep prepush.ts notes.md' }, { command: `echo ${TYPECHECK}` }, { command: TYPECHECK }, { command: PREPUSH_PIPED_FROM_A_CD, background: true, content: BACKGROUND_START }])
 
     expect(timer.decision()).toBeNull()
-    expect(timer.offFormGateCommands()).toEqual([`${TYPECHECK} && rm -rf dist`, `${PREPUSH_PIPED_FROM_A_CD}${IN_THE_BACKGROUND}`])
+    expect(timer.offFormGateCommands()).toEqual([`echo ${TYPECHECK}`, `${PREPUSH_PIPED_FROM_A_CD}${IN_THE_BACKGROUND}`])
   })
 })
 
