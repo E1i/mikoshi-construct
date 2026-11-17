@@ -54,7 +54,7 @@ export function testsOfBranch(graph: Graph, folders: BranchTests['folders']): Br
   return { tests: [...graph.keys()].filter(isTest), folders }
 }
 
-type BranchCard = Extract<BranchCardRuns, { kind: 'card' }>
+export type BranchCard = Extract<BranchCardRuns, { kind: 'card' }>
 
 function cardOfBranch(read: Git, graph: Graph): BranchCard | null {
   const found = branchCardRuns(read(['rev-parse', '--abbrev-ref', 'HEAD']).trim(), undefined, testsOfBranch(graph, testFoldersOfLayers(readLayerMap())))
@@ -281,41 +281,73 @@ export function sessionRecord(log: (line: string) => void, root: string = REPO_R
   return run => log(recordGateRun(run, new Date().toISOString(), busPath, spool))
 }
 
-async function main(): Promise<number> {
+export interface PrepushParts {
+  argv: readonly string[]
+  git: Git
+  ci: GreenRuns
+  cruise: () => Graph
+  card: (read: Git, graph: Graph) => BranchCard | null
+  testText: (test: string) => string
+  exists: (file: string) => boolean
+  lint: (files: readonly string[]) => SpawnSyncReturns<string>
+  suite: Omit<Suite, 'log' | 'record'>
+  log: (line: string) => void
+  root: string
+  busPath?: string
+  map?: LayerMap
+}
+
+export async function prepush(parts: PrepushParts): Promise<number> {
   let selection: Selection
   let round: string | null
   let card: BranchCard | null
   let head: string
   try {
-    round = roundOf(process.argv.slice(2))
-    const clean = cleanTreeGate(git)
+    round = roundOf(parts.argv)
+    const clean = cleanTreeGate(parts.git)
     if (clean !== null) {
-      console.log(clean.lines.join('\n'))
+      parts.log(clean.lines.join('\n'))
       return clean.code
     }
-    const base = gateBase(git, round, new GhCiRuns())
-    console.log(`prepush: the diff from ${base.why}`)
-    const changed = changesSince(git, base.sha)
-    const graph: Graph = changed.length === 0 ? new Map() : cruise()
-    card = cardOfBranch(git, graph)
-    selection = gateSelection(changed, graph, card)
-    head = git(['rev-parse', 'HEAD']).trim()
+    const base = gateBase(parts.git, round, parts.ci)
+    parts.log(`prepush: the diff from ${base.why}`)
+    const changed = changesSince(parts.git, base.sha)
+    const graph: Graph = changed.length === 0 ? new Map() : parts.cruise()
+    card = parts.card(parts.git, graph)
+    selection = gateSelection(changed, graph, card, parts.testText, parts.map)
+    head = parts.git(['rev-parse', 'HEAD']).trim()
   }
   catch (error) {
-    console.log(brokenGate(`the CI selector did not run: ${error instanceof Error ? error.message : String(error)}`).lines.join('\n'))
+    parts.log(brokenGate(`the CI selector did not run: ${error instanceof Error ? error.message : String(error)}`).lines.join('\n'))
     return 2
   }
-  console.log(`prepush: ${selection.changed.length} changed paths`)
+  parts.log(`prepush: ${selection.changed.length} changed paths`)
   if (round !== null) {
-    const linted = lintGate(roundLintArgs(selection.changed, existsSync), eslint)
+    const linted = lintGate(roundLintArgs(selection.changed, parts.exists), parts.lint)
     if (linted !== null) {
-      console.log(linted.lines.join('\n'))
+      parts.log(linted.lines.join('\n'))
       return linted.code
     }
   }
-  const record = gateRecorder(round, head, card, sessionRecord(line => console.log(line)))
-  return testStep(selection, { vitest: args => runVitest(args), liveness: sandboxLiveness, queue: heavyStep, log: line => console.log(line), record })
+  const record = gateRecorder(round, head, card, sessionRecord(parts.log, parts.root, parts.busPath))
+  return testStep(selection, { ...parts.suite, log: parts.log, record })
+}
+
+function processParts(): PrepushParts {
+  return {
+    argv: process.argv.slice(2),
+    git,
+    ci: new GhCiRuns(),
+    cruise,
+    card: cardOfBranch,
+    testText: readTest,
+    exists: existsSync,
+    lint: eslint,
+    suite: { vitest: args => runVitest(args), liveness: sandboxLiveness, queue: heavyStep },
+    log: line => console.log(line),
+    root: REPO_ROOT,
+  }
 }
 
 if (process.argv[1] === import.meta.filename)
-  process.exitCode = await main()
+  process.exitCode = await prepush(processParts())
