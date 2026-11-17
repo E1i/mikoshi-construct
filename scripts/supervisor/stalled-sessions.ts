@@ -4,20 +4,19 @@ import type { BudgetLine } from '../core/eddies.js'
 import type { Lease } from '../core/lease.js'
 import type { GitRunner } from '../ports/git.js'
 import type { ProcessTable } from '../ports/process-table.js'
-import type { ActionOf, LeasedRound } from './expected-time.js'
+import type { ActionOf, LeasedRound, UnendedStart } from './expected-time.js'
 import type { LeaseBeat } from './heartbeat.js'
 import type { LifeOf, SessionLife } from './recorded-worker.js'
 import path from 'node:path'
-import { CLOSED_CARD, DROPPED_CARD, MERGED_CARD } from '../core/card-automaton.js'
 import { appendEvent } from '../core/db.js'
 import { spendStopOf } from '../core/eddies.js'
 import { messageOf } from '../core/errors.js'
-import { BOARD_ALARM, CARD_RELEASED, CARD_SESSION_ENDED, CARD_STARTED, PR_OBSERVED, PR_OPENED, SESSION_HEARTBEAT, SESSION_STALLED, TASK_LEASED } from '../core/events.js'
+import { BOARD_ALARM, CARD_SESSION_ENDED, CARD_STARTED, PR_OBSERVED, PR_OPENED, SESSION_HEARTBEAT, SESSION_STALLED, TASK_LEASED } from '../core/events.js'
 import { releaseTask } from '../core/lease.js'
-import { latestTurnOf, LEASED, QUEUED } from '../core/queue.js'
+import { LEASED } from '../core/queue.js'
 import { processGit } from '../ports/git.js'
 import { OsProcessTable } from '../ports/process-table.js'
-import { RoundOverTime } from './expected-time.js'
+import { firstPushAfter, firstReleaseAfter, RoundOverTime, unendedStarts } from './expected-time.js'
 import { beatsOfLease } from './heartbeat.js'
 import { transcriptActionIn } from './session-view.js'
 import { signal } from './supervisor.js'
@@ -83,34 +82,7 @@ const CARD_TREE = `
 
 export const UNDRIVEN_AFTER_MS = STALLED_AFTER_MS
 
-const UNENDED_STARTS = `
-  SELECT started.id, started.card_id, started.ts, started.dedupe_key,
-    json_extract(started.payload, '$.session') AS session, json_extract(started.payload, '$.worktree') AS worktree, json_extract(started.payload, '$.base') AS base
-  FROM events AS started LEFT JOIN cards ON cards.card_id = started.card_id
-  WHERE started.type = '${CARD_STARTED}' AND started.legacy = 0 AND json_valid(started.payload)
-    AND started.id = ${latestTurnOf('started.card_id')}
-    AND coalesce(cards.state, '') NOT IN ('${MERGED_CARD}', '${CLOSED_CARD}', '${DROPPED_CARD}')
-    AND NOT EXISTS (SELECT 1 FROM events WHERE card_id = started.card_id AND id > started.id AND legacy = 0 AND type = '${CARD_SESSION_ENDED}')
-    AND NOT EXISTS (SELECT 1 FROM tasks WHERE card_id = started.card_id AND state IN ('${QUEUED}', '${LEASED}'))
-  ORDER BY started.card_id
-`
-
-const FIRST_PUSH_AFTER = `
-  SELECT pr, head FROM events WHERE card_id = ? AND id > ? AND legacy = 0 AND type IN ('${PR_OPENED}', '${PR_OBSERVED}') AND head IS NOT NULL AND head IS NOT ?
-  ORDER BY id LIMIT 1
-`
-
-const FIRST_RELEASE_AFTER = `SELECT id FROM events WHERE card_id = ? AND id > ? AND legacy = 0 AND type = '${CARD_RELEASED}' ORDER BY id LIMIT 1`
-
-interface UnendedStart {
-  id: number
-  card_id: number
-  ts: string
-  dedupe_key: string
-  session: string | null
-  worktree: string | null
-  base: string | null
-}
+const UNDRIVEN_MARK = 'session-over'
 
 interface SessionEnd {
   pr: number | null
@@ -138,8 +110,7 @@ export class UndrivenSessions {
   constructor(private readonly db: DatabaseSync, private readonly trees: ProcessTable, private readonly prefix: string = '', private readonly roundMs: number = UNDRIVEN_AFTER_MS) {}
 
   sweep(nowMs: number): string[] {
-    const starts = this.db.prepare(UNENDED_STARTS).all() as unknown as UnendedStart[]
-    return starts.flatMap((start) => {
+    return unendedStarts(this.db).flatMap((start) => {
       const end = this.endOf(start, nowMs)
       return end !== null && this.record(start, end, nowMs) ? [`${this.prefix}${CARD_SESSION_ENDED} #${start.card_id}: ${end.detail}`] : []
     })
@@ -147,12 +118,12 @@ export class UndrivenSessions {
 
   private endOf(start: UnendedStart, nowMs: number): SessionEnd | null {
     const named = `the session started at event ${start.id}`
-    const push = this.db.prepare(FIRST_PUSH_AFTER).get(start.card_id, start.id, start.base) as { pr: number | null, head: string } | undefined
-    if (push !== undefined)
+    const push = firstPushAfter(this.db, start)
+    if (push !== null)
       return { pr: push.pr, head: push.head, detail: `${named} pushed ${push.head}${push.pr === null ? '' : ` to PR #${push.pr}`}, over its base ${start.base ?? 'not recorded'}, so the bus records its end` }
-    const release = this.db.prepare(FIRST_RELEASE_AFTER).get(start.card_id, start.id) as { id: number } | undefined
-    if (release !== undefined)
-      return { pr: null, head: null, detail: `${named} was released at event ${release.id}, so the bus records its end` }
+    const release = firstReleaseAfter(this.db, start)
+    if (release !== null)
+      return { pr: null, head: null, detail: `${named} was released at event ${release}, so the bus records its end` }
     return this.undriven(start, named, nowMs)
   }
 
@@ -164,7 +135,7 @@ export class UndrivenSessions {
   }
 
   private record(start: UnendedStart, end: SessionEnd, nowMs: number): boolean {
-    return appendEvent(this.db, { ts: new Date(nowMs).toISOString(), type: CARD_SESSION_ENDED, actor: STALLED_ACTOR, cardId: start.card_id, pr: end.pr, head: end.head, dedupeKey: `${CARD_SESSION_ENDED}:${start.dedupe_key}`, payload: { session: start.session, stopped: false, detail: end.detail }, legacy: false })
+    return appendEvent(this.db, { ts: new Date(nowMs).toISOString(), type: CARD_SESSION_ENDED, actor: STALLED_ACTOR, cardId: start.card_id, pr: end.pr, head: end.head, dedupeKey: `${CARD_SESSION_ENDED}:${UNDRIVEN_MARK}:${start.id}`, payload: { session: start.session, stopped: false, detail: end.detail }, legacy: false })
   }
 }
 
