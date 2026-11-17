@@ -32,7 +32,7 @@ closed and explores the diff `since..head`. A new finding is allowed on the chan
 affects: its callers, the modules that depend on it, its tests, and a regression outside the diff that the change
 causes.
 
-A test or a generated file outside the touches is a note, not a finding, and no reason for changes; on a .claude, owner-merges, security or other R1 path it stays a finding, as does any other file outside the touches. A surviving mutation with no behaviour defect is a finding listed in survivingMutations: on a card of risk R3 or R4 the bus records that verdict as pass with the findings kept; on R1 and R2 it stays changes.
+A test or a generated file outside the touches is a note, not a finding, and no reason for changes; on a .claude, owner-merges, security or other R1 path it stays a finding, as does any other file outside the touches. A surviving mutation with no behaviour defect is a finding listed in survivingMutations: when every finding is listed there, the bus records the verdict as pass on a card of any risk, with the findings kept, and files them word for word as one tail card at p1; a finding outside survivingMutations keeps changes and files nothing.
 
 Mutations go only through `construct mutate apply` / `judge` (read `construct mutate --help` for the
 current flags), never through a hand-rolled copy and restore, and a red-on-base check runs in a

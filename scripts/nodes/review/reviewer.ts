@@ -174,7 +174,7 @@ const SURVIVING_MUTATIONS_LINE = 'survivingMutations is optional: list only the 
 
 export const ADVICE_LINE = 'Only a defect of code, tests or the contract makes the verdict changes. A finding only on the description of the pull request, the changeset or the prose of the card is advice: keep it in findings and repeat it exactly in advice; when every finding is advice the bus records the verdict as pass with the findings kept.'
 
-export const REVIEW_BAR_LINE = 'A test or a generated file outside the touches is a note, not a finding, and no reason for changes; on a .claude, owner-merges, security or other R1 path it stays a finding, as does any other file outside the touches. A surviving mutation with no behaviour defect is a finding listed in survivingMutations: on a card of risk R3 or R4 the bus records that verdict as pass with the findings kept; on R1 and R2 it stays changes.'
+export const REVIEW_BAR_LINE = 'A test or a generated file outside the touches is a note, not a finding, and no reason for changes; on a .claude, owner-merges, security or other R1 path it stays a finding, as does any other file outside the touches. A surviving mutation with no behaviour defect is a finding listed in survivingMutations: when every finding is listed there, the bus records the verdict as pass on a card of any risk, with the findings kept, and files them word for word as one tail card at p1; a finding outside survivingMutations keeps changes and files nothing.'
 
 const HANDS_OFF = 'Change nothing, commit nothing, push nothing, and post nothing to GitHub.'
 
