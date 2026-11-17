@@ -22,7 +22,7 @@ import { heavyStep } from '../quality/lock.js'
 import { branchCardRuns } from './card-runs.js'
 import { processMutationGate } from './gate-mutations.js'
 import { GATE_RUN_SPOOL, modeOfArgs, recordGateRun, sourceOf, touchesModuleFiles } from './gate-runs.js'
-import { isTest, NARROW_WHY, narrowRun, sessionRun } from './layers.js'
+import { isTest, NARROW_WHY, narrowRun, reverseGraph, sessionRun } from './layers.js'
 import { CAPABILITIES, normLine, probeCapabilities, SANDBOX_FAILING, sandboxNorm } from './sandbox-failing.js'
 import { listedFiles, livenessApplies, runTraced, staleInSandbox, staleLines } from './sandbox-liveness.js'
 import { cruise, lastGreenMain, readTest, runSummary } from './select.js'
@@ -109,11 +109,17 @@ function brokenGate(why: string): Gate {
   }
 }
 
+export interface SessionSkips {
+  sandbox: readonly string[]
+  slow: readonly string[]
+}
+
 export interface Selection {
   changed: readonly string[]
   run: LayeredRun
   why: string
   reach?: number | null
+  skipped?: SessionSkips
 }
 
 export function sessionSelection(changed: readonly string[], graph: Graph, testText: (test: string) => string, reading: CardLayers | null, map?: LayerMap): Selection {
@@ -134,9 +140,66 @@ export function narrowSelection(changed: readonly string[], graph: Graph, witnes
   return { changed, run: narrowRun(changed, graph, witnesses, map), why: NARROW_WHY, reach }
 }
 
-export function gateSelection(changed: readonly string[], graph: Graph, card: Pick<BranchCard, 'reading' | 'witnesses'> | null, testText: (test: string) => string = readTest, map?: LayerMap): Selection {
+export const SESSION_SLOW_TESTS: readonly string[] = [
+  'scripts/tests/bus/conveyor/',
+  'scripts/tests/bus/launch-node.test.ts',
+  'scripts/tests/bus/launch-queue.test.ts',
+  'scripts/tests/bus/restart-first-tick.test.ts',
+  'scripts/tests/ci/layer-has-tests.test.ts',
+]
+
+export const CENTRAL_REACH = 10
+
+export interface SessionLists {
+  failing: readonly SandboxFailing[]
+  slow: readonly string[]
+}
+
+export const SESSION_LISTS: SessionLists = { failing: SANDBOX_FAILING, slow: SESSION_SLOW_TESTS }
+
+export type SessionCard = Pick<BranchCard, 'reading' | 'witnesses'> & Partial<Pick<BranchCard, 'touches'>>
+
+function isSessionSlow(test: string, slow: readonly string[]): boolean {
+  return slow.some(entry => entry.endsWith('/') ? test.startsWith(entry) : test === entry)
+}
+
+export function centralFiles(changed: readonly string[], graph: Graph): Set<string> {
+  const reverse = reverseGraph(graph)
+  return new Set(changed.filter(file => (reverse.get(file) ?? []).filter(isTest).length > CENTRAL_REACH))
+}
+
+export function sandboxSkipped(run: LayeredRun, failing: readonly SandboxFailing[]): string[] {
+  const listed = new Set(failing.map(entry => entry.file))
+  return run.tests.filter(test => listed.has(test))
+}
+
+export function slowThroughACentralFile(run: LayeredRun, changed: readonly string[], graph: Graph, named: ReadonlySet<string>, slow: readonly string[]): string[] {
+  const central = centralFiles(changed, graph)
+  const subjects = new Set(changed.filter(file => !central.has(file)))
+  return run.tests.filter(test => isSessionSlow(test, slow) && !named.has(test) && !(graph.get(test) ?? []).some(file => subjects.has(file)))
+}
+
+export function sessionSkips(selection: Selection, graph: Graph, card: SessionCard, lists: SessionLists = SESSION_LISTS): Selection {
+  const named = new Set([...selection.changed, ...card.witnesses, ...(card.touches ?? []), ...card.reading.paths, ...card.reading.tests])
+  const sandbox = sandboxSkipped(selection.run, lists.failing)
+  const slow = slowThroughACentralFile(selection.run, selection.changed, graph, named, lists.slow).filter(test => !sandbox.includes(test))
+  const dropped = new Set([...sandbox, ...slow])
+  return { ...selection, run: { ...selection.run, tests: selection.run.tests.filter(test => !dropped.has(test)) }, skipped: { sandbox, slow } }
+}
+
+export function skippedLines(skipped: SessionSkips | undefined): string[] {
+  if (skipped === undefined)
+    return []
+  return [
+    ...(skipped.sandbox.length === 0 ? [] : [`prepush: skipped in this card session, ${skipped.sandbox.length} test files scripts/ci/sandbox-failing.jsonl lists; CI and the witness node run them: ${skipped.sandbox.join(', ')}`]),
+    ...(skipped.slow.length === 0 ? [] : [`prepush: skipped in this card session, ${skipped.slow.length} slow test files reached only through a central file; CI runs them: ${skipped.slow.join(', ')}`]),
+  ]
+}
+
+export function gateSelection(changed: readonly string[], graph: Graph, card: SessionCard | null, testText: (test: string) => string = readTest, map?: LayerMap, lists: SessionLists = SESSION_LISTS): Selection {
   const reach = reachCount(() => sessionSelection(changed, graph, testText, card?.reading ?? null, map))
-  return narrowSelection(changed, graph, card?.witnesses ?? [], reach, map)
+  const narrow = narrowSelection(changed, graph, card?.witnesses ?? [], reach, map)
+  return card === null ? narrow : sessionSkips(narrow, graph, card, lists)
 }
 
 export function reachLine(narrow: number, reach: number | null): string {
@@ -175,6 +238,7 @@ export async function testStep(selection: Selection, suite: Suite): Promise<numb
   const { changed, run, why } = selection
   suite.log(`prepush: the gate runs ${why}; ${FULL_RUN_IS_CI}.`)
   suite.log(selection.reach === undefined ? runSummary(run) : reachLine(run.tests.length, selection.reach))
+  skippedLines(selection.skipped).forEach(line => suite.log(line))
   return throughQueue(run, async () => {
     const started = Date.now()
     let ran: string[] | null = null
