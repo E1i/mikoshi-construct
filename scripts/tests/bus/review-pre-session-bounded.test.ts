@@ -1,3 +1,5 @@
+import type { ReviewPlan } from '../../nodes/review/review-depth.js'
+import type { ReviewPlannerLater } from '../../nodes/review/review-executor.js'
 import type { Reviewer } from '../../nodes/review/reviewer.js'
 import type { MergeBench } from './merge-bench.js'
 import process from 'node:process'
@@ -7,13 +9,12 @@ import { admittedRecord } from '../../../src/commands/intake/index.js'
 import { appendCardEvent, WINDOW_LANE } from '../../core/card-bodies.js'
 import { POLICY_DENIED, REVIEW_RECORDED, TASK_FAILED, TASK_LEASED } from '../../core/events.js'
 import { PLAN_STEP, PRE_SESSION_LIMIT, preSessionLimitDetail } from '../../nodes/review/review-executor.js'
-import { childReviewPlanner, PLAN_FLAG, planInThisProcess, ReviewWorker } from '../../nodes/review/review-worker.js'
+import { childReviewPlanner, planInThisProcess, ReviewWorker } from '../../nodes/review/review-worker.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { cardBody, sha } from './github-fake.js'
 import { eventsOf, liveBench } from './merge-bench.js'
 
 const PRS = [1732, 1733] as const
-const BUSY_PLAN_MS = 4_000
 const LIMIT_MS = 400
 const cleanups: (() => void)[] = []
 
@@ -46,11 +47,19 @@ function admit(bench: MergeBench, pr: number): void {
   bench.tick()
 }
 
-function busyChild(ms: number, printed: string): string[] {
-  return [process.execPath, '-e', `const end = Date.now() + ${ms}; while (Date.now() < end) {} process.stdout.write(${JSON.stringify(printed)})`]
-}
+const PLANNED_ELSEWHERE: ReviewPlan = { depth: 'full', why: 'planned off the heartbeat path', prediction: null }
 
-const PLANNED_IN_A_CHILD = JSON.stringify({ depth: 'full', why: 'planned in a child process', prediction: null })
+const readyPlanner: ReviewPlannerLater = async () => PLANNED_ELSEWHERE
+
+function heldPlanner(): { planner: ReviewPlannerLater, release: () => void, signals: AbortSignal[] } {
+  let release = (): void => {}
+  const signals: AbortSignal[] = []
+  const planner: ReviewPlannerLater = (_lease, _earlier, signal) => new Promise<ReviewPlan>((resolve) => {
+    signals.push(signal)
+    release = () => resolve(PLANNED_ELSEWHERE)
+  })
+  return { planner, release: () => release(), signals }
+}
 
 const passing: Reviewer = async () => ({ verdict: 'pass', findings: [], session: 'reviewer-session' })
 
@@ -63,8 +72,8 @@ function benchOf(prs: readonly number[]): MergeBench {
   return bench
 }
 
-function workerOn(bench: MergeBench, session: string, command: readonly string[], said: string[], reviewer: Reviewer = passing): ReviewWorker {
-  return new ReviewWorker({ silentMs: SILENT_MS, isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }), db: bench.db, gitHub: bench.gitHub.client, publish: bench.gitHub.publish, reviewer, plan: childReviewPlanner(process.cwd(), command), clock: bench.clock.now, session, preSessionLimitMs: LIMIT_MS * 50, say: line => said.push(line) })
+function workerOn(bench: MergeBench, session: string, planLater: ReviewPlannerLater, said: string[], reviewer: Reviewer = passing): ReviewWorker {
+  return new ReviewWorker({ silentMs: SILENT_MS, isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }), db: bench.db, gitHub: bench.gitHub.client, publish: bench.gitHub.publish, reviewer, plan: planLater, clock: bench.clock.now, session, preSessionLimitMs: LIMIT_MS * 50, say: line => said.push(line) })
 }
 
 function leasedReviews(bench: MergeBench): number {
@@ -75,24 +84,28 @@ describe('the review node prepares a lease off its heartbeat path and within a l
   it('the review worker keeps its heartbeat while preparing a large diff', async () => {
     const bench = benchOf(PRS)
     const said: string[] = []
+    const held = heldPlanner()
     let firstDone = false
 
     const first = (async () => {
-      const step = await workerOn(bench, 'worker-1', busyChild(BUSY_PLAN_MS, PLANNED_IN_A_CHILD), said).step()
+      const step = await workerOn(bench, 'worker-1', held.planner, said).step()
       firstDone = true
       return step
     })()
     const leasedByTheFirst = leasedReviews(bench)
-    const second = await workerOn(bench, 'worker-2', busyChild(0, PLANNED_IN_A_CHILD), said).step()
+    const second = await workerOn(bench, 'worker-2', readyPlanner, said).step()
     const firstDoneWhenTheSecondWas = firstDone
     const leasedByBoth = leasedReviews(bench)
+    const abortedWhileHeld = held.signals.map(signal => signal.aborted)
+    held.release()
 
+    expect(abortedWhileHeld).toEqual([false])
     expect(leasedByTheFirst).toBe(1)
     expect(leasedByBoth).toBe(2)
     expect(second).toMatchObject({ kind: 'recorded', verdict: 'pass', depth: 'full' })
     expect(firstDoneWhenTheSecondWas).toBe(false)
     expect(await first).toMatchObject({ kind: 'recorded', verdict: 'pass', depth: 'full' })
-    expect(eventsOf(bench.db, REVIEW_RECORDED).map(payload => payload.depth_why)).toEqual(['planned in a child process', 'planned in a child process'])
+    expect(eventsOf(bench.db, REVIEW_RECORDED).map(payload => payload.depth_why)).toEqual([PLANNED_ELSEWHERE.why, PLANNED_ELSEWHERE.why])
     expect(said.filter(line => line.includes('pre-session work started'))).toHaveLength(2)
     expect(said.filter(line => line.includes('pre-session work ended in'))).toHaveLength(2)
   }, 30_000)
@@ -101,16 +114,18 @@ describe('the review node prepares a lease off its heartbeat path and within a l
     const bench = benchOf([PRS[0]])
     const said: string[] = []
     let reviewed = 0
+    const held = heldPlanner()
     const worker = new ReviewWorker({ silentMs: SILENT_MS, isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }), db: bench.db, gitHub: bench.gitHub.client, publish: bench.gitHub.publish, reviewer: async () => {
       reviewed += 1
       return { verdict: 'pass', findings: [], session: 'never' }
-    }, plan: childReviewPlanner(process.cwd(), busyChild(60_000, PLANNED_IN_A_CHILD)), clock: bench.clock.now, session: 'worker-1', preSessionLimitMs: LIMIT_MS, say: line => said.push(line) })
+    }, plan: held.planner, clock: bench.clock.now, session: 'worker-1', preSessionLimitMs: LIMIT_MS, say: line => said.push(line) })
     const started = Date.now()
 
     const step = await worker.step()
 
     expect(Date.now() - started).toBeLessThan(10_000)
     expect(reviewed).toBe(0)
+    expect(held.signals.map(signal => signal.aborted)).toEqual([true])
     const lease = { pr: PRS[0], head: sha(String(PRS[0] % 10)) }
     const detail = preSessionLimitDetail({ ...lease, taskKey: '', queue: 'review', cardId: cardOf(PRS[0]), leaseGen: 0, actor: '' }, PLAN_STEP, LIMIT_MS)
     expect(step).toMatchObject({ kind: 'denied', denial: { kind: 'technical', reason: PRE_SESSION_LIMIT, detail } })
@@ -120,18 +135,20 @@ describe('the review node prepares a lease off its heartbeat path and within a l
     expect(said.at(-1)).toMatch(/pre-session work ended in \d+ ms, past its limit at the step plan/)
   }, 30_000)
 
-  it('a planning process that fails falls back to the full review, as an in-process planner error does', async () => {
+  it('a planner that fails falls back to the full review, as an in-process planner error does', async () => {
     const bench = benchOf([PRS[0]])
     const said: string[] = []
 
-    const step = await workerOn(bench, 'worker-1', [process.execPath, '-e', 'process.exit(3)'], said).step()
+    const step = await workerOn(bench, 'worker-1', async () => {
+      throw new Error('the planning process exited with 3')
+    }, said).step()
 
     expect(step).toMatchObject({ kind: 'recorded', depth: 'full' })
     expect(String(eventsOf(bench.db, REVIEW_RECORDED)[0]!.depth_why)).toMatch(/^the depth could not be planned: /)
   }, 30_000)
 
   it('the review worker script plans a lease in its own process under the plan flag', async () => {
-    const planner = childReviewPlanner(process.cwd(), [process.execPath, '--import', 'tsx', 'scripts/nodes/review/review-worker.ts', PLAN_FLAG])
+    const planner = childReviewPlanner(process.cwd())
     const lease = { taskKey: 'review:1832:none', queue: 'review' as const, cardId: 1832, pr: null, head: null, leaseGen: 1, actor: 'worker:review:w' }
 
     expect(await planner(lease, null, new AbortController().signal)).toEqual({ depth: 'full', why: 'the lease names no head', prediction: null })

@@ -84,11 +84,7 @@ function startedPlan(planner: ReviewPlanner | ReviewPlannerLater, lease: Lease, 
     const plan = planner(lease, earlier, signal)
     if (!(plan instanceof Promise))
       return plan
-    return plan.catch((error: unknown) => {
-      if (signal.aborted)
-        throw error
-      return unplannedBecause(error)
-    })
+    return plan.catch(unplannedBecause)
   }
   catch (error) {
     return unplannedBecause(error)

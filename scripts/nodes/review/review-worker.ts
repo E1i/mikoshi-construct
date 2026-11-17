@@ -17,7 +17,6 @@ import type { ExecutorParts, ReviewPlannerLater, Step } from './review-executor.
 import type { CardDecision, HeldTree, LeftoverTree, PrBodyOf, Review, Reviewer, SessionPulse, TreeTools } from './reviewer.js'
 import type { TailIntake } from './tail-card.js'
 import { Buffer } from 'node:buffer'
-import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { existsSync, realpathSync } from 'node:fs'
 import path from 'node:path'
@@ -46,6 +45,7 @@ import { ghStatusPublisher } from '../../ports/github-status.js'
 import { ghApi, ghApiPatch, ghApiPost } from '../../ports/github.js'
 import { realIsolationReader } from '../../ports/isolation.js'
 import { promptsDirOf } from '../../ports/prompt-store.js'
+import { plannerProcess, REVIEW_PLAN_FLAG } from '../../ports/review-planner.js'
 import { spawnReviewSession } from '../../ports/session.js'
 import { busProjections, candidateRules, cardSessionPulse, nodeLiveness, nodeSupply, withSlots } from '../../supervisor/composition.js'
 import { stampLogOutput } from '../../supervisor/stamp.js'
@@ -61,8 +61,7 @@ export { SWITCH_FLAG }
 export { earlierVerdict, planned, recordLeftovers, REVIEW_ROUNDS_SPENT, ROUND_LIMIT_REACHED, roundLimitLine, SPAWNS_NO_SESSION, TREE_LEFT } from './review-executor.js'
 export type { Step }
 
-export const PLAN_FLAG = '--plan'
-const PLAN_OUTPUT_LIMIT = 1 << 26
+export const PLAN_FLAG = REVIEW_PLAN_FLAG
 const WORKER_SCRIPT = fileURLToPath(import.meta.url)
 
 export interface PlanRequest {
@@ -77,24 +76,8 @@ function planOfOutput(stdout: string): ReviewPlan {
   return JSON.parse(last) as ReviewPlan
 }
 
-export function childReviewPlanner(cwd: string, command: readonly string[] = [process.execPath, ...process.execArgv, WORKER_SCRIPT, PLAN_FLAG]): ReviewPlannerLater {
-  const [program, ...args] = command
-  return (lease, earlier, signal) => new Promise<ReviewPlan>((resolve, reject) => {
-    const child = execFile(program!, args, { cwd, encoding: 'utf8', maxBuffer: PLAN_OUTPUT_LIMIT, signal, killSignal: 'SIGKILL' }, (error, stdout) => {
-      if (error !== null) {
-        reject(error)
-        return
-      }
-      try {
-        resolve(planOfOutput(stdout))
-      }
-      catch (parse) {
-        reject(parse)
-      }
-    })
-    child.stdin?.on('error', () => {})
-    child.stdin?.end(JSON.stringify({ lease, earlier } satisfies PlanRequest))
-  })
+export function childReviewPlanner(cwd: string): ReviewPlannerLater {
+  return async (lease, earlier, signal) => planOfOutput(await plannerProcess(cwd, JSON.stringify({ lease, earlier } satisfies PlanRequest), signal))
 }
 
 async function stdinText(): Promise<string> {
