@@ -1,7 +1,7 @@
 import type { RequestContext, RequestExecutor } from './context.js'
 import type { Executed } from './request.js'
 import { OWNER_SAY_COMMAND } from '../../core/owner-commands.js'
-import { activeDecisionsShard, ANSWER_SOURCE, appendEvent, cardBodyShaOfCard, closeOwnerWait, consumeOwnerWordClosing, deciderUnderAShard, DECISION_RECORDED, decisionOnAWait, inTransaction, OPEN_OWNER_STOP_OF_CARD, OPEN_WAIT, OWNER_DECIDES, OWNER_SOURCE, OWNER_WAITS, OWNER_WORD_NOT_FOUND, ownerWordAwaited, QUEUE_ACTOR, queueTask, sameDecisionWords, SHARD_DECIDED, stopKindOf } from './reach.js'
+import { activeDecisionsShard, ANSWER_SOURCE, appendEvent, cardBodyShaOfCard, closeOwnerWait, consumeOwnerWordClosing, deciderUnderAShard, decisionOnAWait, inTransaction, OPEN_OWNER_STOP_OF_CARD, OPEN_WAIT, OWNER_DECIDES, OWNER_SOURCE, OWNER_WAITS, OWNER_WORD_NOT_FOUND, ownerWordAwaited, QUEUE_ACTOR, queueTask, SHARD_DECIDED, stopKindOf } from './reach.js'
 import { flagsOf, messageOf, OWNER_ANSWER_USAGE, OWNER_WORD_NEEDED, text, unreleasedWord } from './request.js'
 
 interface WaitToClose {
@@ -14,20 +14,32 @@ interface WaitToClose {
 const WAITS_A_DECISION_ANSWERS: ReadonlySet<string> = new Set(['decision', 'command'])
 const MERGE_NEED = 'merge'
 const PR_NO_LONGER_REWORKED: ReadonlySet<string | null> = new Set(['merged', 'closed'])
-const RECORDED_DECISIONS = `SELECT json_extract(payload, '$.decision_id') AS decision, json_extract(payload, '$.text') AS text, json_extract(payload, '$.scope') AS scope FROM events WHERE type = '${DECISION_RECORDED}' AND legacy = 0 ORDER BY id DESC`
 
-function boundToTheCard(context: RequestContext, id: string, cardId: number, answer: string): string {
-  const words = decisionOnAWait(id, answer)
-  if (context.sameWordsBoundTo(words, [cardId]) !== null)
-    return `a decision with these words is bound to card #${cardId} already`
-  const written = context.writtenDecision([...flagsOf('--card', `#${cardId}`), ...context.settledFlags(), `${OWNER_SOURCE} ${words}`])
-  return written.code === 0 ? `bound to card #${cardId} as a decision: ${written.lines.join('; ')}` : `the decision binding it to card #${cardId} is not written: ${written.lines.join('; ')}`
+interface Binding {
+  line: string
+  decision: number | null
 }
 
-function recordedDecisionOf(context: RequestContext, words: string, cardId: number): number | null {
-  const recorded = context.db.prepare(RECORDED_DECISIONS).all() as { decision: unknown, text: unknown, scope: unknown }[]
-  const bound = recorded.find(row => typeof row.text === 'string' && sameDecisionWords(row.text, words) && typeof row.scope === 'string' && (JSON.parse(row.scope) as unknown[]).includes(cardId))
-  return bound === undefined ? null : Number(bound.decision)
+const WRITTEN_DECISION_ID = /\bD-(\d+)\b/
+
+function decisionIdIn(lines: readonly string[]): number | null {
+  const found = lines.map(line => WRITTEN_DECISION_ID.exec(line)).find(match => match !== null)
+  return found === undefined || found === null ? null : Number(found[1])
+}
+
+function bindingToTheCard(context: RequestContext, id: string, cardId: number, answer: string): Binding {
+  const words = decisionOnAWait(id, answer)
+  const already = context.sameWordsBoundTo(words, [cardId])
+  if (already !== null)
+    return { line: `a decision with these words is bound to card #${cardId} already`, decision: already }
+  const written = context.writtenDecision([...flagsOf('--card', `#${cardId}`), ...context.settledFlags(), `${OWNER_SOURCE} ${words}`])
+  if (written.code !== 0)
+    return { line: `the decision binding it to card #${cardId} is not written: ${written.lines.join('; ')}`, decision: null }
+  return { line: `bound to card #${cardId} as a decision: ${written.lines.join('; ')}`, decision: decisionIdIn(written.lines) }
+}
+
+function boundToTheCard(context: RequestContext, id: string, cardId: number, answer: string): string {
+  return bindingToTheCard(context, id, cardId, answer).line
 }
 
 function answerRoundOnARefusedMerge(context: RequestContext, id: string, cardId: number, pr: number | null, answer: string): string {
@@ -36,8 +48,7 @@ function answerRoundOnARefusedMerge(context: RequestContext, id: string, cardId:
   const observed = context.observed(pr)
   if (observed === undefined || PR_NO_LONGER_REWORKED.has(observed.state) || observed.head === null)
     return `PR #${pr} is ${observed?.state ?? 'not observed'}, so no answer round is queued`
-  const bound = boundToTheCard(context, id, cardId, answer)
-  const decision = recordedDecisionOf(context, decisionOnAWait(id, answer), cardId)
+  const { line: bound, decision } = bindingToTheCard(context, id, cardId, answer)
   if (decision === null)
     return `${bound}; no answer round is queued without the decision that carries the answer`
   const cardBody = cardBodyShaOfCard(context.db, cardId) ?? undefined
