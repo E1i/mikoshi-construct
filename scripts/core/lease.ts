@@ -179,6 +179,8 @@ export function queuedCards(db: DatabaseSync, queue: Queue): number[] {
 
 export function leaseNext(db: DatabaseSync, ts: string, queue: Queue, actor: string, order: LeaseOrder = IN_ARRIVAL_ORDER, held: Handover = NOTHING_HELD): Lease | null {
   return inTransaction(db, () => {
+    if (workerRetiring(db, actor))
+      return null
     const row = db.prepare(NEXT_LEASABLE).get(queue, PR_STATE_OF_QUEUE[queue] ?? 'open', order.onePerCard ? 1 : 0, ts, ...heldBindings(held), JSON.stringify(order.firstCards)) as LeaseRow | undefined
     return row === undefined ? null : leased(db, ts, row, actor)
   })
