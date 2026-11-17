@@ -3,8 +3,8 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { appendEvent, openBus } from '../../core/db.js'
-import { prClosed } from '../../core/observations.js'
 import { busMerges } from '../../nodes/close/task-merged.js'
+import { prClosed } from '../../ports/netwatch.js'
 
 describe('the merge fact in the bus', () => {
   const roots: string[] = []

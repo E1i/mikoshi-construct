@@ -7,6 +7,7 @@ import * as events from '../../../core/events.js'
 const REPO_RUN_TIMEOUT = 180_000
 
 const EVENTS = 'scripts/core/events.ts'
+const STORED_EVENT = 'scripts/core/stored-event.ts'
 
 const DECIDED_IMPORTERS = [
   ['scripts/supervisor/run.ts', EVENTS],
@@ -35,8 +36,8 @@ describe('events is a decided module (D-502)', () => {
     expect(cardHold.SESSION_STOP_CODES).toEqual([events.OUTSIDE_TOUCHES, events.OPEN_QUESTION])
   })
 
-  it('events is decided with its whole file as contract and every decided importer is granted it', () => {
-    expect(MODULE_GRAPH.modules.events).toEqual({ owns: [EVENTS], contract: [EVENTS], may_use: [], status: 'decided' })
+  it('events is decided with its whole files as contract and every decided importer is granted it', () => {
+    expect(MODULE_GRAPH.modules.events).toEqual({ owns: [EVENTS, STORED_EVENT], contract: [EVENTS, STORED_EVENT], may_use: [], status: 'decided' })
 
     const granted = Object.entries(MODULE_GRAPH.modules).filter(([, spec]) => spec.may_use.includes('events')).map(([id]) => id).sort()
     expect(granted).toEqual(['bus', 'card-record', 'node-answer', 'node-close', 'node-launch', 'node-merge', 'node-restart', 'node-review', 'node-update', 'node-witness', 'order', 'plan', 'pr-record', 'session'])

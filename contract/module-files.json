@@ -299,6 +299,7 @@
     "scripts/policy/decisions/index.ts",
     "scripts/policy/decisions/projection.ts",
     "scripts/policy/decisions/read.ts",
+    "scripts/policy/decisions/wait-folds.ts",
     "scripts/policy/decisions/window-door.ts",
     "scripts/policy/live-decision.ts"
   ],
@@ -331,7 +332,8 @@
     "docs/public/favicon.svg"
   ],
   "events": [
-    "scripts/core/events.ts"
+    "scripts/core/events.ts",
+    "scripts/core/stored-event.ts"
   ],
   "factory-contract": [
     "contract/accepted.json",
@@ -698,6 +700,7 @@
     "scripts/tests/contract/port-language.test.ts",
     "scripts/tests/contract/queue-contour.test.ts",
     "scripts/tests/contract/ratchet-threshold-set.test.ts",
+    "scripts/tests/contract/reducer-contour.test.ts",
     "scripts/tests/conveyor/measures.test.ts",
     "scripts/tests/core/card-decisions.test.ts",
     "scripts/tests/core/core-runs-no-git.test.ts",
@@ -1620,6 +1623,7 @@
   ],
   "pr-record": [
     "scripts/core/merge-event.ts",
+    "scripts/core/pr-folds.ts",
     "scripts/nodes/review/dry-run-record.ts",
     "scripts/nodes/review/pr-close.ts",
     "scripts/nodes/review/pr-reopen.ts",
@@ -2541,6 +2545,7 @@
     "scripts/supervisor/bg.ts",
     "scripts/supervisor/bus-heal.ts",
     "scripts/supervisor/bus-snapshot.ts",
+    "scripts/supervisor/card-waits.ts",
     "scripts/supervisor/composition.ts",
     "scripts/supervisor/derive-queues.ts",
     "scripts/supervisor/executor-lease.ts",
