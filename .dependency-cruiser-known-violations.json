@@ -2110,7 +2110,6 @@
     "unresolvedTo": "../nodes/update/update-done.js",
     "dependencyTypes": [
       "local",
-      "type-only",
       "import"
     ],
     "rule": {
