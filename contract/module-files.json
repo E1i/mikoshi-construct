@@ -638,6 +638,7 @@
     "scripts/tests/ci/test-weights-fresh.test.ts",
     "scripts/tests/ci/weights-drift-step.test.ts",
     "scripts/tests/cli/board-bus-panel-client.test.ts",
+    "scripts/tests/cli/board-bus-panel-motion.test.ts",
     "scripts/tests/cli/board-live-only.test.ts",
     "scripts/tests/cli/board-page-client.test.ts",
     "scripts/tests/cli/board-page-static.test.ts",
