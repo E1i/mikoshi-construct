@@ -66,6 +66,12 @@ function cutByTheBus({ made }: Room): void {
   made.tick()
 }
 
+function launchedByTheBus({ made }: Room): void {
+  const ts = made.clock.now().toISOString()
+  appendEvent(made.db, { ts, type: CARD_STARTED, actor: 'worker:launch:4242', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_STARTED}:launch:${CARD}:${ts}`, payload: { session: 'shift-session', worktree: TREE, branch: `feat/card-${CARD}`, base: BASE, pid: 4343, pgid: 4343, contour: 'cheap', tree_origin: 'cut', isolation: 'full', isolationGaps: [] }, legacy: false })
+  made.tick()
+}
+
 function context({ made, root }: Room): RequestContext {
   return new RequestContext(made.db, made.clock.now, UNUSED_TOOLS, path.join(root, 'owner-answers'), () => null, root, made.gitHub.client)
 }
@@ -175,5 +181,18 @@ describe('a session nobody drives is ended by the bus after its round time', () 
     cutByTheBus(at)
     at.made.clock.advance(UNDRIVEN_AFTER_MS)
     expect(sweep(at, claudeIn(`${TREE}0`))).toHaveLength(1)
+  })
+})
+
+describe('a session the launch node started is ended by its own shift, not by this sweep', () => {
+  it('a card\'s own worker session that pushed and runs past its round time with no process in sight is not ended', () => {
+    const at = room()
+    cutByTheBus(at)
+    launchedByTheBus(at)
+    pushed(at, PUSHED)
+    at.made.clock.advance(UNDRIVEN_AFTER_MS)
+    expect(sweep(at, claudeIn('/Users/someone/projects/repo'))).toEqual([])
+    expect(endsOf(at)).toEqual([])
+    expect(context(at).routeOf(CARD)).toEqual(NOT_ENDED)
   })
 })

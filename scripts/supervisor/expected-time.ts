@@ -225,6 +225,10 @@ export interface UnendedStart {
   base: string | null
 }
 
+function startedByNoLaunchedSession(pid: unknown): boolean {
+  return pid === undefined || pid === null
+}
+
 export function unendedStarts(db: DatabaseSync): UnendedStart[] {
   const read = new BusRead(db).where({ card: ANY })
   const lastEnd = new Map<number, number>()
@@ -232,8 +236,8 @@ export function unendedStarts(db: DatabaseSync): UnendedStart[] {
     for (const end of read.slice(type, [], 'last-per-card'))
       lastEnd.set(end.card!, Math.max(lastEnd.get(end.card!) ?? 0, end.id))
   }
-  return read.slice(CARD_STARTED, ['session', 'worktree', 'base'], 'last-per-card')
-    .filter(start => start.ts !== null && (lastEnd.get(start.card!) ?? 0) < start.id)
+  return read.slice(CARD_STARTED, ['session', 'worktree', 'base', 'pid'], 'last-per-card')
+    .filter(start => start.ts !== null && startedByNoLaunchedSession(start.fields.pid) && (lastEnd.get(start.card!) ?? 0) < start.id)
     .map(start => ({ id: start.id, card_id: start.card!, ts: start.ts!, session: text(start.fields.session), worktree: text(start.fields.worktree), base: text(start.fields.base) }))
 }
 
