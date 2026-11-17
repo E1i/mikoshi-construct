@@ -296,7 +296,6 @@
     "scripts/owner/session.ts",
     "scripts/policy/decisions/add.ts",
     "scripts/policy/decisions/decisions.ts",
-    "scripts/policy/decisions/import.ts",
     "scripts/policy/decisions/index.ts",
     "scripts/policy/decisions/projection.ts",
     "scripts/policy/decisions/read.ts",

@@ -7,7 +7,6 @@ import { appendEvent, openBus } from '../../core/db.js'
 import { REJECTED } from '../../core/events.js'
 import { projectionDump, reduce } from '../../core/reducer.js'
 import { runDecisionsAdd } from '../../policy/decisions/add.js'
-import { importOwnerDecisions } from '../../policy/decisions/import.js'
 import { recordDecision } from '../../policy/decisions/index.js'
 import { busProjections } from '../../supervisor/composition.js'
 
@@ -16,17 +15,10 @@ const ARCHIVE = '/d/owner-decisions.archive.md'
 const NOW = new Date('2026-10-10T08:30:00Z')
 const TS = '2026-10-10T08:00:00.000Z'
 const BEFORE = '# Owner decisions\n\n- D-1 · 2026-10-08 — one.\n'
-const OWNER_FILE = [
-  '# Owner decisions',
-  '',
-  'Append-only.',
-  '',
-  '- D-1 · 2026-10-08 — one. · superseded-by D-2',
-  '- D-2 · 2026-10-08 — #807 stays owner-merged. · card #807 · decisions:add',
-  'a line out of format',
-  '- D-77 · 2026-10-10 ~13:35Z — Owner-PR мержится шиной по pass ревью воркера и зелёному CI.',
-  '',
-].join('\n')
+const HISTORICAL_IMPORT = [
+  { decision_id: 2, text: '#807 stays owner-merged.', scope: [807] },
+  { decision_id: 77, text: 'Owner-PR мержится шиной по pass ревью воркера и зелёному CI.', scope: [] },
+]
 const roots: string[] = []
 let sequence = 0
 
@@ -132,7 +124,7 @@ describe('owner decisions on the bus', () => {
 
   it('a decisions.imported event already in the bus folds to the decisions it lists and a replay gives the same', () => {
     const db = newBus()
-    importOwnerDecisions(db, OWNER_FILE, NOW.toISOString())
+    appendEvent(db, event('decisions.imported', { actor: 'netwatch', payload: { sha256: 'historical', decisions: HISTORICAL_IMPORT } }))
     expect(reduce(db, 'pending', busProjections())).toEqual({ applied: 1, rejected: 0 })
     expect(rows(db, 'SELECT decision_id, text, scope, source FROM decisions ORDER BY decision_id')).toEqual([
       { decision_id: 2, text: '#807 stays owner-merged.', scope: '[807]', source: 'owner-decisions.md' },
