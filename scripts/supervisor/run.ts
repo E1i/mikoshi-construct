@@ -171,10 +171,13 @@ function lastEventId(db: DatabaseSync): number {
 }
 
 export class BusTick {
+  lastSteps: readonly StepTiming[] = []
+
   constructor(private readonly db: DatabaseSync, private readonly projections: Projections, private readonly netWatch: NetWatch, private readonly clock: () => Date, private readonly intake: () => void = () => {}, private readonly project: (now: Date) => void = () => {}, private readonly requests: () => void = () => {}, private readonly statuses: () => void = () => {}, private readonly stalled: () => void = () => {}, private readonly elapsedMs: () => number = () => performance.now()) {}
 
   run(): Tick | null {
     const steps: StepTiming[] = []
+    this.lastSteps = steps
     const timed = <T>(step: TickStep, work: () => T): T => {
       const started = this.elapsedMs()
       try {
@@ -229,7 +232,7 @@ export function tickOrLocked(busTick: BusTick): string[] {
   catch (error) {
     if (!isDatabaseLocked(error))
       throw error
-    return [`${PREFIX}the tick hit ${DATABASE_LOCKED}; it is retried in ${CHECK_MS / 1000} s, and bus:run stays up`]
+    return [`${PREFIX}the tick hit ${DATABASE_LOCKED}; it is retried in ${CHECK_MS / 1000} s, and bus:run stays up`, stepTimingLine(busTick.lastSteps)]
   }
 }
 

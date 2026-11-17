@@ -9,9 +9,10 @@ import { machineBusPath, snapshotPathOf } from '../../core/bus-path.js'
 import { openBus } from '../../core/db.js'
 import { deriveQueues } from '../../core/queue.js'
 import { PR_FOLDS } from '../../core/reducer.js'
+import { decisionsInForceAt, withDecisionsHeldAt } from '../../policy/shards.js'
 import { NetWatch } from '../../ports/netwatch.js'
 import { LAST_STATUS_SET_ON_HEAD } from '../../ports/pr-status.js'
-import { BusTick, TICK_STEPS, tickLines } from '../../supervisor/run.js'
+import { BusTick, TICK_STEPS, tickLines, tickOrLocked } from '../../supervisor/run.js'
 import { Clock, FakeGitHub } from '../bus/github-fake.js'
 
 const decisionReads = vi.hoisted(() => ({ count: 0 }))
@@ -105,6 +106,18 @@ describe('the bus tick names the duration of every step', () => {
     const timing = tickLines(tick!).filter(line => TICK_STEPS.every(step => line.includes(`${step} 0.01 s`)))
     expect(timing).toHaveLength(1)
   })
+
+  it('a tick whose step hits a locked database still names the duration of that step', () => {
+    const db = bus()
+    const clock = new Clock()
+    const locked = (): void => {
+      throw new Error('database is locked')
+    }
+    const busTick = new BusTick(db, { folds: [PR_FOLDS], incremental: [] }, new NetWatchThatTicks(db, new FakeGitHub().client, clock.now), clock.now, () => {}, () => {}, () => {}, () => {}, locked, stepClock())
+    const lines = tickOrLocked(busTick)
+    expect(busTick.lastSteps.map(each => each.step)).toEqual(TICK_STEPS.slice(0, TICK_STEPS.indexOf('StalledSessions') + 1))
+    expect(lines.at(-1)).toContain('StalledSessions 0.01 s')
+  })
 })
 
 describe('the slow steps of the tick', () => {
@@ -119,6 +132,20 @@ describe('the slow steps of the tick', () => {
     decisionReads.count = 0
     deriveQueues(db, TS)
     expect(decisionReads.count).toBe(1)
+  })
+
+  it('a nested hold of the decisions gives the outer hold back when it ends', () => {
+    const db = bus()
+    const outer = new Date(TS)
+    const inner = new Date(Date.parse(TS) + 1_000)
+    decisionReads.count = 0
+    withDecisionsHeldAt(db, outer, () => {
+      withDecisionsHeldAt(db, inner, () => decisionsInForceAt(db, inner))
+      decisionsInForceAt(db, outer)
+    })
+    expect(decisionReads.count).toBe(2)
+    decisionsInForceAt(db, outer)
+    expect(decisionReads.count).toBe(3)
   })
 })
 
