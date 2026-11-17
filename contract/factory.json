@@ -1990,7 +1990,8 @@
           "scripts/ci/gate-runs.ts",
           "scripts/ci/prepush.ts",
           "scripts/nodes/answer/answer-executor.ts",
-          "scripts/nodes/launch/report-collect.ts"
+          "scripts/nodes/launch/report-collect.ts",
+          "scripts/supervisor/composition.ts"
         ],
         "owner": "scripts/ci/gate-runs.ts",
         "source": "owner",
@@ -2637,6 +2638,7 @@
           "scripts/ports/card-tree.ts",
           "scripts/ports/task-start.ts",
           "scripts/ports/worktree-home.ts",
+          "scripts/supervisor/composition.ts",
           "scripts/window/tab.ts",
           "scripts/window/window-agents.ts",
           "scripts/window/window-request-tools.ts"
@@ -4427,7 +4429,7 @@
       "scripts/supervisor/card-waits.ts": 2,
       "scripts/supervisor/derive-queues.ts": 20,
       "scripts/supervisor/heartbeat.ts": 3,
-      "scripts/supervisor/run.ts": 1,
+      "scripts/supervisor/reducer-loop.ts": 1,
       "scripts/supervisor/stalled-sessions.ts": 6,
       "scripts/supervisor/supervisor.ts": 5,
       "scripts/window/board.ts": 19,

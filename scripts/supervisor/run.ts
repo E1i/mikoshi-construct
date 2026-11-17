@@ -5,6 +5,7 @@ import type { GitHub } from '../ports/github.js'
 import type { Poll } from '../ports/netwatch.js'
 import type { GitHubPost } from '../ports/pr-status.js'
 import type { BgResult, ProcessList } from './bg.js'
+import type { StartedReducerLoop } from './reducer-loop.js'
 import { existsSync, linkSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -13,11 +14,10 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { BOARD_PERIOD_MS, startBoardTimer } from '../cli/board-page.js'
 import { busDirOf } from '../core/bus-path.js'
-import { appendEvent, defaultBusPath, inTransaction, openBus, openBusWait } from '../core/db.js'
-import { REDUCED, WINDOW_REQUEST } from '../core/events.js'
+import { defaultBusPath, inTransaction, openBus, openBusWait } from '../core/db.js'
+import { WINDOW_REQUEST } from '../core/events.js'
 import { DATABASE_LOCKED, isDatabaseLocked } from '../core/node.js'
 import { QUEUE_ACTOR } from '../core/queue.js'
-import { reduce } from '../core/reducer.js'
 import { ownerChannelOfBus } from '../owner/channel.js'
 import { ghApi } from '../ports/github.js'
 import { CHECK_MS, NetWatch, pollLine, TICK_MS } from '../ports/netwatch.js'
@@ -27,8 +27,10 @@ import { realRequestTools } from '../window/window-request-tools.js'
 import { WindowRequests } from '../window/window-requests.js'
 import { alive, BUS_RUN_MARKERS, instancesOf, processBeatsOn, psList, RUN_SCRIPT } from './bg.js'
 import { closeWaitsOfEndedCards } from './card-waits.js'
-import { busProjections, deriveQueuesOfTheBus, recordOwnStart } from './composition.js'
+import { busProjections, deriveQueuesOfTheBus, gateRunSpoolPlaces, recordOwnStart } from './composition.js'
+import { GateRunSpool } from './gate-run-spool.js'
 import { sessionLifeIn } from './recorded-worker.js'
+import { REDUCER_PERIOD_MS, REDUCER_PREFIX, ReducerPass, startReducerLoop } from './reducer-loop.js'
 import { StalledSessions } from './stalled-sessions.js'
 import { stampLogOutput } from './stamp.js'
 
@@ -150,9 +152,11 @@ export function holdRunLock(busPath: string, processes: ProcessList, self: numbe
   return refusedRun(`${lock} was taken again while this bus:run removed a stale one; this one exits and starts nothing`)
 }
 
-export const TICK_STEPS = ['NetWatch.poll', 'reduce', 'WindowRequests', 'second reduce', 'deriveQueues', 'setStepStatuses', 'StalledSessions'] as const
+export const TICK_STEPS = ['NetWatch.poll', 'deriveQueues', 'setStepStatuses', 'StalledSessions', 'GateRunSpool'] as const
 
-export type TickStep = typeof TICK_STEPS[number]
+export const INLINE_REDUCER_STEP = 'reducer pass'
+
+export type TickStep = typeof TICK_STEPS[number] | typeof INLINE_REDUCER_STEP
 
 export interface StepTiming {
   step: TickStep
@@ -163,17 +167,17 @@ export interface Tick {
   poll: Poll
   reduced: ReduceCount | null
   derived: Derived | null
+  spooled: string[]
   steps: StepTiming[]
-}
-
-function lastEventId(db: DatabaseSync): number {
-  return Number((db.prepare('SELECT coalesce(max(id), 0) AS id FROM events').get() as { id: number }).id)
 }
 
 export class BusTick {
   lastSteps: readonly StepTiming[] = []
+  private readonly inlineReducer: ReducerPass | null
 
-  constructor(private readonly db: DatabaseSync, private readonly projections: Projections, private readonly netWatch: NetWatch, private readonly clock: () => Date, private readonly requests: () => void = () => {}, private readonly statuses: () => void = () => {}, private readonly stalled: () => void = () => {}, private readonly elapsedMs: () => number = () => performance.now()) {}
+  constructor(private readonly db: DatabaseSync, reducedInline: Projections | ReducerPass | null, private readonly netWatch: NetWatch, private readonly clock: () => Date, requests: () => void = () => {}, private readonly statuses: () => void = () => {}, private readonly stalled: () => void = () => {}, private readonly spools: () => string[] = () => [], private readonly elapsedMs: () => number = () => performance.now()) {
+    this.inlineReducer = reducedInline === null || reducedInline instanceof ReducerPass ? reducedInline : new ReducerPass(db, reducedInline, clock, requests)
+  }
 
   run(): Tick | null {
     const steps: StepTiming[] = []
@@ -191,21 +195,15 @@ export class BusTick {
     if (poll === null)
       return null
     if (poll.kind !== 'ticked')
-      return { poll, reduced: null, derived: null, steps }
-    const beforeRequests = timed('reduce', () => reduce(this.db, 'pending', this.projections))
-    timed('WindowRequests', this.requests)
+      return { poll, reduced: null, derived: null, spooled: [], steps }
+    const inline = this.inlineReducer
+    const reduced = inline === null ? null : timed(INLINE_REDUCER_STEP, () => inline.run())
     const ts = this.clock().toISOString()
-    const reduced = timed('second reduce', () => {
-      const through = lastEventId(this.db)
-      const afterRequests = reduce(this.db, 'pending', this.projections)
-      const both = { applied: beforeRequests.applied + afterRequests.applied, rejected: beforeRequests.rejected + afterRequests.rejected }
-      appendEvent(this.db, { ts, type: REDUCED, actor: 'reducer', cardId: null, pr: null, head: null, dedupeKey: `${REDUCED}:${ts}`, payload: { through_event_id: through, ...both }, legacy: false })
-      return both
-    })
     const derived = timed('deriveQueues', () => deriveQueuesOfTheBus(this.db, ts))
     timed('setStepStatuses', this.statuses)
     timed('StalledSessions', this.stalled)
-    return { poll, reduced, derived, steps }
+    const spooled = timed('GateRunSpool', this.spools)
+    return { poll, reduced, derived, spooled, steps }
   }
 }
 
@@ -219,7 +217,7 @@ export function tickLines(tick: Tick): string[] {
     lines.push(`${PREFIX}reduced: applied ${tick.reduced.applied}, rejected ${tick.reduced.rejected}`)
   if (tick.derived !== null && tick.derived.superseded.length + tick.derived.queued.length > 0)
     lines.push(`${PREFIX}queues: superseded ${tick.derived.superseded.join(', ') || '—'}; queued ${tick.derived.queued.join(', ') || '—'}`)
-  return lines
+  return [...lines, ...tick.spooled]
 }
 
 export function tickOrLocked(busTick: BusTick): string[] {
@@ -238,13 +236,22 @@ export interface ComposedTick {
   busTick: BusTick
 }
 
-export function composeBusTick(db: DatabaseSync, busPath: string, gitHub: GitHub, post: GitHubPost, clock: () => Date, home: string): ComposedTick {
+export const QUIET_REDUCED_MS = TICK_MS
+
+export function composeReducerPass(db: DatabaseSync, busPath: string, clock: () => Date, home: string, repo: string = process.cwd(), env: NodeJS.ProcessEnv = process.env, log: (line: string) => void = console.log, quietMs: number = QUIET_REDUCED_MS): ReducerPass {
   const projections = busProjections()
-  const requests = new WindowRequests(db, clock, realRequestTools(db, busPath, process.cwd(), process.env, projections), ownerChannelOfBus(home, busPath))
+  const requests = new WindowRequests(db, clock, realRequestTools(db, busPath, repo, env, projections), ownerChannelOfBus(home, busPath))
   const answer = (): void => {
     for (const outcome of requests.run())
-      console.log(`${PREFIX}${WINDOW_REQUEST} ${outcome.request} ${outcome.kind}: ${outcome.detail}`)
+      log(`${REDUCER_PREFIX}${WINDOW_REQUEST} ${outcome.request} ${outcome.kind}: ${outcome.detail}`)
   }
+  return new ReducerPass(db, projections, clock, answer, quietMs)
+}
+
+export type ReducerPlacement = 'inline' | 'own-thread'
+
+export function composeBusTick(db: DatabaseSync, busPath: string, gitHub: GitHub, post: GitHubPost, clock: () => Date, home: string, spools: () => string[] = () => [], placement: ReducerPlacement = 'inline'): ComposedTick {
+  const reducer = placement === 'inline' ? composeReducerPass(db, busPath, clock, home, process.cwd(), process.env, console.log, 0) : null
   const statuses = (): void => {
     if (statusesSwitchedOff(busPath))
       return
@@ -262,7 +269,7 @@ export function composeBusTick(db: DatabaseSync, busPath: string, gitHub: GitHub
     for (const line of silent.step())
       console.log(line)
   }
-  return { busTick: new BusTick(db, projections, new NetWatch(db, gitHub, clock), clock, answer, statuses, stalled) }
+  return { busTick: new BusTick(db, reducer, new NetWatch(db, gitHub, clock), clock, () => {}, statuses, stalled, spools) }
 }
 
 export function startBus(db: DatabaseSync, clock: () => Date): string[] {
@@ -281,10 +288,28 @@ async function main(): Promise<number> {
   const closed = startBus(db, () => new Date())
   if (closed.length > 0)
     console.log(`${PREFIX}closed the owner waits of ended cards: ${closed.join(', ')}`)
-  const { busTick } = composeBusTick(db, busPath, ghApi(process.cwd()), ghApiPost(process.cwd()), () => new Date(), os.homedir())
+  const spool = new GateRunSpool(db, gateRunSpoolPlaces(process.env, busPath, process.cwd()), PREFIX)
+  const { busTick } = composeBusTick(db, busPath, ghApi(process.cwd()), ghApiPost(process.cwd()), () => new Date(), os.homedir(), () => spool.step(), 'own-thread')
+  const reducer = startReducerLoop(busPath, os.homedir())
   const board = startBoardTimer(busPath)
-  console.log(`${PREFIX}${busPath}, shadow mode: NetWatch, the owner decisions import, the window requests, the reducer, the queues and the ${STATUS_CONTEXT} status check on each open PR head unless ${STATUS_OFF_FILE} sits beside it every ${TICK_MS / 1000} s; ${board.file} with ${board.dataFile} every ${BOARD_PERIOD_MS / 1000} s on a read-only connection in its own thread; no workers`)
-  return superviseUntilEnd(() => tickOrLocked(busTick), board, () => db.close())
+  console.log(`${PREFIX}${busPath}, shadow mode: the reducer with the window requests every ${REDUCER_PERIOD_MS / 1000} s on its own connection in its own thread; NetWatch, the queues and the ${STATUS_CONTEXT} status check on each open PR head unless ${STATUS_OFF_FILE} sits beside it every ${TICK_MS / 1000} s; ${board.file} with ${board.dataFile} every ${BOARD_PERIOD_MS / 1000} s on a read-only connection in its own thread; no workers`)
+  return superviseUntilEnd(() => tickWhileReducing(busTick, reducer), bothThreads(reducer, board), () => db.close())
+}
+
+export function tickWhileReducing(busTick: BusTick, reducer: Pick<StartedReducerLoop, 'failure'>): string[] {
+  const failed = reducer.failure()
+  if (failed !== null)
+    throw new Error(`${PREFIX}the reducer thread ended (${failed.message.split('\n')[0]}), so bus:run ends with it`)
+  return tickOrLocked(busTick)
+}
+
+function bothThreads(reducer: StartedReducerLoop, board: { stop: () => Promise<void> }): { stop: () => Promise<void> } {
+  return {
+    stop: async () => {
+      await reducer.stop()
+      await board.stop()
+    },
+  }
 }
 
 export async function superviseUntilEnd(tick: () => string[], board: { stop: () => Promise<void> }, close: () => void, pause: () => Promise<unknown> = async () => sleep(CHECK_MS)): Promise<never> {

@@ -12,7 +12,7 @@ import { CARD_ANSWERED, CARD_STARTED, CARD_STOPPED } from '../../core/events.js'
 import { leaseNext } from '../../core/lease.js'
 import { queueTask } from '../../core/queue.js'
 import { AnswerExecutor, noGateDecisionLine } from '../../nodes/answer/answer-executor.js'
-import { claudeAnswerer, IN_THE_BACKGROUND, RoundTimer } from '../../nodes/answer/answerer.js'
+import { claudeAnswerer, gateInShellLine, IN_THE_BACKGROUND, RoundTimer } from '../../nodes/answer/answerer.js'
 import { gateLine } from '../../nodes/answer/duties/index.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { sha } from './github-fake.js'
@@ -157,11 +157,28 @@ describe('a gate command is recognised inside any shell line', () => {
     `${TYPECHECK} && pnpm lint`,
     `${TYPECHECK}; echo done`,
     `cd /t && ${TYPECHECK} && pnpm lint`,
+    `${TYPECHECK} || echo failed`,
+    `cd /t; ${TYPECHECK} || echo failed`,
   ])('a gate chained to another command in %s is recorded as a gate run, as before', (command) => {
     const timer = timerAfter([{ command }, { command: PREPUSH_ROUND }])
 
     expect(timer.decision()).toBe('green')
     expect(timer.offFormGateCommands()).toEqual([])
+  })
+
+  it('a gate line whose only bar is an or-else is a gate run, not a piped one', () => {
+    const timer = timerAfter([{ command: `${TYPECHECK} || echo failed` }, { command: `${PREPUSH_ROUND} || echo failed` }])
+
+    expect(timer.decision()).toBe('green')
+    expect(gateInShellLine(`${TYPECHECK} || echo failed`, GATE)).toEqual({ gate: TYPECHECK, piped: false, pipefail: false })
+    expect(gateInShellLine(`${TYPECHECK} || echo failed | tail`, GATE)).toEqual({ gate: TYPECHECK, piped: true, pipefail: false })
+  })
+
+  it('a gate declared with a trailing stream merge and run exactly as declared is recorded as a gate run', () => {
+    const declaredWithMerge = `${TYPECHECK} 2>&1`
+
+    expect(gateInShellLine(declaredWithMerge, [declaredWithMerge, PREPUSH_ROUND])).toEqual({ gate: declaredWithMerge, piped: false, pipefail: false })
+    expect(gateInShellLine(`cd /t; ${declaredWithMerge} | tail`, [declaredWithMerge])).toEqual({ gate: declaredWithMerge, piped: true, pipefail: false })
   })
 
   it('a line that only mentions the gate is not recorded as a gate run', () => {
