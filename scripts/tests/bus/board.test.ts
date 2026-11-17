@@ -11,6 +11,7 @@ import { textSha } from '../../../src/card/text-sha.js'
 import { busFacts } from '../../../src/commands/board/bus.js'
 import { backlogCards } from '../../../src/commands/board/screens.js'
 import { BOARD_DATA_FILE, boardProjection, DISK_FILES, FLOW_META, printBoard, runBoardCli } from '../../cli/board-page.js'
+import { liveCardsOf } from '../../cli/board-page/live-cards.js'
 import { DROPPED_LANE, MERGED_CARD } from '../../core/card-automaton.js'
 import { observeChain } from '../../core/chain.js'
 import { appendEvent, defaultBusPath, openBus } from '../../core/db.js'
@@ -80,10 +81,11 @@ function boardBench(): BoardBench {
   const gitHub = new FakeGitHub()
   const clock = new Clock()
   const bench: BoardBench = { db, gitHub, clock, watched: [reviewWorker(REVIEW_PID)], leaseOrders: {}, boards: [], tick: () => bench.boards.at(-1)!, ts: () => clock.now().toISOString() }
-  const busTick = new BusTick(db, busProjections(), new NetWatch(db, gitHub.client, clock.now), clock.now, () => {}, now => bench.boards.push(readBoard({ db, now, watched: bench.watched, leaseOrders: bench.leaseOrders, projections: busProjections() })))
+  const busTick = new BusTick(db, busProjections(), new NetWatch(db, gitHub.client, clock.now), clock.now)
   bench.tick = () => {
     const before = bench.boards.length
     busTick.run()
+    bench.boards.push(readBoard({ db, now: clock.now(), watched: bench.watched, leaseOrders: bench.leaseOrders, projections: busProjections() }))
     detectReview({ db, gitHub, clock })
     clock.advance(TICK_MS)
     expect(bench.boards.length).toBe(before + 1)
@@ -172,7 +174,7 @@ describe('the factory board', () => {
     const busPath = bench.db.location()!
     const projection = boardProjection(bench.db, busPath, TICK_MS)
     projection.project(bench.clock.now())
-    const projected = readFileSync(projection.file, 'utf8')
+    const projected = readFileSync(projection.dataFile, 'utf8')
     expect(projected).toContain('#861')
     expect(projected).not.toContain('#999')
 
@@ -223,15 +225,16 @@ describe('the factory board', () => {
       expect(board.tickMs).toBe(TICK_MS)
       expect(board.slots.kv).toContain(`<span>written <b>${facts.at}</b></span>`)
       const rows = [...board.slots.rows.matchAll(/<tr data-card="(\d+)" data-stage="([^"]*)"/g)].map(match => ({ id: Number(match[1]), stage: match[2] }))
-      expect(rows).toEqual(expect.arrayContaining(backlogCards(facts.cards, facts.at, true).map(card => ({ id: card.id, stage: card.stage }))))
-      expect(rows).toHaveLength(backlogCards(facts.cards, facts.at, true).length)
+      const live = backlogCards(liveCardsOf(facts.cards, facts.at), facts.at, true)
+      expect(rows).toEqual(expect.arrayContaining(live.map(card => ({ id: card.id, stage: card.stage }))))
+      expect(rows).toHaveLength(live.length)
       expect(board.slots.status).toContain(`<span>agents <b>${facts.services.length}</b></span>`)
       expect(board.slots.status).toContain(`<span>review queue <b>${facts.reviewQueue}</b></span>`)
       const shell = readFileSync(projection.file, 'utf8')
       expect(shell).not.toContain('http-equiv="refresh"')
-      expect(shell).toContain(`<table id="slot-rows">\n${board.slots.rows}\n</table>`)
-      for (const id of board.filters)
-        expect(shell).toContain(`<span class="filter-target" id="${id}"></span>`)
+      expect(shell).toContain('<body data-written="" ')
+      expect(shell).toContain('<table id="slot-rows">\n\n</table>')
+      expect(shell).not.toContain('class="filter-target"')
     }
     finally {
       db.close()

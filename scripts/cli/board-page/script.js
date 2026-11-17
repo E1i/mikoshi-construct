@@ -175,15 +175,22 @@
       save()
     })
   }
-  if (location.hash)
-    view.filter = location.hash
-  else if (view.filter && document.getElementById(view.filter.slice(1)))
-    location.hash = view.filter
-  if (scroller)
-    scroller.scrollTop = view.scroll
-  if (view.open)
-    open(view.open)
-  stampAgents()
+  let restored = false
+  const restore = () => {
+    restored = true
+    if (location.hash)
+      view.filter = location.hash
+    else if (view.filter && document.getElementById(view.filter.slice(1)))
+      location.hash = view.filter
+    if (scroller)
+      scroller.scrollTop = view.scroll
+    if (view.open)
+      open(view.open)
+    stampAgents()
+  }
+  const shell = written === ''
+  if (!shell)
+    restore()
   const stale = () => {
     const live = document.getElementById(names.busLive)
     if (live) {
@@ -237,6 +244,8 @@
     stampAgents()
     stampFolds()
     countLoad()
+    if (!restored)
+      restore()
   }
   const markOld = () => {
     if (!(period > 0 && Date.now() - Date.parse(written) > names.staleTicks * period))
@@ -301,7 +310,10 @@
   }
   stampFolds()
   countLoad()
-  schedule()
+  if (shell)
+    update()
+  else
+    schedule()
   if (frame)
     frame(countdown)
   const round = names.round
