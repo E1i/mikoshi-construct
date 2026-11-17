@@ -6,6 +6,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { afterEach, describe, expect, it } from 'vitest'
 import { writeBus } from '../../../tests/board/bus-fixture.js'
 import { BOARD_DATA_FILE, printBoard } from '../../cli/board-page.js'
+import { BUS_VERSION } from '../../core/bus-version.js'
 import { BUS_PULSE, PROCESS_HEARTBEAT, SESSION_HEARTBEAT } from '../../core/events.js'
 
 const NOW = new Date('2026-11-17T08:00:00.000Z')
@@ -78,7 +79,7 @@ describe('the bus panel', () => {
       events: [tick(70), event(40, 'review.verdict', 7, { verdict: 'pass' }), event(30, 'review.verdict', 8, { verdict: 'changes' }), event(20, 'pr.merged', 9), tick(10)],
     }, 5, REDUCER_LAG)
     const panel = busPanelOf(html)
-    expect(panel).toContain('BUS LIVE V1')
+    expect(panel).toContain(`BUS LIVE V${BUS_VERSION}`)
     expect(panel).toContain('<span class="pulse-dot">●</span> PULSE · 10s')
     expect(cellOf(panel, 'flow')).toContain('<div class="flow-rate"><b>4</b> events/min</div>')
     expect(cellOf(panel, 'flow').match(/class="flow-bar"/g)).toHaveLength(30)
@@ -88,6 +89,11 @@ describe('the bus panel', () => {
     expect(panel).toContain('<li class="bevel" data-node="workers" data-health="green"><span>BUS WORKERS</span><b>1/1 alive</b></li>')
     expect(panel).toContain('<li data-slot-queue="launch" data-used="3" data-total="3" data-full><span>LAUNCH</span><span class="slot-segs"><i data-seg data-on></i><i data-seg data-on></i><i data-seg data-on></i></span><b>3/3</b></li>')
     expect(cellOf(panel, 'families')).toContain('<li data-family="review" data-rank="1" data-share="40" style="--_rank:1;--_share:40%"><span>review</span><span class="family-bar"></span><b>40%</b></li>')
+  })
+
+  it('the bus title reads V and BUS_VERSION', () => {
+    const panel = busPanelOf(pageOf({ events: [tick(70), tick(10)] }).html)
+    expect(panel).toContain(`<span class="bus-title">BUS LIVE V${BUS_VERSION}</span>`)
   })
 
   it('every top events row carries its share bar', () => {
@@ -170,7 +176,7 @@ describe('the bus panel', () => {
     const { html } = pageOf({ events: [tick(240), tick(180)] })
     const panel = busPanelOf(html)
     expect(panel).toContain('<div class="bus-panel bevel" data-down role="region" aria-label="bus">')
-    expect(panel).toContain('BUS DOWN V1')
+    expect(panel).toContain(`BUS DOWN V${BUS_VERSION}`)
     expect(panel).toContain('●</span> NO PULSE · 3m')
     expect(panel).toContain('<span class="flatline-stamp">FLATLINED</span><span class="flatline-line">NO PULSE · NODES SILENT</span>')
     expect(panel).toContain('last event #2 · 3m · start the bus with pnpm bus:run')
@@ -179,7 +185,7 @@ describe('the bus panel', () => {
 
   it('a bus that never pulsed is down', () => {
     const panel = busPanelOf(pageOf({}).html)
-    expect(panel).toContain('BUS DOWN V1')
+    expect(panel).toContain(`BUS DOWN V${BUS_VERSION}`)
     expect(panel).toContain('●</span> NO PULSE · —')
     expect(panel).toContain('last event — · — · start the bus with pnpm bus:run')
   })

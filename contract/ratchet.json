@@ -3,7 +3,7 @@
   "boundary:atlas->ports-adapters": 1,
   "boundary:atlas->project": 2,
   "boundary:atlas->ui": 2,
-  "boundary:board->bus": 4,
+  "boundary:board->bus": 5,
   "boundary:board->card-model": 1,
   "boundary:board->card-record": 2,
   "boundary:board->cost": 6,
