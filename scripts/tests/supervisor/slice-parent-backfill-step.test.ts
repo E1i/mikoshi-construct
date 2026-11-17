@@ -5,10 +5,10 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { textSha } from '../../../src/card/text-sha.js'
-import { appendCardEvent, foldCardBody, SLICE_PARENTS_BUS_ACTOR } from '../../core/card-bodies.js'
+import { appendCardEvent, backfillSliceParents, foldCardBody, SLICE_PARENTS_BUS_ACTOR } from '../../core/card-bodies.js'
 import { openBus } from '../../core/db.js'
 import { CARD_ADMITTED, SLICE_PARENTS_BACKFILLED } from '../../core/events.js'
-import { deriveQueuesOfTheBus } from '../../supervisor/composition.js'
+import { deriveQueuesOfTheBus, sliceParentsOnce } from '../../supervisor/composition.js'
 
 const TS = '2026-11-17T09:00:00.000Z'
 const LATER = '2026-11-17T10:00:00.000Z'
@@ -50,6 +50,21 @@ describe('the bus runs the slice-parent backfill once', () => {
       admitBeforeTheField(db, 62, 'later-slice-1')
       deriveQueuesOfTheBus(db, LATER)
       expect(backfills(db)).toEqual(first)
+    }
+    finally {
+      db.close()
+    }
+  })
+
+  it('the step skips outright once a slice.parents.backfilled event exists, whoever wrote it', () => {
+    const db = bus()
+    try {
+      admitBeforeTheField(db, 60, 'shredded-slice-1')
+      admitBeforeTheField(db, 61, 'shredded-slice-2')
+      expect(backfillSliceParents(db, TS).recorded).toBe(true)
+      admitBeforeTheField(db, 62, 'later-slice-1')
+      expect(sliceParentsOnce(db, LATER)).toBeNull()
+      expect(backfills(db)).toHaveLength(1)
     }
     finally {
       db.close()
