@@ -7,7 +7,7 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { textSha } from '../../../src/card/text-sha.js'
 import { appendEvent } from '../../core/db.js'
-import { CARD_ADMITTED, CARD_RELEASED, CARD_SESSION_ENDED, CARD_STARTED, CARD_TAKEOVER } from '../../core/events.js'
+import { CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_DROPPED, CARD_RELEASED, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, CARD_TAKEOVER, MERGE_DONE, PR_OPENED } from '../../core/events.js'
 import { InMemoryProcessTable } from '../../ports/process-table.js'
 import { STALLED_ACTOR, StalledSessions, UNDRIVEN_AFTER_MS } from '../../supervisor/stalled-sessions.js'
 import { RequestContext } from '../../window/requests/context.js'
@@ -139,6 +139,15 @@ describe('the session a window tree.cut opens ends when the window pushes', () =
     expect(context(at).routeOf(CARD)).toBeNull()
   })
 
+  it('a pull request the bus opened past the base of the cut ends its session', () => {
+    const at = room()
+    cutByTheBus(at)
+    appendEvent(at.made.db, { ts: at.made.clock.now().toISOString(), type: PR_OPENED, actor: 'worker:launch:4242', cardId: CARD, pr: PR, head: PUSHED, dedupeKey: `${PR_OPENED}:${PR}`, payload: { pr: PR }, legacy: false })
+    at.made.tick()
+    expect(sweep(at, claudeIn(TREE))).toEqual([expect.stringContaining(`pushed ${PUSHED} to PR #${PR}`)])
+    expect(endsOf(at)).toEqual([expect.objectContaining({ actor: STALLED_ACTOR, head: PUSHED })])
+  })
+
   it('the end is written once', () => {
     const at = room()
     cutByTheBus(at)
@@ -174,6 +183,26 @@ describe('a session nobody drives is ended by the bus after its round time', () 
       expect(endsOf(live)).toEqual([])
       expect(context(live).routeOf(CARD)).toEqual(NOT_ENDED)
     }
+  })
+
+  it.each([CARD_STOPPED, CARD_ANSWERED, MERGE_DONE, CARD_CLOSED, CARD_DROPPED])('a start already ended by %s is not ended again past its round time', (type) => {
+    const at = room()
+    cutByTheBus(at)
+    appendEvent(at.made.db, { ts: at.made.clock.now().toISOString(), type, actor: 'worker:test:ends', cardId: CARD, pr: null, head: null, dedupeKey: `${type}:${CARD}:end-of-start`, payload: {}, legacy: false })
+    at.made.tick()
+    at.made.clock.advance(UNDRIVEN_AFTER_MS)
+    expect(sweep(at, claudeIn('/Users/someone/projects/repo'))).toEqual([])
+    expect(endsOf(at)).toEqual([])
+  })
+
+  it('a start that recorded no tree is not ended past its round time', () => {
+    const at = room()
+    const ts = at.made.clock.now().toISOString()
+    appendEvent(at.made.db, { ts, type: CARD_STARTED, actor: `${STARTER_ACTOR}by-hand`, cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_STARTED}:${CARD}:no-tree:${ts}`, payload: { path: 'cheap', started: ts, base: BASE, branch: `feat/card-${CARD}` }, legacy: false })
+    at.made.tick()
+    at.made.clock.advance(UNDRIVEN_AFTER_MS)
+    expect(sweep(at, claudeIn('/Users/someone/projects/repo'))).toEqual([])
+    expect(endsOf(at)).toEqual([])
   })
 
   it('a tree whose name only begins like the card tree is not the card tree', () => {
