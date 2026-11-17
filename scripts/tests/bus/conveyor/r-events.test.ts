@@ -244,7 +244,22 @@ describe('conveyor R-events: EVENT_PAYLOADS and the bus readings are assembled f
     } }])
     writeFileSync(path.join(root, READINGS, 'probes.json'), JSON.stringify({ reading: 'probes', constant: 'PROBES', reducedInOrder: true, types: ['probe.absent'], foldedOnAppend: null }))
     writeFileSync(path.join(root, READINGS, 'halves.json'), JSON.stringify({ reading: 'halves', constant: 'HALVES', reducedInOrder: true, types: ['card.admitted'], foldedOnAppend: ['card.admitted'] }))
-    expect(validateDeclarations(readDeclarations(root), repositoryFiles())).toEqual(expect.arrayContaining([
+    writeFileSync(path.join(root, EVENTS, 'probe.twin-keys.json'), JSON.stringify({ event: 'probe.twin-keys', constant: 'PROBE_TWIN_KEYS', payload: ['a', 'a'] }))
+    writeFileSync(path.join(root, READINGS, 'twins.json'), JSON.stringify({ reading: 'twins', constant: 'TWINS', reducedInOrder: true, types: ['card.admitted', 'card.admitted'], foldedOnAppend: null }))
+    writeFileSync(path.join(root, READINGS, 'strays.json'), JSON.stringify({ reading: 'strays', constant: 'STRAYS', reducedInOrder: false, types: ['card.admitted'], foldedOnAppend: ['card.closed'] }))
+    writeFileSync(path.join(root, READINGS, 'unsorted-folds.json'), JSON.stringify({ reading: 'unsorted-folds', constant: 'UNSORTED_FOLDS', reducedInOrder: false, types: ['card.admitted', 'card.closed'], foldedOnAppend: ['card.closed', 'card.admitted'] }))
+    writeFileSync(path.join(root, READINGS, 'twin-folds.json'), JSON.stringify({ reading: 'twin-folds', constant: 'TWIN_FOLDS', reducedInOrder: false, types: ['card.admitted'], foldedOnAppend: ['card.admitted', 'card.admitted'] }))
+    const problems = validateDeclarations(readDeclarations(root), repositoryFiles())
+    expect(problems.filter(text => /declarations\/readings\/(?:strays|unsorted-folds|twin-folds)\.json/.test(text))).toEqual([
+      'declarations/readings/strays.json: foldedOnAppend names a type that types does not',
+      'declarations/readings/twin-folds.json: foldedOnAppend is neither null nor a sorted list of distinct event types',
+      'declarations/readings/unsorted-folds.json: foldedOnAppend is neither null nor a sorted list of distinct event types',
+    ])
+    expect(problems).toEqual(expect.arrayContaining([
+      'declarations/events/probe.twin-keys.json: payload is neither null nor a sorted list of distinct non-empty keys',
+      'declarations/readings/twins.json: types is not a sorted non-empty list of distinct event types',
+    ]))
+    expect(problems).toEqual(expect.arrayContaining([
       'declarations/events/probe.unsorted.json: payload is neither null nor a sorted list of distinct non-empty keys',
       'declarations/events/probe.beside.json: constant "CARD_WAITS" is a name the event catalog writes beside the events',
       'declarations/events/probe.lower.json: constant is not an upper-case identifier',
