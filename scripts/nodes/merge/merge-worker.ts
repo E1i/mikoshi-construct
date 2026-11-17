@@ -19,14 +19,14 @@ import { messageOf } from '../../core/errors.js'
 import { BOARD_ALARM, CARD_ADMITTED, DECISION_RECORDED, MERGE_DONE, PR_CLOSED, PR_GROUPS, PR_OBSERVED, PR_OPENED, REDUCED, REVIEW_RECORDED } from '../../core/events.js'
 import { Node, NodeRefused, runNode, UNDERSTOOD_NOW } from '../../core/node.js'
 import { pushPolicyOf } from '../../core/push-policy.js'
-import { mergeCandidates } from '../../core/queue.js'
 import { loadedCodeSha, readThroughPort } from '../../ports/git.js'
 import { ghStatusPublisher } from '../../ports/github-status.js'
 import { ghApi, ghApiPut } from '../../ports/github.js'
 import { Meter } from '../../ports/meter.js'
-import { mainOverlapAt, nodeLiveness, nodeSupply, weightsDriftWatch } from '../../supervisor/composition.js'
+import { candidateRules, mainOverlapAt, nodeLiveness, nodeSupply, weightsDriftWatch } from '../../supervisor/composition.js'
 import { stampLogOutput } from '../../supervisor/stamp.js'
 import { DRY_RUN_ACTOR } from '../review/review-worker.js'
+import { mergeCandidates } from './merge-candidates.js'
 import { MergeExecutor } from './merge-executor.js'
 import { driftLine } from './weights-drift.js'
 
@@ -90,7 +90,7 @@ export class MergeNode extends Node<MergeStep> {
     this.gitHub = parts.gitHub
     this.rebuildCatalog = parts.rebuildCatalog
     this.weights = parts.weights
-    this.executor = new MergeExecutor({ db: parts.db, gitHub: parts.gitHub, put: parts.put, publish: parts.publish, clock: parts.clock, run: parts.run, silentMs: parts.silentMs, pushPolicy: parts.pushPolicy, overlaps: parts.overlaps ?? mainOverlapAt(process.cwd()) })
+    this.executor = new MergeExecutor({ db: parts.db, gitHub: parts.gitHub, put: parts.put, publish: parts.publish, clock: parts.clock, run: parts.run, silentMs: parts.silentMs, pushPolicy: parts.pushPolicy, overlaps: parts.overlaps ?? mainOverlapAt(process.cwd()), rules: candidateRules() })
     this.declare(MERGE_NODE, scopeOf)
   }
 
@@ -103,11 +103,11 @@ export class MergeNode extends Node<MergeStep> {
   }
 
   protected candidates(scope: Scope = {}): QueuedTask[] {
-    return mergeCandidates(this.db, this.ts()).filter(task => (scope.pr === undefined || task.pr === scope.pr) && (scope.cardId === undefined || task.cardId === scope.cardId))
+    return mergeCandidates(this.db, this.ts(), candidateRules()).filter(task => (scope.pr === undefined || task.pr === scope.pr) && (scope.cardId === undefined || task.cardId === scope.cardId))
   }
 
   protected override derivedCandidates(ts: string): QueuedTask[] {
-    return mergeCandidates(this.db, ts)
+    return mergeCandidates(this.db, ts, candidateRules())
   }
 
   protected handle(lease: Lease): MergeStep {

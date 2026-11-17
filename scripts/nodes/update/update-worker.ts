@@ -17,16 +17,16 @@ import { defaultBusPath } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_STOPPED, POLICY_DENIED, PR_GROUPS, PR_OBSERVED, PR_OPENED, REDUCED } from '../../core/events.js'
 import { Node, runNode, UNDERSTOOD_NOW } from '../../core/node.js'
 import { pushPolicyOf } from '../../core/push-policy.js'
-import { updateCandidates } from '../../core/queue.js'
 import { loadedCodeSha, readThroughPort } from '../../ports/git.js'
 import { ghStatusPublisher } from '../../ports/github-status.js'
 import { ghApi, ghApiPost, ghApiPut } from '../../ports/github.js'
 import { mainMergeInCardTree } from '../../ports/main-merge.js'
 import { cardTree } from '../../ports/worktree-home.js'
 import { gitIn } from '../../ports/worktree.js'
-import { derivedHolds, nodeLiveness, nodeSupply, ratchetThresholdSets } from '../../supervisor/composition.js'
+import { derivedHolds, nodeLiveness, nodeSupply, ratchetThresholdSets, updateParts } from '../../supervisor/composition.js'
 import { stampLogOutput } from '../../supervisor/stamp.js'
 import { firstLiveVerdict, NoLiveVerdict } from '../merge/merge-worker.js'
+import { updateCandidates } from './update-candidates.js'
 import { UpdateExecutor } from './update-executor.js'
 
 export const SETTLE_MS = 2000
@@ -74,7 +74,7 @@ export class UpdateNode extends Node<UpdateStep> {
 
   constructor(parts: UpdateNodeParts) {
     super('update', { db: parts.db, clock: parts.clock, session: parts.session, mode: parts.mode, env: parts.env, silentMs: parts.silentMs, supply: nodeSupply() })
-    this.executor = new UpdateExecutor({ db: parts.db, gitHub: parts.gitHub, put: parts.put, publish: parts.publish, clock: parts.clock, settle: parts.settle, silentMs: parts.silentMs, pushPolicy: parts.pushPolicy, mergeMain: parts.mergeMain, post: parts.post, thresholds: parts.thresholds, derived: parts.derived })
+    this.executor = new UpdateExecutor({ db: parts.db, gitHub: parts.gitHub, put: parts.put, publish: parts.publish, clock: parts.clock, settle: parts.settle, silentMs: parts.silentMs, pushPolicy: parts.pushPolicy, mergeMain: parts.mergeMain, post: parts.post, thresholds: parts.thresholds, derived: parts.derived, source: updateParts() })
     this.declare(UPDATE_NODE, scopeOf)
   }
 
@@ -85,11 +85,11 @@ export class UpdateNode extends Node<UpdateStep> {
   }
 
   protected candidates(scope: Scope = {}): QueuedTask[] {
-    return updateCandidates(this.db, this.ts()).filter(task => inScope(task, scope))
+    return updateCandidates(this.db, this.ts(), updateParts()).filter(task => inScope(task, scope))
   }
 
   protected override derivedCandidates(ts: string): QueuedTask[] {
-    return updateCandidates(this.db, ts)
+    return updateCandidates(this.db, ts, updateParts())
   }
 
   protected handle(lease: Lease): UpdateStep {

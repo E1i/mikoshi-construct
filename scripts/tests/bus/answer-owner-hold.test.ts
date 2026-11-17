@@ -13,14 +13,15 @@ import { LIVE_SESSION_IN_THE_TREE } from '../../core/card-hold.js'
 import { appendEvent } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_HELD, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, CARD_WAITING, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, POLICY_DENIED, QUESTION_AGENT, QUESTION_OWNER, WITNESS_DOWNGRADE } from '../../core/events.js'
 import { leaseNext } from '../../core/lease.js'
-import { answerCandidates, DOWNGRADE_WAIT_OPEN, queueTask } from '../../core/queue.js'
+import { DOWNGRADE_WAIT_OPEN, queueTask } from '../../core/queue.js'
 import { reduce } from '../../core/reducer.js'
+import { answerCandidates } from '../../nodes/answer/answer-candidates.js'
 import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
 import { claudeAnswerer, liveSessionIn, refusedOwnerQuestionIn } from '../../nodes/answer/answerer.js'
 import { pendingPathsOf } from '../../nodes/answer/duties/index.js'
 import { codexAdapter } from '../../ports/client/codex/adapter.js'
 import { clientAdapter } from '../../ports/client/index.js'
-import { busProjections } from '../../supervisor/composition.js'
+import { answerParts, busProjections } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { requestFromWindow, requestOf, WindowRequests } from '../../window/window-requests.js'
 import { sha } from './github-fake.js'
@@ -272,7 +273,7 @@ describe('a card with an open witness.downgrade wait', () => {
     const { made } = stoppedCard()
     const wait = openDowngradeWait(made)
     stopAgain(made)
-    const candidatesNow = (): number[] => answerCandidates(made.db, made.clock.now().toISOString()).map(task => task.cardId)
+    const candidatesNow = (): number[] => answerCandidates(made.db, made.clock.now().toISOString(), answerParts()).map(task => task.cardId)
 
     expect(candidatesNow()).toEqual([])
 

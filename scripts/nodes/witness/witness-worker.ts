@@ -12,10 +12,10 @@ import { fileURLToPath } from 'node:url'
 import { defaultBusPath } from '../../core/db.js'
 import { CARD_ADMITTED, PR_OBSERVED, PR_OPENED, REDUCED } from '../../core/events.js'
 import { Node, prefixOf, runNode, UNDERSTOOD_NOW } from '../../core/node.js'
-import { witnessCandidates } from '../../core/queue.js'
 import { loadedCodeSha } from '../../ports/git.js'
-import { nodeLiveness, nodeSupply } from '../../supervisor/composition.js'
+import { nodeLiveness, nodeSupply, witnessParts } from '../../supervisor/composition.js'
 import { stampLogOutput } from '../../supervisor/stamp.js'
+import { witnessCandidates } from './witness-candidates.js'
 import { gitWitnessTrees, realTimedShell, WitnessExecutor } from './witness-executor.js'
 
 export const PREFIX = prefixOf('witness')
@@ -62,11 +62,11 @@ export class WitnessNode extends Node<WitnessOutcome> {
   }
 
   protected candidates(scope: Scope = {}): QueuedTask[] {
-    return witnessCandidates(this.db, this.ts()).filter(task => inScope(task, scope))
+    return witnessCandidates(this.db, this.ts(), witnessParts()).filter(task => inScope(task, scope))
   }
 
   protected override derivedCandidates(ts: string): QueuedTask[] {
-    return witnessCandidates(this.db, ts)
+    return witnessCandidates(this.db, ts, witnessParts())
   }
 
   protected handle(lease: Lease): Promise<WitnessOutcome> {

@@ -7,13 +7,16 @@ import { AMEND_SOURCE } from '../../../src/commands/intake/admit.js'
 import { admittedRecord } from '../../../src/commands/intake/index.js'
 import { appendCardEvent, WINDOW_LANE } from '../../core/card-bodies.js'
 import { REVIEW_RECORDED } from '../../core/events.js'
-import { answerCandidates, changesRoundsOf, closedByRounds, REPEAT_FINDINGS, REVIEW_ROUNDS } from '../../core/queue.js'
+import { REVIEW_ROUNDS } from '../../core/identifiers.js'
 import { busHeldCards } from '../../intake/intake.js'
+import { answerCandidates } from '../../nodes/answer/answer-candidates.js'
 import { RoundLimitRecutter } from '../../nodes/review/pr-close.js'
 import { fullReview } from '../../nodes/review/review-depth.js'
 import { repeatStopLine } from '../../nodes/review/review-executor.js'
 import { REVIEW_ROUNDS_SPENT, ReviewWorker, roundLimitLine } from '../../nodes/review/review-worker.js'
 import { allFindingsRepeat, isNote, jaccard, REPEAT_JACCARD } from '../../policy/repeat-finding.js'
+import { changesRoundsOf, closedByRounds, REPEAT_FINDINGS } from '../../policy/round-limit-decision.js'
+import { answerParts } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { cardBody, sha } from './github-fake.js'
 import { eventsOf, liveBench } from './merge-bench.js'
@@ -92,7 +95,7 @@ async function reviewRound(fixed: Fixture, head: string, findings: string[]): Pr
 
 function answersOfThePr(fixed: Fixture): number {
   fixed.bench.tick()
-  return answerCandidates(fixed.bench.db, fixed.bench.clock.now().toISOString()).filter(task => task.pr === PR).length
+  return answerCandidates(fixed.bench.db, fixed.bench.clock.now().toISOString(), answerParts()).filter(task => task.pr === PR).length
 }
 
 describe('a late review round that repeats an earlier one', () => {

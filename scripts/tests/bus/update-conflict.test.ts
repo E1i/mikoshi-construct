@@ -9,9 +9,11 @@ import { textSha } from '../../../src/card/text-sha.js'
 import { appendEvent } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_STOPPED, OWNER_WAIT_OPENED, UPDATE_DONE } from '../../core/events.js'
 import { leaseNext } from '../../core/lease.js'
-import { answerCandidates, updateCandidates } from '../../core/queue.js'
+import { answerCandidates } from '../../nodes/answer/answer-candidates.js'
+import { updateCandidates } from '../../nodes/update/update-candidates.js'
 import { UpdateExecutor } from '../../nodes/update/update-executor.js'
 import { mainMergeInCardTree } from '../../ports/main-merge.js'
+import { answerParts, updateParts } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { eventsOf, liveBench, taskState } from './merge-bench.js'
 import { detectUpdate } from './update-detection.js'
@@ -86,7 +88,7 @@ function conflictBench(file: string, pr: number) {
   bench.gitHub.open({ number: pr, head: conflict.head, mergeable_state: 'dirty' })
   bench.tick()
   detectUpdate(bench)
-  const executor = new UpdateExecutor({ silentMs: SILENT_MS, db: bench.db, gitHub: bench.gitHub.client, put: bench.gitHub.put, publish: bench.gitHub.publish, clock: bench.clock.now, settle: () => {}, mergeMain: mainMergeInCardTree(git, () => conflict.tree) })
+  const executor = new UpdateExecutor({ source: updateParts(), silentMs: SILENT_MS, db: bench.db, gitHub: bench.gitHub.client, put: bench.gitHub.put, publish: bench.gitHub.publish, clock: bench.clock.now, settle: () => {}, mergeMain: mainMergeInCardTree(git, () => conflict.tree) })
   const lease = (): Lease | null => leaseNext(bench.db, bench.clock.now().toISOString(), 'update', 'worker:update:worker-1')
   return { bench, conflict, cardId, lease, executor }
 }
@@ -94,8 +96,8 @@ function conflictBench(file: string, pr: number) {
 describe('the update node on a pull request in conflict with main', () => {
   it('a conflicting card pull request is routed to the update node and to no answer', () => {
     const { bench, cardId } = conflictBench(CHANGESET, 1092)
-    expect(updateCandidates(bench.db, bench.clock.now().toISOString()).map(task => task.cardId)).toEqual([cardId])
-    expect(answerCandidates(bench.db, bench.clock.now().toISOString())).toEqual([])
+    expect(updateCandidates(bench.db, bench.clock.now().toISOString(), updateParts()).map(task => task.cardId)).toEqual([cardId])
+    expect(answerCandidates(bench.db, bench.clock.now().toISOString(), answerParts())).toEqual([])
     bench.close()
   })
 
@@ -131,7 +133,7 @@ describe('the update node on a pull request in conflict with main', () => {
     expect(git(conflict.tree, ['status', '--porcelain'])).toBe('')
     expect(git(conflict.origin, ['rev-parse', `refs/heads/${conflict.branch}`])).toBe(conflict.head)
     expect(taskState(bench.db, leased.taskKey).state).toBe('withdrawn')
-    expect(answerCandidates(bench.db, bench.clock.now().toISOString())).toMatchObject([{ queue: 'answer', cardId, pr: 1094, head: conflict.head }])
+    expect(answerCandidates(bench.db, bench.clock.now().toISOString(), answerParts())).toMatchObject([{ queue: 'answer', cardId, pr: 1094, head: conflict.head }])
     bench.close()
   })
 
@@ -144,7 +146,7 @@ describe('the update node on a pull request in conflict with main', () => {
     expect(executor.update(leased)).toMatchObject({ kind: 'denied', denial: { reason: 'merge_refused', detail: expect.stringContaining(`not at the head ${conflict.head}`) } })
     expect(git(conflict.origin, ['rev-parse', `refs/heads/${conflict.branch}`])).toBe(conflict.head)
     expect(taskState(bench.db, leased.taskKey).state).toBe('withdrawn')
-    expect(answerCandidates(bench.db, bench.clock.now().toISOString())).toMatchObject([{ queue: 'answer', cardId: 1195, pr: 1095, head: conflict.head }])
+    expect(answerCandidates(bench.db, bench.clock.now().toISOString(), answerParts())).toMatchObject([{ queue: 'answer', cardId: 1195, pr: 1095, head: conflict.head }])
     bench.close()
   })
 

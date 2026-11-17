@@ -3,6 +3,7 @@ import type { ParkedTask, Priority } from '../../../src/card/parking.js'
 import type { ShiftTask } from '../../../src/card/task-file.js'
 import type { SessionStopCode } from '../../core/card-hold.js'
 import type { MachineHold, MachineSessions } from '../../core/machine-sessions.js'
+import type { QueuedTask, QueueSource } from '../../core/queue.js'
 import { existsSync } from 'node:fs'
 import process from 'node:process'
 import { parseParkingFile, WINDOW_WHO } from '../../../src/card/parking.js'
@@ -738,3 +739,9 @@ export function launchCandidates(db: DatabaseSync, treeLive: TreeReader = exists
   }
   return chosen
 }
+
+export function launchTasks(db: DatabaseSync, onOverlap?: OverlapCatch): QueuedTask[] {
+  return launchCandidates(db, undefined, undefined, onOverlap).map(({ cardId, generation }) => ({ queue: 'launch', cardId, generation }))
+}
+
+export const LAUNCH_SOURCE: QueueSource = { queue: 'launch', enqueue: db => launchTasks(db) }

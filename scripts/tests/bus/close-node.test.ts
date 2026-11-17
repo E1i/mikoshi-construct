@@ -18,6 +18,7 @@ import { closeCandidates, FAILURES_TO_STOP, keyOf, queueTask } from '../../core/
 import { CloseExecutor } from '../../nodes/close/close-executor.js'
 import { CloseNode } from '../../nodes/close/close-worker.js'
 import { TREE_LEFT } from '../../nodes/review/review-worker.js'
+import { candidateRules } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { sha } from './github-fake.js'
 import { cardVerified, eventsOf, mergeBench } from './merge-bench.js'
@@ -123,7 +124,7 @@ function byEvent(made: CloseBench): Record<string, unknown>[] {
 }
 
 function derivedKeys(made: CloseBench): string[] {
-  return closeCandidates(made.db, made.clock.now().toISOString()).map(keyOf)
+  return closeCandidates(made.db, made.clock.now().toISOString(), candidateRules()).map(keyOf)
 }
 
 function closeTasks(made: CloseBench, pr: number): number {

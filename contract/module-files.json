@@ -695,6 +695,7 @@
     "scripts/tests/contract/owner-commands-detector.test.ts",
     "scripts/tests/contract/plan-folds-contour.test.ts",
     "scripts/tests/contract/port-language.test.ts",
+    "scripts/tests/contract/queue-contour.test.ts",
     "scripts/tests/contract/ratchet-threshold-set.test.ts",
     "scripts/tests/conveyor/measures.test.ts",
     "scripts/tests/core/card-decisions.test.ts",
@@ -1491,6 +1492,7 @@
     "src/model/write.ts"
   ],
   "node-answer": [
+    "scripts/nodes/answer/answer-candidates.ts",
     "scripts/nodes/answer/answer-executor.ts",
     "scripts/nodes/answer/answer-source.ts",
     "scripts/nodes/answer/answer-worker.ts",
@@ -1534,6 +1536,7 @@
     "scripts/nodes/laws.ts"
   ],
   "node-merge": [
+    "scripts/nodes/merge/merge-candidates.ts",
     "scripts/nodes/merge/merge-executor.ts",
     "scripts/nodes/merge/merge-worker.ts",
     "scripts/nodes/merge/weights-drift.ts"
@@ -1556,11 +1559,13 @@
   "node-update": [
     "scripts/nodes/update/head-poll.ts",
     "scripts/nodes/update/review-carry.ts",
+    "scripts/nodes/update/update-candidates.ts",
     "scripts/nodes/update/update-done.ts",
     "scripts/nodes/update/update-executor.ts",
     "scripts/nodes/update/update-worker.ts"
   ],
   "node-witness": [
+    "scripts/nodes/witness/witness-candidates.ts",
     "scripts/nodes/witness/witness-executor.ts",
     "scripts/nodes/witness/witness-worker.ts"
   ],
@@ -2536,6 +2541,7 @@
     "scripts/supervisor/bus-heal.ts",
     "scripts/supervisor/bus-snapshot.ts",
     "scripts/supervisor/composition.ts",
+    "scripts/supervisor/derive-queues.ts",
     "scripts/supervisor/executor-lease.ts",
     "scripts/supervisor/expected-time.ts",
     "scripts/supervisor/generation-handover.ts",

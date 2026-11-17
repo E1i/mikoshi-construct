@@ -9,9 +9,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { buildCatalog, MAIN_TIP, rebuildCatalogAt, writeCatalog } from '../../cli/check-catalog.js'
 import { appendEvent } from '../../core/db.js'
 import { BOARD_ALARM, COMMAND_EXECUTED, MERGE_DONE, POLICY_DENIED, REVIEW_RECORDED } from '../../core/events.js'
-import { NEEDS_UPDATE, updateCandidates } from '../../core/queue.js'
+import { NEEDS_UPDATE } from '../../core/queue.js'
 import { CATALOG_REBUILD_FAILED, MergeNode } from '../../nodes/merge/merge-worker.js'
+import { updateCandidates } from '../../nodes/update/update-candidates.js'
 import { UpdateNode } from '../../nodes/update/update-worker.js'
+import { updateParts } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { cardBody, MAIN_2, REPO, sha } from './github-fake.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
@@ -266,7 +268,7 @@ describe('a merge refused with a 405', () => {
 
     await once(merge)
 
-    expect(updateCandidates(made.db, made.clock.now().toISOString()).map(task => task.pr)).toEqual([970])
+    expect(updateCandidates(made.db, made.clock.now().toISOString(), updateParts()).map(task => task.pr)).toEqual([970])
 
     await once(update)
     made.tick()

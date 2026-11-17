@@ -1,4 +1,6 @@
-export const BACKFILL_SOURCE = 'backfill'
+import { BACKFILL_SOURCE } from './identifiers.js'
+
+export { BACKFILL_SOURCE }
 
 export const NOT_A_BACKFILL = `json_extract(payload, '$.source') IS NOT '${BACKFILL_SOURCE}'`
 
