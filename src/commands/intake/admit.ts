@@ -24,7 +24,7 @@ import { priorityLineOf, withKeptPriority } from '../../card/text-sha.js'
 import { fieldCommand, isAcceptanceField, isWitnessFieldLine, judgedCommand, renderedWitness, runsFieldLine, runsFieldOf, statesAnExit, witnessFieldsOf, witnessText } from '../../card/witness-fields.js'
 import { readMilestones } from '../../manifest.js'
 import { findsNoTest, namedAbsentOutside, namedPaths, withinScope } from '../test-runner.js'
-import { CARD_REFERENCE, checkDraft, correctionText, invalidTestPatterns, isChangeWitness, nonPathTouchRefusals, ownerPathsOf, PACKAGE_MANIFEST, publishedRootsOf } from './check.js'
+import { CARD_REFERENCE, checkDraft, correctionText, FACTORY_TWIN, invalidTestPatterns, isChangeWitness, nonPathTouchRefusals, ownerPathsOf, PACKAGE_MANIFEST, publishedRootsOf } from './check.js'
 import { TEST_NAME_ARGUMENT } from './command-word.js'
 import { admitCorrectionsNeedPerson, bodySha, bodyShaWithoutTouches, confirmationOf, confirmationToken, isConfirmation, sameHeader, tokenConfirmation, TOUCHES_HEADER, windowShard } from './confirm.js'
 import { withoutWitnessKind } from './draft.js'
@@ -48,7 +48,7 @@ export function isLaneName(name: string): boolean {
 }
 
 export function pathsNamedOutside(parked: ParkedTask, text: string): string[] {
-  return pathsOutside(parked.task.touches, parked.creates, pathsIn(text))
+  return pathsOutside(parked.task.touches, parked.creates, pathsIn(text)).filter(named => named !== FACTORY_TWIN)
 }
 
 export function laneOf(root: string, dir: string): string | null {
