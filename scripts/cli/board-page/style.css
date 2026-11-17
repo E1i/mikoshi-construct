@@ -183,7 +183,7 @@ header.panel::before { --_sweep: oklch(from var(--wire) l c h / 0.5); animation:
 .svc:has([data-state="waiting"]) .round-steps li[data-current] { color: var(--amber); }
 .svc:has([data-state="over"]) .round-steps li[data-current] { color: var(--signal); }
 .round-step-now { margin-inline-start: auto; }
-.miko-self, .miko-crawlers, .miko-bus { display: grid; gap: var(--space-xs); align-content: start; min-inline-size: 0; }
+.miko-self, .miko-crawlers { display: grid; gap: var(--space-xs); align-content: start; min-inline-size: 0; }
 .miko-model { color: var(--dim); font: 600 0.7rem var(--font-mono); }
 .miko-skills { display: flex; flex-wrap: wrap; gap: 0.3rem; align-items: baseline; font-size: 0.65rem; }
 .miko-skills-head { color: var(--dim); letter-spacing: 0.12em; }
@@ -209,8 +209,50 @@ header.panel::before { --_sweep: oklch(from var(--wire) l c h / 0.5); animation:
 .crawlers-flatline { display: grid; justify-items: center; gap: var(--space-xs); padding: var(--space-m) var(--space-s); }
 .flatline-stamp { padding: 0.2rem 0.8rem; border: 4px double var(--signal); color: var(--signal); font: 700 1rem var(--font-display); letter-spacing: 0.2em; transform: rotate(-4deg); box-shadow: 0 0 0.75rem oklch(from var(--signal) l c h / 0.45); text-shadow: 0 0 0.4rem oklch(from var(--signal) l c h / 0.6); }
 .flatline-line { color: var(--dim); font-size: 0.65rem; letter-spacing: 0.12em; }
-.miko-bus-head { color: var(--ok); font: 700 0.75rem var(--font-display); letter-spacing: 0.14em; }
-.miko-bus[data-stale] .miko-bus-head { color: var(--signal); }
+.bus-panel {
+  --_state: var(--ok);
+  --_frame: oklch(from var(--_state) l c h / 0.6);
+  display: grid;
+  gap: var(--space-s);
+  margin-block-start: var(--space-s);
+  padding: var(--space-s) var(--space-m);
+  &[data-down] { --_state: var(--signal); }
+}
+.bus-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-s) var(--space-m); }
+.bus-emblem { position: relative; display: grid; place-items: center; inline-size: 2rem; block-size: 2rem; background: var(--_state); clip-path: polygon(30% 0, 70% 0, 100% 30%, 100% 70%, 70% 100%, 30% 100%, 0 70%, 0 30%); }
+.bus-emblem-glyph { color: var(--void); font: 700 0.75rem var(--font-mono); }
+.bus-emblem-ring { position: absolute; inset: 0.2rem; border: 1px solid var(--void); border-radius: 50%; animation: --animation-bus-pulse 2s ease-out infinite; }
+.bus-title { color: var(--_state); font: 700 0.85rem var(--font-display); letter-spacing: 0.16em; }
+.bus-pulse { color: var(--_state); font-size: 0.7rem; letter-spacing: 0.1em; }
+.bus-meta { margin-inline-start: auto; color: var(--dim); font-size: 0.7rem; }
+.bus-body { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: var(--space-s); }
+.bus-cell { display: grid; align-content: start; gap: var(--space-xs); padding: var(--space-s); font-size: 0.7rem; }
+.bus-cell-head { color: var(--amber); font: 700 0.65rem var(--font-display); letter-spacing: 0.16em; }
+.flow-rate b { color: var(--wire); font: 700 1.1rem var(--font-display); }
+.flow-bars { display: flex; align-items: end; gap: 1px; block-size: 2.5rem; }
+.flow-bar { flex: 1; block-size: max(1px, var(--_h)); background: var(--wire); }
+:is(.bus-families, .bus-health, .bus-slots, .bus-recent) { display: grid; gap: 0.2rem; margin: 0; padding: 0; list-style: none; }
+:is(.bus-families, .bus-health, .bus-slots, .bus-recent) li { display: flex; gap: var(--space-s); justify-content: space-between; align-items: center; min-inline-size: 0; }
+:is(.bus-health, .bus-recent) li { --cut: 0.4rem; padding: 0.15rem 0.4rem; }
+.bus-health li {
+  --_frame: var(--_health);
+  --_health: var(--ok);
+  & b { color: var(--_health); font-weight: 600; }
+  &[data-health="yellow"] { --_health: var(--amber); }
+  &[data-health="red"] { --_health: var(--signal); }
+}
+.bus-recent .when { color: var(--dim); }
+.bus-recent li > span:nth-child(2) { flex: 1; min-inline-size: 0; overflow-wrap: anywhere; }
+.bus-slots li {
+  --_seg: var(--ok);
+  &[data-full] { --_seg: var(--amber); }
+}
+.slot-segs { display: flex; flex: 1; gap: 2px; }
+.slot-segs i { flex: 1; block-size: 0.5rem; background: var(--line); clip-path: polygon(0 0, calc(100% - 0.25rem) 0, 100% 0.25rem, 100% 100%, 0.25rem 100%, 0 calc(100% - 0.25rem)); }
+.slot-segs i[data-on] { background: var(--_seg); }
+.slot-segs i.seg-in { animation: --animation-seg-in 1.8s ease-in 1; }
+.slot-segs i.seg-out { animation: --animation-seg-out 0.2s steps(1) 4; }
+.bus-flatline { display: grid; justify-items: center; gap: var(--space-xs); padding: var(--space-m) var(--space-s); }
 .svc-top { display: flex; gap: var(--space-s); align-items: baseline; }
 .svc-kind { font: 700 0.8125rem var(--font-display); letter-spacing: 0.16em; text-transform: uppercase; }
 .svc-target { margin-inline-start: auto; }
@@ -618,8 +660,12 @@ code { padding: 0 0.25rem; background: var(--panel-raised); color: var(--text); 
 @keyframes --animation-blink { 50% { opacity: 0.2; } }
 @keyframes --animation-bevel-sweep { to { --a: 360deg; } }
 @keyframes --animation-bevel-pass { from { --a: 0deg; --_sweep: var(--wire); } 80% { --_sweep: var(--wire); } to { --a: 360deg; --_sweep: transparent; } }
+@keyframes --animation-bus-pulse { from { transform: scale(0.6); opacity: 1; } to { transform: scale(1.4); opacity: 0; } }
+@keyframes --animation-seg-in { 0% { opacity: 0; } 15% { opacity: 0.6; } 22% { opacity: 0.1; } 40% { opacity: 0.8; } 48% { opacity: 0.3; } 100% { opacity: 1; } }
+@keyframes --animation-seg-out { 0% { background: var(--_seg); } 50% { background: var(--line); } }
 @media (prefers-reduced-motion: reduce) {
   .banner, .live::before, .statusline .cursor::after { animation: none; }
+  .bus-emblem-ring, .slot-segs i.seg-in, .slot-segs i.seg-out { animation: none; }
   .svc .svc-agents::before { transition: none; }
   header.panel::before, .warning-strip::before, .owner-strip::before, dialog.drill[open]::before { --_sweep: transparent; animation: none; }
 }

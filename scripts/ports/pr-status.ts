@@ -123,7 +123,7 @@ export function statusFields(status: StepStatus): Record<string, string> {
 
 const NEXT_STEP_AFTER = `SELECT id, type, pr, head, payload FROM events WHERE legacy = 0 AND id > ? AND type IN (${STEP_EVENTS.map(() => '?').join(', ')}) ORDER BY id LIMIT 1`
 const OPEN_ON_HEAD = `SELECT 1 FROM prs WHERE pr = ? AND head = ? AND state = 'open'`
-const LAST_STATUS_SET_ON_HEAD = `SELECT json_extract(payload, '$.step') AS step, json_extract(payload, '$.state') AS state FROM events WHERE type = '${PR_STATUS_SET}' AND legacy = 0 AND pr = ? AND head = ? ORDER BY id DESC LIMIT 1`
+export const LAST_STATUS_SET_ON_HEAD = `SELECT json_extract(payload, '$.step') AS step, json_extract(payload, '$.state') AS state FROM events WHERE type = '${PR_STATUS_SET}' AND legacy = 0 AND pr = ? AND head = ? ORDER BY id DESC LIMIT 1`
 const WITNESS_VERDICT_BEFORE = `SELECT 1 FROM events WHERE type = '${WITNESS_RECORDED}' AND legacy = 0 AND pr = ? AND head = ? AND id < ? LIMIT 1`
 
 function cursorOf(db: DatabaseSync): number {

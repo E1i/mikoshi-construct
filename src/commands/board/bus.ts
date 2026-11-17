@@ -1,13 +1,15 @@
 import type { OwnerWait } from '../../../scripts/core/bus-readings.js'
 import type { BusDb } from '../cost/bus.js'
+import type { BusPanelFacts, PanelRow } from './bus-panel.js'
 import type { GateRunRow } from './gate-runs.js'
 import type { Goal } from './goal.js'
 import type { QueuedStanding, TranscriptReader } from './sessions.js'
 import { existsSync } from 'node:fs'
-import { behindLine, CARDS, currentLane, lastReducedOwnerWaits, readLastReduced } from '../../../scripts/core/bus-readings.js'
-import { BUS_PULSE, CARD_ADMITTED, CARD_FELL, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, CHECKS_MATRIX_EVENT, GATE_RUN, PR_GROUPS, PROCESS_HEARTBEAT, REVIEW_DRIP, SESSION_HEARTBEAT, SLICE_PARENTS_BACKFILLED, TERMINAL_LANES, WINDOW_HEARTBEAT, WINDOW_SUBAGENT_EVENT } from '../../../scripts/core/events.js'
+import { behindLine, CARDS, currentLane, IN_ORDER_MARK, lastReducedOwnerWaits, readLastReduced } from '../../../scripts/core/bus-readings.js'
+import { BOARD_ALARM, BOARD_ALARM_CLEARED, BUS_PULSE, CARD_ADMITTED, CARD_FELL, CARD_PULSE, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, CHECKS_MATRIX_EVENT, GATE_RUN, NETWATCH_SKIPPED, PR_GROUPS, PROCESS_HEARTBEAT, REVIEW_DRIP, SESSION_HEARTBEAT, SLICE_PARENTS_BACKFILLED, TASK_RENEWED, TERMINAL_LANES, WINDOW_HEARTBEAT, WINDOW_SUBAGENT_EVENT } from '../../../scripts/core/events.js'
 import { PLAIN_LORE } from '../../ui/lore.js'
 import { withReadOnlyBus } from '../cost/bus.js'
+import { busPanelFacts, PANEL_READING, panelSince, payloadOf, RECENT_EVENTS, text } from './bus-panel.js'
 import { gateRunFacts } from './gate-runs.js'
 import { goalOf } from './goal.js'
 import { clientTranscriptReader, sessionRowTime } from './sessions.js'
@@ -70,6 +72,7 @@ export interface CardsAtStage {
 }
 
 export type { OwnerWait, OwnerWaitNeed } from '../../../scripts/core/bus-readings.js'
+export type { BusPanelFacts } from './bus-panel.js'
 
 export interface ServiceGauges {
   context: number | null
@@ -143,6 +146,7 @@ export interface BusFacts {
   tails?: BusTail[]
   queued?: QueuedStanding[]
   window?: BusWindow
+  panel?: BusPanelFacts
 }
 
 export interface BusTail {
@@ -203,20 +207,6 @@ interface RoleRow {
   role: string
   status: string
   state: string
-}
-
-function payloadOf(text: string): Record<string, unknown> {
-  try {
-    const value = JSON.parse(text) as unknown
-    return value != null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
-  }
-  catch {
-    return {}
-  }
-}
-
-function text(value: unknown): string | null {
-  return typeof value === 'string' && value !== '' ? value : null
 }
 
 function count(value: unknown): number {
@@ -518,11 +508,6 @@ function cardsOf(db: BusDb, events: BoardEvents): BusCard[] {
   })
 }
 
-function lastPulse(db: BusDb): string | null {
-  const row = db.prepare('SELECT ts FROM events WHERE type = ? ORDER BY id DESC LIMIT 1').get(BUS_PULSE) as { ts: string | null } | undefined
-  return row?.ts ?? null
-}
-
 const LAST_NODE_CAPACITY = `
   SELECT queue, slots FROM (
     SELECT json_extract(payload, '$.queue') AS queue, json_extract(payload, '$.slots') AS slots, row_number() OVER (PARTITION BY json_extract(payload, '$.queue') ORDER BY ts DESC) AS rank
@@ -634,6 +619,22 @@ function queuedFacts(db: BusDb): Pick<BusFacts, 'queued'> {
   return queued.length === 0 ? {} : { queued }
 }
 
+export const QUIET_EVENT_TYPES: readonly string[] = [SESSION_HEARTBEAT, BUS_PULSE, WINDOW_HEARTBEAT, PROCESS_HEARTBEAT, CARD_PULSE, NETWATCH_SKIPPED, TASK_RENEWED]
+
+function panelOf(db: BusDb, now: Date): BusPanelFacts {
+  const row = db.prepare(PANEL_READING).get({
+    since: panelSince(now),
+    mark: IN_ORDER_MARK,
+    pulse: BUS_PULSE,
+    quiet: JSON.stringify(QUIET_EVENT_TYPES),
+    recent: RECENT_EVENTS,
+    heartbeat: PROCESS_HEARTBEAT,
+    alarm: BOARD_ALARM,
+    cleared: BOARD_ALARM_CLEARED,
+  }) as unknown as PanelRow
+  return busPanelFacts(row, now)
+}
+
 export function busFacts(db: BusDb, now: Date, transcripts: TranscriptReader = clientTranscriptReader): BusFacts {
   const queue = db.prepare(`SELECT count(*) AS n FROM tasks WHERE queue = 'review' AND state IN ('queued', 'leased')`).get() as { n: number }
   const events = boardEvents(db)
@@ -641,12 +642,13 @@ export function busFacts(db: BusDb, now: Date, transcripts: TranscriptReader = c
   const cards = cardReading.rows
   const sessions = sessionServices(events, cards, now, transcripts)
   const waits = lastReducedOwnerWaits(db)
+  const panel = panelOf(db, now)
   return {
     at: now.toISOString(),
     goal: goalOf(db, now),
     waits: waits.rows,
     ...waits.behind === null ? {} : { waitsStale: behindLine(waits.behind) },
-    pulse: lastPulse(db),
+    pulse: panel.pulses[0] ?? null,
     slots: slotsOf(db, sessions),
     window: lastWindowBeat(db, now).window,
     cards,
@@ -658,6 +660,7 @@ export function busFacts(db: BusDb, now: Date, transcripts: TranscriptReader = c
     ...orderFacts(events),
     ...tailFacts(events),
     ...queuedFacts(db),
+    panel,
   }
 }
 

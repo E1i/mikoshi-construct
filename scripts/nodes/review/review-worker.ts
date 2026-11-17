@@ -15,6 +15,7 @@ import type { RoundLimitRecut } from './pr-close.js'
 import type { ReviewPlan, ReviewPlanner } from './review-depth.js'
 import type { ExecutorParts, Step } from './review-executor.js'
 import type { HeldTree, LeftoverTree, PrBodyOf, Review, Reviewer, SessionPulse, TreeTools } from './reviewer.js'
+import type { TailIntake } from './tail-card.js'
 import { randomUUID } from 'node:crypto'
 import { existsSync, realpathSync } from 'node:fs'
 import path from 'node:path'
@@ -51,6 +52,7 @@ import { dryRunReviewsDir, keepDryRun } from './dry-run-record.js'
 import { RoundLimitRecutter } from './pr-close.js'
 import { planned, recordLeftovers, ReviewExecutor } from './review-executor.js'
 import { claudeReviewer, GIT_TREE_TOOLS, PREFIX, REVIEW_BEAT_MS, ReviewFailed, ReviewTrees } from './reviewer.js'
+import { BusTailIntake } from './tail-card.js'
 
 export { SWITCH_FLAG }
 export { earlierVerdict, planned, recordLeftovers, REVIEW_ROUNDS_SPENT, ROUND_LIMIT_REACHED, roundLimitLine, SPAWNS_NO_SESSION, TREE_LEFT } from './review-executor.js'
@@ -360,6 +362,7 @@ export interface ReviewRun {
   isolation: IsolationReader
   keepDryRun?: KeepDryRun
   recut?: (db: DatabaseSync) => RoundLimitRecut
+  tail?: (db: DatabaseSync) => TailIntake
 }
 
 function ghOutput(port: GhPort, args: string[], call: GhCallOptions): string {
@@ -412,6 +415,7 @@ export async function runReview(argv: string[], run: ReviewRun): Promise<number>
     notePr: run.notePr,
     isolation: run.isolation,
     recut: run.recut?.(db),
+    tail: run.tail?.(db),
     prompts: promptsDirOf(run.busPath),
     mode: detection,
     env,
@@ -459,6 +463,7 @@ async function main(): Promise<number> {
     isolation: realIsolationReader(process.env, cwd, reviewIsolationCommand()),
     keepDryRun: keepDryRun(trees.dir),
     recut: db => new RoundLimitRecutter({ db, gitHub: ghApi(cwd), post: ghApiPost(cwd), patch: ghApiPatch(cwd), clock: () => new Date(), cardStates: () => busHeldCards(db), pushPolicy: () => pushPolicyOf(readThroughPort, cwd) }),
+    tail: db => new BusTailIntake({ db, gitHub: ghApi(cwd), clock: () => new Date(), cardStates: () => busHeldCards(db) }),
   })
 }
 

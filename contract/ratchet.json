@@ -289,7 +289,7 @@
   "law-gaps:Z9:answer": 1,
   "law-gaps:Z9:launch": 1,
   "lines-scope:non-test-code-in-scripts-and-src": 1,
-  "lines:scripts/cli/board-page.ts": 1242,
+  "lines:scripts/cli/board-page.ts": 1237,
   "lines:scripts/construct/browser-lab.mjs": 809,
   "lines:scripts/core/queue.ts": 1297,
   "lines:scripts/supervisor/supervisor.ts": 1157,

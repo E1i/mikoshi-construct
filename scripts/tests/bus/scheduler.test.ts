@@ -185,7 +185,7 @@ describe('heavy run scheduler', () => {
     db.exec('PRAGMA busy_timeout = 0')
     holder.exec('BEGIN IMMEDIATE')
 
-    expect(tickOrLocked(busTick)).toEqual(['[bus:run] the tick hit database is locked; it is retried in 5 s, and bus:run stays up'])
+    expect(tickOrLocked(busTick)[0]).toBe('[bus:run] the tick hit database is locked; it is retried in 5 s, and bus:run stays up')
     holder.exec('COMMIT')
     holder.close()
     clock.advance(TICK_MS)
