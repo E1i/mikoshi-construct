@@ -6,6 +6,56 @@ export type HeavyRun = typeof HEAVY_RUNS[number]
 export const QUEUES = ['review', 'update', 'merge', 'answer', 'launch', 'restart', 'close', 'witness', ...HEAVY_RUNS] as const
 export type Queue = typeof QUEUES[number]
 
+export const MAIN_BRANCH = 'main'
+export const REVIEW_ROUNDS = 3
+export const BACKFILL_SOURCE = 'backfill'
+export const A_CARD_DECISION_REOPENS = 'card_decision'
+
+const DECISION_SUFFIX = /:decision-([1-9]\d*)$/
+const KEYED_ON_THE_CARD_DECISION: readonly Queue[] = ['merge', 'update']
+const DECIDED_QUEUES: readonly Queue[] = ['answer', ...KEYED_ON_THE_CARD_DECISION]
+
+export interface BoundDecision {
+  decisionId: number
+  cards: readonly number[]
+}
+
+export function decisionSegment(task: { queue: Queue, decision?: number }): string {
+  if (task.decision === undefined)
+    return ''
+  if (!DECIDED_QUEUES.includes(task.queue) || !Number.isSafeInteger(task.decision) || task.decision < 1)
+    throw new Error(`only an answer task carries a decision id, or a merge or an update task the card's decision withdraws: ${task.queue}, ${task.decision}`)
+  return `:decision-${task.decision}`
+}
+
+export function decisionOfKey(key: unknown): number | undefined {
+  const match = typeof key === 'string' ? DECISION_SUFFIX.exec(key) : null
+  return match === null ? undefined : Number(match[1])
+}
+
+export function answerDecisionOfKey(queue: Queue, key: unknown): number | undefined {
+  return queue === 'answer' ? decisionOfKey(key) : undefined
+}
+
+export function decidedTaskDecisionOfKey(queue: Queue, key: unknown): number | undefined {
+  return DECIDED_QUEUES.includes(queue) ? decisionOfKey(key) : undefined
+}
+
+export function latestCardDecision(decisions: readonly BoundDecision[], cardId: number): number | undefined {
+  return decisions.filter(decision => decision.cards.includes(cardId)).reduce<number | undefined>((latest, decision) => Math.max(latest ?? 0, decision.decisionId), undefined)
+}
+
+export function cardDecisionKeyOf(queue: Queue, cardId: number, decisions: () => readonly BoundDecision[]): number | undefined {
+  return KEYED_ON_THE_CARD_DECISION.includes(queue) ? latestCardDecision(decisions(), cardId) : undefined
+}
+
+export function tasksTheHeadOrTheCardDecisionSupersedes<Row extends { head_moved: unknown }>(rows: readonly Row[], decisions: readonly BoundDecision[], identityOf: (row: Row) => { queue: Queue, cardId: number, decision?: number }): Row[] {
+  return rows.filter((row) => {
+    const task = identityOf(row)
+    return row.head_moved === 1 || (KEYED_ON_THE_CARD_DECISION.includes(task.queue) && task.decision !== latestCardDecision(decisions, task.cardId))
+  })
+}
+
 const FIXED_ACTORS = new Set(['netwatch', 'reducer', 'owner', 'policy'])
 const WORKER_ACTOR = /^worker:[a-z][a-z-]*:[^:\s]+$/
 const FULL_SHA = /^[0-9a-f]{40}$/

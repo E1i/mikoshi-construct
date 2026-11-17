@@ -9,7 +9,7 @@ import { ESLINT_EDGES, eslintEdgesOf, readDeclarations, renderEslintEdges, track
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../../..')
 const MAY_USE = path.join('declarations', 'may-use')
-const CONFIG_FILES = ['eslint.config.mjs', 'internal-modules.json', 'scripts/quality/real-time-waits-excepted.json']
+const CONFIG_FILES = ['eslint.config.mjs', 'contract/surface.json', 'internal-modules.json', 'scripts/quality/real-time-waits-excepted.json']
 const REACHES_UI = 'import { createUi } from \'./ui/console.js\'\n\nexport const probe = createUi\n'
 const DETECT_REACHES_UI = 'import { createUi } from \'../ui/console.js\'\n\nexport const probe = createUi\n'
 

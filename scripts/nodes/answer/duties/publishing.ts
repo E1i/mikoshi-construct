@@ -7,8 +7,9 @@ import type { Answered, StepSeconds } from '../answerer.js'
 import type { AnswerOutcome, AnswerOutcomes } from './outcomes.js'
 import type { Answering } from './source.js'
 import { CARD_ANSWERED, POLICY_DENIED, PR_OBSERVED, PR_OPENED } from '../../../core/events.js'
+import { REVIEW_ROUNDS } from '../../../core/identifiers.js'
 import { assertHeld, completeTask } from '../../../core/lease.js'
-import { FAILURES_TO_STOP, REVIEW_ROUNDS } from '../../../core/queue.js'
+import { FAILURES_TO_STOP } from '../../../core/queue.js'
 import { sha256, storedInput } from '../../../ports/prompt-store.js'
 
 export interface TreePublishing {

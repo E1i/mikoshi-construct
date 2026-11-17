@@ -2,7 +2,8 @@ import type { MergeBench } from './merge-bench.js'
 import { afterEach, describe, expect, it } from 'vitest'
 import { appendEvent, closeOwnerWait, openOwnerWait } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_CLOSED, CARD_DROPPED, CARD_STOPPED, PR_CLOSED, PR_OBSERVED } from '../../core/events.js'
-import { LAUNCH_STOP_WITH_NO_PULL_REQUEST, LIFTED_ADMISSION } from '../../core/queue.js'
+import { LAUNCH_STOP_WITH_NO_PULL_REQUEST } from '../../core/queue.js'
+import { LIFTED_ADMISSION } from '../../supervisor/derive-queues.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
 
 const CARD = 1886

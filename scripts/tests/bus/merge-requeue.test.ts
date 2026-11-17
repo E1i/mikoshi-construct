@@ -3,7 +3,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { appendEvent } from '../../core/db.js'
 import { BOARD_ALARM, CARD_ADMITTED } from '../../core/events.js'
 import { prBodySha } from '../../core/identifiers.js'
-import { answerCandidates, keyOf, queueTask, reviewCandidates, witnessCandidates } from '../../core/queue.js'
+import { keyOf, queueTask, reviewCandidates } from '../../core/queue.js'
+import { answerCandidates } from '../../nodes/answer/answer-candidates.js'
+import { witnessCandidates } from '../../nodes/witness/witness-candidates.js'
+import { answerParts, candidateRules, witnessParts } from '../../supervisor/composition.js'
 import { cardBody } from './github-fake.js'
 import { eventsOf, liveBench, mergeBench, taskState } from './merge-bench.js'
 
@@ -161,7 +164,7 @@ describe('the review input segment of a task key', () => {
 
   it('is absent from the key of an answer candidate whose row carries a pull request body sha', () => {
     const bench = benchWithAPullRequest('red', 'changes')
-    const keys = answerCandidates(bench.db, bench.clock.now().toISOString()).map(keyOf)
+    const keys = answerCandidates(bench.db, bench.clock.now().toISOString(), answerParts()).map(keyOf)
 
     expect(keys.length).toBeGreaterThan(0)
     for (const key of keys) {
@@ -172,7 +175,7 @@ describe('the review input segment of a task key', () => {
 
   it('is absent from the key of a witness candidate', () => {
     const bench = benchWithAPullRequest('green', null)
-    const keys = witnessCandidates(bench.db, bench.clock.now().toISOString()).map(keyOf)
+    const keys = witnessCandidates(bench.db, bench.clock.now().toISOString(), witnessParts()).map(keyOf)
 
     expect(keys.length).toBeGreaterThan(0)
     for (const key of keys)
@@ -181,7 +184,7 @@ describe('the review input segment of a task key', () => {
 
   it('is kept in the key of a review candidate', () => {
     const bench = benchWithAPullRequest('green', null)
-    const keys = reviewCandidates(bench.db, bench.clock.now().toISOString()).map(keyOf)
+    const keys = reviewCandidates(bench.db, bench.clock.now().toISOString(), candidateRules()).map(keyOf)
 
     expect(keys).toHaveLength(1)
     expect(keys[0]).toContain(`:pr-body-${prBodySha(cardBody(PR))}`)

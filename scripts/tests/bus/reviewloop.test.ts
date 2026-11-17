@@ -14,19 +14,23 @@ import { appendEvent, openBus } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, OWNER_WAIT_OPENED, QUESTION_OWNER, REVIEW_RECORDED, SCOPE_WIDENED, SHARD_DECIDED, SHARD_ISSUED, WITNESS_RECORDED } from '../../core/events.js'
 import { prBodySha, taskKey } from '../../core/identifiers.js'
 import { leaseNext } from '../../core/lease.js'
-import { answerCandidates, changesRoundsOf, mergeCandidates, queueTask, witnessCandidates } from '../../core/queue.js'
+import { queueTask } from '../../core/queue.js'
 import { reduce } from '../../core/reducer.js'
 import { importJournal } from '../../intake/import.js'
+import { answerCandidates } from '../../nodes/answer/answer-candidates.js'
 import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
 import { AnswerWithdrawn, claudeAnswerer, windowGateRule } from '../../nodes/answer/answerer.js'
 import { answerPrompt } from '../../nodes/answer/duties/index.js'
+import { mergeCandidates } from '../../nodes/merge/merge-candidates.js'
 import { fullReview } from '../../nodes/review/review-depth.js'
 import { AMEND_KEEPS_CHANGES, earlierVerdict } from '../../nodes/review/review-executor.js'
 import { ReviewWorker } from '../../nodes/review/review-worker.js'
 import { reviewPrompt } from '../../nodes/review/reviewer.js'
+import { witnessCandidates } from '../../nodes/witness/witness-candidates.js'
+import { changesRoundsOf } from '../../policy/round-limit-decision.js'
 import { DECISIONS_SCOPE } from '../../policy/shards.js'
 import { NetWatch, TICK_MS } from '../../ports/netwatch.js'
-import { busProjections } from '../../supervisor/composition.js'
+import { answerParts, busProjections, candidateRules, witnessParts } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { BusTick } from '../../supervisor/run.js'
 import { cardBody, Clock, FakeGitHub, sha } from './github-fake.js'
@@ -152,7 +156,7 @@ describe('the review loop', () => {
     made.tick()
 
     expect(answerTasksOf(made.db, 1160)).toEqual([{ task_key: leased.taskKey, state: 'leased' }])
-    expect(answerCandidates(made.db, made.clock.now().toISOString()).filter(task => task.cardId === 1160)).toEqual([])
+    expect(answerCandidates(made.db, made.clock.now().toISOString(), answerParts()).filter(task => task.cardId === 1160)).toEqual([])
     made.close()
   })
 
@@ -328,7 +332,7 @@ describe('the review loop', () => {
 
     expect(changesRoundsOf(made.db, 1062)).toBe(0)
     expect(eventsOf(made.db, OWNER_WAIT_OPENED)).toEqual([])
-    expect(mergeCandidates(made.db, made.clock.now().toISOString()).filter(task => task.pr === 1062)).toMatchObject([{ queue: 'merge', pr: 1062, cardId: 1162 }])
+    expect(mergeCandidates(made.db, made.clock.now().toISOString(), candidateRules()).filter(task => task.pr === 1062)).toMatchObject([{ queue: 'merge', pr: 1062, cardId: 1162 }])
     made.close()
   })
 
@@ -338,11 +342,11 @@ describe('the review loop', () => {
     appendEvent(db, { ts: NOW, type: 'main.advanced', actor: 'netwatch', cardId: null, pr: null, head: null, dedupeKey: 'main.advanced:m', payload: { sha: sha('d'), touches_mechanics: false }, legacy: false })
     appendEvent(db, { ts: NOW, type: CARD_ADMITTED, actor: 'worker:intake:by-hand', cardId: 1170, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:1170`, payload: { card: '#1170', lane: 'lane-1', text, textSha: textSha(text), bodySha: textSha(text).slice(0, 12) }, legacy: false })
     reduce(db, 'pending', busProjections())
-    expect(witnessCandidates(db, NOW).filter(task => task.cardId === 1170)).toEqual([])
+    expect(witnessCandidates(db, NOW, witnessParts()).filter(task => task.cardId === 1170)).toEqual([])
 
     appendEvent(db, { ts: NOW, type: CARD_STARTED, actor: 'worker:launch:launch-1', cardId: 1170, pr: null, head: null, dedupeKey: `${CARD_STARTED}:1170`, payload: { session: 's', worktree: '/tree', branch: 'feat/done-on-main', base: sha('1') }, legacy: false })
     reduce(db, 'pending', busProjections())
-    expect(witnessCandidates(db, NOW).filter(task => task.cardId === 1170)).toMatchObject([{ queue: 'witness', cardId: 1170, head: sha('d') }])
+    expect(witnessCandidates(db, NOW, witnessParts()).filter(task => task.cardId === 1170)).toMatchObject([{ queue: 'witness', cardId: 1170, head: sha('d') }])
     db.close()
   })
 

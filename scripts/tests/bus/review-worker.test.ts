@@ -31,7 +31,7 @@ import { withinTouches } from '../../policy/touch-scope.js'
 import { GhBudgetWindow, GhFailed, ghPort } from '../../ports/gh.js'
 import { NetWatch, TICK_MS } from '../../ports/netwatch.js'
 import { headlessInvocation } from '../../ports/session.js'
-import { busProjections } from '../../supervisor/composition.js'
+import { busProjections, candidateRules } from '../../supervisor/composition.js'
 import { recordHeartbeat } from '../../supervisor/heartbeat.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { BusTick } from '../../supervisor/run.js'
@@ -470,7 +470,7 @@ describe('review worker', () => {
     tick()
     admit(newer, 'cccc3333dddd4444')
     const ts = clock.now().toISOString()
-    const amended = reviewCandidates(db, ts).find(candidate => candidate.pr === 967)!
+    const amended = reviewCandidates(db, ts, candidateRules()).find(candidate => candidate.pr === 967)!
     queueTaskWithin(db, ts, amended)
     const prompts: string[] = []
     const reviewer = claudeReviewer(new ReviewTrees('/repo', path.join(tmpdir(), 'bus-review-keyed-card'), { git: () => {}, worktrees: () => [], ...cleanTree }), async (params) => {

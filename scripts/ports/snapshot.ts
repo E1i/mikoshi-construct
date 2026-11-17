@@ -6,7 +6,7 @@ import { commitCi } from '../../src/commands/ci/state.js'
 import { ABANDONED_TITLE } from '../ci/required.js'
 import { repositoryRoot } from '../core/bus-path.js'
 import { FACTORY_FORMER_FOLDERS, inScopes } from '../core/factory-paths.js'
-import { cardIdOfDescription, isFullSha, prBodySha } from '../core/identifiers.js'
+import { cardIdOfDescription, isFullSha, MAIN_BRANCH, prBodySha } from '../core/identifiers.js'
 import { annotationTitles, ciFieldsOfObservation } from './ci-reading.js'
 import { REQUIRED_CHECK } from './gh.js'
 import { REVIEW_STATUS_CONTEXT } from './github-status.js'
@@ -14,7 +14,7 @@ import { Meter } from './meter.js'
 
 export { ciOf } from './ci-reading.js'
 
-export const MAIN_BRANCH = 'main'
+export { MAIN_BRANCH }
 export const OPEN_PULLS_PAGE = 100
 export const PULL_FILES_PAGE = 100
 export const PULL_FILES_PAGES = 30

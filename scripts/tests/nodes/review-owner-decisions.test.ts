@@ -12,7 +12,7 @@ import { decisionsOnTheCard, ReviewWorker } from '../../nodes/review/review-work
 import { claudeReviewer, decisionLines, DECISIONS_BAR_LINE, ReviewTrees } from '../../nodes/review/reviewer.js'
 import { recordDecision } from '../../policy/decisions/index.js'
 import { NetWatch, TICK_MS } from '../../ports/netwatch.js'
-import { busProjections } from '../../supervisor/composition.js'
+import { busProjections, candidateRules } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { BusTick } from '../../supervisor/run.js'
 import { Clock, FakeGitHub, sha } from '../bus/github-fake.js'
@@ -51,7 +51,7 @@ async function promptOfTheReview(): Promise<{ prompt: string, bound: ReturnType<
   busTick.run()
   detectReview({ db, gitHub, clock })
   clock.advance(TICK_MS)
-  const candidate = reviewCandidates(db, ts()).find(each => each.pr === PR)!
+  const candidate = reviewCandidates(db, ts(), candidateRules()).find(each => each.pr === PR)!
   queueTaskWithin(db, ts(), candidate)
   const prompts: string[] = []
   const reviewer = claudeReviewer(new ReviewTrees('/repo', path.join(root, 'reviews'), { git: () => {}, worktrees: () => [], prepare: () => {}, state: () => ({ head: sha('a'), status: [] }) }), async (params) => {

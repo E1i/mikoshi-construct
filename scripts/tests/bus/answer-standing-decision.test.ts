@@ -14,12 +14,14 @@ import { ABANDONED_TITLE, blockingJobs, ranNeeds, REQUIRED_JOB, requiredSummary,
 import { appendEvent, openBus } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_STARTED, CARD_STOPPED, CI_RERUN_REQUESTED, OWNER_WAIT_OPENED, PR_OPENED, SCOPE_WIDENED } from '../../core/events.js'
 import { leaseNext } from '../../core/lease.js'
-import { answerCandidates, queueTask, queueTaskWithin, updateCandidates } from '../../core/queue.js'
+import { queueTask, queueTaskWithin } from '../../core/queue.js'
+import { answerCandidates } from '../../nodes/answer/answer-candidates.js'
 import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
 import { claudeAnswerer } from '../../nodes/answer/answerer.js'
+import { updateCandidates } from '../../nodes/update/update-candidates.js'
 import { UpdateExecutor } from '../../nodes/update/update-executor.js'
 import { NetWatch, TICK_MS } from '../../ports/netwatch.js'
-import { busProjections } from '../../supervisor/composition.js'
+import { answerParts, busProjections, updateParts } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { BusTick } from '../../supervisor/run.js'
 import { ranTheGreenGate } from './gate-stream.js'
@@ -207,13 +209,13 @@ function busReading(failed: readonly string[], abandoned: readonly string[], fai
   busTick.run()
   clock.advance(TICK_MS)
   const ts = clock.now().toISOString()
-  const answers = answerCandidates(db, ts).filter(task => task.pr === PR).length
-  const updates = updateCandidates(db, ts).filter(task => task.pr === PR)
+  const answers = answerCandidates(db, ts, answerParts()).filter(task => task.pr === PR).length
+  const updates = updateCandidates(db, ts, updateParts()).filter(task => task.pr === PR)
   for (const task of updates)
     queueTaskWithin(db, ts, task)
   const lease = leaseNext(db, ts, 'update', 'worker:update:worker-1')
   if (lease !== null)
-    new UpdateExecutor({ silentMs: SILENT_MS, db, gitHub: client, put: gitHub.put, post: gitHub.post, publish: gitHub.publish, clock: clock.now, settle: () => {} }).update(lease)
+    new UpdateExecutor({ source: updateParts(), silentMs: SILENT_MS, db, gitHub: client, put: gitHub.put, post: gitHub.post, publish: gitHub.publish, clock: clock.now, settle: () => {} }).update(lease)
   const rerunEvents = Number((db.prepare('SELECT count(*) AS n FROM events WHERE type = ? AND pr = ?').get(CI_RERUN_REQUESTED, PR) as { n: number }).n)
   db.close()
   return { blocking, answers, updates: updates.length, reruns: gitHub.reruns, rerunEvents }
