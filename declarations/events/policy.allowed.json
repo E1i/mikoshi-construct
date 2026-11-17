@@ -1,0 +1,13 @@
+{
+  "event": "policy.allowed",
+  "constant": "POLICY_ALLOWED",
+  "payload": [
+    "by",
+    "command",
+    "detail",
+    "lease_gen",
+    "reason",
+    "rule",
+    "task_key"
+  ]
+}

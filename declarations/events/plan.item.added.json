@@ -1,0 +1,10 @@
+{
+  "event": "plan.item.added",
+  "constant": "PLAN_ITEM_ADDED",
+  "payload": [
+    "item",
+    "plan",
+    "request",
+    "title"
+  ]
+}

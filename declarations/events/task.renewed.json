@@ -1,0 +1,10 @@
+{
+  "event": "task.renewed",
+  "constant": "TASK_RENEWED",
+  "payload": [
+    "generation",
+    "lease_gen",
+    "queue",
+    "task_key"
+  ]
+}

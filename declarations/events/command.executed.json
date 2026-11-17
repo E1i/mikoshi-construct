@@ -1,0 +1,17 @@
+{
+  "event": "command.executed",
+  "constant": "COMMAND_EXECUTED",
+  "payload": [
+    "command",
+    "endpoint",
+    "error",
+    "event_id",
+    "lease_gen",
+    "ok",
+    "run",
+    "runs",
+    "status",
+    "task_key",
+    "text"
+  ]
+}

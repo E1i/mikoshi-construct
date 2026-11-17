@@ -139,14 +139,25 @@ describe('the session at the context warn with no valid handoff', () => {
     expect(eventsOf(made.db, CARD_STOPPED)).toEqual([expect.objectContaining({ reason: 'question.agent' })])
   })
 
-  it('a session that also hit its spend stop stops with no push and no fresh session', async () => {
+  it('a session stopped at its spend limit continues in a fresh session from its saved tree with no push', async () => {
     const { node, made, order, published } = await sessionAtLine(1805, { spendStopped: true })
 
-    expect(node.stopOverdue()).toEqual([1805])
+    expect(node.stopOverdue()).toEqual([])
+
+    expect(order).toEqual(['built', 'continued'])
+    expect(published).toEqual([])
+    expect(eventsOf(made.db, CARD_STOPPED)).toEqual([])
+    expect(eventsOf(made.db, CARD_CONTINUED)).toMatchObject([{ session: 's-1805-c1', continuation: 1, from: 's-1805' }])
+  })
+
+  it('a session stopped at its spend limit with a question in its report still goes to the owner', async () => {
+    const { node, made, order, published } = await sessionAtLine(1806, { spendStopped: true, report: 'question: which one, the owner decides\n' })
+
+    expect(node.stopOverdue()).toEqual([1806])
 
     expect(order).toEqual([])
     expect(published).toEqual([])
-    expect(eventsOf(made.db, CARD_STOPPED)).toEqual([expect.objectContaining({ reason: 'fault', detail: expect.stringContaining('eddies-stop') })])
+    expect(eventsOf(made.db, CARD_STOPPED)).toEqual([expect.objectContaining({ reason: 'question.agent' })])
   })
 })
 

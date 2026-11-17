@@ -1,0 +1,10 @@
+{
+  "event": "round.mutations.parked",
+  "constant": "ROUND_MUTATIONS_PARKED",
+  "payload": [
+    "card",
+    "head",
+    "mutations",
+    "pr"
+  ]
+}

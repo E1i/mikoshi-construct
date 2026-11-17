@@ -1,5 +1,6 @@
 import type { RunJob } from '../ports/ci-reading.js'
 import type { TestWeights } from './shard.js'
+import type { Measurement } from './weights-law.js'
 import { existsSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -10,9 +11,11 @@ import { pnpmCommand } from '../core/owner-commands.js'
 import { GhCiRuns } from '../ports/ci-reading.js'
 import { processGit } from '../ports/git.js'
 import { FILE_WEIGHTS_NAME } from './file-weights-reporter.js'
-import { balanceShards, MIN_WEIGHT, updateWeights, weightsFromFileWeights } from './shard.js'
+import { CI_REPORT_ARTIFACT, driftFigures, JSON_REPORT_PATH, MAX_DRIFTED_SHARE, MAX_WEIGHT_RATIO, measurementAt, recomputedTable, WEIGHTS_PATH } from './weights-law.js'
 
 export type { RunJob, RunStep } from '../ports/ci-reading.js'
+export { CI_REPORT_ARTIFACT, CI_SHARDS, JSON_REPORT_PATH, MAX_DRIFTED_SHARE, MAX_WEIGHT_RATIO, measurementAt, RECOMPUTE_DRIFTED_SHARE, recomputedTable, WEIGHTS_PATH } from './weights-law.js'
+export type { Measurement } from './weights-law.js'
 
 export type SpreadVerdict
   = | { kind: 'not-proven', before: number[], after: number[], needed: number }
@@ -20,15 +23,9 @@ export type SpreadVerdict
 
 export const MIN_RUNS_PER_SIDE = 3
 export const RUNS_PER_SIDE = 6
-export const CI_REPORT_ARTIFACT = 'vitest-report'
-export const JSON_REPORT_PATH = '.construct/reports/vitest.json'
 export const FILE_WEIGHTS_PATH = path.join(path.dirname(JSON_REPORT_PATH), FILE_WEIGHTS_NAME)
-export const WEIGHTS_PATH = 'scripts/ci/test-weights.json'
 export const MAX_UNWEIGHTED_SHARE = 0.1
-export const CI_SHARDS = 8
 export const MAX_SHARD_IMBALANCE = 0.2
-export const MAX_DRIFTED_SHARE = 0.05
-export const MAX_WEIGHT_RATIO = 2
 export const RECOMPUTE_COMMAND = pnpmCommand('test:weights', '--from', 'main')
 const RUNS_LISTED = 60
 const SHARD_JOB = /^vitest (\d+)\/(\d+)$/
@@ -76,27 +73,13 @@ export function weightsFreshness(files: readonly string[], weights: TestWeights,
 
 export interface WeightsDrift { drifted: string[], driftedSeconds: number, longestShardSeconds: number, share: number, stale: boolean, line: string }
 
-function driftsFrom(measuredSeconds: number, weight: number | undefined): boolean {
-  if (weight === undefined)
-    return true
-  const held = Math.max(MIN_WEIGHT, weight)
-  const measured = Math.max(MIN_WEIGHT, measuredSeconds)
-  return measured > held * MAX_WEIGHT_RATIO || held > measured * MAX_WEIGHT_RATIO
-}
-
 export function weightsDrift(measured: TestWeights, weights: TestWeights, threshold = MAX_DRIFTED_SHARE): WeightsDrift {
-  const files = Object.keys(measured)
-  const secondsOf = (list: readonly string[]): number => list.reduce((sum, file) => sum + measured[file]!, 0)
-  const longestShardSeconds = Math.max(0, ...balanceShards(files, weights, CI_SHARDS).map(secondsOf))
-  const drifted = files.filter(file => driftsFrom(measured[file]!, weights[file])).sort()
-  const driftedSeconds = secondsOf(drifted)
-  const share = longestShardSeconds === 0 ? 0 : driftedSeconds / longestShardSeconds
-  const stale = share > threshold
-  const counted = `${drifted.length} measured test files with no weight or a weight more than ${MAX_WEIGHT_RATIO}x off in ${WEIGHTS_PATH} carry ${driftedSeconds.toFixed(1)} s, ${(share * 100).toFixed(1)}% of the longest shard's ${longestShardSeconds.toFixed(1)} s`
-  const line = stale
+  const figures = driftFigures(measured, weights, threshold)
+  const counted = `${figures.drifted.length} measured test files with no weight or a weight more than ${MAX_WEIGHT_RATIO}x off in ${WEIGHTS_PATH} carry ${figures.driftedSeconds.toFixed(1)} s, ${(figures.share * 100).toFixed(1)}% of the longest shard's ${figures.longestShardSeconds.toFixed(1)} s`
+  const line = figures.stale
     ? `${counted}, above the ${(threshold * 100).toFixed(0)}% threshold; recompute the table with ${RECOMPUTE_COMMAND}`
     : `${counted}, within the ${(threshold * 100).toFixed(0)}% threshold`
-  return { drifted, driftedSeconds, longestShardSeconds, share, stale, line }
+  return { ...figures, line }
 }
 
 export function comparableSpreads(before: readonly SpreadReading[], after: readonly SpreadReading[], testSet: string): { before: number[], after: number[], excluded: number } {
@@ -174,19 +157,6 @@ function spreadOnMain(boundaryArgument: string | undefined): void {
   process.exit(verdict.kind === 'smaller' ? 0 : 1)
 }
 
-export type Measurement
-  = | { kind: 'measured', source: string, weights: TestWeights }
-    | { kind: 'absent', line: string }
-
-export function measurementAt(file: string, exists: (test: string) => boolean): Measurement {
-  if (!existsSync(file))
-    return { kind: 'absent', line: `no whole-file measurement ${FILE_WEIGHTS_NAME} at ${file}; the test span of ${path.basename(JSON_REPORT_PATH)} is never read, so the table is left as it is` }
-  const weights = weightsFromFileWeights(JSON.parse(readFileSync(file, 'utf8')), exists)
-  return Object.keys(weights).length === 0
-    ? { kind: 'absent', line: `${file} measures no passed test file of this repository; the table is left as it is` }
-    : { kind: 'measured', source: file, weights }
-}
-
 export function measurementFromRuns(runs: readonly number[], download: (run: number) => string | undefined, exists: (test: string) => boolean): Measurement {
   let predating = 0
   for (const run of runs) {
@@ -234,8 +204,8 @@ function rewriteFrom(measurement: Measurement): void {
   if (leftAsItIs(measurement))
     return
   const previous = readWeights()
-  const weights = updateWeights(previous, measurement.weights, onDisk)
-  writeFileSync(path.join(REPO_ROOT, WEIGHTS_PATH), `${JSON.stringify(weights, null, 2)}\n`)
+  const { weights, text } = recomputedTable(previous, measurement.weights, onDisk)
+  writeFileSync(path.join(REPO_ROOT, WEIGHTS_PATH), text)
   const dropped = Object.keys(previous).filter(test => !(test in weights)).length
   console.log(`${WEIGHTS_PATH}: ${Object.keys(weights).length} files, ${Object.keys(measurement.weights).length} measured whole-file from ${measurement.source}, ${dropped} no longer on disk dropped`)
 }

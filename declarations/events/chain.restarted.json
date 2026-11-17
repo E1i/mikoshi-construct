@@ -1,0 +1,11 @@
+{
+  "event": "chain.restarted",
+  "constant": "CHAIN_RESTARTED",
+  "payload": [
+    "dir",
+    "from",
+    "from_dir",
+    "pid",
+    "to"
+  ]
+}

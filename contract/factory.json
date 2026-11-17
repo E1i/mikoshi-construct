@@ -456,6 +456,12 @@
           "tests"
         ]
       },
+      "generation.ended": {
+        "complete": true,
+        "keys": [
+          "generation"
+        ]
+      },
       "ghost.line": {
         "complete": true,
         "keys": [
@@ -930,6 +936,7 @@
           "reviewer_session",
           "rules_version",
           "since",
+          "tail_card",
           "treeAfter",
           "treeBefore",
           "treeMutated",
@@ -1173,6 +1180,7 @@
           "queue",
           "reason",
           "task_key",
+          "tree",
           "uncounted"
         ]
       },
@@ -1193,6 +1201,7 @@
           "queue",
           "reason",
           "task_key",
+          "tree",
           "until"
         ]
       },
@@ -1263,12 +1272,15 @@
         "complete": true,
         "keys": [
           "context",
+          "core",
+          "crawlers",
           "error",
           "mode",
           "model",
           "reason",
           "root",
           "session",
+          "skills",
           "spent",
           "subagents"
         ]
@@ -1962,6 +1974,17 @@
         "source": "owner",
         "writers": []
       },
+      ".construct/gate-runs.jsonl": {
+        "derived": false,
+        "directory": false,
+        "namedIn": [
+          "scripts/ci/gate-runs.ts",
+          "scripts/ci/prepush.ts"
+        ],
+        "owner": "scripts/ci/gate-runs.ts",
+        "source": "owner",
+        "writers": []
+      },
       ".construct/implement-agreed.txt": {
         "derived": false,
         "directory": false,
@@ -2038,9 +2061,11 @@
         "derived": false,
         "directory": false,
         "namedIn": [
-          "scripts/ci/test-weights.ts"
+          "scripts/ci/test-weights.ts",
+          "scripts/ci/weights-law.ts",
+          "scripts/supervisor/composition.ts"
         ],
-        "owner": "scripts/ci/test-weights.ts",
+        "owner": "scripts/ci/weights-law.ts",
         "source": "owner",
         "writers": []
       },
@@ -2207,6 +2232,7 @@
         "directory": false,
         "namedIn": [
           "scripts/cli/board-page.ts",
+          "scripts/cli/board-page/timer.ts",
           "scripts/supervisor/run.ts"
         ],
         "owner": "scripts/cli/board-page.ts",
@@ -2319,6 +2345,7 @@
           "scripts/ports/worktree-home.ts",
           "scripts/release/evidence.ts",
           "scripts/supervisor/bus-heal.ts",
+          "scripts/supervisor/composition.ts",
           "scripts/supervisor/heartbeat.ts",
           "scripts/supervisor/review-bg.ts",
           "scripts/supervisor/run.ts",
@@ -2504,6 +2531,7 @@
           "scripts/nodes/launch/launch-root.ts",
           "scripts/nodes/launch/launch-worker.ts",
           "scripts/ports/tree-publish.ts",
+          "scripts/supervisor/composition.ts",
           "scripts/window/window-request-tools.ts"
         ],
         "owner": "scripts/ports/tree-publish.ts",
@@ -2810,9 +2838,11 @@
         "derived": false,
         "directory": true,
         "namedIn": [
-          "scripts/ci/test-weights.ts"
+          "scripts/ci/test-weights.ts",
+          "scripts/ci/weights-law.ts",
+          "scripts/supervisor/composition.ts"
         ],
-        "owner": "scripts/ci/test-weights.ts",
+        "owner": "scripts/ci/weights-law.ts",
         "source": "owner",
         "writers": []
       },
@@ -3448,11 +3478,14 @@
           "scripts/core/queue.ts",
           "scripts/core/dependency-wait.ts",
           "scripts/core/lease.ts",
+          "scripts/core/handover.ts",
+          "scripts/core/executor-holds.ts",
           "scripts/core/node.ts",
           "scripts/core/stored.ts",
           "scripts/core/errors.ts",
           "scripts/core/bus-path.ts",
           "scripts/core/bus-readings.ts",
+          "scripts/core/projection-types.ts",
           "scripts/core/bus-version.ts",
           "scripts/core/reducer.ts",
           "scripts/core/every.ts",
@@ -3616,7 +3649,8 @@
         "owns": [
           "scripts/core/factory-paths.ts",
           "scripts/core/generated-files.ts",
-          "scripts/core/declarations.ts"
+          "scripts/core/declarations.ts",
+          "scripts/core/declared-events.ts"
         ],
         "status": "undecided"
       },
@@ -4397,7 +4431,8 @@
       "scripts/window/window-requests.ts": 2,
       "scripts/window/window-session-end.ts": 7,
       "scripts/window/window.ts": 3,
-      "src/commands/board/bus.ts": 13,
+      "src/commands/board/bus-panel.ts": 1,
+      "src/commands/board/bus.ts": 12,
       "src/commands/board/drain.ts": 1,
       "src/commands/board/goal.ts": 4,
       "src/commands/board/heal.ts": 1,
@@ -4621,15 +4656,18 @@
           "openTasks": "(db: BusDb): BusTask[]"
         },
         "reexports": [
+          "BusPanelFacts",
           "OwnerWait"
         ],
         "types": {
           "BusCard": "interface BusCard { id: number; state: string | null; stage: CardStage; lane: string | null; line: string | null; since: string | null; body: boolean; closed: boolean; closedAt: string | null; parent?: SliceParent; }",
-          "BusFacts": "interface BusFacts { at: string; goal: Goal | null; waits: OwnerWait[]; waitsStale?: string; cardsStale?: string; pulse: string | null; slots: BusSlot[]; cards: BusCard[]; services: BusService[]; matrices: BusMatrix[]; failure: string | null; reviewQueue: number; groups?: BusGroup[]; shadow?: BusShadow; tails?: BusTail[]; queued?: QueuedStanding[]; }",
+          "BusFacts": "interface BusFacts { at: string; goal: Goal | null; waits: OwnerWait[]; waitsStale?: string; cardsStale?: string; pulse: string | null; slots: BusSlot[]; cards: BusCard[]; services: BusService[]; matrices: BusMatrix[]; failure: string | null; reviewQueue: number; groups?: BusGroup[]; shadow?: BusShadow; tails?: BusTail[]; queued?: QueuedStanding[]; window?: BusWindow; panel?: BusPanelFacts; }",
           "BusMatrix": "interface BusMatrix { pr: number; head: string | null; full: string | null; killed: number; survived: number; notRun: number; }",
           "BusService": "interface BusService { role: string; task: string; tree: string | null; step: string; session?: string; gauges?: ServiceGauges; subagents?: SubagentReading[]; }",
+          "BusSlot": "interface BusSlot { queue: string; used: number; total: number | null; }",
           "CardStage": "type CardStage = typeof CARD_STAGES[number]",
           "CardsAtStage": "interface CardsAtStage { stage: CardStage; cards: number[]; }",
+          "CrawlerReading": "interface CrawlerReading { id: string; kind: string; description: string | null; startedAt: string | null; state: string; context: number | null; spent: number | null; }",
           "SubagentReading": "interface SubagentReading { name: string; context: number | null; spent: number | null; at: string | null; }"
         }
       },
@@ -4665,16 +4703,18 @@
         ],
         "functions": {
           "backlogCards": "(cards: BusCard[], at: string, all: boolean): BusCard[]",
+          "counted": "(count: number, noun: string): string",
           "isLive": "(card: BusCard): boolean",
           "laneColumns": "(cards: BusCard[]): (string | null)[]",
           "liftedByTheWindow": "(wait: OwnerWait): boolean",
           "markedName": "(name: string, card: BusCard): string",
           "matrixLines": "(facts: BusFacts, lore: Lore): string[]",
-          "pulseLines": "(facts: BusFacts, lore: Lore): string[]",
           "screenLines": "(facts: BusFacts, lore: Lore, all = false): string[]",
           "sliceMark": "(card: BusCard): string | null",
           "slotsReading": "(facts: BusFacts): string",
           "tallyLine": "(tally: TaskTally): string",
+          "taskGroupLine": "(group: TaskGroup): string",
+          "taskGroups": "(shown: readonly BusCard[], every: readonly BusCard[], waits: readonly OwnerWait[]): TaskGroup[]",
           "taskTally": "(cards: readonly BusCard[]): TaskTally",
           "waitAction": "(wait: OwnerWait, lore: Lore): string",
           "waitTarget": "(wait: OwnerWait): string | null"
@@ -5243,7 +5283,8 @@
       "src/version.ts": {
         "constants": [],
         "functions": {
-          "currentVersion": "(): string"
+          "currentVersion": "(): string",
+          "interfaceVersion": "(version: string = currentVersion(), sha: string | null = BUILD_SHA): string"
         },
         "reexports": [],
         "types": {}
@@ -5745,6 +5786,7 @@
       },
       "scripts/ports/pr-status.ts": {
         "constants": [
+          "LAST_STATUS_SET_ON_HEAD",
           "PREFIX",
           "STATUS_ACTOR",
           "STATUS_BATCH",
@@ -5904,16 +5946,16 @@
         "types": {
           "InMemorySessions": "class InMemorySessions { started: SpawnSessionParams[]; constructor(private readonly answer: (params: SpawnSessionParams) => SessionAnswer); spawn: SessionSpawner; spawnReview: SessionSpawner }",
           "SessionAnswer": "type SessionAnswer = SessionRun | Error",
-          "SessionCeilingReached": "class SessionCeilingReached extends Error { constructor(readonly sessionId: string, readonly ceilingMs: number) }",
           "SessionRun": "interface SessionRun { code: number; stdout?: string; stderr?: string; }",
           "SessionSpawner": "type SessionSpawner = (params: SpawnSessionParams) => Promise<number>",
-          "SpawnSessionParams": "interface SpawnSessionParams { cwd: string; sessionId: string; prompt: string; stdoutPath: string; stderrPath: string; env?: NodeJS.ProcessEnv; addDirs?: string[]; model?: string; ceilingMs?: number; role?: Extract<Role, 'review' | 'ghost'>; started?: (pid: number) => void; }",
+          "SpawnSessionParams": "interface SpawnSessionParams { cwd: string; sessionId: string; prompt: string; stdoutPath: string; stderrPath: string; env?: NodeJS.ProcessEnv; addDirs?: string[]; model?: string; role?: Extract<Role, 'review' | 'ghost'>; started?: (pid: number) => void; }",
           "WindowMode": "type WindowMode = 'loop' | 'tab'"
         }
       },
       "scripts/ports/shift-settings.ts": {
         "constants": [
           "CARD_SESSION_SANDBOX",
+          "SESSION_BASH_CAP",
           "TSX_PIPE_DIRECTORY"
         ],
         "functions": {
@@ -5924,7 +5966,7 @@
         "reexports": [],
         "technologyWords": [],
         "types": {
-          "ShiftSettings": "interface ShiftSettings { sandbox: typeof CARD_SESSION_SANDBOX & { excludedCommands?: string[]; filesystem?: { denyWrite: string[]; }; }; permissions: { allow: string[]; deny?: string[]; }; }"
+          "ShiftSettings": "interface ShiftSettings { sandbox: typeof CARD_SESSION_SANDBOX & { excludedCommands?: string[]; filesystem?: { denyWrite: string[]; }; }; permissions: { allow: string[]; deny?: string[]; }; env: typeof SESSION_BASH_CAP; }"
         }
       },
       "scripts/ports/snapshot.ts": {

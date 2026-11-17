@@ -1,0 +1,10 @@
+{
+  "event": "pr.status.set",
+  "constant": "PR_STATUS_SET",
+  "payload": [
+    "event_id",
+    "state",
+    "status",
+    "step"
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "event": "card.continued",
+  "constant": "CARD_CONTINUED",
+  "payload": [
+    "base",
+    "branch",
+    "continuation",
+    "contour",
+    "from",
+    "pgid",
+    "pid",
+    "prompt_path",
+    "prompt_sha",
+    "prompt_unstored",
+    "session",
+    "step",
+    "stop_reason",
+    "worktree"
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "event": "child.started",
+  "constant": "CHILD_STARTED",
+  "payload": [
+    "generation",
+    "instance",
+    "kind",
+    "lstart",
+    "mode",
+    "pgid",
+    "pid",
+    "task_key",
+    "tree"
+  ]
+}

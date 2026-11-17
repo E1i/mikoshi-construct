@@ -388,3 +388,15 @@ jobs:
             .construct/reports/file-weights.json
           include-hidden-files: true
           retention-days: 30
+      - name: Print the test weights drift (D-600, never fails the job)
+        if: github.event_name == 'push'
+        continue-on-error: true
+        run: |
+          node --import tsx --input-type=module -e '
+          import { existsSync, readFileSync } from "node:fs"
+          import { FILE_WEIGHTS_PATH, measurementAt, RECOMPUTE_DRIFTED_SHARE, WEIGHTS_PATH, weightsDrift } from "./scripts/ci/test-weights.ts"
+          const measurement = measurementAt(FILE_WEIGHTS_PATH, existsSync)
+          const table = existsSync(WEIGHTS_PATH) ? JSON.parse(readFileSync(WEIGHTS_PATH, "utf8")) : {}
+          const line = measurement.kind === "measured" ? weightsDrift(measurement.weights, table, RECOMPUTE_DRIFTED_SHARE).line : measurement.line
+          console.log(`::notice title=test weights drift::${line}`)
+          '

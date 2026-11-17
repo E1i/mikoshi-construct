@@ -1,0 +1,20 @@
+{
+  "event": "pr.observed",
+  "constant": "PR_OBSERVED",
+  "payload": [
+    "auto_merge",
+    "base",
+    "body_sha",
+    "branch",
+    "cancelled_checks",
+    "card_id",
+    "ci",
+    "draft",
+    "failed_checks",
+    "head",
+    "mergeable",
+    "paths",
+    "pathsTruncated",
+    "verdict_on_head"
+  ]
+}

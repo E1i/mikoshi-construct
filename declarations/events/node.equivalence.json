@@ -1,0 +1,10 @@
+{
+  "event": "node.equivalence",
+  "constant": "NODE_EQUIVALENCE",
+  "payload": [
+    "event_id",
+    "only_derive",
+    "only_node",
+    "same"
+  ]
+}

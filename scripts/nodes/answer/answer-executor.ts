@@ -1,7 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { QueueTaskRow } from '../../core/card-hold.js'
 import type { BusEvent } from '../../core/db.js'
-import type { Lease } from '../../core/lease.js'
+import type { CarriedTree, Lease } from '../../core/lease.js'
 import type { CardTreeTools } from '../../ports/card-tree.js'
 import type { IsolationReader } from '../../ports/isolation.js'
 import type { MergeMain } from '../../ports/main-merge.js'
@@ -10,12 +10,13 @@ import type { AdmittedScope, AnswerSource, CardSession } from './answer-source.j
 import type { Answered, Answerer, StepSeconds } from './answerer.js'
 import type { CardConcept } from './concept-scope.js'
 import type { AnswerDenial, Answering, AnswerOutcome, AnswerTechnicalReason, CardPaths, DecidedRound, ShardDecider, TreeMerge, TreePublishing, Widened } from './duties/index.js'
+import type { TreeOwned, TreePushPolicy } from './duties/tree.js'
 import { riskOf } from '../../../src/card/risk.js'
 import { answersWithdrawnByAClosedHold, holdRecheckAt, LIVE_SESSION_IN_THE_TREE, queueAgain, sessionStopOf } from '../../core/card-hold.js'
 import { appendEvent, inTransaction, openBusWait } from '../../core/db.js'
 import { messageOf } from '../../core/errors.js'
-import { ANSWER_STEP, CARD_ANSWERED, CARD_RELEASED, CARD_STOPPED, OUTSIDE_TOUCHES, OWNER_WAIT_CLOSED, QUESTION_AGENT, QUESTION_OWNER, SCOPE_WIDENED } from '../../core/events.js'
-import { assertHeld, completeTask, StaleLease, waitTask } from '../../core/lease.js'
+import { ANSWER_STEP, CARD_ANSWERED, CARD_RELEASED, CARD_STOPPED, OUTSIDE_TOUCHES, OWNER_WAIT_CLOSED, POLICY_DENIED, QUESTION_AGENT, QUESTION_OWNER, SCOPE_WIDENED } from '../../core/events.js'
+import { assertHeld, completeTask, cutByRestart, failTask, releaseTask, RESTART_CUT, StaleLease, waitTask } from '../../core/lease.js'
 import { timeoutUnderLoadOutside } from '../../core/observations.js'
 import { answerOnAnOldCardBody, DOWNGRADE_WAIT_OPEN, downgradeWaitOpenOn, LEASED, openDecisionWaitsOf, QUEUED } from '../../core/queue.js'
 import { OWNER_EVEN_UNDER_THE_DECISION } from '../../policy/policy.js'
@@ -26,10 +27,11 @@ import { cardTreeOf, CardTreeRefused, realCardTrees } from '../../ports/card-tre
 import { conflictingCardOf, mainKeptInTheTree } from '../../ports/main-merge.js'
 import { prepareBeforeSession, prepareTree } from '../../ports/prepare-tree.js'
 import { MAIN_BRANCH } from '../../ports/snapshot.js'
-import { admittedScopeOf, decisionAnsweringRepeat, ownerHoldOf } from './answer-source.js'
+import { admittedScopeOf, carriedTreeOf, decisionAnsweringRepeat, ownerHoldOf } from './answer-source.js'
 import { AnswerOutsideTouches, CardTreeGone, liveSessionIn, PREFIX, secondsOf, unprovedFindings } from './answerer.js'
 import { CONCEPT_WIDENING_REASON } from './concept-scope.js'
 import { AnswerOutcomes, AnswerPublishing, AnswerSources, leftNoNewHead, localHead, OwnerQuestions, pendingPathsOf, treeDirtyOf, treeMergeOf } from './duties/index.js'
+import { carriedTreeState, ownCarriedTree } from './duties/tree.js'
 
 export interface AnswerParts {
   db: DatabaseSync
@@ -49,7 +51,14 @@ export interface AnswerParts {
   mergeMain?: (tree: string) => MergeMain
   changedInTheTree?: (card: CardSession) => string[]
   localHead?: (card: CardSession) => string | null
+  treeState?: (card: CardSession, prHead: string) => CarriedTree | null
+  ownTree?: (card: CardSession, prHead: string, policy: TreePushPolicy) => TreeOwned
+  pushPolicy?: (card: CardSession) => TreePushPolicy
 }
+
+export const CARRIED_TREE = 'carried-tree'
+
+const KEPT_WITHOUT_A_KNOWN_POLICY: TreePushPolicy = 'none'
 
 const REENTRY_SOURCES: ReadonlySet<AnswerSource['kind']> = new Set(['ci'])
 
@@ -126,8 +135,14 @@ export function unprovedFindingsLine(cardId: number, answered: Pick<Answered, 'b
   return `card #${cardId}: the answer leaves ${unproved.length} given finding${unproved.length === 1 ? '' : 's'} unproved, so it is refused; ${fate}: ${unproved.join('; ')}`
 }
 
-export function noGateDecisionLine(cardId: number, answered: Pick<Answered, 'session' | 'before'>): string {
-  return `card #${cardId}: the answer session ${answered.session} left work in its tree and recorded no gate decision (no outcome of every gate command, and no gate that could not run), so the bus pushed nothing from it; the answer goes again on ${answered.before ?? 'the same head'} and runs the gate`
+function offFormLine(commands: readonly string[] | undefined): string {
+  if (commands === undefined || commands.length === 0)
+    return ''
+  return `; the session ran ${commands.length === 1 ? 'a gate command' : `${commands.length} gate commands`} not in its declared form, which the bus does not record (D-627): ${commands.map(command => `\`${command}\``).join(', ')}`
+}
+
+export function noGateDecisionLine(cardId: number, answered: Pick<Answered, 'session' | 'before' | 'offFormGateCommands'>): string {
+  return `card #${cardId}: the answer session ${answered.session} left work in its tree and recorded no gate decision (no outcome of every gate command, and no gate that could not run), so the bus pushed nothing from it; the answer goes again on ${answered.before ?? 'the same head'} and runs the gate${offFormLine(answered.offFormGateCommands)}`
 }
 
 export class AnswerExecutor {
@@ -164,6 +179,9 @@ export class AnswerExecutor {
       if (downgradeWaitOpenOn(this.parts.db, lease.cardId))
         return this.outcomes.denied(lease, { kind: 'technical', reason: DOWNGRADE_WAIT_OPEN, detail: `card #${lease.cardId} waits on the owner's witness downgrade decision; no answer round runs until that wait closes` })
       closeWaitOfAWidenStopTheAmendLifted(this.parts.db, () => this.ts(), lease.actor, lease.cardId)
+      const owned = this.ownedCarriedTree(lease)
+      if (owned !== null)
+        return owned
       const source = this.sources.sourceOf(lease)
       if (source === null && !this.sources.dirtyOnHead(lease))
         return this.outcomes.denied(lease, { kind: 'technical', reason: 'nothing_to_answer', detail: `card #${lease.cardId} has no open question.agent stop, no changes verdict, no red CI, no red witness and no conflict with ${MAIN_BRANCH} on ${lease.head ?? 'its head'}` })
@@ -209,7 +227,7 @@ export class AnswerExecutor {
       for (let restarts = 0; restartsAfter(answered) && restarts < ANSWER_RESTARTS; restarts += 1)
         answered = await this.session(lease, answering, widened, card, true, this.parts.clock().getTime(), prove)
       if ('kind' in answered)
-        return this.refusedOrDenied(lease, answered, widened)
+        return this.refusedOrDenied(lease, answered, widened, card)
       const outside = this.stoppedOutsideTheTouches(lease, widened, card, answered)
       if (outside !== null)
         return outside
@@ -347,7 +365,50 @@ export class AnswerExecutor {
     return [{ ...this.outcomes.event(lease, SCOPE_WIDENED, { paths, admission: scope.admission, detail: CONCEPT_WIDENING_REASON }), dedupeKey: `${SCOPE_WIDENED}:concept:${lease.taskKey}:${lease.leaseGen}` }]
   }
 
-  private refusedOrDenied(lease: Lease, denial: AnswerDenial, widened: Widened | null): AnswerOutcome {
+  private carriedState(card: CardSession, prHead: string): CarriedTree | null {
+    return (this.parts.treeState ?? carriedTreeState)(card, prHead)
+  }
+
+  private returnedWithTheTree(lease: Lease, denial: AnswerDenial, card: CardSession): AnswerOutcome | null {
+    const tree = denial.reason === 'answer_failed' && lease.head !== null ? this.carriedState(card, lease.head) : null
+    if (tree === null || (tree.localCommits.length === 0 && !tree.dirty))
+      return null
+    const carried = `${denial.detail}; the tree ${tree.path} is returned at ${tree.head} with ${tree.localCommits.length} unpushed commit${tree.localCommits.length === 1 ? '' : 's'}${tree.dirty ? ' and uncommitted changes' : ''}, and the next answer on the card owns it`
+    if (cutByRestart(this.parts.db, lease)) {
+      releaseTask(this.parts.db, this.ts(), lease, RESTART_CUT, [], tree)
+      return { kind: 'denied', taskKey: lease.taskKey, denial: { ...denial, detail: carried }, next: QUEUED }
+    }
+    const denialEvent: BusEvent = { ...this.outcomes.event(lease, POLICY_DENIED, { command: 'answer', ...denial, detail: carried }), actor: 'policy' }
+    const next = failTask(this.parts.db, this.ts(), lease, { reason: denial.reason, withdraw: false, tree }, this.parts.silentMs, [denialEvent])
+    return { kind: 'denied', taskKey: lease.taskKey, denial: { ...denial, detail: carried }, next }
+  }
+
+  private ownedCarriedTree(lease: Lease): AnswerOutcome | null {
+    if (lease.head === null || carriedTreeOf(this.parts.db, lease.cardId) === null)
+      return null
+    const card = this.tree(lease)
+    if (card === null || 'kind' in card || (this.parts.liveSession ?? liveSessionIn)(card) !== null)
+      return null
+    let owned: TreeOwned
+    try {
+      owned = (this.parts.ownTree ?? ownCarriedTree)(card, lease.head, this.parts.pushPolicy?.(card) ?? KEPT_WITHOUT_A_KNOWN_POLICY)
+    }
+    catch (error) {
+      console.error(`${PREFIX}card #${lease.cardId}: the returned tree is not owned: ${messageOf(error)}`)
+      return null
+    }
+    console.log(`${PREFIX}card #${lease.cardId}: the answer owns the returned tree ${card.worktree}: ${owned.kind} at ${owned.head}`)
+    if (owned.kind !== 'pushed')
+      return null
+    const payload = { session: card.session, worktree: card.worktree, source: CARRIED_TREE, from: lease.head, to: owned.head }
+    completeTask(this.parts.db, this.ts(), lease, [this.outcomes.event(lease, CARD_ANSWERED, payload)])
+    return { kind: 'answered', taskKey: lease.taskKey, session: card.session, resumed: false, head: owned.head }
+  }
+
+  private refusedOrDenied(lease: Lease, denial: AnswerDenial, widened: Widened | null, card?: CardSession): AnswerOutcome {
+    const returned = card === undefined ? null : this.returnedWithTheTree(lease, denial, card)
+    if (returned !== null)
+      return returned
     if (denial.reason !== 'outside_touches')
       return this.outcomes.denied(lease, denial)
     return this.outcomes.ownersStop(lease, `${denial.detail}; ${derivedRefusalNote(pathsIn(denial.detail))}the refused changes stay uncommitted in the card tree until the touches are widened or the changes are dropped`, widened === null ? [] : [widened.event], undefined, this.refusedPathsToWiden(denial.detail))

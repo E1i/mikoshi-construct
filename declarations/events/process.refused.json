@@ -1,0 +1,9 @@
+{
+  "event": "process.refused",
+  "constant": "PROCESS_REFUSED",
+  "payload": [
+    "last_beat",
+    "live",
+    "process"
+  ]
+}

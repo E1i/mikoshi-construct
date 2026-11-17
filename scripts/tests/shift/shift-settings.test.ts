@@ -11,7 +11,7 @@ import { readManifest, readShiftGate } from '../../../src/manifest.js'
 import { createUi, silentWriter } from '../../../src/ui/console.js'
 import { resolveTheme } from '../../../src/ui/theme.js'
 import { treeReportPath } from '../../core/places.js'
-import { CARD_SESSION_SANDBOX, settingsFlag, shiftSettings } from '../../ports/shift-settings.js'
+import { CARD_SESSION_SANDBOX, SESSION_BASH_CAP, settingsFlag, shiftSettings } from '../../ports/shift-settings.js'
 
 function editCovers(rule: string, file: string): boolean {
   const pattern = /^Edit\(\/(.+)\)$/.exec(rule)?.[1]
@@ -154,7 +154,7 @@ describe('the browser lab exclusion a card session takes from the settings of it
   })
 
   it('a missing file, an unparsable file or a malformed excludedCommands excludes nothing and leaves the settings as they are without the entry', () => {
-    const plain = { sandbox: CARD_SESSION_SANDBOX, permissions: { allow: ['Bash(pnpm run quality)', `Edit(/${tree}/**)`] } }
+    const plain = { sandbox: CARD_SESSION_SANDBOX, permissions: { allow: ['Bash(pnpm run quality)', `Edit(/${tree}/**)`] }, env: SESSION_BASH_CAP }
     const missing = settings()
     writeFileSync(path.join(tree, '.claude', 'settings.json'), '{ not json')
     const unparsable = settings()
@@ -166,6 +166,21 @@ describe('the browser lab exclusion a card session takes from the settings of it
   it('leaves the network and the unsandboxed-command refusal of the card session unchanged with the entry present', () => {
     holdSettings('settings.json', [entry])
     expect(settings().sandbox).toMatchObject(CARD_SESSION_SANDBOX)
+  })
+
+  it('spawned settings carry a 30 min Bash cap', () => {
+    const without = settings()
+    holdSettings('settings.json', [entry])
+    const excluded = settings()
+    expect(excluded.sandbox.excludedCommands).toEqual([entry])
+    expect([without, excluded].map(built => JSON.parse(settingsFlag(built).at(-1)!).env)).toMatchObject([{ BASH_MAX_TIMEOUT_MS: '1800000', BASH_DEFAULT_TIMEOUT_MS: '1800000' }, { BASH_MAX_TIMEOUT_MS: '1800000', BASH_DEFAULT_TIMEOUT_MS: '1800000' }])
+  })
+
+  it('the session bash cap disables background tasks', () => {
+    const without = settings()
+    holdSettings('settings.json', [entry])
+    const excluded = settings()
+    expect([without, excluded].map(built => JSON.parse(settingsFlag(built).at(-1)!).env.CLAUDE_CODE_DISABLE_BACKGROUND_TASKS)).toEqual(['1', '1'])
   })
 
   it('keeps the entry and the protection across the --settings flag', () => {

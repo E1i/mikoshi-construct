@@ -1,0 +1,13 @@
+{
+  "event": "pr.closed",
+  "constant": "PR_CLOSED",
+  "payload": [
+    "branch",
+    "by",
+    "commit",
+    "merged",
+    "merged_at",
+    "merged_by",
+    "reason"
+  ]
+}

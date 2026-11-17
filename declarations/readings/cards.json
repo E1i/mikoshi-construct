@@ -1,0 +1,28 @@
+{
+  "reading": "cards",
+  "constant": "CARDS",
+  "reducedInOrder": false,
+  "types": [
+    "card.admitted",
+    "card.answered",
+    "card.closed",
+    "card.deferred",
+    "card.dropped",
+    "card.fell",
+    "card.moved",
+    "card.started",
+    "card.stopped",
+    "decision.recorded",
+    "decisions.imported",
+    "merge.done",
+    "pr.closed",
+    "pr.observed",
+    "pr.opened",
+    "review.recorded"
+  ],
+  "foldedOnAppend": [
+    "card.stopped",
+    "merge.done",
+    "review.recorded"
+  ]
+}

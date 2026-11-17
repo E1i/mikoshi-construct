@@ -1,0 +1,9 @@
+{
+  "event": "ratchet.threshold.set",
+  "constant": "RATCHET_THRESHOLD_SET",
+  "payload": [
+    "decision",
+    "row",
+    "to"
+  ]
+}

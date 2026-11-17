@@ -1,0 +1,8 @@
+{
+  "event": "role.raise_failed",
+  "constant": "ROLE_RAISE_FAILED",
+  "payload": [
+    "lease_gen",
+    "role"
+  ]
+}

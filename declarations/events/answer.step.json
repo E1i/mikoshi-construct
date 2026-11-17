@@ -1,0 +1,8 @@
+{
+  "event": "answer.step",
+  "constant": "ANSWER_STEP",
+  "payload": [
+    "seconds",
+    "step"
+  ]
+}

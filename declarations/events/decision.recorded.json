@@ -1,0 +1,11 @@
+{
+  "event": "decision.recorded",
+  "constant": "DECISION_RECORDED",
+  "payload": [
+    "decision_id",
+    "scope",
+    "source",
+    "supersedes",
+    "text"
+  ]
+}

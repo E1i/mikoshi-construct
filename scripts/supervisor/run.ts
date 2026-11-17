@@ -11,7 +11,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
-import { boardProjection } from '../cli/board-page.js'
+import { BOARD_PERIOD_MS, startBoardTimer } from '../cli/board-page.js'
 import { busDirOf } from '../core/bus-path.js'
 import { appendEvent, defaultBusPath, inTransaction, openBus, openBusWait } from '../core/db.js'
 import { REDUCED, WINDOW_REQUEST } from '../core/events.js'
@@ -150,10 +150,20 @@ export function holdRunLock(busPath: string, processes: ProcessList, self: numbe
   return refusedRun(`${lock} was taken again while this bus:run removed a stale one; this one exits and starts nothing`)
 }
 
+export const TICK_STEPS = ['NetWatch.poll', 'intake', 'reduce', 'WindowRequests', 'second reduce', 'deriveQueues', 'setStepStatuses', 'StalledSessions'] as const
+
+export type TickStep = typeof TICK_STEPS[number]
+
+export interface StepTiming {
+  step: TickStep
+  ms: number
+}
+
 export interface Tick {
   poll: Poll
   reduced: ReduceCount | null
   derived: Derived | null
+  steps: StepTiming[]
 }
 
 function lastEventId(db: DatabaseSync): number {
@@ -161,32 +171,51 @@ function lastEventId(db: DatabaseSync): number {
 }
 
 export class BusTick {
-  constructor(private readonly db: DatabaseSync, private readonly projections: Projections, private readonly netWatch: NetWatch, private readonly clock: () => Date, private readonly intake: () => void = () => {}, private readonly project: (now: Date) => void = () => {}, private readonly requests: () => void = () => {}, private readonly statuses: () => void = () => {}, private readonly stalled: () => void = () => {}) {}
+  lastSteps: readonly StepTiming[] = []
+
+  constructor(private readonly db: DatabaseSync, private readonly projections: Projections, private readonly netWatch: NetWatch, private readonly clock: () => Date, private readonly intake: () => void = () => {}, private readonly requests: () => void = () => {}, private readonly statuses: () => void = () => {}, private readonly stalled: () => void = () => {}, private readonly elapsedMs: () => number = () => performance.now()) {}
 
   run(): Tick | null {
-    const poll = this.netWatch.poll()
+    const steps: StepTiming[] = []
+    this.lastSteps = steps
+    const timed = <T>(step: TickStep, work: () => T): T => {
+      const started = this.elapsedMs()
+      try {
+        return work()
+      }
+      finally {
+        steps.push({ step, ms: this.elapsedMs() - started })
+      }
+    }
+    const poll = timed('NetWatch.poll', () => this.netWatch.poll())
     if (poll === null)
       return null
     if (poll.kind !== 'ticked')
-      return { poll, reduced: null, derived: null }
-    this.intake()
-    const beforeRequests = reduce(this.db, 'pending', this.projections)
-    this.requests()
+      return { poll, reduced: null, derived: null, steps }
+    timed('intake', this.intake)
+    const beforeRequests = timed('reduce', () => reduce(this.db, 'pending', this.projections))
+    timed('WindowRequests', this.requests)
     const ts = this.clock().toISOString()
-    const through = lastEventId(this.db)
-    const afterRequests = reduce(this.db, 'pending', this.projections)
-    const reduced = { applied: beforeRequests.applied + afterRequests.applied, rejected: beforeRequests.rejected + afterRequests.rejected }
-    appendEvent(this.db, { ts, type: REDUCED, actor: 'reducer', cardId: null, pr: null, head: null, dedupeKey: `${REDUCED}:${ts}`, payload: { through_event_id: through, ...reduced }, legacy: false })
-    const derived = deriveQueues(this.db, ts)
-    this.statuses()
-    this.stalled()
-    this.project(this.clock())
-    return { poll, reduced, derived }
+    const reduced = timed('second reduce', () => {
+      const through = lastEventId(this.db)
+      const afterRequests = reduce(this.db, 'pending', this.projections)
+      const both = { applied: beforeRequests.applied + afterRequests.applied, rejected: beforeRequests.rejected + afterRequests.rejected }
+      appendEvent(this.db, { ts, type: REDUCED, actor: 'reducer', cardId: null, pr: null, head: null, dedupeKey: `${REDUCED}:${ts}`, payload: { through_event_id: through, ...both }, legacy: false })
+      return both
+    })
+    const derived = timed('deriveQueues', () => deriveQueues(this.db, ts))
+    timed('setStepStatuses', this.statuses)
+    timed('StalledSessions', this.stalled)
+    return { poll, reduced, derived, steps }
   }
 }
 
+export function stepTimingLine(steps: readonly StepTiming[]): string {
+  return `${PREFIX}tick steps: ${steps.map(each => `${each.step} ${(each.ms / 1000).toFixed(2)} s`).join(', ')}`
+}
+
 export function tickLines(tick: Tick): string[] {
-  const lines = [pollLine(tick.poll)]
+  const lines = [pollLine(tick.poll), stepTimingLine(tick.steps)]
   if (tick.reduced !== null)
     lines.push(`${PREFIX}reduced: applied ${tick.reduced.applied}, rejected ${tick.reduced.rejected}`)
   if (tick.derived !== null && tick.derived.superseded.length + tick.derived.queued.length > 0)
@@ -202,19 +231,16 @@ export function tickOrLocked(busTick: BusTick): string[] {
   catch (error) {
     if (!isDatabaseLocked(error))
       throw error
-    return [`${PREFIX}the tick hit ${DATABASE_LOCKED}; it is retried in ${CHECK_MS / 1000} s, and bus:run stays up`]
+    return [`${PREFIX}the tick hit ${DATABASE_LOCKED}; it is retried in ${CHECK_MS / 1000} s, and bus:run stays up`, stepTimingLine(busTick.lastSteps)]
   }
 }
 
 export interface ComposedTick {
   busTick: BusTick
-  boardFile: string
-  boardDataFile: string
 }
 
 export function composeBusTick(db: DatabaseSync, busPath: string, gitHub: GitHub, post: GitHubPost, clock: () => Date, home: string): ComposedTick {
   const projections = busProjections()
-  const board = boardProjection(db, busPath, TICK_MS)
   const requests = new WindowRequests(db, clock, realRequestTools(db, busPath, process.cwd(), process.env, projections), ownerChannelOfBus(home, busPath))
   const answer = (): void => {
     for (const outcome of requests.run())
@@ -237,7 +263,7 @@ export function composeBusTick(db: DatabaseSync, busPath: string, gitHub: GitHub
     for (const line of silent.step())
       console.log(line)
   }
-  return { busTick: new BusTick(db, projections, new NetWatch(db, gitHub, clock), clock, decisionsIntakeOfBus(db, busPath, clock), board.project, answer, statuses, stalled), boardFile: board.file, boardDataFile: board.dataFile }
+  return { busTick: new BusTick(db, projections, new NetWatch(db, gitHub, clock), clock, decisionsIntakeOfBus(db, busPath, clock), answer, statuses, stalled) }
 }
 
 export function startBus(db: DatabaseSync, clock: () => Date): string[] {
@@ -256,8 +282,9 @@ async function main(): Promise<number> {
   const closed = startBus(db, () => new Date())
   if (closed.length > 0)
     console.log(`${PREFIX}closed the owner waits of ended cards: ${closed.join(', ')}`)
-  const { busTick, boardFile, boardDataFile } = composeBusTick(db, busPath, ghApi(process.cwd()), ghApiPost(process.cwd()), () => new Date(), os.homedir())
-  console.log(`${PREFIX}${busPath}, shadow mode: NetWatch, the owner decisions import, the window requests, the reducer, the queues, the ${STATUS_CONTEXT} status check on each open PR head unless ${STATUS_OFF_FILE} sits beside it, and ${boardFile} with ${boardDataFile} every ${TICK_MS / 1000} s; no workers`)
+  const { busTick } = composeBusTick(db, busPath, ghApi(process.cwd()), ghApiPost(process.cwd()), () => new Date(), os.homedir())
+  const board = startBoardTimer(busPath)
+  console.log(`${PREFIX}${busPath}, shadow mode: NetWatch, the owner decisions import, the window requests, the reducer, the queues and the ${STATUS_CONTEXT} status check on each open PR head unless ${STATUS_OFF_FILE} sits beside it every ${TICK_MS / 1000} s; ${board.file} with ${board.dataFile} every ${BOARD_PERIOD_MS / 1000} s on a read-only connection in its own thread; no workers`)
   try {
     for (;;) {
       const lines = tickOrLocked(busTick)
@@ -267,6 +294,7 @@ async function main(): Promise<number> {
     }
   }
   finally {
+    await board.stop()
     db.close()
   }
 }

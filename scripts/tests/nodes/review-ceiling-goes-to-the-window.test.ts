@@ -16,7 +16,7 @@ import { REVIEW_FAILED, windowRouteLine } from '../../nodes/review/review-execut
 import { ReviewWorker } from '../../nodes/review/review-worker.js'
 import { claudeReviewer, osDescendants, REVIEW_CEILING, ReviewFailed, reviewPrompt, ReviewTrees, VERDICT_ENDS_LINE, WITNESS_RUNS_LINE } from '../../nodes/review/reviewer.js'
 import { InMemoryProcessTable } from '../../ports/process-table.js'
-import { clientCommand, SessionCeilingReached, spawnSession } from '../../ports/session.js'
+import { clientCommand, spawnSession } from '../../ports/session.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { cardBody, sha } from '../bus/github-fake.js'
 import { eventsOf, liveBench } from '../bus/merge-bench.js'
@@ -125,44 +125,30 @@ async function afterAllTicks(bench: MergeBench, worker: ReviewWorker): Promise<v
 }
 
 describe('a review ended at its ceiling goes to the window', () => {
-  it('a written verdict ends the review and its process group while a background child still runs', async () => {
+  it('a written verdict leaves the session and its background child running until they end on their own', async () => {
     const pids = path.join(temporary('review-ceiling-pids-'), 'pids')
+    const sessionRunsMs = 1_500
     vi.stubEnv(PIDS_VARIABLE, pids)
     vi.stubEnv('PATH', `${stubClient([
       'for last; do :; done',
       'verdict=$(printf \'%s\\n\' "$last" | sed -n \'s/^Finish by writing \\(.*\\) as JSON:.*/\\1/p\')',
-      'sleep 30 &',
+      'sleep 1 &',
       `echo "$$ $! \${@: -2:1}" >"$${PIDS_VARIABLE}"`,
       `printf '{"verdict":"changes","findings":["${FINDING}"]}' >"$verdict"`,
-      'sleep 30',
+      'sleep 1.5',
     ].join('\n'))}:${process.env.PATH}`)
-    const { bench, worker } = benchWith(reviewerOver(spawnSession, { ...osDescendants(writtenTable(pids)), sampleMs: 50 }))
+    const signalled: [number, NodeJS.Signals][] = []
+    const { bench, worker } = benchWith(reviewerOver(spawnSession, { ...osDescendants(writtenTable(pids)), sampleMs: 50, end: (pid, signal) => signalled.push([pid, signal]) }))
     const started = Date.now()
 
     expect(await worker.step()).toMatchObject({ kind: 'recorded', verdict: 'changes' })
 
-    expect(Date.now() - started).toBeLessThan(15_000)
+    expect(Date.now() - started).toBeGreaterThanOrEqual(sessionRunsMs)
+    expect(signalled).toEqual([])
     expect(eventsOf(bench.db, REVIEW_RECORDED).map(payload => payload.findings)).toEqual([[FINDING]])
     expect(existsSync(pids)).toBe(true)
     const [root, background] = readFileSync(pids, 'utf8').trim().split(' ').map(Number)
-    await vi.waitFor(() => expect([alive(root!), alive(background!)]).toEqual([false, false]), { timeout: 2_000, interval: 20 })
-  })
-
-  it('a session ended at the ceiling with a verdict on disk records that verdict and starts no second run', async () => {
-    const started: SpawnSessionParams[] = []
-    const { bench, worker } = benchWith(reviewerOver(async (params) => {
-      started.push(params)
-      writeFileSync(path.join(path.dirname(params.stdoutPath), `${params.sessionId}.verdict.json`), JSON.stringify({ verdict: 'changes', findings: [FINDING] }))
-      throw new SessionCeilingReached(params.sessionId, params.ceilingMs!)
-    }))
-
-    expect(await worker.step()).toMatchObject({ kind: 'recorded', verdict: 'changes' })
-    await afterAllTicks(bench, worker)
-
-    expect(started).toHaveLength(1)
-    expect(leasesOf(bench)).toBe(1)
-    expect(eventsOf(bench.db, REVIEW_RECORDED).map(payload => payload.verdict)).toEqual(['changes'])
-    expect(eventsOf(bench.db, TASK_FAILED)).toEqual([])
+    expect([alive(root!), alive(background!)]).toEqual([false, false])
   })
 
   it('the review prompt names the card witnesses and mutations and forbids directory runs and polling loops', () => {
@@ -178,17 +164,17 @@ describe('a review ended at its ceiling goes to the window', () => {
     expect(prompt.indexOf(WITNESS_RUNS_LINE)).toBeLessThan(prompt.indexOf('Finish by writing /tmp/v.json'))
   })
 
-  it('a review session ended at the ceiling without a verdict starts no second run and opens the window route', async () => {
-    const started: SpawnSessionParams[] = []
-    const { bench, worker } = benchWith(reviewerOver(async (params) => {
-      started.push(params)
-      throw new SessionCeilingReached(params.sessionId, params.ceilingMs!)
-    }))
+  it('a review that failed at the ceiling starts no second run and opens the window route', async () => {
+    let started = 0
+    const { bench, worker } = benchWith(async () => {
+      started += 1
+      throw new ReviewFailed('the review session ended at its ceiling without a verdict', { path: '/tmp/t', release: () => null }, true)
+    })
 
     expect(await worker.step()).toMatchObject({ kind: 'denied', denial: { reason: REVIEW_CEILING }, next: 'withdrawn' })
     await afterAllTicks(bench, worker)
 
-    expect(started).toHaveLength(1)
+    expect(started).toBe(1)
     expect(leasesOf(bench)).toBe(1)
     expect(eventsOf(bench.db, TASK_FAILED).map(payload => [payload.reason, payload.next])).toEqual([[REVIEW_CEILING, 'withdrawn']])
     const alarms = eventsOf(bench.db, BOARD_ALARM).filter(payload => payload.reason === REVIEW_CEILING)

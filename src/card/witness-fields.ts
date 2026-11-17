@@ -41,6 +41,8 @@ const NEGATION = /^!\s+/
 const BACKTICK = '`'
 const LINE_BREAK = /[\r\n]/
 const SINGLE_QUOTE = '\''
+const QUOTE_INSIDE_SINGLE_QUOTES = '\'\\\'\''
+const REGEX_METACHARACTER = /[.*+?^${}()|[\]\\]/g
 const EXIT_PREFIX = 'exit:'
 const KIND_SEPARATOR = ' · '
 const RENDERED = /^(W[1-9]\d*): `([^`]+)` · head (\S+) · base (\S+) · (?:acceptance|invariant)$/
@@ -185,8 +187,16 @@ export function runsFieldLine(runs: readonly string[]): string {
   return `${RUNS_FIELD}${JSON.stringify(runs)}`
 }
 
+function literalTitlePattern(title: string): string {
+  return title.replace(REGEX_METACHARACTER, '\\$&')
+}
+
+function singleQuoted(text: string): string {
+  return `'${text.replaceAll(SINGLE_QUOTE, QUOTE_INSIDE_SINGLE_QUOTES)}'`
+}
+
 export function fieldCommand(field: Pick<WitnessField, 'run' | 'test'>): string {
-  return field.test === null ? field.run : `${field.run} -t '${field.test}'`
+  return field.test === null ? field.run : `${field.run} -t ${singleQuoted(literalTitlePattern(field.test))}`
 }
 
 export function isAcceptanceField(field: Pick<WitnessField, 'head' | 'base'>): boolean {

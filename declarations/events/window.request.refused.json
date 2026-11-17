@@ -1,0 +1,10 @@
+{
+  "event": "window.request.refused",
+  "constant": "REQUEST_REFUSED",
+  "payload": [
+    "detail",
+    "kind",
+    "owner",
+    "request"
+  ]
+}

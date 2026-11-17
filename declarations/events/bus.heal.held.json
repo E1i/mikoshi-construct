@@ -1,0 +1,8 @@
+{
+  "event": "bus.heal.held",
+  "constant": "BUS_HEAL_HELD",
+  "payload": [
+    "backup",
+    "failure"
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "event": "decisions.imported",
+  "constant": "DECISIONS_IMPORTED",
+  "payload": [
+    "decisions",
+    "sha256"
+  ]
+}

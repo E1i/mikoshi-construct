@@ -1,0 +1,9 @@
+{
+  "event": "scope.widened",
+  "constant": "SCOPE_WIDENED",
+  "payload": [
+    "admission",
+    "detail",
+    "paths"
+  ]
+}

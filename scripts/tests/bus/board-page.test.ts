@@ -16,6 +16,7 @@ import { WINDOW_SILENT_MS } from '../../../src/commands/liveness.js'
 import { createUi } from '../../../src/ui/console.js'
 import { BANNER, LORE } from '../../../src/ui/lore.js'
 import { resolveTheme } from '../../../src/ui/theme.js'
+import { interfaceVersion } from '../../../src/version.js'
 import { checkMatrix, subagent, writeBus } from '../../../tests/board/bus-fixture.js'
 import { BOARD_DATA_FILE, boardProjection, DISK_FILES, escaped, filterRule, FLOW_META, printBoard, PROGRESS_ORDER, readEddiesLimits, readModelVersion, RELEASE_PROGRESS_ORDER, VIEW_KEY, writeBoardPage } from '../../cli/board-page.js'
 import { defaultBusPath } from '../../core/db.js'
@@ -189,6 +190,17 @@ function slotsOf(html: string): Map<string, string> {
     const from = html[open] === '\n' ? open + 1 : open
     return [name, html.slice(from, html.indexOf(end, from))]
   }))
+}
+
+const BACKLOG_OPEN = '<section class="panel backlog bevel" id="backlog" aria-labelledby="h-backlog">\n'
+
+function filledPage(shell: string, board: BoardData): string {
+  const page = Object.entries(board.slots).reduce((html, [name, inner]) => {
+    const open = html.indexOf('>', html.indexOf(`id="slot-${name}"`)) + 1
+    const from = html[open] === '\n' ? open + 1 : open
+    return `${html.slice(0, from)}${inner}${html.slice(from)}`
+  }, shell.replace('data-written=""', `data-written="${board.written}"`))
+  return page.replace(BACKLOG_OPEN, `${BACKLOG_OPEN}${board.filters.map(id => `<span class="filter-target" id="${id}"></span>\n`).join('')}`)
 }
 
 function boardWindow(html: string, storage: MemoryStorage | typeof THROWING_STORAGE, hash = '') {
@@ -375,6 +387,11 @@ describe('board.html', () => {
     return html.replace(/<style>[\s\S]*?<\/style>/g, ' ').replace(/<script>[\s\S]*?<\/script>/g, ' ').replace(/<title>[\s\S]*?<\/title>/g, ' ').replace(/<[^>]*>/g, ' ').replace(/&#39;|&quot;|&lt;|&gt;|&amp;/g, ' ')
   }
 
+  function withoutBusPanel(html: string): string {
+    expect(html).toContain('<div class="bus-panel')
+    return html.replace(/<div class="bus-panel[\s\S]*?<\/div>(?=\s*<\/section>)/, ' ')
+  }
+
   function busNumbers(busPath: string): Set<number> {
     const db = new DatabaseSync(busPath, { readOnly: true })
     try {
@@ -435,7 +452,7 @@ describe('board.html', () => {
     const warnLine = limits.warnRatio === null ? [] : [Math.round(limits.warnRatio * 100)]
     const allowed = [load, cores, ...busNumbers(busPath), ...Object.values(limits).filter(value => typeof value === 'number'), ...limits.modelWindows.values(), ...limits.cardLineBySize?.values() ?? [], ...warnLine, readModelVersion() ?? 0, ...version.version.split('.').map(Number), ...NOW.toISOString().split(/\D+/).filter(Boolean).map(Number)]
     const counts = Array.from({ length: 6 }, (_, at) => at)
-    const tokens = [...visibleText(html).matchAll(/(?<![\w.#-])\d+(?:\.\d+)?[kM]?(?![\w.])/g)].map(match => match[0])
+    const tokens = [...visibleText(withoutBusPanel(html)).matchAll(/(?<![\w.#-])\d+(?:\.\d+)?[kM]?(?![\w.])/g)].map(match => match[0])
     expect(tokens).toEqual(expect.arrayContaining(['182k', '1.4M', '3M']))
     for (const token of tokens) {
       const reading = readingOf(token)
@@ -456,6 +473,14 @@ describe('board.html', () => {
     expect(html.indexOf('id="h-backlog"')).toBeLessThan(html.indexOf('<footer class="statusline"'))
   })
 
+  it('the page header shows the ui version', () => {
+    const html = pageText(seededBus())
+    const version = JSON.parse(readFileSync(path.resolve(import.meta.dirname, '../../../package.json'), 'utf8')) as { version: string }
+    const header = html.slice(html.indexOf('<header'), html.indexOf('</header>'))
+    expect(header).toContain(`<span>ui <b>${escaped(interfaceVersion(version.version))}</b></span>`)
+    expect(interfaceVersion(version.version)).toMatch(new RegExp(`^${version.version.replace(/\./g, '\\.')}(?:\\+\\w+)?$`))
+  })
+
   it('the logo wrapper clips the glitch instead of scrolling', () => {
     const html = pageText(seededBus())
     expect(html).toContain('.banner-wrap { overflow-x: clip; min-inline-size: 0; }')
@@ -466,7 +491,7 @@ describe('board.html', () => {
     const silent = pageText(seededBus([
       { ts: minutesAgo(3), type: SESSION_HEARTBEAT, card: 861, payload: JSON.stringify({ step: 'launch', session: 's861' }) },
     ]))
-    expect(silent).toContain('launch · #861 · — · launch · pulse 3 min ago')
+    expect(silent).toMatch(/<div class="svc bevel" data-role="launch"[^>]*><div class="svc-top"><span class="svc-kind">launch<\/span>[\s\S]*?pulse 3 min ago/)
     expect(silent).not.toContain('class="edd')
     const spentOnly = pageText(seededBus([
       { ts: minutesAgo(3), type: SESSION_HEARTBEAT, card: 861, payload: JSON.stringify({ step: 'launch', session: 's861', spent: 2_600_000 }) },
@@ -557,7 +582,7 @@ describe('board.html', () => {
     const card = tileOf('implement', '#861')
     expect(card).toContain('<span class="edd-v">31k')
     expect(card).toContain('<span class="edd-v">52k')
-    const window = tileOf('window', 'operator')
+    const window = html.split('<div class="svc bevel" ').find(tile => tile.startsWith('data-role="window"'))
     expect(window).toContain('<span class="edd-k">ctx</span>')
     expect(window).toContain('<span class="edd-v">64k')
     expect(window).toContain('<span class="edd-v">97k')
@@ -585,8 +610,11 @@ describe('board.html', () => {
     const html = pageText(busPath)
     expect(lines).toContain('in work (1): #861')
     expect(html).toContain('<span class="name">in work</span><span class="n">1</span><span class="ids"><button type="button" class="cid" data-open="card-861" tabindex="0" aria-haspopup="dialog">#861 ›</button></span>')
-    for (const line of lines.slice(lines.indexOf('Services') + 1, -1))
+    for (const line of lines.slice(lines.indexOf('Services') + 1, -1).filter(line => !/^\S+ · #\d+ · /.test(line) && !line.startsWith('window · ') && !line.startsWith('bus · ')))
       expect(html).toContain(`<div class="svc-line">${escaped(line)}</div>`)
+    expect(lines).toContain('bus · pulse · — · pulse 1 min ago · slots in use: review 1')
+    expect(html).toContain('<span class="bus-pulse">● PULSE · 1m</span>')
+    expect(html).toContain('<li data-slot-queue="review" data-used="1"')
     const footer = Object.fromEntries(lines.at(-1)!.split(' · ').map(part => part.split(': ') as [string, string]))
     const statusline = html.slice(html.indexOf('<footer class="statusline"'))
     expect(statusline).toContain(`<span>agents <b>${footer['agents at work']}</b></span>`)
@@ -623,7 +651,7 @@ describe('board.html', () => {
     const header = sectionOf(html, '<p class="kv"', '</p>')
     expect(header).toContain(`<span>model <b>v${readModelVersion()}</b></span>`)
     expect(header).toMatch(/<span>written <b>[^<]+<\/b><\/span>/)
-    expect(header).toContain('<span>refresh <b>—</b></span>')
+    expect(header).toContain('<span>refresh <b>—</b><i class="countdown" id="refresh-in"></i></span>')
     expect(header).toMatch(/<span class="live" id="bus-live"( data-stale)?>bus (live|offline)<\/span>/)
     const services = sectionOf(html, '<h2 id="h-services">', '<div class="svc-grid">')
     expect(services).toMatch(/<span class="meta">quickhacks on the subnet · agents at work <b>\d+<\/b> · slots <b>[^<]+<\/b><\/span>/)
@@ -751,7 +779,7 @@ describe('board.html', () => {
     const html = pageText(busPath)
     const tiles = html.split('<div class="svc bevel" ').filter(tile => tile.includes('<span class="svc-target">#872</span>'))
     expect(tiles).toHaveLength(1)
-    expect(tiles[0]).toContain('answer · pulse 1 min ago')
+    expect(tiles[0]).toContain('pulse 1 min ago')
     expect(tiles[0]).toContain('<span class="edd-v">169k')
     const facts = liveFacts(busPath)
     expect(new Set(facts.services.map(service => `${service.role} ${service.task}`)).size).toBe(facts.services.length)
@@ -914,14 +942,15 @@ describe('board.html', () => {
   it('a node under CONSTRUCT_BUS_SLOTS_ANSWER=5 shows answer used/5 from the heartbeat', () => {
     const slots = slotsOfKind('answer', { [slotsVariable('answer')]: '5' })
     const html = pageText(seededBus([], [{ process: nodeProcess('answer'), type: PROCESS_HEARTBEAT, ts: minutesAgo(1), payload: JSON.stringify({ process: nodeProcess('answer'), queue: 'answer', slots }) }]))
-    expect(html).toContain('slots in use: answer 0/5, review 1')
+    expect(html).toContain('<li data-slot-queue="answer" data-used="0" data-total="5"><span>ANSWER</span>')
+    expect(html).toContain('<b>0/5</b>')
     expect(sectionOf(html, '<h2 id="h-services">', '<div class="svc-grid">')).toContain('slots <b>answer 0/5, review 1</b></span>')
     expect(html).not.toContain('records no capacity')
   })
 
   it('the page reads liveness from the bus pulse and lists no process', () => {
     const html = pageText(seededBus())
-    expect(html).toContain('bus · pulse · — · pulse 1 min ago · slots in use: review 1')
+    expect(html).toContain('<span class="bus-title">BUS LIVE V1</span><span class="bus-pulse">● PULSE · 1m</span>')
     expect(html).not.toContain('pid ')
     expect(html).not.toContain('<h2>Health</h2>')
   })
@@ -1061,14 +1090,14 @@ describe('board.html', () => {
       expect(dialog).toContain('<table class="mx" data-witnesses><thead><tr><th scope="col">id</th><th scope="col">run</th><th scope="col">test</th><th scope="col">head/base</th><th scope="col">proves</th></tr></thead>')
       expect(dialog).toContain('<tr><th scope="row">W1</th><td><code>pnpm exec vitest run tests/a.test.ts</code></td><td>the &lt;thing&gt;</td><td>pass/fail · last green</td><td>follows <button')
       expect(dialog).toContain('<tr><th scope="row">W2</th><td><code>test -f a.txt</code></td><td>—</td><td>pass/pass · last green</td><td>a stays</td></tr>')
-      expect(dialog).toContain('<p>runs:</p><div class="runs-group" data-lane="tests/board/**" data-glob><p class="runs-name">tests/board/** · вся папка</p></div><div class="runs-group" data-lane="tests"><p class="runs-name">tests</p><p><span class="tag">a.test.ts</span></p></div>')
+      expect(dialog).toContain('<p>runs:</p><div class="runs-group" data-lane="tests/board/**" data-glob><p class="runs-name">tests/board/** · whole folder</p></div><div class="runs-group" data-lane="tests"><p class="runs-name">tests</p><p><span class="tag">a.test.ts</span></p></div>')
       expect(dialog).not.toContain('witnesses: [')
     })
 
     it('a card with three paths in runs renders three separate elements', () => {
       const text = fieldCard(870, runsFieldLine(['tests/a.test.ts', 'tests/b.test.ts', 'tests/other/**']), witnessFieldsLine(FIELDS))
       const dialog = templatesOf(pageText(busOfFields(870, text, []))).get('dialog-card-870')!
-      expect(dialog).toContain('<p>runs:</p><div class="runs-group" data-lane="tests"><p class="runs-name">tests</p><p><span class="tag">a.test.ts</span> <span class="tag">b.test.ts</span></p></div><div class="runs-group" data-lane="tests/other/**" data-glob><p class="runs-name">tests/other/** · вся папка</p></div>')
+      expect(dialog).toContain('<p>runs:</p><div class="runs-group" data-lane="tests"><p class="runs-name">tests</p><p><span class="tag">a.test.ts</span> <span class="tag">b.test.ts</span></p></div><div class="runs-group" data-lane="tests/other/**" data-glob><p class="runs-name">tests/other/** · whole folder</p></div>')
       const style = /<style>([\s\S]*?)<\/style>/.exec(pageText(seededBus()))![1]!
       expect(style).toContain('&[data-glob] { --_accent-style: dashed; }')
     })
@@ -1129,7 +1158,7 @@ describe('board.html', () => {
       const event: SeedEvent = { ts: minutesAgo(1), type: WITNESS_FIELDS_BACKFILLED, card: null, payload: JSON.stringify(backfill) }
       const dialog = templatesOf(pageText(busOfFields(870, text, [event]))).get('dialog-card-870')!
       expect(dialog).toContain('<tr><th scope="row">W1</th><td><code>pnpm exec vitest run tests/a.test.ts</code></td><td>the thing</td><td>pass/fail · last not run</td>')
-      expect(dialog).toContain('<p>runs:</p><div class="runs-group" data-lane="tests/board/**" data-glob><p class="runs-name">tests/board/** · вся папка</p></div>')
+      expect(dialog).toContain('<p>runs:</p><div class="runs-group" data-lane="tests/board/**" data-glob><p class="runs-name">tests/board/** · whole folder</p></div>')
       expect(dialog).not.toContain('Runs: tests/board/**')
       expect(dialog).not.toContain('<ul><li>')
     })
@@ -1141,9 +1170,9 @@ describe('board.html', () => {
       expect(dialog).not.toContain('data-witnesses')
     })
 
-    it('the services grid column is 16rem in the rendered css', () => {
+    it('the services grid column is 20rem in the rendered css', () => {
       const style = /<style>([\s\S]*?)<\/style>/.exec(pageText(seededBus()))![1]!
-      expect(style).toContain('.svc-grid { display: grid; gap: var(--space-xs); padding: var(--space-xs); grid-template-columns: repeat(auto-fill, minmax(min(100%, 16rem), 1fr)); }')
+      expect(style).toContain('.svc-grid { display: grid; gap: var(--space-xs); padding: var(--space-xs); grid-template-columns: repeat(auto-fill, minmax(min(100%, 20rem), 1fr)); }')
     })
   })
 
@@ -1167,7 +1196,7 @@ describe('board.html', () => {
     before.scroller.scrollTop = 120
     before.scroller.dispatch('scroll')
     before.click('TR', 'card-862')
-    expect(JSON.parse(storage.getItem(VIEW_KEY)!)).toEqual({ filter: '#show-planned', scroll: 120, open: 'card-862', agents: {} })
+    expect(JSON.parse(storage.getItem(VIEW_KEY)!)).toEqual({ filter: '#show-planned', scroll: 120, open: 'card-862', agents: {}, folds: {} })
     const after = boardWindow(html, storage)
     expect(after.location.hash).toBe('#show-planned')
     expect(after.scroller.scrollTop).toBe(120)
@@ -1183,7 +1212,8 @@ describe('board.html', () => {
     try {
       const projection = boardProjection(db, busPath, tickMs, DISK_FILES, handoffBeside(busPath))
       projection.project(now)
-      return { html: readFileSync(projection.file, 'utf8'), data: readFileSync(projection.dataFile, 'utf8') }
+      const data = readFileSync(projection.dataFile, 'utf8')
+      return { html: filledPage(readFileSync(projection.file, 'utf8'), boardOf(data)), data }
     }
     finally {
       db.close()
@@ -1331,7 +1361,7 @@ describe('board.html', () => {
     const { html, data } = projectedWithHandoff(NOW, 45_000)
     expect(boardOf(data).tickMs).toBe(45_000)
     expect(html).toContain('data-tick-ms="45000"')
-    expect(html).toContain('<span>refresh <b>45s</b></span>')
+    expect(html).toContain('<span>refresh <b>45s</b><i class="countdown" id="refresh-in"></i></span>')
     const board = boardWindow(html, new MemoryStorage())
     expect(board.timeouts.map(timeout => timeout.ms)).toEqual([45_000])
     const { data: faster } = projectedWithHandoff(LATER, 7_000)
@@ -1341,11 +1371,11 @@ describe('board.html', () => {
     expect(board.timeouts.map(timeout => timeout.ms)).toEqual([7_000])
     const script = /<script>([\s\S]*?)<\/script>/.exec(html)![1]!
     expect(script).not.toMatch(/setInterval|setTimeout\(update, \d/)
-    expect(script).toContain('setTimeout(update, period)')
+    expect(script).toContain('Date.parse(written) + period + WRITE_SLACK_MS - Date.now()')
     const snapshot = boardWindow(pageText(seededBus()), new MemoryStorage())
     expect(snapshot.timeouts).toEqual([])
     const { html: projectedShell } = projectedWithHandoff(NOW, TICK_MS)
-    expect(projectedShell).toContain(`<span>refresh <b>${TICK_MS / 1000}s</b></span>`)
+    expect(projectedShell).toContain(`<span>refresh <b>${TICK_MS / 1000}s</b><i class="countdown" id="refresh-in"></i></span>`)
   })
 
   it('a broken board-data.js keeps the previous data and shows bus offline, the word a silent factory renders', () => {

@@ -1,0 +1,9 @@
+{
+  "event": "card.pulse",
+  "constant": "CARD_PULSE",
+  "payload": [
+    "pgid",
+    "session",
+    "since"
+  ]
+}

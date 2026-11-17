@@ -1,0 +1,12 @@
+{
+  "event": "intake",
+  "constant": "INTAKE_EVENT",
+  "payload": [
+    "card",
+    "event",
+    "from",
+    "source",
+    "task",
+    "to"
+  ]
+}

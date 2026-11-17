@@ -165,8 +165,32 @@ export function expiredWindowShards(db: DatabaseSync, now: Date, actor: string):
   return unendedWindowShards(db).filter(shard => Date.parse(shard.until) <= now.getTime()).map(shard => windowShardEnded(SHARD_EXPIRED, actor, shard.id, now))
 }
 
+interface HeldDecisions {
+  at: number
+  decisions: InForceDecision[]
+}
+
+const heldDecisions = new WeakMap<DatabaseSync, HeldDecisions>()
+
 export function decisionsInForceAt(db: DatabaseSync, now: Date): InForceDecision[] {
+  const held = heldDecisions.get(db)
+  if (held !== undefined && held.at === now.getTime())
+    return held.decisions
   return inForceDecisions(db).filter(decision => !lapsed(termOf(decision.text), now))
+}
+
+export function withDecisionsHeldAt<T>(db: DatabaseSync, now: Date, work: () => T): T {
+  const outer = heldDecisions.get(db)
+  heldDecisions.set(db, { at: now.getTime(), decisions: decisionsInForceAt(db, now) })
+  try {
+    return work()
+  }
+  finally {
+    if (outer === undefined)
+      heldDecisions.delete(db)
+    else
+      heldDecisions.set(db, outer)
+  }
 }
 
 export function cardDecisionLines(db: DatabaseSync, cardId: number, now: Date): string[] {

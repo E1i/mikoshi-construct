@@ -1,13 +1,15 @@
 import type { OwnerWait } from '../../../scripts/core/bus-readings.js'
 import type { BusDb } from '../cost/bus.js'
+import type { BusPanelFacts, PanelRow } from './bus-panel.js'
 import type { GateRunRow } from './gate-runs.js'
 import type { Goal } from './goal.js'
 import type { QueuedStanding, TranscriptReader } from './sessions.js'
 import { existsSync } from 'node:fs'
-import { behindLine, CARDS, currentLane, lastReducedOwnerWaits, readLastReduced } from '../../../scripts/core/bus-readings.js'
-import { BUS_PULSE, CARD_ADMITTED, CARD_FELL, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, CHECKS_MATRIX_EVENT, GATE_RUN, PR_GROUPS, PROCESS_HEARTBEAT, REVIEW_DRIP, SESSION_HEARTBEAT, SLICE_PARENTS_BACKFILLED, TERMINAL_LANES, WINDOW_HEARTBEAT, WINDOW_SUBAGENT_EVENT } from '../../../scripts/core/events.js'
+import { behindLine, CARDS, currentLane, IN_ORDER_MARK, lastReducedOwnerWaits, readLastReduced } from '../../../scripts/core/bus-readings.js'
+import { BOARD_ALARM, BOARD_ALARM_CLEARED, BUS_PULSE, CARD_ADMITTED, CARD_FELL, CARD_PULSE, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, CHECKS_MATRIX_EVENT, GATE_RUN, NETWATCH_SKIPPED, PR_GROUPS, PROCESS_HEARTBEAT, REVIEW_DRIP, SESSION_HEARTBEAT, SLICE_PARENTS_BACKFILLED, TASK_RENEWED, TERMINAL_LANES, WINDOW_HEARTBEAT, WINDOW_SUBAGENT_EVENT } from '../../../scripts/core/events.js'
 import { PLAIN_LORE } from '../../ui/lore.js'
 import { withReadOnlyBus } from '../cost/bus.js'
+import { busPanelFacts, PANEL_READING, panelSince, payloadOf, RECENT_EVENTS, text } from './bus-panel.js'
 import { gateRunFacts } from './gate-runs.js'
 import { goalOf } from './goal.js'
 import { clientTranscriptReader, sessionRowTime } from './sessions.js'
@@ -70,6 +72,7 @@ export interface CardsAtStage {
 }
 
 export type { OwnerWait, OwnerWaitNeed } from '../../../scripts/core/bus-readings.js'
+export type { BusPanelFacts } from './bus-panel.js'
 
 export interface ServiceGauges {
   context: number | null
@@ -82,6 +85,22 @@ export interface SubagentReading {
   context: number | null
   spent: number | null
   at: string | null
+}
+
+export interface CrawlerReading {
+  id: string
+  kind: string
+  description: string | null
+  startedAt: string | null
+  state: string
+  context: number | null
+  spent: number | null
+}
+
+export interface BusWindow {
+  core: number | null
+  skills: string[]
+  crawlers: CrawlerReading[]
 }
 
 export interface BusService {
@@ -126,6 +145,8 @@ export interface BusFacts {
   shadow?: BusShadow
   tails?: BusTail[]
   queued?: QueuedStanding[]
+  window?: BusWindow
+  panel?: BusPanelFacts
 }
 
 export interface BusTail {
@@ -186,20 +207,6 @@ interface RoleRow {
   role: string
   status: string
   state: string
-}
-
-function payloadOf(text: string): Record<string, unknown> {
-  try {
-    const value = JSON.parse(text) as unknown
-    return value != null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
-  }
-  catch {
-    return {}
-  }
-}
-
-function text(value: unknown): string | null {
-  return typeof value === 'string' && value !== '' ? value : null
 }
 
 function count(value: unknown): number {
@@ -280,12 +287,29 @@ function subagentReadings(value: unknown): SubagentReading[] {
   })
 }
 
-function lastWindowBeat(db: BusDb, now: Date): { session: string | null, subagents: SubagentReading[] } {
+function crawlerReadings(value: unknown): CrawlerReading[] {
+  return (Array.isArray(value) ? value as unknown[] : []).flatMap((entry) => {
+    if (entry === null || typeof entry !== 'object')
+      return []
+    const crawler = entry as Record<string, unknown>
+    const [id, kind, state] = [text(crawler.id), text(crawler.kind), text(crawler.state)]
+    return id === null || state === null ? [] : [{ id, kind: kind ?? id, description: text(crawler.description), startedAt: text(crawler.started_at), state, context: positiveOrNull(crawler.ctx), spent: positiveOrNull(crawler.spent) }]
+  })
+}
+
+function windowOfBeat(payload: Record<string, unknown>): BusWindow {
+  const skills = Array.isArray(payload.skills) ? payload.skills.flatMap(skill => text(skill) ?? []) : []
+  return { core: share(payload.core), skills, crawlers: crawlerReadings(payload.crawlers) }
+}
+
+const NO_WINDOW_BEAT: BusWindow = { core: null, skills: [], crawlers: [] }
+
+function lastWindowBeat(db: BusDb, now: Date): { session: string | null, subagents: SubagentReading[], window: BusWindow } {
   const row = db.prepare('SELECT id, ts, type, card_id, pr, dedupe_key, legacy, payload FROM events WHERE type = ? AND legacy = 0 ORDER BY id DESC LIMIT 1').get(WINDOW_HEARTBEAT) as unknown as EventRow | undefined
   if (row === undefined || isSilent(row, now))
-    return { session: null, subagents: [] }
+    return { session: null, subagents: [], window: NO_WINDOW_BEAT }
   const payload = payloadOf(row.payload)
-  return { session: text(payload.session), subagents: subagentReadings(payload.subagents) }
+  return { session: text(payload.session), subagents: subagentReadings(payload.subagents), window: windowOfBeat(payload) }
 }
 
 const WINDOW_TILE_ROLE = 'window'
@@ -484,11 +508,6 @@ function cardsOf(db: BusDb, events: BoardEvents): BusCard[] {
   })
 }
 
-function lastPulse(db: BusDb): string | null {
-  const row = db.prepare('SELECT ts FROM events WHERE type = ? ORDER BY id DESC LIMIT 1').get(BUS_PULSE) as { ts: string | null } | undefined
-  return row?.ts ?? null
-}
-
 const LAST_NODE_CAPACITY = `
   SELECT queue, slots FROM (
     SELECT json_extract(payload, '$.queue') AS queue, json_extract(payload, '$.slots') AS slots, row_number() OVER (PARTITION BY json_extract(payload, '$.queue') ORDER BY ts DESC) AS rank
@@ -501,10 +520,19 @@ function nodeCapacity(db: BusDb): Map<string, number> {
   return new Map(rows.flatMap(row => typeof row.slots === 'number' && Number.isSafeInteger(row.slots) && row.slots > 0 ? [[row.queue, row.slots] as const] : []))
 }
 
-function slotsOf(db: BusDb): BusSlot[] {
-  const used = new Map((db.prepare(`SELECT queue, count(*) AS used FROM tasks WHERE state = 'leased' GROUP BY queue`).all() as unknown as { queue: string, used: number }[]).map(row => [row.queue, Number(row.used)] as const))
+function tilesByRole(tiles: readonly BusService[]): Map<string, number> {
+  const counted = new Map<string, number>()
+  for (const tile of tiles)
+    counted.set(tile.role, (counted.get(tile.role) ?? 0) + 1)
+  return counted
+}
+
+function slotsOf(db: BusDb, sessions: readonly BusService[]): BusSlot[] {
+  const leased = new Map((db.prepare(`SELECT queue, count(*) AS used FROM tasks WHERE state = 'leased' GROUP BY queue`).all() as unknown as { queue: string, used: number }[]).map(row => [row.queue, Number(row.used)] as const))
   const capacity = nodeCapacity(db)
-  return [...new Set([...used.keys(), ...capacity.keys()])].sort().map(queue => ({ queue, used: used.get(queue) ?? 0, total: capacity.get(queue) ?? null }))
+  const tiles = tilesByRole(sessions)
+  const used = (queue: string): number => Math.max(leased.get(queue) ?? 0, tiles.get(queue) ?? 0)
+  return [...new Set([...leased.keys(), ...capacity.keys()])].sort().map(queue => ({ queue, used: used(queue), total: capacity.get(queue) ?? null }))
 }
 
 export interface BusTask {
@@ -591,6 +619,22 @@ function queuedFacts(db: BusDb): Pick<BusFacts, 'queued'> {
   return queued.length === 0 ? {} : { queued }
 }
 
+export const QUIET_EVENT_TYPES: readonly string[] = [SESSION_HEARTBEAT, BUS_PULSE, WINDOW_HEARTBEAT, PROCESS_HEARTBEAT, CARD_PULSE, NETWATCH_SKIPPED, TASK_RENEWED]
+
+function panelOf(db: BusDb, now: Date): BusPanelFacts {
+  const row = db.prepare(PANEL_READING).get({
+    since: panelSince(now),
+    mark: IN_ORDER_MARK,
+    pulse: BUS_PULSE,
+    quiet: JSON.stringify(QUIET_EVENT_TYPES),
+    recent: RECENT_EVENTS,
+    heartbeat: PROCESS_HEARTBEAT,
+    alarm: BOARD_ALARM,
+    cleared: BOARD_ALARM_CLEARED,
+  }) as unknown as PanelRow
+  return busPanelFacts(row, now)
+}
+
 export function busFacts(db: BusDb, now: Date, transcripts: TranscriptReader = clientTranscriptReader): BusFacts {
   const queue = db.prepare(`SELECT count(*) AS n FROM tasks WHERE queue = 'review' AND state IN ('queued', 'leased')`).get() as { n: number }
   const events = boardEvents(db)
@@ -598,13 +642,15 @@ export function busFacts(db: BusDb, now: Date, transcripts: TranscriptReader = c
   const cards = cardReading.rows
   const sessions = sessionServices(events, cards, now, transcripts)
   const waits = lastReducedOwnerWaits(db)
+  const panel = panelOf(db, now)
   return {
     at: now.toISOString(),
     goal: goalOf(db, now),
     waits: waits.rows,
     ...waits.behind === null ? {} : { waitsStale: behindLine(waits.behind) },
-    pulse: lastPulse(db),
-    slots: slotsOf(db),
+    pulse: panel.pulses[0] ?? null,
+    slots: slotsOf(db, sessions),
+    window: lastWindowBeat(db, now).window,
     cards,
     ...cardReading.behind === null ? {} : { cardsStale: behindLine(cardReading.behind) },
     services: [...windowTiles(db, events, now), ...oneTilePerProcess(taskServices(db), sessions), ...sessions],
@@ -614,6 +660,7 @@ export function busFacts(db: BusDb, now: Date, transcripts: TranscriptReader = c
     ...orderFacts(events),
     ...tailFacts(events),
     ...queuedFacts(db),
+    panel,
   }
 }
 

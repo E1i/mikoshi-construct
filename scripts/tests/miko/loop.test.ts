@@ -16,12 +16,14 @@ import { lastProcessBeats, recordProcessHeartbeat } from '../../supervisor/heart
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { LOADED_CORE_VARIABLE, PROJECT_VARIABLE } from '../../window/eddies-measure.js'
 import { STATE_LABELS } from '../../window/handoff-check.js'
-import { claimLoop, CLAUDE_VARIABLE, claudeCommand, compoundCommandRefusal, CONTINUE_PROMPT, DEFAULT_CLAUDE, DOUBLE_CTRL_C_WINDOW_MS, doubleCtrlCWatcher, exitRequestFile, HANGUPS, liveLoop, loopProcess, MIKO_HANDOFF_NAME, mikoHandoff, once, PAUSE_MS, pauseUntilCtrlC, PREFIX, recordLoopEnded, requestEndsSession, requesterOf, runMikoLoop, runSession, sessionAndPauseSharingCtrlCs, sessionCtrlCsStillInFlight, sessionScript, takeExitRequest } from '../../window/loop.js'
+import { claimLoop, CLAUDE_VARIABLE, claudeCommand, compoundCommandRefusal, CONTINUE_PROMPT, DEFAULT_CLAUDE, DOUBLE_CTRL_C_WINDOW_MS, DOUBLE_CTRL_C_WINDOW_VARIABLE, doubleCtrlCWatcher, doubleCtrlCWindowOf, exitRequestFile, HANGUPS, liveLoop, loopProcess, MIKO_HANDOFF_NAME, mikoHandoff, once, PAUSE_MS, pauseUntilCtrlC, PREFIX, recordLoopEnded, requestEndsSession, requesterOf, runMikoLoop, runSession, sessionAndPauseSharingCtrlCs, sessionCtrlCsStillInFlight, sessionScript, takeExitRequest } from '../../window/loop.js'
 import { waitFor } from '../wait-for.js'
 
 const REPO_ROOT = path.join(import.meta.dirname, '..', '..', '..')
 const LOOP = path.join(REPO_ROOT, 'scripts', 'window', 'loop.ts')
 const READY_DEADLINE_MS = 15_000
+const WINDOW_PAST_THE_TEST_MS = 60_000
+const TICKS_PAST_THE_DEFAULT_WINDOW = Math.ceil(DOUBLE_CTRL_C_WINDOW_MS / 1000) + 1
 const PAUSE_LINE = 'next session in'
 const SESSION = 'session-972'
 const LIMITS = { contextLimit: 250000, sessionSpend: 3000000, agentSpend: 2000000, runSpend: 3000000, warnRatio: 0.8 }
@@ -39,7 +41,10 @@ case "$1" in
     presses=0
     trap 'presses=$((presses + 1)); echo "$presses" >> "$STUB_DIR/presses"' INT
     echo 'STATUS: CONTINUE' > "$HOME/.construct/handoff/miko.md"; : > "$STUB_DIR/ready"
-    while [ "$presses" -lt 2 ]; do sleep 1 </dev/null >/dev/null 2>&1 & wait $!; done
+    while [ "$presses" -lt 2 ]; do
+      sleep 1 </dev/null >/dev/null 2>&1 & wait $!
+      if [ "$presses" -gt 0 ]; then echo tick >> "$STUB_DIR/ticks"; fi
+    done
     exit 0 ;;
   hang) echo 'STATUS: CONTINUE' > "$HOME/.construct/handoff/miko.md"; : > "$STUB_DIR/ready"; exec sleep 30 ;;
   threshold)
@@ -98,10 +103,10 @@ function lines(dir: string, name: string): string[] {
   return existsSync(path.join(dir, name)) ? readFileSync(path.join(dir, name), 'utf8').split('\n').filter(Boolean) : []
 }
 
-function startLoop(dir: string, claude = path.join(dir, 'claude')): { done: Promise<{ code: number | null, stderr: string }>, pid: number, stderr: NodeJS.ReadableStream } {
+function startLoop(dir: string, claude = path.join(dir, 'claude'), extraEnv: NodeJS.ProcessEnv = {}): { done: Promise<{ code: number | null, stderr: string }>, pid: number, stderr: NodeJS.ReadableStream } {
   const child = spawn(process.execPath, ['--import', 'tsx', LOOP], {
     cwd: REPO_ROOT,
-    env: { ...process.env, HOME: dir, CONSTRUCT_BUS_DB: path.join(dir, '.construct', 'bus.db'), STUB_DIR: dir, MIKO_CLAUDE: claude, CONSTRUCT_CARD: '', CONSTRUCT_HANDOFF: '', CONSTRUCT_HANDOFF_DIR: '', CLAUDE_CODE_SESSION_ID: SESSION, CLAUDE_PROJECT_DIR: dir },
+    env: { ...process.env, HOME: dir, CONSTRUCT_BUS_DB: path.join(dir, '.construct', 'bus.db'), STUB_DIR: dir, MIKO_CLAUDE: claude, CONSTRUCT_CARD: '', CONSTRUCT_HANDOFF: '', CONSTRUCT_HANDOFF_DIR: '', CLAUDE_CODE_SESSION_ID: SESSION, CLAUDE_PROJECT_DIR: dir, ...extraEnv },
     stdio: ['ignore', 'ignore', 'pipe'],
     detached: true,
   })
@@ -209,16 +214,25 @@ describe('pnpm miko restarts Miko in its own terminal while miko.md says STATUS:
     expect({ code, calls: lines(dir, 'calls'), stderr }).toMatchObject({ code: 0, calls: ['0|', `1|${CONTINUE_PROMPT}`], stderr: expect.stringContaining('STATUS: OWNER: no next session') })
   }, 20_000)
 
-  it('a double Ctrl-C ends the loop', async () => {
+  async function doubleCtrlCAfter(ticks: number): Promise<void> {
     const dir = home(['deaf', 'owner 0'])
-    const loop = startLoop(dir)
+    const loop = startLoop(dir, undefined, { [DOUBLE_CTRL_C_WINDOW_VARIABLE]: String(WINDOW_PAST_THE_TEST_MS) })
     await sessionReady(dir)
     process.kill(-loop.pid, 'SIGINT')
     await waitFor(() => lines(dir, 'presses').length === 1, () => 'the session to see the first Ctrl-C', READY_DEADLINE_MS)
+    await waitFor(() => lines(dir, 'ticks').length >= ticks, () => `the session to live ${ticks} ticks after the first Ctrl-C`, READY_DEADLINE_MS)
     process.kill(-loop.pid, 'SIGINT')
     const outcome = await loop.done
     expect(lines(dir, 'calls')).toEqual(['0|'])
     expect(outcome).toMatchObject({ code: 0, stderr: expect.stringContaining('double Ctrl+C during the session: no next session') })
+  }
+
+  it('a double Ctrl-C ends the loop', async () => {
+    await doubleCtrlCAfter(0)
+  }, 20_000)
+
+  it('a double Ctrl-C ends the loop even when the second signal lands late in the window', async () => {
+    await doubleCtrlCAfter(TICKS_PAST_THE_DEFAULT_WINDOW)
   }, 20_000)
 
   it('under pnpm miko, one Ctrl+C in the pause ends pnpm and the loop together, so no session starts orphaned from the terminal', async () => {
@@ -494,6 +508,25 @@ describe('doubleCtrlCWatcher sees two Ctrl-C within DOUBLE_CTRL_C_WINDOW_MS as a
     const watcher = doubleCtrlCWatcher(() => times.shift()!)
     presses.forEach(() => watcher.press())
     expect({ seen: watcher.seen(), presses: watcher.presses() }).toEqual({ seen, presses: presses.length })
+  })
+
+  it('reads two presses against the window it is given, not the default', () => {
+    const times = [0, DOUBLE_CTRL_C_WINDOW_MS * 4]
+    const watcher = doubleCtrlCWatcher(() => times.shift()!, DOUBLE_CTRL_C_WINDOW_MS * 4)
+    watcher.press()
+    watcher.press()
+    expect(watcher.seen()).toBe(true)
+  })
+
+  it.each([
+    { value: undefined, windowMs: DOUBLE_CTRL_C_WINDOW_MS },
+    { value: '60000', windowMs: 60_000 },
+    { value: '0', windowMs: DOUBLE_CTRL_C_WINDOW_MS },
+    { value: '-5', windowMs: DOUBLE_CTRL_C_WINDOW_MS },
+    { value: '1.5', windowMs: DOUBLE_CTRL_C_WINDOW_MS },
+    { value: 'soon', windowMs: DOUBLE_CTRL_C_WINDOW_MS },
+  ])('the window from the environment is $windowMs ms when it says $value', ({ value, windowMs }) => {
+    expect(doubleCtrlCWindowOf(value === undefined ? {} : { [DOUBLE_CTRL_C_WINDOW_VARIABLE]: value })).toBe(windowMs)
   })
 })
 

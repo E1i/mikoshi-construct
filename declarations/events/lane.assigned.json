@@ -1,0 +1,11 @@
+{
+  "event": "lane.assigned",
+  "constant": "LANE_ASSIGNED",
+  "payload": [
+    "admission",
+    "after",
+    "lane",
+    "lanes",
+    "reason"
+  ]
+}

@@ -13,8 +13,8 @@ import { ANSWER_STEP, CARD_STARTED, CARD_STOPPED, QUESTION_AGENT } from '../../c
 import { leaseNext } from '../../core/lease.js'
 import { queueTask } from '../../core/queue.js'
 import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
-import { answerHandoffPath, claudeAnswerer, FreshBaseConflict, ownerQuestionPath, realAnswererTools, RoundTimer } from '../../nodes/answer/answerer.js'
-import { TSX_PIPE_DIRECTORY } from '../../ports/shift-settings.js'
+import { answerHandoffPath, claudeAnswerer, FreshBaseConflict, ownerQuestionPath, realAnswererTools, RoundTimer, windowGateRule } from '../../nodes/answer/answerer.js'
+import { SESSION_BASH_CAP, TSX_PIPE_DIRECTORY } from '../../ports/shift-settings.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { ranTheGreenGate } from './gate-stream.js'
 import { sha } from './github-fake.js'
@@ -58,12 +58,13 @@ function treeSettings(worktree: string, ownerQuestion: string): unknown {
   return {
     sandbox: { enabled: true, failIfUnavailable: true, allowUnsandboxedCommands: false, network: { allowLocalBinding: true, allowUnixSockets: [TSX_PIPE_DIRECTORY] } },
     permissions: { allow: [`Bash(${TREE_GATE})`, `Edit(/${worktree}/**)`, `Edit(/${ownerQuestion})`] },
+    env: SESSION_BASH_CAP,
     autoMemoryEnabled: false,
     claudeMdExcludes: [path.join(homedir(), '.claude', 'CLAUDE.md')],
   }
 }
 
-interface Spend { spent?: number, handoff?: string }
+interface Spend { spent?: number, handoff?: string, overspent?: boolean }
 
 async function answerAt(context: number, cardTools?: AnswererTools['cardTools'], spend: Spend = {}) {
   const root = mkdtempSync(path.join(tmpdir(), 'bus-answerer-'))
@@ -94,6 +95,7 @@ async function answerAt(context: number, cardTools?: AnswererTools['cardTools'],
     contextWarn: () => CONTEXT_WARN,
     spent: session => (session === CARD_SESSION ? spend.spent ?? 0 : 0),
     spendWarn: () => SPEND_WARN,
+    overspent: card => card.session === CARD_SESSION && spend.overspent === true,
     diff: () => DIFF,
   })
   const answered = await answerer(request)
@@ -101,6 +103,15 @@ async function answerAt(context: number, cardTools?: AnswererTools['cardTools'],
 }
 
 describe('the answerer', () => {
+  it('the answer prompt gives the session bash cap as the bash timeout', () => {
+    const card = { session: NEW_SESSION, worktree: '/tmp/tree', branch: 'b' }
+    const gate = { prepush: ['pnpm run quality'], handoffWrite: null, codeMatrix: null }
+    const rule = windowGateRule(card, gate, '/tmp/question.txt')
+
+    expect(rule).toContain(`Bash timeout of ${SESSION_BASH_CAP.BASH_MAX_TIMEOUT_MS}.`)
+    expect(rule).not.toContain('600000')
+  })
+
   it('starts a new session in the card tree when the card session context is above warn', async () => {
     const { answered, runs, published, prompt } = await answerAt(201_662)
 
@@ -152,6 +163,29 @@ describe('the answerer', () => {
       { resumed: false, kept: true, read: true },
       { resumed: true, kept: false, read: false },
     ])
+  })
+
+  it('the round after an overspend stop starts fresh from the saved tree', async () => {
+    const overspent = await answerAt(120_000, undefined, { overspent: true, handoff: HANDOFF })
+
+    expect(overspent.answered).toMatchObject({ session: NEW_SESSION, resumed: false })
+    expect(overspent.runs[0]!.argv).not.toContain('--resume')
+    expect(overspent.runs[0]!.argv).toContain(NEW_SESSION)
+    expect(overspent.prompt).toContain(HANDOFF)
+    expect(overspent.prompt).toContain(DIFF)
+    expect(overspent.handoffKept).toBe(true)
+  })
+
+  it('the overspend stop the answerer reads is the spend stop of the card session in the Eddies journal of its tree', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'bus-answerer-'))
+    roots.push(root)
+    const worktree = path.join(root, 'mc-1207')
+    mkdirSync(path.join(worktree, '.construct'), { recursive: true })
+    const stop = (session: string, level: string): string => JSON.stringify({ event: 'budget-stop', level, spent: 44, limit: 40, tool: null, at: '2026-11-16T08:00:00.000Z', session_id: session })
+    writeFileSync(path.join(worktree, '.construct', 'eddies.jsonl'), `${[stop(CARD_SESSION, 'session-spend'), stop('another-session', 'session-spend'), stop('context-session', 'context')].join('\n')}\n`)
+    const overspent = realAnswererTools(path.join(root, 'bus.db')).overspent!
+
+    expect(['card-session-1207', 'context-session', 'unknown-session'].map(session => overspent({ session, worktree, branch: 'feat/card-1207' }))).toEqual([true, false, false])
   })
 
   it.each([[201_662, 'new'], [120_000, 'resumed']])('starts the %s-context %s session with the shift settings of the card tree and its owner-question file', async (context) => {

@@ -1,0 +1,10 @@
+{
+  "event": "role.returned",
+  "constant": "ROLE_RETURNED",
+  "payload": [
+    "ended",
+    "handoff",
+    "last_sign",
+    "role"
+  ]
+}

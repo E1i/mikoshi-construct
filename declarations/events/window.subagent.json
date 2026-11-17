@@ -1,0 +1,12 @@
+{
+  "event": "window.subagent",
+  "constant": "WINDOW_SUBAGENT_EVENT",
+  "payload": [
+    "phase",
+    "role",
+    "session",
+    "step",
+    "task",
+    "tree"
+  ]
+}

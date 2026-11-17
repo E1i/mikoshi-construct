@@ -1,0 +1,9 @@
+{
+  "event": "card.released",
+  "constant": "CARD_RELEASED",
+  "payload": [
+    "reason",
+    "request",
+    "takeover"
+  ]
+}

@@ -1,12 +1,15 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { WitnessField } from '../../src/card/witness-fields.js'
-import type { BusCard, BusFacts, BusMatrix, BusService, CardsAtStage, CardStage, OwnerWait, SubagentReading } from '../../src/commands/board/bus.js'
+import type { BusCard, BusFacts, BusMatrix, BusService, CardsAtStage, CardStage, OwnerWait } from '../../src/commands/board/bus.js'
 import type { CardMark, PlanProgress, ReleaseStage } from '../../src/commands/board/goal.js'
-import type { FactoryState } from '../../src/commands/liveness.js'
+import type { FactoryState, TranscriptReader } from '../../src/commands/liveness.js'
 import type { CheckCatalog } from '../ci/card-runs.js'
 import type { LayerMap } from '../core/layer-map.js'
 import type { CardFields } from '../intake/card-contract.js'
 import type { WitnessRecordOnHead, WitnessTable } from '../intake/witness-fields-backfill.js'
+import type { RoundKind, RoundSample } from '../supervisor/expected-time.js'
+import type { RunsGroup, RunsReading } from './board-page/runs-html.js'
+import type { AgentWords, EddiesLimits, Gauges, RoundStep, SessionView } from './board-page/session-card.js'
 import type { BoardWarning, SessionContext } from './board-warnings.js'
 import type { CardChain } from './card-chain.js'
 import { createHash } from 'node:crypto'
@@ -15,17 +18,19 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import { Worker } from 'node:worker_threads'
 import { RUNS_PREFIX } from '../../src/card/covering-tests.js'
 import { fieldCommand } from '../../src/card/witness-fields.js'
 import { busFacts, CARD_STAGES, latestCardEvents, openTasks } from '../../src/commands/board/bus.js'
 import { DROPPED, droppedLine, goalOf, MARK_WORDS, planLine } from '../../src/commands/board/goal.js'
-import { backlogCards, isLive, laneColumns, liftedByTheWindow, markedName, matrixLines, pulseLines, screenLines, sliceMark, slotsReading, tallyLine, taskTally, waitAction, waitTarget, WINDOW_WAITS_ROLE } from '../../src/commands/board/screens.js'
-import { factoryLiveness } from '../../src/commands/liveness.js'
+import { backlogCards, counted, isLive, laneColumns, liftedByTheWindow, markedName, matrixLines, screenLines, sliceMark, slotsReading, tallyLine, taskGroupLine, taskGroups, taskTally, waitAction, waitTarget, WINDOW_WAITS_ROLE } from '../../src/commands/board/screens.js'
+import { clientTranscriptReader, factoryLiveness, readTranscript } from '../../src/commands/liveness.js'
 import { BANNER, LORE, PLAIN_LORE } from '../../src/ui/lore.js'
-import { currentVersion } from '../../src/version.js'
+import { currentVersion, interfaceVersion } from '../../src/version.js'
 import { cardRunsOf, catalogLayersByTest, catalogModuleLayers } from '../ci/card-runs.js'
 import { staleLine } from '../core/bus-readings.js'
 import { BUSY_TIMEOUT_MS, defaultBusPath } from '../core/db.js'
+import { ANSWER_STEP, TASK_LEASED } from '../core/events.js'
 import { defaultHandoffDir } from '../core/handoff-dir.js'
 import { statusLineOf } from '../core/handoff-status.js'
 import { readLayerMap } from '../core/layer-map.js'
@@ -35,12 +40,18 @@ import { cardContract } from '../intake/card-contract.js'
 import { recordedWitnessFieldsBackfill, witnessTableOf } from '../intake/witness-fields-backfill.js'
 import { currentDecisions } from '../policy/decisions/index.js'
 import { GREEN, RED, UNCHECKED } from '../policy/policy.js'
-import { narrowestMask } from '../policy/touch-scope.js'
+import { BusRead } from '../ports/bus-read.js'
 import { ghApi } from '../ports/github.js'
 import { cardSizeIn } from '../ports/session.js'
+import { cardSessionOf, expectedMinutes, roundSamples, shapeOf } from '../supervisor/expected-time.js'
 import { BOARD_FILE, FRESH_MS, windowGauges } from '../window/board.js'
 import { mikoHandoff } from '../window/loop.js'
 import { planMarkdown } from '../window/plan-export.js'
+import { busFresh, busPanel, pulseAgeMs } from './board-page/bus-panel.js'
+import { BOARD_HISTORY_FILE, liveCardsOf } from './board-page/live-cards.js'
+import { mikoPanel } from './board-page/miko-panel.js'
+import { LAYER_ENTRY, runsHtml, TOUCHED_TESTS } from './board-page/runs-html.js'
+import { agentsLine, CARD_TASK, compact, eddiesBar, escaped, modelLabel, NO_SESSION_VIEW, percent, ROUND_COLOURS, ROUND_LABELS, sessionCard, STEPPED_ROLE, terminalOf } from './board-page/session-card.js'
 import { boardWarnings, MainUpToDate, openPrCountOf, openPrLimitOf, plannedStallLines, savingOff, stalePassCountOf, stallLines } from './board-warnings.js'
 import { cardChain } from './card-chain.js'
 
@@ -61,27 +72,8 @@ export const DISK_FILES: BoardFiles = {
   rename: renameSync,
 }
 
-const ESCAPES: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', '\'': '&#39;' }
-
-export function escaped(text: string): string {
-  return text.replace(/[&<>"']/g, char => ESCAPES[char]!)
-}
-
-export interface Gauges {
-  context: number | null
-  spent: number | null
-  model: string | null
-}
-
-export interface EddiesLimits {
-  contextLimit: number | null
-  cardContextLine: number | null
-  cardLineBySize?: ReadonlyMap<string, number>
-  sessionSpend: number | null
-  agentSpend: number | null
-  warnRatio: number | null
-  modelWindows: ReadonlyMap<string, number>
-}
+export { escaped }
+export type { EddiesLimits, Gauges, RunsGroup, RunsReading }
 
 export interface CardDetail {
   contract: CardFields | null
@@ -89,18 +81,6 @@ export interface CardDetail {
   pr: number | null
   witnessTable: WitnessTable | null
   runs: RunsReading | null
-}
-
-export interface RunsGroup {
-  name: string
-  files: string[]
-  derived: boolean
-}
-
-export interface RunsReading {
-  full: string | null
-  groups: RunsGroup[]
-  paths: string[]
 }
 
 export interface Handoff {
@@ -131,25 +111,26 @@ export interface BoardPage {
   repository: string | null
   tickMs: number | null
   warnings: BoardWarning[]
+  sessions?: ReadonlyMap<string, SessionView>
+  snapshot?: BoardSnapshot | null
 }
 
 const NO_LIMITS: EddiesLimits = { contextLimit: null, cardContextLine: null, sessionSpend: null, agentSpend: null, warnRatio: null, modelWindows: new Map() }
-const LORE_NAMES: Record<string, string> = { window: LORE.boardWindowName, review: 'ICE', matrix: 'ICE', bus: 'Subnet' }
 const WINDOW_PLAIN_TITLE = ` title="${PLAIN_LORE.boardWindowRole} · ${PLAIN_LORE.boardWindowName}"`
-const RUNNER = 'Runner'
+const AGENT_WORDS: AgentWords = { pulse: PLAIN_LORE.boardAgentPulse, line: PLAIN_LORE.boardAgentsLine }
+const ROUND_QUEUES: Readonly<Partial<Record<string, RoundKind>>> = { answer: 'answer', review: 'review' }
 const WINDOW_ROLE = 'window'
 const CARD_PREFIX = /^card:\s*/
 const FIELD_COUNT = 5
 const NONE = '—'
 const ALL_FILTER = 'all'
 const LIVE_FILTER = 'live'
-const THOUSAND = 1_000
-const MILLION = 1_000_000
 const MINUTE_MS = 60_000
 export const BOARD_DATA_FILE = 'board-data.js'
 const BOARD_DATA_PREFIX = 'window.BOARD = '
 const FORMAT_FLAGS: readonly (readonly [string, BoardFormat])[] = [['--json', 'json'], ['--html', 'html']]
 const PLAN_FLAG = '--plan'
+const ALL_FLAG = '--all'
 const EXPORT_ORDER: readonly CardMark[] = ['delivered', 'in_progress', 'review', 'queued', DROPPED]
 const EVENTS_PER_CARD = 5
 const STALE_TICKS = 2
@@ -157,6 +138,7 @@ const STALE_READING = 'STALE'
 export const SLOT_PREFIX = 'slot-'
 const BUS_LIVE = 'bus-live'
 const PULSE_ELEMENT_ID = 'bus-pulse'
+const REFRESH_IN = 'refresh-in'
 const OFFLINE_READING = 'bus offline'
 const FACTORY_LIVE: FactoryState = 'live'
 const BACKLOG = 'backlog'
@@ -167,7 +149,7 @@ const DIALOG_PREFIX = 'dialog-'
 const HANDOFF_DIALOG = 'handoff'
 const DECISIONS_DIALOG = 'decisions'
 const OPEN_HINT = '<span class="open-hint">open ›</span>'
-const CARD_TASK = /^#(\d+)$/
+const PULL_TITLE = 'Re-read the board now instead of at the next refresh; the bus catches the list up as it reduces'
 const CARD_REFERENCE = /(?<!&|PR )#(\d+)\b/g
 export const FLOW_META = 'live and recently ended cards by stage'
 const CODE_SPAN = /`([^`]+)`/g
@@ -185,8 +167,6 @@ const SETTLED_ON_HEAD: Readonly<Partial<Record<string, string>>> = { [GREEN]: GR
 const NEGATED_RUN = /^!\s+/
 const WITNESS_ID_COLUMN = 'id'
 const WITNESS_COLUMNS = ['run', 'test', 'head/base', 'proves']
-const LAYER_ENTRY = 'layer:'
-const TOUCHED_TESTS = 'touched tests'
 
 function positive(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null
@@ -287,33 +267,34 @@ function projectedWindowGauges(db: DatabaseSync): Gauges | null {
   return row === null ? null : { context: positive(row.context), spent: positive(row.spent), model: row.model }
 }
 
-function compact(value: number): string {
-  if (value >= MILLION)
-    return `${Number((value / MILLION).toFixed(1))}M`
-  return value >= THOUSAND ? `${Math.round(value / THOUSAND)}k` : String(value)
-}
-
-function percent(ratio: number): string {
-  return `${Math.min(100, Math.round(ratio * 100))}%`
-}
-
-function eddiesBar(name: string, value: number | null, denominator: number | null, limit: number | null, warnRatio: number | null): string {
-  if (value === null)
-    return ''
-  const reading = denominator === null ? compact(value) : `${compact(value)}/${compact(denominator)}`
-  const over = limit !== null && value > limit
-  const warnAt = limit === null || warnRatio === null ? null : limit * warnRatio
-  const hot = !over && warnAt !== null && value >= warnAt
-  const bar = denominator === null ? '<span></span>' : `<span class="edd-bar" style="--_fill: ${percent(value / denominator)}${warnAt === null ? '' : `; --_warn: ${percent(warnAt / denominator)}`}"></span>`
-  return `<div class="edd"${over ? ' data-over' : hot ? ' data-hot' : ''}><span class="edd-k">${name}</span>${bar}<span class="edd-v">${reading}</span></div>`
-}
-
-type ContextLine = Pick<EddiesLimits, 'contextLimit' | 'warnRatio'>
-
-function cardLineOf(limits: EddiesLimits, task: string, facts: Pick<BusFacts, 'cards'>): ContextLine {
+function cardLineOf(limits: EddiesLimits, task: string, facts: Pick<BusFacts, 'cards'>): Pick<EddiesLimits, 'contextLimit' | 'warnRatio'> {
   const size = cardSizeIn(facts.cards.find(card => card.id === Number(CARD_TASK.exec(task)?.[1]))?.line ?? null)
   const line = (size === null ? undefined : limits.cardLineBySize?.get(size)) ?? limits.cardContextLine
   return line === null ? limits : { contextLimit: line, warnRatio: 1 }
+}
+
+function stepsAfter(read: BusRead, lease: number): RoundStep[] {
+  return read.slice(ANSWER_STEP, ['step', 'seconds']).filter(row => row.id > lease).flatMap(({ fields }) => typeof fields.step === 'string' && typeof fields.seconds === 'number' ? [{ step: fields.step, seconds: fields.seconds }] : [])
+}
+
+function sessionViewOf(db: DatabaseSync, service: BusService, cardLine: string | null, samples: () => readonly RoundSample[], transcripts: TranscriptReader): SessionView {
+  const card = Number(CARD_TASK.exec(service.task)?.[1])
+  const read = new BusRead(db).where({ card })
+  const session = cardSessionOf(db, card)
+  const lease = read.slice(TASK_LEASED, ['queue'], 'last')[0]
+  const kind = ROUND_QUEUES[service.role]
+  const expected = kind === undefined ? null : expectedMinutes(samples(), kind, shapeOf(cardLine))
+  const sessionId = service.session ?? session?.session ?? null
+  const text = session?.worktree == null || sessionId === null ? null : transcripts(session.worktree, sessionId)
+  const steps = lease === undefined || service.role !== STEPPED_ROLE ? [] : stepsAfter(read, lease.id)
+  return { startedAt: lease?.ts ?? session?.startedAt ?? null, expectedMs: expected === null ? null : expected * MINUTE_MS, steps, terminal: terminalOf(text, transcript => readTranscript(transcript).actions) }
+}
+
+function sessionViewsOf(db: DatabaseSync, facts: Pick<BusFacts, 'services' | 'cards'>, transcripts: TranscriptReader = clientTranscriptReader): Map<string, SessionView> {
+  let samples: readonly RoundSample[] | null = null
+  const measured = (): readonly RoundSample[] => samples ??= roundSamples(db)
+  const lineOf = (task: string): string | null => facts.cards.find(card => `#${card.id}` === task)?.line ?? null
+  return new Map(facts.services.filter(service => CARD_TASK.test(service.task)).map(service => [`${service.role} ${service.task}`, sessionViewOf(db, service, lineOf(service.task), measured, transcripts)]))
 }
 
 function contextBar(service: BusService, gauges: Gauges, limits: EddiesLimits, facts: Pick<BusFacts, 'cards'>): string {
@@ -350,67 +331,32 @@ function tileDialog(service: BusService, page: BoardPage): string | null {
   return card !== undefined && page.details.has(Number(card)) ? cardDialog(Number(card)) : null
 }
 
-const compactOrNone = (value: number | null): string => value === null ? NONE : compact(value)
-const AGENT_HEAT = ['', ' data-hot', ' data-over'] as const
-const heatOf = (value: number | null, limit: number | null, warn: number | null): number => value === null || limit === null ? 0 : value >= limit ? 2 : Number(warn !== null && value >= limit * warn)
-const agentHeat = (agent: SubagentReading, limits: EddiesLimits): number => Math.max(heatOf(agent.context, limits.contextLimit, limits.warnRatio), heatOf(agent.spent, limits.agentSpend, limits.warnRatio))
-
-function agentRow(agent: SubagentReading, at: string, limits: EddiesLimits): string {
-  const pulse = agent.at === null ? NONE : PLAIN_LORE.boardAgentPulse(Math.max(0, Math.round((Date.parse(at) - Date.parse(agent.at)) / MINUTE_MS)))
-  return `<li${AGENT_HEAT[agentHeat(agent, limits)]}><span class="svc-agent-name">${escaped(agent.name)}</span><span>CTX ${compactOrNone(agent.context)}</span><span>SPENT ${compactOrNone(agent.spent)}</span><span>${escaped(pulse)}</span></li>`
-}
-
-function agentsLine(service: BusService, page: BoardPage): string {
-  const agents = service.subagents ?? []
-  if (agents.length === 0)
-    return ''
-  const largest = Math.max(...agents.map(agent => agent.spent ?? 0))
-  const heaviest = Math.max(...agents.map(agent => agentHeat(agent, page.limits)))
-  return [
-    `<button type="button" class="svc-agents" data-agents="${escaped(service.session ?? service.task)}" aria-expanded="false"${AGENT_HEAT[heaviest]}>${escaped(PLAIN_LORE.boardAgentsLine(agents.length, compact(largest), compactOrNone(page.limits.agentSpend)))}</button>`,
-    `<ul class="svc-agent-list" data-agents-list>${agents.map(agent => agentRow(agent, page.facts.at, page.limits)).join('')}</ul>`,
-  ].join('')
-}
-
-function tileKind(role: string): string {
-  return role === WINDOW_ROLE ? LORE.boardWindowRole : role
-}
-
-function tilePlainTitle(role: string): string {
-  return role === WINDOW_ROLE ? WINDOW_PLAIN_TITLE : ''
+function barsOf(service: BusService, page: BoardPage): string {
+  const gauges = gaugesOf(service, page)
+  return gauges == null ? '' : contextBar(service, gauges, page.limits, page.facts) + eddiesBar('spent', gauges.spent, page.limits.sessionSpend, page.limits.sessionSpend, page.limits.warnRatio)
 }
 
 function serviceTile(service: BusService, page: BoardPage): string {
-  const gauges = gaugesOf(service, page)
-  const bars = gauges == null
-    ? ''
-    : contextBar(service, gauges, page.limits, page.facts) + eddiesBar('spent', gauges.spent, page.limits.sessionSpend, page.limits.sessionSpend, page.limits.warnRatio)
+  const bars = barsOf(service, page)
   const dialog = tileDialog(service, page)
-  return [
-    `<div class="svc bevel" data-role="${escaped(service.role)}"${dialog === null ? '' : `${opener(dialog)} role="button"`}>`,
-    `<div class="svc-top"${tilePlainTitle(service.role)}><span class="svc-kind">${escaped(tileKind(service.role))}</span><span class="lore">${LORE_NAMES[service.role] ?? RUNNER}</span><span class="svc-target">${escaped(service.task)}</span>${dialog === null ? '' : OPEN_HINT}</div>`,
-    `<div class="svc-line">${escaped(PLAIN_LORE.boardServiceLine(service.role, service.task, service.tree ?? undefined, service.step))}</div>`,
-    bars,
-    agentsLine(service, page),
-    '</div>',
-  ].join('')
+  const parts = { opener: dialog === null ? '' : `${opener(dialog)} role="button"`, hint: dialog === null ? '' : OPEN_HINT, bars, agents: agentsLine(service, page.facts.at, page.limits, AGENT_WORDS), over: bars.includes(' data-over'), now: page.facts.at }
+  return sessionCard(service, page.sessions?.get(`${service.role} ${service.task}`) ?? NO_SESSION_VIEW, parts)
 }
 
 function lineTile(role: string, line: string): string {
-  return `<div class="svc bevel" data-role="${role}"><div class="svc-top"${tilePlainTitle(role)}><span class="svc-kind">${tileKind(role)}</span><span class="lore">${LORE_NAMES[role] ?? RUNNER}</span></div><div class="svc-line">${escaped(line)}</div></div>`
+  return `<div class="svc bevel" data-role="${role}"><div class="svc-top"><span class="svc-kind">${role}</span><span class="lore">ICE</span></div><div class="svc-line">${escaped(line)}</div></div>`
 }
 
-function pulseAgeMs(facts: BusFacts): number | null {
-  return facts.pulse === null ? null : Math.max(0, Date.parse(facts.at) - Date.parse(facts.pulse))
-}
-
-function busFresh(facts: BusFacts): boolean {
-  const age = pulseAgeMs(facts)
-  return age !== null && age <= FRESH_MS
+function mikoStrip(page: BoardPage, { facts } = page): string {
+  const windows = facts.services.filter(service => service.role === WINDOW_ROLE)
+  const words = { role: LORE.boardWindowRole, name: LORE.boardWindowName, plainTitle: WINDOW_PLAIN_TITLE }
+  const handoff = page.handoff.text
+  const presence = { model: modelLabel(page.windowGauges?.model), core: facts.window?.core ?? null, status: handoff === null ? null : statusLineOf(handoff)?.status ?? null, handoffBytes: handoff === null ? null : new TextEncoder().encode(handoff).length, skills: facts.window?.skills ?? [], crawlers: facts.window?.crawlers ?? [] }
+  return mikoPanel({ windows, bars: service => barsOf(service, page), presence, now: facts.at, words, opener: `${opener(HANDOFF_DIALOG)} role="button"`, hint: OPEN_HINT, idle: facts.services.length === 0 ? PLAIN_LORE.boardNoServices : null })
 }
 
 function liveAttribute(facts: BusFacts): string {
-  return busFresh(facts) ? '' : ' data-stale'
+  return busFresh(facts, FRESH_MS) ? '' : ' data-stale'
 }
 
 function servicesMeta(page: BoardPage): string {
@@ -426,14 +372,14 @@ function servicesMeta(page: BoardPage): string {
 
 function servicesSlot(page: BoardPage): string {
   const { facts } = page
-  const tiles = facts.services.length === 0 ? [lineTile('window', PLAIN_LORE.boardNoServices)] : facts.services.map(service => serviceTile(service, page))
   return [
     `<div class="panel-head"><h2 id="h-services">${PLAIN_LORE.boardTabServices}</h2>${servicesMeta(page)}</div>`,
     '<div class="svc-grid">',
-    ...tiles,
-    ...pulseLines(facts, PLAIN_LORE).map(line => lineTile('bus', line)),
+    ...facts.services.filter(service => service.role !== WINDOW_ROLE).map(service => serviceTile(service, page)),
     ...matrixLines(facts, PLAIN_LORE).map(line => lineTile('matrix', line)),
     '</div>',
+    mikoStrip(page),
+    busPanel({ facts, freshMs: FRESH_MS, snapshot: page.snapshot ?? null, startCommand: pnpmCommand('bus:run') }),
   ].join('\n')
 }
 
@@ -493,7 +439,7 @@ function waitStrip(label: string, items: readonly string[]): string {
 
 function waitsSlot(page: BoardPage): string {
   const { waits, waitsStale } = page.facts
-  return `${waitStrip('waits for you', [...waitsStale === undefined ? [] : [`<span class="ask" data-static>${escaped(waitsStale)}</span>`], ...waits.filter(wait => !liftedByTheWindow(wait)).map(wait => waitItem(wait, page))])}${waitStrip(WINDOW_WAITS_ROLE, waits.filter(liftedByTheWindow).map(wait => waitItem(wait, page)))}`
+  return `${waitStrip('waits for you', [...waitsStale === undefined ? [] : [`<button type="button" class="ask" data-pull title="${PULL_TITLE}">${escaped(waitsStale)}<span class="open-hint">re-read now ›</span></button>`], ...waits.filter(wait => !liftedByTheWindow(wait)).map(wait => waitItem(wait, page))])}${waitStrip(WINDOW_WAITS_ROLE, waits.filter(liftedByTheWindow).map(wait => waitItem(wait, page)))}`
 }
 
 function warningsSlot(warnings: readonly BoardWarning[]): string {
@@ -567,23 +513,29 @@ function backlogSlot(facts: BusFacts): string {
   const chip = (filter: string): string => `<a class="chip" href="#${filterId(filter)}">${escaped(filter)}</a>`
   return [
     `<style>${filters.map(filterRule).join('\n')}</style>`,
-    `<div class="panel-head"><h2 id="h-backlog">${PLAIN_LORE.boardTabBacklog}</h2><span class="meta">${cards.length} cards · grouped by lane</span></div>`,
+    `<div class="panel-head"><h2 id="h-backlog">${PLAIN_LORE.boardTabBacklog}</h2><span class="meta">${counted(cards.length, 'card')} · grouped by lane, slices under their task</span></div>`,
     `<nav class="filters" aria-label="Filter by stage">${chip(ALL_FILTER)}${filters.map(chip).join('')}</nav>`,
   ].join('\n')
 }
 
+function taskBody(group: ReturnType<typeof taskGroups>[number]): string {
+  return `<tbody class="task-group" data-task="${group.task}" data-collapsed><tr class="task"${group.waits.length === 0 ? '' : ' data-waits'}><th colspan="11" scope="rowgroup"><button type="button" class="task-fold" data-fold="${group.task}" aria-expanded="false">${escaped(taskGroupLine(group))}</button></th></tr>${group.slices.map(cardRow).join('')}</tbody>`
+}
+
 function rowsSlot(facts: BusFacts): string {
   const cards = backlogCards(facts.cards, facts.at, true)
+  const whole = cards.filter(card => card.parent === undefined)
   return [
     `<thead><tr>${COLUMNS.map(column => `<th scope="col">${column}</th>`).join('')}</tr></thead>`,
-    ...laneColumns(cards).map(lane => laneBody(lane, cards)),
+    ...taskGroups(cards, facts.cards, facts.waits).map(taskBody),
+    ...laneColumns(whole).map(lane => laneBody(lane, whole)),
   ].join('\n')
 }
 
-function backlogPanel(facts: BusFacts, slots: BoardSlots): string {
+function backlogPanel(filters: readonly string[], slots: BoardSlots): string {
   return [
     `<section class="panel backlog bevel" id="${BACKLOG}" aria-labelledby="h-backlog">`,
-    ...filterTargetIds(facts).map(id => `<span class="filter-target" id="${id}"></span>`),
+    ...filters.map(id => `<span class="filter-target" id="${id}"></span>`),
     `<div id="${SLOT_PREFIX}backlog">${slots.backlog}</div>`,
     `<div class="scroll" id="${BACKLOG_SCROLL}"><table id="${SLOT_PREFIX}rows">`,
     slots.rows,
@@ -591,11 +543,11 @@ function backlogPanel(facts: BusFacts, slots: BoardSlots): string {
   ].join('\n')
 }
 
-function headerPanel(page: BoardPage, slots: BoardSlots): string {
+function headerPanel(version: string, slots: BoardSlots): string {
   return [
     '<header class="panel bevel">',
     `<div class="banner-wrap"><pre class="banner" aria-label="MIKOSHI">${escaped(BANNER.replace(/^\n/, ''))}</pre>`,
-    `<p class="subtitle">${escaped(LORE.subtitle(page.version))}</p></div>`,
+    `<p class="subtitle">${escaped(LORE.subtitle(version))}</p></div>`,
     `<div class="head-side"><p class="board-title">construct <span>board</span></p><p class="kv" id="${SLOT_PREFIX}kv">${slots.kv}</p></div>`,
     `<div class="goal" id="${SLOT_PREFIX}goal">${slots.goal}</div>`,
     '</header>',
@@ -606,10 +558,10 @@ function headerPanel(page: BoardPage, slots: BoardSlots): string {
 function headerReadings(page: BoardPage): string {
   const { facts } = page
   return [
-    `<span>model <b>${page.modelVersion === null ? NONE : `v${page.modelVersion}`}</b></span>`,
+    `<span>model <b>${page.modelVersion === null ? NONE : `v${page.modelVersion}`}</b></span><span>ui <b>${escaped(interfaceVersion(page.version))}</b></span>`,
     `<span>written <b>${escaped(facts.at)}</b></span><span>live <b>${escaped(tallyLine(taskTally(facts.cards.filter(isLive))))}</b></span>`,
-    `<span>refresh <b>${page.tickMs === null ? NONE : `${page.tickMs / 1000}s`}</b></span>`,
-    `<span>load <b>${page.machine.load.toFixed(1)} / ${page.machine.cores} cores</b></span>`,
+    `<span>refresh <b>${page.tickMs === null ? NONE : `${page.tickMs / 1000}s`}</b><i class="countdown" id="${REFRESH_IN}"></i></span>`,
+    `<span>load <b><span data-count="${page.machine.load.toFixed(1)}">${page.machine.load.toFixed(1)}</span> / ${page.machine.cores} cores</b></span>`,
     `<span class="live" id="${BUS_LIVE}"${page.liveness === FACTORY_LIVE ? '' : ' data-stale'}>${page.liveness === FACTORY_LIVE ? 'bus live' : OFFLINE_READING}</span>`,
   ].join('')
 }
@@ -728,71 +680,6 @@ function witnessRow(field: WitnessField, record: WitnessRecordOnHead | null, pag
   return `<tr><th scope="row">${escaped(field.id)}</th><td><code>${escaped(field.run)}</code></td><td>${escaped(field.test ?? NONE)}</td><td>${expected}</td><td>${linked(field.proves, page)}</td></tr>`
 }
 
-const GLOB_SUFFIX = '/**'
-const DERIVED_READING = 'derived from touches'
-const WHOLE_FOLDER = 'вся папка'
-const ROOT_FOLDER = '.'
-
-interface RunsLane {
-  head: string
-  names: string[]
-}
-
-function isMask(entry: string): boolean {
-  return entry.endsWith(GLOB_SUFFIX)
-}
-
-function headsItsLane(entry: string): boolean {
-  return isMask(entry) || entry.startsWith(LAYER_ENTRY)
-}
-
-function folderOf(file: string): string {
-  const slash = file.lastIndexOf('/')
-  return slash === -1 ? ROOT_FOLDER : file.slice(0, slash)
-}
-
-function runsLanesOf(entries: readonly string[]): RunsLane[] {
-  const masks = entries.filter(isMask)
-  const lanes = new Map<string, Set<string>>()
-  for (const entry of entries) {
-    const head = headsItsLane(entry) ? entry : narrowestMask(entry, masks) ?? folderOf(entry)
-    const names = lanes.get(head) ?? new Set<string>()
-    lanes.set(head, names)
-    if (!headsItsLane(entry))
-      names.add(entry.slice(entry.lastIndexOf('/') + 1))
-  }
-  return [...lanes].map(([head, names]) => ({ head, names: [...names] }))
-}
-
-function runsTags(names: readonly string[]): string {
-  return names.map(name => `<span class="tag">${escaped(name)}</span>`).join(' ')
-}
-
-function runsLaneHtml({ head, names }: RunsLane): string {
-  const mask = isMask(head)
-  const name = mask && names.length === 0 ? `${head} · ${WHOLE_FOLDER}` : head
-  const files = names.length === 0 ? '' : `<p>${runsTags(names)}</p>`
-  return `<div class="runs-group" data-lane="${escaped(head)}"${mask ? ' data-glob' : ''}><p class="runs-name">${escaped(name)}</p>${files}</div>`
-}
-
-function runsLanesHtml(entries: readonly string[]): string {
-  return runsLanesOf(entries).map(runsLaneHtml).join('')
-}
-
-function runsGroupHtml(group: RunsGroup): string {
-  const name = group.name === TOUCHED_TESTS ? TOUCHED_TESTS : `layer ${group.name}`
-  return `<div class="runs-group" data-group="${escaped(group.name)}"${group.derived ? ' data-derived' : ''}><p class="runs-name">${escaped(name)}${group.derived ? ` · ${DERIVED_READING}` : ''}</p>${runsLanesHtml(group.files)}</div>`
-}
-
-function runsHtml(reading: RunsReading | null, marksNone: boolean): string {
-  if (reading === null)
-    return ''
-  const full = reading.full === null ? '' : `<p class="runs-full">full run: ${escaped(reading.full)}</p>`
-  const none = marksNone && reading.groups.length === 0 ? `<p>runs: ${NONE}</p>` : ''
-  const paths = reading.paths.length === 0 ? none : `<p>runs:</p>${runsLanesHtml(reading.paths)}`
-  return `${full}${reading.groups.map(runsGroupHtml).join('')}${paths}`
-}
-
 function witnessTableHtml(table: WitnessTable, page: BoardPage): string {
   const head = WITNESS_COLUMNS.map(column => `<th scope="col">${column}</th>`).join('')
   const rows = table.witnesses.map(field => witnessRow(field, table.record, page)).join('')
@@ -897,7 +784,7 @@ function handoffParts(text: string): HandoffParts {
 }
 
 function handoffHead(name: string, state: string): string {
-  return dialogHead('handoff', LORE_NAMES.window!, name, state, WINDOW_PLAIN_TITLE)
+  return dialogHead('handoff', LORE.boardWindowName, name, state, WINDOW_PLAIN_TITLE)
 }
 
 function handoffDialogHtml(page: BoardPage): string {
@@ -920,7 +807,7 @@ function handoffDialogHtml(page: BoardPage): string {
 function decisionsDialogHtml(page: BoardPage): string {
   const rows = (page.decisions.stale === null ? page.decisions.rows : []).map(decision => `<div><b>D-${decision.decisionId}</b><span>${linked(decision.text, page)}</span></div>`)
   return [
-    dialogHead('decisions', 'in force', page.decisions.stale === null ? `${rows.length} owner decisions` : staleLine(page.decisions.stale), ''),
+    dialogHead('decisions', 'in force', page.decisions.stale === null ? counted(rows.length, 'owner decision') : staleLine(page.decisions.stale), ''),
     '<div class="drill-body">',
     page.decisions.stale !== null ? note(escaped(staleLine(page.decisions.stale))) : rows.length === 0 ? note('The bus holds no owner decision in force.') : `<div class="dec">${rows.join('')}</div>`,
     '</div>',
@@ -933,10 +820,10 @@ function dialogTemplate(dialog: string, html: string): string {
 
 export const VIEW_KEY = 'construct-board:view'
 
-const PAGE_ASSETS = path.join(import.meta.dirname, 'board-page')
+const PAGE_SCRIPT = path.join(import.meta.dirname, 'board-page', 'script.js')
 const SCRIPT_NAMES_GLOBAL = 'window.BOARD_NAMES'
-const SCRIPT_NAMES = { drill: DRILL, drillContent: DRILL_CONTENT, backlogScroll: BACKLOG_SCROLL, viewKey: VIEW_KEY, dialogPrefix: DIALOG_PREFIX, handoffDialog: HANDOFF_DIALOG, decisionsDialog: DECISIONS_DIALOG, busLive: BUS_LIVE, offlineReading: OFFLINE_READING, pulse: PULSE_ELEMENT_ID, titlePrefix: `${constructCommand('board')} · `, slotPrefix: SLOT_PREFIX, backlog: BACKLOG, staleTicks: STALE_TICKS, staleReading: STALE_READING, dataFile: BOARD_DATA_FILE }
-const SCRIPT = `\n${SCRIPT_NAMES_GLOBAL} = ${JSON.stringify(SCRIPT_NAMES)};\n${readFileSync(path.join(PAGE_ASSETS, 'script.js'), 'utf8')}`
+const SCRIPT_NAMES = { drill: DRILL, drillContent: DRILL_CONTENT, backlogScroll: BACKLOG_SCROLL, viewKey: VIEW_KEY, dialogPrefix: DIALOG_PREFIX, handoffDialog: HANDOFF_DIALOG, decisionsDialog: DECISIONS_DIALOG, busLive: BUS_LIVE, offlineReading: OFFLINE_READING, pulse: PULSE_ELEMENT_ID, titlePrefix: `${constructCommand('board')} · `, slotPrefix: SLOT_PREFIX, backlog: BACKLOG, staleTicks: STALE_TICKS, staleReading: STALE_READING, dataFile: BOARD_DATA_FILE, refreshIn: REFRESH_IN, round: { ...ROUND_COLOURS, ...ROUND_LABELS } }
+const SCRIPT = `\n${SCRIPT_NAMES_GLOBAL} = ${JSON.stringify(SCRIPT_NAMES)};\n${readFileSync(PAGE_SCRIPT, 'utf8')}`
 
 function dialogsSlot(page: BoardPage): string {
   const cards = page.facts.cards.flatMap((card) => {
@@ -958,7 +845,7 @@ function dialogs(slots: BoardSlots): string {
   ].join('\n')
 }
 
-const STYLE = `\n${readFileSync(path.join(PAGE_ASSETS, 'style.css'), 'utf8')}`
+const STYLE = `\n${readFileSync(path.join(import.meta.dirname, 'board-page', 'style.css'), 'utf8')}`
 
 export interface BoardSlots {
   warnings: string
@@ -972,6 +859,8 @@ export interface BoardSlots {
   status: string
   dialogs: string
 }
+
+const EMPTY_SLOTS: BoardSlots = { warnings: '', kv: '', goal: '', waits: '', services: '', flow: '', backlog: '', rows: '', status: '', dialogs: '' }
 
 export interface BoardData {
   written: string
@@ -1109,15 +998,23 @@ export function busJson(db: DatabaseSync, now: Date, liveOnly = false): string {
 }
 
 export function renderBoard(page: BoardPage): string {
-  const { slots } = boardData(page)
+  const { slots, filters } = boardData(page)
+  return pageHtml(page.version, page.facts.at, page.tickMs, slots, filters)
+}
+
+export function renderShell(version: string, tickMs: number | null): string {
+  return pageHtml(version, '', tickMs, EMPTY_SLOTS, [])
+}
+
+function pageHtml(version: string, written: string, tickMs: number | null, slots: BoardSlots, filters: readonly string[]): string {
   return [
-    ...pageHead(escaped(page.facts.at), `<body data-written="${escaped(page.facts.at)}" data-tick-ms="${page.tickMs ?? ''}">`),
-    headerPanel(page, slots),
+    ...pageHead(escaped(written), `<body data-written="${escaped(written)}" data-tick-ms="${tickMs ?? ''}">`),
+    headerPanel(version, slots),
     `<div class="warnings" id="${SLOT_PREFIX}warnings">${slots.warnings}</div>`,
     `<section class="panel bevel" id="${SLOT_PREFIX}services" aria-labelledby="h-services">\n${slots.services}\n</section>`,
     '<div class="split">',
     `<section class="panel bevel" id="${SLOT_PREFIX}flow" aria-labelledby="h-flow">\n${slots.flow}\n</section>`,
-    backlogPanel(page.facts, slots),
+    backlogPanel(filters, slots),
     '</div>',
     `<footer class="statusline" id="${SLOT_PREFIX}status">${slots.status}</footer>`,
     dialogs(slots),
@@ -1131,8 +1028,9 @@ function contextWarnings(contexts: readonly SessionContext[], limits: EddiesLimi
   return contexts.flatMap(session => boardWarnings({ ...quiet, ...(session.who === WINDOW_ROLE ? limits : cardLineOf(limits, session.who, facts)), contexts: [session] }))
 }
 
-function boardPageOf(db: DatabaseSync, busPath: string, now: Date, handoffFile: string, tickMs: number | null, main: MainUpToDate, eddiesFile: string = EDDIES_FILE): BoardPage {
-  const facts = busFacts(db, now)
+function boardPageOf(db: DatabaseSync, busPath: string, now: Date, handoffFile: string, tickMs: number | null, main: MainUpToDate, eddiesFile: string = EDDIES_FILE, live = false): BoardPage {
+  const all = busFacts(db, now)
+  const facts = live ? { ...all, cards: liveCardsOf(all.cards, all.at) } : all
   const liveness = factoryLiveness(busPath, now.getTime()).state
   const sources: GaugeSources = { windowGauges: projectedWindowGauges(db) }
   const limits = readEddiesLimits(eddiesFile)
@@ -1158,10 +1056,12 @@ function boardPageOf(db: DatabaseSync, busPath: string, now: Date, handoffFile: 
       }),
     ],
     details: cardDetails(db, facts),
+    sessions: sessionViewsOf(db, facts),
     decisions: currentDecisions(db),
     handoff: readHandoff(handoffFile),
     repository: readRepositoryUrl(),
     tickMs,
+    snapshot: readSnapshot(path.join(path.dirname(busPath), BOARD_DATA_FILE)),
   }
 }
 
@@ -1169,6 +1069,11 @@ export function writeBoardPage(file: string, html: string, files: BoardFiles = D
   const temporary = path.join(path.dirname(file), `.${path.basename(file)}.${process.pid}.tmp`)
   files.write(temporary, html)
   files.rename(temporary, file)
+}
+
+function writtenPage(file: string, html: string): string {
+  writeBoardPage(file, html)
+  return file
 }
 
 export type BoardFormat = 'html' | 'json' | 'text'
@@ -1245,6 +1150,9 @@ export function runBoardCli(busPath: string = defaultBusPath(), args: readonly s
     }
     return printPlan(busPath, release, new Date(), text => process.stdout.write(text))
   }
+  const history = path.join(path.dirname(busPath), BOARD_HISTORY_FILE)
+  if (args.includes(ALL_FLAG))
+    return printBoard(busPath, new Date(), html => process.stdout.write(`${writtenPage(history, html)}\n`), HANDOFF_FILE, 'html')
   return printBoard(busPath, new Date(), text => process.stdout.write(text), HANDOFF_FILE, boardFormatOf(args), EDDIES_FILE, args.includes('--live'))
 }
 
@@ -1257,18 +1165,57 @@ export interface BoardProjection {
 export function boardProjection(db: DatabaseSync, busPath: string, tickMs: number, files: BoardFiles = DISK_FILES, handoffFile: string = HANDOFF_FILE, main: MainUpToDate = mainUpToDateOfThisRepository()): BoardProjection {
   const file = path.join(path.dirname(busPath), BOARD_FILE)
   const dataFile = path.join(path.dirname(busPath), BOARD_DATA_FILE)
+  let shell = existsSync(file) ? readFileSync(file, 'utf8') : null
   return {
     file,
     dataFile,
     project: (now) => {
       try {
-        const page = boardPageOf(db, busPath, now, handoffFile, tickMs, main)
+        const page = boardPageOf(db, busPath, now, handoffFile, tickMs, main, EDDIES_FILE, true)
         writeBoardPage(dataFile, boardDataScript(boardData(page)), files)
-        writeBoardPage(file, renderBoard(page), files)
+        const next = renderShell(page.version, tickMs)
+        if (next !== shell) {
+          writeBoardPage(file, next, files)
+          shell = next
+        }
       }
       catch (error) {
         console.error(`${PREFIX}${error instanceof Error ? error.message.split('\n')[0] : String(error)}`)
       }
+    },
+  }
+}
+
+export const BOARD_PERIOD_MS = 10_000
+export const BOARD_TIMER_PREFIX = '[bus:board-timer] '
+export const BOARD_TIMER_BUS_PATH = 'boardTimerBusPath'
+export const BOARD_TIMER_PERIOD = 'boardTimerPeriodMs'
+const BOARD_TIMER_ENTRY = new URL('./board-page/timer.ts', import.meta.url)
+
+export interface ReadOnlyBoard {
+  projection: BoardProjection
+  close: () => void
+}
+
+export function readOnlyBoardProjection(busPath: string, periodMs: number): ReadOnlyBoard {
+  const db = openDatabase(busPath, { readOnly: true, timeout: BUSY_TIMEOUT_MS })
+  return { projection: boardProjection(db, busPath, periodMs), close: () => db.close() }
+}
+
+export interface StartedBoardTimer {
+  file: string
+  dataFile: string
+  stop: () => Promise<void>
+}
+
+export function startBoardTimer(busPath: string, periodMs: number = BOARD_PERIOD_MS): StartedBoardTimer {
+  const worker = new Worker(BOARD_TIMER_ENTRY, { workerData: { [BOARD_TIMER_BUS_PATH]: busPath, [BOARD_TIMER_PERIOD]: periodMs } })
+  worker.on('error', error => console.error(`${BOARD_TIMER_PREFIX}${error.message.split('\n')[0]}`))
+  return {
+    file: path.join(path.dirname(busPath), BOARD_FILE),
+    dataFile: path.join(path.dirname(busPath), BOARD_DATA_FILE),
+    stop: async () => {
+      await worker.terminate()
     },
   }
 }

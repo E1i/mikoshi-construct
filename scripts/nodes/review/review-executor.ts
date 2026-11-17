@@ -8,10 +8,12 @@ import type { StatusPublisher } from '../../ports/github-status.js'
 import type { GitHub } from '../../ports/github.js'
 import type { Isolation, IsolationReader } from '../../ports/isolation.js'
 import type { SessionInput } from '../../ports/prompt-store.js'
+import type { TestSource } from './depth-sources.js'
 import type { RoundLimitAt, RoundLimitRecut } from './pr-close.js'
 import type { Denial, VerdictWord } from './record-verdict.js'
 import type { EarlierVerdict, ReviewDepth, ReviewPlan, ReviewPlanner } from './review-depth.js'
 import type { HeldTree, LeftoverTree, Review, Reviewer } from './reviewer.js'
+import type { TailIntake } from './tail-card.js'
 import { createHash } from 'node:crypto'
 import process from 'node:process'
 import { cardBodyText } from '../../core/card-bodies.js'
@@ -25,10 +27,11 @@ import { allFindingsRepeat } from '../../policy/repeat-finding.js'
 import { limitRuleOf } from '../../policy/round-limit-decision.js'
 import { NO_ISOLATION } from '../../ports/isolation.js'
 import { storedInput } from '../../ports/prompt-store.js'
-import { gitDepthSources, provenWitnesses } from './depth-sources.js'
+import { gitDepthSources, gitTestSource, provenWitnesses } from './depth-sources.js'
 import { freshDenial, recordVerdict } from './record-verdict.js'
-import { cardRiskOf, fullReview } from './review-depth.js'
+import { fullReview } from './review-depth.js'
 import { PREFIX, REVIEW_BAR_LINE, REVIEW_CEILING, REVIEW_CEILING_MINUTES, ReviewFailed } from './reviewer.js'
+import { mutationOnlyFindings } from './tail-card.js'
 
 const CI_NOT_READY = 'ci_not_ready'
 export const REVIEW_FAILED = 'review_failed'
@@ -44,9 +47,9 @@ export const TREE_LEFT = 'tree_left'
 export { REVIEW_ROUNDS_SPENT }
 export const ROUND_LIMIT_REACHED = 'round_limit_reached'
 export const SPAWNS_NO_SESSION = 'spawns-no-session'
-export const REVIEW_RULES_VERSION = 1
+export const REVIEW_RULES_VERSION = 2
 export const REVIEW_RULES_FILE = '.claude/agents/review.md'
-export const REVIEW_RULES_SHA = '5bc3df6ef4484cecce4ce4e3fe27143be831ee6b16a02340e94991d48014a009'
+export const REVIEW_RULES_SHA = 'edb05eb4bfc4dff057b61daad192fd82ecdcd55b8feba4b764a8120bd417d5a8'
 
 export function reviewRulesSha(rulesFileText: string): string {
   return createHash('sha256').update(`${rulesFileText}\n${REVIEW_BAR_LINE}`).digest('hex')
@@ -74,6 +77,8 @@ export interface ExecutorParts {
   isolation: IsolationReader | typeof SPAWNS_NO_SESSION
   recut?: RoundLimitRecut
   dripSources?: DripSources
+  testSource?: TestSource
+  tail?: TailIntake
 }
 
 interface Reviewed {
@@ -170,15 +175,9 @@ function notReopened(db: DatabaseSync, lease: Lease, review: Review): Review {
   return findings.length === 0 ? { ...review, verdict: 'pass', findings } : { ...review, findings }
 }
 
-type CardRisk = ReturnType<typeof cardRiskOf>
-
-const MUTATIONS_PASS_ON: readonly CardRisk[] = ['R3', 'R4']
-
-export function passOnSurvivingMutations(review: Review, risk: CardRisk): Review {
-  if (review.verdict !== 'changes' || review.findings.length === 0 || !MUTATIONS_PASS_ON.includes(risk))
-    return review
-  const marked = new Set((review.survivingMutations ?? []).map(finding => finding.trim()))
-  return review.findings.every(finding => marked.has(finding.trim())) ? { ...review, verdict: 'pass' } : review
+interface Tailed {
+  review: Review
+  tailCard: number | null
 }
 
 interface RoundLimit {
@@ -330,7 +329,7 @@ export class ReviewExecutor {
     try {
       const started = clock().getTime()
       const card = cardBodyText(db, lease.cardId)
-      const review = await this.parts.reviewer(lease, plan, card, provenWitnesses(db, lease, card))
+      const review = await this.parts.reviewer(lease, plan, card, provenWitnesses(db, lease, card, this.parts.testSource ?? gitTestSource(process.cwd())))
       return { outcome: { review, plan, ms: clock().getTime() - started, isolation, card }, held: review.tree ?? null }
     }
     catch (error) {
@@ -355,19 +354,34 @@ export class ReviewExecutor {
       return this.denied(lease, reviewed)
     const { plan } = reviewed
     const marked = this.markedDrip(lease, reviewed.review)
-    const review = keptChanges(db, lease, passOnSurvivingMutations(notReopened(db, lease, marked.review), cardRiskOf(lease.cardId, reviewed.card)))
+    const { review, tailCard } = this.withTail(lease, notReopened(db, lease, marked.review))
     const outcome = recordVerdict(db, gitHub, publish, { lease, verdict: review.verdict, reviewerSession: review.session }, () => clock().getTime())
     if (outcome.kind === 'denied')
       return this.denied(lease, outcome.denial)
     const repeats = this.repeatsAnEarlierRound(lease, review)
     const limit = this.roundLimit(lease, review, repeats)
-    completeTask(db, this.ts(), lease, [this.recorded(lease, { ...reviewed, review }, marked.drip), ...this.dripEvents(lease, marked.drip), ...(limit === null ? [] : [limit.event])])
+    completeTask(db, this.ts(), lease, [this.recorded(lease, { ...reviewed, review }, marked.drip, tailCard), ...this.dripEvents(lease, marked.drip), ...(limit === null ? [] : [limit.event])])
     if (limit !== null && limit.rule.kind !== 'extend' && lease.pr !== null) {
       if (limit.rule.kind !== 'park')
         this.noted(lease.pr, repeats ? repeatStopLine(lease.pr) : roundLimitLine(lease.pr, REVIEW_ROUNDS))
       this.recutAtTheLimit({ cardId: lease.cardId, pr: lease.pr, head: lease.head, findings: review.findings, ...(limit.rule.kind === 'park' ? { mutations: limit.rule.mutations } : {}) })
     }
     return { kind: 'recorded', taskKey: lease.taskKey, verdict: review.verdict, depth: plan.depth, model: review.model }
+  }
+
+  private withTail(lease: Lease, review: Review): Tailed {
+    const { db, tail } = this.parts
+    const mutations = tail === undefined ? null : mutationOnlyFindings(review)
+    const passed = keptChanges(db, lease, mutations === null ? review : { ...review, verdict: 'pass' })
+    if (mutations === null || tail === undefined || passed.verdict !== 'pass')
+      return { review: passed, tailCard: null }
+    try {
+      return { review: passed, tailCard: tail.file({ parent: lease.cardId, pr: lease.pr, head: lease.head, taskKey: lease.taskKey, findings: mutations }) }
+    }
+    catch (error) {
+      console.error(`${PREFIX}PR #${lease.pr}: every finding is a surviving mutation, but the tail card was not filed, so the verdict stays changes: ${error instanceof Error ? error.message : String(error)}`)
+      return { review, tailCard: null }
+    }
   }
 
   private markedDrip(lease: Lease, review: Review): Marked {
@@ -506,7 +520,7 @@ export class ReviewExecutor {
     }
   }
 
-  private recorded(lease: Lease, { review, plan, ms, isolation }: Reviewed, drip: readonly string[]): BusEvent {
+  private recorded(lease: Lease, { review, plan, ms, isolation }: Reviewed, drip: readonly string[], tailCard: number | null = null): BusEvent {
     return {
       ts: this.ts(),
       type: REVIEW_RECORDED,
@@ -515,7 +529,7 @@ export class ReviewExecutor {
       pr: lease.pr,
       head: lease.head,
       dedupeKey: `${REVIEW_RECORDED}:${lease.taskKey}:${lease.leaseGen}`,
-      payload: { head: lease.head, card_body: reviewInputOfKey(lease.taskKey)?.cardBody ?? null, verdict: review.verdict, [RULES_VERSION_KEY]: REVIEW_RULES_VERSION, depth: plan.depth, depth_why: plan.why, review_ms: ms, reviewer_session: review.session, model: review.model, ...review.cache, findings: review.findings, ...(drip.length === 0 ? {} : { drip }), ...treeFields(review), ...isolationFields(isolation), ...inputFields(this.parts.prompts, plan, review.input) },
+      payload: { head: lease.head, card_body: reviewInputOfKey(lease.taskKey)?.cardBody ?? null, verdict: review.verdict, [RULES_VERSION_KEY]: REVIEW_RULES_VERSION, depth: plan.depth, depth_why: plan.why, review_ms: ms, reviewer_session: review.session, model: review.model, ...review.cache, findings: review.findings, ...(drip.length === 0 ? {} : { drip }), ...(tailCard === null ? {} : { tail_card: tailCard }), ...treeFields(review), ...isolationFields(isolation), ...inputFields(this.parts.prompts, plan, review.input) },
       legacy: false,
     }
   }

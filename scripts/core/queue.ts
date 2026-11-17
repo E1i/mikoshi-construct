@@ -10,7 +10,7 @@ import { AMEND_SOURCE, witnessesOf } from '../../src/commands/intake/admit.js'
 import { launchCandidates } from '../nodes/launch/launch-candidates.js'
 import { cleanUpdatesOf } from '../nodes/update/update-done.js'
 import { continueFixesDecisionOf, mutationsParkedGrantOf, observedHeadsOf, pushedAfterContinueFixes, roundLimitDecisionOf, sameFindings } from '../policy/round-limit-decision.js'
-import { DECISIONS_SCOPE, decisionsInForceAt, unspentShardsOf, WINDOW_SHARDS_LIVE_AT } from '../policy/shards.js'
+import { DECISIONS_SCOPE, decisionsInForceAt, unspentShardsOf, WINDOW_SHARDS_LIVE_AT, withDecisionsHeldAt } from '../policy/shards.js'
 import { MAIN_BRANCH } from '../ports/snapshot.js'
 import { BACKFILL_SOURCE, NOT_A_BACKFILL } from './backfill-source.js'
 import { CARD_BODIES } from './card-bodies.js'
@@ -463,13 +463,13 @@ function notAWindowCard(card: string): string {
   return `NOT EXISTS (SELECT 1 FROM ${CARD_BODIES} AS body WHERE body.card_id = ${card} AND body.who = '${WINDOW_WHO}')`
 }
 
-function answerCandidatesWhere(condition: string): string {
+function answerCandidatesWhere(condition: string, { answeredPastAnUnmergedDependency = false } = {}): string {
   return `
   SELECT pr, card_id, head, ${cardBodyShaOf('prs.card_id')} AS card_body FROM prs
   WHERE state = 'open' AND ${condition} AND card_id IS NOT NULL AND head IS NOT NULL
     AND ${notAWindowCard('prs.card_id')}
     AND NOT ${aDowngradeWaitOpenOn('prs.card_id')}
-    AND NOT ${HELD_BY_A_DEPENDENCY}
+    ${answeredPastAnUnmergedDependency ? '' : `AND NOT ${HELD_BY_A_DEPENDENCY}`}
     AND NOT EXISTS (
       SELECT 1 FROM events AS stop WHERE stop.id = ${latestTurnOf('prs.card_id')}
         AND stop.type = '${CARD_STOPPED}' AND ${AN_OPEN_QUESTION} AND NOT EXISTS (SELECT 1 FROM events AS taken JOIN events AS released ON released.type = '${CARD_RELEASED}' AND released.legacy = 0 AND released.card_id = stop.card_id AND released.id > taken.id WHERE taken.type = '${CARD_HELD}' AND taken.legacy = 0 AND taken.card_id = stop.card_id AND taken.id > stop.id AND json_extract(taken.payload, '$.takeover') = 1)
@@ -480,7 +480,7 @@ function answerCandidatesWhere(condition: string): string {
 
 const CHANGES_CANDIDATES = answerCandidatesWhere(`verdict_on_head = 'changes'`)
 
-const RED_CI_CANDIDATES = answerCandidatesWhere(`ci = 'red' AND NOT ${A_RERUN_DUE}`)
+const RED_CI_CANDIDATES = answerCandidatesWhere(`ci = 'red' AND NOT ${A_RERUN_DUE}`, { answeredPastAnUnmergedDependency: true })
 
 const DIRTY_THE_UPDATE_COULD_NOT_MERGE = answerCandidatesWhere(`base = '${MAIN_BRANCH}' AND mergeable = 'dirty' AND draft = 0 AND EXISTS (
     SELECT 1 FROM events AS refused WHERE refused.type = '${POLICY_DENIED}' AND refused.legacy = 0 AND refused.pr = prs.pr AND refused.head = prs.head
@@ -836,10 +836,6 @@ function prBodySegment(task: QueuedTask): string {
   return `:pr-body-${task.prBody}`
 }
 
-function mergeBodyOfKey(key: string): string | undefined {
-  return MERGE_PR_BODY.exec(key)?.[1]
-}
-
 export function baseOfKey(key: string): string | undefined {
   return WITNESS_BASE.exec(key)?.[1]
 }
@@ -942,7 +938,7 @@ export function identityOf(event: StoredEvent): { key: string, queue: Queue } {
   if (input !== undefined && (event.pr === null || event.head === null))
     reject(`${event.type} of a review input needs a pr and a head`)
   const base = queue === 'witness' ? baseOfKey(String(payload.task_key)) : undefined
-  const prBody = queue === 'merge' ? mergeBodyOfKey(String(payload.task_key)) : undefined
+  const prBody = queue === 'merge' ? MERGE_PR_BODY.exec(String(payload.task_key))?.[1] : undefined
   const key = keyOf({ queue, cardId, pr: event.pr ?? undefined, head: event.head ?? undefined, generation, stop, input, cardBody, base, prBody, decision: decidedTaskDecisionOfKey(queue, payload.task_key) })
   if (payload.task_key !== key)
     reject(`task_key ${String(payload.task_key)} is not ${key}`)
@@ -1155,7 +1151,7 @@ function identity(row: TaskRow): QueuedTask {
   const input = row.queue === 'review' ? reviewInputOfKey(row.task_key) : undefined
   const cardBody = CARD_BODY_QUEUES.includes(row.queue) ? cardBodyIn(row.task_key) : undefined
   const base = row.queue === 'witness' ? baseOfKey(row.task_key) : undefined
-  const prBody = row.queue === 'merge' ? mergeBodyOfKey(row.task_key) : undefined
+  const prBody = row.queue === 'merge' ? MERGE_PR_BODY.exec(row.task_key)?.[1] : undefined
   return { ...plain, generation: generationOfKey(row.task_key, plain), stop: stopIn(row.task_key), input, cardBody, base, prBody, decision: decidedTaskDecisionOfKey(row.queue, row.task_key) }
 }
 
@@ -1253,6 +1249,10 @@ function setAgainAfterItsStop(db: DatabaseSync, ts: string, row: StoppedAnswerRo
 }
 
 export function deriveQueues(db: DatabaseSync, ts: string): Derived {
+  return withDecisionsHeldAt(db, new Date(ts), () => deriveQueuesUnderHeldDecisions(db, ts))
+}
+
+function deriveQueuesUnderHeldDecisions(db: DatabaseSync, ts: string): Derived {
   const derived: Derived = { queued: [], superseded: [] }
   for (const row of tasksTheHeadOrTheCardDecisionSupersedes(db.prepare(TASKS_OF_AN_OLD_HEAD).all() as unknown as (TaskRow & { head_moved: number })[], decisionsInForceAt(db, new Date(ts)), identity)) {
     if (supersedeTask(db, ts, identity(row)))

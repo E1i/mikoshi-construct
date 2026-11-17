@@ -1,0 +1,12 @@
+{
+  "event": "signal.sent",
+  "constant": "SIGNAL_SENT",
+  "payload": [
+    "instance",
+    "lstart",
+    "pid",
+    "signal",
+    "task_key",
+    "why"
+  ]
+}

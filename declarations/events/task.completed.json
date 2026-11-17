@@ -1,0 +1,10 @@
+{
+  "event": "task.completed",
+  "constant": "TASK_COMPLETED",
+  "payload": [
+    "generation",
+    "lease_gen",
+    "queue",
+    "task_key"
+  ]
+}

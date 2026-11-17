@@ -1,0 +1,8 @@
+{
+  "event": "pr.opened",
+  "constant": "PR_OPENED",
+  "payload": [
+    "pr",
+    "recut_of"
+  ]
+}
