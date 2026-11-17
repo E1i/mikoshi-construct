@@ -720,6 +720,7 @@
     "scripts/tests/decisions/decisions-per-bus.test.ts",
     "scripts/tests/decisions/decisions.test.ts",
     "scripts/tests/decisions/import-until.test.ts",
+    "scripts/tests/decisions/no-decisions-import.test.ts",
     "scripts/tests/decisions/number-and-rotation.test.ts",
     "scripts/tests/done/check.test.ts",
     "scripts/tests/done/wiring.test.ts",
