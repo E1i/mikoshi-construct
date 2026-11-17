@@ -1,6 +1,6 @@
 import type { GateRun } from '../../ci/gate-runs.js'
 import type { Graph } from '../../ci/layers.js'
-import type { Suite } from '../../ci/prepush.js'
+import type { PrepushParts, Suite } from '../../ci/prepush.js'
 import type { VitestRun } from '../../ci/test-command.js'
 import type { LayerMap } from '../../core/layer-map.js'
 import { chmodSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs'
@@ -10,7 +10,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { witnessTestsOf } from '../../ci/card-runs.js'
 import { GATE_RUN_SPOOL, recordGateRun } from '../../ci/gate-runs.js'
 import { NARROW_WHY } from '../../ci/layers.js'
-import { gateRecorder, gateSelection, narrowSelection, reachCount, reachLine, sessionRecord, sessionSelection, testStep } from '../../ci/prepush.js'
+import { CI_DIFF, gateRecorder, gateSelection, narrowSelection, prepush, reachCount, reachLine, ROUND_FLAG, sessionRecord, sessionSelection, testStep } from '../../ci/prepush.js'
 import { openBus } from '../../core/db.js'
 import { GATE_RUN } from '../../core/events.js'
 
@@ -195,6 +195,55 @@ describe('the session prepush runs the narrow selection and records every run', 
     openBus(busPath).close()
     expect(recordGateRun(RUN, '2026-11-17T00:00:00.000Z', busPath, path.join(root, GATE_RUN_SPOOL))).toBe(`prepush: ${GATE_RUN} recorded on the bus — prepush, layered, 4 s`)
     expect(gateRunsOn(busPath)).toHaveLength(1)
+  })
+
+  it('the prepush entry runs the narrow selection and spools a run the bus refuses', async () => {
+    const root = freshRoot()
+    const busPath = path.join(root, 'bus.db')
+    openBus(busPath).close()
+    busFilesMode(root, READ_ONLY)
+    const answers = new Map<string, string>([
+      ['status --porcelain', ` M ${LEASE}`],
+      ['rev-list --count HEAD --not --remotes=origin', '1'],
+      [[...CI_DIFF, HEAD].join(' '), `${LEASE}\0`],
+      ['ls-files --others --exclude-standard -z', ''],
+      ['rev-parse HEAD', `${HEAD}\n`],
+    ])
+    const git = (args: readonly string[]): string => {
+      const answer = answers.get(args.join(' '))
+      if (answer === undefined)
+        throw new Error(`unexpected git ${args.join(' ')}`)
+      return answer
+    }
+    const lines: string[] = []
+    const suite = suiteOf(lines)
+    const parts: PrepushParts = {
+      argv: [ROUND_FLAG, HEAD],
+      git,
+      ci: { successfulRunsOnMain: () => { throw new Error('a round reads no CI runs') } },
+      cruise: () => GRAPH,
+      card: () => ({ kind: 'card', card: 1994, touches: [], reading: { layers: [], paths: [], tests: [] }, witnesses: [WITNESS] }),
+      testText: () => '',
+      exists: () => false,
+      lint: () => { throw new Error('no file to lint') },
+      suite: { vitest: suite.vitest, liveness: suite.liveness, queue: suite.queue },
+      log: line => lines.push(line),
+      root,
+      busPath,
+      map: MAP,
+    }
+    expect(await prepush(parts)).toBe(0)
+
+    const ran = vi.mocked(suite.vitest).mock.calls[0]![0].filter(arg => !arg.startsWith('-') && arg.endsWith('.ts'))
+    expect(ran).toEqual([WITNESS, LEASE_TAKEN_TEST, LEASE_TEST].sort())
+    expect(ran).not.toContain(QUEUE_TEST)
+    expect(ran).not.toContain(NODE_TEST)
+    expect(lines).toContain(reachLine(3, sessionSelection([LEASE], GRAPH, () => '', null, MAP).run.tests.length))
+
+    expect(lines.some(line => line.startsWith(`prepush: ${GATE_RUN} kept in ${GATE_RUN_SPOOL}`))).toBe(true)
+    const spooled = readFileSync(path.join(root, GATE_RUN_SPOOL), 'utf8').trim().split('\n')
+    expect(spooled).toHaveLength(1)
+    expect(JSON.parse(spooled[0]!)).toMatchObject({ type: GATE_RUN, cardId: 1994, head: HEAD, payload: { source: 'gate', reason: NARROW_WHY, tests: 3 } })
   })
 
   it('a card text with two witnesses lines names no witness tests', () => {
