@@ -18,6 +18,18 @@ const VERDICTS: Record<string, 'allow' | 'refuse'> = {
   'pnpm exec node --import tsx scripts/ci/prepush.ts': 'allow',
   'grep -n vitest package.json': 'allow',
   'pnpm lint': 'allow',
+  'pnpm exec vitest run scripts/tests/shift/prompt.test.ts -t "the launch header forbids wide hand runs of vitest"': 'allow',
+  'pnpm exec vitest run -t "the launch header forbids wide hand runs" scripts/tests/shift/prompt.test.ts': 'allow',
+  'pnpm exec vitest run --testNamePattern=\'a b c d e\' scripts/tests/shift/prompt.test.ts': 'allow',
+  'pnpm exec vitest run scripts/tests/shift/prompt.test.ts 2>&1': 'allow',
+  'pnpm exec vitest run -t "a; pnpm exec vitest run" scripts/tests/shift/prompt.test.ts': 'allow',
+  'pnpm test scripts/tests/bus': 'refuse',
+  'pnpm run test scripts/tests/bus scripts/tests/core scripts/tests/nodes scripts/tests/window': 'refuse',
+  'pnpm test': 'refuse',
+  'npm test': 'refuse',
+  'pnpm --silent run test scripts/tests/bus/answerer.test.ts': 'allow',
+  'pnpm test scripts/tests/bus/answerer.test.ts': 'allow',
+  'pnpm typecheck': 'allow',
 }
 
 describe('the wide-vitest guard', () => {

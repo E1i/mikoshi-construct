@@ -13,7 +13,11 @@ export const WIDE_VITEST_HOOKS = {
   PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: `node "${GUARD_FILE}"`, timeout: 5 }] }],
 } as const
 
-const SEGMENT_SEPARATOR = /&&|\|\||[;|\n]/
+const SEGMENT_SEPARATOR = /^[;&|\n]$/
+const QUOTE = /^['"]$/
+const REDIRECTION = /^\d*[<>]/
+const REDIRECTION_WITHOUT_TARGET = /^\d*(?:<|>>?)$/
+const TEST_SCRIPT = 'test'
 const VITEST_WORD = /(?:^|\/)vitest$/
 const TEST_FILE = /\.(?:test|spec)\.[cm]?[jt]sx?(?::\d+)?$/
 const SUBCOMMANDS = new Set(['dev', 'related', 'watch', 'run'])
@@ -25,8 +29,42 @@ const ASKS_NO_RUN = new Set(['--version', '-v', '--help', '-h'])
 
 export type VitestVerdict = { kind: 'allow' } | { kind: 'refuse', reason: string }
 
-function unquoted(word: string): string {
-  return word.replace(/^['"]|['"]$/g, '')
+function segmentsOf(command: string): string[][] {
+  const segments: string[][] = [[]]
+  let word: string | null = null
+  let quote: string | null = null
+  const endWord = (): void => {
+    if (word !== null)
+      segments.at(-1)!.push(word)
+    word = null
+  }
+  for (const char of command) {
+    if (quote !== null) {
+      if (char === quote)
+        quote = null
+      else
+        word = (word ?? '') + char
+    }
+    else if (QUOTE.test(char)) {
+      quote = char
+      word = word ?? ''
+    }
+    else if (char === '&' && word !== null && word.endsWith('>')) {
+      word += char
+    }
+    else if (SEGMENT_SEPARATOR.test(char)) {
+      endWord()
+      segments.push([])
+    }
+    else if (/\s/.test(char)) {
+      endWord()
+    }
+    else {
+      word = (word ?? '') + char
+    }
+  }
+  endWord()
+  return segments.filter(segment => segment.length > 0)
 }
 
 function onlyLaunchers(words: readonly string[]): boolean {
@@ -40,9 +78,12 @@ function onlyLaunchers(words: readonly string[]): boolean {
   return true
 }
 
-function vitestArguments(segment: string): string[] | null {
-  const words = segment.trim().split(/\s+/).map(unquoted)
-  const at = words.findIndex(word => VITEST_WORD.test(word))
+function runsTheTestScript(words: readonly string[], at: number): boolean {
+  return words[at] === TEST_SCRIPT && at > 0 && onlyLaunchers(words.slice(0, at))
+}
+
+function vitestArguments(words: readonly string[]): string[] | null {
+  const at = words.findIndex((word, index) => VITEST_WORD.test(word) || runsTheTestScript(words, index))
   return at === -1 || !onlyLaunchers(words.slice(0, at)) ? null : words.slice(at + 1)
 }
 
@@ -50,8 +91,10 @@ function positionalsOf(args: readonly string[]): string[] {
   const positionals: string[] = []
   for (let at = 0; at < args.length; at++) {
     const arg = args[at]!
-    if (OPTIONS_WITH_A_VALUE.has(arg))
+    if (OPTIONS_WITH_A_VALUE.has(arg) || REDIRECTION_WITHOUT_TARGET.test(arg))
       at++
+    else if (REDIRECTION.test(arg))
+      continue
     else if (!arg.startsWith('-') && !(positionals.length === 0 && SUBCOMMANDS.has(arg)) && arg !== '')
       positionals.push(arg)
   }
@@ -76,7 +119,7 @@ function segmentVerdict(args: readonly string[]): VitestVerdict {
 }
 
 export function vitestVerdict(command: string): VitestVerdict {
-  for (const segment of command.split(SEGMENT_SEPARATOR)) {
+  for (const segment of segmentsOf(command)) {
     const args = vitestArguments(segment)
     const verdict = args === null ? { kind: 'allow' as const } : segmentVerdict(args)
     if (verdict.kind === 'refuse')

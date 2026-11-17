@@ -31,7 +31,7 @@ import { GhCiRuns } from '../../ports/ci-reading.js'
 import { hasClientTranscript } from '../../ports/client/claude/adapter.js'
 import { processGit } from '../../ports/git.js'
 import { identityOf, OsProcessTable } from '../../ports/process-table.js'
-import { CARD_SIZE_VARIABLE, CARD_VARIABLE, cardSessionOverlay, cardSizeIn, clientInvocation, sessionEnv, streamReading } from '../../ports/session.js'
+import { CARD_SIZE_VARIABLE, CARD_VARIABLE, cardSessionOverlay, cardSizeIn, clientInvocation, sessionEnv, streamReading, WIDE_VITEST_RULE } from '../../ports/session.js'
 import { MAIN_BRANCH } from '../../ports/snapshot.js'
 import { isAlive } from '../../quality/lock.js'
 import { busSessionPulse } from '../../supervisor/heartbeat.js'
@@ -42,7 +42,6 @@ import { answerPrompt, asksAboutRedCi, diffAgainstBase, gateLine, git, handoffLi
 
 export const PREFIX = '[bus:answer] '
 export const ANSWER_BEAT_MS = 60_000
-const WIDE_VITEST_RULE = 'Run by hand only the witness tests and the tests of the files you touched; prepush and CI run the rest. Never pass whole test directories to vitest by hand: name the test files.'
 
 export interface AnswerRequest {
   lease: Lease

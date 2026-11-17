@@ -5951,7 +5951,9 @@
           "witnessEnv": "(base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv"
         },
         "language": "technology",
-        "reexports": [],
+        "reexports": [
+          "WIDE_VITEST_RULE"
+        ],
         "technologyWords": [
           "spawn",
           "stderr",
