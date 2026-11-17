@@ -16,6 +16,7 @@ export const BUS_ORDERS = 'bus'
 export const WINDOW_ORDERS = 'window'
 export const ORDER_ACTOR = 'worker:supervisor:order'
 const OWNER_QUESTION = 'decision'
+const OWNER_MERGE = 'merge'
 export const PASS_VERDICT = 'pass'
 export const GREEN_CI = 'green'
 export const DIRTY = 'dirty'
@@ -90,6 +91,7 @@ export interface PrOrder {
 export interface TurnState {
   parked: (pr: number) => boolean
   holds: (pr: number) => boolean
+  yields?: (pr: number) => boolean
 }
 
 export function emptyOrder(): PrOrder {
@@ -362,7 +364,8 @@ export function membersOf(order: PrOrder, group: PrGroup): number[] {
 
 export function turnOf(order: PrOrder, group: PrGroup, state: TurnState): number | null {
   const members = membersOf(order, group)
-  return members.find(state.holds) ?? members.find(pr => !state.parked(pr)) ?? null
+  const ready = members.filter(pr => !state.parked(pr))
+  return members.find(state.holds) ?? ready.find(pr => state.yields?.(pr) !== true) ?? ready[0] ?? null
 }
 
 export function readyToOrder(order: PrOrder): number[] {
@@ -416,9 +419,12 @@ export type TouchesOf = (card: number) => readonly string[] | null
 export interface TurnReadings {
   waitingCards: ReadonlySet<number>
   touchesOf: TouchesOf
+  yieldingCards?: ReadonlySet<number>
 }
 
 export const NO_READINGS: TurnReadings = { waitingCards: new Set(), touchesOf: () => null }
+
+const NO_YIELDING_CARDS: ReadonlySet<number> = new Set()
 
 function tasksOf(order: PrOrder, match: (task: OrderTask) => boolean): OrderTask[] {
   return [...order.tasks.values()].filter(match)
@@ -432,8 +438,12 @@ export function waitsOnItsOwnWork(order: PrOrder, life: OrderedPr, waitingCards:
       || tasksOf(order, task => task.queue === ANSWER_QUEUE && task.card === card).length > 0))
 }
 
-export function turnStateOf(order: PrOrder, waitingCards: ReadonlySet<number>): TurnState {
+export function turnStateOf(order: PrOrder, waitingCards: ReadonlySet<number>, yieldingCards: ReadonlySet<number> = NO_YIELDING_CARDS): TurnState {
   return {
+    yields: (pr) => {
+      const card = order.prs.get(pr)?.card ?? null
+      return card !== null && yieldingCards.has(card)
+    },
     parked: (pr) => {
       const life = order.prs.get(pr)
       return life === undefined || waitsOnItsOwnWork(order, life, waitingCards)
@@ -450,12 +460,20 @@ function touchesOfPr(order: PrOrder, touchesOf: TouchesOf): (pr: number) => read
 }
 
 export function groupsWithTurn(order: PrOrder, declarations: OverlapDeclarations, readings: TurnReadings = NO_READINGS): GroupWithTurn[] {
-  const state = turnStateOf(order, readings.waitingCards)
+  const state = turnStateOf(order, readings.waitingCards, readings.yieldingCards)
   return orderGroups(order, declarations, touchesOfPr(order, readings.touchesOf)).map(group => ({ ...group, turn: turnOf(order, group, state) }))
 }
 
+function cardsWithOpenOwnerWait(db: DatabaseSync, need: string): Set<number> {
+  return new Set(openOwnerWaits(db).flatMap(wait => wait.card === null || wait.need !== need ? [] : [wait.card]))
+}
+
 export function waitingCardsOf(db: DatabaseSync): Set<number> {
-  return new Set(openOwnerWaits(db).flatMap(wait => wait.card === null || wait.need !== OWNER_QUESTION ? [] : [wait.card]))
+  return cardsWithOpenOwnerWait(db, OWNER_QUESTION)
+}
+
+export function yieldingCardsOf(db: DatabaseSync): Set<number> {
+  return cardsWithOpenOwnerWait(db, OWNER_MERGE)
 }
 
 export function recordGroups(db: DatabaseSync, ts: string, order: PrOrder, groups: readonly GroupWithTurn[]): boolean {
@@ -537,6 +555,7 @@ export class PrOrderTick {
     private readonly prefix: string,
     private readonly touchesOf: TouchesOf = () => null,
     private readonly waitingCards: () => ReadonlySet<number> = () => waitingCardsOf(db),
+    private readonly yieldingCards: () => ReadonlySet<number> = () => yieldingCardsOf(db),
   ) {}
 
   step(): string[] {
@@ -557,7 +576,7 @@ export class PrOrderTick {
   }
 
   private recordGroups(declarations: OverlapDeclarations): void {
-    const groups = groupsWithTurn(this.order, declarations, { waitingCards: this.waitingCards(), touchesOf: this.touchesOf })
+    const groups = groupsWithTurn(this.order, declarations, { waitingCards: this.waitingCards(), touchesOf: this.touchesOf, yieldingCards: this.yieldingCards() })
     const reading = JSON.stringify({ groups, counted: this.order.counted, needUpdate: [...this.order.needsUpdate].sort((a, b) => a - b) })
     if (reading === this.recorded)
       return
