@@ -122,7 +122,7 @@ export function ratchetThresholdSets(db: DatabaseSync): (cardId: number) => Thre
 
 export function busProjections(): Projections {
   return {
-    folds: [releasingTakeoverOnPush(PR_FOLDS, [PR_OBSERVED, PR_OPENED]), TASKS_PROJECTION.folds, CHAINS_PROJECTION.folds, ROLES_PROJECTION.folds, DECISION_FOLDS, CARD_FOLDS, OWNER_WAIT_FOLDS, PLAN_FOLDS, CARD_END_FOLDS],
+    folds: [releasingTakeoverOnPush(PR_FOLDS, [PR_OBSERVED, PR_OPENED], db => new BusRead(db)), TASKS_PROJECTION.folds, CHAINS_PROJECTION.folds, ROLES_PROJECTION.folds, DECISION_FOLDS, CARD_FOLDS, OWNER_WAIT_FOLDS, PLAN_FOLDS, CARD_END_FOLDS],
     incremental: [ROLES_PROJECTION, TASKS_PROJECTION, CHAINS_PROJECTION, CARDS_PROJECTION],
   }
 }

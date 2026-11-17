@@ -1,6 +1,5 @@
 import type { RequestContext, RequestExecutor } from './context.js'
 import type { Executed, RequestPayload } from './request.js'
-import { headAtTakeover } from '../takeover-push-release.js'
 import { windowSessionEndGround } from '../window-session-end.js'
 import { appendEvent, CARD_ADMITTED, CARD_ANSWERED, CARD_HELD, CARD_STARTED, CARD_STOPPED, CARD_TAKEOVER, cardIdOf, inTransaction, OPEN_OWNER_STOP_OF_CARD, openPrOfCard, OWNER, ownerHoldGround, WITNESS_RECORDED } from './reach.js'
 import { TAKEOVER_AFTER_MINUTES, text } from './request.js'
@@ -56,8 +55,10 @@ export function takeover(context: RequestContext, request: number, payload: Requ
     return { done: false, why: ground }
   const ts = context.now()
   const actor = owner ? OWNER : context.actorOf(request)
+  const pr = openPrOfCard(db, cardId)
+  const headTaken = pr === null ? null : context.observed(pr)?.head ?? null
   inTransaction(db, () => {
-    appendEvent(db, { ts, type: CARD_HELD, actor, cardId, pr: null, head: headAtTakeover(db, cardId), dedupeKey: `${CARD_HELD}:request-${request}`, payload: { request, reason, takeover: true }, legacy: false })
+    appendEvent(db, { ts, type: CARD_HELD, actor, cardId, pr: null, head: headTaken, dedupeKey: `${CARD_HELD}:request-${request}`, payload: { request, reason, takeover: true }, legacy: false })
     appendEvent(db, { ts, type: CARD_TAKEOVER, actor, cardId, pr: null, head: null, dedupeKey: `${CARD_TAKEOVER}:request-${request}`, payload: { request, reason, ground: ground.named }, legacy: false })
   })
   return { done: true, why: `${CARD_TAKEOVER} #${cardId} (${ground.named}): ${reason}` }
