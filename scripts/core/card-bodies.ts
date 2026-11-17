@@ -250,6 +250,13 @@ export function pathsOutsideTheBody(db: DatabaseSync, cardId: number, text: stri
   return parsed?.kind === 'parked' ? pathsNamedOutside(parsed.parked, text) : []
 }
 
+export function cardOfBranch(db: DatabaseSync, branch: unknown): number | null {
+  if (typeof branch !== 'string' || branch === '')
+    return null
+  const cards = db.prepare(`SELECT card_id FROM ${CARD_BODIES} WHERE branch = ? LIMIT 2`).all(branch) as { card_id: number }[]
+  return cards.length === 1 ? cards[0]!.card_id : null
+}
+
 export function foldCardBody(db: DatabaseSync, event: StoredEvent): void {
   const payload = payloadOrNull(event)
   const text = payload?.text

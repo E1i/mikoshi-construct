@@ -6,7 +6,7 @@ import { textSha } from '../../../src/card/text-sha.js'
 import { appendEvent, openBus } from '../../core/db.js'
 import { CARD_ADMITTED } from '../../core/events.js'
 import { reduce } from '../../core/reducer.js'
-import { NetWatch } from '../../ports/netwatch.js'
+import { NetWatch, TICK_MS } from '../../ports/netwatch.js'
 import { busProjections } from '../../supervisor/composition.js'
 import { Clock, FakeGitHub } from './github-fake.js'
 
@@ -20,12 +20,13 @@ afterEach(() => {
 
 type Bus = ReturnType<typeof openBus>
 
-function bench(): { db: Bus, gitHub: FakeGitHub, netWatch: NetWatch } {
+function bench(): { db: Bus, gitHub: FakeGitHub, netWatch: NetWatch, clock: Clock } {
   const root = mkdtempSync(path.join(tmpdir(), 'bus-pr-branch-link-'))
   roots.push(root)
   const db = openBus(path.join(root, 'bus.db'))
   const gitHub = new FakeGitHub()
-  return { db, gitHub, netWatch: new NetWatch(db, gitHub.client, new Clock().now) }
+  const clock = new Clock()
+  return { db, gitHub, netWatch: new NetWatch(db, gitHub.client, clock.now), clock }
 }
 
 function admitBody(db: Bus, cardId: number, branch: string): void {
@@ -33,14 +34,14 @@ function admitBody(db: Bus, cardId: number, branch: string): void {
   appendEvent(db, { ts: '2026-11-04T09:00:00.000Z', type: CARD_ADMITTED, actor: 'worker:intake:by-hand', cardId, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:body:${cardId}`, payload: { card: `#${cardId}`, lane: 'lane-1', text, textSha: textSha(text), bodySha: textSha(text).slice(0, 12) }, legacy: false })
 }
 
-function observe(db: Bus, netWatch: NetWatch): void {
-  reduce(db, 'pending', busProjections())
+function observe(db: Bus, netWatch: NetWatch): number {
+  const before = reduce(db, 'pending', busProjections()).rejected
   netWatch.poll()
-  reduce(db, 'pending', busProjections())
+  return before + reduce(db, 'pending', busProjections()).rejected
 }
 
 function prCard(db: Bus, pr: number): unknown {
-  return (db.prepare('SELECT card_id FROM prs WHERE pr = ?').get(pr) as { card_id: number | null }).card_id
+  return (db.prepare('SELECT card_id FROM prs WHERE pr = ?').get(pr) as { card_id: number | null } | undefined)?.card_id
 }
 
 function cardPr(db: Bus, cardId: number): unknown {
@@ -69,6 +70,36 @@ describe('a pull request linked by its branch', () => {
     expect(prCard(db, 16)).toBeNull()
     expect(prCard(db, 17)).toBeNull()
     expect([cardPr(db, 1494), cardPr(db, 1500), cardPr(db, 1501)]).toEqual([null, null, null])
+    db.close()
+  })
+
+  it('a second marker-less PR on the branch of a card linked to an open PR is left unlinked, not rejected', () => {
+    const { db, gitHub, netWatch, clock } = bench()
+    admitBody(db, 1494, 'feat/registry-sync')
+    gitHub.open({ number: 16, body: MARKERLESS, ref: 'feat/registry-sync' })
+    expect(observe(db, netWatch)).toBe(0)
+    clock.advance(TICK_MS)
+    gitHub.open({ number: 17, body: MARKERLESS, ref: 'feat/registry-sync' })
+    expect(observe(db, netWatch)).toBe(0)
+    expect(prCard(db, 17)).toBeNull()
+    expect(prCard(db, 16)).toBe(1494)
+    expect(cardPr(db, 1494)).toBe(16)
+    db.close()
+  })
+
+  it('a marker-less PR on the branch of a card linked to a merged PR is left unlinked, not rejected', () => {
+    const { db, gitHub, netWatch, clock } = bench()
+    admitBody(db, 1494, 'feat/registry-sync')
+    gitHub.open({ number: 16, body: MARKERLESS, ref: 'feat/registry-sync' })
+    expect(observe(db, netWatch)).toBe(0)
+    clock.advance(TICK_MS)
+    gitHub.close(16, true)
+    expect(observe(db, netWatch)).toBe(0)
+    clock.advance(TICK_MS)
+    gitHub.open({ number: 17, body: MARKERLESS, ref: 'feat/registry-sync' })
+    expect(observe(db, netWatch)).toBe(0)
+    expect(prCard(db, 17)).toBeNull()
+    expect(cardPr(db, 1494)).toBe(16)
     db.close()
   })
 

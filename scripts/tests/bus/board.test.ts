@@ -20,7 +20,7 @@ import { OWNER, RESTART_MISSED } from '../../core/inbox.js'
 import { completeTask, leaseNext, leaseWhileFree } from '../../core/lease.js'
 import { queueTask } from '../../core/queue.js'
 import { SNAPSHOT } from '../../core/reducer.js'
-import { storedByKey } from '../../core/stored.js'
+import { payloadOf, storedByKey } from '../../core/stored.js'
 import { markReduced } from '../../core/watermark.js'
 import { importJournal } from '../../intake/import.js'
 import { answerLeaseOrder } from '../../nodes/answer/answer-worker.js'
@@ -131,7 +131,7 @@ function stopCard(bench: BoardBench, cardId: number): void {
 function planEvent(bench: BoardBench, type: string, payload: Record<string, unknown>, cardId: number | null = null): void {
   const dedupeKey = `${type}:${cardId}:${JSON.stringify(payload)}`
   appendEvent(bench.db, { ts: bench.ts(), type, actor: OWNER, cardId, pr: null, head: null, dedupeKey, payload, legacy: false })
-  foldPlanEvent(bench.db, storedByKey(bench.db, dedupeKey), { owner: OWNER, recut: RECUT_ACTOR })
+  foldPlanEvent(bench.db, storedByKey(bench.db, dedupeKey), { owner: OWNER, recut: RECUT_ACTOR, payloadOf })
 }
 
 function openPlan(bench: BoardBench, cards: number[]): void {

@@ -201,6 +201,18 @@ function recordStart(bus: string, event: BusEvent): StartWrite {
   }
 }
 
+const FULL_SHA = /^[0-9a-f]{40}$/
+
+function baseOf(deps: TaskStartDeps, worktree: string): { base?: string } {
+  try {
+    const head = deps.git(worktree, ['rev-parse', 'HEAD']).trim()
+    return FULL_SHA.test(head) ? { base: head } : {}
+  }
+  catch {
+    return {}
+  }
+}
+
 function refuse(message: string): TaskStartResult {
   return { stdout: [], stderr: [`${PREFIX}${message}`], exitCode: 1 }
 }
@@ -365,7 +377,7 @@ export function runTaskStart(argv: string[], deps: TaskStartDeps, handed?: Hande
     return refuse(ready.refused)
   const { worktree } = ready
   const at = deps.now().toISOString()
-  const start = { path: card.contour, started: at, ...(deps.session === undefined ? {} : { session: deps.session }), ...(deps.shift === undefined ? {} : { shift: deps.shift }), worktree, ...(ready.origin === undefined ? {} : { tree_origin: ready.origin }), ...(args.adopt === undefined ? {} : { adopts: worktree }), branch, card, ...whoAndRisk(cardFile), ...(handed?.forecast === undefined ? {} : { forecast: recordedForecast(handed.forecast) }), admission: admissionRecord(admitted) }
+  const start = { path: card.contour, started: at, ...(deps.session === undefined ? {} : { session: deps.session }), ...(deps.shift === undefined ? {} : { shift: deps.shift }), worktree, ...baseOf(deps, worktree), ...(ready.origin === undefined ? {} : { tree_origin: ready.origin }), ...(args.adopt === undefined ? {} : { adopts: worktree }), branch, card, ...whoAndRisk(cardFile), ...(handed?.forecast === undefined ? {} : { forecast: recordedForecast(handed.forecast) }), admission: admissionRecord(admitted) }
   const unsessioned = deps.session === undefined ? `; ${SESSION_VARIABLE} is not set, the board will show WINDOW UNKNOWN (no session)` : ''
   const entry = { ...contract, ACTION: `task:start ${branch} #${id}: ${ready.how}; ${CARD_STARTED} written to ${deps.bus}${unsessioned}`, RESULT: ENTRY_RESULT }
   const event: BusEvent = { ts: at, type: CARD_STARTED, actor: `${STARTER_ACTOR}${deps.session ?? STARTER_SESSION_BY_HAND}`, cardId: card.id, pr: null, head: null, dedupeKey: `${CARD_STARTED}:${id}:${branch}:${at}`, payload: { ...start, entry: { schema: ENTRY_SCHEMA, ...entry } }, legacy: false }

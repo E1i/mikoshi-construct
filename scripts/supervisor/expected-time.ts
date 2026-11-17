@@ -1,7 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { Lease } from '../core/lease.js'
 import { appendEvent } from '../core/db.js'
-import { ANSWER_STEP, BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_STARTED, REVIEW_RECORDED, SESSION_HEARTBEAT } from '../core/events.js'
+import { ANSWER_STEP, BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_DROPPED, CARD_RELEASED, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, MERGE_DONE, PR_OBSERVED, PR_OPENED, REVIEW_RECORDED, SESSION_HEARTBEAT } from '../core/events.js'
 import { ANY, BusRead } from '../ports/bus-read.js'
 
 export const MIN_SAMPLES = 3
@@ -212,4 +212,43 @@ export function cardSessionOf(db: DatabaseSync, card: number): CardSession | nul
   if (start?.ts == null || started === null)
     return null
   return { card, session: started, worktree, startedAt: start.ts, lastBeat: start.ts }
+}
+
+const ENDS_OF_A_START = [CARD_SESSION_ENDED, CARD_STOPPED, CARD_ANSWERED, MERGE_DONE, CARD_CLOSED, CARD_DROPPED] as const
+
+export interface UnendedStart {
+  id: number
+  card_id: number
+  ts: string
+  session: string | null
+  worktree: string | null
+  base: string | null
+}
+
+function startedByNoLaunchedSession(pid: unknown): boolean {
+  return pid === undefined || pid === null
+}
+
+export function unendedStarts(db: DatabaseSync): UnendedStart[] {
+  const read = new BusRead(db).where({ card: ANY })
+  const lastEnd = new Map<number, number>()
+  for (const type of ENDS_OF_A_START) {
+    for (const end of read.slice(type, [], 'last-per-card'))
+      lastEnd.set(end.card!, Math.max(lastEnd.get(end.card!) ?? 0, end.id))
+  }
+  return read.slice(CARD_STARTED, ['session', 'worktree', 'base', 'pid'], 'last-per-card')
+    .filter(start => start.ts !== null && startedByNoLaunchedSession(start.fields.pid) && (lastEnd.get(start.card!) ?? 0) < start.id)
+    .map(start => ({ id: start.id, card_id: start.card!, ts: start.ts!, session: text(start.fields.session), worktree: text(start.fields.worktree), base: text(start.fields.base) }))
+}
+
+export function firstPushAfter(db: DatabaseSync, start: UnendedStart): { pr: number | null, head: string } | null {
+  const after = new BusRead(db).where({ card: start.card_id, from: start.id + 1 })
+  const push = [...after.slice(PR_OPENED, []), ...after.slice(PR_OBSERVED, [])]
+    .filter(seen => seen.head !== null && seen.head !== start.base)
+    .sort((left, right) => left.id - right.id)[0]
+  return push === undefined ? null : { pr: push.pr, head: push.head! }
+}
+
+export function firstReleaseAfter(db: DatabaseSync, start: UnendedStart): number | null {
+  return new BusRead(db).where({ card: start.card_id, from: start.id + 1 }).slice(CARD_RELEASED, [])[0]?.id ?? null
 }

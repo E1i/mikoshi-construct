@@ -1,15 +1,17 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { BusEvent } from '../core/db.js'
 import type { EventPayload } from '../core/events.js'
-import type { PreviousObservation } from '../core/observations.js'
+import type { PreviousObservation, PreviousObservationOf, ReopeningOf } from '../core/observations.js'
 import type { GitHub } from './github.js'
+import type { ChangedPaths, ClosedPr, MainHead, OpenPr, Snapshot } from './snapshot.js'
+import { createHash } from 'node:crypto'
 import { realpathSync } from 'node:fs'
 import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { appendEvent, defaultBusPath, inTransaction, openBus } from '../core/db.js'
-import { BUS_PULSE, declaredPayload, MAIN_ADVANCED, NETWATCH_SKIPPED, PR_OBSERVED } from '../core/events.js'
-import { NETWATCH, observationsOf, pathsOfTheLastObservation, previousObservationOf, reopeningOf } from '../core/observations.js'
+import { BUS_PULSE, declaredPayload, MAIN_ADVANCED, NETWATCH_SKIPPED, PR_CLOSED, PR_OBSERVED } from '../core/events.js'
+import { closedKey, NETWATCH, pathsOfTheLastObservation, previousObservationOf, reopeningOf } from '../core/observations.js'
 import { RUN_SCRIPT } from '../supervisor/bg.js'
 import { recordProcessHeartbeat } from '../supervisor/heartbeat.js'
 import { ghApi } from './github.js'
@@ -29,6 +31,62 @@ export type PollReason = 'start' | 'interval' | 'wake'
 export type Poll
   = | { kind: 'ticked', reason: PollReason, calls: number, remaining: number | null, written: number, unsettled: number[] }
     | { kind: 'skipped', reason: PollReason, cause: 'retry-after' | 'rate-limited' | 'failed', calls: number, until?: string, detail?: string }
+
+function observation(ts: string, type: string, fields: Pick<BusEvent, 'cardId' | 'pr' | 'head' | 'dedupeKey' | 'payload'>): BusEvent {
+  return { ts, type, actor: NETWATCH, legacy: false, ...fields }
+}
+
+function digestOf(payloadText: string): string {
+  return createHash('sha256').update(payloadText).digest('hex')
+}
+
+function pathsFields(changed: ChangedPaths | undefined): { paths?: string[], pathsTruncated?: boolean } {
+  return changed === undefined ? {} : { paths: changed.paths, pathsTruncated: changed.pathsTruncated }
+}
+
+export function prObserved(ts: string, open: OpenPr, previous: PreviousObservation | null): BusEvent {
+  const payload = {
+    card_id: open.cardId,
+    base: open.base,
+    head: open.head,
+    ...(open.branch === null ? {} : { branch: open.branch }),
+    mergeable: open.mergeable,
+    ...open.ciFields,
+    ...((open.cancelledChecks ?? []).length === 0 ? {} : { cancelled_checks: open.cancelledChecks }),
+    ...(open.verdictOnHead === null ? {} : { verdict_on_head: open.verdictOnHead }),
+    auto_merge: open.autoMerge,
+    draft: open.draft,
+    body_sha: open.bodySha,
+    ...pathsFields(open.changed),
+  }
+  const digest = digestOf(JSON.stringify(payload))
+  const repeatsPrevious = previous !== null && digestOf(previous.payload) === digest
+  const dedupeKey = repeatsPrevious ? previous.dedupeKey : `pr:${open.pr}:${digest}:${previous?.id ?? '-'}`
+  return observation(ts, 'pr.observed', { cardId: open.cardId, pr: open.pr, head: open.head, dedupeKey, payload })
+}
+
+export function prClosed(ts: string, closed: ClosedPr, reopening: number | null = null): BusEvent {
+  const payload = {
+    merged: closed.merged,
+    ...(closed.branch == null ? {} : { branch: closed.branch }),
+    ...(closed.commit === null ? {} : { commit: closed.commit }),
+    ...(closed.mergedBy === null ? {} : { merged_by: closed.mergedBy }),
+    ...(closed.mergedAt === null ? {} : { merged_at: closed.mergedAt }),
+  }
+  return observation(ts, PR_CLOSED, { cardId: closed.cardId, pr: closed.pr, head: null, dedupeKey: closedKey(closed.pr, reopening), payload })
+}
+
+export function mainAdvanced(ts: string, main: MainHead): BusEvent {
+  return observation(ts, 'main.advanced', { cardId: null, pr: null, head: null, dedupeKey: `main:${main.sha}`, payload: { sha: main.sha, touches_mechanics: main.touchesMechanics, ...pathsFields(main.changed) } })
+}
+
+export function observationsOf(ts: string, snapshot: Snapshot, previousOf: PreviousObservationOf, reopening: ReopeningOf = () => null): BusEvent[] {
+  return [
+    ...snapshot.open.map(open => prObserved(ts, open, previousOf(open.pr))),
+    ...snapshot.closed.map(closed => prClosed(ts, closed, reopening(closed.pr))),
+    ...(snapshot.main === null ? [] : [mainAdvanced(ts, snapshot.main)]),
+  ]
+}
 
 const KNOWN_OPEN_PRS = `
   SELECT pr FROM prs WHERE pr NOT IN (SELECT pr FROM events WHERE type = 'pr.closed' AND pr IS NOT NULL)

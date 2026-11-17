@@ -5,46 +5,40 @@ import type { IncrementalProjection } from './watermark.js'
 import { realpathSync } from 'node:fs'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { archiveSpentDecisions, DECISION_FOLDS, waitsTheDecisionNames } from '../policy/decisions/index.js'
-import { allowLiveCommand, namesQueueLive } from '../policy/live-decision.js'
 import { busProjections } from '../supervisor/composition.js'
 import { IN_ORDER_MARK, latestOfEachType, REDUCED_IN_ORDER } from './bus-readings.js'
-import { CARD_FOLDS, cardLinkObserved, cardPrMerged, cardPrOpened, CLOSED_CARD, DROPPED_CARD, MERGED_CARD } from './card-automaton.js'
-import { CARD_BODIES, foldCardBody } from './card-bodies.js'
 import { appendEvent, CLOSED_WAIT, defaultBusPath, inTransaction, isOwnerWaitNeed, OPEN_WAIT, openBus, OWNER_WAIT_NEEDS, OWNER_WAITS, WAIT_ID } from './db.js'
-import { CARD_ADMITTED, CARD_CLOSED, CARD_DROPPED, CARD_MOVED, CARD_WAITING, catalogued, DECISION_RECORDED, DECISIONS_CUT_OVER, DECISIONS_IMPORTED, MAIN_ADVANCED, MERGE_DONE, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PR_CLOSED, PR_OBSERVED, PR_OPENED, WITNESS_DOWNGRADE } from './events.js'
-import { cardIdOf, isFullSha, prOf } from './identifiers.js'
-import { ADMIT_COMMAND, ownerWaitCommand } from './owner-commands.js'
+import { CARD_WAITING, catalogued, DECISION_RECORDED, DECISIONS_CUT_OVER, DECISIONS_IMPORTED, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, WITNESS_DOWNGRADE } from './events.js'
+import { prOf } from './identifiers.js'
 import { appliedOrRejected } from './rejection.js'
 import { payloadOf, reject, STORED_COLUMNS } from './stored.js'
 import { markReduced, reduceProjection, watermarkOf } from './watermark.js'
 
 export const PREFIX = '[bus:reduce] '
-export const PROJECTION_KEYS: Readonly<Record<string, string>> = { prs: 'pr', cards: 'card_id', tasks: 'task_key', mains: 'sha', chains: 'dir', roles: 'role', decisions: 'decision_id', [CARD_BODIES]: 'card_id', plans: 'plan_id', card_releases: 'card_id', plan_items: 'plan_id, item_id', [OWNER_WAITS]: 'id' }
+export const PROJECTION_KEYS: Readonly<Record<string, string>> = { prs: 'pr', cards: 'card_id', tasks: 'task_key', mains: 'sha', chains: 'dir', roles: 'role', decisions: 'decision_id', card_bodies: 'card_id', plans: 'plan_id', card_releases: 'card_id', plan_items: 'plan_id, item_id', [OWNER_WAITS]: 'id' }
 
-const DOWNGRADE_WAIT_PREFIX = 'W'
+export const DOWNGRADE_WAIT_PREFIX = 'W'
 const DOWNGRADE_WAIT_ID = new RegExp(`^${DOWNGRADE_WAIT_PREFIX}\\d+$`)
-const MERGEABLE = new Set(['clean', 'behind', 'dirty', 'blocked'])
-const CI = new Set(['pending', 'green', 'red'])
 
-interface PrRow {
-  pr: number
-  card_id: number | null
-  base: string | null
-  head: string | null
-  state: string | null
-  mergeable: string | null
-  ci: string | null
-  verdict_on_head: string | null
-  auto_merge: number | null
-  draft: number | null
-  event_id: number
-  body_sha: string | null
+export interface OwnerWaitFacts {
+  id: string
+  need: string
+  card: number | null
+  pr: number | null
 }
 
-interface CardRow {
-  card_id: number
-  pr: number | null
+export interface DecisionAnswer {
+  answer: string
+  scope: string
+  commands: readonly string[]
+  named: readonly string[]
+}
+
+export interface OwnerWaitParts {
+  commandOf: (wait: OwnerWaitFacts, asked: string | null) => string
+  decisionFolds: Readonly<Record<string, Fold>>
+  answersOfTheDecisions: (db: DatabaseSync, eventId: number) => readonly DecisionAnswer[]
+  closeWaitsOfAnEndedCard: (db: DatabaseSync, cardId: number | null, eventId: number) => void
 }
 
 export interface ReduceCount {
@@ -52,214 +46,7 @@ export interface ReduceCount {
   rejected: number
 }
 
-function boolean(payload: Record<string, unknown>, field: string): boolean {
-  const value = payload[field]
-  return typeof value === 'boolean' ? value : reject(`${field} is not a boolean`)
-}
-
-function oneOf(payload: Record<string, unknown>, field: string, allowed: Set<string>): string {
-  const value = payload[field]
-  return typeof value === 'string' && allowed.has(value) ? value : reject(`${field} is not one of ${[...allowed].join(' | ')}`)
-}
-
-function requiredPr(event: StoredEvent): number {
-  return event.pr ?? reject(`${event.type} needs a pr`)
-}
-
-function prRow(db: DatabaseSync, pr: number): PrRow | undefined {
-  return db.prepare('SELECT * FROM prs WHERE pr = ?').get(pr) as PrRow | undefined
-}
-
-function cardRow(db: DatabaseSync, cardId: number): CardRow | undefined {
-  return db.prepare('SELECT card_id, pr FROM cards WHERE card_id = ?').get(cardId) as CardRow | undefined
-}
-
-function cardOfPr(db: DatabaseSync, pr: number): number | null {
-  return (db.prepare('SELECT card_id FROM cards WHERE pr = ?').get(pr) as { card_id: number } | undefined)?.card_id ?? null
-}
-
-function linkRefusal(db: DatabaseSync, cardId: number): string | null {
-  const linkedPr = cardRow(db, cardId)?.pr ?? null
-  if (linkedPr === null)
-    return null
-  const linked = prRow(db, linkedPr)
-  if (linked === undefined || linked.state === 'open')
-    return `card ${cardId} is linked to pr ${linkedPr}, which is still open`
-  return linked.state === 'merged' ? `card ${cardId} is linked to pr ${linkedPr}, which is merged` : null
-}
-
-function cardOfBranch(db: DatabaseSync, branch: unknown): number | null {
-  if (typeof branch !== 'string' || branch === '')
-    return null
-  const cards = db.prepare(`SELECT card_id FROM ${CARD_BODIES} WHERE branch = ? LIMIT 2`).all(branch) as { card_id: number }[]
-  const only = cards.length === 1 ? cards[0]!.card_id : null
-  return only !== null && linkRefusal(db, only) === null ? only : null
-}
-
-function linkCard(db: DatabaseSync, cardId: number, pr: number, eventId: number): void {
-  if (cardRow(db, cardId)?.pr === pr)
-    return
-  const refusal = linkRefusal(db, cardId)
-  if (refusal !== null)
-    reject(refusal)
-  db.prepare(`
-    INSERT INTO cards (card_id, state, pr, event_id) VALUES (?, NULL, ?, ?)
-    ON CONFLICT (card_id) DO UPDATE SET pr = excluded.pr, event_id = excluded.event_id
-  `).run(cardId, pr, eventId)
-}
-
-function prObserved(db: DatabaseSync, event: StoredEvent): void {
-  const pr = requiredPr(event)
-  const payload = payloadOf(event)
-  const base = typeof payload.base === 'string' && payload.base !== '' ? payload.base : reject('base is not a branch name')
-  const head = isFullSha(payload.head) ? payload.head : reject('head is not a full sha')
-  if (event.head !== null && event.head !== head)
-    reject(`the event head ${event.head} is not the payload head ${head}`)
-  const mergeable = oneOf(payload, 'mergeable', MERGEABLE)
-  const ci = oneOf(payload, 'ci', CI)
-  const verdict = payload.verdict_on_head ?? null
-  if (verdict !== null && typeof verdict !== 'string')
-    reject('verdict_on_head is not a string')
-  const autoMerge = boolean(payload, 'auto_merge')
-  const draft = boolean(payload, 'draft')
-  const bodySha = payload.body_sha ?? null
-  if (bodySha !== null && typeof bodySha !== 'string')
-    reject('body_sha is not a string')
-  const known = prRow(db, pr)
-  if (known?.state === 'merged')
-    reject(`pr ${pr} is merged`)
-  if (known?.card_id != null && event.card_id !== null && known.card_id !== event.card_id)
-    reject(`pr ${pr} belongs to card ${known.card_id}, not ${event.card_id}`)
-  const cardId = event.card_id ?? known?.card_id ?? cardOfPr(db, pr) ?? (known === undefined ? cardOfBranch(db, payload.branch) : null)
-  if (cardId !== null) {
-    linkCard(db, cardId, pr, event.id)
-    cardLinkObserved(db, cardId, event.id)
-  }
-  db.prepare(`
-    INSERT INTO prs (pr, card_id, base, head, state, mergeable, ci, verdict_on_head, auto_merge, draft, event_id, body_sha)
-    VALUES (?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT (pr) DO UPDATE SET card_id = excluded.card_id, base = excluded.base, head = excluded.head,
-      state = 'open', mergeable = excluded.mergeable, ci = excluded.ci, verdict_on_head = excluded.verdict_on_head,
-      auto_merge = excluded.auto_merge, draft = excluded.draft, event_id = excluded.event_id, body_sha = excluded.body_sha
-  `).run(pr, cardId, base, head, mergeable, ci, verdict, autoMerge ? 1 : 0, draft ? 1 : 0, event.id, bodySha)
-}
-
-function prClosed(db: DatabaseSync, event: StoredEvent): void {
-  const pr = requiredPr(event)
-  const merged = boolean(payloadOf(event), 'merged')
-  const known = prRow(db, pr) ?? reject(`pr ${pr} was never observed`)
-  if (known.state === 'merged')
-    reject(`pr ${pr} is already merged`)
-  db.prepare('UPDATE prs SET state = ?, event_id = ? WHERE pr = ?').run(merged ? 'merged' : 'closed', event.id, pr)
-  if (merged && known.card_id !== null)
-    cardPrMerged(db, known.card_id, event.id)
-  db.prepare(`UPDATE owner_waits SET state = '${CLOSED_WAIT}', answer = ?, event_id = ? WHERE state = '${OPEN_WAIT}' AND need = 'merge' AND pr = ?`)
-    .run(`PR #${pr} ${merged ? 'merged' : 'closed'}`, event.id, pr)
-  closeWaitsOfAnEndedCard(db, known.card_id, event.id)
-  archiveSpentDecisions(db)
-}
-
-const ENDED_CARD_STATES: ReadonlySet<string | null> = new Set([MERGED_CARD, CLOSED_CARD, DROPPED_CARD])
-
-function endedCardAnswer(cardId: number, state: string | null): string {
-  return `card #${cardId} ${state}`
-}
-
-function closeWaitsOfAnEndedCard(db: DatabaseSync, cardId: number | null, eventId: number): void {
-  if (cardId === null)
-    return
-  const state = (db.prepare('SELECT state FROM cards WHERE card_id = ?').get(cardId) as { state: string | null } | undefined)?.state ?? null
-  if (!ENDED_CARD_STATES.has(state))
-    return
-  db.prepare(`UPDATE owner_waits SET state = '${CLOSED_WAIT}', answer = ?, event_id = ? WHERE state = '${OPEN_WAIT}' AND card_id = ?`)
-    .run(endedCardAnswer(cardId, state), eventId, cardId)
-}
-
-const OPEN_WAITS_OF_ENDED_CARDS = `
-  SELECT wait.id, wait.card_id, card.state FROM owner_waits AS wait JOIN cards AS card ON card.card_id = wait.card_id
-  WHERE wait.state = '${OPEN_WAIT}' AND card.state IN (SELECT value FROM json_each(?))
-  ORDER BY wait.id
-`
-
-export function closeWaitsOfEndedCards(db: DatabaseSync, ts: string): string[] {
-  const waits = db.prepare(OPEN_WAITS_OF_ENDED_CARDS).all(JSON.stringify([...ENDED_CARD_STATES])) as { id: string, card_id: number, state: string }[]
-  for (const wait of waits)
-    appendEvent(db, { ts, type: OWNER_WAIT_CLOSED, actor: 'reducer', cardId: wait.card_id, pr: null, head: null, dedupeKey: `${OWNER_WAIT_CLOSED}:${wait.id}:card-${wait.state}`, payload: { id: wait.id, answer: endedCardAnswer(wait.card_id, wait.state) }, legacy: false })
-  return waits.map(wait => wait.id)
-}
-
-function foldEndingTheWaitsOfAnEndedCard(db: DatabaseSync, event: StoredEvent): void {
-  CARD_FOLDS[event.type]!(db, event)
-  closeWaitsOfAnEndedCard(db, event.card_id, event.id)
-  archiveSpentDecisions(db)
-}
-
-function checkTheChildrenADropNames(event: StoredEvent): void {
-  const { children, reason } = payloadOf(event)
-  if (children === undefined)
-    return
-  if (!Array.isArray(children) || children.length === 0 || children.some(child => typeof child !== 'number' || cardIdOf(child) === null || child === event.card_id))
-    reject('children is not a list of card numbers other than the dropped card')
-  if (filled(reason) === null)
-    reject('a drop naming children names no reason')
-}
-
-function foldDropNamingItsChildren(db: DatabaseSync, event: StoredEvent): void {
-  checkTheChildrenADropNames(event)
-  foldEndingTheWaitsOfAnEndedCard(db, event)
-}
-
-function mainAdvanced(db: DatabaseSync, event: StoredEvent): void {
-  const payload = payloadOf(event)
-  if (!isFullSha(payload.sha))
-    reject('sha is not a full sha')
-  const touches = boolean(payload, 'touches_mechanics')
-  db.prepare('INSERT INTO mains (sha, touches_mechanics, event_id) VALUES (?, ?, ?)').run(payload.sha, touches ? 1 : 0, event.id)
-}
-
-function closeDowngradeWaitsTheAdmissionAnswers(db: DatabaseSync, event: StoredEvent): void {
-  db.prepare(`UPDATE owner_waits SET state = '${CLOSED_WAIT}', answer = ?, event_id = ? WHERE state = '${OPEN_WAIT}' AND card_id = ? AND id LIKE '${DOWNGRADE_WAIT_PREFIX}%' AND event_id < ?`)
-    .run(`card #${event.card_id} admitted`, event.id, event.card_id, event.id)
-}
-
-const AMEND_COMMAND = `${ADMIT_COMMAND} `
-
-function closeAmendWaitsTheAdmissionAnswers(db: DatabaseSync, event: StoredEvent): void {
-  db.prepare(`UPDATE owner_waits SET state = '${CLOSED_WAIT}', answer = ?, event_id = ? WHERE state = '${OPEN_WAIT}' AND card_id = ? AND need = 'command' AND substr(command, 1, ?) = ? AND event_id < ?`)
-    .run(`card #${event.card_id} amended`, event.id, event.card_id, AMEND_COMMAND.length, AMEND_COMMAND, event.id)
-}
-
-const AMEND_ADMISSION = 'amend'
-
-function closeDecisionWaitsTheAmendAnswers(db: DatabaseSync, event: StoredEvent): void {
-  if (payloadOf(event).source !== AMEND_ADMISSION)
-    return
-  db.prepare(`UPDATE owner_waits SET state = '${CLOSED_WAIT}', answer = ?, event_id = ? WHERE state = '${OPEN_WAIT}' AND card_id = ? AND need = 'decision' AND event_id < ?`)
-    .run(`card #${event.card_id} amended`, event.id, event.card_id, event.id)
-}
-
-function foldAdmittedWithBody(db: DatabaseSync, event: StoredEvent): void {
-  CARD_FOLDS[CARD_ADMITTED]!(db, event)
-  foldCardBody(db, event)
-  closeDowngradeWaitsTheAdmissionAnswers(db, event)
-  closeAmendWaitsTheAdmissionAnswers(db, event)
-  closeDecisionWaitsTheAmendAnswers(db, event)
-}
-
-function prOpened(db: DatabaseSync, event: StoredEvent): void {
-  const pr = prOf(payloadOf(event).pr) ?? event.pr ?? reject(`${PR_OPENED} needs a pr`)
-  const cardId = event.card_id ?? reject(`${PR_OPENED} needs a card_id`)
-  const known = prRow(db, pr)
-  if (known?.card_id != null && known.card_id !== cardId)
-    reject(`pr ${pr} belongs to card ${known.card_id}, not ${cardId}`)
-  const linkedBefore = cardRow(db, cardId)?.pr ?? null
-  linkCard(db, cardId, pr, event.id)
-  cardPrOpened(db, cardId, pr, linkedBefore, event.id)
-  if (known !== undefined)
-    db.prepare('UPDATE prs SET card_id = ? WHERE pr = ?').run(cardId, pr)
-}
-
-function filled(value: unknown): string | null {
+export function filled(value: unknown): string | null {
   return typeof value === 'string' && value.trim() !== '' ? value.trim() : null
 }
 
@@ -274,7 +61,7 @@ function busNamesTheAction(need: string, command: string | null, pr: number | nu
   return command !== null || (need === 'decision' && pr !== null)
 }
 
-function foldOwnerWaitOpened(db: DatabaseSync, event: StoredEvent): void {
+function foldOwnerWaitOpened(db: DatabaseSync, event: StoredEvent, parts: OwnerWaitParts): void {
   const payload = payloadOf(event)
   const id = typeof payload.id === 'string' && WAIT_ID.test(payload.id) ? payload.id : reject('id is not Q<N>')
   const need = isOwnerWaitNeed(payload.need) ? payload.need : reject(`need is not one of ${OWNER_WAIT_NEEDS.join(' | ')}`)
@@ -289,7 +76,7 @@ function foldOwnerWaitOpened(db: DatabaseSync, event: StoredEvent): void {
   if (db.prepare('SELECT 1 FROM owner_waits WHERE id = ?').get(id) !== undefined)
     reject(`${id} is already opened`)
   db.prepare(`INSERT INTO owner_waits (id, need, text, command, card_id, pr, state, answer, opened_at, event_id) VALUES (?, ?, ?, ?, ?, ?, '${OPEN_WAIT}', NULL, ?, ?)`)
-    .run(id, need, text, ownerWaitCommand({ id, need, card, pr }, command), card, pr, event.ts, event.id)
+    .run(id, need, text, parts.commandOf({ id, need, card, pr }, command), card, pr, event.ts, event.id)
 }
 
 function foldOwnerWaitClosed(db: DatabaseSync, event: StoredEvent): void {
@@ -308,7 +95,7 @@ export function downgradeWaitId(eventId: number): string {
   return `${DOWNGRADE_WAIT_PREFIX}${eventId}`
 }
 
-function foldWitnessDowngradeWait(db: DatabaseSync, event: StoredEvent): void {
+function foldWitnessDowngradeWait(db: DatabaseSync, event: StoredEvent, parts: OwnerWaitParts): void {
   const payload = payloadOf(event)
   if (payload.reason !== WITNESS_DOWNGRADE)
     return
@@ -318,25 +105,17 @@ function foldWitnessDowngradeWait(db: DatabaseSync, event: StoredEvent): void {
     reject('a witness downgrade names no action for the owner')
   const id = downgradeWaitId(event.id)
   db.prepare(`INSERT INTO owner_waits (id, need, text, command, card_id, pr, state, answer, opened_at, event_id) VALUES (?, 'decision', ?, ?, ?, NULL, '${OPEN_WAIT}', NULL, ?, ?)`)
-    .run(id, actions.join('; '), ownerWaitCommand({ id, need: 'decision', card: cardId, pr: null }, null), cardId, event.ts, event.id)
-  closeWaitsOfAnEndedCard(db, cardId, event.id)
+    .run(id, actions.join('; '), parts.commandOf({ id, need: 'decision', card: cardId, pr: null }, null), cardId, event.ts, event.id)
+  parts.closeWaitsOfAnEndedCard(db, cardId, event.id)
 }
 
-const QUEUE_NAME = /^[\w-]+$/
-
-function commandsTheDecisionAnswers(text: string): string[] {
-  const queue = text.trim().split(/\s+/).at(-1) ?? ''
-  return QUEUE_NAME.test(queue) && namesQueueLive(text, queue) ? [allowLiveCommand(queue)] : []
-}
-
-function closeWaitsTheDecisionsAnswer(db: DatabaseSync, event: StoredEvent): void {
-  const decisions = db.prepare('SELECT decision_id, text, scope FROM decisions WHERE event_id = ?').all(event.id) as { decision_id: number, text: string, scope: string | null }[]
-  for (const decision of decisions) {
-    const named = JSON.stringify(waitsTheDecisionNames(db, decision.text))
+function closeWaitsTheDecisionsAnswer(db: DatabaseSync, event: StoredEvent, parts: OwnerWaitParts): void {
+  for (const decision of parts.answersOfTheDecisions(db, event.id)) {
+    const named = JSON.stringify(decision.named)
     db.prepare(`
       UPDATE owner_waits SET state = '${CLOSED_WAIT}', answer = ?, event_id = ?
       WHERE state = '${OPEN_WAIT}' AND (event_id IN (SELECT id FROM events WHERE type = '${OWNER_WAIT_OPENED}' AND json_extract(payload, '$.command') IN (SELECT value FROM json_each(?))) OR (need IN ('decision', 'command') AND card_id IN (SELECT value FROM json_each(?)) AND (json_array_length(?) = 0 OR id IN (SELECT value FROM json_each(?)))))
-    `).run(`D-${decision.decision_id}`, event.id, JSON.stringify(commandsTheDecisionAnswers(decision.text)), decision.scope ?? '[]', named, named)
+    `).run(decision.answer, event.id, JSON.stringify(decision.commands), decision.scope, named, named)
   }
 }
 
@@ -348,38 +127,26 @@ function markTheDecisionsCutOver(db: DatabaseSync, ts: string): void {
   appendEvent(db, { ts, type: DECISIONS_CUT_OVER, actor: 'reducer', cardId: null, pr: null, head: null, dedupeKey: DECISIONS_CUT_OVER, payload: {}, legacy: false })
 }
 
-function foldDecisionClosingWaits(db: DatabaseSync, event: StoredEvent): void {
-  DECISION_FOLDS[event.type]!(db, event)
+function foldDecisionClosingWaits(db: DatabaseSync, event: StoredEvent, parts: OwnerWaitParts): void {
+  parts.decisionFolds[event.type]!(db, event)
   const cutOver = decisionsCutOverOf(db)
   if (cutOver !== null && event.id < cutOver)
-    closeWaitsTheDecisionsAnswer(db, event)
+    closeWaitsTheDecisionsAnswer(db, event, parts)
 }
 
-export const OWNER_WAIT_FOLDS: Record<string, Fold> = {
-  [OWNER_WAIT_OPENED]: foldOwnerWaitOpened,
-  [OWNER_WAIT_CLOSED]: foldOwnerWaitClosed,
-  [CARD_WAITING]: foldWitnessDowngradeWait,
-  [DECISION_RECORDED]: foldDecisionClosingWaits,
-  [DECISIONS_IMPORTED]: foldDecisionClosingWaits,
+export function ownerWaitFolds(parts: OwnerWaitParts): Record<string, Fold> {
+  const decisionClosingWaits: Fold = (db, event) => foldDecisionClosingWaits(db, event, parts)
+  return {
+    [OWNER_WAIT_OPENED]: (db, event) => foldOwnerWaitOpened(db, event, parts),
+    [OWNER_WAIT_CLOSED]: foldOwnerWaitClosed,
+    [CARD_WAITING]: (db, event) => foldWitnessDowngradeWait(db, event, parts),
+    [DECISION_RECORDED]: decisionClosingWaits,
+    [DECISIONS_IMPORTED]: decisionClosingWaits,
+  }
 }
 
 export function reducedTypesOf(folds: Record<string, Fold>): EventType[] {
   return Object.keys(folds).map(catalogued)
-}
-
-export const PR_FOLDS: Record<string, Fold> = {
-  [PR_OBSERVED]: prObserved,
-  [PR_CLOSED]: prClosed,
-  [MAIN_ADVANCED]: mainAdvanced,
-  [PR_OPENED]: prOpened,
-}
-
-export const CARD_END_FOLDS: Record<string, Fold> = {
-  [MERGE_DONE]: foldEndingTheWaitsOfAnEndedCard,
-  [CARD_CLOSED]: foldEndingTheWaitsOfAnEndedCard,
-  [CARD_MOVED]: foldEndingTheWaitsOfAnEndedCard,
-  [CARD_DROPPED]: foldDropNamingItsChildren,
-  [CARD_ADMITTED]: foldAdmittedWithBody,
 }
 
 export interface Projections {
