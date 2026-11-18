@@ -818,6 +818,7 @@
     "scripts/tests/intake/card-body-readers.test.ts",
     "scripts/tests/intake/card-contract-no-launch-edge.test.ts",
     "scripts/tests/intake/creates-owner.test.ts",
+    "scripts/tests/intake/refusal-admits-nothing.test.ts",
     "scripts/tests/lanes/lane-json.test.ts",
     "scripts/tests/miko/compact-start.test.ts",
     "scripts/tests/miko/eddies-measure.test.ts",
