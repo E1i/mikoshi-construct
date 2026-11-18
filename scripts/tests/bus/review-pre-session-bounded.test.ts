@@ -12,6 +12,7 @@ import { appendCardEvent, WINDOW_LANE } from '../../core/card-bodies.js'
 import { POLICY_DENIED, REVIEW_RECORDED, TASK_FAILED, TASK_LEASED } from '../../core/events.js'
 import { PLAN_STEP, PRE_SESSION_LIMIT, preSessionLimitDetail } from '../../nodes/review/review-executor.js'
 import { childReviewPlanner, planInThisProcess, ReviewWorker } from '../../nodes/review/review-worker.js'
+import { plannerProcess } from '../../ports/review-planner.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { cardBody, sha } from './github-fake.js'
 import { eventsOf, liveBench } from './merge-bench.js'
@@ -32,7 +33,12 @@ const PRS = [1732, 1733] as const
 const LIMIT_MS = 400
 const CHILD_LIMIT_MS = 2_000
 const IGNORES_SIGTERM_AND_NEVER_ENDS = 'process.on(\'SIGTERM\', () => {}); process.stdin.resume(); setInterval(() => {}, 1000)'
+const MIB_PAST_THE_PLAN_OUTPUT_LIMIT = 65
 const cleanups: (() => void)[] = []
+
+function writesPastTheLimitThenNeverEnds(stream: 'stdout' | 'stderr'): string {
+  return `const chunk = Buffer.alloc(1 << 20, 97); let left = ${MIB_PAST_THE_PLAN_OUTPUT_LIMIT}; const out = process.${stream}; (function write() { while (left > 0) { left -= 1; if (!out.write(chunk)) { out.once('drain', write); return } } })(); process.on('SIGTERM', () => {}); setInterval(() => {}, 1000)`
+}
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -176,6 +182,16 @@ describe('the review node prepares a lease off its heartbeat path and within a l
 
     expect(step).toMatchObject({ kind: 'denied', denial: { kind: 'technical', reason: PRE_SESSION_LIMIT } })
     expect(reviewed).toBe(0)
+    expect(substitute.children).toHaveLength(1)
+    expect(await signalThatEnded(substitute.children[0]!)).toBe('SIGKILL')
+  }, 30_000)
+
+  it.each(['stdout', 'stderr'] as const)('a planning child that writes past the output limit on %s and never ends is killed with SIGKILL and fails the plan', async (stream) => {
+    substitute.script = writesPastTheLimitThenNeverEnds(stream)
+
+    const planning = plannerProcess(process.cwd(), '{}', new AbortController().signal)
+
+    await expect(planning).rejects.toMatchObject({ name: 'AbortError', cause: { message: expect.stringMatching(/^the planning output passed \d+ bytes$/) } })
     expect(substitute.children).toHaveLength(1)
     expect(await signalThatEnded(substitute.children[0]!)).toBe('SIGKILL')
   }, 30_000)
