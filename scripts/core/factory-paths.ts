@@ -79,7 +79,7 @@ export const FACTORY_NAMED = {
 
 export const FACTORY_FORMER_FOLDERS = {
   ghosts: ['scripts/ladder', 'scripts/core/entry.ts', 'scripts/core/every.ts', 'scripts/core/journal.ts', 'scripts/core/tasks.ts', 'scripts/nodes/close/task-close.ts', 'scripts/nodes/close/task-merged.ts', 'scripts/nodes/update/review-carry.ts', 'scripts/ports/task-start.ts', 'scripts/window/handoff-check.ts'],
-  shift: ['scripts/core/places.ts', 'scripts/intake/parking.ts', 'scripts/ladder/brief-finish-cli.ts', 'scripts/ladder/brief-finish.ts', 'scripts/ladder/ladder.ts', 'scripts/nodes/launch/continuation.ts', 'scripts/nodes/launch/header.md', 'scripts/nodes/launch/overlap.ts', 'scripts/nodes/launch/prompt.ts', 'scripts/nodes/launch/tree-pr-cli.ts', 'scripts/nodes/launch/tree-pr.ts', 'scripts/policy/shard.ts', 'scripts/window/day-archive.ts', 'scripts/window/handoff-write.ts', 'scripts/window/operator-boundary.ts', 'scripts/window/owner-command.ts', 'scripts/window/role-bus.ts'],
+  shift: ['scripts/core/places.ts', 'scripts/ladder/brief-finish-cli.ts', 'scripts/ladder/brief-finish.ts', 'scripts/ladder/ladder.ts', 'scripts/nodes/launch/continuation.ts', 'scripts/nodes/launch/header.md', 'scripts/nodes/launch/overlap.ts', 'scripts/nodes/launch/prompt.ts', 'scripts/nodes/launch/tree-pr-cli.ts', 'scripts/nodes/launch/tree-pr.ts', 'scripts/policy/shard.ts', 'scripts/window/day-archive.ts', 'scripts/window/handoff-write.ts', 'scripts/window/operator-boundary.ts', 'scripts/window/owner-command.ts', 'scripts/window/role-bus.ts'],
 } as const satisfies Record<string, readonly string[]>
 
 export const FACTORY_FOLDERS = {

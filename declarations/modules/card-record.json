@@ -10,7 +10,6 @@
     "scripts/intake/card-archive.ts",
     "scripts/intake/card-contract.ts",
     "scripts/intake/witness-fields-backfill.ts",
-    "scripts/intake/slice-parent-backfill.ts",
     "scripts/cli/card.ts"
   ],
   "exclude": [],
