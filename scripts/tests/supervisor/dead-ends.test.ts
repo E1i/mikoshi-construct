@@ -2,7 +2,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import { afterEach, describe, expect, it } from 'vitest'
 import { appendEvent, openBus, openOwnerWait } from '../../core/db.js'
 import { BOARD_ALARM, CARD_HELD, CARD_STARTED, CARD_STOPPED, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PR_OBSERVED, QUESTION_OWNER, WITNESS_RECORDED } from '../../core/events.js'
-import { cardMoversOf } from '../../supervisor/composition.js'
+import { deadEndEvents, deadEndParts } from '../../supervisor/composition.js'
 import { DEAD_END_ACTOR, DeadEnds, UNMEASURED_ROUND_MINUTES } from '../../supervisor/dead-ends.js'
 
 const LAST_EVENT_AT = '2026-11-18T08:00:00.000Z'
@@ -63,7 +63,7 @@ function waitsOf(db: DatabaseSync, card: number): string[] {
 }
 
 function detector(db: DatabaseSync, at: Date = PAST_THE_ROUND): DeadEnds {
-  return new DeadEnds(db, () => at, cardMoversOf)
+  return new DeadEnds(db, () => at, deadEndParts(db))
 }
 
 describe('a fixture card in each dead-end shape raises the dead-end alarm', () => {
@@ -85,7 +85,7 @@ describe('a fixture card in each dead-end shape raises the dead-end alarm', () =
   it('a state no node selects is named as such in the alarm', () => {
     const db = bus()
     placed(db, DEAD_END_SHAPES['ghost session']!)
-    new DeadEnds(db, () => PAST_THE_ROUND, () => []).step()
+    new DeadEnds(db, () => PAST_THE_ROUND, { moversOf: () => [], events: deadEndEvents(db) }).step()
     expect(alarmsOf(db, 2020)[0]).toContain('no node\'s queue candidates select a running card')
   })
 })

@@ -54,3 +54,7 @@ export function automatonFindings(automaton: CardAutomaton, movers: readonly Car
     ...strayMoves(automaton, movers),
   ]
 }
+
+export function automatonOf(states: readonly string[], ends: readonly string[], conditions: readonly CardCondition[]): CardAutomaton {
+  return { states, ends, conditions }
+}
