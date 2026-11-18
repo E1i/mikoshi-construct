@@ -53,7 +53,7 @@ describe('the board screens', () => {
     expect(screenLines(noFacts({ goal, waits }), PLAIN_LORE).slice(0, 3)).toEqual(['Flow', goalLine, 'waits for you · 3 · — · Q1 decision #10 (which path? · owner runs: pnpm owner:answer Q1 "…") · Q2 merge PR #669 (changes architecture/security-invariants.md · owner runs: merge PR #669 (owner)) · Q3 command (the merge queue runs unswitched · owner runs: pnpm owner:answer Q3 "…")'])
     expect(screenLines(noFacts({ goal }), PLAIN_LORE).slice(0, 3)).toEqual(['Flow', goalLine, 'planned (0): —'])
     const backlog = [card(8, 'in_review', null, '#8 eight', 'review'), card(9, 'in_review', null, '#9 nine', 'answer/changes'), card(4, 'running', null, '#4 four', 'ready')]
-    expect(backlogLines(backlog, PLAIN_LORE)).toEqual(['no lane (3)', '  #8 eight · review', '  #9 nine · answer/changes', '  #4 four · ready'])
+    expect(backlogLines(backlog, PLAIN_LORE)).toEqual(['  #8 eight · review', '  #9 nine · answer/changes', '  #4 four · ready'])
   })
 
   it('flow columns read the stage: planned, in work and answer/changes, review, ready, and leave every other stage and state out', () => {
@@ -67,24 +67,14 @@ describe('the board screens', () => {
     expect(flowLines([], PLAIN_LORE)).toEqual(['planned (0): —', 'in work (0): —', 'in review (0): —', 'ready to merge (0): —'])
   })
 
-  it('backlog shows only the lanes that hold a card, in number order, and no empty lane heading', () => {
-    const cards = [card(1, 'queued', 'lane-10', '#1 one'), card(2, 'queued', 'lane-2', '#2 two')]
-    expect(backlogLines(cards, PLAIN_LORE)).toEqual(['lane-2 (1)', '  #2 two · planned', 'lane-10 (1)', '  #1 one · planned'])
-    expect(screenLines(noFacts(), PLAIN_LORE)).not.toEqual(expect.arrayContaining(['lane-1 (0)']))
-  })
-
-  it('backlog groups every card by lane, named lanes sorted and the cards with no lane last', () => {
-    const cards = [card(1, 'queued', 'b', 'card: #1 alpha'), card(2, null, null, null), card(3, 'merged', 'a', '#3 gamma', 'merged'), card(4, 'stopped', 'b', 'card:#4 delta', 'stopped')]
+  it('backlog groups every card by its stage and keeps the order the cards arrive in within a stage, whatever lane a card sits in', () => {
+    const cards = [card(4, 'stopped', 'b', 'card:#4 delta', 'stopped'), card(3, 'merged', 'a', '#3 gamma', 'merged'), card(1, 'queued', 'b', 'card: #1 alpha'), card(2, null, null, null)]
     expect(backlogLines(cards, PLAIN_LORE)).toEqual([
-      'a (1)',
-      '  #3 gamma · merged',
-      'b (2)',
       '  #1 alpha · planned',
-      '  #4 delta · stopped',
-      'no lane (1)',
       '  #2 · planned',
+      '  #3 gamma · merged',
+      '  #4 delta · stopped',
     ])
-    expect(backlogLines([card(1, 'queued', 'a', 'card: #1 alpha')], PLAIN_LORE)).toEqual(['a (1)', '  #1 alpha · planned'])
   })
 
   it('backlog keeps a card closed less than 12 hours ago even when its cards row still reads a live state, and hides one closed earlier', () => {

@@ -161,10 +161,10 @@ describe('the board tells the truth and hints', () => {
     expect(flow(noFacts({ cards: [liveCard(1404)] }))[0]).toBe('plan not registered · window runs: pnpm bus:request plan --op open --plan <id> --title <text> --goal <text> --file <absolute plan file>')
     const empty = flow(noFacts({}))
     expect(empty).not.toContain(expect.stringContaining('plan not registered'))
-    expect(empty.at(-1)).toBe('nothing in the flow · window runs: pnpm intake --admit <parking>/<lane>/<N>.md')
+    expect(empty.at(-1)).toBe('nothing in the flow · window runs: pnpm intake --admit <parking>/<N>.md')
   })
 
-  it('a card moved to a parking lane shows under that lane', () => {
+  it('a card moved to a parking lane still reads that lane as a fact, and the backlog prints no lane', () => {
     const busPath = busWith([
       { ts: ago(30 * MINUTE), type: LANE_ASSIGNED, card: 1395, payload: JSON.stringify({ lane: 'lane-1', lanes: 4 }) },
       { ts: ago(20 * MINUTE), type: CARD_MOVED, card: 1395, payload: JSON.stringify({ lane: 'lane-21' }) },
@@ -173,8 +173,7 @@ describe('the board tells the truth and hints', () => {
     const facts = factsOf(busPath)
     expect(facts.cards.map(card => [card.id, card.lane])).toEqual([[1395, 'lane-21']])
     const backlog = backlogLines(facts.cards, PLAIN_LORE)
-    expect(backlog).toEqual(['lane-21 (1)', '  #1395 moved · planned'])
-    expect(backlog.join('\n')).not.toContain('lane-1 ')
+    expect(backlog).toEqual(['  #1395 moved · planned'])
   })
 
   it('service tile readings of six and more digits show whole at any card count and width', () => {
