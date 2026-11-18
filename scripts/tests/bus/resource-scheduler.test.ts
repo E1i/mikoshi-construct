@@ -74,10 +74,10 @@ class Bench {
     return this.append(SESSION_HEARTBEAT, id, null, `${SESSION_HEARTBEAT}:${id}`, { step: 'launch', session: `s-${id}` })
   }
 
-  openPr(id: number, diff: readonly string[]): this {
+  openPr(id: number, diff: readonly string[], truncated = false): this {
     this.start(id)
     const pr = id + 1000
-    return this.append(PR_OBSERVED, id, pr, `${PR_OBSERVED}:${pr}`, { card_id: id, base: 'main', head: HEAD, mergeable: 'clean', ci: 'green', auto_merge: false, draft: false, paths: diff }, HEAD)
+    return this.append(PR_OBSERVED, id, pr, `${PR_OBSERVED}:${pr}`, { card_id: id, base: 'main', head: HEAD, mergeable: 'clean', ci: 'green', auto_merge: false, draft: false, paths: diff, pathsTruncated: truncated }, HEAD)
   }
 
   holdForOwner(id: number): this {
@@ -155,6 +155,13 @@ describe('a card holds only the resources it touches', () => {
     expect(lineOf(bench.boardLines(), 3)).toContain('overlap with open PR #1001 on scripts/b.ts')
   })
 
+  it('an open pull request whose recorded file list is truncated holds all its touches, not the partial list', () => {
+    const bench = new Bench().admit(1, ['scripts/a.ts', 'scripts/b.ts']).openPr(1, ['scripts/b.ts'], true).admit(2, ['scripts/a.ts'])
+
+    expect(bench.candidates()).not.toContain(2)
+    expect(lineOf(bench.boardLines(), 2)).toContain('overlap with open PR #1001 on scripts/a.ts')
+  })
+
   it('a card behind a card with an open pull request in its lane starts when its touches meet none of that diff', () => {
     const bench = new Bench().admit(1, ['scripts/a.ts', 'scripts/c.ts']).admit(2, ['scripts/a.ts'])
     bench.moveTo(2, bench.laneOf(1).lane).openPr(1, ['scripts/c.ts'])
@@ -213,14 +220,15 @@ describe('the start order', () => {
 
 describe('what is no resource', () => {
   it('two cards that share only a generated contract file start together', () => {
-    const lanes = new Bench()
+    expect(sharedAppendFiles()).toContain(GENERATED_NOT_REBUILT)
+    const lanes = new Bench(sharedAppendFiles())
       .admit(1, ['scripts/a.ts', GENERATED_CONTRACT, GENERATED_NOT_REBUILT])
       .admit(2, ['scripts/b.ts', GENERATED_CONTRACT, GENERATED_NOT_REBUILT])
 
     expect(lanes.laneOf(2).reason).not.toBe('chain')
     expect(lanes.candidates().sort()).toEqual([1, 2])
 
-    const launch = new Bench().admit(1, ['scripts/a.ts', GENERATED_CONTRACT, GENERATED_NOT_REBUILT]).start(1).beat(1).admit(2, ['scripts/b.ts', GENERATED_CONTRACT, GENERATED_NOT_REBUILT])
+    const launch = new Bench(sharedAppendFiles()).admit(1, ['scripts/a.ts', GENERATED_CONTRACT, GENERATED_NOT_REBUILT]).start(1).beat(1).admit(2, ['scripts/b.ts', GENERATED_CONTRACT, GENERATED_NOT_REBUILT])
     expect(launch.candidates()).toEqual([2])
   })
 

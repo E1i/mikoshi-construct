@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { CHARACTERS_PER_TOKEN, DEFAULT_CARD_LINE, readingBudget } from '../src/card/complexity.js'
 import { groupsOf } from '../src/card/risk.js'
 import { printIntake, runIntake } from '../src/commands/intake/index.js'
 import { createUi } from '../src/ui/console.js'
@@ -15,7 +16,7 @@ afterEach(() => {
     rmSync(root, { recursive: true, force: true })
 })
 
-const OVER_HALF_A_SESSION = 'x'.repeat(300_000)
+const OVER_HALF_A_SESSION = 'x'.repeat(Math.ceil(readingBudget(DEFAULT_CARD_LINE) * CHARACTERS_PER_TOKEN * 0.6))
 
 interface DraftCard {
   touches: string[]

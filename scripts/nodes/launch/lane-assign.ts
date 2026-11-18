@@ -13,7 +13,6 @@ import { DEFAULT_LANES, isLaneCount, MANIFEST_FILE } from '../../../src/manifest
 import { currentLane, latestAssignment, OPEN_WAIT, OWNER_WAITS } from '../../core/bus-readings.js'
 import { DEFERRED_CARD, RUNNING_CARD } from '../../core/card-automaton.js'
 import { appendEvent } from '../../core/db.js'
-import { readDeclarations } from '../../core/declarations.js'
 import { BOARD_ALARM, CARD_ADMITTED, CARD_DROPPED, LANE_ASSIGNED, LANE_OVERLAP, POLICY_DENIED } from '../../core/events.js'
 import { prOf } from '../../core/identifiers.js'
 import { effectivePaths, orderDeclarationsAt } from '../../core/order/overlap.js'
@@ -184,9 +183,7 @@ function declarationsAt(root: string): OverlapDeclarations {
   const known = launchDeclarations.get(root)
   if (known !== undefined)
     return known
-  const ordered = orderDeclarationsAt(root)
-  const generated = readDeclarations(root).generated.map(row => row.path).filter(file => !file.endsWith('/'))
-  const read = { ...ordered, derived: [...new Set([...ordered.derived, ...generated])] }
+  const read = orderDeclarationsAt(root)
   launchDeclarations.set(root, read)
   return read
 }

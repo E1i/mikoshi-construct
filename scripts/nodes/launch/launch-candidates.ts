@@ -4,9 +4,10 @@ import type { ShiftTask } from '../../../src/card/task-file.js'
 import type { SessionStopCode } from '../../core/card-hold.js'
 import type { MachineHold, MachineSessions } from '../../core/machine-sessions.js'
 import type { QueuedTask, QueueSource } from '../../core/queue.js'
+import type { Holder } from './holders.js'
 import { existsSync } from 'node:fs'
 import process from 'node:process'
-import { parseParkingFile, PRIORITIES, WINDOW_WHO } from '../../../src/card/parking.js'
+import { parseParkingFile, WINDOW_WHO } from '../../../src/card/parking.js'
 import { NOT_A_BACKFILL } from '../../core/backfill-source.js'
 import { CLOSED_WAIT, openOwnerWaits } from '../../core/bus-readings.js'
 import { DEFERRED_CARD, unsatisfiedDependencies } from '../../core/card-automaton.js'
@@ -20,6 +21,7 @@ import { namesQueueLive } from '../../policy/live-decision.js'
 import { ANY, BusRead } from '../../ports/bus-read.js'
 import { isAlive } from '../../quality/lock.js'
 import { beatsLive } from '../../supervisor/liveness-sites.js'
+import { holderOf, holdsAgainst, observedDiff, unclearField, withDiff } from './holders.js'
 import { chainLaneNumber, currentLane, heldByStall, ownerMergeHolders, repositoryLanes, stalledCards, startOrder, withoutDerived } from './lane-assign.js'
 import { taskConflicts } from './overlap.js'
 import { sharedAppendFiles } from './shared-files.js'
@@ -225,11 +227,6 @@ function payloadOf(row: Pick<LifeRow, 'payload'>): Record<string, unknown> {
   }
 }
 
-function observedDiff(payload: Record<string, unknown>): string[] | null {
-  const paths = strings(payload.paths)
-  return paths.length === 0 || payload.pathsTruncated === true ? null : paths
-}
-
 function laneOf(payload: Record<string, unknown>): string | null {
   const lane = payload.lane ?? payload.axis
   return typeof lane === 'string' && lane !== '' ? lane : null
@@ -250,37 +247,8 @@ function overlappingPath(task: ShiftTask, other: ShiftTask | null, shared: reado
   return task.touches.find(touch => conflicting({ ...task, touches: [touch] }, other, shared)) ?? task.touches[0]!
 }
 
-interface Holder {
-  cardId: number
-  lane: string | null
-  depends: number[]
-  priority: Priority | null
-  task: ShiftTask | null
-  ownerHeld: boolean
-}
-
-function rankOf(priority: Priority | null): number {
-  return priority === null ? PRIORITIES.length : PRIORITIES.indexOf(priority)
-}
-
-function yieldsTo(holder: Holder, life: CardLife): boolean {
-  return holder.ownerHeld && rankOf(life.priority) < rankOf(holder.priority)
-}
-
-function holdsAgainst(holder: Holder, life: CardLife): boolean {
-  return holder.cardId !== life.cardId && !yieldsTo(holder, life)
-}
-
 function overlapsAny(life: CardLife, taken: readonly Holder[], shared: readonly string[]): boolean {
   return taken.some(holder => holdsAgainst(holder, life) && conflicting(life.task, holder.task, shared))
-}
-
-function diffTaskOf(life: CardLife): ShiftTask | null {
-  return life.task === null || life.diff === null ? life.task : { ...life.task, touches: life.diff }
-}
-
-function holderOf(life: CardLife, task: ShiftTask | null, ownerHeld: boolean): Holder {
-  return { cardId: life.cardId, lane: life.lane, depends: life.depends, priority: life.priority, task, ownerHeld }
 }
 
 function generationOf(row: LifeRow, payload: Record<string, unknown>): string {
@@ -473,7 +441,7 @@ function holdsOf(db: DatabaseSync, lives: ReadonlyMap<number, CardLife>, merged:
     if (!holding && !isStalled)
       continue
     const pullRequestOnly = openPrs.has(life.cardId) && life.diff !== null && !launchHolds && !beating.has(life.cardId)
-    const holder = holderOf(life, pullRequestOnly ? diffTaskOf(life) : life.task, waitingOnOwner.has(life.cardId) || cardHoldOf(db, life.cardId) !== null)
+    const holder = holderOf(life, pullRequestOnly ? withDiff(life.task, life.diff) : life.task, waitingOnOwner.has(life.cardId) || cardHoldOf(db, life.cardId) !== null)
     if (isStalled)
       holds.heldByStalls.set(life.lane!, [...(holds.heldByStalls.get(life.lane!) ?? []), holder])
     else if (life.lane !== null && !pullRequestOnly)
@@ -558,11 +526,9 @@ function machineHoldOf(machine: MachineReader): StartableHold | null {
   return held === null ? null : { kind: 'machine', ...held }
 }
 
-const UNCLEAR_LINE = /^unclear:[ \t]*(\S.*)$/m
-
 function windowHold(life: CardLife): StartableHold {
-  const field = life.task === null ? undefined : UNCLEAR_LINE.exec(life.task.body)?.[1]?.trim()
-  return field === undefined ? { kind: 'window' } : { kind: 'unclear', field }
+  const field = unclearField(life.task)
+  return field === null ? { kind: 'window' } : { kind: 'unclear', field }
 }
 
 function residualHold(life: CardLife, holds: Holds, machine: MachineReader): StartableHold {
