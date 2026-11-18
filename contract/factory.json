@@ -4427,6 +4427,7 @@
       "scripts/supervisor/bus-heal.ts": 3,
       "scripts/supervisor/bus-snapshot.ts": 2,
       "scripts/supervisor/card-waits.ts": 2,
+      "scripts/supervisor/dead-ends.ts": 4,
       "scripts/supervisor/derive-queues.ts": 20,
       "scripts/supervisor/heartbeat.ts": 3,
       "scripts/supervisor/reducer-loop.ts": 1,

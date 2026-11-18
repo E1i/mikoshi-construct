@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { CardAutomaton, CardCondition, CardMover } from '../ci/card-automaton.js'
 import type { Understood } from '../core/bus-version.js'
 import type { SliceParentsBackfill } from '../core/card-bodies.js'
 import type { CardTransitions, HolderStart, Lease } from '../core/lease.js'
@@ -24,13 +25,14 @@ import { homedir } from 'node:os'
 import process from 'node:process'
 import { PRIORITIES, WINDOW_WHO } from '../../src/card/parking.js'
 import { witnessesOf } from '../../src/commands/intake/admit.js'
+import { moversOf } from '../ci/card-automaton.js'
 import { GATE_RUN_SPOOL } from '../ci/gate-runs.js'
 import { driftOfRun } from '../ci/weights-law.js'
-import { appendedOnCard, CARD_FOLDS, cardLinkObserved, cardPrMerged, cardPrOpened, CARDS_PROJECTION } from '../core/card-automaton.js'
+import { appendedOnCard, CARD_FOLDS, cardLinkObserved, cardPrMerged, cardPrOpened, CARDS_PROJECTION, CHANGES_CARD, CLOSED_CARD, DEFERRED_CARD, DROPPED_CARD, FALLEN_CARD, IN_REVIEW_CARD, MERGED_CARD, QUEUED_CARD, READY_CARD, RUNNING_CARD, STOPPED_CARD } from '../core/card-automaton.js'
 import { admittedCardVersion, backfillPendingSliceParents, cardOfBranch } from '../core/card-bodies.js'
 import { cardDecisionReads, reviewedUnderTheCardDecision, reviewsTheCardDecisionReopens, withDecidedContinuations } from '../core/card-decisions.js'
 import { CHAINS_PROJECTION } from '../core/chain.js'
-import { CARD_PLANNED, CARD_UNPLANNED, PLAN_BACKFILLED, PLAN_CLOSED, PLAN_ITEM_ADDED, PLAN_ITEM_LINKED, PLAN_ITEM_REMOVED, PLAN_OPENED, PR_OBSERVED, PR_OPENED, RATCHET_THRESHOLD_SET, SLICE_PARENTS_BACKFILLED } from '../core/events.js'
+import { CARD_PLANNED, CARD_UNPLANNED, PLAN_BACKFILLED, PLAN_CLOSED, PLAN_ITEM_ADDED, PLAN_ITEM_LINKED, PLAN_ITEM_REMOVED, PLAN_OPENED, PR_OBSERVED, PR_OPENED, QUESTION_OWNER, RATCHET_THRESHOLD_SET, SLICE_PARENTS_BACKFILLED } from '../core/events.js'
 import { isFullSha, prOf } from '../core/identifiers.js'
 import { OWNER, ownerQuestionAnswered } from '../core/inbox.js'
 import { foreignVersion, instanceOf, provenIdentity, recordWorkerIdentity, UNHANDED } from '../core/node.js'
@@ -222,22 +224,78 @@ function reopenedReviews(rules: CandidateRules): (db: DatabaseSync, ts: string) 
   return (db, ts) => reviewsTheCardDecisionReopens(cardDecisionReads(db, decisionsAt(db, ts), REVIEWS_OF_A_PR, storedByKey), reviewCandidates(db, ts, rules), keyOf, key => taskRow(db, key))
 }
 
-export function queueSources(): QueueSource[] {
+function on(state: string, ...conditions: string[]): CardCondition[] {
+  return conditions.map(condition => ({ state, condition }))
+}
+
+const ADMITTED = 'admitted'
+const SESSION_LIVE = 'launch session live'
+const SESSION_SILENT = 'launch session silent'
+const CI_PENDING = 'ci pending'
+const CI_RED = 'ci red'
+const WITNESS_UNRECORDED = 'witness not recorded on the head'
+const WITNESS_RED = 'witness red'
+const NO_VERDICT = 'no verdict on the head'
+const BEHIND_MAIN = 'behind main'
+const MERGE_REFUSED_DIRTY = 'merge refused on a dirty base'
+const VERDICT_CHANGES = 'verdict changes'
+const VERDICT_PASS = 'verdict pass'
+const PR_MERGED = 'pull request merged'
+const FELL = 'fell'
+const DEFERRED_BY_THE_OWNER = 'deferred by the owner'
+const STOP_REASONS = [QUESTION_OWNER, 'question.agent', 'review', 'conflict', 'fault', 'ci'] as const
+
+export function cardAutomaton(): CardAutomaton {
+  return {
+    states: [QUEUED_CARD, RUNNING_CARD, IN_REVIEW_CARD, CHANGES_CARD, READY_CARD, MERGED_CARD, CLOSED_CARD, FALLEN_CARD, STOPPED_CARD, DROPPED_CARD, DEFERRED_CARD],
+    ends: [CLOSED_CARD, DROPPED_CARD],
+    conditions: [
+      ...on(QUEUED_CARD, ADMITTED),
+      ...on(RUNNING_CARD, SESSION_LIVE, SESSION_SILENT),
+      ...on(IN_REVIEW_CARD, CI_PENDING, CI_RED, WITNESS_UNRECORDED, WITNESS_RED, NO_VERDICT, BEHIND_MAIN, MERGE_REFUSED_DIRTY),
+      ...on(CHANGES_CARD, VERDICT_CHANGES),
+      ...on(READY_CARD, VERDICT_PASS, BEHIND_MAIN),
+      ...on(MERGED_CARD, PR_MERGED),
+      ...on(STOPPED_CARD, ...STOP_REASONS),
+      ...on(FALLEN_CARD, FELL),
+      ...on(DEFERRED_CARD, DEFERRED_BY_THE_OWNER),
+    ],
+  }
+}
+
+export interface QueueMover extends CardMover {
+  source?: QueueSource
+}
+
+export function queueMovers(): QueueMover[] {
   const rules = candidateRules()
   return [
-    NO_CARD_TREE_SOURCE,
-    witnessSource(),
-    mergeSource(mergeParts()),
-    DOWNGRADE_PARKED_SOURCE,
-    dueAgainSource((db, ts) => [...mergeCandidates(db, ts, rules), ...updateCandidates(db, ts, updateParts())]),
-    updateSource(updateParts()),
-    causeGoneSource(reopenedReviews(rules)),
-    stopNoLongerHoldsSource(ownerQuestionAnswered),
-    SETTLE_SOURCE,
-    restartSource(rules),
-    answerSource(answerParts()),
-    LAUNCH_SOURCE,
+    { node: 'answer', source: NO_CARD_TREE_SOURCE, selects: on(STOPPED_CARD, 'fault') },
+    { node: 'witness', source: witnessSource(), selects: on(IN_REVIEW_CARD, WITNESS_UNRECORDED) },
+    { node: 'merge', source: mergeSource(mergeParts()), selects: on(READY_CARD, VERDICT_PASS) },
+    { node: 'answer', source: DOWNGRADE_PARKED_SOURCE, selects: [...on(CHANGES_CARD, VERDICT_CHANGES), ...on(IN_REVIEW_CARD, CI_RED)] },
+    { node: 'merge', source: dueAgainSource((db, ts) => [...mergeCandidates(db, ts, rules), ...updateCandidates(db, ts, updateParts())]), selects: [...on(READY_CARD, VERDICT_PASS, BEHIND_MAIN), ...on(IN_REVIEW_CARD, NO_VERDICT, BEHIND_MAIN)] },
+    { node: 'update', source: updateSource(updateParts()), selects: [...on(IN_REVIEW_CARD, BEHIND_MAIN), ...on(READY_CARD, BEHIND_MAIN)] },
+    { node: 'review', source: causeGoneSource(reopenedReviews(rules)), selects: on(IN_REVIEW_CARD, NO_VERDICT) },
+    { node: 'answer', source: stopNoLongerHoldsSource(ownerQuestionAnswered), selects: on(STOPPED_CARD, QUESTION_OWNER, 'fault') },
+    { node: 'window', source: SETTLE_SOURCE, selects: on(STOPPED_CARD, 'question.agent') },
+    { node: 'restart', source: restartSource(rules), selects: on(STOPPED_CARD, 'fault') },
+    { node: 'answer', source: answerSource(answerParts()), selects: [...on(CHANGES_CARD, VERDICT_CHANGES), ...on(IN_REVIEW_CARD, CI_RED, WITNESS_RED, MERGE_REFUSED_DIRTY), ...on(STOPPED_CARD, 'question.agent', 'review', 'conflict', 'ci')] },
+    { node: 'launch', source: LAUNCH_SOURCE, selects: [...on(QUEUED_CARD, ADMITTED), ...on(RUNNING_CARD, SESSION_LIVE), ...on(FALLEN_CARD, FELL)] },
+    { node: 'review', selects: on(IN_REVIEW_CARD, NO_VERDICT) },
+    { node: 'close', selects: on(MERGED_CARD, PR_MERGED) },
+    { node: 'supervisor', selects: on(RUNNING_CARD, SESSION_SILENT) },
+    { node: 'netwatch', selects: on(IN_REVIEW_CARD, CI_PENDING) },
+    { node: OWNER, selects: [...on(DEFERRED_CARD, DEFERRED_BY_THE_OWNER), ...on(STOPPED_CARD, QUESTION_OWNER)] },
   ]
+}
+
+export function queueSources(): QueueSource[] {
+  return queueMovers().flatMap(mover => mover.source === undefined ? [] : [mover.source])
+}
+
+export function cardMoversOf(state: string, condition: string | null = null): string[] {
+  return moversOf(queueMovers(), state, condition)
 }
 
 export function queuePass(): QueuePass {
