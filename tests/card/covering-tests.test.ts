@@ -149,7 +149,7 @@ describe('the tests that cover a touched file', () => {
     expect(lists).toBe(1)
   })
 
-  it('testCoverage reads each file once however many touches name it', () => {
+  it('a TestCoverage reads each file once however many touches name it', () => {
     const files: Record<string, string> = {
       'eslint.config.mjs': 'export default []\n',
       'src/a.ts': 'export const A = 1\n',
