@@ -1,34 +1,40 @@
-import type { Priority } from '../../../src/card/parking.js'
-import type { ShiftTask } from '../../../src/card/task-file.js'
-import { PRIORITIES } from '../../../src/card/parking.js'
-
-export interface Claimant {
-  cardId: number
-  priority: Priority | null
+export interface Touching {
+  touches: string[]
+  body: string
 }
 
-export interface Holder extends Claimant {
+export interface Claimant<P extends string = string> {
+  cardId: number
+  priority: P | null
+}
+
+export interface Holder<T extends Touching, P extends string = string> extends Claimant<P> {
   lane: string | null
   depends: number[]
-  task: ShiftTask | null
+  task: T | null
   ownerHeld: boolean
 }
 
 const UNCLEAR_LINE = /^unclear:[ \t]*(\S.*)$/m
 
-function rankOf(priority: Priority | null): number {
-  return priority === null ? PRIORITIES.length : PRIORITIES.indexOf(priority)
+export class HoldRule {
+  constructor(private readonly order: readonly string[]) {}
+
+  holdsAgainst<T extends Touching>(holder: Holder<T>, claimant: Claimant): boolean {
+    return !this.yieldsTo(holder, claimant)
+  }
+
+  private rankOf(priority: string | null): number {
+    const rank = priority === null ? -1 : this.order.indexOf(priority)
+    return rank === -1 ? this.order.length : rank
+  }
+
+  private yieldsTo<T extends Touching>(holder: Holder<T>, claimant: Claimant): boolean {
+    return holder.ownerHeld && this.rankOf(claimant.priority) < this.rankOf(holder.priority)
+  }
 }
 
-function yieldsTo(holder: Holder, claimant: Claimant): boolean {
-  return holder.ownerHeld && rankOf(claimant.priority) < rankOf(holder.priority)
-}
-
-export function holdsAgainst(holder: Holder, claimant: Claimant): boolean {
-  return holder.cardId !== claimant.cardId && !yieldsTo(holder, claimant)
-}
-
-export function holderOf(card: Omit<Holder, 'task' | 'ownerHeld'>, task: ShiftTask | null, ownerHeld: boolean): Holder {
+export function holderOf<T extends Touching, P extends string>(card: Omit<Holder<T, P>, 'task' | 'ownerHeld'>, task: T | null, ownerHeld: boolean): Holder<T, P> {
   return { cardId: card.cardId, lane: card.lane, depends: card.depends, priority: card.priority, task, ownerHeld }
 }
 
@@ -37,10 +43,10 @@ export function observedDiff(payload: Record<string, unknown>): string[] | null 
   return diff.length === 0 || payload.pathsTruncated === true ? null : diff
 }
 
-export function withDiff(task: ShiftTask | null, diff: string[] | null): ShiftTask | null {
+export function withDiff<T extends Touching>(task: T | null, diff: string[] | null): T | null {
   return task === null || diff === null ? task : { ...task, touches: diff }
 }
 
-export function unclearField(task: ShiftTask | null): string | null {
+export function unclearField(task: Touching | null): string | null {
   return task === null ? null : UNCLEAR_LINE.exec(task.body)?.[1]?.trim() ?? null
 }
