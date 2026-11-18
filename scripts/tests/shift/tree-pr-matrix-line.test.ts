@@ -57,7 +57,7 @@ function prOpenedOn(busPath: string): unknown[] {
   return rows
 }
 
-function ports(diff: readonly Diffed[], open: number | null, calls: GhCalls): TreePrCliPorts {
+function ports(diff: readonly Diffed[], open: number | null, calls: GhCalls, openBody = OPEN_BODY): TreePrCliPorts {
   return {
     card: cardId => cardId === 951 ? CARD_TEXT : null,
     opened: () => {},
@@ -82,7 +82,7 @@ function ports(diff: readonly Diffed[], open: number | null, calls: GhCalls): Tr
         return JSON.stringify(open === null ? [] : [{ number: open }])
       if (args[1] === 'view') {
         calls.viewed.push(args[2]!)
-        return OPEN_BODY
+        return openBody
       }
       if (args[1] === 'edit') {
         calls.edited.push([args[2]!, args[args.indexOf('--body') + 1]!])
@@ -172,5 +172,23 @@ describe('the shift opens no pull request the merge policy refuses for its matri
     }))
 
     expect(observed).toEqual(Object.fromEntries(Object.keys(cases).map(name => [name, { code: 0, lines: [`${PREFIX}card #951: PR #901`], edited: [], countLine: false }])))
+  })
+
+  it('an open pull request that needs no count line gets no gh pr edit even when the report carries one', () => {
+    const cases: Record<string, { diff: readonly Diffed[], body: string }> = {
+      'a src change whose body already carries the count line': { diff: SRC_WITH_CHANGESET, body: `${OPEN_BODY.trimEnd()}\n\n${COUNT_LINE}\n` },
+      'a change outside src and templates': { diff: [{ status: 'M', path: 'scripts/shift/x.ts' }], body: OPEN_BODY },
+    }
+    const observed = Object.fromEntries(Object.entries(cases).map(([name, { diff, body }]) => {
+      const dir = root()
+      const calls = noCalls()
+      const lines: string[] = []
+
+      const code = runTreePr(['951', dir, reportFile(dir, REPORT_WITH_LINE)], ports(diff, 901, calls, body), line => lines.push(line))
+
+      return [name, { code, lines, edited: calls.edited, created: calls.created }]
+    }))
+
+    expect(observed).toEqual(Object.fromEntries(Object.keys(cases).map(name => [name, { code: 0, lines: [`${PREFIX}card #951: PR #901`], edited: [], created: [] }])))
   })
 })
