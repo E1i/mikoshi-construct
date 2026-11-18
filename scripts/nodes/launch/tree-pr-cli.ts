@@ -316,7 +316,7 @@ function settleTree(cardId: number, card: TreeCard, places: TreePlaces, ports: T
       out(`${PREFIX}card #${cardId}: ${missing}`)
       return 1
     }
-    const outcome = treePr(ports, card, places.worktree, reportOf(places.report))
+    const outcome = treePr(ports, card, places.worktree, reportOf(places.report ?? treeReportPath(places.worktree)))
     if (outcome.kind !== 'problem') {
       if (outcome.kind === 'pr')
         recordOpened(cardId, outcome, ports)

@@ -56,6 +56,11 @@ function deadOwner(owner: LockOwner | undefined): boolean {
   return owner !== undefined && !(alive(owner.pid) && alive(owner.parent))
 }
 
+export function watchHeld(file: string): boolean {
+  const owner = recordedOwner(file)
+  return owner !== undefined && !deadOwner(owner)
+}
+
 export interface WatchCursor {
   offset: number
   busId: number
