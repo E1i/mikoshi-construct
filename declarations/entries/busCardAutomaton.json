@@ -1,0 +1,9 @@
+{
+  "entry": "busCardAutomaton",
+  "group": null,
+  "path": "scripts/core/card-automaton.ts",
+  "layer": null,
+  "lists": [
+    "busShared"
+  ]
+}

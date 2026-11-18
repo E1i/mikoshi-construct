@@ -33,6 +33,35 @@
       view.folds = stored.folds
   }
   catch {}
+  const showFilter = (hash) => {
+    const backlog = document.getElementById(names.backlog)
+    if (!backlog)
+      return
+    if (hash)
+      backlog.setAttribute(names.filterAttribute, hash.slice(1))
+    else
+      backlog.removeAttribute(names.filterAttribute)
+  }
+  showFilter(location.hash || view.filter)
+  let hovered = null
+  const showDaemon = () => {
+    document.querySelectorAll('[data-daemon-pane]').forEach((pane) => {
+      if (hovered === null ? pane.hasAttribute('data-default') : pane.dataset.daemonPane === hovered)
+        pane.setAttribute('data-shown', '')
+      else
+        pane.removeAttribute('data-shown')
+    })
+  }
+  const hover = (event) => {
+    const slot = event.target.closest && event.target.closest('[data-daemon-slot]')
+    const next = slot ? slot.dataset.daemonSlot : null
+    if (next === hovered)
+      return
+    hovered = next
+    showDaemon()
+  }
+  document.addEventListener('mouseover', hover)
+  document.addEventListener('focusin', hover)
   const stampFolds = () => {
     document.querySelectorAll('[data-task]').forEach((group) => {
       const task = group.dataset && group.dataset.task
@@ -167,6 +196,7 @@
   })
   addEventListener('hashchange', () => {
     view.filter = location.hash
+    showFilter(view.filter)
     save()
   })
   if (scroller) {
@@ -182,6 +212,7 @@
       view.filter = location.hash
     else if (view.filter && document.getElementById(view.filter.slice(1)))
       location.hash = view.filter
+    showFilter(view.filter)
     if (scroller)
       scroller.scrollTop = view.scroll
     if (view.open)
@@ -375,6 +406,7 @@
     })
     stampAgents()
     stampFolds()
+    showDaemon()
     countLoad()
     if (!restored)
       restore()

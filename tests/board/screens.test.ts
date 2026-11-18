@@ -2,7 +2,7 @@ import type { BusCard, BusFacts, CardStage } from '../../src/commands/board/bus.
 import type { Goal, PlanProgress } from '../../src/commands/board/goal.js'
 import { describe, expect, it } from 'vitest'
 import { planLine } from '../../src/commands/board/goal.js'
-import { backlogCards, backlogLines, boardScreens, flowLines, goalLines, matrixLines, progressBar, pulseLines, screenLines, servicesLines } from '../../src/commands/board/screens.js'
+import { backlogCards, backlogLines, boardScreens, flowLines, goalLines, inLiveView, matrixLines, progressBar, pulseLines, screenLines, servicesLines, standingLine, standingOf } from '../../src/commands/board/screens.js'
 import { LORE, PLAIN_LORE } from '../../src/ui/lore.js'
 
 const OWNER_LIFTED = { lifter: 'owner', decision: null } as const
@@ -132,5 +132,52 @@ describe('the board screens', () => {
   it('the lore and plain screens say the same', () => {
     const facts = noFacts({ cards: [card(1, 'queued', 'a')], failure: 'card #1 fell' })
     expect(screenLines(facts, LORE)).toEqual(screenLines(facts, PLAIN_LORE))
+  })
+})
+
+describe('the standing of a card', () => {
+  const release: PlanProgress = { ...plan('factory-0.47', 0, 1), cards: [{ card: 2, mark: 'queued' }] }
+  const running = card(1, 'running', null, '#1 one [x] · depends — · blocks —', 'in work')
+  const inRelease = card(2, 'queued', null, '#2 two [x] · depends #1, #9 · blocks —')
+  const held = card(3, 'queued', null, '#3 three [x] · depends — · blocks —')
+  const waiting = card(4, 'stopped', null, '#4 four [x] · depends — · blocks —', 'stopped')
+  const laneHead = card(5, 'queued', 'lane-2', '#5 five [x] · depends — · blocks —')
+  const merged = card(6, 'merged', null, '#6 six [x] · depends — · blocks —', 'merged')
+  const queuedCard = card(7, 'queued', null, '#7 seven [x] · depends — · blocks —')
+  const facts = noFacts({
+    goal: { plans: [release], backlog: 3 },
+    cards: [running, inRelease, held, waiting, laneHead, merged, queuedCard],
+    waits: [{ id: 'Q7', card: 4, pr: null, need: 'decision', text: 'which way?', command: null, since: '2026-10-02T11:00:00.000Z', ...OWNER_LIFTED }],
+    laneHeads: [{ lane: 'lane-2', card: 5, reason: 'the lane is full' }],
+    queued: [{ card: 7, queue: 'launch', since: null, behind: [] }],
+  })
+  const standing = standingOf(facts, new Map([[3, 'D-325 holds it']]))
+
+  it('lIVE keeps running work and the open release card and leaves out an owner-held card and plain backlog', () => {
+    expect(facts.cards.filter(each => inLiveView(each, standing)).map(each => each.id)).toEqual([1, 2])
+  })
+
+  it('an owner hold keeps a running card and an open release card out of LIVE', () => {
+    const heldStanding = standingOf(facts, new Map([[1, 'D-325 holds it'], [2, 'D-325 holds it']]))
+    expect(facts.cards.filter(each => inLiveView(each, heldStanding)).map(each => each.id)).toEqual([])
+  })
+
+  it('a non-running card names its release and the first of hold, wait, open depends, lane and queue', () => {
+    expect(facts.cards.map(each => standingLine(each, facts, standing, PLAIN_LORE))).toEqual([
+      null,
+      'release factory-0.47 · blocked by #1',
+      'no open release · held: D-325 holds it',
+      'no open release · waits: Q7 which way?',
+      'no open release · waits: the lane is full',
+      null,
+      'no open release · waits: queued in launch, first in the queue · waited for a time the bus did not record',
+    ])
+  })
+
+  it('the text backlog appends the standing to the stage and the lore says the same', () => {
+    const lines = screenLines(facts, PLAIN_LORE, false, new Map([[3, 'D-325 holds it']]))
+    expect(lines).toContain('  #3 three [x] · depends — · blocks — · planned · no open release · held: D-325 holds it')
+    expect(lines).toContain('  #1 one [x] · depends — · blocks — · in work')
+    expect(screenLines(facts, LORE, false, new Map([[3, 'D-325 holds it']]))).toEqual(lines)
   })
 })

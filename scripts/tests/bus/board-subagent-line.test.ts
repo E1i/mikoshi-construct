@@ -120,6 +120,10 @@ class FakeNode {
     this.attributes.set(name, value)
   }
 
+  removeAttribute(name: string): void {
+    this.attributes.delete(name)
+  }
+
   addEventListener(type: string, listener: Listener): void {
     this.listeners.set(type, [...this.listeners.get(type) ?? [], listener])
   }

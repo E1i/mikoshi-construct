@@ -394,6 +394,18 @@ export interface Lore extends Omit<ExpectLore, 'expectRoleForecast'> {
   boardEveryWithJson: string
   boardEveryWithStdin: string
   boardStaleInvalid: string
+  boardCardStanding: (release: string | null, why: string) => string
+  boardCardHeld: (reason: string) => string
+  boardCardBlockedBy: (cards: string[]) => string
+  boardCardWaitsOn: (reason: string) => string
+  boardCardNoBlocker: string
+  boardMikoChip: string
+  boardMikoWhere: (hijacked: boolean, path: string) => string
+  boardDaemonsHead: (installed: number) => string
+  boardDaemonState: (loaded: boolean) => string
+  boardDaemonSlot: (slot: number) => string
+  boardDaemonMutations: (count: number) => string
+  boardDaemonsUnread: (reader: string, loadedIn: string) => string
 }
 
 function policyEntries(added: { dir: string, allowed: string[] }[]): string {
@@ -441,6 +453,47 @@ const BOARD_TABS_LORE = {
   boardWindowAgentsStep: 'subagents at work',
   boardAgentPulse: (minutes: number) => `pulse ${minutes} min ago`,
   boardSessionNoPulse: (minutes: number) => `WAITING \u00B7 NO PULSE ${minutes} min`,
+  boardColumns: ['TASK', 'PATH', 'STAGE', 'AGE', 'NEXT', 'EXPECT', 'ACTUAL'],
+  boardExpectNotRecorded: 'expect not recorded in .construct/runs.jsonl',
+  boardActual: (tokens: number | 'unknown', seconds: number) => `tokens ${tokens}, seconds ${seconds}`,
+  boardSummary: (open: number, running: number, waiting: number, blocked: number, stale: number, hours: number, merged: number) => `open ${open}: running ${running}, waiting ${waiting}, blocked ${blocked}, stale ${stale} \u00B7 merged ${hours}h: ${merged}`,
+  boardLedgerRead: (file: string, runs: number) => `ledger ${file}: ${runs} runs`,
+  boardLedgerAbsent: (file: string) => `ledger ${file}: absent`,
+  boardLedgerMalformed: (lines: number[]) => `malformed lines ${lines.join(', ')}`,
+  boardPrsRead: (file: string, count: number) => `prs ${file}: ${count} pull requests`,
+  boardPrsNotRead: 'prs: not read; pass --prs <file>, or - for stdin',
+  boardPrsUnreadable: (file: string, reason: string) => `prs ${file}: unreadable (${reason})`,
+  boardStale: (age: string) => `stale ${age} \u00B7 `,
+  boardClockSkew: (age: string) => `clock skew (${age} ahead)`,
+  boardMerged: (tasks: string[], older: boolean) => `merged: ${tasks.length === 0 ? '\u2014' : tasks.join(' \u00B7 ')}${older ? '   (older: --all)' : ''}`,
+  boardNothing: (ledger: string | undefined, prs: string, prsStatus: 'read' | 'not read' | 'unreadable') => `nothing open \u2014 ${ledger === undefined ? '' : `${ledger}${prsStatus === 'read' ? ' and ' : '; '}`}${prs}${prsStatus === 'not read' ? '' : '.'}`,
+  boardNoLadderRuns: (file: string) => `no ladder runs in ${file}`,
+  boardNoRecentLadderRuns: (file: string, hours: number) => `no ladder runs from the last ${hours} hours in ${file}`,
+  boardNoOpenPrs: 'no open pull requests',
+  boardPrsClauseNotRead: (command: string) => `pull requests not read: ${command} | ${constructCommand('board', '--prs', '-')}`,
+  boardPrsClauseUnreadable: (reason: string) => `pull requests unreadable (${reason})`,
+  boardStart: 'Miko chooses how each task runs: herself in the window, handed to the Operator, or through Ghost Protocol. With autonomy and delegation on, ask in chat and the mechanism does the rest.',
+  boardNoImplement: 'This repository has no /implement, so the board lists pull requests only.',
+  boardHeader: (version: string, mode: string | undefined) => `construct ${version}${mode === undefined ? '' : ` \u00B7 ${mode.toUpperCase()}`}`,
+  boardHint: (who: string, command: string) => `${who} runs: ${command}`,
+  boardNoPlan: (hint: string) => `plan not registered \u00B7 ${hint}`,
+  boardFooter: (agents: number, failure: string | undefined, queue: number) => `agents at work: ${agents} \u00B7 last failure: ${failure ?? 'none'} \u00B7 review queue: ${queue} \u00B7 geek mode: --geek`,
+  boardBusAbsent: (file: string) => `bus ${file}: absent`,
+  boardBusUnreadable: (file: string, reason: string) => `bus ${file}: unreadable (${reason})`,
+  boardEveryInvalid: '--every takes a whole number of seconds, at least 1',
+  boardEveryWithJson: '--every redraws the text board and cannot be combined with --json',
+  boardEveryWithStdin: '--every re-reads --prs each frame, and stdin can be read once: pass --prs a file',
+  boardStaleInvalid: '--stale takes a number of hours greater than 0',
+  boardCardStanding: (release: string | null, why: string) => `${release === null ? 'no open release' : `release ${release}`} \u00B7 ${why}`,
+  boardCardHeld: (reason: string) => `held: ${reason}`,
+  boardCardBlockedBy: (cards: string[]) => `blocked by ${cards.join(', ')}`,
+  boardCardWaitsOn: (reason: string) => `waits: ${reason}`,
+  boardCardNoBlocker: 'no blocker recorded',
+  boardDaemonsHead: (installed: number) => `INSTALLED \u00B7 ${installed}`,
+  boardDaemonState: (loaded: boolean) => loaded ? 'LOADED' : 'SLEEPING',
+  boardDaemonSlot: (slot: number) => `SLOT ${String(slot).padStart(2, '0')}`,
+  boardDaemonMutations: (count: number) => `MUTATIONS \u00B7 ${count}`,
+  boardDaemonsUnread: (reader: string, loadedIn: string) => `no daemon in the catalog yet \u00B7 ${reader} reads it \u00B7 LOADED is observed in ${loadedIn}`,
 } satisfies Partial<Lore>
 
 export const LORE: Lore = {
@@ -853,38 +906,9 @@ export const LORE: Lore = {
   mutateRefusedNoBus: `NO SIGNAL: --card records its verdict in the bus, and this run has none; run it as ${pnpmCommand('mutate', 'judge')}. The file was not touched`,
   mutateRefusedCardRequired: (card: string) => `NO SIGNAL: this shift runs card #${card}; pass --card ${card} so the verdict is journaled. The file was not touched`,
   mutateJournaled: (bus: string) => `Verdict recorded in the bus ${bus}.`,
-  boardColumns: ['TASK', 'PATH', 'STAGE', 'AGE', 'NEXT', 'EXPECT', 'ACTUAL'],
-  boardExpectNotRecorded: 'expect not recorded in .construct/runs.jsonl',
-  boardActual: (tokens: number | 'unknown', seconds: number) => `tokens ${tokens}, seconds ${seconds}`,
-  boardSummary: (open: number, running: number, waiting: number, blocked: number, stale: number, hours: number, merged: number) => `open ${open}: running ${running}, waiting ${waiting}, blocked ${blocked}, stale ${stale} \u00B7 merged ${hours}h: ${merged}`,
-  boardLedgerRead: (file: string, runs: number) => `ledger ${file}: ${runs} runs`,
-  boardLedgerAbsent: (file: string) => `ledger ${file}: absent`,
-  boardLedgerMalformed: (lines: number[]) => `malformed lines ${lines.join(', ')}`,
-  boardPrsRead: (file: string, count: number) => `prs ${file}: ${count} pull requests`,
-  boardPrsNotRead: 'prs: not read; pass --prs <file>, or - for stdin',
-  boardPrsUnreadable: (file: string, reason: string) => `prs ${file}: unreadable (${reason})`,
-  boardStale: (age: string) => `stale ${age} \u00B7 `,
-  boardClockSkew: (age: string) => `clock skew (${age} ahead)`,
-  boardMerged: (tasks: string[], older: boolean) => `merged: ${tasks.length === 0 ? '\u2014' : tasks.join(' \u00B7 ')}${older ? '   (older: --all)' : ''}`,
-  boardNothing: (ledger: string | undefined, prs: string, prsStatus: 'read' | 'not read' | 'unreadable') => `nothing open \u2014 ${ledger === undefined ? '' : `${ledger}${prsStatus === 'read' ? ' and ' : '; '}`}${prs}${prsStatus === 'not read' ? '' : '.'}`,
-  boardNoLadderRuns: (file: string) => `no ladder runs in ${file}`,
-  boardNoRecentLadderRuns: (file: string, hours: number) => `no ladder runs from the last ${hours} hours in ${file}`,
-  boardNoOpenPrs: 'no open pull requests',
-  boardPrsClauseNotRead: (command: string) => `pull requests not read: ${command} | ${constructCommand('board', '--prs', '-')}`,
-  boardPrsClauseUnreadable: (reason: string) => `pull requests unreadable (${reason})`,
-  boardStart: 'Miko chooses how each task runs: herself in the window, handed to the Operator, or through Ghost Protocol. With autonomy and delegation on, ask in chat and the mechanism does the rest.',
-  boardNoImplement: 'This repository has no /implement, so the board lists pull requests only.',
-  boardHeader: (version: string, mode: string | undefined) => `construct ${version}${mode === undefined ? '' : ` \u00B7 ${mode.toUpperCase()}`}`,
   ...BOARD_TABS_LORE,
-  boardHint: (who: string, command: string) => `${who} runs: ${command}`,
-  boardNoPlan: (hint: string) => `plan not registered \u00B7 ${hint}`,
-  boardFooter: (agents: number, failure: string | undefined, queue: number) => `agents at work: ${agents} \u00B7 last failure: ${failure ?? 'none'} \u00B7 review queue: ${queue} \u00B7 geek mode: --geek`,
-  boardBusAbsent: (file: string) => `bus ${file}: absent`,
-  boardBusUnreadable: (file: string, reason: string) => `bus ${file}: unreadable (${reason})`,
-  boardEveryInvalid: '--every takes a whole number of seconds, at least 1',
-  boardEveryWithJson: '--every redraws the text board and cannot be combined with --json',
-  boardEveryWithStdin: '--every re-reads --prs each frame, and stdin can be read once: pass --prs a file',
-  boardStaleInvalid: '--stale takes a number of hours greater than 0',
+  boardMikoChip: 'HIJACK',
+  boardMikoWhere: (hijacked: boolean, path: string) => `${hijacked ? 'breached' : 'own repo'} ${path}`,
 }
 
 export const PLAIN_LORE: Lore = {
@@ -1299,36 +1323,7 @@ export const PLAIN_LORE: Lore = {
   mutateRefusedNoBus: `Refused: --card records its verdict in the bus, and this run has none; run it as ${pnpmCommand('mutate', 'judge')}. Nothing was changed.`,
   mutateRefusedCardRequired: (card: string) => `Refused: this shift runs card #${card}; pass --card ${card} so the verdict is journaled. Nothing was changed.`,
   mutateJournaled: (bus: string) => `The verdict is recorded in the bus ${bus}.`,
-  boardColumns: ['TASK', 'PATH', 'STAGE', 'AGE', 'NEXT', 'EXPECT', 'ACTUAL'],
-  boardExpectNotRecorded: 'expect not recorded in .construct/runs.jsonl',
-  boardActual: (tokens: number | 'unknown', seconds: number) => `tokens ${tokens}, seconds ${seconds}`,
-  boardSummary: (open: number, running: number, waiting: number, blocked: number, stale: number, hours: number, merged: number) => `open ${open}: running ${running}, waiting ${waiting}, blocked ${blocked}, stale ${stale} \u00B7 merged ${hours}h: ${merged}`,
-  boardLedgerRead: (file: string, runs: number) => `ledger ${file}: ${runs} runs`,
-  boardLedgerAbsent: (file: string) => `ledger ${file}: absent`,
-  boardLedgerMalformed: (lines: number[]) => `malformed lines ${lines.join(', ')}`,
-  boardPrsRead: (file: string, count: number) => `prs ${file}: ${count} pull requests`,
-  boardPrsNotRead: 'prs: not read; pass --prs <file>, or - for stdin',
-  boardPrsUnreadable: (file: string, reason: string) => `prs ${file}: unreadable (${reason})`,
-  boardStale: (age: string) => `stale ${age} \u00B7 `,
-  boardClockSkew: (age: string) => `clock skew (${age} ahead)`,
-  boardMerged: (tasks: string[], older: boolean) => `merged: ${tasks.length === 0 ? '\u2014' : tasks.join(' \u00B7 ')}${older ? '   (older: --all)' : ''}`,
-  boardNothing: (ledger: string | undefined, prs: string, prsStatus: 'read' | 'not read' | 'unreadable') => `nothing open \u2014 ${ledger === undefined ? '' : `${ledger}${prsStatus === 'read' ? ' and ' : '; '}`}${prs}${prsStatus === 'not read' ? '' : '.'}`,
-  boardNoLadderRuns: (file: string) => `no ladder runs in ${file}`,
-  boardNoRecentLadderRuns: (file: string, hours: number) => `no ladder runs from the last ${hours} hours in ${file}`,
-  boardNoOpenPrs: 'no open pull requests',
-  boardPrsClauseNotRead: (command: string) => `pull requests not read: ${command} | ${constructCommand('board', '--prs', '-')}`,
-  boardPrsClauseUnreadable: (reason: string) => `pull requests unreadable (${reason})`,
-  boardStart: 'Miko chooses how each task runs: herself in the window, handed to the Operator, or through Ghost Protocol. With autonomy and delegation on, ask in chat and the mechanism does the rest.',
-  boardNoImplement: 'This repository has no /implement, so the board lists pull requests only.',
-  boardHeader: (version: string, mode: string | undefined) => `construct ${version}${mode === undefined ? '' : ` \u00B7 ${mode.toUpperCase()}`}`,
   ...BOARD_TABS_LORE,
-  boardHint: (who: string, command: string) => `${who} runs: ${command}`,
-  boardNoPlan: (hint: string) => `plan not registered \u00B7 ${hint}`,
-  boardFooter: (agents: number, failure: string | undefined, queue: number) => `agents at work: ${agents} \u00B7 last failure: ${failure ?? 'none'} \u00B7 review queue: ${queue} \u00B7 geek mode: --geek`,
-  boardBusAbsent: (file: string) => `bus ${file}: absent`,
-  boardBusUnreadable: (file: string, reason: string) => `bus ${file}: unreadable (${reason})`,
-  boardEveryInvalid: '--every takes a whole number of seconds, at least 1',
-  boardEveryWithJson: '--every redraws the text board and cannot be combined with --json',
-  boardEveryWithStdin: '--every re-reads --prs each frame, and stdin can be read once: pass --prs a file',
-  boardStaleInvalid: '--stale takes a number of hours greater than 0',
+  boardMikoChip: 'ATTACHED',
+  boardMikoWhere: (hijacked: boolean, path: string) => `${hijacked ? 'attached to' : 'own repo'} ${path}`,
 }

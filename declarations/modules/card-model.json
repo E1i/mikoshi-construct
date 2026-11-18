@@ -7,7 +7,6 @@
     "src/card/task-file.ts",
     "src/card/risk.ts",
     "src/card/complexity.ts",
-    "scripts/intake/card-contract.ts",
     "scripts/core/identifiers.ts"
   ],
   "exclude": [],
