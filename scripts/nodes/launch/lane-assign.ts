@@ -13,6 +13,7 @@ import { DEFAULT_LANES, isLaneCount, MANIFEST_FILE } from '../../../src/manifest
 import { currentLane, latestAssignment, OPEN_WAIT, OWNER_WAITS } from '../../core/bus-readings.js'
 import { DEFERRED_CARD, RUNNING_CARD } from '../../core/card-automaton.js'
 import { appendEvent } from '../../core/db.js'
+import { readDeclarations } from '../../core/declarations.js'
 import { BOARD_ALARM, CARD_ADMITTED, CARD_DROPPED, LANE_ASSIGNED, LANE_OVERLAP, POLICY_DENIED } from '../../core/events.js'
 import { prOf } from '../../core/identifiers.js'
 import { effectivePaths, orderDeclarationsAt } from '../../core/order/overlap.js'
@@ -183,13 +184,17 @@ function declarationsAt(root: string): OverlapDeclarations {
   const known = launchDeclarations.get(root)
   if (known !== undefined)
     return known
-  const read = orderDeclarationsAt(root)
+  const ordered = orderDeclarationsAt(root)
+  const generated = readDeclarations(root).generated.map(row => row.path).filter(file => !file.endsWith('/'))
+  const read = { ...ordered, derived: [...new Set([...ordered.derived, ...generated])] }
   launchDeclarations.set(root, read)
   return read
 }
 
+const CONTRACT_FILE = /^contract\/[^/]+\.json$/
+
 export function withoutDerived(task: ShiftTask): ShiftTask {
-  return { ...task, touches: effectivePaths(task.touches, declarationsAt(process.cwd())) }
+  return { ...task, touches: effectivePaths(task.touches.filter(entry => !CONTRACT_FILE.test(entry)), declarationsAt(process.cwd())) }
 }
 
 function laneTouches(task: ShiftTask): ShiftTask {

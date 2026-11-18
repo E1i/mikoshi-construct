@@ -13,7 +13,7 @@ import { MachineSessions } from '../../core/machine-sessions.js'
 import { reduce } from '../../core/reducer.js'
 import { busCardEvents } from '../../intake/intake.js'
 import { assignMovedLane, currentLane, layLanes } from '../../nodes/launch/lane-assign.js'
-import { holdReason, launchCandidates, PLANNED_STALL_MINUTES, plannedStalls } from '../../nodes/launch/launch-candidates.js'
+import { holdReason, launchCandidates, PLANNED_STALL_MINUTES, plannedStalls, UNEXPLAINED_HOLD } from '../../nodes/launch/launch-candidates.js'
 import { busProjections } from '../../supervisor/composition.js'
 
 const TS = '2026-11-05T10:00:00.000Z'
@@ -150,7 +150,7 @@ describe('a fault-stopped head of a lane', () => {
   it('a lane with a fault-stopped head with no session and no pull request starts the independent card behind it', () => {
     const bench = new Bench().admit(1).start(1).stop(1).admit(2).moveTo(1, 'lane-1').moveTo(2, 'lane-1')
     expect(bench.candidates()).toEqual([2])
-    expect(bench.linesAfter(20)).toEqual(['#2 planned and startable, not started for 20 minutes: occupied slots'])
+    expect(bench.linesAfter(20)).toEqual([`#2 planned and startable, not started for 20 minutes: ${UNEXPLAINED_HOLD}`])
   })
 
   it('a card that depends on the stopped head does not start', () => {
@@ -234,14 +234,15 @@ describe('the board warns about a startable planned card that has not started', 
     expect(bench.linesAfter(20)).toEqual(['#2 planned and startable, not started for 20 minutes: #1 at the head of lane-1'])
   })
 
-  it('the board reads occupied slots when no card holds the planned card', () => {
+  it('the board reads red, never occupied slots, when no card holds the planned card', () => {
     const bench = new Bench().admit(1)
-    expect(bench.linesAfter(20)).toEqual(['#1 planned and startable, not started for 20 minutes: occupied slots'])
+    expect(bench.linesAfter(20)).toEqual([`#1 planned and startable, not started for 20 minutes: ${UNEXPLAINED_HOLD}`])
+    expect(boardWarnings({ contexts: [], contextLimit: null, warnRatio: null, openPrs: 0, openPrLimit: null, ownerWaits: 0, stalls: bench.linesAfter(20), savingOff: false }).map(warning => warning.level)).toEqual(['red'])
   })
 
-  it('the board gives no line for a card held by depends or who window or younger than the constant', () => {
+  it('the board names who window for a card the shift does not take, and gives no line for a card held by depends or younger than the constant', () => {
     const bench = new Bench().admit(1, { who: 'window' }).admit(2, { depends: [1] })
-    expect(bench.linesAfter(PLANNED_STALL_MINUTES * 10)).toEqual([])
+    expect(bench.linesAfter(PLANNED_STALL_MINUTES * 10)).toEqual([`#1 planned and startable, not started for ${PLANNED_STALL_MINUTES * 10} minutes: ${holdReason({ kind: 'window' })}`])
     const young = new Bench().admit(3)
     expect(young.linesAfter(PLANNED_STALL_MINUTES - 1)).toEqual([])
   })

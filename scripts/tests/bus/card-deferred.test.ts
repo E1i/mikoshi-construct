@@ -179,7 +179,7 @@ describe('a startable planned card states why it has not started', () => {
     expect(bench.loggedSkips().at(-1)).toContain('skip #2: overlap with open PR #1001 on apps/web/package.json')
   })
 
-  it('the launch skip line carries the same reason as the board for the head of the lane and for occupied slots', () => {
+  it('the launch skip line carries the same reason as the board for the head of the lane and for a queued launch', () => {
     const lane = new Bench().admit(1).start(1).admit(2).moveTo(2, 'lane-1')
     const laneReason = reasonOf(lane.boardLines()[0]!)
     expect(laneReason).toBe('#1 at the head of lane-1')
@@ -189,7 +189,7 @@ describe('a startable planned card states why it has not started', () => {
     queueTask(slots.db, TS, { queue: 'launch', cardId: 3, generation: 'admit-3' })
     reduce(slots.db, 'pending', busProjections())
     const slotsReason = reasonOf(slots.boardLines()[0]!)
-    expect(slotsReason).toBe('occupied slots')
+    expect(slotsReason).toBe('its launch is queued and waits for the launch node to take it')
     expect(slots.loggedSkips()).toEqual([expect.stringContaining(`skip #3: ${slotsReason}`)])
   })
 

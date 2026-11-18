@@ -22,7 +22,8 @@
     "contract/surface.json",
     "contract/factory.json",
     "contract/ratchet.json",
-    "scripts/ci/sandbox-failing.jsonl"
+    "scripts/ci/sandbox-failing.jsonl",
+    "scripts/core/events.ts"
   ],
   "vars": {
     "projectName": "mikoshi-construct",

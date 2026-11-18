@@ -6,7 +6,7 @@ import type { MachineHold, MachineSessions } from '../../core/machine-sessions.j
 import type { QueuedTask, QueueSource } from '../../core/queue.js'
 import { existsSync } from 'node:fs'
 import process from 'node:process'
-import { parseParkingFile, WINDOW_WHO } from '../../../src/card/parking.js'
+import { parseParkingFile, PRIORITIES, WINDOW_WHO } from '../../../src/card/parking.js'
 import { NOT_A_BACKFILL } from '../../core/backfill-source.js'
 import { CLOSED_WAIT, openOwnerWaits } from '../../core/bus-readings.js'
 import { DEFERRED_CARD, unsatisfiedDependencies } from '../../core/card-automaton.js'
@@ -20,7 +20,7 @@ import { namesQueueLive } from '../../policy/live-decision.js'
 import { ANY, BusRead } from '../../ports/bus-read.js'
 import { isAlive } from '../../quality/lock.js'
 import { beatsLive } from '../../supervisor/liveness-sites.js'
-import { chainLaneNumber, currentLane, heldByStall, repositoryLanes, stalledCards, startOrder, withoutDerived } from './lane-assign.js'
+import { chainLaneNumber, currentLane, heldByStall, ownerMergeHolders, repositoryLanes, stalledCards, startOrder, withoutDerived } from './lane-assign.js'
 import { taskConflicts } from './overlap.js'
 import { sharedAppendFiles } from './shared-files.js'
 
@@ -199,6 +199,7 @@ interface CardLife {
   closed: boolean
   stoppedByFault: boolean
   closedUnmergedByPr: Map<number, boolean>
+  diff: string[] | null
 }
 
 function closesUnmerged(row: LifeRow): boolean {
@@ -224,6 +225,11 @@ function payloadOf(row: Pick<LifeRow, 'payload'>): Record<string, unknown> {
   }
 }
 
+function observedDiff(payload: Record<string, unknown>): string[] | null {
+  const paths = strings(payload.paths)
+  return paths.length === 0 || payload.pathsTruncated === true ? null : paths
+}
+
 function laneOf(payload: Record<string, unknown>): string | null {
   const lane = payload.lane ?? payload.axis
   return typeof lane === 'string' && lane !== '' ? lane : null
@@ -244,8 +250,37 @@ function overlappingPath(task: ShiftTask, other: ShiftTask | null, shared: reado
   return task.touches.find(touch => conflicting({ ...task, touches: [touch] }, other, shared)) ?? task.touches[0]!
 }
 
-function overlapsAny(task: ShiftTask | null, taken: readonly ShiftTask[], shared: readonly string[]): boolean {
-  return taken.some(other => conflicting(task, other, shared))
+interface Holder {
+  cardId: number
+  lane: string | null
+  depends: number[]
+  priority: Priority | null
+  task: ShiftTask | null
+  ownerHeld: boolean
+}
+
+function rankOf(priority: Priority | null): number {
+  return priority === null ? PRIORITIES.length : PRIORITIES.indexOf(priority)
+}
+
+function yieldsTo(holder: Holder, life: CardLife): boolean {
+  return holder.ownerHeld && rankOf(life.priority) < rankOf(holder.priority)
+}
+
+function holdsAgainst(holder: Holder, life: CardLife): boolean {
+  return holder.cardId !== life.cardId && !yieldsTo(holder, life)
+}
+
+function overlapsAny(life: CardLife, taken: readonly Holder[], shared: readonly string[]): boolean {
+  return taken.some(holder => holdsAgainst(holder, life) && conflicting(life.task, holder.task, shared))
+}
+
+function diffTaskOf(life: CardLife): ShiftTask | null {
+  return life.task === null || life.diff === null ? life.task : { ...life.task, touches: life.diff }
+}
+
+function holderOf(life: CardLife, task: ShiftTask | null, ownerHeld: boolean): Holder {
+  return { cardId: life.cardId, lane: life.lane, depends: life.depends, priority: life.priority, task, ownerHeld }
 }
 
 function generationOf(row: LifeRow, payload: Record<string, unknown>): string {
@@ -285,12 +320,14 @@ function cardLives(db: DatabaseSync): Map<number, CardLife> {
       const admitted = admittedAtOf(db, row, payload)
       const beforeLive = admitted.legacyLine && cutoff !== null && admitted.at < cutoff
       const parked = parkedOf(row, payload)
-      lives.set(row.card_id, { cardId: row.card_id, generation: generationOf(row, payload), admittedAt: admitted.at, admittedTs: row.ts, lane: laneOf(payload), task: parked?.task ?? null, windowsToWork: parked?.who === WINDOW_WHO, depends: dependsOf(payload), priority: parked?.priority ?? null, contour: contourOf(payload), started: running, startedAt: null, freeRow: null, closed: beforeLive, stoppedByFault: false, closedUnmergedByPr: running ? life.closedUnmergedByPr : new Map() })
+      lives.set(row.card_id, { cardId: row.card_id, generation: generationOf(row, payload), admittedAt: admitted.at, admittedTs: row.ts, lane: laneOf(payload), task: parked?.task ?? null, windowsToWork: parked?.who === WINDOW_WHO, depends: dependsOf(payload), priority: parked?.priority ?? null, contour: contourOf(payload), started: running, startedAt: null, freeRow: null, closed: beforeLive, stoppedByFault: false, closedUnmergedByPr: running ? life.closedUnmergedByPr : new Map(), diff: running ? life.diff : null })
       continue
     }
     if (life !== undefined && PULL_REQUEST_ROWS.has(row.type)) {
       if (row.pr !== null)
         life.closedUnmergedByPr.set(row.pr, closesUnmerged(row))
+      if (row.type === PR_OBSERVED)
+        life.diff = observedDiff(payloadOf(row)) ?? life.diff
       continue
     }
     if (life !== undefined && row.type === TASK_REQUEUED) {
@@ -412,9 +449,10 @@ function withAssignedLanes(db: DatabaseSync, lives: Map<number, CardLife>): Map<
 }
 
 interface Holds {
-  holding: CardLife[]
-  busy: CardLife[]
-  heldByStalls: Map<string, CardLife[]>
+  holding: Holder[]
+  busy: Holder[]
+  heldByStalls: Map<string, Holder[]>
+  launching: ReadonlySet<number>
 }
 
 function launchHeldByItsQuestion(db: DatabaseSync, cardId: number, beating: ReadonlySet<number>): boolean {
@@ -425,17 +463,23 @@ function holdsOf(db: DatabaseSync, lives: ReadonlyMap<number, CardLife>, merged:
   const launching = cardSet(db, OPEN_LAUNCHES)
   const ended = cardSet(db, ENDED_CARDS)
   const stalled = new Set(stalledCards(db).map(stall => stall.cardId))
-  const holds: Holds = { holding: [], busy: [], heldByStalls: new Map() }
+  const waitingOnOwner = ownerMergeHolders(db)
+  const holds: Holds = { holding: [], busy: [], heldByStalls: new Map(), launching }
   for (const life of lives.values()) {
     const running = runs(life) && !merged.has(life.cardId) && !ended.has(life.cardId)
     const launchHolds = launching.has(life.cardId) && !launchHeldByItsQuestion(db, life.cardId, beating)
     const holding = running || launchHolds || openPrs.has(life.cardId)
-    if (life.lane !== null && stalled.has(life.cardId))
-      holds.heldByStalls.set(life.lane, [...(holds.heldByStalls.get(life.lane) ?? []), life])
-    else if (life.lane !== null && holding)
-      holds.busy.push(life)
+    const isStalled = life.lane !== null && stalled.has(life.cardId)
+    if (!holding && !isStalled)
+      continue
+    const pullRequestOnly = openPrs.has(life.cardId) && life.diff !== null && !launchHolds && !beating.has(life.cardId)
+    const holder = holderOf(life, pullRequestOnly ? diffTaskOf(life) : life.task, waitingOnOwner.has(life.cardId) || cardHoldOf(db, life.cardId) !== null)
+    if (isStalled)
+      holds.heldByStalls.set(life.lane!, [...(holds.heldByStalls.get(life.lane!) ?? []), holder])
+    else if (life.lane !== null && !pullRequestOnly)
+      holds.busy.push(holder)
     if (holding)
-      holds.holding.push(life)
+      holds.holding.push(holder)
   }
   return holds
 }
@@ -445,12 +489,19 @@ export type StartableHold
     | { kind: 'session', cardId: number, path: string }
     | { kind: 'lane', cardId: number, lane: string }
     | { kind: 'slots' }
+    | { kind: 'launching' }
+    | { kind: 'unfolded' }
+    | { kind: 'window' }
+    | { kind: 'unclear', field: string }
+    | { kind: 'none' }
     | ({ kind: 'machine' } & MachineHold)
     | { kind: 'lane-outside', lane: string, lanes: number }
     | { kind: 'depends', depends: number }
     | { kind: 'dropped-depends', dropped: number }
 
 export type MachineReader = Pick<MachineSessions, 'free' | 'held' | 'waiting'>
+
+export const UNEXPLAINED_HOLD = 'no holder found: it can start and has not, and the scheduler names no reason'
 
 export function holdReason(hold: StartableHold): string {
   switch (hold.kind) {
@@ -465,12 +516,26 @@ export function holdReason(hold: StartableHold): string {
     case 'lane':
       return `#${hold.cardId} at the head of ${hold.lane}`
     case 'slots':
-      return 'occupied slots'
+      return 'every session slot of the machine is taken'
+    case 'launching':
+      return 'its launch is queued and waits for the launch node to take it'
+    case 'unfolded':
+      return 'its admitted body is not folded into the bus yet'
+    case 'window':
+      return `who: ${WINDOW_WHO}, so the shift does not take it; the window starts it or hands it to the shift`
+    case 'unclear':
+      return `who: ${WINDOW_WHO}, held by its unclear field: ${hold.field}`
+    case 'none':
+      return UNEXPLAINED_HOLD
     case 'depends':
       return `its dependency #${hold.depends} is not merged yet`
     case 'dropped-depends':
       return `its dependency #${hold.dropped} is dropped, so it never launches until its depends are amended or it is dropped`
   }
+}
+
+export function unexplainedStall(line: string): boolean {
+  return line.endsWith(UNEXPLAINED_HOLD)
 }
 
 export interface StartableCard {
@@ -493,22 +558,37 @@ function machineHoldOf(machine: MachineReader): StartableHold | null {
   return held === null ? null : { kind: 'machine', ...held }
 }
 
+const UNCLEAR_LINE = /^unclear:[ \t]*(\S.*)$/m
+
+function windowHold(life: CardLife): StartableHold {
+  const field = life.task === null ? undefined : UNCLEAR_LINE.exec(life.task.body)?.[1]?.trim()
+  return field === undefined ? { kind: 'window' } : { kind: 'unclear', field }
+}
+
+function residualHold(life: CardLife, holds: Holds, machine: MachineReader): StartableHold {
+  if (holds.launching.has(life.cardId))
+    return { kind: 'launching' }
+  return machineHoldOf(machine) ?? (machine.free() <= 0 ? { kind: 'slots' } : { kind: 'none' })
+}
+
 function holdOf(life: CardLife, holds: Holds, openPrs: ReadonlyMap<number, number>, shared: readonly string[], lanes: number, machine: MachineReader): StartableHold {
-  const overlapping = holds.holding.find(holder => holder.cardId !== life.cardId && conflicting(life.task, holder.task, shared))
+  if (life.windowsToWork)
+    return windowHold(life)
+  const overlapping = holds.holding.find(holder => holdsAgainst(holder, life) && conflicting(life.task, holder.task, shared))
   if (overlapping !== undefined) {
     const path = overlappingPath(life.task!, overlapping.task, shared)
     const pr = openPrs.get(overlapping.cardId)
     return pr === undefined ? { kind: 'session', cardId: overlapping.cardId, path } : { kind: 'open-pr', pr, path }
   }
   if (life.lane === null)
-    return machineHoldOf(machine) ?? { kind: 'slots' }
+    return residualHold(life, holds, machine)
   if (outsideTheLanes(life.lane, lanes))
     return { kind: 'lane-outside', lane: life.lane, lanes }
-  const stalling = (holds.heldByStalls.get(life.lane) ?? []).find(holder => heldByStall(life, [holder], shared))
-  const keeping = stalling ?? holds.busy.find(holder => holder.lane === life.lane && holder.cardId !== life.cardId)
+  const stalling = (holds.heldByStalls.get(life.lane) ?? []).find(holder => holdsAgainst(holder, life) && heldByStall(life, [holder], shared))
+  const keeping = stalling ?? holds.busy.find(holder => holder.lane === life.lane && holdsAgainst(holder, life))
   if (keeping !== undefined)
     return { kind: 'lane', cardId: keeping.cardId, lane: life.lane }
-  return machineHoldOf(machine) ?? { kind: 'slots' }
+  return residualHold(life, holds, machine)
 }
 
 export interface HeldExit {
@@ -541,7 +621,7 @@ interface QueuedView {
   prNumbers: Map<number, number>
 }
 
-function queuedView(db: DatabaseSync, treeLive: TreeReader, nowMs: number): QueuedView {
+function queuedView(db: DatabaseSync, treeLive: TreeReader, nowMs: number, withWindowCards = false): QueuedView {
   const lives = withAssignedLanes(db, cardLives(db))
   const merged = cardSet(db, MERGED_CARDS)
   const settled = settledCards(db, merged)
@@ -551,15 +631,20 @@ function queuedView(db: DatabaseSync, treeLive: TreeReader, nowMs: number): Queu
   const noLongerCandidates = cardSet(db, NO_LONGER_CANDIDATES)
   const falls = fallCounts(db)
   const queued = [...lives.values()]
-    .filter(life => !noLongerCandidates.has(life.cardId) && !life.windowsToWork && (falls.get(life.cardId) ?? 0) < FALLS_BEFORE_CUT && isQueued(life, settled) && !heldOutside(life, openPrs, trees, beating) && cardHoldOf(db, life.cardId) === null)
+    .filter(life => !noLongerCandidates.has(life.cardId) && (withWindowCards || !life.windowsToWork) && (falls.get(life.cardId) ?? 0) < FALLS_BEFORE_CUT && isQueued(life, settled) && !heldOutside(life, openPrs, trees, beating) && cardHoldOf(db, life.cardId) === null)
   return { queued, unsatisfied: unsatisfiedDependencies(db), holds: holdsOf(db, lives, merged, openPrs, beating), prNumbers: openPrNumbers(db) }
 }
 
 export function startableCards(db: DatabaseSync, treeLive: TreeReader = existsSync, now: () => number = Date.now, shared: readonly string[] = sharedAppendFiles(), lanes: () => number = repositoryLanes(process.cwd()), machine: MachineReader = machineSessions(isAlive)): StartableCard[] {
-  const view = queuedView(db, treeLive, now())
+  const view = queuedView(db, treeLive, now(), true)
   return view.queued
     .filter(life => view.unsatisfied(life.depends).length === 0)
-    .map(life => ({ cardId: life.cardId, admittedTs: life.admittedTs, hold: holdOf(life, view.holds, view.prNumbers, shared, lanes(), machine) }))
+    .map(life => ({ cardId: life.cardId, admittedTs: life.admittedTs, hold: startableHold(db, life, view, shared, lanes(), machine) }))
+}
+
+function startableHold(db: DatabaseSync, life: CardLife, view: QueuedView, shared: readonly string[], lanes: number, machine: MachineReader): StartableHold {
+  const hold = holdOf(life, view.holds, view.prNumbers, shared, lanes, machine)
+  return hold.kind === 'none' && bodyNotFoldedYet(db, life.cardId) ? { kind: 'unfolded' } : hold
 }
 
 export interface LaneHeadHold {
@@ -699,8 +784,8 @@ export function launchCandidates(db: DatabaseSync, treeLive: TreeReader = exists
   const noLongerCandidates = cardSet(db, NO_LONGER_CANDIDATES)
   const falls = fallCounts(db)
   const { holding, busy: busyCards, heldByStalls } = holdsOf(db, lives, merged, openPrs, beating)
-  const busy = new Set(busyCards.map(life => life.lane))
-  const taken = holding.flatMap(life => life.task ?? [])
+  const busy = [...busyCards]
+  const taken = [...holding]
   const chosen: LaunchCandidate[] = []
   const open = [...lives.values()].filter(life => !noLongerCandidates.has(life.cardId))
   if ('stamp' in onOverlap)
@@ -715,20 +800,20 @@ export function launchCandidates(db: DatabaseSync, treeLive: TreeReader = exists
       }
       continue
     }
-    if (!isQueued(life, settled) || life.lane === null || outsideTheLanes(life.lane, laneLimit) || busy.has(life.lane) || heldByStall(life, heldByStalls.get(life.lane) ?? [], shared) || unsatisfied(life.depends).length > 0 || heldOutside(life, openPrs, trees, beating))
+    if (!isQueued(life, settled) || life.lane === null || outsideTheLanes(life.lane, laneLimit) || busy.some(holder => holder.lane === life.lane && holdsAgainst(holder, life)) || heldByStall(life, (heldByStalls.get(life.lane) ?? []).filter(holder => holdsAgainst(holder, life)), shared) || unsatisfied(life.depends).length > 0 || heldOutside(life, openPrs, trees, beating))
       continue
     if (bodyNotFoldedYet(db, life.cardId))
       continue
-    if (overlapsAny(life.task, taken, shared)) {
+    if (overlapsAny(life, taken, shared)) {
       onOverlap(life.cardId, life.generation)
       continue
     }
     if (free <= 0)
       continue
     free -= 1
-    busy.add(life.lane)
-    if (life.task !== null)
-      taken.push(life.task)
+    const started = holderOf(life, life.task, false)
+    busy.push(started)
+    taken.push(started)
     chosen.push({ cardId: life.cardId, generation: life.generation, ...continuedTree(life, trees) })
   }
   if ('skipped' in onOverlap)

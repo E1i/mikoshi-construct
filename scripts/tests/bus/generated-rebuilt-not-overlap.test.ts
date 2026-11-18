@@ -195,8 +195,12 @@ describe('a generated file the update rebuilds is no overlap at launch', () => {
     startsOneAtATime(HAND_WRITTEN)
   })
 
-  it('two cards sharing only .dependency-cruiser-known-violations.json start one at a time', () => {
+  it('two cards sharing only .dependency-cruiser-known-violations.json, a generated row the update does not rebuild, start at once', () => {
     expect(KNOWN_VIOLATIONS).toBe('.dependency-cruiser-known-violations.json')
-    startsOneAtATime(KNOWN_VIOLATIONS)
+    expect(withoutDerived({ touches: ['scripts/first/**', KNOWN_VIOLATIONS] } as unknown as ShiftTask).touches).toEqual(['scripts/first/**'])
+    const bench = twoCardsSharing(KNOWN_VIOLATIONS)
+    expect(currentLane(bench.db, 1)).not.toBe(currentLane(bench.db, 2))
+    expect(startedCards(bench)).toEqual([1, 2])
+    bench.close()
   })
 })
