@@ -58,7 +58,8 @@ class Bench {
   admit(id: number, touches: string, depends: number[] = []): this {
     const text = cardText(id, touches, depends)
     this.admissions += 1
-    busCardEvents(this.db, 's1', () => this.lanes)({ type: CARD_ADMITTED, cardId: id, ts: TS, dedupeKey: `admit-${id}-${this.admissions}`, payload: { card: text.split('\n')[0]!.slice('card: '.length), lane: null, depends, decision: 'auto', contour: 'cheap', text, textSha: textSha(text) } })
+    busCardEvents(this.db, 's1')({ type: CARD_ADMITTED, cardId: id, ts: TS, dedupeKey: `admit-${id}-${this.admissions}`, payload: { card: text.split('\n')[0]!.slice('card: '.length), depends, decision: 'auto', contour: 'cheap', text, textSha: textSha(text) } })
+    layLanes(this.db, this.lanes, TS, 'worker:launch:s1', id)
     reduce(this.db, 'pending', busProjections())
     return this
   }
@@ -221,7 +222,7 @@ function assignedCounts(db: DatabaseSync): number[] {
 
 function admitThroughPort(db: DatabaseSync, events: ReturnType<typeof busCardEvents>, id: number): void {
   const text = cardText(id, `src/${id}.ts`)
-  events({ type: CARD_ADMITTED, cardId: id, ts: TS, dedupeKey: `port-${id}`, payload: { card: text.split('\n')[0]!.slice('card: '.length), lane: null, depends: [], decision: 'auto', contour: 'cheap', text, textSha: textSha(text) } })
+  events({ type: CARD_ADMITTED, cardId: id, ts: TS, dedupeKey: `port-${id}`, payload: { card: text.split('\n')[0]!.slice('card: '.length), depends: [], decision: 'auto', contour: 'cheap', text, textSha: textSha(text) } })
   reduce(db, 'pending', busProjections())
 }
 
@@ -241,17 +242,11 @@ describe('the bus reads N where it assigns', () => {
     expect(assignedCounts(bench.db)).toEqual([2])
   })
 
-  it('the intake ports lay lanes with the N they are given', () => {
-    const bench = new Bench(3)
-    admitThroughPort(bench.db, busIntakePorts(bench.db, 's1', () => 4).cardEvents, 1)
-    expect(assignedCounts(bench.db)).toEqual([4])
-  })
-
-  it('intake ports given no N read it from the construct.json of the repository they run in', () => {
+  it('the intake ports lay no lane, whatever N the repository records', () => {
     process.chdir(repositoryWithLanes(2))
     const bench = new Bench(3)
     admitThroughPort(bench.db, busIntakePorts(bench.db, 's1').cardEvents, 1)
-    expect(assignedCounts(bench.db)).toEqual([2])
+    expect(assignedCounts(bench.db)).toEqual([])
   })
 })
 

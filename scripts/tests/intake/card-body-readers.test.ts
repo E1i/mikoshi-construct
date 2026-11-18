@@ -73,7 +73,7 @@ function inBus<T>(w: World, read: (db: DatabaseSync) => T): T {
 
 function admitThenAmend(w: World): void {
   inBus(w, (db) => {
-    const ports = busIntakePorts(db, 'by-hand', () => 1)
+    const ports = busIntakePorts(db, 'by-hand')
     const intake = { dir: w.repo, dryRun: false, autoConfirm: true, parkingRoot: path.dirname(w.parked), events: ports.cardEvents, cardStates: ports.cardStates, admissions: ports.cardAdmissions }
     expect(runAdmit({ ...intake, file: w.parked }, () => AT).status).toBe('admitted')
     reduce(db, 'pending', busProjections())

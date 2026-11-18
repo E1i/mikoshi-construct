@@ -10,7 +10,7 @@ import { plannedStallLines } from '../../cli/board-warnings.js'
 import { latestAssignment } from '../../core/bus-readings.js'
 import { DEFERRED_CARD, unsatisfiedDependencies } from '../../core/card-automaton.js'
 import { appendEvent, openBus } from '../../core/db.js'
-import { CARD_ADMITTED, CARD_DEFERRED, CARD_DROPPED, CARD_MOVED, CARD_STARTED, DEFERRED_TARGET, PR_OBSERVED } from '../../core/events.js'
+import { CARD_ADMITTED, CARD_DEFERRED, CARD_DROPPED, CARD_MOVED, CARD_STARTED, DEFERRED_TARGET, LANE_ASSIGNED, PR_OBSERVED } from '../../core/events.js'
 import { prefixOf } from '../../core/node.js'
 import { queueTask } from '../../core/queue.js'
 import { reduce } from '../../core/reducer.js'
@@ -50,7 +50,8 @@ class Bench {
   admit(id: number, touches = `src/card-${id}.ts`, depends: number[] = []): this {
     const text = cardText(id, touches, depends)
     this.texts.set(id, text)
-    busCardEvents(this.db, 's1', () => LANES)({ type: CARD_ADMITTED, cardId: id, ts: TS, dedupeKey: `admit-${id}`, payload: { card: text.split('\n')[0]!.slice('card: '.length), lane: null, depends, decision: 'auto', contour: 'cheap', text, textSha: textSha(text) } })
+    busCardEvents(this.db, 's1')({ type: CARD_ADMITTED, cardId: id, ts: TS, dedupeKey: `admit-${id}`, payload: { card: text.split('\n')[0]!.slice('card: '.length), depends, decision: 'auto', contour: 'cheap', text, textSha: textSha(text) } })
+    layLanes(this.db, LANES, TS, 'worker:launch:s1', id)
     reduce(this.db, 'pending', busProjections())
     return this
   }
@@ -64,7 +65,7 @@ class Bench {
       taken: undefined,
       admit: undefined,
       parking: path.join(this.root, 'parking'),
-      events: busCardEvents(this.db, 's1', () => LANES),
+      events: busCardEvents(this.db, 's1'),
       admissions: () => ({ card: `#${id}`, bodySha: bodySha(text), ts: TS, confirmation: null, source: null, text }),
     }, () => new Date(ts))
     reduce(this.db, 'pending', busProjections())
@@ -158,10 +159,11 @@ describe('a move to later defers the card', () => {
     expect(layLanes(bench.db, LANES, TS, 'policy', null, [])).toBe(0)
     expect(bench.boardLines()).toEqual([])
 
+    const assignments = bench.count(LANE_ASSIGNED, 1)
     expect(bench.move(1, 'lane-2')).toBe(CARD_MOVED)
     expect(bench.state(1)).toBe('queued')
     expect(bench.candidates()).toEqual([1])
-    expect(latestAssignment(bench.db, 1)).toMatchObject({ lane: 'lane-2', reason: 'moved' })
+    expect(bench.count(LANE_ASSIGNED, 1)).toBe(assignments)
   })
 
   it('a pull request of a deferred card still takes it into review', () => {

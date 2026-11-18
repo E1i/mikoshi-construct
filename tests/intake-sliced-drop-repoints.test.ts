@@ -30,7 +30,7 @@ afterEach(() => {
 
 interface World { parking: string, repo: string, db: DatabaseSync, ports: ReturnType<typeof busIntakePorts> }
 
-function world(lanes = 1): World {
+function world(): World {
   const root = mkdtempSync(path.join(tmpdir(), 'sliced-drop-'))
   roots.push(root)
   const parking = path.join(root, 'parking')
@@ -39,7 +39,7 @@ function world(lanes = 1): World {
   mkdirSync(path.join(repo, 'src'), { recursive: true })
   writeFileSync(path.join(repo, 'src', 'a.ts'), '')
   const db = openBus(path.join(root, 'bus.db'))
-  return { parking, repo, db, ports: busIntakePorts(db, 'by-hand', () => lanes) }
+  return { parking, repo, db, ports: busIntakePorts(db, 'by-hand') }
 }
 
 function ids(cards: readonly number[]): string {
@@ -132,8 +132,8 @@ describe('a sliced drop and the cards that depend on the dropped card', () => {
     }
   })
 
-  it('a re-pointed dependent keeps its own lane in parallel mode, not the lane of the slice it now depends on', () => {
-    const w = world(4)
+  it('a re-pointed dependent carries no lane in parallel mode, neither its own nor that of the slice it now depends on', () => {
+    const w = world()
     try {
       appendEvent(w.db, { ts: AT.toISOString(), type: FACTORY_MODE, actor: 'owner', cardId: null, pr: null, head: null, dedupeKey: `${FACTORY_MODE}:parallel`, payload: { mode: 'parallel' }, legacy: false })
       admit(w, PARENT)
@@ -141,13 +141,11 @@ describe('a sliced drop and the cards that depend on the dropped card', () => {
       admit(w, TAKER, { blocks: [DEPENDENT] })
       admit(w, SIBLING)
       slicedStub(w)
-      const lane = latestAdmission(w, DEPENDENT).lane
-      expect(typeof lane).toBe('string')
-      expect(latestAdmission(w, TAKER).lane).not.toBe(lane)
       expect(drop(w).status).toBe('recordedInPlace')
       expect(reduce(w.db, 'pending', busProjections()).rejected).toBe(0)
-      expect(latestAdmission(w, DEPENDENT)).toMatchObject({ source: AMEND_SOURCE, depends: [TAKER], lane })
-      expect(w.db.prepare('SELECT lane FROM card_bodies WHERE card_id = ?').get(DEPENDENT)).toEqual({ lane })
+      expect(latestAdmission(w, DEPENDENT)).toMatchObject({ source: AMEND_SOURCE, depends: [TAKER] })
+      expect(latestAdmission(w, DEPENDENT)).not.toHaveProperty('lane')
+      expect(w.db.prepare('SELECT lane FROM card_bodies WHERE card_id = ?').get(DEPENDENT)).toEqual({ lane: null })
     }
     finally {
       w.db.close()

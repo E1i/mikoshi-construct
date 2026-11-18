@@ -43,7 +43,8 @@ class Lanes {
   admit(id: number, touches: string, shape: Shape = {}): this {
     const text = cardText(id, touches, shape)
     this.admissions += 1
-    busCardEvents(this.db, 's1', () => this.count)({ type: CARD_ADMITTED, cardId: id, ts: TS, dedupeKey: `admit-${id}-${this.admissions}`, payload: { card: text.split('\n')[0]!.slice('card: '.length), lane: null, depends: shape.depends ?? [], decision: 'auto', contour: 'cheap', text, textSha: textSha(text) } })
+    busCardEvents(this.db, 's1')({ type: CARD_ADMITTED, cardId: id, ts: TS, dedupeKey: `admit-${id}-${this.admissions}`, payload: { card: text.split('\n')[0]!.slice('card: '.length), depends: shape.depends ?? [], decision: 'auto', contour: 'cheap', text, textSha: textSha(text) } })
+    layLanes(this.db, this.count, TS, 'worker:launch:s1', id)
     return this.lay()
   }
 

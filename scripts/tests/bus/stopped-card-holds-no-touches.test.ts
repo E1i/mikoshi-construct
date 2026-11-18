@@ -16,6 +16,7 @@ import { MachineSessions } from '../../core/machine-sessions.js'
 import { queueTask } from '../../core/queue.js'
 import { reduce } from '../../core/reducer.js'
 import { busCardEvents } from '../../intake/intake.js'
+import { layLanes } from '../../nodes/launch/lane-assign.js'
 import { launchCandidates, reportedWindowQuestions } from '../../nodes/launch/launch-candidates.js'
 import { LaunchNode } from '../../nodes/launch/launch-worker.js'
 import { cardDecisionCommand } from '../../policy/shards.js'
@@ -58,7 +59,8 @@ class Bench {
 
   admit(id: number): this {
     const text = cardText(id, SHARED)
-    busCardEvents(this.db, 's1', () => LANES)({ type: CARD_ADMITTED, cardId: id, ts: TS, dedupeKey: `admit-${id}`, payload: { card: text.split('\n')[0]!.slice('card: '.length), lane: null, depends: [], decision: 'auto', contour: 'cheap', text, textSha: textSha(text) } })
+    busCardEvents(this.db, 's1')({ type: CARD_ADMITTED, cardId: id, ts: TS, dedupeKey: `admit-${id}`, payload: { card: text.split('\n')[0]!.slice('card: '.length), depends: [], decision: 'auto', contour: 'cheap', text, textSha: textSha(text) } })
+    layLanes(this.db, LANES, TS, 'worker:launch:s1', id)
     return this.reduced()
   }
 

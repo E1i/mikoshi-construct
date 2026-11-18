@@ -15,9 +15,9 @@ import { CARD_ADMITTED, CARD_WAITING, CARD_WAITS, WITNESS_DOWNGRADE } from '../.
 import { createdPaths, OWNER_MERGES } from '../../../scripts/policy/touch-scope.js'
 import { ENDED_IN_BUS, endedCards } from '../../card/closed.js'
 import { parseCard } from '../../card/grammar.js'
-import { parseParkingFile, WINDOW_WHO } from '../../card/parking.js'
+import { WINDOW_WHO } from '../../card/parking.js'
 import { textSha } from '../../card/text-sha.js'
-import { DROPPED_CARD, laneOf, layLane } from './admit.js'
+import { DROPPED_CARD } from './admit.js'
 import { checkDraft, checkPlan, correctionText, invalidTestPatterns, nonPathTouchRefusals, ownerPathsOf, PACKAGE_MANIFEST, PLAN_FIELD, publishedRootsOf } from './check.js'
 import { awaitsConfirmation, bodySha, confirmationOf, confirmationToken, tokenConfirmation, windowShard } from './confirm.js'
 import { parseDraft } from './draft.js'
@@ -162,7 +162,7 @@ function admissionOf(line: string): { depends: number[], decision: string | null
   return parsed.kind === 'card' ? { depends: parsed.card.depends, decision: parsed.card.decision, contour: parsed.card.contour } : { depends: [], decision: null, contour: null }
 }
 
-export function admittedRecord(card: SlicedCard, confirmation: Confirmation, at: Date, lane: string | null, source?: string): CardEvent {
+export function admittedRecord(card: SlicedCard, confirmation: Confirmation, at: Date, source?: string): CardEvent {
   const ts = at.toISOString()
   const sha = bodySha(card.text)
   return {
@@ -172,7 +172,6 @@ export function admittedRecord(card: SlicedCard, confirmation: Confirmation, at:
     dedupeKey: `${CARD_ADMITTED}:${card.id}:${sha}:${ts}`,
     payload: {
       card: card.line,
-      lane,
       ...admissionOf(card.line),
       confirmation,
       corrections: card.corrections.map(correctionText),
@@ -312,12 +311,11 @@ export function runIntake(options: IntakeOptions): IntakeResult {
   if (parkedSlice.kind === 'refused')
     return refused('invalid', parkedSlice.reasons)
   const at = new Date()
-  const root = options.parkingRoot ?? defaultParking()
-  const written = options.events === undefined ? parkCards(parkedSlice.cards, options.parking, root, at) : parkedSlice.cards.map(card => ({ card, lane: laneOf(root, options.parking) }))
+  const written = options.events === undefined ? parkCards(parkedSlice.cards, options.parking) : parkedSlice.cards
   const confirmation = (card: SlicedCard): Confirmation => (cutBySlices && !options.autoConfirm ? tokenConfirmation() : confirmationOf(card, options.autoConfirm))
-  recordIntake(written.map(({ card, lane }, index) => withPlan(admittedRecord(card, confirmation(card), at, lane), plan?.link, cut[index]?.item)), options.events)
-  recordIntake(written.flatMap(({ card }) => windowEvent(card, at)), options.events)
-  return { status: 'written', parking: options.parking, cards: written.map(({ card }) => card), autoConfirm: options.autoConfirm, inBus: options.events !== undefined, windowShard: windowShard() }
+  recordIntake(written.map((card, index) => withPlan(admittedRecord(card, confirmation(card), at), plan?.link, cut[index]?.item)), options.events)
+  recordIntake(written.flatMap(card => windowEvent(card, at)), options.events)
+  return { status: 'written', parking: options.parking, cards: written, autoConfirm: options.autoConfirm, inBus: options.events !== undefined, windowShard: windowShard() }
 }
 
 export function knownCards(parked: Iterable<number>, bus: BusCardStates | undefined): Set<number> {
@@ -328,17 +326,11 @@ function withPlan(record: CardEvent, link: PlanLink | undefined, item: string | 
   return link === undefined || item === undefined ? record : { ...record, payload: { ...record.payload, [PLAN_FIELD]: { ...link, item } } }
 }
 
-function parkCards(cards: readonly SlicedCard[], parking: string, root: string, at: Date): { card: SlicedCard, lane: string | null }[] {
+function parkCards(cards: readonly SlicedCard[], parking: string): SlicedCard[] {
   mkdirSync(parking, { recursive: true })
-  return cards.map(card => parkCard(card, parking, root, at))
-}
-
-function parkCard(card: SlicedCard, parking: string, root: string, at: Date): { card: SlicedCard, lane: string | null } {
-  const parsed = parseParkingFile(card.file, card.text)
-  const lane = path.resolve(parking) === path.resolve(root) && parsed.kind === 'parked' ? layLane(root, parsed.parked, at) : null
-  const file = lane === null ? card.file : path.join(lane, card.file)
-  writeFileSync(path.join(parking, file), card.text, { flag: 'wx' })
-  return { card: { ...card, file }, lane: lane ?? laneOf(root, parking) }
+  for (const card of cards)
+    writeFileSync(path.join(parking, card.file), card.text, { flag: 'wx' })
+  return [...cards]
 }
 
 export function printIntake(ui: Ui, result: IntakeResult): number {

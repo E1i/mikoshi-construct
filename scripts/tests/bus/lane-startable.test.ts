@@ -55,7 +55,8 @@ class Bench {
 
   admit(id: number, { touches = `src/card-${id}.ts`, who = 'shift', depends = [], dedupe = 'first' }: AdmitOptions = {}): this {
     const text = cardText(id, touches, who, depends)
-    busCardEvents(this.db, 's1', () => LANES)({ type: CARD_ADMITTED, cardId: id, ts: TS, dedupeKey: `admit-${id}-${dedupe}`, payload: { card: text.split('\n')[0]!.slice('card: '.length), lane: null, depends, decision: 'auto', contour: 'cheap', text, textSha: textSha(text) } })
+    busCardEvents(this.db, 's1')({ type: CARD_ADMITTED, cardId: id, ts: TS, dedupeKey: `admit-${id}-${dedupe}`, payload: { card: text.split('\n')[0]!.slice('card: '.length), depends, decision: 'auto', contour: 'cheap', text, textSha: textSha(text) } })
+    layLanes(this.db, LANES, TS, 'worker:launch:s1', id)
     reduce(this.db, 'pending', busProjections())
     return this
   }

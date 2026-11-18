@@ -46,7 +46,7 @@ function admit(w: World, id: number, part: number, minute: number): void {
   const name = `${BASE}-slice-${part}`
   const file = path.join(w.parking, `${id}.md`)
   writeFileSync(file, `card: #${id} ${name} [implement/construct/S/cheap/owner] · depends — · blocks —\nbranch: feat/${name}\ntouches: src/a.ts\ncontinue: stop\nwho: shift\npriority: p2\n\nDo the part.\n`)
-  const ports = busIntakePorts(w.db, 'by-hand', () => 1)
+  const ports = busIntakePorts(w.db, 'by-hand')
   const result = runAdmit({ file, dir: w.repo, dryRun: false, autoConfirm: true, parkingRoot: w.parking, events: ports.cardEvents, cardStates: ports.cardStates, admissions: ports.cardAdmissions }, () => new Date(AT.getTime() + MINUTE_MS * minute))
   expect(result.status).toBe('admitted')
 }

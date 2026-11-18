@@ -5,7 +5,6 @@ import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { runAdmit } from '../../../src/commands/intake/admit.js'
 import { runCard } from '../../cli/card.js'
-import { WINDOW_LANE } from '../../core/card-bodies.js'
 import { BUS_DB_VARIABLE, openBus } from '../../core/db.js'
 import { CARD_ADMITTED } from '../../core/events.js'
 import { reduce } from '../../core/reducer.js'
@@ -94,7 +93,7 @@ describe('pnpm card reads a card from card_bodies', () => {
       touches: ['src/a.ts'],
       who: 'shift',
       risk: 'R3 — moderate: src/a.ts',
-      lane: WINDOW_LANE,
+      lane: null,
       textSha: createHash('sha256').update(text).digest('hex'),
       lastHeartbeat: null,
     })
@@ -171,7 +170,7 @@ describe('pnpm card reads a card from card_bodies', () => {
       cardLine: CARD,
       continue: 'stop',
       path: 'cheap, set by the owner.',
-      lane: WINDOW_LANE,
+      lane: null,
       text,
     })
   })

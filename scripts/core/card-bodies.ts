@@ -6,7 +6,7 @@ import { existsSync } from 'node:fs'
 import process from 'node:process'
 import { parseParkingFile } from '../../src/card/parking.js'
 import { textSha } from '../../src/card/text-sha.js'
-import { AMEND_SOURCE, isLaneName, laneName, laneNumber, parentsFromCardLines, pathsNamedOutside } from '../../src/commands/intake/admit.js'
+import { parentsFromCardLines, pathsNamedOutside } from '../../src/commands/intake/admit.js'
 import { NOT_A_BACKFILL } from './backfill-source.js'
 import { CARD_VERSION, CARD_VERSION_KEY, cardVersionIn } from './bus-version.js'
 import { appendEvent, BUSY_TIMEOUT_MS, defaultBusPath, openBus } from './db.js'
@@ -16,15 +16,13 @@ import { openDatabase } from './sqlite.js'
 export const CARD_BODIES = 'card_bodies'
 export const FACTORY_MODES = ['window', 'parallel'] as const
 export const DEFAULT_MODE: FactoryMode = 'window'
-export const WINDOW_LANE = 'lane-window'
+const RETIRED_LANE_KEY = 'lane'
 
 export type FactoryMode = typeof FACTORY_MODES[number]
 
 const MODE_IN_FORCE = `SELECT json_extract(payload, '$.mode') AS mode FROM events WHERE legacy = 0 AND type = '${FACTORY_MODE}' ORDER BY id DESC LIMIT 1`
 
 const PREVIOUS_ADMISSION = `SELECT id, payload FROM events WHERE legacy = 0 AND type = '${CARD_ADMITTED}' AND card_id = ? ORDER BY id DESC LIMIT 1`
-
-const ADMITTED_LANES = `SELECT DISTINCT json_extract(payload, '$.lane') AS lane FROM events WHERE legacy = 0 AND type = '${CARD_ADMITTED}'`
 
 interface ParsedColumns {
   who: string | null
@@ -74,35 +72,6 @@ export function factoryMode(db: DatabaseSync): FactoryMode {
   return isFactoryMode(row?.mode) ? row.mode : DEFAULT_MODE
 }
 
-function laneOfCard(db: DatabaseSync, cardId: unknown): string | null {
-  if (typeof cardId !== 'number')
-    return null
-  const previous = db.prepare(PREVIOUS_ADMISSION).get(cardId) as { payload: string } | undefined
-  const lane = previous === undefined ? undefined : laneIn(previous.payload)
-  return typeof lane === 'string' && isLaneName(lane) ? lane : null
-}
-
-function newLane(db: DatabaseSync): string {
-  const lanes = (db.prepare(ADMITTED_LANES).all() as { lane: unknown }[]).flatMap(row => typeof row.lane === 'string' ? [laneNumber(row.lane) ?? 0] : [])
-  return laneName(Math.max(0, ...lanes) + 1)
-}
-
-export function admittedLane(db: DatabaseSync, cardId: number, depends: unknown): string {
-  if (factoryMode(db) === 'window')
-    return WINDOW_LANE
-  const parents = Array.isArray(depends) ? depends : []
-  return laneOfCard(db, cardId) ?? parents.map(parent => laneOfCard(db, parent)).find(lane => lane !== null) ?? newLane(db)
-}
-
-function laneIn(payload: string): unknown {
-  try {
-    return (JSON.parse(payload) as Record<string, unknown> | null)?.lane
-  }
-  catch {
-    return undefined
-  }
-}
-
 function recordedTextSha(payload: string): string | null {
   try {
     const parsed = JSON.parse(payload) as Record<string, unknown> | null
@@ -120,11 +89,10 @@ function versioned(db: DatabaseSync, event: CardEvent): CardEvent {
   return { ...event, type: CARD_ADMITTED, payload: { ...event.payload, [CARD_VERSION_KEY]: CARD_VERSION, prevAdmissionId: previous?.id ?? null, prevTextSha: previous === undefined ? null : recordedTextSha(previous.payload) } }
 }
 
-export function laid(db: DatabaseSync, event: CardEvent): CardEvent {
-  if (event.type !== CARD_ADMITTED)
+export function laid(_db: DatabaseSync, event: CardEvent): CardEvent {
+  if (event.type !== CARD_ADMITTED || event.payload[RETIRED_LANE_KEY] === undefined)
     return event
-  const kept = event.payload.source === AMEND_SOURCE ? laneOfCard(db, event.cardId) : null
-  return { ...event, type: CARD_ADMITTED, payload: { ...event.payload, lane: kept ?? admittedLane(db, event.cardId, event.payload.depends) } }
+  return { ...event, type: CARD_ADMITTED, payload: { ...event.payload, [RETIRED_LANE_KEY]: undefined } }
 }
 
 const LATEST_CARD_LINES = `

@@ -14,7 +14,7 @@ import { bodySha } from '../../../src/commands/intake/confirm.js'
 import { runMove } from '../../../src/commands/intake/move.js'
 import { createMain } from '../../../src/program.js'
 import { busPathOf, ForeignBusRefused, machineBusPath, OWNER_AGENT_FILE, repoHome, repoIdOf } from '../../core/bus-path.js'
-import { appendCardEvent, laid, WINDOW_LANE } from '../../core/card-bodies.js'
+import { appendCardEvent, laid } from '../../core/card-bodies.js'
 import { appendEvent, BUS_DB_VARIABLE, openBus } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_DROPPED, CARD_MOVED, CARD_WAITING, FACTORY_MODE, LANE_ASSIGNED } from '../../core/events.js'
 import { parkingLane } from '../../intake/admissions.js'
@@ -124,57 +124,30 @@ function parkCard(w: World, id: number): string {
   return file
 }
 
-function admittedLanes(w: World): unknown[] {
-  return admissions(w).map(admission => admission.payload.lane)
+function admittedLanes(w: World): boolean[] {
+  return admissions(w).map(admission => 'lane' in admission.payload)
 }
 
 function admitSlice(w: World, id: number, depends: number[]): void {
-  withPort(w, events => events({ type: CARD_ADMITTED, cardId: id, ts: NOW.toISOString(), dedupeKey: `slice-${id}`, payload: { card: `#${id} slice-${id} [implement/netwatch/S/cheap/auto] · depends ${depends.map(at => `#${at}`).join(', ') || '—'} · blocks —`, lane: null, depends } }))
+  withPort(w, events => events({ type: CARD_ADMITTED, cardId: id, ts: NOW.toISOString(), dedupeKey: `slice-${id}`, payload: { card: `#${id} slice-${id} [implement/netwatch/S/cheap/auto] · depends ${depends.map(at => `#${at}`).join(', ') || '—'} · blocks —`, depends } }))
 }
 
-describe('intake lays the lane of an admitted card by the factory mode', () => {
-  it('in window mode every card gets one lane', () => {
+describe('intake lays no lane, whatever the factory mode', () => {
+  it('in window mode an admitted card carries no lane', () => {
     const w = world()
     for (const id of [91, 92, 93])
       expect(withPort(w, events => runAdmit({ file: parkCard(w, id), dir: w.repo, dryRun: false, autoConfirm: false, parkingRoot: w.parking, events }, () => NOW)).status).toBe('admitted')
-    expect(admittedLanes(w)).toEqual([WINDOW_LANE, WINDOW_LANE, WINDOW_LANE])
+    expect(admittedLanes(w)).toEqual([false, false, false])
   })
 
-  it('in parallel three independent cards get three lanes', () => {
-    const w = world()
-    setMode(w, 'parallel')
-    for (const id of [91, 92, 93])
-      expect(withPort(w, events => runAdmit({ file: parkCard(w, id), dir: w.repo, dryRun: false, autoConfirm: false, parkingRoot: w.parking, events }, () => NOW)).status).toBe('admitted')
-    expect(admittedLanes(w)).toEqual(['lane-01', 'lane-02', 'lane-03'])
-  })
-
-  it('in parallel three slices of one card get one lane', () => {
+  it('in parallel independent cards, slices of one card and an amendment carry no lane', () => {
     const w = world()
     setMode(w, 'parallel')
     admitSlice(w, 90, [])
     admitSlice(w, 91, [90])
-    admitSlice(w, 92, [91])
-    admitSlice(w, 93, [92])
-    admitSlice(w, 94, [])
-    expect(admittedLanes(w)).toEqual(['lane-01', 'lane-01', 'lane-01', 'lane-01', 'lane-02'])
-  })
-
-  it('in parallel an amended card keeps the lane it was laid in', () => {
-    const w = world()
-    setMode(w, 'parallel')
-    admitSlice(w, 90, [])
-    admitSlice(w, 91, [])
-    withPort(w, events => events({ type: CARD_ADMITTED, cardId: 90, ts: NOW.toISOString(), dedupeKey: 'amend-90', payload: { card: '#90 slice-90', lane: null, depends: [] } }))
-    expect(admittedLanes(w)).toEqual(['lane-01', 'lane-02', 'lane-01'])
-  })
-
-  it('a mode request back to window lays the next card in the one lane again', () => {
-    const w = world()
-    setMode(w, 'parallel')
-    admitSlice(w, 90, [])
-    setMode(w, 'window')
-    admitSlice(w, 91, [])
-    expect(admittedLanes(w)).toEqual(['lane-01', WINDOW_LANE])
+    admitSlice(w, 92, [])
+    withPort(w, events => events({ type: CARD_ADMITTED, cardId: 90, ts: NOW.toISOString(), dedupeKey: 'amend-90', payload: { card: '#90 slice-90', lane: 'lane-01', depends: [], source: 'amend' } }))
+    expect(admittedLanes(w)).toEqual([false, false, false, false])
   })
 })
 
@@ -183,15 +156,16 @@ describe('pnpm intake writes card events to bus.db', () => {
     const w = world()
     const file = park(w, 'lane-7')
     expect(withPort(w, events => runAdmit({ file, dir: w.repo, dryRun: false, autoConfirm: false, parkingRoot: w.parking, events }, () => NOW)).status).toBe('admitted')
-    expect(cardEvents(w)).toMatchObject([{ type: CARD_ADMITTED, actor: 'worker:intake:s1', cardId: 90, payload: { card: CARD, lane: WINDOW_LANE, depends: [], decision: 'auto', contour: 'cheap' } }])
+    expect(cardEvents(w)).toMatchObject([{ type: CARD_ADMITTED, actor: 'worker:intake:s1', cardId: 90, payload: { card: CARD, depends: [], decision: 'auto', contour: 'cheap' } }])
+    expect(cardEvents(w)[0]!.payload).not.toHaveProperty('lane')
   })
 
-  it('an --admit through the port writes the card a lane.assigned', () => {
+  it('an --admit through the port writes no lane.assigned', () => {
     const w = world()
     expect(withPort(w, events => runAdmit({ file: park(w, 'lane-7'), dir: w.repo, dryRun: false, autoConfirm: false, parkingRoot: w.parking, events }, () => NOW)).status).toBe('admitted')
     const db = openBus(w.bus)
     try {
-      expect(db.prepare(`SELECT card_id, json_extract(payload, '$.lane') AS lane FROM events WHERE type = '${LANE_ASSIGNED}'`).all()).toEqual([{ card_id: 90, lane: 'lane-1' }])
+      expect(db.prepare(`SELECT card_id FROM events WHERE type = '${LANE_ASSIGNED}'`).all()).toEqual([])
     }
     finally {
       db.close()
@@ -220,14 +194,15 @@ describe('pnpm intake writes card events to bus.db', () => {
     expect(later!.payload).toMatchObject({ text: second, textSha: sha256(second), prevAdmissionId: earlier!.id, prevTextSha: sha256(first) })
   })
 
-  it('a move into a lane admits the moved text as a version with the same textSha and the new lane', () => {
+  it('a move into a lane admits the moved text as a version with the same textSha and no lane', () => {
     const w = world()
     vi.stubEnv(BUS_DB_VARIABLE, w.bus)
     const text = readFileSync(park(w, ''), 'utf8')
     expect(admitThroughThePorts(w, path.join(w.parking, '90.md'))).toBe('admitted')
     expect(withPort(w, events => runMove({ move: '#90', to: 'lane-8', draft: undefined, taken: undefined, admit: undefined, parking: w.parking, events }, () => AFTER_THE_CUTOFF)).status).toBe('moved')
     const [admitted, moved] = admissions(w)
-    expect(moved!.payload).toMatchObject({ lane: 'lane-8', text, textSha: sha256(text), prevAdmissionId: admitted!.id, prevTextSha: sha256(text) })
+    expect(moved!.payload).toMatchObject({ text, textSha: sha256(text), prevAdmissionId: admitted!.id, prevTextSha: sha256(text) })
+    expect(moved!.payload).not.toHaveProperty('lane')
   })
 
   it('a move whose card.admitted append fails leaves no card.moved: the move and its admission are one transaction', () => {
@@ -261,14 +236,15 @@ describe('pnpm intake writes card events to bus.db', () => {
     expect(later!.payload).toMatchObject({ prevAdmissionId: earlier!.id, prevTextSha: null })
   })
 
-  it('a move into a lane writes card.moved and a card.admitted that carries the card and the lane', () => {
+  it('a move into a lane writes card.moved and a card.admitted that carries the card and no lane', () => {
     const w = world()
     vi.stubEnv(BUS_DB_VARIABLE, w.bus)
     expect(admitThroughThePorts(w, park(w, ''))).toBe('admitted')
     expect(withPort(w, events => runMove({ move: '#90', to: 'lane-8', draft: undefined, taken: undefined, admit: undefined, parking: w.parking, events }, () => NOW)).status).toBe('moved')
     const [, moved, admitted] = cardEvents(w)
-    expect(moved).toMatchObject({ type: CARD_MOVED, cardId: 90, payload: { lane: 'lane-8' } })
-    expect(admitted).toMatchObject({ type: CARD_ADMITTED, actor: 'worker:intake:s1', cardId: 90, payload: { card: CARD, lane: 'lane-8', depends: [], decision: 'auto', contour: 'cheap' } })
+    expect(moved).toMatchObject({ type: CARD_MOVED, cardId: 90, payload: { to: path.join(w.parking, 'lane-8') } })
+    expect(admitted).toMatchObject({ type: CARD_ADMITTED, actor: 'worker:intake:s1', cardId: 90, payload: { card: CARD, depends: [], decision: 'auto', contour: 'cheap' } })
+    expect([moved!.payload, admitted!.payload]).toEqual([expect.not.objectContaining({ lane: expect.anything() }), expect.not.objectContaining({ lane: expect.anything() })])
   })
 
   it('a move into a directory that is no lane takes the card off the queue with card.dropped alone', () => {
@@ -287,12 +263,12 @@ describe('pnpm intake writes card events to bus.db', () => {
     expect(cardEvents(w)).toEqual([])
   })
 
-  it.each(['dropped', 'archive', 'superseded'])('a parked card the bus never admitted is dropped with card.dropped when it moves into %s', (lane) => {
+  it.each(['dropped', 'archive', 'superseded'])('a parked card the bus never admitted is dropped with card.dropped when it moves into %s', (target) => {
     const w = world()
     park(w, '')
-    expect(withPort(w, events => runMove({ move: '#90', to: lane, draft: undefined, taken: undefined, admit: undefined, parking: w.parking, events }, () => AFTER_THE_CUTOFF)).status).toBe('moved')
-    expect(existsSync(path.join(w.parking, lane, '90.md'))).toBe(true)
-    expect(cardEvents(w)).toMatchObject([{ type: CARD_DROPPED, actor: 'worker:intake:s1', cardId: 90, payload: { lane } }])
+    expect(withPort(w, events => runMove({ move: '#90', to: target, draft: undefined, taken: undefined, admit: undefined, parking: w.parking, events }, () => AFTER_THE_CUTOFF)).status).toBe('moved')
+    expect(existsSync(path.join(w.parking, target, '90.md'))).toBe(true)
+    expect(cardEvents(w)).toMatchObject([{ type: CARD_DROPPED, actor: 'worker:intake:s1', cardId: 90, payload: { to: path.join(w.parking, target) } }])
   })
 
   it('a backfilled card counts as admitted: its move into dropped is held by the bus', () => {
@@ -371,7 +347,8 @@ describe('pnpm intake writes card events to bus.db', () => {
     finally {
       db.close()
     }
-    expect(cardEvents(w)).toMatchObject([{ type: CARD_ADMITTED, cardId: 90, payload: { card: CARD, lane: WINDOW_LANE } }])
+    expect(cardEvents(w)).toMatchObject([{ type: CARD_ADMITTED, cardId: 90, payload: { card: CARD } }])
+    expect(cardEvents(w)[0]!.payload).not.toHaveProperty('lane')
     expect(existsSync(w.journal)).toBe(false)
   })
 
@@ -455,16 +432,19 @@ describe('a card event written to the bus', () => {
     expect(bodiless).not.toHaveProperty('prevAdmissionId')
   })
 
-  it('lays an admission on the window lane in window mode and on its parent\'s lane in parallel mode, and leaves other events as they are', () => {
+  it('lays an admission with no lane in either mode, dropping one it was handed, and leaves other events as they are', () => {
     const w = world()
     const db = openBus(w.bus)
     try {
-      const dropped: CardEvent = { type: CARD_DROPPED, cardId: 96, ts: NOW.toISOString(), dedupeKey: `${CARD_DROPPED}:96`, payload: { to: 'dropped' } }
+      const dropped: CardEvent = { type: CARD_DROPPED, cardId: 96, ts: NOW.toISOString(), dedupeKey: `${CARD_DROPPED}:96`, payload: { to: 'dropped', lane: 'lane-2' } }
       expect(laid(db, dropped)).toBe(dropped)
-      expect(laid(db, admission(96, 'body')).payload.lane).toBe(WINDOW_LANE)
+      expect(laid(db, admission(96, 'body')).payload.lane).toBeUndefined()
       appendEvent(db, { ts: NOW.toISOString(), type: FACTORY_MODE, actor: 'owner', cardId: null, pr: null, head: null, dedupeKey: `${FACTORY_MODE}:parallel`, payload: { mode: 'parallel' }, legacy: false })
       appendCardEvent(db, 'worker:intake:test', { ...admission(97, 'parent'), payload: { ...admission(97, 'parent').payload, lane: 'lane-4' } })
-      expect(laid(db, admission(98, 'child', [97])).payload.lane).toBe('lane-4')
+      const child = admission(98, 'child', [97])
+      expect(laid(db, { ...child, payload: { ...child.payload, lane: 'lane-4' } }).payload).toEqual(child.payload)
+      appendCardEvent(db, 'worker:intake:test', laid(db, { ...child, payload: { ...child.payload, lane: 'lane-4' } }))
+      expect(Object.keys(JSON.parse((db.prepare(`SELECT payload FROM events WHERE type = '${CARD_ADMITTED}' AND card_id = 98`).get() as { payload: string }).payload) as object)).not.toContain('lane')
     }
     finally {
       db.close()

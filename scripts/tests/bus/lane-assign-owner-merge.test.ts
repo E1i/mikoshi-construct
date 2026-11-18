@@ -9,7 +9,7 @@ import { appendEvent, openBus, openOwnerWait } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_STARTED, CARD_STOPPED, PR_OBSERVED } from '../../core/events.js'
 import { reduce } from '../../core/reducer.js'
 import { busCardEvents } from '../../intake/intake.js'
-import { chooseLane, currentLane, ownerMergeHolders } from '../../nodes/launch/lane-assign.js'
+import { chooseLane, currentLane, layLanes, ownerMergeHolders } from '../../nodes/launch/lane-assign.js'
 import { busProjections } from '../../supervisor/composition.js'
 
 const TS = '2026-11-03T10:00:00.000Z'
@@ -36,7 +36,8 @@ class Bench {
 
   admit(id: number, touches: string): this {
     const text = cardText(id, touches)
-    busCardEvents(this.db, 's1', () => this.lanes)({ type: CARD_ADMITTED, cardId: id, ts: TS, dedupeKey: `admit-${id}`, payload: { card: text.split('\n')[0]!.slice('card: '.length), lane: null, depends: [], decision: 'auto', contour: 'cheap', text, textSha: textSha(text) } })
+    busCardEvents(this.db, 's1')({ type: CARD_ADMITTED, cardId: id, ts: TS, dedupeKey: `admit-${id}`, payload: { card: text.split('\n')[0]!.slice('card: '.length), depends: [], decision: 'auto', contour: 'cheap', text, textSha: textSha(text) } })
+    layLanes(this.db, this.lanes, TS, 'worker:launch:s1', id)
     reduce(this.db, 'pending', busProjections())
     return this
   }
