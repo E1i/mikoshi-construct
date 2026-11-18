@@ -93,14 +93,15 @@ describe('the executors read the bus through named readers of core/queue.ts', ()
 
   it('the reviews in flight on a head are the queued and leased review tasks of that pr and that head only, in the order they were queued', () => {
     const db = bus()
-    task(db, { key: 'leased-review', queue: 'review', card: CARD, pr: 1, head: 'h1', state: LEASED })
+    task(db, { key: 'z-queued-review', queue: 'review', card: CARD, pr: 1, head: 'h1', state: QUEUED })
     task(db, { key: 'done-review', queue: 'review', card: CARD, pr: 1, head: 'h1', state: COMPLETED })
     task(db, { key: 'older-head', queue: 'review', card: CARD, pr: 1, head: 'h0', state: QUEUED })
     task(db, { key: 'other-pr', queue: 'review', card: OTHER_CARD, pr: 2, head: 'h1', state: QUEUED })
     task(db, { key: 'an-answer', queue: 'answer', card: CARD, pr: 1, head: 'h1', state: QUEUED })
-    task(db, { key: 'queued-review', queue: 'review', card: CARD, pr: 1, head: 'h1', state: QUEUED })
+    task(db, { key: 'a-leased-review', queue: 'review', card: CARD, pr: 1, head: 'h1', state: LEASED })
+    task(db, { key: 'm-queued-review', queue: 'review', card: CARD, pr: 1, head: 'h1', state: QUEUED })
 
-    expect(reviewsInFlightOn(db, 1, 'h1')).toEqual(['leased-review', 'queued-review'])
+    expect(reviewsInFlightOn(db, 1, 'h1')).toEqual(['z-queued-review', 'a-leased-review', 'm-queued-review'])
     expect(reviewsInFlightOn(db, 1, 'h2')).toEqual([])
     expect(reviewsInFlightOn(db, null, null)).toEqual([])
   })
