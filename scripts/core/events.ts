@@ -162,7 +162,7 @@ export type WaitKind = keyof typeof CARD_WAITS
 export const EVENT_PAYLOADS = {
   [ANSWER_STEP]: ['seconds', 'step'],
   [ARTIFACT_KEPT]: ['by', 'parked', 'path'],
-  [ARTIFACT_REMOVED]: ['by', 'parked', 'path'],
+  [ARTIFACT_REMOVED]: ['by', 'parked', 'patch', 'path'],
   [BOARD_ALARM]: ['cause', 'detail', 'digest', 'failures', 'lease', 'lease_gen', 'path', 'reason', 'ref', 'task_key', 'worker'],
   [BOARD_ALARM_CLEARED]: ['alarm', 'digest', 'reason'],
   [CUTOVER]: [],
