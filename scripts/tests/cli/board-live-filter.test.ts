@@ -47,6 +47,7 @@ function seededBus(): { busPath: string, db: DatabaseSync } {
   admit(db, BACKLOG, 'queued')
   db.prepare('INSERT INTO plans (plan_id, title, goal, plan_file, state, event_id, gate) VALUES (?, ?, ?, ?, ?, ?, NULL)').run(RELEASE, RELEASE, 'ship it', 'plan.md', OPEN_PLAN, released)
   db.prepare('INSERT INTO card_releases (card_id, release, event_id) VALUES (?, ?, ?)').run(IN_RELEASE, RELEASE, released)
+  db.prepare('INSERT INTO card_releases (card_id, release, event_id) VALUES (?, ?, ?)').run(HELD, RELEASE, released)
   appendEvent(db, { ts: NOW.toISOString(), type: CARD_HELD, actor: 'owner', cardId: HELD, pr: null, head: null, dedupeKey: `${CARD_HELD}:${HELD}`, payload: { reason: HOLD_REASON }, legacy: false })
   return { busPath, db }
 }
@@ -142,7 +143,7 @@ describe('the LIVE filter after a reload', () => {
 })
 
 describe('the LIVE set', () => {
-  it('lIVE holds the running card and the open release card, never a backlog card held by an owner decision', () => {
+  it('lIVE holds the running card and the open release card, never a card of that release held by an owner decision', () => {
     const { busPath, db } = seededBus()
     expect(liveCards(projectedRows(busPath, db))).toEqual([RUNNING, IN_RELEASE])
     db.close()
@@ -153,7 +154,7 @@ describe('the LIVE set', () => {
     const rows = projectedRows(busPath, db)
     expect(rowOf(rows, RUNNING)).not.toContain('class="why"')
     expect(rowOf(rows, IN_RELEASE)).toContain(`<span class="why">release ${RELEASE} · blocked by #${RUNNING}</span>`)
-    expect(rowOf(rows, HELD)).toContain(`<span class="why">no open release · held: ${HOLD_REASON}</span>`)
+    expect(rowOf(rows, HELD)).toContain(`<span class="why">release ${RELEASE} · held: ${HOLD_REASON}</span>`)
     expect(rowOf(rows, BACKLOG)).toContain('<span class="why">no open release · no blocker recorded</span>')
     db.close()
   })
@@ -165,7 +166,7 @@ describe('the LIVE set', () => {
     expect(printBoard(busPath, NOW, (written) => {
       text += written
     }, path.join(path.dirname(busPath), 'handoff.md'), 'text')).toBe(0)
-    expect(text).toContain(`planned · no open release · held: ${HOLD_REASON}`)
+    expect(text).toContain(`planned · release ${RELEASE} · held: ${HOLD_REASON}`)
     expect(text).toContain(`planned · release ${RELEASE} · blocked by #${RUNNING}`)
   })
 })
