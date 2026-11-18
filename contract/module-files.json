@@ -478,6 +478,7 @@
     "scripts/tests/bus/lane-order-mutual-precedence.test.ts",
     "scripts/tests/bus/lane-startable.test.ts",
     "scripts/tests/bus/lanereflow.test.ts",
+    "scripts/tests/bus/lanes-retired-board.test.ts",
     "scripts/tests/bus/lanes-retired-launch.test.ts",
     "scripts/tests/bus/lanes-retired.test.ts",
     "scripts/tests/bus/launch-ladder-handoff.test.ts",

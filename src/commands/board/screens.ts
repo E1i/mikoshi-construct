@@ -1,7 +1,7 @@
 import type { Lore } from '../../ui/lore.js'
 import type { BusCard, BusFacts, BusGroup, BusMatrix, BusTail, OwnerWait } from './bus.js'
 import { ADMIT_COMMAND, ownerWaitCommand, pnpmCommand, windowCommandOf } from '../../../scripts/core/owner-commands.js'
-import { FLOW_STAGES, LIVE_STAGES, LIVE_STATES, SHORT_SHA } from './bus.js'
+import { CARD_STAGES, FLOW_STAGES, LIVE_STAGES, LIVE_STATES, SHORT_SHA } from './bus.js'
 import { planLine } from './goal.js'
 import { queuedLine } from './sessions.js'
 
@@ -12,7 +12,6 @@ const SHADOW_ROLE = 'shadow'
 const TAIL_ROLE = 'tail'
 const BUS_ROLE = 'bus'
 const QUEUED_ROLE = 'queued'
-const LANE_HEAD_ROLE = 'lane head'
 const WAITS_ROLE = 'waits for you'
 export const WINDOW_WAITS_ROLE = 'waits for the window'
 const CARDS_ROLE = 'cards'
@@ -32,12 +31,11 @@ export interface Hint {
 }
 
 export const REGISTER_PLAN_HINT: Hint = { who: 'window', command: pnpmCommand(REQUEST_SCRIPT, 'plan', '--op', 'open', '--plan', '<id>', '--title', '<text>', '--goal', '<text>', '--file', '<absolute plan file>') }
-export const ADMIT_CARD_HINT: Hint = { who: 'window', command: `${ADMIT_COMMAND} <parking>/<lane>/<N>.md` }
+export const ADMIT_CARD_HINT: Hint = { who: 'window', command: `${ADMIT_COMMAND} <parking>/<N>.md` }
 
 const SLICE_MARK = '◧'
 const CARD_NOUN = 'card'
 const TASK_NOUN = 'task'
-const NO_LANE = 'no lane'
 
 export interface TaskTally {
   cards: number
@@ -78,10 +76,6 @@ export function taskGroups(shown: readonly BusCard[], every: readonly BusCard[],
 export function taskGroupLine(group: TaskGroup): string {
   const waits = group.waits.map(wait => `${wait.id} ${wait.need}${wait.card === null ? '' : ` #${wait.card}`}`)
   return `${TASK_NOUN} #${group.task} · slices merged ${group.merged} of ${group.of}${waits.length === 0 ? '' : ` · ${WAITS_ROLE}: ${waits.join(', ')}`}`
-}
-
-export function sliceRowName(card: BusCard): string {
-  return `${cardName(card)} · ${card.lane ?? NO_LANE}`
 }
 
 export function markedName(name: string, card: BusCard): string {
@@ -131,9 +125,8 @@ export function flowLines(cards: BusCard[], lore: Lore): string[] {
   return lore.boardFlowColumns.map((title, column) => lore.boardColumnLine(title, live.filter(card => FLOW_STAGES[column]!.includes(card.stage)).map(flowName)))
 }
 
-export function laneColumns(cards: BusCard[]): (string | null)[] {
-  const named = [...new Set(cards.flatMap(card => card.lane === null ? [] : [card.lane]))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
-  return cards.some(card => card.lane === null) ? [...named, null] : named
+export function byStage(cards: readonly BusCard[]): BusCard[] {
+  return [...cards].sort((a, b) => CARD_STAGES.indexOf(a.stage) - CARD_STAGES.indexOf(b.stage))
 }
 
 export function backlogCards(cards: BusCard[], at: string, all: boolean): BusCard[] {
@@ -141,12 +134,9 @@ export function backlogCards(cards: BusCard[], at: string, all: boolean): BusCar
 }
 
 export function backlogLines(cards: BusCard[], lore: Lore, every: readonly BusCard[] = cards, waits: readonly OwnerWait[] = []): string[] {
-  const groups = taskGroups(cards, every, waits).flatMap(group => [taskGroupLine(group), ...group.slices.map(card => lore.boardBacklogRow(sliceRowName(card), card.stage))])
-  const whole = cards.filter(card => card.parent === undefined)
-  return [...groups, ...laneColumns(whole).flatMap((lane) => {
-    const inLane = whole.filter(card => card.lane === lane)
-    return [lore.boardLaneLine(lane ?? undefined, inLane.length), ...inLane.map(card => lore.boardBacklogRow(cardName(card), card.stage))]
-  })]
+  const groups = taskGroups(cards, every, waits).flatMap(group => [taskGroupLine(group), ...group.slices.map(card => lore.boardBacklogRow(cardName(card), card.stage))])
+  const whole = byStage(cards.filter(card => card.parent === undefined))
+  return [...groups, ...whole.map(card => lore.boardBacklogRow(cardName(card), card.stage))]
 }
 
 export function servicesLines(facts: BusFacts, lore: Lore): string[] {
@@ -188,10 +178,6 @@ export function slotsReading(facts: BusFacts): string {
 export function queuedLines(facts: BusFacts, lore: Lore): string[] {
   const now = new Date(facts.at)
   return (facts.queued ?? []).map(standing => lore.boardServiceLine(QUEUED_ROLE, `#${standing.card}`, undefined, queuedLine(standing, now)))
-}
-
-export function laneHeadLines(facts: BusFacts, lore: Lore): string[] {
-  return (facts.laneHeads ?? []).map(head => lore.boardServiceLine(LANE_HEAD_ROLE, head.lane, undefined, `#${head.card} held: ${head.reason}`))
 }
 
 export function pulseLines(facts: BusFacts, lore: Lore): string[] {
@@ -283,7 +269,7 @@ export interface Screens {
 export function boardScreens(facts: BusFacts, lore: Lore, all = false): Screens {
   return {
     screens: [
-      { title: lore.boardTabFlow, lines: [...goalLines(facts, lore), ...waitsLines(facts, lore), ...tailLines(facts, lore, all), ...laneHeadLines(facts, lore), ...behindCardsLines(facts, lore), ...tallyLines(facts.cards), ...flowLines(facts.cards, lore), ...flowHintLines(facts.cards, lore)] },
+      { title: lore.boardTabFlow, lines: [...goalLines(facts, lore), ...waitsLines(facts, lore), ...tailLines(facts, lore, all), ...behindCardsLines(facts, lore), ...tallyLines(facts.cards), ...flowLines(facts.cards, lore), ...flowHintLines(facts.cards, lore)] },
       { title: lore.boardTabBacklog, lines: [...behindCardsLines(facts, lore), ...backlogLines(backlogCards(facts.cards, facts.at, all), lore, facts.cards, facts.waits)] },
       { title: lore.boardTabServices, lines: [...servicesLines(facts, lore), ...queuedLines(facts, lore), ...pulseLines(facts, lore), ...matrixLines(facts, lore), ...groupLines(facts, lore)] },
     ],

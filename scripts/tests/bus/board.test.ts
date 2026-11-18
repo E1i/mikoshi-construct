@@ -315,13 +315,13 @@ describe('the factory board', () => {
     expect(board.waiting).toEqual([])
   })
 
-  it('the projected queue orders p0 first, then lane, then card', () => {
+  it('the projected queue orders p0 first, then card, whatever lane a card sits in', () => {
     const bench = boardBench()
     bodyRow(bench, 910, { lane: 'lane-2' })
     bodyRow(bench, 911, { lane: 'lane-1' })
     bodyRow(bench, 912, { lane: 'lane-2', priority: 'p0' })
     bodyRow(bench, 913, { lane: 'lane-1' })
-    expect(readBoard({ db: bench.db, now: bench.clock.now(), watched: [], leaseOrders: {}, projections: busProjections() }).ready.map(card => card.card)).toEqual(['912', '911', '913', '910'])
+    expect(readBoard({ db: bench.db, now: bench.clock.now(), watched: [], leaseOrders: {}, projections: busProjections() }).ready.map(card => card.card)).toEqual(['912', '910', '911', '913'])
   })
 
   it('the answer queue lists its leased task with holder, lease_gen and since, and its waiting tasks #849, #837, #847 in grant order', () => {
@@ -372,18 +372,17 @@ describe('the factory board', () => {
     expect(killed[1]!.execution.find(row => row.card === 110)?.markers).toContain('review down')
   })
 
-  it('a card taken into a lane leaves ready and appears in its lane within two ticks', () => {
+  it('a card taken into work leaves ready and appears in execution as writing within two ticks', () => {
     const bench = boardBench()
     admitCard(bench, 850, 'lane-1')
     const before = bench.tick()
     expect(before.ready.map(card => card.card)).toEqual(['850'])
-    expect(before.lanes).toEqual([])
+    expect(before.execution).toEqual([])
     const takenAt = bench.ts()
     observeChain(bench.db, takenAt, 'worker:shift:s1', { dir: '/trees/mc-850', parking: '/parking/lane-1', cardId: 850, sha: sha('c'), pid: 99, leader: null, boundary: false, state: 'running' })
     const after = [bench.tick(), bench.tick()]
-    expect(after.some(board => board.ready.length === 0 && board.lanes[0]?.card === 850)).toBe(true)
-    expect(after[1]!.lanes).toEqual([{ lane: 'lane-1', card: 850, state: 'running', since: takenAt }])
-    expect(after[1]!.execution.find(row => row.card === 850)?.stage).toBe('writing')
+    expect(after.some(board => board.ready.length === 0 && board.execution[0]?.card === 850)).toBe(true)
+    expect(after[1]!.execution.find(row => row.card === 850)).toMatchObject({ pr: null, stage: 'writing', since: takenAt })
   })
 
   it('a worker with a pid but no fresh event reads unknown, not green', () => {
@@ -545,7 +544,6 @@ describe('the factory board', () => {
       blocked.tick()
     const quiet = blocked.tick()
     expect(quiet.progress).toMatchObject({ stalled: false, cause: null })
-    expect(quiet.lanes).toEqual([{ lane: 'lane-2', card: 852, state: 'waiting', since: expect.any(String) as unknown }])
     expect(quiet.execution.find(row => row.card === 852)?.stage).toBe('waiting on #849')
     expect(quiet.waiting).toEqual([])
   })
