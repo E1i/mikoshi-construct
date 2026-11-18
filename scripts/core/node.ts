@@ -333,6 +333,20 @@ export function matchingEvents(db: DatabaseSync, pattern: EventPattern, after: n
   return db.prepare(query).all(after, through, ...exact, ...prefixes.flatMap(prefix => [prefix.length, prefix])) as unknown as StoredEvent[]
 }
 
+export function cursorAt(db: DatabaseSync, kind: string): number | null {
+  const row = db.prepare(`SELECT event_id FROM ${NODE_CURSORS} WHERE kind = ?`).get(kind) as { event_id: number } | undefined
+  return row === undefined ? null : Number(row.event_id)
+}
+
+export function openCursor(db: DatabaseSync, kind: string): number {
+  db.prepare(`INSERT INTO ${NODE_CURSORS} (kind, event_id) VALUES (?, ?) ON CONFLICT (kind) DO NOTHING`).run(kind, lastEventId(db))
+  return cursorAt(db, kind)!
+}
+
+export function moveCursor(db: DatabaseSync, kind: string, eventId: number): void {
+  db.prepare(`UPDATE ${NODE_CURSORS} SET event_id = ? WHERE kind = ?`).run(eventId, kind)
+}
+
 export function eventsIn(db: DatabaseSync): EventsOf {
   return pattern => matchingEvents(db, pattern, 0, Number.MAX_SAFE_INTEGER)
 }
@@ -476,7 +490,7 @@ export abstract class Node<S extends NodeStep> {
     this.codeSha = ctx.codeSha?.() ?? null
     this.startedAt = this.ts()
     this.recordStart()
-    this.openCursor()
+    openCursor(this.db, this.kind)
     this.log(`the ${this.kind} node ${this.actor} takes the ${this.kind} queue, detection ${this.parts.mode}, ${this.slots} slot(s)`)
     const inFlight = new Map<string, Promise<S | WaitStep>>()
     let lastTick: number | null = null
@@ -569,12 +583,7 @@ export abstract class Node<S extends NodeStep> {
   }
 
   private cursor(): number | null {
-    const row = this.db.prepare(`SELECT event_id FROM ${NODE_CURSORS} WHERE kind = ?`).get(this.kind) as { event_id: number } | undefined
-    return row === undefined ? null : Number(row.event_id)
-  }
-
-  private openCursor(): void {
-    this.db.prepare(`INSERT INTO ${NODE_CURSORS} (kind, event_id) VALUES (?, ?) ON CONFLICT (kind) DO NOTHING`).run(this.kind, lastEventId(this.db))
+    return cursorAt(this.db, this.kind)
   }
 
   private deliver(): void {
@@ -595,7 +604,7 @@ export abstract class Node<S extends NodeStep> {
         if (this.stillStands(task, through))
           this.record(task, 'event', eventId)
       }
-      this.db.prepare(`UPDATE ${NODE_CURSORS} SET event_id = ? WHERE kind = ?`).run(through, this.kind)
+      moveCursor(this.db, this.kind, through)
     })
   }
 
