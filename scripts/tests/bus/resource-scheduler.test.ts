@@ -24,6 +24,7 @@ const LANES = 4
 const MACHINE_CORES = 16
 const OWNER = 'owner'
 const GENERATED_CONTRACT = 'contract/factory.json'
+const UNDECLARED_CONTRACT = 'contract/surface.json'
 const GENERATED_NOT_REBUILT = 'architecture/add-population.md'
 const ADDITIVE_REGISTRY = 'scripts/core/events.ts'
 const roots: string[] = []
@@ -230,6 +231,18 @@ describe('what is no resource', () => {
 
     const launch = new Bench(sharedAppendFiles()).admit(1, ['scripts/a.ts', GENERATED_CONTRACT, GENERATED_NOT_REBUILT]).start(1).beat(1).admit(2, ['scripts/b.ts', GENERATED_CONTRACT, GENERATED_NOT_REBUILT])
     expect(launch.candidates()).toEqual([2])
+  })
+
+  it('in a repository with no declarations and no shared list, two cards that share only a contract file start together', () => {
+    const bench = new Bench()
+    vi.spyOn(process, 'cwd').mockReturnValue(bench.root)
+    bench.admit(1, ['scripts/a.ts', UNDECLARED_CONTRACT]).admit(2, ['scripts/b.ts', UNDECLARED_CONTRACT])
+
+    expect(bench.laneOf(2).reason).not.toBe('chain')
+    expect(bench.candidates().sort()).toEqual([1, 2])
+
+    bench.start(1).beat(1)
+    expect(bench.candidates()).toEqual([2])
   })
 
   it('the open pull request of a card held for the owner does not hold its files against a higher-priority card', () => {
