@@ -1,11 +1,8 @@
+import type { DatabaseSync } from 'node:sqlite'
+
 export interface CardCondition {
   state: string
   condition: string
-}
-
-export interface CardMover {
-  node: string
-  selects: readonly CardCondition[]
 }
 
 export interface CardAutomaton {
@@ -14,12 +11,23 @@ export interface CardAutomaton {
   conditions: readonly CardCondition[]
 }
 
-export interface UnmovedCondition extends CardCondition {
-  why: string
+export type CardsSelected = (db: DatabaseSync, ts: string) => readonly (number | null)[]
+
+export interface NodeCandidates {
+  node: string
+  selects: CardsSelected
+}
+
+export interface ConditionSelection extends CardCondition {
+  nodes: readonly string[]
 }
 
 export function conditionKey(condition: CardCondition): string {
   return `${condition.state}/${condition.condition}`
+}
+
+export function selectingNodes(db: DatabaseSync, ts: string, candidates: readonly NodeCandidates[], card: number): string[] {
+  return [...new Set(candidates.filter(node => node.selects(db, ts).includes(card)).map(node => node.node))]
 }
 
 function inWork(automaton: CardAutomaton): string[] {
@@ -30,28 +38,13 @@ export function statesWithNoCondition(automaton: CardAutomaton): string[] {
   return inWork(automaton).filter(state => !automaton.conditions.some(condition => condition.state === state))
 }
 
-export function moversOf(movers: readonly CardMover[], state: string, condition: string | null = null): string[] {
-  const selects = (selected: CardCondition): boolean => selected.state === state && (condition === null || selected.condition === condition)
-  return [...new Set(movers.filter(mover => mover.selects.some(selects)).map(mover => mover.node))]
-}
-
-export function unmovedConditions(automaton: CardAutomaton, movers: readonly CardMover[]): UnmovedCondition[] {
-  const selected = new Set(movers.flatMap(mover => mover.selects.map(conditionKey)))
-  return automaton.conditions
-    .filter(condition => !automaton.ends.includes(condition.state) && !selected.has(conditionKey(condition)))
-    .map(condition => ({ ...condition, why: `no node's queue candidates select a ${condition.state} card on ${condition.condition}` }))
-}
-
-export function strayMoves(automaton: CardAutomaton, movers: readonly CardMover[]): string[] {
-  const known = new Set(automaton.conditions.map(conditionKey))
-  return movers.flatMap(mover => mover.selects.filter(selected => !known.has(conditionKey(selected))).map(selected => `${mover.node} selects ${conditionKey(selected)}, which is no condition of the card automaton`))
-}
-
-export function automatonFindings(automaton: CardAutomaton, movers: readonly CardMover[]): string[] {
+export function automatonFindings(automaton: CardAutomaton, selections: readonly ConditionSelection[]): string[] {
+  const selected = new Map(selections.map(selection => [conditionKey(selection), selection.nodes]))
+  const inWorkConditions = automaton.conditions.filter(condition => !automaton.ends.includes(condition.state))
   return [
     ...statesWithNoCondition(automaton).map(state => `card state ${state} is reachable and names no condition, so no node can be shown to select it`),
-    ...unmovedConditions(automaton, movers).map(unmoved => `dead end ${conditionKey(unmoved)}: ${unmoved.why}`),
-    ...strayMoves(automaton, movers),
+    ...inWorkConditions.filter(condition => !selected.has(conditionKey(condition))).map(condition => `card condition ${conditionKey(condition)} was not placed on a bus, so no node's candidates were asked`),
+    ...inWorkConditions.filter(condition => selected.get(conditionKey(condition))?.length === 0).map(condition => `dead end ${conditionKey(condition)}: no node's queue candidates select a ${condition.state} card on ${condition.condition}`),
   ]
 }
 

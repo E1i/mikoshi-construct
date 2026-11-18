@@ -20,6 +20,7 @@ interface DeadEndShape {
   state: string
   events: readonly FixtureEvent[]
   named: string
+  selectedBy?: string
 }
 
 const DEAD_END_SHAPES: Record<string, DeadEndShape> = {
@@ -29,7 +30,7 @@ const DEAD_END_SHAPES: Record<string, DeadEndShape> = {
   'owner stop missing answer sessions': { card: 1989, state: 'stopped', events: [{ type: CARD_STOPPED, payload: { reason: QUESTION_OWNER } }], named: `stopped (${QUESTION_OWNER})` },
   'review never queued after a red witness': { card: 2010, state: 'in_review', events: [{ type: WITNESS_RECORDED, payload: { verdict: 'red', head: HEAD } }], named: 'in_review' },
   'held stop on a generated twin': { card: 2004, state: 'stopped', events: [{ type: CARD_STOPPED, payload: { reason: 'conflict', paths: ['contract/module-files.json'] } }], named: 'stopped (conflict)' },
-  'ghost session': { card: 2020, state: 'running', events: [{ type: CARD_STARTED, payload: { session: 'ghost-session' } }], named: 'running' },
+  'ghost session': { card: 2020, state: 'running', events: [{ type: CARD_STARTED, payload: { session: 'ghost-session' } }], named: 'running', selectedBy: 'supervisor' },
 }
 
 const buses: DatabaseSync[] = []
@@ -76,17 +77,17 @@ describe('a fixture card in each dead-end shape raises the dead-end alarm', () =
     expect(alarm).toMatch(/^dead end: /)
     expect(alarm).toContain(`card #${shape.card} is ${shape.named}`)
     expect(alarm).toContain(`last event ${shape.events.at(-1)!.type}`)
-    expect(alarm).toContain(`select a ${shape.named} card`)
+    expect(alarm).toContain(shape.selectedBy === undefined ? `no node's queue candidates select #${shape.card} as a ${shape.named} card` : `the candidates of ${shape.selectedBy} select #${shape.card} as a ${shape.named} card, and none of them holds a live or queued task for it`)
     const waits = waitsOf(db, shape.card)
     expect(waits).toHaveLength(1)
     expect(waits[0]).toContain(`dead end in state ${shape.named}`)
   })
 
-  it('a state no node selects is named as such in the alarm', () => {
+  it('a card some node selects with no task to show for it names those nodes in the alarm', () => {
     const db = bus()
     placed(db, DEAD_END_SHAPES['ghost session']!)
-    new DeadEnds(db, () => PAST_THE_ROUND, { moversOf: () => [], events: deadEndEvents(db) }).step()
-    expect(alarmsOf(db, 2020)[0]).toContain('no node\'s queue candidates select a running card')
+    new DeadEnds(db, () => PAST_THE_ROUND, { selecting: () => ['launch'], events: deadEndEvents(db) }).step()
+    expect(alarmsOf(db, 2020)[0]).toContain('the candidates of launch select #2020 as a running card, and none of them holds a live or queued task for it')
   })
 })
 

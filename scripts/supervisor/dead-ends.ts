@@ -13,7 +13,7 @@ const MINUTE_MS = 60_000
 
 export const HELD_ELSEWHERE_STATES: readonly string[] = [MERGED_CARD, CLOSED_CARD, DROPPED_CARD, QUEUED_CARD, DEFERRED_CARD]
 
-export type MoversOf = (state: string, condition: string | null) => readonly string[]
+export type Selecting = (card: number, ts: string) => readonly string[]
 
 export interface UnheldCard {
   card: number
@@ -29,7 +29,7 @@ export interface DeadEndEvents {
 }
 
 export interface DeadEndParts {
-  moversOf: MoversOf
+  selecting: Selecting
   events: DeadEndEvents
 }
 
@@ -58,8 +58,8 @@ export function stateNamed(end: Pick<DeadEnd, 'state' | 'condition'>): string {
 export function deadEndReason(end: Omit<DeadEnd, 'reason'>, movers: readonly string[]): string {
   const named = stateNamed(end)
   const why = movers.length === 0
-    ? `no node's queue candidates select a ${named} card`
-    : `${movers.join(', ')} select a ${named} card, and none of them holds a live or queued task for #${end.card}, nor is an owner wait open on it`
+    ? `no node's queue candidates select #${end.card} as a ${named} card`
+    : `the candidates of ${movers.join(', ')} select #${end.card} as a ${named} card, and none of them holds a live or queued task for it, nor is an owner wait open on it`
   return `dead end: card #${end.card} is ${named}, last event ${end.lastEvent.type} #${end.lastEvent.id} ${end.idleMinutes} min ago, past its round time of ${end.roundMinutes} min for ${end.shape.size}/${end.shape.contour}; ${why}`
 }
 
@@ -75,7 +75,8 @@ export class DeadEnds {
   }
 
   found(): DeadEnd[] {
-    const now = this.clock().getTime()
+    const at = this.clock()
+    const now = at.getTime()
     const held = this.cardsUnderAnOpenOwnerWait()
     const unheld = this.parts.events.cardsNobodyHolds(HELD_ELSEWHERE_STATES, DEAD_END_ACTOR).filter(card => !held.has(card.card))
     if (unheld.length === 0)
@@ -91,7 +92,7 @@ export class DeadEnds {
         return []
       const condition = this.stopReasonOf(card)
       const end = { card: card.card, pr: card.pr, state: card.state, condition, lastEvent, idleMinutes, roundMinutes, shape }
-      return [{ ...end, reason: deadEndReason(end, this.parts.moversOf(card.state, condition)) }]
+      return [{ ...end, reason: deadEndReason(end, this.parts.selecting(card.card, at.toISOString())) }]
     })
   }
 
