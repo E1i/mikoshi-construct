@@ -12,10 +12,9 @@ import { RUNNING_CARD } from '../core/card-automaton.js'
 import { CARD_BODIES } from '../core/card-bodies.js'
 import { defaultBusPath, openBus } from '../core/db.js'
 import { WINDOW_HEARTBEAT } from '../core/events.js'
-import { handoffDirOf } from '../core/handoff-dir.js'
 import { MIKO_WATCH_COMMAND } from '../core/owner-commands.js'
 import { sessionHandoffOf } from './handoff-write.js'
-import { PREFIX } from './loop.js'
+import { HANDOFF_VARIABLE, PREFIX } from './loop.js'
 import { cardTreeHomes, handoffStatusOf, tabWindowIn } from './tab.js'
 import { ONCE_STORE, watchHeld } from './watch-store.js'
 import { WINDOW_BEAT_MS, windowSessionOf } from './window-heartbeat.js'
@@ -121,17 +120,22 @@ function readBus<T>(bus: string, read: (db: DatabaseSync) => T | null): T | null
   }
 }
 
+function onceStoreOf(env: NodeJS.ProcessEnv, dir: string): string | null {
+  const handoff = sessionHandoffOf({ ...env, [HANDOFF_VARIABLE]: '' }, os.homedir(), dir)
+  return handoff === null ? null : path.join(path.dirname(handoff), ONCE_STORE)
+}
+
 export function realTurnWatchDeps(env: NodeJS.ProcessEnv, dir: string = process.cwd()): TurnWatchDeps {
   const tab = tabWindowIn(env, dir, cardTreeHomes(env, defaultBusPath()))
   const handoff = sessionHandoffOf(env, os.homedir())
   const bus = defaultBusPath()
-  const onceStore = path.join(handoffDirOf(env, os.homedir(), dir), ONCE_STORE)
+  const onceStore = onceStoreOf(env, dir)
   return {
     session: tab?.session ?? windowSessionOf(env),
     mode: tab === null ? 'loop' : 'tab',
     status: () => handoffStatusOf(handoff),
     lastBeat: session => readBus(bus, db => lastWindowBeat(db, session)),
-    watchRunning: () => watchHeld(onceStore),
+    watchRunning: () => onceStore !== null && watchHeld(onceStore),
     ownCard: () => readBus(bus, ownCardWithoutPr),
     now: () => Date.now(),
     err: line => console.error(`${PREFIX}${line}`),
