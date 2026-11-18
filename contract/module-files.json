@@ -555,6 +555,7 @@
     "scripts/tests/bus/review-drip-finding.test.ts",
     "scripts/tests/bus/review-live.test.ts",
     "scripts/tests/bus/review-node.test.ts",
+    "scripts/tests/bus/review-planner-limit-degrades.test.ts",
     "scripts/tests/bus/review-pre-session-bounded.test.ts",
     "scripts/tests/bus/review-queue-load.test.ts",
     "scripts/tests/bus/review-queue.test.ts",

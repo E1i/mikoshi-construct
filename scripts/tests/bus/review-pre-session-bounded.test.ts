@@ -10,7 +10,7 @@ import { parkingFileText, parseParkingFile } from '../../../src/card/parking.js'
 import { admittedRecord } from '../../../src/commands/intake/index.js'
 import { appendCardEvent } from '../../core/card-bodies.js'
 import { POLICY_DENIED, REVIEW_RECORDED, TASK_FAILED, TASK_LEASED } from '../../core/events.js'
-import { PLAN_STEP, PRE_SESSION_LIMIT, preSessionLimitDetail } from '../../nodes/review/review-executor.js'
+import { PLAN_STEP, plannerPastItsLimit } from '../../nodes/review/review-executor.js'
 import { childReviewPlanner, planInThisProcess, ReviewWorker } from '../../nodes/review/review-worker.js'
 import { plannerProcess } from '../../ports/review-planner.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
@@ -143,32 +143,31 @@ describe('the review node prepares a lease off its heartbeat path and within a l
     expect(said.filter(line => line.includes('pre-session work ended in'))).toHaveLength(2)
   }, 30_000)
 
-  it('a pre-session step past its limit ends in a recorded denial', async () => {
+  it('a pre-session step past its limit degrades to the default depth and records the verdict', async () => {
     const bench = benchOf([PRS[0]])
     const said: string[] = []
     let reviewed = 0
     const held = heldPlanner()
     const worker = new ReviewWorker({ silentMs: SILENT_MS, isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }), db: bench.db, gitHub: bench.gitHub.client, publish: bench.gitHub.publish, reviewer: async () => {
       reviewed += 1
-      return { verdict: 'pass', findings: [], session: 'never' }
+      return { verdict: 'pass', findings: [], session: 'reviewer-session' }
     }, plan: held.planner, clock: bench.clock.now, session: 'worker-1', preSessionLimitMs: LIMIT_MS, say: line => said.push(line) })
     const started = Date.now()
 
     const step = await worker.step()
 
     expect(Date.now() - started).toBeLessThan(10_000)
-    expect(reviewed).toBe(0)
+    expect(reviewed).toBe(1)
     expect(held.signals.map(signal => signal.aborted)).toEqual([true])
-    const lease = { pr: PRS[0], head: sha(String(PRS[0] % 10)) }
-    const detail = preSessionLimitDetail({ ...lease, taskKey: '', queue: 'review', cardId: cardOf(PRS[0]), leaseGen: 0, actor: '' }, PLAN_STEP, LIMIT_MS)
-    expect(step).toMatchObject({ kind: 'denied', denial: { kind: 'technical', reason: PRE_SESSION_LIMIT, detail } })
-    expect(detail).toContain(`step ${PLAN_STEP}`)
-    expect(eventsOf(bench.db, POLICY_DENIED).map(payload => [payload.reason, payload.detail])).toEqual([[PRE_SESSION_LIMIT, detail]])
-    expect(eventsOf(bench.db, TASK_FAILED).map(payload => payload.reason)).toEqual([PRE_SESSION_LIMIT])
-    expect(said.at(-1)).toMatch(/pre-session work ended in \d+ ms, past its limit at the step plan/)
+    expect(step).toMatchObject({ kind: 'recorded', verdict: 'pass', depth: 'full' })
+    expect(plannerPastItsLimit(PLAN_STEP, LIMIT_MS)).toContain(`step ${PLAN_STEP}`)
+    expect(eventsOf(bench.db, REVIEW_RECORDED).map(payload => payload.depth_why)).toEqual([plannerPastItsLimit(PLAN_STEP, LIMIT_MS)])
+    expect(eventsOf(bench.db, POLICY_DENIED)).toEqual([])
+    expect(eventsOf(bench.db, TASK_FAILED)).toEqual([])
+    expect(said.filter(line => /pre-session work ended in \d+ ms, past its limit at the step plan/.test(line))).toHaveLength(1)
   }, 30_000)
 
-  it('a busy planning child that ignores SIGTERM is killed with SIGKILL once the limit passes, not left running', async () => {
+  it('a busy planning child that ignores SIGTERM is killed with SIGKILL once the limit passes, not left running, and the review runs at the default depth', async () => {
     const bench = benchOf([PRS[0]])
     const said: string[] = []
     let reviewed = 0
@@ -180,8 +179,9 @@ describe('the review node prepares a lease off its heartbeat path and within a l
 
     const step = await worker.step()
 
-    expect(step).toMatchObject({ kind: 'denied', denial: { kind: 'technical', reason: PRE_SESSION_LIMIT } })
-    expect(reviewed).toBe(0)
+    expect(step).toMatchObject({ kind: 'recorded', depth: 'full' })
+    expect(eventsOf(bench.db, REVIEW_RECORDED).map(payload => payload.depth_why)).toEqual([plannerPastItsLimit(PLAN_STEP, CHILD_LIMIT_MS)])
+    expect(reviewed).toBe(1)
     expect(substitute.children).toHaveLength(1)
     expect(await signalThatEnded(substitute.children[0]!)).toBe('SIGKILL')
   }, 30_000)
@@ -196,7 +196,7 @@ describe('the review node prepares a lease off its heartbeat path and within a l
     expect(await signalThatEnded(substitute.children[0]!)).toBe('SIGKILL')
   }, 30_000)
 
-  it('a planner that fails because the limit aborted it ends in the denial, not in a full-review fallback', async () => {
+  it('a planner that fails because the limit aborted it records the limit, not the failure, as the reason of the default depth', async () => {
     const bench = benchOf([PRS[0]])
     const said: string[] = []
     let reviewed = 0
@@ -210,10 +210,10 @@ describe('the review node prepares a lease off its heartbeat path and within a l
 
     const step = await worker.step()
 
-    expect(step).toMatchObject({ kind: 'denied', denial: { kind: 'technical', reason: PRE_SESSION_LIMIT } })
-    expect(reviewed).toBe(0)
-    expect(eventsOf(bench.db, REVIEW_RECORDED)).toEqual([])
-    expect(eventsOf(bench.db, TASK_FAILED).map(payload => payload.reason)).toEqual([PRE_SESSION_LIMIT])
+    expect(step).toMatchObject({ kind: 'recorded', depth: 'full' })
+    expect(reviewed).toBe(1)
+    expect(eventsOf(bench.db, REVIEW_RECORDED).map(payload => payload.depth_why)).toEqual([plannerPastItsLimit(PLAN_STEP, LIMIT_MS)])
+    expect(eventsOf(bench.db, TASK_FAILED)).toEqual([])
   }, 30_000)
 
   it('a planner that fails falls back to the full review, as an in-process planner error does', async () => {
