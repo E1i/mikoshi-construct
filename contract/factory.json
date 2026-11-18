@@ -5330,7 +5330,8 @@
           "database"
         ],
         "types": {
-          "BusRead": "class BusRead { constructor(private readonly db: DatabaseSync, private readonly filter: SliceWhere = {}); where(filter: SliceWhere): BusRead; slice<T extends EventType, K extends PayloadKey<T>>(type: T, fields: readonly K[], take: SliceTake = 'all'): EventSlice<T, K>[]; current<R>(projections: readonly ReadProjection[], read: () => R): Reading<R>; stale(projection: ReadProjection): StaleProjection | null }",
+          "BusRead": "class BusRead { constructor(private readonly db: DatabaseSync, private readonly filter: SliceWhere = {}); where(filter: SliceWhere): BusRead; slice<T extends EventType, K extends PayloadKey<T>>(type: T, fields: readonly K[], take: SliceTake = 'all'): EventSlice<T, K>[]; cardsNobodyHolds(heldElsewhere: readonly string[], ignoredActor: string): CardNobodyHolds[]; current<R>(projections: readonly ReadProjection[], read: () => R): Reading<R>; stale(projection: ReadProjection): StaleProjection | null }",
+          "CardNobodyHolds": "interface CardNobodyHolds { card: number; state: string; pr: number | null; lastEvent: { id: number; type: string; ts: string; }; }",
           "EventSlice": "interface EventSlice<T extends EventType, K extends PayloadKey<T>> { id: number; ts: string | null; actor: string | null; card: number | null; pr: number | null; head: string | null; fields: SliceFields<T, K>; }",
           "SliceFields": "type SliceFields<T extends EventType, K extends PayloadKey<T>> = { readonly [P in K]?: unknown; }",
           "SliceTake": "type SliceTake = typeof SLICE_TAKES[number]",
@@ -6221,6 +6222,6 @@
         }
       }
     },
-    "portsVersion": 3
+    "portsVersion": 4
   }
 }

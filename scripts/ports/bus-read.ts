@@ -64,6 +64,31 @@ const SLICE_BY_TAKE: Readonly<Record<SliceTake, string>> = {
   'newest': `SELECT ${SLICE_COLUMNS} FROM events WHERE ${SLICE_WHERE} ORDER BY id DESC LIMIT :limit`,
 }
 
+export interface CardNobodyHolds {
+  card: number
+  state: string
+  pr: number | null
+  lastEvent: { id: number, type: string, ts: string }
+}
+
+interface CardNobodyHoldsRow {
+  card_id: number
+  state: string
+  pr: number | null
+  last_id: number
+  last_type: string
+  last_ts: string
+}
+
+const CARDS_NOBODY_HOLDS = `
+  SELECT cards.card_id, cards.state, cards.pr, last.id AS last_id, last.type AS last_type, last.ts AS last_ts FROM cards
+  JOIN events AS last ON last.id = (SELECT max(id) FROM events WHERE card_id = cards.card_id AND actor IS NOT :ignoredActor)
+  WHERE cards.state IS NOT NULL AND cards.state NOT IN (SELECT value FROM json_each(:heldElsewhere))
+    AND NOT EXISTS (SELECT 1 FROM prs WHERE prs.card_id = cards.card_id AND prs.state = 'merged')
+    AND NOT EXISTS (SELECT 1 FROM tasks WHERE tasks.card_id = cards.card_id AND tasks.state IN ('queued', 'leased'))
+  ORDER BY cards.card_id
+`
+
 function exact(value: number | typeof ANY | undefined): number | null {
   return typeof value === 'number' ? value : null
 }
@@ -120,6 +145,11 @@ export class BusRead {
       head: row.head,
       fields: picked<T, K>(payloadObject(payload), fields),
     }))
+  }
+
+  cardsNobodyHolds(heldElsewhere: readonly string[], ignoredActor: string): CardNobodyHolds[] {
+    const rows = this.db.prepare(CARDS_NOBODY_HOLDS).all({ heldElsewhere: JSON.stringify(heldElsewhere), ignoredActor }) as unknown as CardNobodyHoldsRow[]
+    return rows.map(row => ({ card: Number(row.card_id), state: row.state, pr: row.pr === null ? null : Number(row.pr), lastEvent: { id: Number(row.last_id), type: row.last_type, ts: row.last_ts } }))
   }
 
   current<R>(projections: readonly ReadProjection[], read: () => R): Reading<R> {

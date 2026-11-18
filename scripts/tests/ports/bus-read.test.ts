@@ -99,6 +99,26 @@ describe('the bus read port', () => {
     expect(new BusRead(db).current([CARDS], () => ++read)).toEqual({ stale: null, rows: 1, at: started })
   })
 
+  it('the cards nobody holds are the cards in work with no live task and no merge, each with its last event past an ignored actor', () => {
+    const db = bus()
+    const placed = (card: number, state: string, key: string): void => {
+      append(db, CARD_STARTED, TS, card, {}, key)
+      db.prepare('INSERT INTO cards (card_id, state, pr, event_id) VALUES (?, ?, NULL, (SELECT max(id) FROM events))').run(card, state)
+    }
+    placed(CARD, 'in_review', 'unheld')
+    append(db, SESSION_HEARTBEAT, LATER, CARD, { context: 1 }, 'ignored')
+    placed(OTHER_CARD, 'in_review', 'tasked')
+    db.prepare('INSERT INTO tasks (task_key, queue, card_id, state, event_id) VALUES (?, ?, ?, ?, 1)').run('answer:8', 'answer', OTHER_CARD, 'leased')
+    placed(9, 'merged', 'merged')
+    placed(10, 'stopped', 'merged-pr')
+    db.prepare('INSERT INTO prs (pr, card_id, state, event_id) VALUES (?, ?, ?, 1)').run(4242, 10, 'merged')
+
+    const unheld = new BusRead(db).cardsNobodyHolds(['merged'], 'worker:test:ignored')
+
+    expect(unheld.map(card => ({ card: card.card, state: card.state, type: card.lastEvent.type, ts: card.lastEvent.ts }))).toEqual([{ card: CARD, state: 'in_review', type: CARD_STARTED, ts: TS }])
+    expect(new BusRead(db).cardsNobodyHolds(['merged'], 'nobody').map(card => card.lastEvent.type)).toEqual([SESSION_HEARTBEAT])
+  })
+
   it('reads only: a read-only bus answers, and the port holds no SQL that writes', () => {
     const root = mkdtempSync(path.join(tmpdir(), 'bus-read-'))
     roots.push(root)
