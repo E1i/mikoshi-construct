@@ -4,6 +4,7 @@ import { derivedGrowthLine, derivedRefusalLine, isDerived, judgeDerived, removes
 
 export type { DerivedReading, DerivedRerun, DerivedVerdict, GrownDerived, RefusedDerived } from './derived-files.js'
 export { derivedGrowthLine, derivedRefusalLine, removesEntriesOnly }
+export { boundaryRowsOf, placementGraphOf, placementGrowth } from './placement-growth.js'
 
 export const PREFIX_SUFFIX = '/**'
 export const CHANGESET_COMPANION = `.changeset${PREFIX_SUFFIX}`
