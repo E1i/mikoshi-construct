@@ -706,6 +706,7 @@
     "scripts/tests/contract/module-graph-report.test.ts",
     "scripts/tests/contract/module-graph-tool.test.ts",
     "scripts/tests/contract/module-ownership-generated.test.ts",
+    "scripts/tests/contract/one-writer-per-table.test.ts",
     "scripts/tests/contract/owner-commands-detector.test.ts",
     "scripts/tests/contract/plan-folds-contour.test.ts",
     "scripts/tests/contract/port-language.test.ts",
