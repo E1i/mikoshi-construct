@@ -27,7 +27,8 @@ import { realRequestTools } from '../window/window-request-tools.js'
 import { WindowRequests } from '../window/window-requests.js'
 import { alive, BUS_RUN_MARKERS, instancesOf, processBeatsOn, psList, RUN_SCRIPT } from './bg.js'
 import { closeWaitsOfEndedCards } from './card-waits.js'
-import { busProjections, cardTransitions, deriveQueuesOfTheBus, gateRunSpoolPlaces, recordOwnStart } from './composition.js'
+import { busProjections, cardTransitions, deadEndParts, deriveQueuesOfTheBus, gateRunSpoolPlaces, recordOwnStart } from './composition.js'
+import { DeadEnds } from './dead-ends.js'
 import { GateRunSpool } from './gate-run-spool.js'
 import { sessionLifeIn } from './recorded-worker.js'
 import { REDUCER_PERIOD_MS, REDUCER_PREFIX, ReducerPass, startReducerLoop } from './reducer-loop.js'
@@ -152,7 +153,7 @@ export function holdRunLock(busPath: string, processes: ProcessList, self: numbe
   return refusedRun(`${lock} was taken again while this bus:run removed a stale one; this one exits and starts nothing`)
 }
 
-export const TICK_STEPS = ['NetWatch.poll', 'deriveQueues', 'setStepStatuses', 'StalledSessions', 'GateRunSpool'] as const
+export const TICK_STEPS = ['NetWatch.poll', 'deriveQueues', 'setStepStatuses', 'StalledSessions', 'GateRunSpool', 'DeadEnds'] as const
 
 export const INLINE_REDUCER_STEP = 'reducer pass'
 
@@ -175,7 +176,7 @@ export class BusTick {
   lastSteps: readonly StepTiming[] = []
   private readonly inlineReducer: ReducerPass | null
 
-  constructor(private readonly db: DatabaseSync, reducedInline: Projections | ReducerPass | null, private readonly netWatch: NetWatch, private readonly clock: () => Date, requests: () => void = () => {}, private readonly statuses: () => void = () => {}, private readonly stalled: () => void = () => {}, private readonly spools: () => string[] = () => [], private readonly elapsedMs: () => number = () => performance.now()) {
+  constructor(private readonly db: DatabaseSync, reducedInline: Projections | ReducerPass | null, private readonly netWatch: NetWatch, private readonly clock: () => Date, requests: () => void = () => {}, private readonly statuses: () => void = () => {}, private readonly stalled: () => void = () => {}, private readonly spools: () => string[] = () => [], private readonly elapsedMs: () => number = () => performance.now(), private readonly deadEnds: () => void = () => {}) {
     this.inlineReducer = reducedInline === null || reducedInline instanceof ReducerPass ? reducedInline : new ReducerPass(db, reducedInline, clock, requests)
   }
 
@@ -203,6 +204,7 @@ export class BusTick {
     timed('setStepStatuses', this.statuses)
     timed('StalledSessions', this.stalled)
     const spooled = timed('GateRunSpool', this.spools)
+    timed('DeadEnds', this.deadEnds)
     return { poll, reduced, derived, spooled, steps }
   }
 }
@@ -269,7 +271,12 @@ export function composeBusTick(db: DatabaseSync, busPath: string, gitHub: GitHub
     for (const line of silent.step())
       console.log(line)
   }
-  return { busTick: new BusTick(db, reducer, new NetWatch(db, gitHub, clock), clock, () => {}, statuses, stalled, spools) }
+  const ends = new DeadEnds(db, clock, deadEndParts(db))
+  const deadEnds = (): void => {
+    for (const line of ends.step())
+      console.log(`${PREFIX}${line}`)
+  }
+  return { busTick: new BusTick(db, reducer, new NetWatch(db, gitHub, clock), clock, () => {}, statuses, stalled, spools, () => performance.now(), deadEnds) }
 }
 
 export function startBus(db: DatabaseSync, clock: () => Date): string[] {

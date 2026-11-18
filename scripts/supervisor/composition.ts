@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { CardAutomaton, CardCondition, CardsSelected, NodeCandidates } from '../ci/card-automaton.js'
 import type { Understood } from '../core/bus-version.js'
 import type { SliceParentsBackfill } from '../core/card-bodies.js'
 import type { CardTransitions, HolderStart, Lease } from '../core/lease.js'
@@ -16,6 +17,7 @@ import type { InForceDecision } from '../policy/decisions/index.js'
 import type { GitHub } from '../ports/github.js'
 import type { PlanParts } from '../window/plan-folds.js'
 import type { CardWaitParts } from './card-waits.js'
+import type { DeadEndEvents, DeadEndParts } from './dead-ends.js'
 import type { QueuePass } from './derive-queues.js'
 import type { SpoolPlaces } from './gate-run-spool.js'
 import type { SessionMeasure } from './heartbeat.js'
@@ -24,20 +26,21 @@ import { homedir } from 'node:os'
 import process from 'node:process'
 import { PRIORITIES, WINDOW_WHO } from '../../src/card/parking.js'
 import { witnessesOf } from '../../src/commands/intake/admit.js'
+import { automatonOf, selectingNodes } from '../ci/card-automaton.js'
 import { GATE_RUN_SPOOL } from '../ci/gate-runs.js'
 import { driftOfRun } from '../ci/weights-law.js'
-import { appendedOnCard, CARD_FOLDS, cardLinkObserved, cardPrMerged, cardPrOpened, CARDS_PROJECTION } from '../core/card-automaton.js'
+import { appendedOnCard, CARD_FOLDS, cardLinkObserved, cardPrMerged, cardPrOpened, CARDS_PROJECTION, CHANGES_CARD, CLOSED_CARD, DEFERRED_CARD, DROPPED_CARD, FALLEN_CARD, IN_REVIEW_CARD, MERGED_CARD, QUEUED_CARD, READY_CARD, RUNNING_CARD, STOPPED_CARD } from '../core/card-automaton.js'
 import { admittedCardVersion, backfillPendingSliceParents, cardOfBranch } from '../core/card-bodies.js'
 import { cardDecisionReads, reviewedUnderTheCardDecision, reviewsTheCardDecisionReopens, withDecidedContinuations } from '../core/card-decisions.js'
 import { CHAINS_PROJECTION } from '../core/chain.js'
-import { CARD_PLANNED, CARD_UNPLANNED, PLAN_BACKFILLED, PLAN_CLOSED, PLAN_ITEM_ADDED, PLAN_ITEM_LINKED, PLAN_ITEM_REMOVED, PLAN_OPENED, PR_OBSERVED, PR_OPENED, RATCHET_THRESHOLD_SET, SLICE_PARENTS_BACKFILLED } from '../core/events.js'
+import { CARD_DEFERRED, CARD_MOVED, CARD_PLANNED, CARD_STOPPED, CARD_UNPLANNED, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PLAN_BACKFILLED, PLAN_CLOSED, PLAN_ITEM_ADDED, PLAN_ITEM_LINKED, PLAN_ITEM_REMOVED, PLAN_OPENED, PR_OBSERVED, PR_OPENED, RATCHET_THRESHOLD_SET, SLICE_PARENTS_BACKFILLED } from '../core/events.js'
 import { isFullSha, prOf } from '../core/identifiers.js'
 import { OWNER, ownerQuestionAnswered } from '../core/inbox.js'
 import { foreignVersion, instanceOf, provenIdentity, recordWorkerIdentity, UNHANDED } from '../core/node.js'
 import { orderDeclarationsAt, overlaps } from '../core/order/overlap.js'
 import { ownerWaitCommand } from '../core/owner-commands.js'
 import { prFolds, prRow } from '../core/pr-folds.js'
-import { keyOf, reviewCandidates, taskRow, TASKS_PROJECTION } from '../core/queue.js'
+import { closeCandidates, keyOf, reviewCandidates, taskRow, TASKS_PROJECTION } from '../core/queue.js'
 import { ownerWaitFolds } from '../core/reducer.js'
 import { payloadOf, storedByKey } from '../core/stored.js'
 import { BusWeightsRecompute } from '../intake/intake.js'
@@ -54,7 +57,7 @@ import { answersOfTheDecisions } from '../policy/decisions/wait-folds.js'
 import { mayRequeueUnderTheRounds, mergeDecidedPastRoundLimit, outOfRounds, RECUT_ACTOR, REVIEWS_OF_A_PR } from '../policy/round-limit-decision.js'
 import { decisionsInForceAt, unspentShardsOf, WINDOW_SHARDS_LIVE_AT, withDecisionsHeldAt } from '../policy/shards.js'
 import { derivedHoldOf } from '../policy/touch-scope.js'
-import { BusRead } from '../ports/bus-read.js'
+import { ANY, BusRead } from '../ports/bus-read.js'
 import { cardTreeReading } from '../ports/card-tree.js'
 import { GhCiRuns } from '../ports/ci-reading.js'
 import { CHECK_MS, TICK_MS } from '../ports/netwatch.js'
@@ -64,6 +67,7 @@ import { foldPlanEvent } from '../window/plan-folds.js'
 import { releasingTakeoverOnPush } from '../window/takeover-push-release.js'
 import { cardWaitFolds, closeWaitsOfAnEndedCard, closingTheWaitsOfAClosedPr } from './card-waits.js'
 import { causeGoneSource, derivedQueues, DOWNGRADE_PARKED_SOURCE, dueAgainSource, NO_CARD_TREE_SOURCE, restartSource, SETTLE_SOURCE, stopNoLongerHoldsSource } from './derive-queues.js'
+import { unendedStarts } from './expected-time.js'
 import { busSessionPulse, heartbeatEnv, measureCardSession, ownStart, recordProcessHeartbeat } from './heartbeat.js'
 import { SILENT_MS } from './liveness-sites.js'
 import { ownIdentity, tableIdentity } from './recorded-worker.js'
@@ -222,22 +226,109 @@ function reopenedReviews(rules: CandidateRules): (db: DatabaseSync, ts: string) 
   return (db, ts) => reviewsTheCardDecisionReopens(cardDecisionReads(db, decisionsAt(db, ts), REVIEWS_OF_A_PR, storedByKey), reviewCandidates(db, ts, rules), keyOf, key => taskRow(db, key))
 }
 
-export function queueSources(): QueueSource[] {
+const ADMITTED = 'admitted'
+const SESSION_LAUNCHED = 'session launched'
+const SESSION_BY_HAND = 'session started by hand'
+const PR_OPEN = 'pull request open'
+const CI_RED = 'ci red'
+const CHANGES_REQUESTED = 'verdict changes'
+const VERDICT_PASS = 'verdict pass'
+const PR_MERGED = 'pull request merged'
+const FELL = 'fell'
+const DEFERRED_BY_THE_OWNER = 'deferred by the owner'
+const STOPPED_FOR_THE_OWNER = 'stopped on an owner question'
+const STOPPED_FOR_THE_AGENT = 'stopped on an agent question'
+
+export const CARD_CONDITIONS: readonly CardCondition[] = [
+  { state: QUEUED_CARD, condition: ADMITTED },
+  { state: RUNNING_CARD, condition: SESSION_LAUNCHED },
+  { state: RUNNING_CARD, condition: SESSION_BY_HAND },
+  { state: IN_REVIEW_CARD, condition: PR_OPEN },
+  { state: IN_REVIEW_CARD, condition: CI_RED },
+  { state: CHANGES_CARD, condition: CHANGES_REQUESTED },
+  { state: READY_CARD, condition: VERDICT_PASS },
+  { state: MERGED_CARD, condition: PR_MERGED },
+  { state: FALLEN_CARD, condition: FELL },
+  { state: DEFERRED_CARD, condition: DEFERRED_BY_THE_OWNER },
+  { state: STOPPED_CARD, condition: STOPPED_FOR_THE_OWNER },
+  { state: STOPPED_CARD, condition: STOPPED_FOR_THE_AGENT },
+]
+
+export function cardAutomaton(): CardAutomaton {
+  return automatonOf([QUEUED_CARD, RUNNING_CARD, IN_REVIEW_CARD, CHANGES_CARD, READY_CARD, MERGED_CARD, CLOSED_CARD, FALLEN_CARD, STOPPED_CARD, DROPPED_CARD, DEFERRED_CARD], [CLOSED_CARD, DROPPED_CARD], CARD_CONDITIONS)
+}
+
+export interface NamedQueueSource {
+  node: string
+  source: QueueSource
+}
+
+export function namedQueueSources(): NamedQueueSource[] {
   const rules = candidateRules()
   return [
-    NO_CARD_TREE_SOURCE,
-    witnessSource(),
-    mergeSource(mergeParts()),
-    DOWNGRADE_PARKED_SOURCE,
-    dueAgainSource((db, ts) => [...mergeCandidates(db, ts, rules), ...updateCandidates(db, ts, updateParts())]),
-    updateSource(updateParts()),
-    causeGoneSource(reopenedReviews(rules)),
-    stopNoLongerHoldsSource(ownerQuestionAnswered),
-    SETTLE_SOURCE,
-    restartSource(rules),
-    answerSource(answerParts()),
-    LAUNCH_SOURCE,
+    { node: 'answer', source: NO_CARD_TREE_SOURCE },
+    { node: 'witness', source: witnessSource() },
+    { node: 'merge', source: mergeSource(mergeParts()) },
+    { node: 'answer', source: DOWNGRADE_PARKED_SOURCE },
+    { node: 'merge', source: dueAgainSource((db, ts) => [...mergeCandidates(db, ts, rules), ...updateCandidates(db, ts, updateParts())]) },
+    { node: 'update', source: updateSource(updateParts()) },
+    { node: 'review', source: causeGoneSource(reopenedReviews(rules)) },
+    { node: 'answer', source: stopNoLongerHoldsSource(ownerQuestionAnswered) },
+    { node: 'window', source: SETTLE_SOURCE },
+    { node: 'restart', source: restartSource(rules) },
+    { node: 'answer', source: answerSource(answerParts()) },
+    { node: 'launch', source: LAUNCH_SOURCE },
   ]
+}
+
+export function queueSources(): QueueSource[] {
+  return namedQueueSources().map(named => named.source)
+}
+
+function sourceSelects(source: QueueSource): CardsSelected {
+  return (db, ts) => [
+    ...(source.requeue?.(db, ts) ?? []).map(row => row.card_id),
+    ...(source.enqueue?.(db, ts) ?? []).map(task => task.cardId),
+  ]
+}
+
+function openOwnerWaitCards(db: DatabaseSync): number[] {
+  const read = new BusRead(db)
+  const closed = new Set(read.slice(OWNER_WAIT_CLOSED, ['id']).map(event => event.fields.id))
+  return read.where({ card: ANY }).slice(OWNER_WAIT_OPENED, ['id']).filter(event => !closed.has(event.fields.id)).map(event => event.card!)
+}
+
+function cardsDeferredByTheOwner(db: DatabaseSync): number[] {
+  const read = new BusRead(db).where({ card: ANY })
+  const movedLast = new Map(read.slice(CARD_MOVED, [], 'last-per-card').map(event => [event.card!, event.id]))
+  return read.slice(CARD_DEFERRED, [], 'last-per-card').filter(event => (movedLast.get(event.card!) ?? 0) < event.id).map(event => event.card!)
+}
+
+export function nodeCandidates(sources: readonly NamedQueueSource[] = namedQueueSources()): NodeCandidates[] {
+  const rules = candidateRules()
+  return [
+    ...sources.map(named => ({ node: named.node, selects: sourceSelects(named.source) })),
+    { node: 'review', selects: (db, ts) => reviewCandidates(db, ts, rules).map(task => task.cardId) },
+    { node: 'close', selects: (db, ts) => closeCandidates(db, ts, rules).map(task => task.cardId) },
+    { node: 'supervisor', selects: db => unendedStarts(db).map(start => start.card_id) },
+    { node: OWNER, selects: db => [...openOwnerWaitCards(db), ...cardsDeferredByTheOwner(db)] },
+  ]
+}
+
+export function deadEndEvents(db: DatabaseSync): DeadEndEvents {
+  const read = new BusRead(db)
+  return {
+    lastStopReason: (card) => {
+      const reason = read.where({ card }).slice(CARD_STOPPED, ['reason'], 'last')[0]?.fields.reason
+      return typeof reason === 'string' ? reason : null
+    },
+    cardsOfUnclosedOwnerWaits: () => openOwnerWaitCards(db),
+    cardsNobodyHolds: (heldElsewhere, ignoredActor) => read.cardsNobodyHolds(heldElsewhere, ignoredActor),
+  }
+}
+
+export function deadEndParts(db: DatabaseSync, candidates: readonly NodeCandidates[] = nodeCandidates()): DeadEndParts {
+  return { selecting: (card, ts) => selectingNodes(db, ts, candidates, card), events: deadEndEvents(db) }
 }
 
 export function queuePass(): QueuePass {
