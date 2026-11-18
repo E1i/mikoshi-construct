@@ -157,6 +157,11 @@ describe('the standing of a card', () => {
     expect(facts.cards.filter(each => inLiveView(each, standing)).map(each => each.id)).toEqual([1, 2])
   })
 
+  it('an owner hold keeps a running card and an open release card out of LIVE', () => {
+    const heldStanding = standingOf(facts, new Map([[1, 'D-325 holds it'], [2, 'D-325 holds it']]))
+    expect(facts.cards.filter(each => inLiveView(each, heldStanding)).map(each => each.id)).toEqual([])
+  })
+
   it('a non-running card names its release and the first of hold, wait, open depends, lane and queue', () => {
     expect(facts.cards.map(each => standingLine(each, facts, standing, PLAIN_LORE))).toEqual([
       null,
