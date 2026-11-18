@@ -3,7 +3,7 @@ import type { ShiftTask } from '../../../src/card/task-file.js'
 import type { PushPolicy } from '../../../src/commands/attach/record.js'
 import type { AdmittedReach, CompanionRow } from '../../../src/commands/intake/check.js'
 import type { BusCatalog } from '../../ci/card-runs.js'
-import type { ChangedFile, Prediction } from '../../policy/morse/rules.js'
+import type { Prediction } from '../../policy/morse/rules.js'
 import type { CompositionRecord, FollowingReach, GrownDerived, RefusedDerived } from '../../policy/touch-scope.js'
 import type { GhRunner } from '../../ports/gh.js'
 import type { TreeRun } from '../../ports/git.js'
@@ -130,11 +130,18 @@ const CHEAP_DEFAULT_REASON = 'cheap holds as the default path of D-224'
 const REMOVED_LINE = /^-(?!--)(.*)$/gm
 const IMPORT_OR_BLANK = /^\s*(?:import\s.*)?$/
 
-function changedFilesOf(git: TreePrPorts['git'], worktree: string): ChangedFile[] {
-  return changedFilesFrom(
-    git(worktree, ['diff', '--no-renames', '-z', '--name-status', SHIFTED_RANGE]),
-    git(worktree, ['diff', '--no-renames', '-z', '--numstat', SHIFTED_RANGE]),
-  )
+interface DiffEntry {
+  path: string
+  status: string
+}
+
+function nameStatusOf(git: TreePrPorts['git'], worktree: string): string {
+  return git(worktree, ['diff', '--no-renames', '-z', '--name-status', SHIFTED_RANGE])
+}
+
+function diffEntriesOf(nameStatus: string): DiffEntry[] {
+  const records = nameStatus.split('\0').filter(record => record !== '')
+  return Array.from({ length: Math.floor(records.length / 2) }, (_, index) => ({ status: records[2 * index]!, path: records[2 * index + 1]! }))
 }
 
 function removesOnlyImportsOrBlanks(git: TreePrPorts['git'], worktree: string, files: string[]): boolean {
@@ -163,23 +170,24 @@ function pathReason(git: TreePrPorts['git'], worktree: string, card: TreeCard, p
 
 interface ShiftedPath {
   line: string
-  files: ChangedFile[]
+  files: DiffEntry[]
 }
 
-function shiftedPath(git: TreePrPorts['git'], worktree: string, card: TreeCard, report: string | null): ShiftedPath {
+function predictedLine(git: TreePrPorts['git'], worktree: string, card: TreeCard, report: string | null, nameStatus: string): string {
   try {
-    const files = changedFilesOf(git, worktree)
-    const prediction = classify(files)
-    return {
-      line: `Path: ${card.contour} · MORSE predicts ${prediction.verdict} by rule ${prediction.rule} (${prediction.why.join(', ')}) · ${pathReason(git, worktree, card, prediction, report)}`,
-      files,
-    }
+    const prediction = classify(changedFilesFrom(nameStatus, git(worktree, ['diff', '--no-renames', '-z', '--numstat', SHIFTED_RANGE])))
+    return `Path: ${card.contour} · MORSE predicts ${prediction.verdict} by rule ${prediction.rule} (${prediction.why.join(', ')}) · ${pathReason(git, worktree, card, prediction, report)}`
   }
   catch (error) {
     if (!(error instanceof MorseRefusal))
       throw error
-    return { line: `Path: ${card.contour} · MORSE gave no prediction: ${error.message} · the ${card.contour} path is held without a named reason`, files: [] }
+    return `Path: ${card.contour} · MORSE gave no prediction: ${error.message} · the ${card.contour} path is held without a named reason`
   }
+}
+
+function shiftedPath(git: TreePrPorts['git'], worktree: string, card: TreeCard, report: string | null): ShiftedPath {
+  const nameStatus = nameStatusOf(git, worktree)
+  return { line: predictedLine(git, worktree, card, report, nameStatus), files: diffEntriesOf(nameStatus) }
 }
 
 function publishedRootsAt(git: TreePrPorts['git'], worktree: string): string[] {
@@ -315,7 +323,7 @@ interface ChangedOutside extends TouchesFollowed {
   grown: GrownDerived[]
 }
 
-function changedOutsideTouches(git: TreePrPorts['git'], worktree: string, files: readonly ChangedFile[], card: TreeCard, run: TreeRun): ChangedOutside {
+function changedOutsideTouches(git: TreePrPorts['git'], worktree: string, files: readonly DiffEntry[], card: TreeCard, run: TreeRun): ChangedOutside {
   const outside = files.map(file => file.path).filter(file => !withinTouches(file, card.touches) && !runsCover(file, card.runs))
   const derived = derivedSplit(git, worktree, outside, run)
   const added = new Set(files.filter(file => file.status === 'A').map(file => file.path))
@@ -349,14 +357,18 @@ function fullReadingNote(why: string | undefined): string {
   return why === undefined ? '' : `; Runs read in full: ${why}, so only the paths the card names count as its runs`
 }
 
+function matrixGap(unmatrixed: string, codeMatrix: string): FormatGap {
+  return { reason: 'no-matrix-line', lacks: `the code matrix count line ■ n □ n · n its change to ${unmatrixed} requires (${codeMatrix})`, task: `write the code matrix of ${codeMatrix} and its count line ■ n □ n · n into the shift report`, paths: [] }
+}
+
 function formatGaps(body: string, shifted: ShiftedPath, publishedRoots: readonly string[], outsideTouches: readonly string[], codeMatrix: string | null, fullReading: string | undefined): FormatGap[] {
   const paths = shifted.files.map(file => file.path)
   const unmatrixed = codeMatrix === null ? undefined : pathWithoutMatrix(body, paths)
   const published = paths.find(file => PUBLISHED_CODE.touched(file, publishedRoots))
   const changeset = shifted.files.some(file => file.status !== 'D' && CHANGESET_FILE.test(file.path))
   const gaps: FormatGap[] = []
-  if (unmatrixed !== undefined)
-    gaps.push({ reason: 'no-matrix-line', lacks: `the code matrix count line ■ n □ n · n its change to ${unmatrixed} requires (${codeMatrix})`, task: `write the code matrix of ${codeMatrix} and its count line ■ n □ n · n into the shift report`, paths: [] })
+  if (codeMatrix !== null && unmatrixed !== undefined)
+    gaps.push(matrixGap(unmatrixed, codeMatrix))
   if (published !== undefined && !changeset)
     gaps.push({ reason: 'no-changeset', lacks: `the changeset its change to the published ${published} requires`, task: `add a .changeset/*.md file for the change to ${published}`, paths: [] })
   if (outsideTouches.length > 0)
@@ -393,6 +405,25 @@ function prBodyOf(card: TreeCard, path: string, touched: ChangedOutside, countLi
 function openPrOf(ports: TreePrPorts, branch: string): string | null {
   const open = JSON.parse(ports.gh(['pr', 'list', '--head', branch, '--state', 'open', '--json', 'number'])) as { number: number }[]
   return open.length === 0 ? null : String(open[0]!.number)
+}
+
+function openPrMatrixGap(ports: TreePrPorts, worktree: string, pr: string, report: string | null): FormatGap | null {
+  const codeMatrix = readShiftGate(worktree).codeMatrix
+  if (codeMatrix === null)
+    return null
+  const body = ports.gh(['pr', 'view', pr, '--json', 'body', '-q', '.body']).trimEnd()
+  const unmatrixed = pathWithoutMatrix(body, diffEntriesOf(nameStatusOf(ports.git, worktree)).map(file => file.path))
+  if (unmatrixed === undefined)
+    return null
+  const countLine = matrixCountLineOf(report)
+  if (countLine === undefined)
+    return matrixGap(unmatrixed, codeMatrix)
+  ports.gh(['pr', 'edit', pr, '--body', `${body}\n\n${countLine}`])
+  return null
+}
+
+function lacking(branch: string, gaps: readonly FormatGap[]): TreePr {
+  return { kind: 'problem', why: `the shift opened no pull request for ${branch}: it lacks ${gaps.map(gap => gap.lacks).join('; ')}`, gaps: gaps.map(({ reason, task, paths }) => ({ reason, task, paths })) }
 }
 
 export interface FreshBaseGap {
@@ -557,14 +588,16 @@ export function treePr(ports: TreePrPorts, card: TreeCard, worktree: string, rep
     if (pushed.kind === 'conflict')
       return staleBase(card.branch, worktree, pushed)
     const open = openPrOf(ports, card.branch)
-    if (open !== null)
-      return { kind: 'pr', number: open, followed: [] }
+    if (open !== null) {
+      const gap = openPrMatrixGap(ports, worktree, open, report)
+      return gap === null ? { kind: 'pr', number: open, followed: [] } : lacking(card.branch, [gap])
+    }
     const shifted = shiftedPath(ports.git, worktree, card, report)
     const touched = changedOutsideTouches(ports.git, worktree, shifted.files, card, ports.rebuild ?? pnpmRerun)
     const body = prBodyOf(card, shifted.line, touched, matrixCountLineOf(report))
     const gaps = [...formatGaps(body, shifted, publishedRootsAt(ports.git, worktree), touched.outside, readShiftGate(worktree).codeMatrix, card.fullReading), ...derivedGaps(worktree, [...touched.refused, ...unwaitedGrowth(ports, touched.grown)])]
     if (gaps.length > 0)
-      return { kind: 'problem', why: `the shift opened no pull request for ${card.branch}: it lacks ${gaps.map(gap => gap.lacks).join('; ')}`, gaps: gaps.map(({ reason, task, paths }) => ({ reason, task, paths })) }
+      return lacking(card.branch, gaps)
     const created = ports.gh(['pr', 'create', '--head', card.branch, '--base', 'main', '--title', card.title, '--body', body])
     const number = PR_URL_NUMBER.exec(created.trim())?.[1]
     if (number === undefined)
