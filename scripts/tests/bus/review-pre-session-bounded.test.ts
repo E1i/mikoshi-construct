@@ -20,20 +20,18 @@ const substitute = vi.hoisted(() => ({ script: null as string | null, children: 
 
 vi.mock('node:child_process', async (importOriginal) => {
   const actual = await importOriginal<typeof ChildProcesses>()
-  const execFile = (file: string, args: readonly string[], options: ChildProcesses.ExecFileOptions, callback: (error: Error | null, stdout: string, stderr: string) => void): ChildProcesses.ChildProcess => {
-    const child = substitute.script === null
-      ? actual.execFile(file, args, options, callback as never)
-      : actual.execFile(file, ['-e', substitute.script], options, callback as never)
+  const spawn = (file: string, args: readonly string[], options: ChildProcesses.SpawnOptions): ChildProcesses.ChildProcess => {
+    const child = actual.spawn(file, substitute.script === null ? args : ['-e', substitute.script], options)
     substitute.children.push(child)
     return child
   }
-  return { ...actual, execFile }
+  return { ...actual, spawn }
 })
 
 const PRS = [1732, 1733] as const
 const LIMIT_MS = 400
 const CHILD_LIMIT_MS = 2_000
-const NEVER_ENDS = 'process.stdin.resume(); setInterval(() => {}, 1000)'
+const IGNORES_SIGTERM_AND_NEVER_ENDS = 'process.on(\'SIGTERM\', () => {}); process.stdin.resume(); setInterval(() => {}, 1000)'
 const cleanups: (() => void)[] = []
 
 afterEach(() => {
@@ -164,11 +162,11 @@ describe('the review node prepares a lease off its heartbeat path and within a l
     expect(said.at(-1)).toMatch(/pre-session work ended in \d+ ms, past its limit at the step plan/)
   }, 30_000)
 
-  it('a busy planning child is killed once the limit passes, not left running', async () => {
+  it('a busy planning child that ignores SIGTERM is killed with SIGKILL once the limit passes, not left running', async () => {
     const bench = benchOf([PRS[0]])
     const said: string[] = []
     let reviewed = 0
-    substitute.script = NEVER_ENDS
+    substitute.script = IGNORES_SIGTERM_AND_NEVER_ENDS
     const worker = new ReviewWorker({ silentMs: SILENT_MS, isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }), db: bench.db, gitHub: bench.gitHub.client, publish: bench.gitHub.publish, reviewer: async () => {
       reviewed += 1
       return { verdict: 'pass', findings: [], session: 'never' }
@@ -179,7 +177,7 @@ describe('the review node prepares a lease off its heartbeat path and within a l
     expect(step).toMatchObject({ kind: 'denied', denial: { kind: 'technical', reason: PRE_SESSION_LIMIT } })
     expect(reviewed).toBe(0)
     expect(substitute.children).toHaveLength(1)
-    expect(await signalThatEnded(substitute.children[0]!)).not.toBeNull()
+    expect(await signalThatEnded(substitute.children[0]!)).toBe('SIGKILL')
   }, 30_000)
 
   it('a planner that fails because the limit aborted it ends in the denial, not in a full-review fallback', async () => {
