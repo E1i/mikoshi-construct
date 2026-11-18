@@ -151,6 +151,7 @@ export const MODULE_OWNS: Readonly<Record<string, readonly string[]>> = {
     `${FACTORY_ROOT}/nodes/review/dry-run-record.ts`,
     `${FACTORY_ROOT}/core/merge-event.ts`,
     `${FACTORY_ROOT}/core/pr-folds.ts`,
+    `${FACTORY_ROOT}/core/pr-status.ts`,
   ],
   'project': [
     'src/commands/attach/**',

@@ -2230,20 +2230,6 @@
   },
   {
     "type": "dependency",
-    "from": "scripts/ports/pr-status.ts",
-    "to": "scripts/window/operator-work.ts",
-    "unresolvedTo": "../window/operator-work.js",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "ports-imports-nothing-to-its-right"
-    }
-  },
-  {
-    "type": "dependency",
     "from": "scripts/ports/task-start.ts",
     "to": "scripts/intake/parking-reads.ts",
     "unresolvedTo": "../intake/parking-reads.js",

@@ -2350,7 +2350,6 @@
           "scripts/policy/shard.ts",
           "scripts/ports/card-tree.ts",
           "scripts/ports/netwatch.ts",
-          "scripts/ports/pr-status.ts",
           "scripts/ports/task-start.ts",
           "scripts/ports/tree-publish.ts",
           "scripts/ports/worktree-home.ts",
@@ -2776,10 +2775,10 @@
         "derived": false,
         "directory": false,
         "namedIn": [
-          "scripts/ports/pr-status.ts",
+          "scripts/core/pr-status.ts",
           "scripts/supervisor/run.ts"
         ],
-        "owner": "scripts/ports/pr-status.ts",
+        "owner": "scripts/core/pr-status.ts",
         "source": "owner",
         "writers": []
       },
@@ -3948,7 +3947,8 @@
           "scripts/nodes/review/record-verdict.ts",
           "scripts/nodes/review/dry-run-record.ts",
           "scripts/core/merge-event.ts",
-          "scripts/core/pr-folds.ts"
+          "scripts/core/pr-folds.ts",
+          "scripts/core/pr-status.ts"
         ],
         "may_use": [
           "bus",
@@ -3961,7 +3961,8 @@
           "scripts/nodes/review/record-verdict.ts",
           "scripts/nodes/review/dry-run-record.ts",
           "scripts/core/merge-event.ts",
-          "scripts/core/pr-folds.ts"
+          "scripts/core/pr-folds.ts",
+          "scripts/core/pr-status.ts"
         ],
         "status": "decided"
       },
@@ -4366,6 +4367,7 @@
       "scripts/core/node.ts": 4,
       "scripts/core/observations.ts": 6,
       "scripts/core/pr-folds.ts": 3,
+      "scripts/core/pr-status.ts": 6,
       "scripts/core/queue.ts": 23,
       "scripts/core/reducer.ts": 4,
       "scripts/core/report.ts": 5,
@@ -4416,7 +4418,6 @@
       "scripts/policy/shards.ts": 3,
       "scripts/ports/card-tree.ts": 1,
       "scripts/ports/netwatch.ts": 3,
-      "scripts/ports/pr-status.ts": 6,
       "scripts/ports/task-start.ts": 3,
       "scripts/ports/worktree-home.ts": 1,
       "scripts/release/evidence.ts": 2,
@@ -5816,40 +5817,17 @@
       },
       "scripts/ports/pr-status.ts": {
         "constants": [
-          "LAST_STATUS_SET_ON_HEAD",
-          "PREFIX",
-          "STATUS_ACTOR",
-          "STATUS_BATCH",
-          "STATUS_CONTEXT",
-          "STATUS_CURSOR",
-          "STATUS_OFF_FILE",
-          "STEP_EVENTS",
           "TECHNOLOGY_WORDS"
         ],
-        "functions": {
-          "setStepStatuses": "(db: DatabaseSync, post: GitHubPost, now: () => Date = () => new Date(), batch = STATUS_BATCH): StepStatus[]",
-          "statusFailureLine": "(error: unknown): string",
-          "statusFields": "(status: StepStatus): Record<string, string>",
-          "statusLine": "(status: StepStatus): string",
-          "statusesSwitchedOff": "(busPath: string): boolean",
-          "stepStatusOf": "(event: StepEvent): StepStatus | null"
-        },
+        "functions": {},
         "language": "technology",
         "reexports": [
           "ghApiPost"
         ],
         "technologyWords": [
-          "database",
-          "gh",
-          "git"
+          "gh"
         ],
-        "types": {
-          "GitHubPost": "type GitHubPost = GitHubPut",
-          "StatusRefusedForNow": "class StatusRefusedForNow extends Error {  }",
-          "StatusState": "type StatusState = 'pending' | 'success' | 'failure'",
-          "StepEvent": "interface StepEvent { id: number; type: string; pr: number | null; head: string | null; payload: string; }",
-          "StepStatus": "interface StepStatus { pr: number; head: string; step: string; state: StatusState; refused?: number; }"
-        }
+        "types": {}
       },
       "scripts/ports/prepare-tree.ts": {
         "constants": [

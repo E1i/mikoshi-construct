@@ -8,7 +8,8 @@
     "scripts/nodes/review/record-verdict.ts",
     "scripts/nodes/review/dry-run-record.ts",
     "scripts/core/merge-event.ts",
-    "scripts/core/pr-folds.ts"
+    "scripts/core/pr-folds.ts",
+    "scripts/core/pr-status.ts"
   ],
   "exclude": [],
   "shared": []
