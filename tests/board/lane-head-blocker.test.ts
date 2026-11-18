@@ -96,8 +96,8 @@ function expectedHeads(bus: FixtureBus): { lane: string, card: number, reason: s
   return heads.map(([card, hold]) => ({ lane: currentLane(bus.db, card)!, card, reason: holdReason(hold) }))
 }
 
-describe('the board names what holds the head of each lane', () => {
-  it('each lane with queued cards shows what holds its head', () => {
+describe('the board prints no lane head, though the bus still reads what holds each one', () => {
+  it('the facts carry the held heads while the text board and the page JSON print none', () => {
     const bus = heldBus()
     const expected = expectedHeads(bus)
     expect(new Set(expected.map(head => head.lane)).size).toBe(2)
@@ -108,13 +108,12 @@ describe('the board names what holds the head of each lane', () => {
     expect(reading.facts.laneHeads).toEqual(expect.arrayContaining(expected))
     expect(reading.facts.laneHeads).toHaveLength(2)
 
-    const text = screenLines(reading.facts, PLAIN_LORE).filter(line => line.includes('lane head'))
-    expect(text).toHaveLength(2)
+    const text = screenLines(reading.facts, PLAIN_LORE)
+    expect(text.filter(line => line.includes('lane head'))).toEqual([])
     for (const head of expected)
-      expect(text.filter(line => line.includes(head.lane) && line.includes(`#${head.card}`) && line.includes(head.reason))).toHaveLength(1)
+      expect(text.filter(line => line.includes(head.lane))).toEqual([])
 
     const json = JSON.parse(busJson(bus.db, NOW)) as { laneHeads?: unknown }
-    expect(json.laneHeads).toEqual(expect.arrayContaining(expected))
-    expect(json.laneHeads).toHaveLength(2)
+    expect(json.laneHeads).toBeUndefined()
   })
 })

@@ -4,7 +4,6 @@ import type { WaitKind, WaitLifter } from '../core/events.js'
 import type { Queue } from '../core/identifiers.js'
 import type { LeaseOrder } from '../core/lease.js'
 import type { WindowShard } from '../policy/shards.js'
-import path from 'node:path'
 import { goalOf } from '../../src/commands/board/goal.js'
 import { isLaneName } from '../../src/commands/intake/admit.js'
 import { DROPPED_CARD, FALLEN_CARD, MERGED_CARD, QUEUED_CARD, STOPPED_CARD } from '../core/card-automaton.js'
@@ -72,13 +71,6 @@ export interface QueueCard {
   lane: string
   reason: string
   wait: CardWait
-}
-
-export interface LaneRow {
-  lane: string
-  card: number | null
-  state: string | null
-  since: string | null
 }
 
 export interface ComponentHealth {
@@ -158,7 +150,6 @@ export interface Board {
   waiting: QueueCard[]
   blocked: QueueCard[]
   waitsAt: number
-  lanes: LaneRow[]
   window: ComponentHealth
   shard: ActiveShard | null
   shardDecisions: ShardDecision[]
@@ -173,9 +164,8 @@ export interface Board {
 
 const STAGE_WORKER: Record<string, string> = { 'review': 'review', 'awaiting merge': 'merge', 'fixes': 'answer' }
 
-interface ChainLane {
+interface ChainRow {
   dir: string
-  parking: string
   card_id: number
   state: string
   since: string | null
@@ -188,7 +178,7 @@ function mergedSinceItsLastStart(card: string): string {
 }
 
 const CHAINS = `
-  SELECT chains.dir, chains.parking, chains.card_id, chains.state,
+  SELECT chains.dir, chains.card_id, chains.state,
     (SELECT min(seen.ts) FROM events AS seen WHERE seen.type = '${CHAIN_OBSERVED}' AND seen.card_id = chains.card_id AND json_extract(seen.payload, '$.dir') = chains.dir) AS since,
     (SELECT json_extract(folded.payload, '$.waitingOn') FROM events AS folded WHERE folded.id = chains.event_id) AS waiting_on
   FROM chains
@@ -257,7 +247,7 @@ const PROJECTED_QUEUE = `
   WHERE body.who = 'shift' AND (cards.state IS NULL OR cards.state IN ('${QUEUED_CARD}', '${FALLEN_CARD}', '${STOPPED_CARD}'))
     AND NOT EXISTS (SELECT 1 FROM chains WHERE chains.card_id = body.card_id AND chains.state != 'stopped')
     AND NOT ${mergedSinceItsLastStart('body.card_id')}
-  ORDER BY body.priority IS NOT 'p0', body.lane, body.card_id
+  ORDER BY body.priority IS NOT 'p0', body.card_id
 `
 
 const LEASED_TASKS = `
@@ -357,14 +347,6 @@ function projectedQueue(db: DatabaseSync, now: Date): Pick<Board, 'ready' | 'wai
   return queue
 }
 
-function laneBlock(chains: readonly ChainLane[]): LaneRow[] {
-  const names = [...new Set(chains.map(chain => path.basename(chain.parking)))].sort()
-  return names.map((lane) => {
-    const active = chains.find(chain => path.basename(chain.parking) === lane && chain.state !== 'stopped')
-    return active === undefined ? { lane, card: null, state: null, since: null } : { lane, card: active.card_id, state: active.state, since: active.since }
-  })
-}
-
 function lastSigns(db: DatabaseSync): Map<string, string> {
   const rows = db.prepare(`SELECT actor, max(ts) AS ts FROM events WHERE legacy = 0 AND actor IS NOT NULL GROUP BY actor`).all() as { actor: string, ts: string }[]
   return new Map(rows.map(row => [row.actor, row.ts]))
@@ -428,14 +410,14 @@ function markersOf(stage: string, down: ReadonlySet<string>): string[] {
   return worker !== undefined && down.has(worker) ? [`${worker} down`] : []
 }
 
-function stageOfChain(chain: ChainLane): string {
+function stageOfChain(chain: ChainRow): string {
   if (chain.state !== WAITING)
     return 'writing'
   const cards = JSON.parse(chain.waiting_on ?? '[]') as number[]
   return `waiting on ${cards.map(card => `#${card}`).join(', ')}`
 }
 
-function executionBlock(db: DatabaseSync, now: Date, chains: readonly ChainLane[], down: ReadonlySet<string>): ExecutionRow[] {
+function executionBlock(db: DatabaseSync, now: Date, chains: readonly ChainRow[], down: ReadonlySet<string>): ExecutionRow[] {
   const open = db.prepare(OPEN_PRS).all() as unknown as OpenPrRow[]
   const withPr = new Set(open.map(row => row.card_id))
   const writing = chains.filter(chain => chain.state !== 'stopped' && !withPr.has(chain.card_id))
@@ -575,7 +557,7 @@ export function windowGauges(db: DatabaseSync): WindowGauges | null {
 
 export function readBoard(sources: BoardSources): Board {
   const { db, now } = sources
-  const chains = db.prepare(CHAINS).all() as unknown as ChainLane[]
+  const chains = db.prepare(CHAINS).all() as unknown as ChainRow[]
   const signs = lastSigns(db)
   const health = [
     ...sources.watched.map(watched => componentHealth(db, signs, now, watched)),
@@ -588,7 +570,6 @@ export function readBoard(sources: BoardSources): Board {
     at: now.toISOString(),
     goal: goalOf(db, now),
     ...queue,
-    lanes: laneBlock(chains),
     window: health.find(component => component.name === 'Operator')!,
     shard: activeShard(db, now),
     shardDecisions: shardDecisions(db),

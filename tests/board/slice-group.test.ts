@@ -66,7 +66,7 @@ describe('the board groups slices under one task line', () => {
     }])
   })
 
-  it('prints one task line in text with the slices of both lanes under it and whole cards by lane', () => {
+  it('prints one task line in text with every slice under it, naming no lane, and whole cards after it', () => {
     const lines = backlogLines(CARDS, PLAIN_LORE, CARDS, facts().waits)
     expect(lines.slice(0, 4)).toEqual([
       TASK_LINE,
@@ -74,9 +74,10 @@ describe('the board groups slices under one task line', () => {
       expect.stringContaining(`#${WAITING_SLICE} card-${WAITING_SLICE}`),
       expect.stringContaining(`#${PLANNED_SLICE} card-${PLANNED_SLICE}`),
     ])
-    expect(lines[1]).toContain(`◧ 1/${SLICES} · of #${TASK} · lane-1`)
-    expect(lines[2]).toContain(`◧ 2/${SLICES} · of #${TASK} · lane-2`)
-    expect(lines[3]).toContain(`◧ 3/${SLICES} · of #${TASK} · lane-1`)
+    expect(lines[1]).toContain(`◧ 1/${SLICES} · of #${TASK} · `)
+    expect(lines[2]).toContain(`◧ 2/${SLICES} · of #${TASK} · `)
+    expect(lines[3]).toContain(`◧ 3/${SLICES} · of #${TASK} · `)
+    expect(lines.filter(line => line.includes('lane'))).toEqual([])
     expect(lines.filter(line => line.includes(`task #${TASK}`))).toHaveLength(1)
     expect(lines.slice(4).some(line => line.includes(`#${WHOLE}`))).toBe(true)
     expect(lines.slice(4).some(line => line.includes('◧'))).toBe(false)

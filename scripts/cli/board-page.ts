@@ -23,7 +23,7 @@ import { RUNS_PREFIX } from '../../src/card/covering-tests.js'
 import { fieldCommand } from '../../src/card/witness-fields.js'
 import { busFacts, CARD_STAGES, latestCardEvents, openTasks } from '../../src/commands/board/bus.js'
 import { DROPPED, droppedLine, goalOf, MARK_WORDS, planLine } from '../../src/commands/board/goal.js'
-import { backlogCards, counted, isLive, laneColumns, liftedByTheWindow, markedName, matrixLines, screenLines, sliceMark, slotsReading, tallyLine, taskGroupLine, taskGroups, taskTally, waitAction, waitTarget, WINDOW_WAITS_ROLE } from '../../src/commands/board/screens.js'
+import { backlogCards, byStage, counted, isLive, liftedByTheWindow, markedName, matrixLines, screenLines, sliceMark, slotsReading, tallyLine, taskGroupLine, taskGroups, taskTally, waitAction, waitTarget, WINDOW_WAITS_ROLE } from '../../src/commands/board/screens.js'
 import { clientTranscriptReader, factoryLiveness, readTranscript } from '../../src/commands/liveness.js'
 import { BANNER, LORE, PLAIN_LORE } from '../../src/ui/lore.js'
 import { currentVersion, interfaceVersion } from '../../src/version.js'
@@ -477,9 +477,8 @@ function cardRow(card: BusCard): string {
   return `<tr data-card="${card.id}" data-stage="${stage}"${isLive(card) ? ' data-live' : ''}${opener(cardDialog(card.id))}><td class="id">${escaped(markedName(`#${card.id}`, card))}</td>${cells}<td><span class="st" data-stage="${stage}">${stage}</span></td><td>${OPEN_HINT}</td></tr>`
 }
 
-function laneBody(lane: string | null, cards: BusCard[]): string {
-  const inLane = cards.filter(card => card.lane === lane)
-  return `<tbody><tr class="lane"><th colspan="11" scope="rowgroup">${escaped(PLAIN_LORE.boardLaneLine(lane ?? undefined, inLane.length))}</th></tr>${inLane.map(cardRow).join('')}</tbody>`
+function wholeCardsBody(cards: BusCard[]): string[] {
+  return cards.length === 0 ? [] : [`<tbody>${byStage(cards).map(cardRow).join('')}</tbody>`]
 }
 
 function stagesOf(cards: BusCard[]): string[] {
@@ -513,7 +512,7 @@ function backlogSlot(facts: BusFacts): string {
   const chip = (filter: string): string => `<a class="chip" href="#${filterId(filter)}">${escaped(filter)}</a>`
   return [
     `<style>${filters.map(filterRule).join('\n')}</style>`,
-    `<div class="panel-head"><h2 id="h-backlog">${PLAIN_LORE.boardTabBacklog}</h2><span class="meta">${counted(cards.length, 'card')} · grouped by lane, slices under their task</span></div>`,
+    `<div class="panel-head"><h2 id="h-backlog">${PLAIN_LORE.boardTabBacklog}</h2><span class="meta">${counted(cards.length, 'card')} · ordered by state, slices under their task</span></div>`,
     `<nav class="filters" aria-label="Filter by stage">${chip(ALL_FILTER)}${filters.map(chip).join('')}</nav>`,
   ].join('\n')
 }
@@ -528,7 +527,7 @@ function rowsSlot(facts: BusFacts): string {
   return [
     `<thead><tr>${COLUMNS.map(column => `<th scope="col">${column}</th>`).join('')}</tr></thead>`,
     ...taskGroups(cards, facts.cards, facts.waits).map(taskBody),
-    ...laneColumns(whole).map(lane => laneBody(lane, whole)),
+    ...wholeCardsBody(whole),
   ].join('\n')
 }
 
@@ -651,7 +650,6 @@ function cardPunch(card: BusCard, detail: CardDetail, page: BoardPage): string {
     punchField('who', contract?.who, page),
     punchField('priority', contract?.priority, page),
     punchField('risk', contract?.risk, page),
-    punchField('lane', card.lane, page),
     punchField('continue', contract?.continue, page),
     punchField('depends', depends, page),
     punchField('blocks', blocks, page),
@@ -994,7 +992,7 @@ export function busJson(db: DatabaseSync, now: Date, liveOnly = false): string {
   const facts = busFacts(db, now)
   const prs = cardPrs(db)
   const events = latestCardEvents(db, EVENTS_PER_CARD)
-  return `${JSON.stringify({ status: 'live', at: facts.at, pulse: facts.pulse, waits: facts.waits, waitsStale: facts.waitsStale ?? null, cardsStale: facts.cardsStale ?? null, tally: taskTally(facts.cards.filter(isLive)), cards: (liveOnly ? facts.cards.filter(isLive) : facts.cards).map(card => ({ id: card.id, stage: card.stage, state: card.state, lane: card.lane, pr: prs.get(card.id) ?? null, line: card.line, parent: card.parent ?? null, mark: sliceMark(card), events: events.get(card.id) ?? [] })), laneHeads: facts.laneHeads ?? [], tasks: openTasks(db) }, null, 2)}\n`
+  return `${JSON.stringify({ status: 'live', at: facts.at, pulse: facts.pulse, waits: facts.waits, waitsStale: facts.waitsStale ?? null, cardsStale: facts.cardsStale ?? null, tally: taskTally(facts.cards.filter(isLive)), cards: (liveOnly ? facts.cards.filter(isLive) : facts.cards).map(card => ({ id: card.id, stage: card.stage, state: card.state, pr: prs.get(card.id) ?? null, line: card.line, parent: card.parent ?? null, mark: sliceMark(card), events: events.get(card.id) ?? [] })), tasks: openTasks(db) }, null, 2)}\n`
 }
 
 export function renderBoard(page: BoardPage): string {
