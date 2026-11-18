@@ -45,9 +45,11 @@ function writersOf(table: string): string[] {
 }
 
 describe('one writer module per bus table', () => {
-  it.each(Object.entries(WRITERS_OF_TABLE))('%s is written only by its owner module', (table, writers) => {
-    expect(writersOf(table)).toEqual([...writers].sort())
-  })
+  for (const [table, writers] of Object.entries(WRITERS_OF_TABLE)) {
+    it(`${table} is written only by ${writers.join(', ')}`, () => {
+      expect(writersOf(table)).toEqual([...writers].sort())
+    })
+  }
 
   it('reads a write through the table constant as a write of the table', () => {
     const constant = (name: string): string => `$\{${name}}`
