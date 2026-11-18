@@ -91,7 +91,7 @@ export function sdCard(daemon: Daemon): string {
 }
 
 function daemonSlot(daemon: Daemon, index: number, lore: DaemonWords): string {
-  return `<li class="daemon-slot" data-daemon-slot="${escaped(daemon.daemon)}" data-state="${daemonState(daemon)}" tabindex="0">${sdCard(daemon)}<span class="slot-foot"><i class="slot-led"></i>${escaped(lore.boardDaemonSlot(index + 1))}</span></li>`
+  return `<li class="daemon-slot" data-daemon-slot="${escaped(daemon.daemon)}" data-state="${daemonState(daemon)}" tabindex="0"><span class="slot-bay">${sdCard(daemon)}</span><span class="slot-foot"><i class="slot-led"></i>${escaped(lore.boardDaemonSlot(index + 1))}</span></li>`
 }
 
 function daemonPane(daemon: Daemon, shown: boolean, lore: DaemonWords): string {

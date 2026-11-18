@@ -5,7 +5,7 @@ import path from 'node:path'
 import vm from 'node:vm'
 import { afterEach, describe, expect, it } from 'vitest'
 import { LORE, PLAIN_LORE } from '../../../src/ui/lore.js'
-import { DAEMON_READER, daemonCatalog, daemonOf, installedDaemons, LOADED_SOURCE, manifestFields } from '../../cli/board-page/daemon-catalog.js'
+import { ADAPTER_MANIFEST, adapterMutations, ADAPTERS_DIR, DAEMON_READER, daemonCatalog, daemonOf, installedDaemons, LOADED_SOURCE, manifestFields } from '../../cli/board-page/daemon-catalog.js'
 import { ATTACH_RECORD, mikoBay, mikoMode, mikoPanel } from '../../cli/board-page/miko-panel.js'
 
 const SCRIPT = readFileSync(path.resolve(import.meta.dirname, '../../cli/board-page/script.js'), 'utf8')
@@ -13,10 +13,13 @@ const STYLE = readFileSync(path.resolve(import.meta.dirname, '../../cli/board-pa
 const PRESENCE = { model: null, core: null, status: null, handoffBytes: null, skills: [], crawlers: [] }
 const PANEL: MikoPanelParts = { windows: [], bars: () => '', presence: PRESENCE, now: '2026-11-18T12:00:00.000Z', words: { role: 'FIXER', name: 'MIKO', plainTitle: '' }, opener: '', hint: '', idle: null }
 const MANIFESTS: Readonly<Record<string, string>> = {
-  'browser-lab': '---\nname: browser-lab\ndaemon: BROWSER_LAB\ndaemon-sketch: hex-iris\ndaemon-mutations: ver_headed, ver_hands\n---\n\nbody\n',
-  'mcp-devkit': '---\nname: mcp-devkit\ndaemon: MCP_DEVKIT\ndaemon-sketch: adapter-chip\ndaemon-mutations: [ver_stdio]\n---\n',
+  'browser-lab': '---\nname: browser-lab\ndaemon: BROWSER_LAB\ndaemon-sketch: hex-iris\n---\n\nbody\n',
+  'mcp-devkit': '---\nname: mcp-devkit\ndaemon: MCP_DEVKIT\ndaemon-sketch: adapter-chip\n---\n',
   'intake': '---\nname: intake\ndescription: not a daemon\n---\n',
 }
+const ADAPTERS = ['headed', 'hands']
+const NOT_AN_ADAPTER = 'scratch'
+const REPOSITORY_ROOT = path.resolve(import.meta.dirname, '../../..')
 const roots: string[] = []
 
 afterEach(() => {
@@ -31,6 +34,11 @@ function repository(attached = false): string {
     mkdirSync(path.join(root, '.claude/skills', skill), { recursive: true })
     writeFileSync(path.join(root, '.claude/skills', skill, 'SKILL.md'), text)
   }
+  for (const adapter of ADAPTERS) {
+    mkdirSync(path.join(root, ADAPTERS_DIR, adapter), { recursive: true })
+    writeFileSync(path.join(root, ADAPTERS_DIR, adapter, ADAPTER_MANIFEST), '{}')
+  }
+  mkdirSync(path.join(root, ADAPTERS_DIR, NOT_AN_ADAPTER), { recursive: true })
   if (attached) {
     mkdirSync(path.join(root, '.construct'), { recursive: true })
     writeFileSync(path.join(root, ATTACH_RECORD), '{}')
@@ -81,7 +89,7 @@ describe('the daemons cell', () => {
     expect(slot).toContain('--_ink: var(--daemon-ink);')
     expect(slot).toContain('--_sketch: var(--daemon-on);')
     expect(slot).toContain('--_led: var(--led-on);')
-    expect(slot).toContain('&[data-state="sleep"] { --_ink: var(--daemon-ink-off); --_sketch: var(--daemon-off); --_led: var(--daemon-off); --_ride: -20px; }')
+    expect(slot).toContain('&[data-state="sleep"] { --_ink: var(--daemon-ink-off); --_sketch: var(--daemon-off); --_led: var(--daemon-off); --_ride: -20px; --_glow: none; }')
     expect(STYLE).toContain('.sd-card { position: relative; display: grid; inline-size: 4rem; color: var(--_ink); translate: 0 var(--_ride);')
     expect(STYLE).toContain('.sd-frame { fill: var(--panel-raised); stroke: currentColor;')
     expect(STYLE).toContain('.sd-sketch { fill: none; stroke: var(--_sketch);')
@@ -91,8 +99,8 @@ describe('the daemons cell', () => {
     const html = panelOf(repository())
     expect(paneOf(html, 'MCP_DEVKIT')).toContain('data-default data-shown')
     expect(paneOf(html, 'BROWSER_LAB')).not.toContain('data-shown')
-    expect(paneOf(html, 'MCP_DEVKIT')).toContain('<span class="pane-tag">LOADED</span><span class="pane-head">MUTATIONS · 1</span><ul class="pane-mutations"><li>ver_stdio</li></ul>')
-    expect(paneOf(html, 'BROWSER_LAB')).toContain('<span class="pane-tag">SLEEPING</span><span class="pane-head">MUTATIONS · 2</span><ul class="pane-mutations"><li>ver_headed</li><li>ver_hands</li></ul>')
+    expect(paneOf(html, 'MCP_DEVKIT')).toContain('<span class="pane-tag">LOADED</span><span class="pane-head">MUTATIONS · 0</span><ul class="pane-mutations"></ul>')
+    expect(paneOf(html, 'BROWSER_LAB')).toContain('<span class="pane-tag">SLEEPING</span><span class="pane-head">MUTATIONS · 2</span><ul class="pane-mutations"><li>ver_hands</li><li>ver_headed</li></ul>')
   })
 
   it('an empty catalog names the reader it adds and where LOADED is observed', () => {
@@ -207,11 +215,41 @@ describe('the mode', () => {
 })
 
 describe('the daemon catalog reader', () => {
-  it('reads the daemon, its sketch and only its ver_* mutations from the skill manifest frontmatter', () => {
+  it('reads the daemon and its sketch from the skill manifest frontmatter, and no mutation from it', () => {
     expect(manifestFields('---\na: 1\nb:\n---\nc: 3\n')).toEqual(new Map([['a', '1'], ['b', '']]))
-    expect(daemonOf('lab', '---\ndaemon: LAB\ndaemon-mutations: ver_a, other, ver_b\n---\n')).toEqual({ daemon: 'LAB', skill: 'lab', sketch: null, mutations: ['ver_a', 'ver_b'] })
+    expect(daemonOf('lab', '---\ndaemon: LAB\ndaemon-mutations: ver_a, ver_b\n---\n')).toEqual({ daemon: 'LAB', skill: 'lab', sketch: null, mutations: [] })
     expect(daemonOf('intake', MANIFESTS.intake!)).toBeNull()
     expect(daemonOf('x', 'no frontmatter')).toBeNull()
+  })
+
+  it('every adapter directory holding an adapter.json is a ver_<name> mutation of BROWSER_LAB, and of no other daemon', () => {
+    const root = repository()
+    expect(adapterMutations(root)).toEqual(['ver_hands', 'ver_headed'])
+    expect(daemonCatalog(root).map(entry => [entry.daemon, entry.mutations])).toEqual([['BROWSER_LAB', ['ver_hands', 'ver_headed']], ['MCP_DEVKIT', []]])
+  })
+
+  it('the real repository catalogs BROWSER_LAB', () => {
+    const catalog = daemonCatalog(REPOSITORY_ROOT)
+    expect(catalog.map(entry => [entry.daemon, entry.skill, entry.sketch])).toEqual([['BROWSER_LAB', 'browser-lab', 'hex-iris']])
+    expect(catalog[0]!.mutations).toEqual(adapterMutations(REPOSITORY_ROOT))
+    expect(mikoPanel({ ...PANEL, bay: bayOf(REPOSITORY_ROOT, []) })).toContain('<div class="daemons-head">INSTALLED · 1</div>')
+  })
+
+  it('the real repository renders BROWSER_LAB as the design draws it: an SD card in a recessed bay, a LED under it, a divided status pane', () => {
+    const html = mikoPanel({ ...PANEL, bay: bayOf(REPOSITORY_ROOT, ['browser-lab']) })
+    const slot = slotOf(html, 'BROWSER_LAB')
+    expect(slot).toContain('<span class="slot-bay"><div class="sd-card">')
+    expect(slot).toContain('<g class="sd-sketch" data-sketch="hex-iris"><polygon')
+    expect(slot).toContain('<span class="slot-foot"><i class="slot-led"></i>SLOT 01</span>')
+    expect(paneOf(html, 'BROWSER_LAB')).toContain('data-default data-shown')
+    expect(paneOf(html, 'BROWSER_LAB')).toContain('<span class="pane-tag">LOADED</span>')
+    expect(STYLE).toContain('.slot-bay { position: relative; display: flex; justify-content: center; align-items: end; box-sizing: border-box; inline-size: 116px; block-size: 138px; padding-block-end: 6px; background: #080c16; border: 1px solid #232c40;')
+    expect(STYLE).toContain('.daemon-slot:hover .slot-bay, .daemon-slot:focus-visible .slot-bay { border-color: var(--daemon-on); }')
+    expect(STYLE).toContain('--_glow: 0 0 6px var(--_led);')
+    expect(STYLE).toContain('--_ride: -20px; --_glow: none; }')
+    expect(STYLE).toContain('box-shadow: var(--_glow); }')
+    expect(STYLE).toContain('.daemon-status { display: grid; min-inline-size: 8rem; padding-inline-start: 14px; border-inline-start: 1px solid var(--line); }')
+    expect(STYLE).toContain('.pane-mutations li::before { content: \'↳ \'; }')
   })
 
   it('lists daemons by skill directory and marks LOADED only the skills of the current session', () => {
