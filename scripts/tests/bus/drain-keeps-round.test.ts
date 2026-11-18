@@ -13,7 +13,7 @@ import { completeTask, leasedByRetiring, leaseWhileFree, recordWorkerStarted, re
 import { Node, recordChildStarted } from '../../core/node.js'
 import { keyOf, queueTaskWithin } from '../../core/queue.js'
 import { launchName, PREFIX } from '../../supervisor/bg.js'
-import { nodeSupply } from '../../supervisor/composition.js'
+import { cardTransitions, nodeSupply } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { slotsVariable } from '../../supervisor/scheduler.js'
 import { busDrain, BusSupervisor, DRAIN_LIMIT_MS, freeLeasesOf, withoutRetiring } from '../../supervisor/supervisor.js'
@@ -111,7 +111,7 @@ function bench(holderStart: { pid: number, started: string } | null = { pid: OLD
       stopped.push(instance.pid)
       alive = alive.filter(each => each.pid !== instance.pid)
     },
-    freeLeases: list => freeLeasesOf(db, ts(), list),
+    freeLeases: list => freeLeasesOf(db, cardTransitions(), ts(), list),
     drain: busDrain(db, ts),
     processes,
     mainSince: () => [{ id: 1, sha: NEW_MAIN }],
@@ -127,7 +127,7 @@ function bench(holderStart: { pid: number, started: string } | null = { pid: OLD
     journal: () => {},
     now: () => MERGED_AT + clock.now,
   }, 0)
-  const commit = (lease: Lease): void => completeTask(db, ts(), lease, [{ ts: ts(), type: CARD_ANSWERED, actor: lease.actor, cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${CARD_ANSWERED}:${lease.taskKey}`, payload: { head: 'the-commit' }, legacy: false }])
+  const commit = (lease: Lease): void => completeTask(db, cardTransitions(), ts(), lease, [{ ts: ts(), type: CARD_ANSWERED, actor: lease.actor, cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${CARD_ANSWERED}:${lease.taskKey}`, payload: { head: 'the-commit' }, legacy: false }])
   if (holderStart !== null)
     recordWorkerStarted(db, ts(), 'worker:answer:old', holderStart)
   return { db, clock, ts, date, answer, close, started, stopped, alive: () => alive, processes, supervisorOn, commit }
@@ -232,7 +232,7 @@ describe('a restart of the bus code keeps the rounds in flight', () => {
     await supervisorOn().step()
 
     expect(retiringPids(db)).toEqual(new Set([OLD_PID, OLD_WRAPPER_PID]))
-    expect(freeLeasesOf(db, ts(), [answer])).toEqual([])
+    expect(freeLeasesOf(db, cardTransitions(), ts(), [answer])).toEqual([])
     expect(db.prepare('SELECT state FROM tasks WHERE task_key = ?').get(held.taskKey)).toEqual({ state: 'leased' })
     expect(stopped).toEqual([])
     expect(alive().map(each => each.pid)).toEqual(expect.arrayContaining([OLD_WRAPPER_PID, OLD_PID, 701]))
@@ -245,7 +245,7 @@ describe('a restart of the bus code keeps the rounds in flight', () => {
     await supervisorOn().step()
     expect(processes().map(each => each.pid)).not.toContain(OLD_PID)
 
-    completeTask(db, ts(), held, [])
+    completeTask(db, cardTransitions(), ts(), held, [])
 
     expect(retiringPids(db)).toEqual(new Set())
     expect(processes().map(each => each.pid)).toContain(OLD_PID)

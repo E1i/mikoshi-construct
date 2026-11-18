@@ -19,6 +19,7 @@ import { spawnClient } from '../../../nodes/answer/duties/client.js'
 import { AnswerOutcomes } from '../../../nodes/answer/duties/outcomes.js'
 import { BusRead } from '../../../ports/bus-read.js'
 import { OsProcessTable } from '../../../ports/process-table.js'
+import { cardTransitions } from '../../../supervisor/composition.js'
 import { SILENT_MS } from '../../../supervisor/liveness-sites.js'
 import { tableIdentity } from '../../../supervisor/recorded-worker.js'
 import { RESTART_WHY, signalLog } from '../../../supervisor/signal-sent.js'
@@ -112,7 +113,7 @@ async function benchWithALiveSession(): Promise<Bench> {
     log.ended(run, session, ended.code, ended.signal)
     return ended
   })()
-  const outcomes = new AnswerOutcomes({ silentMs: SILENT_MS, db, clock: () => new Date(), ownerMerges: () => '' }, { pathsIn: () => [], ownerBoundary: () => undefined, wideningAsked: () => [] })
+  const outcomes = new AnswerOutcomes({ silentMs: SILENT_MS, db, cards: cardTransitions(), clock: () => new Date(), ownerMerges: () => '' }, { pathsIn: () => [], ownerBoundary: () => undefined, wideningAsked: () => [] })
   const workerExited = new Promise(resolve => worker.once('exit', resolve))
   return { db, lease, worker, session, run, log, sessionEnded, workerExited, outcomes }
 }

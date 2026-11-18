@@ -10,7 +10,7 @@ import { mergeCandidates } from '../../../nodes/merge/merge-candidates.js'
 import { MergeNode } from '../../../nodes/merge/merge-worker.js'
 import { updateCandidates } from '../../../nodes/update/update-candidates.js'
 import { recordDecision } from '../../../policy/decisions/index.js'
-import { candidateRules, updateParts } from '../../../supervisor/composition.js'
+import { candidateRules, cardTransitions, updateParts } from '../../../supervisor/composition.js'
 import { SILENT_MS } from '../../../supervisor/liveness-sites.js'
 import { cardBody, sha } from '../github-fake.js'
 import { eventsOf, mergeBench } from '../merge-bench.js'
@@ -107,14 +107,14 @@ describe('conveyor O4: a decision scoped to a card supersedes its merge and upda
     const review = { queue: 'review' as const, cardId: CARD, pr: PR, head: HEAD, input: reviewInputOf(prBody, null) }
     queueTask(bench.db, o4.ts(), review)
     const lease = leaseNext(bench.db, o4.ts(), 'review', 'worker:review:reviewer-1')!
-    completeTask(bench.db, o4.ts(), lease, [])
+    completeTask(bench.db, cardTransitions(), o4.ts(), lease, [])
     expect(stateOf(bench, keyOf(review))).toBe('completed')
 
     decide(o4, DECISION)
     bench.tick()
     expect(stateOf(bench, keyOf(review))).toBe('queued')
     const again = leaseNext(bench.db, o4.ts(), 'review', 'worker:review:reviewer-1')!
-    completeTask(bench.db, o4.ts(), again, [])
+    completeTask(bench.db, cardTransitions(), o4.ts(), again, [])
     bench.tick()
     expect(stateOf(bench, keyOf(review))).toBe('completed')
 

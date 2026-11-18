@@ -11,7 +11,7 @@ import { FOLDED_ON_APPEND, replayDifferences } from '../../core/report.js'
 import { watermarkOf } from '../../core/watermark.js'
 import { withdrawLegacyLaunchTasks } from '../../nodes/launch/launch-withdraw.js'
 import { observeRoleStop, returnEndedRole, returnSilentRole, ROLE_FOLDS, roleToOwner } from '../../nodes/restart/role.js'
-import { busProjections } from '../../supervisor/composition.js'
+import { busProjections, cardTransitions } from '../../supervisor/composition.js'
 import { recordHeartbeat } from '../../supervisor/heartbeat.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { recordWindowHeartbeat } from '../../window/window-heartbeat.js'
@@ -51,12 +51,12 @@ function liveTasks(): DatabaseSync {
   const done = leaseNext(db, at(1), 'launch', ACTOR)!
   renewLease(db, at(2), done)
   recordHeartbeat(db, at(3), { card: done.cardId, pr: null, head: null, step: 'launch', session: 'session-1', lease: { taskKey: done.taskKey, leaseGen: done.leaseGen } })
-  completeTask(db, at(4), done, [])
+  completeTask(db, cardTransitions(), at(4), done, [])
   for (let failure = 1; failure <= FAILURES_TO_STOP; failure += 1)
-    failTask(db, at(10 + failure), leaseNext(db, at(10 + failure), 'launch', ACTOR)!, { reason: 'session_failed', withdraw: false }, SILENT_MS)
-  releaseTask(db, at(20), leaseNext(db, at(20), 'launch', ACTOR)!, 'drain')
+    failTask(db, cardTransitions(), at(10 + failure), leaseNext(db, at(10 + failure), 'launch', ACTOR)!, { reason: 'session_failed', withdraw: false }, SILENT_MS)
+  releaseTask(db, cardTransitions(), at(20), leaseNext(db, at(20), 'launch', ACTOR)!, 'drain')
   leaseNext(db, at(30), 'launch', ACTOR)
-  expireLeases(db, at(31 + LEASE_MS), SILENT_MS)
+  expireLeases(db, cardTransitions(), at(31 + LEASE_MS), SILENT_MS)
   withdrawLegacyLaunchTasks(db, at(40 + LEASE_MS))
   return db
 }
@@ -78,9 +78,9 @@ function liveChainsAndCards(): DatabaseSync {
   observeChain(db, at(3), CHAIN_ACTOR, { dir: '/chains/a', parking: 'lane-1', cardId: 1, sha: SHA_A, pid: 101, leader: 101, boundary: true, state: 'waiting', waitingOn: [2] })
   queueTask(db, at(4), { queue: 'launch', cardId: 2, generation: 'admission-2' })
   for (let failure = 1; failure <= FAILURES_TO_STOP; failure += 1)
-    failTask(db, at(10 + failure), leaseNext(db, at(10 + failure), 'launch', ACTOR)!, { reason: 'session_failed', withdraw: false }, SILENT_MS)
+    failTask(db, cardTransitions(), at(10 + failure), leaseNext(db, at(10 + failure), 'launch', ACTOR)!, { reason: 'session_failed', withdraw: false }, SILENT_MS)
   queueTask(db, at(20), { queue: 'launch', cardId: 1, generation: 'admission-1' })
-  completeTask(db, at(21), leaseNext(db, at(21), 'launch', ACTOR)!, [cardEvent(21, REVIEW_RECORDED, 1, 11, { verdict: 'pass' }), cardEvent(22, MERGE_DONE, 1, 11, { commit: SHA_B, rule: 'auto' })])
+  completeTask(db, cardTransitions(), at(21), leaseNext(db, at(21), 'launch', ACTOR)!, [cardEvent(21, REVIEW_RECORDED, 1, 11, { verdict: 'pass' }), cardEvent(22, MERGE_DONE, 1, 11, { commit: SHA_B, rule: 'auto' })])
   observeChain(db, at(30), CHAIN_ACTOR, { dir: '/chains/b', parking: 'lane-2', cardId: 2, sha: SHA_B, pid: 202, leader: 202, boundary: false, state: 'stopped' })
   return db
 }

@@ -16,6 +16,7 @@ import { FAILURES_TO_STOP } from '../../core/queue.js'
 import { PreflightRefusal, runPreflight } from '../../ladder/preflight.js'
 import { LaunchExecutor } from '../../nodes/launch/launch-executor.js'
 import { DISK_FLOOR_BYTES, DISK_LOW, diskLowDetail, freeBytes } from '../../ports/disk.js'
+import { cardTransitions } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { eventsOf, mergeBench, taskState } from './merge-bench.js'
 
@@ -45,7 +46,7 @@ function launchOnce(disk: DiskReader, rounds = 1) {
   const bench = mergeBench()
   try {
     const starter = new RecordingStarter()
-    const executor = new LaunchExecutor({ silentMs: SILENT_MS, db: bench.db, starter, clock: bench.clock.now, disk, isolation: sandboxed })
+    const executor = new LaunchExecutor({ cards: cardTransitions(), silentMs: SILENT_MS, db: bench.db, starter, clock: bench.clock.now, disk, isolation: sandboxed })
     appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'policy', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${CARD}`, payload: { lane: 'lane-a', decision: 'auto', contour: 'cheap', depends: [], admission: `admission-${CARD}` }, legacy: false })
     bench.tick()
     const outcomes = Array.from({ length: rounds }, () => executor.launch(leaseNext(bench.db, bench.clock.now().toISOString(), 'launch', 'worker:launch:w')!))

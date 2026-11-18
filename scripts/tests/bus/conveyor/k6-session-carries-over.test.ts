@@ -12,6 +12,7 @@ import { queueTask } from '../../../core/queue.js'
 import { AnswerExecutor } from '../../../nodes/answer/answer-executor.js'
 import { cardSessionOf } from '../../../nodes/answer/answer-source.js'
 import { claudeAnswerer } from '../../../nodes/answer/answerer.js'
+import { cardTransitions } from '../../../supervisor/composition.js'
 import { SILENT_MS } from '../../../supervisor/liveness-sites.js'
 import { sha } from '../github-fake.js'
 import { eventsOf, mergeBench, taskState } from '../merge-bench.js'
@@ -100,7 +101,7 @@ describe('scenario 08: the session carries over between rounds', () => {
       context: session => contexts.get(session) ?? null,
       contextWarn: () => CONTEXT_WARN,
     })
-    const executor = new AnswerExecutor({ silentMs: SILENT_MS, db: card.made.db, answerer, ownerMerges: () => readFileSync('architecture/owner-merges.md', 'utf8'), clock: card.made.clock.now, trees: cardTrees })
+    const executor = new AnswerExecutor({ cards: cardTransitions(), silentMs: SILENT_MS, db: card.made.db, answerer, ownerMerges: () => readFileSync('architecture/owner-merges.md', 'utf8'), clock: card.made.clock.now, trees: cardTrees })
 
     expect(await executor.answer(lease)).toMatchObject({ kind: 'answered', session: ANSWER_SESSION, resumed: true, head: sha('c') })
     expect(ranIn).toEqual([ANSWER_SESSION])

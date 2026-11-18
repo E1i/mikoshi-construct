@@ -13,7 +13,7 @@ import { keyOf } from '../../core/queue.js'
 import { updateCandidates } from '../../nodes/update/update-candidates.js'
 import { UpdateExecutor } from '../../nodes/update/update-executor.js'
 import { UpdateNode } from '../../nodes/update/update-worker.js'
-import { updateParts } from '../../supervisor/composition.js'
+import { cardTransitions, updateParts } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { MAIN_2, sha } from './github-fake.js'
 import { eventsOf, liveBench, mainMovesPastEveryPr, mergeBench, taskState } from './merge-bench.js'
@@ -81,7 +81,7 @@ function behindAndLeased(parts: Partial<ConstructorParameters<typeof UpdateExecu
   made.tick()
   mainMovesPastEveryPr(made)
   detectUpdate(made)
-  const executor = new UpdateExecutor({ source: updateParts(), silentMs: SILENT_MS, db: made.db, gitHub: made.gitHub.client, put: made.gitHub.put, publish: made.gitHub.publish, clock: made.clock.now, settle: () => {}, ...parts })
+  const executor = new UpdateExecutor({ cards: cardTransitions(), source: updateParts(), silentMs: SILENT_MS, db: made.db, gitHub: made.gitHub.client, put: made.gitHub.put, publish: made.gitHub.publish, clock: made.clock.now, settle: () => {}, ...parts })
   return { made, outcome: executor.update(leaseNext(made.db, made.clock.now().toISOString(), 'update', 'worker:update:worker-1')!) }
 }
 

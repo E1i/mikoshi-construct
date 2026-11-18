@@ -16,7 +16,7 @@ import { FACTORY_WORKERS } from '../../core/factory-paths.js'
 import { completeTask } from '../../core/lease.js'
 import { foreignVersion, Node, runNode, SWITCH_FLAG, UNDERSTOOD_NOW } from '../../core/node.js'
 import { queueTaskWithin } from '../../core/queue.js'
-import { nodeSupply } from '../../supervisor/composition.js'
+import { cardTransitions, nodeSupply } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { Clock } from './github-fake.js'
 
@@ -60,7 +60,7 @@ class DeclaredNode extends Node<NodeStep> {
 
   protected handle(lease: Lease): NodeStep {
     this.handled.push(lease.taskKey)
-    completeTask(this.db, new Date().toISOString(), lease, [])
+    completeTask(this.db, cardTransitions(), new Date().toISOString(), lease, [])
     return { kind: 'done', taskKey: lease.taskKey }
   }
 }

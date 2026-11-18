@@ -1,5 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
-import type { HolderStart } from '../../core/lease.js'
+import type { CardTransitions, HolderStart } from '../../core/lease.js'
 import type { ProcessTable } from './chain-process.js'
 import type { DeadChain, RestartOutcome } from './restart-executor.js'
 import type { RoleReturned, RoleToOwner } from './role.js'
@@ -13,7 +13,7 @@ import { defaultBusPath, openBus } from '../../core/db.js'
 import { expireLeases, LEASE_MS, leaseNext } from '../../core/lease.js'
 import { DATABASE_LOCKED, isDatabaseLocked, recordWorkerIdentity } from '../../core/node.js'
 import { CHECK_MS, TICK_MS } from '../../ports/netwatch.js'
-import { nodeLiveness, workerIdentity } from '../../supervisor/composition.js'
+import { cardTransitions, nodeLiveness, workerIdentity } from '../../supervisor/composition.js'
 import { ownStart } from '../../supervisor/heartbeat.js'
 import { stampLogOutput } from '../../supervisor/stamp.js'
 import { switchedOn } from '../../supervisor/workers.js'
@@ -38,11 +38,12 @@ export interface RestartWorkerParts {
 export class RestartWorker {
   readonly actor: string
   private readonly executor: RestartExecutor
+  private readonly cards: CardTransitions = cardTransitions()
   private startRecorded = false
 
   constructor(private readonly parts: RestartWorkerParts) {
     this.actor = `worker:restart:${parts.session}`
-    this.executor = new RestartExecutor(parts)
+    this.executor = new RestartExecutor({ ...parts, cards: this.cards })
   }
 
   step(): RestartStep {
@@ -62,7 +63,7 @@ export class RestartWorker {
       recordWorkerIdentity(this.parts.db, ts, workerIdentity(this.actor, this.parts.self ?? ownStart()))
       this.startRecorded = true
     }
-    expireLeases(this.parts.db, ts, this.parts.silentMs)
+    expireLeases(this.parts.db, this.cards, ts, this.parts.silentMs)
     const lease = leaseNext(this.parts.db, ts, 'restart', this.actor)
     if (lease !== null)
       return this.executor.restart(lease)

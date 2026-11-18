@@ -18,7 +18,7 @@ import { cardContract } from '../../intake/card-contract.js'
 import { AnswerExecutor, closeWaitOfAWidenStopTheAmendLifted } from '../../nodes/answer/answer-executor.js'
 import { AnswerOutsideTouches } from '../../nodes/answer/answerer.js'
 import { HEAD_OUTSIDE_TOUCHES } from '../../nodes/merge/merge-executor.js'
-import { busProjections } from '../../supervisor/composition.js'
+import { busProjections, cardTransitions } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { sha } from './github-fake.js'
 import { eventsOf, liveBench, mergeBench } from './merge-bench.js'
@@ -77,7 +77,7 @@ async function refusedOutsideTouches(admitted = 'src/a.ts') {
     return { session: 'card-session-1', resumed: true, before: sha('a'), after: sha('e'), owner: null }
   }
   const trees: CardTreeTools = { home: root, exists: existsSync, branchOf: () => 'feat/bodynodes', recreate: () => {}, bringTo: () => {} }
-  const executor = new AnswerExecutor({ silentMs: SILENT_MS, db: made.db, answerer, ownerMerges: () => '', clock: made.clock.now, trees, liveSession: () => null })
+  const executor = new AnswerExecutor({ cards: cardTransitions(), silentMs: SILENT_MS, db: made.db, answerer, ownerMerges: () => '', clock: made.clock.now, trees, liveSession: () => null })
   const lease = (): Lease | null => leaseNext(made.db, made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1')
   const outcome = await executor.answer(lease()!)
   made.tick()

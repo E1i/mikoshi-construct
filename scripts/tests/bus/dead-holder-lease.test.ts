@@ -12,6 +12,7 @@ import { BOARD_ALARM, TASK_EXPIRED, WORKER_STARTED } from '../../core/events.js'
 import { completeTask, HOLDER_DEAD, HOLDER_UNPROVEN, judgeHolders, LEASE_MS, leaseNext, leaseQueued, leaseWhileFree, recordWorkerStarted, releaseTask, renewLease, SAME_START_MS, StaleLease, WORKER_HUNG } from '../../core/lease.js'
 import { InMemoryProcessTable } from '../../ports/process-table.js'
 import { launchName, PREFIX } from '../../supervisor/bg.js'
+import { cardTransitions } from '../../supervisor/composition.js'
 import { ownStart } from '../../supervisor/heartbeat.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { busDrain, BusSupervisor, freeLeasesOf, LivenessJudge, lstartToIso, psStartOf } from '../../supervisor/supervisor.js'
@@ -100,7 +101,7 @@ describe('a lease whose holder process is dead is freed at once', () => {
     b.start(NEW_HOLDER, NEW_PID)
     const taken = leaseQueued(b.db, b.ts(), lease.taskKey, NEW_HOLDER)!
     expect(taken.leaseGen).toBe(lease.leaseGen + 1)
-    completeTask(b.db, b.ts(), taken, [])
+    completeTask(b.db, cardTransitions(), b.ts(), taken, [])
     expect(stateOf(b.db, lease.taskKey).state).toBe('completed')
   })
 
@@ -110,7 +111,7 @@ describe('a lease whose holder process is dead is freed at once', () => {
     b.clock.now = 3 * 60 * 60_000
     b.processes.set(DEAD_PID, { state: 'running', started: b.ts() })
 
-    expect(judgeHolders(b.db, b.ts(), b.startOf, SILENT_MS).freed).toEqual([lease.taskKey])
+    expect(judgeHolders(b.db, cardTransitions(), b.ts(), b.startOf, SILENT_MS).freed).toEqual([lease.taskKey])
     expect(payloadsOf(b.db, TASK_EXPIRED)).toEqual([expect.objectContaining({ task_key: lease.taskKey, reason: HOLDER_DEAD })])
   })
 
@@ -119,7 +120,7 @@ describe('a lease whose holder process is dead is freed at once', () => {
     b.start(DIED_HOLDER, DEAD_PID)
     const lease = leaseWhileFree(b.db, b.ts(), mergeTask, DIED_HOLDER, 1)!
 
-    expect(judgeHolders(b.db, b.ts(), b.startOf, SILENT_MS)).toEqual({ freed: [], hung: [], unproven: [] })
+    expect(judgeHolders(b.db, cardTransitions(), b.ts(), b.startOf, SILENT_MS)).toEqual({ freed: [], hung: [], unproven: [] })
     expect(stateOf(b.db, lease.taskKey)).toEqual({ state: 'leased', lease_gen: lease.leaseGen })
   })
 
@@ -150,7 +151,7 @@ describe('a lease whose holder process is dead is freed at once', () => {
     renewLease(b.db, b.ts(), lease)
     b.clock.now = SILENT_MS + 60_000
 
-    expect(judgeHolders(b.db, b.ts(), b.startOf, SILENT_MS)).toEqual({ freed: [], hung: [], unproven: [] })
+    expect(judgeHolders(b.db, cardTransitions(), b.ts(), b.startOf, SILENT_MS)).toEqual({ freed: [], hung: [], unproven: [] })
   })
 
   it('a new worker of the same kind does not take the lease of a live older worker', async () => {
@@ -171,10 +172,10 @@ describe('a lease whose holder process is dead is freed at once', () => {
   it('a holder with no worker.started record keeps its lease and raises an unproven-holder alarm once silent', () => {
     const b = bench()
     const lease = leaseWhileFree(b.db, b.ts(), mergeTask, DIED_HOLDER, 1)!
-    expect(judgeHolders(b.db, b.ts(), b.startOf, SILENT_MS)).toEqual({ freed: [], hung: [], unproven: [] })
+    expect(judgeHolders(b.db, cardTransitions(), b.ts(), b.startOf, SILENT_MS)).toEqual({ freed: [], hung: [], unproven: [] })
 
     b.clock.now = SILENT_MS + 1
-    expect(judgeHolders(b.db, b.ts(), b.startOf, SILENT_MS)).toEqual({ freed: [], hung: [], unproven: [lease.taskKey] })
+    expect(judgeHolders(b.db, cardTransitions(), b.ts(), b.startOf, SILENT_MS)).toEqual({ freed: [], hung: [], unproven: [lease.taskKey] })
     expect(stateOf(b.db, lease.taskKey).state).toBe('leased')
     expect(payloadsOf(b.db, BOARD_ALARM)).toEqual([expect.objectContaining({ reason: HOLDER_UNPROVEN, lease: lease.taskKey })])
   })
@@ -185,19 +186,19 @@ describe('a lease whose holder process is dead is freed at once', () => {
     b.processes.set(DEAD_PID, { state: 'unreadable' })
     b.clock.now = SILENT_MS + 1
 
-    expect(judgeHolders(b.db, b.ts(), b.startOf, SILENT_MS)).toEqual({ freed: [], hung: [], unproven: [lease.taskKey] })
+    expect(judgeHolders(b.db, cardTransitions(), b.ts(), b.startOf, SILENT_MS)).toEqual({ freed: [], hung: [], unproven: [lease.taskKey] })
     expect(payloadsOf(b.db, TASK_EXPIRED)).toEqual([])
   })
 
   it('the old worker with the previous lease_gen gets StaleLease after the release and writes nothing', () => {
     const b = bench()
     const lease = heldByTheDead(b)
-    judgeHolders(b.db, b.ts(), b.startOf, SILENT_MS)
+    judgeHolders(b.db, cardTransitions(), b.ts(), b.startOf, SILENT_MS)
     b.start(NEW_HOLDER, NEW_PID)
     const taken = leaseQueued(b.db, b.ts(), lease.taskKey, NEW_HOLDER)!
     const before = eventCount(b.db)
 
-    expect(() => completeTask(b.db, b.ts(), lease, [])).toThrow(StaleLease)
+    expect(() => completeTask(b.db, cardTransitions(), b.ts(), lease, [])).toThrow(StaleLease)
     expect(() => renewLease(b.db, b.ts(), lease)).toThrow(StaleLease)
     expect(eventCount(b.db)).toBe(before)
     expect(stateOf(b.db, lease.taskKey)).toEqual({ state: 'leased', lease_gen: taken.leaseGen })
@@ -210,13 +211,13 @@ describe('a lease whose holder process is dead is freed at once', () => {
     let reissued: Lease | null = null
     const reissuingStartOf = (pid: number): HolderProcess => {
       if (pid === DEAD_PID && reissued === null) {
-        releaseTask(b.db, b.ts(), lease, 'handed over')
+        releaseTask(b.db, cardTransitions(), b.ts(), lease, 'handed over')
         reissued = leaseQueued(b.db, b.ts(), lease.taskKey, NEW_HOLDER)
       }
       return b.startOf(pid)
     }
 
-    expect(judgeHolders(b.db, b.ts(), reissuingStartOf, SILENT_MS).freed).toEqual([])
+    expect(judgeHolders(b.db, cardTransitions(), b.ts(), reissuingStartOf, SILENT_MS).freed).toEqual([])
     expect(stateOf(b.db, lease.taskKey)).toEqual({ state: 'leased', lease_gen: lease.leaseGen + 1 })
     expect(payloadsOf(b.db, TASK_EXPIRED)).toEqual([])
   })
@@ -272,7 +273,7 @@ describe('the restart drain waits only for the leases of live holders', () => {
       stop: async (instance) => {
         alive = alive.filter(candidate => candidate.pid !== instance.pid)
       },
-      freeLeases: stopped => freeLeasesOf(b.db, b.ts(), stopped),
+      freeLeases: stopped => freeLeasesOf(b.db, cardTransitions(), b.ts(), stopped),
       drain: busDrain(b.db, b.ts, pid => b.startOf(pid)),
       processes: () => alive,
       mainSince: () => [{ id: 1, sha: NEW_MAIN }],

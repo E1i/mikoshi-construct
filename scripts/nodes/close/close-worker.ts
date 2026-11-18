@@ -72,7 +72,7 @@ export class CloseNode extends Node<CloseStep> {
 
   constructor(private readonly closeParts: CloseNodeParts) {
     super('close', { db: closeParts.db, clock: closeParts.clock, session: closeParts.session, mode: closeParts.mode, env: closeParts.env, silentMs: closeParts.silentMs, supply: nodeSupply() })
-    this.executor = new CloseExecutor({ db: closeParts.db, reported: closeParts.reported, clock: closeParts.clock, parking: closeParts.parking, silentMs: closeParts.silentMs, trees: closeParts.trees })
+    this.executor = new CloseExecutor({ db: closeParts.db, cards: this.suppliedCards, reported: closeParts.reported, clock: closeParts.clock, parking: closeParts.parking, silentMs: closeParts.silentMs, trees: closeParts.trees })
     this.declare(CLOSE_NODE, scopeOf)
   }
 

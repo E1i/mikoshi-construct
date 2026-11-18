@@ -18,7 +18,7 @@ import { busCardAdmissions, busCardEvents, busHeldCards } from '../../intake/int
 import { sayToOwnerChannel, USED_WORD } from '../../owner/channel.js'
 import { mergePolicy } from '../../policy/policy.js'
 import { cardDecisionCommand } from '../../policy/shards.js'
-import { busProjections } from '../../supervisor/composition.js'
+import { busProjections, cardTransitions } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { requestFromWindow, requestOf, WindowRequests } from '../../window/window-requests.js'
 import { cardBody, sha } from './github-fake.js'
@@ -112,7 +112,7 @@ function stoppedOutsideTouches(w: AmendWorld): void {
   const ts = NOW.toISOString()
   queueTask(w.db, ts, { queue: 'answer', cardId: CARD })
   const lease = leaseNext(w.db, ts, 'answer', 'worker:answer:a1')!
-  completeTask(w.db, ts, lease, [])
+  completeTask(w.db, cardTransitions(), ts, lease, [])
   openBusWait(w.db, ts, 'worker:answer:a1', { need: 'decision', text: `card #${CARD} asks: may the answer touch ${REFUSED}?`, command: cardDecisionCommand(CARD), card: CARD })
   appendEvent(w.db, { ts, type: CARD_STOPPED, actor: 'worker:answer:a1', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:${CARD}:outside`, payload: { reason: QUESTION_OWNER, detail: `the answer left changes to ${REFUSED}`, widen: [REFUSED] }, legacy: false })
   reduce(w.db, 'pending', busProjections())
@@ -152,7 +152,7 @@ describe('no silent waits: window requests, the owner channel, the answer node a
     const made = cardWithAQueuedAnswer()
     expect(request(made, ['hold', '--card', String(CARD), '--reason', HOLD_REASON]).kind).toBe('done')
     const lease = leaseNext(made.db, made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1')!
-    failTask(made.db, made.clock.now().toISOString(), lease, { reason: 'held_for_owner', withdraw: true }, SILENT_MS)
+    failTask(made.db, cardTransitions(), made.clock.now().toISOString(), lease, { reason: 'held_for_owner', withdraw: true }, SILENT_MS)
 
     const takenOver = request(made, ['takeover', '--card', String(CARD), '--reason', TAKEOVER_REASON])
     expect(takenOver).toMatchObject({ kind: 'done' })

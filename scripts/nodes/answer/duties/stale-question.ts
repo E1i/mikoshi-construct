@@ -1,5 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
-import type { Lease } from '../../../core/lease.js'
+import type { CardTransitions, Lease } from '../../../core/lease.js'
 import type { Isolation, IsolationReader } from '../../../ports/isolation.js'
 import type { AnswerSource, CardSession } from '../answer-source.js'
 import type { Answered } from '../answerer.js'
@@ -26,6 +26,7 @@ export type ShardDecider = (lease: Lease, question: string) => ShardDecision | n
 
 export interface QuestionParts {
   db: DatabaseSync
+  cards: CardTransitions
   clock: () => Date
   ownerMerges: () => string
   shardDecider?: ShardDecider
@@ -115,7 +116,7 @@ export class OwnerQuestions {
       return this.staleQuestion(lease, decided.owner) ?? this.outcomes.ownersStop(lease, heldForTheWindow(decided.owner, shard.id, `the session could not act on the decision of: ${question}`), scope)
     if (round.dirty())
       return this.publishing.leftDirty(lease, card, decided.session)
-    completeTask(this.parts.db, this.outcomes.ts(), lease, scope)
+    completeTask(this.parts.db, this.parts.cards, this.outcomes.ts(), lease, scope)
     return { kind: 'decided', taskKey: lease.taskKey, shard: shard.id, question }
   }
 

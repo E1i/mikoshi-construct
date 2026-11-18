@@ -16,7 +16,7 @@ import { projectionDump, reduce } from '../../core/reducer.js'
 import { fullReview } from '../../nodes/review/review-depth.js'
 import { startReviewWorkers } from '../../nodes/review/review-worker.js'
 import { NetWatch, TICK_MS } from '../../ports/netwatch.js'
-import { busProjections } from '../../supervisor/composition.js'
+import { busProjections, cardTransitions } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { BusTick, tickOrLocked } from '../../supervisor/run.js'
 import { SLOT_POLL_MS, SLOTS, SlotScheduler, slotsOf, slotsVariable } from '../../supervisor/scheduler.js'
@@ -40,7 +40,7 @@ function scratch(): string {
 }
 
 function scheduler(db: DatabaseSync, clock: Clock, session: string, slots: number, extra: Partial<HeavyRunParts> = {}): SlotScheduler {
-  return new SlotScheduler({ db, clock: clock.now, session, slots, pause: async () => {}, announce: () => {}, ...extra })
+  return new SlotScheduler({ db, cards: cardTransitions(), clock: clock.now, session, slots, pause: async () => {}, announce: () => {}, ...extra })
 }
 
 function types(db: DatabaseSync): string[] {
@@ -73,7 +73,7 @@ describe('heavy run scheduler', () => {
       pause: async (ms) => {
         pauses.push(ms)
         if (pauses.length === 2)
-          completeTask(db, clock.now().toISOString(), first, [])
+          completeTask(db, cardTransitions(), clock.now().toISOString(), first, [])
       },
       announce: line => lines.push(line),
     })
@@ -96,7 +96,7 @@ describe('heavy run scheduler', () => {
   it('bus:slot passes the command exit code through and releases the slot', async () => {
     const busPath = scratch()
     const clock = new Clock()
-    const run = { busPath, env: {}, clock: clock.now, pause: async () => {}, spawn: spawnInherited }
+    const run = { busPath, cards: cardTransitions(), env: {}, clock: clock.now, pause: async () => {}, spawn: spawnInherited }
 
     expect(await runSlot(['quality', '--card', '812', '--', process.execPath, '-e', 'process.exit(7)'], { ...run, session: 'red' })).toBe(7)
     expect(await runSlot(['quality', '--card', '812', '--', process.execPath, '-e', 'process.exit(0)'], { ...run, session: 'green' })).toBe(0)

@@ -1,6 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { BusEvent } from '../../../core/db.js'
-import type { Lease } from '../../../core/lease.js'
+import type { CardTransitions, Lease } from '../../../core/lease.js'
 import type { AnswerInput } from '../../../ports/prompt-store.js'
 import type { CardSession } from '../answer-source.js'
 import type { Answered, StepSeconds } from '../answerer.js'
@@ -19,6 +19,7 @@ export interface TreePublishing {
 
 export interface PublishingParts {
   db: DatabaseSync
+  cards: CardTransitions
   prompts?: string
   publishing?: TreePublishing
 }
@@ -71,7 +72,7 @@ export class AnswerPublishing {
       return null
     const payload = this.answeredPayload(source, card, answered, minutes, { published: true, pr })
     const linkAfterTheStopLifts: BusEvent = { ...this.outcomes.event(lease, PR_OPENED, { pr }), pr }
-    completeTask(this.parts.db, this.outcomes.ts(), lease, [...scope, this.outcomes.event(lease, CARD_ANSWERED, payload), linkAfterTheStopLifts])
+    completeTask(this.parts.db, this.parts.cards, this.outcomes.ts(), lease, [...scope, this.outcomes.event(lease, CARD_ANSWERED, payload), linkAfterTheStopLifts])
     return { kind: 'published', taskKey: lease.taskKey, session: answered.session, pr }
   }
 

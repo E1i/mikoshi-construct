@@ -10,6 +10,7 @@ import { appendEvent } from '../../core/db.js'
 import { CARD_HELD, CARD_RELEASED, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, QUESTION_AGENT, TASK_FAILED, WINDOW_REQUEST } from '../../core/events.js'
 import { leaseNext } from '../../core/lease.js'
 import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
+import { cardTransitions } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { requestFromWindow, requestOf, WindowRequests } from '../../window/window-requests.js'
 import { sha } from './github-fake.js'
@@ -69,7 +70,7 @@ function requestsApplied(made: MergeBench): string[] {
 function executor({ made, trees }: HeldCard, clock: () => Date = made.clock.now): AnswerExecutor {
   const cardTrees: CardTreeTools = { home: trees, exists: existsSync, branchOf: pr => `feat/card-${pr}`, recreate: () => {}, bringTo: () => {} }
   const answerer = async () => ({ session: 'card-session-1', resumed: true, before: sha('a'), after: sha('b'), owner: null })
-  return new AnswerExecutor({ silentMs: SILENT_MS, db: made.db, answerer, ownerMerges: () => '', clock, trees: cardTrees, dirty: () => false, liveSession: () => null })
+  return new AnswerExecutor({ cards: cardTransitions(), silentMs: SILENT_MS, db: made.db, answerer, ownerMerges: () => '', clock, trees: cardTrees, dirty: () => false, liveSession: () => null })
 }
 
 async function answerRound(card: HeldCard): Promise<AnswerOutcome | null> {

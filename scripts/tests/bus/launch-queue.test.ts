@@ -42,7 +42,7 @@ import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
 import { sessionEnv } from '../../ports/session.js'
 import { SESSION_BASH_CAP, TSX_PIPE_DIRECTORY } from '../../ports/shift-settings.js'
 import { WIDE_VITEST_HOOKS } from '../../ports/wide-vitest-guard.js'
-import { busProjections, nodeSupply } from '../../supervisor/composition.js'
+import { busProjections, cardTransitions, nodeSupply } from '../../supervisor/composition.js'
 import { recordHeartbeat } from '../../supervisor/heartbeat.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { busLaunches } from '../../supervisor/workers.js'
@@ -90,7 +90,7 @@ class FakeStarter implements CardStarter {
 
 function launchBench(starter: CardStarter = new FakeStarter(), intake?: Parameters<typeof mergeBench>[0]) {
   const bench = mergeBench(intake)
-  const executor = new LaunchExecutor({ silentMs: SILENT_MS, db: bench.db, starter, clock: bench.clock.now, disk: roomy, isolation: sandboxed })
+  const executor = new LaunchExecutor({ cards: cardTransitions(), silentMs: SILENT_MS, db: bench.db, starter, clock: bench.clock.now, disk: roomy, isolation: sandboxed })
   const ts = (): string => bench.clock.now().toISOString()
   return {
     ...bench,
@@ -964,7 +964,7 @@ describe('the launch queue', () => {
       bench.started(card.cardId)
       return { kind: 'started', card: { session: 's', worktree: '/t', branch: 'b', base: 'f'.repeat(40), pid: 7, pgid: 7 } }
     })
-    const executor = new LaunchExecutor({ silentMs: SILENT_MS, db: bench.db, starter, clock: bench.clock.now, disk: roomy, isolation: sandboxed })
+    const executor = new LaunchExecutor({ cards: cardTransitions(), silentMs: SILENT_MS, db: bench.db, starter, clock: bench.clock.now, disk: roomy, isolation: sandboxed })
     bench.admit(945, 'lane-a')
     bench.tick()
 
@@ -1132,7 +1132,7 @@ describe('launch candidates', () => {
   it('a free ghost row queues the review step of the same card once', () => {
     const starter = new FakeStarter()
     const bench = launchBench(starter)
-    const executor = new LaunchExecutor({ silentMs: SILENT_MS, db: bench.db, starter, ladder: starter, clock: bench.clock.now, disk: roomy, isolation: sandboxed })
+    const executor = new LaunchExecutor({ cards: cardTransitions(), silentMs: SILENT_MS, db: bench.db, starter, ladder: starter, clock: bench.clock.now, disk: roomy, isolation: sandboxed })
     bench.admit(981, 'lane-a', [], 'ladder')
     bench.tick()
     expect(executor.launch(bench.leaseLaunch()!)).toMatchObject({ kind: 'started', taskKey: launch(981) })
@@ -1159,7 +1159,7 @@ describe('launch candidates', () => {
   it('a free ghost row of a cheap card queues nothing', () => {
     const starter = new FakeStarter()
     const bench = launchBench(starter)
-    const executor = new LaunchExecutor({ silentMs: SILENT_MS, db: bench.db, starter, clock: bench.clock.now, disk: roomy, isolation: sandboxed })
+    const executor = new LaunchExecutor({ cards: cardTransitions(), silentMs: SILENT_MS, db: bench.db, starter, clock: bench.clock.now, disk: roomy, isolation: sandboxed })
     bench.admit(982, 'lane-a')
     bench.tick()
     executor.launch(bench.leaseLaunch()!)

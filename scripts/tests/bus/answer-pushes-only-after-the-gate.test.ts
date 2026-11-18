@@ -13,6 +13,7 @@ import { leaseNext } from '../../core/lease.js'
 import { queueTask } from '../../core/queue.js'
 import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
 import { claudeAnswerer, gateDecisionOf, gateRunOutcome } from '../../nodes/answer/answerer.js'
+import { cardTransitions } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { sha } from './github-fake.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
@@ -90,7 +91,7 @@ async function roundWith(results: readonly GateResult[], dirty = true): Promise<
     },
   })
   const cardTrees: CardTreeTools = { home: trees, exists: existsSync, branchOf: pr => `feat/card-${pr}`, recreate: () => {}, bringTo: () => {} }
-  const executor = new AnswerExecutor({ silentMs: SILENT_MS, db: made.db, answerer, ownerMerges: () => '', clock: made.clock.now, trees: cardTrees, liveSession: () => null, prepare: () => null, dirty: () => dirty, localHead: () => sha('a') })
+  const executor = new AnswerExecutor({ cards: cardTransitions(), silentMs: SILENT_MS, db: made.db, answerer, ownerMerges: () => '', clock: made.clock.now, trees: cardTrees, liveSession: () => null, prepare: () => null, dirty: () => dirty, localHead: () => sha('a') })
   return { outcome: await executor.answer(lease()), published, made }
 }
 

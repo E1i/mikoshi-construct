@@ -9,6 +9,7 @@ import { queueTask } from '../../core/queue.js'
 import { answerSourceOf } from '../../nodes/answer/answer-source.js'
 import { recordDecision } from '../../policy/decisions/index.js'
 import { closedByRounds, continueFixesDecisionOf, pushedAfterContinueFixes } from '../../policy/round-limit-decision.js'
+import { cardTransitions } from '../../supervisor/composition.js'
 import { sha } from './github-fake.js'
 import { liveBench } from './merge-bench.js'
 
@@ -132,7 +133,7 @@ describe('continue-fixes past the review round limit', () => {
     const faulted = (bench: MergeBench, key: string): string => {
       const lease = leaseNext(bench.db, bench.clock.now().toISOString(), 'answer', 'worker:answer:test')!
       expect(lease.taskKey).toBe(key)
-      completeTask(bench.db, bench.clock.now().toISOString(), lease, [{ ts: bench.clock.now().toISOString(), type: CARD_STOPPED, actor: 'worker:answer:test', cardId: CARD, pr: PR, head: HEAD, dedupeKey: `${CARD_STOPPED}:${key}:${lease.leaseGen}`, payload: { reason: 'fault', detail: 'the chain fell' }, legacy: false }])
+      completeTask(bench.db, cardTransitions(), bench.clock.now().toISOString(), lease, [{ ts: bench.clock.now().toISOString(), type: CARD_STOPPED, actor: 'worker:answer:test', cardId: CARD, pr: PR, head: HEAD, dedupeKey: `${CARD_STOPPED}:${key}:${lease.leaseGen}`, payload: { reason: 'fault', detail: 'the chain fell' }, legacy: false }])
       bench.tick()
       return (bench.db.prepare('SELECT state FROM tasks WHERE task_key = ?').get(key) as { state: string }).state
     }
@@ -155,7 +156,7 @@ describe('continue-fixes past the review round limit', () => {
     bench.tick()
     const lease = leaseNext(bench.db, bench.clock.now().toISOString(), 'answer', 'worker:answer:test')!
     expect(lease.taskKey).toBe(`${taskKey({ queue: 'answer', cardId: CARD, pr: PR, head: HEAD })}:decision-${DECISION}`)
-    completeTask(bench.db, bench.clock.now().toISOString(), lease, [])
+    completeTask(bench.db, cardTransitions(), bench.clock.now().toISOString(), lease, [])
     bench.gitHub.open({ number: PR, head: PUSHED, review: 'failure' })
     bench.tick()
     bench.tick()

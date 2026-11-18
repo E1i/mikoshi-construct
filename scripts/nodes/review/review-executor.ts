@@ -1,7 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { BusEvent } from '../../core/db.js'
 import type { EventPayload } from '../../core/events.js'
-import type { AfterFailure, Lease, SUPERSEDED_LEASE } from '../../core/lease.js'
+import type { AfterFailure, CardTransitions, Lease, SUPERSEDED_LEASE } from '../../core/lease.js'
 import type { LimitRule, RoundReview } from '../../policy/round-limit-decision.js'
 import type { StatusPublisher } from '../../ports/github-status.js'
 import type { GitHub } from '../../ports/github.js'
@@ -118,6 +118,7 @@ export type Step
 
 export interface ExecutorParts {
   db: DatabaseSync
+  cards: CardTransitions
   gitHub: GitHub
   publish: StatusPublisher
   reviewer: Reviewer
@@ -444,7 +445,7 @@ export class ReviewExecutor {
       return this.denied(lease, outcome.denial)
     const repeats = this.repeatsAnEarlierRound(lease, review)
     const limit = this.roundLimit(lease, review, repeats)
-    completeTask(db, this.ts(), lease, [this.recorded(lease, { ...reviewed, review }, marked.drip, tailCard), ...this.dripEvents(lease, marked.drip), ...(limit === null ? [] : [limit.event])])
+    completeTask(db, this.parts.cards, this.ts(), lease, [this.recorded(lease, { ...reviewed, review }, marked.drip, tailCard), ...this.dripEvents(lease, marked.drip), ...(limit === null ? [] : [limit.event])])
     if (limit !== null && limit.rule.kind !== 'extend' && lease.pr !== null) {
       if (limit.rule.kind !== 'park')
         this.noted(lease.pr, repeats ? repeatStopLine(lease.pr) : roundLimitLine(lease.pr, REVIEW_ROUNDS))
@@ -619,7 +620,7 @@ export class ReviewExecutor {
   }
 
   private waiting(lease: Lease, detail: string): Step {
-    releaseTask(this.parts.db, this.ts(), lease, CI_NOT_READY)
+    releaseTask(this.parts.db, this.parts.cards, this.ts(), lease, CI_NOT_READY)
     return { kind: 'waiting', taskKey: lease.taskKey, detail }
   }
 
@@ -638,13 +639,13 @@ export class ReviewExecutor {
       legacy: false,
     }
     if (RELEASE_REASONS.has(reason)) {
-      releaseTask(this.parts.db, ts, lease, reason, [event])
+      releaseTask(this.parts.db, this.parts.cards, ts, lease, reason, [event])
       return { kind: 'denied', taskKey: lease.taskKey, denial, next: 'queued' }
     }
     if (reason === STALE_HEAD)
-      return { kind: 'denied', taskKey: lease.taskKey, denial, next: supersedeLease(this.parts.db, ts, lease, [event]) }
+      return { kind: 'denied', taskKey: lease.taskKey, denial, next: supersedeLease(this.parts.db, this.parts.cards, ts, lease, [event]) }
     const atTheCeiling = reason === REVIEW_CEILING
-    const next = failTask(this.parts.db, ts, lease, { reason, withdraw: denial.kind === 'authority' || atTheCeiling }, this.parts.silentMs, [event, ...(atTheCeiling ? [this.ceilingAlarm(lease, ts)] : [])])
+    const next = failTask(this.parts.db, this.parts.cards, ts, lease, { reason, withdraw: denial.kind === 'authority' || atTheCeiling }, this.parts.silentMs, [event, ...(atTheCeiling ? [this.ceilingAlarm(lease, ts)] : [])])
     return { kind: 'denied', taskKey: lease.taskKey, denial, next }
   }
 }

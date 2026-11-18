@@ -13,7 +13,7 @@ import { completeTask } from '../../core/lease.js'
 import { DATABASE_LOCKED, DERIVE_EVERY_TICKS, Node, nodeProcess } from '../../core/node.js'
 import { keyOf, queueTask } from '../../core/queue.js'
 import { TICK_MS } from '../../ports/netwatch.js'
-import { nodeSupply } from '../../supervisor/composition.js'
+import { cardTransitions, nodeSupply } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { Clock, sha } from './github-fake.js'
 
@@ -83,7 +83,7 @@ class ScanningNode extends Node<NodeStep> {
   }
 
   protected handle(lease: Lease): NodeStep {
-    completeTask(this.db, this.clock.now().toISOString(), lease, [])
+    completeTask(this.db, cardTransitions(), this.clock.now().toISOString(), lease, [])
     return { kind: 'done', taskKey: lease.taskKey }
   }
 }

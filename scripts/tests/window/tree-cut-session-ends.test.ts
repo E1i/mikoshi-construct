@@ -9,6 +9,7 @@ import { textSha } from '../../../src/card/text-sha.js'
 import { appendEvent } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_DROPPED, CARD_RELEASED, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, CARD_TAKEOVER, MERGE_DONE, PR_OPENED } from '../../core/events.js'
 import { InMemoryProcessTable } from '../../ports/process-table.js'
+import { cardTransitions } from '../../supervisor/composition.js'
 import { STALLED_ACTOR, StalledSessions, UNDRIVEN_AFTER_MS } from '../../supervisor/stalled-sessions.js'
 import { RequestContext } from '../../window/requests/context.js'
 import { STARTER_ACTOR } from '../../window/window-prs.js'
@@ -82,7 +83,7 @@ function takeover({ made, root }: Room): RequestOutcome {
 }
 
 function sweep({ made }: Room, trees = new InMemoryProcessTable({})): string[] {
-  return new StalledSessions(made.db, made.clock.now, { lifeOf: () => 'unknown', trees }).step()
+  return new StalledSessions(made.db, made.clock.now, { cards: cardTransitions(), lifeOf: () => 'unknown', trees }).step()
 }
 
 function endsOf({ made }: Room): unknown[] {

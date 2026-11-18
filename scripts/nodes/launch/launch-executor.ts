@@ -1,6 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { BusEvent } from '../../core/db.js'
-import type { AfterFailure, Lease } from '../../core/lease.js'
+import type { AfterFailure, CardTransitions, Lease } from '../../core/lease.js'
 import type { ChildRun, IdentityReader } from '../../core/node.js'
 import type { DiskReader } from '../../ports/disk.js'
 import type { Isolation, IsolationReader } from '../../ports/isolation.js'
@@ -74,6 +74,7 @@ export type LaunchOutcome
 
 export interface LaunchParts {
   db: DatabaseSync
+  cards: CardTransitions
   starter: CardStarter
   ladder?: CardStarter
   clock: () => Date
@@ -190,7 +191,7 @@ export class LaunchExecutor {
     const payload = { ...started, ...(treeOrigin === null ? {} : { tree_origin: treeOrigin }), isolation: isolation.level, isolationGaps: isolation.gaps, ...storedInput(this.parts.prompts, input), ...launchStartLease(lease.leaseGen) }
     const event: BusEvent = { ts: this.ts(), type: CARD_STARTED, actor: lease.actor, cardId: lease.cardId, pr: null, head: null, dedupeKey: launchStartKey(lease.taskKey, lease.leaseGen), payload, legacy: false }
     try {
-      completeTask(this.parts.db, this.ts(), lease, [event], (db) => {
+      completeTask(this.parts.db, this.parts.cards, this.ts(), lease, [event], (db) => {
         if (launchableCard(db, lease.cardId) === null)
           throw new StaleLease(`task ${lease.taskKey} is no longer due`)
       })
@@ -231,13 +232,13 @@ export class LaunchExecutor {
     const ts = this.ts()
     const event: BusEvent = { ts, type: POLICY_DENIED, actor: 'policy', cardId: lease.cardId, pr: null, head: null, dedupeKey: `${POLICY_DENIED}:${lease.taskKey}:${lease.leaseGen}`, payload: { command: 'launch', ...denial }, legacy: false }
     if (RELEASE_REASONS.has(denial.reason)) {
-      releaseTask(this.parts.db, ts, lease, denial.reason, [event])
+      releaseTask(this.parts.db, this.parts.cards, ts, lease, denial.reason, [event])
       return { kind: 'denied', taskKey: lease.taskKey, denial, next: 'queued' }
     }
     const stopped: BusEvent[] = denial.reason === HELD_TREE_CHANGED
       ? [{ ts, type: CARD_STOPPED, actor: lease.actor, cardId: lease.cardId, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:${HELD_TREE_CHANGED}:${lease.taskKey}`, payload: { reason: 'fault', detail: `${HELD_TREE_CHANGED}: ${denial.detail}`, paths: denial.paths ?? [] }, legacy: false }]
       : []
-    const next = failTask(this.parts.db, ts, lease, { reason: denial.reason, withdraw: WITHDRAW_REASONS.has(denial.reason) }, this.parts.silentMs, [event, ...stopped])
+    const next = failTask(this.parts.db, this.parts.cards, ts, lease, { reason: denial.reason, withdraw: WITHDRAW_REASONS.has(denial.reason) }, this.parts.silentMs, [event, ...stopped])
     return { kind: 'denied', taskKey: lease.taskKey, denial, next }
   }
 }

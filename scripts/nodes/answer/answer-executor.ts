@@ -1,7 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { QueueTaskRow } from '../../core/card-hold.js'
 import type { BusEvent } from '../../core/db.js'
-import type { CarriedTree, Lease } from '../../core/lease.js'
+import type { CardTransitions, CarriedTree, Lease } from '../../core/lease.js'
 import type { CardTreeTools } from '../../ports/card-tree.js'
 import type { IsolationReader } from '../../ports/isolation.js'
 import type { MergeMain } from '../../ports/main-merge.js'
@@ -37,6 +37,7 @@ import { carriedTreeState, ownCarriedTree } from './duties/tree.js'
 
 export interface AnswerParts {
   db: DatabaseSync
+  cards: CardTransitions
   answerer: Answerer
   ownerMerges: () => string
   clock: () => Date
@@ -308,13 +309,13 @@ export class AnswerExecutor {
   private waitingForTheLiveSession(lease: Lease, live: string): AnswerOutcome {
     const until = holdRecheckAt(this.parts.clock())
     console.log(`${PREFIX}card #${lease.cardId}: ${live}; the answer waits until ${until} and goes once that session ends`)
-    waitTask(this.parts.db, this.ts(), lease, { reason: LIVE_SESSION_IN_THE_TREE, until })
+    waitTask(this.parts.db, this.parts.cards, this.ts(), lease, { reason: LIVE_SESSION_IN_THE_TREE, until })
     return { kind: 'waiting', taskKey: lease.taskKey, reason: LIVE_SESSION_IN_THE_TREE, until }
   }
 
   private waiting(lease: Lease, card: CardSession, why: string): AnswerOutcome {
     const detail = `pull request #${lease.pr} conflicts with ${MAIN_BRANCH} at ${lease.head}, and the tree ${card.worktree} of card #${lease.cardId} cannot be read to answer it: ${why}`
-    completeTask(this.parts.db, this.ts(), lease, [])
+    completeTask(this.parts.db, this.parts.cards, this.ts(), lease, [])
     const wait = openBusWait(this.parts.db, this.ts(), lease.actor, { need: 'decision', text: detail, card: lease.cardId, ...(lease.pr === null ? {} : { pr: lease.pr }) })
     return { kind: 'waiting', taskKey: lease.taskKey, wait, detail }
   }
@@ -403,11 +404,11 @@ export class AnswerExecutor {
       return null
     const carried = `${denial.detail}; the tree ${tree.path} is returned at ${tree.head} with ${tree.localCommits.length} unpushed commit${tree.localCommits.length === 1 ? '' : 's'}${tree.dirty ? ' and uncommitted changes' : ''}, and the next answer on the card owns it`
     if (cutByRestart(this.parts.db, lease)) {
-      releaseTask(this.parts.db, this.ts(), lease, RESTART_CUT, [], tree)
+      releaseTask(this.parts.db, this.parts.cards, this.ts(), lease, RESTART_CUT, [], tree)
       return { kind: 'denied', taskKey: lease.taskKey, denial: { ...denial, detail: carried }, next: QUEUED }
     }
     const denialEvent: BusEvent = { ...this.outcomes.event(lease, POLICY_DENIED, { command: 'answer', ...denial, detail: carried }), actor: 'policy' }
-    const next = failTask(this.parts.db, this.ts(), lease, { reason: denial.reason, withdraw: false, tree }, this.parts.silentMs, [denialEvent])
+    const next = failTask(this.parts.db, this.parts.cards, this.ts(), lease, { reason: denial.reason, withdraw: false, tree }, this.parts.silentMs, [denialEvent])
     return { kind: 'denied', taskKey: lease.taskKey, denial: { ...denial, detail: carried }, next }
   }
 
@@ -429,7 +430,7 @@ export class AnswerExecutor {
     if (owned.kind !== 'pushed')
       return null
     const payload = { session: card.session, worktree: card.worktree, source: CARRIED_TREE, from: lease.head, to: owned.head }
-    completeTask(this.parts.db, this.ts(), lease, [this.outcomes.event(lease, CARD_ANSWERED, payload)])
+    completeTask(this.parts.db, this.parts.cards, this.ts(), lease, [this.outcomes.event(lease, CARD_ANSWERED, payload)])
     return { kind: 'answered', taskKey: lease.taskKey, session: card.session, resumed: false, head: owned.head }
   }
 
@@ -476,7 +477,7 @@ export class AnswerExecutor {
     }
     const reentry = REENTRY_SOURCES.has(source.kind) || source.reentry === true
     const payload = this.publishing.answeredPayload(source, card, answered, minutes, reentry ? { reentry: true } : {})
-    completeTask(this.parts.db, this.ts(), lease, [...scope, this.outcomes.event(lease, CARD_ANSWERED, payload)])
+    completeTask(this.parts.db, this.parts.cards, this.ts(), lease, [...scope, this.outcomes.event(lease, CARD_ANSWERED, payload)])
     return { kind: 'answered', taskKey: lease.taskKey, session: answered.session, resumed: answered.resumed, head: answered.after }
   }
 

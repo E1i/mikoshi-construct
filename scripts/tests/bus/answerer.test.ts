@@ -16,6 +16,7 @@ import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
 import { answerHandoffPath, claudeAnswerer, FreshBaseConflict, ownerQuestionPath, realAnswererTools, RoundTimer, windowGateRule } from '../../nodes/answer/answerer.js'
 import { SESSION_BASH_CAP, TSX_PIPE_DIRECTORY } from '../../ports/shift-settings.js'
 import { WIDE_VITEST_HOOKS, WIDE_VITEST_RULE } from '../../ports/wide-vitest-guard.js'
+import { cardTransitions } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { ranTheGreenGate } from './gate-stream.js'
 import { sha } from './github-fake.js'
@@ -423,7 +424,7 @@ describe('the steps of an answer round on the bus', () => {
     })
     const cardTrees: CardTreeTools = { home: trees, exists: existsSync, branchOf: pr => `feat/card-${pr}`, recreate: () => {}, bringTo: () => {} }
     const parts = { db: made.db, ownerMerges: () => '', clock: made.clock.now, trees: cardTrees }
-    const executor = new AnswerExecutor({ silentMs: SILENT_MS, ...parts, answerer, liveSession: () => {
+    const executor = new AnswerExecutor({ cards: cardTransitions(), silentMs: SILENT_MS, ...parts, answerer, liveSession: () => {
       seconds(2)
       return null
     }, prepare: () => seconds(48) })
@@ -478,7 +479,7 @@ describe('the steps of an answer round on the bus', () => {
   it('a second session in one lease writes its steps beside those of the first', async () => {
     const { made, lease, parts } = round(() => 0)
     const sessions: boolean[] = []
-    const executor = new AnswerExecutor({ silentMs: SILENT_MS, ...parts, dirty: () => false, liveSession: () => null, prepare: () => made.clock.advance(1_000), answerer: async (request) => {
+    const executor = new AnswerExecutor({ cards: cardTransitions(), silentMs: SILENT_MS, ...parts, dirty: () => false, liveSession: () => null, prepare: () => made.clock.advance(1_000), answerer: async (request) => {
       sessions.push(request.fresh === true)
       return { session: NEW_SESSION, resumed: false, atContextWarn: sessions.length === 1, before: sha('a'), after: sessions.length === 1 ? sha('a') : sha('e'), owner: null }
     } })

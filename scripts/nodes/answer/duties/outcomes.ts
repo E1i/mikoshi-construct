@@ -1,7 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { BusEvent } from '../../../core/db.js'
 import type { EventPayload } from '../../../core/events.js'
-import type { AfterFailure, Lease } from '../../../core/lease.js'
+import type { AfterFailure, CardTransitions, Lease } from '../../../core/lease.js'
 import type { WaitStep } from '../../../core/node.js'
 import type { AdmittedScope } from '../answer-source.js'
 import { openBusWait } from '../../../core/db.js'
@@ -39,6 +39,7 @@ export interface Widened {
 
 export interface OutcomeParts {
   db: DatabaseSync
+  cards: CardTransitions
   clock: () => Date
   ownerMerges: () => string
   silentMs: number
@@ -70,7 +71,7 @@ export class AnswerOutcomes {
   }
 
   stopped(lease: Lease, reason: string, detail: string, extra: EventPayload<typeof CARD_STOPPED> = {}, scope: BusEvent[] = [], inTheSameCommit: (db: DatabaseSync) => void = () => {}): AnswerOutcome {
-    completeTask(this.parts.db, this.ts(), lease, [...scope, this.event(lease, CARD_STOPPED, { reason, detail, ...extra })], inTheSameCommit)
+    completeTask(this.parts.db, this.parts.cards, this.ts(), lease, [...scope, this.event(lease, CARD_STOPPED, { reason, detail, ...extra })], inTheSameCommit)
     return { kind: 'stopped', taskKey: lease.taskKey, reason, detail }
   }
 
@@ -99,16 +100,16 @@ export class AnswerOutcomes {
 
   denied(lease: Lease, denial: AnswerDenial): AnswerOutcome {
     if (denial.reason === 'answer_failed' && cutByRestart(this.parts.db, lease)) {
-      releaseTask(this.parts.db, this.ts(), lease, RESTART_CUT)
+      releaseTask(this.parts.db, this.parts.cards, this.ts(), lease, RESTART_CUT)
       return { kind: 'denied', taskKey: lease.taskKey, denial: { ...denial, detail: `${denial.detail}; a restart of the bus signalled the session and recorded signal.sent for it, so it is queued again and not counted as a failed round` }, next: QUEUED }
     }
-    const next = failTask(this.parts.db, this.ts(), lease, { reason: denial.reason, withdraw: WITHDRAWN_REASONS.has(denial.reason) }, this.parts.silentMs, [this.denialEvent(lease, denial)])
+    const next = failTask(this.parts.db, this.parts.cards, this.ts(), lease, { reason: denial.reason, withdraw: WITHDRAWN_REASONS.has(denial.reason) }, this.parts.silentMs, [this.denialEvent(lease, denial)])
     return { kind: 'denied', taskKey: lease.taskKey, denial, next }
   }
 
   superseded(lease: Lease, detail: string): AnswerOutcome {
     const denial: AnswerDenial = { kind: 'technical', reason: 'old_card_body', detail }
-    return { kind: 'denied', taskKey: lease.taskKey, denial, next: supersedeLease(this.parts.db, this.ts(), lease, [this.denialEvent(lease, denial)]) }
+    return { kind: 'denied', taskKey: lease.taskKey, denial, next: supersedeLease(this.parts.db, this.parts.cards, this.ts(), lease, [this.denialEvent(lease, denial)]) }
   }
 
   heldForTheOwner(lease: Lease, detail: string): AnswerOutcome {
@@ -119,7 +120,7 @@ export class AnswerOutcomes {
     if (!supersededAnswerWithinItsLease(this.parts.db, lease.cardId, this.ts()))
       return null
     const until = new Date(this.parts.clock().getTime() + TICK_MS).toISOString()
-    waitTask(this.parts.db, this.ts(), lease, { reason: SUPERSEDED_SESSION_ENDING, until })
+    waitTask(this.parts.db, this.parts.cards, this.ts(), lease, { reason: SUPERSEDED_SESSION_ENDING, until })
     return { kind: 'waiting', taskKey: lease.taskKey, reason: SUPERSEDED_SESSION_ENDING, until }
   }
 }

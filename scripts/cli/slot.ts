@@ -1,4 +1,5 @@
 import type { HeavyRun } from '../core/identifiers.js'
+import type { CardTransitions } from '../core/lease.js'
 import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { realpathSync } from 'node:fs'
@@ -6,6 +7,7 @@ import { constants } from 'node:os'
 import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
+import { appendedOnCard } from '../core/card-automaton.js'
 import { defaultBusPath, openBus } from '../core/db.js'
 import { cardIdOf, HEAVY_RUNS } from '../core/identifiers.js'
 import { pnpmCommand } from '../core/owner-commands.js'
@@ -58,6 +60,7 @@ export interface SlotRun {
   clock: () => Date
   pause: (ms: number) => Promise<unknown>
   spawn: (command: string[]) => Promise<number>
+  cards: CardTransitions
 }
 
 export async function runSlot(argv: string[], run: SlotRun): Promise<number> {
@@ -68,7 +71,7 @@ export async function runSlot(argv: string[], run: SlotRun): Promise<number> {
   }
   const db = openBus(run.busPath)
   try {
-    const scheduler = new SlotScheduler({ db, clock: run.clock, session: run.session, slots: slotsOf(call.run, run.env), pause: run.pause, announce: line => console.error(line) })
+    const scheduler = new SlotScheduler({ db, cards: run.cards, clock: run.clock, session: run.session, slots: slotsOf(call.run, run.env), pause: run.pause, announce: line => console.error(line) })
     return await scheduler.run({ kind: call.run, cardId: call.cardId, command: async () => run.spawn(call.command) })
   }
   finally {
@@ -84,5 +87,6 @@ if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLTo
     clock: () => new Date(),
     pause: sleep,
     spawn: spawnInherited,
+    cards: { appendedOnCard },
   })
 }

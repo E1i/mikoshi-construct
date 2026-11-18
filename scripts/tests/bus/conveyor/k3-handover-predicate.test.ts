@@ -17,7 +17,7 @@ import { queueTask } from '../../../core/queue.js'
 import { reduce } from '../../../core/reducer.js'
 import { BusRead } from '../../../ports/bus-read.js'
 import { InMemoryProcessTable, OsProcessTable } from '../../../ports/process-table.js'
-import { busProjections } from '../../../supervisor/composition.js'
+import { busProjections, cardTransitions } from '../../../supervisor/composition.js'
 import { generationsEnded } from '../../../supervisor/generation-handover.js'
 import { SILENT_MS } from '../../../supervisor/liveness-sites.js'
 import { tableIdentity } from '../../../supervisor/recorded-worker.js'
@@ -39,6 +39,7 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { openBus } from '${ROOT}/scripts/core/db.ts'
 import { assertHeld, completeTask, StaleLease } from '${ROOT}/scripts/core/lease.ts'
 import { busWriteAt, ChildLog, Node } from '${ROOT}/scripts/core/node.ts'
+import { cardTransitions } from '${ROOT}/scripts/supervisor/composition.ts'
 import { ownIdentity, tableIdentity } from '${ROOT}/scripts/supervisor/recorded-worker.ts'
 
 const config = JSON.parse(process.env.K3_WORKER)
@@ -96,7 +97,7 @@ class StandInNode extends Node {
     if (code !== 0)
       return { kind: 'failed', taskKey: lease.taskKey }
     return fencedOr(lease, () => {
-      completeTask(this.db, new Date().toISOString(), lease, [])
+      completeTask(this.db, cardTransitions(), new Date().toISOString(), lease, [])
       return { kind: 'completed', taskKey: lease.taskKey }
     })
   }
@@ -449,7 +450,7 @@ describe('k3 [needs ps]: the handover predicate on real processes', () => {
     for (const kind of kinds)
       expect(world.retire(kind, old[kind])).toEqual([keys[kind]])
     await waitFor(() => kinds.every(kind => world.leftItsLoop(old[kind])), 'each old worker to leave its lease loop before a task of another card is queued')
-    expect(expireLeases(world.db, FAR_FUTURE, SILENT_MS), 'no timer frees a lease from a live executor').toEqual([])
+    expect(expireLeases(world.db, cardTransitions(), FAR_FUTURE, SILENT_MS), 'no timer frees a lease from a live executor').toEqual([])
     const otherKeys = Object.fromEntries(kinds.map(kind => [kind, world.queue(kind, otherCard[kind])])) as Record<typeof kinds[number], string>
     const fresh = Object.fromEntries(await Promise.all(kinds.map(async kind => [kind, await world.start(NEW_GENERATION, { kind, session: `new-${kind}` })] as const))) as Record<typeof kinds[number], Worker>
     await waitFor(() => kinds.every(kind => world.completedBy(otherKeys[kind]) === fresh[kind].actor), 'the new generation to pass over the held task and take the later task of another card')

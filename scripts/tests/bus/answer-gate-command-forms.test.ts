@@ -14,6 +14,7 @@ import { queueTask } from '../../core/queue.js'
 import { AnswerExecutor, noGateDecisionLine } from '../../nodes/answer/answer-executor.js'
 import { claudeAnswerer, gateInShellLine, IN_THE_BACKGROUND, RoundTimer } from '../../nodes/answer/answerer.js'
 import { gateLine } from '../../nodes/answer/duties/index.js'
+import { cardTransitions } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { sha } from './github-fake.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
@@ -98,7 +99,7 @@ async function roundWith(runs: readonly GateRun[]): Promise<{ outcome: AnswerOut
     },
   })
   const cardTrees: CardTreeTools = { home: trees, exists: existsSync, branchOf: pr => `feat/card-${pr}`, recreate: () => {}, bringTo: () => {} }
-  const executor = new AnswerExecutor({ silentMs: SILENT_MS, db: made.db, answerer, ownerMerges: () => '', clock: made.clock.now, trees: cardTrees, liveSession: () => null, prepare: () => null, dirty: () => true, localHead: () => sha('a') })
+  const executor = new AnswerExecutor({ cards: cardTransitions(), silentMs: SILENT_MS, db: made.db, answerer, ownerMerges: () => '', clock: made.clock.now, trees: cardTrees, liveSession: () => null, prepare: () => null, dirty: () => true, localHead: () => sha('a') })
   return { outcome: await executor.answer(lease()), published, made }
 }
 

@@ -141,7 +141,7 @@ export class AnswerNode extends Node<AnswerStep> {
 
   constructor(private readonly answerParts: AnswerNodeParts) {
     super('answer', { db: answerParts.db, clock: answerParts.clock, session: answerParts.session, mode: answerParts.mode, env: answerParts.env, silentMs: answerParts.silentMs, supply: nodeSupply() })
-    this.executor = new AnswerExecutor(answerParts)
+    this.executor = new AnswerExecutor({ ...answerParts, cards: this.suppliedCards })
     this.declare(ANSWER_NODE, scopeOf)
   }
 
@@ -166,7 +166,7 @@ export class AnswerNode extends Node<AnswerStep> {
       const denial: NotMineDenial = { kind: 'technical', reason: NOT_MINE, detail }
       const ts = this.ts()
       const event: BusEvent = { ts, type: POLICY_DENIED, actor: 'policy', cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${POLICY_DENIED}:${lease.taskKey}:${lease.leaseGen}`, payload: { command: 'answer', ...denial }, legacy: false }
-      const next = failTask(this.db, ts, lease, { reason: NOT_MINE, withdraw: true }, this.answerParts.silentMs, [event])
+      const next = failTask(this.db, this.supply.cards, ts, lease, { reason: NOT_MINE, withdraw: true }, this.answerParts.silentMs, [event])
       return { kind: 'denied', taskKey: lease.taskKey, denial, next }
     }
     catch (error) {
@@ -183,7 +183,7 @@ export class AnswerNode extends Node<AnswerStep> {
     const denial: StaleHeadDenial = { kind: 'technical', reason: STALE_ANSWER_HEAD, detail: `pull request #${lease.pr} moved from ${lease.head} to ${head} before this answer ran; no session runs on the old head and no review round is spent` }
     const ts = this.ts()
     const event: BusEvent = { ts, type: POLICY_DENIED, actor: 'policy', cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${POLICY_DENIED}:${lease.taskKey}:${lease.leaseGen}`, payload: { command: 'answer', ...denial }, legacy: false }
-    return { kind: 'denied', taskKey: lease.taskKey, denial, next: supersedeLease(this.db, ts, lease, [event]) }
+    return { kind: 'denied', taskKey: lease.taskKey, denial, next: supersedeLease(this.db, this.supply.cards, ts, lease, [event]) }
   }
 
   private verdictNotRecordedYet(lease: Lease): boolean {

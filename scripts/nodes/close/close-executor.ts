@@ -1,6 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { BusEvent } from '../../core/db.js'
-import type { AfterFailure, Lease } from '../../core/lease.js'
+import type { AfterFailure, CardTransitions, Lease } from '../../core/lease.js'
 import type { CardFileStep } from '../../intake/card-archive.js'
 import type { ProcessCwds } from '../../ports/client/contract.js'
 import type { CardSession } from '../answer/answer-source.js'
@@ -59,6 +59,7 @@ export interface CardTreeRemover {
 
 export interface CloseParts {
   db: DatabaseSync
+  cards: CardTransitions
   reported: ReportedVerification
   clock: () => Date
   parking: string
@@ -234,7 +235,7 @@ export class CloseExecutor {
     const cardFile = archiveCardFile(this.parts.parking, lease.cardId)
     const ts = this.ts()
     const event: BusEvent = { ts, type: CARD_CLOSED, actor: lease.actor, cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: closedEventKey(lease, cardClosed(this.parts.db, lease.cardId)), payload: report === undefined ? { verification } : { verification, report }, legacy: false }
-    completeTask(this.parts.db, ts, lease, [event], (db) => {
+    completeTask(this.parts.db, this.parts.cards, ts, lease, [event], (db) => {
       if (closedForThisLease(db, lease))
         throw new CardAlreadyClosed(`card ${lease.cardId} was closed before this close was recorded`)
     })
@@ -263,7 +264,7 @@ export class CloseExecutor {
   private denied(lease: Lease, denial: CloseDenial): CloseOutcome {
     const ts = this.ts()
     const event: BusEvent = { ts, type: POLICY_DENIED, actor: 'policy', cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${POLICY_DENIED}:${lease.taskKey}:${lease.leaseGen}`, payload: { command: 'close', ...denial }, legacy: false }
-    const next = failTask(this.parts.db, ts, lease, { reason: denial.reason, withdraw: denial.reason === 'card_closed' || denial.reason === NOT_MINE || denial.reason === WITNESS_REASON }, this.parts.silentMs, [event])
+    const next = failTask(this.parts.db, this.parts.cards, ts, lease, { reason: denial.reason, withdraw: denial.reason === 'card_closed' || denial.reason === NOT_MINE || denial.reason === WITNESS_REASON }, this.parts.silentMs, [event])
     return { kind: 'denied', taskKey: lease.taskKey, denial, next }
   }
 }

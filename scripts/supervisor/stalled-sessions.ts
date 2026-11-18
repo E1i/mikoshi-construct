@@ -1,7 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { BusEvent } from '../core/db.js'
 import type { BudgetLine } from '../core/eddies.js'
-import type { Lease } from '../core/lease.js'
+import type { CardTransitions, Lease } from '../core/lease.js'
 import type { GitRunner } from '../ports/git.js'
 import type { ProcessTable } from '../ports/process-table.js'
 import type { ActionOf, LeasedRound, UnendedStart } from './expected-time.js'
@@ -173,6 +173,7 @@ export interface OverTime {
 }
 
 export interface StalledSessionPorts {
+  cards: CardTransitions
   lifeOf: LifeOf
   overTime?: OverTime
   stop?: StopSession
@@ -477,7 +478,7 @@ export class StalledSessions {
     const ts = new Date(nowMs).toISOString()
     const detail = `the ${lease.queue} session ${session} of card #${lease.cardId} made no push and no new step for ${this.minutesSince(since, nowMs)} min and its process is gone`
     const ended: BusEvent = { ts, type: CARD_SESSION_ENDED, actor: STALLED_ACTOR, cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${CARD_SESSION_ENDED}:stalled:${lease.taskKey}:${lease.leaseGen}`, payload: { session, stopped: true, detail }, legacy: false }
-    releaseTask(this.db, ts, { ...lease, actor: STALLED_ACTOR }, SESSION_STALLED_RELEASE, [ended])
+    releaseTask(this.db, this.ports.cards, ts, { ...lease, actor: STALLED_ACTOR }, SESSION_STALLED_RELEASE, [ended])
     return [`${this.prefix}${CARD_SESSION_ENDED} #${lease.cardId}: ${detail}; ${lease.taskKey} is queued again`]
   }
 

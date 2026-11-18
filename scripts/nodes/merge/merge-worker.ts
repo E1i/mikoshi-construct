@@ -90,7 +90,7 @@ export class MergeNode extends Node<MergeStep> {
     this.gitHub = parts.gitHub
     this.rebuildCatalog = parts.rebuildCatalog
     this.weights = parts.weights
-    this.executor = new MergeExecutor({ db: parts.db, gitHub: parts.gitHub, put: parts.put, publish: parts.publish, clock: parts.clock, run: parts.run, silentMs: parts.silentMs, pushPolicy: parts.pushPolicy, overlaps: parts.overlaps ?? mainOverlapAt(process.cwd()), rules: candidateRules() })
+    this.executor = new MergeExecutor({ db: parts.db, cards: this.suppliedCards, gitHub: parts.gitHub, put: parts.put, publish: parts.publish, clock: parts.clock, run: parts.run, silentMs: parts.silentMs, pushPolicy: parts.pushPolicy, overlaps: parts.overlaps ?? mainOverlapAt(process.cwd()), rules: candidateRules() })
     this.declare(MERGE_NODE, scopeOf)
   }
 

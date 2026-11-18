@@ -20,7 +20,7 @@ import { ghApi } from '../../ports/github.js'
 import { Meter } from '../../ports/meter.js'
 import { CHECK_MS } from '../../ports/netwatch.js'
 import { BUS_RUN_LAUNCH, launchName, PREFIX, runningInstance, startDetached } from '../../supervisor/bg.js'
-import { busProjections } from '../../supervisor/composition.js'
+import { busProjections, cardTransitions } from '../../supervisor/composition.js'
 import { CARD_PROCESS, lastProcessBeats, recordHeartbeat, recordProcessHeartbeat, WINDOW_PROCESS } from '../../supervisor/heartbeat.js'
 import { LIVENESS_JUDGE, livenessSources, SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { reviewLaunch } from '../../supervisor/review-bg.js'
@@ -463,7 +463,7 @@ describe('the supervisor keeps every switched-on worker alive', () => {
     expect(keeper.step()).toEqual([])
     await holderDone
 
-    completeTask(nodeDb, LOCKED_AT, taken, [])
+    completeTask(nodeDb, cardTransitions(), LOCKED_AT, taken, [])
     expect(leaseWhileFree(nodeDb, LOCKED_AT, { queue: 'merge', cardId: 1182 }, 'worker:merge:alive', 1)).not.toBeNull()
     expect(journal).toEqual([])
     expect(supervisorDb.prepare('SELECT count(*) AS n FROM events WHERE type = ?').get(WORKER_DOWN)).toEqual({ n: 0 })
@@ -650,7 +650,7 @@ describe('the supervisor restarts itself after a merge under scripts/bus', () =>
       },
       freeLeases: (stopped) => {
         aliveWhenFreed = alive
-        return freeLeasesOf(db, killedAt, stopped)
+        return freeLeasesOf(db, cardTransitions(), killedAt, stopped)
       },
       processes: () => alive,
       mainSince: () => [{ id: 1, sha: NEW_MAIN }],
@@ -669,11 +669,11 @@ describe('the supervisor restarts itself after a merge under scripts/bus', () =>
     expect(state(killed.taskKey)).toEqual({ state: 'queued', lease_gen: 1 })
     expect(state(elsewhere.taskKey)).toEqual({ state: 'leased', lease_gen: 1 })
 
-    expect(() => completeTask(db, killedAt, killed, [])).toThrow(StaleLease)
+    expect(() => completeTask(db, cardTransitions(), killedAt, killed, [])).toThrow(StaleLease)
     const fresh = leaseNext(db, killedAt, 'launch', 'worker:launch:fresh')!
     expect(fresh.leaseGen).toBe(killed.leaseGen + 1)
-    expect(() => completeTask(db, killedAt, killed, [])).toThrow(StaleLease)
-    completeTask(db, killedAt, fresh, [])
+    expect(() => completeTask(db, cardTransitions(), killedAt, killed, [])).toThrow(StaleLease)
+    completeTask(db, cardTransitions(), killedAt, fresh, [])
     expect(state(killed.taskKey)).toEqual({ state: 'completed', lease_gen: 2 })
     db.close()
   })
@@ -700,7 +700,7 @@ describe('the supervisor restarts itself after a merge under scripts/bus', () =>
         }
         alive = alive.filter(candidate => candidate.pid !== instance.pid)
       },
-      freeLeases: stopped => freeLeasesOf(db, ts(), stopped),
+      freeLeases: stopped => freeLeasesOf(db, cardTransitions(), ts(), stopped),
       drain: busDrain(db, ts),
       processes: () => alive,
       mainSince: () => [{ id: main.id, sha: main.sha }],
@@ -735,7 +735,7 @@ describe('the supervisor restarts itself after a merge under scripts/bus', () =>
     expect((await supervisor.step()).join('\n')).not.toContain('restarting every running bus process')
     expect(alive()).toHaveLength(1)
 
-    completeTask(db, ts(), lease, [])
+    completeTask(db, cardTransitions(), ts(), lease, [])
     clock.now = 120_000
     expect((await supervisor.step()).join('\n')).toContain(`main advanced to ${NEW_MAIN} with a change to the code every bus process runs; restarting every running bus process on ${NEW_MAIN}`)
     expect(holderStopped(db)).toEqual([])
@@ -859,7 +859,7 @@ describe('the supervisor restarts itself after a merge under scripts/bus', () =>
       stop: async (instance) => {
         alive = alive.filter(candidate => candidate.pid !== instance.pid)
       },
-      freeLeases: stopped => freeLeasesOf(db, ts(), stopped),
+      freeLeases: stopped => freeLeasesOf(db, cardTransitions(), ts(), stopped),
       drain: busDrain(db, ts),
       processes: () => alive,
       mainSince: () => [{ id: 1, sha: NEW_MAIN }],
@@ -881,7 +881,7 @@ describe('the supervisor restarts itself after a merge under scripts/bus', () =>
     expect(drainOpen(db, ts(), 'merge')).toBe(true)
     expect(drainOpen(db, ts(), 'close')).toBe(false)
 
-    completeTask(db, ts(), leaseOfA, [])
+    completeTask(db, cardTransitions(), ts(), leaseOfA, [])
     clock.now = 60_000
     const lines = (await supervisor.step()).join('\n')
 
@@ -892,7 +892,7 @@ describe('the supervisor restarts itself after a merge under scripts/bus', () =>
     expect(drainOpen(db, ts(), 'merge')).toBe(false)
     expect(db.prepare('SELECT state, lease_gen FROM tasks WHERE task_key = ?').get(leaseOfB.taskKey)).toEqual({ state: 'leased', lease_gen: leaseOfB.leaseGen })
     expect(holderStopped(db)).toEqual([])
-    completeTask(db, ts(), leaseOfB, [])
+    completeTask(db, cardTransitions(), ts(), leaseOfB, [])
     db.close()
   })
 

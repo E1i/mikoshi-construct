@@ -21,6 +21,7 @@ import { fullReview } from '../../nodes/review/review-depth.js'
 import { claudeReviewer, osDescendants, raiseCeilingAlarm, REVIEW_AT_CEILING, reviewSession, ReviewTrees } from '../../nodes/review/reviewer.js'
 import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
 import { InMemoryProcessTable } from '../../ports/process-table.js'
+import { cardTransitions } from '../../supervisor/composition.js'
 import { recordHeartbeat } from '../../supervisor/heartbeat.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { NO_PROGRESS_LINES, StalledSessions } from '../../supervisor/stalled-sessions.js'
@@ -56,7 +57,7 @@ function runningLaunch(cardId: number) {
   const processes: ProcessTable = { commandLine: () => starter.stops.length > 0 ? null : `sh -c card-session s-${cardId}`, signalGroup: pgid => signalled.push(pgid) }
   appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'policy', cardId, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${cardId}`, payload: { lane: 'lane-a', decision: 'auto', contour: 'cheap', depends: [], admission: `admission-${cardId}` }, legacy: false })
   bench.tick()
-  const executor = new LaunchExecutor({ silentMs: SILENT_MS, db: bench.db, starter, clock: bench.clock.now, disk: roomy, isolation: sandboxed })
+  const executor = new LaunchExecutor({ cards: cardTransitions(), silentMs: SILENT_MS, db: bench.db, starter, clock: bench.clock.now, disk: roomy, isolation: sandboxed })
   expect(executor.launch(leaseNext(bench.db, bench.clock.now().toISOString(), 'launch', 'worker:launch:worker-1')!).kind).toBe('started')
   bench.tick()
   const node = new LaunchNode({ silentMs: SILENT_MS, db: bench.db, starter, clock: bench.clock.now, session: 'w1', mode: 'live', env: {}, processes, disk: roomy, isolation: sandboxed })
@@ -122,7 +123,7 @@ describe('a live session is warned on silence or over time and only the owner st
     const reviewLine = NO_PROGRESS_LINES.review
     let now = 0
     const stopped: string[] = []
-    const watch = new StalledSessions(db, () => new Date(now), { lifeOf: () => 'live', stop: session => stopped.push(session), spendOf: () => null, pulseOf: () => '4100', overTime: { check: () => [] } })
+    const watch = new StalledSessions(db, () => new Date(now), { cards: cardTransitions(), lifeOf: () => 'live', stop: session => stopped.push(session), spendOf: () => null, pulseOf: () => '4100', overTime: { check: () => [] } })
     const beatReview = (leased: Lease, at: number): void => {
       appendEvent(db, { ts: new Date(at).toISOString(), type: SESSION_HEARTBEAT, actor: leased.actor, cardId: leased.cardId, pr: leased.pr, head: leased.head, dedupeKey: `${SESSION_HEARTBEAT}:${leased.taskKey}:${leased.leaseGen}:${at}`, payload: { task_key: leased.taskKey, lease_gen: leased.leaseGen, session: 'review-session', context: 1000 }, legacy: false })
     }
@@ -133,7 +134,7 @@ describe('a live session is warned on silence or over time and only the owner st
     beatReview(lease, 60_000)
     expect(sweepAt(60_000)).toEqual([])
     expect(sweepAt(reviewLine + 2 * 60_000)).toEqual([expect.stringContaining('the session runs on and is not stopped')])
-    failTask(db, new Date(reviewLine + 3 * 60_000).toISOString(), lease, { reason: 'exit 1', withdraw: false }, SILENT_MS)
+    failTask(db, cardTransitions(), new Date(reviewLine + 3 * 60_000).toISOString(), lease, { reason: 'exit 1', withdraw: false }, SILENT_MS)
     const again = leaseQueued(db, new Date(reviewLine + 4 * 60_000).toISOString(), lease.taskKey, 'worker:review:worker-1')!
     beatReview(again, reviewLine + 5 * 60_000)
     expect(sweepAt(reviewLine + 5 * 60_000)).toEqual([])

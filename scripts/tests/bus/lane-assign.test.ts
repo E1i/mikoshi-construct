@@ -19,7 +19,7 @@ import { busCardEvents, busIntakePorts } from '../../intake/intake.js'
 import { chainLaneNumber, currentLane, DEFAULT_LANE_COUNT, laneCount, laneOverlapRecorder, layLanes, liveLanes, OWNER_MERGE, repositoryLanes, STALLED } from '../../nodes/launch/lane-assign.js'
 import { launchCandidates } from '../../nodes/launch/launch-candidates.js'
 import { LaunchNode } from '../../nodes/launch/launch-worker.js'
-import { busProjections } from '../../supervisor/composition.js'
+import { busProjections, cardTransitions } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 
 const TS = '2026-10-22T10:00:00.000Z'
@@ -119,7 +119,7 @@ class Bench {
   withdrawn(task: QueuedTask, reason = 'not_mine', context: BusEvent[] = []): this {
     queueTask(this.db, TS, task)
     const lease = leaseQueued(this.db, TS, taskKey(task), `worker:${task.queue}:w1`)!
-    failTask(this.db, TS, lease, { reason, withdraw: true }, SILENT_MS, context)
+    failTask(this.db, cardTransitions(), TS, lease, { reason, withdraw: true }, SILENT_MS, context)
     reduce(this.db, 'pending', busProjections())
     return this
   }

@@ -46,7 +46,7 @@ import { cardDecisionCommand } from '../../policy/shards.js'
 import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
 import { TICK_MS } from '../../ports/netwatch.js'
 import { WORKTREE_HOME_VARIABLE } from '../../ports/worktree-home.js'
-import { busProjections, nodeSupply } from '../../supervisor/composition.js'
+import { busProjections, cardTransitions, nodeSupply } from '../../supervisor/composition.js'
 import { recordHeartbeat } from '../../supervisor/heartbeat.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { requestFromWindow, WindowRequests } from '../../window/window-requests.js'
@@ -361,7 +361,7 @@ describe('the launch node', () => {
     made.tick()
     const ts = made.clock.now().toISOString()
     queueTask(made.db, ts, { queue: 'launch', cardId: 970, generation: 'admission-970' })
-    const executor = new LaunchExecutor({ silentMs: SILENT_MS, db: made.db, starter, clock: made.clock.now, disk: roomy, isolation: sandboxed, prompts: path.join(root, 'prompts') })
+    const executor = new LaunchExecutor({ cards: cardTransitions(), silentMs: SILENT_MS, db: made.db, starter, clock: made.clock.now, disk: roomy, isolation: sandboxed, prompts: path.join(root, 'prompts') })
 
     expect(executor.launch(leaseNext(made.db, ts, 'launch', 'worker:launch:t')!)).toMatchObject({ kind: 'started' })
     const [started] = eventsOf(made.db, CARD_STARTED) as { prompt_sha: string, prompt_path: string, input?: unknown }[]
@@ -386,7 +386,7 @@ describe('the launch node', () => {
     made.tick()
     const ts = made.clock.now().toISOString()
     queueTask(made.db, ts, { queue: 'launch', cardId: 970, generation: 'admission-970' })
-    const executor = new LaunchExecutor({ silentMs: SILENT_MS, db: made.db, starter, clock: made.clock.now, disk: roomy, isolation: sandboxed, prompts: path.join(blocker, 'prompts') })
+    const executor = new LaunchExecutor({ cards: cardTransitions(), silentMs: SILENT_MS, db: made.db, starter, clock: made.clock.now, disk: roomy, isolation: sandboxed, prompts: path.join(blocker, 'prompts') })
 
     expect(executor.launch(leaseNext(made.db, ts, 'launch', 'worker:launch:t')!)).toMatchObject({ kind: 'started' })
     const [started] = eventsOf(made.db, CARD_STARTED)

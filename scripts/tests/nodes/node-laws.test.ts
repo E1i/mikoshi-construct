@@ -51,7 +51,7 @@ import { UpdateNode } from '../../nodes/update/update-worker.js'
 import { NetWatch, TICK_MS } from '../../ports/netwatch.js'
 import { InMemoryProcessTable } from '../../ports/process-table.js'
 import { launchName } from '../../supervisor/bg.js'
-import { answerParts, busProjections, nodeSupply, updateParts } from '../../supervisor/composition.js'
+import { answerParts, busProjections, cardTransitions, nodeSupply, updateParts } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { BusTick } from '../../supervisor/run.js'
 import { slotsVariable } from '../../supervisor/scheduler.js'
@@ -114,7 +114,7 @@ class LiveSession extends Node<NodeStep> {
     await new Promise<void>((resolve) => {
       this.rounds.push(resolve)
     })
-    completeTask(this.db, this.clockIso(), lease, [])
+    completeTask(this.db, cardTransitions(), this.clockIso(), lease, [])
     return { kind: 'completed', taskKey: lease.taskKey }
   }
 
@@ -171,7 +171,7 @@ async function restartKeepsSession(node: LawNode): Promise<void> {
       stopped.push(instance.pid)
       alive = alive.filter(each => each.pid !== instance.pid)
     },
-    freeLeases: list => freeLeasesOf(db, ts(), list),
+    freeLeases: list => freeLeasesOf(db, cardTransitions(), ts(), list),
     drain: busDrain(db, ts),
     processes: withoutRetiring(() => alive, db),
     mainSince: () => [{ id: 1, sha: NEW_MAIN }],

@@ -14,6 +14,7 @@ import { openDatabase } from '../../core/sqlite.js'
 import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
 import { AnswerNode, priorityOf } from '../../nodes/answer/answer-worker.js'
 import { claudeAnswerer } from '../../nodes/answer/answerer.js'
+import { cardTransitions } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { SLOTS, slotsOf, slotsVariable } from '../../supervisor/scheduler.js'
 import { sha } from './github-fake.js'
@@ -239,7 +240,7 @@ describe('answer slots', () => {
     expect(eventsOf(bench.db, 'task.renewed')).toHaveLength(1)
 
     bench.clock.advance(LEASE_MS + 1)
-    expect(expireLeases(bench.db, bench.clock.now().toISOString(), SILENT_MS)).toEqual([key])
+    expect(expireLeases(bench.db, cardTransitions(), bench.clock.now().toISOString(), SILENT_MS)).toEqual([key])
     await beat()
     await beat()
     expect(eventsOf(bench.db, 'task.renewed')).toHaveLength(1)

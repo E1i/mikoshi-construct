@@ -27,7 +27,7 @@ import { realRequestTools } from '../window/window-request-tools.js'
 import { WindowRequests } from '../window/window-requests.js'
 import { alive, BUS_RUN_MARKERS, instancesOf, processBeatsOn, psList, RUN_SCRIPT } from './bg.js'
 import { closeWaitsOfEndedCards } from './card-waits.js'
-import { busProjections, deriveQueuesOfTheBus, gateRunSpoolPlaces, recordOwnStart } from './composition.js'
+import { busProjections, cardTransitions, deriveQueuesOfTheBus, gateRunSpoolPlaces, recordOwnStart } from './composition.js'
 import { GateRunSpool } from './gate-run-spool.js'
 import { sessionLifeIn } from './recorded-worker.js'
 import { REDUCER_PERIOD_MS, REDUCER_PREFIX, ReducerPass, startReducerLoop } from './reducer-loop.js'
@@ -264,7 +264,7 @@ export function composeBusTick(db: DatabaseSync, busPath: string, gitHub: GitHub
     }
   }
   const table = new OsProcessTable()
-  const silent = new StalledSessions(db, clock, { lifeOf: sessionLifeIn(table), prefix: PREFIX })
+  const silent = new StalledSessions(db, clock, { cards: cardTransitions(), lifeOf: sessionLifeIn(table), prefix: PREFIX })
   const stalled = (): void => {
     for (const line of silent.step())
       console.log(line)
