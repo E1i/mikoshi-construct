@@ -2304,11 +2304,9 @@
           "scripts/cli/check-catalog.ts",
           "scripts/cli/check-matrix.ts",
           "scripts/cli/mutate.ts",
-          "scripts/cli/no-layer-recount.ts",
           "scripts/cli/slot.ts",
           "scripts/conveyor/measures.ts",
           "scripts/core/bus-path.ts",
-          "scripts/core/card-bodies.ts",
           "scripts/core/inbox.ts",
           "scripts/core/journal.ts",
           "scripts/core/machine-sessions.ts",
@@ -2318,7 +2316,6 @@
           "scripts/done/check.ts",
           "scripts/intake/import.ts",
           "scripts/intake/intake.ts",
-          "scripts/intake/runs-layers-backfill.ts",
           "scripts/intake/witness-fields-backfill.ts",
           "scripts/ladder/approve.ts",
           "scripts/ladder/brief-finish-cli.ts",
@@ -3538,7 +3535,6 @@
           "scripts/intake/card-archive.ts",
           "scripts/intake/card-contract.ts",
           "scripts/intake/witness-fields-backfill.ts",
-          "scripts/intake/slice-parent-backfill.ts",
           "scripts/cli/card.ts"
         ],
         "may_use": [
@@ -3555,7 +3551,6 @@
           "scripts/intake/card-archive.ts",
           "scripts/intake/card-contract.ts",
           "scripts/intake/witness-fields-backfill.ts",
-          "scripts/intake/slice-parent-backfill.ts",
           "scripts/cli/card.ts"
         ],
         "status": "decided"
@@ -3644,7 +3639,6 @@
           "!scripts/intake/card-archive.ts",
           "!scripts/intake/card-contract.ts",
           "!scripts/intake/intake.ts",
-          "!scripts/intake/slice-parent-backfill.ts",
           "!scripts/intake/witness-fields-backfill.ts"
         ],
         "status": "undecided"
@@ -4005,7 +3999,6 @@
           "scripts/cli/check-catalog.ts",
           "scripts/cli/check-matrix.ts",
           "scripts/cli/mutate.ts",
-          "scripts/cli/no-layer-recount.ts",
           "scripts/ci/**",
           "scripts/quality/**",
           "scripts/privacy/**",
@@ -4347,7 +4340,6 @@
       "scripts/cli/card-chain.ts": 3,
       "scripts/cli/card.ts": 1,
       "scripts/cli/check-catalog.ts": 1,
-      "scripts/cli/no-layer-recount.ts": 1,
       "scripts/core/bus-readings.ts": 4,
       "scripts/core/card-automaton.ts": 12,
       "scripts/core/card-bodies.ts": 7,
@@ -4374,7 +4366,6 @@
       "scripts/intake/card-contract.ts": 1,
       "scripts/intake/intake.ts": 7,
       "scripts/intake/parking-reads.ts": 1,
-      "scripts/intake/runs-layers-backfill.ts": 3,
       "scripts/intake/witness-fields-backfill.ts": 2,
       "scripts/ladder/ledger.ts": 2,
       "scripts/nodes/answer/answer-candidates.ts": 4,
@@ -4512,7 +4503,6 @@
         "functions": {
           "closedFromBus": "(legacyHistory: readonly JournalEntry[], bus: BusCardStates): Map<string, string>",
           "mergedFromBus": "(legacyHistory: readonly JournalEntry[], bus: BusCardStates): Set<string>",
-          "mergedTasks": "(journal: string | null, bus?: BusCardStates): Set<string>",
           "writtenBeforeHistoryEnds": "(entry: JournalEntry): boolean"
         },
         "reexports": [],
@@ -4563,7 +4553,6 @@
       "src/card/parking.ts": {
         "constants": [
           "PRIORITIES",
-          "SHIFT_WHO",
           "WINDOW_WHO"
         ],
         "functions": {
@@ -4618,7 +4607,6 @@
           "isWitnessFieldLine": "(line: string): boolean",
           "parseWitnessList": "(value: unknown): ParsedWitnessList",
           "runsFieldLine": "(runs: readonly string[]): string",
-          "runsFieldOf": "(text: string): string[]",
           "witnessFieldRefusals": "(text: string): string[]",
           "witnessFieldsOf": "(text: string): WitnessField[] | null"
         },
@@ -4937,12 +4925,9 @@
           "LANE_FILE"
         ],
         "functions": {
-          "admittedCardFile": "(cardId: number, parkingRoot?: string): string",
           "isLaneName": "(name: string): boolean",
           "judgedFieldWitnessesOf": "(body: string): { acceptance: JudgedWitness[]; invariants: JudgedWitness[]; } | null",
           "pathsNamedOutside": "(parked: ParkedTask, text: string): string[]",
-          "runAdmit": "(options: AdmitOptions, now: () => Date = () => new Date()): AdmitResult",
-          "withRunsLine": "(text: string, runs: readonly string[]): string",
           "witnessesOf": "(body: string): string[]"
         },
         "reexports": [

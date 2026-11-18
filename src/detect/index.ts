@@ -7,7 +7,7 @@ import { detectLayout, detectMonorepoTools, detectWorkspaceDirs, detectWorkspace
 import { detectPackageManager, detectPnpmVersion } from './package-manager.js'
 
 export { DEFAULT_COMPOSITION_DIR }
-export type { DetectReport, ExistingFiles, Layout, MonorepoTool, PackageManager, WorkspacePackage } from './report.js'
+export type { DetectReport } from './report.js'
 
 export function detect(dir: string): DetectReport {
   const root = path.resolve(dir)

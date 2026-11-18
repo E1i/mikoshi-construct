@@ -1043,8 +1043,7 @@
           "scripts/intake/import.ts",
           "scripts/intake/intake.ts",
           "scripts/intake/lane-json.ts",
-          "scripts/intake/parking-reads.ts",
-          "scripts/intake/parking.ts"
+          "scripts/intake/parking-reads.ts"
         ]
       },
       {
