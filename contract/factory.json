@@ -1667,6 +1667,7 @@
       "draft.creates": "string[]",
       "draft.decision": "string",
       "draft.depends": "string[]",
+      "draft.imports": "DraftImport[]",
       "draft.item": "string",
       "draft.kind": "string",
       "draft.milestone": "string",
@@ -4036,6 +4037,7 @@
           "scripts/policy/widening.ts",
           "scripts/policy/touch-scope.ts",
           "scripts/policy/derived-files.ts",
+          "scripts/policy/placement-growth.ts",
           "scripts/morse/**",
           "scripts/core/push-policy.ts"
         ],

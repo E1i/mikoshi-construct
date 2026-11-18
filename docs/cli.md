@@ -2185,6 +2185,16 @@ test, tree of tests or layer is marked `unclear:`, and a `runs:` line in a card 
 of paths, globs and layers, or that names an id the layer map does not hold, is refused, like a
 malformed field.
 
+`imports`, optional, lists the imports the card's placement requires, each `{ "from": <path>, "to": <path> }`
+with both paths from the repository root: the importing file and the file it imports. It is a draft
+field only and is not written into the parking card. Intake maps each import to its boundary row with the
+module ownership of `contract/factory.json` that the ratchet's boundary report uses, and every row whose
+count after the added imports exceeds its count in `contract/ratchet.json` becomes an `unclear:` line
+on `touches` naming the row, its count now and after, and the from and to files, so the card stays
+`who: window` until a person re-places it. A row a new pair of modules opens counts from zero. A
+repository with no `contract/ratchet.json` or `contract/factory.json` measures nothing; an entry that is
+not `{ from, to }` refuses the draft.
+
 A later admission or `--amend` admits a changed field with no decision in four cases: `test` narrows to
 a name the old `test` matches or gains a name where it had none, a named test moves to another file, the
 run gains or loses a `!` with the opposite expectation, or `base` goes from `pass` to `fail`. Any other

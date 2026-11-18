@@ -5,8 +5,9 @@ import type { DraftCard, DraftPlan, UnclearField } from './draft.js'
 import type { RepositoryFacts } from './facts.js'
 import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
-import { GENERATED_FILES } from '../../../scripts/core/factory-paths.js'
+import { GENERATED_FILES, RATCHET_FILE } from '../../../scripts/core/factory-paths.js'
 import { constructCommand } from '../../../scripts/core/owner-commands.js'
+import { boundaryRowsOf, placementGraphOf, placementGrowth } from '../../../scripts/policy/placement-growth.js'
 import { CHANGESET_COMPANION, createdPaths, entryCovers, entryUnder, FOLLOWING_TABLE, isTestScope, OWNER_MERGES, parseCreatesEntry, PREFIX_SUFFIX, scopePath, withinTouches } from '../../../scripts/policy/touch-scope.js'
 import { runsOf } from '../../card/covering-tests.js'
 import { CONTOURS, decisionsOf, KINDS } from '../../card/grammar.js'
@@ -533,6 +534,30 @@ function runsUnclear(card: DraftCard): UnclearField[] {
   return (card.runs ?? []).filter(entry => !isTestScope(entry)).map(entry => ({ field: 'runs', reason: `'${entry}' is not a test or a tree of tests, so nothing runs it; name a test path or drop it` }))
 }
 
+type RecordReader = (relative: string) => string | null
+
+function readerOf(repository: RepositoryFacts): RecordReader | undefined {
+  const read = (repository as Partial<{ read: unknown }>).read
+  return typeof read === 'function' ? relative => (read as RecordReader).call(repository, relative) : undefined
+}
+
+function placementUnclear(card: DraftCard, repository: RepositoryFacts): UnclearField[] {
+  const read = readerOf(repository)
+  if (card.imports === undefined || card.imports.length === 0 || read === undefined)
+    return []
+  const [factoryText, ratchetText] = [read(GENERATED_FILES.factory.path), read(RATCHET_FILE.path)]
+  if (factoryText === null || ratchetText === null)
+    return []
+  const graph = placementGraphOf(factoryText)
+  const recorded = boundaryRowsOf(ratchetText)
+  if (graph === null || recorded === null)
+    return [{ field: 'touches', reason: `the imports of this card's placement cannot be measured: ${graph === null ? `${GENERATED_FILES.factory.path} holds no module graph` : `${RATCHET_FILE.path} is not a JSON object`}; a person places the card` }]
+  return placementGrowth(card.imports, graph, recorded).map(grown => ({
+    field: 'touches',
+    reason: `the placement grows ${grown.row} from ${grown.now} to ${grown.after} over ${RATCHET_FILE.path}: ${grown.imports.map(placed => `${placed.from} imports ${placed.to}`).join('; ')}; growth is the owner's, so a person re-places the card inside a recorded row`,
+  }))
+}
+
 function byFieldOrder(corrections: Correction[]): Correction[] {
   return [...corrections].sort((a, b) => FIELD_ORDER.indexOf(a.field) - FIELD_ORDER.indexOf(b.field))
 }
@@ -559,6 +584,7 @@ function checkCard(card: DraftCard, assigned: number, facts: CheckFacts): Checke
     unclear: [
       ...card.unclear,
       ...touched.unclear,
+      ...placementUnclear(card, facts.repository),
       ...depends.unclear,
       ...blocks.unclear,
       ...witnessesUnclear(card, facts.repository),

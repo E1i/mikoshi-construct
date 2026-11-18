@@ -9,6 +9,11 @@ export interface UnclearField {
   reason: string
 }
 
+export interface DraftImport {
+  from: string
+  to: string
+}
+
 export interface DraftCard {
   name: string
   kind: string
@@ -31,6 +36,7 @@ export interface DraftCard {
   witnesses: string[]
   witnessFields?: WitnessField[]
   runs?: string[]
+  imports?: DraftImport[]
   unclear: UnclearField[]
 }
 
@@ -47,7 +53,9 @@ const REQUIRED_TEXT = ['name', 'kind', 'milestone', 'size', 'task'] as const
 const OPTIONAL_TEXT = ['contour', 'decision', 'branch', 'who', 'continue', 'whole', 'item'] as const
 const REQUIRED_LISTS = ['touches'] as const
 const OPTIONAL_LISTS = ['depends', 'blocks', 'creates', 'runs'] as const
-const KEYS: readonly string[] = [...REQUIRED_TEXT, ...OPTIONAL_TEXT, ...REQUIRED_LISTS, 'witnesses', ...OPTIONAL_LISTS, 'number', 'priority', 'unclear']
+const IMPORTS_KEY = 'imports'
+const IMPORT_KEYS = ['from', 'to']
+const KEYS: readonly string[] = [...REQUIRED_TEXT, ...OPTIONAL_TEXT, ...REQUIRED_LISTS, 'witnesses', ...OPTIONAL_LISTS, IMPORTS_KEY, 'number', 'priority', 'unclear']
 const PLAN_KEYS = ['id', 'title', 'goal', 'file'] as const
 const DRAFT_KEYS = ['cards', 'plan']
 const WITNESS_KIND_FIELD = new RegExp(` · (${WITNESS_KINDS.join('|')})$`)
@@ -75,6 +83,10 @@ function isTextList(value: unknown): value is string[] {
 
 function isUnclear(value: unknown): value is UnclearField {
   return isRecord(value) && isText(value.field) && isText(value.reason) && Object.keys(value).length === 2
+}
+
+function isImport(value: unknown): value is DraftImport {
+  return isRecord(value) && isText(value.from) && isText(value.to) && Object.keys(value).every(key => IMPORT_KEYS.includes(key))
 }
 
 function witnessOf(entry: unknown): string | null {
@@ -148,6 +160,8 @@ function draftCard(entry: unknown, at: string, reasons: string[]): DraftCard | n
         reasons.push(`${at}: 'creates' entry '${parsed.path}' is not in 'touches'; a path the change creates is also one it touches`)
     }
   }
+  if (entry.imports !== undefined && !(Array.isArray(entry.imports) && entry.imports.every(isImport)))
+    reasons.push(`${at}: '${IMPORTS_KEY}' must be a list of { "from": <repository path>, "to": <repository path> }, the imports the card's placement requires`)
   if (entry.unclear !== undefined && !(Array.isArray(entry.unclear) && entry.unclear.every(isUnclear)))
     reasons.push(`${at}: 'unclear' must be a list of { field, reason }`)
   if (reasons.length > before)
