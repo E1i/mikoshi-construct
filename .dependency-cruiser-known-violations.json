@@ -2021,8 +2021,8 @@
   {
     "type": "dependency",
     "from": "scripts/policy/policy.ts",
-    "to": "src/commands/intake/admit.ts",
-    "unresolvedTo": "../../src/commands/intake/admit.js",
+    "to": "src/card/witness-fields.ts",
+    "unresolvedTo": "../../src/card/witness-fields.js",
     "dependencyTypes": [
       "local",
       "import"
@@ -2107,6 +2107,20 @@
     "from": "scripts/policy/round-limit-decision.ts",
     "to": "src/card/risk.ts",
     "unresolvedTo": "../../src/card/risk.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "policy-imports-nothing-to-its-right"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "scripts/policy/round-limit-decision.ts",
+    "to": "src/card/witness-fields.ts",
+    "unresolvedTo": "../../src/card/witness-fields.js",
     "dependencyTypes": [
       "local",
       "import"
