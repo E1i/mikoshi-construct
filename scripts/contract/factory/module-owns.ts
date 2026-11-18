@@ -53,7 +53,6 @@ export const MODULE_OWNS: Readonly<Record<string, readonly string[]>> = {
     `${FACTORY_ROOT}/intake/card-archive.ts`,
     `${FACTORY_ROOT}/intake/card-contract.ts`,
     `${FACTORY_ROOT}/intake/witness-fields-backfill.ts`,
-    `${FACTORY_ROOT}/intake/slice-parent-backfill.ts`,
     `${FACTORY_ROOT}/cli/card.ts`,
   ],
   'command-registry': [
@@ -181,7 +180,6 @@ export const MODULE_OWNS: Readonly<Record<string, readonly string[]>> = {
     `${FACTORY_ROOT}/cli/check-catalog.ts`,
     `${FACTORY_ROOT}/cli/check-matrix.ts`,
     `${FACTORY_ROOT}/cli/mutate.ts`,
-    `${FACTORY_ROOT}/cli/no-layer-recount.ts`,
     `${FACTORY_ROOT}/ci/**`,
     `${FACTORY_ROOT}/quality/**`,
     `${FACTORY_ROOT}/privacy/**`,
