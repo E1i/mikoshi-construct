@@ -974,6 +974,7 @@
     "scripts/tests/nodes/review-ceiling-goes-to-the-window.test.ts",
     "scripts/tests/nodes/review-mutation-only-tail.test.ts",
     "scripts/tests/nodes/review-owner-decisions.test.ts",
+    "scripts/tests/nodes/review-reads-decisions-in-force.test.ts",
     "scripts/tests/nodes/review-sandbox-norm.test.ts",
     "scripts/tests/nodes/widen-from-the-tree-question-path.test.ts",
     "scripts/tests/nodes/widen-from-the-tree.test.ts",
