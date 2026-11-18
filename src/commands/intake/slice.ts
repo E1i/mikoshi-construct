@@ -151,7 +151,7 @@ export function sliceCards(cards: readonly CheckedCard[], numbers: readonly numb
       blocks: sorted([...blocks[index]!, ...blockedHere]),
     })
     const split = splitSignal({ touches: card.touches, unclear: unclear.length, covering: card.covering })
-    const volume = volumeSignal(card.touches, sources)
+    const volume = volumeSignal(card.touches, sources, card.size)
     const volumeSlices = split.slices.length > 0 ? [] : volume.slices
     const read = riskReading(card.touches.filter(entry => !card.covering.includes(entry)), split.slices.length > 0 || volumeSlices.length > 0)
     const keptWhole = card.whole === undefined ? riskWholeReason(read, card.size) : null

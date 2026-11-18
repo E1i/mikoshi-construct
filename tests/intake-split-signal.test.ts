@@ -6,7 +6,7 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { choose } from '../scripts/intake/parking.js'
 import { relation, taskConflicts } from '../scripts/nodes/launch/overlap.js'
-import { CHARACTERS_PER_TOKEN, SESSION_READING_TOKENS, splitSignal } from '../src/card/complexity.js'
+import { CHARACTERS_PER_TOKEN, DEFAULT_CARD_LINE, readingBudget, splitSignal } from '../src/card/complexity.js'
 import { parseParkingFile, WINDOW_WHO } from '../src/card/parking.js'
 import { SEAM_PREFIX, SLICE_PREFIX } from '../src/card/risk.js'
 import { TASK_FILE } from '../src/card/task-file.js'
@@ -232,7 +232,7 @@ describe('intake writes the slicing principle into a card the signal splits', ()
 })
 
 describe('intake slices a card whose reading outweighs one session context by the volume seam', () => {
-  const sessionCharacters = SESSION_READING_TOKENS * CHARACTERS_PER_TOKEN
+  const sessionCharacters = readingBudget(DEFAULT_CARD_LINE) * CHARACTERS_PER_TOKEN
   const touches = ['src/model/write.ts', 'src/model/birth.ts', 'src/model/state.ts', 'tests/model-write.test.ts']
 
   it('a card whose touches outweigh one session context is sliced by the volume seam', () => {
@@ -240,7 +240,7 @@ describe('intake slices a card whose reading outweighs one session context by th
     const [card] = sliced(intake(scratch(), [draftCard('model-volume', touches)], {}, sizes))
     const seams = card!.text.split('\n').filter(line => line.startsWith(SEAM_PREFIX))
     expect(seams.map(line => line.split(' — ')[0])).toEqual(['seam: volume'])
-    expect(seams[0]).toContain(`more than ${SESSION_READING_TOKENS}`)
+    expect(seams[0]).toContain(`more than ${readingBudget(DEFAULT_CARD_LINE)}`)
     expect(card!.text.split('\n').filter(line => line.startsWith(SLICE_PREFIX))).toEqual([
       'slice: 1 volume — src/model/write.ts, src/model/birth.ts',
       'slice: 2 volume — src/model/state.ts, tests/model-write.test.ts',

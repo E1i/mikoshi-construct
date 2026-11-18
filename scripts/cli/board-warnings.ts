@@ -2,7 +2,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { RecordedVerdict } from '../nodes/update/update-executor.js'
 import type { GitHub } from '../ports/github.js'
 import type { SlotKind } from '../supervisor/scheduler.js'
-import { holdReason, plannedStalls, questionReleasedLine, questionReleasedOverlaps } from '../nodes/launch/launch-candidates.js'
+import { holdReason, plannedStalls, questionReleasedLine, questionReleasedOverlaps, unexplainedStall } from '../nodes/launch/launch-candidates.js'
 import { REVIEW_RULES_VERSION } from '../nodes/review/review-executor.js'
 import { recordedVerdictOn } from '../nodes/update/update-executor.js'
 import { Meter } from '../ports/meter.js'
@@ -92,7 +92,7 @@ export function boardWarnings(readings: WarningReadings): BoardWarning[] {
     ...readings.contexts.flatMap(session => contextWarning(session, readings.contextLimit, line)),
     ...openPrWarning(readings.openPrs, readings.openPrLimit),
     ...ownerWaitWarning(readings.ownerWaits),
-    ...readings.stalls.map((stall): BoardWarning => ({ level: 'amber', text: stall })),
+    ...readings.stalls.map((stall): BoardWarning => ({ level: unexplainedStall(stall) ? 'red' : 'amber', text: stall })),
     ...(readings.savingOff ? [{ level: 'amber', text: SAVING_OFF_WARNING } as const] : []),
     ...stalePassWarning(readings.stalePasses),
   ]

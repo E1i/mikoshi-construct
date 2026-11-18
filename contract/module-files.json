@@ -541,6 +541,7 @@
     "scripts/tests/bus/repeat-finding.test.ts",
     "scripts/tests/bus/replay-snapshot.test.ts",
     "scripts/tests/bus/replay.test.ts",
+    "scripts/tests/bus/resource-scheduler.test.ts",
     "scripts/tests/bus/restart-first-tick.test.ts",
     "scripts/tests/bus/restart-queue.test.ts",
     "scripts/tests/bus/review-bar.test.ts",
@@ -1528,6 +1529,7 @@
   "node-launch": [
     "scripts/nodes/launch/continuation.ts",
     "scripts/nodes/launch/header.md",
+    "scripts/nodes/launch/holders.ts",
     "scripts/nodes/launch/lane-assign.ts",
     "scripts/nodes/launch/launch-candidates.ts",
     "scripts/nodes/launch/launch-executor.ts",
@@ -1717,6 +1719,7 @@
     "tests/card/closed.test.ts",
     "tests/card/covering-tests.test.ts",
     "tests/card/grammar.test.ts",
+    "tests/card/layer-seam.test.ts",
     "tests/card/parking.test.ts",
     "tests/card/slice-depends.test.ts",
     "tests/card/slice-parent.test.ts",

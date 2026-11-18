@@ -9,9 +9,15 @@ export const MAX_TOUCHES = 6
 export const MAX_AREAS = 2
 export const MAX_UNCLEAR = 2
 export const SIGNALS_TO_SPLIT = 2
-export const SESSION_READING_TOKENS = 100_000
-export const CHARACTERS_PER_TOKEN = 4
-const SESSION_READING_CHARACTERS = SESSION_READING_TOKENS * CHARACTERS_PER_TOKEN
+export const CHARACTERS_PER_TOKEN = 2
+export const START_TOKENS = 35_000
+export const REASONING_SHARE = 0.4
+export const DEFAULT_CARD_LINE = 150_000
+export const CARD_SIZES = ['XS', 'S', 'M', 'L'] as const
+export const EDDIES_FILE = '.claude/eddies.json'
+const LINE_BY_SIZE_FIELD = 'cardContextLineBySize'
+const LINE_FIELD = 'cardContextLine'
+const PERCENT = 100
 const VOLUME_LABEL = 'volume'
 const MECHANISM_A_TASK_RUNS_ON = [
   ...FACTORY_FORMER_FOLDERS.ghosts,
@@ -29,7 +35,7 @@ const AREA_ROOTS: readonly (readonly [string, Area])[] = [
 ]
 const UNSLICEABLE = 'alone hold more reading than one session, so no slice of the volume seam fits; narrow them by hand'
 const SLICES_MIX_RISK = 'its slices by area would still hold R1 together with R3–R4 work, so the risk seam slices instead'
-const VOLUME_PRINCIPLE = 'a card whose reading fills one session context leaves no room for its work, so its touches are cut into slices that each fit; a generated file stays with its sources, a lock file with its manifest and a template with its twin; a person confirms the slices or keeps the card whole with the reason written'
+const VOLUME_PRINCIPLE = 'the reading budget of a card is a share of the context line of its size, the line less the start of a session and a reserve for reasoning; a card whose reading passes that budget leaves no room for its work, so it raises its size to one whose budget holds the reading, or its touches are cut into slices that each fit; a generated file stays with its sources, a lock file with its manifest and a template with its twin; a person confirms the size or the slices, or keeps the card whole with the reason written'
 const PRINCIPLE = 'slice by complexity first, by the risk matrix R1–R4 when these slices do not hold; a person confirms the slices or keeps the card whole with the reason written'
 
 export type Area = typeof AREAS[number]
@@ -55,6 +61,10 @@ export interface SplitVerdict {
 export interface VolumeVerdict {
   over: boolean
   tokens: number
+  size: string | null
+  line: number
+  budget: number
+  raiseTo: string | null
   slices: string[][]
   mixed: boolean
   unsliceable: string[]
@@ -146,14 +156,44 @@ function tokensOf(characters: number): number {
   return Math.ceil(characters / CHARACTERS_PER_TOKEN)
 }
 
-function packedByVolume(touches: readonly string[], characters: readonly number[]): { touches: string[], characters: number }[] {
+function positive(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null
+}
+
+function eddiesOf(sources: SliceSources): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(sources.read(EDDIES_FILE) ?? '{}') as unknown
+    return parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {}
+  }
+  catch {
+    return {}
+  }
+}
+
+export function cardLineOf(size: string | null, sources: SliceSources): number {
+  const eddies = eddiesOf(sources)
+  const bySize = eddies[LINE_BY_SIZE_FIELD]
+  const sized = size !== null && bySize !== null && typeof bySize === 'object' ? positive((bySize as Record<string, unknown>)[size]) : null
+  return sized ?? positive(eddies[LINE_FIELD]) ?? DEFAULT_CARD_LINE
+}
+
+export function readingBudget(line: number): number {
+  return Math.max(0, Math.floor(line * (1 - REASONING_SHARE)) - START_TOKENS)
+}
+
+function sizeThatHolds(size: string | null, tokens: number, sources: SliceSources): string | null {
+  const from = CARD_SIZES.findIndex(each => each === size)
+  return CARD_SIZES.slice(from + 1).find(larger => tokens <= readingBudget(cardLineOf(larger, sources))) ?? null
+}
+
+function packedByVolume(touches: readonly string[], characters: readonly number[], budgetCharacters: number): { touches: string[], characters: number }[] {
   const groups = groupsOf(touches)
   const packed: { touches: string[], characters: number }[] = []
   for (const group of new Set(groups)) {
     const members = touches.flatMap((touch, index) => (groups[index] === group ? [{ touch, characters: characters[index]! }] : []))
     const weight = members.reduce((sum, member) => sum + member.characters, 0)
     const last = packed.at(-1)
-    if (last !== undefined && last.characters + weight <= SESSION_READING_CHARACTERS) {
+    if (last !== undefined && last.characters + weight <= budgetCharacters) {
       last.touches.push(...members.map(member => member.touch))
       last.characters += weight
     }
@@ -164,16 +204,21 @@ function packedByVolume(touches: readonly string[], characters: readonly number[
   return packed
 }
 
-export function volumeSignal(touches: readonly string[], sources: SliceSources): VolumeVerdict {
+export function volumeSignal(touches: readonly string[], sources: SliceSources, size: string | null = null): VolumeVerdict {
   const characters = touches.map(touch => charactersOf(touch, sources))
   const total = characters.reduce((sum, count) => sum + count, 0)
-  if (total <= SESSION_READING_CHARACTERS)
-    return { over: false, tokens: tokensOf(total), slices: [], mixed: false, unsliceable: [] }
-  const packed = packedByVolume(touches, characters)
-  const unsliceable = packed.filter(slice => slice.characters > SESSION_READING_CHARACTERS).flatMap(slice => slice.touches)
+  const line = cardLineOf(size, sources)
+  const budget = readingBudget(line)
+  const budgetCharacters = budget * CHARACTERS_PER_TOKEN
+  const tokens = tokensOf(total)
+  const measured = { tokens, size, line, budget }
+  if (total <= budgetCharacters)
+    return { ...measured, over: false, raiseTo: null, slices: [], mixed: false, unsliceable: [] }
+  const packed = packedByVolume(touches, characters, budgetCharacters)
+  const unsliceable = packed.filter(slice => slice.characters > budgetCharacters).flatMap(slice => slice.touches)
   const slices = unsliceable.length > 0 ? [] : packed.map(slice => slice.touches)
   const mixed = slices.length > 1 && slices.some(mixesRisk)
-  return { over: true, tokens: tokensOf(total), slices: slices.length > 1 && !mixed ? slices : [], mixed, unsliceable }
+  return { ...measured, over: true, raiseTo: sizeThatHolds(size, tokens, sources), slices: slices.length > 1 && !mixed ? slices : [], mixed, unsliceable }
 }
 
 export function splitSignal(input: ComplexityInput): SplitVerdict {
@@ -200,11 +245,20 @@ export function seamLines(verdict: SplitVerdict, depends: readonly (readonly num
   ]
 }
 
+function budgetOrigin(verdict: VolumeVerdict): string {
+  const card = verdict.size === null ? 'a card of unknown size' : `an ${verdict.size} card`
+  return `of ${card}: its line ${verdict.line} less ${START_TOKENS} for the start and ${REASONING_SHARE * PERCENT}% of the line for reasoning`
+}
+
+function raiseLine(verdict: VolumeVerdict): string {
+  return verdict.raiseTo === null ? '' : `; raise its size to ${verdict.raiseTo}, whose budget holds this reading, or take the cut`
+}
+
 export function volumeLines(verdict: VolumeVerdict, depends: readonly (readonly number[])[] = []): string[] {
   if (!verdict.over)
     return []
   return [
-    `${SEAM_PREFIX}${VOLUME_LABEL} — about ${verdict.tokens} tokens of reading in the touches; more than ${SESSION_READING_TOKENS}, the reading one session holds beside its work${verdict.unsliceable.length > 0 ? `; ${verdict.unsliceable.join(', ')} ${UNSLICEABLE}` : ''}${verdict.mixed ? `; ${SLICES_MIX_RISK}` : ''} — ${VOLUME_PRINCIPLE}`,
+    `${SEAM_PREFIX}${VOLUME_LABEL} — about ${verdict.tokens} tokens of reading in the touches; more than ${verdict.budget}, the reading budget ${budgetOrigin(verdict)}${raiseLine(verdict)}${verdict.unsliceable.length > 0 ? `; ${verdict.unsliceable.join(', ')} ${UNSLICEABLE}` : ''}${verdict.mixed ? `; ${SLICES_MIX_RISK}` : ''} — ${VOLUME_PRINCIPLE}`,
     ...verdict.slices.map((touches, index) => sliceLine(index, VOLUME_LABEL, touches, depends[index])),
   ]
 }
