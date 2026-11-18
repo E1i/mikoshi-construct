@@ -1044,6 +1044,7 @@
     "scripts/tests/shift/tests-follow-touches.test.ts",
     "scripts/tests/shift/tree-pr-cli.test.ts",
     "scripts/tests/shift/tree-pr-factory-twin.test.ts",
+    "scripts/tests/shift/tree-pr-matrix-line.test.ts",
     "scripts/tests/shift/tree-pr.test.ts",
     "scripts/tests/shredder/owner-merges.test.ts",
     "scripts/tests/supervisor/bus-heal.test.ts",
