@@ -1,7 +1,9 @@
+import type * as ChildProcesses from 'node:child_process'
 import type { ReviewPlan } from '../../nodes/review/review-depth.js'
 import type { ReviewPlannerLater } from '../../nodes/review/review-executor.js'
 import type { Reviewer } from '../../nodes/review/reviewer.js'
 import type { MergeBench } from './merge-bench.js'
+import { once } from 'node:events'
 import process from 'node:process'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { parkingFileText, parseParkingFile } from '../../../src/card/parking.js'
@@ -14,15 +16,42 @@ import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { cardBody, sha } from './github-fake.js'
 import { eventsOf, liveBench } from './merge-bench.js'
 
+const substitute = vi.hoisted(() => ({ script: null as string | null, children: [] as ChildProcesses.ChildProcess[] }))
+
+vi.mock('node:child_process', async (importOriginal) => {
+  const actual = await importOriginal<typeof ChildProcesses>()
+  const execFile = (file: string, args: readonly string[], options: ChildProcesses.ExecFileOptions, callback: (error: Error | null, stdout: string, stderr: string) => void): ChildProcesses.ChildProcess => {
+    const child = substitute.script === null
+      ? actual.execFile(file, args, options, callback as never)
+      : actual.execFile(file, ['-e', substitute.script], options, callback as never)
+    substitute.children.push(child)
+    return child
+  }
+  return { ...actual, execFile }
+})
+
 const PRS = [1732, 1733] as const
 const LIMIT_MS = 400
+const CHILD_LIMIT_MS = 2_000
+const NEVER_ENDS = 'process.stdin.resume(); setInterval(() => {}, 1000)'
 const cleanups: (() => void)[] = []
 
 afterEach(() => {
   vi.restoreAllMocks()
   for (const cleanup of cleanups.splice(0))
     cleanup()
+  substitute.script = null
+  for (const child of substitute.children.splice(0)) {
+    if (child.exitCode === null && child.signalCode === null)
+      child.kill('SIGKILL')
+  }
 })
+
+async function signalThatEnded(child: ChildProcesses.ChildProcess): Promise<NodeJS.Signals | null> {
+  if (child.exitCode === null && child.signalCode === null)
+    await once(child, 'exit')
+  return child.signalCode
+}
 
 function cardOf(pr: number): number {
   return pr + 100
@@ -133,6 +162,44 @@ describe('the review node prepares a lease off its heartbeat path and within a l
     expect(eventsOf(bench.db, POLICY_DENIED).map(payload => [payload.reason, payload.detail])).toEqual([[PRE_SESSION_LIMIT, detail]])
     expect(eventsOf(bench.db, TASK_FAILED).map(payload => payload.reason)).toEqual([PRE_SESSION_LIMIT])
     expect(said.at(-1)).toMatch(/pre-session work ended in \d+ ms, past its limit at the step plan/)
+  }, 30_000)
+
+  it('a busy planning child is killed once the limit passes, not left running', async () => {
+    const bench = benchOf([PRS[0]])
+    const said: string[] = []
+    let reviewed = 0
+    substitute.script = NEVER_ENDS
+    const worker = new ReviewWorker({ silentMs: SILENT_MS, isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }), db: bench.db, gitHub: bench.gitHub.client, publish: bench.gitHub.publish, reviewer: async () => {
+      reviewed += 1
+      return { verdict: 'pass', findings: [], session: 'never' }
+    }, plan: childReviewPlanner(process.cwd()), clock: bench.clock.now, session: 'worker-1', preSessionLimitMs: CHILD_LIMIT_MS, say: line => said.push(line) })
+
+    const step = await worker.step()
+
+    expect(step).toMatchObject({ kind: 'denied', denial: { kind: 'technical', reason: PRE_SESSION_LIMIT } })
+    expect(reviewed).toBe(0)
+    expect(substitute.children).toHaveLength(1)
+    expect(await signalThatEnded(substitute.children[0]!)).not.toBeNull()
+  }, 30_000)
+
+  it('a planner that fails because the limit aborted it ends in the denial, not in a full-review fallback', async () => {
+    const bench = benchOf([PRS[0]])
+    const said: string[] = []
+    let reviewed = 0
+    const rejectsWhenAborted: ReviewPlannerLater = (_lease, _earlier, signal) => new Promise<ReviewPlan>((_resolve, reject) => {
+      signal.addEventListener('abort', () => reject(new Error('the planning process was killed')))
+    })
+    const worker = new ReviewWorker({ silentMs: SILENT_MS, isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }), db: bench.db, gitHub: bench.gitHub.client, publish: bench.gitHub.publish, reviewer: async () => {
+      reviewed += 1
+      return { verdict: 'pass', findings: [], session: 'never' }
+    }, plan: rejectsWhenAborted, clock: bench.clock.now, session: 'worker-1', preSessionLimitMs: LIMIT_MS, say: line => said.push(line) })
+
+    const step = await worker.step()
+
+    expect(step).toMatchObject({ kind: 'denied', denial: { kind: 'technical', reason: PRE_SESSION_LIMIT } })
+    expect(reviewed).toBe(0)
+    expect(eventsOf(bench.db, REVIEW_RECORDED)).toEqual([])
+    expect(eventsOf(bench.db, TASK_FAILED).map(payload => payload.reason)).toEqual([PRE_SESSION_LIMIT])
   }, 30_000)
 
   it('a planner that fails falls back to the full review, as an in-process planner error does', async () => {
