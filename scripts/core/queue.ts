@@ -5,7 +5,7 @@ import type { Fold, StoredEvent } from './stored.js'
 import type { IncrementalProjection } from './watermark.js'
 import { appendEvent, inTransaction, OPEN_WAIT, OWNER_WAITS } from './db.js'
 import { dependencyWaitOf } from './dependency-wait.js'
-import { CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, CARD_WAITING, declaredPart, INTAKE_EVENT, INTAKE_MOVE_EVENT, MERGE_DONE, POLICY_DENIED, PR_CLOSED, PR_GROUPS, PR_OBSERVED, PR_OPENED, QUESTION_AGENT, QUESTION_OWNER, SESSION_HEARTBEAT, TASK_COMPLETED, TASK_ENQUEUED, TASK_EXPIRED, TASK_FAILED, TASK_LEASED, TASK_RELEASED, TASK_RENEWED, TASK_REQUEUED, TASK_SUPERSEDED, TASK_WITHDRAWN, WITNESS_DOWNGRADE } from './events.js'
+import { CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_RELEASED, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, CARD_WAITING, declaredPart, INTAKE_EVENT, INTAKE_MOVE_EVENT, MERGE_DONE, POLICY_DENIED, PR_CLOSED, PR_GROUPS, PR_OBSERVED, PR_OPENED, QUESTION_AGENT, QUESTION_OWNER, SCOPE_WIDENED, SESSION_HEARTBEAT, TASK_COMPLETED, TASK_ENQUEUED, TASK_EXPIRED, TASK_FAILED, TASK_LEASED, TASK_RELEASED, TASK_RENEWED, TASK_REQUEUED, TASK_SUPERSEDED, TASK_WITHDRAWN, WITNESS_DOWNGRADE } from './events.js'
 import { A_CARD_DECISION_REOPENS, answerDecisionOfKey, BACKFILL_SOURCE, cardDecisionKeyOf, decidedTaskDecisionOfKey, decisionSegment, generationOfKey, isFullSha, MAIN_BRANCH, QUEUES, reviewInputOf, reviewInputOfKey, taskKey } from './identifiers.js'
 import { payloadOf, reject } from './stored.js'
 import { markReduced, reduceProjection, watermarkOf } from './watermark.js'
@@ -95,11 +95,19 @@ const REVIEWS_OF_AN_OLD_INPUT = `
   ORDER BY tasks.task_key
 `
 
-const LIVE_ANSWERS_WITH_THE_CARD_BODY = `
-  SELECT task_key, queue, card_id, pr, head, state, ${cardBodyShaOf('tasks.card_id')} AS card_body FROM tasks
-  WHERE queue = 'answer' AND state IN ('${QUEUED}', '${LEASED}')
-  ORDER BY task_key
+const ANSWER_TASK_COLUMNS = 'task_key, queue, card_id, pr, head, state'
+
+function answerTasksWhere(columns: string, match: string, order: string): string {
+  return `
+  SELECT ${columns} FROM tasks
+  WHERE queue = 'answer' AND ${match}
+  ORDER BY ${order}
 `
+}
+
+const LIVE_ANSWERS_WITH_THE_CARD_BODY = answerTasksWhere(`${ANSWER_TASK_COLUMNS}, ${cardBodyShaOf('tasks.card_id')} AS card_body`, `state IN ('${QUEUED}', '${LEASED}')`, 'task_key')
+
+const LATEST_ANSWER_OF_THE_CARD = answerTasksWhere(ANSWER_TASK_COLUMNS, 'card_id = ?', 'id DESC LIMIT 1')
 
 const A_SUPERSEDED_ANSWER_WITHIN_ITS_LEASE = `
   SELECT 1 FROM tasks
@@ -113,10 +121,16 @@ export const { unmerged: A_DEPENDENCY_UNMERGED, updateDue: A_DEPENDENCY_UPDATE_D
 
 export const { unmergedDependenciesOf, updateDueOn: dependencyUpdateDueOn } = DEPENDENCY_WAIT
 
-export function aTaskInFlight(queue: string, match: string): string {
-  return `EXISTS (SELECT 1 FROM tasks AS live WHERE live.queue = '${queue}' AND ${match}
-    AND live.state IN ('${QUEUED}', '${LEASED}'))`
+function tasksInFlight(columns: string, queue: string, match: string): string {
+  return `SELECT ${columns} FROM tasks AS live WHERE live.queue = '${queue}' AND ${match}
+    AND live.state IN ('${QUEUED}', '${LEASED}')`
 }
+
+export function aTaskInFlight(queue: string, match: string): string {
+  return `EXISTS (${tasksInFlight('1', queue, match)})`
+}
+
+const REVIEWS_IN_FLIGHT_ON_THE_HEAD = `${tasksInFlight('live.task_key', 'review', 'live.pr = ? AND live.head = ?')} ORDER BY live.id`
 
 export const NEEDS_UPDATE = 'needs_update'
 
@@ -138,7 +152,67 @@ export const MERGE_CANDIDATES = mergeCandidatesWhere(`verdict_on_head = 'pass'`,
 
 export const MERGE_CANDIDATES_WITHOUT_PASS = mergeCandidatesWhere(`verdict_on_head IS NOT 'pass'`, `mergeable IN ('clean', 'blocked')`)
 
-const LATEST_ORDER = `SELECT id, ts, type, actor, card_id, pr, head, dedupe_key, payload, legacy FROM events WHERE type = '${PR_GROUPS}' AND legacy = 0 ORDER BY id DESC LIMIT 1`
+const LATEST = 'id DESC LIMIT 1'
+
+function eventsWhere(columns: string, match: string, order: string): string {
+  return `SELECT ${columns} FROM events WHERE ${match} AND legacy = 0 ORDER BY ${order}`
+}
+
+const LATEST_ORDER = eventsWhere('id, ts, type, actor, card_id, pr, head, dedupe_key, payload, legacy', `type = '${PR_GROUPS}'`, LATEST)
+
+const LATEST_RELEASE_OF_THE_CARD = eventsWhere(`id, json_extract(payload, '$.request') AS request`, `card_id = ? AND type = '${CARD_RELEASED}'`, LATEST)
+
+const LATEST_WIDEN_STOP_OF_THE_CARD = eventsWhere(
+  `id, json_extract(payload, '$.detail') AS detail, json_extract(payload, '$.widen') AS widen`,
+  `card_id = ? AND type = '${CARD_STOPPED}' AND json_extract(payload, '$.reason') = '${QUESTION_OWNER}' AND json_array_length(json_extract(payload, '$.widen')) > 0`,
+  LATEST,
+)
+
+const WIDENED_ON_THE_ADMISSION = eventsWhere(
+  `json_extract(payload, '$.paths') AS paths`,
+  `card_id = ? AND type = '${SCOPE_WIDENED}' AND json_extract(payload, '$.admission') = ? AND json_type(payload, '$.paths') = 'array'`,
+  'id',
+)
+
+export interface CardRelease {
+  id: number
+  request: number | null
+}
+
+export function latestReleaseOf(db: DatabaseSync, cardId: number): CardRelease | null {
+  const row = db.prepare(LATEST_RELEASE_OF_THE_CARD).get(cardId) as { id: number, request: unknown } | undefined
+  return row === undefined ? null : { id: Number(row.id), request: typeof row.request === 'number' ? row.request : null }
+}
+
+export interface WidenStop {
+  id: number
+  detail: unknown
+  widen: string[]
+}
+
+export function latestWidenStopOf(db: DatabaseSync, cardId: number): WidenStop | null {
+  const row = db.prepare(LATEST_WIDEN_STOP_OF_THE_CARD).get(cardId) as { id: number, detail: unknown, widen: string } | undefined
+  if (row === undefined)
+    return null
+  const widen = (JSON.parse(row.widen) as unknown[]).filter((each): each is string => typeof each === 'string')
+  return { id: Number(row.id), detail: row.detail, widen }
+}
+
+export function widenedOnTheAdmission(db: DatabaseSync, cardId: number, admission: number): string[] {
+  return (db.prepare(WIDENED_ON_THE_ADMISSION).all(cardId, admission) as { paths: string }[]).flatMap(row => JSON.parse(row.paths) as string[])
+}
+
+export interface TaskStateRow extends TaskRow {
+  state: string
+}
+
+export function latestAnswerOf(db: DatabaseSync, cardId: number): TaskStateRow | null {
+  return (db.prepare(LATEST_ANSWER_OF_THE_CARD).get(cardId) as TaskStateRow | undefined) ?? null
+}
+
+export function reviewsInFlightOn(db: DatabaseSync, pr: number | null, head: string | null): string[] {
+  return (db.prepare(REVIEWS_IN_FLIGHT_ON_THE_HEAD).all(pr, head) as { task_key: string }[]).map(row => row.task_key)
+}
 
 interface RecordedGroup {
   prs: readonly number[]
@@ -171,6 +245,17 @@ export const QUESTION_OPEN = 'owner_question_open'
 
 export function openDecisionWaitsOf(card: string): string {
   return `SELECT id, text FROM ${OWNER_WAITS} WHERE need = 'decision' AND state = '${OPEN_WAIT}' AND card_id = ${card}`
+}
+
+const OPEN_DECISION_WAITS_OF_THE_CARD = `${openDecisionWaitsOf('?')} ORDER BY opened_at, id`
+
+export interface OpenDecisionWait {
+  id: string
+  text: string
+}
+
+export function openDecisionWaitsOfCard(db: DatabaseSync, cardId: number): OpenDecisionWait[] {
+  return db.prepare(OPEN_DECISION_WAITS_OF_THE_CARD).all(cardId) as unknown as OpenDecisionWait[]
 }
 
 const VERIFIED_ON_ITS_OWN_OR_A_SHARED_PR = `verified.type = '${CARD_VERIFIED}' AND verified.legacy = 0 AND verified.pr = prs.pr AND verified.card_id IS NOT NULL

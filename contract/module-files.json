@@ -683,6 +683,7 @@
     "scripts/tests/composition/model.test.ts",
     "scripts/tests/composition/render.test.ts",
     "scripts/tests/contract/bus-cut/events-decided.test.ts",
+    "scripts/tests/contract/bus-cut/executor-bus-reads-to-queue.test.ts",
     "scripts/tests/contract/bus-cut/lease-liveness-injected.test.ts",
     "scripts/tests/contract/bus-cut/lease-task-must-wait.test.ts",
     "scripts/tests/contract/bus-cut/node-parts-cadence-heartbeat-slots.test.ts",
