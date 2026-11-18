@@ -1892,6 +1892,8 @@
         "derived": false,
         "directory": false,
         "namedIn": [
+          "scripts/cli/board-page.ts",
+          "scripts/cli/board-page/miko-panel.ts",
           "scripts/construct/check-acceptance.mjs",
           "scripts/core/push-policy.ts",
           "scripts/nodes/answer/answerer.ts",
@@ -2096,21 +2098,17 @@
         "derived": false,
         "directory": false,
         "namedIn": [
-          "scripts/cli/board-page.ts",
           "scripts/intake/import.ts",
           "scripts/ladder/cleanup.ts",
           "scripts/ladder/expect-sample.ts",
           "scripts/ladder/ledger.ts",
-          "src/atlas/index.ts",
           "src/commands/attach/carriers.ts",
-          "src/commands/board/bus.ts",
           "src/commands/board/index.ts",
           "src/commands/cost/index.ts",
           "src/commands/cost/ledger.ts",
           "src/commands/detach/runtime.ts",
           "src/commands/run-record.ts",
           "src/program.ts",
-          "src/ui/console.ts",
           "src/ui/lore.ts"
         ],
         "owner": "src/commands/cost/ledger.ts",
@@ -4727,13 +4725,16 @@
           "backlogCards": "(cards: BusCard[], at: string, all: boolean): BusCard[]",
           "byStage": "(cards: readonly BusCard[]): BusCard[]",
           "counted": "(count: number, noun: string): string",
+          "inLiveView": "(card: BusCard, standing: CardStanding): boolean",
           "isLive": "(card: BusCard): boolean",
           "liftedByTheWindow": "(wait: OwnerWait): boolean",
           "markedName": "(name: string, card: BusCard): string",
           "matrixLines": "(facts: BusFacts, lore: Lore): string[]",
-          "screenLines": "(facts: BusFacts, lore: Lore, all = false): string[]",
+          "screenLines": "(facts: BusFacts, lore: Lore, all = false, held: ReadonlyMap<number, string> = new Map()): string[]",
           "sliceMark": "(card: BusCard): string | null",
           "slotsReading": "(facts: BusFacts): string",
+          "standingLine": "(card: BusCard, facts: StandingFacts, standing: CardStanding, lore: Lore): string | null",
+          "standingOf": "(facts: Pick<BusFacts, 'goal'>, held: ReadonlyMap<number, string> = new Map()): CardStanding",
           "tallyLine": "(tally: TaskTally): string",
           "taskGroupLine": "(group: TaskGroup): string",
           "taskGroups": "(shown: readonly BusCard[], every: readonly BusCard[], waits: readonly OwnerWait[]): TaskGroup[]",
@@ -4742,7 +4743,9 @@
           "waitTarget": "(wait: OwnerWait): string | null"
         },
         "reexports": [],
-        "types": {}
+        "types": {
+          "CardStanding": "interface CardStanding { releases: ReadonlyMap<number, string>; held: ReadonlyMap<number, string>; }"
+        }
       },
       "src/commands/ci/state.ts": {
         "constants": [

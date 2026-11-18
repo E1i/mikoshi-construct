@@ -1,4 +1,8 @@
 import type { BusService, CrawlerReading } from '../../../src/commands/board/bus.js'
+import type { Daemon } from './daemon-catalog.js'
+import { existsSync } from 'node:fs'
+import path from 'node:path'
+import { DAEMON_READER, daemonCatalog, installedDaemons, LOADED_SOURCE } from './daemon-catalog.js'
 import { compact, escaped, minutesBetween } from './session-card.js'
 
 export interface MikoWords {
@@ -16,6 +20,27 @@ export interface MikoPresence {
   crawlers: readonly CrawlerReading[]
 }
 
+export interface MikoMode {
+  hijacked: boolean
+  path: string
+}
+
+export interface DaemonWords {
+  boardMikoChip: string
+  boardMikoWhere: (hijacked: boolean, path: string) => string
+  boardDaemonsHead: (installed: number) => string
+  boardDaemonState: (loaded: boolean) => string
+  boardDaemonSlot: (slot: number) => string
+  boardDaemonMutations: (count: number) => string
+  boardDaemonsUnread: (reader: string, loadedIn: string) => string
+}
+
+export interface DaemonsReading {
+  daemons: readonly Daemon[]
+  reader: string
+  loadedIn: string
+}
+
 export interface MikoPanelParts {
   windows: readonly BusService[]
   bars: (service: BusService) => string
@@ -25,6 +50,62 @@ export interface MikoPanelParts {
   opener: string
   hint: string
   idle: string | null
+  bay?: MikoBay
+}
+
+export interface MikoBay {
+  mode: MikoMode
+  daemons: DaemonsReading
+  lore: DaemonWords
+}
+
+export const ATTACH_RECORD = '.construct/attach.json'
+const SD_OUTLINE = 'M3 2H27L37 12V58H3Z'
+const SD_TICKS = 'M8 2V8M12 2V8M16 2V8M20 2V8M24 2V8'
+const SKETCHES: Readonly<Record<string, string>> = {
+  'hex-iris': '<polygon points="20,20 29,25 29,35 20,40 11,35 11,25"/><circle cx="20" cy="30" r="5"/><circle cx="20" cy="30" r="1.6"/>',
+  'adapter-chip': '<rect x="12" y="22" width="16" height="16"/><path d="M16 22V18M20 22V18M24 22V18M16 38V42M20 38V42M24 38V42M12 26H8M12 34H8M28 26H32M28 34H32"/>',
+}
+const UNKNOWN_SKETCH = '<rect x="14" y="24" width="12" height="12"/>'
+
+export function mikoMode(root: string, exists: (file: string) => boolean): MikoMode {
+  return { hijacked: exists(path.join(root, ATTACH_RECORD)), path: root }
+}
+
+export function mikoBay(root: string, loadedSkills: readonly string[], lore: DaemonWords, exists: (file: string) => boolean = existsSync): MikoBay {
+  return { mode: mikoMode(root, exists), daemons: { daemons: installedDaemons(daemonCatalog(root), loadedSkills), reader: DAEMON_READER, loadedIn: LOADED_SOURCE }, lore }
+}
+
+function modeLine(mode: MikoMode, lore: DaemonWords): string {
+  const chip = mode.hijacked ? `<span class="mode-chip">${escaped(lore.boardMikoChip)}</span>` : ''
+  return `<div class="svc-line miko-where">${chip}<span>${escaped(lore.boardMikoWhere(mode.hijacked, mode.path))}</span></div>`
+}
+
+function daemonState(daemon: Daemon): string {
+  return daemon.loaded ? 'loaded' : 'sleep'
+}
+
+export function sdCard(daemon: Daemon): string {
+  const sketch = daemon.sketch === null ? UNKNOWN_SKETCH : SKETCHES[daemon.sketch] ?? UNKNOWN_SKETCH
+  return `<div class="sd-card"><svg viewBox="0 0 40 60" aria-hidden="true"><path class="sd-frame" d="${SD_OUTLINE}"/><path class="sd-frame" d="${SD_TICKS}"/><g class="sd-sketch" data-sketch="${escaped(daemon.sketch ?? '')}">${sketch}</g></svg><span class="sd-name">${escaped(daemon.daemon)}</span></div>`
+}
+
+function daemonSlot(daemon: Daemon, index: number, lore: DaemonWords): string {
+  return `<li class="daemon-slot" data-daemon-slot="${escaped(daemon.daemon)}" data-state="${daemonState(daemon)}" tabindex="0">${sdCard(daemon)}<span class="slot-foot"><i class="slot-led"></i>${escaped(lore.boardDaemonSlot(index + 1))}</span></li>`
+}
+
+function daemonPane(daemon: Daemon, shown: boolean, lore: DaemonWords): string {
+  const mutations = daemon.mutations.map(mutation => `<li>${escaped(mutation)}</li>`).join('')
+  return `<div class="daemon-pane" data-daemon-pane="${escaped(daemon.daemon)}" data-state="${daemonState(daemon)}"${shown ? ' data-default data-shown' : ''}><span class="pane-name">${escaped(daemon.daemon)}</span><span class="pane-tag">${escaped(lore.boardDaemonState(daemon.loaded))}</span><span class="pane-head">${escaped(lore.boardDaemonMutations(daemon.mutations.length))}</span><ul class="pane-mutations">${mutations}</ul></div>`
+}
+
+export function daemonsCell(reading: DaemonsReading, lore: DaemonWords): string {
+  const { daemons } = reading
+  const head = `<div class="daemons-head">${escaped(lore.boardDaemonsHead(daemons.length))}</div>`
+  if (daemons.length === 0)
+    return `<div class="miko-daemons">${head}<div class="svc-line daemons-unread">${escaped(lore.boardDaemonsUnread(reading.reader, reading.loadedIn))}</div></div>`
+  const shown = daemons.find(daemon => daemon.loaded) ?? daemons[0]!
+  return `<div class="miko-daemons">${head}<div class="daemons-bay"><ol class="daemon-slots">${daemons.map((daemon, index) => daemonSlot(daemon, index, lore)).join('')}</ol><div class="daemon-status">${daemons.map(daemon => daemonPane(daemon, daemon === shown, lore)).join('')}</div></div></div>`
 }
 
 const CRAWLERS_HEAD = 'CRAWLERS'
@@ -66,6 +147,7 @@ function mikoSelf(service: BusService, parts: MikoPanelParts, first: boolean): s
   return [
     '<div class="miko-self">',
     mikoTitle(parts.words, first ? parts.presence.model : null, first ? parts.hint : ''),
+    first && parts.bay !== undefined ? modeLine(parts.bay.mode, parts.bay.lore) : '',
     first ? windowLine(parts.presence) : '',
     first ? skillsRow(parts.presence.skills) : '',
     parts.bars(service),
@@ -76,7 +158,8 @@ function mikoSelf(service: BusService, parts: MikoPanelParts, first: boolean): s
 function mikoLeft(parts: MikoPanelParts): string {
   if (parts.windows.length > 0)
     return parts.windows.map((service, index) => mikoSelf(service, parts, index === 0)).join('')
-  return `<div class="miko-self">${mikoTitle(parts.words, null, '')}${parts.idle === null ? '' : `<div class="svc-line">${escaped(parts.idle)}</div>`}</div>`
+  const where = parts.bay === undefined ? '' : modeLine(parts.bay.mode, parts.bay.lore)
+  return `<div class="miko-self">${mikoTitle(parts.words, null, '')}${where}${parts.idle === null ? '' : `<div class="svc-line">${escaped(parts.idle)}</div>`}</div>`
 }
 
 export function crawlerRow(crawler: CrawlerReading, index: number, now: string): string {
@@ -102,5 +185,8 @@ export function crawlersCell(crawlers: readonly CrawlerReading[], now: string): 
 }
 
 export function mikoPanel(parts: MikoPanelParts): string {
-  return `<div class="svc bevel" data-role="window"${parts.opener} data-strip>${mikoLeft(parts)}${crawlersCell(parts.presence.crawlers, parts.now)}</div>`
+  const { bay } = parts
+  const mode = bay === undefined ? '' : ` data-mode="${bay.mode.hijacked ? 'hijack' : 'init'}"`
+  const daemons = bay === undefined ? '' : daemonsCell(bay.daemons, bay.lore)
+  return `<div class="svc bevel" data-role="window"${parts.opener}${mode} data-strip>${mikoLeft(parts)}${daemons}${crawlersCell(parts.presence.crawlers, parts.now)}</div>`
 }

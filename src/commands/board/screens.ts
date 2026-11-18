@@ -1,5 +1,5 @@
 import type { Lore } from '../../ui/lore.js'
-import type { BusCard, BusFacts, BusGroup, BusMatrix, BusTail, OwnerWait } from './bus.js'
+import type { BusCard, BusFacts, BusGroup, BusMatrix, BusTail, CardStage, OwnerWait } from './bus.js'
 import { ADMIT_COMMAND, ownerWaitCommand, pnpmCommand, windowCommandOf } from '../../../scripts/core/owner-commands.js'
 import { CARD_STAGES, FLOW_STAGES, LIVE_STAGES, LIVE_STATES, SHORT_SHA } from './bus.js'
 import { planLine } from './goal.js'
@@ -33,6 +33,10 @@ export interface Hint {
 export const REGISTER_PLAN_HINT: Hint = { who: 'window', command: pnpmCommand(REQUEST_SCRIPT, 'plan', '--op', 'open', '--plan', '<id>', '--title', '<text>', '--goal', '<text>', '--file', '<absolute plan file>') }
 export const ADMIT_CARD_HINT: Hint = { who: 'window', command: `${ADMIT_COMMAND} <parking>/<N>.md` }
 
+const RUNNING_STAGES: readonly CardStage[] = ['in work', 'answer/changes', 'review', 'ready']
+const SETTLED_STAGES: readonly CardStage[] = ['merged', 'dropped']
+const DEPENDS_PART = /· depends ([^·]*)/
+const CARD_NUMBER = /#(\d+)/g
 const SLICE_MARK = '◧'
 const CARD_NOUN = 'card'
 const TASK_NOUN = 'task'
@@ -112,6 +116,58 @@ export function isLive(card: BusCard): boolean {
   return card.body && !card.closed && LIVE_STAGES.includes(card.stage) && LIVE_STATES.includes(card.state ?? '')
 }
 
+export interface CardStanding {
+  releases: ReadonlyMap<number, string>
+  held: ReadonlyMap<number, string>
+}
+
+export function standingOf(facts: Pick<BusFacts, 'goal'>, held: ReadonlyMap<number, string> = new Map()): CardStanding {
+  return { releases: new Map(facts.goal?.plans.flatMap(plan => plan.cards.map(card => [card.card, plan.id] as const)) ?? []), held }
+}
+
+function isRunning(card: BusCard): boolean {
+  return isLive(card) && RUNNING_STAGES.includes(card.stage)
+}
+
+function isUnsettled(card: BusCard): boolean {
+  return !card.closed && !SETTLED_STAGES.includes(card.stage)
+}
+
+export function inLiveView(card: BusCard, standing: CardStanding): boolean {
+  return !standing.held.has(card.id) && (isRunning(card) || (isUnsettled(card) && standing.releases.has(card.id)))
+}
+
+function openDepends(card: BusCard, cards: readonly BusCard[]): string[] {
+  const named = DEPENDS_PART.exec(card.line ?? '')?.[1] ?? ''
+  const open = new Set(cards.filter(each => isUnsettled(each)).map(each => each.id))
+  return [...named.matchAll(CARD_NUMBER)].map(match => Number(match[1])).filter(id => open.has(id)).map(id => `#${id}`)
+}
+
+function blockerOf(card: BusCard, facts: StandingFacts, standing: CardStanding, lore: Lore): string {
+  const held = standing.held.get(card.id)
+  const wait = facts.waits.find(each => each.card === card.id)
+  const depends = openDepends(card, facts.cards)
+  const lane = facts.laneHeads?.find(head => head.card === card.id)
+  const queued = facts.queued?.find(standingInQueue => standingInQueue.card === card.id)
+  if (held !== undefined)
+    return lore.boardCardHeld(held)
+  if (wait !== undefined)
+    return lore.boardCardWaitsOn(`${wait.id} ${wait.text}`)
+  if (depends.length > 0)
+    return lore.boardCardBlockedBy(depends)
+  if (lane !== undefined)
+    return lore.boardCardWaitsOn(lane.reason)
+  return queued === undefined ? lore.boardCardNoBlocker : lore.boardCardWaitsOn(queuedLine(queued, new Date(facts.at)))
+}
+
+type StandingFacts = Pick<BusFacts, 'at' | 'cards' | 'waits' | 'laneHeads' | 'queued'>
+
+export function standingLine(card: BusCard, facts: StandingFacts, standing: CardStanding, lore: Lore): string | null {
+  if (isRunning(card) || !isUnsettled(card))
+    return null
+  return lore.boardCardStanding(standing.releases.get(card.id) ?? null, blockerOf(card, facts, standing, lore))
+}
+
 function endedRecently(card: BusCard, at: string): boolean {
   const endedAt = card.closed ? card.closedAt : isLive(card) ? null : card.since
   if (endedAt === null)
@@ -133,10 +189,11 @@ export function backlogCards(cards: BusCard[], at: string, all: boolean): BusCar
   return all ? cards : cards.filter(card => isLive(card) || endedRecently(card, at))
 }
 
-export function backlogLines(cards: BusCard[], lore: Lore, every: readonly BusCard[] = cards, waits: readonly OwnerWait[] = []): string[] {
-  const groups = taskGroups(cards, every, waits).flatMap(group => [taskGroupLine(group), ...group.slices.map(card => lore.boardBacklogRow(cardName(card), card.stage))])
+export function backlogLines(cards: BusCard[], lore: Lore, every: readonly BusCard[] = cards, waits: readonly OwnerWait[] = [], standing: (card: BusCard) => string | null = () => null): string[] {
+  const row = (card: BusCard): string => lore.boardBacklogRow(cardName(card), [card.stage, standing(card)].filter(part => part !== null).join(' · '))
+  const groups = taskGroups(cards, every, waits).flatMap(group => [taskGroupLine(group), ...group.slices.map(row)])
   const whole = byStage(cards.filter(card => card.parent === undefined))
-  return [...groups, ...whole.map(card => lore.boardBacklogRow(cardName(card), card.stage))]
+  return [...groups, ...whole.map(row)]
 }
 
 export function servicesLines(facts: BusFacts, lore: Lore): string[] {
@@ -266,18 +323,19 @@ export interface Screens {
   footer: string
 }
 
-export function boardScreens(facts: BusFacts, lore: Lore, all = false): Screens {
+export function boardScreens(facts: BusFacts, lore: Lore, all = false, held: ReadonlyMap<number, string> = new Map()): Screens {
+  const standing = standingOf(facts, held)
   return {
     screens: [
       { title: lore.boardTabFlow, lines: [...goalLines(facts, lore), ...waitsLines(facts, lore), ...tailLines(facts, lore, all), ...behindCardsLines(facts, lore), ...tallyLines(facts.cards), ...flowLines(facts.cards, lore), ...flowHintLines(facts.cards, lore)] },
-      { title: lore.boardTabBacklog, lines: [...behindCardsLines(facts, lore), ...backlogLines(backlogCards(facts.cards, facts.at, all), lore, facts.cards, facts.waits)] },
+      { title: lore.boardTabBacklog, lines: [...behindCardsLines(facts, lore), ...backlogLines(backlogCards(facts.cards, facts.at, all), lore, facts.cards, facts.waits, card => standingLine(card, facts, standing, lore))] },
       { title: lore.boardTabServices, lines: [...servicesLines(facts, lore), ...queuedLines(facts, lore), ...pulseLines(facts, lore), ...matrixLines(facts, lore), ...groupLines(facts, lore)] },
     ],
     footer: lore.boardFooter(facts.services.length, facts.failure ?? undefined, facts.reviewQueue),
   }
 }
 
-export function screenLines(facts: BusFacts, lore: Lore, all = false): string[] {
-  const { screens, footer } = boardScreens(facts, lore, all)
+export function screenLines(facts: BusFacts, lore: Lore, all = false, held: ReadonlyMap<number, string> = new Map()): string[] {
+  const { screens, footer } = boardScreens(facts, lore, all, held)
   return [...screens.flatMap(screen => [screen.title, ...screen.lines]), footer]
 }

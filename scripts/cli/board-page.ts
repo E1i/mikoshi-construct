@@ -2,6 +2,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { WitnessField } from '../../src/card/witness-fields.js'
 import type { BusCard, BusFacts, BusMatrix, BusService, CardsAtStage, CardStage, OwnerWait } from '../../src/commands/board/bus.js'
 import type { CardMark, PlanProgress, ReleaseStage } from '../../src/commands/board/goal.js'
+import type { CardStanding } from '../../src/commands/board/screens.js'
 import type { FactoryState, TranscriptReader } from '../../src/commands/liveness.js'
 import type { CheckCatalog } from '../ci/card-runs.js'
 import type { LayerMap } from '../core/layer-map.js'
@@ -23,14 +24,14 @@ import { RUNS_PREFIX } from '../../src/card/covering-tests.js'
 import { fieldCommand } from '../../src/card/witness-fields.js'
 import { busFacts, CARD_STAGES, latestCardEvents, openTasks } from '../../src/commands/board/bus.js'
 import { DROPPED, droppedLine, goalOf, MARK_WORDS, planLine } from '../../src/commands/board/goal.js'
-import { backlogCards, byStage, counted, isLive, liftedByTheWindow, markedName, matrixLines, screenLines, sliceMark, slotsReading, tallyLine, taskGroupLine, taskGroups, taskTally, waitAction, waitTarget, WINDOW_WAITS_ROLE } from '../../src/commands/board/screens.js'
+import { backlogCards, byStage, counted, inLiveView, isLive, liftedByTheWindow, markedName, matrixLines, screenLines, sliceMark, slotsReading, standingLine, standingOf, tallyLine, taskGroupLine, taskGroups, taskTally, waitAction, waitTarget, WINDOW_WAITS_ROLE } from '../../src/commands/board/screens.js'
 import { clientTranscriptReader, factoryLiveness, readTranscript } from '../../src/commands/liveness.js'
 import { BANNER, LORE, PLAIN_LORE } from '../../src/ui/lore.js'
 import { currentVersion, interfaceVersion } from '../../src/version.js'
 import { cardRunsOf, catalogLayersByTest, catalogModuleLayers } from '../ci/card-runs.js'
 import { staleLine } from '../core/bus-readings.js'
 import { BUSY_TIMEOUT_MS, defaultBusPath } from '../core/db.js'
-import { ANSWER_STEP, TASK_LEASED } from '../core/events.js'
+import { ANSWER_STEP, CARD_HELD, CARD_RELEASED, TASK_LEASED } from '../core/events.js'
 import { defaultHandoffDir } from '../core/handoff-dir.js'
 import { statusLineOf } from '../core/handoff-status.js'
 import { readLayerMap } from '../core/layer-map.js'
@@ -48,8 +49,8 @@ import { BOARD_FILE, FRESH_MS, windowGauges } from '../window/board.js'
 import { mikoHandoff } from '../window/loop.js'
 import { planMarkdown } from '../window/plan-export.js'
 import { busFresh, busPanel, pulseAgeMs } from './board-page/bus-panel.js'
-import { BOARD_HISTORY_FILE, liveCardsOf } from './board-page/live-cards.js'
-import { mikoPanel } from './board-page/miko-panel.js'
+import { BOARD_HISTORY_FILE, FILTER_ATTRIBUTE, filterId, filterRule, LIVE_FILTER, liveCardsOf, ownerHolds } from './board-page/live-cards.js'
+import { mikoBay, mikoPanel } from './board-page/miko-panel.js'
 import { LAYER_ENTRY, runsHtml, TOUCHED_TESTS } from './board-page/runs-html.js'
 import { agentsLine, CARD_TASK, compact, eddiesBar, escaped, modelLabel, NO_SESSION_VIEW, percent, ROUND_COLOURS, ROUND_LABELS, sessionCard, STEPPED_ROLE, terminalOf } from './board-page/session-card.js'
 import { boardWarnings, MainUpToDate, openPrCountOf, openPrLimitOf, plannedStallLines, savingOff, stalePassCountOf, stallLines } from './board-warnings.js'
@@ -113,6 +114,7 @@ export interface BoardPage {
   warnings: BoardWarning[]
   sessions?: ReadonlyMap<string, SessionView>
   snapshot?: BoardSnapshot | null
+  held?: ReadonlyMap<number, string>
 }
 
 const NO_LIMITS: EddiesLimits = { contextLimit: null, cardContextLine: null, sessionSpend: null, agentSpend: null, warnRatio: null, modelWindows: new Map() }
@@ -124,7 +126,6 @@ const CARD_PREFIX = /^card:\s*/
 const FIELD_COUNT = 5
 const NONE = '—'
 const ALL_FILTER = 'all'
-const LIVE_FILTER = 'live'
 const MINUTE_MS = 60_000
 export const BOARD_DATA_FILE = 'board-data.js'
 const BOARD_DATA_PREFIX = 'window.BOARD = '
@@ -352,7 +353,7 @@ function mikoStrip(page: BoardPage, { facts } = page): string {
   const words = { role: LORE.boardWindowRole, name: LORE.boardWindowName, plainTitle: WINDOW_PLAIN_TITLE }
   const handoff = page.handoff.text
   const presence = { model: modelLabel(page.windowGauges?.model), core: facts.window?.core ?? null, status: handoff === null ? null : statusLineOf(handoff)?.status ?? null, handoffBytes: handoff === null ? null : new TextEncoder().encode(handoff).length, skills: facts.window?.skills ?? [], crawlers: facts.window?.crawlers ?? [] }
-  return mikoPanel({ windows, bars: service => barsOf(service, page), presence, now: facts.at, words, opener: `${opener(HANDOFF_DIALOG)} role="button"`, hint: OPEN_HINT, idle: facts.services.length === 0 ? PLAIN_LORE.boardNoServices : null })
+  return mikoPanel({ windows, bars: service => barsOf(service, page), presence, now: facts.at, words, opener: `${opener(HANDOFF_DIALOG)} role="button"`, hint: OPEN_HINT, idle: facts.services.length === 0 ? PLAIN_LORE.boardNoServices : null, bay: mikoBay(process.cwd(), presence.skills, LORE) })
 }
 
 function liveAttribute(facts: BusFacts): string {
@@ -471,29 +472,21 @@ function cardFields(card: BusCard): string[] {
   return [words.find(word => word !== tagWord) ?? NONE, ...fields, relation(parts, 'depends'), relation(parts, 'blocks')]
 }
 
-function cardRow(card: BusCard): string {
-  const cells = cardFields(card).map((field, at) => `<td${at === 0 ? ' class="slug"' : ''}>${escaped(field)}</td>`).join('')
-  const stage = escaped(card.stage)
-  return `<tr data-card="${card.id}" data-stage="${stage}"${isLive(card) ? ' data-live' : ''}${opener(cardDialog(card.id))}><td class="id">${escaped(markedName(`#${card.id}`, card))}</td>${cells}<td><span class="st" data-stage="${stage}">${stage}</span></td><td>${OPEN_HINT}</td></tr>`
+function cardRowOf(facts: BusFacts, standing: CardStanding): (card: BusCard) => string {
+  return (card) => {
+    const cells = cardFields(card).map((field, at) => `<td${at === 0 ? ' class="slug"' : ''}>${escaped(field)}</td>`).join('')
+    const [stage, why] = [escaped(card.stage), standingLine(card, facts, standing, PLAIN_LORE)]
+    return `<tr data-card="${card.id}" data-stage="${stage}"${inLiveView(card, standing) ? ' data-live' : ''}${opener(cardDialog(card.id))}><td class="id">${escaped(markedName(`#${card.id}`, card))}</td>${cells}<td><span class="st" data-stage="${stage}">${stage}</span>${why === null ? '' : `<span class="why">${escaped(why)}</span>`}</td><td>${OPEN_HINT}</td></tr>`
+  }
 }
 
-function wholeCardsBody(cards: BusCard[]): string[] {
+function wholeCardsBody(cards: BusCard[], cardRow: (card: BusCard) => string): string[] {
   return cards.length === 0 ? [] : [`<tbody>${byStage(cards).map(cardRow).join('')}</tbody>`]
 }
 
 function stagesOf(cards: BusCard[]): string[] {
   const present = new Set(cards.map(card => card.stage))
   return CARD_STAGES.filter(stage => present.has(stage))
-}
-
-function filterId(filter: string): string {
-  return `show-${filter.replace(/\W/g, '_')}`
-}
-
-export function filterRule(filter: string): string {
-  const id = filterId(filter)
-  const shown = filter === LIVE_FILTER ? '[data-live]' : `[data-stage="${filter.replace(/["\\<>]/g, '')}"]`
-  return `.backlog:has(#${id}:target) { & tr[data-card]:not(${shown}), & tbody:not(:has(tr${shown})) { display: none; } & .chip[href="#${id}"] { --_bg: var(--wire); --_fg: var(--void); --_bd: var(--wire); } }`
 }
 
 const COLUMNS = ['card', 'slug', 'kind', 'contour', 'size', 'path', 'gate', 'depends', 'blocks', 'state', '']
@@ -517,17 +510,17 @@ function backlogSlot(facts: BusFacts): string {
   ].join('\n')
 }
 
-function taskBody(group: ReturnType<typeof taskGroups>[number]): string {
+function taskBody(group: ReturnType<typeof taskGroups>[number], cardRow: (card: BusCard) => string): string {
   return `<tbody class="task-group" data-task="${group.task}" data-collapsed><tr class="task"${group.waits.length === 0 ? '' : ' data-waits'}><th colspan="11" scope="rowgroup"><button type="button" class="task-fold" data-fold="${group.task}" aria-expanded="false">${escaped(taskGroupLine(group))}</button></th></tr>${group.slices.map(cardRow).join('')}</tbody>`
 }
 
-function rowsSlot(facts: BusFacts): string {
+function rowsSlot(facts: BusFacts, held: ReadonlyMap<number, string> = new Map()): string {
   const cards = backlogCards(facts.cards, facts.at, true)
-  const whole = cards.filter(card => card.parent === undefined)
+  const cardRow = cardRowOf(facts, standingOf(facts, held))
   return [
     `<thead><tr>${COLUMNS.map(column => `<th scope="col">${column}</th>`).join('')}</tr></thead>`,
-    ...taskGroups(cards, facts.cards, facts.waits).map(taskBody),
-    ...wholeCardsBody(whole),
+    ...taskGroups(cards, facts.cards, facts.waits).map(group => taskBody(group, cardRow)),
+    ...wholeCardsBody(cards.filter(card => card.parent === undefined), cardRow),
   ].join('\n')
 }
 
@@ -820,7 +813,7 @@ export const VIEW_KEY = 'construct-board:view'
 
 const PAGE_SCRIPT = path.join(import.meta.dirname, 'board-page', 'script.js')
 const SCRIPT_NAMES_GLOBAL = 'window.BOARD_NAMES'
-const SCRIPT_NAMES = { drill: DRILL, drillContent: DRILL_CONTENT, backlogScroll: BACKLOG_SCROLL, viewKey: VIEW_KEY, dialogPrefix: DIALOG_PREFIX, handoffDialog: HANDOFF_DIALOG, decisionsDialog: DECISIONS_DIALOG, busLive: BUS_LIVE, offlineReading: OFFLINE_READING, pulse: PULSE_ELEMENT_ID, titlePrefix: `${constructCommand('board')} · `, slotPrefix: SLOT_PREFIX, backlog: BACKLOG, staleTicks: STALE_TICKS, staleReading: STALE_READING, dataFile: BOARD_DATA_FILE, refreshIn: REFRESH_IN, round: { ...ROUND_COLOURS, ...ROUND_LABELS } }
+const SCRIPT_NAMES = { drill: DRILL, drillContent: DRILL_CONTENT, backlogScroll: BACKLOG_SCROLL, viewKey: VIEW_KEY, dialogPrefix: DIALOG_PREFIX, handoffDialog: HANDOFF_DIALOG, decisionsDialog: DECISIONS_DIALOG, busLive: BUS_LIVE, offlineReading: OFFLINE_READING, pulse: PULSE_ELEMENT_ID, titlePrefix: `${constructCommand('board')} · `, slotPrefix: SLOT_PREFIX, backlog: BACKLOG, filterAttribute: FILTER_ATTRIBUTE, staleTicks: STALE_TICKS, staleReading: STALE_READING, dataFile: BOARD_DATA_FILE, refreshIn: REFRESH_IN, round: { ...ROUND_COLOURS, ...ROUND_LABELS } }
 const SCRIPT = `\n${SCRIPT_NAMES_GLOBAL} = ${JSON.stringify(SCRIPT_NAMES)};\n${readFileSync(PAGE_SCRIPT, 'utf8')}`
 
 function dialogsSlot(page: BoardPage): string {
@@ -883,7 +876,7 @@ export function boardData(page: BoardPage): BoardData {
       services: servicesSlot(page),
       flow: flowSlot(page),
       backlog: backlogSlot(page.facts),
-      rows: rowsSlot(page.facts),
+      rows: rowsSlot(page.facts, page.held),
       status: statusSlot(page.facts),
       dialogs: dialogsSlot(page),
     },
@@ -1060,7 +1053,13 @@ function boardPageOf(db: DatabaseSync, busPath: string, now: Date, handoffFile: 
     repository: readRepositoryUrl(),
     tickMs,
     snapshot: readSnapshot(path.join(path.dirname(busPath), BOARD_DATA_FILE)),
+    held: ownerHoldsOf(db),
   }
+}
+
+function ownerHoldsOf(db: DatabaseSync): Map<number, string> {
+  const read = new BusRead(db)
+  return ownerHolds(read.slice(CARD_HELD, ['reason', 'takeover']), read.slice(CARD_RELEASED, ['takeover']))
 }
 
 export function writeBoardPage(file: string, html: string, files: BoardFiles = DISK_FILES): void {
@@ -1088,7 +1087,7 @@ function boardText(busPath: string, now: Date, handoffFile: string, format: Boar
   const db = openDatabase(busPath, { readOnly: true, timeout: BUSY_TIMEOUT_MS })
   try {
     if (format !== 'html')
-      return format === 'json' ? busJson(db, now, liveOnly) : `${screenLines(busFacts(db, now), PLAIN_LORE).join('\n')}\n`
+      return format === 'json' ? busJson(db, now, liveOnly) : `${screenLines(busFacts(db, now), PLAIN_LORE, false, ownerHoldsOf(db)).join('\n')}\n`
     return renderBoard(boardPageOf(db, busPath, now, handoffFile, null, mainUpToDateOfThisRepository(), eddiesFile))
   }
   finally {
