@@ -4,6 +4,7 @@ import type { BoardData, BoardFiles } from '../../cli/board-page.js'
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import os, { tmpdir } from 'node:os'
 import path from 'node:path'
+import process from 'node:process'
 import { DatabaseSync } from 'node:sqlite'
 import vm from 'node:vm'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -18,7 +19,8 @@ import { BANNER, LORE } from '../../../src/ui/lore.js'
 import { resolveTheme } from '../../../src/ui/theme.js'
 import { interfaceVersion } from '../../../src/version.js'
 import { checkMatrix, subagent, writeBus } from '../../../tests/board/bus-fixture.js'
-import { BOARD_DATA_FILE, boardProjection, DISK_FILES, escaped, filterRule, FLOW_META, printBoard, PROGRESS_ORDER, readEddiesLimits, readModelVersion, RELEASE_PROGRESS_ORDER, VIEW_KEY, writeBoardPage } from '../../cli/board-page.js'
+import { BOARD_DATA_FILE, boardProjection, DISK_FILES, escaped, FLOW_META, printBoard, PROGRESS_ORDER, readEddiesLimits, readModelVersion, RELEASE_PROGRESS_ORDER, VIEW_KEY, writeBoardPage } from '../../cli/board-page.js'
+import { filterRule } from '../../cli/board-page/live-cards.js'
 import { BUS_VERSION } from '../../core/bus-version.js'
 import { defaultBusPath } from '../../core/db.js'
 import { PROCESS_HEARTBEAT, REVIEW_RECORDED, SESSION_HEARTBEAT, WINDOW_HEARTBEAT, WITNESS_FIELDS_BACKFILLED, WITNESS_RECORDED } from '../../core/events.js'
@@ -111,6 +113,14 @@ class FakeElement {
 
   setAttribute(name: string, value: string): void {
     this.attributes.set(name, value)
+  }
+
+  removeAttribute(name: string): void {
+    this.attributes.delete(name)
+  }
+
+  hasAttribute(name: string): boolean {
+    return this.attributes.has(name)
   }
 
   prepend(child: FakeElement): void {
@@ -413,7 +423,7 @@ describe('board.html', () => {
   function backlogOf(lines: string[]): { card: string, state: string }[] {
     return lines.slice(lines.indexOf('Backlog') + 1, lines.indexOf('Services')).filter(line => line.startsWith('  ')).map((row) => {
       const parts = row.trim().split(' · ')
-      return { card: /#(\d+)/.exec(parts[0]!)![1]!, state: parts.at(-1)! }
+      return { card: /#(\d+)/.exec(parts[0]!)![1]!, state: parts.filter(part => (CARD_STAGES as readonly string[]).includes(part)).at(-1)! }
     })
   }
 
@@ -451,7 +461,7 @@ describe('board.html', () => {
     const limits = readEddiesLimits()
     const version = JSON.parse(readFileSync(path.resolve(import.meta.dirname, '../../../package.json'), 'utf8')) as { version: string }
     const warnLine = limits.warnRatio === null ? [] : [Math.round(limits.warnRatio * 100)]
-    const allowed = [load, cores, ...busNumbers(busPath), ...Object.values(limits).filter(value => typeof value === 'number'), ...limits.modelWindows.values(), ...limits.cardLineBySize?.values() ?? [], ...warnLine, readModelVersion() ?? 0, ...version.version.split('.').map(Number), ...NOW.toISOString().split(/\D+/).filter(Boolean).map(Number)]
+    const allowed = [load, cores, ...busNumbers(busPath), ...Object.values(limits).filter(value => typeof value === 'number'), ...limits.modelWindows.values(), ...limits.cardLineBySize?.values() ?? [], ...warnLine, readModelVersion() ?? 0, ...version.version.split('.').map(Number), ...NOW.toISOString().split(/\D+/).filter(Boolean).map(Number), ...process.cwd().split(/\D+/).filter(Boolean).map(Number)]
     const counts = Array.from({ length: 6 }, (_, at) => at)
     const tokens = [...visibleText(withoutBusPanel(html)).matchAll(/(?<![\w.#-])\d+(?:\.\d+)?[kM]?(?![\w.])/g)].map(match => match[0])
     expect(tokens).toEqual(expect.arrayContaining(['182k', '1.4M', '3M']))
