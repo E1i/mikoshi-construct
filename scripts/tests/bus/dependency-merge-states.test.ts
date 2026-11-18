@@ -10,7 +10,7 @@ import { dependencyUpdateDueOn, FAILURES_TO_STOP, queueTask, STOPPED, unmergedDe
 import { answerCandidates } from '../../nodes/answer/answer-candidates.js'
 import { updateCandidates } from '../../nodes/update/update-candidates.js'
 import { UpdateExecutor } from '../../nodes/update/update-executor.js'
-import { answerParts, updateParts } from '../../supervisor/composition.js'
+import { answerParts, cardTransitions, updateParts } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { MAIN_2, sha } from './github-fake.js'
 import { liveBench, taskState } from './merge-bench.js'
@@ -78,7 +78,7 @@ function answersOfTheCard(bench: MergeBench): (string | undefined)[] {
 }
 
 function updateExecutor(bench: MergeBench): UpdateExecutor {
-  return new UpdateExecutor({ source: updateParts(), silentMs: SILENT_MS, db: bench.db, gitHub: bench.gitHub.client, put: bench.gitHub.put, publish: bench.gitHub.publish, clock: bench.clock.now, settle: () => {} })
+  return new UpdateExecutor({ cards: cardTransitions(), source: updateParts(), silentMs: SILENT_MS, db: bench.db, gitHub: bench.gitHub.client, put: bench.gitHub.put, publish: bench.gitHub.publish, clock: bench.clock.now, settle: () => {} })
 }
 
 function updateKey(head: string): string {
@@ -95,7 +95,7 @@ function failedUntil(bench: MergeBench, head: string, state: typeof WITHDRAWN | 
   const failures = withdraw ? 1 : FAILURES_TO_STOP
   queueTask(bench.db, now(bench), { queue: 'update', cardId: CARD, pr: PR, head })
   for (let failure = 0; failure < failures; failure++)
-    failTask(bench.db, now(bench), leaseQueued(bench.db, now(bench), updateKey(head), UPDATE_ACTOR)!, { reason: 'github_error', withdraw }, SILENT_MS)
+    failTask(bench.db, cardTransitions(), now(bench), leaseQueued(bench.db, now(bench), updateKey(head), UPDATE_ACTOR)!, { reason: 'github_error', withdraw }, SILENT_MS)
   expect(taskState(bench.db, updateKey(head))).toMatchObject({ state })
 }
 
@@ -107,7 +107,7 @@ describe('the settled update that stands in for a dependency-due update', () => 
   it('an update settled on another head of the PR after the dependency merge leaves this head due', () => {
     const bench = openDependent([DEPENDENCY])
     closeTheDependency(bench, true)
-    completeTask(bench.db, now(bench), leasedUpdate(bench, OTHER_HEAD)!, [])
+    completeTask(bench.db, cardTransitions(), now(bench), leasedUpdate(bench, OTHER_HEAD)!, [])
 
     expect(dependencyUpdateDueOn(bench.db, { card: CARD, pr: PR, head: OLD_HEAD })).toBe(true)
     detectUpdate(bench)

@@ -1,7 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { PushPolicy } from '../../../src/commands/attach/record.js'
 import type { BusEvent } from '../../core/db.js'
-import type { AfterFailure, Lease } from '../../core/lease.js'
+import type { AfterFailure, CardTransitions, Lease } from '../../core/lease.js'
 import type { CandidateRules } from '../../core/queue.js'
 import type { AllowedRule, AuthorityRule, MergeFacts, PatchedFile } from '../../policy/policy.js'
 import type { CompositionRecord } from '../../policy/touch-scope.js'
@@ -65,6 +65,7 @@ export type MergeOutcome
 
 export interface ExecutorParts {
   db: DatabaseSync
+  cards: CardTransitions
   gitHub: GitHub
   put: GitHubPut
   publish: StatusPublisher
@@ -395,7 +396,7 @@ export class MergeExecutor {
   }
 
   private finished(lease: Lease, commit: string, rule: AllowedRule, spent: string | null, witnessBase: string | null = null): MergeOutcome {
-    completeTask(this.parts.db, this.ts(), lease, [this.done(lease, commit, rule, witnessBase), ...(spent === null ? [] : [this.used(lease, commit, spent)])])
+    completeTask(this.parts.db, this.parts.cards, this.ts(), lease, [this.done(lease, commit, rule, witnessBase), ...(spent === null ? [] : [this.used(lease, commit, spent)])])
     return { kind: 'merged', taskKey: lease.taskKey, commit, rule }
   }
 
@@ -447,16 +448,16 @@ export class MergeExecutor {
     const waits = denial.kind === 'technical' && WAIT_REASONS.has(denial.reason)
     const event: BusEvent = { ts, type: POLICY_DENIED, actor: 'policy', cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${POLICY_DENIED}:${lease.taskKey}:${lease.leaseGen}`, payload: { command: 'merge', ...denial, ...(waits || parked ? {} : { refused: true }) }, legacy: false }
     if (parked)
-      return { kind: 'denied', taskKey: lease.taskKey, denial, next: failTask(this.parts.db, ts, lease, { reason, withdraw: true }, this.parts.silentMs, [event]) }
+      return { kind: 'denied', taskKey: lease.taskKey, denial, next: failTask(this.parts.db, this.parts.cards, ts, lease, { reason, withdraw: true }, this.parts.silentMs, [event]) }
     if (waits) {
       const until = reason === HELD_FOR_OWNER || reason === HEAD_OUTSIDE_TOUCHES ? new Date(this.parts.clock().getTime() + HOLD_RECHECK_MS).toISOString() : null
       if (until === null)
-        releaseTask(this.parts.db, ts, lease, reason, [event])
+        releaseTask(this.parts.db, this.parts.cards, ts, lease, reason, [event])
       else
-        waitTask(this.parts.db, ts, lease, { reason, until }, [event])
+        waitTask(this.parts.db, this.parts.cards, ts, lease, { reason, until }, [event])
       return { kind: 'denied', taskKey: lease.taskKey, denial, next: 'queued' }
     }
-    const next = failTask(this.parts.db, ts, lease, { reason, withdraw: denial.kind === 'authority' || reason === 'not_mine' || reason === WITNESS_REASON || reason === KEPT_BY_PUSH_POLICY }, this.parts.silentMs, [event])
+    const next = failTask(this.parts.db, this.parts.cards, ts, lease, { reason, withdraw: denial.kind === 'authority' || reason === 'not_mine' || reason === WITNESS_REASON || reason === KEPT_BY_PUSH_POLICY }, this.parts.silentMs, [event])
     this.askTheOwnerToMerge(lease, denial)
     this.alarmOnTheBody(lease, denial)
     return { kind: 'denied', taskKey: lease.taskKey, denial, next }

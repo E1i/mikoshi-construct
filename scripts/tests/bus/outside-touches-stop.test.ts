@@ -14,7 +14,7 @@ import { MachineSessions } from '../../core/machine-sessions.js'
 import { queueTask } from '../../core/queue.js'
 import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
 import { LaunchNode } from '../../nodes/launch/launch-worker.js'
-import { nodeSupply } from '../../supervisor/composition.js'
+import { cardTransitions, nodeSupply } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { sha } from './github-fake.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
@@ -186,7 +186,7 @@ describe('z8: a session stop is recorded in the bus and decides the continuation
     const stop = Number((made.db.prepare('SELECT max(id) AS id FROM events WHERE type = ?').get(CARD_STOPPED) as { id: number }).id)
     queueTask(made.db, ts, { queue: 'answer', cardId: CARD, stop })
     let sessions = 0
-    const executor = new AnswerExecutor({ silentMs: SILENT_MS, db: made.db, answerer: async () => {
+    const executor = new AnswerExecutor({ cards: cardTransitions(), silentMs: SILENT_MS, db: made.db, answerer: async () => {
       sessions += 1
       return { session: `answer-${sessions}`, resumed: false, atContextWarn: true, before: sha('a'), after: sha('a'), owner: OUTSIDE_QUESTION }
     }, ownerMerges: () => '', clock: made.clock.now, trees: { home: trees, exists: () => true, branchOf: pr => `feat/card-${pr}`, recreate: () => {}, bringTo: () => {} }, dirty: () => false, liveSession: () => null, prepare: () => {}, changedInTheTree: () => [TOUCHED, READER] })

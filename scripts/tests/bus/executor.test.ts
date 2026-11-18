@@ -8,7 +8,7 @@ import { FAILURES_TO_STOP, keyOf, queueTask } from '../../core/queue.js'
 import { projectionDump, reduce } from '../../core/reducer.js'
 import { importJournal } from '../../intake/import.js'
 import { recordDecision } from '../../policy/decisions/index.js'
-import { busProjections } from '../../supervisor/composition.js'
+import { busProjections, cardTransitions } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { cardBody, MAIN_2, sha } from './github-fake.js'
 import { eventCount, eventsOf, liveBench, spendReviewRounds, taskState } from './merge-bench.js'
@@ -44,7 +44,7 @@ describe('the merge executor', () => {
     const bench = liveBench()
     bench.gitHub.open({ number: 970 })
     bench.tick()
-    completeTask(bench.db, bench.clock.now().toISOString(), leaseNext(bench.db, bench.clock.now().toISOString(), 'review', 'worker:review:s1')!, [])
+    completeTask(bench.db, cardTransitions(), bench.clock.now().toISOString(), leaseNext(bench.db, bench.clock.now().toISOString(), 'review', 'worker:review:s1')!, [])
     bench.gitHub.open({ number: 970, review: 'success' })
     bench.tick()
     const lease = bench.lease()!
@@ -57,7 +57,7 @@ describe('the merge executor', () => {
     expect(taskState(bench.db, merge(970))).toEqual({ state: 'queued', lease_gen: 1, failures: 0 })
     expect(bench.gitHub.puts).toEqual([])
 
-    completeTask(bench.db, bench.clock.now().toISOString(), review, [])
+    completeTask(bench.db, cardTransitions(), bench.clock.now().toISOString(), review, [])
     bench.tick()
     expect(bench.merge(bench.lease()!)).toEqual({ kind: 'merged', taskKey: merge(970), commit: MAIN_2, rule: 'auto' })
     bench.close()
@@ -113,7 +113,7 @@ describe('the merge executor', () => {
     queueTask(bench.db, ts, { queue: 'update', cardId: 1083, pr: 983, head: sha('a') })
     queueTask(bench.db, ts, { queue: 'merge', cardId: 1083, pr: 983, head: sha('a'), prBody: prBodySha(cardBody(983)) })
     for (let attempt = 0; attempt <= FAILURES_TO_STOP; attempt += 1)
-      failTask(bench.db, ts, leaseQueued(bench.db, ts, merge(983), 'worker:merge:worker-1')!, { reason: 'not_mergeable', withdraw: false }, SILENT_MS)
+      failTask(bench.db, cardTransitions(), ts, leaseQueued(bench.db, ts, merge(983), 'worker:merge:worker-1')!, { reason: 'not_mergeable', withdraw: false }, SILENT_MS)
     expect(taskState(bench.db, merge(983))).toMatchObject({ state: 'queued', failures: 0 })
     expect(eventsOf(bench.db, 'card.stopped')).toEqual([])
     expect(eventsOf(bench.db, 'board.alarm')).toEqual([])
@@ -127,7 +127,7 @@ describe('the merge executor', () => {
     const ts = bench.clock.now().toISOString()
     queueTask(bench.db, ts, { queue: 'merge', cardId: 1084, pr: 984, head: sha('a'), prBody: prBodySha(cardBody(984)) })
     for (let attempt = 1; attempt <= FAILURES_TO_STOP; attempt += 1)
-      expect(failTask(bench.db, ts, leaseQueued(bench.db, ts, merge(984), 'worker:merge:worker-1')!, { reason: 'not_mergeable', withdraw: false }, SILENT_MS)).toBe(attempt < FAILURES_TO_STOP ? 'queued' : 'stopped')
+      expect(failTask(bench.db, cardTransitions(), ts, leaseQueued(bench.db, ts, merge(984), 'worker:merge:worker-1')!, { reason: 'not_mergeable', withdraw: false }, SILENT_MS)).toBe(attempt < FAILURES_TO_STOP ? 'queued' : 'stopped')
     expect(taskState(bench.db, merge(984))).toMatchObject({ state: 'stopped', failures: FAILURES_TO_STOP })
     expect(eventsOf(bench.db, 'card.stopped')).toMatchObject([{ reason: 'fault' }])
     bench.close()
@@ -142,7 +142,7 @@ describe('the merge executor', () => {
     queueTask(bench.db, ts, { queue: 'merge', cardId: 1088, pr: 988, head: sha('a'), prBody: prBodySha(cardBody(988)) })
     leaseQueued(bench.db, ts, taskKey({ queue: 'update', cardId: 1088, pr: 988, head: sha('a') }), 'worker:update:worker-1')
     for (let attempt = 1; attempt <= FAILURES_TO_STOP; attempt += 1)
-      failTask(bench.db, ts, leaseQueued(bench.db, ts, merge(988), 'worker:merge:worker-1')!, { reason: 'not_mergeable', withdraw: false }, SILENT_MS)
+      failTask(bench.db, cardTransitions(), ts, leaseQueued(bench.db, ts, merge(988), 'worker:merge:worker-1')!, { reason: 'not_mergeable', withdraw: false }, SILENT_MS)
     expect(taskState(bench.db, merge(988))).toMatchObject({ state: 'queued', failures: 0 })
     expect(eventsOf(bench.db, 'card.stopped')).toEqual([])
     bench.close()
@@ -156,7 +156,7 @@ describe('the merge executor', () => {
     queueTask(bench.db, ts, { queue: 'update', cardId: 1089, pr: 989, head: sha('b') })
     queueTask(bench.db, ts, { queue: 'merge', cardId: 1089, pr: 989, head: sha('a'), prBody: prBodySha(cardBody(989)) })
     for (let attempt = 1; attempt <= FAILURES_TO_STOP; attempt += 1)
-      failTask(bench.db, ts, leaseQueued(bench.db, ts, merge(989), 'worker:merge:worker-1')!, { reason: 'not_mergeable', withdraw: false }, SILENT_MS)
+      failTask(bench.db, cardTransitions(), ts, leaseQueued(bench.db, ts, merge(989), 'worker:merge:worker-1')!, { reason: 'not_mergeable', withdraw: false }, SILENT_MS)
     expect(taskState(bench.db, merge(989))).toMatchObject({ state: 'stopped', failures: FAILURES_TO_STOP })
     expect(eventsOf(bench.db, 'card.stopped')).toMatchObject([{ reason: 'fault' }])
     bench.close()
@@ -175,12 +175,12 @@ describe('the merge executor', () => {
     queueTask(bench.db, ts, { queue: 'merge', cardId: pr + 100, pr, head: sha('a'), prBody: prBodySha(cardBody(pr)) })
     const updateLease = leaseQueued(bench.db, ts, taskKey(update), 'worker:update:worker-1')!
     if (ended === 'withdrawn')
-      failTask(bench.db, ts, updateLease, { reason: 'not_mergeable', withdraw: true }, SILENT_MS)
+      failTask(bench.db, cardTransitions(), ts, updateLease, { reason: 'not_mergeable', withdraw: true }, SILENT_MS)
     else
-      completeTask(bench.db, ts, updateLease, [])
+      completeTask(bench.db, cardTransitions(), ts, updateLease, [])
     expect(taskState(bench.db, taskKey(update))).toMatchObject({ state: ended })
     for (let attempt = 1; attempt <= FAILURES_TO_STOP; attempt += 1)
-      expect(failTask(bench.db, ts, leaseQueued(bench.db, ts, merge(pr), 'worker:merge:worker-1')!, { reason: 'not_mergeable', withdraw: false }, SILENT_MS)).toBe(attempt < FAILURES_TO_STOP ? 'queued' : 'stopped')
+      expect(failTask(bench.db, cardTransitions(), ts, leaseQueued(bench.db, ts, merge(pr), 'worker:merge:worker-1')!, { reason: 'not_mergeable', withdraw: false }, SILENT_MS)).toBe(attempt < FAILURES_TO_STOP ? 'queued' : 'stopped')
     expect(taskState(bench.db, merge(pr))).toMatchObject({ state: 'stopped', failures: FAILURES_TO_STOP })
     expect(eventsOf(bench.db, 'card.stopped')).toMatchObject([{ reason: 'fault' }])
     bench.close()
@@ -194,7 +194,7 @@ describe('the merge executor', () => {
     queueTask(bench.db, ts, { queue: 'update', cardId: 1087, pr: 987, head: sha('a') })
     queueTask(bench.db, ts, { queue: 'merge', cardId: 1087, pr: 987, head: sha('a'), prBody: prBodySha(cardBody(987)) })
     for (let attempt = 1; attempt <= FAILURES_TO_STOP; attempt += 1)
-      failTask(bench.db, ts, leaseQueued(bench.db, ts, merge(987), 'worker:merge:worker-1')!, { reason: 'not_mergeable', withdraw: false }, SILENT_MS)
+      failTask(bench.db, cardTransitions(), ts, leaseQueued(bench.db, ts, merge(987), 'worker:merge:worker-1')!, { reason: 'not_mergeable', withdraw: false }, SILENT_MS)
     expect(taskState(bench.db, merge(987))).toMatchObject({ state: 'stopped', failures: FAILURES_TO_STOP })
     expect(eventsOf(bench.db, 'card.stopped')).toMatchObject([{ reason: 'fault' }])
     bench.close()
@@ -208,7 +208,7 @@ describe('the merge executor', () => {
     queueTask(bench.db, ts, { queue: 'update', cardId: 1085, pr: 985, head: sha('a') })
     queueTask(bench.db, ts, { queue: 'merge', cardId: 1085, pr: 985, head: sha('a'), prBody: prBodySha(cardBody(985)) })
     for (let attempt = 1; attempt <= FAILURES_TO_STOP; attempt += 1)
-      failTask(bench.db, ts, leaseQueued(bench.db, ts, merge(985), 'worker:merge:worker-1')!, { reason: 'merge_failed', withdraw: false }, SILENT_MS)
+      failTask(bench.db, cardTransitions(), ts, leaseQueued(bench.db, ts, merge(985), 'worker:merge:worker-1')!, { reason: 'merge_failed', withdraw: false }, SILENT_MS)
     expect(taskState(bench.db, merge(985))).toMatchObject({ state: 'stopped', failures: FAILURES_TO_STOP })
     expect(eventsOf(bench.db, 'card.stopped')).toMatchObject([{ reason: 'fault' }])
     bench.close()
@@ -220,7 +220,7 @@ describe('the merge executor', () => {
     bench.tick()
     const ts = bench.clock.now().toISOString()
     queueTask(bench.db, ts, { queue: 'merge', cardId: 1086, pr: 986, head: sha('a'), prBody: prBodySha(cardBody(986)) })
-    const failOnce = (reason: string): string => failTask(bench.db, ts, leaseQueued(bench.db, ts, merge(986), 'worker:merge:worker-1')!, { reason, withdraw: false }, SILENT_MS)
+    const failOnce = (reason: string): string => failTask(bench.db, cardTransitions(), ts, leaseQueued(bench.db, ts, merge(986), 'worker:merge:worker-1')!, { reason, withdraw: false }, SILENT_MS)
     for (let attempt = 1; attempt < FAILURES_TO_STOP; attempt += 1)
       expect(failOnce('merge_failed')).toBe('queued')
     expect(failOnce('stale_head')).toBe('superseded')
@@ -480,7 +480,7 @@ describe('the merge executor', () => {
     bench.tick()
     const old = bench.lease('worker:merge:old')!
     bench.clock.advance(LEASE_MS + 1)
-    expect(expireLeases(bench.db, bench.clock.now().toISOString(), SILENT_MS)).toEqual([merge(968)])
+    expect(expireLeases(bench.db, cardTransitions(), bench.clock.now().toISOString(), SILENT_MS)).toEqual([merge(968)])
     const current = bench.lease('worker:merge:new')!
     expect([old.leaseGen, current.leaseGen]).toEqual([1, 2])
 

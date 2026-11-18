@@ -3,7 +3,7 @@ import type { Understood } from './bus-version.js'
 import type { BusEvent } from './db.js'
 import type { EventsOf } from './handover.js'
 import type { Queue } from './identifiers.js'
-import type { HolderStart, Lease, LeaseOrder } from './lease.js'
+import type { CardTransitions, HolderStart, Lease, LeaseOrder } from './lease.js'
 import type { QueuedTask } from './queue.js'
 import type { StoredEvent } from './stored.js'
 import { setImmediate as nextTurn } from 'node:timers/promises'
@@ -136,6 +136,7 @@ export interface NodeSupply {
   ownIdentity?: () => ProcessIdentity | null
   identityOf?: IdentityReader
   refuses: CardRefusal
+  cards: CardTransitions
 }
 
 export interface NodeContext {
@@ -397,6 +398,10 @@ export abstract class Node<S extends NodeStep> {
     return this.supplied
   }
 
+  protected get suppliedCards(): CardTransitions {
+    return { appendedOnCard: (db, event) => this.supply.cards.appendedOnCard(db, event) }
+  }
+
   get slots(): number {
     this.slotCount ??= this.supply.slotsOf(this.kind, this.parts.env)
     return this.slotCount
@@ -454,7 +459,7 @@ export abstract class Node<S extends NodeStep> {
     if (refusal === null)
       return false
     const stopped: BusEvent = { ts, type: CARD_STOPPED, actor: this.actor, cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${CARD_STOPPED}:${FOREIGN_CARD}:${lease.taskKey}`, payload: { reason: FOREIGN_CARD_STOP, detail: refusal }, legacy: false }
-    failTask(this.db, ts, lease, { reason: refusal, withdraw: true }, this.parts.silentMs, [stopped])
+    failTask(this.db, this.supply.cards, ts, lease, { reason: refusal, withdraw: true }, this.parts.silentMs, [stopped])
     return true
   }
 
@@ -627,7 +632,7 @@ export abstract class Node<S extends NodeStep> {
     if (!this.executes() || !this.startRecorded)
       return null
     const ts = this.ts()
-    expireLeases(this.db, ts, this.parts.silentMs)
+    expireLeases(this.db, this.supply.cards, ts, this.parts.silentMs)
     if (drainOpen(this.db, ts, this.kind, this.codeSha))
       return null
     const lease = leaseHandedOver(this.db, eventsIn(this.db), ts, this.kind, this.actor, this.leaseOrder(), aliveBy(this.supply.identityOf))
@@ -677,7 +682,7 @@ export abstract class Node<S extends NodeStep> {
   }
 
   protected waitOn(lease: Lease, reason: string, until: string): WaitStep {
-    waitTask(this.db, this.ts(), lease, { reason, until })
+    waitTask(this.db, this.supply.cards, this.ts(), lease, { reason, until })
     return { kind: 'waiting', taskKey: lease.taskKey, reason, until }
   }
 

@@ -17,7 +17,7 @@ import { answerSourceOf } from '../../nodes/answer/answer-source.js'
 import { claudeAnswerer, ownerQuestionPath, windowGateRule } from '../../nodes/answer/answerer.js'
 import { answerPrompt } from '../../nodes/answer/duties/index.js'
 import { recordDecision } from '../../policy/decisions/index.js'
-import { busProjections } from '../../supervisor/composition.js'
+import { busProjections, cardTransitions } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { sha } from './github-fake.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
@@ -80,7 +80,7 @@ function startedCard(): Bench {
       newSession: () => CARD_SESSION,
       publish: () => {},
     })
-    const executor = new AnswerExecutor({ silentMs: SILENT_MS, db: made.db, answerer, ownerMerges: () => OWNER_MERGES, clock: made.clock.now, trees: cardTrees, dirty: () => false, liveSession: () => null })
+    const executor = new AnswerExecutor({ cards: cardTransitions(), silentMs: SILENT_MS, db: made.db, answerer, ownerMerges: () => OWNER_MERGES, clock: made.clock.now, trees: cardTrees, dirty: () => false, liveSession: () => null })
     return { outcome: await executor.answer(lease), prompt }
   }
   return { made, worktree, ts, asks }

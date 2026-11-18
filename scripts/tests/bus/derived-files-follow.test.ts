@@ -23,7 +23,7 @@ import { UpdateExecutor } from '../../nodes/update/update-executor.js'
 import { grownEntries, judgeDerived, removesEntriesOnly } from '../../policy/derived-files.js'
 import { DERIVED_REGISTRY, derivedHoldOf } from '../../policy/touch-scope.js'
 import { treeReading } from '../../ports/git.js'
-import { updateParts } from '../../supervisor/composition.js'
+import { cardTransitions, updateParts } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { ranTheGreenGate } from './gate-stream.js'
 import { sha } from './github-fake.js'
@@ -271,7 +271,7 @@ async function answer(name: ScenarioName): Promise<Answered> {
     pending: () => gitIn(worktree, ['ls-files', '--modified', '--others', '--exclude-standard']).split('\n').filter(file => file !== ''),
   })
   const trees: CardTreeTools = { home, exists: existsSync, branchOf: card => `feat/card-${card}`, recreate: () => {}, bringTo: () => {} }
-  const executor = new AnswerExecutor({ silentMs: SILENT_MS, db: made.db, answerer, ownerMerges: () => '', clock: made.clock.now, trees, dirty: () => false, liveSession: () => null, prepare: () => {} })
+  const executor = new AnswerExecutor({ cards: cardTransitions(), silentMs: SILENT_MS, db: made.db, answerer, ownerMerges: () => '', clock: made.clock.now, trees, dirty: () => false, liveSession: () => null, prepare: () => {} })
   const stopsBefore = questionAgentStops(made).length
   const outcome = await executor.answer(lease)
   return { made, outcome, published, stopsBefore }
@@ -302,7 +302,7 @@ function update(name: ScenarioName): Updated {
   made.tick()
   detectUpdate(made)
   const lease = leaseNext(made.db, made.clock.now().toISOString(), 'update', 'worker:update:worker-1') as Lease
-  const executor = new UpdateExecutor({ source: updateParts(), silentMs: SILENT_MS, db: made.db, gitHub: made.gitHub.client, put: made.gitHub.put, publish: made.gitHub.publish, clock: made.clock.now, settle: () => {}, mergeMain: () => ({ kind: 'merged', to: sha('m'), tookMain: [], rebuilt: [] }), derived: (_cardId, scope, files) => derivedHoldOf(scope, files, () => treeReading(gitIn, tree, 'origin/main', fakeRerun)) })
+  const executor = new UpdateExecutor({ cards: cardTransitions(), source: updateParts(), silentMs: SILENT_MS, db: made.db, gitHub: made.gitHub.client, put: made.gitHub.put, publish: made.gitHub.publish, clock: made.clock.now, settle: () => {}, mergeMain: () => ({ kind: 'merged', to: sha('m'), tookMain: [], rebuilt: [] }), derived: (_cardId, scope, files) => derivedHoldOf(scope, files, () => treeReading(gitIn, tree, 'origin/main', fakeRerun)) })
   return { made, outcome: executor.update(lease) }
 }
 

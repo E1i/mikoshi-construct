@@ -16,6 +16,7 @@ import { ChildLog, eventsIn, INSTANCE_VARIABLE, recordChildStarted } from '../..
 import { queueTask } from '../../../core/queue.js'
 import { BusRead } from '../../../ports/bus-read.js'
 import { OsProcessTable } from '../../../ports/process-table.js'
+import { cardTransitions } from '../../../supervisor/composition.js'
 import { SILENT_MS } from '../../../supervisor/liveness-sites.js'
 import { tableIdentity } from '../../../supervisor/recorded-worker.js'
 import { recordSignalSent } from '../../../supervisor/signal-sent.js'
@@ -150,7 +151,7 @@ class World {
 
   noNewLease(): void {
     const ts = this.clock.ts()
-    expect(expireLeases(this.db, ts, SILENT_MS), 'no timer frees the lease of a live executor').toEqual([])
+    expect(expireLeases(this.db, cardTransitions(), ts, SILENT_MS), 'no timer frees the lease of a live executor').toEqual([])
     const alive = aliveBy(tableIdentity(table))
     expect(leaseHandedOver(this.db, eventsIn(this.db), ts, 'answer', NEXT, undefined, alive), 'no new lease on the task').toBeNull()
     expect(leaseHandedOver(this.db, eventsIn(this.db), ts, 'launch', LAUNCH, undefined, alive), 'no new lease on the card tree').toBeNull()
@@ -183,21 +184,21 @@ describe('k7: the lease follows the executor over a recorded process table', () 
 
   it('a holder that has ended leaves its lease to the live executor: the supervisor renews it, no timer frees it, and it is freed once the executor is gone', () => {
     const { db, at, key } = bench()
-    expect(judgeHolders(db, at(LEASE_MS + 60_000), readings({ [EXECUTOR.pid]: live }), SILENT_MS)).toMatchObject({ renewed: [key], freed: [] })
-    expect(judgeHolders(db, at(LEASE_MS + 90_000), readings({ [EXECUTOR.pid]: live }), SILENT_MS), 'renewed at most once per renewal period').toEqual({ freed: [], hung: [], unproven: [] })
-    expect(expireLeases(db, at(3 * LEASE_MS), SILENT_MS)).toEqual([])
+    expect(judgeHolders(db, cardTransitions(), at(LEASE_MS + 60_000), readings({ [EXECUTOR.pid]: live }), SILENT_MS)).toMatchObject({ renewed: [key], freed: [] })
+    expect(judgeHolders(db, cardTransitions(), at(LEASE_MS + 90_000), readings({ [EXECUTOR.pid]: live }), SILENT_MS), 'renewed at most once per renewal period').toEqual({ freed: [], hung: [], unproven: [] })
+    expect(expireLeases(db, cardTransitions(), at(3 * LEASE_MS), SILENT_MS)).toEqual([])
     expect(new BusRead(db).slice(TASK_RENEWED, ['task_key']).map(each => ({ actor: each.actor, ...each.fields }))).toEqual([{ actor: renewedByTheSupervisorFor(EXECUTOR.pid), task_key: key }])
     expect(new BusRead(db).slice(TASK_EXPIRED, ['task_key'])).toEqual([])
 
-    expect(judgeHolders(db, at(3 * LEASE_MS), readings({}), SILENT_MS)).toEqual({ freed: [key], hung: [], unproven: [] })
+    expect(judgeHolders(db, cardTransitions(), at(3 * LEASE_MS), readings({}), SILENT_MS)).toEqual({ freed: [key], hung: [], unproven: [] })
     expect(new BusRead(db).slice(TASK_EXPIRED, ['reason']).map(each => each.fields.reason)).toEqual([HOLDER_DEAD])
   })
 
   it('an executor whose liveness cannot be read raises holder_unproven and keeps the lease', () => {
     const { db, at, key } = bench()
     const unreadable = readings({ [EXECUTOR.pid]: { state: 'unreadable' } })
-    expect(judgeHolders(db, at(LEASE_MS + 60_000), unreadable, SILENT_MS)).toEqual({ unproven: [key], freed: [], hung: [] })
-    expect(expireLeases(db, at(LEASE_MS + 60_000), SILENT_MS)).toEqual([])
+    expect(judgeHolders(db, cardTransitions(), at(LEASE_MS + 60_000), unreadable, SILENT_MS)).toEqual({ unproven: [key], freed: [], hung: [] })
+    expect(expireLeases(db, cardTransitions(), at(LEASE_MS + 60_000), SILENT_MS)).toEqual([])
     expect(new BusRead(db).slice(BOARD_ALARM, ['reason']).map(each => each.fields.reason)).toEqual([HOLDER_UNPROVEN])
     expect((db.prepare('SELECT state FROM tasks WHERE task_key = ?').get(key) as { state: string }).state).toBe('leased')
   })
@@ -205,7 +206,7 @@ describe('k7: the lease follows the executor over a recorded process table', () 
   it('a stopped executor returns its task only through signal.sent and its child.ended with that signal, never as task.expired', () => {
     const { db, at, key } = bench()
     recordSignalSent(db, at(2_000), { child: { mode: 'child', instance: 'k7', generation: 'g', pid: EXECUTOR.pid, pgid: EXECUTOR.pid, lstart: EXECUTOR.lstart, kind: 'answer', taskKey: key, tree: null }, signal: 'SIGTERM', why: 'drain' })
-    expect(judgeHolders(db, at(3_000), readings({}), SILENT_MS)).toEqual({ returned: [key], freed: [], hung: [], unproven: [] })
+    expect(judgeHolders(db, cardTransitions(), at(3_000), readings({}), SILENT_MS)).toEqual({ returned: [key], freed: [], hung: [], unproven: [] })
     const read = new BusRead(db)
     expect(read.slice(CHILD_ENDED, ['pid', 'exit', 'signal', 'task_key']).map(each => each.fields)).toEqual([{ pid: EXECUTOR.pid, exit: null, signal: 'SIGTERM', task_key: key }])
     expect(read.slice(TASK_RELEASED, ['reason']).map(each => each.fields.reason)).toEqual([RESTART_CUT])
@@ -257,7 +258,7 @@ describe('k7 [needs ps]: scenario 12, the lease follows the executor', () => {
     await world.judged()
     const next = leaseNext(world.db, world.clock.ts(), 'answer', NEXT)
     expect(next, 'the task is leased again only once its executor is proven ended').toMatchObject({ taskKey: lease.taskKey, actor: NEXT })
-    completeTask(world.db, world.clock.ts(), next!, [])
+    completeTask(world.db, cardTransitions(), world.clock.ts(), next!, [])
 
     const completed = world.read().slice(TASK_COMPLETED, ['task_key'])
     expect(completed.map(each => ({ actor: each.actor, task: each.fields.task_key }))).toEqual([{ actor: NEXT, task: lease.taskKey }])

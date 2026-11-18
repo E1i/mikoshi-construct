@@ -8,6 +8,7 @@ import { CARD_ADMITTED, CARD_HELD, CARD_RELEASED, CARD_STARTED, CARD_TAKEOVER, P
 import { failTask, leaseNext } from '../../core/lease.js'
 import { ownerHoldOf } from '../../nodes/answer/answer-source.js'
 import { HELD_FOR_OWNER } from '../../nodes/merge/merge-executor.js'
+import { cardTransitions } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { requestFromWindow, requestOf, TAKEOVER_AFTER_MINUTES, WindowRequests } from '../../window/window-requests.js'
 import { sha } from './github-fake.js'
@@ -61,7 +62,7 @@ function redCardTakenOver(): MergeBench {
   startedCard(made)
   made.gitHub.open({ number: PR, head: TAKEN_HEAD, required: 'failure', failed: ['required'] })
   made.tick()
-  failTask(made.db, made.clock.now().toISOString(), leaseNext(made.db, made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1')!, { reason: HELD_FOR_OWNER, withdraw: true }, SILENT_MS)
+  failTask(made.db, cardTransitions(), made.clock.now().toISOString(), leaseNext(made.db, made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1')!, { reason: HELD_FOR_OWNER, withdraw: true }, SILENT_MS)
   made.clock.advance(TAKEOVER_AFTER_MINUTES * MINUTE)
   expect(request(made, ['takeover', '--card', String(CARD), '--reason', REASON])).toMatchObject({ kind: 'done' })
   made.tick()

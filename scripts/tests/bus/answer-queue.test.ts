@@ -30,7 +30,7 @@ import { treeMergeOf } from '../../nodes/answer/duties/index.js'
 import { recordDecision } from '../../policy/decisions/index.js'
 import { cardDecisionCommand, cardDecisionLines } from '../../policy/shards.js'
 import { transcriptFile } from '../../ports/client/claude/adapter.js'
-import { busProjections } from '../../supervisor/composition.js'
+import { busProjections, cardTransitions } from '../../supervisor/composition.js'
 import { admitCommandOf } from '../../supervisor/derive-queues.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { readBoard } from '../../window/board.js'
@@ -94,7 +94,7 @@ function answerBench(storesPrompts = false) {
       tools.published.push({ branch: card.branch, commitMessage })
     },
   })
-  const executor = new AnswerExecutor({ silentMs: SILENT_MS, db: bench.db, answerer, ownerMerges: () => OWNER_MERGES, clock: bench.clock.now, trees: cardTrees, treeMerge: () => tools.merge, ...(storesPrompts ? { prompts: path.join(trees, 'prompts') } : {}) })
+  const executor = new AnswerExecutor({ cards: cardTransitions(), silentMs: SILENT_MS, db: bench.db, answerer, ownerMerges: () => OWNER_MERGES, clock: bench.clock.now, trees: cardTrees, treeMerge: () => tools.merge, ...(storesPrompts ? { prompts: path.join(trees, 'prompts') } : {}) })
   const ts = (): string => bench.clock.now().toISOString()
   return {
     ...bench,
@@ -493,7 +493,7 @@ describe('the answer queue', () => {
     bench.tick()
     const asking = bench.leaseAnswer()!
     expect(asking.taskKey).toBe(`${answer(1146, 1046, sha('a'))}:card-body-aaaa1111`)
-    completeTask(bench.db, bench.clock.now().toISOString(), asking, [{ ts: bench.clock.now().toISOString(), type: CARD_STOPPED, actor: asking.actor, cardId: 1146, pr: 1046, head: sha('a'), dedupeKey: `${CARD_STOPPED}:${asking.taskKey}:${asking.leaseGen}`, payload: { reason: 'question.agent', detail: 'widen touches to the worker test' }, legacy: false }])
+    completeTask(bench.db, cardTransitions(), bench.clock.now().toISOString(), asking, [{ ts: bench.clock.now().toISOString(), type: CARD_STOPPED, actor: asking.actor, cardId: 1146, pr: 1046, head: sha('a'), dedupeKey: `${CARD_STOPPED}:${asking.taskKey}:${asking.leaseGen}`, payload: { reason: 'question.agent', detail: 'widen touches to the worker test' }, legacy: false }])
     bench.tick()
     expect(await bench.answer(bench.leaseAnswer()!)).toMatchObject({ kind: 'denied', denial: { reason: 'left_nothing' } })
     bench.tick()
@@ -934,7 +934,7 @@ describe('the answer queue', () => {
     queueTask(bench.db, ts, { queue: 'review', cardId: 1171, pr: 1071, head: sha('a') })
     const completed = (queue: Queue): Lease => {
       const lease = leaseNext(bench.db, ts, queue, `worker:${queue}:worker-1`)!
-      completeTask(bench.db, ts, lease, [])
+      completeTask(bench.db, cardTransitions(), ts, lease, [])
       return lease
     }
     const requeue = (lease: Lease): void => {
@@ -958,7 +958,7 @@ describe('the answer queue', () => {
     bench.tick()
     const old = bench.leaseAnswer('worker:answer:old')!
     bench.clock.advance(LEASE_MS + 1)
-    expect(expireLeases(bench.db, bench.clock.now().toISOString(), SILENT_MS)).toEqual([answer(1096, 996, sha('a'))])
+    expect(expireLeases(bench.db, cardTransitions(), bench.clock.now().toISOString(), SILENT_MS)).toEqual([answer(1096, 996, sha('a'))])
     const current = bench.leaseAnswer('worker:answer:new')!
     expect([old.leaseGen, current.leaseGen]).toEqual([1, 2])
 
@@ -969,7 +969,7 @@ describe('the answer queue', () => {
 
     bench.tools.during = () => {
       bench.clock.advance(LEASE_MS + 1)
-      expireLeases(bench.db, bench.clock.now().toISOString(), SILENT_MS)
+      expireLeases(bench.db, cardTransitions(), bench.clock.now().toISOString(), SILENT_MS)
       bench.leaseAnswer('worker:answer:third')
     }
     const during = eventCount(bench.db)
@@ -1066,7 +1066,7 @@ describe('a decision on a card is an event, and the card body stays as admitted'
     const ts = bench.clock.now().toISOString()
     expect(queueTask(bench.db, ts, { queue: 'answer', cardId: CARD, pr: PR, head: sha('a') })).toBe(true)
     const lease = bench.leaseAnswer()!
-    completeTask(bench.db, ts, lease, [{ ts, type: CARD_STOPPED, actor: 'worker:answer:worker-1', cardId: CARD, pr: PR, head: sha('a'), dedupeKey: `${CARD_STOPPED}:${lease.taskKey}:${lease.leaseGen}`, payload: { reason: QUESTION_OWNER, detail: 'may the answer touch architecture/owner-merges.md?' }, legacy: false }])
+    completeTask(bench.db, cardTransitions(), ts, lease, [{ ts, type: CARD_STOPPED, actor: 'worker:answer:worker-1', cardId: CARD, pr: PR, head: sha('a'), dedupeKey: `${CARD_STOPPED}:${lease.taskKey}:${lease.leaseGen}`, payload: { reason: QUESTION_OWNER, detail: 'may the answer touch architecture/owner-merges.md?' }, legacy: false }])
     bench.gitHub.open({ number: PR, head: PUSHED, review: 'success' })
     bench.tick()
 
@@ -1397,7 +1397,7 @@ describe('the card tree of every start path', () => {
     bench.tick()
     const stopOn = (reason: string): void => {
       for (let failure = 0; failure < FAILURES_TO_STOP; failure++)
-        failTask(bench.db, bench.clock.now().toISOString(), bench.leaseAnswer()!, { reason, withdraw: false }, SILENT_MS)
+        failTask(bench.db, cardTransitions(), bench.clock.now().toISOString(), bench.leaseAnswer()!, { reason, withdraw: false }, SILENT_MS)
     }
     stopOn('no_card_tree')
     stopOn('answer_failed')

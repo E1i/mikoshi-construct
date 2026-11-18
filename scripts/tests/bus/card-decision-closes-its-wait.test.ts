@@ -16,7 +16,7 @@ import { sameDecisionWords, sayToOwnerChannel } from '../../owner/channel.js'
 import { recordDecision } from '../../policy/decisions/index.js'
 import { decisionsAdder } from '../../policy/decisions/projection.js'
 import { cardDecisionCommand } from '../../policy/shards.js'
-import { busProjections } from '../../supervisor/composition.js'
+import { busProjections, cardTransitions } from '../../supervisor/composition.js'
 import { runRequest, WindowRequests } from '../../window/window-requests.js'
 import { sha } from './github-fake.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
@@ -62,7 +62,7 @@ function stoppedByItsAgent(stop: Record<string, unknown> = { reason: QUESTION_AG
   made.tick()
   const round = leaseNext(made.db, made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1')
   if (round !== null)
-    completeTask(made.db, made.clock.now().toISOString(), round, [])
+    completeTask(made.db, cardTransitions(), made.clock.now().toISOString(), round, [])
   const wait = openOwnerWait(made.db, made.clock.now().toISOString(), 'worker:answer:worker-1', { need: 'decision', text: `card #${CARD} waits for the owner: an answer round after its ${QUESTION_AGENT} stop left nothing`, command: cardDecisionCommand(CARD), card: CARD, ...(withAPr ? { pr: PR } : {}) })
   made.tick()
   const card = { made, root, wait }

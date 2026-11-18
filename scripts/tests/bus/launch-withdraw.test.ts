@@ -9,6 +9,7 @@ import { failTask, leaseQueued } from '../../core/lease.js'
 import { FAILURES_TO_STOP, keyOf, queueTask, queueTaskWithin, STOPPED, WITHDRAWN } from '../../core/queue.js'
 import { runWithdrawLegacy } from '../../nodes/launch/launch-root.js'
 import { LEGACY_REASON, withdrawLegacyLaunchTasks } from '../../nodes/launch/launch-withdraw.js'
+import { cardTransitions } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { eventCount, eventsOf, taskState } from './merge-bench.js'
 
@@ -32,7 +33,7 @@ const launchTask = (cardId: number): QueuedTask => ({ queue: 'launch', cardId, g
 function stopped(db: DatabaseSync, task: QueuedTask): void {
   queueTask(db, TS, task)
   for (let failure = 0; failure < FAILURES_TO_STOP; failure++)
-    failTask(db, TS, leaseQueued(db, TS, keyOf(task), 'worker:launch:test')!, { reason: 'fault', withdraw: false }, SILENT_MS)
+    failTask(db, cardTransitions(), TS, leaseQueued(db, TS, keyOf(task), 'worker:launch:test')!, { reason: 'fault', withdraw: false }, SILENT_MS)
 }
 
 describe('bus:launch --withdraw-legacy', () => {

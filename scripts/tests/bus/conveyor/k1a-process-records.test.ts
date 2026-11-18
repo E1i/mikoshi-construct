@@ -30,7 +30,7 @@ import { WitnessNode } from '../../../nodes/witness/witness-worker.js'
 import { identityOf, OsProcessTable } from '../../../ports/process-table.js'
 import { SetupTurns, withWorktreeAsync } from '../../../ports/worktree.js'
 import { BUS_RUN_LAUNCH, handedIdentity, launchArgv, recordSpawned, runBusBg, runsBusEntryItself, spawnedActor, startDetached } from '../../../supervisor/bg.js'
-import { busProjections, nodeSupply, recordOwnStart, workerIdentity } from '../../../supervisor/composition.js'
+import { busProjections, cardTransitions, nodeSupply, recordOwnStart, workerIdentity } from '../../../supervisor/composition.js'
 import { SILENT_MS } from '../../../supervisor/liveness-sites.js'
 import { generationEnv, ownIdentity, tableIdentity } from '../../../supervisor/recorded-worker.js'
 import { workerLaunches } from '../../../supervisor/workers.js'
@@ -211,7 +211,7 @@ function launchBench(identity?: (pid: number) => RowIdentity | null) {
   const bench = mergeBench()
   const root = tempRoot('k1a-launch-')
   const starter = new RealSessionStarter(root)
-  const executor = new LaunchExecutor({ silentMs: SILENT_MS, db: bench.db, starter, clock: bench.clock.now, disk: () => ({ bavail: 1e9, bsize: 4096 }), isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }), ...(identity === undefined ? {} : { identity }) })
+  const executor = new LaunchExecutor({ cards: cardTransitions(), silentMs: SILENT_MS, db: bench.db, starter, clock: bench.clock.now, disk: () => ({ bavail: 1e9, bsize: 4096 }), isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }), ...(identity === undefined ? {} : { identity }) })
   appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'policy', cardId: LAUNCH_CARD, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${LAUNCH_CARD}`, payload: { lane: 'lane-a', decision: 'auto', contour: 'cheap', depends: [], admission: `admission-${LAUNCH_CARD}` }, legacy: false })
   bench.tick()
   const lease = leaseNext(bench.db, bench.clock.now().toISOString(), 'launch', 'worker:launch:k1a')!
@@ -260,8 +260,8 @@ describe('k1a: worker.started keeps its fields', () => {
       const start = '2026-11-14T09:00:00.000Z'
       recordWorkerIdentity(bench.db, now, { worker: lease.actor, pid: 4242, started: start, instance: 'i-1', generation: GENERATION, pgid: 4242, lstart: '2026-11-14T09:00:01.000Z' })
       expect(started(bench.db)[0]).toMatchObject({ worker: lease.actor, pid: 4242, started: start, instance: 'i-1', generation: GENERATION, pgid: 4242 })
-      expect(judgeHolders(bench.db, now, () => ({ state: 'running', started: start }), SILENT_MS).freed).toEqual([])
-      expect(judgeHolders(bench.db, now, () => ({ state: 'gone' }), SILENT_MS).freed).toEqual([lease.taskKey])
+      expect(judgeHolders(bench.db, cardTransitions(), now, () => ({ state: 'running', started: start }), SILENT_MS).freed).toEqual([])
+      expect(judgeHolders(bench.db, cardTransitions(), now, () => ({ state: 'gone' }), SILENT_MS).freed).toEqual([lease.taskKey])
     }
     finally {
       bench.close()

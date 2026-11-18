@@ -20,7 +20,7 @@ import { MAX_RESTARTS, reachedContextLine } from '../../nodes/launch/continuatio
 import { LaunchNode } from '../../nodes/launch/launch-worker.js'
 import { busAtContextLine, runTreePr } from '../../nodes/launch/tree-pr-cli.js'
 import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
-import { nodeSupply } from '../../supervisor/composition.js'
+import { cardTransitions, nodeSupply } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { sha } from './github-fake.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
@@ -228,7 +228,7 @@ describe('the answer session at the context warn', () => {
       contextWarn: () => CONTEXT_WARN,
       diff: () => 'diff --git a/x b/x',
     })
-    const executor = new AnswerExecutor({ silentMs: SILENT_MS, db: made.db, answerer, ownerMerges: () => '', clock: made.clock.now, trees: treesOf(root), liveSession: () => null, dirty: () => false })
+    const executor = new AnswerExecutor({ cards: cardTransitions(), silentMs: SILENT_MS, db: made.db, answerer, ownerMerges: () => '', clock: made.clock.now, trees: treesOf(root), liveSession: () => null, dirty: () => false })
 
     expect(await executor.answer(lease)).toMatchObject({ kind: 'answered', session: 'fresh-session', resumed: false })
 
@@ -262,7 +262,7 @@ describe('the answer session at the context warn', () => {
       contextWarn: () => CONTEXT_WARN,
       diff: () => null,
     })
-    const executor = new AnswerExecutor({ silentMs: SILENT_MS, db: made.db, answerer, ownerMerges: () => '', clock: made.clock.now, trees: treesOf(root), liveSession: () => null, dirty: () => false })
+    const executor = new AnswerExecutor({ cards: cardTransitions(), silentMs: SILENT_MS, db: made.db, answerer, ownerMerges: () => '', clock: made.clock.now, trees: treesOf(root), liveSession: () => null, dirty: () => false })
 
     expect(await executor.answer(lease())).toMatchObject({ kind: 'stopped', reason: 'fault' })
 

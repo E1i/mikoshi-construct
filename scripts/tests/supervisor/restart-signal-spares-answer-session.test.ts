@@ -17,6 +17,7 @@ import { completeTask, leaseWhileFree, recordWorkerStarted, RESTART_CUT } from '
 import { keyOf } from '../../core/queue.js'
 import { AnswerOutcomes } from '../../nodes/answer/duties/outcomes.js'
 import { BUS_RUN_LAUNCH, PREFIX } from '../../supervisor/bg.js'
+import { cardTransitions } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { busDrain, BusSupervisor, groupedPsList, stopInstance, withoutRetiring } from '../../supervisor/supervisor.js'
 import { workerLaunches } from '../../supervisor/workers.js'
@@ -144,9 +145,9 @@ describe('a restart signal spares the session of a retiring answer worker', () =
     await supervisor.step()
     await busRunExit
     const ended = JSON.parse(await fromWorker()) as { code: number | null, signal: string | null }
-    const outcomes = new AnswerOutcomes({ silentMs: SILENT_MS, db, clock: () => new Date(), ownerMerges: () => '' }, { pathsIn: () => [], ownerBoundary: () => undefined, wideningAsked: () => [] })
+    const outcomes = new AnswerOutcomes({ silentMs: SILENT_MS, db, cards: cardTransitions(), clock: () => new Date(), ownerMerges: () => '' }, { pathsIn: () => [], ownerBoundary: () => undefined, wideningAsked: () => [] })
     if (ended.code === 0)
-      completeTask(db, ts(), lease, [{ ts: ts(), type: CARD_ANSWERED, actor: lease.actor, cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${CARD_ANSWERED}:${lease.taskKey}`, payload: { head: 'the-push' }, legacy: false }])
+      completeTask(db, cardTransitions(), ts(), lease, [{ ts: ts(), type: CARD_ANSWERED, actor: lease.actor, cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${CARD_ANSWERED}:${lease.taskKey}`, payload: { head: 'the-push' }, legacy: false }])
     else
       outcomes.denied(lease, { kind: 'technical', reason: 'answer_failed', detail: `the session exited ${ended.code ?? ended.signal}` })
 

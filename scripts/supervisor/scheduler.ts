@@ -1,6 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { HeavyRun } from '../core/identifiers.js'
-import type { Lease } from '../core/lease.js'
+import type { CardTransitions, Lease } from '../core/lease.js'
 import { completeTask, expireLeases, leaseWhileFree, RENEW_MS, renewLease, StaleLease } from '../core/lease.js'
 import { SILENT_MS } from './liveness-sites.js'
 
@@ -28,6 +28,7 @@ export function slotsOf(kind: SlotKind, env: NodeJS.ProcessEnv): number {
 
 export interface HeavyRunParts {
   db: DatabaseSync
+  cards: CardTransitions
   clock: () => Date
   session: string
   slots: number
@@ -53,8 +54,8 @@ export class SlotScheduler {
   }
 
   tryTake(kind: HeavyRun, cardId: number): Lease | null {
-    const { db, session, slots } = this.parts
-    expireLeases(db, this.ts(), SILENT_MS)
+    const { db, cards, session, slots } = this.parts
+    expireLeases(db, cards, this.ts(), SILENT_MS)
     return leaseWhileFree(db, this.ts(), { queue: kind, cardId, generation: session }, this.actor, slots)
   }
 
@@ -73,7 +74,7 @@ export class SlotScheduler {
 
   release(lease: Lease): void {
     try {
-      completeTask(this.parts.db, this.ts(), lease, [])
+      completeTask(this.parts.db, this.parts.cards, this.ts(), lease, [])
     }
     catch (error) {
       if (!(error instanceof StaleLease))

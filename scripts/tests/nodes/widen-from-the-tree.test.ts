@@ -11,6 +11,7 @@ import { CARD_ADMITTED, CARD_STARTED, CARD_STOPPED, OUTSIDE_TOUCHES, QUESTION_AG
 import { leaseNext } from '../../core/lease.js'
 import { queueTask } from '../../core/queue.js'
 import { AnswerExecutor, changedInTheTreeOf } from '../../nodes/answer/answer-executor.js'
+import { cardTransitions } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { sha } from '../bus/github-fake.js'
 import { eventsOf, mergeBench } from '../bus/merge-bench.js'
@@ -61,7 +62,7 @@ function bench(changed: readonly string[], replies: readonly Answered[]): Bench 
   stopOnTheCard(made)
   queueAnswerOnTheLatestStop(made)
   let sessions = 0
-  const executor = new AnswerExecutor({ silentMs: SILENT_MS, db: made.db, answerer: async () => {
+  const executor = new AnswerExecutor({ cards: cardTransitions(), silentMs: SILENT_MS, db: made.db, answerer: async () => {
     sessions += 1
     return replies[Math.min(sessions, replies.length) - 1]!
   }, ownerMerges: () => '', clock: made.clock.now, trees: { home: trees, exists: () => true, branchOf: pr => `feat/card-${pr}`, recreate: () => {}, bringTo: () => {} }, dirty: () => false, liveSession: () => null, prepare: () => {}, changedInTheTree: () => [...changed] })

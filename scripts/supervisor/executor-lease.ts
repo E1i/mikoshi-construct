@@ -1,5 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
-import type { HolderReading } from '../core/lease.js'
+import type { CardTransitions, HolderReading } from '../core/lease.js'
 import type { DetachedLaunch } from './bg.js'
 import { CHILD_ENDED, SIGNAL_SENT, TASK_EXPIRED, TASK_RENEWED } from '../core/events.js'
 import { expireLeasesHeldBy, leasesHeldBy, RESTART_CUT, SUPERVISOR_RENEWS } from '../core/lease.js'
@@ -12,10 +12,10 @@ export function workerKindsOf(launches: DetachedLaunch[]): string[] {
   return launches.map(launch => launch.script.replace(/^bus:/, '')).filter(isBusWorker)
 }
 
-export function freeLeasesOf(db: DatabaseSync, ts: string, stopped: DetachedLaunch[]): string[] {
+export function freeLeasesOf(db: DatabaseSync, cards: CardTransitions, ts: string, stopped: DetachedLaunch[]): string[] {
   const kinds = workerKindsOf(stopped)
   const held = leasesHeldBy(db, kinds)
-  const freed = expireLeasesHeldBy(db, ts, kinds, SILENT_MS)
+  const freed = expireLeasesHeldBy(db, cards, ts, kinds, SILENT_MS)
   const kept = held.filter(key => !freed.includes(key))
   return [
     ...freed.length === 0 ? [] : [`${PREFIX}freed the leases of the stopped workers at once as ${TASK_EXPIRED}: ${freed.join(', ')}`],

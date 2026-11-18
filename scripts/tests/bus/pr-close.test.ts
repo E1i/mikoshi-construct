@@ -7,6 +7,7 @@ import { prBodySha } from '../../core/identifiers.js'
 import { leaseNext, releaseTask } from '../../core/lease.js'
 import { queueTask } from '../../core/queue.js'
 import { latestGitHubNumber, PrCloser } from '../../nodes/review/pr-close.js'
+import { cardTransitions } from '../../supervisor/composition.js'
 import { requestFromWindow, requestOf, WindowRequests } from '../../window/window-requests.js'
 import { cardBody, sha } from './github-fake.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
@@ -155,7 +156,7 @@ describe('the bus closes a card pull request without merge, only through the clo
     expect(deniedRules(bench)).toEqual([['close', 'merge_leased']])
     expect(bench.gitHub.closes).toEqual([])
 
-    releaseTask(bench.db, bench.clock.now().toISOString(), lease, 'the merge gave up')
+    releaseTask(bench.db, cardTransitions(), bench.clock.now().toISOString(), lease, 'the merge gave up')
     requests(bench).run()
     expect(bench.gitHub.closes).toEqual([{ pr: PR, fields: { state: 'closed' } }])
     expect(eventsOf(bench.db, PR_CLOSED)).toEqual([{ merged: false, reason: `card #${CARD} was dropped`, by: 'card.dropped' }])

@@ -689,6 +689,7 @@
     "scripts/tests/contract/composition-registers-only-in-composition.test.ts",
     "scripts/tests/contract/contours.test.ts",
     "scripts/tests/contract/events-catalogue.test.ts",
+    "scripts/tests/contract/lease-contour.test.ts",
     "scripts/tests/contract/lore-names.test.ts",
     "scripts/tests/contract/module-graph-boundary.test.ts",
     "scripts/tests/contract/module-graph-cycles.test.ts",

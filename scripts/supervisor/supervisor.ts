@@ -35,7 +35,7 @@ import { WindowSessionEnds } from '../window/window-session-end.js'
 import { BUILD_DIR, BUILT_MODULE, flagsInArgs, instancesOf, launchName, PREFIX, printBg, provenOnBus, runBusBg, runningInstance, stampedOtherwise, startDetached, thisBus, withBuses } from './bg.js'
 import { BusHealer, CorruptionWatch, RecordedNodes } from './bus-heal.js'
 import { BusSnapshot } from './bus-snapshot.js'
-import { busProjections, recordOwnStart } from './composition.js'
+import { busProjections, cardTransitions, recordOwnStart } from './composition.js'
 import { freeLeasesOf, judgedLeaseLines, workerKindsOf } from './executor-lease.js'
 import { DRAIN_LIMIT_MS, DRAIN_WHY, GenerationHandover, recordRestarted, RETIRING_WORKERS } from './generation-handover.js'
 import { CARD_PROCESS, lastProcessBeats, ownStart, recordProcessHeartbeat, retiredRowsLines, retirePreviousGeneration } from './heartbeat.js'
@@ -551,7 +551,7 @@ export function busDrain(db: DatabaseSync, ts: () => string, startOf?: ProcessSt
   return {
     held: (running) => {
       if (startOf !== undefined)
-        judgeHolders(db, ts(), startOf, SILENT_MS)
+        judgeHolders(db, cardTransitions(), ts(), startOf, SILENT_MS)
       return leasesHeldBy(db, workerKindsOf(running))
     },
     retire: (launch, pids, sha, from) => workerKindsOf([launch]).flatMap(node => retireHolders(db, ts(), { node, pids, sha, from })),
@@ -799,7 +799,7 @@ export class LivenessJudge {
         lines.push(...await this.restartDue(judgement.process, nowMs))
       }
       if (this.startOf !== undefined)
-        lines.push(...judgedLeaseLines(judgeHolders(this.db, ts, this.startOf, SILENT_MS)))
+        lines.push(...judgedLeaseLines(judgeHolders(this.db, cardTransitions(), ts, this.startOf, SILENT_MS)))
       return lines
     }
     catch (error) {
@@ -1009,7 +1009,7 @@ async function supervise(busDir: string, cwd: string, reviewPreflight: () => str
     wanted,
     start,
     stop: running => stopInstance(running, processes, sleep, signalLog(db, RESTART_WHY)),
-    freeLeases: stopped => freeLeasesOf(db, new Date().toISOString(), stopped),
+    freeLeases: stopped => freeLeasesOf(db, cardTransitions(), new Date().toISOString(), stopped),
     drain: busDrain(db, () => new Date().toISOString(), psStartOf),
     processes,
     mainSince: afterId => mainAdvancedSince(db, afterId),
@@ -1104,7 +1104,7 @@ export async function startUnderAgentEnv(busDir: string, launches: DetachedLaunc
 }
 
 function freeLeasesOnBus(stopped: DetachedLaunch[]): string[] {
-  return onBus(db => freeLeasesOf(db, new Date().toISOString(), stopped))
+  return onBus(db => freeLeasesOf(db, cardTransitions(), new Date().toISOString(), stopped))
 }
 
 function withoutRetiringOnBus(processes: () => (RunningProcess & Partial<GroupedProcess>)[]): ProcessList {

@@ -1,7 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { Understood } from '../core/bus-version.js'
 import type { SliceParentsBackfill } from '../core/card-bodies.js'
-import type { HolderStart, Lease } from '../core/lease.js'
+import type { CardTransitions, HolderStart, Lease } from '../core/lease.js'
 import type { NodeKind, NodeSupply, ProcessIdentity, WorkerIdentity } from '../core/node.js'
 import type { CandidateRules, Derived, MayRequeue, QueueSource, RequeueRow } from '../core/queue.js'
 import type { Projections } from '../core/reducer.js'
@@ -26,7 +26,7 @@ import { PRIORITIES, WINDOW_WHO } from '../../src/card/parking.js'
 import { witnessesOf } from '../../src/commands/intake/admit.js'
 import { GATE_RUN_SPOOL } from '../ci/gate-runs.js'
 import { driftOfRun } from '../ci/weights-law.js'
-import { CARD_FOLDS, cardLinkObserved, cardPrMerged, cardPrOpened, CARDS_PROJECTION } from '../core/card-automaton.js'
+import { appendedOnCard, CARD_FOLDS, cardLinkObserved, cardPrMerged, cardPrOpened, CARDS_PROJECTION } from '../core/card-automaton.js'
 import { admittedCardVersion, backfillPendingSliceParents, cardOfBranch } from '../core/card-bodies.js'
 import { cardDecisionReads, reviewedUnderTheCardDecision, reviewsTheCardDecisionReopens, withDecidedContinuations } from '../core/card-decisions.js'
 import { CHAINS_PROJECTION } from '../core/chain.js'
@@ -103,8 +103,13 @@ export function refusesForeignCard(db: DatabaseSync, lease: Lease, understands: 
   return version === null ? null : foreignVersion(understands, 'card', version, `card #${lease.cardId} (${lease.taskKey})`)
 }
 
+export function cardTransitions(): CardTransitions {
+  return { appendedOnCard }
+}
+
 export function nodeSupply(): NodeSupply {
   return {
+    cards: cardTransitions(),
     cadence: { checkMs: CHECK_MS, tickMs: TICK_MS },
     recordProcessHeartbeat,
     slotsOf: (kind: NodeKind, env: NodeJS.ProcessEnv) => slotsOf(kind, env),

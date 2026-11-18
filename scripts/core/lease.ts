@@ -3,7 +3,6 @@ import type { BusEvent } from './db.js'
 import type { Handover } from './executor-holds.js'
 import type { Queue, TaskIdentity } from './identifiers.js'
 import type { StoredEvent } from './stored.js'
-import { appendedOnCard } from './card-automaton.js'
 import { appendEvent, inTransaction } from './db.js'
 import { BOARD_ALARM, CARD_STOPPED, CHILD_ENDED, CHILD_STARTED, LEASES_DRAINING, RESTARTED, SESSION_HEARTBEAT, SIGNAL_SENT, TASK_COMPLETED, TASK_EXPIRED, TASK_FAILED, TASK_LEASED, TASK_RELEASED, TASK_RENEWED, TASK_SUPERSEDED, WORKER_RETIRING, WORKER_STARTED } from './events.js'
 import { HELD_BY_A_LIVE_EXECUTOR, heldBindings, NOTHING_HELD } from './executor-holds.js'
@@ -21,6 +20,10 @@ export const RESTART_CUT = 'restart_cut'
 const REQUEUED_TO_THE_BACK: Queue = 'review'
 
 export class StaleLease extends Error {}
+
+export interface CardTransitions {
+  appendedOnCard: (db: DatabaseSync, event: BusEvent) => boolean
+}
 
 export interface Lease {
   taskKey: string
@@ -250,12 +253,12 @@ export function renewLease(db: DatabaseSync, ts: string, lease: Lease): void {
   })
 }
 
-export function completeTask(db: DatabaseSync, ts: string, lease: Lease, outcome: BusEvent[], stillDue: (db: DatabaseSync) => void = () => {}): void {
+export function completeTask(db: DatabaseSync, cards: CardTransitions, ts: string, lease: Lease, outcome: BusEvent[], stillDue: (db: DatabaseSync) => void = () => {}): void {
   inTransaction(db, () => {
     const row = held(db, lease)
     stillDue(db)
     for (const event of outcome)
-      appendedOnCard(db, event)
+      cards.appendedOnCard(db, event)
     appendedAndReduced(db, taskEvent(ts, TASK_COMPLETED, lease.actor, row, lease.leaseGen, `${TASK_COMPLETED}:${row.task_key}:${lease.leaseGen}`))
   })
 }
@@ -279,29 +282,29 @@ function freshBeatUntil(db: DatabaseSync, ts: string, row: LeaseRow, silentMs: n
   return until > ts ? until : null
 }
 
-function waited(db: DatabaseSync, ts: string, actor: string, row: LeaseRow, wait: Wait, context: BusEvent[], tree?: CarriedTree): typeof QUEUED {
+function waited(db: DatabaseSync, cards: CardTransitions, ts: string, actor: string, row: LeaseRow, wait: Wait, context: BusEvent[], tree?: CarriedTree): typeof QUEUED {
   for (const event of context)
-    appendedOnCard(db, event)
+    cards.appendedOnCard(db, event)
   appendedAndReduced(db, taskEvent(ts, TASK_RELEASED, actor, row, row.lease_gen, `${TASK_RELEASED}:${row.task_key}:${row.lease_gen}`, { reason: wait.reason, until: wait.until, ...carrying(tree) }))
   return QUEUED
 }
 
-export function waitTask(db: DatabaseSync, ts: string, lease: Lease, wait: Wait, context: BusEvent[] = [], tree?: CarriedTree): typeof QUEUED {
-  return inTransaction(db, () => waited(db, ts, lease.actor, held(db, lease), wait, context, tree))
+export function waitTask(db: DatabaseSync, cards: CardTransitions, ts: string, lease: Lease, wait: Wait, context: BusEvent[] = [], tree?: CarriedTree): typeof QUEUED {
+  return inTransaction(db, () => waited(db, cards, ts, lease.actor, held(db, lease), wait, context, tree))
 }
 
-function failed(db: DatabaseSync, ts: string, type: string, actor: string, row: LeaseRow, failure: Failure, silentMs: number, context: BusEvent[]): AfterFailure {
+function failed(db: DatabaseSync, cards: CardTransitions, ts: string, type: string, actor: string, row: LeaseRow, failure: Failure, silentMs: number, context: BusEvent[]): AfterFailure {
   const uncounted = waitsForTheHead(db, row, failure)
   const next = afterFailure(row, failure, uncounted)
   const beating = next === STOPPED ? freshBeatUntil(db, ts, row, silentMs) : null
   if (beating !== null)
-    return waited(db, ts, actor, row, { reason: failure.reason, until: beating }, context, failure.tree)
+    return waited(db, cards, ts, actor, row, { reason: failure.reason, until: beating }, context, failure.tree)
   for (const event of context)
-    appendedOnCard(db, event)
+    cards.appendedOnCard(db, event)
   appendedAndReduced(db, taskEvent(ts, type, actor, row, row.lease_gen, `${type}:${row.task_key}:${row.lease_gen}`, { reason: failure.reason, next, ...(uncounted ? { uncounted } : {}), ...carrying(failure.tree) }))
   if (next === STOPPED) {
     const detail = `${FAILURES_TO_STOP} failures in a row on ${row.task_key}, the last: ${failure.reason}`
-    appendedOnCard(db, { ts, type: CARD_STOPPED, actor, cardId: row.card_id, pr: row.pr, head: row.head, dedupeKey: `${CARD_STOPPED}:${row.task_key}`, payload: { reason: 'fault', detail }, legacy: false })
+    cards.appendedOnCard(db, { ts, type: CARD_STOPPED, actor, cardId: row.card_id, pr: row.pr, head: row.head, dedupeKey: `${CARD_STOPPED}:${row.task_key}`, payload: { reason: 'fault', detail }, legacy: false })
     appendEvent(db, { ts, type: BOARD_ALARM, actor: QUEUE_ACTOR, cardId: row.card_id, pr: row.pr, head: row.head, dedupeKey: `${BOARD_ALARM}:${row.task_key}`, payload: { task_key: row.task_key, reason: 'fault', failures: row.failures + 1, detail }, legacy: false })
   }
   return next
@@ -317,29 +320,29 @@ function retryAfterIn(ts: string, context: readonly BusEvent[]): string | null {
   return null
 }
 
-export function failTask(db: DatabaseSync, ts: string, lease: Lease, failure: Failure, silentMs: number, context: BusEvent[] = []): AfterFailure {
+export function failTask(db: DatabaseSync, cards: CardTransitions, ts: string, lease: Lease, failure: Failure, silentMs: number, context: BusEvent[] = []): AfterFailure {
   if (failure.reason === STALE_HEAD && !failure.withdraw)
-    return supersedeLease(db, ts, lease, context)
+    return supersedeLease(db, cards, ts, lease, context)
   const rateLimitedUntil = failure.withdraw ? null : retryAfterIn(ts, context)
   if (rateLimitedUntil !== null)
-    return waitTask(db, ts, lease, { reason: failure.reason, until: rateLimitedUntil }, context, failure.tree)
-  return inTransaction(db, () => failed(db, ts, TASK_FAILED, lease.actor, held(db, lease), failure, silentMs, context))
+    return waitTask(db, cards, ts, lease, { reason: failure.reason, until: rateLimitedUntil }, context, failure.tree)
+  return inTransaction(db, () => failed(db, cards, ts, TASK_FAILED, lease.actor, held(db, lease), failure, silentMs, context))
 }
 
-export function releaseTask(db: DatabaseSync, ts: string, lease: Lease, reason: string, context: BusEvent[] = [], tree?: CarriedTree): void {
+export function releaseTask(db: DatabaseSync, cards: CardTransitions, ts: string, lease: Lease, reason: string, context: BusEvent[] = [], tree?: CarriedTree): void {
   inTransaction(db, () => {
     const row = held(db, lease)
     for (const event of context)
-      appendedOnCard(db, event)
+      cards.appendedOnCard(db, event)
     appendedAndReduced(db, taskEvent(ts, TASK_RELEASED, lease.actor, row, row.lease_gen, `${TASK_RELEASED}:${row.task_key}:${row.lease_gen}`, { reason, ...carrying(tree) }))
   })
 }
 
-export function supersedeLease(db: DatabaseSync, ts: string, lease: Lease, context: BusEvent[] = []): typeof SUPERSEDED_LEASE {
+export function supersedeLease(db: DatabaseSync, cards: CardTransitions, ts: string, lease: Lease, context: BusEvent[] = []): typeof SUPERSEDED_LEASE {
   return inTransaction(db, () => {
     const row = held(db, lease)
     for (const event of context)
-      appendedOnCard(db, event)
+      cards.appendedOnCard(db, event)
     appendedAndReduced(db, taskEvent(ts, TASK_SUPERSEDED, lease.actor, row, row.lease_gen, `${TASK_SUPERSEDED}:${row.task_key}:after-${row.event_id}`))
     return SUPERSEDED_LEASE
   })
@@ -386,16 +389,16 @@ function registeredExecutorLeases(db: DatabaseSync): Set<string> {
   return new Set((db.prepare(LEASES_WITH_THEIR_HOLDER).all() as unknown as HeldWithHolder[]).filter(row => openExecutors(row).length > 0).map(row => row.task_key))
 }
 
-function expired(db: DatabaseSync, ts: string, rows: LeaseRow[], reason: string, silentMs: number): string[] {
+function expired(db: DatabaseSync, cards: CardTransitions, ts: string, rows: LeaseRow[], reason: string, silentMs: number): string[] {
   const registered = rows.length === 0 ? new Set<string>() : registeredExecutorLeases(db)
   const unregistered = rows.filter(row => !registered.has(row.task_key))
   for (const row of unregistered)
-    failed(db, ts, TASK_EXPIRED, QUEUE_ACTOR, row, { reason, withdraw: false }, silentMs, [])
+    failed(db, cards, ts, TASK_EXPIRED, QUEUE_ACTOR, row, { reason, withdraw: false }, silentMs, [])
   return unregistered.map(row => row.task_key)
 }
 
-export function expireLeases(db: DatabaseSync, ts: string, silentMs: number): string[] {
-  return inTransaction(db, () => expired(db, ts, db.prepare(LAPSED).all(ts) as unknown as LeaseRow[], LEASE_EXPIRED, silentMs))
+export function expireLeases(db: DatabaseSync, cards: CardTransitions, ts: string, silentMs: number): string[] {
+  return inTransaction(db, () => expired(db, cards, ts, db.prepare(LAPSED).all(ts) as unknown as LeaseRow[], LEASE_EXPIRED, silentMs))
 }
 
 function heldBy(db: DatabaseSync, workerKinds: readonly string[]): LeaseRow[] {
@@ -406,8 +409,8 @@ export function leasesHeldBy(db: DatabaseSync, workerKinds: readonly string[]): 
   return heldBy(db, workerKinds).map(row => row.task_key)
 }
 
-export function expireLeasesHeldBy(db: DatabaseSync, ts: string, workerKinds: readonly string[], silentMs: number): string[] {
-  return inTransaction(db, () => expired(db, ts, heldBy(db, workerKinds), 'holder_stopped', silentMs))
+export function expireLeasesHeldBy(db: DatabaseSync, cards: CardTransitions, ts: string, workerKinds: readonly string[], silentMs: number): string[] {
+  return inTransaction(db, () => expired(db, cards, ts, heldBy(db, workerKinds), 'holder_stopped', silentMs))
 }
 
 export const HOLDER_DEAD = 'holder_dead'
@@ -468,12 +471,12 @@ function silentSince(row: HeldWithHolder, ts: string, silentMs: number): boolean
   return Date.parse(row.lease_until) - LEASE_MS + silentMs < Date.parse(ts)
 }
 
-function releasedFromTheDead(db: DatabaseSync, ts: string, row: HeldWithHolder, silentMs: number): boolean {
+function releasedFromTheDead(db: DatabaseSync, cards: CardTransitions, ts: string, row: HeldWithHolder, silentMs: number): boolean {
   return inTransaction(db, () => {
     const current = rowOf(db, row.task_key)
     if (current === undefined || current.state !== LEASED || current.lease_gen !== row.lease_gen)
       return false
-    failed(db, ts, TASK_EXPIRED, QUEUE_ACTOR, current, { reason: HOLDER_DEAD, withdraw: false }, silentMs, [])
+    failed(db, cards, ts, TASK_EXPIRED, QUEUE_ACTOR, current, { reason: HOLDER_DEAD, withdraw: false }, silentMs, [])
     return true
   })
 }
@@ -519,7 +522,7 @@ function holderAlarm(db: DatabaseSync, ts: string, row: HeldWithHolder, reason: 
   return appendEvent(db, { ts, type: BOARD_ALARM, actor: QUEUE_ACTOR, cardId: row.card_id, pr: row.pr, head: row.head, dedupeKey: `${BOARD_ALARM}:${reason}:${row.task_key}:${row.lease_gen}`, payload: { reason, lease: row.task_key, lease_gen: row.lease_gen, worker: row.holder, detail }, legacy: false })
 }
 
-export function judgeHolders(db: DatabaseSync, ts: string, startOf: ProcessStartOf, silentMs: number): HolderReading {
+export function judgeHolders(db: DatabaseSync, cards: CardTransitions, ts: string, startOf: ProcessStartOf, silentMs: number): HolderReading {
   const reading: HolderReading = { freed: [], hung: [], unproven: [] }
   const renewed: string[] = []
   const returned: string[] = []
@@ -533,7 +536,7 @@ export function judgeHolders(db: DatabaseSync, ts: string, startOf: ProcessStart
       reading.unproven.push(row.task_key)
     if (run?.verdict === 'dead' && run.executor !== null && returnedAfterTheSignal(db, ts, row, run.executor))
       returned.push(row.task_key)
-    if ((run?.verdict === 'none' || (run?.verdict === 'dead' && run.executor === null)) && releasedFromTheDead(db, ts, row, silentMs))
+    if ((run?.verdict === 'none' || (run?.verdict === 'dead' && run.executor === null)) && releasedFromTheDead(db, cards, ts, row, silentMs))
       reading.freed.push(row.task_key)
     if (verdict === 'alive' && silentSince(row, ts, silentMs) && holderAlarm(db, ts, row, WORKER_HUNG, `${row.holder} (pid ${start!.pid}) is running and has not renewed ${row.task_key} for ${silentMs / 60_000} min; the lease stays with it`))
       reading.hung.push(row.task_key)

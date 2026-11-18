@@ -24,7 +24,7 @@ import { keyOf, queueTask } from '../../core/queue.js'
 import { ABANDONED_READ_AS_RERUN, gapRows, INTAKE_WAIT_RECORD, INTAKE_WITNESS_TRANSFER, LAW_CELLS, LAW_CELLS_WITNESSES, LAW_NODES, LAW_SITES, lawIds, PULSE_BESIDE_CARD_SILENCE, REVIEW_LIVE_ON_ONE_STALE_SIGNAL, SITES_BEYOND_NODES, sourceOf, WINDOW_BESIDE_SESSIONS } from '../../nodes/laws.js'
 import { InMemoryDecisions } from '../../policy/decisions/decisions.js'
 import { NetWatch, TICK_MS } from '../../ports/netwatch.js'
-import { busProjections } from '../../supervisor/composition.js'
+import { busProjections, cardTransitions } from '../../supervisor/composition.js'
 import { BusTick } from '../../supervisor/run.js'
 import { NO_PROGRESS_LINES, StalledSessions } from '../../supervisor/stalled-sessions.js'
 import { BUS_ALIVE_MS, STALL_MS, stalledOf } from '../../window/watch.js'
@@ -154,7 +154,7 @@ function reviewLiveOnOneStaleSignal(): void {
     for (let minute = 1; minute <= line + 1; minute++)
       appendEvent(db, { ts: minuteAt(minute), type: SESSION_HEARTBEAT, actor: 'worker:review:worker-1', cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${SESSION_HEARTBEAT}:${lease.taskKey}:${lease.leaseGen}:${minute}`, payload: { task_key: lease.taskKey, lease_gen: lease.leaseGen, session: 'review-under-watch', context: 62659 }, legacy: false })
     const stopped: string[] = []
-    new StalledSessions(db, () => new Date(leasedAt + (line + 1.5) * MINUTE), { lifeOf: () => 'live', stop: session => stopped.push(session), spendOf: () => null, pulseOf: () => null }).step()
+    new StalledSessions(db, () => new Date(leasedAt + (line + 1.5) * MINUTE), { cards: cardTransitions(), lifeOf: () => 'live', stop: session => stopped.push(session), spendOf: () => null, pulseOf: () => null }).step()
     if (stopped.length > 0)
       throw new Error('a live review session whose only stale signal is the context reading was sent SIGTERM')
     if ((db.prepare('SELECT state FROM tasks WHERE task_key = ?').get(lease.taskKey) as { state: string }).state !== 'leased')

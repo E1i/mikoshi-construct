@@ -3,7 +3,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { CardScope } from '../../../src/commands/test-runner.js'
 import type { ServeRecord } from '../../../src/presets/index.js'
 import type { BusEvent } from '../../core/db.js'
-import type { AfterFailure, Lease } from '../../core/lease.js'
+import type { AfterFailure, CardTransitions, Lease } from '../../core/lease.js'
 import type { IdentityReader } from '../../core/node.js'
 import type { VERIFICATION_WORDS } from '../../core/verification.js'
 import type { WitnessSubject, WitnessVerdict } from '../../policy/policy.js'
@@ -93,6 +93,7 @@ export interface WitnessTrees {
 
 export interface WitnessParts {
   db: DatabaseSync
+  cards: CardTransitions
   clock: () => Date
   silentMs: number
   trees: WitnessTrees
@@ -319,7 +320,7 @@ export class WitnessExecutor {
       if (subject !== null && lease.pr === null && lease.head !== null && isFullSha(lease.head))
         return await this.onMain(lease, subject, lease.head)
       if (subject === null || lease.pr === null || lease.head === null) {
-        completeTask(this.parts.db, this.ts(), lease, [])
+        completeTask(this.parts.db, this.parts.cards, this.ts(), lease, [])
         return { kind: 'skipped', taskKey: lease.taskKey, why: `card #${lease.cardId} declares no witness with a command, or the task names no pull request head` }
       }
       let base: string
@@ -341,7 +342,7 @@ export class WitnessExecutor {
         return this.unfitOutcome(lease, subject, base, judgement)
       const verdict = judgement.kind === 'green' ? GREEN : RED
       const detail = judgement.kind === 'red' ? judgement.detail : `every card witness red on the base ${base} and green on ${lease.head}`
-      completeTask(this.parts.db, this.ts(), lease, [this.recorded(lease, subject, base, verdict, detail)])
+      completeTask(this.parts.db, this.parts.cards, this.ts(), lease, [this.recorded(lease, subject, base, verdict, detail)])
       return { kind: 'recorded', taskKey: lease.taskKey, verdict, base, detail }
     }
     catch (error) {
@@ -362,7 +363,7 @@ export class WitnessExecutor {
     const verdict = red === null ? GREEN : RED
     const detail = red ?? `every card witness green on main at ${main}`
     const closing = red === null && closableOnMain(this.parts.db, lease.cardId) ? [this.closedOnMain(lease, main)] : []
-    completeTask(this.parts.db, this.ts(), lease, [this.recorded(lease, subject, main, verdict, detail), ...closing])
+    completeTask(this.parts.db, this.parts.cards, this.ts(), lease, [this.recorded(lease, subject, main, verdict, detail), ...closing])
     return { kind: 'recorded', taskKey: lease.taskKey, verdict, base: main, detail }
   }
 
@@ -385,18 +386,18 @@ export class WitnessExecutor {
   }
 
   private unrun(lease: Lease, detail: string): WitnessOutcome {
-    const next = failTask(this.parts.db, this.ts(), lease, { reason: WITNESS_UNRUN, withdraw: false }, this.parts.silentMs)
+    const next = failTask(this.parts.db, this.parts.cards, this.ts(), lease, { reason: WITNESS_UNRUN, withdraw: false }, this.parts.silentMs)
     return { kind: 'denied', taskKey: lease.taskKey, denial: { kind: 'technical', reason: WITNESS_UNRUN, detail }, next }
   }
 
   private refusedForNoServe(lease: Lease, detail: string): WitnessOutcome {
     const denied: BusEvent = { ts: this.ts(), type: POLICY_DENIED, actor: 'policy', cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${POLICY_DENIED}:${lease.taskKey}:${lease.leaseGen}`, payload: { command: 'witness', reason: WITNESS_NO_SERVE, detail }, legacy: false }
-    completeTask(this.parts.db, this.ts(), lease, [denied])
+    completeTask(this.parts.db, this.parts.cards, this.ts(), lease, [denied])
     return { kind: 'skipped', taskKey: lease.taskKey, why: detail }
   }
 
   private couldNotCheck(lease: Lease, subject: WitnessSubject, base: string, detail: string): WitnessOutcome {
-    completeTask(this.parts.db, this.ts(), lease, [this.recorded(lease, subject, base, UNCHECKED, detail)])
+    completeTask(this.parts.db, this.parts.cards, this.ts(), lease, [this.recorded(lease, subject, base, UNCHECKED, detail)])
     return { kind: 'recorded', taskKey: lease.taskKey, verdict: UNCHECKED, base, detail }
   }
 
@@ -527,7 +528,7 @@ export class WitnessExecutor {
       : `replace it with ${judgement.replacement.map(field => `--witness ${field.id}=${JSON.stringify(field)}`).join(' ')}`
     const detail = `${judgement.why.join('; ')}; ${proposal}`
     const stopped: BusEvent = { ts: this.ts(), type: CARD_STOPPED, actor: lease.actor, cardId: lease.cardId, pr: lease.pr, head, dedupeKey: `${CARD_STOPPED}:${WITNESS_UNFIT}:${lease.cardId}:${head}:${base}:${subject.cardBody}`, payload: { reason: QUESTION_AGENT, code: WITNESS_UNFIT, detail, paths: judgement.files }, legacy: false }
-    completeTask(this.parts.db, this.ts(), lease, [this.recorded(lease, subject, base, UNFIT, detail), stopped])
+    completeTask(this.parts.db, this.parts.cards, this.ts(), lease, [this.recorded(lease, subject, base, UNFIT, detail), stopped])
     return { kind: 'recorded', taskKey: lease.taskKey, verdict: UNFIT, base, detail, replacement: judgement.replacement }
   }
 

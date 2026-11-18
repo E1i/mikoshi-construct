@@ -11,6 +11,7 @@ import { failTask, leaseQueued } from '../../core/lease.js'
 import { keyOf, queueTask } from '../../core/queue.js'
 import { REVIEW_CEILING_MS } from '../../nodes/review/reviewer.js'
 import { InMemoryProcessTable } from '../../ports/process-table.js'
+import { cardTransitions } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { NO_PROGRESS_LINES, pulseIn, StalledSessions, transcriptMoved } from '../../supervisor/stalled-sessions.js'
 
@@ -55,7 +56,7 @@ interface Watch {
 function watching(db: DatabaseSync, pulseAt: (minutes: number) => string | null): Watch {
   let minutesNow = 0
   const stopped: string[] = []
-  const watch = new StalledSessions(db, () => at(minutesNow), { lifeOf: () => 'live', stop: session => stopped.push(session), spendOf: () => null, pulseOf: () => pulseAt(minutesNow) })
+  const watch = new StalledSessions(db, () => at(minutesNow), { cards: cardTransitions(), lifeOf: () => 'live', stop: session => stopped.push(session), spendOf: () => null, pulseOf: () => pulseAt(minutesNow) })
   return {
     stopped,
     sweepAt: (minutes) => {
@@ -122,7 +123,7 @@ describe('a review session judged on more than one signal', () => {
     expect(watch.stopped).toEqual([])
     expect(stateOf(db, lease)).toBe('leased')
 
-    failTask(db, at(reviewLine + 3).toISOString(), lease, { reason: 'exit 143', withdraw: false }, SILENT_MS)
+    failTask(db, cardTransitions(), at(reviewLine + 3).toISOString(), lease, { reason: 'exit 143', withdraw: false }, SILENT_MS)
     const again = leaseQueued(db, at(reviewLine + 4).toISOString(), keyOf(REVIEW), 'worker:review:worker-1')!
     expect(again.leaseGen).toBeGreaterThan(lease.leaseGen)
     beat(db, again, reviewLine + 5, { context: STILL_CONTEXT })

@@ -14,7 +14,7 @@ import { completeTask, recordWorkerStarted } from '../../core/lease.js'
 import { Node } from '../../core/node.js'
 import { queueTaskWithin } from '../../core/queue.js'
 import { launchName, PREFIX } from '../../supervisor/bg.js'
-import { nodeSupply } from '../../supervisor/composition.js'
+import { cardTransitions, nodeSupply } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { slotsVariable } from '../../supervisor/scheduler.js'
 import { busDrain, BusSupervisor, freeLeasesOf, withoutRetiring } from '../../supervisor/supervisor.js'
@@ -59,7 +59,7 @@ class ReviewRounds extends Node<NodeStep> {
     await new Promise<void>((resolve) => {
       this.rounds.push(resolve)
     })
-    completeTask(this.db, new Date().toISOString(), lease, [])
+    completeTask(this.db, cardTransitions(), new Date().toISOString(), lease, [])
     return { kind: 'reviewed', taskKey: lease.taskKey }
   }
 
@@ -100,7 +100,7 @@ function supervised(db: DatabaseSync, ts: () => string): BusSupervisor {
     stop: async (instance) => {
       alive = alive.filter(each => each.pid !== instance.pid)
     },
-    freeLeases: list => freeLeasesOf(db, ts(), list),
+    freeLeases: list => freeLeasesOf(db, cardTransitions(), ts(), list),
     drain: busDrain(db, ts),
     processes,
     mainSince: () => [{ id: 1, sha: NEW_MAIN }],

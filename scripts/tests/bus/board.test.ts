@@ -28,7 +28,7 @@ import { busReviewPulse } from '../../nodes/review/review-worker.js'
 import { RECUT_ACTOR } from '../../policy/round-limit-decision.js'
 import { windowShardEnded } from '../../policy/shards.js'
 import { NetWatch, TICK_MS } from '../../ports/netwatch.js'
-import { busProjections } from '../../supervisor/composition.js'
+import { busProjections, cardTransitions } from '../../supervisor/composition.js'
 import { busSessionPulse, recordHeartbeat, recordProcessHeartbeat } from '../../supervisor/heartbeat.js'
 import { BusTick } from '../../supervisor/run.js'
 import { recordJudged } from '../../supervisor/supervisor.js'
@@ -557,7 +557,7 @@ describe('the factory board', () => {
     importJournal(bench.db, `${JSON.stringify({ event: 'path', task: '850', ts: bench.ts() })}\n`)
     appendEvent(bench.db, { ts: bench.ts(), type: MERGE_DONE, actor: 'worker:merge:s1', cardId: 110, pr: 10, head: sha('a'), dedupeKey: `${MERGE_DONE}:10`, payload: { commit: sha('2'), rule: 'auto' }, legacy: false })
     queueTask(bench.db, bench.ts(), { queue: 'answer', cardId: 849 })
-    completeTask(bench.db, bench.ts(), leaseNext(bench.db, bench.ts(), 'answer', 'worker:answer:s1')!, [])
+    completeTask(bench.db, cardTransitions(), bench.ts(), leaseNext(bench.db, bench.ts(), 'answer', 'worker:answer:s1')!, [])
     const contract = new Map(bench.tick().contract.map(link => [link.link, link]))
     expect([...contract.values()].filter(link => !link.green).map(link => link.link)).toEqual(['launch', 'Shard', 'automaton', 'one writer'])
     expect(contract.get('one writer')?.fact).toBe('no bus.cutover recorded')

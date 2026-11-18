@@ -74,7 +74,7 @@ export class UpdateNode extends Node<UpdateStep> {
 
   constructor(parts: UpdateNodeParts) {
     super('update', { db: parts.db, clock: parts.clock, session: parts.session, mode: parts.mode, env: parts.env, silentMs: parts.silentMs, supply: nodeSupply() })
-    this.executor = new UpdateExecutor({ db: parts.db, gitHub: parts.gitHub, put: parts.put, publish: parts.publish, clock: parts.clock, settle: parts.settle, silentMs: parts.silentMs, pushPolicy: parts.pushPolicy, mergeMain: parts.mergeMain, post: parts.post, thresholds: parts.thresholds, derived: parts.derived, source: updateParts() })
+    this.executor = new UpdateExecutor({ db: parts.db, cards: this.suppliedCards, gitHub: parts.gitHub, put: parts.put, publish: parts.publish, clock: parts.clock, settle: parts.settle, silentMs: parts.silentMs, pushPolicy: parts.pushPolicy, mergeMain: parts.mergeMain, post: parts.post, thresholds: parts.thresholds, derived: parts.derived, source: updateParts() })
     this.declare(UPDATE_NODE, scopeOf)
   }
 

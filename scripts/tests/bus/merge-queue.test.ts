@@ -18,7 +18,7 @@ import { UpdateExecutor } from '../../nodes/update/update-executor.js'
 import { recordDecision } from '../../policy/decisions/index.js'
 import { runShard } from '../../policy/shard.js'
 import { activeWindowShards, decisionsInForceAt, unspentShard } from '../../policy/shards.js'
-import { busProjections, updateParts } from '../../supervisor/composition.js'
+import { busProjections, cardTransitions, updateParts } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { cardBody, sha } from './github-fake.js'
 import { eventCount, eventsOf, liveBench, mainMovesPastEveryPr, mergeBench, spendReviewRounds, taskState } from './merge-bench.js'
@@ -98,7 +98,7 @@ function decidedAndBehind(): MergeBench & { update: () => UpdateOutcome } {
   bench.tick()
   mainMovesPastEveryPr(bench)
   detectUpdate(bench)
-  const executor = new UpdateExecutor({ source: updateParts(), silentMs: SILENT_MS, db: bench.db, gitHub: bench.gitHub.client, put: bench.gitHub.put, publish: bench.gitHub.publish, clock: bench.clock.now, settle: () => {} })
+  const executor = new UpdateExecutor({ cards: cardTransitions(), source: updateParts(), silentMs: SILENT_MS, db: bench.db, gitHub: bench.gitHub.client, put: bench.gitHub.put, publish: bench.gitHub.publish, clock: bench.clock.now, settle: () => {} })
   return { ...bench, update: () => executor.update(leaseNext(bench.db, bench.clock.now().toISOString(), 'update', 'worker:update:worker-1')!) }
 }
 
@@ -452,7 +452,7 @@ describe('a head that moves under the queues', () => {
     leaseNext(bench.db, ts, 'merge', 'worker:merge:worker-1')
     const update = taskKey({ queue: 'update', cardId: 1055, pr: 955, head: sha('a') })
     for (let failure = 1; failure <= FAILURES_TO_STOP; failure += 1)
-      failTask(bench.db, ts, leaseQueued(bench.db, ts, update, 'worker:update:worker-1')!, { reason: 'github_error', withdraw: false }, SILENT_MS)
+      failTask(bench.db, cardTransitions(), ts, leaseQueued(bench.db, ts, update, 'worker:update:worker-1')!, { reason: 'github_error', withdraw: false }, SILENT_MS)
     expect(tasksOfPr(bench, 955)).toEqual({ answer: 'queued', merge: 'leased', review: 'queued', update: 'stopped' })
 
     bench.gitHub.open({ number: 955, head: sha('b'), review: 'failure' })

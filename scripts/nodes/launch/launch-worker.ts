@@ -260,7 +260,7 @@ export class LaunchNode extends Node<LaunchStep> {
 
   constructor(private readonly launchParts: LaunchNodeParts) {
     super('launch', { db: launchParts.db, clock: launchParts.clock, session: launchParts.session, mode: launchParts.mode, env: launchParts.env, silentMs: launchParts.silentMs })
-    this.executor = new LaunchExecutor(launchParts)
+    this.executor = new LaunchExecutor({ ...launchParts, cards: this.suppliedCards })
     this.starters = { cheap: launchParts.starter, ladder: launchParts.ladder }
     this.processes = launchParts.processes ?? REAL_PROCESSES
     this.pidAlive = launchParts.pidAlive ?? (launchParts.processes === undefined ? isAlive : () => true)
@@ -321,7 +321,7 @@ export class LaunchNode extends Node<LaunchStep> {
     const now = this.parts.clock().getTime()
     const lapsed = (this.db.prepare(UNSTARTED_LAUNCH_LEASES).all() as unknown as UnstartedLease[]).filter(row => now - Date.parse(row.leased_at) >= LAUNCH_START_MS)
     for (const row of lapsed)
-      failTask(this.db, this.ts(), { taskKey: row.task_key, queue: 'launch', cardId: row.card_id, pr: null, head: null, leaseGen: row.lease_gen, actor: this.actor }, { reason: LAUNCH_UNSTARTED, withdraw: false }, this.launchParts.silentMs)
+      failTask(this.db, this.supply.cards, this.ts(), { taskKey: row.task_key, queue: 'launch', cardId: row.card_id, pr: null, head: null, leaseGen: row.lease_gen, actor: this.actor }, { reason: LAUNCH_UNSTARTED, withdraw: false }, this.launchParts.silentMs)
     return lapsed.map(row => row.task_key)
   }
 

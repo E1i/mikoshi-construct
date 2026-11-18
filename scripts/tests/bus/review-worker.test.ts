@@ -31,7 +31,7 @@ import { withinTouches } from '../../policy/touch-scope.js'
 import { GhBudgetWindow, GhFailed, ghPort } from '../../ports/gh.js'
 import { NetWatch, TICK_MS } from '../../ports/netwatch.js'
 import { headlessInvocation } from '../../ports/session.js'
-import { busProjections, candidateRules } from '../../supervisor/composition.js'
+import { busProjections, candidateRules, cardTransitions } from '../../supervisor/composition.js'
 import { recordHeartbeat } from '../../supervisor/heartbeat.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { BusTick } from '../../supervisor/run.js'
@@ -195,19 +195,19 @@ describe('review worker', () => {
     tick()
     const old = leaseNext(db, clock.now().toISOString(), 'review', 'worker:review:old')!
     clock.advance(LEASE_MS + 1)
-    expect(expireLeases(db, clock.now().toISOString(), SILENT_MS)).toEqual([review(941)])
+    expect(expireLeases(db, cardTransitions(), clock.now().toISOString(), SILENT_MS)).toEqual([review(941)])
     const current = leaseNext(db, clock.now().toISOString(), 'review', 'worker:review:new')!
     expect([old.leaseGen, current.leaseGen]).toEqual([1, 2])
 
     const before = eventCount(db)
     const ts = clock.now().toISOString()
-    expect(() => completeTask(db, ts, old, [])).toThrow(StaleLease)
+    expect(() => completeTask(db, cardTransitions(), ts, old, [])).toThrow(StaleLease)
     expect(() => renewLease(db, ts, old)).toThrow(StaleLease)
-    expect(() => failTask(db, ts, old, { reason: 'stale_head', withdraw: false }, SILENT_MS)).toThrow(StaleLease)
+    expect(() => failTask(db, cardTransitions(), ts, old, { reason: 'stale_head', withdraw: false }, SILENT_MS)).toThrow(StaleLease)
     expect(eventCount(db)).toBe(before)
     expect(task(db, review(941))).toEqual({ state: 'leased', lease_gen: 2, failures: 1 })
 
-    completeTask(db, ts, current, [])
+    completeTask(db, cardTransitions(), ts, current, [])
     expect(task(db, review(941)).state).toBe('completed')
     expectReplayIdentical(db)
     db.close()
@@ -594,7 +594,7 @@ describe('review worker', () => {
 
     const step = worker(slow).step()
     clock.advance(LEASE_MS + 1)
-    expect(expireLeases(db, clock.now().toISOString(), SILENT_MS)).toEqual([review(950)])
+    expect(expireLeases(db, cardTransitions(), clock.now().toISOString(), SILENT_MS)).toEqual([review(950)])
     finish()
     expect(await step).toEqual({ kind: 'fenced', taskKey: review(950) })
     db.close()
@@ -812,7 +812,7 @@ describe('review worker', () => {
     expect(other.clearLeftovers()).toEqual([{ path: leftTree, left: null }])
     expect(removed).toEqual([leftTree])
 
-    completeTask(db, clock.now().toISOString(), held, [])
+    completeTask(db, cardTransitions(), clock.now().toISOString(), held, [])
     expect(other.clearLeftovers()).toEqual([{ path: heldTree, left: null }])
     expect(removed).toEqual([leftTree, heldTree])
     db.close()

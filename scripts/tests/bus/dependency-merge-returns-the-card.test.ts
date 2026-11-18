@@ -12,7 +12,7 @@ import { answerCandidates } from '../../nodes/answer/answer-candidates.js'
 import { AnswerSources } from '../../nodes/answer/duties/source.js'
 import { updateCandidates } from '../../nodes/update/update-candidates.js'
 import { UpdateExecutor } from '../../nodes/update/update-executor.js'
-import { answerParts, updateParts } from '../../supervisor/composition.js'
+import { answerParts, cardTransitions, updateParts } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { cardBody, MAIN_2, sha } from './github-fake.js'
 import { eventsOf, liveBench, taskState } from './merge-bench.js'
@@ -106,7 +106,7 @@ function mergeTheDependency(bench: MergeBench): void {
 }
 
 function updateExecutor(bench: MergeBench): UpdateExecutor {
-  return new UpdateExecutor({ source: updateParts(), silentMs: SILENT_MS, db: bench.db, gitHub: bench.gitHub.client, put: bench.gitHub.put, publish: bench.gitHub.publish, clock: bench.clock.now, settle: () => {} })
+  return new UpdateExecutor({ cards: cardTransitions(), source: updateParts(), silentMs: SILENT_MS, db: bench.db, gitHub: bench.gitHub.client, put: bench.gitHub.put, publish: bench.gitHub.publish, clock: bench.clock.now, settle: () => {} })
 }
 
 describe('a dependency merge returns the dependent card (owner s631)', () => {
@@ -206,7 +206,7 @@ describe('a dependency merge returns the dependent card (owner s631)', () => {
     vi.spyOn(console, 'log').mockImplementation(() => {})
     const ts = card.bench.clock.now().toISOString()
     queueTask(card.bench.db, ts, { queue: 'update', cardId: CARD, pr: PR, head: OLD_HEAD })
-    completeTask(card.bench.db, ts, leaseNext(card.bench.db, ts, 'update', 'worker:update:worker-1')!, [])
+    completeTask(card.bench.db, cardTransitions(), ts, leaseNext(card.bench.db, ts, 'update', 'worker:update:worker-1')!, [])
     expect(taskState(card.bench.db, taskKey({ queue: 'update', cardId: CARD, pr: PR, head: OLD_HEAD }))).toMatchObject({ state: 'completed' })
 
     mergeTheDependency(card.bench)

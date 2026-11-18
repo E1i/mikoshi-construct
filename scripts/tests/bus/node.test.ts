@@ -16,7 +16,7 @@ import { keyOf, queueTask } from '../../core/queue.js'
 import { projectionDump, reduce } from '../../core/reducer.js'
 import { RateLimited } from '../../ports/meter.js'
 import { TICK_MS } from '../../ports/netwatch.js'
-import { busProjections, nodeSupply } from '../../supervisor/composition.js'
+import { busProjections, cardTransitions, nodeSupply } from '../../supervisor/composition.js'
 import { lastProcessBeats } from '../../supervisor/heartbeat.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { SLOTS, slotsOf, slotsVariable } from '../../supervisor/scheduler.js'
@@ -65,7 +65,7 @@ class FakeNode extends Node<NodeStep> {
   }
 
   protected handle(lease: Lease): NodeStep | Promise<NodeStep> {
-    completeTask(this.db, this.clock.now().toISOString(), lease, [])
+    completeTask(this.db, cardTransitions(), this.clock.now().toISOString(), lease, [])
     return { kind: 'done', taskKey: lease.taskKey }
   }
 }

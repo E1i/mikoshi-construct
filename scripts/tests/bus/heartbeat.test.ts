@@ -22,6 +22,7 @@ import { busReviewPulse, reviewBeatLine, ReviewNode } from '../../nodes/review/r
 import { reviewSession } from '../../nodes/review/reviewer.js'
 import { UpdateNode } from '../../nodes/update/update-worker.js'
 import { CARD_VARIABLE } from '../../ports/session.js'
+import { cardTransitions } from '../../supervisor/composition.js'
 import { busSessionPulse, HEAD_VARIABLE, heartbeatEnv, heartbeatOf, lastHeartbeat, lastProcessBeats, LEASE_GEN_VARIABLE, LEASE_VARIABLE, PR_VARIABLE, recordHeartbeat, recordProcessHeartbeat, runHeartbeat, STEP_VARIABLE } from '../../supervisor/heartbeat.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { NO_TRANSCRIPT, sessionGauges } from '../../window/eddies-measure.js'
@@ -118,8 +119,8 @@ describe('a session holds its lease by the heartbeat its hook writes on every tu
     const { db } = bus()
     const lease = reviewLease(db)
     beat(db, 60_000, lease)
-    expect(expireLeases(db, at(60_000 + LEASE_MS - 1), SILENT_MS)).toEqual([])
-    expect(expireLeases(db, at(60_000 + LEASE_MS + 1), SILENT_MS)).toEqual([lease.taskKey])
+    expect(expireLeases(db, cardTransitions(), at(60_000 + LEASE_MS - 1), SILENT_MS)).toEqual([])
+    expect(expireLeases(db, cardTransitions(), at(60_000 + LEASE_MS + 1), SILENT_MS)).toEqual([lease.taskKey])
     expect(taskState(db, lease)).toEqual({ state: 'queued', lease_until: null })
     expect(db.prepare(`SELECT count(*) AS n FROM events WHERE type = '${TASK_EXPIRED}'`).get()).toEqual({ n: 1 })
     db.close()
@@ -131,7 +132,7 @@ describe('a session holds its lease by the heartbeat its hook writes on every tu
     const turn = LEASE_MS - 60_000
     for (let ms = turn; ms <= 4 * LEASE_MS; ms += turn) {
       beat(db, ms, lease)
-      expect(expireLeases(db, at(ms + turn - 1), SILENT_MS)).toEqual([])
+      expect(expireLeases(db, cardTransitions(), at(ms + turn - 1), SILENT_MS)).toEqual([])
     }
     expect(taskState(db, lease).state).toBe('leased')
     expect(renewsByTimer(ReviewNode)).toBe(false)
@@ -144,7 +145,7 @@ describe('a session holds its lease by the heartbeat its hook writes on every tu
     const sibling = reviewLease(db, 941)
     const otherCard = leaseWhileFree(db, at(0), { queue: 'review', cardId: 1111, pr: 942, head: HEAD }, 'worker:review:node-1', 3)!
     beat(db, RENEW_MS, ours)
-    expect(expireLeases(db, at(LEASE_MS + 1), SILENT_MS)).toEqual([sibling.taskKey, otherCard.taskKey])
+    expect(expireLeases(db, cardTransitions(), at(LEASE_MS + 1), SILENT_MS)).toEqual([sibling.taskKey, otherCard.taskKey])
     expect(taskState(db, ours).state).toBe('leased')
     db.close()
   })
@@ -152,11 +153,11 @@ describe('a session holds its lease by the heartbeat its hook writes on every tu
   it('a zombie session of an expired lease does not hold the new lease of its task', () => {
     const { db } = bus()
     const old = reviewLease(db)
-    expect(expireLeases(db, at(LEASE_MS + 1), SILENT_MS)).toEqual([old.taskKey])
+    expect(expireLeases(db, cardTransitions(), at(LEASE_MS + 1), SILENT_MS)).toEqual([old.taskKey])
     const renewed = leaseWhileFree(db, at(LEASE_MS + 2), { queue: 'review', cardId: 1110, pr: 940, head: HEAD }, 'worker:review:node-2', 3)!
     expect(renewed.leaseGen).toBe(old.leaseGen + 1)
     beat(db, LEASE_MS + RENEW_MS, old, 'zombie')
-    expect(expireLeases(db, at(2 * LEASE_MS + 3), SILENT_MS)).toEqual([renewed.taskKey])
+    expect(expireLeases(db, cardTransitions(), at(2 * LEASE_MS + 3), SILENT_MS)).toEqual([renewed.taskKey])
     db.close()
   })
 
@@ -165,7 +166,7 @@ describe('a session holds its lease by the heartbeat its hook writes on every tu
     const review = reviewLease(db)
     const merge = leaseWhileFree(db, at(0), { queue: 'merge', cardId: 1110, pr: 940, head: HEAD }, 'worker:merge:node-1', 1)!
     beat(db, RENEW_MS, null, 'launch-session')
-    expect(expireLeases(db, at(LEASE_MS + 1), SILENT_MS)).toEqual([review.taskKey, merge.taskKey])
+    expect(expireLeases(db, cardTransitions(), at(LEASE_MS + 1), SILENT_MS)).toEqual([review.taskKey, merge.taskKey])
     expect(lastHeartbeat(db, 1110)).toMatchObject({ pr: null, step: 'launch', session: 'launch-session' })
     db.close()
   })
@@ -174,8 +175,8 @@ describe('a session holds its lease by the heartbeat its hook writes on every tu
     const { db } = bus()
     const merge = leaseWhileFree(db, at(0), { queue: 'merge', cardId: 1110, pr: 940, head: HEAD }, 'worker:merge:node-1', 1)!
     beat(db, RENEW_MS, merge)
-    expect(expireLeases(db, at(LEASE_MS + 1), SILENT_MS)).toEqual([])
-    expect(expireLeases(db, at(RENEW_MS + LEASE_MS + 1), SILENT_MS)).toEqual([merge.taskKey])
+    expect(expireLeases(db, cardTransitions(), at(LEASE_MS + 1), SILENT_MS)).toEqual([])
+    expect(expireLeases(db, cardTransitions(), at(RENEW_MS + LEASE_MS + 1), SILENT_MS)).toEqual([merge.taskKey])
     db.close()
   })
 
@@ -190,8 +191,8 @@ describe('a session holds its lease by the heartbeat its hook writes on every tu
     busReviewPulse(file, () => new Date(at(RENEW_MS)), line => lines.push(line))(lease, 'reviewer-1')
     expect(lines).toEqual([reviewBeatLine(lease, 'reviewer-1', at(RENEW_MS))])
     expect(lastHeartbeat(db, 1110)).toEqual({ ts: at(RENEW_MS), pr: 940, head: HEAD, step: 'review', session: 'reviewer-1' })
-    expect(expireLeases(db, at(LEASE_MS + 1), SILENT_MS)).toEqual([])
-    expect(expireLeases(db, at(RENEW_MS + LEASE_MS + 1), SILENT_MS)).toEqual([lease.taskKey])
+    expect(expireLeases(db, cardTransitions(), at(LEASE_MS + 1), SILENT_MS)).toEqual([])
+    expect(expireLeases(db, cardTransitions(), at(RENEW_MS + LEASE_MS + 1), SILENT_MS)).toEqual([lease.taskKey])
     db.close()
   })
 
@@ -200,7 +201,7 @@ describe('a session holds its lease by the heartbeat its hook writes on every tu
     const lease = leaseWhileFree(db, at(0), { queue: 'merge', cardId: 1110, pr: 940, head: HEAD }, 'worker:merge:node-1', 1)!
     for (let ms = RENEW_MS; ms <= 4 * LEASE_MS; ms += RENEW_MS) {
       renewLease(db, at(ms), lease)
-      expect(expireLeases(db, at(ms + RENEW_MS), SILENT_MS)).toEqual([])
+      expect(expireLeases(db, cardTransitions(), at(ms + RENEW_MS), SILENT_MS)).toEqual([])
     }
     expect(taskState(db, lease).state).toBe('leased')
     expect([MergeNode, UpdateNode, CloseNode, AnswerNode].map(renewsByTimer)).toEqual([true, true, true, true])

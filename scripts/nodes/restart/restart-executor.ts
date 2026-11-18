@@ -1,7 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { ChainRow, ChainState } from '../../core/chain.js'
 import type { BusEvent } from '../../core/db.js'
-import type { AfterFailure, Lease } from '../../core/lease.js'
+import type { AfterFailure, CardTransitions, Lease } from '../../core/lease.js'
 import type { ProcessTable } from './chain-process.js'
 import type { Role } from './role.js'
 import { CLOSED_CARD, DROPPED_CARD, RUNNING_CARD } from '../../core/card-automaton.js'
@@ -29,6 +29,7 @@ export interface DeadChain {
 
 export interface RestartParts {
   db: DatabaseSync
+  cards: CardTransitions
   processes: ProcessTable
   launchSwitchedOn: () => boolean
   clock: () => Date
@@ -153,19 +154,19 @@ export class RestartExecutor {
     const events: BusEvent[] = cardStopped
       ? [{ ts: this.ts(), type: CARD_STOPPED, actor: lease.actor, cardId: chain.card_id, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:${lease.taskKey}`, payload: { reason: 'fault', detail: `the chain in ${chain.dir} was handed to the launch node` }, legacy: false }]
       : []
-    completeTask(this.parts.db, this.ts(), lease, events)
+    completeTask(this.parts.db, this.parts.cards, this.ts(), lease, events)
     return { kind: 'handed', taskKey: lease.taskKey, dir: chain.dir, cardId: chain.card_id, cardStopped }
   }
 
   private waiting(lease: Lease, chain: ChainRow, why: RestartWait): RestartOutcome {
-    releaseTask(this.parts.db, this.ts(), lease, why)
+    releaseTask(this.parts.db, this.parts.cards, this.ts(), lease, why)
     return { kind: 'waiting', taskKey: lease.taskKey, dir: chain.dir, why }
   }
 
   private denied(lease: Lease, reason: RestartReason, detail: string): RestartOutcome {
     const ts = this.ts()
     const event: BusEvent = { ts, type: POLICY_DENIED, actor: 'policy', cardId: lease.cardId, pr: null, head: lease.head, dedupeKey: `${POLICY_DENIED}:${lease.taskKey}:${lease.leaseGen}`, payload: { command: 'restart', kind: 'technical', reason, detail }, legacy: false }
-    const next = failTask(this.parts.db, ts, lease, { reason, withdraw: WITHDRAWN_REASONS.has(reason) }, this.parts.silentMs, [event])
+    const next = failTask(this.parts.db, this.parts.cards, ts, lease, { reason, withdraw: WITHDRAWN_REASONS.has(reason) }, this.parts.silentMs, [event])
     return { kind: 'denied', taskKey: lease.taskKey, reason, detail, next }
   }
 }

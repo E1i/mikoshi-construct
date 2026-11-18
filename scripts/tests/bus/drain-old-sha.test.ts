@@ -8,6 +8,7 @@ import { LEASES_DRAINING } from '../../core/events.js'
 import { completeTask, drainOpen, leaseNext, leaseWhileFree } from '../../core/lease.js'
 import { queueTaskWithin } from '../../core/queue.js'
 import { launchName, PREFIX } from '../../supervisor/bg.js'
+import { cardTransitions } from '../../supervisor/composition.js'
 import { busDrain, BusSupervisor, freeLeasesOf } from '../../supervisor/supervisor.js'
 import { workerLaunches } from '../../supervisor/workers.js'
 
@@ -46,7 +47,7 @@ function bench() {
     stop: async (instance) => {
       alive = alive.filter(candidate => candidate.pid !== instance.pid)
     },
-    freeLeases: stopped => freeLeasesOf(db, ts(), stopped),
+    freeLeases: stopped => freeLeasesOf(db, cardTransitions(), ts(), stopped),
     drain: busDrain(db, ts),
     processes: () => alive,
     mainSince: () => [{ id: 1, sha: NEW_MAIN }],
@@ -103,7 +104,7 @@ describe('a drain refuses new leases only to the processes on the old sha', () =
     expect(started).toEqual([launchName(launch)])
     const early = alive().find(each => each.args.includes(launchName(launch)))!
 
-    completeTask(db, ts(), inFlight, [])
+    completeTask(db, cardTransitions(), ts(), inFlight, [])
     clock.now = 120_000
     expect((await supervisor.step()).join('\n')).toContain(`main advanced to ${NEW_MAIN}`)
 

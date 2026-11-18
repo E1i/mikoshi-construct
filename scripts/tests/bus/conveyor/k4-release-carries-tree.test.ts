@@ -20,6 +20,7 @@ import { carriedTreeOf } from '../../../nodes/answer/answer-source.js'
 import { spawnClient } from '../../../nodes/answer/duties/client.js'
 import { BusRead } from '../../../ports/bus-read.js'
 import { OsProcessTable } from '../../../ports/process-table.js'
+import { cardTransitions } from '../../../supervisor/composition.js'
 import { SILENT_MS } from '../../../supervisor/liveness-sites.js'
 import { tableIdentity } from '../../../supervisor/recorded-worker.js'
 import { mergeBench } from '../merge-bench.js'
@@ -133,7 +134,7 @@ function sessionKilledFromOutside(made: MergeBench, repo: Repository, script: st
 
 function executorOn(made: MergeBench, repo: Repository, answerer: Answerer, pushPolicy: TreePushPolicy | undefined = 'bus'): AnswerExecutor {
   const cardTrees: CardTreeTools = { home: repo.trees, exists: existsSync, branchOf: () => BRANCH, recreate: () => {}, bringTo: () => {} }
-  return new AnswerExecutor({ silentMs: SILENT_MS, db: made.db, answerer, ownerMerges: () => '', clock: made.clock.now, trees: cardTrees, liveSession: () => null, prepare: () => {}, mergeMain: () => () => ({ kind: 'refused', why: 'the tree holds the answer session' }), ...(pushPolicy === undefined ? {} : { pushPolicy: () => pushPolicy }) })
+  return new AnswerExecutor({ cards: cardTransitions(), silentMs: SILENT_MS, db: made.db, answerer, ownerMerges: () => '', clock: made.clock.now, trees: cardTrees, liveSession: () => null, prepare: () => {}, mergeMain: () => () => ({ kind: 'refused', why: 'the tree holds the answer session' }), ...(pushPolicy === undefined ? {} : { pushPolicy: () => pushPolicy }) })
 }
 
 function answerLease(made: MergeBench): Lease {

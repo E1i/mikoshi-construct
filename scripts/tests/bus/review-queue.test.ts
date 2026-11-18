@@ -14,7 +14,7 @@ import { importJournal } from '../../intake/import.js'
 import { fullReview } from '../../nodes/review/review-depth.js'
 import { REVIEW_ROUNDS_SPENT, ReviewWorker, roundLimitLine } from '../../nodes/review/review-worker.js'
 import { NetWatch, TICK_MS } from '../../ports/netwatch.js'
-import { busProjections } from '../../supervisor/composition.js'
+import { busProjections, cardTransitions } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { BusTick } from '../../supervisor/run.js'
 import { cardBody, Clock, FakeGitHub, sha } from './github-fake.js'
@@ -149,7 +149,7 @@ describe('review queue', () => {
     const { db, gitHub, clock, tick } = setUp()
     gitHub.open({ number: 924 })
     tick()
-    completeTask(db, clock.now().toISOString(), leaseNext(db, clock.now().toISOString(), 'review', 'worker:review:s1')!, [])
+    completeTask(db, cardTransitions(), clock.now().toISOString(), leaseNext(db, clock.now().toISOString(), 'review', 'worker:review:s1')!, [])
     gitHub.open({ number: 924, review: 'success' })
     tick()
     const merge = mergeKeyOf({ queue: 'merge', cardId: 1024, pr: 924, head: sha('a'), prBody: prBodySha(cardBody(924)) })

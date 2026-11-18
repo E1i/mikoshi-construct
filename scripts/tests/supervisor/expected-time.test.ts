@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { textSha } from '../../../src/card/text-sha.js'
 import { appendEvent } from '../../core/db.js'
 import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, REVIEW_RECORDED, TASK_LEASED } from '../../core/events.js'
+import { cardTransitions } from '../../supervisor/composition.js'
 import { coverageLines, expectedMinutes, NOT_ENOUGH_DATA, OVER_TIME, RoundOverTime, roundSamples, shapeOf } from '../../supervisor/expected-time.js'
 import { StalledSessions } from '../../supervisor/stalled-sessions.js'
 import { mergeBench } from '../bus/merge-bench.js'
@@ -82,7 +83,7 @@ describe('expected round time from the bus measurements', () => {
       return ACTION
     })
     const stopped: string[] = []
-    const sessions = new StalledSessions(bench.db, later, { lifeOf: () => 'live', overTime, stop: session => stopped.push(session), spendOf: () => null, pulseOf: () => null })
+    const sessions = new StalledSessions(bench.db, later, { cards: cardTransitions(), lifeOf: () => 'live', overTime, stop: session => stopped.push(session), spendOf: () => null, pulseOf: () => null })
 
     const rounds = [UNMEASURED, MEASURED].map(card => ({ lease: { taskKey: `answer:${card}:timed`, queue: 'answer' as const, cardId: card, pr: null, head: null, leaseGen: 1, actor: 'worker:answer:node-1' }, session: null, leasedAt: start }))
     const readings = overTime.readings(rounds)

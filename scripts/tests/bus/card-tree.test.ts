@@ -15,6 +15,7 @@ import { claudeAnswerer } from '../../nodes/answer/answerer.js'
 import { cardlessTreeName, cardlessTreeOf, cardTreeOf, gitCardTrees, realCardTrees } from '../../ports/card-tree.js'
 import { taskWorktree } from '../../ports/worktree-home.js'
 import { cutTree } from '../../ports/worktree.js'
+import { cardTransitions } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { sha } from './github-fake.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
@@ -109,7 +110,7 @@ async function roundInRecreatedTree(treeOf: (root: string) => string, start: (be
       gitTrees.recreate(worktree, branch)
     },
   }
-  const executor = new AnswerExecutor({ silentMs: SILENT_MS, db: bench.db, answerer, ownerMerges: () => '', clock: bench.clock.now, trees })
+  const executor = new AnswerExecutor({ cards: cardTransitions(), silentMs: SILENT_MS, db: bench.db, answerer, ownerMerges: () => '', clock: bench.clock.now, trees })
 
   const outcome = await executor.answer(leaseNext(bench.db, bench.clock.now().toISOString(), 'answer', 'worker:answer:worker-1')!)
 
@@ -155,7 +156,7 @@ async function roundInAnExistingTree(prepare: (tree: string) => void) {
     publish: () => {},
   })
   const trees = { ...gitCardTrees(repo, path.join(root, 'worktrees'), () => {}), branchOf: () => BRANCH }
-  const executor = new AnswerExecutor({ silentMs: SILENT_MS, db: bench.db, answerer, ownerMerges: () => '', clock: bench.clock.now, trees })
+  const executor = new AnswerExecutor({ cards: cardTransitions(), silentMs: SILENT_MS, db: bench.db, answerer, ownerMerges: () => '', clock: bench.clock.now, trees })
   const outcome = await executor.answer(leaseNext(bench.db, bench.clock.now().toISOString(), 'answer', 'worker:answer:worker-1')!)
   return {
     tree,
@@ -272,7 +273,7 @@ describe('the card tree', () => {
         throw new Error(`'${branch}' is already used by worktree at '${worktree}'`)
       },
     }
-    const executor = new AnswerExecutor({ silentMs: SILENT_MS, db: bench.db, answerer, ownerMerges: () => '', clock: bench.clock.now, trees })
+    const executor = new AnswerExecutor({ cards: cardTransitions(), silentMs: SILENT_MS, db: bench.db, answerer, ownerMerges: () => '', clock: bench.clock.now, trees })
     const outcome = await executor.answer(leaseNext(bench.db, bench.clock.now().toISOString(), 'answer', 'worker:answer:worker-1')!)
     expect(outcome).toMatchObject({ kind: 'answered' })
     expect(recreated).toEqual([])

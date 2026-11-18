@@ -12,7 +12,7 @@ import { closeDrain, drainOpen, openDrain, releaseTask } from '../../core/lease.
 import { Node } from '../../core/node.js'
 import { keyOf, queueTaskWithin } from '../../core/queue.js'
 import { CHECK_MS } from '../../ports/netwatch.js'
-import { nodeSupply } from '../../supervisor/composition.js'
+import { cardTransitions, nodeSupply } from '../../supervisor/composition.js'
 import { DRAIN_LIMIT_MS, recordRestarted } from '../../supervisor/generation-handover.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { slotsVariable } from '../../supervisor/scheduler.js'
@@ -55,7 +55,7 @@ class ReleasingNode extends Node<NodeStep> {
     if (this.handled.has(lease.taskKey))
       return { kind: 'retaken', taskKey: lease.taskKey }
     this.handled.add(lease.taskKey)
-    releaseTask(this.db, this.clock.now().toISOString(), lease, 'released inside handle')
+    releaseTask(this.db, cardTransitions(), this.clock.now().toISOString(), lease, 'released inside handle')
     return { kind: 'released', taskKey: lease.taskKey }
   }
 }

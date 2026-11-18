@@ -17,6 +17,7 @@ import { CARD_ADMITTED, CARD_STARTED, GATE_RUN, REVIEW_RECORDED } from '../../co
 import { leaseNext } from '../../core/lease.js'
 import { ANSWER_TREE_GATE_RUN_SPOOL, AnswerExecutor, drainAnswerTreeGateRuns } from '../../nodes/answer/answer-executor.js'
 import { collectReport, TREE_GATE_RUN_SPOOL } from '../../nodes/launch/report-collect.js'
+import { cardTransitions } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { mergeBench } from '../bus/merge-bench.js'
 
@@ -198,7 +199,7 @@ describe('the card session prepush leaves out what only CI can afford', () => {
       return { session: 'card-session-1', resumed: true, before: HEAD, after: HEAD, owner: null }
     }
     const cardTrees: CardTreeTools = { home: trees, exists: existsSync, branchOf: () => `feat/card-${ANSWERED_CARD}`, recreate: () => {}, bringTo: () => {} }
-    const executor = new AnswerExecutor({ silentMs: SILENT_MS, db: made.db, answerer, ownerMerges: () => '', clock: made.clock.now, trees: cardTrees, dirty: () => false, liveSession: () => null, prepare: () => {}, mergeMain: () => () => ({ kind: 'refused', why: 'no main in this bench' }), changedInTheTree: () => [], localHead: () => HEAD })
+    const executor = new AnswerExecutor({ cards: cardTransitions(), silentMs: SILENT_MS, db: made.db, answerer, ownerMerges: () => '', clock: made.clock.now, trees: cardTrees, dirty: () => false, liveSession: () => null, prepare: () => {}, mergeMain: () => () => ({ kind: 'refused', why: 'no main in this bench' }), changedInTheTree: () => [], localHead: () => HEAD })
     expect(gateRunsOn(made.busPath)).toBe(0)
 
     await executor.answer(lease).catch(() => null)

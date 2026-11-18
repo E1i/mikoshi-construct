@@ -13,7 +13,7 @@ import { NoLiveVerdict } from '../../nodes/merge/merge-worker.js'
 import { updateCandidates } from '../../nodes/update/update-candidates.js'
 import { cleanUpdate, HEAD_READS, UpdateExecutor } from '../../nodes/update/update-executor.js'
 import { runUpdateWorker, UpdateNode } from '../../nodes/update/update-worker.js'
-import { busProjections, updateParts } from '../../supervisor/composition.js'
+import { busProjections, cardTransitions, updateParts } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { cardBody, sha } from './github-fake.js'
 import { eventCount, eventsOf, liveBench, mainMovesPastEveryPr, taskState } from './merge-bench.js'
@@ -32,7 +32,7 @@ function updateBench() {
   const settle = (): void => {
     settled += 1
   }
-  const executor = new UpdateExecutor({ source: updateParts(), silentMs: SILENT_MS, db: bench.db, gitHub: bench.gitHub.client, put: bench.gitHub.put, publish: bench.gitHub.publish, clock: bench.clock.now, settle })
+  const executor = new UpdateExecutor({ cards: cardTransitions(), source: updateParts(), silentMs: SILENT_MS, db: bench.db, gitHub: bench.gitHub.client, put: bench.gitHub.put, publish: bench.gitHub.publish, clock: bench.clock.now, settle })
   return {
     ...bench,
     settled: () => settled,
@@ -295,7 +295,7 @@ describe('the update queue', () => {
     detectUpdate(bench)
     const old = bench.leaseUpdate('worker:update:old')!
     bench.clock.advance(LEASE_MS + 1)
-    expect(expireLeases(bench.db, bench.clock.now().toISOString(), SILENT_MS)).toEqual([update(994)])
+    expect(expireLeases(bench.db, cardTransitions(), bench.clock.now().toISOString(), SILENT_MS)).toEqual([update(994)])
     const current = bench.leaseUpdate('worker:update:new')!
     expect([old.leaseGen, current.leaseGen]).toEqual([1, 2])
 

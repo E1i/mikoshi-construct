@@ -22,7 +22,6 @@
   "boundary:board->window": 4,
   "boundary:bus->card-model": 6,
   "boundary:bus->layout": 2,
-  "boundary:bus->session": 1,
   "boundary:bus->ui": 1,
   "boundary:card-model->card-record": 3,
   "boundary:card-model->intake": 2,

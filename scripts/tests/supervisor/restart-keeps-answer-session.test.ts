@@ -14,7 +14,7 @@ import { ChildLog, INSTANCE_VARIABLE, Node } from '../../core/node.js'
 import { keyOf, queueTaskWithin } from '../../core/queue.js'
 import { AnswerOutcomes } from '../../nodes/answer/duties/outcomes.js'
 import { launchName, PREFIX } from '../../supervisor/bg.js'
-import { nodeSupply } from '../../supervisor/composition.js'
+import { cardTransitions, nodeSupply } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { slotsVariable } from '../../supervisor/scheduler.js'
 import { RESTART_WHY, signalLog } from '../../supervisor/signal-sent.js'
@@ -116,7 +116,7 @@ function bench() {
     },
     freeLeases: (list) => {
       freedFor.push(...list.map(launchName))
-      return freeLeasesOf(db, ts(), list)
+      return freeLeasesOf(db, cardTransitions(), ts(), list)
     },
     drain: busDrain(db, ts),
     processes,
@@ -133,13 +133,13 @@ function bench() {
     journal: () => {},
     now: () => MERGED_AT + clock.now,
   }, 0)
-  const commit = (lease: Lease): void => completeTask(db, ts(), lease, [{ ts: ts(), type: CARD_ANSWERED, actor: lease.actor, cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${CARD_ANSWERED}:${lease.taskKey}`, payload: { head: 'the-push' }, legacy: false }])
+  const commit = (lease: Lease): void => completeTask(db, cardTransitions(), ts(), lease, [{ ts: ts(), type: CARD_ANSWERED, actor: lease.actor, cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${CARD_ANSWERED}:${lease.taskKey}`, payload: { head: 'the-push' }, legacy: false }])
   recordWorkerStarted(db, ts(), 'worker:answer:old', { pid: ANSWER_PID, started: ts() })
   return { db, ts, date, stopped, freedFor, close, supervisor, commit, whileStopping }
 }
 
 function outcomesOn(db: DatabaseSync, date: () => Date): AnswerOutcomes {
-  return new AnswerOutcomes({ silentMs: SILENT_MS, db, clock: date, ownerMerges: () => '' }, { pathsIn: () => [], ownerBoundary: () => undefined, wideningAsked: () => [] })
+  return new AnswerOutcomes({ silentMs: SILENT_MS, db, cards: cardTransitions(), clock: date, ownerMerges: () => '' }, { pathsIn: () => [], ownerBoundary: () => undefined, wideningAsked: () => [] })
 }
 
 describe('a restart after merge.done keeps a live answer session', () => {

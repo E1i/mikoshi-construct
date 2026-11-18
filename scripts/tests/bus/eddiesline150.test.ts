@@ -21,7 +21,7 @@ import { answerHandoffPath, claudeAnswerer, contextWarnOfEddies } from '../../no
 import { reachedContextLine } from '../../nodes/launch/continuation.js'
 import { LaunchNode } from '../../nodes/launch/launch-worker.js'
 import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
-import { nodeSupply } from '../../supervisor/composition.js'
+import { cardTransitions, nodeSupply } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { realExitReadings, sessionGauges } from '../../window/eddies-measure.js'
 import { sha } from './github-fake.js'
@@ -236,7 +236,7 @@ describe('the 150k line of an answer session', () => {
       diff: () => 'diff --git a/x b/x',
     })
     const trees: CardTreeTools = { home: root, exists: existsSync, branchOf: pr => `feat/card-${pr}`, recreate: () => {}, bringTo: () => {} }
-    const executor = new AnswerExecutor({ silentMs: SILENT_MS, db: made.db, answerer, ownerMerges: () => '', clock: made.clock.now, trees, liveSession: () => null, dirty: () => false })
+    const executor = new AnswerExecutor({ cards: cardTransitions(), silentMs: SILENT_MS, db: made.db, answerer, ownerMerges: () => '', clock: made.clock.now, trees, liveSession: () => null, dirty: () => false })
 
     expect(await executor.answer(lease)).toMatchObject({ kind: 'answered', session: 'fresh-session', resumed: false })
 
