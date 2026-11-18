@@ -11,6 +11,7 @@ import { EXIT_REQUEST_VARIABLE, LOOP_PID_VARIABLE, WINDOW_MARK, WINDOW_VARIABLE,
 import { MIKO_HANDOFF_NAME, TAB_MODE } from '../../window/loop.js'
 import { ENTRYPOINT_VARIABLE, HEADLESS_ENTRYPOINT, tabWindowOf } from '../../window/tab.js'
 import { LIVE_WATCH, NO_LIVE_WATCH, OWNER_QUESTION_WAITS, TAB_CONTINUE } from '../../window/turn-watch.js'
+import { ONCE_STORE, OnceStore } from '../../window/watch-store.js'
 import { recordWindowHeartbeat, windowSessionOf } from '../../window/window-heartbeat.js'
 
 const REPO_ROOT = path.join(import.meta.dirname, '..', '..', '..')
@@ -87,13 +88,21 @@ describe('the Stop hook asks turn-watch whether a window turn may end', () => {
     expect(JSON.parse(run.stdout)).toEqual({ decision: 'block', reason: expect.stringContaining(NO_LIVE_WATCH) })
   }, 20_000)
 
-  it('the Stop hook lets a window turn end under a live miko:watch', () => {
+  it('the Stop hook lets a window turn end under a live miko:watch that holds the cursor', () => {
     const bus = busFile()
     beat(bus, SESSION, Date.now())
-    const run = stop(bus, { session_id: SESSION, stop_hook_active: false }, WINDOW_ENV)
-    expect(run).toEqual({ status: 0, stdout: '' })
+    const handoff = path.dirname(bus)
+    const env = { ...WINDOW_ENV, [HANDOFF_DIR_VARIABLE]: handoff }
+    expect(JSON.parse(stop(bus, { session_id: SESSION, stop_hook_active: false }, env).stdout)).toEqual({ decision: 'block', reason: expect.stringContaining(NO_LIVE_WATCH) })
+    const store = OnceStore.open(path.join(handoff, ONCE_STORE), { file: path.join(handoff, 'legacy.json'), text: undefined }, () => ({ offset: 0, busId: 0 }))
+    try {
+      expect(stop(bus, { session_id: SESSION, stop_hook_active: false }, env)).toEqual({ status: 0, stdout: '' })
+    }
+    finally {
+      store.close()
+    }
     expect(LIVE_WATCH).toContain('live pnpm miko:watch')
-  }, 20_000)
+  }, 30_000)
 
   it('the Stop hook lets a card session end without a watch', () => {
     expect(stop(busFile(), { session_id: SESSION }, { ...WINDOW_ENV, CONSTRUCT_CARD: '1183' })).toEqual({ status: 0, stdout: '' })
