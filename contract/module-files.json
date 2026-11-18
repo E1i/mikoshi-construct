@@ -689,6 +689,7 @@
     "scripts/tests/contract/bus-cut/node-refuses-injected.test.ts",
     "scripts/tests/contract/bus-cut/node-task-must-wait.test.ts",
     "scripts/tests/contract/bus-cut/ports-adapters-decided.test.ts",
+    "scripts/tests/contract/bus-cut/pr-status-to-pr-record.test.ts",
     "scripts/tests/contract/bus-cut/reducer-takes-projections.test.ts",
     "scripts/tests/contract/codegen-events-cards-lint.test.ts",
     "scripts/tests/contract/codegen-events-cards.test.ts",
@@ -1645,6 +1646,7 @@
   "pr-record": [
     "scripts/core/merge-event.ts",
     "scripts/core/pr-folds.ts",
+    "scripts/core/pr-status.ts",
     "scripts/nodes/review/dry-run-record.ts",
     "scripts/nodes/review/pr-close.ts",
     "scripts/nodes/review/pr-reopen.ts",
