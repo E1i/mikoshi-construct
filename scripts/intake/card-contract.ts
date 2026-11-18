@@ -9,7 +9,6 @@ import { RISK_PREFIX, SEAM_PREFIX, SLICE_PREFIX } from '../../src/card/risk.js'
 import { isWitnessFieldLine, witnessFieldsOf } from '../../src/card/witness-fields.js'
 import { witnessesOf } from '../../src/commands/intake/admit.js'
 import { UNCLEAR_PREFIX, WITNESSES_HEADING } from '../../src/commands/intake/slice.js'
-import { CLOSED_CARD, DROPPED_CARD } from '../core/card-automaton.js'
 import { CARD_BODIES } from '../core/card-bodies.js'
 import { lastHeartbeat } from '../supervisor/heartbeat.js'
 
@@ -17,9 +16,6 @@ export const CONTRACTS = ['intake', 'start', 'review', 'close', 'board'] as cons
 
 export type Contract = typeof CONTRACTS[number]
 
-export const NOT_MINE = 'not_mine'
-
-const NOT_THE_BUS_CARD_STATES: ReadonlySet<string | null> = new Set([CLOSED_CARD, DROPPED_CARD])
 const BODY_OF_CARD = `
   SELECT body.admission_event_id, body.text, body.text_sha, body.lane, cards.state
   FROM ${CARD_BODIES} body LEFT JOIN cards ON cards.card_id = body.card_id
@@ -149,10 +145,4 @@ export function cardContract(db: DatabaseSync, cardId: number): CardFields | nul
   if (parsed.kind === 'refused')
     return null
   return cardFields(parsed.parked, { admissionEventId: row.admission_event_id, text: row.text, textSha: row.text_sha, lane: row.lane, state: row.state, lastHeartbeat: lastHeartbeat(db, cardId) })
-}
-
-export function notMine(card: CardFields | null, command: string): string | null {
-  if (card === null || !NOT_THE_BUS_CARD_STATES.has(card.state))
-    return null
-  return `card #${card.id} is ${card.state} in the bus, so no ${command} of it is the bus's to run`
 }

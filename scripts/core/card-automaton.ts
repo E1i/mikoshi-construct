@@ -21,6 +21,16 @@ export const STOPPED_CARD = 'stopped'
 export const DROPPED_CARD = 'dropped'
 export const DEFERRED_CARD = 'deferred'
 
+export const NOT_MINE = 'not_mine'
+
+const NOT_THE_BUS_CARD_STATES: ReadonlySet<string | null> = new Set([CLOSED_CARD, DROPPED_CARD])
+
+export function notMine(card: { id: number, state: string | null } | null, command: string): string | null {
+  if (card === null || !NOT_THE_BUS_CARD_STATES.has(card.state))
+    return null
+  return `card #${card.id} is ${card.state} in the bus, so no ${command} of it is the bus's to run`
+}
+
 export { DROPPED_LANE }
 
 type CardState = string | null

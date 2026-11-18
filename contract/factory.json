@@ -3519,7 +3519,6 @@
           "src/card/task-file.ts",
           "src/card/risk.ts",
           "src/card/complexity.ts",
-          "scripts/intake/card-contract.ts",
           "scripts/core/identifiers.ts"
         ],
         "may_use": [],
@@ -3529,7 +3528,6 @@
           "src/card/task-file.ts",
           "src/card/risk.ts",
           "src/card/complexity.ts",
-          "scripts/intake/card-contract.ts",
           "scripts/core/identifiers.ts"
         ],
         "status": "decided"
@@ -3543,6 +3541,7 @@
           "src/card/witness-fields.ts",
           "scripts/intake/admissions.ts",
           "scripts/intake/card-archive.ts",
+          "scripts/intake/card-contract.ts",
           "scripts/intake/witness-fields-backfill.ts",
           "scripts/intake/slice-parent-backfill.ts",
           "scripts/cli/card.ts"
@@ -3559,6 +3558,7 @@
           "src/card/witness-fields.ts",
           "scripts/intake/admissions.ts",
           "scripts/intake/card-archive.ts",
+          "scripts/intake/card-contract.ts",
           "scripts/intake/witness-fields-backfill.ts",
           "scripts/intake/slice-parent-backfill.ts",
           "scripts/cli/card.ts"
