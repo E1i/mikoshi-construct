@@ -85,7 +85,7 @@ export interface CardEvent {
   payload: Record<string, unknown>
 }
 
-export type CardEventPort = (event: CardEvent) => void
+export type CardEventPort = ((event: CardEvent) => void) & { allOrNothing?: (events: readonly CardEvent[]) => void }
 
 export type CardStatesPort = () => CardsOfTheBus
 
@@ -153,6 +153,10 @@ export function openCardTextsBeside(cardId: number, cards: BusCardStates | undef
 }
 
 export function recordIntake(records: readonly CardEvent[], events: CardEventPort | undefined): void {
+  if (events?.allOrNothing !== undefined) {
+    events.allOrNothing(records)
+    return
+  }
   for (const record of records)
     events?.(record)
 }
@@ -313,8 +317,8 @@ export function runIntake(options: IntakeOptions): IntakeResult {
   const at = new Date()
   const written = options.events === undefined ? parkCards(parkedSlice.cards, options.parking) : parkedSlice.cards
   const confirmation = (card: SlicedCard): Confirmation => (cutBySlices && !options.autoConfirm ? tokenConfirmation() : confirmationOf(card, options.autoConfirm))
-  recordIntake(written.map((card, index) => withPlan(admittedRecord(card, confirmation(card), at), plan?.link, cut[index]?.item)), options.events)
-  recordIntake(written.flatMap(card => windowEvent(card, at)), options.events)
+  const admitted = written.map((card, index) => withPlan(admittedRecord(card, confirmation(card), at), plan?.link, cut[index]?.item))
+  recordIntake([...admitted, ...written.flatMap(card => windowEvent(card, at))], options.events)
   return { status: 'written', parking: options.parking, cards: written, autoConfirm: options.autoConfirm, inBus: options.events !== undefined, windowShard: windowShard() }
 }
 
