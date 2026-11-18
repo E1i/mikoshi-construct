@@ -1076,6 +1076,7 @@
     "scripts/tests/window/rejected-start-opens-no-session.test.ts",
     "scripts/tests/window/requests-dispatch.test.ts",
     "scripts/tests/window/tree-cut-session-ends.test.ts",
+    "scripts/tests/window/turn-watch-needs-a-running-watch.test.ts",
     "scripts/tests/witness/one-gib-disk.test.ts",
     "scripts/tests/witness/test-runner-one-owner.test.ts",
     "scripts/tests/witness/unfit-witness.test.ts",
