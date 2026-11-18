@@ -185,7 +185,10 @@ function scanning(touched: readonly string[], known: ReadonlySet<string>): strin
 
 function spawning(touched: readonly string[], files: readonly string[], read: (file: string) => string | null): string[] {
   const named = touched.flatMap(file => [file, path.posix.basename(file)])
-  return files.filter(isTest).filter(test => named.some(name => (read(test) ?? '').includes(name)))
+  return files.filter(isTest).filter((test) => {
+    const text = read(test) ?? ''
+    return named.some(name => text.includes(name))
+  })
 }
 
 function linting(touched: readonly string[], files: readonly string[], read: (file: string) => string | null): string[] {
@@ -216,12 +219,18 @@ export function coveringTests(touches: readonly string[], files: readonly string
 export class TestCoverage {
   private importers: Map<string, string[]> | undefined
   private files: readonly string[] | undefined
+  private readonly texts = new Map<string, string | null>()
+  private readonly readOnce = (file: string): string | null => {
+    if (!this.texts.has(file))
+      this.texts.set(file, this.read(file))
+    return this.texts.get(file) ?? null
+  }
 
   constructor(private readonly list: () => readonly string[], private readonly read: (file: string) => string | null) {}
 
   of(touches: readonly string[]): string[] {
     this.files ??= this.list()
-    this.importers ??= importersOf(this.files, this.read)
-    return coveringTests(touches, this.files, this.importers, this.read)
+    this.importers ??= importersOf(this.files, this.readOnce)
+    return coveringTests(touches, this.files, this.importers, this.readOnce)
   }
 }

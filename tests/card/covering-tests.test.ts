@@ -148,6 +148,29 @@ describe('the tests that cover a touched file', () => {
     expect(coverage.of(['src/card/risk.ts'])).toHaveLength(3)
     expect(lists).toBe(1)
   })
+
+  it('a TestCoverage reads each file once however many touches name it', () => {
+    const files: Record<string, string> = {
+      'eslint.config.mjs': 'export default []\n',
+      'src/a.ts': 'export const A = 1\n',
+      'src/b.ts': 'import { A } from \'./a.js\'\n',
+      'scripts/nodes/c.ts': 'export {}\n',
+      'scripts/nodes/d.ts': 'export {}\n',
+    }
+    for (let index = 0; index < 40; index += 1)
+      files[`tests/many-${index}.test.ts`] = index % 3 === 0 ? 'spawnSync(\'tsx\', [\'scripts/nodes/c.ts\'])\n' : index % 3 === 1 ? 'new ESLint({})\n' : 'import \'../src/b.js\'\n'
+    const reads = new Map<string, number>()
+    const coverage = new TestCoverage(() => Object.keys(files), (file) => {
+      reads.set(file, (reads.get(file) ?? 0) + 1)
+      return files[file] ?? null
+    })
+    const touches = ['eslint.config.mjs', 'src/a.ts', 'src/b.ts', 'scripts/nodes/c.ts', 'scripts/nodes/d.ts']
+    const covered = coverage.of(touches)
+    coverage.of(['src/a.ts', 'scripts/nodes/d.ts'])
+    expect(covered).toHaveLength(40)
+    expect([...reads.values()].every(count => count === 1)).toBe(true)
+    expect(reads.size).toBeGreaterThan(0)
+  })
 })
 
 describe('the tests that reach a touched file other than by a static import', () => {
