@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { runCommand } from 'citty'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cardBodyText, WINDOW_LANE } from '../scripts/core/card-bodies.js'
+import { cardBodyText } from '../scripts/core/card-bodies.js'
 import { appendEvent, BUS_DB_VARIABLE, openBus } from '../scripts/core/db.js'
 import { reduce } from '../scripts/core/reducer.js'
 import { busCardAdmissions, busCardEvents, runBusIntake } from '../scripts/intake/intake.js'
@@ -1292,7 +1292,7 @@ describe('construct intake --admit across the lanes of the parking', () => {
     expect(latestText(w, file)).toContain('unclear: depends')
   })
 
-  it('a card sliced through the bus gets its lane from the bus and lays no lane directory in the parking', () => {
+  it('a card sliced through the bus carries no lane and lays no lane directory in the parking', () => {
     const w = world()
     mkdirSync(path.join(w.repo, 'src', 'atlas'), { recursive: true })
     writeFileSync(path.join(w.repo, 'src', 'atlas', 'map.ts'), '')
@@ -1309,7 +1309,7 @@ describe('construct intake --admit across the lanes of the parking', () => {
       }
     })()
     expect(result).toMatchObject({ status: 'written', cards: [{ file: '2.md' }, { file: '3.md' }, { file: '4.md' }] })
-    expect(admittedPayloads(w).map(payload => payload.lane)).toEqual([WINDOW_LANE, WINDOW_LANE, WINDOW_LANE])
+    expect(admittedPayloads(w).map(payload => 'lane' in payload)).toEqual([false, false, false])
     expect(existsSync(w.parking)).toBe(false)
   })
 })

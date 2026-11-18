@@ -49,7 +49,7 @@ const MINUTE_MS = 60_000
 let admits = 0
 
 function admit(w: World, file: string) {
-  const ports = busIntakePorts(w.db, 'by-hand', () => 1)
+  const ports = busIntakePorts(w.db, 'by-hand')
   const at = new Date(AT.getTime() + MINUTE_MS * ++admits)
   return runAdmit({ file, dir: w.repo, dryRun: false, autoConfirm: true, parkingRoot: w.parking, events: ports.cardEvents, cardStates: ports.cardStates, admissions: ports.cardAdmissions }, () => at)
 }
@@ -63,7 +63,7 @@ describe('the card body lives only in card.* events', () => {
   it('a move right after an amend carries the amended body', () => {
     const w = world()
     try {
-      const ports = busIntakePorts(w.db, 'by-hand', () => 1)
+      const ports = busIntakePorts(w.db, 'by-hand')
       const file = park(w, cardText({ who: 'window', priority: 'p2' }))
       expect(admit(w, file).status).toBe('admitted')
       reduce(w.db, 'pending', busProjections())

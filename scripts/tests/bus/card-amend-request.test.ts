@@ -59,7 +59,7 @@ function admitted(w: World, id: number, text: string = body(id)): void {
 
 function inLane(w: World, id: number): void {
   admitted(w, id)
-  busCardEvents(w.db)({ type: CARD_MOVED, cardId: id, ts: NOW.toISOString(), dedupeKey: `${CARD_MOVED}:${id}:test`, payload: { lane: LANE, to: path.join(w.root, LANE) } })
+  busCardEvents(w.db)({ type: CARD_MOVED, cardId: id, ts: NOW.toISOString(), dedupeKey: `${CARD_MOVED}:${id}:test`, payload: { to: path.join(w.root, LANE) } })
   reduce(w.db, 'pending', busProjections())
 }
 
@@ -78,8 +78,8 @@ function asked(w: World, request: Record<string, unknown>): { type: string, deta
   return answer
 }
 
-function latest(w: World, id: number): { text: string, lane: string, source: string } {
-  return w.db.prepare(`SELECT json_extract(payload, '$.text') AS text, json_extract(payload, '$.lane') AS lane, json_extract(payload, '$.source') AS source FROM events WHERE type = ? AND card_id = ? ORDER BY id DESC LIMIT 1`).get(CARD_ADMITTED, id) as { text: string, lane: string, source: string }
+function latest(w: World, id: number): { text: string, lane: string | null, source: string } {
+  return w.db.prepare(`SELECT json_extract(payload, '$.text') AS text, json_extract(payload, '$.lane') AS lane, json_extract(payload, '$.source') AS source FROM events WHERE type = ? AND card_id = ? ORDER BY id DESC LIMIT 1`).get(CARD_ADMITTED, id) as { text: string, lane: string | null, source: string }
 }
 
 function admissionCount(w: World, id: number): number {
@@ -87,13 +87,13 @@ function admissionCount(w: World, id: number): number {
 }
 
 describe('bus:request amend edits a card in the bus with no file', () => {
-  it('a witness added by request keeps the lane, recomputes risk and writes no file', () => {
+  it('a witness added by request carries no lane into the body, recomputes risk and writes no file', () => {
     const w = world()
     inLane(w, 80)
     expect(asked(w, { card: 80, add_witness: [JSON.stringify(witness('W3'))] })).toMatchObject({ type: REQUEST_DONE })
     const after = latest(w, 80)
-    expect(after).toMatchObject({ lane: LANE, source: 'amend' })
-    expect((w.db.prepare('SELECT lane FROM card_bodies WHERE card_id = 80').get() as { lane: string }).lane).toBe(LANE)
+    expect(after).toMatchObject({ lane: null, source: 'amend' })
+    expect((w.db.prepare('SELECT lane FROM card_bodies WHERE card_id = 80').get() as { lane: string | null }).lane).toBeNull()
     expect(after.text).toContain('"id":"W3"')
     const [recomputed] = riskLines({ ...riskReading([TOUCH], false), slices: [], capabilityDelivery: false })
     expect(after.text).toContain(recomputed)
@@ -126,7 +126,7 @@ describe('bus:request amend edits a card in the bus with no file', () => {
     expect(latest(w, 80).text).toContain('· depends #7 · blocks —')
     expect(asked(w, { card: 80, depends: '-#7' }).type).toBe(REQUEST_DONE)
     expect(latest(w, 80).text).toContain('· depends — · blocks —')
-    expect(latest(w, 80).lane).toBe(LANE)
+    expect(latest(w, 80).lane).toBeNull()
 
     const count = admissionCount(w, 80)
     for (const refused of [{ touches: '-src/board/gone.ts' }, { add_witness: [JSON.stringify(witness('W1'))] }, { add_witness: ['not json'] }, { remove_witness: ['W9'] }, { depends: '+7' }, {}])

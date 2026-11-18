@@ -216,7 +216,7 @@ describe('a factory installed from the packed package', () => {
 
     it('the published intake records the card on the bus', () => {
       expect(intake.status, `${intake.stdout}\n${intake.stderr}`).toBe(0)
-      expect(cardEvents(foreign.bus)).toEqual(['card.admitted', 'lane.assigned'])
+      expect(cardEvents(foreign.bus)).toEqual(['card.admitted'])
     })
 
     it('the published construct intake parks nothing beside the bus and names construct-intake', () => {

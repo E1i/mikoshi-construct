@@ -44,7 +44,7 @@ function cardText(touches: readonly string[]): string {
 
 function admit(w: World, touches: readonly string[]): void {
   const text = cardText(touches)
-  busCardEvents(w.db, 's1', () => 1, undefined, w.root)({ type: CARD_ADMITTED, cardId: CARD, ts: TS, dedupeKey: `admit-${CARD}`, payload: { card: LINE, lane: null, depends: [], decision: 'auto', contour: 'cheap', text, textSha: textSha(text) } })
+  busCardEvents(w.db, 's1', undefined, w.root)({ type: CARD_ADMITTED, cardId: CARD, ts: TS, dedupeKey: `admit-${CARD}`, payload: { card: LINE, depends: [], decision: 'auto', contour: 'cheap', text, textSha: textSha(text) } })
 }
 
 function admissions(w: World): number {

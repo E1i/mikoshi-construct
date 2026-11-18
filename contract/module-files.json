@@ -481,6 +481,7 @@
     "scripts/tests/bus/lanereflow.test.ts",
     "scripts/tests/bus/lanes-retired-board.test.ts",
     "scripts/tests/bus/lanes-retired-launch.test.ts",
+    "scripts/tests/bus/lanes-retired.test.ts",
     "scripts/tests/bus/launch-ladder-handoff.test.ts",
     "scripts/tests/bus/launch-node.test.ts",
     "scripts/tests/bus/launch-pr.test.ts",

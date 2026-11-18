@@ -9,7 +9,7 @@ import { appendEvent, openBus } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_STARTED } from '../../core/events.js'
 import { reduce } from '../../core/reducer.js'
 import { busCardEvents } from '../../intake/intake.js'
-import { startOrder } from '../../nodes/launch/lane-assign.js'
+import { layLanes, startOrder } from '../../nodes/launch/lane-assign.js'
 import { launchCandidates } from '../../nodes/launch/launch-candidates.js'
 import { busProjections } from '../../supervisor/composition.js'
 
@@ -31,7 +31,8 @@ function openedBus(): DatabaseSync {
 function admit(db: DatabaseSync, id: number, touches: string, priority: string | null = null): void {
   const line = priority === null ? '' : `priority: ${priority}\n`
   const text = `card: #${id} card-${id} [implement/netwatch/S/cheap/auto] · depends — · blocks —\nbranch: feat/card-${id}\ntouches: ${touches}\ncontinue: stop\nwho: shift\n${line}\nDo the thing.\n`
-  busCardEvents(db, 's1', () => LANES)({ type: CARD_ADMITTED, cardId: id, ts: TS, dedupeKey: `admit-${id}`, payload: { card: text.split('\n')[0]!.slice('card: '.length), lane: null, depends: [], decision: 'auto', contour: 'cheap', text, textSha: textSha(text) } })
+  busCardEvents(db, 's1')({ type: CARD_ADMITTED, cardId: id, ts: TS, dedupeKey: `admit-${id}`, payload: { card: text.split('\n')[0]!.slice('card: '.length), depends: [], decision: 'auto', contour: 'cheap', text, textSha: textSha(text) } })
+  layLanes(db, LANES, TS, 'worker:launch:s1', id)
   reduce(db, 'pending', busProjections())
 }
 

@@ -433,13 +433,16 @@ describe('the launch queue', () => {
     const cards = result.status === 'written' ? result.cards : []
     expect(existsSync(parking)).toBe(false)
     bench.tick()
-    const bodies = cards.map(card => bench.db.prepare('SELECT text, lane FROM card_bodies WHERE card_id = ?').get(card.id) as { text: string, lane: string })
+    layLanes(bench.db, 3, bench.clock.now().toISOString(), 'worker:launch:test')
+    bench.tick()
+    const bodies = cards.map(card => bench.db.prepare('SELECT text, lane FROM card_bodies WHERE card_id = ?').get(card.id) as { text: string, lane: string | null })
+    expect(bodies.map(body => body.lane)).toEqual(cards.map(() => null))
     const tasks = bodies.map(({ text }, index) => {
       const parsed = parseParkingFile(cards[index]!.file, text)
       return parsed.kind === 'parked' ? parsed.parked.task : null
     })
-    const lanes = bodies.map(body => body.lane)
-    expect(lanes.every(lane => /^lane-\d{2}$/.test(lane))).toBe(true)
+    const lanes = cards.map(card => currentLane(bench.db, card.id))
+    expect(lanes.every(lane => lane !== null && /^lane-\d+$/.test(lane))).toBe(true)
     expect(new Set(lanes).size).toBeGreaterThan(1)
     expect(tasks.every(task => task !== null)).toBe(true)
 

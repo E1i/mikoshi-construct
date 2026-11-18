@@ -60,7 +60,7 @@ function inBus<T>(w: World, read: (db: DatabaseSync) => T): T {
 }
 
 function intakeOf(w: World, db: DatabaseSync) {
-  const ports = busIntakePorts(db, 'by-hand', () => 1)
+  const ports = busIntakePorts(db, 'by-hand')
   return { dir: w.repo, dryRun: false, autoConfirm: true, parkingRoot: path.dirname(w.parked), events: ports.cardEvents, cardStates: ports.cardStates, admissions: ports.cardAdmissions }
 }
 

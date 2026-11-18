@@ -15,7 +15,7 @@ import { CARD_ADMITTED, CARD_CONTINUED, CARD_HELD, CARD_RELEASED, CARD_STARTED, 
 import { reduce } from '../../core/reducer.js'
 import { busCardEvents } from '../../intake/intake.js'
 import { ownerHoldOf } from '../../nodes/answer/answer-source.js'
-import { assignMovedLane } from '../../nodes/launch/lane-assign.js'
+import { assignMovedLane, layLanes } from '../../nodes/launch/lane-assign.js'
 import { HELD_AT_THE_EXIT, launchCandidates, startableCards } from '../../nodes/launch/launch-candidates.js'
 import { LaunchNode } from '../../nodes/launch/launch-worker.js'
 import { HELD_FOR_OWNER } from '../../nodes/merge/merge-executor.js'
@@ -56,7 +56,8 @@ function busWithCards(): DatabaseSync {
 function admit(db: DatabaseSync, id: number, depends: number[]): void {
   const dependsOn = depends.length === 0 ? '—' : depends.map(parent => `#${parent}`).join(', ')
   const text = `card: #${id} card-${id} [implement/netwatch/S/cheap/auto] · depends ${dependsOn} · blocks —\nbranch: feat/card-${id}\ntouches: src/card-${id}.ts\ncontinue: stop\nwho: shift\n\nDo the thing.\n`
-  busCardEvents(db, 's1', () => LANES)({ type: CARD_ADMITTED, cardId: id, ts: TS, dedupeKey: `admit-${id}`, payload: { card: text.split('\n')[0]!.slice('card: '.length), lane: null, depends, decision: 'auto', contour: 'cheap', text, textSha: textSha(text) } })
+  busCardEvents(db, 's1')({ type: CARD_ADMITTED, cardId: id, ts: TS, dedupeKey: `admit-${id}`, payload: { card: text.split('\n')[0]!.slice('card: '.length), depends, decision: 'auto', contour: 'cheap', text, textSha: textSha(text) } })
+  layLanes(db, LANES, TS, 'worker:launch:s1', id)
   reduce(db, 'pending', busProjections())
 }
 

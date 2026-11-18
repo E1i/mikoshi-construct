@@ -9,7 +9,7 @@ import process from 'node:process'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { parkingFileText, parseParkingFile } from '../../../src/card/parking.js'
 import { admittedRecord } from '../../../src/commands/intake/index.js'
-import { appendCardEvent, WINDOW_LANE } from '../../core/card-bodies.js'
+import { appendCardEvent } from '../../core/card-bodies.js'
 import { BOARD_ALARM, REVIEW_RECORDED, TASK_FAILED, TASK_LEASED } from '../../core/events.js'
 import { fullReview } from '../../nodes/review/review-depth.js'
 import { REVIEW_FAILED, windowRouteLine } from '../../nodes/review/review-executor.js'
@@ -62,7 +62,7 @@ function benchWith(reviewer: Reviewer): { bench: MergeBench, worker: ReviewWorke
   const parsed = parseParkingFile(`${CARD}.md`, text)
   if (parsed.kind === 'refused')
     throw new Error(parsed.reason)
-  appendCardEvent(bench.db, 'worker:intake:test', admittedRecord({ id: CARD, file: `${CARD}.md`, line: parsed.parked.task.card.line, who: parsed.parked.who, unclear: [], corrections: [], seam: [], risk: [], slices: [], text }, 'auto', bench.clock.now(), WINDOW_LANE))
+  appendCardEvent(bench.db, 'worker:intake:test', admittedRecord({ id: CARD, file: `${CARD}.md`, line: parsed.parked.task.card.line, who: parsed.parked.who, unclear: [], corrections: [], seam: [], risk: [], slices: [], text }, 'auto', bench.clock.now()))
   bench.tick()
   bench.gitHub.open({ number: PR, head: HEAD, ref: `feat/card-${CARD}`, body: cardBody(PR) })
   bench.tick()

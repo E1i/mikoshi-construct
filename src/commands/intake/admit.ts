@@ -11,12 +11,12 @@ import type { Confirmation } from './confirm.js'
 import type { DraftCard } from './draft.js'
 import type { CardAdmissionsPort, CardEventPort, CardStatesPort, RecordedIntake } from './index.js'
 import type { SlicedCard } from './slice.js'
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { CARD_ADMITTED } from '../../../scripts/core/events.js'
 import { decisionCommand, InMemoryDecisions } from '../../../scripts/policy/decisions/decisions.js'
-import { createdPaths, OWNER_MERGES, pathsIn, pathsOutside, PREFIX_SUFFIX } from '../../../scripts/policy/touch-scope.js'
+import { createdPaths, OWNER_MERGES, pathsIn, pathsOutside } from '../../../scripts/policy/touch-scope.js'
 import { endedCards } from '../../card/closed.js'
 import { cardLine, parseCard } from '../../card/grammar.js'
 import { parseParkingFile } from '../../card/parking.js'
@@ -59,86 +59,6 @@ export function laneOf(root: string, dir: string): string | null {
 }
 
 export const LANE_FILE = 'lane.json'
-export const LANE_CREATED_BY = 'intake'
-const NUMBERED_LANE = /^lane-(\d{2,})$/
-const OPEN_LANE = 'open'
-const ADDITIVE_ROOTS = ['tests', 'scripts/tests', '.changeset']
-const PARKED_CARD = /^\d+\.md$/
-
-export function laneName(number: number): string {
-  return `lane-${String(number).padStart(2, '0')}`
-}
-
-export function laneNumber(name: string): number | null {
-  const number = NUMBERED_LANE.exec(name)?.[1]
-  return number === undefined ? null : Number(number)
-}
-
-function scopeOf(touch: string): { path: string, mask: boolean } {
-  return touch.endsWith(PREFIX_SUFFIX) ? { path: touch.slice(0, -PREFIX_SUFFIX.length), mask: true } : { path: touch, mask: false }
-}
-
-function within(root: string, target: string): boolean {
-  return target === root || target.startsWith(`${root}/`)
-}
-
-function touchConflict(a: string, b: string): boolean {
-  const left = scopeOf(a)
-  const right = scopeOf(b)
-  const additive = ADDITIVE_ROOTS.some(root => within(root, left.path)) && ADDITIVE_ROOTS.some(root => within(root, right.path))
-  if (additive && (left.mask || right.mask))
-    return false
-  return a === b || (left.mask && within(left.path, right.path)) || (right.mask && within(right.path, left.path))
-}
-
-function touchesOverlap(a: readonly string[], b: readonly string[]): boolean {
-  return a.some(left => b.some(right => touchConflict(left, right)))
-}
-
-function declaredTouches(lane: string): string[] {
-  const file = path.join(lane, LANE_FILE)
-  if (!existsSync(file))
-    return []
-  try {
-    const touches = (JSON.parse(readFileSync(file, 'utf8')) as { touches?: unknown } | null)?.touches
-    return Array.isArray(touches) ? touches.filter(touch => typeof touch === 'string') : []
-  }
-  catch {
-    return []
-  }
-}
-
-function parkedTasks(lane: string): ParkedTask[] {
-  return readdirSync(lane).filter(name => PARKED_CARD.test(name)).flatMap((name) => {
-    const parsed = parseParkingFile(name, readFileSync(path.join(lane, name), 'utf8'))
-    return parsed.kind === 'parked' ? [parsed.parked] : []
-  })
-}
-
-export function laneTouches(lane: string): string[] {
-  return [...new Set([...declaredTouches(lane), ...parkedTasks(lane).flatMap(parked => parked.task.touches)])].sort()
-}
-
-function lanesUnder(root: string): string[] {
-  if (!existsSync(root))
-    return []
-  return readdirSync(root, { withFileTypes: true }).filter(entry => entry.isDirectory() && isLaneName(entry.name)).map(entry => entry.name).sort()
-}
-
-function openLane(root: string, card: ParkedTask, at: Date): string {
-  const lane = laneName(Math.max(0, ...lanesUnder(root).map(name => laneNumber(name) ?? 0)) + 1)
-  const dir = path.join(root, lane)
-  mkdirSync(dir, { recursive: true })
-  const record = { purpose: card.task.card.line, touches: card.task.touches, createdBy: LANE_CREATED_BY, createdAt: at.toISOString(), status: OPEN_LANE }
-  writeFileSync(path.join(dir, LANE_FILE), `${JSON.stringify(record, null, 2)}\n`)
-  return lane
-}
-
-export function layLane(root: string, card: ParkedTask, at: Date): string {
-  const lanes = lanesUnder(root)
-  const dependedOn = lanes.find(lane => card.task.card.depends.some(id => existsSync(path.join(root, lane, `${id}.md`))))
-  return dependedOn ?? lanes.find(lane => touchesOverlap(laneTouches(path.join(root, lane)), card.task.touches)) ?? openLane(root, card, at)
-}
 export const AMEND_SOURCE = 'amend'
 
 type AdmitSource = typeof ADMIT_SOURCE | typeof AMEND_SOURCE
@@ -691,10 +611,9 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
     const event = journalledEvent(options.admissions, admitted)
     return event === null ? { status: 'refused', why: lostWrite(card.id) } : { ...base, status, event }
   }
-  const lane = laneOf(options.parkingRoot ?? defaultParking(), path.dirname(options.file))
   if (recorded !== null && sameCardLine(recorded.card, line) && sameBody(recorded.bodySha, admitted.text) && sameHeader(recorded.text, admitted.text, CARD_HEADER) && priorityLineOf(recorded.text ?? '') === priorityLineOf(admitted.text)) {
     if (!options.dryRun)
-      options.events?.(admittedRecord(admitted, recordedConfirmation(recorded, admitted, options.autoConfirm), admittedAt(recorded, now), lane, recordedSource(recorded)))
+      options.events?.(admittedRecord(admitted, recordedConfirmation(recorded, admitted, options.autoConfirm), admittedAt(recorded, now), recordedSource(recorded)))
     return inJournal('alreadyAdmitted')
   }
   const reparsed = parseParkingFile(file, admitted.text)
@@ -729,7 +648,7 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
   }
   if (busBody === null && options.events === undefined && admitted.text !== text)
     writeFileSync(options.file, admitted.text)
-  recordIntake([admittedRecord(admitted, admitConfirmation(admitted, options.autoConfirm), now(), lane, source)], options.events)
+  recordIntake([admittedRecord(admitted, admitConfirmation(admitted, options.autoConfirm), now(), source)], options.events)
   const result = inJournal('admitted')
   if (result.status === 'admitted' && waitingOn.length > 0)
     options.events?.(waitingEvent(card.id, waitingOn, now()))

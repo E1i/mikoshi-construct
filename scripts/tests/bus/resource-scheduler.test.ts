@@ -10,7 +10,7 @@ import { CARD_ADMITTED, CARD_DROPPED, CARD_HELD, CARD_STARTED, LANE_ASSIGNED, PR
 import { MachineSessions } from '../../core/machine-sessions.js'
 import { reduce } from '../../core/reducer.js'
 import { busCardEvents } from '../../intake/intake.js'
-import { assignMovedLane, laneOverlapRecorder } from '../../nodes/launch/lane-assign.js'
+import { assignMovedLane, laneOverlapRecorder, layLanes } from '../../nodes/launch/lane-assign.js'
 import { launchCandidates, UNEXPLAINED_HOLD } from '../../nodes/launch/launch-candidates.js'
 import { openPrWarnings } from '../../nodes/launch/overlap.js'
 import { sharedAppendFiles } from '../../nodes/launch/shared-files.js'
@@ -63,7 +63,8 @@ class Bench {
 
   admit(id: number, touches: readonly string[], shape: Shape = {}): this {
     const text = cardText(id, touches, shape)
-    busCardEvents(this.db, 's1', () => LANES)({ type: CARD_ADMITTED, cardId: id, ts: TS, dedupeKey: `admit-${id}`, payload: { card: text.split('\n')[0]!.slice('card: '.length), lane: null, depends: shape.depends ?? [], decision: 'auto', contour: 'cheap', text, textSha: textSha(text) } })
+    busCardEvents(this.db, 's1')({ type: CARD_ADMITTED, cardId: id, ts: TS, dedupeKey: `admit-${id}`, payload: { card: text.split('\n')[0]!.slice('card: '.length), depends: shape.depends ?? [], decision: 'auto', contour: 'cheap', text, textSha: textSha(text) } })
+    layLanes(this.db, LANES, TS, 'worker:launch:s1', id)
     return this.reduced()
   }
 

@@ -8,6 +8,7 @@ import { currentLane, openOwnerWaits } from '../../scripts/core/bus-readings.js'
 import { closeOwnerWait, openBus, openOwnerWait } from '../../scripts/core/db.js'
 import { reduce } from '../../scripts/core/reducer.js'
 import { busCardEvents } from '../../scripts/intake/intake.js'
+import { layLanes } from '../../scripts/nodes/launch/lane-assign.js'
 import { busProjections } from '../../scripts/supervisor/composition.js'
 import { busReaderAt } from '../../src/commands/board/bus.js'
 import { withReadOnlyBus } from '../../src/commands/cost/bus.js'
@@ -73,10 +74,11 @@ describe('the board reads the bus through the bus readers', () => {
     for (const card of cards)
       writeFileSync(path.join(repo, 'src', `${card}.ts`), '')
     withBus((db, file) => {
-      const events = busCardEvents(db, 'by-hand', () => LANES)
+      const events = busCardEvents(db, 'by-hand')
       for (const card of cards)
         expect(runAdmit({ file: parkedCard(parking, card, `src/${card}.ts`), dir: repo, dryRun: false, autoConfirm: true, parkingRoot: parking, events }, () => NOW).status).toBe('admitted')
       expect(runMove({ move: '#1504', to: 'lane-2', draft: undefined, taken: undefined, admit: undefined, parking, events }, () => NOW).status).toBe('moved')
+      layLanes(db, LANES, NOW.toISOString(), 'worker:launch:by-hand')
       reduce(db, 'pending', busProjections())
       const board = factsOf(file).cards
       const bus = withReadOnlyBus(file, read => cards.map(card => [card, currentLane(read, card)]))

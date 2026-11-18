@@ -57,7 +57,7 @@ function parked(w: World): string {
 }
 
 function admittedInTheBus(w: World, db: DatabaseSync): { file: string, ports: ReturnType<typeof busIntakePorts> } {
-  const ports = busIntakePorts(db, 'by-hand', () => 1)
+  const ports = busIntakePorts(db, 'by-hand')
   const file = parked(w)
   expect(runAdmit({ file, dir: w.repo, dryRun: false, autoConfirm: true, parkingRoot: w.parking, events: ports.cardEvents, cardStates: ports.cardStates, admissions: ports.cardAdmissions }).status).toBe('admitted')
   return { file, ports }

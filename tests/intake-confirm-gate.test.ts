@@ -262,11 +262,12 @@ describe('intake confirmation gate', () => {
     expect(admitted(w.bus)).toMatchObject([{ task: '13', confirmation: 'none', corrections: [] }])
   })
 
-  it.each([['the parking root', '', null], ['a lane', 'lane-4', 'lane-4']])('a card sliced and confirmed into %s hands the bus its card.admitted, and writes no journal line and no parking file', (_where, lane, expected) => {
+  it.each([['the parking root', ''], ['a lane', 'lane-4']])('a card sliced and confirmed into %s hands the bus its card.admitted with no lane, and writes no journal line and no parking file', (_where, lane) => {
     const w = world([card()])
     const bus: CardEvent[] = []
     expect(intake(w, { parking: path.join(w.parking, lane), parkingRoot: w.parking, events: event => bus.push(event) }).status).toBe('written')
-    expect(bus).toMatchObject([{ type: CARD_ADMITTED, cardId: 13, payload: { card: expect.stringMatching(/^#13 gate-card /), lane: expected, confirmation: 'none' } }])
+    expect(bus).toMatchObject([{ type: CARD_ADMITTED, cardId: 13, payload: { card: expect.stringMatching(/^#13 gate-card /), confirmation: 'none' } }])
+    expect(bus[0]!.payload).not.toHaveProperty('lane')
     expect(existsSync(w.parking)).toBe(false)
   })
 
@@ -301,13 +302,14 @@ describe('intake confirmation gate', () => {
       cardId: 80,
       ts: expect.any(String),
       dedupeKey: expect.stringMatching(/^card\.admitted:80:/),
-      payload: { card: expect.stringMatching(/^#80 clean-card /), lane: 'lane-2', depends: [], decision: 'owner', contour: 'cheap', confirmation: 'none', corrections: [], bodySha: bodySha(text), text, textSha: textSha(text), source: ADMIT_SOURCE },
+      payload: { card: expect.stringMatching(/^#80 clean-card /), depends: [], decision: 'owner', contour: 'cheap', confirmation: 'none', corrections: [], bodySha: bodySha(text), text, textSha: textSha(text), source: ADMIT_SOURCE },
     }])
     expect(admit().status).toBe('alreadyAdmitted')
     writeFileSync(file, parked.replace('Do the thing.', 'Do the other thing.'))
     expect(admit()).toMatchObject({ status: 'admitted', source: AMEND_SOURCE })
     expect(bus).toHaveLength(2)
-    expect(bus[1]).toMatchObject({ type: CARD_ADMITTED, cardId: 80, payload: { lane: 'lane-2', bodySha: bodySha(readFileSync(file, 'utf8')), source: AMEND_SOURCE } })
+    expect(bus[1]!.payload).not.toHaveProperty('lane')
+    expect(bus[1]).toMatchObject({ type: CARD_ADMITTED, cardId: 80, payload: { bodySha: bodySha(readFileSync(file, 'utf8')), source: AMEND_SOURCE } })
     expect(admit().status).toBe('alreadyAdmitted')
     expect(bus).toHaveLength(2)
     expect(admitted(bus)).toMatchObject([{ source: ADMIT_SOURCE }, { source: AMEND_SOURCE }])
@@ -320,7 +322,8 @@ describe('intake confirmation gate', () => {
     writeFileSync(file, `card: #81 root-card [implement/runner/S/cheap/owner] · depends — · blocks —\nbranch: feat/card-81\ntouches: src/a.ts\ncontinue: stop\nwho: shift\n\nDo the thing.\n`)
     const bus: CardEvent[] = []
     expect(runAdmit({ file, dir: w.repo, dryRun: false, autoConfirm: false, parkingRoot: w.parking, events: event => bus.push(event) }).status).toBe('admitted')
-    expect(bus).toMatchObject([{ type: CARD_ADMITTED, cardId: 81, payload: { card: expect.stringMatching(/^#81 root-card /), lane: null } }])
+    expect(bus).toMatchObject([{ type: CARD_ADMITTED, cardId: 81, payload: { card: expect.stringMatching(/^#81 root-card /) } }])
+    expect(bus[0]!.payload).not.toHaveProperty('lane')
     expect(admitted(bus)).toMatchObject([{ task: '81', source: ADMIT_SOURCE }])
   })
 
@@ -332,7 +335,8 @@ describe('intake confirmation gate', () => {
     writeFileSync(file, `card: #82 stray-card [implement/runner/S/cheap/owner] · depends — · blocks —\nbranch: feat/card-82\ntouches: src/a.ts\ncontinue: stop\nwho: shift\n\nDo the thing.\n`)
     const bus: CardEvent[] = []
     expect(runAdmit({ file, dir: w.repo, dryRun: false, autoConfirm: false, parkingRoot: w.parking, events: event => bus.push(event) }).status).toBe('admitted')
-    expect(bus).toMatchObject([{ type: CARD_ADMITTED, cardId: 82, payload: { lane: null } }])
+    expect(bus).toMatchObject([{ type: CARD_ADMITTED, cardId: 82 }])
+    expect(bus[0]!.payload).not.toHaveProperty('lane')
     expect(admitted(bus)).toMatchObject([{ task: '82', source: ADMIT_SOURCE }])
   })
 })
