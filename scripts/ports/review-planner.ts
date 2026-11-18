@@ -9,13 +9,22 @@ const PLAN_OUTPUT_LIMIT = 1 << 26
 
 export function plannerProcess(cwd: string, request: string, signal: AbortSignal): Promise<string> {
   return new Promise<string>((resolve, reject) => {
-    const child = execFile(process.execPath, [...PLANNER_ARGUMENTS], { cwd, encoding: 'utf8', maxBuffer: PLAN_OUTPUT_LIMIT, signal, killSignal: 'SIGKILL' }, (error, stdout) => {
+    const ended = new AbortController()
+    const child = execFile(process.execPath, [...PLANNER_ARGUMENTS], { cwd, encoding: 'utf8', maxBuffer: PLAN_OUTPUT_LIMIT, killSignal: 'SIGKILL' }, (error, stdout) => {
+      ended.abort()
       if (error !== null) {
         reject(error)
         return
       }
       resolve(stdout)
     })
+    const killPlanner = (): void => {
+      child.kill('SIGKILL')
+    }
+    if (signal.aborted)
+      killPlanner()
+    else
+      signal.addEventListener('abort', killPlanner, { once: true, signal: ended.signal })
     child.stdin?.on('error', () => {})
     child.stdin?.end(request)
   })
