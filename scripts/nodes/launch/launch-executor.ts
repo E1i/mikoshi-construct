@@ -57,7 +57,7 @@ export type ChildExit = (exit: number | null, signal: NodeJS.Signals | null) => 
 
 export interface QueuedCard {
   cardId: number
-  lane: string
+  lane: string | null
   continueIn?: HeldTree
 }
 
