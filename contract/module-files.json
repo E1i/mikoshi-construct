@@ -1151,6 +1151,7 @@
     "contract/module-files.json",
     "declarations/contention/bus-restart.json",
     "declarations/entries/busAdmissions.json",
+    "declarations/entries/busCardAutomaton.json",
     "declarations/entries/busCloseExecutor.json",
     "declarations/entries/busComposition.json",
     "declarations/entries/busDatabase.json",
