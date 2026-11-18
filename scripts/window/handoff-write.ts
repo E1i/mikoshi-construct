@@ -55,7 +55,7 @@ const QUESTION_LABEL = 'question'
 const OPEN_WAIT_ENTRY = /^Q\d+ open\b/
 const WAIT_ID_ROOM = 'Q99999'
 
-export type HandoffState = Pick<Board, 'ready' | 'blocked' | 'waitsAt' | 'lanes' | 'execution'>
+export type HandoffState = Pick<Board, 'ready' | 'blocked' | 'waitsAt' | 'execution'>
 export type StateReading = { kind: 'read', state: HandoffState } | { kind: 'unread', why: string }
 export type QuestionReading = { kind: 'read', id: string } | { kind: 'unread', why: string }
 export type MergedReading = { kind: 'read', cards: number[], merges: number, updates: number } | { kind: 'unread', why: string }
@@ -118,7 +118,7 @@ function inFlightEntry(row: HandoffState['execution'][number]): string {
 }
 
 export function stateLines(state: HandoffState): string[] {
-  const current = state.lanes.filter(lane => lane.card !== null).map(lane => `#${lane.card} ${lane.lane} ${lane.state}`)
+  const current = state.execution.filter(row => row.pr === null).map(row => `#${row.card} ${row.stage}`)
   const inFlight = state.execution.filter(row => !row.markers.includes(MERGE_PAST_THE_BUS))
   return [
     `current card: ${joinedOrNothing(current, '; ')}`,

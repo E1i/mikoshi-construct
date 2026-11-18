@@ -55,7 +55,6 @@ const BUS_STATE: HandoffState = {
   ready: [queued(650, 'lane-1', 'launch', 'startable'), queued(652, 'lane-1', 'launch', 'startable')],
   blocked: [HELD_ON_A_QUESTION],
   waitsAt: WAITS_AT,
-  lanes: [{ lane: 'lane-1', card: 648, state: 'running', since: null }, { lane: 'lane-2', card: null, state: null, since: null }],
   execution: [{ card: 648, pr: null, stage: 'writing', since: null, review: null, markers: [] }, { card: 640, pr: 701, stage: 'awaiting merge', since: null, review: null, markers: [] }],
 }
 const HANDOFF_WRITE = fileURLToPath(new URL('../../window/handoff-write.ts', import.meta.url))
@@ -484,7 +483,7 @@ describe('handoff:write', () => {
     expect(result.err).toEqual([])
     expect(result.code).toBe(0)
     const written = readFileSync(handoff, 'utf8')
-    expect(written).toContain(`## STOP — window, 2026-10-17, session 2, boundary: none\nprev: none\ncurrent card: #648 lane-1 running\nqueue: #650 → #652\nin-flight:\n- #648 writing\n- #640 awaiting-merge PR #701\n${BLOCKED_LINE}`)
+    expect(written).toContain(`## STOP — window, 2026-10-17, session 2, boundary: none\nprev: none\ncurrent card: #648 writing\nqueue: #650 → #652\nin-flight:\n- #648 writing\n- #640 awaiting-merge PR #701\n${BLOCKED_LINE}`)
     expect(written).toContain('stop reason: none\n')
     expect(written).toContain('continue when: continue-when value\n')
     expect(result.out[0]).toContain(`${STATE_FIELDS.join(', ')} from the bus state`)
@@ -494,7 +493,7 @@ describe('handoff:write', () => {
     const { handoff, draft: file } = world()
     writeFileSync(file, withoutStateFields(draft()))
     expect(write([handoff, file]).code).toBe(1)
-    busState = { kind: 'read', state: { ready: [], blocked: [], waitsAt: WAITS_AT, lanes: [], execution: [] } }
+    busState = { kind: 'read', state: { ready: [], blocked: [], waitsAt: WAITS_AT, execution: [] } }
     expect(write([handoff, file]).code).toBe(0)
     expect(readFileSync(handoff, 'utf8')).toContain(`current card: none\nqueue: none\nin-flight: none\nblocked: none (read at event ${WAITS_AT})\n`)
   })

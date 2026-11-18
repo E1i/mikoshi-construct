@@ -4725,9 +4725,9 @@
         ],
         "functions": {
           "backlogCards": "(cards: BusCard[], at: string, all: boolean): BusCard[]",
+          "byStage": "(cards: readonly BusCard[]): BusCard[]",
           "counted": "(count: number, noun: string): string",
           "isLive": "(card: BusCard): boolean",
-          "laneColumns": "(cards: BusCard[]): (string | null)[]",
           "liftedByTheWindow": "(wait: OwnerWait): boolean",
           "markedName": "(name: string, card: BusCard): string",
           "matrixLines": "(facts: BusFacts, lore: Lore): string[]",
