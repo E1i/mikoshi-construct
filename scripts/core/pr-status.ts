@@ -3,8 +3,7 @@ import { existsSync } from 'node:fs'
 import path from 'node:path'
 import { appendEvent } from './db.js'
 import { CARD_STOPPED, COMMAND_EXECUTED, DECISION_RECORDED, MERGE_DONE, POLICY_DENIED, PR_OPENED, PR_STATUS_REFUSED, PR_STATUS_SET, REVIEW_RECORDED, TASK_LEASED, WITNESS_RECORDED } from './events.js'
-import { NODE_CURSORS } from './node.js'
-import { lastEventId } from './watermark.js'
+import { moveCursor, openCursor } from './node.js'
 
 export const PREFIX = '[bus:pr-status] '
 export const STATUS_CURSOR = 'pr-status'
@@ -118,15 +117,6 @@ const OPEN_ON_HEAD = `SELECT 1 FROM prs WHERE pr = ? AND head = ? AND state = 'o
 export const LAST_STATUS_SET_ON_HEAD = `SELECT json_extract(payload, '$.step') AS step, json_extract(payload, '$.state') AS state FROM events WHERE type = '${PR_STATUS_SET}' AND legacy = 0 AND pr = ? AND head = ? ORDER BY id DESC LIMIT 1`
 const WITNESS_VERDICT_BEFORE = `SELECT 1 FROM events WHERE type = '${WITNESS_RECORDED}' AND legacy = 0 AND pr = ? AND head = ? AND id < ? LIMIT 1`
 
-function cursorOf(db: DatabaseSync): number {
-  db.prepare(`INSERT INTO ${NODE_CURSORS} (kind, event_id) VALUES (?, ?) ON CONFLICT (kind) DO NOTHING`).run(STATUS_CURSOR, lastEventId(db))
-  return Number((db.prepare(`SELECT event_id FROM ${NODE_CURSORS} WHERE kind = ?`).get(STATUS_CURSOR) as { event_id: number }).event_id)
-}
-
-function moveCursor(db: DatabaseSync, eventId: number): void {
-  db.prepare(`UPDATE ${NODE_CURSORS} SET event_id = ? WHERE kind = ?`).run(eventId, STATUS_CURSOR)
-}
-
 function isOnOpenHead(db: DatabaseSync, status: StepStatus): boolean {
   return db.prepare(OPEN_ON_HEAD).get(status.pr, status.head) !== undefined
 }
@@ -143,10 +133,10 @@ function isWitnessLeaseAfterItsVerdict(db: DatabaseSync, event: StepEvent, statu
 export function setStepStatuses(db: DatabaseSync, post: GitHubPost, now: () => Date = () => new Date(), batch = STATUS_BATCH): StepStatus[] {
   const set: StepStatus[] = []
   const nextStep = db.prepare(NEXT_STEP_AFTER)
-  for (let event = nextStep.get(cursorOf(db), ...STEP_EVENTS) as StepEvent | undefined; event !== undefined && set.length < batch; event = nextStep.get(event.id, ...STEP_EVENTS) as StepEvent | undefined) {
+  for (let event = nextStep.get(openCursor(db, STATUS_CURSOR), ...STEP_EVENTS) as StepEvent | undefined; event !== undefined && set.length < batch; event = nextStep.get(event.id, ...STEP_EVENTS) as StepEvent | undefined) {
     const status = stepStatusOf(withPrHead(db, event))
     if (status === null || !isOnOpenHead(db, status) || isWitnessLeaseAfterItsVerdict(db, event, status) || isAlreadySet(db, status)) {
-      moveCursor(db, event.id)
+      moveCursor(db, STATUS_CURSOR, event.id)
       continue
     }
     const endpoint = `repos/{owner}/{repo}/statuses/${status.head}`
@@ -167,7 +157,7 @@ export function setStepStatuses(db: DatabaseSync, post: GitHubPost, now: () => D
       payload: { event_id: event.id, step: status.step, state: status.state, status: response.status },
       legacy: false,
     })
-    moveCursor(db, event.id)
+    moveCursor(db, STATUS_CURSOR, event.id)
     set.push(refused ? { ...status, refused: response.status } : status)
   }
   return set

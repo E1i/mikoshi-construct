@@ -228,18 +228,29 @@ function declaredModules(root: string | undefined): readonly ModuleDeclaration[]
 
 export function busCardEvents(db: DatabaseSync, session: string = SESSION_BY_HAND, release?: string, declarationsRoot?: string): CardEventPort {
   const actor = `${INTAKE_ACTOR_PREFIX}${session}`
-  return event => inTransaction(db, () => {
+  const modules = (): readonly ModuleDeclaration[] => declaredModules(declarationsRoot)
+  const refuseUnowned = (events: readonly CardEvent[], declared: readonly ModuleDeclaration[]): void => {
+    for (const event of events) {
+      const unowned = createsOwnerRefusalOf(declared, event)
+      if (unowned !== null)
+        throw new Error(unowned)
+    }
+  }
+  const record = (event: CardEvent): void => {
     if (needsAnAdmission(event) && db.prepare(ANY_ADMISSION).get(event.cardId) === undefined)
       throw new Error(`Refused: #${event.cardId} has no card.admitted in the bus, so the bus cannot hold its move; admit it first. Nothing was moved.`)
-    const unowned = event.type === CARD_ADMITTED ? createsOwnerRefusalOf(declaredModules(declarationsRoot), event) : null
-    if (unowned !== null)
-      throw new Error(unowned)
     appendCardEvent(db, actor, laid(db, event))
     registerPlan(db, event, release)
     const admitted = event.type === CARD_MOVED ? admissionOfMove(db, event) : null
     if (admitted !== null)
       appendCardEvent(db, actor, admitted)
-  })
+  }
+  const recordAll = (events: readonly CardEvent[]): void => {
+    if (events.some(event => event.type === CARD_ADMITTED))
+      refuseUnowned(events, modules())
+    inTransaction(db, () => events.forEach(record))
+  }
+  return Object.assign((event: CardEvent) => recordAll([event]), { allOrNothing: recordAll })
 }
 
 export function busHeldCards(db: DatabaseSync): CardsOfTheBus {
