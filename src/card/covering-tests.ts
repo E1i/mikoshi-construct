@@ -29,10 +29,9 @@ export const DECLARED_PATH_READERS: Readonly<Record<string, readonly string[]>> 
   'contract/contours/ledger-row.schema.json': [`${FACTORY_ROOT}/ladder/watch-ledger.ts`],
   'contract/contours/review-verdict.schema.json': [`${FACTORY_ROOT}/ladder/handoff.ts`],
 }
-const ONE_WRITER_PER_TABLE_TEST = `${FACTORY_ROOT}/tests/contract/one-writer-per-table.test.ts`
 export const SCANNED_TREES: Readonly<Record<string, readonly string[]>> = {
-  'src/': ['tests/dependency-policy.test.ts', 'tests/graph-command.test.ts', 'tests/every-source-has-a-reader.test.ts', 'tests/intake-command-word.test.ts', 'tests/delivery-boundary.test.ts', 'tests/contract/factory.test.ts', 'tests/contract/accepted.test.ts', FACTORY_NAMED.eventsTest, FACTORY_NAMED.noParkingReadsTest, FACTORY_NAMED.journalGuardTest, FACTORY_NAMED.factoryPathsTest, FACTORY_NAMED.clientSealTest, ONE_WRITER_PER_TABLE_TEST],
-  [`${FACTORY_ROOT}/`]: ['tests/graph-command.test.ts', 'tests/contract/factory.test.ts', 'tests/contract/accepted.test.ts', FACTORY_NAMED.sqliteTest, FACTORY_NAMED.factoryPathsTest, FACTORY_NAMED.eventsTest, FACTORY_NAMED.noParkingReadsTest, FACTORY_NAMED.journalGuardTest, FACTORY_NAMED.clientSealTest, ONE_WRITER_PER_TABLE_TEST],
+  'src/': ['tests/dependency-policy.test.ts', 'scripts/tests/contract/one-writer-per-table.test.ts', 'tests/graph-command.test.ts', 'tests/every-source-has-a-reader.test.ts', 'tests/intake-command-word.test.ts', 'tests/delivery-boundary.test.ts', 'tests/contract/factory.test.ts', 'tests/contract/accepted.test.ts', FACTORY_NAMED.eventsTest, FACTORY_NAMED.noParkingReadsTest, FACTORY_NAMED.journalGuardTest, FACTORY_NAMED.factoryPathsTest, FACTORY_NAMED.clientSealTest],
+  [`${FACTORY_ROOT}/`]: ['tests/graph-command.test.ts', 'scripts/tests/contract/one-writer-per-table.test.ts', 'tests/contract/factory.test.ts', 'tests/contract/accepted.test.ts', FACTORY_NAMED.sqliteTest, FACTORY_NAMED.factoryPathsTest, FACTORY_NAMED.eventsTest, FACTORY_NAMED.noParkingReadsTest, FACTORY_NAMED.journalGuardTest, FACTORY_NAMED.clientSealTest],
   'templates/ai/claude/': [FACTORY_NAMED.clientSealTest],
   ...scannedBy([
     [FACTORY_FOLDERS.sharedCode, [FACTORY_NAMED.layersTest]],
