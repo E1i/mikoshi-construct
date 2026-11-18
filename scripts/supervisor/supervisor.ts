@@ -43,6 +43,7 @@ import { beatsLive, SILENT_MS } from './liveness-sites.js'
 import { installedGeneration, ownPackage } from './package-generation.js'
 import { generationEnv, identifiedOnBus, identifiedProcesses, readableRows, recordedPidLives, runningAs } from './recorded-worker.js'
 import { busShadowProblems, startReviewWorker } from './review-bg.js'
+import { ShardTerm } from './shard-term.js'
 import { NOTHING_RECORDED, recordedThenSent, RESTART_WHY, signalLog, stopSending } from './signal-sent.js'
 import { stampLogOutput } from './stamp.js'
 import { WindowSubagentTick } from './window-subagent-tick.js'
@@ -886,6 +887,7 @@ export interface SupervisingParts {
   windowEnds?: WindowSessionEnds
   windowSubagents?: Pick<WindowSubagentTick, 'step'>
   order?: { step: () => string[] }
+  shardTerm?: Pick<ShardTerm, 'step'>
   handover?: Pick<GenerationHandover, 'step'>
   relaunch: Readonly<{ busDir: string, start?: NonNullable<AgentHand['start']>, generation?: Pick<BusCode, 'head'> | null }>
   print: (line: string) => void
@@ -907,7 +909,7 @@ export async function superviseUntilReplaced(parts: SupervisingParts): Promise<v
     const lines = await parts.supervisor.step()
     const head = parts.supervisor.ownCodeBehind
     const replacement = head === null ? { lines: [], replaced: false } : replacedBy(head, (parts.relaunch.start ?? startDetached)(SUPERVISOR_LAUNCH, parts.relaunch.busDir, generationEnv(parts.relaunch.generation ?? { head: () => head }), outsideOwnGroup()))
-    const ticked = [...lines, ...replacement.lines, ...replacement.replaced ? [] : [...parts.keeper.step(), ...await parts.judge?.step() ?? [], ...parts.windowEnds?.step() ?? [], ...parts.windowSubagents?.step() ?? [], ...parts.order?.step() ?? [], ...await parts.handover?.step() ?? []]]
+    const ticked = [...lines, ...replacement.lines, ...replacement.replaced ? [] : [...parts.keeper.step(), ...await parts.judge?.step() ?? [], ...parts.windowEnds?.step() ?? [], ...parts.windowSubagents?.step() ?? [], ...parts.order?.step() ?? [], ...parts.shardTerm?.step() ?? [], ...await parts.handover?.step() ?? []]]
     for (const line of [...ticked, ...await parts.heal?.step(ticked) ?? [], ...parts.snapshot?.step() ?? []])
       parts.print(line)
     if (replacement.replaced)
@@ -948,15 +950,10 @@ export type BgCommand
 export function bgCommand(argv: string[]): BgCommand {
   if (argv.includes(SUPERVISE_FLAG))
     return { kind: 'supervise' }
-  for (const [flag, on] of [[ON_FLAG, true], [OFF_FLAG, false]] as const) {
+  for (const [flag, kind, on] of [[ON_FLAG, 'switch', true], [OFF_FLAG, 'switch', false], [LIVE_ON_FLAG, 'detection', true], [LIVE_OFF_FLAG, 'detection', false]] as const) {
     const index = argv.indexOf(flag)
     if (index !== -1)
-      return { kind: 'switch', worker: argv[index + 1] ?? '', on }
-  }
-  for (const [flag, live] of [[LIVE_ON_FLAG, true], [LIVE_OFF_FLAG, false]] as const) {
-    const index = argv.indexOf(flag)
-    if (index !== -1)
-      return { kind: 'detection', worker: argv[index + 1] ?? '', live }
+      return kind === 'switch' ? { kind, worker: argv[index + 1] ?? '', on } : { kind, worker: argv[index + 1] ?? '', live: on }
   }
   return { kind: 'start' }
 }
@@ -1037,6 +1034,7 @@ async function supervise(busDir: string, cwd: string, reviewPreflight: () => str
       windowEnds: new WindowSessionEnds(db, cwd, () => Date.now(), PREFIX),
       windowSubagents: new WindowSubagentTick(db, cwd, () => Date.now(), PREFIX),
       order: busOrderTick(db, cwd),
+      shardTerm: new ShardTerm(db, () => Date.now(), PREFIX),
       handover: new GenerationHandover(db, livesIn(), () => Date.now(), running => stopInstance(running, readableRows(), sleep, signalLog(db, DRAIN_WHY))),
       heal: new BusHealer({ busPath, nodes, now: () => new Date(), projections: busProjections(), watch: new CorruptionWatch(busLaunches(reviewPreflight).map(launch => path.join(busDir, launch.log))) }),
       snapshot: new BusSnapshot({ db, busPath, file: snapshotPathOf(busPath), now: () => Date.now(), paused: () => nodes.held() }),
