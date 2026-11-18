@@ -682,7 +682,6 @@
     "scripts/tests/composition/files.test.ts",
     "scripts/tests/composition/model.test.ts",
     "scripts/tests/composition/render.test.ts",
-    "scripts/tests/contract/bus-cut/card-contract-to-card-record.test.ts",
     "scripts/tests/contract/bus-cut/events-decided.test.ts",
     "scripts/tests/contract/bus-cut/lease-liveness-injected.test.ts",
     "scripts/tests/contract/bus-cut/lease-task-must-wait.test.ts",
