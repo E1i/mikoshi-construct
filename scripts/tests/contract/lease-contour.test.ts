@@ -34,14 +34,14 @@ function headNumbers(): RatchetNumbers {
 }
 
 describe('the lease contour', () => {
-  it('core/lease.ts imports no card-automaton and no session module; card transitions arrive from the composition', () => {
+  it('core/lease.ts does not import card-automaton', () => {
     const imported = relativeImportsOf(LEASE)
     expect(imported).not.toContain(CARD_AUTOMATON)
     expect(imported.filter(file => ownerOf(MODULE_GRAPH, file).includes(SESSION))).toEqual([])
     expect(typeof cardTransitions().appendedOnCard).toBe('function')
   })
 
-  it('boundary:bus->session is 0 and no boundary or lines row grows over the base', () => {
+  it('no boundary or lines row grows over the per-symbol normalized base', () => {
     const base = baseRecord()
     const head = headNumbers()
     expect(head[BUS_TO_SESSION] ?? 0).toBe(0)
