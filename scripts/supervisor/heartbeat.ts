@@ -6,7 +6,7 @@ import { realpathSync } from 'node:fs'
 import os from 'node:os'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { appendEvent, defaultBusPath, HEARTBEATS, inTransaction, openBus, recordBeat } from '../core/db.js'
+import { appendEvent, defaultBusPath, HEARTBEATS, inTransaction, openBus, recordBeat, retirePreviousGenerationBeats } from '../core/db.js'
 import { PROCESS_HEARTBEAT, SESSION_HEARTBEAT, WINDOW_HEARTBEAT } from '../core/events.js'
 import { isFullSha, prOf } from '../core/identifiers.js'
 import { LEASE_FOLDS } from '../core/lease.js'
@@ -67,20 +67,7 @@ export function lastProcessBeats(db: DatabaseSync): ProcessBeat[] {
   return (db.prepare(LAST_PROCESS_BEATS).all() as { name: string, ts: string }[]).map(row => ({ process: row.name, ts: row.ts }))
 }
 
-export const RETIRED_FIELD = 'retired'
-
 const PID_OF_PROCESS = /:([1-9]\d*)$/
-
-const PREVIOUS_GENERATION_ROWS = `
-  SELECT process, ts FROM ${HEARTBEATS}
-  WHERE type = '${PROCESS_HEARTBEAT}' AND ts < ? AND json_extract(payload, '$.${RETIRED_FIELD}') IS NULL
-  ORDER BY process
-`
-
-const RETIRE_ROW = `
-  UPDATE ${HEARTBEATS} SET payload = json_set(payload, '$.${RETIRED_FIELD}', ?)
-  WHERE process = ? AND type = '${PROCESS_HEARTBEAT}' AND ts = ? AND json_extract(payload, '$.${RETIRED_FIELD}') IS NULL
-`
 
 export function pidOfProcess(name: string): number | null {
   const found = PID_OF_PROCESS.exec(name)
@@ -88,12 +75,10 @@ export function pidOfProcess(name: string): number | null {
 }
 
 export function retirePreviousGeneration(db: DatabaseSync, generationStart: string, ts: string, pidGone: (pid: number) => boolean): string[] {
-  const rows = db.prepare(PREVIOUS_GENERATION_ROWS).all(generationStart) as { process: string, ts: string }[]
-  const gone = rows.filter((row) => {
-    const pid = pidOfProcess(row.process)
+  return retirePreviousGenerationBeats(db, generationStart, ts, (name) => {
+    const pid = pidOfProcess(name)
     return pid !== null && pidGone(pid)
   })
-  return gone.filter(row => Number(db.prepare(RETIRE_ROW).run(ts, row.process, row.ts).changes) === 1).map(row => row.process)
 }
 
 export function retiredRowsLines(prefix: string, retired: readonly string[]): string[] {

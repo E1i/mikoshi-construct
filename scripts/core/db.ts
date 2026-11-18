@@ -5,7 +5,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { parseCard } from '../../src/card/grammar.js'
 import { CLOSED_WAIT, OPEN_WAIT, OWNER_WAIT_NEEDS, OWNER_WAITS } from './bus-readings.js'
-import { OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED } from './events.js'
+import { OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PROCESS_HEARTBEAT } from './events.js'
 import { isActor, isFullSha, prOf } from './identifiers.js'
 import { openDatabase } from './sqlite.js'
 
@@ -193,6 +193,25 @@ export function recordBeat(db: DatabaseSync, beat: Beat): boolean {
     ON CONFLICT (process, type) DO UPDATE SET ts = excluded.ts, payload = excluded.payload WHERE excluded.ts >= ${HEARTBEATS}.ts
   `).run(beat.process, beat.type, beat.ts, JSON.stringify(beat.payload))
   return Number(result.changes) === 1
+}
+
+export const RETIRED_FIELD = 'retired'
+
+const PREVIOUS_GENERATION_BEATS = `
+  SELECT process, ts FROM ${HEARTBEATS}
+  WHERE type = '${PROCESS_HEARTBEAT}' AND ts < ? AND json_extract(payload, '$.${RETIRED_FIELD}') IS NULL
+  ORDER BY process
+`
+
+const RETIRE_BEAT = `
+  UPDATE ${HEARTBEATS} SET payload = json_set(payload, '$.${RETIRED_FIELD}', ?)
+  WHERE process = ? AND type = '${PROCESS_HEARTBEAT}' AND ts = ? AND json_extract(payload, '$.${RETIRED_FIELD}') IS NULL
+`
+
+export function retirePreviousGenerationBeats(db: DatabaseSync, generationStart: string, ts: string, processGone: (process: string) => boolean): string[] {
+  const rows = db.prepare(PREVIOUS_GENERATION_BEATS).all(generationStart) as { process: string, ts: string }[]
+  const retire = db.prepare(RETIRE_BEAT)
+  return rows.filter(row => processGone(row.process) && Number(retire.run(ts, row.process, row.ts).changes) === 1).map(row => row.process)
 }
 
 const ADDED_COLUMNS: readonly (readonly [string, string, string])[] = [['prs', 'body_sha', 'TEXT'], ['plans', 'gate', 'TEXT'], ['decisions', 'until', 'TEXT'], ['decisions', 'supersedes', 'TEXT'], ['decisions', 'state', `TEXT NOT NULL DEFAULT '${DECISION_IN_FORCE}'`]]

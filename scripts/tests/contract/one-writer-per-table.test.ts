@@ -17,6 +17,7 @@ const TABLE_OF_CONSTANT: Readonly<Record<string, string>> = {
 
 const WRITERS_OF_TABLE: Readonly<Record<string, readonly string[]>> = {
   node_cursors: ['scripts/core/node.ts'],
+  heartbeats: ['scripts/core/db.ts'],
 }
 
 function sourceFiles(relative: string): string[] {
