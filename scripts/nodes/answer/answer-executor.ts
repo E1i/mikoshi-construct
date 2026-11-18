@@ -17,10 +17,10 @@ import { riskOf } from '../../../src/card/risk.js'
 import { answersWithdrawnByAClosedHold, holdRecheckAt, LIVE_SESSION_IN_THE_TREE, queueAgain, sessionStopOf } from '../../core/card-hold.js'
 import { appendEvent, inTransaction, openBusWait } from '../../core/db.js'
 import { messageOf } from '../../core/errors.js'
-import { ANSWER_STEP, CARD_ANSWERED, CARD_RELEASED, CARD_STOPPED, OUTSIDE_TOUCHES, OWNER_WAIT_CLOSED, POLICY_DENIED, QUESTION_AGENT, QUESTION_OWNER, SCOPE_WIDENED } from '../../core/events.js'
+import { ANSWER_STEP, CARD_ANSWERED, CARD_RELEASED, OUTSIDE_TOUCHES, OWNER_WAIT_CLOSED, POLICY_DENIED, QUESTION_AGENT, SCOPE_WIDENED } from '../../core/events.js'
 import { assertHeld, completeTask, cutByRestart, failTask, releaseTask, RESTART_CUT, StaleLease, waitTask } from '../../core/lease.js'
 import { timeoutUnderLoadOutside } from '../../core/observations.js'
-import { answerOnAnOldCardBody, DOWNGRADE_WAIT_OPEN, downgradeWaitOpenOn, LEASED, openDecisionWaitsOf, QUEUED } from '../../core/queue.js'
+import { answerOnAnOldCardBody, DOWNGRADE_WAIT_OPEN, downgradeWaitOpenOn, latestAnswerOf, latestReleaseOf, latestWidenStopOf, LEASED, openDecisionWaitsOfCard, QUEUED } from '../../core/queue.js'
 import { OWNER_EVEN_UNDER_THE_DECISION } from '../../policy/policy.js'
 import { matchGlob } from '../../policy/shredder/glob.js'
 import { isRegisteredDerived, pathsIn, pathsOutside } from '../../policy/touch-scope.js'
@@ -506,36 +506,28 @@ export class AnswerExecutor {
   }
 }
 
-const LATEST_RELEASE_OF_CARD = `SELECT id, json_extract(payload, '$.request') AS request FROM events WHERE card_id = ? AND legacy = 0 AND type = '${CARD_RELEASED}' ORDER BY id DESC LIMIT 1`
-
 function answersQueuedAfterALateRelease(db: DatabaseSync, ts: string, cardId: number): string[] {
-  const release = db.prepare(LATEST_RELEASE_OF_CARD).get(cardId) as { id: number, request: unknown } | undefined
-  if (release === undefined || ownerHoldOf(db, cardId) !== null)
+  const release = latestReleaseOf(db, cardId)
+  if (release === null || ownerHoldOf(db, cardId) !== null)
     return []
-  const missed = answersWithdrawnByAClosedHold(db, cardId, Number(release.id))
-  const request = typeof release.request === 'number' ? release.request : null
-  missed.forEach(task => queueAgain(db, ts, task, request, `${CARD_RELEASED}-${Number(release.id)}`))
+  const missed = answersWithdrawnByAClosedHold(db, cardId, release.id)
+  missed.forEach(task => queueAgain(db, ts, task, release.request, `${CARD_RELEASED}-${release.id}`))
   return missed.map(task => task.task_key)
 }
 
-const LATEST_WIDEN_STOP_OF_CARD = `SELECT id, json_extract(payload, '$.detail') AS detail, json_extract(payload, '$.widen') AS widen FROM events WHERE card_id = ? AND legacy = 0 AND type = '${CARD_STOPPED}' AND json_extract(payload, '$.reason') = '${QUESTION_OWNER}' AND json_array_length(json_extract(payload, '$.widen')) > 0 ORDER BY id DESC LIMIT 1`
-
 export function closeWaitOfAWidenStopTheAmendLifted(db: DatabaseSync, ts: () => string, actor: string, cardId: number): string[] {
-  const stop = db.prepare(LATEST_WIDEN_STOP_OF_CARD).get(cardId) as { id: number, detail: unknown, widen: string } | undefined
+  const stop = latestWidenStopOf(db, cardId)
   const scope = admittedScopeOf(db, cardId)
-  if (stop === undefined || scope === null || scope.admission <= Number(stop.id))
+  if (stop === null || scope === null || scope.admission <= stop.id)
     return []
-  const widen = (JSON.parse(stop.widen) as unknown[]).filter((each): each is string => typeof each === 'string')
-  if (pathsOutside(scope.touches, scope.creates, widen).length > 0)
+  if (pathsOutside(scope.touches, scope.creates, stop.widen).length > 0)
     return []
   const asked = `card #${cardId} asks: ${String(stop.detail)}`
-  const waits = (db.prepare(openDecisionWaitsOf('?')).all(cardId) as { id: string, text: string }[]).filter(wait => wait.text === asked)
+  const waits = openDecisionWaitsOfCard(db, cardId).filter(wait => wait.text === asked)
   for (const wait of waits)
-    appendEvent(db, { ts: ts(), type: OWNER_WAIT_CLOSED, actor, cardId, pr: null, head: null, dedupeKey: `${OWNER_WAIT_CLOSED}:${wait.id}:widened-${Number(stop.id)}`, payload: { id: wait.id, answer: `the amend admitted as event ${scope.admission} covers ${widen.join(', ')}, the paths stop ${Number(stop.id)} refused` }, legacy: false })
+    appendEvent(db, { ts: ts(), type: OWNER_WAIT_CLOSED, actor, cardId, pr: null, head: null, dedupeKey: `${OWNER_WAIT_CLOSED}:${wait.id}:widened-${stop.id}`, payload: { id: wait.id, answer: `the amend admitted as event ${scope.admission} covers ${stop.widen.join(', ')}, the paths stop ${stop.id} refused` }, legacy: false })
   return waits.map(wait => wait.id)
 }
-
-const LATEST_ANSWER_OF_CARD = `SELECT task_key, queue, card_id, pr, head, state FROM tasks WHERE card_id = ? AND queue = 'answer' ORDER BY id DESC LIMIT 1`
 
 export interface AmendedStop {
   id: number
@@ -560,8 +552,8 @@ export function answerToResumeAfterAmend(db: DatabaseSync, cardId: number, stop:
   const uncovered = pathsOutside([...touchesAfterAmend(scope?.touches ?? [], delta)], scope?.creates ?? [], widen)
   if (widen.length === 0 || uncovered.length > 0)
     return `the stop ${stop.id} stays: card #${cardId} waits for ${widen.length === 0 ? 'the owner\'s answer to its question' : `touches that cover ${uncovered.join(', ')}`}, lifted by the owner's decision with --card #${cardId} or an amend`
-  const task = db.prepare(LATEST_ANSWER_OF_CARD).get(cardId) as QueueTaskRow | undefined
-  if (task === undefined)
+  const task = latestAnswerOf(db, cardId)
+  if (task === null)
     return `the stop ${stop.id} is settled and card #${cardId} has no answer task to resume: it waits for the bus to derive one from its pull request, or for the window's takeover`
   return task.state === QUEUED || task.state === LEASED ? `the answer ${task.task_key} is ${task.state} already` : task
 }
