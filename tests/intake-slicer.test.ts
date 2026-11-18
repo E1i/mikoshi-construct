@@ -4,7 +4,6 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { choose } from '../scripts/intake/parking.js'
 import { taskConflicts } from '../scripts/nodes/launch/overlap.js'
 import { parseParkingFile, WINDOW_WHO } from '../src/card/parking.js'
 import { TASK_FILE } from '../src/card/task-file.js'
@@ -72,12 +71,12 @@ function detail(result: IntakeResult): string[] {
   return result.status === 'refused' ? result.detail : []
 }
 
-function parkingCheck(root: string): { errors: string[], chosen: string[] } {
+function parkingCheck(root: string): string[] {
   const parking = path.join(root, 'parking')
   const parsed = readdirSync(parking).filter(file => TASK_FILE.test(file)).map(file => parseParkingFile(file, readFileSync(path.join(parking, file), 'utf8')))
-  const choice = choose(parsed.flatMap(entry => entry.kind === 'parked' ? [entry.parked] : []), new Set(), new Set())
+  const tasks = parsed.flatMap(entry => entry.kind === 'parked' ? [entry.parked.task] : [])
   const errors = parsed.flatMap(entry => entry.kind === 'refused' ? [entry.reason] : [])
-  return { errors: [...errors, ...taskConflicts(choice.chosen)], chosen: choice.chosen.map(task => task.file) }
+  return [...errors, ...taskConflicts(tasks)]
 }
 
 describe('intake slices a three-paragraph retelling into parking cards', () => {
@@ -104,7 +103,7 @@ describe('intake slices a three-paragraph retelling into parking cards', () => {
     const parking = path.join(root, 'parking')
     cards(intake(SLICED, '530', parking))
     rmSync(path.join(root, 'draft.json'))
-    expect(parkingCheck(root)).toEqual({ errors: [], chosen: ['531.md'] })
+    expect(parkingCheck(root)).toEqual([])
   })
 
   it('prints the cards and writes nothing on a dry run', () => {

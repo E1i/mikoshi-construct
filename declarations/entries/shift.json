@@ -3,7 +3,6 @@
   "group": "formerFolders",
   "paths": [
     "scripts/core/places.ts",
-    "scripts/intake/parking.ts",
     "scripts/ladder/brief-finish-cli.ts",
     "scripts/ladder/brief-finish.ts",
     "scripts/ladder/ladder.ts",

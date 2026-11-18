@@ -4,7 +4,6 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSyn
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { choose } from '../scripts/intake/parking.js'
 import { relation, taskConflicts } from '../scripts/nodes/launch/overlap.js'
 import { CHARACTERS_PER_TOKEN, DEFAULT_CARD_LINE, readingBudget, splitSignal } from '../src/card/complexity.js'
 import { parseParkingFile, WINDOW_WHO } from '../src/card/parking.js'
@@ -127,12 +126,12 @@ function sliced(result: IntakeResult) {
   return result.cards
 }
 
-function parkingCheck(root: string): { errors: string[], chosen: string[] } {
+function parkingCheck(root: string): string[] {
   const parking = path.join(root, 'parking')
   const parsed = readdirSync(parking).filter(file => TASK_FILE.test(file)).map(file => parseParkingFile(file, readFileSync(path.join(parking, file), 'utf8')))
-  const choice = choose(parsed.flatMap(entry => entry.kind === 'parked' ? [entry.parked] : []), new Set(), new Set())
+  const tasks = parsed.flatMap(entry => entry.kind === 'parked' ? [entry.parked.task] : [])
   const errors = parsed.flatMap(entry => entry.kind === 'refused' ? [entry.reason] : [])
-  return { errors: [...errors, ...taskConflicts(choice.chosen)], chosen: choice.chosen.map(task => task.file) }
+  return [...errors, ...taskConflicts(tasks)]
 }
 
 describe('the split signal reads the 04–05.10 cards as the owner did', () => {
@@ -197,7 +196,7 @@ describe('intake writes the slicing principle into a card the signal splits', ()
       const written = sliced(intake(root, verdict.slices.map(slice => draftCard(`slice-${slice.area}`, slice.touches))))
       const taken = written.filter(card => card.who === 'shift').map(card => card.file)
       expect(taken.length).toBeGreaterThan(0)
-      expect(parkingCheck(root)).toEqual({ errors: [], chosen: taken })
+      expect(parkingCheck(root)).toEqual([])
     })
   }
 

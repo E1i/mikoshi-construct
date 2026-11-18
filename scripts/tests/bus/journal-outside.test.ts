@@ -12,7 +12,7 @@ import { runShard } from '../../policy/shard.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..', '..')
 const JOURNAL_NAMES = /ghosts\.jsonl|GHOST_JOURNAL|journalOf\(/
-const READERS = ['scripts/policy/decisions/read.ts', 'scripts/policy/decisions/add.ts', 'scripts/window/watch.ts', 'scripts/intake/parking.ts', 'scripts/cli/check-catalog.ts']
+const READERS = ['scripts/policy/decisions/read.ts', 'scripts/policy/decisions/add.ts', 'scripts/window/watch.ts', 'scripts/cli/check-catalog.ts']
 const WRITERS = ['scripts/done/check.ts', 'scripts/policy/shard.ts', 'src/commands/mutate/journal.ts', 'src/commands/intake/index.ts']
 const FILE_APPENDS = /appendFileSync/
 const AFTER_THE_CUTOFF = new Date(Date.parse(JOURNAL_HISTORY_ENDS) + 86_400_000)
@@ -35,7 +35,7 @@ function source(file: string): string {
 }
 
 describe('the readers and writers of ghosts.jsonl outside the ladder use the bus', () => {
-  it('decisions, watch, parking and check-catalog read the bus and not ghosts.jsonl', () => {
+  it('decisions, watch and check-catalog read the bus and not ghosts.jsonl', () => {
     for (const reader of READERS)
       expect(source(reader), reader).not.toMatch(JOURNAL_NAMES)
     expect(source('scripts/cli/check-catalog.ts')).not.toMatch(/from '\.\.\/ghosts\//)

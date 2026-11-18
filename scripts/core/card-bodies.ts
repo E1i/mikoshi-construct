@@ -9,7 +9,7 @@ import { textSha } from '../../src/card/text-sha.js'
 import { parentsFromCardLines, pathsNamedOutside } from '../../src/commands/intake/admit.js'
 import { NOT_A_BACKFILL } from './backfill-source.js'
 import { CARD_VERSION, CARD_VERSION_KEY, cardVersionIn } from './bus-version.js'
-import { appendEvent, BUSY_TIMEOUT_MS, defaultBusPath, openBus } from './db.js'
+import { appendEvent, BUSY_TIMEOUT_MS } from './db.js'
 import { CARD_ADMITTED, CARD_ANSWERED, CARD_CONTINUED, CARD_STARTED, FACTORY_MODE, SLICE_PARENTS_BACKFILLED } from './events.js'
 import { openDatabase } from './sqlite.js'
 
@@ -281,16 +281,6 @@ export function backfillPendingSliceParents(db: DatabaseSync, ts: string): Slice
   if (Object.keys(transfer.cards).length === 0 && transfer.unread.length === 0)
     return null
   return { recorded: recordTransfer(db, ts, SLICE_PARENTS_BUS_ACTOR, transfer), transfer }
-}
-
-export function backfillSliceParentsOfBus(ts: string, file: string = defaultBusPath()): SliceParentsBackfill {
-  const db = openBus(file)
-  try {
-    return backfillSliceParents(db, ts)
-  }
-  finally {
-    db.close()
-  }
 }
 
 export function bodyNotFoldedYet(db: DatabaseSync, cardId: number): boolean {
