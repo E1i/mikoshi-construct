@@ -18,10 +18,11 @@
         ]
       },
       "artifact.removed": {
-        "complete": false,
+        "complete": true,
         "keys": [
           "by",
           "parked",
+          "patch",
           "path"
         ]
       },

@@ -9,7 +9,7 @@ import { busDirOf } from '../../../core/bus-path.js'
 import { appendEvent, CLOSED_WAIT, openOwnerWait } from '../../../core/db.js'
 import { ARTIFACT_REMOVED, BOARD_ALARM, CARD_ADMITTED, CARD_DROPPED, CARD_STARTED, PR_OBSERVED } from '../../../core/events.js'
 import { reduce } from '../../../core/reducer.js'
-import { cardTreeSweep, COMMITS_PATCH, gitWorktrees, recordEndedTrees, TREE_PATCH, UNSAVED } from '../../../nodes/close/ended-card-trees.js'
+import { BRANCH_LEFT, cardTreeSweep, gitWorktrees, recordEndedTrees, TREE_PATCH, UNSAVED } from '../../../nodes/close/ended-card-trees.js'
 import { TREE_LEFT } from '../../../nodes/review/review-worker.js'
 import { busProjections } from '../../../supervisor/composition.js'
 import { eventsOf, mergeBench } from '../../bus/merge-bench.js'
@@ -101,9 +101,10 @@ describe('card.dropped frees everything the card holds', () => {
 
     expect(existsSync(tree)).toBe(false)
     expect(branchListed()).toBe('')
-    expect(readFileSync(saved(COMMITS_PATCH), 'utf8')).toContain('+a committed line')
-    expect(readFileSync(saved(TREE_PATCH), 'utf8')).toContain('+an uncommitted line')
-    expect(eventsOf(bench.db, ARTIFACT_REMOVED)).toEqual([{ path: tree, by: SWEEPER, patch: saved(TREE_PATCH), commits: saved(COMMITS_PATCH), branch: BRANCH }])
+    const patch = readFileSync(saved(TREE_PATCH), 'utf8')
+    expect(patch).toContain('+a committed line')
+    expect(patch).toContain('+an uncommitted line')
+    expect(eventsOf(bench.db, ARTIFACT_REMOVED)).toEqual([{ path: tree, by: SWEEPER, patch: saved(TREE_PATCH) }])
     expect(eventsOf(bench.db, BOARD_ALARM)).toEqual([])
   })
 
@@ -139,6 +140,21 @@ describe('card.dropped frees everything the card holds', () => {
     dropped()
 
     expect(waitRow(wait)).toEqual({ state: CLOSED_WAIT, answer: `card #${CARD} dropped` })
+  })
+
+  it('a dropped card branch that cannot be deleted raises tree_left after its tree is saved and removed', () => {
+    const tree = startedInATreeWithWork()
+    dropped()
+    const real = gitWorktrees(repo)
+
+    sweep({ ...real, deleteBranch: () => {
+      throw new Error('branch locked')
+    } })
+
+    expect(existsSync(tree)).toBe(false)
+    expect(branchListed()).not.toBe('')
+    expect(eventsOf(bench.db, ARTIFACT_REMOVED)).toEqual([{ path: tree, by: SWEEPER, patch: saved(TREE_PATCH) }])
+    expect(eventsOf(bench.db, BOARD_ALARM)).toEqual([{ reason: TREE_LEFT, path: tree, detail: `${BRANCH_LEFT} ${BRANCH}: branch locked` }])
   })
 
   it('a dropped card tree whose patch cannot be written stays with its branch and raises tree_left', () => {

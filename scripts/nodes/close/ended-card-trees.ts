@@ -16,8 +16,8 @@ import { cardClosed, failureOf, parkedOrNull, treeMayBeReused } from './close-ex
 
 export const DIRTY = 'dirty'
 export const UNSAVED = 'unsaved'
+export const BRANCH_LEFT = 'branch left'
 export const TREE_PATCH = 'tree.patch'
-export const COMMITS_PATCH = 'commits.patch'
 const ENDED_TREES = ['probes', 'ended-trees']
 const MAIN_REFS = ['origin/main', 'main']
 const DETACHED = 'HEAD'
@@ -27,7 +27,6 @@ const DELETED_ONLY = /^[D ]{2} /
 
 export interface SavedTree {
   patch: string | null
-  commits: string | null
   branch: string | null
 }
 
@@ -48,7 +47,6 @@ export interface EndedTree {
   left: string | null
   parked?: string
   patch?: string
-  commits?: string
   branch?: string
   branchLeft?: string
 }
@@ -88,8 +86,7 @@ function saveTree(tree: string, into: string): SavedTree {
   const head = git(tree, ['rev-parse', '--abbrev-ref', 'HEAD']).trim()
   const commits = git(tree, ['format-patch', '--stdout', '--binary', `${mainRefOf(tree)}..HEAD`])
   return {
-    commits: writtenOrNull(path.join(into, COMMITS_PATCH), commits),
-    patch: writtenOrNull(path.join(into, TREE_PATCH), uncommittedWorkOf(tree)),
+    patch: writtenOrNull(path.join(into, TREE_PATCH), `${commits}${uncommittedWorkOf(tree)}`),
     branch: head === DETACHED ? null : head,
   }
 }
@@ -123,10 +120,9 @@ function changesOf(status: string): string[] {
   return status.split('\n').filter(line => line !== '')
 }
 
-function savedFields(saved: SavedTree, dropped: boolean): Pick<EndedTree, 'patch' | 'commits' | 'branch'> {
+function savedFields(saved: SavedTree, dropped: boolean): Pick<EndedTree, 'patch' | 'branch'> {
   return {
     ...(saved.patch === null ? {} : { patch: saved.patch }),
-    ...(saved.commits === null ? {} : { commits: saved.commits }),
     ...(dropped && saved.branch !== null ? { branch: saved.branch } : {}),
   }
 }
@@ -157,8 +153,7 @@ export class EndedCardTrees {
       return tree
     }
     catch (error) {
-      const { branch, ...kept } = tree
-      return { ...kept, branchLeft: `${branch}: ${failureOf(error)}` }
+      return { ...tree, branchLeft: `${BRANCH_LEFT} ${tree.branch}: ${failureOf(error)}` }
     }
   }
 
@@ -259,15 +254,18 @@ export function cardTreeSweep(db: DatabaseSync, env: NodeJS.ProcessEnv, busPath:
   return new EndedCardTrees(db, roots.homes, git, clock, [roots.perBus], cwds, busDirOf(busPath))
 }
 
-function removedDetail(tree: EndedTree): Record<string, string> {
-  const { parked, patch, commits, branch, branchLeft } = tree
-  return Object.fromEntries(Object.entries({ parked, patch, commits, branch, branchLeft }).filter((entry): entry is [string, string] => entry[1] !== undefined))
+function treeLeft(db: DatabaseSync, actor: string, ts: string, tree: EndedTree, what: string, detail: string): void {
+  appendEvent(db, { ts, type: BOARD_ALARM, actor, cardId: tree.cardId, pr: null, head: null, dedupeKey: `${BOARD_ALARM}:${TREE_LEFT}:${tree.path}${what}:${actor}`, payload: { reason: TREE_LEFT, path: tree.path, detail }, legacy: false })
 }
 
 export function recordEndedTrees(db: DatabaseSync, actor: string, ts: string, trees: EndedTree[]): void {
   for (const tree of trees) {
-    appendEvent(db, tree.left === null
-      ? { ts, type: ARTIFACT_REMOVED, actor, cardId: tree.cardId, pr: null, head: null, dedupeKey: `${ARTIFACT_REMOVED}:${tree.cardId}:${tree.path}`, payload: { path: tree.path, by: actor, ...removedDetail(tree) }, legacy: false }
-      : { ts, type: BOARD_ALARM, actor, cardId: tree.cardId, pr: null, head: null, dedupeKey: `${BOARD_ALARM}:${TREE_LEFT}:${tree.path}:${actor}`, payload: { reason: TREE_LEFT, path: tree.path, detail: tree.left }, legacy: false })
+    if (tree.left !== null) {
+      treeLeft(db, actor, ts, tree, '', tree.left)
+      continue
+    }
+    appendEvent(db, { ts, type: ARTIFACT_REMOVED, actor, cardId: tree.cardId, pr: null, head: null, dedupeKey: `${ARTIFACT_REMOVED}:${tree.cardId}:${tree.path}`, payload: { path: tree.path, by: actor, ...(tree.parked === undefined ? {} : { parked: tree.parked }), ...(tree.patch === undefined ? {} : { patch: tree.patch }) }, legacy: false })
+    if (tree.branchLeft !== undefined)
+      treeLeft(db, actor, ts, tree, `:${tree.branch}`, tree.branchLeft)
   }
 }
