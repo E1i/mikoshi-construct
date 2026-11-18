@@ -20,14 +20,12 @@ const substitute = vi.hoisted(() => ({ script: null as string | null, children: 
 
 vi.mock('node:child_process', async (importOriginal) => {
   const actual = await importOriginal<typeof ChildProcesses>()
-  const execFile = (file: string, args: readonly string[], options: ChildProcesses.ExecFileOptions, callback: (error: Error | null, stdout: string, stderr: string) => void): ChildProcesses.ChildProcess => {
-    const child = substitute.script === null
-      ? actual.execFile(file, args, options, callback as never)
-      : actual.execFile(file, ['-e', substitute.script], options, callback as never)
+  const spawn = (file: string, args: readonly string[], options: ChildProcesses.SpawnOptions): ChildProcesses.ChildProcess => {
+    const child = actual.spawn(file, substitute.script === null ? args : ['-e', substitute.script], options)
     substitute.children.push(child)
     return child
   }
-  return { ...actual, execFile }
+  return { ...actual, spawn }
 })
 
 const PRS = [1732, 1733] as const

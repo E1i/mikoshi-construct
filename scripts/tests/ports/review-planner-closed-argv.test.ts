@@ -8,26 +8,47 @@ const child = vi.hoisted(() => ({ runsUntilKilled: false }))
 
 vi.mock('node:child_process', async (original) => {
   const actual = await original<typeof import('node:child_process')>()
+  const { EventEmitter } = await import('node:events')
   return {
     ...actual,
-    execFile: (program: string, args: readonly string[], options: { cwd?: unknown, signal?: unknown, killSignal?: unknown }, done: (error: Error | null, stdout: string) => void) => {
+    spawn: (program: string, args: readonly string[], options: { cwd?: unknown, signal?: AbortSignal, killSignal?: unknown }) => {
       const call = { program, args, cwd: options.cwd, signal: options.signal, killSignal: options.killSignal, input: '', kills: [] as unknown[] }
       spawned.push(call)
-      if (!child.runsUntilKilled)
-        queueMicrotask(() => done(null, '{"depth":"full","why":"fake","prediction":null}\n'))
-      return {
-        kill: (signal: unknown) => {
-          call.kills.push(signal)
-          queueMicrotask(() => done(new Error(`killed by ${String(signal)}`), ''))
-          return true
-        },
+      const planning = Object.assign(new EventEmitter(), {
+        stdout: Object.assign(new EventEmitter(), { setEncoding: () => {} }),
+        stderr: Object.assign(new EventEmitter(), { setEncoding: () => {} }),
         stdin: {
           on: () => {},
           end: (text: string) => {
             call.input = text
           },
         },
+      })
+      let ended = false
+      const end = (code: number | null, signal: unknown): void => {
+        if (ended)
+          return
+        ended = true
+        planning.emit('close', code, signal)
       }
+      const killedByAbort = (): void => {
+        if (ended)
+          return
+        call.kills.push(options.killSignal ?? 'SIGTERM')
+        planning.emit('error', Object.assign(new Error('The operation was aborted'), { name: 'AbortError' }))
+        end(null, options.killSignal ?? 'SIGTERM')
+      }
+      if (options.signal?.aborted)
+        queueMicrotask(killedByAbort)
+      else
+        options.signal?.addEventListener('abort', killedByAbort, { once: true })
+      if (!child.runsUntilKilled) {
+        queueMicrotask(() => {
+          planning.stdout.emit('data', '{"depth":"full","why":"fake","prediction":null}\n')
+          end(0, null)
+        })
+      }
+      return planning
     },
   }
 })
@@ -76,10 +97,10 @@ describe('the review planner port', () => {
     const killsBeforeTheLimit = [...spawned[0]!.kills]
     abort.abort()
 
-    await expect(planned).rejects.toThrow('killed by SIGKILL')
+    await expect(planned).rejects.toThrow('aborted')
     expect(killsBeforeTheLimit).toEqual([])
     expect(spawned).toHaveLength(1)
-    expect(spawned[0]!.signal).toBeUndefined()
+    expect(spawned[0]!.killSignal).toBe('SIGKILL')
     expect(spawned[0]!.kills).toEqual(['SIGKILL'])
   })
 
@@ -88,7 +109,7 @@ describe('the review planner port', () => {
     abort.abort()
     child.runsUntilKilled = true
 
-    await expect(plannerProcess(REPO_ROOT, '{}', abort.signal)).rejects.toThrow('killed by SIGKILL')
+    await expect(plannerProcess(REPO_ROOT, '{}', abort.signal)).rejects.toThrow('aborted')
     expect(spawned[0]!.kills).toEqual(['SIGKILL'])
   })
 
