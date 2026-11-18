@@ -42,7 +42,6 @@ export const MODULE_OWNS: Readonly<Record<string, readonly string[]>> = {
     'src/card/task-file.ts',
     'src/card/risk.ts',
     'src/card/complexity.ts',
-    `${FACTORY_ROOT}/intake/card-contract.ts`,
     `${FACTORY_ROOT}/core/identifiers.ts`,
   ],
   'card-record': [
@@ -52,6 +51,7 @@ export const MODULE_OWNS: Readonly<Record<string, readonly string[]>> = {
     'src/card/witness-fields.ts',
     `${FACTORY_ROOT}/intake/admissions.ts`,
     `${FACTORY_ROOT}/intake/card-archive.ts`,
+    `${FACTORY_ROOT}/intake/card-contract.ts`,
     `${FACTORY_ROOT}/intake/witness-fields-backfill.ts`,
     `${FACTORY_ROOT}/intake/slice-parent-backfill.ts`,
     `${FACTORY_ROOT}/cli/card.ts`,

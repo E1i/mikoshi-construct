@@ -168,7 +168,6 @@
   ],
   "card-model": [
     "scripts/core/identifiers.ts",
-    "scripts/intake/card-contract.ts",
     "src/card/complexity.ts",
     "src/card/grammar.ts",
     "src/card/parking.ts",
@@ -181,6 +180,7 @@
     "scripts/core/card-bodies.ts",
     "scripts/intake/admissions.ts",
     "scripts/intake/card-archive.ts",
+    "scripts/intake/card-contract.ts",
     "scripts/intake/slice-parent-backfill.ts",
     "scripts/intake/witness-fields-backfill.ts",
     "src/card/text-sha.ts",
@@ -677,6 +677,7 @@
     "scripts/tests/composition/files.test.ts",
     "scripts/tests/composition/model.test.ts",
     "scripts/tests/composition/render.test.ts",
+    "scripts/tests/contract/bus-cut/card-contract-to-card-record.test.ts",
     "scripts/tests/contract/bus-cut/events-decided.test.ts",
     "scripts/tests/contract/bus-cut/lease-liveness-injected.test.ts",
     "scripts/tests/contract/bus-cut/lease-task-must-wait.test.ts",
