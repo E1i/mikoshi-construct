@@ -145,11 +145,11 @@ describe('the one list of generated files', () => {
     expect(pathsRebuiltBy(RATCHET_FILE.rebuild)).toEqual([RATCHET_RECORD])
   })
 
-  it('every path the owner rebuilds on an update or appends to is either shared in the manifest or derived at launch', () => {
+  it('every path the owner rebuilds on an update or appends to is either shared in the manifest or derived at launch, and the manifest shares only such paths or generated rows', () => {
     const manifest = sharedAppendFiles(REPO_ROOT)
     const derived = orderDeclarationsAt(REPO_ROOT).derived
     expect(SHARED_APPEND_PATHS).toEqual([...REBUILT_ON_UPDATE.map(row => row.path), ...APPEND_ONLY_LOGS])
-    expect(SHARED_APPEND_PATHS).toEqual(expect.arrayContaining(manifest))
+    expect([...SHARED_APPEND_PATHS, ...GENERATED_PATHS, GENERATED_FILES.knownViolations.path]).toEqual(expect.arrayContaining(manifest))
     expect(SHARED_APPEND_PATHS.filter(file => !manifest.includes(file)).filter(file => !derived.includes(file))).toEqual([])
     expect(derived.every(file => isRebuiltOnUpdate(file))).toBe(true)
   })

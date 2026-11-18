@@ -188,8 +188,10 @@ function declarationsAt(root: string): OverlapDeclarations {
   return read
 }
 
+const CONTRACT_FILE = /^contract\/[^/]+\.json$/
+
 export function withoutDerived(task: ShiftTask): ShiftTask {
-  return { ...task, touches: effectivePaths(task.touches, declarationsAt(process.cwd())) }
+  return { ...task, touches: effectivePaths(task.touches.filter(entry => !CONTRACT_FILE.test(entry)), declarationsAt(process.cwd())) }
 }
 
 function laneTouches(task: ShiftTask): ShiftTask {

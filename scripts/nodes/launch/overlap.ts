@@ -1,6 +1,7 @@
 import type { ShiftTask } from '../../../src/card/task-file.js'
 import { touchesWithoutRuns } from '../../../src/card/covering-tests.js'
 import { PREFIX_SUFFIX } from '../../policy/touch-scope.js'
+import { sharedAppendFiles } from './shared-files.js'
 
 export interface OpenPr {
   number: number
@@ -68,8 +69,8 @@ export function taskConflicts(tasks: readonly ShiftTask[], shared: readonly stri
   })
 }
 
-export function openPrWarnings(tasks: readonly ShiftTask[], prs: readonly OpenPr[]): string[] {
+export function openPrWarnings(tasks: readonly ShiftTask[], prs: readonly OpenPr[], shared: readonly string[] = sharedAppendFiles()): string[] {
   return tasks.flatMap(task => prs.flatMap(pr => task.touches
-    .filter(entry => pr.files.some(file => relation(entry, file) !== null))
+    .filter(entry => pr.files.some(file => taskRelation(entry, file, shared) !== null))
     .map(entry => `${task.file} × PR #${pr.number}: ${entry}`)))
 }

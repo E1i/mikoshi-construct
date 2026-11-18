@@ -17,6 +17,7 @@ import { taskKey } from '../../core/identifiers.js'
 import { leaseNext } from '../../core/lease.js'
 import { currentLane, layLanes, withoutDerived } from '../../nodes/launch/lane-assign.js'
 import { LaunchExecutor } from '../../nodes/launch/launch-executor.js'
+import { sharedAppendFiles } from '../../nodes/launch/shared-files.js'
 import { UpdateExecutor } from '../../nodes/update/update-executor.js'
 import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
 import { mainMergeInCardTree } from '../../ports/main-merge.js'
@@ -195,8 +196,12 @@ describe('a generated file the update rebuilds is no overlap at launch', () => {
     startsOneAtATime(HAND_WRITTEN)
   })
 
-  it('two cards sharing only .dependency-cruiser-known-violations.json start one at a time', () => {
+  it('two cards sharing only .dependency-cruiser-known-violations.json, a generated row the shared-file declaration names, start at once', () => {
     expect(KNOWN_VIOLATIONS).toBe('.dependency-cruiser-known-violations.json')
-    startsOneAtATime(KNOWN_VIOLATIONS)
+    expect(sharedAppendFiles()).toContain(KNOWN_VIOLATIONS)
+    const bench = twoCardsSharing(KNOWN_VIOLATIONS)
+    expect(currentLane(bench.db, 1)).not.toBe(currentLane(bench.db, 2))
+    expect(startedCards(bench)).toEqual([1, 2])
+    bench.close()
   })
 })

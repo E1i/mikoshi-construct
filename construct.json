@@ -22,7 +22,11 @@
     "contract/surface.json",
     "contract/factory.json",
     "contract/ratchet.json",
-    "scripts/ci/sandbox-failing.jsonl"
+    "scripts/ci/sandbox-failing.jsonl",
+    "scripts/core/events.ts",
+    "architecture/add-population.md",
+    "architecture/self-hosting-drift.yaml",
+    ".dependency-cruiser-known-violations.json"
   ],
   "vars": {
     "projectName": "mikoshi-construct",
