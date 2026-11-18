@@ -15,7 +15,6 @@ describe('the pure pr-status step lives in pr-record', () => {
     expect(report.files.find(({ file }) => file === CORE_PR_STATUS)?.holder).toBe('pr-record')
     expect(report.graph.imports.filter(({ from, to }) => from === CORE_PR_STATUS && (to.startsWith('scripts/window/') || to.startsWith('scripts/ports/')))).toEqual([])
     expect(report.graph.imports.filter(({ from, to }) => from === PORTS_PR_STATUS && to === OPERATOR_WORK)).toEqual([])
-    expect(report.graph.imports.filter(({ from, to }) => from === PORTS_PR_STATUS && to === CORE_PR_STATUS)).toHaveLength(1)
     expect(report.statistics.violatingImports).toBeLessThanOrEqual(VIOLATING_IMPORTS_AFTER_THE_MOVE)
   })
 })

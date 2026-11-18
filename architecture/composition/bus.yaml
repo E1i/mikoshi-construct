@@ -51,7 +51,7 @@ nodes:
     boundary: fold
   - id: statuses
     label: 'setStepStatuses → gh api POST statuses/<head> · mikoshi: <step> · open PR, current head, STATUS_BATCH a tick'
-    path: scripts/ports/pr-status.ts
+    path: scripts/core/pr-status.ts
     boundary: report
   - id: board
     label: boardProjection · the board file

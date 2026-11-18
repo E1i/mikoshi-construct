@@ -2352,7 +2352,6 @@
           "scripts/policy/shard.ts",
           "scripts/ports/card-tree.ts",
           "scripts/ports/netwatch.ts",
-          "scripts/ports/pr-status.ts",
           "scripts/ports/task-start.ts",
           "scripts/ports/tree-publish.ts",
           "scripts/ports/worktree-home.ts",
@@ -5820,9 +5819,13 @@
           "TECHNOLOGY_WORDS"
         ],
         "functions": {},
-        "language": "factory",
-        "reexports": [],
-        "technologyWords": [],
+        "language": "technology",
+        "reexports": [
+          "ghApiPost"
+        ],
+        "technologyWords": [
+          "gh"
+        ],
         "types": {}
       },
       "scripts/ports/prepare-tree.ts": {
