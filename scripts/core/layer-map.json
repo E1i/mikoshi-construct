@@ -13,7 +13,6 @@
     "scripts/core/sqlite.ts": "bus-core",
     "scripts/core/stored.ts": "bus-core",
     "scripts/core/tasks.ts": "ghosts",
-    "scripts/intake/parking.ts": "shift",
     "scripts/ladder/ladder-starter.ts": "bus:ladder",
     "scripts/ladder/verdict.ts": "ghosts",
     "scripts/nodes/answer/answer-executor.ts": "bus:answer",

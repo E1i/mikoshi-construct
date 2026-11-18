@@ -8,7 +8,6 @@
     "scripts/cli/check-catalog.ts",
     "scripts/cli/check-matrix.ts",
     "scripts/cli/mutate.ts",
-    "scripts/cli/no-layer-recount.ts",
     "scripts/ci/",
     "scripts/quality/",
     "scripts/privacy/",
