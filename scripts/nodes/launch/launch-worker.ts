@@ -39,7 +39,7 @@ import { isAlive } from '../../quality/lock.js'
 import { lastHeartbeat } from '../../supervisor/heartbeat.js'
 import { launchProcess, REAL_PROCESSES } from '../restart/chain-process.js'
 import { MAX_RESTARTS, reportedQuestions, reportedStopReason } from './continuation.js'
-import { laneOverlapRecorder, layLanes, repositoryLanes } from './lane-assign.js'
+import { currentLane, laneOverlapRecorder, layLanes, repositoryLanes } from './lane-assign.js'
 import { commandRanSince, heldSessionStop, heldStopLine, holdReason, launchTasks, reportedWindowQuestions, startHold, stopsWithCode, waitHeldAtTheExit } from './launch-candidates.js'
 import { continuedAndRecorded, LaunchExecutor } from './launch-executor.js'
 import { REPORT_MISSING, USAGE_LIMIT, usageLimitDetail, usageLimitResetIn, usageLimitResetOf } from './report-collect.js'
@@ -591,10 +591,7 @@ export class LaunchNode extends Node<LaunchStep> {
     const used = this.continuationsUsed(start)
     if (used >= MAX_RESTARTS)
       return this.stopContinuation(start, 'continuation-limit', `${exited}; ${used} of ${MAX_RESTARTS} continuations used (D-104), the card is not continued again`)
-    const admitted = this.db.prepare(LATEST_ADMISSION).get(start.card_id) as { payload: string } | undefined
-    const lane = admitted === undefined ? null : (JSON.parse(admitted.payload) as Record<string, unknown>).lane
-    if (typeof lane !== 'string')
-      return this.stopContinuation(start, 'continuation-refused', `${exited}; its admission names no lane, so no session continues from it`)
+    const lane = this.admittedLane(start.card_id) ?? currentLane(this.db, start.card_id)
     const claimant = this.machineClaimant(start.card_id)
     if (this.machine.claim(claimant).kind === 'refused')
       return false
@@ -610,6 +607,12 @@ export class LaunchNode extends Node<LaunchStep> {
     if (!appendEvent(this.db, { ts: this.ts(), type: CARD_CONTINUED, actor: this.actor, cardId: start.card_id, pr: null, head: null, dedupeKey: `${CARD_CONTINUED}:${start.dedupe_key}`, payload, legacy: false }))
       this.starters[card.contour]?.stop(next)
     return false
+  }
+
+  private admittedLane(cardId: number): string | null {
+    const admitted = this.db.prepare(LATEST_ADMISSION).get(cardId) as { payload: string } | undefined
+    const lane = admitted === undefined ? null : (JSON.parse(admitted.payload) as Record<string, unknown>).lane
+    return typeof lane === 'string' ? lane : null
   }
 
   private stopContinuation(start: RunningStart, cause: string, detail: string): boolean {
