@@ -3,6 +3,8 @@ name: browser-lab
 description: Bring up a real browser lab to observe a browser extension, a page or a UI whose result cannot be read from code, with scripts/construct/browser-lab.mjs.
 user-invocable: true
 argument-hint: <command> [extension directory or page url]
+daemon: BROWSER_LAB
+daemon-sketch: hex-iris
 ---
 
 Use this when the result of a task lives in a browser: an extension, a page whose behaviour must be seen, a UI.

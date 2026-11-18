@@ -3,16 +3,17 @@ import path from 'node:path'
 
 export const SKILLS_DIR = '.claude/skills'
 export const SKILL_MANIFEST = 'SKILL.md'
+export const ADAPTERS_DIR = '.construct/daemon'
+export const ADAPTER_MANIFEST = 'adapter.json'
+export const ADAPTER_DAEMON = 'BROWSER_LAB'
 export const DAEMON_READER = 'scripts/cli/board-page/daemon-catalog.ts'
 export const LOADED_SOURCE = 'the skills of window.heartbeat'
 export const DAEMON_KEY = 'daemon'
 export const SKETCH_KEY = 'daemon-sketch'
-export const MUTATIONS_KEY = 'daemon-mutations'
+const MUTATION_PREFIX = 'ver_'
 const NAME_KEY = 'name'
 const FRONTMATTER = /^---\r?\n([\s\S]*?)\r?\n---/
 const FIELD = /^([\w-]+):(.*)$/
-const MUTATION = /^ver_\w+$/
-const LIST_SPLIT = /[\s,[\]]+/
 
 export interface DaemonEntry {
   daemon: string
@@ -63,16 +64,24 @@ export function daemonOf(directory: string, text: string): DaemonEntry | null {
   if (daemon === undefined || daemon === '')
     return null
   const sketch = fields.get(SKETCH_KEY)
-  const mutations = (fields.get(MUTATIONS_KEY) ?? '').split(LIST_SPLIT).filter(word => MUTATION.test(word))
-  return { daemon, skill: fields.get(NAME_KEY) || directory, sketch: sketch === undefined || sketch === '' ? null : sketch, mutations }
+  return { daemon, skill: fields.get(NAME_KEY) || directory, sketch: sketch === undefined || sketch === '' ? null : sketch, mutations: [] }
+}
+
+export function adapterMutations(root: string, files: CatalogFiles = DISK_CATALOG): string[] {
+  const adapters = path.join(root, ADAPTERS_DIR)
+  const present = files.list(adapters).filter(name => files.read(path.join(adapters, name, ADAPTER_MANIFEST)) !== null)
+  return present.sort().map(name => `${MUTATION_PREFIX}${name}`)
 }
 
 export function daemonCatalog(root: string, files: CatalogFiles = DISK_CATALOG): DaemonEntry[] {
   const skills = path.join(root, SKILLS_DIR)
+  const mutations = adapterMutations(root, files)
   return files.list(skills).sort().flatMap((directory) => {
     const text = files.read(path.join(skills, directory, SKILL_MANIFEST))
     const entry = text === null ? null : daemonOf(directory, text)
-    return entry === null ? [] : [entry]
+    if (entry === null)
+      return []
+    return [entry.daemon === ADAPTER_DAEMON ? { ...entry, mutations } : entry]
   })
 }
 
