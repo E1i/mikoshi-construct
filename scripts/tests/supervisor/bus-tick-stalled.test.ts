@@ -1,6 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { GitHubPost } from '../../core/pr-status.js'
 import type { QueuedTask } from '../../core/queue.js'
-import type { GitHubPost } from '../../ports/pr-status.js'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'

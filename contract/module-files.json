@@ -1640,6 +1640,7 @@
   "pr-record": [
     "scripts/core/merge-event.ts",
     "scripts/core/pr-folds.ts",
+    "scripts/core/pr-status.ts",
     "scripts/nodes/review/dry-run-record.ts",
     "scripts/nodes/review/pr-close.ts",
     "scripts/nodes/review/pr-reopen.ts",
