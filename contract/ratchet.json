@@ -281,7 +281,7 @@
   "lines:scripts/supervisor/supervisor.ts": 1149,
   "lines:src/ui/lore.ts": 1329,
   "overlaps:answer-duties": 1,
-  "overlaps:bus-read": 467,
+  "overlaps:bus-read": 462,
   "overlaps:ci-reading": 0,
   "overlaps:generated-files": 0,
   "overlaps:git": 0,
