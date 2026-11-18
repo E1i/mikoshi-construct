@@ -4,7 +4,7 @@ import type { MergeBench } from '../bus/merge-bench.js'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { parkingFileText, parseParkingFile } from '../../../src/card/parking.js'
 import { admittedRecord } from '../../../src/commands/intake/index.js'
-import { appendCardEvent, WINDOW_LANE } from '../../core/card-bodies.js'
+import { appendCardEvent } from '../../core/card-bodies.js'
 import { appendEvent } from '../../core/db.js'
 import { CARD_ADMITTED, WITNESS_RECORDED } from '../../core/events.js'
 import { fullTestNames } from '../../nodes/review/depth-sources.js'
@@ -82,7 +82,7 @@ function admitted(witnesses: readonly ProvenWitness[], testSource: TestSource): 
   const parsed = parseParkingFile(`${CARD}.md`, text)
   if (parsed.kind === 'refused')
     throw new Error(parsed.reason)
-  appendCardEvent(bench.db, 'worker:intake:test', admittedRecord({ id: CARD, file: `${CARD}.md`, line: parsed.parked.task.card.line, who: parsed.parked.who, unclear: [], corrections: [], seam: [], risk: [], slices: [], text }, 'auto', bench.clock.now(), WINDOW_LANE))
+  appendCardEvent(bench.db, 'worker:intake:test', admittedRecord({ id: CARD, file: `${CARD}.md`, line: parsed.parked.task.card.line, who: parsed.parked.who, unclear: [], corrections: [], seam: [], risk: [], slices: [], text }, 'auto', bench.clock.now()))
   bench.tick()
   let asked: readonly ProvenWitness[] | undefined
   const reviewer: Reviewer = async (_lease, _plan, _card, proven) => {

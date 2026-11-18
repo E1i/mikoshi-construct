@@ -2,7 +2,6 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { laneName, laneNumber, laneTouches } from '../../../src/commands/intake/admit.js'
 import { isLane, LANE_NAME, laneJsonProblems, readLaneJson, UNKNOWN, writeLaneJson } from '../../intake/lane-json.js'
 
 const VALID = { purpose: 'bus cards', touches: ['scripts/bus/**'], createdBy: 'owner', createdAt: '2026-10-11T12:00:00.000Z', status: 'open' }
@@ -51,24 +50,13 @@ describe('lane.json', () => {
     expect(() => writeLaneJson(dir, { ...VALID, createdBy: '' })).toThrow('createdBy is not a non-empty string')
   })
 
-  it('a lane is named lane-NN, and only such a name has a number', () => {
-    expect(laneName(3)).toBe('lane-03')
-    expect(laneName(112)).toBe('lane-112')
-    expect(laneNumber('lane-07')).toBe(7)
-    expect(laneNumber('lane-7')).toBeNull()
-    expect(laneNumber('lane-bus-1')).toBeNull()
-  })
-
   it('lane.json touches are read and a dated lane name is accepted', () => {
     const parking = lane()
     const dated = path.join(parking, '2026-10-19-a')
     mkdirSync(dated)
     writeLaneJson(dated, VALID)
-    writeFileSync(path.join(dated, '5.md'), 'card: #5 five [implement/netwatch/S/cheap/auto] · depends — · blocks —\nbranch: feat/five\ntouches: scripts/lanes/**\ncontinue: stop\nwho: shift\n\nBody.\n')
     expect(LANE_NAME.test('2026-10-19-a')).toBe(true)
     expect(LANE_NAME.test('lane-bus-1')).toBe(false)
-    expect(laneNumber('2026-10-19-a')).toBeNull()
     expect(readLaneJson(dated).touches).toEqual(['scripts/bus/**'])
-    expect(laneTouches(dated)).toEqual(['scripts/bus/**', 'scripts/lanes/**'])
   })
 })

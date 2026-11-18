@@ -48,7 +48,7 @@ function admitInto(db: DatabaseSync, cardId: number): void {
   const parsed = parseParkingFile(`${cardId}.md`, text)
   if (parsed.kind === 'refused')
     throw new Error(parsed.reason)
-  appendCardEvent(db, 'worker:intake:test', admittedRecord({ id: cardId, file: `${cardId}.md`, line: parsed.parked.task.card.line, who: parsed.parked.who, unclear: [], corrections: [], seam: [], risk: [], slices: [], text }, 'auto', NOW, null))
+  appendCardEvent(db, 'worker:intake:test', admittedRecord({ id: cardId, file: `${cardId}.md`, line: parsed.parked.task.card.line, who: parsed.parked.who, unclear: [], corrections: [], seam: [], risk: [], slices: [], text }, 'auto', NOW))
   reduce(db, 'pending', busProjections())
 }
 
@@ -113,7 +113,7 @@ function busWithForeignRow(ids: readonly number[]): OneFactory {
 function admittedFrom(factory: OneFactory, taken: string): unknown {
   const draft = path.join(factory.root, 'draft.json')
   writeFileSync(draft, JSON.stringify({ cards: [{ name: 'number-card', kind: 'implement', milestone: 'runner', size: 'S', contour: 'cheap', decision: 'owner', touches: ['src/a.ts'], task: 'The card takes the number of its own row.', witnesses: ['`pnpm run quality` is green'] }] }))
-  const ports = busIntakePorts(factory.db, 'test', () => 1)
+  const ports = busIntakePorts(factory.db, 'test')
   return runIntake({ draft, taken: '-', readStdin: () => taken, parking: factory.parking, parkingRoot: factory.parking, dir: factory.root, dryRun: false, autoConfirm: true, events: ports.cardEvents, cardStates: ports.cardStates })
 }
 
@@ -199,7 +199,7 @@ describe('a card number comes from the factory it is admitted into', () => {
     const { root, parking, a, b } = twoFactoriesSideBySide()
     const draft = path.join(root, 'draft.json')
     writeFileSync(draft, JSON.stringify({ cards: [{ name: 'number-card', kind: 'implement', milestone: 'runner', size: 'S', contour: 'cheap', decision: 'owner', touches: ['src/a.ts'], task: 'The card takes the number of its own factory.', witnesses: ['`pnpm run quality` is green'] }] }))
-    const ports = busIntakePorts(b, 'test', () => 1)
+    const ports = busIntakePorts(b, 'test')
 
     const result = runIntake({ draft, taken: '-', readStdin: () => '1', parking, parkingRoot: parking, dir: root, dryRun: false, autoConfirm: true, events: ports.cardEvents, cardStates: ports.cardStates })
 

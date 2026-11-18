@@ -80,7 +80,7 @@ describe('the readers and writers of ghosts.jsonl outside the ladder use the bus
     const journal = path.join(scratch(), 'handoff', 'ghosts.jsonl')
     const card = { id: 13, file: '13.md', line: '#13 a-card [implement/runner/S/cheap/owner] · depends — · blocks —', who: 'shift', unclear: [], corrections: [], seam: [], risk: [], slices: [], text: 'card: #13\n' }
     const bus: CardEvent[] = []
-    recordIntake([admittedRecord(card, 'none', AFTER_THE_CUTOFF, null)], event => bus.push(event))
+    recordIntake([admittedRecord(card, 'none', AFTER_THE_CUTOFF)], event => bus.push(event))
     expect(bus.map(event => event.cardId)).toEqual([13])
     expect(existsSync(journal)).toBe(false)
   })

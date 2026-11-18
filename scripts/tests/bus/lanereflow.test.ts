@@ -9,11 +9,12 @@ import { appendEvent, openBus } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_DROPPED, CARD_MOVED, CARD_STARTED, PR_CLOSED, PR_OBSERVED } from '../../core/events.js'
 import { reduce } from '../../core/reducer.js'
 import { busCardEvents } from '../../intake/intake.js'
-import { currentLane, layLanes } from '../../nodes/launch/lane-assign.js'
+import { assignMovedLane, currentLane, layLanes } from '../../nodes/launch/lane-assign.js'
 import { launchCandidates } from '../../nodes/launch/launch-candidates.js'
 import { busProjections } from '../../supervisor/composition.js'
 
 const TS = '2026-11-03T10:00:00.000Z'
+const LAUNCH_ACTOR = 'worker:launch:s1'
 const HEAD = 'b'.repeat(40)
 const roots: string[] = []
 
@@ -45,21 +46,20 @@ class Bench {
     this.db = openBus(path.join(this.root, 'bus.db'))
   }
 
-  private events(): ReturnType<typeof busCardEvents> {
-    return busCardEvents(this.db, 's1', () => this.lanes)
-  }
-
   admit(id: number, shape: CardShape): this {
     const text = cardText(id, shape)
     const depends = shape.depends ?? []
     this.admissions += 1
-    this.events()({ type: CARD_ADMITTED, cardId: id, ts: TS, dedupeKey: `admit-${id}-${this.admissions}`, payload: { card: text.split('\n')[0]!.slice('card: '.length), lane: null, depends, decision: 'auto', contour: 'cheap', text, textSha: textSha(text) } })
+    busCardEvents(this.db, 's1')({ type: CARD_ADMITTED, cardId: id, ts: TS, dedupeKey: `admit-${id}-${this.admissions}`, payload: { card: text.split('\n')[0]!.slice('card: '.length), depends, decision: 'auto', contour: 'cheap', text, textSha: textSha(text) } })
+    layLanes(this.db, this.lanes, TS, LAUNCH_ACTOR, id)
     reduce(this.db, 'pending', busProjections())
     return this
   }
 
   move(id: number, lane: string): this {
-    this.events()({ type: CARD_MOVED, cardId: id, ts: TS, dedupeKey: `${CARD_MOVED}:${id}:${lane}`, payload: { from: null, to: path.join(this.root, lane), bodySha: 'moved', lane } })
+    busCardEvents(this.db, 's1')({ type: CARD_MOVED, cardId: id, ts: TS, dedupeKey: `${CARD_MOVED}:${id}:${lane}`, payload: { from: null, to: path.join(this.root, lane), bodySha: 'moved' } })
+    assignMovedLane(this.db, id, lane, this.lanes, TS, LAUNCH_ACTOR)
+    layLanes(this.db, this.lanes, TS, LAUNCH_ACTOR, id)
     reduce(this.db, 'pending', busProjections())
     return this
   }

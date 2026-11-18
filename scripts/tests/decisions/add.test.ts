@@ -228,7 +228,7 @@ describe('pnpm decisions:add in a window session asks the bus', () => {
     const db = openBus(path.join(root, 'bus.db'))
     try {
       const text = 'card: #5 card-5 [implement/netwatch/S/cheap/auto] · depends — · blocks —\nbranch: feat/card-5\ntouches: src/a.ts\ncontinue: stop\nwho: shift\n\nDo the thing.\n'
-      busCardEvents(db, 's1', () => 3)({ type: CARD_ADMITTED, cardId: 5, ts: NOW.toISOString(), dedupeKey: 'admit-5', payload: { card: text.split('\n')[0]!.slice('card: '.length), lane: null, depends: [], decision: 'auto', contour: 'cheap', bodySha: textSha(text), text, textSha: textSha(text) } })
+      busCardEvents(db, 's1')({ type: CARD_ADMITTED, cardId: 5, ts: NOW.toISOString(), dedupeKey: 'admit-5', payload: { card: text.split('\n')[0]!.slice('card: '.length), depends: [], decision: 'auto', contour: 'cheap', bodySha: textSha(text), text, textSha: textSha(text) } })
       reduce(db, 'pending', busProjections())
       const out: string[] = []
       expect(requestDecision(['--from', 'answer', '--card', '#5', '--creates', 'src/new.ts', '[owner] the card writes src/new.ts.'], db, NOW, 'window-1', line => out.push(line)), out.join('\n')).toBe(0)

@@ -101,7 +101,7 @@ describe('intake cuts cards that run without window edits', () => {
     const files = { 'src/a.ts': '', 'src/c.ts': '', 'docs/plan.md': '# Plan\n\n| item | change |\n|---|---|\n| A | the first |\n| B | the second |\n', 'docs/bare.md': '# Plan\n\nno table\n' }
     const plan = { id: 'p1', title: 'The plan', goal: 'Both halves land', file: 'docs/plan.md' }
     const draft = { plan, cards: [card('first', ['src/a.ts'], 'First half.', { item: 'A' }), card('second', ['src/c.ts'], 'Second half.', { item: 'B' })] }
-    const result = intake(root, draft, files, { events: busCardEvents(db, 's1', () => 3) })
+    const result = intake(root, draft, files, { events: busCardEvents(db, 's1') })
     if (result.status !== 'written')
       throw new Error(detail(result))
     reduce(db, 'pending', busProjections())

@@ -357,7 +357,7 @@ describe('the board bus reader', () => {
     const busFile = path.join(root, 'bus.db')
     const db = openBus(busFile)
     try {
-      const events = busCardEvents(db, 'by-hand', () => 1)
+      const events = busCardEvents(db, 'by-hand')
       expect(runAdmit({ file, dir: path.join(root, 'repo'), dryRun: false, autoConfirm: true, parkingRoot: parking, events }, () => NOW).status).toBe('admitted')
       expect(runMove({ move: '#1425', to: '2026-10-30-folded', draft: undefined, taken: undefined, admit: undefined, parking, events }, () => NOW).status).toBe('moved')
       reduce(db, 'pending', busProjections())

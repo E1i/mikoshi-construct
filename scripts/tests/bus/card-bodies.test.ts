@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { runAdmit } from '../../../src/commands/intake/admit.js'
-import { cardBodyText, WINDOW_LANE } from '../../core/card-bodies.js'
+import { cardBodyText } from '../../core/card-bodies.js'
 import { appendEvent, BUS_DB_VARIABLE, openBus } from '../../core/db.js'
 import { CARD_ADMITTED } from '../../core/events.js'
 import { projectionDump, reduce } from '../../core/reducer.js'
@@ -91,7 +91,7 @@ describe('the reducer folds every admitted text into card_bodies', () => {
         admission_event_id: admissionIds(db)[1],
         text: amended,
         text_sha: sha256(amended),
-        lane: WINDOW_LANE,
+        lane: null,
         who: 'shift',
         priority: null,
         branch: 'feat/body-card',
@@ -134,7 +134,7 @@ describe('the reducer folds every admitted text into card_bodies', () => {
     withBus(w, (db) => {
       appendAdmission(db, 'without-text', { card: CARD, lane: 'lane-9' })
       reduce(db, 'pending', busProjections())
-      expect(bodyRow(db)).toMatchObject({ admission_event_id: admissionIds(db)[0], lane: WINDOW_LANE })
+      expect(bodyRow(db)).toMatchObject({ admission_event_id: admissionIds(db)[0], lane: null })
     })
   })
 })

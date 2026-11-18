@@ -2759,16 +2759,12 @@
         "namedIn": [
           "scripts/intake/card-archive.ts",
           "scripts/intake/lane-json.ts",
-          "scripts/intake/runs-layers-backfill.ts",
-          "src/commands/intake/admit.ts",
-          "src/commands/intake/amend.ts",
-          "src/program.ts"
+          "src/commands/intake/admit.ts"
         ],
         "owner": "scripts/nodes/launch/lane-assign.ts",
         "source": "event:lane.assigned",
         "writers": [
-          "scripts/intake/lane-json.ts",
-          "src/commands/intake/admit.ts"
+          "scripts/intake/lane-json.ts"
         ]
       },
       "~/.construct/pr-status.off": {
@@ -4354,7 +4350,7 @@
       "scripts/cli/no-layer-recount.ts": 1,
       "scripts/core/bus-readings.ts": 4,
       "scripts/core/card-automaton.ts": 12,
-      "scripts/core/card-bodies.ts": 8,
+      "scripts/core/card-bodies.ts": 7,
       "scripts/core/card-decisions.ts": 5,
       "scripts/core/card-hold.ts": 2,
       "scripts/core/chain.ts": 3,
@@ -4946,8 +4942,6 @@
           "admittedCardFile": "(cardId: number, parkingRoot?: string): string",
           "isLaneName": "(name: string): boolean",
           "judgedFieldWitnessesOf": "(body: string): { acceptance: JudgedWitness[]; invariants: JudgedWitness[]; } | null",
-          "laneName": "(number: number): string",
-          "laneNumber": "(name: string): number | null",
           "pathsNamedOutside": "(parked: ParkedTask, text: string): string[]",
           "runAdmit": "(options: AdmitOptions, now: () => Date = () => new Date()): AdmitResult",
           "withRunsLine": "(text: string, runs: readonly string[]): string",

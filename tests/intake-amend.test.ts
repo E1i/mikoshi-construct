@@ -168,21 +168,21 @@ describe('construct intake --amend edits an admitted card straight in the bus', 
     expect(removed).toEqual({ kind: 'edited', text: cardText(ACCEPTANCE) })
   })
 
-  it('an amend of a card in lane-N leaves it in lane-N', () => {
+  it('an amend of a card moved into lane-N carries no lane, nor does an admission from outside the parking', () => {
     const w = world()
     admitFromFile(w, cardText(ACCEPTANCE))
-    withBus(w, ({ events }) => events({ type: CARD_MOVED, cardId: 80, ts: NOW.toISOString(), dedupeKey: `${CARD_MOVED}:80:${LANE}`, payload: { lane: LANE, to: path.join(w.parking, LANE) } }))
-    expect(latestLane(w)).toBe(LANE)
+    withBus(w, ({ events }) => events({ type: CARD_MOVED, cardId: 80, ts: NOW.toISOString(), dedupeKey: `${CARD_MOVED}:80:${LANE}`, payload: { to: path.join(w.parking, LANE) } }))
+    expect(latestLane(w)).toBeNull()
 
     expect(amend(w, { touches: '+src/board/tail.ts' }).status).toBe('admitted')
-    expect(latestLane(w)).toBe(LANE)
+    expect(latestLane(w)).toBeNull()
 
     const draft = path.join(w.root, 'drafts', '80.md')
     mkdirSync(path.dirname(draft), { recursive: true })
     writeFileSync(draft, `${cardText(ACCEPTANCE, 'src/board/run.ts, src/board/tail.ts')}\nA draft outside the parking.\n`)
     const admitted = withBus(w, ({ events, admissions }) => runAdmit({ file: draft, dir: w.repo, dryRun: false, autoConfirm: true, parkingRoot: w.parking, decisions: w.decisions, events, admissions, cardStates: () => new Map() }, () => NOW))
     expect(admitted.status).toBe('admitted')
-    expect(latestLane(w)).toBe(LANE)
+    expect(latestLane(w)).toBeNull()
   })
 
   it('the bus entry takes --amend with its flags and writes card.admitted with source amend', async () => {

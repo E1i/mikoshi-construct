@@ -83,8 +83,8 @@ function moveType(parking: string, targetDir: string, slicing: Slicing | null): 
 
 function recordMove(options: MoveOptions, number: number, moved: Moved, slicing: Slicing | null, ts: string): void {
   const type = moveType(options.parking, moved.to, slicing)
-  const lane = path.basename(moved.to)
-  recordIntake([{ type, cardId: number, ts, dedupeKey: `${type}:${number}:${lane}:${ts}`, payload: { ...moved, lane, ...slicing } } as CardEvent], options.events)
+  const target = path.basename(moved.to)
+  recordIntake([{ type, cardId: number, ts, dedupeKey: `${type}:${number}:${target}:${ts}`, payload: { ...moved, ...slicing } } as CardEvent], options.events)
 }
 
 interface Repointing extends Repointed { admission: RecordedIntake, text: string }
@@ -143,7 +143,7 @@ function repointedRecord(repointing: Repointing, at: Date): CardEvent {
   const card = admittedCardOf(repointing.text)!
   const { confirmation } = repointing.admission
   const sliced = { id: repointing.card, file: `${repointing.card}.md`, line: card.line, who: '', unclear: [], corrections: [], seam: [], risk: [], slices: [], text: repointing.text }
-  return admittedRecord(sliced, isConfirmation(confirmation) ? confirmation : 'auto', at, null, AMEND_SOURCE)
+  return admittedRecord(sliced, isConfirmation(confirmation) ? confirmation : 'auto', at, AMEND_SOURCE)
 }
 
 function repointedOnly(repointings: readonly Repointing[]): { repointed?: Repointed[] } {

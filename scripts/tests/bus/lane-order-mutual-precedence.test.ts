@@ -37,7 +37,8 @@ class CycleLanes {
 
   admit(id: number, depends: readonly number[], priority: string | null = null): this {
     const text = cardText(id, depends, priority)
-    busCardEvents(this.db, 's1', () => LANES)({ type: CARD_ADMITTED, cardId: id, ts: TS, dedupeKey: `admit-${id}`, payload: { card: text.split('\n')[0]!.slice('card: '.length), lane: null, depends: [...depends], decision: 'auto', contour: 'cheap', text, textSha: textSha(text) } })
+    busCardEvents(this.db, 's1')({ type: CARD_ADMITTED, cardId: id, ts: TS, dedupeKey: `admit-${id}`, payload: { card: text.split('\n')[0]!.slice('card: '.length), depends: [...depends], decision: 'auto', contour: 'cheap', text, textSha: textSha(text) } })
+    layLanes(this.db, LANES, TS, 'worker:launch:s1', id)
     this.lay()
     return this
   }

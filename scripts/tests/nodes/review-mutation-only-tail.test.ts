@@ -6,7 +6,7 @@ import { textSha } from '../../../src/card/text-sha.js'
 import { cardRiskOf } from '../../../src/commands/intake/check.js'
 import { bodySha } from '../../../src/commands/intake/confirm.js'
 import { admittedRecord } from '../../../src/commands/intake/index.js'
-import { appendCardEvent, WINDOW_LANE } from '../../core/card-bodies.js'
+import { appendCardEvent } from '../../core/card-bodies.js'
 import { CARD_ADMITTED, REVIEW_RECORDED } from '../../core/events.js'
 import { cardContract } from '../../intake/card-contract.js'
 import { busHeldCards } from '../../intake/intake.js'
@@ -62,7 +62,7 @@ async function reviewed(touches: readonly string[], findings: string[], survivin
   const parsed = parseParkingFile(`${CARD}.md`, text)
   if (parsed.kind === 'refused')
     throw new Error(parsed.reason)
-  appendCardEvent(bench.db, 'worker:intake:test', admittedRecord({ id: CARD, file: `${CARD}.md`, line: parsed.parked.task.card.line, who: parsed.parked.who, unclear: [], corrections: [], seam: [], risk: [], slices: [], text }, 'auto', bench.clock.now(), WINDOW_LANE))
+  appendCardEvent(bench.db, 'worker:intake:test', admittedRecord({ id: CARD, file: `${CARD}.md`, line: parsed.parked.task.card.line, who: parsed.parked.who, unclear: [], corrections: [], seam: [], risk: [], slices: [], text }, 'auto', bench.clock.now()))
   bench.tick()
   const worker = new ReviewWorker({ silentMs: SILENT_MS, isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }), db: bench.db, gitHub: withIssues(bench.gitHub.client), publish: bench.gitHub.publish, reviewer: async () => ({ verdict: returned, findings, survivingMutations, session: 'reviewer-1' }), plan: () => fullReview('a fixed plan'), clock: bench.clock.now, session: 'worker-1', tail: busTail(bench) })
   bench.gitHub.open({ number: PR, head: sha('b'), ref: `feat/card-${CARD}`, body: cardBody(PR) })
@@ -171,7 +171,7 @@ describe('the tail card', () => {
     const parsed = parseParkingFile(`${CARD}.md`, text)
     if (parsed.kind === 'refused')
       throw new Error(parsed.reason)
-    appendCardEvent(bench.db, 'worker:intake:test', admittedRecord({ id: CARD, file: `${CARD}.md`, line: parsed.parked.task.card.line, who: parsed.parked.who, unclear: [], corrections: [], seam: [], risk: [], slices: [], text }, 'auto', bench.clock.now(), WINDOW_LANE))
+    appendCardEvent(bench.db, 'worker:intake:test', admittedRecord({ id: CARD, file: `${CARD}.md`, line: parsed.parked.task.card.line, who: parsed.parked.who, unclear: [], corrections: [], seam: [], risk: [], slices: [], text }, 'auto', bench.clock.now()))
     bench.tick()
     const intake = busTail(bench)
     expect(intake.file(tail)).toBe(LATEST_ON_GITHUB + 1)

@@ -13,7 +13,6 @@ import { fileURLToPath } from 'node:url'
 import { runMain } from 'citty'
 import { parkingFileText, parseParkingFile } from '../../src/card/parking.js'
 import { textSha } from '../../src/card/text-sha.js'
-import { isLaneName } from '../../src/commands/intake/admit.js'
 import { PLAN_FIELD } from '../../src/commands/intake/check.js'
 import { bodySha, WINDOW_SHARD_VARIABLE } from '../../src/commands/intake/confirm.js'
 import { printExport, runExport } from '../../src/commands/intake/export.js'
@@ -32,7 +31,6 @@ import { DECLARATION_SUFFIX, DECLARATIONS_FOLDER } from '../core/generated-files
 import { OWNER } from '../core/inbox.js'
 import { constructCommand, pnpmCommand } from '../core/owner-commands.js'
 import { openDatabase } from '../core/sqlite.js'
-import { assignMovedLane, layLanes, repositoryLanes } from '../nodes/launch/lane-assign.js'
 import { latestGitHubNumber } from '../nodes/review/pr-close.js'
 import { BusDecisions } from '../policy/decisions/index.js'
 import { activeWindowShards } from '../policy/shards.js'
@@ -122,8 +120,8 @@ function parkedText(to: string, cardId: number): string | null {
 }
 
 function admissionOfMove(db: DatabaseSync, move: CardEvent): CardEvent | null {
-  const { lane, to } = move.payload
-  if (typeof lane !== 'string' || !isLaneName(lane) || typeof to !== 'string')
+  const { to } = move.payload
+  if (typeof to !== 'string')
     return null
   const text = admittedBodyText(db, move.cardId) ?? parkedText(to, move.cardId)
   if (text === null)
@@ -137,7 +135,7 @@ function admissionOfMove(db: DatabaseSync, move: CardEvent): CardEvent | null {
     cardId: move.cardId,
     ts: move.ts,
     dedupeKey: `${CARD_ADMITTED}:${move.dedupeKey}`,
-    payload: { card: card.line, lane, depends: card.depends, decision: card.decision, contour: card.contour, moved: move.dedupeKey, text, textSha: textSha(text) },
+    payload: { card: card.line, depends: card.depends, decision: card.decision, contour: card.contour, moved: move.dedupeKey, text, textSha: textSha(text) },
   }
 }
 
@@ -228,7 +226,7 @@ function declaredModules(root: string | undefined): readonly ModuleDeclaration[]
   return root === undefined ? [] : readDeclarations(root).modules
 }
 
-export function busCardEvents(db: DatabaseSync, session: string = SESSION_BY_HAND, lanes: () => number = repositoryLanes(process.cwd()), release?: string, declarationsRoot?: string): CardEventPort {
+export function busCardEvents(db: DatabaseSync, session: string = SESSION_BY_HAND, release?: string, declarationsRoot?: string): CardEventPort {
   const actor = `${INTAKE_ACTOR_PREFIX}${session}`
   return event => inTransaction(db, () => {
     if (needsAnAdmission(event) && db.prepare(ANY_ADMISSION).get(event.cardId) === undefined)
@@ -239,10 +237,8 @@ export function busCardEvents(db: DatabaseSync, session: string = SESSION_BY_HAN
     appendCardEvent(db, actor, laid(db, event))
     registerPlan(db, event, release)
     const admitted = event.type === CARD_MOVED ? admissionOfMove(db, event) : null
-    if (admitted !== null && appendCardEvent(db, actor, admitted))
-      assignMovedLane(db, event.cardId, String(admitted.payload.lane), lanes(), event.ts, actor)
-    if (event.type === CARD_ADMITTED || admitted !== null)
-      layLanes(db, lanes(), event.ts, actor, event.cardId)
+    if (admitted !== null)
+      appendCardEvent(db, actor, admitted)
   })
 }
 
@@ -315,7 +311,7 @@ function recomputeEventOf(id: number, text: string, run: number, at: Date): Card
     cardId: id,
     ts: at.toISOString(),
     dedupeKey: `${CARD_ADMITTED}:${WEIGHTS_DRIFT_SOURCE}:run-${run}`,
-    payload: { card: line, lane: null, depends, decision, contour, confirmation: 'auto', corrections: [], bodySha: bodySha(text), text, textSha: textSha(text), source: WEIGHTS_DRIFT_SOURCE },
+    payload: { card: line, depends, decision, contour, confirmation: 'auto', corrections: [], bodySha: bodySha(text), text, textSha: textSha(text), source: WEIGHTS_DRIFT_SOURCE },
   }
 }
 
@@ -374,8 +370,8 @@ export class BusWeightsRecompute implements RecomputeLedger {
   }
 }
 
-export function busIntakePorts(db: DatabaseSync, session?: string, lanes?: () => number, release?: string, declarationsRoot?: string): BusPorts {
-  return { cardEvents: busCardEvents(db, session, lanes, release, declarationsRoot), cardStates: () => busHeldCards(db), cardAdmissions: busCardAdmissions(db), decisions: new BusDecisions(db) }
+export function busIntakePorts(db: DatabaseSync, session?: string, release?: string, declarationsRoot?: string): BusPorts {
+  return { cardEvents: busCardEvents(db, session, release, declarationsRoot), cardStates: () => busHeldCards(db), cardAdmissions: busCardAdmissions(db), decisions: new BusDecisions(db) }
 }
 
 export async function runBusIntake(db: DatabaseSync, argv: readonly string[], session?: string, declarationsRoot?: string): Promise<void> {
@@ -393,7 +389,7 @@ export async function runBusIntake(db: DatabaseSync, argv: readonly string[], se
     return
   }
   const rest = releaseAt === -1 ? argv : [...argv.slice(0, releaseAt), ...argv.slice(releaseAt + 2)]
-  await runMain(createMain(busIntakePorts(db, session, undefined, release, declarationsRoot)), { rawArgs: [INTAKE_SUBCOMMAND, ...rest] })
+  await runMain(createMain(busIntakePorts(db, session, release, declarationsRoot)), { rawArgs: [INTAKE_SUBCOMMAND, ...rest] })
 }
 
 function refused(message: string): null {

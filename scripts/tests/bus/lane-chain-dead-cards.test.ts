@@ -40,7 +40,8 @@ class Board {
   admit(id: number, touches: string, depends: number[] = []): this {
     const text = cardText(id, touches, depends)
     this.admissions += 1
-    busCardEvents(this.db, 's1', () => this.lanes)({ type: CARD_ADMITTED, cardId: id, ts: TS, dedupeKey: `admit-${id}-${this.admissions}`, payload: { card: text.split('\n')[0]!.slice('card: '.length), lane: null, depends, decision: 'auto', contour: 'cheap', text, textSha: textSha(text) } })
+    busCardEvents(this.db, 's1')({ type: CARD_ADMITTED, cardId: id, ts: TS, dedupeKey: `admit-${id}-${this.admissions}`, payload: { card: text.split('\n')[0]!.slice('card: '.length), depends, decision: 'auto', contour: 'cheap', text, textSha: textSha(text) } })
+    layLanes(this.db, this.lanes, TS, 'worker:launch:s1', id)
     return this.lay()
   }
 
