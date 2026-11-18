@@ -1,8 +1,13 @@
+import type { RatchetNumbers } from '../../../contract/ratchet.js'
+import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { MODULE_GRAPH } from '../../../contract/factory/modules.js'
+import { BOUNDARY_PREFIX, boundaryNumbers, boundaryReport } from '../../../contract/module-graph/boundary.js'
 import { repositoryReport } from '../../../contract/module-graph/report.js'
+import { branchBase, grownBoundaryRows, ownershipMoves, RATCHET_RECORD } from '../../../contract/ratchet.js'
 import * as cardAutomaton from '../../../core/card-automaton.js'
 import * as cardContract from '../../../intake/card-contract.js'
+import { processGit } from '../../../ports/git.js'
 
 const REPO_RUN_TIMEOUT = 180_000
 
@@ -11,6 +16,23 @@ const CARD_AUTOMATON = 'scripts/core/card-automaton.ts'
 const HEARTBEAT = 'scripts/supervisor/heartbeat.ts'
 const CARD_RECORD = 'card-record'
 const VIOLATING_IMPORTS_AT_MOST = 1076
+const ROOT = path.resolve(import.meta.dirname, '../../../..')
+const PREDICTED_BY_THE_RECOUNT_D667 = [
+  'boundary:board->card-record',
+  'boundary:card-record->intake',
+  'boundary:card-record->quality',
+  'boundary:card-record->session',
+  'boundary:window->card-record',
+]
+
+function boundaryRecordAtBase(): RatchetNumbers {
+  const recorded = JSON.parse(processGit.readOrNull(ROOT, ['show', `${branchBase(ROOT)}:${RATCHET_RECORD}`]) ?? '{}') as RatchetNumbers
+  return Object.fromEntries(Object.entries(recorded).filter(([key]) => key.startsWith(BOUNDARY_PREFIX)))
+}
+
+function total(numbers: RatchetNumbers): number {
+  return Object.values(numbers).reduce((sum, count) => sum + count, 0)
+}
 
 describe('card-contract.ts is held by card-record (card-contract.md F1+A)', () => {
   it('card-record owns card-contract.ts and holds it as contract; card-model no longer does', () => {
@@ -46,5 +68,15 @@ describe('card-contract.ts is held by card-record (card-contract.md F1+A)', () =
     expect(reverse).toEqual([HEARTBEAT])
     expect(report.statistics.violatingImports).toBeLessThanOrEqual(VIOLATING_IMPORTS_AT_MOST)
     expect(report.statistics.mayUseCycles).toBe(0)
+  })
+
+  it('against the base record, only the five rows the recount predicted grow, each an ownership move, and the boundary total falls', { timeout: REPO_RUN_TIMEOUT }, () => {
+    const atBase = boundaryRecordAtBase()
+    const measured = boundaryNumbers(boundaryReport(ROOT).violations)
+    const grown = grownBoundaryRows(atBase, measured)
+
+    expect(grown).toEqual(PREDICTED_BY_THE_RECOUNT_D667)
+    expect([...ownershipMoves(ROOT, grown)].sort()).toEqual(PREDICTED_BY_THE_RECOUNT_D667)
+    expect(total(measured)).toBeLessThan(total(atBase))
   })
 })
