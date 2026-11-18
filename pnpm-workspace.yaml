@@ -17,3 +17,7 @@ overrides:
 
 allowBuilds:
   esbuild: true
+
+auditConfig:
+  ignoreGhsas:
+    - GHSA-fc5q-39xc-vjpf

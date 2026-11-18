@@ -15,11 +15,11 @@ import { NOT_MINE, notMine } from '../../core/card-automaton.js'
 import { cardHoldOf, HOLD_RECHECK_MS } from '../../core/card-hold.js'
 import { appendEvent, openBusWait } from '../../core/db.js'
 import { messageOf } from '../../core/errors.js'
-import { BOARD_ALARM, COMMAND_EXECUTED, MERGE_DONE, POLICY_ALLOWED, POLICY_DENIED, SCOPE_WIDENED, SHARD_USED } from '../../core/events.js'
+import { BOARD_ALARM, COMMAND_EXECUTED, MERGE_DONE, POLICY_ALLOWED, POLICY_DENIED, SHARD_USED } from '../../core/events.js'
 import { isFullSha } from '../../core/identifiers.js'
 import { assertHeld, completeTask, failTask, releaseTask, StaleLease, waitTask } from '../../core/lease.js'
 import { KEPT_BY_PUSH_POLICY } from '../../core/push-policy.js'
-import { keyOf, NEEDS_UPDATE, openDecisionWaitsOf, QUESTION_OPEN, QUEUE_ACTOR } from '../../core/queue.js'
+import { keyOf, NEEDS_UPDATE, openDecisionWaitsOfCard, QUESTION_OPEN, QUEUE_ACTOR, reviewsInFlightOn, widenedOnTheAdmission } from '../../core/queue.js'
 import { cardContract } from '../../intake/card-contract.js'
 import { allowLiveCommand, liveDecisionOf } from '../../policy/live-decision.js'
 import { mergePolicy, OWNER_MERGES, OWNER_MERGES_RULES, underOwnerDecision, VERSION_BRANCH, WITNESS_REASON, witnessDenial, witnessSubjectOf } from '../../policy/policy.js'
@@ -42,9 +42,6 @@ export const HEAD_OUTSIDE_TOUCHES = 'outside_touches'
 const WAIT_REASONS: ReadonlySet<MergeTechnicalReason> = new Set(['version_pr_open', 'not_mergeable', 'not_a_candidate', HELD_FOR_OWNER, HEAD_OUTSIDE_TOUCHES])
 
 export type MainOverlap = (pr: readonly string[], main: readonly string[]) => boolean
-const WIDENED_ON_THE_ADMISSION = `SELECT json_extract(payload, '$.paths') AS paths FROM events WHERE card_id = ? AND legacy = 0 AND type = '${SCOPE_WIDENED}' AND json_extract(payload, '$.admission') = ? AND json_type(payload, '$.paths') = 'array'`
-const OPEN_QUESTIONS_OF_CARD = `${openDecisionWaitsOf('?')} ORDER BY opened_at, id`
-const REVIEWS_IN_FLIGHT = `SELECT task_key FROM tasks WHERE queue = 'review' AND pr = ? AND head = ? AND state IN ('queued', 'leased') ORDER BY id`
 const WITHDRAWN_ON_THE_BODY: ReadonlySet<AuthorityRule> = new Set(['decision_unread', 'no_matrix_count_line'])
 const FILES_PAGE = 100
 const REPO = 'repos/{owner}/{repo}'
@@ -243,7 +240,7 @@ export class MergeExecutor {
   }
 
   private heldByAnOpenQuestion(lease: Lease): MergeDenial | null {
-    const open = this.parts.db.prepare(OPEN_QUESTIONS_OF_CARD).all(lease.cardId) as { id: string, text: string }[]
+    const open = openDecisionWaitsOfCard(this.parts.db, lease.cardId)
     if (open.length === 0)
       return null
     const questions = open.map(wait => `${wait.id} (${wait.text})`).join(', ')
@@ -254,7 +251,7 @@ export class MergeExecutor {
     const card = cardContract(this.parts.db, lease.cardId)
     if (card === null)
       return null
-    const widened = (this.parts.db.prepare(WIDENED_ON_THE_ADMISSION).all(lease.cardId, card.admissionEventId) as { paths: string }[]).flatMap(row => JSON.parse(row.paths) as string[])
+    const widened = widenedOnTheAdmission(this.parts.db, lease.cardId, card.admissionEventId)
     const touches = [...card.touches, ...widened]
     const meter = new Meter(this.parts.gitHub, () => this.parts.clock().getTime())
     const reach = { touches, added: new Set(patched.filter(file => (file as AddedFile).status === 'added').map(file => file.filename)), compositionRecords: compositionRecordsOfTheCheckout(), entriesOnlyRemoved: entriesOnlyRemovedByThePatch(meter, patched, lease.head!) }
@@ -267,7 +264,7 @@ export class MergeExecutor {
   private noLongerACandidate(lease: Lease): MergeDenial | null {
     if (mergeCandidates(this.parts.db, this.ts(), this.parts.rules).some(task => keyOf(task) === lease.taskKey))
       return null
-    const reviews = (this.parts.db.prepare(REVIEWS_IN_FLIGHT).all(lease.pr, lease.head) as { task_key: string }[]).map(row => row.task_key)
+    const reviews = reviewsInFlightOn(this.parts.db, lease.pr, lease.head)
     const holder = reviews.length === 0 ? 'no review in flight' : `the review ${reviews.join(', ')} in flight`
     return { kind: 'technical', reason: 'not_a_candidate', detail: `${lease.taskKey} is no longer a merge candidate: ${holder}` }
   }
