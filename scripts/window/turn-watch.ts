@@ -3,6 +3,7 @@ import type { WindowMode } from '../ports/session.js'
 import type { Status } from './loop.js'
 import { existsSync, realpathSync } from 'node:fs'
 import os from 'node:os'
+import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { WINDOW_WHO } from '../../src/card/parking.js'
@@ -11,18 +12,21 @@ import { RUNNING_CARD } from '../core/card-automaton.js'
 import { CARD_BODIES } from '../core/card-bodies.js'
 import { defaultBusPath, openBus } from '../core/db.js'
 import { WINDOW_HEARTBEAT } from '../core/events.js'
+import { handoffDirOf } from '../core/handoff-dir.js'
 import { MIKO_WATCH_COMMAND } from '../core/owner-commands.js'
 import { sessionHandoffOf } from './handoff-write.js'
 import { PREFIX } from './loop.js'
 import { cardTreeHomes, handoffStatusOf, tabWindowIn } from './tab.js'
+import { ONCE_STORE, watchHeld } from './watch-store.js'
 import { WINDOW_BEAT_MS, windowSessionOf } from './window-heartbeat.js'
 
 export const NOT_A_WINDOW = 'turn-watch: not a window session; no watch is required'
-export const NO_LIVE_WATCH = `turn-watch: this window session has no window.heartbeat newer than ${WINDOW_BEAT_MS / 60_000} minutes; start ${MIKO_WATCH_COMMAND} before ending the turn`
-export const LIVE_WATCH = `turn-watch: a live ${MIKO_WATCH_COMMAND} beats for this window session`
+const RUNNING_WATCH = `no ${MIKO_WATCH_COMMAND} --once holds the cursor now with a window.heartbeat newer than ${WINDOW_BEAT_MS / 60_000} minutes`
+export const NO_LIVE_WATCH = `turn-watch: this window session has ${RUNNING_WATCH}; run ${MIKO_WATCH_COMMAND} --once in the background before ending the turn`
+export const LIVE_WATCH = `turn-watch: a live ${MIKO_WATCH_COMMAND} holds the cursor and beats for this window session`
 export const TAB_CONTINUE = `turn-watch: the handoff of this tab window ends STATUS: CONTINUE; run ${MIKO_WATCH_COMMAND} --once and take the next move in this session`
 export const TAB_STOPS = 'turn-watch: the handoff of this tab window ends neither STATUS: CONTINUE nor STATUS: OWNER; the turn ends'
-export const OWNER_QUESTION_WAITS = `turn-watch: the handoff of this tab window ends STATUS: OWNER and no window.heartbeat is newer than ${WINDOW_BEAT_MS / 60_000} minutes; the owner question is an owner wait on the board, not a turn end: run ${MIKO_WATCH_COMMAND} --once and settle every other card while it waits`
+export const OWNER_QUESTION_WAITS = `turn-watch: the handoff of this tab window ends STATUS: OWNER and ${RUNNING_WATCH}; the owner question is an owner wait on the board, not a turn end: run ${MIKO_WATCH_COMMAND} --once in the background and settle every other card while it waits`
 
 export function ownCardHasNoPr(card: number): string {
   return `turn-watch: window card #${card} is running with no PR and no open owner wait; take its next step, no watch`
@@ -57,13 +61,14 @@ export interface TurnWatchDeps {
   mode: WindowMode
   status: () => Status | null
   lastBeat: (session: string) => string | null
+  watchRunning: () => boolean
   ownCard: () => number | null
   now: () => number
   err: (line: string) => void
 }
 
 function liveWatch(deps: TurnWatchDeps, session: string): boolean {
-  return watchIsLive(deps.lastBeat(session), deps.now())
+  return deps.watchRunning() && watchIsLive(deps.lastBeat(session), deps.now())
 }
 
 function tabTurn(deps: TurnWatchDeps, session: string): number {
@@ -120,11 +125,13 @@ export function realTurnWatchDeps(env: NodeJS.ProcessEnv, dir: string = process.
   const tab = tabWindowIn(env, dir, cardTreeHomes(env, defaultBusPath()))
   const handoff = sessionHandoffOf(env, os.homedir())
   const bus = defaultBusPath()
+  const onceStore = path.join(handoffDirOf(env, os.homedir(), dir), ONCE_STORE)
   return {
     session: tab?.session ?? windowSessionOf(env),
     mode: tab === null ? 'loop' : 'tab',
     status: () => handoffStatusOf(handoff),
     lastBeat: session => readBus(bus, db => lastWindowBeat(db, session)),
+    watchRunning: () => watchHeld(onceStore),
     ownCard: () => readBus(bus, ownCardWithoutPr),
     now: () => Date.now(),
     err: line => console.error(`${PREFIX}${line}`),
