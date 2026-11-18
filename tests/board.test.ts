@@ -232,7 +232,7 @@ describe('construct board', () => {
       'in review (1): #3',
       'ready to merge (1): #4',
       'Backlog',
-      '  #1 alpha · planned',
+      '  #1 alpha · planned · no open release · no blocker recorded',
       '  #2 beta · in work',
       '  #3 gamma · review',
       '  #4 delta · ready',
