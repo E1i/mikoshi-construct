@@ -35,11 +35,10 @@ import { mutationOnlyFindings } from './tail-card.js'
 const CI_NOT_READY = 'ci_not_ready'
 export const REVIEW_FAILED = 'review_failed'
 
-export const PRE_SESSION_LIMIT = 'pre_session_limit'
 export const PRE_SESSION_LIMIT_MS = 5 * 60_000
 export const PLAN_STEP = 'plan'
 
-export type ReviewDenial = Denial | { kind: 'technical', reason: typeof REVIEW_CEILING | typeof PRE_SESSION_LIMIT, detail: string }
+export type ReviewDenial = Denial | { kind: 'technical', reason: typeof REVIEW_CEILING, detail: string }
 
 export type ReviewPlannerLater = (lease: Lease, earlier: EarlierVerdict | null, signal: AbortSignal) => Promise<ReviewPlan>
 
@@ -51,8 +50,8 @@ export function preSessionEndLine(lease: Lease, ms: number): string {
   return `${PREFIX}${lease.taskKey}: pre-session work ended in ${ms} ms`
 }
 
-export function preSessionLimitDetail(lease: Lease, step: string, limitMs: number): string {
-  return `PR #${lease.pr} is not reviewed: the pre-session step ${step} ran past its limit of ${Math.round(limitMs / 1000)} s and was stopped`
+export function plannerPastItsLimit(step: string, limitMs: number): string {
+  return `the planner passed its limit: the pre-session step ${step} ran past its limit of ${Math.round(limitMs / 1000)} s and was stopped, so the review runs at the default depth`
 }
 
 class PastTheLimit {
@@ -379,7 +378,7 @@ export class ReviewExecutor {
     }
   }
 
-  private preSession(lease: Lease): ReviewPlan | Promise<ReviewPlan | ReviewDenial> {
+  private preSession(lease: Lease): ReviewPlan | Promise<ReviewPlan> {
     const { db, clock } = this.parts
     const say = this.parts.say ?? console.log
     const started = clock().getTime()
@@ -393,13 +392,13 @@ export class ReviewExecutor {
     return this.plannedWithin(lease, plan, abort, started, say)
   }
 
-  private async plannedWithin(lease: Lease, running: Promise<ReviewPlan>, abort: AbortController, started: number, say: (line: string) => void): Promise<ReviewPlan | ReviewDenial> {
+  private async plannedWithin(lease: Lease, running: Promise<ReviewPlan>, abort: AbortController, started: number, say: (line: string) => void): Promise<ReviewPlan> {
     const { clock } = this.parts
     const limitMs = this.parts.preSessionLimitMs ?? PRE_SESSION_LIMIT_MS
     const plan = await within(PLAN_STEP, limitMs, abort, running)
     if (plan instanceof PastTheLimit) {
       say(`${preSessionEndLine(lease, clock().getTime() - started)}, past its limit at the step ${plan.step}`)
-      return { kind: 'technical', reason: PRE_SESSION_LIMIT, detail: preSessionLimitDetail(lease, plan.step, limitMs) }
+      return fullReview(plannerPastItsLimit(plan.step, limitMs))
     }
     say(preSessionEndLine(lease, clock().getTime() - started))
     return plan
@@ -409,8 +408,6 @@ export class ReviewExecutor {
     const { db, clock } = this.parts
     const prepared = this.preSession(lease)
     const plan = prepared instanceof Promise ? await prepared : prepared
-    if ('kind' in plan)
-      return { outcome: plan, held: null }
     try {
       const started = clock().getTime()
       const card = cardBodyText(db, lease.cardId)
