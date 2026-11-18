@@ -89,7 +89,7 @@ describe('the daemons cell', () => {
     expect(slot).toContain('--_ink: var(--daemon-ink);')
     expect(slot).toContain('--_sketch: var(--daemon-on);')
     expect(slot).toContain('--_led: var(--led-on);')
-    expect(slot).toContain('&[data-state="sleep"] { --_ink: var(--daemon-ink-off); --_sketch: var(--daemon-off); --_led: var(--daemon-off); --_ride: -20px; }')
+    expect(slot).toContain('&[data-state="sleep"] { --_ink: var(--daemon-ink-off); --_sketch: var(--daemon-off); --_led: var(--daemon-off); --_ride: -20px; --_glow: none; }')
     expect(STYLE).toContain('.sd-card { position: relative; display: grid; inline-size: 4rem; color: var(--_ink); translate: 0 var(--_ride);')
     expect(STYLE).toContain('.sd-frame { fill: var(--panel-raised); stroke: currentColor;')
     expect(STYLE).toContain('.sd-sketch { fill: none; stroke: var(--_sketch);')
@@ -233,6 +233,23 @@ describe('the daemon catalog reader', () => {
     expect(catalog.map(entry => [entry.daemon, entry.skill, entry.sketch])).toEqual([['BROWSER_LAB', 'browser-lab', 'hex-iris']])
     expect(catalog[0]!.mutations).toEqual(adapterMutations(REPOSITORY_ROOT))
     expect(mikoPanel({ ...PANEL, bay: bayOf(REPOSITORY_ROOT, []) })).toContain('<div class="daemons-head">INSTALLED · 1</div>')
+  })
+
+  it('the real repository renders BROWSER_LAB as the design draws it: an SD card in a recessed bay, a LED under it, a divided status pane', () => {
+    const html = mikoPanel({ ...PANEL, bay: bayOf(REPOSITORY_ROOT, ['browser-lab']) })
+    const slot = slotOf(html, 'BROWSER_LAB')
+    expect(slot).toContain('<span class="slot-bay"><div class="sd-card">')
+    expect(slot).toContain('<g class="sd-sketch" data-sketch="hex-iris"><polygon')
+    expect(slot).toContain('<span class="slot-foot"><i class="slot-led"></i>SLOT 01</span>')
+    expect(paneOf(html, 'BROWSER_LAB')).toContain('data-default data-shown')
+    expect(paneOf(html, 'BROWSER_LAB')).toContain('<span class="pane-tag">LOADED</span>')
+    expect(STYLE).toContain('.slot-bay { position: relative; display: flex; justify-content: center; align-items: end; box-sizing: border-box; inline-size: 116px; block-size: 138px; padding-block-end: 6px; background: #080c16; border: 1px solid #232c40;')
+    expect(STYLE).toContain('.daemon-slot:hover .slot-bay, .daemon-slot:focus-visible .slot-bay { border-color: var(--daemon-on); }')
+    expect(STYLE).toContain('--_glow: 0 0 6px var(--_led);')
+    expect(STYLE).toContain('--_ride: -20px; --_glow: none; }')
+    expect(STYLE).toContain('box-shadow: var(--_glow); }')
+    expect(STYLE).toContain('.daemon-status { display: grid; min-inline-size: 8rem; padding-inline-start: 14px; border-inline-start: 1px solid var(--line); }')
+    expect(STYLE).toContain('.pane-mutations li::before { content: \'↳ \'; }')
   })
 
   it('lists daemons by skill directory and marks LOADED only the skills of the current session', () => {
