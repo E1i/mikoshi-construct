@@ -157,7 +157,7 @@ describe('the boundary ratchet holds every import the base already had', () => {
 
     expect(recorded[PORTS_ADAPTERS_ROW] ?? 0).toBe(0)
     expect(generated[PORTS_ADAPTERS_ROW]).toBe(12)
-    expect(ownershipMoves(head, [PORTS_ADAPTERS_ROW], sources)).toEqual(new Set([PORTS_ADAPTERS_ROW]))
+    expect(ownershipMoves(head, [PORTS_ADAPTERS_ROW], sources)).toEqual(new Map([[PORTS_ADAPTERS_ROW, 12]]))
     expect(grewLines(checkRatchet(head, recorded, generated, sources))).toEqual([])
   })
 })

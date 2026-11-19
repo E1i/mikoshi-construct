@@ -1,7 +1,7 @@
 import type { LawCells } from '../nodes/laws.js'
 import type { GitRunner } from '../ports/git.js'
 import type { ModuleGraphSpec, ModulesSection } from './factory/modules.js'
-import type { BoundarySide } from './module-graph/boundary.js'
+import type { BoundarySide, MovedEdges } from './module-graph/boundary.js'
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -13,7 +13,7 @@ import { processGit } from '../ports/git.js'
 import { FACTORY_CONTRACT, graphOfSection, MODULE_GRAPH } from './factory/modules.js'
 import { findSites, overlapsSection } from './factory/overlaps.js'
 import { parsedFiles } from './factory/walk.js'
-import { BOUNDARY_PREFIX, boundaryNumbers, boundaryReport, identifiedViolations, movedRows } from './module-graph/boundary.js'
+import { BOUNDARY_PREFIX, boundaryNumbers, boundaryReport, exportedNames, identifiedViolations, movedRows } from './module-graph/boundary.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../..')
 const THRESHOLD_KEY = 'threshold'
@@ -68,14 +68,19 @@ export function generateNumbers(root: string, threshold: number): RatchetNumbers
   return { [THRESHOLD_KEY]: threshold, [LINE_SCOPE_KEY]: 1, ...overlapNumbers(overlapsSection(findSites(root))), ...bigFileNumbers(root, threshold), ...lawGapNumbers(), ...boundaryNumbers(boundaryReport(root).violations) }
 }
 
-export function ratchetBreaks(recorded: RatchetNumbers, generated: RatchetNumbers, movedByOwnership: ReadonlySet<string> = new Set()): string[] {
+function beyondMoved(moved: number, growth: number): string {
+  return moved === 0 ? '' : `, ${growth - moved} beyond the ${moved} edges an ownership move carries`
+}
+
+export function ratchetBreaks(recorded: RatchetNumbers, generated: RatchetNumbers, movedByOwnership: ReadonlyMap<string, number> = new Map()): string[] {
   const keys = [...new Set([...Object.keys(recorded), ...Object.keys(generated)])].sort()
   return keys.flatMap((key) => {
     const [held, now] = [recorded[key] ?? 0, generated[key] ?? 0]
-    if (now > held && movedByOwnership.has(key))
+    const moved = movedByOwnership.get(key) ?? 0
+    if (now > held && now - held <= moved)
       return []
     if (now > held)
-      return [`${key} grew from ${held} to ${now}: raising it is a change of ${RATCHET_RECORD} that carries the owner's decision`]
+      return [`${key} grew from ${held} to ${now}${beyondMoved(moved, now - held)}: raising it is a change of ${RATCHET_RECORD} that carries the owner's decision`]
     if (now < held)
       return [`${key} went down from ${held} to ${now}: lower it in ${RATCHET_RECORD} in this pull request`]
     return []
@@ -134,18 +139,18 @@ export function specInTree(tree: string): ModuleGraphSpec {
 }
 
 function sideOf(root: string, spec: ModuleGraphSpec): BoundarySide {
-  return { spec, violations: identifiedViolations(root, spec) }
+  return { spec, violations: identifiedViolations(root, spec), exportsOf: exportedNames(root) }
 }
 
-export function ownershipMoves(root: string, grown: readonly string[], sources: MoveSources = {}): Set<string> {
+export function ownershipMoves(root: string, grown: readonly string[], sources: MoveSources = {}): MovedEdges {
   if (grown.length === 0)
-    return new Set()
+    return new Map()
   const git = sources.git ?? processGit
   const base = branchBase(root, sources)
   const readSpec = sources.readSpec ?? specInTree
   const tree = treeAt(root, base, git)
   try {
-    return new Set(movedRows(sideOf(tree, readSpec(tree)), sideOf(root, sources.headSpec ?? MODULE_GRAPH), grown, renamesSince(root, base, git)))
+    return movedRows(sideOf(tree, readSpec(tree)), sideOf(root, sources.headSpec ?? MODULE_GRAPH), grown, renamesSince(root, base, git))
   }
   finally {
     rmSync(tree, { recursive: true, force: true })
@@ -160,7 +165,7 @@ export function rowsGrownOverBase(root: string, head: RatchetNumbers, judged: (k
   const base = recordAt(root, branchBase(root, sources), sources.git ?? processGit)
   const grown = Object.keys(head).filter(key => judged(key) && head[key]! > (base[key] ?? 0)).sort()
   const moved = ownershipMoves(root, grown.filter(key => key.startsWith(BOUNDARY_PREFIX)), sources)
-  return grown.filter(key => !moved.has(key))
+  return grown.filter(key => head[key]! - (base[key] ?? 0) > (moved.get(key) ?? 0))
 }
 
 export function checkRatchet(root: string, recorded: RatchetNumbers, generated: RatchetNumbers, sources: MoveSources = {}): string[] {
