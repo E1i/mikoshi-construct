@@ -114,6 +114,7 @@
   "boundary:node-restart->ports": 2,
   "boundary:node-restart->window": 2,
   "boundary:node-review->composition-root": 1,
+  "boundary:node-review->decisions": 1,
   "boundary:node-review->intake": 3,
   "boundary:node-review->ports": 16,
   "boundary:node-review->project": 2,

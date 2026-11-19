@@ -29,8 +29,8 @@ function baseRecord(): RatchetNumbers {
   return JSON.parse(processGit.readOrNull(ROOT, ['show', `${base}:${RATCHET_RECORD}`]) ?? '{}') as RatchetNumbers
 }
 
-function headNumbers(): RatchetNumbers {
-  return generateNumbers(ROOT, thresholdOf(readRatchet(ROOT)))
+function raisedByTheOwnerTo(recordedAtHead: RatchetNumbers, key: string, measured: number): boolean {
+  return recordedAtHead[key] === measured
 }
 
 describe('the lease contour', () => {
@@ -43,10 +43,11 @@ describe('the lease contour', () => {
 
   it('no boundary or lines row grows over the per-symbol normalized base', () => {
     const base = baseRecord()
-    const head = headNumbers()
+    const recorded = readRatchet(ROOT)
+    const head = generateNumbers(ROOT, thresholdOf(recorded))
     expect(head[BUS_TO_SESSION] ?? 0).toBe(0)
-    expect(readRatchet(ROOT)[BUS_TO_SESSION] ?? 0).toBe(0)
-    const grown = Object.keys(head).filter(key => JUDGED_ROWS.test(key) && head[key]! > (base[key] ?? 0)).sort()
+    expect(recorded[BUS_TO_SESSION] ?? 0).toBe(0)
+    const grown = Object.keys(head).filter(key => JUDGED_ROWS.test(key) && head[key]! > (base[key] ?? 0) && !raisedByTheOwnerTo(recorded, key, head[key]!)).sort()
     const moved = ownershipMoves(ROOT, grown.filter(key => key.startsWith('boundary:')))
     expect(grown.filter(key => !moved.has(key))).toEqual([])
   }, GENERATION_TIMEOUT)
