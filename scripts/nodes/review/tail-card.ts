@@ -75,7 +75,7 @@ export function tailOrigin(tail: Tail): string {
 export function tailCardText(id: number, parent: TailParent, tail: Tail): string {
   const name = `${parent.name}${TAIL_SUFFIX}`
   return [
-    `${CARD_HEADER}#${id} ${name} [implement/${parent.milestone}/${TAIL_SIZE}/cheap/auto] · depends — · blocks —`,
+    `${CARD_HEADER}#${id} ${name} [implement/${parent.milestone}/${TAIL_SIZE}/cheap/auto] · depends #${tail.parent} · blocks —`,
     `branch: feat/${name}`,
     `${TOUCHES_HEADER}${tailTouches(parent).join(', ')}`,
     `continue: ${parent.continue}`,
@@ -141,7 +141,7 @@ export class BusTailIntake implements TailIntake {
       const id = nextTailNumber(this.parts.cardStates(), [tail.pr ?? 0, onGitHub])
       const text = tailCardText(id, parent, tail)
       const line = text.split('\n')[0]!.slice(CARD_HEADER.length)
-      return appendCardEvent(db, TAIL_ACTOR, laid(db, { type: CARD_ADMITTED, cardId: id, ts: this.parts.clock().toISOString(), dedupeKey: tailKey(tail.taskKey), payload: { card: line, lane: null, depends: [], decision: 'auto', contour: 'cheap', confirmation: 'auto', corrections: [], bodySha: tailBodySha(text), text, textSha: tailTextSha(text), source: TAIL_SOURCE } })) ? id : null
+      return appendCardEvent(db, TAIL_ACTOR, laid(db, { type: CARD_ADMITTED, cardId: id, ts: this.parts.clock().toISOString(), dedupeKey: tailKey(tail.taskKey), payload: { card: line, lane: null, depends: [tail.parent], decision: 'auto', contour: 'cheap', confirmation: 'auto', corrections: [], bodySha: tailBodySha(text), text, textSha: tailTextSha(text), source: TAIL_SOURCE } })) ? id : null
     })
   }
 }
