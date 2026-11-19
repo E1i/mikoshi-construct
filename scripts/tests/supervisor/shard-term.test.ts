@@ -7,9 +7,10 @@ import { appendEvent, openBus } from '../../core/db.js'
 import { OWNER_WAIT_OPENED, SHARD_EXPIRED, SHARD_ISSUED } from '../../core/events.js'
 import { START_BIN } from '../../core/owner-commands.js'
 import { DECISIONS_SCOPE, SHARD_NOTICE_HOURS, WINDOW_SHARD_HOURS } from '../../policy/shards.js'
-import { shardRenewalCommand, shardTermParts } from '../../supervisor/composition.js'
+import { busTicks, shardRenewalCommand, shardTermParts } from '../../supervisor/composition.js'
 import { SHARD_TERM_ACTOR, ShardTerm } from '../../supervisor/shard-term.js'
 import { startCommandOf } from '../../supervisor/start.js'
+import { superviseUntilReplaced } from '../../supervisor/supervisor.js'
 import { FACTORY_MODES } from '../../supervisor/workers.js'
 
 const NOW = new Date('2026-11-17T18:00:00.000Z')
@@ -69,8 +70,7 @@ describe('the supervisor tick warns before a window shard ends and when it ends'
     const lines = tickAt(db, NOW)
     expect(expiries(db)).toEqual([{ actor: SHARD_TERM_ACTOR, id: 'shard-gone' }])
     expect(lines).toHaveLength(1)
-    expect(waits(db)).toHaveLength(1)
-    expect(waits(db)[0]!.text).toContain('shard-gone')
+    expect(waits(db)).toEqual([{ actor: SHARD_TERM_ACTOR, need: 'command', command: shardRenewalCommand(), text: expect.stringContaining('shard-gone') }])
     expect(waits(db)[0]!.text).toContain('expired')
   })
 
@@ -83,6 +83,35 @@ describe('the supervisor tick warns before a window shard ends and when it ends'
     expect(tickAt(db, new Date(NOW.getTime() + 2 * HOUR_MS))).toEqual([])
     expect(waits(db)).toHaveLength(1)
     expect(expiries(db).map(row => row.id).sort()).toEqual(['shard-ending', 'shard-other'])
+  })
+
+  it('a window shard with exactly the notice left opens its wait', () => {
+    const db = bus()
+    issue(db, 'shard-at-notice', new Date(NOW.getTime() + SHARD_NOTICE_HOURS * HOUR_MS))
+    expect(tickAt(db, NOW)).toHaveLength(1)
+    expect(waits(db)[0]!.text).toContain(`${SHARD_NOTICE_HOURS.toFixed(1)} h left`)
+  })
+
+  it('every supervisor tick steps the shard term the composition builds for the bus', async () => {
+    const db = bus()
+    const root = mkdtempSync(path.join(tmpdir(), 'shard-term-root-'))
+    roots.push(root)
+    issue(db, 'shard-on-tick', new Date(Date.now() + HOUR_MS))
+    const printed: string[] = []
+    let ticks = 0
+    await superviseUntilReplaced({
+      supervisor: { step: async () => [], get ownCodeBehind() {
+        ticks += 1
+        return ticks > 1 ? 'sha' : null
+      } } as never,
+      keeper: { step: () => [] } as never,
+      ...busTicks(db, root),
+      relaunch: { busDir: '', start: () => ({ stdout: [], stderr: [], exitCode: 0 }) },
+      print: line => printed.push(line),
+      pause: async () => {},
+    })
+    expect(waits(db)).toEqual([{ actor: SHARD_TERM_ACTOR, need: 'command', command: shardRenewalCommand(), text: expect.stringContaining('shard-on-tick') }])
+    expect(printed).toEqual(expect.arrayContaining([expect.stringContaining('shard-on-tick')]))
   })
 
   it('a window shard with more than the notice left opens no wait', () => {

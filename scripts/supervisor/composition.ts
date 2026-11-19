@@ -2,6 +2,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { CardAutomaton, CardCondition, CardsSelected, NodeCandidates } from '../ci/card-automaton.js'
 import type { Understood } from '../core/bus-version.js'
 import type { SliceParentsBackfill } from '../core/card-bodies.js'
+import type { EventType } from '../core/events.js'
 import type { CardTransitions, HolderStart, Lease } from '../core/lease.js'
 import type { NodeKind, NodeSupply, ProcessIdentity, WorkerIdentity } from '../core/node.js'
 import type { CandidateRules, Derived, MayRequeue, QueueSource, RequeueRow } from '../core/queue.js'
@@ -39,10 +40,12 @@ import { isFullSha, prOf } from '../core/identifiers.js'
 import { OWNER, ownerQuestionAnswered } from '../core/inbox.js'
 import { foreignVersion, instanceOf, provenIdentity, recordWorkerIdentity, UNHANDED } from '../core/node.js'
 import { orderDeclarationsAt, overlaps } from '../core/order/overlap.js'
+import { orderEventsFrom, prOrderTickAt } from '../core/order/turn.js'
 import { ghostProtocolWord, MODE_FLAG, ownerWaitCommand, sayCommand, START_BIN } from '../core/owner-commands.js'
 import { prFolds, prRow } from '../core/pr-folds.js'
 import { closeCandidates, keyOf, reviewCandidates, taskRow, TASKS_PROJECTION } from '../core/queue.js'
 import { payloadOf, storedByKey } from '../core/stored.js'
+import { cardContract } from '../intake/card-contract.js'
 import { BusWeightsRecompute } from '../intake/intake.js'
 import { answerSource } from '../nodes/answer/answer-candidates.js'
 import { LAUNCH_SOURCE } from '../nodes/launch/launch-candidates.js'
@@ -65,6 +68,7 @@ import { launchDirOf } from '../ports/tree-publish.js'
 import { cardTreeRoots } from '../ports/worktree-home.js'
 import { foldPlanEvent } from '../window/plan-folds.js'
 import { releasingTakeoverOnPush } from '../window/takeover-push-release.js'
+import { PREFIX } from './bg.js'
 import { cardWaitFolds, closeWaitsOfAnEndedCard, closingTheWaitsOfAClosedPr, ownerWaitFolds } from './card-waits.js'
 import { causeGoneSource, derivedQueues, DOWNGRADE_PARKED_SOURCE, dueAgainSource, NO_CARD_TREE_SOURCE, restartSource, SETTLE_SOURCE, stopNoLongerHoldsSource } from './derive-queues.js'
 import { unendedStarts } from './expected-time.js'
@@ -72,6 +76,7 @@ import { busSessionPulse, heartbeatEnv, measureCardSession, ownStart, recordProc
 import { SILENT_MS } from './liveness-sites.js'
 import { ownIdentity, tableIdentity } from './recorded-worker.js'
 import { slotsOf, slotsVariable } from './scheduler.js'
+import { ShardTerm } from './shard-term.js'
 import { FACTORY_MODES } from './workers.js'
 
 export interface NodeLiveness {
@@ -370,4 +375,12 @@ function lastWaitOpenedBy(db: DatabaseSync, actor: string): number | null {
 
 export function shardTermParts(): ShardTermParts {
   return { expired: expiredWindowShards, active: activeWindowShards, lastWaitOpenedBy, noticeHours: SHARD_NOTICE_HOURS, renewal: shardRenewalCommand() }
+}
+
+export function busOrderTick(db: DatabaseSync, root: string): ReturnType<typeof prOrderTickAt> {
+  return prOrderTickAt(db, root, PREFIX, orderEventsFrom((type, fields, after) => new BusRead(db, { from: after + 1 }).slice(type as EventType, fields as never)), card => cardContract(db, card)?.touches ?? null)
+}
+
+export function busTicks(db: DatabaseSync, root: string): { order: ReturnType<typeof prOrderTickAt>, shardTerm: ShardTerm } {
+  return { order: busOrderTick(db, root), shardTerm: new ShardTerm(db, () => Date.now(), PREFIX, shardTermParts()) }
 }

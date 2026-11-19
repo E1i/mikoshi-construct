@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url'
 import { agentLabel, BUS_DB_VARIABLE, busDirOf, GH_ACCOUNT_VARIABLE, isOwnerCheckout, LAUNCH_AGENTS, OWNER_AGENT, OWNER_AGENT_FILE, pinBus, remoteUrlOf, repoSlugOfUrl } from '../core/bus-path.js'
 import { appendEvent, openBus } from '../core/db.js'
 import { SHARD_ISSUED, SHARD_REVOKED } from '../core/events.js'
-import { ghostProtocolWord, SAY_COMMAND, sayCommand, START_BIN } from '../core/owner-commands.js'
+import { ghostProtocolWord, MODE_FLAG, SAY_COMMAND, sayCommand, START_BIN } from '../core/owner-commands.js'
 import { consumeOwnerWord, ownerChannelOfBus, USED_WORD } from '../owner/channel.js'
 import { inForceInText, OWNER_SOURCE } from '../policy/decisions/decisions.js'
 import { decisionsAdderOpeningTheBus, projectionText } from '../policy/decisions/projection.js'
@@ -34,7 +34,6 @@ export const RAISED_WITHIN_S = 20
 export const HOLD_FLAG = '--hold'
 export const HOLD_CHECK_MS = RAISED_WITHIN_S * 1000
 export const KEEP_ALIVE_PROGRAM = ['/usr/bin/env', START_BIN, HOLD_FLAG]
-export const MODE_FLAG = '--mode'
 export const HOURS_FLAG = '--hours'
 export const LIVE_SWITCH = '--live'
 export const SHADOW_SWITCH = '--shadow'
