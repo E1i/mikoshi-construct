@@ -6,143 +6,23 @@ import { realpathSync } from 'node:fs'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { busProjections } from '../supervisor/composition.js'
-import { IN_ORDER_MARK, latestOfEachType, REDUCED_IN_ORDER } from './bus-readings.js'
-import { appendEvent, CLOSED_WAIT, defaultBusPath, inTransaction, isOwnerWaitNeed, OPEN_WAIT, openBus, OWNER_WAIT_NEEDS, OWNER_WAITS, WAIT_ID } from './db.js'
-import { CARD_WAITING, catalogued, DECISION_RECORDED, DECISIONS_CUT_OVER, DECISIONS_IMPORTED, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, WITNESS_DOWNGRADE } from './events.js'
-import { prOf } from './identifiers.js'
+import { IN_ORDER_MARK, REDUCED_IN_ORDER } from './bus-readings.js'
+import { appendEvent, defaultBusPath, inTransaction, openBus, OWNER_WAITS } from './db.js'
+import { catalogued, DECISIONS_CUT_OVER } from './events.js'
 import { appliedOrRejected } from './rejection.js'
-import { payloadOf, reject, STORED_COLUMNS } from './stored.js'
+import { STORED_COLUMNS } from './stored.js'
 import { markReduced, reduceProjection, watermarkOf } from './watermark.js'
 
 export const PREFIX = '[bus:reduce] '
 export const PROJECTION_KEYS: Readonly<Record<string, string>> = { prs: 'pr', cards: 'card_id', tasks: 'task_key', mains: 'sha', chains: 'dir', roles: 'role', decisions: 'decision_id', card_bodies: 'card_id', plans: 'plan_id', card_releases: 'card_id', plan_items: 'plan_id, item_id', [OWNER_WAITS]: 'id' }
-
-export const DOWNGRADE_WAIT_PREFIX = 'W'
-const DOWNGRADE_WAIT_ID = new RegExp(`^${DOWNGRADE_WAIT_PREFIX}\\d+$`)
-
-export interface OwnerWaitFacts {
-  id: string
-  need: string
-  card: number | null
-  pr: number | null
-}
-
-export interface DecisionAnswer {
-  answer: string
-  scope: string
-  commands: readonly string[]
-  named: readonly string[]
-}
-
-export interface OwnerWaitParts {
-  commandOf: (wait: OwnerWaitFacts, asked: string | null) => string
-  decisionFolds: Readonly<Record<string, Fold>>
-  answersOfTheDecisions: (db: DatabaseSync, eventId: number) => readonly DecisionAnswer[]
-  closeWaitsOfAnEndedCard: (db: DatabaseSync, cardId: number | null, eventId: number) => void
-}
 
 export interface ReduceCount {
   applied: number
   rejected: number
 }
 
-export function filled(value: unknown): string | null {
-  return typeof value === 'string' && value.trim() !== '' ? value.trim() : null
-}
-
-function optional<T>(payload: Record<string, unknown>, field: string, read: (value: unknown) => T | null): T | null {
-  const value = payload[field]
-  return value === undefined || value === null ? null : read(value) ?? reject(`${field} is not valid: ${JSON.stringify(value)}`)
-}
-
-function busNamesTheAction(need: string, command: string | null, pr: number | null): boolean {
-  if (need === 'merge')
-    return pr !== null
-  return command !== null || (need === 'decision' && pr !== null)
-}
-
-function foldOwnerWaitOpened(db: DatabaseSync, event: StoredEvent, parts: OwnerWaitParts): void {
-  const payload = payloadOf(event)
-  const id = typeof payload.id === 'string' && WAIT_ID.test(payload.id) ? payload.id : reject('id is not Q<N>')
-  const need = isOwnerWaitNeed(payload.need) ? payload.need : reject(`need is not one of ${OWNER_WAIT_NEEDS.join(' | ')}`)
-  const text = filled(payload.text) ?? reject('text is empty')
-  const command = optional(payload, 'command', filled)
-  const card = optional(payload, 'card', prOf)
-  const pr = optional(payload, 'pr', prOf)
-  if (need === 'command' && command === null)
-    reject('a command wait names no command')
-  if (optional(payload, 'request', prOf) === null && !busNamesTheAction(need, command, pr))
-    reject(`the bus names no owner action for this ${need}: a finding for the backlog, not an owner wait`)
-  if (db.prepare('SELECT 1 FROM owner_waits WHERE id = ?').get(id) !== undefined)
-    reject(`${id} is already opened`)
-  db.prepare(`INSERT INTO owner_waits (id, need, text, command, card_id, pr, state, answer, opened_at, event_id) VALUES (?, ?, ?, ?, ?, ?, '${OPEN_WAIT}', NULL, ?, ?)`)
-    .run(id, need, text, parts.commandOf({ id, need, card, pr }, command), card, pr, event.ts, event.id)
-}
-
-function foldOwnerWaitClosed(db: DatabaseSync, event: StoredEvent): void {
-  const payload = payloadOf(event)
-  const id = typeof payload.id === 'string' && (WAIT_ID.test(payload.id) || DOWNGRADE_WAIT_ID.test(payload.id)) ? payload.id : reject(`id is not Q<N> or ${DOWNGRADE_WAIT_PREFIX}<N>`)
-  const answer = filled(payload.answer) ?? reject('answer is empty')
-  const wait = db.prepare('SELECT state FROM owner_waits WHERE id = ?').get(id) as { state: string } | undefined
-  if (wait === undefined)
-    reject(`${id} was never opened`)
-  if (wait.state !== OPEN_WAIT)
-    reject(`${id} is already closed`)
-  db.prepare(`UPDATE owner_waits SET state = '${CLOSED_WAIT}', answer = ?, event_id = ? WHERE id = ?`).run(answer, event.id, id)
-}
-
-export function downgradeWaitId(eventId: number): string {
-  return `${DOWNGRADE_WAIT_PREFIX}${eventId}`
-}
-
-function foldWitnessDowngradeWait(db: DatabaseSync, event: StoredEvent, parts: OwnerWaitParts): void {
-  const payload = payloadOf(event)
-  if (payload.reason !== WITNESS_DOWNGRADE)
-    return
-  const cardId = event.card_id ?? reject('a witness downgrade names no card')
-  const actions = Array.isArray(payload.actions) ? payload.actions.map(filled) : []
-  if (actions.length === 0 || actions.includes(null))
-    reject('a witness downgrade names no action for the owner')
-  const id = downgradeWaitId(event.id)
-  db.prepare(`INSERT INTO owner_waits (id, need, text, command, card_id, pr, state, answer, opened_at, event_id) VALUES (?, 'decision', ?, ?, ?, NULL, '${OPEN_WAIT}', NULL, ?, ?)`)
-    .run(id, actions.join('; '), parts.commandOf({ id, need: 'decision', card: cardId, pr: null }, null), cardId, event.ts, event.id)
-  parts.closeWaitsOfAnEndedCard(db, cardId, event.id)
-}
-
-function closeWaitsTheDecisionsAnswer(db: DatabaseSync, event: StoredEvent, parts: OwnerWaitParts): void {
-  for (const decision of parts.answersOfTheDecisions(db, event.id)) {
-    const named = JSON.stringify(decision.named)
-    db.prepare(`
-      UPDATE owner_waits SET state = '${CLOSED_WAIT}', answer = ?, event_id = ?
-      WHERE state = '${OPEN_WAIT}' AND (event_id IN (SELECT id FROM events WHERE type = '${OWNER_WAIT_OPENED}' AND json_extract(payload, '$.command') IN (SELECT value FROM json_each(?))) OR (need IN ('decision', 'command') AND card_id IN (SELECT value FROM json_each(?)) AND (json_array_length(?) = 0 OR id IN (SELECT value FROM json_each(?)))))
-    `).run(decision.answer, event.id, JSON.stringify(decision.commands), decision.scope, named, named)
-  }
-}
-
-function decisionsCutOverOf(db: DatabaseSync): number | null {
-  return latestOfEachType(db, [DECISIONS_CUT_OVER])[0]?.latest ?? null
-}
-
 function markTheDecisionsCutOver(db: DatabaseSync, ts: string): void {
   appendEvent(db, { ts, type: DECISIONS_CUT_OVER, actor: 'reducer', cardId: null, pr: null, head: null, dedupeKey: DECISIONS_CUT_OVER, payload: {}, legacy: false })
-}
-
-function foldDecisionClosingWaits(db: DatabaseSync, event: StoredEvent, parts: OwnerWaitParts): void {
-  parts.decisionFolds[event.type]!(db, event)
-  const cutOver = decisionsCutOverOf(db)
-  if (cutOver !== null && event.id < cutOver)
-    closeWaitsTheDecisionsAnswer(db, event, parts)
-}
-
-export function ownerWaitFolds(parts: OwnerWaitParts): Record<string, Fold> {
-  const decisionClosingWaits: Fold = (db, event) => foldDecisionClosingWaits(db, event, parts)
-  return {
-    [OWNER_WAIT_OPENED]: (db, event) => foldOwnerWaitOpened(db, event, parts),
-    [OWNER_WAIT_CLOSED]: foldOwnerWaitClosed,
-    [CARD_WAITING]: (db, event) => foldWitnessDowngradeWait(db, event, parts),
-    [DECISION_RECORDED]: decisionClosingWaits,
-    [DECISIONS_IMPORTED]: decisionClosingWaits,
-  }
 }
 
 export function reducedTypesOf(folds: Record<string, Fold>): EventType[] {
