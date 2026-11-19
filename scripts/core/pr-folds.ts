@@ -27,9 +27,9 @@ interface CardRow {
 }
 
 export interface CardTransitions {
-  linkObserved: (db: DatabaseSync, cardId: number, eventId: number) => void
+  linkObserved: (db: DatabaseSync, cardId: number, pr: number, refusal: string | null, eventId: number) => void
   prMerged: (db: DatabaseSync, cardId: number, eventId: number) => void
-  prOpened: (db: DatabaseSync, cardId: number, pr: number, linkedBefore: number | null, eventId: number) => void
+  prOpened: (db: DatabaseSync, cardId: number, pr: number, linkedBefore: number | null, refusal: string | null, eventId: number) => void
 }
 
 export interface PrFieldChecks {
@@ -85,18 +85,6 @@ function linkableCardOfBranch(db: DatabaseSync, branch: unknown, parts: PrFoldPa
   return only !== null && linkRefusal(db, only) === null ? only : null
 }
 
-function linkCard(db: DatabaseSync, cardId: number, pr: number, eventId: number): void {
-  if (cardRow(db, cardId)?.pr === pr)
-    return
-  const refusal = linkRefusal(db, cardId)
-  if (refusal !== null)
-    reject(refusal)
-  db.prepare(`
-    INSERT INTO cards (card_id, state, pr, event_id) VALUES (?, NULL, ?, ?)
-    ON CONFLICT (card_id) DO UPDATE SET pr = excluded.pr, event_id = excluded.event_id
-  `).run(cardId, pr, eventId)
-}
-
 function prObserved(db: DatabaseSync, event: StoredEvent, parts: PrFoldParts): void {
   const pr = requiredPr(event)
   const payload = payloadOf(event)
@@ -120,10 +108,8 @@ function prObserved(db: DatabaseSync, event: StoredEvent, parts: PrFoldParts): v
   if (known?.card_id != null && event.card_id !== null && known.card_id !== event.card_id)
     reject(`pr ${pr} belongs to card ${known.card_id}, not ${event.card_id}`)
   const cardId = event.card_id ?? known?.card_id ?? cardOfPr(db, pr) ?? (known === undefined ? linkableCardOfBranch(db, payload.branch, parts) : null)
-  if (cardId !== null) {
-    linkCard(db, cardId, pr, event.id)
-    parts.transitions.linkObserved(db, cardId, event.id)
-  }
+  if (cardId !== null)
+    parts.transitions.linkObserved(db, cardId, pr, linkRefusal(db, cardId), event.id)
   db.prepare(`
     INSERT INTO prs (pr, card_id, base, head, state, mergeable, ci, verdict_on_head, auto_merge, draft, event_id, body_sha)
     VALUES (?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?)
@@ -160,8 +146,7 @@ function prOpened(db: DatabaseSync, event: StoredEvent, parts: PrFoldParts): voi
   if (known?.card_id != null && known.card_id !== cardId)
     reject(`pr ${pr} belongs to card ${known.card_id}, not ${cardId}`)
   const linkedBefore = cardRow(db, cardId)?.pr ?? null
-  linkCard(db, cardId, pr, event.id)
-  parts.transitions.prOpened(db, cardId, pr, linkedBefore, event.id)
+  parts.transitions.prOpened(db, cardId, pr, linkedBefore, linkRefusal(db, cardId), event.id)
   if (known !== undefined)
     db.prepare('UPDATE prs SET card_id = ? WHERE pr = ?').run(cardId, pr)
 }
