@@ -17,6 +17,7 @@ import { busProjections } from '../../supervisor/composition.js'
 import { MIKO_HANDOFF_NAME, TAB_MODE } from '../../window/loop.js'
 import { ENTRYPOINT_VARIABLE, HEADLESS_ENTRYPOINT } from '../../window/tab.js'
 import { lastWindowBeat, LIVE_WATCH, NO_LIVE_WATCH, NOT_A_WINDOW, ownCardHasNoPr, ownCardWithoutPr, realTurnWatchDeps, runTurnWatch, TAB_CONTINUE, TAB_STOPS, watchIsLive } from '../../window/turn-watch.js'
+import { ONCE_STORE, OnceStore } from '../../window/watch-store.js'
 import { recordWindowHeartbeat, WINDOW_BEAT_MS } from '../../window/window-heartbeat.js'
 
 const REPO_ROOT = path.join(import.meta.dirname, '..', '..', '..')
@@ -56,9 +57,13 @@ function lastBeatIn(bus: string, session: string): string | null {
   }
 }
 
-function run(session: string | null, lastBeat: string | null): { code: number, lines: string[] } {
+function holdOnceStore(dir: string): OnceStore {
+  return OnceStore.open(path.join(dir, ONCE_STORE), { file: path.join(dir, 'legacy.json'), text: undefined }, () => ({ offset: 0, busId: 0 }))
+}
+
+function run(session: string | null, lastBeat: string | null, running = true): { code: number, lines: string[] } {
   const lines: string[] = []
-  const code = runTurnWatch({ session, mode: 'loop', status: () => null, lastBeat: () => lastBeat, ownCard: () => null, now: () => NOW, err: line => lines.push(line) })
+  const code = runTurnWatch({ session, mode: 'loop', status: () => null, lastBeat: () => lastBeat, watchRunning: () => running, ownCard: () => null, now: () => NOW, err: line => lines.push(line) })
   return { code, lines }
 }
 
@@ -92,7 +97,7 @@ function ownCardAfter(who: string, story: (db: DatabaseSync) => void = () => {},
 
 function turnWith(ownCard: number | null, mode: 'loop' | 'tab', lastBeat: string | null): { code: number, lines: string[] } {
   const lines: string[] = []
-  const code = runTurnWatch({ session: 's-window', mode, status: () => 'CONTINUE', lastBeat: () => lastBeat, ownCard: () => ownCard, now: () => NOW, err: line => lines.push(line) })
+  const code = runTurnWatch({ session: 's-window', mode, status: () => 'CONTINUE', lastBeat: () => lastBeat, watchRunning: () => true, ownCard: () => ownCard, now: () => NOW, err: line => lines.push(line) })
   return { code, lines }
 }
 
@@ -131,14 +136,19 @@ describe('a window card with no pull request holds the turn on the card, not on 
   })
 })
 
-describe('a window turn ends only while a miko:watch beats for its session', () => {
+describe('a window turn ends only while a miko:watch holds the cursor and beats for its session', () => {
   it('a window turn without a window.heartbeat newer than the beat interval is refused', () => {
     expect(run('s-window', null)).toEqual({ code: 1, lines: [NO_LIVE_WATCH] })
     expect(run('s-window', new Date(NOW - WINDOW_BEAT_MS - 1).toISOString())).toEqual({ code: 1, lines: [NO_LIVE_WATCH] })
     expect(run('s-window', 'not a time')).toEqual({ code: 1, lines: [NO_LIVE_WATCH] })
   })
 
-  it('a window turn with a window.heartbeat within the beat interval passes', () => {
+  it('a window turn with a window.heartbeat within the beat interval but no miko:watch holding the cursor is refused', () => {
+    expect(run('s-window', new Date(NOW - 1000).toISOString(), false)).toEqual({ code: 1, lines: [NO_LIVE_WATCH] })
+    expect(NO_LIVE_WATCH).toContain('pnpm miko:watch --once in the background')
+  })
+
+  it('a window turn with a running miko:watch and a window.heartbeat within the beat interval passes', () => {
     expect(run('s-window', new Date(NOW - WINDOW_BEAT_MS).toISOString())).toEqual({ code: 0, lines: [LIVE_WATCH] })
     expect(run('s-window', new Date(NOW - 1000).toISOString())).toEqual({ code: 0, lines: [LIVE_WATCH] })
   })
@@ -168,27 +178,37 @@ describe('a window turn ends only while a miko:watch beats for its session', () 
     expect(lastBeatIn(bus, 's-none')).toBeNull()
   })
 
-  it('the CLI exits 1 for a window session with no live watch and 0 once its watch beats', () => {
+  it('the CLI exits 1 for a window session with no live watch and 0 once its watch holds the cursor and beats', () => {
     const bus = busFile()
+    const handoff = path.dirname(bus)
     const cli = (): ReturnType<typeof spawnSync> => spawnSync(process.execPath, ['--import', 'tsx', TURN_WATCH], {
       cwd: REPO_ROOT,
-      env: { ...process.env, CONSTRUCT_BUS_DB: bus, CLAUDE_CODE_SESSION_ID: 's-cli', CONSTRUCT_CARD: '', [WINDOW_VARIABLE]: WINDOW_MARK },
+      env: { ...process.env, CONSTRUCT_BUS_DB: bus, [HANDOFF_DIR_VARIABLE]: handoff, CLAUDE_CODE_SESSION_ID: 's-cli', CONSTRUCT_CARD: '', [WINDOW_VARIABLE]: WINDOW_MARK },
       encoding: 'utf8',
     })
     const refused = cli()
     expect(refused.status).toBe(1)
     expect(refused.stderr).toContain(NO_LIVE_WATCH)
     beat(bus, 's-cli', Date.now())
-    const passed = cli()
-    expect(passed.status).toBe(0)
-    expect(passed.stderr).toContain(LIVE_WATCH)
-  }, 20_000)
+    const beatOnly = cli()
+    expect(beatOnly.status).toBe(1)
+    expect(beatOnly.stderr).toContain(NO_LIVE_WATCH)
+    const store = holdOnceStore(handoff)
+    try {
+      const passed = cli()
+      expect(passed.status).toBe(0)
+      expect(passed.stderr).toContain(LIVE_WATCH)
+    }
+    finally {
+      store.close()
+    }
+  }, 30_000)
 })
 
 describe('the loop window waits on a watch, a tab window on the STATUS of its handoff', () => {
   function hook(env: NodeJS.ProcessEnv): { code: number, lines: string[] } {
     const lines: string[] = []
-    const code = runTurnWatch({ ...realTurnWatchDeps(env, tmpdir()), lastBeat: () => null, ownCard: () => null, now: () => NOW, err: line => lines.push(line) })
+    const code = runTurnWatch({ ...realTurnWatchDeps(env, tmpdir()), lastBeat: () => null, watchRunning: () => false, ownCard: () => null, now: () => NOW, err: line => lines.push(line) })
     return { code, lines }
   }
 

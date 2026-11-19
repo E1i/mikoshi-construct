@@ -59,9 +59,20 @@ function checkTheChildrenADropNames(event: StoredEvent): void {
     reject('a drop naming children names no reason')
 }
 
+function closeWaitsOnThePrsOfADroppedCard(db: DatabaseSync, event: StoredEvent): void {
+  if (event.card_id === null)
+    return
+  db.prepare(`UPDATE owner_waits SET state = '${CLOSED_WAIT}', answer = ?, event_id = ? WHERE state = '${OPEN_WAIT}' AND pr IN (SELECT pr FROM prs WHERE card_id = ?)
+    AND EXISTS (SELECT 1 FROM cards WHERE card_id = ? AND state = '${DROPPED_CARD}')`)
+    .run(endedCardAnswer(event.card_id, DROPPED_CARD), event.id, event.card_id, event.card_id)
+}
+
 function foldDropNamingItsChildren(db: DatabaseSync, event: StoredEvent, parts: CardWaitParts): void {
   checkTheChildrenADropNames(event)
-  foldEndingTheWaitsOfAnEndedCard(db, event, parts)
+  CARD_FOLDS[event.type]!(db, event)
+  closeWaitsOfAnEndedCard(db, event.card_id, event.id)
+  closeWaitsOnThePrsOfADroppedCard(db, event)
+  parts.archiveSpentDecisions(db)
 }
 
 function closeDowngradeWaitsTheAdmissionAnswers(db: DatabaseSync, event: StoredEvent): void {
