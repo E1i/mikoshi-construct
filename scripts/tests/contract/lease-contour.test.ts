@@ -23,8 +23,10 @@ function relativeImportsOf(file: string): string[] {
     .map(text => path.posix.join(path.posix.dirname(file), text.replace(/\.js$/, '.ts')))
 }
 
+const RAISED_BY_THE_OWNER: RatchetNumbers = { 'boundary:node-review->decisions': 1 }
+
 function raisedByTheOwnerTo(recordedAtHead: RatchetNumbers, key: string, measured: number): boolean {
-  return recordedAtHead[key] === measured
+  return Object.hasOwn(RAISED_BY_THE_OWNER, key) && RAISED_BY_THE_OWNER[key] === measured && recordedAtHead[key] === measured
 }
 
 describe('the lease contour', () => {
@@ -33,6 +35,15 @@ describe('the lease contour', () => {
     expect(imported).not.toContain(CARD_AUTOMATON)
     expect(imported.filter(file => ownerOf(MODULE_GRAPH, file).includes(SESSION))).toEqual([])
     expect(typeof cardTransitions().appendedOnCard).toBe('function')
+  })
+
+  it('only the row the owner raised, at the value the owner allowed, is exempt from the growth check', () => {
+    const recorded: RatchetNumbers = { 'boundary:node-review->decisions': 1, 'boundary:node-review->ports': 17, 'lines:scripts/core/queue.ts': 900 }
+    expect(raisedByTheOwnerTo(recorded, 'boundary:node-review->decisions', 1)).toBe(true)
+    expect(raisedByTheOwnerTo({ ...recorded, 'boundary:node-review->decisions': 2 }, 'boundary:node-review->decisions', 2)).toBe(false)
+    expect(raisedByTheOwnerTo(recorded, 'boundary:node-review->ports', 17)).toBe(false)
+    expect(raisedByTheOwnerTo(recorded, 'lines:scripts/core/queue.ts', 900)).toBe(false)
+    expect(raisedByTheOwnerTo({}, 'boundary:node-review->decisions', 1)).toBe(false)
   })
 
   it('no boundary or lines row grows over the per-symbol normalized base', () => {
