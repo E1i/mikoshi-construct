@@ -26,6 +26,7 @@ export interface DeadEndEvents {
   lastStopReason: (card: number) => string | null
   cardsOfUnclosedOwnerWaits: () => readonly number[]
   cardsNobodyHolds: (heldElsewhere: readonly string[], ignoredActor: string) => readonly UnheldCard[]
+  latestTaskKey: (card: number) => string | null
 }
 
 export interface DeadEndParts {
@@ -99,7 +100,9 @@ export class DeadEnds {
   step(): string[] {
     const ts = this.clock().toISOString()
     return this.found().flatMap(end => inTransaction(this.db, () => {
-      const raised = appendEvent(this.db, { ts, type: BOARD_ALARM, actor: DEAD_END_ACTOR, cardId: end.card, pr: end.pr, head: null, dedupeKey: `${BOARD_ALARM}:${DEAD_END}:${end.card}:${end.lastEvent.id}`, payload: { reason: end.reason, detail: DEAD_END }, legacy: false })
+      const taskKey = this.parts.events.latestTaskKey(end.card)
+      const payload = taskKey === null ? { reason: end.reason, detail: DEAD_END } : { reason: end.reason, detail: DEAD_END, task_key: taskKey }
+      const raised = appendEvent(this.db, { ts, type: BOARD_ALARM, actor: DEAD_END_ACTOR, cardId: end.card, pr: end.pr, head: null, dedupeKey: `${BOARD_ALARM}:${DEAD_END}:${end.card}:${end.lastEvent.id}`, payload, legacy: false })
       if (!raised)
         return []
       const wait = openOwnerWait(this.db, ts, DEAD_END_ACTOR, { need: 'decision', text: deadEndWaitText(end), card: end.card, ...(end.pr === null ? {} : { pr: end.pr }) })

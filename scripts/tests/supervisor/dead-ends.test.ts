@@ -1,9 +1,13 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { GitHub } from '../../window/requests/reach.js'
+import type { RequestTools } from '../../window/requests/request.js'
 import { afterEach, describe, expect, it } from 'vitest'
 import { appendEvent, openBus, openOwnerWait } from '../../core/db.js'
-import { BOARD_ALARM, CARD_HELD, CARD_STARTED, CARD_STOPPED, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PR_OBSERVED, QUESTION_OWNER, WITNESS_RECORDED } from '../../core/events.js'
+import { BOARD_ALARM, CARD_HELD, CARD_STARTED, CARD_STOPPED, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PR_OBSERVED, QUESTION_OWNER, TASK_ENQUEUED, TASK_REQUEUED, WINDOW_REQUEST, WITNESS_RECORDED } from '../../core/events.js'
 import { deadEndEvents, deadEndParts } from '../../supervisor/composition.js'
 import { DEAD_END_ACTOR, DeadEnds, UNMEASURED_ROUND_MINUTES } from '../../supervisor/dead-ends.js'
+import { RequestContext } from '../../window/requests/context.js'
+import { requeue } from '../../window/requests/requeue.js'
 
 const LAST_EVENT_AT = '2026-11-18T08:00:00.000Z'
 const PAST_THE_ROUND = new Date(Date.parse(LAST_EVENT_AT) + (UNMEASURED_ROUND_MINUTES + 5) * 60_000)
@@ -88,6 +92,61 @@ describe('a fixture card in each dead-end shape raises the dead-end alarm', () =
     placed(db, DEAD_END_SHAPES['ghost session']!)
     new DeadEnds(db, () => PAST_THE_ROUND, { selecting: () => ['launch'], events: deadEndEvents(db) }).step()
     expect(alarmsOf(db, 2020)[0]).toContain('the candidates of launch select #2020 as a running card, and none of them holds a live or queued task for it')
+  })
+})
+
+function taskKeysOfAlarms(db: DatabaseSync, card: number): (string | null)[] {
+  return (db.prepare(`SELECT json_extract(payload, '$.task_key') AS key FROM events WHERE type = '${BOARD_ALARM}' AND card_id = ? AND actor = '${DEAD_END_ACTOR}'`).all(card) as { key: string | null }[]).map(row => row.key)
+}
+
+function enqueued(db: DatabaseSync, card: number, queue: string, key: string): void {
+  appendEvent(db, { ts: LAST_EVENT_AT, type: TASK_ENQUEUED, actor: 'netwatch', cardId: card, pr: null, head: null, dedupeKey: `fixture:enqueued:${key}`, payload: { task_key: key, queue }, legacy: false })
+}
+
+function requeued(db: DatabaseSync, card: number, queue: string, key: string): void {
+  appendEvent(db, { ts: LAST_EVENT_AT, type: TASK_REQUEUED, actor: 'reducer', cardId: card, pr: null, head: null, dedupeKey: `fixture:requeued:${key}`, payload: { task_key: key, queue }, legacy: false })
+}
+
+function windowRequeue(db: DatabaseSync, key: string): number {
+  appendEvent(db, { ts: PAST_THE_ROUND.toISOString(), type: WINDOW_REQUEST, actor: 'owner', cardId: null, pr: null, head: null, dedupeKey: `fixture:requeue:${key}`, payload: { kind: 'requeue', task_key: key }, legacy: false })
+  return Number((db.prepare('SELECT max(id) AS id FROM events').get() as { id: number }).id)
+}
+
+function requestContext(db: DatabaseSync): RequestContext {
+  const tools = { causeHolds: () => null } as unknown as RequestTools
+  return new RequestContext(db, () => PAST_THE_ROUND, tools, 'owner', () => null, 'repository', {} as GitHub)
+}
+
+describe('a dead-end alarm names the task key a window requeue looks up', () => {
+  const shape = DEAD_END_SHAPES['owner stop missing answer sessions']!
+
+  it('a dead-end board.alarm on a card with a task carries that task\'s task_key, and requeue for that key is not refused', () => {
+    const db = bus()
+    enqueued(db, shape.card, 'launch', `launch:${shape.card}`)
+    enqueued(db, shape.card, 'answer', `answer:${shape.card}`)
+    placed(db, shape)
+    db.prepare('INSERT INTO tasks (task_key, queue, card_id, pr, head, state, event_id) VALUES (?, ?, ?, NULL, NULL, ?, 1)').run(`answer:${shape.card}`, 'answer', shape.card, 'failed')
+    const request = windowRequeue(db, `answer:${shape.card}`)
+    expect(requeue(requestContext(db), request, { task_key: `answer:${shape.card}` }).why).toBe(`no ${BOARD_ALARM} names answer:${shape.card}`)
+    expect(detector(db).step()).toHaveLength(1)
+    expect(taskKeysOfAlarms(db, shape.card)).toEqual([`answer:${shape.card}`])
+    expect(requeue(requestContext(db), request, { task_key: `answer:${shape.card}` }).why).not.toMatch(/no board\.alarm names/)
+  })
+
+  it('a task requeued after another was enqueued is the latest task the alarm names', () => {
+    const db = bus()
+    enqueued(db, shape.card, 'answer', `answer:${shape.card}`)
+    requeued(db, shape.card, 'launch', `launch:${shape.card}`)
+    placed(db, shape)
+    expect(detector(db).step()).toHaveLength(1)
+    expect(taskKeysOfAlarms(db, shape.card)).toEqual([`launch:${shape.card}`])
+  })
+
+  it('a card with no task keeps the alarm without a task_key', () => {
+    const db = bus()
+    placed(db, shape)
+    expect(detector(db).step()).toHaveLength(1)
+    expect(taskKeysOfAlarms(db, shape.card)).toEqual([null])
   })
 })
 
