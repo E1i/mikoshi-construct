@@ -1,6 +1,6 @@
 import type { WorktreeGit } from '../../nodes/close/ended-card-trees.js'
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdtempSync, realpathSync, rmSync, unlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, unlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -10,7 +10,7 @@ import { appendEvent } from '../../core/db.js'
 import { ARTIFACT_REMOVED, BOARD_ALARM, CARD_ADMITTED, CARD_CLOSED, CARD_STARTED } from '../../core/events.js'
 import { leaseNext } from '../../core/lease.js'
 import { reduce } from '../../core/reducer.js'
-import { cardTreeSweep, DIRTY, EndedCardTrees, gitWorktrees, recordEndedTrees } from '../../nodes/close/ended-card-trees.js'
+import { cardTreeSweep, DIRTY, EndedCardTrees, gitWorktrees, recordEndedTrees, TREE_PATCH, UNSAVED } from '../../nodes/close/ended-card-trees.js'
 import { TREE_LEFT } from '../../nodes/review/review-worker.js'
 import { busProjections } from '../../supervisor/composition.js'
 import { detectClose } from './close-detection.js'
@@ -62,8 +62,16 @@ function closed(cardId: number): void {
   appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_CLOSED, actor: 'worker:close:earlier', cardId, pr: null, head: null, dedupeKey: `${CARD_CLOSED}:${cardId}`, payload: { verification: 'run' }, legacy: false })
 }
 
+function busDir(): string {
+  return path.join(root, 'bus')
+}
+
+function savedPatch(cardId: number): string {
+  return path.join(busDir(), 'probes', 'ended-trees', String(cardId), TREE_PATCH)
+}
+
 function pass(trees: WorktreeGit = gitWorktrees(repo)): void {
-  const ended = new EndedCardTrees(bench.db, [root], trees, bench.clock.now).free()
+  const ended = new EndedCardTrees(bench.db, [root], trees, bench.clock.now, [], undefined, busDir()).free()
   recordEndedTrees(bench.db, CLOSER, bench.clock.now().toISOString(), ended)
 }
 
@@ -136,7 +144,7 @@ describe('the close worker frees the trees of ended cards', () => {
     expect(eventsOf(bench.db, ARTIFACT_REMOVED)).toEqual([])
   })
 
-  it('a closed card\'s tree with a modified file stays and gives board.alarm tree_left with the reason dirty', () => {
+  it('a closed card\'s tree with a modified file has its work saved as a patch, is removed, and artifact.removed names the patch', () => {
     const tree = cardTree(CLOSED)
     writeFileSync(path.join(tree, 'package.json'), '{"edited":true}\n')
     unlinkSync(path.join(tree, 'README.md'))
@@ -145,12 +153,14 @@ describe('the close worker frees the trees of ended cards', () => {
 
     pass()
 
-    expect(existsSync(path.join(tree, 'package.json'))).toBe(true)
-    expect(eventsOf(bench.db, ARTIFACT_REMOVED)).toEqual([])
-    expect(eventsOf(bench.db, BOARD_ALARM)).toEqual([{ reason: TREE_LEFT, path: tree, detail: `${DIRTY}:  M package.json` }])
+    expect(existsSync(tree)).toBe(false)
+    expect(readFileSync(savedPatch(CLOSED), 'utf8')).toContain('+{"edited":true}')
+    expect(eventsOf(bench.db, ARTIFACT_REMOVED)).toEqual([{ path: tree, by: CLOSER, patch: savedPatch(CLOSED) }])
+    expect(eventsOf(bench.db, BOARD_ALARM)).toEqual([])
+    expect(git(repo, ['branch', '--list', `feat/card-${CLOSED}`])).not.toBe('')
   })
 
-  it('a closed card\'s half-deleted tree that also holds an untracked file stays and gives board.alarm tree_left with the reason dirty', () => {
+  it('a closed card\'s half-deleted tree that also holds an untracked file has its work saved as a patch and is removed', () => {
     const tree = cardTree(CLOSED)
     unlinkSync(path.join(tree, 'README.md'))
     writeFileSync(path.join(tree, 'notes.txt'), 'never committed\n')
@@ -159,9 +169,23 @@ describe('the close worker frees the trees of ended cards', () => {
 
     pass()
 
-    expect(existsSync(path.join(tree, 'notes.txt'))).toBe(true)
+    expect(existsSync(tree)).toBe(false)
+    expect(readFileSync(savedPatch(CLOSED), 'utf8')).toContain('+never committed')
+    expect(eventsOf(bench.db, ARTIFACT_REMOVED)).toEqual([{ path: tree, by: CLOSER, patch: savedPatch(CLOSED) }])
+    expect(eventsOf(bench.db, BOARD_ALARM)).toEqual([])
+  })
+
+  it('a closed card\'s dirty tree with no bus directory to save into stays and gives board.alarm tree_left naming the unsaved work', () => {
+    const tree = cardTree(CLOSED)
+    writeFileSync(path.join(tree, 'package.json'), '{"edited":true}\n')
+    started(CLOSED, tree)
+    closed(CLOSED)
+
+    recordEndedTrees(bench.db, CLOSER, bench.clock.now().toISOString(), new EndedCardTrees(bench.db, [root], gitWorktrees(repo), bench.clock.now).free())
+
+    expect(readFileSync(path.join(tree, 'package.json'), 'utf8')).toBe('{"edited":true}\n')
     expect(eventsOf(bench.db, ARTIFACT_REMOVED)).toEqual([])
-    expect(eventsOf(bench.db, BOARD_ALARM)).toEqual([{ reason: TREE_LEFT, path: tree, detail: `${DIRTY}: ?? notes.txt` }])
+    expect(eventsOf(bench.db, BOARD_ALARM)).toEqual([{ reason: TREE_LEFT, path: tree, detail: `${UNSAVED}: no bus directory to save the tree into; ${DIRTY}:  M package.json` }])
   })
 
   it('the tree of a closed card that holds a live close lease is left untouched', () => {
