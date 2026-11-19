@@ -4426,6 +4426,7 @@
       "scripts/window/requests/amend.ts": 2,
       "scripts/window/requests/context.ts": 6,
       "scripts/window/requests/drop.ts": 1,
+      "scripts/window/requests/owner-wait-close.ts": 1,
       "scripts/window/requests/plan.ts": 2,
       "scripts/window/requests/request.ts": 1,
       "scripts/window/requests/requeue.ts": 5,

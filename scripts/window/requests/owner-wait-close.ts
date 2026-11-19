@@ -1,8 +1,8 @@
 import type { RequestContext, RequestExecutor } from './context.js'
 import type { Executed } from './request.js'
 import { OWNER_SAY_COMMAND } from '../../core/owner-commands.js'
-import { activeDecisionsShard, ANSWER_SOURCE, appendEvent, cardBodyShaOfCard, closeOwnerWait, consumeOwnerWordClosing, deciderUnderAShard, decisionOnAWait, inTransaction, OPEN_OWNER_STOP_OF_CARD, OPEN_WAIT, OWNER_DECIDES, OWNER_SOURCE, OWNER_WAITS, OWNER_WORD_NOT_FOUND, ownerWordAwaited, QUEUE_ACTOR, queueTask, SHARD_DECIDED, stopKindOf } from './reach.js'
-import { flagsOf, messageOf, OWNER_ANSWER_USAGE, OWNER_WORD_NEEDED, text, unreleasedWord } from './request.js'
+import { activeDecisionsShard, allowMergeOfPrAtHead, ANSWER_SOURCE, appendEvent, BOARD_ALARM, cardBodyShaOfCard, closeOwnerWait, consumeOwnerWordClosing, deciderUnderAShard, decisionOnAWait, inTransaction, OPEN_OWNER_STOP_OF_CARD, OPEN_WAIT, OWNER_DECIDES, OWNER_SOURCE, OWNER_WAITS, OWNER_WORD_NOT_FOUND, ownerWordAwaited, QUEUE_ACTOR, queueTask, queueTaskWithin, reviewInputOf, SHARD_DECIDED, stopKindOf } from './reach.js'
+import { flagsOf, LIVE_TASK_OF_CARD, messageOf, OWNER_ANSWER_USAGE, OWNER_WORD_NEEDED, text, unreleasedWord } from './request.js'
 
 interface WaitToClose {
   state: string
@@ -14,6 +14,18 @@ interface WaitToClose {
 const WAITS_A_DECISION_ANSWERS: ReadonlySet<string> = new Set(['decision', 'command'])
 const MERGE_NEED = 'merge'
 const PR_NO_LONGER_REWORKED: ReadonlySet<string | null> = new Set(['merged', 'closed'])
+const OPEN_PR = 'open'
+const DEAD_END_ALARM = 'dead_end'
+
+type OwnerAction = 'merge' | 'review' | 'answer' | 'launch' | 'none'
+
+const ACTION_WORDS: ReadonlyMap<string, OwnerAction> = new Map([['merge', 'merge'], ['review', 'review'], ['answer', 'answer'], ['continue', 'answer'], ['launch', 'launch']])
+const LEADING_WORD = /^\P{L}*(\p{L}+)/u
+
+function ownerActionOf(answer: string): OwnerAction {
+  const word = LEADING_WORD.exec(answer)?.[1]?.toLowerCase()
+  return word === undefined ? 'none' : ACTION_WORDS.get(word) ?? 'none'
+}
 
 interface Binding {
   line: string
@@ -27,8 +39,7 @@ function decisionIdIn(lines: readonly string[]): number | null {
   return found === undefined || found === null ? null : Number(found[1])
 }
 
-function bindingToTheCard(context: RequestContext, id: string, cardId: number, answer: string): Binding {
-  const words = decisionOnAWait(id, answer)
+function bindingWordsToTheCard(context: RequestContext, cardId: number, words: string): Binding {
   const already = context.sameWordsBoundTo(words, [cardId])
   if (already !== null)
     return { line: `a decision with these words is bound to card #${cardId} already`, decision: already }
@@ -36,6 +47,10 @@ function bindingToTheCard(context: RequestContext, id: string, cardId: number, a
   if (written.code !== 0)
     return { line: `the decision binding it to card #${cardId} is not written: ${written.lines.join('; ')}`, decision: null }
   return { line: `bound to card #${cardId} as a decision: ${written.lines.join('; ')}`, decision: decisionIdIn(written.lines) }
+}
+
+function bindingToTheCard(context: RequestContext, id: string, cardId: number, answer: string): Binding {
+  return bindingWordsToTheCard(context, cardId, decisionOnAWait(id, answer))
 }
 
 function boundToTheCard(context: RequestContext, id: string, cardId: number, answer: string): string {
@@ -56,12 +71,134 @@ function answerRoundOnARefusedMerge(context: RequestContext, id: string, cardId:
   return `${bound}; ${queued ? 'queued' : 'already queued'} the answer round on PR #${pr} at ${observed.head} carrying D-${decision}: a merge wait closed while its PR is open refuses the merge`
 }
 
-function refusalToClose(context: RequestContext, request: number, id: string, answer: string): string | null {
+interface OpenHead {
+  pr: number
+  head: string
+  bodySha: string | null
+}
+
+function openHeadOf(context: RequestContext, pr: number | null): OpenHead | string {
+  if (pr === null)
+    return 'the wait names no PR'
+  const observed = context.observed(pr)
+  if (observed === undefined || observed.state !== OPEN_PR || observed.head === null)
+    return `PR #${pr} is ${observed?.state ?? 'not observed'}${observed?.head === null ? ' with no observed head' : ''}`
+  const row = context.db.prepare('SELECT body_sha FROM prs WHERE pr = ?').get(pr) as { body_sha: unknown } | undefined
+  return { pr, head: observed.head, bodySha: typeof row?.body_sha === 'string' ? row.body_sha : null }
+}
+
+interface Move {
+  within: () => string
+  after: () => string
+}
+
+interface Answered {
+  id: string
+  request: number
+  cardId: number
+  wait: WaitToClose
+  stop: number | null
+  answer: string
+}
+
+const NOTHING_AFTER = (): string => ''
+
+function deadEndWithin(context: RequestContext, at: Answered): string {
+  const { cardId } = at
+  if (at.wait.need === MERGE_NEED || at.stop !== null || context.routeOf(cardId, true) !== null)
+    return ''
+  if (context.db.prepare(LIVE_TASK_OF_CARD).get(cardId) !== undefined || context.openSessionOf(cardId) !== null)
+    return ''
+  const detail = `the owner's answer to ${at.id} names no node action and card #${cardId} has no queued or leased task and no live session`
+  appendEvent(context.db, { ts: context.now(), type: BOARD_ALARM, actor: QUEUE_ACTOR, cardId, pr: at.wait.pr, head: null, dedupeKey: `${BOARD_ALARM}:${DEAD_END_ALARM}:${cardId}:${at.request}`, payload: { reason: DEAD_END_ALARM, detail }, legacy: false })
+  return `raised ${BOARD_ALARM} ${DEAD_END_ALARM}: ${detail}`
+}
+
+function todaysAnswer(context: RequestContext, at: Answered): string {
+  if (at.wait.need === MERGE_NEED)
+    return answerRoundOnARefusedMerge(context, at.id, at.cardId, at.wait.pr, at.answer)
+  return WAITS_A_DECISION_ANSWERS.has(at.wait.need) ? boundToTheCard(context, at.id, at.cardId, at.answer) : ''
+}
+
+function noActionMove(context: RequestContext, at: Answered, why: string): Move {
+  return { within: () => [why, deadEndWithin(context, at)].filter(line => line !== '').join('; '), after: () => todaysAnswer(context, at) }
+}
+
+function mergeMove(context: RequestContext, at: Answered): Move | Binding {
+  const open = openHeadOf(context, at.wait.pr)
+  if (typeof open === 'string')
+    return noActionMove(context, at, `${open}, so no merge task is queued`)
+  const binding = bindingWordsToTheCard(context, at.cardId, `${allowMergeOfPrAtHead(open.pr, open.head)} — ${decisionOnAWait(at.id, at.answer)}`)
+  const { decision } = binding
+  if (decision === null)
+    return binding
+  const prBody = open.bodySha ?? undefined
+  return {
+    within: () => {
+      const queued = queueTaskWithin(context.db, context.now(), { queue: 'merge', cardId: at.cardId, pr: open.pr, head: open.head, prBody, decision })
+      return `${binding.line}; ${queued ? 'queued' : 'already queued'} the merge task on PR #${open.pr} at ${open.head} carrying D-${decision}: the merge node runs its own checks, only the round limit is answered`
+    },
+    after: NOTHING_AFTER,
+  }
+}
+
+function reviewMove(context: RequestContext, at: Answered): Move {
+  const open = openHeadOf(context, at.wait.pr)
+  if (typeof open === 'string')
+    return noActionMove(context, at, `${open}, so no review task is queued`)
+  const input = reviewInputOf(open.bodySha, cardBodyShaOfCard(context.db, at.cardId))
+  return {
+    within: () => {
+      const queued = queueTaskWithin(context.db, context.now(), { queue: 'review', cardId: at.cardId, pr: open.pr, head: open.head, input })
+      return `${queued ? 'queued' : 'already queued'} the review task on PR #${open.pr} at ${open.head}`
+    },
+    after: NOTHING_AFTER,
+  }
+}
+
+function launchMove(context: RequestContext, at: Answered): Move {
+  const generation = `owner-${at.request}`
+  return {
+    within: () => {
+      const session = context.openSessionOf(at.cardId)
+      if (session !== null)
+        return `card #${at.cardId} runs the session started at event ${session}, so no launch task is queued`
+      if ((context.db.prepare(LIVE_TASK_OF_CARD).get(at.cardId) as { queue: string } | undefined)?.queue === 'launch')
+        return `card #${at.cardId} has a launch task queued already`
+      const queued = queueTaskWithin(context.db, context.now(), { queue: 'launch', cardId: at.cardId, generation })
+      return `${queued ? 'queued' : 'already queued'} the launch task launch:${at.cardId}:${generation}`
+    },
+    after: NOTHING_AFTER,
+  }
+}
+
+function moveOf(context: RequestContext, at: Answered): Move | Binding {
+  switch (ownerActionOf(at.answer)) {
+    case 'merge':
+      return mergeMove(context, at)
+    case 'review':
+      return reviewMove(context, at)
+    case 'launch':
+      return launchMove(context, at)
+    case 'answer':
+      return { within: () => '', after: () => answerRoundOnARefusedMerge(context, at.id, at.cardId, at.wait.pr, at.answer) }
+    default:
+      return noActionMove(context, at, '')
+  }
+}
+
+const CLOSE_ONLY: Move = { within: () => '', after: NOTHING_AFTER }
+
+function closedWith(context: RequestContext, request: number, id: string, answer: string, move: Move): { closed: false, refusal: string } | { closed: true, within: string } {
   try {
-    return inTransaction(context.db, () => closeOwnerWait(context.db, context.now(), QUEUE_ACTOR, id, answer, request)) ? null : `${id} is closed already`
+    return inTransaction(context.db, () => {
+      if (!closeOwnerWait(context.db, context.now(), QUEUE_ACTOR, id, answer, request))
+        return { closed: false as const, refusal: `${id} is closed already` }
+      return { closed: true as const, within: move.within() }
+    })
   }
   catch (error) {
-    return `owner.wait.close failed: ${messageOf(error)}`
+    return { closed: false, refusal: `owner.wait.close failed: ${messageOf(error)}` }
   }
 }
 
@@ -72,14 +209,16 @@ function closeWaitOnOwnerWord(context: RequestContext, request: number, id: stri
   if (word === null)
     return { done: false, why: `${OWNER_WORD_NOT_FOUND}: ${ownerWordAwaited(id)}` }
   const answer = word.words
-  const refusal = refusalToClose(context, request, id, answer)
-  if (refusal !== null)
-    return { done: false, why: `${refusal}; owner word ${word.file} ${word.release() ? 'left unused' : unreleasedWord(word.file)}` }
+  const left = (why: string): Executed => ({ done: false, why: `${why}; owner word ${word.file} ${word.release() ? 'left unused' : unreleasedWord(word.file)}` })
+  const move = wait.card_id === null ? CLOSE_ONLY : moveOf(context, { id, request, cardId: wait.card_id, wait, stop, answer })
+  if (!('within' in move))
+    return left(`${id} stays open: ${move.line}`)
+  const outcome = closedWith(context, request, id, answer, move)
+  if (!outcome.closed)
+    return left(outcome.refusal)
   const stillOpen = context.db.prepare(OPEN_OWNER_STOP_OF_CARD).get(wait.card_id) as { id: number } | undefined
   const closed = stop === null || stillOpen?.id === stop ? `closed ${id} on the owner's word ${word.file}: ${answer}` : `closed ${id} and lifted the card #${wait.card_id} stop ${stop} on the owner's word ${word.file}: ${answer}`
-  if (wait.card_id !== null && wait.need === MERGE_NEED)
-    return { done: true, why: `${closed}; ${answerRoundOnARefusedMerge(context, id, wait.card_id, wait.pr, answer)}` }
-  return { done: true, why: wait.card_id !== null && WAITS_A_DECISION_ANSWERS.has(wait.need) ? `${closed}; ${boundToTheCard(context, id, wait.card_id, answer)}` : closed }
+  return { done: true, why: [closed, outcome.within, move.after()].filter(line => line !== '').join('; ') }
 }
 
 export const execute: RequestExecutor = (context, request, payload) => {
