@@ -3,7 +3,7 @@ import type { BusEvent } from './db.js'
 import type { Fold, StoredEvent } from './stored.js'
 import type { IncrementalProjection } from './watermark.js'
 import { isBackfill } from './backfill-source.js'
-import { appendEvent } from './db.js'
+import { appendEvent, OPEN_WAIT } from './db.js'
 import { CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_DEFERRED, CARD_DROPPED, CARD_FELL, CARD_MOVED, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, DROPPED_LANE, MERGE_DONE, PR_OPENED, QUESTION_OWNER, REVIEW_RECORDED, TERMINAL_LANES, WITNESS_RECORDED } from './events.js'
 import { legacyHistory } from './legacy-history.js'
 import { payloadOf, reject, STORED_COLUMNS } from './stored.js'
@@ -153,7 +153,8 @@ function storedById(db: DatabaseSync, eventId: number): StoredEvent {
   return db.prepare(`SELECT ${STORED_COLUMNS} FROM events WHERE id = ?`).get(eventId) as unknown as StoredEvent
 }
 
-export function cardPrOpened(db: DatabaseSync, cardId: number, pr: number, linkedBefore: number | null, refusal: string | null, eventId: number): void {
+export function cardPrOpened(db: DatabaseSync, cardId: number, pr: number, refusal: string | null, eventId: number): void {
+  const linkedBefore = cardOf(db, cardId)?.pr ?? null
   linkCard(db, cardId, pr, refusal, eventId)
   const state = stateOf(db, cardId)
   if (linkedBefore === pr && state === IN_REVIEW_CARD)
@@ -202,8 +203,26 @@ function backInWork(db: DatabaseSync, cardId: number): string {
   return linkedPrState(db, cardId) === 'open' ? IN_REVIEW_CARD : QUEUED_CARD
 }
 
-export function cardReleased(db: DatabaseSync, cardId: number, eventId: number): void {
+function cardReleased(db: DatabaseSync, cardId: number, eventId: number): void {
   moveCard(db, cardId, backInWork(db, cardId), eventId)
+}
+
+function stoppedOnAnOwnerQuestion(db: DatabaseSync, cardId: number, before: number): boolean {
+  if (stateOf(db, cardId) !== STOPPED_CARD)
+    return false
+  const row = db.prepare(LAST_STOP_REASON).get(cardId, before) as { reason: unknown } | undefined
+  return row?.reason === QUESTION_OWNER
+}
+
+function aWaitItDidNotNameStaysOpen(db: DatabaseSync, cardId: number, named: readonly string[]): boolean {
+  return named.length > 0 && db.prepare(`SELECT 1 FROM owner_waits WHERE state = '${OPEN_WAIT}' AND card_id = ? AND id NOT IN (SELECT value FROM json_each(?)) LIMIT 1`).get(cardId, JSON.stringify(named)) !== undefined
+}
+
+export function cardsAnswered(db: DatabaseSync, cards: readonly number[], named: readonly string[], eventId: number): void {
+  for (const cardId of cards) {
+    if (stoppedOnAnOwnerQuestion(db, cardId, eventId) && !aWaitItDidNotNameStaysOpen(db, cardId, named))
+      cardReleased(db, cardId, eventId)
+  }
 }
 
 function foldAnswered(db: DatabaseSync, event: StoredEvent): void {
