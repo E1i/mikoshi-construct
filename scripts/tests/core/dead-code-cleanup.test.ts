@@ -37,8 +37,6 @@ const REGISTRIES = [
   'construct.model.json',
   'architecture/lanes.md',
   'architecture/ghosts-files.md',
-  '.changeset/slice-knows-its-parent.md',
-  '.changeset/window-start-diet.md',
 ]
 
 const UNUSED_DETECT_TYPES = ['ExistingFiles', 'Layout', 'MonorepoTool', 'PackageManager', 'WorkspacePackage']
