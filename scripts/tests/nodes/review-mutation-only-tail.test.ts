@@ -11,6 +11,7 @@ import { appendEvent } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_DROPPED, CARD_STARTED, REVIEW_RECORDED } from '../../core/events.js'
 import { cardContract } from '../../intake/card-contract.js'
 import { busHeldCards } from '../../intake/intake.js'
+import { busUnstartedTails } from '../../nodes/review/depth-sources.js'
 import { fullReview } from '../../nodes/review/review-depth.js'
 import { ReviewWorker } from '../../nodes/review/review-worker.js'
 import { BusTailIntake, nextTailNumber, SUPERSEDED_TARGET, TAIL_ACTOR, TAIL_PRIORITY, TAIL_SOURCE, tailBodySha, tailCardText, tailParentOf, tailTextSha, tailTouches } from '../../nodes/review/tail-card.js'
@@ -45,7 +46,7 @@ function withIssues(client: GitHub): GitHub {
 }
 
 function busTail(bench: MergeBench): BusTailIntake {
-  return new BusTailIntake({ db: bench.db, gitHub: withIssues(bench.gitHub.client), clock: bench.clock.now, cardStates: () => busHeldCards(bench.db) })
+  return new BusTailIntake({ db: bench.db, gitHub: withIssues(bench.gitHub.client), clock: bench.clock.now, cardStates: () => busHeldCards(bench.db), unstartedTails: busUnstartedTails(bench.db) })
 }
 
 interface Reviewed {
