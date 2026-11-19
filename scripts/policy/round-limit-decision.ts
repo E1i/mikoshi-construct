@@ -36,6 +36,10 @@ export function namesPrAtHead(text: string, pr: number, head: string): boolean {
   return namesPrAtHeadUnder(ALLOW_MERGE, text, pr, head)
 }
 
+export function allowMergeOfPrAtHead(pr: number, head: string): string {
+  return `${ALLOW_MERGE} PR #${pr} at ${head}`
+}
+
 const HEADS_OF_A_PR = `SELECT head FROM events WHERE type IN ('${PR_OPENED}', '${PR_OBSERVED}') AND legacy = 0 AND pr = ? AND head IS NOT NULL ORDER BY id`
 
 export function observedHeadsOf(db: DatabaseSync, pr: number): string[] {
