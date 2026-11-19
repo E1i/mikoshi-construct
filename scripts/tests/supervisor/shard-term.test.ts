@@ -5,9 +5,12 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { appendEvent, openBus } from '../../core/db.js'
 import { OWNER_WAIT_OPENED, SHARD_EXPIRED, SHARD_ISSUED } from '../../core/events.js'
-import { DECISIONS_SCOPE, SHARD_NOTICE_HOURS } from '../../policy/shards.js'
+import { START_BIN } from '../../core/owner-commands.js'
+import { DECISIONS_SCOPE, SHARD_NOTICE_HOURS, WINDOW_SHARD_HOURS } from '../../policy/shards.js'
 import { shardRenewalCommand, shardTermParts } from '../../supervisor/composition.js'
 import { SHARD_TERM_ACTOR, ShardTerm } from '../../supervisor/shard-term.js'
+import { startCommandOf } from '../../supervisor/start.js'
+import { FACTORY_MODES } from '../../supervisor/workers.js'
 
 const NOW = new Date('2026-11-17T18:00:00.000Z')
 const HOUR_MS = 3_600_000
@@ -88,5 +91,10 @@ describe('the supervisor tick warns before a window shard ends and when it ends'
     expect(tickAt(db, NOW)).toEqual([])
     expect(waits(db)).toEqual([])
     expect(expiries(db)).toEqual([])
+  })
+  it('the renewal command the wait names is one the factory start accepts', () => {
+    const start = shardRenewalCommand().split(' && ')[1]!.split(' ')
+    expect(start[0]).toBe(START_BIN)
+    expect(startCommandOf(start.slice(1))).toEqual({ kind: 'mode', mode: FACTORY_MODES[1], hours: WINDOW_SHARD_HOURS })
   })
 })

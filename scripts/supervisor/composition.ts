@@ -39,7 +39,7 @@ import { isFullSha, prOf } from '../core/identifiers.js'
 import { OWNER, ownerQuestionAnswered } from '../core/inbox.js'
 import { foreignVersion, instanceOf, provenIdentity, recordWorkerIdentity, UNHANDED } from '../core/node.js'
 import { orderDeclarationsAt, overlaps } from '../core/order/overlap.js'
-import { ownerWaitCommand } from '../core/owner-commands.js'
+import { ghostProtocolWord, MODE_FLAG, ownerWaitCommand, sayCommand, START_BIN } from '../core/owner-commands.js'
 import { prFolds, prRow } from '../core/pr-folds.js'
 import { closeCandidates, keyOf, reviewCandidates, taskRow, TASKS_PROJECTION } from '../core/queue.js'
 import { ownerWaitFolds } from '../core/reducer.js'
@@ -73,7 +73,6 @@ import { busSessionPulse, heartbeatEnv, measureCardSession, ownStart, recordProc
 import { SILENT_MS } from './liveness-sites.js'
 import { ownIdentity, tableIdentity } from './recorded-worker.js'
 import { slotsOf, slotsVariable } from './scheduler.js'
-import { ghostProtocolWord, MODE_FLAG, sayCommand, START_BIN } from './start.js'
 import { FACTORY_MODES } from './workers.js'
 
 export interface NodeLiveness {

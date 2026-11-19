@@ -38,6 +38,20 @@ export const OWNER_COMMAND_COMMAND = pnpmCommand('owner:command')
 
 export const TSX_COMMAND = pnpmCommand('exec', 'tsx')
 
+export const START_BIN = 'construct-factory'
+
+export const MODE_FLAG = '--mode'
+
+export const SAY_COMMAND = constructCommand('say')
+
+export function ghostProtocolWord(hours: number): string {
+  return `ghost-protocol ${hours}h`
+}
+
+export function sayCommand(words: string): string {
+  return `${SAY_COMMAND} "${words}"`
+}
+
 export const PNPM_FORM_LABEL = 'pnpm form'
 
 export const OWNER_MOVES = ['stop', 'launch', 'takeover', 'requeue'] as const

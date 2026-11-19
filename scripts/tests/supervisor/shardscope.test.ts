@@ -5,9 +5,10 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { appendEvent, openBus } from '../../core/db.js'
+import { ghostProtocolWord } from '../../core/owner-commands.js'
 import { sayToOwnerChannel } from '../../owner/channel.js'
 import { activeDecisionsShard, activeWindowShards, DECISIONS_SCOPE } from '../../policy/shards.js'
-import { busDecisionsAdder, busDecisionsText, ghostProtocolWord, runMode, startCommandOf } from '../../supervisor/start.js'
+import { busDecisionsAdder, busDecisionsText, runMode, startCommandOf } from '../../supervisor/start.js'
 
 const NOW = new Date('2026-11-03T12:00:00.000Z')
 const HOURS = 8
