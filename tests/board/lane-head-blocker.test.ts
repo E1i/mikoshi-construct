@@ -93,7 +93,7 @@ function heldBus(): FixtureBus {
 }
 
 function expectedHeads(bus: FixtureBus): { lane: string, card: number, reason: string }[] {
-  const heads: [number, StartableHold][] = [[PR_HELD, { kind: 'open-pr', pr: OPEN_PR, path: SHARED_PATH }], [DROP_HELD, { kind: 'dropped-depends', dropped: DROPPED }]]
+  const heads: [number, StartableHold][] = [[PR_HELD, { kind: 'open-pr', pr: OPEN_PR, cardId: PR_CARD, path: SHARED_PATH }], [DROP_HELD, { kind: 'dropped-depends', dropped: DROPPED }]]
   return heads.map(([card, hold]) => ({ lane: currentLane(bus.db, card)!, card, reason: holdReason(hold) }))
 }
 

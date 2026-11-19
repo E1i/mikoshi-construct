@@ -31,6 +31,7 @@ import { DECLARATION_SUFFIX, DECLARATIONS_FOLDER } from '../core/generated-files
 import { OWNER } from '../core/inbox.js'
 import { constructCommand, pnpmCommand } from '../core/owner-commands.js'
 import { openDatabase } from '../core/sqlite.js'
+import { launchWaitsOf } from '../nodes/launch/lane-assign.js'
 import { latestGitHubNumber } from '../nodes/review/pr-close.js'
 import { BusDecisions } from '../policy/decisions/index.js'
 import { activeWindowShards } from '../policy/shards.js'
@@ -382,7 +383,7 @@ export class BusWeightsRecompute implements RecomputeLedger {
 }
 
 export function busIntakePorts(db: DatabaseSync, session?: string, release?: string, declarationsRoot?: string): BusPorts {
-  return { cardEvents: busCardEvents(db, session, release, declarationsRoot), cardStates: () => busHeldCards(db), cardAdmissions: busCardAdmissions(db), decisions: new BusDecisions(db) }
+  return { cardEvents: busCardEvents(db, session, release, declarationsRoot), cardStates: () => busHeldCards(db), cardAdmissions: busCardAdmissions(db), decisions: new BusDecisions(db), cardWaits: launchWaitsOf(db) }
 }
 
 export async function runBusIntake(db: DatabaseSync, argv: readonly string[], session?: string, declarationsRoot?: string): Promise<void> {

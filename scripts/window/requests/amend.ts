@@ -2,7 +2,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { RequestContext, RequestExecutor } from './context.js'
 import type { AdmitResult, AmendedStop, AmendFlags, CardAdmissionsPort, CardEventPort } from './reach.js'
 import type { Executed, RequestPayload } from './request.js'
-import { answerToResumeAfterAmend, appendCardEvent, bodyNotFoldedYet, BusDecisions, CARD_ADMITTED, CARD_BODIES, cardBodyText, cardIdOf, correctionText, INTAKE_ACTOR_PREFIX, inTransaction, laid, layLanes, OPEN_OWNER_STOP_OF_CARD, queueAgain, repositoryLanes, runAmend } from './reach.js'
+import { answerToResumeAfterAmend, appendCardEvent, bodyNotFoldedYet, BusDecisions, CARD_ADMITTED, CARD_BODIES, cardBodyText, cardIdOf, correctionText, INTAKE_ACTOR_PREFIX, inTransaction, laid, launchWaitsOf, layLanes, OPEN_OWNER_STOP_OF_CARD, queueAgain, repositoryLanes, runAmend } from './reach.js'
 import { messageOf, text } from './request.js'
 
 const HELD_WITHOUT_STATE = 'held'
@@ -82,7 +82,7 @@ export const execute: RequestExecutor = (context, request, payload) => {
   const lane = (db.prepare(`SELECT lane FROM ${CARD_BODIES} WHERE card_id = ?`).get(cardId) as { lane: string | null } | undefined)?.lane ?? null
   const stop = db.prepare(OPEN_OWNER_STOP_OF_CARD).get(cardId) as { id: number, payload: string } | undefined
   const cardStates = (): Map<string, string> => new Map((db.prepare(CARD_STATES).all() as unknown as { card_id: number, state: string | null }[]).map(row => [String(row.card_id), row.state ?? HELD_WITHOUT_STATE]))
-  const result = runAmend({ card: `#${cardId}`, flags: amendFlagsOf(payload), dir: context.repository, dryRun: false, autoConfirm: payload.auto_confirm === true, events: amendEvents(context, request), admissions: latestAdmissionOf(db), decisions: new BusDecisions(db), cardStates }, context.clock)
+  const result = runAmend({ card: `#${cardId}`, flags: amendFlagsOf(payload), dir: context.repository, dryRun: false, autoConfirm: payload.auto_confirm === true, events: amendEvents(context, request), admissions: latestAdmissionOf(db), decisions: new BusDecisions(db), cardStates, cardWaits: launchWaitsOf(db, context.repository) }, context.clock)
   const answered = amendAnswer(cardId, result, lane)
   return stop === undefined || result.status !== 'admitted' ? answered : { done: true, why: `${answered.why}; ${resumeAfterAmend(context, request, cardId, stop, payload)}` }
 }
