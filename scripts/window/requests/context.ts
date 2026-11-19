@@ -10,6 +10,7 @@ export interface PrAsObserved {
   head: string | null
   state: string | null
   event_id: number
+  body_sha: string | null
 }
 
 export type RequestExecutor = (context: RequestContext, request: number, payload: RequestPayload) => Executed
@@ -32,7 +33,7 @@ export class RequestContext {
   }
 
   observed(pr: number): PrAsObserved | undefined {
-    const row = this.db.prepare('SELECT card_id, head, state, event_id FROM prs WHERE pr = ?').get(pr) as PrAsObserved | undefined
+    const row = this.db.prepare('SELECT card_id, head, state, event_id, body_sha FROM prs WHERE pr = ?').get(pr) as PrAsObserved | undefined
     const fresh = this.db.prepare(LATEST_OBSERVATION).get(pr) as { id: number, head: string, state: unknown } | undefined
     if (row === undefined || fresh === undefined || Number(fresh.id) <= Number(row.event_id))
       return row
