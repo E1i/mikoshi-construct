@@ -21,7 +21,7 @@ import { endedCards } from '../../card/closed.js'
 import { cardLine, parseCard } from '../../card/grammar.js'
 import { parseParkingFile } from '../../card/parking.js'
 import { priorityLineOf, withKeptPriority } from '../../card/text-sha.js'
-import { fieldCommand, isAcceptanceField, isWitnessFieldLine, judgedCommand, renderedWitness, runsFieldLine, runsFieldOf, statesAnExit, witnessFieldsOf, witnessText } from '../../card/witness-fields.js'
+import { isWitnessFieldLine, renderedWitness, runsFieldLine, runsFieldOf, witnessesOf, witnessFieldsOf, witnessText } from '../../card/witness-fields.js'
 import { readMilestones } from '../../manifest.js'
 import { findsNoTest, namedAbsentOutside, namedPaths, withinScope } from '../test-runner.js'
 import { CARD_REFERENCE, checkDraft, correctionText, FACTORY_TWIN, invalidTestPatterns, isChangeWitness, nonPathTouchRefusals, ownerPathsOf, PACKAGE_MANIFEST, publishedRootsOf } from './check.js'
@@ -37,7 +37,6 @@ import { CORRECTED_PREFIX, UNCLEAR_PREFIX, WITNESSES_HEADING } from './slice.js'
 
 export { parentsFromCardLines } from './slice.js'
 
-const WITNESS_ITEM = /^- (.+)$/
 const BLOCKS_SEPARATOR = ' · blocks '
 const LEADING_BLOCKS = /^(?:—|#\d+(?:,? #\d+)*)/
 export const CARD_HEADER = 'card: '
@@ -230,24 +229,6 @@ function withoutReplaced(downgrades: readonly string[], previous: readonly strin
   })
 }
 
-export interface JudgedWitness {
-  criterion: string
-  command: string
-  onBase?: { command: string, stated: string }
-}
-
-export function judgedFieldWitnessesOf(body: string): { acceptance: JudgedWitness[], invariants: JudgedWitness[] } | null {
-  const fields = witnessFieldsOf(body)
-  if (fields === null)
-    return null
-  const judged = (field: WitnessField): JudgedWitness => ({ criterion: witnessText(field), command: judgedCommand(field) })
-  const acceptance = (field: WitnessField): JudgedWitness => statesAnExit(field) ? { ...judged(field), onBase: { command: fieldCommand(field), stated: field.base } } : judged(field)
-  return {
-    acceptance: fields.filter(isAcceptanceField).map(acceptance),
-    invariants: fields.filter(field => !isAcceptanceField(field)).map(judged),
-  }
-}
-
 export function unreplacedDowngrades(downgrades: readonly string[], previous: readonly string[], next: readonly string[]): string[] {
   return withoutReplaced(downgrades, previous, next, equivalentReplacement)
 }
@@ -266,19 +247,6 @@ export function witnessDowngrades(previous: readonly string[], next: readonly st
     const fact = witnessFact(witness)
     return fact === null || !nextFacts.some(other => sameFact(fact, other))
   })
-}
-
-export function witnessesOf(body: string): string[] {
-  const fields = witnessFieldsOf(body)
-  if (fields !== null)
-    return fields.map(witnessText)
-  const lines = body.split('\n')
-  const at = lines.findIndex(line => line.trim() === WITNESSES_HEADING)
-  if (at === -1)
-    return []
-  const after = lines.slice(at + 1).map(line => WITNESS_ITEM.exec(line.trim())?.[1])
-  const end = after.indexOf(undefined)
-  return (end === -1 ? after : after.slice(0, end)) as string[]
 }
 
 function draftOf(parked: ParkedTask): DraftCard {

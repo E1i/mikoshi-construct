@@ -1648,7 +1648,7 @@
     "fields": {
       "Owner, verbatim:": "body line read by src/commands/intake/amend.ts",
       "Runs:": "body line read by src/card/covering-tests.ts",
-      "Witnesses:": "body line read by src/commands/intake/slice.ts",
+      "Witnesses:": "body line read by src/card/witness-fields.ts, src/commands/intake/slice.ts",
       "admissionEventId": "number",
       "blocks": "number[]",
       "branch": "string",
@@ -4606,10 +4606,12 @@
         "functions": {
           "fieldCommand": "(field: Pick<WitnessField, 'run' | 'test'>): string",
           "isWitnessFieldLine": "(line: string): boolean",
+          "judgedFieldWitnessesOf": "(body: string): { acceptance: JudgedWitness[]; invariants: JudgedWitness[]; } | null",
           "parseWitnessList": "(value: unknown): ParsedWitnessList",
           "runsFieldLine": "(runs: readonly string[]): string",
           "witnessFieldRefusals": "(text: string): string[]",
-          "witnessFieldsOf": "(text: string): WitnessField[] | null"
+          "witnessFieldsOf": "(text: string): WitnessField[] | null",
+          "witnessesOf": "(body: string): string[]"
         },
         "reexports": [],
         "types": {
@@ -4927,9 +4929,7 @@
         ],
         "functions": {
           "isLaneName": "(name: string): boolean",
-          "judgedFieldWitnessesOf": "(body: string): { acceptance: JudgedWitness[]; invariants: JudgedWitness[]; } | null",
-          "pathsNamedOutside": "(parked: ParkedTask, text: string): string[]",
-          "witnessesOf": "(body: string): string[]"
+          "pathsNamedOutside": "(parked: ParkedTask, text: string): string[]"
         },
         "reexports": [
           "parentsFromCardLines"

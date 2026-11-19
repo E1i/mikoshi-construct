@@ -5,10 +5,9 @@ import { describe, expect, it } from 'vitest'
 import { MODULE_GRAPH } from '../../contract/factory/modules.js'
 import { specifiersIn } from '../../contract/module-graph/imports.js'
 import { ownerOf } from '../../contract/module-graph/ownership.js'
-import { branchBase, generateNumbers, ownershipMoves, RATCHET_RECORD, readRatchet, thresholdOf } from '../../contract/ratchet.js'
+import { generateNumbers, readRatchet, rowsGrownOverBase, thresholdOf } from '../../contract/ratchet.js'
 import { CARD_ADMITTED, CARD_DROPPED, DECISION_RECORDED, MAIN_ADVANCED, MERGE_DONE, OWNER_WAIT_OPENED, PR_CLOSED, PR_OBSERVED } from '../../core/events.js'
 import { reducedTypes } from '../../core/reducer.js'
-import { processGit } from '../../ports/git.js'
 import { busProjections } from '../../supervisor/composition.js'
 
 const ROOT = path.resolve(import.meta.dirname, '../../..')
@@ -37,11 +36,6 @@ function relativeImportsOf(file: string): string[] {
     .map(text => path.posix.join(path.posix.dirname(file), text.replace(/\.js$/, '.ts')))
 }
 
-function baseRecord(): RatchetNumbers {
-  const base = branchBase(ROOT)
-  return JSON.parse(processGit.readOrNull(ROOT, ['show', `${base}:${RATCHET_RECORD}`]) ?? '{}') as RatchetNumbers
-}
-
 function raisedByTheOwnerTo(recordedAtHead: RatchetNumbers, key: string, measured: number): boolean {
   return recordedAtHead[key] === measured
 }
@@ -62,12 +56,10 @@ describe('the reducer side of the queue contour', () => {
   })
 
   it('no boundary or lines row grows over the per-symbol normalized base', () => {
-    const base = baseRecord()
     const head = headNumbers()
-    const grown = Object.keys(head).filter(key => JUDGED_ROWS.test(key) && head[key]! > (base[key] ?? 0) && !raisedByTheOwnerTo(readRatchet(ROOT), key, head[key]!)).sort()
-    const moved = ownershipMoves(ROOT, grown.filter(key => key.startsWith('boundary:')))
-    expect(grown.filter(key => !moved.has(key))).toEqual([])
-    expect(head[BUS_READ] ?? 0).toBeLessThanOrEqual(base[BUS_READ] ?? 0)
+    const recorded = readRatchet(ROOT)
+    expect(rowsGrownOverBase(ROOT, head, key => JUDGED_ROWS.test(key) && !raisedByTheOwnerTo(recorded, key, head[key]!))).toEqual([])
+    expect(rowsGrownOverBase(ROOT, head, key => key === BUS_READ)).toEqual([])
   }, GENERATION_TIMEOUT)
 
   it('boundary:plan->bus is 0 and plan-folds imports no bus module', () => {

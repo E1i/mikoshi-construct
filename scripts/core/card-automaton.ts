@@ -96,7 +96,19 @@ function claimed(db: DatabaseSync, event: StoredEvent, from: Set<CardState>, to:
   moveCard(db, cardId, to, event.id)
 }
 
-export function cardLinkObserved(db: DatabaseSync, cardId: number, eventId: number): void {
+function linkCard(db: DatabaseSync, cardId: number, pr: number, refusal: string | null, eventId: number): void {
+  if (cardOf(db, cardId)?.pr === pr)
+    return
+  if (refusal !== null)
+    reject(refusal)
+  db.prepare(`
+    INSERT INTO cards (card_id, state, pr, event_id) VALUES (?, NULL, ?, ?)
+    ON CONFLICT (card_id) DO UPDATE SET pr = excluded.pr, event_id = excluded.event_id
+  `).run(cardId, pr, eventId)
+}
+
+export function cardLinkObserved(db: DatabaseSync, cardId: number, pr: number, refusal: string | null, eventId: number): void {
+  linkCard(db, cardId, pr, refusal, eventId)
   if (LINKED_INTO_REVIEW.has(stateOf(db, cardId)))
     moveCard(db, cardId, IN_REVIEW_CARD, eventId)
 }
@@ -141,7 +153,8 @@ function storedById(db: DatabaseSync, eventId: number): StoredEvent {
   return db.prepare(`SELECT ${STORED_COLUMNS} FROM events WHERE id = ?`).get(eventId) as unknown as StoredEvent
 }
 
-export function cardPrOpened(db: DatabaseSync, cardId: number, pr: number, linkedBefore: number | null, eventId: number): void {
+export function cardPrOpened(db: DatabaseSync, cardId: number, pr: number, linkedBefore: number | null, refusal: string | null, eventId: number): void {
+  linkCard(db, cardId, pr, refusal, eventId)
   const state = stateOf(db, cardId)
   if (linkedBefore === pr && state === IN_REVIEW_CARD)
     return

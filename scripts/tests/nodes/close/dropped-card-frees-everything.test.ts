@@ -59,8 +59,8 @@ function dropped(): void {
   settle()
 }
 
-function sweep(trees = gitWorktrees(repo)): void {
-  const ended = cardTreeSweep(bench.db, {}, bus, repo, trees, bench.clock.now, NO_LIVE_SESSION).free()
+function sweep(trees = gitWorktrees(repo), cwds = NO_LIVE_SESSION): void {
+  const ended = cardTreeSweep(bench.db, {}, bus, repo, trees, bench.clock.now, cwds).free()
   recordEndedTrees(bench.db, SWEEPER, at(), ended)
 }
 
@@ -155,6 +155,19 @@ describe('card.dropped frees everything the card holds', () => {
     expect(branchListed()).not.toBe('')
     expect(eventsOf(bench.db, ARTIFACT_REMOVED)).toEqual([{ path: tree, by: SWEEPER, patch: saved(TREE_PATCH) }])
     expect(eventsOf(bench.db, BOARD_ALARM)).toEqual([{ reason: TREE_LEFT, path: tree, detail: `${BRANCH_LEFT} ${BRANCH}: branch locked` }])
+  })
+
+  it('a dropped card tree that a live session works in stays with its branch', () => {
+    const tree = startedInATreeWithWork()
+    dropped()
+
+    sweep(gitWorktrees(repo), () => ({ kind: 'listed', cwds: [path.join(tree, 'scripts')] }))
+
+    expect(readFileSync(path.join(tree, 'README.md'), 'utf8')).toBe('an uncommitted line\n')
+    expect(branchListed()).not.toBe('')
+    expect(existsSync(saved(TREE_PATCH))).toBe(false)
+    expect(eventsOf(bench.db, ARTIFACT_REMOVED)).toEqual([])
+    expect(eventsOf(bench.db, BOARD_ALARM)).toEqual([])
   })
 
   it('a dropped card tree whose patch cannot be written stays with its branch and raises tree_left', () => {

@@ -82,7 +82,7 @@ describe('the base the boundary ratchet reads a grown row against', () => {
   it('a check with no grown boundary row reads no base', () => {
     const root = singleCommitCheckout()
 
-    expect(ownershipMoves(root, [], { mainRefs: ABSENT_MAIN, env: OUTSIDE_CI })).toEqual(new Set())
+    expect(ownershipMoves(root, [], { mainRefs: ABSENT_MAIN, env: OUTSIDE_CI })).toEqual(new Map())
   })
 
   it('on a pull request merge commit the base is its first parent', () => {
