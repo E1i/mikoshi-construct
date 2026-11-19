@@ -1,5 +1,0 @@
----
-'mikoshi-construct': patch
----
-
-A review session no longer runs out its 20-minute ceiling after it has already decided. The review node reads the verdict file while the session runs, and the moment a valid verdict is written it records it and ends the session and every process under it, background shells included. A session ended at the ceiling with a valid verdict already on disk has that verdict recorded, with no second run. A session ended at the ceiling with no verdict is not leased again on the same key: the task is withdrawn with the reason `review_ceiling`, and one `board.alarm` names the card, the pull request, the head and the window's route (`pnpm bus:review --dry-run <pr>`, then `pnpm bus:request allow-merge` when that run is clean). Any other `review_failed` is still requeued. The review prompt now has the session run the card's witnesses and mutations by the commands the card names, never vitest over a whole test directory, never a run moved to the background, and never a polling loop waiting on one.

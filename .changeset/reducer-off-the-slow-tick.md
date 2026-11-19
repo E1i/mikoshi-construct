@@ -1,5 +1,0 @@
----
-'mikoshi-construct': patch
----
-
-`bus:run` no longer runs the reducer inside its slow tick. The reducer runs in its own worker thread on its own bus connection every 2 s. Each pass applies only the events past its watermark, answers pending window requests with `window.request.done` or `window.request.refused`, then reduces again, so an owner word or a window request lands within seconds instead of waiting up to a whole tick. Owner-wait closes that depend on the reduced state move with it. The tick keeps its own cadence for NetWatch, deriveQueues, the step statuses, stalled sessions and the gate-run spool, and its step-timing line no longer lists `reduce`, `WindowRequests` and `second reduce`. A locked database in the reducer thread is retried on its next period. Any other error in that thread ends `bus:run` on its next tick, the same as a failed reduce did before. `reducer.reduced` keeps its shape (`through_event_id`, `applied`, `rejected`). It is written after any pass that applied or rejected an event, and otherwise at least once a minute, so the workers that wake on it are not woken every 2 s.
