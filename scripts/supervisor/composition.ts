@@ -314,6 +314,9 @@ export function nodeCandidates(sources: readonly NamedQueueSource[] = namedQueue
   ]
 }
 
+const TASK_KEY_NAMED_BY = [TASK_ENQUEUED, TASK_REQUEUED] as const
+const TASK_KEY_FIELD = ['task_key'] as const
+
 export function deadEndEvents(db: DatabaseSync): DeadEndEvents {
   const read = new BusRead(db)
   return {
@@ -324,7 +327,7 @@ export function deadEndEvents(db: DatabaseSync): DeadEndEvents {
     cardsOfUnclosedOwnerWaits: () => openOwnerWaitCards(db),
     cardsNobodyHolds: (heldElsewhere, ignoredActor) => read.cardsNobodyHolds(heldElsewhere, ignoredActor),
     latestTaskKey: (card) => {
-      const named = ([TASK_ENQUEUED, TASK_REQUEUED] as const).flatMap(type => read.where({ card, present: ['task_key'] }).slice(type, ['task_key'], 'last'))
+      const named = TASK_KEY_NAMED_BY.flatMap(type => read.where({ card, present: TASK_KEY_FIELD }).slice(type, TASK_KEY_FIELD, 'last'))
       const key = named.sort((a, b) => b.id - a.id)[0]?.fields.task_key
       return typeof key === 'string' ? key : null
     },
